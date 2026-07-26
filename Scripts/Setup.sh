@@ -140,6 +140,9 @@ if ! validate_premake "${premake_path}"; then
     temporary_directory=""
 fi
 
+rm -f -- "${archive_path}"
+rmdir -- "${download_directory}" 2>/dev/null || true
+
 echo "Premake ${premake_version}: ${premake_path}"
 if command -v blender >/dev/null 2>&1; then
     echo "Optional Blender integration: $(blender --version 2>&1 | head -n 1)"

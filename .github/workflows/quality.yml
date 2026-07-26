@@ -32,9 +32,11 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - name: Test dependency lock parser
+      - name: Test bootstrap scripts
         shell: pwsh
-        run: ./Scripts/Tests/DependencyLock.Tests.ps1
+        run: |
+          ./Scripts/Tests/DependencyLock.Tests.ps1
+          ./Cleanup.bat -WhatIf
 
   bootstrap-linux:
     name: Bootstrap tests - Linux
@@ -48,9 +50,11 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - name: Test dependency lock parser
+      - name: Test bootstrap scripts
         shell: bash
-        run: ./Scripts/Tests/DependencyLock.Tests.sh
+        run: |
+          ./Scripts/Tests/DependencyLock.Tests.sh
+          ./Cleanup.sh --dry-run
 
   formatting:
     name: Formatting and repository hygiene

@@ -62,6 +62,7 @@ Comments should read like one developer explaining a non-obvious decision to ano
 - Never resolve a moving `latest` release during normal Setup. Pin an exact version and checksum, then update the lock file through a reviewed change.
 - Setup must check each required dependency and tool, automatically acquire the pinned project-local version when missing, and validate an existing installation before reuse.
 - Setup must be idempotent, verify downloads before extraction, avoid partial installations, and emit actionable failures.
+- Setup must remove downloaded installers and archives after a successful installation. Keep only the validated installed tool or SDK tree.
 - Premake is bootstrapped locally by Setup. Do not commit Premake binaries.
 - Setup downloads the pinned Vulkan development SDK into the repository when it is missing. GPU drivers and the production Vulkan loader remain platform responsibilities.
 - When a required platform package cannot be installed locally, detect it and automate installation where safe and supported. Otherwise provide the exact actionable command instead of failing later during compilation.
@@ -69,6 +70,8 @@ Comments should read like one developer explaining a non-obvious decision to ano
 - Blender's embedded Python is sufficient for Herta exporter scripts. Do not require a separate system Python installation for `.blend` import.
 
 Keep a fresh clone self-contained: after running the supported Setup script, it should be ready to generate projects, build, and run with minimal manual configuration.
+
+Cleanup scripts remove only explicit Herta-managed generated paths. Without Git metadata they must never guess whether arbitrary source-tree files are untracked.
 
 ## Tests and verification
 

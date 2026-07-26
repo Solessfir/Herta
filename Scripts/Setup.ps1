@@ -146,6 +146,20 @@ function Install-Premake {
     }
 }
 
+function Remove-DownloadedArchive {
+    param([Parameter(Mandatory)][string] $ArchivePath)
+
+    if (Test-Path -LiteralPath $ArchivePath -PathType Leaf) {
+        Remove-Item -LiteralPath $ArchivePath -Force
+    }
+
+    $ArchiveDirectory = Split-Path -Parent $ArchivePath
+    if ((Test-Path -LiteralPath $ArchiveDirectory -PathType Container) -and
+        @(Get-ChildItem -LiteralPath $ArchiveDirectory -Force).Count -eq 0) {
+        Remove-Item -LiteralPath $ArchiveDirectory -Force
+    }
+}
+
 function Write-BlenderStatus {
     $Blender = Get-Command blender -ErrorAction SilentlyContinue
     if ($null -eq $Blender) {
@@ -220,6 +234,7 @@ $MSBuildPath = Find-SupportedMSBuild
 Write-Host "MSBuild: $MSBuildPath"
 Initialize-GitSubmodules
 Install-Premake -Dependency $Premake -Paths $PremakePaths
+Remove-DownloadedArchive -ArchivePath $PremakePaths.Archive
 
 Write-Host "Premake $($Premake.Version): $($PremakePaths.Executable)"
 Write-BlenderStatus

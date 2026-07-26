@@ -60,7 +60,17 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 ./Binaries/linux/x86_64/Development/HertaTests
 ```
 
-Blender remains an optional system-wide authoring tool. It will not be required to build or run Herta.
+## Cleaning
+
+`Cleanup.bat` and `Cleanup.sh` remove all Herta-managed generated state, including build output, generated projects, caches, saved data, test results, IDE state, and the local `SDK` directory. Run Setup again before generating projects after a full cleanup.
+
+```bat
+Cleanup.bat
+```
+
+```bash
+./Cleanup.sh
+```
 
 ## License
 
