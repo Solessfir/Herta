@@ -1,0 +1,47 @@
+# Herta build output
+/Binaries/
+/Intermediate/
+/DerivedDataCache/
+/Saved/
+/SDK/
+/TestResults/
+
+# Generated project files
+/*.sln
+/*.make
+/*.workspace
+/Makefile
+/compile_commands.json
+/.vs/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+
+# IDE and editor state
+/.idea/
+/.vscode/*
+!/.vscode/extensions.json
+!/.vscode/settings.json
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# Compiler and analysis output
+*.d
+*.gcda
+*.gcno
+*.ilk
+*.obj
+*.o
+*.pdb
+*.profraw
+*.profdata
+*.sarif
+
+# Platform metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
