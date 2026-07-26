@@ -6,11 +6,11 @@ The architecture takes inspiration from Unreal Engine's runtime and tooling boun
 
 ## Status
 
-Herta is in its foundation design phase. The engine source, dependency bootstrap, and supported build workflow have not been implemented yet.
+Herta is implementing Milestone 0 - Foundation. The repository contains the initial Core, Math, and Platform modules, automated tests, a pinned dependency bootstrap, and Premake project generation. It does not contain an application shell, renderer, editor, or game runtime yet.
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md).
 
-## Planned foundation
+## Technical direction
 
 - C++23 with Unreal-style naming and explicit module ownership
 - Windows and Linux, including Win32, X11, and Wayland
@@ -27,7 +27,38 @@ Dependencies will be introduced only when their implementation milestone require
 
 ## Building
 
-Build instructions will be added with the first executable foundation milestone. A fresh clone will eventually be bootstrapped through `Setup.bat` or `Setup.sh`, with required downloadable tools installed locally to the repository and verified against pinned checksums.
+Setup initializes Git submodules and downloads the pinned Premake binary into the ignored `SDK` directory. Normal project generation and builds do not access the network.
+
+### Windows
+
+Requirements are Git and Visual Studio 2022 or 2026 with Desktop development with C++.
+
+From a normal terminal:
+
+```bat
+Setup.bat
+GenerateProjectFiles.bat
+```
+
+The default action generates `Intermediate\ProjectFiles\vs2022\Herta.sln`, which can be opened by Visual Studio 2022 or 2026. Pass `vs2026` explicitly to generate the Visual Studio 2026 `.slnx` workspace.
+
+From a matching Visual Studio Developer Command Prompt:
+
+```bat
+MSBuild Intermediate\ProjectFiles\vs2022\Herta.sln /m /t:HertaTests /p:Configuration=Development /p:Platform=x64
+Binaries\windows\x86_64\Development\HertaTests.exe
+```
+
+### Linux
+
+Setup validates Git, a C++23-capable GCC or Clang compiler, Make, `sha256sum`, `tar`, and either curl or wget.
+
+```bash
+bash ./Setup.sh
+bash ./GenerateProjectFiles.sh
+make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development HertaTests
+./Binaries/linux/x86_64/Development/HertaTests
+```
 
 Blender remains an optional system-wide authoring tool. It will not be required to build or run Herta.
 

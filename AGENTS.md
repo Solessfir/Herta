@@ -103,6 +103,6 @@ Keep a fresh clone self-contained: after running the supported Setup script, it 
 
 ## Current repository state
 
-Herta is currently in its foundation design phase. The existing `premake5.lua` is a preserved GLFW recipe, not the completed Herta workspace. Setup scripts, the engine source tree, and supported build commands do not exist yet. Do not claim that the engine builds or runs until those foundations are implemented and verified.
+Herta is implementing Milestone 0. The repository contains a real Premake workspace, Setup and project-generation scripts, Core, Math, Platform, HertaTests, and the first required workflows. The Windows build and test path is locally verified, and Linux is a required CI gate. The application shell, Vulkan integration, editor, and game runtime have not started.
 
-Update this section when the first executable foundation milestone changes those facts.
+Update this section when a milestone changes those facts.

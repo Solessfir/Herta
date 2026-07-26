@@ -1,0 +1,140 @@
+name: Quality
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  merge_group:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  bootstrap-windows:
+    name: Bootstrap tests - Windows
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 5
+    steps:
+      - name: Check out Herta
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Test dependency lock parser
+        shell: pwsh
+        run: ./Scripts/Tests/DependencyLock.Tests.ps1
+
+  bootstrap-linux:
+    name: Bootstrap tests - Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out Herta
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Test dependency lock parser
+        shell: bash
+        run: ./Scripts/Tests/DependencyLock.Tests.sh
+
+  formatting:
+    name: Formatting and repository hygiene
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out Herta
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Check whitespace
+        shell: bash
+        run: git diff --check "$(git hash-object -t tree /dev/null)" HEAD
+
+      - name: Check ignored files are not tracked
+        shell: bash
+        run: test -z "$(git ls-files --cached --ignored --exclude-standard)"
+
+      - name: Check workflow action pins
+        shell: bash
+        run: |
+          Failed=0
+          while IFS= read -r Usage; do
+            if [[ "$Usage" == ./* ]]; then
+              continue
+            fi
+
+            Revision="${Usage##*@}"
+            if [[ ! "$Revision" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Action is not pinned to a full commit SHA: $Usage"
+              Failed=1
+            fi
+          done < <(sed -nE 's/^[[:space:]]*uses:[[:space:]]*([^[:space:]#]+).*/\1/p' .github/workflows/*.yml)
+          exit "$Failed"
+
+      - name: Check C and C++ formatting
+        shell: bash
+        run: |
+          clang-format-18 --version
+          git ls-files -z -- \
+            ':(glob)Engine/**/*.c' \
+            ':(glob)Engine/**/*.cc' \
+            ':(glob)Engine/**/*.cpp' \
+            ':(glob)Engine/**/*.h' \
+            ':(glob)Engine/**/*.hpp' \
+            ':(glob)Games/**/*.c' \
+            ':(glob)Games/**/*.cc' \
+            ':(glob)Games/**/*.cpp' \
+            ':(glob)Games/**/*.h' \
+            ':(glob)Games/**/*.hpp' \
+            | xargs -0 -r clang-format-18 -i
+          git diff --exit-code
+
+  clang-tidy:
+    name: Clang-Tidy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out Herta
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Analyze Herta sources
+        shell: bash
+        run: |
+          clang-tidy-18 --version
+          mapfile -d '' Sources < <(git ls-files -z -- \
+            ':(glob)Engine/**/*.cpp' \
+            ':(glob)Games/**/*.cpp')
+          test "${#Sources[@]}" -gt 0
+          clang-tidy-18 \
+            --config-file=.clang-tidy \
+            "${Sources[@]}" \
+            -- \
+            -std=c++23 \
+            -DHERTA_DEVELOPMENT=1 \
+            -DHERTA_PLATFORM_LINUX=1 \
+            -IEngine/Source/Runtime/Core/Public \
+            -IEngine/Source/Runtime/Math/Public \
+            -IEngine/Source/Runtime/Platform/Public \
+            -isystem External/doctest

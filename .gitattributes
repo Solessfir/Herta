@@ -1,0 +1,24 @@
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.sln text eol=crlf
+*.vcxproj text eol=crlf
+*.vcxproj.filters text eol=crlf
+
+*.blend binary
+*.bmp binary
+*.dds binary
+*.exr binary
+*.gif binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.ktx binary
+*.ktx2 binary
+*.otf binary
+*.png binary
+*.tga binary
+*.ttf binary
+*.wav binary
+*.webp binary

@@ -225,9 +225,10 @@ Herta/
 Generated and local data never enter source control:
 
 ```text
-Binaries/<platform>/<configuration>/<target>/
+Binaries/<platform>/x86_64/<configuration>/
 DerivedDataCache/<platform>/
-Intermediate/<platform>/<configuration>/<target>/
+Intermediate/Build/<platform>/x86_64/<configuration>/<target>/
+Intermediate/ProjectFiles/<premake-action>/
 SDK/<platform>/<tool>/<version>/
 Saved/Logs/
 Saved/Crashes/
@@ -248,7 +249,7 @@ Only `Public` is exported as an include directory. `Private` may include `Public
 
 The module Lua file declares public dependencies, private dependencies, platform sources, definitions, and third-party usage. The root `premake5.lua` remains the single workspace ownership point and loads these declarations.
 
-The current root `premake5.lua` is a preserved GLFW project recipe, not yet a valid Herta workspace. It assumes parent-defined output variables and GLFW-relative source paths. It should be refactored during Milestone 0, not extended in place as if it were the workspace.
+Milestone 0 replaced the preserved GLFW recipe with the real Herta workspace. The root `premake5.lua` owns workspace policy, while `Build/Premake` owns shared toolchain and module declarations. Per-module Lua files should be introduced when modules need meaningful independent build policy, not merely to split a short list across files.
 
 ## 4. Module architecture
 
@@ -662,8 +663,8 @@ Downloaded development SDKs and tools live under ignored `SDK/<platform>/<tool>/
 ```text
 HERTA_DEPENDENCIES_V1
 # name|kind|platform|version|license|url|sha256|installed-entry
-premake|tool|windows-x64|5.0.0-beta2|BSD-3-Clause|https://...|<sha256>|premake5.exe
-vulkan|sdk|linux-x64|1.4.350.0|Apache-2.0|https://...|<sha256>|x86_64
+premake|tool|windows-x64|5.0.0-beta8|BSD-3-Clause|https://...|<sha256>|premake5.exe
+premake|tool|linux-x64|5.0.0-beta8|BSD-3-Clause|https://...|<sha256>|premake5
 ```
 
 The parser accepts UTF-8, blank lines, and full-line `#` comments. Every data line has exactly eight pipe-delimited fields. Fields may not contain a pipe or newline, duplicate name/platform entries are errors, SHA-256 is mandatory, and unknown schema versions or kinds fail closed. Values are data and are never evaluated or sourced as shell code. Setup never downloads an unversioned `latest` artifact.
@@ -688,7 +689,7 @@ Configurations:
 |---|---|
 | Debug | Full symbols, assertions, validation, low optimization |
 | Development | Symbols, assertions, useful validation, optimized engine code |
-| Shipping | Optimization, no editor, no tests, no validation, no runtime shader compiler |
+| Shipping | Optimization, no editor or test code in shipped products, no validation, no runtime shader compiler |
 | Debug-ASan | Dedicated supported compiler target, not assumed available everywhere |
 
 Rules:
@@ -696,7 +697,7 @@ Rules:
 - Use C++23 for Herta C++ targets and the language level required by each C dependency.
 - Treat Herta warnings as errors in CI. Never force that policy on third-party code.
 - Centralize shared compiler, output, and platform configuration in Premake helpers.
-- Use `Binaries/<platform>/<configuration>/<target>` and matching `Intermediate` paths.
+- Use `Binaries/<platform>/x86_64/<configuration>` and matching `Intermediate/Build` paths.
 - Keep generated Wayland protocol files under `Intermediate/Generated/Wayland`, not inside the GLFW submodule.
 - Build GLFW's library only. Its CMake tests, examples, and docs are unnecessary because Herta uses Premake and owns integration tests.
 - Do not copy an arbitrary partial Vulkan SDK into source control. Setup obtains a complete pinned development SDK locally while deployment relies on the platform Vulkan loader and GPU driver.
@@ -707,12 +708,12 @@ Rules:
 1. Validate Git, a supported compiler, and platform build tools.
 2. Initialize and update pinned submodules.
 3. Download a pinned Premake binary into `SDK` if missing and verify its checksum.
-4. Download or validate the pinned project-local Vulkan SDK development version.
+4. Download or validate project-local SDKs required by the selected targets. Vulkan is added only when Vulkan work begins.
 5. Probe the optional system Blender installation and report its version and `.blend` integration status. Absence is not a Setup failure, and Setup never installs Blender. No separate Python check is required.
-6. On Linux, detect missing X11, Wayland, xkbcommon, and Vulkan development packages and provide or run the appropriate supported package-manager command.
+6. When selected targets need them, detect missing Linux X11, Wayland, xkbcommon, and Vulkan development packages and provide or run the appropriate supported package-manager command.
 7. Print actionable diagnostics and remain safe to run repeatedly.
 
-`GenerateProjectFiles` runs Setup validation, then invokes Premake for the selected generator. It must not silently modify dependency revisions.
+`GenerateProjectFiles` validates the already-installed pinned Premake executable, then invokes it for the selected generator. It performs no downloads, submodule updates, or dependency mutations. Run Setup explicitly when bootstrap state must change.
 
 ## 9. GitHub workflows and repository policy
 

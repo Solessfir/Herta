@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows MSVC Development
+            runner: windows-2025-vs2026
+            platform: windows
+            compiler: msvc
+            configuration: Development
+          - name: Windows MSVC Shipping
+            runner: windows-2025-vs2026
+            platform: windows
+            compiler: msvc
+            configuration: Shipping
+          - name: Linux Clang Debug-ASan
+            runner: ubuntu-24.04
+            platform: linux
+            compiler: clang
+            configuration: Debug-ASan
+            cc: clang
+            cxx: clang++
+          - name: Linux GCC Shipping
+            runner: ubuntu-24.04
+            platform: linux
+            compiler: gcc
+            configuration: Shipping
+            cc: gcc
+            cxx: g++
+
+    steps:
+      - name: Check out Herta
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up Herta on Windows
+        if: matrix.platform == 'windows'
+        shell: cmd
+        run: Setup.bat
+
+      - name: Generate Visual Studio projects
+        if: matrix.platform == 'windows'
+        shell: cmd
+        run: GenerateProjectFiles.bat vs2026
+
+      - name: Build Herta on Windows
+        if: matrix.platform == 'windows'
+        shell: cmd
+        run: >-
+          msbuild Intermediate\ProjectFiles\vs2026\Herta.slnx
+          /m
+          /t:HertaTests
+          /p:Configuration=${{ matrix.configuration }}
+          /p:Platform=x64
+          /verbosity:minimal
+
+      - name: Run tests on Windows
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: .\Binaries\windows\x86_64\${{ matrix.configuration }}\HertaTests.exe
+
+      - name: Set up Herta on Linux
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: bash ./Setup.sh
+
+      - name: Generate GNU Make projects
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: bash ./GenerateProjectFiles.sh gmake
+
+      - name: Build Herta on Linux
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: |
+          Configuration="${{ matrix.configuration }}"
+          make --directory=Intermediate/ProjectFiles/gmake \
+            --jobs=2 \
+            config="${Configuration,,}" \
+            HertaTests
+
+      - name: Run tests on Linux
+        if: matrix.platform == 'linux'
+        shell: bash
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaTests
+
+  required:
+    name: required
+    if: ${{ always() }}
+    needs:
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every build
+        shell: bash
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: test "$BUILD_RESULT" = success
