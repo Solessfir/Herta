@@ -198,6 +198,7 @@ Herta/
 |   |-- imgui/
 |   |-- imgui-node-editor/
 |   |-- jolt/
+|   |-- lunasvg/
 |   |-- nvrhi/
 |   `-- ozz-animation/
 |-- Games/
@@ -207,12 +208,13 @@ Herta/
 |       `-- Source/
 |-- Scripts/
 |-- Tools/
-|   |-- HertaEmbed/
 |   `-- Blender/                  # Herta exporter scripts, not a Blender installation
 |-- .editorconfig
 |-- .gitattributes
 |-- .gitignore
 |-- .gitmodules
+|-- Cleanup.bat
+|-- Cleanup.sh
 |-- GenerateProjectFiles.bat
 |-- GenerateProjectFiles.sh
 |-- LICENSE
@@ -545,11 +547,13 @@ The first graph should solve one narrow problem, such as material composition or
 
 Undo/redo uses transaction objects with stable object/property paths. Inspector edits, graph edits, asset renames, and scene changes must enter the same transaction system.
 
-### 4.13 Embedded icons and fonts
+### 4.13 Editor icons and fonts
 
-Source fonts and icons live under `Engine/Content/Editor` with their licenses. `HertaEmbed` generates typed `constexpr std::byte` arrays under `Intermediate/Generated`.
+Source icons remain `.svg` files under `Engine/Content/Editor/Icons`; fonts remain `.ttf` or `.otf` files under `Engine/Content/Editor/Fonts`. Each asset keeps its license metadata beside the source. Editor assets are content, not C++ byte arrays, and are never embedded into the executable.
 
-Generated symbols include byte size, content hash, and optional compression metadata. Generated files are build dependencies, never hand-maintained `.embed` headers. Raylib can be studied for the technique, but copying its implementation is unnecessary for such a small tool.
+`EditorFramework` owns a Herta SVG adapter with LunaSVG private behind it. The adapter rasterizes an icon to RGBA at the requested physical pixel size, uploads it as an ImGui texture, and caches by source hash, pixel dimensions, and scale. Rasterization may run off the UI thread, but GPU upload and cache publication occur at an explicit frame boundary. Shipping an editor later uses a content package rather than executable embedding.
+
+Herta editor icons use a deterministic static SVG subset: paths and basic shapes, `viewBox`, solid fills, strokes, clipping, and gradients when needed. Scripts, animation, filters, external resources, embedded raster images, and SVG text are rejected. This keeps rendering portable and avoids hidden font, network, and timing dependencies.
 
 ## 5. Executables
 
@@ -600,6 +604,7 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [Herta GLFW fork](https://github.com/Solessfir/glfw) | Adopt now | Application | Windows, X11, Wayland, input, surfaces, and generic custom-titlebar support. Begin from commit `d6e3eee4`. Private API. |
 | [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | Adopt at RHI milestone | NvrhiVulkan | Vulkan 1.3 resource and command abstraction behind Herta RHI. |
 | [Dear ImGui](https://github.com/ocornut/imgui) | Adopt at editor milestone | EditorFramework | Docking and multi-viewport editor UI only. |
+| [LunaSVG](https://github.com/sammycage/lunasvg) | Adopt with MS1 editor icons | EditorFramework | Private CPU rasterizer for static SVG editor assets. Cache RGBA results as ImGui textures; LunaSVG types never enter Herta APIs. |
 | [Stack Layout PR 846](https://github.com/ocornut/imgui/pull/846) | Do not adopt | None | The initial editor does not justify an unmerged patch to ImGui internals. |
 | [imgui-node-editor](https://github.com/thedmd/imgui-node-editor) | Adopt with first graph | GraphEditor | Graph visualization and interaction, not graph semantics or execution. |
 | [doctest](https://github.com/doctest/doctest) | Adopt with Core | HertaTests | Unit tests beside modules, one test runner. |
@@ -669,6 +674,8 @@ premake|tool|linux-x64|5.0.0-beta8|BSD-3-Clause|https://...|<sha256>|premake5
 
 The parser accepts UTF-8, blank lines, and full-line `#` comments. Every data line has exactly eight pipe-delimited fields. Fields may not contain a pipe or newline, duplicate name/platform entries are errors, SHA-256 is mandatory, and unknown schema versions or kinds fail closed. Values are data and are never evaluated or sourced as shell code. Setup never downloads an unversioned `latest` artifact.
 
+Setup removes each downloaded archive or installer after the installed tree passes validation. `SDK` contains usable tools and SDKs only, not a second download cache.
+
 `Dependencies.lock` covers downloaded binary tools and SDKs only. Git submodule revisions remain locked by Git's recorded gitlinks instead of being duplicated in this file.
 
 The Vulkan SDK can be local to the Herta checkout:
@@ -714,6 +721,12 @@ Rules:
 7. Print actionable diagnostics and remain safe to run repeatedly.
 
 `GenerateProjectFiles` validates the already-installed pinned Premake executable, then invokes it for the selected generator. It performs no downloads, submodule updates, or dependency mutations. Run Setup explicitly when bootstrap state must change.
+
+### 8.5 Cleanup
+
+`Cleanup.bat` and `Cleanup.sh` restore a clean Herta-managed workspace without requiring Git. They remove `Binaries`, `Intermediate`, `DerivedDataCache`, `Saved`, `SDK`, `TestResults`, generated root project files, and known IDE state. The scripts validate the repository root and every destructive target before removal.
+
+This is the generated-state equivalent of `git clean -fdx`, not an imitation of Git's tracked-file database. Arbitrary untracked files inside source directories are preserved because a Git-independent script cannot distinguish scratch work from source safely.
 
 ## 9. GitHub workflows and repository policy
 
@@ -802,8 +815,7 @@ Static-analysis baselines must be explicit and temporary. New warnings cannot be
 
 Cache only disposable accelerators:
 
-- Verified Setup download archives.
-- Pinned SDK and tool packages.
+- Pinned installed SDK and tool trees when restoring them is measurably expensive.
 - Compiler object caches after measurements show a benefit.
 - Shader compiler intermediates keyed by compiler and source versions.
 - Derived asset data only after its content-addressing and validation are proven.
@@ -961,6 +973,7 @@ Exit condition: a fresh clone can run Setup, generate, build, and execute tests 
 - Integrate native-titlebar-disabled custom title bars on Win32, X11, and Wayland while retaining native resize and window-manager behavior.
 - Create a Vulkan instance and surface with validation, but no scene renderer.
 - Add Dear ImGui docking and multi-viewport editor shell.
+- Add LunaSVG behind the editor icon service, with size-aware raster caching and raw `.svg` source assets.
 
 Exit condition: the editor opens, docks, creates platform viewports, resizes correctly, and closes cleanly on both platforms.
 
@@ -979,7 +992,6 @@ Exit condition: render tests and resize/minimize stress runs produce no validati
 - Add stable asset IDs, registry, build keys, and DerivedDataCache.
 - Add fastgltf, mesh cooking, and texture cooking foundations.
 - Add optional isolated `.blend` import through a discovered system Blender installation.
-- Add `HertaEmbed` for icons and fonts.
 - Add file watching, background Blender live reimport, and atomic editor asset generation swaps.
 
 Exit condition: Herta operates normally without Blender. When Blender is installed, saving a tracked `.blend` updates dependent editor instances without blocking the UI, the same source, Blender version, and settings produce identical cooked hashes, and failed reimport preserves the previous asset.
