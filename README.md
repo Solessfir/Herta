@@ -17,14 +17,22 @@ The current architecture and implementation roadmap are documented in [EngineDes
 - Right-handed Left-Up-Forward coordinates using meters, kilograms, and seconds
 - Vulkan renderer behind Herta RHI and NVRHI
 - Herta's GLFW fork with cross-platform custom title bars
+- Herta-owned structured logging with `spdlog` private behind Core
+- UX-first task system with bounded CPU and IO work, cancellation, progress, and safe reload ownership
 - Dear ImGui editor and imgui-node-editor graph tooling
 - Headless editor commands that do not require windows, rendering, ImGui, or an audio device
+- Server-authoritative multiplayer with dedicated and player-hosted listen-server compositions
+- Versioned project templates and editor-only C++ game-module hot reload
+- Optional statically typed gameplay scripting, with Umka gated by a focused production-readiness spike
 - ECS world storage with EnTT as the preferred implementation candidate after a focused milestone spike
 - Jolt Physics and ozz-animation behind Herta-owned APIs
 - Recast/Detour navigation and a first-party compiled StateTree AI runtime
-- miniaudio behind Herta-owned audio assets, mixing, spatialization, and thread boundaries
+- miniaudio behind Herta-owned audio assets, mixing, spatialization, and thread boundaries, with Steam Audio as the preferred optional acoustics candidate
+- ICU, HarfBuzz, and FreeType behind Herta localization and international-text APIs when that milestone begins
 - glTF asset pipeline with optional system Blender import and live reimport
 - Zstandard-compressed packages, optional single-executable embedding, and data-mod mounting through one VFS
+- Dynamic-only lighting with a crisp native TAA baseline, optional upscalers and capability-driven advanced GI
+- Source-built user plugins with first-party Git, terminal, and MCP editor integrations planned on public extension APIs
 - Premake project generation bootstrapped by pinned setup scripts
 - Automated tests, static analysis, sanitizers, and reproducible CI builds
 

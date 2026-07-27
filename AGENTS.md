@@ -40,6 +40,7 @@ Do not preserve obsolete compatibility paths merely because an earlier unshipped
 ## C++ rules
 
 - Use C++23. Use newer language features only when supported consistently by the project's selected MSVC, Clang, and GCC toolchains.
+- Prefer `constexpr` for pure operations and values that naturally support compile-time use. Use `consteval` when compile-time evaluation is required by the contract, not merely possible.
 - Put engine code in the `Herta` namespace.
 - Use Unreal-style names where they carry engine meaning: `F` for value types, `I` for interfaces, `E` for enums, and `b` for booleans.
 - Reserve `U` and `A` for future reflected object and actor semantics.

@@ -1,7 +1,7 @@
 # Herta Engine Design
 
 Status: Active design - Milestone 0 complete
-Last updated: 2026-07-27
+Last updated: 2026-08-01
 
 ## 1. Purpose
 
@@ -12,12 +12,14 @@ The design takes Unreal's strict runtime, editor, developer, and program boundar
 The priorities are:
 
 1. Correct lifetime and dependency boundaries.
-2. A fast edit, build, import, and debug loop.
+2. A responsive editor and a fast edit, build, import, and debug loop.
 3. A renderer that teaches Vulkan without leaking Vulkan through the engine.
 4. Deterministic asset builds and versioned serialized data.
 5. A capable editor built as a client of the runtime.
 6. Dependencies added only when their milestone needs them.
 7. Production concerns such as recovery, profiling, security, compatibility, packaging, and migration designed in before release pressure arrives.
+
+Editor responsiveness is an architectural requirement. Work is not parallelized merely because threads exist, but interactive threads must not wait on import, cooking, shader compilation, source control, search indexing, package construction, external tools, or other latency-bound work that can run asynchronously.
 
 Herta does not claim production readiness during its foundation milestones. Production readiness is earned through shipped projects, measured performance, stable data formats, upgrade paths, broad hardware testing, and reliable tooling.
 
@@ -25,7 +27,7 @@ Herta is not required to become:
 
 - A feature-for-feature copy of Unreal Engine.
 - A multi-backend renderer.
-- A dynamically reloadable plugin ecosystem.
+- A stable third-party binary plugin ABI across engine versions.
 - A custom standard library, allocator, scripting VM, and ECS built at the same time.
 
 ## 2. Non-negotiable decisions
@@ -61,6 +63,8 @@ World-space positions use a dedicated `FWorldPosition` backed by double-precisio
 Meters are the serialized and API convention. Editor fields may display centimeters or other user-selected units, but convert at the UI boundary and never change stored values or simulation scale.
 
 Every third-party boundary has named adapter functions and tests. Unit conversion occurs only when source metadata uses a different scale. No reinterpret casts between Herta, Jolt, ozz, glTF, or NVRHI math types.
+
+Canonical mesh triangles are counter-clockwise when viewed from their front side. Importing through a transform with a negative determinant reverses triangle indices once while producing canonical Herta data. Renderer backends preserve the counter-clockwise semantic explicitly; Vulkan viewport-Y handling must not leak into asset winding or cause importers to flip geometry conditionally.
 
 ### 2.2 Math
 
@@ -132,7 +136,17 @@ Use Unreal-style naming where it communicates engine semantics:
 
 Prefer C++23 library features when they are implemented consistently by the supported MSVC, Clang, and GCC toolchains. Use RAII, concepts, ranges, `std::span`, `std::expected`, and scoped enums where they simplify contracts. Do not use a new feature only to make ordinary code less recognizable.
 
+Prefer `constexpr` for pure operations and values that naturally support compile-time use. Use `consteval` when compile-time evaluation is a semantic requirement and a runtime call must be rejected. Do not force expensive work into constant evaluation when it only increases build cost or worsens diagnostics.
+
 Comments explain constraints, engine quirks, or why a decision is non-obvious. They do not narrate the code. Public headers remain self-contained and include only what their declarations require.
+
+### 2.6 Product architecture policies
+
+- Editor responsiveness is a release criterion. Latency-heavy work is asynchronous, cancellable, observable, and publishes results atomically.
+- Herta has no lightmap authoring or baking pipeline. Dynamic lighting provides capability-based fallbacks, and full GI is not required on every supported GPU.
+- Multiplayer is server-authoritative. Herta supports dedicated servers and player-hosted listen servers through the same replication and permission model.
+- Herta-authored source content is deterministic mergeable UTF-8 text where practical. External media and cooked runtime data remain binary.
+- Networking, localization, scripting, editor tooling, and other optional systems remain composable modules instead of mandatory dependencies for every application.
 
 ## 3. Repository structure
 
@@ -163,9 +177,12 @@ Herta/
 |   |   `-- Editor/
 |   |       |-- Fonts/
 |   |       `-- Icons/
+|   |-- Plugins/
+|   |   `-- Editor/
 |   `-- Source/
 |       |-- Runtime/
 |       |   |-- Core/
+|       |   |-- Tasks/
 |       |   |-- Math/
 |       |   |-- Platform/
 |       |   |-- Application/
@@ -173,8 +190,14 @@ Herta/
 |       |   |-- Assets/
 |       |   |-- Scene/
 |       |   |-- GraphCore/
+|       |   |-- Scripting/
+|       |   |-- Localization/
+|       |   |-- TextLayout/
+|       |   |-- Networking/
+|       |   |-- Replication/
 |       |   |-- ToolUI/
 |       |   |-- Audio/
+|       |   |-- SteamAudio/
 |       |   |-- Navigation/
 |       |   |-- AI/
 |       |   |-- RHI/
@@ -186,9 +209,11 @@ Herta/
 |       |   |-- EditorCore/
 |       |   |-- EditorFramework/
 |       |   |-- AssetEditor/
+|       |   |-- LocalizationEditor/
 |       |   `-- GraphEditor/
 |       |-- Developer/
 |       |   |-- AssetPipeline/
+|       |   |-- LocalizationPipeline/
 |       |   |-- NavigationBuilder/
 |       |   |-- PackageBuilder/
 |       |   |-- StateTreeCompiler/
@@ -197,30 +222,44 @@ Herta/
 |           |-- HertaEditor/
 |           |-- HertaEditorCmd/
 |           |-- HertaGame/
+|           |-- HertaServer/
+|           |-- HertaEditorMcp/
 |           |-- HertaAssetWorker/
 |           |-- HertaShaderWorker/
 |           |-- HertaCooker/
 |           `-- HertaTests/
 |-- External/
 |   |-- doctest/
+|   |-- enkiTS/
 |   |-- entt/
 |   |-- fastgltf/
 |   |-- glfw/
 |   |-- imgui/
 |   |-- imgui-node-editor/
+|   |-- icu/
+|   |-- harfbuzz/
+|   |-- freetype/
 |   |-- jolt/
 |   |-- lunasvg/
 |   |-- miniaudio/
 |   |-- nvrhi/
 |   |-- ozz-animation/
 |   |-- recastnavigation/
+|   |-- spdlog/
+|   |-- steam-audio/
+|   |-- GameNetworkingSockets/
+|   |-- libsodium/
+|   |-- umka-lang/
 |   `-- zstd/
 |-- Games/
 |   `-- Sandbox/
 |       |-- Config/
 |       |-- Content/
+|       |-- Plugins/
 |       `-- Source/
 |-- Scripts/
+|-- Templates/
+|   `-- Projects/
 |-- Tools/
 |   `-- Blender/                  # Herta exporter scripts, not a Blender installation
 |-- .editorconfig
@@ -247,6 +286,7 @@ Intermediate/Build/<platform>/x86_64/<configuration>/<target>/
 Intermediate/ProjectFiles/<premake-action>/
 SDK/<platform>/<tool>/<version>/
 Saved/Logs/
+Saved/HotReload/
 Saved/Crashes/
 Saved/Editor/
 ```
@@ -273,6 +313,7 @@ In the following graph, `A -> B` means A depends on B:
 
 ```text
 Core
+|-- Tasks -> Core + Platform
 |-- Math -> Core
 |-- Platform -> Core
 |-- Reflection -> Core
@@ -280,7 +321,12 @@ Core
 |-- Application -> Core + Math + Platform
 |-- Scene -> Core + Math + Reflection + Assets
 |-- GraphCore -> Core + Reflection + Assets
-|-- ToolUI -> Core + Application + RHI
+|-- Scripting -> Core + Reflection + Assets
+|-- Localization -> Core + Assets
+|-- TextLayout -> Core + Math + Assets + Localization
+|-- Networking -> Core + Platform + Tasks
+|-- Replication -> Networking + Math + Reflection + Scene
+|-- ToolUI -> Core + Application + RHI + TextLayout
 |-- RHI -> Core + Math
 |   `-- NvrhiVulkan -> RHI + Platform
 |-- RenderGraph -> Core + RHI
@@ -288,21 +334,27 @@ Core
 |-- Physics -> Core + Math
 |-- Animation -> Core + Math + Assets
 |-- Audio -> Core + Math + Assets
+|-- SteamAudio -> Core + Math + Tasks + Audio + Scene
 |-- Navigation -> Core + Math + Assets
 `-- AI -> Core + Math + Assets + Scene + GraphCore + Physics + Navigation
 
-Full game composition -> Application + Scene + Renderer + Physics + Animation + Audio + Navigation + AI
+Full game composition -> Application + Scene + Renderer + Physics + Animation + Audio + Navigation + AI + optional SteamAudio + optional Localization + optional Scripting + optional (Networking + Replication)
+Dedicated server composition -> Scene + Physics + Networking + Replication + selected gameplay modules
 EditorCore -> Core + Platform, then adds Reflection + Assets + Scene as those milestones arrive
 EditorFramework -> EditorCore + ToolUI
 AssetEditor -> EditorFramework + AssetPipeline
+LocalizationEditor -> EditorFramework + LocalizationPipeline
 GraphEditor -> EditorFramework + GraphCore
+LocalizationPipeline -> Core + Assets + Localization
 NavigationBuilder -> Core + Math + Assets + AssetPipeline
 PackageBuilder -> Core + Assets
 StateTreeCompiler -> Core + Reflection + Assets + GraphCore + AI
 HertaEditor -> EditorFramework + runtime modules available in the current milestone
 HertaEditorCmd -> EditorCore + selected Runtime and Developer command modules
+HertaEditorMcp -> EditorCore automation through authenticated local IPC
 HertaAssetWorker -> AssetPipeline
 HertaCooker -> AssetPipeline + PackageBuilder
+First-party editor plugins -> public editor extension and automation contracts
 GUI programs -> Application + ToolUI + selected modules
 Programs -> only the modules each program composes
 ```
@@ -331,9 +383,28 @@ Core contains types that do not know about windows, rendering, scenes, or editor
 - Time primitives, byte buffers, UUIDs, and lightweight profiling markers.
 - Module registration contracts.
 
-Formatting may use `std::format` initially. Add `fmt` only if compiler support, compile time, or diagnostics justify it. The logger is Herta-owned even if formatting is delegated.
+Core defines the stable `FTextId` namespace-and-key value used by descriptors and serialized data, but it does not resolve cultures or load catalogs. Those behaviors belong to Localization so Core and headless applications remain independent of ICU.
 
-### 4.2 Platform
+Herta uses `spdlog` as a compiled private backend when Milestone 1 introduces application and headless-editor diagnostics. It provides console, debugger, rotating-file, and editor-buffer sink plumbing. Herta owns log categories, record fields, source locations, filtering, lifecycle, failure policy, and public macros. No `spdlog` or `fmt` type appears in a Herta public header or crosses a game-module boundary.
+
+Public formatting uses `std::format_string` and checks category and level before formatting. Begin with synchronous dispatch for deterministic startup, shutdown, tests, and crash diagnostics. Add bounded asynchronous dispatch only after profiling demonstrates a need. An asynchronous policy may drop low-level records with an explicit counter, but warnings and errors must not be silently discarded. Normal logs go to the console or debugger, rotating files under `Saved/Logs`, and an optional editor ring buffer. Audio callbacks and other real-time threads never use the normal logger.
+
+### 4.2 Tasks
+
+`Tasks` is a Herta-owned contract introduced before the first latency-heavy editor workflows. Its implementation provides bounded CPU-worker and blocking-IO lanes plus main-thread continuations. The public API includes owned task scopes, handles, cancellation, priorities, continuations, `WhenAll`, `ParallelFor`, progress reporting, profiling names, and deterministic test execution.
+
+- Interactive threads never wait for asset import, cooking, shader compilation, source-control queries, thumbnails, fuzzy indexing, package construction, or external processes.
+- Blocking file and process IO cannot consume every CPU worker.
+- Game-facing tasks belong to an `FTaskScope` tied to a world, subsystem, plugin, or game-module generation. Unowned fire-and-forget tasks are discouraged.
+- Reloadable modules stop dispatch, cancel or join owned tasks, and remove main-thread continuations before their code is unloaded.
+- Worker waits help execute runnable work. Main-thread waits produce diagnostics after a small threshold and are forbidden in normal interactive workflows.
+- Long-lived service loops use `std::jthread` and cooperative cancellation instead of occupying worker tasks indefinitely.
+
+The task system does not grant arbitrary concurrent access to engine state. Mutable world state remains phase-owned, and parallel systems publish buffered results at explicit barriers. Do not create one private thread pool per subsystem or build a general automatic task-graph framework before measured workloads require it.
+
+[enkiTS](https://github.com/dougbinks/enkiTS) is the preferred private implementation candidate after a focused spike. Herta retains ownership of cancellation, scopes, reload quiescence, diagnostics, and the game-facing API regardless of backend choice.
+
+### 4.3 Platform
 
 Platform wraps OS primitives through compile-time selected implementations:
 
@@ -344,7 +415,7 @@ Platform wraps OS primitives through compile-time selected implementations:
 
 Windows and Linux headers stay in `Private/Windows` and `Private/Linux`. Runtime interfaces are appropriate for replaceable services such as rendering, physics, audio, and editor hosts. Virtual dispatch is unnecessary for basic OS calls selected at compile time.
 
-### 4.3 Application and custom title bar
+### 4.4 Application and custom title bar
 
 Application owns windows, displays, input devices, cursors, clipboard, and event pumping. GLFW is private to this module.
 
@@ -362,7 +433,7 @@ Wayland does not expose every global-window operation available on Win32/X11. Wi
 
 The GLFW fork should contain only a generic, upstreamable custom-titlebar API. Herta-specific colors, buttons, ImGui state, and engine events stay in Herta. The fork remains pinned as a submodule and its upstream copyright remains intact.
 
-### 4.4 Reflection and serialization
+### 4.5 Reflection and serialization
 
 Reflection will support serialization, editor property inspection, asset references, and graph pins. Herta does not need a reflection system in Milestone 0.
 
@@ -385,7 +456,7 @@ Serialization rules:
 
 Generated files use `.gen.h` and `.gen.cpp`, live under `Intermediate/Generated`, and are never manually edited or committed.
 
-### 4.5 Scene and world
+### 4.6 Scene and world
 
 ECS is Herta's canonical runtime world representation, not its universal object model. World entities and gameplay components use ECS storage. Assets, editor documents, windows, devices, allocators, registries, and other engine services remain ordinary Herta-owned C++ objects.
 
@@ -403,7 +474,7 @@ Actor-like authoring objects may be added later, but the storage model must not 
 
 EnTT is the preferred storage implementation candidate for the world milestone, not a foundation dependency. It uses sparse-set component pools and has different scheduling and locality tradeoffs from an archetype-chunk ECS such as Unreal Mass. Before selection, a focused spike must cover fragmented and homogeneous component mixes, hierarchy operations, deferred mutation, parallel read/write queries, component relocation, cloning, editor inspection, and iteration at 100,000 to 1,000,000 entities. If adopted, EnTT remains private behind Herta entity, world, and query contracts. No EnTT type is serialized or exposed by a public Herta API.
 
-### 4.6 RHI, RenderGraph, and Renderer
+### 4.7 RHI, RenderGraph, and Renderer
 
 Herta targets Vulkan 1.3 on Windows and Linux. Vulkan 1.4 features may be used only after capability checks and a deliberate baseline update.
 
@@ -427,12 +498,41 @@ Renderer progression:
 1. Device, swapchain, clear, and validation-clean triangle.
 2. Shader cooking, vertex/index buffers, textures, and material parameters.
 3. Depth prepass or depth-only path, reversed-Z, camera-relative transforms.
-4. PBR mesh rendering, image-based lighting, and shadows.
-5. GPU-driven culling, indirect draws, meshlets, and async work after profiling.
+4. PBR mesh rendering, image-based lighting, direct lights, shadows, motion vectors, depth hierarchy, exposure, and tone mapping.
+5. GTAO and a crisp native-resolution TAA path with correct history invalidation.
+6. GPU-driven culling, indirect draws, meshlets, and async work after profiling.
+7. Optional temporal upscalers, screen-space GI, hardware ray tracing, and experimental dynamic-GI backends after their prerequisites and quality gates exist.
+
+Herta has no lightmap authoring, baking, or lightmap-UV cooking pipeline. Dynamic lighting must still degrade by capability instead of requiring full GI on every supported GPU:
+
+- Low uses direct lighting, image-based lighting, shadow maps, and GTAO.
+- Medium adds screen-space GI when enabled.
+- High may add a validated Radiance Cascades or hardware ray-traced GI backend.
+- Headless and unsupported rendering paths retain deterministic unlit or direct-light fallbacks.
+
+Radiance Cascades is a research candidate, not Herta's sole shipping GI foundation. Its acceptance spike must cover free-camera indoor and outdoor scenes, off-screen emitters and occluders, thin walls, foliage, skinned and moving geometry, large worlds, camera cuts, and multiple editor views. Results are compared against path-traced references with recorded GPU time, memory, instability, light leaks, and scene-update cost. Until those gates pass, it remains an internal experimental method.
+
+Hardware ray tracing is capability-driven and optional. Add Vulkan KHR acceleration structures, ray queries, and ray-tracing pipelines only after the raster path, scene extraction, motion vectors, RenderGraph lifetime rules, and GPU profiling are stable. Raster rendering remains a complete supported path.
+
+Native TAA is Herta's vendor-neutral temporal baseline, not permission to ship a soft image. The default quality contract requires:
+
+- Motion vectors for rigid, skinned, procedurally displaced, and camera motion.
+- Pre-tonemap HDR accumulation with jitter-aware reprojection.
+- Depth, normal, velocity, and disocclusion-based history rejection.
+- Neighborhood or variance clipping to prevent stale history from bleeding across edges.
+- Reactive and transparency masks for emissive, translucent, particle, and rapidly changing content.
+- Motion-adaptive history weighting, deterministic camera-cut resets, and stable low-discrepancy jitter.
+- High-quality reconstruction and a modest configurable post-sharpen. Sharpening must not hide ghosting or incorrect rejection.
+
+Game and editor UI is composited after TAA and temporal upscaling. Render regression scenes cover still detail, motion, foliage, thin geometry, specular highlights, particles, camera cuts, and disocclusion. `Off` and a lightweight non-temporal fallback remain available for accessibility, debugging, and content that deliberately rejects temporal accumulation. SMAA is deferred until a project demonstrates a quality need beyond that fallback.
+
+The renderer owns one temporal-upscaler input contract containing color, depth, motion vectors, exposure, jitter, reactive and transparency masks, reset state, and input/output resolutions. FSR is the first optional Vulkan adapter. DLSS and XeSS may follow as vendor plugins without becoming renderer foundations. Frame generation is deferred until frame pacing, latency markers, UI separation, and swapchain integration are mature, and it is not enabled in the editor.
+
+Atmosphere and volumetric fog precede volumetric clouds. Clouds use reduced-resolution ray marching, temporal reconstruction, cloud shadows, and measured async compute rather than introducing a renderer dependency prematurely.
 
 Debug and Development enable Vulkan validation, object names, RenderDoc markers, and NVRHI validation. Shipping disables validation and runtime shader compilation.
 
-### 4.7 Shader pipeline
+### 4.8 Shader pipeline
 
 Slang is the preferred shader compiler when the first real renderer shader pipeline is built. It provides HLSL-like source, SPIR-V output, modular compilation, and reflection on Windows and Linux.
 
@@ -448,7 +548,7 @@ Runtime code consumes cooked bytecode and metadata. Editor hot reload starts the
 
 Pipeline caches are keyed by shader identities, attachment formats, vertex layout, and fixed-function state. Cache files include device and driver identity and may always be discarded.
 
-### 4.8 Assets and derived data
+### 4.9 Assets and derived data
 
 Runtime never loads `.blend`, source PNGs, or arbitrary editor formats directly.
 
@@ -472,11 +572,17 @@ An asset build key hashes:
 
 Workers write temporary output and rename atomically after success. Failed imports preserve the last valid cooked asset and return structured diagnostics.
 
+Herta-authored source assets such as scenes, prefabs, materials, graphs, descriptors, import metadata, and configuration use deterministic versioned UTF-8 text. Files have stable IDs, canonical field ordering, locale-independent floating-point formatting, no timestamps or absolute machine paths, and atomic saves. Large worlds are partitionable so unrelated edits do not rewrite one monolithic scene file. Imported models, textures, audio, fonts, and `.blend` sources remain binary; they are never base64-encoded merely to make the container textual. Cooked data and DerivedDataCache entries remain binary and do not enter source control.
+
+Application reports dropped paths without interpreting asset formats. `AssetEditor` validates and copies external sources into project content by default, then invokes the same asynchronous AssetPipeline command used by `HertaEditorCmd`. Batch imports support cancellation, conflict resolution, directory and symlink limits, progress, and atomic publication.
+
+Fast asset search consumes immutable AssetRegistry snapshots. Names, normalized paths, types, tags, and stable IDs are indexed incrementally off the UI thread. Stale query generations are cancelled, result counts are bounded, and equal scores use deterministic path and ID tie-breaking. Start with a small Herta-owned fuzzy scorer and add a dependency only if measurement justifies it.
+
 `fastgltf` handles editor/offline glTF 2.0 ingestion. Imported data is converted immediately to Herta coordinates, types, naming, and canonical vertex formats. glTF library types do not enter runtime modules.
 
 Meshoptimizer is added when real mesh cooking exists. KTX2/Basis Universal is added when the texture cooker exists. Neither belongs in bootstrap code.
 
-### 4.9 Native `.blend` import
+### 4.10 Native `.blend` import
 
 "Native `.blend` support" means the editor can accept `.blend` as a source asset with no manual export step when Blender is installed system-wide. Blender is an optional external authoring tool, not an engine, build, runtime, Setup, or SDK dependency. HertaEditor, HertaGame, normal glTF import, builds, tests, and cooked content must work without it.
 
@@ -528,7 +634,7 @@ If Blender becomes unavailable while the editor is running, Herta keeps the last
 
 Live reimport is one-way from Blender to Herta. Herta must not write changes back into `.blend` files unless a separate, explicit round-trip workflow is designed later.
 
-### 4.10 Physics
+### 4.11 Physics
 
 Jolt is private to Physics. Herta supplies allocator, job-system, logging, assertion, layer-filter, and debug-draw adapters.
 
@@ -544,7 +650,7 @@ Jolt is private to Physics. Herta supplies allocator, job-system, logging, asser
 
 Thread count, temporary allocator size, broad-phase layers, sleeping, and determinism are configuration, not scattered constants.
 
-### 4.11 Animation
+### 4.12 Animation
 
 ozz-animation is private to Animation and AssetPipeline.
 
@@ -556,7 +662,7 @@ ozz-animation is private to Animation and AssetPipeline.
 
 Sampling and blending are natural job-system workloads, but a custom task graph should not be built before this parallel work exists.
 
-### 4.12 Editor and graph system
+### 4.13 Editor and graph system
 
 The interactive editor hosts the runtime. Runtime code never includes ImGui or editor headers. `EditorCore` owns project loading, transactions, validation, automation contracts, and other editor services that must also run headless. It does not depend on Application, ImGui, RHI, Renderer, or an audio device.
 
@@ -586,7 +692,15 @@ Source graph validation and compilation run in `HertaEditorCmd`, compiler module
 
 Undo/redo uses transaction objects with stable object/property paths. Inspector edits, graph edits, asset renames, and scene changes must enter the same transaction system.
 
-### 4.13 Editor icons and fonts
+Cross-scene copy and paste uses a versioned UTF-8 clipboard fragment containing selected entities, components, hierarchy, stable source IDs, and asset references. Paste generates new entity IDs, remaps references within the fragment, preserves valid external asset IDs, and commits atomically as one undoable transaction. It does not duplicate referenced assets. Cross-project dependency migration is a separate explicit operation because it may copy or remap content.
+
+Numeric property fields accept deterministic expressions with `+`, `-`, `*`, `/`, unary signs, and parentheses. The parser lives in EditorCore and is shared by interactive and headless property-editing commands. It evaluates with `double`, rejects division by zero, non-finite values, trailing input, and destination overflow, then performs unit conversion and type conversion at the property boundary. It never invokes the scripting runtime or a general code evaluator.
+
+The optional translucent-panel style renders the scene beneath the main editor panel region, builds one downsampled blurred scene-color pyramid per viewport after tone mapping, and lets all visible panels sample that shared result. Text, icons, controls, selection outlines, and gizmos are drawn afterward at native resolution. The pass is skipped when no visible panel requests blur and never recursively blurs previously drawn UI. Opacity, tint, radius, quality, and enable state are per-user editor settings under `Saved/Editor`.
+
+Detached native ImGui viewports cannot portably blur another swapchain or the desktop, especially on Wayland. They use an opaque or tinted fallback unless Herta renders a meaningful backdrop for that viewport. The feature uses ToolUI draw integration and a Herta RenderGraph shader, not an ImGui fork.
+
+### 4.14 Editor icons and fonts
 
 Source icons remain `.svg` files under `Engine/Content/Editor/Icons`; fonts remain `.ttf` or `.otf` files under `Engine/Content/Editor/Fonts`. Each asset keeps its license metadata beside the source. Editor assets are content, not generated C++ byte arrays. A cooked editor package may be embedded through the normal package system when producing a monolithic executable.
 
@@ -596,7 +710,7 @@ Herta editor icons use a deterministic static SVG subset: paths and basic shapes
 
 Milestone 1 title-bar controls use ImGui draw primitives and do not require a production icon set. LunaSVG and the real editor icon library enter only when the first SVG-backed editor tool requires them. The visual language and source icon set are selected deliberately before production assets are generated.
 
-### 4.14 Audio
+### 4.15 Audio
 
 Audio is a Herta-owned runtime module with miniaudio private behind it. miniaudio supplies Windows and Linux device backends, decoding, resampling, mixing primitives, spatialization, and a null backend. Herta owns sound assets, handles, buses, voices, concurrency limits, streaming policy, scene integration, profiling, and the public API.
 
@@ -609,7 +723,15 @@ Audio is a Herta-owned runtime module with miniaudio private behind it. miniaudi
 
 Spatial audio consumes Herta transforms in meters. Backend coordinate conversion occurs in one tested adapter. Advanced HRTF or acoustic simulation remains an optional extension selected after the basic mixer and spatial path are measured.
 
-### 4.15 Navigation and AI
+[Steam Audio](https://github.com/ValveSoftware/steam-audio) is the preferred optional acoustics candidate after the miniaudio mixer and device path are stable. It complements rather than replaces miniaudio: Herta and miniaudio retain voice, decoding, streaming, bus, mix, and device ownership, while the private SteamAudio integration may provide HRTF binaural rendering, Ambisonics, directivity, air absorption, occlusion, transmission, reflections, convolution reverb, and pathing. A Steam-processed voice bypasses miniaudio's spatializer so attenuation and panning are not applied twice.
+
+Steam Audio simulation never runs on the main or audio-processing thread. A bounded acoustics service performs direct, reflection, and pathing updates at configured rates, coordinates Steam Audio's internal thread count with Herta worker budgets, and publishes immutable results to preallocated audio-thread effects. The audio callback performs no simulation, allocation, blocking, or normal logging. Headless and unsupported targets retain the miniaudio null or basic-spatialization path without Steam Audio linked.
+
+Herta and Steam Audio both use meters, but their axes differ. Steam Audio uses +X right, +Y up, and -Z forward, so the tested adapter maps a Herta vector to `{-X, +Y, -Z}`. This is a proper 180-degree rotation around +Y and preserves counter-clockwise winding. Acoustic geometry and material data are generated from canonical Herta assets; Steam Audio handles never enter scenes or serialized Herta source data.
+
+Begin with Steam Audio's cross-platform built-in CPU ray tracer. Embree and custom Herta ray-tracing callbacks are later measured options. Radeon Rays and TrueAudio Next are not baseline dependencies because their OpenCL and Windows-focused paths conflict with Herta's Vulkan-first Windows/Linux portability. Real-time acoustics are the initial path; optional acoustic probes remain derived cooked data and do not weaken the no-light-baking policy or enter source control.
+
+### 4.16 Navigation and AI
 
 The Navigation subsystem splits offline and runtime ownership. `NavigationBuilder` uses Recast to build deterministic tiled navmeshes from canonical Herta collision geometry. Runtime `Navigation` links Detour to load cooked tiles and perform queries. DetourCrowd is the initial local avoidance and crowd implementation; add another avoidance library only after measured limitations.
 
@@ -634,7 +756,7 @@ Compilation must:
 
 One compiled program is shared by all agents using that tree. Each agent stores only an active-state stack, queued events, execution status, and a pooled instance-data handle. Native tasks and conditions dispatch through registered Herta function tables. The runtime bounds transitions per update to prevent infinite immediate-jump loops, buffers events, supports utility-based child selection, and emits deterministic traces for debugging and replay.
 
-### 4.16 Packages, embedded applications, and mods
+### 4.17 Packages, embedded applications, and mods
 
 All runtime content is read through a Herta virtual filesystem and package interface. Loose cooked files, external packages, executable-embedded packages, and mod packages differ only in how their byte ranges are mounted.
 
@@ -648,6 +770,10 @@ External mod packages
 
 A package contains a versioned index and independently readable chunks. Each chunk records asset identity, type, offset, alignment, compression codec, compressed size, uncompressed size, and content hash. Zstandard is the default general-purpose codec. BC/KTX textures, Opus audio, and other already compressed payloads normally use `None`. Decompression validates all sizes and configured limits before allocation.
 
+Content hashes detect corruption but do not establish publisher authenticity when an attacker can replace both data and hashes. Publisher Shipping packages carry an Ed25519 signature over the canonical package header, index, and ordered chunk hashes. The private signing key exists only in protected release infrastructure; player builds contain versioned public verification keys. The VFS verifies the index before mount and verifies chunk hashes as data is read. Mod trust policy distinguishes publisher-signed, project-trusted, user-approved unsigned, and rejected packages without presenting them as equivalent.
+
+Package encryption is deferred until a project defines a concrete threat model and key-provisioning policy. Client-side authenticated encryption can deter casual extraction, but it cannot make assets secret from the owner of the executing machine. If adopted, Herta uses a reviewed primitive such as XChaCha20-Poly1305 through libsodium, compresses before encryption, authenticates metadata, defines nonce and key rotation policy, and resolves the conflict between random nonces and byte-for-byte reproducible packages. Herta never invents cryptographic primitives or describes obfuscation as DRM.
+
 The cooker supports three output policies:
 
 - Loose cooked files for development.
@@ -660,6 +786,111 @@ Initial mod support is data-only. Mods remain external even when the base packag
 
 Native C++ binary mods are deferred because they would expose an unstable ABI and execute unrestricted code. A future behavior-mod boundary should use a versioned scripting or sandboxed runtime contract. Source mods built together with an exact Herta revision remain possible without promising binary compatibility.
 
+### 4.18 Projects and templates
+
+Game and GUI application projects are first-class source trees described by `<ProjectName>.hertaproject`. The versioned descriptor contains a stable project ID, display name, engine association, modules, program targets, content roots, and enabled features. It never stores an absolute engine path or user-specific directory. Project generation receives an explicit descriptor path and resolves the associated engine through command-line selection or user-local installation metadata.
+
+Built-in templates live under `Templates/Projects/<TemplateId>` and are versioned with the engine. Each template has a data-only manifest declaring its stable ID, version, compatible project-descriptor version, files, and allowed substitutions. Templates never execute scripts, download dependencies, or duplicate engine build logic.
+
+Project creation is available through both the project browser and `HertaEditorCmd`. It validates the project name, C++ module identifier, destination, and path lengths, then expands only declared UTF-8 text files into a sibling staging directory. Binary files are copied without token replacement. The completed project is validated and atomically renamed into an absent destination, so cancellation or failure never leaves a half-created project and existing files are never overwritten.
+
+Start with one minimal Game template. Add Blank, GUI Application, or specialized templates only when their owning modules exist. Generated projects may use a source checkout or an installed engine. Generated build products, rather than the source descriptor, record the exact engine build identity used to compile native modules.
+
+### 4.19 Scripting
+
+Scripting is optional. Herta, native C++ games, GUI applications, headless tools, and data-only mods must build and run without a scripting runtime. Scripting exists for fast gameplay iteration, controlled behavior mods, and selected editor automation, not as a foundation dependency or replacement for C++ engine systems.
+
+[Umka](https://github.com/vtereshkov/umka-lang) is the preferred candidate after a focused spike. It is statically typed, compiles to a bytecode VM, is implemented in C99, exposes a C embedding API, uses reference-counted garbage collection, supports cooperative fibers, and uses the BSD-2-Clause license. [UEmka](https://github.com/Solessfir/UEmka) is useful design evidence for typed function-signature and graph-pin integration, but Unreal-specific code and assumptions do not enter Herta unchanged.
+
+`Scripting` owns the public Herta contract and keeps Umka private. Public APIs use stable script module and function handles, Herta values, diagnostics, and explicitly owned buffers. `Umka`, `UmkaStackSlot`, VM pointers, garbage-collected pointers, and raw engine pointers never cross the module boundary. Do not create a generic multi-language backend abstraction until a second runtime is genuinely required.
+
+Source `.um` files are editor assets. The asset pipeline validates imports and cooks them into a deterministic, versioned script program containing dependency hashes, binding-schema versions, VM revision, and debug mappings. A normal Shipping build loads cooked programs and does not compile source. Runtime source compilation is included only when a project explicitly enables a trusted development or mod-authoring mode.
+
+The documented [Umka embedding API](https://github.com/vtereshkov/umka-lang/blob/master/doc/api.md) can compile source, call typed functions, report stack frames and memory usage, disable filesystem access, and disable implementation libraries. It does not currently document a stable bytecode save/load contract, instruction interruption, enforced heap limits, or a full line debugger. These are adoption gates. A narrow, maintained Herta fork is acceptable if required changes remain reviewable and upstream synchronization stays practical. Otherwise reject the candidate rather than shipping internal VM memory dumps or an incomplete sandbox.
+
+Initial runtime rules are:
+
+- Use one VM context per world or isolated script domain, not one VM per entity.
+- Own and call a VM from the game thread unless upstream explicitly guarantees a different threading contract. Worker compilation uses isolated contexts.
+- Register a capability allowlist generated from Herta runtime descriptors. Scripts receive entity, asset, object, and task handles instead of pointers.
+- Integrate fibers with Herta update phases. Fibers do not create engine threads or bypass world mutation barriers.
+- Enforce instruction, stack, heap, recursion, and host-call budgets with cancellation and actionable diagnostics.
+- Disable filesystem access and native implementation libraries by default. Untrusted scripts receive no OS, process, network, dynamic-library, or unrestricted file API.
+- Keep script-owned memory inside the VM. Herta-owned resources use explicit handles and remain valid independently of garbage-collection timing.
+
+Script hot reload is transactional. Compile and validate a candidate program or VM beside the active generation, serialize explicitly persistent state through Herta descriptors, restore compatible state, then publish the candidate at a safe point. A failed compile, binding mismatch, budget violation, or restore keeps the last valid generation. Raw VM heap state is never copied or serialized.
+
+StateTree, animation graphs, and gameplay Blueprints remain separate typed compiler domains. They may invoke scripted functions through validated Herta handles, and GraphEditor may offer an Umka Script node similar to UEmka, but graph assets do not compile to Umka source or depend on Umka bytecode internals.
+
+Script behavior mods remain disabled until the same cooked-format validation, capability restrictions, resource budgets, cancellation, and hostile-input tests used by the engine pass on Windows and Linux. Native binary mods remain a separate, deferred security and ABI decision.
+
+### 4.20 Localization and international text
+
+Localization is an optional runtime composition, but its data identity is designed before scene, graph, and project formats become public. Internal identifiers, paths, logs, console commands, and diagnostics remain non-localized UTF-8 strings. User-visible localizable content uses `FText`; user-authored names and chat remain plain text.
+
+`FTextId` is a stable namespace and key, never an English string or asset path. A source entry also carries source text, source hash, developer context, message-syntax version, and a named argument schema. Source wording changes mark translations stale without changing identity. Renames require explicit redirects or migrations. Canonical source catalogs generate `constexpr` C++ text-ID constants, so Herta does not scrape macros or depend on runtime code coverage to gather text.
+
+`FText` has no implicit conversion to `std::string`. A resolved string deliberately loses localization identity. Formatted text retains an immutable recipe and typed named arguments so a culture change can resolve it again. Do not concatenate sentence fragments; translators receive complete messages whose arguments can be reordered and selected by grammar.
+
+ICU4C is private to Localization and supplies BCP 47 locale handling, Unicode normalization and properties, plural and select rules, number/date formatting, collation, bidirectional analysis, and grapheme, word, and line boundaries. Public and serialized `FCultureId` values use canonical BCP 47 spelling. Herta never makes the process-global C locale, Windows NLS, a Linux system ICU installation, or an implicit machine locale authoritative. The first message syntax is the stable ICU MessageFormat with named arguments and an explicit Herta syntax version. ICU MessageFormat 2 for C++ remains a migration candidate only after it leaves technology preview. ICU types and binary resource objects never enter Herta assets or public APIs.
+
+Repository localization data remains deterministic versioned UTF-8 text with stable ordering, LF endings, atomic writes, and no timestamps or machine paths. XLIFF 2.1 is a translation-tool interchange format, not the runtime or canonical repository format. Herta exports a documented subset and imports it with DTDs, entities, external resources, and unknown executable extensions disabled. Import validates IDs, source hashes, selectors, placeholders, types, and required plural branches before publishing changes.
+
+Cooked catalogs are immutable binary assets containing sorted compact IDs, UTF-8 strings or versioned message programs, fallback metadata, schema versions, and hashes. Each target declares shipped cultures explicitly. The base culture always ships, optional language packs mount through the normal VFS, and fallback is deterministic, such as `pl-PL -> pl -> project default`. Servers and cookers never inherit the machine's implicit locale. ICU code and CLDR data revisions participate in cook keys, and filtered ICU data contains only declared features and cultures.
+
+Localized display also requires typography rather than byte-oriented glyph lookup:
+
+```text
+UTF-8 logical text
+    -> ICU paragraph direction, script, and break runs
+    -> project font fallback
+    -> HarfBuzz shaping
+    -> line layout, hit testing, and grapheme-aware editing
+    -> FreeType rasterization on workers
+    -> paged GPU-atlas publication at a frame boundary
+```
+
+`TextLayout` owns this pipeline and keeps HarfBuzz and FreeType private. Project fonts and fallback chains are cooked assets; system fonts are not authoritative because their availability differs across machines. Shape and raster work runs off the UI thread, while GPU publication occurs at a frame boundary. Cursor movement, selection, deletion, wrapping, and hit testing operate on grapheme and shaped clusters, not bytes or isolated code points. ToolUI uses a Herta shaped-text draw and input path for complex scripts without requiring an ImGui fork.
+
+`LocalizationPipeline` validates, pseudolocalizes, imports, exports, and cooks without ToolUI or a GPU. `HertaEditorCmd` exposes the same operations used by LocalizationEditor. Editor culture switching and catalog hot reload publish a new immutable generation; failed catalogs leave the previous generation active. Required tests cover locale fallback, plural and select behavior, argument parity, stale translations, deterministic cooking, hostile XLIFF, expanded pseudolocalization, forced RTL, mixed Arabic and Latin text, Indic shaping, combining marks, CJK fallback and line breaking, emoji sequences, and grapheme-aware editing.
+
+Network gameplay sends semantic event or text IDs plus validated arguments when clients should localize a message. It does not send server-rendered language strings as authoritative gameplay UI. Localized voice, subtitle, and lip-sync variants use stable asset indirection and culture fallback rather than hard-coded paths.
+
+### 4.21 Networking and replication
+
+Multiplayer is an optional first-class composition. The default model is a server-authoritative fixed network tick with dedicated-server and player-hosted listen-server modes. A listen server composes the same authoritative simulation inside `HertaGame`; its local client communicates through the same command, replication, permission, and validation boundaries as remote clients. Host status does not grant gameplay code a shortcut into replicated client state.
+
+```text
+Transport
+    -> versioned message protocol
+    -> replication, relevancy, and prediction
+    -> world and gameplay systems
+```
+
+`Networking` owns transport sessions, connections, packet validation, message lanes, time synchronization, and bounded inbound and outbound queues. Transport callbacks never mutate world state. `Replication` owns explicit versioned wire schemas, stable `FNetworkEntityId` values, field quantization, snapshots and deltas, input commands, interpolation, prediction, reconciliation, interest management, bandwidth budgets, and reliable or unreliable event policy. ECS handles and component memory are never transmitted directly.
+
+The connection handshake includes protocol, schema, content, and required plugin identities. Every packet, argument, count, offset, compressed payload, and client request is untrusted input with size, rate, authority, and lifetime limits. Disconnect and timeout paths release world and task ownership deterministically.
+
+[GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) is the preferred transport candidate after a focused Windows and Linux spike. It may provide reliable and unreliable messages, fragmentation, encryption, statistics, lanes, and network-condition simulation, but it does not own Herta replication or serialization. Initial scope is direct-IP dedicated and listen servers. P2P discovery, ICE/NAT traversal, matchmaking, host migration, rollback netcode, voice chat, accounts, and online services are later capabilities with separate product requirements.
+
+Headless integration tests run multiple clients and servers as isolated processes or loopback compositions under simulated latency, jitter, loss, reordering, duplication, bandwidth limits, reconnects, incompatible schemas, and hostile input. A deterministic simulation harness verifies logical results without claiming that internet delivery or cross-platform floating-point physics is deterministic.
+
+### 4.22 Plugins, source control, terminal, and editor automation
+
+User plugins are source modules built against an exact Herta revision, toolchain, architecture, and configuration. Herta does not promise a stable cross-version C++ ABI. Shipping uses static composition initially; editor dynamic loading may reuse the versioned game-module boundary only after task, delegate, type-lifetime, and unload quiescence rules are proven.
+
+Plugins live under `Engine/Plugins` or a project's `Plugins` directory. A versioned UTF-8 `.hertaplugin` descriptor declares stable ID, version, engine compatibility, dependencies, modules, content roots, supported targets, load phase, and editor, headless, runtime, or developer capabilities. Dependency order is deterministic, cycles fail generation, discovery does not execute arbitrary build scripts, and headless targets load only explicitly compatible modules. Native plugins are trusted unrestricted code; data and script plugins retain their separate trust policies. The editor supports restart-required enable or disable first and records enough startup state to offer a safe mode after a plugin crash.
+
+Editor extension registries use owned RAII registrations for menus, panels, commands, inspectors, asset actions, and settings. A plugin unload or failed activation removes every registration and owned task before code unload. Git source control, the terminal, and MCP are first-party plugins that exercise the same public extension contracts offered to projects.
+
+The Git plugin invokes the user's installed Git executable through Platform process APIs with argument arrays, never a shell-built command. Background status uses porcelain v2 with NUL-delimited records and avoids optional locks. Operations are asynchronous, cancellable, credential handling remains with Git credential helpers, and polling never mutates the repository. The UI exposes precise Fetch, Pull with an explicit strategy, Commit, Push, Diff, Stage, and Revert operations. It never silently resets, overwrites unsaved documents, or treats ambiguous `Submit` and `Get Latest` labels as universal source-control semantics.
+
+The terminal plugin uses ConPTY on Windows and a PTY on Linux with independent bounded input, output, and scrollback handling, UTF-8 and ANSI terminal parsing, resize support, cancellation, and Job Object or process-group cleanup. It sanitizes dangerous control sequences and does not include terminal contents in logs or crash reports by default. Terminal execution is a user tool, not Herta's structured Build, Cook, Test, or SourceControl API.
+
+EditorCore exposes semantic, schema-described automation commands with stable object IDs, query and mutation separation, expected document revisions, progress, cancellation, safe-point execution, and named undo transactions. Interactive UI, plugins, headless commands, tests, and MCP call these operations instead of duplicating behavior or simulating input.
+
+`HertaEditorMcp` is an out-of-process adapter connected to an active editor through authenticated local IPC. It exposes no raw ImGui clicking and no unrestricted terminal tool. Sessions are local-only and read-only by default; mutation, import, build, source control, deletion, packaging, and process capabilities require explicit grants and confirmation appropriate to their risk. Commands enforce path scopes, input schemas, rate and resource limits, timeouts, output sanitization, audit records, and revocation. Long operations return job IDs and never block the editor or protocol loop.
+
 ## 5. Executables
 
 | Program | Responsibility | Ships to players |
@@ -667,12 +898,30 @@ Native C++ binary mods are deferred because they would expose an unstable ABI an
 | `HertaEditor` | Editor host, runtime preview, asset and graph tools | No |
 | `HertaEditorCmd` | Orchestrates headless editor validation, migration, import, cooking, and graph-compilation commands | No |
 | `HertaGame` | Standalone Sandbox game target | Yes |
+| `HertaServer` | Dedicated authoritative server without windows, rendering, ImGui, or audio devices | Optional |
 | `HertaAssetWorker` | Isolated source import and canonical asset-cooking tasks | No |
 | `HertaShaderWorker` | Shader compilation and reflection | No |
 | `HertaCooker` | Orchestrates target asset cooking and deterministic platform package construction | No |
+| `HertaEditorMcp` | Out-of-process MCP adapter over authenticated EditorCore automation | No |
 | `HertaTests` | Unit and fast integration test runner | No |
 
-Static module composition is the default. Dynamic game modules and hot reload are deferred until ABI, global state, and object reinstancing requirements are understood. Shader and asset hot reload use worker processes and stable asset handles first.
+Static module composition is the Shipping default. Development editor builds may compile project gameplay code as one reloadable game module. This is a fast iteration facility for source projects built against the exact Herta revision, toolchain, architecture, and configuration. It is not a stable binary-plugin or native-mod ABI.
+
+### 5.1 Game C++ hot reload
+
+Platform loads game DLLs on Windows and shared objects on Linux through Herta's dynamic-library wrapper. The module exports one `extern "C"` entry point that returns a versioned, sized POD function table. The boundary carries Herta handles and explicitly owned buffers, not STL objects, exceptions, RTTI objects, allocators, virtual interfaces, `spdlog` state, or ownership that could be destroyed by the other binary.
+
+Each successful build has a unique build ID. The editor copies the candidate library and debug symbols to `Saved/HotReload/<BuildId>` before loading it. Unique shadow copies avoid the loaded-file replacement restriction on Windows and give Linux the same deterministic lifecycle. Old generations are removed only after they are unloaded and no diagnostic still references their symbols.
+
+Reload is transactional at an editor safe point:
+
+1. Load the candidate beside the active module and validate its API version, build identity, required engine services, and descriptors without mutating the world.
+2. Stop dispatching new work to the old module, cancel or join its jobs, disconnect delegates, and reject any remaining thread or callback into its code.
+3. Snapshot reloadable state into engine-owned ECS, reflected, or explicitly serialized storage.
+4. Activate the candidate and restore compatible state, then atomically publish its systems and callbacks.
+5. Unload the old module only after all code pointers and type lifecycle operations have been replaced.
+
+If validation or activation fails, the candidate is unloaded and the old module remains active. The first implementation reloads gameplay systems whose mutable state already lives in engine-owned storage. A changed C++ component layout, live game-owned object with a module vtable, static lifetime, or incompatible descriptor requires a deliberate migration or editor restart. Herta must not claim successful reload while stale code pointers remain.
 
 `HertaEditorCmd` is a separate composition target, not `HertaEditor` with an invisible window. Its baseline composition does not link or initialize GLFW, ImGui, presentation RHI, Renderer, or an audio device. Commands use stable names, machine-readable diagnostics, deterministic exit codes, and cancellation. Work that explicitly requires offscreen rendering uses an RHI-enabled command composition or worker rather than changing the baseline headless contract.
 
@@ -714,7 +963,11 @@ Do not add a separate render thread before frame ownership and profiling justify
 - Worker threads run bounded jobs.
 - IO workers perform async file reads and decompression.
 
-Data crosses thread boundaries as immutable frame packets, commands, or owned jobs. Systems do not create arbitrary private threads. Long-lived threads use `std::jthread` and cooperative cancellation.
+Data crosses thread boundaries as immutable frame packets, commands, or owned jobs. Systems do not create arbitrary private threads. Long-lived threads use `std::jthread` and cooperative cancellation. Blocking IO has a bounded lane separate from CPU work so slow disks and child processes cannot starve simulation or editor tasks.
+
+User experience takes priority over maximizing worker occupancy. An editor operation expected to exceed one interactive frame must expose progress and cancellation, preserve the last valid result until atomic publication, and avoid synchronous waits on the main thread. Cancellation is cooperative but stale generations are never published. Queue depth, execution time, wait time, cancellation latency, and worker utilization are observable through profiling and diagnostics.
+
+The game API exposes structured task scopes rather than raw worker threads. A world may run independent systems or partitioned queries concurrently when declared read/write sets do not conflict. Structural ECS mutation, unsafe third-party callbacks, and final publication remain explicit phase boundaries. A deterministic single-worker test mode validates ordering and failure behavior without claiming that normal parallel execution has deterministic wall-clock scheduling.
 
 ## 7. Dependency policy
 
@@ -730,15 +983,27 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [Stack Layout PR 846](https://github.com/ocornut/imgui/pull/846) | Do not adopt | None | The initial editor does not justify an unmerged patch to ImGui internals. |
 | [Herta imgui-node-editor fork](https://github.com/Solessfir/imgui-node-editor) | Adopt with first node-canvas graph | GraphEditor | Maintained third-party fork for graph visualization and interaction, not graph semantics or execution. Preserve upstream history and document Herta patches. |
 | [doctest](https://github.com/doctest/doctest) | Adopt with Core | HertaTests | Unit tests beside modules, one test runner. |
+| [spdlog](https://github.com/gabime/spdlog) | Adopt at MS1 | Core | Compiled private backend for console, debugger, rotating-file, and editor-buffer sinks. Herta owns the public logging contract and record schema. |
+| [enkiTS](https://github.com/dougbinks/enkiTS) | Preferred MS1 task-backend candidate after spike | Tasks | Private worker scheduling implementation. Herta owns task scopes, cancellation, reload quiescence, IO lanes, diagnostics, and public APIs. |
+| [Umka](https://github.com/vtereshkov/umka-lang) | Preferred candidate at scripting milestone | Scripting | Optional statically typed gameplay VM behind Herta handles, bindings, cooking, budgets, diagnostics, and sandbox policy. Adopt only if production gates pass. |
 | [EnTT](https://github.com/skypjack/entt) | Preferred at world milestone after spike | Scene | Private ECS storage candidate. Herta owns entity, world, query, serialization, scheduling, and mutation-barrier contracts. |
 | [fastgltf](https://github.com/spnda/fastgltf) | Adopt with asset import | AssetPipeline | Offline glTF 2.0 ingestion only. |
 | [Blender](https://www.blender.org/) | Optional system tool | AssetPipeline | Used only for `.blend` import and live reimport. Never downloaded by Setup or required to build or run Herta. |
 | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | Adopt at physics milestone | Physics | Collision and rigid-body simulation behind Herta types. |
 | [ozz-animation](https://github.com/guillaumeblanc/ozz-animation) | Adopt at animation milestone | Animation, AssetPipeline | Offline optimization plus runtime sampling and blending primitives. |
 | [miniaudio](https://github.com/mackron/miniaudio) | Adopt at audio milestone | Audio | Private device, decoder, mixer, resampler, spatialization, and null-backend implementation behind Herta Audio. |
+| [Steam Audio](https://github.com/ValveSoftware/steam-audio) | Preferred optional candidate after base audio spike | SteamAudio | Private HRTF and environmental-acoustics backend behind Herta Audio. Start with the built-in CPU ray tracer; do not make OpenCL, Radeon Rays, TrueAudio Next, or acoustic baking mandatory. Preserve Apache-2.0 notices and Valve trademark boundaries. |
 | [Recast Navigation](https://github.com/recastnavigation/recastnavigation) | Adopt at navigation milestone | Navigation subsystem | NavigationBuilder owns offline Recast use; runtime Navigation owns Detour queries, streaming, tile-cache updates, and DetourCrowd behind Herta APIs. |
+| [GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) | Preferred transport candidate after spike | Networking | Message transport, encryption, lanes, statistics, and network simulation behind Herta sessions. It does not own replication or serialization. Defer optional P2P and ICE dependencies. |
+| [ICU4C](https://github.com/unicode-org/icu) | Adopt at localization milestone | Localization | Private Unicode, BCP 47 locale, MessageFormat, plural, formatting, collation, BiDi, and boundary services with pinned CLDR data. |
+| [HarfBuzz](https://github.com/harfbuzz/harfbuzz) | Adopt at localization milestone | TextLayout | Private shaping backend. Herta owns font fallback, layout, hit testing, caches, and public text types. |
+| [FreeType](https://gitlab.freedesktop.org/freetype/freetype) | Adopt at localization milestone | TextLayout | Private font parsing and glyph rasterization. Font data is untrusted and worker lifetime and face concurrency are explicit. |
 | [Zstandard](https://github.com/facebook/zstd) | Adopt at package milestone | Assets | Default general-purpose package chunk compression behind Herta stream and package APIs. Use the BSD license option. |
+| [libsodium](https://github.com/jedisct1/libsodium) | Adopt when package signing is implemented | PackageBuilder | Private Ed25519 signing and verification; optional authenticated encryption only after a reviewed threat and reproducibility policy. |
 | [Slang](https://github.com/shader-slang/slang) | Adopt at shader milestone | ShaderCompiler | HLSL-like source to SPIR-V plus reflection. |
+| [AMD FidelityFX FSR](https://gpuopen.com/fidelityfx-super-resolution-3/) | Adopt after native TAA and upscaler contracts | Renderer adapter | First optional Vulkan temporal-upscaling integration. Vendor types and lifecycle remain private. Frame generation is later. |
+| [NVIDIA Streamline/DLSS](https://github.com/NVIDIA-RTX/Streamline) | Optional later plugin | Renderer plugin | Vulkan DLSS integration without making NVIDIA binaries or device capabilities a renderer foundation. Validate Windows and Linux deployment independently. |
+| [Intel XeSS](https://www.intel.com/content/www/us/en/developer/articles/technical/xess-sr-developer-guide.html) | Optional later plugin | Renderer plugin | Vulkan temporal upscaling through the same Herta input contract after native TAA and FSR are stable. |
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | Add when mesh cooking exists | AssetPipeline | Mesh optimization, simplification, and later meshlets. |
 | [KTX-Software/Basis Universal](https://github.com/KhronosGroup/KTX-Software) | Add when texture cooking exists | AssetPipeline | KTX2 texture cooking and runtime transcode targets. Audit per-file licenses. |
 | [Tracy](https://github.com/wolfpld/tracy) | Add when frame systems exist | Core, Renderer | CPU, allocation, lock, and Vulkan profiling. Compile out in Shipping. |
@@ -748,13 +1013,16 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [BehaviorTree.CPP](https://github.com/BehaviorTree/BehaviorTree.CPP) | Do not adopt | None | Its runtime, XML, blackboard, and plugin model overlap Herta StateTree, GraphCore, reflection, and serialization. Use only as a design reference. |
 | [HFSM2](https://github.com/andrew-gresyk/HFSM2) | Do not adopt | None | Its compile-time static structure does not fit Herta's editor-authored, cooked StateTree assets. Use only as a design reference. |
 | [RVO2](https://github.com/snape/RVO2) | Defer | Navigation | Evaluate only if DetourCrowd fails measured avoidance or crowd requirements. |
+| [Radiance Cascades](https://radiance-cascades.com/) | Research only until acceptance gates pass | Renderer | Experimental dynamic-GI reference. Do not make it the sole shipping GI path or add a runtime dependency before the 3D spike succeeds. |
 | [nob.h](https://github.com/tsoding/nob.h) | Do not adopt as primary build | None | Experimental C build-recipe library. Herta would have to own project generation, dependency scanning, incremental scheduling, and IDE integration. |
 | [BGFX](https://github.com/bkaradzic/bgfx) | Reject | None | Overlaps NVRHI, Vulkan ownership, shader abstraction, and renderer learning goals. |
 
 Likely later systems, with no dependency selected yet:
 
 - Crash reporting: start with platform crash dumps, add a service only when distribution needs it.
-- Networking, localization, voice chat, and advanced acoustics: project-driven, not foundation dependencies.
+- Voice chat: project-driven, with no dependency selected yet.
+
+[Wicked Engine](https://github.com/turanszkij/WickedEngine) is an MIT-licensed implementation reference for job scheduling, Vulkan rendering, temporal effects, dynamic GI, ray tracing, volumetric clouds, and shared GUI-backdrop blur. [Doriax](https://github.com/doriaxengine/doriax) is a reference for ECS/editor workflow, asynchronous resource handling, scripting integration, and agent-facing tooling. Herta studies their tradeoffs but retains its own ownership model, RenderGraph, task API, scripting decision, and data formats. Reused code must remain attributable and pass Herta's dependency and architecture review rather than entering by copy-and-paste convenience.
 
 Every dependency must have:
 
@@ -1048,22 +1316,33 @@ Initial required suites:
 - Math conventions and third-party conversion round trips.
 - Stable IDs, generational handles, hashing, and path normalization.
 - Error propagation and staged initialization teardown.
+- Logging category filtering, sink routing, deterministic flush, and sink-failure behavior.
+- Task cancellation, scope teardown, IO-lane isolation, main-thread continuation ownership, reload quiescence, starvation, and deterministic single-worker execution.
 - Serialization versioning and corrupted-input rejection.
 - RenderGraph dependency, lifetime, and barrier planning.
 - Asset build-key determinism and atomic import behavior.
+- Drag-and-drop batch validation, fuzzy-search cancellation and ranking, numeric-expression failures, and cross-scene clipboard ID remapping.
 - Graph validation and compiler IR.
 - ECS structural barriers, query access declarations, component relocation, and deterministic system ordering.
 - StateTree compilation, direct transitions, bounded jump loops, instance-data layout, tracing, and cooked-data rejection.
 - Navmesh cook determinism, path queries, tile streaming, cancellation, and coordinate adapters.
-- Audio null-backend behavior, command-queue limits, asset streaming, and coordinate adapters.
+- Audio null-backend behavior, command-queue limits, asset streaming, Steam Audio buffer and coordinate adapters, acoustics publication, and real-time thread constraints.
 - Package index validation, zstd bounds, VFS mount precedence, embedded-package discovery, and mod compatibility.
+- Package signature verification, unknown-key and tamper rejection, unsigned-mod trust policy, and reproducibility with signing disabled.
 - Fixed-step accumulation and physics-event buffering.
+- Project-template validation, safe substitution, cancellation cleanup, and no-overwrite behavior.
+- Game-module API/build rejection, quiescence, successful state transfer, and rollback after candidate failure.
+- Script binding validation, cooked-program version rejection, resource-budget enforcement, cancellation, sandbox denial, and hot-reload rollback.
+- Locale canonicalization and fallback, plural/select arguments, stale translations, XLIFF rejection, deterministic catalog cooking, pseudolocalization, BiDi, shaping, font fallback, and grapheme-aware editing.
+- Network schema negotiation, snapshot/delta validation, prediction and reconciliation, relevancy, rate limits, reconnects, and multi-process behavior under simulated loss, latency, jitter, reordering, and duplication.
+- Plugin dependency cycles, safe-mode startup, registration teardown, task quiescence, automation revision checks, capability denial, and MCP cancellation.
 
 Add slower categories as their systems arrive:
 
 - Golden glTF fixtures, Blender-unavailable tests, and conditional `.blend` fixtures on machines with Blender installed.
 - Headless Vulkan/NVRHI smoke tests where CI provides a supported driver.
 - Swapchain resize, minimize, restore, and device-loss tests.
+- TAA still-detail, motion, disocclusion, foliage, thin-geometry, specular, particle, camera-cut, and history-reset render regressions.
 - Windows custom-titlebar hit-test tests.
 - Linux X11 and Wayland build and smoke coverage.
 
@@ -1082,10 +1361,17 @@ When diagnosing engine failures, add logs, validation, captures, and assertions 
 
 - Treat imported assets as untrusted input.
 - Treat packages and mod manifests as untrusted input, including paths, dependency graphs, sizes, hashes, and compression metadata.
+- Verify signed package indexes before mount and never treat unsigned, user-approved mods as publisher-authenticated content.
+- Treat network packets, handshakes, remote arguments, decompression, rates, and client authority as hostile input.
+- Treat fonts, localization catalogs, and XLIFF as untrusted input. Disable XML entities and external resources and bound shaping, fallback, and message recursion.
+- Treat project and mod scripts as untrusted input. Enforce capability allowlists, execution and memory budgets, cancellation, and disabled filesystem and native-library access before enabling behavior mods.
 - Run complex importers in worker processes with timeouts and cancellation.
 - Disable embedded Blender script auto-execution.
 - Validate sizes, counts, offsets, recursion depth, and decompression limits before allocation.
 - Keep native binary mods disabled until Herta defines and deliberately enables a versioned execution boundary.
+- Treat native plugins as trusted unrestricted code, require explicit target compatibility, and provide editor safe mode after startup failure.
+- Keep MCP local and read-only by default. Authenticate IPC, scope paths and capabilities, confirm sensitive actions, rate-limit requests, and retain an audit trail.
+- Sanitize terminal control sequences and terminate owned process trees without routing structured build or source-control operations through a shell.
 - Use atomic output replacement so failed cooks do not destroy valid data.
 - Check every Vulkan and OS result that can fail.
 - Make partial initialization safe to destroy.
@@ -1107,6 +1393,9 @@ Exit condition: a fresh clone can run Setup, generate, build, and execute tests 
 ### Milestone 1 - Application shell
 
 - Add the pinned GLFW fork as a submodule.
+- Add Herta logging with `spdlog` as a compiled private backend, structured console and rotating-file sinks, deterministic flushing, and test capture.
+- Add the Herta Tasks contract, run the enkiTS backend spike, and either adopt a pinned revision privately or document the selected implementation.
+- Add bounded CPU-worker and blocking-IO lanes, task scopes, cancellation, progress, main-thread continuations, profiling names, and deterministic task tests.
 - Create windows, event pumping, input state, and capability reporting.
 - Integrate native-titlebar-disabled custom title bars on Win32, X11, and Wayland while retaining native resize and window-manager behavior.
 - Add the pinned NVRHI dependency, create the Vulkan instance, device, surface, and swapchain, and expose the minimum Herta RHI presentation path required by ToolUI. Do not add a scene renderer.
@@ -1114,7 +1403,7 @@ Exit condition: a fresh clone can run Setup, generate, build, and execute tests 
 - Add the `EditorCore`, `HertaEditor`, and `HertaEditorCmd` composition boundaries. The headless target starts and stops without GLFW, ImGui, presentation RHI, Renderer, or an audio device.
 - Draw title-bar controls with ImGui primitives. Defer LunaSVG and the production icon set until an SVG-backed editor tool needs them.
 
-Exit condition: the interactive editor opens, docks, creates platform viewports, resizes correctly, and closes cleanly on both platforms. The headless editor host starts, reports structured diagnostics, and exits cleanly on both platforms without a display server.
+Exit condition: the interactive editor opens, docks, creates platform viewports, resizes correctly, and closes cleanly on both platforms. The headless editor host starts, reports structured diagnostics, and exits cleanly on both platforms without a display server. Task scopes cancel and drain safely, blocking work cannot starve CPU workers, and synthetic background work does not stall event pumping.
 
 ### Milestone 2 - RHI and renderer
 
@@ -1131,6 +1420,8 @@ Exit condition: render tests and resize/minimize stress runs produce no validati
 - Add fastgltf, mesh cooking, and texture cooking foundations.
 - Add optional isolated `.blend` import through a discovered system Blender installation.
 - Add file watching, background Blender live reimport, and atomic editor asset generation swaps.
+- Add asynchronous drag-and-drop batch import through the same AssetPipeline commands used headlessly.
+- Add immutable AssetRegistry snapshots, incremental indexing, and cancellable deterministic fuzzy search.
 - Expose validation, import, and reimport commands through `HertaEditorCmd` without initializing interactive editor systems.
 
 Exit condition: Herta operates normally without Blender. When Blender is installed, saving a tracked `.blend` updates dependent editor instances without blocking the UI, the same source, Blender version, and settings produce identical cooked hashes, and failed reimport preserves the previous asset.
@@ -1141,18 +1432,52 @@ Exit condition: Herta operates normally without Blender. When Blender is install
 - Run the EnTT storage and scheduling spike, record results, and either adopt its pinned revision privately or document why another implementation is required.
 - Add deferred structural barriers, explicit query read/write access, buffered events, and deterministic system ordering.
 - Add explicit Herta runtime descriptors needed by inspectors and serialization, without requiring C++26 reflection.
-- Add transactions, property editing, selection, gizmos, and play-in-editor lifecycle.
+- Add stable `FTextId` serialization and localizable descriptor metadata before scene and graph formats settle.
+- Add `.hertaproject` loading, transactional project creation from the minimal Game template, and matching headless commands.
+- Add editor-only game-module hot reload with build/API validation, shadow copies, safe-point quiescence, rollback, and an explicit restart result for incompatible state.
+- Add deterministic UTF-8 scene and prefab serialization, transactions, property editing, selection, gizmos, and play-in-editor lifecycle.
+- Add numeric property expressions and transactional cross-scene entity copy/paste with stable-reference remapping.
+- Define source-plugin descriptors, extension registries, and semantic EditorCore automation commands without promising dynamic unload or a stable binary ABI.
 
-Exit condition: scenes round-trip, undo/redo is reliable, ECS mutation and query rules pass focused and scale tests, and runtime remains independent of editor modules.
+Exit condition: scenes round-trip in canonical mergeable text, undo/redo and cross-scene paste are reliable, ECS mutation and query rules pass focused and scale tests, a generated Game project builds, and compatible gameplay-system changes reload without losing engine-owned state. Incompatible native state produces an actionable restart requirement, and runtime remains independent of editor modules.
 
-### Milestone 5 - Physics
+### Milestone 5 - Localization and typography
+
+- Add Localization, TextLayout, LocalizationPipeline, and LocalizationEditor boundaries.
+- Add pinned ICU4C with filtered CLDR data and stable MessageFormat support behind Herta APIs.
+- Add canonical UTF-8 source and translation catalogs, generated `constexpr` text IDs, deterministic fallback, hot reload, pseudolocalization, and per-culture cooking.
+- Add validated XLIFF 2.1 import and export through `HertaEditorCmd` without interactive editor dependencies.
+- Add project font fallback, ICU BiDi and break analysis, HarfBuzz shaping, FreeType rasterization, grapheme-aware editing, and asynchronous GPU-atlas publication.
+
+Exit condition: Polish plural and formatting fixtures, forced RTL, mixed Arabic and Latin, Indic shaping, CJK fallback, combining marks, emoji sequences, and grapheme editing behave consistently on Windows and Linux. Catalogs cook deterministically, invalid translation input preserves the last valid generation, and selected language packs mount through the VFS.
+
+### Milestone 6 - Production raster renderer
+
+- Add PBR materials, image-based lighting, direct lights, shadow maps, motion vectors, depth hierarchy, exposure, and tone mapping.
+- Add GTAO and crisp native-resolution TAA with correct history rejection, reactive masks, camera-cut resets, render regressions, and configurable modest sharpening.
+- Add the Herta temporal-upscaler contract and FSR as the first optional Vulkan adapter while retaining native TAA and non-temporal fallbacks.
+- Add GPU timings, feature capability reporting, quality tiers, and validation for multi-viewport editor rendering.
+- Keep lightmap authoring, baking, lightmap UVs, and baked-light data out of the asset pipeline.
+
+Exit condition: representative scenes render without baked lighting across the declared low, medium, and high raster tiers. TAA remains stable and crisp under motion, disocclusion, foliage, particles, thin geometry, specular highlights, and camera cuts, and every optional feature has a tested fallback.
+
+### Milestone 7 - Physics
 
 - Add Jolt adapters, collision layers, shapes, bodies, fixed-step simulation, and debug draw.
 - Add origin-relative physics transforms and buffered events.
 
 Exit condition: physics tests are repeatable for the supported configuration and world mutation never occurs inside callbacks.
 
-### Milestone 6 - Navigation and AI
+### Milestone 8 - Multiplayer
+
+- Add Networking and Replication with the selected GameNetworkingSockets transport revision behind Herta APIs.
+- Add `HertaServer`, direct-IP dedicated servers, and player-hosted listen servers using the same authoritative simulation and replication path.
+- Add versioned handshakes and wire schemas, stable network entity IDs, input commands, snapshots and deltas, relevancy, bandwidth budgets, interpolation, prediction, and reconciliation.
+- Add loopback and multi-process tests with simulated loss, latency, jitter, reordering, duplication, bandwidth limits, reconnects, incompatibility, and hostile input.
+
+Exit condition: dedicated and player-hosted sessions produce the same authoritative gameplay behavior, local listen-server clients do not bypass replication or permission checks, prediction reconciles under simulated adverse networks, and headless servers run without window, renderer, ImGui, or audio-device dependencies.
+
+### Milestone 9 - Navigation and AI
 
 - Add Recast offline tiled-navmesh cooking, Detour runtime queries and tile streaming, and initial DetourCrowd integration.
 - Add asynchronous path requests, cancellation, dynamic-obstacle handling, debug draw, and deterministic fixtures.
@@ -1162,7 +1487,7 @@ Exit condition: physics tests are repeatable for the supported configuration and
 
 Exit condition: agents navigate a streamed test level, avoidance behaves consistently, and authored StateTrees compile and produce matching headless execution traces after reload.
 
-### Milestone 7 - Animation
+### Milestone 10 - Animation
 
 - Add skeleton and clip import through ozz offline tools.
 - Add sampling, blending, skinning, root motion, and animation events.
@@ -1170,15 +1495,17 @@ Exit condition: agents navigate a streamed test level, avoidance behaves consist
 
 Exit condition: a cooked skinned asset animates identically after reload and has no runtime dependency on offline ozz tools.
 
-### Milestone 8 - Audio
+### Milestone 11 - Audio
 
 - Add miniaudio behind Herta Audio with real and null device paths.
 - Add cooked sound assets, voices, buses, streaming, spatial playback, concurrency policy, and real-time-safe command queues.
 - Add audio diagnostics and deterministic headless tests without requiring an audio device.
+- Run a focused Steam Audio spike covering Windows and Linux builds, miniaudio buffer integration, HRTF quality, coordinate conversion, thread ownership, source-count scaling, simulation update rates, dynamic geometry, and fallback behavior.
+- If the spike passes, add optional HRTF, occlusion, transmission, and bounded real-time acoustics through the private SteamAudio integration. Defer acoustic probe baking, Embree, and custom renderer ray tracing until measured requirements justify them.
 
-Exit condition: static and streaming sounds play spatially on Windows and Linux, the callback remains real-time safe under stress, and headless gameplay produces the same audio commands through the null path.
+Exit condition: static and streaming sounds play spatially on Windows and Linux, the callback remains real-time safe under stress, and headless gameplay produces the same audio commands through the null path. Steam Audio-enabled builds preserve those constraints and disabled builds contain no Steam Audio code or runtime dependency.
 
-### Milestone 9 - Graph domains
+### Milestone 12 - Graph domains
 
 - Add the pinned Herta imgui-node-editor fork behind GraphEditor for the first domain that requires a free-form node canvas.
 - Promote the animation state machine into a typed animation-graph domain and compiler.
@@ -1188,15 +1515,50 @@ Exit condition: static and streaming sounds play spatially on Windows and Linux,
 
 Exit condition: StateTree and the animation graph compile headless and execute from cooked data without ImGui or imgui-node-editor linked, while sharing only proven GraphCore infrastructure.
 
-### Milestone 10 - Cooking and distribution
+### Milestone 13 - Scripting
+
+- Run a focused Umka spike covering Windows and Linux integration, binding-call overhead, VM memory behavior, worker compilation, cooked-program persistence, diagnostics, hot reload, and hostile-script controls.
+- Adopt a pinned upstream revision or narrow Herta fork only if the spike satisfies the documented production gates. Record the rejection and evaluate alternatives if it does not.
+- Add optional `Scripting` composition, typed Herta binding registration from runtime descriptors, script assets, deterministic cooking, version checks, and source diagnostics.
+- Add instruction, stack, heap, recursion, host-call, and per-update budgets with cancellation. Disable filesystem and native implementation libraries by default.
+- Add editor breakpoints, stepping, stack frames, variables, profiling, and structured runtime errors without linking editor code into Shipping execution.
+- Add transactional script hot reload with explicit persistent-state serialization, binding compatibility checks, rollback, and stable script function handles.
+- Allow StateTree and graph domains to invoke validated script functions without compiling their own programs to Umka bytecode.
+
+Exit condition: the same cooked script fixtures produce matching logical results on Windows and Linux, hostile fixtures are stopped by enforced limits, compatible state survives reload, failures preserve the last valid generation, and a scripting-disabled target contains no Umka code or script compiler.
+
+### Milestone 14 - Cooking and distribution
 
 - Add HertaCooker, versioned package indexes, dependency closure, zstd chunk compression, and platform deployment.
+- Add Ed25519 package-index signing and verification through libsodium with keys kept outside source and player builds.
 - Add loose, external-package, and executable-embedded output modes through the same VFS and package reader.
+- Add deterministic base-culture and optional language-pack output through the same package system.
 - Add deterministic data-mod discovery, manifests, dependency resolution, namespaces, override policy, and compatibility diagnostics.
+- Add opt-in cooked script behavior mods with explicit capability profiles after all Milestone 13 sandbox gates pass. Keep native binary mods disabled.
 - Add third-party notices, crash build IDs, and reproducible Shipping configuration.
 - Add protected release tags, clean double-build verification, SBOM generation, artifact attestations, and immutable GitHub releases where available.
 
-Exit condition: HertaGame runs from external or embedded cooked data without editor or developer modules, packages reproduce byte-for-byte, and compatible data mods mount deterministically without changing the base package.
+Exit condition: HertaGame runs from external or embedded cooked data without editor or developer modules, unsigned package output reproduces byte-for-byte, signed packages reject index or chunk tampering, language packs and compatible enabled mods mount deterministically without changing the base package, and disallowed script capabilities fail closed.
+
+### Milestone 15 - Editor tooling and extensibility
+
+- Complete project and engine plugin discovery, dependency diagnostics, restart-required enable and disable, first-party extension registries, and startup safe mode.
+- Add the first-party Git source-control plugin using asynchronous Git CLI operations and credential helpers.
+- Add the first-party terminal plugin through ConPTY and Linux PTYs without replacing structured build, cook, test, or source-control APIs.
+- Add `HertaEditorMcp` over authenticated local IPC and semantic EditorCore automation with read-only defaults, explicit capabilities, transactions, progress, cancellation, and audit records.
+- Add final translucent-panel backdrop blur, per-user appearance settings, performance scaling, and detached-viewport fallbacks.
+
+Exit condition: an external source plugin extends the editor without private headers, Git and terminal work cannot stall the editor, automation operations match interactive and headless behavior, MCP mutation requires explicit authority and remains undoable where applicable, and plugin startup failure can be recovered through safe mode.
+
+### Milestone 16 - Advanced dynamic rendering
+
+- Add SSGI as an optional medium-tier dynamic-lighting enhancement.
+- Add capability-driven Vulkan KHR ray queries and ray-tracing pipelines for selected effects without weakening the raster fallback.
+- Run the Radiance Cascades 3D acceptance spike against path-traced references before deciding whether it becomes a shipping GI backend.
+- Add optional DLSS and XeSS plugins through the temporal-upscaler contract. Defer frame generation until latency, frame pacing, UI composition, and swapchain requirements pass dedicated gates.
+- Add atmosphere, volumetric fog, cloud shadows, and temporally reconstructed volumetric clouds with measured quality tiers.
+
+Exit condition: advanced features pass capability, memory, performance, camera-cut, multi-view, dynamic-geometry, and render-regression gates; unsupported hardware retains the production raster path; and Herta still has no light-baking pipeline.
 
 ## 13. Definition of done for an engine module
 
@@ -1218,10 +1580,11 @@ A module is not complete because its happy path works. It is complete when:
 
 Milestone 0 is complete. The next code slice is Milestone 1 and should remain limited to:
 
-1. Add the pinned Herta GLFW fork and its Premake boundary.
-2. Add Application window lifetime, event pumping, input state, capability reporting, and native title-bar integration.
-3. Add the minimum NVRHI Vulkan presentation path required by ToolUI, without starting the scene renderer.
-4. Add Dear ImGui docking and multi-viewport ToolUI plus the initial editor shell.
-5. Add `EditorCore`, `HertaEditor`, and display-independent `HertaEditorCmd` composition roots.
+1. Add the Herta Tasks contract, backend spike, bounded CPU and IO lanes, task scopes, cancellation, progress, and main-thread continuations.
+2. Add the pinned Herta GLFW fork and its Premake boundary.
+3. Add Application window lifetime, event pumping, input state, capability reporting, and native title-bar integration.
+4. Add the minimum NVRHI Vulkan presentation path required by ToolUI, without starting the scene renderer.
+5. Add Dear ImGui docking and multi-viewport ToolUI plus the initial editor shell.
+6. Add `EditorCore`, `HertaEditor`, and display-independent `HertaEditorCmd` composition roots.
 
-Do not pull ECS, asset importing, graph tooling, physics, animation, or audio into this slice.
+Do not pull ECS, asset importing, localization, production rendering, networking, graph tooling, physics, animation, audio, or scripting into this slice.
