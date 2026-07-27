@@ -172,20 +172,30 @@ Herta/
 |       |   |-- Reflection/
 |       |   |-- Assets/
 |       |   |-- Scene/
+|       |   |-- GraphCore/
+|       |   |-- ToolUI/
+|       |   |-- Audio/
+|       |   |-- Navigation/
+|       |   |-- AI/
 |       |   |-- RHI/
 |       |   |-- RenderGraph/
 |       |   |-- Renderer/
 |       |   |-- Physics/
 |       |   `-- Animation/
 |       |-- Editor/
+|       |   |-- EditorCore/
 |       |   |-- EditorFramework/
 |       |   |-- AssetEditor/
 |       |   `-- GraphEditor/
 |       |-- Developer/
 |       |   |-- AssetPipeline/
+|       |   |-- NavigationBuilder/
+|       |   |-- PackageBuilder/
+|       |   |-- StateTreeCompiler/
 |       |   `-- ShaderCompiler/
 |       `-- Programs/
 |           |-- HertaEditor/
+|           |-- HertaEditorCmd/
 |           |-- HertaGame/
 |           |-- HertaAssetWorker/
 |           |-- HertaShaderWorker/
@@ -193,14 +203,18 @@ Herta/
 |           `-- HertaTests/
 |-- External/
 |   |-- doctest/
+|   |-- entt/
 |   |-- fastgltf/
 |   |-- glfw/
 |   |-- imgui/
 |   |-- imgui-node-editor/
 |   |-- jolt/
 |   |-- lunasvg/
+|   |-- miniaudio/
 |   |-- nvrhi/
-|   `-- ozz-animation/
+|   |-- ozz-animation/
+|   |-- recastnavigation/
+|   `-- zstd/
 |-- Games/
 |   `-- Sandbox/
 |       |-- Config/
@@ -265,21 +279,37 @@ Core
 |-- Assets -> Core + Reflection
 |-- Application -> Core + Math + Platform
 |-- Scene -> Core + Math + Reflection + Assets
+|-- GraphCore -> Core + Reflection + Assets
+|-- ToolUI -> Core + Application + RHI
 |-- RHI -> Core + Math
 |   `-- NvrhiVulkan -> RHI + Platform
 |-- RenderGraph -> Core + RHI
 |-- Renderer -> Core + Math + Assets + RHI + RenderGraph
 |-- Physics -> Core + Math
-`-- Animation -> Core + Math + Assets
+|-- Animation -> Core + Math + Assets
+|-- Audio -> Core + Math + Assets
+|-- Navigation -> Core + Math + Assets
+`-- AI -> Core + Math + Assets + Scene + GraphCore + Physics + Navigation
 
-Runtime composition -> Application + Scene + Renderer + Physics + Animation
-EditorFramework -> Runtime composition
+Full game composition -> Application + Scene + Renderer + Physics + Animation + Audio + Navigation + AI
+EditorCore -> Core + Platform, then adds Reflection + Assets + Scene as those milestones arrive
+EditorFramework -> EditorCore + ToolUI
 AssetEditor -> EditorFramework + AssetPipeline
-GraphEditor -> EditorFramework
+GraphEditor -> EditorFramework + GraphCore
+NavigationBuilder -> Core + Math + Assets + AssetPipeline
+PackageBuilder -> Core + Assets
+StateTreeCompiler -> Core + Reflection + Assets + GraphCore + AI
+HertaEditor -> EditorFramework + runtime modules available in the current milestone
+HertaEditorCmd -> EditorCore + selected Runtime and Developer command modules
+HertaAssetWorker -> AssetPipeline
+HertaCooker -> AssetPipeline + PackageBuilder
+GUI programs -> Application + ToolUI + selected modules
 Programs -> only the modules each program composes
 ```
 
 Runtime modules must never depend on `Editor`, `Developer`, or `Programs`. Editor modules may use runtime modules. Developer modules are build-time systems and do not ship in `HertaGame`.
+
+The graph above shows the eventual dependency direction, not a requirement that Milestone 1 link modules that do not exist yet. Composition roots grow with the roadmap. The initial `EditorCore` uses only Core and Platform services; project assets, reflection, scenes, graph compilers, and other services are added when their owning milestones arrive.
 
 Start with these modules. Do not reproduce Unreal's current module count. Split a module when at least one is true:
 
@@ -357,16 +387,21 @@ Generated files use `.gen.h` and `.gen.cpp`, live under `Intermediate/Generated`
 
 ### 4.5 Scene and world
 
-The world model starts data-oriented without immediately importing an ECS framework:
+ECS is Herta's canonical runtime world representation, not its universal object model. World entities and gameplay components use ECS storage. Assets, editor documents, windows, devices, allocators, registries, and other engine services remain ordinary Herta-owned C++ objects.
 
 - `FWorld` owns entities and component storage.
 - `FEntityId` is a generational runtime handle.
 - `FObjectId` and `FAssetId` are stable serialized identifiers.
 - The scene hierarchy describes transforms and authoring relationships, not C++ ownership.
 - Creation and destruction are deferred to well-defined frame barriers.
-- Runtime systems query component views and produce narrow bridge data.
+- Queries declare component read and write access so ordering and parallel execution can be validated.
+- Component pointers and views cannot survive a structural-change barrier.
+- Cross-system events are buffered and consumed at explicit phases.
+- Runtime systems produce narrow bridge data for physics, animation, audio, AI, and rendering.
 
-Actor-like authoring objects may be added later, but the storage model should not require one heap allocation and virtual tick per object. Physics, animation, and rendering do not depend directly on Scene. Runtime composition extracts the data each system needs, preventing dependency cycles.
+Actor-like authoring objects may be added later, but the storage model must not require one heap allocation and virtual tick per object. Physics, animation, audio, navigation, and rendering do not own Scene entities. The program composition root extracts or submits the data each system needs, preventing dependency cycles.
+
+EnTT is the preferred storage implementation candidate for the world milestone, not a foundation dependency. It uses sparse-set component pools and has different scheduling and locality tradeoffs from an archetype-chunk ECS such as Unreal Mass. Before selection, a focused spike must cover fragmented and homogeneous component mixes, hierarchy operations, deferred mutation, parallel read/write queries, component relocation, cloning, editor inspection, and iteration at 100,000 to 1,000,000 entities. If adopted, EnTT remains private behind Herta entity, world, and query contracts. No EnTT type is serialized or exposed by a public Herta API.
 
 ### 4.6 RHI, RenderGraph, and Renderer
 
@@ -523,13 +558,15 @@ Sampling and blending are natural job-system workloads, but a custom task graph 
 
 ### 4.12 Editor and graph system
 
-The editor hosts the runtime. Runtime code never includes ImGui or editor headers.
+The interactive editor hosts the runtime. Runtime code never includes ImGui or editor headers. `EditorCore` owns project loading, transactions, validation, automation contracts, and other editor services that must also run headless. It does not depend on Application, ImGui, RHI, Renderer, or an audio device.
 
-Dear ImGui is used for editor tooling, not game UI. Use the maintained docking branch with multi-viewports, pinned to an exact commit or release tag.
+Dear ImGui is used for editor, tool, and optional GUI-application interfaces, not Herta game UI. `ToolUI` owns context lifetime and platform/render integration so a GUI program can use ImGui without linking Scene, Physics, Animation, AI, or EditorCore. Use the maintained docking branch with multi-viewports, pinned to an exact commit or release tag.
 
 Herta does not adopt Stack Layout PR 846. Docking, tables, groups, child regions, `SameLine`, and explicit sizing cover the initial editor. `imgui-node-editor` itself works with standard ImGui. If repeated editor code later proves a missing layout abstraction, add small Herta-owned helpers using public ImGui APIs before considering an internal ImGui patch.
 
-`imgui-node-editor` provides node drawing and interaction only. It is not Blueprints. The system separates:
+When the first domain requires a free-form node canvas, Herta uses the maintained [Solessfir imgui-node-editor fork](https://github.com/Solessfir/imgui-node-editor) as a pinned submodule. It remains attributed third-party code. Upstream history is preserved, Herta-specific changes are documented separately, and upstream synchronization remains possible. Themes, node contents, icons, menus, and domain behavior stay in `GraphEditor`; the fork changes only when its public API or rendering internals prevent required interaction, DPI, navigation, hit-testing, or draw-order behavior.
+
+`imgui-node-editor` provides node drawing and interaction only. It is not Blueprints. `GraphCore` owns schema-neutral graph identities, versioning, validation contracts, compile diagnostics, and headless compiler interfaces. Each graph domain owns its semantics, compiler, IR, migration, and executor. The system separates:
 
 ```text
 Graph asset data
@@ -543,30 +580,103 @@ GraphEditor
     -> selection, layout, transactions, diagnostics, and debugging views
 ```
 
-The first graph should solve one narrow problem, such as material composition or an editor automation graph. A general gameplay Blueprint VM is a later project.
+The first graph domain is Herta StateTree for NPC decision-making. Its hierarchy may use a nested state-oriented editor and does not force the node-canvas dependency into that milestone. Shader Graph, animation graphs, Audio Graph, and a general gameplay Blueprint VM are separate domain compilers built on the same editing and diagnostic foundations. They must not share one weakly typed universal executor.
+
+Source graph validation and compilation run in `HertaEditorCmd`, compiler modules, workers, and tests without ImGui or imgui-node-editor linked. Game and server targets do not ship authoring compilers; they load and execute immutable cooked domain programs. StateTree compilation belongs to `StateTreeCompiler`, while AI owns the cooked StateTree format and executor.
 
 Undo/redo uses transaction objects with stable object/property paths. Inspector edits, graph edits, asset renames, and scene changes must enter the same transaction system.
 
 ### 4.13 Editor icons and fonts
 
-Source icons remain `.svg` files under `Engine/Content/Editor/Icons`; fonts remain `.ttf` or `.otf` files under `Engine/Content/Editor/Fonts`. Each asset keeps its license metadata beside the source. Editor assets are content, not C++ byte arrays, and are never embedded into the executable.
+Source icons remain `.svg` files under `Engine/Content/Editor/Icons`; fonts remain `.ttf` or `.otf` files under `Engine/Content/Editor/Fonts`. Each asset keeps its license metadata beside the source. Editor assets are content, not generated C++ byte arrays. A cooked editor package may be embedded through the normal package system when producing a monolithic executable.
 
-`EditorFramework` owns a Herta SVG adapter with LunaSVG private behind it. The adapter rasterizes an icon to RGBA at the requested physical pixel size, uploads it as an ImGui texture, and caches by source hash, pixel dimensions, and scale. Rasterization may run off the UI thread, but GPU upload and cache publication occur at an explicit frame boundary. Shipping an editor later uses a content package rather than executable embedding.
+`EditorFramework` owns a Herta SVG adapter with LunaSVG private behind it. The adapter rasterizes an icon to RGBA at the requested physical pixel size, uploads it as an ImGui texture, and caches by source hash, pixel dimensions, and scale. Rasterization may run off the UI thread, but GPU upload and cache publication occur at an explicit frame boundary.
 
 Herta editor icons use a deterministic static SVG subset: paths and basic shapes, `viewBox`, solid fills, strokes, clipping, and gradients when needed. Scripts, animation, filters, external resources, embedded raster images, and SVG text are rejected. This keeps rendering portable and avoids hidden font, network, and timing dependencies.
+
+Milestone 1 title-bar controls use ImGui draw primitives and do not require a production icon set. LunaSVG and the real editor icon library enter only when the first SVG-backed editor tool requires them. The visual language and source icon set are selected deliberately before production assets are generated.
+
+### 4.14 Audio
+
+Audio is a Herta-owned runtime module with miniaudio private behind it. miniaudio supplies Windows and Linux device backends, decoding, resampling, mixing primitives, spatialization, and a null backend. Herta owns sound assets, handles, buses, voices, concurrency limits, streaming policy, scene integration, profiling, and the public API.
+
+- The audio callback never allocates, blocks, acquires engine locks, or performs normal logging.
+- Game-thread changes cross through a bounded command queue and audio-thread events return through a bounded result queue.
+- Headless programs use no device or the null backend without changing gameplay logic.
+- Source WAV and FLAC are sufficient initially. Add Opus when measured dialogue or music streaming requirements justify it.
+- Static, streaming, and already compressed audio payloads carry explicit cook policy and are not blindly compressed again with zstd.
+- Audio Graph later compiles to immutable runtime data and has no runtime dependency on ImGui or imgui-node-editor.
+
+Spatial audio consumes Herta transforms in meters. Backend coordinate conversion occurs in one tested adapter. Advanced HRTF or acoustic simulation remains an optional extension selected after the basic mixer and spatial path are measured.
+
+### 4.15 Navigation and AI
+
+The Navigation subsystem splits offline and runtime ownership. `NavigationBuilder` uses Recast to build deterministic tiled navmeshes from canonical Herta collision geometry. Runtime `Navigation` links Detour to load cooked tiles and perform queries. DetourCrowd is the initial local avoidance and crowd implementation; add another avoidance library only after measured limitations.
+
+- Recast and Detour types remain private to the Navigation subsystem.
+- Navmesh settings, agent profiles, source geometry hashes, and Recast version participate in the cook key.
+- Runtime path requests are asynchronous, cancellable, and return Herta path handles and points.
+- Large worlds stream independently validated navmesh tiles.
+- Dynamic obstacles use Detour tile-cache updates for bounded runtime changes. Static geometry changes schedule an editor or cooker rebuild through `NavigationBuilder`; runtime never invokes the Recast builder.
+- Debug draw, query traces, and failed-path diagnostics are available in the editor and headless tests.
+
+Herta AI owns perception, working memory, StateTree execution, scheduling, tick-rate scaling, gameplay tasks, and navigation requests. Perception uses Herta physics queries and gameplay events. ECS stores agent state, but AI scheduling remains an explicit system with deterministic phase ordering.
+
+Herta StateTree is a first-party compiled hierarchical decision runtime, not a wrapper over BehaviorTree.CPP or HFSM2. The authoring graph compiles into one immutable, versioned program containing aligned contiguous sections for states, transitions, nodes, constants, property bindings, and debug mappings. States reference child, task, condition, and transition ranges by index. Transitions use direct state indices or relative jumps rather than runtime pointer traversal.
+
+Compilation must:
+
+- Validate types, hierarchy, transitions, bindings, unreachable states, and illegal cycles.
+- Flatten authoring data in deterministic order and produce a stable cooked hash.
+- Pack immutable configuration separately from aligned per-instance mutable data.
+- Retain stable node IDs for diagnostics and hot-reload migration, with optional Shipping stripping.
+- Reject programs that exceed format limits instead of truncating indices.
+
+One compiled program is shared by all agents using that tree. Each agent stores only an active-state stack, queued events, execution status, and a pooled instance-data handle. Native tasks and conditions dispatch through registered Herta function tables. The runtime bounds transitions per update to prevent infinite immediate-jump loops, buffers events, supports utility-based child selection, and emits deterministic traces for debugging and replay.
+
+### 4.16 Packages, embedded applications, and mods
+
+All runtime content is read through a Herta virtual filesystem and package interface. Loose cooked files, external packages, executable-embedded packages, and mod packages differ only in how their byte ranges are mounted.
+
+Assets owns runtime package reading, VFS mounts, precedence, decompression, and asset lookup. `AssetPipeline` owns source import and canonical asset cooking. `PackageBuilder` owns package indexes, chunk layout, compression, executable embedding, and deterministic archive output. `HertaAssetWorker` isolates individual imports and cooks, `HertaCooker` orchestrates AssetPipeline and PackageBuilder for a target, and `HertaEditorCmd` only exposes those implementations as headless commands.
+
+```text
+Embedded base package
+External base packages  -> ordered mount table -> VFS -> asset loader
+External mod packages
+```
+
+A package contains a versioned index and independently readable chunks. Each chunk records asset identity, type, offset, alignment, compression codec, compressed size, uncompressed size, and content hash. Zstandard is the default general-purpose codec. BC/KTX textures, Opus audio, and other already compressed payloads normally use `None`. Decompression validates all sizes and configured limits before allocation.
+
+The cooker supports three output policies:
+
+- Loose cooked files for development.
+- Executable plus external packages for normal games and large applications.
+- A monolithic executable with the base package added as a platform linker resource or read-only section before signing.
+
+Executable embedding never generates C++ byte arrays and uses the same package reader as external content. Project targets compose only the modules they need, so a GUI application may use Application and ToolUI without Scene, Physics, Animation, or game systems. A monolithic executable still relies on the operating system, GPU driver, Vulkan loader availability, and required platform libraries.
+
+Initial mod support is data-only. Mods remain external even when the base package is embedded. Each mod manifest declares a stable namespace, version, engine compatibility, dependencies, load order constraints, and explicit asset-override intent. Mount resolution is deterministic, asset-ID collisions are diagnosed, and missing or incompatible dependencies produce actionable errors. Mod packages are untrusted input and use the same bounds, recursion, decompression, and path validation as imported assets.
+
+Native C++ binary mods are deferred because they would expose an unstable ABI and execute unrestricted code. A future behavior-mod boundary should use a versioned scripting or sandboxed runtime contract. Source mods built together with an exact Herta revision remain possible without promising binary compatibility.
 
 ## 5. Executables
 
 | Program | Responsibility | Ships to players |
 |---|---|---:|
 | `HertaEditor` | Editor host, runtime preview, asset and graph tools | No |
+| `HertaEditorCmd` | Orchestrates headless editor validation, migration, import, cooking, and graph-compilation commands | No |
 | `HertaGame` | Standalone Sandbox game target | Yes |
-| `HertaAssetWorker` | Isolated source import and cooking tasks | No |
+| `HertaAssetWorker` | Isolated source import and canonical asset-cooking tasks | No |
 | `HertaShaderWorker` | Shader compilation and reflection | No |
-| `HertaCooker` | Builds deterministic platform packages | No |
+| `HertaCooker` | Orchestrates target asset cooking and deterministic platform package construction | No |
 | `HertaTests` | Unit and fast integration test runner | No |
 
 Static module composition is the default. Dynamic game modules and hot reload are deferred until ABI, global state, and object reinstancing requirements are understood. Shader and asset hot reload use worker processes and stable asset handles first.
+
+`HertaEditorCmd` is a separate composition target, not `HertaEditor` with an invisible window. Its baseline composition does not link or initialize GLFW, ImGui, presentation RHI, Renderer, or an audio device. Commands use stable names, machine-readable diagnostics, deterministic exit codes, and cancellation. Work that explicitly requires offscreen rendering uses an RHI-enabled command composition or worker rather than changing the baseline headless contract.
+
+Game and application projects may define additional programs that compose only selected Herta modules. Packaging those programs as a single executable is an output policy, not a separate runtime architecture.
 
 ## 6. Main loop and threading
 
@@ -584,11 +694,23 @@ Poll platform events
     -> apply deferred world changes
 ```
 
+Headless programs have a separate composition and loop:
+
+```text
+Parse command
+    -> initialize only requested services
+    -> execute bounded work and report progress
+    -> flush outputs and diagnostics
+    -> shut down in reverse construction order
+    -> return deterministic exit status
+```
+
 Do not add a separate render thread before frame ownership and profiling justify it. The eventual thread model is:
 
 - Platform/main thread owns event pumping and native windows.
 - Game thread owns mutable world state.
 - Render thread owns render submission state.
+- The miniaudio backend owns the operating-system audio callback thread. It performs only real-time-safe work and communicates through bounded queues.
 - Worker threads run bounded jobs.
 - IO workers perform async file reads and decompression.
 
@@ -601,17 +723,21 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | Dependency | Decision | Owner | Purpose and boundary |
 |---|---|---|---|
 | [Vulkan SDK](https://vulkan.lunarg.com/) | Adopt at renderer start | Setup, NvrhiVulkan | Headers, validation, tools, and SPIR-V environment. Runtime uses the system loader. |
-| [Herta GLFW fork](https://github.com/Solessfir/glfw) | Adopt now | Application | Windows, X11, Wayland, input, surfaces, and generic custom-titlebar support. Begin from commit `d6e3eee4`. Private API. |
-| [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | Adopt at RHI milestone | NvrhiVulkan | Vulkan 1.3 resource and command abstraction behind Herta RHI. |
-| [Dear ImGui](https://github.com/ocornut/imgui) | Adopt at editor milestone | EditorFramework | Docking and multi-viewport editor UI only. |
-| [LunaSVG](https://github.com/sammycage/lunasvg) | Adopt with MS1 editor icons | EditorFramework | Private CPU rasterizer for static SVG editor assets. Cache RGBA results as ImGui textures; LunaSVG types never enter Herta APIs. |
+| [Herta GLFW fork](https://github.com/Solessfir/glfw) | Adopt at MS1 | Application | Windows, X11, Wayland, input, surfaces, and generic custom-titlebar support. Begin from commit `d6e3eee4`. Private API. |
+| [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | Adopt at MS1 presentation bootstrap | NvrhiVulkan | Vulkan 1.3 device, swapchain, resource, and command implementation behind Herta RHI. MS1 uses the minimum UI path; MS2 expands the renderer-facing contract. |
+| [Dear ImGui](https://github.com/ocornut/imgui) | Adopt at editor milestone | ToolUI | Docking and multi-viewport editor and tool UI. GUI programs may compose ToolUI without the game or editor runtime. |
+| [LunaSVG](https://github.com/sammycage/lunasvg) | Adopt with first SVG-backed editor tool | EditorFramework | Private CPU rasterizer for static SVG editor assets. Cache RGBA results as ImGui textures; LunaSVG types never enter Herta APIs. |
 | [Stack Layout PR 846](https://github.com/ocornut/imgui/pull/846) | Do not adopt | None | The initial editor does not justify an unmerged patch to ImGui internals. |
-| [imgui-node-editor](https://github.com/thedmd/imgui-node-editor) | Adopt with first graph | GraphEditor | Graph visualization and interaction, not graph semantics or execution. |
+| [Herta imgui-node-editor fork](https://github.com/Solessfir/imgui-node-editor) | Adopt with first node-canvas graph | GraphEditor | Maintained third-party fork for graph visualization and interaction, not graph semantics or execution. Preserve upstream history and document Herta patches. |
 | [doctest](https://github.com/doctest/doctest) | Adopt with Core | HertaTests | Unit tests beside modules, one test runner. |
+| [EnTT](https://github.com/skypjack/entt) | Preferred at world milestone after spike | Scene | Private ECS storage candidate. Herta owns entity, world, query, serialization, scheduling, and mutation-barrier contracts. |
 | [fastgltf](https://github.com/spnda/fastgltf) | Adopt with asset import | AssetPipeline | Offline glTF 2.0 ingestion only. |
 | [Blender](https://www.blender.org/) | Optional system tool | AssetPipeline | Used only for `.blend` import and live reimport. Never downloaded by Setup or required to build or run Herta. |
 | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | Adopt at physics milestone | Physics | Collision and rigid-body simulation behind Herta types. |
 | [ozz-animation](https://github.com/guillaumeblanc/ozz-animation) | Adopt at animation milestone | Animation, AssetPipeline | Offline optimization plus runtime sampling and blending primitives. |
+| [miniaudio](https://github.com/mackron/miniaudio) | Adopt at audio milestone | Audio | Private device, decoder, mixer, resampler, spatialization, and null-backend implementation behind Herta Audio. |
+| [Recast Navigation](https://github.com/recastnavigation/recastnavigation) | Adopt at navigation milestone | Navigation subsystem | NavigationBuilder owns offline Recast use; runtime Navigation owns Detour queries, streaming, tile-cache updates, and DetourCrowd behind Herta APIs. |
+| [Zstandard](https://github.com/facebook/zstd) | Adopt at package milestone | Assets | Default general-purpose package chunk compression behind Herta stream and package APIs. Use the BSD license option. |
 | [Slang](https://github.com/shader-slang/slang) | Adopt at shader milestone | ShaderCompiler | HLSL-like source to SPIR-V plus reflection. |
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | Add when mesh cooking exists | AssetPipeline | Mesh optimization, simplification, and later meshlets. |
 | [KTX-Software/Basis Universal](https://github.com/KhronosGroup/KTX-Software) | Add when texture cooking exists | AssetPipeline | KTX2 texture cooking and runtime transcode targets. Audit per-file licenses. |
@@ -619,16 +745,16 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | Defer | NvrhiVulkan | Requires deliberate NVRHI allocation integration. Do not create two allocation authorities. |
 | [volk](https://github.com/zeux/volk) | Defer | NvrhiVulkan | Add only if its dispatch model is proven compatible with the selected NVRHI/Vulkan-Hpp integration. |
 | [GLM](https://github.com/g-truc/glm) | Optional private oracle | Math tests | Never a public Herta type. Prefer no dependency initially. |
+| [BehaviorTree.CPP](https://github.com/BehaviorTree/BehaviorTree.CPP) | Do not adopt | None | Its runtime, XML, blackboard, and plugin model overlap Herta StateTree, GraphCore, reflection, and serialization. Use only as a design reference. |
+| [HFSM2](https://github.com/andrew-gresyk/HFSM2) | Do not adopt | None | Its compile-time static structure does not fit Herta's editor-authored, cooked StateTree assets. Use only as a design reference. |
+| [RVO2](https://github.com/snape/RVO2) | Defer | Navigation | Evaluate only if DetourCrowd fails measured avoidance or crowd requirements. |
 | [nob.h](https://github.com/tsoding/nob.h) | Do not adopt as primary build | None | Experimental C build-recipe library. Herta would have to own project generation, dependency scanning, incremental scheduling, and IDE integration. |
 | [BGFX](https://github.com/bkaradzic/bgfx) | Reject | None | Overlaps NVRHI, Vulkan ownership, shader abstraction, and renderer learning goals. |
 
 Likely later systems, with no dependency selected yet:
 
-- Audio: evaluate miniaudio when audio enters the roadmap.
-- Navigation: evaluate Recast/Detour when AI navigation is needed.
-- Compression: evaluate zstd when cooked package measurements exist.
 - Crash reporting: start with platform crash dumps, add a service only when distribution needs it.
-- Networking and localization: project-driven, not foundation dependencies.
+- Networking, localization, voice chat, and advanced acoustics: project-driven, not foundation dependencies.
 
 Every dependency must have:
 
@@ -636,7 +762,7 @@ Every dependency must have:
 - Its license and notices recorded.
 - Tests, examples, and tools disabled unless Herta uses them.
 - Warnings isolated from Herta warnings.
-- A single owning module and no accidental public includes.
+- A single owning subsystem, explicit build/runtime integration modules where needed, and no accidental public includes.
 - A reason tied to a current milestone.
 
 Fonts and icon sets have independent licenses even when embedded. Generate a `ThirdPartyNotices` manifest from dependency and content metadata. Preserve upstream copyrights in forked source and document Herta modifications separately.
@@ -761,9 +887,9 @@ The initial required matrix is intentionally explicit rather than a full Cartesi
 
 | Runner | Compiler | Configuration | Required coverage |
 |---|---|---|---|
-| `windows-2025-vs2026` | MSVC x64 | Development | Win32, unit tests, Vulkan validation smoke, editor startup, custom title bar |
+| `windows-2025-vs2026` | MSVC x64 | Development | Win32, unit tests, Vulkan validation smoke, interactive and headless editor startup, custom title bar |
 | `windows-2025-vs2026` | MSVC x64 | Shipping | Shipping compile, cooker, package, and launch smoke |
-| `ubuntu-24.04` | Clang x64 | Debug-ASan | Core tests, ASan/UBSan, X11, Wayland, null, Vulkan validation |
+| `ubuntu-24.04` | Clang x64 | Debug-ASan | Core tests, ASan/UBSan, X11, Wayland, null, headless editor, Vulkan validation |
 | `ubuntu-24.04` | GCC x64 | Shipping | Compiler portability, Shipping compile, cooker, and launch smoke |
 
 Set matrix `fail-fast: false` so one failure does not hide results from other platforms. Add architecture or configuration entries only when Herta supports and tests them locally. A GCC 16 C++26 reflection experiment may run as non-required CI until the production toolchain decision changes.
@@ -781,11 +907,13 @@ Use one pinned software Vulkan implementation for deterministic offscreen and go
 
 Pull-request required tests grow with the engine:
 
-- Core, Math, serialization, scene, graph, animation, and physics unit tests.
+- Core, Math, serialization, scene, graph, StateTree, navigation, animation, audio, physics, package, and VFS unit tests.
 - Win32, X11, Wayland, and null application lifecycle tests.
 - Vulkan instance, device, surface, swapchain, and offscreen-render smoke tests.
 - Small shader, texture, and glTF fixtures, plus Blender-unavailable behavior.
-- Editor startup, project load, one frame, and clean shutdown.
+- Interactive editor startup, project load, one frame, and clean shutdown.
+- Headless editor command startup, validation, structured diagnostics, exit status, and clean shutdown without a display or audio device.
+- Package compression, corrupted-chunk rejection, external and embedded mounts, deterministic mod precedence, and compatibility diagnostics.
 - Generated-output verification followed by a clean-worktree check.
 
 Nightly tests contain expensive or statistically useful coverage:
@@ -796,6 +924,7 @@ Nightly tests contain expensive or statistically useful coverage:
 - Golden-image render regression.
 - Repeated editor startup, project reload, swapchain recreation, and shutdown.
 - Longer physics, animation, memory, and GPU-lifetime stress tests.
+- Large tiled-navigation, crowd, StateTree scheduling, audio-streaming, and package-decompression stress tests.
 
 doctest emits JUnit-compatible results. CI publishes summaries and retains structured results. On failure, upload logs, crash dumps, sanitizer output, Vulkan validation output, GPU information, expected/actual/diff images, and the minimum failed asset fixture. Successful pull-request builds do not upload large binaries by default.
 
@@ -921,6 +1050,11 @@ Initial required suites:
 - RenderGraph dependency, lifetime, and barrier planning.
 - Asset build-key determinism and atomic import behavior.
 - Graph validation and compiler IR.
+- ECS structural barriers, query access declarations, component relocation, and deterministic system ordering.
+- StateTree compilation, direct transitions, bounded jump loops, instance-data layout, tracing, and cooked-data rejection.
+- Navmesh cook determinism, path queries, tile streaming, cancellation, and coordinate adapters.
+- Audio null-backend behavior, command-queue limits, asset streaming, and coordinate adapters.
+- Package index validation, zstd bounds, VFS mount precedence, embedded-package discovery, and mod compatibility.
 - Fixed-step accumulation and physics-event buffering.
 
 Add slower categories as their systems arrive:
@@ -945,9 +1079,11 @@ When diagnosing engine failures, add logs, validation, captures, and assertions 
 ## 11. Security and robustness
 
 - Treat imported assets as untrusted input.
+- Treat packages and mod manifests as untrusted input, including paths, dependency graphs, sizes, hashes, and compression metadata.
 - Run complex importers in worker processes with timeouts and cancellation.
 - Disable embedded Blender script auto-execution.
 - Validate sizes, counts, offsets, recursion depth, and decompression limits before allocation.
+- Keep native binary mods disabled until Herta defines and deliberately enables a versioned execution boundary.
 - Use atomic output replacement so failed cooks do not destroy valid data.
 - Check every Vulkan and OS result that can fail.
 - Make partial initialization safe to destroy.
@@ -971,16 +1107,16 @@ Exit condition: a fresh clone can run Setup, generate, build, and execute tests 
 - Add the pinned GLFW fork as a submodule.
 - Create windows, event pumping, input state, and capability reporting.
 - Integrate native-titlebar-disabled custom title bars on Win32, X11, and Wayland while retaining native resize and window-manager behavior.
-- Create a Vulkan instance and surface with validation, but no scene renderer.
-- Add Dear ImGui docking and multi-viewport editor shell.
-- Add LunaSVG behind the editor icon service, with size-aware raster caching and raw `.svg` source assets.
+- Add the pinned NVRHI dependency, create the Vulkan instance, device, surface, and swapchain, and expose the minimum Herta RHI presentation path required by ToolUI. Do not add a scene renderer.
+- Add ToolUI and the Dear ImGui docking and multi-viewport editor shell.
+- Add the `EditorCore`, `HertaEditor`, and `HertaEditorCmd` composition boundaries. The headless target starts and stops without GLFW, ImGui, presentation RHI, Renderer, or an audio device.
+- Draw title-bar controls with ImGui primitives. Defer LunaSVG and the production icon set until an SVG-backed editor tool needs them.
 
-Exit condition: the editor opens, docks, creates platform viewports, resizes correctly, and closes cleanly on both platforms.
+Exit condition: the interactive editor opens, docks, creates platform viewports, resizes correctly, and closes cleanly on both platforms. The headless editor host starts, reports structured diagnostics, and exits cleanly on both platforms without a display server.
 
 ### Milestone 2 - RHI and renderer
 
-- Add NVRHI and the private Vulkan backend.
-- Implement Herta RHI handles and descriptors.
+- Expand the private NVRHI Vulkan backend and Herta RHI handles and descriptors beyond the MS1 presentation subset.
 - Add RenderGraph, frame contexts, upload staging, and fence-based retirement.
 - Add Slang worker compilation and cooked shader assets.
 - Render a validation-clean textured mesh with reversed-Z.
@@ -993,16 +1129,19 @@ Exit condition: render tests and resize/minimize stress runs produce no validati
 - Add fastgltf, mesh cooking, and texture cooking foundations.
 - Add optional isolated `.blend` import through a discovered system Blender installation.
 - Add file watching, background Blender live reimport, and atomic editor asset generation swaps.
+- Expose validation, import, and reimport commands through `HertaEditorCmd` without initializing interactive editor systems.
 
 Exit condition: Herta operates normally without Blender. When Blender is installed, saving a tracked `.blend` updates dependent editor instances without blocking the UI, the same source, Blender version, and settings produce identical cooked hashes, and failed reimport preserves the previous asset.
 
 ### Milestone 4 - World and editor authoring
 
-- Add entities, components, hierarchy, scene save/load, and version migration.
+- Add the Herta ECS contracts, entities, components, hierarchy, scene save/load, and version migration.
+- Run the EnTT storage and scheduling spike, record results, and either adopt its pinned revision privately or document why another implementation is required.
+- Add deferred structural barriers, explicit query read/write access, buffered events, and deterministic system ordering.
 - Add explicit Herta runtime descriptors needed by inspectors and serialization, without requiring C++26 reflection.
 - Add transactions, property editing, selection, gizmos, and play-in-editor lifecycle.
 
-Exit condition: scenes round-trip, undo/redo is reliable, and runtime remains independent of editor modules.
+Exit condition: scenes round-trip, undo/redo is reliable, ECS mutation and query rules pass focused and scale tests, and runtime remains independent of editor modules.
 
 ### Milestone 5 - Physics
 
@@ -1011,29 +1150,51 @@ Exit condition: scenes round-trip, undo/redo is reliable, and runtime remains in
 
 Exit condition: physics tests are repeatable for the supported configuration and world mutation never occurs inside callbacks.
 
-### Milestone 6 - Animation
+### Milestone 6 - Navigation and AI
+
+- Add Recast offline tiled-navmesh cooking, Detour runtime queries and tile streaming, and initial DetourCrowd integration.
+- Add asynchronous path requests, cancellation, dynamic-obstacle handling, debug draw, and deterministic fixtures.
+- Add AI perception, working memory, scheduling, gameplay-task contracts, and ECS integration.
+- Add GraphCore, StateTreeCompiler, and a nested StateTree authoring view for the first narrow graph domain without requiring a free-form node canvas.
+- Add the first-party contiguous StateTree runtime program with direct index jumps, pooled instance data, utility selection, tracing, and bounded transitions.
+
+Exit condition: agents navigate a streamed test level, avoidance behaves consistently, and authored StateTrees compile and produce matching headless execution traces after reload.
+
+### Milestone 7 - Animation
 
 - Add skeleton and clip import through ozz offline tools.
 - Add sampling, blending, skinning, root motion, and animation events.
-- Add an initial Herta-owned state machine.
+- Add an initial Herta-owned animation state machine using explicit cooked data. It is not the NPC StateTree runtime and does not become a GraphCore authoring domain yet.
 
 Exit condition: a cooked skinned asset animates identically after reload and has no runtime dependency on offline ozz tools.
 
-### Milestone 7 - Graphs
+### Milestone 8 - Audio
 
-- Add imgui-node-editor behind GraphEditor.
-- Add graph asset schema, typed pins, validation, transactions, IR, and execution.
-- Add debugging and migration support for the first narrow graph domain.
+- Add miniaudio behind Herta Audio with real and null device paths.
+- Add cooked sound assets, voices, buses, streaming, spatial playback, concurrency policy, and real-time-safe command queues.
+- Add audio diagnostics and deterministic headless tests without requiring an audio device.
 
-Exit condition: graph data runs headless without ImGui or node-editor linked.
+Exit condition: static and streaming sounds play spatially on Windows and Linux, the callback remains real-time safe under stress, and headless gameplay produces the same audio commands through the null path.
 
-### Milestone 8 - Cooking and distribution
+### Milestone 9 - Graph domains
 
-- Add HertaCooker, package manifests, dependency closure, and platform deployment.
+- Add the pinned Herta imgui-node-editor fork behind GraphEditor for the first domain that requires a free-form node canvas.
+- Promote the animation state machine into a typed animation-graph domain and compiler.
+- Extract only the graph authoring, typed-pin, transaction, validation, diagnostic, and migration infrastructure proven by StateTree and the animation graph.
+- Keep Shader Graph, Audio Graph, and gameplay Blueprints as later distinct compiler targets rather than one universal executor.
+- Extend debugging and cooked-format migration without linking editor UI into runtime executors.
+
+Exit condition: StateTree and the animation graph compile headless and execute from cooked data without ImGui or imgui-node-editor linked, while sharing only proven GraphCore infrastructure.
+
+### Milestone 10 - Cooking and distribution
+
+- Add HertaCooker, versioned package indexes, dependency closure, zstd chunk compression, and platform deployment.
+- Add loose, external-package, and executable-embedded output modes through the same VFS and package reader.
+- Add deterministic data-mod discovery, manifests, dependency resolution, namespaces, override policy, and compatibility diagnostics.
 - Add third-party notices, crash build IDs, and reproducible Shipping configuration.
 - Add protected release tags, clean double-build verification, SBOM generation, artifact attestations, and immutable GitHub releases where available.
 
-Exit condition: HertaGame runs from cooked data without editor or developer modules.
+Exit condition: HertaGame runs from external or embedded cooked data without editor or developer modules, packages reproduce byte-for-byte, and compatible data mods mount deterministically without changing the base package.
 
 ## 13. Definition of done for an engine module
 

@@ -18,8 +18,13 @@ The current architecture and implementation roadmap are documented in [EngineDes
 - Vulkan renderer behind Herta RHI and NVRHI
 - Herta's GLFW fork with cross-platform custom title bars
 - Dear ImGui editor and imgui-node-editor graph tooling
+- Headless editor commands that do not require windows, rendering, ImGui, or an audio device
+- ECS world storage with EnTT as the preferred implementation candidate after a focused milestone spike
 - Jolt Physics and ozz-animation behind Herta-owned APIs
+- Recast/Detour navigation and a first-party compiled StateTree AI runtime
+- miniaudio behind Herta-owned audio assets, mixing, spatialization, and thread boundaries
 - glTF asset pipeline with optional system Blender import and live reimport
+- Zstandard-compressed packages, optional single-executable embedding, and data-mod mounting through one VFS
 - Premake project generation bootstrapped by pinned setup scripts
 - Automated tests, static analysis, sanitizers, and reproducible CI builds
 
