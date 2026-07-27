@@ -2,6 +2,7 @@
 
 #include "Herta/Math/Vector.h"
 
+#include <array>
 #include <cmath>
 #include <concepts>
 #include <limits>
@@ -27,6 +28,16 @@ template <std::floating_point T> struct TQuaternion
 	[[nodiscard]] static constexpr TQuaternion Identity()
 	{
 		return {};
+	}
+
+	[[nodiscard]] static constexpr TQuaternion FromXYZW(const std::array<T, 4>& Elements)
+	{
+		return {Elements[0], Elements[1], Elements[2], Elements[3]};
+	}
+
+	[[nodiscard]] constexpr std::array<T, 4> ToXYZW() const
+	{
+		return {X, Y, Z, W};
 	}
 
 	[[nodiscard]] static TQuaternion FromAxisAngle(const TVector3<T>& Axis, T AngleRadians)

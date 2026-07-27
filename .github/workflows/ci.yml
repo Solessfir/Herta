@@ -67,7 +67,7 @@ jobs:
       - name: Generate Visual Studio projects
         if: matrix.platform == 'windows'
         shell: cmd
-        run: GenerateProjectFiles.bat vs2026
+        run: GenerateProjectFiles.bat
 
       - name: Build Herta on Windows
         if: matrix.platform == 'windows'
@@ -83,7 +83,16 @@ jobs:
       - name: Run tests on Windows
         if: matrix.platform == 'windows'
         shell: pwsh
-        run: .\Binaries\windows\x86_64\${{ matrix.configuration }}\HertaTests.exe
+        run: |
+          $TestResults = 'TestResults/${{ matrix.platform }}-${{ matrix.compiler }}-${{ matrix.configuration }}.xml'
+          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TestResults) | Out-Null
+          & .\Binaries\windows\x86_64\${{ matrix.configuration }}\HertaTests.exe
+          $ConsoleExitCode = $LASTEXITCODE
+          & .\Binaries\windows\x86_64\${{ matrix.configuration }}\HertaTests.exe --reporters=junit --out=$TestResults
+          if ($ConsoleExitCode -ne 0) {
+            exit $ConsoleExitCode
+          }
+          exit $LASTEXITCODE
 
       - name: Set up Herta on Linux
         if: matrix.platform == 'linux'
@@ -120,7 +129,27 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaTests
+        run: |
+          set +e
+          TestResults="TestResults/${{ matrix.platform }}-${{ matrix.compiler }}-${{ matrix.configuration }}.xml"
+          mkdir -p -- "$(dirname -- "$TestResults")"
+          ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaTests
+          ConsoleExitCode=$?
+          ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaTests --reporters=junit --out="$TestResults"
+          JunitExitCode=$?
+          if [[ $ConsoleExitCode -ne 0 ]]; then
+            exit "$ConsoleExitCode"
+          fi
+          exit "$JunitExitCode"
+
+      - name: Upload test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tests-${{ matrix.platform }}-${{ matrix.compiler }}-${{ matrix.configuration }}-${{ github.sha }}
+          path: TestResults
+          if-no-files-found: ignore
+          retention-days: 7
 
   required:
     name: required

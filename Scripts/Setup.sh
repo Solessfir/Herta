@@ -36,10 +36,12 @@ download_directory="${repository_root}/SDK/.Downloads"
 archive_path="${download_directory}/$(basename -- "${premake_url}")"
 temporary_archive=""
 temporary_directory=""
+compiler_probe_directory=""
 
 cleanup() {
     [[ -z "${temporary_archive}" || ! -e "${temporary_archive}" ]] || rm -f -- "${temporary_archive}"
     [[ -z "${temporary_directory}" || ! -e "${temporary_directory}" ]] || rm -rf -- "${temporary_directory}"
+    [[ -z "${compiler_probe_directory}" || ! -e "${compiler_probe_directory}" ]] || rm -rf -- "${compiler_probe_directory}"
 }
 trap cleanup EXIT
 
@@ -58,6 +60,18 @@ validate_premake() {
     fi
 }
 
+print_prerequisite_command() {
+    if [[ -f /etc/os-release ]]; then
+        source /etc/os-release
+    fi
+    case "${ID:-}:${ID_LIKE:-}" in
+        *ubuntu*|*debian*) echo 'Install them with: sudo apt-get update && sudo apt-get install -y git make g++ coreutils tar curl' >&2 ;;
+        *fedora*|*rhel*) echo 'Install them with: sudo dnf install -y git make gcc-c++ coreutils tar curl' >&2 ;;
+        *arch*) echo 'Install them with: sudo pacman -S --needed git make gcc coreutils tar curl' >&2 ;;
+        *) echo 'Install Git, Make, a C++ compiler, coreutils, tar, and curl with your distribution package manager.' >&2 ;;
+    esac
+}
+
 if [[ "${print_premake_path}" == true ]]; then
     if ! validate_premake "${premake_path}"; then
         echo "Premake is not installed at '${premake_path}'. Run Setup.sh first." >&2
@@ -68,12 +82,20 @@ if [[ "${print_premake_path}" == true ]]; then
     exit 0
 fi
 
+missing_tools=()
 for required_tool in git make sha256sum tar; do
     if ! command -v "${required_tool}" >/dev/null 2>&1; then
-        echo "Setup requires '${required_tool}' on PATH. Install it with your distribution package manager." >&2
-        exit 1
+        missing_tools+=("${required_tool}")
     fi
 done
+if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    missing_tools+=("curl or wget")
+fi
+if [[ ${#missing_tools[@]} -gt 0 ]]; then
+    echo "Setup is missing: ${missing_tools[*]}" >&2
+    print_prerequisite_command
+    exit 1
+fi
 
 cxx="${CXX:-}"
 if [[ -z "${cxx}" ]]; then
@@ -85,9 +107,28 @@ if [[ -z "${cxx}" ]]; then
     done
 fi
 if [[ -z "${cxx}" || ! -x "$(command -v "${cxx}" 2>/dev/null || true)" ]]; then
-    echo "Setup requires a C++23-capable GCC or Clang compiler. Set CXX or install the compiler with your distribution package manager." >&2
+    echo 'Setup requires a C++23-capable GCC or Clang compiler.' >&2
+    print_prerequisite_command
     exit 1
 fi
+
+compiler_probe_directory="$(mktemp -d)"
+cat > "${compiler_probe_directory}/Probe.cpp" <<'EOF'
+#include <expected>
+
+int main()
+{
+    const std::expected<int, int> value = 42;
+    return value.value() == 42 ? 0 : 1;
+}
+EOF
+if ! "${cxx}" -std=c++23 -Wall -Wextra -Werror "${compiler_probe_directory}/Probe.cpp" -o "${compiler_probe_directory}/Probe" ||
+   ! "${compiler_probe_directory}/Probe"; then
+    echo "Compiler '${cxx}' failed the Herta C++23 compile, link, and run probe." >&2
+    exit 1
+fi
+rm -rf -- "${compiler_probe_directory}"
+compiler_probe_directory=""
 
 echo "C++ compiler: $(command -v "${cxx}")"
 git -C "${repository_root}" submodule sync --recursive || {

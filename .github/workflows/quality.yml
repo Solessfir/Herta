@@ -90,7 +90,8 @@ jobs:
               echo "Action is not pinned to a full commit SHA: $Usage"
               Failed=1
             fi
-          done < <(sed -nE 's/^[[:space:]]*uses:[[:space:]]*([^[:space:]#]+).*/\1/p' .github/workflows/*.yml)
+          done < <(find .github/workflows -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) -print0 |
+            xargs -0 -r sed -nE 's/^[[:space:]]*uses:[[:space:]]*([^[:space:]#]+).*/\1/p')
           exit "$Failed"
 
       - name: Check C and C++ formatting
@@ -114,7 +115,7 @@ jobs:
   clang-tidy:
     name: Clang-Tidy
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Check out Herta
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,22 +124,68 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Analyze Herta sources
+      - name: Install compilation database capture
         shell: bash
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes bear
+
+      - name: Set up Herta
+        shell: bash
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: bash ./Setup.sh
+
+      - name: Generate GNU Make projects
+        shell: bash
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: bash ./GenerateProjectFiles.sh gmake
+
+      - name: Analyze Herta sources
+        shell: bash
+        env:
+          CC: clang-18
+          CXX: clang++-18
+        run: |
           clang-tidy-18 --version
+          bear --output compile_commands.json -- \
+            make --directory=Intermediate/ProjectFiles/gmake \
+              --jobs=2 \
+              config=development \
+              HertaTests
+          test -s compile_commands.json
           mapfile -d '' Sources < <(git ls-files -z -- \
             ':(glob)Engine/**/*.cpp' \
             ':(glob)Games/**/*.cpp')
           test "${#Sources[@]}" -gt 0
           clang-tidy-18 \
             --config-file=.clang-tidy \
-            "${Sources[@]}" \
-            -- \
-            -std=c++23 \
-            -DHERTA_DEVELOPMENT=1 \
-            -DHERTA_PLATFORM_LINUX=1 \
-            -IEngine/Source/Runtime/Core/Public \
-            -IEngine/Source/Runtime/Math/Public \
-            -IEngine/Source/Runtime/Platform/Public \
-            -isystem External/doctest
+            -p=. \
+            "${Sources[@]}"
+
+  required:
+    name: required
+    if: ${{ always() }}
+    needs:
+      - bootstrap-windows
+      - bootstrap-linux
+      - formatting
+      - clang-tidy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every quality check
+        shell: bash
+        env:
+          BOOTSTRAP_WINDOWS_RESULT: ${{ needs.bootstrap-windows.result }}
+          BOOTSTRAP_LINUX_RESULT: ${{ needs.bootstrap-linux.result }}
+          FORMATTING_RESULT: ${{ needs.formatting.result }}
+          CLANG_TIDY_RESULT: ${{ needs.clang-tidy.result }}
+        run: |
+          test "$BOOTSTRAP_WINDOWS_RESULT" = success
+          test "$BOOTSTRAP_LINUX_RESULT" = success
+          test "$FORMATTING_RESULT" = success
+          test "$CLANG_TIDY_RESULT" = success

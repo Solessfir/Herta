@@ -3,7 +3,7 @@ setlocal
 
 set "HERTA_ROOT=%~dp0"
 set "HERTA_ACTION=%~1"
-if not defined HERTA_ACTION set "HERTA_ACTION=vs2022"
+if not defined HERTA_ACTION set "HERTA_ACTION=vs2026"
 
 for /f "usebackq delims=" %%P in (`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HERTA_ROOT%Scripts\Setup.ps1" -PrintPremakePath`) do set "HERTA_PREMAKE=%%P"
 if not defined HERTA_PREMAKE (

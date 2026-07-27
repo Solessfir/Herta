@@ -1,5 +1,6 @@
 #include "Herta/Math/Math.h"
 
+#include <array>
 #include <cmath>
 #include <doctest/doctest.h>
 #include <numbers>
@@ -39,6 +40,12 @@ void CheckVector(const FVector3& Actual, const FVector3& Expected)
 	CHECK(std::abs(Actual.X - Expected.X) <= Tolerance);
 	CHECK(std::abs(Actual.Y - Expected.Y) <= Tolerance);
 	CHECK(std::abs(Actual.Z - Expected.Z) <= Tolerance);
+}
+
+FVector3 ProjectToNdc(const FMatrix4& Projection, const FVector3& Position)
+{
+	const FVector4 ClipPosition = Projection * FVector4{Position, 1.0f};
+	return {ClipPosition.X / ClipPosition.W, ClipPosition.Y / ClipPosition.W, ClipPosition.Z / ClipPosition.W};
 }
 }
 
@@ -88,6 +95,45 @@ TEST_CASE("Matrix storage is column-major")
 	CHECK(Translation(0, 3) == 3.0f);
 }
 
+TEST_CASE("Infinite reversed-Z projection follows Herta clip-space conventions")
+{
+	constexpr float NearPlane = 0.1f;
+	const FMatrix4 Projection =
+	    FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> * 0.5f, 1.0f, NearPlane);
+
+	const FVector3 NearNdc = ProjectToNdc(Projection, {0.0f, 0.0f, NearPlane});
+	const FVector3 DistantNdc = ProjectToNdc(Projection, {0.0f, 0.0f, 10'000.0f});
+	const FVector3 LeftNdc = ProjectToNdc(Projection, FVector3::Left() + FVector3::Forward());
+	const FVector3 UpNdc = ProjectToNdc(Projection, FVector3::Up() + FVector3::Forward());
+
+	CHECK(NearNdc.Z == doctest::Approx(1.0f));
+	CHECK(DistantNdc.Z == doctest::Approx(0.0f).epsilon(0.0001));
+	CHECK(LeftNdc.X < 0.0f);
+	CHECK(UpNdc.Y > 0.0f);
+}
+
+TEST_CASE("Projected front faces are counter-clockwise")
+{
+	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> * 0.5f, 1.0f, 0.1f);
+	const FVector3 BottomLeft = ProjectToNdc(Projection, {1.0f, -1.0f, 2.0f});
+	const FVector3 BottomRight = ProjectToNdc(Projection, {-1.0f, -1.0f, 2.0f});
+	const FVector3 Top = ProjectToNdc(Projection, {0.0f, 1.0f, 2.0f});
+
+	const float SignedArea = (BottomRight.X - BottomLeft.X) * (Top.Y - BottomLeft.Y) -
+	                         (BottomRight.Y - BottomLeft.Y) * (Top.X - BottomLeft.X);
+	CHECK(SignedArea > 0.0f);
+}
+
+TEST_CASE("Quaternion serialized order is XYZW")
+{
+	constexpr FQuaternion Quaternion{1.0f, 2.0f, 3.0f, 4.0f};
+	constexpr std::array<float, 4> Serialized = Quaternion.ToXYZW();
+
+	static_assert(Serialized == std::array{1.0f, 2.0f, 3.0f, 4.0f});
+	static_assert(FQuaternion::FromXYZW(Serialized) == Quaternion);
+	CHECK(FQuaternion::FromXYZW(Serialized) == Quaternion);
+}
+
 TEST_CASE("World positions become precise origin-relative floats")
 {
 	const FWorldPosition Position{10'000'000.25, -2'000'000.5, 5'000'001.0};
@@ -95,5 +141,20 @@ TEST_CASE("World positions become precise origin-relative floats")
 
 	CHECK((Position.RelativeTo(Origin) == FVector3d{0.25, -0.5, 1.0}));
 	CHECK((WorldToOriginRelative(Position, Origin) == FVector3{0.25f, -0.5f, 1.0f}));
+	CHECK(OriginRelativeToWorld(WorldToOriginRelative(Position, Origin), Origin) == Position);
+}
+
+TEST_CASE("World rebasing preserves origin-relative positions")
+{
+	const FWorldPosition Position{-8'000'000.25, 2'000'000.5, -4'000'001.0};
+	const FWorldPosition FirstOrigin{-8'000'000.0, 2'000'000.0, -4'000'000.0};
+	const FWorldPosition SecondOrigin{-7'999'900.0, 1'999'950.0, -4'000'025.0};
+
+	const FVector3 FirstRelative = WorldToOriginRelative(Position, FirstOrigin);
+	const FVector3 SecondRelative =
+	    WorldToOriginRelative(OriginRelativeToWorld(FirstRelative, FirstOrigin), SecondOrigin);
+
+	CHECK((FirstRelative == FVector3{-0.25f, 0.5f, -1.0f}));
+	CHECK((SecondRelative == FVector3{-100.25f, 50.5f, 24.0f}));
 }
 }

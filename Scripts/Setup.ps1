@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [switch] $PrintPremakePath,
-    [switch] $ValidateOnly
+    [switch] $ValidateOnly,
+    [ValidateSet('2022', '2026')]
+    [string] $VisualStudioVersion = '2026'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -188,28 +190,107 @@ function Initialize-GitSubmodules {
     }
 }
 
+function Test-VisualStudioToolchain {
+    param(
+        [Parameter(Mandatory)][string] $MSBuildPath,
+        [Parameter(Mandatory)][string] $PlatformToolset
+    )
+
+    $ProbeDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "HertaToolchainProbe-$([System.Guid]::NewGuid().ToString('N'))"
+    [System.IO.Directory]::CreateDirectory($ProbeDirectory) | Out-Null
+
+    $SourcePath = Join-Path $ProbeDirectory 'Probe.cpp'
+    $ProjectPath = Join-Path $ProbeDirectory 'Probe.vcxproj'
+    $Source = @'
+#include <expected>
+
+int main()
+{
+    const std::expected<int, int> Value = 42;
+    return Value.value() == 42 ? 0 : 1;
+}
+'@
+    $Project = @"
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <Keyword>Win32Proj</Keyword>
+  </PropertyGroup>
+  <Import Project="`$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'`$(Configuration)|`$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <PlatformToolset>$PlatformToolset</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="`$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup Condition="'`$(Configuration)|`$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <LanguageStandard>stdcpp23</LanguageStandard>
+      <WarningLevel>Level4</WarningLevel>
+      <TreatWarningAsError>true</TreatWarningAsError>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="Probe.cpp" />
+  </ItemGroup>
+  <Import Project="`$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
+"@
+
+    try {
+        [System.IO.File]::WriteAllText($SourcePath, $Source, [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText($ProjectPath, $Project, [System.Text.UTF8Encoding]::new($false))
+        $BuildOutput = (& $MSBuildPath $ProjectPath /nologo /verbosity:quiet /p:Configuration=Release /p:Platform=x64 2>&1 | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0) {
+            Write-Verbose "Rejected MSBuild '$MSBuildPath' for $PlatformToolset. $BuildOutput"
+            return $false
+        }
+
+        return $true
+    }
+    finally {
+        Remove-Item -LiteralPath $ProbeDirectory -Recurse -Force
+    }
+}
+
 function Find-SupportedMSBuild {
+    param([Parameter(Mandatory)][string] $Version)
+
+    $PlatformToolset = if ($Version -ceq '2026') { 'v145' } else { 'v143' }
+    $CandidatePaths = [System.Collections.Generic.List[string]]::new()
+
     $PathMSBuild = Get-Command MSBuild.exe -ErrorAction SilentlyContinue
     if ($null -ne $PathMSBuild) {
-        return $PathMSBuild.Source
+        $CandidatePaths.Add($PathMSBuild.Source)
     }
 
     $VsWherePath = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
     if (Test-Path -LiteralPath $VsWherePath -PathType Leaf) {
-        $InstallationPath = (& $VsWherePath -latest -products '*' -version '[17.0,19.0)' -requires Microsoft.Component.MSBuild -property installationPath | Select-Object -First 1)
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($InstallationPath)) {
-            $MSBuildPath = Join-Path $InstallationPath.Trim() 'MSBuild/Current/Bin/MSBuild.exe'
-            $CompilerPath = Get-ChildItem -LiteralPath (Join-Path $InstallationPath.Trim() 'VC/Tools/MSVC') -Filter cl.exe -File -Recurse -ErrorAction SilentlyContinue |
-                Where-Object { $_.FullName -match '[\\/]bin[\\/]Hostx64[\\/]x64[\\/]cl\.exe$' } |
-                Sort-Object FullName -Descending |
-                Select-Object -First 1 -ExpandProperty FullName
-            if ((Test-Path -LiteralPath $MSBuildPath -PathType Leaf) -and -not [string]::IsNullOrWhiteSpace($CompilerPath)) {
-                return $MSBuildPath
+        $InstallationPaths = @(& $VsWherePath -all -products '*' -version '[17.0,19.0)' -requires Microsoft.Component.MSBuild -property installationPath)
+        if ($LASTEXITCODE -eq 0) {
+            foreach ($InstallationPath in $InstallationPaths) {
+                if (-not [string]::IsNullOrWhiteSpace($InstallationPath)) {
+                    $CandidatePaths.Add((Join-Path $InstallationPath.Trim() 'MSBuild/Current/Bin/MSBuild.exe'))
+                }
             }
         }
     }
 
-    throw 'Visual Studio Build Tools 2026 or 2022 with the Desktop development with C++ workload is required.'
+    foreach ($CandidatePath in $CandidatePaths | Select-Object -Unique) {
+        if ((Test-Path -LiteralPath $CandidatePath -PathType Leaf) -and
+            (Test-VisualStudioToolchain -MSBuildPath $CandidatePath -PlatformToolset $PlatformToolset)) {
+            return $CandidatePath
+        }
+    }
+
+    $PackageId = if ($Version -ceq '2026') { 'Microsoft.VisualStudio.BuildTools' } else { 'Microsoft.VisualStudio.2022.BuildTools' }
+    $InstallCommand = "winget install --id $PackageId --exact --override `"--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended`""
+    throw "Visual Studio $Version cannot build Herta with C++23 x64. Add the Desktop development with C++ workload and the $PlatformToolset MSVC toolset in Visual Studio Installer. For a new Build Tools installation: $InstallCommand"
 }
 
 $Dependencies = Read-HertaDependencyLock -Path $LockPath
@@ -230,7 +311,7 @@ if ($PrintPremakePath) {
     exit 0
 }
 
-$MSBuildPath = Find-SupportedMSBuild
+$MSBuildPath = Find-SupportedMSBuild -Version $VisualStudioVersion
 Write-Host "MSBuild: $MSBuildPath"
 Initialize-GitSubmodules
 Install-Premake -Dependency $Premake -Paths $PremakePaths

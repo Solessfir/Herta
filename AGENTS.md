@@ -106,6 +106,6 @@ Cleanup scripts remove only explicit Herta-managed generated paths. Without Git 
 
 ## Current repository state
 
-Herta is implementing Milestone 0. The repository contains a real Premake workspace, Setup and project-generation scripts, Core, Math, Platform, HertaTests, and the first required workflows. The Windows build and test path is locally verified, and Linux is a required CI gate. The application shell, Vulkan integration, editor, and game runtime have not started.
+Milestone 0 is complete and Milestone 1 is next. The repository contains a real Premake workspace, Setup and project-generation scripts, Core, Math, Platform, HertaTests, and required CI and quality workflows. The Windows and Linux build and test paths are locally verified, and both remain required CI gates. The application shell, Vulkan integration, editor, and game runtime have not started.
 
 Update this section when a milestone changes those facts.

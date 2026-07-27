@@ -6,7 +6,7 @@ The architecture takes inspiration from Unreal Engine's runtime and tooling boun
 
 ## Status
 
-Herta is implementing Milestone 0 - Foundation. The repository contains the initial Core, Math, and Platform modules, automated tests, a pinned dependency bootstrap, and Premake project generation. It does not contain an application shell, renderer, editor, or game runtime yet.
+Milestone 0 - Foundation is complete. The repository contains Core, Math, and Platform modules, automated tests, a pinned dependency bootstrap, Premake project generation, and required Windows/Linux CI and quality gates. Milestone 1 - Application shell is next. Herta does not contain an application shell, renderer, editor, or game runtime yet.
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md).
 
@@ -36,7 +36,7 @@ Setup initializes Git submodules and downloads the pinned Premake binary into th
 
 ### Windows
 
-Requirements are Git and Visual Studio 2022 or 2026 with Desktop development with C++.
+Requirements are Git and Visual Studio 2026 with Desktop development with C++. Visual Studio 2022 remains a supported fallback.
 
 From a normal terminal:
 
@@ -45,12 +45,19 @@ Setup.bat
 GenerateProjectFiles.bat
 ```
 
-The default action generates `Intermediate\ProjectFiles\vs2022\Herta.sln`, which can be opened by Visual Studio 2022 or 2026. Pass `vs2026` explicitly to generate the Visual Studio 2026 `.slnx` workspace.
+The default action generates `Intermediate\ProjectFiles\vs2026\Herta.slnx`.
+
+To use the Visual Studio 2022 fallback, override Setup and project generation together:
+
+```bat
+Setup.bat -VisualStudioVersion 2022
+GenerateProjectFiles.bat vs2022
+```
 
 From a matching Visual Studio Developer Command Prompt:
 
 ```bat
-MSBuild Intermediate\ProjectFiles\vs2022\Herta.sln /m /t:HertaTests /p:Configuration=Development /p:Platform=x64
+MSBuild Intermediate\ProjectFiles\vs2026\Herta.slnx /m /t:HertaTests /p:Configuration=Development /p:Platform=x64
 Binaries\windows\x86_64\Development\HertaTests.exe
 ```
 

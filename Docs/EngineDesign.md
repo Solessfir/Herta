@@ -1,6 +1,6 @@
 # Herta Engine Design
 
-Status: Proposed foundation design
+Status: Active design - Milestone 0 complete
 Last updated: 2026-07-27
 
 ## 1. Purpose
@@ -846,6 +846,8 @@ Rules:
 6. When selected targets need them, detect missing Linux X11, Wayland, xkbcommon, and Vulkan development packages and provide or run the appropriate supported package-manager command.
 7. Print actionable diagnostics and remain safe to run repeatedly.
 
+Windows Setup defaults to Visual Studio 2026 and accepts `-VisualStudioVersion 2022` for the fallback toolchain. It compiles a C++23 probe with the selected toolset. Linux Setup compiles, links, and runs the same capability probe with the selected compiler.
+
 `GenerateProjectFiles` validates the already-installed pinned Premake executable, then invokes it for the selected generator. It performs no downloads, submodule updates, or dependency mutations. Run Setup explicitly when bootstrap state must change.
 
 ### 8.5 Cleanup
@@ -1013,7 +1015,7 @@ GitHub metadata does not replace Herta's dependency controls. `Dependencies.lock
 
 After repository bootstrap, protect `main` with a GitHub ruleset:
 
-- Require pull requests and the stable aggregate check `CI / required`.
+- Require pull requests and the stable aggregate checks `CI / required` and `Quality / required`.
 - Require conversation resolution and block force pushes and deletion.
 - Require CodeQL and Dependency Review once they contain meaningful coverage.
 - Require CODEOWNERS review for workflows, build/setup code, dependencies, importers, platform code, and release policy when a second maintainer exists.
@@ -1214,14 +1216,12 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Do not add the full dependency table at once. The first code slice should contain only:
+Milestone 0 is complete. The next code slice is Milestone 1 and should remain limited to:
 
-1. The real Herta Premake workspace.
-2. Core, Math, and HertaTests.
-3. doctest.
-4. `Dependencies.lock`, its parser tests, project-local Setup, and project-generation scripts.
-5. Coordinate-system, unit-convention, and world-to-origin-relative transform tests.
-6. Required Windows/Linux CI plus quality and dependency checks.
-7. The GLFW submodule only when Application work begins.
+1. Add the pinned Herta GLFW fork and its Premake boundary.
+2. Add Application window lifetime, event pumping, input state, capability reporting, and native title-bar integration.
+3. Add the minimum NVRHI Vulkan presentation path required by ToolUI, without starting the scene renderer.
+4. Add Dear ImGui docking and multi-viewport ToolUI plus the initial editor shell.
+5. Add `EditorCore`, `HertaEditor`, and display-independent `HertaEditorCmd` composition roots.
 
-That slice establishes the rules every later system relies on while keeping build and debugging surface small.
+Do not pull ECS, asset importing, graph tooling, physics, animation, or audio into this slice.

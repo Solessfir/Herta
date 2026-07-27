@@ -36,4 +36,9 @@ struct FWorldPosition
 {
 	return FVector3{Position.RelativeTo(Origin)};
 }
+
+[[nodiscard]] constexpr FWorldPosition OriginRelativeToWorld(const FVector3& Position, const FWorldPosition& Origin)
+{
+	return Origin.TranslatedBy(FVector3d{Position});
+}
 }

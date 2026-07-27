@@ -3,8 +3,11 @@
 #include "Herta/Math/Quaternion.h"
 
 #include <array>
+#include <cassert>
+#include <cmath>
 #include <concepts>
 #include <cstddef>
+#include <numbers>
 
 namespace Herta
 {
@@ -164,6 +167,24 @@ public:
 	                                        const TVector3<T>& InScale)
 	{
 		return TMatrix4::Translation(InTranslation) * TMatrix4::Rotation(InRotation) * TMatrix4::Scale(InScale);
+	}
+
+	[[nodiscard]] static TMatrix4 PerspectiveReversedInfinite(T VerticalFieldOfViewRadians, T AspectRatio, T NearPlane)
+	{
+		assert(std::isfinite(VerticalFieldOfViewRadians));
+		assert(std::isfinite(AspectRatio));
+		assert(std::isfinite(NearPlane));
+		assert(VerticalFieldOfViewRadians > T{0} && VerticalFieldOfViewRadians < std::numbers::pi_v<T>);
+		assert(AspectRatio > T{0});
+		assert(NearPlane > T{0});
+
+		const T FocalLength = T{1} / std::tan(VerticalFieldOfViewRadians * T{0.5});
+		TMatrix4 Result = Zero();
+		Result(0, 0) = -FocalLength / AspectRatio;
+		Result(1, 1) = FocalLength;
+		Result(2, 3) = NearPlane;
+		Result(3, 2) = T{1};
+		return Result;
 	}
 
 	[[nodiscard]] constexpr T& operator()(std::size_t Row, std::size_t Column)
