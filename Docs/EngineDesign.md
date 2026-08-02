@@ -390,7 +390,9 @@ Core defines the stable `FTextId` namespace-and-key value used by descriptors an
 
 Herta uses `spdlog` as a compiled private backend when Milestone 1 introduces application and headless-editor diagnostics. It provides console, debugger, rotating-file, and editor-buffer sink plumbing. Herta owns log categories, record fields, source locations, filtering, lifecycle, failure policy, and public macros. No `spdlog` or `fmt` type appears in a Herta public header or crosses a game-module boundary.
 
-Public formatting uses `std::format_string` and checks category and level before formatting. Begin with synchronous dispatch for deterministic startup, shutdown, tests, and crash diagnostics. Add bounded asynchronous dispatch only after profiling demonstrates a need. An asynchronous policy may drop low-level records with an explicit counter, but warnings and errors must not be silently discarded. Normal logs go to the console or debugger, rotating files under `Saved/Logs`, and an optional editor ring buffer. Audio callbacks and other real-time threads never use the normal logger.
+Public formatting uses `std::format_string` and checks category and level before formatting. Begin with synchronous dispatch for deterministic startup, shutdown, tests, and crash diagnostics. Add bounded asynchronous dispatch only after profiling demonstrates a need. An asynchronous policy may drop low-level records with an explicit counter, but warnings and errors must not be silently discarded. Normal logs go to the console or debugger, rotating files under `Saved/Logs`, and a bounded editor-record buffer when an editor composition requests that sink. Audio callbacks and other real-time threads never use the normal logger.
+
+Each editor record carries a monotonically increasing sequence, elapsed timestamp, category, level, thread identity, UTF-8 message, and optional source location. The bounded buffer exposes cursor-based incremental reads that copy records into caller-owned snapshots, so ToolUI never holds the producer lock while measuring, filtering, selecting, or drawing text. Reads explicitly report generation reset and history truncation. Clearing advances the generation and invalidates old cursors; capacity eviction reports lost records instead of silently presenting an apparently complete history. The buffer never exposes pointers or views into mutable sink storage.
 
 ### 4.2 Tasks
 
@@ -688,6 +690,14 @@ Milestone 1 adopts the centralized [Herta Editor Style](EditorStyle.md) proven b
 The title bar, application toolbar, and dock canvas form one continuous visual workspace. ToolUI draws one full-viewport gradient first, then uses transparent or low-alpha chrome instead of unrelated solid bands and separator lines. Cobalt is the initial hue at 15 percent intensity and 50 percent height. Appearance settings expose presets, a custom HSV color, saturation, intensity, gradient height, and panel transparency under `Saved/Editor`. Intensity remains a true interpolation factor so 100 percent reaches the chosen color.
 
 The default dock layout is created only when no compatible saved layout exists. Saved user docking and intentional floating windows take precedence after first launch. Layout format changes are versioned instead of silently rebuilding the default every run.
+
+`EditorFramework` owns the Output Log panel while Core owns records, sinks, and bounded storage. Core never includes ImGui, and ToolUI never writes directly to `spdlog`. The Output Log is docked across the bottom on first launch and presents simple colored text lines rather than a table. Search covers message, category, and verbosity; level filters, pause, clear, copy, category colorization, and auto-scroll remain panel-local state. Stable category colors apply to the whole line for normal records. Warnings are always yellow and errors are always red so severity cannot be hidden by a category hue.
+
+The log text surface behaves like a read-only text editor. LMB drag selects continuously across lines, Shift extends the range, Ctrl+A selects all visible text, and Ctrl+C copies the selected UTF-8 range. The toolbar Copy action copies the selection or all visible records when no range exists. Per-record `InputText` widgets are not used because selection cannot cross widget boundaries. ToolUI provides a small public-API renderer with text hit testing, UTF-8 boundary-safe carets, selection rectangles, clipping, and horizontal and vertical scrolling while preserving per-line colors.
+
+Auto-scroll follows appended records only while the view already owns the tail, or after an explicit request such as command submission. Scrolling upward relinquishes the tail so background logs do not pull the user away. A command request remains pending through the echoed command and its result batch, preventing the result from appearing one line below the visible region.
+
+The command input queries an `EditorCore` command registry shared by interactive UI and `HertaEditorCmd`. Prefix matches open above the bottom input; Up and Down choose a match, Tab completes it, and the same keys navigate history when no suggestions are open. Commands publish their echo and structured results through normal logging. UI code does not own command semantics or duplicate headless command implementations.
 
 Global ImGui metrics are shared behavior, not isolated widget decoration. In particular, checkbox size follows frame height. ToolUI must not shrink global `FramePadding` to resize checkboxes because that also changes buttons and inputs. A genuinely compact control uses a Herta helper or locally scoped style. Primary white pill buttons suppress the normal frame border to avoid a dark aliased outline.
 
@@ -1349,7 +1359,7 @@ Initial required suites:
 - Math conventions and third-party conversion round trips.
 - Stable IDs, generational handles, hashing, and path normalization.
 - Error propagation and staged initialization teardown.
-- Logging category filtering, sink routing, deterministic flush, and sink-failure behavior.
+- Logging category filtering, sink routing, deterministic flush, sink-failure behavior, bounded-history truncation, cursor reset, and concurrent producer ordering.
 - Task cancellation, scope teardown, IO-lane isolation, main-thread continuation ownership, reload quiescence, starvation, and deterministic single-worker execution.
 - Serialization versioning and corrupted-input rejection.
 - RenderGraph dependency, lifetime, and barrier planning.
@@ -1378,6 +1388,7 @@ Add slower categories as their systems arrive:
 - TAA still-detail, motion, disocclusion, foliage, thin-geometry, specular, particle, camera-cut, and history-reset render regressions.
 - Pure custom-titlebar layout tests covering all hit regions, DPI scaling, Wayland logical coordinates, ImGui capture priority, maximize state, and per-viewport state.
 - Pure workspace policy tests covering first-run window placement, toolbar alignment, panel transparency, and default docking preservation.
+- Pure Output Log tests covering incremental snapshots, filtering, tail ownership, command-prefix matching, continuous selection ordering, UTF-8-safe copy ranges, and clear or truncation invalidation.
 - Windows resource checks for the named `GLFW_ICON`, plus Win32 title-bar and system-menu integration.
 - Linux X11 and Wayland build and smoke coverage, including floating ImGui content overlapping the title bar.
 - Live move, resize, maximize, restore, and minimize tests proving continuous redraw and event-driven idle behavior.
@@ -1431,20 +1442,21 @@ Exit condition: a fresh clone can run Setup, generate, build, and execute tests 
 ### Milestone 1 - Application shell
 
 - Add the pinned GLFW fork as a submodule.
-- Add Herta logging with `spdlog` as a compiled private backend, structured console and rotating-file sinks, deterministic flushing, and test capture.
+- Add Herta logging with `spdlog` as a compiled private backend, structured console and rotating-file sinks, deterministic flushing, test capture, and a bounded cursor-readable editor sink.
 - Add the Herta Tasks contract, run the enkiTS backend spike, and either adopt a pinned revision privately or document the selected implementation.
 - Add bounded CPU-worker and blocking-IO lanes, task scopes, cancellation, progress, main-thread continuations, profiling names, and deterministic task tests.
 - Create windows, event pumping, input state, and capability reporting.
 - Integrate native-titlebar-disabled custom title bars on Win32, X11, and Wayland while retaining native resize and window-manager behavior.
 - Add the pinned NVRHI dependency, create the Vulkan instance, device, surface, and swapchain, and expose the minimum Herta RHI presentation path required by ToolUI. Do not add a scene renderer.
 - Add ToolUI and the Dear ImGui docking and multi-viewport editor shell.
+- Add the EditorFramework Output Log with whole-line category colors, fixed warning and error colors, search and level filtering, tail-aware auto-scroll, continuous multi-line text selection, copy, command history, and command completion through the shared EditorCore registry.
 - Add the `EditorCore`, `HertaEditor`, and `HertaEditorCmd` composition boundaries. The headless target starts and stops without GLFW, ImGui, presentation RHI, Renderer, or an audio device.
 - Apply the centralized EditorStyle baseline: Roboto Regular and Medium through FreeType, required license metadata, desaturated non-black surfaces, the configurable Cobalt background gradient, additive interaction tinting, transparent-panel modes, white docking previews, and the shared 36 px title-bar geometry.
 - Draw title-bar controls with ImGui primitives, compile the Windows `GLFW_ICON` application resource, and add Linux desktop-icon source assets. Defer LunaSVG and the production icon set until an SVG-backed editor tool needs them.
 - Add pure title-bar and workspace policy tests plus regression coverage proving that floating ImGui panels and popups consume input instead of dragging the native window.
 - Add first-run 80 percent work-area placement, saved-layout preservation, event-driven minimized waiting, and guarded refresh rendering during native live resize.
 
-Exit condition: the interactive editor opens with the documented visual baseline, preserves saved docking, creates platform viewports, preserves ImGui input priority over title-bar dragging, redraws continuously during native resize, idles without spinning while minimized, and closes cleanly on both platforms. Windows builds expose the configured application icon. The headless editor host starts, reports structured diagnostics, and exits cleanly on both platforms without a display server. Task scopes cancel and drain safely, blocking work cannot starve CPU workers, and synthetic background work does not stall event pumping.
+Exit condition: the interactive editor opens with the documented visual baseline, preserves saved docking, creates platform viewports, preserves ImGui input priority over title-bar dragging, redraws continuously during native resize, idles without spinning while minimized, and closes cleanly on both platforms. Windows builds expose the configured application icon. The Output Log remains responsive under concurrent producers, preserves tail ownership, supports continuous text selection, and executes the same registered commands as the headless editor. The headless editor host starts, reports structured diagnostics, and exits cleanly on both platforms without a display server. Task scopes cancel and drain safely, blocking work cannot starve CPU workers, and synthetic background work does not stall event pumping.
 
 ### Milestone 2 - RHI and renderer
 
@@ -1625,7 +1637,7 @@ Milestone 0 is complete. The next code slice is Milestone 1 and should remain li
 2. Add the pinned Herta GLFW fork and its Premake boundary.
 3. Add Application window lifetime, event pumping, input state, capability reporting, and native title-bar integration.
 4. Add the minimum NVRHI Vulkan presentation path required by ToolUI, without starting the scene renderer.
-5. Add Dear ImGui docking and multi-viewport ToolUI plus the initial editor shell using `EditorStyle.md`, Roboto through FreeType, the configurable gradient and panel-transparency model, white docking previews, the shared 36 px title bar, and platform application icons.
+5. Add Dear ImGui docking and multi-viewport ToolUI plus the initial editor shell using `EditorStyle.md`, Roboto through FreeType, the configurable gradient and panel-transparency model, white docking previews, the shared 36 px title bar, platform application icons, and the docked Output Log.
 6. Add `EditorCore`, `HertaEditor`, and display-independent `HertaEditorCmd` composition roots.
 
 Do not pull ECS, asset importing, localization, production rendering, networking, graph tooling, physics, animation, audio, or scripting into this slice.

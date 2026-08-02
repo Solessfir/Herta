@@ -71,10 +71,12 @@ The initial presets are:
 Cobalt is the default. The appearance settings also expose a custom HSV color picker and three independent controls:
 
 - Gradient height: default `50%` of the viewport.
-- Saturation: default `100%` of the selected color.
+- Saturation: default `80%` of the selected color.
 - Intensity: default `15%`.
 
 Intensity is a real interpolation factor. At `100%`, the top-left gradient sample reaches the selected color. The top-right uses `40%` of the current intensity, and both lower samples resolve to `Canvas` at the configured height. This gives predictable controls instead of hiding a second hard-coded strength cap.
+
+When a native viewport loses focus, its background gradient retains `60%` of the configured saturation. Intensity, height, and the shared interaction palette remain unchanged. This quiets inactive workspaces without making their content look disabled. Minimized viewports do not render at all.
 
 Interaction colors are derived from the resolved background hue with additive brightening over neutral control surfaces. Initial strengths are `0.06` subtle, `0.10` hover, `0.16` active, and `0.24` strong. Clamp the result per channel. The close button remains explicitly red.
 
@@ -94,6 +96,26 @@ Panel presentation is applied through a ToolUI window wrapper before `ImGui::Beg
 The default dock layout is created only when no compatible saved layout exists. A first launch docks the primary Start or viewport surface in the center. Once the user has saved a layout, that layout owns docking and intentional floating state. Layout schema changes use explicit versioning instead of rebuilding the default every launch.
 
 Do not patch Dear ImGui internals merely to hide dock-node corner notches or other small upstream rendering details. First use public style controls, then carry a narrow documented patch only if the defect materially affects the editor.
+
+## Output Log
+
+The Output Log is an EditorFramework panel docked across the bottom of the first-run layout. It uses compact colored text lines rather than a table. Its toolbar contains Clear, Copy, Filter, Options, and a full-width search field. Options expose auto-scroll, pause, and category colorization without adding permanent chrome.
+
+Normal records use a stable readable color derived from their category and apply it to the whole line. Warnings are always yellow and errors are always red. Trace and debug may use quieter neutral colors when category colorization is disabled. The format begins with elapsed time, level, and category before the message, with enough left padding to keep timestamps clear of the panel edge.
+
+The text area behaves as one read-only editor surface even though individual lines retain different colors:
+
+- Hold LMB and drag to select across any number of lines.
+- Shift extends the existing range.
+- Ctrl+A selects all visible text.
+- Ctrl+C copies the selected range.
+- Copy uses the selected range, or all visible records when nothing is selected.
+
+Do not implement each line as a separate `InputText`, because Dear ImGui selection cannot cross widget boundaries. ToolUI renders colored lines and selection rectangles through public ImGui drawing APIs, clips large histories, hit-tests UTF-8 boundaries, and supports horizontal and vertical scrolling. The selection model remains UI-independent and unit tested.
+
+Auto-scroll follows new records only while the user is already at the bottom or after an explicit request. Scrolling up relinquishes the tail. Command submission keeps the request active until both the echoed command and resulting records have reached the visible tail, avoiding a one-message lag.
+
+The command field sits at the bottom and Submit aligns with the panel's right content edge using standard window padding. Prefix suggestions open above the field, Up and Down change the active suggestion, and Tab completes it. When no suggestions are visible, Up and Down navigate command history. Available commands come from EditorCore so the interactive panel and `HertaEditorCmd` execute the same operations.
 
 ## Typography
 
@@ -188,5 +210,6 @@ The editor shell requires focused coverage for:
 - Roboto loading, FreeType integration, and required license metadata.
 - Presence of the Windows `GLFW_ICON` resource in packaged editor builds.
 - Theme-token, gradient, interaction-strength, and metric defaults where a regression would change presentation or geometry.
+- Output Log selection ordering, copy ranges, tail ownership, command completion, history navigation, filter behavior, and bounded-buffer reset or truncation.
 
 GLFW API-only tests define `GLFW_INCLUDE_NONE` before including `glfw3.h`. This prevents tests that do not use OpenGL from accidentally requiring platform OpenGL headers.
