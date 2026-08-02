@@ -8,21 +8,32 @@ if Action == "vs2022" or Action == "vs2026" then
 end
 
 include(PremakeRoot .. "/Toolchains.lua")
+include(PremakeRoot .. "/ThirdParty/EnkiTS.lua")
+include(PremakeRoot .. "/ThirdParty/FreeType.lua")
+include(PremakeRoot .. "/ThirdParty/GLFW.lua")
+include(PremakeRoot .. "/ThirdParty/ImGui.lua")
+include(PremakeRoot .. "/ThirdParty/NVRHI.lua")
+include(PremakeRoot .. "/ThirdParty/Spdlog.lua")
 
 workspace "Herta"
     architecture "x86_64"
     configurations { "Debug", "Debug-ASan", "Development", "Shipping" }
     location(WorkspaceLocation)
-    startproject "HertaTests"
+    startproject "HertaEditor"
 
     language "C++"
     cppdialect "C++23"
     staticruntime "Off"
-    warnings "Extra"
-    fatalwarnings "All"
 
     multiprocessorcompile "On"
 
     HertaApplyToolchainSettings()
+
+HertaEnkiTS()
+HertaFreeType()
+HertaGLFW()
+HertaImGui()
+HertaNVRHI()
+HertaSpdlog()
 
 include(PremakeRoot .. "/Modules.lua")

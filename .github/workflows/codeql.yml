@@ -38,11 +38,20 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Restore project-local tools and SDKs
+        id: bootstrap-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            External/Premake
+            SDK
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}
+
       - name: Install Linux C++23 library support
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes gcc-14 g++-14
+          sudo apt-get install --yes gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
@@ -75,8 +84,19 @@ jobs:
           --jobs=2
           config=development
           HertaTests
+          HertaEditorCmd
+          HertaEditor
 
       - name: Analyze Herta
         uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           category: /language:c-cpp
+
+      - name: Save project-local tools and SDKs
+        if: github.event_name != 'pull_request' && steps.bootstrap-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            External/Premake
+            SDK
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}

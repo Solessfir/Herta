@@ -76,7 +76,7 @@ Cobalt is the default. The appearance settings also expose a custom HSV color pi
 
 Intensity is a real interpolation factor. At `100%`, the top-left gradient sample reaches the selected color. The top-right uses `40%` of the current intensity, and both lower samples resolve to `Canvas` at the configured height. This gives predictable controls instead of hiding a second hard-coded strength cap.
 
-When a native viewport loses focus, its background gradient retains `60%` of the configured saturation. Intensity, height, and the shared interaction palette remain unchanged. This quiets inactive workspaces without making their content look disabled. Minimized viewports do not render at all.
+When a native viewport loses focus, its background gradient retains `90%` of the configured saturation. Intensity, height, and the shared interaction palette remain unchanged. This lightly quiets inactive workspaces without making their content look disabled. Minimized viewports do not render at all.
 
 Interaction colors are derived from the resolved background hue with additive brightening over neutral control surfaces. Initial strengths are `0.06` subtle, `0.10` hover, `0.16` active, and `0.24` strong. Clamp the result per channel. The close button remains explicitly red.
 
@@ -177,7 +177,7 @@ Native move and resize can enter a platform modal loop that delays the normal fr
 
 ## Application icons
 
-The editor keeps a source SVG for its application mark. Windows builds generate or commit a multi-resolution ICO and compile a resource named `GLFW_ICON` through Premake. The Herta GLFW fork loads that resource as the default executable, taskbar, system-menu, and window-class icon.
+The editor keeps its application mark at `Engine/Content/Editor/Icons/Herta.svg`. Windows builds compile the matching multi-resolution ICO under `Engine/Source/Programs/HertaEditor/Resources/Windows` as a resource named `GLFW_ICON` through Premake. The Herta GLFW fork loads that resource as the default executable, taskbar, system-menu, and window-class icon.
 
 Linux does not embed a desktop application icon into the ELF executable. Distribution installs the source SVG or generated PNG sizes with the HertaEditor `.desktop` entry. Runtime window-icon support remains a platform capability exposed through Application.
 

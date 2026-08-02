@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
+    [switch] $PrintMSBuildPath,
     [switch] $PrintPremakePath,
+    [switch] $PrintVulkanSdkPath,
     [switch] $PrintVisualStudioAction,
     [switch] $ValidateOnly,
     [ValidateSet('2022', '2026')]
@@ -25,6 +27,17 @@ function Get-PremakeDependency {
     return $Matches[0]
 }
 
+function Get-VulkanSdkDependency {
+    param([Parameter(Mandatory)] $Dependencies)
+
+    $Matches = @($Dependencies | Where-Object { $_.Name -ceq 'vulkan-sdk' -and $_.Platform -ceq 'windows-x64' })
+    if ($Matches.Count -ne 1) {
+        throw 'Dependencies.lock must contain exactly one Vulkan SDK entry for windows-x64.'
+    }
+
+    return $Matches[0]
+}
+
 function Get-PremakePaths {
     param([Parameter(Mandatory)] $Dependency)
 
@@ -33,6 +46,19 @@ function Get-PremakePaths {
         InstallDirectory = $InstallDirectory
         Executable = Join-Path $InstallDirectory $Dependency.InstalledEntry
         Archive = Join-Path $RepositoryRoot "External/Premake/.Downloads/$([System.IO.Path]::GetFileName($Dependency.Url))"
+    }
+}
+
+function Get-VulkanSdkPaths {
+    param([Parameter(Mandatory)] $Dependency)
+
+    $InstallDirectory = Join-Path $RepositoryRoot "SDK/Windows/Vulkan/$($Dependency.Version)"
+    return [pscustomobject]@{
+        InstallDirectory = $InstallDirectory
+        Header = Join-Path $InstallDirectory $Dependency.InstalledEntry
+        LoaderLibrary = Join-Path $InstallDirectory 'Lib/vulkan-1.lib'
+        VulkanInfo = Join-Path $InstallDirectory 'Bin/vulkaninfoSDK.exe'
+        Archive = Join-Path $RepositoryRoot "SDK/Windows/Vulkan/.Downloads/$([System.IO.Path]::GetFileName($Dependency.Url))"
     }
 }
 
@@ -58,6 +84,20 @@ function Test-PremakeExecutable {
     }
 
     return $true
+}
+
+function Test-VulkanSdk {
+    param([Parameter(Mandatory)] $Paths)
+
+    if (-not (Test-Path -LiteralPath $Paths.Header -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $Paths.LoaderLibrary -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $Paths.VulkanInfo -PathType Leaf)) {
+        return $false
+    }
+
+    return (Get-Item -LiteralPath $Paths.Header).Length -gt 0 -and
+        (Get-Item -LiteralPath $Paths.LoaderLibrary).Length -gt 0 -and
+        (Get-Item -LiteralPath $Paths.VulkanInfo).Length -gt 0
 }
 
 function Get-Sha256 {
@@ -87,6 +127,10 @@ function Get-VerifiedArchive {
     $ArchiveDirectory = Split-Path -Parent $ArchivePath
     [System.IO.Directory]::CreateDirectory($ArchiveDirectory) | Out-Null
 
+    # Interrupted downloads are never resumable because only a verified archive is published.
+    $ArchiveName = [System.IO.Path]::GetFileName($ArchivePath)
+    Get-ChildItem -LiteralPath $ArchiveDirectory -File -Filter "$ArchiveName.*.tmp" | Remove-Item -Force
+
     if (Test-Path -LiteralPath $ArchivePath -PathType Leaf) {
         $ExistingHash = Get-Sha256 -Path $ArchivePath
         if ($ExistingHash -eq $Dependency.Sha256) {
@@ -98,11 +142,20 @@ function Get-VerifiedArchive {
 
     $TemporaryArchive = "$ArchivePath.$([System.Guid]::NewGuid().ToString('N')).tmp"
     try {
-        Write-Host "Downloading Premake $($Dependency.Version)..."
-        Invoke-WebRequest -Uri $Dependency.Url -OutFile $TemporaryArchive -UseBasicParsing
+        Write-Host "Downloading $($Dependency.Name) $($Dependency.Version)..."
+        $Curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+        if ($null -ne $Curl) {
+            & $Curl.Source --fail --location --retry 3 --output $TemporaryArchive $Dependency.Url
+            if ($LASTEXITCODE -ne 0) {
+                throw "curl failed to download $($Dependency.Name) with exit code $LASTEXITCODE."
+            }
+        }
+        else {
+            Invoke-WebRequest -Uri $Dependency.Url -OutFile $TemporaryArchive -UseBasicParsing
+        }
         $DownloadedHash = Get-Sha256 -Path $TemporaryArchive
         if ($DownloadedHash -ne $Dependency.Sha256) {
-            throw "Premake archive SHA-256 mismatch. Expected $($Dependency.Sha256), received $DownloadedHash."
+            throw "$($Dependency.Name) download SHA-256 mismatch. Expected $($Dependency.Sha256), received $DownloadedHash."
         }
 
         Move-Item -LiteralPath $TemporaryArchive -Destination $ArchivePath
@@ -138,6 +191,49 @@ function Install-Premake {
 
         if (Test-Path -LiteralPath $Paths.InstallDirectory) {
             throw "Premake install directory exists but is invalid: $($Paths.InstallDirectory)"
+        }
+
+        Move-Item -LiteralPath $TemporaryDirectory -Destination $Paths.InstallDirectory
+    }
+    finally {
+        if (Test-Path -LiteralPath $TemporaryDirectory) {
+            Remove-Item -LiteralPath $TemporaryDirectory -Recurse -Force
+        }
+    }
+}
+
+function Install-VulkanSdk {
+    param(
+        [Parameter(Mandatory)] $Dependency,
+        [Parameter(Mandatory)] $Paths
+    )
+
+    if (Test-VulkanSdk -Paths $Paths) {
+        return
+    }
+
+    Get-VerifiedArchive -Dependency $Dependency -ArchivePath $Paths.Archive
+
+    $InstallParent = Split-Path -Parent $Paths.InstallDirectory
+    [System.IO.Directory]::CreateDirectory($InstallParent) | Out-Null
+    $TemporaryDirectory = Join-Path $InstallParent ".$($Dependency.Version).$([System.Guid]::NewGuid().ToString('N')).tmp"
+    try {
+        if (Test-Path -LiteralPath $Paths.InstallDirectory) {
+            throw "Vulkan SDK install directory exists but is invalid: $($Paths.InstallDirectory)"
+        }
+
+        & $Paths.Archive --root $TemporaryDirectory --accept-licenses --default-answer --confirm-command install copy_only=1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Vulkan SDK installer exited with code $LASTEXITCODE."
+        }
+
+        $TemporaryPaths = [pscustomobject]@{
+            Header = Join-Path $TemporaryDirectory $Dependency.InstalledEntry
+            LoaderLibrary = Join-Path $TemporaryDirectory 'Lib/vulkan-1.lib'
+            VulkanInfo = Join-Path $TemporaryDirectory 'Bin/vulkaninfoSDK.exe'
+        }
+        if (-not (Test-VulkanSdk -Paths $TemporaryPaths)) {
+            throw 'Vulkan SDK installer completed without the required headers and tools.'
         }
 
         Move-Item -LiteralPath $TemporaryDirectory -Destination $Paths.InstallDirectory
@@ -312,6 +408,8 @@ function Find-SupportedMSBuild {
 $Dependencies = Read-HertaDependencyLock -Path $LockPath
 $Premake = Get-PremakeDependency -Dependencies $Dependencies
 $PremakePaths = Get-PremakePaths -Dependency $Premake
+$VulkanSdk = Get-VulkanSdkDependency -Dependencies $Dependencies
+$VulkanSdkPaths = Get-VulkanSdkPaths -Dependency $VulkanSdk
 
 if ($ValidateOnly) {
     Write-Host "Validated $($Dependencies.Count) dependency lock entries."
@@ -327,9 +425,24 @@ if ($PrintPremakePath) {
     exit 0
 }
 
+if ($PrintVulkanSdkPath) {
+    if (-not (Test-VulkanSdk -Paths $VulkanSdkPaths)) {
+        throw "Vulkan SDK is not installed at '$($VulkanSdkPaths.InstallDirectory)'. Run Setup.bat first."
+    }
+
+    [Console]::Out.WriteLine($VulkanSdkPaths.InstallDirectory)
+    exit 0
+}
+
 if ($PrintVisualStudioAction) {
     $Toolchain = Find-SupportedMSBuild -Version $VisualStudioVersion
     [Console]::Out.WriteLine("vs$($Toolchain.Version)")
+    exit 0
+}
+
+if ($PrintMSBuildPath) {
+    $Toolchain = Find-SupportedMSBuild -Version $VisualStudioVersion
+    Write-Output $Toolchain.Path
     exit 0
 }
 
@@ -342,7 +455,10 @@ Write-Host "MSBuild: $($Toolchain.Path)"
 Initialize-GitSubmodules
 Install-Premake -Dependency $Premake -Paths $PremakePaths
 Remove-DownloadedArchive -ArchivePath $PremakePaths.Archive
+Install-VulkanSdk -Dependency $VulkanSdk -Paths $VulkanSdkPaths
+Remove-DownloadedArchive -ArchivePath $VulkanSdkPaths.Archive
 
 Write-Host "Premake $($Premake.Version): $($PremakePaths.Executable)"
+Write-Host "Vulkan SDK $($VulkanSdk.Version): $($VulkanSdkPaths.InstallDirectory)"
 Write-BlenderStatus
 Write-Host 'Herta setup completed.'

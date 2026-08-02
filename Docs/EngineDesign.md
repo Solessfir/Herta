@@ -1,6 +1,6 @@
 # Herta Engine Design
 
-Status: Active design - Milestone 0 complete
+Status: Active design - Milestone 1 complete
 Last updated: 2026-08-02
 
 ## 1. Purpose
@@ -1013,15 +1013,15 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | Dependency | Decision | Owner | Purpose and boundary |
 |---|---|---|---|
 | [Vulkan SDK](https://vulkan.lunarg.com/) | Adopt at renderer start | Setup, NvrhiVulkan | Headers, validation, tools, and SPIR-V environment. Runtime uses the system loader. |
-| [Herta GLFW fork](https://github.com/Solessfir/glfw) | Adopt at MS1 | Application | Windows, X11, Wayland, input, surfaces, and generic custom-titlebar support. Begin from commit `f2e6bb9b`. Private API. |
-| [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | Adopt at MS1 presentation bootstrap | NvrhiVulkan | Vulkan 1.3 device, swapchain, resource, and command implementation behind Herta RHI. MS1 uses the minimum UI path; MS2 expands the renderer-facing contract. |
-| [Dear ImGui](https://github.com/ocornut/imgui) | Adopt at MS1 | ToolUI | Docking and multi-viewport editor and tool UI. GUI programs may compose ToolUI without the game or editor runtime. Apply the centralized EditorStyle baseline rather than feature-local styling. |
+| [Herta GLFW fork](https://github.com/Solessfir/glfw) | Adopted at MS1 | Application | Windows, X11, Wayland, input, surfaces, and generic custom-titlebar support. Begin from commit `f2e6bb9b`. Private API. |
+| [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | Adopted at MS1 presentation bootstrap | NvrhiVulkan | Vulkan 1.3 device, swapchain, resource, and command implementation behind Herta RHI. MS1 uses the minimum UI path; MS2 expands the renderer-facing contract. |
+| [Dear ImGui](https://github.com/ocornut/imgui) | Adopted at MS1 | ToolUI | Docking and multi-viewport editor and tool UI. GUI programs may compose ToolUI without the game or editor runtime. Apply the centralized EditorStyle baseline rather than feature-local styling. |
 | [LunaSVG](https://github.com/sammycage/lunasvg) | Adopt with first SVG-backed editor tool | EditorFramework | Private CPU rasterizer for static SVG editor assets. Cache RGBA results as ImGui textures; LunaSVG types never enter Herta APIs. |
 | [Stack Layout PR 846](https://github.com/ocornut/imgui/pull/846) | Do not adopt | None | The initial editor does not justify an unmerged patch to ImGui internals. |
 | [Herta imgui-node-editor fork](https://github.com/Solessfir/imgui-node-editor) | Adopt with first node-canvas graph | GraphEditor | Maintained third-party fork for graph visualization and interaction, not graph semantics or execution. Preserve upstream history and document Herta patches. |
 | [doctest](https://github.com/doctest/doctest) | Adopt with Core | HertaTests | Unit tests beside modules, one test runner. |
-| [spdlog](https://github.com/gabime/spdlog) | Adopt at MS1 | Core | Compiled private backend for console, debugger, rotating-file, and editor-buffer sinks. Herta owns the public logging contract and record schema. |
-| [enkiTS](https://github.com/dougbinks/enkiTS) | Preferred MS1 task-backend candidate after spike | Tasks | Private worker scheduling implementation. Herta owns task scopes, cancellation, reload quiescence, IO lanes, diagnostics, and public APIs. |
+| [spdlog](https://github.com/gabime/spdlog) | Adopted at MS1 | Core | Compiled private backend for console, debugger, rotating-file, and editor-buffer sinks. Herta owns the public logging contract and record schema. |
+| [enkiTS](https://github.com/dougbinks/enkiTS) | Adopted at MS1 | Tasks | Private worker scheduling implementation. Herta owns task scopes, cancellation, reload quiescence, IO lanes, diagnostics, and public APIs. |
 | [Umka](https://github.com/vtereshkov/umka-lang) | Preferred candidate at scripting milestone | Scripting | Optional statically typed gameplay VM behind Herta handles, bindings, cooking, budgets, diagnostics, and sandbox policy. Adopt only if production gates pass. |
 | [EnTT](https://github.com/skypjack/entt) | Preferred at world milestone after spike | Scene | Private ECS storage candidate. Herta owns entity, world, query, serialization, scheduling, and mutation-barrier contracts. |
 | [fastgltf](https://github.com/spnda/fastgltf) | Adopt with asset import | AssetPipeline | Offline glTF 2.0 ingestion only. |
@@ -1034,7 +1034,7 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) | Preferred transport candidate after spike | Networking | Message transport, encryption, lanes, statistics, and network simulation behind Herta sessions. It does not own replication or serialization. Defer optional P2P and ICE dependencies. |
 | [ICU4C](https://github.com/unicode-org/icu) | Adopt at localization milestone | Localization | Private Unicode, BCP 47 locale, MessageFormat, plural, formatting, collation, BiDi, and boundary services with pinned CLDR data. |
 | [HarfBuzz](https://github.com/harfbuzz/harfbuzz) | Adopt at localization milestone | TextLayout | Private shaping backend. Herta owns font fallback, layout, hit testing, caches, and public text types. |
-| [FreeType](https://gitlab.freedesktop.org/freetype/freetype) | Adopt at MS1, expand at localization milestone | ToolUI, TextLayout | Private hinted rasterization for the editor, later expanded to project text parsing and glyph rasterization. Font data is untrusted and worker lifetime and face concurrency are explicit. |
+| [FreeType](https://gitlab.freedesktop.org/freetype/freetype) | Adopted at MS1, expand at localization milestone | ToolUI, TextLayout | Private hinted rasterization for the editor, later expanded to project text parsing and glyph rasterization. Font data is untrusted and worker lifetime and face concurrency are explicit. |
 | [Zstandard](https://github.com/facebook/zstd) | Adopt at package milestone | Assets | Default general-purpose package chunk compression behind Herta stream and package APIs. Use the BSD license option. |
 | [libsodium](https://github.com/jedisct1/libsodium) | Adopt when package signing is implemented | PackageBuilder | Private Ed25519 signing and verification; optional authenticated encryption only after a reviewed threat and reproducibility policy. |
 | [Slang](https://github.com/shader-slang/slang) | Adopt at shader milestone | ShaderCompiler | HLSL-like source to SPIR-V plus reflection. |
@@ -1112,7 +1112,8 @@ Setup removes each downloaded archive or installer after the installed tree pass
 The Vulkan SDK can be local to the Herta checkout:
 
 - [Windows Setup](https://vulkan.lunarg.com/doc/view/latest/windows/getting_started.html) runs the LunarG installer with `--root <repo>/SDK/Windows/Vulkan/<version>` and `copy_only=1`. This copies files without registry changes, shortcuts, administrator rights, or a system `PATH` update.
-- [Linux Setup](https://vulkan.lunarg.com/doc/view/latest/linux/getting_started.html) verifies and extracts the official tarball under `SDK/Linux/Vulkan/<version>`, then supplies `VULKAN_SDK`, `PATH`, `LD_LIBRARY_PATH`, and `VK_ADD_LAYER_PATH` only to Herta build and debug child processes.
+- [Linux Setup](https://vulkan.lunarg.com/doc/view/latest/linux/getting_started.html) verifies and extracts the official tarball under `SDK/Linux/Vulkan/<version>`.
+- Generated Debug and Development launch settings supply `VULKAN_SDK`, SDK tools, runtime libraries, and `VK_ADD_LAYER_PATH` to Herta child processes on both platforms. If a platform loader still cannot discover the project-local validation layer, startup reports the downgrade and continues without Vulkan or NVRHI validation instead of making a fresh clone unusable.
 - Premake receives the resolved SDK root explicitly. It does not read a required global `VULKAN_SDK` variable.
 
 The development SDK is local, but the Vulkan-capable GPU driver and production loader remain operating-system or driver responsibilities. Linux X11, Wayland, and compiler development packages may also require system package-manager installation.
@@ -1631,13 +1632,11 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Milestone 0 is complete. The next code slice is Milestone 1 and should remain limited to:
+Milestone 1 is complete. The next code slice is Milestone 2 and should remain limited to:
 
-1. Add the Herta Tasks contract, backend spike, bounded CPU and IO lanes, task scopes, cancellation, progress, and main-thread continuations.
-2. Add the pinned Herta GLFW fork and its Premake boundary.
-3. Add Application window lifetime, event pumping, input state, capability reporting, and native title-bar integration.
-4. Add the minimum NVRHI Vulkan presentation path required by ToolUI, without starting the scene renderer.
-5. Add Dear ImGui docking and multi-viewport ToolUI plus the initial editor shell using `EditorStyle.md`, Roboto through FreeType, the configurable gradient and panel-transparency model, white docking previews, the shared 36 px title bar, platform application icons, and the docked Output Log.
-6. Add `EditorCore`, `HertaEditor`, and display-independent `HertaEditorCmd` composition roots.
+1. Expand Herta RHI and the private NVRHI Vulkan backend beyond the presentation-only subset.
+2. Add frame contexts, upload staging, fence-based retirement, and the first RenderGraph contract.
+3. Add Slang worker compilation and cooked shader assets.
+4. Render one validation-clean textured mesh using reversed-Z.
 
-Do not pull ECS, asset importing, localization, production rendering, networking, graph tooling, physics, animation, audio, or scripting into this slice.
+Do not pull ECS, asset importing, localization, networking, graph tooling, physics, animation, audio, or scripting into this renderer-foundation slice.

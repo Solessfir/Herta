@@ -1,3 +1,21 @@
 [submodule "External/doctest"]
 	path = External/doctest
 	url = https://github.com/doctest/doctest.git
+[submodule "External/spdlog"]
+	path = External/spdlog
+	url = https://github.com/gabime/spdlog.git
+[submodule "External/enkiTS"]
+	path = External/enkiTS
+	url = https://github.com/dougbinks/enkiTS.git
+[submodule "External/glfw"]
+	path = External/glfw
+	url = https://github.com/Solessfir/glfw.git
+[submodule "External/imgui"]
+	path = External/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "External/freetype"]
+	path = External/freetype
+	url = https://gitlab.freedesktop.org/freetype/freetype.git
+[submodule "External/NVRHI"]
+	path = External/NVRHI
+	url = https://github.com/NVIDIA-RTX/NVRHI.git

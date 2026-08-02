@@ -6,7 +6,7 @@ The architecture takes inspiration from Unreal Engine's runtime and tooling boun
 
 ## Status
 
-Milestone 0 - Foundation is complete. The repository contains Core, Math, and Platform modules, automated tests, a pinned dependency bootstrap, Premake project generation, and required Windows/Linux CI and quality gates. Milestone 1 - Application shell is next. Herta does not contain an application shell, renderer, editor, or game runtime yet.
+Milestone 0 - Foundation and Milestone 1 - Application shell are complete. Herta now contains structured logging, task scheduling, GLFW window and input ownership, the minimum NVRHI Vulkan presentation path, Dear ImGui ToolUI with docking and platform viewports, the initial editor shell and Output Log, a configured application icon, and a display-independent editor command host. Windows, X11, and Wayland renderer smoke paths are covered. The scene renderer, asset pipeline, and game runtime have not started.
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
 
@@ -41,7 +41,7 @@ Dependencies will be introduced only when their implementation milestone require
 
 ## Building
 
-Setup initializes Git submodules and downloads the pinned Premake binary into ignored `External/Premake`. Normal project generation and builds do not access the network.
+Setup initializes Git submodules and downloads pinned project-local Premake and Vulkan SDK installations under ignored `External/Premake` and `SDK`. Normal project generation and builds do not access the network. A Vulkan-capable driver and production loader remain platform requirements.
 
 ### Windows
 
@@ -69,21 +69,32 @@ GenerateProjectFiles.bat vs2022
 From a matching Visual Studio Developer Command Prompt:
 
 ```bat
-MSBuild Herta.slnx /m /t:HertaTests /p:Configuration=Development /p:Platform=x64
+MSBuild Herta.slnx /m /t:HertaTests,HertaEditorCmd,HertaEditor /p:Configuration=Development /p:Platform=x64
 Binaries\windows\x86_64\Development\HertaTests.exe
+Binaries\windows\x86_64\Development\HertaEditorCmd.exe --json help
+Binaries\windows\x86_64\Development\HertaEditor.exe
 ```
 
 Use `Herta.sln` when Setup selected the fallback toolchain.
 
 ### Linux
 
-Setup validates Git, Make, `sha256sum`, `tar`, curl or wget, and a C++23 compiler and standard library providing `<expected>` and `<print>`. GCC 14 or newer is required when using libstdc++.
+Setup validates Git, Make, `sha256sum`, `tar`, curl or wget, Linux X11 and Wayland development packages, and a C++23 compiler and standard library providing `<expected>` and `<print>`. GCC 14 or newer is required when using libstdc++.
+
+On Ubuntu 24.04, install the required compiler and window-system packages with:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libvulkan1 mesa-vulkan-drivers vulkan-validationlayers
+```
 
 ```bash
 bash ./Setup.sh
 bash ./GenerateProjectFiles.sh
-make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development HertaTests
+make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development HertaTests HertaEditorCmd HertaEditor
 ./Binaries/linux/x86_64/Development/HertaTests
+./Binaries/linux/x86_64/Development/HertaEditorCmd --json help
+./Binaries/linux/x86_64/Development/HertaEditor
 ```
 
 On Ubuntu 24.04, select GCC 14 explicitly:
@@ -93,6 +104,8 @@ export CC=gcc-14 CXX=g++-14
 bash ./Setup.sh
 bash ./GenerateProjectFiles.sh
 ```
+
+Generated IDE launch settings provide the project-local Vulkan SDK tools and validation-layer paths for Debug and Development. Direct launches continue without validation when the platform loader cannot discover the SDK layer, and report that downgrade through Herta logging.
 
 ## Cleaning
 

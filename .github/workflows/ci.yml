@@ -22,6 +22,9 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
     strategy:
       fail-fast: false
       matrix:
@@ -59,12 +62,21 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Restore project-local tools and SDKs
+        id: bootstrap-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            External/Premake
+            SDK
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}
+
       - name: Install Linux C++23 library support
         if: matrix.platform == 'linux'
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes gcc-14 g++-14
+          sudo apt-get install --yes gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libvulkan1 mesa-vulkan-drivers vulkan-validationlayers weston xvfb
 
       - name: Set up Herta on Windows
         if: matrix.platform == 'windows'
@@ -78,14 +90,21 @@ jobs:
 
       - name: Build Herta on Windows
         if: matrix.platform == 'windows'
-        shell: cmd
-        run: >-
-          msbuild Herta.slnx
-          /m
-          /t:HertaTests
-          /p:Configuration=${{ matrix.configuration }}
-          /p:Platform=x64
-          /verbosity:minimal
+        shell: pwsh
+        run: |
+          $MSBuildPath = & .\Scripts\Setup.ps1 -PrintMSBuildPath -VisualStudioVersion 2026
+          if ([string]::IsNullOrWhiteSpace($MSBuildPath)) {
+            throw 'Could not resolve MSBuild for Visual Studio 2026.'
+          }
+
+          & $MSBuildPath `
+            Herta.slnx `
+            /m `
+            /t:HertaTests,HertaEditorCmd,HertaEditor `
+            /p:Configuration=${{ matrix.configuration }} `
+            /p:Platform=x64 `
+            /verbosity:minimal
+          exit $LASTEXITCODE
 
       - name: Run tests on Windows
         if: matrix.platform == 'windows'
@@ -100,6 +119,15 @@ jobs:
             exit $ConsoleExitCode
           }
           exit $LASTEXITCODE
+
+      - name: Run headless editor command on Windows
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $Diagnostic = & .\Binaries\windows\x86_64\${{ matrix.configuration }}\HertaEditorCmd.exe --json help | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $Diagnostic.schema -ne 1 -or $Diagnostic.status -ne 'success') {
+            exit 1
+          }
 
       - name: Set up Herta on Linux
         if: matrix.platform == 'linux'
@@ -128,7 +156,9 @@ jobs:
           make --directory=Intermediate/ProjectFiles/gmake \
             --jobs=2 \
             config="${Configuration,,}" \
-            HertaTests
+            HertaTests \
+            HertaEditorCmd \
+            HertaEditor
 
       - name: Run tests on Linux
         if: matrix.platform == 'linux'
@@ -148,6 +178,67 @@ jobs:
             exit "$ConsoleExitCode"
           fi
           exit "$JunitExitCode"
+
+      - name: Run headless editor command on Linux
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          Diagnostic="$(./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaEditorCmd --json help)"
+          python3 -c 'import json,sys; value=json.loads(sys.argv[1]); assert value["schema"] == 1 and value["status"] == "success"' "$Diagnostic"
+
+      - name: Run interactive editor smoke test on X11
+        if: matrix.platform == 'linux'
+        shell: bash
+        timeout-minutes: 2
+        # Lavapipe retains process-lifetime allocations; unit tests still run with leak detection enabled.
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+        run: |
+          LavapipeIcd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)"
+          test -n "$LavapipeIcd"
+          env -u WAYLAND_DISPLAY VK_DRIVER_FILES="$LavapipeIcd" \
+            xvfb-run --auto-servernum ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaEditor --smoke-test --expect-window-system=x11
+
+      - name: Run interactive editor smoke test on Wayland
+        if: matrix.platform == 'linux'
+        shell: bash
+        timeout-minutes: 2
+        # Lavapipe retains process-lifetime allocations; unit tests still run with leak detection enabled.
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+        run: |
+          mkdir -p TestResults
+          RuntimeDirectory="$(mktemp -d)"
+          chmod 700 "$RuntimeDirectory"
+          XDG_RUNTIME_DIR="$RuntimeDirectory" weston --backend=headless-backend.so --socket=herta-wayland --idle-time=0 --log="$RuntimeDirectory/weston.log" &
+          WestonPid=$!
+          cleanup() {
+            kill "$WestonPid" 2>/dev/null || true
+            wait "$WestonPid" 2>/dev/null || true
+            cp "$RuntimeDirectory/weston.log" "TestResults/weston-${{ matrix.compiler }}-${{ matrix.configuration }}.log" 2>/dev/null || true
+            rm -rf -- "$RuntimeDirectory"
+          }
+          trap cleanup EXIT
+          for Attempt in {1..50}; do
+            if [[ -S "$RuntimeDirectory/herta-wayland" ]]; then
+              break
+            fi
+            sleep 0.1
+          done
+          test -S "$RuntimeDirectory/herta-wayland"
+          LavapipeIcd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)"
+          test -n "$LavapipeIcd"
+          env -u DISPLAY XDG_RUNTIME_DIR="$RuntimeDirectory" WAYLAND_DISPLAY=herta-wayland \
+            VK_DRIVER_FILES="$LavapipeIcd" ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaEditor --smoke-test --expect-window-system=wayland
+
+      - name: Save project-local tools and SDKs
+        if: github.event_name != 'pull_request' && steps.bootstrap-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            External/Premake
+            SDK
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}
 
       - name: Upload test results
         if: ${{ always() }}

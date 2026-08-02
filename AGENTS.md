@@ -112,6 +112,6 @@ Cleanup scripts remove only explicit Herta-managed generated paths. Without Git 
 
 ## Current repository state
 
-Milestone 0 is complete and Milestone 1 is next. The repository contains a real Premake workspace, Setup and project-generation scripts, Core, Math, Platform, HertaTests, and required CI and quality workflows. The Windows and Linux build and test paths are locally verified, and both remain required CI gates. The application shell, Vulkan integration, editor, and game runtime have not started.
+Milestones 0 and 1 are complete. The repository contains structured logging, Tasks, Application, RHI, NvrhiVulkan, ToolUI, EditorCore, EditorFramework, HertaEditor, HertaEditorCmd, a configured application icon, focused tests, and required Windows/Linux CI and quality workflows. Local Windows, X11, and Wayland builds, tests, renderer smoke paths, and the headless command path are verified. Milestone 2 - RHI and renderer is next. The scene renderer, asset pipeline, and game runtime have not started.
 
 Update this section when a milestone changes those facts.

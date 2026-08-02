@@ -1,6 +1,11 @@
 function HertaApplyToolchainSettings()
     filter "system:windows"
         systemversion "latest"
+        characterset "Unicode"
+        buildoptions {
+            "/utf-8",
+            "/Zc:preprocessor"
+        }
         defines {
             "HERTA_PLATFORM_WINDOWS=1",
             "NOMINMAX",

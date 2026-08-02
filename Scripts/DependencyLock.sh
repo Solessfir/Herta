@@ -141,3 +141,30 @@ get_herta_premake_dependency() {
         return 1
     fi
 }
+
+get_herta_vulkan_dependency() {
+    local platform="$1"
+    local match_count=0
+    local index
+
+    vulkan_version=""
+    vulkan_url=""
+    vulkan_sha256=""
+    vulkan_entry=""
+
+    for ((index = 0; index < herta_dependency_count; index += 1)); do
+        if [[ "${herta_dependency_names[index]}" == "vulkan-sdk" &&
+              "${herta_dependency_platforms[index]}" == "${platform}" ]]; then
+            ((match_count += 1))
+            vulkan_version="${herta_dependency_versions[index]}"
+            vulkan_url="${herta_dependency_urls[index]}"
+            vulkan_sha256="${herta_dependency_sha256s[index]}"
+            vulkan_entry="${herta_dependency_installed_entries[index]}"
+        fi
+    done
+
+    if [[ ${match_count} -ne 1 ]]; then
+        echo "Dependencies.lock must contain exactly one Vulkan SDK entry for ${platform}." >&2
+        return 1
+    fi
+}

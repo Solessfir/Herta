@@ -25,6 +25,13 @@ if not defined HERTA_PREMAKE (
     exit /b 1
 )
 
+set "HERTA_VULKAN_SDK="
+for /f "usebackq delims=" %%V in (`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HERTA_ROOT%Scripts\Setup.ps1" -PrintVulkanSdkPath`) do set "HERTA_VULKAN_SDK=%%V"
+if not defined HERTA_VULKAN_SDK (
+    echo Failed to resolve the project-local Vulkan SDK. 1>&2
+    exit /b 1
+)
+
 "%HERTA_PREMAKE%" --file="%HERTA_ROOT%premake5.lua" %HERTA_ACTION%
 if %ERRORLEVEL% neq 0 exit /b %ERRORLEVEL%
 

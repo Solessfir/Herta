@@ -36,6 +36,7 @@ jobs:
         shell: pwsh
         run: |
           ./Scripts/Tests/DependencyLock.Tests.ps1
+          ./Setup.bat -ValidateOnly
           ./Cleanup.bat -WhatIf
 
   bootstrap-linux:
@@ -54,6 +55,7 @@ jobs:
         shell: bash
         run: |
           ./Scripts/Tests/DependencyLock.Tests.sh
+          ./Setup.sh --validate-only
           ./Cleanup.sh --dry-run
 
   formatting:
@@ -124,11 +126,20 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Restore project-local tools and SDKs
+        id: bootstrap-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            External/Premake
+            SDK
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}
+
       - name: Install compilation database capture
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes bear g++-14
+          sudo apt-get install --yes bear g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev
 
       - name: Set up Herta
         shell: bash
@@ -155,7 +166,9 @@ jobs:
             make --directory=Intermediate/ProjectFiles/gmake \
               --jobs=2 \
               config=development \
-              HertaTests
+              HertaTests \
+              HertaEditorCmd \
+              HertaEditor
           test -s compile_commands.json
           mapfile -d '' Sources < <(git ls-files -z -- \
             ':(glob)Engine/**/*.cpp' \
@@ -165,6 +178,15 @@ jobs:
             --config-file=.clang-tidy \
             -p=. \
             "${Sources[@]}"
+
+      - name: Save project-local tools and SDKs
+        if: github.event_name != 'pull_request' && steps.bootstrap-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            External/Premake
+            SDK
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}
 
   required:
     name: required
