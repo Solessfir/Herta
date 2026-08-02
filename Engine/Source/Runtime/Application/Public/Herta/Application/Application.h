@@ -2,7 +2,6 @@
 
 #include "Herta/Application/TitleBar.h"
 
-#include <array>
 #include <cstdint>
 #include <expected>
 #include <filesystem>

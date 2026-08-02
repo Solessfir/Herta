@@ -349,6 +349,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		return 1;
 	}
 	std::unique_ptr<FEditorFramework> EditorFramework = std::move(*EditorFrameworkResult);
+	const FToolUIColor CanvasColor = ToolUITheme::Canvas;
+	const FLinearColor EditorClearColor = ConvertSrgb8ToLinearColor(CanvasColor.Red, CanvasColor.Green, CanvasColor.Blue, CanvasColor.Alpha);
 
 	bool bRenderFailed = false;
 	RenderFrame = [&]
@@ -406,7 +408,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		bool bPresentedMainFrame = false;
 		if (bMainFrameReady)
 		{
-			std::expected<void, FPresentationError> ClearResult = Presentation->Clear({18.0f / 255.0f, 18.0f / 255.0f, 19.0f / 255.0f, 1.0f});
+			std::expected<void, FPresentationError> ClearResult = Presentation->Clear(EditorClearColor);
 			if (!ClearResult)
 			{
 				HERTA_LOG_ERROR(*Log, EditorLog, "Could not clear the editor frame: {}", ClearResult.error().Message);

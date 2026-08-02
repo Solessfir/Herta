@@ -30,6 +30,8 @@ struct FLinearColor
 	float Alpha = 1.0f;
 };
 
+[[nodiscard]] FLinearColor ConvertSrgb8ToLinearColor(std::uint8_t Red, std::uint8_t Green, std::uint8_t Blue, std::uint8_t Alpha = 255) noexcept;
+
 struct FPresentationViewportHandle
 {
 	std::uint64_t Value = 0;

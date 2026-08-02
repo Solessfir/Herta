@@ -32,6 +32,8 @@ Do not place unrelated solid backgrounds or separator lines between the title ba
 
 These values are the initial neutral contract:
 
+Palette and appearance values are authored as sRGB display values. ToolUI converts interpolated Dear ImGui vertex RGB to linear in the fragment shader before blending into an sRGB swapchain, while alpha remains linear coverage. Presentation clears use the same explicit sRGB-to-linear conversion. Do not compensate for an incorrect rendering path by changing the palette tokens.
+
 | Token | Value | Use |
 |---|---:|---|
 | `Canvas` | `#121213` | Full-window background and gradient endpoint |

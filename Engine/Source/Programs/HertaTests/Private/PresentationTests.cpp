@@ -36,3 +36,19 @@ TEST_CASE("Presentation viewport handles reserve zero as invalid")
 	CHECK(First.IsValid());
 	CHECK(First != Invalid);
 }
+
+TEST_CASE("sRGB palette colors decode to linear presentation values")
+{
+	const Herta::FLinearColor Black = Herta::ConvertSrgb8ToLinearColor(0, 0, 0, 0);
+	const Herta::FLinearColor White = Herta::ConvertSrgb8ToLinearColor(255, 255, 255, 255);
+	const Herta::FLinearColor Canvas = Herta::ConvertSrgb8ToLinearColor(18, 18, 19);
+
+	CHECK(Black.Red == doctest::Approx(0.0f));
+	CHECK(Black.Alpha == doctest::Approx(0.0f));
+	CHECK(White.Red == doctest::Approx(1.0f));
+	CHECK(White.Alpha == doctest::Approx(1.0f));
+	CHECK(Canvas.Red == doctest::Approx(0.00604883f));
+	CHECK(Canvas.Green == doctest::Approx(0.00604883f));
+	CHECK(Canvas.Blue == doctest::Approx(0.00651209f));
+	CHECK(Canvas.Alpha == doctest::Approx(1.0f));
+}
