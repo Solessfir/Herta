@@ -4,10 +4,12 @@
 /DerivedDataCache/
 /Saved/
 /SDK/
+/External/Premake/
 /TestResults/
 
 # Generated project files
 /*.sln
+/*.slnx
 /*.make
 /*.workspace
 /Makefile

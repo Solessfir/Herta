@@ -40,6 +40,7 @@ $GeneratedDirectories = @(
     'Intermediate',
     'Saved',
     'SDK',
+    'External/Premake',
     'TestResults',
     '.idea',
     '.vs'
@@ -64,6 +65,7 @@ $GeneratedRootPatterns = @(
     '*.code-workspace',
     '*.make',
     '*.sln',
+    '*.slnx',
     '*.suo',
     '*.user',
     '*.vcxproj',

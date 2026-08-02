@@ -30,9 +30,9 @@ if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
     exit 1
 fi
 
-install_directory="${repository_root}/SDK/Linux/Premake/${premake_version}"
+install_directory="${repository_root}/External/Premake/Linux/${premake_version}"
 premake_path="${install_directory}/${premake_entry}"
-download_directory="${repository_root}/SDK/.Downloads"
+download_directory="${repository_root}/External/Premake/.Downloads"
 archive_path="${download_directory}/$(basename -- "${premake_url}")"
 temporary_archive=""
 temporary_directory=""
@@ -65,7 +65,11 @@ print_prerequisite_command() {
         source /etc/os-release
     fi
     case "${ID:-}:${ID_LIKE:-}" in
-        *ubuntu*|*debian*) echo 'Install them with: sudo apt-get update && sudo apt-get install -y git make g++ coreutils tar curl' >&2 ;;
+        *ubuntu*)
+            echo 'Install them with: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14 git make coreutils tar curl' >&2
+            echo 'Then select GCC 14 with: export CC=gcc-14 CXX=g++-14' >&2
+            ;;
+        *debian*) echo 'Install Git, Make, coreutils, tar, curl, and GCC 14 or newer with your configured Debian repositories.' >&2 ;;
         *fedora*|*rhel*) echo 'Install them with: sudo dnf install -y git make gcc-c++ coreutils tar curl' >&2 ;;
         *arch*) echo 'Install them with: sudo pacman -S --needed git make gcc coreutils tar curl' >&2 ;;
         *) echo 'Install Git, Make, a C++ compiler, coreutils, tar, and curl with your distribution package manager.' >&2 ;;
@@ -115,16 +119,19 @@ fi
 compiler_probe_directory="$(mktemp -d)"
 cat > "${compiler_probe_directory}/Probe.cpp" <<'EOF'
 #include <expected>
+#include <print>
 
 int main()
 {
     const std::expected<int, int> value = 42;
+    std::println("Herta C++23 probe");
     return value.value() == 42 ? 0 : 1;
 }
 EOF
 if ! "${cxx}" -std=c++23 -Wall -Wextra -Werror "${compiler_probe_directory}/Probe.cpp" -o "${compiler_probe_directory}/Probe" ||
-   ! "${compiler_probe_directory}/Probe"; then
-    echo "Compiler '${cxx}' failed the Herta C++23 compile, link, and run probe." >&2
+   ! "${compiler_probe_directory}/Probe" >/dev/null; then
+    echo "Compiler '${cxx}' failed the required C++23 library probe for <expected> and <print>." >&2
+    print_prerequisite_command
     exit 1
 fi
 rm -rf -- "${compiler_probe_directory}"

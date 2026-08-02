@@ -46,6 +46,7 @@ generated_directories=(
     Intermediate
     Saved
     SDK
+    External/Premake
     TestResults
     .idea
     .vs
@@ -64,6 +65,7 @@ for file in \
     "${repository_root}"/*.code-workspace \
     "${repository_root}"/*.make \
     "${repository_root}"/*.sln \
+    "${repository_root}"/*.slnx \
     "${repository_root}"/*.suo \
     "${repository_root}"/*.user \
     "${repository_root}"/*.vcxproj \
