@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
+      actions: read
       contents: read
       packages: read
       security-events: write
@@ -37,6 +38,12 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Install Linux C++23 library support
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gcc-14 g++-14
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
@@ -46,22 +53,22 @@ jobs:
       - name: Set up Herta
         shell: bash
         env:
-          CC: gcc
-          CXX: g++
+          CC: gcc-14
+          CXX: g++-14
         run: bash ./Setup.sh
 
       - name: Generate GNU Make projects
         shell: bash
         env:
-          CC: gcc
-          CXX: g++
+          CC: gcc-14
+          CXX: g++-14
         run: bash ./GenerateProjectFiles.sh gmake
 
       - name: Build Herta
         shell: bash
         env:
-          CC: gcc
-          CXX: g++
+          CC: gcc-14
+          CXX: g++-14
         run: >-
           make
           --directory=Intermediate/ProjectFiles/gmake

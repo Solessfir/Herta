@@ -128,7 +128,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes bear
+          sudo apt-get install --yes bear g++-14
 
       - name: Set up Herta
         shell: bash

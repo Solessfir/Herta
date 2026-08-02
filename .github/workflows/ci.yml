@@ -48,8 +48,8 @@ jobs:
             platform: linux
             compiler: gcc
             configuration: Shipping
-            cc: gcc
-            cxx: g++
+            cc: gcc-14
+            cxx: g++-14
 
     steps:
       - name: Check out Herta
@@ -59,21 +59,28 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
+      - name: Install Linux C++23 library support
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gcc-14 g++-14
+
       - name: Set up Herta on Windows
         if: matrix.platform == 'windows'
         shell: cmd
-        run: Setup.bat
+        run: Setup.bat -VisualStudioVersion 2026
 
       - name: Generate Visual Studio projects
         if: matrix.platform == 'windows'
         shell: cmd
-        run: GenerateProjectFiles.bat
+        run: GenerateProjectFiles.bat vs2026
 
       - name: Build Herta on Windows
         if: matrix.platform == 'windows'
         shell: cmd
         run: >-
-          msbuild Intermediate\ProjectFiles\vs2026\Herta.slnx
+          msbuild Herta.slnx
           /m
           /t:HertaTests
           /p:Configuration=${{ matrix.configuration }}
