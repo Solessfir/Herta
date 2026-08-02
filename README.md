@@ -20,7 +20,7 @@ The current architecture and implementation roadmap are documented in [EngineDes
 - Herta-owned structured logging with `spdlog` private behind Core
 - UX-first task system with bounded CPU and IO work, cancellation, progress, and safe reload ownership
 - Dear ImGui editor and imgui-node-editor graph tooling
-- Framer-inspired near-black editor styling with Roboto, a 36 px custom title bar, white docking previews, and centralized ToolUI tokens
+- Desaturated graphite editor styling with Roboto and FreeType, a configurable low-intensity background gradient, transparent-panel modes, a 36 px custom title bar, and centralized ToolUI tokens
 - Headless editor commands that do not require windows, rendering, ImGui, or an audio device
 - Server-authoritative multiplayer with dedicated and player-hosted listen-server compositions
 - Versioned project templates and editor-only C++ game-module hot reload
@@ -29,7 +29,7 @@ The current architecture and implementation roadmap are documented in [EngineDes
 - Jolt Physics and ozz-animation behind Herta-owned APIs
 - Recast/Detour navigation and a first-party compiled StateTree AI runtime
 - miniaudio behind Herta-owned audio assets, mixing, spatialization, and thread boundaries, with Steam Audio as the preferred optional acoustics candidate
-- ICU, HarfBuzz, and FreeType behind Herta localization and international-text APIs when that milestone begins
+- ICU and HarfBuzz at the localization milestone, expanding the MS1 FreeType dependency behind Herta international-text APIs
 - glTF asset pipeline with optional system Blender import and live reimport
 - Zstandard-compressed packages, optional single-executable embedding, and data-mod mounting through one VFS
 - Dynamic-only lighting with a crisp native TAA baseline, optional upscalers and capability-driven advanced GI
