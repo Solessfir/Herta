@@ -1,7 +1,7 @@
 # Herta Engine Design
 
 Status: Active design - Milestone 0 complete
-Last updated: 2026-08-01
+Last updated: 2026-08-02
 
 ## 1. Purpose
 
@@ -171,6 +171,7 @@ Herta/
 |-- Config/
 |   `-- Dependencies.lock
 |-- Docs/
+|   |-- EditorStyle.md
 |   `-- EngineDesign.md
 |-- Engine/
 |   |-- Content/
@@ -229,6 +230,7 @@ Herta/
 |           |-- HertaCooker/
 |           `-- HertaTests/
 |-- External/
+|   |-- Premake/                    # ignored host binaries installed by Setup
 |   |-- doctest/
 |   |-- enkiTS/
 |   |-- entt/
@@ -284,7 +286,8 @@ Binaries/<platform>/x86_64/<configuration>/
 DerivedDataCache/<platform>/
 Intermediate/Build/<platform>/x86_64/<configuration>/<target>/
 Intermediate/ProjectFiles/<premake-action>/
-SDK/<platform>/<tool>/<version>/
+External/Premake/<platform>/<version>/
+SDK/<platform>/<sdk>/<version>/
 Saved/Logs/
 Saved/HotReload/
 Saved/Crashes/
@@ -432,6 +435,14 @@ Editor code must not handle `WM_NCHITTEST`, X11 client messages, or Wayland seri
 Wayland does not expose every global-window operation available on Win32/X11. Window placement and custom-decoration behavior must degrade honestly instead of faking unsupported state. The public API reports capabilities.
 
 The GLFW fork should contain only a generic, upstreamable custom-titlebar API. Herta-specific colors, buttons, ImGui state, and engine events stay in Herta. The fork remains pinned as a submodule and its upstream copyright remains intact.
+
+The Milestone 1 title-bar geometry is one pure Herta layout contract shared by rendering, hover feedback, and native hit testing. The baseline uses a 36 logical-pixel title bar, 46 logical-pixel window buttons, and a 6 logical-pixel resize border. Win32 and X11 apply viewport content scale. Wayland coordinates are already logical and are not scaled twice. Unit tests cover every region and fractional-scale rounding.
+
+Window-control pixels are not ImGui buttons. Returning a minimize, maximize, restore, close, or system-menu hit-test role lets the native GLFW backend own the click and window-manager action. Rendering code must not perform the same action again.
+
+ImGui capture has priority over caption dragging. Each native viewport caches the most recent ToolUI mouse-capture state outside the GLFW callback. If a floating panel, popup, modal, or active item overlaps the title bar, the callback returns client space so ImGui receives the interaction. The callback is allocation-free and never calls ImGui directly. Multi-viewport integration therefore owns one `FWindow`, title-bar layout, scale, focus state, cursor state, and capture state per ImGui platform viewport.
+
+Windows GUI programs compile a multi-resolution application icon as the named `GLFW_ICON` resource through Premake. Linux desktop packaging installs the corresponding SVG or PNG sizes with the program's `.desktop` entry. Application exposes runtime icon capability without pretending that ELF executables embed desktop icons.
 
 ### 4.5 Reflection and serialization
 
@@ -668,6 +679,10 @@ The interactive editor hosts the runtime. Runtime code never includes ImGui or e
 
 Dear ImGui is used for editor, tool, and optional GUI-application interfaces, not Herta game UI. `ToolUI` owns context lifetime and platform/render integration so a GUI program can use ImGui without linking Scene, Physics, Animation, AI, or EditorCore. Use the maintained docking branch with multi-viewports, pinned to an exact commit or release tag.
 
+Milestone 1 adopts the centralized [Herta Editor Style](EditorStyle.md) proven by the native ProjectTemplate: Roboto at a 15 logical-pixel base, near-black neutral surfaces, blue interaction accents, white docking previews, and a 36 logical-pixel custom title bar. ToolUI owns named palette and metric tokens. Feature panels do not scatter local ImGui style literals. Initial panels are opaque; backdrop blur remains a later RenderGraph-backed option.
+
+Global ImGui metrics are shared behavior, not isolated widget decoration. In particular, checkbox size follows frame height. ToolUI must not shrink global `FramePadding` to resize checkboxes because that also changes buttons and inputs. A genuinely compact control uses a Herta helper or locally scoped style. Primary white pill buttons suppress the normal frame border to avoid a dark aliased outline.
+
 Herta does not adopt Stack Layout PR 846. Docking, tables, groups, child regions, `SameLine`, and explicit sizing cover the initial editor. `imgui-node-editor` itself works with standard ImGui. If repeated editor code later proves a missing layout abstraction, add small Herta-owned helpers using public ImGui APIs before considering an internal ImGui patch.
 
 When the first domain requires a free-form node canvas, Herta uses the maintained [Solessfir imgui-node-editor fork](https://github.com/Solessfir/imgui-node-editor) as a pinned submodule. It remains attributed third-party code. Upstream history is preserved, Herta-specific changes are documented separately, and upstream synchronization remains possible. Themes, node contents, icons, menus, and domain behavior stay in `GraphEditor`; the fork changes only when its public API or rendering internals prevent required interaction, DPI, navigation, hit-testing, or draw-order behavior.
@@ -704,11 +719,13 @@ Detached native ImGui viewports cannot portably blur another swapchain or the de
 
 Source icons remain `.svg` files under `Engine/Content/Editor/Icons`; fonts remain `.ttf` or `.otf` files under `Engine/Content/Editor/Fonts`. Each asset keeps its license metadata beside the source. Editor assets are content, not generated C++ byte arrays. A cooked editor package may be embedded through the normal package system when producing a monolithic executable.
 
+The Milestone 1 editor font is Roboto Regular and Medium. Its SIL Open Font License is stored beside the font sources, included in generated third-party notices, and available through the editor About surface. Packaging fails when redistributed font bytes lack their required license metadata. ToolUI keeps the font content generation alive as long as Dear ImGui may reference its source bytes for atlas rebuilding or dynamic glyph generation.
+
 `EditorFramework` owns a Herta SVG adapter with LunaSVG private behind it. The adapter rasterizes an icon to RGBA at the requested physical pixel size, uploads it as an ImGui texture, and caches by source hash, pixel dimensions, and scale. Rasterization may run off the UI thread, but GPU upload and cache publication occur at an explicit frame boundary.
 
 Herta editor icons use a deterministic static SVG subset: paths and basic shapes, `viewBox`, solid fills, strokes, clipping, and gradients when needed. Scripts, animation, filters, external resources, embedded raster images, and SVG text are rejected. This keeps rendering portable and avoids hidden font, network, and timing dependencies.
 
-Milestone 1 title-bar controls use ImGui draw primitives and do not require a production icon set. LunaSVG and the real editor icon library enter only when the first SVG-backed editor tool requires them. The visual language and source icon set are selected deliberately before production assets are generated.
+Milestone 1 title-bar controls use ImGui draw primitives and do not require a production icon set. LunaSVG and the real editor icon library enter only when the first SVG-backed editor tool requires them. Normal Dear ImGui font rasterization is the initial native-resolution UI path; msdfgen is deferred until a measured world-space, zoomable-canvas, or vector-text requirement exists.
 
 ### 4.15 Audio
 
@@ -978,7 +995,7 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [Vulkan SDK](https://vulkan.lunarg.com/) | Adopt at renderer start | Setup, NvrhiVulkan | Headers, validation, tools, and SPIR-V environment. Runtime uses the system loader. |
 | [Herta GLFW fork](https://github.com/Solessfir/glfw) | Adopt at MS1 | Application | Windows, X11, Wayland, input, surfaces, and generic custom-titlebar support. Begin from commit `d6e3eee4`. Private API. |
 | [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | Adopt at MS1 presentation bootstrap | NvrhiVulkan | Vulkan 1.3 device, swapchain, resource, and command implementation behind Herta RHI. MS1 uses the minimum UI path; MS2 expands the renderer-facing contract. |
-| [Dear ImGui](https://github.com/ocornut/imgui) | Adopt at editor milestone | ToolUI | Docking and multi-viewport editor and tool UI. GUI programs may compose ToolUI without the game or editor runtime. |
+| [Dear ImGui](https://github.com/ocornut/imgui) | Adopt at MS1 | ToolUI | Docking and multi-viewport editor and tool UI. GUI programs may compose ToolUI without the game or editor runtime. Apply the centralized EditorStyle baseline rather than feature-local styling. |
 | [LunaSVG](https://github.com/sammycage/lunasvg) | Adopt with first SVG-backed editor tool | EditorFramework | Private CPU rasterizer for static SVG editor assets. Cache RGBA results as ImGui textures; LunaSVG types never enter Herta APIs. |
 | [Stack Layout PR 846](https://github.com/ocornut/imgui/pull/846) | Do not adopt | None | The initial editor does not justify an unmerged patch to ImGui internals. |
 | [Herta imgui-node-editor fork](https://github.com/Solessfir/imgui-node-editor) | Adopt with first node-canvas graph | GraphEditor | Maintained third-party fork for graph visualization and interaction, not graph semantics or execution. Preserve upstream history and document Herta patches. |
@@ -1055,9 +1072,9 @@ nob.h may be evaluated later for a self-contained setup, packaging, or task-runn
 - All configurations, programs, dependency boundaries, generated code, and CI use cases represented once.
 - Clean-build and incremental-build parity tests against the existing build.
 
-### 8.2 Project-local SDKs
+### 8.2 Project-local third-party tools and SDKs
 
-Downloaded development SDKs and tools live under ignored `SDK/<platform>/<tool>/<version>` directories. `Config/Dependencies.lock` is the canonical binary-tool manifest consumed by Setup, Premake, and CI. It uses a strict line format so the bootstrap layer does not require Python, `jq`, a JSON library, or an already-built Herta tool.
+Downloaded host tools live under ignored `External/<tool>/<platform>/<version>` directories. Downloaded development SDKs live under ignored `SDK/<platform>/<sdk>/<version>` directories. `Config/Dependencies.lock` is the canonical binary dependency manifest consumed by Setup, Premake, and CI. It uses a strict line format so the bootstrap layer does not require Python, `jq`, a JSON library, or an already-built Herta tool.
 
 ```text
 HERTA_DEPENDENCIES_V1
@@ -1068,7 +1085,7 @@ premake|tool|linux-x64|5.0.0-beta8|BSD-3-Clause|https://...|<sha256>|premake5
 
 The parser accepts UTF-8, blank lines, and full-line `#` comments. Every data line has exactly eight pipe-delimited fields. Fields may not contain a pipe or newline, duplicate name/platform entries are errors, SHA-256 is mandatory, and unknown schema versions or kinds fail closed. Values are data and are never evaluated or sourced as shell code. Setup never downloads an unversioned `latest` artifact.
 
-Setup removes each downloaded archive or installer after the installed tree passes validation. `SDK` contains usable tools and SDKs only, not a second download cache.
+Setup removes each downloaded archive or installer after the installed tree passes validation. `External/Premake` and `SDK` contain usable installations only, not a second download cache.
 
 `Dependencies.lock` covers downloaded binary tools and SDKs only. Git submodule revisions remain locked by Git's recorded gitlinks instead of being duplicated in this file.
 
@@ -1080,7 +1097,7 @@ The Vulkan SDK can be local to the Herta checkout:
 
 The development SDK is local, but the Vulkan-capable GPU driver and production loader remain operating-system or driver responsibilities. Linux X11, Wayland, and compiler development packages may also require system package-manager installation.
 
-Premake binaries and other pinned command-line tools may use the same local SDK policy. Blender is explicitly excluded because it is a user-managed system installation. `External` remains for source dependencies tracked by Git submodules. `SDK` is disposable downloaded tooling and is never committed.
+Premake binaries live under `External/Premake/<platform>/<version>`. Source dependencies also live under `External`, but remain pinned Git submodules rather than downloaded binary trees. Actual SDKs such as Vulkan remain under `SDK`. Blender is explicitly excluded because it is a user-managed system installation. Downloaded tool and SDK directories are disposable and never committed.
 
 ### 8.3 Configurations
 
@@ -1108,19 +1125,21 @@ Rules:
 
 1. Validate Git, a supported compiler, and platform build tools.
 2. Initialize and update pinned submodules.
-3. Download a pinned Premake binary into `SDK` if missing and verify its checksum.
+3. Download a pinned Premake binary into `External/Premake` if missing and verify its checksum.
 4. Download or validate project-local SDKs required by the selected targets. Vulkan is added only when Vulkan work begins.
 5. Probe the optional system Blender installation and report its version and `.blend` integration status. Absence is not a Setup failure, and Setup never installs Blender. No separate Python check is required.
 6. When selected targets need them, detect missing Linux X11, Wayland, xkbcommon, and Vulkan development packages and provide or run the appropriate supported package-manager command.
 7. Print actionable diagnostics and remain safe to run repeatedly.
 
-Windows Setup defaults to Visual Studio 2026 and accepts `-VisualStudioVersion 2022` for the fallback toolchain. It compiles a C++23 probe with the selected toolset. Linux Setup compiles, links, and runs the same capability probe with the selected compiler.
+Windows Setup prefers Visual Studio 2026 with `v145`, then automatically falls back to Visual Studio 2022 with `v143`. An explicit `-VisualStudioVersion` remains strict. Setup compiles a C++23 probe with each candidate toolset. Linux Setup compiles, links, and runs the same capability probe with the selected compiler.
 
-`GenerateProjectFiles` validates the already-installed pinned Premake executable, then invokes it for the selected generator. It performs no downloads, submodule updates, or dependency mutations. Run Setup explicitly when bootstrap state must change.
+The probe covers the C++23 standard-library facilities Herta uses immediately, including `<expected>` and `<print>`. Checking only the language mode is insufficient because a compiler may accept `-std=c++23` while its paired standard library lacks `std::print`. GCC with libstdc++ requires version 14 or newer for Herta's baseline. Ubuntu 24.04 CI installs and selects GCC 14 explicitly; Clang jobs install the compatible libstdc++ 14 headers.
+
+`GenerateProjectFiles` resolves the same supported Visual Studio action when none is specified, validates the already-installed pinned Premake executable, then invokes it for the selected generator. Explicit generator arguments remain strict. Project generation performs no downloads, submodule updates, or dependency mutations. Run Setup explicitly when bootstrap state must change.
 
 ### 8.5 Cleanup
 
-`Cleanup.bat` and `Cleanup.sh` restore a clean Herta-managed workspace without requiring Git. They remove `Binaries`, `Intermediate`, `DerivedDataCache`, `Saved`, `SDK`, `TestResults`, generated root project files, and known IDE state. The scripts validate the repository root and every destructive target before removal.
+`Cleanup.bat` and `Cleanup.sh` restore a clean Herta-managed workspace without requiring Git. They remove `Binaries`, `Intermediate`, `DerivedDataCache`, `Saved`, `External/Premake`, `SDK`, `TestResults`, generated root project files, and known IDE state. The scripts validate the repository root and every destructive target before removal.
 
 This is the generated-state equivalent of `git clean -fdx`, not an imitation of Git's tracked-file database. Arbitrary untracked files inside source directories are preserved because a Git-independent script cannot distinguish scratch work from source safely.
 
@@ -1135,7 +1154,7 @@ GitHub Actions must call the same checked-in entry points used locally. Workflow
 | `ci.yml` | Pull request, push to `main`, `merge_group`, manual | Required builds, unit tests, platform integration, and small asset smoke tests |
 | `quality.yml` | Pull request, push to `main`, nightly | Formatting, warnings, clang-tidy, generated-file checks, and sanitizers |
 | `codeql.yml` | Pull request, push to `main`, weekly | C/C++ CodeQL analysis using the real build |
-| `dependency-review.yml` | Pull request | Vulnerability, license, submodule, SDK-lock, and workflow-action review |
+| `dependency-review.yml` | Pull request | Vulnerability, license, submodule, binary-lock, and workflow-action review |
 | `nightly.yml` | Scheduled and manual | Full asset corpus, optional Blender integration, render regression, stress, TSan, and recovery tests |
 | `release.yml` | Protected version tag or manual | Clean reproducible packages, checksums, notices, SBOM, attestations, and draft release |
 
@@ -1159,8 +1178,8 @@ The initial required matrix is intentionally explicit rather than a full Cartesi
 |---|---|---|---|
 | `windows-2025-vs2026` | MSVC x64 | Development | Win32, unit tests, Vulkan validation smoke, interactive and headless editor startup, custom title bar |
 | `windows-2025-vs2026` | MSVC x64 | Shipping | Shipping compile, cooker, package, and launch smoke |
-| `ubuntu-24.04` | Clang x64 | Debug-ASan | Core tests, ASan/UBSan, X11, Wayland, null, headless editor, Vulkan validation |
-| `ubuntu-24.04` | GCC x64 | Shipping | Compiler portability, Shipping compile, cooker, and launch smoke |
+| `ubuntu-24.04` | Clang 18 x64 with libstdc++ 14 | Debug-ASan | Core tests, ASan/UBSan, X11, Wayland, null, headless editor, Vulkan validation |
+| `ubuntu-24.04` | GCC 14 x64 | Shipping | Compiler portability, Shipping compile, cooker, and launch smoke |
 
 Set matrix `fail-fast: false` so one failure does not hide results from other platforms. Add architecture or configuration entries only when Herta supports and tests them locally. A GCC 16 C++26 reflection experiment may run as non-required CI until the production toolchain decision changes.
 
@@ -1251,6 +1270,8 @@ permissions:
 ```
 
 Raise permissions only on the individual job that needs them. GitHub recommends [least-privilege `GITHUB_TOKEN` permissions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication).
+
+The CodeQL analysis job grants `actions: read`, `contents: read`, `packages: read`, and `security-events: write`. `actions: read` is required for CodeQL workflow-run metadata and avoids silently degraded telemetry and feature selection. Repositories must also enable code scanning before treating CodeQL upload as a required gate.
 
 Security rules:
 
@@ -1343,8 +1364,11 @@ Add slower categories as their systems arrive:
 - Headless Vulkan/NVRHI smoke tests where CI provides a supported driver.
 - Swapchain resize, minimize, restore, and device-loss tests.
 - TAA still-detail, motion, disocclusion, foliage, thin-geometry, specular, particle, camera-cut, and history-reset render regressions.
-- Windows custom-titlebar hit-test tests.
-- Linux X11 and Wayland build and smoke coverage.
+- Pure custom-titlebar layout tests covering all hit regions, DPI scaling, Wayland logical coordinates, ImGui capture priority, maximize state, and per-viewport state.
+- Windows resource checks for the named `GLFW_ICON`, plus Win32 title-bar and system-menu integration.
+- Linux X11 and Wayland build and smoke coverage, including floating ImGui content overlapping the title bar.
+
+GLFW API-only tests define `GLFW_INCLUDE_NONE` before including `glfw3.h`. They must not acquire an undeclared OpenGL-header dependency merely because GLFW can include client API headers by default.
 
 Diagnostics are foundation work, not polish:
 
@@ -1401,9 +1425,11 @@ Exit condition: a fresh clone can run Setup, generate, build, and execute tests 
 - Add the pinned NVRHI dependency, create the Vulkan instance, device, surface, and swapchain, and expose the minimum Herta RHI presentation path required by ToolUI. Do not add a scene renderer.
 - Add ToolUI and the Dear ImGui docking and multi-viewport editor shell.
 - Add the `EditorCore`, `HertaEditor`, and `HertaEditorCmd` composition boundaries. The headless target starts and stops without GLFW, ImGui, presentation RHI, Renderer, or an audio device.
-- Draw title-bar controls with ImGui primitives. Defer LunaSVG and the production icon set until an SVG-backed editor tool needs them.
+- Apply the centralized EditorStyle baseline: Roboto Regular and Medium, required font license metadata, near-black surfaces, blue interaction accents, white docking previews, and the shared 36 px title-bar geometry.
+- Draw title-bar controls with ImGui primitives, compile the Windows `GLFW_ICON` application resource, and add Linux desktop-icon source assets. Defer LunaSVG and the production icon set until an SVG-backed editor tool needs them.
+- Add pure title-bar layout tests and regression coverage proving that floating ImGui panels and popups consume input instead of dragging the native window.
 
-Exit condition: the interactive editor opens, docks, creates platform viewports, resizes correctly, and closes cleanly on both platforms. The headless editor host starts, reports structured diagnostics, and exits cleanly on both platforms without a display server. Task scopes cancel and drain safely, blocking work cannot starve CPU workers, and synthetic background work does not stall event pumping.
+Exit condition: the interactive editor opens with the documented visual baseline, docks, creates platform viewports, preserves ImGui input priority over title-bar dragging, resizes correctly, and closes cleanly on both platforms. Windows builds expose the configured application icon. The headless editor host starts, reports structured diagnostics, and exits cleanly on both platforms without a display server. Task scopes cancel and drain safely, blocking work cannot starve CPU workers, and synthetic background work does not stall event pumping.
 
 ### Milestone 2 - RHI and renderer
 
@@ -1584,7 +1610,7 @@ Milestone 0 is complete. The next code slice is Milestone 1 and should remain li
 2. Add the pinned Herta GLFW fork and its Premake boundary.
 3. Add Application window lifetime, event pumping, input state, capability reporting, and native title-bar integration.
 4. Add the minimum NVRHI Vulkan presentation path required by ToolUI, without starting the scene renderer.
-5. Add Dear ImGui docking and multi-viewport ToolUI plus the initial editor shell.
+5. Add Dear ImGui docking and multi-viewport ToolUI plus the initial editor shell using `EditorStyle.md`, Roboto, white docking previews, the shared 36 px title bar, and platform application icons.
 6. Add `EditorCore`, `HertaEditor`, and display-independent `HertaEditorCmd` composition roots.
 
 Do not pull ECS, asset importing, localization, production rendering, networking, graph tooling, physics, animation, audio, or scripting into this slice.

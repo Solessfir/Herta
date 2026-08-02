@@ -8,7 +8,7 @@ The architecture takes inspiration from Unreal Engine's runtime and tooling boun
 
 Milestone 0 - Foundation is complete. The repository contains Core, Math, and Platform modules, automated tests, a pinned dependency bootstrap, Premake project generation, and required Windows/Linux CI and quality gates. Milestone 1 - Application shell is next. Herta does not contain an application shell, renderer, editor, or game runtime yet.
 
-The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md).
+The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
 
 ## Technical direction
 
@@ -20,6 +20,7 @@ The current architecture and implementation roadmap are documented in [EngineDes
 - Herta-owned structured logging with `spdlog` private behind Core
 - UX-first task system with bounded CPU and IO work, cancellation, progress, and safe reload ownership
 - Dear ImGui editor and imgui-node-editor graph tooling
+- Framer-inspired near-black editor styling with Roboto, a 36 px custom title bar, white docking previews, and centralized ToolUI tokens
 - Headless editor commands that do not require windows, rendering, ImGui, or an audio device
 - Server-authoritative multiplayer with dedicated and player-hosted listen-server compositions
 - Versioned project templates and editor-only C++ game-module hot reload
@@ -40,11 +41,11 @@ Dependencies will be introduced only when their implementation milestone require
 
 ## Building
 
-Setup initializes Git submodules and downloads the pinned Premake binary into the ignored `SDK` directory. Normal project generation and builds do not access the network.
+Setup initializes Git submodules and downloads the pinned Premake binary into ignored `External/Premake`. Normal project generation and builds do not access the network.
 
 ### Windows
 
-Requirements are Git and Visual Studio 2026 with Desktop development with C++. Visual Studio 2022 remains a supported fallback.
+Requirements are Git and Visual Studio with Desktop development with C++. Setup prefers Visual Studio 2026 with `v145`, then automatically falls back to Visual Studio 2022 with `v143`.
 
 From a normal terminal:
 
@@ -53,11 +54,14 @@ Setup.bat
 GenerateProjectFiles.bat
 ```
 
-The default action generates `Intermediate\ProjectFiles\vs2026\Herta.slnx`.
+Project generation uses the same detected toolchain and writes `Herta.slnx` or `Herta.sln` at the repository root. Supporting Visual Studio project files remain under `Intermediate\ProjectFiles`.
 
-To use the Visual Studio 2022 fallback, override Setup and project generation together:
+Pass a version explicitly when fallback is not wanted:
 
 ```bat
+Setup.bat -VisualStudioVersion 2026
+GenerateProjectFiles.bat vs2026
+
 Setup.bat -VisualStudioVersion 2022
 GenerateProjectFiles.bat vs2022
 ```
@@ -65,13 +69,15 @@ GenerateProjectFiles.bat vs2022
 From a matching Visual Studio Developer Command Prompt:
 
 ```bat
-MSBuild Intermediate\ProjectFiles\vs2026\Herta.slnx /m /t:HertaTests /p:Configuration=Development /p:Platform=x64
+MSBuild Herta.slnx /m /t:HertaTests /p:Configuration=Development /p:Platform=x64
 Binaries\windows\x86_64\Development\HertaTests.exe
 ```
 
+Use `Herta.sln` when Setup selected the fallback toolchain.
+
 ### Linux
 
-Setup validates Git, a C++23-capable GCC or Clang compiler, Make, `sha256sum`, `tar`, and either curl or wget.
+Setup validates Git, Make, `sha256sum`, `tar`, curl or wget, and a C++23 compiler and standard library providing `<expected>` and `<print>`. GCC 14 or newer is required when using libstdc++.
 
 ```bash
 bash ./Setup.sh
@@ -80,9 +86,17 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 ./Binaries/linux/x86_64/Development/HertaTests
 ```
 
+On Ubuntu 24.04, select GCC 14 explicitly:
+
+```bash
+export CC=gcc-14 CXX=g++-14
+bash ./Setup.sh
+bash ./GenerateProjectFiles.sh
+```
+
 ## Cleaning
 
-`Cleanup.bat` and `Cleanup.sh` remove all Herta-managed generated state, including build output, generated projects, caches, saved data, test results, IDE state, and the local `SDK` directory. Run Setup again before generating projects after a full cleanup.
+`Cleanup.bat` and `Cleanup.sh` remove all Herta-managed generated state, including build output, generated projects, caches, saved data, test results, IDE state, downloaded Premake binaries, and local SDKs. Run Setup again before generating projects after a full cleanup.
 
 ```bat
 Cleanup.bat

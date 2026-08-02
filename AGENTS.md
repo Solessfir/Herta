@@ -50,6 +50,10 @@ Do not preserve obsolete compatibility paths merely because an earlier unshipped
 - Keep third-party types behind Herta-owned adapters and out of public APIs.
 - Do not use reinterpret casts to bridge Herta and third-party math types.
 - Keep headers self-contained and minimize their dependencies.
+- Keep function declarations and definitions on one line, including their parameter lists. Multiline call sites are allowed when they make an operation easier to scan.
+- Mark non-mutated locals and implementation parameters `const` where it improves the contract. Public declarations may omit top-level `const` on by-value parameters because it does not affect callers.
+- Prefer `std::print` and `std::println` for direct console output in bootstrap code. Engine diagnostics use Herta logging once it is available.
+- Use `#ifdef` and `#ifndef` for simple macro-presence checks.
 
 Comments should read like one developer explaining a non-obvious decision to another. Explain why a constraint, engine quirk, or lifetime rule exists instead of narrating what the code already shows. Do not add comments for obvious behavior or generate documentation-style comments for every declaration. Keep comments concise and naturally formatted, without abrupt wrapping or long blocks. If a comment becomes long, first consider whether the code can express the decision more clearly.
 
@@ -57,7 +61,8 @@ Comments should read like one developer explaining a non-obvious decision to ano
 
 - Add dependencies only when the current milestone requires them.
 - Source dependencies belong under `External` as pinned Git submodules.
-- Downloaded tools and SDKs belong under ignored, versioned `SDK/<platform>/<tool>/<version>` paths.
+- Downloaded host tools belong under ignored, versioned `External/<tool>/<platform>/<version>` paths.
+- Downloaded development SDKs belong under ignored, versioned `SDK/<platform>/<sdk>/<version>` paths.
 - `Config/Dependencies.lock` is the source of truth for downloaded tool versions, URLs, SHA-256 hashes, and installed entry points.
 - Normal project generation and builds must not perform network access. Only Setup and explicit dependency-update tooling may download files.
 - Never resolve a moving `latest` release during normal Setup. Pin an exact version and checksum, then update the lock file through a reviewed change.
