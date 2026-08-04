@@ -9,6 +9,13 @@ updates:
       time: "04:00"
       timezone: Europe/Warsaw
     open-pull-requests-limit: 10
+    groups:
+      cache-actions:
+        patterns:
+          - "actions/cache/*"
+      codeql-actions:
+        patterns:
+          - "github/codeql-action/*"
   - package-ecosystem: gitsubmodule
     directory: /
     schedule:
@@ -17,3 +24,9 @@ updates:
       time: "04:30"
       timezone: Europe/Warsaw
     open-pull-requests-limit: 10
+    # These dependencies intentionally follow reviewed releases or a non-default branch.
+    ignore:
+      - dependency-name: External/doctest
+      - dependency-name: External/enkiTS
+      - dependency-name: External/freetype
+      - dependency-name: External/imgui

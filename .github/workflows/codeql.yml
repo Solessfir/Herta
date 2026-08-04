@@ -22,6 +22,8 @@ concurrency:
 jobs:
   analyze:
     name: Analyze C and C++
+    # Private repositories require GitHub Code Security. The variable keeps the workflow ready for a licensed private repository.
+    if: ${{ github.event.repository.private == false || vars.HERTA_CODE_SECURITY_ENABLED == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -40,7 +42,7 @@ jobs:
 
       - name: Restore project-local tools and SDKs
         id: bootstrap-cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             External/Premake
@@ -54,7 +56,7 @@ jobs:
           sudo apt-get install --yes gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
         with:
           languages: c-cpp
           build-mode: manual
@@ -88,13 +90,13 @@ jobs:
           HertaEditor
 
       - name: Analyze Herta
-        uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
+        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
         with:
           category: /language:c-cpp
 
       - name: Save project-local tools and SDKs
         if: github.event_name != 'pull_request' && steps.bootstrap-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             External/Premake
