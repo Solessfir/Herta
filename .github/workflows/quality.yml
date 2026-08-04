@@ -139,15 +139,15 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes bear clang-18 libc++-18-dev libc++abi-18-dev pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev
+          sudo apt-get install --yes bear clang-18 gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev
 
       - name: Set up Herta
         shell: bash
         env:
           CC: clang-18
           CXX: clang++-18
-          CXXFLAGS: -stdlib=libc++
-          LDFLAGS: -stdlib=libc++
+          CXXFLAGS: --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
+          LDFLAGS: --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
         run: bash ./Setup.sh
 
       - name: Generate GNU Make projects
@@ -155,8 +155,8 @@ jobs:
         env:
           CC: clang-18
           CXX: clang++-18
-          CXXFLAGS: -stdlib=libc++
-          LDFLAGS: -stdlib=libc++
+          CXXFLAGS: --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
+          LDFLAGS: --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
         run: bash ./GenerateProjectFiles.sh gmake
 
       - name: Analyze Herta sources
@@ -164,8 +164,8 @@ jobs:
         env:
           CC: clang-18
           CXX: clang++-18
-          CXXFLAGS: -stdlib=libc++
-          LDFLAGS: -stdlib=libc++
+          CXXFLAGS: --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
+          LDFLAGS: --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
         run: |
           clang-tidy-18 --version
           bear --output compile_commands.json -- \
