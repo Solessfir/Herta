@@ -2,11 +2,9 @@
 
 #include "Herta/RHI/Presentation.h"
 
-#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
-#include <span>
 #include <string>
 #include <vector>
 
@@ -30,7 +28,7 @@ struct FNvrhiVulkanPresentationDescriptor
 class INvrhiVulkanPresentation : public IPresentationDevice
 {
 public:
-	[[nodiscard]] virtual std::expected<std::uint64_t, FPresentationError> InitializeToolUIRenderer(std::span<const std::byte> FontRgba8, std::uint32_t Width, std::uint32_t Height) = 0;
+	[[nodiscard]] virtual std::expected<void, FPresentationError> InitializeToolUIRenderer() = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> RenderToolUIDrawData(const void* DrawData) = 0;
 	virtual void ShutdownToolUIRenderer() noexcept = 0;
 	[[nodiscard]] virtual std::expected<FPresentationViewportHandle, FPresentationError> CreateViewport(void* WindowBackendHandle, FExtent2D Extent) = 0;

@@ -2,13 +2,11 @@
 
 #include "Herta/ToolUI/Theme.h"
 
-#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <functional>
 #include <memory>
-#include <span>
 #include <string>
 #include <string_view>
 
@@ -66,7 +64,7 @@ struct FToolUIViewportWindowPolicy
 
 struct FToolUIRendererBridge
 {
-	std::move_only_function<std::expected<std::uint64_t, FToolUIError>(std::span<const std::byte>, std::uint32_t, std::uint32_t)> Initialize;
+	std::move_only_function<std::expected<void, FToolUIError>()> Initialize;
 	std::move_only_function<std::expected<void, FToolUIError>(const void*)> Render;
 	std::move_only_function<std::expected<std::uint64_t, FToolUIError>(void*, std::uint32_t, std::uint32_t)> CreateViewport;
 	std::move_only_function<std::expected<void, FToolUIError>(std::uint64_t)> DestroyViewport;

@@ -252,14 +252,14 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	}
 
 	FToolUIRendererBridge RendererBridge;
-	RendererBridge.Initialize = [&Presentation](const std::span<const std::byte> FontRgba8, const std::uint32_t Width, const std::uint32_t Height) -> std::expected<std::uint64_t, FToolUIError>
+	RendererBridge.Initialize = [&Presentation]() -> std::expected<void, FToolUIError>
 	{
-		std::expected<std::uint64_t, FPresentationError> Result = Presentation->InitializeToolUIRenderer(FontRgba8, Width, Height);
+		std::expected<void, FPresentationError> Result = Presentation->InitializeToolUIRenderer();
 		if (!Result)
 		{
 			return std::unexpected(FToolUIError{std::move(Result.error().Message)});
 		}
-		return *Result;
+		return {};
 	};
 	RendererBridge.Render = [&Presentation](const void* const DrawData) -> std::expected<void, FToolUIError>
 	{

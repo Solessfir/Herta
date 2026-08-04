@@ -720,15 +720,11 @@ public:
 		return {};
 	}
 
-	[[nodiscard]] std::expected<std::uint64_t, FPresentationError> InitializeToolUIRenderer(const std::span<const std::byte> FontRgba8, const std::uint32_t Width, const std::uint32_t Height) override
+	[[nodiscard]] std::expected<void, FPresentationError> InitializeToolUIRenderer() override
 	{
 		if (bFrameActive || HasActiveSecondaryViewport() || bToolUIInitialized)
 		{
 			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI renderer initialization requires an idle, uninitialized presentation device"});
-		}
-		if (FontRgba8.empty() || Width == 0 || Height == 0 || FontRgba8.size() != static_cast<std::size_t>(Width) * Height * 4)
-		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "ToolUI font atlas must contain tightly packed RGBA8 pixels"});
 		}
 
 		nvrhi::ShaderDesc VertexShaderDescriptor;
@@ -757,40 +753,11 @@ public:
 		BindingLayoutDescriptor.addItem(nvrhi::BindingLayoutItem::PushConstants(0, sizeof(FToolUIPushConstants)));
 		ToolUIBindingLayout = NvrhiDevice->createBindingLayout(BindingLayoutDescriptor);
 
-		nvrhi::TextureDesc FontTextureDescriptor;
-		FontTextureDescriptor.width = Width;
-		FontTextureDescriptor.height = Height;
-		FontTextureDescriptor.format = nvrhi::Format::RGBA8_UNORM;
-		FontTextureDescriptor.dimension = nvrhi::TextureDimension::Texture2D;
-		FontTextureDescriptor.debugName = "ToolUI font atlas";
-		FontTextureDescriptor.enableAutomaticStateTracking(nvrhi::ResourceStates::ShaderResource);
-		ToolUIFontTexture = NvrhiDevice->createTexture(FontTextureDescriptor);
-		ToolUIFontSampler = NvrhiDevice->createSampler(nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
-		if (!ToolUIInputLayout || !ToolUIBindingLayout || !ToolUIFontTexture || !ToolUIFontSampler)
+		ToolUISampler = NvrhiDevice->createSampler(nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
+		if (!ToolUIInputLayout || !ToolUIBindingLayout || !ToolUISampler)
 		{
 			ShutdownToolUIResources();
 			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create ToolUI pipeline resources"});
-		}
-
-		nvrhi::BindingSetDesc BindingSetDescriptor;
-		BindingSetDescriptor.addItem(nvrhi::BindingSetItem::Texture_SRV(0, ToolUIFontTexture));
-		BindingSetDescriptor.addItem(nvrhi::BindingSetItem::Sampler(0, ToolUIFontSampler));
-		BindingSetDescriptor.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(FToolUIPushConstants)));
-		ToolUIBindingSet = NvrhiDevice->createBindingSet(BindingSetDescriptor, ToolUIBindingLayout);
-		if (!ToolUIBindingSet)
-		{
-			ShutdownToolUIResources();
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create the ToolUI font binding set"});
-		}
-
-		CommandList->open();
-		CommandList->writeTexture(ToolUIFontTexture, 0, 0, FontRgba8.data(), static_cast<std::size_t>(Width) * 4);
-		CommandList->close();
-		(void)NvrhiDevice->executeCommandList(CommandList);
-		if (!NvrhiDevice->waitForIdle())
-		{
-			ShutdownToolUIResources();
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceLost, "Could not complete the ToolUI font upload"});
 		}
 
 		bToolUIInitialized = true;
@@ -811,7 +778,7 @@ public:
 			}
 		}
 
-		return ToolUIFontTextureId;
+		return {};
 	}
 
 	[[nodiscard]] std::expected<void, FPresentationError> RenderToolUIDrawData(const void* const OpaqueDrawData) override
@@ -822,13 +789,22 @@ public:
 		}
 
 		const ImDrawData& DrawData = *static_cast<const ImDrawData*>(OpaqueDrawData);
+		nvrhi::ICommandList* const RenderCommandList = ToolUIOverrideCommandList ? ToolUIOverrideCommandList : CommandList.Get();
+		if (!RenderCommandList)
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI rendering requires an active command list"});
+		}
+		const std::expected TextureResult = UpdateToolUITextures(DrawData, *RenderCommandList);
+		if (!TextureResult)
+		{
+			return TextureResult;
+		}
 		const int FramebufferWidth = static_cast<int>(DrawData.DisplaySize.x * DrawData.FramebufferScale.x);
 		const int FramebufferHeight = static_cast<int>(DrawData.DisplaySize.y * DrawData.FramebufferScale.y);
 		if (FramebufferWidth <= 0 || FramebufferHeight <= 0 || DrawData.TotalVtxCount == 0 || DrawData.TotalIdxCount == 0)
 		{
 			return {};
 		}
-		nvrhi::ICommandList* const RenderCommandList = ToolUIOverrideCommandList ? ToolUIOverrideCommandList : CommandList.Get();
 		nvrhi::IGraphicsPipeline* const RenderPipeline = ToolUIOverridePipeline ? ToolUIOverridePipeline : ToolUIPipeline.Get();
 		nvrhi::IFramebuffer* const RenderFramebuffer = ToolUIOverrideFramebuffer ? ToolUIOverrideFramebuffer : (ActiveImageIndex < ToolUIFramebuffers.size() ? ToolUIFramebuffers[ActiveImageIndex].Get() : nullptr);
 		if (!RenderCommandList || !RenderPipeline || !RenderFramebuffer)
@@ -880,9 +856,10 @@ public:
 					}
 					continue;
 				}
-				if (DrawCommand.GetTexID() != ToolUIFontTextureId)
+				const auto Texture = ToolUITextures.find(static_cast<std::uint64_t>(DrawCommand.GetTexID()));
+				if (Texture == ToolUITextures.end())
 				{
-					return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "ToolUI draw data references a texture not registered with the MS1 presentation renderer"});
+					return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI draw data references an unavailable renderer texture"});
 				}
 
 				const ImVec2 ClipMinimum{
@@ -903,7 +880,7 @@ public:
 				nvrhi::GraphicsState State;
 				State.pipeline = RenderPipeline;
 				State.framebuffer = RenderFramebuffer;
-				State.bindings.push_back(ToolUIBindingSet);
+				State.bindings.push_back(Texture->second.BindingSet);
 				State.vertexBuffers.push_back(nvrhi::VertexBufferBinding().setBuffer(ToolUIVertexBuffer).setSlot(0).setOffset(0));
 				State.indexBuffer = nvrhi::IndexBufferBinding().setBuffer(ToolUIIndexBuffer).setFormat(sizeof(ImDrawIdx) == 2 ? nvrhi::Format::R16_UINT : nvrhi::Format::R32_UINT).setOffset(0);
 				State.viewport.addViewport(nvrhi::Viewport(static_cast<float>(FramebufferWidth), static_cast<float>(FramebufferHeight)));
@@ -1242,6 +1219,103 @@ private:
 		std::array<float, 2> Translate;
 	};
 
+	struct FToolUITexture
+	{
+		nvrhi::TextureHandle Texture;
+		nvrhi::BindingSetHandle BindingSet;
+		std::uint32_t Width = 0;
+		std::uint32_t Height = 0;
+	};
+
+	[[nodiscard]] std::size_t GetToolUITextureRetirementFrames() const noexcept
+	{
+		std::size_t Frames = std::max<std::size_t>(1, FrameSync.size());
+		for (const auto& [Handle, Viewport] : Viewports)
+		{
+			(void)Handle;
+			Frames = std::max(Frames, Viewport->FrameSync.size());
+		}
+		return Frames;
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> UpdateToolUITextures(const ImDrawData& DrawData, nvrhi::ICommandList& RenderCommandList)
+	{
+		if (DrawData.Textures == nullptr)
+		{
+			return {};
+		}
+
+		for (ImTextureData* const TextureData : *DrawData.Textures)
+		{
+			if (TextureData == nullptr || TextureData->Status == ImTextureStatus_OK)
+			{
+				continue;
+			}
+
+			if (TextureData->Status == ImTextureStatus_WantCreate)
+			{
+				if (TextureData->Format != ImTextureFormat_RGBA32 || TextureData->Width <= 0 || TextureData->Height <= 0 || TextureData->Pixels == nullptr)
+				{
+					return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "ToolUI dynamic textures require non-empty RGBA32 pixels"});
+				}
+
+				nvrhi::TextureDesc TextureDescriptor;
+				TextureDescriptor.width = static_cast<std::uint32_t>(TextureData->Width);
+				TextureDescriptor.height = static_cast<std::uint32_t>(TextureData->Height);
+				TextureDescriptor.format = nvrhi::Format::RGBA8_UNORM;
+				TextureDescriptor.dimension = nvrhi::TextureDimension::Texture2D;
+				TextureDescriptor.debugName = "ToolUI dynamic texture";
+				TextureDescriptor.enableAutomaticStateTracking(nvrhi::ResourceStates::ShaderResource);
+				FToolUITexture Texture;
+				Texture.Texture = NvrhiDevice->createTexture(TextureDescriptor);
+				Texture.Width = TextureDescriptor.width;
+				Texture.Height = TextureDescriptor.height;
+				if (!Texture.Texture)
+				{
+					return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create a ToolUI dynamic texture"});
+				}
+
+				nvrhi::BindingSetDesc BindingSetDescriptor;
+				BindingSetDescriptor.addItem(nvrhi::BindingSetItem::Texture_SRV(0, Texture.Texture));
+				BindingSetDescriptor.addItem(nvrhi::BindingSetItem::Sampler(0, ToolUISampler));
+				BindingSetDescriptor.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(FToolUIPushConstants)));
+				Texture.BindingSet = NvrhiDevice->createBindingSet(BindingSetDescriptor, ToolUIBindingLayout);
+				if (!Texture.BindingSet)
+				{
+					return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create a ToolUI dynamic texture binding set"});
+				}
+
+				const std::uint64_t TextureId = NextToolUITextureId++;
+				ToolUITextures.emplace(TextureId, std::move(Texture));
+				TextureData->SetTexID(static_cast<ImTextureID>(TextureId));
+			}
+
+			if (TextureData->Status == ImTextureStatus_WantCreate || TextureData->Status == ImTextureStatus_WantUpdates)
+			{
+				const auto Texture = ToolUITextures.find(static_cast<std::uint64_t>(TextureData->GetTexID()));
+				if (Texture == ToolUITextures.end() || TextureData->Pixels == nullptr || TextureData->Format != ImTextureFormat_RGBA32 || Texture->second.Width != static_cast<std::uint32_t>(TextureData->Width) || Texture->second.Height != static_cast<std::uint32_t>(TextureData->Height))
+				{
+					return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI requested an invalid dynamic texture update"});
+				}
+
+				// NVRHI exposes full-mip writes here. Atlas updates are infrequent, so a full upload keeps the backend simple and correct.
+				RenderCommandList.writeTexture(Texture->second.Texture, 0, 0, TextureData->Pixels, static_cast<std::size_t>(TextureData->Width) * 4);
+				TextureData->SetStatus(ImTextureStatus_OK);
+				continue;
+			}
+
+			if (TextureData->Status == ImTextureStatus_WantDestroy && TextureData->UnusedFrames >= static_cast<int>(GetToolUITextureRetirementFrames()))
+			{
+				ToolUITextures.erase(static_cast<std::uint64_t>(TextureData->GetTexID()));
+				TextureData->SetTexID(ImTextureID_Invalid);
+				TextureData->BackendUserData = nullptr;
+				TextureData->SetStatus(ImTextureStatus_Destroyed);
+			}
+		}
+
+		return {};
+	}
+
 	[[nodiscard]] std::expected<void, FPresentationError> EnsureToolUIBuffers(const std::size_t VertexBytes, const std::size_t IndexBytes)
 	{
 		if (ToolUIVertexBufferCapacity < VertexBytes)
@@ -1354,10 +1428,9 @@ private:
 		ToolUIIndexBufferCapacity = 0;
 		ToolUIFramebuffers.clear();
 		ToolUIPipeline = nullptr;
-		ToolUIBindingSet = nullptr;
+		ToolUITextures.clear();
 		ToolUIBindingLayout = nullptr;
-		ToolUIFontSampler = nullptr;
-		ToolUIFontTexture = nullptr;
+		ToolUISampler = nullptr;
 		ToolUIInputLayout = nullptr;
 		ToolUIPixelShader = nullptr;
 		ToolUIVertexShader = nullptr;
@@ -1837,14 +1910,13 @@ private:
 	bool bDebugUtilsEnabled = false;
 	bool bFrameActive = false;
 	bool bFrameSuboptimal = false;
-	static constexpr std::uint64_t ToolUIFontTextureId = 1;
 	nvrhi::ShaderHandle ToolUIVertexShader;
 	nvrhi::ShaderHandle ToolUIPixelShader;
 	nvrhi::InputLayoutHandle ToolUIInputLayout;
 	nvrhi::BindingLayoutHandle ToolUIBindingLayout;
-	nvrhi::TextureHandle ToolUIFontTexture;
-	nvrhi::SamplerHandle ToolUIFontSampler;
-	nvrhi::BindingSetHandle ToolUIBindingSet;
+	nvrhi::SamplerHandle ToolUISampler;
+	std::unordered_map<std::uint64_t, FToolUITexture> ToolUITextures;
+	std::uint64_t NextToolUITextureId = 1;
 	nvrhi::GraphicsPipelineHandle ToolUIPipeline;
 	nvrhi::ICommandList* ToolUIOverrideCommandList = nullptr;
 	nvrhi::IGraphicsPipeline* ToolUIOverridePipeline = nullptr;

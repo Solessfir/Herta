@@ -130,6 +130,20 @@ void SaveAppearance(const std::filesystem::path& Path, const FEditorAppearance& 
 	}
 }
 
+void ResetRendererTextureState() noexcept
+{
+	for (ImTextureData* const Texture : ImGui::GetPlatformIO().Textures)
+	{
+		if (Texture->GetTexID() != ImTextureID_Invalid)
+		{
+			Texture->SetTexID(ImTextureID_Invalid);
+			Texture->BackendUserData = nullptr;
+			Texture->SetStatus(ImTextureStatus_Destroyed);
+		}
+	}
+	ImGui::GetIO().BackendFlags &= ~ImGuiBackendFlags_RendererHasTextures;
+}
+
 void ApplyBaseStyle(ImGuiStyle& Style, const FToolUIThemeMetrics& Metrics)
 {
 	Style.FontSizeBase = Metrics.BaseFontSize;
@@ -1245,6 +1259,7 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		if (Implementation->bRendererInitialized && Implementation->Renderer.Shutdown)
 		{
 			Implementation->Renderer.Shutdown();
+			ResetRendererTextureState();
 		}
 		if (Implementation->bGlfwInitialized)
 		{
@@ -1291,6 +1306,10 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		}
 		Input.ConfigDpiScaleFonts = true;
 		Input.ConfigDpiScaleViewports = true;
+		if (Implementation->Renderer.Initialize)
+		{
+			Input.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+		}
 		Input.UserData = Implementation.get();
 		Input.IniFilename = Implementation->LayoutPath.c_str();
 		Input.ConfigWindowsMoveFromTitleBarOnly = true;
@@ -1298,13 +1317,13 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 
 		ImFontConfig FontConfiguration;
 		FontConfiguration.FontDataOwnedByAtlas = false;
-		Implementation->RegularFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->RegularFontBytes.data(), static_cast<int>(Implementation->RegularFontBytes.size()), Implementation->Metrics.BaseFontSize, &FontConfiguration);
+		Implementation->RegularFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->RegularFontBytes.data(), static_cast<int>(Implementation->RegularFontBytes.size()), 0.0f, &FontConfiguration);
 		ImFontConfig MediumConfiguration = FontConfiguration;
-		Implementation->MediumFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->MediumFontBytes.data(), static_cast<int>(Implementation->MediumFontBytes.size()), Implementation->Metrics.BaseFontSize, &MediumConfiguration);
-		if (Implementation->RegularFont == nullptr || Implementation->MediumFont == nullptr || !Input.Fonts->Build())
+		Implementation->MediumFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->MediumFontBytes.data(), static_cast<int>(Implementation->MediumFontBytes.size()), 0.0f, &MediumConfiguration);
+		if (Implementation->RegularFont == nullptr || Implementation->MediumFont == nullptr)
 		{
 			CleanupFailedInitialization();
-			return std::unexpected(FToolUIError{"Could not build the Roboto editor font atlas"});
+			return std::unexpected(FToolUIError{"Could not register the Roboto editor fonts"});
 		}
 		Input.FontDefault = Implementation->RegularFont;
 
@@ -1328,21 +1347,12 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		if (Implementation->Renderer.Initialize)
 		{
 			Implementation->bRendererInitialized = true;
-			unsigned char* Pixels = nullptr;
-			int AtlasWidth = 0;
-			int AtlasHeight = 0;
-			Input.Fonts->GetTexDataAsRGBA32(&Pixels, &AtlasWidth, &AtlasHeight);
-			const std::size_t PixelByteCount = static_cast<std::size_t>(AtlasWidth) * static_cast<std::size_t>(AtlasHeight) * 4;
-			std::expected<std::uint64_t, FToolUIError> InitializeResult = Implementation->Renderer.Initialize(
-			    std::span<const std::byte>(reinterpret_cast<const std::byte*>(Pixels), PixelByteCount),
-			    static_cast<std::uint32_t>(AtlasWidth),
-			    static_cast<std::uint32_t>(AtlasHeight));
+			std::expected<void, FToolUIError> InitializeResult = Implementation->Renderer.Initialize();
 			if (!InitializeResult)
 			{
 				CleanupFailedInitialization();
 				return std::unexpected(std::move(InitializeResult.error()));
 			}
-			Input.Fonts->SetTexID(static_cast<ImTextureID>(*InitializeResult));
 		}
 
 		return std::unique_ptr<FToolUIContext>(new FToolUIContext(std::move(Implementation)));
@@ -1385,6 +1395,7 @@ FToolUIContext::~FToolUIContext()
 	if (Implementation->bRendererInitialized && Implementation->Renderer.Shutdown)
 	{
 		Implementation->Renderer.Shutdown();
+		ResetRendererTextureState();
 	}
 	if (Implementation->bGlfwInitialized)
 	{
@@ -1584,7 +1595,11 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	ImGui::SetCursorScreenPos({ViewportMinimum.x, ToolbarBottom});
 	const ImVec2 DockSize{Viewport->Size.x, std::max(1.0f, ViewportMaximum.y - ToolbarBottom)};
 	Implementation->DockspaceId = ImGui::GetID("HertaEditorDockspace");
+	ImVec4 DockspaceBackground = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+	DockspaceBackground.w = IsToolUIPanelTransparent(Implementation->Appearance.PanelTransparency, true) ? 0.0f : 1.0f;
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, DockspaceBackground);
 	ImGui::DockSpace(Implementation->DockspaceId, DockSize, ImGuiDockNodeFlags_PassthruCentralNode);
+	ImGui::PopStyleColor();
 	if (Implementation->bBuildDefaultLayout)
 	{
 		ImGui::DockBuilderRemoveNode(Implementation->DockspaceId);
@@ -1606,11 +1621,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen)
 	const ImGuiID WindowId = ImHashStr(Name.data(), Name.size());
 	const auto Previous = Implementation->PreviousDockState.find(WindowId);
 	const bool bPreviouslyDocked = Previous != Implementation->PreviousDockState.end() && Previous->second;
-	if (IsToolUIPanelTransparent(Implementation->Appearance.PanelTransparency, bPreviouslyDocked))
-	{
-		ImGui::SetNextWindowBgAlpha(0.0f);
-	}
-
+	ImGui::SetNextWindowBgAlpha(IsToolUIPanelTransparent(Implementation->Appearance.PanelTransparency, bPreviouslyDocked) ? 0.0f : 1.0f);
 	const bool bVisible = ImGui::Begin(std::string(Name).c_str(), bOpen);
 	Implementation->PreviousDockState[WindowId] = ImGui::IsWindowDocked();
 	return bVisible;
