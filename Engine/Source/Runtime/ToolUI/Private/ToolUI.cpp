@@ -124,8 +124,9 @@ void SaveAppearance(const std::filesystem::path& Path, const FEditorAppearance& 
 		Stream << "Gradient " << Appearance.GradientHeight << ' ' << Appearance.Saturation << ' ' << Appearance.Intensity << '\n';
 		Stream << "Panel " << static_cast<int>(Appearance.PanelTransparency) << '\n';
 	}
-	catch (...)
+	catch (...) // NOLINT(bugprone-empty-catch)
 	{
+		// Appearance persistence is best-effort and must not break editor teardown.
 	}
 }
 
@@ -808,7 +809,7 @@ void PlatformCreateWindow(ImGuiViewport* const Viewport)
 				RecordViewportError(Owner, FToolUIError{std::move(PositionResult.error().Message)});
 			}
 		}
-		(void)Data.release();
+		Viewport->PlatformUserData = Data.release();
 	}
 	catch (const std::exception& Exception)
 	{
@@ -1476,11 +1477,9 @@ std::expected<void, FToolUIError> FToolUIContext::RenderPlatformWindows()
 		}
 	}
 	Implementation->bPlatformWindowsRendered = true;
-	if (Implementation->PendingError)
+	if (std::optional<FToolUIError> Error = std::exchange(Implementation->PendingError, std::nullopt); Error.has_value())
 	{
-		FToolUIError Error = std::move(*Implementation->PendingError);
-		Implementation->PendingError.reset();
-		return std::unexpected(std::move(Error));
+		return std::unexpected(std::move(Error).value());
 	}
 	return {};
 }

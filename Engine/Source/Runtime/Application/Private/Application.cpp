@@ -46,9 +46,9 @@ thread_local int GWindowCallbackDispatchDepth = 0;
 			return EWindowSystem::Wayland;
 		case GLFW_PLATFORM_NULL:
 			return EWindowSystem::Null;
+		default:
+			return EWindowSystem::Unknown;
 	}
-
-	return EWindowSystem::Unknown;
 }
 
 [[nodiscard]] constexpr int ToGlfwPlatform(const EWindowSystem WindowSystem) noexcept
@@ -78,9 +78,10 @@ thread_local int GWindowCallbackDispatchDepth = 0;
 			return EInputAction::Pressed;
 		case GLFW_REPEAT:
 			return EInputAction::Repeated;
+		case GLFW_RELEASE:
+		default:
+			return EInputAction::Released;
 	}
-
-	return EInputAction::Released;
 }
 
 [[nodiscard]] constexpr EModifierFlags ToModifierFlags(const int Modifiers) noexcept
@@ -163,8 +164,9 @@ void GlfwErrorCallback(const int Error, const char* const Description) noexcept
 	{
 		std::println(stderr, "GLFW error {}: {}", Error, Description ? Description : "Unknown error");
 	}
-	catch (...)
+	catch (...) // NOLINT(bugprone-empty-catch)
 	{
+		// GLFW callbacks must never unwind into C code.
 	}
 }
 

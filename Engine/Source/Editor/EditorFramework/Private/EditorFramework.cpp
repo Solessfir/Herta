@@ -11,6 +11,7 @@
 #include <imgui.h>
 #include <iterator>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -97,7 +98,8 @@ inline constexpr std::array CategoryColors = {
 [[nodiscard]] float MeasureTextPrefix(const std::string_view Text, const std::size_t ByteCount)
 {
 	const std::size_t ClampedByteCount = std::min(ByteCount, Text.size());
-	return ImGui::CalcTextSize(Text.data(), Text.data() + ClampedByteCount, false).x;
+	const char* const TextBegin = Text.data();
+	return ImGui::CalcTextSize(TextBegin, TextBegin + ClampedByteCount, false).x;
 }
 
 [[nodiscard]] std::size_t FindByteAtX(const std::string_view Text, const float LocalX)
@@ -141,7 +143,24 @@ void CopyBuffer(std::span<char> Destination, const std::string_view Source)
 {
 	std::fill(Destination.begin(), Destination.end(), '\0');
 	const std::size_t Count = std::min(Source.size(), Destination.size() - 1);
-	std::copy_n(Source.data(), Count, Destination.data());
+	std::ranges::copy(Source.substr(0, Count), Destination.begin());
+}
+
+[[nodiscard]] constexpr const char* GetPanelTransparencyLabel(const EPanelTransparency Mode) noexcept
+{
+	switch (Mode)
+	{
+		case EPanelTransparency::AllPanels:
+			return "All panels";
+		case EPanelTransparency::FloatingOnly:
+			return "Floating panels";
+		case EPanelTransparency::DockedOnly:
+			return "Docked panels";
+		case EPanelTransparency::Disabled:
+			return "Opaque panels";
+	}
+
+	return "Unknown";
 }
 }
 
@@ -159,7 +178,7 @@ struct FEditorFramework::FImplementation
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> DrawOutputLog();
 	void DrawStartPanel();
 	void RebuildSuggestions();
-	void SubmitCommand();
+	[[nodiscard]] std::expected<void, FEditorFrameworkError> SubmitCommand();
 };
 
 std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorFramework::Create(const FEditorFrameworkDescriptor Descriptor)
@@ -239,22 +258,7 @@ void FEditorFramework::FImplementation::DrawStartPanel()
 	ImGui::SeparatorText("Workspace appearance");
 
 	FEditorAppearance Appearance = ToolUI->GetAppearance();
-	const char* PanelMode = "All panels";
-	switch (Appearance.PanelTransparency)
-	{
-		case EPanelTransparency::AllPanels:
-			PanelMode = "All panels";
-			break;
-		case EPanelTransparency::FloatingOnly:
-			PanelMode = "Floating panels";
-			break;
-		case EPanelTransparency::DockedOnly:
-			PanelMode = "Docked panels";
-			break;
-		case EPanelTransparency::Disabled:
-			PanelMode = "Opaque panels";
-			break;
-	}
+	const char* const PanelMode = GetPanelTransparencyLabel(Appearance.PanelTransparency);
 	if (ImGui::BeginCombo("Panel transparency", PanelMode))
 	{
 		constexpr std::array Modes = {
@@ -304,14 +308,19 @@ void FEditorFramework::FImplementation::DrawStartPanel()
 			ImGui::SameLine();
 		}
 		const FToolUIColorPreset& Preset = ToolUITheme::Presets[Index];
-		if (ImGui::ColorButton(Preset.Name.data(), ImGui::ColorConvertU32ToFloat4(PackColor(Preset.Color)), ImGuiColorEditFlags_NoTooltip, {22.0f, 22.0f}))
+		ImGui::PushID(static_cast<int>(Index));
+		if (ImGui::ColorButton("##Preset", ImGui::ColorConvertU32ToFloat4(PackColor(Preset.Color)), ImGuiColorEditFlags_NoTooltip, {22.0f, 22.0f}))
 		{
 			Appearance.Accent = Preset.Color;
 		}
 		if (ImGui::IsItemHovered())
 		{
-			ImGui::SetTooltip("%s", Preset.Name.data());
+			const char* const PresetName = Preset.Name.data();
+			ImGui::BeginTooltip();
+			ImGui::TextUnformatted(PresetName, PresetName + Preset.Name.size());
+			ImGui::EndTooltip();
 		}
+		ImGui::PopID();
 	}
 	ToolUI->SetAppearance(Appearance);
 	ToolUI->EndPanel();
@@ -331,17 +340,22 @@ void FEditorFramework::FImplementation::RebuildSuggestions()
 	}
 }
 
-void FEditorFramework::FImplementation::SubmitCommand()
+std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::SubmitCommand()
 {
 	if (CommandBuffer[0] == '\0')
 	{
-		return;
+		return {};
 	}
-	(void)OutputLog->SubmitCommand(CommandBuffer.data());
+	std::expected<void, FOutputLogError> SubmitResult = OutputLog->SubmitCommand(CommandBuffer.data());
+	if (!SubmitResult)
+	{
+		return std::unexpected(FEditorFrameworkError{std::move(SubmitResult.error().Message)});
+	}
 	CommandBuffer.fill('\0');
 	Suggestions.clear();
 	SuggestionIndex = -1;
 	bReclaimCommandFocus = true;
+	return {};
 }
 
 std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::DrawOutputLog()
@@ -379,7 +393,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		for (const ELogLevel Level : {ELogLevel::Trace, ELogLevel::Debug, ELogLevel::Info, ELogLevel::Warning, ELogLevel::Error, ELogLevel::Critical})
 		{
 			bool bVisible = OutputLog->IsLevelVisible(Level);
-			if (ImGui::MenuItem(GetLogLevelName(Level).data(), nullptr, &bVisible))
+			const std::string LevelName{GetLogLevelName(Level)};
+			if (ImGui::MenuItem(LevelName.c_str(), nullptr, &bVisible))
 			{
 				std::expected<void, FOutputLogError> FilterResult = OutputLog->SetLevelVisible(Level, bVisible);
 				if (!FilterResult)
@@ -581,12 +596,17 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	};
 
 	constexpr ImGuiInputTextFlags CommandFlags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_CallbackHistory;
-	constexpr char SubmitLabel[] = "Submit";
+	constexpr const char* SubmitLabel = "Submit";
 	const float SubmitWidth = ImGui::CalcTextSize(SubmitLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
 	ImGui::SetNextItemWidth(-(SubmitWidth + ImGui::GetStyle().ItemSpacing.x));
 	if (ImGui::InputTextWithHint("##OutputLogCommand", "Enter command, or type help", CommandBuffer.data(), CommandBuffer.size(), CommandFlags, InputCallback, &CallbackContext))
 	{
-		SubmitCommand();
+		std::expected<void, FEditorFrameworkError> SubmitResult = SubmitCommand();
+		if (!SubmitResult)
+		{
+			ToolUI->EndPanel();
+			return SubmitResult;
+		}
 	}
 	const ImVec2 InputMinimum = ImGui::GetItemRectMin();
 	const ImVec2 InputMaximum = ImGui::GetItemRectMax();
@@ -599,7 +619,13 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, {0.5f, 0.5f});
 	if (ImGui::Button(SubmitLabel, {SubmitWidth, 0.0f}))
 	{
-		SubmitCommand();
+		std::expected<void, FEditorFrameworkError> SubmitResult = SubmitCommand();
+		if (!SubmitResult)
+		{
+			ImGui::PopStyleVar();
+			ToolUI->EndPanel();
+			return SubmitResult;
+		}
 	}
 	ImGui::PopStyleVar();
 

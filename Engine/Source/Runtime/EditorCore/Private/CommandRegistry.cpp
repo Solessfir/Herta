@@ -138,8 +138,9 @@ FEditorCommandRegistry::FEditorCommandRegistry() noexcept
 	{
 		Implementation = std::make_unique<FImplementation>();
 	}
-	catch (...)
+	catch (...) // NOLINT(bugprone-empty-catch)
 	{
+		// The expected-returning API reports RegistryUnavailable after allocation failure.
 	}
 }
 

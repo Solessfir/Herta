@@ -279,7 +279,7 @@ struct FTaskSystem::FImplementation final : std::enable_shared_from_this<FImplem
 				CollectCompletedCpuTasks();
 			}
 
-			if (!Options.bDeterministic && Description.Lane == ETaskLane::Cpu && CpuScheduler.GetThreadNum() == enki::NO_THREAD_NUM)
+			if (!Options.bDeterministic && Lane == ETaskLane::Cpu && CpuScheduler.GetThreadNum() == enki::NO_THREAD_NUM)
 			{
 				return std::unexpected(FTaskError{ETaskErrorCode::UnregisteredThread, "CPU tasks may be submitted from the main thread, task workers, or registered IO workers"});
 			}
@@ -1348,17 +1348,7 @@ std::size_t FTaskScope::GetOutstandingTaskCount() const noexcept
 
 void FTaskScope::RequestCancellation() noexcept
 {
-	if (const std::shared_ptr<FTaskSystem::FImplementation> System = State->System.lock())
-	{
-		System->CloseScope(State);
-		return;
-	}
-
-	{
-		std::scoped_lock Lock(State->SubmissionMutex);
-		State->bAcceptingTasks = false;
-	}
-	State->CancellationSource.RequestCancellation();
+	FTaskSystem::FImplementation::CloseScope(State);
 }
 
 void FTaskScope::Wait() noexcept

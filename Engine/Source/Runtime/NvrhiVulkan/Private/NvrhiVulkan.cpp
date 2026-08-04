@@ -1246,7 +1246,7 @@ private:
 	{
 		if (ToolUIVertexBufferCapacity < VertexBytes)
 		{
-			ToolUIVertexBufferCapacity = std::bit_ceil(std::max(VertexBytes, std::size_t{64 * 1024}));
+			ToolUIVertexBufferCapacity = std::bit_ceil(std::max(VertexBytes, std::size_t{64} * 1024));
 			nvrhi::BufferDesc BufferDescriptor;
 			BufferDescriptor.byteSize = ToolUIVertexBufferCapacity;
 			BufferDescriptor.debugName = "ToolUI vertices";
@@ -1257,7 +1257,7 @@ private:
 
 		if (ToolUIIndexBufferCapacity < IndexBytes)
 		{
-			ToolUIIndexBufferCapacity = std::bit_ceil(std::max(IndexBytes, std::size_t{32 * 1024}));
+			ToolUIIndexBufferCapacity = std::bit_ceil(std::max(IndexBytes, std::size_t{32} * 1024));
 			nvrhi::BufferDesc BufferDescriptor;
 			BufferDescriptor.byteSize = ToolUIIndexBufferCapacity;
 			BufferDescriptor.debugName = "ToolUI indices";
@@ -1770,7 +1770,7 @@ private:
 			{
 				(void)NvrhiDevice->waitForIdle();
 			}
-			catch (...)
+			catch (...) // NOLINT(bugprone-empty-catch)
 			{
 				// Teardown still needs to release the native device after a backend failure.
 			}

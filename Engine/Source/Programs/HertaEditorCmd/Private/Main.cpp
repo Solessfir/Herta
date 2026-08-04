@@ -17,14 +17,15 @@ void ReportFailure(const std::string_view Message) noexcept
 	{
 		std::println(stderr, "HertaEditorCmd: {}", Message);
 	}
-	catch (...)
+	catch (...) // NOLINT(bugprone-empty-catch)
 	{
+		// Reporting must not replace the original host failure with a formatting exception.
 	}
 }
 
 void AppendJsonString(std::string& Output, const std::string_view Value)
 {
-	static constexpr char HexDigits[] = "0123456789abcdef";
+	static constexpr std::string_view HexDigits = "0123456789abcdef";
 	Output.push_back('"');
 	for (const unsigned char Character : Value)
 	{

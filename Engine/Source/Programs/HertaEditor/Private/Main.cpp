@@ -26,6 +26,18 @@ namespace
 {
 inline constexpr FLogCategory EditorLog{"Editor"};
 
+void ReportFailure(const std::string_view Message) noexcept
+{
+	try
+	{
+		std::println(stderr, "Herta Editor failed: {}", Message);
+	}
+	catch (...) // NOLINT(bugprone-empty-catch)
+	{
+		// Reporting must not let a formatting exception escape main.
+	}
+}
+
 [[nodiscard]] std::filesystem::path FindRepositoryRoot(const std::filesystem::path& ExecutablePath)
 {
 	std::error_code PathError;
@@ -522,12 +534,12 @@ int main(const int ArgumentCount, char** const Arguments)
 	}
 	catch (const std::exception& Exception)
 	{
-		std::println(stderr, "Herta Editor failed: {}", Exception.what());
+		Herta::ReportFailure(Exception.what());
 		return 1;
 	}
 	catch (...)
 	{
-		std::println(stderr, "Herta Editor failed due to an unknown error");
+		Herta::ReportFailure("unknown error");
 		return 1;
 	}
 }
