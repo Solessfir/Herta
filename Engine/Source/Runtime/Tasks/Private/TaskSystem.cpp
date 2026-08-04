@@ -647,7 +647,11 @@ struct FTaskSystem::FImplementation final : std::enable_shared_from_this<FImplem
 			ReleaseScopeTask(Scope);
 		}
 
-		State->bCompletionBookkeepingFinished.store(true, std::memory_order_release);
+		{
+			// The predicate must change under the wait mutex so completion cannot notify between the waiter's check and sleep.
+			std::scoped_lock Lock(State->CompletionMutex);
+			State->bCompletionBookkeepingFinished.store(true, std::memory_order_release);
+		}
 		State->CompletionCondition.notify_all();
 	}
 
