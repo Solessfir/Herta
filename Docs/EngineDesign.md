@@ -1154,7 +1154,7 @@ Rules:
 
 Windows Setup prefers Visual Studio 2026 with `v145`, then automatically falls back to Visual Studio 2022 with `v143`. An explicit `-VisualStudioVersion` remains strict. Setup compiles a C++23 probe with each candidate toolset. Linux Setup compiles, links, and runs the same capability probe with the selected compiler.
 
-The probe covers the C++23 standard-library facilities Herta uses immediately, including `<expected>` and `<print>`. Checking only the language mode is insufficient because a compiler may accept `-std=c++23` while its paired standard library lacks `std::print`. GCC with libstdc++ requires version 14 or newer for Herta's baseline. Ubuntu 24.04 CI installs GCC 14 explicitly. Clang 18 then selects the newest compatible GCC installation exposed by the runner.
+The probe covers the C++23 standard-library facilities Herta uses immediately, including `std::expected`, `std::move_only_function`, and `std::print`. Checking only the language mode is insufficient because a compiler may accept `-std=c++23` while its paired standard library lacks required types. GCC with libstdc++ requires version 14 or newer for Herta's baseline. Ubuntu 24.04 CI installs GCC 14 explicitly. Clang 19 is the minimum supported Clang because it exposes the Concepts feature level required for libstdc++ to enable `std::expected`.
 
 `GenerateProjectFiles` resolves the same supported Visual Studio action when none is specified, validates the already-installed pinned Premake executable, then invokes it for the selected generator. Explicit generator arguments remain strict. Project generation performs no downloads, submodule updates, or dependency mutations. Run Setup explicitly when bootstrap state must change.
 
@@ -1199,7 +1199,7 @@ The initial required matrix is intentionally explicit rather than a full Cartesi
 |---|---|---|---|
 | `windows-2025-vs2026` | MSVC x64 | Development | Win32, unit tests, Vulkan validation smoke, interactive and headless editor startup, custom title bar |
 | `windows-2025-vs2026` | MSVC x64 | Shipping | Shipping compile, cooker, package, and launch smoke |
-| `ubuntu-24.04` | Clang 18 x64 with libstdc++ 14 | Debug-ASan | Core tests, ASan/UBSan, X11, Wayland, null, headless editor, Vulkan validation |
+| `ubuntu-24.04` | Clang 19 x64 with libstdc++ 14 | Debug-ASan | Core tests, ASan/UBSan, X11, Wayland, null, headless editor, Vulkan validation |
 | `ubuntu-24.04` | GCC 14 x64 | Shipping | Compiler portability, Shipping compile, cooker, and launch smoke |
 
 Set matrix `fail-fast: false` so one failure does not hide results from other platforms. Add architecture or configuration entries only when Herta supports and tests them locally. A GCC 16 C++26 reflection experiment may run as non-required CI until the production toolchain decision changes.

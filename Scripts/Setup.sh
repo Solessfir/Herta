@@ -122,8 +122,8 @@ print_prerequisite_command() {
     case "${ID:-}:${ID_LIKE:-}" in
         *ubuntu*)
             if [[ "${CXX:-}" == *clang* ]]; then
-                echo 'Install them with: sudo apt-get update && sudo apt-get install -y clang-18 gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
-                echo 'Then select Clang 18 with: export CC=clang-18 CXX=clang++-18' >&2
+                echo 'Install them with: sudo apt-get update && sudo apt-get install -y clang-19 gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
+                echo 'Then select Clang 19 with: export CC=clang-19 CXX=clang++-19' >&2
             else
                 echo 'Install them with: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
                 echo 'Then select GCC 14 with: export CC=gcc-14 CXX=g++-14' >&2
@@ -208,18 +208,20 @@ if [[ -n "${CXXFLAGS:-}" ]]; then
 fi
 cat > "${compiler_probe_directory}/Probe.cpp" <<'EOF'
 #include <expected>
+#include <functional>
 #include <print>
 
 int main()
 {
     const std::expected<int, int> value = 42;
+    std::move_only_function<int()> callback = [] { return 42; };
     std::println("Herta C++23 probe");
-    return value.value() == 42 ? 0 : 1;
+    return value.value() == callback() ? 0 : 1;
 }
 EOF
 if ! "${cxx}" "${compiler_probe_flags[@]}" -std=c++23 -Wall -Wextra -Werror "${compiler_probe_directory}/Probe.cpp" -o "${compiler_probe_directory}/Probe" ||
    ! "${compiler_probe_directory}/Probe" >/dev/null; then
-    echo "Compiler '${cxx}' failed the required C++23 library probe for <expected> and <print>." >&2
+    echo "Compiler '${cxx}' failed the required C++23 library probe for <expected>, <functional>, and <print>." >&2
     print_prerequisite_command
     exit 1
 fi

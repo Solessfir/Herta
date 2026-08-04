@@ -300,13 +300,15 @@ function Test-VisualStudioToolchain {
     $ProjectPath = Join-Path $ProbeDirectory 'Probe.vcxproj'
     $Source = @'
 #include <expected>
+#include <functional>
 #include <print>
 
 int main()
 {
     const std::expected<int, int> Value = 42;
+    std::move_only_function<int()> Callback = [] { return 42; };
     std::println("Herta C++23 probe");
-    return Value.value() == 42 ? 0 : 1;
+    return Value.value() == Callback() ? 0 : 1;
 }
 '@
     $Project = @"

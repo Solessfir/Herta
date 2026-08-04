@@ -139,29 +139,29 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes bear clang-18 gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev
+          sudo apt-get install --yes bear clang-19 clang-tidy-19 gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev
 
       - name: Set up Herta
         shell: bash
         env:
-          CC: clang-18
-          CXX: clang++-18
+          CC: clang-19
+          CXX: clang++-19
         run: bash ./Setup.sh
 
       - name: Generate GNU Make projects
         shell: bash
         env:
-          CC: clang-18
-          CXX: clang++-18
+          CC: clang-19
+          CXX: clang++-19
         run: bash ./GenerateProjectFiles.sh gmake
 
       - name: Analyze Herta sources
         shell: bash
         env:
-          CC: clang-18
-          CXX: clang++-18
+          CC: clang-19
+          CXX: clang++-19
         run: |
-          clang-tidy-18 --version
+          clang-tidy-19 --version
           bear --output compile_commands.json -- \
             make --directory=Intermediate/ProjectFiles/gmake \
               --jobs=2 \
@@ -174,7 +174,7 @@ jobs:
             ':(glob)Engine/**/*.cpp' \
             ':(glob)Games/**/*.cpp')
           test "${#Sources[@]}" -gt 0
-          clang-tidy-18 \
+          clang-tidy-19 \
             --config-file=.clang-tidy \
             -p=. \
             "${Sources[@]}"

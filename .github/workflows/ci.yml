@@ -44,8 +44,8 @@ jobs:
             platform: linux
             compiler: clang
             configuration: Debug-ASan
-            cc: clang-18
-            cxx: clang++-18
+            cc: clang-19
+            cxx: clang++-19
             cxxflags: ""
             ldflags: ""
           - name: Linux GCC Shipping
@@ -80,7 +80,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes clang-18 gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libvulkan1 mesa-vulkan-drivers vulkan-validationlayers weston xvfb
+          sudo apt-get install --yes clang-19 gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libvulkan1 mesa-vulkan-drivers vulkan-validationlayers weston xvfb
 
       - name: Set up Herta on Windows
         if: matrix.platform == 'windows'
