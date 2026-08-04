@@ -1507,6 +1507,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	ImGui::SetNextWindowViewport(Viewport->ID);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
 	ImGui::Begin("HertaWorkspaceHost", nullptr, HostFlags);
+	ImGui::PopStyleVar();
 
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
 	const FTitleBarLayout& TitleBarLayout = Implementation->Window->GetTitleBarHitTestState().Layout;
@@ -1548,12 +1549,16 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 		const float Y = HamburgerMinimum.y + 18.0f * ChromeScale + static_cast<float>(Line) * 4.0f * ChromeScale;
 		DrawList->AddLine({HamburgerMinimum.x + 12.0f * ChromeScale, Y}, {HamburgerMinimum.x + 24.0f * ChromeScale, Y}, ToImGuiPackedColor(ToolUITheme::TextPrimary), ChromeScale);
 	}
+	ImGui::SetNextWindowPos({HamburgerMinimum.x, TitleBarBottom}, ImGuiCond_Appearing);
+	ImGui::SetNextWindowViewport(Viewport->ID);
 	if (ImGui::BeginPopup("HertaApplicationMenuPopup"))
 	{
 		if (ImGui::MenuItem("Reset layout"))
 		{
 			Implementation->bBuildDefaultLayout = true;
 		}
+
+		ImGui::Separator();
 		if (ImGui::MenuItem("Exit"))
 		{
 			Implementation->Window->RequestClose();
@@ -1594,7 +1599,6 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	}
 
 	ImGui::End();
-	ImGui::PopStyleVar();
 }
 
 bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen)
