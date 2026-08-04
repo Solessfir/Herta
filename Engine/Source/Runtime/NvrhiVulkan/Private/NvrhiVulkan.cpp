@@ -36,6 +36,14 @@ namespace
 {
 inline constexpr FLogCategory RhiLog{"RHI"};
 inline constexpr std::string_view ValidationLayerName = "VK_LAYER_KHRONOS_validation";
+inline constexpr std::size_t VulkanBufferUpdateAlignment = 4;
+
+[[nodiscard]] constexpr std::size_t AlignVulkanBufferUpdateSourceSize(const std::size_t Size) noexcept
+{
+	return (Size + VulkanBufferUpdateAlignment - 1) & ~(VulkanBufferUpdateAlignment - 1);
+}
+
+static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 
 [[nodiscard]] FPresentationError MakeVulkanError(const EPresentationErrorCode Code, const std::string_view Operation, const VkResult Result)
 {
@@ -830,14 +838,18 @@ public:
 
 		const std::size_t VertexBytes = static_cast<std::size_t>(DrawData.TotalVtxCount) * sizeof(ImDrawVert);
 		const std::size_t IndexBytes = static_cast<std::size_t>(DrawData.TotalIdxCount) * sizeof(ImDrawIdx);
-		const std::expected BufferResult = EnsureToolUIBuffers(VertexBytes, IndexBytes);
+		const std::size_t IndexSourceBytes = AlignVulkanBufferUpdateSourceSize(IndexBytes);
+		const std::expected BufferResult = EnsureToolUIBuffers(VertexBytes, IndexSourceBytes);
 		if (!BufferResult)
 		{
 			return BufferResult;
 		}
 
+		static_assert(VulkanBufferUpdateAlignment % sizeof(ImDrawIdx) == 0);
+		static_assert(sizeof(ImDrawVert) % VulkanBufferUpdateAlignment == 0);
 		ToolUIVertices.resize(static_cast<std::size_t>(DrawData.TotalVtxCount));
-		ToolUIIndices.resize(static_cast<std::size_t>(DrawData.TotalIdxCount));
+		// NVRHI rounds Vulkan inline update source reads to four bytes for vkCmdUpdateBuffer.
+		ToolUIIndices.resize(IndexSourceBytes / sizeof(ImDrawIdx));
 		std::size_t VertexOffset = 0;
 		std::size_t IndexOffset = 0;
 		for (const ImDrawList* const DrawList : DrawData.CmdLists)
