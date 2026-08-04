@@ -44,8 +44,10 @@ jobs:
             platform: linux
             compiler: clang
             configuration: Debug-ASan
-            cc: clang
-            cxx: clang++
+            cc: clang-18
+            cxx: clang++-18
+            cxxflags: -stdlib=libc++
+            ldflags: -stdlib=libc++
           - name: Linux GCC Shipping
             runner: ubuntu-24.04
             platform: linux
@@ -53,6 +55,8 @@ jobs:
             configuration: Shipping
             cc: gcc-14
             cxx: g++-14
+            cxxflags: ""
+            ldflags: ""
 
     steps:
       - name: Check out Herta
@@ -76,7 +80,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libvulkan1 mesa-vulkan-drivers vulkan-validationlayers weston xvfb
+          sudo apt-get install --yes clang-18 libc++-18-dev libc++abi-18-dev gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libvulkan1 mesa-vulkan-drivers vulkan-validationlayers weston xvfb
 
       - name: Set up Herta on Windows
         if: matrix.platform == 'windows'
@@ -135,6 +139,8 @@ jobs:
         env:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
+          CXXFLAGS: ${{ matrix.cxxflags }}
+          LDFLAGS: ${{ matrix.ldflags }}
         run: bash ./Setup.sh
 
       - name: Generate GNU Make projects
@@ -143,6 +149,8 @@ jobs:
         env:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
+          CXXFLAGS: ${{ matrix.cxxflags }}
+          LDFLAGS: ${{ matrix.ldflags }}
         run: bash ./GenerateProjectFiles.sh gmake
 
       - name: Build Herta on Linux
@@ -151,6 +159,8 @@ jobs:
         env:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
+          CXXFLAGS: ${{ matrix.cxxflags }}
+          LDFLAGS: ${{ matrix.ldflags }}
         run: |
           Configuration="${{ matrix.configuration }}"
           make --directory=Intermediate/ProjectFiles/gmake \

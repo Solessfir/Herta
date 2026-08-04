@@ -1154,7 +1154,7 @@ Rules:
 
 Windows Setup prefers Visual Studio 2026 with `v145`, then automatically falls back to Visual Studio 2022 with `v143`. An explicit `-VisualStudioVersion` remains strict. Setup compiles a C++23 probe with each candidate toolset. Linux Setup compiles, links, and runs the same capability probe with the selected compiler.
 
-The probe covers the C++23 standard-library facilities Herta uses immediately, including `<expected>` and `<print>`. Checking only the language mode is insufficient because a compiler may accept `-std=c++23` while its paired standard library lacks `std::print`. GCC with libstdc++ requires version 14 or newer for Herta's baseline. Ubuntu 24.04 CI installs and selects GCC 14 explicitly; Clang jobs install the compatible libstdc++ 14 headers.
+The probe covers the C++23 standard-library facilities Herta uses immediately, including `<expected>` and `<print>`. Checking only the language mode is insufficient because a compiler may accept `-std=c++23` while its paired standard library lacks `std::print`. GCC with libstdc++ requires version 14 or newer for Herta's baseline. Ubuntu 24.04 CI installs and selects GCC 14 explicitly; Clang 18 jobs use the matching libc++ 18 runtime and headers.
 
 `GenerateProjectFiles` resolves the same supported Visual Studio action when none is specified, validates the already-installed pinned Premake executable, then invokes it for the selected generator. Explicit generator arguments remain strict. Project generation performs no downloads, submodule updates, or dependency mutations. Run Setup explicitly when bootstrap state must change.
 
@@ -1199,7 +1199,7 @@ The initial required matrix is intentionally explicit rather than a full Cartesi
 |---|---|---|---|
 | `windows-2025-vs2026` | MSVC x64 | Development | Win32, unit tests, Vulkan validation smoke, interactive and headless editor startup, custom title bar |
 | `windows-2025-vs2026` | MSVC x64 | Shipping | Shipping compile, cooker, package, and launch smoke |
-| `ubuntu-24.04` | Clang 18 x64 with libstdc++ 14 | Debug-ASan | Core tests, ASan/UBSan, X11, Wayland, null, headless editor, Vulkan validation |
+| `ubuntu-24.04` | Clang 18 x64 with libc++ 18 | Debug-ASan | Core tests, ASan/UBSan, X11, Wayland, null, headless editor, Vulkan validation |
 | `ubuntu-24.04` | GCC 14 x64 | Shipping | Compiler portability, Shipping compile, cooker, and launch smoke |
 
 Set matrix `fail-fast: false` so one failure does not hide results from other platforms. Add architecture or configuration entries only when Herta supports and tests them locally. A GCC 16 C++26 reflection experiment may run as non-required CI until the production toolchain decision changes.
@@ -1294,12 +1294,12 @@ permissions:
 
 Raise permissions only on the individual job that needs them. GitHub recommends [least-privilege `GITHUB_TOKEN` permissions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication).
 
-The CodeQL analysis job grants `actions: read`, `contents: read`, `packages: read`, and `security-events: write`. `actions: read` is required for CodeQL workflow-run metadata and avoids silently degraded telemetry and feature selection. Repositories must also enable code scanning before treating CodeQL upload as a required gate.
+The CodeQL analysis job grants `actions: read`, `contents: read`, `packages: read`, and `security-events: write`. `actions: read` is required for CodeQL workflow-run metadata and avoids silently degraded telemetry and feature selection. Public repositories run CodeQL and Dependency Review automatically. Private repositories skip the hosted security steps unless GitHub Code Security is enabled and the repository variable `HERTA_CODE_SECURITY_ENABLED` is set to `true`; Herta's dependency-manifest validation remains active regardless.
 
 Security rules:
 
 - Pin every third-party action to a full 40-character commit SHA, with its release tag in a comment for readability.
-- Configure Dependabot for `github-actions` and `gitsubmodule` ecosystems to propose reviewed updates.
+- Configure Dependabot for `github-actions` and `gitsubmodule` ecosystems to propose reviewed updates. Group the components of one action into a single pull request, and exclude submodules intentionally pinned to a release or non-default branch from automatic revision changes.
 - Set `persist-credentials: false` on checkout unless a job has a documented need to push.
 - Allow GitHub-owned actions plus an explicit audited third-party allowlist.
 - Never interpolate branch names, commit messages, issue text, or pull-request titles directly into a shell program. Pass untrusted values through environment variables or action inputs.

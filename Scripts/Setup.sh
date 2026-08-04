@@ -121,8 +121,13 @@ print_prerequisite_command() {
     fi
     case "${ID:-}:${ID_LIKE:-}" in
         *ubuntu*)
-            echo 'Install them with: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
-            echo 'Then select GCC 14 with: export CC=gcc-14 CXX=g++-14' >&2
+            if [[ "${CXX:-}" == *clang* ]]; then
+                echo 'Install them with: sudo apt-get update && sudo apt-get install -y clang-18 libc++-18-dev libc++abi-18-dev git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
+                echo 'Then select Clang 18 with: export CC=clang-18 CXX=clang++-18 CXXFLAGS=-stdlib=libc++ LDFLAGS=-stdlib=libc++' >&2
+            else
+                echo 'Install them with: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
+                echo 'Then select GCC 14 with: export CC=gcc-14 CXX=g++-14' >&2
+            fi
             ;;
         *debian*) echo 'Install GCC 14 or newer, Git, Make, coreutils, tar, curl, pkg-config, X11 development packages, Wayland development tools, and libxkbcommon development headers.' >&2 ;;
         *fedora*|*rhel*) echo 'Install them with: sudo dnf install -y git make gcc-c++ coreutils tar curl pkgconf-pkg-config libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel wayland-devel libxkbcommon-devel' >&2 ;;
@@ -197,6 +202,10 @@ if [[ -z "${cxx}" || ! -x "$(command -v "${cxx}" 2>/dev/null || true)" ]]; then
 fi
 
 compiler_probe_directory="$(mktemp -d)"
+compiler_probe_flags=()
+if [[ -n "${CXXFLAGS:-}" ]]; then
+    read -r -a compiler_probe_flags <<< "${CXXFLAGS}"
+fi
 cat > "${compiler_probe_directory}/Probe.cpp" <<'EOF'
 #include <expected>
 #include <print>
@@ -208,7 +217,7 @@ int main()
     return value.value() == 42 ? 0 : 1;
 }
 EOF
-if ! "${cxx}" -std=c++23 -Wall -Wextra -Werror "${compiler_probe_directory}/Probe.cpp" -o "${compiler_probe_directory}/Probe" ||
+if ! "${cxx}" "${compiler_probe_flags[@]}" -std=c++23 -Wall -Wextra -Werror "${compiler_probe_directory}/Probe.cpp" -o "${compiler_probe_directory}/Probe" ||
    ! "${compiler_probe_directory}/Probe" >/dev/null; then
     echo "Compiler '${cxx}' failed the required C++23 library probe for <expected> and <print>." >&2
     print_prerequisite_command
