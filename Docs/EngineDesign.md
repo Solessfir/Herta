@@ -1154,7 +1154,7 @@ Rules:
 
 Windows Setup prefers Visual Studio 2026 with `v145`, then automatically falls back to Visual Studio 2022 with `v143`. An explicit `-VisualStudioVersion` remains strict. Setup compiles a C++23 probe with each candidate toolset. Linux Setup compiles, links, and runs the same capability probe with the selected compiler.
 
-The probe covers the C++23 standard-library facilities Herta uses immediately, including `<expected>` and `<print>`. Checking only the language mode is insufficient because a compiler may accept `-std=c++23` while its paired standard library lacks `std::print`. GCC with libstdc++ requires version 14 or newer for Herta's baseline. Ubuntu 24.04 CI installs and selects GCC 14 explicitly; Clang 18 jobs explicitly select the same libstdc++ 14 installation.
+The probe covers the C++23 standard-library facilities Herta uses immediately, including `<expected>` and `<print>`. Checking only the language mode is insufficient because a compiler may accept `-std=c++23` while its paired standard library lacks `std::print`. GCC with libstdc++ requires version 14 or newer for Herta's baseline. Ubuntu 24.04 CI installs GCC 14 explicitly. Clang 18 then selects the newest compatible GCC installation exposed by the runner.
 
 `GenerateProjectFiles` resolves the same supported Visual Studio action when none is specified, validates the already-installed pinned Premake executable, then invokes it for the selected generator. Explicit generator arguments remain strict. Project generation performs no downloads, submodule updates, or dependency mutations. Run Setup explicitly when bootstrap state must change.
 

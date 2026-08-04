@@ -46,8 +46,8 @@ jobs:
             configuration: Debug-ASan
             cc: clang-18
             cxx: clang++-18
-            cxxflags: --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
-            ldflags: --gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
+            cxxflags: ""
+            ldflags: ""
           - name: Linux GCC Shipping
             runner: ubuntu-24.04
             platform: linux

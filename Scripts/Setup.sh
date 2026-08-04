@@ -123,7 +123,7 @@ print_prerequisite_command() {
         *ubuntu*)
             if [[ "${CXX:-}" == *clang* ]]; then
                 echo 'Install them with: sudo apt-get update && sudo apt-get install -y clang-18 gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
-                echo 'Then select Clang 18 with: export CC=clang-18 CXX=clang++-18 CXXFLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14 LDFLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14' >&2
+                echo 'Then select Clang 18 with: export CC=clang-18 CXX=clang++-18' >&2
             else
                 echo 'Install them with: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
                 echo 'Then select GCC 14 with: export CC=gcc-14 CXX=g++-14' >&2
