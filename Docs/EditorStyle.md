@@ -32,7 +32,9 @@ Do not place unrelated solid backgrounds or separator lines between the title ba
 
 These values are the initial neutral contract:
 
-Palette and appearance values are authored as sRGB display values. ToolUI converts interpolated Dear ImGui vertex RGB to linear in the fragment shader before blending into an sRGB swapchain, while alpha remains linear coverage. Presentation clears use the same explicit sRGB-to-linear conversion. Do not compensate for an incorrect rendering path by changing the palette tokens.
+Palette and appearance values are authored as sRGB display values. ToolUI deliberately blends Dear ImGui colors and grayscale font coverage perceptually instead of decoding vertex RGB to linear in its fragment shader. This matches the rasterizer tuning used by desktop UI and keeps small text crisp across light and dark controls.
+
+ToolUI presentation swapchains use an 8-bit UNORM image format with `VK_COLOR_SPACE_SRGB_NONLINEAR_KHR`, so authored palette values and clears reach the compositor without a second sRGB encode. Herta rejects a surface that lacks a compatible UNORM format instead of silently changing the editor appearance through an sRGB attachment fallback. This exception belongs only to ToolUI presentation. The future scene renderer, lighting, post-processing, and HDR pipeline remain linear in offscreen targets and explicitly encode the final display image before composition.
 
 | Token | Value | Use |
 |---|---:|---|

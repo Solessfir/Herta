@@ -22,7 +22,7 @@ struct FExtent2D
 	[[nodiscard]] constexpr bool operator==(const FExtent2D&) const noexcept = default;
 };
 
-struct FLinearColor
+struct FSrgbColor
 {
 	float Red = 0.0f;
 	float Green = 0.0f;
@@ -30,7 +30,14 @@ struct FLinearColor
 	float Alpha = 1.0f;
 };
 
-[[nodiscard]] FLinearColor ConvertSrgb8ToLinearColor(std::uint8_t Red, std::uint8_t Green, std::uint8_t Blue, std::uint8_t Alpha = 255) noexcept;
+[[nodiscard]] constexpr FSrgbColor ConvertSrgb8ToSrgbColor(const std::uint8_t Red, const std::uint8_t Green, const std::uint8_t Blue, const std::uint8_t Alpha = 255) noexcept
+{
+	return {
+	    static_cast<float>(Red) / 255.0f,
+	    static_cast<float>(Green) / 255.0f,
+	    static_cast<float>(Blue) / 255.0f,
+	    static_cast<float>(Alpha) / 255.0f};
+}
 
 struct FPresentationViewportHandle
 {
@@ -102,7 +109,7 @@ public:
 	[[nodiscard]] virtual FExtent2D GetExtent() const noexcept = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> Resize(FExtent2D Extent) = 0;
 	[[nodiscard]] virtual std::expected<EPresentationStatus, FPresentationError> BeginFrame() = 0;
-	[[nodiscard]] virtual std::expected<void, FPresentationError> Clear(FLinearColor Color) = 0;
+	[[nodiscard]] virtual std::expected<void, FPresentationError> Clear(FSrgbColor Color) = 0;
 	[[nodiscard]] virtual std::expected<EPresentationStatus, FPresentationError> Present() = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> WaitIdle() = 0;
 

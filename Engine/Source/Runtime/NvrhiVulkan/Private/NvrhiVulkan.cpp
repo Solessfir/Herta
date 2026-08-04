@@ -88,11 +88,14 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 	}
 }
 
-[[nodiscard]] VkSurfaceFormatKHR ChooseSurfaceFormat(const std::span<const VkSurfaceFormatKHR> Formats) noexcept
+[[nodiscard]] std::optional<VkSurfaceFormatKHR> ChooseSurfaceFormat(const std::span<const VkSurfaceFormatKHR> Formats) noexcept
 {
+	if (Formats.size() == 1 && Formats.front().format == VK_FORMAT_UNDEFINED && Formats.front().colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+	{
+		return VkSurfaceFormatKHR{VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
+	}
+
 	constexpr std::array PreferredFormats{
-	    VK_FORMAT_B8G8R8A8_SRGB,
-	    VK_FORMAT_R8G8B8A8_SRGB,
 	    VK_FORMAT_B8G8R8A8_UNORM,
 	    VK_FORMAT_R8G8B8A8_UNORM};
 
@@ -108,7 +111,7 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 		}
 	}
 
-	return Formats.front();
+	return std::nullopt;
 }
 
 [[nodiscard]] VkPresentModeKHR ChoosePresentMode(const std::span<const VkPresentModeKHR> Modes, const bool bVSync) noexcept
@@ -649,7 +652,7 @@ public:
 		return bFrameSuboptimal ? EPresentationStatus::Suboptimal : EPresentationStatus::Ready;
 	}
 
-	[[nodiscard]] std::expected<void, FPresentationError> Clear(const FLinearColor Color) override
+	[[nodiscard]] std::expected<void, FPresentationError> Clear(const FSrgbColor Color) override
 	{
 		if (!bFrameActive)
 		{
@@ -1498,7 +1501,12 @@ private:
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfacePresentModesKHR", Result));
 		}
 
-		Viewport.SurfaceFormat = ChooseSurfaceFormat(Formats);
+		const std::optional<VkSurfaceFormatKHR> SelectedSurfaceFormat = ChooseSurfaceFormat(Formats);
+		if (!SelectedSurfaceFormat)
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The secondary Vulkan surface does not expose an 8-bit UNORM swapchain format with the sRGB nonlinear color space required by ToolUI"});
+		}
+		Viewport.SurfaceFormat = *SelectedSurfaceFormat;
 		const nvrhi::Format NvrhiFormat = ToNvrhiFormat(Viewport.SurfaceFormat.format);
 		if (NvrhiFormat == nvrhi::Format::UNKNOWN)
 		{
@@ -1698,11 +1706,20 @@ private:
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfacePresentModesKHR", Result));
 		}
 
-		SurfaceFormat = ChooseSurfaceFormat(Formats);
+		const std::optional<VkSurfaceFormatKHR> SelectedSurfaceFormat = ChooseSurfaceFormat(Formats);
+		if (!SelectedSurfaceFormat)
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The Vulkan surface does not expose an 8-bit UNORM swapchain format with the sRGB nonlinear color space required by ToolUI"});
+		}
+		SurfaceFormat = *SelectedSurfaceFormat;
 		const nvrhi::Format NvrhiFormat = ToNvrhiFormat(SurfaceFormat.format);
 		if (NvrhiFormat == nvrhi::Format::UNKNOWN)
 		{
 			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The Vulkan surface does not expose a supported 8-bit RGBA swapchain format"});
+		}
+		if (Descriptor.Log)
+		{
+			HERTA_LOG_INFO(*Descriptor.Log, RhiLog, "ToolUI presentation selected Vulkan format {} with the sRGB nonlinear color space", static_cast<int>(SurfaceFormat.format));
 		}
 
 		if (Capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max())

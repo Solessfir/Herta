@@ -362,7 +362,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	}
 	std::unique_ptr<FEditorFramework> EditorFramework = std::move(*EditorFrameworkResult);
 	const FToolUIColor CanvasColor = ToolUITheme::Canvas;
-	const FLinearColor EditorClearColor = ConvertSrgb8ToLinearColor(CanvasColor.Red, CanvasColor.Green, CanvasColor.Blue, CanvasColor.Alpha);
+	const FSrgbColor EditorClearColor = ConvertSrgb8ToSrgbColor(CanvasColor.Red, CanvasColor.Green, CanvasColor.Blue, CanvasColor.Alpha);
 
 	bool bRenderFailed = false;
 	RenderFrame = [&]
