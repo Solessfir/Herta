@@ -56,6 +56,8 @@ GenerateProjectFiles.bat
 
 Project generation uses the same detected toolchain and writes `Herta.slnx` or `Herta.sln` at the repository root. Supporting Visual Studio project files remain under `Intermediate\ProjectFiles`.
 
+Windows project generation pauses on errors when run interactively. Automation remains non-blocking when `CI` or `HERTA_NO_PAUSE` is defined.
+
 Pass a version explicitly when fallback is not wanted:
 
 ```bat
