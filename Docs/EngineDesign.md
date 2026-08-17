@@ -1172,22 +1172,24 @@ GitHub Actions must call the same checked-in entry points used locally. Workflow
 
 | Workflow | Triggers | Responsibility |
 |---|---|---|
-| `ci.yml` | Pull request, push to `main`, `merge_group`, manual | Required builds, unit tests, platform integration, and small asset smoke tests |
-| `quality.yml` | Pull request, push to `main`, nightly | Formatting, warnings, clang-tidy, generated-file checks, and sanitizers |
-| `codeql.yml` | Pull request, push to `main`, weekly | C/C++ CodeQL analysis using the real build |
+| `ci.yml` | Pull request, changed daily `main`, `merge_group`, optional manual | Required builds, unit tests, platform integration, and small asset smoke tests |
+| `quality.yml` | Pull request, changed daily `main`, `merge_group`, optional manual | Formatting, warnings, clang-tidy, generated-file checks, and sanitizers |
+| `codeql.yml` | Weekly and optional manual | C/C++ CodeQL analysis using the real build |
 | `dependency-review.yml` | Pull request | Vulnerability, license, submodule, binary-lock, and workflow-action review |
 | `nightly.yml` | Scheduled and manual | Full asset corpus, optional Blender integration, render regression, stress, TSan, and recovery tests |
 | `release.yml` | Protected version tag or manual | Clean reproducible packages, checksums, notices, SBOM, attestations, and draft release |
 
-All required workflows listen for `merge_group` from the start so they remain compatible with GitHub's [merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue). Use workflow concurrency to cancel superseded pull-request runs while never cancelling `main`, nightly, or release work.
+All required workflows listen for `merge_group` from the start so they remain compatible with GitHub's [merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue). CI and Quality batch direct `main` development into daily validation and compare the scheduled revision with the previous completed scheduled run. They skip their expensive jobs when the revision is unchanged. Manual dispatch remains available for diagnostics and always runs.
+
+Use workflow concurrency to cancel superseded work on the same ref. A newer revision is the authoritative validation target, including scheduled and direct diagnostic runs.
 
 ```yaml
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 ```
 
-Every workflow also supports `workflow_dispatch` where a manual diagnostic run is useful. Scheduled jobs record the tested engine revision and do not silently test a moving branch after checkout.
+CI, Quality, and CodeQL support `workflow_dispatch` for optional diagnostic runs. Manual execution is never part of the normal validation contract. Scheduled jobs record the tested engine revision and do not silently test a moving branch after checkout. CodeQL still runs weekly without a source-change guard because analyzer updates can find new issues in unchanged code.
 
 ### 9.2 Required build matrix
 
@@ -1329,7 +1331,7 @@ After repository bootstrap, protect `main` with a GitHub ruleset:
 
 - Require pull requests and the stable aggregate checks `CI / required` and `Quality / required`.
 - Require conversation resolution and block force pushes and deletion.
-- Require CodeQL and Dependency Review once they contain meaningful coverage.
+- Require Dependency Review once it contains meaningful coverage. Treat weekly CodeQL as repository security scanning rather than a pull-request gate.
 - Require CODEOWNERS review for workflows, build/setup code, dependencies, importers, platform code, and release policy when a second maintainer exists.
 - Add an approval requirement when it does not make a single-maintainer repository impossible to operate.
 - Prefer linear history and signed commits if they fit the contributor workflow.
