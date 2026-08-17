@@ -311,11 +311,13 @@ struct FToolUIContext::FImplementation
 	void (*BackendPlatformDestroyWindow)(ImGuiViewport*) = nullptr;
 	ImGuiID DockspaceId = 0;
 	float CurrentStyleScale = 1.0f;
+	double MainCursorX = 0.0;
+	double MainCursorY = 0.0;
 	EWindowSystem WindowSystem = EWindowSystem::Unknown;
+	bool bMainCursorPositionValid = false;
 	bool bProgrammaticWindowPosition = false;
 	bool bBuildDefaultLayout = false;
 	bool bFrameActive = false;
-	bool bApplicationMenuHovered = false;
 	bool bAppearanceDirty = false;
 	bool bPlatformWindowsRendered = true;
 	bool bDestroying = false;
@@ -339,6 +341,7 @@ struct FToolUIViewportData
 	int IgnoreMoveEventFrame = -1;
 	int IgnoreResizeEventFrame = -1;
 	bool bCursorInside = false;
+	bool bCursorPositionValid = false;
 	bool bFrameReady = false;
 };
 
@@ -364,6 +367,52 @@ struct FToolUIViewportData
 	}
 	const FToolUIViewportData* const Data = GetViewportData(Viewport);
 	return Data != nullptr ? Data->Window : nullptr;
+}
+
+void UpdateTitleBarUiCaptureRegions(FWindow& Window, const ImGuiViewport& Viewport, const ImGuiWindow* const IgnoredWindow)
+{
+	FTitleBarHitTestState HitTestState = Window.GetTitleBarHitTestState();
+	HitTestState.UiCaptureRegionCount = 0;
+	HitTestState.bUiCapturesEntireTitleBar = false;
+
+	const FTitleBarLayout& Layout = HitTestState.Layout;
+	const ImRect TitleBarRect{
+	    Viewport.Pos,
+	    {Viewport.Pos.x + static_cast<float>(Layout.WindowWidth), Viewport.Pos.y + static_cast<float>(Layout.TitleBarHeight)}};
+	const ImGuiContext& Context = *ImGui::GetCurrentContext();
+	// A detached viewport owner spans Herta's native chrome internally, but the chrome must retain native dragging.
+	const ImGuiWindow* const ViewportOwnerWindow = static_cast<const ImGuiViewportP&>(Viewport).Window;
+	for (const ImGuiWindow* const UiWindow : Context.Windows)
+	{
+		if (UiWindow == IgnoredWindow || UiWindow == ViewportOwnerWindow || !UiWindow->Active || UiWindow->Hidden || UiWindow->Viewport != &Viewport || (UiWindow->Flags & ImGuiWindowFlags_NoMouseInputs) != 0)
+		{
+			continue;
+		}
+
+		const ImRect Intersection{
+		    {std::max(UiWindow->OuterRectClipped.Min.x, TitleBarRect.Min.x), std::max(UiWindow->OuterRectClipped.Min.y, TitleBarRect.Min.y)},
+		    {std::min(UiWindow->OuterRectClipped.Max.x, TitleBarRect.Max.x), std::min(UiWindow->OuterRectClipped.Max.y, TitleBarRect.Max.y)}};
+		if (Intersection.Min.x >= Intersection.Max.x || Intersection.Min.y >= Intersection.Max.y)
+		{
+			continue;
+		}
+
+		if (HitTestState.UiCaptureRegionCount >= HitTestState.UiCaptureRegions.size())
+		{
+			// Losing caption dragging is safer than sending a UI click to native window chrome.
+			HitTestState.UiCaptureRegionCount = 0;
+			HitTestState.bUiCapturesEntireTitleBar = true;
+			break;
+		}
+
+		HitTestState.UiCaptureRegions[HitTestState.UiCaptureRegionCount++] = {
+		    .MinimumX = std::clamp(static_cast<int>(std::floor(Intersection.Min.x - Viewport.Pos.x)), 0, Layout.WindowWidth),
+		    .MinimumY = std::clamp(static_cast<int>(std::floor(Intersection.Min.y - Viewport.Pos.y)), 0, Layout.TitleBarHeight),
+		    .MaximumX = std::clamp(static_cast<int>(std::ceil(Intersection.Max.x - Viewport.Pos.x)), 0, Layout.WindowWidth),
+		    .MaximumY = std::clamp(static_cast<int>(std::ceil(Intersection.Max.y - Viewport.Pos.y)), 0, Layout.TitleBarHeight)};
+	}
+
+	Window.SetTitleBarHitTestState(HitTestState);
 }
 
 void RecordViewportError(FToolUIContext::FImplementation& Implementation, FToolUIError Error) noexcept
@@ -657,6 +706,18 @@ void AddModifierEvents(ImGuiIO& Input, const EKey Key, const EInputAction Action
 	return -1;
 }
 
+[[nodiscard]] ImVec2 ResolveMousePosition(const FToolUIContext::FImplementation& Owner, const ImGuiViewport& Viewport, const FToolUIViewportData* const Data, const FWindow& Window, const double X, const double Y)
+{
+	if (Data == nullptr)
+	{
+		return {Viewport.Pos.x + static_cast<float>(X), Viewport.Pos.y + static_cast<float>(Y)};
+	}
+
+	const FWindowPosition PlatformPosition = Window.GetPosition();
+	const FToolUIViewportPosition Position = ResolveToolUIViewportPosition(Owner.bProgrammaticWindowPosition, Data->CachedPosition, {static_cast<float>(PlatformPosition.X), static_cast<float>(PlatformPosition.Y)});
+	return {Position.X + static_cast<float>(X), Position.Y + static_cast<float>(Y)};
+}
+
 void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport& Viewport, FWindow& Window, FToolUIViewportData* const Data, std::function<void()> RefreshRequested = {})
 {
 	FWindowCallbacks Callbacks;
@@ -730,7 +791,7 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 		ImGui::SetCurrentContext(Owner.Context);
 		ImGui::GetIO().AddInputCharacter(static_cast<unsigned int>(Character));
 	};
-	Callbacks.MouseButtonChanged = [&Owner](FWindow&, const EMouseButton Button, const EInputAction Action, const EModifierFlags)
+	Callbacks.MouseButtonChanged = [&Owner, &Viewport, Data](FWindow& EventWindow, const EMouseButton Button, const EInputAction Action, const EModifierFlags)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
 		if (Action == EInputAction::Repeated)
@@ -740,7 +801,17 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 		const int ImGuiButton = ToImGuiMouseButton(Button);
 		if (ImGuiButton >= 0)
 		{
-			ImGui::GetIO().AddMouseButtonEvent(ImGuiButton, Action == EInputAction::Pressed);
+			ImGuiIO& Input = ImGui::GetIO();
+			const bool bCursorPositionValid = Data != nullptr ? Data->bCursorPositionValid : Owner.bMainCursorPositionValid;
+			if (bCursorPositionValid)
+			{
+				const double CursorX = Data != nullptr ? Data->CursorX : Owner.MainCursorX;
+				const double CursorY = Data != nullptr ? Data->CursorY : Owner.MainCursorY;
+				const ImVec2 MousePosition = ResolveMousePosition(Owner, Viewport, Data, EventWindow, CursorX, CursorY);
+				// Keep the press paired with the native cursor sample that produced it. ImGui may otherwise consume a stale position when events arrive between frames.
+				Input.AddMousePosEvent(MousePosition.x, MousePosition.y);
+			}
+			Input.AddMouseButtonEvent(ImGuiButton, Action == EInputAction::Pressed);
 		}
 	};
 	Callbacks.CursorMoved = [&Owner, &Viewport, Data](FWindow& EventWindow, const double X, const double Y)
@@ -750,11 +821,16 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 		{
 			Data->CursorX = X;
 			Data->CursorY = Y;
+			Data->bCursorPositionValid = true;
 		}
-		const FWindowPosition PlatformPosition = EventWindow.GetPosition();
-		const FToolUIViewportPosition CachedPosition = Data != nullptr ? Data->CachedPosition : FToolUIViewportPosition{Viewport.Pos.x, Viewport.Pos.y};
-		const FToolUIViewportPosition Position = ResolveToolUIViewportPosition(Owner.bProgrammaticWindowPosition, CachedPosition, {static_cast<float>(PlatformPosition.X), static_cast<float>(PlatformPosition.Y)});
-		ImGui::GetIO().AddMousePosEvent(Position.X + static_cast<float>(X), Position.Y + static_cast<float>(Y));
+		else
+		{
+			Owner.MainCursorX = X;
+			Owner.MainCursorY = Y;
+			Owner.bMainCursorPositionValid = true;
+		}
+		const ImVec2 MousePosition = ResolveMousePosition(Owner, Viewport, Data, EventWindow, X, Y);
+		ImGui::GetIO().AddMousePosEvent(MousePosition.x, MousePosition.y);
 	};
 	Callbacks.CursorEntered = [&Owner, &Viewport, Data](FWindow&, const bool bEntered)
 	{
@@ -762,6 +838,14 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 		if (Data != nullptr)
 		{
 			Data->bCursorInside = bEntered;
+			if (!bEntered)
+			{
+				Data->bCursorPositionValid = false;
+			}
+		}
+		else if (!bEntered)
+		{
+			Owner.bMainCursorPositionValid = false;
 		}
 		ImGuiIO& Input = ImGui::GetIO();
 		Input.AddMouseViewportEvent(bEntered ? Viewport.ID : 0);
@@ -1122,7 +1206,6 @@ void RendererSwapBuffers(ImGuiViewport* const Viewport, void*)
 void DrawDetachedViewportChrome(FToolUIContext::FImplementation& Owner)
 {
 	ImGuiPlatformIO& Platform = ImGui::GetPlatformIO();
-	const ImGuiContext& Context = *ImGui::GetCurrentContext();
 	for (int ViewportIndex = 1; ViewportIndex < Platform.Viewports.Size; ++ViewportIndex)
 	{
 		ImGuiViewport* const Viewport = Platform.Viewports[ViewportIndex];
@@ -1150,11 +1233,7 @@ void DrawDetachedViewportChrome(FToolUIContext::FImplementation& Owner)
 		DrawList->AddText(Owner.MediumFont, Owner.Metrics.BaseFontSize * std::max(1.0f, Viewport->DpiScale), {Minimum.x + 50.0f * Scale, Minimum.y + 10.0f * Scale}, ToImGuiPackedColor(ToolUITheme::TextPrimary), Title.data(), Title.data() + Title.size());
 		DrawWindowControls(*DrawList, Minimum, Layout);
 
-		const bool bActiveItemInViewport = Context.ActiveIdWindow != nullptr && Context.ActiveIdWindow->Viewport == Viewport;
-		const float CursorY = Data->bCursorInside ? static_cast<float>(Data->CursorY) : ImGui::GetIO().MousePos.y - Viewport->Pos.y;
-		FTitleBarHitTestState HitTestState = Data->Window->GetTitleBarHitTestState();
-		HitTestState.bUiCapturesMouse = ShouldToolUIViewportCaptureTitleBar(bActiveItemInViewport, CursorY, static_cast<float>(Layout.TitleBarHeight));
-		Data->Window->SetTitleBarHitTestState(HitTestState);
+		UpdateTitleBarUiCaptureRegions(*Data->Window, *Viewport, nullptr);
 	}
 }
 
@@ -1439,6 +1518,7 @@ std::expected<void, FToolUIError> FToolUIContext::EndFrame(const bool bRenderMai
 	}
 
 	DrawDetachedViewportChrome(*Implementation);
+	UpdateTitleBarUiCaptureRegions(*Implementation->Window, *ImGui::GetMainViewport(), ImGui::FindWindowByName("HertaWorkspaceHost"));
 	ImGui::Render();
 	Implementation->bFrameActive = false;
 	Implementation->bPlatformWindowsRendered = (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) == 0;
@@ -1548,8 +1628,8 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	{
 		ImGui::OpenPopup("HertaApplicationMenuPopup");
 	}
-	Implementation->bApplicationMenuHovered = ImGui::IsItemHovered() || ImGui::IsItemActive();
-	if (Implementation->bApplicationMenuHovered)
+	const bool bApplicationMenuHovered = ImGui::IsItemHovered() || ImGui::IsItemActive();
+	if (bApplicationMenuHovered)
 	{
 		DrawList->AddRectFilled(HamburgerMinimum, HamburgerMaximum, IM_COL32(255, 255, 255, 24), Implementation->Metrics.TitleBarControlRounding * ChromeScale);
 	}
@@ -1581,14 +1661,6 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	ImGui::PopFont();
 	DrawList->AddText({ViewportMinimum.x + 102.0f * ChromeScale, TitleBarBottom + 15.0f * ChromeScale}, ToImGuiPackedColor(ToolUITheme::TextMuted), "Editor");
 	DrawWindowControls(*DrawList, ViewportMinimum, TitleBarLayout);
-
-	const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
-	const ImGuiContext& Context = *ImGui::GetCurrentContext();
-	const bool bActiveItemInViewport = Context.ActiveIdWindow != nullptr && Context.ActiveIdWindow->Viewport == Viewport;
-	const bool bUiCapturesTitleBar = Implementation->bApplicationMenuHovered || bPopupOpen || ShouldToolUIViewportCaptureTitleBar(bActiveItemInViewport, ImGui::GetIO().MousePos.y - ViewportMinimum.y, TitleBarHeight);
-	FTitleBarHitTestState HitTestState = Implementation->Window->GetTitleBarHitTestState();
-	HitTestState.bUiCapturesMouse = bUiCapturesTitleBar;
-	Implementation->Window->SetTitleBarHitTestState(HitTestState);
 
 	ImGui::SetCursorScreenPos({ViewportMinimum.x, ToolbarBottom});
 	const ImVec2 DockSize{Viewport->Size.x, std::max(1.0f, ViewportMaximum.y - ToolbarBottom)};

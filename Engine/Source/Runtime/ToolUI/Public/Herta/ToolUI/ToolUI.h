@@ -57,11 +57,6 @@ struct FToolUIViewportWindowPolicy
 	return bProgrammaticPositionSupported ? PlatformPosition : CachedPosition;
 }
 
-[[nodiscard]] constexpr bool ShouldToolUIViewportCaptureTitleBar(const bool bActiveItemInViewport, const float CursorY, const float TitleBarHeight) noexcept
-{
-	return bActiveItemInViewport && CursorY >= 0.0f && CursorY < TitleBarHeight;
-}
-
 struct FToolUIRendererBridge
 {
 	std::move_only_function<std::expected<void, FToolUIError>()> Initialize;

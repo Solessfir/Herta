@@ -6,18 +6,33 @@
 
 namespace Herta
 {
-TEST_CASE("Title bar hit testing gives UI capture first refusal")
+TEST_CASE("Title bar hit testing routes native regions")
 {
 	const FTitleBarLayout Layout = MakeTitleBarLayout(1280, 720, 1.0f, true, false);
 
-	CHECK(HitTestTitleBar(Layout, 1270, 10, true) == ETitleBarHitRegion::Client);
-	CHECK(HitTestTitleBar(Layout, 1270, 10, false) == ETitleBarHitRegion::CloseButton);
-	CHECK(HitTestTitleBar(Layout, 1220, 10, false) == ETitleBarHitRegion::MaximizeButton);
-	CHECK(HitTestTitleBar(Layout, 1170, 10, false) == ETitleBarHitRegion::MinimizeButton);
-	CHECK(HitTestTitleBar(Layout, 10, 10, false) == ETitleBarHitRegion::SystemMenu);
-	CHECK(HitTestTitleBar(Layout, 50, 10, false) == ETitleBarHitRegion::ApplicationMenu);
-	CHECK(HitTestTitleBar(Layout, 300, 10, false) == ETitleBarHitRegion::Caption);
-	CHECK(HitTestTitleBar(Layout, 300, 100, false) == ETitleBarHitRegion::Client);
+	CHECK(HitTestTitleBar(Layout, 1270, 10) == ETitleBarHitRegion::CloseButton);
+	CHECK(HitTestTitleBar(Layout, 1220, 10) == ETitleBarHitRegion::MaximizeButton);
+	CHECK(HitTestTitleBar(Layout, 1170, 10) == ETitleBarHitRegion::MinimizeButton);
+	CHECK(HitTestTitleBar(Layout, 10, 10) == ETitleBarHitRegion::SystemMenu);
+	CHECK(HitTestTitleBar(Layout, 50, 10) == ETitleBarHitRegion::ApplicationMenu);
+	CHECK(HitTestTitleBar(Layout, 300, 10) == ETitleBarHitRegion::Caption);
+	CHECK(HitTestTitleBar(Layout, 300, 100) == ETitleBarHitRegion::Client);
+}
+
+TEST_CASE("Title bar UI capture is limited to cached overlapping regions")
+{
+	FTitleBarHitTestState State;
+	State.Layout = MakeTitleBarLayout(1280, 720, 1.0f, true, false);
+	State.UiCaptureRegions[0] = {.MinimumX = 200, .MinimumY = 0, .MaximumX = 500, .MaximumY = 36};
+	State.UiCaptureRegionCount = 1;
+
+	CHECK(HitTestTitleBar(State, 200, 0) == ETitleBarHitRegion::Client);
+	CHECK(HitTestTitleBar(State, 499, 35) == ETitleBarHitRegion::Client);
+	CHECK(HitTestTitleBar(State, 500, 35) == ETitleBarHitRegion::Caption);
+	CHECK(HitTestTitleBar(State, 1270, 10) == ETitleBarHitRegion::CloseButton);
+
+	State.bUiCapturesEntireTitleBar = true;
+	CHECK(HitTestTitleBar(State, 1270, 10) == ETitleBarHitRegion::Client);
 }
 
 TEST_CASE("Title bar resizing is disabled while maximized")
@@ -25,8 +40,8 @@ TEST_CASE("Title bar resizing is disabled while maximized")
 	const FTitleBarLayout Restored = MakeTitleBarLayout(1280, 720, 1.0f, true, false);
 	const FTitleBarLayout Maximized = MakeTitleBarLayout(1280, 720, 1.0f, true, true);
 
-	CHECK(HitTestTitleBar(Restored, 0, 0, false) == ETitleBarHitRegion::ResizeTopLeft);
-	CHECK(HitTestTitleBar(Maximized, 0, 0, false) == ETitleBarHitRegion::SystemMenu);
+	CHECK(HitTestTitleBar(Restored, 0, 0) == ETitleBarHitRegion::ResizeTopLeft);
+	CHECK(HitTestTitleBar(Maximized, 0, 0) == ETitleBarHitRegion::SystemMenu);
 }
 
 TEST_CASE("Title bar scale follows the native coordinate space")

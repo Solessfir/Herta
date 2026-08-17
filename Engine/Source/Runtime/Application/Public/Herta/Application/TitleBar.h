@@ -1,8 +1,12 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
+
 namespace Herta
 {
 inline constexpr int DefaultTitleBarHeight = 36;
+inline constexpr std::size_t MaxTitleBarUiCaptureRegions = 16;
 
 enum class ETitleBarHitRegion
 {
@@ -34,10 +38,25 @@ struct FTitleBarLayout
 	bool bMaximized = false;
 };
 
+struct FTitleBarUiCaptureRegion
+{
+	int MinimumX = 0;
+	int MinimumY = 0;
+	int MaximumX = 0;
+	int MaximumY = 0;
+
+	[[nodiscard]] constexpr bool Contains(const int X, const int Y) const noexcept
+	{
+		return X >= MinimumX && X < MaximumX && Y >= MinimumY && Y < MaximumY;
+	}
+};
+
 struct FTitleBarHitTestState
 {
 	FTitleBarLayout Layout;
-	bool bUiCapturesMouse = false;
+	std::array<FTitleBarUiCaptureRegion, MaxTitleBarUiCaptureRegions> UiCaptureRegions{};
+	std::size_t UiCaptureRegionCount = 0;
+	bool bUiCapturesEntireTitleBar = false;
 };
 
 [[nodiscard]] constexpr float ResolveTitleBarUiScale(const bool bWayland, const float ContentScale) noexcept
@@ -77,13 +96,8 @@ struct FTitleBarHitTestState
 	    .bMaximized = bMaximized};
 }
 
-[[nodiscard]] constexpr ETitleBarHitRegion HitTestTitleBar(const FTitleBarLayout& Layout, const int X, const int Y, const bool bUiCapturesMouse) noexcept
+[[nodiscard]] constexpr ETitleBarHitRegion HitTestTitleBar(const FTitleBarLayout& Layout, const int X, const int Y) noexcept
 {
-	if (bUiCapturesMouse)
-	{
-		return ETitleBarHitRegion::Client;
-	}
-
 	if (X < 0 || Y < 0 || X >= Layout.WindowWidth || Y >= Layout.WindowHeight)
 	{
 		return ETitleBarHitRegion::Client;
@@ -168,5 +182,24 @@ struct FTitleBarHitTestState
 	}
 
 	return ETitleBarHitRegion::Caption;
+}
+
+[[nodiscard]] constexpr ETitleBarHitRegion HitTestTitleBar(const FTitleBarHitTestState& State, const int X, const int Y) noexcept
+{
+	if (State.bUiCapturesEntireTitleBar)
+	{
+		return ETitleBarHitRegion::Client;
+	}
+
+	const std::size_t RegionCount = State.UiCaptureRegionCount < State.UiCaptureRegions.size() ? State.UiCaptureRegionCount : State.UiCaptureRegions.size();
+	for (std::size_t RegionIndex = 0; RegionIndex < RegionCount; ++RegionIndex)
+	{
+		if (State.UiCaptureRegions[RegionIndex].Contains(X, Y))
+		{
+			return ETitleBarHitRegion::Client;
+		}
+	}
+
+	return HitTestTitleBar(State.Layout, X, Y);
 }
 }

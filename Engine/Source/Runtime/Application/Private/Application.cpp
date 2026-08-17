@@ -297,7 +297,7 @@ public:
 	}
 };
 
-template <typename... CallbackArguments, typename... Arguments> void InvokeWindowCallback(FWindow::FImplementation* const Window, const std::function<void(FWindow&, CallbackArguments...)> FWindowCallbacks::*const Member, Arguments&&... Values) noexcept
+template <typename... CallbackArguments, typename... Arguments> void InvokeWindowCallback(FWindow::FImplementation* const Window, const std::function<void(FWindow&, CallbackArguments...)> FWindowCallbacks::* const Member, Arguments&&... Values) noexcept
 {
 	try
 	{
@@ -470,7 +470,7 @@ void DropCallback(GLFWwindow* const Handle, const int Count, const char** const 
 int TitleBarHitTestCallback(GLFWwindow* const Handle, const int X, const int Y) noexcept
 {
 	const FWindow::FImplementation* const Window = GetWindowImplementation(Handle);
-	return ToGlfwHitTest(HitTestTitleBar(Window->TitleBarHitTestState.Layout, X, Y, Window->TitleBarHitTestState.bUiCapturesMouse));
+	return ToGlfwHitTest(HitTestTitleBar(Window->TitleBarHitTestState, X, Y));
 }
 
 void InstallWindowCallbacks(GLFWwindow* const Handle)

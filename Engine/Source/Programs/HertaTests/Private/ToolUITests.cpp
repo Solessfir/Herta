@@ -62,14 +62,6 @@ TEST_CASE("ToolUI maps platform viewport behavior without backend details")
 	CHECK(ResolveToolUIViewportWindowPolicy(true, true, true) == FToolUIViewportWindowPolicy{false, true, false});
 }
 
-TEST_CASE("ToolUI captures a detached title bar only for its active item")
-{
-	CHECK(ShouldToolUIViewportCaptureTitleBar(true, 18.0f, 36.0f));
-	CHECK_FALSE(ShouldToolUIViewportCaptureTitleBar(false, 18.0f, 36.0f));
-	CHECK_FALSE(ShouldToolUIViewportCaptureTitleBar(true, 36.0f, 36.0f));
-	CHECK_FALSE(ShouldToolUIViewportCaptureTitleBar(true, -1.0f, 36.0f));
-}
-
 TEST_CASE("Roboto editor resources retain their redistribution license")
 {
 	std::ifstream License("Engine/Content/Editor/Fonts/Roboto/OFL.txt", std::ios::binary);
