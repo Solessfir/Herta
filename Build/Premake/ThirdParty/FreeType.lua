@@ -41,6 +41,7 @@ function HertaFreeType()
             path.join(FreeTypeRoot, "src/cff/cff.c"),
             path.join(FreeTypeRoot, "src/cid/type1cid.c"),
             path.join(FreeTypeRoot, "src/gzip/ftgzip.c"),
+            path.join(FreeTypeRoot, "src/hvf/hvf.c"),
             path.join(FreeTypeRoot, "src/lzw/ftlzw.c"),
             path.join(FreeTypeRoot, "src/pcf/pcf.c"),
             path.join(FreeTypeRoot, "src/pfr/pfr.c"),
