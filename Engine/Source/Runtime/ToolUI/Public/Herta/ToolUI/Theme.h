@@ -69,7 +69,6 @@ struct FToolUIColorPreset
 namespace ToolUITheme
 {
 inline constexpr FToolUIColor Canvas{18, 18, 19, 255};
-inline constexpr FToolUIColor ChromeOverlay{20, 20, 22, 48};
 inline constexpr FToolUIColor Surface0{23, 23, 25, 255};
 inline constexpr FToolUIColor Surface1{28, 28, 30, 255};
 inline constexpr FToolUIColor Surface2{36, 36, 39, 255};

@@ -184,10 +184,10 @@ void ApplyBaseStyle(ImGuiStyle& Style, const FToolUIThemeMetrics& Metrics)
 	Palette[ImGuiCol_Border] = ToImGuiColor(ToolUITheme::Border);
 	Palette[ImGuiCol_BorderShadow] = WithAlpha(ToolUITheme::Canvas, 0.0f);
 	Palette[ImGuiCol_FrameBg] = ToImGuiColor(ToolUITheme::Surface1);
-	Palette[ImGuiCol_TitleBg] = WithAlpha(ToolUITheme::ChromeOverlay, 0.20f);
-	Palette[ImGuiCol_TitleBgActive] = WithAlpha(ToolUITheme::ChromeOverlay, 0.20f);
-	Palette[ImGuiCol_TitleBgCollapsed] = WithAlpha(ToolUITheme::ChromeOverlay, 0.20f);
-	Palette[ImGuiCol_MenuBarBg] = WithAlpha(ToolUITheme::ChromeOverlay, 0.20f);
+	Palette[ImGuiCol_TitleBg] = ToImGuiColor(ToolUITheme::Surface0);
+	Palette[ImGuiCol_TitleBgActive] = ToImGuiColor(ToolUITheme::Surface0);
+	Palette[ImGuiCol_TitleBgCollapsed] = ToImGuiColor(ToolUITheme::Surface0);
+	Palette[ImGuiCol_MenuBarBg] = ToImGuiColor(ToolUITheme::Surface0);
 	Palette[ImGuiCol_ScrollbarBg] = ToImGuiColor(ToolUITheme::Surface0);
 	Palette[ImGuiCol_ScrollbarGrab] = ToImGuiColor(ToolUITheme::Border);
 	Palette[ImGuiCol_Button] = ToImGuiColor(ToolUITheme::Surface1);
@@ -1143,7 +1143,6 @@ void DrawDetachedViewportChrome(FToolUIContext::FImplementation& Owner)
 		Background->AddRectFilled(Minimum, ViewportMaximum, ToImGuiPackedColor(ToolUITheme::Canvas));
 		Background->AddRectFilledMultiColor(Minimum, {ViewportMaximum.x, GradientBottom}, ToImGuiPackedColor(Gradient.TopLeft), ToImGuiPackedColor(Gradient.TopRight), ToImGuiPackedColor(Gradient.BottomRight), ToImGuiPackedColor(Gradient.BottomLeft));
 		ImDrawList* const DrawList = ImGui::GetForegroundDrawList(Viewport);
-		DrawList->AddRectFilled(Minimum, TitleBarMaximum, ToImGuiPackedColor(ToolUITheme::ChromeOverlay));
 		DrawList->AddLine({Minimum.x, TitleBarMaximum.y}, {TitleBarMaximum.x, TitleBarMaximum.y}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
 		DrawList->AddCircle({Minimum.x + 18.0f * Scale, Minimum.y + 18.0f * Scale}, 7.0f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.0f * Scale);
 		DrawList->AddCircleFilled({Minimum.x + 18.0f * Scale, Minimum.y + 18.0f * Scale}, 2.0f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
@@ -1526,7 +1525,6 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	const float ChromeScale = TitleBarHeight / static_cast<float>(DefaultTitleBarHeight);
 	const float TitleBarBottom = ViewportMinimum.y + TitleBarHeight;
 	const float ToolbarBottom = TitleBarBottom + Implementation->Metrics.MainToolbarHeight * ChromeScale;
-	DrawList->AddRectFilled(ViewportMinimum, {ViewportMaximum.x, ToolbarBottom}, ToImGuiPackedColor(ToolUITheme::ChromeOverlay));
 
 	const ImVec2 SystemMinimum = ViewportMinimum;
 	const ImVec2 SystemMaximum{ViewportMinimum.x + TitleBarHeight, TitleBarBottom};

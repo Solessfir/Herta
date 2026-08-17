@@ -21,12 +21,11 @@ The title bar, application toolbar, and dock canvas are one visual workspace. To
 ```text
 Canvas fill
     -> low-intensity accent gradient
-    -> transparent or low-alpha title-bar and toolbar chrome
     -> dockspace and panels
     -> text, controls, overlays, and native window glyphs
 ```
 
-Do not place unrelated solid backgrounds or separator lines between the title bar, toolbar, and dock canvas. A low-alpha chrome overlay may improve text contrast, but the underlying gradient remains continuous. Pure black is not used for normal surfaces.
+Do not place unrelated solid backgrounds, overlays, or separator lines between the title bar, toolbar, and dock canvas. Pure black is not used for normal surfaces.
 
 ## Base palette
 
@@ -39,7 +38,6 @@ ToolUI presentation swapchains use an 8-bit UNORM image format with `VK_COLOR_SP
 | Token | Value | Use |
 |---|---:|---|
 | `Canvas` | `#121213` | Full-window background and gradient endpoint |
-| `ChromeOverlay` | `#141416`, alpha `48 / 255` | Optional title-bar and toolbar contrast |
 | `Surface0` | `#171719` | Windows, docking background, and scroll tracks |
 | `Surface1` | `#1C1C1E` | Child regions, popups, inputs, and default buttons |
 | `Surface2` | `#242427` | Selected tabs, active frames, and headers |
@@ -79,6 +77,8 @@ Cobalt is the default. The appearance settings also expose a custom HSV color pi
 - Intensity: default `15%`.
 
 Intensity is a real interpolation factor. At `100%`, the top-left gradient sample reaches the selected color. The top-right uses `40%` of the current intensity, and both lower samples resolve to `Canvas` at the configured height. This gives predictable controls instead of hiding a second hard-coded strength cap.
+
+The ToolUI fragment shader applies deterministic 8 x 8 ordered dithering when vertex RGB varies across a primitive. This removes visible bands from low-intensity background gradients while leaving flat text, controls, icons, and images unchanged. The pattern is static so screenshots remain stable and inactive windows do not shimmer.
 
 When a native viewport loses focus, its background gradient retains `90%` of the configured saturation. Intensity, height, and the shared interaction palette remain unchanged. This lightly quiets inactive workspaces without making their content look disabled. Minimized viewports do not render at all.
 
