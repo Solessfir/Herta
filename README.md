@@ -16,11 +16,11 @@ The current architecture and implementation roadmap are documented in [EngineDes
 - Windows and Linux, including Win32, X11, and Wayland
 - Right-handed Left-Up-Forward coordinates using meters, kilograms, and seconds
 - Vulkan renderer behind Herta RHI and NVRHI
-- Herta's GLFW fork with cross-platform custom title bars
+- Herta's GLFW fork with capability-driven custom title bars across Win32, X11, and Wayland
 - Herta-owned structured logging with `spdlog` private behind Core and a docked searchable Output Log in EditorFramework
 - UX-first task system with bounded CPU and IO work, cancellation, progress, and safe reload ownership
 - Dear ImGui editor and imgui-node-editor graph tooling
-- Desaturated graphite editor styling with Roboto and FreeType, a configurable focus-aware background gradient, transparent-panel modes, a 36 px custom title bar, and centralized ToolUI tokens
+- Desaturated graphite editor styling with Roboto and FreeType, a configurable focus-aware background gradient, transparent-panel modes, a 36 px control-free custom title bar, and centralized ToolUI tokens
 - Headless editor commands that do not require windows, rendering, ImGui, or an audio device
 - Server-authoritative multiplayer with dedicated and player-hosted listen-server compositions
 - Versioned project templates and editor-only C++ game-module hot reload

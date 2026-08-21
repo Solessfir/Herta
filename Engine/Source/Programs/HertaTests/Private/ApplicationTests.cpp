@@ -19,6 +19,41 @@ TEST_CASE("Title bar hit testing routes native regions")
 	CHECK(HitTestTitleBar(Layout, 300, 100) == ETitleBarHitRegion::Client);
 }
 
+TEST_CASE("Title bar controls follow per-window action capabilities")
+{
+	const FTitleBarLayout WaylandLayout = MakeTitleBarLayout(1280, 720, 1.0f, true, false, {.bMinimize = false, .bMaximize = true, .bWindowMenu = false});
+	CHECK_FALSE(WaylandLayout.bMinimizeVisible);
+	CHECK(WaylandLayout.bMaximizeVisible);
+	CHECK_FALSE(WaylandLayout.bSystemMenuEnabled);
+	CHECK(HitTestTitleBar(WaylandLayout, 1270, 10) == ETitleBarHitRegion::CloseButton);
+	CHECK(HitTestTitleBar(WaylandLayout, 1220, 10) == ETitleBarHitRegion::MaximizeButton);
+	CHECK(HitTestTitleBar(WaylandLayout, 1170, 10) == ETitleBarHitRegion::Caption);
+	CHECK(HitTestTitleBar(WaylandLayout, 10, 10) == ETitleBarHitRegion::Caption);
+	CHECK(HitTestTitleBar(WaylandLayout, 50, 10) == ETitleBarHitRegion::ApplicationMenu);
+
+	const FTitleBarLayout MinimizeOnly = MakeTitleBarLayout(1280, 720, 1.0f, true, false, {.bMinimize = true, .bMaximize = false, .bWindowMenu = false});
+	CHECK(HitTestTitleBar(MinimizeOnly, 1220, 10) == ETitleBarHitRegion::MinimizeButton);
+	CHECK(HitTestTitleBar(MinimizeOnly, 1170, 10) == ETitleBarHitRegion::Caption);
+
+	const FTitleBarLayout FixedSize = MakeTitleBarLayout(1280, 720, 1.0f, false, false, {.bMinimize = false, .bMaximize = true, .bWindowMenu = false});
+	CHECK_FALSE(FixedSize.bMaximizeVisible);
+	CHECK(HitTestTitleBar(FixedSize, 1220, 10) == ETitleBarHitRegion::Caption);
+	CHECK(HitTestTitleBar(FixedSize, 1270, 10) == ETitleBarHitRegion::CloseButton);
+}
+
+TEST_CASE("Window action policy can suppress every title bar control")
+{
+	constexpr FWindowActionCapabilities Advertised;
+	constexpr FWindowActionPolicy NoControls{.bAllowClose = false, .bAllowMinimize = false, .bAllowMaximize = false, .bAllowWindowMenu = false};
+	const FTitleBarLayout Layout = MakeTitleBarLayout(1280, 720, 1.0f, true, false, Advertised, NoControls);
+	CHECK_FALSE(Layout.bCloseVisible);
+	CHECK_FALSE(Layout.bMinimizeVisible);
+	CHECK_FALSE(Layout.bMaximizeVisible);
+	CHECK_FALSE(Layout.bSystemMenuEnabled);
+	CHECK(HitTestTitleBar(Layout, 1270, 10) == ETitleBarHitRegion::Caption);
+	CHECK(HitTestTitleBar(Layout, 1220, 10) == ETitleBarHitRegion::Caption);
+}
+
 TEST_CASE("Title bar UI capture is limited to cached overlapping regions")
 {
 	FTitleBarHitTestState State;
@@ -115,6 +150,12 @@ TEST_CASE("GLFW null platform supports a complete application lifecycle")
 	CHECK((*WindowResult)->IsShownInTaskbar());
 	CHECK_FALSE((*WindowResult)->IsTopMost());
 	CHECK((*WindowResult)->WillFocusOnShow());
+	CHECK((*WindowResult)->GetActionCapabilities() == FWindowActionCapabilities{});
+	(*WindowResult)->SetActionPolicy({.bAllowClose = false, .bAllowMinimize = false, .bAllowMaximize = false, .bAllowWindowMenu = false});
+	CHECK_FALSE((*WindowResult)->GetTitleBarHitTestState().Layout.bCloseVisible);
+	CHECK_FALSE((*WindowResult)->GetTitleBarHitTestState().Layout.bMinimizeVisible);
+	CHECK_FALSE((*WindowResult)->GetTitleBarHitTestState().Layout.bMaximizeVisible);
+	CHECK_FALSE((*WindowResult)->GetTitleBarHitTestState().Layout.bSystemMenuEnabled);
 	CHECK(Application->PumpEvents() == EEventPumpMode::Waited);
 }
 

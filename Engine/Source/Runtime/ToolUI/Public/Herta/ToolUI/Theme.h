@@ -47,7 +47,6 @@ struct FToolUIThemeMetrics
 {
 	float BaseFontSize = 15.0f;
 	float TitleBarHeight = 36.0f;
-	float TitleBarButtonWidth = 46.0f;
 	float MainToolbarHeight = 46.0f;
 	float WindowPadding = 12.0f;
 	float WindowRounding = 6.0f;
@@ -80,7 +79,6 @@ inline constexpr FToolUIColor TextSecondary{190, 190, 193, 255};
 inline constexpr FToolUIColor TextMuted{148, 148, 152, 255};
 inline constexpr FToolUIColor NeutralAccent{205, 205, 210, 255};
 inline constexpr FToolUIColor NeutralAccentHover{232, 232, 235, 255};
-inline constexpr FToolUIColor CloseHover{196, 43, 28, 255};
 inline constexpr FToolUIColor Warning{246, 196, 101, 255};
 inline constexpr FToolUIColor Error{255, 125, 125, 255};
 inline constexpr float TrailingIntensityRatio = 0.40f;

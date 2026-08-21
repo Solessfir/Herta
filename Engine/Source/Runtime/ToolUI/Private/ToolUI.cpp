@@ -251,43 +251,6 @@ void ApplyInteractiveColors(ImGuiStyle& Style, const FToolUIColor Accent)
 	Palette[ImGuiCol_DockingPreview] = WithAlpha(ToolUITheme::TextPrimary, 0.15f);
 }
 
-void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleBarLayout& Layout)
-{
-	const ImGuiIO& Input = ImGui::GetIO();
-	const float ButtonWidth = static_cast<float>(Layout.ButtonWidth);
-	const float Height = static_cast<float>(Layout.TitleBarHeight);
-	const float Scale = Height / static_cast<float>(DefaultTitleBarHeight);
-	const float StartX = Origin.x + static_cast<float>(Layout.WindowWidth) - ButtonWidth * 3.0f;
-	const ImU32 GlyphColor = ToImGuiPackedColor(ToolUITheme::TextPrimary);
-	for (int ButtonIndex = 0; ButtonIndex < 3; ++ButtonIndex)
-	{
-		const ImVec2 Minimum{StartX + ButtonWidth * static_cast<float>(ButtonIndex), Origin.y};
-		const ImVec2 Maximum{Minimum.x + ButtonWidth, Origin.y + Height};
-		if (Input.MousePos.x >= Minimum.x && Input.MousePos.x < Maximum.x && Input.MousePos.y >= Minimum.y && Input.MousePos.y < Maximum.y)
-		{
-			const FToolUIColor Hover = ButtonIndex == 2 ? ToolUITheme::CloseHover : FToolUIColor{255, 255, 255, 24};
-			DrawList.AddRectFilled(Minimum, Maximum, ToImGuiPackedColor(Hover), 4.0f * Scale);
-		}
-	}
-
-	const float CenterY = Origin.y + Height * 0.5f;
-	const float MinimizeCenterX = StartX + ButtonWidth * 0.5f;
-	DrawList.AddLine({MinimizeCenterX - 5.0f * Scale, CenterY + 3.0f * Scale}, {MinimizeCenterX + 5.0f * Scale, CenterY + 3.0f * Scale}, GlyphColor, Scale);
-	const float MaximizeCenterX = StartX + ButtonWidth * 1.5f;
-	if (Layout.bMaximized)
-	{
-		DrawList.AddRect({MaximizeCenterX - 4.0f * Scale, CenterY - 3.0f * Scale}, {MaximizeCenterX + 4.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, 0.0f, 0, Scale);
-		DrawList.AddRect({MaximizeCenterX - 2.0f * Scale, CenterY - 5.0f * Scale}, {MaximizeCenterX + 6.0f * Scale, CenterY + 3.0f * Scale}, GlyphColor, 0.0f, 0, Scale);
-	}
-	else
-	{
-		DrawList.AddRect({MaximizeCenterX - 5.0f * Scale, CenterY - 5.0f * Scale}, {MaximizeCenterX + 5.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, 0.0f, 0, Scale);
-	}
-
-	const float CloseCenterX = StartX + ButtonWidth * 2.5f;
-	DrawList.AddLine({CloseCenterX - 5.0f * Scale, CenterY - 5.0f * Scale}, {CloseCenterX + 5.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, Scale);
-	DrawList.AddLine({CloseCenterX + 5.0f * Scale, CenterY - 5.0f * Scale}, {CloseCenterX - 5.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, Scale);
-}
 }
 
 struct FToolUIContext::FImplementation
@@ -344,6 +307,11 @@ struct FToolUIViewportData
 	bool bCursorPositionValid = false;
 	bool bFrameReady = false;
 };
+
+[[nodiscard]] constexpr FWindowActionPolicy GetEditorWindowActionPolicy() noexcept
+{
+	return {.bAllowClose = false, .bAllowMinimize = false, .bAllowMaximize = false, .bAllowWindowMenu = false};
+}
 
 [[nodiscard]] FToolUIContext::FImplementation* GetToolUIImplementation() noexcept
 {
@@ -894,6 +862,7 @@ void PlatformCreateWindow(ImGuiViewport* const Viewport)
 		Data->Owner = &Owner;
 		Data->Viewport = Viewport;
 		Data->Window = CreatedWindow = *WindowResult;
+		Data->Window->SetActionPolicy(GetEditorWindowActionPolicy());
 		Data->CachedPosition = {Viewport->Pos.x, Viewport->Pos.y};
 		Viewport->PlatformUserData = Data.get();
 		Viewport->PlatformHandle = Data->Window->GetBackendHandle().Value;
@@ -1231,8 +1200,6 @@ void DrawDetachedViewportChrome(FToolUIContext::FImplementation& Owner)
 		DrawList->AddCircleFilled({Minimum.x + 18.0f * Scale, Minimum.y + 18.0f * Scale}, 2.0f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
 		const std::string_view Title = Data->Window->GetTitle();
 		DrawList->AddText(Owner.MediumFont, Owner.Metrics.BaseFontSize * std::max(1.0f, Viewport->DpiScale), {Minimum.x + 50.0f * Scale, Minimum.y + 10.0f * Scale}, ToImGuiPackedColor(ToolUITheme::TextPrimary), Title.data(), Title.data() + Title.size());
-		DrawWindowControls(*DrawList, Minimum, Layout);
-
 		UpdateTitleBarUiCaptureRegions(*Data->Window, *Viewport, nullptr);
 	}
 }
@@ -1360,6 +1327,7 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		{
 			Implementation->Appearance = *SavedAppearance;
 		}
+		Implementation->Window->SetActionPolicy(GetEditorWindowActionPolicy());
 		Implementation->Renderer = std::move(Descriptor.Renderer);
 		Implementation->RegularFontBytes = std::move(*RegularFontBytes);
 		Implementation->MediumFontBytes = std::move(*MediumFontBytes);
@@ -1615,7 +1583,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	{
 		return MousePosition.x >= Minimum.x && MousePosition.x < Maximum.x && MousePosition.y >= Minimum.y && MousePosition.y < Maximum.y;
 	};
-	if (IsHovered(SystemMinimum, SystemMaximum))
+	if (TitleBarLayout.bSystemMenuEnabled && IsHovered(SystemMinimum, SystemMaximum))
 	{
 		DrawList->AddRectFilled(SystemMinimum, SystemMaximum, IM_COL32(255, 255, 255, 24), Implementation->Metrics.TitleBarControlRounding * ChromeScale);
 	}
@@ -1660,8 +1628,6 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	DrawList->AddText({ViewportMinimum.x + 20.0f * ChromeScale, TitleBarBottom + 15.0f * ChromeScale}, ToImGuiPackedColor(ToolUITheme::TextPrimary), "Workspace");
 	ImGui::PopFont();
 	DrawList->AddText({ViewportMinimum.x + 102.0f * ChromeScale, TitleBarBottom + 15.0f * ChromeScale}, ToImGuiPackedColor(ToolUITheme::TextMuted), "Editor");
-	DrawWindowControls(*DrawList, ViewportMinimum, TitleBarLayout);
-
 	ImGui::SetCursorScreenPos({ViewportMinimum.x, ToolbarBottom});
 	const ImVec2 DockSize{Viewport->Size.x, std::max(1.0f, ViewportMaximum.y - ToolbarBottom)};
 	Implementation->DockspaceId = ImGui::GetID("HertaEditorDockspace");

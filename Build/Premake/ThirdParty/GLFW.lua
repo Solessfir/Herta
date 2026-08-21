@@ -87,6 +87,8 @@ function HertaGLFW()
                 "pointer-constraints-unstable-v1.xml",
                 "relative-pointer-unstable-v1.xml",
                 "fractional-scale-v1.xml",
+                "tablet-unstable-v2.xml",
+                "cursor-shape-v1.xml",
                 "xdg-activation-v1.xml",
                 "xdg-decoration-unstable-v1.xml"
             }

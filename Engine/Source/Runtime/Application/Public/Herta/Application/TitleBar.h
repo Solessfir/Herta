@@ -27,6 +27,37 @@ enum class ETitleBarHitRegion
 	CloseButton
 };
 
+struct FWindowActionCapabilities
+{
+	bool bMinimize = true;
+	bool bMaximize = true;
+	bool bWindowMenu = true;
+
+	[[nodiscard]] constexpr bool operator==(const FWindowActionCapabilities&) const noexcept = default;
+};
+
+struct FWindowActionPolicy
+{
+	bool bAllowClose = true;
+	bool bAllowMinimize = true;
+	bool bAllowMaximize = true;
+	bool bAllowWindowMenu = true;
+
+	[[nodiscard]] constexpr bool operator==(const FWindowActionPolicy&) const noexcept = default;
+};
+
+struct FTitleBarControlBounds
+{
+	int MinimumX = 0;
+	int MaximumX = 0;
+	bool bVisible = false;
+
+	[[nodiscard]] constexpr bool Contains(const int X) const noexcept
+	{
+		return bVisible && X >= MinimumX && X < MaximumX;
+	}
+};
+
 struct FTitleBarLayout
 {
 	int WindowWidth = 0;
@@ -36,6 +67,10 @@ struct FTitleBarLayout
 	int ResizeBorder = 6;
 	bool bResizable = true;
 	bool bMaximized = false;
+	bool bCloseVisible = true;
+	bool bMinimizeVisible = true;
+	bool bMaximizeVisible = true;
+	bool bSystemMenuEnabled = true;
 };
 
 struct FTitleBarUiCaptureRegion
@@ -84,7 +119,7 @@ struct FTitleBarHitTestState
 	return WholeValue;
 }
 
-[[nodiscard]] constexpr FTitleBarLayout MakeTitleBarLayout(const int WindowWidth, const int WindowHeight, const float ContentScale, const bool bResizable, const bool bMaximized) noexcept
+[[nodiscard]] constexpr FTitleBarLayout MakeTitleBarLayout(const int WindowWidth, const int WindowHeight, const float ContentScale, const bool bResizable, const bool bMaximized, const FWindowActionCapabilities Capabilities = {}, const FWindowActionPolicy Policy = {}) noexcept
 {
 	return {
 	    .WindowWidth = WindowWidth,
@@ -93,7 +128,46 @@ struct FTitleBarHitTestState
 	    .ButtonWidth = ScaleTitleBarMetric(46, ContentScale),
 	    .ResizeBorder = ScaleTitleBarMetric(6, ContentScale),
 	    .bResizable = bResizable,
-	    .bMaximized = bMaximized};
+	    .bMaximized = bMaximized,
+	    .bCloseVisible = Policy.bAllowClose,
+	    .bMinimizeVisible = Capabilities.bMinimize && Policy.bAllowMinimize,
+	    .bMaximizeVisible = Capabilities.bMaximize && Policy.bAllowMaximize && bResizable,
+	    .bSystemMenuEnabled = Capabilities.bWindowMenu && Policy.bAllowWindowMenu};
+}
+
+[[nodiscard]] constexpr FTitleBarControlBounds GetTitleBarControlBounds(const FTitleBarLayout& Layout, const ETitleBarHitRegion Region) noexcept
+{
+	int MaximumX = Layout.WindowWidth;
+	if (Layout.bCloseVisible)
+	{
+		const FTitleBarControlBounds CloseBounds{MaximumX - Layout.ButtonWidth, MaximumX, true};
+		if (Region == ETitleBarHitRegion::CloseButton)
+		{
+			return CloseBounds;
+		}
+		MaximumX = CloseBounds.MinimumX;
+	}
+
+	if (Layout.bMaximizeVisible)
+	{
+		const FTitleBarControlBounds MaximizeBounds{MaximumX - Layout.ButtonWidth, MaximumX, true};
+		if (Region == ETitleBarHitRegion::MaximizeButton)
+		{
+			return MaximizeBounds;
+		}
+		MaximumX = MaximizeBounds.MinimumX;
+	}
+
+	if (Layout.bMinimizeVisible)
+	{
+		const FTitleBarControlBounds MinimizeBounds{MaximumX - Layout.ButtonWidth, MaximumX, true};
+		if (Region == ETitleBarHitRegion::MinimizeButton)
+		{
+			return MinimizeBounds;
+		}
+	}
+
+	return {};
 }
 
 [[nodiscard]] constexpr ETitleBarHitRegion HitTestTitleBar(const FTitleBarLayout& Layout, const int X, const int Y) noexcept
@@ -156,27 +230,28 @@ struct FTitleBarHitTestState
 		return ETitleBarHitRegion::Client;
 	}
 
-	if (X >= Layout.WindowWidth - Layout.ButtonWidth)
+	if (GetTitleBarControlBounds(Layout, ETitleBarHitRegion::CloseButton).Contains(X))
 	{
 		return ETitleBarHitRegion::CloseButton;
 	}
 
-	if (X >= Layout.WindowWidth - Layout.ButtonWidth * 2)
+	if (GetTitleBarControlBounds(Layout, ETitleBarHitRegion::MaximizeButton).Contains(X))
 	{
 		return ETitleBarHitRegion::MaximizeButton;
 	}
 
-	if (X >= Layout.WindowWidth - Layout.ButtonWidth * 3)
+	if (GetTitleBarControlBounds(Layout, ETitleBarHitRegion::MinimizeButton).Contains(X))
 	{
 		return ETitleBarHitRegion::MinimizeButton;
 	}
 
-	if (X < Layout.TitleBarHeight)
+	if (Layout.bSystemMenuEnabled && X < Layout.TitleBarHeight)
 	{
 		return ETitleBarHitRegion::SystemMenu;
 	}
 
-	if (X < Layout.TitleBarHeight * 2)
+	const int ApplicationMenuMinimumX = Layout.TitleBarHeight;
+	if (X >= ApplicationMenuMinimumX && X < ApplicationMenuMinimumX + Layout.TitleBarHeight)
 	{
 		return ETitleBarHitRegion::ApplicationMenu;
 	}

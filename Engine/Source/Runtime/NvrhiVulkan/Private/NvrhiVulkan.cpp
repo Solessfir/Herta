@@ -1717,11 +1717,6 @@ private:
 		{
 			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The Vulkan surface does not expose a supported 8-bit RGBA swapchain format"});
 		}
-		if (Descriptor.Log)
-		{
-			HERTA_LOG_INFO(*Descriptor.Log, RhiLog, "ToolUI presentation selected Vulkan format {} with the sRGB nonlinear color space", static_cast<int>(SurfaceFormat.format));
-		}
-
 		if (Capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max())
 		{
 			Extent = {Capabilities.currentExtent.width, Capabilities.currentExtent.height};

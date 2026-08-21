@@ -320,6 +320,8 @@ public:
 	[[nodiscard]] bool IsFocused() const noexcept;
 	[[nodiscard]] bool IsMinimized() const noexcept;
 	[[nodiscard]] bool IsMaximized() const noexcept;
+	[[nodiscard]] const FWindowActionCapabilities& GetActionCapabilities() const noexcept;
+	[[nodiscard]] const FWindowActionPolicy& GetActionPolicy() const noexcept;
 	[[nodiscard]] bool IsShownInTaskbar() const noexcept;
 	[[nodiscard]] bool IsTopMost() const noexcept;
 	[[nodiscard]] bool WillFocusOnShow() const noexcept;
@@ -341,6 +343,7 @@ public:
 	void SetShouldClose(bool bShouldClose) noexcept;
 	[[nodiscard]] std::expected<void, FApplicationError> SetClipboardText(std::string_view Text);
 	void SetCallbacks(FWindowCallbacks Callbacks);
+	void SetActionPolicy(FWindowActionPolicy Policy) noexcept;
 	void SetTitleBarHitTestState(FTitleBarHitTestState State) noexcept;
 	[[nodiscard]] const FTitleBarHitTestState& GetTitleBarHitTestState() const noexcept;
 

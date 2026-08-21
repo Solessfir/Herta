@@ -159,12 +159,10 @@ Menu items, tabs, title-bar controls, drag targets, scrollbars, and image frames
 
 Title-bar drawing and native hit testing consume one shared pure layout model. Hover visuals and native behavior must never derive their rectangles independently.
 
-- The top-left application glyph returns the native system-menu role.
+- The top-left application glyph is decorative caption content.
 - The adjacent hamburger is an ImGui client control for Herta commands.
-- The application title starts after both controls and clips before the native caption buttons.
-- Minimize, maximize, restore, close, caption, system-menu, and resize roles are returned through the Herta GLFW hit-test API.
-- The maximize glyph changes to the overlapping restore glyph while the native window is maximized.
-- Window-control pixels are drawn with ImGui primitives, but the controls are not `ImGui::Button` widgets. GLFW and the window system own matching press, release, cancellation, and action behavior.
+- The application title starts after both left-side elements.
+- Herta Editor draws no Close, Minimize, Maximize, Restore, or System Menu controls. Caption dragging, resize borders, the application menu, and keyboard-driven window management remain available.
 - Win32 and X11 scale native window coordinates with the viewport content scale.
 - Wayland window and cursor coordinates are already logical and must not be scaled twice.
 - Every detached ImGui platform viewport owns its own Herta window, layout, scale, focus, cursor, capture, and renderer state.

@@ -434,13 +434,13 @@ The custom title bar design is:
 
 Editor code must not handle `WM_NCHITTEST`, X11 client messages, or Wayland serials. Those details belong in the GLFW fork. Each ImGui platform viewport installs the same callback because every viewport is a native window.
 
-Wayland does not expose every global-window operation available on Win32/X11. Window placement and custom-decoration behavior must degrade honestly instead of faking unsupported state. The public API reports capabilities.
+Wayland does not expose every global-window operation available on Win32/X11. Window placement and custom-decoration behavior must degrade honestly instead of faking unsupported state. Application caches the per-window action capabilities advertised through GLFW and combines them with Herta's per-window action policy. ToolUI disables every native window-action control across platforms. The application glyph remains visible as decorative caption content. This policy does not detect a compositor or layout.
 
 The GLFW fork should contain only a generic, upstreamable custom-titlebar API. Herta-specific colors, buttons, ImGui state, and engine events stay in Herta. The fork remains pinned as a submodule and its upstream copyright remains intact.
 
 The Milestone 1 title-bar geometry is one pure Herta layout contract shared by rendering, hover feedback, and native hit testing. The baseline uses a 36 logical-pixel title bar, 46 logical-pixel window buttons, and a 6 logical-pixel resize border. Win32 and X11 apply viewport content scale. Wayland coordinates are already logical and are not scaled twice. Unit tests cover every region and fractional-scale rounding.
 
-Window-control pixels are not ImGui buttons. Returning a minimize, maximize, restore, close, or system-menu hit-test role lets the native GLFW backend own the click and window-manager action. Rendering code must not perform the same action again.
+When another application consumer enables window controls, those pixels are not ImGui buttons. Returning a minimize, maximize, restore, close, or system-menu hit-test role lets the native GLFW backend own the click and window-manager action. Rendering code must not perform the same action again.
 
 ImGui capture has priority over caption dragging. Each native viewport caches the most recent ToolUI mouse-capture state outside the GLFW callback. If a floating panel, popup, modal, or active item overlaps the title bar, the callback returns client space so ImGui receives the interaction. The callback is allocation-free and never calls ImGui directly. Multi-viewport integration therefore owns one `FWindow`, title-bar layout, scale, focus state, cursor state, and capture state per ImGui platform viewport.
 

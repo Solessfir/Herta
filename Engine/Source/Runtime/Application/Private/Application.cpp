@@ -260,6 +260,8 @@ struct FWindow::FImplementation
 	std::array<bool, static_cast<std::size_t>(EKey::Last) + 1> KeyStates{};
 	std::array<bool, static_cast<std::size_t>(EMouseButton::Last) + 1> MouseButtonStates{};
 	FWindowCallbacks Callbacks;
+	FWindowActionCapabilities ActionCapabilities;
+	FWindowActionPolicy ActionPolicy;
 	FTitleBarHitTestState TitleBarHitTestState;
 
 	void VerifyMainThread() const noexcept
@@ -272,7 +274,22 @@ struct FWindow::FImplementation
 
 	void RefreshTitleBarLayout() noexcept
 	{
-		TitleBarHitTestState.Layout = MakeTitleBarLayout(Width, Height, ContentScale, bResizable, bMaximized);
+		TitleBarHitTestState.Layout = MakeTitleBarLayout(Width, Height, ContentScale, bResizable, bMaximized, ActionCapabilities, ActionPolicy);
+	}
+
+	void RefreshActionCapabilities() noexcept
+	{
+		const FWindowActionCapabilities LatestCapabilities{
+		    .bMinimize = glfwGetWindowAttrib(Handle, GLFW_MINIMIZE_SUPPORTED) == GLFW_TRUE,
+		    .bMaximize = glfwGetWindowAttrib(Handle, GLFW_MAXIMIZE_SUPPORTED) == GLFW_TRUE,
+		    .bWindowMenu = glfwGetWindowAttrib(Handle, GLFW_WINDOW_MENU_SUPPORTED) == GLFW_TRUE};
+		if (LatestCapabilities == ActionCapabilities)
+		{
+			return;
+		}
+
+		ActionCapabilities = LatestCapabilities;
+		RefreshTitleBarLayout();
 	}
 };
 
@@ -591,6 +608,18 @@ bool FWindow::IsMaximized() const noexcept
 	return Implementation->bMaximized;
 }
 
+const FWindowActionCapabilities& FWindow::GetActionCapabilities() const noexcept
+{
+	Implementation->VerifyMainThread();
+	return Implementation->ActionCapabilities;
+}
+
+const FWindowActionPolicy& FWindow::GetActionPolicy() const noexcept
+{
+	Implementation->VerifyMainThread();
+	return Implementation->ActionPolicy;
+}
+
 bool FWindow::IsShownInTaskbar() const noexcept
 {
 	Implementation->VerifyMainThread();
@@ -658,6 +687,7 @@ void FWindow::Show()
 {
 	Implementation->VerifyMainThread();
 	glfwShowWindow(Implementation->Handle);
+	Implementation->RefreshActionCapabilities();
 	Implementation->bVisible = true;
 }
 
@@ -748,6 +778,18 @@ void FWindow::SetCallbacks(FWindowCallbacks Callbacks)
 {
 	Implementation->VerifyMainThread();
 	Implementation->Callbacks = std::move(Callbacks);
+}
+
+void FWindow::SetActionPolicy(const FWindowActionPolicy Policy) noexcept
+{
+	Implementation->VerifyMainThread();
+	if (Implementation->ActionPolicy == Policy)
+	{
+		return;
+	}
+
+	Implementation->ActionPolicy = Policy;
+	Implementation->RefreshTitleBarLayout();
 }
 
 void FWindow::SetTitleBarHitTestState(FTitleBarHitTestState State) noexcept
@@ -920,6 +962,7 @@ std::expected<FWindow*, FApplicationError> FApplication::CreateWindow(FWindowDes
 		float YScale = 1.0f;
 		glfwGetWindowContentScale(CreatedHandle, &XScale, &YScale);
 		WindowImplementation->ContentScale = ResolveTitleBarUiScale(Implementation->Capabilities.WindowSystem == EWindowSystem::Wayland, std::max(XScale, YScale));
+		WindowImplementation->RefreshActionCapabilities();
 		WindowImplementation->RefreshTitleBarLayout();
 
 		auto Window = std::unique_ptr<FWindow>(new FWindow(std::move(WindowImplementation)));
@@ -934,7 +977,7 @@ std::expected<FWindow*, FApplicationError> FApplication::CreateWindow(FWindowDes
 
 		if (Descriptor.bVisible)
 		{
-			glfwShowWindow(Handle);
+			Window->Show();
 		}
 
 		FWindow* const Result = Window.get();
@@ -993,6 +1036,14 @@ EEventPumpMode FApplication::PumpEvents()
 	else
 	{
 		glfwPollEvents();
+	}
+
+	for (const std::unique_ptr<FWindow>& Window : Implementation->Windows)
+	{
+		if (!Window->Implementation->bPendingDestruction)
+		{
+			Window->Implementation->RefreshActionCapabilities();
+		}
 	}
 
 	if (Implementation->bHasDeferredWindowDestruction)
