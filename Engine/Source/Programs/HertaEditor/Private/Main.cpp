@@ -4,8 +4,10 @@
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorFramework/EditorFramework.h"
 #include "Herta/NvrhiVulkan/NvrhiVulkan.h"
+#include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Tasks/TaskSystem.h"
 #include "Herta/ToolUI/ToolUI.h"
+#include "RendererSmoke.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -14,6 +16,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <print>
 #include <string>
 #include <string_view>
@@ -138,7 +141,7 @@ void ReportFailure(const std::string_view Message) noexcept
 	return EWindowSystem::Unknown;
 }
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const std::string_view ExpectedWindowSystem)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const std::string_view ExpectedWindowSystem)
 {
 	FLogOptions LogOptions;
 	LogOptions.EditorBufferCapacity = 20'000;
@@ -227,6 +230,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	PresentationDescriptor.RequiredInstanceExtensions = std::move(*InstanceExtensions);
 	PresentationDescriptor.InitialExtent = GetFramebufferExtent(Window);
 	PresentationDescriptor.bEnableValidation = GetBuildConfiguration() != EBuildConfiguration::Shipping;
+	PresentationDescriptor.bRequireValidation = bRendererTest && GetBuildConfiguration() != EBuildConfiguration::Shipping;
 	PresentationDescriptor.Log = Log.get();
 	std::expected<std::unique_ptr<INvrhiVulkanPresentation>, FPresentationError> PresentationResult = CreateNvrhiVulkanPresentation(std::move(PresentationDescriptor));
 	if (!PresentationResult)
@@ -235,6 +239,41 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		return 1;
 	}
 	std::unique_ptr<INvrhiVulkanPresentation> Presentation = std::move(*PresentationResult);
+	const std::filesystem::path ShaderDirectory = std::filesystem::absolute(ExecutablePath).parent_path() / "Shaders";
+	auto VertexShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.vert.hshader");
+	auto FragmentShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.frag.hshader");
+	if (!VertexShader || !FragmentShader)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load cooked shaders: {}. Build HertaShaders before launching the editor.", !VertexShader ? VertexShader.error().Message : FragmentShader.error().Message);
+		return 1;
+	}
+	if (bRendererTest)
+	{
+		auto VSyncResult = Presentation->SetVSyncEnabled(false);
+		if (VSyncResult)
+		{
+			VSyncResult = Presentation->SetVSyncEnabled(true);
+		}
+		if (!VSyncResult || !Presentation->IsVSyncEnabled())
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer VSync toggle regression failed: {}", VSyncResult ? "VSync state was not restored" : VSyncResult.error().Message);
+			return 1;
+		}
+		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader);
+		if (!Test || Presentation->HasValidationErrors())
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer regression failed: {}", Test ? "Validation reported an error" : Test.error().Message);
+			return 1;
+		}
+		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, reversed-Z, resize, and frame retirement checks passed");
+	}
+	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader));
+	if (!MeshResult)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize the mesh renderer: {}", MeshResult.error().Message);
+		return 1;
+	}
+	std::unique_ptr<FMeshRenderer> MeshRenderer = std::move(*MeshResult);
 
 	FEditorCommandRegistry Commands;
 	std::expected<void, FEditorCommandError> CommandResult = RegisterCoreEditorCommands(Commands);
@@ -331,6 +370,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 	bool bRendering = false;
 	std::function<bool()> RenderFrame;
+	std::optional<bool> PendingVSync;
 	FToolUIDescriptor ToolUIDescriptor;
 	ToolUIDescriptor.Application = Application.get();
 	ToolUIDescriptor.Window = &Window;
@@ -338,7 +378,17 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	ToolUIDescriptor.MediumFontPath = RepositoryRoot / "Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf";
 	ToolUIDescriptor.LayoutPath = RepositoryRoot / "Saved/Editor/ImGui.ini";
 	ToolUIDescriptor.AppearancePath = RepositoryRoot / "Saved/Editor/Appearance.ini";
+	if (bSmokeTest)
+	{
+		ToolUIDescriptor.LayoutPath = RepositoryRoot / "TestResults/Smoke/ImGui.ini";
+		ToolUIDescriptor.AppearancePath = RepositoryRoot / "TestResults/Smoke/Appearance.ini";
+	}
 	ToolUIDescriptor.Renderer = std::move(RendererBridge);
+	ToolUIDescriptor.bVSync = Presentation->IsVSyncEnabled();
+	ToolUIDescriptor.VSyncChanged = [&PendingVSync](const bool bEnabled)
+	{
+		PendingVSync = bEnabled;
+	};
 	ToolUIDescriptor.RefreshRequested = [&RenderFrame]
 	{
 		if (RenderFrame)
@@ -365,6 +415,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	const FSrgbColor EditorClearColor = ConvertSrgb8ToSrgbColor(CanvasColor.Red, CanvasColor.Green, CanvasColor.Blue, CanvasColor.Alpha);
 
 	bool bRenderFailed = false;
+	FTextureHandle RegisteredSceneTexture;
+	std::uint64_t SceneTextureId = 0;
 	RenderFrame = [&]
 	{
 		if (bRendering || bRenderFailed)
@@ -381,8 +433,46 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 		} RenderGuard{bRendering};
 
-		const FExtent2D FramebufferExtent = GetFramebufferExtent(Window);
-		if (!FramebufferExtent.IsEmpty() && FramebufferExtent != Presentation->GetExtent())
+		if (PendingVSync)
+		{
+			const bool bEnabled = *PendingVSync;
+			PendingVSync.reset();
+			if (auto Result = Presentation->SetVSyncEnabled(bEnabled); !Result)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not {} VSync: {}", bEnabled ? "enable" : "disable", Result.error().Message);
+				bRenderFailed = true;
+				return false;
+			}
+		}
+
+		const FExtent2D ViewExtent = EditorFramework->GetViewportExtent();
+		if (!ViewExtent.IsEmpty() && !Window.IsMinimized())
+		{
+			auto MeshFrame = MeshRenderer->Render(ViewExtent);
+			if (!MeshFrame)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not render scene: {}", MeshFrame.error().Message);
+				bRenderFailed = true;
+				return false;
+			}
+			if (RegisteredSceneTexture != MeshRenderer->GetColorTarget())
+			{
+				auto TextureId = Presentation->RegisterToolUITexture(MeshRenderer->GetColorTarget());
+				if (!TextureId)
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Could not display scene: {}", TextureId.error().Message);
+					bRenderFailed = true;
+					return false;
+				}
+				Presentation->UnregisterToolUITexture(SceneTextureId);
+				SceneTextureId = *TextureId;
+				RegisteredSceneTexture = MeshRenderer->GetColorTarget();
+				EditorFramework->SetViewportImage(SceneTextureId);
+			}
+		}
+
+		const FExtent2D FramebufferExtent = Window.IsMinimized() ? FExtent2D{} : GetFramebufferExtent(Window);
+		if (FramebufferExtent != Presentation->GetExtent())
 		{
 			std::expected<void, FPresentationError> ResizeResult = Presentation->Resize(FramebufferExtent);
 			if (!ResizeResult)
@@ -491,8 +581,31 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	}
 	std::uint32_t SmokeFrameCount = bInitialFramePresented ? 1 : 0;
 	std::uint32_t SmokeAttemptCount = 1;
+	std::uint32_t StressStep = 0;
 	while (!Window.ShouldClose() && !bRenderFailed)
 	{
+		if (bRendererTest && StressStep < 12)
+		{
+			if (StressStep == 4)
+			{
+				Window.Minimize();
+			}
+			else if (StressStep == 5)
+			{
+				Window.Restore();
+			}
+			else
+			{
+				const auto Resize = Window.SetSize(StressStep % 2 == 0 ? 800 : 1200, StressStep % 2 == 0 ? 600 : 720);
+				if (!Resize)
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Native resize stress failed: {}", Resize.error().Message);
+					bRenderFailed = true;
+					break;
+				}
+			}
+			++StressStep;
+		}
 		(void)Application->PumpEvents();
 		(void)TaskSystem->RunMainThreadTasks();
 		if (RenderFrame())
@@ -500,7 +613,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			++SmokeFrameCount;
 		}
 
-		if (bSmokeTest && SmokeFrameCount >= 3)
+		if (bSmokeTest && SmokeFrameCount >= (bRendererTest ? 24u : 3u))
 		{
 			Window.RequestClose();
 		}
@@ -529,8 +642,9 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::filesystem::path ExecutablePath = ArgumentCount > 0 && Arguments[0] != nullptr ? Arguments[0] : "HertaEditor";
 		const bool bSmokeTest = Herta::HasArgument(ArgumentCount, Arguments, "--smoke-test");
 		const bool bPlatformSmokeTest = Herta::HasArgument(ArgumentCount, Arguments, "--platform-smoke-test");
+		const bool bRendererTest = Herta::HasArgument(ArgumentCount, Arguments, "--renderer-test");
 		const std::string_view ExpectedWindowSystem = Herta::FindArgumentValue(ArgumentCount, Arguments, "--expect-window-system=");
-		return Herta::RunEditor(ExecutablePath, bSmokeTest, bPlatformSmokeTest, ExpectedWindowSystem);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, ExpectedWindowSystem);
 	}
 	catch (const std::exception& Exception)
 	{

@@ -89,6 +89,13 @@ function Test-PremakeExecutable {
 function Test-VulkanSdk {
     param([Parameter(Mandatory)] $Paths)
 
+    foreach ($SlangFile in @('Include/slang/slang.h', 'Include/slang/slang-com-ptr.h', 'Lib/slang-compiler.lib', 'Bin/slang-compiler.dll', 'Bin/slangc.exe')) {
+        $SlangPath = Join-Path $Paths.InstallDirectory $SlangFile
+        if (-not (Test-Path -LiteralPath $SlangPath -PathType Leaf) -or (Get-Item -LiteralPath $SlangPath).Length -eq 0) {
+            return $false
+        }
+    }
+
     if (-not (Test-Path -LiteralPath $Paths.Header -PathType Leaf) -or
         -not (Test-Path -LiteralPath $Paths.LoaderLibrary -PathType Leaf) -or
         -not (Test-Path -LiteralPath $Paths.VulkanInfo -PathType Leaf)) {
@@ -228,6 +235,7 @@ function Install-VulkanSdk {
         }
 
         $TemporaryPaths = [pscustomobject]@{
+            InstallDirectory = $TemporaryDirectory
             Header = Join-Path $TemporaryDirectory $Dependency.InstalledEntry
             LoaderLibrary = Join-Path $TemporaryDirectory 'Lib/vulkan-1.lib'
             VulkanInfo = Join-Path $TemporaryDirectory 'Bin/vulkaninfoSDK.exe'

@@ -1,0 +1,247 @@
+#include "Herta/RenderGraph/RenderGraph.h"
+
+#include <doctest/doctest.h>
+#include <stdexcept>
+
+namespace
+{
+std::expected<void, Herta::FRenderGraphError> Succeed()
+{
+	return {};
+}
+}
+
+TEST_CASE("Render graph preserves read write hazards and transient lifetimes")
+{
+	using namespace Herta;
+	FRenderGraph Graph;
+	std::vector<std::string> Events;
+	const auto Texture = Graph.ImportResource("Texture");
+	const auto Depth = Graph.CreateResource("Depth", [&]() -> std::expected<void, FRenderGraphError>
+	                                        {
+		                                        Events.emplace_back("Acquire");
+		                                        return {};
+	                                        },
+	                                        [&]()
+	                                        {
+		                                        Events.emplace_back("Release");
+	                                        });
+	const auto Draw = Graph.AddPass("Draw", {{Texture, ERenderGraphAccess::Read}, {Depth, ERenderGraphAccess::Write}}, [&]() -> std::expected<void, FRenderGraphError>
+	                                {
+		                                Events.emplace_back("Draw");
+		                                return {};
+	                                });
+	const auto Read = Graph.AddPass("Read", {{Depth, ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+	                                {
+		                                Events.emplace_back("Read");
+		                                return {};
+	                                });
+	const auto Rewrite = Graph.AddPass("Rewrite", {{Depth, ERenderGraphAccess::ReadWrite}}, [&]() -> std::expected<void, FRenderGraphError>
+	                                   {
+		                                   Events.emplace_back("Rewrite");
+		                                   return {};
+	                                   });
+	const auto Finish = Graph.AddPass("Finish", {}, [&]() -> std::expected<void, FRenderGraphError>
+	                                  {
+		                                  Events.emplace_back("Finish");
+		                                  return {};
+	                                  });
+	const auto Plan = Graph.Compile();
+	REQUIRE(Plan);
+	CHECK(Plan->PassOrder == std::vector<FRenderGraphPassHandle>{Draw, Read, Rewrite, Finish});
+	REQUIRE(Plan->Lifetimes.size() == 2);
+	CHECK(Plan->Lifetimes[1].Resource == Depth);
+	CHECK(Plan->Lifetimes[1].FirstUse == 0);
+	CHECK(Plan->Lifetimes[1].LastUse == 2);
+	REQUIRE(Graph.Execute());
+	CHECK(Events == std::vector<std::string>{"Acquire", "Draw", "Read", "Rewrite", "Release", "Finish"});
+}
+
+TEST_CASE("Render graph orders explicit dependencies deterministically")
+{
+	Herta::FRenderGraph Graph;
+	const auto First = Graph.AddPass("First", {}, Succeed);
+	const auto Second = Graph.AddPass("Second", {}, Succeed);
+	const auto Third = Graph.AddPass("Third", {}, Succeed);
+	Graph.AddDependency(Third, First);
+	Graph.AddDependency(Third, First);
+	const auto Plan = Graph.Compile();
+	REQUIRE(Plan);
+	CHECK(Plan->PassOrder == std::vector<Herta::FRenderGraphPassHandle>{Second, Third, First});
+}
+
+TEST_CASE("Render graph rejects cycles including resource hazards")
+{
+	using namespace Herta;
+	FRenderGraph Graph;
+	const auto Target = Graph.ImportResource("Target");
+	ERenderGraphAccess FirstAccess = ERenderGraphAccess::Read;
+	ERenderGraphAccess SecondAccess = ERenderGraphAccess::Write;
+	SUBCASE("Write after read")
+	{
+	}
+
+	SUBCASE("Read after write")
+	{
+		FirstAccess = ERenderGraphAccess::Write;
+		SecondAccess = ERenderGraphAccess::Read;
+	}
+
+	SUBCASE("Write after write")
+	{
+		FirstAccess = ERenderGraphAccess::Write;
+	}
+
+	const auto First = Graph.AddPass("First", {{Target, FirstAccess}}, Succeed);
+	const auto Second = Graph.AddPass("Second", {{Target, SecondAccess}}, Succeed);
+	Graph.AddDependency(Second, First);
+	const auto Plan = Graph.Compile();
+	REQUIRE_FALSE(Plan);
+	CHECK(Plan.error().Code == ERenderGraphErrorCode::DependencyCycle);
+}
+
+TEST_CASE("Render graph rejects reads before initialization without executing anything")
+{
+	using namespace Herta;
+	FRenderGraph Graph;
+	bool bExecuted = false;
+	const auto Target = Graph.CreateResource("Uninitialized");
+	const auto Pass = Graph.AddPass("Read", {{Target, ERenderGraphAccess::ReadWrite}}, [&]() -> std::expected<void, FRenderGraphError>
+	                                {
+		                                bExecuted = true;
+		                                return {};
+	                                });
+	CHECK(Pass.Index == 0);
+	const auto Result = Graph.Execute();
+	REQUIRE_FALSE(Result);
+	CHECK(Result.error().Code == ERenderGraphErrorCode::UninitializedRead);
+	CHECK_FALSE(bExecuted);
+}
+
+TEST_CASE("Render graph rejects invalid resources passes and duplicate access")
+{
+	using namespace Herta;
+	FRenderGraph Graph;
+	const auto Target = Graph.ImportResource("Target");
+	ERenderGraphErrorCode Expected = ERenderGraphErrorCode::InvalidResource;
+	SUBCASE("Invalid resource")
+	{
+		static_cast<void>(Graph.AddPass("Invalid", {{{}, ERenderGraphAccess::Read}}, Succeed));
+	}
+
+	SUBCASE("Invalid dependency")
+	{
+		Graph.AddDependency({}, {});
+		Expected = ERenderGraphErrorCode::InvalidPass;
+	}
+
+	SUBCASE("Missing callback")
+	{
+		static_cast<void>(Graph.AddPass("Missing", {}, {}));
+		Expected = ERenderGraphErrorCode::InvalidPass;
+	}
+
+	SUBCASE("Duplicate access")
+	{
+		static_cast<void>(Graph.AddPass("Duplicate", {{Target, ERenderGraphAccess::Read}, {Target, ERenderGraphAccess::Write}}, Succeed));
+		Expected = ERenderGraphErrorCode::InvalidAccess;
+	}
+
+	SUBCASE("Invalid access enum")
+	{
+		static_cast<void>(Graph.AddPass("Invalid", {{Target, static_cast<ERenderGraphAccess>(99)}}, Succeed));
+		Expected = ERenderGraphErrorCode::InvalidAccess;
+	}
+
+	SUBCASE("Unpaired lifetime callbacks")
+	{
+		static_cast<void>(Graph.CreateResource("Missing release", Succeed));
+	}
+
+	const auto Plan = Graph.Compile();
+	REQUIRE_FALSE(Plan);
+	CHECK(Plan.error().Code == Expected);
+}
+
+TEST_CASE("Render graph releases acquired resources after a pass fails or throws")
+{
+	using namespace Herta;
+	FRenderGraph Graph;
+	int Acquires = 0;
+	int Releases = 0;
+	bool bThrow = false;
+	SUBCASE("Returned error")
+	{
+	}
+
+	SUBCASE("Exception")
+	{
+		bThrow = true;
+	}
+
+	const auto Target = Graph.CreateResource("Target", [&]() -> std::expected<void, FRenderGraphError>
+	                                         {
+		                                         ++Acquires;
+		                                         return {};
+	                                         },
+	                                         [&]()
+	                                         {
+		                                         ++Releases;
+	                                         });
+	static_cast<void>(Graph.AddPass("Fail", {{Target, ERenderGraphAccess::Write}}, [&]() -> std::expected<void, FRenderGraphError>
+	                                {
+		                                if (bThrow)
+		                                {
+			                                throw std::runtime_error("Draw failed");
+		                                }
+
+		                                return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::ExecutionFailed, "Draw failed"});
+	                                }));
+	const auto Result = Graph.Execute();
+	REQUIRE_FALSE(Result);
+	CHECK(Result.error().Message == "Draw failed");
+	CHECK(Acquires == 1);
+	CHECK(Releases == 1);
+}
+
+TEST_CASE("Render graph acquisition failure cleans up only resources acquired successfully")
+{
+	using namespace Herta;
+	FRenderGraph Graph;
+	int Releases = 0;
+	const auto First = Graph.CreateResource("First", Succeed, [&]()
+	                                        {
+		                                        ++Releases;
+	                                        });
+	const auto Second = Graph.CreateResource("Second", []() -> std::expected<void, FRenderGraphError>
+	                                         {
+		                                         return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::ExecutionFailed, "Allocation failed"});
+	                                         },
+	                                         [&]()
+	                                         {
+		                                         Releases += 100;
+	                                         });
+	static_cast<void>(Graph.AddPass("Draw", {{First, ERenderGraphAccess::Write}, {Second, ERenderGraphAccess::Write}}, Succeed));
+	const auto Result = Graph.Execute();
+	REQUIRE_FALSE(Result);
+	CHECK(Result.error().Message == "Allocation failed");
+	CHECK(Releases == 1);
+}
+
+TEST_CASE("Render graph never acquires unused transient resources")
+{
+	Herta::FRenderGraph Graph;
+	bool bAcquired = false;
+	static_cast<void>(Graph.CreateResource("Unused", [&]() -> std::expected<void, Herta::FRenderGraphError>
+	                                       {
+		                                       bAcquired = true;
+		                                       return {};
+	                                       },
+	                                       []() {}));
+	const auto Plan = Graph.Compile();
+	REQUIRE(Plan);
+	CHECK(Plan->PassOrder.empty());
+	CHECK(Plan->Lifetimes.empty());
+	REQUIRE(Graph.Execute());
+	CHECK_FALSE(bAcquired);
+}

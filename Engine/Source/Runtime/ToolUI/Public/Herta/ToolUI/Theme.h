@@ -79,6 +79,8 @@ inline constexpr FToolUIColor TextSecondary{190, 190, 193, 255};
 inline constexpr FToolUIColor TextMuted{148, 148, 152, 255};
 inline constexpr FToolUIColor NeutralAccent{205, 205, 210, 255};
 inline constexpr FToolUIColor NeutralAccentHover{232, 232, 235, 255};
+inline constexpr FToolUIColor TitleBarControlHover{255, 255, 255, 24};
+inline constexpr FToolUIColor CloseHover{196, 43, 28, 255};
 inline constexpr FToolUIColor Warning{246, 196, 101, 255};
 inline constexpr FToolUIColor Error{255, 125, 125, 255};
 inline constexpr float TrailingIntensityRatio = 0.40f;

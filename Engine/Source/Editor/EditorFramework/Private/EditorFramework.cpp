@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <imgui.h>
 #include <iterator>
 #include <optional>
@@ -174,9 +175,12 @@ struct FEditorFramework::FImplementation
 	int SuggestionIndex = -1;
 	bool bOutputLogOpen = true;
 	bool bReclaimCommandFocus = false;
+	std::uint64_t ViewportTexture = 0;
+	FExtent2D ViewportExtent{960, 540};
 
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> DrawOutputLog();
 	void DrawStartPanel();
+	void DrawViewport();
 	void RebuildSuggestions();
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> SubmitCommand();
 };
@@ -220,6 +224,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw()
 	{
 		Implementation->ToolUI->DrawWorkspace("Herta Editor");
 		Implementation->DrawStartPanel();
+		Implementation->DrawViewport();
 		return Implementation->DrawOutputLog();
 	}
 	catch (const std::exception& Exception)
@@ -242,6 +247,45 @@ const FOutputLogModel& FEditorFramework::GetOutputLog() const noexcept
 	return *Implementation->OutputLog;
 }
 
+void FEditorFramework::SetViewportImage(const std::uint64_t TextureId) noexcept
+{
+	Implementation->ViewportTexture = TextureId;
+}
+
+FExtent2D FEditorFramework::GetViewportExtent() const noexcept
+{
+	return Implementation->ViewportExtent;
+}
+
+void FEditorFramework::FImplementation::DrawViewport()
+{
+	ImGui::SetNextWindowSize({960, 540}, ImGuiCond_FirstUseEver);
+	if (ToolUI->BeginPanel("Viewport"))
+	{
+		const ImVec2 Size = ImGui::GetContentRegionAvail();
+		const float Scale = ImGui::GetWindowViewport()->DpiScale;
+		ViewportExtent = {static_cast<std::uint32_t>(std::clamp(Size.x * Scale, 1.0f, 4096.0f)), static_cast<std::uint32_t>(std::clamp(Size.y * Scale, 1.0f, 4096.0f))};
+		if (ViewportTexture != 0 && Size.x > 0 && Size.y > 0)
+		{
+			const ImVec2 ImageMinimum = ImGui::GetCursorScreenPos();
+			ImGui::Image(ImTextureRef(static_cast<ImTextureID>(ViewportTexture)), Size);
+			const std::string FpsText = std::format("{:.0f} FPS", ImGui::GetIO().Framerate);
+			const ImVec2 TextSize = ImGui::CalcTextSize(FpsText.c_str());
+			const ImVec2 TextPosition{ImageMinimum.x + 12.0f, ImageMinimum.y + 10.0f};
+			FToolUIColor Background = ToolUITheme::Surface0;
+			Background.Alpha = 210;
+			ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+			DrawList->AddRectFilled({TextPosition.x - 6.0f, TextPosition.y - 4.0f}, {TextPosition.x + TextSize.x + 6.0f, TextPosition.y + TextSize.y + 4.0f}, PackColor(Background), 4.0f);
+			DrawList->AddText(TextPosition, PackColor(ToolUITheme::TextPrimary), FpsText.c_str());
+		}
+	}
+	else
+	{
+		ViewportExtent = {};
+	}
+	ToolUI->EndPanel();
+}
+
 void FEditorFramework::FImplementation::DrawStartPanel()
 {
 	if (!ToolUI->BeginPanel("Start"))
@@ -253,7 +297,7 @@ void FEditorFramework::FImplementation::DrawStartPanel()
 	ImGui::TextDisabled("HERTA / NATIVE C++23");
 	ImGui::Spacing();
 	ImGui::TextUnformatted("Build something remarkable.");
-	ImGui::TextDisabled("The Milestone 1 editor shell is running on Herta's application and Vulkan boundaries.");
+	ImGui::TextDisabled("The Viewport renders a textured mesh through Herta RHI and RenderGraph.");
 	ImGui::Spacing();
 	ImGui::SeparatorText("Workspace appearance");
 

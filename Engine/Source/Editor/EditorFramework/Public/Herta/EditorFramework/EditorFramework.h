@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Herta/EditorFramework/OutputLog.h"
+#include "Herta/RHI/Presentation.h"
 
 #include <expected>
 #include <memory>
@@ -39,6 +40,8 @@ public:
 	FEditorFramework& operator=(FEditorFramework&&) = delete;
 
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> Draw();
+	void SetViewportImage(std::uint64_t TextureId) noexcept;
+	[[nodiscard]] FExtent2D GetViewportExtent() const noexcept;
 	[[nodiscard]] FOutputLogModel& GetOutputLog() noexcept;
 	[[nodiscard]] const FOutputLogModel& GetOutputLog() const noexcept;
 

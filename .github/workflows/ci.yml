@@ -249,7 +249,7 @@ jobs:
           LavapipeIcd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)"
           test -n "$LavapipeIcd"
           env -u WAYLAND_DISPLAY VK_DRIVER_FILES="$LavapipeIcd" \
-            xvfb-run --auto-servernum ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaEditor --smoke-test --expect-window-system=x11
+            xvfb-run --auto-servernum ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaEditor --renderer-test --expect-window-system=x11
 
       - name: Run interactive editor smoke test on Wayland
         if: matrix.platform == 'linux'
@@ -281,7 +281,7 @@ jobs:
           LavapipeIcd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)"
           test -n "$LavapipeIcd"
           env -u DISPLAY XDG_RUNTIME_DIR="$RuntimeDirectory" WAYLAND_DISPLAY=herta-wayland \
-            VK_DRIVER_FILES="$LavapipeIcd" ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaEditor --smoke-test --expect-window-system=wayland
+            VK_DRIVER_FILES="$LavapipeIcd" ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaEditor --renderer-test --expect-window-system=wayland
 
       - name: Save project-local tools and SDKs
         if: github.event_name != 'pull_request' && steps.bootstrap-cache.outputs.cache-hit != 'true'

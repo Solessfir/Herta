@@ -73,8 +73,12 @@ validate_vulkan_sdk() {
     local header_path="$1"
     local loader_path="$2"
     local vulkan_info_path="$3"
+    local sdk_root
+    sdk_root="$(dirname -- "$(dirname -- "${vulkan_info_path}")")"
 
-    [[ -s "${header_path}" && -s "${loader_path}" && -x "${vulkan_info_path}" ]]
+    [[ -s "${header_path}" && -s "${loader_path}" && -x "${vulkan_info_path}" &&
+       -s "${sdk_root}/include/slang/slang.h" && -s "${sdk_root}/include/slang/slang-com-ptr.h" &&
+       -s "${sdk_root}/lib/libslang-compiler.so" && -x "${sdk_root}/bin/slangc" ]]
 }
 
 download_verified_archive() {

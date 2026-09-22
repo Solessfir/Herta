@@ -112,6 +112,6 @@ Cleanup scripts remove only explicit Herta-managed generated paths. Without Git 
 
 ## Current repository state
 
-Milestones 0 and 1 are complete. The repository contains structured logging, Tasks, Application, RHI, NvrhiVulkan, ToolUI, EditorCore, EditorFramework, HertaEditor, HertaEditorCmd, a configured application icon, focused tests, and required Windows/Linux CI and quality workflows. Local Windows, X11, and Wayland builds, tests, renderer smoke paths, and the headless command path are verified. Milestone 2 - RHI and renderer is next. The scene renderer, asset pipeline, and game runtime have not started.
+Milestones 0 through 2 are complete. The repository contains structured logging, Tasks, Application, RHI, NvrhiVulkan, RenderGraph, Renderer, ShaderCompiler, HertaShaderWorker, ToolUI, EditorCore, EditorFramework, HertaEditor, HertaEditorCmd, a configured application icon, focused tests, and required Windows/Linux CI and quality workflows. Slang cooks shaders during builds; the editor Viewport renders a textured cube with reversed-Z. Local Windows, X11, and Wayland renderer readback, resize, and resource-retirement tests are verified. Milestone 3 - Asset pipeline is next. Asset importing and the game runtime have not started.
 
 Update this section when a milestone changes those facts.

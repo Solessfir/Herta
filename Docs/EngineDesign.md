@@ -1,7 +1,7 @@
 # Herta Engine Design
 
-Status: Active design - Milestone 1 complete
-Last updated: 2026-08-02
+Status: Active design - Milestone 2 complete
+Last updated: 2026-09-22
 
 ## 1. Purpose
 
@@ -1461,7 +1461,7 @@ Exit condition: a fresh clone can run Setup, generate, build, and execute tests 
 
 Exit condition: the interactive editor opens with the documented visual baseline, preserves saved docking, creates platform viewports, preserves ImGui input priority over title-bar dragging, redraws continuously during native resize, idles without spinning while minimized, and closes cleanly on both platforms. Windows builds expose the configured application icon. The Output Log remains responsive under concurrent producers, preserves tail ownership, supports continuous text selection, and executes the same registered commands as the headless editor. The headless editor host starts, reports structured diagnostics, and exits cleanly on both platforms without a display server. Task scopes cancel and drain safely, blocking work cannot starve CPU workers, and synthetic background work does not stall event pumping.
 
-### Milestone 2 - RHI and renderer
+### Milestone 2 - RHI and renderer (complete)
 
 - Expand the private NVRHI Vulkan backend and Herta RHI handles and descriptors beyond the MS1 presentation subset.
 - Add RenderGraph, frame contexts, upload staging, and fence-based retirement.
@@ -1469,6 +1469,8 @@ Exit condition: the interactive editor opens with the documented visual baseline
 - Render a validation-clean textured mesh with reversed-Z.
 
 Exit condition: render tests and resize/minimize stress runs produce no validation errors or leaked GPU objects.
+
+Implemented: typed RHI resource ownership, three submission-retired graphics contexts, bounded uploads, deterministic single-queue RenderGraph, Slang worker cooking with reflected metadata, and an sRGB textured cube rendered with reversed-Z in the editor Viewport. GPU readback tests cover coverage, depth occlusion, invalid requests, cancellation, and resource retirement. See [Rendering.md](Rendering.md) for the current contracts and verification commands. Interactive shader hot reload, physical transient aliasing, and multi-queue scheduling are later extensions.
 
 ### Milestone 3 - Asset pipeline
 
@@ -1634,11 +1636,11 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Milestone 1 is complete. The next code slice is Milestone 2 and should remain limited to:
+Milestone 2 is complete. The next code slice is Milestone 3 and should remain limited to:
 
-1. Expand Herta RHI and the private NVRHI Vulkan backend beyond the presentation-only subset.
-2. Add frame contexts, upload staging, fence-based retirement, and the first RenderGraph contract.
-3. Add Slang worker compilation and cooked shader assets.
-4. Render one validation-clean textured mesh using reversed-Z.
+1. Add stable asset IDs, the asset registry, deterministic build keys, and DerivedDataCache.
+2. Introduce fastgltf and canonical mesh and texture cooking behind the worker boundary.
+3. Expose import and reimport through shared headless editor commands and asynchronous editor jobs.
+4. Add optional system Blender discovery and isolated import without making Blender required.
 
-Do not pull ECS, asset importing, localization, networking, graph tooling, physics, animation, audio, or scripting into this renderer-foundation slice.
+Keep ECS, localization, networking, graph tooling, physics, animation, audio, and scripting in their later milestones.

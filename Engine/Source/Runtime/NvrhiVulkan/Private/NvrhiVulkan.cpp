@@ -1,5 +1,6 @@
 #include "Herta/NvrhiVulkan/NvrhiVulkan.h"
 
+#include "GraphicsDevice.h"
 #include "Herta/Core/Log.h"
 #include "Shaders/ToolUIShaders.h"
 
@@ -119,6 +120,10 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 	if (!bVSync && std::ranges::find(Modes, VK_PRESENT_MODE_MAILBOX_KHR) != Modes.end())
 	{
 		return VK_PRESENT_MODE_MAILBOX_KHR;
+	}
+	if (!bVSync && std::ranges::find(Modes, VK_PRESENT_MODE_IMMEDIATE_KHR) != Modes.end())
+	{
+		return VK_PRESENT_MODE_IMMEDIATE_KHR;
 	}
 
 	return VK_PRESENT_MODE_FIFO_KHR;
@@ -379,7 +384,7 @@ public:
 		}
 
 		std::vector<const char*> Layers;
-		bool bEnableValidation = Descriptor.bEnableValidation;
+		bool bEnableValidation = Descriptor.bEnableValidation || Descriptor.bRequireValidation;
 		if (bEnableValidation)
 		{
 			std::uint32_t LayerCount = 0;
@@ -396,6 +401,10 @@ public:
 			}
 			if (!ContainsLayer(AvailableLayers, ValidationLayerName))
 			{
+				if (Descriptor.bRequireValidation)
+				{
+					return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "Renderer tests require VK_LAYER_KHRONOS_validation. Set VK_ADD_LAYER_PATH to the pinned Vulkan SDK validation-layer directory"});
+				}
 				bEnableValidation = false;
 				if (Descriptor.Log)
 				{
@@ -578,12 +587,85 @@ public:
 			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create the presentation command list"});
 		}
 
+		auto GraphicsResult = CreateGraphicsDevice(NvrhiDevice, VulkanNvrhiDevice, Device);
+		if (!GraphicsResult)
+		{
+			return std::unexpected(GraphicsResult.error());
+		}
+		GraphicsDevice = std::move(*GraphicsResult);
 		return Resize(Descriptor.InitialExtent);
+	}
+
+	[[nodiscard]] IGraphicsDevice& GetGraphicsDevice() noexcept override
+	{
+		return *GraphicsDevice;
+	}
+
+	[[nodiscard]] std::expected<std::uint64_t, FPresentationError> RegisterToolUITexture(const FTextureHandle& Texture) override
+	{
+		nvrhi::ITexture* const NativeTexture = GetNvrhiTexture(Texture, NvrhiDevice);
+		if (!bToolUIInitialized || !NativeTexture || Texture->GetDescriptor().Format == ETextureFormat::Depth32)
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "ToolUI requires an initialized renderer and a color texture from its graphics device"});
+		}
+		FToolUITexture Entry;
+		Entry.Texture = NativeTexture;
+		Entry.Width = Texture->GetDescriptor().Extent.Width;
+		Entry.Height = Texture->GetDescriptor().Extent.Height;
+		nvrhi::BindingSetDesc Bindings;
+		// The scene target stores sRGB, while ToolUI deliberately composites display-encoded colors.
+		Bindings.addItem(nvrhi::BindingSetItem::Texture_SRV(0, NativeTexture, nvrhi::Format::RGBA8_UNORM));
+		Bindings.addItem(nvrhi::BindingSetItem::Sampler(0, ToolUISampler));
+		Bindings.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(FToolUIPushConstants)));
+		Entry.BindingSet = NvrhiDevice->createBindingSet(Bindings, ToolUIBindingLayout);
+		if (!Entry.BindingSet)
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not bind the scene texture for ToolUI"});
+		}
+		const std::uint64_t Id = NextToolUITextureId++;
+		ToolUITextures.emplace(Id, std::move(Entry));
+		return Id;
+	}
+
+	void UnregisterToolUITexture(const std::uint64_t TextureId) noexcept override
+	{
+		ToolUITextures.erase(TextureId);
 	}
 
 	[[nodiscard]] FExtent2D GetExtent() const noexcept override
 	{
 		return Extent;
+	}
+
+	[[nodiscard]] bool IsVSyncEnabled() const noexcept override
+	{
+		return Descriptor.bVSync;
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> SetVSyncEnabled(const bool bEnabled) override
+	{
+		if (Descriptor.bVSync == bEnabled)
+		{
+			return {};
+		}
+		if (bFrameActive || HasActiveSecondaryViewport())
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Cannot change VSync while a presentation frame is active"});
+		}
+
+		Descriptor.bVSync = bEnabled;
+		if (const auto MainResult = Resize(Extent); !MainResult)
+		{
+			return MainResult;
+		}
+		for (const auto& [Handle, Viewport] : Viewports)
+		{
+			if (const auto ViewportResult = ResizeViewport({Handle}, Viewport->Extent); !ViewportResult)
+			{
+				return ViewportResult;
+			}
+		}
+		return {};
 	}
 
 	[[nodiscard]] std::expected<void, FPresentationError> Resize(const FExtent2D RequestedExtent) override
@@ -1869,6 +1951,7 @@ private:
 		DestroySwapchain();
 		ShutdownToolUIResources();
 		CommandList = nullptr;
+		GraphicsDevice.reset();
 		NvrhiDevice = nullptr;
 		VulkanNvrhiDevice = nullptr;
 
@@ -1913,6 +1996,7 @@ private:
 	FExtent2D Extent;
 	nvrhi::vulkan::DeviceHandle VulkanNvrhiDevice;
 	nvrhi::DeviceHandle NvrhiDevice;
+	std::unique_ptr<IGraphicsDevice> GraphicsDevice;
 	nvrhi::CommandListHandle CommandList;
 	std::vector<nvrhi::TextureHandle> BackBuffers;
 	std::vector<VkSemaphore> RenderFinished;

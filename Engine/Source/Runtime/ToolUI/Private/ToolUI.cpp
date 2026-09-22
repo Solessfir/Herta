@@ -47,6 +47,61 @@ namespace
 	return Result;
 }
 
+void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleBarLayout& Layout)
+{
+	const ImVec2 MousePosition = ImGui::GetIO().MousePos;
+	const float Height = static_cast<float>(Layout.TitleBarHeight);
+	const float Scale = Height / static_cast<float>(DefaultTitleBarHeight);
+	const float CenterY = Origin.y + Height * 0.5f;
+	const ImU32 GlyphColor = ToImGuiPackedColor(ToolUITheme::TextPrimary);
+	const auto DrawBackground = [&](const FTitleBarControlBounds Bounds, const bool bClose)
+	{
+		if (!Bounds.bVisible || MousePosition.x < Origin.x + static_cast<float>(Bounds.MinimumX) || MousePosition.x >= Origin.x + static_cast<float>(Bounds.MaximumX) || MousePosition.y < Origin.y || MousePosition.y >= Origin.y + Height)
+		{
+			return;
+		}
+
+		DrawList.AddRectFilled(
+		    {Origin.x + static_cast<float>(Bounds.MinimumX), Origin.y},
+		    {Origin.x + static_cast<float>(Bounds.MaximumX), Origin.y + Height},
+		    ToImGuiPackedColor(bClose ? ToolUITheme::CloseHover : ToolUITheme::TitleBarControlHover),
+		    4.0f * Scale);
+	};
+	const FTitleBarControlBounds Minimize = GetTitleBarControlBounds(Layout, ETitleBarHitRegion::MinimizeButton);
+	const FTitleBarControlBounds Maximize = GetTitleBarControlBounds(Layout, ETitleBarHitRegion::MaximizeButton);
+	const FTitleBarControlBounds Close = GetTitleBarControlBounds(Layout, ETitleBarHitRegion::CloseButton);
+	DrawBackground(Minimize, false);
+	DrawBackground(Maximize, false);
+	DrawBackground(Close, true);
+
+	if (Minimize.bVisible)
+	{
+		const float CenterX = Origin.x + static_cast<float>(Minimize.MinimumX + Minimize.MaximumX) * 0.5f;
+		DrawList.AddLine({CenterX - 5.0f * Scale, CenterY + 3.0f * Scale}, {CenterX + 5.0f * Scale, CenterY + 3.0f * Scale}, GlyphColor, Scale);
+	}
+
+	if (Maximize.bVisible)
+	{
+		const float CenterX = Origin.x + static_cast<float>(Maximize.MinimumX + Maximize.MaximumX) * 0.5f;
+		if (Layout.bMaximized)
+		{
+			DrawList.AddRect({CenterX - 4.0f * Scale, CenterY - 3.0f * Scale}, {CenterX + 4.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, 0.0f, 0, Scale);
+			DrawList.AddRect({CenterX - 2.0f * Scale, CenterY - 5.0f * Scale}, {CenterX + 6.0f * Scale, CenterY + 3.0f * Scale}, GlyphColor, 0.0f, 0, Scale);
+		}
+		else
+		{
+			DrawList.AddRect({CenterX - 5.0f * Scale, CenterY - 5.0f * Scale}, {CenterX + 5.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, 0.0f, 0, Scale);
+		}
+	}
+
+	if (Close.bVisible)
+	{
+		const float CenterX = Origin.x + static_cast<float>(Close.MinimumX + Close.MaximumX) * 0.5f;
+		DrawList.AddLine({CenterX - 5.0f * Scale, CenterY - 5.0f * Scale}, {CenterX + 5.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, Scale);
+		DrawList.AddLine({CenterX + 5.0f * Scale, CenterY - 5.0f * Scale}, {CenterX - 5.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, Scale);
+	}
+}
+
 [[nodiscard]] std::expected<std::vector<std::byte>, FToolUIError> ReadFile(const std::filesystem::path& Path)
 {
 	std::ifstream Stream(Path, std::ios::binary | std::ios::ate);
@@ -261,6 +316,7 @@ struct FToolUIContext::FImplementation
 	FEditorAppearance Appearance;
 	FToolUIThemeMetrics Metrics;
 	FToolUIRendererBridge Renderer;
+	std::function<void(bool)> VSyncChanged;
 	std::vector<std::byte> RegularFontBytes;
 	std::vector<std::byte> MediumFontBytes;
 	std::string LayoutPath;
@@ -279,6 +335,7 @@ struct FToolUIContext::FImplementation
 	EWindowSystem WindowSystem = EWindowSystem::Unknown;
 	bool bMainCursorPositionValid = false;
 	bool bProgrammaticWindowPosition = false;
+	bool bVSync = true;
 	bool bBuildDefaultLayout = false;
 	bool bFrameActive = false;
 	bool bAppearanceDirty = false;
@@ -307,11 +364,6 @@ struct FToolUIViewportData
 	bool bCursorPositionValid = false;
 	bool bFrameReady = false;
 };
-
-[[nodiscard]] constexpr FWindowActionPolicy GetEditorWindowActionPolicy() noexcept
-{
-	return {.bAllowClose = false, .bAllowMinimize = false, .bAllowMaximize = false, .bAllowWindowMenu = false};
-}
 
 [[nodiscard]] FToolUIContext::FImplementation* GetToolUIImplementation() noexcept
 {
@@ -862,7 +914,6 @@ void PlatformCreateWindow(ImGuiViewport* const Viewport)
 		Data->Owner = &Owner;
 		Data->Viewport = Viewport;
 		Data->Window = CreatedWindow = *WindowResult;
-		Data->Window->SetActionPolicy(GetEditorWindowActionPolicy());
 		Data->CachedPosition = {Viewport->Pos.x, Viewport->Pos.y};
 		Viewport->PlatformUserData = Data.get();
 		Viewport->PlatformHandle = Data->Window->GetBackendHandle().Value;
@@ -1198,6 +1249,7 @@ void DrawDetachedViewportChrome(FToolUIContext::FImplementation& Owner)
 		DrawList->AddLine({Minimum.x, TitleBarMaximum.y}, {TitleBarMaximum.x, TitleBarMaximum.y}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
 		DrawList->AddCircle({Minimum.x + 18.0f * Scale, Minimum.y + 18.0f * Scale}, 7.0f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.0f * Scale);
 		DrawList->AddCircleFilled({Minimum.x + 18.0f * Scale, Minimum.y + 18.0f * Scale}, 2.0f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
+		DrawWindowControls(*DrawList, Minimum, Layout);
 		const std::string_view Title = Data->Window->GetTitle();
 		DrawList->AddText(Owner.MediumFont, Owner.Metrics.BaseFontSize * std::max(1.0f, Viewport->DpiScale), {Minimum.x + 50.0f * Scale, Minimum.y + 10.0f * Scale}, ToImGuiPackedColor(ToolUITheme::TextPrimary), Title.data(), Title.data() + Title.size());
 		UpdateTitleBarUiCaptureRegions(*Data->Window, *Viewport, nullptr);
@@ -1327,8 +1379,9 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		{
 			Implementation->Appearance = *SavedAppearance;
 		}
-		Implementation->Window->SetActionPolicy(GetEditorWindowActionPolicy());
 		Implementation->Renderer = std::move(Descriptor.Renderer);
+		Implementation->bVSync = Descriptor.bVSync;
+		Implementation->VSyncChanged = std::move(Descriptor.VSyncChanged);
 		Implementation->RegularFontBytes = std::move(*RegularFontBytes);
 		Implementation->MediumFontBytes = std::move(*MediumFontBytes);
 		Implementation->LayoutPath = PathToUtf8(Descriptor.LayoutPath);
@@ -1590,6 +1643,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 
 	DrawList->AddCircle({SystemMinimum.x + 18.0f * ChromeScale, SystemMinimum.y + 18.0f * ChromeScale}, 7.0f * ChromeScale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.0f * ChromeScale);
 	DrawList->AddCircleFilled({SystemMinimum.x + 18.0f * ChromeScale, SystemMinimum.y + 18.0f * ChromeScale}, 2.0f * ChromeScale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
+	DrawWindowControls(*DrawList, ViewportMinimum, TitleBarLayout);
 
 	ImGui::SetCursorScreenPos(HamburgerMinimum);
 	if (ImGui::InvisibleButton("HertaApplicationMenu", {TitleBarHeight, TitleBarHeight}))
@@ -1610,6 +1664,16 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	ImGui::SetNextWindowViewport(Viewport->ID);
 	if (ImGui::BeginPopup("HertaApplicationMenuPopup"))
 	{
+		if (ImGui::MenuItem("VSync", nullptr, Implementation->bVSync))
+		{
+			Implementation->bVSync = !Implementation->bVSync;
+			if (Implementation->VSyncChanged)
+			{
+				Implementation->VSyncChanged(Implementation->bVSync);
+			}
+		}
+
+		ImGui::Separator();
 		if (ImGui::MenuItem("Reset layout"))
 		{
 			Implementation->bBuildDefaultLayout = true;
@@ -1630,20 +1694,24 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 	DrawList->AddText({ViewportMinimum.x + 102.0f * ChromeScale, TitleBarBottom + 15.0f * ChromeScale}, ToImGuiPackedColor(ToolUITheme::TextMuted), "Editor");
 	ImGui::SetCursorScreenPos({ViewportMinimum.x, ToolbarBottom});
 	const ImVec2 DockSize{Viewport->Size.x, std::max(1.0f, ViewportMaximum.y - ToolbarBottom)};
-	Implementation->DockspaceId = ImGui::GetID("HertaEditorDockspace");
+	// Changing the ID migrates pre-Viewport layouts once while preserving user layouts from this version onward.
+	Implementation->DockspaceId = ImGui::GetID("HertaEditorDockspaceV2");
+	const bool bDockspaceMissing = ImGui::DockBuilderGetNode(Implementation->DockspaceId) == nullptr;
 	ImVec4 DockspaceBackground = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
 	DockspaceBackground.w = IsToolUIPanelTransparent(Implementation->Appearance.PanelTransparency, true) ? 0.0f : 1.0f;
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, DockspaceBackground);
 	ImGui::DockSpace(Implementation->DockspaceId, DockSize, ImGuiDockNodeFlags_PassthruCentralNode);
 	ImGui::PopStyleColor();
-	if (Implementation->bBuildDefaultLayout)
+	if (Implementation->bBuildDefaultLayout || bDockspaceMissing)
 	{
 		ImGui::DockBuilderRemoveNode(Implementation->DockspaceId);
 		ImGui::DockBuilderAddNode(Implementation->DockspaceId, ImGuiDockNodeFlags_DockSpace);
 		ImGui::DockBuilderSetNodeSize(Implementation->DockspaceId, DockSize);
 		ImGuiID CenterId = Implementation->DockspaceId;
 		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.28f, nullptr, &CenterId);
-		ImGui::DockBuilderDockWindow("Start", CenterId);
+		const ImGuiID SideId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Right, 0.28f, nullptr, &CenterId);
+		ImGui::DockBuilderDockWindow("Start", SideId);
+		ImGui::DockBuilderDockWindow("Viewport", CenterId);
 		ImGui::DockBuilderDockWindow("Output Log", BottomId);
 		ImGui::DockBuilderFinish(Implementation->DockspaceId);
 		Implementation->bBuildDefaultLayout = false;

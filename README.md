@@ -6,9 +6,11 @@ The architecture takes inspiration from Unreal Engine's runtime and tooling boun
 
 ## Status
 
-Milestone 0 - Foundation and Milestone 1 - Application shell are complete. Herta now contains structured logging, task scheduling, GLFW window and input ownership, the minimum NVRHI Vulkan presentation path, Dear ImGui ToolUI with docking and platform viewports, the initial editor shell and Output Log, a configured application icon, and a display-independent editor command host. Windows, X11, and Wayland renderer smoke paths are covered. The scene renderer, asset pipeline, and game runtime have not started.
+Milestones 0 through 2 are complete. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and a textured mesh with reversed-Z in the editor Viewport. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is next; asset importing and the game runtime have not started.
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
+
+See [Rendering.md](Docs/Rendering.md) for GPU ownership, shader cooking, and renderer verification. Reset the layout from the hamburger menu to use the new Viewport arrangement.
 
 ## Technical direction
 
@@ -20,7 +22,7 @@ The current architecture and implementation roadmap are documented in [EngineDes
 - Herta-owned structured logging with `spdlog` private behind Core and a docked searchable Output Log in EditorFramework
 - UX-first task system with bounded CPU and IO work, cancellation, progress, and safe reload ownership
 - Dear ImGui editor and imgui-node-editor graph tooling
-- Desaturated graphite editor styling with Roboto and FreeType, a configurable focus-aware background gradient, transparent-panel modes, a 36 px control-free custom title bar, and centralized ToolUI tokens
+- Desaturated graphite editor styling with Roboto and FreeType, a configurable focus-aware background gradient, transparent-panel modes, a capability-driven 36 px custom title bar, and centralized ToolUI tokens
 - Headless editor commands that do not require windows, rendering, ImGui, or an audio device
 - Server-authoritative multiplayer with dedicated and player-hosted listen-server compositions
 - Versioned project templates and editor-only C++ game-module hot reload
@@ -42,6 +44,8 @@ Dependencies will be introduced only when their implementation milestone require
 ## Building
 
 Setup initializes Git submodules and downloads pinned project-local Premake and Vulkan SDK installations under ignored `External/Premake` and `SDK`. Normal project generation and builds do not access the network. A Vulkan-capable driver and production loader remain platform requirements.
+
+Building `HertaEditor` also builds `HertaShaderWorker` and cooks its shaders using the SDK's Slang compiler. Keep the generated `Shaders` directory beside the editor executable.
 
 ### Windows
 

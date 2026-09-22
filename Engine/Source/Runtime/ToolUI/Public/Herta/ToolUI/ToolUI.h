@@ -80,6 +80,8 @@ struct FToolUIDescriptor
 	std::filesystem::path AppearancePath = "Saved/Editor/Appearance.ini";
 	FEditorAppearance Appearance;
 	FToolUIRendererBridge Renderer;
+	bool bVSync = true;
+	std::function<void(bool)> VSyncChanged;
 	std::function<void()> RefreshRequested;
 };
 

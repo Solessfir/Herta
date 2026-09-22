@@ -107,6 +107,8 @@ public:
 	IPresentationDevice& operator=(IPresentationDevice&&) = delete;
 
 	[[nodiscard]] virtual FExtent2D GetExtent() const noexcept = 0;
+	[[nodiscard]] virtual bool IsVSyncEnabled() const noexcept = 0;
+	[[nodiscard]] virtual std::expected<void, FPresentationError> SetVSyncEnabled(bool bEnabled) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> Resize(FExtent2D Extent) = 0;
 	[[nodiscard]] virtual std::expected<EPresentationStatus, FPresentationError> BeginFrame() = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> Clear(FSrgbColor Color) = 0;

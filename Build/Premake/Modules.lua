@@ -243,7 +243,7 @@ HertaRuntimeModule("ToolUI", {
     }
 
 HertaEditorModule("EditorFramework", {
-    PublicDependencies = { "Core", "EditorCore", "ToolUI" },
+    PublicDependencies = { "Core", "EditorCore", "ToolUI", "RHI" },
     PrivateThirdPartyDependencies = { "ImGui" }
 })
 
@@ -252,6 +252,15 @@ HertaEditorModule("EditorFramework", {
     }
 
 HertaRuntimeModule("RHI")
+
+HertaRuntimeModule("RenderGraph", {
+    PublicDependencies = { "RHI" }
+})
+
+HertaRuntimeModule("Renderer", {
+    PublicDependencies = { "RHI" },
+    PrivateDependencies = { "Math", "RenderGraph" }
+})
 
 local VulkanSdk = HertaGetVulkanSdk()
 HertaRuntimeModule("NvrhiVulkan", {
@@ -280,6 +289,57 @@ HertaRuntimeModule("NvrhiVulkan", {
         path.join(RuntimeRoot, "NvrhiVulkan/Private/Shaders/**.vert")
     }
 
+local SlangLibraryDirectory = VulkanSdk.LibraryDirectory
+if os.host() == "linux" then
+    SlangLibraryDirectory = VulkanSdk.RuntimeLibraryDirectory
+end
+
+HertaRuntimeModule("ShaderCompiler", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/ShaderCompiler"),
+    PublicDependencies = { "RHI" },
+    PrivateThirdPartyDependencies = { "slang-compiler" },
+    PrivateLibraryDirectories = { SlangLibraryDirectory }
+})
+    externalincludedirs { path.join(VulkanSdk.IncludeDirectory, "slang") }
+
+project "HertaShaderWorker"
+    kind "ConsoleApp"
+    location(path.join(ProjectFilesRoot, "HertaShaderWorker"))
+    ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaShaderWorker"))
+    ApplyRuntimeDependencies { "ShaderCompiler" }
+    filter "system:windows"
+        postbuildcommands { '{COPYFILE} "' .. path.join(VulkanSdk.BinaryDirectory, "slang-compiler.dll") .. '" "%{cfg.targetdir}"' }
+    filter "system:linux"
+        linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
+    filter {}
+
+local ShaderOutput = path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/Shaders")
+local ShaderWorker = path.join(ShaderOutput, "../HertaShaderWorker") .. (os.host() == "windows" and ".exe" or "")
+local ShaderInputs = os.matchfiles(path.join(RepositoryRoot, "Engine/Shaders/**"))
+table.insert(ShaderInputs, ShaderWorker)
+project "HertaShaders"
+    kind "Utility"
+    location(path.join(ProjectFilesRoot, "HertaShaders"))
+    dependson { "HertaShaderWorker" }
+    files { path.join(RepositoryRoot, "Engine/Shaders/TexturedMesh.slang") }
+    filter "files:**.slang"
+        buildmessage "Cooking textured mesh shaders"
+        buildinputs(ShaderInputs)
+        buildoutputs { path.join(ShaderOutput, "TexturedMesh.vert.hshader"), path.join(ShaderOutput, "TexturedMesh.frag.hshader") }
+    filter { "files:**.slang", "configurations:Shipping" }
+        buildcommands {
+            '{MKDIR} "' .. ShaderOutput .. '"',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex vertexMain "' .. path.join(ShaderOutput, "TexturedMesh.vert.hshader") .. '"',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment fragmentMain "' .. path.join(ShaderOutput, "TexturedMesh.frag.hshader") .. '"'
+        }
+    filter { "files:**.slang", "configurations:not Shipping" }
+        buildcommands {
+            '{MKDIR} "' .. ShaderOutput .. '"',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex vertexMain "' .. path.join(ShaderOutput, "TexturedMesh.vert.hshader") .. '" --debug',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment fragmentMain "' .. path.join(ShaderOutput, "TexturedMesh.frag.hshader") .. '" --debug'
+        }
+    filter {}
+
 project "HertaTests"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaTests"))
@@ -289,7 +349,11 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/doctest")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Platform", "Tasks", "Application", "EditorCore", "ToolUI", "EditorFramework", "RHI" }
+    ApplyRuntimeDependencies { "Core", "Math", "Platform", "Tasks", "Application", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    dependson { "HertaShaderWorker" }
+    filter "system:linux"
+        linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
+    filter {}
 
 project "HertaEditorCmd"
     kind "ConsoleApp"
@@ -302,7 +366,8 @@ project "HertaEditor"
     location(path.join(ProjectFilesRoot, "HertaEditor"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditor"))
     debugdir(RepositoryRoot)
-    ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan" }
+    ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math" }
+    dependson { "HertaShaders" }
 
     files {
         path.join(RepositoryRoot, "Engine/Content/Editor/Icons/Herta.svg")
