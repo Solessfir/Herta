@@ -332,7 +332,7 @@ project "HertaShaders"
     kind "Utility"
     location(path.join(ProjectFilesRoot, "HertaShaders"))
     dependson { "HertaShaderWorker" }
-    files { path.join(RepositoryRoot, "Engine/Shaders/TexturedMesh.slang"), path.join(RepositoryRoot, "Engine/Shaders/DebugDraw.slang") }
+    files { path.join(RepositoryRoot, "Engine/Shaders/TexturedMesh.slang"), path.join(RepositoryRoot, "Engine/Shaders/DebugDraw.slang"), path.join(RepositoryRoot, "Engine/Shaders/WorldGrid.slang") }
     filter "files:**.slang"
         buildmessage "Cooking %{file.basename} shaders"
         buildinputs(ShaderInputs)

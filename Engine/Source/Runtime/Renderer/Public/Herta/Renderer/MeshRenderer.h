@@ -35,12 +35,14 @@ struct FMeshRenderView
 	FMatrix4 View;
 	FMatrix4 Projection;
 	FMatrix4 Model;
+	bool bDrawGrid = false;
+	FVector3 GridCenter;
 };
 
 class FMeshRenderer final
 {
 public:
-	[[nodiscard]] static std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader = {}, FShaderAsset DebugFragmentShader = {});
+	[[nodiscard]] static std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader = {}, FShaderAsset DebugFragmentShader = {}, FShaderAsset GridVertexShader = {}, FShaderAsset GridFragmentShader = {});
 	~FMeshRenderer();
 	FMeshRenderer(const FMeshRenderer&) = delete;
 	FMeshRenderer& operator=(const FMeshRenderer&) = delete;

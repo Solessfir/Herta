@@ -7,8 +7,10 @@ Milestone 2 adds an offscreen textured mesh to the editor workspace, behind the 
 - `RHI` owns resource descriptors, shared GPU handles, the graphics device contract, and the versioned cooked shader format. Calls belong to one render thread; all resource handles must be released before the owning presentation device.
 - `NvrhiVulkan` privately maps those operations to NVRHI. Three independent command contexts retain recorded resources and upload storage until their graphics-queue submission serial completes. Cancelling a recording releases CPU commands without submitting GPU work.
 - `RenderGraph` validates declared reads/writes, derives resource hazards, orders passes deterministically, and scopes transient ownership to first and last use. RHI retention extends GPU lifetimes past graph execution. This first graph runs on the graphics queue; physical aliasing and asynchronous compute are deferred.
-- `Renderer` owns the checkerboard cube, offscreen color/depth targets, and clear/draw passes. The editor supplies view, projection, and model matrices. Mesh and texture source import belong to Milestone 3.
+- `Renderer` owns the checkerboard cube, procedural world grid, offscreen color/depth targets, and clear/draw passes. The editor supplies view, projection, and model matrices plus grid visibility and camera position. Mesh and texture source import belong to Milestone 3.
 - `EditorCore` owns the viewport camera math. `EditorFramework` owns input routing, the preview transform, and its private im3d context; it copies im3d output into Herta debug primitives before rendering.
+
+The world grid is a two-triangle GPU procedural pass after opaque geometry, with reversed-Z depth testing and no depth writes. `WorldGrid.slang` evaluates anti-aliased 1 m minor and 5 m major lines, fading from 50 m to 200 m around the camera. Only four projected vertices are uploaded per frame; the grid does not enter the CPU debug-line expansion path.
 
 Uploads use NVRHI staging with a 64 MiB per-recording limit. Frame reuse waits only for that context's submission, rather than waiting for the entire device every frame. Readback is an explicitly blocking diagnostic operation.
 

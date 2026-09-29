@@ -1,6 +1,7 @@
 #include "Herta/Math/Matrix.h"
 #include "Herta/Renderer/MeshRenderer.h"
 
+#include <algorithm>
 #include <cstring>
 #include <doctest/doctest.h>
 #include <limits>
@@ -53,6 +54,7 @@ public:
 	std::vector<Herta::FMeshVertex> Vertices;
 	std::vector<std::vector<Herta::FColoredClipVertex>> DebugUploads;
 	std::vector<std::uint32_t> Indices;
+	std::vector<std::vector<std::uint32_t>> IndexUploads;
 	std::vector<std::string> Events;
 	std::vector<Herta::FIndexedDraw> Draws;
 	Herta::FIndexedDraw LastDraw;
@@ -104,6 +106,7 @@ public:
 		{
 			Indices.resize(Data.size() / sizeof(std::uint32_t));
 			std::memcpy(Indices.data(), Data.data(), Data.size());
+			IndexUploads.push_back(Indices);
 		}
 
 		return {};
@@ -172,6 +175,23 @@ std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> 
 	Herta::FShaderAsset Fragment = Vertex;
 	Fragment.Stage = Herta::EShaderStage::Fragment;
 	return Herta::FMeshRenderer::Create(Device, {}, {}, Vertex, Fragment);
+}
+
+std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> CreateGridRenderer(FTestGraphicsDevice& Device, const bool bOnlyGridVertexShader = false)
+{
+	Herta::FShaderAsset Vertex;
+	Vertex.Bytecode = {1};
+	Herta::FShaderAsset Fragment = Vertex;
+	Fragment.Stage = Herta::EShaderStage::Fragment;
+	Herta::FShaderAsset DebugVertex = Vertex;
+	Herta::FShaderAsset DebugFragment = Fragment;
+	Herta::FShaderAsset GridVertex = Vertex;
+	Herta::FShaderAsset GridFragment = Fragment;
+	if (bOnlyGridVertexShader)
+	{
+		GridFragment.Bytecode.clear();
+	}
+	return Herta::FMeshRenderer::Create(Device, {}, {}, DebugVertex, DebugFragment, GridVertex, GridFragment);
 }
 }
 
@@ -345,4 +365,73 @@ TEST_CASE("Debug renderer clips camera-crossing lines and rejects incomplete or 
 	Vertices[0].Color[0] = std::numeric_limits<float>::infinity();
 	CHECK_FALSE((*Renderer)->Render({100, 100}, View, std::span{&List, 1}));
 	CHECK(Device.Events.empty());
+}
+
+TEST_CASE("Mesh renderer draws the optional world grid between mesh and debug overlays")
+{
+	FTestGraphicsDevice Device;
+	const auto Renderer = CreateGridRenderer(Device);
+	REQUIRE(Renderer);
+	Herta::FMeshRenderView View;
+	View.View = Herta::FMatrix4::Translation({-3, 0, -7});
+	View.Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.0f, 1.5f, 0.1f);
+	View.bDrawGrid = true;
+	View.GridCenter = {3, 9, 7};
+	const std::array<Herta::FDebugDrawVertex, 2> Overlay{{{{2.5f, 0, 8.0f}, 4}, {{3.5f, 0, 8.0f}, 4}}};
+	const Herta::FDebugDrawList Debug{Herta::EDebugPrimitive::Lines, Overlay, false};
+	Device.Events.clear();
+	Device.DebugUploads.clear();
+	Device.Draws.clear();
+	REQUIRE((*Renderer)->Render({200, 100}, View, std::span{&Debug, 1}));
+	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Draw", "Draw", "Submit"});
+	REQUIRE(Device.Draws.size() == 3);
+	CHECK(Device.Draws[0].IndexCount == 36);
+	CHECK(Device.Draws[1].IndexCount == 6);
+	CHECK(Device.Draws[2].IndexCount == 6);
+	CHECK(std::static_pointer_cast<FTestPipeline>(Device.Draws[1].Pipeline)->Descriptor.bDepthTest);
+	CHECK_FALSE(std::static_pointer_cast<FTestPipeline>(Device.Draws[2].Pipeline)->Descriptor.bDepthTest);
+	CHECK(std::static_pointer_cast<FTestPipeline>(Device.Draws[1].Pipeline)->Descriptor.VertexFormat == Herta::EGraphicsVertexFormat::ColoredClipPosition);
+	REQUIRE(Device.DebugUploads.size() == 2);
+	REQUIRE(Device.DebugUploads[0].size() == 4);
+	REQUIRE(Device.IndexUploads.size() == 3);
+	CHECK(Device.IndexUploads[1] == std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3});
+	CHECK(std::all_of(Device.IndexUploads[1].begin(), Device.IndexUploads[1].end(), [](const std::uint32_t Index)
+	                   {
+		                   return Index < 4;
+	                   }));
+	float CenterX = 0.0f;
+	float CenterZ = 0.0f;
+	for (const Herta::FColoredClipVertex& Vertex : Device.DebugUploads[0])
+	{
+		CHECK(Vertex.Color[2] == doctest::Approx(View.GridCenter.X));
+		CHECK(Vertex.Color[3] == doctest::Approx(View.GridCenter.Z));
+		CenterX += Vertex.Color[0] * 0.25f;
+		CenterZ += Vertex.Color[1] * 0.25f;
+		const Herta::FVector4 Expected = View.Projection * View.View * Herta::FVector4{Vertex.Color[0], 0, Vertex.Color[1], 1};
+		const std::array ExpectedClip{Expected.X, Expected.Y, Expected.Z, Expected.W};
+		for (std::size_t Index = 0; Index < ExpectedClip.size(); ++Index)
+		{
+			CHECK(Vertex.Position[Index] == doctest::Approx(ExpectedClip[Index]));
+		}
+	}
+	CHECK(CenterX == doctest::Approx(View.GridCenter.X));
+	CHECK(CenterZ == doctest::Approx(View.GridCenter.Z));
+}
+
+TEST_CASE("Mesh renderer rejects an enabled grid without both shaders and preserves the disabled path")
+{
+	FTestGraphicsDevice Device;
+	const auto Renderer = CreateDebugRenderer(Device);
+	REQUIRE(Renderer);
+	Herta::FMeshRenderView View;
+	View.bDrawGrid = true;
+	Device.Events.clear();
+	CHECK_FALSE((*Renderer)->Render({200, 100}, View));
+	CHECK(Device.Events.empty());
+	View.bDrawGrid = false;
+	REQUIRE((*Renderer)->Render({200, 100}, View));
+	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Submit"});
+
+	const auto PartialGridRenderer = CreateGridRenderer(Device, true);
+	CHECK_FALSE(PartialGridRenderer);
 }

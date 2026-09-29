@@ -244,6 +244,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	auto FragmentShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.frag.hshader");
 	auto DebugVertexShader = LoadCookedShader(ShaderDirectory / "DebugDraw.vert.hshader");
 	auto DebugFragmentShader = LoadCookedShader(ShaderDirectory / "DebugDraw.frag.hshader");
+	auto GridVertexShader = LoadCookedShader(ShaderDirectory / "WorldGrid.vert.hshader");
+	auto GridFragmentShader = LoadCookedShader(ShaderDirectory / "WorldGrid.frag.hshader");
 	if (!VertexShader || !FragmentShader)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load cooked shaders: {}. Build HertaShaders before launching the editor.", !VertexShader ? VertexShader.error().Message : FragmentShader.error().Message);
@@ -252,6 +254,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	if (!DebugVertexShader || !DebugFragmentShader)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load debug shaders: {}. Build HertaShaders before launching the editor.", !DebugVertexShader ? DebugVertexShader.error().Message : DebugFragmentShader.error().Message);
+		return 1;
+	}
+	if (!GridVertexShader || !GridFragmentShader)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load grid shaders: {}. Build HertaShaders before launching the editor.", !GridVertexShader ? GridVertexShader.error().Message : GridFragmentShader.error().Message);
 		return 1;
 	}
 	if (bRendererTest)
@@ -266,7 +273,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer VSync toggle regression failed: {}", VSyncResult ? "VSync state was not restored" : VSyncResult.error().Message);
 			return 1;
 		}
-		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *DebugVertexShader, *DebugFragmentShader);
+		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *DebugVertexShader, *DebugFragmentShader, *GridVertexShader, *GridFragmentShader);
 		if (!Test || Presentation->HasValidationErrors())
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer regression failed: {}", Test ? "Validation reported an error" : Test.error().Message);
@@ -274,7 +281,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		}
 		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, reversed-Z, resize, and frame retirement checks passed");
 	}
-	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader), std::move(*DebugVertexShader), std::move(*DebugFragmentShader));
+	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader), std::move(*DebugVertexShader), std::move(*DebugFragmentShader), std::move(*GridVertexShader), std::move(*GridFragmentShader));
 	if (!MeshResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize the mesh renderer: {}", MeshResult.error().Message);

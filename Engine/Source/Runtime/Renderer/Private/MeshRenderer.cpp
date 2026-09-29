@@ -31,6 +31,9 @@ constexpr auto CubeIndices = []
 	return Result;
 }();
 
+constexpr std::array<std::uint32_t, 6> GridIndices{0, 1, 2, 0, 2, 3};
+constexpr float GridHalfExtent = 216.0f;
+
 constexpr std::uint32_t CheckerTextureSize = 128;
 constexpr auto CheckerPixels = []
 {
@@ -239,6 +242,9 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle Color;
 	FTextureHandle Depth;
 	FGraphicsPipelineHandle Pipeline;
+	FGraphicsPipelineHandle GridPipeline;
+	FBufferHandle GridVertices;
+	FBufferHandle GridIndices;
 	std::array<FGraphicsPipelineHandle, 2> DebugPipelines;
 	std::array<FBufferHandle, 2> DebugVertices;
 	std::array<FBufferHandle, 2> DebugIndices;
@@ -252,11 +258,15 @@ FMeshRenderer::FMeshRenderer(std::unique_ptr<FImplementation> InImplementation)
 
 FMeshRenderer::~FMeshRenderer() = default;
 
-std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer::Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader, FShaderAsset DebugFragmentShader)
+std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer::Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader, FShaderAsset DebugFragmentShader, FShaderAsset GridVertexShader, FShaderAsset GridFragmentShader)
 {
 	if (DebugVertexShader.Bytecode.empty() != DebugFragmentShader.Bytecode.empty())
 	{
 		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Debug drawing requires both vertex and fragment shaders"});
+	}
+	if (GridVertexShader.Bytecode.empty() != GridFragmentShader.Bytecode.empty())
+	{
+		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "World grid requires both vertex and fragment shaders"});
 	}
 	auto State = std::make_unique<FImplementation>();
 	State->Device = &Device;
@@ -274,6 +284,20 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	State->Indices = std::move(*Indices);
 	State->Checker = std::move(*Checker);
 	State->Pipeline = std::move(*Pipeline);
+	if (!GridVertexShader.Bytecode.empty())
+	{
+		auto GridVertices = Device.CreateBuffer({"World grid vertices", 4 * sizeof(FColoredClipVertex), EBufferUsage::Vertex, EGraphicsVertexFormat::ColoredClipPosition});
+		auto GridIndexBuffer = Device.CreateBuffer({"World grid indices", sizeof(GridIndices), EBufferUsage::Index});
+		auto GridPipeline = Device.CreateGraphicsPipeline({"World grid", std::move(GridVertexShader), std::move(GridFragmentShader), ETextureFormat::Rgba8Srgb, EGraphicsVertexFormat::ColoredClipPosition, true});
+		if (!GridVertices || !GridIndexBuffer || !GridPipeline)
+		{
+			return std::unexpected(!GridVertices ? GridVertices.error() : !GridIndexBuffer ? GridIndexBuffer.error()
+			                                                                               : GridPipeline.error());
+		}
+		State->GridVertices = std::move(*GridVertices);
+		State->GridIndices = std::move(*GridIndexBuffer);
+		State->GridPipeline = std::move(*GridPipeline);
+	}
 	if (!DebugVertexShader.Bytecode.empty() || !DebugFragmentShader.Bytecode.empty())
 	{
 		for (std::size_t Index = 0; Index < State->DebugPipelines.size(); ++Index)
@@ -299,6 +323,10 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	if (Result)
 	{
 		Result = Device.WriteTexture(State->Checker, std::as_bytes(std::span{CheckerPixels}));
+	}
+	if (Result && State->GridIndices)
+	{
+		Result = Device.WriteBuffer(State->GridIndices, std::as_bytes(std::span{GridIndices}));
 	}
 	if (!Result)
 	{
@@ -343,9 +371,13 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	IGraphicsDevice& Device = *State.Device;
 	const FMatrix4 WorldToClip = View.Projection * View.View;
 	const FMatrix4 ModelToClip = WorldToClip * View.Model;
-	if (!IsFinite(View.View) || !IsFinite(View.Projection) || !IsFinite(View.Model) || !IsFinite(WorldToClip) || !IsFinite(ModelToClip))
+	if (!IsFinite(View.View) || !IsFinite(View.Projection) || !IsFinite(View.Model) || !IsFinite(WorldToClip) || !IsFinite(ModelToClip) || (View.bDrawGrid && (!std::isfinite(View.GridCenter.X) || !std::isfinite(View.GridCenter.Z))))
 	{
-		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Mesh view, projection, and model matrices must be finite"});
+		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Mesh view, projection, model, and grid center must be finite"});
+	}
+	if (View.bDrawGrid && !State.GridPipeline)
+	{
+		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "World grid requires grid vertex and fragment shaders"});
 	}
 	if (const auto Expanded = ExpandDebugDraw(Extent, WorldToClip, DebugDraw, State.DebugBatches); !Expanded)
 	{
@@ -408,6 +440,31 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	                    {
 		                    return GraphResult(Device.DrawIndexed({State.Pipeline, State.Vertices, State.Indices, State.Checker, State.Color, FrameDepth, ModelToClip.Data(), static_cast<std::uint32_t>(CubeIndices.size())}));
 	                    });
+	if (View.bDrawGrid)
+	{
+		const auto GridGeometry = Graph.ImportResource("World grid geometry");
+		(void)Graph.AddPass("World grid", {{Color, ERenderGraphAccess::ReadWrite}, {Depth, ERenderGraphAccess::Read}, {GridGeometry, ERenderGraphAccess::Read}}, [&]
+		                    {
+			                    const float CenterX = View.GridCenter.X;
+			                    const float CenterZ = View.GridCenter.Z;
+			                    const std::array<FVector3, 4> Corners{{{CenterX - GridHalfExtent, 0.0f, CenterZ - GridHalfExtent},
+			                                                           {CenterX + GridHalfExtent, 0.0f, CenterZ - GridHalfExtent},
+			                                                           {CenterX + GridHalfExtent, 0.0f, CenterZ + GridHalfExtent},
+			                                                           {CenterX - GridHalfExtent, 0.0f, CenterZ + GridHalfExtent}}};
+			                    std::array<FColoredClipVertex, 4> Vertices{};
+			                    for (std::size_t Index = 0; Index < Corners.size(); ++Index)
+			                    {
+				                    const FVector4 Clip = WorldToClip * FVector4{Corners[Index], 1.0f};
+				                    Vertices[Index] = {{Clip.X, Clip.Y, Clip.Z, Clip.W}, {Corners[Index].X, Corners[Index].Z, CenterX, CenterZ}};
+			                    }
+			                    auto Result = Device.WriteBuffer(State.GridVertices, std::as_bytes(std::span{Vertices}));
+			                    if (Result)
+			                    {
+				                    Result = Device.DrawIndexed({State.GridPipeline, State.GridVertices, State.GridIndices, {}, State.Color, FrameDepth, FMatrix4::Identity().Data(), static_cast<std::uint32_t>(GridIndices.size())});
+			                    }
+			                    return GraphResult(Result);
+		                    });
+	}
 	(void)Graph.AddPass("Debug primitives", {{Color, ERenderGraphAccess::ReadWrite}, {Depth, ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 	                    {
 		                    for (std::size_t Index = 0; Index < State.DebugBatches.size(); ++Index)

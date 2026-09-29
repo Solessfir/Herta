@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <memory>
 #include <numbers>
 
@@ -153,9 +154,71 @@ namespace
 	return {};
 }
 
-[[nodiscard]] std::expected<void, FPresentationError> CheckDebugDraw(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader)
+[[nodiscard]] std::expected<void, FPresentationError> CheckWorldGrid(IGraphicsDevice& Device, FMeshRenderer& Renderer)
 {
-	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader);
+	constexpr FExtent2D Extent{128, 128};
+	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1.0f, 0.1f);
+	const float Pitch = std::atan2(3.0f, 5.0f);
+	for (const bool bBelowPlane : {false, true})
+	{
+		const float Height = bBelowPlane ? -3.0f : 3.0f;
+		FMeshRenderView View{
+		    .View = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1, 0, 0}, bBelowPlane ? Pitch : -Pitch)) * FMatrix4::Translation({0, -Height, 5}),
+		    .Projection = Projection,
+		    .Model = FMatrix4{},
+		    .GridCenter = {0, 0, 0}};
+		auto Result = Renderer.Render(Extent, View);
+		if (!Result)
+		{
+			return Result;
+		}
+		const auto WithoutGrid = Device.ReadbackTexture(Renderer.GetColorTarget());
+		if (!WithoutGrid)
+		{
+			return std::unexpected(WithoutGrid.error());
+		}
+		View.bDrawGrid = true;
+		Result = Renderer.Render(Extent, View);
+		if (!Result)
+		{
+			return Result;
+		}
+		const auto WithGrid = Device.ReadbackTexture(Renderer.GetColorTarget());
+		if (!WithGrid)
+		{
+			return std::unexpected(WithGrid.error());
+		}
+		if (WithoutGrid->size() != Extent.Width * Extent.Height * 4 || WithGrid->size() != WithoutGrid->size())
+		{
+			return Failure("World grid readback has an incorrect byte count");
+		}
+		std::size_t ChangedPixels = 0;
+		for (std::size_t Pixel = 0; Pixel < WithGrid->size(); Pixel += 4)
+		{
+			ChangedPixels += !std::equal(WithoutGrid->begin() + static_cast<std::ptrdiff_t>(Pixel), WithoutGrid->begin() + static_cast<std::ptrdiff_t>(Pixel + 3), WithGrid->begin() + static_cast<std::ptrdiff_t>(Pixel)) ? 1u : 0u;
+		}
+		if (ChangedPixels < 8)
+		{
+			return Failure(bBelowPlane ? "World grid was not visible from below the plane" : "World grid did not change the rendered scene");
+		}
+		for (std::size_t Y = 60; Y < 68; ++Y)
+		{
+			for (std::size_t X = 60; X < 68; ++X)
+			{
+				const std::size_t Pixel = (Y * Extent.Width + X) * 4;
+				if (!std::equal(WithoutGrid->begin() + static_cast<std::ptrdiff_t>(Pixel), WithoutGrid->begin() + static_cast<std::ptrdiff_t>(Pixel + 4), WithGrid->begin() + static_cast<std::ptrdiff_t>(Pixel)))
+				{
+					return Failure("World grid rendered through the nearer cube");
+				}
+			}
+		}
+	}
+	return {};
+}
+
+[[nodiscard]] std::expected<void, FPresentationError> CheckDebugDraw(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader)
+{
+	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader, GridVertexShader, GridFragmentShader);
 	if (!Renderer)
 	{
 		return std::unexpected(Renderer.error());
@@ -218,11 +281,11 @@ namespace
 	{
 		return Failure("Debug point, line, or triangle overlay has incorrect pixel coverage");
 	}
-	return {};
+	return CheckWorldGrid(Device, **Renderer);
 }
 }
 
-std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader)
+std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader)
 {
 	if (const auto InvalidCommands = CheckInvalidCommands(Device); !InvalidCommands)
 	{
@@ -384,7 +447,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	{
 		return Failure("Reversed-Z regression: far geometry overwrote the near red quad");
 	}
-	Result = CheckDebugDraw(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader);
+	Result = CheckDebugDraw(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader, GridVertexShader, GridFragmentShader);
 	if (!Result)
 	{
 		return Result;

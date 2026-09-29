@@ -875,6 +875,8 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 	const auto Camera = ViewportCamera.GetSnapshot(AspectRatio);
 	ViewportRenderView.View = Camera.View;
 	ViewportRenderView.Projection = Camera.Projection;
+	ViewportRenderView.bDrawGrid = bGridVisible;
+	ViewportRenderView.GridCenter = Camera.Position;
 	const ImVec2 Mouse = ImGui::GetMousePos();
 	const FVector2 NormalizedMouse{(Mouse.x - RenderMinimum.x) / RenderSize.x, (Mouse.y - RenderMinimum.y) / RenderSize.y};
 	const bool bGizmoInput = bInputAllowed && CameraInput.Mode == EViewportCameraMode::None && (bImageHovered || ViewportInteraction.DragButton == ImGuiMouseButton_Left);
@@ -965,39 +967,6 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 		}
 	}
 	Im3d::PushLayerId("ViewportWorld");
-	if (bGridVisible)
-	{
-		constexpr int GridExtent = 216;
-		constexpr int SegmentLength = 16;
-		constexpr float FadeNear = 50.0f;
-		constexpr float FadeFar = 200.0f;
-		const float GridCenterX = std::floor(Camera.Position.X);
-		const float GridCenterZ = std::floor(Camera.Position.Z);
-		for (int Coordinate = -GridExtent; Coordinate <= GridExtent; ++Coordinate)
-		{
-			const float OffsetX = GridCenterX + static_cast<float>(Coordinate);
-			const float OffsetZ = GridCenterZ + static_cast<float>(Coordinate);
-			const float BaseAlphaX = std::fmod(OffsetX, 5.0f) == 0.0f ? 60.0f : 32.0f;
-			const float BaseAlphaZ = std::fmod(OffsetZ, 5.0f) == 0.0f ? 60.0f : 32.0f;
-			for (int Segment = -GridExtent; Segment < GridExtent; Segment += SegmentLength)
-			{
-				const float StartX = GridCenterX + static_cast<float>(Segment);
-				const float StartZ = GridCenterZ + static_cast<float>(Segment);
-				const float DistanceX = std::hypot(Camera.Position.X - OffsetX, Camera.Position.Z - (StartZ + SegmentLength * 0.5f));
-				const float DistanceZ = std::hypot(Camera.Position.X - (StartX + SegmentLength * 0.5f), Camera.Position.Z - OffsetZ);
-				const auto AlphaX = static_cast<std::uint32_t>(BaseAlphaX * std::clamp((FadeFar - DistanceX) / (FadeFar - FadeNear), 0.0f, 1.0f));
-				const auto AlphaZ = static_cast<std::uint32_t>(BaseAlphaZ * std::clamp((FadeFar - DistanceZ) / (FadeFar - FadeNear), 0.0f, 1.0f));
-				if (AlphaX > 0)
-				{
-					Im3d::DrawLine({OffsetX, 0.0f, StartZ}, {OffsetX, 0.0f, StartZ + SegmentLength}, 1.0f, Im3d::Color(0x8c929a00u | AlphaX));
-				}
-				if (AlphaZ > 0)
-				{
-					Im3d::DrawLine({StartX, 0.0f, OffsetZ}, {StartX + SegmentLength, 0.0f, OffsetZ}, 1.0f, Im3d::Color(0x8c929a00u | AlphaZ));
-				}
-			}
-		}
-	}
 	if (bAxesVisible)
 	{
 		constexpr float AxisLength = 0.6f;
