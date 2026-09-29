@@ -1370,7 +1370,7 @@ void DrawDetachedViewportChrome(FToolUIContext::FImplementation& Owner)
 		Background->AddRectFilled(Minimum, ViewportMaximum, ToImGuiPackedColor(ToolUITheme::Canvas));
 		Background->AddRectFilledMultiColor(Minimum, {ViewportMaximum.x, GradientBottom}, ToImGuiPackedColor(Gradient.TopLeft), ToImGuiPackedColor(Gradient.TopRight), ToImGuiPackedColor(Gradient.BottomRight), ToImGuiPackedColor(Gradient.BottomLeft));
 		ImDrawList* const DrawList = ImGui::GetForegroundDrawList(Viewport);
-		DrawList->AddRectFilled(Minimum, TitleBarMaximum, ToImGuiPackedColor(ToolUITheme::TitleBar));
+		DrawGlassSurface(*DrawList, *Viewport, Owner.Appearance, Minimum, TitleBarMaximum, 0.0f);
 		DrawList->AddLine({Minimum.x, TitleBarMaximum.y}, {TitleBarMaximum.x, TitleBarMaximum.y}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
 		DrawList->AddCircle({Minimum.x + 18.0f * Scale, Minimum.y + 18.0f * Scale}, 7.0f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.0f * Scale);
 		DrawList->AddCircleFilled({Minimum.x + 18.0f * Scale, Minimum.y + 18.0f * Scale}, 2.0f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
@@ -1810,7 +1810,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	const float ChromeScale = TitleBarHeight / static_cast<float>(DefaultTitleBarHeight);
 	const float TitleBarBottom = ViewportMinimum.y + TitleBarHeight;
 	const float StatusBarHeight = Implementation->Metrics.StatusBarHeight * ChromeScale;
-	DrawList->AddRectFilled(ViewportMinimum, {ViewportMaximum.x, TitleBarBottom}, ToImGuiPackedColor(ToolUITheme::TitleBar));
+	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, ViewportMinimum, {ViewportMaximum.x, TitleBarBottom}, 0.0f);
 
 	const ImVec2 SystemMinimum = ViewportMinimum;
 	const ImVec2 SystemMaximum{ViewportMinimum.x + TitleBarHeight, TitleBarBottom};

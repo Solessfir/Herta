@@ -319,7 +319,7 @@ struct FEditorFramework::FImplementation
 	bool bLocalGizmo = false;
 	bool bSnapEnabled = false;
 	bool bGridVisible = true;
-	bool bAxesVisible = true;
+	bool bAxesVisible = false;
 	bool bOrientationIndicatorVisible = true;
 	bool bBoundsVisible = false;
 	float TranslationSnap = 0.5f;
@@ -1383,8 +1383,13 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 			++WarningCount;
 		PreviousSequence = Line.Record.Sequence;
 	}
-	const std::string FilterLabel = std::format("Warnings {}", WarningCount);
-	const float ButtonsWidth = ButtonWidth(FilterLabel.c_str()) + ButtonWidth("Options") + ClearWidth + CopyWidth + Spacing * 3.0f;
+	const std::string CountLabel = std::to_string(WarningCount);
+	const float CountFontSize = ImGui::GetFontSize() * 0.8f;
+	const ImVec2 CountTextSize = ImGui::CalcTextSize(CountLabel.c_str());
+	const ImVec2 CountSize{CountTextSize.x * 0.8f, CountTextSize.y * 0.8f};
+	const ImVec2 BadgeSize{std::max(18.0f * ToolbarScale, CountSize.x + 10.0f * ToolbarScale), CountFontSize + 4.0f * ToolbarScale};
+	const float FilterWidth = ButtonWidth("Warnings") + Spacing + BadgeSize.x;
+	const float ButtonsWidth = FilterWidth + ButtonWidth("Options") + ClearWidth + CopyWidth + Spacing * 3.0f;
 	const float AvailableWidth = ImGui::GetContentRegionAvail().x;
 	const bool bSingleRow = AvailableWidth >= ButtonsWidth + Spacing + 160.0f * ToolbarScale;
 	ImGui::SetNextItemWidth(bSingleRow ? std::min(320.0f * ToolbarScale, AvailableWidth - ButtonsWidth - Spacing) : -1.0f);
@@ -1393,10 +1398,20 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	{
 		ImGui::SameLine();
 	}
-	if (ImGui::Button((FilterLabel + "###OutputLogFilters").c_str()))
+	ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, {0.0f, 0.5f});
+	ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+	if (ImGui::Button("Warnings###OutputLogFilters", {FilterWidth, 0.0f}))
 	{
 		ImGui::OpenPopup("OutputLogFilter");
 	}
+	const ImVec2 FilterMinimum = ImGui::GetItemRectMin();
+	const ImVec2 FilterMaximum = ImGui::GetItemRectMax();
+	const ImVec2 BadgeMinimum{FilterMaximum.x - ImGui::GetStyle().FramePadding.x - BadgeSize.x, (FilterMinimum.y + FilterMaximum.y - BadgeSize.y) * 0.5f};
+	ImDrawList* const ToolbarDrawList = ImGui::GetWindowDrawList();
+	ToolbarDrawList->AddRectFilled(BadgeMinimum, {BadgeMinimum.x + BadgeSize.x, BadgeMinimum.y + BadgeSize.y}, ImGui::GetColorU32(ImVec4{1, 1, 1, 0.08f}), 4.0f * ToolbarScale);
+	ToolbarDrawList->AddText(ImGui::GetFont(), CountFontSize, {BadgeMinimum.x + (BadgeSize.x - CountSize.x) * 0.5f, BadgeMinimum.y + (BadgeSize.y - CountSize.y) * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), CountLabel.c_str());
+	ImGui::PopStyleColor();
+	ImGui::PopStyleVar();
 	ImGui::SameLine();
 	if (ImGui::Button("Options"))
 	{

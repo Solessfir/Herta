@@ -298,12 +298,20 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 		ToolUI.EndPanel();
 		return;
 	}
-	constexpr ImGuiTreeNodeFlags SectionFlags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding;
+	const auto DrawSectionHeader = [](const char* const Label)
+	{
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+		ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
+		const bool bOpen = ImGui::TreeNodeEx(Label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed);
+		ImGui::PopStyleColor();
+		ImGui::PopStyleVar();
+		return bOpen;
+	};
 	if (bTransform && !Query.empty())
 	{
 		ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 	}
-	if (bTransform && ImGui::TreeNodeEx("Transform", SectionFlags))
+	if (bTransform && DrawSectionHeader("Transform"))
 	{
 		ImGui::BeginDisabled(bDragging);
 		if (bLocation)
@@ -389,7 +397,7 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 	{
 		ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 	}
-	if (bMesh && ImGui::TreeNodeEx("Static Mesh", SectionFlags))
+	if (bMesh && DrawSectionHeader("Static Mesh"))
 	{
 		const ImVec2 ThumbnailPosition = ImGui::GetCursorScreenPos();
 		ImGui::Dummy({40.0f * UiScale, 40.0f * UiScale});
