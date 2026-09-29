@@ -1,13 +1,63 @@
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorFramework/OutputLog.h"
+#include "OutputLogTextLayout.h"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <doctest/doctest.h>
+#include <format>
+#include <imgui.h>
+#include <limits>
+#include <string>
+#include <string_view>
 
 namespace Herta
 {
 namespace
 {
+struct FOutputLogLayoutTestContext
+{
+	ImGuiContext* PreviousContext = ImGui::GetCurrentContext();
+	ImGuiContext* Context = ImGui::CreateContext();
+	bool bRobotoLoaded = false;
+
+	FOutputLogLayoutTestContext()
+	{
+		ImGui::SetCurrentContext(Context);
+		ImGuiIO& Io = ImGui::GetIO();
+		Io.DisplaySize = {640.0f, 480.0f};
+		Io.DisplayFramebufferScale = {1.0f, 1.0f};
+		Io.DeltaTime = 1.0f / 60.0f;
+		Io.IniFilename = nullptr;
+		ImFontConfig FontConfig;
+		FontConfig.PixelSnapH = false;
+		FontConfig.RasterizerDensity = 1.25f;
+		bRobotoLoaded = Io.Fonts->AddFontFromFileTTF("Engine/Content/Editor/Fonts/Roboto/Roboto-Regular.ttf", 15.0f, &FontConfig) != nullptr;
+		if (!bRobotoLoaded)
+		{
+			Io.Fonts->AddFontDefault();
+		}
+		ImGui::GetStyle().FontScaleMain = 1.13f;
+		unsigned char* Pixels = nullptr;
+		int Width = 0;
+		int Height = 0;
+		Io.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0.0f, 0.0f}, ImGuiCond_Always);
+		ImGui::SetNextWindowSize(Io.DisplaySize, ImGuiCond_Always);
+		ImGui::Begin("Output Log layout test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
+	}
+
+	~FOutputLogLayoutTestContext()
+	{
+		ImGui::End();
+		ImGui::Render();
+		ImGui::DestroyContext(Context);
+		ImGui::SetCurrentContext(PreviousContext);
+	}
+};
+
 [[nodiscard]] std::unique_ptr<FLogService> CreateOutputLogTestService()
 {
 	FLogOptions Options;
@@ -18,6 +68,21 @@ namespace
 	std::expected<std::unique_ptr<FLogService>, FLogError> Log = FLogService::Create(std::move(Options));
 	REQUIRE(Log.has_value());
 	return std::move(*Log);
+}
+
+void CheckOutputLogHitRoundTrips(const FOutputLogLine& Line, const FOutputLogColumns Columns)
+{
+	const std::string_view Text = Line.Text;
+	for (std::size_t ByteOffset = 0; ByteOffset < Text.size();)
+	{
+		const std::size_t NextByteOffset = GetNextOutputLogUtf8Boundary(Text, ByteOffset);
+		const float Left = MeasureOutputLogTextPrefix(Line, ByteOffset, Columns);
+		const float Right = MeasureOutputLogTextPrefix(Line, NextByteOffset, Columns);
+		CHECK(Right > Left);
+		CHECK(FindOutputLogByteAtX(Line, Left + (Right - Left) * 0.25f, Columns) == ByteOffset);
+		CHECK(FindOutputLogByteAtX(Line, Left + (Right - Left) * 0.75f, Columns) == NextByteOffset);
+		ByteOffset = NextByteOffset;
+	}
 }
 }
 
@@ -70,6 +135,102 @@ TEST_CASE("Output Log expands multiline records into selectable display lines")
 	REQUIRE((*Model)->GetVisibleLines().size() == 2);
 	CHECK((*Model)->GetVisibleLines()[0].Text.ends_with("first"));
 	CHECK((*Model)->GetVisibleLines()[1].Text.ends_with("second"));
+}
+
+TEST_CASE("Output Log exposes byte offsets for padded and long category columns")
+{
+	std::unique_ptr<FLogService> Log = CreateOutputLogTestService();
+	FEditorCommandRegistry Commands;
+	REQUIRE(RegisterCoreEditorCommands(Commands).has_value());
+	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
+	REQUIRE(Model.has_value());
+	constexpr FLogCategory ShortCategory{"Renderer"};
+	constexpr FLogCategory LongUtf8Category{"渲染BackendLongCategoryName🌙"};
+	Log->LogText(ShortCategory, ELogLevel::Info, "short message");
+	Log->LogText(LongUtf8Category, ELogLevel::Info, "long category message");
+	REQUIRE((*Model)->Synchronize().has_value());
+	REQUIRE((*Model)->GetVisibleLines().size() == 2);
+	for (const FOutputLogLine& Line : (*Model)->GetVisibleLines())
+	{
+		const std::string FormattedTime = std::format("{:7.3f}", Line.Record.ElapsedSeconds);
+		CHECK(Line.TimeEnd == FormattedTime.size());
+		CHECK(Line.CategoryBegin == Line.TimeEnd + 2);
+		CHECK(Line.CategoryEnd == Line.CategoryBegin + Line.Record.Category.size());
+		CHECK(Line.MessageBegin == std::format("{}  {:<14}  ", FormattedTime, Line.Record.Category).size());
+		CHECK(std::string_view(Line.Text).substr(0, Line.TimeEnd) == FormattedTime);
+		CHECK(std::string_view(Line.Text).substr(Line.CategoryBegin, Line.Record.Category.size()) == Line.Record.Category);
+		CHECK(std::string_view(Line.Text).substr(Line.MessageBegin) == Line.Record.Message);
+	}
+	CHECK((*Model)->GetVisibleLines()[1].MessageBegin > (*Model)->GetVisibleLines()[1].CategoryEnd);
+}
+
+TEST_CASE("Output Log multiline continuation keeps byte offsets for aligned blank columns")
+{
+	std::unique_ptr<FLogService> Log = CreateOutputLogTestService();
+	FEditorCommandRegistry Commands;
+	REQUIRE(RegisterCoreEditorCommands(Commands).has_value());
+	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
+	REQUIRE(Model.has_value());
+	constexpr FLogCategory Category{"Editor"};
+	Log->LogText(Category, ELogLevel::Info, "first\nsecond");
+	REQUIRE((*Model)->Synchronize().has_value());
+	REQUIRE((*Model)->GetVisibleLines().size() == 2);
+	const FOutputLogLine& FirstLine = (*Model)->GetVisibleLines()[0];
+	const FOutputLogLine& Continuation = (*Model)->GetVisibleLines()[1];
+	CHECK(Continuation.CategoryBegin == FirstLine.CategoryBegin);
+	CHECK(Continuation.CategoryEnd == FirstLine.CategoryEnd);
+	CHECK(Continuation.MessageBegin == FirstLine.MessageBegin);
+	CHECK(Continuation.TimeEnd == FirstLine.TimeEnd);
+	CHECK(std::string_view(Continuation.Text).substr(0, Continuation.MessageBegin).find_first_not_of(' ') == std::string_view::npos);
+	CHECK(std::string_view(Continuation.Text).substr(Continuation.MessageBegin) == "second");
+}
+
+TEST_CASE("Output Log text layout aligns RHI and Editor columns and round-trips UTF-8 byte hits")
+{
+	FOutputLogLayoutTestContext ImGuiContext;
+	CHECK(ImGuiContext.bRobotoLoaded);
+	constexpr char FontProbe[] = "Wi";
+	const float FontProbeWidth = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), std::numeric_limits<float>::max(), 0.0f, FontProbe, FontProbe + 2).x;
+	CHECK(std::abs(FontProbeWidth - std::round(FontProbeWidth)) > 0.01f);
+	std::unique_ptr<FLogService> Log = CreateOutputLogTestService();
+	FEditorCommandRegistry Commands;
+	REQUIRE(RegisterCoreEditorCommands(Commands).has_value());
+	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
+	REQUIRE(Model.has_value());
+	constexpr FLogCategory RhiCategory{"RHI"};
+	constexpr FLogCategory EditorCategory{"Editor"};
+	Log->LogText(RhiCategory, ELogLevel::Info, "device α😊 ready");
+	Log->LogText(EditorCategory, ELogLevel::Info, "preview λ🧪 updated\ncontinuation 🌙");
+	REQUIRE((*Model)->Synchronize().has_value());
+	REQUIRE((*Model)->GetVisibleLines().size() == 3);
+	const FOutputLogColumns Columns{90.0f, 310.0f};
+	for (const FOutputLogLine& Line : (*Model)->GetVisibleLines())
+	{
+		CHECK(MeasureOutputLogTextPrefix(Line, Line.CategoryBegin, Columns) == doctest::Approx(Columns.CategoryX));
+		CHECK(MeasureOutputLogTextPrefix(Line, Line.MessageBegin, Columns) == doctest::Approx(Columns.MessageX));
+		CheckOutputLogHitRoundTrips(Line, Columns);
+	}
+	CHECK((*Model)->GetVisibleLines()[2].Text.substr((*Model)->GetVisibleLines()[2].MessageBegin) == "continuation 🌙");
+	FLogRecord Record;
+	Record.ElapsedSeconds = 1234.567;
+	Record.Category = "渲染BackendLongCategoryName🌙";
+	Record.Message = "long prefix α🧪";
+	const std::string Time = std::format("{:7.3f}", Record.ElapsedSeconds);
+	const std::string Category = std::format("{:<14}", Record.Category);
+	const std::size_t CategoryBegin = Time.size() + 2;
+	const std::size_t CategoryEnd = CategoryBegin + Record.Category.size();
+	const std::size_t MessageBegin = CategoryBegin + Category.size() + 2;
+	FOutputLogLine Line{Record, std::format("{}  {}  {}", Time, Category, Record.Message), CategoryBegin, CategoryEnd, MessageBegin, Time.size()};
+	FOutputLogLine Continuation{Record, std::string(MessageBegin, ' ') + "second 🌌", CategoryBegin, CategoryEnd, MessageBegin, Time.size()};
+	const FOutputLogColumns LongColumns{135.0f, 850.0f};
+	CHECK(Line.TimeEnd > std::format("{:7.3f}", 1.0).size());
+	CHECK(Line.CategoryEnd - Line.CategoryBegin > 14);
+	for (const FOutputLogLine* const Current : {&Line, &Continuation})
+	{
+		CHECK(MeasureOutputLogTextPrefix(*Current, Current->CategoryBegin, LongColumns) == doctest::Approx(LongColumns.CategoryX));
+		CHECK(MeasureOutputLogTextPrefix(*Current, Current->MessageBegin, LongColumns) == doctest::Approx(LongColumns.MessageX));
+		CheckOutputLogHitRoundTrips(*Current, LongColumns);
+	}
 }
 
 TEST_CASE("Output Log command submission captures results and history before tail acknowledgment")

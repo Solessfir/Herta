@@ -3,6 +3,7 @@
 #include "Herta/ToolUI/Theme.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -137,6 +138,7 @@ public:
 	void EndPanel();
 	[[nodiscard]] std::optional<FToolUICanvasBounds> GetWorkspaceCanvasForCurrentPanel() const noexcept;
 	void DrawGlassSurface(float X, float Y, float Width, float Height, float Radius) const;
+	[[nodiscard]] bool DrawSearchField(const char* Label, const char* Hint, char* Buffer, std::size_t BufferSize) const;
 
 	void SetAppearance(FEditorAppearance Appearance) noexcept;
 	[[nodiscard]] const FEditorAppearance& GetAppearance() const noexcept;

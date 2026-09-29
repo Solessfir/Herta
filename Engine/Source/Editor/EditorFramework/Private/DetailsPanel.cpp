@@ -89,7 +89,7 @@ void DrawCheckerThumbnail(const ImVec2 Position, const float Size)
 std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTransformSpace& Space, const Im3d::Vec3& Value, const ETransformClipboardFormat ClipboardFormat)
 {
 	const float Scale = ImGui::GetFontSize() / 15.0f;
-	const ImVec2 Size{76.0f * Scale, ImGui::GetFrameHeight()};
+	const ImVec2 Size{82.0f * Scale, ImGui::GetFrameHeight()};
 	const ImVec2 Position = ImGui::GetCursorScreenPos();
 	const bool bPressed = ImGui::InvisibleButton("Coordinate space##Space", Size, ImGuiButtonFlags_EnableNav);
 	const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride);
@@ -128,7 +128,7 @@ std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTra
 	{
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 4.0f * Scale);
 	}
-	DrawList->AddText({Position.x + 2.0f * Scale, Position.y + (Size.y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label);
+	DrawList->AddText({Position.x + 8.0f * Scale, Position.y + (Size.y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label);
 	const float ArrowX = Position.x + Size.x - 11.0f * Scale;
 	const float ArrowY = Position.y + Size.y * 0.5f;
 	const ImU32 ArrowColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
@@ -203,7 +203,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.0f * Scale, ImGui::GetStyle().ItemSpacing.y});
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.0f * Scale, 4.0f * Scale});
 	const float Spacing = ImGui::GetStyle().ItemSpacing.x;
-	const float LabelWidth = 76.0f * Scale;
+	const float LabelWidth = 82.0f * Scale;
 	const float LockWidth = 17.0f * Scale + Spacing;
 	const float ResetWidth = 18.0f * Scale;
 	const float Width = std::max(1.0f, (ImGui::GetContentRegionAvail().x - LabelWidth - LockWidth - ResetWidth - Spacing * 4.0f) / 3.0f);
@@ -283,7 +283,7 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 	ImGui::EndGroup();
 	ImGui::Spacing();
 	ImGui::SetNextItemWidth(-1.0f);
-	ImGui::InputTextWithHint("##PropertySearch", "Search properties...", State.Search.data(), State.Search.size());
+	(void)ToolUI.DrawSearchField("##PropertySearch", "Search properties...", State.Search.data(), State.Search.size());
 	const std::string_view Query(State.Search.data());
 	const bool bShowAll = Query.empty() || MatchesSearch("Transform", Query);
 	const bool bLocation = bShowAll || MatchesSearch("Location", Query);

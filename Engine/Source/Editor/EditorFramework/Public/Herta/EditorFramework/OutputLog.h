@@ -25,6 +25,10 @@ struct FOutputLogLine
 {
 	FLogRecord Record;
 	std::string Text;
+	std::size_t CategoryBegin = 0;
+	std::size_t CategoryEnd = 0;
+	std::size_t MessageBegin = 0;
+	std::size_t TimeEnd = 0;
 };
 
 struct FOutputLogOptions

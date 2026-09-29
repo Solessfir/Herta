@@ -2035,6 +2035,31 @@ void FToolUIContext::DrawGlassSurface(const float X, const float Y, const float 
 	Herta::DrawGlassSurface(*ImGui::GetWindowDrawList(), *ImGui::GetWindowViewport(), Implementation->Appearance, {X, Y}, {X + Width, Y + Height}, Radius);
 }
 
+bool FToolUIContext::DrawSearchField(const char* const Label, const char* const Hint, char* const Buffer, const std::size_t BufferSize) const
+{
+	const float Scale = ImGui::GetFontSize() / Implementation->Metrics.BaseFontSize;
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {32.0f * Scale, 5.0f * Scale});
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFontSize() * 0.5f + 5.0f * Scale);
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f * Scale);
+	ImGui::PushStyleColor(ImGuiCol_FrameBg, ToImGuiColor(ToolUITheme::Surface0));
+	ImGui::PushStyleColor(ImGuiCol_Border, ToImGuiColor(ToolUITheme::Border));
+	const bool bChanged = ImGui::InputTextWithHint(Label, Hint, Buffer, BufferSize);
+	ImGui::PopStyleColor(2);
+	ImGui::PopStyleVar(3);
+
+	const ImVec2 Minimum = ImGui::GetItemRectMin();
+	const ImVec2 Maximum = ImGui::GetItemRectMax();
+	const ImVec2 Center{Minimum.x + 15.0f * Scale, (Minimum.y + Maximum.y) * 0.5f};
+	const float Radius = 4.0f * Scale;
+	const ImU32 IconColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+	DrawList->PushClipRect(Minimum, Maximum, true);
+	DrawList->AddCircle(Center, Radius, IconColor, 12, 1.25f * Scale);
+	DrawList->AddLine({Center.x + 3.0f * Scale, Center.y + 3.0f * Scale}, {Center.x + 7.0f * Scale, Center.y + 7.0f * Scale}, IconColor, 1.25f * Scale);
+	DrawList->PopClipRect();
+	return bChanged;
+}
+
 void FToolUIContext::SetAppearance(const FEditorAppearance Appearance) noexcept
 {
 	if (Implementation->Appearance != Appearance)

@@ -56,18 +56,24 @@ inline constexpr FLogCategory CommandCategory{"Command"};
 	return Text;
 }
 
-[[nodiscard]] std::vector<std::string> FormatRecordLines(const FLogRecord& Record)
+[[nodiscard]] std::vector<FOutputLogLine> FormatRecordLines(const FLogRecord& Record)
 {
-	const std::string Prefix = std::format("{:7.3f}  {:<14}  ", Record.ElapsedSeconds, Record.Category);
-	std::vector<std::string> Lines;
+	const std::string Time = std::format("{:7.3f}", Record.ElapsedSeconds);
+	const std::string Category = std::format("{:<14}", Record.Category);
+	const std::size_t TimeEnd = Time.size();
+	const std::size_t CategoryBegin = TimeEnd + 2;
+	const std::size_t CategoryEnd = CategoryBegin + Record.Category.size();
+	const std::size_t MessageBegin = CategoryBegin + Category.size() + 2;
+	const std::string Prefix = std::format("{}  {}  ", Time, Category);
+	std::vector<FOutputLogLine> Lines;
 	std::size_t FirstByte = 0;
 	do
 	{
 		const std::size_t Newline = Record.Message.find('\n', FirstByte);
 		const std::size_t LastByte = Newline == std::string::npos ? Record.Message.size() : Newline;
-		std::string Line = Lines.empty() ? Prefix : std::string(Prefix.size(), ' ');
+		std::string Line = Lines.empty() ? Prefix : std::string(MessageBegin, ' ');
 		Line.append(Record.Message, FirstByte, LastByte - FirstByte);
-		Lines.emplace_back(std::move(Line));
+		Lines.emplace_back(FOutputLogLine{Record, std::move(Line), CategoryBegin, CategoryEnd, MessageBegin, TimeEnd});
 		if (Newline == std::string::npos)
 		{
 			break;
@@ -412,10 +418,10 @@ void FOutputLogModel::RebuildVisibleLines()
 			continue;
 		}
 
-		for (std::string& Text : FormatRecordLines(Record))
+		for (FOutputLogLine& Line : FormatRecordLines(Record))
 		{
-			Implementation->VisibleLines.emplace_back(FOutputLogLine{Record, Text});
-			Implementation->VisibleText.emplace_back(std::move(Text));
+			Implementation->VisibleText.emplace_back(Line.Text);
+			Implementation->VisibleLines.emplace_back(std::move(Line));
 		}
 	}
 	Implementation->Selection.ClampTo(Implementation->VisibleText);

@@ -9,6 +9,7 @@
 #include "Herta/ToolUI/Theme.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "NumericField.h"
+#include "OutputLogTextLayout.h"
 #include "ViewportGizmos.h"
 #include "ViewportIsland.h"
 #include "ViewportRotationFeedback.h"
@@ -159,60 +160,7 @@ void DrawViewportAxes(const FMatrix4& View, const ImVec2 Minimum, const ImVec2 S
 	return CategoryColors[HashOutputLogCategory(Line.Record.Category) % CategoryColors.size()];
 }
 
-[[nodiscard]] std::size_t GetNextUtf8Boundary(const std::string_view Text, const std::size_t ByteOffset) noexcept
-{
-	if (ByteOffset >= Text.size())
-	{
-		return Text.size();
-	}
-
-	const unsigned char FirstByte = static_cast<unsigned char>(Text[ByteOffset]);
-	std::size_t CodePointSize = 1;
-	if ((FirstByte & 0xE0u) == 0xC0u)
-	{
-		CodePointSize = 2;
-	}
-	else if ((FirstByte & 0xF0u) == 0xE0u)
-	{
-		CodePointSize = 3;
-	}
-	else if ((FirstByte & 0xF8u) == 0xF0u)
-	{
-		CodePointSize = 4;
-	}
-	return std::min(Text.size(), ByteOffset + CodePointSize);
-}
-
-[[nodiscard]] float MeasureTextPrefix(const std::string_view Text, const std::size_t ByteCount)
-{
-	const std::size_t ClampedByteCount = std::min(ByteCount, Text.size());
-	const char* const TextBegin = Text.data();
-	return ImGui::CalcTextSize(TextBegin, TextBegin + ClampedByteCount, false).x;
-}
-
-[[nodiscard]] std::size_t FindByteAtX(const std::string_view Text, const float LocalX)
-{
-	if (LocalX <= 0.0f)
-	{
-		return 0;
-	}
-
-	float TextX = 0.0f;
-	for (std::size_t ByteOffset = 0; ByteOffset < Text.size();)
-	{
-		const std::size_t NextByteOffset = GetNextUtf8Boundary(Text, ByteOffset);
-		const float CharacterWidth = ImGui::CalcTextSize(Text.data() + ByteOffset, Text.data() + NextByteOffset, false).x;
-		if (LocalX < TextX + CharacterWidth * 0.5f)
-		{
-			return ByteOffset;
-		}
-		TextX += CharacterWidth;
-		ByteOffset = NextByteOffset;
-	}
-	return Text.size();
-}
-
-[[nodiscard]] FLogTextPosition HitTestText(const std::span<const std::string> Lines, const ImVec2 TextOrigin, const float LineHeight, const ImVec2 MousePosition)
+[[nodiscard]] FLogTextPosition HitTestText(const std::span<const FOutputLogLine> Lines, const FOutputLogColumns Columns, const ImVec2 TextOrigin, const float LineHeight, const ImVec2 MousePosition)
 {
 	if (Lines.empty())
 	{
@@ -224,7 +172,7 @@ void DrawViewportAxes(const FMatrix4& View, const ImVec2 Minimum, const ImVec2 S
 	{
 		LineIndex = std::min(static_cast<std::size_t>((MousePosition.y - TextOrigin.y) / LineHeight), Lines.size() - 1);
 	}
-	return {LineIndex, FindByteAtX(Lines[LineIndex], MousePosition.x - TextOrigin.x)};
+	return {LineIndex, FindOutputLogByteAtX(Lines[LineIndex], MousePosition.x - TextOrigin.x, Columns)};
 }
 
 void CopyBuffer(std::span<char> Destination, const std::string_view Source)
@@ -414,7 +362,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			                                      ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
 			                                      const auto StatusButton = [Scale](const char* Label, const bool bAppearance, const bool bSelected)
 			                                      {
-				                                      ImGui::PushStyleColor(ImGuiCol_Button, bSelected ? ImVec4{1, 1, 1, 0.06f} : ImVec4{0, 0, 0, 0});
+				                                      ImGui::PushStyleColor(ImGuiCol_Button, bSelected ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
 				                                      ImGui::PushID(Label);
 				                                      const bool bPressed = ImGui::Button("##Status", {ImGui::CalcTextSize(Label).x + 42.0f * Scale, 26.0f * Scale});
 				                                      const ImVec2 Minimum = ImGui::GetItemRectMin();
@@ -447,9 +395,10 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			                                      ImGui::SameLine();
 			                                      const ImVec2 DotPosition = ImGui::GetCursorScreenPos();
 			                                      ImGui::Dummy({8.0f * Scale, 26.0f * Scale});
-			                                      ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.0f * Scale, DotPosition.y + 13.0f * Scale}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
 			                                      ImGui::SameLine(0.0f, 3.0f * Scale);
 			                                      ImGui::TextDisabled("Ready");
+			                                      const float ReadyCenterY = (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
+			                                      ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.0f * Scale, ReadyCenterY}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
 			                                      ImGui::SameLine();
 			                                      ImGui::TextDisabled("1 object");
 			                                      const float Width = ImGui::CalcTextSize("Appearance").x + 42.0f * Scale;
@@ -1364,7 +1313,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.0f * ToolbarScale, 5.0f * ToolbarScale});
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * ToolbarScale, ImGui::GetStyle().ItemSpacing.y});
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-	ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
+	ImGui::PushStyleColor(ImGuiCol_Button, {1, 1, 1, 0.06f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
 	const float Spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -1393,7 +1342,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	const float AvailableWidth = ImGui::GetContentRegionAvail().x;
 	const bool bSingleRow = AvailableWidth >= ButtonsWidth + Spacing + 160.0f * ToolbarScale;
 	ImGui::SetNextItemWidth(bSingleRow ? std::min(320.0f * ToolbarScale, AvailableWidth - ButtonsWidth - Spacing) : -1.0f);
-	const bool bSearchChanged = ImGui::InputTextWithHint("##OutputLogSearch", "Search messages...", SearchBuffer.data(), SearchBuffer.size());
+	const bool bSearchChanged = ToolUI->DrawSearchField("##OutputLogSearch", "Search messages...", SearchBuffer.data(), SearchBuffer.size());
 	if (bSingleRow)
 	{
 		ImGui::SameLine();
@@ -1501,10 +1450,18 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		const float LineHeight = ImGui::GetFontSize() + 3.0f * InterfaceScale;
 		const float TextOffsetY = (LineHeight - ImGui::GetFontSize()) * 0.5f;
 		const ImVec2 AvailableSize = ImGui::GetContentRegionAvail();
-		float ContentWidth = AvailableSize.x;
-		for (const std::string& Text : TextLines)
+		float TimeWidth = 0.0f;
+		float CategoryWidth = 64.0f * InterfaceScale;
+		for (const FOutputLogLine& Line : Lines)
 		{
-			ContentWidth = std::max(ContentWidth, ImGui::CalcTextSize(Text.data(), Text.data() + Text.size(), false).x + 8.0f * InterfaceScale);
+			TimeWidth = std::max(TimeWidth, ImGui::CalcTextSize(Line.Text.data(), Line.Text.data() + Line.TimeEnd, false).x);
+			CategoryWidth = std::max(CategoryWidth, ImGui::CalcTextSize(Line.Text.data() + Line.CategoryBegin, Line.Text.data() + Line.CategoryEnd, false).x);
+		}
+		const FOutputLogColumns Columns{TimeWidth + 12.0f * InterfaceScale, TimeWidth + CategoryWidth + 28.0f * InterfaceScale};
+		float ContentWidth = AvailableSize.x;
+		for (const FOutputLogLine& Line : Lines)
+		{
+			ContentWidth = std::max(ContentWidth, MeasureOutputLogTextPrefix(Line, Line.Text.size(), Columns) + 8.0f * InterfaceScale);
 		}
 
 		const float ContentHeight = std::max(AvailableSize.y, static_cast<float>(TextLines.size()) * LineHeight);
@@ -1513,12 +1470,12 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		FLogTextSelection& Selection = OutputLog->GetSelection();
 		if (ImGui::IsItemActivated())
 		{
-			Selection.Begin(HitTestText(TextLines, TextOrigin, LineHeight, ImGui::GetMousePos()), ImGui::GetIO().KeyShift);
+			Selection.Begin(HitTestText(Lines, Columns, TextOrigin, LineHeight, ImGui::GetMousePos()), ImGui::GetIO().KeyShift);
 		}
 		if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
 			const ImVec2 MousePosition = ImGui::GetMousePos();
-			Selection.Update(HitTestText(TextLines, TextOrigin, LineHeight, MousePosition));
+			Selection.Update(HitTestText(Lines, Columns, TextOrigin, LineHeight, MousePosition));
 			const ImVec2 WindowPosition = ImGui::GetWindowPos();
 			const ImVec2 ContentMinimum = ImGui::GetWindowContentRegionMin();
 			const ImVec2 ContentMaximum = ImGui::GetWindowContentRegionMax();
@@ -1557,24 +1514,25 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		ImDrawList* const DrawList = ImGui::GetWindowDrawList();
 		for (std::size_t LineIndex = FirstVisibleLine; LineIndex < LastVisibleLine; ++LineIndex)
 		{
+			const FOutputLogLine& Line = Lines[LineIndex];
 			const std::string& Text = TextLines[LineIndex];
 			const float LineY = TextOrigin.y + static_cast<float>(LineIndex) * LineHeight;
 			if (bHasSelection && LineIndex >= SelectionFirst.Line && LineIndex <= SelectionLast.Line)
 			{
 				const std::size_t FirstByte = LineIndex == SelectionFirst.Line ? SelectionFirst.Byte : 0;
 				const std::size_t LastByte = LineIndex == SelectionLast.Line ? SelectionLast.Byte : Text.size();
-				const float SelectionX = TextOrigin.x + MeasureTextPrefix(Text, FirstByte);
-				float SelectionEndX = TextOrigin.x + MeasureTextPrefix(Text, LastByte);
+				const float SelectionX = TextOrigin.x + MeasureOutputLogTextPrefix(Line, FirstByte, Columns);
+				float SelectionEndX = TextOrigin.x + MeasureOutputLogTextPrefix(Line, LastByte, Columns);
 				if (LineIndex < SelectionLast.Line)
 				{
 					SelectionEndX += ImGui::GetFontSize() * 0.35f;
 				}
 				DrawList->AddRectFilled({SelectionX, LineY}, {std::max(SelectionX + 1.0f, SelectionEndX), LineY + LineHeight}, SelectionColor);
 			}
-			const std::size_t TimeEnd = Text.find("  ", Text.find_first_not_of(' '));
-			const std::size_t PrefixEnd = TimeEnd == std::string::npos ? 0 : TimeEnd;
-			DrawList->AddText({TextOrigin.x, LineY + TextOffsetY}, PackColor(ToolUITheme::TextMuted), Text.data(), Text.data() + PrefixEnd);
-			DrawList->AddText({TextOrigin.x + MeasureTextPrefix(Text, PrefixEnd), LineY + TextOffsetY}, ResolveLineColor(Lines[LineIndex], OutputLog->IsCategoryColorizationEnabled()), Text.data() + PrefixEnd, Text.data() + Text.size());
+			const ImU32 Color = ResolveLineColor(Line, OutputLog->IsCategoryColorizationEnabled());
+			DrawList->AddText({TextOrigin.x, LineY + TextOffsetY}, PackColor(ToolUITheme::TextMuted), Text.data(), Text.data() + Line.TimeEnd);
+			DrawList->AddText({TextOrigin.x + Columns.CategoryX, LineY + TextOffsetY}, Color, Text.data() + Line.CategoryBegin, Text.data() + Line.CategoryEnd);
+			DrawList->AddText({TextOrigin.x + Columns.MessageX, LineY + TextOffsetY}, Color, Text.data() + Line.MessageBegin, Text.data() + Text.size());
 		}
 	}
 	ImGui::EndChild();
@@ -1670,7 +1628,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	}
 	ImGui::SameLine();
 	ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, {0.5f, 0.5f});
-	ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
+	ImGui::PushStyleColor(ImGuiCol_Button, {1, 1, 1, 0.06f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
 	if (ImGui::Button(SubmitLabel, {SubmitWidth, 0.0f}))
