@@ -300,11 +300,21 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 	}
 	const auto DrawSectionHeader = [](const char* const Label)
 	{
+		const ImVec2 Position = ImGui::GetCursorScreenPos();
+		const ImVec2 Padding = ImGui::GetStyle().FramePadding;
+		const float FontSize = ImGui::GetFontSize();
+		const ImU32 TextColor = ImGui::GetColorU32(ImGuiCol_Text);
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 		ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
+		ImGui::PushStyleColor(ImGuiCol_Text, {0, 0, 0, 0});
 		const bool bOpen = ImGui::TreeNodeEx(Label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed);
-		ImGui::PopStyleColor();
+		ImGui::PopStyleColor(2);
 		ImGui::PopStyleVar();
+		const float ArrowScale = 0.7f;
+		const float ArrowInsetY = FontSize * (1.0f - ArrowScale) * 0.5f;
+		ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+		ImGui::RenderArrow(DrawList, {Position.x + Padding.x, Position.y + Padding.y + ArrowInsetY}, TextColor, bOpen ? ImGuiDir_Down : ImGuiDir_Right, ArrowScale);
+		DrawList->AddText({Position.x + FontSize + Padding.x * 2.0f, Position.y + Padding.y}, TextColor, Label);
 		return bOpen;
 	};
 	if (bTransform && !Query.empty())

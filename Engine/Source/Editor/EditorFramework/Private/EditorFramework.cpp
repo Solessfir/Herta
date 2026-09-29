@@ -38,16 +38,16 @@ namespace
 inline constexpr std::array CategoryColors = {
     IM_COL32(126, 200, 255, 255),
     IM_COL32(142, 220, 182, 255),
-    IM_COL32(244, 202, 128, 255),
+    IM_COL32(156, 194, 210, 255),
     IM_COL32(203, 166, 255, 255),
-    IM_COL32(255, 157, 170, 255),
+    IM_COL32(166, 184, 224, 255),
     IM_COL32(115, 218, 224, 255),
-    IM_COL32(192, 215, 128, 255),
-    IM_COL32(240, 166, 219, 255),
+    IM_COL32(152, 202, 194, 255),
+    IM_COL32(188, 178, 220, 255),
     IM_COL32(166, 184, 255, 255),
-    IM_COL32(235, 186, 151, 255),
+    IM_COL32(160, 198, 230, 255),
     IM_COL32(135, 210, 154, 255),
-    IM_COL32(225, 168, 255, 255)};
+    IM_COL32(182, 190, 214, 255)};
 
 [[nodiscard]] ImU32 PackColor(const FToolUIColor Color) noexcept
 {
@@ -1313,7 +1313,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.0f * ToolbarScale, 5.0f * ToolbarScale});
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * ToolbarScale, ImGui::GetStyle().ItemSpacing.y});
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-	ImGui::PushStyleColor(ImGuiCol_Button, {1, 1, 1, 0.06f});
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f * ToolbarScale);
+	ImGui::PushStyleColor(ImGuiCol_Button, {1, 1, 1, 0.04f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
 	const float Spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -1375,7 +1376,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	ImGui::SameLine();
 	const bool bCopyRequested = ImGui::Button("Copy");
 	ImGui::PopStyleColor(3);
-	ImGui::PopStyleVar(3);
+	ImGui::PopStyleVar(4);
 	if (bClearRequested)
 	{
 		OutputLog->Clear();
@@ -1439,8 +1440,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	}
 
 	const float InterfaceScale = ImGui::GetFontSize() / 15.0f;
-	const float FooterHeight = ImGui::GetFontSize() + 10.0f * InterfaceScale + 2.0f * ImGui::GetStyle().ItemSpacing.y;
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8.0f * InterfaceScale, 4.0f * InterfaceScale});
+	const float FooterHeight = ImGui::GetFontSize() + 14.0f * InterfaceScale + 2.0f * ImGui::GetStyle().ItemSpacing.y;
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8.0f * InterfaceScale, 8.0f * InterfaceScale});
 	if (ImGui::BeginChild("OutputLogEntries", {0.0f, -FooterHeight}, ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_HorizontalScrollbar))
 	{
 		const std::span<const FOutputLogLine> Lines = OutputLog->GetVisibleLines();
@@ -1464,7 +1465,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 			ContentWidth = std::max(ContentWidth, MeasureOutputLogTextPrefix(Line, Line.Text.size(), Columns) + 8.0f * InterfaceScale);
 		}
 
-		const float ContentHeight = std::max(AvailableSize.y, static_cast<float>(TextLines.size()) * LineHeight);
+		// Available height includes the scroll offset, so it must not determine content height.
+		const float ContentHeight = std::max(1.0f, static_cast<float>(TextLines.size()) * LineHeight);
 		const ImVec2 TextOrigin = ImGui::GetCursorScreenPos();
 		(void)ImGui::InvisibleButton("##OutputLogText", {ContentWidth, ContentHeight}, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_EnableNav);
 		FLogTextSelection& Selection = OutputLog->GetSelection();
@@ -1537,6 +1539,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	}
 	ImGui::EndChild();
 	ImGui::PopStyleVar();
+	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f * InterfaceScale);
 
 	struct FInputCallbackContext
 	{
@@ -1596,19 +1599,15 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 	constexpr const char* SubmitLabel = "Enter";
 	const float SubmitWidth = ImGui::CalcTextSize(SubmitLabel).x + ImGui::GetStyle().FramePadding.x * 2.0f;
-	const ImVec2 Prompt = ImGui::GetCursorScreenPos();
-	const float PromptY = Prompt.y + ImGui::GetFrameHeight() * 0.5f;
-	const ImU32 PromptColor = PackColor(ToolUITheme::TextMuted);
-	ImGui::Dummy({18.0f * InterfaceScale, ImGui::GetFrameHeight()});
-	ImDrawList* const CommandDraw = ImGui::GetWindowDrawList();
-	CommandDraw->AddLine({Prompt.x + 4.0f * InterfaceScale, PromptY - 4.0f * InterfaceScale}, {Prompt.x + 8.0f * InterfaceScale, PromptY}, PromptColor, InterfaceScale);
-	CommandDraw->AddLine({Prompt.x + 8.0f * InterfaceScale, PromptY}, {Prompt.x + 4.0f * InterfaceScale, PromptY + 4.0f * InterfaceScale}, PromptColor, InterfaceScale);
-	CommandDraw->AddLine({Prompt.x + 11.0f * InterfaceScale, PromptY + 4.0f * InterfaceScale}, {Prompt.x + 16.0f * InterfaceScale, PromptY + 4.0f * InterfaceScale}, PromptColor, InterfaceScale);
-	ImGui::SameLine(0.0f, 2.0f * InterfaceScale);
 	ImGui::SetNextItemWidth(-(SubmitWidth + ImGui::GetStyle().ItemSpacing.x));
-	ImGui::PushStyleColor(ImGuiCol_FrameBg, {0, 0, 0, 0});
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {32.0f * InterfaceScale, 5.0f * InterfaceScale});
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFontSize() * 0.5f + 5.0f * InterfaceScale);
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, InterfaceScale);
+	ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(PackColor(ToolUITheme::Surface0)));
+	ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(PackColor(ToolUITheme::Border)));
 	const bool bCommandSubmitted = ImGui::InputTextWithHint("##OutputLogCommand", "Enter a command...", CommandBuffer.data(), CommandBuffer.size(), CommandFlags, InputCallback, &CallbackContext);
-	ImGui::PopStyleColor();
+	ImGui::PopStyleColor(2);
+	ImGui::PopStyleVar(3);
 	if (bCommandSubmitted)
 	{
 		std::expected<void, FEditorFrameworkError> SubmitResult = SubmitCommand();
@@ -1621,6 +1620,15 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	}
 	const ImVec2 InputMinimum = ImGui::GetItemRectMin();
 	const ImVec2 InputMaximum = ImGui::GetItemRectMax();
+	const float PromptX = InputMinimum.x + 12.0f * InterfaceScale;
+	const float PromptY = (InputMinimum.y + InputMaximum.y) * 0.5f;
+	const ImU32 PromptColor = PackColor(ToolUITheme::TextMuted);
+	ImDrawList* const CommandDraw = ImGui::GetWindowDrawList();
+	CommandDraw->PushClipRect(InputMinimum, InputMaximum, true);
+	CommandDraw->AddLine({PromptX, PromptY - 4.0f * InterfaceScale}, {PromptX + 4.0f * InterfaceScale, PromptY}, PromptColor, InterfaceScale);
+	CommandDraw->AddLine({PromptX + 4.0f * InterfaceScale, PromptY}, {PromptX, PromptY + 4.0f * InterfaceScale}, PromptColor, InterfaceScale);
+	CommandDraw->AddLine({PromptX + 7.0f * InterfaceScale, PromptY + 4.0f * InterfaceScale}, {PromptX + 12.0f * InterfaceScale, PromptY + 4.0f * InterfaceScale}, PromptColor, InterfaceScale);
+	CommandDraw->PopClipRect();
 	if (bReclaimCommandFocus)
 	{
 		ImGui::SetKeyboardFocusHere(-1);
@@ -1628,7 +1636,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	}
 	ImGui::SameLine();
 	ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, {0.5f, 0.5f});
-	ImGui::PushStyleColor(ImGuiCol_Button, {1, 1, 1, 0.06f});
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f * InterfaceScale);
+	ImGui::PushStyleColor(ImGuiCol_Button, {1, 1, 1, 0.04f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
 	if (ImGui::Button(SubmitLabel, {SubmitWidth, 0.0f}))
@@ -1637,13 +1646,13 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		if (!SubmitResult)
 		{
 			ImGui::PopStyleColor(3);
-			ImGui::PopStyleVar(3);
+			ImGui::PopStyleVar(4);
 			ToolUI->EndPanel();
 			return SubmitResult;
 		}
 	}
 	ImGui::PopStyleColor(3);
-	ImGui::PopStyleVar(3);
+	ImGui::PopStyleVar(4);
 
 	std::optional<std::string> ClickedSuggestion;
 	if (!Suggestions.empty())

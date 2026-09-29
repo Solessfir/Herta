@@ -1934,7 +1934,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		ImGui::DockBuilderAddNode(Implementation->DockspaceId, ImGuiDockNodeFlags_DockSpace);
 		ImGui::DockBuilderSetNodeSize(Implementation->DockspaceId, DockSize);
 		ImGuiID CenterId = Implementation->DockspaceId;
-		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.18f, nullptr, &CenterId);
+		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.26f, nullptr, &CenterId);
 		const float DetailsFraction = std::clamp(350.0f * ChromeScale / DockSize.x, 0.18f, 0.38f);
 		const ImGuiID SideId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Right, DetailsFraction, nullptr, &CenterId);
 		if (ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetNode(CenterId))
