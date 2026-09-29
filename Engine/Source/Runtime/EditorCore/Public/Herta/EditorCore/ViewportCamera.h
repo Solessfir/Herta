@@ -2,6 +2,8 @@
 
 #include "Herta/Math/Matrix.h"
 
+#include <cmath>
+
 namespace Herta
 {
 enum class EViewportCameraMode
@@ -40,7 +42,7 @@ class FViewportCameraController
 {
 public:
 	void Update(const FViewportCameraInput& Input, float DeltaSeconds, const FVector2& ViewportSize);
-	void Focus(const FVector3& Center, const FVector3& HalfExtent, float AspectRatio);
+	void Focus(const FVector3& Center, const FVector3& HalfExtent, float AspectRatio, FVector2 VisibleSize = {1.0f, 1.0f});
 	void SetMovementSpeed(float Speed);
 	void SetMouseSensitivity(float RadiansPerPixel);
 	[[nodiscard]] constexpr float GetMovementSpeed() const
@@ -51,9 +53,10 @@ public:
 	{
 		return MouseSensitivity;
 	}
-	[[nodiscard]] FViewportCameraSnapshot GetSnapshot(float AspectRatio) const;
+	// ProjectionCenter uses full-target normalized coordinates with a top-left origin.
+	[[nodiscard]] FViewportCameraSnapshot GetSnapshot(float AspectRatio, FVector2 ProjectionCenter = {0.5f, 0.5f}) const;
 	// Normalized screen coordinates use a top-left origin; positions outside the viewport remain valid.
-	[[nodiscard]] FViewportPickingRay MakePickingRay(const FVector2& NormalizedPosition, float AspectRatio) const;
+	[[nodiscard]] FViewportPickingRay MakePickingRay(const FVector2& NormalizedPosition, float AspectRatio, FVector2 ProjectionCenter = {0.5f, 0.5f}) const;
 
 private:
 	[[nodiscard]] FQuaternion GetOrientation() const;
@@ -61,11 +64,11 @@ private:
 	void Translate(const FVector3& Offset);
 	void Dolly(float LogDistanceDelta);
 
-	FVector3 Position{0.0f, 0.0f, -5.0f};
+	FVector3 Position{0.0f, 2.0f, -10.0f};
 	FVector3 Pivot;
 	float Yaw = 0.0f;
-	float Pitch = 0.0f;
-	float OrbitDistance = 5.0f;
+	float Pitch = -std::atan2(Position.Y, -Position.Z);
+	float OrbitDistance = Position.Length();
 	float MovementSpeed = 5.0f;
 	float MouseSensitivity = 0.003f;
 };

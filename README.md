@@ -10,13 +10,13 @@ Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources,
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
 
-The native workspace renders the scene across the canvas beneath blurred Details and Output Log overlays, with compact chrome, glass viewport controls, and compact transform editing. Panels remain dockable and resizable; detached Viewports render within their own windows.
+The native workspace renders the scene across the canvas beneath blurred Details and Output Log overlays, with compact chrome, glass viewport controls, and compact transform editing. The camera's projection center follows the unobscured Viewport pane, so overlays do not push the subject off-center. Panels remain dockable and resizable; detached Viewports render within their own windows.
 
 See [Rendering.md](Docs/Rendering.md) for GPU ownership, shader cooking, and renderer verification. Reset the layout from the hamburger menu to use the new Viewport arrangement.
 
 In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the preview object. Click the cube to select it and show its outline and transform gizmo; click empty viewport space to deselect it. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits currently affect only the preview cube and are not saved.
 
-Details shows the selected cube's editable location, rotation, and scale. Start is closed by default; reopen it from the application menu to access workspace appearance settings.
+Details shows the selected cube's editable location, rotation, and scale. Click a value to type or drag it to adjust; typed values support arithmetic such as `10/2`, applied with Enter. Shift+RMB copies an individual value or a whole transform row from its label; Shift+LMB pastes it. Row clipboard text supports UE's `X/Y/Z` location and scale format and `Pitch/Yaw/Roll` rotation format. Values stay in Herta's units and axis conventions; clipboard compatibility does not convert them. Click the camera coordinates to copy a position that can be pasted onto Location. Start is closed by default; reopen it from the application menu to access workspace appearance settings.
 
 ## Technical direction
 

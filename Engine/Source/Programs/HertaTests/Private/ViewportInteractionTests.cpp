@@ -12,6 +12,16 @@
 
 namespace Herta
 {
+TEST_CASE("Viewport projection center follows the unobscured pane within the scene canvas")
+{
+	const FVector2 Center = GetViewportProjectionCenter({100, 40}, {2000, 1000}, {100, 40}, {1600, 800});
+	CHECK(Center.X == doctest::Approx(0.4f));
+	CHECK(Center.Y == doctest::Approx(0.4f));
+	CHECK((GetViewportProjectionCenter({-1920, 80}, {900, 600}, {-1920, 80}, {900, 600}) == FVector2{0.5f, 0.5f}));
+	CHECK((GetViewportProjectionCenter({100, 40}, {2000, 1000}, {300, 140}, {1600, 800}) == FVector2{0.5f, 0.5f}));
+	CHECK((GetViewportProjectionCenter({}, {}, {}, {}) == FVector2{0.5f, 0.5f}));
+}
+
 namespace
 {
 struct FViewportGizmoTestContext final

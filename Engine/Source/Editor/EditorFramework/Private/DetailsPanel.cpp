@@ -1,7 +1,9 @@
 #include "DetailsPanel.h"
 
 #include "Herta/EditorCore/PreviewScaleEdit.h"
+#include "Herta/EditorCore/TransformText.h"
 #include "Herta/ToolUI/ToolUI.h"
+#include "NumericField.h"
 
 #include <algorithm>
 #include <array>
@@ -10,7 +12,10 @@
 #include <im3d.h>
 #include <im3d_math.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <numbers>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -19,6 +24,12 @@ namespace Herta
 namespace
 {
 constexpr std::array AxisColors{IM_COL32(213, 123, 127, 255), IM_COL32(131, 185, 147, 255), IM_COL32(124, 158, 213, 255)};
+
+enum class ETransformClipboardFormat
+{
+	XYZ,
+	Rotation
+};
 
 [[nodiscard]] bool MatchesSearch(const std::string_view Name, const std::string_view Query)
 {
@@ -75,12 +86,36 @@ void DrawCheckerThumbnail(const ImVec2 Position, const float Size)
 	Draw->AddRect(Position, {Position.x + Size, Position.y + Size}, ImGui::GetColorU32(ImGuiCol_Border));
 }
 
-void DrawSpaceSelector(const char* const Label, EDetailsTransformSpace& Space)
+std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTransformSpace& Space, const Im3d::Vec3& Value, const ETransformClipboardFormat ClipboardFormat)
 {
 	const float Scale = ImGui::GetFontSize() / 15.0f;
 	const ImVec2 Size{76.0f * Scale, ImGui::GetFrameHeight()};
 	const ImVec2 Position = ImGui::GetCursorScreenPos();
-	if (ImGui::InvisibleButton("Coordinate space##Space", Size, ImGuiButtonFlags_EnableNav))
+	const bool bPressed = ImGui::InvisibleButton("Coordinate space##Space", Size, ImGuiButtonFlags_EnableNav);
+	const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride);
+	const ImGuiIO& Io = ImGui::GetIO();
+	const bool bCopyRow = bHovered && Io.KeyShift && Io.MouseClicked[ImGuiMouseButton_Right];
+	const bool bPasteRow = bHovered && Io.KeyShift && Io.MouseClicked[ImGuiMouseButton_Left];
+	if (bCopyRow)
+	{
+		const FVector3 Vector{Value.x, Value.y, Value.z};
+		const std::string ClipboardText = ClipboardFormat == ETransformClipboardFormat::Rotation ? FormatTransformRotationClipboard(Vector) : FormatTransformVectorClipboard(Vector);
+		ImGui::SetClipboardText(ClipboardText.c_str());
+	}
+	std::optional<Im3d::Vec3> PastedValue;
+	if (bPasteRow)
+	{
+		ImGui::ClearActiveID();
+		if (const char* const Clipboard = ImGui::GetClipboardText(); Clipboard != nullptr)
+		{
+			const auto Parsed = ClipboardFormat == ETransformClipboardFormat::Rotation ? ParseTransformRotationClipboard(Clipboard) : ParseTransformVectorClipboard(Clipboard);
+			if (Parsed)
+			{
+				PastedValue = Im3d::Vec3(Parsed->X, Parsed->Y, Parsed->Z);
+			}
+		}
+	}
+	if (bPressed && !bPasteRow)
 	{
 		ImGui::OpenPopup("Space");
 	}
@@ -111,6 +146,7 @@ void DrawSpaceSelector(const char* const Label, EDetailsTransformSpace& Space)
 		}
 		ImGui::EndPopup();
 	}
+	return PastedValue;
 }
 
 void DrawLockButton(bool& bLocked)
@@ -159,8 +195,8 @@ void DrawLockButton(bool& bLocked)
 	return bReset;
 }
 
-template <typename Change>
-bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Speed, const float Minimum, const float Maximum, const float Reset, EDetailsTransformSpace& Space, Change&& OnChange, bool* const bLocked = nullptr)
+template <typename Change, typename ChangeRow>
+bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Speed, const float Minimum, const float Maximum, const float Reset, EDetailsTransformSpace& Space, const ETransformClipboardFormat ClipboardFormat, Change&& OnChange, ChangeRow&& OnRowChange, bool* const bLocked = nullptr)
 {
 	ImGui::PushID(Label);
 	const float Scale = ImGui::GetFontSize() / 15.0f;
@@ -171,7 +207,10 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 	const float LockWidth = 17.0f * Scale + Spacing;
 	const float ResetWidth = 18.0f * Scale;
 	const float Width = std::max(1.0f, (ImGui::GetContentRegionAvail().x - LabelWidth - LockWidth - ResetWidth - Spacing * 4.0f) / 3.0f);
-	DrawSpaceSelector(Label, Space);
+	if (const auto PastedValue = DrawSpaceSelector(Label, Space, Value, ClipboardFormat))
+	{
+		OnRowChange(*PastedValue);
+	}
 	if (bLocked != nullptr)
 	{
 		ImGui::SameLine();
@@ -192,7 +231,8 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 		ImGui::PushID(Axis);
 		ImGui::SetNextItemWidth(Width);
 		float Candidate = Value[Axis];
-		if (ImGui::DragFloat("##Value", &Candidate, Speed, Minimum, Maximum, "%.3f", ImGuiSliderFlags_AlwaysClamp))
+		const ImGuiSliderFlags Flags = Minimum < Maximum ? ImGuiSliderFlags_AlwaysClamp : 0;
+		if (DrawNumericDragFloat("##Value", &Candidate, Speed, Minimum, Maximum, "%.3f", Flags))
 		{
 			OnChange(Axis, Candidate);
 		}
@@ -268,16 +308,25 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 		ImGui::BeginDisabled(bDragging);
 		if (bLocation)
 		{
-			DrawTransformRow("Location", Translation, 0.01f, 0.0f, 0.0f, 0.0f, State.Spaces[0], [&](const int Axis, const float Candidate)
+			DrawTransformRow("Location", Translation, 0.01f, 0.0f, 0.0f, 0.0f, State.Spaces[0], ETransformClipboardFormat::XYZ, [&](const int Axis, const float Candidate)
 			                 {
 				                 if (std::isfinite(Candidate))
 				                 {
 					                 Translation[Axis] = Candidate;
 				                 }
+			                 },
+			                 [&](const Im3d::Vec3& Candidate)
+			                 {
+				                 if (!std::isfinite(Candidate.x) || !std::isfinite(Candidate.y) || !std::isfinite(Candidate.z))
+				                 {
+					                 return false;
+				                 }
+				                 Translation = Candidate;
+				                 return true;
 			                 });
 		}
 		Im3d::Vec3 RotationDegrees = Im3d::ToEulerXYZ(Rotation) * (180.0f / std::numbers::pi_v<float>);
-		const bool bRotationReset = bRotation && DrawTransformRow("Rotation", RotationDegrees, 0.1f, -360.0f, 360.0f, 0.0f, State.Spaces[1], [&](const int Axis, const float Candidate)
+		const bool bRotationReset = bRotation && DrawTransformRow("Rotation", RotationDegrees, 0.1f, -360.0f, 360.0f, 0.0f, State.Spaces[1], ETransformClipboardFormat::Rotation, [&](const int Axis, const float Candidate)
 		                                                          {
 			                                                          if (std::isfinite(Candidate))
 			                                                          {
@@ -285,6 +334,17 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 				                                                          Im3d::Vec3 Radians = RotationDegrees * (std::numbers::pi_v<float> / 180.0f);
 				                                                          Rotation = Im3d::FromEulerXYZ(Radians);
 			                                                          }
+		                                                          },
+		                                                          [&](const Im3d::Vec3& Candidate)
+		                                                          {
+			                                                          if (!std::isfinite(Candidate.x) || !std::isfinite(Candidate.y) || !std::isfinite(Candidate.z))
+			                                                          {
+				                                                          return false;
+			                                                          }
+			                                                          RotationDegrees = {std::clamp(Candidate.x, -360.0f, 360.0f), std::clamp(Candidate.y, -360.0f, 360.0f), std::clamp(Candidate.z, -360.0f, 360.0f)};
+			                                                          Im3d::Vec3 Radians = RotationDegrees * (std::numbers::pi_v<float> / 180.0f);
+			                                                          Rotation = Im3d::FromEulerXYZ(Radians);
+			                                                          return true;
 		                                                          });
 		if (bRotationReset)
 		{
@@ -293,7 +353,7 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 		}
 		if (bScale)
 		{
-			DrawTransformRow("Scale", Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, 1.0f, State.Spaces[2], [&](const int Axis, const float Candidate)
+			DrawTransformRow("Scale", Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, 1.0f, State.Spaces[2], ETransformClipboardFormat::XYZ, [&](const int Axis, const float Candidate)
 			                 {
 				                 if (!std::isfinite(Candidate) || Candidate < MinimumPreviewScale || Candidate > MaximumPreviewScale)
 				                 {
@@ -311,6 +371,15 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 				                 {
 					                 Scale[Axis] = Candidate;
 				                 }
+			                 },
+			                 [&](const Im3d::Vec3& Candidate)
+			                 {
+				                 if (!std::isfinite(Candidate.x) || !std::isfinite(Candidate.y) || !std::isfinite(Candidate.z))
+				                 {
+					                 return false;
+				                 }
+				                 Scale = {std::clamp(Candidate.x, MinimumPreviewScale, MaximumPreviewScale), std::clamp(Candidate.y, MinimumPreviewScale, MaximumPreviewScale), std::clamp(Candidate.z, MinimumPreviewScale, MaximumPreviewScale)};
+				                 return true;
 			                 },
 			                 &State.bScaleLocked);
 		}

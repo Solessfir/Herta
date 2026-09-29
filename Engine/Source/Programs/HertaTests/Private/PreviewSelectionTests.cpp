@@ -59,11 +59,16 @@ TEST_CASE("Preview picking follows translated rotated nonuniformly scaled bounds
 TEST_CASE("Preview picking consumes camera rays without changing screen conventions")
 {
 	const FViewportCameraController Camera;
-	CHECK(HitTestPreviewCube(Camera.MakePickingRay({0.5f, 0.5f}, 16.0f / 9.0f), FMatrix4::Identity()));
-	CHECK_FALSE(HitTestPreviewCube(Camera.MakePickingRay({0.0f, 0.0f}, 16.0f / 9.0f), FMatrix4::Identity()));
+	constexpr float AspectRatio = 16.0f / 9.0f;
+	CHECK(HitTestPreviewCube(Camera.MakePickingRay({0.5f, 0.5f}, AspectRatio), FMatrix4::Identity()));
+	CHECK_FALSE(HitTestPreviewCube(Camera.MakePickingRay({0.0f, 0.0f}, AspectRatio), FMatrix4::Identity()));
 	const FMatrix4 LeftCube = FMatrix4::Translation({3.0f, 0.0f, 0.0f});
-	CHECK(HitTestPreviewCube(Camera.MakePickingRay({0.2f, 0.5f}, 16.0f / 9.0f), LeftCube));
-	CHECK_FALSE(HitTestPreviewCube(Camera.MakePickingRay({0.8f, 0.5f}, 16.0f / 9.0f), LeftCube));
+	const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(AspectRatio);
+	const FVector4 Clip = Snapshot.Projection * Snapshot.View * FVector4{LeftCube.TransformPosition(FVector3::Zero()), 1.0f};
+	const FVector2 LeftCubeScreen{(Clip.X / Clip.W + 1.0f) * 0.5f, (1.0f - Clip.Y / Clip.W) * 0.5f};
+	CHECK(LeftCubeScreen.X < 0.5f);
+	CHECK(HitTestPreviewCube(Camera.MakePickingRay(LeftCubeScreen, AspectRatio), LeftCube));
+	CHECK_FALSE(HitTestPreviewCube(Camera.MakePickingRay({1.0f - LeftCubeScreen.X, LeftCubeScreen.Y}, AspectRatio), LeftCube));
 }
 
 TEST_CASE("Preview silhouette contains four front-facing outline edges")

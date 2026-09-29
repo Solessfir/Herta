@@ -359,6 +359,7 @@ project "HertaTests"
 
     externalincludedirs {
         path.join(RepositoryRoot, "External/doctest"),
+        path.join(RepositoryRoot, "External/imgui"),
         path.join(RepositoryRoot, "External/im3d")
     }
 

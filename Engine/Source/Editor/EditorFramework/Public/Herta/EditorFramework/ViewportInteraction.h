@@ -7,6 +7,11 @@
 
 namespace Herta
 {
+[[nodiscard]] constexpr FVector2 GetViewportProjectionCenter(const FVector2 CanvasMinimum, const FVector2 CanvasSize, const FVector2 ViewportMinimum, const FVector2 ViewportSize) noexcept
+{
+	return CanvasSize.X > 0.0f && CanvasSize.Y > 0.0f ? FVector2{(ViewportMinimum.X + ViewportSize.X * 0.5f - CanvasMinimum.X) / CanvasSize.X, (ViewportMinimum.Y + ViewportSize.Y * 0.5f - CanvasMinimum.Y) / CanvasSize.Y} : FVector2{0.5f, 0.5f};
+}
+
 [[nodiscard]] constexpr float GetViewportGizmoPixelScale(const float InterfaceScale, const float ImageHeight, const float FramebufferHeight) noexcept
 {
 	return ImageHeight > 0.0f ? InterfaceScale * FramebufferHeight / ImageHeight : InterfaceScale;

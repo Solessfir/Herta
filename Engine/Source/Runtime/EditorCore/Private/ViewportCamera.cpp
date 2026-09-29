@@ -28,6 +28,11 @@ float GetValidAspectRatio(const float AspectRatio)
 {
 	return std::isfinite(AspectRatio) && AspectRatio > 0.0f ? AspectRatio : 1.0f;
 }
+
+FVector2 GetValidProjectionCenter(const FVector2& ProjectionCenter)
+{
+	return IsFinite(ProjectionCenter) ? FVector2{std::clamp(ProjectionCenter.X, 0.0f, 1.0f), std::clamp(ProjectionCenter.Y, 0.0f, 1.0f)} : FVector2{0.5f, 0.5f};
+}
 }
 
 void FViewportCameraController::Update(const FViewportCameraInput& Input, const float DeltaSeconds, const FVector2& ViewportSize)
@@ -66,16 +71,17 @@ void FViewportCameraController::Update(const FViewportCameraInput& Input, const 
 	}
 }
 
-void FViewportCameraController::Focus(const FVector3& Center, const FVector3& HalfExtent, const float AspectRatio)
+void FViewportCameraController::Focus(const FVector3& Center, const FVector3& HalfExtent, const float AspectRatio, const FVector2 VisibleSize)
 {
-	if (!IsFinite(Center) || !IsFinite(HalfExtent) || HalfExtent.X < 0.0f || HalfExtent.Y < 0.0f || HalfExtent.Z < 0.0f)
+	if (!IsFinite(Center) || !IsFinite(HalfExtent) || !IsFinite(VisibleSize) || HalfExtent.X < 0.0f || HalfExtent.Y < 0.0f || HalfExtent.Z < 0.0f || VisibleSize.X <= 0.0f || VisibleSize.X > 1.0f || VisibleSize.Y <= 0.0f || VisibleSize.Y > 1.0f)
 	{
 		return;
 	}
 
 	const float Radius = std::hypot(HalfExtent.X, HalfExtent.Y, HalfExtent.Z);
-	const float HalfVerticalFov = CameraVerticalFieldOfView * 0.5f;
-	const float HalfHorizontalFov = std::atan(std::tan(HalfVerticalFov) * GetValidAspectRatio(AspectRatio));
+	const float TanHalfVerticalFov = std::tan(CameraVerticalFieldOfView * 0.5f);
+	const float HalfVerticalFov = std::atan(TanHalfVerticalFov * VisibleSize.Y);
+	const float HalfHorizontalFov = std::atan(TanHalfVerticalFov * GetValidAspectRatio(AspectRatio) * VisibleSize.X);
 	const float Distance = std::max(Radius / std::sin(std::min(HalfVerticalFov, HalfHorizontalFov)), Radius + MinimumOrbitDistance);
 	const FVector3 NewPosition = Center - GetOrientation().RotateVector(FVector3::Forward()) * Distance;
 	if (!std::isfinite(Distance) || Distance > MaximumOrbitDistance || !IsFinite(NewPosition))
@@ -104,16 +110,21 @@ void FViewportCameraController::SetMouseSensitivity(const float RadiansPerPixel)
 	}
 }
 
-FViewportCameraSnapshot FViewportCameraController::GetSnapshot(const float AspectRatio) const
+FViewportCameraSnapshot FViewportCameraController::GetSnapshot(const float AspectRatio, const FVector2 ProjectionCenter) const
 {
-	return {FMatrix4::Rotation(GetOrientation().Conjugated()) * FMatrix4::Translation(-Position), FMatrix4::PerspectiveReversedInfinite(CameraVerticalFieldOfView, GetValidAspectRatio(AspectRatio), CameraNearPlane), Position};
+	FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(CameraVerticalFieldOfView, GetValidAspectRatio(AspectRatio), CameraNearPlane);
+	const FVector2 Center = GetValidProjectionCenter(ProjectionCenter);
+	Projection(0, 2) = 2.0f * Center.X - 1.0f;
+	Projection(1, 2) = 1.0f - 2.0f * Center.Y;
+	return {FMatrix4::Rotation(GetOrientation().Conjugated()) * FMatrix4::Translation(-Position), Projection, Position};
 }
 
-FViewportPickingRay FViewportCameraController::MakePickingRay(const FVector2& NormalizedPosition, const float AspectRatio) const
+FViewportPickingRay FViewportCameraController::MakePickingRay(const FVector2& NormalizedPosition, const float AspectRatio, const FVector2 ProjectionCenter) const
 {
 	const FVector2 ScreenPosition = IsFinite(NormalizedPosition) ? NormalizedPosition : FVector2{0.5f, 0.5f};
+	const FVector2 Center = GetValidProjectionCenter(ProjectionCenter);
 	const float HalfHeight = std::tan(CameraVerticalFieldOfView * 0.5f);
-	const FVector3 ViewDirection{(1.0f - 2.0f * ScreenPosition.X) * HalfHeight * GetValidAspectRatio(AspectRatio), (1.0f - 2.0f * ScreenPosition.Y) * HalfHeight, 1.0f};
+	const FVector3 ViewDirection{2.0f * (Center.X - ScreenPosition.X) * HalfHeight * GetValidAspectRatio(AspectRatio), 2.0f * (Center.Y - ScreenPosition.Y) * HalfHeight, 1.0f};
 	return {Position, GetOrientation().RotateVector(ViewDirection.Normalized())};
 }
 

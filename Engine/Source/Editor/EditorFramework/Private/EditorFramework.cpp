@@ -3,10 +3,12 @@
 #include "DetailsPanel.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/PreviewSelection.h"
+#include "Herta/EditorCore/TransformText.h"
 #include "Herta/EditorCore/ViewportCamera.h"
 #include "Herta/EditorFramework/ViewportInteraction.h"
 #include "Herta/ToolUI/Theme.h"
 #include "Herta/ToolUI/ToolUI.h"
+#include "NumericField.h"
 #include "ViewportGizmos.h"
 #include "ViewportIsland.h"
 #include "ViewportRotationFeedback.h"
@@ -307,6 +309,8 @@ struct FEditorFramework::FImplementation
 	FViewportScaleGizmoState ScaleGizmoState;
 	FViewportScaleGizmoFeedback ScaleFeedback;
 	FMeshRenderView ViewportRenderView;
+	FVector2 ViewportProjectionCenter{0.5f, 0.5f};
+	FVector2 ViewportVisibleSize{1.0f, 1.0f};
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
 	FViewportInteractionState ViewportInteraction;
@@ -324,6 +328,7 @@ struct FEditorFramework::FImplementation
 	int GizmoMode = Im3d::GizmoMode_Translation;
 	bool bTransformGizmoVisible = true;
 	bool bViewportControlsHovered = false;
+	double CameraCoordinatesCopiedUntil = 0.0;
 	float SnapIslandWidth = 36.0f;
 	float WorldIslandWidth = 36.0f;
 
@@ -458,9 +463,9 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 				                                      FEditorAppearance Appearance = Implementation->ToolUI->GetAppearance();
 				                                      ImGui::TextUnformatted("Workspace appearance");
 				                                      ImGui::SetNextItemWidth(180.0f);
-				                                      ImGui::SliderFloat("Opacity", &Appearance.PanelOpacity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+				                                      DrawNumericSliderFloat("Opacity", &Appearance.PanelOpacity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 				                                      ImGui::SetNextItemWidth(180.0f);
-				                                      ImGui::SliderFloat("Blur", &Appearance.BlurRadius, 0.0f, 40.0f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
+				                                      DrawNumericSliderFloat("Blur", &Appearance.BlurRadius, 0.0f, 40.0f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
 				                                      ImGui::Checkbox("Reduced motion", &Appearance.bReducedMotion);
 				                                      if (ImGui::Button("Reset appearance"))
 					                                      Appearance = FEditorAppearance{};
@@ -524,7 +529,7 @@ void FEditorFramework::FImplementation::FocusPreview()
 	    std::abs(Model(1, 0)) + std::abs(Model(1, 1)) + std::abs(Model(1, 2)),
 	    std::abs(Model(2, 0)) + std::abs(Model(2, 1)) + std::abs(Model(2, 2))};
 	const float AspectRatio = ViewportExtent.Height > 0 ? static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height) : 16.0f / 9.0f;
-	ViewportCamera.Focus({PreviewTranslation.x, PreviewTranslation.y, PreviewTranslation.z}, HalfExtent, AspectRatio);
+	ViewportCamera.Focus({PreviewTranslation.x, PreviewTranslation.y, PreviewTranslation.z}, HalfExtent, AspectRatio, ViewportVisibleSize);
 }
 
 void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum, const ImVec2 Size)
@@ -607,7 +612,7 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 		{
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(68.0f * Scale);
-			ImGui::DragFloat("##GridStep", &TranslationSnap, 0.05f, 0.001f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+			DrawNumericDragFloat("##GridStep", &TranslationSnap, 0.05f, 0.001f, 100.0f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Translation snap step in meters");
 		}
@@ -728,12 +733,12 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 			ImGui::Checkbox("Enable snapping", &bSnapEnabled);
 			ImGui::PopStyleVar();
 			FieldLabel("Translation (m)");
-			ImGui::DragFloat("##SnapTranslation", &TranslationSnap, 0.05f, 0.001f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+			DrawNumericDragFloat("##SnapTranslation", &TranslationSnap, 0.05f, 0.001f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 			TranslationSnap = std::isfinite(TranslationSnap) ? std::clamp(TranslationSnap, 0.001f, 100.0f) : 0.5f;
 			FieldLabel("Rotation (deg)");
-			ImGui::DragFloat("##SnapRotation", &RotationSnapDegrees, 1.0f, 0.1f, 180.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+			DrawNumericDragFloat("##SnapRotation", &RotationSnapDegrees, 1.0f, 0.1f, 180.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
 			FieldLabel("Scale");
-			ImGui::DragFloat("##SnapScale", &ScaleSnap, 0.01f, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+			DrawNumericDragFloat("##SnapScale", &ScaleSnap, 0.01f, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 			RotationSnapDegrees = std::isfinite(RotationSnapDegrees) ? std::clamp(RotationSnapDegrees, 0.1f, 180.0f) : 15.0f;
 			ScaleSnap = std::isfinite(ScaleSnap) ? std::clamp(ScaleSnap, 0.001f, 10.0f) : 0.1f;
 		}
@@ -742,11 +747,11 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 		{
 			float MovementSpeed = ViewportCamera.GetMovementSpeed();
 			FieldLabel("Speed (m/s)");
-			if (ImGui::SliderFloat("##CameraSpeed", &MovementSpeed, 0.1f, 100.0f, "%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+			if (DrawNumericSliderFloat("##CameraSpeed", &MovementSpeed, 0.1f, 100.0f, "%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
 				ViewportCamera.SetMovementSpeed(MovementSpeed);
 			float Sensitivity = ViewportCamera.GetMouseSensitivity() * 180.0f / std::numbers::pi_v<float>;
 			FieldLabel("Look (deg/pixel)");
-			if (ImGui::SliderFloat("##CameraLook", &Sensitivity, 0.02f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+			if (DrawNumericSliderFloat("##CameraLook", &Sensitivity, 0.02f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
 				ViewportCamera.SetMouseSensitivity(Sensitivity * std::numbers::pi_v<float> / 180.0f);
 		}
 		ImGui::Separator();
@@ -872,7 +877,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 	}
 	ViewportCamera.Update(CameraInput, IO.DeltaTime, {RenderSize.x, RenderSize.y});
 	const float AspectRatio = static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height);
-	const auto Camera = ViewportCamera.GetSnapshot(AspectRatio);
+	const auto Camera = ViewportCamera.GetSnapshot(AspectRatio, ViewportProjectionCenter);
 	ViewportRenderView.View = Camera.View;
 	ViewportRenderView.Projection = Camera.Projection;
 	ViewportRenderView.bDrawGrid = bGridVisible;
@@ -891,9 +896,9 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 {
 	const FIm3dContextScope ContextScope(ViewportGizmos);
 	const float AspectRatio = static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height);
-	const auto Camera = ViewportCamera.GetSnapshot(AspectRatio);
-	const auto CursorRay = ViewportCamera.MakePickingRay(NormalizedMouse, AspectRatio);
-	const auto ForwardRay = ViewportCamera.MakePickingRay({0.5f, 0.5f}, AspectRatio);
+	const auto Camera = ViewportCamera.GetSnapshot(AspectRatio, ViewportProjectionCenter);
+	const auto CursorRay = ViewportCamera.MakePickingRay(NormalizedMouse, AspectRatio, ViewportProjectionCenter);
+	const auto ForwardRay = ViewportCamera.MakePickingRay(ViewportProjectionCenter, AspectRatio, ViewportProjectionCenter);
 	Im3d::AppData& AppData = Im3d::GetAppData();
 	AppData = Im3d::AppData{};
 	AppData.m_deltaTime = ImGui::GetIO().DeltaTime;
@@ -1036,16 +1041,43 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 		ViewportExtent = {static_cast<std::uint32_t>(std::max(RenderSize.x * RenderScale, 1.0f)), static_cast<std::uint32_t>(std::max(RenderSize.y * RenderScale, 1.0f))};
 		if (Size.x > 0 && Size.y > 0 && RenderSize.x > 0 && RenderSize.y > 0)
 		{
+			ViewportProjectionCenter = GetViewportProjectionCenter({RenderMinimum.x, RenderMinimum.y}, {RenderSize.x, RenderSize.y}, {ImageMinimum.x, ImageMinimum.y}, {Size.x, Size.y});
+			ViewportVisibleSize = {std::clamp(Size.x / RenderSize.x, 0.001f, 1.0f), std::clamp(Size.y / RenderSize.y, 0.001f, 1.0f)};
 			ImDrawList* const PanelDrawList = ImGui::GetWindowDrawList();
 			ImDrawListSplitter Layers;
 			Layers.Split(PanelDrawList, 2);
 			Layers.SetCurrentChannel(PanelDrawList, 1);
 			DrawViewportToolbar(ImageMinimum, Size);
+			const float HudScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
+			const FVector3 LayoutCameraPosition = ViewportCamera.GetSnapshot(1.0f).Position;
+			const std::string LayoutCoordinates = std::format("X {:.2f}   Y {:.2f}   Z {:.2f} m", LayoutCameraPosition.X, LayoutCameraPosition.Y, LayoutCameraPosition.Z);
+			const float CameraLabelWidth = std::max(ImGui::CalcTextSize("Camera").x, ImGui::CalcTextSize("Copied").x);
+			const float CoordinatesWidth = CameraLabelWidth + ImGui::CalcTextSize(LayoutCoordinates.c_str()).x + 52.0f * HudScale;
+			const float CoordinatesHeight = 32.0f * HudScale;
+			const ImVec2 CoordinatesPosition{ImageMinimum.x + std::max(0.0f, Size.x - CoordinatesWidth - 14.0f * HudScale), ImageMinimum.y + std::max(0.0f, Size.y - CoordinatesHeight - 14.0f * HudScale)};
+			ImGui::SetCursorScreenPos(CoordinatesPosition);
+			ImGui::BeginDisabled(ViewportInteraction.DragButton >= 0);
+			const bool bCopyCoordinates = ImGui::InvisibleButton("Copy camera coordinates##CameraCoordinates", {CoordinatesWidth, CoordinatesHeight}, ImGuiButtonFlags_EnableNav);
+			const bool bCoordinatesHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride);
+			const bool bCoordinatesFocused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
+			bViewportControlsHovered |= bCoordinatesHovered;
+			if (bCoordinatesHovered)
+			{
+				ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+			}
+			ImGui::EndDisabled();
 			ImGui::SetCursorScreenPos(ImageMinimum);
 			ImGui::BeginDisabled(bViewportControlsHovered && ViewportInteraction.DragButton < 0);
 			(void)ImGui::InvisibleButton("##ViewportInteraction", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
 			ImGui::EndDisabled();
 			UpdateViewport(RenderMinimum, RenderSize);
+			const FVector3 CameraPosition = ViewportCamera.GetSnapshot(1.0f).Position;
+			const std::string Coordinates = std::format("X {:.2f}   Y {:.2f}   Z {:.2f} m", CameraPosition.X, CameraPosition.Y, CameraPosition.Z);
+			if (bCopyCoordinates)
+			{
+				ImGui::SetClipboardText(FormatTransformVectorClipboard(CameraPosition).c_str());
+				CameraCoordinatesCopiedUntil = ImGui::GetTime() + 1.5;
+			}
 			// Render after layout and input, before recording the texture ID that resize may replace.
 			RenderViewport();
 			Layers.SetCurrentChannel(PanelDrawList, 0);
@@ -1127,6 +1159,24 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 					Trail->PopClipRect();
 				}
 			}
+			ToolUI->DrawGlassSurface(CoordinatesPosition.x, CoordinatesPosition.y, CoordinatesWidth, CoordinatesHeight, CoordinatesHeight * 0.5f);
+			const float CoordinatesTextY = CoordinatesPosition.y + (CoordinatesHeight - ImGui::GetFontSize()) * 0.5f;
+			ImDrawList* const HudDraw = ImGui::GetWindowDrawList();
+			if (bCoordinatesHovered)
+			{
+				HudDraw->AddRectFilled(CoordinatesPosition, {CoordinatesPosition.x + CoordinatesWidth, CoordinatesPosition.y + CoordinatesHeight}, IM_COL32(255, 255, 255, 12), CoordinatesHeight * 0.5f);
+			}
+			if (bCoordinatesFocused)
+			{
+				HudDraw->AddRect(CoordinatesPosition, {CoordinatesPosition.x + CoordinatesWidth, CoordinatesPosition.y + CoordinatesHeight}, ImGui::GetColorU32(ImGuiCol_NavCursor), CoordinatesHeight * 0.5f);
+			}
+			const ImVec2 CameraIconCenter{CoordinatesPosition.x + 18.0f * HudScale, CoordinatesPosition.y + CoordinatesHeight * 0.5f};
+			const ImU32 CameraIconColor = PackColor(ToolUITheme::TextSecondary);
+			HudDraw->AddRect({CameraIconCenter.x - 6.0f * HudScale, CameraIconCenter.y - 4.0f * HudScale}, {CameraIconCenter.x + 6.0f * HudScale, CameraIconCenter.y + 4.0f * HudScale}, CameraIconColor, 2.0f * HudScale, 0, HudScale);
+			HudDraw->AddRectFilled({CameraIconCenter.x - 3.0f * HudScale, CameraIconCenter.y - 6.0f * HudScale}, {CameraIconCenter.x + HudScale, CameraIconCenter.y - 4.0f * HudScale}, CameraIconColor, HudScale);
+			HudDraw->AddCircle(CameraIconCenter, 2.0f * HudScale, CameraIconColor, 12, HudScale);
+			HudDraw->AddText({CoordinatesPosition.x + 32.0f * HudScale, CoordinatesTextY}, CameraIconColor, ImGui::GetTime() < CameraCoordinatesCopiedUntil ? "Copied" : "Camera");
+			HudDraw->AddText({CoordinatesPosition.x + 40.0f * HudScale + CameraLabelWidth, CoordinatesTextY}, PackColor(ToolUITheme::TextPrimary), Coordinates.c_str());
 			if (ViewportInteraction.CameraMode == EViewportCameraMode::Fly)
 			{
 				const float UiScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
@@ -1134,7 +1184,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				const float LabelWidth = ImGui::CalcTextSize("Speed").x;
 				const float Width = LabelWidth + ImGui::CalcTextSize(Speed.c_str()).x + 52.0f * UiScale;
 				const float Height = 32.0f * UiScale;
-				const ImVec2 Position{ImageMinimum.x + std::max(0.0f, Size.x - Width - 14.0f * UiScale), ImageMinimum.y + std::max(0.0f, Size.y - Height - 14.0f * UiScale)};
+				const ImVec2 Position{ImageMinimum.x + std::max(0.0f, Size.x - Width - 14.0f * UiScale), CoordinatesPosition.y - Height - 6.0f * UiScale};
 				ToolUI->DrawGlassSurface(Position.x, Position.y, Width, Height, Height * 0.5f);
 				ImDrawList* const Draw = ImGui::GetWindowDrawList();
 				const ImVec2 Center{Position.x + 18.0f * UiScale, Position.y + Height * 0.5f};
