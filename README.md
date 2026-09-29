@@ -6,11 +6,15 @@ The architecture takes inspiration from Unreal Engine's runtime and tooling boun
 
 ## Status
 
-Milestones 0 through 2 are complete. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and a textured mesh with reversed-Z in the editor Viewport. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is next; asset importing and the game runtime have not started.
+Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and an interactive editor Viewport with reversed-Z, camera navigation, transform gizmos, and depth-tested debug drawing. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is next; asset importing and the game runtime have not started.
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
 
 See [Rendering.md](Docs/Rendering.md) for GPU ownership, shader cooking, and renderer verification. Reset the layout from the hamburger menu to use the new Viewport arrangement.
+
+In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the preview object. Click the cube to select it and show its outline and transform gizmo; click empty viewport space to deselect it. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits currently affect only the preview cube and are not saved.
+
+Details shows the selected cube's editable location, rotation, and scale. Start is closed by default; reopen it from the application menu to access workspace appearance settings.
 
 ## Technical direction
 
@@ -82,6 +86,14 @@ Binaries\windows\x86_64\Development\HertaEditor.exe
 ```
 
 Use `Herta.sln` when Setup selected the fallback toolchain.
+
+To verify both Windows compilers locally, add **C++ Clang tools for Windows** and **MSBuild support for LLVM (clang-cl)** to the same Visual Studio installation, then run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/VerifyWindowsCompilers.ps1
+```
+
+The script regenerates projects, rebuilds the entire solution with ClangCL and MSVC, and runs `HertaTests` after each successful build. MSVC runs last even if Clang fails because both compilers share output directories. Build and test logs are saved under `Intermediate/CompilerVerification`. It uses Setup's detected Visual Studio toolchain without downloading anything. Pass `-Configuration Debug` or `-Configuration Shipping` to check another configuration; the default is `Development`.
 
 ### Linux
 

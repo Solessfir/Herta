@@ -152,9 +152,77 @@ namespace
 
 	return {};
 }
+
+[[nodiscard]] std::expected<void, FPresentationError> CheckDebugDraw(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader)
+{
+	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader);
+	if (!Renderer)
+	{
+		return std::unexpected(Renderer.error());
+	}
+	const FMeshRenderView View{FMatrix4::Translation({0, 0, 5}), FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1, 0.1f), FMatrix4{}};
+	auto Result = (*Renderer)->Render({128, 128}, View);
+	if (!Result)
+	{
+		return Result;
+	}
+	const auto Baseline = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+	if (!Baseline)
+	{
+		return std::unexpected(Baseline.error());
+	}
+	const std::array<FDebugDrawVertex, 1> Points{{{{0, 0, 1.5f}, 12, {1, 0, 0, 1}}}};
+	const std::array<FDebugDrawVertex, 2> Lines{{{{-0.3f, -0.8f, 1.5f}, 4, {0, 1, 0, 1}}, {{0.3f, -0.8f, 1.5f}, 4, {0, 1, 0, 1}}}};
+	const std::array<FDebugDrawVertex, 3> Triangles{{{{-0.3f, 0.8f, 1.5f}, 1, {0, 0, 1, 1}}, {{0.3f, 0.8f, 1.5f}, 1, {0, 0, 1, 1}}, {{0, 1.1f, 1.5f}, 1, {0, 0, 1, 1}}}};
+	std::array Lists{FDebugDrawList{EDebugPrimitive::Points, Points}, FDebugDrawList{EDebugPrimitive::Lines, Lines}, FDebugDrawList{EDebugPrimitive::Triangles, Triangles}};
+	Result = (*Renderer)->Render({128, 128}, View, Lists);
+	if (!Result)
+	{
+		return Result;
+	}
+	const auto Occluded = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+	if (!Occluded)
+	{
+		return std::unexpected(Occluded.error());
+	}
+	if (*Baseline != *Occluded)
+	{
+		return Failure("Depth-tested debug primitives overwrote the nearer cube");
+	}
+	for (FDebugDrawList& List : Lists)
+	{
+		List.bDepthTest = false;
+	}
+	Result = (*Renderer)->Render({128, 128}, View, Lists);
+	if (!Result)
+	{
+		return Result;
+	}
+	const auto Overlay = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+	if (!Overlay)
+	{
+		return std::unexpected(Overlay.error());
+	}
+	std::array<std::size_t, 3> Coverage{};
+	for (std::size_t Pixel = 0; Pixel < Overlay->size(); Pixel += 4)
+	{
+		for (std::size_t Channel = 0; Channel < 3; ++Channel)
+		{
+			if (std::to_integer<unsigned>((*Overlay)[Pixel + Channel]) > 250 && std::to_integer<unsigned>((*Overlay)[Pixel + (Channel + 1) % 3]) < 5 && std::to_integer<unsigned>((*Overlay)[Pixel + (Channel + 2) % 3]) < 5)
+			{
+				++Coverage[Channel];
+			}
+		}
+	}
+	if (Coverage[0] < 130 || Coverage[0] > 160 || Coverage[1] < 10 || Coverage[2] < 3)
+	{
+		return Failure("Debug point, line, or triangle overlay has incorrect pixel coverage");
+	}
+	return {};
+}
 }
 
-std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader)
+std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader)
 {
 	if (const auto InvalidCommands = CheckInvalidCommands(Device); !InvalidCommands)
 	{
@@ -315,6 +383,11 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	if (std::to_integer<unsigned>((*DepthPixels)[Center]) < 250 || std::to_integer<unsigned>((*DepthPixels)[Center + 1]) > 5)
 	{
 		return Failure("Reversed-Z regression: far geometry overwrote the near red quad");
+	}
+	Result = CheckDebugDraw(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader);
+	if (!Result)
+	{
+		return Result;
 	}
 	Result = CheckResourceLifetimes(Device);
 	if (!Result)

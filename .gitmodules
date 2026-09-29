@@ -19,3 +19,6 @@
 [submodule "External/NVRHI"]
 	path = External/NVRHI
 	url = https://github.com/NVIDIA-RTX/NVRHI.git
+[submodule "External/im3d"]
+	path = External/im3d
+	url = https://github.com/john-chapman/im3d.git

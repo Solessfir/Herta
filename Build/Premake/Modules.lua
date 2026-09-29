@@ -218,7 +218,9 @@ HertaRuntimeModule("Tasks", {
         path.join(RepositoryRoot, "External/enkiTS/src")
     }
 
-HertaRuntimeModule("EditorCore")
+HertaRuntimeModule("EditorCore", {
+    PublicDependencies = { "Math" }
+})
 
 HertaRuntimeModule("Application", {
     PrivateDependencies = { "Core" },
@@ -243,12 +245,13 @@ HertaRuntimeModule("ToolUI", {
     }
 
 HertaEditorModule("EditorFramework", {
-    PublicDependencies = { "Core", "EditorCore", "ToolUI", "RHI" },
-    PrivateThirdPartyDependencies = { "ImGui" }
+    PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer" },
+    PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
 })
 
     externalincludedirs {
-        path.join(RepositoryRoot, "External/imgui")
+        path.join(RepositoryRoot, "External/imgui"),
+        path.join(RepositoryRoot, "External/im3d")
     }
 
 HertaRuntimeModule("RHI")
@@ -258,8 +261,8 @@ HertaRuntimeModule("RenderGraph", {
 })
 
 HertaRuntimeModule("Renderer", {
-    PublicDependencies = { "RHI" },
-    PrivateDependencies = { "Math", "RenderGraph" }
+    PublicDependencies = { "RHI", "Math" },
+    PrivateDependencies = { "RenderGraph" }
 })
 
 local VulkanSdk = HertaGetVulkanSdk()
@@ -321,22 +324,22 @@ project "HertaShaders"
     kind "Utility"
     location(path.join(ProjectFilesRoot, "HertaShaders"))
     dependson { "HertaShaderWorker" }
-    files { path.join(RepositoryRoot, "Engine/Shaders/TexturedMesh.slang") }
+    files { path.join(RepositoryRoot, "Engine/Shaders/TexturedMesh.slang"), path.join(RepositoryRoot, "Engine/Shaders/DebugDraw.slang") }
     filter "files:**.slang"
-        buildmessage "Cooking textured mesh shaders"
+        buildmessage "Cooking %{file.basename} shaders"
         buildinputs(ShaderInputs)
-        buildoutputs { path.join(ShaderOutput, "TexturedMesh.vert.hshader"), path.join(ShaderOutput, "TexturedMesh.frag.hshader") }
+        buildoutputs { path.join(ShaderOutput, "%{file.basename}.vert.hshader"), path.join(ShaderOutput, "%{file.basename}.frag.hshader") }
     filter { "files:**.slang", "configurations:Shipping" }
         buildcommands {
             '{MKDIR} "' .. ShaderOutput .. '"',
-            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex vertexMain "' .. path.join(ShaderOutput, "TexturedMesh.vert.hshader") .. '"',
-            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment fragmentMain "' .. path.join(ShaderOutput, "TexturedMesh.frag.hshader") .. '"'
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex vertexMain "' .. path.join(ShaderOutput, "%{file.basename}.vert.hshader") .. '"',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment fragmentMain "' .. path.join(ShaderOutput, "%{file.basename}.frag.hshader") .. '"'
         }
     filter { "files:**.slang", "configurations:not Shipping" }
         buildcommands {
             '{MKDIR} "' .. ShaderOutput .. '"',
-            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex vertexMain "' .. path.join(ShaderOutput, "TexturedMesh.vert.hshader") .. '" --debug',
-            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment fragmentMain "' .. path.join(ShaderOutput, "TexturedMesh.frag.hshader") .. '" --debug'
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex vertexMain "' .. path.join(ShaderOutput, "%{file.basename}.vert.hshader") .. '" --debug',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment fragmentMain "' .. path.join(ShaderOutput, "%{file.basename}.frag.hshader") .. '" --debug'
         }
     filter {}
 
@@ -344,9 +347,11 @@ project "HertaTests"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaTests"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaTests"))
+    includedirs { path.join(RepositoryRoot, "Engine/Source/Editor/EditorFramework/Private") }
 
     externalincludedirs {
-        path.join(RepositoryRoot, "External/doctest")
+        path.join(RepositoryRoot, "External/doctest"),
+        path.join(RepositoryRoot, "External/im3d")
     }
 
     ApplyRuntimeDependencies { "Core", "Math", "Platform", "Tasks", "Application", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }

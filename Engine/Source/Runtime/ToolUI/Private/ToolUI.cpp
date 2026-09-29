@@ -337,6 +337,7 @@ struct FToolUIContext::FImplementation
 	bool bProgrammaticWindowPosition = false;
 	bool bVSync = true;
 	bool bBuildDefaultLayout = false;
+	bool bDetailsDockMigrationComplete = false;
 	bool bFrameActive = false;
 	bool bAppearanceDirty = false;
 	bool bPlatformWindowsRendered = true;
@@ -1595,7 +1596,7 @@ std::expected<void, FToolUIError> FToolUIContext::RenderPlatformWindows()
 	return {};
 }
 
-void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
+void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawMenuItems)
 {
 	const ImGuiViewport* const Viewport = ImGui::GetMainViewport();
 	const ImVec2 ViewportMinimum = Viewport->Pos;
@@ -1673,6 +1674,11 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 			}
 		}
 
+		if (DrawMenuItems)
+		{
+			DrawMenuItems();
+		}
+
 		ImGui::Separator();
 		if (ImGui::MenuItem("Reset layout"))
 		{
@@ -1710,11 +1716,28 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle)
 		ImGuiID CenterId = Implementation->DockspaceId;
 		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.28f, nullptr, &CenterId);
 		const ImGuiID SideId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Right, 0.28f, nullptr, &CenterId);
+		ImGui::DockBuilderDockWindow("Details", SideId);
 		ImGui::DockBuilderDockWindow("Start", SideId);
 		ImGui::DockBuilderDockWindow("Viewport", CenterId);
 		ImGui::DockBuilderDockWindow("Output Log", BottomId);
 		ImGui::DockBuilderFinish(Implementation->DockspaceId);
 		Implementation->bBuildDefaultLayout = false;
+	}
+	if (!Implementation->bDetailsDockMigrationComplete)
+	{
+		Implementation->bDetailsDockMigrationComplete = true;
+		if (ImGui::FindWindowSettingsByID(ImHashStr("Details")) == nullptr)
+		{
+			const ImGuiWindowSettings* const StartSettings = ImGui::FindWindowSettingsByID(ImHashStr("Start"));
+			if (StartSettings != nullptr && StartSettings->DockId != 0)
+			{
+				const ImGuiDockNode* const StartNode = ImGui::DockBuilderGetNode(StartSettings->DockId);
+				if (StartNode != nullptr && StartNode->IsLeafNode())
+				{
+					ImGui::DockBuilderDockWindow("Details", StartSettings->DockId);
+				}
+			}
+		}
 	}
 
 	ImGui::End();

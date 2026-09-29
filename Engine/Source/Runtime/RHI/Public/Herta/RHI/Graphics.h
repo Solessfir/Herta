@@ -27,11 +27,18 @@ enum class ETextureFormat : std::uint8_t
 	Depth32
 };
 
+enum class EGraphicsVertexFormat : std::uint8_t
+{
+	Mesh,
+	ColoredClipPosition
+};
+
 struct FBufferDescriptor
 {
 	std::string Name;
 	std::size_t Size = 0;
 	EBufferUsage Usage = EBufferUsage::Vertex;
+	EGraphicsVertexFormat VertexFormat = EGraphicsVertexFormat::Mesh;
 };
 
 struct FTextureDescriptor
@@ -73,12 +80,20 @@ struct FGraphicsPipelineDescriptor
 	FShaderAsset VertexShader;
 	FShaderAsset FragmentShader;
 	ETextureFormat ColorFormat = ETextureFormat::Rgba8Srgb;
+	EGraphicsVertexFormat VertexFormat = EGraphicsVertexFormat::Mesh;
+	bool bDepthTest = true;
 };
 
 struct FMeshVertex
 {
 	std::array<float, 3> Position;
 	std::array<float, 2> UV;
+};
+
+struct FColoredClipVertex
+{
+	std::array<float, 4> Position;
+	std::array<float, 4> Color;
 };
 
 struct FIndexedDraw

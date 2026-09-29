@@ -43,14 +43,18 @@ private:
 
 class FTestPipeline final : public Herta::IRhiGraphicsPipeline
 {
+public:
+	Herta::FGraphicsPipelineDescriptor Descriptor;
 };
 
 class FTestGraphicsDevice final : public Herta::IGraphicsDevice
 {
 public:
 	std::vector<Herta::FMeshVertex> Vertices;
+	std::vector<std::vector<Herta::FColoredClipVertex>> DebugUploads;
 	std::vector<std::uint32_t> Indices;
 	std::vector<std::string> Events;
+	std::vector<Herta::FIndexedDraw> Draws;
 	Herta::FIndexedDraw LastDraw;
 	std::uint64_t Submissions = 0;
 	bool bFailDepth = false;
@@ -71,9 +75,11 @@ public:
 		return std::make_shared<FTestTexture>(Descriptor);
 	}
 
-	std::expected<Herta::FGraphicsPipelineHandle, Herta::FPresentationError> CreateGraphicsPipeline(const Herta::FGraphicsPipelineDescriptor&) override
+	std::expected<Herta::FGraphicsPipelineHandle, Herta::FPresentationError> CreateGraphicsPipeline(const Herta::FGraphicsPipelineDescriptor& Descriptor) override
 	{
-		return std::make_shared<FTestPipeline>();
+		auto Pipeline = std::make_shared<FTestPipeline>();
+		Pipeline->Descriptor = Descriptor;
+		return Pipeline;
 	}
 
 	std::expected<void, Herta::FPresentationError> BeginCommands() override
@@ -84,7 +90,12 @@ public:
 
 	std::expected<void, Herta::FPresentationError> WriteBuffer(const Herta::FBufferHandle& Buffer, const std::span<const std::byte> Data) override
 	{
-		if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex)
+		if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex && Buffer->GetDescriptor().VertexFormat == Herta::EGraphicsVertexFormat::ColoredClipPosition)
+		{
+			auto& Upload = DebugUploads.emplace_back(Data.size() / sizeof(Herta::FColoredClipVertex));
+			std::memcpy(Upload.data(), Data.data(), Data.size());
+		}
+		else if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex)
 		{
 			Vertices.resize(Data.size() / sizeof(Herta::FMeshVertex));
 			std::memcpy(Vertices.data(), Data.data(), Data.size());
@@ -113,6 +124,7 @@ public:
 	{
 		Events.emplace_back("Draw");
 		LastDraw = Draw;
+		Draws.push_back(Draw);
 		if (bFailDraw)
 		{
 			return std::unexpected(Herta::FPresentationError{Herta::EPresentationErrorCode::CommandSubmissionFailed, "Draw failed"});
@@ -151,6 +163,15 @@ public:
 Herta::FVector3 Position(const Herta::FMeshVertex& Vertex)
 {
 	return {Vertex.Position[0], Vertex.Position[1], Vertex.Position[2]};
+}
+
+std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> CreateDebugRenderer(FTestGraphicsDevice& Device)
+{
+	Herta::FShaderAsset Vertex;
+	Vertex.Bytecode = {1};
+	Herta::FShaderAsset Fragment = Vertex;
+	Fragment.Stage = Herta::EShaderStage::Fragment;
+	return Herta::FMeshRenderer::Create(Device, {}, {}, Vertex, Fragment);
 }
 }
 
@@ -252,4 +273,76 @@ TEST_CASE("Mesh renderer cancels recording after a failed graph pass")
 	CHECK(Result.error().Message == "Draw failed");
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Cancel"});
 	CHECK(Device.Submissions == Submission);
+}
+
+TEST_CASE("Mesh renderer uses caller matrices and rejects nonfinite views before recording")
+{
+	FTestGraphicsDevice Device;
+	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
+	REQUIRE(Renderer);
+	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 4}), Herta::FMatrix4::Scale({2, 3, 4}), Herta::FMatrix4::Translation({1, 2, 3})};
+	REQUIRE((*Renderer)->Render({320, 240}, View));
+	CHECK(Device.LastDraw.WorldToClip == (View.Projection * View.View * View.Model).Data());
+	Device.Events.clear();
+	View.Model(1, 1) = std::numeric_limits<float>::infinity();
+	CHECK_FALSE((*Renderer)->Render({320, 240}, View));
+	CHECK(Device.Events.empty());
+}
+
+TEST_CASE("Debug renderer expands portable pixel sizes and orders depth-tested draws before overlays")
+{
+	FTestGraphicsDevice Device;
+	const auto Renderer = CreateDebugRenderer(Device);
+	REQUIRE(Renderer);
+	const std::array<Herta::FDebugDrawVertex, 1> Points{{{{0, 0, 0.5f}, 10, {1, 0, 0, 1}}}};
+	const std::array<Herta::FDebugDrawVertex, 2> Lines{{{{-0.5f, 0, 0.5f}, 4, {0, 1, 0, 1}}, {{0.5f, 0, 0.5f}, 4, {0, 1, 0, 1}}}};
+	const std::array<Herta::FDebugDrawVertex, 3> Triangles{{{{0, 0, 0.5f}}, {{0, 0.5f, 0.5f}}, {{0.5f, 0, 0.5f}}}};
+	const std::array Lists{Herta::FDebugDrawList{Herta::EDebugPrimitive::Lines, Lines, false}, Herta::FDebugDrawList{Herta::EDebugPrimitive::Points, Points}, Herta::FDebugDrawList{Herta::EDebugPrimitive::Lines, Lines}, Herta::FDebugDrawList{Herta::EDebugPrimitive::Triangles, Triangles}};
+	Device.Events.clear();
+	REQUIRE((*Renderer)->Render({200, 100}, Herta::FMeshRenderView{}, Lists));
+	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Draw", "Draw", "Submit"});
+	REQUIRE(Device.Draws.size() == 3);
+	CHECK(Device.Draws[1].IndexCount == 15);
+	CHECK(Device.Draws[2].IndexCount == 6);
+	CHECK(std::static_pointer_cast<FTestPipeline>(Device.Draws[1].Pipeline)->Descriptor.bDepthTest);
+	CHECK_FALSE(std::static_pointer_cast<FTestPipeline>(Device.Draws[2].Pipeline)->Descriptor.bDepthTest);
+	CHECK_FALSE(Device.Draws[1].Texture);
+	REQUIRE(Device.DebugUploads.size() == 2);
+	const auto& Vertices = Device.DebugUploads[0];
+	CHECK(Vertices[0].Position[0] == doctest::Approx(0.05f));
+	CHECK(Vertices[0].Position[1] == doctest::Approx(-0.1f));
+	CHECK(Vertices[2].Position[1] == doctest::Approx(0.1f));
+	CHECK(Vertices[6].Position[1] == doctest::Approx(0.04f));
+	CHECK(Vertices[7].Position[1] == doctest::Approx(-0.04f));
+}
+
+TEST_CASE("Debug renderer clips camera-crossing lines and rejects incomplete or nonfinite primitives")
+{
+	FTestGraphicsDevice Device;
+	const auto Renderer = CreateDebugRenderer(Device);
+	REQUIRE(Renderer);
+	const Herta::FMeshRenderView View{Herta::FMatrix4{}, Herta::FMatrix4::PerspectiveReversedInfinite(1.0f, 1, 0.1f), Herta::FMatrix4{}};
+	std::array<Herta::FDebugDrawVertex, 2> Vertices{{{{0, 0, -1}, 4}, {{0.5f, 0, 1}, 4}}};
+	Herta::FDebugDrawList List{Herta::EDebugPrimitive::Lines, Vertices};
+	REQUIRE((*Renderer)->Render({100, 100}, View, std::span{&List, 1}));
+	REQUIRE(Device.DebugUploads.size() == 1);
+	for (const auto& Vertex : Device.DebugUploads[0])
+	{
+		CHECK(Vertex.Position[3] >= 0.1f);
+		CHECK(Vertex.Position[2] <= Vertex.Position[3]);
+		for (const float Value : Vertex.Position)
+		{
+			CHECK(std::isfinite(Value));
+		}
+	}
+	Device.Events.clear();
+	List.Vertices = std::span{Vertices}.first(1);
+	CHECK_FALSE((*Renderer)->Render({100, 100}, View, std::span{&List, 1}));
+	List.Vertices = Vertices;
+	Vertices[0].Size = std::numeric_limits<float>::quiet_NaN();
+	CHECK_FALSE((*Renderer)->Render({100, 100}, View, std::span{&List, 1}));
+	Vertices[0].Size = 1;
+	Vertices[0].Color[0] = std::numeric_limits<float>::infinity();
+	CHECK_FALSE((*Renderer)->Render({100, 100}, View, std::span{&List, 1}));
+	CHECK(Device.Events.empty());
 }

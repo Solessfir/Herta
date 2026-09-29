@@ -242,9 +242,16 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	const std::filesystem::path ShaderDirectory = std::filesystem::absolute(ExecutablePath).parent_path() / "Shaders";
 	auto VertexShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.vert.hshader");
 	auto FragmentShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.frag.hshader");
+	auto DebugVertexShader = LoadCookedShader(ShaderDirectory / "DebugDraw.vert.hshader");
+	auto DebugFragmentShader = LoadCookedShader(ShaderDirectory / "DebugDraw.frag.hshader");
 	if (!VertexShader || !FragmentShader)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load cooked shaders: {}. Build HertaShaders before launching the editor.", !VertexShader ? VertexShader.error().Message : FragmentShader.error().Message);
+		return 1;
+	}
+	if (!DebugVertexShader || !DebugFragmentShader)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load debug shaders: {}. Build HertaShaders before launching the editor.", !DebugVertexShader ? DebugVertexShader.error().Message : DebugFragmentShader.error().Message);
 		return 1;
 	}
 	if (bRendererTest)
@@ -259,7 +266,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer VSync toggle regression failed: {}", VSyncResult ? "VSync state was not restored" : VSyncResult.error().Message);
 			return 1;
 		}
-		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader);
+		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *DebugVertexShader, *DebugFragmentShader);
 		if (!Test || Presentation->HasValidationErrors())
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer regression failed: {}", Test ? "Validation reported an error" : Test.error().Message);
@@ -267,7 +274,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		}
 		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, reversed-Z, resize, and frame retirement checks passed");
 	}
-	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader));
+	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader), std::move(*DebugVertexShader), std::move(*DebugFragmentShader));
 	if (!MeshResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize the mesh renderer: {}", MeshResult.error().Message);
@@ -448,7 +455,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		const FExtent2D ViewExtent = EditorFramework->GetViewportExtent();
 		if (!ViewExtent.IsEmpty() && !Window.IsMinimized())
 		{
-			auto MeshFrame = MeshRenderer->Render(ViewExtent);
+			auto MeshFrame = MeshRenderer->Render(ViewExtent, EditorFramework->GetViewportRenderView(), EditorFramework->GetViewportDebugDrawLists());
 			if (!MeshFrame)
 			{
 				HERTA_LOG_ERROR(*Log, EditorLog, "Could not render scene: {}", MeshFrame.error().Message);

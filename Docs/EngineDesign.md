@@ -1472,6 +1472,16 @@ Exit condition: render tests and resize/minimize stress runs produce no validati
 
 Implemented: typed RHI resource ownership, three submission-retired graphics contexts, bounded uploads, deterministic single-queue RenderGraph, Slang worker cooking with reflected metadata, and an sRGB textured cube rendered with reversed-Z in the editor Viewport. GPU readback tests cover coverage, depth occlusion, invalid requests, cancellation, and resource retirement. See [Rendering.md](Rendering.md) for the current contracts and verification commands. Interactive shader hot reload, physical transient aliasing, and multi-queue scheduling are later extensions.
 
+### Milestone 2.5 - Viewport camera and gizmos
+
+- Add an editor-owned fly, orbit, pan, and dolly camera with focus, adjustable movement speed, and mouse sensitivity.
+- Add pinned im3d privately to EditorFramework for preview-object translation, rotation, and scale gizmos, local/world modes, and snapping.
+- Render Herta-owned debug primitives through RHI and RenderGraph, including a depth-tested grid, axes, and bounds plus overlay gizmos.
+- Keep camera, gizmo, and ImGui input ownership exclusive across docking, detached viewports, focus changes, and DPI scales.
+- Keep the preview transform separate from later entity selection, transactions, undo/redo, and scene persistence in Milestone 4.
+
+Exit condition: the preview object can be inspected and transformed interactively, picking matches the displayed camera, and debug primitives respect reversed-Z and configured depth behavior. Camera math and debug rendering have regression coverage; native resize and viewport input remain responsive.
+
 ### Milestone 3 - Asset pipeline
 
 - Add stable asset IDs, registry, build keys, and DerivedDataCache.
@@ -1636,7 +1646,7 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Milestone 2 is complete. The next code slice is Milestone 3 and should remain limited to:
+Milestones 2 and 2.5 are implemented, including viewport camera navigation and preview gizmos. The following Milestone 3 slice should remain limited to:
 
 1. Add stable asset IDs, the asset registry, deterministic build keys, and DerivedDataCache.
 2. Introduce fastgltf and canonical mesh and texture cooking behind the worker boundary.

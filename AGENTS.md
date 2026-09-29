@@ -85,6 +85,7 @@ Cleanup scripts remove only explicit Herta-managed generated paths. Without Git 
 - Lock down math conventions, serialization, asset conversion, stable IDs, and failure behavior with focused tests.
 - Add regression tests with bug fixes when practical.
 - Run the smallest relevant test or build first. Expand verification only when the affected boundary warrants it.
+- For meaningful Windows C++ changes, run `Scripts/VerifyWindowsCompilers.ps1` to rebuild all projects and run tests with ClangCL and MSVC. Resolve all reported errors and warnings before declaring verification complete.
 - Do not rebuild the entire engine for comments, documentation-only edits, or other non-code changes.
 - Verify Windows and Linux implications for platform, build, filesystem, threading, and rendering changes.
 - Do not ask the user to run checks that can be performed directly in the workspace or CI logs.
@@ -112,6 +113,6 @@ Cleanup scripts remove only explicit Herta-managed generated paths. Without Git 
 
 ## Current repository state
 
-Milestones 0 through 2 are complete. The repository contains structured logging, Tasks, Application, RHI, NvrhiVulkan, RenderGraph, Renderer, ShaderCompiler, HertaShaderWorker, ToolUI, EditorCore, EditorFramework, HertaEditor, HertaEditorCmd, a configured application icon, focused tests, and required Windows/Linux CI and quality workflows. Slang cooks shaders during builds; the editor Viewport renders a textured cube with reversed-Z. Local Windows, X11, and Wayland renderer readback, resize, and resource-retirement tests are verified. Milestone 3 - Asset pipeline is next. Asset importing and the game runtime have not started.
+Milestones 0 through 2.5 are implemented. The repository contains structured logging, Tasks, Application, RHI, NvrhiVulkan, RenderGraph, Renderer, ShaderCompiler, HertaShaderWorker, ToolUI, EditorCore, EditorFramework, HertaEditor, HertaEditorCmd, a configured application icon, focused tests, and required Windows/Linux CI and quality workflows. Slang cooks shaders during builds; the editor Viewport renders a textured cube with reversed-Z, camera navigation, private im3d transform gizmos, and depth-tested debug primitives. Camera math belongs to EditorCore; preview transforms and input routing belong to EditorFramework. Local Windows, X11, and Wayland renderer readback, debug drawing, resize, and resource-retirement tests are verified. Preview edits are not persisted and pointer drags remain desktop-edge bounded. Milestone 3 - Asset pipeline is next. Asset importing and the game runtime have not started.
 
 Update this section when a milestone changes those facts.

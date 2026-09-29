@@ -2,9 +2,9 @@ function HertaApplyToolchainSettings()
     filter "system:windows"
         systemversion "latest"
         characterset "Unicode"
+        usestandardpreprocessor "On"
         buildoptions {
-            "/utf-8",
-            "/Zc:preprocessor"
+            "/utf-8"
         }
         defines {
             "HERTA_PLATFORM_WINDOWS=1",

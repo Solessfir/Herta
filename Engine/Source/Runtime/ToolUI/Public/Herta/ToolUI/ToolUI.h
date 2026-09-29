@@ -102,7 +102,7 @@ public:
 	void BeginFrame();
 	[[nodiscard]] std::expected<void, FToolUIError> EndFrame(bool bRenderMainViewport = true);
 	[[nodiscard]] std::expected<void, FToolUIError> RenderPlatformWindows();
-	void DrawWorkspace(std::string_view ApplicationTitle);
+	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawMenuItems = {});
 	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr);
 	void EndPanel();
 

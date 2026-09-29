@@ -2,9 +2,11 @@
 
 #include "Herta/EditorFramework/OutputLog.h"
 #include "Herta/RHI/Presentation.h"
+#include "Herta/Renderer/MeshRenderer.h"
 
 #include <expected>
 #include <memory>
+#include <span>
 #include <string>
 
 namespace Herta
@@ -42,6 +44,8 @@ public:
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> Draw();
 	void SetViewportImage(std::uint64_t TextureId) noexcept;
 	[[nodiscard]] FExtent2D GetViewportExtent() const noexcept;
+	[[nodiscard]] FMeshRenderView GetViewportRenderView() const noexcept;
+	[[nodiscard]] std::span<const FDebugDrawList> GetViewportDebugDrawLists() const noexcept;
 	[[nodiscard]] FOutputLogModel& GetOutputLog() noexcept;
 	[[nodiscard]] const FOutputLogModel& GetOutputLog() const noexcept;
 
