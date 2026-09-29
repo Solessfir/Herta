@@ -63,7 +63,7 @@ struct FTitleBarLayout
 	int WindowWidth = 0;
 	int WindowHeight = 0;
 	int TitleBarHeight = DefaultTitleBarHeight;
-	int ButtonWidth = 46;
+	int ButtonWidth = 34;
 	int ResizeBorder = 6;
 	bool bResizable = true;
 	bool bMaximized = false;
@@ -125,7 +125,7 @@ struct FTitleBarHitTestState
 	    .WindowWidth = WindowWidth,
 	    .WindowHeight = WindowHeight,
 	    .TitleBarHeight = ScaleTitleBarMetric(DefaultTitleBarHeight, ContentScale),
-	    .ButtonWidth = ScaleTitleBarMetric(46, ContentScale),
+	    .ButtonWidth = ScaleTitleBarMetric(34, ContentScale),
 	    .ResizeBorder = ScaleTitleBarMetric(6, ContentScale),
 	    .bResizable = bResizable,
 	    .bMaximized = bMaximized,

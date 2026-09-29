@@ -2,6 +2,7 @@
 
 #include "GraphicsDevice.h"
 #include "Herta/Core/Log.h"
+#include "Shaders/ToolUIBlurShader.h"
 #include "Shaders/ToolUIShaders.h"
 
 #include <vulkan/vulkan.h>
@@ -322,6 +323,19 @@ private:
 		std::uint64_t SubmissionInstance = 0;
 	};
 
+	struct FGlassResources
+	{
+		nvrhi::TextureHandle Snapshot;
+		nvrhi::BindingSetHandle SnapshotBindings;
+		nvrhi::TextureHandle HorizontalBlur;
+		nvrhi::FramebufferHandle HorizontalFramebuffer;
+		nvrhi::BindingSetHandle HorizontalBindings;
+		nvrhi::TextureHandle Blurred;
+		nvrhi::FramebufferHandle BlurFramebuffer;
+		nvrhi::GraphicsPipelineHandle BlurPipeline;
+		nvrhi::BindingSetHandle BlurBindings;
+	};
+
 	struct FSecondaryViewport
 	{
 		void* WindowBackendHandle = nullptr;
@@ -331,6 +345,7 @@ private:
 		FExtent2D Extent;
 		nvrhi::CommandListHandle CommandList;
 		std::vector<nvrhi::TextureHandle> BackBuffers;
+		FGlassResources Glass;
 		std::vector<nvrhi::FramebufferHandle> Framebuffers;
 		nvrhi::GraphicsPipelineHandle Pipeline;
 		std::vector<VkSemaphore> RenderFinished;
@@ -339,6 +354,7 @@ private:
 		std::uint32_t ActiveImageIndex = 0;
 		bool bFrameActive = false;
 		bool bFrameSuboptimal = false;
+		bool bBackdropCopySupported = false;
 	};
 
 public:
@@ -601,7 +617,7 @@ public:
 		return *GraphicsDevice;
 	}
 
-	[[nodiscard]] std::expected<std::uint64_t, FPresentationError> RegisterToolUITexture(const FTextureHandle& Texture) override
+	[[nodiscard]] std::expected<std::uint64_t, FPresentationError> RegisterToolUITexture(const FTextureHandle& Texture, const bool bBackdropSource) override
 	{
 		nvrhi::ITexture* const NativeTexture = GetNvrhiTexture(Texture, NvrhiDevice);
 		if (!bToolUIInitialized || !NativeTexture || Texture->GetDescriptor().Format == ETextureFormat::Depth32)
@@ -609,6 +625,7 @@ public:
 			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "ToolUI requires an initialized renderer and a color texture from its graphics device"});
 		}
 		FToolUITexture Entry;
+		Entry.bBackdropSource = bBackdropSource;
 		Entry.Texture = NativeTexture;
 		Entry.Width = Texture->GetDescriptor().Extent.Width;
 		Entry.Height = Texture->GetDescriptor().Extent.Height;
@@ -820,7 +837,9 @@ public:
 		PixelShaderDescriptor.shaderType = nvrhi::ShaderType::Pixel;
 		PixelShaderDescriptor.debugName = "ToolUI fragment shader";
 		ToolUIPixelShader = NvrhiDevice->createShader(PixelShaderDescriptor, GToolUIFragmentShader, sizeof(GToolUIFragmentShader));
-		if (!ToolUIVertexShader || !ToolUIPixelShader)
+		PixelShaderDescriptor.debugName = "ToolUI blur shader";
+		ToolUIBlurPixelShader = NvrhiDevice->createShader(PixelShaderDescriptor, GToolUIBlurFragmentShader, sizeof(GToolUIBlurFragmentShader));
+		if (!ToolUIVertexShader || !ToolUIPixelShader || !ToolUIBlurPixelShader)
 		{
 			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create ToolUI shaders"});
 		}
@@ -897,8 +916,27 @@ public:
 			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI pipeline is not compatible with the active swapchain"});
 		}
 
-		const std::size_t VertexBytes = static_cast<std::size_t>(DrawData.TotalVtxCount) * sizeof(ImDrawVert);
-		const std::size_t IndexBytes = static_cast<std::size_t>(DrawData.TotalIdxCount) * sizeof(ImDrawIdx);
+		constexpr auto GlassMarkerMax = std::numeric_limits<ImTextureID>::max();
+		constexpr auto GlassMarkerMin = GlassMarkerMax - 160;
+		const bool bGlassSupported = ToolUIOverrideViewport ? ToolUIOverrideViewport->bBackdropCopySupported : bBackdropCopySupported;
+		unsigned int BlurRadiusPixels = 0;
+		if (bGlassSupported)
+		{
+			for (const ImDrawList* const DrawList : DrawData.CmdLists)
+			{
+				for (const ImDrawCmd& DrawCommand : DrawList->CmdBuffer)
+				{
+					const auto TextureId = DrawCommand.GetTexID();
+					if (!DrawCommand.UserCallback && TextureId >= GlassMarkerMin)
+					{
+						BlurRadiusPixels = std::max(BlurRadiusPixels, TextureId == GlassMarkerMax ? 10u : static_cast<unsigned int>(GlassMarkerMax - TextureId));
+					}
+				}
+			}
+		}
+		const bool bNeedsBackdrop = BlurRadiusPixels > 0;
+		const std::size_t VertexBytes = (static_cast<std::size_t>(DrawData.TotalVtxCount) + (bNeedsBackdrop ? 8 : 0)) * sizeof(ImDrawVert);
+		const std::size_t IndexBytes = (static_cast<std::size_t>(DrawData.TotalIdxCount) + (bNeedsBackdrop ? 12 : 0)) * sizeof(ImDrawIdx);
 		const std::size_t IndexSourceBytes = AlignVulkanBufferUpdateSourceSize(IndexBytes);
 		const std::expected BufferResult = EnsureToolUIBuffers(VertexBytes, IndexSourceBytes);
 		if (!BufferResult)
@@ -908,7 +946,7 @@ public:
 
 		static_assert(VulkanBufferUpdateAlignment % sizeof(ImDrawIdx) == 0);
 		static_assert(sizeof(ImDrawVert) % VulkanBufferUpdateAlignment == 0);
-		ToolUIVertices.resize(static_cast<std::size_t>(DrawData.TotalVtxCount));
+		ToolUIVertices.resize(static_cast<std::size_t>(DrawData.TotalVtxCount) + (bNeedsBackdrop ? 8 : 0));
 		// NVRHI rounds Vulkan inline update source reads to four bytes for vkCmdUpdateBuffer.
 		ToolUIIndices.resize(IndexSourceBytes / sizeof(ImDrawIdx));
 		std::size_t VertexOffset = 0;
@@ -920,6 +958,24 @@ public:
 			VertexOffset += static_cast<std::size_t>(DrawList->VtxBuffer.Size);
 			IndexOffset += static_cast<std::size_t>(DrawList->IdxBuffer.Size);
 		}
+		if (bNeedsBackdrop)
+		{
+			const auto Red = static_cast<unsigned int>((BlurRadiusPixels * 255 + 80) / 160);
+			const ImU32 HorizontalTint = IM_COL32(Red, 0, 0, 255);
+			const ImU32 VerticalTint = IM_COL32(Red, 255, 0, 255);
+			const ImVec2 Minimum = DrawData.DisplayPos;
+			const ImVec2 Maximum{Minimum.x + DrawData.DisplaySize.x, Minimum.y + DrawData.DisplaySize.y};
+			ToolUIVertices[VertexOffset + 0] = ImDrawVert{{Minimum.x, Minimum.y}, {0.0f, 0.0f}, HorizontalTint};
+			ToolUIVertices[VertexOffset + 1] = ImDrawVert{{Maximum.x, Minimum.y}, {1.0f, 0.0f}, HorizontalTint};
+			ToolUIVertices[VertexOffset + 2] = ImDrawVert{{Maximum.x, Maximum.y}, {1.0f, 1.0f}, HorizontalTint};
+			ToolUIVertices[VertexOffset + 3] = ImDrawVert{{Minimum.x, Maximum.y}, {0.0f, 1.0f}, HorizontalTint};
+			ToolUIVertices[VertexOffset + 4] = ImDrawVert{{Minimum.x, Minimum.y}, {0.0f, 0.0f}, VerticalTint};
+			ToolUIVertices[VertexOffset + 5] = ImDrawVert{{Maximum.x, Minimum.y}, {1.0f, 0.0f}, VerticalTint};
+			ToolUIVertices[VertexOffset + 6] = ImDrawVert{{Maximum.x, Maximum.y}, {1.0f, 1.0f}, VerticalTint};
+			ToolUIVertices[VertexOffset + 7] = ImDrawVert{{Minimum.x, Maximum.y}, {0.0f, 1.0f}, VerticalTint};
+			constexpr std::array<ImDrawIdx, 12> BlurIndices{0, 1, 2, 0, 2, 3, 0, 1, 2, 0, 2, 3};
+			std::ranges::copy(BlurIndices, ToolUIIndices.begin() + static_cast<std::ptrdiff_t>(IndexOffset));
+		}
 
 		RenderCommandList->writeBuffer(ToolUIVertexBuffer, ToolUIVertices.data(), VertexBytes);
 		RenderCommandList->writeBuffer(ToolUIIndexBuffer, ToolUIIndices.data(), IndexBytes);
@@ -929,59 +985,113 @@ public:
 
 		std::uint32_t GlobalVertexOffset = 0;
 		std::uint32_t GlobalIndexOffset = 0;
-		for (const ImDrawList* const DrawList : DrawData.CmdLists)
+		FGlassResources& GlassResources = ToolUIOverrideViewport ? ToolUIOverrideViewport->Glass : Glass;
+		for (int Pass = bNeedsBackdrop ? 0 : 1; Pass < 2; ++Pass)
 		{
-			for (const ImDrawCmd& DrawCommand : DrawList->CmdBuffer)
+			GlobalVertexOffset = 0;
+			GlobalIndexOffset = 0;
+			for (const ImDrawList* const DrawList : DrawData.CmdLists)
 			{
-				if (DrawCommand.UserCallback)
+				for (const ImDrawCmd& DrawCommand : DrawList->CmdBuffer)
 				{
-					if (DrawCommand.UserCallback != ImDrawCallback_ResetRenderState)
+					if (DrawCommand.UserCallback)
 					{
-						DrawCommand.UserCallback(DrawList, &DrawCommand);
+						if (Pass == 1 && DrawCommand.UserCallback != ImDrawCallback_ResetRenderState)
+						{
+							DrawCommand.UserCallback(DrawList, &DrawCommand);
+						}
+						continue;
 					}
-					continue;
-				}
-				const auto Texture = ToolUITextures.find(static_cast<std::uint64_t>(DrawCommand.GetTexID()));
-				if (Texture == ToolUITextures.end())
-				{
-					return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI draw data references an unavailable renderer texture"});
+					const auto RegisteredTexture = ToolUITextures.find(static_cast<std::uint64_t>(DrawCommand.GetTexID()));
+					// ImGui's per-viewport background list and explicitly tagged scene images precede all foreground UI.
+					const bool bBackground = (DrawList->_OwnerName && std::string_view(DrawList->_OwnerName) == "##Background") || (RegisteredTexture != ToolUITextures.end() && RegisteredTexture->second.bBackdropSource);
+					if ((Pass == 0 && !bBackground) || (Pass == 1 && bNeedsBackdrop && bBackground))
+						continue;
+					nvrhi::BindingSetHandle Bindings;
+					if (DrawCommand.GetTexID() >= GlassMarkerMin)
+					{
+						if (!bNeedsBackdrop)
+						{
+							continue;
+						}
+						Bindings = GlassResources.BlurBindings;
+					}
+					else
+					{
+						const auto Texture = ToolUITextures.find(static_cast<std::uint64_t>(DrawCommand.GetTexID()));
+						if (Texture == ToolUITextures.end())
+						{
+							return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI draw data references an unavailable renderer texture"});
+						}
+						Bindings = Texture->second.BindingSet;
+					}
+
+					const ImVec2 ClipMinimum{
+					    (DrawCommand.ClipRect.x - DrawData.DisplayPos.x) * DrawData.FramebufferScale.x,
+					    (DrawCommand.ClipRect.y - DrawData.DisplayPos.y) * DrawData.FramebufferScale.y};
+					const ImVec2 ClipMaximum{
+					    (DrawCommand.ClipRect.z - DrawData.DisplayPos.x) * DrawData.FramebufferScale.x,
+					    (DrawCommand.ClipRect.w - DrawData.DisplayPos.y) * DrawData.FramebufferScale.y};
+					const int ClipLeft = std::clamp(static_cast<int>(ClipMinimum.x), 0, FramebufferWidth);
+					const int ClipTop = std::clamp(static_cast<int>(ClipMinimum.y), 0, FramebufferHeight);
+					const int ClipRight = std::clamp(static_cast<int>(ClipMaximum.x), 0, FramebufferWidth);
+					const int ClipBottom = std::clamp(static_cast<int>(ClipMaximum.y), 0, FramebufferHeight);
+					if (ClipRight <= ClipLeft || ClipBottom <= ClipTop)
+					{
+						continue;
+					}
+
+					nvrhi::GraphicsState State;
+					State.pipeline = RenderPipeline;
+					State.framebuffer = RenderFramebuffer;
+					State.bindings.push_back(Bindings);
+					State.vertexBuffers.push_back(nvrhi::VertexBufferBinding().setBuffer(ToolUIVertexBuffer).setSlot(0).setOffset(0));
+					State.indexBuffer = nvrhi::IndexBufferBinding().setBuffer(ToolUIIndexBuffer).setFormat(sizeof(ImDrawIdx) == 2 ? nvrhi::Format::R16_UINT : nvrhi::Format::R32_UINT).setOffset(0);
+					State.viewport.addViewport(nvrhi::Viewport(static_cast<float>(FramebufferWidth), static_cast<float>(FramebufferHeight)));
+					State.viewport.addScissorRect(nvrhi::Rect(ClipLeft, ClipRight, ClipTop, ClipBottom));
+					RenderCommandList->setGraphicsState(State);
+					RenderCommandList->setPushConstants(&PushConstants, sizeof(PushConstants));
+
+					nvrhi::DrawArguments Arguments;
+					Arguments.vertexCount = DrawCommand.ElemCount;
+					Arguments.startIndexLocation = GlobalIndexOffset + DrawCommand.IdxOffset;
+					Arguments.startVertexLocation = GlobalVertexOffset + DrawCommand.VtxOffset;
+					RenderCommandList->drawIndexed(Arguments);
 				}
 
-				const ImVec2 ClipMinimum{
-				    (DrawCommand.ClipRect.x - DrawData.DisplayPos.x) * DrawData.FramebufferScale.x,
-				    (DrawCommand.ClipRect.y - DrawData.DisplayPos.y) * DrawData.FramebufferScale.y};
-				const ImVec2 ClipMaximum{
-				    (DrawCommand.ClipRect.z - DrawData.DisplayPos.x) * DrawData.FramebufferScale.x,
-				    (DrawCommand.ClipRect.w - DrawData.DisplayPos.y) * DrawData.FramebufferScale.y};
-				const int ClipLeft = std::clamp(static_cast<int>(ClipMinimum.x), 0, FramebufferWidth);
-				const int ClipTop = std::clamp(static_cast<int>(ClipMinimum.y), 0, FramebufferHeight);
-				const int ClipRight = std::clamp(static_cast<int>(ClipMaximum.x), 0, FramebufferWidth);
-				const int ClipBottom = std::clamp(static_cast<int>(ClipMaximum.y), 0, FramebufferHeight);
-				if (ClipRight <= ClipLeft || ClipBottom <= ClipTop)
-				{
-					continue;
-				}
-
-				nvrhi::GraphicsState State;
-				State.pipeline = RenderPipeline;
-				State.framebuffer = RenderFramebuffer;
-				State.bindings.push_back(Texture->second.BindingSet);
-				State.vertexBuffers.push_back(nvrhi::VertexBufferBinding().setBuffer(ToolUIVertexBuffer).setSlot(0).setOffset(0));
-				State.indexBuffer = nvrhi::IndexBufferBinding().setBuffer(ToolUIIndexBuffer).setFormat(sizeof(ImDrawIdx) == 2 ? nvrhi::Format::R16_UINT : nvrhi::Format::R32_UINT).setOffset(0);
-				State.viewport.addViewport(nvrhi::Viewport(static_cast<float>(FramebufferWidth), static_cast<float>(FramebufferHeight)));
-				State.viewport.addScissorRect(nvrhi::Rect(ClipLeft, ClipRight, ClipTop, ClipBottom));
-				RenderCommandList->setGraphicsState(State);
-				RenderCommandList->setPushConstants(&PushConstants, sizeof(PushConstants));
-
-				nvrhi::DrawArguments Arguments;
-				Arguments.vertexCount = DrawCommand.ElemCount;
-				Arguments.startIndexLocation = GlobalIndexOffset + DrawCommand.IdxOffset;
-				Arguments.startVertexLocation = GlobalVertexOffset + DrawCommand.VtxOffset;
-				RenderCommandList->drawIndexed(Arguments);
+				GlobalIndexOffset += static_cast<std::uint32_t>(DrawList->IdxBuffer.Size);
+				GlobalVertexOffset += static_cast<std::uint32_t>(DrawList->VtxBuffer.Size);
 			}
-
-			GlobalIndexOffset += static_cast<std::uint32_t>(DrawList->IdxBuffer.Size);
-			GlobalVertexOffset += static_cast<std::uint32_t>(DrawList->VtxBuffer.Size);
+			if (Pass == 0)
+			{
+				nvrhi::ITexture* const Source = RenderFramebuffer->getDesc().colorAttachments[0].texture;
+				const std::expected GlassResult = EnsureGlassResources(GlassResources, Source);
+				if (!GlassResult)
+				{
+					return GlassResult;
+				}
+				// The background and scene are complete; foreground panels never enter the shared snapshot.
+				RenderCommandList->copyTexture(GlassResources.Snapshot, nvrhi::TextureSlice{}, Source, nvrhi::TextureSlice{});
+				const auto& BlurDescriptor = GlassResources.Blurred->getDesc();
+				for (std::uint32_t Direction = 0; Direction < 2; ++Direction)
+				{
+					nvrhi::GraphicsState BlurState;
+					BlurState.pipeline = GlassResources.BlurPipeline;
+					BlurState.framebuffer = Direction == 0 ? GlassResources.HorizontalFramebuffer : GlassResources.BlurFramebuffer;
+					BlurState.bindings.push_back(Direction == 0 ? GlassResources.SnapshotBindings : GlassResources.HorizontalBindings);
+					BlurState.vertexBuffers.push_back(nvrhi::VertexBufferBinding().setBuffer(ToolUIVertexBuffer).setSlot(0).setOffset(0));
+					BlurState.indexBuffer = nvrhi::IndexBufferBinding().setBuffer(ToolUIIndexBuffer).setFormat(sizeof(ImDrawIdx) == 2 ? nvrhi::Format::R16_UINT : nvrhi::Format::R32_UINT).setOffset(0);
+					BlurState.viewport.addViewport(nvrhi::Viewport(static_cast<float>(BlurDescriptor.width), static_cast<float>(BlurDescriptor.height)));
+					BlurState.viewport.addScissorRect(nvrhi::Rect(0, static_cast<int>(BlurDescriptor.width), 0, static_cast<int>(BlurDescriptor.height)));
+					RenderCommandList->setGraphicsState(BlurState);
+					RenderCommandList->setPushConstants(&PushConstants, sizeof(PushConstants));
+					nvrhi::DrawArguments BlurArguments;
+					BlurArguments.vertexCount = 6;
+					BlurArguments.startIndexLocation = static_cast<std::uint32_t>(DrawData.TotalIdxCount) + Direction * 6;
+					BlurArguments.startVertexLocation = static_cast<std::uint32_t>(DrawData.TotalVtxCount) + Direction * 4;
+					RenderCommandList->drawIndexed(BlurArguments);
+				}
+			}
 		}
 
 		return {};
@@ -1224,6 +1334,7 @@ public:
 		ToolUIOverrideCommandList = Viewport->CommandList.Get();
 		ToolUIOverridePipeline = Viewport->Pipeline.Get();
 		ToolUIOverrideFramebuffer = Viewport->Framebuffers[Viewport->ActiveImageIndex].Get();
+		ToolUIOverrideViewport = Viewport;
 		bFrameActive = true;
 		std::expected<void, FPresentationError> Result;
 		try
@@ -1240,6 +1351,7 @@ public:
 		}
 		bFrameActive = false;
 		ToolUIOverrideFramebuffer = nullptr;
+		ToolUIOverrideViewport = nullptr;
 		ToolUIOverridePipeline = nullptr;
 		ToolUIOverrideCommandList = nullptr;
 		return Result;
@@ -1306,6 +1418,7 @@ private:
 
 	struct FToolUITexture
 	{
+		bool bBackdropSource = false;
 		nvrhi::TextureHandle Texture;
 		nvrhi::BindingSetHandle BindingSet;
 		std::uint32_t Width = 0;
@@ -1432,6 +1545,95 @@ private:
 		return {};
 	}
 
+	[[nodiscard]] nvrhi::GraphicsPipelineHandle CreateToolUIGraphicsPipeline(nvrhi::IFramebuffer* const Framebuffer, nvrhi::IShader* const PixelShader, const bool bBlend)
+	{
+		nvrhi::BlendState::RenderTarget BlendTarget;
+		if (bBlend)
+		{
+			BlendTarget.enableBlend();
+			BlendTarget.srcBlend = nvrhi::BlendFactor::SrcAlpha;
+			BlendTarget.destBlend = nvrhi::BlendFactor::InvSrcAlpha;
+			BlendTarget.srcBlendAlpha = nvrhi::BlendFactor::One;
+			BlendTarget.destBlendAlpha = nvrhi::BlendFactor::InvSrcAlpha;
+		}
+		nvrhi::RenderState RenderState;
+		RenderState.blendState.setRenderTarget(0, BlendTarget);
+		RenderState.depthStencilState.disableDepthTest();
+		RenderState.depthStencilState.disableDepthWrite();
+		RenderState.rasterState.setCullNone();
+		RenderState.rasterState.enableScissor();
+
+		nvrhi::GraphicsPipelineDesc PipelineDescriptor;
+		PipelineDescriptor.primType = nvrhi::PrimitiveType::TriangleList;
+		PipelineDescriptor.inputLayout = ToolUIInputLayout;
+		PipelineDescriptor.VS = ToolUIVertexShader;
+		PipelineDescriptor.PS = PixelShader;
+		PipelineDescriptor.renderState = RenderState;
+		PipelineDescriptor.bindingLayouts.push_back(ToolUIBindingLayout);
+		return NvrhiDevice->createGraphicsPipeline(PipelineDescriptor, Framebuffer->getFramebufferInfo());
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> EnsureGlassResources(FGlassResources& GlassResources, nvrhi::ITexture* const Source)
+	{
+		if (GlassResources.BlurPipeline)
+		{
+			return {};
+		}
+
+		FGlassResources NewResources;
+		nvrhi::TextureDesc SnapshotDescriptor = Source->getDesc();
+		SnapshotDescriptor.debugName = "ToolUI glass snapshot";
+		SnapshotDescriptor.isRenderTarget = false;
+		SnapshotDescriptor.isShaderResource = true;
+		SnapshotDescriptor.enableAutomaticStateTracking(nvrhi::ResourceStates::ShaderResource);
+		NewResources.Snapshot = NvrhiDevice->createTexture(SnapshotDescriptor);
+		nvrhi::TextureDesc BlurDescriptor = SnapshotDescriptor;
+		BlurDescriptor.debugName = "ToolUI shared blurred backdrop";
+		BlurDescriptor.width = std::max(1u, SnapshotDescriptor.width / 2);
+		BlurDescriptor.height = std::max(1u, SnapshotDescriptor.height / 2);
+		BlurDescriptor.isRenderTarget = true;
+		BlurDescriptor.debugName = "ToolUI horizontal blur";
+		NewResources.HorizontalBlur = NvrhiDevice->createTexture(BlurDescriptor);
+		BlurDescriptor.debugName = "ToolUI shared blurred backdrop";
+		NewResources.Blurred = NvrhiDevice->createTexture(BlurDescriptor);
+		if (!NewResources.Snapshot || !NewResources.HorizontalBlur || !NewResources.Blurred)
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not create ToolUI glass textures"});
+		}
+		nvrhi::FramebufferDesc FramebufferDescriptor;
+		FramebufferDescriptor.addColorAttachment(NewResources.HorizontalBlur);
+		NewResources.HorizontalFramebuffer = NvrhiDevice->createFramebuffer(FramebufferDescriptor);
+		FramebufferDescriptor = {};
+		FramebufferDescriptor.addColorAttachment(NewResources.Blurred);
+		NewResources.BlurFramebuffer = NvrhiDevice->createFramebuffer(FramebufferDescriptor);
+		if (!NewResources.HorizontalFramebuffer || !NewResources.BlurFramebuffer)
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not create ToolUI blur framebuffer"});
+		}
+		NewResources.BlurPipeline = CreateToolUIGraphicsPipeline(NewResources.BlurFramebuffer, ToolUIBlurPixelShader, false);
+		if (!NewResources.BlurPipeline)
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not create ToolUI blur pipeline"});
+		}
+		const auto MakeBindings = [this](nvrhi::ITexture* const Texture)
+		{
+			nvrhi::BindingSetDesc Bindings;
+			Bindings.addItem(nvrhi::BindingSetItem::Texture_SRV(0, Texture));
+			Bindings.addItem(nvrhi::BindingSetItem::Sampler(0, ToolUISampler));
+			Bindings.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(FToolUIPushConstants)));
+			return NvrhiDevice->createBindingSet(Bindings, ToolUIBindingLayout);
+		};
+		NewResources.SnapshotBindings = MakeBindings(NewResources.Snapshot);
+		NewResources.HorizontalBindings = MakeBindings(NewResources.HorizontalBlur);
+		NewResources.BlurBindings = MakeBindings(NewResources.Blurred);
+		if (!NewResources.SnapshotBindings || !NewResources.HorizontalBindings || !NewResources.BlurBindings)
+		{
+			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not bind ToolUI glass textures"});
+		}
+		GlassResources = std::move(NewResources);
+		return {};
+	}
+
 	[[nodiscard]] std::expected<void, FPresentationError> CreateToolUIRenderTargets(const std::span<const nvrhi::TextureHandle> RenderTargets, std::vector<nvrhi::FramebufferHandle>& Framebuffers, nvrhi::GraphicsPipelineHandle& Pipeline)
 	{
 		Framebuffers.clear();
@@ -1455,27 +1657,7 @@ private:
 			Framebuffers.push_back(std::move(Framebuffer));
 		}
 
-		nvrhi::BlendState::RenderTarget BlendTarget;
-		BlendTarget.enableBlend();
-		BlendTarget.srcBlend = nvrhi::BlendFactor::SrcAlpha;
-		BlendTarget.destBlend = nvrhi::BlendFactor::InvSrcAlpha;
-		BlendTarget.srcBlendAlpha = nvrhi::BlendFactor::One;
-		BlendTarget.destBlendAlpha = nvrhi::BlendFactor::InvSrcAlpha;
-		nvrhi::RenderState RenderState;
-		RenderState.blendState.setRenderTarget(0, BlendTarget);
-		RenderState.depthStencilState.disableDepthTest();
-		RenderState.depthStencilState.disableDepthWrite();
-		RenderState.rasterState.setCullNone();
-		RenderState.rasterState.enableScissor();
-
-		nvrhi::GraphicsPipelineDesc PipelineDescriptor;
-		PipelineDescriptor.primType = nvrhi::PrimitiveType::TriangleList;
-		PipelineDescriptor.inputLayout = ToolUIInputLayout;
-		PipelineDescriptor.VS = ToolUIVertexShader;
-		PipelineDescriptor.PS = ToolUIPixelShader;
-		PipelineDescriptor.renderState = RenderState;
-		PipelineDescriptor.bindingLayouts.push_back(ToolUIBindingLayout);
-		Pipeline = NvrhiDevice->createGraphicsPipeline(PipelineDescriptor, Framebuffers.front()->getFramebufferInfo());
+		Pipeline = CreateToolUIGraphicsPipeline(Framebuffers.front(), ToolUIPixelShader, true);
 		if (!Pipeline)
 		{
 			Framebuffers.clear();
@@ -1504,6 +1686,7 @@ private:
 			(void)Handle;
 			Viewport->Framebuffers.clear();
 			Viewport->Pipeline = nullptr;
+			Viewport->Glass = {};
 		}
 		ToolUIVertices.clear();
 		ToolUIIndices.clear();
@@ -1513,11 +1696,13 @@ private:
 		ToolUIIndexBufferCapacity = 0;
 		ToolUIFramebuffers.clear();
 		ToolUIPipeline = nullptr;
+		Glass = {};
 		ToolUITextures.clear();
 		ToolUIBindingLayout = nullptr;
 		ToolUISampler = nullptr;
 		ToolUIInputLayout = nullptr;
 		ToolUIPixelShader = nullptr;
+		ToolUIBlurPixelShader = nullptr;
 		ToolUIVertexShader = nullptr;
 	}
 
@@ -1548,6 +1733,7 @@ private:
 		{
 			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The secondary Vulkan surface does not support color attachment and transfer destination usage"});
 		}
+		Viewport.bBackdropCopySupported = (Capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
 
 		std::uint32_t FormatCount = 0;
 		Result = vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, Viewport.Surface, &FormatCount, nullptr);
@@ -1612,7 +1798,7 @@ private:
 		SwapchainInfo.imageColorSpace = Viewport.SurfaceFormat.colorSpace;
 		SwapchainInfo.imageExtent = {Viewport.Extent.Width, Viewport.Extent.Height};
 		SwapchainInfo.imageArrayLayers = 1;
-		SwapchainInfo.imageUsage = RequiredUsage;
+		SwapchainInfo.imageUsage = RequiredUsage | (Viewport.bBackdropCopySupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
 		SwapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		SwapchainInfo.preTransform = Capabilities.currentTransform;
 		SwapchainInfo.compositeAlpha = ChooseCompositeAlpha(Capabilities.supportedCompositeAlpha);
@@ -1699,6 +1885,7 @@ private:
 		Viewport.bFrameActive = false;
 		Viewport.Framebuffers.clear();
 		Viewport.Pipeline = nullptr;
+		Viewport.Glass = {};
 		Viewport.BackBuffers.clear();
 		if (Device != VK_NULL_HANDLE)
 		{
@@ -1761,6 +1948,7 @@ private:
 		{
 			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The Vulkan surface does not support color attachment and transfer destination usage"});
 		}
+		bBackdropCopySupported = (Capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
 
 		std::uint32_t FormatCount = 0;
 		Result = vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, Surface, &FormatCount, nullptr);
@@ -1817,7 +2005,7 @@ private:
 		SwapchainInfo.imageColorSpace = SurfaceFormat.colorSpace;
 		SwapchainInfo.imageExtent = {Extent.Width, Extent.Height};
 		SwapchainInfo.imageArrayLayers = 1;
-		SwapchainInfo.imageUsage = RequiredUsage;
+		SwapchainInfo.imageUsage = RequiredUsage | (bBackdropCopySupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
 		SwapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		SwapchainInfo.preTransform = Capabilities.currentTransform;
 		SwapchainInfo.compositeAlpha = ChooseCompositeAlpha(Capabilities.supportedCompositeAlpha);
@@ -1913,6 +2101,7 @@ private:
 
 		ToolUIFramebuffers.clear();
 		ToolUIPipeline = nullptr;
+		Glass = {};
 		FrameSync.clear();
 		RenderFinished.clear();
 		BackBuffers.clear();
@@ -1999,6 +2188,7 @@ private:
 	std::unique_ptr<IGraphicsDevice> GraphicsDevice;
 	nvrhi::CommandListHandle CommandList;
 	std::vector<nvrhi::TextureHandle> BackBuffers;
+	FGlassResources Glass;
 	std::vector<VkSemaphore> RenderFinished;
 	std::vector<FFrameSync> FrameSync;
 	std::size_t FrameSlot = 0;
@@ -2006,8 +2196,10 @@ private:
 	bool bDebugUtilsEnabled = false;
 	bool bFrameActive = false;
 	bool bFrameSuboptimal = false;
+	bool bBackdropCopySupported = false;
 	nvrhi::ShaderHandle ToolUIVertexShader;
 	nvrhi::ShaderHandle ToolUIPixelShader;
+	nvrhi::ShaderHandle ToolUIBlurPixelShader;
 	nvrhi::InputLayoutHandle ToolUIInputLayout;
 	nvrhi::BindingLayoutHandle ToolUIBindingLayout;
 	nvrhi::SamplerHandle ToolUISampler;
@@ -2017,6 +2209,7 @@ private:
 	nvrhi::ICommandList* ToolUIOverrideCommandList = nullptr;
 	nvrhi::IGraphicsPipeline* ToolUIOverridePipeline = nullptr;
 	nvrhi::IFramebuffer* ToolUIOverrideFramebuffer = nullptr;
+	FSecondaryViewport* ToolUIOverrideViewport = nullptr;
 	nvrhi::BufferHandle ToolUIVertexBuffer;
 	nvrhi::BufferHandle ToolUIIndexBuffer;
 	std::vector<nvrhi::FramebufferHandle> ToolUIFramebuffers;

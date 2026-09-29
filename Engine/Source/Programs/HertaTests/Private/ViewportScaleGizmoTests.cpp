@@ -59,8 +59,10 @@ struct FScaleGizmoTestContext
 TEST_CASE("Scale plane handles hit drag snap release and preserve starting ratio")
 {
 	FScaleGizmoTestContext Gizmo;
-	const float Offset = Gizmo.WorldHeight() * 0.45f;
+	const float Offset = Gizmo.WorldHeight() * 0.60f;
 	const Im3d::Vec3 Center{Offset, Offset, 0.0f};
+	Gizmo.Frame({Gizmo.WorldHeight() * 0.45f, Gizmo.WorldHeight() * 0.45f, 0.0f}, false);
+	CHECK(Im3d::GetHotId() == Im3d::Id_Invalid);
 	Gizmo.Frame(Center, false);
 	REQUIRE(Im3d::GetHotId() != Im3d::Id_Invalid);
 	Gizmo.Frame(Center, true);
@@ -93,7 +95,7 @@ TEST_CASE("Scale plane hit bounds match rotated local squares")
 	const float Diagonal = std::sqrt(0.5f);
 	Gizmo.Rotation.setCol(0, {Diagonal, Diagonal, 0.0f});
 	Gizmo.Rotation.setCol(1, {-Diagonal, Diagonal, 0.0f});
-	const float Offset = Gizmo.WorldHeight() * 0.45f;
+	const float Offset = Gizmo.WorldHeight() * 0.60f;
 	const float HalfSize = Gizmo.WorldHeight() * (6.0f / 80.0f);
 	const Im3d::Vec3 Center = Gizmo.Rotation * Im3d::Vec3{Offset, Offset, 0.0f};
 	const Im3d::Vec3 Inside = Center + Gizmo.Rotation * Im3d::Vec3{HalfSize * 0.9f, HalfSize * 0.9f, 0.0f};
@@ -112,7 +114,7 @@ TEST_CASE("Scale plane clamps one factor for nonuniform components")
 {
 	FScaleGizmoTestContext Gizmo;
 	Gizmo.Scale = {2.0f, 500.0f, 4.0f};
-	const float Offset = Gizmo.WorldHeight() * 0.45f;
+	const float Offset = Gizmo.WorldHeight() * 0.60f;
 	const Im3d::Vec3 Center{Offset, Offset, 0.0f};
 	Gizmo.Frame(Center, false);
 	Gizmo.Frame(Center, true);

@@ -7,6 +7,14 @@
 
 namespace Herta
 {
+TEST_CASE("ToolUI scene canvas excludes chrome but not overlay panels")
+{
+	CHECK(ResolveToolUIWorkspaceCanvas({0, 0, 1920, 1080}, 36, 32) == FToolUICanvasBounds{0, 36, 1920, 1012});
+	CHECK(ResolveToolUIWorkspaceCanvas({-1920, 80, 1920, 1080}, 54, 48) == FToolUICanvasBounds{-1920, 134, 1920, 978});
+	CHECK(ResolveToolUIWorkspaceCanvas({0, 0, 10, 20}, 36, 32) == FToolUICanvasBounds{0, 20, 10, 0});
+	CHECK(ResolveToolUIWorkspaceCanvas({0, 0, 0, 0}, 36, 32) == FToolUICanvasBounds{});
+}
+
 TEST_CASE("ToolUI theme defaults preserve the editor visual contract")
 {
 	constexpr FEditorAppearance Appearance;
@@ -14,13 +22,18 @@ TEST_CASE("ToolUI theme defaults preserve the editor visual contract")
 	constexpr FToolUIGradient FocusedGradient = ResolveToolUIGradient(Appearance, true);
 	constexpr FToolUIGradient UnfocusedGradient = ResolveToolUIGradient(Appearance, false);
 
-	CHECK(Appearance.Accent == ToolUITheme::Presets[6].Color);
+	CHECK(Appearance.Accent == FToolUIColor{184, 184, 184, 255});
 	CHECK(Appearance.PanelTransparency == EPanelTransparency::AllPanels);
+	CHECK(Appearance.PanelOpacity == doctest::Approx(0.95f));
+	CHECK(Appearance.BlurRadius == doctest::Approx(24.0f));
+	CHECK_FALSE(Appearance.bReducedMotion);
 	CHECK(Metrics.BaseFontSize == 15.0f);
 	CHECK(Metrics.TitleBarHeight == 36.0f);
 	CHECK(FocusedGradient.BottomLeft == ToolUITheme::Canvas);
 	CHECK(FocusedGradient.BottomRight == ToolUITheme::Canvas);
-	CHECK(FocusedGradient.TopLeft != UnfocusedGradient.TopLeft);
+	CHECK(FocusedGradient.TopLeft == UnfocusedGradient.TopLeft);
+	constexpr FEditorAppearance Colored{.Accent = {84, 108, 232, 255}};
+	CHECK(ResolveToolUIGradient(Colored, true).TopLeft != ResolveToolUIGradient(Colored, false).TopLeft);
 }
 
 TEST_CASE("ToolUI panel transparency policies distinguish docked panels")
@@ -45,6 +58,17 @@ TEST_CASE("ToolUI intensity reaches the selected color at full strength")
 	constexpr FToolUIGradient Gradient = ResolveToolUIGradient(Appearance, true);
 	CHECK(Gradient.TopLeft == Appearance.Accent);
 	CHECK(Gradient.TopRight == MixToolUIColor(ToolUITheme::Canvas, Appearance.Accent, ToolUITheme::TrailingIntensityRatio));
+}
+
+TEST_CASE("Scene viewport backgrounds never tint over the scene or erase island contrast")
+{
+	for (const EPanelTransparency Mode : {EPanelTransparency::AllPanels, EPanelTransparency::FloatingOnly, EPanelTransparency::DockedOnly, EPanelTransparency::Disabled})
+	{
+		CHECK(ResolveToolUIPanelBackgroundAlpha(Mode, true, true) == 0.0f);
+		CHECK(ResolveToolUIPanelBackgroundAlpha(Mode, false, true) == 0.0f);
+	}
+	CHECK(ResolveToolUIPanelBackgroundAlpha(EPanelTransparency::AllPanels, true, false) == 0.0f);
+	CHECK(ResolveToolUIPanelBackgroundAlpha(EPanelTransparency::Disabled, true, false) == 1.0f);
 }
 
 TEST_CASE("ToolUI viewport positioning respects compositor ownership")

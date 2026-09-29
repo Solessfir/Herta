@@ -31,18 +31,21 @@ constexpr auto CubeIndices = []
 	return Result;
 }();
 
+constexpr std::uint32_t CheckerTextureSize = 128;
 constexpr auto CheckerPixels = []
 {
-	std::array<std::uint8_t, std::size_t{64} * 64 * 4> Result{};
-	for (std::size_t Y = 0; Y < 64; ++Y)
+	constexpr std::size_t TileSize = CheckerTextureSize / 4;
+	std::array<std::uint8_t, std::size_t{CheckerTextureSize} * CheckerTextureSize * 4> Result{};
+	for (std::size_t Y = 0; Y < CheckerTextureSize; ++Y)
 	{
-		for (std::size_t X = 0; X < 64; ++X)
+		for (std::size_t X = 0; X < CheckerTextureSize; ++X)
 		{
-			const bool bLight = ((X / 8) + (Y / 8)) % 2 == 0;
-			const std::size_t Pixel = (Y * 64 + X) * 4;
-			Result[Pixel] = bLight ? 225 : 36;
-			Result[Pixel + 1] = bLight ? 235 : 100;
-			Result[Pixel + 2] = bLight ? 245 : 170;
+			const bool bLight = ((X / TileSize) + (Y / TileSize)) % 2 == 0;
+			const bool bSeam = X % TileSize == 0 || Y % TileSize == 0;
+			const std::size_t Pixel = (Y * CheckerTextureSize + X) * 4;
+			Result[Pixel] = bSeam ? 70 : (bLight ? 145 : 82);
+			Result[Pixel + 1] = bSeam ? 83 : (bLight ? 160 : 99);
+			Result[Pixel + 2] = bSeam ? 96 : (bLight ? 174 : 117);
 			Result[Pixel + 3] = 255;
 		}
 	}
@@ -259,7 +262,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	State->Device = &Device;
 	auto Vertices = Device.CreateBuffer({"Mesh vertices", sizeof(CubeVertices), EBufferUsage::Vertex});
 	auto Indices = Device.CreateBuffer({"Mesh indices", sizeof(CubeIndices), EBufferUsage::Index});
-	auto Checker = Device.CreateTexture({"Checkerboard", {64, 64}, ETextureFormat::Rgba8Srgb, false});
+	auto Checker = Device.CreateTexture({"Checkerboard", {CheckerTextureSize, CheckerTextureSize}, ETextureFormat::Rgba8Srgb, false});
 	auto Pipeline = Device.CreateGraphicsPipeline({"Textured mesh reversed-Z", std::move(VertexShader), std::move(FragmentShader), ETextureFormat::Rgba8Srgb});
 	if (!Vertices || !Indices || !Checker || !Pipeline)
 	{
@@ -399,7 +402,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	const auto Texture = Graph.ImportResource("Checkerboard");
 	(void)Graph.AddPass("Clear", {{Color, ERenderGraphAccess::Write}, {Depth, ERenderGraphAccess::Write}}, [&]
 	                    {
-		                    return GraphResult(Device.ClearTargets(State.Color, FrameDepth, {0.012f, 0.017f, 0.025f, 1.0f}));
+		                    return GraphResult(Device.ClearTargets(State.Color, FrameDepth, {0.035f, 0.035f, 0.035f, 1.0f}));
 	                    });
 	(void)Graph.AddPass("Textured mesh", {{Color, ERenderGraphAccess::ReadWrite}, {Depth, ERenderGraphAccess::ReadWrite}, {Geometry, ERenderGraphAccess::Read}, {Texture, ERenderGraphAccess::Read}}, [&]
 	                    {

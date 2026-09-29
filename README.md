@@ -10,6 +10,8 @@ Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources,
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
 
+The native workspace renders the scene across the canvas beneath blurred Details and Output Log overlays, with compact chrome, glass viewport controls, and compact transform editing. Panels remain dockable and resizable; detached Viewports render within their own windows.
+
 See [Rendering.md](Docs/Rendering.md) for GPU ownership, shader cooking, and renderer verification. Reset the layout from the hamburger menu to use the new Viewport arrangement.
 
 In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the preview object. Click the cube to select it and show its outline and transform gizmo; click empty viewport space to deselect it. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits currently affect only the preview cube and are not saved.

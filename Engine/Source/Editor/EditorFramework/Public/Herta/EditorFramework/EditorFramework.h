@@ -5,6 +5,7 @@
 #include "Herta/Renderer/MeshRenderer.h"
 
 #include <expected>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
@@ -41,7 +42,8 @@ public:
 	FEditorFramework(FEditorFramework&&) = delete;
 	FEditorFramework& operator=(FEditorFramework&&) = delete;
 
-	[[nodiscard]] std::expected<void, FEditorFrameworkError> Draw();
+	// RenderViewport runs after viewport layout/input and must set the image before it is queued for display.
+	[[nodiscard]] std::expected<void, FEditorFrameworkError> Draw(const std::function<void()>& RenderViewport);
 	void SetViewportImage(std::uint64_t TextureId) noexcept;
 	[[nodiscard]] FExtent2D GetViewportExtent() const noexcept;
 	[[nodiscard]] FMeshRenderView GetViewportRenderView() const noexcept;

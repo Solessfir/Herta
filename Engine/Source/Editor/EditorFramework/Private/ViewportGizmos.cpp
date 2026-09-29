@@ -50,7 +50,7 @@ bool DrawPreviewTranslationGizmo(Im3d::Vec3& Translation, const Im3d::Mat3& Rota
 	const float WorldHeight = Context.pixelsToWorldSize(DrawAt, Context.m_gizmoHeightPixels);
 	const float WorldSize = Context.pixelsToWorldSize(DrawAt, Context.m_gizmoSizePixels);
 	const float PlaneHalfSize = WorldHeight * (6.0f / 80.0f);
-	const float PlaneOffset = WorldHeight * 0.45f;
+	const float PlaneOffset = WorldHeight * 0.60f;
 	const Im3d::Id AppId = Im3d::MakeId("PreviewCube");
 	Context.pushId(AppId);
 	Context.m_appId = AppId;

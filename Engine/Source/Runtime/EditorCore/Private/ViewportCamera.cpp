@@ -8,7 +8,7 @@ namespace Herta
 {
 namespace
 {
-constexpr float CameraVerticalFieldOfView = std::numbers::pi_v<float> / 3.0f;
+constexpr float CameraVerticalFieldOfView = 65.0f * std::numbers::pi_v<float> / 180.0f;
 constexpr float CameraNearPlane = 0.1f;
 constexpr float MinimumOrbitDistance = CameraNearPlane * 2.0f;
 constexpr float MaximumOrbitDistance = 1'000'000.0f;

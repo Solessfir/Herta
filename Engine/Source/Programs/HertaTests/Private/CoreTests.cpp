@@ -22,4 +22,9 @@ TEST_CASE("Build configuration names are stable")
 	CHECK(GetBuildConfigurationName(EBuildConfiguration::Development) == "Development");
 	CHECK(GetBuildConfigurationName(EBuildConfiguration::Shipping) == "Shipping");
 }
+
+TEST_CASE("Build revision is available without Git at runtime")
+{
+	CHECK_FALSE(GetBuildRevision().empty());
+}
 }

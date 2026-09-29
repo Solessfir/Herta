@@ -16,4 +16,13 @@ std::string_view GetBuildConfigurationName(const EBuildConfiguration Configurati
 
 	return "Unknown";
 }
+
+std::string_view GetBuildRevision() noexcept
+{
+#ifdef HERTA_BUILD_REVISION
+	return HERTA_BUILD_REVISION;
+#else
+	return "unknown";
+#endif
+}
 }

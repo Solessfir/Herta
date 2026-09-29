@@ -34,11 +34,14 @@ enum class EPanelTransparency : std::uint8_t
 
 struct FEditorAppearance
 {
-	FToolUIColor Accent{84, 108, 232, 255};
+	FToolUIColor Accent{184, 184, 184, 255};
 	float GradientHeight = 0.50f;
 	float Saturation = 0.80f;
 	float Intensity = 0.15f;
+	float PanelOpacity = 0.95f;
+	float BlurRadius = 24.0f;
 	EPanelTransparency PanelTransparency = EPanelTransparency::AllPanels;
+	bool bReducedMotion = false;
 
 	[[nodiscard]] constexpr bool operator==(const FEditorAppearance&) const noexcept = default;
 };
@@ -47,7 +50,7 @@ struct FToolUIThemeMetrics
 {
 	float BaseFontSize = 15.0f;
 	float TitleBarHeight = 36.0f;
-	float MainToolbarHeight = 46.0f;
+	float StatusBarHeight = 32.0f;
 	float WindowPadding = 12.0f;
 	float WindowRounding = 6.0f;
 	float ChildRounding = 6.0f;
@@ -67,13 +70,14 @@ struct FToolUIColorPreset
 
 namespace ToolUITheme
 {
-inline constexpr FToolUIColor Canvas{18, 18, 19, 255};
-inline constexpr FToolUIColor Surface0{23, 23, 25, 255};
-inline constexpr FToolUIColor Surface1{28, 28, 30, 255};
-inline constexpr FToolUIColor Surface2{36, 36, 39, 255};
-inline constexpr FToolUIColor SurfaceHover{44, 44, 47, 255};
-inline constexpr FToolUIColor Border{52, 52, 56, 255};
-inline constexpr FToolUIColor BorderSoft{37, 37, 40, 255};
+inline constexpr FToolUIColor Canvas{25, 25, 25, 255};
+inline constexpr FToolUIColor TitleBar{27, 27, 27, 255};
+inline constexpr FToolUIColor Surface0{23, 23, 23, 255};
+inline constexpr FToolUIColor Surface1{28, 28, 28, 255};
+inline constexpr FToolUIColor Surface2{36, 36, 36, 255};
+inline constexpr FToolUIColor SurfaceHover{44, 44, 44, 255};
+inline constexpr FToolUIColor Border{52, 52, 52, 255};
+inline constexpr FToolUIColor BorderSoft{37, 37, 37, 255};
 inline constexpr FToolUIColor TextPrimary{255, 255, 255, 255};
 inline constexpr FToolUIColor TextSecondary{190, 190, 193, 255};
 inline constexpr FToolUIColor TextMuted{148, 148, 152, 255};
@@ -162,5 +166,11 @@ inline constexpr std::array Presets = {
 	}
 
 	return false;
+}
+
+[[nodiscard]] constexpr float ResolveToolUIPanelBackgroundAlpha(const EPanelTransparency Mode, const bool bDocked, const bool bSceneViewport) noexcept
+{
+	// Scene images and glass surfaces are composed separately from ImGui window backgrounds.
+	return bSceneViewport || IsToolUIPanelTransparent(Mode, bDocked) ? 0.0f : 1.0f;
 }
 }

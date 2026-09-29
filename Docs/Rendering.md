@@ -1,6 +1,6 @@
 # Rendering foundation
 
-Milestone 2 adds an offscreen textured mesh to the editor's Viewport panel. The default layout docks Details beside the Viewport and Output Log below. Start is closed by default and can be toggled from the application menu. Existing saved layouts remain intact; a new Details panel inherits Start's saved dock when available.
+Milestone 2 adds an offscreen textured mesh to the editor workspace, behind the docked Details and Output Log overlays. The editor camera uses a 65-degree vertical perspective field of view. Viewport layout and camera input are resolved before rendering the scene and recording its image, so resizing uses the current frame's aspect ratio. Render-target size limits scale both dimensions together. Its depth-tested meter grid uses subdued major lines and distance fading. Start is closed by default and can be toggled from the application menu. Existing saved layouts remain intact; a new Details panel inherits Start's saved dock when available.
 
 ## Ownership
 
@@ -26,7 +26,7 @@ Camera and gizmo drags start only over the viewport image. They keep ownership t
 
 Click the preview cube to select it; click empty viewport space to deselect it. Selection shows an orange silhouette outline and transform handles. Camera navigation and gizmo clicks preserve selection. This picker handles only the transformed preview cube; general scene selection and mesh outlines belong to the scene editor milestone.
 
-Details edits the same preview transform as the gizmos: location in meters, XYZ Euler rotation in degrees, and positive per-axis scale. Each property has a reset button. With no selection the panel displays a selection prompt. These edits are session-only.
+Details edits the same preview transform as the gizmos: location in meters, XYZ Euler rotation in degrees, and positive per-axis scale. Compact RGB-marked fields omit axis labels. Each property has a reset button and a Local/World selector; the parentless preview has identical local and world values. Locking scale preserves all three starting proportions and rejects edits outside the positive supported range. Search filters transform properties. With no selection the panel displays a selection prompt. These edits are session-only.
 
 Translation and scale use small colored plane handles. Scale plane handles change two local axes together while preserving their starting ratio. During dragging, translation displays meters, scale displays multipliers relative to the starting scale, and rotation displays the signed applied angle with a swept sector. Dotted guides replace full-length axis lines; releasing or cancelling hides the feedback.
 
@@ -56,7 +56,7 @@ Existing files under `Engine/Shaders` participate in build dependencies. Regener
 
 `HertaTests` covers camera navigation and picking rays, viewport input ownership, gizmo dragging and snapping, debug primitive validation, graph hazards and failure cleanup, renderer projection and winding, shader serialization and corruption, deterministic Slang compilation, dependency tracking, reflection, and failed-cook preservation.
 
-`HertaEditor --renderer-test` checks GPU image coverage, near-over-far depth occlusion, depth-tested and overlay debug primitives, point pixel size, recording cancellation, fence retirement, repeated offscreen resize/zero extents, and native resize/minimize/restore requests, then exits. Development renderer tests require Vulkan validation instead of silently running without it. Smoke runs store layout and appearance under `TestResults/Smoke`.
+`HertaEditor --renderer-test` checks GPU image coverage, near-over-far depth occlusion, depth-tested and overlay debug primitives, point pixel size, recording cancellation, fence retirement, repeated offscreen resize/zero extents, and native resize/minimize/restore requests, then exits. The native resize sequence also switches panel blur between zero, normal, and maximum radius to exercise backdrop allocation and reuse. Development renderer tests require Vulkan validation instead of silently running without it. Smoke runs store layout and appearance under `TestResults/Smoke`.
 
 On Windows, expose the pinned SDK layer when launching from a normal terminal:
 

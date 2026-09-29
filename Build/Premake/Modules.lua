@@ -6,6 +6,14 @@ local ProgramsRoot = path.join(SourceRoot, "Programs")
 local ProjectFilesRoot = path.join(RepositoryRoot, "Intermediate/ProjectFiles", _ACTION or "NoAction")
 local RuntimeModules = {}
 
+local function GetBuildRevision()
+    local NullDevice = os.host() == "windows" and "nul" or "/dev/null"
+    local Command = 'git -C "' .. RepositoryRoot .. '" rev-parse --short=8 HEAD 2>' .. NullDevice
+    local Success, Output = pcall(os.outputof, Command)
+    local Revision = Success and Output and Output:match("^%s*([0-9a-fA-F]+)%s*$")
+    return Revision and #Revision >= 7 and #Revision <= 40 and Revision or "unknown"
+end
+
 local function ApplyCommonProjectSettings(ProjectSourceRoot)
     targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}"))
     objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/%{prj.name}"))
@@ -177,7 +185,7 @@ end
 
 HertaRuntimeModule("Core", {
     PrivateThirdPartyDependencies = { "Spdlog" },
-    PrivateDefinitions = { "SPDLOG_COMPILED_LIB" }
+    PrivateDefinitions = { "SPDLOG_COMPILED_LIB", 'HERTA_BUILD_REVISION="' .. GetBuildRevision() .. '"' }
 })
 
     externalincludedirs {
@@ -234,7 +242,7 @@ HertaRuntimeModule("Application", {
     }
 
 HertaRuntimeModule("ToolUI", {
-    PrivateDependencies = { "Application" },
+    PrivateDependencies = { "Core", "Application" },
     PrivateThirdPartyDependencies = { "ImGui", "FreeType", "GLFW" }
 })
 

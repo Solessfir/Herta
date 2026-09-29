@@ -2,11 +2,13 @@
 
 #include "Herta/ToolUI/Theme.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -34,6 +36,23 @@ struct FToolUIViewportPosition
 
 	[[nodiscard]] constexpr bool operator==(const FToolUIViewportPosition&) const noexcept = default;
 };
+
+struct FToolUICanvasBounds
+{
+	float X = 0.0f;
+	float Y = 0.0f;
+	float Width = 0.0f;
+	float Height = 0.0f;
+
+	[[nodiscard]] constexpr bool operator==(const FToolUICanvasBounds&) const noexcept = default;
+};
+
+[[nodiscard]] constexpr FToolUICanvasBounds ResolveToolUIWorkspaceCanvas(const FToolUICanvasBounds Window, const float TitleBarHeight, const float StatusBarHeight) noexcept
+{
+	const float Top = std::clamp(TitleBarHeight, 0.0f, std::max(0.0f, Window.Height));
+	const float Bottom = std::clamp(StatusBarHeight, 0.0f, std::max(0.0f, Window.Height - Top));
+	return {Window.X, Window.Y + Top, std::max(0.0f, Window.Width), std::max(0.0f, Window.Height - Top - Bottom)};
+}
 
 struct FToolUIViewportWindowPolicy
 {
@@ -85,6 +104,17 @@ struct FToolUIDescriptor
 	std::function<void()> RefreshRequested;
 };
 
+enum class EToolUIMenuIcon : std::uint8_t
+{
+	Panel,
+	Log,
+	Layout,
+	Sync,
+	Exit
+};
+
+[[nodiscard]] bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr);
+
 class FToolUIContext final
 {
 public:
@@ -102,9 +132,11 @@ public:
 	void BeginFrame();
 	[[nodiscard]] std::expected<void, FToolUIError> EndFrame(bool bRenderMainViewport = true);
 	[[nodiscard]] std::expected<void, FToolUIError> RenderPlatformWindows();
-	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawMenuItems = {});
-	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr);
+	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawMenuItems = {}, const std::function<void()>& DrawStatusItems = {});
+	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, bool bViewport = false);
 	void EndPanel();
+	[[nodiscard]] std::optional<FToolUICanvasBounds> GetWorkspaceCanvasForCurrentPanel() const noexcept;
+	void DrawGlassSurface(float X, float Y, float Width, float Height, float Radius) const;
 
 	void SetAppearance(FEditorAppearance Appearance) noexcept;
 	[[nodiscard]] const FEditorAppearance& GetAppearance() const noexcept;

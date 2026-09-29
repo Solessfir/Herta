@@ -33,6 +33,8 @@ TEST_CASE("Output Log filters records and preserves severity overrides")
 	Log->LogText(Renderer, ELogLevel::Warning, "Fallback format");
 	REQUIRE((*Model)->Synchronize().has_value());
 	CHECK((*Model)->GetVisibleLines().size() == 2);
+	CHECK((*Model)->GetVisibleLines()[0].Text.find("Renderer        Created device") != std::string::npos);
+	CHECK((*Model)->GetVisibleLines()[0].Text.find("[Info]") == std::string::npos);
 	CHECK(HasOutputLogLevelColorOverride((*Model)->GetVisibleLines()[1].Record.Level));
 
 	REQUIRE((*Model)->SetSearch("device").has_value());

@@ -31,7 +31,7 @@ class INvrhiVulkanPresentation : public IPresentationDevice
 {
 public:
 	[[nodiscard]] virtual IGraphicsDevice& GetGraphicsDevice() noexcept = 0;
-	[[nodiscard]] virtual std::expected<std::uint64_t, FPresentationError> RegisterToolUITexture(const FTextureHandle& Texture) = 0;
+	[[nodiscard]] virtual std::expected<std::uint64_t, FPresentationError> RegisterToolUITexture(const FTextureHandle& Texture, bool bBackdropSource = false) = 0;
 	virtual void UnregisterToolUITexture(std::uint64_t TextureId) noexcept = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> InitializeToolUIRenderer() = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> RenderToolUIDrawData(const void* DrawData) = 0;

@@ -28,4 +28,5 @@ enum class EBuildConfiguration : std::uint8_t
 }
 
 [[nodiscard]] std::string_view GetBuildConfigurationName(EBuildConfiguration Configuration) noexcept;
+[[nodiscard]] std::string_view GetBuildRevision() noexcept;
 }

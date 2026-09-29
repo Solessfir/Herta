@@ -100,7 +100,7 @@ bool DrawPreviewScaleGizmo(const Im3d::Vec3& Translation, const Im3d::Mat3& Rota
 	}
 	const float WorldSize = Context.pixelsToWorldSize(Translation, Context.m_gizmoSizePixels);
 	const float PlaneHalfSize = WorldHeight * (6.0f / 80.0f);
-	const float PlaneOffset = WorldHeight * 0.45f;
+	const float PlaneOffset = WorldHeight * 0.60f;
 	const Im3d::Mat3 InverseBasis = Im3d::Transpose(Rotation);
 	std::array Axes{Rotation.getCol(0), Rotation.getCol(1), Rotation.getCol(2)};
 	constexpr std::array Colors{Im3d::Color_Red, Im3d::Color_Green, Im3d::Color_Blue};

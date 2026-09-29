@@ -229,7 +229,7 @@ TEST_CASE("Viewport translation plane is a small solid square with matching worl
 	Gizmo.bCustomTranslation = true;
 	Gizmo.Context.m_gizmoHeightPixels = 80.0f;
 	Gizmo.Context.m_gizmoSizePixels = 4.0f;
-	const float Center = Gizmo.Context.pixelsToWorldSize(Im3d::Vec3(0.0f), 80.0f) * 0.45f;
+	const float Center = Gizmo.Context.pixelsToWorldSize(Im3d::Vec3(0.0f), 80.0f) * 0.60f;
 	Gizmo.FrameRay({Center + 0.1f, Center, 5.0f}, false);
 	CHECK(Im3d::GetHotId() == Im3d::Id_Invalid);
 	float MinimumX = std::numeric_limits<float>::max();
@@ -275,7 +275,7 @@ TEST_CASE("Viewport local translation plane hit bounds rotate with the drawn squ
 	Gizmo.Context.m_gizmoHeightPixels = 80.0f;
 	Gizmo.Context.m_gizmoSizePixels = 4.0f;
 	Gizmo.Rotation = Im3d::Rotation({0.0f, 0.0f, 1.0f}, std::numbers::pi_v<float> * 0.25f);
-	const float Center = Gizmo.Context.pixelsToWorldSize(Im3d::Vec3(0.0f), 80.0f) * 0.45f;
+	const float Center = Gizmo.Context.pixelsToWorldSize(Im3d::Vec3(0.0f), 80.0f) * 0.60f;
 	const Im3d::Vec3 Inside = Gizmo.Rotation * Im3d::Vec3(Center + 0.06f, Center + 0.06f, 0.0f);
 	Gizmo.FrameRay({Inside.x, Inside.y, 5.0f}, false);
 	REQUIRE(Im3d::GetHotId() != Im3d::Id_Invalid);

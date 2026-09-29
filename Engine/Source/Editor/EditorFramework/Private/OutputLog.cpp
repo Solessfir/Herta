@@ -58,7 +58,7 @@ inline constexpr FLogCategory CommandCategory{"Command"};
 
 [[nodiscard]] std::vector<std::string> FormatRecordLines(const FLogRecord& Record)
 {
-	const std::string Prefix = std::format("[{:.3f}] [{}] [{}] ", Record.ElapsedSeconds, GetLogLevelName(Record.Level), Record.Category);
+	const std::string Prefix = std::format("{:7.3f}  {:<14}  ", Record.ElapsedSeconds, Record.Category);
 	std::vector<std::string> Lines;
 	std::size_t FirstByte = 0;
 	do

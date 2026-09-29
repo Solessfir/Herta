@@ -28,6 +28,7 @@ TEST_CASE("Viewport camera starts looking forward with reversed infinite depth")
 {
 	const FViewportCameraController Camera;
 	const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(1.0f);
+	CHECK(Snapshot.Projection(1, 1) == doctest::Approx(1.56968558f));
 	CheckCameraVector(Snapshot.Position, {0.0f, 0.0f, -5.0f});
 	CheckCameraVector(Snapshot.View.TransformPosition(Snapshot.Position), FVector3::Zero());
 	CheckCameraVector(Snapshot.View.TransformPosition(FVector3::Zero()), {0.0f, 0.0f, 5.0f});
@@ -183,14 +184,19 @@ TEST_CASE("Viewport picking rays match top-left screen coordinates and camera pr
 	Input.MouseDeltaPixels = {100.0f, -150.0f};
 	Input.Movement = FVector3::Left();
 	Camera.Update(Input, 0.25f, CameraViewportSize);
-	for (const FVector2 ScreenPosition : std::array{FVector2{0.0f, 0.0f}, FVector2{0.5f, 0.5f}, FVector2{0.8f, 0.2f}, FVector2{1.0f, 1.0f}})
+	for (const float AspectRatio : std::array{0.25f, 1.0f, 2.0f, 4.0f})
 	{
-		const FViewportPickingRay Ray = Camera.MakePickingRay(ScreenPosition, 2.0f);
-		const FVector3 Ndc = ProjectCameraPoint(Camera.GetSnapshot(2.0f), Ray.Origin + Ray.Direction * 10.0f);
-		CheckCameraVector(Ray.Origin, Camera.GetSnapshot(2.0f).Position);
-		CHECK(Ray.Direction.Length() == doctest::Approx(1.0f));
-		CHECK(Ndc.X == doctest::Approx(2.0f * ScreenPosition.X - 1.0f).epsilon(CameraTolerance));
-		CHECK(Ndc.Y == doctest::Approx(1.0f - 2.0f * ScreenPosition.Y).epsilon(CameraTolerance));
+		const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(AspectRatio);
+		CHECK(Snapshot.Projection(0, 0) == doctest::Approx(-Snapshot.Projection(1, 1) / AspectRatio));
+		for (const FVector2 ScreenPosition : std::array{FVector2{0.0f, 0.0f}, FVector2{0.5f, 0.5f}, FVector2{0.8f, 0.2f}, FVector2{1.0f, 1.0f}})
+		{
+			const FViewportPickingRay Ray = Camera.MakePickingRay(ScreenPosition, AspectRatio);
+			const FVector3 Ndc = ProjectCameraPoint(Snapshot, Ray.Origin + Ray.Direction * 10.0f);
+			CheckCameraVector(Ray.Origin, Snapshot.Position);
+			CHECK(Ray.Direction.Length() == doctest::Approx(1.0f));
+			CHECK(Ndc.X == doctest::Approx(2.0f * ScreenPosition.X - 1.0f).epsilon(CameraTolerance));
+			CHECK(Ndc.Y == doctest::Approx(1.0f - 2.0f * ScreenPosition.Y).epsilon(CameraTolerance));
+		}
 	}
 }
 

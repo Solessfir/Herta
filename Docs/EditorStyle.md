@@ -1,6 +1,6 @@
 # Herta Editor Style
 
-Status: Milestone 1 baseline
+Status: Native redesign baseline, Milestone 2.5
 
 This is the initial HertaEditor visual and interaction language. It is based on the native application shell proven in the C++ ProjectTemplate, with engine-specific ownership and persistence added where the template intentionally stayed small.
 
@@ -37,13 +37,13 @@ ToolUI presentation swapchains use an 8-bit UNORM image format with `VK_COLOR_SP
 
 | Token | Value | Use |
 |---|---:|---|
-| `Canvas` | `#121213` | Full-window background and gradient endpoint |
-| `Surface0` | `#171719` | Windows, docking background, and scroll tracks |
-| `Surface1` | `#1C1C1E` | Child regions, popups, inputs, and default buttons |
-| `Surface2` | `#242427` | Selected tabs, active frames, and headers |
-| `SurfaceHover` | `#2C2C2F` | Hovered neutral controls |
-| `Border` | `#343438` | Strong panel and table boundaries |
-| `BorderSoft` | `#252528` | Separators and subtle boundaries |
+| `Canvas` | `#191919` | Full-window background and gradient endpoint |
+| `Surface0` | `#171717` | Windows, docking background, and scroll tracks |
+| `Surface1` | `#1C1C1C` | Child regions, popups, inputs, and default buttons |
+| `Surface2` | `#242424` | Selected tabs, active frames, and headers |
+| `SurfaceHover` | `#2C2C2C` | Hovered neutral controls |
+| `Border` | `#343434` | Strong panel and table boundaries |
+| `BorderSoft` | `#252525` | Separators and subtle boundaries |
 | `TextPrimary` | `#FFFFFF` | Primary text and window-control glyphs |
 | `TextSecondary` | `#BEBEC1` | Supporting text |
 | `TextMuted` | `#949498` | Disabled text and inactive state |
@@ -70,7 +70,7 @@ The initial presets are:
 | Violet | `#9350DC` |
 | Plum | `#C253B1` |
 
-Cobalt is the default. The appearance settings also expose a custom HSV color picker and three independent controls:
+Neutral graphite (`#B8B8B8`) is the default. Version 1 settings using the previous default Cobalt color migrate to graphite; other customized colors are preserved. The appearance settings also expose a custom HSV color picker and three independent controls:
 
 - Gradient height: default `50%` of the viewport.
 - Saturation: default `80%` of the selected color.
@@ -93,17 +93,27 @@ ToolUI exposes four panel background modes:
 - Docked panels only.
 - Transparency disabled.
 
-The initial default is all panels transparent. Child cards, inputs, tables, popups, and other content surfaces keep their own neutral fills, so the workspace color is visible without sacrificing local contrast. Transparency and backdrop blur are separate features. Milestone 1 uses transparency only.
+The default is all panels transparent, with a 95% neutral surface tint and a 24 logical-pixel backdrop blur. The base font is 15 logical pixels; the title bar is solid `#1b1b1b`. Appearance exposes opacity, blur, reduced motion, and reset. Inputs and buttons derive their resting fill alpha from panel opacity; zero opacity and zero blur remove these fills without fading text. Hover and selection remain visible. Popups, tab strips, panels, the status bar, and viewport controls share the glass settings.
+
+The renderer captures the workspace background and tagged scene images before foreground UI. A separable Gaussian filter produces a shared half-resolution blur texture per viewport; each glass surface then composites a single masked image. Platforms whose presentation images cannot be copied retain the tint without blur. Text is drawn afterward and remains crisp. Detached windows sample their own Herta-rendered background, not the desktop compositor.
+
+ToolUI isolates a small ImGui internal adapter for full dock-node surfaces, popup surfaces, muted inactive labels, and bottom-underlined active tabs. It prepends surface commands without changing docking behavior or the third-party library. Popups fade their surfaces in over 160 ms; reduced motion disables the transition. Output Log uses a search-first toolbar with right-aligned Clear/Copy actions and compact command entry, while retaining its existing selection, filtering, history, and completion behavior.
+
+The title row contains menus on the left and live FPS/frame time, application title, and the revision captured during project generation on the right. Caption controls use 34 logical-pixel hit regions and appear only when supported by the window manager. There is no separate workspace toolbar. The central viewport hides its lone dock tab; multi-tab nodes retain normal docking tabs. Output Log and Appearance are accessible from the bottom status bar.
+
+Viewport actions use rounded glass islands with hover transitions. Grid and coordinate-space controls expand contextually; reduced motion makes transitions immediate. Narrow layouts collapse optional islands and expose transform, snap, and focus actions in the rightmost settings menu. Play and Simulate are disabled until a runtime exists. Perspective is currently informational, not an orthographic camera switch.
 
 Panel presentation is applied through a ToolUI window wrapper before `ImGui::Begin`. The wrapper tracks the previous dock state by stable window ID because Dear ImGui exposes the current dock state only after the window begins. Herta-owned panels do not reach into ImGui internals for this. Third-party panels require a narrow adapter if their `Begin` call cannot be wrapped.
 
-The default dock layout is created only when no compatible saved layout exists. A first launch docks the primary Start or viewport surface in the center. Once the user has saved a layout, that layout owns docking and intentional floating state. Layout schema changes use explicit versioning instead of rebuilding the default every launch.
+The V3 dock layout migrates the earlier wide-sidebar layout once: Details starts at 350 logical pixels and Output Log occupies 18% of the docking area. The scene fills the entire workspace canvas beneath those panels, excluding title and status chrome. Viewport controls and input remain in the uncovered dock region, while projection and picking use the full scene rectangle. Detached Viewports use their own content rectangles. Subsequent launches retain docking and intentional floating state. Controls and hit regions respect each viewport's DPI.
+
+The scene viewport has no native ImGui window fill. Its opaque rendered image is composed before UI; painting a window fill over that image would darken the scene and erase the contrast between it and glass controls. Rounded controls have a subtle opacity-dependent edge; the viewport image itself has square docking edges.
 
 Do not patch Dear ImGui internals merely to hide dock-node corner notches or other small upstream rendering details. First use public style controls, then carry a narrow documented patch only if the defect materially affects the editor.
 
 ## Output Log
 
-The Output Log is an EditorFramework panel docked across the bottom of the first-run layout. It uses compact colored text lines rather than a table. Its toolbar contains Clear, Copy, Filter, Options, and a full-width search field. Options expose auto-scroll, pause, and category colorization without adding permanent chrome.
+The Output Log is an EditorFramework panel docked across the bottom of the first-run layout. It uses Roboto timestamp, category, and message rows without bracketed metadata. Muted timestamps and severity colors keep warnings distinct. Its toolbar contains search, a visible-warning count opening the level filter, Options, Clear, and Copy. Options expose auto-scroll, pause, and category colorization without adding permanent chrome.
 
 Normal records use a stable readable color derived from their category and apply it to the whole line. Warnings are always yellow and errors are always red. Trace and debug may use quieter neutral colors when category colorization is disabled. The format begins with elapsed time, level, and category before the message, with enough left padding to keep timestamps clear of the panel edge.
 
@@ -123,7 +133,7 @@ The command field sits at the bottom and Submit aligns with the panel's right co
 
 ## Typography
 
-The initial editor uses Roboto Regular and Roboto Medium with a 15 px base size. Medium is used for titles, selected tabs, compact labels, and primary actions. Regular is used for body text, property values, tables, logs, and diagnostics.
+The editor uses Roboto Regular and Roboto Medium with a 15 px base size. Medium is used for titles, selected tabs, compact labels, and primary actions. Regular is used for body text, property values, and Output Log rows; hit testing and selection use the same font metrics.
 
 ToolUI uses Dear ImGui's FreeType builder with its normal hinted rasterization for crisp native-resolution text. Font scaling follows each viewport's content scale. MSDF font rendering is not part of the initial editor. Evaluate msdfgen only for a measured world-space, zoomable-canvas, or vector-text requirement.
 
@@ -193,9 +203,7 @@ Milestone 1 keeps this provider narrow and does not preempt the later VFS and pa
 
 ## Backdrop blur
 
-The optional translucent blurred-panel design remains planned for a later renderer milestone. It renders the scene beneath the main editor panel region, builds one shared downsampled blur pyramid per viewport, then draws text, controls, selection, and gizmos at native resolution. Detached viewports use an opaque or tinted fallback when they cannot sample a meaningful Herta-rendered backdrop.
-
-Opacity, tint, blur radius, quality, and enable state are per-user settings. Transparency remains available when blur is disabled.
+Glass surfaces use the shared per-viewport backdrop described above. Opacity, blur radius, and transparency mode are per-user settings. Transparency remains available when blur is disabled; detached viewports never sample the desktop compositor.
 
 ## Verification
 

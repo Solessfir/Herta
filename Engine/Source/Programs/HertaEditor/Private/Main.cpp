@@ -452,32 +452,6 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 		}
 
-		const FExtent2D ViewExtent = EditorFramework->GetViewportExtent();
-		if (!ViewExtent.IsEmpty() && !Window.IsMinimized())
-		{
-			auto MeshFrame = MeshRenderer->Render(ViewExtent, EditorFramework->GetViewportRenderView(), EditorFramework->GetViewportDebugDrawLists());
-			if (!MeshFrame)
-			{
-				HERTA_LOG_ERROR(*Log, EditorLog, "Could not render scene: {}", MeshFrame.error().Message);
-				bRenderFailed = true;
-				return false;
-			}
-			if (RegisteredSceneTexture != MeshRenderer->GetColorTarget())
-			{
-				auto TextureId = Presentation->RegisterToolUITexture(MeshRenderer->GetColorTarget());
-				if (!TextureId)
-				{
-					HERTA_LOG_ERROR(*Log, EditorLog, "Could not display scene: {}", TextureId.error().Message);
-					bRenderFailed = true;
-					return false;
-				}
-				Presentation->UnregisterToolUITexture(SceneTextureId);
-				SceneTextureId = *TextureId;
-				RegisteredSceneTexture = MeshRenderer->GetColorTarget();
-				EditorFramework->SetViewportImage(SceneTextureId);
-			}
-		}
-
 		const FExtent2D FramebufferExtent = Window.IsMinimized() ? FExtent2D{} : GetFramebufferExtent(Window);
 		if (FramebufferExtent != Presentation->GetExtent())
 		{
@@ -490,47 +464,64 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 		}
 
-		std::expected<EPresentationStatus, FPresentationError> BeginResult = Presentation->BeginFrame();
-		if (!BeginResult)
-		{
-			HERTA_LOG_ERROR(*Log, EditorLog, "Could not begin the editor frame: {}", BeginResult.error().Message);
-			bRenderFailed = true;
-			return false;
-		}
-		bool bMainFrameReady = *BeginResult == EPresentationStatus::Ready || *BeginResult == EPresentationStatus::Suboptimal;
-		if (*BeginResult == EPresentationStatus::SurfaceOutOfDate)
-		{
-			if (!FramebufferExtent.IsEmpty())
-			{
-				std::expected<void, FPresentationError> RecreateResult = Presentation->Resize(FramebufferExtent);
-				if (!RecreateResult)
-				{
-					HERTA_LOG_ERROR(*Log, EditorLog, "Could not recreate Vulkan presentation: {}", RecreateResult.error().Message);
-					bRenderFailed = true;
-					return false;
-				}
-			}
-			bMainFrameReady = false;
-		}
-
 		bool bFrameFailed = false;
 		bool bPresentedMainFrame = false;
-		if (bMainFrameReady)
-		{
-			std::expected<void, FPresentationError> ClearResult = Presentation->Clear(EditorClearColor);
-			if (!ClearResult)
-			{
-				HERTA_LOG_ERROR(*Log, EditorLog, "Could not clear the editor frame: {}", ClearResult.error().Message);
-				bFrameFailed = true;
-			}
-		}
 
 		ToolUI->BeginFrame();
-		std::expected<void, FEditorFrameworkError> DrawResult = EditorFramework->Draw();
+		std::expected<void, FEditorFrameworkError> DrawResult = EditorFramework->Draw([&]
+		                                                                              {
+			                                                                              const FExtent2D ViewExtent = EditorFramework->GetViewportExtent();
+			                                                                              if (ViewExtent.IsEmpty() || Window.IsMinimized())
+				                                                                              return;
+			                                                                              auto MeshFrame = MeshRenderer->Render(ViewExtent, EditorFramework->GetViewportRenderView(), EditorFramework->GetViewportDebugDrawLists());
+			                                                                              if (!MeshFrame)
+			                                                                              {
+				                                                                              HERTA_LOG_ERROR(*Log, EditorLog, "Could not render scene: {}", MeshFrame.error().Message);
+				                                                                              bFrameFailed = true;
+				                                                                              return;
+			                                                                              }
+			                                                                              if (RegisteredSceneTexture != MeshRenderer->GetColorTarget())
+			                                                                              {
+				                                                                              auto TextureId = Presentation->RegisterToolUITexture(MeshRenderer->GetColorTarget(), true);
+				                                                                              if (!TextureId)
+				                                                                              {
+					                                                                              HERTA_LOG_ERROR(*Log, EditorLog, "Could not display scene: {}", TextureId.error().Message);
+					                                                                              bFrameFailed = true;
+					                                                                              return;
+				                                                                              }
+				                                                                              Presentation->UnregisterToolUITexture(SceneTextureId);
+				                                                                              SceneTextureId = *TextureId;
+				                                                                              RegisteredSceneTexture = MeshRenderer->GetColorTarget();
+				                                                                              EditorFramework->SetViewportImage(SceneTextureId);
+			                                                                              }
+		                                                                              });
 		if (!DrawResult)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not draw the editor: {}", DrawResult.error().Message);
 			bFrameFailed = true;
+		}
+		std::expected<EPresentationStatus, FPresentationError> BeginResult = Presentation->BeginFrame();
+		const bool bMainFrameReady = BeginResult && (*BeginResult == EPresentationStatus::Ready || *BeginResult == EPresentationStatus::Suboptimal);
+		if (!BeginResult)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not begin the editor frame: {}", BeginResult.error().Message);
+			bFrameFailed = true;
+		}
+		else if (*BeginResult == EPresentationStatus::SurfaceOutOfDate && !FramebufferExtent.IsEmpty())
+		{
+			if (auto RecreateResult = Presentation->Resize(FramebufferExtent); !RecreateResult)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not recreate Vulkan presentation: {}", RecreateResult.error().Message);
+				bFrameFailed = true;
+			}
+		}
+		if (bMainFrameReady)
+		{
+			if (auto ClearResult = Presentation->Clear(EditorClearColor); !ClearResult)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not clear the editor frame: {}", ClearResult.error().Message);
+				bFrameFailed = true;
+			}
 		}
 		std::expected<void, FToolUIError> ToolUIRenderResult = ToolUI->EndFrame(bMainFrameReady);
 		if (!ToolUIRenderResult)
@@ -589,10 +580,16 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::uint32_t SmokeFrameCount = bInitialFramePresented ? 1 : 0;
 	std::uint32_t SmokeAttemptCount = 1;
 	std::uint32_t StressStep = 0;
+	const FEditorAppearance SmokeAppearance = ToolUI->GetAppearance();
 	while (!Window.ShouldClose() && !bRenderFailed)
 	{
 		if (bRendererTest && StressStep < 12)
 		{
+			FEditorAppearance Appearance = SmokeAppearance;
+			Appearance.PanelOpacity = StressStep % 3 == 0 ? 0.0f : 0.35f;
+			Appearance.BlurRadius = StressStep % 3 == 0 ? 0.0f : StressStep % 3 == 1 ? 10.0f
+			                                                                         : 40.0f;
+			ToolUI->SetAppearance(Appearance);
 			if (StressStep == 4)
 			{
 				Window.Minimize();
@@ -612,6 +609,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				}
 			}
 			++StressStep;
+			if (StressStep == 12)
+				ToolUI->SetAppearance(SmokeAppearance);
 		}
 		(void)Application->PumpEvents();
 		(void)TaskSystem->RunMainThreadTasks();
