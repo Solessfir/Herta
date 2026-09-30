@@ -813,11 +813,17 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 	const bool bImageActive = ImGui::IsItemActive();
 	const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 	const bool bEscapePressed = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+	const bool bDeselectPressed = ImGui::Shortcut(ImGuiKey_Escape, ImGuiInputFlags_RouteFocused);
 	if (bEscapePressed && PreviewDragStart)
 	{
 		PreviewTranslation = PreviewDragStart->getTranslation();
 		PreviewRotation = PreviewDragStart->getRotation();
 		PreviewScale = PreviewDragStart->getScale();
+	}
+	else if (bDeselectPressed && !bPopupOpen && !IO.WantTextInput && ViewportInteraction.DragButton < 0)
+	{
+		bPreviewSelected = false;
+		ViewportGizmos.resetId();
 	}
 	FViewportInteractionInput InteractionInput;
 	InteractionInput.bImageHovered = bImageHovered;

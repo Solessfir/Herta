@@ -21,6 +21,7 @@
 #include <atomic>
 #include <exception>
 #include <filesystem>
+#include <format>
 #include <print>
 #include <ranges>
 #include <thread>
@@ -821,8 +822,10 @@ std::expected<std::unique_ptr<FApplication>, FApplicationError> FApplication::Cr
 	glfwInitHint(GLFW_PLATFORM, ToGlfwPlatform(Descriptor.PreferredWindowSystem));
 	if (glfwInit() != GLFW_TRUE)
 	{
+		const char* Description = nullptr;
+		const int Error = glfwGetError(&Description);
 		GApplicationExists.store(false, std::memory_order_release);
-		return std::unexpected(FApplicationError{EApplicationErrorCode::GlfwInitializationFailed, "Could not initialize GLFW"});
+		return std::unexpected(FApplicationError{EApplicationErrorCode::GlfwInitializationFailed, std::format("Could not initialize GLFW ({}): {}", Error, Description ? Description : "Unknown error")});
 	}
 
 	try
@@ -836,11 +839,6 @@ std::expected<std::unique_ptr<FApplication>, FApplicationError> FApplication::Cr
 		Implementation->Capabilities.bTaskbarVisibility = Implementation->Capabilities.WindowSystem == EWindowSystem::Win32 || Implementation->Capabilities.WindowSystem == EWindowSystem::X11;
 		Implementation->Capabilities.bTopMostWindows = Implementation->Capabilities.WindowSystem == EWindowSystem::Win32 || Implementation->Capabilities.WindowSystem == EWindowSystem::X11;
 		Implementation->Capabilities.bVulkanPresentation = glfwVulkanSupported() == GLFW_TRUE;
-
-		if (Log)
-		{
-			HERTA_LOG_INFO(*Log, ApplicationLog, "Initialized GLFW on window system {}", static_cast<int>(Implementation->Capabilities.WindowSystem));
-		}
 
 		return std::unique_ptr<FApplication>(new FApplication(std::move(Implementation)));
 	}
