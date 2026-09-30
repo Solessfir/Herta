@@ -15,6 +15,7 @@
 #include "ViewportIsland.h"
 #include "ViewportRotationFeedback.h"
 #include "ViewportScaleGizmo.h"
+#include "ViewportStats.h"
 
 #include <algorithm>
 #include <array>
@@ -240,6 +241,9 @@ struct FEditorFramework::FImplementation
 	FToolUIContext* ToolUI = nullptr;
 	FDetailsPanelState DetailsPanelState;
 	FOutlinerPanelState OutlinerPanelState;
+	std::shared_ptr<FViewportStats> Stats = std::make_shared<FViewportStats>();
+	double CpuFrameMilliseconds = 0.0;
+	std::optional<double> GpuUIMilliseconds;
 	std::unique_ptr<FOutputLogModel> OutputLog;
 	std::array<char, 512> SearchBuffer = {};
 	std::array<char, 512> CommandBuffer = {};
@@ -247,6 +251,7 @@ struct FEditorFramework::FImplementation
 	int SuggestionIndex = -1;
 	bool bOutputLogOpen = true;
 	bool bReclaimCommandFocus = false;
+	bool bFocusCommandRequested = false;
 	std::uint64_t ViewportTexture = 0;
 	FExtent2D ViewportExtent{960, 540};
 	FViewportCameraController ViewportCamera;
@@ -291,6 +296,7 @@ struct FEditorFramework::FImplementation
 	void DrawOutlinerPanel();
 	void DrawViewport(const std::function<void()>& RenderViewport);
 	void DrawViewportToolbar(ImVec2 Minimum, ImVec2 Size);
+	void DrawViewportStats(ImVec2 Minimum, ImVec2 Size);
 	void UpdateViewport(const ImVec2 RenderMinimum, const ImVec2 RenderSize);
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void FocusPreview();
@@ -331,6 +337,10 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		auto Implementation = std::make_unique<FImplementation>();
 		Implementation->ToolUI = Descriptor.ToolUI;
 		Implementation->OutputLog = std::move(*OutputLog);
+		if (auto Result = RegisterViewportStatsCommand(*Descriptor.Commands, Implementation->Stats); !Result)
+		{
+			return std::unexpected(FEditorFrameworkError{std::move(Result.error().Message)});
+		}
 		return std::unique_ptr<FEditorFramework>(new FEditorFramework(std::move(Implementation)));
 	}
 	catch (const std::exception& Exception)
@@ -346,10 +356,32 @@ FEditorFramework::FEditorFramework(std::unique_ptr<FImplementation> Implementati
 
 FEditorFramework::~FEditorFramework() = default;
 
+void FEditorFramework::SetFrameTimings(const double CpuMilliseconds, const std::optional<double> GpuUIMilliseconds) noexcept
+{
+	Implementation->CpuFrameMilliseconds = std::lerp(Implementation->CpuFrameMilliseconds, CpuMilliseconds, 0.1);
+	Implementation->GpuUIMilliseconds = GpuUIMilliseconds;
+}
+
+bool FEditorFramework::IsUnitStatsVisible() const noexcept
+{
+	return Implementation->Stats->bUnitVisible;
+}
+
 std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::function<void()>& RenderViewport)
 {
 	try
 	{
+		ImGuiIO& IO = ImGui::GetIO();
+		if (IO.KeyMods == 0 && ImGui::IsKeyPressed(ImGuiKey_GraveAccent, false))
+		{
+			Implementation->bOutputLogOpen = true;
+			Implementation->bFocusCommandRequested = true;
+			for (int Index = IO.InputQueueCharacters.Size - 1; Index >= 0; --Index)
+			{
+				if (IO.InputQueueCharacters[Index] == '`')
+					IO.InputQueueCharacters.erase(IO.InputQueueCharacters.begin() + Index);
+			}
+		}
 		Implementation->ToolUI->DrawWorkspace("Herta Editor", [&]
 		                                      {
 			                                      (void)ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
@@ -488,6 +520,38 @@ void FEditorFramework::FImplementation::FocusPreview()
 	    std::abs(Model(2, 0)) + std::abs(Model(2, 1)) + std::abs(Model(2, 2))};
 	const float AspectRatio = ViewportExtent.Height > 0 ? static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height) : 16.0f / 9.0f;
 	ViewportCamera.Focus({PreviewTranslation.x, PreviewTranslation.y, PreviewTranslation.z}, HalfExtent, AspectRatio, ViewportVisibleSize);
+}
+
+void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, const ImVec2 Size)
+{
+	if (!Stats->bUnitVisible && !Stats->bFpsVisible)
+		return;
+	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
+	const float Width = 190.0f * Scale;
+	const float RowHeight = ImGui::GetTextLineHeight() + 4.0f * Scale;
+	const float Height = RowHeight * ((Stats->bUnitVisible ? 3 : 0) + (Stats->bFpsVisible ? 1 : 0)) + 16.0f * Scale;
+	const float Top = Minimum.y + (Size.x > 680.0f * Scale ? 62.0f : 104.0f) * Scale;
+	if (Size.x < Width + 28.0f * Scale || Top + Height > Minimum.y + Size.y - 60.0f * Scale)
+		return;
+	const float Left = Minimum.x + Size.x - Width - 14.0f * Scale;
+	ToolUI->DrawGlassSurface(Left, Top, Width, Height, 8.0f * Scale);
+	ImDrawList* const Draw = ImGui::GetWindowDrawList();
+	float Y = Top + 8.0f * Scale;
+	const auto Row = [&](const char* Label, const std::string& Value)
+	{
+		Draw->AddText({Left + 12.0f * Scale, Y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Label);
+		Draw->AddText({Left + Width - 12.0f * Scale - ImGui::CalcTextSize(Value.c_str()).x, Y}, IM_COL32(156, 211, 174, 255), Value.c_str());
+		Y += RowHeight;
+	};
+	const float Fps = ImGui::GetIO().Framerate;
+	if (Stats->bFpsVisible)
+		Row("FPS", std::format("{:.1f}", Fps));
+	if (Stats->bUnitVisible)
+	{
+		Row("Frame", Fps > 0.0f ? std::format("{:.2f} ms", 1000.0f / Fps) : "--");
+		Row("CPU frame", std::format("{:.2f} ms", CpuFrameMilliseconds));
+		Row("GPU UI", GpuUIMilliseconds ? std::format("{:.2f} ms", *GpuUIMilliseconds) : "--");
+	}
 }
 
 void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum, const ImVec2 Size)
@@ -1006,6 +1070,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			Layers.Split(PanelDrawList, 2);
 			Layers.SetCurrentChannel(PanelDrawList, 1);
 			DrawViewportToolbar(ImageMinimum, Size);
+			DrawViewportStats(ImageMinimum, Size);
 			const float HudScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 			const FVector3 LayoutCameraPosition = ViewportCamera.GetSnapshot(1.0f).Position;
 			const std::string LayoutCoordinates = std::format("X {:.2f}   Y {:.2f}   Z {:.2f} m", LayoutCameraPosition.X, LayoutCameraPosition.Y, LayoutCameraPosition.Z);
@@ -1291,6 +1356,8 @@ void FEditorFramework::FImplementation::RebuildSuggestions()
 
 std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::SubmitCommand()
 {
+	bReclaimCommandFocus = false;
+	ImGui::SetWindowFocus("Viewport");
 	if (CommandBuffer[0] == '\0')
 	{
 		return {};
@@ -1303,7 +1370,6 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Su
 	CommandBuffer.fill('\0');
 	Suggestions.clear();
 	SuggestionIndex = -1;
-	bReclaimCommandFocus = true;
 	return {};
 }
 
@@ -1320,6 +1386,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		return {};
 	}
 
+	if (bFocusCommandRequested)
+	{
+		ImGui::SetNextWindowFocus();
+		ImGui::SetNextWindowCollapsed(false);
+	}
 	if (!ToolUI->BeginPanel(">_  Output Log###Output Log", &bOutputLogOpen))
 	{
 		ToolUI->EndPanel();
@@ -1622,6 +1693,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, InterfaceScale);
 	ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(PackColor(ToolUITheme::Surface0)));
 	ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(PackColor(ToolUITheme::Border)));
+	if (bFocusCommandRequested)
+	{
+		ImGui::SetKeyboardFocusHere();
+		bFocusCommandRequested = false;
+	}
 	const bool bCommandSubmitted = ImGui::InputTextWithHint("##OutputLogCommand", "Enter a command...", CommandBuffer.data(), CommandBuffer.size(), CommandFlags, InputCallback, &CallbackContext);
 	ImGui::PopStyleColor(2);
 	ImGui::PopStyleVar(3);

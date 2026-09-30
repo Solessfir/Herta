@@ -926,7 +926,63 @@ public:
 		return {};
 	}
 
+	void SetToolUIGpuTimingEnabled(const bool bEnabled) noexcept override
+	{
+		bToolUIGpuTimingEnabled = bEnabled;
+		if (!bEnabled)
+		{
+			ToolUIGpuMilliseconds.reset();
+			bDiscardToolUIGpuTimingPending = true;
+		}
+	}
+
+	[[nodiscard]] std::optional<double> GetToolUIGpuMilliseconds() const noexcept override
+	{
+		return bToolUIGpuTimingEnabled ? ToolUIGpuMilliseconds : std::nullopt;
+	}
+
 	[[nodiscard]] std::expected<void, FPresentationError> RenderToolUIDrawData(const void* const OpaqueDrawData) override
+	{
+		if (!bToolUIGpuTimingEnabled || ToolUIOverrideViewport || !bFrameActive || !OpaqueDrawData)
+		{
+			return RenderToolUIDrawDataImpl(OpaqueDrawData);
+		}
+		if (bToolUIGpuTimingPending && NvrhiDevice->pollTimerQuery(ToolUIGpuTiming))
+		{
+			const double Milliseconds = static_cast<double>(NvrhiDevice->getTimerQueryTime(ToolUIGpuTiming)) * 1000.0;
+			if (!bDiscardToolUIGpuTimingPending)
+			{
+				ToolUIGpuMilliseconds = Milliseconds;
+			}
+			bToolUIGpuTimingPending = false;
+			bDiscardToolUIGpuTimingPending = false;
+		}
+		if (bToolUIGpuTimingPending)
+		{
+			return RenderToolUIDrawDataImpl(OpaqueDrawData);
+		}
+		if (!ToolUIGpuTiming)
+		{
+			ToolUIGpuTiming = NvrhiDevice->createTimerQuery();
+			if (!ToolUIGpuTiming)
+			{
+				bToolUIGpuTimingEnabled = false;
+				return RenderToolUIDrawDataImpl(OpaqueDrawData);
+			}
+		}
+		nvrhi::ICommandList* const RenderCommandList = ToolUIOverrideCommandList ? ToolUIOverrideCommandList : CommandList.Get();
+		if (!RenderCommandList)
+		{
+			return RenderToolUIDrawDataImpl(OpaqueDrawData);
+		}
+		RenderCommandList->beginTimerQuery(ToolUIGpuTiming);
+		const std::expected Result = RenderToolUIDrawDataImpl(OpaqueDrawData);
+		RenderCommandList->endTimerQuery(ToolUIGpuTiming);
+		bToolUIGpuTimingPending = true;
+		return Result;
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> RenderToolUIDrawDataImpl(const void* const OpaqueDrawData)
 	{
 		if (!bFrameActive || !bToolUIInitialized || !OpaqueDrawData)
 		{
@@ -2266,6 +2322,7 @@ private:
 		DestroySwapchain();
 		ShutdownToolUIResources();
 		BlurTiming = {};
+		ToolUIGpuTiming = nullptr;
 		CommandList = nullptr;
 		GraphicsDevice.reset();
 		NvrhiDevice = nullptr;
@@ -2347,6 +2404,11 @@ private:
 	bool bToolUIInitialized = false;
 	FBlurTiming BlurTiming;
 	bool bProfileBlur = false;
+	nvrhi::TimerQueryHandle ToolUIGpuTiming;
+	std::optional<double> ToolUIGpuMilliseconds;
+	bool bToolUIGpuTimingEnabled = false;
+	bool bToolUIGpuTimingPending = false;
+	bool bDiscardToolUIGpuTimingPending = false;
 	std::unordered_map<std::uint64_t, std::unique_ptr<FSecondaryViewport>> Viewports;
 	std::uint64_t NextViewportHandle = 1;
 };

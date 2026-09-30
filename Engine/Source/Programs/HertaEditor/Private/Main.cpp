@@ -10,6 +10,7 @@
 #include "RendererSmoke.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <expected>
@@ -425,6 +426,18 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		return 1;
 	}
 	std::unique_ptr<FEditorFramework> EditorFramework = std::move(*EditorFrameworkResult);
+	if (bSmokeTest)
+	{
+		for (const std::string_view Command : {"stat unit", "stat fps"})
+		{
+			const auto Result = Commands.Execute(Command);
+			if (!Result || Result->ExitCode != 0)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not enable {} for smoke testing", Command);
+				return 1;
+			}
+		}
+	}
 	const FToolUIColor CanvasColor = ToolUITheme::Canvas;
 	const FSrgbColor EditorClearColor = ConvertSrgb8ToSrgbColor(CanvasColor.Red, CanvasColor.Green, CanvasColor.Blue, CanvasColor.Alpha);
 
@@ -438,6 +451,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			return false;
 		}
 		bRendering = true;
+		const auto CpuFrameStart = std::chrono::steady_clock::now();
+		Presentation->SetToolUIGpuTimingEnabled(EditorFramework->IsUnitStatsVisible());
 		struct FRenderGuard
 		{
 			bool& bRendering;
@@ -575,6 +590,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			bRenderFailed = true;
 			return false;
 		}
+		if (bPresentedMainFrame && !bFrameFailed)
+		{
+			const double CpuMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - CpuFrameStart).count();
+			EditorFramework->SetFrameTimings(CpuMilliseconds, Presentation->GetToolUIGpuMilliseconds());
+		}
 		return bPresentedMainFrame && !bFrameFailed;
 	};
 
@@ -642,6 +662,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not wait for the editor renderer: {}", IdleResult.error().Message);
 		return 1;
+	}
+	if (bSmokeTest)
+	{
+		if (const auto GpuMilliseconds = Presentation->GetToolUIGpuMilliseconds())
+			HERTA_LOG_INFO(*Log, EditorLog, "Viewport stats received GPU UI timing: {:.3f} ms", *GpuMilliseconds);
 	}
 	return bRenderFailed ? 1 : 0;
 }

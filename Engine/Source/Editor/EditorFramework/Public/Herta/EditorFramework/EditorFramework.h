@@ -7,6 +7,7 @@
 #include <expected>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -45,6 +46,8 @@ public:
 	// RenderViewport runs after viewport layout/input and must set the image before it is queued for display.
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> Draw(const std::function<void()>& RenderViewport);
 	void SetViewportImage(std::uint64_t TextureId) noexcept;
+	void SetFrameTimings(double CpuMilliseconds, std::optional<double> GpuUIMilliseconds) noexcept;
+	[[nodiscard]] bool IsUnitStatsVisible() const noexcept;
 	[[nodiscard]] FExtent2D GetViewportExtent() const noexcept;
 	[[nodiscard]] FMeshRenderView GetViewportRenderView() const noexcept;
 	[[nodiscard]] std::span<const FDebugDrawList> GetViewportDebugDrawLists() const noexcept;

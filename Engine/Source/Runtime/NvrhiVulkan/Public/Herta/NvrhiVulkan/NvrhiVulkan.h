@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,8 @@ public:
 	virtual void UnregisterToolUITexture(std::uint64_t TextureId) noexcept = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> InitializeToolUIRenderer() = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> RenderToolUIDrawData(const void* DrawData) = 0;
+	virtual void SetToolUIGpuTimingEnabled(bool bEnabled) noexcept = 0;
+	[[nodiscard]] virtual std::optional<double> GetToolUIGpuMilliseconds() const noexcept = 0;
 	virtual void ShutdownToolUIRenderer() noexcept = 0;
 	[[nodiscard]] virtual std::expected<FPresentationViewportHandle, FPresentationError> CreateViewport(void* WindowBackendHandle, FExtent2D Extent) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> DestroyViewport(FPresentationViewportHandle Viewport) = 0;
