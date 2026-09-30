@@ -14,13 +14,15 @@ The current architecture and implementation roadmap are documented in [EngineDes
 
 ## Editor workspace
 
-The workspace renders the scene across the canvas beneath blurred Details and Output Log overlays, with compact chrome, glass viewport controls, and inline transform editing. The camera's projection center follows the unobscured Viewport pane, so overlays do not push the subject off-center. Panels remain dockable and resizable; detached Viewports render within their own windows. The world grid is procedural on the GPU, with antialiased lines and a distance fade.
+The workspace renders the scene across the canvas beneath blurred Outliner, Details, and Output Log overlays, with compact chrome, glass viewport controls, and inline transform editing. The camera's projection center follows the unobscured Viewport pane, so overlays do not push the subject off-center. Panels remain dockable and resizable; detached Viewports render within their own windows. The world grid is procedural on the GPU, with antialiased lines and a distance fade.
 
 See [Rendering.md](Docs/Rendering.md) for GPU ownership, shader cooking, and renderer verification. Use **File > Reset layout** to restore the default arrangement, including the Output Log's 26% workspace height. Existing saved layouts are preserved when defaults change.
 
 In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the preview object. Click the cube to select it and show its outline and transform gizmo; click empty viewport space to deselect it. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits currently affect only the preview cube and are not saved.
 
 Details shows the selected cube's editable location, rotation, and scale. Click a value to type or drag it to adjust; typed values support arithmetic such as `10/2`, applied with Enter. Shift+RMB copies an individual value or a whole transform row from its label; Shift+LMB pastes it. Row clipboard text supports UE's `X/Y/Z` location and scale format and `Pitch/Yaw/Roll` rotation format. Values stay in Herta's units and axis conventions; clipboard compatibility does not convert them. Click the camera coordinates to copy a position that can be pasted onto Location.
+
+The Outliner docks above Details and lists the current preview object with label and type columns. Search filters the list; selecting a row updates Details and the viewport selection, and double-clicking focuses the camera. Click empty list space to deselect. Reopen it from **File > Outliner**. Existing layouts with docked Details gain the panel above it without resetting other dock positions; detached panels are preserved.
 
 The Output Log supports search, verbosity filtering, text selection, copying, pause, auto-scroll, and commands with completion and history. Normal messages use category colors; warnings stay yellow/orange and errors red. Search and command entry share an outlined input style.
 

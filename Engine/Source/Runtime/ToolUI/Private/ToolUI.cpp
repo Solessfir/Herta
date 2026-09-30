@@ -305,9 +305,9 @@ void ApplyInteractiveColors(ImGuiStyle& Style, const FToolUIColor Accent)
 	Palette[ImGuiCol_SliderGrabActive] = Tint(ToolUITheme::Border, ToolUITheme::StrongTint);
 	Palette[ImGuiCol_ButtonHovered] = Tint(ToolUITheme::Surface1, ToolUITheme::HoverTint);
 	Palette[ImGuiCol_ButtonActive] = Tint(ToolUITheme::Surface1, ToolUITheme::ActiveTint);
-	Palette[ImGuiCol_Header] = Tint(ToolUITheme::Surface2, ToolUITheme::SubtleTint);
-	Palette[ImGuiCol_HeaderHovered] = Tint(ToolUITheme::Surface1, ToolUITheme::HoverTint);
-	Palette[ImGuiCol_HeaderActive] = Tint(ToolUITheme::Surface1, ToolUITheme::ActiveTint);
+	Palette[ImGuiCol_Header] = WithAlpha(Accent, ToolUITheme::SubtleTint);
+	Palette[ImGuiCol_HeaderHovered] = WithAlpha(Accent, ToolUITheme::HoverTint);
+	Palette[ImGuiCol_HeaderActive] = WithAlpha(Accent, ToolUITheme::ActiveTint);
 	Palette[ImGuiCol_SeparatorHovered] = Tint(ToolUITheme::Border, ToolUITheme::ActiveTint);
 	Palette[ImGuiCol_SeparatorActive] = Tint(ToolUITheme::Border, ToolUITheme::StrongTint);
 	Palette[ImGuiCol_ResizeGripHovered] = Tint(ToolUITheme::Surface1, ToolUITheme::ActiveTint);
@@ -385,6 +385,7 @@ struct FToolUIContext::FImplementation
 	bool bVSync = true;
 	bool bBuildDefaultLayout = false;
 	bool bDetailsDockMigrationComplete = false;
+	bool bOutlinerDockMigrationComplete = false;
 	bool bFrameActive = false;
 	bool bAppearanceDirty = false;
 	bool bPlatformWindowsRendered = true;
@@ -1937,16 +1938,20 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.26f, nullptr, &CenterId);
 		const float DetailsFraction = std::clamp(350.0f * ChromeScale / DockSize.x, 0.18f, 0.38f);
 		const ImGuiID SideId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Right, DetailsFraction, nullptr, &CenterId);
+		ImGuiID DetailsId = SideId;
+		const ImGuiID OutlinerId = ImGui::DockBuilderSplitNode(SideId, ImGuiDir_Up, 0.45f, nullptr, &DetailsId);
 		if (ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetNode(CenterId))
 		{
 			CenterNode->LocalFlags |= ImGuiDockNodeFlags_AutoHideTabBar;
 		}
-		ImGui::DockBuilderDockWindow("Details", SideId);
-		ImGui::DockBuilderDockWindow("Start", SideId);
+		ImGui::DockBuilderDockWindow("Outliner", OutlinerId);
+		ImGui::DockBuilderDockWindow("Details", DetailsId);
+		ImGui::DockBuilderDockWindow("Start", DetailsId);
 		ImGui::DockBuilderDockWindow("Viewport", CenterId);
 		ImGui::DockBuilderDockWindow("Output Log", BottomId);
 		ImGui::DockBuilderFinish(Implementation->DockspaceId);
 		Implementation->bBuildDefaultLayout = false;
+		Implementation->bOutlinerDockMigrationComplete = true;
 	}
 	if (!Implementation->bDetailsDockMigrationComplete)
 	{
@@ -1960,6 +1965,25 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 				if (StartNode != nullptr && StartNode->IsLeafNode())
 				{
 					ImGui::DockBuilderDockWindow("Details", StartSettings->DockId);
+				}
+			}
+		}
+	}
+	if (!Implementation->bOutlinerDockMigrationComplete)
+	{
+		Implementation->bOutlinerDockMigrationComplete = true;
+		if (ImGui::FindWindowSettingsByID(ImHashStr("Outliner")) == nullptr)
+		{
+			const ImGuiWindowSettings* const DetailsSettings = ImGui::FindWindowSettingsByID(ImHashStr("Details"));
+			const ImGuiWindowSettings* const AnchorSettings = DetailsSettings != nullptr ? DetailsSettings : ImGui::FindWindowSettingsByID(ImHashStr("Start"));
+			if (AnchorSettings != nullptr && AnchorSettings->DockId != 0)
+			{
+				ImGuiDockNode* const DetailsNode = ImGui::DockBuilderGetNode(AnchorSettings->DockId);
+				if (DetailsNode != nullptr && DetailsNode->IsLeafNode() && ImGui::DockNodeGetRootNode(DetailsNode)->ID == Implementation->DockspaceId)
+				{
+					const ImGuiID OutlinerId = ImGui::DockBuilderSplitNode(AnchorSettings->DockId, ImGuiDir_Up, 0.45f, nullptr, nullptr);
+					ImGui::DockBuilderDockWindow("Outliner", OutlinerId);
+					ImGui::DockBuilderFinish(Implementation->DockspaceId);
 				}
 			}
 		}

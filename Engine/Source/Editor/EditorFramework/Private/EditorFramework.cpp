@@ -9,6 +9,7 @@
 #include "Herta/ToolUI/Theme.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "NumericField.h"
+#include "OutlinerPanel.h"
 #include "OutputLogTextLayout.h"
 #include "ViewportGizmos.h"
 #include "ViewportIsland.h"
@@ -238,6 +239,7 @@ struct FEditorFramework::FImplementation
 {
 	FToolUIContext* ToolUI = nullptr;
 	FDetailsPanelState DetailsPanelState;
+	FOutlinerPanelState OutlinerPanelState;
 	std::unique_ptr<FOutputLogModel> OutputLog;
 	std::array<char, 512> SearchBuffer = {};
 	std::array<char, 512> CommandBuffer = {};
@@ -263,6 +265,7 @@ struct FEditorFramework::FImplementation
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
 	FViewportInteractionState ViewportInteraction;
 	bool bPreviewSelected = true;
+	bool bOutlinerOpen = true;
 	bool bStartPanelOpen = false;
 	bool bLocalGizmo = false;
 	bool bSnapEnabled = false;
@@ -285,6 +288,7 @@ struct FEditorFramework::FImplementation
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> DrawOutputLog();
 	void DrawStartPanel();
 	void DrawDetailsPanel();
+	void DrawOutlinerPanel();
 	void DrawViewport(const std::function<void()>& RenderViewport);
 	void DrawViewportToolbar(ImVec2 Minimum, ImVec2 Size);
 	void UpdateViewport(const ImVec2 RenderMinimum, const ImVec2 RenderSize);
@@ -349,6 +353,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		Implementation->ToolUI->DrawWorkspace("Herta Editor", [&]
 		                                      {
 			                                      (void)ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
+			                                      (void)ToolUIMenuItem("Outliner", EToolUIMenuIcon::Panel, &Implementation->bOutlinerOpen);
 			                                      (void)ToolUIMenuItem("Output Log", EToolUIMenuIcon::Log, &Implementation->bOutputLogOpen);
 		                                      },
 		                                      [&]
@@ -425,6 +430,10 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		if (Implementation->bStartPanelOpen)
 		{
 			Implementation->DrawStartPanel();
+		}
+		if (Implementation->bOutlinerOpen)
+		{
+			Implementation->DrawOutlinerPanel();
 		}
 		Implementation->DrawDetailsPanel();
 		Implementation->DrawViewport(RenderViewport);
@@ -1172,6 +1181,14 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	DrawPreviewDetailsPanel(*ToolUI, bPreviewSelected, ViewportInteraction.DragButton >= 0, PreviewTranslation, PreviewRotation, PreviewScale, DetailsPanelState);
+}
+
+void FEditorFramework::FImplementation::DrawOutlinerPanel()
+{
+	if (DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, bPreviewSelected, ViewportInteraction.DragButton >= 0, OutlinerPanelState))
+	{
+		FocusPreview();
+	}
 }
 
 void FEditorFramework::FImplementation::DrawStartPanel()
