@@ -274,12 +274,14 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 	ImGui::SameLine();
 	ImGui::BeginGroup();
 	const float HeadingTextX = ImGui::GetCursorPosX();
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ImGui::GetStyle().ItemSpacing.x, 2.0f * UiScale});
 	ImGui::TextUnformatted("Preview Cube");
 	ImGui::SameLine();
 	ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize("1 selected").x));
 	ImGui::TextDisabled("1 selected");
 	ImGui::SetCursorPosX(HeadingTextX);
 	ImGui::TextDisabled("Static mesh");
+	ImGui::PopStyleVar();
 	ImGui::EndGroup();
 	ImGui::Spacing();
 	ImGui::SetNextItemWidth(-1.0f);

@@ -49,6 +49,8 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelect
 			RowsTop = ImGui::GetCursorScreenPos().y;
 			if (bCubeVisible)
 			{
+				ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8.0f * Scale, 6.0f * Scale});
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.0f * Scale, 12.0f * Scale});
 				ImGui::TableNextRow();
 				ImGui::TableSetColumnIndex(0);
 				const float IconX = ImGui::GetCursorScreenPos().x + 2.0f * Scale;
@@ -87,6 +89,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelect
 				Draw->AddLine(Center, Bottom, IconColor, Scale);
 				ImGui::TableSetColumnIndex(1);
 				ImGui::TextDisabled("Static Mesh");
+				ImGui::PopStyleVar(2);
 			}
 			ImGui::EndTable();
 		}

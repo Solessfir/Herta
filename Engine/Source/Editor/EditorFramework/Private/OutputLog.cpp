@@ -3,6 +3,7 @@
 #include "Herta/EditorCore/CommandRegistry.h"
 
 #include <algorithm>
+#include <ctime>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -58,7 +59,14 @@ inline constexpr FLogCategory CommandCategory{"Command"};
 
 [[nodiscard]] std::vector<FOutputLogLine> FormatRecordLines(const FLogRecord& Record)
 {
-	const std::string Time = std::format("{:7.3f}", Record.ElapsedSeconds);
+	const std::time_t Timestamp = std::chrono::system_clock::to_time_t(Record.Timestamp);
+	std::tm LocalTime{};
+#ifdef _WIN32
+	localtime_s(&LocalTime, &Timestamp);
+#else
+	localtime_r(&Timestamp, &LocalTime);
+#endif
+	const std::string Time = std::format("{:02}:{:02}:{:02}", LocalTime.tm_hour, LocalTime.tm_min, LocalTime.tm_sec);
 	const std::string Category = std::format("{:<14}", Record.Category);
 	const std::size_t TimeEnd = Time.size();
 	const std::size_t CategoryBegin = TimeEnd + 2;

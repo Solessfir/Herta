@@ -24,7 +24,7 @@ Details shows the selected cube's editable location, rotation, and scale. Click 
 
 The Outliner docks above Details and lists the current preview object with label and type columns. Search filters the list; selecting a row updates Details and the viewport selection, and double-clicking focuses the camera. Click empty list space to deselect. Reopen it from **File > Outliner**. Existing layouts with docked Details gain the panel above it without resetting other dock positions; detached panels are preserved.
 
-The Output Log supports search, verbosity filtering, text selection, copying, pause, auto-scroll, and commands with completion and history. Normal messages use category colors; warnings stay yellow/orange and errors red. Search and command entry share an outlined input style.
+The Output Log supports search, verbosity filtering, text selection, copying, pause, auto-scroll, and commands with completion and history. Timestamps show local clock time in `HH:mm:ss` format. Normal messages use category colors; warnings stay yellow/orange and errors red. Search and command entry share an outlined input style.
 
 Use **Appearance** in the bottom bar for workspace styling. Default panel opacity is 80%, with 24 px background blur. Start is closed by default and can be reopened from **File > Start panel**.
 

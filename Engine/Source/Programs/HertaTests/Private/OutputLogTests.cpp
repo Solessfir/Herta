@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <ctime>
 #include <doctest/doctest.h>
 #include <format>
 #include <imgui.h>
@@ -152,7 +153,15 @@ TEST_CASE("Output Log exposes byte offsets for padded and long category columns"
 	REQUIRE((*Model)->GetVisibleLines().size() == 2);
 	for (const FOutputLogLine& Line : (*Model)->GetVisibleLines())
 	{
-		const std::string FormattedTime = std::format("{:7.3f}", Line.Record.ElapsedSeconds);
+		const auto Timestamp = std::chrono::system_clock::to_time_t(Line.Record.Timestamp);
+		std::tm LocalTime{};
+#ifdef _WIN32
+		REQUIRE(localtime_s(&LocalTime, &Timestamp) == 0);
+#else
+		REQUIRE(localtime_r(&Timestamp, &LocalTime) != nullptr);
+#endif
+		const std::string FormattedTime = std::format("{:02}:{:02}:{:02}", LocalTime.tm_hour, LocalTime.tm_min, LocalTime.tm_sec);
+		CHECK(FormattedTime.size() == 8);
 		CHECK(Line.TimeEnd == FormattedTime.size());
 		CHECK(Line.CategoryBegin == Line.TimeEnd + 2);
 		CHECK(Line.CategoryEnd == Line.CategoryBegin + Line.Record.Category.size());
