@@ -142,7 +142,17 @@ void ReportFailure(const std::string_view Message) noexcept
 	return EWindowSystem::Unknown;
 }
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const std::string_view ExpectedWindowSystem)
+[[nodiscard]] constexpr bool ShouldEnableValidation(const EBuildConfiguration Configuration, const bool bRequested) noexcept
+{
+	return Configuration == EBuildConfiguration::Debug || (Configuration == EBuildConfiguration::Development && bRequested);
+}
+
+static_assert(ShouldEnableValidation(EBuildConfiguration::Debug, false));
+static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
+static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
+static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
+
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem)
 {
 	FLogOptions LogOptions;
 	LogOptions.EditorBufferCapacity = 20'000;
@@ -230,7 +240,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	PresentationDescriptor.WindowBackendHandle = Window.GetBackendHandle().Value;
 	PresentationDescriptor.RequiredInstanceExtensions = std::move(*InstanceExtensions);
 	PresentationDescriptor.InitialExtent = GetFramebufferExtent(Window);
-	PresentationDescriptor.bEnableValidation = GetBuildConfiguration() != EBuildConfiguration::Shipping;
+	PresentationDescriptor.bEnableValidation = ShouldEnableValidation(GetBuildConfiguration(), bValidationRequested || bRendererTest);
 	PresentationDescriptor.bRequireValidation = bRendererTest && GetBuildConfiguration() != EBuildConfiguration::Shipping;
 	PresentationDescriptor.Log = Log.get();
 	std::expected<std::unique_ptr<INvrhiVulkanPresentation>, FPresentationError> PresentationResult = CreateNvrhiVulkanPresentation(std::move(PresentationDescriptor));
@@ -681,8 +691,9 @@ int main(const int ArgumentCount, char** const Arguments)
 		const bool bSmokeTest = Herta::HasArgument(ArgumentCount, Arguments, "--smoke-test");
 		const bool bPlatformSmokeTest = Herta::HasArgument(ArgumentCount, Arguments, "--platform-smoke-test");
 		const bool bRendererTest = Herta::HasArgument(ArgumentCount, Arguments, "--renderer-test");
+		const bool bValidationRequested = Herta::HasArgument(ArgumentCount, Arguments, "--validation");
 		const std::string_view ExpectedWindowSystem = Herta::FindArgumentValue(ArgumentCount, Arguments, "--expect-window-system=");
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, ExpectedWindowSystem);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem);
 	}
 	catch (const std::exception& Exception)
 	{

@@ -393,14 +393,14 @@ project "HertaEditor"
             path.join(ProgramsRoot, "HertaEditor/Resources/Windows/HertaEditor.rc")
         }
 
-    filter { "system:windows", "configurations:Debug or Development" }
+    filter { "system:windows", "configurations:Debug or Debug-ASan or Development" }
         debugenvs {
             "VULKAN_SDK=" .. VulkanSdk.Root,
             "VK_ADD_LAYER_PATH=" .. VulkanSdk.ValidationLayerDirectory,
             "PATH=" .. VulkanSdk.BinaryDirectory .. ";%PATH%"
         }
 
-    filter { "system:linux", "configurations:Debug or Development" }
+    filter { "system:linux", "configurations:Debug or Debug-ASan or Development" }
         debugenvs {
             "VULKAN_SDK=" .. VulkanSdk.Root,
             "VK_ADD_LAYER_PATH=" .. VulkanSdk.ValidationLayerDirectory,

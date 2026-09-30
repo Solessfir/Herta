@@ -39,3 +39,5 @@ HertaNVRHI()
 HertaSpdlog()
 
 include(PremakeRoot .. "/Modules.lua")
+include(PremakeRoot .. "/Rider.lua")
+HertaGenerateRiderRunConfiguration(RepositoryRoot, Action, HertaGetVulkanSdk())

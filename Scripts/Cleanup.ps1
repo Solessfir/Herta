@@ -51,6 +51,7 @@ foreach ($Directory in $GeneratedDirectories) {
 }
 
 $GeneratedRootFiles = @(
+    '.run/HertaEditor.run.xml',
     'Makefile',
     'compile_commands.json',
     '.DS_Store',

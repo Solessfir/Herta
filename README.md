@@ -139,7 +139,9 @@ bash ./Setup.sh
 bash ./GenerateProjectFiles.sh
 ```
 
-Generated IDE launch settings provide the project-local Vulkan SDK tools and validation-layer paths for Debug and Development. Direct launches continue without validation when the platform loader cannot discover the SDK layer, and report that downgrade through Herta logging.
+Generated Visual Studio launch settings provide the project-local Vulkan SDK tools and validation-layer paths. Windows project generation also creates the Git-ignored `.run/HertaEditor.run.xml`; select **HertaEditor** in Rider and use the solution configuration dropdown to choose Debug, Debug-ASan, Development, or Shipping. Regeneration updates this managed profile without modifying personal Rider configurations.
+
+Debug and Debug-ASan enable Vulkan and NVRHI validation by default. Development disables validation by default; add `--validation` to the launch arguments (including Rider EzArgs) to enable it. Shipping keeps validation disabled. Renderer regression tests require validation in non-Shipping builds. When requested validation layers are unavailable, normal launches report the downgrade and continue; renderer regression tests fail instead.
 
 ## Cleaning
 
