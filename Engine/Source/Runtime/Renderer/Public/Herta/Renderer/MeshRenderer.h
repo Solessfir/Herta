@@ -36,7 +36,7 @@ struct FMeshRenderView
 	FMatrix4 Projection;
 	FMatrix4 Model;
 	bool bDrawGrid = false;
-	FVector3 GridCenter;
+	FVector3 GridCenter{};
 };
 
 class FMeshRenderer final

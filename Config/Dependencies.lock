@@ -2,5 +2,5 @@ HERTA_DEPENDENCIES_V1
 # name|kind|platform|version|license|url|sha256|installed-entry
 premake|tool|windows-x64|5.0.0-beta8|BSD-3-Clause|https://github.com/premake/premake-core/releases/download/v5.0.0-beta8/premake-5.0.0-beta8-windows.zip|e64ce2ed8778e0098f63674cca61fe33941b5f0c8d9a4afd651152bdea3758ab|premake5.exe
 premake|tool|linux-x64|5.0.0-beta8|BSD-3-Clause|https://github.com/premake/premake-core/releases/download/v5.0.0-beta8/premake-5.0.0-beta8-linux.tar.gz|63edd3e7461eebdd45b500a3c7e8ad4e7a67d68f230010f9a97cbb71b4ec59c8|premake5
-vulkan-sdk|sdk|windows-x64|1.4.357.0|Multiple|https://sdk.lunarg.com/sdk/download/1.4.357.0/windows/vulkansdk-windows-X64-1.4.357.0.exe|81f474711e9042f4cd22b31b2f7a8870db2e428b21586fb43dd80150be97310d|Include/vulkan/vulkan.h
-vulkan-sdk|sdk|linux-x64|1.4.357.0|Multiple|https://sdk.lunarg.com/sdk/download/1.4.357.0/linux/vulkansdk-linux-x86_64-1.4.357.0.tar.xz|0f09bf6a0625e346bf004be70b92907e934a4c76606b323441b2baf3a5a0e66d|x86_64/include/vulkan/vulkan.h
+vulkan-sdk|sdk|windows-x64|1.4.363.0|Multiple|https://sdk.lunarg.com/sdk/download/1.4.363.0/windows/vulkansdk-windows-X64-1.4.363.0.exe|94a82d378f7a5e3e54c9db7d2fb7016af136e14ac0a18dbf0f2f67a36352d141|Include/vulkan/vulkan.h
+vulkan-sdk|sdk|linux-x64|1.4.363.0|Multiple|https://sdk.lunarg.com/sdk/download/1.4.363.0/linux/vulkansdk-linux-x86_64-1.4.363.0.tar.xz|197962f5cbf80baf2775a03336a01cee7c8745686c65aaa70d3f751ade4d7e43|x86_64/include/vulkan/vulkan.h

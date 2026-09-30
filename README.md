@@ -4,19 +4,27 @@ Herta is a C++23 game engine and editor for Windows and Linux. It is being built
 
 The architecture takes inspiration from Unreal Engine's runtime and tooling boundaries while keeping each module small enough to understand, test, and evolve deliberately.
 
+![Herta Editor with the Vulkan viewport, Details panel, and docked Output Log](.github/Herta.png)
+
 ## Status
 
 Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and an interactive editor Viewport with reversed-Z, camera navigation, transform gizmos, and depth-tested debug drawing. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is next; asset importing and the game runtime have not started.
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
 
-The native workspace renders the scene across the canvas beneath blurred Details and Output Log overlays, with compact chrome, glass viewport controls, and compact transform editing. The camera's projection center follows the unobscured Viewport pane, so overlays do not push the subject off-center. Panels remain dockable and resizable; detached Viewports render within their own windows.
+## Editor workspace
 
-See [Rendering.md](Docs/Rendering.md) for GPU ownership, shader cooking, and renderer verification. Reset the layout from the hamburger menu to use the new Viewport arrangement.
+The workspace renders the scene across the canvas beneath blurred Details and Output Log overlays, with compact chrome, glass viewport controls, and inline transform editing. The camera's projection center follows the unobscured Viewport pane, so overlays do not push the subject off-center. Panels remain dockable and resizable; detached Viewports render within their own windows. The world grid is procedural on the GPU, with antialiased lines and a distance fade.
+
+See [Rendering.md](Docs/Rendering.md) for GPU ownership, shader cooking, and renderer verification. Use **File > Reset layout** to restore the default arrangement, including the Output Log's 26% workspace height. Existing saved layouts are preserved when defaults change.
 
 In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the preview object. Click the cube to select it and show its outline and transform gizmo; click empty viewport space to deselect it. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits currently affect only the preview cube and are not saved.
 
-Details shows the selected cube's editable location, rotation, and scale. Click a value to type or drag it to adjust; typed values support arithmetic such as `10/2`, applied with Enter. Shift+RMB copies an individual value or a whole transform row from its label; Shift+LMB pastes it. Row clipboard text supports UE's `X/Y/Z` location and scale format and `Pitch/Yaw/Roll` rotation format. Values stay in Herta's units and axis conventions; clipboard compatibility does not convert them. Click the camera coordinates to copy a position that can be pasted onto Location. Start is closed by default; reopen it from the application menu to access workspace appearance settings.
+Details shows the selected cube's editable location, rotation, and scale. Click a value to type or drag it to adjust; typed values support arithmetic such as `10/2`, applied with Enter. Shift+RMB copies an individual value or a whole transform row from its label; Shift+LMB pastes it. Row clipboard text supports UE's `X/Y/Z` location and scale format and `Pitch/Yaw/Roll` rotation format. Values stay in Herta's units and axis conventions; clipboard compatibility does not convert them. Click the camera coordinates to copy a position that can be pasted onto Location.
+
+The Output Log supports search, verbosity filtering, text selection, copying, pause, auto-scroll, and commands with completion and history. Normal messages use category colors; warnings stay yellow/orange and errors red. Search and command entry share an outlined input style.
+
+Use **Appearance** in the bottom bar for workspace styling. Default panel opacity is 80%, with 24 px background blur. Start is closed by default and can be reopened from **File > Start panel**.
 
 ## Technical direction
 
@@ -49,7 +57,7 @@ Dependencies will be introduced only when their implementation milestone require
 
 ## Building
 
-Setup initializes Git submodules and downloads pinned project-local Premake and Vulkan SDK installations under ignored `External/Premake` and `SDK`. Normal project generation and builds do not access the network. A Vulkan-capable driver and production loader remain platform requirements.
+Setup initializes Git submodules and downloads pinned project-local Premake and Vulkan SDK installations under ignored `External/Premake` and `SDK`. Versions, download URLs, and SHA-256 hashes are recorded in [Dependencies.lock](Config/Dependencies.lock). Normal project generation and builds do not access the network. A Vulkan-capable driver and production loader remain platform requirements; updating the SDK does not update the GPU driver.
 
 Building `HertaEditor` also builds `HertaShaderWorker` and cooks its shaders using the SDK's Slang compiler. Keep the generated `Shaders` directory beside the editor executable.
 
