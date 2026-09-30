@@ -28,6 +28,8 @@ The Output Log supports search, verbosity filtering, text selection, copying, pa
 
 Use **Appearance** in the bottom bar for workspace styling. Default panel opacity is 80%, with 24 px background blur. Start is closed by default and can be reopened from **File > Start panel**.
 
+Set `HERTA_PROFILE_BLUR=1` before launching the editor to log GPU timings for the main window's backdrop copy and blur passes. After 30 warm-up samples, it reports average/minimum/maximum milliseconds over 120 samples, together with framebuffer resolution and blur radius. Resizing or changing the radius restarts sampling. These timings exclude final UI compositing.
+
 ## Technical direction
 
 - C++23 with Unreal-style naming and explicit module ownership

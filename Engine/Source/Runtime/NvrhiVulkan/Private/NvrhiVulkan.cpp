@@ -17,6 +17,7 @@
 #include <atomic>
 #include <bit>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <format>
 #include <imgui.h>
@@ -336,6 +337,34 @@ private:
 		nvrhi::BindingSetHandle BlurBindings;
 	};
 
+	struct FBlurTimingMetric
+	{
+		double Total = 0.0;
+		float Minimum = std::numeric_limits<float>::max();
+		float Maximum = 0.0f;
+
+		void Add(const float Milliseconds) noexcept
+		{
+			Total += Milliseconds;
+			Minimum = std::min(Minimum, Milliseconds);
+			Maximum = std::max(Maximum, Milliseconds);
+		}
+	};
+
+	struct FBlurTiming
+	{
+		nvrhi::TimerQueryHandle Copy;
+		nvrhi::TimerQueryHandle Blur;
+		FBlurTimingMetric CopyMetric;
+		FBlurTimingMetric BlurMetric;
+		std::uint32_t Width = 0;
+		std::uint32_t Height = 0;
+		std::uint32_t Radius = 0;
+		std::uint32_t Completed = 0;
+		bool bPending = false;
+		bool bDiscardPending = false;
+	};
+
 	struct FSecondaryViewport
 	{
 		void* WindowBackendHandle = nullptr;
@@ -363,6 +392,18 @@ public:
 	    , NvrhiCallback(ValidationState)
 	{
 		ValidationState.Log = this->Descriptor.Log;
+#ifdef _WIN32
+		char* ProfileBlur = nullptr;
+		std::size_t Length = 0;
+		if (_dupenv_s(&ProfileBlur, &Length, "HERTA_PROFILE_BLUR") == 0)
+		{
+			bProfileBlur = ProfileBlur && std::string_view(ProfileBlur) == "1";
+		}
+		std::free(ProfileBlur);
+#else
+		const char* const ProfileBlur = std::getenv("HERTA_PROFILE_BLUR");
+		bProfileBlur = ProfileBlur && std::string_view(ProfileBlur) == "1";
+#endif
 	}
 
 	~FNvrhiVulkanPresentation() override
@@ -1071,7 +1112,17 @@ public:
 					return GlassResult;
 				}
 				// The background and scene are complete; foreground panels never enter the shared snapshot.
+				FBlurTiming* const Timing = PrepareBlurTiming(static_cast<std::uint32_t>(FramebufferWidth), static_cast<std::uint32_t>(FramebufferHeight), BlurRadiusPixels);
+				if (Timing)
+				{
+					RenderCommandList->beginTimerQuery(Timing->Copy);
+				}
 				RenderCommandList->copyTexture(GlassResources.Snapshot, nvrhi::TextureSlice{}, Source, nvrhi::TextureSlice{});
+				if (Timing)
+				{
+					RenderCommandList->endTimerQuery(Timing->Copy);
+					RenderCommandList->beginTimerQuery(Timing->Blur);
+				}
 				const auto& BlurDescriptor = GlassResources.Blurred->getDesc();
 				for (std::uint32_t Direction = 0; Direction < 2; ++Direction)
 				{
@@ -1090,6 +1141,10 @@ public:
 					BlurArguments.startIndexLocation = static_cast<std::uint32_t>(DrawData.TotalIdxCount) + Direction * 6;
 					BlurArguments.startVertexLocation = static_cast<std::uint32_t>(DrawData.TotalVtxCount) + Direction * 4;
 					RenderCommandList->drawIndexed(BlurArguments);
+				}
+				if (Timing)
+				{
+					RenderCommandList->endTimerQuery(Timing->Blur);
 				}
 			}
 		}
@@ -1410,6 +1465,77 @@ public:
 	}
 
 private:
+	[[nodiscard]] FBlurTiming* PrepareBlurTiming(const std::uint32_t Width, const std::uint32_t Height, const std::uint32_t Radius)
+	{
+		if (!bProfileBlur || ToolUIOverrideViewport)
+		{
+			return nullptr;
+		}
+
+		constexpr std::uint32_t WarmupSamples = 30;
+		constexpr std::uint32_t MeasuredSamples = 120;
+		if (BlurTiming.Width != Width || BlurTiming.Height != Height || BlurTiming.Radius != Radius)
+		{
+			BlurTiming.Width = Width;
+			BlurTiming.Height = Height;
+			BlurTiming.Radius = Radius;
+			BlurTiming.Completed = 0;
+			BlurTiming.CopyMetric = {};
+			BlurTiming.BlurMetric = {};
+			BlurTiming.bDiscardPending = BlurTiming.bPending;
+		}
+
+		if (BlurTiming.bPending)
+		{
+			if (!NvrhiDevice->pollTimerQuery(BlurTiming.Copy) || !NvrhiDevice->pollTimerQuery(BlurTiming.Blur))
+			{
+				return nullptr;
+			}
+			const float CopyMilliseconds = NvrhiDevice->getTimerQueryTime(BlurTiming.Copy) * 1000.0f;
+			const float BlurMilliseconds = NvrhiDevice->getTimerQueryTime(BlurTiming.Blur) * 1000.0f;
+			BlurTiming.bPending = false;
+			if (!BlurTiming.bDiscardPending)
+			{
+				if (BlurTiming.Completed >= WarmupSamples)
+				{
+					BlurTiming.CopyMetric.Add(CopyMilliseconds);
+					BlurTiming.BlurMetric.Add(BlurMilliseconds);
+				}
+				++BlurTiming.Completed;
+				if (BlurTiming.Completed == WarmupSamples + MeasuredSamples && Descriptor.Log)
+				{
+					HERTA_LOG_INFO(*Descriptor.Log, RhiLog,
+					               "Backdrop GPU {}x{}, radius {} px, {} samples: copy avg {:.3f} ms (min {:.3f}, max {:.3f}); blur avg {:.3f} ms (min {:.3f}, max {:.3f})",
+					               Width, Height, Radius, MeasuredSamples,
+					               BlurTiming.CopyMetric.Total / MeasuredSamples, BlurTiming.CopyMetric.Minimum, BlurTiming.CopyMetric.Maximum,
+					               BlurTiming.BlurMetric.Total / MeasuredSamples, BlurTiming.BlurMetric.Minimum, BlurTiming.BlurMetric.Maximum);
+				}
+			}
+			BlurTiming.bDiscardPending = false;
+		}
+
+		if (BlurTiming.Completed >= WarmupSamples + MeasuredSamples)
+		{
+			return nullptr;
+		}
+		if (!BlurTiming.Copy)
+		{
+			BlurTiming.Copy = NvrhiDevice->createTimerQuery();
+			BlurTiming.Blur = NvrhiDevice->createTimerQuery();
+			if (!BlurTiming.Copy || !BlurTiming.Blur)
+			{
+				bProfileBlur = false;
+				if (Descriptor.Log)
+				{
+					HERTA_LOG_WARNING(*Descriptor.Log, RhiLog, "Backdrop GPU timing unavailable: timer query creation failed");
+				}
+				return nullptr;
+			}
+		}
+		BlurTiming.bPending = true;
+		return &BlurTiming;
+	}
+
 	struct FToolUIPushConstants
 	{
 		std::array<float, 2> Scale;
@@ -2139,6 +2265,7 @@ private:
 		Viewports.clear();
 		DestroySwapchain();
 		ShutdownToolUIResources();
+		BlurTiming = {};
 		CommandList = nullptr;
 		GraphicsDevice.reset();
 		NvrhiDevice = nullptr;
@@ -2218,6 +2345,8 @@ private:
 	std::size_t ToolUIVertexBufferCapacity = 0;
 	std::size_t ToolUIIndexBufferCapacity = 0;
 	bool bToolUIInitialized = false;
+	FBlurTiming BlurTiming;
+	bool bProfileBlur = false;
 	std::unordered_map<std::uint64_t, std::unique_ptr<FSecondaryViewport>> Viewports;
 	std::uint64_t NextViewportHandle = 1;
 };
