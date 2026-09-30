@@ -55,6 +55,39 @@ TEST_CASE("Window action policy can suppress every title bar control")
 	CHECK(HitTestTitleBar(Layout, 1220, 10) == ETitleBarHitRegion::Caption);
 }
 
+TEST_CASE("Title bar policy can require minimization support for all controls")
+{
+	constexpr FWindowActionPolicy Policy{.bRequireMinimizeSupport = true};
+	constexpr FWindowActionCapabilities Unsupported{.bMinimize = false};
+	constexpr FTitleBarLayout Hidden = MakeTitleBarLayout(1280, 720, 1.0f, true, false, Unsupported, Policy);
+	CHECK_FALSE(Hidden.bCloseVisible);
+	CHECK_FALSE(Hidden.bMinimizeVisible);
+	CHECK_FALSE(Hidden.bMaximizeVisible);
+	CHECK_FALSE(Hidden.bSystemMenuEnabled);
+	CHECK(HitTestTitleBar(Hidden, 1270, 10) == ETitleBarHitRegion::Caption);
+	CHECK(HitTestTitleBar(Hidden, 10, 10) == ETitleBarHitRegion::Caption);
+	CHECK(HitTestTitleBar(Hidden, 50, 10) == ETitleBarHitRegion::ApplicationMenu);
+	CHECK(HitTestTitleBar(Hidden, 0, 100) == ETitleBarHitRegion::ResizeLeft);
+
+	constexpr FTitleBarLayout Supported = MakeTitleBarLayout(1280, 720, 1.0f, true, false, {}, Policy);
+	CHECK(Supported.bCloseVisible);
+	CHECK(Supported.bMinimizeVisible);
+	CHECK(Supported.bMaximizeVisible);
+	CHECK(Supported.bSystemMenuEnabled);
+
+	constexpr FTitleBarLayout DefaultPolicy = MakeTitleBarLayout(1280, 720, 1.0f, true, false, Unsupported);
+	CHECK(DefaultPolicy.bCloseVisible);
+	CHECK_FALSE(DefaultPolicy.bMinimizeVisible);
+	CHECK(DefaultPolicy.bMaximizeVisible);
+	CHECK(DefaultPolicy.bSystemMenuEnabled);
+
+	constexpr FTitleBarLayout Restricted = MakeTitleBarLayout(1280, 720, 1.0f, false, false, {.bWindowMenu = false}, Policy);
+	CHECK(Restricted.bCloseVisible);
+	CHECK(Restricted.bMinimizeVisible);
+	CHECK_FALSE(Restricted.bMaximizeVisible);
+	CHECK_FALSE(Restricted.bSystemMenuEnabled);
+}
+
 TEST_CASE("Title bar UI capture is limited to cached overlapping regions")
 {
 	FTitleBarHitTestState State;

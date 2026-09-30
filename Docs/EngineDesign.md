@@ -434,7 +434,7 @@ The custom title bar design is:
 
 Editor code must not handle `WM_NCHITTEST`, X11 client messages, or Wayland serials. Those details belong in the GLFW fork. Each ImGui platform viewport installs the same callback because every viewport is a native window.
 
-Wayland does not expose every global-window operation available on Win32/X11. Window placement and custom-decoration behavior must degrade honestly instead of faking unsupported state. Application caches the per-window action capabilities advertised through GLFW and combines them with Herta's per-window action policy. ToolUI disables every native window-action control across platforms. The application glyph remains visible as decorative caption content. This policy does not detect a compositor or layout.
+Wayland does not expose every global-window operation available on Win32/X11. Window placement and custom-decoration behavior must degrade honestly instead of faking unsupported state. Application caches the per-window action capabilities advertised through GLFW and combines them with Herta's per-window action policy. On Linux, ToolUI requires minimization support to show any native window-action controls in the main or detached windows. Windows retains its capability-driven controls. Capability changes refresh the layout, including this policy. The application glyph remains visible when the system menu is disabled. This policy does not detect a compositor or layout.
 
 The GLFW fork should contain only a generic, upstreamable custom-titlebar API. Herta-specific colors, buttons, ImGui state, and engine events stay in Herta. The fork remains pinned as a submodule and its upstream copyright remains intact.
 

@@ -42,6 +42,7 @@ struct FWindowActionPolicy
 	bool bAllowMinimize = true;
 	bool bAllowMaximize = true;
 	bool bAllowWindowMenu = true;
+	bool bRequireMinimizeSupport = false;
 
 	[[nodiscard]] constexpr bool operator==(const FWindowActionPolicy&) const noexcept = default;
 };
@@ -121,6 +122,7 @@ struct FTitleBarHitTestState
 
 [[nodiscard]] constexpr FTitleBarLayout MakeTitleBarLayout(const int WindowWidth, const int WindowHeight, const float ContentScale, const bool bResizable, const bool bMaximized, const FWindowActionCapabilities Capabilities = {}, const FWindowActionPolicy Policy = {}) noexcept
 {
+	const bool bAllowControls = !Policy.bRequireMinimizeSupport || Capabilities.bMinimize;
 	return {
 	    .WindowWidth = WindowWidth,
 	    .WindowHeight = WindowHeight,
@@ -129,10 +131,10 @@ struct FTitleBarHitTestState
 	    .ResizeBorder = ScaleTitleBarMetric(6, ContentScale),
 	    .bResizable = bResizable,
 	    .bMaximized = bMaximized,
-	    .bCloseVisible = Policy.bAllowClose,
-	    .bMinimizeVisible = Capabilities.bMinimize && Policy.bAllowMinimize,
-	    .bMaximizeVisible = Capabilities.bMaximize && Policy.bAllowMaximize && bResizable,
-	    .bSystemMenuEnabled = Capabilities.bWindowMenu && Policy.bAllowWindowMenu};
+	    .bCloseVisible = bAllowControls && Policy.bAllowClose,
+	    .bMinimizeVisible = bAllowControls && Capabilities.bMinimize && Policy.bAllowMinimize,
+	    .bMaximizeVisible = bAllowControls && Capabilities.bMaximize && Policy.bAllowMaximize && bResizable,
+	    .bSystemMenuEnabled = bAllowControls && Capabilities.bWindowMenu && Policy.bAllowWindowMenu};
 }
 
 [[nodiscard]] constexpr FTitleBarControlBounds GetTitleBarControlBounds(const FTitleBarLayout& Layout, const ETitleBarHitRegion Region) noexcept

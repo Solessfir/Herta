@@ -38,7 +38,7 @@ Set `HERTA_PROFILE_BLUR=1` before launching the editor to log GPU timings for th
 - Windows and Linux, including Win32, X11, and Wayland
 - Right-handed Left-Up-Forward coordinates using meters, kilograms, and seconds
 - Vulkan renderer behind Herta RHI and NVRHI
-- Herta's GLFW fork with capability-driven custom title bars across Win32, X11, and Wayland
+- Herta's GLFW fork with capability-driven custom title bars across Win32, X11, and Wayland; on Linux, all editor window controls are hidden when minimization is unsupported
 - Herta-owned structured logging with `spdlog` private behind Core and a docked searchable Output Log in EditorFramework
 - UX-first task system with bounded CPU and IO work, cancellation, progress, and safe reload ownership
 - Dear ImGui editor and imgui-node-editor graph tooling

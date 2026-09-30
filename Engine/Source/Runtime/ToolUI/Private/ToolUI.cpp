@@ -1039,6 +1039,9 @@ void PlatformCreateWindow(ImGuiViewport* const Viewport)
 		Data->Owner = &Owner;
 		Data->Viewport = Viewport;
 		Data->Window = CreatedWindow = *WindowResult;
+#ifdef __linux__
+		Data->Window->SetActionPolicy({.bRequireMinimizeSupport = true});
+#endif
 		Data->CachedPosition = {Viewport->Pos.x, Viewport->Pos.y};
 		Viewport->PlatformUserData = Data.get();
 		Viewport->PlatformHandle = Data->Window->GetBackendHandle().Value;
@@ -1497,6 +1500,9 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		Implementation = std::make_unique<FImplementation>();
 		Implementation->Application = Descriptor.Application;
 		Implementation->Window = Descriptor.Window;
+#ifdef __linux__
+		Implementation->Window->SetActionPolicy({.bRequireMinimizeSupport = true});
+#endif
 		Implementation->BackendWindow = static_cast<GLFWwindow*>(Descriptor.Window->GetBackendHandle().Value);
 		Implementation->WindowSystem = Descriptor.Application->GetCapabilities().WindowSystem;
 		Implementation->bProgrammaticWindowPosition = Descriptor.Application->GetCapabilities().bProgrammaticWindowPosition;

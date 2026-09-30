@@ -172,7 +172,7 @@ Title-bar drawing and native hit testing consume one shared pure layout model. H
 - The top-left application glyph is decorative caption content.
 - The adjacent hamburger is an ImGui client control for Herta commands.
 - The application title starts after both left-side elements.
-- Herta Editor draws the Close, Minimize, Maximize, Restore, and System Menu controls advertised by the active window system. Unsupported controls remain hidden.
+- Herta Editor shows controls according to window capabilities. On Linux, lack of minimization support hides all window controls, including Close and System Menu, in both the main and detached windows. Windows retains its controls. Caption dragging, resizing, and the application menu remain available.
 - Win32 and X11 scale native window coordinates with the viewport content scale.
 - Wayland window and cursor coordinates are already logical and must not be scaled twice.
 - Every detached ImGui platform viewport owns its own Herta window, layout, scale, focus, cursor, capture, and renderer state.
