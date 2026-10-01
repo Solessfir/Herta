@@ -22,3 +22,6 @@
 [submodule "External/im3d"]
 	path = External/im3d
 	url = https://github.com/john-chapman/im3d.git
+[submodule "External/Jolt"]
+	path = External/Jolt
+	url = https://github.com/jrouwe/JoltPhysics.git

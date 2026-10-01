@@ -34,7 +34,7 @@ struct FMeshRenderView
 {
 	FMatrix4 View;
 	FMatrix4 Projection;
-	FMatrix4 Model;
+	std::span<const FMatrix4> Models;
 	bool bDrawGrid = false;
 	FVector3 GridCenter{};
 };

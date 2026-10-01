@@ -1,12 +1,13 @@
 #include "OutlinerPanel.h"
 
 #include "Herta/ToolUI/ToolUI.h"
+#include "PreviewScene.h"
 
 #include <imgui_internal.h>
 
 namespace Herta
 {
-bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelected, const bool bDragging, FOutlinerPanelState& State)
+bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, int& SelectedObject, const std::span<const FPreviewObject> Objects, const bool bDragging, FOutlinerPanelState& State)
 {
 	if (!ToolUI.BeginPanel("Outliner", &bOpen))
 	{
@@ -22,7 +23,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelect
 	{
 		State.Search.Build();
 	}
-	const bool bCubeVisible = State.IsPreviewCubeVisible();
+	int VisibleObjects = 0;
 	const float FooterHeight = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + Scale;
 	if (ImGui::BeginChild("##OutlinerEntries", {0.0f, -FooterHeight}))
 	{
@@ -47,8 +48,13 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelect
 			ImGui::GetWindowDrawList()->AddRectFilled({Table->WorkRect.Min.x, Table->RowPosY1}, {Table->WorkRect.Max.x, Table->RowPosY2}, ImGui::GetColorU32(ImVec4{1, 1, 1, 0.05f}), 4.0f * Scale);
 			ImGui::TablePopBackgroundChannel();
 			RowsTop = ImGui::GetCursorScreenPos().y;
-			if (bCubeVisible)
+			for (std::size_t Index = 0; Index < Objects.size(); ++Index)
 			{
+				const FPreviewObject& Object = Objects[Index];
+				if (!State.IsObjectVisible(Object.Label))
+					continue;
+				++VisibleObjects;
+				ImGui::PushID(static_cast<int>(Index));
 				ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8.0f * Scale, 6.0f * Scale});
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.0f * Scale, 12.0f * Scale});
 				ImGui::TableNextRow();
@@ -58,18 +64,20 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelect
 				ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
 				ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0, 0, 0, 0});
 				ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
-				if (ImGui::Selectable("Preview Cube##PreviewCube", bSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick))
+				const std::string Label(Object.Label);
+				if (ImGui::Selectable(Label.c_str(), SelectedObject == static_cast<int>(Index), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick))
 				{
-					bSelected = true;
+					SelectedObject = static_cast<int>(Index);
 					bFocusRequested = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter);
 				}
 				ImGui::PopStyleColor(3);
-				bRowHovered = ImGui::IsItemHovered();
+				const bool bCurrentRowHovered = ImGui::IsItemHovered();
+				bRowHovered |= bCurrentRowHovered;
 				const ImVec2 Minimum = ImGui::GetItemRectMin();
 				const ImVec2 Maximum = ImGui::GetItemRectMax();
-				if (bSelected || bRowHovered)
+				if (SelectedObject == static_cast<int>(Index) || bCurrentRowHovered)
 				{
-					const ImGuiCol Color = bRowHovered ? (ImGui::IsItemActive() ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered) : ImGuiCol_Header;
+					const ImGuiCol Color = bCurrentRowHovered ? (ImGui::IsItemActive() ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered) : ImGuiCol_Header;
 					ImGui::TablePushBackgroundChannel();
 					ImGui::GetWindowDrawList()->AddRectFilled({Table->WorkRect.Min.x, Minimum.y}, {Table->WorkRect.Max.x, Maximum.y}, ImGui::GetColorU32(Color), 4.0f * Scale);
 					ImGui::TablePopBackgroundChannel();
@@ -90,6 +98,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelect
 				ImGui::TableSetColumnIndex(1);
 				ImGui::TextDisabled("Static Mesh");
 				ImGui::PopStyleVar(2);
+				ImGui::PopID();
 			}
 			ImGui::EndTable();
 		}
@@ -97,15 +106,15 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelect
 		ImGui::PopStyleVar(3);
 		if (!bDragging && ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::GetIO().MousePos.y >= RowsTop && !bRowHovered)
 		{
-			bSelected = false;
+			SelectedObject = -1;
 		}
 	}
 	ImGui::EndChild();
 	ImGui::Separator();
 	if (State.Search.IsActive())
-		ImGui::TextDisabled("%d of 1 object", bCubeVisible ? 1 : 0);
+		ImGui::TextDisabled("%d of %d objects", VisibleObjects, static_cast<int>(Objects.size()));
 	else
-		ImGui::TextDisabled(bSelected ? "1 object (1 selected)" : "1 object");
+		ImGui::TextDisabled(SelectedObject >= 0 ? "%d objects (1 selected)" : "%d objects", static_cast<int>(Objects.size()));
 	ImGui::EndDisabled();
 	ToolUI.EndPanel();
 	return bFocusRequested;

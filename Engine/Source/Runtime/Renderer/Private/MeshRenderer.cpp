@@ -358,7 +358,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.0f, static_cast<float>(Extent.Width) / static_cast<float>(Extent.Height), 0.1f);
 	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0, 1, 0}, RotationRadians) * FQuaternion::FromAxisAngle({1, 0, 0}, -0.25f);
-	return Render(Extent, {FMatrix4::Translation({0, 0, 5}), Projection, FMatrix4::Rotation(Rotation)});
+	const FMatrix4 Model = FMatrix4::Rotation(Rotation);
+	return Render(Extent, {FMatrix4::Translation({0, 0, 5}), Projection, std::span{&Model, 1}});
 }
 
 std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Extent, const FMeshRenderView& View, const std::span<const FDebugDrawList> DebugDraw)
@@ -370,8 +371,10 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	FImplementation& State = *Implementation;
 	IGraphicsDevice& Device = *State.Device;
 	const FMatrix4 WorldToClip = View.Projection * View.View;
-	const FMatrix4 ModelToClip = WorldToClip * View.Model;
-	if (!IsFinite(View.View) || !IsFinite(View.Projection) || !IsFinite(View.Model) || !IsFinite(WorldToClip) || !IsFinite(ModelToClip) || (View.bDrawGrid && (!std::isfinite(View.GridCenter.X) || !std::isfinite(View.GridCenter.Z))))
+	if (!IsFinite(View.View) || !IsFinite(View.Projection) || !IsFinite(WorldToClip) || !std::ranges::all_of(View.Models, [&](const FMatrix4& Model)
+	                                                                                                      {
+		                                                                                                      return IsFinite(Model) && IsFinite(WorldToClip * Model);
+	                                                                                                      }) || (View.bDrawGrid && (!std::isfinite(View.GridCenter.X) || !std::isfinite(View.GridCenter.Z))))
 	{
 		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Mesh view, projection, model, and grid center must be finite"});
 	}
@@ -436,9 +439,17 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	                    {
 		                    return GraphResult(Device.ClearTargets(State.Color, FrameDepth, {0.035f, 0.035f, 0.035f, 1.0f}));
 	                    });
-	(void)Graph.AddPass("Textured mesh", {{Color, ERenderGraphAccess::ReadWrite}, {Depth, ERenderGraphAccess::ReadWrite}, {Geometry, ERenderGraphAccess::Read}, {Texture, ERenderGraphAccess::Read}}, [&]
+	(void)Graph.AddPass("Textured meshes", {{Color, ERenderGraphAccess::ReadWrite}, {Depth, ERenderGraphAccess::ReadWrite}, {Geometry, ERenderGraphAccess::Read}, {Texture, ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 	                    {
-		                    return GraphResult(Device.DrawIndexed({State.Pipeline, State.Vertices, State.Indices, State.Checker, State.Color, FrameDepth, ModelToClip.Data(), static_cast<std::uint32_t>(CubeIndices.size())}));
+		                    for (const FMatrix4& Model : View.Models)
+		                    {
+			                    const auto Result = Device.DrawIndexed({State.Pipeline, State.Vertices, State.Indices, State.Checker, State.Color, FrameDepth, (WorldToClip * Model).Data(), static_cast<std::uint32_t>(CubeIndices.size())});
+			                    if (!Result)
+			                    {
+				                    return GraphResult(Result);
+			                    }
+		                    }
+		                    return {};
 	                    });
 	if (View.bDrawGrid)
 	{

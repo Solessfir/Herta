@@ -1704,6 +1704,10 @@ void FToolUIContext::BeginFrame()
 			}
 		}
 	}
+	// Alt belongs to editor shortcuts and camera controls, not menu-layer navigation.
+	const ImGuiID AltOwner = ImHashStr("HertaAltShortcuts");
+	ImGui::SetKeyOwner(ImGuiKey_LeftAlt, AltOwner);
+	ImGui::SetKeyOwner(ImGuiKey_RightAlt, AltOwner);
 	ImGui::NewFrame();
 	Implementation->PresentedPanels.clear();
 	for (ImGuiWindow* const Window : Implementation->Context->Windows)

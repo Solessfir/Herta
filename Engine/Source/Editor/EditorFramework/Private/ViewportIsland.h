@@ -19,6 +19,7 @@ enum class EViewportIcon
 	Focus,
 	Settings,
 	Play,
+	Stop,
 	Simulate
 };
 
@@ -108,6 +109,9 @@ inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, c
 		case EViewportIcon::Settings:
 			for (const float Y : {-5.0f, 0.0f, 5.0f})
 				Draw->AddCircleFilled(Point(0, Y), 1.2f * Scale, Color);
+			break;
+		case EViewportIcon::Stop:
+			Draw->AddRectFilled(Point(-5, -5), Point(5, 5), Color, Scale);
 			break;
 		case EViewportIcon::Play:
 			Draw->AddTriangleFilled(Point(-4, -6), Point(6, 0), Point(-4, 6), Color);

@@ -64,7 +64,7 @@ private:
 	void Translate(const FVector3& Offset);
 	void Dolly(float LogDistanceDelta);
 
-	FVector3 Position{0.0f, 2.0f, -10.0f};
+	FVector3 Position{0.0f, 4.0f, -20.0f};
 	FVector3 Pivot;
 	float Yaw = 0.0f;
 	float Pitch = -std::atan2(Position.Y, -Position.Z);

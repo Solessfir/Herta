@@ -1,6 +1,7 @@
 #include "Herta/EditorFramework/EditorFramework.h"
 
 #include "DetailsPanel.h"
+#include "Herta/Core/Log.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/PreviewSelection.h"
 #include "Herta/EditorCore/TransformText.h"
@@ -11,6 +12,8 @@
 #include "NumericField.h"
 #include "OutlinerPanel.h"
 #include "OutputLogTextLayout.h"
+#include "PreviewSimulation.h"
+#include "PreviewScene.h"
 #include "ViewportGizmos.h"
 #include "ViewportIsland.h"
 #include "ViewportRotationFeedback.h"
@@ -26,6 +29,7 @@
 #include <im3d_math.h>
 #include <imgui.h>
 #include <iterator>
+#include <limits>
 #include <numbers>
 #include <optional>
 #include <string>
@@ -37,6 +41,7 @@ namespace Herta
 {
 namespace
 {
+inline constexpr FLogCategory EditorLog{"Editor"};
 inline constexpr std::array CategoryColors = {
     IM_COL32(126, 200, 255, 255),
     IM_COL32(142, 220, 182, 255),
@@ -219,6 +224,13 @@ void CopyBuffer(std::span<char> Destination, const std::string_view Source)
 	return Result;
 }
 
+[[nodiscard]] FTransform ToHertaTransform(const FPreviewObject& Object)
+{
+	const Im3d::Vec3 Euler = Im3d::ToEulerXYZ(Object.Rotation);
+	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0, 0, 1}, Euler.z) * FQuaternion::FromAxisAngle({0, 1, 0}, Euler.y) * FQuaternion::FromAxisAngle({1, 0, 0}, Euler.x);
+	return {{Object.Translation.x, Object.Translation.y, Object.Translation.z}, Rotation, {Object.Scale.x, Object.Scale.y, Object.Scale.z}};
+}
+
 struct FIm3dContextScope final
 {
 	Im3d::Context& Previous;
@@ -239,6 +251,10 @@ struct FIm3dContextScope final
 struct FEditorFramework::FImplementation
 {
 	FToolUIContext* ToolUI = nullptr;
+	FLogService* Log = nullptr;
+	FPreviewSimulation Simulation;
+	std::optional<FPreviewObject> SimulationStart;
+	bool bSimulationStoppedThisFrame = false;
 	FDetailsPanelState DetailsPanelState;
 	FOutlinerPanelState OutlinerPanelState;
 	std::shared_ptr<FViewportStats> Stats = std::make_shared<FViewportStats>();
@@ -256,9 +272,8 @@ struct FEditorFramework::FImplementation
 	FExtent2D ViewportExtent{960, 540};
 	FViewportCameraController ViewportCamera;
 	Im3d::Context ViewportGizmos;
-	Im3d::Vec3 PreviewTranslation{0.0f};
-	Im3d::Mat3 PreviewRotation{1.0f};
-	Im3d::Vec3 PreviewScale{1.0f};
+	std::array<FPreviewObject, 2> PreviewObjects = CreatePreviewObjects();
+	std::array<FMatrix4, 2> PreviewModels;
 	std::optional<Im3d::Mat4> PreviewDragStart;
 	FViewportRotationFeedbackState RotationFeedback;
 	FViewportScaleGizmoState ScaleGizmoState;
@@ -269,7 +284,7 @@ struct FEditorFramework::FImplementation
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
 	FViewportInteractionState ViewportInteraction;
-	bool bPreviewSelected = true;
+	int SelectedPreviewObject = PreviewCubeIndex;
 	bool bOutlinerOpen = true;
 	bool bDetailsOpen = true;
 	bool bStartPanelOpen = false;
@@ -302,12 +317,17 @@ struct FEditorFramework::FImplementation
 	void UpdateViewport(const ImVec2 RenderMinimum, const ImVec2 RenderSize);
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void FocusPreview();
+	[[nodiscard]] FPreviewObject& GetActivePreviewObject() noexcept { return PreviewObjects[static_cast<std::size_t>(std::max(SelectedPreviewObject, 0))]; }
+	void SetPreviewSelection(int ObjectIndex);
+	void ToggleSimulation();
+	void UpdateSimulation(float DeltaSeconds);
 	void RebuildSuggestions();
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> SubmitCommand();
 };
 
 FEditorFramework::FImplementation::FImplementation()
 {
+	Im3d::Mat3& PreviewRotation = PreviewObjects[PreviewCubeIndex].Rotation;
 	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0.0f, 1.0f, 0.0f}, 0.4f) * FQuaternion::FromAxisAngle({1.0f, 0.0f, 0.0f}, -0.25f);
 	const FMatrix3 Matrix = FMatrix3::Rotation(Rotation);
 	for (std::size_t Column = 0; Column < 3; ++Column)
@@ -318,7 +338,12 @@ FEditorFramework::FImplementation::FImplementation()
 		}
 	}
 	const auto Camera = ViewportCamera.GetSnapshot(960.0f / 540.0f);
-	ViewportRenderView = {Camera.View, Camera.Projection, ToHertaMatrix(Im3d::Mat4(PreviewTranslation, PreviewRotation, PreviewScale))};
+	for (std::size_t Index = 0; Index < PreviewObjects.size(); ++Index)
+	{
+		const FPreviewObject& Object = PreviewObjects[Index];
+		PreviewModels[Index] = ToHertaMatrix(Im3d::Mat4(Object.Translation, Object.Rotation, Object.Scale));
+	}
+	ViewportRenderView = {Camera.View, Camera.Projection, PreviewModels};
 }
 
 std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorFramework::Create(const FEditorFrameworkDescriptor Descriptor)
@@ -339,6 +364,7 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		auto Implementation = std::make_unique<FImplementation>();
 		Implementation->ToolUI = Descriptor.ToolUI;
 		Implementation->OutputLog = std::move(*OutputLog);
+		Implementation->Log = Descriptor.Log;
 		if (auto Result = RegisterViewportStatsCommand(*Descriptor.Commands, Implementation->Stats); !Result)
 		{
 			return std::unexpected(FEditorFrameworkError{std::move(Result.error().Message)});
@@ -374,6 +400,12 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	try
 	{
 		ImGuiIO& IO = ImGui::GetIO();
+		Implementation->bSimulationStoppedThisFrame = false;
+		if (!IO.AppFocusLost && Implementation->Simulation.IsRunning() && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+			Implementation->ToggleSimulation();
+		if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+			Implementation->ToggleSimulation();
+		Implementation->UpdateSimulation(IO.DeltaTime);
 		if (IO.KeyMods == 0 && ImGui::IsKeyPressed(ImGuiKey_GraveAccent, false))
 		{
 			Implementation->bOutputLogOpen = true;
@@ -443,7 +475,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			                                      const float ReadyCenterY = (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
 			                                      ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.0f * Scale, ReadyCenterY}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
 			                                      ImGui::SameLine();
-			                                      ImGui::TextDisabled("1 object");
+			                                      ImGui::TextDisabled("%zu objects", Implementation->PreviewObjects.size());
 			                                      const float Width = ImGui::CalcTextSize("Appearance").x + 42.0f * Scale;
 			                                      ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - Width - 12.0f));
 			                                      if (StatusButton("Appearance", true, false))
@@ -524,6 +556,9 @@ std::span<const FDebugDrawList> FEditorFramework::GetViewportDebugDrawLists() co
 
 void FEditorFramework::FImplementation::FocusPreview()
 {
+	if (SelectedPreviewObject < 0)
+		return;
+	const auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale] = GetActivePreviewObject();
 	const FMatrix4 Model = ToHertaMatrix(Im3d::Mat4(PreviewTranslation, PreviewRotation, PreviewScale));
 	const FVector3 HalfExtent{
 	    std::abs(Model(0, 0)) + std::abs(Model(0, 1)) + std::abs(Model(0, 2)),
@@ -619,9 +654,10 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 		Island(Minimum.x + (Size.x - PlayWidth) * 0.5f, PlayWidth, Size.x > 680.0f * Scale ? 0.0f : Height + Gap);
 		ImGui::BeginDisabled();
 		IconButton("Play", EViewportIcon::Play, "Play - game runtime is not implemented yet.");
-		ImGui::SameLine();
-		IconButton("Simulate", EViewportIcon::Simulate, "Simulate - game runtime is not implemented yet.");
 		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (IconButton("Simulate", Simulation.IsRunning() ? EViewportIcon::Stop : EViewportIcon::Simulate, Simulation.IsRunning() ? "Stop simulation (Esc)" : "Simulate (Alt+S)", Simulation.IsRunning()))
+			ToggleSimulation();
 	}
 	const float SettingsX = std::max(Minimum.x + 4.0f * Scale, Minimum.x + Size.x - EdgeMargin - Height);
 	Island(SettingsX, Height);
@@ -806,12 +842,12 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 		if (ImGui::TreeNodeEx("Navigation", SectionFlags))
 			ImGui::TextDisabled("RMB + WASD/QE  Fly\nAlt + LMB  Orbit   |   MMB  Pan\nWheel  Dolly   |   RMB + wheel  Speed");
 		ImGui::Separator();
+		ImGui::BeginDisabled(Simulation.IsRunning() || SelectedPreviewObject < 0);
 		if (ImGui::Button("Reset preview transform", {-1.0f, 0.0f}))
 		{
-			PreviewTranslation = Im3d::Vec3(0.0f);
-			PreviewRotation = Im3d::Mat3(1.0f);
-			PreviewScale = Im3d::Vec3(1.0f);
+			GetActivePreviewObject() = CreatePreviewObjects()[static_cast<std::size_t>(SelectedPreviewObject)];
 		}
+		ImGui::EndDisabled();
 		ImGui::PopStyleColor(2);
 		ImGui::EndPopup();
 	}
@@ -824,6 +860,7 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 
 void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimum, const ImVec2 RenderSize)
 {
+	auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale] = GetActivePreviewObject();
 	const ImGuiIO& IO = ImGui::GetIO();
 	const bool bImageHovered = ImGui::IsItemHovered();
 	const bool bImageActive = ImGui::IsItemActive();
@@ -836,10 +873,9 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 		PreviewRotation = PreviewDragStart->getRotation();
 		PreviewScale = PreviewDragStart->getScale();
 	}
-	else if (bDeselectPressed && !bPopupOpen && !IO.WantTextInput && ViewportInteraction.DragButton < 0)
+	else if (bDeselectPressed && !bSimulationStoppedThisFrame && !bPopupOpen && !IO.WantTextInput && ViewportInteraction.DragButton < 0)
 	{
-		bPreviewSelected = false;
-		ViewportGizmos.resetId();
+		SetPreviewSelection(-1);
 	}
 	FViewportInteractionInput InteractionInput;
 	InteractionInput.bImageHovered = bImageHovered;
@@ -857,7 +893,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 	{
 		ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 	}
-	if (bPreviewSelected && ViewportInteraction.DragButton == ImGuiMouseButton_Left && ViewportInteraction.CameraMode == EViewportCameraMode::None)
+	if (!Simulation.IsRunning() && SelectedPreviewObject >= 0 && ViewportInteraction.DragButton == ImGuiMouseButton_Left && ViewportInteraction.CameraMode == EViewportCameraMode::None)
 	{
 		if (!PreviewDragStart)
 		{
@@ -938,6 +974,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 
 void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmoInput, const FVector2 NormalizedMouse)
 {
+	auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale] = GetActivePreviewObject();
 	const FIm3dContextScope ContextScope(ViewportGizmos);
 	const float AspectRatio = static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height);
 	const auto Camera = ViewportCamera.GetSnapshot(AspectRatio, ViewportProjectionCenter);
@@ -965,11 +1002,11 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	}
 	Im3d::NewFrame();
 	ScaleFeedback = {};
-	if (!bGizmoInput || !bPreviewSelected || !bTransformGizmoVisible || GizmoMode != Im3d::GizmoMode_Scale)
+	if (!bGizmoInput || SelectedPreviewObject < 0 || !bTransformGizmoVisible || GizmoMode != Im3d::GizmoMode_Scale)
 	{
 		ScaleGizmoState.Reset();
 	}
-	if (!bGizmoInput || !bPreviewSelected || !bTransformGizmoVisible || GizmoMode != Im3d::GizmoMode_Rotation)
+	if (!bGizmoInput || SelectedPreviewObject < 0 || !bTransformGizmoVisible || GizmoMode != Im3d::GizmoMode_Rotation)
 	{
 		RotationFeedback.Reset();
 	}
@@ -977,7 +1014,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	const Im3d::Vec3 PreviousTranslation = PreviewTranslation;
 	const Im3d::Mat3 PreviousRotation = PreviewRotation;
 	const Im3d::Vec3 PreviousScale = PreviewScale;
-	if (bPreviewSelected && bTransformGizmoVisible)
+	if (!Simulation.IsRunning() && SelectedPreviewObject >= 0 && bTransformGizmoVisible)
 	{
 		if (GizmoMode == Im3d::GizmoMode_Translation)
 		{
@@ -1006,15 +1043,25 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	PreviewScale = {std::clamp(PreviewScale.x, 0.001f, 1000.0f), std::clamp(PreviewScale.y, 0.001f, 1000.0f), std::clamp(PreviewScale.z, 0.001f, 1000.0f)};
 	Im3d::PopLayerId();
 	const Im3d::Mat4 Model(PreviewTranslation, PreviewRotation, PreviewScale);
-	ViewportRenderView.Model = ToHertaMatrix(Model);
+	for (std::size_t Index = 0; Index < PreviewObjects.size(); ++Index)
+	{
+		const FPreviewObject& Object = PreviewObjects[Index];
+		PreviewModels[Index] = ToHertaMatrix(Im3d::Mat4(Object.Translation, Object.Rotation, Object.Scale));
+	}
 	if (bGizmoInput && ViewportInteraction.DragButton == ImGuiMouseButton_Left && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && Im3d::GetActiveId() == Im3d::Id_Invalid)
 	{
-		bPreviewSelected = HitTestPreviewCube(CursorRay, ViewportRenderView.Model);
-		if (!bPreviewSelected)
+		int ClosestObject = -1;
+		double ClosestDistance = std::numeric_limits<double>::infinity();
+		for (std::size_t Index = 0; Index < PreviewModels.size(); ++Index)
 		{
-			PreviewDragStart.reset();
-			ViewportGizmos.resetId();
+			const auto Distance = HitTestPreviewCube(CursorRay, PreviewModels[Index]);
+			if (Distance && *Distance < ClosestDistance)
+			{
+				ClosestObject = static_cast<int>(Index);
+				ClosestDistance = *Distance;
+			}
 		}
+		SetPreviewSelection(ClosestObject);
 	}
 	Im3d::PushLayerId("ViewportWorld");
 	if (bAxesVisible)
@@ -1033,10 +1080,10 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 		Im3d::PopMatrix();
 	}
 	Im3d::PopLayerId();
-	if (bPreviewSelected)
+	if (SelectedPreviewObject >= 0)
 	{
 		Im3d::PushLayerId("ViewportSelection");
-		for (const auto& [Start, End] : GetPreviewCubeSilhouette(Camera.Position, ViewportRenderView.Model))
+		for (const auto& [Start, End] : GetPreviewCubeSilhouette(Camera.Position, PreviewModels[static_cast<std::size_t>(SelectedPreviewObject)]))
 		{
 			Im3d::DrawLine(ToIm3dVector(Start), ToIm3dVector(End), ViewportGizmos.m_gizmoSizePixels * 0.5f, Im3d::Color(0xc2b584ff));
 		}
@@ -1055,7 +1102,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	std::size_t VertexOffset = 0;
 	for (const Im3d::DrawList& List : DrawLists)
 	{
-		if (!bPreviewSelected && List.m_layerId == Im3d::MakeId("ViewportGizmos"))
+		if (SelectedPreviewObject < 0 && List.m_layerId == Im3d::MakeId("ViewportGizmos"))
 		{
 			continue;
 		}
@@ -1073,6 +1120,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>& RenderViewport)
 {
+	auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale] = GetActivePreviewObject();
 	ImGui::SetNextWindowSize({960, 540}, ImGuiCond_FirstUseEver);
 	if (ToolUI->BeginPanel("Viewport", nullptr, true))
 	{
@@ -1266,14 +1314,74 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 	ToolUI->EndPanel();
 }
 
+void FEditorFramework::FImplementation::SetPreviewSelection(const int ObjectIndex)
+{
+	if (SelectedPreviewObject == ObjectIndex)
+		return;
+	SelectedPreviewObject = ObjectIndex;
+	PreviewDragStart.reset();
+	RotationFeedback = {};
+	ScaleGizmoState = {};
+	ScaleFeedback = {};
+	ViewportGizmos.resetId();
+}
+
+void FEditorFramework::FImplementation::ToggleSimulation()
+{
+	if (Simulation.IsRunning())
+	{
+		Simulation.Stop();
+		PreviewObjects[PreviewCubeIndex] = *SimulationStart;
+		SimulationStart.reset();
+		bSimulationStoppedThisFrame = true;
+	}
+	else
+	{
+		if (const auto Result = Simulation.Start(ToHertaTransform(PreviewObjects[PreviewCubeIndex]), ToHertaTransform(PreviewObjects[PreviewFloorIndex])); !Result)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not start simulation: {}", Result.error().Message);
+			return;
+		}
+		SimulationStart = PreviewObjects[PreviewCubeIndex];
+		UpdateSimulation(0.0f);
+	}
+	PreviewDragStart.reset();
+	ViewportGizmos.resetId();
+}
+
+void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSeconds)
+{
+	if (!Simulation.IsRunning())
+		return;
+	if (const auto Result = Simulation.Update(DeltaSeconds); !Result)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Simulation stopped: {}", Result.error().Message);
+		ToggleSimulation();
+		return;
+	}
+	const FTransform& Transform = Simulation.GetTransform();
+	FPreviewObject& CubeObject = PreviewObjects[PreviewCubeIndex];
+	CubeObject.Translation = ToIm3dVector(Transform.Translation);
+	const FMatrix3 Rotation = FMatrix3::Rotation(Transform.Rotation);
+	for (std::size_t Column = 0; Column < 3; ++Column)
+	{
+		for (std::size_t Row = 0; Row < 3; ++Row)
+			CubeObject.Rotation(static_cast<int>(Row), static_cast<int>(Column)) = Rotation(Row, Column);
+	}
+}
+
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
-	DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, bPreviewSelected, ViewportInteraction.DragButton >= 0, PreviewTranslation, PreviewRotation, PreviewScale, DetailsPanelState);
+	auto& [Label, Translation, Rotation, Scale] = GetActivePreviewObject();
+	DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, SelectedPreviewObject >= 0, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label);
 }
 
 void FEditorFramework::FImplementation::DrawOutlinerPanel()
 {
-	if (DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, bPreviewSelected, ViewportInteraction.DragButton >= 0, OutlinerPanelState))
+	int NewSelection = SelectedPreviewObject;
+	const bool bFocusRequested = DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, NewSelection, PreviewObjects, ViewportInteraction.DragButton >= 0, OutlinerPanelState);
+	SetPreviewSelection(NewSelection);
+	if (bFocusRequested)
 	{
 		FocusPreview();
 	}

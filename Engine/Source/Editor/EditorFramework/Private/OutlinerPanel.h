@@ -1,20 +1,25 @@
 #pragma once
 
 #include <imgui.h>
+#include <span>
+#include <string>
+#include <string_view>
 
 namespace Herta
 {
 class FToolUIContext;
+struct FPreviewObject;
 
 struct FOutlinerPanelState
 {
 	ImGuiTextFilter Search;
 
-	[[nodiscard]] bool IsPreviewCubeVisible() const
+	[[nodiscard]] bool IsObjectVisible(const std::string_view Label) const
 	{
-		return Search.PassFilter("Preview Cube Static Mesh");
+		const std::string SearchText = std::string(Label) + " Static Mesh";
+		return Search.PassFilter(SearchText.c_str());
 	}
 };
 
-[[nodiscard]] bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelected, bool bDragging, FOutlinerPanelState& State);
+[[nodiscard]] bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, int& SelectedObject, std::span<const FPreviewObject> Objects, bool bDragging, FOutlinerPanelState& State);
 }

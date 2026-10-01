@@ -201,6 +201,20 @@ HertaRuntimeModule("Math", {
     PublicDependencies = { "Core" }
 })
 
+HertaRuntimeModule("Physics", {
+    PublicDependencies = { "Math" },
+    PrivateThirdPartyDependencies = { "Jolt" }
+})
+    externalincludedirs { path.join(RepositoryRoot, "External/Jolt") }
+
+    filter "configurations:Debug or Debug-ASan"
+        defines { "JPH_ENABLE_ASSERTS" }
+
+    filter "configurations:Development or Shipping"
+        defines { "JPH_NO_DEBUG" }
+
+    filter {}
+
 HertaRuntimeModule("Platform", {
     PublicDependencies = { "Core" }
 })
@@ -254,6 +268,7 @@ HertaRuntimeModule("ToolUI", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer" },
+    PrivateDependencies = { "Physics" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
 })
 
@@ -363,7 +378,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/im3d")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Platform", "Tasks", "Application", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Physics", "Platform", "Tasks", "Application", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }

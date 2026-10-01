@@ -115,4 +115,8 @@ Cleanup scripts remove only explicit Herta-managed generated paths. Without Git 
 
 Milestones 0 through 2.5 are implemented. The repository contains structured logging, Tasks, Application, RHI, NvrhiVulkan, RenderGraph, Renderer, ShaderCompiler, HertaShaderWorker, ToolUI, EditorCore, EditorFramework, HertaEditor, HertaEditorCmd, a configured application icon, focused tests, and required Windows/Linux CI and quality workflows. Slang cooks shaders during builds; the editor Viewport renders a textured cube with reversed-Z, camera navigation, private im3d transform gizmos, and depth-tested debug primitives. Camera math belongs to EditorCore; preview transforms and input routing belong to EditorFramework. Local Windows, X11, and Wayland renderer readback, debug drawing, resize, and resource-retirement tests are verified. Preview edits are not persisted and pointer drags remain desktop-edge bounded. Milestone 3 - Asset pipeline is next. Asset importing and the game runtime have not started.
 
+An early Physics preview slice uses Jolt behind Herta-owned box-body APIs. Simulate or Alt+S drops the cube onto a static floor, and Escape stops simulation and restores the transform. It does not implement Scene ownership or the full physics milestone.
+
+Cube and Floor are selectable preview scene objects owned by EditorFramework, with common transforms for mesh rendering, Details, gizmos, and simulation. The runtime Scene module has not started.
+
 Update this section when a milestone changes those facts.

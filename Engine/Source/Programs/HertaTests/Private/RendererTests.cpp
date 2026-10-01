@@ -300,13 +300,39 @@ TEST_CASE("Mesh renderer uses caller matrices and rejects nonfinite views before
 	FTestGraphicsDevice Device;
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
 	REQUIRE(Renderer);
-	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 4}), Herta::FMatrix4::Scale({2, 3, 4}), Herta::FMatrix4::Translation({1, 2, 3})};
+	Herta::FMatrix4 Model = Herta::FMatrix4::Translation({1, 2, 3});
+	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 4}), Herta::FMatrix4::Scale({2, 3, 4}), std::span{&Model, 1}};
 	REQUIRE((*Renderer)->Render({320, 240}, View));
-	CHECK(Device.LastDraw.WorldToClip == (View.Projection * View.View * View.Model).Data());
+	CHECK(Device.LastDraw.WorldToClip == (View.Projection * View.View * Model).Data());
 	Device.Events.clear();
-	View.Model(1, 1) = std::numeric_limits<float>::infinity();
+	Model(1, 1) = std::numeric_limits<float>::infinity();
 	CHECK_FALSE((*Renderer)->Render({320, 240}, View));
 	CHECK(Device.Events.empty());
+}
+
+TEST_CASE("Mesh renderer records distinct transforms for every model and accepts an empty scene")
+{
+	FTestGraphicsDevice Device;
+	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
+	REQUIRE(Renderer);
+	std::array Models{Herta::FMatrix4::Translation({2, 0, 0}), Herta::FMatrix4::Translation({-2, 0, 0}) * Herta::FMatrix4::Scale({2, 0.25f, 3})};
+	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 5}), Herta::FMatrix4{}, Models};
+	Device.Events.clear();
+	REQUIRE((*Renderer)->Render({320, 240}, View));
+	REQUIRE(Device.Draws.size() == 2);
+	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Draw", "Submit"});
+	for (std::size_t Index = 0; Index < Models.size(); ++Index)
+	{
+		CHECK(Device.Draws[Index].WorldToClip == (View.Projection * View.View * Models[Index]).Data());
+		CHECK(Device.Draws[Index].IndexCount == 36);
+	}
+	Device.Events.clear();
+	Models[1](0, 0) = std::numeric_limits<float>::infinity();
+	CHECK_FALSE((*Renderer)->Render({320, 240}, View));
+	CHECK(Device.Events.empty());
+	View.Models = {};
+	REQUIRE((*Renderer)->Render({320, 240}, View));
+	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Submit"});
 }
 
 TEST_CASE("Debug renderer expands portable pixel sizes and orders depth-tested draws before overlays")
@@ -319,7 +345,10 @@ TEST_CASE("Debug renderer expands portable pixel sizes and orders depth-tested d
 	const std::array<Herta::FDebugDrawVertex, 3> Triangles{{{{0, 0, 0.5f}}, {{0, 0.5f, 0.5f}}, {{0.5f, 0, 0.5f}}}};
 	const std::array Lists{Herta::FDebugDrawList{Herta::EDebugPrimitive::Lines, Lines, false}, Herta::FDebugDrawList{Herta::EDebugPrimitive::Points, Points}, Herta::FDebugDrawList{Herta::EDebugPrimitive::Lines, Lines}, Herta::FDebugDrawList{Herta::EDebugPrimitive::Triangles, Triangles}};
 	Device.Events.clear();
-	REQUIRE((*Renderer)->Render({200, 100}, Herta::FMeshRenderView{}, Lists));
+	const Herta::FMatrix4 Model;
+	Herta::FMeshRenderView View;
+	View.Models = std::span{&Model, 1};
+	REQUIRE((*Renderer)->Render({200, 100}, View, Lists));
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Draw", "Draw", "Submit"});
 	REQUIRE(Device.Draws.size() == 3);
 	CHECK(Device.Draws[1].IndexCount == 15);
@@ -341,7 +370,7 @@ TEST_CASE("Debug renderer clips camera-crossing lines and rejects incomplete or 
 	FTestGraphicsDevice Device;
 	const auto Renderer = CreateDebugRenderer(Device);
 	REQUIRE(Renderer);
-	const Herta::FMeshRenderView View{Herta::FMatrix4{}, Herta::FMatrix4::PerspectiveReversedInfinite(1.0f, 1, 0.1f), Herta::FMatrix4{}};
+	const Herta::FMeshRenderView View{Herta::FMatrix4{}, Herta::FMatrix4::PerspectiveReversedInfinite(1.0f, 1, 0.1f), {}};
 	std::array<Herta::FDebugDrawVertex, 2> Vertices{{{{0, 0, -1}, 4}, {{0.5f, 0, 1}, 4}}};
 	Herta::FDebugDrawList List{Herta::EDebugPrimitive::Lines, Vertices};
 	REQUIRE((*Renderer)->Render({100, 100}, View, std::span{&List, 1}));
@@ -373,6 +402,8 @@ TEST_CASE("Mesh renderer draws the optional world grid between mesh and debug ov
 	const auto Renderer = CreateGridRenderer(Device);
 	REQUIRE(Renderer);
 	Herta::FMeshRenderView View;
+	const Herta::FMatrix4 Model;
+	View.Models = std::span{&Model, 1};
 	View.View = Herta::FMatrix4::Translation({-3, 0, -7});
 	View.Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.0f, 1.5f, 0.1f);
 	View.bDrawGrid = true;
@@ -424,6 +455,8 @@ TEST_CASE("Mesh renderer rejects an enabled grid without both shaders and preser
 	const auto Renderer = CreateDebugRenderer(Device);
 	REQUIRE(Renderer);
 	Herta::FMeshRenderView View;
+	const Herta::FMatrix4 Model;
+	View.Models = std::span{&Model, 1};
 	View.bDrawGrid = true;
 	Device.Events.clear();
 	CHECK_FALSE((*Renderer)->Render({200, 100}, View));

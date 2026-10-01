@@ -62,18 +62,18 @@ std::optional<FMatrix4> GetPreviewWorldToLocal(const FMatrix4& Model)
 }
 }
 
-bool HitTestPreviewCube(const FViewportPickingRay& Ray, const FMatrix4& Model)
+std::optional<double> HitTestPreviewCube(const FViewportPickingRay& Ray, const FMatrix4& Model)
 {
 	const auto WorldToLocal = GetPreviewWorldToLocal(Model);
 	if (!WorldToLocal || !IsFinitePreviewVector(Ray.Origin) || !IsFinitePreviewVector(Ray.Direction) || Ray.Direction == FVector3::Zero())
 	{
-		return false;
+		return std::nullopt;
 	}
 	const FVector3 Origin = WorldToLocal->TransformPosition(Ray.Origin);
 	const FVector3 Direction = WorldToLocal->TransformVector(Ray.Direction);
 	if (!IsFinitePreviewVector(Origin) || !IsFinitePreviewVector(Direction) || Direction == FVector3::Zero())
 	{
-		return false;
+		return std::nullopt;
 	}
 
 	double NearDistance = 0.0;
@@ -84,7 +84,7 @@ bool HitTestPreviewCube(const FViewportPickingRay& Ray, const FMatrix4& Model)
 		{
 			if (Origin[Axis] < -1.0f || Origin[Axis] > 1.0f)
 			{
-				return false;
+				return std::nullopt;
 			}
 			continue;
 		}
@@ -98,10 +98,10 @@ bool HitTestPreviewCube(const FViewportPickingRay& Ray, const FMatrix4& Model)
 		FarDistance = std::min(FarDistance, Second);
 		if (NearDistance > FarDistance)
 		{
-			return false;
+			return std::nullopt;
 		}
 	}
-	return true;
+	return NearDistance;
 }
 
 std::vector<std::pair<FVector3, FVector3>> GetPreviewCubeSilhouette(const FVector3& CameraPosition, const FMatrix4& Model)

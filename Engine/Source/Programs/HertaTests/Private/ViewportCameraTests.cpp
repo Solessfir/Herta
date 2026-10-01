@@ -29,7 +29,7 @@ TEST_CASE("Viewport camera starts looking at the origin with reversed infinite d
 	const FViewportCameraController Camera;
 	const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(1.0f);
 	CHECK(Snapshot.Projection(1, 1) == doctest::Approx(1.56968558f));
-	CheckCameraVector(Snapshot.Position, {0.0f, 2.0f, -10.0f});
+	CheckCameraVector(Snapshot.Position, {0.0f, 4.0f, -20.0f});
 	CheckCameraVector(Snapshot.View.TransformPosition(Snapshot.Position), FVector3::Zero());
 	CheckCameraVector(Snapshot.View.TransformPosition(FVector3::Zero()), {0.0f, 0.0f, Snapshot.Position.Length()});
 	const FVector3 LookDirection = Camera.MakePickingRay({0.5f, 0.5f}, 1.0f).Direction;
@@ -98,7 +98,7 @@ TEST_CASE("Viewport orbit keeps the pivot centered and preserves distance")
 	Input.MouseDeltaPixels = {150.0f, -90.0f};
 	Camera.Update(Input, 0.0f, CameraViewportSize);
 	const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(1.0f);
-	CHECK(Snapshot.Position.Length() == doctest::Approx(FVector3{0.0f, 2.0f, -10.0f}.Length()));
+	CHECK(Snapshot.Position.Length() == doctest::Approx(FVector3{0.0f, 4.0f, -20.0f}.Length()));
 	CheckCameraVector(Snapshot.View.TransformPosition(FVector3::Zero()), {0.0f, 0.0f, Snapshot.Position.Length()});
 	CHECK(Snapshot.Position.X > 0.0f);
 	CHECK(Snapshot.Position.Y < 0.0f);

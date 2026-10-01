@@ -44,6 +44,21 @@ TEST_CASE("Preview picking hits only the forward ray including origins inside th
 	CHECK_FALSE(HitTestPreviewCube({FVector3::Zero(), FVector3::Zero()}, Model));
 }
 
+TEST_CASE("Preview picking reports world ray distances for overlapping objects")
+{
+	const FViewportPickingRay Ray{{0.0f, 6.0f, 0.0f}, FVector3::Down()};
+	const FMatrix4 Cube = FMatrix4::Translation({0.0f, 4.0f, 0.0f});
+	const FMatrix4 Floor = FMatrix4::Transform({0.0f, -0.25f, 0.0f}, FQuaternion::Identity(), {10.0f, 0.25f, 10.0f});
+	const auto CubeDistance = HitTestPreviewCube(Ray, Cube);
+	const auto FloorDistance = HitTestPreviewCube(Ray, Floor);
+	REQUIRE(CubeDistance);
+	REQUIRE(FloorDistance);
+	CHECK(*CubeDistance == doctest::Approx(1.0));
+	CHECK(*FloorDistance == doctest::Approx(6.0));
+	CHECK(*CubeDistance < *FloorDistance);
+	CHECK(*HitTestPreviewCube({{0.0f, 4.0f, 0.0f}, FVector3::Down()}, Cube) == doctest::Approx(0.0));
+}
+
 TEST_CASE("Preview picking follows translated rotated nonuniformly scaled bounds")
 {
 	const FQuaternion Rotation = FQuaternion::FromAxisAngle(FVector3::Up(), 0.6f) * FQuaternion::FromAxisAngle(FVector3::Left(), 0.35f);

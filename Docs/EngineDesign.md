@@ -655,6 +655,8 @@ Live reimport is one-way from Blender to Herta. Herta must not write changes bac
 
 Jolt is private to Physics. Herta supplies allocator, job-system, logging, assertion, layer-filter, and debug-draw adapters.
 
+EditorFramework owns two editable preview objects, Cube and Floor, before the runtime Scene milestone. Both render through the mesh path and support Outliner selection, viewport picking, Details editing, and transform gizmos. Their transforms supply both render matrices and collision bodies, so floor edits affect simulation without a separate physics pose. The floor remains static while simulation runs.
+
 - Physics uses a fixed timestep, initially 60 Hz.
 - Game/render interpolation is separate from simulation state.
 - Collision callbacks are buffered into Herta events.
@@ -666,6 +668,8 @@ Jolt is private to Physics. Herta supplies allocator, job-system, logging, asser
 - Default gravity is `-9.80665 m/s^2` along the down axis.
 
 Thread count, temporary allocator size, broad-phase layers, sleeping, and determinism are configuration, not scattered constants.
+
+The current editor preview implements only box bodies through `FPhysicsWorld`: a dynamic cube and a static floor, with fixed 60 Hz stepping, render interpolation, and transform restoration on stop. Jolt is pinned to v5.6.0 under `External/Jolt`. The initial adapter uses Jolt's single-threaded job system and default allocator, with centralized capacities of 1,024 bodies and contact constraints and 4,096 body pairs. It does not implement scene ownership, collision events, physics-origin shifting, or a Herta Tasks job adapter yet. Those remain part of the full physics milestone rather than prerequisites for this two-body preview.
 
 ### 4.12 Animation
 

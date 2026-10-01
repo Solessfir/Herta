@@ -253,7 +253,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 }
 }
 
-void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State)
+void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string_view ObjectLabel)
 {
 	if (!ToolUI.BeginPanel("Details", &bOpen))
 	{
@@ -275,7 +275,7 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 	ImGui::BeginGroup();
 	const float HeadingTextX = ImGui::GetCursorPosX();
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ImGui::GetStyle().ItemSpacing.x, 2.0f * UiScale});
-	ImGui::TextUnformatted("Preview Cube");
+	ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
 	ImGui::SameLine();
 	ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize("1 selected").x));
 	ImGui::TextDisabled("1 selected");
@@ -292,7 +292,7 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 	const bool bRotation = bShowAll || MatchesSearch("Rotation", Query);
 	const bool bScale = bShowAll || MatchesSearch("Scale", Query);
 	const bool bTransform = bLocation || bRotation || bScale;
-	const bool bMesh = Query.empty() || MatchesSearch("Static Mesh", Query) || MatchesSearch("Preview Cube", Query) || MatchesSearch("Built-in", Query) || MatchesSearch("Checker material", Query) || MatchesSearch("Checkerboard", Query);
+	const bool bMesh = Query.empty() || MatchesSearch("Static Mesh", Query) || MatchesSearch(ObjectLabel, Query) || MatchesSearch("Built-in", Query) || MatchesSearch("Checker material", Query) || MatchesSearch("Checkerboard", Query);
 	if (!bTransform && !bMesh)
 	{
 		ImGui::TextDisabled("No matching properties.");
@@ -416,7 +416,7 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 		DrawCheckerThumbnail(ThumbnailPosition, 40.0f * UiScale);
 		ImGui::SameLine();
 		ImGui::BeginGroup();
-		ImGui::TextUnformatted("Preview Cube");
+		ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
 		ImGui::TextDisabled("Built-in / Checker material");
 		ImGui::EndGroup();
 	}

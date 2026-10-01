@@ -157,6 +157,7 @@ namespace
 [[nodiscard]] std::expected<void, FPresentationError> CheckWorldGrid(IGraphicsDevice& Device, FMeshRenderer& Renderer)
 {
 	constexpr FExtent2D Extent{128, 128};
+	const FMatrix4 Model;
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1.0f, 0.1f);
 	const float Pitch = std::atan2(3.0f, 5.0f);
 	for (const bool bBelowPlane : {false, true})
@@ -165,7 +166,7 @@ namespace
 		FMeshRenderView View{
 		    .View = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1, 0, 0}, bBelowPlane ? Pitch : -Pitch)) * FMatrix4::Translation({0, -Height, 5}),
 		    .Projection = Projection,
-		    .Model = FMatrix4{},
+		    .Models = std::span{&Model, 1},
 		    .GridCenter = {0, 0, 0}};
 		auto Result = Renderer.Render(Extent, View);
 		if (!Result)
@@ -216,6 +217,73 @@ namespace
 	return {};
 }
 
+[[nodiscard]] std::expected<void, FPresentationError> CheckMultipleModels(IGraphicsDevice& Device, FMeshRenderer& Renderer)
+{
+	constexpr FExtent2D Extent{128, 128};
+	const std::array Models{FMatrix4::Translation({2, 0, 0}), FMatrix4::Translation({-2, 0, 0}) * FMatrix4::Scale({0.75f, 0.5f, 1})};
+	FMeshRenderView View{FMatrix4::Translation({0, 0, 5}), FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1.0f, 0.1f), {}};
+	auto Result = Renderer.Render(Extent, View);
+	if (!Result)
+	{
+		return Result;
+	}
+	const auto Background = Device.ReadbackTexture(Renderer.GetColorTarget());
+	if (!Background)
+	{
+		return std::unexpected(Background.error());
+	}
+	std::array<std::vector<std::byte>, 2> Isolated;
+	for (std::size_t Index = 0; Index < Models.size(); ++Index)
+	{
+		View.Models = std::span{Models}.subspan(Index, 1);
+		Result = Renderer.Render(Extent, View);
+		if (!Result)
+		{
+			return Result;
+		}
+		auto Pixels = Device.ReadbackTexture(Renderer.GetColorTarget());
+		if (!Pixels)
+		{
+			return std::unexpected(Pixels.error());
+		}
+		Isolated[Index] = std::move(*Pixels);
+	}
+	View.Models = Models;
+	Result = Renderer.Render(Extent, View);
+	if (!Result)
+	{
+		return Result;
+	}
+	const auto Combined = Device.ReadbackTexture(Renderer.GetColorTarget());
+	if (!Combined)
+	{
+		return std::unexpected(Combined.error());
+	}
+	if (Combined->size() != Extent.Width * Extent.Height * 4 || Background->size() != Combined->size() || Isolated[0].size() != Combined->size() || Isolated[1].size() != Combined->size())
+	{
+		return Failure("Multiple-model readback has an incorrect byte count");
+	}
+	std::array<std::size_t, 2> Coverage{};
+	for (std::size_t Pixel = 0; Pixel < Combined->size(); Pixel += 4)
+	{
+		const auto Offset = static_cast<std::ptrdiff_t>(Pixel);
+		const bool bFirstModel = !std::equal(Isolated[0].begin() + Offset, Isolated[0].begin() + Offset + 4, Background->begin() + Offset);
+		const bool bSecondModel = !std::equal(Isolated[1].begin() + Offset, Isolated[1].begin() + Offset + 4, Background->begin() + Offset);
+		Coverage[0] += bFirstModel ? 1u : 0u;
+		Coverage[1] += bSecondModel ? 1u : 0u;
+		const auto& Expected = bFirstModel ? Isolated[0] : Isolated[1];
+		if ((bFirstModel && bSecondModel) || !std::equal(Expected.begin() + Offset, Expected.begin() + Offset + 4, Combined->begin() + Offset))
+		{
+			return Failure("Multiple-model rendering did not preserve each draw's transform");
+		}
+	}
+	if (Coverage[0] < 100 || Coverage[1] < 100)
+	{
+		return Failure("Multiple-model rendering missed a transformed mesh");
+	}
+	return {};
+}
+
 [[nodiscard]] std::expected<void, FPresentationError> CheckDebugDraw(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader)
 {
 	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader, GridVertexShader, GridFragmentShader);
@@ -223,7 +291,8 @@ namespace
 	{
 		return std::unexpected(Renderer.error());
 	}
-	const FMeshRenderView View{FMatrix4::Translation({0, 0, 5}), FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1, 0.1f), FMatrix4{}};
+	const FMatrix4 Model;
+	const FMeshRenderView View{FMatrix4::Translation({0, 0, 5}), FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1, 0.1f), std::span{&Model, 1}};
 	auto Result = (*Renderer)->Render({128, 128}, View);
 	if (!Result)
 	{
@@ -325,6 +394,10 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	if (MeshPixels < 500 || MeshPixels > 128 * 128 / 2)
 	{
 		return Failure("Textured mesh readback has incorrect coverage (projection, winding, or shader failure)");
+	}
+	if (const auto MultipleModels = CheckMultipleModels(Device, **Renderer); !MultipleModels)
+	{
+		return MultipleModels;
 	}
 
 	// Submit the near red quad before the far green quad so a disabled depth test cannot pass.
