@@ -42,7 +42,7 @@ Set `HERTA_PROFILE_BLUR=1` before launching the editor to log GPU timings for th
 - Herta-owned structured logging with `spdlog` private behind Core and a docked searchable Output Log in EditorFramework
 - UX-first task system with bounded CPU and IO work, cancellation, progress, and safe reload ownership
 - Dear ImGui editor and imgui-node-editor graph tooling
-- Desaturated graphite editor styling with Roboto and FreeType, a configurable focus-aware background gradient, transparent-panel modes, a capability-driven 36 px custom title bar, and centralized ToolUI tokens
+- Desaturated graphite editor styling with Roboto and FreeType at a centralized 15.625 logical-pixel size, per-monitor DPI and framebuffer-density scaling, a configurable focus-aware background gradient, transparent-panel modes, a capability-driven 36 px custom title bar, and centralized ToolUI tokens
 - Headless editor commands that do not require windows, rendering, ImGui, or an audio device
 - Server-authoritative multiplayer with dedicated and player-hosted listen-server compositions
 - Versioned project templates and editor-only C++ game-module hot reload

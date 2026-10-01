@@ -93,7 +93,7 @@ bool DrawPreviewRotationGizmo(const Im3d::Vec3& Translation, Im3d::Mat3& Rotatio
 			}
 		}
 		Im3d::PushColor(AxisId == Context.m_hotId || AxisId == Context.m_activeId ? Im3d::Color_Yellow : Colors[Index]);
-		Im3d::DrawCircle(Translation, Axis, Radius);
+		Im3d::DrawCircle(Translation, Axis, Radius, 96);
 		Im3d::PopColor();
 		if (Context.m_activeId == AxisId)
 		{

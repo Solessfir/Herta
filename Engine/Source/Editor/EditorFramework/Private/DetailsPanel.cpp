@@ -253,9 +253,9 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 }
 }
 
-void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State)
+void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State)
 {
-	if (!ToolUI.BeginPanel("Details"))
+	if (!ToolUI.BeginPanel("Details", &bOpen))
 	{
 		ToolUI.EndPanel();
 		return;
@@ -285,7 +285,7 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, const bool bSelected, const
 	ImGui::EndGroup();
 	ImGui::Spacing();
 	ImGui::SetNextItemWidth(-1.0f);
-	(void)ToolUI.DrawSearchField("##PropertySearch", "Search properties...", State.Search.data(), State.Search.size());
+	(void)ToolUI.DrawSearchField("##PropertySearch", "Search", State.Search.data(), State.Search.size());
 	const std::string_view Query(State.Search.data());
 	const bool bShowAll = Query.empty() || MatchesSearch("Transform", Query);
 	const bool bLocation = bShowAll || MatchesSearch("Location", Query);

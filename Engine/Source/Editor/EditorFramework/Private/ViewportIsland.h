@@ -6,6 +6,8 @@
 
 namespace Herta
 {
+inline constexpr float ViewportIconButtonSize = 28.0f;
+
 enum class EViewportIcon
 {
 	Select,
@@ -23,7 +25,7 @@ enum class EViewportIcon
 inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, const char* const Tooltip, const float Scale, const bool bSelected = false, const bool bReducedMotion = false)
 {
 	const ImVec2 Position = ImGui::GetCursorScreenPos();
-	const ImVec2 Size{28.0f * Scale, 28.0f * Scale};
+	const ImVec2 Size{ViewportIconButtonSize * Scale, ViewportIconButtonSize * Scale};
 	const bool bPressed = ImGui::InvisibleButton(Id, Size, ImGuiButtonFlags_EnableNav);
 	const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
@@ -37,7 +39,7 @@ inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, c
 	Draw->AddRectFilled(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImVec4{1, 1, 1, Highlight}), Size.y * 0.5f);
 	if (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)
 		Draw->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), Size.y * 0.5f, 0, Scale);
-	const ImU32 Color = Icon == EViewportIcon::Play ? IM_COL32(105, 200, 139, 255) : ImGui::GetColorU32(bSelected ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+	const ImU32 Color = Icon == EViewportIcon::Play ? IM_COL32(105, 200, 139, 255) : ImGui::GetColorU32(bSelected || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 	const ImVec2 Center{Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f};
 	const auto Point = [&](const float X, const float Y)
 	{

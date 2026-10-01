@@ -25,5 +25,5 @@ struct FDetailsPanelState
 	bool bScaleLocked = false;
 };
 
-void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State);
+void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State);
 }

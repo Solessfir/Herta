@@ -108,6 +108,8 @@ struct FToolUIDescriptor
 enum class EToolUIMenuIcon : std::uint8_t
 {
 	Panel,
+	Outliner,
+	Details,
 	Log,
 	Layout,
 	Sync,
@@ -133,7 +135,7 @@ public:
 	void BeginFrame();
 	[[nodiscard]] std::expected<void, FToolUIError> EndFrame(bool bRenderMainViewport = true);
 	[[nodiscard]] std::expected<void, FToolUIError> RenderPlatformWindows();
-	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawMenuItems = {}, const std::function<void()>& DrawStatusItems = {});
+	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems = {}, const std::function<void()>& DrawStatusItems = {});
 	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, bool bViewport = false);
 	void EndPanel();
 	[[nodiscard]] std::optional<FToolUICanvasBounds> GetWorkspaceCanvasForCurrentPanel() const noexcept;

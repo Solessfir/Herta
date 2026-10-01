@@ -27,7 +27,7 @@ TEST_CASE("ToolUI theme defaults preserve the editor visual contract")
 	CHECK(Appearance.PanelOpacity == doctest::Approx(0.80f));
 	CHECK(Appearance.BlurRadius == doctest::Approx(24.0f));
 	CHECK_FALSE(Appearance.bReducedMotion);
-	CHECK(Metrics.BaseFontSize == 15.0f);
+	CHECK(Metrics.BaseFontSize == 15.625f);
 	CHECK(Metrics.TitleBarHeight == 36.0f);
 	CHECK(FocusedGradient.BottomLeft == ToolUITheme::Canvas);
 	CHECK(FocusedGradient.BottomRight == ToolUITheme::Canvas);

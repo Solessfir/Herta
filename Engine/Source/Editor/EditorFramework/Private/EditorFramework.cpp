@@ -271,8 +271,10 @@ struct FEditorFramework::FImplementation
 	FViewportInteractionState ViewportInteraction;
 	bool bPreviewSelected = true;
 	bool bOutlinerOpen = true;
+	bool bDetailsOpen = true;
 	bool bStartPanelOpen = false;
 	bool bLocalGizmo = false;
+	bool bFlipGizmoAxesTowardCamera = false;
 	bool bSnapEnabled = false;
 	bool bGridVisible = true;
 	bool bAxesVisible = false;
@@ -285,8 +287,8 @@ struct FEditorFramework::FImplementation
 	bool bTransformGizmoVisible = true;
 	bool bViewportControlsHovered = false;
 	double CameraCoordinatesCopiedUntil = 0.0;
-	float SnapIslandWidth = 36.0f;
-	float WorldIslandWidth = 36.0f;
+	float SnapIslandWidth = ViewportIconButtonSize + 6.0f;
+	float WorldIslandWidth = ViewportIconButtonSize + 6.0f;
 
 	FImplementation();
 
@@ -385,13 +387,16 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		Implementation->ToolUI->DrawWorkspace("Herta Editor", [&]
 		                                      {
 			                                      (void)ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
-			                                      (void)ToolUIMenuItem("Outliner", EToolUIMenuIcon::Panel, &Implementation->bOutlinerOpen);
+			                                      ImGui::Separator();
+			                                      (void)ToolUIMenuItem("Outliner", EToolUIMenuIcon::Outliner, &Implementation->bOutlinerOpen);
+			                                      (void)ToolUIMenuItem("Details", EToolUIMenuIcon::Details, &Implementation->bDetailsOpen);
+			                                      ImGui::Separator();
 			                                      (void)ToolUIMenuItem("Output Log", EToolUIMenuIcon::Log, &Implementation->bOutputLogOpen);
 		                                      },
 		                                      [&]
 		                                      {
-			                                      const float Scale = ImGui::GetFontSize() / 15.0f;
-			                                      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.0f * Scale, 4.0f * Scale});
+			                                      const float Scale = ImGui::GetFontSize() / Implementation->ToolUI->GetMetrics().BaseFontSize;
+			                                      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.0f * Scale, (26.0f * Scale - ImGui::GetFontSize()) * 0.5f});
 			                                      ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 			                                      ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f * Scale);
 			                                      ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
@@ -433,6 +438,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			                                      const ImVec2 DotPosition = ImGui::GetCursorScreenPos();
 			                                      ImGui::Dummy({8.0f * Scale, 26.0f * Scale});
 			                                      ImGui::SameLine(0.0f, 3.0f * Scale);
+			                                      ImGui::AlignTextToFramePadding();
 			                                      ImGui::TextDisabled("Ready");
 			                                      const float ReadyCenterY = (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
 			                                      ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.0f * Scale, ReadyCenterY}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
@@ -448,10 +454,12 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			                                      {
 				                                      FEditorAppearance Appearance = Implementation->ToolUI->GetAppearance();
 				                                      ImGui::TextUnformatted("Workspace appearance");
+				                                      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {ImGui::GetStyle().FramePadding.x, 1.0f * Scale});
 				                                      ImGui::SetNextItemWidth(180.0f);
 				                                      DrawNumericSliderFloat("Opacity", &Appearance.PanelOpacity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
 				                                      ImGui::SetNextItemWidth(180.0f);
 				                                      DrawNumericSliderFloat("Blur", &Appearance.BlurRadius, 0.0f, 40.0f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
+				                                      ImGui::PopStyleVar();
 				                                      ImGui::Checkbox("Reduced motion", &Appearance.bReducedMotion);
 				                                      if (ImGui::Button("Reset appearance"))
 					                                      Appearance = FEditorAppearance{};
@@ -467,7 +475,10 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		{
 			Implementation->DrawOutlinerPanel();
 		}
-		Implementation->DrawDetailsPanel();
+		if (Implementation->bDetailsOpen)
+		{
+			Implementation->DrawDetailsPanel();
+		}
 		Implementation->DrawViewport(RenderViewport);
 		return Implementation->DrawOutputLog();
 	}
@@ -530,10 +541,10 @@ void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, 
 	const float Width = 190.0f * Scale;
 	const float RowHeight = ImGui::GetTextLineHeight() + 4.0f * Scale;
 	const float Height = RowHeight * ((Stats->bUnitVisible ? 3 : 0) + (Stats->bFpsVisible ? 1 : 0)) + 16.0f * Scale;
-	const float Top = Minimum.y + (Size.x > 680.0f * Scale ? 62.0f : 104.0f) * Scale;
-	if (Size.x < Width + 28.0f * Scale || Top + Height > Minimum.y + Size.y - 60.0f * Scale)
+	const float Top = Minimum.y + (Size.x > 680.0f * Scale ? 50.0f : 88.0f) * Scale;
+	if (Size.x < Width + 16.0f * Scale || Top + Height > Minimum.y + Size.y - 60.0f * Scale)
 		return;
-	const float Left = Minimum.x + Size.x - Width - 14.0f * Scale;
+	const float Left = Minimum.x + Size.x - Width - 8.0f * Scale;
 	ToolUI->DrawGlassSurface(Left, Top, Width, Height, 8.0f * Scale);
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
 	float Y = Top + 8.0f * Scale;
@@ -557,11 +568,12 @@ void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, 
 void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum, const ImVec2 Size)
 {
 	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
-	const float Height = 36.0f * Scale;
-	const float Gap = 8.0f * Scale;
-	const float Padding = 4.0f * Scale;
-	const float ButtonSize = 28.0f * Scale;
-	const float Top = Minimum.y + 14.0f * Scale;
+	const float Gap = 4.0f * Scale;
+	const float Padding = 3.0f * Scale;
+	const float ButtonSize = ViewportIconButtonSize * Scale;
+	const float Height = ButtonSize + 2.0f * Padding;
+	const float EdgeMargin = 8.0f * Scale;
+	const float Top = Minimum.y + EdgeMargin;
 	bViewportControlsHovered = false;
 	const bool bReducedMotion = ToolUI->GetAppearance().bReducedMotion;
 	const float AnimationStep = bReducedMotion ? 1.0f : std::min(1.0f, ImGui::GetIO().DeltaTime * 14.0f);
@@ -575,16 +587,17 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 		bViewportControlsHovered |= ImGui::IsMouseHoveringRect({X, Top + OffsetY}, {X + Width, Top + OffsetY + Height});
 		ImGui::SetCursorScreenPos({X + Padding, Top + OffsetY + Padding});
 	};
-	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.0f * Scale, 4.0f * Scale});
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {2.0f * Scale, 4.0f * Scale});
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {5.0f * Scale, 3.0f * Scale});
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {1.0f * Scale, 3.0f * Scale});
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ButtonSize * 0.5f);
 	ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
 	ImGui::BeginDisabled(ViewportInteraction.DragButton >= 0);
 	if (Size.x > 680.0f * Scale)
 	{
-		Island(Minimum.x + 14.0f * Scale, 110.0f * Scale);
-		if (ImGui::Button("Perspective", {102.0f * Scale, ButtonSize}))
+		const float ProjectionWidth = ImGui::CalcTextSize("Perspective").x + 10.0f * Scale;
+		Island(Minimum.x + EdgeMargin, ProjectionWidth + 2.0f * Padding);
+		if (ImGui::Button("Perspective", {ProjectionWidth, ButtonSize}))
 			ImGui::OpenPopup("Projection");
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.0f * Scale, 10.0f * Scale});
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * Scale, 6.0f * Scale});
@@ -602,14 +615,15 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 	}
 	if (Size.x > 180.0f * Scale)
 	{
-		Island(Minimum.x + (Size.x - 70.0f * Scale) * 0.5f, 70.0f * Scale, Size.x > 680.0f * Scale ? 0.0f : Height + Gap);
+		const float PlayWidth = 2.0f * ButtonSize + ImGui::GetStyle().ItemSpacing.x + 2.0f * Padding;
+		Island(Minimum.x + (Size.x - PlayWidth) * 0.5f, PlayWidth, Size.x > 680.0f * Scale ? 0.0f : Height + Gap);
 		ImGui::BeginDisabled();
 		IconButton("Play", EViewportIcon::Play, "Play - game runtime is not implemented yet.");
 		ImGui::SameLine();
 		IconButton("Simulate", EViewportIcon::Simulate, "Simulate - game runtime is not implemented yet.");
 		ImGui::EndDisabled();
 	}
-	const float SettingsX = std::max(Minimum.x + 4.0f * Scale, Minimum.x + Size.x - 14.0f * Scale - Height);
+	const float SettingsX = std::max(Minimum.x + 4.0f * Scale, Minimum.x + Size.x - EdgeMargin - Height);
 	Island(SettingsX, Height);
 	if (IconButton("Viewport settings", EViewportIcon::Settings, "Viewport settings"))
 		ImGui::OpenPopup("ViewportSettings");
@@ -624,13 +638,13 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 				FocusPreview();
 			Right -= Height + Gap;
 		}
-		const float SnapTarget = bSnapEnabled ? 112.0f : 36.0f;
+		const float SnapTarget = bSnapEnabled ? ViewportIconButtonSize + 75.0f : Height / Scale;
 		SnapIslandWidth += (SnapTarget - SnapIslandWidth) * AnimationStep;
 		const float SnapWidth = SnapIslandWidth * Scale;
 		Island(Right - SnapWidth, SnapWidth);
 		if (IconButton("Grid snap", EViewportIcon::Grid, "Toggle grid snapping", bSnapEnabled))
 			bSnapEnabled = !bSnapEnabled;
-		if (bSnapEnabled && SnapIslandWidth > 105.0f)
+		if (bSnapEnabled && SnapIslandWidth > SnapTarget - 1.0f)
 		{
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(68.0f * Scale);
@@ -643,7 +657,7 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 		if (bExpandedLayout)
 		{
 			const bool bHover = ImGui::IsMouseHoveringRect({Right - WorldIslandWidth * Scale, Top}, {Right, Top + Height});
-			const float Target = bHover ? 100.0f : 36.0f;
+			const float Target = bHover ? 100.0f : Height / Scale;
 			WorldIslandWidth += (Target - WorldIslandWidth) * AnimationStep;
 			Island(Right - WorldIslandWidth * Scale, WorldIslandWidth * Scale);
 			if (IconButton("Coordinate space", EViewportIcon::World, bLocalGizmo ? "Local axes (L)" : "World axes (L)", bLocalGizmo))
@@ -653,8 +667,8 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 			}
 			if (WorldIslandWidth > 90.0f)
 			{
-				ImGui::SameLine(0.0f, 4.0f * Scale);
-				if (ImGui::Button(bLocalGizmo ? "Local##CoordinateSpaceLabel" : "World##CoordinateSpaceLabel", {(WorldIslandWidth - 40.0f) * Scale, ButtonSize}))
+				ImGui::SameLine();
+				if (ImGui::Button(bLocalGizmo ? "Local##CoordinateSpaceLabel" : "World##CoordinateSpaceLabel", {WorldIslandWidth * Scale - ButtonSize - ImGui::GetStyle().ItemSpacing.x - 2.0f * Padding, ButtonSize}))
 				{
 					bLocalGizmo = !bLocalGizmo;
 					ViewportGizmos.resetId();
@@ -662,7 +676,7 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 			}
 			Right -= WorldIslandWidth * Scale + Gap;
 		}
-		const float ModesWidth = 126.0f * Scale;
+		const float ModesWidth = 4.0f * ButtonSize + 3.0f * ImGui::GetStyle().ItemSpacing.x + 2.0f * Padding;
 		Island(std::max(Minimum.x + 4.0f * Scale, Right - ModesWidth), ModesWidth);
 		if (IconButton("Hide gizmo", EViewportIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
 		{
@@ -747,6 +761,8 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 		ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 88.0f * Scale);
 		if (ImGui::Button("Focus (F)", {88.0f * Scale, 0.0f}))
 			FocusPreview();
+		if (ImGui::Checkbox("Flip gizmo axes toward camera", &bFlipGizmoAxesTowardCamera))
+			ViewportGizmos.resetId();
 		ImGui::Spacing();
 		ImGui::Separator();
 		if (ImGui::TreeNodeEx("Snapping", SectionFlags))
@@ -936,6 +952,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	AppData.m_cursorRayOrigin = ToIm3dVector(CursorRay.Origin);
 	AppData.m_cursorRayDirection = ToIm3dVector(bGizmoInput ? CursorRay.Direction : -ForwardRay.Direction);
 	AppData.m_projScaleY = 2.0f / Camera.Projection(1, 1);
+	AppData.m_flipGizmoWhenBehind = bFlipGizmoAxesTowardCamera;
 	AppData.m_keyDown[Im3d::Mouse_Left] = bGizmoInput && ViewportInteraction.DragButton == ImGuiMouseButton_Left && ImGui::IsMouseDown(ImGuiMouseButton_Left);
 	AppData.m_snapTranslation = bSnapEnabled ? TranslationSnap : 0.0f;
 	AppData.m_snapRotation = bSnapEnabled ? RotationSnapDegrees * std::numbers::pi_v<float> / 180.0f : 0.0f;
@@ -1021,7 +1038,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 		Im3d::PushLayerId("ViewportSelection");
 		for (const auto& [Start, End] : GetPreviewCubeSilhouette(Camera.Position, ViewportRenderView.Model))
 		{
-			Im3d::DrawLine(ToIm3dVector(Start), ToIm3dVector(End), ViewportGizmos.m_gizmoSizePixels * 0.5f, Im3d::Color(0xeba30aff));
+			Im3d::DrawLine(ToIm3dVector(Start), ToIm3dVector(End), ViewportGizmos.m_gizmoSizePixels * 0.5f, Im3d::Color(0xc2b584ff));
 		}
 		Im3d::PopLayerId();
 	}
@@ -1172,7 +1189,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 					const float UiScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 					ImDrawList* const Trail = ImGui::GetWindowDrawList();
 					Trail->PushClipRect(ImageMinimum, {ImageMinimum.x + Size.x, ImageMinimum.y + Size.y}, true);
-					constexpr ImU32 TrailColor = IM_COL32(235, 163, 10, 255);
+					constexpr ImU32 TrailColor = IM_COL32(194, 181, 132, 255);
 					if (Distance > 0.001f && std::isfinite(Distance))
 					{
 						const int DashCount = static_cast<int>(std::clamp(std::ceil((Last - First) * Distance / (7.0f * UiScale)), 0.0f, 4096.0f));
@@ -1251,7 +1268,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
-	DrawPreviewDetailsPanel(*ToolUI, bPreviewSelected, ViewportInteraction.DragButton >= 0, PreviewTranslation, PreviewRotation, PreviewScale, DetailsPanelState);
+	DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, bPreviewSelected, ViewportInteraction.DragButton >= 0, PreviewTranslation, PreviewRotation, PreviewScale, DetailsPanelState);
 }
 
 void FEditorFramework::FImplementation::DrawOutlinerPanel()
@@ -1403,7 +1420,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		return {};
 	}
 
-	const float ToolbarScale = ImGui::GetFontSize() / 15.0f;
+	const float ToolbarScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.0f * ToolbarScale, 5.0f * ToolbarScale});
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * ToolbarScale, ImGui::GetStyle().ItemSpacing.y});
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
@@ -1437,7 +1454,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	const float AvailableWidth = ImGui::GetContentRegionAvail().x;
 	const bool bSingleRow = AvailableWidth >= ButtonsWidth + Spacing + 160.0f * ToolbarScale;
 	ImGui::SetNextItemWidth(bSingleRow ? std::min(320.0f * ToolbarScale, AvailableWidth - ButtonsWidth - Spacing) : -1.0f);
-	const bool bSearchChanged = ToolUI->DrawSearchField("##OutputLogSearch", "Search messages...", SearchBuffer.data(), SearchBuffer.size());
+	const bool bSearchChanged = ToolUI->DrawSearchField("##OutputLogSearch", "Search Log", SearchBuffer.data(), SearchBuffer.size());
 	if (bSingleRow)
 	{
 		ImGui::SameLine();
@@ -1533,8 +1550,9 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		ImGui::SetClipboardText(Clipboard->c_str());
 	}
 
-	const float InterfaceScale = ImGui::GetFontSize() / 15.0f;
-	const float FooterHeight = ImGui::GetFontSize() + 14.0f * InterfaceScale + 2.0f * ImGui::GetStyle().ItemSpacing.y;
+	const float InterfaceScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
+	const float CommandRowPadding = ImGui::GetStyle().WindowPadding.y;
+	const float FooterHeight = ImGui::GetFontSize() + 10.0f * InterfaceScale + CommandRowPadding;
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f * InterfaceScale, 8.0f * InterfaceScale});
 	if (ImGui::BeginChild("OutputLogEntries", {0.0f, -FooterHeight}, ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_HorizontalScrollbar))
 	{
@@ -1634,7 +1652,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	}
 	ImGui::EndChild();
 	ImGui::PopStyleVar();
-	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 4.0f * InterfaceScale);
+	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + CommandRowPadding - ImGui::GetStyle().ItemSpacing.y);
 
 	struct FInputCallbackContext
 	{
@@ -1698,15 +1716,14 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {32.0f * InterfaceScale, 5.0f * InterfaceScale});
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFontSize() * 0.5f + 5.0f * InterfaceScale);
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, InterfaceScale);
-	ImGui::PushStyleColor(ImGuiCol_FrameBg, ImGui::ColorConvertU32ToFloat4(PackColor(ToolUITheme::Surface0)));
 	ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(PackColor(ToolUITheme::Border)));
 	if (bFocusCommandRequested)
 	{
 		ImGui::SetKeyboardFocusHere();
 		bFocusCommandRequested = false;
 	}
-	const bool bCommandSubmitted = ImGui::InputTextWithHint("##OutputLogCommand", "Enter a command...", CommandBuffer.data(), CommandBuffer.size(), CommandFlags, InputCallback, &CallbackContext);
-	ImGui::PopStyleColor(2);
+	const bool bCommandSubmitted = ImGui::InputTextWithHint("##OutputLogCommand", "Enter Console Command", CommandBuffer.data(), CommandBuffer.size(), CommandFlags, InputCallback, &CallbackContext);
+	ImGui::PopStyleColor();
 	ImGui::PopStyleVar(3);
 	if (bCommandSubmitted)
 	{

@@ -18,7 +18,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, bool& bSelect
 	const float Scale = ImGui::GetFontSize() / 15.0f;
 	ImGui::BeginDisabled(bDragging);
 	ImGui::SetNextItemWidth(-1.0f);
-	if (ToolUI.DrawSearchField("##OutlinerSearch", "Search objects...", State.Search.InputBuf, sizeof(State.Search.InputBuf)))
+	if (ToolUI.DrawSearchField("##OutlinerSearch", "Search", State.Search.InputBuf, sizeof(State.Search.InputBuf)))
 	{
 		State.Search.Build();
 	}

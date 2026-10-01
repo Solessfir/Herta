@@ -38,7 +38,7 @@ struct FEditorAppearance
 	float GradientHeight = 0.50f;
 	float Saturation = 0.80f;
 	float Intensity = 0.15f;
-	float PanelOpacity = 0.80f;
+	float PanelOpacity = 0.90f;
 	float BlurRadius = 24.0f;
 	EPanelTransparency PanelTransparency = EPanelTransparency::AllPanels;
 	bool bReducedMotion = false;
@@ -48,9 +48,9 @@ struct FEditorAppearance
 
 struct FToolUIThemeMetrics
 {
-	float BaseFontSize = 15.0f;
+	float BaseFontSize = 15.625f;
 	float TitleBarHeight = 36.0f;
-	float StatusBarHeight = 32.0f;
+	float StatusBarHeight = 38.0f;
 	float WindowPadding = 12.0f;
 	float WindowRounding = 6.0f;
 	float ChildRounding = 6.0f;
