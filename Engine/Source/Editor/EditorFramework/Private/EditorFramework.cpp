@@ -1535,7 +1535,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 
 	const float InterfaceScale = ImGui::GetFontSize() / 15.0f;
 	const float FooterHeight = ImGui::GetFontSize() + 14.0f * InterfaceScale + 2.0f * ImGui::GetStyle().ItemSpacing.y;
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8.0f * InterfaceScale, 8.0f * InterfaceScale});
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f * InterfaceScale, 8.0f * InterfaceScale});
 	if (ImGui::BeginChild("OutputLogEntries", {0.0f, -FooterHeight}, ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_HorizontalScrollbar))
 	{
 		const std::span<const FOutputLogLine> Lines = OutputLog->GetVisibleLines();
@@ -1546,13 +1546,14 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		const float TextOffsetY = (LineHeight - ImGui::GetFontSize()) * 0.5f;
 		const ImVec2 AvailableSize = ImGui::GetContentRegionAvail();
 		float TimeWidth = 0.0f;
-		float CategoryWidth = 64.0f * InterfaceScale;
+		float CategoryWidth = 0.0f;
 		for (const FOutputLogLine& Line : Lines)
 		{
 			TimeWidth = std::max(TimeWidth, ImGui::CalcTextSize(Line.Text.data(), Line.Text.data() + Line.TimeEnd, false).x);
 			CategoryWidth = std::max(CategoryWidth, ImGui::CalcTextSize(Line.Text.data() + Line.CategoryBegin, Line.Text.data() + Line.CategoryEnd, false).x);
 		}
-		const FOutputLogColumns Columns{TimeWidth + 12.0f * InterfaceScale, TimeWidth + CategoryWidth + 28.0f * InterfaceScale};
+		const float CategoryX = TimeWidth + 12.0f * InterfaceScale;
+		const FOutputLogColumns Columns{CategoryX, CategoryX + CategoryWidth + 8.0f * InterfaceScale};
 		float ContentWidth = AvailableSize.x;
 		for (const FOutputLogLine& Line : Lines)
 		{
