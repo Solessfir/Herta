@@ -586,7 +586,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1, 0.1f);
-	if (Result && Device.DrawIndexed({*Pipeline, *Near, *Index, *Texture, *Color, *Depth, (Projection * FMatrix4::Translation({0, 0, 2})).Data(), 7}))
+	if (Result && Device.DrawIndexed({*Pipeline, *Near, *Index, *Texture, *Color, *Depth, (Projection * FMatrix4::Translation({0, 0, 2})).Data(), 7, 0, FMatrix4::Translation({0, 0, 2}).Data()}))
 	{
 		Device.CancelCommands();
 		return Failure("Indexed draw exceeding the index buffer unexpectedly succeeded");
@@ -594,12 +594,12 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 
 	if (Result)
 	{
-		Result = Device.DrawIndexed({*Pipeline, *Near, *Index, *Texture, *Color, *Depth, (Projection * FMatrix4::Translation({0, 0, 2})).Data(), 6});
+		Result = Device.DrawIndexed({*Pipeline, *Near, *Index, *Texture, *Color, *Depth, (Projection * FMatrix4::Translation({0, 0, 2})).Data(), 6, 0, FMatrix4::Translation({0, 0, 2}).Data()});
 	}
 
 	if (Result)
 	{
-		Result = Device.DrawIndexed({*Pipeline, *Far, *Index, *Texture, *Color, *Depth, (Projection * FMatrix4::Translation({0, 0, 4})).Data(), 6});
+		Result = Device.DrawIndexed({*Pipeline, *Far, *Index, *Texture, *Color, *Depth, (Projection * FMatrix4::Translation({0, 0, 4})).Data(), 6, 0, FMatrix4::Translation({0, 0, 4}).Data()});
 	}
 
 	if (!Result)
@@ -625,7 +625,8 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	constexpr std::size_t Center = (32 * 64 + 32) * 4;
-	if (std::to_integer<unsigned>((*DepthPixels)[Center]) < 250 || std::to_integer<unsigned>((*DepthPixels)[Center + 1]) > 5)
+	// The studio light shades even camera-facing quads slightly below full brightness.
+	if (std::to_integer<unsigned>((*DepthPixels)[Center]) < 200 || std::to_integer<unsigned>((*DepthPixels)[Center + 1]) > 5)
 	{
 		return Failure("Reversed-Z regression: far geometry overwrote the near red quad");
 	}

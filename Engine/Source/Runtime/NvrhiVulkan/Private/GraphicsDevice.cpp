@@ -18,6 +18,7 @@ constexpr std::size_t FrameCount = 3;
 constexpr std::size_t MaximumUploadBytes = MaximumUploadBytesPerRecording;
 constexpr std::size_t MaximumCommands = 4096;
 constexpr std::uint32_t MaximumTextureDimension = 8192;
+constexpr std::uint32_t MeshPushConstantSize = sizeof(FIndexedDraw::WorldToClip) + sizeof(FIndexedDraw::ObjectToView);
 
 [[nodiscard]] std::unexpected<FPresentationError> Invalid(const std::string& Message)
 {
@@ -210,12 +211,12 @@ public:
 		}
 		const auto HasSupportedBindings = [](const FShaderAsset& Shader)
 		{
-			return (Shader.PushConstantSize == 0 || Shader.PushConstantSize == sizeof(FIndexedDraw::WorldToClip)) && std::ranges::all_of(Shader.Bindings, [](const FShaderBinding& Binding)
-			                                                                                                                             {
-				                                                                                                                             return Binding.Space == 0 && ((Binding.Type == EShaderBindingType::Texture && Binding.Binding == 0) || (Binding.Type == EShaderBindingType::Sampler && Binding.Binding == 128));
-			                                                                                                                             });
+			return (Shader.PushConstantSize == 0 || Shader.PushConstantSize == MeshPushConstantSize) && std::ranges::all_of(Shader.Bindings, [](const FShaderBinding& Binding)
+			                                                                                                                {
+				                                                                                                                return Binding.Space == 0 && ((Binding.Type == EShaderBindingType::Texture && Binding.Binding == 0) || (Binding.Type == EShaderBindingType::Sampler && Binding.Binding == 128));
+			                                                                                                                });
 		};
-		if (bColored ? Descriptor.VertexShader.PushConstantSize != 0 || Descriptor.FragmentShader.PushConstantSize != 0 || !Descriptor.VertexShader.Bindings.empty() || !Descriptor.FragmentShader.Bindings.empty() : Descriptor.VertexShader.PushConstantSize != sizeof(FIndexedDraw::WorldToClip) || !HasSupportedBindings(Descriptor.VertexShader) || !HasSupportedBindings(Descriptor.FragmentShader))
+		if (bColored ? Descriptor.VertexShader.PushConstantSize != 0 || Descriptor.FragmentShader.PushConstantSize != 0 || !Descriptor.VertexShader.Bindings.empty() || !Descriptor.FragmentShader.Bindings.empty() : Descriptor.VertexShader.PushConstantSize != MeshPushConstantSize || !HasSupportedBindings(Descriptor.VertexShader) || !HasSupportedBindings(Descriptor.FragmentShader))
 		{
 			return Invalid("Graphics shaders do not match the selected vertex format and binding ABI");
 		}
@@ -238,7 +239,7 @@ public:
 		Pipeline->VertexFormat = Descriptor.VertexFormat;
 		if (!bColored)
 		{
-			Pipeline->Layout = Device->createBindingLayout(nvrhi::BindingLayoutDesc().setVisibility(nvrhi::ShaderType::AllGraphics).addItem(nvrhi::BindingLayoutItem::Texture_SRV(0)).addItem(nvrhi::BindingLayoutItem::Sampler(0)).addItem(nvrhi::BindingLayoutItem::PushConstants(0, sizeof(FIndexedDraw::WorldToClip))));
+			Pipeline->Layout = Device->createBindingLayout(nvrhi::BindingLayoutDesc().setVisibility(nvrhi::ShaderType::AllGraphics).addItem(nvrhi::BindingLayoutItem::Texture_SRV(0)).addItem(nvrhi::BindingLayoutItem::Sampler(0)).addItem(nvrhi::BindingLayoutItem::PushConstants(0, MeshPushConstantSize)));
 			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllAddressModes(nvrhi::SamplerAddressMode::Wrap));
 		}
 		if (!InputLayout || (!bColored && (!Pipeline->Layout || !Pipeline->Sampler)))
@@ -383,10 +384,11 @@ public:
 		const auto Color = std::dynamic_pointer_cast<FTexture>(Draw.ColorTarget);
 		const auto Depth = std::dynamic_pointer_cast<FTexture>(Draw.DepthTarget);
 		const bool bColored = Pipeline && Pipeline->VertexFormat == EGraphicsVertexFormat::ColoredClipPosition;
-		if (!Owns(Pipeline) || !Owns(Vertices) || !Owns(Indices) || (!bColored && (!Owns(Texture) || Texture->Descriptor.Format == ETextureFormat::Depth32 || Texture == Color)) || !ValidTargets(Color, Depth) || Pipeline->ColorFormat != Color->Descriptor.Format || Vertices->Descriptor.Usage != EBufferUsage::Vertex || Vertices->Descriptor.VertexFormat != Pipeline->VertexFormat || Indices->Descriptor.Usage != EBufferUsage::Index || Draw.IndexCount == 0 || Draw.IndexCount % 3 != 0 || Draw.FirstIndex > Indices->Descriptor.Size / sizeof(std::uint32_t) || Draw.IndexCount > Indices->Descriptor.Size / sizeof(std::uint32_t) - Draw.FirstIndex || !std::ranges::all_of(Draw.WorldToClip, [](const float Value)
-		                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                {
-			                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                return std::isfinite(Value);
-		                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                }))
+		const auto IsFiniteValue = [](const float Value)
+		{
+			return std::isfinite(Value);
+		};
+		if (!Owns(Pipeline) || !Owns(Vertices) || !Owns(Indices) || (!bColored && (!Owns(Texture) || Texture->Descriptor.Format == ETextureFormat::Depth32 || Texture == Color)) || !ValidTargets(Color, Depth) || Pipeline->ColorFormat != Color->Descriptor.Format || Vertices->Descriptor.Usage != EBufferUsage::Vertex || Vertices->Descriptor.VertexFormat != Pipeline->VertexFormat || Indices->Descriptor.Usage != EBufferUsage::Index || Draw.IndexCount == 0 || Draw.IndexCount % 3 != 0 || Draw.FirstIndex > Indices->Descriptor.Size / sizeof(std::uint32_t) || Draw.IndexCount > Indices->Descriptor.Size / sizeof(std::uint32_t) - Draw.FirstIndex || !std::ranges::all_of(Draw.WorldToClip, IsFiniteValue) || !std::ranges::all_of(Draw.ObjectToView, IsFiniteValue))
 		{
 			return Invalid("Indexed draw has incompatible resources, indices, targets, or transform");
 		}
@@ -399,7 +401,7 @@ public:
 			return Invalid("Indexed draw reads uninitialized resources or references vertices outside the vertex buffer");
 		}
 		const auto Framebuffer = Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(Color->Handle).setDepthAttachment(Depth->Handle));
-		const nvrhi::BindingSetHandle Bindings = bColored ? nullptr : Device->createBindingSet(nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::Texture_SRV(0, Texture->Handle)).addItem(nvrhi::BindingSetItem::Sampler(0, Pipeline->Sampler)).addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(Draw.WorldToClip))), Pipeline->Layout);
+		const nvrhi::BindingSetHandle Bindings = bColored ? nullptr : Device->createBindingSet(nvrhi::BindingSetDesc().addItem(nvrhi::BindingSetItem::Texture_SRV(0, Texture->Handle)).addItem(nvrhi::BindingSetItem::Sampler(0, Pipeline->Sampler)).addItem(nvrhi::BindingSetItem::PushConstants(0, MeshPushConstantSize)), Pipeline->Layout);
 		if (!Framebuffer || (!bColored && !Bindings))
 		{
 			return Failed("Could not create draw framebuffer or bindings");
@@ -416,7 +418,10 @@ public:
 			                              Commands->setGraphicsState(State);
 			                              if (!bColored)
 			                              {
-				                              Commands->setPushConstants(Draw.WorldToClip.data(), sizeof(Draw.WorldToClip));
+				                              std::array<float, 32> Constants;
+				                              std::ranges::copy(Draw.WorldToClip, Constants.begin());
+				                              std::ranges::copy(Draw.ObjectToView, Constants.begin() + 16);
+				                              Commands->setPushConstants(Constants.data(), sizeof(Constants));
 			                              }
 			                              Commands->drawIndexed(nvrhi::DrawArguments().setVertexCount(Draw.IndexCount).setStartIndexLocation(Draw.FirstIndex));
 			                              Commands->endMarker();

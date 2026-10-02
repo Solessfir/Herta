@@ -193,6 +193,7 @@ TEST_CASE("Mesh renderer uses caller matrices and rejects nonfinite views before
 	Scene.View.Projection = Herta::FMatrix4::Scale({2, 3, 4});
 	REQUIRE((*Renderer)->Render({320, 240}, Scene.View));
 	CHECK(Device.LastDraw.WorldToClip == (Scene.View.Projection * Scene.View.View * Scene.Model).Data());
+	CHECK(Device.LastDraw.ObjectToView == (Scene.View.View * Scene.Model).Data());
 	Device.Events.clear();
 	Scene.Model(1, 1) = std::numeric_limits<float>::infinity();
 	CHECK_FALSE((*Renderer)->Render({320, 240}, Scene.View));

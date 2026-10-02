@@ -1,6 +1,7 @@
 struct FTransform
 {
     column_major float4x4 MVP;
+    column_major float4x4 ObjectToView;
 };
 
 [[vk::push_constant]] ConstantBuffer<FTransform> Transform;
@@ -11,6 +12,7 @@ struct FVertexOutput
 {
     float4 Position : SV_Position;
     float2 TexCoord : TEXCOORD0;
+    float3 ViewPosition : TEXCOORD1;
 };
 
 [shader("vertex")]
@@ -19,11 +21,19 @@ FVertexOutput vertexMain(float3 Position : POSITION, float2 TexCoord : TEXCOORD0
     FVertexOutput Output;
     Output.Position = mul(Transform.MVP, float4(Position, 1.0));
     Output.TexCoord = TexCoord;
+    Output.ViewPosition = mul(Transform.ObjectToView, float4(Position, 1.0)).xyz;
     return Output;
 }
 
 [shader("fragment")]
 float4 fragmentMain(FVertexOutput Input) : SV_Target
 {
-    return ColorTexture.Sample(ColorSampler, Input.TexCoord);
+    float4 Albedo = ColorTexture.Sample(ColorSampler, Input.TexCoord);
+    // Flat normals from screen-space derivatives until cooked meshes carry normals. Back faces are culled, so the visible side faces the camera.
+    float3 Normal = normalize(cross(ddx(Input.ViewPosition), ddy(Input.ViewPosition)));
+    Normal = dot(Normal, Input.ViewPosition) > 0.0 ? -Normal : Normal;
+    // Studio light slightly above the camera, in Left-Up-Forward view space.
+    const float3 LightDirection = normalize(float3(0.0, 0.5, -1.0));
+    const float Diffuse = saturate(dot(Normal, LightDirection));
+    return float4(Albedo.rgb * (0.35 + 0.65 * Diffuse), Albedo.a);
 }

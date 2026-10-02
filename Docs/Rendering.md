@@ -19,6 +19,8 @@ VSync is enabled by default and can be toggled from the application menu. The ch
 
 The scene uses column-major matrices, a +Z-forward camera, counter-clockwise front faces, infinite-far reversed-Z projection, depth clear `0`, and `GreaterOrEqual` depth testing. NVRHI supplies Vulkan's viewport Y inversion; shaders do not flip Y again.
 
+Meshes use a camera-relative studio light: one directional light slightly above the camera plus ambient. Until cooked meshes carry normals, the fragment shader derives flat face normals from screen-space derivatives of the view-space position and orients them toward the camera, so every face reads clearly but smooth models appear faceted. Each mesh draw pushes object-to-clip and object-to-view matrices (128 bytes).
+
 Scene textures and offscreen color targets use sRGB formats, with linear shader sampling and output blending. ToolUI samples the completed scene through an UNORM view so its existing display-encoded UI composition does not decode the scene twice.
 
 ## Viewport interaction

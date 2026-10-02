@@ -520,9 +520,10 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			                    }
 			                    const FRenderMesh& Mesh = *View.Meshes[Index];
 			                    const auto Transform = (WorldToClip * View.Models[Index]).Data();
+			                    const auto ObjectToView = (View.View * View.Models[Index]).Data();
 			                    for (const FRenderMesh::FSection& Section : Mesh.Sections)
 			                    {
-				                    const auto Result = Device.DrawIndexed({State.Pipeline, Mesh.Vertices, Mesh.Indices, Mesh.Textures[Section.Texture], State.Color, FrameDepth, Transform, Section.IndexCount, Section.FirstIndex});
+				                    const auto Result = Device.DrawIndexed({State.Pipeline, Mesh.Vertices, Mesh.Indices, Mesh.Textures[Section.Texture], State.Color, FrameDepth, Transform, Section.IndexCount, Section.FirstIndex, ObjectToView});
 				                    if (!Result)
 				                    {
 					                    return GraphResult(Result);

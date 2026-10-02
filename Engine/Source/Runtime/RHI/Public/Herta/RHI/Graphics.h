@@ -132,6 +132,8 @@ struct FIndexedDraw
 	std::array<float, 16> WorldToClip;
 	std::uint32_t IndexCount = 0;
 	std::uint32_t FirstIndex = 0;
+	// Pushed after WorldToClip; mesh shaders light in view space.
+	std::array<float, 16> ObjectToView{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
 struct FGraphicsStatistics

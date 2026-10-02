@@ -123,7 +123,7 @@ glTF 2.0 `.gltf` and `.glb` sources are parsed with fastgltf and validated befor
 - Each section's base color texture is cooked with the material's `baseColorFactor` baked in. Materials without a texture get a 1x1 texture of the factor.
 - A transform with a negative determinant mirrors geometry, so its triangles are reversed once to keep counter-clockwise front faces.
 - Vertices are deduplicated and reordered for the GPU vertex cache with meshoptimizer.
-- Only positions and the texture coordinate set used by the base color texture are kept. Normals and tangents arrive with lighting.
+- Only positions and the texture coordinate set used by the base color texture are kept. Normals and tangents are not cooked yet; the mesh shader derives flat normals instead.
 - Non-triangle primitives are skipped with a warning. An image that cannot be decoded is replaced by its factor with a warning.
 - `KHR_mesh_quantization` is supported. Any other required extension, such as Draco compression, fails the cook instead of producing wrong data.
 
