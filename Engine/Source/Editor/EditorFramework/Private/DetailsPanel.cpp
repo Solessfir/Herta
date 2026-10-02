@@ -157,7 +157,7 @@ void DrawLockButton(bool& bLocked)
 	{
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 3.0f * Scale);
 	}
-	const ImVec2 Center{Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f};
+	const ImVec2 Center{Position.x + Size.x * 0.5f - 3.0f * Scale, Position.y + Size.y * 0.5f};
 	DrawList->AddRect({Center.x - 4.0f * Scale, Center.y}, {Center.x + 4.0f * Scale, Center.y + 5.0f * Scale}, Color, Scale, 0, Scale);
 	const float Offset = bLocked ? 0.0f : 3.0f * Scale;
 	DrawList->AddLine({Center.x - 2.5f * Scale + Offset, Center.y}, {Center.x - 2.5f * Scale + Offset, Center.y - 4.0f * Scale}, Color, Scale);

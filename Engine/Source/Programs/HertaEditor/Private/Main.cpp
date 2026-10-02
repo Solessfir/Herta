@@ -401,6 +401,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	ToolUIDescriptor.Window = &Window;
 	ToolUIDescriptor.RegularFontPath = RepositoryRoot / "Engine/Content/Editor/Fonts/Roboto/Roboto-Regular.ttf";
 	ToolUIDescriptor.MediumFontPath = RepositoryRoot / "Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf";
+	ToolUIDescriptor.LogFontPath = RepositoryRoot / "Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf";
 	ToolUIDescriptor.LayoutPath = RepositoryRoot / "Saved/Editor/ImGui.ini";
 	ToolUIDescriptor.AppearancePath = RepositoryRoot / "Saved/Editor/Appearance.ini";
 	if (bSmokeTest)

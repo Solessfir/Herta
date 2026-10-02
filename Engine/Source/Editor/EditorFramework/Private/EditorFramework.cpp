@@ -1715,6 +1715,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	const float InterfaceScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 	const float CommandRowPadding = ImGui::GetStyle().WindowPadding.y;
 	const float FooterHeight = ImGui::GetFontSize() + 10.0f * InterfaceScale + CommandRowPadding;
+	ToolUI->PushLogFont();
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f * InterfaceScale, 8.0f * InterfaceScale});
 	if (ImGui::BeginChild("OutputLogEntries", {0.0f, -FooterHeight}, ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_HorizontalScrollbar))
 	{
@@ -1814,6 +1815,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	}
 	ImGui::EndChild();
 	ImGui::PopStyleVar();
+	ToolUI->PopLogFont();
 	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + CommandRowPadding - ImGui::GetStyle().ItemSpacing.y);
 
 	struct FInputCallbackContext

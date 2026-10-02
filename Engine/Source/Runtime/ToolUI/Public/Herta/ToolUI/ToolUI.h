@@ -96,6 +96,7 @@ struct FToolUIDescriptor
 	FWindow* Window = nullptr;
 	std::filesystem::path RegularFontPath = "Engine/Content/Editor/Fonts/Roboto/Roboto-Regular.ttf";
 	std::filesystem::path MediumFontPath = "Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf";
+	std::filesystem::path LogFontPath = "Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf";
 	std::filesystem::path LayoutPath = "Saved/Editor/ImGui.ini";
 	std::filesystem::path AppearancePath = "Saved/Editor/Appearance.ini";
 	FEditorAppearance Appearance;
@@ -138,6 +139,8 @@ public:
 	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems = {}, const std::function<void()>& DrawStatusItems = {});
 	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, bool bViewport = false);
 	void EndPanel();
+	void PushLogFont();
+	void PopLogFont();
 	[[nodiscard]] std::optional<FToolUICanvasBounds> GetWorkspaceCanvasForCurrentPanel() const noexcept;
 	void DrawGlassSurface(float X, float Y, float Width, float Height, float Radius) const;
 	[[nodiscard]] bool DrawSearchField(const char* Label, const char* Hint, char* Buffer, std::size_t BufferSize) const;

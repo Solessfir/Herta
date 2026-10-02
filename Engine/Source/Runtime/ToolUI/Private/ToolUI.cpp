@@ -369,6 +369,7 @@ struct FToolUIContext::FImplementation
 	std::function<void(bool)> VSyncChanged;
 	std::vector<std::byte> RegularFontBytes;
 	std::vector<std::byte> MediumFontBytes;
+	std::vector<std::byte> LogFontBytes;
 	std::string LayoutPath;
 	std::filesystem::path AppearancePath;
 	std::unordered_map<ImGuiID, bool> PreviousDockState;
@@ -377,6 +378,7 @@ struct FToolUIContext::FImplementation
 	ImGuiContext* Context = nullptr;
 	ImFont* RegularFont = nullptr;
 	ImFont* MediumFont = nullptr;
+	ImFont* LogFont = nullptr;
 	ImGuiStyle BaseStyle;
 	void (*BackendPlatformDestroyWindow)(ImGuiViewport*) = nullptr;
 	ImGuiID DockspaceId = 0;
@@ -1491,6 +1493,10 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		return std::unexpected(std::move(MediumFontBytes.error()));
 	}
 
+	std::expected<std::vector<std::byte>, FToolUIError> LogFontBytes = ReadFile(Descriptor.LogFontPath);
+	if (!LogFontBytes)
+		return std::unexpected(std::move(LogFontBytes.error()));
+
 	std::error_code DirectoryError;
 	if (!Descriptor.LayoutPath.parent_path().empty())
 	{
@@ -1560,6 +1566,7 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		Implementation->VSyncChanged = std::move(Descriptor.VSyncChanged);
 		Implementation->RegularFontBytes = std::move(*RegularFontBytes);
 		Implementation->MediumFontBytes = std::move(*MediumFontBytes);
+		Implementation->LogFontBytes = std::move(*LogFontBytes);
 		Implementation->LayoutPath = PathToUtf8(Descriptor.LayoutPath);
 		Implementation->AppearancePath = std::move(Descriptor.AppearancePath);
 		Implementation->bBuildDefaultLayout = !std::filesystem::exists(Descriptor.LayoutPath);
@@ -1595,7 +1602,9 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		Implementation->RegularFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->RegularFontBytes.data(), static_cast<int>(Implementation->RegularFontBytes.size()), 0.0f, &FontConfiguration);
 		ImFontConfig MediumConfiguration = FontConfiguration;
 		Implementation->MediumFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->MediumFontBytes.data(), static_cast<int>(Implementation->MediumFontBytes.size()), 0.0f, &MediumConfiguration);
-		if (Implementation->RegularFont == nullptr || Implementation->MediumFont == nullptr)
+		ImFontConfig LogConfiguration = FontConfiguration;
+		Implementation->LogFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->LogFontBytes.data(), static_cast<int>(Implementation->LogFontBytes.size()), 0.0f, &LogConfiguration);
+		if (Implementation->RegularFont == nullptr || Implementation->MediumFont == nullptr || Implementation->LogFont == nullptr)
 		{
 			CleanupFailedInitialization();
 			return std::unexpected(FToolUIError{"Could not register the editor fonts"});
@@ -1678,6 +1687,16 @@ FToolUIContext::~FToolUIContext()
 		ImGui_ImplGlfw_Shutdown();
 	}
 	ImGui::DestroyContext(Implementation->Context);
+}
+
+void FToolUIContext::PushLogFont()
+{
+	ImGui::PushFont(Implementation->LogFont, Implementation->Metrics.BaseFontSize * 0.9f);
+}
+
+void FToolUIContext::PopLogFont()
+{
+	ImGui::PopFont();
 }
 
 void FToolUIContext::BeginFrame()
