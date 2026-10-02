@@ -118,6 +118,8 @@ enum class EToolUIMenuIcon : std::uint8_t
 };
 
 [[nodiscard]] bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);
+// Switch for boolean settings, right-aligned within the next item width.
+bool ToolUIToggle(const char* Id, bool* bValue);
 
 class FToolUIContext final
 {

@@ -1810,6 +1810,49 @@ std::expected<void, FToolUIError> FToolUIContext::RenderPlatformWindows()
 	return {};
 }
 
+bool ToolUIToggle(const char* const Id, bool* const bValue)
+{
+	ImGuiWindow* const Window = ImGui::GetCurrentWindow();
+	if (Window->SkipItems)
+		return false;
+	const float TrackHeight = std::round(ImGui::GetFontSize() * 0.9f);
+	const float TrackWidth = std::round(TrackHeight * 1.8f);
+	const float RowHeight = ImGui::GetFrameHeight();
+	const float ItemWidth = std::max(TrackWidth, ImGui::CalcItemWidth());
+	const ImVec2 Position{Window->DC.CursorPos.x + ItemWidth - TrackWidth, Window->DC.CursorPos.y};
+	const ImRect Bounds{Position, {Position.x + TrackWidth, Position.y + RowHeight}};
+	const ImGuiID WidgetId = Window->GetID(Id);
+	ImGui::ItemSize({ItemWidth, RowHeight}, ImGui::GetStyle().FramePadding.y);
+	if (!ImGui::ItemAdd(Bounds, WidgetId))
+		return false;
+	bool bHovered = false;
+	bool bHeld = false;
+	const bool bPressed = ImGui::ButtonBehavior(Bounds, WidgetId, &bHovered, &bHeld);
+	if (bPressed)
+	{
+		*bValue = !*bValue;
+		ImGui::MarkItemEdited(WidgetId);
+	}
+	ImGui::RenderNavCursor(Bounds, WidgetId);
+	const float Radius = TrackHeight * 0.5f;
+	const ImVec2 TrackMin{Bounds.Min.x, std::round(Bounds.GetCenter().y - Radius)};
+	const ImVec2 TrackMax{Bounds.Max.x, TrackMin.y + TrackHeight};
+	ImDrawList* const DrawList = Window->DrawList;
+	if (*bValue)
+	{
+		DrawList->AddRectFilled(TrackMin, TrackMax, ImGui::GetColorU32(ImGuiCol_CheckMark, bHovered ? 1.0f : 0.85f), Radius);
+	}
+	else
+	{
+		DrawList->AddRectFilled(TrackMin, TrackMax, ImGui::GetColorU32(bHovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), Radius);
+		DrawList->AddRect(TrackMin, TrackMax, ImGui::GetColorU32(ImGuiCol_Border), Radius);
+	}
+	const float KnobRadius = Radius - std::max(2.0f, std::round(TrackHeight * 0.15f));
+	const float KnobX = *bValue ? TrackMax.x - Radius : TrackMin.x + Radius;
+	DrawList->AddCircleFilled({KnobX, TrackMin.y + Radius}, KnobRadius, ToImGuiPackedColor(*bValue ? ToolUITheme::Surface0 : ToolUITheme::TextMuted));
+	return bPressed;
+}
+
 bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bool* const bSelected, const char* const Shortcut)
 {
 	const std::string Display = std::format("##{}", Label);

@@ -183,6 +183,15 @@ void DrawViewportAxes(const FMatrix4& View, const ImVec2 Minimum, const ImVec2 S
 	return {LineIndex, FindOutputLogByteAtX(Lines[LineIndex], MousePosition.x - TextOrigin.x, Columns)};
 }
 
+// Labels a compact settings row on the left and right-aligns the next item.
+void DrawFieldLabel(const char* const Label, const float ValueWidth)
+{
+	ImGui::AlignTextToFramePadding();
+	ImGui::TextUnformatted(Label);
+	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ValueWidth);
+	ImGui::SetNextItemWidth(ValueWidth);
+}
+
 void CopyBuffer(std::span<char> Destination, const std::string_view Source)
 {
 	std::fill(Destination.begin(), Destination.end(), '\0');
@@ -509,19 +518,36 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 				                                      ImGui::OpenPopup("WorkspaceAppearance");
 			                                      ImGui::PopStyleColor(3);
 			                                      ImGui::PopStyleVar(3);
-			                                      if (ImGui::BeginPopup("WorkspaceAppearance"))
+			                                      // Fixed width so right-aligned fields do not depend on auto-fit content.
+			                                      ImGui::SetNextWindowSize({260.0f * Scale, 0.0f});
+			                                      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14.0f * Scale, 12.0f * Scale});
+			                                      const bool bAppearanceOpen = ImGui::BeginPopup("WorkspaceAppearance");
+			                                      ImGui::PopStyleVar();
+			                                      if (bAppearanceOpen)
 			                                      {
 				                                      FEditorAppearance Appearance = Implementation->ToolUI->GetAppearance();
-				                                      ImGui::TextUnformatted("Workspace appearance");
-				                                      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {ImGui::GetStyle().FramePadding.x, 1.0f * Scale});
-				                                      ImGui::SetNextItemWidth(180.0f);
-				                                      DrawNumericSliderFloat("Opacity", &Appearance.PanelOpacity, 0.0f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
-				                                      ImGui::SetNextItemWidth(180.0f);
-				                                      DrawNumericSliderFloat("Blur", &Appearance.BlurRadius, 0.0f, 40.0f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
-				                                      ImGui::PopStyleVar();
-				                                      ImGui::Checkbox("Reduced motion", &Appearance.bReducedMotion);
-				                                      if (ImGui::Button("Reset appearance"))
+				                                      ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {ImGui::GetStyle().FramePadding.x, 3.0f * Scale});
+				                                      ImGui::AlignTextToFramePadding();
+				                                      ImGui::TextUnformatted("Appearance");
+				                                      const float ResetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+				                                      ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ResetWidth);
+				                                      ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+				                                      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+				                                      if (ImGui::Button("Reset"))
 					                                      Appearance = FEditorAppearance{};
+				                                      ImGui::PopStyleColor(2);
+				                                      ImGui::SetItemTooltip("Restore default appearance");
+				                                      ImGui::Separator();
+				                                      const float ValueWidth = 140.0f * Scale;
+				                                      float OpacityPercent = Appearance.PanelOpacity * 100.0f;
+				                                      DrawFieldLabel("Panel opacity", ValueWidth);
+				                                      if (DrawNumericSliderFloat("##Opacity", &OpacityPercent, 0.0f, 100.0f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
+					                                      Appearance.PanelOpacity = OpacityPercent / 100.0f;
+				                                      DrawFieldLabel("Panel blur", ValueWidth);
+				                                      DrawNumericSliderFloat("##Blur", &Appearance.BlurRadius, 0.0f, 40.0f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
+				                                      DrawFieldLabel("Reduced motion", ValueWidth);
+				                                      ToolUIToggle("##ReducedMotion", &Appearance.bReducedMotion);
+				                                      ImGui::PopStyleVar();
 				                                      Implementation->ToolUI->SetAppearance(Appearance);
 				                                      ImGui::EndPopup();
 			                                      }
@@ -815,8 +841,6 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 	ImGui::PushStyleColor(ImGuiCol_FrameBg, {0.16f, 0.16f, 0.16f, 0.82f});
 	ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, {0.22f, 0.22f, 0.22f, 0.95f});
 	ImGui::PushStyleColor(ImGuiCol_FrameBgActive, {0.25f, 0.25f, 0.25f, 0.95f});
-	ImGui::PushStyleColor(ImGuiCol_SliderGrab, {0.64f, 0.64f, 0.64f, 1.0f});
-	ImGui::PushStyleColor(ImGuiCol_SliderGrabActive, {0.82f, 0.82f, 0.82f, 1.0f});
 	ImGui::PushStyleColor(ImGuiCol_Button, {0.19f, 0.19f, 0.19f, 0.78f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.26f, 0.26f, 0.26f, 0.95f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.31f, 0.31f, 0.31f, 0.95f});
@@ -824,99 +848,103 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 	ImGui::SetNextWindowSize({288.0f * Scale, 0.0f}, ImGuiCond_Always);
 	if (ImGui::BeginPopup("ViewportSettings"))
 	{
-		constexpr ImGuiTreeNodeFlags SectionFlags = ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_Framed;
-		ImGui::PushStyleColor(ImGuiCol_Separator, {1.0f, 1.0f, 1.0f, 0.12f});
+		constexpr ImGuiTreeNodeFlags SectionFlags = ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_DefaultOpen;
+		ImGui::PushStyleColor(ImGuiCol_Separator, {1.0f, 1.0f, 1.0f, 0.08f});
 		ImGui::PushStyleColor(ImGuiCol_Header, {0.0f, 0.0f, 0.0f, 0.0f});
-		const float ValueWidth = 108.0f * Scale;
-		const auto FieldLabel = [&](const char* const Label)
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * Scale, 6.0f * Scale});
+		const float ValueWidth = 116.0f * Scale;
+		const auto Section = [&](const char* const Label)
 		{
-			ImGui::AlignTextToFramePadding();
-			ImGui::TextUnformatted(Label);
-			ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ValueWidth);
-			ImGui::SetNextItemWidth(ValueWidth);
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+			const bool bSectionOpen = ImGui::TreeNodeEx(Label, SectionFlags);
+			ImGui::PopStyleColor();
+			return bSectionOpen;
 		};
-		ImGui::TextUnformatted("Transform");
-		const float ModeWidth = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
-		const auto ModeButton = [&](const char* const Label, const bool bSelected)
+		const auto Toggle = [&](const char* const Label, bool& bValue)
 		{
-			if (bSelected)
-				ImGui::PushStyleColor(ImGuiCol_Button, {0.30f, 0.30f, 0.30f, 0.93f});
-			const bool bPressed = ImGui::Button(Label, {ModeWidth, 0.0f});
-			if (bSelected)
-				ImGui::PopStyleColor();
-			return bPressed;
+			DrawFieldLabel(Label, ValueWidth);
+			ImGui::PushID(Label);
+			const bool bChanged = ToolUIToggle("##Toggle", &bValue);
+			ImGui::PopID();
+			return bChanged;
 		};
-		if (ModeButton("Select (Q)", !bTransformGizmoVisible))
+		const auto ShortcutRow = [](const char* const Action, const char* const Keys)
 		{
-			bTransformGizmoVisible = false;
-			ViewportGizmos.resetId();
-		}
-		ImGui::SameLine();
-		constexpr std::array ModeNames{"Translate (W)", "Rotate (E)", "Scale (R)"};
-		constexpr std::array ModeValues{Im3d::GizmoMode_Translation, Im3d::GizmoMode_Rotation, Im3d::GizmoMode_Scale};
-		for (std::size_t Index = 0; Index < ModeValues.size(); ++Index)
+			ImGui::TextUnformatted(Action);
+			ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(Keys).x);
+			ImGui::TextDisabled("%s", Keys);
+		};
+
+		// The toolbar hides islands in narrow viewports, so the gizmo controls stay reachable here.
+		if (Section("Gizmo"))
 		{
-			if (ModeButton(ModeNames[Index], bTransformGizmoVisible && GizmoMode == ModeValues[Index]))
+			if (IconButton("Select", EViewportIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
 			{
-				bTransformGizmoVisible = true;
-				GizmoMode = ModeValues[Index];
+				bTransformGizmoVisible = false;
 				ViewportGizmos.resetId();
 			}
-			if (Index == 1)
-				ImGui::SameLine();
+			constexpr std::array SettingsModes{std::pair{Im3d::GizmoMode_Translation, EViewportIcon::Move}, std::pair{Im3d::GizmoMode_Rotation, EViewportIcon::Rotate}, std::pair{Im3d::GizmoMode_Scale, EViewportIcon::Scale}};
+			constexpr std::array SettingsLabels{"Translate (W)", "Rotate (E)", "Scale (R)"};
+			for (std::size_t Index = 0; Index < SettingsModes.size(); ++Index)
+			{
+				ImGui::SameLine(0.0f, 2.0f * Scale);
+				if (IconButton(SettingsLabels[Index], SettingsModes[Index].second, SettingsLabels[Index], bTransformGizmoVisible && GizmoMode == SettingsModes[Index].first))
+				{
+					bTransformGizmoVisible = true;
+					GizmoMode = SettingsModes[Index].first;
+					ViewportGizmos.resetId();
+				}
+			}
+			ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ButtonSize);
+			if (IconButton("Focus", EViewportIcon::Focus, "Focus selected object (F)"))
+				FocusPreview();
+			if (Toggle("Local axes (L)", bLocalGizmo))
+				ViewportGizmos.resetId();
+			if (Toggle("Flip axes toward camera", bFlipGizmoAxesTowardCamera))
+				ViewportGizmos.resetId();
 		}
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {5.0f * Scale, 2.0f * Scale});
-		if (ImGui::Checkbox("Local axes (L)", &bLocalGizmo))
-			ViewportGizmos.resetId();
-		ImGui::PopStyleVar();
-		ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 88.0f * Scale);
-		if (ImGui::Button("Focus (F)", {88.0f * Scale, 0.0f}))
-			FocusPreview();
-		if (ImGui::Checkbox("Flip gizmo axes toward camera", &bFlipGizmoAxesTowardCamera))
-			ViewportGizmos.resetId();
-		ImGui::Spacing();
-		ImGui::Separator();
-		if (ImGui::TreeNodeEx("Snapping", SectionFlags))
+		if (Section("Snapping"))
 		{
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {5.0f * Scale, 2.0f * Scale});
-			ImGui::Checkbox("Enable snapping", &bSnapEnabled);
-			ImGui::PopStyleVar();
-			FieldLabel("Translation (m)");
+			(void)Toggle("Snap (S)", bSnapEnabled);
+			ImGui::BeginDisabled(!bSnapEnabled);
+			DrawFieldLabel("Translation (m)", ValueWidth);
 			DrawNumericDragFloat("##SnapTranslation", &TranslationSnap, 0.05f, 0.001f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 			TranslationSnap = std::isfinite(TranslationSnap) ? std::clamp(TranslationSnap, 0.001f, 100.0f) : 0.5f;
-			FieldLabel("Rotation (deg)");
+			DrawFieldLabel("Rotation (deg)", ValueWidth);
 			DrawNumericDragFloat("##SnapRotation", &RotationSnapDegrees, 1.0f, 0.1f, 180.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
-			FieldLabel("Scale");
+			DrawFieldLabel("Scale", ValueWidth);
 			DrawNumericDragFloat("##SnapScale", &ScaleSnap, 0.01f, 0.001f, 10.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 			RotationSnapDegrees = std::isfinite(RotationSnapDegrees) ? std::clamp(RotationSnapDegrees, 0.1f, 180.0f) : 15.0f;
 			ScaleSnap = std::isfinite(ScaleSnap) ? std::clamp(ScaleSnap, 0.001f, 10.0f) : 0.1f;
+			ImGui::EndDisabled();
 		}
-		ImGui::Separator();
-		if (ImGui::TreeNodeEx("Camera", SectionFlags))
+		if (Section("Camera"))
 		{
 			float MovementSpeed = ViewportCamera.GetMovementSpeed();
-			FieldLabel("Speed (m/s)");
+			DrawFieldLabel("Speed (m/s)", ValueWidth);
 			if (DrawNumericSliderFloat("##CameraSpeed", &MovementSpeed, 0.1f, 100.0f, "%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
 				ViewportCamera.SetMovementSpeed(MovementSpeed);
 			float Sensitivity = ViewportCamera.GetMouseSensitivity() * 180.0f / std::numbers::pi_v<float>;
-			FieldLabel("Look (deg/pixel)");
+			DrawFieldLabel("Look (deg/pixel)", ValueWidth);
 			if (DrawNumericSliderFloat("##CameraLook", &Sensitivity, 0.02f, 1.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
 				ViewportCamera.SetMouseSensitivity(Sensitivity * std::numbers::pi_v<float> / 180.0f);
 		}
-		ImGui::Separator();
-		if (ImGui::TreeNodeEx("Overlays", SectionFlags))
+		if (Section("Overlays"))
 		{
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {5.0f * Scale, 2.0f * Scale});
-			ImGui::Checkbox("Grid", &bGridVisible);
-			ImGui::Checkbox("World axes", &bAxesVisible);
-			ImGui::Checkbox("Corner axis indicator", &bOrientationIndicatorVisible);
-			ImGui::Checkbox("Preview bounds", &bBoundsVisible);
-			ImGui::PopStyleVar();
+			(void)Toggle("Grid", bGridVisible);
+			(void)Toggle("World axes", bAxesVisible);
+			(void)Toggle("Corner axis indicator", bOrientationIndicatorVisible);
+			(void)Toggle("Preview bounds", bBoundsVisible);
 		}
-		ImGui::Separator();
-		if (ImGui::TreeNodeEx("Navigation", SectionFlags))
-			ImGui::TextDisabled("RMB + WASD/QE  Fly\nAlt + LMB  Orbit   |   MMB  Pan\nWheel  Dolly   |   RMB + wheel  Speed");
-		ImGui::Separator();
+		if (Section("Navigation"))
+		{
+			ShortcutRow("Fly", "RMB + WASD / QE");
+			ShortcutRow("Orbit", "Alt + LMB");
+			ShortcutRow("Pan", "MMB");
+			ShortcutRow("Dolly", "Wheel");
+			ShortcutRow("Fly speed", "RMB + Wheel");
+		}
+		ImGui::Spacing();
 		ImGui::BeginDisabled(Simulation.IsRunning() || PreviewSelection.Active < 0);
 		if (ImGui::Button("Reset preview transform", {-1.0f, 0.0f}))
 		{
@@ -930,10 +958,11 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			}
 		}
 		ImGui::EndDisabled();
+		ImGui::PopStyleVar();
 		ImGui::PopStyleColor(2);
 		ImGui::EndPopup();
 	}
-	ImGui::PopStyleColor(8);
+	ImGui::PopStyleColor(6);
 	ImGui::PopStyleVar(5);
 	ImGui::EndDisabled();
 	ImGui::PopStyleColor();
