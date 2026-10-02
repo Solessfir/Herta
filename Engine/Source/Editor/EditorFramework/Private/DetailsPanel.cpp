@@ -4,6 +4,7 @@
 #include "Herta/EditorCore/TransformText.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "NumericField.h"
+#include "PreviewScene.h"
 
 #include <algorithm>
 #include <array>
@@ -37,14 +38,6 @@ enum class ETransformClipboardFormat
 	                   {
 		                   return std::tolower(static_cast<unsigned char>(Left)) == std::tolower(static_cast<unsigned char>(Right));
 	                   }) != Name.end();
-}
-
-void DrawPreviewNotice()
-{
-	const float AvailableHeight = ImGui::GetContentRegionAvail().y;
-	const float BottomGap = ImGui::GetTextLineHeightWithSpacing() + 4.0f * ImGui::GetFontSize() / 15.0f;
-	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::max(0.0f, AvailableHeight - BottomGap));
-	ImGui::TextDisabled("Preview changes are not saved.");
 }
 
 void DrawCubeIcon(const ImVec2 Position, const float Size)
@@ -253,7 +246,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 }
 }
 
-void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string_view ObjectLabel)
+void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, const std::size_t SelectedCount)
 {
 	if (!ToolUI.BeginPanel("Details", &bOpen))
 	{
@@ -262,8 +255,9 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 	}
 	if (!bSelected)
 	{
+		State.bRenaming = false;
+		State.bRenameRequested = false;
 		ImGui::TextDisabled("Select an object in the viewport.");
-		DrawPreviewNotice();
 		ToolUI.EndPanel();
 		return;
 	}
@@ -275,10 +269,51 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 	ImGui::BeginGroup();
 	const float HeadingTextX = ImGui::GetCursorPosX();
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ImGui::GetStyle().ItemSpacing.x, 2.0f * UiScale});
-	ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
+	const std::string SelectionText = std::to_string(SelectedCount) + " selected";
+	const bool bStartRename = !bDragging && (State.bRenameRequested || (!State.bRenaming && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false)));
+	State.bRenameRequested = false;
+	if (bDragging)
+	{
+		State.bRenaming = false;
+	}
+	if (bStartRename)
+	{
+		State.RenameBuffer.fill('\0');
+		std::copy_n(ObjectLabel.begin(), std::min(ObjectLabel.size(), State.RenameBuffer.size() - 1), State.RenameBuffer.begin());
+		State.bRenaming = true;
+		ImGui::SetKeyboardFocusHere();
+	}
+	if (State.bRenaming)
+	{
+		ImGui::SetNextItemWidth(std::max(40.0f * UiScale, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(SelectionText.c_str()).x - ImGui::GetStyle().ItemSpacing.x));
+		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+		ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
+		const bool bCommit = ImGui::InputText("##ObjectLabel", State.RenameBuffer.data(), State.RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+		ImGui::PopStyleColor();
+		if (bCancel || bCommit || (!bStartRename && ImGui::IsItemDeactivated()))
+		{
+			if (!bCancel)
+			{
+				(void)RenamePreviewObject(ObjectLabel, State.RenameBuffer.data());
+			}
+			State.bRenaming = false;
+		}
+	}
+	else
+	{
+		ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
+		if (!bDragging && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		{
+			State.bRenameRequested = true;
+		}
+		if (!bDragging && ImGui::IsItemHovered())
+		{
+			ImGui::SetTooltip("Double-click or press F2 to rename this object.");
+		}
+	}
 	ImGui::SameLine();
-	ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize("1 selected").x));
-	ImGui::TextDisabled("1 selected");
+	ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(SelectionText.c_str()).x));
+	ImGui::TextDisabled("%s", SelectionText.c_str());
 	ImGui::SetCursorPosX(HeadingTextX);
 	ImGui::TextDisabled("Static mesh");
 	ImGui::PopStyleVar();
@@ -296,7 +331,6 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 	if (!bTransform && !bMesh)
 	{
 		ImGui::TextDisabled("No matching properties.");
-		DrawPreviewNotice();
 		ToolUI.EndPanel();
 		return;
 	}
@@ -420,7 +454,6 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 		ImGui::TextDisabled("Built-in / Checker material");
 		ImGui::EndGroup();
 	}
-	DrawPreviewNotice();
 	ToolUI.EndPanel();
 }
 }

@@ -1,7 +1,8 @@
 #pragma once
 
 #include <array>
-#include <string_view>
+#include <cstddef>
+#include <string>
 
 namespace Im3d
 {
@@ -24,7 +25,10 @@ struct FDetailsPanelState
 	std::array<EDetailsTransformSpace, 3> Spaces{};
 	std::array<char, 96> Search{};
 	bool bScaleLocked = false;
+	std::array<char, 256> RenameBuffer{};
+	bool bRenameRequested = false;
+	bool bRenaming = false;
 };
 
-void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string_view ObjectLabel);
+void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, std::size_t SelectedCount = 1);
 }

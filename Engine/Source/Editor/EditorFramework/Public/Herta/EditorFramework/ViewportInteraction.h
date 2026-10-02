@@ -22,6 +22,7 @@ struct FViewportInteractionInput
 	bool bImageHovered = false;
 	bool bImageActive = false;
 	bool bWindowFocused = false;
+	bool bApplicationFocused = true;
 	bool bInputBlocked = false;
 	bool bAlt = false;
 	std::array<bool, 3> MouseClicked{};
@@ -33,6 +34,11 @@ struct FViewportInteractionState
 	EViewportCameraMode CameraMode = EViewportCameraMode::None;
 	int DragButton = -1;
 	bool bKeyboardFocus = false;
+
+	[[nodiscard]] bool CanUseGizmo(const FViewportInteractionInput& Input) const noexcept
+	{
+		return Input.bApplicationFocused && !Input.bInputBlocked && CameraMode == EViewportCameraMode::None && (Input.bImageHovered || DragButton == 0);
+	}
 
 	void Cancel() noexcept
 	{

@@ -76,6 +76,28 @@ struct FViewportGizmoTestContext final
 };
 }
 
+TEST_CASE("Viewport gizmo hover does not require viewport keyboard focus")
+{
+	FViewportInteractionState State;
+	FViewportInteractionInput Input;
+	Input.bImageHovered = true;
+	State.Update(Input);
+	CHECK(State.CanUseGizmo(Input));
+	CHECK_FALSE(State.bKeyboardFocus);
+	CHECK(State.DragButton == -1);
+	Input.bImageHovered = false;
+	CHECK_FALSE(State.CanUseGizmo(Input));
+	Input.bImageHovered = true;
+	Input.bInputBlocked = true;
+	CHECK_FALSE(State.CanUseGizmo(Input));
+	Input.bInputBlocked = false;
+	Input.bApplicationFocused = false;
+	CHECK_FALSE(State.CanUseGizmo(Input));
+	Input.bApplicationFocused = true;
+	State.CameraMode = EViewportCameraMode::Fly;
+	CHECK_FALSE(State.CanUseGizmo(Input));
+}
+
 TEST_CASE("Viewport drags require the image and keep their original owner")
 {
 	FViewportInteractionState State;

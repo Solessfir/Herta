@@ -1788,10 +1788,10 @@ std::expected<void, FToolUIError> FToolUIContext::RenderPlatformWindows()
 	return {};
 }
 
-bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bool* const bSelected)
+bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bool* const bSelected, const char* const Shortcut)
 {
 	const std::string Display = std::format("##{}", Label);
-	const bool bPressed = ImGui::MenuItem(Display.c_str(), nullptr, bSelected);
+	const bool bPressed = ImGui::MenuItem(Display.c_str(), Shortcut, bSelected);
 	const float Scale = ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
 	const ImVec2 Min = ImGui::GetItemRectMin();
 	const ImVec2 Max = ImGui::GetItemRectMax();
@@ -1840,6 +1840,8 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 
 void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems)
 {
+	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
+		Implementation->Window->RequestClose();
 	const ImGuiViewport* const Viewport = ImGui::GetMainViewport();
 	const ImVec2 ViewportMinimum = Viewport->Pos;
 	const ImVec2 ViewportMaximum{Viewport->Pos.x + Viewport->Size.x, Viewport->Pos.y + Viewport->Size.y};
@@ -1894,11 +1896,14 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	{
 		const float MenuTop = ViewportMinimum.y + (TitleBarHeight - ImGui::GetFontSize()) * 0.5f - ImGui::GetStyle().FramePadding.y;
 		ImGui::SetCursorScreenPos({SystemMaximum.x + 4.0f * ChromeScale, MenuTop});
+		const ImVec2 MinimumMenuSize{220.0f * ChromeScale + ImGui::GetStyle().WindowPadding.x * 2.0f, 0.0f};
+		constexpr ImVec2 MaximumMenuSize{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
+		ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
 		if (ImGui::BeginMenu("File"))
 		{
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * ChromeScale, 10.0f * ChromeScale});
-			ImGui::Dummy({220.0f * ChromeScale, 0.0f});
-			ImGui::TextDisabled("Workspace");
+			ImGui::TextUnformatted("Workspace");
+			ImGui::Separator();
 			bool bVSync = Implementation->bVSync;
 			if (ToolUIMenuItem("VSync", EToolUIMenuIcon::Sync, &bVSync))
 			{
@@ -1914,7 +1919,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 				Implementation->bBuildDefaultLayout = true;
 			}
 			ImGui::Separator();
-			if (ToolUIMenuItem("Exit", EToolUIMenuIcon::Exit))
+			if (ToolUIMenuItem("Exit", EToolUIMenuIcon::Exit, nullptr, "Ctrl+Q"))
 			{
 				Implementation->Window->RequestClose();
 			}
@@ -1924,11 +1929,12 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		for (const char* const Label : {"Edit", "Window", "Tools", "Help"})
 		{
 			const bool bWindowMenu = std::string_view(Label) == "Window";
+			ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
 			if (ImGui::BeginMenu(Label, bWindowMenu && static_cast<bool>(DrawWindowMenuItems)))
 			{
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * ChromeScale, 10.0f * ChromeScale});
-				ImGui::Dummy({220.0f * ChromeScale, 0.0f});
-				ImGui::TextDisabled("Panels");
+				ImGui::TextUnformatted("Panels");
+				ImGui::Separator();
 				DrawWindowMenuItems();
 				ImGui::PopStyleVar();
 				ImGui::EndMenu();
