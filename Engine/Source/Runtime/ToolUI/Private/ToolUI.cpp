@@ -250,12 +250,13 @@ void ApplyBaseStyle(ImGuiStyle& Style, const FToolUIThemeMetrics& Metrics)
 	Style.GrabMinSize = 10.0f;
 	Style.GrabRounding = Metrics.FrameRounding;
 	Style.ImageRounding = Metrics.FrameRounding;
-	Style.TabRounding = 0.0f;
+	Style.TabRounding = Metrics.FrameRounding;
 	Style.MenuItemRounding = Metrics.FrameRounding;
 	Style.DragDropTargetRounding = Metrics.FrameRounding;
 	Style.TabBorderSize = 0.0f;
 	Style.TabBarBorderSize = 0.0f;
 	Style.TabBarOverlineSize = 0.0f;
+	Style.TabCloseButtonMinWidthSelected = 0.0f;
 	Style.DockingSeparatorSize = 1.0f;
 	Style.SeparatorSize = 1.0f;
 	Style.DisabledAlpha = 0.55f;
@@ -482,6 +483,9 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 		if (Node && Node->TabBar && !Node->IsHiddenTabBar())
 		{
 			const ImGuiTabBar& Bar = *Node->TabBar;
+			// A hairline under the whole tab row gives the active underline a track to sit on.
+			const float LineScale = Window->Viewport->DpiScale;
+			DrawList->AddLine({Bar.BarRect.Min.x, Bar.BarRect.Max.y - 0.5f * LineScale}, {Bar.BarRect.Max.x, Bar.BarRect.Max.y - 0.5f * LineScale}, ToImGuiPackedColor(ToolUITheme::Border), LineScale);
 			for (const ImGuiTabItem& Tab : Bar.Tabs)
 			{
 				const bool bOutliner = Tab.Window && Tab.Window->ID == ImHashStr("Outliner");
@@ -502,8 +506,9 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 				const float Left = std::max(Bar.ScrollingRectMinX, Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim);
 				const float Right = std::min(Bar.ScrollingRectMaxX, Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim + Tab.Width);
 				DrawList->PushClipRect(Bar.BarRect.Min, Bar.BarRect.Max, false);
+				const float UnderlineThickness = 2.0f * LineScale;
 				if (Right > Left)
-					DrawList->AddLine({Left, Bar.BarRect.Max.y - 1.0f}, {Right, Bar.BarRect.Max.y - 1.0f}, ToImGuiPackedColor(ToolUITheme::NeutralAccent), Window->Viewport->DpiScale);
+					DrawList->AddRectFilled({Left, Bar.BarRect.Max.y - UnderlineThickness}, {Right, Bar.BarRect.Max.y}, ToImGuiPackedColor(ToolUITheme::NeutralAccent), UnderlineThickness * 0.5f);
 				DrawList->PopClipRect();
 			}
 		}
@@ -2110,7 +2115,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		ImGui::PopStyleVar();
 	Implementation->PreviousDockState[WindowId] = ImGui::IsWindowDocked();
 	if (ImGuiDockNode* const Node = ImGui::GetCurrentWindow()->DockNode)
-		Node->LocalFlags |= ImGuiDockNodeFlags_NoWindowMenuButton;
+		Node->LocalFlags |= ImGuiDockNodeFlags_NoWindowMenuButton | ImGuiDockNodeFlags_NoCloseButton;
 	if (bVisible)
 	{
 		Implementation->PresentedPanels[WindowId] = bViewport;
