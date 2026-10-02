@@ -316,7 +316,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(SelectionText.c_str()).x));
 	ImGui::TextDisabled("%s", SelectionText.c_str());
 	ImGui::SetCursorPosX(HeadingTextX);
-	ImGui::TextDisabled("Static mesh");
+	ImGui::TextDisabled("Static Mesh");
 	ImGui::PopStyleVar();
 	ImGui::EndGroup();
 	ImGui::Spacing();
@@ -448,23 +448,22 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	}
 	if (bMesh && DrawSectionHeader("Static Mesh"))
 	{
+		// Asset picker row: thumbnail beside the file name, with the folder or load status underneath.
+		const std::size_t FolderEnd = MeshLabel.rfind('/');
+		const std::string MeshName(FolderEnd == std::string_view::npos ? MeshLabel : MeshLabel.substr(FolderEnd + 1));
+		const std::string_view MeshFolder = FolderEnd == std::string_view::npos ? std::string_view() : MeshLabel.substr(0, FolderEnd);
+		const float ThumbnailSize = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y + ImGui::GetTextLineHeight();
 		// ponytail: one placeholder thumbnail for every mesh until asset thumbnails exist.
 		const ImVec2 ThumbnailPosition = ImGui::GetCursorScreenPos();
-		ImGui::Dummy({40.0f * UiScale, 40.0f * UiScale});
-		DrawCheckerThumbnail(ThumbnailPosition, 40.0f * UiScale);
+		ImGui::Dummy({ThumbnailSize, ThumbnailSize});
+		DrawCheckerThumbnail(ThumbnailPosition, ThumbnailSize);
 		ImGui::SameLine();
 		ImGui::BeginGroup();
-		ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
-		ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-		ImGui::TextUnformatted(MeshLabel.data(), MeshLabel.data() + MeshLabel.size());
-		ImGui::PopStyleColor();
-		ImGui::EndGroup();
-
 		if (Mesh != nullptr && !Mesh->Options.empty())
 		{
 			ImGui::BeginDisabled(bDragging);
 			ImGui::SetNextItemWidth(-FLT_MIN);
-			if (ImGui::BeginCombo("##PreviewMesh", bHasMesh ? Mesh->Options[static_cast<std::size_t>(Mesh->Selected)].c_str() : ""))
+			if (ImGui::BeginCombo("##PreviewMesh", MeshName.c_str()))
 			{
 				MeshResult.bOptionsOpened = ImGui::IsWindowAppearing();
 				for (std::size_t Index = 0; Index < Mesh->Options.size(); ++Index)
@@ -478,15 +477,21 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				ImGui::EndCombo();
 			}
 			ImGui::EndDisabled();
-			if (!Mesh->Status.empty())
-			{
-				ImGui::PushStyleColor(ImGuiCol_Text, Mesh->bError ? ImVec4{0.92f, 0.38f, 0.33f, 1.0f} : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-				ImGui::PushTextWrapPos(0.0f);
-				ImGui::TextUnformatted(Mesh->Status.data(), Mesh->Status.data() + Mesh->Status.size());
-				ImGui::PopTextWrapPos();
-				ImGui::PopStyleColor();
-			}
+			ImGui::SetItemTooltip("%.*s", static_cast<int>(MeshLabel.size()), MeshLabel.data());
 		}
+		else
+		{
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted(MeshName.c_str());
+		}
+		const bool bStatus = Mesh != nullptr && !Mesh->Status.empty();
+		const std::string_view Detail = bStatus ? Mesh->Status : MeshFolder;
+		ImGui::PushStyleColor(ImGuiCol_Text, bStatus && Mesh->bError ? ImVec4{0.92f, 0.38f, 0.33f, 1.0f} : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+		ImGui::PushTextWrapPos(0.0f);
+		ImGui::TextUnformatted(Detail.data(), Detail.data() + Detail.size());
+		ImGui::PopTextWrapPos();
+		ImGui::PopStyleColor();
+		ImGui::EndGroup();
 	}
 	ToolUI.EndPanel();
 	return MeshResult;
