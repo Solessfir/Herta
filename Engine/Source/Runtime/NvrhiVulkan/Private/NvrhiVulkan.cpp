@@ -293,7 +293,8 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(const VkDebugUtilsMessageSeve
 		return VK_FALSE;
 	}
 
-	ELogLevel Level = ELogLevel::Debug;
+	// Info covers loader and layer chatter such as device and manifest dumps, so it is verbose rather than editor-facing.
+	ELogLevel Level = ELogLevel::Trace;
 	if ((Severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0)
 	{
 		Level = ELogLevel::Error;
@@ -305,7 +306,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(const VkDebugUtilsMessageSeve
 	}
 	else if ((Severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) != 0)
 	{
-		Level = ELogLevel::Info;
+		Level = ELogLevel::Debug;
 	}
 
 	if (State->Log)
