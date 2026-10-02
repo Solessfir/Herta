@@ -313,8 +313,8 @@ struct FEditorFramework::FImplementation
 	void DrawDetailsPanel();
 	void DrawOutlinerPanel();
 	void DrawViewport(const std::function<void()>& RenderViewport);
-	void DrawViewportToolbar(ImVec2 Minimum, ImVec2 Size);
-	void DrawViewportStats(ImVec2 Minimum, ImVec2 Size);
+	[[nodiscard]] float DrawViewportToolbar(ImVec2 Minimum, ImVec2 Size);
+	void DrawViewportStats(ImVec2 Minimum, ImVec2 Size, float ToolbarBottom);
 	void UpdateViewport(const ImVec2 RenderMinimum, const ImVec2 RenderSize);
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void FocusPreview();
@@ -579,7 +579,7 @@ void FEditorFramework::FImplementation::FocusPreview()
 	ViewportCamera.Focus((Minimum + Maximum) * 0.5f, (Maximum - Minimum) * 0.5f, AspectRatio, ViewportVisibleSize);
 }
 
-void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, const ImVec2 Size)
+void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, const ImVec2 Size, const float ToolbarBottom)
 {
 	if (!Stats->bUnitVisible && !Stats->bFpsVisible)
 		return;
@@ -587,7 +587,7 @@ void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, 
 	const float Width = 190.0f * Scale;
 	const float RowHeight = ImGui::GetTextLineHeight() + 4.0f * Scale;
 	const float Height = RowHeight * ((Stats->bUnitVisible ? 3 : 0) + (Stats->bFpsVisible ? 1 : 0)) + 16.0f * Scale;
-	const float Top = Minimum.y + (Size.x > 680.0f * Scale ? 50.0f : 88.0f) * Scale;
+	const float Top = ToolbarBottom + 8.0f * Scale;
 	if (Size.x < Width + 16.0f * Scale || Top + Height > Minimum.y + Size.y - 60.0f * Scale)
 		return;
 	const float Left = Minimum.x + Size.x - Width - 8.0f * Scale;
@@ -611,7 +611,7 @@ void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, 
 	}
 }
 
-void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum, const ImVec2 Size)
+float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum, const ImVec2 Size)
 {
 	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 	const float Gap = 4.0f * Scale;
@@ -620,6 +620,7 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 	const float Height = ButtonSize + 2.0f * Padding;
 	const float EdgeMargin = 8.0f * Scale;
 	const float Top = Minimum.y + EdgeMargin;
+	float ToolbarBottom = Top + Height;
 	bViewportControlsHovered = false;
 	const bool bReducedMotion = ToolUI->GetAppearance().bReducedMotion;
 	const float AnimationStep = bReducedMotion ? 1.0f : std::min(1.0f, ImGui::GetIO().DeltaTime * 14.0f);
@@ -629,6 +630,7 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 	};
 	const auto Island = [&](const float X, const float Width, const float OffsetY = 0.0f)
 	{
+		ToolbarBottom = std::max(ToolbarBottom, Top + OffsetY + Height);
 		ToolUI->DrawGlassSurface(X, Top + OffsetY, Width, Height, Height * 0.5f);
 		bViewportControlsHovered |= ImGui::IsMouseHoveringRect({X, Top + OffsetY}, {X + Width, Top + OffsetY + Height});
 		ImGui::SetCursorScreenPos({X + Padding, Top + OffsetY + Padding});
@@ -639,38 +641,8 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ButtonSize * 0.5f);
 	ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
 	ImGui::BeginDisabled(ViewportInteraction.DragButton >= 0);
-	if (Size.x > 680.0f * Scale)
-	{
-		const float ProjectionWidth = ImGui::CalcTextSize("Perspective").x + 10.0f * Scale;
-		Island(Minimum.x + EdgeMargin, ProjectionWidth + 2.0f * Padding);
-		if (ImGui::Button("Perspective", {ProjectionWidth, ButtonSize}))
-			ImGui::OpenPopup("Projection");
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.0f * Scale, 10.0f * Scale});
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * Scale, 6.0f * Scale});
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {8.0f * Scale, 4.0f * Scale});
-		ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 8.0f * Scale);
-		ImGui::SetNextWindowSize({320.0f * Scale, 0.0f}, ImGuiCond_Appearing);
-		if (ImGui::BeginPopup("Projection"))
-		{
-			ImGui::MenuItem("Perspective", nullptr, true);
-			ImGui::Spacing();
-			ImGui::TextDisabled("Orthographic views are\nnot available yet.");
-			ImGui::EndPopup();
-		}
-		ImGui::PopStyleVar(4);
-	}
-	if (Size.x > 180.0f * Scale)
-	{
-		const float PlayWidth = 2.0f * ButtonSize + ImGui::GetStyle().ItemSpacing.x + 2.0f * Padding;
-		Island(Minimum.x + (Size.x - PlayWidth) * 0.5f, PlayWidth, Size.x > 680.0f * Scale ? 0.0f : Height + Gap);
-		ImGui::BeginDisabled();
-		IconButton("Play", EViewportIcon::Play, "Play - game runtime is not implemented yet.");
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		if (IconButton("Simulate", Simulation.IsRunning() ? EViewportIcon::Stop : EViewportIcon::Simulate, Simulation.IsRunning() ? "Stop simulation (Esc)" : "Simulate (Alt+S)", Simulation.IsRunning()))
-			ToggleSimulation();
-	}
 	const float SettingsX = std::max(Minimum.x + 4.0f * Scale, Minimum.x + Size.x - EdgeMargin - Height);
+	float RightControlsLeft = SettingsX;
 	Island(SettingsX, Height);
 	if (IconButton("Viewport settings", EViewportIcon::Settings, "Viewport settings"))
 		ImGui::OpenPopup("ViewportSettings");
@@ -726,7 +698,8 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 			Right -= WorldIslandWidth * Scale + Gap;
 		}
 		const float ModesWidth = 4.0f * ButtonSize + 3.0f * ImGui::GetStyle().ItemSpacing.x + 2.0f * Padding;
-		Island(std::max(Minimum.x + 4.0f * Scale, Right - ModesWidth), ModesWidth);
+		RightControlsLeft = std::max(Minimum.x + 4.0f * Scale, Right - ModesWidth);
+		Island(RightControlsLeft, ModesWidth);
 		if (IconButton("Hide gizmo", EViewportIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
 		{
 			bTransformGizmoVisible = false;
@@ -744,6 +717,42 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 				ViewportGizmos.resetId();
 			}
 		}
+	}
+	const float PlayWidth = 2.0f * ButtonSize + ImGui::GetStyle().ItemSpacing.x + 2.0f * Padding;
+	const float PlayX = Minimum.x + (Size.x - PlayWidth) * 0.5f;
+	const bool bShowPlayControls = Size.x > 180.0f * Scale;
+	const float ProjectionWidth = ImGui::CalcTextSize("Perspective").x + 10.0f * Scale;
+	const bool bShowProjection = CanFitViewportToolbarIsland(Minimum.x + EdgeMargin, ProjectionWidth + 2.0f * Padding, Minimum.x, RightControlsLeft, Gap);
+	if (bShowProjection)
+	{
+		Island(Minimum.x + EdgeMargin, ProjectionWidth + 2.0f * Padding);
+		if (ImGui::Button("Perspective", {ProjectionWidth, ButtonSize}))
+			ImGui::OpenPopup("Projection");
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.0f * Scale, 10.0f * Scale});
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * Scale, 6.0f * Scale});
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {8.0f * Scale, 4.0f * Scale});
+		ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 8.0f * Scale);
+		ImGui::SetNextWindowSize({320.0f * Scale, 0.0f}, ImGuiCond_Appearing);
+		if (ImGui::BeginPopup("Projection"))
+		{
+			ImGui::MenuItem("Perspective", nullptr, true);
+			ImGui::Spacing();
+			ImGui::TextDisabled("Orthographic views are\nnot available yet.");
+			ImGui::EndPopup();
+		}
+		ImGui::PopStyleVar(4);
+	}
+	if (bShowPlayControls)
+	{
+		const float LeftControlsRight = bShowProjection ? Minimum.x + EdgeMargin + ProjectionWidth + 2.0f * Padding : Minimum.x;
+		const bool bFitsTopRow = CanFitViewportToolbarIsland(PlayX, PlayWidth, LeftControlsRight, RightControlsLeft, Gap);
+		Island(PlayX, PlayWidth, bFitsTopRow ? 0.0f : Height + Gap);
+		ImGui::BeginDisabled();
+		IconButton("Play", EViewportIcon::Play, "Play - game runtime is not implemented yet.");
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (IconButton("Simulate", Simulation.IsRunning() ? EViewportIcon::Stop : EViewportIcon::Simulate, Simulation.IsRunning() ? "Stop simulation (Esc)" : "Simulate (Alt+S)", Simulation.IsRunning()))
+			ToggleSimulation();
 	}
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10.0f * Scale, 8.0f * Scale});
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * Scale, 4.0f * Scale});
@@ -876,6 +885,7 @@ void FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimum
 	ImGui::EndDisabled();
 	ImGui::PopStyleColor();
 	ImGui::PopStyleVar(4);
+	return ToolbarBottom;
 }
 
 void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimum, const ImVec2 RenderSize)
@@ -1170,8 +1180,8 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			ImDrawListSplitter Layers;
 			Layers.Split(PanelDrawList, 2);
 			Layers.SetCurrentChannel(PanelDrawList, 1);
-			DrawViewportToolbar(ImageMinimum, Size);
-			DrawViewportStats(ImageMinimum, Size);
+			const float ToolbarBottom = DrawViewportToolbar(ImageMinimum, Size);
+			DrawViewportStats(ImageMinimum, Size, ToolbarBottom);
 			const float HudScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 			const FVector3 LayoutCameraPosition = ViewportCamera.GetSnapshot(1.0f).Position;
 			const std::string LayoutCoordinates = std::format("X {:.2f}   Y {:.2f}   Z {:.2f} m", LayoutCameraPosition.X, LayoutCameraPosition.Y, LayoutCameraPosition.Z);

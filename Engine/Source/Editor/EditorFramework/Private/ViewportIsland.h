@@ -8,6 +8,11 @@ namespace Herta
 {
 inline constexpr float ViewportIconButtonSize = 28.0f;
 
+[[nodiscard]] constexpr bool CanFitViewportToolbarIsland(const float MinimumX, const float Width, const float LeftOccupiedEnd, const float RightOccupiedStart, const float Gap) noexcept
+{
+	return MinimumX - LeftOccupiedEnd >= Gap && RightOccupiedStart - (MinimumX + Width) >= Gap;
+}
+
 enum class EViewportIcon
 {
 	Select,
