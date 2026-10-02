@@ -476,9 +476,7 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 			DrawList->PushClipRect(Minimum, Maximum, false);
 			DrawGlassSurface(*DrawList, *Window->Viewport, Owner.Appearance, Minimum, Maximum, Radius);
 			DrawList->PopClipRect();
-			Splitter.SetCurrentChannel(DrawList, 0);
-			DrawList->CmdBuffer.swap(Splitter._Channels[1]._CmdBuffer);
-			DrawList->IdxBuffer.swap(Splitter._Channels[1]._IdxBuffer);
+			Splitter.SwapChannels(DrawList, 0, 1);
 			Splitter.Merge(DrawList);
 		}
 		if (Node && Node->TabBar && !Node->IsHiddenTabBar())

@@ -45,7 +45,7 @@ Set `HERTA_PROFILE_BLUR=1` before launching the editor to log GPU timings for th
 - Herta's GLFW fork with capability-driven custom title bars across Win32, X11, and Wayland; on Linux, all editor window controls are hidden when minimization is unsupported
 - Herta-owned structured logging with `spdlog` private behind Core and a docked searchable Output Log in EditorFramework
 - UX-first task system with bounded CPU and IO work, cancellation, progress, and safe reload ownership
-- Dear ImGui editor and imgui-node-editor graph tooling
+- Dear ImGui editor using the [Solessfir Herta branch](https://github.com/Solessfir/imgui/tree/herta) with physical-pixel text alignment and generic draw-channel reordering, and imgui-node-editor graph tooling
 - Desaturated graphite editor styling with Roboto and FreeType at a centralized 15.625 logical-pixel size, Droid Sans Mono log entries at 90% of that size, per-monitor DPI and framebuffer-density scaling, a configurable focus-aware background gradient, transparent-panel modes, a capability-driven 36 px custom title bar, and centralized ToolUI tokens
 - Headless editor commands that do not require windows, rendering, ImGui, or an audio device
 - Server-authoritative multiplayer with dedicated and player-hosted listen-server compositions

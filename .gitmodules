@@ -12,7 +12,8 @@
 	url = https://github.com/Solessfir/glfw.git
 [submodule "External/imgui"]
 	path = External/imgui
-	url = https://github.com/ocornut/imgui.git
+	url = https://github.com/Solessfir/imgui.git
+	branch = herta
 [submodule "External/freetype"]
 	path = External/freetype
 	url = https://gitlab.freedesktop.org/freetype/freetype.git
