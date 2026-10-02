@@ -14,7 +14,6 @@ namespace Herta
 {
 namespace
 {
-inline constexpr std::uint64_t MaximumMetadataFileSize = 64ull * 1024;
 inline constexpr std::uint64_t MaximumSourceFileSize = 4ull * 1024 * 1024 * 1024;
 
 struct FImporterExtension
@@ -122,15 +121,7 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 			continue;
 		}
 
-		std::expected<std::optional<std::vector<std::byte>>, FAssetError> Bytes = ReadWholeFile(ContentRoot / Utf8ToPath(MetadataFile), MaximumMetadataFileSize);
-		if (!Bytes || !*Bytes)
-		{
-			Result.Errors.push_back({MetadataFile, Bytes ? "Metadata disappeared during the scan" : Bytes.error().Message});
-			continue;
-		}
-
-		const std::string_view Text(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size());
-		std::expected<FAssetMetadata, FAssetError> Metadata = ParseAssetMetadata(Text);
+		std::expected<FAssetMetadata, FAssetError> Metadata = LoadAssetMetadata(ContentRoot / Utf8ToPath(SourcePath));
 		if (!Metadata)
 		{
 			Result.Errors.push_back({MetadataFile, Metadata.error().Message});
@@ -199,6 +190,11 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 
 	const std::filesystem::path RelativeSource = CanonicalSource.lexically_relative(CanonicalRoot);
 	const bool bInsideContent = IsInside(RelativeSource);
+	// A .gltf usually references separate buffers and images. Copying it alone would register an asset that cannot cook.
+	if (!bInsideContent && ToLowerAscii(PathToUtf8(Source.extension())) == ".gltf")
+	{
+		return std::unexpected(FAssetError{"A .gltf is imported in place. Copy it with its buffers and images into content first, or import a self-contained .glb"});
+	}
 	const std::filesystem::path Destination = bInsideContent ? CanonicalSource : CanonicalRoot / Utf8ToPath(DestinationDirectory) / Source.filename();
 	FImportedSource Imported;
 	Imported.SourcePath = GenericPathToUtf8(Destination.lexically_relative(CanonicalRoot));

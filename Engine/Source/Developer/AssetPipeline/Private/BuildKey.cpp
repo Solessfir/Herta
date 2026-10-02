@@ -1,7 +1,8 @@
 #include "Herta/AssetPipeline/BuildKey.h"
 
+#include "Herta/Core/BinaryStream.h"
+
 #include <algorithm>
-#include <cstddef>
 #include <string_view>
 #include <tuple>
 
@@ -12,44 +13,27 @@ namespace
 // Bump when the key encoding changes so stale derived data cannot be reused.
 inline constexpr std::string_view BuildKeySchema = "HertaAssetBuildKey/1";
 
-void AppendInteger(std::vector<std::byte>& Bytes, const std::uint64_t Value)
+void WriteHash(FBinaryWriter& Writer, const FHash128& Hash)
 {
-	for (std::size_t Index = 0; Index < 8; ++Index)
-	{
-		Bytes.push_back(static_cast<std::byte>((Value >> (Index * 8)) & 0xff));
-	}
-}
-
-// Length prefixes keep adjacent fields from aliasing, such as "ab" + "c" and "a" + "bc".
-void AppendString(std::vector<std::byte>& Bytes, const std::string_view Value)
-{
-	AppendInteger(Bytes, Value.size());
-	for (const char Character : Value)
-	{
-		Bytes.push_back(static_cast<std::byte>(Character));
-	}
-}
-
-void AppendHash(std::vector<std::byte>& Bytes, const FHash128& Hash)
-{
-	AppendInteger(Bytes, Hash.High);
-	AppendInteger(Bytes, Hash.Low);
+	Writer.Write(Hash.High);
+	Writer.Write(Hash.Low);
 }
 }
 
 FHash128 ComputeAssetBuildKey(const FAssetBuildKeyInput& Input)
 {
-	std::vector<std::byte> Bytes;
-	AppendString(Bytes, BuildKeySchema);
-	AppendHash(Bytes, Input.SourceHash);
-	AppendString(Bytes, Input.SourcePath);
-	AppendString(Bytes, Input.Importer);
-	AppendInteger(Bytes, Input.ImporterVersion);
-	AppendInteger(Bytes, Input.Settings.size());
+	// Strings are length-prefixed so adjacent fields cannot alias, such as "ab" + "c" and "a" + "bc".
+	FBinaryWriter Writer;
+	Writer.WriteString(BuildKeySchema);
+	WriteHash(Writer, Input.SourceHash);
+	Writer.WriteString(Input.SourcePath);
+	Writer.WriteString(Input.Importer);
+	Writer.Write(Input.ImporterVersion);
+	Writer.Write(static_cast<std::uint64_t>(Input.Settings.size()));
 	for (const auto& [Name, Value] : Input.Settings)
 	{
-		AppendString(Bytes, Name);
-		AppendString(Bytes, Value);
+		Writer.WriteString(Name);
+		Writer.WriteString(Value);
 	}
 
 	std::vector<const FAssetBuildDependency*> Dependencies;
@@ -62,15 +46,15 @@ FHash128 ComputeAssetBuildKey(const FAssetBuildKeyInput& Input)
 	                  {
 		                  return std::tie(Left->Path, Left->ContentHash) < std::tie(Right->Path, Right->ContentHash);
 	                  });
-	AppendInteger(Bytes, Dependencies.size());
+	Writer.Write(static_cast<std::uint64_t>(Dependencies.size()));
 	for (const FAssetBuildDependency* Dependency : Dependencies)
 	{
-		AppendString(Bytes, Dependency->Path);
-		AppendHash(Bytes, Dependency->ContentHash);
+		Writer.WriteString(Dependency->Path);
+		WriteHash(Writer, Dependency->ContentHash);
 	}
 
-	AppendString(Bytes, Input.TargetPlatform);
-	AppendInteger(Bytes, Input.CookedFormatVersion);
-	return HashBytes(Bytes);
+	Writer.WriteString(Input.TargetPlatform);
+	Writer.Write(Input.CookedFormatVersion);
+	return HashBytes(Writer.GetBytes());
 }
 }

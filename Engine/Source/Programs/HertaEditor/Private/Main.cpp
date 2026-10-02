@@ -4,6 +4,8 @@
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorFramework/EditorFramework.h"
 #include "Herta/NvrhiVulkan/NvrhiVulkan.h"
+#include "Herta/Platform/Platform.h"
+#include "Herta/Platform/Process.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Tasks/TaskSystem.h"
 #include "Herta/ToolUI/ToolUI.h"
@@ -430,7 +432,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	}
 	std::unique_ptr<FToolUIContext> ToolUI = std::move(*ToolUIResult);
 
-	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get()});
+	const std::filesystem::path EditorExecutable = GetExecutablePath();
+	std::filesystem::path AssetWorker = EditorExecutable.parent_path() / "HertaAssetWorker";
+	AssetWorker += EditorExecutable.extension();
+	const std::string_view Platform = GetPlatformName(GetCurrentPlatform());
+	const FEditorAssetPaths AssetPaths{RepositoryRoot / "Games/Sandbox/Content", RepositoryRoot / "DerivedDataCache" / Platform, AssetWorker, std::string(Platform)};
+	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths});
 	if (!EditorFrameworkResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize EditorFramework: {}", EditorFrameworkResult.error().Message);

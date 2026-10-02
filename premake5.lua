@@ -9,11 +9,13 @@ end
 
 include(PremakeRoot .. "/Toolchains.lua")
 include(PremakeRoot .. "/ThirdParty/EnkiTS.lua")
+include(PremakeRoot .. "/ThirdParty/FastGltf.lua")
 include(PremakeRoot .. "/ThirdParty/FreeType.lua")
 include(PremakeRoot .. "/ThirdParty/GLFW.lua")
 include(PremakeRoot .. "/ThirdParty/ImGui.lua")
 include(PremakeRoot .. "/ThirdParty/Im3d.lua")
 include(PremakeRoot .. "/ThirdParty/Jolt.lua")
+include(PremakeRoot .. "/ThirdParty/MeshOptimizer.lua")
 include(PremakeRoot .. "/ThirdParty/NVRHI.lua")
 include(PremakeRoot .. "/ThirdParty/Spdlog.lua")
 
@@ -32,11 +34,13 @@ workspace "Herta"
     HertaApplyToolchainSettings()
 
 HertaEnkiTS()
+HertaFastGltf()
 HertaFreeType()
 HertaGLFW()
 HertaImGui()
 HertaIm3d()
 HertaJolt()
+HertaMeshOptimizer()
 HertaNVRHI()
 HertaSpdlog()
 

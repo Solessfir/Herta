@@ -2,7 +2,9 @@
 
 #include <array>
 #include <cstddef>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace Im3d
 {
@@ -30,5 +32,21 @@ struct FDetailsPanelState
 	bool bRenaming = false;
 };
 
-void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, std::size_t SelectedCount = 1);
+struct FDetailsMeshField
+{
+	// Option 0 is the built-in cube.
+	std::span<const std::string> Options;
+	int Selected = 0;
+	std::string_view Status;
+	bool bError = false;
+};
+
+struct FDetailsMeshResult
+{
+	// The option chosen this frame, or -1.
+	int Chosen = -1;
+	bool bOptionsOpened = false;
+};
+
+FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, std::size_t SelectedCount = 1, const FDetailsMeshField* Mesh = nullptr);
 }

@@ -5,19 +5,34 @@
 
 namespace Herta
 {
-std::expected<void, FPhysicsError> FPreviewSimulation::Start(const FTransform& CubeTransform, const FTransform& FloorTransform)
+namespace
+{
+[[nodiscard]] FVector3 Multiply(const FVector3& Left, const FVector3& Right)
+{
+	return {Left.X * Right.X, Left.Y * Right.Y, Left.Z * Right.Z};
+}
+
+[[nodiscard]] FVector3 Absolute(const FVector3& Vector)
+{
+	return {std::abs(Vector.X), std::abs(Vector.Y), std::abs(Vector.Z)};
+}
+}
+
+std::expected<void, FPhysicsError> FPreviewSimulation::Start(const FTransform& CubeTransform, const FTransform& FloorTransform, const FPreviewBodyShape& CubeShape, const FPreviewBodyShape& FloorShape)
 {
 	if (IsRunning())
 		return std::unexpected(FPhysicsError{"Preview simulation is already running"});
 	auto NewWorld = FPhysicsWorld::Create();
 	if (!NewWorld)
 		return std::unexpected(NewWorld.error());
-	const FVector3 FloorHalfExtents{std::abs(FloorTransform.Scale3D.X), std::abs(FloorTransform.Scale3D.Y), std::abs(FloorTransform.Scale3D.Z)};
-	const auto Floor = (*NewWorld)->CreateBoxBody({FloorHalfExtents, FloorTransform.Translation, FloorTransform.Rotation});
+	const FVector3 FloorHalfExtents = Absolute(Multiply(FloorTransform.Scale3D, FloorShape.HalfExtents));
+	const FVector3 FloorPosition = FloorTransform.Translation + FloorTransform.Rotation.RotateVector(Multiply(FloorTransform.Scale3D, FloorShape.Center));
+	const auto Floor = (*NewWorld)->CreateBoxBody({FloorHalfExtents, FloorPosition, FloorTransform.Rotation});
 	if (!Floor)
 		return std::unexpected(Floor.error());
-	const FVector3 HalfExtents{std::abs(CubeTransform.Scale3D.X), std::abs(CubeTransform.Scale3D.Y), std::abs(CubeTransform.Scale3D.Z)};
-	const FVector3 Position = CubeTransform.Translation;
+	const FVector3 HalfExtents = Absolute(Multiply(CubeTransform.Scale3D, CubeShape.HalfExtents));
+	CubeOffset = Multiply(CubeTransform.Scale3D, CubeShape.Center);
+	const FVector3 Position = CubeTransform.Translation + CubeTransform.Rotation.RotateVector(CubeOffset);
 	const auto NewCube = (*NewWorld)->CreateBoxBody({HalfExtents, Position, CubeTransform.Rotation, EPhysicsMotionType::Dynamic});
 	if (!NewCube)
 		return std::unexpected(NewCube.error());
@@ -25,7 +40,6 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const FTransform& C
 	Cube = *NewCube;
 	OriginalTransform = CubeTransform;
 	RenderTransform = CubeTransform;
-	RenderTransform.Translation = Position;
 	Previous = Current = {Position, CubeTransform.Rotation};
 	Accumulator = 0.0;
 	return {};
@@ -66,6 +80,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 	const auto& B = Current.Rotation;
 	const float Sign = A.X * B.X + A.Y * B.Y + A.Z * B.Z + A.W * B.W < 0.0f ? -1.0f : 1.0f;
 	RenderTransform.Rotation = FQuaternion{std::lerp(A.X, Sign * B.X, Alpha), std::lerp(A.Y, Sign * B.Y, Alpha), std::lerp(A.Z, Sign * B.Z, Alpha), std::lerp(A.W, Sign * B.W, Alpha)}.NormalizedOrIdentity();
+	RenderTransform.Translation -= RenderTransform.Rotation.RotateVector(CubeOffset);
 	return {};
 }
 }

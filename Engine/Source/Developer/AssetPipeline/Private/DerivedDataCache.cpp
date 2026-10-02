@@ -1,6 +1,7 @@
 #include "Herta/AssetPipeline/DerivedDataCache.h"
 
 #include "FileUtilities.h"
+#include "Herta/Core/BinaryStream.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -17,33 +18,16 @@ inline constexpr std::size_t HeaderSize = 4 + 4 + 16 + 8;
 inline constexpr std::size_t ChecksumSize = 16;
 inline constexpr std::uint64_t MaximumPayloadSize = 4ull * 1024 * 1024 * 1024;
 
-void AppendInteger(std::vector<std::byte>& Bytes, const std::uint64_t Value, const std::size_t Size)
+void WriteHash(FBinaryWriter& Writer, const FHash128& Hash)
 {
-	for (std::size_t Index = 0; Index < Size; ++Index)
-	{
-		Bytes.push_back(static_cast<std::byte>((Value >> (Index * 8)) & 0xff));
-	}
+	Writer.Write(Hash.High);
+	Writer.Write(Hash.Low);
 }
 
-[[nodiscard]] std::uint64_t ReadInteger(const std::span<const std::byte> Bytes, const std::size_t Offset, const std::size_t Size) noexcept
+[[nodiscard]] FHash128 ReadHash(FBinaryReader& Reader) noexcept
 {
-	std::uint64_t Value = 0;
-	for (std::size_t Index = 0; Index < Size; ++Index)
-	{
-		Value |= static_cast<std::uint64_t>(Bytes[Offset + Index]) << (Index * 8);
-	}
-	return Value;
-}
-
-void AppendHash(std::vector<std::byte>& Bytes, const FHash128& Hash)
-{
-	AppendInteger(Bytes, Hash.High, 8);
-	AppendInteger(Bytes, Hash.Low, 8);
-}
-
-[[nodiscard]] FHash128 ReadHash(const std::span<const std::byte> Bytes, const std::size_t Offset) noexcept
-{
-	return FHash128{ReadInteger(Bytes, Offset, 8), ReadInteger(Bytes, Offset + 8, 8)};
+	const auto High = Reader.Read<std::uint64_t>();
+	return FHash128{High, Reader.Read<std::uint64_t>()};
 }
 }
 
@@ -77,24 +61,28 @@ std::expected<std::optional<std::vector<std::byte>>, FAssetError> FDerivedDataCa
 	{
 		return Corrupt("truncated header");
 	}
-	if (ReadHash(Bytes, Bytes.size() - ChecksumSize) != HashBytes(Bytes.first(Bytes.size() - ChecksumSize)))
+	FBinaryReader Checksum(Bytes.last(ChecksumSize));
+	if (ReadHash(Checksum) != HashBytes(Bytes.first(Bytes.size() - ChecksumSize)))
 	{
 		return Corrupt("checksum mismatch");
 	}
-	if (ReadInteger(Bytes, 0, 4) != EntryMagic || ReadInteger(Bytes, 4, 4) != EntryVersion)
+
+	FBinaryReader Reader(Bytes.first(Bytes.size() - ChecksumSize));
+	if (Reader.Read<std::uint32_t>() != EntryMagic || Reader.Read<std::uint32_t>() != EntryVersion)
 	{
 		return Corrupt("unsupported format or version");
 	}
-	if (ReadHash(Bytes, 8) != Key)
+	if (ReadHash(Reader) != Key)
 	{
 		return Corrupt("key mismatch");
 	}
-	if (ReadInteger(Bytes, 24, 8) != Bytes.size() - HeaderSize - ChecksumSize)
+	const auto PayloadSize = Reader.Read<std::uint64_t>();
+	const std::span<const std::byte> Payload = Reader.ReadBytes(PayloadSize <= MaximumPayloadSize ? static_cast<std::size_t>(PayloadSize) : 0);
+	if (!Reader.IsValid() || !Reader.IsAtEnd())
 	{
 		return Corrupt("payload size mismatch");
 	}
-
-	return std::optional<std::vector<std::byte>>(std::vector<std::byte>(Bytes.begin() + HeaderSize, Bytes.end() - ChecksumSize));
+	return std::optional<std::vector<std::byte>>(std::vector<std::byte>(Payload.begin(), Payload.end()));
 }
 
 std::expected<void, FAssetError> FDerivedDataCache::Put(const FHash128& Key, const std::span<const std::byte> Payload) const
@@ -104,14 +92,14 @@ std::expected<void, FAssetError> FDerivedDataCache::Put(const FHash128& Key, con
 		return std::unexpected(FAssetError{"Derived data payload exceeds 4 GiB"});
 	}
 
-	std::vector<std::byte> Bytes;
-	Bytes.reserve(HeaderSize + Payload.size() + ChecksumSize);
-	AppendInteger(Bytes, EntryMagic, 4);
-	AppendInteger(Bytes, EntryVersion, 4);
-	AppendHash(Bytes, Key);
-	AppendInteger(Bytes, Payload.size(), 8);
-	Bytes.insert(Bytes.end(), Payload.begin(), Payload.end());
-	AppendHash(Bytes, HashBytes(Bytes));
+	FBinaryWriter Writer;
+	Writer.Write(EntryMagic);
+	Writer.Write(EntryVersion);
+	WriteHash(Writer, Key);
+	Writer.Write(static_cast<std::uint64_t>(Payload.size()));
+	Writer.WriteBytes(Payload);
+	WriteHash(Writer, HashBytes(Writer.GetBytes()));
+	const std::vector<std::byte> Bytes = Writer.TakeBytes();
 
 	const std::filesystem::path Path = GetEntryPath(Key);
 	std::expected<void, FAssetError> Written = WriteFileAtomically(Path, Bytes);

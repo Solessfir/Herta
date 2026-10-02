@@ -1,12 +1,16 @@
 #include "Herta/AssetPipeline/AssetCommands.h"
 #include "Herta/EditorCore/CommandRegistry.h"
+#include "Herta/Platform/Platform.h"
+#include "Herta/Platform/Process.h"
 
 #include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <print>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -93,16 +97,16 @@ void ReportJsonDiagnostic(const std::string_view Status, const std::string_view 
 }
 
 // The working directory wins so Herta checkouts can share one installed binary.
-[[nodiscard]] std::filesystem::path FindDefaultContentRoot(const std::filesystem::path& ExecutablePath)
+[[nodiscard]] std::filesystem::path FindRepositoryRoot(const std::filesystem::path& ExecutablePath)
 {
 	std::error_code PathError;
-	for (std::filesystem::path Start : {std::filesystem::current_path(PathError), std::filesystem::absolute(ExecutablePath, PathError).parent_path()})
+	for (std::filesystem::path Start : {std::filesystem::current_path(PathError), ExecutablePath.parent_path()})
 	{
 		for (int Parent = 0; Parent < 8 && !Start.empty(); ++Parent)
 		{
 			if (std::filesystem::is_directory(Start / "Engine/Content", PathError))
 			{
-				return Start / "Games/Sandbox/Content";
+				return Start;
 			}
 			if (Start == Start.parent_path())
 			{
@@ -114,17 +118,16 @@ void ReportJsonDiagnostic(const std::string_view Status, const std::string_view 
 	return {};
 }
 
-[[nodiscard]] std::string BuildCommandLine(const int ArgumentCount, const char* const* const Arguments, const int FirstCommandArgument)
+[[nodiscard]] std::string BuildCommandLine(const std::span<const std::string> Arguments)
 {
 	std::string CommandLine;
-	for (int Index = FirstCommandArgument; Index < ArgumentCount; ++Index)
+	for (const std::string& Argument : Arguments)
 	{
 		if (!CommandLine.empty())
 		{
 			CommandLine.push_back(' ');
 		}
 
-		const std::string_view Argument = Arguments[Index];
 		CommandLine.push_back('"');
 		for (const char Character : Argument)
 		{
@@ -138,20 +141,31 @@ void ReportJsonDiagnostic(const std::string_view Status, const std::string_view 
 	}
 	return CommandLine;
 }
-}
 
-int main(const int ArgumentCount, const char* const* const Arguments)
+// Arguments exclude the executable name and are UTF-8 on every platform.
+int Run(const std::span<const std::string> Arguments)
 {
-	const bool bJson = ArgumentCount > 1 && std::string_view(Arguments[1]) == "--json";
-	const int FirstCommandArgument = bJson ? 2 : 1;
+	const bool bJson = !Arguments.empty() && Arguments.front() == "--json";
+	const std::span<const std::string> CommandArguments = Arguments.subspan(bJson ? 1 : 0);
 	try
 	{
 		Herta::FEditorCommandRegistry Registry;
 		std::expected<void, Herta::FEditorCommandError> RegistrationResult = Herta::RegisterCoreEditorCommands(Registry);
 		if (RegistrationResult)
 		{
-			const std::filesystem::path ExecutablePath = ArgumentCount > 0 && Arguments[0] != nullptr ? Arguments[0] : "HertaEditorCmd";
-			RegistrationResult = Herta::RegisterAssetCommands(Registry, {FindDefaultContentRoot(ExecutablePath)});
+			const std::filesystem::path ExecutablePath = Herta::GetExecutablePath();
+			const std::filesystem::path RepositoryRoot = FindRepositoryRoot(ExecutablePath);
+			const std::string_view Platform = Herta::GetPlatformName(Herta::GetCurrentPlatform());
+			Herta::FAssetCommandOptions AssetOptions;
+			if (!RepositoryRoot.empty())
+			{
+				AssetOptions.DefaultContentRoot = RepositoryRoot / "Games/Sandbox/Content";
+				AssetOptions.DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform;
+			}
+			AssetOptions.WorkerPath = ExecutablePath.parent_path() / "HertaAssetWorker";
+			AssetOptions.WorkerPath += ExecutablePath.extension();
+			AssetOptions.TargetPlatform = Platform;
+			RegistrationResult = Herta::RegisterAssetCommands(Registry, AssetOptions);
 		}
 		if (!RegistrationResult)
 		{
@@ -166,7 +180,7 @@ int main(const int ArgumentCount, const char* const* const Arguments)
 			return HostFailureExitCode;
 		}
 
-		const std::string CommandLine = ArgumentCount > FirstCommandArgument ? BuildCommandLine(ArgumentCount, Arguments, FirstCommandArgument) : "help";
+		const std::string CommandLine = CommandArguments.empty() ? "help" : BuildCommandLine(CommandArguments);
 		const std::expected<Herta::FEditorCommandResult, Herta::FEditorCommandError> Result = Registry.Execute(CommandLine);
 		if (!Result)
 		{
@@ -215,3 +229,39 @@ int main(const int ArgumentCount, const char* const* const Arguments)
 	}
 	return HostFailureExitCode;
 }
+}
+
+#ifdef HERTA_PLATFORM_WINDOWS
+// Narrow main receives arguments in the ANSI code page, which cannot represent every content path.
+int wmain(const int ArgumentCount, wchar_t** const Arguments)
+{
+	std::vector<std::string> Utf8Arguments;
+	try
+	{
+		for (int Index = 1; Index < ArgumentCount; ++Index)
+		{
+			const std::u8string Text = std::filesystem::path(Arguments[Index]).u8string();
+			Utf8Arguments.emplace_back(Text.begin(), Text.end());
+		}
+	}
+	catch (...)
+	{
+		ReportFailure("Command-line arguments are not valid Unicode");
+		return HostFailureExitCode;
+	}
+	return Run(Utf8Arguments);
+}
+#else
+int main(const int ArgumentCount, char** const Arguments)
+{
+	try
+	{
+		return Run(std::vector<std::string>(Arguments + 1, Arguments + ArgumentCount));
+	}
+	catch (...)
+	{
+		ReportFailure("Could not read command-line arguments");
+		return HostFailureExitCode;
+	}
+}
+#endif

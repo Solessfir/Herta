@@ -8,7 +8,6 @@
 #include <functional>
 #include <limits>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 
 namespace Herta
@@ -16,7 +15,7 @@ namespace Herta
 namespace
 {
 constexpr std::size_t FrameCount = 3;
-constexpr std::size_t MaximumUploadBytes = std::size_t{64} * 1024 * 1024;
+constexpr std::size_t MaximumUploadBytes = MaximumUploadBytesPerRecording;
 constexpr std::size_t MaximumCommands = 4096;
 constexpr std::uint32_t MaximumTextureDimension = 8192;
 
@@ -64,11 +63,18 @@ struct FTexture final : IRhiTexture
 	nvrhi::IDevice* DeviceIdentity = nullptr;
 	nvrhi::TextureHandle Handle;
 	bool bInitialized = false;
+	// One bit per mip level. Sampling waits until every level has been written.
+	std::uint32_t WrittenMips = 0;
 	[[nodiscard]] const FTextureDescriptor& GetDescriptor() const noexcept override
 	{
 		return Descriptor;
 	}
 };
+
+[[nodiscard]] std::uint32_t AllMips(const FTexture& Texture) noexcept
+{
+	return Texture.Descriptor.MipLevels >= 32 ? ~0u : (1u << Texture.Descriptor.MipLevels) - 1;
+}
 
 struct FPipeline final : IRhiGraphicsPipeline
 {
@@ -88,7 +94,7 @@ struct FFrame
 	// NVRHI cannot abandon an open command list. Delay emission until the graph has validated.
 	std::vector<std::function<void(nvrhi::ICommandList*)>> Operations;
 	std::unordered_map<FBuffer*, std::uint32_t> UploadedBuffers;
-	std::unordered_set<FTexture*> WrittenTextures;
+	std::unordered_map<FTexture*, std::uint32_t> WrittenTextures;
 
 	void Reset()
 	{
@@ -171,6 +177,10 @@ public:
 		{
 			return Invalid(std::format("Texture requires a supported format and dimensions in [1, {}]; depth textures must be render targets", TextureDimensionLimit));
 		}
+		if (Descriptor.MipLevels == 0 || Descriptor.MipLevels > GetMipLevelCount(Descriptor.Extent) || (Descriptor.bRenderTarget && Descriptor.MipLevels != 1))
+		{
+			return Invalid("Texture mip levels must fit the extent, and render targets have exactly one level");
+		}
 		const nvrhi::FormatSupport Required = bDepth ? nvrhi::FormatSupport::DepthStencil : nvrhi::FormatSupport::Texture | nvrhi::FormatSupport::ShaderSample | (Descriptor.bRenderTarget ? nvrhi::FormatSupport::RenderTarget : nvrhi::FormatSupport::None);
 		if ((Device->queryFormatSupport(Format) & Required) != Required)
 		{
@@ -181,7 +191,7 @@ public:
 		Texture->Owner = Owner;
 		Texture->DeviceIdentity = Device;
 		nvrhi::TextureDesc Native;
-		Native.setWidth(Descriptor.Extent.Width).setHeight(Descriptor.Extent.Height).setFormat(Format).setDebugName(Descriptor.Name).setIsRenderTarget(Descriptor.bRenderTarget).setIsTypeless(Descriptor.Format == ETextureFormat::Rgba8Srgb && Descriptor.bRenderTarget).enableAutomaticStateTracking(bDepth ? nvrhi::ResourceStates::DepthWrite : nvrhi::ResourceStates::ShaderResource);
+		Native.setWidth(Descriptor.Extent.Width).setHeight(Descriptor.Extent.Height).setMipLevels(Descriptor.MipLevels).setFormat(Format).setDebugName(Descriptor.Name).setIsRenderTarget(Descriptor.bRenderTarget).setIsTypeless(Descriptor.Format == ETextureFormat::Rgba8Srgb && Descriptor.bRenderTarget).enableAutomaticStateTracking(bDepth ? nvrhi::ResourceStates::DepthWrite : nvrhi::ResourceStates::ShaderResource);
 		Native.isShaderResource = !bDepth;
 		Texture->Handle = Device->createTexture(Native);
 		if (!Texture->Handle)
@@ -308,26 +318,27 @@ public:
 		return {};
 	}
 
-	[[nodiscard]] std::expected<void, FPresentationError> WriteTexture(const FTextureHandle& Texture, const std::span<const std::byte> RgbaPixels) override
+	[[nodiscard]] std::expected<void, FPresentationError> WriteTexture(const FTextureHandle& Texture, const std::uint32_t MipLevel, const std::span<const std::byte> RgbaPixels) override
 	{
 		const auto Native = std::dynamic_pointer_cast<FTexture>(Texture);
-		if (!Owns(Native) || Native->Descriptor.Format == ETextureFormat::Depth32 || RgbaPixels.size() != static_cast<std::size_t>(Native->Descriptor.Extent.Width) * Native->Descriptor.Extent.Height * 4)
+		const FExtent2D Extent = Native ? GetMipExtent(Native->Descriptor.Extent, MipLevel) : FExtent2D{};
+		if (!Owns(Native) || Native->Descriptor.Format == ETextureFormat::Depth32 || MipLevel >= Native->Descriptor.MipLevels || RgbaPixels.size() != static_cast<std::size_t>(Extent.Width) * Extent.Height * 4)
 		{
-			return Invalid("Texture upload must provide every RGBA8 texel of a color texture belonging to this device");
+			return Invalid("Texture upload must provide every RGBA8 texel of one mip level of a color texture belonging to this device");
 		}
 		if (const auto Ready = CanRecord(RgbaPixels.size()); !Ready)
 		{
 			return Ready;
 		}
 		FFrame& Frame = Frames[FrameIndex];
-		Frame.Operations.emplace_back([Native, Bytes = std::vector<std::byte>(RgbaPixels.begin(), RgbaPixels.end())](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Native, MipLevel, RowPitch = static_cast<std::size_t>(Extent.Width) * 4, Bytes = std::vector<std::byte>(RgbaPixels.begin(), RgbaPixels.end())](nvrhi::ICommandList* const Commands)
 		                              {
 			                              Commands->beginMarker("Upload mesh texture");
-			                              Commands->writeTexture(Native->Handle, 0, 0, Bytes.data(), static_cast<std::size_t>(Native->Descriptor.Extent.Width) * 4);
+			                              Commands->writeTexture(Native->Handle, 0, MipLevel, Bytes.data(), RowPitch);
 			                              Commands->endMarker();
 		                              });
 		Frame.UploadBytes += RgbaPixels.size();
-		Frame.WrittenTextures.insert(Native.get());
+		Frame.WrittenTextures[Native.get()] |= 1u << MipLevel;
 		return {};
 	}
 
@@ -354,8 +365,8 @@ public:
 			                              Commands->clearDepthStencilTexture(NativeDepth->Handle, nvrhi::AllSubresources, true, 0.0f, false, 0);
 			                              Commands->endMarker();
 		                              });
-		Frame.WrittenTextures.insert(NativeColor.get());
-		Frame.WrittenTextures.insert(NativeDepth.get());
+		Frame.WrittenTextures[NativeColor.get()] |= 1u;
+		Frame.WrittenTextures[NativeDepth.get()] |= 1u;
 		return {};
 	}
 
@@ -372,10 +383,10 @@ public:
 		const auto Color = std::dynamic_pointer_cast<FTexture>(Draw.ColorTarget);
 		const auto Depth = std::dynamic_pointer_cast<FTexture>(Draw.DepthTarget);
 		const bool bColored = Pipeline && Pipeline->VertexFormat == EGraphicsVertexFormat::ColoredClipPosition;
-		if (!Owns(Pipeline) || !Owns(Vertices) || !Owns(Indices) || (!bColored && (!Owns(Texture) || Texture->Descriptor.Format == ETextureFormat::Depth32 || Texture == Color)) || !ValidTargets(Color, Depth) || Pipeline->ColorFormat != Color->Descriptor.Format || Vertices->Descriptor.Usage != EBufferUsage::Vertex || Vertices->Descriptor.VertexFormat != Pipeline->VertexFormat || Indices->Descriptor.Usage != EBufferUsage::Index || Draw.IndexCount == 0 || Draw.IndexCount % 3 != 0 || Draw.IndexCount > Indices->Descriptor.Size / sizeof(std::uint32_t) || !std::ranges::all_of(Draw.WorldToClip, [](const float Value)
-		                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        {
-			                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        return std::isfinite(Value);
-		                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        }))
+		if (!Owns(Pipeline) || !Owns(Vertices) || !Owns(Indices) || (!bColored && (!Owns(Texture) || Texture->Descriptor.Format == ETextureFormat::Depth32 || Texture == Color)) || !ValidTargets(Color, Depth) || Pipeline->ColorFormat != Color->Descriptor.Format || Vertices->Descriptor.Usage != EBufferUsage::Vertex || Vertices->Descriptor.VertexFormat != Pipeline->VertexFormat || Indices->Descriptor.Usage != EBufferUsage::Index || Draw.IndexCount == 0 || Draw.IndexCount % 3 != 0 || Draw.FirstIndex > Indices->Descriptor.Size / sizeof(std::uint32_t) || Draw.IndexCount > Indices->Descriptor.Size / sizeof(std::uint32_t) - Draw.FirstIndex || !std::ranges::all_of(Draw.WorldToClip, [](const float Value)
+		                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                {
+			                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                return std::isfinite(Value);
+		                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                }))
 		{
 			return Invalid("Indexed draw has incompatible resources, indices, targets, or transform");
 		}
@@ -407,7 +418,7 @@ public:
 			                              {
 				                              Commands->setPushConstants(Draw.WorldToClip.data(), sizeof(Draw.WorldToClip));
 			                              }
-			                              Commands->drawIndexed(nvrhi::DrawArguments().setVertexCount(Draw.IndexCount));
+			                              Commands->drawIndexed(nvrhi::DrawArguments().setVertexCount(Draw.IndexCount).setStartIndexLocation(Draw.FirstIndex));
 			                              Commands->endMarker();
 		                              });
 		return {};
@@ -439,9 +450,10 @@ public:
 			Buffer->bInitialized = true;
 			Buffer->MaximumIndex = MaximumIndex;
 		}
-		for (FTexture* const Texture : Frame.WrittenTextures)
+		for (const auto& [Texture, Mips] : Frame.WrittenTextures)
 		{
-			Texture->bInitialized = true;
+			Texture->WrittenMips |= Mips;
+			Texture->bInitialized = Texture->WrittenMips == AllMips(*Texture);
 		}
 		LastSubmittedSerial = Frame.Serial;
 		FrameIndex = (FrameIndex + 1) % Frames.size();
@@ -541,7 +553,8 @@ private:
 
 	[[nodiscard]] bool IsInitialized(const std::shared_ptr<FTexture>& Texture) const
 	{
-		return Texture->bInitialized || Frames[FrameIndex].WrittenTextures.contains(Texture.get());
+		const auto Written = Frames[FrameIndex].WrittenTextures.find(Texture.get());
+		return (Texture->WrittenMips | (Written != Frames[FrameIndex].WrittenTextures.end() ? Written->second : 0u)) == AllMips(*Texture);
 	}
 
 	[[nodiscard]] std::expected<void, FPresentationError> CanRecord(const std::size_t UploadBytes = 0) const

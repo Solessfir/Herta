@@ -12,8 +12,9 @@
 #include "NumericField.h"
 #include "OutlinerPanel.h"
 #include "OutputLogTextLayout.h"
-#include "PreviewSimulation.h"
+#include "PreviewAssets.h"
 #include "PreviewScene.h"
+#include "PreviewSimulation.h"
 #include "ViewportGizmos.h"
 #include "ViewportIsland.h"
 #include "ViewportRotationFeedback.h"
@@ -274,6 +275,11 @@ struct FEditorFramework::FImplementation
 	Im3d::Context ViewportGizmos;
 	std::array<FPreviewObject, 2> PreviewObjects = CreatePreviewObjects();
 	std::array<FMatrix4, 2> PreviewModels;
+	// Null entries draw the built-in cube. Refreshed from Assets at the start of every frame.
+	std::array<const FRenderMesh*, 2> PreviewMeshes{};
+	std::unique_ptr<FPreviewAssets> Assets;
+	std::vector<std::string> MeshOptions;
+	std::vector<FAssetRecord> MeshOptionRecords;
 	std::optional<Im3d::Mat4> PreviewDragStart;
 	std::array<FPreviewObject, 2> PreviewDragObjects;
 	FViewportRotationFeedbackState RotationFeedback;
@@ -318,6 +324,10 @@ struct FEditorFramework::FImplementation
 	void UpdateViewport(const ImVec2 RenderMinimum, const ImVec2 RenderSize);
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void FocusPreview();
+	void RefreshPreviewMeshes();
+	// Maps the built-in cube's [-1, 1] box onto the object's mesh bounds, so cube-based picking, outlines, and physics fit any mesh.
+	[[nodiscard]] FMatrix4 GetPreviewBoundsMatrix(std::size_t Index) const;
+	[[nodiscard]] FPreviewBodyShape GetPreviewBodyShape(std::size_t Index) const;
 	[[nodiscard]] FPreviewObject& GetActivePreviewObject() noexcept { return PreviewObjects[static_cast<std::size_t>(std::max(PreviewSelection.Active, 0))]; }
 	void SetPreviewSelection(int ObjectIndex, bool bToggle = false);
 	void SetPreviewSelection(FPreviewSelection Selection);
@@ -347,9 +357,10 @@ FEditorFramework::FImplementation::FImplementation()
 		PreviewModels[Index] = ToHertaMatrix(Im3d::Mat4(Object.Translation, Object.Rotation, Object.Scale));
 	}
 	ViewportRenderView = {Camera.View, Camera.Projection, PreviewModels};
+	ViewportRenderView.Meshes = PreviewMeshes;
 }
 
-std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorFramework::Create(const FEditorFrameworkDescriptor Descriptor)
+std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorFramework::Create(const FEditorFrameworkDescriptor& Descriptor)
 {
 	if (Descriptor.Log == nullptr || Descriptor.Commands == nullptr || Descriptor.ToolUI == nullptr)
 	{
@@ -368,6 +379,11 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		Implementation->ToolUI = Descriptor.ToolUI;
 		Implementation->OutputLog = std::move(*OutputLog);
 		Implementation->Log = Descriptor.Log;
+		const FEditorAssetPaths& Paths = Descriptor.Assets;
+		if (Descriptor.Tasks != nullptr && Descriptor.GraphicsDevice != nullptr && !Paths.ContentRoot.empty() && !Paths.DerivedDataRoot.empty() && !Paths.WorkerPath.empty() && !Paths.TargetPlatform.empty())
+		{
+			Implementation->Assets = FPreviewAssets::Create(*Descriptor.Tasks, *Descriptor.GraphicsDevice, *Descriptor.Log, Paths, Implementation->PreviewObjects.size());
+		}
 		if (auto Result = RegisterViewportStatsCommand(*Descriptor.Commands, Implementation->Stats); !Result)
 		{
 			return std::unexpected(FEditorFrameworkError{std::move(Result.error().Message)});
@@ -404,6 +420,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	{
 		ImGuiIO& IO = ImGui::GetIO();
 		Implementation->bSimulationStoppedThisFrame = false;
+		Implementation->RefreshPreviewMeshes();
 		if (!IO.AppFocusLost && Implementation->Simulation.IsRunning() && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
 			Implementation->ToggleSimulation();
 		if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
@@ -567,7 +584,7 @@ void FEditorFramework::FImplementation::FocusPreview()
 	for (const int Index : PreviewSelection.Indices)
 	{
 		const FPreviewObject& Object = PreviewObjects[static_cast<std::size_t>(Index)];
-		const FMatrix4 Model = ToHertaMatrix(Im3d::Mat4(Object.Translation, Object.Rotation, Object.Scale));
+		const FMatrix4 Model = ToHertaMatrix(Im3d::Mat4(Object.Translation, Object.Rotation, Object.Scale)) * GetPreviewBoundsMatrix(static_cast<std::size_t>(Index));
 		for (std::size_t Axis = 0; Axis < 3; ++Axis)
 		{
 			const float Extent = std::abs(Model(Axis, 0)) + std::abs(Model(Axis, 1)) + std::abs(Model(Axis, 2));
@@ -577,6 +594,34 @@ void FEditorFramework::FImplementation::FocusPreview()
 	}
 	const float AspectRatio = ViewportExtent.Height > 0 ? static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height) : 16.0f / 9.0f;
 	ViewportCamera.Focus((Minimum + Maximum) * 0.5f, (Maximum - Minimum) * 0.5f, AspectRatio, ViewportVisibleSize);
+}
+
+void FEditorFramework::FImplementation::RefreshPreviewMeshes()
+{
+	for (std::size_t Index = 0; Index < PreviewMeshes.size(); ++Index)
+	{
+		PreviewMeshes[Index] = Assets ? Assets->GetSlot(Index).Mesh.get() : nullptr;
+	}
+}
+
+FMatrix4 FEditorFramework::FImplementation::GetPreviewBoundsMatrix(const std::size_t Index) const
+{
+	const FPreviewBodyShape Shape = GetPreviewBodyShape(Index);
+	return FMatrix4::Translation(Shape.Center) * FMatrix4::Scale(Shape.HalfExtents);
+}
+
+FPreviewBodyShape FEditorFramework::FImplementation::GetPreviewBodyShape(const std::size_t Index) const
+{
+	const FRenderMesh* const Mesh = PreviewMeshes[Index];
+	if (Mesh == nullptr)
+	{
+		return {};
+	}
+	const FVector3& Minimum = Mesh->GetBoundsMinimum();
+	const FVector3& Maximum = Mesh->GetBoundsMaximum();
+	// Flat meshes still need a pickable, collidable volume.
+	constexpr float MinimumHalfExtent = 0.001f;
+	return {(Minimum + Maximum) * 0.5f, {std::max((Maximum.X - Minimum.X) * 0.5f, MinimumHalfExtent), std::max((Maximum.Y - Minimum.Y) * 0.5f, MinimumHalfExtent), std::max((Maximum.Z - Minimum.Z) * 0.5f, MinimumHalfExtent)}};
 }
 
 void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, const ImVec2 Size, const float ToolbarBottom)
@@ -1090,7 +1135,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 		double ClosestDistance = std::numeric_limits<double>::infinity();
 		for (std::size_t Index = 0; Index < PreviewModels.size(); ++Index)
 		{
-			const auto Distance = HitTestPreviewCube(CursorRay, PreviewModels[Index]);
+			const auto Distance = HitTestPreviewCube(CursorRay, PreviewModels[Index] * GetPreviewBoundsMatrix(Index));
 			if (Distance && *Distance < ClosestDistance)
 			{
 				ClosestObject = static_cast<int>(Index);
@@ -1110,9 +1155,10 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	}
 	if (bBoundsVisible)
 	{
+		const FPreviewBodyShape Bounds = GetPreviewBodyShape(static_cast<std::size_t>(std::max(PreviewSelection.Active, 0)));
 		Im3d::PushMatrix(Model);
 		Im3d::PushColor(Im3d::Color(0xefd07ccc));
-		Im3d::DrawAlignedBox(Im3d::Vec3(-1.0f), Im3d::Vec3(1.0f));
+		Im3d::DrawAlignedBox(ToIm3dVector(Bounds.Center - Bounds.HalfExtents), ToIm3dVector(Bounds.Center + Bounds.HalfExtents));
 		Im3d::PopColor();
 		Im3d::PopMatrix();
 	}
@@ -1122,7 +1168,8 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 		Im3d::PushLayerId("ViewportSelection");
 		for (const int Index : PreviewSelection.Indices)
 		{
-			for (const auto& [Start, End] : GetPreviewCubeSilhouette(Camera.Position, PreviewModels[static_cast<std::size_t>(Index)]))
+			const auto ObjectIndex = static_cast<std::size_t>(Index);
+			for (const auto& [Start, End] : GetPreviewCubeSilhouette(Camera.Position, PreviewModels[ObjectIndex] * GetPreviewBoundsMatrix(ObjectIndex)))
 			{
 				Im3d::DrawLine(ToIm3dVector(Start), ToIm3dVector(End), ViewportGizmos.m_gizmoSizePixels * 0.5f, Im3d::Color(0xc2b584ff));
 			}
@@ -1397,7 +1444,7 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 	}
 	else
 	{
-		if (const auto Result = Simulation.Start(ToHertaTransform(PreviewObjects[PreviewCubeIndex]), ToHertaTransform(PreviewObjects[PreviewFloorIndex])); !Result)
+		if (const auto Result = Simulation.Start(ToHertaTransform(PreviewObjects[PreviewCubeIndex]), ToHertaTransform(PreviewObjects[PreviewFloorIndex]), GetPreviewBodyShape(PreviewCubeIndex), GetPreviewBodyShape(PreviewFloorIndex)); !Result)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not start simulation: {}", Result.error().Message);
 			return;
@@ -1434,8 +1481,63 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	const FPreviewObject PreviousObject = GetActivePreviewObject();
 	auto& [Label, Translation, Rotation, Scale] = GetActivePreviewObject();
-	DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size());
+	FDetailsMeshField MeshField;
+	std::string MeshStatus;
+	if (Assets)
+	{
+		// ponytail: rebuilt every frame from the registry snapshot; cache by snapshot when content grows large.
+		MeshOptions.assign(1, "Cube (built-in)");
+		MeshOptionRecords.clear();
+		const FPreviewMeshSlot& Slot = Assets->GetSlot(static_cast<std::size_t>(std::max(PreviewSelection.Active, 0)));
+		for (const FAssetRecord& Record : Assets->GetRegistry().GetRecords())
+		{
+			if (Record.Importer != "Gltf" && Record.Importer != "Texture")
+			{
+				continue;
+			}
+			if (Record.Id == Slot.Asset)
+			{
+				MeshField.Selected = static_cast<int>(MeshOptions.size());
+			}
+			MeshOptions.push_back(Record.Importer == "Texture" ? std::format("{} (texture on cube)", Record.SourcePath) : Record.SourcePath);
+			MeshOptionRecords.push_back(Record);
+		}
+		if (Slot.bLoading)
+		{
+			MeshStatus = std::format("Cooking {}...", Slot.Label);
+		}
+		else if (!Slot.Error.empty())
+		{
+			MeshStatus = Slot.Error;
+			MeshField.bError = true;
+		}
+		else if (Assets->IsScanning())
+		{
+			MeshStatus = "Scanning content...";
+		}
+		MeshField.Options = MeshOptions;
+		MeshField.Status = MeshStatus;
+	}
+	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets ? &MeshField : nullptr);
 	ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
+	if (Assets && MeshResult.bOptionsOpened)
+	{
+		Assets->RequestScan();
+	}
+	if (Assets && MeshResult.Chosen >= 0)
+	{
+		for (const int Index : PreviewSelection.Indices)
+		{
+			if (MeshResult.Chosen == 0)
+			{
+				Assets->ResetMesh(static_cast<std::size_t>(Index));
+			}
+			else
+			{
+				Assets->RequestMesh(static_cast<std::size_t>(Index), MeshOptionRecords[static_cast<std::size_t>(MeshResult.Chosen - 1)]);
+			}
+		}
+	}
 }
 
 void FEditorFramework::FImplementation::DrawOutlinerPanel()

@@ -60,7 +60,7 @@ Comments should read like one developer explaining a non-obvious decision to ano
 ## Modules and dependencies
 
 - Add dependencies only when the current milestone requires them.
-- Source dependencies belong under `External` as pinned Git submodules.
+- Source dependencies belong under `External`. Libraries distributed as one or two self-contained files, such as single-header and amalgamated releases, are vendored unmodified with their license and an `UPSTREAM.md` that records the source, exact revision, copied files, and update steps. Every other source dependency is a pinned Git submodule.
 - Downloaded host tools belong under ignored, versioned `External/<tool>/<platform>/<version>` paths.
 - Downloaded development SDKs belong under ignored, versioned `SDK/<platform>/<sdk>/<version>` paths.
 - `Config/Dependencies.lock` is the source of truth for downloaded tool versions, URLs, SHA-256 hashes, and installed entry points.
@@ -108,12 +108,12 @@ Cleanup scripts remove only explicit Herta-managed generated paths. Without Git 
 - Do not use `feat:`, `fix:`, `chore:`, or similar prefixes.
 - Do not add `Co-authored-by` trailers.
 - Preserve upstream copyright and license notices. Do not replace third-party authorship with Herta authorship.
-- Treat submodule revisions as intentional dependency locks.
+- Treat submodule revisions and vendored revisions as intentional dependency locks. Never edit vendored files; update them only by copying a new upstream revision.
 - Never use destructive Git or filesystem commands to discard user work without explicit authorization.
 
 ## Current repository state
 
-Milestones 0 through 2.5 are implemented. The repository contains structured logging, Tasks, Application, RHI, NvrhiVulkan, RenderGraph, Renderer, ShaderCompiler, HertaShaderWorker, ToolUI, EditorCore, EditorFramework, HertaEditor, HertaEditorCmd, a configured application icon, focused tests, and required Windows/Linux CI and quality workflows. Slang cooks shaders during builds; the editor Viewport renders a textured cube with reversed-Z, camera navigation, private im3d transform gizmos, and depth-tested debug primitives. Camera math belongs to EditorCore; preview transforms and input routing belong to EditorFramework. Local Windows, X11, and Wayland renderer readback, debug drawing, resize, and resource-retirement tests are verified. Preview edits are not persisted and pointer drags remain desktop-edge bounded. Milestone 3 - Asset pipeline is in progress: the Assets runtime module owns asset IDs and registry snapshots, the AssetPipeline developer module owns `.hmeta` sidecars, content scanning and import, build keys, DerivedDataCache, and `asset.*` commands in HertaEditorCmd. Content lives in `Games/Sandbox/Content`. Importers, cooking, and the game runtime have not started.
+Milestones 0 through 2.5 are implemented. The repository contains structured logging, Tasks, Application, RHI, NvrhiVulkan, RenderGraph, Renderer, ShaderCompiler, HertaShaderWorker, ToolUI, EditorCore, EditorFramework, HertaEditor, HertaEditorCmd, a configured application icon, focused tests, and required Windows/Linux CI and quality workflows. Slang cooks shaders during builds; the editor Viewport renders a textured cube with reversed-Z, camera navigation, private im3d transform gizmos, and depth-tested debug primitives. Camera math belongs to EditorCore; preview transforms and input routing belong to EditorFramework. Local Windows, X11, and Wayland renderer readback, debug drawing, resize, and resource-retirement tests are verified. Preview edits are not persisted and pointer drags remain desktop-edge bounded. Milestone 3 - Asset pipeline is in progress. The Assets runtime module owns asset IDs, registry snapshots, and cooked texture and model formats. The AssetPipeline developer module owns `.hmeta` sidecars, content scanning and import, build keys, DerivedDataCache, the texture and glTF cookers, and `asset.*` commands. Untrusted sources are only parsed inside `HertaAssetWorker`; editors and commands run it through `CookAssetInWorker`. The editor previews cooked models and textures through Details, loading them asynchronously. Content lives in `Games/Sandbox/Content`. Blender import, live reimport, and the game runtime have not started.
 
 An early Physics preview slice uses Jolt behind Herta-owned box-body APIs. Simulate or Alt+S drops the cube onto a static floor, and Escape stops simulation and restores the transform. It does not implement Scene ownership or the full physics milestone.
 

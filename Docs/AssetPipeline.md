@@ -1,6 +1,6 @@
 # Herta Asset Pipeline
 
-Status: Milestone 3 in progress - asset identity, metadata, registry, build keys, DerivedDataCache, and headless commands are implemented. Importers and cooking start in the next slice.
+Status: Milestone 3 in progress - asset identity, metadata, registry, build keys, DerivedDataCache, texture and glTF cooking in an isolated worker, headless commands, and editor mesh previews are implemented. Blender import, file watching, live reimport, and search are next.
 
 This document records the contracts that later importers, cookers, and editor jobs build on. The roadmap lives in [EngineDesign.md](EngineDesign.md).
 
@@ -8,10 +8,11 @@ This document records the contracts that later importers, cookers, and editor jo
 
 | Module | Kind | Owns |
 |---|---|---|
-| `Assets` | Runtime | `FAssetId`, portable asset paths, and the immutable `FAssetRegistry` snapshot. |
-| `AssetPipeline` | Developer | `.hmeta` metadata, content scanning and import, build keys, DerivedDataCache, and the `asset.*` editor commands. |
+| `Assets` | Runtime | `FAssetId`, portable asset paths, the immutable `FAssetRegistry` snapshot, and the cooked texture and model formats. |
+| `AssetPipeline` | Developer | `.hmeta` metadata, content scanning and import, build keys, DerivedDataCache, the texture and glTF cookers, the worker client, and the `asset.*` editor commands. |
+| `HertaAssetWorker` | Program | Runs one cook per process so untrusted source parsing cannot crash or hang its caller. |
 
-Core provides `FHash128` and `HashBytes`, a private XXH3-128 implementation from the pinned `External/xxHash` submodule. It is a content identity, not a cryptographic hash.
+Core provides `FHash128` and `HashBytes`, a private XXH3-128 implementation from the vendored `External/xxHash/xxhash.h`. It is a content identity, not a cryptographic hash. Core's `FBinaryWriter` and `FBinaryReader` encode every cooked format in little-endian order. Platform's `RunProcess` launches the worker with UTF-8 arguments, captured output, a timeout, and cancellation. It kills the whole process tree through a job object on Windows and a process group on Linux.
 
 ## Content root
 
@@ -38,7 +39,7 @@ Format = HertaAssetMetadata
 Version = 1
 Id = 123e4567-e89b-42d3-a456-426614174000
 Importer = Texture
-Setting.Srgb = true
+Setting.ColorSpace = Linear
 ```
 
 - `Format` and `Version` are always the first two lines. Unknown versions are rejected.
@@ -87,6 +88,56 @@ The asset ID is deliberately excluded so identical sources share derived data. R
 
 Writes go to a uniquely named temporary file beside the entry, then rename over it. Readers never observe a partial entry. Because a key fixes its content, a failed replacement is a success when the existing entry is valid and identical. This happens on Windows while another process is reading it. A corrupt or mismatched entry is returned as an error so the caller can report it before rebuilding.
 
+## Cooking
+
+`CookAsset` reads the sidecar and source, collects dependencies, computes the build key, and returns early on a valid DerivedDataCache entry. Otherwise it cooks, serializes, and stores the result. A corrupt cache entry is reported as a warning and cooked again. `--force` and `FAssetCookRequest::bForce` skip the cache lookup.
+
+Importers parse untrusted files, so only `HertaAssetWorker` and tests call `CookAsset` in-process. Editors and commands call `CookAssetInWorker`, which runs:
+
+```text
+HertaAssetWorker cook --content-root <path> --derived-data <path> --platform <name> [--force] <content-path>
+```
+
+On success the worker exits with 0 and prints `HertaAssetCook/1`, `Key <hex>`, `Cache hit` or `Cache miss`, and one `Warning <text>` line per warning. A failed cook exits with 1 and writes the reason to standard error. The default timeout is 10 minutes.
+
+| Importer | Version | Settings | Output |
+|---|---|---|---|
+| `Texture` | 1 | `ColorSpace = Srgb` (default) or `Linear` | Cooked texture |
+| `Gltf` | 1 | None | Cooked model |
+| `Blender` | - | - | Not available yet |
+
+Unknown settings are errors, so a typo never silently cooks with defaults. Bump an importer's version whenever its output changes for the same input, and bump `CookedAssetFormatVersion` when any cooked layout changes. Both are part of the build key.
+
+### Textures
+
+PNG and JPEG sources are decoded with stb_image inside the worker, up to 8192 pixels per side. For sRGB textures, the cooker converts color channels to 16-bit linear light through a fixed table, builds the full mip chain with a 2x2 box filter, and encodes back to sRGB. Alpha and linear textures are filtered as stored. Mip sizes round down and clamp to one, matching Vulkan. Mips larger than 4096 pixels are dropped, so every cooked texture uploads within the 64 MiB recording budget.
+
+Integer filtering and fixed tables make cooked bytes identical across compilers and C runtimes.
+
+### glTF
+
+glTF 2.0 `.gltf` and `.glb` sources are parsed with fastgltf and validated before use. Herta and glTF share axes, units, and counter-clockwise winding, so positions need no conversion.
+
+- The default scene is flattened into one static model. Node transforms are baked into positions, and nodes that reuse a mesh produce separate copies.
+- Primitives are grouped into one section per material, so a model draws once per material.
+- Each section's base color texture is cooked with the material's `baseColorFactor` baked in. Materials without a texture get a 1x1 texture of the factor.
+- A transform with a negative determinant mirrors geometry, so its triangles are reversed once to keep counter-clockwise front faces.
+- Vertices are deduplicated and reordered for the GPU vertex cache with meshoptimizer.
+- Only positions and the texture coordinate set used by the base color texture are kept. Normals and tangents arrive with lighting.
+- Non-triangle primitives are skipped with a warning. An image that cannot be decoded is replaced by its factor with a warning.
+- `KHR_mesh_quantization` is supported. Any other required extension, such as Draco compression, fails the cook instead of producing wrong data.
+
+External buffer and image URIs must be relative and stay inside the content root. They are resolved before the loader reads any file, so a crafted glTF cannot read arbitrary files. Each one becomes a build-key dependency, so editing a `.bin` or texture invalidates the cooked model.
+
+### Cooked formats
+
+Cooked assets start with the magic `HCAS`, `CookedAssetFormatVersion`, and a type tag, followed by little-endian fields:
+
+- A texture stores its color space and RGBA8 mips from largest to 1x1.
+- A model stores position and UV vertices, uint32 triangle indices, sections, materials, and the textures they reference.
+
+`DeserializeCookedAsset` validates every count, index, range, and mip dimension before allocating. Valid models stay within 64 MiB per vertex or index buffer.
+
 ## Commands
 
 The commands are registered by `RegisterAssetCommands` and exposed through `HertaEditorCmd`:
@@ -95,8 +146,19 @@ The commands are registered by `RegisterAssetCommands` and exposed through `Hert
 HertaEditorCmd asset.validate [--content-root <path>]
 HertaEditorCmd asset.list [--content-root <path>]
 HertaEditorCmd asset.import <source> [--destination <content-directory>] [--content-root <path>]
+HertaEditorCmd asset.reimport <content-path|asset-id> [--force] [--content-root <path>]
 ```
 
-`asset.validate` exits with code 1 when any error is found. `asset.import` registers a source already inside the content root in place. Otherwise, it copies the source atomically into `--destination` (the content root by default). It never overwrites an existing file or sidecar.
+`asset.validate` exits with code 1 when any error is found. `asset.import` registers a source already inside the content root in place. Otherwise, it copies the source atomically into `--destination` (the content root by default). It then cooks the asset. It never overwrites an existing file or sidecar. A failed cook leaves the source registered so it can be fixed and reimported.
 
-The interactive editor does not register these commands yet. They perform blocking file IO, and the editor will expose import through asynchronous jobs instead.
+A `.gltf` usually references separate buffers and images, so it is only imported in place. Copy it into content with its files, or import a self-contained `.glb`.
+
+`HertaEditorCmd` passes UTF-8 arguments on every platform, so content paths may contain any Unicode characters.
+
+## Editor previews
+
+The editor scans content in the background at startup and again whenever the Static Mesh picker in Details opens. Choosing a model or texture cooks it in `HertaAssetWorker` on a blocking-IO task. A main-thread continuation uploads the result between frames, so the GPU upload never overlaps a frame recording. The newest choice for an object wins, and older results are discarded when they finish. Closing the editor cancels in-flight work and kills running workers.
+
+Textures preview on the built-in cube. Picking, selection outlines, focus, bounds, and the physics preview use the loaded mesh's bounds.
+
+The editor does not register the `asset.*` commands, because they block on file IO and worker processes.

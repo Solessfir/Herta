@@ -597,7 +597,7 @@ Fast asset search consumes immutable AssetRegistry snapshots. Names, normalized 
 
 `fastgltf` handles editor/offline glTF 2.0 ingestion. Imported data is converted immediately to Herta coordinates, types, naming, and canonical vertex formats. glTF library types do not enter runtime modules.
 
-Meshoptimizer is added when real mesh cooking exists. KTX2/Basis Universal is added when the texture cooker exists. Neither belongs in bootstrap code.
+Meshoptimizer optimizes cooked meshes. Cooked textures start as RGBA8 with mips; block compression and KTX2/Basis Universal are added only when texture memory or load time justifies them.
 
 ### 4.10 Native `.blend` import
 
@@ -1012,7 +1012,7 @@ The game API exposes structured task scopes rather than raw worker threads. A wo
 
 ## 7. Dependency policy
 
-Source dependencies are pinned Git submodules under `External`. Optional system integrations such as Blender are capabilities, not Herta dependencies. A normal project-generation or build command performs no network access. `Setup.bat` and `Setup.sh` are the only scripts allowed to initialize submodules and acquire non-vendored tools.
+Source dependencies live under `External`. Single-header and amalgamated libraries are vendored unmodified with their license and an `UPSTREAM.md` recording the source, revision, copied files, and update steps; every other source dependency is a pinned Git submodule. Optional system integrations such as Blender are capabilities, not Herta dependencies. A normal project-generation or build command performs no network access. `Setup.bat` and `Setup.sh` are the only scripts allowed to initialize submodules and acquire non-vendored tools.
 
 | Dependency | Decision | Owner | Purpose and boundary |
 |---|---|---|---|
@@ -1028,8 +1028,10 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [enkiTS](https://github.com/dougbinks/enkiTS) | Adopted at MS1 | Tasks | Private worker scheduling implementation. Herta owns task scopes, cancellation, reload quiescence, IO lanes, diagnostics, and public APIs. |
 | [Umka](https://github.com/vtereshkov/umka-lang) | Preferred candidate at scripting milestone | Scripting | Optional statically typed gameplay VM behind Herta handles, bindings, cooking, budgets, diagnostics, and sandbox policy. Adopt only if production gates pass. |
 | [EnTT](https://github.com/skypjack/entt) | Preferred at world milestone after spike | Scene | Private ECS storage candidate. Herta owns entity, world, query, serialization, scheduling, and mutation-barrier contracts. |
-| [fastgltf](https://github.com/spnda/fastgltf) | Adopt with asset import | AssetPipeline | Offline glTF 2.0 ingestion only. |
-| [xxHash](https://github.com/Cyan4973/xxHash) | Adopted at MS3 | Core | Private header-only XXH3-128 behind `HashBytes` for build keys, DerivedDataCache checksums, and content identity. Pinned to `v0.8.3`; the XXH3 output is frozen. |
+| [fastgltf](https://github.com/spnda/fastgltf) | Adopted at MS3 | AssetPipeline | Offline glTF 2.0 ingestion inside HertaAssetWorker only. Pinned to `v0.9.1`. |
+| [simdjson](https://github.com/simdjson/simdjson) | Adopted at MS3 | AssetPipeline | JSON parser required by fastgltf. Its single-header release is vendored and compiled into the same private library. Pinned to `v4.6.11`, the version fastgltf `v0.9.1` targets. |
+| [stb](https://github.com/nothings/stb) | Adopted at MS3 | AssetPipeline | Private `stb_image` PNG and JPEG decoding inside HertaAssetWorker, limited to 8192 pixels per side. Tests use `stb_image_write`. Both headers are vendored at commit `2c980bb`. |
+| [xxHash](https://github.com/Cyan4973/xxHash) | Adopted at MS3 | Core | Private XXH3-128 behind `HashBytes` for build keys, DerivedDataCache checksums, and content identity. The single `xxhash.h` header is vendored at `v0.8.3`; the XXH3 output is frozen. |
 | [Blender](https://www.blender.org/) | Optional system tool | AssetPipeline | Used only for `.blend` import and live reimport. Never downloaded by Setup or required to build or run Herta. |
 | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | Adopt at physics milestone | Physics | Collision and rigid-body simulation behind Herta types. |
 | [ozz-animation](https://github.com/guillaumeblanc/ozz-animation) | Adopt at animation milestone | Animation, AssetPipeline | Offline optimization plus runtime sampling and blending primitives. |
@@ -1046,7 +1048,7 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [AMD FidelityFX FSR](https://gpuopen.com/fidelityfx-super-resolution-3/) | Adopt after native TAA and upscaler contracts | Renderer adapter | First optional Vulkan temporal-upscaling integration. Vendor types and lifecycle remain private. Frame generation is later. |
 | [NVIDIA Streamline/DLSS](https://github.com/NVIDIA-RTX/Streamline) | Optional later plugin | Renderer plugin | Vulkan DLSS integration without making NVIDIA binaries or device capabilities a renderer foundation. Validate Windows and Linux deployment independently. |
 | [Intel XeSS](https://www.intel.com/content/www/us/en/developer/articles/technical/xess-sr-developer-guide.html) | Optional later plugin | Renderer plugin | Vulkan temporal upscaling through the same Herta input contract after native TAA and FSR are stable. |
-| [meshoptimizer](https://github.com/zeux/meshoptimizer) | Add when mesh cooking exists | AssetPipeline | Mesh optimization, simplification, and later meshlets. |
+| [meshoptimizer](https://github.com/zeux/meshoptimizer) | Adopted at MS3 | AssetPipeline | Vertex deduplication, vertex cache, and vertex fetch optimization during mesh cooking; simplification and meshlets later. Pinned to `v1.3`. |
 | [KTX-Software/Basis Universal](https://github.com/KhronosGroup/KTX-Software) | Add when texture memory or load time justifies block compression | AssetPipeline | KTX2 texture cooking and runtime transcode targets. Audit per-file licenses. |
 | [Tracy](https://github.com/wolfpld/tracy) | Add when frame systems exist | Core, Renderer | CPU, allocation, lock, and Vulkan profiling. Compile out in Shipping. |
 | [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | Defer | NvrhiVulkan | Requires deliberate NVRHI allocation integration. Do not create two allocation authorities. |
@@ -1112,7 +1114,7 @@ The parser accepts UTF-8, blank lines, and full-line `#` comments. Every data li
 
 Setup removes each downloaded archive or installer after the installed tree passes validation. `External/Premake` and `SDK` contain usable installations only, not a second download cache.
 
-`Dependencies.lock` covers downloaded binary tools and SDKs only. Git submodule revisions remain locked by Git's recorded gitlinks instead of being duplicated in this file.
+`Dependencies.lock` covers downloaded binary tools and SDKs only. Git submodule revisions remain locked by Git's recorded gitlinks, and vendored revisions by their `UPSTREAM.md`, instead of being duplicated in this file.
 
 The Vulkan SDK can be local to the Herta checkout:
 
@@ -1123,7 +1125,7 @@ The Vulkan SDK can be local to the Herta checkout:
 
 The development SDK is local, but the Vulkan-capable GPU driver and production loader remain operating-system or driver responsibilities. Linux X11, Wayland, and compiler development packages may also require system package-manager installation.
 
-Premake binaries live under `External/Premake/<platform>/<version>`. Source dependencies also live under `External`, but remain pinned Git submodules rather than downloaded binary trees. Actual SDKs such as Vulkan remain under `SDK`. Blender is explicitly excluded because it is a user-managed system installation. Downloaded tool and SDK directories are disposable and never committed.
+Premake binaries live under `External/Premake/<platform>/<version>`. Source dependencies also live under `External`, as pinned Git submodules or vendored single-file releases rather than downloaded binary trees. Actual SDKs such as Vulkan remain under `SDK`. Blender is explicitly excluded because it is a user-managed system installation. Downloaded tool and SDK directories are disposable and never committed.
 
 ### 8.3 Configurations
 
@@ -1328,7 +1330,7 @@ Require maintainer approval before the first workflow run from a new external co
 
 Enable GitHub's dependency graph, Dependabot alerts, security updates, secret scanning, and push protection where the repository plan permits them. Make Dependency Review required and fail newly introduced vulnerabilities at an agreed severity. GitHub supports both [`github-actions` and `gitsubmodule` Dependabot ecosystems](https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories).
 
-GitHub metadata does not replace Herta's dependency controls. `Dependencies.lock` records downloaded binary tools and SDKs. Source dependencies are pinned by submodule gitlinks, with licenses, Herta patches, owning modules, and update notes recorded beside the dependency policy. CI verifies the binary lock against downloaded SDK contents and verifies that submodules match their committed gitlinks.
+GitHub metadata does not replace Herta's dependency controls. `Dependencies.lock` records downloaded binary tools and SDKs. Source dependencies are pinned by submodule gitlinks or vendored `UPSTREAM.md` revisions, with licenses, Herta patches, owning modules, and update notes recorded beside the dependency policy. CI verifies the binary lock against downloaded SDK contents and verifies that submodules match their committed gitlinks.
 
 ### 9.10 Branch and release policy
 
@@ -1499,7 +1501,15 @@ Exit condition: the preview object can be inspected and transformed interactivel
 
 Exit condition: Herta operates normally without Blender. When Blender is installed, saving a tracked `.blend` updates dependent editor instances without blocking the UI, the same source, Blender version, and settings produce identical cooked hashes, and failed reimport preserves the previous asset.
 
-Implemented so far: stable asset IDs, canonical `.hmeta` sidecars, portable content paths, immutable registry snapshots built from content scans, deterministic build keys, an atomic checksummed DerivedDataCache, and headless `asset.validate`, `asset.list`, and `asset.import` commands. Content lives in `Games/Sandbox/Content` until projects exist. The first texture cooker produces RGBA8 with generated mips; block compression follows measurement. See [AssetPipeline.md](AssetPipeline.md).
+Implemented so far:
+- Stable asset IDs, canonical `.hmeta` sidecars, portable content paths, and immutable registry snapshots built from content scans.
+- Deterministic build keys and an atomic, checksummed DerivedDataCache.
+- RGBA8 texture cooking with linear-light mips, and glTF cooking that flattens the default scene into one static model with sections per material.
+- Cooking runs in the `HertaAssetWorker` process, launched through Platform's process API with timeouts and cancellation.
+- Headless `asset.validate`, `asset.list`, `asset.import`, and `asset.reimport` commands.
+- Asynchronous editor mesh previews that publish GPU uploads between frames.
+
+Content lives in `Games/Sandbox/Content` until projects exist. Block compression follows measurement. See [AssetPipeline.md](AssetPipeline.md).
 
 ### Milestone 4 - World and editor authoring
 
@@ -1653,12 +1663,10 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Stable asset IDs, the asset registry, deterministic build keys, DerivedDataCache, and headless asset commands are implemented. The next Milestone 3 slices should remain limited to:
+Asset identity, the registry, build keys, DerivedDataCache, texture and glTF cooking in `HertaAssetWorker`, headless import and reimport, and asynchronous editor mesh previews are implemented. The next Milestone 3 slices should remain limited to:
 
-1. Introduce fastgltf, stb_image, and meshoptimizer for canonical mesh and RGBA8 texture cooking behind the `HertaAssetWorker` process boundary.
-2. Render the editor preview from cooked assets instead of the built-in cube, publishing new generations at a frame boundary.
-3. Expose reimport through shared headless commands and asynchronous editor jobs.
-4. Add optional system Blender discovery and isolated import without making Blender required.
-5. Add platform file watching, live reimport, drag-and-drop batch import, and registry search.
+1. Add optional system Blender discovery and isolated `.blend` import through headless `blender.exe` and the existing worker boundary, without making Blender required.
+2. Add platform file watching, debounced live reimport, and atomic replacement of loaded preview meshes.
+3. Add drag-and-drop batch import and incremental registry search.
 
 Keep ECS, localization, networking, graph tooling, physics, animation, audio, and scripting in their later milestones.

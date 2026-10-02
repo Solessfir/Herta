@@ -246,12 +246,13 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 }
 }
 
-void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, const std::size_t SelectedCount)
+FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh)
 {
+	FDetailsMeshResult MeshResult;
 	if (!ToolUI.BeginPanel("Details", &bOpen))
 	{
 		ToolUI.EndPanel();
-		return;
+		return MeshResult;
 	}
 	if (!bSelected)
 	{
@@ -259,7 +260,7 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 		State.bRenameRequested = false;
 		ImGui::TextDisabled("Select an object in the viewport.");
 		ToolUI.EndPanel();
-		return;
+		return MeshResult;
 	}
 	const float UiScale = ImGui::GetFontSize() / 15.0f;
 	const ImVec2 HeadingPosition = ImGui::GetCursorScreenPos();
@@ -332,7 +333,7 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 	{
 		ImGui::TextDisabled("No matching properties.");
 		ToolUI.EndPanel();
-		return;
+		return MeshResult;
 	}
 	const auto DrawSectionHeader = [](const char* const Label)
 	{
@@ -445,15 +446,61 @@ void DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSe
 	}
 	if (bMesh && DrawSectionHeader("Static Mesh"))
 	{
+		const bool bBuiltIn = Mesh == nullptr || Mesh->Selected <= 0 || static_cast<std::size_t>(Mesh->Selected) >= Mesh->Options.size();
 		const ImVec2 ThumbnailPosition = ImGui::GetCursorScreenPos();
 		ImGui::Dummy({40.0f * UiScale, 40.0f * UiScale});
-		DrawCheckerThumbnail(ThumbnailPosition, 40.0f * UiScale);
+		if (bBuiltIn)
+		{
+			DrawCheckerThumbnail(ThumbnailPosition, 40.0f * UiScale);
+		}
+		else
+		{
+			ImGui::GetWindowDrawList()->AddRect(ThumbnailPosition, {ThumbnailPosition.x + 40.0f * UiScale, ThumbnailPosition.y + 40.0f * UiScale}, ImGui::GetColorU32(ImGuiCol_Border), 3.0f * UiScale);
+		}
 		ImGui::SameLine();
 		ImGui::BeginGroup();
 		ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
-		ImGui::TextDisabled("Built-in / Checker material");
+		if (bBuiltIn)
+		{
+			ImGui::TextDisabled("Built-in / Checker material");
+		}
+		else
+		{
+			const std::string& Option = Mesh->Options[static_cast<std::size_t>(Mesh->Selected)];
+			ImGui::TextDisabled("%s", Option.c_str());
+		}
 		ImGui::EndGroup();
+
+		if (Mesh != nullptr && !Mesh->Options.empty())
+		{
+			ImGui::BeginDisabled(bDragging);
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			const std::string& Preview = Mesh->Options[bBuiltIn ? 0 : static_cast<std::size_t>(Mesh->Selected)];
+			if (ImGui::BeginCombo("##PreviewMesh", Preview.c_str()))
+			{
+				MeshResult.bOptionsOpened = ImGui::IsWindowAppearing();
+				for (std::size_t Index = 0; Index < Mesh->Options.size(); ++Index)
+				{
+					const bool bCurrent = static_cast<int>(Index) == (bBuiltIn ? 0 : Mesh->Selected);
+					if (ImGui::Selectable(Mesh->Options[Index].c_str(), bCurrent) && !bCurrent)
+					{
+						MeshResult.Chosen = static_cast<int>(Index);
+					}
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::EndDisabled();
+			if (!Mesh->Status.empty())
+			{
+				ImGui::PushStyleColor(ImGuiCol_Text, Mesh->bError ? ImVec4{0.92f, 0.38f, 0.33f, 1.0f} : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+				ImGui::PushTextWrapPos(0.0f);
+				ImGui::TextUnformatted(Mesh->Status.data(), Mesh->Status.data() + Mesh->Status.size());
+				ImGui::PopTextWrapPos();
+				ImGui::PopStyleColor();
+			}
+		}
 	}
 	ToolUI.EndPanel();
+	return MeshResult;
 }
 }

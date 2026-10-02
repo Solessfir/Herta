@@ -26,6 +26,9 @@
 [submodule "External/Jolt"]
 	path = External/Jolt
 	url = https://github.com/jrouwe/JoltPhysics.git
-[submodule "External/xxHash"]
-	path = External/xxHash
-	url = https://github.com/Cyan4973/xxHash.git
+[submodule "External/fastgltf"]
+	path = External/fastgltf
+	url = https://github.com/spnda/fastgltf.git
+[submodule "External/meshoptimizer"]
+	path = External/meshoptimizer
+	url = https://github.com/zeux/meshoptimizer.git

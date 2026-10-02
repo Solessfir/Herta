@@ -2,8 +2,11 @@
 #include "Herta/AssetPipeline/BuildKey.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/AssetPipeline/DerivedDataCache.h"
+#include "Herta/Platform/Process.h"
+#include "TestFiles.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <doctest/doctest.h>
 #include <fstream>
@@ -342,6 +345,10 @@ TEST_CASE("Importing registers content sources and copies external ones")
 	CHECK(InPlace->Metadata.Importer == "Gltf");
 
 	CHECK_FALSE(ImportSource(Root, Scratch.Path / "External/Notes.txt"));
+	WriteText(Scratch.Path / "External/Ship.gltf", "{}");
+	const auto ExternalGltf = ImportSource(Root, Scratch.Path / "External/Ship.gltf");
+	REQUIRE_FALSE(ExternalGltf);
+	CHECK(ExternalGltf.error().Message.find("imported in place") != std::string::npos);
 	CHECK_FALSE(ImportSource(Root, Scratch.Path / "External/Missing.png"));
 	CHECK_FALSE(ImportSource(Root, Scratch.Path / "External/Crate.PNG", "../Escape"));
 
@@ -358,15 +365,27 @@ TEST_CASE("Asset commands run headlessly against a content root")
 	const FScratchDirectory Scratch;
 	const std::filesystem::path Root = Scratch.Path / "Content";
 	std::filesystem::create_directories(Root);
-	WriteText(Scratch.Path / "Wood Planks.png", "wood");
+	const std::array<std::uint8_t, 4> Wood{150, 111, 51, 255};
+	Tests::WritePng(Scratch.Path / "Wood Planks.png", 1, 1, Wood);
 
 	FEditorCommandRegistry Registry;
-	REQUIRE(RegisterAssetCommands(Registry, {Root}));
+	REQUIRE(RegisterAssetCommands(Registry, {Root, Scratch.Path / "DerivedDataCache", Tests::GetSiblingExecutable("HertaAssetWorker"), "TestPlatform"}));
 
 	const auto Imported = Registry.Execute("asset.import " + ToCommandPath(Scratch.Path / "Wood Planks.png") + " --destination Textures");
 	REQUIRE(Imported);
 	CHECK(Imported->ExitCode == 0);
 	CHECK(Imported->Message.starts_with("Imported Textures/Wood Planks.png as "));
+	CHECK(Imported->Message.find("\nCooked Textures/Wood Planks.png -> ") != std::string::npos);
+	CHECK(Imported->Message.ends_with("(cooked)"));
+
+	const auto Cached = Registry.Execute("asset.reimport \"Textures/Wood Planks.png\"");
+	REQUIRE(Cached);
+	CHECK(Cached->Message.ends_with("(cache hit)"));
+	const auto Forced = Registry.Execute("asset.reimport \"Textures/Wood Planks.png\" --force");
+	REQUIRE(Forced);
+	CHECK(Forced->Message.ends_with("(cooked)"));
+	CHECK_FALSE(Registry.Execute("asset.reimport 00000000-0000-4000-8000-00000000dead"));
+	CHECK_FALSE(Registry.Execute("asset.reimport Textures/Missing.png"));
 
 	const auto Listed = Registry.Execute("asset.list");
 	REQUIRE(Listed);

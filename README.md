@@ -8,7 +8,7 @@ The architecture takes inspiration from Unreal Engine's runtime and tooling boun
 
 ## Status
 
-Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and an interactive editor Viewport with reversed-Z, camera navigation, transform gizmos, and depth-tested debug drawing. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is in progress: stable asset IDs, metadata sidecars, the content registry, build keys, DerivedDataCache, and headless asset commands are implemented. Importers, cooking, and the game runtime have not started.
+Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and an interactive editor Viewport with reversed-Z, camera navigation, transform gizmos, and depth-tested debug drawing. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is in progress: stable asset IDs, metadata sidecars, the content registry, build keys, DerivedDataCache, texture and glTF cooking in an isolated worker process, headless asset commands, and editor mesh previews are implemented. Blender import, live reimport, and the game runtime have not started.
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
 
@@ -38,15 +38,18 @@ Set `HERTA_PROFILE_BLUR=1` before launching the editor to log GPU timings for th
 
 ## Assets
 
-Content lives in `Games/Sandbox/Content` until project loading exists. Each source file is registered with a `<source>.hmeta` sidecar that holds its stable ID, importer, and import settings; commit both. Manage content headlessly:
+Content lives in `Games/Sandbox/Content` until project loading exists. Each source file is registered with a `<source>.hmeta` sidecar that holds its stable ID, importer, and import settings; commit both. PNG and JPEG textures and glTF 2.0 `.gltf` and `.glb` models cook in the isolated `HertaAssetWorker` process into the ignored `DerivedDataCache` folder. Manage content headlessly:
 
 ```bat
-HertaEditorCmd asset.import path\to\Crate.png --destination Textures
+HertaEditorCmd asset.import path\to\Crate.glb --destination Models
+HertaEditorCmd asset.reimport Models/Crate.glb --force
 HertaEditorCmd asset.list
 HertaEditorCmd asset.validate
 ```
 
-Every asset command accepts `--content-root <path>`. See [AssetPipeline.md](Docs/AssetPipeline.md) for the metadata format, path rules, build keys, and DerivedDataCache layout.
+Every asset command accepts `--content-root <path>`. Import a `.gltf` with separate files by copying its folder into content first, then running `asset.import` on the copied file.
+
+In the editor, select an object and choose a model or texture from **Static Mesh** in Details. It cooks in the background and replaces the mesh between frames; textures preview on the cube. Picking, outlines, focus, bounds, and Simulate use the loaded mesh's bounds. Choices are not saved yet. See [AssetPipeline.md](Docs/AssetPipeline.md) for the metadata format, cooking rules, cooked formats, build keys, and DerivedDataCache layout.
 
 ## Technical direction
 

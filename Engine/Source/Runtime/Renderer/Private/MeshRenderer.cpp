@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <format>
+#include <limits>
 #include <numbers>
 #include <numeric>
 #include <ranges>
@@ -15,7 +18,7 @@ namespace Herta
 {
 namespace
 {
-constexpr std::array<FMeshVertex, 24> CubeVertices{{{{-1, -1, -1}, {0, 1}}, {{-1, 1, -1}, {0, 0}}, {{1, 1, -1}, {1, 0}}, {{1, -1, -1}, {1, 1}}, {{1, -1, 1}, {0, 1}}, {{1, 1, 1}, {0, 0}}, {{-1, 1, 1}, {1, 0}}, {{-1, -1, 1}, {1, 1}}, {{-1, -1, 1}, {0, 1}}, {{-1, 1, 1}, {0, 0}}, {{-1, 1, -1}, {1, 0}}, {{-1, -1, -1}, {1, 1}}, {{1, -1, -1}, {0, 1}}, {{1, 1, -1}, {0, 0}}, {{1, 1, 1}, {1, 0}}, {{1, -1, 1}, {1, 1}}, {{-1, 1, -1}, {0, 1}}, {{-1, 1, 1}, {0, 0}}, {{1, 1, 1}, {1, 0}}, {{1, 1, -1}, {1, 1}}, {{-1, -1, 1}, {0, 1}}, {{-1, -1, -1}, {0, 0}}, {{1, -1, -1}, {1, 0}}, {{1, -1, 1}, {1, 1}}}};
+constexpr std::array<FCookedVertex, 24> CubeVertices{{{{-1, -1, -1}, {0, 1}}, {{-1, 1, -1}, {0, 0}}, {{1, 1, -1}, {1, 0}}, {{1, -1, -1}, {1, 1}}, {{1, -1, 1}, {0, 1}}, {{1, 1, 1}, {0, 0}}, {{-1, 1, 1}, {1, 0}}, {{-1, -1, 1}, {1, 1}}, {{-1, -1, 1}, {0, 1}}, {{-1, 1, 1}, {0, 0}}, {{-1, 1, -1}, {1, 0}}, {{-1, -1, -1}, {1, 1}}, {{1, -1, -1}, {0, 1}}, {{1, 1, -1}, {0, 0}}, {{1, 1, 1}, {1, 0}}, {{1, -1, 1}, {1, 1}}, {{-1, 1, -1}, {0, 1}}, {{-1, 1, 1}, {0, 0}}, {{1, 1, 1}, {1, 0}}, {{1, 1, -1}, {1, 1}}, {{-1, -1, 1}, {0, 1}}, {{-1, -1, -1}, {0, 0}}, {{1, -1, -1}, {1, 0}}, {{1, -1, 1}, {1, 1}}}};
 
 constexpr auto CubeIndices = []
 {
@@ -54,6 +57,37 @@ constexpr auto CheckerPixels = []
 	}
 	return Result;
 }();
+
+static_assert(sizeof(FCookedVertex) == sizeof(FMeshVertex) && offsetof(FCookedVertex, Position) == offsetof(FMeshVertex, Position) && offsetof(FCookedVertex, UV) == offsetof(FMeshVertex, UV), "Cooked vertices upload directly as RHI mesh vertices");
+
+// ponytail: the debug checker averages in sRGB space; it is a fallback surface, not a cooked asset.
+[[nodiscard]] FCookedModel CreateBuiltInCube()
+{
+	FCookedTexture Checker{ETextureColorSpace::Srgb, {{CheckerTextureSize, CheckerTextureSize, std::vector<std::byte>(CheckerPixels.size())}}};
+	std::ranges::transform(CheckerPixels, Checker.Mips[0].Pixels.begin(), [](const std::uint8_t Value)
+	                       {
+		                       return static_cast<std::byte>(Value);
+	                       });
+	while (Checker.Mips.back().Width > 1)
+	{
+		const FCookedTextureMip& Source = Checker.Mips.back();
+		FCookedTextureMip Mip{Source.Width / 2, Source.Height / 2, std::vector<std::byte>(std::size_t{Source.Width / 2} * (Source.Height / 2) * 4)};
+		for (std::size_t Y = 0; Y < Mip.Height; ++Y)
+		{
+			for (std::size_t X = 0; X < std::size_t{Mip.Width} * 4; ++X)
+			{
+				const auto At = [&Source](const std::size_t SourceY, const std::size_t SourceX)
+				{
+					return static_cast<std::uint32_t>(Source.Pixels[SourceY * Source.Width * 4 + SourceX]);
+				};
+				const std::size_t SourceX = (X / 4) * 8 + X % 4;
+				Mip.Pixels[Y * Mip.Width * 4 + X] = static_cast<std::byte>((At(Y * 2, SourceX) + At(Y * 2, SourceX + 4) + At(Y * 2 + 1, SourceX) + At(Y * 2 + 1, SourceX + 4) + 2) / 4);
+			}
+		}
+		Checker.Mips.push_back(std::move(Mip));
+	}
+	return CreateTexturedCubeModel(std::move(Checker));
+}
 
 [[nodiscard]] std::expected<void, FRenderGraphError> GraphResult(const std::expected<void, FPresentationError>& Result)
 {
@@ -233,12 +267,119 @@ void AppendQuad(std::vector<FColoredClipVertex>& Vertices, const FProjectedDebug
 }
 }
 
+FCookedModel CreateTexturedCubeModel(FCookedTexture Texture)
+{
+	return {{CubeVertices.begin(), CubeVertices.end()}, {CubeIndices.begin(), CubeIndices.end()}, {{0, static_cast<std::uint32_t>(CubeIndices.size()), 0}}, {{"Cube", 0}}, {std::move(Texture)}};
+}
+
+std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> FRenderMesh::Create(IGraphicsDevice& Device, const FCookedModel& Model, const std::string_view Name)
+{
+	if (const std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)
+	{
+		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, Valid.error().Message});
+	}
+
+	auto Mesh = std::make_shared<FRenderMesh>();
+	auto Vertices = Device.CreateBuffer({std::format("{} vertices", Name), Model.Vertices.size() * sizeof(FMeshVertex), EBufferUsage::Vertex});
+	auto Indices = Device.CreateBuffer({std::format("{} indices", Name), Model.Indices.size() * sizeof(std::uint32_t), EBufferUsage::Index});
+	if (!Vertices || !Indices)
+	{
+		return std::unexpected(!Vertices ? Vertices.error() : Indices.error());
+	}
+	Mesh->Vertices = std::move(*Vertices);
+	Mesh->Indices = std::move(*Indices);
+	for (std::size_t Index = 0; Index < Model.Textures.size(); ++Index)
+	{
+		const FCookedTexture& Source = Model.Textures[Index];
+		const ETextureFormat Format = Source.ColorSpace == ETextureColorSpace::Srgb ? ETextureFormat::Rgba8Srgb : ETextureFormat::Rgba8;
+		auto Texture = Device.CreateTexture({std::format("{} texture {}", Name, Index), {Source.Mips[0].Width, Source.Mips[0].Height}, Format, false, static_cast<std::uint32_t>(Source.Mips.size())});
+		if (!Texture)
+		{
+			return std::unexpected(Texture.error());
+		}
+		Mesh->Textures.push_back(std::move(*Texture));
+	}
+	for (const FCookedMeshSection& Section : Model.Sections)
+	{
+		Mesh->Sections.push_back({Section.FirstIndex, Section.IndexCount, Model.Materials[Section.Material].BaseColorTexture});
+	}
+
+	constexpr float Infinity = std::numeric_limits<float>::infinity();
+	Mesh->BoundsMinimum = {Infinity, Infinity, Infinity};
+	Mesh->BoundsMaximum = {-Infinity, -Infinity, -Infinity};
+	for (const FCookedVertex& Vertex : Model.Vertices)
+	{
+		for (std::size_t Axis = 0; Axis < 3; ++Axis)
+		{
+			Mesh->BoundsMinimum[Axis] = std::min(Mesh->BoundsMinimum[Axis], Vertex.Position[Axis]);
+			Mesh->BoundsMaximum[Axis] = std::max(Mesh->BoundsMaximum[Axis], Vertex.Position[Axis]);
+		}
+	}
+
+	// Large textures exceed one recording's upload budget, so submit whenever the next write would not fit.
+	std::size_t RecordedBytes = 0;
+	const auto Upload = [&](const std::size_t Size, const auto& Write) -> std::expected<void, FPresentationError>
+	{
+		if (RecordedBytes > 0 && Size > MaximumUploadBytesPerRecording - RecordedBytes)
+		{
+			if (auto Submitted = Device.SubmitCommands(); !Submitted)
+			{
+				return std::unexpected(Submitted.error());
+			}
+			if (auto Begun = Device.BeginCommands(); !Begun)
+			{
+				return Begun;
+			}
+			RecordedBytes = 0;
+		}
+		RecordedBytes += Size;
+		return Write();
+	};
+
+	if (auto Begun = Device.BeginCommands(); !Begun)
+	{
+		return std::unexpected(Begun.error());
+	}
+	const auto VertexBytes = std::as_bytes(std::span(Model.Vertices));
+	const auto IndexBytes = std::as_bytes(std::span(Model.Indices));
+	std::expected<void, FPresentationError> Result = Upload(VertexBytes.size(), [&]
+	                                                        {
+		                                                        return Device.WriteBuffer(Mesh->Vertices, VertexBytes);
+	                                                        });
+	if (Result)
+	{
+		Result = Upload(IndexBytes.size(), [&]
+		                {
+			                return Device.WriteBuffer(Mesh->Indices, IndexBytes);
+		                });
+	}
+	for (std::size_t Texture = 0; Texture < Model.Textures.size() && Result; ++Texture)
+	{
+		const std::vector<FCookedTextureMip>& Mips = Model.Textures[Texture].Mips;
+		for (std::uint32_t Level = 0; Level < Mips.size() && Result; ++Level)
+		{
+			Result = Upload(Mips[Level].Pixels.size(), [&]
+			                {
+				                return Device.WriteTexture(Mesh->Textures[Texture], Level, Mips[Level].Pixels);
+			                });
+		}
+	}
+	if (!Result)
+	{
+		Device.CancelCommands();
+		return std::unexpected(Result.error());
+	}
+	if (auto Submitted = Device.SubmitCommands(); !Submitted)
+	{
+		return std::unexpected(Submitted.error());
+	}
+	return Mesh;
+}
+
 struct FMeshRenderer::FImplementation
 {
 	IGraphicsDevice* Device = nullptr;
-	FBufferHandle Vertices;
-	FBufferHandle Indices;
-	FTextureHandle Checker;
+	std::shared_ptr<const FRenderMesh> Cube;
 	FTextureHandle Color;
 	FTextureHandle Depth;
 	FGraphicsPipelineHandle Pipeline;
@@ -270,19 +411,13 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	}
 	auto State = std::make_unique<FImplementation>();
 	State->Device = &Device;
-	auto Vertices = Device.CreateBuffer({"Mesh vertices", sizeof(CubeVertices), EBufferUsage::Vertex});
-	auto Indices = Device.CreateBuffer({"Mesh indices", sizeof(CubeIndices), EBufferUsage::Index});
-	auto Checker = Device.CreateTexture({"Checkerboard", {CheckerTextureSize, CheckerTextureSize}, ETextureFormat::Rgba8Srgb, false});
+	auto Cube = FRenderMesh::Create(Device, CreateBuiltInCube(), "Built-in cube");
 	auto Pipeline = Device.CreateGraphicsPipeline({"Textured mesh reversed-Z", std::move(VertexShader), std::move(FragmentShader), ETextureFormat::Rgba8Srgb});
-	if (!Vertices || !Indices || !Checker || !Pipeline)
+	if (!Cube || !Pipeline)
 	{
-		return std::unexpected(!Vertices ? Vertices.error() : !Indices ? Indices.error()
-		                                                  : !Checker   ? Checker.error()
-		                                                               : Pipeline.error());
+		return std::unexpected(!Cube ? Cube.error() : Pipeline.error());
 	}
-	State->Vertices = std::move(*Vertices);
-	State->Indices = std::move(*Indices);
-	State->Checker = std::move(*Checker);
+	State->Cube = std::move(*Cube);
 	State->Pipeline = std::move(*Pipeline);
 	if (!GridVertexShader.Bytecode.empty())
 	{
@@ -315,16 +450,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	{
 		return std::unexpected(Result.error());
 	}
-	Result = Device.WriteBuffer(State->Vertices, std::as_bytes(std::span{CubeVertices}));
-	if (Result)
-	{
-		Result = Device.WriteBuffer(State->Indices, std::as_bytes(std::span{CubeIndices}));
-	}
-	if (Result)
-	{
-		Result = Device.WriteTexture(State->Checker, std::as_bytes(std::span{CheckerPixels}));
-	}
-	if (Result && State->GridIndices)
+	if (State->GridIndices)
 	{
 		Result = Device.WriteBuffer(State->GridIndices, std::as_bytes(std::span{GridIndices}));
 	}
@@ -371,6 +497,10 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	FImplementation& State = *Implementation;
 	IGraphicsDevice& Device = *State.Device;
 	const FMatrix4 WorldToClip = View.Projection * View.View;
+	if (!View.Meshes.empty() && View.Meshes.size() != View.Models.size())
+	{
+		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Mesh render view requires no meshes or one mesh per model"});
+	}
 	if (!IsFinite(View.View) || !IsFinite(View.Projection) || !IsFinite(WorldToClip) || !std::ranges::all_of(View.Models, [&](const FMatrix4& Model)
 	                                                                                                      {
 		                                                                                                      return IsFinite(Model) && IsFinite(WorldToClip * Model);
@@ -434,19 +564,24 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		                                        FrameDepth.reset();
 	                                        });
 	const auto Geometry = Graph.ImportResource("Uploaded mesh");
-	const auto Texture = Graph.ImportResource("Checkerboard");
+	const auto Texture = Graph.ImportResource("Mesh textures");
 	(void)Graph.AddPass("Clear", {{Color, ERenderGraphAccess::Write}, {Depth, ERenderGraphAccess::Write}}, [&]
 	                    {
 		                    return GraphResult(Device.ClearTargets(State.Color, FrameDepth, {0.035f, 0.035f, 0.035f, 1.0f}));
 	                    });
 	(void)Graph.AddPass("Textured meshes", {{Color, ERenderGraphAccess::ReadWrite}, {Depth, ERenderGraphAccess::ReadWrite}, {Geometry, ERenderGraphAccess::Read}, {Texture, ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 	                    {
-		                    for (const FMatrix4& Model : View.Models)
+		                    for (std::size_t Index = 0; Index < View.Models.size(); ++Index)
 		                    {
-			                    const auto Result = Device.DrawIndexed({State.Pipeline, State.Vertices, State.Indices, State.Checker, State.Color, FrameDepth, (WorldToClip * Model).Data(), static_cast<std::uint32_t>(CubeIndices.size())});
-			                    if (!Result)
+			                    const FRenderMesh& Mesh = !View.Meshes.empty() && View.Meshes[Index] ? *View.Meshes[Index] : *State.Cube;
+			                    const auto Transform = (WorldToClip * View.Models[Index]).Data();
+			                    for (const FRenderMesh::FSection& Section : Mesh.Sections)
 			                    {
-				                    return GraphResult(Result);
+				                    const auto Result = Device.DrawIndexed({State.Pipeline, Mesh.Vertices, Mesh.Indices, Mesh.Textures[Section.Texture], State.Color, FrameDepth, Transform, Section.IndexCount, Section.FirstIndex});
+				                    if (!Result)
+				                    {
+					                    return GraphResult(Result);
+				                    }
 			                    }
 		                    }
 		                    return {};

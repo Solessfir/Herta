@@ -1,167 +1,17 @@
 #include "Herta/Math/Matrix.h"
 #include "Herta/Renderer/MeshRenderer.h"
+#include "TestGraphicsDevice.h"
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <doctest/doctest.h>
 #include <limits>
 
 namespace
 {
-class FTestBuffer final : public Herta::IRhiBuffer
-{
-public:
-	explicit FTestBuffer(const Herta::FBufferDescriptor& InDescriptor)
-	    : Descriptor(InDescriptor)
-	{
-	}
-
-	const Herta::FBufferDescriptor& GetDescriptor() const noexcept override
-	{
-		return Descriptor;
-	}
-
-private:
-	Herta::FBufferDescriptor Descriptor;
-};
-
-class FTestTexture final : public Herta::IRhiTexture
-{
-public:
-	explicit FTestTexture(const Herta::FTextureDescriptor& InDescriptor)
-	    : Descriptor(InDescriptor)
-	{
-	}
-
-	const Herta::FTextureDescriptor& GetDescriptor() const noexcept override
-	{
-		return Descriptor;
-	}
-
-private:
-	Herta::FTextureDescriptor Descriptor;
-};
-
-class FTestPipeline final : public Herta::IRhiGraphicsPipeline
-{
-public:
-	Herta::FGraphicsPipelineDescriptor Descriptor;
-};
-
-class FTestGraphicsDevice final : public Herta::IGraphicsDevice
-{
-public:
-	std::vector<Herta::FMeshVertex> Vertices;
-	std::vector<std::vector<Herta::FColoredClipVertex>> DebugUploads;
-	std::vector<std::uint32_t> Indices;
-	std::vector<std::vector<std::uint32_t>> IndexUploads;
-	std::vector<std::string> Events;
-	std::vector<Herta::FIndexedDraw> Draws;
-	Herta::FIndexedDraw LastDraw;
-	std::uint64_t Submissions = 0;
-	bool bFailDepth = false;
-	bool bFailDraw = false;
-
-	std::expected<Herta::FBufferHandle, Herta::FPresentationError> CreateBuffer(const Herta::FBufferDescriptor& Descriptor) override
-	{
-		return std::make_shared<FTestBuffer>(Descriptor);
-	}
-
-	std::expected<Herta::FTextureHandle, Herta::FPresentationError> CreateTexture(const Herta::FTextureDescriptor& Descriptor) override
-	{
-		if (bFailDepth && Descriptor.Format == Herta::ETextureFormat::Depth32)
-		{
-			return std::unexpected(Herta::FPresentationError{Herta::EPresentationErrorCode::InvalidDescriptor, "Depth allocation failed"});
-		}
-
-		return std::make_shared<FTestTexture>(Descriptor);
-	}
-
-	std::expected<Herta::FGraphicsPipelineHandle, Herta::FPresentationError> CreateGraphicsPipeline(const Herta::FGraphicsPipelineDescriptor& Descriptor) override
-	{
-		auto Pipeline = std::make_shared<FTestPipeline>();
-		Pipeline->Descriptor = Descriptor;
-		return Pipeline;
-	}
-
-	std::expected<void, Herta::FPresentationError> BeginCommands() override
-	{
-		Events.emplace_back("Begin");
-		return {};
-	}
-
-	std::expected<void, Herta::FPresentationError> WriteBuffer(const Herta::FBufferHandle& Buffer, const std::span<const std::byte> Data) override
-	{
-		if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex && Buffer->GetDescriptor().VertexFormat == Herta::EGraphicsVertexFormat::ColoredClipPosition)
-		{
-			auto& Upload = DebugUploads.emplace_back(Data.size() / sizeof(Herta::FColoredClipVertex));
-			std::memcpy(Upload.data(), Data.data(), Data.size());
-		}
-		else if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex)
-		{
-			Vertices.resize(Data.size() / sizeof(Herta::FMeshVertex));
-			std::memcpy(Vertices.data(), Data.data(), Data.size());
-		}
-		else
-		{
-			Indices.resize(Data.size() / sizeof(std::uint32_t));
-			std::memcpy(Indices.data(), Data.data(), Data.size());
-			IndexUploads.push_back(Indices);
-		}
-
-		return {};
-	}
-
-	std::expected<void, Herta::FPresentationError> WriteTexture(const Herta::FTextureHandle&, std::span<const std::byte>) override
-	{
-		return {};
-	}
-
-	std::expected<void, Herta::FPresentationError> ClearTargets(const Herta::FTextureHandle&, const Herta::FTextureHandle&, const std::array<float, 4>&) override
-	{
-		Events.emplace_back("Clear");
-		return {};
-	}
-
-	std::expected<void, Herta::FPresentationError> DrawIndexed(const Herta::FIndexedDraw& Draw) override
-	{
-		Events.emplace_back("Draw");
-		LastDraw = Draw;
-		Draws.push_back(Draw);
-		if (bFailDraw)
-		{
-			return std::unexpected(Herta::FPresentationError{Herta::EPresentationErrorCode::CommandSubmissionFailed, "Draw failed"});
-		}
-
-		return {};
-	}
-
-	std::expected<std::uint64_t, Herta::FPresentationError> SubmitCommands() override
-	{
-		Events.emplace_back("Submit");
-		return ++Submissions;
-	}
-
-	void CancelCommands() noexcept override
-	{
-		Events.emplace_back("Cancel");
-	}
-
-	std::expected<void, Herta::FPresentationError> WaitForIdle() override
-	{
-		return {};
-	}
-
-	std::expected<std::vector<std::byte>, Herta::FPresentationError> ReadbackTexture(const Herta::FTextureHandle&) override
-	{
-		return std::vector<std::byte>{};
-	}
-
-	Herta::FGraphicsStatistics GetStatistics() const noexcept override
-	{
-		return {Submissions, Submissions, 0};
-	}
-};
+using Herta::Tests::FTestGraphicsDevice;
+using Herta::Tests::FTestPipeline;
 
 Herta::FVector3 Position(const Herta::FMeshVertex& Vertex)
 {
@@ -467,4 +317,56 @@ TEST_CASE("Mesh renderer rejects an enabled grid without both shaders and preser
 
 	const auto PartialGridRenderer = CreateGridRenderer(Device, true);
 	CHECK_FALSE(PartialGridRenderer);
+}
+
+TEST_CASE("Render meshes draw each section with its texture and upload within the recording budget")
+{
+	FTestGraphicsDevice Device;
+	const auto Renderer = CreateDebugRenderer(Device);
+	REQUIRE(Renderer);
+
+	Herta::FCookedTexture Small{Herta::ETextureColorSpace::Srgb, {{2, 2, std::vector<std::byte>(16)}, {1, 1, std::vector<std::byte>(4)}}};
+	Herta::FCookedTexture Large{Herta::ETextureColorSpace::Linear, {}};
+	for (std::uint32_t Size = Herta::MaximumCookedTextureDimension; Size > 0; Size /= 2)
+	{
+		Large.Mips.push_back({Size, Size, std::vector<std::byte>(std::size_t{Size} * Size * 4)});
+	}
+	Herta::FCookedModel Model;
+	Model.Vertices = {{{-1, 0, 2}, {0, 0}}, {{3, 0, 2}, {1, 0}}, {{0, 5, -4}, {0, 1}}};
+	Model.Indices = {0, 1, 2, 0, 2, 1};
+	Model.Sections = {{0, 3, 0}, {3, 3, 1}};
+	Model.Materials = {{"Near", 0}, {"Far", 1}};
+	Model.Textures = {Small, Large};
+
+	Device.Events.clear();
+	Device.TextureWrites.clear();
+	Device.MaximumRecordingBytes = 0;
+	const auto Mesh = Herta::FRenderMesh::Create(Device, Model, "Test model");
+	REQUIRE(Mesh);
+	CHECK(Device.TextureWrites.size() == Small.Mips.size() + Large.Mips.size());
+	CHECK(Device.MaximumRecordingBytes <= Herta::MaximumUploadBytesPerRecording);
+	CHECK(std::ranges::count(Device.Events, std::string("Submit")) == 3);
+	CHECK(Device.Events.back() == "Submit");
+	CHECK((*Mesh)->GetBoundsMinimum() == Herta::FVector3{-1, 0, -4});
+	CHECK((*Mesh)->GetBoundsMaximum() == Herta::FVector3{3, 5, 2});
+
+	const std::array<Herta::FMatrix4, 2> Models{Herta::FMatrix4{}, Herta::FMatrix4::Translation({0, 1, 0})};
+	const std::array<const Herta::FRenderMesh*, 2> Meshes{Mesh->get(), nullptr};
+	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 5}), Herta::FMatrix4{}, Models};
+	View.Meshes = Meshes;
+	Device.Draws.clear();
+	REQUIRE((*Renderer)->Render({64, 64}, View));
+	REQUIRE(Device.Draws.size() == 3);
+	CHECK(Device.Draws[0].FirstIndex == 0);
+	CHECK(Device.Draws[1].FirstIndex == 3);
+	CHECK(Device.Draws[1].IndexCount == 3);
+	CHECK(Device.Draws[0].Texture != Device.Draws[1].Texture);
+	CHECK(Device.Draws[1].Texture->GetDescriptor().MipLevels == Large.Mips.size());
+	CHECK(Device.Draws[1].Texture->GetDescriptor().Format == Herta::ETextureFormat::Rgba8);
+	CHECK(Device.Draws[2].IndexCount == 36);
+
+	View.Meshes = std::span(Meshes).first(1);
+	CHECK_FALSE((*Renderer)->Render({64, 64}, View));
+	Model.Indices[5] = 7;
+	CHECK_FALSE(Herta::FRenderMesh::Create(Device, Model, "Broken model"));
 }

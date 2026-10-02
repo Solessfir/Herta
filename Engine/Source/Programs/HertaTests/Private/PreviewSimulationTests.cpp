@@ -76,3 +76,22 @@ TEST_CASE("Preview simulation collision follows the edited floor transform")
 	REQUIRE(Simulation.Start(Cube, Floor));
 }
 }
+
+TEST_CASE("Preview simulation collides with offset mesh bounds and restores the object origin")
+{
+	Herta::FPreviewSimulation Simulation;
+	const Herta::FTransform Cube{{0.0f, 4.0f, 0.0f}, Herta::FQuaternion::Identity(), {2.0f, 2.0f, 2.0f}};
+	const Herta::FTransform Floor{{0.0f, -0.25f, 0.0f}, Herta::FQuaternion::Identity(), {10.0f, 0.25f, 10.0f}};
+	// A mesh resting on its origin: its bounds sit entirely above Y=0 in model space.
+	const Herta::FPreviewBodyShape Shape{{0.0f, 0.5f, 0.0f}, {0.5f, 0.5f, 0.5f}};
+	REQUIRE(Simulation.Start(Cube, Floor, Shape));
+	CHECK(Simulation.GetTransform().Translation.Y == doctest::Approx(4.0f));
+	for (int Step = 0; Step < 600; ++Step)
+	{
+		REQUIRE(Simulation.Update(1.0f / 60.0f));
+	}
+	// The scaled 2 m tall body rests on the floor top at Y=0, so the object origin settles at Y=0 too.
+	CHECK(Simulation.GetTransform().Translation.Y == doctest::Approx(0.0f).epsilon(0.02));
+	Simulation.Stop();
+	CHECK(Simulation.GetTransform().Translation.Y == doctest::Approx(4.0f));
+}

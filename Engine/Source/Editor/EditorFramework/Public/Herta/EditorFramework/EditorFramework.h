@@ -5,6 +5,7 @@
 #include "Herta/Renderer/MeshRenderer.h"
 
 #include <expected>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -15,6 +16,7 @@ namespace Herta
 {
 class FEditorCommandRegistry;
 class FLogService;
+class FTaskSystem;
 class FToolUIContext;
 
 struct FEditorFrameworkError
@@ -22,11 +24,23 @@ struct FEditorFrameworkError
 	std::string Message;
 };
 
+struct FEditorAssetPaths
+{
+	std::filesystem::path ContentRoot;
+	std::filesystem::path DerivedDataRoot;
+	std::filesystem::path WorkerPath;
+	std::string TargetPlatform;
+};
+
 struct FEditorFrameworkDescriptor
 {
 	FLogService* Log = nullptr;
 	FEditorCommandRegistry* Commands = nullptr;
 	FToolUIContext* ToolUI = nullptr;
+	// Asset previews are disabled unless all of these are provided. The task system and device must outlive the framework.
+	FTaskSystem* Tasks = nullptr;
+	IGraphicsDevice* GraphicsDevice = nullptr;
+	FEditorAssetPaths Assets;
 };
 
 class FEditorFramework final
@@ -34,7 +48,7 @@ class FEditorFramework final
 public:
 	struct FImplementation;
 
-	[[nodiscard]] static std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> Create(FEditorFrameworkDescriptor Descriptor);
+	[[nodiscard]] static std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> Create(const FEditorFrameworkDescriptor& Descriptor);
 
 	~FEditorFramework();
 

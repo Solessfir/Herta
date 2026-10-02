@@ -63,7 +63,7 @@ namespace
 		return Failure("Opening a second graphics frame unexpectedly succeeded");
 	}
 
-	if (Device.WriteBuffer(*Buffer, {}) || Device.WriteTexture(*Texture, {}))
+	if (Device.WriteBuffer(*Buffer, {}) || Device.WriteTexture(*Texture, 0, {}))
 	{
 		Device.CancelCommands();
 		return Failure("Incomplete resource upload unexpectedly succeeded");
@@ -100,7 +100,7 @@ namespace
 		Result = Device.WriteBuffer(*Buffer, std::as_bytes(std::span(Indices)));
 		if (Result)
 		{
-			Result = Device.WriteTexture(*Texture, std::as_bytes(std::span(Texels)));
+			Result = Device.WriteTexture(*Texture, 0, std::as_bytes(std::span(Texels)));
 		}
 
 		if (!Result)
@@ -284,6 +284,71 @@ namespace
 	return {};
 }
 
+// Two sections of one mesh draw with their own textures. The right-hand section samples a mip chain uploaded level by level.
+[[nodiscard]] std::expected<void, FPresentationError> CheckRenderMeshSections(IGraphicsDevice& Device, FMeshRenderer& Renderer)
+{
+	const auto SolidTexture = [](const std::uint32_t Size, const std::array<std::uint8_t, 4>& Color)
+	{
+		FCookedTexture Texture{ETextureColorSpace::Srgb, {}};
+		for (std::uint32_t Level = Size; Level > 0; Level /= 2)
+		{
+			FCookedTextureMip Mip{Level, Level, std::vector<std::byte>(std::size_t{Level} * Level * 4)};
+			for (std::size_t Byte = 0; Byte < Mip.Pixels.size(); ++Byte)
+			{
+				Mip.Pixels[Byte] = static_cast<std::byte>(Color[Byte % 4]);
+			}
+			Texture.Mips.push_back(std::move(Mip));
+		}
+		return Texture;
+	};
+
+	// +X is left in Herta, so the negative-X quad appears on the right half of the image.
+	FCookedModel Model;
+	Model.Vertices = {{{-3, -2, 0}, {0, 1}}, {{-3, 2, 0}, {0, 0}}, {{-0.5f, 2, 0}, {1, 0}}, {{-0.5f, -2, 0}, {1, 1}}, {{0.5f, -2, 0}, {0, 1}}, {{0.5f, 2, 0}, {0, 0}}, {{3, 2, 0}, {1, 0}}, {{3, -2, 0}, {1, 1}}};
+	Model.Indices = {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7};
+	Model.Sections = {{0, 6, 0}, {6, 6, 1}};
+	Model.Materials = {{"Red", 0}, {"Green", 1}};
+	Model.Textures = {SolidTexture(1, {255, 0, 0, 255}), SolidTexture(8, {0, 255, 0, 255})};
+	auto Mesh = FRenderMesh::Create(Device, Model, "Section smoke");
+	if (!Mesh)
+	{
+		return std::unexpected(Mesh.error());
+	}
+
+	constexpr FExtent2D Extent{128, 128};
+	const FMatrix4 Identity;
+	const FRenderMesh* const MeshPointer = Mesh->get();
+	FMeshRenderView View{FMatrix4::Translation({0, 0, 5}), FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1.0f, 0.1f), std::span{&Identity, 1}};
+	View.Meshes = std::span{&MeshPointer, 1};
+	if (auto Result = Renderer.Render(Extent, View); !Result)
+	{
+		return Result;
+	}
+	const auto Pixels = Device.ReadbackTexture(Renderer.GetColorTarget());
+	if (!Pixels)
+	{
+		return std::unexpected(Pixels.error());
+	}
+
+	std::size_t RedOnRight = 0;
+	std::size_t GreenOnLeft = 0;
+	for (std::size_t Pixel = 0; Pixel < Pixels->size() / 4; ++Pixel)
+	{
+		const auto Channel = [&](const std::size_t Index)
+		{
+			return static_cast<std::uint8_t>((*Pixels)[Pixel * 4 + Index]);
+		};
+		const bool bRight = Pixel % Extent.Width >= Extent.Width / 2;
+		RedOnRight += bRight && Channel(0) > 200 && Channel(1) < 50 ? 1u : 0u;
+		GreenOnLeft += !bRight && Channel(1) > 200 && Channel(0) < 50 ? 1u : 0u;
+	}
+	if (RedOnRight < 100 || GreenOnLeft < 100)
+	{
+		return Failure("Render mesh sections did not draw with their own index ranges and textures");
+	}
+	return {};
+}
+
 [[nodiscard]] std::expected<void, FPresentationError> CheckDebugDraw(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader)
 {
 	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader, GridVertexShader, GridFragmentShader);
@@ -395,6 +460,10 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	{
 		return Failure("Textured mesh readback has incorrect coverage (projection, winding, or shader failure)");
 	}
+	if (const auto Sections = CheckRenderMeshSections(Device, **Renderer); !Sections)
+	{
+		return Sections;
+	}
 	if (const auto MultipleModels = CheckMultipleModels(Device, **Renderer); !MultipleModels)
 	{
 		return MultipleModels;
@@ -468,7 +537,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 
 	if (Result)
 	{
-		Result = Device.WriteTexture(*Texture, std::as_bytes(std::span(Texels)));
+		Result = Device.WriteTexture(*Texture, 0, std::as_bytes(std::span(Texels)));
 	}
 
 	if (Result)

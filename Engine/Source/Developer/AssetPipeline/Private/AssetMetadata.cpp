@@ -1,5 +1,7 @@
 #include "Herta/AssetPipeline/AssetMetadata.h"
 
+#include "FileUtilities.h"
+
 #include <algorithm>
 #include <charconv>
 #include <format>
@@ -202,5 +204,20 @@ std::filesystem::path GetAssetMetadataPath(const std::filesystem::path& SourcePa
 	std::filesystem::path Path = SourcePath;
 	Path += AssetMetadataExtension;
 	return Path;
+}
+
+std::expected<FAssetMetadata, FAssetError> LoadAssetMetadata(const std::filesystem::path& SourcePath)
+{
+	const std::filesystem::path Path = GetAssetMetadataPath(SourcePath);
+	std::expected<std::optional<std::vector<std::byte>>, FAssetError> Bytes = ReadWholeFile(Path, MaximumMetadataSize);
+	if (!Bytes)
+	{
+		return std::unexpected(std::move(Bytes.error()));
+	}
+	if (!*Bytes)
+	{
+		return std::unexpected(FAssetError{std::format("'{}' has no metadata", PathToUtf8(SourcePath))});
+	}
+	return ParseAssetMetadata(std::string_view(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size()));
 }
 }

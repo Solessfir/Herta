@@ -30,4 +30,6 @@ struct FAssetMetadata
 [[nodiscard]] std::expected<std::string, FAssetError> SerializeAssetMetadata(const FAssetMetadata& Metadata);
 
 [[nodiscard]] std::filesystem::path GetAssetMetadataPath(const std::filesystem::path& SourcePath);
+// Reads and parses the sidecar of a source file.
+[[nodiscard]] std::expected<FAssetMetadata, FAssetError> LoadAssetMetadata(const std::filesystem::path& SourcePath);
 }

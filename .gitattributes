@@ -1,5 +1,8 @@
 * text=auto eol=lf
 
+# Vendored third-party files stay identical to upstream, so repository whitespace checks skip them.
+External/** -whitespace
+
 *.bat text eol=crlf
 *.cmd text eol=crlf
 *.sln text eol=crlf
