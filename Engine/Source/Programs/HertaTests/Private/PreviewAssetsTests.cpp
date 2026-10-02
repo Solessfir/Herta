@@ -144,7 +144,7 @@ TEST_CASE("Engine content provides the 1 m preview cube with outward faces and u
 	CHECK(Model.Vertices.size() <= 24);
 	REQUIRE(Model.Indices.size() == 36);
 	REQUIRE(Model.Textures.size() == 1);
-	CHECK(Model.Textures[0].Mips.size() == 8);
+	CHECK(Model.Textures[0].Mips.size() == 10);
 	for (const FCookedVertex& Vertex : Model.Vertices)
 	{
 		for (const float Coordinate : Vertex.Position)
