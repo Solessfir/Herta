@@ -800,31 +800,9 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 	const float PlayWidth = 2.0f * ButtonSize + ImGui::GetStyle().ItemSpacing.x + 2.0f * Padding;
 	const float PlayX = Minimum.x + (Size.x - PlayWidth) * 0.5f;
 	const bool bShowPlayControls = Size.x > 180.0f * Scale;
-	const float ProjectionWidth = ImGui::CalcTextSize("Perspective").x + 10.0f * Scale;
-	const bool bShowProjection = CanFitViewportToolbarIsland(Minimum.x + EdgeMargin, ProjectionWidth + 2.0f * Padding, Minimum.x, RightControlsLeft, Gap);
-	if (bShowProjection)
-	{
-		Island(Minimum.x + EdgeMargin, ProjectionWidth + 2.0f * Padding);
-		if (ImGui::Button("Perspective", {ProjectionWidth, ButtonSize}))
-			ImGui::OpenPopup("Projection");
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.0f * Scale, 10.0f * Scale});
-		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * Scale, 6.0f * Scale});
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {8.0f * Scale, 4.0f * Scale});
-		ImGui::PushStyleVar(ImGuiStyleVar_PopupRounding, 8.0f * Scale);
-		ImGui::SetNextWindowSize({320.0f * Scale, 0.0f}, ImGuiCond_Appearing);
-		if (ImGui::BeginPopup("Projection"))
-		{
-			ImGui::MenuItem("Perspective", nullptr, true);
-			ImGui::Spacing();
-			ImGui::TextDisabled("Orthographic views are\nnot available yet.");
-			ImGui::EndPopup();
-		}
-		ImGui::PopStyleVar(4);
-	}
 	if (bShowPlayControls)
 	{
-		const float LeftControlsRight = bShowProjection ? Minimum.x + EdgeMargin + ProjectionWidth + 2.0f * Padding : Minimum.x;
-		const bool bFitsTopRow = CanFitViewportToolbarIsland(PlayX, PlayWidth, LeftControlsRight, RightControlsLeft, Gap);
+		const bool bFitsTopRow = CanFitViewportToolbarIsland(PlayX, PlayWidth, Minimum.x, RightControlsLeft, Gap);
 		Island(PlayX, PlayWidth, bFitsTopRow ? 0.0f : Height + Gap);
 		ImGui::BeginDisabled();
 		IconButton("Play", EViewportIcon::Play, "Play - game runtime is not implemented yet.");

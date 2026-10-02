@@ -20,15 +20,4 @@ TEST_CASE("Viewport play control placement follows changing neighbor widths and 
 	CHECK(CanFitViewportToolbarIsland(225.0f, 80.0f, 220.0f, 310.0f, 5.0f));
 	CHECK_FALSE(CanFitViewportToolbarIsland(225.0f, 80.0f, 220.5f, 310.0f, 5.0f));
 }
-
-TEST_CASE("Perspective remains visible in narrow viewports when its actual width fits")
-{
-	CHECK(CanFitViewportToolbarIsland(8.0f, 108.0f, 0.0f, 304.5f, 4.0f));
-	CHECK(CanFitViewportToolbarIsland(8.0f, 108.0f, 0.0f, 120.0f, 4.0f));
-	CHECK_FALSE(CanFitViewportToolbarIsland(8.0f, 108.0f, 0.0f, 119.5f, 4.0f));
-	CHECK(CanFitViewportToolbarIsland(10.0f, 135.0f, 0.0f, 150.0f, 5.0f));
-	CHECK_FALSE(CanFitViewportToolbarIsland(10.0f, 135.0f, 0.0f, 149.5f, 5.0f));
-	CHECK(CanFitViewportToolbarIsland(8.0f, 108.0f, 0.0f, 208.0f, 4.0f));
-	CHECK_FALSE(CanFitViewportToolbarIsland(93.5f, 63.0f, 116.0f, 208.0f, 4.0f));
-}
 }
