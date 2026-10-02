@@ -34,6 +34,7 @@
 #include <numbers>
 #include <optional>
 #include <string>
+#include <ranges>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -183,11 +184,67 @@ void DrawViewportAxes(const FMatrix4& View, const ImVec2 Minimum, const ImVec2 S
 	return {LineIndex, FindOutputLogByteAtX(Lines[LineIndex], MousePosition.x - TextOrigin.x, Columns)};
 }
 
-// Labels a compact settings row on the left and right-aligns the next item.
-void DrawFieldLabel(const char* const Label, const float ValueWidth)
+// Draws a key as a small rounded chip centered on the frame row and returns its width; measures only when bDraw is false.
+float DrawKeycap(const std::string_view Key, const bool bDraw = true)
+{
+	const float PaddingX = std::round(ImGui::GetFontSize() * 0.35f);
+	const ImVec2 TextSize = ImGui::CalcTextSize(Key.data(), Key.data() + Key.size());
+	const float Width = TextSize.x + PaddingX * 2.0f;
+	if (!bDraw)
+		return Width;
+	const ImVec2 Position = ImGui::GetCursorScreenPos();
+	const float Height = std::round(ImGui::GetFontSize() * 1.3f);
+	const float Top = Position.y + std::round((ImGui::GetFrameHeight() - Height) * 0.5f);
+	ImGui::Dummy({Width, ImGui::GetFrameHeight()});
+	ImDrawList* const Draw = ImGui::GetWindowDrawList();
+	Draw->AddRectFilled({Position.x, Top}, {Position.x + Width, Top + Height}, ImGui::GetColorU32(ImGuiCol_FrameBg), Height * 0.25f);
+	Draw->AddRect({Position.x, Top}, {Position.x + Width, Top + Height}, ImGui::GetColorU32(ImGuiCol_Border), Height * 0.25f);
+	Draw->AddText({Position.x + PaddingX, Top + std::round((Height - TextSize.y) * 0.5f)}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Key.data(), Key.data() + Key.size());
+	return Width;
+}
+
+// Space-separated keys become keycaps; "+" and "/" stay plain separators.
+float DrawKeyChord(const std::string_view Keys, const bool bDraw = true)
+{
+	const float Spacing = std::round(ImGui::GetFontSize() * 0.25f);
+	float Width = 0.0f;
+	bool bFirst = true;
+	for (const auto Part : std::views::split(Keys, ' '))
+	{
+		const std::string_view Token(Part.begin(), Part.end());
+		if (Token.empty())
+			continue;
+		if (!bFirst)
+		{
+			Width += Spacing;
+			if (bDraw)
+				ImGui::SameLine(0.0f, Spacing);
+		}
+		bFirst = false;
+		if (Token == "+" || Token == "/")
+		{
+			Width += ImGui::CalcTextSize(Token.data(), Token.data() + Token.size()).x;
+			if (bDraw)
+				ImGui::TextDisabled("%.*s", static_cast<int>(Token.size()), Token.data());
+		}
+		else
+		{
+			Width += DrawKeycap(Token, bDraw);
+		}
+	}
+	return Width;
+}
+
+// Labels a compact settings row on the left, with an optional shortcut keycap, and right-aligns the next item.
+void DrawFieldLabel(const char* const Label, const float ValueWidth, const char* const Shortcut = nullptr)
 {
 	ImGui::AlignTextToFramePadding();
 	ImGui::TextUnformatted(Label);
+	if (Shortcut != nullptr)
+	{
+		ImGui::SameLine(0.0f, std::round(ImGui::GetFontSize() * 0.4f));
+		DrawKeycap(Shortcut);
+	}
 	ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ValueWidth);
 	ImGui::SetNextItemWidth(ValueWidth);
 }
@@ -838,9 +895,9 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			ImGui::PopStyleColor();
 			return bSectionOpen;
 		};
-		const auto Toggle = [&](const char* const Label, bool& bValue)
+		const auto Toggle = [&](const char* const Label, bool& bValue, const char* const Shortcut = nullptr)
 		{
-			DrawFieldLabel(Label, ValueWidth);
+			DrawFieldLabel(Label, ValueWidth, Shortcut);
 			ImGui::PushID(Label);
 			const bool bChanged = ToolUIToggle("##Toggle", &bValue);
 			ImGui::PopID();
@@ -848,42 +905,55 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		};
 		const auto ShortcutRow = [](const char* const Action, const char* const Keys)
 		{
+			ImGui::AlignTextToFramePadding();
 			ImGui::TextUnformatted(Action);
-			ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(Keys).x);
-			ImGui::TextDisabled("%s", Keys);
+			ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - DrawKeyChord(Keys, false));
+			(void)DrawKeyChord(Keys);
 		};
 
-		// The toolbar hides islands in narrow viewports, so the gizmo controls stay reachable here.
+		// Mirrors the toolbar's island breakpoints: gizmo modes and Focus appear here only while the toolbar hides them.
+		const bool bToolbarShowsModes = Size.x > 340.0f * Scale;
+		const bool bToolbarShowsFocus = Size.x > 1040.0f * Scale;
 		if (Section("Gizmo"))
 		{
-			if (IconButton("Select", EViewportIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
+			if (!bToolbarShowsModes)
 			{
-				bTransformGizmoVisible = false;
-				ViewportGizmos.resetId();
-			}
-			constexpr std::array SettingsModes{std::pair{Im3d::GizmoMode_Translation, EViewportIcon::Move}, std::pair{Im3d::GizmoMode_Rotation, EViewportIcon::Rotate}, std::pair{Im3d::GizmoMode_Scale, EViewportIcon::Scale}};
-			constexpr std::array SettingsLabels{"Translate (W)", "Rotate (E)", "Scale (R)"};
-			for (std::size_t Index = 0; Index < SettingsModes.size(); ++Index)
-			{
-				ImGui::SameLine(0.0f, 2.0f * Scale);
-				if (IconButton(SettingsLabels[Index], SettingsModes[Index].second, SettingsLabels[Index], bTransformGizmoVisible && GizmoMode == SettingsModes[Index].first))
+				if (IconButton("Select", EViewportIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
 				{
-					bTransformGizmoVisible = true;
-					GizmoMode = SettingsModes[Index].first;
+					bTransformGizmoVisible = false;
 					ViewportGizmos.resetId();
 				}
+				constexpr std::array SettingsModes{std::pair{Im3d::GizmoMode_Translation, EViewportIcon::Move}, std::pair{Im3d::GizmoMode_Rotation, EViewportIcon::Rotate}, std::pair{Im3d::GizmoMode_Scale, EViewportIcon::Scale}};
+				constexpr std::array SettingsLabels{"Translate (W)", "Rotate (E)", "Scale (R)"};
+				for (std::size_t Index = 0; Index < SettingsModes.size(); ++Index)
+				{
+					ImGui::SameLine(0.0f, 2.0f * Scale);
+					if (IconButton(SettingsLabels[Index], SettingsModes[Index].second, SettingsLabels[Index], bTransformGizmoVisible && GizmoMode == SettingsModes[Index].first))
+					{
+						bTransformGizmoVisible = true;
+						GizmoMode = SettingsModes[Index].first;
+						ViewportGizmos.resetId();
+					}
+				}
 			}
-			ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ButtonSize);
-			if (IconButton("Focus", EViewportIcon::Focus, "Focus selected object (F)"))
-				FocusPreview();
-			if (Toggle("Local axes (L)", bLocalGizmo))
+			if (!bToolbarShowsFocus)
+			{
+				// Beside the mode buttons when they are shown, otherwise on its own labeled row.
+				if (!bToolbarShowsModes)
+					ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ButtonSize);
+				else
+					DrawFieldLabel("Focus selection", ButtonSize, "F");
+				if (IconButton("Focus", EViewportIcon::Focus, "Focus selected object (F)"))
+					FocusPreview();
+			}
+			if (Toggle("Local axes", bLocalGizmo, "L"))
 				ViewportGizmos.resetId();
 			if (Toggle("Flip axes toward camera", bFlipGizmoAxesTowardCamera))
 				ViewportGizmos.resetId();
 		}
 		if (Section("Snapping"))
 		{
-			(void)Toggle("Snap (S)", bSnapEnabled);
+			(void)Toggle("Snap to grid", bSnapEnabled, "S");
 			ImGui::BeginDisabled(!bSnapEnabled);
 			DrawFieldLabel("Translation (m)", ValueWidth);
 			DrawNumericDragFloat("##SnapTranslation", &TranslationSnap, 0.05f, 0.001f, 100.0f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
