@@ -18,7 +18,7 @@ The workspace renders the scene across the canvas beneath blurred Outliner, Deta
 
 See [Rendering.md](Docs/Rendering.md) for GPU ownership, shader cooking, and renderer verification. Use **File > Reset layout** to restore the default arrangement, including the Output Log's 26% workspace height. Existing saved layouts are preserved when defaults change.
 
-In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the selection. Click the cube or floor to select it; Ctrl+click or Shift+click toggles additional objects. Click empty viewport space or press Escape in the focused viewport to deselect. During a transform drag, Escape restores the entire selection instead. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits apply to the selection around its active object's pivot and are not saved.
+In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the selection. F11 toggles a full-workspace viewport without changing the saved panel layout. Click the cube or floor to select it; Ctrl+click or Shift+click toggles additional objects. Click empty viewport space or press Escape in the focused viewport to deselect. During a transform drag, Escape restores the entire selection instead. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits apply to the selection around its active object's pivot and are not saved.
 
 The editor preview includes a 1 m cube initially positioned at Y=4 m and a 10 m square floor whose top is at Y=0. Both use the engine cube asset `Engine/Content/Shapes/Cube.gltf`; the floor is that cube scaled to 10 x 0.5 x 10 m. Click **Simulate** or press **Alt+S** to drop the cube from its current editor transform using Jolt Physics. Camera navigation and selection remain available, but transform editing is locked. Press **Escape** or click the active Simulate button to stop and restore the original transform. Physics runs at 60 Hz with render interpolation and bounded catch-up after stalls. **Play** remains disabled because the game runtime is not implemented. This is an editor preview slice, not the full physics milestone.
 
@@ -121,6 +121,14 @@ Binaries\windows\x86_64\Development\HertaEditor.exe
 ```
 
 Use `Herta.sln` when Setup selected the fallback toolchain.
+
+From PowerShell 7+ in the repository root, build and launch the editor without an IDE using the installed MSBuild path:
+
+```powershell
+& "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe" Herta.slnx /m /t:HertaEditor /p:Configuration=Development /p:Platform=x64 && .\Binaries\windows\x86_64\Development\HertaEditor.exe
+```
+
+Adjust the MSBuild path for your Visual Studio installation. `&&` launches the editor only if the build succeeds; Windows PowerShell 5.1 does not support it. Replace `Development` with `Debug` in both paths and arguments to enable debug builds and validation.
 
 To verify both Windows compilers locally, add **C++ Clang tools for Windows** and **MSBuild support for LLVM (clang-cl)** to the same Visual Studio installation, then run:
 

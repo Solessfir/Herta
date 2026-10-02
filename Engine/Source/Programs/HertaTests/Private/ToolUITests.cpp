@@ -1,4 +1,7 @@
 #include "Herta/ToolUI/ToolUI.h"
+#include "../../../Runtime/ToolUI/Private/ImmersiveViewport.h"
+
+#include <imgui_internal.h>
 
 #include <doctest/doctest.h>
 #include <fstream>
@@ -7,6 +10,58 @@
 
 namespace Herta
 {
+TEST_CASE("Immersive viewport follows workspace bounds without changing dock membership")
+{
+	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
+	ImGuiContext* const Context = ImGui::CreateContext();
+	ImGui::SetCurrentContext(Context);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1280, 720};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+	IO.Fonts->AddFontDefault();
+	const ImGuiID DockId = ImHashStr("ImmersiveTestDock");
+	for (int Frame = 0; Frame < 5; ++Frame)
+	{
+		const bool bImmersive = Frame > 0 && Frame < 4;
+		ImGui::NewFrame();
+		if (Frame == 0)
+		{
+			ImGui::DockBuilderAddNode(DockId, ImGuiDockNodeFlags_DockSpace);
+			ImGui::DockBuilderSetNodeSize(DockId, {1280, 640});
+			ImGui::DockBuilderDockWindow("Viewport", DockId);
+			ImGui::DockBuilderFinish(DockId);
+		}
+		ImGui::SetNextWindowPos({0, 36});
+		ImGui::SetNextWindowSize({1280, 640});
+		(void)ImGui::Begin("DockHost", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		ImGui::DockSpace(DockId, {1280, 640}, bImmersive ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_None);
+		ImGui::End();
+		(void)ImGui::Begin("Viewport", nullptr, bImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
+		CHECK(ImGui::GetCurrentWindow()->DockId == DockId);
+		ImGui::End();
+		if (bImmersive)
+		{
+			const FToolUICanvasBounds Canvas{0, 36, Frame == 2 ? 1000.0f : 1280.0f, 640};
+			(void)BeginImmersiveViewport(Canvas, Frame == 1);
+			const ImGuiWindow* const Window = ImGui::GetCurrentWindow();
+			CHECK(Window->DockId == 0);
+			CHECK(Window->Viewport == ImGui::GetMainViewport());
+			CHECK(Window->Pos.y == Canvas.Y);
+			CHECK(Window->Size.x == Canvas.Width);
+			CHECK(Window->Size.y == Canvas.Height);
+			CHECK((Window->Flags & ImGuiWindowFlags_NoSavedSettings) != 0);
+			CHECK((Window->Flags & ImGuiWindowFlags_NoDocking) != 0);
+			ImGui::End();
+		}
+		ImGui::Render();
+	}
+	ImGui::DestroyContext(Context);
+	ImGui::SetCurrentContext(PreviousContext);
+}
+
 TEST_CASE("ToolUI scene canvas excludes chrome but not overlay panels")
 {
 	CHECK(ResolveToolUIWorkspaceCanvas({0, 0, 1920, 1080}, 36, 32) == FToolUICanvasBounds{0, 36, 1920, 1012});

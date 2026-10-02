@@ -492,6 +492,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	try
 	{
 		ImGuiIO& IO = ImGui::GetIO();
+		if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyMods == 0 && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_F11, false))
+			Implementation->ToolUI->SetViewportImmersive(!Implementation->ToolUI->IsViewportImmersive());
 		Implementation->bSimulationStoppedThisFrame = false;
 		Implementation->RefreshPreviewMeshes();
 		if (!IO.AppFocusLost && Implementation->Simulation.IsRunning() && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
@@ -1352,7 +1354,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			// Render after layout and input, before recording the texture ID that resize may replace.
 			RenderViewport();
 			Layers.SetCurrentChannel(PanelDrawList, 0);
-			if (ViewportTexture != 0 && WorkspaceCanvas)
+			if (ViewportTexture != 0 && WorkspaceCanvas && !ToolUI->IsViewportImmersive())
 			{
 				ImDrawList* const Background = ImGui::GetBackgroundDrawList(ImGui::GetWindowViewport());
 				Background->PushClipRect(RenderMinimum, {RenderMinimum.x + RenderSize.x, RenderMinimum.y + RenderSize.y}, true);

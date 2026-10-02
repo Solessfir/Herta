@@ -141,6 +141,8 @@ public:
 	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems = {}, const std::function<void()>& DrawStatusItems = {});
 	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, bool bViewport = false);
 	void EndPanel();
+	void SetViewportImmersive(bool bImmersive) noexcept;
+	[[nodiscard]] bool IsViewportImmersive() const noexcept;
 	void PushLogFont();
 	void PopLogFont();
 	[[nodiscard]] std::optional<FToolUICanvasBounds> GetWorkspaceCanvasForCurrentPanel() const noexcept;

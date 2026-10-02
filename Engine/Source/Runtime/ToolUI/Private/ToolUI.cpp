@@ -2,6 +2,7 @@
 
 #include "Herta/Application/Application.h"
 #include "Herta/Core/Build.h"
+#include "ImmersiveViewport.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -383,6 +384,8 @@ struct FToolUIContext::FImplementation
 	ImGuiStyle BaseStyle;
 	void (*BackendPlatformDestroyWindow)(ImGuiViewport*) = nullptr;
 	ImGuiID DockspaceId = 0;
+	bool bViewportImmersive = false;
+	bool bFocusViewportRequested = false;
 	FToolUICanvasBounds WorkspaceCanvas;
 	float CurrentStyleScale = 1.0f;
 	float MainMenuRight = 0.0f;
@@ -2061,7 +2064,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	DockspaceBackground.w = 0.0f;
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, DockspaceBackground);
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.0f * ChromeScale, ImGui::GetStyle().FramePadding.y});
-	ImGui::DockSpace(Implementation->DockspaceId, DockSize, ImGuiDockNodeFlags_PassthruCentralNode);
+	ImGui::DockSpace(Implementation->DockspaceId, DockSize, Implementation->bViewportImmersive ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_PassthruCentralNode);
 	ImGui::PopStyleVar();
 	ImGui::PopStyleColor();
 	if (Implementation->bBuildDefaultLayout || bDockspaceMissing)
@@ -2146,20 +2149,31 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 
 bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, const bool bViewport)
 {
-	const ImGuiID WindowId = ImHashStr(Name.data(), Name.size());
+	const bool bImmersive = bViewport && Implementation->bViewportImmersive;
+	const ImGuiID WindowId = bImmersive ? ImHashStr(ImmersiveViewportName) : ImHashStr(Name.data(), Name.size());
 	const auto Previous = Implementation->PreviousDockState.find(WindowId);
 	const bool bPreviouslyDocked = Previous != Implementation->PreviousDockState.end() && Previous->second;
 	ImGui::SetNextWindowBgAlpha(ResolveToolUIPanelBackgroundAlpha(Implementation->Appearance.PanelTransparency, bPreviouslyDocked, bViewport));
 	if (bViewport)
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
 	const std::string Label = Name == "Outliner" || Name == "Details" ? std::format("      {}###{}", Name, Name) : std::string(Name);
-	const bool bVisible = ImGui::Begin(Label.c_str(), bOpen);
+	if (bImmersive)
+	{
+		// Submit the original window so docking retains its place while the overlay is active.
+		(void)ImGui::Begin(Label.c_str(), bOpen, ImGuiWindowFlags_NoInputs);
+		ImGui::End();
+	}
+	if (bViewport && !bImmersive && Implementation->bFocusViewportRequested)
+		ImGui::SetNextWindowFocus();
+	const bool bVisible = bImmersive ? BeginImmersiveViewport(Implementation->WorkspaceCanvas, Implementation->bFocusViewportRequested) : ImGui::Begin(Label.c_str(), bOpen, Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
+	if (bViewport)
+		Implementation->bFocusViewportRequested = false;
 	if (bViewport)
 		ImGui::PopStyleVar();
 	Implementation->PreviousDockState[WindowId] = ImGui::IsWindowDocked();
 	if (ImGuiDockNode* const Node = ImGui::GetCurrentWindow()->DockNode)
 		Node->LocalFlags |= ImGuiDockNodeFlags_NoWindowMenuButton | ImGuiDockNodeFlags_NoCloseButton;
-	if (bVisible)
+	if (bVisible && (!Implementation->bViewportImmersive || bViewport))
 	{
 		Implementation->PresentedPanels[WindowId] = bViewport;
 	}
@@ -2170,7 +2184,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 			Node->LocalFlags |= ImGuiDockNodeFlags_AutoHideTabBar;
 		}
 	}
-	return bVisible;
+	return bVisible && (!Implementation->bViewportImmersive || bViewport);
 }
 
 void FToolUIContext::EndPanel()
@@ -2178,9 +2192,24 @@ void FToolUIContext::EndPanel()
 	ImGui::End();
 }
 
+void FToolUIContext::SetViewportImmersive(const bool bImmersive) noexcept
+{
+	if (Implementation->bViewportImmersive == bImmersive)
+		return;
+	Implementation->bViewportImmersive = bImmersive;
+	Implementation->bFocusViewportRequested = true;
+}
+
+bool FToolUIContext::IsViewportImmersive() const noexcept
+{
+	return Implementation->bViewportImmersive;
+}
+
 std::optional<FToolUICanvasBounds> FToolUIContext::GetWorkspaceCanvasForCurrentPanel() const noexcept
 {
 	const ImGuiWindow* const Window = ImGui::GetCurrentWindow();
+	if (Implementation->bViewportImmersive && Window->ID == ImHashStr(ImmersiveViewportName))
+		return Implementation->WorkspaceCanvas;
 	if (Window->Viewport != ImGui::GetMainViewport() || Window->DockNode == nullptr ||
 	    ImGui::DockNodeGetRootNode(Window->DockNode)->ID != Implementation->DockspaceId)
 		return std::nullopt;
