@@ -154,7 +154,11 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 		Result.Errors.push_back({{}, Registry.error().Message});
 	}
 
-	std::ranges::set_difference(Sources, RegisteredSources, std::back_inserter(Result.UnregisteredSources));
+	// Only files an importer understands can become assets; fonts, licenses, and other raw files are not reported.
+	std::ranges::copy_if(Sources, std::back_inserter(Result.UnregisteredSources), [&RegisteredSources](const std::string& Source)
+	                     {
+		                     return !RegisteredSources.contains(Source) && FindImporterForSource(Utf8ToPath(Source));
+	                     });
 	std::ranges::stable_sort(Result.Errors, {}, &FContentDiagnostic::Path);
 	return Result;
 }

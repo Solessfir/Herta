@@ -4,6 +4,7 @@
 #include <cmath>
 #include <doctest/doctest.h>
 #include <limits>
+#include <numbers>
 
 namespace Herta
 {
@@ -24,16 +25,22 @@ FVector3 ProjectCameraPoint(const FViewportCameraSnapshot& Camera, const FVector
 }
 }
 
-TEST_CASE("Viewport camera starts looking at the origin with reversed infinite depth")
+TEST_CASE("Viewport camera starts looking down at a pivot above the origin with reversed infinite depth")
 {
 	const FViewportCameraController Camera;
 	const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(1.0f);
+	const FVector3 Pivot = Camera.GetPivot();
 	CHECK(Snapshot.Projection(1, 1) == doctest::Approx(1.56968558f));
-	CheckCameraVector(Snapshot.Position, {0.0f, 4.0f, -20.0f});
+	CHECK(Camera.GetPitch() == doctest::Approx(-17.5f * std::numbers::pi_v<float> / 180.0f));
+	CHECK(Camera.GetYaw() == 0.0f);
+	CheckCameraVector(Snapshot.Position, {0.0f, 4.0f, -10.0f});
+	CheckCameraVector(Pivot, {0.0f, Pivot.Y, 0.0f});
+	CHECK(Pivot.Y > 0.0f);
+	CHECK(Pivot.Y < Snapshot.Position.Y);
 	CheckCameraVector(Snapshot.View.TransformPosition(Snapshot.Position), FVector3::Zero());
-	CheckCameraVector(Snapshot.View.TransformPosition(FVector3::Zero()), {0.0f, 0.0f, Snapshot.Position.Length()});
+	CheckCameraVector(Snapshot.View.TransformPosition(Pivot), {0.0f, 0.0f, (Pivot - Snapshot.Position).Length()});
 	const FVector3 LookDirection = Camera.MakePickingRay({0.5f, 0.5f}, 1.0f).Direction;
-	CheckCameraVector(LookDirection, (FVector3::Zero() - Snapshot.Position).Normalized());
+	CheckCameraVector(LookDirection, (Pivot - Snapshot.Position).Normalized());
 	CHECK(ProjectCameraPoint(Snapshot, Snapshot.Position + LookDirection * 0.1f).Z == doctest::Approx(1.0f));
 	CHECK(ProjectCameraPoint(Snapshot, Snapshot.Position + LookDirection * 100'000.0f).Z == doctest::Approx(0.000001f));
 }
@@ -93,15 +100,17 @@ TEST_CASE("Viewport mouse look follows screen directions without frame-time scal
 TEST_CASE("Viewport orbit keeps the pivot centered and preserves distance")
 {
 	FViewportCameraController Camera;
+	const FVector3 Pivot = Camera.GetPivot();
+	const float InitialDistance = (Camera.GetSnapshot(1.0f).Position - Pivot).Length();
 	FViewportCameraInput Input;
 	Input.Mode = EViewportCameraMode::Orbit;
-	Input.MouseDeltaPixels = {150.0f, -90.0f};
+	Input.MouseDeltaPixels = {150.0f, -180.0f};
 	Camera.Update(Input, 0.0f, CameraViewportSize);
 	const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(1.0f);
-	CHECK(Snapshot.Position.Length() == doctest::Approx(FVector3{0.0f, 4.0f, -20.0f}.Length()));
-	CheckCameraVector(Snapshot.View.TransformPosition(FVector3::Zero()), {0.0f, 0.0f, Snapshot.Position.Length()});
-	CHECK(Snapshot.Position.X > 0.0f);
-	CHECK(Snapshot.Position.Y < 0.0f);
+	CHECK((Snapshot.Position - Pivot).Length() == doctest::Approx(InitialDistance));
+	CheckCameraVector(Snapshot.View.TransformPosition(Pivot), {0.0f, 0.0f, InitialDistance});
+	CHECK(Snapshot.Position.X > Pivot.X);
+	CHECK(Snapshot.Position.Y < Pivot.Y);
 
 	Input.Mode = EViewportCameraMode::Fly;
 	Input.MouseDeltaPixels = {50.0f, 30.0f};
@@ -118,13 +127,14 @@ TEST_CASE("Viewport orbit keeps the pivot centered and preserves distance")
 TEST_CASE("Viewport pan keeps the scene attached to the mouse at pivot depth")
 {
 	FViewportCameraController Camera;
+	const FVector3 InitialPivot = Camera.GetPivot();
 	FViewportCameraInput Input;
 	Input.Mode = EViewportCameraMode::Pan;
 	Input.MouseDeltaPixels = {128.0f, 72.0f};
 	Camera.Update(Input, 0.0f, CameraViewportSize);
-	const FVector3 ProjectedOrigin = ProjectCameraPoint(Camera.GetSnapshot(1280.0f / 720.0f), FVector3::Zero());
-	CHECK(ProjectedOrigin.X == doctest::Approx(0.2f));
-	CHECK(ProjectedOrigin.Y == doctest::Approx(-0.2f));
+	const FVector3 ProjectedPivot = ProjectCameraPoint(Camera.GetSnapshot(1280.0f / 720.0f), InitialPivot);
+	CHECK(ProjectedPivot.X == doctest::Approx(0.2f));
+	CHECK(ProjectedPivot.Y == doctest::Approx(-0.2f));
 	const FVector3 BeforeOrbit = Camera.GetSnapshot(1.0f).Position;
 	Input.Mode = EViewportCameraMode::Orbit;
 	Input.MouseDeltaPixels = {};
@@ -135,22 +145,26 @@ TEST_CASE("Viewport pan keeps the scene attached to the mouse at pivot depth")
 TEST_CASE("Viewport dolly moves toward the pivot and cannot pass it")
 {
 	FViewportCameraController Camera;
-	const float InitialDistance = Camera.GetSnapshot(1.0f).Position.Length();
+	const auto GetPivotDistance = [&Camera]
+	{
+		return (Camera.GetSnapshot(1.0f).Position - Camera.GetPivot()).Length();
+	};
+	const float InitialDistance = GetPivotDistance();
 	FViewportCameraInput Input;
 	Input.ScrollDelta = 1.0f;
 	Camera.Update(Input, 0.0f, CameraViewportSize);
-	CHECK(Camera.GetSnapshot(1.0f).Position.Length() < InitialDistance);
-	CHECK(Camera.GetSnapshot(1.0f).Position.Length() > 0.0f);
+	CHECK(GetPivotDistance() < InitialDistance);
+	CHECK(GetPivotDistance() > 0.0f);
 
 	Input.Mode = EViewportCameraMode::Dolly;
 	Input.ScrollDelta = 0.0f;
 	Input.MouseDeltaPixels = {0.0f, 100.0f};
-	const float BeforeDrag = Camera.GetSnapshot(1.0f).Position.Length();
+	const float BeforeDrag = GetPivotDistance();
 	Camera.Update(Input, 0.0f, CameraViewportSize);
-	CHECK(Camera.GetSnapshot(1.0f).Position.Length() > BeforeDrag);
+	CHECK(GetPivotDistance() > BeforeDrag);
 	Input.MouseDeltaPixels = {0.0f, -100'000.0f};
 	Camera.Update(Input, 0.0f, CameraViewportSize);
-	CHECK(Camera.GetSnapshot(1.0f).Position.Length() == doctest::Approx(0.2f));
+	CHECK(GetPivotDistance() == doctest::Approx(0.2f));
 }
 
 TEST_CASE("Viewport focus frames bounds at wide and tall aspect ratios")
@@ -223,7 +237,7 @@ TEST_CASE("Viewport focus fits bounds inside an off-center visible pane")
 TEST_CASE("Viewport picking rays match top-left screen coordinates and camera projection")
 {
 	FViewportCameraController Camera;
-	CheckCameraVector(Camera.MakePickingRay({0.5f, 0.5f}, 1.0f).Direction, (FVector3::Zero() - Camera.GetSnapshot(1.0f).Position).Normalized());
+	CheckCameraVector(Camera.MakePickingRay({0.5f, 0.5f}, 1.0f).Direction, (Camera.GetPivot() - Camera.GetSnapshot(1.0f).Position).Normalized());
 	CHECK(Camera.MakePickingRay({0.0f, 0.0f}, 1.0f).Direction.X > 0.0f);
 	CHECK(Camera.MakePickingRay({0.0f, 0.0f}, 1.0f).Direction.Y > 0.0f);
 	CHECK(Camera.MakePickingRay({1.0f, 1.0f}, 1.0f).Direction.X < 0.0f);
@@ -249,15 +263,15 @@ TEST_CASE("Viewport picking rays match top-left screen coordinates and camera pr
 	}
 }
 
-TEST_CASE("Viewport camera projection center offsets the origin and picking center")
+TEST_CASE("Viewport camera projection center offsets the pivot and picking center")
 {
 	const FViewportCameraController Camera;
 	const FVector2 ProjectionCenter{0.4f, 0.41f};
 	const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(16.0f / 9.0f, ProjectionCenter);
-	const FVector3 OriginNdc = ProjectCameraPoint(Snapshot, FVector3::Zero());
-	CHECK(OriginNdc.X == doctest::Approx(2.0f * ProjectionCenter.X - 1.0f));
-	CHECK(OriginNdc.Y == doctest::Approx(1.0f - 2.0f * ProjectionCenter.Y));
-	CheckCameraVector(Camera.MakePickingRay(ProjectionCenter, 16.0f / 9.0f, ProjectionCenter).Direction, (FVector3::Zero() - Snapshot.Position).Normalized());
+	const FVector3 PivotNdc = ProjectCameraPoint(Snapshot, Camera.GetPivot());
+	CHECK(PivotNdc.X == doctest::Approx(2.0f * ProjectionCenter.X - 1.0f));
+	CHECK(PivotNdc.Y == doctest::Approx(1.0f - 2.0f * ProjectionCenter.Y));
+	CheckCameraVector(Camera.MakePickingRay(ProjectionCenter, 16.0f / 9.0f, ProjectionCenter).Direction, (Camera.GetPivot() - Snapshot.Position).Normalized());
 }
 
 TEST_CASE("Viewport picking rays project back to normalized positions for off-center projections")

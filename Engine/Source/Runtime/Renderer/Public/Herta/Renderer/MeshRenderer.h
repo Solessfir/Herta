@@ -42,7 +42,7 @@ struct FMeshRenderView
 	std::span<const FMatrix4> Models;
 	bool bDrawGrid = false;
 	FVector3 GridCenter{};
-	// Empty, or one entry per model. Null entries and an empty span draw the built-in cube.
+	// One entry per model. Null entries are skipped, such as meshes that are still loading.
 	std::span<const FRenderMesh* const> Meshes{};
 };
 
@@ -80,7 +80,8 @@ private:
 	friend class FMeshRenderer;
 };
 
-// The built-in 2 m cube centered on the origin, textured on every face.
+// A 1 m cube centered on the origin with the whole texture on every face, unmirrored when viewed from outside.
+// It matches Engine/Content/Shapes/Cube.gltf and serves texture previews and renderer tests.
 [[nodiscard]] FCookedModel CreateTexturedCubeModel(FCookedTexture Texture);
 
 class FMeshRenderer final
@@ -90,7 +91,6 @@ public:
 	~FMeshRenderer();
 	FMeshRenderer(const FMeshRenderer&) = delete;
 	FMeshRenderer& operator=(const FMeshRenderer&) = delete;
-	[[nodiscard]] std::expected<void, FPresentationError> Render(FExtent2D Extent, float RotationRadians = 0.4f);
 	[[nodiscard]] std::expected<void, FPresentationError> Render(FExtent2D Extent, const FMeshRenderView& View, std::span<const FDebugDrawList> DebugDraw = {});
 	[[nodiscard]] const FTextureHandle& GetColorTarget() const noexcept;
 

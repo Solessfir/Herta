@@ -3,6 +3,7 @@
 #include "Herta/Math/Matrix.h"
 
 #include <cmath>
+#include <numbers>
 
 namespace Herta
 {
@@ -53,6 +54,19 @@ public:
 	{
 		return MouseSensitivity;
 	}
+	// Radians; negative pitch looks down.
+	[[nodiscard]] constexpr float GetPitch() const
+	{
+		return Pitch;
+	}
+	[[nodiscard]] constexpr float GetYaw() const
+	{
+		return Yaw;
+	}
+	[[nodiscard]] constexpr const FVector3& GetPivot() const
+	{
+		return Pivot;
+	}
 	// ProjectionCenter uses full-target normalized coordinates with a top-left origin.
 	[[nodiscard]] FViewportCameraSnapshot GetSnapshot(float AspectRatio, FVector2 ProjectionCenter = {0.5f, 0.5f}) const;
 	// Normalized screen coordinates use a top-left origin; positions outside the viewport remain valid.
@@ -64,11 +78,12 @@ private:
 	void Translate(const FVector3& Offset);
 	void Dolly(float LogDistanceDelta);
 
-	FVector3 Position{0.0f, 4.0f, -20.0f};
-	FVector3 Pivot;
+	// Starts above and behind the origin, looking 17.5 degrees down at a pivot above it so the floor and the cube over it both fit.
+	FVector3 Position{0.0f, 4.0f, -10.0f};
 	float Yaw = 0.0f;
-	float Pitch = -std::atan2(Position.Y, -Position.Z);
-	float OrbitDistance = Position.Length();
+	float Pitch = -17.5f * std::numbers::pi_v<float> / 180.0f;
+	float OrbitDistance = -Position.Z / std::cos(Pitch);
+	FVector3 Pivot = Position + GetOrientation().RotateVector(FVector3::Forward()) * OrbitDistance;
 	float MovementSpeed = 5.0f;
 	float MouseSensitivity = 0.003f;
 };

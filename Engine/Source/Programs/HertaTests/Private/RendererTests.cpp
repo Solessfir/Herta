@@ -7,16 +7,46 @@
 #include <cstring>
 #include <doctest/doctest.h>
 #include <limits>
+#include <numbers>
 
 namespace
 {
 using Herta::Tests::FTestGraphicsDevice;
 using Herta::Tests::FTestPipeline;
 
-Herta::FVector3 Position(const Herta::FMeshVertex& Vertex)
+Herta::FVector3 Position(const Herta::FCookedVertex& Vertex)
 {
 	return {Vertex.Position[0], Vertex.Position[1], Vertex.Position[2]};
 }
+
+// The renderer owns no content, so tests draw the same 1 m cube that texture previews use.
+std::shared_ptr<const Herta::FRenderMesh> CreateTestCube(FTestGraphicsDevice& Device)
+{
+	Herta::FCookedTexture White{Herta::ETextureColorSpace::Srgb, {{1, 1, std::vector<std::byte>(4, std::byte{255})}}};
+	auto Mesh = Herta::FRenderMesh::Create(Device, Herta::CreateTexturedCubeModel(std::move(White)), "Test cube");
+	REQUIRE(Mesh);
+	return std::move(*Mesh);
+}
+
+// One cube five meters in front of the camera.
+struct FCubeScene
+{
+	explicit FCubeScene(FTestGraphicsDevice& Device)
+	    : Cube(CreateTestCube(Device))
+	    , Mesh(Cube.get())
+	{
+		View.Models = std::span{&Model, 1};
+		View.Meshes = std::span{&Mesh, 1};
+	}
+
+	FCubeScene(const FCubeScene&) = delete;
+	FCubeScene& operator=(const FCubeScene&) = delete;
+
+	std::shared_ptr<const Herta::FRenderMesh> Cube;
+	const Herta::FRenderMesh* Mesh = nullptr;
+	Herta::FMatrix4 Model;
+	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 5}), Herta::FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.0f, 4.0f / 3.0f, 0.1f), {}};
+};
 
 std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> CreateDebugRenderer(FTestGraphicsDevice& Device)
 {
@@ -45,16 +75,18 @@ std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> 
 }
 }
 
-TEST_CASE("Mesh renderer skips zero extents and rejects nonfinite rotation before recording")
+TEST_CASE("Mesh renderer skips zero extents and rejects nonfinite models before recording")
 {
 	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
 	REQUIRE(Renderer);
 	const std::uint64_t UploadSubmission = Device.Submissions;
 	Device.Events.clear();
-	CHECK((*Renderer)->Render({0, 100}));
-	CHECK((*Renderer)->Render({100, 0}));
-	CHECK_FALSE((*Renderer)->Render({100, 100}, std::numeric_limits<float>::infinity()));
+	CHECK((*Renderer)->Render({0, 100}, Scene.View));
+	CHECK((*Renderer)->Render({100, 0}, Scene.View));
+	Scene.Model(0, 3) = std::numeric_limits<float>::infinity();
+	CHECK_FALSE((*Renderer)->Render({100, 100}, Scene.View));
 	CHECK(Device.Events.empty());
 	CHECK(Device.Submissions == UploadSubmission);
 	CHECK_FALSE((*Renderer)->GetColorTarget());
@@ -63,30 +95,32 @@ TEST_CASE("Mesh renderer skips zero extents and rejects nonfinite rotation befor
 TEST_CASE("Mesh renderer preserves previous targets when resize allocation fails")
 {
 	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
 	REQUIRE(Renderer);
-	REQUIRE((*Renderer)->Render({320, 240}));
+	REQUIRE((*Renderer)->Render({320, 240}, Scene.View));
 	const Herta::FTextureHandle Previous = (*Renderer)->GetColorTarget();
 	const std::uint64_t Submission = Device.Submissions;
 	Device.bFailDepth = true;
 	Device.Events.clear();
-	CHECK_FALSE((*Renderer)->Render({640, 480}));
+	CHECK_FALSE((*Renderer)->Render({640, 480}, Scene.View));
 	CHECK((*Renderer)->GetColorTarget() == Previous);
 	CHECK(Previous->GetDescriptor().Extent == Herta::FExtent2D{320, 240});
 	CHECK(Device.Submissions == Submission);
 	CHECK(Device.Events.empty());
 	Device.bFailDepth = false;
-	REQUIRE((*Renderer)->Render({640, 480}));
+	REQUIRE((*Renderer)->Render({640, 480}, Scene.View));
 	CHECK((*Renderer)->GetColorTarget() != Previous);
 }
 
 TEST_CASE("Mesh renderer records clear before indexed reversed-Z geometry")
 {
 	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
 	REQUIRE(Renderer);
 	Device.Events.clear();
-	REQUIRE((*Renderer)->Render({640, 480}, 0));
+	REQUIRE((*Renderer)->Render({640, 480}, Scene.View));
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Submit"});
 	CHECK(Device.LastDraw.IndexCount == 36);
 	REQUIRE(Device.LastDraw.DepthTarget);
@@ -102,43 +136,46 @@ TEST_CASE("Mesh renderer records clear before indexed reversed-Z geometry")
 	CHECK(Near.Z / Near.W < 1.0f);
 }
 
-TEST_CASE("Mesh renderer uploads counter-clockwise cube triangles with valid UVs")
+TEST_CASE("Textured cube models are 1 m with outward counter-clockwise faces and unmirrored UVs")
 {
-	FTestGraphicsDevice Device;
-	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
-	REQUIRE(Renderer);
-	REQUIRE(Device.Vertices.size() == 24);
-	REQUIRE(Device.Indices.size() == 36);
-	for (std::size_t Index = 0; Index < Device.Indices.size(); Index += 3)
+	const Herta::FCookedModel Cube = Herta::CreateTexturedCubeModel({Herta::ETextureColorSpace::Srgb, {{1, 1, std::vector<std::byte>(4)}}});
+	REQUIRE(Herta::ValidateCookedModel(Cube));
+	REQUIRE(Cube.Vertices.size() == 24);
+	REQUIRE(Cube.Indices.size() == 36);
+	for (const Herta::FCookedVertex& Vertex : Cube.Vertices)
 	{
-		REQUIRE(Device.Indices[Index] < Device.Vertices.size());
-		REQUIRE(Device.Indices[Index + 1] < Device.Vertices.size());
-		REQUIRE(Device.Indices[Index + 2] < Device.Vertices.size());
-		const Herta::FVector3 A = Position(Device.Vertices[Device.Indices[Index]]);
-		const Herta::FVector3 B = Position(Device.Vertices[Device.Indices[Index + 1]]);
-		const Herta::FVector3 C = Position(Device.Vertices[Device.Indices[Index + 2]]);
-		const Herta::FVector3 Normal = (B - A).Cross(C - A);
-		CHECK(Normal.Dot(A + B + C) > 0);
-	}
-
-	for (const Herta::FMeshVertex& Vertex : Device.Vertices)
-	{
+		for (const float Coordinate : Vertex.Position)
+		{
+			CHECK(std::abs(Coordinate) == 0.5f);
+		}
 		CHECK(Vertex.UV[0] >= 0.0f);
 		CHECK(Vertex.UV[0] <= 1.0f);
 		CHECK(Vertex.UV[1] >= 0.0f);
 		CHECK(Vertex.UV[1] <= 1.0f);
+	}
+	for (std::size_t Index = 0; Index < Cube.Indices.size(); Index += 3)
+	{
+		const Herta::FCookedVertex& A = Cube.Vertices[Cube.Indices[Index]];
+		const Herta::FCookedVertex& B = Cube.Vertices[Cube.Indices[Index + 1]];
+		const Herta::FCookedVertex& C = Cube.Vertices[Cube.Indices[Index + 2]];
+		const Herta::FVector3 Normal = (Position(B) - Position(A)).Cross(Position(C) - Position(A));
+		CHECK(Normal.Dot(Position(A) + Position(B) + Position(C)) > 0);
+		// V grows downward, so an unmirrored texture winds clockwise in UV space on a counter-clockwise face.
+		const float UVArea = (B.UV[0] - A.UV[0]) * (C.UV[1] - A.UV[1]) - (B.UV[1] - A.UV[1]) * (C.UV[0] - A.UV[0]);
+		CHECK(UVArea < 0.0f);
 	}
 }
 
 TEST_CASE("Mesh renderer cancels recording after a failed graph pass")
 {
 	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
 	REQUIRE(Renderer);
 	Device.Events.clear();
 	Device.bFailDraw = true;
 	const std::uint64_t Submission = Device.Submissions;
-	const auto Result = (*Renderer)->Render({320, 240});
+	const auto Result = (*Renderer)->Render({320, 240}, Scene.View);
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Message == "Draw failed");
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Cancel"});
@@ -148,25 +185,30 @@ TEST_CASE("Mesh renderer cancels recording after a failed graph pass")
 TEST_CASE("Mesh renderer uses caller matrices and rejects nonfinite views before recording")
 {
 	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
 	REQUIRE(Renderer);
-	Herta::FMatrix4 Model = Herta::FMatrix4::Translation({1, 2, 3});
-	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 4}), Herta::FMatrix4::Scale({2, 3, 4}), std::span{&Model, 1}};
-	REQUIRE((*Renderer)->Render({320, 240}, View));
-	CHECK(Device.LastDraw.WorldToClip == (View.Projection * View.View * Model).Data());
+	Scene.Model = Herta::FMatrix4::Translation({1, 2, 3});
+	Scene.View.View = Herta::FMatrix4::Translation({0, 0, 4});
+	Scene.View.Projection = Herta::FMatrix4::Scale({2, 3, 4});
+	REQUIRE((*Renderer)->Render({320, 240}, Scene.View));
+	CHECK(Device.LastDraw.WorldToClip == (Scene.View.Projection * Scene.View.View * Scene.Model).Data());
 	Device.Events.clear();
-	Model(1, 1) = std::numeric_limits<float>::infinity();
-	CHECK_FALSE((*Renderer)->Render({320, 240}, View));
+	Scene.Model(1, 1) = std::numeric_limits<float>::infinity();
+	CHECK_FALSE((*Renderer)->Render({320, 240}, Scene.View));
 	CHECK(Device.Events.empty());
 }
 
 TEST_CASE("Mesh renderer records distinct transforms for every model and accepts an empty scene")
 {
 	FTestGraphicsDevice Device;
+	const auto Cube = CreateTestCube(Device);
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
 	REQUIRE(Renderer);
 	std::array Models{Herta::FMatrix4::Translation({2, 0, 0}), Herta::FMatrix4::Translation({-2, 0, 0}) * Herta::FMatrix4::Scale({2, 0.25f, 3})};
+	const std::array<const Herta::FRenderMesh*, 2> Meshes{Cube.get(), Cube.get()};
 	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 5}), Herta::FMatrix4{}, Models};
+	View.Meshes = Meshes;
 	Device.Events.clear();
 	REQUIRE((*Renderer)->Render({320, 240}, View));
 	REQUIRE(Device.Draws.size() == 2);
@@ -181,6 +223,7 @@ TEST_CASE("Mesh renderer records distinct transforms for every model and accepts
 	CHECK_FALSE((*Renderer)->Render({320, 240}, View));
 	CHECK(Device.Events.empty());
 	View.Models = {};
+	View.Meshes = {};
 	REQUIRE((*Renderer)->Render({320, 240}, View));
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Submit"});
 }
@@ -188,6 +231,8 @@ TEST_CASE("Mesh renderer records distinct transforms for every model and accepts
 TEST_CASE("Debug renderer expands portable pixel sizes and orders depth-tested draws before overlays")
 {
 	FTestGraphicsDevice Device;
+	const auto Cube = CreateTestCube(Device);
+	const Herta::FRenderMesh* const CubeMesh = Cube.get();
 	const auto Renderer = CreateDebugRenderer(Device);
 	REQUIRE(Renderer);
 	const std::array<Herta::FDebugDrawVertex, 1> Points{{{{0, 0, 0.5f}, 10, {1, 0, 0, 1}}}};
@@ -198,6 +243,7 @@ TEST_CASE("Debug renderer expands portable pixel sizes and orders depth-tested d
 	const Herta::FMatrix4 Model;
 	Herta::FMeshRenderView View;
 	View.Models = std::span{&Model, 1};
+	View.Meshes = std::span{&CubeMesh, 1};
 	REQUIRE((*Renderer)->Render({200, 100}, View, Lists));
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Draw", "Draw", "Submit"});
 	REQUIRE(Device.Draws.size() == 3);
@@ -249,11 +295,15 @@ TEST_CASE("Debug renderer clips camera-crossing lines and rejects incomplete or 
 TEST_CASE("Mesh renderer draws the optional world grid between mesh and debug overlays")
 {
 	FTestGraphicsDevice Device;
+	// Created first so the grid's index upload stays at a fixed position in IndexUploads.
+	const auto Cube = CreateTestCube(Device);
+	const Herta::FRenderMesh* const CubeMesh = Cube.get();
 	const auto Renderer = CreateGridRenderer(Device);
 	REQUIRE(Renderer);
 	Herta::FMeshRenderView View;
 	const Herta::FMatrix4 Model;
 	View.Models = std::span{&Model, 1};
+	View.Meshes = std::span{&CubeMesh, 1};
 	View.View = Herta::FMatrix4::Translation({-3, 0, -7});
 	View.Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.0f, 1.5f, 0.1f);
 	View.bDrawGrid = true;
@@ -302,11 +352,14 @@ TEST_CASE("Mesh renderer draws the optional world grid between mesh and debug ov
 TEST_CASE("Mesh renderer rejects an enabled grid without both shaders and preserves the disabled path")
 {
 	FTestGraphicsDevice Device;
+	const auto Cube = CreateTestCube(Device);
+	const Herta::FRenderMesh* const CubeMesh = Cube.get();
 	const auto Renderer = CreateDebugRenderer(Device);
 	REQUIRE(Renderer);
 	Herta::FMeshRenderView View;
 	const Herta::FMatrix4 Model;
 	View.Models = std::span{&Model, 1};
+	View.Meshes = std::span{&CubeMesh, 1};
 	View.bDrawGrid = true;
 	Device.Events.clear();
 	CHECK_FALSE((*Renderer)->Render({200, 100}, View));
@@ -356,14 +409,14 @@ TEST_CASE("Render meshes draw each section with its texture and upload within th
 	View.Meshes = Meshes;
 	Device.Draws.clear();
 	REQUIRE((*Renderer)->Render({64, 64}, View));
-	REQUIRE(Device.Draws.size() == 3);
+	// The null entry is a mesh that is still loading, so only the two sections draw.
+	REQUIRE(Device.Draws.size() == 2);
 	CHECK(Device.Draws[0].FirstIndex == 0);
 	CHECK(Device.Draws[1].FirstIndex == 3);
 	CHECK(Device.Draws[1].IndexCount == 3);
 	CHECK(Device.Draws[0].Texture != Device.Draws[1].Texture);
 	CHECK(Device.Draws[1].Texture->GetDescriptor().MipLevels == Large.Mips.size());
 	CHECK(Device.Draws[1].Texture->GetDescriptor().Format == Herta::ETextureFormat::Rgba8);
-	CHECK(Device.Draws[2].IndexCount == 36);
 
 	View.Meshes = std::span(Meshes).first(1);
 	CHECK_FALSE((*Renderer)->Render({64, 64}, View));

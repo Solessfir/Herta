@@ -34,9 +34,9 @@ struct FDetailsPanelState
 
 struct FDetailsMeshField
 {
-	// Option 0 is the built-in cube.
 	std::span<const std::string> Options;
-	int Selected = 0;
+	// Index of the current mesh in Options, or -1.
+	int Selected = -1;
 	std::string_view Status;
 	bool bError = false;
 };

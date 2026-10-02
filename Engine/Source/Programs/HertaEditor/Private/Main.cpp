@@ -436,7 +436,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::filesystem::path AssetWorker = EditorExecutable.parent_path() / "HertaAssetWorker";
 	AssetWorker += EditorExecutable.extension();
 	const std::string_view Platform = GetPlatformName(GetCurrentPlatform());
-	const FEditorAssetPaths AssetPaths{RepositoryRoot / "Games/Sandbox/Content", RepositoryRoot / "DerivedDataCache" / Platform, AssetWorker, std::string(Platform)};
+	const FEditorAssetPaths AssetPaths{RepositoryRoot / "Engine/Content", RepositoryRoot / "Games/Sandbox/Content", RepositoryRoot / "DerivedDataCache" / Platform, AssetWorker, std::string(Platform)};
 	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths});
 	if (!EditorFrameworkResult)
 	{

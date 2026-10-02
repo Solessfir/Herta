@@ -17,6 +17,13 @@ namespace
 	return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, Message});
 }
 
+// The renderer owns no content. The checks draw a white 1 m cube, scaled to 2 m where they measure coverage and occlusion.
+[[nodiscard]] std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> CreateSmokeCube(IGraphicsDevice& Device)
+{
+	FCookedTexture White{ETextureColorSpace::Srgb, {{1, 1, std::vector<std::byte>(4, std::byte{255})}}};
+	return FRenderMesh::Create(Device, CreateTexturedCubeModel(std::move(White)), "Smoke cube");
+}
+
 [[nodiscard]] std::expected<void, FPresentationError> CheckInvalidCommands(IGraphicsDevice& Device)
 {
 	if (Device.SubmitCommands())
@@ -157,7 +164,13 @@ namespace
 [[nodiscard]] std::expected<void, FPresentationError> CheckWorldGrid(IGraphicsDevice& Device, FMeshRenderer& Renderer)
 {
 	constexpr FExtent2D Extent{128, 128};
-	const FMatrix4 Model;
+	const auto Cube = CreateSmokeCube(Device);
+	if (!Cube)
+	{
+		return std::unexpected(Cube.error());
+	}
+	const FRenderMesh* const CubeMesh = Cube->get();
+	const FMatrix4 Model = FMatrix4::Scale({2, 2, 2});
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1.0f, 0.1f);
 	const float Pitch = std::atan2(3.0f, 5.0f);
 	for (const bool bBelowPlane : {false, true})
@@ -167,7 +180,8 @@ namespace
 		    .View = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1, 0, 0}, bBelowPlane ? Pitch : -Pitch)) * FMatrix4::Translation({0, -Height, 5}),
 		    .Projection = Projection,
 		    .Models = std::span{&Model, 1},
-		    .GridCenter = {0, 0, 0}};
+		    .GridCenter = {0, 0, 0},
+		    .Meshes = std::span{&CubeMesh, 1}};
 		auto Result = Renderer.Render(Extent, View);
 		if (!Result)
 		{
@@ -220,7 +234,13 @@ namespace
 [[nodiscard]] std::expected<void, FPresentationError> CheckMultipleModels(IGraphicsDevice& Device, FMeshRenderer& Renderer)
 {
 	constexpr FExtent2D Extent{128, 128};
-	const std::array Models{FMatrix4::Translation({2, 0, 0}), FMatrix4::Translation({-2, 0, 0}) * FMatrix4::Scale({0.75f, 0.5f, 1})};
+	const std::array Models{FMatrix4::Translation({2, 0, 0}) * FMatrix4::Scale({2, 2, 2}), FMatrix4::Translation({-2, 0, 0}) * FMatrix4::Scale({1.5f, 1, 2})};
+	const auto Cube = CreateSmokeCube(Device);
+	if (!Cube)
+	{
+		return std::unexpected(Cube.error());
+	}
+	const std::array<const FRenderMesh*, 2> Meshes{Cube->get(), Cube->get()};
 	FMeshRenderView View{FMatrix4::Translation({0, 0, 5}), FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1.0f, 0.1f), {}};
 	auto Result = Renderer.Render(Extent, View);
 	if (!Result)
@@ -236,6 +256,7 @@ namespace
 	for (std::size_t Index = 0; Index < Models.size(); ++Index)
 	{
 		View.Models = std::span{Models}.subspan(Index, 1);
+		View.Meshes = std::span{Meshes}.subspan(Index, 1);
 		Result = Renderer.Render(Extent, View);
 		if (!Result)
 		{
@@ -249,6 +270,7 @@ namespace
 		Isolated[Index] = std::move(*Pixels);
 	}
 	View.Models = Models;
+	View.Meshes = Meshes;
 	Result = Renderer.Render(Extent, View);
 	if (!Result)
 	{
@@ -356,8 +378,15 @@ namespace
 	{
 		return std::unexpected(Renderer.error());
 	}
-	const FMatrix4 Model;
-	const FMeshRenderView View{FMatrix4::Translation({0, 0, 5}), FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1, 0.1f), std::span{&Model, 1}};
+	const auto Cube = CreateSmokeCube(Device);
+	if (!Cube)
+	{
+		return std::unexpected(Cube.error());
+	}
+	const FRenderMesh* const CubeMesh = Cube->get();
+	const FMatrix4 Model = FMatrix4::Scale({2, 2, 2});
+	FMeshRenderView View{FMatrix4::Translation({0, 0, 5}), FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.0f, 1, 0.1f), std::span{&Model, 1}};
+	View.Meshes = std::span{&CubeMesh, 1};
 	auto Result = (*Renderer)->Render({128, 128}, View);
 	if (!Result)
 	{
@@ -431,10 +460,21 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	{
 		return std::unexpected(Renderer.error());
 	}
+	const auto Cube = CreateSmokeCube(Device);
+	if (!Cube)
+	{
+		return std::unexpected(Cube.error());
+	}
+	const FRenderMesh* const CubeMesh = Cube->get();
+	const FMatrix4 Model = FMatrix4::Rotation(FQuaternion::FromAxisAngle({0, 1, 0}, 0.4f) * FQuaternion::FromAxisAngle({1, 0, 0}, -0.25f)) * FMatrix4::Scale({2, 2, 2});
 	constexpr std::array<FExtent2D, 8> Extents{{{128, 128}, {64, 192}, {0, 0}, {320, 180}, {1, 1}, {192, 64}, {0, 128}, {128, 128}}};
 	for (std::size_t Frame = 0; Frame < 32; ++Frame)
 	{
-		auto Result = (*Renderer)->Render(Extents[Frame % Extents.size()]);
+		const FExtent2D Extent = Extents[Frame % Extents.size()];
+		const float Aspect = Extent.IsEmpty() ? 1.0f : static_cast<float>(Extent.Width) / static_cast<float>(Extent.Height);
+		FMeshRenderView View{FMatrix4::Translation({0, 0, 5}), FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.0f, Aspect, 0.1f), std::span{&Model, 1}};
+		View.Meshes = std::span{&CubeMesh, 1};
+		auto Result = (*Renderer)->Render(Extent, View);
 		if (!Result)
 		{
 			return Result;

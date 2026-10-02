@@ -22,7 +22,7 @@ struct FContentScanResult
 	FAssetRegistry Registry;
 	// Assets with errors are excluded from the registry. IDs shared by several files exclude all of them.
 	std::vector<FContentDiagnostic> Errors;
-	// Content-relative source files that have no metadata yet.
+	// Content-relative importable source files that have no metadata yet.
 	std::vector<std::string> UnregisteredSources;
 };
 

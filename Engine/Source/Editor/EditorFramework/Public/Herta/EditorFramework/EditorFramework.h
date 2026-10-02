@@ -26,6 +26,7 @@ struct FEditorFrameworkError
 
 struct FEditorAssetPaths
 {
+	std::filesystem::path EngineContentRoot;
 	std::filesystem::path ContentRoot;
 	std::filesystem::path DerivedDataRoot;
 	std::filesystem::path WorkerPath;

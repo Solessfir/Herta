@@ -302,6 +302,7 @@ TEST_CASE("Content scans register sources and report problems")
 	WriteText(Root / "B.png", "png");
 	WriteText(Root / "B.png.hmeta", MakeMetadataText("00000000-0000-4000-8000-000000000003", "Texture"));
 	WriteText(Root / ".gitkeep", "");
+	WriteText(Root / "Fonts/Readme.txt", "not an asset");
 	WriteText(Root / ".git/Ignored.png", "png");
 
 	const auto Scan = ScanContentRoot(Root);

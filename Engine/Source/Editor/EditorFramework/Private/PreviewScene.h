@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Herta/Assets/AssetId.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -12,12 +14,16 @@
 
 namespace Herta
 {
+// Engine/Content/Shapes/Cube.gltf.hmeta
+inline constexpr FAssetId EngineCubeAsset{0x59f13694df4844e5, 0x863555194493f242};
+
 struct FPreviewObject
 {
 	std::string Label;
 	Im3d::Vec3 Translation;
 	Im3d::Mat3 Rotation{1.0f};
 	Im3d::Vec3 Scale{1.0f};
+	FAssetId Mesh = EngineCubeAsset;
 };
 
 inline constexpr int PreviewCubeIndex = 0;
@@ -141,6 +147,7 @@ inline void ApplyPreviewTransformDelta(const std::span<FPreviewObject> Objects, 
 
 [[nodiscard]] inline std::array<FPreviewObject, 2> CreatePreviewObjects()
 {
-	return {{{"Preview Cube", {0.0f, 4.0f, 0.0f}}, {"Floor", {0.0f, -0.25f, 0.0f}, Im3d::Mat3(1.0f), {10.0f, 0.25f, 10.0f}}}};
+	// Both use the 1 m engine cube; the floor is scaled to a 10 x 0.5 x 10 m slab with its top at Y=0.
+	return {{{"Preview Cube", {0.0f, 4.0f, 0.0f}}, {"Floor", {0.0f, -0.25f, 0.0f}, Im3d::Mat3(1.0f), {10.0f, 0.5f, 10.0f}}}};
 }
 }

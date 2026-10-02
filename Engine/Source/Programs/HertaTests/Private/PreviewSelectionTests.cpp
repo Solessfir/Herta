@@ -75,12 +75,16 @@ TEST_CASE("Preview picking consumes camera rays without changing screen conventi
 {
 	const FViewportCameraController Camera;
 	constexpr float AspectRatio = 16.0f / 9.0f;
-	CHECK(HitTestPreviewCube(Camera.MakePickingRay({0.5f, 0.5f}, AspectRatio), FMatrix4::Identity()));
+	const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(AspectRatio);
+	const auto ToScreen = [&Snapshot](const FVector3& Position)
+	{
+		const FVector4 Clip = Snapshot.Projection * Snapshot.View * FVector4{Position, 1.0f};
+		return FVector2{(Clip.X / Clip.W + 1.0f) * 0.5f, (1.0f - Clip.Y / Clip.W) * 0.5f};
+	};
+	CHECK(HitTestPreviewCube(Camera.MakePickingRay(ToScreen(FVector3::Zero()), AspectRatio), FMatrix4::Identity()));
 	CHECK_FALSE(HitTestPreviewCube(Camera.MakePickingRay({0.0f, 0.0f}, AspectRatio), FMatrix4::Identity()));
 	const FMatrix4 LeftCube = FMatrix4::Translation({3.0f, 0.0f, 0.0f});
-	const FViewportCameraSnapshot Snapshot = Camera.GetSnapshot(AspectRatio);
-	const FVector4 Clip = Snapshot.Projection * Snapshot.View * FVector4{LeftCube.TransformPosition(FVector3::Zero()), 1.0f};
-	const FVector2 LeftCubeScreen{(Clip.X / Clip.W + 1.0f) * 0.5f, (1.0f - Clip.Y / Clip.W) * 0.5f};
+	const FVector2 LeftCubeScreen = ToScreen(LeftCube.TransformPosition(FVector3::Zero()));
 	CHECK(LeftCubeScreen.X < 0.5f);
 	CHECK(HitTestPreviewCube(Camera.MakePickingRay(LeftCubeScreen, AspectRatio), LeftCube));
 	CHECK_FALSE(HitTestPreviewCube(Camera.MakePickingRay({1.0f - LeftCubeScreen.X, LeftCubeScreen.Y}, AspectRatio), LeftCube));

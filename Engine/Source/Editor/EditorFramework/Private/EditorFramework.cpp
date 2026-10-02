@@ -279,7 +279,7 @@ struct FEditorFramework::FImplementation
 	std::array<const FRenderMesh*, 2> PreviewMeshes{};
 	std::unique_ptr<FPreviewAssets> Assets;
 	std::vector<std::string> MeshOptions;
-	std::vector<FAssetRecord> MeshOptionRecords;
+	std::vector<FAssetId> MeshOptionIds;
 	std::optional<Im3d::Mat4> PreviewDragStart;
 	std::array<FPreviewObject, 2> PreviewDragObjects;
 	FViewportRotationFeedbackState RotationFeedback;
@@ -383,6 +383,13 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		if (Descriptor.Tasks != nullptr && Descriptor.GraphicsDevice != nullptr && !Paths.ContentRoot.empty() && !Paths.DerivedDataRoot.empty() && !Paths.WorkerPath.empty() && !Paths.TargetPlatform.empty())
 		{
 			Implementation->Assets = FPreviewAssets::Create(*Descriptor.Tasks, *Descriptor.GraphicsDevice, *Descriptor.Log, Paths, Implementation->PreviewObjects.size());
+		}
+		if (Implementation->Assets)
+		{
+			for (std::size_t Index = 0; Index < Implementation->PreviewObjects.size(); ++Index)
+			{
+				Implementation->Assets->RequestMesh(Index, Implementation->PreviewObjects[Index].Mesh);
+			}
 		}
 		if (auto Result = RegisterViewportStatsCommand(*Descriptor.Commands, Implementation->Stats); !Result)
 		{
@@ -615,7 +622,8 @@ FPreviewBodyShape FEditorFramework::FImplementation::GetPreviewBodyShape(const s
 	const FRenderMesh* const Mesh = PreviewMeshes[Index];
 	if (Mesh == nullptr)
 	{
-		return {};
+		// Matches the 1 m engine cube that every preview object loads by default.
+		return {{}, {0.5f, 0.5f, 0.5f}};
 	}
 	const FVector3& Minimum = Mesh->GetBoundsMinimum();
 	const FVector3& Maximum = Mesh->GetBoundsMaximum();
@@ -935,7 +943,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimum, const ImVec2 RenderSize)
 {
-	auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh] = GetActivePreviewObject();
 	const ImGuiIO& IO = ImGui::GetIO();
 	const bool bImageHovered = ImGui::IsItemHovered();
 	const bool bImageActive = ImGui::IsItemActive();
@@ -1053,7 +1061,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 
 void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmoInput, const FVector2 NormalizedMouse)
 {
-	auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh] = GetActivePreviewObject();
 	const FIm3dContextScope ContextScope(ViewportGizmos);
 	const float AspectRatio = static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height);
 	const auto Camera = ViewportCamera.GetSnapshot(AspectRatio, ViewportProjectionCenter);
@@ -1207,7 +1215,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>& RenderViewport)
 {
-	auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh] = GetActivePreviewObject();
 	ImGui::SetNextWindowSize({960, 540}, ImGuiCond_FirstUseEver);
 	if (ToolUI->BeginPanel("Viewport", nullptr, true))
 	{
@@ -1230,8 +1238,13 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			const float ToolbarBottom = DrawViewportToolbar(ImageMinimum, Size);
 			DrawViewportStats(ImageMinimum, Size, ToolbarBottom);
 			const float HudScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
+			const auto FormatCameraHud = [this](const FVector3& Position)
+			{
+				constexpr float Degrees = 180.0f / std::numbers::pi_v<float>;
+				return std::format("X {:.2f}   Y {:.2f}   Z {:.2f} m   Pitch {:.1f}°   Yaw {:.1f}°", Position.X, Position.Y, Position.Z, ViewportCamera.GetPitch() * Degrees, ViewportCamera.GetYaw() * Degrees);
+			};
 			const FVector3 LayoutCameraPosition = ViewportCamera.GetSnapshot(1.0f).Position;
-			const std::string LayoutCoordinates = std::format("X {:.2f}   Y {:.2f}   Z {:.2f} m", LayoutCameraPosition.X, LayoutCameraPosition.Y, LayoutCameraPosition.Z);
+			const std::string LayoutCoordinates = FormatCameraHud(LayoutCameraPosition);
 			const float CameraLabelWidth = std::max(ImGui::CalcTextSize("Camera").x, ImGui::CalcTextSize("Copied").x);
 			const float CoordinatesWidth = CameraLabelWidth + ImGui::CalcTextSize(LayoutCoordinates.c_str()).x + 52.0f * HudScale;
 			const float CoordinatesHeight = 32.0f * HudScale;
@@ -1253,7 +1266,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			ImGui::EndDisabled();
 			UpdateViewport(RenderMinimum, RenderSize);
 			const FVector3 CameraPosition = ViewportCamera.GetSnapshot(1.0f).Position;
-			const std::string Coordinates = std::format("X {:.2f}   Y {:.2f}   Z {:.2f} m", CameraPosition.X, CameraPosition.Y, CameraPosition.Z);
+			const std::string Coordinates = FormatCameraHud(CameraPosition);
 			if (bCopyCoordinates)
 			{
 				ImGui::SetClipboardText(FormatTransformVectorClipboard(CameraPosition).c_str());
@@ -1480,27 +1493,34 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	const FPreviewObject PreviousObject = GetActivePreviewObject();
-	auto& [Label, Translation, Rotation, Scale] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh] = GetActivePreviewObject();
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	if (Assets)
 	{
-		// ponytail: rebuilt every frame from the registry snapshot; cache by snapshot when content grows large.
-		MeshOptions.assign(1, "Cube (built-in)");
-		MeshOptionRecords.clear();
+		// ponytail: rebuilt every frame from the scan results; cache them per scan when content grows large.
+		MeshOptions.clear();
+		MeshOptionIds.clear();
 		const FPreviewMeshSlot& Slot = Assets->GetSlot(static_cast<std::size_t>(std::max(PreviewSelection.Active, 0)));
-		for (const FAssetRecord& Record : Assets->GetRegistry().GetRecords())
+		for (const FPreviewAssetOption& Option : Assets->GetOptions())
 		{
-			if (Record.Importer != "Gltf" && Record.Importer != "Texture")
+			if (Option.Importer != "Gltf" && Option.Importer != "Texture")
 			{
 				continue;
 			}
-			if (Record.Id == Slot.Asset)
+			if (Option.Id == Slot.Asset)
 			{
 				MeshField.Selected = static_cast<int>(MeshOptions.size());
 			}
-			MeshOptions.push_back(Record.Importer == "Texture" ? std::format("{} (texture on cube)", Record.SourcePath) : Record.SourcePath);
-			MeshOptionRecords.push_back(Record);
+			MeshOptions.push_back(Option.Importer == "Texture" ? std::format("{} (texture on cube)", Option.Label) : Option.Label);
+			MeshOptionIds.push_back(Option.Id);
+		}
+		if (MeshField.Selected < 0)
+		{
+			// The current asset is not in the latest scan yet, such as during startup.
+			MeshField.Selected = static_cast<int>(MeshOptions.size());
+			MeshOptions.push_back(Slot.Label);
+			MeshOptionIds.push_back(Slot.Asset);
 		}
 		if (Slot.bLoading)
 		{
@@ -1526,16 +1546,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	}
 	if (Assets && MeshResult.Chosen >= 0)
 	{
+		const FAssetId Chosen = MeshOptionIds[static_cast<std::size_t>(MeshResult.Chosen)];
 		for (const int Index : PreviewSelection.Indices)
 		{
-			if (MeshResult.Chosen == 0)
-			{
-				Assets->ResetMesh(static_cast<std::size_t>(Index));
-			}
-			else
-			{
-				Assets->RequestMesh(static_cast<std::size_t>(Index), MeshOptionRecords[static_cast<std::size_t>(MeshResult.Chosen - 1)]);
-			}
+			PreviewObjects[static_cast<std::size_t>(Index)].Mesh = Chosen;
+			Assets->RequestMesh(static_cast<std::size_t>(Index), Chosen);
 		}
 	}
 }

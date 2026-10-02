@@ -9,7 +9,6 @@
 #include <cstddef>
 #include <format>
 #include <limits>
-#include <numbers>
 #include <numeric>
 #include <ranges>
 #include <utility>
@@ -18,76 +17,10 @@ namespace Herta
 {
 namespace
 {
-constexpr std::array<FCookedVertex, 24> CubeVertices{{{{-1, -1, -1}, {0, 1}}, {{-1, 1, -1}, {0, 0}}, {{1, 1, -1}, {1, 0}}, {{1, -1, -1}, {1, 1}}, {{1, -1, 1}, {0, 1}}, {{1, 1, 1}, {0, 0}}, {{-1, 1, 1}, {1, 0}}, {{-1, -1, 1}, {1, 1}}, {{-1, -1, 1}, {0, 1}}, {{-1, 1, 1}, {0, 0}}, {{-1, 1, -1}, {1, 0}}, {{-1, -1, -1}, {1, 1}}, {{1, -1, -1}, {0, 1}}, {{1, 1, -1}, {0, 0}}, {{1, 1, 1}, {1, 0}}, {{1, -1, 1}, {1, 1}}, {{-1, 1, -1}, {0, 1}}, {{-1, 1, 1}, {0, 0}}, {{1, 1, 1}, {1, 0}}, {{1, 1, -1}, {1, 1}}, {{-1, -1, 1}, {0, 1}}, {{-1, -1, -1}, {0, 0}}, {{1, -1, -1}, {1, 0}}, {{1, -1, 1}, {1, 1}}}};
-
-constexpr auto CubeIndices = []
-{
-	std::array<std::uint32_t, 36> Result{};
-	for (std::uint32_t Face = 0; Face < 6; ++Face)
-	{
-		const std::array Pattern{0u, 1u, 2u, 0u, 2u, 3u};
-		for (std::size_t Index = 0; Index < Pattern.size(); ++Index)
-		{
-			Result[static_cast<std::size_t>(Face) * 6 + Index] = Face * 4 + Pattern[Index];
-		}
-	}
-	return Result;
-}();
-
 constexpr std::array<std::uint32_t, 6> GridIndices{0, 1, 2, 0, 2, 3};
 constexpr float GridHalfExtent = 216.0f;
 
-constexpr std::uint32_t CheckerTextureSize = 128;
-constexpr auto CheckerPixels = []
-{
-	constexpr std::size_t TileSize = CheckerTextureSize / 4;
-	std::array<std::uint8_t, std::size_t{CheckerTextureSize} * CheckerTextureSize * 4> Result{};
-	for (std::size_t Y = 0; Y < CheckerTextureSize; ++Y)
-	{
-		for (std::size_t X = 0; X < CheckerTextureSize; ++X)
-		{
-			const bool bLight = ((X / TileSize) + (Y / TileSize)) % 2 == 0;
-			const bool bSeam = X % TileSize == 0 || Y % TileSize == 0;
-			const std::size_t Pixel = (Y * CheckerTextureSize + X) * 4;
-			Result[Pixel] = bSeam ? 70 : (bLight ? 145 : 82);
-			Result[Pixel + 1] = bSeam ? 83 : (bLight ? 160 : 99);
-			Result[Pixel + 2] = bSeam ? 96 : (bLight ? 174 : 117);
-			Result[Pixel + 3] = 255;
-		}
-	}
-	return Result;
-}();
-
 static_assert(sizeof(FCookedVertex) == sizeof(FMeshVertex) && offsetof(FCookedVertex, Position) == offsetof(FMeshVertex, Position) && offsetof(FCookedVertex, UV) == offsetof(FMeshVertex, UV), "Cooked vertices upload directly as RHI mesh vertices");
-
-// ponytail: the debug checker averages in sRGB space; it is a fallback surface, not a cooked asset.
-[[nodiscard]] FCookedModel CreateBuiltInCube()
-{
-	FCookedTexture Checker{ETextureColorSpace::Srgb, {{CheckerTextureSize, CheckerTextureSize, std::vector<std::byte>(CheckerPixels.size())}}};
-	std::ranges::transform(CheckerPixels, Checker.Mips[0].Pixels.begin(), [](const std::uint8_t Value)
-	                       {
-		                       return static_cast<std::byte>(Value);
-	                       });
-	while (Checker.Mips.back().Width > 1)
-	{
-		const FCookedTextureMip& Source = Checker.Mips.back();
-		FCookedTextureMip Mip{Source.Width / 2, Source.Height / 2, std::vector<std::byte>(std::size_t{Source.Width / 2} * (Source.Height / 2) * 4)};
-		for (std::size_t Y = 0; Y < Mip.Height; ++Y)
-		{
-			for (std::size_t X = 0; X < std::size_t{Mip.Width} * 4; ++X)
-			{
-				const auto At = [&Source](const std::size_t SourceY, const std::size_t SourceX)
-				{
-					return static_cast<std::uint32_t>(Source.Pixels[SourceY * Source.Width * 4 + SourceX]);
-				};
-				const std::size_t SourceX = (X / 4) * 8 + X % 4;
-				Mip.Pixels[Y * Mip.Width * 4 + X] = static_cast<std::byte>((At(Y * 2, SourceX) + At(Y * 2, SourceX + 4) + At(Y * 2 + 1, SourceX) + At(Y * 2 + 1, SourceX + 4) + 2) / 4);
-			}
-		}
-		Checker.Mips.push_back(std::move(Mip));
-	}
-	return CreateTexturedCubeModel(std::move(Checker));
-}
 
 [[nodiscard]] std::expected<void, FRenderGraphError> GraphResult(const std::expected<void, FPresentationError>& Result)
 {
@@ -269,7 +202,34 @@ void AppendQuad(std::vector<FColoredClipVertex>& Vertices, const FProjectedDebug
 
 FCookedModel CreateTexturedCubeModel(FCookedTexture Texture)
 {
-	return {{CubeVertices.begin(), CubeVertices.end()}, {CubeIndices.begin(), CubeIndices.end()}, {{0, static_cast<std::uint32_t>(CubeIndices.size()), 0}}, {{"Cube", 0}}, {std::move(Texture)}};
+	struct FFace
+	{
+		std::array<float, 3> Normal;
+		std::array<float, 3> Up;
+	};
+	constexpr std::array<FFace, 6> Faces{{{{1, 0, 0}, {0, 1, 0}}, {{-1, 0, 0}, {0, 1, 0}}, {{0, 1, 0}, {0, 0, 1}}, {{0, -1, 0}, {0, 0, 1}}, {{0, 0, 1}, {0, 1, 0}}, {{0, 0, -1}, {0, 1, 0}}}};
+
+	FCookedModel Model;
+	for (const auto& [Normal, Up] : Faces)
+	{
+		// A viewer facing the face sees Up as up and cross(-Normal, Up) as right, so these corners run counter-clockwise from outside.
+		const std::array<float, 3> Right{Normal[2] * Up[1] - Normal[1] * Up[2], Normal[0] * Up[2] - Normal[2] * Up[0], Normal[1] * Up[0] - Normal[0] * Up[1]};
+		const auto Base = static_cast<std::uint32_t>(Model.Vertices.size());
+		for (const auto& [X, Y] : {std::pair{-1.0f, 1.0f}, std::pair{-1.0f, -1.0f}, std::pair{1.0f, -1.0f}, std::pair{1.0f, 1.0f}})
+		{
+			FCookedVertex Vertex{{}, {(X + 1.0f) * 0.5f, (1.0f - Y) * 0.5f}};
+			for (std::size_t Axis = 0; Axis < 3; ++Axis)
+			{
+				Vertex.Position[Axis] = (Normal[Axis] + X * Right[Axis] + Y * Up[Axis]) * 0.5f;
+			}
+			Model.Vertices.push_back(Vertex);
+		}
+		Model.Indices.insert(Model.Indices.end(), {Base, Base + 1, Base + 2, Base, Base + 2, Base + 3});
+	}
+	Model.Sections = {{0, static_cast<std::uint32_t>(Model.Indices.size()), 0}};
+	Model.Materials = {{"Cube", 0}};
+	Model.Textures.push_back(std::move(Texture));
+	return Model;
 }
 
 std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> FRenderMesh::Create(IGraphicsDevice& Device, const FCookedModel& Model, const std::string_view Name)
@@ -379,7 +339,6 @@ std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> FRenderMes
 struct FMeshRenderer::FImplementation
 {
 	IGraphicsDevice* Device = nullptr;
-	std::shared_ptr<const FRenderMesh> Cube;
 	FTextureHandle Color;
 	FTextureHandle Depth;
 	FGraphicsPipelineHandle Pipeline;
@@ -411,13 +370,11 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	}
 	auto State = std::make_unique<FImplementation>();
 	State->Device = &Device;
-	auto Cube = FRenderMesh::Create(Device, CreateBuiltInCube(), "Built-in cube");
 	auto Pipeline = Device.CreateGraphicsPipeline({"Textured mesh reversed-Z", std::move(VertexShader), std::move(FragmentShader), ETextureFormat::Rgba8Srgb});
-	if (!Cube || !Pipeline)
+	if (!Pipeline)
 	{
-		return std::unexpected(!Cube ? Cube.error() : Pipeline.error());
+		return std::unexpected(Pipeline.error());
 	}
-	State->Cube = std::move(*Cube);
 	State->Pipeline = std::move(*Pipeline);
 	if (!GridVertexShader.Bytecode.empty())
 	{
@@ -472,22 +429,6 @@ const FTextureHandle& FMeshRenderer::GetColorTarget() const noexcept
 	return Implementation->Color;
 }
 
-std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Extent, const float RotationRadians)
-{
-	if (Extent.IsEmpty())
-	{
-		return {};
-	}
-	if (!std::isfinite(RotationRadians))
-	{
-		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Mesh rotation must be finite"});
-	}
-	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.0f, static_cast<float>(Extent.Width) / static_cast<float>(Extent.Height), 0.1f);
-	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0, 1, 0}, RotationRadians) * FQuaternion::FromAxisAngle({1, 0, 0}, -0.25f);
-	const FMatrix4 Model = FMatrix4::Rotation(Rotation);
-	return Render(Extent, {FMatrix4::Translation({0, 0, 5}), Projection, std::span{&Model, 1}});
-}
-
 std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Extent, const FMeshRenderView& View, const std::span<const FDebugDrawList> DebugDraw)
 {
 	if (Extent.IsEmpty())
@@ -497,9 +438,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	FImplementation& State = *Implementation;
 	IGraphicsDevice& Device = *State.Device;
 	const FMatrix4 WorldToClip = View.Projection * View.View;
-	if (!View.Meshes.empty() && View.Meshes.size() != View.Models.size())
+	if (View.Meshes.size() != View.Models.size())
 	{
-		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Mesh render view requires no meshes or one mesh per model"});
+		return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Mesh render view requires one mesh entry per model"});
 	}
 	if (!IsFinite(View.View) || !IsFinite(View.Projection) || !IsFinite(WorldToClip) || !std::ranges::all_of(View.Models, [&](const FMatrix4& Model)
 	                                                                                                      {
@@ -573,7 +514,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	                    {
 		                    for (std::size_t Index = 0; Index < View.Models.size(); ++Index)
 		                    {
-			                    const FRenderMesh& Mesh = !View.Meshes.empty() && View.Meshes[Index] ? *View.Meshes[Index] : *State.Cube;
+			                    if (View.Meshes[Index] == nullptr)
+			                    {
+				                    continue;
+			                    }
+			                    const FRenderMesh& Mesh = *View.Meshes[Index];
 			                    const auto Transform = (WorldToClip * View.Models[Index]).Data();
 			                    for (const FRenderMesh::FSection& Section : Mesh.Sections)
 			                    {
