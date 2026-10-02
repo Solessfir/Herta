@@ -8,7 +8,7 @@ The architecture takes inspiration from Unreal Engine's runtime and tooling boun
 
 ## Status
 
-Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and an interactive editor Viewport with reversed-Z, camera navigation, transform gizmos, and depth-tested debug drawing. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is next; asset importing and the game runtime have not started.
+Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and an interactive editor Viewport with reversed-Z, camera navigation, transform gizmos, and depth-tested debug drawing. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is in progress: stable asset IDs, metadata sidecars, the content registry, build keys, DerivedDataCache, and headless asset commands are implemented. Importers, cooking, and the game runtime have not started.
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
 
@@ -35,6 +35,18 @@ Press the backtick key to open Output Log and focus its command field; pressing 
 Use **Appearance** in the bottom bar for workspace styling. Default panel opacity is 90%, with 24 px background blur. Start is closed by default and can be reopened from **Window > Start panel**.
 
 Set `HERTA_PROFILE_BLUR=1` before launching the editor to log GPU timings for the main window's backdrop copy and blur passes. After 30 warm-up samples, it reports average/minimum/maximum milliseconds over 120 samples, together with framebuffer resolution and blur radius. Resizing or changing the radius restarts sampling. These timings exclude final UI compositing.
+
+## Assets
+
+Content lives in `Games/Sandbox/Content` until project loading exists. Each source file is registered with a `<source>.hmeta` sidecar that holds its stable ID, importer, and import settings; commit both. Manage content headlessly:
+
+```bat
+HertaEditorCmd asset.import path\to\Crate.png --destination Textures
+HertaEditorCmd asset.list
+HertaEditorCmd asset.validate
+```
+
+Every asset command accepts `--content-root <path>`. See [AssetPipeline.md](Docs/AssetPipeline.md) for the metadata format, path rules, build keys, and DerivedDataCache layout.
 
 ## Technical direction
 

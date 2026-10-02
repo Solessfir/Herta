@@ -189,7 +189,8 @@ HertaRuntimeModule("Core", {
 })
 
     externalincludedirs {
-        path.join(RepositoryRoot, "External/spdlog/include")
+        path.join(RepositoryRoot, "External/spdlog/include"),
+        path.join(RepositoryRoot, "External/xxHash")
     }
 
     filter "system:windows"
@@ -198,6 +199,10 @@ HertaRuntimeModule("Core", {
     filter {}
 
 HertaRuntimeModule("Math", {
+    PublicDependencies = { "Core" }
+})
+
+HertaRuntimeModule("Assets", {
     PublicDependencies = { "Core" }
 })
 
@@ -328,6 +333,11 @@ HertaRuntimeModule("ShaderCompiler", {
 })
     externalincludedirs { path.join(VulkanSdk.IncludeDirectory, "slang") }
 
+HertaRuntimeModule("AssetPipeline", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
+    PublicDependencies = { "Core", "Assets", "EditorCore" }
+})
+
 project "HertaShaderWorker"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaShaderWorker"))
@@ -378,7 +388,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/im3d")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Physics", "Platform", "Tasks", "Application", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
@@ -388,7 +398,7 @@ project "HertaEditorCmd"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaEditorCmd"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditorCmd"))
-    ApplyRuntimeDependencies { "EditorCore" }
+    ApplyRuntimeDependencies { "EditorCore", "AssetPipeline" }
 
 project "HertaEditor"
     kind "ConsoleApp"

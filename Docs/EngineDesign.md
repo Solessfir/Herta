@@ -1,7 +1,7 @@
 # Herta Engine Design
 
-Status: Active design - Milestone 2 complete
-Last updated: 2026-09-22
+Status: Active design - Milestone 3 in progress
+Last updated: 2026-10-02
 
 ## 1. Purpose
 
@@ -1029,6 +1029,7 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [Umka](https://github.com/vtereshkov/umka-lang) | Preferred candidate at scripting milestone | Scripting | Optional statically typed gameplay VM behind Herta handles, bindings, cooking, budgets, diagnostics, and sandbox policy. Adopt only if production gates pass. |
 | [EnTT](https://github.com/skypjack/entt) | Preferred at world milestone after spike | Scene | Private ECS storage candidate. Herta owns entity, world, query, serialization, scheduling, and mutation-barrier contracts. |
 | [fastgltf](https://github.com/spnda/fastgltf) | Adopt with asset import | AssetPipeline | Offline glTF 2.0 ingestion only. |
+| [xxHash](https://github.com/Cyan4973/xxHash) | Adopted at MS3 | Core | Private header-only XXH3-128 behind `HashBytes` for build keys, DerivedDataCache checksums, and content identity. Pinned to `v0.8.3`; the XXH3 output is frozen. |
 | [Blender](https://www.blender.org/) | Optional system tool | AssetPipeline | Used only for `.blend` import and live reimport. Never downloaded by Setup or required to build or run Herta. |
 | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | Adopt at physics milestone | Physics | Collision and rigid-body simulation behind Herta types. |
 | [ozz-animation](https://github.com/guillaumeblanc/ozz-animation) | Adopt at animation milestone | Animation, AssetPipeline | Offline optimization plus runtime sampling and blending primitives. |
@@ -1046,7 +1047,7 @@ Source dependencies are pinned Git submodules under `External`. Optional system 
 | [NVIDIA Streamline/DLSS](https://github.com/NVIDIA-RTX/Streamline) | Optional later plugin | Renderer plugin | Vulkan DLSS integration without making NVIDIA binaries or device capabilities a renderer foundation. Validate Windows and Linux deployment independently. |
 | [Intel XeSS](https://www.intel.com/content/www/us/en/developer/articles/technical/xess-sr-developer-guide.html) | Optional later plugin | Renderer plugin | Vulkan temporal upscaling through the same Herta input contract after native TAA and FSR are stable. |
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | Add when mesh cooking exists | AssetPipeline | Mesh optimization, simplification, and later meshlets. |
-| [KTX-Software/Basis Universal](https://github.com/KhronosGroup/KTX-Software) | Add when texture cooking exists | AssetPipeline | KTX2 texture cooking and runtime transcode targets. Audit per-file licenses. |
+| [KTX-Software/Basis Universal](https://github.com/KhronosGroup/KTX-Software) | Add when texture memory or load time justifies block compression | AssetPipeline | KTX2 texture cooking and runtime transcode targets. Audit per-file licenses. |
 | [Tracy](https://github.com/wolfpld/tracy) | Add when frame systems exist | Core, Renderer | CPU, allocation, lock, and Vulkan profiling. Compile out in Shipping. |
 | [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | Defer | NvrhiVulkan | Requires deliberate NVRHI allocation integration. Do not create two allocation authorities. |
 | [volk](https://github.com/zeux/volk) | Defer | NvrhiVulkan | Add only if its dispatch model is proven compatible with the selected NVRHI/Vulkan-Hpp integration. |
@@ -1498,6 +1499,8 @@ Exit condition: the preview object can be inspected and transformed interactivel
 
 Exit condition: Herta operates normally without Blender. When Blender is installed, saving a tracked `.blend` updates dependent editor instances without blocking the UI, the same source, Blender version, and settings produce identical cooked hashes, and failed reimport preserves the previous asset.
 
+Implemented so far: stable asset IDs, canonical `.hmeta` sidecars, portable content paths, immutable registry snapshots built from content scans, deterministic build keys, an atomic checksummed DerivedDataCache, and headless `asset.validate`, `asset.list`, and `asset.import` commands. Content lives in `Games/Sandbox/Content` until projects exist. The first texture cooker produces RGBA8 with generated mips; block compression follows measurement. See [AssetPipeline.md](AssetPipeline.md).
+
 ### Milestone 4 - World and editor authoring
 
 - Add the Herta ECS contracts, entities, components, hierarchy, scene save/load, and version migration.
@@ -1650,11 +1653,12 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Milestones 2 and 2.5 are implemented, including viewport camera navigation and preview gizmos. The following Milestone 3 slice should remain limited to:
+Stable asset IDs, the asset registry, deterministic build keys, DerivedDataCache, and headless asset commands are implemented. The next Milestone 3 slices should remain limited to:
 
-1. Add stable asset IDs, the asset registry, deterministic build keys, and DerivedDataCache.
-2. Introduce fastgltf and canonical mesh and texture cooking behind the worker boundary.
-3. Expose import and reimport through shared headless editor commands and asynchronous editor jobs.
+1. Introduce fastgltf, stb_image, and meshoptimizer for canonical mesh and RGBA8 texture cooking behind the `HertaAssetWorker` process boundary.
+2. Render the editor preview from cooked assets instead of the built-in cube, publishing new generations at a frame boundary.
+3. Expose reimport through shared headless commands and asynchronous editor jobs.
 4. Add optional system Blender discovery and isolated import without making Blender required.
+5. Add platform file watching, live reimport, drag-and-drop batch import, and registry search.
 
 Keep ECS, localization, networking, graph tooling, physics, animation, audio, and scripting in their later milestones.

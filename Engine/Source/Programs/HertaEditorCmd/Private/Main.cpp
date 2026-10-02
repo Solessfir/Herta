@@ -1,7 +1,9 @@
+#include "Herta/AssetPipeline/AssetCommands.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <print>
 #include <string>
 #include <string_view>
@@ -90,6 +92,28 @@ void ReportJsonDiagnostic(const std::string_view Status, const std::string_view 
 	}
 }
 
+// The working directory wins so Herta checkouts can share one installed binary.
+[[nodiscard]] std::filesystem::path FindDefaultContentRoot(const std::filesystem::path& ExecutablePath)
+{
+	std::error_code PathError;
+	for (std::filesystem::path Start : {std::filesystem::current_path(PathError), std::filesystem::absolute(ExecutablePath, PathError).parent_path()})
+	{
+		for (int Parent = 0; Parent < 8 && !Start.empty(); ++Parent)
+		{
+			if (std::filesystem::is_directory(Start / "Engine/Content", PathError))
+			{
+				return Start / "Games/Sandbox/Content";
+			}
+			if (Start == Start.parent_path())
+			{
+				break;
+			}
+			Start = Start.parent_path();
+		}
+	}
+	return {};
+}
+
 [[nodiscard]] std::string BuildCommandLine(const int ArgumentCount, const char* const* const Arguments, const int FirstCommandArgument)
 {
 	std::string CommandLine;
@@ -123,7 +147,12 @@ int main(const int ArgumentCount, const char* const* const Arguments)
 	try
 	{
 		Herta::FEditorCommandRegistry Registry;
-		const std::expected<void, Herta::FEditorCommandError> RegistrationResult = Herta::RegisterCoreEditorCommands(Registry);
+		std::expected<void, Herta::FEditorCommandError> RegistrationResult = Herta::RegisterCoreEditorCommands(Registry);
+		if (RegistrationResult)
+		{
+			const std::filesystem::path ExecutablePath = ArgumentCount > 0 && Arguments[0] != nullptr ? Arguments[0] : "HertaEditorCmd";
+			RegistrationResult = Herta::RegisterAssetCommands(Registry, {FindDefaultContentRoot(ExecutablePath)});
+		}
 		if (!RegistrationResult)
 		{
 			if (bJson)
