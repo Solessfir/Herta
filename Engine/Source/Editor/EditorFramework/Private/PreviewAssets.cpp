@@ -316,7 +316,7 @@ void FPreviewAssets::PublishScan(const std::vector<std::expected<FContentScanRes
 	{
 		for (const auto& [Asset, Cached] : MeshCache)
 		{
-			if (Cached.Slot.bLoading)
+			if (Asset.IsValid() && Cached.Slot.bLoading)
 			{
 				StartLoad(Asset);
 			}
@@ -332,6 +332,13 @@ void FPreviewAssets::PublishScan(const std::vector<std::expected<FContentScanRes
 void FPreviewAssets::RequestMesh(const std::size_t Object, const FAssetId& Asset)
 {
 	FPreviewMeshSlot& Slot = Slots.at(Object);
+	if (!Asset.IsValid())
+	{
+		Slot = {};
+		PruneCache();
+		return;
+	}
+
 	const FPreviewMeshSlot Previous = Slot;
 	const auto Existing = MeshCache.find(Asset);
 	if (bScanned && !bReimportAfterScan && Existing != MeshCache.end() && !Existing->second.Slot.bLoading && !Existing->second.Slot.Error.empty() && Existing->second.RequestContentGeneration == ContentGeneration)
@@ -359,6 +366,12 @@ void FPreviewAssets::RebindObjects(const std::span<const FAssetId> Assets)
 
 	for (const FAssetId& Asset : Assets)
 	{
+		if (!Asset.IsValid())
+		{
+			Rebound.emplace_back();
+			continue;
+		}
+
 		FPreviewMeshSlot Slot = GetOrLoadMesh(Asset);
 		if (Slot.bLoading)
 		{
@@ -517,7 +530,7 @@ void FPreviewAssets::ReimportShownAssets()
 
 	for (const FPreviewMeshSlot& Slot : Slots)
 	{
-		if (MeshCache.contains(Slot.Asset))
+		if (Slot.Asset.IsValid() && MeshCache.contains(Slot.Asset))
 		{
 			Shown.insert(Slot.Asset);
 		}

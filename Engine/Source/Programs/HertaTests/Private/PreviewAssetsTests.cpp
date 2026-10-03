@@ -18,6 +18,7 @@ struct FPreviewAssetsTestAccess
 	static void ContentChanged(FPreviewAssets& Assets);
 	static std::uint64_t GetRequestGeneration(const FPreviewAssets& Assets);
 	static std::size_t GetCachedMeshCount(const FPreviewAssets& Assets);
+	static std::size_t GetOutstandingTaskCount(const FPreviewAssets& Assets);
 };
 
 void FPreviewAssetsTestAccess::ContentChanged(FPreviewAssets& Assets)
@@ -35,11 +36,28 @@ std::size_t FPreviewAssetsTestAccess::GetCachedMeshCount(const FPreviewAssets& A
 	return Assets.MeshCache.size();
 }
 
+std::size_t FPreviewAssetsTestAccess::GetOutstandingTaskCount(const FPreviewAssets& Assets)
+{
+	return Assets.Scope->GetOutstandingTaskCount();
+}
+
 namespace
 {
 constexpr FAssetId StoneId{0x0000000000004000, 0x8000000000000003};
 constexpr FAssetId WoodId{0x0000000000004000, 0x8000000000000001};
 constexpr FAssetId RobotId{0x0000000000004000, 0x8000000000000002};
+
+void CheckEmptyMeshSlot(const FPreviewMeshSlot& Slot)
+{
+	CHECK_FALSE(Slot.Asset.IsValid());
+	CHECK(Slot.Label.empty());
+	CHECK_FALSE(Slot.Mesh);
+	CHECK(Slot.Key == FHash128{});
+	CHECK(Slot.ContentGeneration == 0);
+	CHECK_FALSE(Slot.bLoading);
+	CHECK(Slot.Error.empty());
+	CHECK(Slot.Generation == 0);
+}
 
 struct FPreviewAssetsFixture
 {
@@ -298,6 +316,148 @@ TEST_CASE("Preview assets do not share stale meshes while their reimport is pend
 	CHECK_FALSE(Assets->GetSlot(1).bLoading);
 	REQUIRE(Assets->GetSlot(0).Mesh);
 	CHECK(Assets->GetSlot(1).Mesh == Assets->GetSlot(0).Mesh);
+}
+
+TEST_CASE("Meshless preview bindings stay empty without scheduling cooks or GPU uploads")
+{
+	for (const bool bScanned : {false, true})
+	{
+		CAPTURE(bScanned);
+		FPreviewAssetsFixture Fixture;
+		auto Assets = Fixture.CreateAssets();
+		REQUIRE(Assets);
+		if (bScanned)
+		{
+			Fixture.Tasks->RunUntilIdle();
+		}
+
+		const std::size_t Outstanding = FPreviewAssetsTestAccess::GetOutstandingTaskCount(*Assets);
+		Assets->RebindObjects(std::array{FAssetId{}, FAssetId{}, FAssetId{}});
+		Assets->RequestMesh(1, {});
+		CHECK(FPreviewAssetsTestAccess::GetOutstandingTaskCount(*Assets) == Outstanding);
+		CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+		Fixture.Tasks->RunUntilIdle();
+		FPreviewAssetsTestAccess::ContentChanged(*Assets);
+		Fixture.Tasks->RunUntilIdle();
+		CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == 0);
+		CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+		CHECK(Fixture.Device.Submissions == 0);
+		CHECK(Fixture.Device.Events.empty());
+		for (std::size_t Index = 0; Index < 3; ++Index)
+		{
+			CheckEmptyMeshSlot(Assets->GetSlot(Index));
+		}
+	}
+}
+
+TEST_CASE("Mixed meshless preview bindings preserve shared assets across clearing and readding")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Assets->RebindObjects(std::array{WoodId, StoneId});
+	Fixture.Tasks->RunUntilIdle();
+	const auto Wood = Assets->GetSlot(0).Mesh;
+	const auto Stone = Assets->GetSlot(1).Mesh;
+	REQUIRE(Wood);
+	REQUIRE(Stone);
+	const auto Generation = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+	const auto Submissions = Fixture.Device.Submissions;
+	Assets->RebindObjects(std::array{FAssetId{}, WoodId, StoneId, FAssetId{}});
+	CheckEmptyMeshSlot(Assets->GetSlot(0));
+	CheckEmptyMeshSlot(Assets->GetSlot(3));
+	CHECK(Assets->GetSlot(1).Mesh == Wood);
+	CHECK(Assets->GetSlot(2).Mesh == Stone);
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == Generation);
+	CHECK(Fixture.Device.Submissions == Submissions);
+	Assets->RequestMesh(0, WoodId);
+	CHECK(Assets->GetSlot(0).Mesh == Wood);
+	Assets->RequestMesh(1, {});
+	CheckEmptyMeshSlot(Assets->GetSlot(1));
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 2);
+	Assets->RequestMesh(0, {});
+	CheckEmptyMeshSlot(Assets->GetSlot(0));
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 1);
+	Assets->RequestMesh(3, StoneId);
+	CHECK(Assets->GetSlot(3).Mesh == Stone);
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == Generation);
+	Assets->RebindObjects(std::array{FAssetId{}, StoneId, FAssetId{}});
+	CHECK(Assets->GetSlot(1).Mesh == Stone);
+	CheckEmptyMeshSlot(Assets->GetSlot(0));
+	CheckEmptyMeshSlot(Assets->GetSlot(2));
+	Assets->RebindObjects(std::array{FAssetId{}, FAssetId{}});
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+}
+
+TEST_CASE("Clearing mesh requests before the first scan prevents worker cooking")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Assets->RequestMesh(0, WoodId);
+	REQUIRE(Assets->GetSlot(0).bLoading);
+	Assets->RequestMesh(0, {});
+	CheckEmptyMeshSlot(Assets->GetSlot(0));
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == 0);
+	CHECK(Fixture.Device.Submissions == 0);
+	CheckEmptyMeshSlot(Assets->GetSlot(0));
+}
+
+TEST_CASE("Pending mesh results cannot repopulate cleared meshless slots")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->RequestMesh(0, WoodId);
+	REQUIRE(Assets->GetSlot(0).bLoading);
+	Fixture.RunToCheckpoint();
+	Assets->RequestMesh(0, {});
+	CheckEmptyMeshSlot(Assets->GetSlot(0));
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 1);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+	CHECK(Fixture.Device.Submissions == 0);
+	CheckEmptyMeshSlot(Assets->GetSlot(0));
+	Assets->RequestMesh(1, WoodId);
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetSlot(1).Mesh);
+	CHECK(Fixture.Device.Submissions == 1);
+	CheckEmptyMeshSlot(Assets->GetSlot(0));
+}
+
+TEST_CASE("Meshless slots can rejoin pending assets without duplicate requests")
+{
+	for (const bool bScanned : {false, true})
+	{
+		CAPTURE(bScanned);
+		FPreviewAssetsFixture Fixture;
+		auto Assets = Fixture.CreateAssets();
+		REQUIRE(Assets);
+		if (bScanned)
+		{
+			Fixture.Tasks->RunUntilIdle();
+		}
+
+		Assets->RebindObjects(std::array{WoodId, FAssetId{}});
+		const auto Generation = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+		Assets->RequestMesh(0, {});
+		CheckEmptyMeshSlot(Assets->GetSlot(0));
+		Assets->RebindObjects(std::array{FAssetId{}, WoodId, WoodId, FAssetId{}});
+		CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == Generation);
+		CHECK(Assets->GetSlot(1).bLoading);
+		CHECK(Assets->GetSlot(2).bLoading);
+		Fixture.Tasks->RunUntilIdle();
+		REQUIRE(Assets->GetSlot(1).Mesh);
+		CHECK(Assets->GetSlot(2).Mesh == Assets->GetSlot(1).Mesh);
+		CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == 1);
+		CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 1);
+		CHECK(Fixture.Device.Submissions == 1);
+		CheckEmptyMeshSlot(Assets->GetSlot(0));
+		CheckEmptyMeshSlot(Assets->GetSlot(3));
+	}
 }
 
 TEST_CASE("Scene rebinding retains loaded meshes across copies reorder deletion and load")

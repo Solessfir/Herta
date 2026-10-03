@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <string_view>
 
 namespace Herta
@@ -22,7 +23,7 @@ struct FPlaceObjectsMenuTestContext
 	FPlaceObjectsMenuTestContext(FPlaceObjectsMenuTestContext&&) = delete;
 	FPlaceObjectsMenuTestContext& operator=(FPlaceObjectsMenuTestContext&&) = delete;
 
-	bool Frame(bool bOpenRequested = false);
+	std::optional<EPlaceObjectType> Frame(bool bOpenRequested = false);
 
 	ImGuiContext* Previous = ImGui::GetCurrentContext();
 	ImGuiContext* Context = ImGui::CreateContext();
@@ -50,7 +51,7 @@ FPlaceObjectsMenuTestContext::~FPlaceObjectsMenuTestContext()
 	ImGui::SetCurrentContext(Previous);
 }
 
-bool FPlaceObjectsMenuTestContext::Frame(const bool bOpenRequested)
+std::optional<EPlaceObjectType> FPlaceObjectsMenuTestContext::Frame(const bool bOpenRequested)
 {
 	ImGui::NewFrame();
 	ImGui::Begin("Place objects test host", nullptr, ImGuiWindowFlags_NoSavedSettings);
@@ -59,7 +60,8 @@ bool FPlaceObjectsMenuTestContext::Frame(const bool bOpenRequested)
 		OpenPlaceObjectsMenu(State);
 	}
 
-	bool bCubeRequested = false;
+	std::optional<EPlaceObjectType> Chosen;
+	bool bCanceled = false;
 	if (ImGui::BeginPopup("Add###PlaceObjectsMenu"))
 	{
 		const bool bAppearing = ImGui::IsWindowAppearing();
@@ -75,37 +77,66 @@ bool FPlaceObjectsMenuTestContext::Frame(const bool bOpenRequested)
 		}
 
 		ImGui::PushItemFlag(ImGuiItemFlags_NoTabStop, true);
-		ImGui::InputTextWithHint("##PlaceObjectsSearch", "Search objects", State.Search.data(), State.Search.size());
+		const bool bSearchChanged = ImGui::InputTextWithHint("##PlaceObjectsSearch", "Search objects", State.Search.data(), State.Search.size());
 		bSearchActive = ImGui::IsItemActive();
-		if (bSearchActive)
+		if (bSearchActive || bSearchChanged)
 		{
 			State.bResultsFocused = false;
+			if (bSearchChanged)
+			{
+				State.SelectFirstResult();
+			}
 		}
 
-		if (State.HasCubeMatch())
+		if (State.HasAnyMatch())
 		{
-			bCubeRequested = ToolUIMenuItem("Cube", EToolUIMenuIcon::Cube, nullptr, "Enter") || Navigation.bConfirm;
-			if (Navigation.bFocusResult)
+			if (State.HasEmptyEntityMatch())
 			{
-				ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
+				const bool bPressed = ToolUIMenuItem("Empty Entity", EToolUIMenuIcon::Entity);
+				if (Navigation.bFocusResult && State.SelectedResult == EPlaceObjectType::EmptyEntity)
+				{
+					ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
+				}
+				if (bPressed)
+				{
+					Chosen = EPlaceObjectType::EmptyEntity;
+				}
+			}
+
+			if (State.HasCubeMatch())
+			{
+				const bool bPressed = ToolUIMenuItem("Cube", EToolUIMenuIcon::Cube);
+				if (Navigation.bFocusResult && State.SelectedResult == EPlaceObjectType::Cube)
+				{
+					ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
+				}
+				if (bPressed)
+				{
+					Chosen = EPlaceObjectType::Cube;
+				}
+			}
+
+			if (Navigation.bConfirm)
+			{
+				Chosen = State.SelectedResult;
 			}
 		}
 
 		ImGui::PopItemFlag();
-		if (Navigation.bCancel || bCubeRequested)
+		if (Navigation.bCancel || Chosen)
 		{
 			ImGui::ClearActiveID();
 			ImGui::CloseCurrentPopup();
 		}
+		bCanceled = Navigation.bCancel;
 
-		bCubeRequested &= !Navigation.bCancel;
 		ImGui::EndPopup();
 	}
 
 	bPopupOpen = ImGui::IsPopupOpen("Add###PlaceObjectsMenu");
 	ImGui::End();
 	ImGui::Render();
-	return bCubeRequested;
+	return bCanceled ? std::nullopt : Chosen;
 }
 
 FPlaceObjectsMenuState MakeState(const std::string_view Query)
@@ -129,6 +160,20 @@ TEST_CASE("Place objects search matches Cube with case-insensitive subsequences"
 		CAPTURE(Query);
 		CHECK_FALSE(MakeState(Query).HasCubeMatch());
 	}
+}
+
+TEST_CASE("Place objects search offers Empty Entity and Cube and filters both")
+{
+	FPlaceObjectsMenuState State;
+	CHECK(State.HasEmptyEntityMatch());
+	CHECK(State.HasCubeMatch());
+	std::ranges::copy("entity", State.Search.begin());
+	CHECK(State.HasEmptyEntityMatch());
+	CHECK_FALSE(State.HasCubeMatch());
+	State.Reset();
+	std::ranges::copy("cube", State.Search.begin());
+	CHECK_FALSE(State.HasEmptyEntityMatch());
+	CHECK(State.HasCubeMatch());
 }
 
 TEST_CASE("Place objects keyboard focus cannot select a filtered-out result")
@@ -195,9 +240,49 @@ TEST_CASE("Place objects arrows navigate from fuzzy search and Enter adds the re
 		IO.AddKeyEvent(Arrow, false);
 		Test.Frame();
 		IO.AddKeyEvent(ImGuiKey_Enter, true);
-		CHECK(Test.Frame());
+		CHECK(Test.Frame() == EPlaceObjectType::Cube);
 		CHECK_FALSE(Test.bPopupOpen);
 	}
+}
+
+TEST_CASE("Place objects arrows traverse fuzzy-ranked results and Enter selects the highlighted result")
+{
+	FPlaceObjectsMenuTestContext Test;
+	Test.Frame(true);
+	Test.Frame();
+	Test.Frame();
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.AddInputCharactersUTF8("e");
+	Test.Frame();
+	REQUIRE(Test.State.HasEmptyEntityMatch());
+	REQUIRE(Test.State.HasCubeMatch());
+	const EPlaceObjectType FirstResult = Test.State.SelectedResult;
+
+	IO.AddKeyEvent(ImGuiKey_DownArrow, true);
+	Test.Frame();
+	CHECK(Test.State.bResultsFocused);
+	IO.AddKeyEvent(ImGuiKey_DownArrow, false);
+	Test.Frame();
+	IO.AddKeyEvent(ImGuiKey_DownArrow, true);
+	Test.Frame();
+	CHECK(Test.State.SelectedResult != FirstResult);
+	const EPlaceObjectType HighlightedResult = Test.State.SelectedResult;
+	IO.AddKeyEvent(ImGuiKey_DownArrow, false);
+	Test.Frame();
+	IO.AddKeyEvent(ImGuiKey_Enter, true);
+	CHECK(Test.Frame() == HighlightedResult);
+	CHECK_FALSE(Test.bPopupOpen);
+}
+
+TEST_CASE("Place objects Enter creates an Empty Entity by default and closes the popup")
+{
+	FPlaceObjectsMenuTestContext Test;
+	Test.Frame(true);
+	Test.Frame();
+	Test.Frame();
+	ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, true);
+	CHECK(Test.Frame() == EPlaceObjectType::EmptyEntity);
+	CHECK_FALSE(Test.bPopupOpen);
 }
 
 TEST_CASE("Place objects Enter confirms from search but never adds a filtered-out shape")
@@ -212,12 +297,19 @@ TEST_CASE("Place objects Enter confirms from search but never adds a filtered-ou
 		IO.AddInputCharactersUTF8(Query.data());
 		Test.Frame();
 		IO.AddKeyEvent(ImGuiKey_Enter, true);
-		CHECK(Test.Frame() == (Query == "cb"));
+		if (Query == "cb")
+		{
+			CHECK(Test.Frame() == EPlaceObjectType::Cube);
+		}
+		else
+		{
+			CHECK_FALSE(Test.Frame().has_value());
+		}
 		CHECK(Test.bPopupOpen == (Query != "cb"));
 	}
 }
 
-TEST_CASE("Place objects Escape closes active search without creating a Cube")
+TEST_CASE("Place objects Escape closes active search without creating an object")
 {
 	FPlaceObjectsMenuTestContext Test;
 	Test.Frame(true);
@@ -227,7 +319,7 @@ TEST_CASE("Place objects Escape closes active search without creating a Cube")
 	ImGui::GetIO().AddInputCharactersUTF8("cb");
 	Test.Frame();
 	ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, true);
-	CHECK_FALSE(Test.Frame());
+	CHECK_FALSE(Test.Frame().has_value());
 	CHECK_FALSE(Test.bPopupOpen);
 	CHECK(GImGui->ActiveId == 0);
 }
@@ -284,7 +376,7 @@ TEST_CASE("Reopening place objects anchors to the pointer instead of stale keybo
 	IO.AddKeyEvent(ImGuiKey_DownArrow, false);
 	Test.Frame();
 	IO.AddKeyEvent(ImGuiKey_Enter, true);
-	REQUIRE(Test.Frame());
+	REQUIRE(Test.Frame() == EPlaceObjectType::EmptyEntity);
 	IO.AddKeyEvent(ImGuiKey_Enter, false);
 	Test.Frame();
 

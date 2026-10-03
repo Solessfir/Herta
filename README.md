@@ -2,7 +2,7 @@
 
 A C++23 game engine for Windows and Linux, built around Vulkan. Inspired by Unreal Engine, with a modular architecture.
 
-Herta is a learning project in active development, not a production-ready engine. The editor supports scene authoring with undo/redo, transform gizmos, asset import and live reimport, and a basic Jolt Physics simulation. The game runtime is not implemented yet.
+Herta is a learning project in active development, not a production-ready engine. The editor supports scene and component authoring with undo/redo, transform gizmos, asset import and live reimport, and a basic Jolt Physics simulation. The game runtime is not implemented yet.
 
 ![Herta Editor](.github/Herta.png)
 

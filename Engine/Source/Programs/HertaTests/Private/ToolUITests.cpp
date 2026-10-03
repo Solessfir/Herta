@@ -10,7 +10,7 @@
 
 namespace Herta
 {
-TEST_CASE("Panel focus uses stable IDs and the immersive viewport alias")
+TEST_CASE("Panel focus and hover use stable IDs and the immersive viewport alias")
 {
 	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
 	ImGuiContext* const Context = ImGui::CreateContext();
@@ -29,6 +29,20 @@ TEST_CASE("Panel focus uses stable IDs and the immersive viewport alias")
 	ImGui::BeginChild("Rows");
 	ImGui::SetWindowFocus();
 	CHECK(IsToolUIPanelFocused("Outliner", false));
+	GImGui->HoveredWindow = ImGui::GetCurrentWindow();
+	CHECK(IsToolUIPanelHovered("Outliner", false));
+	CHECK_FALSE(IsToolUIPanelHovered("Details", false));
+	ImGui::EndChild();
+	ImGui::End();
+	ImGui::Begin("Details");
+	ImGui::SetWindowFocus("Outliner");
+	GImGui->HoveredWindow = ImGui::GetCurrentWindow();
+	CHECK(IsToolUIPanelFocused("Outliner", false));
+	CHECK(IsToolUIPanelHovered("Details", false));
+	CHECK_FALSE(IsToolUIPanelHovered("Outliner", false));
+	ImGui::BeginChild("Properties");
+	GImGui->HoveredWindow = ImGui::GetCurrentWindow();
+	CHECK(IsToolUIPanelHovered("Details", false));
 	ImGui::EndChild();
 	ImGui::End();
 	ImGui::Begin(ImmersiveViewportName);
@@ -36,6 +50,12 @@ TEST_CASE("Panel focus uses stable IDs and the immersive viewport alias")
 	CHECK(IsToolUIPanelFocused("Viewport", true));
 	CHECK_FALSE(IsToolUIPanelFocused("Viewport", false));
 	CHECK_FALSE(IsToolUIPanelFocused("Outliner", true));
+	GImGui->HoveredWindow = ImGui::GetCurrentWindow();
+	CHECK(IsToolUIPanelHovered("Viewport", true));
+	CHECK_FALSE(IsToolUIPanelHovered("Viewport", false));
+	CHECK_FALSE(IsToolUIPanelHovered("Details", true));
+	GImGui->HoveredWindow = nullptr;
+	CHECK_FALSE(IsToolUIPanelHovered("Viewport", true));
 	ImGui::End();
 	ImGui::Render();
 	ImGui::DestroyContext(Context);

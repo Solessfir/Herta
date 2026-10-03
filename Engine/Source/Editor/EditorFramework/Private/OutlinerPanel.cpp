@@ -9,7 +9,7 @@ namespace Herta
 {
 bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelection& Selection, const std::span<const FPreviewObject> Objects, const bool bDragging, FOutlinerPanelState& State)
 {
-	State.bRenameRequested = false;
+	State.bRenameCommitted = false;
 	if (!ToolUI.BeginPanel("Outliner", &bOpen))
 	{
 		ToolUI.EndPanel();
@@ -42,7 +42,34 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 			Selection.SelectAll(VisibleIndices);
 		}
 
-		State.bRenameRequested = !Selection.Indices.empty() && ImGui::IsKeyPressed(ImGuiKey_F2, false);
+		State.bRenameRequested |= Selection.Active >= 0 && ImGui::IsKeyPressed(ImGuiKey_F2, false);
+	}
+
+	const bool bStartRename = !bDragging && State.bRenameRequested && Selection.Active >= 0 && State.IsObjectVisible(Objects[static_cast<std::size_t>(Selection.Active)].Label);
+	State.bRenameRequested = false;
+
+	if (bDragging)
+	{
+		State.bRenaming = false;
+	}
+
+	if (State.bRenaming)
+	{
+		const auto Object = std::ranges::find(Objects, State.RenameObject, &FPreviewObject::Id);
+		if (Object == Objects.end() || !State.IsObjectVisible(Object->Label))
+		{
+			State.bRenameCommitted = Object != Objects.end();
+			State.bRenaming = false;
+		}
+	}
+
+	if (bStartRename)
+	{
+		const FPreviewObject& Object = Objects[static_cast<std::size_t>(Selection.Active)];
+		State.RenameBuffer.fill('\0');
+		std::copy_n(Object.Label.begin(), std::min(Object.Label.size(), State.RenameBuffer.size() - 1), State.RenameBuffer.begin());
+		State.RenameObject = Object.Id;
+		State.bRenaming = true;
 	}
 
 	const float FooterHeight = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + Scale;
@@ -87,8 +114,15 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 				ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
 				ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0, 0, 0, 0});
 				ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
+				ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
 				const float LabelX = ImGui::GetCursorScreenPos().x;
-				if (ImGui::Selectable("##Object", Selection.Contains(static_cast<int>(Index)), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick))
+				const bool bRenamingRow = State.bRenaming && State.RenameObject == Object.Id;
+				if (bRenamingRow)
+				{
+					ImGui::SetNextItemAllowOverlap();
+				}
+
+				if (ImGui::Selectable("##Object", Selection.Contains(static_cast<int>(Index)), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) && !bRenamingRow)
 				{
 					if (IO.KeyShift)
 					{
@@ -99,10 +133,10 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 						Selection.Select(static_cast<int>(Index), IO.KeyCtrl);
 					}
 
-					bFocusRequested = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter);
+					bFocusRequested = !bRenamingRow && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter));
 				}
 
-				ImGui::PopStyleColor(3);
+				ImGui::PopStyleColor(4);
 				const bool bCurrentRowHovered = ImGui::IsItemHovered();
 				bRowHovered |= bCurrentRowHovered;
 				const ImVec2 Minimum = ImGui::GetItemRectMin();
@@ -116,7 +150,35 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 				}
 
 				const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
-				ImGui::GetWindowDrawList()->AddText({LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Object.Label.data(), Object.Label.data() + Object.Label.size());
+				if (bRenamingRow)
+				{
+					const ImVec2 Cursor = ImGui::GetCursorScreenPos();
+					ImGui::SetCursorScreenPos({LabelX, CenterY - ImGui::GetFrameHeight() * 0.5f});
+					ImGui::SetNextItemWidth(std::max(1.f, Table->Columns[0].WorkMaxX - LabelX));
+
+					if (bStartRename)
+					{
+						ImGui::SetKeyboardFocusHere();
+					}
+
+					const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
+					const bool bCommit = ImGui::InputText("##ObjectLabel", State.RenameBuffer.data(), State.RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+					ImGui::PopStyleColor();
+					bRowHovered |= ImGui::IsItemHovered();
+
+					if (bCancel || bCommit || (!bStartRename && ImGui::IsItemDeactivated()))
+					{
+						State.bRenameCommitted = !bCancel;
+						State.bRenaming = false;
+					}
+
+					ImGui::SetCursorScreenPos(Cursor);
+				}
+				else
+				{
+					ImGui::GetWindowDrawList()->AddText({LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Object.Label.data(), Object.Label.data() + Object.Label.size());
+				}
 				const ImVec2 Top{IconX + 6.f * Scale, CenterY - 7.f * Scale};
 				const ImVec2 Left{IconX, CenterY - 4.f * Scale};
 				const ImVec2 Right{IconX + 12.f * Scale, Left.y};
@@ -125,12 +187,21 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 				const ImVec2 Outline[]{Top, Right, {Right.x, CenterY + 4.f * Scale}, Bottom, {Left.x, CenterY + 4.f * Scale}, Left};
 				ImDrawList* const Draw = ImGui::GetWindowDrawList();
 				const ImU32 IconColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-				Draw->AddPolyline(Outline, 6, IconColor, ImDrawFlags_Closed, Scale);
-				Draw->AddLine(Left, Center, IconColor, Scale);
-				Draw->AddLine(Right, Center, IconColor, Scale);
-				Draw->AddLine(Center, Bottom, IconColor, Scale);
+				if (Object.Mesh.IsValid())
+				{
+					Draw->AddPolyline(Outline, 6, IconColor, ImDrawFlags_Closed, Scale);
+					Draw->AddLine(Left, Center, IconColor, Scale);
+					Draw->AddLine(Right, Center, IconColor, Scale);
+					Draw->AddLine(Center, Bottom, IconColor, Scale);
+				}
+				else
+				{
+					const ImVec2 EntityCenter{Top.x, CenterY};
+					Draw->AddCircle(EntityCenter, 6.f * Scale, IconColor, 16, Scale);
+					Draw->AddCircleFilled(EntityCenter, 1.5f * Scale, IconColor);
+				}
 				ImGui::TableSetColumnIndex(1);
-				ImGui::TextDisabled("Static Mesh");
+				ImGui::TextDisabled("%s", Object.Mesh.IsValid() ? "Static Mesh" : "Entity");
 				ImGui::PopStyleVar(2);
 				ImGui::PopID();
 			}

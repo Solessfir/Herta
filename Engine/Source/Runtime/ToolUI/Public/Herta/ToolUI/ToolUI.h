@@ -128,6 +128,8 @@ enum class EToolUIMenuIcon : std::uint8_t
 	Duplicate,
 	Delete,
 	Cube,
+	Entity,
+	Physics,
 	SelectAll
 };
 
@@ -159,6 +161,7 @@ public:
 	void SetViewportImmersive(bool bImmersive) noexcept;
 	[[nodiscard]] bool IsViewportImmersive() const noexcept;
 	bool IsPanelFocused(std::string_view Name) const noexcept;
+	bool IsPanelHovered(std::string_view Name) const noexcept;
 	// Files dropped onto any editor window since the last call, in drop order.
 	[[nodiscard]] std::vector<std::filesystem::path> TakeDroppedFiles();
 	void PushLogFont();

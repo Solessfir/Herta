@@ -2,27 +2,28 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_set>
 
 namespace Herta
 {
 namespace
 {
-[[nodiscard]] FVector3 Multiply(const FVector3& Left, const FVector3& Right)
-{
-	return {Left.X * Right.X, Left.Y * Right.Y, Left.Z * Right.Z};
-}
-
 [[nodiscard]] FVector3 Absolute(const FVector3& Vector)
 {
 	return {std::abs(Vector.X), std::abs(Vector.Y), std::abs(Vector.Z)};
 }
 }
 
-std::expected<void, FPhysicsError> FPreviewSimulation::Start(const FTransform& CubeTransform, const FTransform& FloorTransform, const FPreviewBodyShape& CubeShape, const FPreviewBodyShape& FloorShape)
+std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<const FPreviewSimulationBody> Bodies)
 {
 	if (IsRunning())
 	{
 		return std::unexpected(FPhysicsError{"Preview simulation is already running"});
+	}
+
+	if (Bodies.empty())
+	{
+		return std::unexpected(FPhysicsError{"Preview simulation requires at least one body"});
 	}
 
 	auto NewWorld = FPhysicsWorld::Create();
@@ -31,28 +32,42 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const FTransform& C
 		return std::unexpected(NewWorld.error());
 	}
 
-	const FVector3 FloorHalfExtents = Absolute(Multiply(FloorTransform.Scale3D, FloorShape.HalfExtents));
-	const FVector3 FloorPosition = FloorTransform.Translation + FloorTransform.Rotation.RotateVector(Multiply(FloorTransform.Scale3D, FloorShape.Center));
-	const auto Floor = (*NewWorld)->CreateBoxBody({.HalfExtents = FloorHalfExtents, .Position = FloorPosition, .Rotation = FloorTransform.Rotation});
-	if (!Floor)
-	{
-		return std::unexpected(Floor.error());
-	}
+	std::vector<FBodyState> NewBodyStates;
+	std::vector<FPreviewSimulationTransform> NewTransforms;
+	std::unordered_set<std::size_t> ObjectIndices;
+	NewBodyStates.reserve(Bodies.size());
+	NewTransforms.reserve(Bodies.size());
+	ObjectIndices.reserve(Bodies.size());
 
-	const FVector3 HalfExtents = Absolute(Multiply(CubeTransform.Scale3D, CubeShape.HalfExtents));
-	CubeOffset = Multiply(CubeTransform.Scale3D, CubeShape.Center);
-	const FVector3 Position = CubeTransform.Translation + CubeTransform.Rotation.RotateVector(CubeOffset);
-	const auto NewCube = (*NewWorld)->CreateBoxBody({.HalfExtents = HalfExtents, .Position = Position, .Rotation = CubeTransform.Rotation, .MotionType = EPhysicsMotionType::Dynamic});
-	if (!NewCube)
+	for (const FPreviewSimulationBody& Body : Bodies)
 	{
-		return std::unexpected(NewCube.error());
+		if (!ObjectIndices.insert(Body.ObjectIndex).second)
+		{
+			return std::unexpected(FPhysicsError{"Preview simulation contains a duplicate object"});
+		}
+
+		if (Body.Shape.HalfExtents.X <= 0.f || Body.Shape.HalfExtents.Y <= 0.f || Body.Shape.HalfExtents.Z <= 0.f)
+		{
+			return std::unexpected(FPhysicsError{"Preview box half extents must be positive"});
+		}
+
+		const FVector3 HalfExtents = Absolute(Body.Transform.Scale3D.ComponentMultiply(Body.Shape.HalfExtents));
+		const FVector3 Offset = Body.Transform.Scale3D.ComponentMultiply(Body.Shape.Center);
+		const FVector3 Position = Body.Transform.Translation + Body.Transform.Rotation.RotateVector(Offset);
+		const auto Id = (*NewWorld)->CreateBoxBody({.HalfExtents = HalfExtents, .Position = Position, .Rotation = Body.Transform.Rotation, .MotionType = Body.MotionType});
+		if (!Id)
+		{
+			return std::unexpected(Id.error());
+		}
+
+		const FPhysicsBodyTransform Transform{.Position = Position, .Rotation = Body.Transform.Rotation.NormalizedOrIdentity()};
+		NewBodyStates.push_back({.Id = *Id, .MotionType = Body.MotionType, .OriginalTransform = Body.Transform, .Offset = Offset, .Previous = Transform, .Current = Transform});
+		NewTransforms.push_back({.ObjectIndex = Body.ObjectIndex, .Transform = Body.Transform});
 	}
 
 	World = std::move(*NewWorld);
-	Cube = *NewCube;
-	OriginalTransform = CubeTransform;
-	RenderTransform = CubeTransform;
-	Previous = Current = {.Position = Position, .Rotation = CubeTransform.Rotation};
+	BodyStates = std::move(NewBodyStates);
+	Transforms = std::move(NewTransforms);
 	Accumulator = 0.0;
 	return {};
 }
@@ -65,8 +80,23 @@ void FPreviewSimulation::Stop() noexcept
 	}
 
 	World.reset();
-	RenderTransform = OriginalTransform;
+
+	for (std::size_t Index = 0; Index < BodyStates.size(); ++Index)
+	{
+		Transforms[Index].Transform = BodyStates[Index].OriginalTransform;
+	}
+
 	Accumulator = 0.0;
+}
+
+bool FPreviewSimulation::IsRunning() const noexcept
+{
+	return World != nullptr;
+}
+
+std::span<const FPreviewSimulationTransform> FPreviewSimulation::GetTransforms() const noexcept
+{
+	return Transforms;
 }
 
 std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaSeconds)
@@ -86,29 +116,54 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 	Accumulator += std::min(static_cast<double>(DeltaSeconds), 0.25);
 	while (Accumulator >= FixedStep)
 	{
-		Previous = Current;
+		for (FBodyState& Body : BodyStates)
+		{
+			Body.Previous = Body.Current;
+		}
+
 		if (const auto Result = World->Step(static_cast<float>(FixedStep)); !Result)
 		{
 			return Result;
 		}
 
-		const auto Transform = World->GetBodyTransform(Cube);
-		if (!Transform)
+		for (FBodyState& Body : BodyStates)
 		{
-			return std::unexpected(Transform.error());
+			if (Body.MotionType != EPhysicsMotionType::Dynamic)
+			{
+				continue;
+			}
+
+			const auto Transform = World->GetBodyTransform(Body.Id);
+			if (!Transform)
+			{
+				return std::unexpected(Transform.error());
+			}
+
+			Body.Current = *Transform;
 		}
 
-		Current = *Transform;
 		Accumulator -= FixedStep;
 	}
 
 	const float Alpha = static_cast<float>(Accumulator / FixedStep);
-	RenderTransform.Translation = Previous.Position * (1.f - Alpha) + Current.Position * Alpha;
-	const auto& A = Previous.Rotation;
-	const auto& B = Current.Rotation;
-	const float Sign = A.X * B.X + A.Y * B.Y + A.Z * B.Z + A.W * B.W < 0.f ? -1.f : 1.f;
-	RenderTransform.Rotation = FQuaternion{std::lerp(A.X, Sign * B.X, Alpha), std::lerp(A.Y, Sign * B.Y, Alpha), std::lerp(A.Z, Sign * B.Z, Alpha), std::lerp(A.W, Sign * B.W, Alpha)}.NormalizedOrIdentity();
-	RenderTransform.Translation -= RenderTransform.Rotation.RotateVector(CubeOffset);
+
+	for (std::size_t Index = 0; Index < BodyStates.size(); ++Index)
+	{
+		const FBodyState& Body = BodyStates[Index];
+		if (Body.MotionType != EPhysicsMotionType::Dynamic)
+		{
+			continue;
+		}
+
+		FTransform& Transform = Transforms[Index].Transform;
+		Transform.Translation = Body.Previous.Position * (1.f - Alpha) + Body.Current.Position * Alpha;
+		const auto& A = Body.Previous.Rotation;
+		const auto& B = Body.Current.Rotation;
+		const float Sign = A.X * B.X + A.Y * B.Y + A.Z * B.Z + A.W * B.W < 0.f ? -1.f : 1.f;
+		Transform.Rotation = FQuaternion{std::lerp(A.X, Sign * B.X, Alpha), std::lerp(A.Y, Sign * B.Y, Alpha), std::lerp(A.Z, Sign * B.Z, Alpha), std::lerp(A.W, Sign * B.W, Alpha)}.NormalizedOrIdentity();
+		Transform.Translation -= Transform.Rotation.RotateVector(Body.Offset);
+	}
+
 	return {};
 }
 }

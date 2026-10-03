@@ -22,7 +22,9 @@ Saving writes and flushes a unique sibling temporary file, then atomically repla
 
 ## Initial editor boundary
 
-The editor currently opens flat static-mesh scenes only. It rejects hierarchy and non-mesh entities before replacing its current state, even though the runtime and headless commands accept them. Viewport editing uses float adapters; untouched double position axes remain unchanged when saving other properties. Current editing limits are position magnitude 10,000,000 m per axis and scale 0.001 through 1,000.
+The editor opens flat scenes containing mesh and empty entities. Hierarchy is still rejected before replacing its current state, even though runtime and headless commands support it. Viewport editing uses float adapters; untouched double position axes remain unchanged when saving other properties. Current editing limits are position magnitude 10,000,000 m per axis and scale 0.001 through 1,000.
+
+Every entity has a name and transform. Static Mesh and Rigid Body are independently optional components, with one of each type per entity. Details adds, removes, and edits them through atomic authoring patches. Adding a component to a group affects only entities missing it; removal affects only entities that have it. Removing a mesh preserves the rigid body and transform. Meshless entities have a selectable editor marker, never a placeholder render mesh. The physics preview simulates every meshed Dynamic rigid body and collides against every meshed Static rigid body, using box shapes from mesh bounds. A static floor is not required for gravity. All simulation poses remain transient and stop restores every authored transform; this is not yet the full physics milestone.
 
 `Games/Sandbox/Scenes/Sandbox.hscene` is the default scene. Names, transforms, and mesh choices save with Ctrl+S. Simulation changes only the transient viewport pose; saving during simulation writes the authored world. Scene loading and authoring are disabled during simulation. File > Open prompts before replacing unsaved edits; explicit `scene.load` replaces them directly. Exit does not automatically save.
 

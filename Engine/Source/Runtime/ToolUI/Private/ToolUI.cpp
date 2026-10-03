@@ -1937,6 +1937,11 @@ bool FToolUIContext::IsPanelFocused(const std::string_view Name) const noexcept
 	return IsToolUIPanelFocused(Name, Implementation->bViewportImmersive);
 }
 
+bool FToolUIContext::IsPanelHovered(const std::string_view Name) const noexcept
+{
+	return IsToolUIPanelHovered(Name, Implementation->bViewportImmersive);
+}
+
 bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bool* const bSelected, const char* const Shortcut)
 {
 	const float Scale = ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
@@ -1960,6 +1965,17 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 	if (Icon == EToolUIMenuIcon::Outliner || Icon == EToolUIMenuIcon::Details)
 	{
 		DrawPanelIcon(*Draw, Center, Scale, Color, Icon);
+	}
+	else if (Icon == EToolUIMenuIcon::Entity)
+	{
+		Draw->AddCircle(Center, 6.f * Scale, Color, 16, Scale);
+		Draw->AddCircleFilled(Center, 1.5f * Scale, Color);
+	}
+	else if (Icon == EToolUIMenuIcon::Physics)
+	{
+		Draw->AddCircle(Center, 6.f * Scale, Color, 16, Scale);
+		Line(-6.f, 0.f, 6.f, 0.f);
+		Draw->AddEllipse(Center, {3.f * Scale, 6.f * Scale}, Color, 0.f, 16, Scale);
 	}
 	else if (Icon == EToolUIMenuIcon::Cube)
 	{
@@ -2287,7 +2303,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		const ImGuiID SideId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Right, DetailsFraction, nullptr, &CenterId);
 		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.26f, nullptr, &CenterId);
 		ImGuiID DetailsId = SideId;
-		const ImGuiID OutlinerId = ImGui::DockBuilderSplitNode(SideId, ImGuiDir_Up, 0.5f, nullptr, &DetailsId);
+		const ImGuiID OutlinerId = ImGui::DockBuilderSplitNode(SideId, ImGuiDir_Up, 0.35f, nullptr, &DetailsId);
 		if (ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetNode(CenterId))
 		{
 			CenterNode->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
@@ -2332,7 +2348,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 				ImGuiDockNode* const DetailsNode = ImGui::DockBuilderGetNode(AnchorSettings->DockId);
 				if (DetailsNode != nullptr && DetailsNode->IsLeafNode() && ImGui::DockNodeGetRootNode(DetailsNode)->ID == Implementation->DockspaceId)
 				{
-					const ImGuiID OutlinerId = ImGui::DockBuilderSplitNode(AnchorSettings->DockId, ImGuiDir_Up, 0.45f, nullptr, nullptr);
+					const ImGuiID OutlinerId = ImGui::DockBuilderSplitNode(AnchorSettings->DockId, ImGuiDir_Up, 0.35f, nullptr, nullptr);
 					ImGui::DockBuilderDockWindow("Outliner", OutlinerId);
 					ImGui::DockBuilderFinish(Implementation->DockspaceId);
 				}

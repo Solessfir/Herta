@@ -58,7 +58,7 @@ private:
 };
 }
 
-std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDialog(const std::string_view Title, const std::span<const FFileDialogFilter> Filters)
+static std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDialogImpl(const std::string_view Title, const std::span<const FFileDialogFilter> Filters, const std::filesystem::path& InitialDirectory)
 {
 	const FComScope Com;
 	Microsoft::WRL::ComPtr<IFileOpenDialog> Dialog;
@@ -71,6 +71,14 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 	Dialog->GetOptions(&Options);
 	Dialog->SetOptions(Options | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM);
 	Dialog->SetTitle(Widen(Title).c_str());
+	if (!InitialDirectory.empty())
+	{
+		Microsoft::WRL::ComPtr<IShellItem> Folder;
+		if (FAILED(SHCreateItemFromParsingName(InitialDirectory.c_str(), nullptr, IID_PPV_ARGS(&Folder))) || FAILED(Dialog->SetFolder(Folder.Get())))
+		{
+			return std::unexpected(FFileDialogError{"Could not set the Windows file dialog's initial directory"});
+		}
+	}
 
 	// COMDLG_FILTERSPEC points into these strings, so they must outlive SetFileTypes.
 	std::vector<std::wstring> Names;
@@ -166,7 +174,7 @@ namespace
 }
 }
 
-std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDialog(const std::string_view Title, const std::span<const FFileDialogFilter> Filters)
+static std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDialogImpl(const std::string_view Title, const std::span<const FFileDialogFilter> Filters, const std::filesystem::path& InitialDirectory)
 {
 	const auto Patterns = [](const FFileDialogFilter& Filter)
 	{
@@ -183,6 +191,10 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 	if (const std::optional<std::filesystem::path> Zenity = FindOnPath("zenity"))
 	{
 		FProcessRequest Request{.Executable = *Zenity, .Arguments = {"--file-selection", "--multiple", "--separator=\n", std::format("--title={}", Title)}};
+		if (!InitialDirectory.empty())
+		{
+			Request.Arguments.push_back(std::format("--filename={}/", InitialDirectory.string()));
+		}
 		for (const FFileDialogFilter& Filter : Filters)
 		{
 			Request.Arguments.push_back(std::format("--file-filter={} | {}", Filter.Name, Patterns(Filter)));
@@ -206,7 +218,8 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 		}
 
 		const char* const Home = std::getenv("HOME");
-		const std::expected<FProcessResult, FProcessError> Result = RunProcess({.Executable = *KDialog, .Arguments = {"--title", std::string(Title), "--getopenfilename", Home != nullptr ? Home : ".", FilterSpec, "--multiple", "--separate-output"}});
+		const std::string Directory = InitialDirectory.empty() ? (Home != nullptr ? Home : ".") : InitialDirectory.string();
+		const std::expected<FProcessResult, FProcessError> Result = RunProcess({.Executable = *KDialog, .Arguments = {"--title", std::string(Title), "--getopenfilename", Directory, FilterSpec, "--multiple", "--separate-output"}});
 		if (!Result)
 		{
 			return std::unexpected(FFileDialogError{std::format("kdialog failed: {}", Result.error().Message)});
@@ -218,4 +231,21 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 	return std::unexpected(FFileDialogError{"No file dialog is available. Install zenity or kdialog, or drop files onto the editor instead"});
 }
 #endif
+
+std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDialog(const std::string_view Title, const std::span<const FFileDialogFilter> Filters, const std::filesystem::path& InitialDirectory)
+{
+	if (InitialDirectory.empty())
+	{
+		return OpenFilesDialogImpl(Title, Filters, {});
+	}
+
+	std::error_code Error;
+	const std::filesystem::path Directory = std::filesystem::absolute(InitialDirectory, Error);
+	if (Error || !std::filesystem::is_directory(Directory, Error))
+	{
+		return std::unexpected(FFileDialogError{std::format("File dialog initial directory is unavailable: {}", InitialDirectory.string())});
+	}
+
+	return OpenFilesDialogImpl(Title, Filters, Directory);
+}
 }

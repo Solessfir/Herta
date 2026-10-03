@@ -1,4 +1,6 @@
+#include "Herta/Platform/FileDialog.h"
 #include "Herta/Platform/Platform.h"
+#include "TestFiles.h"
 
 #include <doctest/doctest.h>
 
@@ -21,5 +23,24 @@ TEST_CASE("Platform names are stable")
 {
 	CHECK(GetPlatformName(EPlatform::Windows) == "Windows");
 	CHECK(GetPlatformName(EPlatform::Linux) == "Linux");
+}
+
+TEST_CASE("File dialogs reject invalid initial directories before showing UI")
+{
+	const Tests::FScratchDirectory Scratch("HertaFileDialog");
+	std::filesystem::path Directory;
+	SUBCASE("The starting directory does not exist")
+	{
+		Directory = Scratch.GetPath() / "Missing";
+	}
+	SUBCASE("A regular file is not a starting directory")
+	{
+		Directory = Scratch.GetPath() / "File.txt";
+		Tests::WriteText(Directory, "not a directory");
+	}
+
+	const auto Result = OpenFilesDialog("Scene", {}, Directory);
+	REQUIRE_FALSE(Result);
+	CHECK(Result.error().Message.find("initial directory is unavailable") != std::string::npos);
 }
 }

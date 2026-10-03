@@ -53,7 +53,7 @@ FPreviewObject ToEditorObject(const FSceneEntity& Entity)
 	    .Translation = {static_cast<float>(Entity.Transform.Translation.Meters.X), static_cast<float>(Entity.Transform.Translation.Meters.Y), static_cast<float>(Entity.Transform.Translation.Meters.Z)},
 	    .Rotation = ToEditorRotation(Entity.Transform.Rotation),
 	    .Scale = {Entity.Transform.Scale.X, Entity.Transform.Scale.Y, Entity.Transform.Scale.Z},
-	    .Mesh = Entity.Mesh->Asset,
+	    .Mesh = Entity.Mesh ? Entity.Mesh->Asset : FAssetId{},
 	    .Id = Entity.Id,
 	};
 }
@@ -182,12 +182,12 @@ std::expected<void, FSceneError> FEditorScene::Load(const std::filesystem::path&
 		return std::unexpected(Document.error());
 	}
 
-	// Hierarchical and non-mesh entities are valid runtime data, but their editor authoring UI is a later slice.
+	// Hierarchy authoring is a later slice; flat entities may have no components.
 	for (const FSceneEntity& Entity : Document->Entities)
 	{
-		if (Entity.Parent.IsValid() || !Entity.Mesh)
+		if (Entity.Parent.IsValid())
 		{
-			return std::unexpected(FSceneError{"This editor slice opens flat static-mesh scenes only"});
+			return std::unexpected(FSceneError{"This editor slice opens flat scenes only"});
 		}
 
 		if (auto Result = ValidateEditorEntityRange(Entity); !Result)
@@ -246,7 +246,7 @@ std::expected<void, FSceneError> FEditorScene::CommitEdits(const std::string_vie
 		FSceneEntity Entity = *World.GetEntity(*Handle);
 		const FPreviewObject Previous = ToEditorObject(Entity);
 		Entity.Name = Object.Label;
-		Entity.Mesh = FStaticMeshComponent{Object.Mesh};
+		Entity.Mesh = Object.Mesh.IsValid() ? std::optional{FStaticMeshComponent{Object.Mesh}} : std::nullopt;
 
 		// Preserve double coordinates on axes that the float editing view did not change.
 		if (Object.Translation.x != Previous.Translation.x)
@@ -622,7 +622,7 @@ std::optional<FObjectId> FEditorScene::GetActiveObject() const
 	return ActiveObject;
 }
 
-std::expected<void, FSceneError> FEditorScene::ApplyStructuralChanges(const std::string_view Label, const std::vector<FSceneEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection)
+std::expected<void, FSceneError> FEditorScene::ApplyStructuralChanges(const std::string_view Label, const std::vector<FSceneEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, const std::optional<FObjectId> AfterActive)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -639,8 +639,8 @@ std::expected<void, FSceneError> FEditorScene::ApplyStructuralChanges(const std:
 		return Result;
 	}
 
-	const auto AfterActive = AfterSelection.empty() ? std::nullopt : std::optional{AfterSelection.back()};
-	const auto Executed = History.Execute(MakeTransaction(Label, Changes, Selection, ActiveObject, AfterSelection, AfterActive));
+	const auto EffectiveActive = AfterActive ? AfterActive : (AfterSelection.empty() ? std::nullopt : std::optional{AfterSelection.back()});
+	const auto Executed = History.Execute(MakeTransaction(Label, Changes, Selection, ActiveObject, AfterSelection, EffectiveActive));
 	if (!Executed)
 	{
 		return std::unexpected(FSceneError{Executed.error().Message});
@@ -651,7 +651,16 @@ std::expected<void, FSceneError> FEditorScene::ApplyStructuralChanges(const std:
 
 std::expected<FObjectId, FSceneError> FEditorScene::CreateEntity(const FWorldPosition& Position)
 {
-	FSceneEntity Entity{.Id = FObjectId::Generate(), .Name = "Cube", .Transform = {.Translation = Position}, .Mesh = FStaticMeshComponent{.Asset = EngineCubeAsset}};
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = "Cube", .Transform = {.Translation = Position}, .Mesh = FStaticMeshComponent{.Asset = EngineCubeAsset}});
+}
+
+std::expected<FObjectId, FSceneError> FEditorScene::CreateEmptyEntity(const FWorldPosition& Position)
+{
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = "Entity", .Transform = {.Translation = Position}});
+}
+
+std::expected<FObjectId, FSceneError> FEditorScene::InsertEntity(FSceneEntity Entity)
+{
 	if (auto Result = ValidateEditorEntityRange(Entity); !Result)
 	{
 		return std::unexpected(Result.error());
@@ -665,13 +674,108 @@ std::expected<FObjectId, FSceneError> FEditorScene::CreateEntity(const FWorldPos
 	}
 
 	Entity.Name = UniqueEntityName(Entity.Name, Names);
-	const auto Result = ApplyStructuralChanges("Create object", {{.After = Entity}}, {Entity.Id});
+	const auto Result = ApplyStructuralChanges(Entity.Mesh ? "Create object" : "Create empty entity", {{.After = Entity}}, {Entity.Id});
 	if (!Result)
 	{
 		return std::unexpected(Result.error());
 	}
 
 	return Entity.Id;
+}
+
+std::expected<void, FSceneError> FEditorScene::AddStaticMeshToSelected(const FAssetId Asset)
+{
+	if (!Asset.IsValid())
+	{
+		return std::unexpected(FSceneError{"A static mesh requires a valid asset ID"});
+	}
+
+	return ApplySelectedMesh(FStaticMeshComponent{.Asset = Asset});
+}
+
+std::expected<void, FSceneError> FEditorScene::RemoveStaticMeshFromSelected()
+{
+	return ApplySelectedMesh(std::nullopt);
+}
+
+std::expected<void, FSceneError> FEditorScene::ApplySelectedMesh(const std::optional<FStaticMeshComponent> Mesh)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	if (auto Result = CommitEdits(); !Result)
+	{
+		return Result;
+	}
+
+	std::vector<FSceneEntityChange> Changes;
+
+	for (const FObjectId Object : Selection)
+	{
+		const FSceneEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		if (Before.Mesh.has_value() == Mesh.has_value())
+		{
+			continue;
+		}
+
+		FSceneEntity After = Before;
+		After.Mesh = Mesh;
+		Changes.push_back({.Before = Before, .After = std::move(After)});
+	}
+
+	return ApplyStructuralChanges(Mesh ? "Add static mesh" : "Remove static mesh", Changes, Selection, ActiveObject);
+}
+
+std::expected<void, FSceneError> FEditorScene::AddRigidBodyToSelected(const ESceneBodyType Type)
+{
+	if (Type != ESceneBodyType::Static && Type != ESceneBodyType::Dynamic)
+	{
+		return std::unexpected(FSceneError{"Adding a rigid body requires Static or Dynamic motion"});
+	}
+
+	return ApplySelectedBodyType(Type, true);
+}
+
+std::expected<void, FSceneError> FEditorScene::SetSelectedBodyType(const ESceneBodyType Type)
+{
+	if (Type != ESceneBodyType::None && Type != ESceneBodyType::Static && Type != ESceneBodyType::Dynamic)
+	{
+		return std::unexpected(FSceneError{"The rigid body motion type is invalid"});
+	}
+
+	return ApplySelectedBodyType(Type, false);
+}
+
+std::expected<void, FSceneError> FEditorScene::ApplySelectedBodyType(const ESceneBodyType Type, const bool bOnlyAbsent)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	if (auto Result = CommitEdits(); !Result)
+	{
+		return Result;
+	}
+
+	std::vector<FSceneEntityChange> Changes;
+
+	for (const FObjectId Object : Selection)
+	{
+		const FSceneEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		if (Before.BodyType == Type || (bOnlyAbsent && Before.BodyType != ESceneBodyType::None) || (!bOnlyAbsent && Before.BodyType == ESceneBodyType::None))
+		{
+			continue;
+		}
+
+		FSceneEntity After = Before;
+		After.BodyType = Type;
+		Changes.push_back({.Before = Before, .After = std::move(After)});
+	}
+
+	return ApplyStructuralChanges(bOnlyAbsent ? "Add rigid body" : (Type == ESceneBodyType::None ? "Remove rigid body" : "Set rigid body motion"), Changes, Selection, ActiveObject);
 }
 
 std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWithinActiveEdit, const FVector3d& WorldOffset)
@@ -833,9 +937,9 @@ std::expected<void, FSceneError> FEditorScene::PasteEntities(const std::string_v
 
 	for (FSceneEntity& Entity : Document->Entities)
 	{
-		if (Entity.Parent.IsValid() || !Entity.Mesh)
+		if (Entity.Parent.IsValid())
 		{
-			return std::unexpected(FSceneError{"This editor slice pastes flat static-mesh entities only"});
+			return std::unexpected(FSceneError{"This editor slice pastes flat entities only"});
 		}
 
 		if (auto Result = ValidateEditorEntityRange(Entity); !Result)
@@ -862,18 +966,20 @@ void FEditorScene::SetSimulationRunning(const bool bRunning)
 	bSimulationRunning = bRunning;
 }
 
-std::optional<std::size_t> FEditorScene::FindBody(const ESceneBodyType Type) const
+std::vector<std::size_t> FEditorScene::FindBodies(const ESceneBodyType Type) const
 {
+	std::vector<std::size_t> Indices;
 	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
 	{
 		const auto Handle = World.FindEntity(Objects[Index].Id);
-		if (Handle && World.GetEntity(*Handle)->BodyType == Type)
+		const auto Entity = Handle ? World.GetEntity(*Handle) : std::nullopt;
+		if (Entity && Entity->Mesh && Entity->BodyType == Type)
 		{
-			return Index;
+			Indices.push_back(Index);
 		}
 	}
 
-	return std::nullopt;
+	return Indices;
 }
 
 std::vector<FPreviewObject>& FEditorScene::GetObjects()

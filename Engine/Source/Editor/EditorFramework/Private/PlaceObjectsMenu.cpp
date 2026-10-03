@@ -6,6 +6,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
 #include <limits>
 #include <string_view>
 
@@ -15,32 +16,100 @@ namespace
 {
 constexpr const char* PopupName = "Add###PlaceObjectsMenu";
 constexpr const char* SearchLabel = "##PlaceObjectsSearch";
+constexpr std::array Candidates{std::string_view("Empty Entity"), std::string_view("Cube")};
+
+std::optional<std::vector<FAssetSearchMatch>> GetMatches(const FPlaceObjectsMenuState& State)
+{
+	std::string_view Query(State.Search.data());
+	const std::size_t First = Query.find_first_not_of(" \t\r\n");
+	if (First != std::string_view::npos)
+	{
+		Query = Query.substr(First, Query.find_last_not_of(" \t\r\n") - First + 1);
+	}
+	else
+	{
+		Query = {};
+	}
+
+	return SearchAssets(Candidates, Query);
+}
+
+bool ContainsResult(const std::optional<std::vector<FAssetSearchMatch>>& Matches, const EPlaceObjectType Type)
+{
+	const std::size_t Index = Type == EPlaceObjectType::EmptyEntity ? 0 : 1;
+	return Matches && std::ranges::any_of(*Matches, [Index](const FAssetSearchMatch& Match)
+	{
+		return Match.Index == Index;
+	});
+}
+
+EPlaceObjectType GetResultType(const std::size_t Index)
+{
+	return Index == 0 ? EPlaceObjectType::EmptyEntity : EPlaceObjectType::Cube;
+}
+
+bool DrawPlaceObjectResult(const std::string_view Label, const EToolUIMenuIcon Icon, const bool bSelected)
+{
+	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+	ImDrawListSplitter ResultLayers;
+	ResultLayers.Split(DrawList, 2);
+	ResultLayers.SetCurrentChannel(DrawList, 1);
+	const bool bPressed = ToolUIMenuItem(Label, Icon);
+	const ImVec2 Minimum = ImGui::GetItemRectMin();
+	const ImVec2 Maximum = ImGui::GetItemRectMax();
+	ResultLayers.SetCurrentChannel(DrawList, 0);
+	if (bSelected)
+	{
+		DrawList->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(ImGuiCol_Header), ImGui::GetStyle().MenuItemRounding);
+	}
+	ResultLayers.Merge(DrawList);
+	return bPressed;
+}
 }
 
 void FPlaceObjectsMenuState::Reset() noexcept
 {
 	Search.fill('\0');
+	SelectedResult = EPlaceObjectType::EmptyEntity;
 	bResultsFocused = false;
 }
 
 bool FPlaceObjectsMenuState::HasCubeMatch() const
 {
-	std::string_view Query(Search.data());
-	const std::size_t First = Query.find_first_not_of(" \t\r\n");
-	if (First == std::string_view::npos)
-	{
-		return true;
-	}
+	return ContainsResult(GetMatches(*this), EPlaceObjectType::Cube);
+}
 
-	Query = Query.substr(First, Query.find_last_not_of(" \t\r\n") - First + 1);
-	constexpr std::array Candidates{std::string_view("Cube")};
-	const auto Matches = SearchAssets(Candidates, Query);
+bool FPlaceObjectsMenuState::HasEmptyEntityMatch() const
+{
+	return ContainsResult(GetMatches(*this), EPlaceObjectType::EmptyEntity);
+}
+
+bool FPlaceObjectsMenuState::HasAnyMatch() const
+{
+	const auto Matches = GetMatches(*this);
 	return Matches && !Matches->empty();
 }
 
 void FPlaceObjectsMenuState::SetResultFocus(const bool bFocused)
 {
-	bResultsFocused = bFocused && HasCubeMatch();
+	const auto Matches = GetMatches(*this);
+	bResultsFocused = bFocused && Matches && !Matches->empty();
+	if (bResultsFocused && !ContainsResult(Matches, SelectedResult))
+	{
+		SelectFirstResult();
+	}
+}
+
+void FPlaceObjectsMenuState::SelectFirstResult()
+{
+	if (const auto Matches = GetMatches(*this); Matches && !Matches->empty())
+	{
+		SelectedResult = GetResultType(Matches->front().Index);
+	}
+	else
+	{
+		bResultsFocused = false;
+	}
 }
 
 FPlaceObjectsMenuNavigation UpdatePlaceObjectsMenuNavigation(FPlaceObjectsMenuState& State)
@@ -52,7 +121,9 @@ FPlaceObjectsMenuNavigation UpdatePlaceObjectsMenuNavigation(FPlaceObjectsMenuSt
 	}
 
 	const bool bTab = ImGui::IsKeyPressed(ImGuiKey_Tab, ImGuiInputFlags_None, NavigationOwner);
-	const bool bArrow = ImGui::IsKeyPressed(ImGuiKey_UpArrow, ImGuiInputFlags_Repeat, NavigationOwner) || ImGui::IsKeyPressed(ImGuiKey_DownArrow, ImGuiInputFlags_Repeat, NavigationOwner);
+	const bool bUp = ImGui::IsKeyPressed(ImGuiKey_UpArrow, ImGuiInputFlags_Repeat, NavigationOwner);
+	const bool bDown = ImGui::IsKeyPressed(ImGuiKey_DownArrow, ImGuiInputFlags_Repeat, NavigationOwner);
+	const bool bArrow = bUp || bDown;
 	FPlaceObjectsMenuNavigation Navigation{
 	    .bConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, ImGuiInputFlags_None, NavigationOwner) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, ImGuiInputFlags_None, NavigationOwner),
 	    .bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, NavigationOwner),
@@ -61,6 +132,25 @@ FPlaceObjectsMenuNavigation UpdatePlaceObjectsMenuNavigation(FPlaceObjectsMenuSt
 	if (bTab || bArrow)
 	{
 		ImGui::NavMoveRequestCancel();
+		if (bArrow && !State.bResultsFocused)
+		{
+			State.SelectFirstResult();
+		}
+		else if (bArrow)
+		{
+			const auto Matches = GetMatches(State);
+			if (Matches && !Matches->empty())
+			{
+				const auto Current = std::ranges::find_if(*Matches, [&State](const FAssetSearchMatch& Match)
+				{
+					return GetResultType(Match.Index) == State.SelectedResult;
+				});
+				const std::size_t CurrentIndex = Current == Matches->end() ? 0 : static_cast<std::size_t>(Current - Matches->begin());
+				const std::size_t NextIndex = bDown ? (CurrentIndex + 1) % Matches->size() : (CurrentIndex + Matches->size() - 1) % Matches->size();
+				State.SelectedResult = GetResultType((*Matches)[NextIndex].Index);
+			}
+		}
+
 		State.SetResultFocus(bArrow || !State.bResultsFocused);
 		Navigation.bFocusResult = State.bResultsFocused;
 		Navigation.bFocusSearch = !State.bResultsFocused;
@@ -69,6 +159,7 @@ FPlaceObjectsMenuNavigation UpdatePlaceObjectsMenuNavigation(FPlaceObjectsMenuSt
 	else if (State.bResultsFocused && !ImGui::GetIO().InputQueueCharacters.empty())
 	{
 		State.bResultsFocused = false;
+		State.SelectFirstResult();
 		Navigation.bFocusSearch = true;
 		const ImGuiID SearchId = ImGui::GetID(SearchLabel);
 		// Reuse the initialized text state so the first typed character is handled in this frame.
@@ -102,7 +193,7 @@ void OpenPlaceObjectsMenu(FPlaceObjectsMenuState& State)
 	ImGui::OpenPopup(PopupName);
 }
 
-bool DrawPlaceObjectsMenu(FToolUIContext& ToolUI, FPlaceObjectsMenuState& State, const bool bOpenRequested)
+std::optional<EPlaceObjectType> DrawPlaceObjectsMenu(FToolUIContext& ToolUI, FPlaceObjectsMenuState& State, const bool bOpenRequested)
 {
 	if (bOpenRequested)
 	{
@@ -117,7 +208,7 @@ bool DrawPlaceObjectsMenu(FToolUIContext& ToolUI, FPlaceObjectsMenuState& State,
 	if (!ImGui::BeginPopup(PopupName, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar))
 	{
 		ImGui::PopStyleVar(2);
-		return false;
+		return std::nullopt;
 	}
 
 	ImGui::PushStyleColor(ImGuiCol_NavCursor, ImVec4{0.f, 0.f, 0.f, 0.f});
@@ -149,42 +240,63 @@ bool DrawPlaceObjectsMenu(FToolUIContext& ToolUI, FPlaceObjectsMenuState& State,
 	if (ImGui::IsItemActive() || bSearchChanged)
 	{
 		State.bResultsFocused = false;
+		if (bSearchChanged)
+		{
+			State.SelectFirstResult();
+		}
 	}
 
-	const bool bHasCube = State.HasCubeMatch();
-	bool bCubeRequested = false;
-	if (bHasCube)
+	const auto Matches = GetMatches(State);
+	std::optional<EPlaceObjectType> Chosen;
+	if (Matches && !Matches->empty())
 	{
-		ImGui::TextDisabled("Basic shapes");
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 7.f * Scale});
-		ImDrawList* const DrawList = ImGui::GetWindowDrawList();
-		ImDrawListSplitter ResultLayers;
-		ResultLayers.Split(DrawList, 2);
-		ResultLayers.SetCurrentChannel(DrawList, 1);
-		bCubeRequested = ToolUIMenuItem("Cube", EToolUIMenuIcon::Cube);
-		ResultLayers.SetCurrentChannel(DrawList, 0);
-		DrawList->AddRectFilled(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), ImGui::GetColorU32(ImGuiCol_Header), ImGui::GetStyle().MenuItemRounding);
-		ResultLayers.Merge(DrawList);
-
-		if (Navigation.bFocusResult)
+		if (ContainsResult(Matches, EPlaceObjectType::EmptyEntity))
 		{
-			ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
-			ImGui::SetNavCursorVisible(true);
+			ImGui::TextDisabled("Entity");
+			const bool bPressed = DrawPlaceObjectResult("Empty Entity", EToolUIMenuIcon::Entity, State.SelectedResult == EPlaceObjectType::EmptyEntity);
+			if (Navigation.bFocusResult && State.SelectedResult == EPlaceObjectType::EmptyEntity)
+			{
+				ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
+			}
+
+			if (bPressed)
+			{
+				Chosen = EPlaceObjectType::EmptyEntity;
+			}
+		}
+
+		if (ContainsResult(Matches, EPlaceObjectType::Cube))
+		{
+			ImGui::TextDisabled("Basic shapes");
+			const bool bPressed = DrawPlaceObjectResult("Cube", EToolUIMenuIcon::Cube, State.SelectedResult == EPlaceObjectType::Cube);
+			if (Navigation.bFocusResult && State.SelectedResult == EPlaceObjectType::Cube)
+			{
+				ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
+			}
+
+			if (bPressed)
+			{
+				Chosen = EPlaceObjectType::Cube;
+			}
 		}
 
 		ImGui::PopStyleVar();
-		bCubeRequested |= Navigation.bConfirm;
+		if (Navigation.bConfirm)
+		{
+			Chosen = State.bResultsFocused && ContainsResult(Matches, State.SelectedResult) ? State.SelectedResult : GetResultType(Matches->front().Index);
+		}
 	}
 	else
 	{
 		State.bResultsFocused = false;
-		ImGui::TextDisabled("No matching objects");
+		ImGui::TextDisabled("No matching items");
 	}
 
 	ImGui::PopItemFlag();
 	ImGui::Separator();
 	ImGui::TextDisabled("Tab to switch focus");
-	if (Navigation.bCancel || bCubeRequested)
+	if (Navigation.bCancel || Chosen)
 	{
 		ImGui::ClearActiveID();
 		ImGui::CloseCurrentPopup();
@@ -193,6 +305,6 @@ bool DrawPlaceObjectsMenu(FToolUIContext& ToolUI, FPlaceObjectsMenuState& State,
 	ImGui::PopStyleColor();
 	ImGui::EndPopup();
 	ImGui::PopStyleVar(2);
-	return bCubeRequested && !Navigation.bCancel;
+	return Navigation.bCancel ? std::nullopt : Chosen;
 }
 }

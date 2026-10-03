@@ -2,33 +2,39 @@
 
 [Back to README](../README.md) | [Build and run](GettingStarted.md)
 
-The editor loads and saves scenes with selectable mesh entities and imported assets. The game runtime is not implemented yet.
+The editor loads and saves scenes with selectable entities, editable components, and imported assets. An asterisk after the scene name in the title bar indicates unsaved changes; saving or undoing back to the saved state clears it. The game runtime is not implemented yet.
 
 ## Workspace
 
 The workspace renders the scene across the canvas beneath blurred Outliner, Details, and Output Log overlays, with compact chrome, glass viewport controls, and inline transform editing. The camera's projection center follows the unobscured Viewport pane, so overlays do not push the subject off-center. The main Viewport stays anchored to the central dock area with no tab bar; other panels remain movable, dockable, and resizable. The world grid is procedural on the GPU, with antialiased lines and a distance fade.
 
-See [Rendering.md](Rendering.md) for GPU ownership, shader cooking, and renderer verification. Use **File > Reset layout** to restore the default arrangement, including the Output Log's 26% workspace height. Existing saved layouts are preserved when defaults change.
+See [Rendering.md](Rendering.md) for GPU ownership, shader cooking, and renderer verification. Use **File > Reset layout** to restore the default arrangement: Outliner takes 35% of the right column, Details takes the rest, and Output Log takes 26% of the workspace height. Existing saved layouts are preserved when defaults change.
 
 ## Viewport controls
 
 In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB on empty space to orbit, MMB to pan, and the wheel to dolly. Alt+drag a transform gizmo to duplicate the selection and transform the copies as one undo step. Copies appear only when the transform changes; Escape cancels the drag and removes them. Press F to focus the selection. F11 toggles a full-workspace viewport without changing the saved panel layout. Click an object to select it; Ctrl+click or Shift+click toggles additional objects. Click empty viewport space or press Escape in the focused viewport to deselect. During a transform drag, Escape restores the entire selection instead. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits apply to the selection around its active object's pivot.
 
-Drag LMB from empty viewport space to box-select intersecting projected mesh bounds. Shift-drag adds objects, Ctrl-drag toggles them, and Escape restores the selection from before the drag. Selection updates live; gizmo drags and Alt+LMB orbit keep their existing behavior.
+Press G in the focused Viewport to toggle Game view, or use **Overlays > Game view** in viewport settings. It hides the grid, gizmos, selection outlines, empty-entity markers, bounds, axes, viewport stats, and fly-speed HUD without changing individual overlay settings. Camera coordinates remain visible and clickable for copying. Panels and the viewport toolbar remain visible. This does not start Play or Simulate.
+
+Drag LMB from empty viewport space to box-select intersecting projected mesh bounds and empty-entity markers. Shift-drag adds objects, Ctrl-drag toggles them, and Escape restores the selection from before the drag. Selection updates live; gizmo drags and Alt+LMB orbit keep their existing behavior.
 
 ## Simulation
 
 The editor preview includes a 1 m cube initially positioned at Y=4 m and a 10 m square floor whose top is at Y=0. Both use the engine cube asset `Engine/Content/Shapes/Cube.gltf`; the floor is that cube scaled to 10 x 0.5 x 10 m. Click **Simulate** or press **Alt+S** to drop the cube from its current editor transform using Jolt Physics. Camera navigation and selection remain available, but transform editing is locked. Press **Escape** or click the active Simulate button to stop and restore the original transform. Physics runs at 60 Hz with render interpolation and bounded catch-up after stalls. **Play** remains disabled because the game runtime is not implemented. This is an editor preview slice, not the full physics milestone.
 
+All entities with Static Mesh and Dynamic Rigid Body components simulate, including duplicates. Static bodies and other dynamics collide using mesh-bounds boxes. A floor is optional. Stopping restores every authored transform; simulated poses are never saved.
+
 ## Details and renaming
 
 Details shows the active object's editable location, rotation, and scale. With multiple objects selected, transform changes also apply to the other selected objects. Click a value to type or drag it to adjust; typed values support arithmetic such as `10/2`, applied with Enter. Shift+RMB copies an individual value or a whole transform row from its label; Shift+LMB pastes it. Row clipboard text supports UE's `X/Y/Z` location and scale format and `Pitch/Yaw/Roll` rotation format. Values stay in Herta's units and axis conventions; clipboard compatibility does not convert them. Click the camera coordinates to copy a position that can be pasted onto Location. Floor edits affect its static collider when simulation starts.
 
-Press F2 in the Viewport, Outliner, or Details to rename the active object in Details, or double-click its Details heading. Enter or moving focus commits the name; Escape cancels. Blank names are rejected. S toggles grid snapping in the focused viewport when no drag is active; RMB+S still flies backward. Ctrl+Q quits the editor from any panel.
+Press F2 in the Viewport or Outliner to rename the active object's Outliner row. Details displays the name without an inline editor. Enter or moving focus commits the name; Escape cancels. Blank names are rejected. S toggles grid snapping in the focused viewport when no drag is active; RMB+S still flies backward. Ctrl+Q quits the editor from any panel.
 
 ## Scenes
 
-The editor loads `Games/Sandbox/Scenes/Sandbox.hscene` on startup. **File > Save scene** or **Ctrl+S** saves names, transforms, mesh asset IDs, and body type components. Changes are not saved automatically on exit. **File > Open scene...** loads another `.hscene`; a failed load keeps the current scene intact. These are flat mesh scenes for now; the runtime supports hierarchy and non-mesh entities, but their editor UI comes later.
+The editor loads `Games/Sandbox/Scenes/Sandbox.hscene` on startup. **File > Save scene** or **Ctrl+S** saves names, transforms, mesh asset IDs, and body type components. Changes are not saved automatically on exit. **File > Open scene...** loads another `.hscene`; a failed load keeps the current scene intact. The editor supports flat scenes with empty and mesh entities; hierarchy authoring comes later.
+
+File > Open scene starts in the current scene's folder, initially `Games/Sandbox/Scenes`. File > Save scene and Ctrl+S write directly to the current scene path without opening a dialog.
 
 Output Log commands: `scene.save [path]`, `scene.load <path>`, and `scene.validate <path>`. Quote paths containing spaces. Saving during simulation writes authored transforms, never the transient physics pose. `scene.load` requires simulation to be stopped.
 
@@ -42,7 +48,11 @@ Headlessly, use `HertaEditorCmd scene.validate <path>` or `HertaEditorCmd scene.
 
 Right-click the viewport without dragging to open Select All (Ctrl+A) and Add (Shift+A). Ctrl+A in the focused viewport selects every scene object. Camera fly drags do not open the menu.
 
-Shift+A or the context menu's Add opens the Add menu at the cursor. Type to fuzzy-search, use arrows or Tab to focus a result, Enter to add it, and Escape to close. Cube is the first supported basic shape and spawns at the camera pivot; change its mesh in Details.
+Shift+A while hovering Details opens Add Component for the selection. Over other UI, it opens the scene's Add menu at the cursor, regardless of keyboard focus. The viewport context menu's Add also opens the scene menu. Type to fuzzy-search, use arrows or Tab to focus a result, Enter to add it, and Escape to close. Empty Entity and Cube spawn at the camera pivot. Cube is an entity preset with the engine cube Static Mesh attached; an empty entity has only its name, transform, and a selectable editor marker.
+
+Use **Add Component** in Details to attach Static Mesh or Jolt Rigid Body. A new Static Mesh starts with the engine cube asset; its picker selects imported assets. A new Rigid Body defaults to Dynamic; its Body type picker also supports Static. Click the X on a component header to remove it, including when collapsed. Components are independent: removing Static Mesh leaves Rigid Body intact. Add, remove, and property changes support undo/redo, saving, duplication, and clipboard operations. On multi-selection, adding fills missing components and removing removes existing ones; component types are not duplicated. Transform stays built-in.
+
+The physics preview simulates one meshed Dynamic/Static pair. Meshless rigid bodies persist as authored intent but have no preview collider; general multi-body simulation remains a later physics slice.
 
 Ctrl+D duplicates selected objects and offsets the copies by one configured translation grid step along world X and Z, even when snapping is off. Alt+drag applies no extra offset. Delete removes selected objects, and Ctrl+C/Ctrl+V copy/paste a canonical scene excerpt. Pasted objects receive new UUIDs while retaining asset references. These shortcuts work in Viewport, Outliner, and Details; text inputs retain their own editing shortcuts. Authoring and undo/redo are disabled during simulation and active gestures. Exit does not automatically save.
 

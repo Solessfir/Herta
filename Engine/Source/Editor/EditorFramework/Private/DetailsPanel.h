@@ -1,8 +1,11 @@
 #pragma once
 
+#include "Herta/Scene/World.h"
+
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -28,10 +31,10 @@ struct FDetailsPanelState
 	std::array<EDetailsTransformSpace, 3> Spaces{};
 	std::array<char, 96> Search{};
 	std::array<char, 96> MeshSearch{};
+	std::array<char, 96> ComponentSearch{};
+	int ComponentResult = 0;
+	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;
-	std::array<char, 1025> RenameBuffer{};
-	bool bRenameRequested = false;
-	bool bRenaming = false;
 };
 
 struct FDetailsMeshField
@@ -43,6 +46,25 @@ struct FDetailsMeshField
 	bool bError = false;
 };
 
+enum class EDetailsComponentAction
+{
+	None,
+	AddStaticMesh,
+	RemoveStaticMesh,
+	AddRigidBody,
+	RemoveRigidBody,
+};
+
+struct FDetailsComponentField
+{
+	bool bAnyMesh = false;
+	bool bAllMesh = false;
+	bool bMixedMeshAsset = false;
+	bool bAnyBody = false;
+	bool bAllBody = false;
+	std::optional<ESceneBodyType> BodyType{};
+};
+
 struct FDetailsMeshResult
 {
 	// The option chosen this frame, or -1.
@@ -51,6 +73,8 @@ struct FDetailsMeshResult
 	// Complete the transaction after propagating this frame's transform to the selection.
 	bool bEditFinished = false;
 	bool bEditCanceled = false;
+	EDetailsComponentAction ComponentAction = EDetailsComponentAction::None;
+	std::optional<ESceneBodyType> BodyTypeChosen{};
 };
 
 struct FDetailsEditCallbacks
@@ -60,5 +84,5 @@ struct FDetailsEditCallbacks
 	std::function<void(bool)> Flush;
 };
 
-FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, std::size_t SelectedCount = 1, const FDetailsMeshField* Mesh = nullptr, const FDetailsEditCallbacks* Edits = nullptr);
+FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, std::size_t SelectedCount = 1, const FDetailsMeshField* Mesh = nullptr, const FDetailsEditCallbacks* Edits = nullptr, const FDetailsComponentField* Components = nullptr);
 }

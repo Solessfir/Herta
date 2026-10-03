@@ -96,13 +96,21 @@ TEST_CASE("Editor scene loads variable entity counts and identifies physics bodi
 	REQUIRE(SaveScene(Path, Document));
 	REQUIRE(Scene.Load(Path));
 	CHECK(Scene.GetObjects().size() == 3);
-	CHECK(Scene.FindBody(ESceneBodyType::Static) == 0);
-	CHECK(Scene.FindBody(ESceneBodyType::Dynamic) == 2);
+	CHECK(Scene.FindBodies(ESceneBodyType::Static) == std::vector<std::size_t>{0});
+	CHECK(Scene.FindBodies(ESceneBodyType::Dynamic) == std::vector<std::size_t>{2});
+	Document.Entities[2].BodyType = ESceneBodyType::Dynamic;
+	REQUIRE(SaveScene(Path, Document));
+	REQUIRE(Scene.Load(Path));
+	CHECK(Scene.FindBodies(ESceneBodyType::Dynamic) == std::vector<std::size_t>{1, 2});
+	Document.Entities[2].BodyType = ESceneBodyType::Static;
+	REQUIRE(SaveScene(Path, Document));
+	REQUIRE(Scene.Load(Path));
+	CHECK(Scene.FindBodies(ESceneBodyType::Static) == std::vector<std::size_t>{0, 1});
 	Document.Entities.clear();
 	REQUIRE(SaveScene(Path, Document));
 	REQUIRE(Scene.Load(Path));
 	CHECK(Scene.GetObjects().empty());
-	CHECK_FALSE(Scene.FindBody(ESceneBodyType::Dynamic));
+	CHECK(Scene.FindBodies(ESceneBodyType::Dynamic).empty());
 }
 
 TEST_CASE("Editor scene does not lose unedited double coordinates through its float view")
@@ -745,12 +753,6 @@ TEST_CASE("Scene clipboard paste remaps UUIDs and rejects unsupported input atom
 	CHECK(Target.GetWorld().SnapshotEntities() == After);
 	CHECK(SelectedEditorObjects(Target) == Pasted);
 	FSceneDocument Invalid{.Id = FObjectId::Generate(), .Name = "Invalid", .Entities = Before};
-	Invalid.Entities[0].Mesh.reset();
-	const auto NonMesh = SerializeScene(Invalid);
-	REQUIRE(NonMesh);
-	CHECK_FALSE(Target.PasteEntities(*NonMesh));
-	CHECK(Target.GetWorld().SnapshotEntities() == After);
-	Invalid.Entities = Before;
 	Invalid.Entities[1].Parent = Invalid.Entities[0].Id;
 	const auto Hierarchy = SerializeScene(Invalid);
 	REQUIRE(Hierarchy);
@@ -784,6 +786,316 @@ TEST_CASE("Empty scenes support authored insertion deletion and history")
 	CHECK(Scene.GetSelection().empty());
 	CHECK_FALSE(Scene.GetActiveObject());
 	CHECK_FALSE(Scene.IsDirty());
+}
+
+TEST_CASE("Empty entities retain absent components through editing history and scene files")
+{
+	Tests::FScratchDirectory Scratch("HertaEmptyEntity");
+	FEditorScene Scene;
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	const auto Created = Scene.CreateEmptyEntity(FWorldPosition{2., 3., 4.});
+	REQUIRE(Created);
+	const auto Handle = *Scene.GetWorld().FindEntity(*Created);
+	CHECK(FindEditorObject(Scene, *Created).Label == "Entity");
+	CHECK_FALSE(FindEditorObject(Scene, *Created).Mesh.IsValid());
+	CHECK_FALSE(Scene.GetWorld().GetEntity(Handle)->Mesh);
+	CHECK(Scene.GetWorld().GetEntity(Handle)->BodyType == ESceneBodyType::None);
+	CHECK(Scene.GetActiveObject() == *Created);
+	REQUIRE(Scene.BeginEdit("Edit empty entity"));
+	FPreviewObject& Object = FindEditorObject(Scene, *Created);
+	Object.Label = "Anchor";
+	Object.Translation = {9.f, 8.f, 7.f};
+	Object.Rotation = FromPreviewEulerXYZ({0.2f, -0.3f, 0.4f});
+	Object.Scale = {0.5f, 2.f, 3.f};
+	REQUIRE(Scene.EndEdit());
+	const auto Edited = Scene.GetWorld().SnapshotEntities();
+	CHECK(Scene.GetWorld().FindEntity(*Created) == Handle);
+	CHECK_FALSE(Scene.GetWorld().GetEntity(Handle)->Mesh);
+	REQUIRE(Scene.Undo());
+	CHECK(FindEditorObject(Scene, *Created).Label == "Entity");
+	CHECK(FindEditorObject(Scene, *Created).Translation.x == 2.f);
+	CHECK_FALSE(FindEditorObject(Scene, *Created).Mesh.IsValid());
+	REQUIRE(Scene.Redo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Edited);
+	const auto Path = Scratch.GetPath() / "Anchor.hscene";
+	REQUIRE(Scene.Save(Path));
+	FEditorScene Restored;
+	REQUIRE(Restored.Load(Path));
+	CHECK(Restored.GetWorld().SnapshotEntities() == Edited);
+	CHECK_FALSE(FindEditorObject(Restored, *Created).Mesh.IsValid());
+	CHECK_FALSE(Restored.IsDirty());
+	REQUIRE(Scene.Undo());
+	REQUIRE(Scene.Undo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK_FALSE(Scene.GetWorld().GetEntity(Handle));
+	REQUIRE(Scene.Redo());
+	REQUIRE(Scene.Redo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Edited);
+	CHECK(Scene.GetWorld().FindEntity(*Created) != Handle);
+	CHECK_FALSE(Scene.IsDirty());
+}
+
+TEST_CASE("Empty entity clipboard and duplication preserve optional components and remap identities")
+{
+	FEditorScene Source;
+	const auto Created = Source.CreateEmptyEntity(FWorldPosition{2., 4., 6.});
+	REQUIRE(Created);
+	const auto Second = Source.CreateEmptyEntity();
+	REQUIRE(Second);
+	CHECK(FindEditorObject(Source, *Second).Label == "Entity 2");
+	Source.SetSelection(std::array{*Created}, *Created);
+	REQUIRE(Source.AddRigidBodyToSelected());
+	FindEditorObject(Source, *Created).Label = "Body anchor";
+	REQUIRE(Source.CommitEdits());
+	const auto Original = *Source.GetWorld().GetEntity(*Source.GetWorld().FindEntity(*Created));
+	REQUIRE(Source.DuplicateSelected());
+	const auto CopyId = *Source.GetActiveObject();
+	const auto Copy = *Source.GetWorld().GetEntity(*Source.GetWorld().FindEntity(CopyId));
+	CHECK_FALSE(Copy.Mesh);
+	CHECK(Copy.BodyType == Original.BodyType);
+	CHECK(Copy.Transform == Original.Transform);
+	REQUIRE(Source.Undo());
+	CHECK(Source.GetActiveObject() == *Created);
+	const auto Clipboard = Source.CopySelected();
+	REQUIRE(Clipboard);
+	FEditorScene Target;
+	const auto Before = Target.GetWorld().SnapshotEntities();
+	REQUIRE(Target.PasteEntities(*Clipboard));
+	const auto PastedId = *Target.GetActiveObject();
+	CHECK(PastedId != *Created);
+	const auto Pasted = *Target.GetWorld().GetEntity(*Target.GetWorld().FindEntity(PastedId));
+	CHECK_FALSE(Pasted.Mesh);
+	CHECK(Pasted.BodyType == Original.BodyType);
+	CHECK(Pasted.Name == Original.Name);
+	CHECK(Pasted.Transform == Original.Transform);
+	CHECK_FALSE(FindEditorObject(Target, PastedId).Mesh.IsValid());
+	const auto After = Target.GetWorld().SnapshotEntities();
+	REQUIRE(Target.Undo());
+	CHECK(Target.GetWorld().SnapshotEntities() == Before);
+	REQUIRE(Target.Redo());
+	CHECK(Target.GetWorld().SnapshotEntities() == After);
+}
+
+TEST_CASE("Static mesh authoring preserves handles active selection and no-op redo branches")
+{
+	Tests::FScratchDirectory Scratch("HertaMeshComponents");
+	FEditorScene Scene;
+	const FObjectId Cube = Scene.GetObjects()[0].Id;
+	const auto Empty = Scene.CreateEmptyEntity();
+	REQUIRE(Empty);
+	const auto EmptyHandle = *Scene.GetWorld().FindEntity(*Empty);
+	const auto CubeHandle = *Scene.GetWorld().FindEntity(Cube);
+	const std::array Selected{*Empty, Cube};
+	Scene.SetSelection(Selected, *Empty);
+	REQUIRE(Scene.Save(Scratch.GetPath() / "BeforeMesh.hscene"));
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	REQUIRE(Scene.AddStaticMeshToSelected(EngineCubeAsset));
+	CHECK(Scene.GetWorld().GetEntity(EmptyHandle)->Mesh->Asset == EngineCubeAsset);
+	CHECK(Scene.GetWorld().GetEntity(CubeHandle)->Mesh->Asset == EngineCubeAsset);
+	CHECK(SelectedEditorObjects(Scene) == std::vector<FObjectId>(Selected.begin(), Selected.end()));
+	CHECK(Scene.GetActiveObject() == *Empty);
+	const auto Added = Scene.GetWorld().SnapshotEntities();
+	const auto Generation = Scene.GetGeneration();
+	REQUIRE(Scene.AddStaticMeshToSelected(FAssetId{1, 2}));
+	CHECK(Scene.GetWorld().SnapshotEntities() == Added);
+	CHECK(Scene.GetGeneration() == Generation);
+	REQUIRE(Scene.Undo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK_FALSE(Scene.IsDirty());
+	Scene.SetSelection(std::array{*Empty}, *Empty);
+	REQUIRE(Scene.RemoveStaticMeshFromSelected());
+	CHECK(Scene.CanRedo());
+	CHECK_FALSE(Scene.IsDirty());
+	REQUIRE(Scene.Redo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Added);
+	CHECK(Scene.GetActiveObject() == *Empty);
+	REQUIRE(Scene.RemoveStaticMeshFromSelected());
+	CHECK_FALSE(Scene.GetWorld().GetEntity(EmptyHandle)->Mesh);
+	CHECK_FALSE(Scene.GetWorld().GetEntity(CubeHandle)->Mesh);
+	CHECK(Scene.GetWorld().GetEntity(CubeHandle)->BodyType == ESceneBodyType::Dynamic);
+	CHECK(Scene.FindBodies(ESceneBodyType::Dynamic).empty());
+	REQUIRE(Scene.AddStaticMeshToSelected(FAssetId{1, 2}));
+	CHECK(Scene.GetWorld().GetEntity(EmptyHandle)->Mesh->Asset == FAssetId{1, 2});
+	CHECK(Scene.GetWorld().GetEntity(CubeHandle)->Mesh->Asset == FAssetId{1, 2});
+	CHECK(Scene.GetWorld().FindEntity(*Empty) == EmptyHandle);
+	CHECK(Scene.GetWorld().FindEntity(Cube) == CubeHandle);
+	CHECK(Scene.GetActiveObject() == *Empty);
+	REQUIRE(Scene.Undo());
+	CHECK_FALSE(Scene.GetWorld().GetEntity(EmptyHandle)->Mesh);
+	REQUIRE(Scene.Undo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Added);
+}
+
+TEST_CASE("Rigid body authoring is independent from meshes and addition preserves existing motion")
+{
+	FEditorScene Scene;
+	const FObjectId Cube = Scene.GetObjects()[0].Id;
+	const FObjectId Floor = Scene.GetObjects()[1].Id;
+	const auto Empty = Scene.CreateEmptyEntity();
+	REQUIRE(Empty);
+	const auto EmptyHandle = *Scene.GetWorld().FindEntity(*Empty);
+	const auto CubeHandle = *Scene.GetWorld().FindEntity(Cube);
+	const auto FloorHandle = *Scene.GetWorld().FindEntity(Floor);
+	const std::array Selected{*Empty, Cube, Floor};
+	Scene.SetSelection(Selected, *Empty);
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	REQUIRE(Scene.AddRigidBodyToSelected(ESceneBodyType::Static));
+	CHECK(Scene.GetWorld().GetEntity(EmptyHandle)->BodyType == ESceneBodyType::Static);
+	CHECK_FALSE(Scene.GetWorld().GetEntity(EmptyHandle)->Mesh);
+	CHECK(Scene.GetWorld().GetEntity(CubeHandle)->BodyType == ESceneBodyType::Dynamic);
+	CHECK(Scene.GetWorld().GetEntity(FloorHandle)->BodyType == ESceneBodyType::Static);
+	const auto Added = Scene.GetWorld().SnapshotEntities();
+	const auto Generation = Scene.GetGeneration();
+	REQUIRE(Scene.AddRigidBodyToSelected());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Added);
+	CHECK(Scene.GetGeneration() == Generation);
+	REQUIRE(Scene.SetSelectedBodyType(ESceneBodyType::Dynamic));
+	CHECK(Scene.GetWorld().GetEntity(EmptyHandle)->BodyType == ESceneBodyType::Dynamic);
+	CHECK(Scene.GetWorld().GetEntity(FloorHandle)->BodyType == ESceneBodyType::Dynamic);
+	CHECK(Scene.FindBodies(ESceneBodyType::Static).empty());
+	REQUIRE(Scene.SetSelectedBodyType(ESceneBodyType::None));
+	CHECK(Scene.GetWorld().GetEntity(EmptyHandle)->BodyType == ESceneBodyType::None);
+	CHECK(Scene.GetWorld().GetEntity(CubeHandle)->BodyType == ESceneBodyType::None);
+	CHECK(Scene.GetWorld().GetEntity(FloorHandle)->BodyType == ESceneBodyType::None);
+	REQUIRE(Scene.Undo());
+	REQUIRE(Scene.Undo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Added);
+	REQUIRE(Scene.Undo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK(Scene.GetWorld().FindEntity(*Empty) == EmptyHandle);
+	CHECK(Scene.GetWorld().FindEntity(Cube) == CubeHandle);
+	CHECK(Scene.GetWorld().FindEntity(Floor) == FloorHandle);
+	CHECK(Scene.GetActiveObject() == *Empty);
+	CHECK(SelectedEditorObjects(Scene) == std::vector<FObjectId>(Selected.begin(), Selected.end()));
+}
+
+TEST_CASE("Mixed rigid body edits never insert missing components or consume no-op redo branches")
+{
+	FEditorScene Scene;
+	const FObjectId Cube = Scene.GetObjects()[0].Id;
+	const FObjectId Floor = Scene.GetObjects()[1].Id;
+	const auto Empty = Scene.CreateEmptyEntity();
+	REQUIRE(Empty);
+	const auto EmptyHandle = *Scene.GetWorld().FindEntity(*Empty);
+	const auto CubeHandle = *Scene.GetWorld().FindEntity(Cube);
+	const auto FloorHandle = *Scene.GetWorld().FindEntity(Floor);
+	const std::array Selected{*Empty, Cube, Floor};
+	Scene.SetSelection(Selected, *Empty);
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	REQUIRE(Scene.SetSelectedBodyType(ESceneBodyType::Static));
+	CHECK(Scene.GetWorld().GetEntity(EmptyHandle)->BodyType == ESceneBodyType::None);
+	CHECK(Scene.GetWorld().GetEntity(CubeHandle)->BodyType == ESceneBodyType::Static);
+	CHECK(Scene.GetWorld().GetEntity(FloorHandle)->BodyType == ESceneBodyType::Static);
+	CHECK(Scene.GetActiveObject() == *Empty);
+	REQUIRE(Scene.Undo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	Scene.SetSelection(std::array{*Empty}, *Empty);
+	const auto Generation = Scene.GetGeneration();
+	REQUIRE(Scene.SetSelectedBodyType(ESceneBodyType::Dynamic));
+	REQUIRE(Scene.SetSelectedBodyType(ESceneBodyType::None));
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK(Scene.GetGeneration() == Generation);
+	CHECK(Scene.CanRedo());
+	Scene.SetSelection(std::array{Floor}, Floor);
+	REQUIRE(Scene.AddRigidBodyToSelected());
+	REQUIRE(Scene.SetSelectedBodyType(ESceneBodyType::Static));
+	CHECK(Scene.CanRedo());
+	REQUIRE(Scene.Redo());
+	CHECK(Scene.GetWorld().GetEntity(EmptyHandle)->BodyType == ESceneBodyType::None);
+	CHECK(Scene.GetWorld().GetEntity(CubeHandle)->BodyType == ESceneBodyType::Static);
+	CHECK(Scene.GetActiveObject() == *Empty);
+	CHECK(Scene.GetWorld().FindEntity(*Empty) == EmptyHandle);
+	CHECK(Scene.GetWorld().FindEntity(Cube) == CubeHandle);
+	CHECK(Scene.GetWorld().FindEntity(Floor) == FloorHandle);
+}
+
+TEST_CASE("Meshless rigid bodies load and save but cannot be selected for preview simulation")
+{
+	Tests::FScratchDirectory Scratch("HertaMeshlessBodies");
+	const std::array Entities{
+	    FSceneEntity{.Id = FObjectId{1, 1}, .Name = "Empty", .BodyType = ESceneBodyType::Dynamic},
+	    FSceneEntity{.Id = FObjectId{2, 2}, .Name = "Floor", .Mesh = FStaticMeshComponent{EngineCubeAsset}, .BodyType = ESceneBodyType::Static},
+	    FSceneEntity{.Id = FObjectId{3, 3}, .Name = "Cube", .Mesh = FStaticMeshComponent{EngineCubeAsset}, .BodyType = ESceneBodyType::Dynamic},
+	};
+
+	const auto Path = Scratch.GetPath() / "Bodies.hscene";
+	REQUIRE(SaveScene(Path, {.Id = FObjectId::Generate(), .Name = "Bodies", .Entities = {Entities.begin(), Entities.end()}}));
+	FEditorScene Scene;
+	REQUIRE(Scene.Load(Path));
+	CHECK(Scene.FindBodies(ESceneBodyType::Static) == std::vector<std::size_t>{1});
+	CHECK(Scene.FindBodies(ESceneBodyType::Dynamic) == std::vector<std::size_t>{2});
+	CHECK_FALSE(Scene.GetObjects()[0].Mesh.IsValid());
+	REQUIRE(Scene.CommitEdits());
+	CHECK_FALSE(Scene.IsDirty());
+	REQUIRE(Scene.Save(Path));
+	const auto Saved = LoadScene(Path);
+	REQUIRE(Saved);
+	CHECK_FALSE(Saved->Entities[0].Mesh);
+	CHECK(Saved->Entities[0].BodyType == ESceneBodyType::Dynamic);
+	REQUIRE(Scene.AddStaticMeshToSelected(EngineCubeAsset));
+	CHECK(Scene.FindBodies(ESceneBodyType::Dynamic) == std::vector<std::size_t>{0, 2});
+	REQUIRE(Scene.RemoveStaticMeshFromSelected());
+	CHECK(Scene.FindBodies(ESceneBodyType::Dynamic) == std::vector<std::size_t>{2});
+}
+
+TEST_CASE("Component authoring failures no-op selections and history admission preserve authored state")
+{
+	FEditorScene Scene;
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	const auto Selection = SelectedEditorObjects(Scene);
+	const auto Active = Scene.GetActiveObject();
+	const auto Generation = Scene.GetGeneration();
+	CHECK_FALSE(Scene.AddStaticMeshToSelected({}));
+	CHECK_FALSE(Scene.AddRigidBodyToSelected(ESceneBodyType::None));
+	CHECK_FALSE(Scene.AddRigidBodyToSelected(static_cast<ESceneBodyType>(255)));
+	CHECK_FALSE(Scene.SetSelectedBodyType(static_cast<ESceneBodyType>(255)));
+	CHECK_FALSE(Scene.CreateEmptyEntity(FWorldPosition{std::numeric_limits<double>::infinity(), 0., 0.}));
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK(SelectedEditorObjects(Scene) == Selection);
+	CHECK(Scene.GetActiveObject() == Active);
+	CHECK(Scene.GetGeneration() == Generation);
+	CHECK_FALSE(Scene.IsDirty());
+	Scene.SetSelection({});
+	REQUIRE(Scene.AddStaticMeshToSelected(EngineCubeAsset));
+	REQUIRE(Scene.RemoveStaticMeshFromSelected());
+	REQUIRE(Scene.AddRigidBodyToSelected());
+	REQUIRE(Scene.SetSelectedBodyType(ESceneBodyType::None));
+	CHECK_FALSE(Scene.CanUndo());
+	CHECK_FALSE(Scene.IsDirty());
+
+	for (const bool bSimulation : {false, true})
+	{
+		CAPTURE(bSimulation);
+		FEditorScene Blocked;
+		if (bSimulation)
+		{
+			Blocked.SetSimulationRunning(true);
+		}
+		else
+		{
+			REQUIRE(Blocked.BeginEdit("Active gesture"));
+		}
+
+		CHECK_FALSE(Blocked.CreateEmptyEntity());
+		CHECK_FALSE(Blocked.AddStaticMeshToSelected(EngineCubeAsset));
+		CHECK_FALSE(Blocked.RemoveStaticMeshFromSelected());
+		CHECK_FALSE(Blocked.AddRigidBodyToSelected());
+		CHECK_FALSE(Blocked.SetSelectedBodyType(ESceneBodyType::None));
+		CHECK(Blocked.GetWorld().SnapshotEntities() == Before);
+		CHECK_FALSE(Blocked.IsDirty());
+	}
+
+	FEditorScene Limited(0);
+	const auto Handle = *Limited.GetWorld().FindEntity(Before.front().Id);
+	const auto LimitedGeneration = Limited.GetGeneration();
+	CHECK_FALSE(Limited.RemoveStaticMeshFromSelected());
+	CHECK_FALSE(Limited.SetSelectedBodyType(ESceneBodyType::None));
+	CHECK_FALSE(Limited.CreateEmptyEntity());
+	CHECK(Limited.GetWorld().SnapshotEntities() == Before);
+	CHECK(Limited.GetWorld().FindEntity(Before.front().Id) == Handle);
+	CHECK(Limited.GetGeneration() == LimitedGeneration);
+	CHECK_FALSE(Limited.CanUndo());
+	CHECK_FALSE(Limited.IsDirty());
 }
 
 TEST_CASE("Simulation blocks authoring and history while saving only authored poses")

@@ -1,7 +1,10 @@
 #pragma once
 
+#include "Herta/Scene/World.h"
+
 #include <imgui.h>
 
+#include <array>
 #include <span>
 #include <string>
 #include <string_view>
@@ -15,7 +18,11 @@ struct FPreviewSelection;
 struct FOutlinerPanelState
 {
 	ImGuiTextFilter Search;
+	std::array<char, 1025> RenameBuffer{};
+	FObjectId RenameObject{};
 	bool bRenameRequested = false;
+	bool bRenaming = false;
+	bool bRenameCommitted = false;
 
 	[[nodiscard]] bool IsObjectVisible(const std::string_view Label) const
 	{

@@ -75,9 +75,9 @@ public:
 		return ImportsInFlight > 0;
 	}
 
-	// Requests made before the first scan finishes wait for it.
+	// Requests made before the first scan finishes wait for it. An invalid asset clears the mesh component.
 	void RequestMesh(std::size_t Object, const FAssetId& Asset);
-	// Scene edits change bindings, not the lifetime of loaded meshes or pending cooks.
+	// Scene edits change bindings, not the lifetime of loaded meshes or pending cooks. Invalid assets leave empty slots.
 	void RebindObjects(std::span<const FAssetId> Assets);
 
 	[[nodiscard]] std::span<const FPreviewAssetOption> GetOptions() const noexcept

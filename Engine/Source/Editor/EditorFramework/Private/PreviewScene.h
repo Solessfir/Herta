@@ -31,7 +31,7 @@ struct FPreviewObject
 	Im3d::Vec3 Translation;
 	Im3d::Mat3 Rotation{1.f};
 	Im3d::Vec3 Scale{1.f};
-	FAssetId Mesh = EngineCubeAsset;
+	FAssetId Mesh{};
 	FObjectId Id{};
 };
 
@@ -205,6 +205,9 @@ inline void ApplyPreviewTransformDelta(const std::span<FPreviewObject> Objects, 
 [[nodiscard]] inline std::array<FPreviewObject, 2> CreatePreviewObjects()
 {
 	// Both use the 1 m engine cube; the floor is scaled to a 10 x 0.5 x 10 m slab with its top at Y=0.
-	return {{{"Preview Cube", {0.f, 4.f, 0.f}}, {"Floor", {0.f, -0.25f, 0.f}, Im3d::Mat3(1.f), {10.f, 0.5f, 10.f}}}};
+	return {{
+	    {.Label = "Preview Cube", .Translation = {0.f, 4.f, 0.f}, .Mesh = EngineCubeAsset},
+	    {.Label = "Floor", .Translation = {0.f, -0.25f, 0.f}, .Scale = {10.f, 0.5f, 10.f}, .Mesh = EngineCubeAsset},
+	}};
 }
 }

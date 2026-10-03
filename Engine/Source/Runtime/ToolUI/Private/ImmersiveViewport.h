@@ -16,6 +16,14 @@ inline bool IsToolUIPanelFocused(const std::string_view Name, const bool bImmers
 	return Panel != nullptr && Focused != nullptr && Panel->RootWindow == Focused->RootWindow;
 }
 
+inline bool IsToolUIPanelHovered(const std::string_view Name, const bool bImmersive) noexcept
+{
+	const ImGuiID Id = Name == "Viewport" && bImmersive ? ImHashStr(ImmersiveViewportName) : ImHashStr(Name.data(), Name.size());
+	const ImGuiWindow* const Panel = ImGui::FindWindowByID(Id);
+	const ImGuiWindow* const Hovered = GImGui->HoveredWindow;
+	return Panel != nullptr && Hovered != nullptr && Panel->RootWindow == Hovered->RootWindow;
+}
+
 inline bool BeginImmersiveViewport(const FToolUICanvasBounds& Canvas, const bool bFocus)
 {
 	ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);

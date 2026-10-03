@@ -33,13 +33,18 @@ public:
 	std::span<const FObjectId> GetSelection() const;
 	std::optional<FObjectId> GetActiveObject() const;
 	[[nodiscard]] std::expected<FObjectId, FSceneError> CreateEntity(const FWorldPosition& Position = {});
+	[[nodiscard]] std::expected<FObjectId, FSceneError> CreateEmptyEntity(const FWorldPosition& Position = {});
+	[[nodiscard]] std::expected<void, FSceneError> AddStaticMeshToSelected(FAssetId Asset);
+	[[nodiscard]] std::expected<void, FSceneError> RemoveStaticMeshFromSelected();
+	[[nodiscard]] std::expected<void, FSceneError> AddRigidBodyToSelected(ESceneBodyType Type = ESceneBodyType::Dynamic);
+	[[nodiscard]] std::expected<void, FSceneError> SetSelectedBodyType(ESceneBodyType Type);
 	[[nodiscard]] std::expected<void, FSceneError> DuplicateSelected(bool bWithinActiveEdit = false, const FVector3d& WorldOffset = {});
 	[[nodiscard]] std::expected<void, FSceneError> DeleteSelected();
 	[[nodiscard]] std::expected<std::string, FSceneError> CopySelected() const;
 	[[nodiscard]] std::expected<void, FSceneError> PasteEntities(std::string_view Text);
 	void SetPath(std::filesystem::path Path);
 	void SetSimulationRunning(bool bRunning);
-	std::optional<std::size_t> FindBody(ESceneBodyType Type) const;
+	std::vector<std::size_t> FindBodies(ESceneBodyType Type) const;
 	std::vector<FPreviewObject>& GetObjects();
 	const std::vector<FPreviewObject>& GetObjects() const;
 	std::uint64_t GetGeneration() const;
@@ -61,7 +66,10 @@ private:
 	void RestoreObjects();
 	FEditorTransaction MakeTransaction(std::string_view Label, const std::vector<FSceneEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, std::optional<FObjectId> BeforeActive, const std::vector<FObjectId>& AfterSelection, std::optional<FObjectId> AfterActive);
 	[[nodiscard]] std::expected<void, FSceneError> RecordChanges(std::string_view Label, const std::vector<FSceneEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, std::optional<FObjectId> BeforeActive);
-	[[nodiscard]] std::expected<void, FSceneError> ApplyStructuralChanges(std::string_view Label, const std::vector<FSceneEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection);
+	[[nodiscard]] std::expected<void, FSceneError> ApplyStructuralChanges(std::string_view Label, const std::vector<FSceneEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, std::optional<FObjectId> AfterActive = std::nullopt);
+	[[nodiscard]] std::expected<FObjectId, FSceneError> InsertEntity(FSceneEntity Entity);
+	[[nodiscard]] std::expected<void, FSceneError> ApplySelectedMesh(std::optional<FStaticMeshComponent> Mesh);
+	[[nodiscard]] std::expected<void, FSceneError> ApplySelectedBodyType(ESceneBodyType Type, bool bOnlyAbsent);
 	[[nodiscard]] std::expected<void, FSceneError> CheckAuthoringAllowed(bool bAllowActiveEdit = false) const;
 
 	FWorld World;

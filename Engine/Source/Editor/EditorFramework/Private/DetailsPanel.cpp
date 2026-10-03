@@ -28,6 +28,7 @@ namespace Herta
 namespace
 {
 constexpr std::array AxisColors{IM_COL32(213, 123, 127, 255), IM_COL32(131, 185, 147, 255), IM_COL32(124, 158, 213, 255)};
+constexpr float TransformLabelWidth = 72.f;
 
 enum class ETransformClipboardFormat
 {
@@ -67,12 +68,20 @@ void BeginDetailsEdit(const FDetailsEditCallbacks* const Edits, FDetailsMeshResu
 	       != Name.end();
 }
 
-void DrawCubeIcon(const ImVec2 Position, const float Size)
+void DrawObjectIcon(const ImVec2 Position, const float Size, const bool bEntity)
 {
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
 	Draw->AddRectFilled(Position, {Position.x + Size, Position.y + Size}, IM_COL32(255, 255, 255, 9), 4.f * Size / 30.f);
 	Draw->AddRect(Position, {Position.x + Size, Position.y + Size}, IM_COL32(255, 255, 255, 25), 4.f * Size / 30.f);
 	const ImVec2 Center{Position.x + Size * 0.5f, Position.y + Size * 0.5f};
+	if (bEntity)
+	{
+		const ImU32 Color = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+		Draw->AddCircle(Center, Size * 0.22f, Color, 16, std::max(1.f, Size / 30.f));
+		Draw->AddCircleFilled(Center, Size * 0.055f, Color);
+		return;
+	}
+
 	const float Radius = Size * 0.23f;
 	const ImVec2 Top{Center.x, Center.y - Radius};
 	const ImVec2 LeftTop{Center.x - Radius, Center.y - Radius * 0.5f};
@@ -88,6 +97,126 @@ void DrawCubeIcon(const ImVec2 Position, const float Size)
 	{
 		Draw->AddLine(From, To, Color, Stroke);
 	}
+}
+
+EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelState& State, const FDetailsComponentField& Components, const bool bDragging)
+{
+	ImGui::BeginDisabled(bDragging);
+	const bool bRequested = std::exchange(State.bAddComponentRequested, false);
+	if (ImGui::Button("+ Add Component", {ImGui::GetContentRegionAvail().x, 0.f}) || (bRequested && !bDragging))
+	{
+		State.ComponentSearch.fill('\0');
+		State.ComponentResult = -1;
+		ImGui::SetNavCursorVisible(false);
+		ImGui::OpenPopup("Add component");
+	}
+
+	const float Scale = ImGui::GetFontSize() / ToolUI.GetMetrics().BaseFontSize;
+	ImGui::SetNextWindowSizeConstraints({280.f * Scale, 0.f}, {280.f * Scale, FLT_MAX});
+	ImGui::SetNextWindowBgAlpha(0.f);
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12.f * Scale, 10.f * Scale});
+	ImGui::PushStyleColor(ImGuiCol_NavCursor, {0.f, 0.f, 0.f, 0.f});
+	EDetailsComponentAction Action = EDetailsComponentAction::None;
+	if (ImGui::BeginPopup("Add component", ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoScrollbar))
+	{
+		const ImVec2 Position = ImGui::GetWindowPos();
+		const ImVec2 Size = ImGui::GetWindowSize();
+		ToolUI.DrawGlassSurface(Position.x, Position.y, Size.x, Size.y, ToolUI.GetMetrics().PopupRounding * Scale);
+		ImGui::TextUnformatted("Add Component");
+		ImGui::Separator();
+		if (ImGui::IsWindowAppearing())
+		{
+			ImGui::SetKeyboardFocusHere();
+		}
+
+		const ImGuiID Owner = ImGui::GetID("##ComponentNavigation");
+		for (const ImGuiKey Key : {ImGuiKey_UpArrow, ImGuiKey_DownArrow, ImGuiKey_Enter, ImGuiKey_KeypadEnter, ImGuiKey_Escape})
+		{
+			ImGui::SetKeyOwner(Key, Owner, ImGuiInputFlags_LockThisFrame);
+		}
+
+		const bool bUp = ImGui::IsKeyPressed(ImGuiKey_UpArrow, ImGuiInputFlags_Repeat, Owner);
+		const bool bDown = ImGui::IsKeyPressed(ImGuiKey_DownArrow, ImGuiInputFlags_Repeat, Owner);
+		const bool bConfirm = ImGui::IsKeyPressed(ImGuiKey_Enter, ImGuiInputFlags_None, Owner) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, ImGuiInputFlags_None, Owner);
+		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
+		constexpr std::array<std::string_view, 2> Names{"Static Mesh", "Rigid Body"};
+		const std::array Added{Components.bAllMesh, Components.bAllBody};
+		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
+		std::vector<int> Available;
+		for (const FAssetSearchMatch& Match : Matches.value_or(std::vector<FAssetSearchMatch>{}))
+		{
+			if (!Added[Match.Index])
+			{
+				Available.push_back(static_cast<int>(Match.Index));
+			}
+		}
+
+		auto Selected = std::ranges::find(Available, State.ComponentResult);
+		if (bSearchChanged || Selected == Available.end())
+		{
+			State.ComponentResult = Available.empty() ? -1 : Available.front();
+			Selected = Available.begin();
+		}
+
+		if ((bUp || bDown) && !Available.empty())
+		{
+			ImGui::NavMoveRequestCancel();
+			const int Count = static_cast<int>(Available.size());
+			const int Index = static_cast<int>(Selected - Available.begin());
+			State.ComponentResult = Available[static_cast<std::size_t>((Index + (bUp ? Count - 1 : 1)) % Count)];
+		}
+
+		if (!Matches || Matches->empty())
+		{
+			ImGui::TextDisabled("No matching components");
+		}
+
+		for (const FAssetSearchMatch& Match : Matches.value_or(std::vector<FAssetSearchMatch>{}))
+		{
+			const std::size_t Index = Match.Index;
+			ImGui::BeginDisabled(Added[Index]);
+			ImDrawList* const Draw = ImGui::GetWindowDrawList();
+			ImDrawListSplitter Layers;
+			Layers.Split(Draw, 2);
+			Layers.SetCurrentChannel(Draw, 1);
+			const bool bPressed = ToolUIMenuItem(Names[Index], Index == 0 ? EToolUIMenuIcon::Cube : EToolUIMenuIcon::Physics, nullptr, Added[Index] ? "Added" : nullptr);
+			const ImVec2 Minimum = ImGui::GetItemRectMin();
+			const ImVec2 Maximum = ImGui::GetItemRectMax();
+			Layers.SetCurrentChannel(Draw, 0);
+			if (State.ComponentResult == static_cast<int>(Index))
+			{
+				Draw->AddRectFilled(Minimum, Maximum, ImGui::GetColorU32(ImGuiCol_Header), ImGui::GetStyle().MenuItemRounding);
+			}
+
+			Layers.Merge(Draw);
+			if (!Added[Index] && (bPressed || (bConfirm && State.ComponentResult == static_cast<int>(Index))))
+			{
+				Action = Index == 0 ? EDetailsComponentAction::AddStaticMesh : EDetailsComponentAction::AddRigidBody;
+			}
+
+			ImGui::EndDisabled();
+		}
+
+		if (bCancel || Action != EDetailsComponentAction::None)
+		{
+			if (bCancel)
+			{
+				Action = EDetailsComponentAction::None;
+			}
+
+			ImGui::ClearActiveID();
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+	}
+
+	ImGui::PopStyleColor();
+	ImGui::PopStyleVar();
+	ImGui::EndDisabled();
+	return bDragging ? EDetailsComponentAction::None : Action;
 }
 
 void DrawCheckerThumbnail(const ImVec2 Position, const float Size)
@@ -112,7 +241,7 @@ void DrawCheckerThumbnail(const ImVec2 Position, const float Size)
 std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTransformSpace& Space, const Im3d::Vec3& Value, const ETransformClipboardFormat ClipboardFormat)
 {
 	const float Scale = ImGui::GetFontSize() / 15.f;
-	const ImVec2 Size{82.f * Scale, ImGui::GetFrameHeight()};
+	const ImVec2 Size{TransformLabelWidth * Scale, ImGui::GetFrameHeight()};
 	const ImVec2 Position = ImGui::GetCursorScreenPos();
 	const bool bPressed = ImGui::InvisibleButton("Coordinate space##Space", Size, ImGuiButtonFlags_EnableNav);
 	const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride);
@@ -256,7 +385,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f * Scale, ImGui::GetStyle().ItemSpacing.y});
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 4.f * Scale});
 	const float Spacing = ImGui::GetStyle().ItemSpacing.x;
-	const float LabelWidth = 82.f * Scale;
+	const float LabelWidth = TransformLabelWidth * Scale;
 	const float LockWidth = 17.f * Scale + Spacing;
 	const float ResetWidth = 18.f * Scale;
 	const float Width = std::max(1.f, (ImGui::GetContentRegionAvail().x - LabelWidth - LockWidth - ResetWidth - Spacing * 4.f) / 3.f);
@@ -291,7 +420,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 		ImGui::PushID(Axis);
 		ImGui::SetNextItemWidth(Width);
 		float Candidate = Value[Axis];
-		const ImGuiSliderFlags Flags = Minimum < Maximum ? ImGuiSliderFlags_AlwaysClamp : 0;
+		const ImGuiSliderFlags Flags = ImGuiSliderFlags_NoRoundToFormat | (Minimum < Maximum ? ImGuiSliderFlags_AlwaysClamp : 0);
 		FNumericEditLifecycle Edit{
 		    .Begin = [&]
 		{
@@ -339,7 +468,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 }
 }
 
-FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh, const FDetailsEditCallbacks* const Edits)
+FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh, const FDetailsEditCallbacks* const Edits, const FDetailsComponentField* const Components)
 {
 	FDetailsMeshResult MeshResult;
 
@@ -351,8 +480,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 	if (!bSelected)
 	{
-		State.bRenaming = false;
-		State.bRenameRequested = false;
+		State.bAddComponentRequested = false;
 		ImGui::TextDisabled("Select an object in the viewport.");
 		ToolUI.EndPanel();
 		return MeshResult;
@@ -361,71 +489,29 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const float UiScale = ImGui::GetFontSize() / 15.f;
 	const ImVec2 HeadingPosition = ImGui::GetCursorScreenPos();
 	ImGui::Dummy({30.f * UiScale, 30.f * UiScale});
-	DrawCubeIcon(HeadingPosition, 30.f * UiScale);
+	const bool bEntity = Components != nullptr && Mesh == nullptr;
+	DrawObjectIcon(HeadingPosition, 30.f * UiScale, bEntity);
 	ImGui::SameLine();
 	ImGui::BeginGroup();
 	const float HeadingTextX = ImGui::GetCursorPosX();
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ImGui::GetStyle().ItemSpacing.x, 2.f * UiScale});
 	const std::string SelectionText = std::to_string(SelectedCount) + " selected";
-	const bool bStartRename = !bDragging && (State.bRenameRequested || (!State.bRenaming && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false)));
-	State.bRenameRequested = false;
-
-	if (bDragging)
-	{
-		State.bRenaming = false;
-	}
-
-	if (bStartRename)
-	{
-		State.RenameBuffer.fill('\0');
-		std::copy_n(ObjectLabel.begin(), std::min(ObjectLabel.size(), State.RenameBuffer.size() - 1), State.RenameBuffer.begin());
-		State.bRenaming = true;
-		ImGui::SetKeyboardFocusHere();
-	}
-
-	if (State.bRenaming)
-	{
-		ImGui::SetNextItemWidth(std::max(40.f * UiScale, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(SelectionText.c_str()).x - ImGui::GetStyle().ItemSpacing.x));
-		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
-		ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-		const bool bCommit = ImGui::InputText("##ObjectLabel", State.RenameBuffer.data(), State.RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-		ImGui::PopStyleColor();
-
-		if (bCancel || bCommit || (!bStartRename && ImGui::IsItemDeactivated()))
-		{
-			if (!bCancel)
-			{
-				BeginDetailsEdit(Edits, MeshResult);
-				RenamePreviewObject(ObjectLabel, State.RenameBuffer.data());
-				MeshResult.bEditFinished = true;
-			}
-
-			State.bRenaming = false;
-		}
-	}
-	else
-	{
-		ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
-
-		if (!bDragging && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-		{
-			State.bRenameRequested = true;
-		}
-
-		if (!bDragging && ImGui::IsItemHovered())
-		{
-			ImGui::SetTooltip("Double-click or press F2 to rename this object.");
-		}
-	}
+	ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
 
 	ImGui::SameLine();
 	ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(SelectionText.c_str()).x));
 	ImGui::TextDisabled("%s", SelectionText.c_str());
 	ImGui::SetCursorPosX(HeadingTextX);
-	ImGui::TextDisabled("Static Mesh");
+	ImGui::TextDisabled("%s", bEntity ? "Entity" : "Static Mesh");
 	ImGui::PopStyleVar();
 	ImGui::EndGroup();
 	ImGui::Spacing();
+	if (Components != nullptr)
+	{
+		MeshResult.ComponentAction = DrawAddComponent(ToolUI, State, *Components, bDragging);
+		ImGui::Spacing();
+	}
+
 	ImGui::SetNextItemWidth(-1.f);
 	ToolUI.DrawSearchField("##PropertySearch", "Search", State.Search.data(), State.Search.size());
 	const std::string_view Query(State.Search.data());
@@ -437,21 +523,30 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bHasMesh = Mesh != nullptr && Mesh->Selected >= 0 && static_cast<std::size_t>(Mesh->Selected) < Mesh->Options.size();
 	// cppcheck-suppress containerOutOfBounds
 	// bHasMesh checks the selected index against the options size.
-	const std::string_view MeshLabel = bHasMesh ? std::string_view(Mesh->Options[static_cast<std::size_t>(Mesh->Selected)]) : std::string_view("No mesh");
-	const bool bMesh = Query.empty() || MatchesSearch("Static Mesh", Query) || MatchesSearch(ObjectLabel, Query) || MatchesSearch(MeshLabel, Query);
-	if (!bTransform && !bMesh)
+	const std::string_view MeshLabel = Components != nullptr && (!Components->bAllMesh || Components->bMixedMeshAsset) ? std::string_view("Multiple values") : bHasMesh ? std::string_view(Mesh->Options[static_cast<std::size_t>(Mesh->Selected)])
+	                                                                                                                                                                    : std::string_view(Components != nullptr ? "No asset selected" : "No mesh");
+	const bool bMesh = (Components == nullptr || Components->bAnyMesh) && (Query.empty() || MatchesSearch("Static Mesh", Query) || MatchesSearch(ObjectLabel, Query) || MatchesSearch(MeshLabel, Query));
+	const bool bBody = Components != nullptr && Components->bAnyBody && (Query.empty() || MatchesSearch("Rigid Body", Query) || MatchesSearch("Body type", Query) || MatchesSearch("Shape", Query) || MatchesSearch("Static", Query) || MatchesSearch("Dynamic", Query));
+	if (!bTransform && !bMesh && !bBody)
 	{
 		ImGui::TextDisabled("No matching properties.");
 		ToolUI.EndPanel();
 		return MeshResult;
 	}
 
-	const auto DrawSectionHeader = [](const char* const Label)
+	const auto DrawSectionHeader = [&](const char* const Label, const bool bMixed = false, const EDetailsComponentAction RemoveAction = EDetailsComponentAction::None)
 	{
 		const ImVec2 Position = ImGui::GetCursorScreenPos();
 		const ImVec2 Padding = ImGui::GetStyle().FramePadding;
 		const float FontSize = ImGui::GetFontSize();
 		const ImU32 TextColor = ImGui::GetColorU32(ImGuiCol_Text);
+		const bool bRemovable = Components != nullptr && RemoveAction != EDetailsComponentAction::None;
+		const float ActionX = ImGui::GetWindowContentRegionMax().x + ImGui::GetWindowPos().x - ImGui::GetFrameHeight();
+		if (bRemovable)
+		{
+			ImGui::PushClipRect(Position, {ActionX, ImGui::GetCurrentWindow()->ClipRect.Max.y}, true);
+		}
+
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
 		ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
 		ImGui::PushStyleColor(ImGuiCol_Text, {0, 0, 0, 0});
@@ -462,7 +557,39 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		const float ArrowInsetY = FontSize * (1.f - ArrowScale) * 0.5f;
 		ImDrawList* const DrawList = ImGui::GetWindowDrawList();
 		ImGui::RenderArrow(DrawList, {Position.x + Padding.x, Position.y + Padding.y + ArrowInsetY}, TextColor, bOpen ? ImGuiDir_Down : ImGuiDir_Right, ArrowScale);
-		DrawList->AddText({Position.x + FontSize + Padding.x * 2.f, Position.y + Padding.y}, TextColor, Label);
+		const std::string DisplayLabel = std::string(Label) + (bMixed ? " (mixed)" : "");
+		const ImVec2 TextPosition{Position.x + FontSize + Padding.x * 2.f, Position.y + Padding.y};
+		ImGui::RenderTextEllipsis(DrawList, TextPosition, {bRemovable ? ActionX : ImGui::GetItemRectMax().x, Position.y + FontSize + Padding.y}, bRemovable ? ActionX : ImGui::GetItemRectMax().x, DisplayLabel.c_str(), DisplayLabel.c_str() + DisplayLabel.size(), nullptr);
+		if (bRemovable)
+		{
+			const ImVec2 HeaderMaximum = ImGui::GetItemRectMax();
+			ImGui::PopClipRect();
+			const ImVec2 NextRow = ImGui::GetCursorScreenPos();
+			ImGui::PushID(Label);
+			ImGui::SetCursorScreenPos({ActionX, Position.y});
+			ImGui::BeginDisabled(bDragging);
+			if (ImGui::InvisibleButton("##RemoveComponent", {ImGui::GetFrameHeight(), HeaderMaximum.y - Position.y}, ImGuiButtonFlags_EnableNav))
+			{
+				MeshResult.ComponentAction = RemoveAction;
+			}
+
+			const ImVec2 Center{ActionX + ImGui::GetFrameHeight() * 0.5f, (Position.y + HeaderMaximum.y) * 0.5f};
+			if (ImGui::IsItemHovered() || (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible))
+			{
+				DrawList->AddRectFilled({ActionX, Position.y}, {ActionX + ImGui::GetFrameHeight(), HeaderMaximum.y}, ImGui::GetColorU32(ImGuiCol_HeaderHovered), ImGui::GetStyle().FrameRounding);
+			}
+
+			const float Radius = 4.f * UiScale;
+			const ImU32 Color = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+			DrawList->AddLine({Center.x - Radius, Center.y - Radius}, {Center.x + Radius, Center.y + Radius}, Color, UiScale);
+			DrawList->AddLine({Center.x + Radius, Center.y - Radius}, {Center.x - Radius, Center.y + Radius}, Color, UiScale);
+			ImGui::SetItemTooltip("Remove %s component", Label);
+
+			ImGui::EndDisabled();
+			ImGui::PopID();
+			ImGui::SetCursorScreenPos(NextRow);
+		}
+
 		return bOpen;
 	};
 
@@ -477,7 +604,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bLocation)
 		{
-			DrawTransformRow("Location", Translation, 0.01f, -1.e7f, 1.e7f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, "%.3f m", [&](const int Axis, const float Candidate)
+			DrawTransformRow("Location", Translation, 0.01f, -1.e7f, 1.e7f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, "%g m", [&](const int Axis, const float Candidate)
 			{
 				if (std::isfinite(Candidate) && std::abs(Candidate) <= 1.e7f)
 				{
@@ -496,7 +623,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		}
 
 		Im3d::Vec3 RotationDegrees = Im3d::ToEulerXYZ(Rotation) * (180.f / std::numbers::pi_v<float>);
-		const bool bRotationReset = bRotation && DrawTransformRow("Rotation", RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, "%.3f°", [&](const int Axis, const float Candidate)
+		const bool bRotationReset = bRotation && DrawTransformRow("Rotation", RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, "%g°", [&](const int Axis, const float Candidate)
 		{
 			if (std::isfinite(Candidate))
 			{
@@ -528,7 +655,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bScale)
 		{
-			DrawTransformRow("Scale", Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, 1.f, State.Spaces[2], ETransformClipboardFormat::XYZ, "%.3f", [&](const int Axis, const float Candidate)
+			DrawTransformRow("Scale", Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, 1.f, State.Spaces[2], ETransformClipboardFormat::XYZ, "%g", [&](const int Axis, const float Candidate)
 			{
 				if (!std::isfinite(Candidate) || Candidate < MinimumPreviewScale || Candidate > MaximumPreviewScale)
 				{
@@ -568,7 +695,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 	}
 
-	if (bMesh && DrawSectionHeader("Static Mesh"))
+	if (bMesh && DrawSectionHeader("Static Mesh", Components != nullptr && !Components->bAllMesh, EDetailsComponentAction::RemoveStaticMesh))
 	{
 		// Asset picker row: thumbnail beside the file name, with the folder or load status underneath.
 		const std::size_t FolderEnd = MeshLabel.rfind('/');
@@ -608,7 +735,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				for (const FAssetSearchMatch& Match : Matches.value_or(std::vector<FAssetSearchMatch>{}))
 				{
 					const std::size_t Index = Match.Index;
-					const bool bCurrent = static_cast<int>(Index) == Mesh->Selected;
+					const bool bCurrent = static_cast<int>(Index) == Mesh->Selected && (Components == nullptr || !Components->bMixedMeshAsset);
 					if (ImGui::Selectable(Mesh->Options[Index].c_str(), bCurrent) && !bCurrent)
 					{
 						MeshResult.Chosen = static_cast<int>(Index);
@@ -635,6 +762,41 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		ImGui::PopTextWrapPos();
 		ImGui::PopStyleColor();
 		ImGui::EndGroup();
+	}
+
+	if (bBody && !Query.empty())
+	{
+		ImGui::SetNextItemOpen(true, ImGuiCond_Always);
+	}
+
+	if (bBody && DrawSectionHeader("Rigid Body", !Components->bAllBody, EDetailsComponentAction::RemoveRigidBody))
+	{
+		ImGui::BeginDisabled(bDragging);
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextDisabled("Body type");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		const char* const BodyLabel = !Components->bAllBody || !Components->BodyType ? "Multiple values" : *Components->BodyType == ESceneBodyType::Static ? "Static"
+		                                                                                                                                                   : "Dynamic";
+		if (ImGui::BeginCombo("##BodyType", BodyLabel))
+		{
+			for (const auto& [Label, Type] : {std::pair{"Static", ESceneBodyType::Static}, std::pair{"Dynamic", ESceneBodyType::Dynamic}})
+			{
+				const bool bCurrent = Components->BodyType == Type;
+				if (ImGui::Selectable(Label, bCurrent) && !bCurrent)
+				{
+					MeshResult.BodyTypeChosen = Type;
+				}
+			}
+
+			ImGui::EndCombo();
+		}
+
+		ImGui::EndDisabled();
+		ImGui::TextDisabled("Shape: Box");
+		ImGui::PushTextWrapPos(0.f);
+		ImGui::TextDisabled("Box shape uses Static Mesh bounds when available.");
+		ImGui::PopTextWrapPos();
 	}
 
 	ToolUI.EndPanel();
