@@ -26,6 +26,7 @@ struct FDetailsPanelState
 {
 	std::array<EDetailsTransformSpace, 3> Spaces{};
 	std::array<char, 96> Search{};
+	std::array<char, 96> MeshSearch{};
 	bool bScaleLocked = false;
 	std::array<char, 256> RenameBuffer{};
 	bool bRenameRequested = false;

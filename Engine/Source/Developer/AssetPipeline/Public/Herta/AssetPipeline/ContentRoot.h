@@ -2,8 +2,10 @@
 
 #include "Herta/AssetPipeline/AssetMetadata.h"
 
+#include <cstdint>
 #include <expected>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -32,10 +34,38 @@ struct FImportedSource
 	FAssetMetadata Metadata;
 };
 
+struct FContentFileStamp
+{
+	std::uintmax_t Size = 0;
+	std::filesystem::file_time_type LastWriteTime;
+
+	[[nodiscard]] bool operator==(const FContentFileStamp&) const = default;
+};
+
+// Content-relative path to size and write time for every regular file, using the same filtering as ScanContentRoot.
+using FContentSnapshot = std::map<std::string, FContentFileStamp>;
+
+// ponytail: editors poll this instead of native watchers; switch to ReadDirectoryChangesW and inotify if content trees grow large.
+[[nodiscard]] FContentSnapshot TakeContentSnapshot(const std::filesystem::path& ContentRoot);
+
+// Sidecars parsed by earlier scans of one content root, reused while their size and write time are unchanged.
+struct FContentScanCache
+{
+	struct FEntry
+	{
+		FContentFileStamp Stamp;
+		std::expected<FAssetMetadata, FAssetError> Metadata;
+	};
+	std::map<std::string, FEntry> Metadata;
+};
+
 // Dot-prefixed files and directories are ignored. Symbolic links are reported and never followed.
-[[nodiscard]] std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesystem::path& ContentRoot);
+// With a cache, only new or changed sidecars are parsed, and the cache is updated to this scan.
+[[nodiscard]] std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesystem::path& ContentRoot, FContentScanCache* Cache = nullptr);
 
 [[nodiscard]] std::optional<std::string_view> FindImporterForSource(const std::filesystem::path& Source);
+// Lowercase extensions with the leading dot, such as ".blend", in importer-table order.
+[[nodiscard]] std::vector<std::string_view> GetImportableExtensions();
 
 // Registers a source with a new ID. Sources outside the content root are first copied into DestinationDirectory.
 [[nodiscard]] std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::path& ContentRoot, const std::filesystem::path& Source, std::string_view DestinationDirectory = {});

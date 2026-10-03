@@ -386,6 +386,7 @@ struct FToolUIContext::FImplementation
 	ImGuiID DockspaceId = 0;
 	bool bViewportImmersive = false;
 	bool bFocusViewportRequested = false;
+	std::vector<std::filesystem::path> DroppedFiles;
 	FToolUICanvasBounds WorkspaceCanvas;
 	float CurrentStyleScale = 1.0f;
 	float MainMenuRight = 0.0f;
@@ -951,6 +952,10 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 			return;
 		}
 		Viewport.PlatformRequestResize = true;
+	};
+	Callbacks.FilesDropped = [&Owner](FWindow&, const std::span<const std::filesystem::path> Paths)
+	{
+		Owner.DroppedFiles.insert(Owner.DroppedFiles.end(), Paths.begin(), Paths.end());
 	};
 	Callbacks.FocusChanged = [&Owner](FWindow&, const bool bFocused)
 	{
@@ -1894,6 +1899,15 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 		Line(0, -3, 0, 0);
 		Line(0, 0, 3, 0);
 	}
+	else if (Icon == EToolUIMenuIcon::Import)
+	{
+		Line(0, -6, 0, 2);
+		Line(-3, -1, 0, 2);
+		Line(3, -1, 0, 2);
+		Line(-6, 2, -6, 5);
+		Line(-6, 5, 6, 5);
+		Line(6, 5, 6, 2);
+	}
 	else
 	{
 		Line(-5, -5, -5, 5);
@@ -1906,7 +1920,7 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 	return bPressed;
 }
 
-void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems)
+void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems)
 {
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
 		Implementation->Window->RequestClose();
@@ -1970,6 +1984,11 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		if (ImGui::BeginMenu("File"))
 		{
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * ChromeScale, 10.0f * ChromeScale});
+			if (DrawFileMenuItems)
+			{
+				DrawFileMenuItems();
+				ImGui::Spacing();
+			}
 			ImGui::TextUnformatted("Workspace");
 			ImGui::Separator();
 			bool bVSync = Implementation->bVSync;
@@ -2203,6 +2222,11 @@ void FToolUIContext::SetViewportImmersive(const bool bImmersive) noexcept
 bool FToolUIContext::IsViewportImmersive() const noexcept
 {
 	return Implementation->bViewportImmersive;
+}
+
+std::vector<std::filesystem::path> FToolUIContext::TakeDroppedFiles()
+{
+	return std::exchange(Implementation->DroppedFiles, {});
 }
 
 std::optional<FToolUICanvasBounds> FToolUIContext::GetWorkspaceCanvasForCurrentPanel() const noexcept

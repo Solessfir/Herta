@@ -1,5 +1,6 @@
 #include "DetailsPanel.h"
 
+#include "Herta/Assets/AssetSearch.h"
 #include "Herta/EditorCore/PreviewScaleEdit.h"
 #include "Herta/EditorCore/TransformText.h"
 #include "Herta/ToolUI/ToolUI.h"
@@ -19,6 +20,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Herta
 {
@@ -466,8 +468,22 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			if (ImGui::BeginCombo("##PreviewMesh", MeshName.c_str()))
 			{
 				MeshResult.bOptionsOpened = ImGui::IsWindowAppearing();
-				for (std::size_t Index = 0; Index < Mesh->Options.size(); ++Index)
+				if (MeshResult.bOptionsOpened)
 				{
+					State.MeshSearch.fill('\0');
+					ImGui::SetKeyboardFocusHere();
+				}
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				ImGui::InputTextWithHint("##MeshSearch", "Search assets", State.MeshSearch.data(), State.MeshSearch.size());
+				std::vector<std::string_view> Candidates(Mesh->Options.begin(), Mesh->Options.end());
+				const std::optional<std::vector<FAssetSearchMatch>> Matches = SearchAssets(Candidates, State.MeshSearch.data());
+				if (Matches && Matches->empty())
+				{
+					ImGui::TextDisabled("No matching assets");
+				}
+				for (const FAssetSearchMatch& Match : Matches.value_or(std::vector<FAssetSearchMatch>{}))
+				{
+					const std::size_t Index = Match.Index;
 					const bool bCurrent = static_cast<int>(Index) == Mesh->Selected;
 					if (ImGui::Selectable(Mesh->Options[Index].c_str(), bCurrent) && !bCurrent)
 					{

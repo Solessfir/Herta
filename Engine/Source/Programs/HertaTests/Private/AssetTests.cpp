@@ -287,6 +287,52 @@ TEST_CASE("Derived data cache entries are atomic and validated")
 	CHECK_FALSE(Cache.Get(Key));
 }
 
+TEST_CASE("Importable extensions cover every importer and drive the import dialog filter")
+{
+	const std::vector<std::string_view> Extensions = GetImportableExtensions();
+	CHECK(std::ranges::find(Extensions, ".blend") != Extensions.end());
+	CHECK(std::ranges::find(Extensions, ".gltf") != Extensions.end());
+	for (const std::string_view Extension : Extensions)
+	{
+		CHECK(Extension.starts_with('.'));
+		CHECK(FindImporterForSource(std::string("Asset") + std::string(Extension)).has_value());
+	}
+}
+
+TEST_CASE("Content scans reuse unchanged sidecars from a cache and reparse edited ones")
+{
+	const FScratchDirectory Scratch;
+	const std::filesystem::path& Root = Scratch.Path;
+	WriteText(Root / "Meshes/Cube.glb", "glb");
+	const std::filesystem::path Sidecar = Root / "Meshes/Cube.glb.hmeta";
+	WriteText(Sidecar, MakeMetadataText("00000000-0000-4000-8000-000000000001", "Gltf"));
+
+	FContentScanCache Cache;
+	const auto First = ScanContentRoot(Root, &Cache);
+	REQUIRE(First);
+	REQUIRE(Cache.Metadata.size() == 1);
+
+	// Same size and restored write time: the cached parse wins, which proves the sidecar was not read again.
+	const auto WriteTime = std::filesystem::last_write_time(Sidecar);
+	WriteText(Sidecar, MakeMetadataText("00000000-0000-4000-8000-000000000002", "Gltf"));
+	std::filesystem::last_write_time(Sidecar, WriteTime);
+	const auto Cached = ScanContentRoot(Root, &Cache);
+	REQUIRE(Cached);
+	REQUIRE(Cached->Registry.GetRecords().size() == 1);
+	CHECK(Cached->Registry.GetRecords()[0].Id.ToString() == "00000000-0000-4000-8000-000000000001");
+
+	// A real edit changes the write time and is parsed.
+	std::filesystem::last_write_time(Sidecar, WriteTime + std::chrono::seconds(2));
+	const auto Edited = ScanContentRoot(Root, &Cache);
+	REQUIRE(Edited);
+	CHECK(Edited->Registry.GetRecords()[0].Id.ToString() == "00000000-0000-4000-8000-000000000002");
+
+	// Removed sidecars leave the cache.
+	std::filesystem::remove(Sidecar);
+	REQUIRE(ScanContentRoot(Root, &Cache));
+	CHECK(Cache.Metadata.empty());
+}
+
 TEST_CASE("Content scans register sources and report problems")
 {
 	const FScratchDirectory Scratch;

@@ -48,6 +48,16 @@ inline constexpr std::array ImporterExtensions{
 }
 }
 
+std::vector<std::string_view> GetImportableExtensions()
+{
+	std::vector<std::string_view> Extensions;
+	for (const FImporterExtension& Entry : ImporterExtensions)
+	{
+		Extensions.push_back(Entry.Extension);
+	}
+	return Extensions;
+}
+
 std::optional<std::string_view> FindImporterForSource(const std::filesystem::path& Source)
 {
 	const std::string Extension = ToLowerAscii(PathToUtf8(Source.extension()));
@@ -55,7 +65,38 @@ std::optional<std::string_view> FindImporterForSource(const std::filesystem::pat
 	return Iterator != ImporterExtensions.end() ? std::optional(Iterator->Importer) : std::nullopt;
 }
 
-std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesystem::path& ContentRoot)
+FContentSnapshot TakeContentSnapshot(const std::filesystem::path& ContentRoot)
+{
+	// Errors leave entries out, so a vanished or unreadable file reads as a change on the next poll.
+	FContentSnapshot Snapshot;
+	std::error_code Error;
+	std::filesystem::recursive_directory_iterator Iterator(ContentRoot, Error);
+	for (; !Error && Iterator != std::filesystem::recursive_directory_iterator(); Iterator.increment(Error))
+	{
+		const std::filesystem::directory_entry& Entry = *Iterator;
+		if (PathToUtf8(Entry.path().filename()).starts_with('.'))
+		{
+			if (Entry.is_directory(Error))
+			{
+				Iterator.disable_recursion_pending();
+			}
+			continue;
+		}
+		if (Entry.is_symlink(Error) || !Entry.is_regular_file(Error))
+		{
+			continue;
+		}
+		FContentFileStamp Stamp{Entry.file_size(Error), Entry.last_write_time(Error)};
+		if (!Error)
+		{
+			Snapshot.emplace(GenericPathToUtf8(Entry.path().lexically_relative(ContentRoot)), Stamp);
+		}
+		Error.clear();
+	}
+	return Snapshot;
+}
+
+std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesystem::path& ContentRoot, FContentScanCache* const Cache)
 {
 	std::error_code Error;
 	if (!std::filesystem::is_directory(ContentRoot, Error))
@@ -65,7 +106,7 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 
 	FContentScanResult Result;
 	std::set<std::string> Sources;
-	std::vector<std::string> MetadataFiles;
+	std::vector<std::pair<std::string, FContentFileStamp>> MetadataFiles;
 	std::filesystem::recursive_directory_iterator Iterator(ContentRoot, Error);
 	for (; !Error && Iterator != std::filesystem::recursive_directory_iterator(); Iterator.increment(Error))
 	{
@@ -91,7 +132,9 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 
 		if (RelativePath.ends_with(AssetMetadataExtension))
 		{
-			MetadataFiles.push_back(RelativePath);
+			std::error_code StampError;
+			FContentFileStamp Stamp{Entry.file_size(StampError), Entry.last_write_time(StampError)};
+			MetadataFiles.emplace_back(RelativePath, StampError ? FContentFileStamp{} : Stamp);
 		}
 		else
 		{
@@ -103,10 +146,11 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 		return std::unexpected(FAssetError{std::format("Cannot enumerate content root '{}': {}", PathToUtf8(ContentRoot), Error.message())});
 	}
 
-	std::ranges::sort(MetadataFiles);
+	std::ranges::sort(MetadataFiles, {}, &std::pair<std::string, FContentFileStamp>::first);
 	std::set<std::string> RegisteredSources;
 	std::map<FAssetId, std::vector<FAssetRecord>> RecordsById;
-	for (const std::string& MetadataFile : MetadataFiles)
+	std::map<std::string, FContentScanCache::FEntry> UpdatedCache;
+	for (const auto& [MetadataFile, Stamp] : MetadataFiles)
 	{
 		std::string SourcePath = MetadataFile.substr(0, MetadataFile.size() - AssetMetadataExtension.size());
 		RegisteredSources.insert(SourcePath);
@@ -121,13 +165,32 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 			continue;
 		}
 
-		std::expected<FAssetMetadata, FAssetError> Metadata = LoadAssetMetadata(ContentRoot / Utf8ToPath(SourcePath));
+		// A zero stamp means the write time could not be read, so the sidecar is always parsed again.
+		std::expected<FAssetMetadata, FAssetError> Metadata = std::unexpected(FAssetError{});
+		const auto Cached = Cache ? Cache->Metadata.find(MetadataFile) : std::map<std::string, FContentScanCache::FEntry>::iterator{};
+		if (Cache && Cached != Cache->Metadata.end() && Cached->second.Stamp == Stamp && Stamp != FContentFileStamp{})
+		{
+			Metadata = Cached->second.Metadata;
+		}
+		else
+		{
+			Metadata = LoadAssetMetadata(ContentRoot / Utf8ToPath(SourcePath));
+		}
+		if (Cache)
+		{
+			UpdatedCache.insert_or_assign(MetadataFile, FContentScanCache::FEntry{Stamp, Metadata});
+		}
 		if (!Metadata)
 		{
 			Result.Errors.push_back({MetadataFile, Metadata.error().Message});
 			continue;
 		}
 		RecordsById[Metadata->Id].push_back(FAssetRecord{Metadata->Id, std::move(SourcePath), std::move(Metadata->Importer)});
+	}
+
+	if (Cache)
+	{
+		Cache->Metadata = std::move(UpdatedCache);
 	}
 
 	std::vector<FAssetRecord> Records;

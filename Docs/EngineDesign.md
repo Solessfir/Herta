@@ -1,6 +1,6 @@
 # Herta Engine Design
 
-Status: Active design - Milestone 3 in progress
+Status: Active design - Milestone 3 implemented
 Last updated: 2026-10-02
 
 ## 1. Purpose
@@ -1509,6 +1509,8 @@ Implemented so far:
 - Cooking runs in the `HertaAssetWorker` process, launched through Platform's process API with timeouts and cancellation.
 - Headless `asset.validate`, `asset.list`, `asset.import`, and `asset.reimport` commands.
 - Optional `.blend` import through a detected system Blender, exported headlessly to GLB with a fixed preset and cached by Blender version and external dependencies.
+- Polled live reimport that swaps only meshes whose build key changed and keeps the previous mesh when a reimport fails.
+- Background drag-and-drop import through `asset.import`, incremental content scans, and deterministic, cancellable fuzzy asset search.
 - Asynchronous editor mesh previews that publish GPU uploads between frames.
 
 Content lives in `Games/Sandbox/Content` until projects exist. Block compression follows measurement. See [AssetPipeline.md](AssetPipeline.md).
@@ -1524,6 +1526,7 @@ Content lives in `Games/Sandbox/Content` until projects exist. Block compression
 - Add editor-only game-module hot reload with build/API validation, shadow copies, safe-point quiescence, rollback, and an explicit restart result for incompatible state.
 - Add deterministic UTF-8 scene and prefab serialization, transactions, property editing, selection, gizmos, and play-in-editor lifecycle.
 - Add numeric property expressions and transactional cross-scene entity copy/paste with stable-reference remapping.
+- Add a Content Browser over the asset registry: folder tree, asset grid, `SearchAssets` filtering, drag into the viewport to spawn entities, and transactional create, rename, move, and delete through AssetPipeline commands that preserve asset IDs. Placeholder thumbnails come first; rendered thumbnails follow once the renderer supports offscreen thumbnail passes.
 - Define source-plugin descriptors, extension registries, and semantic EditorCore automation commands without promising dynamic unload or a stable binary ABI.
 
 Exit condition: scenes round-trip in canonical mergeable text, undo/redo and cross-scene paste are reliable, ECS mutation and query rules pass focused and scale tests, a generated Game project builds, and compatible gameplay-system changes reload without losing engine-owned state. Incompatible native state produces an actionable restart requirement, and runtime remains independent of editor modules.
@@ -1665,10 +1668,6 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Asset identity, the registry, build keys, DerivedDataCache, texture and glTF cooking in `HertaAssetWorker`, headless import and reimport, and asynchronous editor mesh previews are implemented. The next Milestone 3 slices should remain limited to:
-
-1. Add optional system Blender discovery and isolated `.blend` import through headless `blender.exe` and the existing worker boundary, without making Blender required.
-2. Add platform file watching, debounced live reimport, and atomic replacement of loaded preview meshes.
-3. Add drag-and-drop batch import and incremental registry search.
+Milestone 3 is implemented: asset identity, the registry, build keys, DerivedDataCache, texture, glTF, and Blender cooking in `HertaAssetWorker`, headless commands, asynchronous editor previews with polled live reimport, drag-and-drop import, incremental scans, and fuzzy search. The next slice starts Milestone 4 - World and editor authoring.
 
 Keep ECS, localization, networking, graph tooling, physics, animation, audio, and scripting in their later milestones.

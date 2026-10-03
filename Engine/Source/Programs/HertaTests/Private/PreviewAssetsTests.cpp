@@ -123,6 +123,100 @@ TEST_CASE("Preview assets scan Engine and Game content and publish cooked meshes
 	Assets.reset();
 }
 
+TEST_CASE("Preview assets reimport shown assets after content edits and keep the previous mesh when a reimport fails")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Assets->RequestMesh(0, WoodId);
+	Assets->RequestMesh(1, WoodId);
+	Fixture.Tasks->RunUntilIdle();
+	const std::shared_ptr<const FRenderMesh> Original = Assets->GetSlot(0).Mesh;
+	REQUIRE(Original);
+	CHECK(Assets->GetSlot(1).Mesh == Original);
+
+	// Creation records the baseline, so polling unchanged content does nothing.
+	Assets->CheckForChanges();
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetSlot(0).Mesh == Original);
+
+	// An edit that does not change the asset's build key keeps the GPU copy.
+	Tests::WriteText(Fixture.Scratch.GetPath() / "Game/Notes.txt", "unrelated");
+	Assets->CheckForChanges();
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetSlot(0).Mesh == Original);
+	CHECK(Assets->GetSlot(0).Error.empty());
+
+	// Editing the source swaps in one new mesh shared by every object showing it.
+	const std::array<std::uint8_t, 16> Edited{255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255};
+	Tests::WritePng(Fixture.Scratch.GetPath() / "Game/Textures/Wood.png", 2, 2, Edited);
+	Assets->CheckForChanges();
+	Fixture.Tasks->RunUntilIdle();
+	const std::shared_ptr<const FRenderMesh> Reimported = Assets->GetSlot(0).Mesh;
+	REQUIRE(Reimported);
+	CHECK(Reimported != Original);
+	CHECK(Assets->GetSlot(1).Mesh == Reimported);
+	CHECK(Assets->GetSlot(0).Error.empty());
+
+	// A broken save keeps the last good mesh and reports why.
+	Tests::WriteText(Fixture.Scratch.GetPath() / "Game/Textures/Wood.png", "not a png");
+	Assets->CheckForChanges();
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetSlot(0).Mesh == Reimported);
+	CHECK(Assets->GetSlot(1).Mesh == Reimported);
+	CHECK(Assets->GetSlot(0).Error.find("keeping the previous version") != std::string::npos);
+
+	// Fixing the file recovers.
+	Tests::WritePng(Fixture.Scratch.GetPath() / "Game/Textures/Wood.png", 1, 1, std::array<std::uint8_t, 4>{150, 111, 51, 255});
+	Assets->CheckForChanges();
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetSlot(0).Error.empty());
+	REQUIRE(Assets->GetSlot(0).Mesh);
+	CHECK(Assets->GetSlot(0).Mesh != Reimported);
+}
+
+TEST_CASE("Dropped files import into Game content through asset.import and appear after the next poll")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const std::array<std::uint8_t, 4> Pixel{10, 200, 30, 255};
+	Tests::WritePng(Fixture.Scratch.GetPath() / "Desktop/Grass Tile.png", 1, 1, Pixel);
+	Tests::WriteText(Fixture.Scratch.GetPath() / "Desktop/Notes.txt", "not an asset");
+
+	Assets->ImportFiles({Fixture.Scratch.GetPath() / "Desktop/Grass Tile.png", Fixture.Scratch.GetPath() / "Desktop/Notes.txt"});
+	CHECK(Assets->IsImporting());
+	Fixture.Tasks->RunUntilIdle();
+	CHECK_FALSE(Assets->IsImporting());
+	CHECK(std::filesystem::exists(Fixture.Scratch.GetPath() / "Game/Textures/Grass Tile.png.hmeta"));
+	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Game/Models/Notes.txt"));
+	const std::span<const FPreviewAssetOption> Options = Assets->GetOptions();
+	CHECK(std::ranges::any_of(Options, [](const FPreviewAssetOption& Option)
+	                          {
+		                          return Option.Label == "Game/Textures/Grass Tile.png";
+	                          }));
+}
+
+TEST_CASE("Content snapshots notice edits, additions, and removals but skip dot-prefixed entries")
+{
+	const Tests::FScratchDirectory Scratch("HertaContentSnapshot");
+	Tests::WriteText(Scratch.GetPath() / "Models/A.gltf", "a");
+	Tests::WriteText(Scratch.GetPath() / ".cache/Ignored.txt", "x");
+	const FContentSnapshot First = TakeContentSnapshot(Scratch.GetPath());
+	REQUIRE(First.size() == 1);
+	CHECK(First.contains("Models/A.gltf"));
+	CHECK(TakeContentSnapshot(Scratch.GetPath()) == First);
+
+	Tests::WriteText(Scratch.GetPath() / "Models/A.gltf", "changed");
+	const FContentSnapshot Edited = TakeContentSnapshot(Scratch.GetPath());
+	CHECK(Edited != First);
+	Tests::WriteText(Scratch.GetPath() / "Models/B.gltf", "b");
+	CHECK(TakeContentSnapshot(Scratch.GetPath()).size() == 2);
+	std::filesystem::remove(Scratch.GetPath() / "Models/A.gltf");
+	CHECK_FALSE(TakeContentSnapshot(Scratch.GetPath()).contains("Models/A.gltf"));
+}
+
 TEST_CASE("Engine content provides the 1 m preview cube with outward faces and unmirrored UVs")
 {
 	const auto Scan = ScanContentRoot("Engine/Content");

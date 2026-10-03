@@ -221,7 +221,8 @@ HertaRuntimeModule("Physics", {
     filter {}
 
 HertaRuntimeModule("Platform", {
-    PublicDependencies = { "Core" }
+    PublicDependencies = { "Core" },
+    PrivateWindowsSystemDependencies = { "ole32" }
 })
     filter "system:windows"
         removefiles {
@@ -286,7 +287,7 @@ HertaRuntimeModule("AssetPipeline", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets" },
-    PrivateDependencies = { "Physics", "Tasks", "AssetPipeline" },
+    PrivateDependencies = { "Physics", "Platform", "Tasks", "AssetPipeline" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
 })
 

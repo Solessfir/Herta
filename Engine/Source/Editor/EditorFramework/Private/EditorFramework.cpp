@@ -2,6 +2,8 @@
 
 #include "DetailsPanel.h"
 #include "Herta/Core/Log.h"
+#include "Herta/Platform/FileDialog.h"
+#include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/PreviewSelection.h"
 #include "Herta/EditorCore/TransformText.h"
@@ -391,6 +393,7 @@ struct FEditorFramework::FImplementation
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void FocusPreview();
 	void RefreshPreviewMeshes();
+	void ImportWithDialog();
 	// Maps the built-in cube's [-1, 1] box onto the object's mesh bounds, so cube-based picking, outlines, and physics fit any mesh.
 	[[nodiscard]] FMatrix4 GetPreviewBoundsMatrix(std::size_t Index) const;
 	[[nodiscard]] FPreviewBodyShape GetPreviewBodyShape(std::size_t Index) const;
@@ -495,6 +498,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyMods == 0 && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_F11, false))
 			Implementation->ToolUI->SetViewportImmersive(!Implementation->ToolUI->IsViewportImmersive());
 		Implementation->bSimulationStoppedThisFrame = false;
+		if (Implementation->Assets)
+		{
+			Implementation->Assets->ImportFiles(Implementation->ToolUI->TakeDroppedFiles());
+			Implementation->Assets->Tick();
+		}
 		Implementation->RefreshPreviewMeshes();
 		if (!IO.AppFocusLost && Implementation->Simulation.IsRunning() && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
 			Implementation->ToggleSimulation();
@@ -511,6 +519,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 					IO.InputQueueCharacters.erase(IO.InputQueueCharacters.begin() + Index);
 			}
 		}
+		bool bImportRequested = false;
 		Implementation->ToolUI->DrawWorkspace("Herta Editor", [&]
 		                                      {
 			                                      (void)ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
@@ -610,7 +619,18 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 				                                      Implementation->ToolUI->SetAppearance(Appearance);
 				                                      ImGui::EndPopup();
 			                                      }
+		                                      },
+		                                      [&]
+		                                      {
+			                                      ImGui::TextUnformatted("Content");
+			                                      ImGui::Separator();
+			                                      ImGui::BeginDisabled(!Implementation->Assets);
+			                                      bImportRequested = ToolUIMenuItem("Import...", EToolUIMenuIcon::Import);
+			                                      ImGui::EndDisabled();
 		                                      });
+		// The native dialog is modal and blocks this frame, like Unreal's import dialog, so nothing outlives editor shutdown.
+		if (bImportRequested)
+			Implementation->ImportWithDialog();
 		if (Implementation->bStartPanelOpen)
 		{
 			Implementation->DrawStartPanel();
@@ -686,6 +706,22 @@ void FEditorFramework::FImplementation::FocusPreview()
 	}
 	const float AspectRatio = ViewportExtent.Height > 0 ? static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height) : 16.0f / 9.0f;
 	ViewportCamera.Focus((Minimum + Maximum) * 0.5f, (Maximum - Minimum) * 0.5f, AspectRatio, ViewportVisibleSize);
+}
+
+void FEditorFramework::FImplementation::ImportWithDialog()
+{
+	FFileDialogFilter Importable{"Importable assets", {}};
+	for (const std::string_view Extension : GetImportableExtensions())
+	{
+		Importable.Extensions.emplace_back(Extension.substr(1));
+	}
+	std::expected<std::vector<std::filesystem::path>, FFileDialogError> Chosen = OpenFilesDialog("Import assets", std::span(&Importable, 1));
+	if (!Chosen)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not open the file dialog: {}", Chosen.error().Message);
+		return;
+	}
+	Assets->ImportFiles(std::move(*Chosen));
 }
 
 void FEditorFramework::FImplementation::RefreshPreviewMeshes()
