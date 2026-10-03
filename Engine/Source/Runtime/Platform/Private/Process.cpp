@@ -1,6 +1,7 @@
 #include "Herta/Platform/Process.h"
 
 #include <array>
+#include <cstdlib>
 #include <format>
 #include <optional>
 #include <vector>
@@ -155,6 +156,15 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 		}
 		AppendQuotedArgument(CommandLine, WideArgument);
 	}
+	if (!Request.RawArguments.empty())
+	{
+		if (!Widen(Request.RawArguments, WideArgument))
+		{
+			return std::unexpected(FProcessError{EProcessErrorCode::InvalidRequest, "Process arguments must be valid UTF-8"});
+		}
+		CommandLine.push_back(L' ');
+		CommandLine.append(WideArgument);
+	}
 
 	SECURITY_ATTRIBUTES Inheritable{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
 	const FUniqueHandle Output = CreateCaptureFile(Inheritable);
@@ -248,6 +258,17 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 		return Failure(EProcessErrorCode::WaitFailed, "Cannot read the process exit code");
 	}
 	return FProcessResult{static_cast<int>(ExitCode), ReadCapture(Output.get(), Request.MaximumOutputBytes), ReadCapture(ErrorOutput.get(), Request.MaximumOutputBytes)};
+}
+
+FProcessRequest MakeShellRequest(const std::string_view CommandLine)
+{
+	std::wstring ComSpec(MAX_PATH, L'\0');
+	const DWORD Length = GetEnvironmentVariableW(L"ComSpec", ComSpec.data(), static_cast<DWORD>(ComSpec.size()));
+	ComSpec.resize(Length > 0 && Length < ComSpec.size() ? Length : 0);
+	// cmd /s /c strips one pair of outer quotes and runs the rest verbatim, so the line keeps its own quoting.
+	FProcessRequest Request{ComSpec.empty() ? std::filesystem::path(L"cmd.exe") : std::filesystem::path(ComSpec), {"/d", "/s", "/c"}};
+	Request.RawArguments = std::format("\"{}\"", CommandLine);
+	return Request;
 }
 
 std::filesystem::path GetExecutablePath()
@@ -358,7 +379,7 @@ private:
 
 std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& Request)
 {
-	if (Request.Executable.empty() || Request.Timeout.count() < 0)
+	if (Request.Executable.empty() || Request.Timeout.count() < 0 || !Request.RawArguments.empty())
 	{
 		return std::unexpected(FProcessError{EProcessErrorCode::InvalidRequest, "A process requires an executable and a nonnegative timeout"});
 	}
@@ -443,6 +464,14 @@ std::filesystem::path GetExecutablePath()
 {
 	std::error_code Error;
 	return std::filesystem::read_symlink("/proc/self/exe", Error);
+}
+FProcessRequest MakeShellRequest(const std::string_view CommandLine)
+{
+	// A stale $SHELL, such as one copied from another machine, falls back to /bin/sh instead of failing every command.
+	const char* const Shell = std::getenv("SHELL");
+	std::error_code Error;
+	const bool bUsable = Shell != nullptr && *Shell != '\0' && std::filesystem::is_regular_file(Shell, Error);
+	return {bUsable ? std::filesystem::path(Shell) : std::filesystem::path("/bin/sh"), {"-c", std::string(CommandLine)}};
 }
 }
 #endif

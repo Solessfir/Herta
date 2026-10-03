@@ -110,6 +110,7 @@ struct FOutputLogModel::FImplementation
 {
 	FLogService* Log = nullptr;
 	FEditorCommandRegistry* Commands = nullptr;
+	std::function<void(std::string)> ShellRunner;
 	FOutputLogOptions Options;
 	FLogCursor Cursor;
 	std::vector<FLogRecord> Records;
@@ -331,8 +332,23 @@ std::expected<void, FOutputLogError> FOutputLogModel::SubmitCommand(const std::s
 	try
 	{
 		Implementation->Log->LogText(CommandCategory, ELogLevel::Info, std::format("> {}", Command));
-		std::expected<FEditorCommandResult, FEditorCommandError> Result = Implementation->Commands->Execute(Command);
-		if (Result)
+		if (Command.starts_with('!'))
+		{
+			const std::string_view ShellCommand = TrimWhitespace(Command.substr(1));
+			if (ShellCommand.empty())
+			{
+				Implementation->Log->LogText(CommandCategory, ELogLevel::Warning, "Type a shell command after !");
+			}
+			else if (!Implementation->ShellRunner)
+			{
+				Implementation->Log->LogText(CommandCategory, ELogLevel::Warning, "Shell commands are not available here");
+			}
+			else
+			{
+				Implementation->ShellRunner(std::string(ShellCommand));
+			}
+		}
+		else if (std::expected<FEditorCommandResult, FEditorCommandError> Result = Implementation->Commands->Execute(Command))
 		{
 			if (!Result->Message.empty())
 			{
@@ -360,6 +376,11 @@ std::expected<void, FOutputLogError> FOutputLogModel::SubmitCommand(const std::s
 	{
 		return std::unexpected(FOutputLogError{Exception.what()});
 	}
+}
+
+void FOutputLogModel::SetShellRunner(std::function<void(std::string)> Runner)
+{
+	Implementation->ShellRunner = std::move(Runner);
 }
 
 std::expected<std::vector<std::string>, FOutputLogError> FOutputLogModel::CompleteCommand(const std::string_view Prefix, const std::size_t MaximumResults) const

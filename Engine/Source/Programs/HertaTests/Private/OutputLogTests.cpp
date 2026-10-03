@@ -242,6 +242,35 @@ TEST_CASE("Output Log text layout aligns RHI and Editor columns and round-trips 
 	}
 }
 
+TEST_CASE("Output Log sends lines starting with ! to the shell runner instead of the command registry")
+{
+	std::unique_ptr<FLogService> Log = CreateOutputLogTestService();
+	FEditorCommandRegistry Commands;
+	REQUIRE(RegisterCoreEditorCommands(Commands).has_value());
+	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
+	REQUIRE(Model.has_value());
+
+	// Without a runner, the line is rejected instead of reaching the registry as an unknown command.
+	REQUIRE((*Model)->SubmitCommand("!git status").has_value());
+	REQUIRE((*Model)->Synchronize().has_value());
+	CHECK((*Model)->GetVisibleLines().back().Text.ends_with("Shell commands are not available here"));
+
+	std::vector<std::string> Ran;
+	(*Model)->SetShellRunner([&Ran](std::string Command)
+	                         {
+		                         Ran.push_back(std::move(Command));
+	                         });
+	REQUIRE((*Model)->SubmitCommand("  !  git commit -m \"Fixed tabs\"  ").has_value());
+	REQUIRE((*Model)->SubmitCommand("!").has_value());
+	REQUIRE(Ran.size() == 1);
+	CHECK(Ran[0] == "git commit -m \"Fixed tabs\"");
+	REQUIRE((*Model)->Synchronize().has_value());
+	CHECK((*Model)->GetVisibleLines().back().Text.ends_with("Type a shell command after !"));
+	std::expected<std::string, FOutputLogError> History = (*Model)->NavigateHistory(-1);
+	REQUIRE(History.has_value());
+	CHECK(*History == "!");
+}
+
 TEST_CASE("Output Log command submission captures results and history before tail acknowledgment")
 {
 	std::unique_ptr<FLogService> Log = CreateOutputLogTestService();

@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Herta
@@ -37,6 +38,8 @@ struct FProcessRequest
 	std::function<bool()> ShouldCancel{};
 	// Captured output beyond this many bytes per stream is discarded.
 	std::size_t MaximumOutputBytes = std::size_t{1} << 20;
+	// Windows only: appended verbatim after Arguments for programs such as cmd.exe that parse their own command line. Must be empty on Linux.
+	std::string RawArguments{};
 };
 
 struct FProcessResult
@@ -52,4 +55,7 @@ struct FProcessResult
 [[nodiscard]] std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& Request);
 
 [[nodiscard]] std::filesystem::path GetExecutablePath();
+
+// Runs CommandLine through the user's shell: %COMSPEC% (cmd.exe) on Windows, $SHELL (or /bin/sh) on Linux.
+[[nodiscard]] FProcessRequest MakeShellRequest(std::string_view CommandLine);
 }

@@ -4,6 +4,8 @@
 #include "Herta/Core/Log.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
+#include "Herta/Platform/Process.h"
+#include "Herta/Tasks/TaskSystem.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/PreviewSelection.h"
 #include "Herta/EditorCore/TransformText.h"
@@ -27,6 +29,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <chrono>
 #include <format>
 #include <im3d.h>
 #include <im3d_math.h>
@@ -46,6 +49,79 @@ namespace Herta
 namespace
 {
 inline constexpr FLogCategory EditorLog{"Editor"};
+inline constexpr FLogCategory ShellLog{"Shell"};
+
+// Runs Output Log "!" lines through the user's shell on a blocking-IO task and logs the output when the command exits.
+// ponytail: output arrives at exit and stdin is empty, so interactive programs fail; the Milestone 15 terminal plugin covers those.
+class FShellRunner final
+{
+public:
+	FShellRunner(FTaskSystem& InTasks, FLogService& InLog, std::unique_ptr<FTaskScope> InScope)
+	    : Tasks(InTasks)
+	    , Log(InLog)
+	    , Scope(std::move(InScope))
+	{
+	}
+	FShellRunner(const FShellRunner&) = delete;
+	FShellRunner& operator=(const FShellRunner&) = delete;
+
+	~FShellRunner()
+	{
+		// Cancellation kills each running shell and its children.
+		Scope->RequestCancellation();
+		Scope->Wait();
+	}
+
+	void Run(std::string Command)
+	{
+		std::expected<FTaskHandle, FTaskError> Task = Tasks.Submit(*Scope, {"Shell command", ETaskLane::BlockingIo}, [&Log = Log, Command = std::move(Command)](FTaskContext& Context)
+		                                                           {
+			                                                           FProcessRequest Request = MakeShellRequest(Command);
+			                                                           Request.Timeout = std::chrono::minutes(10);
+			                                                           Request.ShouldCancel = [&Context]
+			                                                           {
+				                                                           return Context.IsCancellationRequested();
+			                                                           };
+			                                                           const std::expected<FProcessResult, FProcessError> Result = RunProcess(Request);
+			                                                           if (!Result)
+			                                                           {
+				                                                           Log.LogText(ShellLog, ELogLevel::Warning, std::format("'{}' did not finish: {}", Command, Result.error().Message));
+				                                                           return;
+			                                                           }
+			                                                           const auto LogLines = [&](const std::string& Text, const ELogLevel Level)
+			                                                           {
+				                                                           for (const auto Part : std::views::split(std::string_view(Text), '\n'))
+				                                                           {
+					                                                           std::string_view Line(Part.begin(), Part.end());
+					                                                           if (Line.ends_with('\r'))
+					                                                           {
+						                                                           Line.remove_suffix(1);
+					                                                           }
+					                                                           if (!Line.empty())
+					                                                           {
+						                                                           Log.LogText(ShellLog, Level, Line);
+					                                                           }
+				                                                           }
+			                                                           };
+			                                                           // Many tools, git included, write progress to stderr, so it only counts as a warning when the command fails.
+			                                                           LogLines(Result->StandardOutput, ELogLevel::Info);
+			                                                           LogLines(Result->StandardError, Result->ExitCode == 0 ? ELogLevel::Info : ELogLevel::Warning);
+			                                                           if (Result->ExitCode != 0)
+			                                                           {
+				                                                           Log.LogText(ShellLog, ELogLevel::Warning, std::format("'{}' exited with code {}", Command, Result->ExitCode));
+			                                                           }
+		                                                           });
+		if (!Task)
+		{
+			Log.LogText(ShellLog, ELogLevel::Warning, std::format("Could not run '{}': {}", Command, Task.error().Message));
+		}
+	}
+
+private:
+	FTaskSystem& Tasks;
+	FLogService& Log;
+	std::unique_ptr<FTaskScope> Scope;
+};
 inline constexpr std::array CategoryColors = {
     IM_COL32(126, 200, 255, 255),
     IM_COL32(142, 220, 182, 255),
@@ -330,6 +406,8 @@ struct FEditorFramework::FImplementation
 	double CpuFrameMilliseconds = 0.0;
 	std::optional<double> GpuUIMilliseconds;
 	std::unique_ptr<FOutputLogModel> OutputLog;
+	// Declared after OutputLog so it drains before the model that forwards to it is destroyed.
+	std::unique_ptr<FShellRunner> Shell;
 	std::array<char, 512> SearchBuffer = {};
 	std::array<char, 512> CommandBuffer = {};
 	std::vector<std::string> Suggestions;
@@ -448,6 +526,17 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		Implementation->ToolUI = Descriptor.ToolUI;
 		Implementation->OutputLog = std::move(*OutputLog);
 		Implementation->Log = Descriptor.Log;
+		if (Descriptor.Tasks != nullptr)
+		{
+			if (std::expected<std::unique_ptr<FTaskScope>, FTaskError> Scope = Descriptor.Tasks->CreateScope("Shell commands"))
+			{
+				Implementation->Shell = std::make_unique<FShellRunner>(*Descriptor.Tasks, *Descriptor.Log, std::move(*Scope));
+				Implementation->OutputLog->SetShellRunner([Shell = Implementation->Shell.get()](std::string Command)
+				                                          {
+					                                          Shell->Run(std::move(Command));
+				                                          });
+			}
+		}
 		const FEditorAssetPaths& Paths = Descriptor.Assets;
 		if (Descriptor.Tasks != nullptr && Descriptor.GraphicsDevice != nullptr && !Paths.ContentRoot.empty() && !Paths.DerivedDataRoot.empty() && !Paths.WorkerPath.empty() && !Paths.TargetPlatform.empty())
 		{

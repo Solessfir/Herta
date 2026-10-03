@@ -6,6 +6,7 @@
 #include <array>
 #include <cstddef>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <span>
 #include <string>
@@ -93,7 +94,9 @@ public:
 	[[nodiscard]] const FLogTextSelection& GetSelection() const noexcept;
 	[[nodiscard]] std::expected<std::string, FOutputLogError> CopySelectionOrVisible() const;
 
+	// Lines starting with '!' go to the shell runner instead of the command registry.
 	[[nodiscard]] std::expected<void, FOutputLogError> SubmitCommand(std::string_view CommandLine);
+	void SetShellRunner(std::function<void(std::string)> Runner);
 	[[nodiscard]] std::expected<std::vector<std::string>, FOutputLogError> CompleteCommand(std::string_view Prefix, std::size_t MaximumResults = 8) const;
 	[[nodiscard]] std::expected<std::string, FOutputLogError> NavigateHistory(int Direction);
 	[[nodiscard]] std::span<const std::string> GetCommandHistory() const noexcept;

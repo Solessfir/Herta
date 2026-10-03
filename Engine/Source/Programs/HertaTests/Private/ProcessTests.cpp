@@ -78,4 +78,18 @@ TEST_CASE("Missing executables fail to launch")
 	CHECK(Result.error().Code == EProcessErrorCode::LaunchFailed);
 	CHECK_FALSE(RunProcess({{}, {}}));
 }
+
+TEST_CASE("Shell requests run the line through the user's shell, keeping its quoting and operators")
+{
+	// && and quoted arguments are shell syntax in both cmd.exe and POSIX shells; fish accepts them too.
+	const auto Result = RunProcess(MakeShellRequest("echo first&& echo \"two words\""));
+	REQUIRE(Result);
+	CHECK(Result->ExitCode == 0);
+	CHECK(Result->StandardOutput.find("first") != std::string::npos);
+	CHECK(Result->StandardOutput.find("two words") != std::string::npos);
+
+	const auto Failed = RunProcess(MakeShellRequest("exit 3"));
+	REQUIRE(Failed);
+	CHECK(Failed->ExitCode == 3);
+}
 }
