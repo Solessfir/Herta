@@ -57,6 +57,7 @@ content_files=(
     Engine/Content/Shapes/Cube.gltf.hmeta
     'Games/Sandbox/Content/fixture texture.png'
     'Games/Sandbox/Content/fixture texture.png.hmeta'
+    Games/Sandbox/Scenes/Sandbox.hscene
 )
 license_files=(
     External/example/LICENSE
@@ -184,6 +185,7 @@ missing_inputs=(
     Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf
     Engine/Content/Shapes/Cube.gltf.hmeta
     'Games/Sandbox/Content/fixture texture.png'
+    Games/Sandbox/Scenes/Sandbox.hscene
     External/freetype/src/gzip/zlib.h
     External/example/LICENSE
 )

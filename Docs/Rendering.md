@@ -27,7 +27,7 @@ Scene textures and offscreen color targets use sRGB formats, with linear shader 
 
 Milestone 2.5 uses RMB with WASD and QE for fly navigation, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. While flying, the wheel adjusts movement speed and Shift accelerates movement. F focuses the preview object. The viewport toolbar exposes translation, rotation, scale, local/world axes, and snapping.
 
-Camera and gizmo drags start only over the viewport image. They keep ownership through the drag and release it on focus loss or cancellation, so other editor widgets cannot drive the camera. Grid, axes, and bounds use scene depth; transform handles draw as an overlay. Entity selection, persistent scenes, and undo/redo remain Milestone 4 work.
+Camera and gizmo drags start only over the viewport image. They keep ownership through the drag and release it on focus loss or cancellation, so other editor widgets cannot drive the camera. Grid, axes, and bounds use scene depth; transform handles draw as an overlay. Scene owns authored entities; EditorFramework adapts their transforms to the viewport. Undo/redo remains Milestone 4 work.
 
 Click the preview cube to select it; click empty viewport space to deselect it. Selection shows an orange silhouette outline and transform handles. Camera navigation and gizmo clicks preserve selection. This picker handles only the transformed preview cube; general scene selection and mesh outlines belong to the scene editor milestone.
 

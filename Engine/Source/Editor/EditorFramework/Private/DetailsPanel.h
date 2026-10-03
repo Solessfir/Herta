@@ -28,7 +28,7 @@ struct FDetailsPanelState
 	std::array<char, 96> Search{};
 	std::array<char, 96> MeshSearch{};
 	bool bScaleLocked = false;
-	std::array<char, 256> RenameBuffer{};
+	std::array<char, 1025> RenameBuffer{};
 	bool bRenameRequested = false;
 	bool bRenaming = false;
 };

@@ -489,7 +489,7 @@ ECS is Herta's canonical runtime world representation, not its universal object 
 
 Actor-like authoring objects may be added later, but the storage model must not require one heap allocation and virtual tick per object. Physics, animation, audio, navigation, and rendering do not own Scene entities. The program composition root extracts or submits the data each system needs, preventing dependency cycles.
 
-EnTT is the preferred storage implementation candidate for the world milestone, not a foundation dependency. It uses sparse-set component pools and has different scheduling and locality tradeoffs from an archetype-chunk ECS such as Unreal Mass. Before selection, a focused spike must cover fragmented and homogeneous component mixes, hierarchy operations, deferred mutation, parallel read/write queries, component relocation, cloning, editor inspection, and iteration at 100,000 to 1,000,000 entities. If adopted, EnTT remains private behind Herta entity, world, and query contracts. No EnTT type is serialized or exposed by a public Herta API.
+EnTT v3.16.0 is adopted privately by Scene after the [storage and scheduling spike](EnTTSpike.md). It uses sparse-set component pools and has different scheduling and locality tradeoffs from an archetype-chunk ECS such as Unreal Mass. Herta owns entity identity, hierarchy, mutation barriers, serialization, and future query and scheduling contracts. No EnTT type is serialized or exposed by a public Herta API. The initial `FWorld` has single-owner access and copied inspection snapshots; it does not yet expose parallel gameplay queries or a scheduler.
 
 ### 4.7 RHI, RenderGraph, and Renderer
 
@@ -1027,7 +1027,7 @@ Source dependencies live under `External`. Single-header and amalgamated librari
 | [spdlog](https://github.com/gabime/spdlog) | Adopted at MS1 | Core | Compiled private backend for console, debugger, rotating-file, and editor-buffer sinks. Herta owns the public logging contract and record schema. |
 | [enkiTS](https://github.com/dougbinks/enkiTS) | Adopted at MS1 | Tasks | Private worker scheduling implementation. Herta owns task scopes, cancellation, reload quiescence, IO lanes, diagnostics, and public APIs. |
 | [Umka](https://github.com/vtereshkov/umka-lang) | Preferred candidate at scripting milestone | Scripting | Optional statically typed gameplay VM behind Herta handles, bindings, cooking, budgets, diagnostics, and sandbox policy. Adopt only if production gates pass. |
-| [EnTT](https://github.com/skypjack/entt) | Preferred at world milestone after spike | Scene | Private ECS storage candidate. Herta owns entity, world, query, serialization, scheduling, and mutation-barrier contracts. |
+| [EnTT](https://github.com/skypjack/entt) | v3.16.0, pinned submodule | Scene | Private ECS storage. Herta owns entity, world, query, serialization, scheduling, and mutation-barrier contracts. |
 | [fastgltf](https://github.com/spnda/fastgltf) | Adopted at MS3 | AssetPipeline | Offline glTF 2.0 ingestion inside HertaAssetWorker only. Pinned to `v0.9.1`. |
 | [simdjson](https://github.com/simdjson/simdjson) | Adopted at MS3 | AssetPipeline | JSON parser required by fastgltf. Its single-header release is vendored and compiled into the same private library. Pinned to `v4.6.11`, the version fastgltf `v0.9.1` targets. |
 | [stb](https://github.com/nothings/stb) | Adopted at MS3 | AssetPipeline | Private `stb_image` PNG and JPEG decoding inside HertaAssetWorker, limited to 8192 pixels per side. Tests use `stb_image_write`. Both headers are vendored at commit `2c980bb`. |
@@ -1670,6 +1670,6 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Milestone 3 is implemented: asset identity, the registry, build keys, DerivedDataCache, texture, glTF, and Blender cooking in `HertaAssetWorker`, headless commands, asynchronous editor previews with polled live reimport, drag-and-drop import, incremental scans, and fuzzy search. The next slice starts Milestone 4 - World and editor authoring.
+Milestone 3 is implemented. Milestone 4 has started with private EnTT storage, stable object IDs, generational entity handles, validated hierarchy, deferred create/destroy barriers, and canonical versioned `.hscene` save/load. The editor's cube and floor are Scene-owned entities, with Ctrl+S, File menu operations, and headless scene validation. See [Scenes.md](Scenes.md) for the initial contracts and limitations.
 
-Keep ECS, localization, networking, graph tooling, physics, animation, audio, and scripting in their later milestones.
+Next are transactional property editing and undo/redo, stable selection and reference remapping, runtime descriptors, project creation/loading, Content Browser authoring, and gameplay-system scheduling and hot reload. Localization, networking, graph tooling, full physics, animation, audio, and scripting remain in their later milestones.

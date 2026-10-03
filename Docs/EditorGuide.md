@@ -2,7 +2,7 @@
 
 [Back to README](../README.md) | [Build and run](GettingStarted.md)
 
-The editor currently previews selectable objects and imported assets. Scene transforms, names, and mesh choices are not saved, and the game runtime is not implemented yet.
+The editor loads and saves scenes with selectable mesh entities and imported assets. The game runtime is not implemented yet.
 
 ## Workspace
 
@@ -12,7 +12,7 @@ See [Rendering.md](Rendering.md) for GPU ownership, shader cooking, and renderer
 
 ## Viewport controls
 
-In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the selection. F11 toggles a full-workspace viewport without changing the saved panel layout. Click the cube or floor to select it; Ctrl+click or Shift+click toggles additional objects. Click empty viewport space or press Escape in the focused viewport to deselect. During a transform drag, Escape restores the entire selection instead. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits apply to the selection around its active object's pivot and are not saved.
+In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the selection. F11 toggles a full-workspace viewport without changing the saved panel layout. Click an object to select it; Ctrl+click or Shift+click toggles additional objects. Click empty viewport space or press Escape in the focused viewport to deselect. During a transform drag, Escape restores the entire selection instead. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits apply to the selection around its active object's pivot.
 
 ## Simulation
 
@@ -22,7 +22,15 @@ The editor preview includes a 1 m cube initially positioned at Y=4 m and a 10 m 
 
 Details shows the active object's editable location, rotation, and scale. With multiple objects selected, transform changes also apply to the other selected objects. Click a value to type or drag it to adjust; typed values support arithmetic such as `10/2`, applied with Enter. Shift+RMB copies an individual value or a whole transform row from its label; Shift+LMB pastes it. Row clipboard text supports UE's `X/Y/Z` location and scale format and `Pitch/Yaw/Roll` rotation format. Values stay in Herta's units and axis conventions; clipboard compatibility does not convert them. Click the camera coordinates to copy a position that can be pasted onto Location. Floor edits affect its static collider when simulation starts.
 
-Press F2 in the Viewport, Outliner, or Details to rename the active object in Details, or double-click its Details heading. Enter or moving focus commits the name; Escape cancels. Blank names are rejected. Names are editor-only and are not saved. S toggles grid snapping in the focused viewport when no drag is active; RMB+S still flies backward. Ctrl+Q quits the editor from any panel.
+Press F2 in the Viewport, Outliner, or Details to rename the active object in Details, or double-click its Details heading. Enter or moving focus commits the name; Escape cancels. Blank names are rejected. S toggles grid snapping in the focused viewport when no drag is active; RMB+S still flies backward. Ctrl+Q quits the editor from any panel.
+
+## Scenes
+
+The editor loads `Games/Sandbox/Scenes/Sandbox.hscene` on startup. **File > Save scene** or **Ctrl+S** saves names, transforms, mesh asset IDs, and body motion components. Changes are not saved automatically on exit. **File > Open scene...** loads another `.hscene`; a failed load keeps the current scene intact. These are flat mesh scenes for now; the runtime supports hierarchy and non-mesh entities, but their editor UI comes later.
+
+Output Log commands: `scene.save [path]`, `scene.load <path>`, and `scene.validate <path>`. Quote paths containing spaces. Saving during simulation writes authored transforms, never the transient physics pose. `scene.load` requires simulation to be stopped.
+
+Headlessly, use `HertaEditorCmd scene.validate <path>` or `HertaEditorCmd scene.canonicalize <source> <destination>`. Scene files are canonical UTF-8 JSON with stable object and asset IDs. Unsupported versions, unknown fields, malformed transforms, duplicate IDs, and broken hierarchy references are rejected. See [Scenes.md](Scenes.md) for the runtime and file contracts. Undo/redo, prefab authoring, and gameplay are later slices.
 
 ## Outliner
 
@@ -55,4 +63,4 @@ HertaEditorCmd asset.validate
 
 Every asset command accepts `--content-root <path>`. Import a `.gltf` with separate files by copying its folder into content first, then running `asset.import` on the copied file. `.blend` files import the same way when Blender is installed; set `HERTA_BLENDER` to its executable if it is not found automatically. Keep textures a `.blend` references inside the content root.
 
-In the editor, select an object and choose a model or texture from **Static Mesh** in Details, which lists `Engine/` and `Game/` content. It cooks in the background and replaces the mesh between frames; textures preview on a 1 m cube. Picking, outlines, focus, bounds, and Simulate use the loaded mesh's bounds. Choices are not saved yet. See [AssetPipeline.md](AssetPipeline.md) for the metadata format, cooking rules, cooked formats, build keys, and DerivedDataCache layout. Type in the picker to filter by name. Saved edits to shown assets, including `.blend` files, reimport automatically within about a second; a failed reimport keeps the previous mesh. Drop model or image files onto the editor, or use **File > Import...**, to import them into `Models` or `Textures`. The import dialog is the system file picker on Windows and `zenity` or `kdialog` on Linux.
+In the editor, select an object and choose a model or texture from **Static Mesh** in Details, which lists `Engine/` and `Game/` content. It cooks in the background and replaces the mesh between frames; textures preview on a 1 m cube. Picking, outlines, focus, bounds, and Simulate use the loaded mesh's bounds. Mesh choices are saved with the scene. See [AssetPipeline.md](AssetPipeline.md) for the metadata format, cooking rules, cooked formats, build keys, and DerivedDataCache layout. Type in the picker to filter by name. Saved edits to shown assets, including `.blend` files, reimport automatically within about a second; a failed reimport keeps the previous mesh. Drop model or image files onto the editor, or use **File > Import...**, to import them into `Models` or `Textures`. The import dialog is the system file picker on Windows and `zenity` or `kdialog` on Linux.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Herta/Assets/AssetId.h"
+#include "Herta/Scene/World.h"
 
 #include <im3d_math.h>
 
@@ -18,6 +19,12 @@ namespace Herta
 // Engine/Content/Shapes/Cube.gltf.hmeta
 inline constexpr FAssetId EngineCubeAsset{0x59f13694df4844e5, 0x863555194493f242};
 
+inline Im3d::Mat3 FromPreviewEulerXYZ(const Im3d::Vec3& Radians)
+{
+	// Avoid the incorrect XYZ Euler constructor in the pinned Im3d revision.
+	return Im3d::Rotation({0.f, 0.f, 1.f}, Radians.z) * Im3d::Rotation({0.f, 1.f, 0.f}, Radians.y) * Im3d::Rotation({1.f, 0.f, 0.f}, Radians.x);
+}
+
 struct FPreviewObject
 {
 	std::string Label;
@@ -25,6 +32,7 @@ struct FPreviewObject
 	Im3d::Mat3 Rotation{1.f};
 	Im3d::Vec3 Scale{1.f};
 	FAssetId Mesh = EngineCubeAsset;
+	FObjectId Id{};
 };
 
 inline constexpr int PreviewCubeIndex = 0;

@@ -206,6 +206,15 @@ HertaRuntimeModule("Assets", {
     PublicDependencies = { "Core" }
 })
 
+HertaRuntimeModule("Scene", {
+    PublicDependencies = { "Math", "Assets" },
+    PrivateThirdPartyDependencies = { "SimdJson" }
+})
+    externalincludedirs {
+        path.join(RepositoryRoot, "External/entt/src"),
+        path.join(RepositoryRoot, "External/simdjson")
+    }
+
 HertaRuntimeModule("Physics", {
     PublicDependencies = { "Math" },
     PrivateThirdPartyDependencies = { "Jolt" }
@@ -247,7 +256,8 @@ HertaRuntimeModule("Tasks", {
     }
 
 HertaRuntimeModule("EditorCore", {
-    PublicDependencies = { "Math" }
+    PublicDependencies = { "Math" },
+    PrivateDependencies = { "Scene", "Assets" }
 })
 
 HertaRuntimeModule("Application", {
@@ -276,7 +286,7 @@ HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
     PublicDependencies = { "Core", "Assets", "EditorCore" },
     PrivateDependencies = { "Platform" },
-    PrivateThirdPartyDependencies = { "FastGltf", "MeshOptimizer" }
+    PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer" }
 })
     externalincludedirs {
         path.join(RepositoryRoot, "External/fastgltf/include"),
@@ -287,7 +297,7 @@ HertaRuntimeModule("AssetPipeline", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets" },
-    PrivateDependencies = { "Physics", "Platform", "Tasks", "AssetPipeline" },
+    PrivateDependencies = { "Physics", "Platform", "Tasks", "AssetPipeline", "Scene" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
 })
 
@@ -401,10 +411,11 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/doctest"),
         path.join(RepositoryRoot, "External/imgui"),
         path.join(RepositoryRoot, "External/im3d"),
-        path.join(RepositoryRoot, "External/stb")
+        path.join(RepositoryRoot, "External/stb"),
+        path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Scene", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
@@ -414,7 +425,7 @@ project "HertaEditorCmd"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaEditorCmd"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditorCmd"))
-    ApplyRuntimeDependencies { "EditorCore", "AssetPipeline", "Platform" }
+    ApplyRuntimeDependencies { "EditorCore", "Scene", "AssetPipeline", "Platform" }
     dependson { "HertaAssetWorker" }
 
 project "HertaEditor"

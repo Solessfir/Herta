@@ -1,0 +1,309 @@
+#include "Herta/Scene/World.h"
+
+#include <doctest/doctest.h>
+
+#include <array>
+#include <limits>
+#include <numbers>
+
+namespace Herta
+{
+namespace
+{
+FSceneEntity MakeEntity(const std::uint64_t Value, std::string Name = "Entity")
+{
+	return {.Id = FObjectId{0, Value}, .Name = std::move(Name)};
+}
+}
+
+TEST_CASE("Scene object IDs are strong canonical UUID values")
+{
+	constexpr FObjectId Id{0x0011223344556677, 0x8899aabbccddeeff};
+	CHECK(Id.ToString() == "00112233-4455-6677-8899-aabbccddeeff");
+	CHECK(FObjectId::Parse(Id.ToString()) == Id);
+	CHECK_FALSE(FObjectId::Parse("00112233-4455-6677-8899-AABBCCDDEEFF").has_value());
+	CHECK_FALSE(FObjectId::Parse("00000000-0000-0000-0000-000000000000").has_value());
+	const FObjectId Generated = FObjectId::Generate();
+	CHECK(Generated.IsValid());
+	CHECK(FObjectId::Parse(Generated.ToString()) == Generated);
+}
+
+TEST_CASE("World creation and destruction occur at structural barriers")
+{
+	FWorld World;
+	const auto Id = World.QueueCreateEntity(MakeEntity(1));
+	REQUIRE(Id.has_value());
+	CHECK(World.GetEntityCount() == 0);
+	CHECK_FALSE(World.FindEntity(*Id).has_value());
+	REQUIRE(World.FlushStructuralChanges().has_value());
+	const auto Handle = World.FindEntity(*Id);
+	REQUIRE(Handle.has_value());
+	CHECK(World.GetEntityCount() == 1);
+	CHECK(World.GetEntity(*Handle)->Name == "Entity");
+	REQUIRE(World.QueueDestroyEntity(*Handle).has_value());
+	CHECK_FALSE(World.QueueDestroyEntity(*Handle).has_value());
+	CHECK(World.GetEntity(*Handle).has_value());
+	REQUIRE(World.FlushStructuralChanges().has_value());
+	CHECK(World.GetEntityCount() == 0);
+	CHECK_FALSE(World.GetEntity(*Handle).has_value());
+	CHECK_FALSE(World.QueueDestroyEntity(*Handle).has_value());
+
+	REQUIRE(World.QueueCreateEntity(MakeEntity(2)).has_value());
+	REQUIRE(World.FlushStructuralChanges().has_value());
+	CHECK_FALSE(World.GetEntity(*Handle).has_value());
+	CHECK(World.FindEntity(FObjectId{0, 2}) != Handle);
+}
+
+TEST_CASE("World rejects foreign handles and replacement invalidates old handles")
+{
+	FWorld First;
+	FWorld Second;
+	const std::array Entities{MakeEntity(1)};
+	REQUIRE(First.ReplaceEntities(Entities).has_value());
+	REQUIRE(Second.ReplaceEntities(Entities).has_value());
+	const FEntityId Handle = *First.FindEntity(Entities[0].Id);
+	CHECK_FALSE(Second.GetEntity(Handle).has_value());
+	CHECK_FALSE(Second.QueueDestroyEntity(Handle).has_value());
+	CHECK_FALSE(Second.SetEntity(Handle, Entities[0]).has_value());
+	CHECK_FALSE(Second.GetWorldMatrix(Handle).has_value());
+	CHECK_FALSE(First.GetEntity({}).has_value());
+	REQUIRE(First.ReplaceEntities(Entities).has_value());
+	CHECK_FALSE(First.GetEntity(Handle).has_value());
+	CHECK(First.FindEntity(Entities[0].Id)->World != Handle.World);
+}
+
+TEST_CASE("World handles remain stale after the private storage generation wraps")
+{
+	FWorld World;
+	REQUIRE(World.QueueCreateEntity(MakeEntity(1)).has_value());
+	REQUIRE(World.FlushStructuralChanges().has_value());
+	const FEntityId Original = *World.FindEntity(FObjectId{0, 1});
+	FEntityId Current = Original;
+	bool bStorageGenerationWrapped = false;
+
+	for (std::uint64_t Index = 2; Index <= 5000; ++Index)
+	{
+		REQUIRE(World.QueueDestroyEntity(Current).has_value());
+		REQUIRE(World.FlushStructuralChanges().has_value());
+		REQUIRE(World.QueueCreateEntity(MakeEntity(Index)).has_value());
+		REQUIRE(World.FlushStructuralChanges().has_value());
+		Current = *World.FindEntity(FObjectId{0, Index});
+		REQUIRE(Current.Generation > Original.Generation);
+		CHECK_FALSE(World.GetEntity(Original).has_value());
+		CHECK_FALSE(World.QueueDestroyEntity(Original).has_value());
+		CHECK_FALSE(World.SetEntity(Original, MakeEntity(1)).has_value());
+		CHECK_FALSE(World.GetWorldMatrix(Original).has_value());
+
+		if (Current.Value == Original.Value)
+		{
+			bStorageGenerationWrapped = true;
+			CHECK(Current.Generation != Original.Generation);
+		}
+	}
+
+	CHECK(bStorageGenerationWrapped);
+	FEntityId InvalidGeneration = Current;
+	InvalidGeneration.Generation = 0;
+	CHECK_FALSE(World.GetEntity(InvalidGeneration).has_value());
+	CHECK(World.GetEntity(Current).has_value());
+}
+
+TEST_CASE("World UUID lookups handle identifiers with identical halves")
+{
+	std::vector<FSceneEntity> Entities;
+	Entities.reserve(5000);
+
+	for (std::uint64_t Index = 1; Index <= 5000; ++Index)
+	{
+		FSceneEntity Entity = MakeEntity(Index);
+		Entity.Id = FObjectId{Index, Index};
+		Entity.Parent = Index == 1 ? FObjectId{} : FObjectId{Index - 1, Index - 1};
+		Entities.push_back(std::move(Entity));
+	}
+
+	REQUIRE(ValidateSceneEntities(Entities).has_value());
+	FWorld World;
+	REQUIRE(World.ReplaceEntities(Entities).has_value());
+	CHECK(World.SnapshotEntities() == Entities);
+
+	for (const FSceneEntity& Entity : Entities)
+	{
+		const auto Handle = World.FindEntity(Entity.Id);
+		REQUIRE(Handle.has_value());
+		CHECK(World.GetEntity(*Handle) == Entity);
+	}
+}
+
+TEST_CASE("World snapshots preserve components and have canonical object ordering")
+{
+	FWorld World;
+	FSceneEntity Mesh = MakeEntity(3, "Mesh");
+	Mesh.Mesh = FStaticMeshComponent{FAssetId{1, 2}};
+	Mesh.BodyMotion = ESceneBodyMotion::Dynamic;
+	Mesh.Transform.Translation = FWorldPosition{1234567890.125, 2., 3.};
+	Mesh.Transform.Rotation = FQuaternion::FromAxisAngle(FVector3::Up(), 0.25f);
+	Mesh.Transform.Scale = {1.f, 2.f, 3.f};
+	const std::array Input{Mesh, MakeEntity(1), MakeEntity(2)};
+	REQUIRE(World.ReplaceEntities(Input).has_value());
+	const auto Snapshot = World.SnapshotEntities();
+	REQUIRE(Snapshot.size() == 3);
+	CHECK(Snapshot[0].Id == Input[1].Id);
+	CHECK(Snapshot[1].Id == Input[2].Id);
+	CHECK(Snapshot[2] == Mesh);
+
+	FWorld Clone;
+	REQUIRE(Clone.ReplaceEntities(Snapshot).has_value());
+	CHECK(Clone.SnapshotEntities() == Snapshot);
+	Mesh.Mesh.reset();
+	Mesh.BodyMotion = ESceneBodyMotion::None;
+	REQUIRE(World.SetEntity(*World.FindEntity(Mesh.Id), Mesh).has_value());
+	CHECK(World.GetEntity(*World.FindEntity(Mesh.Id)) == Mesh);
+}
+
+TEST_CASE("Rejected structural batches leave the live world unchanged")
+{
+	FWorld World;
+	const std::array Initial{MakeEntity(1)};
+	REQUIRE(World.ReplaceEntities(Initial).has_value());
+	const FEntityId Handle = *World.FindEntity(Initial[0].Id);
+	FSceneEntity Orphan = MakeEntity(2);
+	Orphan.Parent = FObjectId{0, 99};
+	REQUIRE(World.QueueCreateEntity(Orphan).has_value());
+	REQUIRE(World.QueueDestroyEntity(Handle).has_value());
+	CHECK_FALSE(World.FlushStructuralChanges().has_value());
+	CHECK(World.GetEntity(Handle) == Initial[0]);
+	CHECK(World.GetEntityCount() == 1);
+	REQUIRE(World.FlushStructuralChanges().has_value());
+	CHECK(World.GetEntity(Handle).has_value());
+	REQUIRE(World.QueueCreateEntity(MakeEntity(2)).has_value());
+	CHECK_FALSE(World.QueueCreateEntity(MakeEntity(2)).has_value());
+	CHECK_FALSE(World.QueueCreateEntity(MakeEntity(1)).has_value());
+	REQUIRE(World.FlushStructuralChanges().has_value());
+	CHECK(World.GetEntity(Handle).has_value());
+	CHECK(World.GetEntityCount() == 2);
+
+	const std::array Duplicate{MakeEntity(3), MakeEntity(3)};
+	CHECK_FALSE(World.ReplaceEntities(Duplicate).has_value());
+	CHECK(World.GetEntity(Handle).has_value());
+	CHECK(World.GetEntityCount() == 2);
+}
+
+TEST_CASE("Scene hierarchy composes local matrices and rejects unsafe parent edits")
+{
+	FWorld World;
+	FSceneEntity Parent = MakeEntity(1, "Parent");
+	Parent.Transform.Translation = FWorldPosition{1000000000., 2., 3.};
+	Parent.Transform.Rotation = FQuaternion::FromAxisAngle(FVector3::Up(), std::numbers::pi_v<float> / 2.f);
+	Parent.Transform.Scale = {2.f, 2.f, 2.f};
+	FSceneEntity Child = MakeEntity(2, "Child");
+	Child.Parent = Parent.Id;
+	Child.Transform.Translation = FWorldPosition{0., 0., 1.};
+	// A child can be queued before its parent because the barrier validates the complete batch.
+	REQUIRE(World.QueueCreateEntity(Child).has_value());
+	REQUIRE(World.QueueCreateEntity(Parent).has_value());
+	REQUIRE(World.FlushStructuralChanges().has_value());
+	const FEntityId ParentHandle = *World.FindEntity(Parent.Id);
+	const FEntityId ChildHandle = *World.FindEntity(Child.Id);
+	const auto Matrix = World.GetWorldMatrix(ChildHandle);
+	REQUIRE(Matrix.has_value());
+	const FVector3d Position = Matrix->TransformPosition(FVector3d::Zero());
+	CHECK(Position.X == doctest::Approx(1000000002.).epsilon(1e-12));
+	CHECK(Position.Y == doctest::Approx(2.));
+	CHECK(Position.Z == doctest::Approx(3.).epsilon(1e-6));
+
+	Parent.Parent = Child.Id;
+	CHECK_FALSE(World.SetEntity(ParentHandle, Parent).has_value());
+	CHECK_FALSE(World.GetEntity(ParentHandle)->Parent.IsValid());
+	Parent.Parent = {};
+	Parent.Id = FObjectId{0, 9};
+	CHECK_FALSE(World.SetEntity(ParentHandle, Parent).has_value());
+	REQUIRE(World.QueueDestroyEntity(ParentHandle).has_value());
+	CHECK_FALSE(World.FlushStructuralChanges().has_value());
+	CHECK(World.GetEntity(ParentHandle).has_value());
+	CHECK(World.GetEntity(ChildHandle).has_value());
+	REQUIRE(World.QueueDestroyEntity(ParentHandle).has_value());
+	REQUIRE(World.QueueDestroyEntity(ChildHandle).has_value());
+	REQUIRE(World.FlushStructuralChanges().has_value());
+	CHECK(World.GetEntityCount() == 0);
+}
+
+TEST_CASE("Scene validation rejects cycles invalid names and invalid components")
+{
+	FSceneEntity Entity = MakeEntity(1);
+	const auto IsValid = [&Entity]
+	{
+		return ValidateSceneEntities(std::span{&Entity, 1}).has_value();
+	};
+
+	CHECK(IsValid());
+	Entity.Id = {};
+	CHECK_FALSE(IsValid());
+	Entity.Id = FObjectId{0, 1};
+	Entity.Parent = Entity.Id;
+	CHECK_FALSE(IsValid());
+	Entity.Parent = FObjectId{0, 99};
+	CHECK_FALSE(IsValid());
+	Entity.Parent = {};
+	Entity.Name = std::string("a\0b", 3);
+	CHECK_FALSE(IsValid());
+	Entity.Name = "\xc0\xaf";
+	CHECK_FALSE(IsValid());
+	Entity.Name = "\xed\xa0\x80";
+	CHECK_FALSE(IsValid());
+	Entity.Name = "\xf4\x90\x80\x80";
+	CHECK_FALSE(IsValid());
+	Entity.Name = "\xe2\x82";
+	CHECK_FALSE(IsValid());
+	Entity.Name = "\xc2\x80";
+	CHECK_FALSE(IsValid());
+	Entity.Name = "\xc2\x9f";
+	CHECK_FALSE(IsValid());
+	Entity.Name = "\xc2\xa0";
+	CHECK(IsValid());
+	Entity.Name = std::string(1025, 'a');
+	CHECK_FALSE(IsValid());
+	Entity.Name = "\xe4\xb8\x96\xe7\x95\x8c";
+	CHECK(IsValid());
+	Entity.Transform.Translation.Meters.X = std::numeric_limits<double>::infinity();
+	CHECK_FALSE(IsValid());
+	Entity.Transform.Translation = {};
+	Entity.Transform.Scale.X = 0.f;
+	CHECK_FALSE(IsValid());
+	Entity.Transform.Scale.X = -1.f;
+	CHECK_FALSE(IsValid());
+	Entity.Transform.Scale = FVector3::One();
+	Entity.Transform.Rotation = {0.f, 0.f, 0.f, 0.f};
+	CHECK_FALSE(IsValid());
+	Entity.Transform.Rotation = {std::numeric_limits<float>::max(), 0.f, 0.f, 1.f};
+	CHECK_FALSE(IsValid());
+	Entity.Transform.Rotation = FQuaternion::Identity();
+	Entity.Mesh = FStaticMeshComponent{};
+	CHECK_FALSE(IsValid());
+	Entity.Mesh.reset();
+	Entity.BodyMotion = static_cast<ESceneBodyMotion>(255);
+	CHECK_FALSE(IsValid());
+
+	std::array Cycle{MakeEntity(1), MakeEntity(2), MakeEntity(3)};
+	Cycle[0].Parent = Cycle[1].Id;
+	Cycle[1].Parent = Cycle[2].Id;
+	Cycle[2].Parent = Cycle[0].Id;
+	CHECK_FALSE(ValidateSceneEntities(Cycle).has_value());
+}
+
+TEST_CASE("Scene validation handles deep hierarchies without recursion")
+{
+	std::vector<FSceneEntity> Entities;
+	Entities.reserve(10000);
+
+	for (std::uint64_t Index = 1; Index <= 10000; ++Index)
+	{
+		FSceneEntity Entity = MakeEntity(Index);
+		Entity.Parent = Index == 10000 ? FObjectId{} : FObjectId{0, Index + 1};
+		Entities.push_back(std::move(Entity));
+	}
+
+	CHECK(ValidateSceneEntities(Entities).has_value());
+	Entities.back().Parent = Entities.front().Id;
+	CHECK_FALSE(ValidateSceneEntities(Entities).has_value());
+}
+}

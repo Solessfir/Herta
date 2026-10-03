@@ -1,10 +1,12 @@
 #include "Herta/EditorFramework/EditorFramework.h"
 
 #include "DetailsPanel.h"
+#include "EditorScene.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Core/Log.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/PreviewSelection.h"
+#include "Herta/EditorCore/SceneCommands.h"
 #include "Herta/EditorCore/TransformText.h"
 #include "Herta/EditorCore/ViewportCamera.h"
 #include "Herta/EditorFramework/ViewportInteraction.h"
@@ -469,6 +471,9 @@ struct FEditorFramework::FImplementation
 	void FocusPreview();
 	void RefreshPreviewMeshes();
 	void ImportWithDialog();
+	void OpenSceneWithDialog();
+	void SaveCurrentScene();
+	void RefreshScene();
 	// Maps the built-in cube's [-1, 1] box onto the object's mesh bounds, so cube-based picking, outlines, and physics fit any mesh.
 	[[nodiscard]] FMatrix4 GetPreviewBoundsMatrix(std::size_t Index) const;
 	[[nodiscard]] FPreviewBodyShape GetPreviewBodyShape(std::size_t Index) const;
@@ -501,16 +506,20 @@ struct FEditorFramework::FImplementation
 	bool bReclaimCommandFocus = false;
 	bool bFocusCommandRequested = false;
 
-	std::array<FPreviewObject, 2> PreviewObjects = CreatePreviewObjects();
-	std::array<FMatrix4, 2> PreviewModels;
+	std::shared_ptr<FEditorScene> Scene = std::make_shared<FEditorScene>();
+	std::vector<FPreviewObject>& PreviewObjects = Scene->GetObjects();
+	FPreviewObject EmptyPreviewObject;
+	std::uint64_t SceneGeneration = 0;
+	std::vector<FMatrix4> PreviewModels;
 	// Null entries draw the built-in cube. Refreshed from Assets at the start of every frame.
-	std::array<const FRenderMesh*, 2> PreviewMeshes{};
+	std::vector<const FRenderMesh*> PreviewMeshes;
 	FPreviewSelection PreviewSelection;
 	std::optional<Im3d::Mat4> PreviewDragStart;
-	std::array<FPreviewObject, 2> PreviewDragObjects;
+	std::vector<FPreviewObject> PreviewDragObjects;
 
 	FPreviewSimulation Simulation;
 	std::optional<FPreviewObject> SimulationStart;
+	std::optional<std::size_t> SimulationObject;
 	bool bSimulationStoppedThisFrame = false;
 
 	std::uint64_t ViewportTexture = 0;
@@ -553,27 +562,20 @@ struct FEditorFramework::FImplementation
 	std::vector<std::string> MeshOptions;
 	std::vector<FAssetId> MeshOptionIds;
 	std::unique_ptr<FPreviewAssets> Assets;
+	FEditorAssetPaths AssetPaths;
+	FTaskSystem* Tasks = nullptr;
+	IGraphicsDevice* GraphicsDevice = nullptr;
 };
 
 FPreviewObject& FEditorFramework::FImplementation::GetActivePreviewObject() noexcept
 {
-	return PreviewObjects[static_cast<std::size_t>(std::max(PreviewSelection.Active, 0))];
+	return PreviewObjects.empty() ? EmptyPreviewObject : PreviewObjects[static_cast<std::size_t>(std::max(PreviewSelection.Active, 0))];
 }
 
 FEditorFramework::FImplementation::FImplementation()
 {
-	Im3d::Mat3& PreviewRotation = PreviewObjects[PreviewCubeIndex].Rotation;
-	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, 0.4f) * FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, -0.25f);
-	const FMatrix3 Matrix = FMatrix3::Rotation(Rotation);
-
-	for (std::size_t Column = 0; Column < 3; ++Column)
-	{
-		for (std::size_t Row = 0; Row < 3; ++Row)
-		{
-			PreviewRotation(static_cast<int>(Row), static_cast<int>(Column)) = Matrix(Row, Column);
-		}
-	}
-
+	PreviewModels.resize(PreviewObjects.size());
+	PreviewMeshes.resize(PreviewObjects.size());
 	const auto Camera = ViewportCamera.GetSnapshot(960.f / 540.f);
 
 	for (std::size_t Index = 0; Index < PreviewObjects.size(); ++Index)
@@ -603,6 +605,28 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	Implementation->ToolUI = Descriptor.ToolUI;
 	Implementation->OutputLog = std::move(*OutputLog);
 	Implementation->Log = Descriptor.Log;
+	Implementation->Tasks = Descriptor.Tasks;
+	Implementation->GraphicsDevice = Descriptor.GraphicsDevice;
+	Implementation->AssetPaths = Descriptor.Assets;
+	Implementation->Scene->SetPath(Descriptor.ScenePath);
+
+	if (!Descriptor.ScenePath.empty())
+	{
+		std::error_code Error;
+		const bool bExists = std::filesystem::exists(Descriptor.ScenePath, Error);
+		if (Error)
+		{
+			return std::unexpected(FEditorFrameworkError{std::format("Cannot query scene path: {}", Error.message())});
+		}
+
+		if (bExists)
+		{
+			if (auto Loaded = Implementation->Scene->Load(Descriptor.ScenePath); !Loaded)
+			{
+				return std::unexpected(FEditorFrameworkError{Loaded.error().Message});
+			}
+		}
+	}
 
 	if (Descriptor.Tasks != nullptr)
 	{
@@ -616,18 +640,16 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		}
 	}
 
-	const FEditorAssetPaths& Paths = Descriptor.Assets;
-	if (Descriptor.Tasks != nullptr && Descriptor.GraphicsDevice != nullptr && !Paths.ContentRoot.empty() && !Paths.DerivedDataRoot.empty() && !Paths.WorkerPath.empty() && !Paths.TargetPlatform.empty())
+	Implementation->RefreshScene();
+
+	if (auto Result = RegisterSceneFileCommands(*Descriptor.Commands); !Result)
 	{
-		Implementation->Assets = FPreviewAssets::Create(*Descriptor.Tasks, *Descriptor.GraphicsDevice, *Descriptor.Log, Paths, Implementation->PreviewObjects.size());
+		return std::unexpected(FEditorFrameworkError{Result.error().Message});
 	}
 
-	if (Implementation->Assets)
+	if (auto Result = RegisterEditorSceneCommands(*Descriptor.Commands, Implementation->Scene); !Result)
 	{
-		for (std::size_t Index = 0; Index < Implementation->PreviewObjects.size(); ++Index)
-		{
-			Implementation->Assets->RequestMesh(Index, Implementation->PreviewObjects[Index].Mesh);
-		}
+		return std::unexpected(FEditorFrameworkError{Result.error().Message});
 	}
 
 	if (auto Result = RegisterViewportStatsCommand(*Descriptor.Commands, Implementation->Stats); !Result)
@@ -659,6 +681,7 @@ bool FEditorFramework::IsUnitStatsVisible() const noexcept
 std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::function<void()>& RenderViewport)
 {
 	ImGuiIO& IO = ImGui::GetIO();
+	Implementation->RefreshScene();
 	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyMods == 0 && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_F11, false))
 	{
 		Implementation->ToolUI->SetViewportImmersive(!Implementation->ToolUI->IsViewportImmersive());
@@ -701,6 +724,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 
 	bool bImportRequested = false;
+	bool bOpenSceneRequested = false;
+	bool bSaveSceneRequested = !IO.AppFocusLost && !IO.WantTextInput && IO.KeyCtrl && !IO.KeyAlt && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false);
 	Implementation->ToolUI->DrawWorkspace("Herta Editor", [&]
 	{
 		ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
@@ -911,12 +936,30 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 	}, [&]
 	{
+		ImGui::TextUnformatted("Scene");
+		ImGui::Separator();
+		ImGui::BeginDisabled(Implementation->Simulation.IsRunning() || Implementation->ViewportInteraction.DragButton >= 0);
+		bOpenSceneRequested = ImGui::MenuItem("Open scene...");
+		ImGui::EndDisabled();
+		bSaveSceneRequested |= ImGui::MenuItem("Save scene", "Ctrl+S");
+		ImGui::Separator();
 		ImGui::TextUnformatted("Content");
 		ImGui::Separator();
 		ImGui::BeginDisabled(!Implementation->Assets);
 		bImportRequested = ToolUIMenuItem("Import...", EToolUIMenuIcon::Import);
 		ImGui::EndDisabled();
 	});
+
+	if (bOpenSceneRequested)
+	{
+		Implementation->OpenSceneWithDialog();
+		Implementation->RefreshScene();
+	}
+
+	if (bSaveSceneRequested)
+	{
+		Implementation->SaveCurrentScene();
+	}
 
 	// The native dialog is modal and blocks this frame, like Unreal's import dialog, so nothing outlives editor shutdown.
 	if (bImportRequested)
@@ -940,6 +983,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 
 	Implementation->DrawViewport(RenderViewport);
+	if (auto Result = Implementation->Scene->CommitEdits(); !Result)
+	{
+		HERTA_LOG_ERROR(*Implementation->Log, EditorLog, "Could not apply scene edits: {}", Result.error().Message);
+	}
+
 	return Implementation->DrawOutputLog();
 }
 
@@ -1026,6 +1074,76 @@ void FEditorFramework::FImplementation::RefreshPreviewMeshes()
 	{
 		PreviewMeshes[Index] = Assets ? Assets->GetSlot(Index).Mesh.get() : nullptr;
 	}
+}
+
+void FEditorFramework::FImplementation::RefreshScene()
+{
+	if (SceneGeneration == Scene->GetGeneration())
+	{
+		return;
+	}
+
+	SceneGeneration = Scene->GetGeneration();
+	PreviewSelection.Select(PreviewObjects.empty() ? -1 : 0);
+	DetailsPanelState.bRenaming = false;
+	DetailsPanelState.bRenameRequested = false;
+	PreviewDragStart.reset();
+	ViewportGizmos.resetId();
+	RotationFeedback = {};
+	ScaleGizmoState = {};
+	ScaleFeedback = {};
+	PreviewModels.resize(PreviewObjects.size());
+	PreviewMeshes.assign(PreviewObjects.size(), nullptr);
+
+	// Drain old asset requests before slots are rebound to a newly loaded scene.
+	Assets.reset();
+	if (Tasks != nullptr && GraphicsDevice != nullptr && !AssetPaths.ContentRoot.empty() && !AssetPaths.DerivedDataRoot.empty() && !AssetPaths.WorkerPath.empty() && !AssetPaths.TargetPlatform.empty())
+	{
+		Assets = FPreviewAssets::Create(*Tasks, *GraphicsDevice, *Log, AssetPaths, PreviewObjects.size());
+	}
+
+	for (std::size_t Index = 0; Index < PreviewObjects.size(); ++Index)
+	{
+		const FPreviewObject& Object = PreviewObjects[Index];
+		PreviewModels[Index] = ToHertaMatrix(Im3d::Mat4(Object.Translation, Object.Rotation, Object.Scale));
+		if (Assets)
+		{
+			Assets->RequestMesh(Index, Object.Mesh);
+		}
+	}
+
+	ViewportRenderView.Models = PreviewModels;
+	ViewportRenderView.Meshes = PreviewMeshes;
+}
+
+void FEditorFramework::FImplementation::OpenSceneWithDialog()
+{
+	const FFileDialogFilter Filter{.Name = "Herta scene", .Extensions = {"hscene"}};
+	const auto Chosen = OpenFilesDialog("Open scene", std::span(&Filter, 1));
+	if (!Chosen)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not open scene dialog: {}", Chosen.error().Message);
+		return;
+	}
+
+	if (!Chosen->empty())
+	{
+		if (auto Loaded = Scene->Load(Chosen->front()); !Loaded)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not load scene: {}", Loaded.error().Message);
+		}
+	}
+}
+
+void FEditorFramework::FImplementation::SaveCurrentScene()
+{
+	if (auto Result = Scene->Save(); !Result)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not save scene: {}", Result.error().Message);
+		return;
+	}
+
+	HERTA_LOG_INFO(*Log, EditorLog, "Scene saved");
 }
 
 FMatrix4 FEditorFramework::FImplementation::GetPreviewBoundsMatrix(const std::size_t Index) const
@@ -1413,14 +1531,16 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 		if (ImGui::Button("Reset preview transform", {-1.f, 0.f}))
 		{
-			const auto Defaults = CreatePreviewObjects();
+			const FEditorScene DefaultScene;
+			const auto& Defaults = DefaultScene.GetObjects();
 
 			for (const int Index : PreviewSelection.Indices)
 			{
 				FPreviewObject& Object = PreviewObjects[static_cast<std::size_t>(Index)];
-				Object.Translation = Defaults[static_cast<std::size_t>(Index)].Translation;
-				Object.Rotation = Defaults[static_cast<std::size_t>(Index)].Rotation;
-				Object.Scale = Defaults[static_cast<std::size_t>(Index)].Scale;
+				const auto Default = std::ranges::find(Defaults, Object.Id, &FPreviewObject::Id);
+				Object.Translation = Default == Defaults.end() ? Im3d::Vec3(0.f) : Default->Translation;
+				Object.Rotation = Default == Defaults.end() ? Im3d::Mat3(1.f) : Default->Rotation;
+				Object.Scale = Default == Defaults.end() ? Im3d::Vec3(1.f) : Default->Scale;
 			}
 		}
 
@@ -1440,7 +1560,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimum, const ImVec2 RenderSize)
 {
-	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh, ObjectId] = GetActivePreviewObject();
 	const ImGuiIO& IO = ImGui::GetIO();
 	const bool bImageHovered = ImGui::IsItemHovered();
 	const bool bImageActive = ImGui::IsItemActive();
@@ -1450,7 +1570,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 
 	if (bEscapePressed && PreviewDragStart)
 	{
-		PreviewObjects = PreviewDragObjects;
+		std::ranges::copy(PreviewDragObjects, PreviewObjects.begin());
 	}
 	else if (bDeselectPressed && !bSimulationStoppedThisFrame && !bPopupOpen && !IO.WantTextInput && ViewportInteraction.DragButton < 0)
 	{
@@ -1579,7 +1699,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 
 void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmoInput, const FVector2 NormalizedMouse)
 {
-	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh, ObjectId] = GetActivePreviewObject();
 	const FIm3dContextScope ContextScope(ViewportGizmos);
 	const float AspectRatio = static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height);
 	const auto Camera = ViewportCamera.GetSnapshot(AspectRatio, ViewportProjectionCenter);
@@ -1697,7 +1817,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 		Im3d::DrawLine({0.f}, {0.f, 0.f, AxisLength}, 2.f, Im3d::Color_Blue);
 	}
 
-	if (bBoundsVisible)
+	if (bBoundsVisible && !PreviewObjects.empty())
 	{
 		const FPreviewBodyShape Bounds = GetPreviewBodyShape(static_cast<std::size_t>(std::max(PreviewSelection.Active, 0)));
 		Im3d::PushMatrix(Model);
@@ -1762,7 +1882,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>& RenderViewport)
 {
-	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh, ObjectId] = GetActivePreviewObject();
 	ImGui::SetNextWindowSize({960, 540}, ImGuiCond_FirstUseEver);
 
 	if (ToolUI->BeginPanel("Viewport", nullptr, true))
@@ -2034,19 +2154,37 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 	if (Simulation.IsRunning())
 	{
 		Simulation.Stop();
-		PreviewObjects[PreviewCubeIndex] = *SimulationStart;
+		PreviewObjects[*SimulationObject] = *SimulationStart;
 		SimulationStart.reset();
+		SimulationObject.reset();
+		Scene->SetSimulationRunning(false);
 		bSimulationStoppedThisFrame = true;
 	}
 	else
 	{
-		if (const auto Result = Simulation.Start(ToHertaTransform(PreviewObjects[PreviewCubeIndex]), ToHertaTransform(PreviewObjects[PreviewFloorIndex]), GetPreviewBodyShape(PreviewCubeIndex), GetPreviewBodyShape(PreviewFloorIndex)); !Result)
+		if (auto Result = Scene->CommitEdits(); !Result)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not apply scene edits: {}", Result.error().Message);
+			return;
+		}
+
+		const auto Cube = Scene->FindBody(ESceneBodyMotion::Dynamic);
+		const auto Floor = Scene->FindBody(ESceneBodyMotion::Static);
+		if (!Cube || !Floor)
+		{
+			HERTA_LOG_WARNING(*Log, EditorLog, "Simulation preview requires a dynamic mesh and a static floor");
+			return;
+		}
+
+		if (const auto Result = Simulation.Start(ToHertaTransform(PreviewObjects[*Cube]), ToHertaTransform(PreviewObjects[*Floor]), GetPreviewBodyShape(*Cube), GetPreviewBodyShape(*Floor)); !Result)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not start simulation: {}", Result.error().Message);
 			return;
 		}
 
-		SimulationStart = PreviewObjects[PreviewCubeIndex];
+		SimulationObject = Cube;
+		SimulationStart = PreviewObjects[*Cube];
+		Scene->SetSimulationRunning(true);
 		UpdateSimulation(0.f);
 	}
 
@@ -2069,7 +2207,7 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 	}
 
 	const FTransform& Transform = Simulation.GetTransform();
-	FPreviewObject& CubeObject = PreviewObjects[PreviewCubeIndex];
+	FPreviewObject& CubeObject = PreviewObjects[*SimulationObject];
 	CubeObject.Translation = ToIm3dVector(Transform.Translation);
 	const FMatrix3 Rotation = FMatrix3::Rotation(Transform.Rotation);
 
@@ -2085,11 +2223,11 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	const FPreviewObject PreviousObject = GetActivePreviewObject();
-	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh, ObjectId] = GetActivePreviewObject();
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 
-	if (Assets)
+	if (Assets && !PreviewObjects.empty())
 	{
 		// ponytail: rebuilt every frame from the scan results; cache them per scan when content grows large.
 		MeshOptions.clear();
@@ -2138,7 +2276,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		MeshField.Status = MeshStatus;
 	}
 
-	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets ? &MeshField : nullptr);
+	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && !PreviewObjects.empty() ? &MeshField : nullptr);
 	ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
 
 	if (Assets && MeshResult.bOptionsOpened)

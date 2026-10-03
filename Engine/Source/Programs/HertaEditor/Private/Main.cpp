@@ -476,7 +476,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	AssetWorker += EditorExecutable.extension();
 	const std::string_view Platform = GetPlatformName(GetCurrentPlatform());
 	const FEditorAssetPaths AssetPaths{.EngineContentRoot = RepositoryRoot / "Engine/Content", .ContentRoot = RepositoryRoot / "Games/Sandbox/Content", .DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform, .WorkerPath = AssetWorker, .TargetPlatform = std::string(Platform)};
-	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths});
+	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .ScenePath = RepositoryRoot / "Games/Sandbox/Scenes/Sandbox.hscene"});
 	if (!EditorFrameworkResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize EditorFramework: {}", EditorFrameworkResult.error().Message);

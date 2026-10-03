@@ -42,6 +42,8 @@ struct FEditorFrameworkDescriptor
 	FTaskSystem* Tasks = nullptr;
 	IGraphicsDevice* GraphicsDevice = nullptr;
 	FEditorAssetPaths Assets;
+	// Empty disables automatic scene loading and the default save path.
+	std::filesystem::path ScenePath;
 };
 
 class FEditorFramework final

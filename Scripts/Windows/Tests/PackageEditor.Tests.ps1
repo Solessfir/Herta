@@ -70,7 +70,8 @@ try {
         'Engine/Content/Shapes/Cube.gltf',
         'Engine/Content/Shapes/Cube.gltf.hmeta',
         'Games/Sandbox/Content/Tracked.gltf',
-        'Games/Sandbox/Content/Tracked.gltf.hmeta'
+        'Games/Sandbox/Content/Tracked.gltf.hmeta',
+        'Games/Sandbox/Scenes/Sandbox.hscene'
     )
     $NoticeFiles = @(
         'External/example/LICENSE',
@@ -129,7 +130,7 @@ try {
     }
 
     $Arguments.OutputDirectory = Join-Path $TemporaryRoot 'MissingInput'
-    foreach ($Path in @($WindowsPayload[-1], 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'External/example/LICENSE')) {
+    foreach ($Path in @($WindowsPayload[-1], 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Scenes/Sandbox.hscene', 'External/example/LICENSE')) {
         $MissingPath = Join-Path $FixtureRoot $Path
         [IO.File]::Move($MissingPath, "$MissingPath.saved")
         Assert-PackageFails $Arguments 'Required package file is missing'

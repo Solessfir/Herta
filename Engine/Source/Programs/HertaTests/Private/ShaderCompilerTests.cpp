@@ -13,8 +13,8 @@ class FShaderFixture
 {
 public:
 	FShaderFixture()
+	    : Directory(std::filesystem::temp_directory_path() / ("HertaShaderTests-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
 	{
-		Directory = std::filesystem::temp_directory_path() / ("HertaShaderTests-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
 		std::filesystem::create_directories(Directory);
 	}
 

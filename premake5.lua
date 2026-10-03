@@ -18,6 +18,7 @@ include(PremakeRoot .. "/ThirdParty/Jolt.lua")
 include(PremakeRoot .. "/ThirdParty/MeshOptimizer.lua")
 include(PremakeRoot .. "/ThirdParty/NVRHI.lua")
 include(PremakeRoot .. "/ThirdParty/Spdlog.lua")
+include(PremakeRoot .. "/ThirdParty/SimdJson.lua")
 
 workspace "Herta"
     architecture "x86_64"
@@ -43,5 +44,6 @@ HertaJolt()
 HertaMeshOptimizer()
 HertaNVRHI()
 HertaSpdlog()
+HertaSimdJson()
 
 include(PremakeRoot .. "/Modules.lua")

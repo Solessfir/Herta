@@ -65,7 +65,7 @@ $LicenseFiles += @(
 )
 
 $PackageFiles = $RequiredFiles + @($TrackedFiles | Where-Object {
-    $_ -like 'Engine/Content/*' -or $_ -like 'Games/Sandbox/Content/*'
+    $_ -like 'Engine/Content/*' -or $_ -like 'Games/Sandbox/Content/*' -or $_ -like 'Games/Sandbox/Scenes/*'
 })
 foreach ($RelativePath in ($PackageFiles + $LicenseFiles | Sort-Object -Unique)) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot $RelativePath) -PathType Leaf)) {
@@ -98,7 +98,7 @@ Revision: $Revision
 
 Extract the complete archive into a writable directory.
 Run $BinaryDirectory/HertaEditor.exe.
-The game runtime is not implemented and preview scene edits are not saved.
+The game runtime is not implemented. Save scene edits with Ctrl+S.
 A Vulkan-capable GPU, driver, and system Vulkan loader are required.
 The MSVC runtime is statically linked; no separate CRT DLLs are required.
 Blender is optional and only required to import .blend files.

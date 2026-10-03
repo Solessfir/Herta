@@ -377,6 +377,8 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bScale = bShowAll || MatchesSearch("Scale", Query);
 	const bool bTransform = bLocation || bRotation || bScale;
 	const bool bHasMesh = Mesh != nullptr && Mesh->Selected >= 0 && static_cast<std::size_t>(Mesh->Selected) < Mesh->Options.size();
+	// cppcheck-suppress containerOutOfBounds
+	// bHasMesh checks the selected index against the options size.
 	const std::string_view MeshLabel = bHasMesh ? std::string_view(Mesh->Options[static_cast<std::size_t>(Mesh->Selected)]) : std::string_view("No mesh");
 	const bool bMesh = Query.empty() || MatchesSearch("Static Mesh", Query) || MatchesSearch(ObjectLabel, Query) || MatchesSearch(MeshLabel, Query);
 	if (!bTransform && !bMesh)
@@ -417,15 +419,15 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bLocation)
 		{
-			DrawTransformRow("Location", Translation, 0.01f, 0.f, 0.f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, "%.3f m", [&](const int Axis, const float Candidate)
+			DrawTransformRow("Location", Translation, 0.01f, -1.e7f, 1.e7f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, "%.3f m", [&](const int Axis, const float Candidate)
 			{
-				if (std::isfinite(Candidate))
+				if (std::isfinite(Candidate) && std::abs(Candidate) <= 1.e7f)
 				{
 					Translation[Axis] = Candidate;
 				}
 			}, [&](const Im3d::Vec3& Candidate)
 			{
-				if (!std::isfinite(Candidate.x) || !std::isfinite(Candidate.y) || !std::isfinite(Candidate.z))
+				if (!std::isfinite(Candidate.x) || !std::isfinite(Candidate.y) || !std::isfinite(Candidate.z) || std::abs(Candidate.x) > 1.e7f || std::abs(Candidate.y) > 1.e7f || std::abs(Candidate.z) > 1.e7f)
 				{
 					return false;
 				}
@@ -441,8 +443,8 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			if (std::isfinite(Candidate))
 			{
 				RotationDegrees[Axis] = Candidate;
-				Im3d::Vec3 Radians = RotationDegrees * (std::numbers::pi_v<float> / 180.f);
-				Rotation = Im3d::FromEulerXYZ(Radians);
+				const Im3d::Vec3 Radians = RotationDegrees * (std::numbers::pi_v<float> / 180.f);
+				Rotation = FromPreviewEulerXYZ(Radians);
 			}
 		}, [&](const Im3d::Vec3& Candidate)
 		{
@@ -452,15 +454,14 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			}
 
 			RotationDegrees = {std::clamp(Candidate.x, -360.f, 360.f), std::clamp(Candidate.y, -360.f, 360.f), std::clamp(Candidate.z, -360.f, 360.f)};
-			Im3d::Vec3 Radians = RotationDegrees * (std::numbers::pi_v<float> / 180.f);
-			Rotation = Im3d::FromEulerXYZ(Radians);
+			const Im3d::Vec3 Radians = RotationDegrees * (std::numbers::pi_v<float> / 180.f);
+			Rotation = FromPreviewEulerXYZ(Radians);
 			return true;
 		});
 
 		if (bRotationReset)
 		{
-			Im3d::Vec3 Zero(0.f);
-			Rotation = Im3d::FromEulerXYZ(Zero);
+			Rotation = FromPreviewEulerXYZ(Im3d::Vec3{0.f});
 		}
 
 		if (bScale)

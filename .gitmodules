@@ -32,3 +32,6 @@
 [submodule "External/meshoptimizer"]
 	path = External/meshoptimizer
 	url = https://github.com/zeux/meshoptimizer.git
+[submodule "External/entt"]
+	path = External/entt
+	url = https://github.com/skypjack/entt.git
