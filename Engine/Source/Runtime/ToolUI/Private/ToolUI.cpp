@@ -2190,7 +2190,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		const ImGuiID OutlinerId = ImGui::DockBuilderSplitNode(SideId, ImGuiDir_Up, 0.5f, nullptr, &DetailsId);
 		if (ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetNode(CenterId))
 		{
-			CenterNode->LocalFlags |= ImGuiDockNodeFlags_AutoHideTabBar;
+			CenterNode->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
 		}
 
 		ImGui::DockBuilderDockWindow("Outliner", OutlinerId);
@@ -2270,13 +2270,21 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	if (bViewport)
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+
+		// Keep the main viewport anchored, including layouts saved while it was floating.
+		if (const ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetCentralNode(Implementation->DockspaceId))
+		{
+			ImGui::SetNextWindowDockID(CenterNode->ID, ImGuiCond_Always);
+		}
 	}
 
 	const std::string Label = Name == "Outliner" || Name == "Details" ? std::format("      {}###{}", Name, Name) : std::string(Name);
+	const ImGuiWindowFlags Flags = (bViewport ? ImGuiWindowFlags_NoMove : ImGuiWindowFlags_None) | (Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
+
 	if (bImmersive)
 	{
 		// Submit the original window so docking retains its place while the overlay is active.
-		ImGui::Begin(Label.c_str(), bOpen, ImGuiWindowFlags_NoInputs);
+		ImGui::Begin(Label.c_str(), bOpen, Flags);
 		ImGui::End();
 	}
 
@@ -2285,7 +2293,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		ImGui::SetNextWindowFocus();
 	}
 
-	const bool bVisible = bImmersive ? BeginImmersiveViewport(Implementation->WorkspaceCanvas, Implementation->bFocusViewportRequested) : ImGui::Begin(Label.c_str(), bOpen, Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
+	const bool bVisible = bImmersive ? BeginImmersiveViewport(Implementation->WorkspaceCanvas, Implementation->bFocusViewportRequested) : ImGui::Begin(Label.c_str(), bOpen, Flags);
 	if (bViewport)
 	{
 		Implementation->bFocusViewportRequested = false;
@@ -2311,7 +2319,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	{
 		if (ImGuiDockNode* const Node = ImGui::GetCurrentWindow()->DockNode)
 		{
-			Node->LocalFlags |= ImGuiDockNodeFlags_AutoHideTabBar;
+			Node->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
 		}
 	}
 
