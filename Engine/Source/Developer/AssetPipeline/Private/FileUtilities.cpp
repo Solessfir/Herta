@@ -23,7 +23,7 @@ std::filesystem::path Utf8ToPath(const std::string_view Text)
 	return {std::u8string(Text.begin(), Text.end())};
 }
 
-std::expected<void, FAssetError> WriteFileAtomically(const std::filesystem::path& Path, const std::span<const std::byte> Bytes)
+std::expected<void, FAssetError> WriteFileAtomically(const std::filesystem::path& Path, const std::span<const std::byte> Bytes, const bool bReplaceExisting)
 {
 	std::error_code Error;
 	std::filesystem::create_directories(Path.parent_path(), Error);
@@ -46,12 +46,25 @@ std::expected<void, FAssetError> WriteFileAtomically(const std::filesystem::path
 		}
 	}
 
-	std::filesystem::rename(TemporaryPath, Path, Error);
+	if (bReplaceExisting)
+	{
+		std::filesystem::rename(TemporaryPath, Path, Error);
+	}
+	else
+	{
+		// Unlike rename, link creation atomically fails if another import already published this name.
+		std::filesystem::create_hard_link(TemporaryPath, Path, Error);
+	}
 	if (Error)
 	{
 		const std::string Message = Error.message();
 		std::filesystem::remove(TemporaryPath, Error);
-		return std::unexpected(FAssetError{std::format("Cannot replace '{}': {}", PathToUtf8(Path), Message)});
+		return std::unexpected(FAssetError{std::format("Cannot publish '{}': {}", PathToUtf8(Path), Message)});
+	}
+
+	if (!bReplaceExisting)
+	{
+		std::filesystem::remove(TemporaryPath, Error);
 	}
 
 	return {};

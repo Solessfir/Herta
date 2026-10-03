@@ -104,6 +104,22 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 
 	return *Bytes ? HashBytes(**Bytes) : FHash128{};
 }
+
+[[nodiscard]] std::expected<void, FAssetError> AppendDependencyHashes(const std::filesystem::path& ContentRoot, const std::vector<std::string>& Paths, std::vector<FAssetBuildDependency>& Dependencies)
+{
+	for (const std::string& Path : Paths)
+	{
+		std::expected<FHash128, FAssetError> Hash = HashDependency(ContentRoot, Path);
+		if (!Hash)
+		{
+			return std::unexpected(std::move(Hash.error()));
+		}
+
+		Dependencies.push_back({.Path = Path, .ContentHash = *Hash});
+	}
+
+	return {};
+}
 }
 
 std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& Request)
@@ -131,6 +147,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	FAssetCookResult Result;
 	std::optional<FBlenderInstallation> Blender;
 	std::optional<FBlenderExport> BlenderExport;
+	FHash128 BlenderRecordKey;
 	std::expected<ETextureColorSpace, FAssetError> ColorSpace = ETextureColorSpace::Srgb;
 	if (Metadata->Importer == "Texture")
 	{
@@ -185,11 +202,11 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 
 		FAssetBuildKeyInput RecordInput = KeyInput;
 		RecordInput.Importer = "Blender/Dependencies";
-		const FHash128 RecordKey = ComputeAssetBuildKey(RecordInput);
+		BlenderRecordKey = ComputeAssetBuildKey(RecordInput);
 		std::optional<std::vector<std::string>> Dependencies;
 		if (!Request.bForce)
 		{
-			std::expected<std::optional<std::vector<std::byte>>, FAssetError> Record = Cache.Get(RecordKey);
+			std::expected<std::optional<std::vector<std::byte>>, FAssetError> Record = Cache.Get(BlenderRecordKey);
 			if (Record && *Record)
 			{
 				Dependencies = ParseDependencyRecord(**Record);
@@ -207,21 +224,15 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 			BlenderExport = std::move(*Exported);
 			Dependencies = BlenderExport->Dependencies;
 			std::ranges::move(BlenderExport->Warnings, std::back_inserter(Result.Warnings));
-			if (std::expected<void, FAssetError> Stored = Cache.Put(RecordKey, SerializeDependencyRecord(*Dependencies)); !Stored)
+			if (std::expected<void, FAssetError> Stored = Cache.Put(BlenderRecordKey, SerializeDependencyRecord(*Dependencies)); !Stored)
 			{
 				return std::unexpected(std::move(Stored.error()));
 			}
 		}
 
-		for (std::string& Dependency : *Dependencies)
+		if (std::expected<void, FAssetError> Hashed = AppendDependencyHashes(Request.ContentRoot, *Dependencies, KeyInput.Dependencies); !Hashed)
 		{
-			std::expected<FHash128, FAssetError> Hash = HashDependency(Request.ContentRoot, Dependency);
-			if (!Hash)
-			{
-				return std::unexpected(std::move(Hash.error()));
-			}
-
-			KeyInput.Dependencies.push_back({.Path = std::move(Dependency), .ContentHash = *Hash});
+			return std::unexpected(std::move(Hashed.error()));
 		}
 	}
 	else
@@ -268,6 +279,19 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 
 			BlenderExport = std::move(*Exported);
 			std::ranges::move(BlenderExport->Warnings, std::back_inserter(Result.Warnings));
+			// A changed linked library can introduce new images or libraries without changing the root .blend.
+			KeyInput.Dependencies.resize(1);
+			if (std::expected<void, FAssetError> Hashed = AppendDependencyHashes(Request.ContentRoot, BlenderExport->Dependencies, KeyInput.Dependencies); !Hashed)
+			{
+				return std::unexpected(std::move(Hashed.error()));
+			}
+
+			if (std::expected<void, FAssetError> Stored = Cache.Put(BlenderRecordKey, SerializeDependencyRecord(BlenderExport->Dependencies)); !Stored)
+			{
+				return std::unexpected(std::move(Stored.error()));
+			}
+
+			Result.Key = ComputeAssetBuildKey(KeyInput);
 		}
 
 		// The GLB is parsed as if it sat beside the .blend. The preset embeds every image, so an external reference means the export is not what Herta asked for.

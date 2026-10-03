@@ -284,6 +284,12 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 	}
 
 	const std::filesystem::path Destination = bInsideContent ? CanonicalSource : CanonicalRoot / Utf8ToPath(DestinationDirectory) / Source.filename();
+	const std::filesystem::path DestinationParent = std::filesystem::weakly_canonical(Destination.parent_path(), Error);
+	if (Error || !IsInside(DestinationParent.lexically_relative(CanonicalRoot)) || DestinationParent != Destination.parent_path().lexically_normal())
+	{
+		return std::unexpected(FAssetError{"Import destination must remain inside content and cannot traverse linked directories"});
+	}
+
 	FImportedSource Imported;
 	Imported.SourcePath = GenericPathToUtf8(Destination.lexically_relative(CanonicalRoot));
 	if (!IsValidAssetPath(Imported.SourcePath))
@@ -317,19 +323,15 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 			return std::unexpected(Bytes ? FAssetError{std::format("'{}' disappeared during import", PathToUtf8(Source))} : std::move(Bytes.error()));
 		}
 
-		if (std::expected<void, FAssetError> Copied = WriteFileAtomically(Destination, **Bytes); !Copied)
+		if (std::expected<void, FAssetError> Copied = WriteFileAtomically(Destination, **Bytes, false); !Copied)
 		{
 			return std::unexpected(std::move(Copied.error()));
 		}
 	}
 
-	if (std::expected<void, FAssetError> Written = WriteFileAtomically(MetadataPath, std::as_bytes(std::span(*Text))); !Written)
+	if (std::expected<void, FAssetError> Written = WriteFileAtomically(MetadataPath, std::as_bytes(std::span(*Text)), false); !Written)
 	{
-		if (!bInsideContent)
-		{
-			std::filesystem::remove(Destination, Error);
-		}
-
+		// Preserve the source: another in-place import may have registered it while this import was copying.
 		return std::unexpected(std::move(Written.error()));
 	}
 

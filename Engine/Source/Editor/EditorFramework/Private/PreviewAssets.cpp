@@ -171,8 +171,7 @@ void FPreviewAssets::CheckForChanges()
 		}
 
 		HERTA_LOG_INFO(Log, AssetLog, "Content changed; reimporting shown assets");
-		bReimportAfterScan = true;
-		RequestScan();
+		ContentChanged();
 	})
 	                                                      : std::unexpected(Poll.error());
 	if (!Compare)
@@ -331,6 +330,13 @@ void FPreviewAssets::RequestMesh(const std::size_t Object, const FAssetId& Asset
 	}
 }
 
+void FPreviewAssets::ContentChanged()
+{
+	++ContentGeneration;
+	bReimportAfterScan = true;
+	RequestScan();
+}
+
 void FPreviewAssets::StartLoad(const std::size_t Object)
 {
 	FPreviewMeshSlot& Slot = Slots[Object];
@@ -350,6 +356,7 @@ void FPreviewAssets::StartLoad(const std::size_t Object)
 	{
 		Slot.Mesh = Shared->Mesh;
 		Slot.Key = Shared->Key;
+		Slot.ContentGeneration = Shared->ContentGeneration;
 		Slot.bLoading = false;
 		return;
 	}
@@ -404,9 +411,9 @@ bool FPreviewAssets::SubmitCook(const FLocation& Location, const std::string& La
 		}
 	});
 
-	std::expected<FTaskHandle, FTaskError> Published = Cook ? Tasks.ContinueOnMainThread(*Scope, *Cook, "Publish preview mesh", [Load, Publish = std::move(Publish)](FTaskContext& Context)
+	std::expected<FTaskHandle, FTaskError> Published = Cook ? Tasks.ContinueOnMainThread(*Scope, *Cook, "Publish preview mesh", [this, Load, Generation = ContentGeneration, Publish = std::move(Publish)](FTaskContext& Context)
 	{
-		if (!Context.IsCancellationRequested())
+		if (!Context.IsCancellationRequested() && Generation == ContentGeneration)
 		{
 			Publish(*Load);
 		}
@@ -421,8 +428,13 @@ void FPreviewAssets::ReimportShownAssets()
 	std::map<FAssetId, std::vector<std::pair<std::size_t, std::uint64_t>>> Targets;
 	for (std::size_t Object = 0; Object < Slots.size(); ++Object)
 	{
-		const FPreviewMeshSlot& Slot = Slots[Object];
-		if (!Slot.bLoading && (Slot.Mesh || !Slot.Error.empty()))
+		FPreviewMeshSlot& Slot = Slots[Object];
+		if (Slot.bLoading)
+		{
+			++Slot.Generation;
+			StartLoad(Object);
+		}
+		else if (Slot.Mesh || !Slot.Error.empty())
 		{
 			Targets[Slot.Asset].emplace_back(Object, Slot.Generation);
 		}
@@ -495,11 +507,20 @@ void FPreviewAssets::PublishReimport(const FAssetId& Asset, const std::vector<st
 		return;
 	}
 
-	// An unchanged key means the edit did not affect this asset, so the GPU copy stays.
-	if (Load.Key == Current.front()->Key && Current.front()->Mesh)
+	const FPreviewMeshSlot* Shared = FindLoadedSlot(Asset, Slots.size());
+	if (Shared == nullptr || Shared->Key != Load.Key)
+	{
+		Shared = Current.front();
+	}
+
+	// Keep an unchanged mesh, or share a current load that finished before this reimport.
+	if (Load.Key == Shared->Key && Shared->Mesh)
 	{
 		for (FPreviewMeshSlot* const Slot : Current)
 		{
+			Slot->Mesh = Shared->Mesh;
+			Slot->Key = Load.Key;
+			Slot->ContentGeneration = ContentGeneration;
 			Slot->Error.clear();
 		}
 
@@ -517,6 +538,7 @@ void FPreviewAssets::PublishReimport(const FAssetId& Asset, const std::vector<st
 	{
 		Slot->Mesh = *Mesh;
 		Slot->Key = Load.Key;
+		Slot->ContentGeneration = ContentGeneration;
 		Slot->Error.clear();
 	}
 
@@ -529,7 +551,7 @@ const FPreviewMeshSlot* FPreviewAssets::FindLoadedSlot(const FAssetId& Asset, co
 	for (std::size_t Object = 0; Object < Slots.size(); ++Object)
 	{
 		const FPreviewMeshSlot& Slot = Slots[Object];
-		if (Object != ExcludedObject && Slot.Asset == Asset && Slot.Mesh && !Slot.bLoading)
+		if (Object != ExcludedObject && Slot.Asset == Asset && Slot.Mesh && !Slot.bLoading && Slot.ContentGeneration == ContentGeneration)
 		{
 			return &Slot;
 		}
@@ -563,10 +585,11 @@ void FPreviewAssets::PublishMesh(const std::size_t Object, const std::uint64_t G
 	}
 
 	// Objects that requested the same asset at once share one GPU copy.
-	if (const FPreviewMeshSlot* const Shared = FindLoadedSlot(Slot.Asset, Object))
+	if (const FPreviewMeshSlot* const Shared = FindLoadedSlot(Slot.Asset, Object); Shared != nullptr && Shared->Key == Load.Key)
 	{
 		Slot.Mesh = Shared->Mesh;
 		Slot.Key = Shared->Key;
+		Slot.ContentGeneration = Shared->ContentGeneration;
 		return;
 	}
 
@@ -582,6 +605,7 @@ void FPreviewAssets::PublishMesh(const std::size_t Object, const std::uint64_t G
 
 	Slot.Mesh = std::move(*Mesh);
 	Slot.Key = Load.Key;
+	Slot.ContentGeneration = ContentGeneration;
 	HERTA_LOG_INFO(Log, AssetLog, "Loaded {} ({})", Slot.Label, Load.bCacheHit ? "cached" : "cooked");
 }
 }

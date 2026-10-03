@@ -14,10 +14,8 @@ inline constexpr std::uint32_t CookedAssetMagic = 0x53414348; // "HCAS"
 inline constexpr std::uint8_t TextureTag = 1;
 inline constexpr std::uint8_t ModelTag = 2;
 
-// Matches the per-recording GPU upload budget so every valid cooked buffer can be uploaded in one piece.
-inline constexpr std::size_t MaximumBufferBytes = std::size_t{64} * 1024 * 1024;
-inline constexpr std::size_t MaximumVertices = MaximumBufferBytes / sizeof(FCookedVertex);
-inline constexpr std::size_t MaximumIndices = MaximumBufferBytes / sizeof(std::uint32_t);
+inline constexpr std::size_t MaximumVertices = MaximumCookedBufferBytes / sizeof(FCookedVertex);
+inline constexpr std::size_t MaximumIndices = MaximumCookedBufferBytes / sizeof(std::uint32_t);
 inline constexpr std::size_t MaximumMips = 13;
 inline constexpr std::size_t MaximumSections = 4096;
 inline constexpr std::size_t MaximumMaterials = 256;

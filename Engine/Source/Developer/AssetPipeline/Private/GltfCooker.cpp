@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <array>
 #include <format>
-#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -27,6 +26,8 @@ static_assert(sizeof(FCookedVertex) == sizeof(float) * 5, "Vertex deduplication 
 // Quantized attributes decode through fastgltf's accessor tools. Other required extensions fail the parse instead of cooking incorrect data.
 inline constexpr fastgltf::Extensions SupportedExtensions = fastgltf::Extensions::KHR_mesh_quantization;
 inline constexpr std::size_t MaximumWarnings = 32;
+inline constexpr std::size_t MaximumVertices = MaximumCookedBufferBytes / sizeof(FCookedVertex);
+inline constexpr std::size_t MaximumIndices = MaximumCookedBufferBytes / sizeof(std::uint32_t);
 
 [[nodiscard]] std::expected<fastgltf::Asset, FAssetError> ParseGltf(const std::span<const std::byte> SourceBytes, const std::filesystem::path& Directory, const fastgltf::Options Options)
 {
@@ -259,12 +260,21 @@ private:
 		const std::size_t VertexCount = PositionAccessor.count;
 		FMaterialBucket& Bucket = Buckets[MaterialKey];
 		const std::size_t VertexBase = Bucket.Vertices.size();
-		if (VertexCount == 0 || VertexCount > std::numeric_limits<std::uint32_t>::max() - VertexBase)
+		if (VertexCount == 0 || VertexCount > MaximumVertices - TotalVertices)
 		{
 			Fail(std::format("Mesh '{}' primitive {} has an unsupported vertex count", MeshName, PrimitiveIndex));
 			return;
 		}
 
+		const std::size_t IndexCount = Primitive.indicesAccessor ? Asset.accessors[*Primitive.indicesAccessor].count : VertexCount;
+		if (IndexCount == 0 || IndexCount > MaximumIndices - TotalIndices || IndexCount % 3 != 0)
+		{
+			Fail(std::format("Mesh '{}' primitive {} has an unsupported triangle index count", MeshName, PrimitiveIndex));
+			return;
+		}
+
+		TotalVertices += VertexCount;
+		TotalIndices += IndexCount;
 		Bucket.Vertices.resize(VertexBase + VertexCount);
 
 		fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec3>(Asset, PositionAccessor, [&](const fastgltf::math::fvec3& Local, const std::size_t Index)
@@ -314,12 +324,6 @@ private:
 			{
 				Bucket.Indices.push_back(static_cast<std::uint32_t>(VertexBase + Index));
 			}
-		}
-
-		if ((Bucket.Indices.size() - IndexBase) % 3 != 0)
-		{
-			Fail(std::format("Mesh '{}' primitive {} does not contain whole triangles", MeshName, PrimitiveIndex));
-			return;
 		}
 
 		// A mirroring transform turns counter-clockwise triangles clockwise, so restore the canonical winding once here.
@@ -389,6 +393,8 @@ private:
 	std::vector<std::string>& Warnings;
 	// Material index plus one, so the default material sorts first and the output order is deterministic.
 	std::map<std::size_t, FMaterialBucket> Buckets;
+	std::size_t TotalVertices = 0;
+	std::size_t TotalIndices = 0;
 	std::optional<FAssetError> Error;
 };
 }

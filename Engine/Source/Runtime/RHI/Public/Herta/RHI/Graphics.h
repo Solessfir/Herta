@@ -131,7 +131,7 @@ struct FIndexedDraw
 	FTextureHandle Texture;
 	FTextureHandle ColorTarget;
 	FTextureHandle DepthTarget;
-	std::array<float, 16> WorldToClip;
+	std::array<float, 16> WorldToClip{};
 	std::uint32_t IndexCount = 0;
 	std::uint32_t FirstIndex = 0;
 	// Pushed after WorldToClip; mesh shaders light in view space.

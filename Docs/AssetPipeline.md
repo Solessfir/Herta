@@ -102,15 +102,15 @@ On success the worker exits with 0 and prints `HertaAssetCook/1`, `Key <hex>`, `
 
 | Importer | Version | Settings | Output |
 |---|---|---|---|
-| `Texture` | 1 | `ColorSpace = Srgb` (default) or `Linear` | Cooked texture |
-| `Gltf` | 1 | None | Cooked model |
-| `Blender` | 1 | None | Cooked model, through a GLB export |
+| `Texture` | 2 | `ColorSpace = Srgb` (default) or `Linear` | Cooked texture |
+| `Gltf` | 2 | None | Cooked model |
+| `Blender` | 2 | None | Cooked model, through a GLB export |
 
 Unknown settings are errors, so a typo never silently cooks with defaults. Bump an importer's version whenever its output changes for the same input, and bump `CookedAssetFormatVersion` when any cooked layout changes. Both are part of the build key.
 
 ### Textures
 
-PNG and JPEG sources are decoded with stb_image inside the worker, up to 8192 pixels per side. For sRGB textures, the cooker converts color channels to 16-bit linear light through a fixed table, builds the full mip chain with a 2x2 box filter, and encodes back to sRGB. Alpha and linear textures are filtered as stored. Mip sizes round down and clamp to one, matching Vulkan. Mips larger than 4096 pixels are dropped, so every cooked texture uploads within the 64 MiB recording budget.
+PNG and JPEG sources are decoded with stb_image inside the worker, up to 8192 pixels per side. For sRGB textures, the cooker converts color channels to 16-bit linear light through a fixed table, builds the full mip chain with an area-weighted box filter, and encodes back to sRGB. Alpha and linear textures are filtered as stored. Mip sizes round down and clamp to one, matching Vulkan, but the filter includes every source texel even at odd edges. Mips larger than 4096 pixels are dropped, so every cooked texture uploads within the 64 MiB recording budget.
 
 Integer filtering and fixed tables make cooked bytes identical across compilers and C runtimes.
 
@@ -135,7 +135,7 @@ Inside `HertaAssetWorker`, Herta runs `blender --background --factory-startup --
 
 The build key includes the Blender version and every external image or linked library the `.blend` uses. Those dependencies are only known after Blender opens the file, so the first export stores them in a small DerivedDataCache record keyed by the `.blend` and Blender version. Later cooks read the record, hash the listed files, and hit the cache without starting Blender. Editing a texture beside the `.blend` changes the key; a missing dependency hashes to zero, so adding it later also recooks. Packed images live in the `.blend` itself. A dependency outside the content root fails the cook.
 
-The same source, Blender version, and settings export identical GLB bytes, so cooked hashes are reproducible. Updating Blender changes the key and recooks `.blend` assets.
+Every fresh Blender export refreshes the dependency record and recomputes the build key, including newly referenced images and linked libraries. The same source, Blender version, and settings export identical GLB bytes, so cooked hashes are reproducible. Updating Blender changes the key and recooks `.blend` assets.
 
 External buffer and image URIs must be relative and stay inside the content root. They are resolved before the loader reads any file, so a crafted glTF cannot read arbitrary files. Each one becomes a build-key dependency, so editing a `.bin` or texture invalidates the cooked model.
 
@@ -181,6 +181,8 @@ The editor polls both content roots about once per second on a blocking-IO task,
 
 A failed reimport keeps the previous mesh and reports `Reimport failed; keeping the previous version` in Details and the Output Log. Objects whose earlier load failed retry on the next change, since the edit may be the fix. A newer Static Mesh choice for an object always wins over a reimport still in flight.
 
+Content changes also restart pending initial loads. Results from an older content revision are discarded, so overlapping reimports cannot publish an obsolete mesh.
+
 Scans keep a `FContentScanCache` per mount, so only new or changed sidecars are parsed. Cached entries are reused while a sidecar's size and write time are unchanged.
 
 ### Drag-and-drop import
@@ -188,6 +190,8 @@ Scans keep a `FContentScanCache` per mount, so only new or changed sidecars are 
 **File > Import...** opens the platform file picker (`IFileOpenDialog` on Windows, `zenity` or `kdialog` on Linux) filtered to importable extensions; it is modal like Unreal's import dialog, and the chosen files take the drop path below. Files dropped onto any editor window are imported in the background through `asset.import`, the same command `HertaEditorCmd` runs. Models go to `Models` and images to `Textures` in Game content; files Herta cannot import are skipped with an error. The next content poll registers and lists the new assets. A `.gltf` with separate buffers or images still needs its folder copied into content first.
 
 The editor runs asset commands only from that background task. They block on file IO and worker processes, so they are not registered on the Output Log console, which executes on the main thread.
+
+Import destinations cannot traverse linked directories or escape content. Source and sidecar publication never replaces an existing file, even during concurrent imports. Atomic exclusive publication requires a filesystem with hard-link support, such as NTFS, ext4, or Btrfs. If sidecar publication fails after copying, the source is preserved for an in-place retry rather than risking deletion of another import's file.
 
 ### Search
 

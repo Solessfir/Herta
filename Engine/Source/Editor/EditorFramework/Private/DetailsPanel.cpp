@@ -40,7 +40,8 @@ enum class ETransformClipboardFormat
 	return std::ranges::search(Name, Query, [](const char Left, const char Right)
 	{
 		return std::tolower(static_cast<unsigned char>(Left)) == std::tolower(static_cast<unsigned char>(Right));
-	}) != Name.end();
+	}).begin()
+	       != Name.end();
 }
 
 void DrawCubeIcon(const ImVec2 Position, const float Size)

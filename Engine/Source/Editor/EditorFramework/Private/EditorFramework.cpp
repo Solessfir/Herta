@@ -1979,6 +1979,8 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			PreviewObjects[static_cast<std::size_t>(Index)].Mesh = Chosen;
 			Assets->RequestMesh(static_cast<std::size_t>(Index), Chosen);
 		}
+
+		RefreshPreviewMeshes();
 	}
 }
 

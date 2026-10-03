@@ -13,6 +13,14 @@
 
 namespace Herta
 {
+struct FPreviewAssetsTestAccess
+{
+	static void ContentChanged(FPreviewAssets& Assets)
+	{
+		Assets.ContentChanged();
+	}
+};
+
 namespace
 {
 constexpr FAssetId StoneId{0x0000000000004000, 0x8000000000000003};
@@ -62,6 +70,16 @@ struct FPreviewAssetsFixture
 	{
 		const std::filesystem::path& Root = Scratch.GetPath();
 		return FPreviewAssets::Create(*Tasks, Device, *Log, {.EngineContentRoot = Root / "Engine", .ContentRoot = Root / "Game", .DerivedDataRoot = Root / "DerivedDataCache", .WorkerPath = Tests::GetSiblingExecutable("HertaAssetWorker"), .TargetPlatform = "TestPlatform"}, 2);
+	}
+
+	// FIFO waiting stops before continuations queued by the preceding work.
+	void RunToCheckpoint()
+	{
+		auto Scope = Tasks->CreateScope("Preview asset checkpoint");
+		REQUIRE(Scope);
+		auto Checkpoint = Tasks->Submit(**Scope, {.Name = "Preview asset checkpoint", .Lane = ETaskLane::BlockingIo}, [](FTaskContext&) {});
+		REQUIRE(Checkpoint);
+		REQUIRE(Checkpoint->Wait().State == ETaskState::Succeeded);
 	}
 };
 }
@@ -176,6 +194,95 @@ TEST_CASE("Preview assets reimport shown assets after content edits and keep the
 	CHECK(Assets->GetSlot(0).Error.empty());
 	REQUIRE(Assets->GetSlot(0).Mesh);
 	CHECK(Assets->GetSlot(0).Mesh != Reimported);
+}
+
+TEST_CASE("Preview assets restart pending loads after content changes")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->RequestMesh(0, WoodId);
+	Fixture.RunToCheckpoint();
+	REQUIRE(Assets->GetSlot(0).bLoading);
+	REQUIRE_FALSE(Assets->GetSlot(0).Mesh);
+
+	const std::array<std::uint8_t, 16> Edited{255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255};
+	Tests::WritePng(Fixture.Scratch.GetPath() / "Game/Textures/Wood.png", 2, 2, Edited);
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Fixture.RunToCheckpoint();
+	CHECK(Assets->GetSlot(0).bLoading);
+	CHECK_FALSE(Assets->GetSlot(0).Mesh);
+	Fixture.Tasks->RunUntilIdle();
+
+	const FPreviewMeshSlot& Slot = Assets->GetSlot(0);
+	CHECK_FALSE(Slot.bLoading);
+	CHECK(Slot.Error.empty());
+	REQUIRE(Slot.Mesh);
+	const auto Cooked = LoadCookedAsset(Fixture.Scratch.GetPath() / "DerivedDataCache", Slot.Key);
+	REQUIRE(Cooked);
+	const FCookedTexture* const Texture = std::get_if<FCookedTexture>(&*Cooked);
+	REQUIRE(Texture);
+	CHECK(Texture->Mips[0].Width == 2);
+}
+
+TEST_CASE("Preview assets discard pending reimport results superseded by another edit")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Assets->RequestMesh(0, WoodId);
+	Assets->RequestMesh(1, WoodId);
+	Fixture.Tasks->RunUntilIdle();
+	const std::shared_ptr<const FRenderMesh> Original = Assets->GetSlot(0).Mesh;
+	REQUIRE(Original);
+
+	const std::array<std::uint8_t, 16> FirstEdit{255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255};
+	Tests::WritePng(Fixture.Scratch.GetPath() / "Game/Textures/Wood.png", 2, 2, FirstEdit);
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Fixture.RunToCheckpoint();
+	Fixture.RunToCheckpoint();
+	Fixture.RunToCheckpoint();
+	REQUIRE(Assets->GetSlot(0).Mesh == Original);
+
+	const std::array<std::uint8_t, 4> SecondEdit{0, 255, 0, 255};
+	Tests::WritePng(Fixture.Scratch.GetPath() / "Game/Textures/Wood.png", 1, 1, SecondEdit);
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Fixture.RunToCheckpoint();
+	CHECK(Assets->GetSlot(0).Mesh == Original);
+	CHECK(Assets->GetSlot(1).Mesh == Original);
+	Fixture.Tasks->RunUntilIdle();
+
+	CHECK(Assets->GetSlot(0).Mesh != Original);
+	CHECK(Assets->GetSlot(1).Mesh == Assets->GetSlot(0).Mesh);
+	CHECK(Assets->GetSlot(0).Error.empty());
+	const auto Cooked = LoadCookedAsset(Fixture.Scratch.GetPath() / "DerivedDataCache", Assets->GetSlot(0).Key);
+	REQUIRE(Cooked);
+	const FCookedTexture* const Texture = std::get_if<FCookedTexture>(&*Cooked);
+	REQUIRE(Texture);
+	CHECK(Texture->Mips[0].Width == 1);
+	CHECK(Texture->Mips[0].Pixels[0] == std::byte{0});
+	CHECK(Texture->Mips[0].Pixels[1] == std::byte{255});
+}
+
+TEST_CASE("Preview assets do not share stale meshes while their reimport is pending")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Assets->RequestMesh(0, WoodId);
+	Assets->RequestMesh(1, StoneId);
+	Fixture.Tasks->RunUntilIdle();
+
+	const std::array<std::uint8_t, 16> Edited{255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255};
+	Tests::WritePng(Fixture.Scratch.GetPath() / "Game/Textures/Wood.png", 2, 2, Edited);
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Assets->RequestMesh(1, WoodId);
+	CHECK(Assets->GetSlot(1).bLoading);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK_FALSE(Assets->GetSlot(1).bLoading);
+	REQUIRE(Assets->GetSlot(0).Mesh);
+	CHECK(Assets->GetSlot(1).Mesh == Assets->GetSlot(0).Mesh);
 }
 
 TEST_CASE("Dropped files import into Game content through asset.import and appear after the next poll")

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <format>
 #include <initializer_list>
 
 namespace Herta
@@ -177,6 +178,36 @@ TEST_CASE("Texture cooking filters mips in linear light")
 	CHECK_FALSE(CookEncodedTexture(std::as_bytes(std::span(White)), ETextureColorSpace::Srgb));
 }
 
+TEST_CASE("Texture mip filtering includes odd edges with proportional area weights")
+{
+	const std::array<std::uint8_t, 12> Edge{0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255};
+	for (const bool bVertical : {false, true})
+	{
+		const auto Texture = CookTexture(bVertical ? 1u : 3u, bVertical ? 3u : 1u, std::as_bytes(std::span(Edge)), ETextureColorSpace::Linear);
+		REQUIRE(Texture);
+		REQUIRE(Texture->Mips.size() == 2);
+		CHECK(Texel(Texture->Mips[1]) == std::array<std::uint8_t, 4>{85, 85, 85, 255});
+	}
+
+	const std::array<std::uint8_t, 20> Center{0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255, 0, 0, 0, 255, 0, 0, 0, 255};
+	const auto Fractional = CookTexture(5, 1, std::as_bytes(std::span(Center)), ETextureColorSpace::Linear);
+	REQUIRE(Fractional);
+	REQUIRE(Fractional->Mips.size() == 3);
+	CHECK(Texel(Fractional->Mips[1], 0) == std::array<std::uint8_t, 4>{51, 51, 51, 255});
+	CHECK(Texel(Fractional->Mips[1], 1) == std::array<std::uint8_t, 4>{51, 51, 51, 255});
+	CHECK(Texel(Fractional->Mips[2]) == std::array<std::uint8_t, 4>{51, 51, 51, 255});
+
+	std::array<std::uint8_t, 36> Corner{};
+	for (std::size_t Index = 3; Index < Corner.size(); Index += 4)
+	{
+		Corner[Index] = 255;
+	}
+	Corner[32] = Corner[33] = Corner[34] = 255;
+	const auto TwoDimensions = CookTexture(3, 3, std::as_bytes(std::span(Corner)), ETextureColorSpace::Linear);
+	REQUIRE(TwoDimensions);
+	CHECK(Texel(TwoDimensions->Mips[1]) == std::array<std::uint8_t, 4>{28, 28, 28, 255});
+}
+
 TEST_CASE("Cooked assets round-trip and reject corrupt data")
 {
 	const auto Texture = CookTexture(2, 2, std::as_bytes(std::span(CheckerPixels)), ETextureColorSpace::Srgb);
@@ -282,6 +313,36 @@ TEST_CASE("glTF cooking flattens nodes, merges materials, and keeps canonical wi
 	REQUIRE(AgainBytes);
 	REQUIRE(ModelBytes);
 	CHECK(*AgainBytes == *ModelBytes);
+}
+
+TEST_CASE("glTF cooking bounds cumulative geometry before decoding")
+{
+	const Tests::FScratchDirectory Scratch("HertaGltfLimits");
+	const auto CheckRejected = [&](const std::string_view Accessors, const std::string_view Primitives, const std::string_view Error)
+	{
+		const std::string Gltf = std::format(R"({{"asset":{{"version":"2.0"}},"accessors":[{}],"materials":[{{}},{{}}],"meshes":[{{"primitives":[{}]}}],"nodes":[{{"mesh":0}}],"scenes":[{{"nodes":[0]}}],"scene":0}})", Accessors, Primitives);
+		WriteQuadModel(Scratch.GetPath() / "Content", Gltf);
+		const auto Cooked = CookAsset(MakeRequest(Scratch, "Models/Quad.gltf"));
+		REQUIRE_FALSE(Cooked);
+		CHECK(Cooked.error().Message.find(Error) != std::string::npos);
+	};
+
+	SUBCASE("A zero-filled accessor cannot request an oversized allocation")
+	{
+		CheckRejected(R"({"componentType":5126,"count":4294967295,"type":"VEC3","min":[0,0,0],"max":[0,0,0]})", R"({"attributes":{"POSITION":0}})", "unsupported vertex count");
+	}
+
+	SUBCASE("Different material buckets share the vertex budget")
+	{
+		constexpr std::size_t MaximumVertices = MaximumCookedBufferBytes / sizeof(FCookedVertex);
+		const std::string Accessors = std::format(R"({{"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[0,0,0]}},{{"componentType":5126,"count":{},"type":"VEC3","min":[0,0,0],"max":[0,0,0]}})", MaximumVertices);
+		CheckRejected(Accessors, R"({"attributes":{"POSITION":0},"material":0},{"attributes":{"POSITION":1},"material":1})", "unsupported vertex count");
+	}
+
+	SUBCASE("Index counts are bounded before decoding either accessor")
+	{
+		CheckRejected(R"({"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[0,0,0]},{"componentType":5125,"count":4294967295,"type":"SCALAR"})", R"({"attributes":{"POSITION":0},"indices":1})", "unsupported triangle index count");
+	}
 }
 
 TEST_CASE("Asset cooking reuses derived data until any input changes")

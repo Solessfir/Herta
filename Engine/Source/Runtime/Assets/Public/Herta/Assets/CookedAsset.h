@@ -17,6 +17,8 @@ namespace Herta
 inline constexpr std::uint32_t CookedAssetFormatVersion = 1;
 
 inline constexpr std::uint32_t MaximumCookedTextureDimension = 4096;
+// Matches the per-recording GPU upload budget.
+inline constexpr std::size_t MaximumCookedBufferBytes = std::size_t{64} * 1024 * 1024;
 
 enum class ETextureColorSpace : std::uint8_t
 {

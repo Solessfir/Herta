@@ -274,7 +274,7 @@ inline constexpr std::array<std::uint16_t, 256> SrgbToLinear{
 };
 
 // Linear values at or above Thresholds[i] encode to sRGB i + 1, so encoding picks the nearest table entry in linear space.
-inline constexpr auto LinearThresholds = []
+inline constexpr auto LinearThresholds = []()
 {
 	std::array<std::uint32_t, 255> Result{};
 	for (std::size_t Index = 0; Index < Result.size(); ++Index)
@@ -325,28 +325,34 @@ struct FWideImage
 	return Mip;
 }
 
-// ponytail: 2x2 box filter; odd edges reuse their last row or column. Use a wider kernel if NPOT aliasing becomes visible.
+// Integer area weights cover every source texel even when mip dimensions round down.
 [[nodiscard]] FWideImage Downsample(const FWideImage& Source)
 {
 	FWideImage Target{.Width = std::max(1u, Source.Width / 2), .Height = std::max(1u, Source.Height / 2), .Texels = {}};
 	Target.Texels.resize(std::size_t{Target.Width} * Target.Height * 4);
+	const std::uint64_t TotalWeight = std::uint64_t{Source.Width} * Source.Height;
 	for (std::uint32_t Y = 0; Y < Target.Height; ++Y)
 	{
-		const std::uint32_t Y0 = std::min(Y * 2, Source.Height - 1);
-		const std::uint32_t Y1 = std::min(Y * 2 + 1, Source.Height - 1);
+		const std::uint32_t YBegin = Y * Source.Height;
+		const std::uint32_t YEnd = (Y + 1) * Source.Height;
 		for (std::uint32_t X = 0; X < Target.Width; ++X)
 		{
-			const std::uint32_t X0 = std::min(X * 2, Source.Width - 1);
-			const std::uint32_t X1 = std::min(X * 2 + 1, Source.Width - 1);
+			const std::uint32_t XBegin = X * Source.Width;
+			const std::uint32_t XEnd = (X + 1) * Source.Width;
 			for (std::size_t Channel = 0; Channel < 4; ++Channel)
 			{
-				const auto Texel = [&](const std::uint32_t SourceX, const std::uint32_t SourceY)
+				std::uint64_t Sum = 0;
+				for (std::uint32_t SourceY = YBegin / Target.Height; SourceY * Target.Height < YEnd; ++SourceY)
 				{
-					return std::uint32_t{Source.Texels[(std::size_t{SourceY} * Source.Width + SourceX) * 4 + Channel]};
-				};
+					const std::uint32_t YWeight = std::min(YEnd, (SourceY + 1) * Target.Height) - std::max(YBegin, SourceY * Target.Height);
+					for (std::uint32_t SourceX = XBegin / Target.Width; SourceX * Target.Width < XEnd; ++SourceX)
+					{
+						const std::uint32_t XWeight = std::min(XEnd, (SourceX + 1) * Target.Width) - std::max(XBegin, SourceX * Target.Width);
+						Sum += std::uint64_t{Source.Texels[(std::size_t{SourceY} * Source.Width + SourceX) * 4 + Channel]} * XWeight * YWeight;
+					}
+				}
 
-				const std::uint32_t Sum = Texel(X0, Y0) + Texel(X1, Y0) + Texel(X0, Y1) + Texel(X1, Y1);
-				Target.Texels[(std::size_t{Y} * Target.Width + X) * 4 + Channel] = static_cast<std::uint16_t>((Sum + 2) / 4);
+				Target.Texels[(std::size_t{Y} * Target.Width + X) * 4 + Channel] = static_cast<std::uint16_t>((Sum + TotalWeight / 2) / TotalWeight);
 			}
 		}
 	}

@@ -32,6 +32,7 @@ struct FPreviewMeshSlot
 	std::shared_ptr<const FRenderMesh> Mesh;
 	// Build key of Mesh, so a reimport that cooks the same key keeps the GPU copy.
 	FHash128 Key;
+	std::uint64_t ContentGeneration = 0;
 	bool bLoading = false;
 	std::string Error;
 	// Only the newest request for a slot may publish its result.
@@ -91,6 +92,8 @@ public:
 	}
 
 private:
+	friend struct FPreviewAssetsTestAccess;
+
 	struct FMount
 	{
 		std::string Name;
@@ -107,6 +110,7 @@ private:
 
 	FPreviewAssets(FTaskSystem& Tasks, IGraphicsDevice& Device, FLogService& Log, FEditorAssetPaths Paths, std::size_t ObjectCount, std::unique_ptr<FTaskScope> Scope);
 	void PublishScan(const std::vector<std::expected<FContentScanResult, FAssetError>>& Results);
+	void ContentChanged();
 	void StartLoad(std::size_t Object);
 	[[nodiscard]] bool SubmitCook(const FLocation& Location, const std::string& Label, std::function<void(FMeshLoad&)> Publish);
 	void PublishMesh(std::size_t Object, std::uint64_t Generation, FMeshLoad& Load);
@@ -122,6 +126,7 @@ private:
 	std::vector<FPreviewAssetOption> Options;
 	std::map<FAssetId, FLocation> Locations;
 	std::vector<FPreviewMeshSlot> Slots;
+	std::uint64_t ContentGeneration = 0;
 	bool bScanning = false;
 	bool bScanned = false;
 	std::vector<FContentSnapshot> Snapshots;

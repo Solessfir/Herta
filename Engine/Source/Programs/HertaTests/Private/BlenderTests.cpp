@@ -151,6 +151,74 @@ TEST_CASE("Blender import cooks a .blend through Herta's preset, tracks external
 	CHECK(AfterEdit->Key != First->Key);
 }
 
+TEST_CASE("Blender dependency records follow changes inside linked libraries")
+{
+	const std::optional<FBlenderInstallation> Blender = FindBlenderForTests();
+	if (!Blender)
+	{
+		return;
+	}
+
+	const Tests::FScratchDirectory Scratch("HertaBlenderLinked");
+	const std::filesystem::path Content = Scratch.GetPath() / "Content";
+	const std::filesystem::path Library = Content / "Models/Library.blend";
+	const std::filesystem::path Root = Content / "Models/Root.blend";
+	const std::filesystem::path OldImage = Content / "Textures/Old.png";
+	const std::filesystem::path NewImage = Content / "Textures/New.png";
+	const std::array<std::uint8_t, 4> White{255, 255, 255, 255};
+	const std::array<std::uint8_t, 4> Green{0, 255, 0, 255};
+	Tests::WritePng(OldImage, 1, 1, White);
+	Tests::WritePng(NewImage, 1, 1, White);
+	WriteEdgeCaseBlend(*Blender, Scratch, Library, OldImage);
+
+	constexpr std::string_view LinkScript = R"PY(import sys
+
+import bpy
+
+root, library = sys.argv[sys.argv.index("--") + 1:]
+bpy.ops.wm.read_factory_settings(use_empty=True)
+with bpy.data.libraries.load(library, link=True) as (source, target):
+    target.objects = source.objects
+for obj in target.objects:
+    bpy.context.scene.collection.objects.link(obj)
+bpy.ops.wm.save_as_mainfile(filepath=root, relative_remap=True)
+)PY";
+	Tests::WriteText(Scratch.GetPath() / "Link.py", LinkScript);
+	const auto Linked = RunProcess({.Executable = Blender->Executable, .Arguments = {"--background", "--factory-startup", "--python-exit-code", "1", "--python", (Scratch.GetPath() / "Link.py").generic_string(), "--", Root.generic_string(), Library.generic_string()}, .Timeout = std::chrono::minutes(2)});
+	REQUIRE(Linked);
+	INFO(Linked->StandardError);
+	REQUIRE(Linked->ExitCode == 0);
+	WriteBlenderMetadata(Root);
+
+	const FAssetCookRequest Request{.ContentRoot = Content, .DerivedDataRoot = Scratch.GetPath() / "DerivedDataCache", .SourcePath = "Models/Root.blend", .TargetPlatform = "TestPlatform", .bForce = false};
+	const auto First = CookAsset(Request);
+	REQUIRE_MESSAGE(First, (First ? std::string() : First.error().Message));
+	CHECK_FALSE(First->bCacheHit);
+
+	// Only the linked library changes; the root file retains its original dependency-record key.
+	WriteEdgeCaseBlend(*Blender, Scratch, Library, NewImage);
+	const auto LibraryChanged = CookAsset(Request);
+	REQUIRE_MESSAGE(LibraryChanged, (LibraryChanged ? std::string() : LibraryChanged.error().Message));
+	CHECK_FALSE(LibraryChanged->bCacheHit);
+	CHECK(LibraryChanged->Key != First->Key);
+	const auto Repeated = CookAsset(Request);
+	REQUIRE(Repeated);
+	CHECK(Repeated->bCacheHit);
+	CHECK(Repeated->Key == LibraryChanged->Key);
+
+	Tests::WritePng(NewImage, 1, 1, Green);
+	const auto NewImageChanged = CookAsset(Request);
+	REQUIRE(NewImageChanged);
+	CHECK_FALSE(NewImageChanged->bCacheHit);
+	CHECK(NewImageChanged->Key != LibraryChanged->Key);
+
+	Tests::WritePng(OldImage, 1, 1, Green);
+	const auto RemovedImageChanged = CookAsset(Request);
+	REQUIRE(RemovedImageChanged);
+	CHECK(RemovedImageChanged->bCacheHit);
+	CHECK(RemovedImageChanged->Key == NewImageChanged->Key);
+}
+
 TEST_CASE("Blender import rejects images outside the content root")
 {
 	const std::optional<FBlenderInstallation> Blender = FindBlenderForTests();

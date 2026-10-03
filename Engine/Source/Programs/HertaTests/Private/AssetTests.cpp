@@ -9,9 +9,11 @@
 
 #include <algorithm>
 #include <array>
+#include <barrier>
 #include <chrono>
 #include <fstream>
 #include <string>
+#include <thread>
 
 namespace Herta
 {
@@ -418,6 +420,85 @@ TEST_CASE("Importing registers content sources and copies external ones")
 	CHECK(Scan->UnregisteredSources.empty());
 	REQUIRE(Scan->Registry.Find(Copied->Metadata.Id));
 	CHECK(Scan->Registry.Find(Copied->Metadata.Id)->SourcePath == "Textures/Crate.PNG");
+}
+
+TEST_CASE("Concurrent imports never replace a winning source or sidecar")
+{
+	const FScratchDirectory Scratch;
+	const std::filesystem::path Root = Scratch.Path / "Content";
+	std::filesystem::create_directories(Root);
+	constexpr std::size_t Count = 8;
+	std::array<std::string, Count> Payloads;
+	std::array<std::optional<FImportedSource>, Count> Results;
+	std::barrier Start(static_cast<std::ptrdiff_t>(Count));
+	std::array<std::jthread, Count> Threads;
+
+	for (std::size_t Index = 0; Index < Count; ++Index)
+	{
+		Payloads[Index] = std::string(1024 * 1024, static_cast<char>('a' + Index));
+		WriteText(Scratch.Path / std::to_string(Index) / "Shared.png", Payloads[Index]);
+		Threads[Index] = std::jthread([&, Index]
+		{
+			Start.arrive_and_wait();
+			if (auto Imported = ImportSource(Root, Scratch.Path / std::to_string(Index) / "Shared.png", "Textures"))
+			{
+				Results[Index] = std::move(*Imported);
+			}
+		});
+	}
+
+	for (std::jthread& Thread : Threads)
+	{
+		Thread.join();
+	}
+
+	REQUIRE(std::ranges::count_if(Results, [](const auto& Result)
+	{
+		return Result.has_value();
+	}) == 1);
+	const auto Winner = std::ranges::find_if(Results, [](const auto& Result)
+	{
+		return Result.has_value();
+	});
+	const std::size_t WinnerIndex = static_cast<std::size_t>(Winner - Results.begin());
+	std::ifstream Source(Root / "Textures/Shared.png", std::ios::binary);
+	const std::string Published{std::istreambuf_iterator<char>(Source), std::istreambuf_iterator<char>()};
+	CHECK(Published == Payloads[WinnerIndex]);
+	const auto Scan = ScanContentRoot(Root);
+	REQUIRE(Scan);
+	CHECK(Scan->Errors.empty());
+	REQUIRE(Scan->Registry.Find((*Winner)->Metadata.Id));
+	CHECK(Scan->Registry.Find((*Winner)->Metadata.Id)->SourcePath == "Textures/Shared.png");
+	CHECK(std::ranges::distance(std::filesystem::directory_iterator(Root / "Textures")) == 2);
+}
+
+TEST_CASE("Import destinations cannot escape content through a linked directory")
+{
+	const FScratchDirectory Scratch;
+	const std::filesystem::path Root = Scratch.Path / "Content";
+	const std::filesystem::path Outside = Scratch.Path / "Outside";
+	std::filesystem::create_directories(Root);
+	std::filesystem::create_directories(Outside);
+	WriteText(Scratch.Path / "External.png", "source");
+	std::error_code Error;
+	std::filesystem::create_directory_symlink(Outside, Root / "Linked", Error);
+
+#ifdef _WIN32
+	if (Error)
+	{
+		const auto Junction = RunProcess(MakeShellRequest("mklink /J " + ToCommandPath(Root / "Linked") + " " + ToCommandPath(Outside)));
+		REQUIRE(Junction);
+		REQUIRE(Junction->ExitCode == 0);
+	}
+#else
+	REQUIRE_FALSE(Error);
+#endif
+
+	const auto Imported = ImportSource(Root, Scratch.Path / "External.png", "Linked/Nested");
+	REQUIRE_FALSE(Imported);
+	CHECK(Imported.error().Message.find("linked directories") != std::string::npos);
+	CHECK(std::filesystem::is_empty(Outside));
+	CHECK_FALSE(std::filesystem::exists(Root / "External.png"));
 }
 
 TEST_CASE("Asset commands run headlessly against a content root")
