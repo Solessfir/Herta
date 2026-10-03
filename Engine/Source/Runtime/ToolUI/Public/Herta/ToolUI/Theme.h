@@ -95,6 +95,7 @@ inline constexpr float ActiveTint = 0.16f;
 inline constexpr float StrongTint = 0.24f;
 
 inline constexpr std::array Presets = {
+    FToolUIColorPreset{"Gray", FEditorAppearance{}.Accent},
     FToolUIColorPreset{"Amber", {232, 139, 118, 255}},
     FToolUIColorPreset{"Rust", {205, 148, 30, 255}},
     FToolUIColorPreset{"Olive", {143, 179, 87, 255}},

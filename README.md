@@ -32,7 +32,7 @@ The Output Log supports search, verbosity filtering, text selection, copying, pa
 
 Press the backtick key to open Output Log and focus its command field; pressing Enter submits and returns focus to the viewport. Enter `stat unit` to toggle timing readouts below the viewport's top-right controls, and `stat fps` to toggle FPS independently. Frame is the smoothed frame interval; CPU frame measures the editor render callback, including presentation waits, rather than CPU utilization. GPU UI uses asynchronous GPU timestamps for the main window's UI rendering, including backdrop copy and blur, but excludes the scene renderer and detached windows. It shows `--` until a sample is available. CPU and GPU times overlap and should not be added together.
 
-Use **Appearance** in the bottom bar for workspace styling. Default panel opacity is 90%, with 24 px background blur. Start is closed by default and can be reopened from **Window > Start panel**.
+Use **Appearance** in the bottom bar for all workspace styling, including panel transparency, opacity, blur, reduced motion, gradient, and accent color. Default panel opacity is 90%, with 24 px background blur. Start is a welcome panel, closed by default, and can be reopened from **Window > Start panel**.
 
 Set `HERTA_PROFILE_BLUR=1` before launching the editor to log GPU timings for the main window's backdrop copy and blur passes. After 30 warm-up samples, it reports average/minimum/maximum milliseconds over 120 samples, together with framebuffer resolution and blur radius. Resizing or changing the radius restarts sampling. These timings exclude final UI compositing.
 

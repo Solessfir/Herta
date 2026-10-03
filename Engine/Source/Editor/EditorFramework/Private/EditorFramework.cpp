@@ -778,7 +778,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::PopStyleColor(3);
 		ImGui::PopStyleVar(3);
 		// Fixed width so right-aligned fields do not depend on auto-fit content.
-		ImGui::SetNextWindowSize({260.f * Scale, 0.f});
+		ImGui::SetNextWindowSize({320.f * Scale, 0.f});
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14.f * Scale, 12.f * Scale});
 		const bool bAppearanceOpen = ImGui::BeginPopup("WorkspaceAppearance");
 		ImGui::PopStyleVar();
@@ -803,6 +803,29 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			ImGui::SetItemTooltip("Restore default appearance");
 			ImGui::Separator();
 			const float ValueWidth = 140.f * Scale;
+			DrawFieldLabel("Panel transparency", ValueWidth);
+			const char* const PanelMode = GetPanelTransparencyLabel(Appearance.PanelTransparency);
+
+			if (ImGui::BeginCombo("##PanelTransparency", PanelMode))
+			{
+				constexpr std::array Modes = {
+				    std::pair{EPanelTransparency::AllPanels, "All panels"},
+				    std::pair{EPanelTransparency::FloatingOnly, "Floating panels"},
+				    std::pair{EPanelTransparency::DockedOnly, "Docked panels"},
+				    std::pair{EPanelTransparency::Disabled, "Opaque panels"},
+				};
+
+				for (const auto& [Mode, Label] : Modes)
+				{
+					if (ImGui::Selectable(Label, Appearance.PanelTransparency == Mode))
+					{
+						Appearance.PanelTransparency = Mode;
+					}
+				}
+
+				ImGui::EndCombo();
+			}
+
 			float OpacityPercent = Appearance.PanelOpacity * 100.f;
 			DrawFieldLabel("Panel opacity", ValueWidth);
 
@@ -815,6 +838,73 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			DrawNumericSliderFloat("##Blur", &Appearance.BlurRadius, 0.f, 40.f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
 			DrawFieldLabel("Reduced motion", ValueWidth);
 			ToolUIToggle("##ReducedMotion", &Appearance.bReducedMotion);
+			ImGui::Separator();
+
+			float GradientHeightPercent = Appearance.GradientHeight * 100.f;
+			float SaturationPercent = Appearance.Saturation * 100.f;
+			float IntensityPercent = Appearance.Intensity * 100.f;
+			DrawFieldLabel("Gradient height", ValueWidth);
+
+			if (DrawNumericSliderFloat("##GradientHeight", &GradientHeightPercent, 0.f, 100.f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
+			{
+				Appearance.GradientHeight = GradientHeightPercent / 100.f;
+			}
+
+			DrawFieldLabel("Color saturation", ValueWidth);
+
+			if (DrawNumericSliderFloat("##Saturation", &SaturationPercent, 0.f, 100.f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
+			{
+				Appearance.Saturation = SaturationPercent / 100.f;
+			}
+
+			DrawFieldLabel("Color intensity", ValueWidth);
+
+			if (DrawNumericSliderFloat("##Intensity", &IntensityPercent, 0.f, 100.f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
+			{
+				Appearance.Intensity = IntensityPercent / 100.f;
+			}
+
+			std::array Color = {
+			    static_cast<float>(Appearance.Accent.Red) / 255.f,
+			    static_cast<float>(Appearance.Accent.Green) / 255.f,
+			    static_cast<float>(Appearance.Accent.Blue) / 255.f,
+			};
+
+			DrawFieldLabel("Accent color", ValueWidth);
+
+			if (ImGui::ColorEdit3("##AccentColor", Color.data()))
+			{
+				Appearance.Accent.Red = static_cast<std::uint8_t>(std::lround(Color[0] * 255.f));
+				Appearance.Accent.Green = static_cast<std::uint8_t>(std::lround(Color[1] * 255.f));
+				Appearance.Accent.Blue = static_cast<std::uint8_t>(std::lround(Color[2] * 255.f));
+			}
+
+			for (std::size_t Index = 0; Index < ToolUITheme::Presets.size(); ++Index)
+			{
+				if (Index > 0)
+				{
+					ImGui::SameLine();
+				}
+
+				const FToolUIColorPreset& Preset = ToolUITheme::Presets[Index];
+				ImGui::PushID(static_cast<int>(Index));
+
+				if (ImGui::ColorButton("##Preset", ImGui::ColorConvertU32ToFloat4(PackColor(Preset.Color)), ImGuiColorEditFlags_NoTooltip, {22.f * Scale, 22.f * Scale}))
+				{
+					Appearance.Accent = Preset.Color;
+				}
+
+				if (ImGui::IsItemHovered())
+				{
+					const char* const PresetName = Preset.Name.data();
+					ImGui::BeginTooltip();
+					ImGui::TextUnformatted(PresetName, PresetName + Preset.Name.size());
+					ImGui::EndTooltip();
+				}
+
+				ImGui::PopID();
+			}
+
 			ImGui::PopStyleVar();
 			Implementation->ToolUI->SetAppearance(Appearance);
 			ImGui::EndPopup();
@@ -2099,91 +2189,7 @@ void FEditorFramework::FImplementation::DrawStartPanel()
 	ImGui::Spacing();
 	ImGui::TextUnformatted("Build something remarkable.");
 	ImGui::TextDisabled("The Viewport renders a textured mesh through Herta RHI and RenderGraph.");
-	ImGui::Spacing();
-	ImGui::SeparatorText("Workspace appearance");
 
-	FEditorAppearance Appearance = ToolUI->GetAppearance();
-	const char* const PanelMode = GetPanelTransparencyLabel(Appearance.PanelTransparency);
-
-	if (ImGui::BeginCombo("Panel transparency", PanelMode))
-	{
-		constexpr std::array Modes = {
-		    std::pair{EPanelTransparency::AllPanels, "All panels"},
-		    std::pair{EPanelTransparency::FloatingOnly, "Floating panels"},
-		    std::pair{EPanelTransparency::DockedOnly, "Docked panels"},
-		    std::pair{EPanelTransparency::Disabled, "Opaque panels"},
-		};
-
-		for (const auto& [Mode, Label] : Modes)
-		{
-			if (ImGui::Selectable(Label, Appearance.PanelTransparency == Mode))
-			{
-				Appearance.PanelTransparency = Mode;
-			}
-		}
-
-		ImGui::EndCombo();
-	}
-
-	int GradientHeightPercent = static_cast<int>(std::lround(Appearance.GradientHeight * 100.f));
-	int SaturationPercent = static_cast<int>(std::lround(Appearance.Saturation * 100.f));
-	int IntensityPercent = static_cast<int>(std::lround(Appearance.Intensity * 100.f));
-
-	if (ImGui::SliderInt("Gradient height", &GradientHeightPercent, 0, 100, "%d%%", ImGuiSliderFlags_ClampOnInput))
-	{
-		Appearance.GradientHeight = static_cast<float>(GradientHeightPercent) / 100.f;
-	}
-
-	if (ImGui::SliderInt("Color saturation", &SaturationPercent, 0, 100, "%d%%", ImGuiSliderFlags_ClampOnInput))
-	{
-		Appearance.Saturation = static_cast<float>(SaturationPercent) / 100.f;
-	}
-
-	if (ImGui::SliderInt("Color intensity", &IntensityPercent, 0, 100, "%d%%", ImGuiSliderFlags_ClampOnInput))
-	{
-		Appearance.Intensity = static_cast<float>(IntensityPercent) / 100.f;
-	}
-
-	std::array Color = {
-	    static_cast<float>(Appearance.Accent.Red) / 255.f,
-	    static_cast<float>(Appearance.Accent.Green) / 255.f,
-	    static_cast<float>(Appearance.Accent.Blue) / 255.f,
-	};
-
-	if (ImGui::ColorEdit3("Color", Color.data()))
-	{
-		Appearance.Accent.Red = static_cast<std::uint8_t>(std::lround(Color[0] * 255.f));
-		Appearance.Accent.Green = static_cast<std::uint8_t>(std::lround(Color[1] * 255.f));
-		Appearance.Accent.Blue = static_cast<std::uint8_t>(std::lround(Color[2] * 255.f));
-	}
-
-	for (std::size_t Index = 0; Index < ToolUITheme::Presets.size(); ++Index)
-	{
-		if (Index > 0)
-		{
-			ImGui::SameLine();
-		}
-
-		const FToolUIColorPreset& Preset = ToolUITheme::Presets[Index];
-		ImGui::PushID(static_cast<int>(Index));
-
-		if (ImGui::ColorButton("##Preset", ImGui::ColorConvertU32ToFloat4(PackColor(Preset.Color)), ImGuiColorEditFlags_NoTooltip, {22.f, 22.f}))
-		{
-			Appearance.Accent = Preset.Color;
-		}
-
-		if (ImGui::IsItemHovered())
-		{
-			const char* const PresetName = Preset.Name.data();
-			ImGui::BeginTooltip();
-			ImGui::TextUnformatted(PresetName, PresetName + Preset.Name.size());
-			ImGui::EndTooltip();
-		}
-
-		ImGui::PopID();
-	}
-
-	ToolUI->SetAppearance(Appearance);
 	ToolUI->EndPanel();
 }
 
