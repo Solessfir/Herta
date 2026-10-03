@@ -15,11 +15,25 @@ namespace Herta
 {
 struct FPreviewAssetsTestAccess
 {
-	static void ContentChanged(FPreviewAssets& Assets)
-	{
-		Assets.ContentChanged();
-	}
+	static void ContentChanged(FPreviewAssets& Assets);
+	static std::uint64_t GetRequestGeneration(const FPreviewAssets& Assets);
+	static std::size_t GetCachedMeshCount(const FPreviewAssets& Assets);
 };
+
+void FPreviewAssetsTestAccess::ContentChanged(FPreviewAssets& Assets)
+{
+	Assets.ContentChanged();
+}
+
+std::uint64_t FPreviewAssetsTestAccess::GetRequestGeneration(const FPreviewAssets& Assets)
+{
+	return Assets.RequestGeneration;
+}
+
+std::size_t FPreviewAssetsTestAccess::GetCachedMeshCount(const FPreviewAssets& Assets)
+{
+	return Assets.MeshCache.size();
+}
 
 namespace
 {
@@ -284,6 +298,171 @@ TEST_CASE("Preview assets do not share stale meshes while their reimport is pend
 	CHECK_FALSE(Assets->GetSlot(1).bLoading);
 	REQUIRE(Assets->GetSlot(0).Mesh);
 	CHECK(Assets->GetSlot(1).Mesh == Assets->GetSlot(0).Mesh);
+}
+
+TEST_CASE("Scene rebinding retains loaded meshes across copies reorder deletion and load")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Assets->RebindObjects(std::array{WoodId, StoneId});
+	Fixture.Tasks->RunUntilIdle();
+	const auto Wood = Assets->GetSlot(0).Mesh;
+	const auto Stone = Assets->GetSlot(1).Mesh;
+	REQUIRE(Wood);
+	REQUIRE(Stone);
+	const auto Generation = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+	const auto Submissions = Fixture.Device.Submissions;
+
+	Assets->RebindObjects(std::array{WoodId, WoodId, StoneId});
+	CHECK(Assets->GetSlot(0).Mesh == Wood);
+	CHECK(Assets->GetSlot(1).Mesh == Wood);
+	CHECK(Assets->GetSlot(2).Mesh == Stone);
+	CHECK_FALSE(Assets->GetSlot(1).bLoading);
+	Assets->RebindObjects(std::array{StoneId, WoodId, StoneId});
+	CHECK(Assets->GetSlot(0).Mesh == Stone);
+	CHECK(Assets->GetSlot(1).Mesh == Wood);
+	CHECK(Assets->GetSlot(2).Mesh == Stone);
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == Generation);
+	CHECK(Fixture.Device.Submissions == Submissions);
+
+	Assets->RebindObjects(std::array{WoodId});
+	CHECK(Assets->GetSlot(0).Mesh == Wood);
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 1);
+	Assets->RebindObjects({});
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+}
+
+TEST_CASE("Scene rebinding coalesces pending copies before and after the first content scan")
+{
+	for (const bool bScanned : {false, true})
+	{
+		CAPTURE(bScanned);
+		FPreviewAssetsFixture Fixture;
+		auto Assets = Fixture.CreateAssets();
+		REQUIRE(Assets);
+		if (bScanned)
+		{
+			Fixture.Tasks->RunUntilIdle();
+		}
+
+		Assets->RebindObjects(std::array{WoodId, WoodId, StoneId});
+		const auto Generation = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+		CHECK(Generation == (bScanned ? 2 : 0));
+		Assets->RebindObjects(std::array{StoneId, WoodId, WoodId, WoodId});
+		CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == Generation);
+		CHECK(Assets->GetSlot(1).bLoading);
+		CHECK_FALSE(Assets->GetSlot(1).Mesh);
+		Fixture.Tasks->RunUntilIdle();
+		CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == 2);
+		REQUIRE(Assets->GetSlot(0).Mesh);
+		REQUIRE(Assets->GetSlot(1).Mesh);
+		CHECK(Assets->GetSlot(2).Mesh == Assets->GetSlot(1).Mesh);
+		CHECK(Assets->GetSlot(3).Mesh == Assets->GetSlot(1).Mesh);
+		CHECK(Fixture.Device.Submissions == 2);
+	}
+}
+
+TEST_CASE("Rebound slots cannot receive removed loads and can restore pending assets without restarting")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->RebindObjects(std::array{WoodId, StoneId});
+	const auto Generation = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+	Assets->RebindObjects({});
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 2);
+	Assets->RebindObjects(std::array{WoodId, WoodId});
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == Generation);
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetSlot(0).Mesh);
+	CHECK(Assets->GetSlot(0).Asset == WoodId);
+	CHECK(Assets->GetSlot(1).Mesh == Assets->GetSlot(0).Mesh);
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 1);
+	CHECK(Fixture.Device.Submissions == 1);
+}
+
+TEST_CASE("Copies retain visible meshes and share reimport results while scene bindings change")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Assets->RebindObjects(std::array{WoodId, StoneId});
+	Fixture.Tasks->RunUntilIdle();
+	const auto Wood = Assets->GetSlot(0).Mesh;
+	const auto Stone = Assets->GetSlot(1).Mesh;
+	REQUIRE(Wood);
+	REQUIRE(Stone);
+	const std::array<std::uint8_t, 16> Edited{255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 0, 255};
+	Tests::WritePng(Fixture.Scratch.GetPath() / "Game/Textures/Wood.png", 2, 2, Edited);
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Assets->RebindObjects(std::array{StoneId, WoodId, WoodId});
+	CHECK(Assets->GetSlot(0).Mesh == Stone);
+	CHECK(Assets->GetSlot(1).Mesh == Wood);
+	CHECK(Assets->GetSlot(2).Mesh == Wood);
+	Fixture.RunToCheckpoint();
+	Fixture.RunToCheckpoint();
+	Fixture.RunToCheckpoint();
+	const auto Generation = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+	Assets->RebindObjects(std::array{WoodId, WoodId, StoneId, WoodId});
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == Generation);
+	CHECK(Assets->GetSlot(0).Mesh == Wood);
+	CHECK(Assets->GetSlot(1).Mesh == Wood);
+	CHECK(Assets->GetSlot(2).Mesh == Stone);
+	CHECK(Assets->GetSlot(3).Mesh == Wood);
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetSlot(0).Mesh);
+	CHECK(Assets->GetSlot(0).Mesh != Wood);
+	CHECK(Assets->GetSlot(1).Mesh == Assets->GetSlot(0).Mesh);
+	CHECK(Assets->GetSlot(3).Mesh == Assets->GetSlot(0).Mesh);
+	CHECK(Assets->GetSlot(2).Mesh == Stone);
+	CHECK_FALSE(Assets->GetSlot(0).bLoading);
+	CHECK(Assets->GetSlot(0).Error.empty());
+}
+
+TEST_CASE("Rebinding pending mesh replacements preserves visible fallbacks until success or failure")
+{
+	for (const bool bFailure : {false, true})
+	{
+		CAPTURE(bFailure);
+		FPreviewAssetsFixture Fixture;
+		auto Assets = Fixture.CreateAssets();
+		REQUIRE(Assets);
+		Assets->RebindObjects(std::array{WoodId, WoodId});
+		Fixture.Tasks->RunUntilIdle();
+		const auto Wood = Assets->GetSlot(0).Mesh;
+		REQUIRE(Wood);
+		const FAssetId Replacement = bFailure ? RobotId : StoneId;
+		Assets->RequestMesh(0, Replacement);
+		REQUIRE(Assets->GetSlot(0).bLoading);
+		CHECK(Assets->GetSlot(0).Mesh == Wood);
+		const auto Generation = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+		Assets->RebindObjects(std::array{WoodId, Replacement, Replacement});
+		CHECK(Assets->GetSlot(0).Mesh == Wood);
+		CHECK(Assets->GetSlot(1).Mesh == Wood);
+		CHECK(Assets->GetSlot(2).Mesh == Wood);
+		Assets->RebindObjects(std::array{Replacement, WoodId, Replacement});
+		CHECK(Assets->GetSlot(0).Mesh == Wood);
+		CHECK(Assets->GetSlot(1).Mesh == Wood);
+		CHECK(Assets->GetSlot(2).Mesh == Wood);
+		CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == Generation);
+		Fixture.Tasks->RunUntilIdle();
+		CHECK_FALSE(Assets->GetSlot(0).bLoading);
+		CHECK(Assets->GetSlot(1).Mesh == Wood);
+		CHECK(Assets->GetSlot(2).Mesh == Assets->GetSlot(0).Mesh);
+		if (bFailure)
+		{
+			CHECK_FALSE(Assets->GetSlot(0).Mesh);
+			CHECK_FALSE(Assets->GetSlot(0).Error.empty());
+		}
+		else
+		{
+			REQUIRE(Assets->GetSlot(0).Mesh);
+			CHECK(Assets->GetSlot(0).Mesh != Wood);
+			CHECK(Assets->GetSlot(0).Error.empty());
+		}
+	}
 }
 
 TEST_CASE("Dropped files import into Game content through asset.import and appear after the next poll")

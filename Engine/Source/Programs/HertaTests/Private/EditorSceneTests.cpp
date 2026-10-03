@@ -444,6 +444,273 @@ TEST_CASE("Editor duplication preserves components and avoids label collisions")
 	CHECK(Scene.GetActiveObject() == Original);
 }
 
+TEST_CASE("Command duplication translates every selected copy by the same world offset")
+{
+	FEditorScene Scene;
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	const std::array Selected{Before[0].Id, Before[1].Id};
+	Scene.SetSelection(Selected, Selected.front());
+	const FVector3d Offset{0.125, 0., 0.125};
+	REQUIRE(Scene.DuplicateSelected(false, Offset));
+	const auto Copies = SelectedEditorObjects(Scene);
+	REQUIRE(Copies.size() == Selected.size());
+
+	for (std::size_t Index = 0; Index < Copies.size(); ++Index)
+	{
+		const FSceneEntity Copy = *Scene.GetWorld().GetEntity(*Scene.GetWorld().FindEntity(Copies[Index]));
+		CHECK(Copy.Id != Before[Index].Id);
+		CHECK(Copy.Transform.Translation == Before[Index].Transform.Translation.TranslatedBy(Offset));
+		CHECK(Copy.Transform.Rotation == Before[Index].Transform.Rotation);
+		CHECK(Copy.Transform.Scale == Before[Index].Transform.Scale);
+		CHECK(Copy.Mesh == Before[Index].Mesh);
+		CHECK(Copy.BodyType == Before[Index].BodyType);
+	}
+
+	const auto After = Scene.GetWorld().SnapshotEntities();
+	CHECK(Scene.GetUndoLabel() == "Duplicate objects");
+	REQUIRE(Scene.Undo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK(SelectedEditorObjects(Scene) == std::vector<FObjectId>(Selected.begin(), Selected.end()));
+	CHECK(Scene.GetActiveObject() == Selected.front());
+	CHECK_FALSE(Scene.CanUndo());
+	REQUIRE(Scene.Redo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == After);
+	CHECK(SelectedEditorObjects(Scene) == Copies);
+}
+
+TEST_CASE("Invalid duplication offsets preserve authored objects selection and existing history")
+{
+	const auto InvalidOffsets = std::array{
+	    FVector3d{std::numeric_limits<double>::quiet_NaN(), 0., 0.},
+	    FVector3d{0., std::numeric_limits<double>::infinity(), 0.},
+	    FVector3d{0., 0., -std::numeric_limits<double>::infinity()},
+	    FVector3d{0., -1.e7, 0.},
+	    FVector3d{0., 0., 10000001.},
+	};
+
+	for (const bool bRedo : std::array{false, true})
+	{
+		for (const bool bWithinActiveEdit : std::array{false, true})
+		{
+			FEditorScene Scene;
+			Scene.GetObjects()[0].Translation.y = 8.f;
+			REQUIRE(Scene.CommitEdits("Raise cube"));
+			if (bRedo)
+			{
+				REQUIRE(Scene.Undo());
+			}
+
+			const auto Before = Scene.GetWorld().SnapshotEntities();
+			const std::array Selected{Before[0].Id, Before[1].Id};
+			Scene.SetSelection(Selected, Selected.front());
+			const auto Generation = Scene.GetGeneration();
+			std::vector<FEntityId> Handles;
+
+			for (const FSceneEntity& Entity : Before)
+			{
+				Handles.push_back(*Scene.GetWorld().FindEntity(Entity.Id));
+			}
+
+			if (bWithinActiveEdit)
+			{
+				REQUIRE(Scene.BeginEdit("Duplicate objects"));
+			}
+
+			for (const FVector3d& Offset : InvalidOffsets)
+			{
+				CHECK_FALSE(Scene.DuplicateSelected(bWithinActiveEdit, Offset));
+				CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+				CHECK(SelectedEditorObjects(Scene) == std::vector<FObjectId>(Selected.begin(), Selected.end()));
+				CHECK(Scene.GetActiveObject() == Selected.front());
+				CHECK(Scene.GetGeneration() == Generation);
+				CHECK(Scene.HasActiveEdit() == bWithinActiveEdit);
+				CHECK(Scene.IsDirty() == !bRedo);
+				CHECK(Scene.GetUndoLabel() == (bRedo ? "" : "Raise cube"));
+				CHECK(Scene.GetRedoLabel() == (bRedo ? "Raise cube" : ""));
+
+				for (std::size_t Index = 0; Index < Before.size(); ++Index)
+				{
+					CHECK(Scene.GetWorld().GetEntity(Handles[Index]) == Before[Index]);
+				}
+			}
+
+			if (bWithinActiveEdit)
+			{
+				REQUIRE(Scene.EndEdit());
+			}
+
+			CHECK(Scene.CanUndo() == !bRedo);
+			CHECK(Scene.CanRedo() == bRedo);
+		}
+	}
+}
+
+TEST_CASE("Gesture duplication and transforms form one undo step for single and multiple selections")
+{
+	for (const bool bMultiple : std::array{false, true})
+	{
+		CAPTURE(bMultiple);
+		FEditorScene Scene;
+		const auto Before = Scene.GetWorld().SnapshotEntities();
+		std::vector<FObjectId> Originals{Before[0].Id};
+		if (bMultiple)
+		{
+			Originals.push_back(Before[1].Id);
+		}
+
+		Scene.SetSelection(Originals, Originals.front());
+		std::vector<FEntityId> OriginalHandles;
+
+		for (const FSceneEntity& Entity : Before)
+		{
+			OriginalHandles.push_back(*Scene.GetWorld().FindEntity(Entity.Id));
+		}
+
+		REQUIRE(Scene.BeginEdit("Duplicate objects"));
+		REQUIRE(Scene.DuplicateSelected(true));
+		const auto Copies = SelectedEditorObjects(Scene);
+		REQUIRE(Copies.size() == Originals.size());
+		CHECK(Scene.GetObjects().size() == Before.size() + Originals.size());
+		CHECK(Scene.GetActiveObject() == Copies.front());
+		CHECK_FALSE(Scene.CanUndo());
+
+		for (std::size_t Index = 0; Index < Copies.size(); ++Index)
+		{
+			CHECK(Scene.GetWorld().GetEntity(*Scene.GetWorld().FindEntity(Copies[Index]))->Transform == Before[Index].Transform);
+		}
+
+		const auto Generation = Scene.GetGeneration();
+		const auto Inserted = Scene.GetWorld().SnapshotEntities();
+		REQUIRE(Scene.DuplicateSelected(true));
+		CHECK(Scene.GetWorld().SnapshotEntities() == Inserted);
+		CHECK(SelectedEditorObjects(Scene) == Copies);
+		CHECK(Scene.GetGeneration() == Generation);
+		CHECK_FALSE(Scene.DuplicateSelected());
+		std::vector<FEntityId> CopyHandles;
+
+		for (const FObjectId Copy : Copies)
+		{
+			CopyHandles.push_back(*Scene.GetWorld().FindEntity(Copy));
+			FPreviewObject& Object = FindEditorObject(Scene, Copy);
+			Object.Translation.x += 2.f;
+			Object.Translation.y += 1.f;
+			Object.Rotation = FromPreviewEulerXYZ({0.25f, -0.4f, 0.1f});
+			Object.Scale = {2.f, 3.f, 4.f};
+		}
+
+		REQUIRE(Scene.CommitEdits());
+		REQUIRE(Scene.DuplicateSelected(true));
+		CHECK(Scene.GetObjects().size() == Before.size() + Originals.size());
+		REQUIRE(Scene.EndEdit());
+		CHECK(Scene.GetUndoLabel() == "Duplicate objects");
+		CHECK(Scene.GetGeneration() == Generation);
+		const auto After = Scene.GetWorld().SnapshotEntities();
+		REQUIRE(Scene.Undo());
+		CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+		CHECK(SelectedEditorObjects(Scene) == Originals);
+		CHECK(Scene.GetActiveObject() == Originals.front());
+		CHECK_FALSE(Scene.CanUndo());
+		CHECK_FALSE(Scene.IsDirty());
+
+		for (std::size_t Index = 0; Index < Before.size(); ++Index)
+		{
+			CHECK(Scene.GetWorld().GetEntity(OriginalHandles[Index]) == Before[Index]);
+		}
+
+		REQUIRE(Scene.Redo());
+		CHECK(Scene.GetWorld().SnapshotEntities() == After);
+		CHECK(SelectedEditorObjects(Scene) == Copies);
+		CHECK(Scene.GetActiveObject() == Copies.front());
+
+		for (const FEntityId Handle : CopyHandles)
+		{
+			CHECK_FALSE(Scene.GetWorld().GetEntity(Handle));
+		}
+	}
+}
+
+TEST_CASE("Canceling gesture duplication restores original objects handles selection and redo")
+{
+	FEditorScene Scene;
+	const FObjectId Original = Scene.GetObjects()[0].Id;
+	FindEditorObject(Scene, Original).Translation.y = 8.f;
+	REQUIRE(Scene.CommitEdits("Raise cube"));
+	REQUIRE(Scene.Undo());
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	const auto Selection = SelectedEditorObjects(Scene);
+	const auto Active = Scene.GetActiveObject();
+	const FEntityId Handle = *Scene.GetWorld().FindEntity(Original);
+	REQUIRE(Scene.BeginEdit("Duplicate objects"));
+	REQUIRE(Scene.DuplicateSelected(true));
+	const FObjectId Copy = *Scene.GetActiveObject();
+	FindEditorObject(Scene, Copy).Translation.x = 5.f;
+	REQUIRE(Scene.CommitEdits());
+	REQUIRE(Scene.CancelEdit());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK(Scene.GetWorld().GetEntity(Handle) == Before[0]);
+	CHECK_FALSE(Scene.GetWorld().FindEntity(Copy));
+	CHECK(SelectedEditorObjects(Scene) == Selection);
+	CHECK(Scene.GetActiveObject() == Active);
+	CHECK_FALSE(Scene.HasActiveEdit());
+	CHECK_FALSE(Scene.IsDirty());
+	CHECK(Scene.CanRedo());
+	CHECK(Scene.GetRedoLabel() == "Raise cube");
+	REQUIRE(Scene.Redo());
+	CHECK(FindEditorObject(Scene, Original).Translation.y == 8.f);
+}
+
+TEST_CASE("Rejected gesture duplication history removes copies without invalidating original handles")
+{
+	FEditorScene Scene(256, 1);
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	const auto Selection = SelectedEditorObjects(Scene);
+	const auto Active = Scene.GetActiveObject();
+	std::vector<FEntityId> Handles;
+
+	for (const FSceneEntity& Entity : Before)
+	{
+		Handles.push_back(*Scene.GetWorld().FindEntity(Entity.Id));
+	}
+
+	REQUIRE(Scene.BeginEdit("Duplicate objects"));
+	REQUIRE(Scene.DuplicateSelected(true));
+	const FObjectId Copy = *Scene.GetActiveObject();
+	FindEditorObject(Scene, Copy).Translation.x = 3.f;
+	REQUIRE(Scene.CommitEdits());
+	CHECK_FALSE(Scene.EndEdit());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK(SelectedEditorObjects(Scene) == Selection);
+	CHECK(Scene.GetActiveObject() == Active);
+	CHECK_FALSE(Scene.GetWorld().FindEntity(Copy));
+	CHECK_FALSE(Scene.HasActiveEdit());
+	CHECK_FALSE(Scene.IsDirty());
+	CHECK_FALSE(Scene.CanUndo());
+	CHECK_FALSE(Scene.CanRedo());
+
+	for (std::size_t Index = 0; Index < Before.size(); ++Index)
+	{
+		CHECK(Scene.GetWorld().GetEntity(Handles[Index]) == Before[Index]);
+		CHECK(Scene.GetWorld().FindEntity(Before[Index].Id) == Handles[Index]);
+	}
+}
+
+TEST_CASE("Clicking without a duplication drag leaves the scene and history unchanged")
+{
+	FEditorScene Scene;
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	const auto Selection = SelectedEditorObjects(Scene);
+	const auto Generation = Scene.GetGeneration();
+	CHECK_FALSE(Scene.DuplicateSelected(true));
+	REQUIRE(Scene.BeginEdit("Duplicate objects"));
+	REQUIRE(Scene.EndEdit());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK(SelectedEditorObjects(Scene) == Selection);
+	CHECK(Scene.GetGeneration() == Generation);
+	CHECK_FALSE(Scene.IsDirty());
+	CHECK_FALSE(Scene.CanUndo());
+	CHECK_FALSE(Scene.CanRedo());
+}
+
 TEST_CASE("Scene clipboard paste remaps UUIDs and rejects unsupported input atomically")
 {
 	FEditorScene Source;

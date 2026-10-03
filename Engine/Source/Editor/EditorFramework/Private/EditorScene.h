@@ -33,7 +33,7 @@ public:
 	std::span<const FObjectId> GetSelection() const;
 	std::optional<FObjectId> GetActiveObject() const;
 	[[nodiscard]] std::expected<FObjectId, FSceneError> CreateEntity(const FWorldPosition& Position = {});
-	[[nodiscard]] std::expected<void, FSceneError> DuplicateSelected();
+	[[nodiscard]] std::expected<void, FSceneError> DuplicateSelected(bool bWithinActiveEdit = false, const FVector3d& WorldOffset = {});
 	[[nodiscard]] std::expected<void, FSceneError> DeleteSelected();
 	[[nodiscard]] std::expected<std::string, FSceneError> CopySelected() const;
 	[[nodiscard]] std::expected<void, FSceneError> PasteEntities(std::string_view Text);
@@ -54,6 +54,7 @@ private:
 		std::vector<FSceneEntity> Before;
 		std::vector<FObjectId> Selection;
 		std::optional<FObjectId> Active;
+		bool bDuplicated = false;
 	};
 
 	void RebuildObjects();

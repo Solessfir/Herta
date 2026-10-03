@@ -156,4 +156,99 @@ std::vector<std::pair<FVector3, FVector3>> GetPreviewCubeSilhouette(const FVecto
 
 	return Edges;
 }
+
+bool IntersectsPreviewCubeSelectionRect(const FMatrix4& ViewProjection, const FMatrix4& Model, const FVector2 First, const FVector2 Second)
+{
+	if (!std::isfinite(First.X) || !std::isfinite(First.Y) || !std::isfinite(Second.X) || !std::isfinite(Second.Y) || !std::ranges::all_of(ViewProjection.Data(), [](const float Element)
+	{
+		return std::isfinite(Element);
+	}) || !std::ranges::all_of(Model.Data(), [](const float Element)
+	{
+		return std::isfinite(Element);
+	}) || Model(3, 0) != 0.f
+	    || Model(3, 1) != 0.f || Model(3, 2) != 0.f || Model(3, 3) != 1.f)
+	{
+		return false;
+	}
+
+	TMatrix4<double> Projection;
+	TMatrix4<double> Bounds;
+
+	for (std::size_t Column = 0; Column < 4; ++Column)
+	{
+		for (std::size_t Row = 0; Row < 4; ++Row)
+		{
+			Projection(Row, Column) = ViewProjection(Row, Column);
+			Bounds(Row, Column) = Model(Row, Column);
+		}
+	}
+
+	const auto ClipTransform = Projection * Bounds;
+	std::array<TVector4<double>, CubeCorners.size()> ClipCorners;
+
+	for (std::size_t Index = 0; Index < CubeCorners.size(); ++Index)
+	{
+		ClipCorners[Index] = ClipTransform * TVector4<double>{TVector3<double>(CubeCorners[Index]), 1.0};
+	}
+
+	constexpr double Infinity = std::numeric_limits<double>::infinity();
+	TVector2<double> Minimum{Infinity, Infinity};
+	TVector2<double> Maximum{-Infinity, -Infinity};
+	bool bProjected = false;
+
+	const auto Include = [&](const TVector4<double>& Clip)
+	{
+		if (Clip.W <= 0.0)
+		{
+			return;
+		}
+
+		const TVector2<double> Screen{(Clip.X / Clip.W + 1.0) * 0.5, (1.0 - Clip.Y / Clip.W) * 0.5};
+		if (!std::isfinite(Screen.X) || !std::isfinite(Screen.Y))
+		{
+			return;
+		}
+
+		Minimum = {std::min(Minimum.X, Screen.X), std::min(Minimum.Y, Screen.Y)};
+		Maximum = {std::max(Maximum.X, Screen.X), std::max(Maximum.Y, Screen.Y)};
+		bProjected = true;
+	};
+
+	for (const auto& Edge : CubeEdges)
+	{
+		const auto& Start = ClipCorners[Edge[0]];
+		const auto& End = ClipCorners[Edge[1]];
+		const std::array StartDepth{Start.Z, Start.W - Start.Z};
+		const std::array EndDepth{End.Z, End.W - End.Z};
+		double Entry = 0.0;
+		double Exit = 1.0;
+
+		// Clip before division: corners behind the eye must not mirror or inflate the selection bounds.
+		for (std::size_t Plane = 0; Plane < StartDepth.size(); ++Plane)
+		{
+			if (StartDepth[Plane] < 0.0 && EndDepth[Plane] < 0.0)
+			{
+				Exit = -1.0;
+				break;
+			}
+
+			if (StartDepth[Plane] < 0.0)
+			{
+				Entry = std::max(Entry, StartDepth[Plane] / (StartDepth[Plane] - EndDepth[Plane]));
+			}
+			else if (EndDepth[Plane] < 0.0)
+			{
+				Exit = std::min(Exit, StartDepth[Plane] / (StartDepth[Plane] - EndDepth[Plane]));
+			}
+		}
+
+		if (Entry <= Exit)
+		{
+			Include(Start + (End - Start) * Entry);
+			Include(Start + (End - Start) * Exit);
+		}
+	}
+
+	return bProjected && Minimum.X <= std::max(First.X, Second.X) && Maximum.X >= std::min(First.X, Second.X) && Minimum.Y <= std::max(First.Y, Second.Y) && Maximum.Y >= std::min(First.Y, Second.Y);
+}
 }

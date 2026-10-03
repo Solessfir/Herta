@@ -25,6 +25,9 @@ struct FViewportInteractionInput
 	bool bApplicationFocused = true;
 	bool bInputBlocked = false;
 	bool bAlt = false;
+	bool bGizmoHovered = false;
+	bool bRightDragMoved = false;
+	bool bCameraNavigationUsed = false;
 	std::array<bool, 3> MouseClicked{};
 	std::array<bool, 3> MouseDown{};
 };
@@ -34,6 +37,8 @@ struct FViewportInteractionState
 	EViewportCameraMode CameraMode = EViewportCameraMode::None;
 	int DragButton = -1;
 	bool bKeyboardFocus = false;
+	bool bContextMenuRequested = false;
+	bool bContextClickPending = false;
 
 	[[nodiscard]] bool CanUseGizmo(const FViewportInteractionInput& Input) const noexcept
 	{
@@ -45,18 +50,28 @@ struct FViewportInteractionState
 		CameraMode = EViewportCameraMode::None;
 		DragButton = -1;
 		bKeyboardFocus = false;
+		bContextMenuRequested = false;
+		bContextClickPending = false;
 	}
 
 	void Update(const FViewportInteractionInput& Input) noexcept
 	{
-		if (!Input.bWindowFocused || Input.bInputBlocked)
+		bContextMenuRequested = false;
+		if (!Input.bApplicationFocused || !Input.bWindowFocused || Input.bInputBlocked)
 		{
 			Cancel();
 			return;
 		}
 
+		if (Input.bRightDragMoved || Input.bCameraNavigationUsed || Input.bAlt)
+		{
+			bContextClickPending = false;
+		}
+
 		if (DragButton >= 0 && (!Input.bImageActive || !Input.MouseDown[static_cast<std::size_t>(DragButton)]))
 		{
+			bContextMenuRequested = DragButton == 1 && !Input.MouseDown[1] && Input.bImageHovered && bContextClickPending;
+			bContextClickPending = false;
 			CameraMode = EViewportCameraMode::None;
 			DragButton = -1;
 		}
@@ -72,9 +87,10 @@ struct FViewportInteractionState
 
 				DragButton = Button;
 				bKeyboardFocus = true;
-				CameraMode = Button == 2 ? EViewportCameraMode::Pan : Button == 1 ? (Input.bAlt ? EViewportCameraMode::Dolly : EViewportCameraMode::Fly)
-				                                                  : Input.bAlt    ? EViewportCameraMode::Orbit
-				                                                                  : EViewportCameraMode::None;
+				bContextClickPending = Button == 1 && !Input.bAlt && !Input.bRightDragMoved && !Input.bCameraNavigationUsed;
+				CameraMode = Button == 2 ? EViewportCameraMode::Pan : Button == 1                      ? (Input.bAlt ? EViewportCameraMode::Dolly : EViewportCameraMode::Fly)
+				                                                  : Input.bAlt && !Input.bGizmoHovered ? EViewportCameraMode::Orbit
+				                                                                                       : EViewportCameraMode::None;
 				break;
 			}
 		}

@@ -126,7 +126,9 @@ enum class EToolUIMenuIcon : std::uint8_t
 	Copy,
 	Paste,
 	Duplicate,
-	Delete
+	Delete,
+	Cube,
+	SelectAll
 };
 
 bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);

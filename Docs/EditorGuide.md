@@ -12,7 +12,9 @@ See [Rendering.md](Rendering.md) for GPU ownership, shader cooking, and renderer
 
 ## Viewport controls
 
-In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB to orbit, MMB to pan, and the wheel to dolly. Press F to focus the selection. F11 toggles a full-workspace viewport without changing the saved panel layout. Click an object to select it; Ctrl+click or Shift+click toggles additional objects. Click empty viewport space or press Escape in the focused viewport to deselect. During a transform drag, Escape restores the entire selection instead. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits apply to the selection around its active object's pivot.
+In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB on empty space to orbit, MMB to pan, and the wheel to dolly. Alt+drag a transform gizmo to duplicate the selection and transform the copies as one undo step. Copies appear only when the transform changes; Escape cancels the drag and removes them. Press F to focus the selection. F11 toggles a full-workspace viewport without changing the saved panel layout. Click an object to select it; Ctrl+click or Shift+click toggles additional objects. Click empty viewport space or press Escape in the focused viewport to deselect. During a transform drag, Escape restores the entire selection instead. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits apply to the selection around its active object's pivot.
+
+Drag LMB from empty viewport space to box-select intersecting projected mesh bounds. Shift-drag adds objects, Ctrl-drag toggles them, and Escape restores the selection from before the drag. Selection updates live; gizmo drags and Alt+LMB orbit keep their existing behavior.
 
 ## Simulation
 
@@ -36,9 +38,13 @@ Headlessly, use `HertaEditorCmd scene.validate <path>` or `HertaEditorCmd scene.
 
 ## Authoring and undo
 
-**Edit** provides Undo, Redo, Add cube, Duplicate, Copy, Delete, and Paste. New cubes appear at the camera pivot. Ctrl+Z undoes; Ctrl+Y or Ctrl+Shift+Z redoes. A gizmo or numeric drag is one undo step for the entire selection. Names, transforms, mesh choices, reset, and structural edits are undoable. Escape cancels an active transform gesture.
+**Edit** provides Undo, Redo, Duplicate, Copy, Delete, and Paste. Ctrl+Z undoes; Ctrl+Y or Ctrl+Shift+Z redoes. A gizmo or numeric drag is one undo step for the entire selection. Names, transforms, mesh choices, reset, and structural edits are undoable. Escape cancels an active transform gesture.
 
-Ctrl+D duplicates selected objects, Delete removes them, and Ctrl+C/Ctrl+V copy/paste a canonical scene excerpt. Pasted objects receive new UUIDs while retaining asset references. These shortcuts work in Viewport, Outliner, and Details; text inputs retain their own editing shortcuts. Authoring and undo/redo are disabled during simulation and active gestures. Exit does not automatically save.
+Right-click the viewport without dragging to open Select All (Ctrl+A) and Add (Shift+A). Ctrl+A in the focused viewport selects every scene object. Camera fly drags do not open the menu.
+
+Shift+A or the context menu's Add opens the Add menu at the cursor. Type to fuzzy-search, use arrows or Tab to focus a result, Enter to add it, and Escape to close. Cube is the first supported basic shape and spawns at the camera pivot; change its mesh in Details.
+
+Ctrl+D duplicates selected objects and offsets the copies by one configured translation grid step along world X and Z, even when snapping is off. Alt+drag applies no extra offset. Delete removes selected objects, and Ctrl+C/Ctrl+V copy/paste a canonical scene excerpt. Pasted objects receive new UUIDs while retaining asset references. These shortcuts work in Viewport, Outliner, and Details; text inputs retain their own editing shortcuts. Authoring and undo/redo are disabled during simulation and active gestures. Exit does not automatically save.
 
 ## Outliner
 

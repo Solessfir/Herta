@@ -2,6 +2,7 @@
 
 #include "Herta/EditorCore/CommandRegistry.h"
 
+#include <cmath>
 #include <exception>
 #include <format>
 #include <unordered_set>
@@ -673,11 +674,29 @@ std::expected<FObjectId, FSceneError> FEditorScene::CreateEntity(const FWorldPos
 	return Entity.Id;
 }
 
-std::expected<void, FSceneError> FEditorScene::DuplicateSelected()
+std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWithinActiveEdit, const FVector3d& WorldOffset)
 {
-	if (auto Result = CheckAuthoringAllowed(); !Result)
+	if (auto Result = CheckAuthoringAllowed(bWithinActiveEdit); !Result)
 	{
 		return Result;
+	}
+
+	if (bWithinActiveEdit)
+	{
+		if (!ActiveEdit)
+		{
+			return std::unexpected(FSceneError{"Begin an edit before duplicating within a gesture"});
+		}
+
+		if (ActiveEdit->bDuplicated)
+		{
+			return {};
+		}
+	}
+
+	if (!std::isfinite(WorldOffset.X) || !std::isfinite(WorldOffset.Y) || !std::isfinite(WorldOffset.Z))
+	{
+		return std::unexpected(FSceneError{"Duplication requires a finite world translation offset"});
 	}
 
 	if (auto Result = CommitEdits(); !Result)
@@ -695,6 +714,7 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected()
 
 	std::vector<FSceneEntityChange> Changes;
 	std::vector<FObjectId> Duplicated;
+	std::optional<FObjectId> DuplicatedActive;
 
 	for (const FSceneEntity& Original : Entities)
 	{
@@ -706,11 +726,40 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected()
 		FSceneEntity Entity = Original;
 		Entity.Id = FObjectId::Generate();
 		Entity.Name = UniqueEntityName(Original.Name, Names, " Copy");
+		Entity.Transform.Translation = Entity.Transform.Translation.TranslatedBy(WorldOffset);
+		if (auto Result = ValidateEditorEntityRange(Entity); !Result)
+		{
+			return Result;
+		}
+
+		if (ActiveObject == Original.Id)
+		{
+			DuplicatedActive = Entity.Id;
+		}
+
 		Duplicated.push_back(Entity.Id);
 		Changes.push_back({.After = std::move(Entity)});
 	}
 
-	return ApplyStructuralChanges("Duplicate objects", std::move(Changes), std::move(Duplicated));
+	if (bWithinActiveEdit)
+	{
+		if (Changes.empty())
+		{
+			return {};
+		}
+
+		if (auto Result = World.ApplyEntityChanges(Changes); !Result)
+		{
+			return Result;
+		}
+
+		ActiveEdit->bDuplicated = true;
+		SetSelection(Duplicated, DuplicatedActive);
+		RebuildObjects();
+		return {};
+	}
+
+	return ApplyStructuralChanges("Duplicate objects", Changes, Duplicated);
 }
 
 std::expected<void, FSceneError> FEditorScene::DeleteSelected()

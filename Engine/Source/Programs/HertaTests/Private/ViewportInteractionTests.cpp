@@ -83,6 +83,154 @@ struct FViewportGizmoTestContext final
 };
 }
 
+TEST_CASE("Viewport right click requests a context menu only on owned release")
+{
+	FViewportInteractionState State;
+	FViewportInteractionInput Input{
+	    .bImageHovered = true,
+	    .bImageActive = true,
+	    .bWindowFocused = true,
+	    .MouseClicked = {false, true, false},
+	    .MouseDown = {false, true, false},
+	};
+
+	State.Update(Input);
+	CHECK(State.CameraMode == EViewportCameraMode::Fly);
+	CHECK(State.bContextClickPending);
+	CHECK_FALSE(State.bContextMenuRequested);
+	Input.MouseClicked.fill(false);
+	State.Update(Input);
+	CHECK_FALSE(State.bContextMenuRequested);
+	Input.MouseDown.fill(false);
+	Input.bImageActive = false;
+	State.Update(Input);
+	CHECK(State.bContextMenuRequested);
+	CHECK_FALSE(State.bContextClickPending);
+	CHECK(State.DragButton == -1);
+	CHECK(State.CameraMode == EViewportCameraMode::None);
+	State.Update(Input);
+	CHECK_FALSE(State.bContextMenuRequested);
+}
+
+TEST_CASE("Viewport context clicks are consumed by drag or camera navigation")
+{
+	for (const bool bDrag : {false, true})
+	{
+		FViewportInteractionState State;
+		FViewportInteractionInput Input{
+		    .bImageHovered = true,
+		    .bImageActive = true,
+		    .bWindowFocused = true,
+		    .MouseClicked = {false, true, false},
+		    .MouseDown = {false, true, false},
+		};
+
+		State.Update(Input);
+		Input.MouseClicked.fill(false);
+		Input.bRightDragMoved = bDrag;
+		Input.bCameraNavigationUsed = !bDrag;
+		State.Update(Input);
+		CHECK_FALSE(State.bContextClickPending);
+		CHECK(State.CameraMode == EViewportCameraMode::Fly);
+		Input.bRightDragMoved = false;
+		Input.bCameraNavigationUsed = false;
+		Input.MouseDown.fill(false);
+		State.Update(Input);
+		CHECK_FALSE(State.bContextMenuRequested);
+	}
+}
+
+TEST_CASE("Viewport Alt right navigation never opens a context menu")
+{
+	for (const bool bAltAtStart : {false, true})
+	{
+		FViewportInteractionState State;
+		FViewportInteractionInput Input{
+		    .bImageHovered = true,
+		    .bImageActive = true,
+		    .bWindowFocused = true,
+		    .bAlt = bAltAtStart,
+		    .MouseClicked = {false, true, false},
+		    .MouseDown = {false, true, false},
+		};
+
+		State.Update(Input);
+		CHECK(State.CameraMode == (bAltAtStart ? EViewportCameraMode::Dolly : EViewportCameraMode::Fly));
+		Input.MouseClicked.fill(false);
+		Input.bAlt = true;
+		State.Update(Input);
+		Input.bAlt = false;
+		Input.MouseDown.fill(false);
+		State.Update(Input);
+		CHECK_FALSE(State.bContextMenuRequested);
+	}
+}
+
+TEST_CASE("Viewport context clicks cancel on lost focus blocked input or stolen capture")
+{
+	for (const int Cancellation : {0, 1, 2, 3})
+	{
+		FViewportInteractionState State;
+		FViewportInteractionInput Input{
+		    .bImageHovered = true,
+		    .bImageActive = true,
+		    .bWindowFocused = true,
+		    .MouseClicked = {false, true, false},
+		    .MouseDown = {false, true, false},
+		};
+
+		State.Update(Input);
+		Input.MouseClicked.fill(false);
+		Input.bWindowFocused = Cancellation != 0;
+		Input.bApplicationFocused = Cancellation != 1;
+		Input.bInputBlocked = Cancellation == 2;
+		Input.bImageActive = Cancellation != 3;
+		State.Update(Input);
+		CHECK_FALSE(State.bContextClickPending);
+		CHECK_FALSE(State.bContextMenuRequested);
+		Input.bWindowFocused = true;
+		Input.bApplicationFocused = true;
+		Input.bInputBlocked = false;
+		Input.MouseDown.fill(false);
+		State.Update(Input);
+		CHECK_FALSE(State.bContextMenuRequested);
+	}
+}
+
+TEST_CASE("Viewport context clicks cannot start or release outside the image")
+{
+	for (const bool bStartsInside : {false, true})
+	{
+		FViewportInteractionState State;
+		FViewportInteractionInput Input{
+		    .bImageHovered = bStartsInside,
+		    .bImageActive = bStartsInside,
+		    .bWindowFocused = true,
+		    .MouseClicked = {false, true, false},
+		    .MouseDown = {false, true, false},
+		};
+
+		State.Update(Input);
+		Input.MouseClicked.fill(false);
+		Input.bImageHovered = !bStartsInside;
+		Input.bImageActive = true;
+		State.Update(Input);
+		Input.MouseDown.fill(false);
+		State.Update(Input);
+		CHECK_FALSE(State.bContextMenuRequested);
+	}
+}
+
+TEST_CASE("Cancel clears a viewport context click and its request pulse")
+{
+	FViewportInteractionState State;
+	State.bContextClickPending = true;
+	State.bContextMenuRequested = true;
+	State.Cancel();
+	CHECK_FALSE(State.bContextClickPending);
+	CHECK_FALSE(State.bContextMenuRequested);
+}
+
 TEST_CASE("Viewport gizmo hover does not require viewport keyboard focus")
 {
 	FViewportInteractionState State;
@@ -204,6 +352,98 @@ TEST_CASE("Viewport camera chords do not steal an owned gizmo drag")
 	Input.MouseDown[1] = true;
 	State.Update(Input);
 	CHECK(State.CameraMode == EViewportCameraMode::Dolly);
+}
+
+TEST_CASE("Alt viewport clicks prefer a hovered gizmo and keep its drag ownership")
+{
+	FViewportInteractionState State;
+	FViewportInteractionInput Input{
+	    .bImageHovered = true,
+	    .bImageActive = true,
+	    .bWindowFocused = true,
+	    .bAlt = true,
+	    .bGizmoHovered = true,
+	    .MouseClicked = {true, false, false},
+	    .MouseDown = {true, false, false},
+	};
+	State.Update(Input);
+	CHECK(State.DragButton == 0);
+	CHECK(State.CameraMode == EViewportCameraMode::None);
+	CHECK(State.CanUseGizmo(Input));
+	Input.bGizmoHovered = false;
+	Input.bImageHovered = false;
+	Input.MouseClicked.fill(false);
+	State.Update(Input);
+	CHECK(State.DragButton == 0);
+	CHECK(State.CameraMode == EViewportCameraMode::None);
+	CHECK(State.CanUseGizmo(Input));
+	Input.MouseDown.fill(false);
+	State.Update(Input);
+	CHECK(State.DragButton == -1);
+	Input.bImageHovered = true;
+	Input.MouseClicked[0] = true;
+	Input.MouseDown[0] = true;
+	State.Update(Input);
+	CHECK(State.CameraMode == EViewportCameraMode::Orbit);
+	CHECK_FALSE(State.CanUseGizmo(Input));
+}
+
+TEST_CASE("Alt gizmo clicks respect blocked input and viewport focus")
+{
+	for (const bool bBlocked : {false, true})
+	{
+		FViewportInteractionState State;
+		FViewportInteractionInput Input{
+		    .bImageHovered = true,
+		    .bImageActive = true,
+		    .bWindowFocused = bBlocked,
+		    .bInputBlocked = bBlocked,
+		    .bAlt = true,
+		    .bGizmoHovered = true,
+		    .MouseClicked = {true, false, false},
+		    .MouseDown = {true, false, false},
+		};
+		State.Update(Input);
+		CHECK(State.DragButton == -1);
+		CHECK(State.CameraMode == EViewportCameraMode::None);
+		CHECK_FALSE(State.bKeyboardFocus);
+	}
+}
+
+TEST_CASE("Current-ray translation hover probe routes an Alt click without stale handle state")
+{
+	FViewportGizmoTestContext Gizmo;
+	Gizmo.bCustomTranslation = true;
+	Gizmo.Frame(2.f, false);
+	REQUIRE(Im3d::GetHotId() == Im3d::Id_Invalid);
+	Gizmo.Context.resetId();
+	Gizmo.Frame(0.6f, false);
+	REQUIRE(Im3d::GetHotId() != Im3d::Id_Invalid);
+	FViewportInteractionState State;
+	FViewportInteractionInput Input{
+	    .bImageHovered = true,
+	    .bImageActive = true,
+	    .bWindowFocused = true,
+	    .bAlt = true,
+	    .bGizmoHovered = Im3d::GetHotId() != Im3d::Id_Invalid,
+	    .MouseClicked = {true, false, false},
+	    .MouseDown = {true, false, false},
+	};
+	State.Update(Input);
+	REQUIRE(State.CameraMode == EViewportCameraMode::None);
+	Gizmo.Frame(0.6f, State.CanUseGizmo(Input));
+	CHECK(Im3d::GetActiveId() != Im3d::Id_Invalid);
+	State.Cancel();
+	Gizmo.Context.resetId();
+	Gizmo.FrameRay({2.f, 0.f, 1.f}, false);
+	CHECK(Im3d::GetHotId() == Im3d::Id_Invalid);
+	Input.bGizmoHovered = Im3d::GetHotId() != Im3d::Id_Invalid;
+	State.Update(Input);
+	CHECK(State.CameraMode == EViewportCameraMode::Orbit);
+	CHECK_FALSE(State.CanUseGizmo(Input));
+	CHECK(Gizmo.Translation.x == doctest::Approx(0.f));
+	CHECK(Gizmo.Translation.y == doctest::Approx(0.f));
+	CHECK(Gizmo.Translation.z == doctest::Approx(0.f));
 }
 
 TEST_CASE("Viewport gizmo pixels preserve UI scale after image downsampling")

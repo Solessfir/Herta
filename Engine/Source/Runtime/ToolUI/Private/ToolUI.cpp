@@ -1961,6 +1961,19 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 	{
 		DrawPanelIcon(*Draw, Center, Scale, Color, Icon);
 	}
+	else if (Icon == EToolUIMenuIcon::Cube)
+	{
+		Draw->PathLineTo({Center.x, Center.y - 7.f * Scale});
+		Draw->PathLineTo({Center.x + 6.f * Scale, Center.y - 3.5f * Scale});
+		Draw->PathLineTo({Center.x + 6.f * Scale, Center.y + 3.5f * Scale});
+		Draw->PathLineTo({Center.x, Center.y + 7.f * Scale});
+		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y + 3.5f * Scale});
+		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y - 3.5f * Scale});
+		Draw->PathStroke(Color, ImDrawFlags_Closed, Scale);
+		Line(-6.f, -3.5f, 0.f, 0.f);
+		Line(6.f, -3.5f, 0.f, 0.f);
+		Line(0.f, 0.f, 0.f, 7.f);
+	}
 	else if (Icon == EToolUIMenuIcon::Panel || Icon == EToolUIMenuIcon::Layout)
 	{
 		Draw->AddRect({Center.x - 6.f * Scale, Center.y - 5.f * Scale}, {Center.x + 6.f * Scale, Center.y + 5.f * Scale}, Color, Scale);
@@ -2012,6 +2025,20 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 		Line(5 * Direction, 1, 5 * Direction, 5);
 		Line(-3 * Direction, -5, -6 * Direction, -2);
 		Line(-3 * Direction, 1, -6 * Direction, -2);
+	}
+	else if (Icon == EToolUIMenuIcon::SelectAll)
+	{
+		for (const float X : {-1.f, 1.f})
+		{
+			for (const float Y : {-1.f, 1.f})
+			{
+				Line(6.f * X, 3.f * Y, 6.f * X, 6.f * Y);
+				Line(6.f * X, 6.f * Y, 3.f * X, 6.f * Y);
+			}
+		}
+
+		Line(-3.f, 0.f, -1.f, 2.f);
+		Line(-1.f, 2.f, 3.f, -2.f);
 	}
 	else if (Icon == EToolUIMenuIcon::Add)
 	{

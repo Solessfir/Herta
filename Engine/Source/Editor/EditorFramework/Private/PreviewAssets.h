@@ -37,7 +37,7 @@ struct FPreviewMeshSlot
 	bool bLoading = false;
 	std::string Error;
 
-	// Only the newest request for a slot may publish its result.
+	// Only the newest request for an asset may publish its result.
 	std::uint64_t Generation = 0;
 };
 
@@ -77,6 +77,8 @@ public:
 
 	// Requests made before the first scan finishes wait for it.
 	void RequestMesh(std::size_t Object, const FAssetId& Asset);
+	// Scene edits change bindings, not the lifetime of loaded meshes or pending cooks.
+	void RebindObjects(std::span<const FAssetId> Assets);
 
 	[[nodiscard]] std::span<const FPreviewAssetOption> GetOptions() const noexcept
 	{
@@ -110,15 +112,22 @@ private:
 
 	struct FMeshLoad;
 
+	struct FCachedMesh
+	{
+		FPreviewMeshSlot Slot;
+		std::uint64_t RequestContentGeneration = 0;
+	};
+
 	FPreviewAssets(FTaskSystem& Tasks, IGraphicsDevice& Device, FLogService& Log, FEditorAssetPaths Paths, std::size_t ObjectCount, std::unique_ptr<FTaskScope> Scope);
 	void PublishScan(const std::vector<std::expected<FContentScanResult, FAssetError>>& Results);
 	void ContentChanged();
-	void StartLoad(std::size_t Object);
+	FPreviewMeshSlot& GetOrLoadMesh(const FAssetId& Asset);
+	void StartLoad(const FAssetId& Asset);
 	[[nodiscard]] bool SubmitCook(const FLocation& Location, const std::string& Label, std::function<void(FMeshLoad&)> Publish);
-	void PublishMesh(std::size_t Object, std::uint64_t Generation, FMeshLoad& Load);
+	void PublishMesh(const FAssetId& Asset, std::uint64_t Generation, FMeshLoad& Load);
 	void ReimportShownAssets();
-	void PublishReimport(const FAssetId& Asset, const std::vector<std::pair<std::size_t, std::uint64_t>>& Targets, FMeshLoad& Load);
-	[[nodiscard]] const FPreviewMeshSlot* FindLoadedSlot(const FAssetId& Asset, std::size_t ExcludedObject) const;
+	void PublishSlots(const FPreviewMeshSlot& Slot);
+	void PruneCache();
 
 	FTaskSystem& Tasks;
 	IGraphicsDevice& Device;
@@ -131,6 +140,8 @@ private:
 	std::map<FAssetId, FLocation> Locations;
 
 	std::vector<FPreviewMeshSlot> Slots;
+	std::map<FAssetId, FCachedMesh> MeshCache;
+	std::uint64_t RequestGeneration = 0;
 	std::uint64_t ContentGeneration = 0;
 
 	bool bScanning = false;

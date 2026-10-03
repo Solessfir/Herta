@@ -6,7 +6,9 @@
 #include "Herta/Core/Log.h"
 #include "Herta/Tasks/TaskSystem.h"
 
+#include <algorithm>
 #include <format>
+#include <set>
 #include <utility>
 
 namespace Herta
@@ -312,11 +314,11 @@ void FPreviewAssets::PublishScan(const std::vector<std::expected<FContentScanRes
 	// The first scan releases requests made before it, such as the default preview meshes at startup.
 	if (!std::exchange(bScanned, true))
 	{
-		for (std::size_t Object = 0; Object < Slots.size(); ++Object)
+		for (const auto& [Asset, Cached] : MeshCache)
 		{
-			if (Slots[Object].bLoading)
+			if (Cached.Slot.bLoading)
 			{
-				StartLoad(Object);
+				StartLoad(Asset);
 			}
 		}
 	}
@@ -330,62 +332,134 @@ void FPreviewAssets::PublishScan(const std::vector<std::expected<FContentScanRes
 void FPreviewAssets::RequestMesh(const std::size_t Object, const FAssetId& Asset)
 {
 	FPreviewMeshSlot& Slot = Slots.at(Object);
-	++Slot.Generation;
-	Slot.Asset = Asset;
-	Slot.Label = Asset.ToString();
-	Slot.bLoading = true;
-	Slot.Error.clear();
-
-	if (bScanned)
+	const FPreviewMeshSlot Previous = Slot;
+	const auto Existing = MeshCache.find(Asset);
+	if (bScanned && !bReimportAfterScan && Existing != MeshCache.end() && !Existing->second.Slot.bLoading && !Existing->second.Slot.Error.empty() && Existing->second.RequestContentGeneration == ContentGeneration)
 	{
-		StartLoad(Object);
+		StartLoad(Asset);
 	}
+
+	const FPreviewMeshSlot& Cached = GetOrLoadMesh(Asset);
+	Slot = Cached;
+
+	// Keep the old selection visible until its replacement finishes, without caching it under the new asset.
+	if (Previous.Asset != Asset && Cached.bLoading && (!Cached.Mesh || Cached.ContentGeneration != ContentGeneration))
+	{
+		Slot.Mesh = Previous.Mesh;
+		Slot.Key = Previous.Key;
+	}
+
+	PruneCache();
+}
+
+void FPreviewAssets::RebindObjects(const std::span<const FAssetId> Assets)
+{
+	std::vector<FPreviewMeshSlot> Rebound;
+	Rebound.reserve(Assets.size());
+
+	for (const FAssetId& Asset : Assets)
+	{
+		FPreviewMeshSlot Slot = GetOrLoadMesh(Asset);
+		if (Slot.bLoading)
+		{
+			const auto Previous = std::ranges::find_if(Slots, [&Asset](const FPreviewMeshSlot& View)
+			{
+				return View.Asset == Asset && View.Mesh;
+			});
+
+			if (Previous != Slots.end())
+			{
+				Slot.Mesh = Previous->Mesh;
+				Slot.Key = Previous->Key;
+			}
+		}
+
+		Rebound.push_back(std::move(Slot));
+	}
+
+	Slots = std::move(Rebound);
+	PruneCache();
+}
+
+FPreviewMeshSlot& FPreviewAssets::GetOrLoadMesh(const FAssetId& Asset)
+{
+	auto [Entry, bInserted] = MeshCache.try_emplace(Asset);
+	FCachedMesh& Cached = Entry->second;
+	if (bInserted)
+	{
+		Cached.Slot.Asset = Asset;
+		Cached.Slot.Label = Asset.ToString();
+		Cached.Slot.bLoading = true;
+		Cached.RequestContentGeneration = ContentGeneration;
+	}
+
+	if (bScanned && !bReimportAfterScan && (bInserted || Cached.RequestContentGeneration != ContentGeneration))
+	{
+		StartLoad(Asset);
+	}
+	else if (Cached.RequestContentGeneration != ContentGeneration)
+	{
+		Cached.Slot.bLoading = true;
+	}
+
+	return Cached.Slot;
 }
 
 void FPreviewAssets::ContentChanged()
 {
 	++ContentGeneration;
+	PruneCache();
 	bReimportAfterScan = true;
 	RequestScan();
 }
 
-void FPreviewAssets::StartLoad(const std::size_t Object)
+void FPreviewAssets::StartLoad(const FAssetId& Asset)
 {
-	FPreviewMeshSlot& Slot = Slots[Object];
+	FCachedMesh& Cached = MeshCache.at(Asset);
+	FPreviewMeshSlot& Slot = Cached.Slot;
+	Cached.RequestContentGeneration = ContentGeneration;
+	Slot.Generation = ++RequestGeneration;
+	if (RequestGeneration == 0)
+	{
+		std::terminate();
+	}
+
+	Slot.bLoading = true;
+	Slot.Error.clear();
+
 	const auto Location = Locations.find(Slot.Asset);
 	if (Location == Locations.end())
 	{
 		Slot.bLoading = false;
-		Slot.Mesh.reset();
-		Slot.Key = {};
-		Slot.Error = std::format("Asset {} is not registered in content", Slot.Asset.ToString());
+		Slot.Error = Slot.Mesh ? std::format("{} is no longer registered; keeping the previous version", Slot.Label) : std::format("Asset {} is not registered in content", Slot.Asset.ToString());
 		HERTA_LOG_ERROR(Log, AssetLog, "{}", Slot.Error);
+		PublishSlots(Slot);
 		return;
 	}
 
 	Slot.Label = std::format("{}/{}", Mounts[Location->second.Mount].Name, Location->second.SourcePath);
 
-	if (const FPreviewMeshSlot* const Shared = FindLoadedSlot(Slot.Asset, Object))
+	for (FPreviewMeshSlot& View : Slots)
 	{
-		Slot.Mesh = Shared->Mesh;
-		Slot.Key = Shared->Key;
-		Slot.ContentGeneration = Shared->ContentGeneration;
-		Slot.bLoading = false;
-		return;
+		if (View.Asset == Asset)
+		{
+			View.Generation = Slot.Generation;
+			View.bLoading = true;
+			View.Error.clear();
+		}
 	}
 
-	const bool bSubmitted = SubmitCook(Location->second, Slot.Label, [this, Object, Generation = Slot.Generation](FMeshLoad& Load)
+	const bool bSubmitted = SubmitCook(Location->second, Slot.Label, [this, Asset, Generation = Slot.Generation](FMeshLoad& Load)
 	{
-		PublishMesh(Object, Generation, Load);
+		PublishMesh(Asset, Generation, Load);
 	});
 
 	if (!bSubmitted)
 	{
 		Slot.bLoading = false;
-		Slot.Mesh.reset();
-		Slot.Key = {};
 		Slot.Error = std::format("Could not schedule cooking {}", Slot.Label);
 		HERTA_LOG_ERROR(Log, AssetLog, "{}", Slot.Error);
+		PublishSlots(Slot);
 	}
 }
 
@@ -438,152 +512,64 @@ bool FPreviewAssets::SubmitCook(const FLocation& Location, const std::string& La
 
 void FPreviewAssets::ReimportShownAssets()
 {
-	// One cook per asset, published to every object showing it. Failed loads retry too, since the edit may be their fix.
-	std::map<FAssetId, std::vector<std::pair<std::size_t, std::uint64_t>>> Targets;
+	// One cook per shown asset, including failed loads that an edit may have fixed.
+	std::set<FAssetId> Shown;
 
-	for (std::size_t Object = 0; Object < Slots.size(); ++Object)
+	for (const FPreviewMeshSlot& Slot : Slots)
 	{
-		FPreviewMeshSlot& Slot = Slots[Object];
-		if (Slot.bLoading)
+		if (MeshCache.contains(Slot.Asset))
 		{
-			++Slot.Generation;
-			StartLoad(Object);
-		}
-		else if (Slot.Mesh || !Slot.Error.empty())
-		{
-			Targets[Slot.Asset].emplace_back(Object, Slot.Generation);
+			Shown.insert(Slot.Asset);
 		}
 	}
 
-	for (const auto& [Asset, Objects] : Targets)
+	for (const FAssetId& Asset : Shown)
 	{
-		const auto Location = Locations.find(Asset);
-		if (Location == Locations.end())
-		{
-			for (const auto& [Object, Generation] : Objects)
-			{
-				Slots[Object].Error = std::format("{} is no longer registered; keeping the previous version", Slots[Object].Label);
-			}
+		StartLoad(Asset);
+	}
+}
 
-			HERTA_LOG_ERROR(Log, AssetLog, "{}", Slots[Objects.front().first].Error);
-			continue;
+void FPreviewAssets::PublishSlots(const FPreviewMeshSlot& Slot)
+{
+	for (FPreviewMeshSlot& View : Slots)
+	{
+		if (View.Asset == Slot.Asset)
+		{
+			View = Slot;
 		}
+	}
+}
 
-		const std::string Label = std::format("{}/{}", Mounts[Location->second.Mount].Name, Location->second.SourcePath);
-		const bool bSubmitted = SubmitCook(Location->second, Label, [this, Asset, Objects](FMeshLoad& Load)
+void FPreviewAssets::PruneCache()
+{
+	std::erase_if(MeshCache, [this](const auto& Entry)
+	{
+		const auto& [Asset, Cached] = Entry;
+		return (!Cached.Slot.bLoading || Cached.Slot.Generation == 0 || Cached.RequestContentGeneration != ContentGeneration) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
 		{
-			PublishReimport(Asset, Objects, Load);
+			return Slot.Asset == Asset;
 		});
-
-		if (!bSubmitted)
-		{
-			HERTA_LOG_ERROR(Log, AssetLog, "Could not schedule reimporting {}", Label);
-		}
-	}
+	});
 }
 
-void FPreviewAssets::PublishReimport(const FAssetId& Asset, const std::vector<std::pair<std::size_t, std::uint64_t>>& Targets, FMeshLoad& Load)
+void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Generation, FMeshLoad& Load)
 {
-	// A newer request for an object replaced what it shows, so this reimport no longer applies to it.
-	std::vector<FPreviewMeshSlot*> Current;
-
-	for (const auto& [Object, Generation] : Targets)
-	{
-		FPreviewMeshSlot& Slot = Slots[Object];
-		if (Slot.Generation == Generation && Slot.Asset == Asset && !Slot.bLoading)
-		{
-			Current.push_back(&Slot);
-		}
-	}
-
-	if (Current.empty())
+	const auto Entry = MeshCache.find(Asset);
+	if (Entry == MeshCache.end() || Entry->second.Slot.Generation != Generation)
 	{
 		return;
 	}
 
-	const std::string Label = Current.front()->Label;
-
-	for (const std::string& Warning : Load.Warnings)
+	if (std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
 	{
-		HERTA_LOG_WARNING(Log, AssetLog, "{}: {}", Label, Warning);
-	}
-
-	const auto Fail = [&](const std::string& Message)
+		return Slot.Asset == Asset;
+	}))
 	{
-		for (FPreviewMeshSlot* const Slot : Current)
-		{
-			Slot->Error = std::format("Reimport failed; keeping the previous version: {}", Message);
-		}
-
-		HERTA_LOG_ERROR(Log, AssetLog, "{}: {}", Label, Current.front()->Error);
-	};
-
-	if (!Load.Model)
-	{
-		Fail(Load.Model.error().Message);
+		MeshCache.erase(Entry);
 		return;
 	}
 
-	const FPreviewMeshSlot* Shared = FindLoadedSlot(Asset, Slots.size());
-	if (Shared == nullptr || Shared->Key != Load.Key)
-	{
-		Shared = Current.front();
-	}
-
-	// Keep an unchanged mesh, or share a current load that finished before this reimport.
-	if (Load.Key == Shared->Key && Shared->Mesh)
-	{
-		for (FPreviewMeshSlot* const Slot : Current)
-		{
-			Slot->Mesh = Shared->Mesh;
-			Slot->Key = Load.Key;
-			Slot->ContentGeneration = ContentGeneration;
-			Slot->Error.clear();
-		}
-
-		return;
-	}
-
-	std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> Mesh = FRenderMesh::Create(Device, *Load.Model, Label);
-	if (!Mesh)
-	{
-		Fail(Mesh.error().Message);
-		return;
-	}
-
-	for (FPreviewMeshSlot* const Slot : Current)
-	{
-		Slot->Mesh = *Mesh;
-		Slot->Key = Load.Key;
-		Slot->ContentGeneration = ContentGeneration;
-		Slot->Error.clear();
-	}
-
-	HERTA_LOG_INFO(Log, AssetLog, "Reimported {}", Label);
-}
-
-const FPreviewMeshSlot* FPreviewAssets::FindLoadedSlot(const FAssetId& Asset, const std::size_t ExcludedObject) const
-{
-	// The requesting slot is excluded because it may still hold the mesh of the asset it is replacing.
-	for (std::size_t Object = 0; Object < Slots.size(); ++Object)
-	{
-		const FPreviewMeshSlot& Slot = Slots[Object];
-		if (Object != ExcludedObject && Slot.Asset == Asset && Slot.Mesh && !Slot.bLoading && Slot.ContentGeneration == ContentGeneration)
-		{
-			return &Slot;
-		}
-	}
-
-	return nullptr;
-}
-
-void FPreviewAssets::PublishMesh(const std::size_t Object, const std::uint64_t Generation, FMeshLoad& Load)
-{
-	FPreviewMeshSlot& Slot = Slots[Object];
-	if (Slot.Generation != Generation)
-	{
-		return;
-	}
+	FPreviewMeshSlot& Slot = Entry->second.Slot;
 
 	Slot.bLoading = false;
 
@@ -592,38 +578,34 @@ void FPreviewAssets::PublishMesh(const std::size_t Object, const std::uint64_t G
 		HERTA_LOG_WARNING(Log, AssetLog, "{}: {}", Slot.Label, Warning);
 	}
 
-	// The previous mesh stays visible while a replacement cooks, but a failure clears it so the viewport matches the selection.
 	if (!Load.Model)
 	{
-		Slot.Mesh.reset();
-		Slot.Key = {};
-		Slot.Error = Load.Model.error().Message;
+		Slot.Error = Slot.Mesh ? std::format("Reimport failed; keeping the previous version: {}", Load.Model.error().Message) : Load.Model.error().Message;
 		HERTA_LOG_ERROR(Log, AssetLog, "{}", Slot.Error);
+		PublishSlots(Slot);
 		return;
 	}
 
-	// Objects that requested the same asset at once share one GPU copy.
-	if (const FPreviewMeshSlot* const Shared = FindLoadedSlot(Slot.Asset, Object); Shared != nullptr && Shared->Key == Load.Key)
+	if (Slot.Mesh && Slot.Key == Load.Key)
 	{
-		Slot.Mesh = Shared->Mesh;
-		Slot.Key = Shared->Key;
-		Slot.ContentGeneration = Shared->ContentGeneration;
+		Slot.ContentGeneration = ContentGeneration;
+		PublishSlots(Slot);
 		return;
 	}
 
 	std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> Mesh = FRenderMesh::Create(Device, *Load.Model, Slot.Label);
 	if (!Mesh)
 	{
-		Slot.Mesh.reset();
-		Slot.Key = {};
-		Slot.Error = Mesh.error().Message;
+		Slot.Error = Slot.Mesh ? std::format("Reimport failed; keeping the previous version: {}", Mesh.error().Message) : Mesh.error().Message;
 		HERTA_LOG_ERROR(Log, AssetLog, "Could not upload {}: {}", Slot.Label, Slot.Error);
+		PublishSlots(Slot);
 		return;
 	}
 
 	Slot.Mesh = std::move(*Mesh);
 	Slot.Key = Load.Key;
 	Slot.ContentGeneration = ContentGeneration;
+	PublishSlots(Slot);
 	HERTA_LOG_INFO(Log, AssetLog, "Loaded {} ({})", Slot.Label, Load.bCacheHit ? "cached" : "cooked");
 }
 }
