@@ -51,7 +51,7 @@ struct FProcessResult
 };
 
 // Blocks the calling thread, so run it on a blocking-IO task. Standard input is empty.
-// Timeout and cancellation kill the whole process tree: a job object on Windows, a process group on Linux.
+// Timeout and cancellation kill the process group on Linux or job on Windows. Nested Linux launches also die with their spawning thread.
 [[nodiscard]] std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& Request);
 
 [[nodiscard]] std::filesystem::path GetExecutablePath();

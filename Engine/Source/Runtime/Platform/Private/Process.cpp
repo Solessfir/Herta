@@ -15,13 +15,15 @@
 	#include <type_traits>
 #else
 	#include <fcntl.h>
-	#include <spawn.h>
+	#include <sys/prctl.h>
+	#include <sys/syscall.h>
 	#include <sys/wait.h>
 	#include <unistd.h>
 
 	#include <cerrno>
 	#include <csignal>
 	#include <cstring>
+	#include <limits>
 	#include <thread>
 #endif
 
@@ -344,6 +346,15 @@ public:
 		return Value;
 	}
 
+	void Close() noexcept
+	{
+		if (Value >= 0)
+		{
+			close(Value);
+			Value = -1;
+		}
+	}
+
 private:
 	int Value;
 };
@@ -409,6 +420,14 @@ private:
 
 	return WIFSIGNALED(Status) ? 128 + WTERMSIG(Status) : -1;
 }
+
+[[noreturn]] void ReportLaunchFailure(const int Descriptor, const int Error) noexcept
+{
+	while (write(Descriptor, &Error, sizeof(Error)) < 0 && errno == EINTR)
+	{
+	}
+	_exit(127);
+}
 }
 
 std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& Request)
@@ -425,20 +444,6 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 		return Failure(EProcessErrorCode::LaunchFailed, "Cannot create process output files", errno);
 	}
 
-	posix_spawn_file_actions_t Actions;
-	posix_spawn_file_actions_init(&Actions);
-	posix_spawn_file_actions_addopen(&Actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
-	posix_spawn_file_actions_adddup2(&Actions, Output.Get(), STDOUT_FILENO);
-	posix_spawn_file_actions_adddup2(&Actions, ErrorOutput.Get(), STDERR_FILENO);
-	// Descriptors the editor opened without O_CLOEXEC must not leak into the child.
-	posix_spawn_file_actions_addclosefrom_np(&Actions, STDERR_FILENO + 1);
-
-	// A new process group lets cancellation kill every process the child started.
-	posix_spawnattr_t Attributes;
-	posix_spawnattr_init(&Attributes);
-	posix_spawnattr_setflags(&Attributes, POSIX_SPAWN_SETPGROUP);
-	posix_spawnattr_setpgroup(&Attributes, 0);
-
 	const std::string Executable = Request.Executable.string();
 	std::vector<char*> Arguments;
 	Arguments.push_back(const_cast<char*>(Executable.c_str()));
@@ -449,13 +454,87 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 
 	Arguments.push_back(nullptr);
 
-	pid_t Process = 0;
-	const int SpawnError = posix_spawn(&Process, Executable.c_str(), &Actions, &Attributes, Arguments.data(), environ);
-	posix_spawn_file_actions_destroy(&Actions);
-	posix_spawnattr_destroy(&Attributes);
-	if (SpawnError != 0)
+	std::array<int, 2> LaunchPipe{};
+	if (pipe2(LaunchPipe.data(), O_CLOEXEC) != 0)
 	{
-		return Failure(EProcessErrorCode::LaunchFailed, std::format("Cannot start '{}'", Executable), SpawnError);
+		return Failure(EProcessErrorCode::LaunchFailed, "Cannot create the process launch pipe", errno);
+	}
+	const FFileDescriptor LaunchRead(LaunchPipe[0]);
+	FFileDescriptor LaunchWrite(LaunchPipe[1]);
+	const long MaximumDescriptors = sysconf(_SC_OPEN_MAX);
+	if (MaximumDescriptors < 0)
+	{
+		return Failure(EProcessErrorCode::LaunchFailed, "Cannot query the process descriptor limit", errno);
+	}
+	const int OutputDescriptor = Output.Get();
+	const int ErrorDescriptor = ErrorOutput.Get();
+	const int LaunchWriteDescriptor = LaunchWrite.Get();
+	const char* const ExecutableName = Executable.c_str();
+	char* const* const ArgumentData = Arguments.data();
+	char* const* const Environment = environ;
+	const pid_t Parent = getpid();
+	const pid_t ParentThread = gettid();
+	// posix_spawn cannot set a parent-death signal. The child uses only native calls until exec, because other threads may hold library locks.
+	const pid_t Process = _Fork();
+	if (Process < 0)
+	{
+		return Failure(EProcessErrorCode::LaunchFailed, std::format("Cannot start '{}'", Executable), errno);
+	}
+	if (Process == 0)
+	{
+		int FailureDescriptor = LaunchWriteDescriptor;
+		// Linux watches the spawning thread, which stays alive for this blocking call. Verify the parent after arming the signal to close the fork race.
+		if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || setpgid(0, 0) != 0)
+		{
+			ReportLaunchFailure(FailureDescriptor, errno);
+		}
+		if (getppid() != Parent || syscall(SYS_tgkill, Parent, ParentThread, 0) != 0)
+		{
+			ReportLaunchFailure(FailureDescriptor, ECHILD);
+		}
+		const int Input = open("/dev/null", O_RDONLY);
+		if (Input < 0 || dup2(Input, STDIN_FILENO) < 0 || dup2(OutputDescriptor, STDOUT_FILENO) < 0 || dup2(ErrorDescriptor, STDERR_FILENO) < 0)
+		{
+			ReportLaunchFailure(FailureDescriptor, errno);
+		}
+		constexpr int LaunchDescriptor = STDERR_FILENO + 1;
+		if (FailureDescriptor != LaunchDescriptor && dup3(FailureDescriptor, LaunchDescriptor, O_CLOEXEC) < 0)
+		{
+			ReportLaunchFailure(FailureDescriptor, errno);
+		}
+		FailureDescriptor = LaunchDescriptor;
+		// Keep the error pipe until exec, but never inherit unrelated editor descriptors.
+		if (syscall(SYS_close_range, LaunchDescriptor + 1, std::numeric_limits<unsigned int>::max(), 0) < 0)
+		{
+			for (long Descriptor = LaunchDescriptor + 1; Descriptor < MaximumDescriptors; ++Descriptor)
+			{
+				close(static_cast<int>(Descriptor));
+			}
+		}
+		execve(ExecutableName, ArgumentData, Environment);
+		ReportLaunchFailure(FailureDescriptor, errno);
+	}
+
+	LaunchWrite.Close();
+	int LaunchError = 0;
+	ssize_t Read = 0;
+	do
+	{
+		Read = read(LaunchRead.Get(), &LaunchError, sizeof(LaunchError));
+	} while (Read < 0 && errno == EINTR);
+	if (Read != 0)
+	{
+		if (Read < 0)
+		{
+			LaunchError = errno;
+			kill(-Process, SIGKILL);
+			kill(Process, SIGKILL);
+		}
+		int Status = 0;
+		while (waitpid(Process, &Status, 0) < 0 && errno == EINTR)
+		{
+		}
+		return Failure(EProcessErrorCode::LaunchFailed, std::format("Cannot start '{}'", Executable), LaunchError);
 	}
 
 	const auto Started = std::chrono::steady_clock::now();
