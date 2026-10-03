@@ -76,13 +76,13 @@ public:
 	FOutputLogModel(FOutputLogModel&&) = delete;
 	FOutputLogModel& operator=(FOutputLogModel&&) = delete;
 
-	[[nodiscard]] std::expected<bool, FOutputLogError> Synchronize();
+	bool Synchronize();
 	void Clear() noexcept;
 	void SetPaused(bool bPaused) noexcept;
 	void SetAutoScroll(bool bAutoScroll) noexcept;
 	void SetCategoryColorization(bool bEnabled) noexcept;
-	[[nodiscard]] std::expected<void, FOutputLogError> SetSearch(std::string Search);
-	[[nodiscard]] std::expected<void, FOutputLogError> SetLevelVisible(ELogLevel Level, bool bVisible);
+	void SetSearch(std::string Search);
+	void SetLevelVisible(ELogLevel Level, bool bVisible);
 
 	[[nodiscard]] bool IsPaused() const noexcept;
 	[[nodiscard]] bool IsAutoScroll() const noexcept;
@@ -93,13 +93,13 @@ public:
 	[[nodiscard]] std::span<const std::string> GetVisibleText() const noexcept;
 	[[nodiscard]] FLogTextSelection& GetSelection() noexcept;
 	[[nodiscard]] const FLogTextSelection& GetSelection() const noexcept;
-	[[nodiscard]] std::expected<std::string, FOutputLogError> CopySelectionOrVisible() const;
+	[[nodiscard]] std::string CopySelectionOrVisible() const;
 
 	// Lines starting with '!' go to the shell runner instead of the command registry.
 	[[nodiscard]] std::expected<void, FOutputLogError> SubmitCommand(std::string_view CommandLine);
 	void SetShellRunner(std::function<void(std::string)> Runner);
-	[[nodiscard]] std::expected<std::vector<std::string>, FOutputLogError> CompleteCommand(std::string_view Prefix, std::size_t MaximumResults = 8) const;
-	[[nodiscard]] std::expected<std::string, FOutputLogError> NavigateHistory(int Direction);
+	[[nodiscard]] std::vector<std::string> CompleteCommand(std::string_view Prefix, std::size_t MaximumResults = 8) const;
+	[[nodiscard]] std::string NavigateHistory(int Direction);
 	[[nodiscard]] std::span<const std::string> GetCommandHistory() const noexcept;
 
 	[[nodiscard]] bool HasTailRequest() const noexcept;

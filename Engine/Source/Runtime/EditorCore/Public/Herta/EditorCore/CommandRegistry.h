@@ -13,22 +13,18 @@ namespace Herta
 {
 enum class EEditorCommandErrorCode : std::uint8_t
 {
-	RegistryUnavailable,
 	InvalidDescriptor,
 	AlreadyRegistered,
 	ParseError,
 	EmptyCommandLine,
 	UnknownCommand,
-	ExecutionFailed,
-	InternalError
+	ExecutionFailed
 };
 
 [[nodiscard]] constexpr std::string_view GetEditorCommandErrorCodeName(const EEditorCommandErrorCode Code) noexcept
 {
 	switch (Code)
 	{
-		case EEditorCommandErrorCode::RegistryUnavailable:
-			return "registry_unavailable";
 		case EEditorCommandErrorCode::InvalidDescriptor:
 			return "invalid_descriptor";
 		case EEditorCommandErrorCode::AlreadyRegistered:
@@ -41,16 +37,14 @@ enum class EEditorCommandErrorCode : std::uint8_t
 			return "unknown_command";
 		case EEditorCommandErrorCode::ExecutionFailed:
 			return "execution_failed";
-		case EEditorCommandErrorCode::InternalError:
-			return "internal_error";
 	}
 
-	return "internal_error";
+	return "unknown";
 }
 
 struct FEditorCommandError
 {
-	EEditorCommandErrorCode Code = EEditorCommandErrorCode::InternalError;
+	EEditorCommandErrorCode Code = EEditorCommandErrorCode::ExecutionFailed;
 	std::string Message;
 };
 
@@ -80,7 +74,7 @@ class FEditorCommandRegistry final
 public:
 	struct FImplementation;
 
-	FEditorCommandRegistry() noexcept;
+	FEditorCommandRegistry();
 	~FEditorCommandRegistry();
 
 	FEditorCommandRegistry(const FEditorCommandRegistry&) = delete;
@@ -90,8 +84,8 @@ public:
 
 	[[nodiscard]] std::expected<void, FEditorCommandError> Register(FEditorCommandDescriptor Descriptor);
 	[[nodiscard]] std::expected<FEditorCommandResult, FEditorCommandError> Execute(std::string_view CommandLine) const;
-	[[nodiscard]] std::expected<std::vector<std::string>, FEditorCommandError> Complete(std::string_view Prefix, std::size_t MaximumResults = 8) const;
-	[[nodiscard]] std::expected<std::vector<FEditorCommandInfo>, FEditorCommandError> List() const;
+	[[nodiscard]] std::vector<std::string> Complete(std::string_view Prefix, std::size_t MaximumResults = 8) const;
+	[[nodiscard]] std::vector<FEditorCommandInfo> List() const;
 
 private:
 	[[nodiscard]] std::expected<void, FEditorCommandError> RegisterBatch(std::vector<FEditorCommandDescriptor> Descriptors);

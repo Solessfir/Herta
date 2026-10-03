@@ -583,49 +583,42 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		return std::unexpected(FEditorFrameworkError{std::move(OutputLog.error().Message)});
 	}
 
-	try
+	auto Implementation = std::make_unique<FImplementation>();
+	Implementation->ToolUI = Descriptor.ToolUI;
+	Implementation->OutputLog = std::move(*OutputLog);
+	Implementation->Log = Descriptor.Log;
+	if (Descriptor.Tasks != nullptr)
 	{
-		auto Implementation = std::make_unique<FImplementation>();
-		Implementation->ToolUI = Descriptor.ToolUI;
-		Implementation->OutputLog = std::move(*OutputLog);
-		Implementation->Log = Descriptor.Log;
-		if (Descriptor.Tasks != nullptr)
+		if (std::expected<std::unique_ptr<FTaskScope>, FTaskError> Scope = Descriptor.Tasks->CreateScope("Shell commands"))
 		{
-			if (std::expected<std::unique_ptr<FTaskScope>, FTaskError> Scope = Descriptor.Tasks->CreateScope("Shell commands"))
+			Implementation->Shell = std::make_unique<FShellRunner>(*Descriptor.Tasks, *Descriptor.Log, std::move(*Scope));
+			Implementation->OutputLog->SetShellRunner([Shell = Implementation->Shell.get()](std::string Command)
 			{
-				Implementation->Shell = std::make_unique<FShellRunner>(*Descriptor.Tasks, *Descriptor.Log, std::move(*Scope));
-				Implementation->OutputLog->SetShellRunner([Shell = Implementation->Shell.get()](std::string Command)
-				{
-					Shell->Run(std::move(Command));
-				});
-			}
+				Shell->Run(std::move(Command));
+			});
 		}
-
-		const FEditorAssetPaths& Paths = Descriptor.Assets;
-		if (Descriptor.Tasks != nullptr && Descriptor.GraphicsDevice != nullptr && !Paths.ContentRoot.empty() && !Paths.DerivedDataRoot.empty() && !Paths.WorkerPath.empty() && !Paths.TargetPlatform.empty())
-		{
-			Implementation->Assets = FPreviewAssets::Create(*Descriptor.Tasks, *Descriptor.GraphicsDevice, *Descriptor.Log, Paths, Implementation->PreviewObjects.size());
-		}
-
-		if (Implementation->Assets)
-		{
-			for (std::size_t Index = 0; Index < Implementation->PreviewObjects.size(); ++Index)
-			{
-				Implementation->Assets->RequestMesh(Index, Implementation->PreviewObjects[Index].Mesh);
-			}
-		}
-
-		if (auto Result = RegisterViewportStatsCommand(*Descriptor.Commands, Implementation->Stats); !Result)
-		{
-			return std::unexpected(FEditorFrameworkError{std::move(Result.error().Message)});
-		}
-
-		return std::unique_ptr<FEditorFramework>(new FEditorFramework(std::move(Implementation)));
 	}
-	catch (const std::exception& Exception)
+
+	const FEditorAssetPaths& Paths = Descriptor.Assets;
+	if (Descriptor.Tasks != nullptr && Descriptor.GraphicsDevice != nullptr && !Paths.ContentRoot.empty() && !Paths.DerivedDataRoot.empty() && !Paths.WorkerPath.empty() && !Paths.TargetPlatform.empty())
 	{
-		return std::unexpected(FEditorFrameworkError{Exception.what()});
+		Implementation->Assets = FPreviewAssets::Create(*Descriptor.Tasks, *Descriptor.GraphicsDevice, *Descriptor.Log, Paths, Implementation->PreviewObjects.size());
 	}
+
+	if (Implementation->Assets)
+	{
+		for (std::size_t Index = 0; Index < Implementation->PreviewObjects.size(); ++Index)
+		{
+			Implementation->Assets->RequestMesh(Index, Implementation->PreviewObjects[Index].Mesh);
+		}
+	}
+
+	if (auto Result = RegisterViewportStatsCommand(*Descriptor.Commands, Implementation->Stats); !Result)
+	{
+		return std::unexpected(FEditorFrameworkError{std::move(Result.error().Message)});
+	}
+
+	return std::unique_ptr<FEditorFramework>(new FEditorFramework(std::move(Implementation)));
 }
 
 FEditorFramework::FEditorFramework(std::unique_ptr<FImplementation> Implementation) noexcept
@@ -648,200 +641,189 @@ bool FEditorFramework::IsUnitStatsVisible() const noexcept
 
 std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::function<void()>& RenderViewport)
 {
-	try
+	ImGuiIO& IO = ImGui::GetIO();
+	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyMods == 0 && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_F11, false))
 	{
-		ImGuiIO& IO = ImGui::GetIO();
-		if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyMods == 0 && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_F11, false))
-		{
-			Implementation->ToolUI->SetViewportImmersive(!Implementation->ToolUI->IsViewportImmersive());
-		}
+		Implementation->ToolUI->SetViewportImmersive(!Implementation->ToolUI->IsViewportImmersive());
+	}
 
-		Implementation->bSimulationStoppedThisFrame = false;
-		if (Implementation->Assets)
-		{
-			Implementation->Assets->ImportFiles(Implementation->ToolUI->TakeDroppedFiles());
-			Implementation->Assets->Tick();
-		}
+	Implementation->bSimulationStoppedThisFrame = false;
+	if (Implementation->Assets)
+	{
+		Implementation->Assets->ImportFiles(Implementation->ToolUI->TakeDroppedFiles());
+		Implementation->Assets->Tick();
+	}
 
-		Implementation->RefreshPreviewMeshes();
-		if (!IO.AppFocusLost && Implementation->Simulation.IsRunning() && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
-		{
-			Implementation->ToggleSimulation();
-		}
+	Implementation->RefreshPreviewMeshes();
+	if (!IO.AppFocusLost && Implementation->Simulation.IsRunning() && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+	{
+		Implementation->ToggleSimulation();
+	}
 
-		if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
-		{
-			Implementation->ToggleSimulation();
-		}
+	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+	{
+		Implementation->ToggleSimulation();
+	}
 
-		Implementation->UpdateSimulation(IO.DeltaTime);
-		if (IO.KeyMods == 0 && ImGui::IsKeyPressed(ImGuiKey_GraveAccent, false))
+	Implementation->UpdateSimulation(IO.DeltaTime);
+	if (IO.KeyMods == 0 && ImGui::IsKeyPressed(ImGuiKey_GraveAccent, false))
+	{
+		Implementation->bOutputLogOpen = true;
+		Implementation->bFocusCommandRequested = true;
+		for (int Index = IO.InputQueueCharacters.Size - 1; Index >= 0; --Index)
 		{
-			Implementation->bOutputLogOpen = true;
-			Implementation->bFocusCommandRequested = true;
-			for (int Index = IO.InputQueueCharacters.Size - 1; Index >= 0; --Index)
+			if (IO.InputQueueCharacters[Index] == '`')
 			{
-				if (IO.InputQueueCharacters[Index] == '`')
-				{
-					IO.InputQueueCharacters.erase(IO.InputQueueCharacters.begin() + Index);
-				}
+				IO.InputQueueCharacters.erase(IO.InputQueueCharacters.begin() + Index);
 			}
 		}
+	}
 
-		bool bImportRequested = false;
-		Implementation->ToolUI->DrawWorkspace("Herta Editor", [&]
+	bool bImportRequested = false;
+	Implementation->ToolUI->DrawWorkspace("Herta Editor", [&]
+	{
+		ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
+		ImGui::Separator();
+		ToolUIMenuItem("Outliner", EToolUIMenuIcon::Outliner, &Implementation->bOutlinerOpen);
+		ToolUIMenuItem("Details", EToolUIMenuIcon::Details, &Implementation->bDetailsOpen);
+		ImGui::Separator();
+		ToolUIMenuItem("Output Log", EToolUIMenuIcon::Log, &Implementation->bOutputLogOpen);
+	}, [&]
+	{
+		const float Scale = ImGui::GetFontSize() / Implementation->ToolUI->GetMetrics().BaseFontSize;
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.f * Scale, (26.f * Scale - ImGui::GetFontSize()) * 0.5f});
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f * Scale);
+		ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
+		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
+		ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
+		const auto StatusButton = [Scale](const char* Label, const bool bAppearance, const bool bSelected)
 		{
-			ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
-			ImGui::Separator();
-			ToolUIMenuItem("Outliner", EToolUIMenuIcon::Outliner, &Implementation->bOutlinerOpen);
-			ToolUIMenuItem("Details", EToolUIMenuIcon::Details, &Implementation->bDetailsOpen);
-			ImGui::Separator();
-			ToolUIMenuItem("Output Log", EToolUIMenuIcon::Log, &Implementation->bOutputLogOpen);
-		}, [&]
-		{
-			const float Scale = ImGui::GetFontSize() / Implementation->ToolUI->GetMetrics().BaseFontSize;
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.f * Scale, (26.f * Scale - ImGui::GetFontSize()) * 0.5f});
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
-			ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f * Scale);
-			ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
-			ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
-			ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
-			const auto StatusButton = [Scale](const char* Label, const bool bAppearance, const bool bSelected)
+			ImGui::PushStyleColor(ImGuiCol_Button, bSelected ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
+			ImGui::PushID(Label);
+			const bool bPressed = ImGui::Button("##Status", {ImGui::CalcTextSize(Label).x + 42.f * Scale, 26.f * Scale});
+			const ImVec2 Minimum = ImGui::GetItemRectMin();
+			const ImVec2 Center{Minimum.x + 16.f * Scale, Minimum.y + 13.f * Scale};
+			ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+			const ImU32 Color = ImGui::GetColorU32(ImGuiCol_Text);
+			if (bAppearance)
 			{
-				ImGui::PushStyleColor(ImGuiCol_Button, bSelected ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
-				ImGui::PushID(Label);
-				const bool bPressed = ImGui::Button("##Status", {ImGui::CalcTextSize(Label).x + 42.f * Scale, 26.f * Scale});
-				const ImVec2 Minimum = ImGui::GetItemRectMin();
-				const ImVec2 Center{Minimum.x + 16.f * Scale, Minimum.y + 13.f * Scale};
-				ImDrawList* const DrawList = ImGui::GetWindowDrawList();
-				const ImU32 Color = ImGui::GetColorU32(ImGuiCol_Text);
-				if (bAppearance)
+				for (int Row = -1; Row <= 1; ++Row)
 				{
-					for (int Row = -1; Row <= 1; ++Row)
-					{
-						const float Y = Center.y + static_cast<float>(Row) * 4.f * Scale;
-						DrawList->AddLine({Center.x - 6.f * Scale, Y}, {Center.x + 6.f * Scale, Y}, Color, Scale);
-						const float X = Center.x + (Row == 0 ? 2.f : -2.f) * Scale;
-						DrawList->AddLine({X, Y - 2.f * Scale}, {X, Y + 2.f * Scale}, Color, 2.f * Scale);
-					}
+					const float Y = Center.y + static_cast<float>(Row) * 4.f * Scale;
+					DrawList->AddLine({Center.x - 6.f * Scale, Y}, {Center.x + 6.f * Scale, Y}, Color, Scale);
+					const float X = Center.x + (Row == 0 ? 2.f : -2.f) * Scale;
+					DrawList->AddLine({X, Y - 2.f * Scale}, {X, Y + 2.f * Scale}, Color, 2.f * Scale);
 				}
-				else
-				{
-					DrawList->AddLine({Center.x - 6.f * Scale, Center.y - 4.f * Scale}, {Center.x - 2.f * Scale, Center.y}, Color, Scale);
-					DrawList->AddLine({Center.x - 2.f * Scale, Center.y}, {Center.x - 6.f * Scale, Center.y + 4.f * Scale}, Color, Scale);
-					DrawList->AddLine({Center.x + Scale, Center.y + 4.f * Scale}, {Center.x + 6.f * Scale, Center.y + 4.f * Scale}, Color, Scale);
-				}
-
-				DrawList->AddText({Minimum.x + 30.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, Color, Label);
-				ImGui::PopID();
-				ImGui::PopStyleColor();
-				return bPressed;
-			};
-
-			if (StatusButton("Output Log", false, Implementation->bOutputLogOpen))
+			}
+			else
 			{
-				Implementation->bOutputLogOpen = !Implementation->bOutputLogOpen;
+				DrawList->AddLine({Center.x - 6.f * Scale, Center.y - 4.f * Scale}, {Center.x - 2.f * Scale, Center.y}, Color, Scale);
+				DrawList->AddLine({Center.x - 2.f * Scale, Center.y}, {Center.x - 6.f * Scale, Center.y + 4.f * Scale}, Color, Scale);
+				DrawList->AddLine({Center.x + Scale, Center.y + 4.f * Scale}, {Center.x + 6.f * Scale, Center.y + 4.f * Scale}, Color, Scale);
 			}
 
-			ImGui::SameLine();
-			const ImVec2 DotPosition = ImGui::GetCursorScreenPos();
-			ImGui::Dummy({8.f * Scale, 26.f * Scale});
-			ImGui::SameLine(0.f, 3.f * Scale);
+			DrawList->AddText({Minimum.x + 30.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, Color, Label);
+			ImGui::PopID();
+			ImGui::PopStyleColor();
+			return bPressed;
+		};
+
+		if (StatusButton("Output Log", false, Implementation->bOutputLogOpen))
+		{
+			Implementation->bOutputLogOpen = !Implementation->bOutputLogOpen;
+		}
+
+		ImGui::SameLine();
+		const ImVec2 DotPosition = ImGui::GetCursorScreenPos();
+		ImGui::Dummy({8.f * Scale, 26.f * Scale});
+		ImGui::SameLine(0.f, 3.f * Scale);
+		ImGui::AlignTextToFramePadding();
+		ImGui::TextDisabled("Ready");
+		const float ReadyCenterY = (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
+		ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.f * Scale, ReadyCenterY}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
+		ImGui::SameLine();
+		ImGui::TextDisabled("%zu objects", Implementation->PreviewObjects.size());
+		const float Width = ImGui::CalcTextSize("Appearance").x + 42.f * Scale;
+		ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - Width - 12.f));
+		if (StatusButton("Appearance", true, false))
+		{
+			ImGui::OpenPopup("WorkspaceAppearance");
+		}
+
+		ImGui::PopStyleColor(3);
+		ImGui::PopStyleVar(3);
+		// Fixed width so right-aligned fields do not depend on auto-fit content.
+		ImGui::SetNextWindowSize({260.f * Scale, 0.f});
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14.f * Scale, 12.f * Scale});
+		const bool bAppearanceOpen = ImGui::BeginPopup("WorkspaceAppearance");
+		ImGui::PopStyleVar();
+		if (bAppearanceOpen)
+		{
+			FEditorAppearance Appearance = Implementation->ToolUI->GetAppearance();
+			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {ImGui::GetStyle().FramePadding.x, 3.f * Scale});
 			ImGui::AlignTextToFramePadding();
-			ImGui::TextDisabled("Ready");
-			const float ReadyCenterY = (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
-			ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.f * Scale, ReadyCenterY}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
-			ImGui::SameLine();
-			ImGui::TextDisabled("%zu objects", Implementation->PreviewObjects.size());
-			const float Width = ImGui::CalcTextSize("Appearance").x + 42.f * Scale;
-			ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - Width - 12.f));
-			if (StatusButton("Appearance", true, false))
+			ImGui::TextUnformatted("Appearance");
+			const float ResetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2.f;
+			ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ResetWidth);
+			ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+			if (ImGui::Button("Reset"))
 			{
-				ImGui::OpenPopup("WorkspaceAppearance");
+				Appearance = FEditorAppearance{};
 			}
 
-			ImGui::PopStyleColor(3);
-			ImGui::PopStyleVar(3);
-			// Fixed width so right-aligned fields do not depend on auto-fit content.
-			ImGui::SetNextWindowSize({260.f * Scale, 0.f});
-			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14.f * Scale, 12.f * Scale});
-			const bool bAppearanceOpen = ImGui::BeginPopup("WorkspaceAppearance");
-			ImGui::PopStyleVar();
-			if (bAppearanceOpen)
-			{
-				FEditorAppearance Appearance = Implementation->ToolUI->GetAppearance();
-				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {ImGui::GetStyle().FramePadding.x, 3.f * Scale});
-				ImGui::AlignTextToFramePadding();
-				ImGui::TextUnformatted("Appearance");
-				const float ResetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2.f;
-				ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ResetWidth);
-				ImGui::PushStyleColor(ImGuiCol_Button, IM_COL32(0, 0, 0, 0));
-				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-				if (ImGui::Button("Reset"))
-				{
-					Appearance = FEditorAppearance{};
-				}
-
-				ImGui::PopStyleColor(2);
-				ImGui::SetItemTooltip("Restore default appearance");
-				ImGui::Separator();
-				const float ValueWidth = 140.f * Scale;
-				float OpacityPercent = Appearance.PanelOpacity * 100.f;
-				DrawFieldLabel("Panel opacity", ValueWidth);
-				if (DrawNumericSliderFloat("##Opacity", &OpacityPercent, 0.f, 100.f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
-				{
-					Appearance.PanelOpacity = OpacityPercent / 100.f;
-				}
-
-				DrawFieldLabel("Panel blur", ValueWidth);
-				DrawNumericSliderFloat("##Blur", &Appearance.BlurRadius, 0.f, 40.f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
-				DrawFieldLabel("Reduced motion", ValueWidth);
-				ToolUIToggle("##ReducedMotion", &Appearance.bReducedMotion);
-				ImGui::PopStyleVar();
-				Implementation->ToolUI->SetAppearance(Appearance);
-				ImGui::EndPopup();
-			}
-		}, [&]
-		{
-			ImGui::TextUnformatted("Content");
+			ImGui::PopStyleColor(2);
+			ImGui::SetItemTooltip("Restore default appearance");
 			ImGui::Separator();
-			ImGui::BeginDisabled(!Implementation->Assets);
-			bImportRequested = ToolUIMenuItem("Import...", EToolUIMenuIcon::Import);
-			ImGui::EndDisabled();
-		});
+			const float ValueWidth = 140.f * Scale;
+			float OpacityPercent = Appearance.PanelOpacity * 100.f;
+			DrawFieldLabel("Panel opacity", ValueWidth);
+			if (DrawNumericSliderFloat("##Opacity", &OpacityPercent, 0.f, 100.f, "%.0f%%", ImGuiSliderFlags_AlwaysClamp))
+			{
+				Appearance.PanelOpacity = OpacityPercent / 100.f;
+			}
 
-		// The native dialog is modal and blocks this frame, like Unreal's import dialog, so nothing outlives editor shutdown.
-		if (bImportRequested)
-		{
-			Implementation->ImportWithDialog();
+			DrawFieldLabel("Panel blur", ValueWidth);
+			DrawNumericSliderFloat("##Blur", &Appearance.BlurRadius, 0.f, 40.f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
+			DrawFieldLabel("Reduced motion", ValueWidth);
+			ToolUIToggle("##ReducedMotion", &Appearance.bReducedMotion);
+			ImGui::PopStyleVar();
+			Implementation->ToolUI->SetAppearance(Appearance);
+			ImGui::EndPopup();
 		}
-
-		if (Implementation->bStartPanelOpen)
-		{
-			Implementation->DrawStartPanel();
-		}
-
-		if (Implementation->bOutlinerOpen)
-		{
-			Implementation->DrawOutlinerPanel();
-		}
-
-		if (Implementation->bDetailsOpen)
-		{
-			Implementation->DrawDetailsPanel();
-		}
-
-		Implementation->DrawViewport(RenderViewport);
-		return Implementation->DrawOutputLog();
-	}
-	catch (const std::exception& Exception)
+	}, [&]
 	{
-		return std::unexpected(FEditorFrameworkError{Exception.what()});
-	}
-	catch (...)
+		ImGui::TextUnformatted("Content");
+		ImGui::Separator();
+		ImGui::BeginDisabled(!Implementation->Assets);
+		bImportRequested = ToolUIMenuItem("Import...", EToolUIMenuIcon::Import);
+		ImGui::EndDisabled();
+	});
+
+	// The native dialog is modal and blocks this frame, like Unreal's import dialog, so nothing outlives editor shutdown.
+	if (bImportRequested)
 	{
-		return std::unexpected(FEditorFrameworkError{"Editor drawing failed due to an unknown error"});
+		Implementation->ImportWithDialog();
 	}
+
+	if (Implementation->bStartPanelOpen)
+	{
+		Implementation->DrawStartPanel();
+	}
+
+	if (Implementation->bOutlinerOpen)
+	{
+		Implementation->DrawOutlinerPanel();
+	}
+
+	if (Implementation->bDetailsOpen)
+	{
+		Implementation->DrawDetailsPanel();
+	}
+
+	Implementation->DrawViewport(RenderViewport);
+	return Implementation->DrawOutputLog();
 }
 
 FOutputLogModel& FEditorFramework::GetOutputLog() noexcept
@@ -2115,8 +2097,7 @@ void FEditorFramework::FImplementation::DrawStartPanel()
 
 void FEditorFramework::FImplementation::RebuildSuggestions()
 {
-	std::expected<std::vector<std::string>, FOutputLogError> Completion = OutputLog->CompleteCommand(CommandBuffer.data());
-	Suggestions = Completion ? std::move(*Completion) : std::vector<std::string>{};
+	Suggestions = OutputLog->CompleteCommand(CommandBuffer.data());
 	if (Suggestions.empty())
 	{
 		SuggestionIndex = -1;
@@ -2150,13 +2131,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Su
 
 std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::DrawOutputLog()
 {
-	std::expected<bool, FOutputLogError> SynchronizeResult = OutputLog->Synchronize();
-	if (!SynchronizeResult)
-	{
-		return std::unexpected(FEditorFrameworkError{std::move(SynchronizeResult.error().Message)});
-	}
-
-	const bool bReceivedRecords = *SynchronizeResult;
+	const bool bReceivedRecords = OutputLog->Synchronize();
 	if (!bOutputLogOpen)
 	{
 		return {};
@@ -2259,12 +2234,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 
 	if (bSearchChanged)
 	{
-		std::expected<void, FOutputLogError> SearchResult = OutputLog->SetSearch(SearchBuffer.data());
-		if (!SearchResult)
-		{
-			ToolUI->EndPanel();
-			return std::unexpected(FEditorFrameworkError{std::move(SearchResult.error().Message)});
-		}
+		OutputLog->SetSearch(SearchBuffer.data());
 	}
 
 	if (ImGui::BeginPopup("OutputLogFilter"))
@@ -2275,13 +2245,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 			const std::string LevelName{GetLogLevelName(Level)};
 			if (ImGui::MenuItem(LevelName.c_str(), nullptr, &bVisible))
 			{
-				std::expected<void, FOutputLogError> FilterResult = OutputLog->SetLevelVisible(Level, bVisible);
-				if (!FilterResult)
-				{
-					ImGui::EndPopup();
-					ToolUI->EndPanel();
-					return std::unexpected(FEditorFrameworkError{std::move(FilterResult.error().Message)});
-				}
+				OutputLog->SetLevelVisible(Level, bVisible);
 			}
 		}
 
@@ -2313,14 +2277,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 
 	if (bCopyRequested)
 	{
-		std::expected<std::string, FOutputLogError> Clipboard = OutputLog->CopySelectionOrVisible();
-		if (!Clipboard)
-		{
-			ToolUI->EndPanel();
-			return std::unexpected(FEditorFrameworkError{std::move(Clipboard.error().Message)});
-		}
-
-		ImGui::SetClipboardText(Clipboard->c_str());
+		ImGui::SetClipboardText(OutputLog->CopySelectionOrVisible().c_str());
 	}
 
 	const float InterfaceScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
@@ -2486,11 +2443,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		                                                                                                     : 0;
 		if (Direction != 0)
 		{
-			std::expected<std::string, FOutputLogError> HistoryCommand = Editor.OutputLog->NavigateHistory(Direction);
+			const std::string HistoryCommand = Editor.OutputLog->NavigateHistory(Direction);
 			Data->DeleteChars(0, Data->BufTextLen);
-			if (HistoryCommand && !HistoryCommand->empty())
+			if (!HistoryCommand.empty())
 			{
-				Data->InsertChars(0, HistoryCommand->data(), HistoryCommand->data() + HistoryCommand->size());
+				Data->InsertChars(0, HistoryCommand.data(), HistoryCommand.data() + HistoryCommand.size());
 			}
 		}
 

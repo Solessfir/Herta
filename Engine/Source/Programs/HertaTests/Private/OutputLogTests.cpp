@@ -104,17 +104,17 @@ TEST_CASE("Output Log filters records and preserves severity overrides")
 	constexpr FLogCategory Renderer{.Name = "Renderer"};
 	Log->LogText(Renderer, ELogLevel::Info, "Created device");
 	Log->LogText(Renderer, ELogLevel::Warning, "Fallback format");
-	REQUIRE((*Model)->Synchronize().has_value());
+	(*Model)->Synchronize();
 	CHECK((*Model)->GetVisibleLines().size() == 2);
 	CHECK((*Model)->GetVisibleLines()[0].Text.find("Renderer        Created device") != std::string::npos);
 	CHECK((*Model)->GetVisibleLines()[0].Text.find("[Info]") == std::string::npos);
 	CHECK(HasOutputLogLevelColorOverride((*Model)->GetVisibleLines()[1].Record.Level));
 
-	REQUIRE((*Model)->SetSearch("device").has_value());
+	(*Model)->SetSearch("device");
 	REQUIRE((*Model)->GetVisibleLines().size() == 1);
 	CHECK((*Model)->GetVisibleLines().front().Text.find("Created device") != std::string::npos);
-	REQUIRE((*Model)->SetSearch({}).has_value());
-	REQUIRE((*Model)->SetLevelVisible(ELogLevel::Info, false).has_value());
+	(*Model)->SetSearch({});
+	(*Model)->SetLevelVisible(ELogLevel::Info, false);
 	REQUIRE((*Model)->GetVisibleLines().size() == 1);
 	CHECK((*Model)->GetVisibleLines().front().Record.Level == ELogLevel::Warning);
 }
@@ -139,7 +139,7 @@ TEST_CASE("Output Log expands multiline records into selectable display lines")
 	REQUIRE(Model.has_value());
 	constexpr FLogCategory Editor{.Name = "Editor"};
 	Log->LogText(Editor, ELogLevel::Info, "first\nsecond");
-	REQUIRE((*Model)->Synchronize().has_value());
+	(*Model)->Synchronize();
 	REQUIRE((*Model)->GetVisibleLines().size() == 2);
 	CHECK((*Model)->GetVisibleLines()[0].Text.ends_with("first"));
 	CHECK((*Model)->GetVisibleLines()[1].Text.ends_with("second"));
@@ -156,7 +156,7 @@ TEST_CASE("Output Log exposes byte offsets for padded and long category columns"
 	constexpr FLogCategory LongUtf8Category{.Name = "渲染BackendLongCategoryName🌙"};
 	Log->LogText(ShortCategory, ELogLevel::Info, "short message");
 	Log->LogText(LongUtf8Category, ELogLevel::Info, "long category message");
-	REQUIRE((*Model)->Synchronize().has_value());
+	(*Model)->Synchronize();
 	REQUIRE((*Model)->GetVisibleLines().size() == 2);
 	for (const FOutputLogLine& Line : (*Model)->GetVisibleLines())
 	{
@@ -189,7 +189,7 @@ TEST_CASE("Output Log multiline continuation keeps byte offsets for aligned blan
 	REQUIRE(Model.has_value());
 	constexpr FLogCategory Category{.Name = "Editor"};
 	Log->LogText(Category, ELogLevel::Info, "first\nsecond");
-	REQUIRE((*Model)->Synchronize().has_value());
+	(*Model)->Synchronize();
 	REQUIRE((*Model)->GetVisibleLines().size() == 2);
 	const FOutputLogLine& FirstLine = (*Model)->GetVisibleLines()[0];
 	const FOutputLogLine& Continuation = (*Model)->GetVisibleLines()[1];
@@ -217,7 +217,7 @@ TEST_CASE("Output Log text layout aligns RHI and Editor columns and round-trips 
 	constexpr FLogCategory EditorCategory{.Name = "Editor"};
 	Log->LogText(RhiCategory, ELogLevel::Info, "device α😊 ready");
 	Log->LogText(EditorCategory, ELogLevel::Info, "preview λ🧪 updated\ncontinuation 🌙");
-	REQUIRE((*Model)->Synchronize().has_value());
+	(*Model)->Synchronize();
 	REQUIRE((*Model)->GetVisibleLines().size() == 3);
 	const FOutputLogColumns Columns{.CategoryX = 90.f, .MessageX = 310.f};
 	for (const FOutputLogLine& Line : (*Model)->GetVisibleLines())
@@ -260,7 +260,7 @@ TEST_CASE("Output Log sends lines starting with ! to the shell runner instead of
 
 	// Without a runner, the line is rejected instead of reaching the registry as an unknown command.
 	REQUIRE((*Model)->SubmitCommand("!git status").has_value());
-	REQUIRE((*Model)->Synchronize().has_value());
+	(*Model)->Synchronize();
 	CHECK((*Model)->GetVisibleLines().back().Text.ends_with("Shell commands are not available here"));
 
 	std::vector<std::string> Ran;
@@ -273,11 +273,9 @@ TEST_CASE("Output Log sends lines starting with ! to the shell runner instead of
 	REQUIRE((*Model)->SubmitCommand("!").has_value());
 	REQUIRE(Ran.size() == 1);
 	CHECK(Ran[0] == "git commit -m \"Fixed tabs\"");
-	REQUIRE((*Model)->Synchronize().has_value());
+	(*Model)->Synchronize();
 	CHECK((*Model)->GetVisibleLines().back().Text.ends_with("Type a shell command after !"));
-	std::expected<std::string, FOutputLogError> History = (*Model)->NavigateHistory(-1);
-	REQUIRE(History.has_value());
-	CHECK(*History == "!");
+	CHECK((*Model)->NavigateHistory(-1) == "!");
 }
 
 TEST_CASE("Output Log command submission captures results and history before tail acknowledgment")
@@ -289,13 +287,11 @@ TEST_CASE("Output Log command submission captures results and history before tai
 	REQUIRE(Model.has_value());
 	REQUIRE((*Model)->SubmitCommand("echo hello").has_value());
 	CHECK((*Model)->HasTailRequest());
-	REQUIRE((*Model)->Synchronize().has_value());
+	(*Model)->Synchronize();
 	REQUIRE((*Model)->GetVisibleLines().size() == 2);
 	CHECK((*Model)->GetVisibleLines()[0].Text.ends_with("> echo hello"));
 	CHECK((*Model)->GetVisibleLines()[1].Text.ends_with("hello"));
-	std::expected<std::string, FOutputLogError> History = (*Model)->NavigateHistory(-1);
-	REQUIRE(History.has_value());
-	CHECK(*History == "echo hello");
+	CHECK((*Model)->NavigateHistory(-1) == "echo hello");
 	(*Model)->AcknowledgeTailRequest();
 	CHECK_FALSE((*Model)->HasTailRequest());
 }
@@ -316,8 +312,6 @@ TEST_CASE("Output Log command trimming uses the fixed ASCII grammar")
 	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
 	REQUIRE(Model.has_value());
 	REQUIRE((*Model)->SubmitCommand("\t\v echo ascii \f\r\n").has_value());
-	std::expected<std::string, FOutputLogError> History = (*Model)->NavigateHistory(-1);
-	REQUIRE(History.has_value());
-	CHECK(*History == "echo ascii");
+	CHECK((*Model)->NavigateHistory(-1) == "echo ascii");
 }
 }

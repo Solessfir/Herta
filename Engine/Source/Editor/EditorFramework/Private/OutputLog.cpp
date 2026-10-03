@@ -133,21 +133,14 @@ std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> FOutputLogModel
 {
 	if (Options.MaximumRetainedRecords == 0 || Options.MaximumCommandHistory == 0)
 	{
-		return std::unexpected(FOutputLogError{"Output Log capacities must be greater than zero"});
+		return std::unexpected(FOutputLogError{.Message = "Output Log capacities must be greater than zero"});
 	}
 
-	try
-	{
-		auto Implementation = std::make_unique<FImplementation>();
-		Implementation->Log = &Log;
-		Implementation->Commands = &Commands;
-		Implementation->Options = Options;
-		return std::unique_ptr<FOutputLogModel>(new FOutputLogModel(std::move(Implementation)));
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FOutputLogError{Exception.what()});
-	}
+	auto Implementation = std::make_unique<FImplementation>();
+	Implementation->Log = &Log;
+	Implementation->Commands = &Commands;
+	Implementation->Options = Options;
+	return std::unique_ptr<FOutputLogModel>(new FOutputLogModel(std::move(Implementation)));
 }
 
 FOutputLogModel::FOutputLogModel(std::unique_ptr<FImplementation> Implementation) noexcept
@@ -157,53 +150,41 @@ FOutputLogModel::FOutputLogModel(std::unique_ptr<FImplementation> Implementation
 
 FOutputLogModel::~FOutputLogModel() = default;
 
-std::expected<bool, FOutputLogError> FOutputLogModel::Synchronize()
+bool FOutputLogModel::Synchronize()
 {
 	if (Implementation->bPaused)
 	{
 		return false;
 	}
 
-	std::expected<FLogReadResult, FLogError> ReadResult = Implementation->Log->ReadEditorBuffer(Implementation->Cursor);
-	if (!ReadResult)
+	FLogReadResult ReadResult = Implementation->Log->ReadEditorBuffer(Implementation->Cursor);
+	Implementation->Cursor = ReadResult.NextCursor;
+	if (ReadResult.bGenerationReset || ReadResult.bHistoryTruncated)
 	{
-		return std::unexpected(FOutputLogError{std::move(ReadResult.error().Message)});
+		Implementation->Records.clear();
+		Implementation->Selection.Clear();
 	}
 
-	try
+	if (ReadResult.Records.empty())
 	{
-		Implementation->Cursor = ReadResult->NextCursor;
-		if (ReadResult->bGenerationReset || ReadResult->bHistoryTruncated)
+		if (ReadResult.bGenerationReset || ReadResult.bHistoryTruncated)
 		{
-			Implementation->Records.clear();
-			Implementation->Selection.Clear();
+			RebuildVisibleLines();
 		}
 
-		if (ReadResult->Records.empty())
-		{
-			if (ReadResult->bGenerationReset || ReadResult->bHistoryTruncated)
-			{
-				RebuildVisibleLines();
-			}
-
-			return false;
-		}
-
-		Implementation->Records.insert(Implementation->Records.end(), std::make_move_iterator(ReadResult->Records.begin()), std::make_move_iterator(ReadResult->Records.end()));
-		if (Implementation->Records.size() > Implementation->Options.MaximumRetainedRecords)
-		{
-			const std::size_t RemoveCount = Implementation->Records.size() - Implementation->Options.MaximumRetainedRecords;
-			Implementation->Records.erase(Implementation->Records.begin(), Implementation->Records.begin() + static_cast<std::ptrdiff_t>(RemoveCount));
-			Implementation->Selection.Clear();
-		}
-
-		RebuildVisibleLines();
-		return true;
+		return false;
 	}
-	catch (const std::exception& Exception)
+
+	Implementation->Records.insert(Implementation->Records.end(), std::make_move_iterator(ReadResult.Records.begin()), std::make_move_iterator(ReadResult.Records.end()));
+	if (Implementation->Records.size() > Implementation->Options.MaximumRetainedRecords)
 	{
-		return std::unexpected(FOutputLogError{Exception.what()});
+		const std::size_t RemoveCount = Implementation->Records.size() - Implementation->Options.MaximumRetainedRecords;
+		Implementation->Records.erase(Implementation->Records.begin(), Implementation->Records.begin() + static_cast<std::ptrdiff_t>(RemoveCount));
+		Implementation->Selection.Clear();
 	}
+
+	RebuildVisibleLines();
+	return true;
 }
 
 void FOutputLogModel::Clear() noexcept
@@ -232,38 +213,21 @@ void FOutputLogModel::SetCategoryColorization(const bool bEnabled) noexcept
 	Implementation->Options.bColorizeCategories = bEnabled;
 }
 
-std::expected<void, FOutputLogError> FOutputLogModel::SetSearch(std::string Search)
+void FOutputLogModel::SetSearch(std::string Search)
 {
-	try
-	{
-		Implementation->Search = std::move(Search);
-		Implementation->Selection.Clear();
-		RebuildVisibleLines();
-		return {};
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FOutputLogError{Exception.what()});
-	}
+	Implementation->Search = std::move(Search);
+	Implementation->Selection.Clear();
+	RebuildVisibleLines();
 }
 
-std::expected<void, FOutputLogError> FOutputLogModel::SetLevelVisible(const ELogLevel Level, const bool bVisible)
+void FOutputLogModel::SetLevelVisible(const ELogLevel Level, const bool bVisible)
 {
 	const std::size_t LevelIndex = static_cast<std::size_t>(Level);
-	try
+	if (LevelIndex < Implementation->LevelVisible.size())
 	{
-		if (LevelIndex < Implementation->LevelVisible.size())
-		{
-			Implementation->LevelVisible[LevelIndex] = bVisible;
-			Implementation->Selection.Clear();
-			RebuildVisibleLines();
-		}
-
-		return {};
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FOutputLogError{Exception.what()});
+		Implementation->LevelVisible[LevelIndex] = bVisible;
+		Implementation->Selection.Clear();
+		RebuildVisibleLines();
 	}
 }
 
@@ -313,21 +277,14 @@ const FLogTextSelection& FOutputLogModel::GetSelection() const noexcept
 	return Implementation->Selection;
 }
 
-std::expected<std::string, FOutputLogError> FOutputLogModel::CopySelectionOrVisible() const
+std::string FOutputLogModel::CopySelectionOrVisible() const
 {
-	try
+	if (Implementation->Selection.HasSelection())
 	{
-		if (Implementation->Selection.HasSelection())
-		{
-			return Implementation->Selection.Copy(Implementation->VisibleText);
-		}
+		return Implementation->Selection.Copy(Implementation->VisibleText);
+	}
 
-		return JoinLines(Implementation->VisibleText);
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FOutputLogError{Exception.what()});
-	}
+	return JoinLines(Implementation->VisibleText);
 }
 
 std::expected<void, FOutputLogError> FOutputLogModel::SubmitCommand(const std::string_view CommandLine)
@@ -335,57 +292,50 @@ std::expected<void, FOutputLogError> FOutputLogModel::SubmitCommand(const std::s
 	const std::string_view Command = TrimWhitespace(CommandLine);
 	if (Command.empty())
 	{
-		return std::unexpected(FOutputLogError{"Command line is empty"});
+		return std::unexpected(FOutputLogError{.Message = "Command line is empty"});
 	}
 
-	try
+	Implementation->Log->LogText(CommandCategory, ELogLevel::Info, std::format("> {}", Command));
+	if (Command.starts_with('!'))
 	{
-		Implementation->Log->LogText(CommandCategory, ELogLevel::Info, std::format("> {}", Command));
-		if (Command.starts_with('!'))
+		const std::string_view ShellCommand = TrimWhitespace(Command.substr(1));
+		if (ShellCommand.empty())
 		{
-			const std::string_view ShellCommand = TrimWhitespace(Command.substr(1));
-			if (ShellCommand.empty())
-			{
-				Implementation->Log->LogText(CommandCategory, ELogLevel::Warning, "Type a shell command after !");
-			}
-			else if (!Implementation->ShellRunner)
-			{
-				Implementation->Log->LogText(CommandCategory, ELogLevel::Warning, "Shell commands are not available here");
-			}
-			else
-			{
-				Implementation->ShellRunner(std::string(ShellCommand));
-			}
+			Implementation->Log->LogText(CommandCategory, ELogLevel::Warning, "Type a shell command after !");
 		}
-		else if (std::expected<FEditorCommandResult, FEditorCommandError> Result = Implementation->Commands->Execute(Command))
+		else if (!Implementation->ShellRunner)
 		{
-			if (!Result->Message.empty())
-			{
-				Implementation->Log->LogText(CommandCategory, Result->ExitCode == 0 ? ELogLevel::Info : ELogLevel::Warning, Result->Message);
-			}
+			Implementation->Log->LogText(CommandCategory, ELogLevel::Warning, "Shell commands are not available here");
 		}
 		else
 		{
-			Implementation->Log->LogText(CommandCategory, ELogLevel::Warning, Result.error().Message);
+			Implementation->ShellRunner(std::string(ShellCommand));
 		}
-
-		if (Implementation->CommandHistory.empty() || Implementation->CommandHistory.back() != Command)
-		{
-			Implementation->CommandHistory.emplace_back(Command);
-			if (Implementation->CommandHistory.size() > Implementation->Options.MaximumCommandHistory)
-			{
-				Implementation->CommandHistory.erase(Implementation->CommandHistory.begin());
-			}
-		}
-
-		Implementation->CommandHistoryIndex = Implementation->CommandHistory.size();
-		Implementation->bTailRequested = Implementation->Options.bAutoScroll;
-		return {};
 	}
-	catch (const std::exception& Exception)
+	else if (std::expected<FEditorCommandResult, FEditorCommandError> Result = Implementation->Commands->Execute(Command))
 	{
-		return std::unexpected(FOutputLogError{Exception.what()});
+		if (!Result->Message.empty())
+		{
+			Implementation->Log->LogText(CommandCategory, Result->ExitCode == 0 ? ELogLevel::Info : ELogLevel::Warning, Result->Message);
+		}
 	}
+	else
+	{
+		Implementation->Log->LogText(CommandCategory, ELogLevel::Warning, Result.error().Message);
+	}
+
+	if (Implementation->CommandHistory.empty() || Implementation->CommandHistory.back() != Command)
+	{
+		Implementation->CommandHistory.emplace_back(Command);
+		if (Implementation->CommandHistory.size() > Implementation->Options.MaximumCommandHistory)
+		{
+			Implementation->CommandHistory.erase(Implementation->CommandHistory.begin());
+		}
+	}
+
+	Implementation->CommandHistoryIndex = Implementation->CommandHistory.size();
+	Implementation->bTailRequested = Implementation->Options.bAutoScroll;
+	return {};
 }
 
 void FOutputLogModel::SetShellRunner(std::function<void(std::string)> Runner)
@@ -393,18 +343,12 @@ void FOutputLogModel::SetShellRunner(std::function<void(std::string)> Runner)
 	Implementation->ShellRunner = std::move(Runner);
 }
 
-std::expected<std::vector<std::string>, FOutputLogError> FOutputLogModel::CompleteCommand(const std::string_view Prefix, const std::size_t MaximumResults) const
+std::vector<std::string> FOutputLogModel::CompleteCommand(const std::string_view Prefix, const std::size_t MaximumResults) const
 {
-	std::expected<std::vector<std::string>, FEditorCommandError> Result = Implementation->Commands->Complete(Prefix, MaximumResults);
-	if (!Result)
-	{
-		return std::unexpected(FOutputLogError{std::move(Result.error().Message)});
-	}
-
-	return std::move(*Result);
+	return Implementation->Commands->Complete(Prefix, MaximumResults);
 }
 
-std::expected<std::string, FOutputLogError> FOutputLogModel::NavigateHistory(const int Direction)
+std::string FOutputLogModel::NavigateHistory(const int Direction)
 {
 	if (Implementation->CommandHistory.empty() || Direction == 0)
 	{
@@ -420,14 +364,7 @@ std::expected<std::string, FOutputLogError> FOutputLogModel::NavigateHistory(con
 		++Implementation->CommandHistoryIndex;
 	}
 
-	try
-	{
-		return Implementation->CommandHistoryIndex < Implementation->CommandHistory.size() ? Implementation->CommandHistory[Implementation->CommandHistoryIndex] : std::string{};
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FOutputLogError{Exception.what()});
-	}
+	return Implementation->CommandHistoryIndex < Implementation->CommandHistory.size() ? Implementation->CommandHistory[Implementation->CommandHistoryIndex] : std::string{};
 }
 
 std::span<const std::string> FOutputLogModel::GetCommandHistory() const noexcept

@@ -17,9 +17,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
-#include <exception>
 #include <mutex>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -58,18 +56,19 @@ bool AssertJolt(const char* Expression, const char* Message, const char* File, J
 }
 #endif
 
-void AcquireRuntime()
+// Returns false when something outside Herta Physics already registered Jolt.
+[[nodiscard]] bool AcquireRuntime()
 {
 	std::scoped_lock Lock(RuntimeMutex);
 	if (RuntimeUsers != 0)
 	{
 		++RuntimeUsers;
-		return;
+		return true;
 	}
 
 	if (JPH::Factory::sInstance != nullptr)
 	{
-		throw std::runtime_error("Jolt is already registered outside Herta Physics");
+		return false;
 	}
 
 	JPH::RegisterDefaultAllocator();
@@ -81,22 +80,9 @@ void AcquireRuntime()
 	JPH::AssertFailed = AssertJolt;
 #endif
 	JPH::Factory::sInstance = Factory.release();
-	try
-	{
-		JPH::RegisterTypes();
-	}
-	catch (...)
-	{
-		JPH::UnregisterTypes();
-		delete JPH::Factory::sInstance;
-		JPH::Factory::sInstance = nullptr;
-		JPH::Trace = PreviousTrace;
-#ifdef JPH_ENABLE_ASSERTS
-		JPH::AssertFailed = PreviousAssertFailed;
-#endif
-		throw;
-	}
+	JPH::RegisterTypes();
 	RuntimeUsers = 1;
+	return true;
 }
 
 void ReleaseRuntime()
@@ -188,31 +174,12 @@ FPhysicsWorld::~FPhysicsWorld()
 
 std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> FPhysicsWorld::Create()
 {
-	bool bRuntimeAcquired = false;
-	try
+	if (!AcquireRuntime())
 	{
-		AcquireRuntime();
-		bRuntimeAcquired = true;
-		return std::unique_ptr<FPhysicsWorld>(new FPhysicsWorld(std::make_unique<FImplementation>()));
+		return std::unexpected(FPhysicsError{"Jolt is already registered outside Herta Physics"});
 	}
-	catch (const std::exception& Error)
-	{
-		if (bRuntimeAcquired)
-		{
-			ReleaseRuntime();
-		}
 
-		return std::unexpected(FPhysicsError{Error.what()});
-	}
-	catch (...)
-	{
-		if (bRuntimeAcquired)
-		{
-			ReleaseRuntime();
-		}
-
-		return std::unexpected(FPhysicsError{"Physics world initialization failed"});
-	}
+	return std::unique_ptr<FPhysicsWorld>(new FPhysicsWorld(std::make_unique<FImplementation>()));
 }
 
 std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const FPhysicsBoxBodySettings& Settings)
@@ -233,36 +200,25 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const 
 		return std::unexpected(FPhysicsError{"Unsupported body motion type"});
 	}
 
-	try
+	const JPH::BoxShapeSettings ShapeSettings(ToJolt(Settings.HalfExtents));
+	const JPH::ShapeSettings::ShapeResult Shape = ShapeSettings.Create();
+	if (Shape.HasError())
 	{
-		const JPH::BoxShapeSettings ShapeSettings(ToJolt(Settings.HalfExtents));
-		const JPH::ShapeSettings::ShapeResult Shape = ShapeSettings.Create();
-		if (Shape.HasError())
-		{
-			return std::unexpected(FPhysicsError{Shape.GetError().c_str()});
-		}
+		return std::unexpected(FPhysicsError{Shape.GetError().c_str()});
+	}
 
-		const bool bDynamic = Settings.MotionType == EPhysicsMotionType::Dynamic;
-		const FQuaternion Rotation = Settings.Rotation.NormalizedOrIdentity();
-		const JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), bDynamic ? JPH::EMotionType::Dynamic : JPH::EMotionType::Static, bDynamic ? DynamicLayer : StaticLayer);
-		JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
-		const JPH::BodyID Id = Bodies.CreateAndAddBody(BodySettings, bDynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
-		if (Id.IsInvalid())
-		{
-			return std::unexpected(FPhysicsError{"Physics world body capacity reached"});
-		}
+	const bool bDynamic = Settings.MotionType == EPhysicsMotionType::Dynamic;
+	const FQuaternion Rotation = Settings.Rotation.NormalizedOrIdentity();
+	const JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), bDynamic ? JPH::EMotionType::Dynamic : JPH::EMotionType::Static, bDynamic ? DynamicLayer : StaticLayer);
+	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	const JPH::BodyID Id = Bodies.CreateAndAddBody(BodySettings, bDynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+	if (Id.IsInvalid())
+	{
+		return std::unexpected(FPhysicsError{"Physics world body capacity reached"});
+	}
 
-		Implementation->BodyIds.push_back(Id);
-		return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
-	}
-	catch (const std::exception& Error)
-	{
-		return std::unexpected(FPhysicsError{Error.what()});
-	}
-	catch (...)
-	{
-		return std::unexpected(FPhysicsError{"Physics body creation failed"});
-	}
+	Implementation->BodyIds.push_back(Id);
+	return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
 }
 
 std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSeconds)
@@ -272,23 +228,12 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 		return std::unexpected(FPhysicsError{"Physics step must be finite and positive"});
 	}
 
-	try
+	if (Implementation->Physics.Update(FixedDeltaSeconds, 1, &Implementation->TempAllocator, &Implementation->JobSystem) != JPH::EPhysicsUpdateError::None)
 	{
-		if (Implementation->Physics.Update(FixedDeltaSeconds, 1, &Implementation->TempAllocator, &Implementation->JobSystem) != JPH::EPhysicsUpdateError::None)
-		{
-			return std::unexpected(FPhysicsError{"Physics contact capacity exceeded"});
-		}
+		return std::unexpected(FPhysicsError{"Physics contact capacity exceeded"});
+	}
 
-		return {};
-	}
-	catch (const std::exception& Error)
-	{
-		return std::unexpected(FPhysicsError{Error.what()});
-	}
-	catch (...)
-	{
-		return std::unexpected(FPhysicsError{"Physics step failed"});
-	}
+	return {};
 }
 
 std::expected<FPhysicsBodyTransform, FPhysicsError> FPhysicsWorld::GetBodyTransform(const FPhysicsBodyId BodyId) const

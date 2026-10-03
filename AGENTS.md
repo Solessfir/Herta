@@ -46,7 +46,9 @@ Do not preserve obsolete compatibility paths merely because an earlier unshipped
 - Reserve `U` and `A` for future reflected object and actor semantics.
 - Prefer RAII, explicit ownership, `std::unique_ptr`, `std::span`, `std::string_view`, concepts, ranges, and `std::expected`.
 - Use standard containers and strings until Herta has a measured semantic reason to own alternatives.
-- Do not throw exceptions across module boundaries.
+- Do not throw exceptions across module boundaries, and do not use them for control flow inside a module. Report expected failures with `std::expected`.
+- Treat allocation failure as fatal. Do not catch `std::bad_alloc`, and do not add error codes, `std::expected` results, or "unavailable" states whose only purpose is reporting it.
+- Use `try` and `catch` only where an exception can really arrive and must stop: native callbacks (GLFW, window procedures), thread and task entry points that run caller-supplied code, cross-module callbacks, process entry points, noexcept cleanup, and third-party or standard calls that throw on ordinary failures. Prefer non-throwing overloads, such as `std::filesystem` with `std::error_code` and `std::from_chars`, over wrapping throwing ones.
 - Keep third-party types behind Herta-owned adapters and out of public APIs.
 - Do not use reinterpret casts to bridge Herta and third-party math types.
 - Keep headers self-contained and minimize their dependencies.

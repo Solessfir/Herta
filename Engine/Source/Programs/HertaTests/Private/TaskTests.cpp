@@ -490,10 +490,9 @@ TEST_CASE("Blocking the main thread on task work emits a diagnostic")
 	}
 
 	CHECK(Task.Wait().State == ETaskState::Succeeded);
-	const std::expected<FLogReadResult, FLogError> Records = Log->ReadEditorBuffer();
-	REQUIRE(Records.has_value());
-	REQUIRE(Records->Records.size() == 1);
-	CHECK(Records->Records.front().Level == ELogLevel::Warning);
-	CHECK(Records->Records.front().Message.find("Slow task") != std::string::npos);
+	const FLogReadResult Records = Log->ReadEditorBuffer();
+	REQUIRE(Records.Records.size() == 1);
+	CHECK(Records.Records.front().Level == ELogLevel::Warning);
+	CHECK(Records.Records.front().Message.find("Slow task") != std::string::npos);
 }
 }

@@ -18,14 +18,14 @@ struct FViewportStats
 {
 	if (!Stats)
 	{
-		return std::unexpected(FEditorCommandError{EEditorCommandErrorCode::InvalidDescriptor, "Viewport stats state is unavailable"});
+		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InvalidDescriptor, .Message = "Viewport stats state is unavailable"});
 	}
 
 	return Registry.Register({"stat", "Toggle viewport statistics: stat unit or stat fps", [Stats = std::move(Stats)](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() != 1 || (Arguments[0] != "unit" && Arguments[0] != "fps"))
 		{
-			return std::unexpected(FEditorCommandError{EEditorCommandErrorCode::ExecutionFailed, "Usage: stat unit | stat fps"});
+			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::ExecutionFailed, .Message = "Usage: stat unit | stat fps"});
 		}
 
 		bool& bVisible = Arguments[0] == "unit" ? Stats->bUnitVisible : Stats->bFpsVisible;

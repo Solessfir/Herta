@@ -190,65 +190,47 @@ void FLogService::LogText(const FLogCategory& Category, const ELogLevel Level, c
 		return;
 	}
 
-	try
-	{
-		WriteRecord(Category, Level, std::string(Message), Location);
-	}
-	catch (...)
-	{
-		Implementation->DroppedRecords.fetch_add(1, std::memory_order_relaxed);
-	}
+	WriteRecord(Category, Level, std::string(Message), Location);
 }
 
-std::expected<FLogReadResult, FLogError> FLogService::ReadEditorBuffer(const FLogCursor Cursor, const std::size_t MaximumRecords) const
+FLogReadResult FLogService::ReadEditorBuffer(const FLogCursor Cursor, const std::size_t MaximumRecords) const
 {
-	try
+	std::scoped_lock Lock(Implementation->BufferMutex);
+
+	FLogReadResult Result;
+	Result.NextCursor.Generation = Implementation->Generation;
+	Result.bGenerationReset = Cursor.Generation != 0 && Cursor.Generation != Implementation->Generation;
+
+	const std::uint64_t FirstAvailableSequence = Implementation->Records.empty() ? Implementation->NextSequence : Implementation->Records.front().Sequence;
+	std::uint64_t RequestedSequence = Cursor.NextSequence == 0 ? FirstAvailableSequence : Cursor.NextSequence;
+
+	if (Result.bGenerationReset)
 	{
-		std::scoped_lock Lock(Implementation->BufferMutex);
+		RequestedSequence = FirstAvailableSequence;
+	}
+	else if (RequestedSequence < FirstAvailableSequence)
+	{
+		RequestedSequence = FirstAvailableSequence;
+		Result.bHistoryTruncated = true;
+	}
 
-		FLogReadResult Result;
-		Result.NextCursor.Generation = Implementation->Generation;
-		Result.bGenerationReset = Cursor.Generation != 0 && Cursor.Generation != Implementation->Generation;
-
-		const std::uint64_t FirstAvailableSequence = Implementation->Records.empty() ? Implementation->NextSequence : Implementation->Records.front().Sequence;
-		std::uint64_t RequestedSequence = Cursor.NextSequence == 0 ? FirstAvailableSequence : Cursor.NextSequence;
-
-		if (Result.bGenerationReset)
+	for (const FLogRecord& Record : Implementation->Records)
+	{
+		if (Record.Sequence < RequestedSequence)
 		{
-			RequestedSequence = FirstAvailableSequence;
-		}
-		else if (RequestedSequence < FirstAvailableSequence)
-		{
-			RequestedSequence = FirstAvailableSequence;
-			Result.bHistoryTruncated = true;
-		}
-
-		for (const FLogRecord& Record : Implementation->Records)
-		{
-			if (Record.Sequence < RequestedSequence)
-			{
-				continue;
-			}
-
-			if (Result.Records.size() == MaximumRecords)
-			{
-				break;
-			}
-
-			Result.Records.push_back(Record);
+			continue;
 		}
 
-		Result.NextCursor.NextSequence = Result.Records.empty() ? std::min(RequestedSequence, Implementation->NextSequence) : Result.Records.back().Sequence + 1;
-		return Result;
+		if (Result.Records.size() == MaximumRecords)
+		{
+			break;
+		}
+
+		Result.Records.push_back(Record);
 	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FLogError{std::format("Could not read the editor log buffer: {}", Exception.what())});
-	}
-	catch (...)
-	{
-		return std::unexpected(FLogError{"Could not read the editor log buffer due to an unknown error"});
-	}
+
+	Result.NextCursor.NextSequence = Result.Records.empty() ? std::min(RequestedSequence, Implementation->NextSequence) : Result.Records.back().Sequence + 1;
+	return Result;
 }
 
 void FLogService::ClearEditorBuffer() noexcept

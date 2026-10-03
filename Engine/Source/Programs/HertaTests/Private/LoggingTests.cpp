@@ -90,10 +90,9 @@ TEST_CASE("Log filtering happens before message formatting")
 	HERTA_LOG_INFO(*Log, InfoCategory, "{}", FFormatProbe{&FormatCount});
 	CHECK(FormatCount == 1);
 
-	const std::expected<FLogReadResult, FLogError> ReadResult = Log->ReadEditorBuffer();
-	REQUIRE(ReadResult.has_value());
-	REQUIRE(ReadResult->Records.size() == 1);
-	CHECK(ReadResult->Records.front().Message == "probe");
+	const FLogReadResult ReadResult = Log->ReadEditorBuffer();
+	REQUIRE(ReadResult.Records.size() == 1);
+	CHECK(ReadResult.Records.front().Message == "probe");
 }
 
 TEST_CASE("Log formatting failures become diagnostic records")
@@ -101,38 +100,34 @@ TEST_CASE("Log formatting failures become diagnostic records")
 	const std::unique_ptr<FLogService> Log = CreateTestLog(4);
 	HERTA_LOG_INFO(*Log, TestCategory, "{}", FThrowingFormatProbe{});
 
-	const std::expected<FLogReadResult, FLogError> ReadResult = Log->ReadEditorBuffer();
-	REQUIRE(ReadResult.has_value());
-	REQUIRE(ReadResult->Records.size() == 1);
-	CHECK(ReadResult->Records.front().Level == ELogLevel::Error);
-	CHECK(ReadResult->Records.front().Message == "Log message formatting failed");
+	const FLogReadResult ReadResult = Log->ReadEditorBuffer();
+	REQUIRE(ReadResult.Records.size() == 1);
+	CHECK(ReadResult.Records.front().Level == ELogLevel::Error);
+	CHECK(ReadResult.Records.front().Message == "Log message formatting failed");
 	CHECK(Log->GetStatistics().FormattingFailures == 1);
 }
 
 TEST_CASE("Editor log buffer supports bounded incremental reads")
 {
 	const std::unique_ptr<FLogService> Log = CreateTestLog(2);
-	const std::expected<FLogReadResult, FLogError> InitialRead = Log->ReadEditorBuffer();
-	REQUIRE(InitialRead.has_value());
+	const FLogReadResult InitialRead = Log->ReadEditorBuffer();
 
 	HERTA_LOG_INFO(*Log, TestCategory, "Record {}", 1);
 	HERTA_LOG_WARNING(*Log, TestCategory, "Record {}", 2);
 	HERTA_LOG_ERROR(*Log, TestCategory, "Record {}", 3);
 
-	const std::expected<FLogReadResult, FLogError> TruncatedRead = Log->ReadEditorBuffer(InitialRead->NextCursor);
-	REQUIRE(TruncatedRead.has_value());
-	REQUIRE(TruncatedRead->Records.size() == 2);
-	CHECK(TruncatedRead->bHistoryTruncated);
-	CHECK_FALSE(TruncatedRead->bGenerationReset);
-	CHECK(TruncatedRead->Records[0].Message == "Record 2");
-	CHECK(TruncatedRead->Records[1].Message == "Record 3");
-	CHECK(TruncatedRead->Records[0].Sequence + 1 == TruncatedRead->Records[1].Sequence);
+	const FLogReadResult TruncatedRead = Log->ReadEditorBuffer(InitialRead.NextCursor);
+	REQUIRE(TruncatedRead.Records.size() == 2);
+	CHECK(TruncatedRead.bHistoryTruncated);
+	CHECK_FALSE(TruncatedRead.bGenerationReset);
+	CHECK(TruncatedRead.Records[0].Message == "Record 2");
+	CHECK(TruncatedRead.Records[1].Message == "Record 3");
+	CHECK(TruncatedRead.Records[0].Sequence + 1 == TruncatedRead.Records[1].Sequence);
 
 	HERTA_LOG_INFO(*Log, TestCategory, "Record {}", 4);
-	const std::expected<FLogReadResult, FLogError> IncrementalRead = Log->ReadEditorBuffer(TruncatedRead->NextCursor);
-	REQUIRE(IncrementalRead.has_value());
-	REQUIRE(IncrementalRead->Records.size() == 1);
-	CHECK(IncrementalRead->Records.front().Message == "Record 4");
+	const FLogReadResult IncrementalRead = Log->ReadEditorBuffer(TruncatedRead.NextCursor);
+	REQUIRE(IncrementalRead.Records.size() == 1);
+	CHECK(IncrementalRead.Records.front().Message == "Record 4");
 }
 
 TEST_CASE("Clearing the editor log buffer invalidates old cursors")
@@ -140,17 +135,15 @@ TEST_CASE("Clearing the editor log buffer invalidates old cursors")
 	const std::unique_ptr<FLogService> Log = CreateTestLog(4);
 	HERTA_LOG_INFO(*Log, TestCategory, "Before clear");
 
-	const std::expected<FLogReadResult, FLogError> BeforeClear = Log->ReadEditorBuffer();
-	REQUIRE(BeforeClear.has_value());
+	const FLogReadResult BeforeClear = Log->ReadEditorBuffer();
 	Log->ClearEditorBuffer();
 	HERTA_LOG_INFO(*Log, TestCategory, "After clear");
 
-	const std::expected<FLogReadResult, FLogError> AfterClear = Log->ReadEditorBuffer(BeforeClear->NextCursor);
-	REQUIRE(AfterClear.has_value());
-	CHECK(AfterClear->bGenerationReset);
-	CHECK_FALSE(AfterClear->bHistoryTruncated);
-	REQUIRE(AfterClear->Records.size() == 1);
-	CHECK(AfterClear->Records.front().Message == "After clear");
+	const FLogReadResult AfterClear = Log->ReadEditorBuffer(BeforeClear.NextCursor);
+	CHECK(AfterClear.bGenerationReset);
+	CHECK_FALSE(AfterClear.bHistoryTruncated);
+	REQUIRE(AfterClear.Records.size() == 1);
+	CHECK(AfterClear.Records.front().Message == "After clear");
 }
 
 TEST_CASE("Log records own their structured fields")
@@ -158,11 +151,10 @@ TEST_CASE("Log records own their structured fields")
 	const std::unique_ptr<FLogService> Log = CreateTestLog(2);
 	HERTA_LOG_INFO(*Log, TestCategory, "Value {}", 42);
 
-	const std::expected<FLogReadResult, FLogError> ReadResult = Log->ReadEditorBuffer();
-	REQUIRE(ReadResult.has_value());
-	REQUIRE(ReadResult->Records.size() == 1);
+	const FLogReadResult ReadResult = Log->ReadEditorBuffer();
+	REQUIRE(ReadResult.Records.size() == 1);
 
-	const FLogRecord& Record = ReadResult->Records.front();
+	const FLogRecord& Record = ReadResult.Records.front();
 	CHECK(Record.Category == "Tests");
 	CHECK(Record.Level == ELogLevel::Info);
 	CHECK(Record.Message == "Value 42");
@@ -198,13 +190,12 @@ TEST_CASE("Concurrent log producers receive one ordered sequence")
 		Thread.join();
 	}
 
-	const std::expected<FLogReadResult, FLogError> ReadResult = Log->ReadEditorBuffer();
-	REQUIRE(ReadResult.has_value());
-	REQUIRE(ReadResult->Records.size() == RecordCount);
+	const FLogReadResult ReadResult = Log->ReadEditorBuffer();
+	REQUIRE(ReadResult.Records.size() == RecordCount);
 
-	for (std::size_t Index = 1; Index < ReadResult->Records.size(); ++Index)
+	for (std::size_t Index = 1; Index < ReadResult.Records.size(); ++Index)
 	{
-		CHECK(ReadResult->Records[Index - 1].Sequence + 1 == ReadResult->Records[Index].Sequence);
+		CHECK(ReadResult.Records[Index - 1].Sequence + 1 == ReadResult.Records[Index].Sequence);
 	}
 
 	const FLogStatistics Statistics = Log->GetStatistics();

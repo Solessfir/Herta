@@ -17,11 +17,10 @@ TEST_CASE("Editor commands are validated and sorted")
 		return FEditorCommandResult{};
 	}}).has_value());
 
-	const std::expected<std::vector<FEditorCommandInfo>, FEditorCommandError> Commands = Registry.List();
-	REQUIRE(Commands.has_value());
-	REQUIRE(Commands->size() == 2);
-	CHECK((*Commands)[0].Name == "alpha");
-	CHECK((*Commands)[1].Name == "zeta");
+	const std::vector<FEditorCommandInfo> Commands = Registry.List();
+	REQUIRE(Commands.size() == 2);
+	CHECK(Commands[0].Name == "alpha");
+	CHECK(Commands[1].Name == "zeta");
 
 	CHECK_FALSE(Registry.Register({"alpha", "Duplicate", [](std::span<const std::string_view>)
 	{
@@ -55,7 +54,7 @@ TEST_CASE("Editor command parsing preserves empty quoted arguments")
 	{
 		if (Arguments.size() != 2 || !Arguments.front().empty() || Arguments.back() != "tail")
 		{
-			return std::unexpected(FEditorCommandError{EEditorCommandErrorCode::ExecutionFailed, "Empty quoted argument was not preserved"});
+			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::ExecutionFailed, .Message = "Empty quoted argument was not preserved"});
 		}
 
 		return FEditorCommandResult{};
@@ -70,15 +69,10 @@ TEST_CASE("Editor command completion is prefix based and bounded")
 	FEditorCommandRegistry Registry;
 	CHECK(RegisterCoreEditorCommands(Registry).has_value());
 
-	const std::expected<std::vector<std::string>, FEditorCommandError> Result = Registry.Complete("e", 1);
-
-	REQUIRE(Result.has_value());
-	REQUIRE(Result->size() == 1);
-	CHECK(Result->front() == "echo");
-
-	const std::expected<std::vector<std::string>, FEditorCommandError> EmptyResult = Registry.Complete("", 0);
-	REQUIRE(EmptyResult.has_value());
-	CHECK(EmptyResult->empty());
+	const std::vector<std::string> Result = Registry.Complete("e", 1);
+	REQUIRE(Result.size() == 1);
+	CHECK(Result.front() == "echo");
+	CHECK(Registry.Complete("", 0).empty());
 }
 
 TEST_CASE("Core editor command registration is transactional")
@@ -93,10 +87,9 @@ TEST_CASE("Core editor command registration is transactional")
 	REQUIRE_FALSE(Result.has_value());
 	CHECK_FALSE(Registry.Execute("echo partial registration").has_value());
 
-	const std::expected<std::vector<FEditorCommandInfo>, FEditorCommandError> Commands = Registry.List();
-	REQUIRE(Commands.has_value());
-	REQUIRE(Commands->size() == 1);
-	CHECK(Commands->front().Name == "help");
+	const std::vector<FEditorCommandInfo> Commands = Registry.List();
+	REQUIRE(Commands.size() == 1);
+	CHECK(Commands.front().Name == "help");
 }
 
 TEST_CASE("Core editor help and unknown command diagnostics share one registry")

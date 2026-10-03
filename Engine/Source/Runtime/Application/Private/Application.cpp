@@ -685,20 +685,13 @@ FWindowBackendHandle FWindow::GetBackendHandle() const noexcept
 std::expected<std::string, FApplicationError> FWindow::GetClipboardText() const
 {
 	Implementation->VerifyMainThread();
-	try
+	const char* const Text = glfwGetClipboardString(Implementation->Handle);
+	if (!Text)
 	{
-		const char* const Text = glfwGetClipboardString(Implementation->Handle);
-		if (!Text)
-		{
-			return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::ClipboardUnavailable, .Message = "The platform clipboard does not contain UTF-8 text"});
-		}
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::ClipboardUnavailable, .Message = "The platform clipboard does not contain UTF-8 text"});
+	}
 
-		return std::string(Text);
-	}
-	catch (...)
-	{
-		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::ClipboardUnavailable, .Message = "Could not copy text from the platform clipboard"});
-	}
+	return std::string(Text);
 }
 
 void FWindow::Show()
@@ -777,19 +770,11 @@ void FWindow::SetShouldClose(const bool bShouldClose) noexcept
 	glfwSetWindowShouldClose(Implementation->Handle, bShouldClose ? GLFW_TRUE : GLFW_FALSE);
 }
 
-std::expected<void, FApplicationError> FWindow::SetClipboardText(const std::string_view Text)
+void FWindow::SetClipboardText(const std::string_view Text)
 {
 	Implementation->VerifyMainThread();
-	try
-	{
-		const std::string NullTerminatedText(Text);
-		glfwSetClipboardString(Implementation->Handle, NullTerminatedText.c_str());
-		return {};
-	}
-	catch (...)
-	{
-		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::ClipboardUnavailable, .Message = "Could not copy text to the platform clipboard"});
-	}
+	const std::string NullTerminatedText(Text);
+	glfwSetClipboardString(Implementation->Handle, NullTerminatedText.c_str());
 }
 
 void FWindow::SetCallbacks(FWindowCallbacks Callbacks)
@@ -845,32 +830,17 @@ std::expected<std::unique_ptr<FApplication>, FApplicationError> FApplication::Cr
 		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::GlfwInitializationFailed, .Message = std::format("Could not initialize GLFW ({}): {}", Error, Description ? Description : "Unknown error")});
 	}
 
-	try
-	{
-		auto Implementation = std::make_unique<FImplementation>();
-		Implementation->MainThreadId = std::this_thread::get_id();
-		Implementation->Log = Log;
-		Implementation->Capabilities.WindowSystem = ToWindowSystem(glfwGetPlatform());
-		Implementation->Capabilities.bCustomTitleBars = Implementation->Capabilities.WindowSystem == EWindowSystem::Win32 || Implementation->Capabilities.WindowSystem == EWindowSystem::X11 || Implementation->Capabilities.WindowSystem == EWindowSystem::Wayland;
-		Implementation->Capabilities.bProgrammaticWindowPosition = Implementation->Capabilities.WindowSystem != EWindowSystem::Wayland && Implementation->Capabilities.WindowSystem != EWindowSystem::Null;
-		Implementation->Capabilities.bTaskbarVisibility = Implementation->Capabilities.WindowSystem == EWindowSystem::Win32 || Implementation->Capabilities.WindowSystem == EWindowSystem::X11;
-		Implementation->Capabilities.bTopMostWindows = Implementation->Capabilities.WindowSystem == EWindowSystem::Win32 || Implementation->Capabilities.WindowSystem == EWindowSystem::X11;
-		Implementation->Capabilities.bVulkanPresentation = glfwVulkanSupported() == GLFW_TRUE;
+	auto Implementation = std::make_unique<FImplementation>();
+	Implementation->MainThreadId = std::this_thread::get_id();
+	Implementation->Log = Log;
+	Implementation->Capabilities.WindowSystem = ToWindowSystem(glfwGetPlatform());
+	Implementation->Capabilities.bCustomTitleBars = Implementation->Capabilities.WindowSystem == EWindowSystem::Win32 || Implementation->Capabilities.WindowSystem == EWindowSystem::X11 || Implementation->Capabilities.WindowSystem == EWindowSystem::Wayland;
+	Implementation->Capabilities.bProgrammaticWindowPosition = Implementation->Capabilities.WindowSystem != EWindowSystem::Wayland && Implementation->Capabilities.WindowSystem != EWindowSystem::Null;
+	Implementation->Capabilities.bTaskbarVisibility = Implementation->Capabilities.WindowSystem == EWindowSystem::Win32 || Implementation->Capabilities.WindowSystem == EWindowSystem::X11;
+	Implementation->Capabilities.bTopMostWindows = Implementation->Capabilities.WindowSystem == EWindowSystem::Win32 || Implementation->Capabilities.WindowSystem == EWindowSystem::X11;
+	Implementation->Capabilities.bVulkanPresentation = glfwVulkanSupported() == GLFW_TRUE;
 
-		return std::unique_ptr<FApplication>(new FApplication(std::move(Implementation)));
-	}
-	catch (const std::exception& Exception)
-	{
-		glfwTerminate();
-		GApplicationExists.store(false, std::memory_order_release);
-		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::GlfwInitializationFailed, .Message = Exception.what()});
-	}
-	catch (...)
-	{
-		glfwTerminate();
-		GApplicationExists.store(false, std::memory_order_release);
-		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::GlfwInitializationFailed, .Message = "Could not create the application due to an unknown error"});
-	}
+	return std::unique_ptr<FApplication>(new FApplication(std::move(Implementation)));
 }
 
 FApplication::FApplication(std::unique_ptr<FImplementation> InImplementation) noexcept
@@ -900,126 +870,102 @@ std::expected<FWindow*, FApplicationError> FApplication::CreateWindow(FWindowDes
 		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::InvalidWindowDescriptor, .Message = "Window title, dimensions, or work-area percentage are invalid"});
 	}
 
-	GLFWwindow* CreatedHandle = nullptr;
-	try
+	int WorkAreaX = 0;
+	int WorkAreaY = 0;
+	int WorkAreaWidth = 1280;
+	int WorkAreaHeight = 720;
+	if (GLFWmonitor* const Monitor = glfwGetPrimaryMonitor())
 	{
-		int WorkAreaX = 0;
-		int WorkAreaY = 0;
-		int WorkAreaWidth = 1280;
-		int WorkAreaHeight = 720;
-		if (GLFWmonitor* const Monitor = glfwGetPrimaryMonitor())
-		{
-			glfwGetMonitorWorkarea(Monitor, &WorkAreaX, &WorkAreaY, &WorkAreaWidth, &WorkAreaHeight);
-		}
-
-		FWindowPlacement Placement = ResolveCenteredWindowPlacement(WorkAreaX, WorkAreaY, WorkAreaWidth, WorkAreaHeight, Descriptor.WorkAreaPercent);
-		if (Descriptor.Width > 0)
-		{
-			Placement.Width = Descriptor.Width;
-			Placement.X = WorkAreaX + (WorkAreaWidth - Placement.Width) / 2;
-		}
-
-		if (Descriptor.Height > 0)
-		{
-			Placement.Height = Descriptor.Height;
-			Placement.Y = WorkAreaY + (WorkAreaHeight - Placement.Height) / 2;
-		}
-
-		glfwDefaultWindowHints();
-		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-		glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-		glfwWindowHint(GLFW_RESIZABLE, Descriptor.bResizable ? GLFW_TRUE : GLFW_FALSE);
-		glfwWindowHint(GLFW_MAXIMIZED, Descriptor.bMaximized ? GLFW_TRUE : GLFW_FALSE);
-		const FWindowBehaviorPolicy Behavior = ResolveWindowBehaviorPolicy(Implementation->Capabilities.WindowSystem, Descriptor);
-		glfwWindowHint(GLFW_FOCUS_ON_SHOW, Behavior.bFocusOnShow ? GLFW_TRUE : GLFW_FALSE);
-		if (Behavior.bTopMost)
-		{
-			glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
-		}
-
-		const bool bCustomTitleBar = Descriptor.bCustomTitleBar && Implementation->Capabilities.bCustomTitleBars;
-		glfwWindowHint(GLFW_TITLEBAR, bCustomTitleBar ? GLFW_FALSE : GLFW_TRUE);
-
-		CreatedHandle = glfwCreateWindow(Placement.Width, Placement.Height, Descriptor.Title.c_str(), nullptr, nullptr);
-		if (!CreatedHandle)
-		{
-			return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = "GLFW could not create the window"});
-		}
-
-		if (!ApplyTaskbarVisibility(CreatedHandle, Implementation->Capabilities.WindowSystem, Behavior.bShowInTaskbar))
-		{
-			glfwDestroyWindow(CreatedHandle);
-			CreatedHandle = nullptr;
-			return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = "Could not apply the requested taskbar visibility"});
-		}
-
-		auto WindowImplementation = std::make_unique<FWindow::FImplementation>();
-		WindowImplementation->Handle = CreatedHandle;
-		WindowImplementation->Log = Implementation->Log;
-		WindowImplementation->MainThreadId = Implementation->MainThreadId;
-		WindowImplementation->Title = std::move(Descriptor.Title);
-		WindowImplementation->bResizable = Descriptor.bResizable;
-		WindowImplementation->bCustomTitleBar = bCustomTitleBar;
-		WindowImplementation->bShowInTaskbar = Behavior.bShowInTaskbar;
-		WindowImplementation->bTopMost = Behavior.bTopMost;
-		WindowImplementation->bFocusOnShow = Behavior.bFocusOnShow;
-		WindowImplementation->bWayland = Implementation->Capabilities.WindowSystem == EWindowSystem::Wayland;
-		WindowImplementation->bProgrammaticWindowPosition = Implementation->Capabilities.bProgrammaticWindowPosition;
-		WindowImplementation->bVisible = Descriptor.bVisible;
-		WindowImplementation->bFocused = glfwGetWindowAttrib(CreatedHandle, GLFW_FOCUSED) == GLFW_TRUE;
-		WindowImplementation->bMinimized = glfwGetWindowAttrib(CreatedHandle, GLFW_ICONIFIED) == GLFW_TRUE;
-		WindowImplementation->bMaximized = glfwGetWindowAttrib(CreatedHandle, GLFW_MAXIMIZED) == GLFW_TRUE;
-		glfwGetWindowSize(CreatedHandle, &WindowImplementation->Width, &WindowImplementation->Height);
-		if (Implementation->Capabilities.bProgrammaticWindowPosition)
-		{
-			glfwGetWindowPos(CreatedHandle, &WindowImplementation->PositionX, &WindowImplementation->PositionY);
-		}
-
-		glfwGetFramebufferSize(CreatedHandle, &WindowImplementation->FramebufferWidth, &WindowImplementation->FramebufferHeight);
-		float XScale = 1.f;
-		float YScale = 1.f;
-		glfwGetWindowContentScale(CreatedHandle, &XScale, &YScale);
-		WindowImplementation->ContentScale = ResolveTitleBarUiScale(Implementation->Capabilities.WindowSystem == EWindowSystem::Wayland, std::max(XScale, YScale));
-		WindowImplementation->RefreshActionCapabilities();
-		WindowImplementation->RefreshTitleBarLayout();
-
-		auto Window = std::unique_ptr<FWindow>(new FWindow(std::move(WindowImplementation)));
-		CreatedHandle = nullptr;
-		GLFWwindow* const Handle = Window->Implementation->Handle;
-		glfwSetWindowUserPointer(Handle, Window->Implementation.get());
-		InstallWindowCallbacks(Handle);
-		if (Implementation->Capabilities.bProgrammaticWindowPosition && !Descriptor.bMaximized)
-		{
-			glfwSetWindowPos(Handle, Placement.X, Placement.Y);
-		}
-
-		if (Descriptor.bVisible)
-		{
-			Window->Show();
-		}
-
-		FWindow* const Result = Window.get();
-		Implementation->Windows.emplace_back(std::move(Window));
-		return Result;
+		glfwGetMonitorWorkarea(Monitor, &WorkAreaX, &WorkAreaY, &WorkAreaWidth, &WorkAreaHeight);
 	}
-	catch (const std::exception& Exception)
+
+	FWindowPlacement Placement = ResolveCenteredWindowPlacement(WorkAreaX, WorkAreaY, WorkAreaWidth, WorkAreaHeight, Descriptor.WorkAreaPercent);
+	if (Descriptor.Width > 0)
 	{
-		if (CreatedHandle)
-		{
-			glfwDestroyWindow(CreatedHandle);
-		}
-
-		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = Exception.what()});
+		Placement.Width = Descriptor.Width;
+		Placement.X = WorkAreaX + (WorkAreaWidth - Placement.Width) / 2;
 	}
-	catch (...)
+
+	if (Descriptor.Height > 0)
 	{
-		if (CreatedHandle)
-		{
-			glfwDestroyWindow(CreatedHandle);
-		}
-
-		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = "Could not create the window due to an unknown error"});
+		Placement.Height = Descriptor.Height;
+		Placement.Y = WorkAreaY + (WorkAreaHeight - Placement.Height) / 2;
 	}
+
+	glfwDefaultWindowHints();
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+	glfwWindowHint(GLFW_RESIZABLE, Descriptor.bResizable ? GLFW_TRUE : GLFW_FALSE);
+	glfwWindowHint(GLFW_MAXIMIZED, Descriptor.bMaximized ? GLFW_TRUE : GLFW_FALSE);
+	const FWindowBehaviorPolicy Behavior = ResolveWindowBehaviorPolicy(Implementation->Capabilities.WindowSystem, Descriptor);
+	glfwWindowHint(GLFW_FOCUS_ON_SHOW, Behavior.bFocusOnShow ? GLFW_TRUE : GLFW_FALSE);
+	if (Behavior.bTopMost)
+	{
+		glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
+	}
+
+	const bool bCustomTitleBar = Descriptor.bCustomTitleBar && Implementation->Capabilities.bCustomTitleBars;
+	glfwWindowHint(GLFW_TITLEBAR, bCustomTitleBar ? GLFW_FALSE : GLFW_TRUE);
+
+	GLFWwindow* const CreatedHandle = glfwCreateWindow(Placement.Width, Placement.Height, Descriptor.Title.c_str(), nullptr, nullptr);
+	if (!CreatedHandle)
+	{
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = "GLFW could not create the window"});
+	}
+
+	if (!ApplyTaskbarVisibility(CreatedHandle, Implementation->Capabilities.WindowSystem, Behavior.bShowInTaskbar))
+	{
+		glfwDestroyWindow(CreatedHandle);
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = "Could not apply the requested taskbar visibility"});
+	}
+
+	auto WindowImplementation = std::make_unique<FWindow::FImplementation>();
+	WindowImplementation->Handle = CreatedHandle;
+	WindowImplementation->Log = Implementation->Log;
+	WindowImplementation->MainThreadId = Implementation->MainThreadId;
+	WindowImplementation->Title = std::move(Descriptor.Title);
+	WindowImplementation->bResizable = Descriptor.bResizable;
+	WindowImplementation->bCustomTitleBar = bCustomTitleBar;
+	WindowImplementation->bShowInTaskbar = Behavior.bShowInTaskbar;
+	WindowImplementation->bTopMost = Behavior.bTopMost;
+	WindowImplementation->bFocusOnShow = Behavior.bFocusOnShow;
+	WindowImplementation->bWayland = Implementation->Capabilities.WindowSystem == EWindowSystem::Wayland;
+	WindowImplementation->bProgrammaticWindowPosition = Implementation->Capabilities.bProgrammaticWindowPosition;
+	WindowImplementation->bVisible = Descriptor.bVisible;
+	WindowImplementation->bFocused = glfwGetWindowAttrib(CreatedHandle, GLFW_FOCUSED) == GLFW_TRUE;
+	WindowImplementation->bMinimized = glfwGetWindowAttrib(CreatedHandle, GLFW_ICONIFIED) == GLFW_TRUE;
+	WindowImplementation->bMaximized = glfwGetWindowAttrib(CreatedHandle, GLFW_MAXIMIZED) == GLFW_TRUE;
+	glfwGetWindowSize(CreatedHandle, &WindowImplementation->Width, &WindowImplementation->Height);
+	if (Implementation->Capabilities.bProgrammaticWindowPosition)
+	{
+		glfwGetWindowPos(CreatedHandle, &WindowImplementation->PositionX, &WindowImplementation->PositionY);
+	}
+
+	glfwGetFramebufferSize(CreatedHandle, &WindowImplementation->FramebufferWidth, &WindowImplementation->FramebufferHeight);
+	float XScale = 1.f;
+	float YScale = 1.f;
+	glfwGetWindowContentScale(CreatedHandle, &XScale, &YScale);
+	WindowImplementation->ContentScale = ResolveTitleBarUiScale(Implementation->Capabilities.WindowSystem == EWindowSystem::Wayland, std::max(XScale, YScale));
+	WindowImplementation->RefreshActionCapabilities();
+	WindowImplementation->RefreshTitleBarLayout();
+
+	auto Window = std::unique_ptr<FWindow>(new FWindow(std::move(WindowImplementation)));
+	GLFWwindow* const Handle = Window->Implementation->Handle;
+	glfwSetWindowUserPointer(Handle, Window->Implementation.get());
+	InstallWindowCallbacks(Handle);
+	if (Implementation->Capabilities.bProgrammaticWindowPosition && !Descriptor.bMaximized)
+	{
+		glfwSetWindowPos(Handle, Placement.X, Placement.Y);
+	}
+
+	if (Descriptor.bVisible)
+	{
+		Window->Show();
+	}
+
+	FWindow* const Result = Window.get();
+	Implementation->Windows.emplace_back(std::move(Window));
+	return Result;
 }
 
 void FApplication::DestroyWindow(FWindow& Window) noexcept
@@ -1127,31 +1073,20 @@ std::expected<std::vector<std::string>, FApplicationError> FApplication::GetRequ
 		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::VulkanUnavailable, .Message = "GLFW reports that Vulkan presentation is unavailable"});
 	}
 
-	try
+	std::uint32_t ExtensionCount = 0;
+	const char** const Extensions = glfwGetRequiredInstanceExtensions(&ExtensionCount);
+	if (!Extensions || ExtensionCount == 0)
 	{
-		std::uint32_t ExtensionCount = 0;
-		const char** const Extensions = glfwGetRequiredInstanceExtensions(&ExtensionCount);
-		if (!Extensions || ExtensionCount == 0)
-		{
-			return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::VulkanUnavailable, .Message = "GLFW did not provide required Vulkan instance extensions"});
-		}
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::VulkanUnavailable, .Message = "GLFW did not provide required Vulkan instance extensions"});
+	}
 
-		std::vector<std::string> Result;
-		Result.reserve(ExtensionCount);
-		for (std::uint32_t Index = 0; Index < ExtensionCount; ++Index)
-		{
-			Result.emplace_back(Extensions[Index]);
-		}
+	std::vector<std::string> Result;
+	Result.reserve(ExtensionCount);
+	for (std::uint32_t Index = 0; Index < ExtensionCount; ++Index)
+	{
+		Result.emplace_back(Extensions[Index]);
+	}
 
-		return Result;
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::VulkanUnavailable, .Message = Exception.what()});
-	}
-	catch (...)
-	{
-		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::VulkanUnavailable, .Message = "Could not copy required Vulkan instance extensions"});
-	}
+	return Result;
 }
 }

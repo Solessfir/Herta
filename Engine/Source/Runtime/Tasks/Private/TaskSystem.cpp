@@ -253,87 +253,49 @@ struct FTaskSystem::FImplementation final : std::enable_shared_from_this<FImplem
 		}
 
 		const ETaskLane Lane = Description.Lane;
-		const std::string TaskName = Description.Name;
-		bool bScopeTaskClaimed = false;
-		bool bQueueCapacityClaimed = false;
 
-		try
+		auto State = std::make_shared<FTaskHandle::FState>();
+		State->Name = Description.Name;
+		State->Lane = Description.Lane;
+		State->System = shared_from_this();
+		State->Scope = Scope;
+		State->bCapacityClaimed = Description.Lane != ETaskLane::MainThread;
+
+		auto Task = std::make_shared<FQueuedTask>(FQueuedTask{
+		    .Description = std::move(Description),
+		    .Function = std::move(Function),
+		    .State = State,
+		    .Scope = Scope});
+
+		std::scoped_lock LifecycleLock(LifecycleMutex);
+		if (!bAcceptingTasks)
 		{
-			auto State = std::make_shared<FTaskHandle::FState>();
-			State->Name = Description.Name;
-			State->Lane = Description.Lane;
-			State->System = shared_from_this();
-			State->Scope = Scope;
-			State->bCapacityClaimed = Description.Lane != ETaskLane::MainThread;
-
-			auto Task = std::make_shared<FQueuedTask>(FQueuedTask{
-			    .Description = std::move(Description),
-			    .Function = std::move(Function),
-			    .State = State,
-			    .Scope = Scope});
-
-			std::scoped_lock LifecycleLock(LifecycleMutex);
-			if (!bAcceptingTasks)
-			{
-				return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
-			}
-
-			if (Lane == ETaskLane::Cpu)
-			{
-				CollectCompletedCpuTasks();
-			}
-
-			if (!Options.bDeterministic && Lane == ETaskLane::Cpu && CpuScheduler.GetThreadNum() == enki::NO_THREAD_NUM)
-			{
-				return std::unexpected(FTaskError{.Code = ETaskErrorCode::UnregisteredThread, .Message = "CPU tasks may be submitted from the main thread, task workers, or registered IO workers"});
-			}
-
-			if (!ClaimQueueCapacity(Lane))
-			{
-				return std::unexpected(FTaskError{.Code = ETaskErrorCode::QueueFull, .Message = std::format("The {} task queue is full", GetLaneName(Lane))});
-			}
-
-			bQueueCapacityClaimed = true;
-
-			if (!TryClaimScopeTask(Scope))
-			{
-				ReleaseQueueCapacity(Lane);
-				return std::unexpected(FTaskError{.Code = ETaskErrorCode::InvalidScope, .Message = "The task scope is cancelled or closing"});
-			}
-
-			bScopeTaskClaimed = true;
-
-			Enqueue(Task);
-			return State;
+			return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
 		}
-		catch (const std::exception& Exception)
+
+		if (Lane == ETaskLane::Cpu)
 		{
-			if (bQueueCapacityClaimed)
-			{
-				ReleaseQueueCapacity(Lane);
-			}
-
-			if (bScopeTaskClaimed)
-			{
-				ReleaseScopeTask(Scope);
-			}
-
-			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = std::format("Could not submit task '{}': {}", TaskName, Exception.what())});
+			CollectCompletedCpuTasks();
 		}
-		catch (...)
+
+		if (!Options.bDeterministic && Lane == ETaskLane::Cpu && CpuScheduler.GetThreadNum() == enki::NO_THREAD_NUM)
 		{
-			if (bQueueCapacityClaimed)
-			{
-				ReleaseQueueCapacity(Lane);
-			}
-
-			if (bScopeTaskClaimed)
-			{
-				ReleaseScopeTask(Scope);
-			}
-
-			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = std::format("Could not submit task '{}' due to an unknown error", TaskName)});
+			return std::unexpected(FTaskError{.Code = ETaskErrorCode::UnregisteredThread, .Message = "CPU tasks may be submitted from the main thread, task workers, or registered IO workers"});
 		}
+
+		if (!ClaimQueueCapacity(Lane))
+		{
+			return std::unexpected(FTaskError{.Code = ETaskErrorCode::QueueFull, .Message = std::format("The {} task queue is full", GetLaneName(Lane))});
+		}
+
+		if (!TryClaimScopeTask(Scope))
+		{
+			ReleaseQueueCapacity(Lane);
+			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InvalidScope, .Message = "The task scope is cancelled or closing"});
+		}
+
+		Enqueue(Task);
+		return State;
 	}
 
 	[[nodiscard]] std::expected<std::shared_ptr<FTaskHandle::FState>, FTaskError> ContinueOnMainThread(const std::shared_ptr<FTaskScope::FState>& Scope, const std::shared_ptr<FTaskHandle::FState>& Prerequisite, std::string Name, FTaskFunction Function)
@@ -353,64 +315,39 @@ struct FTaskSystem::FImplementation final : std::enable_shared_from_this<FImplem
 			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InvalidDescription, .Message = "A continuation requires a profiling name and callable"});
 		}
 
-		std::shared_ptr<FTaskHandle::FState> State;
-		bool bScopeTaskClaimed = false;
-		try
+		auto State = std::make_shared<FTaskHandle::FState>();
+		State->Name = Name;
+		State->Lane = ETaskLane::MainThread;
+		State->System = shared_from_this();
+		State->Scope = Scope;
+
+		auto Task = std::make_shared<FQueuedTask>(FQueuedTask{
+		    .Description = FTaskDescription{.Name = std::move(Name), .Lane = ETaskLane::MainThread, .Priority = ETaskPriority::Normal},
+		    .Function = std::move(Function),
+		    .State = State,
+		    .Scope = Scope});
+
+		std::scoped_lock LifecycleLock(LifecycleMutex);
+		if (!bAcceptingTasks)
 		{
-			State = std::make_shared<FTaskHandle::FState>();
-			State->Name = Name;
-			State->Lane = ETaskLane::MainThread;
-			State->System = shared_from_this();
-			State->Scope = Scope;
-
-			auto Task = std::make_shared<FQueuedTask>(FQueuedTask{
-			    .Description = FTaskDescription{.Name = std::move(Name), .Lane = ETaskLane::MainThread, .Priority = ETaskPriority::Normal},
-			    .Function = std::move(Function),
-			    .State = State,
-			    .Scope = Scope});
-
-			std::scoped_lock LifecycleLock(LifecycleMutex);
-			if (!bAcceptingTasks)
-			{
-				return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
-			}
-
-			if (!TryClaimScopeTask(Scope))
-			{
-				return std::unexpected(FTaskError{.Code = ETaskErrorCode::InvalidScope, .Message = "The task scope is cancelled or closing"});
-			}
-
-			bScopeTaskClaimed = true;
-
-			const std::weak_ptr<FImplementation> WeakSystem = shared_from_this();
-			AddCompletionCallback(Prerequisite, State, [WeakSystem, Task]
-			{
-				if (const std::shared_ptr<FImplementation> System = WeakSystem.lock())
-				{
-					System->TryEnqueueDependent(Task);
-				}
-			});
-
-			return State;
+			return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
 		}
-		catch (const std::exception& Exception)
+
+		if (!TryClaimScopeTask(Scope))
 		{
-			if (bScopeTaskClaimed)
-			{
-				FinishTask(State, ETaskState::Failed, Exception.what());
-			}
-
-			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = std::format("Could not create main-thread continuation: {}", Exception.what())});
+			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InvalidScope, .Message = "The task scope is cancelled or closing"});
 		}
-		catch (...)
+
+		const std::weak_ptr<FImplementation> WeakSystem = shared_from_this();
+		AddCompletionCallback(Prerequisite, State, [WeakSystem, Task]
 		{
-			if (bScopeTaskClaimed)
+			if (const std::shared_ptr<FImplementation> System = WeakSystem.lock())
 			{
-				FinishTask(State, ETaskState::Failed, "Could not register the main-thread continuation");
+				System->TryEnqueueDependent(Task);
 			}
+		});
 
-			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = "Could not create main-thread continuation due to an unknown error"});
-		}
+		return State;
 	}
 
 	[[nodiscard]] std::expected<std::shared_ptr<FTaskHandle::FState>, FTaskError> WhenAll(const std::shared_ptr<FTaskScope::FState>& Scope, const std::span<const FTaskHandle> Prerequisites, std::string Name)
@@ -433,121 +370,85 @@ struct FTaskSystem::FImplementation final : std::enable_shared_from_this<FImplem
 			}
 		}
 
-		std::shared_ptr<FTaskHandle::FState> Barrier;
-		bool bScopeTaskClaimed = false;
-		try
+		auto Barrier = std::make_shared<FTaskHandle::FState>();
+		Barrier->Name = std::move(Name);
+		Barrier->Lane = ETaskLane::MainThread;
+		Barrier->System = shared_from_this();
+		Barrier->Scope = Scope;
+
+		auto WhenAllState = std::make_shared<FWhenAllState>();
+		WhenAllState->RemainingCount.store(Prerequisites.size(), std::memory_order_relaxed);
+		WhenAllState->Barrier = Barrier;
+		WhenAllState->System = shared_from_this();
+
+		std::scoped_lock LifecycleLock(LifecycleMutex);
+		if (!bAcceptingTasks)
 		{
-			Barrier = std::make_shared<FTaskHandle::FState>();
-			Barrier->Name = std::move(Name);
-			Barrier->Lane = ETaskLane::MainThread;
-			Barrier->System = shared_from_this();
-			Barrier->Scope = Scope;
+			return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
+		}
 
-			auto WhenAllState = std::make_shared<FWhenAllState>();
-			WhenAllState->RemainingCount.store(Prerequisites.size(), std::memory_order_relaxed);
-			WhenAllState->Barrier = Barrier;
-			WhenAllState->System = shared_from_this();
+		if (!TryClaimScopeTask(Scope))
+		{
+			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InvalidScope, .Message = "The task scope is cancelled or closing"});
+		}
 
-			std::scoped_lock LifecycleLock(LifecycleMutex);
-			if (!bAcceptingTasks)
-			{
-				return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
-			}
-
-			if (!TryClaimScopeTask(Scope))
-			{
-				return std::unexpected(FTaskError{.Code = ETaskErrorCode::InvalidScope, .Message = "The task scope is cancelled or closing"});
-			}
-
-			bScopeTaskClaimed = true;
-
-			if (Prerequisites.empty())
-			{
-				FinishTask(Barrier, Scope->CancellationSource.IsCancellationRequested() ? ETaskState::Cancelled : ETaskState::Succeeded, {});
-				return Barrier;
-			}
-
-			for (const FTaskHandle& Prerequisite : Prerequisites)
-			{
-				const std::shared_ptr<FTaskHandle::FState> PrerequisiteState = Prerequisite.State;
-				AddCompletionCallback(PrerequisiteState, Barrier, [WhenAllState, PrerequisiteState]
-				{
-					const ETaskState State = PrerequisiteState->State.load(std::memory_order_acquire);
-					if (State == ETaskState::Failed)
-					{
-						WhenAllState->bAnyFailed.store(true, std::memory_order_relaxed);
-					}
-					else if (State == ETaskState::Cancelled)
-					{
-						WhenAllState->bAnyCancelled.store(true, std::memory_order_relaxed);
-					}
-
-					if (WhenAllState->RemainingCount.fetch_sub(1, std::memory_order_acq_rel) != 1)
-					{
-						return;
-					}
-
-					if (const std::shared_ptr<FImplementation> System = WhenAllState->System.lock())
-					{
-						if (WhenAllState->bAnyFailed.load(std::memory_order_relaxed))
-						{
-							System->FinishTask(WhenAllState->Barrier, ETaskState::Failed, "One or more prerequisite tasks failed");
-						}
-						else if (WhenAllState->bAnyCancelled.load(std::memory_order_relaxed))
-						{
-							System->FinishTask(WhenAllState->Barrier, ETaskState::Cancelled, {});
-						}
-						else
-						{
-							System->FinishTask(WhenAllState->Barrier, ETaskState::Succeeded, {});
-						}
-					}
-				});
-			}
-
+		if (Prerequisites.empty())
+		{
+			FinishTask(Barrier, Scope->CancellationSource.IsCancellationRequested() ? ETaskState::Cancelled : ETaskState::Succeeded, {});
 			return Barrier;
 		}
-		catch (const std::exception& Exception)
-		{
-			if (bScopeTaskClaimed)
-			{
-				FinishTask(Barrier, ETaskState::Failed, Exception.what());
-			}
 
-			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = std::format("Could not create task barrier: {}", Exception.what())});
-		}
-		catch (...)
+		for (const FTaskHandle& Prerequisite : Prerequisites)
 		{
-			if (bScopeTaskClaimed)
+			const std::shared_ptr<FTaskHandle::FState> PrerequisiteState = Prerequisite.State;
+			AddCompletionCallback(PrerequisiteState, Barrier, [WhenAllState, PrerequisiteState]
 			{
-				FinishTask(Barrier, ETaskState::Failed, "Could not register the task barrier");
-			}
+				const ETaskState State = PrerequisiteState->State.load(std::memory_order_acquire);
+				if (State == ETaskState::Failed)
+				{
+					WhenAllState->bAnyFailed.store(true, std::memory_order_relaxed);
+				}
+				else if (State == ETaskState::Cancelled)
+				{
+					WhenAllState->bAnyCancelled.store(true, std::memory_order_relaxed);
+				}
 
-			return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = "Could not create task barrier due to an unknown error"});
+				if (WhenAllState->RemainingCount.fetch_sub(1, std::memory_order_acq_rel) != 1)
+				{
+					return;
+				}
+
+				if (const std::shared_ptr<FImplementation> System = WhenAllState->System.lock())
+				{
+					if (WhenAllState->bAnyFailed.load(std::memory_order_relaxed))
+					{
+						System->FinishTask(WhenAllState->Barrier, ETaskState::Failed, "One or more prerequisite tasks failed");
+					}
+					else if (WhenAllState->bAnyCancelled.load(std::memory_order_relaxed))
+					{
+						System->FinishTask(WhenAllState->Barrier, ETaskState::Cancelled, {});
+					}
+					else
+					{
+						System->FinishTask(WhenAllState->Barrier, ETaskState::Succeeded, {});
+					}
+				}
+			});
 		}
+
+		return Barrier;
 	}
 
 	void TryEnqueueDependent(const std::shared_ptr<FQueuedTask>& Task) noexcept
 	{
-		try
+		std::scoped_lock LifecycleLock(LifecycleMutex);
+		if (!bAcceptingTasks || !IsScopeAcceptingTasks(Task->Scope))
 		{
-			std::scoped_lock LifecycleLock(LifecycleMutex);
-			if (!bAcceptingTasks || !IsScopeAcceptingTasks(Task->Scope))
-			{
-				FinishTask(Task->State, ETaskState::Cancelled, {});
-				return;
-			}
+			FinishTask(Task->State, ETaskState::Cancelled, {});
+			return;
+		}
 
-			Enqueue(Task);
-		}
-		catch (const std::exception& Exception)
-		{
-			FinishTask(Task->State, ETaskState::Failed, Exception.what());
-		}
-		catch (...)
-		{
-			FinishTask(Task->State, ETaskState::Failed, "Could not enqueue dependent task");
-		}
+		Enqueue(Task);
 	}
 
 	void Enqueue(const std::shared_ptr<FQueuedTask>& Task)
@@ -645,18 +546,7 @@ struct FTaskSystem::FImplementation final : std::enable_shared_from_this<FImplem
 
 		for (FTaskHandle::FState::FCompletionCallback& Callback : CompletionCallbacks)
 		{
-			try
-			{
-				Callback.Function();
-			}
-			catch (const std::exception& Exception)
-			{
-				FinishTask(Callback.Dependent, ETaskState::Failed, Exception.what());
-			}
-			catch (...)
-			{
-				FinishTask(Callback.Dependent, ETaskState::Failed, "Completion callback failed due to an unknown exception");
-			}
+			Callback.Function();
 		}
 
 		if (Scope)
@@ -683,18 +573,7 @@ struct FTaskSystem::FImplementation final : std::enable_shared_from_this<FImplem
 			}
 		}
 
-		try
-		{
-			Callback();
-		}
-		catch (const std::exception& Exception)
-		{
-			FinishTask(Dependent, ETaskState::Failed, Exception.what());
-		}
-		catch (...)
-		{
-			FinishTask(Dependent, ETaskState::Failed, "Completion callback failed due to an unknown exception");
-		}
+		Callback();
 	}
 
 	static void ReleaseScopeTask(const std::shared_ptr<FTaskScope::FState>& Scope) noexcept
@@ -1396,26 +1275,15 @@ void FTaskScope::Wait() noexcept
 
 std::expected<std::unique_ptr<FTaskSystem>, FTaskError> FTaskSystem::Create(FTaskSystemOptions Options)
 {
-	try
+	const std::shared_ptr<FImplementation> Implementation = std::make_shared<FImplementation>(Options);
+	const std::expected<void, FTaskError> InitializationResult = Implementation->Initialize();
+	if (!InitializationResult)
 	{
-		const std::shared_ptr<FImplementation> Implementation = std::make_shared<FImplementation>(Options);
-		const std::expected<void, FTaskError> InitializationResult = Implementation->Initialize();
-		if (!InitializationResult)
-		{
-			Implementation->Shutdown();
-			return std::unexpected(InitializationResult.error());
-		}
+		Implementation->Shutdown();
+		return std::unexpected(InitializationResult.error());
+	}
 
-		return std::unique_ptr<FTaskSystem>(new FTaskSystem(Implementation));
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = std::format("Could not create the task system: {}", Exception.what())});
-	}
-	catch (...)
-	{
-		return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = "Could not create the task system due to an unknown error"});
-	}
+	return std::unique_ptr<FTaskSystem>(new FTaskSystem(Implementation));
 }
 
 FTaskSystem::FTaskSystem(std::shared_ptr<FImplementation> InImplementation) noexcept
@@ -1435,24 +1303,13 @@ std::expected<std::unique_ptr<FTaskScope>, FTaskError> FTaskSystem::CreateScope(
 		return std::unexpected(FTaskError{.Code = ETaskErrorCode::InvalidDescription, .Message = "A task scope requires a profiling name"});
 	}
 
-	try
+	std::scoped_lock LifecycleLock(Implementation->LifecycleMutex);
+	if (!Implementation->bAcceptingTasks)
 	{
-		std::scoped_lock LifecycleLock(Implementation->LifecycleMutex);
-		if (!Implementation->bAcceptingTasks)
-		{
-			return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
-		}
+		return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
+	}
 
-		return std::unique_ptr<FTaskScope>(new FTaskScope(Implementation->CreateScope(std::move(Name))));
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = std::format("Could not create task scope: {}", Exception.what())});
-	}
-	catch (...)
-	{
-		return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = "Could not create task scope due to an unknown error"});
-	}
+	return std::unique_ptr<FTaskScope>(new FTaskScope(Implementation->CreateScope(std::move(Name))));
 }
 
 std::expected<FTaskHandle, FTaskError> FTaskSystem::Submit(FTaskScope& Scope, FTaskDescription Description, FTaskFunction Function)
@@ -1495,85 +1352,74 @@ std::expected<FTaskHandle, FTaskError> FTaskSystem::ParallelFor(FTaskScope& Scop
 		return std::unexpected(FTaskError{.Code = ETaskErrorCode::InvalidDescription, .Message = "ParallelFor requires a named CPU task, a non-zero grain size, and callable"});
 	}
 
-	try
+	if (ItemCount == 0)
 	{
-		if (ItemCount == 0)
+		return WhenAll(Scope, {}, std::move(Description.Name));
+	}
+
+	std::unique_lock LifecycleLock(Implementation->LifecycleMutex);
+	if (!Implementation->bAcceptingTasks)
+	{
+		return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
+	}
+
+	const std::size_t QueuedTaskCount = Implementation->QueuedCpuTaskCount.load(std::memory_order_acquire);
+	const std::size_t AvailableTaskCount = Implementation->Options.MaximumQueuedCpuTasks - std::min(Implementation->Options.MaximumQueuedCpuTasks, QueuedTaskCount);
+	if (AvailableTaskCount == 0)
+	{
+		return std::unexpected(FTaskError{.Code = ETaskErrorCode::QueueFull, .Message = "The CPU task queue is full"});
+	}
+
+	const std::size_t DesiredTaskCount = ItemCount / MinimumItemsPerTask + static_cast<std::size_t>(ItemCount % MinimumItemsPerTask != 0);
+	const std::size_t TaskCount = std::min(DesiredTaskCount, AvailableTaskCount);
+	const std::size_t BaseItemsPerTask = ItemCount / TaskCount;
+	const std::size_t TasksWithExtraItem = ItemCount % TaskCount;
+	std::vector<FTaskHandle> Tasks;
+	Tasks.reserve(TaskCount);
+	const auto SharedFunction = std::make_shared<FParallelForFunction>(std::move(Function));
+	std::optional<FTaskError> SubmissionError;
+
+	for (std::size_t TaskIndex = 0; TaskIndex < TaskCount; ++TaskIndex)
+	{
+		const std::size_t BeginIndex = TaskIndex * BaseItemsPerTask + std::min(TaskIndex, TasksWithExtraItem);
+		const std::size_t EndIndex = BeginIndex + BaseItemsPerTask + static_cast<std::size_t>(TaskIndex < TasksWithExtraItem);
+		FTaskDescription ChunkDescription{
+		    .Name = std::format("{} [{}..{})", Description.Name, BeginIndex, EndIndex),
+		    .Lane = ETaskLane::Cpu,
+		    .Priority = Description.Priority,
+		};
+
+		std::expected<FTaskHandle, FTaskError> Task = Submit(Scope, std::move(ChunkDescription), [SharedFunction, BeginIndex, EndIndex](FTaskContext& Context)
 		{
-			return WhenAll(Scope, {}, std::move(Description.Name));
-		}
-
-		std::unique_lock LifecycleLock(Implementation->LifecycleMutex);
-		if (!Implementation->bAcceptingTasks)
-		{
-			return std::unexpected(FTaskError{.Code = ETaskErrorCode::ShuttingDown, .Message = "The task system is shutting down"});
-		}
-
-		const std::size_t QueuedTaskCount = Implementation->QueuedCpuTaskCount.load(std::memory_order_acquire);
-		const std::size_t AvailableTaskCount = Implementation->Options.MaximumQueuedCpuTasks - std::min(Implementation->Options.MaximumQueuedCpuTasks, QueuedTaskCount);
-		if (AvailableTaskCount == 0)
-		{
-			return std::unexpected(FTaskError{.Code = ETaskErrorCode::QueueFull, .Message = "The CPU task queue is full"});
-		}
-
-		const std::size_t DesiredTaskCount = ItemCount / MinimumItemsPerTask + static_cast<std::size_t>(ItemCount % MinimumItemsPerTask != 0);
-		const std::size_t TaskCount = std::min(DesiredTaskCount, AvailableTaskCount);
-		const std::size_t BaseItemsPerTask = ItemCount / TaskCount;
-		const std::size_t TasksWithExtraItem = ItemCount % TaskCount;
-		std::vector<FTaskHandle> Tasks;
-		Tasks.reserve(TaskCount);
-		const auto SharedFunction = std::make_shared<FParallelForFunction>(std::move(Function));
-		std::optional<FTaskError> SubmissionError;
-
-		for (std::size_t TaskIndex = 0; TaskIndex < TaskCount; ++TaskIndex)
-		{
-			const std::size_t BeginIndex = TaskIndex * BaseItemsPerTask + std::min(TaskIndex, TasksWithExtraItem);
-			const std::size_t EndIndex = BeginIndex + BaseItemsPerTask + static_cast<std::size_t>(TaskIndex < TasksWithExtraItem);
-			FTaskDescription ChunkDescription{
-			    .Name = std::format("{} [{}..{})", Description.Name, BeginIndex, EndIndex),
-			    .Lane = ETaskLane::Cpu,
-			    .Priority = Description.Priority,
-			};
-
-			std::expected<FTaskHandle, FTaskError> Task = Submit(Scope, std::move(ChunkDescription), [SharedFunction, BeginIndex, EndIndex](FTaskContext& Context)
+			for (std::size_t Index = BeginIndex; Index < EndIndex && !Context.IsCancellationRequested(); ++Index)
 			{
-				for (std::size_t Index = BeginIndex; Index < EndIndex && !Context.IsCancellationRequested(); ++Index)
-				{
-					(*SharedFunction)(Index, Context);
-				}
-			});
-
-			if (!Task)
-			{
-				SubmissionError = std::move(Task.error());
-				break;
+				(*SharedFunction)(Index, Context);
 			}
+		});
 
-			Tasks.emplace_back(std::move(*Task));
-		}
-
-		if (SubmissionError)
+		if (!Task)
 		{
-			LifecycleLock.unlock();
-			for (const FTaskHandle& SubmittedTask : Tasks)
-			{
-				static_cast<void>(SubmittedTask.Wait());
-			}
-
-			return std::unexpected(std::move(*SubmissionError));
+			SubmissionError = std::move(Task.error());
+			break;
 		}
 
-		std::expected<FTaskHandle, FTaskError> Barrier = WhenAll(Scope, Tasks, std::move(Description.Name));
+		Tasks.emplace_back(std::move(*Task));
+	}
+
+	if (SubmissionError)
+	{
 		LifecycleLock.unlock();
-		return Barrier;
+		for (const FTaskHandle& SubmittedTask : Tasks)
+		{
+			static_cast<void>(SubmittedTask.Wait());
+		}
+
+		return std::unexpected(std::move(*SubmissionError));
 	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = std::format("Could not create parallel task: {}", Exception.what())});
-	}
-	catch (...)
-	{
-		return std::unexpected(FTaskError{.Code = ETaskErrorCode::InitializationFailed, .Message = "Could not create parallel task due to an unknown error"});
-	}
+
+	std::expected<FTaskHandle, FTaskError> Barrier = WhenAll(Scope, Tasks, std::move(Description.Name));
+	LifecycleLock.unlock();
+	return Barrier;
 }
 
 std::size_t FTaskSystem::RunMainThreadTasks(const std::size_t MaximumTasks)

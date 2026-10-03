@@ -127,7 +127,7 @@ public:
 	}
 
 	void LogText(const FLogCategory& Category, ELogLevel Level, std::string_view Message, const std::source_location& Location = std::source_location::current()) noexcept;
-	[[nodiscard]] std::expected<FLogReadResult, FLogError> ReadEditorBuffer(FLogCursor Cursor = {}, std::size_t MaximumRecords = std::numeric_limits<std::size_t>::max()) const;
+	[[nodiscard]] FLogReadResult ReadEditorBuffer(FLogCursor Cursor = {}, std::size_t MaximumRecords = std::numeric_limits<std::size_t>::max()) const;
 	void ClearEditorBuffer() noexcept;
 	void Flush() noexcept;
 	[[nodiscard]] FLogStatistics GetStatistics() const noexcept;

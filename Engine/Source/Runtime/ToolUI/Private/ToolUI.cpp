@@ -128,21 +128,14 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 		return std::unexpected(FToolUIError{"Editor resource is empty: " + PathToUtf8(Path)});
 	}
 
-	try
+	std::vector<std::byte> Bytes(static_cast<std::size_t>(Size));
+	Stream.seekg(0, std::ios::beg);
+	if (!Stream.read(reinterpret_cast<char*>(Bytes.data()), Size))
 	{
-		std::vector<std::byte> Bytes(static_cast<std::size_t>(Size));
-		Stream.seekg(0, std::ios::beg);
-		if (!Stream.read(reinterpret_cast<char*>(Bytes.data()), Size))
-		{
-			return std::unexpected(FToolUIError{"Could not read editor resource: " + PathToUtf8(Path)});
-		}
+		return std::unexpected(FToolUIError{"Could not read editor resource: " + PathToUtf8(Path)});
+	}
 
-		return Bytes;
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FToolUIError{Exception.what()});
-	}
+	return Bytes;
 }
 
 [[nodiscard]] std::optional<FEditorAppearance> LoadAppearance(const std::filesystem::path& Path)
@@ -193,25 +186,18 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 
 void SaveAppearance(const std::filesystem::path& Path, const FEditorAppearance& Appearance) noexcept
 {
-	try
+	std::ofstream Stream(Path, std::ios::trunc);
+	if (!Stream)
 	{
-		std::ofstream Stream(Path, std::ios::trunc);
-		if (!Stream)
-		{
-			return;
-		}
+		return;
+	}
 
-		Stream << "HertaEditorAppearance 2\n";
-		Stream << "Accent " << static_cast<int>(Appearance.Accent.Red) << ' ' << static_cast<int>(Appearance.Accent.Green) << ' ' << static_cast<int>(Appearance.Accent.Blue) << '\n';
-		Stream << "Gradient " << Appearance.GradientHeight << ' ' << Appearance.Saturation << ' ' << Appearance.Intensity << '\n';
-		Stream << "Panel " << static_cast<int>(Appearance.PanelTransparency) << '\n';
-		Stream << "Glass " << Appearance.PanelOpacity << ' ' << Appearance.BlurRadius << '\n';
-		Stream << "Motion " << static_cast<int>(Appearance.bReducedMotion) << '\n';
-	}
-	catch (...) // NOLINT(bugprone-empty-catch)
-	{
-		// Appearance persistence is best-effort and must not break editor teardown.
-	}
+	Stream << "HertaEditorAppearance 2\n";
+	Stream << "Accent " << static_cast<int>(Appearance.Accent.Red) << ' ' << static_cast<int>(Appearance.Accent.Green) << ' ' << static_cast<int>(Appearance.Accent.Blue) << '\n';
+	Stream << "Gradient " << Appearance.GradientHeight << ' ' << Appearance.Saturation << ' ' << Appearance.Intensity << '\n';
+	Stream << "Panel " << static_cast<int>(Appearance.PanelTransparency) << '\n';
+	Stream << "Glass " << Appearance.PanelOpacity << ' ' << Appearance.BlurRadius << '\n';
+	Stream << "Motion " << static_cast<int>(Appearance.bReducedMotion) << '\n';
 }
 
 void ResetRendererTextureState() noexcept
@@ -1121,80 +1107,50 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 void PlatformCreateWindow(ImGuiViewport* const Viewport)
 {
 	FToolUIContext::FImplementation& Owner = *GetToolUIImplementation();
-	FWindow* CreatedWindow = nullptr;
-	try
+	auto Data = std::make_unique<FToolUIViewportData>();
+	FWindowDescriptor Descriptor;
+	Descriptor.Title = "Herta Panel";
+	Descriptor.Width = std::max(1, static_cast<int>(std::lround(Viewport->Size.x)));
+	Descriptor.Height = std::max(1, static_cast<int>(std::lround(Viewport->Size.y)));
+	Descriptor.bVisible = false;
+	Descriptor.bResizable = true;
+	Descriptor.bCustomTitleBar = true;
+	const FToolUIViewportWindowPolicy WindowPolicy = ResolveToolUIViewportWindowPolicy(
+	    (Viewport->Flags & ImGuiViewportFlags_NoTaskBarIcon) != 0,
+	    (Viewport->Flags & ImGuiViewportFlags_TopMost) != 0,
+	    (Viewport->Flags & ImGuiViewportFlags_NoFocusOnAppearing) != 0);
+	Descriptor.bShowInTaskbar = WindowPolicy.bShowInTaskbar;
+	Descriptor.bTopMost = WindowPolicy.bTopMost;
+	Descriptor.bFocusOnShow = WindowPolicy.bFocusOnShow;
+	std::expected<FWindow*, FApplicationError> WindowResult = Owner.Application->CreateWindow(std::move(Descriptor));
+	if (!WindowResult)
 	{
-		auto Data = std::make_unique<FToolUIViewportData>();
-		FWindowDescriptor Descriptor;
-		Descriptor.Title = "Herta Panel";
-		Descriptor.Width = std::max(1, static_cast<int>(std::lround(Viewport->Size.x)));
-		Descriptor.Height = std::max(1, static_cast<int>(std::lround(Viewport->Size.y)));
-		Descriptor.bVisible = false;
-		Descriptor.bResizable = true;
-		Descriptor.bCustomTitleBar = true;
-		const FToolUIViewportWindowPolicy WindowPolicy = ResolveToolUIViewportWindowPolicy(
-		    (Viewport->Flags & ImGuiViewportFlags_NoTaskBarIcon) != 0,
-		    (Viewport->Flags & ImGuiViewportFlags_TopMost) != 0,
-		    (Viewport->Flags & ImGuiViewportFlags_NoFocusOnAppearing) != 0);
-		Descriptor.bShowInTaskbar = WindowPolicy.bShowInTaskbar;
-		Descriptor.bTopMost = WindowPolicy.bTopMost;
-		Descriptor.bFocusOnShow = WindowPolicy.bFocusOnShow;
-		std::expected<FWindow*, FApplicationError> WindowResult = Owner.Application->CreateWindow(std::move(Descriptor));
-		if (!WindowResult)
-		{
-			RecordViewportError(Owner, FToolUIError{std::move(WindowResult.error().Message)});
-			Viewport->PlatformRequestClose = true;
-			return;
-		}
+		RecordViewportError(Owner, FToolUIError{std::move(WindowResult.error().Message)});
+		Viewport->PlatformRequestClose = true;
+		return;
+	}
 
-		Data->Owner = &Owner;
-		Data->Viewport = Viewport;
-		Data->Window = CreatedWindow = *WindowResult;
+	Data->Owner = &Owner;
+	Data->Viewport = Viewport;
+	Data->Window = *WindowResult;
 #ifdef __linux__
-		Data->Window->SetActionPolicy({.bRequireMinimizeSupport = true});
+	Data->Window->SetActionPolicy({.bRequireMinimizeSupport = true});
 #endif
-		Data->CachedPosition = {.X = Viewport->Pos.x, .Y = Viewport->Pos.y};
-		Viewport->PlatformUserData = Data.get();
-		Viewport->PlatformHandle = Data->Window->GetBackendHandle().Value;
-		SetViewportCallbacks(Owner, *Viewport, *Data->Window, Data.get());
-		Data->IgnoreMoveEventFrame = ImGui::GetFrameCount();
-		if (Owner.bProgrammaticWindowPosition)
-		{
-			std::expected<void, FApplicationError> PositionResult = Data->Window->SetPosition(static_cast<int>(std::lround(Viewport->Pos.x)), static_cast<int>(std::lround(Viewport->Pos.y)));
-			if (!PositionResult)
-			{
-				RecordViewportError(Owner, FToolUIError{std::move(PositionResult.error().Message)});
-			}
-		}
-
-		Viewport->PlatformUserData = Data.release();
-	}
-	catch (const std::exception& Exception)
+	Data->CachedPosition = {.X = Viewport->Pos.x, .Y = Viewport->Pos.y};
+	Viewport->PlatformUserData = Data.get();
+	Viewport->PlatformHandle = Data->Window->GetBackendHandle().Value;
+	SetViewportCallbacks(Owner, *Viewport, *Data->Window, Data.get());
+	Data->IgnoreMoveEventFrame = ImGui::GetFrameCount();
+	if (Owner.bProgrammaticWindowPosition)
 	{
-		if (CreatedWindow != nullptr)
+		std::expected<void, FApplicationError> PositionResult = Data->Window->SetPosition(static_cast<int>(std::lround(Viewport->Pos.x)), static_cast<int>(std::lround(Viewport->Pos.y)));
+		if (!PositionResult)
 		{
-			CreatedWindow->SetCallbacks({});
-			Owner.Application->DestroyWindow(*CreatedWindow);
+			RecordViewportError(Owner, FToolUIError{std::move(PositionResult.error().Message)});
 		}
-
-		Viewport->PlatformUserData = nullptr;
-		Viewport->PlatformHandle = nullptr;
-		RecordViewportError(Owner, FToolUIError{Exception.what()});
-		Viewport->PlatformRequestClose = true;
 	}
-	catch (...)
-	{
-		if (CreatedWindow != nullptr)
-		{
-			CreatedWindow->SetCallbacks({});
-			Owner.Application->DestroyWindow(*CreatedWindow);
-		}
 
-		Viewport->PlatformUserData = nullptr;
-		Viewport->PlatformHandle = nullptr;
-		RecordViewportError(Owner, FToolUIError{"Could not create a ToolUI platform window"});
-		Viewport->PlatformRequestClose = true;
-	}
+	Viewport->PlatformUserData = Data.release();
 }
 
 void PlatformDestroyWindow(ImGuiViewport* const Viewport)

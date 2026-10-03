@@ -46,86 +46,80 @@ struct FStoredCommand
 	});
 }
 
+[[nodiscard]] const std::string& GetCommandName(const std::shared_ptr<FStoredCommand>& Command) noexcept
+{
+	return Command->Name;
+}
+
 [[nodiscard]] std::expected<std::vector<std::string>, FEditorCommandError> TokenizeCommandLine(const std::string_view CommandLine)
 {
-	try
+	std::vector<std::string> Tokens;
+	std::string Current;
+	bool bQuoted = false;
+	bool bEscaped = false;
+	bool bTokenStarted = false;
+
+	for (const char Character : CommandLine)
 	{
-		std::vector<std::string> Tokens;
-		std::string Current;
-		bool bQuoted = false;
-		bool bEscaped = false;
-		bool bTokenStarted = false;
-
-		for (const char Character : CommandLine)
+		if (bEscaped)
 		{
-			if (bEscaped)
+			if (Character != '"' && Character != '\\' && !IsAsciiSpace(Character))
 			{
-				if (Character != '"' && Character != '\\' && !IsAsciiSpace(Character))
-				{
-					Current.push_back('\\');
-				}
-
-				Current.push_back(Character);
-				bEscaped = false;
-				bTokenStarted = true;
-				continue;
-			}
-
-			if (Character == '\\')
-			{
-				bEscaped = true;
-				bTokenStarted = true;
-				continue;
-			}
-
-			if (Character == '"')
-			{
-				bQuoted = !bQuoted;
-				bTokenStarted = true;
-				continue;
-			}
-
-			if (!bQuoted && IsAsciiSpace(Character))
-			{
-				if (bTokenStarted)
-				{
-					Tokens.emplace_back(std::move(Current));
-					Current.clear();
-					bTokenStarted = false;
-				}
-
-				continue;
+				Current.push_back('\\');
 			}
 
 			Current.push_back(Character);
+			bEscaped = false;
 			bTokenStarted = true;
+			continue;
 		}
 
-		if (bEscaped)
+		if (Character == '\\')
 		{
-			Current.push_back('\\');
+			bEscaped = true;
+			bTokenStarted = true;
+			continue;
 		}
 
-		if (bQuoted)
+		if (Character == '"')
 		{
-			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::ParseError, .Message = "Command line contains an unterminated quote"});
+			bQuoted = !bQuoted;
+			bTokenStarted = true;
+			continue;
 		}
 
-		if (bTokenStarted)
+		if (!bQuoted && IsAsciiSpace(Character))
 		{
-			Tokens.emplace_back(std::move(Current));
+			if (bTokenStarted)
+			{
+				Tokens.emplace_back(std::move(Current));
+				Current.clear();
+				bTokenStarted = false;
+			}
+
+			continue;
 		}
 
-		return Tokens;
+		Current.push_back(Character);
+		bTokenStarted = true;
 	}
-	catch (const std::exception& Exception)
+
+	if (bEscaped)
 	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::ParseError, .Message = Exception.what()});
+		Current.push_back('\\');
 	}
-	catch (...)
+
+	if (bQuoted)
 	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::ParseError, .Message = "Could not parse the command line"});
+		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::ParseError, .Message = "Command line contains an unterminated quote"});
 	}
+
+	if (bTokenStarted)
+	{
+		Tokens.emplace_back(std::move(Current));
+	}
+
+	return Tokens;
 }
 }
 
@@ -135,117 +129,63 @@ struct FEditorCommandRegistry::FImplementation
 	std::vector<std::shared_ptr<FStoredCommand>> Commands;
 };
 
-FEditorCommandRegistry::FEditorCommandRegistry() noexcept
+FEditorCommandRegistry::FEditorCommandRegistry()
+    : Implementation(std::make_unique<FImplementation>())
 {
-	try
-	{
-		Implementation = std::make_unique<FImplementation>();
-	}
-	catch (...) // NOLINT(bugprone-empty-catch)
-	{
-		// The expected-returning API reports RegistryUnavailable after allocation failure.
-	}
 }
 
 FEditorCommandRegistry::~FEditorCommandRegistry() = default;
 
 std::expected<void, FEditorCommandError> FEditorCommandRegistry::Register(FEditorCommandDescriptor Descriptor)
 {
-	try
-	{
-		std::vector<FEditorCommandDescriptor> Descriptors;
-		Descriptors.emplace_back(std::move(Descriptor));
-		return RegisterBatch(std::move(Descriptors));
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = Exception.what()});
-	}
-	catch (...)
-	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = "Could not register the command"});
-	}
+	std::vector<FEditorCommandDescriptor> Descriptors;
+	Descriptors.emplace_back(std::move(Descriptor));
+	return RegisterBatch(std::move(Descriptors));
 }
 
 std::expected<void, FEditorCommandError> FEditorCommandRegistry::RegisterBatch(std::vector<FEditorCommandDescriptor> Descriptors)
 {
-	if (!Implementation)
+	std::vector<std::shared_ptr<FStoredCommand>> NewCommands;
+	NewCommands.reserve(Descriptors.size());
+	for (FEditorCommandDescriptor& Descriptor : Descriptors)
 	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::RegistryUnavailable, .Message = "The editor command registry could not initialize"});
-	}
-
-	try
-	{
-		std::vector<std::shared_ptr<FStoredCommand>> NewCommands;
-		NewCommands.reserve(Descriptors.size());
-		for (FEditorCommandDescriptor& Descriptor : Descriptors)
+		if (!IsValidCommandName(Descriptor.Name) || Descriptor.Description.empty() || !Descriptor.Handler)
 		{
-			if (!IsValidCommandName(Descriptor.Name) || Descriptor.Description.empty() || !Descriptor.Handler)
-			{
-				return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InvalidDescriptor, .Message = "A command requires a valid name, description, and handler"});
-			}
-
-			NewCommands.emplace_back(std::make_shared<FStoredCommand>(FStoredCommand{.Name = std::move(Descriptor.Name), .Description = std::move(Descriptor.Description), .Handler = std::move(Descriptor.Handler)}));
+			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InvalidDescriptor, .Message = "A command requires a valid name, description, and handler"});
 		}
 
-		std::ranges::sort(NewCommands, {}, [](const std::shared_ptr<FStoredCommand>& Command) -> const std::string&
-		{
-			return Command->Name;
-		});
-
-		for (std::size_t Index = 1; Index < NewCommands.size(); ++Index)
-		{
-			if (NewCommands[Index - 1]->Name == NewCommands[Index]->Name)
-			{
-				return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::AlreadyRegistered, .Message = std::format("Command '{}' is registered more than once in the same batch", NewCommands[Index]->Name)});
-			}
-		}
-
-		std::scoped_lock Lock(Implementation->Mutex);
-		for (const std::shared_ptr<FStoredCommand>& Command : NewCommands)
-		{
-			const auto Existing = std::ranges::lower_bound(Implementation->Commands, Command->Name, {}, [](const std::shared_ptr<FStoredCommand>& Candidate) -> const std::string&
-			{
-				return Candidate->Name;
-			});
-
-			if (Existing != Implementation->Commands.end() && (*Existing)->Name == Command->Name)
-			{
-				return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::AlreadyRegistered, .Message = std::format("Command '{}' is already registered", Command->Name)});
-			}
-		}
-
-		std::vector<std::shared_ptr<FStoredCommand>> MergedCommands;
-		MergedCommands.reserve(Implementation->Commands.size() + NewCommands.size());
-
-		std::ranges::merge(Implementation->Commands, NewCommands, std::back_inserter(MergedCommands), {}, [](const std::shared_ptr<FStoredCommand>& Command) -> const std::string&
-		{
-			return Command->Name;
-		}, [](const std::shared_ptr<FStoredCommand>& Command) -> const std::string&
-		{
-			return Command->Name;
-		});
-
-		Implementation->Commands.swap(MergedCommands);
-		return {};
+		NewCommands.emplace_back(std::make_shared<FStoredCommand>(FStoredCommand{.Name = std::move(Descriptor.Name), .Description = std::move(Descriptor.Description), .Handler = std::move(Descriptor.Handler)}));
 	}
-	catch (const std::exception& Exception)
+
+	std::ranges::sort(NewCommands, {}, GetCommandName);
+
+	for (std::size_t Index = 1; Index < NewCommands.size(); ++Index)
 	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = Exception.what()});
+		if (NewCommands[Index - 1]->Name == NewCommands[Index]->Name)
+		{
+			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::AlreadyRegistered, .Message = std::format("Command '{}' is registered more than once in the same batch", NewCommands[Index]->Name)});
+		}
 	}
-	catch (...)
+
+	std::scoped_lock Lock(Implementation->Mutex);
+	for (const std::shared_ptr<FStoredCommand>& Command : NewCommands)
 	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = "Could not register editor commands"});
+		const auto Existing = std::ranges::lower_bound(Implementation->Commands, Command->Name, {}, GetCommandName);
+		if (Existing != Implementation->Commands.end() && (*Existing)->Name == Command->Name)
+		{
+			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::AlreadyRegistered, .Message = std::format("Command '{}' is already registered", Command->Name)});
+		}
 	}
+
+	std::vector<std::shared_ptr<FStoredCommand>> MergedCommands;
+	MergedCommands.reserve(Implementation->Commands.size() + NewCommands.size());
+	std::ranges::merge(Implementation->Commands, NewCommands, std::back_inserter(MergedCommands), {}, GetCommandName, GetCommandName);
+	Implementation->Commands.swap(MergedCommands);
+	return {};
 }
 
 std::expected<FEditorCommandResult, FEditorCommandError> FEditorCommandRegistry::Execute(const std::string_view CommandLine) const
 {
-	if (!Implementation)
-	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::RegistryUnavailable, .Message = "The editor command registry could not initialize"});
-	}
-
 	std::expected<std::vector<std::string>, FEditorCommandError> Tokens = TokenizeCommandLine(CommandLine);
 	if (!Tokens)
 	{
@@ -257,36 +197,23 @@ std::expected<FEditorCommandResult, FEditorCommandError> FEditorCommandRegistry:
 		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::EmptyCommandLine, .Message = "Command line is empty"});
 	}
 
+	std::shared_ptr<FStoredCommand> Command;
+	{
+		std::scoped_lock Lock(Implementation->Mutex);
+		const auto Iterator = std::ranges::lower_bound(Implementation->Commands, Tokens->front(), {}, GetCommandName);
+		if (Iterator == Implementation->Commands.end() || (*Iterator)->Name != Tokens->front())
+		{
+			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::UnknownCommand, .Message = std::format("Unknown command '{}'. Type help for available commands", Tokens->front())});
+		}
+
+		Command = *Iterator;
+	}
+
+	std::vector<std::string_view> Arguments(std::next(Tokens->begin()), Tokens->end());
+
+	// Handlers come from other modules, so their exceptions must not unwind through the registry.
 	try
 	{
-		std::vector<std::string_view> Arguments;
-		Arguments.reserve(Tokens->size() - 1);
-		for (std::size_t Index = 1; Index < Tokens->size(); ++Index)
-		{
-			Arguments.emplace_back((*Tokens)[Index]);
-		}
-
-		std::shared_ptr<FStoredCommand> Command;
-		{
-			std::scoped_lock Lock(Implementation->Mutex);
-			const auto Iterator = std::ranges::lower_bound(Implementation->Commands, Tokens->front(), {}, [](const std::shared_ptr<FStoredCommand>& Candidate) -> const std::string&
-			{
-				return Candidate->Name;
-			});
-
-			if (Iterator == Implementation->Commands.end() || (*Iterator)->Name != Tokens->front())
-			{
-				return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::UnknownCommand, .Message = std::format("Unknown command '{}'. Type help for available commands", Tokens->front())});
-			}
-
-			Command = *Iterator;
-		}
-
-		if (!Command)
-		{
-			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = "Command lookup failed"});
-		}
-
 		return Command->Handler(Arguments);
 	}
 	catch (const std::exception& Exception)
@@ -299,134 +226,86 @@ std::expected<FEditorCommandResult, FEditorCommandError> FEditorCommandRegistry:
 	}
 }
 
-std::expected<std::vector<std::string>, FEditorCommandError> FEditorCommandRegistry::Complete(const std::string_view Prefix, const std::size_t MaximumResults) const
+std::vector<std::string> FEditorCommandRegistry::Complete(const std::string_view Prefix, const std::size_t MaximumResults) const
 {
-	if (!Implementation)
-	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::RegistryUnavailable, .Message = "The editor command registry could not initialize"});
-	}
-
+	std::vector<std::string> Results;
 	if (MaximumResults == 0)
 	{
-		return std::vector<std::string>{};
+		return Results;
 	}
 
-	try
+	std::scoped_lock Lock(Implementation->Mutex);
+	for (const std::shared_ptr<FStoredCommand>& Command : Implementation->Commands)
 	{
-		std::vector<std::string> Results;
-		std::scoped_lock Lock(Implementation->Mutex);
-		Results.reserve(std::min(MaximumResults, Implementation->Commands.size()));
-		for (const std::shared_ptr<FStoredCommand>& Command : Implementation->Commands)
+		if (Command->Name.starts_with(Prefix))
 		{
-			if (Command->Name.starts_with(Prefix))
+			Results.emplace_back(Command->Name);
+			if (Results.size() == MaximumResults)
 			{
-				Results.emplace_back(Command->Name);
-				if (Results.size() == MaximumResults)
-				{
-					break;
-				}
+				break;
 			}
 		}
+	}
 
-		return Results;
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = Exception.what()});
-	}
-	catch (...)
-	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = "Could not complete the command prefix"});
-	}
+	return Results;
 }
 
-std::expected<std::vector<FEditorCommandInfo>, FEditorCommandError> FEditorCommandRegistry::List() const
+std::vector<FEditorCommandInfo> FEditorCommandRegistry::List() const
 {
-	if (!Implementation)
+	std::vector<FEditorCommandInfo> Results;
+	std::scoped_lock Lock(Implementation->Mutex);
+	Results.reserve(Implementation->Commands.size());
+	for (const std::shared_ptr<FStoredCommand>& Command : Implementation->Commands)
 	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::RegistryUnavailable, .Message = "The editor command registry could not initialize"});
+		Results.emplace_back(FEditorCommandInfo{.Name = Command->Name, .Description = Command->Description});
 	}
 
-	try
-	{
-		std::vector<FEditorCommandInfo> Results;
-		std::scoped_lock Lock(Implementation->Mutex);
-		Results.reserve(Implementation->Commands.size());
-		for (const std::shared_ptr<FStoredCommand>& Command : Implementation->Commands)
-		{
-			Results.emplace_back(FEditorCommandInfo{.Name = Command->Name, .Description = Command->Description});
-		}
-
-		return Results;
-	}
-	catch (const std::exception& Exception)
-	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = Exception.what()});
-	}
-	catch (...)
-	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = "Could not list editor commands"});
-	}
+	return Results;
 }
 
 std::expected<void, FEditorCommandError> RegisterCoreEditorCommands(FEditorCommandRegistry& Registry)
 {
-	try
+	std::vector<FEditorCommandDescriptor> Descriptors;
+	Descriptors.emplace_back(FEditorCommandDescriptor{
+	    .Name = "echo",
+	    .Description = "Print the provided arguments",
+	    .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
-		std::vector<FEditorCommandDescriptor> Descriptors;
-		Descriptors.emplace_back(FEditorCommandDescriptor{
-		    .Name = "echo",
-		    .Description = "Print the provided arguments",
-		    .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		std::string Message;
+		for (const std::string_view Argument : Arguments)
 		{
-			std::string Message;
-			for (const std::string_view Argument : Arguments)
-			{
-				if (!Message.empty())
-				{
-					Message.push_back(' ');
-				}
-
-				Message.append(Argument);
-			}
-
-			return FEditorCommandResult{.ExitCode = 0, .Message = std::move(Message)};
-		}});
-
-		Descriptors.emplace_back(FEditorCommandDescriptor{
-		    .Name = "help",
-		    .Description = "List registered editor commands",
-		    .Handler = [&Registry](std::span<const std::string_view>) -> std::expected<FEditorCommandResult, FEditorCommandError>
-		{
-			std::expected<std::vector<FEditorCommandInfo>, FEditorCommandError> Commands = Registry.List();
-			if (!Commands)
-			{
-				return std::unexpected(std::move(Commands.error()));
-			}
-
-			std::string Message;
-			for (const FEditorCommandInfo& Command : *Commands)
-			{
-				Message.append(std::format("{:<16} {}\n", Command.Name, Command.Description));
-			}
-
 			if (!Message.empty())
 			{
-				Message.pop_back();
+				Message.push_back(' ');
 			}
 
-			return FEditorCommandResult{.ExitCode = 0, .Message = std::move(Message)};
-		}});
+			Message.append(Argument);
+		}
 
-		return Registry.RegisterBatch(std::move(Descriptors));
-	}
-	catch (const std::exception& Exception)
+		return FEditorCommandResult{.ExitCode = 0, .Message = std::move(Message)};
+	},
+	});
+
+	Descriptors.emplace_back(FEditorCommandDescriptor{
+	    .Name = "help",
+	    .Description = "List registered editor commands",
+	    .Handler = [&Registry](std::span<const std::string_view>) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = Exception.what()});
-	}
-	catch (...)
-	{
-		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InternalError, .Message = "Could not create the core editor commands"});
-	}
+		std::string Message;
+		for (const FEditorCommandInfo& Command : Registry.List())
+		{
+			Message.append(std::format("{:<16} {}\n", Command.Name, Command.Description));
+		}
+
+		if (!Message.empty())
+		{
+			Message.pop_back();
+		}
+
+		return FEditorCommandResult{.ExitCode = 0, .Message = std::move(Message)};
+	},
+	});
+
+	return Registry.RegisterBatch(std::move(Descriptors));
 }
 }

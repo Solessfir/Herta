@@ -342,7 +342,7 @@ public:
 	[[nodiscard]] std::expected<void, FApplicationError> SetSize(int Width, int Height);
 	void RequestClose() noexcept;
 	void SetShouldClose(bool bShouldClose) noexcept;
-	[[nodiscard]] std::expected<void, FApplicationError> SetClipboardText(std::string_view Text);
+	void SetClipboardText(std::string_view Text);
 	void SetCallbacks(FWindowCallbacks Callbacks);
 	void SetActionPolicy(FWindowActionPolicy Policy) noexcept;
 	void SetTitleBarHitTestState(FTitleBarHitTestState State) noexcept;
