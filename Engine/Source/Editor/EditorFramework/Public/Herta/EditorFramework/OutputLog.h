@@ -48,6 +48,7 @@ struct FOutputLogOptions
 		Hash ^= static_cast<unsigned char>(Character);
 		Hash *= 16777619u;
 	}
+
 	return Hash;
 }
 

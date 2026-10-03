@@ -1,7 +1,8 @@
 #include "Herta/ShaderCompiler/ShaderCompiler.h"
 
-#include <chrono>
 #include <doctest/doctest.h>
+
+#include <chrono>
 #include <fstream>
 
 namespace Herta
@@ -23,6 +24,11 @@ public:
 		std::filesystem::remove_all(Directory, Error);
 	}
 
+	FShaderFixture(const FShaderFixture&) = delete;
+	FShaderFixture& operator=(const FShaderFixture&) = delete;
+	FShaderFixture(FShaderFixture&&) = delete;
+	FShaderFixture& operator=(FShaderFixture&&) = delete;
+
 	void Write(const std::string& Name, const std::string& Text) const
 	{
 		std::ofstream Stream(Directory / Name);
@@ -40,7 +46,7 @@ TEST_CASE("Slang worker cooks deterministic shaders and tracks included sources"
 	const FShaderFixture Fixture;
 	Fixture.Write("Shared.slang", "float4 Project(float3 Position) { return float4(Position, 1); }\n");
 	Fixture.Write("Vertex.slang", "#include \"Shared.slang\"\n[shader(\"vertex\")] float4 vertexMain(float3 Position : POSITION) : SV_Position { return Project(Position); }\n");
-	const FShaderCompileRequest Request{Fixture.Directory / "Vertex.slang", "vertexMain", EShaderStage::Vertex, false};
+	const FShaderCompileRequest Request{.Source = Fixture.Directory / "Vertex.slang", .EntryPoint = "vertexMain", .Stage = EShaderStage::Vertex, .bDebugInformation = false};
 	const auto Shader = CompileShader(Request);
 	REQUIRE_MESSAGE(Shader.has_value(), (Shader ? "" : Shader.error().Message));
 	CHECK(Shader->Stage == EShaderStage::Vertex);
@@ -76,7 +82,7 @@ TEST_CASE("Slang worker rejects missing entry points and stage mismatches")
 	CHECK_FALSE(CompileShader({Fixture.Directory / "Missing.slang", "fragmentMain", EShaderStage::Fragment, false}));
 	CHECK_FALSE(CompileShader({Fixture.Directory / "Fragment.slang", "missing", EShaderStage::Fragment, false}));
 	CHECK_FALSE(CompileShader({Fixture.Directory / "Fragment.slang", "fragmentMain", EShaderStage::Vertex, false}));
-	const auto Shader = CompileShader({Fixture.Directory / "Fragment.slang", "fragmentMain", EShaderStage::Fragment, true});
+	const auto Shader = CompileShader({.Source = Fixture.Directory / "Fragment.slang", .EntryPoint = "fragmentMain", .Stage = EShaderStage::Fragment, .bDebugInformation = true});
 	REQUIRE(Shader);
 	CHECK(Shader->bDebugInformation);
 	CHECK(Shader->PushConstantSize == 16);
@@ -93,7 +99,7 @@ TEST_CASE("Slang worker rejects unsupported resource kinds instead of treating t
 	for (const std::string_view Type : {"RWTexture2D<float4>", "StructuredBuffer<float4>", "Texture3D<float4>", "Texture2DArray<float4>"})
 	{
 		Fixture.Write("Unsupported.slang", "[[vk::binding(0,0)]] " + std::string(Type) + " Resource;\n[shader(\"fragment\")] float4 fragmentMain() : SV_Target { return float4(1,0,0,1); }\n");
-		const auto Shader = CompileShader({Fixture.Directory / "Unsupported.slang", "fragmentMain", EShaderStage::Fragment, false});
+		const auto Shader = CompileShader({.Source = Fixture.Directory / "Unsupported.slang", .EntryPoint = "fragmentMain", .Stage = EShaderStage::Fragment, .bDebugInformation = false});
 		REQUIRE_FALSE(Shader);
 		CHECK(Shader.error().Message.find("Only read-only Texture2D") != std::string::npos);
 	}

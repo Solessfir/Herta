@@ -1,7 +1,8 @@
 #include "Herta/Physics/PhysicsWorld.h"
 
-#include <cmath>
 #include <doctest/doctest.h>
+
+#include <cmath>
 #include <limits>
 
 namespace Herta
@@ -15,21 +16,21 @@ TEST_CASE("Dynamic box settles on a static floor")
 	FirstWorld->reset();
 
 	FPhysicsBoxBodySettings Floor;
-	Floor.HalfExtents = {10.0f, 0.25f, 10.0f};
-	Floor.Position = {0.0f, -0.25f, 0.0f};
+	Floor.HalfExtents = {10.f, 0.25f, 10.f};
+	Floor.Position = {0.f, -0.25f, 0.f};
 	const auto FloorId = (*World)->CreateBoxBody(Floor);
 	REQUIRE(FloorId.has_value());
 
 	FPhysicsBoxBodySettings Cube;
 	Cube.HalfExtents = {0.5f, 0.5f, 0.5f};
-	Cube.Position = {0.0f, 3.0f, 0.0f};
+	Cube.Position = {0.f, 3.f, 0.f};
 	Cube.MotionType = EPhysicsMotionType::Dynamic;
 	const auto CubeId = (*World)->CreateBoxBody(Cube);
 	REQUIRE(CubeId.has_value());
 
 	for (int StepIndex = 0; StepIndex < 240; ++StepIndex)
 	{
-		REQUIRE((*World)->Step(1.0f / 60.0f).has_value());
+		REQUIRE((*World)->Step(1.f / 60.f).has_value());
 	}
 
 	const auto CubeTransform = (*World)->GetBodyTransform(*CubeId);
@@ -48,16 +49,16 @@ TEST_CASE("Physics rejects invalid input")
 	REQUIRE(World.has_value());
 
 	FPhysicsBoxBodySettings Box;
-	Box.HalfExtents.X = 0.0f;
+	Box.HalfExtents.X = 0.f;
 	CHECK_FALSE((*World)->CreateBoxBody(Box).has_value());
 	Box.HalfExtents.X = std::numeric_limits<float>::quiet_NaN();
 	CHECK_FALSE((*World)->CreateBoxBody(Box).has_value());
 	Box.HalfExtents.X = 0.5f;
-	Box.Rotation = {0.0f, 0.0f, 0.0f, 0.0f};
+	Box.Rotation = {0.f, 0.f, 0.f, 0.f};
 	CHECK_FALSE((*World)->CreateBoxBody(Box).has_value());
-	Box.Rotation = {std::numeric_limits<float>::max(), 0.0f, 0.0f, 1.0f};
+	Box.Rotation = {std::numeric_limits<float>::max(), 0.f, 0.f, 1.f};
 	CHECK_FALSE((*World)->CreateBoxBody(Box).has_value());
-	CHECK_FALSE((*World)->Step(0.0f).has_value());
+	CHECK_FALSE((*World)->Step(0.f).has_value());
 	CHECK_FALSE((*World)->Step(std::numeric_limits<float>::infinity()).has_value());
 	CHECK_FALSE((*World)->GetBodyTransform({}).has_value());
 }

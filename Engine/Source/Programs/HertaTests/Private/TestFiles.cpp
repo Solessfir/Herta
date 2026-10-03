@@ -40,12 +40,14 @@ void WriteText(const std::filesystem::path& Path, const std::string_view Text)
 std::vector<std::byte> EncodePng(const std::uint32_t Width, const std::uint32_t Height, const std::span<const std::uint8_t> RgbaPixels)
 {
 	std::vector<std::byte> Bytes;
+
 	const auto Append = [](void* const Context, void* const Data, const int Size)
 	{
 		auto& Output = *static_cast<std::vector<std::byte>*>(Context);
 		const auto* const First = static_cast<const std::byte*>(Data);
 		Output.insert(Output.end(), First, First + Size);
 	};
+
 	stbi_write_png_to_func(Append, &Bytes, static_cast<int>(Width), static_cast<int>(Height), 4, RgbaPixels.data(), static_cast<int>(Width * 4));
 	return Bytes;
 }

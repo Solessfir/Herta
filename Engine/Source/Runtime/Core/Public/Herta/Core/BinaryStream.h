@@ -44,6 +44,7 @@ public:
 	{
 		return Bytes;
 	}
+
 	[[nodiscard]] std::vector<std::byte> TakeBytes() noexcept
 	{
 		return std::move(Bytes);
@@ -71,6 +72,7 @@ public:
 		{
 			Value |= static_cast<std::uint64_t>(Data[Index]) << (Index * 8);
 		}
+
 		return static_cast<T>(Value);
 	}
 
@@ -87,6 +89,7 @@ public:
 			bValid = false;
 			return {};
 		}
+
 		const std::span<const std::byte> Data = ReadBytes(Length);
 		return {reinterpret_cast<const char*>(Data.data()), Data.size()};
 	}
@@ -98,6 +101,7 @@ public:
 			bValid = false;
 			return {};
 		}
+
 		const std::span<const std::byte> Data = Bytes.subspan(Offset, Count);
 		Offset += Count;
 		return Data;
@@ -110,6 +114,7 @@ public:
 		{
 			bValid = false;
 		}
+
 		return bValid;
 	}
 
@@ -117,10 +122,12 @@ public:
 	{
 		bValid = false;
 	}
+
 	[[nodiscard]] bool IsValid() const noexcept
 	{
 		return bValid;
 	}
+
 	[[nodiscard]] bool IsAtEnd() const noexcept
 	{
 		return Offset == Bytes.size();

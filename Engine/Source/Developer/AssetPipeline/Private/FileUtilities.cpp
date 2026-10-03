@@ -53,6 +53,7 @@ std::expected<void, FAssetError> WriteFileAtomically(const std::filesystem::path
 		std::filesystem::remove(TemporaryPath, Error);
 		return std::unexpected(FAssetError{std::format("Cannot replace '{}': {}", PathToUtf8(Path), Message)});
 	}
+
 	return {};
 }
 
@@ -66,8 +67,10 @@ std::expected<std::optional<std::vector<std::byte>>, FAssetError> ReadWholeFile(
 		{
 			return std::optional<std::vector<std::byte>>{};
 		}
+
 		return std::unexpected(FAssetError{std::format("Cannot query '{}'", PathToUtf8(Path))});
 	}
+
 	if (Size > MaximumSize)
 	{
 		return std::unexpected(FAssetError{std::format("'{}' exceeds the {} byte limit", PathToUtf8(Path), MaximumSize)});
@@ -79,6 +82,7 @@ std::expected<std::optional<std::vector<std::byte>>, FAssetError> ReadWholeFile(
 	{
 		return std::unexpected(FAssetError{std::format("Cannot read '{}'", PathToUtf8(Path))});
 	}
+
 	return std::optional<std::vector<std::byte>>(std::move(Bytes));
 }
 }

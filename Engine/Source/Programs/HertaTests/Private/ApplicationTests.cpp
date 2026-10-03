@@ -2,13 +2,14 @@
 #include "Herta/Application/WindowPlacement.h"
 
 #include <doctest/doctest.h>
+
 #include <utility>
 
 namespace Herta
 {
 TEST_CASE("Title bar hit testing routes native regions")
 {
-	const FTitleBarLayout Layout = MakeTitleBarLayout(1280, 720, 1.0f, true, false);
+	const FTitleBarLayout Layout = MakeTitleBarLayout(1280, 720, 1.f, true, false);
 
 	CHECK(Layout.ButtonWidth == 34);
 	CHECK(HitTestTitleBar(Layout, 1270, 10) == ETitleBarHitRegion::CloseButton);
@@ -22,7 +23,7 @@ TEST_CASE("Title bar hit testing routes native regions")
 
 TEST_CASE("Title bar controls follow per-window action capabilities")
 {
-	const FTitleBarLayout WaylandLayout = MakeTitleBarLayout(1280, 720, 1.0f, true, false, {.bMinimize = false, .bMaximize = true, .bWindowMenu = false});
+	const FTitleBarLayout WaylandLayout = MakeTitleBarLayout(1280, 720, 1.f, true, false, {.bMinimize = false, .bMaximize = true, .bWindowMenu = false});
 	CHECK_FALSE(WaylandLayout.bMinimizeVisible);
 	CHECK(WaylandLayout.bMaximizeVisible);
 	CHECK_FALSE(WaylandLayout.bSystemMenuEnabled);
@@ -32,11 +33,11 @@ TEST_CASE("Title bar controls follow per-window action capabilities")
 	CHECK(HitTestTitleBar(WaylandLayout, 10, 10) == ETitleBarHitRegion::Caption);
 	CHECK(HitTestTitleBar(WaylandLayout, 50, 10) == ETitleBarHitRegion::ApplicationMenu);
 
-	const FTitleBarLayout MinimizeOnly = MakeTitleBarLayout(1280, 720, 1.0f, true, false, {.bMinimize = true, .bMaximize = false, .bWindowMenu = false});
+	const FTitleBarLayout MinimizeOnly = MakeTitleBarLayout(1280, 720, 1.f, true, false, {.bMinimize = true, .bMaximize = false, .bWindowMenu = false});
 	CHECK(HitTestTitleBar(MinimizeOnly, 1220, 10) == ETitleBarHitRegion::MinimizeButton);
 	CHECK(HitTestTitleBar(MinimizeOnly, 1170, 10) == ETitleBarHitRegion::Caption);
 
-	const FTitleBarLayout FixedSize = MakeTitleBarLayout(1280, 720, 1.0f, false, false, {.bMinimize = false, .bMaximize = true, .bWindowMenu = false});
+	const FTitleBarLayout FixedSize = MakeTitleBarLayout(1280, 720, 1.f, false, false, {.bMinimize = false, .bMaximize = true, .bWindowMenu = false});
 	CHECK_FALSE(FixedSize.bMaximizeVisible);
 	CHECK(HitTestTitleBar(FixedSize, 1220, 10) == ETitleBarHitRegion::Caption);
 	CHECK(HitTestTitleBar(FixedSize, 1270, 10) == ETitleBarHitRegion::CloseButton);
@@ -46,7 +47,7 @@ TEST_CASE("Window action policy can suppress every title bar control")
 {
 	constexpr FWindowActionCapabilities Advertised;
 	constexpr FWindowActionPolicy NoControls{.bAllowClose = false, .bAllowMinimize = false, .bAllowMaximize = false, .bAllowWindowMenu = false};
-	const FTitleBarLayout Layout = MakeTitleBarLayout(1280, 720, 1.0f, true, false, Advertised, NoControls);
+	const FTitleBarLayout Layout = MakeTitleBarLayout(1280, 720, 1.f, true, false, Advertised, NoControls);
 	CHECK_FALSE(Layout.bCloseVisible);
 	CHECK_FALSE(Layout.bMinimizeVisible);
 	CHECK_FALSE(Layout.bMaximizeVisible);
@@ -59,7 +60,7 @@ TEST_CASE("Title bar policy can require minimization support for all controls")
 {
 	constexpr FWindowActionPolicy Policy{.bRequireMinimizeSupport = true};
 	constexpr FWindowActionCapabilities Unsupported{.bMinimize = false};
-	constexpr FTitleBarLayout Hidden = MakeTitleBarLayout(1280, 720, 1.0f, true, false, Unsupported, Policy);
+	constexpr FTitleBarLayout Hidden = MakeTitleBarLayout(1280, 720, 1.f, true, false, Unsupported, Policy);
 	CHECK_FALSE(Hidden.bCloseVisible);
 	CHECK_FALSE(Hidden.bMinimizeVisible);
 	CHECK_FALSE(Hidden.bMaximizeVisible);
@@ -69,19 +70,19 @@ TEST_CASE("Title bar policy can require minimization support for all controls")
 	CHECK(HitTestTitleBar(Hidden, 50, 10) == ETitleBarHitRegion::ApplicationMenu);
 	CHECK(HitTestTitleBar(Hidden, 0, 100) == ETitleBarHitRegion::ResizeLeft);
 
-	constexpr FTitleBarLayout Supported = MakeTitleBarLayout(1280, 720, 1.0f, true, false, {}, Policy);
+	constexpr FTitleBarLayout Supported = MakeTitleBarLayout(1280, 720, 1.f, true, false, {}, Policy);
 	CHECK(Supported.bCloseVisible);
 	CHECK(Supported.bMinimizeVisible);
 	CHECK(Supported.bMaximizeVisible);
 	CHECK(Supported.bSystemMenuEnabled);
 
-	constexpr FTitleBarLayout DefaultPolicy = MakeTitleBarLayout(1280, 720, 1.0f, true, false, Unsupported);
+	constexpr FTitleBarLayout DefaultPolicy = MakeTitleBarLayout(1280, 720, 1.f, true, false, Unsupported);
 	CHECK(DefaultPolicy.bCloseVisible);
 	CHECK_FALSE(DefaultPolicy.bMinimizeVisible);
 	CHECK(DefaultPolicy.bMaximizeVisible);
 	CHECK(DefaultPolicy.bSystemMenuEnabled);
 
-	constexpr FTitleBarLayout Restricted = MakeTitleBarLayout(1280, 720, 1.0f, false, false, {.bWindowMenu = false}, Policy);
+	constexpr FTitleBarLayout Restricted = MakeTitleBarLayout(1280, 720, 1.f, false, false, {.bWindowMenu = false}, Policy);
 	CHECK(Restricted.bCloseVisible);
 	CHECK(Restricted.bMinimizeVisible);
 	CHECK_FALSE(Restricted.bMaximizeVisible);
@@ -91,7 +92,7 @@ TEST_CASE("Title bar policy can require minimization support for all controls")
 TEST_CASE("Title bar UI capture is limited to cached overlapping regions")
 {
 	FTitleBarHitTestState State;
-	State.Layout = MakeTitleBarLayout(1280, 720, 1.0f, true, false);
+	State.Layout = MakeTitleBarLayout(1280, 720, 1.f, true, false);
 	State.UiCaptureRegions[0] = {.MinimumX = 200, .MinimumY = 0, .MaximumX = 500, .MaximumY = 36};
 	State.UiCaptureRegionCount = 1;
 
@@ -106,8 +107,8 @@ TEST_CASE("Title bar UI capture is limited to cached overlapping regions")
 
 TEST_CASE("Title bar resizing is disabled while maximized")
 {
-	const FTitleBarLayout Restored = MakeTitleBarLayout(1280, 720, 1.0f, true, false);
-	const FTitleBarLayout Maximized = MakeTitleBarLayout(1280, 720, 1.0f, true, true);
+	const FTitleBarLayout Restored = MakeTitleBarLayout(1280, 720, 1.f, true, false);
+	const FTitleBarLayout Maximized = MakeTitleBarLayout(1280, 720, 1.f, true, true);
 
 	CHECK(HitTestTitleBar(Restored, 0, 0) == ETitleBarHitRegion::ResizeTopLeft);
 	CHECK(HitTestTitleBar(Maximized, 0, 0) == ETitleBarHitRegion::SystemMenu);
@@ -116,7 +117,7 @@ TEST_CASE("Title bar resizing is disabled while maximized")
 TEST_CASE("Title bar scale follows the native coordinate space")
 {
 	CHECK(ResolveTitleBarUiScale(false, 1.5f) == doctest::Approx(1.5f));
-	CHECK(ResolveTitleBarUiScale(true, 1.5f) == doctest::Approx(1.0f));
+	CHECK(ResolveTitleBarUiScale(true, 1.5f) == doctest::Approx(1.f));
 	CHECK(ScaleTitleBarMetric(36, 1.25f) == 45);
 }
 

@@ -18,10 +18,10 @@ inline constexpr std::size_t MaximumAssetPathLength = 1024;
 	}
 
 	return std::ranges::none_of(Segment, [](const char Character)
-	                            {
-		                            const auto Byte = static_cast<unsigned char>(Character);
-		                            return Byte < 0x20 || Byte == 0x7f || std::string_view(R"(\:*?"<>|)").contains(Character);
-	                            });
+	{
+		const auto Byte = static_cast<unsigned char>(Character);
+		return Byte < 0x20 || Byte == 0x7f || std::string_view(R"(\:*?"<>|)").contains(Character);
+	});
 }
 
 [[nodiscard]] constexpr char FoldAsciiCase(const char Character) noexcept
@@ -49,6 +49,7 @@ bool IsValidAssetPath(const std::string_view Path) noexcept
 			return false;
 		}
 	}
+
 	return true;
 }
 
@@ -60,6 +61,7 @@ std::expected<FAssetRegistry, FAssetError> FAssetRegistry::Create(std::vector<FA
 		{
 			return std::unexpected(FAssetError{std::format("Asset '{}' has no valid ID", Record.SourcePath)});
 		}
+
 		if (!IsValidAssetPath(Record.SourcePath))
 		{
 			return std::unexpected(FAssetError{std::format("Asset {} has an invalid source path '{}'", Record.Id.ToString(), Record.SourcePath)});
@@ -70,6 +72,7 @@ std::expected<FAssetRegistry, FAssetError> FAssetRegistry::Create(std::vector<FA
 	{
 		return std::ranges::lexicographical_compare(Left.SourcePath, Right.SourcePath, {}, FoldAsciiCase, FoldAsciiCase);
 	};
+
 	std::ranges::sort(Records, FoldedLess);
 	for (std::size_t Index = 1; Index < Records.size(); ++Index)
 	{
@@ -88,10 +91,12 @@ std::expected<FAssetRegistry, FAssetError> FAssetRegistry::Create(std::vector<FA
 	{
 		Registry.IdOrder[Index] = Index;
 	}
+
 	std::ranges::sort(Registry.IdOrder, {}, [&Records](const std::size_t Index)
-	                  {
-		                  return Records[Index].Id;
-	                  });
+	{
+		return Records[Index].Id;
+	});
+
 	for (std::size_t Index = 1; Index < Registry.IdOrder.size(); ++Index)
 	{
 		const FAssetRecord& Previous = Records[Registry.IdOrder[Index - 1]];
@@ -109,9 +114,10 @@ std::expected<FAssetRegistry, FAssetError> FAssetRegistry::Create(std::vector<FA
 const FAssetRecord* FAssetRegistry::Find(const FAssetId& Id) const noexcept
 {
 	const auto Iterator = std::ranges::lower_bound(IdOrder, Id, {}, [this](const std::size_t Index)
-	                                               {
-		                                               return Records[Index].Id;
-	                                               });
+	{
+		return Records[Index].Id;
+	});
+
 	return Iterator != IdOrder.end() && Records[*Iterator].Id == Id ? &Records[*Iterator] : nullptr;
 }
 

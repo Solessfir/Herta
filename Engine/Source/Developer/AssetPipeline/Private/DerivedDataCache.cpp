@@ -27,7 +27,7 @@ void WriteHash(FBinaryWriter& Writer, const FHash128& Hash)
 [[nodiscard]] FHash128 ReadHash(FBinaryReader& Reader) noexcept
 {
 	const auto High = Reader.Read<std::uint64_t>();
-	return FHash128{High, Reader.Read<std::uint64_t>()};
+	return FHash128{.High = High, .Low = Reader.Read<std::uint64_t>()};
 }
 }
 
@@ -53,14 +53,17 @@ std::expected<std::optional<std::vector<std::byte>>, FAssetError> FDerivedDataCa
 	}
 
 	const std::span<const std::byte> Bytes = **File;
+
 	const auto Corrupt = [&Path](const std::string_view Reason)
 	{
 		return std::unexpected(FAssetError{std::format("Corrupt derived data '{}': {}", PathToUtf8(Path), Reason)});
 	};
+
 	if (Bytes.size() < HeaderSize + ChecksumSize)
 	{
 		return Corrupt("truncated header");
 	}
+
 	FBinaryReader Checksum(Bytes.last(ChecksumSize));
 	if (ReadHash(Checksum) != HashBytes(Bytes.first(Bytes.size() - ChecksumSize)))
 	{
@@ -72,16 +75,19 @@ std::expected<std::optional<std::vector<std::byte>>, FAssetError> FDerivedDataCa
 	{
 		return Corrupt("unsupported format or version");
 	}
+
 	if (ReadHash(Reader) != Key)
 	{
 		return Corrupt("key mismatch");
 	}
+
 	const auto PayloadSize = Reader.Read<std::uint64_t>();
 	const std::span<const std::byte> Payload = Reader.ReadBytes(PayloadSize <= MaximumPayloadSize ? static_cast<std::size_t>(PayloadSize) : 0);
 	if (!Reader.IsValid() || !Reader.IsAtEnd())
 	{
 		return Corrupt("payload size mismatch");
 	}
+
 	return std::optional<std::vector<std::byte>>(std::vector<std::byte>(Payload.begin(), Payload.end()));
 }
 
@@ -112,6 +118,7 @@ std::expected<void, FAssetError> FDerivedDataCache::Put(const FHash128& Key, con
 			return {};
 		}
 	}
+
 	return Written;
 }
 }

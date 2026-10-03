@@ -23,10 +23,11 @@ THE SOFTWARE.
 
 #include "ViewportRotationFeedback.h"
 
+#include <im3d_math.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <im3d_math.h>
 #include <numbers>
 
 namespace Herta
@@ -39,7 +40,7 @@ bool DrawPreviewRotationGizmo(const Im3d::Vec3& Translation, Im3d::Mat3& Rotatio
 	const Im3d::Id AppId = Im3d::MakeId("PreviewCube");
 	Context.pushId(AppId);
 	Context.m_appId = AppId;
-	Context.pushMatrix(Im3d::Mat4(1.0f));
+	Context.pushMatrix(Im3d::Mat4(1.f));
 	Context.pushEnableSorting(true);
 	Im3d::PushSize(Context.m_gizmoSizePixels);
 	const float WorldRadius = Context.pixelsToWorldSize(Translation, Context.m_gizmoHeightPixels);
@@ -47,9 +48,9 @@ bool DrawPreviewRotationGizmo(const Im3d::Vec3& Translation, Im3d::Mat3& Rotatio
 	const Im3d::Vec3 Euler = Im3d::ToEulerXYZ(Rotation);
 	constexpr std::array AxisNames{"axisX", "axisY", "axisZ", "axisV"};
 	constexpr std::array Colors{Im3d::Color_Red, Im3d::Color_Green, Im3d::Color_Blue, Im3d::Color_White};
-	Im3d::Vec3 ActiveAxis(0.0f, 0.0f, 1.0f);
+	Im3d::Vec3 ActiveAxis(0.f, 0.f, 1.f);
 	float ActiveRadius = WorldRadius;
-	float AppliedAngle = State.AngleDegrees.value_or(0.0f) * std::numbers::pi_v<float> / 180.0f;
+	float AppliedAngle = State.AngleDegrees.value_or(0.f) * std::numbers::pi_v<float> / 180.f;
 	bool bChanged = false;
 	for (std::size_t Index = 0; Index < AxisNames.size(); ++Index)
 	{
@@ -58,7 +59,8 @@ bool DrawPreviewRotationGizmo(const Im3d::Vec3& Translation, Im3d::Mat3& Rotatio
 		{
 			continue;
 		}
-		Im3d::Vec3 Axis(0.0f);
+
+		Im3d::Vec3 Axis(0.f);
 		if (Index == 3)
 		{
 			Axis = AppData.m_viewDirection;
@@ -69,16 +71,18 @@ bool DrawPreviewRotationGizmo(const Im3d::Vec3& Translation, Im3d::Mat3& Rotatio
 		}
 		else
 		{
-			Axis[static_cast<int>(Index)] = 1.0f;
+			Axis[static_cast<int>(Index)] = 1.f;
 		}
+
 		if (!std::isfinite(Axis.x) || !std::isfinite(Axis.y) || !std::isfinite(Axis.z) || Im3d::Length2(Axis) < 0.000001f)
 		{
-			Axis = Im3d::Vec3(0.0f);
-			Axis[static_cast<int>(Index == 3 ? 2 : Index)] = 1.0f;
+			Axis = Im3d::Vec3(0.f);
+			Axis[static_cast<int>(Index == 3 ? 2 : Index)] = 1.f;
 		}
+
 		Axis = Im3d::Normalize(Axis);
-		const float Radius = WorldRadius * (Index == 3 ? 1.0f : 0.9f);
-		float Angle = Index == 3 ? 0.0f : Euler[static_cast<int>(Index)];
+		const float Radius = WorldRadius * (Index == 3 ? 1.f : 0.9f);
+		float Angle = Index == 3 ? 0.f : Euler[static_cast<int>(Index)];
 		if (Context.gizmoAxislAngle_Behavior(AxisId, Translation, Axis, AppData.m_snapRotation, Radius, WorldSize, &Angle))
 		{
 			AppliedAngle = Index == 3 ? Angle : Angle - Context.m_gizmoStateFloat;
@@ -92,6 +96,7 @@ bool DrawPreviewRotationGizmo(const Im3d::Vec3& Translation, Im3d::Mat3& Rotatio
 				Context.resetId();
 			}
 		}
+
 		Im3d::PushColor(AxisId == Context.m_hotId || AxisId == Context.m_activeId ? Im3d::Color_Yellow : Colors[Index]);
 		Im3d::DrawCircle(Translation, Axis, Radius, 96);
 		Im3d::PopColor();
@@ -101,10 +106,12 @@ bool DrawPreviewRotationGizmo(const Im3d::Vec3& Translation, Im3d::Mat3& Rotatio
 			ActiveRadius = Radius;
 		}
 	}
+
 	if (Context.m_activeId != Im3d::Id_Invalid && PreviousActiveId != Context.m_activeId)
 	{
 		Context.m_gizmoStateMat3 = Rotation;
 	}
+
 	if (Context.m_activeId == Im3d::Id_Invalid)
 	{
 		State.Reset();
@@ -116,15 +123,16 @@ bool DrawPreviewRotationGizmo(const Im3d::Vec3& Translation, Im3d::Mat3& Rotatio
 			State.ActiveId = Context.m_activeId;
 			const Im3d::Vec3 Radial = Context.m_gizmoStateVec3 - ActiveAxis * Im3d::Dot(Context.m_gizmoStateVec3, ActiveAxis);
 			State.InitialRadial = Im3d::Length2(Radial) > 0.000001f ? Im3d::Normalize(Radial) : Im3d::AlignZ(ActiveAxis).getCol(0);
-			AppliedAngle = 0.0f;
+			AppliedAngle = 0.f;
 		}
-		State.AngleDegrees = AppliedAngle * 180.0f / std::numbers::pi_v<float>;
+
+		State.AngleDegrees = AppliedAngle * 180.f / std::numbers::pi_v<float>;
 		const Im3d::Vec3 Start = Translation + State.InitialRadial * ActiveRadius;
 		const Im3d::Vec3 Current = Translation + Im3d::Rotation(ActiveAxis, AppliedAngle) * State.InitialRadial * ActiveRadius;
 		Im3d::DrawLine(Translation, Start, Context.m_gizmoSizePixels * 0.5f, Im3d::Color_White);
 		Im3d::DrawLine(Translation, Current, Context.m_gizmoSizePixels * 0.5f, Im3d::Color_Yellow);
-		const int Segments = std::clamp(static_cast<int>(std::ceil(std::abs(AppliedAngle) * 36.0f / std::numbers::pi_v<float>)), 1, 72);
-		Im3d::PushColor(Im3d::Color(1.0f, 1.0f, 0.0f, 0.18f));
+		const int Segments = std::clamp(static_cast<int>(std::ceil(std::abs(AppliedAngle) * 36.f / std::numbers::pi_v<float>)), 1, 72);
+		Im3d::PushColor(Im3d::Color(1.f, 1.f, 0.f, 0.18f));
 		Im3d::BeginTriangles();
 		Im3d::Vec3 Previous = Start;
 		for (int Segment = 1; Segment <= Segments; ++Segment)
@@ -136,9 +144,11 @@ bool DrawPreviewRotationGizmo(const Im3d::Vec3& Translation, Im3d::Mat3& Rotatio
 			Im3d::Vertex(Next);
 			Previous = Next;
 		}
+
 		Im3d::End();
 		Im3d::PopColor();
 	}
+
 	Im3d::PopSize();
 	Context.popEnableSorting();
 	Context.popMatrix();

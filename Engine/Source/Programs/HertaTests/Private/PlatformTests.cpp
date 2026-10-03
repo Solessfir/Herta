@@ -1,6 +1,7 @@
 #include "Herta/Platform/Platform.h"
 
 #include <doctest/doctest.h>
+
 #include <ostream>
 
 namespace Herta

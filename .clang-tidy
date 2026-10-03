@@ -5,6 +5,7 @@ Checks: >
   -clang-analyzer-optin.core.EnumCastOutOfRange,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
+  cppcoreguidelines-special-member-functions,
   performance-*,
   portability-*,
   modernize-avoid-bind,
@@ -29,6 +30,7 @@ Checks: >
   modernize-use-noexcept,
   modernize-use-nullptr,
   modernize-use-override,
+  modernize-use-ranges,
   modernize-use-using,
   readability-avoid-const-params-in-decls,
   readability-container-size-empty,
@@ -51,6 +53,8 @@ WarningsAsErrors: >
   bugprone-*,
   performance-*,
   portability-*
-HeaderFilterRegex: '^(Engine|Games)[\\/]'
+CheckOptions:
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
+HeaderFilterRegex:'^(Engine|Games)[\\/]'
 FormatStyle: file
 ...

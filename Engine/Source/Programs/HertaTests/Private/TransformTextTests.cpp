@@ -1,7 +1,8 @@
 #include "Herta/EditorCore/TransformText.h"
 
-#include <cmath>
 #include <doctest/doctest.h>
+
+#include <cmath>
 #include <limits>
 #include <string>
 
@@ -9,11 +10,11 @@ namespace Herta
 {
 TEST_CASE("Transform numeric expressions honor arithmetic precedence and parentheses")
 {
-	CHECK(EvaluateNumericExpression("10/2") == doctest::Approx(5.0f));
-	CHECK(EvaluateNumericExpression("2 + 3 * 4") == doctest::Approx(14.0f));
-	CHECK(EvaluateNumericExpression("-(2 + 3) * 4") == doctest::Approx(-20.0f));
-	CHECK(EvaluateNumericExpression("1e2 / 4") == doctest::Approx(25.0f));
-	CHECK(EvaluateNumericExpression(" + - - 8 ") == doctest::Approx(8.0f));
+	CHECK(EvaluateNumericExpression("10/2") == doctest::Approx(5.f));
+	CHECK(EvaluateNumericExpression("2 + 3 * 4") == doctest::Approx(14.f));
+	CHECK(EvaluateNumericExpression("-(2 + 3) * 4") == doctest::Approx(-20.f));
+	CHECK(EvaluateNumericExpression("1e2 / 4") == doctest::Approx(25.f));
+	CHECK(EvaluateNumericExpression(" + - - 8 ") == doctest::Approx(8.f));
 }
 
 TEST_CASE("Transform numeric expressions reject invalid, nonfinite, and unbounded input")
@@ -31,7 +32,7 @@ TEST_CASE("Transform numeric expressions reject invalid, nonfinite, and unbounde
 
 TEST_CASE("Transform vector clipboard text round-trips with UE component labels")
 {
-	const FVector3 Original{std::nextafter(1.0f, 2.0f), -1234.5678f, std::numeric_limits<float>::max()};
+	const FVector3 Original{std::nextafter(1.f, 2.f), -1234.5678f, std::numeric_limits<float>::max()};
 	const std::string Text = FormatTransformVectorClipboard(Original);
 	CHECK(Text.starts_with("(X="));
 	const auto Parsed = ParseTransformVectorClipboard(Text);
@@ -47,7 +48,7 @@ TEST_CASE("Transform location and scale clipboard preserve XYZ samples")
 {
 	CHECK((ParseTransformVectorClipboard("(X=0.000000,Y=0.000000,Z=0.000000)") == FVector3{0, 0, 0}));
 	CHECK((ParseTransformVectorClipboard("(X=1.000000,Y=1.000000,Z=1.000000)") == FVector3{1, 1, 1}));
-	CHECK((ParseTransformVectorClipboard("(X=3310.000000,Y=570.000000,Z=410.000000)") == FVector3{3310.0f, 570.0f, 410.0f}));
+	CHECK((ParseTransformVectorClipboard("(X=3310.000000,Y=570.000000,Z=410.000000)") == FVector3{3310.f, 570.f, 410.f}));
 	CHECK((ParseTransformVectorClipboard("(X=1.250000,Y=0.500000,Z=2.750000)") == FVector3{1.25f, 0.5f, 2.75f}));
 }
 

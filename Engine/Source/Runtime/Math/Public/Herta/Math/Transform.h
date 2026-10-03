@@ -15,8 +15,8 @@ template <std::floating_point T> struct TTransform
 	constexpr TTransform() = default;
 
 	constexpr TTransform(const TVector3<T>& InTranslation,
-	                     const TQuaternion<T>& InRotation,
-	                     const TVector3<T>& InScale3D)
+	    const TQuaternion<T>& InRotation,
+	    const TVector3<T>& InScale3D)
 	    : Translation(InTranslation)
 	    , Rotation(InRotation)
 	    , Scale3D(InScale3D)

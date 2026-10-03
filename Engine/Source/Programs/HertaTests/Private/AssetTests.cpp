@@ -5,10 +5,11 @@
 #include "Herta/Platform/Process.h"
 #include "TestFiles.h"
 
+#include <doctest/doctest.h>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <doctest/doctest.h>
 #include <fstream>
 #include <string>
 
@@ -32,6 +33,8 @@ struct FScratchDirectory
 
 	FScratchDirectory(const FScratchDirectory&) = delete;
 	FScratchDirectory& operator=(const FScratchDirectory&) = delete;
+	FScratchDirectory(FScratchDirectory&&) = delete;
+	FScratchDirectory& operator=(FScratchDirectory&&) = delete;
 
 	std::filesystem::path Path;
 };
@@ -72,7 +75,7 @@ FAssetBuildKeyInput MakeBuildKeyInput()
 	Input.Importer = "Gltf";
 	Input.ImporterVersion = 1;
 	Input.Settings = {{"Scale", "1"}};
-	Input.Dependencies = {{"Meshes/Cube.bin", HashBytes(AsBytes("buffer"))}, {"Textures/Wood.png", HashBytes(AsBytes("image"))}};
+	Input.Dependencies = {{.Path = "Meshes/Cube.bin", .ContentHash = HashBytes(AsBytes("buffer"))}, {.Path = "Textures/Wood.png", .ContentHash = HashBytes(AsBytes("image"))}};
 	Input.TargetPlatform = "windows";
 	Input.CookedFormatVersion = 1;
 	return Input;
@@ -125,7 +128,7 @@ TEST_CASE("Asset registries index records and reject ambiguity")
 {
 	const FAssetId Cube = ParseId("00000000-0000-4000-8000-000000000002");
 	const FAssetId Wood = ParseId("00000000-0000-4000-8000-000000000001");
-	const auto Registry = FAssetRegistry::Create({{Wood, "Textures/Wood.png", "Texture"}, {Cube, "Meshes/Cube.glb", "Gltf"}});
+	const auto Registry = FAssetRegistry::Create({{.Id = Wood, .SourcePath = "Textures/Wood.png", .Importer = "Texture"}, {.Id = Cube, .SourcePath = "Meshes/Cube.glb", .Importer = "Gltf"}});
 	REQUIRE(Registry);
 	REQUIRE(Registry->GetRecords().size() == 2);
 	CHECK(Registry->GetRecords()[0].SourcePath == "Meshes/Cube.glb");
@@ -144,16 +147,15 @@ TEST_CASE("Asset registries index records and reject ambiguity")
 
 TEST_CASE("Asset metadata uses a canonical text format")
 {
-	const FAssetMetadata Metadata{ParseId("123e4567-e89b-42d3-a456-426614174000"), "Texture", {{"Srgb", "true"}, {"Mips", "Full"}}};
+	const FAssetMetadata Metadata{.Id = ParseId("123e4567-e89b-42d3-a456-426614174000"), .Importer = "Texture", .Settings = {{"Srgb", "true"}, {"Mips", "Full"}}};
 	const auto Text = SerializeAssetMetadata(Metadata);
 	REQUIRE(Text);
-	CHECK(*Text ==
-	      "Format = HertaAssetMetadata\n"
-	      "Version = 1\n"
-	      "Id = 123e4567-e89b-42d3-a456-426614174000\n"
-	      "Importer = Texture\n"
-	      "Setting.Mips = Full\n"
-	      "Setting.Srgb = true\n");
+	CHECK(*Text == "Format = HertaAssetMetadata\n"
+	               "Version = 1\n"
+	               "Id = 123e4567-e89b-42d3-a456-426614174000\n"
+	               "Importer = Texture\n"
+	               "Setting.Mips = Full\n"
+	               "Setting.Srgb = true\n");
 
 	const auto Parsed = ParseAssetMetadata(*Text);
 	REQUIRE(Parsed);
@@ -195,46 +197,56 @@ TEST_CASE("Asset build keys cover every input")
 		Mutate(Input);
 		CHECK(ComputeAssetBuildKey(Input) != BaseKey);
 	};
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.SourceHash.Low ^= 1;
-	             });
+	{
+		Input.SourceHash.Low ^= 1;
+	});
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.SourcePath = "Meshes/Crate.glb";
-	             });
+	{
+		Input.SourcePath = "Meshes/Crate.glb";
+	});
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.Importer = "Blender";
-	             });
+	{
+		Input.Importer = "Blender";
+	});
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.ImporterVersion = 2;
-	             });
+	{
+		Input.ImporterVersion = 2;
+	});
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.Settings["Scale"] = "2";
-	             });
+	{
+		Input.Settings["Scale"] = "2";
+	});
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.Settings.clear();
-	             });
+	{
+		Input.Settings.clear();
+	});
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.Dependencies[0].ContentHash.High ^= 1;
-	             });
+	{
+		Input.Dependencies[0].ContentHash.High ^= 1;
+	});
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.Dependencies.pop_back();
-	             });
+	{
+		Input.Dependencies.pop_back();
+	});
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.TargetPlatform = "linux";
-	             });
+	{
+		Input.TargetPlatform = "linux";
+	});
+
 	CheckChanged([](FAssetBuildKeyInput& Input)
-	             {
-		             Input.CookedFormatVersion = 2;
-	             });
+	{
+		Input.CookedFormatVersion = 2;
+	});
 
 	FAssetBuildKeyInput Left = Base;
 	Left.SourcePath = "ab";
@@ -266,7 +278,7 @@ TEST_CASE("Derived data cache entries are atomic and validated")
 	CHECK(std::ranges::equal(Hit->value_or(std::vector<std::byte>{}), Payload));
 	CHECK(std::distance(std::filesystem::directory_iterator(Cache.GetEntryPath(Key).parent_path()), std::filesystem::directory_iterator()) == 1);
 
-	const FHash128 EmptyKey{1, 2};
+	const FHash128 EmptyKey{.High = 1, .Low = 2};
 	REQUIRE(Cache.Put(EmptyKey, {}));
 	const auto Empty = Cache.Get(EmptyKey);
 	REQUIRE(Empty);
@@ -363,6 +375,7 @@ TEST_CASE("Content scans register sources and report problems")
 	{
 		ErrorPaths.push_back(Diagnostic.Path);
 	}
+
 	CHECK(ErrorPaths == std::vector<std::string>{"A.png", "B.png", "Broken.png.hmeta", "Orphan.png.hmeta"});
 
 	CHECK_FALSE(ScanContentRoot(Root / "Missing"));

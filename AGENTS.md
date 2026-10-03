@@ -51,6 +51,24 @@ Do not preserve obsolete compatibility paths merely because an earlier unshipped
 - Do not use reinterpret casts to bridge Herta and third-party math types.
 - Keep headers self-contained and minimize their dependencies.
 - Keep function declarations and definitions on one line, including their parameter lists. Multiline call sites are allowed when they make an operation easier to scan.
+- Format C++ with the repository `.clang-format`. Lambda bodies indent from the enclosing statement, not from the call's opening parenthesis, and wrapped conditions start the continuation line with the operator.
+- Use designated initializers when building a descriptor or request aggregate with more than one field, such as render graph accesses, pipeline and draw descriptors, and process requests. Positional initialization is fine for math values whose order is conventional, such as `FVector3{X, Y, Z}` and colors.
+- Put a blank line after the closing brace of an `if`, `else`, `for`, `while`, `switch`, or `try` block unless the next line closes the enclosing scope or continues the statement (`else`, `catch`, or the `while` of a `do` loop).
+- Put a blank line before a control statement unless the statement directly above produces the value it tests, as in `auto Result = Load(); if (!Result)`.
+- Put a blank line before a statement whose lambda body spans several lines, unless the line above declares something the statement uses.
+- Put a blank line after any statement that spans several lines and ends with a closing brace, such as `});` or a multi-line braced initializer ending in `};`, even when the next statement tests its result.
+- Mark a function `[[nodiscard]]` only when ignoring its result is a bug, such as an error or an owning handle. Informational results such as clicked, changed, visible, or an optional handle do not qualify. If callers routinely discard the result, remove the attribute instead of casting to `void`. Cast to `void` only for a deliberate discard of a `[[nodiscard]]` result, never on calls that are not marked.
+- Separate type and function definitions, including in-class constructor and function bodies, with a blank line. clang-format enforces this with `SeparateDefinitionBlocks`.
+- End a braced list that spans several lines with a trailing comma, so each element stays on its own line and the closing `};` sits on its own line.
+- Always brace the bodies of `if`, `else`, `for`, `while`, and `do`, even single statements. clang-format enforces this with `InsertBraces`.
+- Write float literals without trailing zeros in the fraction: `1.f`, `0.5f`, `10.f`, not `1.0f`, `0.50f`, or `1`.
+- A class that declares a destructor, copy operation, or move operation declares all five. RAII guards and owners usually delete copy and move. Clang-Tidy enforces this with `cppcoreguidelines-special-member-functions`.
+- Mark member functions `const` when they leave the object's observable state unchanged. A pimpl method that mutates state through its implementation pointer stays non-const even when the compiler would accept `const`.
+- Prefer `std::ranges` algorithms and whole-range overloads, such as `std::ranges::fill(Buffer, 0)`, over iterator-pair `std` algorithms. Clang-Tidy enforces this with `modernize-use-ranges`.
+- In classes and structs, declare member functions first, in public, protected, then private order, and data members after them.
+- Keep class bodies to declarations. Define member functions outside the class, in the source file, or below the class for `inline`, `constexpr`, and template code that must stay in a header. Only `= default` and `= delete` stay in the body.
+- Group data members by concern, such as services, a panel's state, or gizmo settings, and separate the groups with a blank line. Keep members that depend on destruction order in that order and say why in a comment.
+- Separate other logical steps inside a function body with a blank line, for example setup, the main work, and the final return.
 - Mark non-mutated locals and implementation parameters `const` where it improves the contract. Public declarations may omit top-level `const` on by-value parameters because it does not affect callers.
 - Prefer `std::print` and `std::println` for direct console output in bootstrap code. Engine diagnostics use Herta logging once it is available.
 - Use `#ifdef` and `#ifndef` for simple macro-presence checks.
@@ -86,6 +104,7 @@ Cleanup scripts remove only explicit Herta-managed generated paths. Without Git 
 - Add regression tests with bug fixes when practical.
 - Run the smallest relevant test or build first. Expand verification only when the affected boundary warrants it.
 - For meaningful Windows C++ changes, run `Scripts/VerifyWindowsCompilers.ps1` to rebuild all projects and run tests with ClangCL and MSVC. Resolve all reported errors and warnings before declaring verification complete.
+- Run Cppcheck on the Visual Studio project of each module touched by a meaningful C++ change, for example `& "C:\Program Files\Cppcheck\cppcheck.exe" --project=Intermediate/ProjectFiles/vs2026/Platform/Platform.vcxproj "--project-configuration=Development|x64" --enable=warning,performance,portability --inline-suppr --quiet --error-exitcode=1`. On Linux, use `cppcheck` from `PATH` with `--project=compile_commands.json`. Fix findings or suppress a false positive inline with `// cppcheck-suppress <id>` and a short reason. Cppcheck is optional; skip it and say so when it is not installed.
 - Do not rebuild the entire engine for comments, documentation-only edits, or other non-code changes.
 - Verify Windows and Linux implications for platform, build, filesystem, threading, and rendering changes.
 - Do not ask the user to run checks that can be performed directly in the workspace or CI logs.

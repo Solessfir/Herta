@@ -18,10 +18,10 @@ inline constexpr std::string_view Usage = "Usage: HertaAssetWorker cook --conten
 [[nodiscard]] std::string SingleLine(std::string Text)
 {
 	std::ranges::replace_if(Text, [](const char Character)
-	                        {
-		                        return Character == '\n' || Character == '\r';
-	                        },
-	                        ' ');
+	{
+		return Character == '\n' || Character == '\r';
+	}, ' ');
+
 	return Text;
 }
 }
@@ -33,6 +33,7 @@ std::vector<std::string> MakeAssetWorkerArguments(const FAssetCookRequest& Reque
 	{
 		Arguments.emplace_back("--force");
 	}
+
 	Arguments.push_back(Request.SourcePath);
 	return Arguments;
 }
@@ -44,6 +45,7 @@ std::string FormatAssetWorkerOutput(const FAssetCookResult& Result)
 	{
 		Output.append(std::format("Warning {}\n", SingleLine(Warning)));
 	}
+
 	return Output;
 }
 
@@ -60,10 +62,12 @@ std::expected<FAssetCookResult, FAssetError> ParseAssetWorkerOutput(const std::s
 		{
 			Line.remove_suffix(1);
 		}
+
 		if (Line.empty())
 		{
 			continue;
 		}
+
 		if (!bHeader)
 		{
 			bHeader = Line == OutputHeader;
@@ -88,10 +92,12 @@ std::expected<FAssetCookResult, FAssetError> ParseAssetWorkerOutput(const std::s
 			Result.Warnings.emplace_back(Line.substr(8));
 		}
 	}
+
 	if (!bHeader || !bKey || !bCache)
 	{
 		return std::unexpected(FAssetError{"The asset worker returned malformed output"});
 	}
+
 	return Result;
 }
 
@@ -136,6 +142,7 @@ int RunAssetWorker(const std::span<const std::string_view> Arguments)
 				bValid = false;
 			}
 		}
+
 		if (!bValid || Request.ContentRoot.empty() || Request.DerivedDataRoot.empty() || Request.TargetPlatform.empty() || Request.SourcePath.empty())
 		{
 			std::println(stderr, "{}", Usage);
@@ -148,6 +155,7 @@ int RunAssetWorker(const std::span<const std::string_view> Arguments)
 			std::println(stderr, "{}", Result.error().Message);
 			return 1;
 		}
+
 		std::print("{}", FormatAssetWorkerOutput(*Result));
 		return 0;
 	}
@@ -159,6 +167,7 @@ int RunAssetWorker(const std::span<const std::string_view> Arguments)
 	{
 		std::println(stderr, "Asset worker failed with an unknown exception");
 	}
+
 	return 1;
 }
 }

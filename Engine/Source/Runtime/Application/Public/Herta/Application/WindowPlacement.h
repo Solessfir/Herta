@@ -29,6 +29,7 @@ struct FWindowPlacement
 	    .X = WorkAreaX + (WorkAreaWidth - Width) / 2,
 	    .Y = WorkAreaY + (WorkAreaHeight - Height) / 2,
 	    .Width = Width,
-	    .Height = Height};
+	    .Height = Height,
+	};
 }
 }

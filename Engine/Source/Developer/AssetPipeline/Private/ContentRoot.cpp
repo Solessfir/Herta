@@ -23,12 +23,13 @@ struct FImporterExtension
 };
 
 inline constexpr std::array ImporterExtensions{
-    FImporterExtension{".blend", "Blender"},
-    FImporterExtension{".glb", "Gltf"},
-    FImporterExtension{".gltf", "Gltf"},
-    FImporterExtension{".jpeg", "Texture"},
-    FImporterExtension{".jpg", "Texture"},
-    FImporterExtension{".png", "Texture"}};
+    FImporterExtension{.Extension = ".blend", .Importer = "Blender"},
+    FImporterExtension{.Extension = ".glb", .Importer = "Gltf"},
+    FImporterExtension{.Extension = ".gltf", .Importer = "Gltf"},
+    FImporterExtension{.Extension = ".jpeg", .Importer = "Texture"},
+    FImporterExtension{.Extension = ".jpg", .Importer = "Texture"},
+    FImporterExtension{.Extension = ".png", .Importer = "Texture"},
+};
 
 [[nodiscard]] std::string ToLowerAscii(std::string Text)
 {
@@ -39,6 +40,7 @@ inline constexpr std::array ImporterExtensions{
 			Character = static_cast<char>(Character - 'A' + 'a');
 		}
 	}
+
 	return Text;
 }
 
@@ -55,6 +57,7 @@ std::vector<std::string_view> GetImportableExtensions()
 	{
 		Extensions.push_back(Entry.Extension);
 	}
+
 	return Extensions;
 }
 
@@ -80,19 +83,24 @@ FContentSnapshot TakeContentSnapshot(const std::filesystem::path& ContentRoot)
 			{
 				Iterator.disable_recursion_pending();
 			}
+
 			continue;
 		}
+
 		if (Entry.is_symlink(Error) || !Entry.is_regular_file(Error))
 		{
 			continue;
 		}
-		FContentFileStamp Stamp{Entry.file_size(Error), Entry.last_write_time(Error)};
+
+		FContentFileStamp Stamp{.Size = Entry.file_size(Error), .LastWriteTime = Entry.last_write_time(Error)};
 		if (!Error)
 		{
 			Snapshot.emplace(GenericPathToUtf8(Entry.path().lexically_relative(ContentRoot)), Stamp);
 		}
+
 		Error.clear();
 	}
+
 	return Snapshot;
 }
 
@@ -118,13 +126,16 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 			{
 				Iterator.disable_recursion_pending();
 			}
+
 			continue;
 		}
+
 		if (Entry.is_symlink(Error))
 		{
-			Result.Errors.push_back({RelativePath, "Symbolic links are not supported in content"});
+			Result.Errors.push_back({.Path = RelativePath, .Message = "Symbolic links are not supported in content"});
 			continue;
 		}
+
 		if (!Entry.is_regular_file(Error))
 		{
 			continue;
@@ -133,7 +144,7 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 		if (RelativePath.ends_with(AssetMetadataExtension))
 		{
 			std::error_code StampError;
-			FContentFileStamp Stamp{Entry.file_size(StampError), Entry.last_write_time(StampError)};
+			FContentFileStamp Stamp{.Size = Entry.file_size(StampError), .LastWriteTime = Entry.last_write_time(StampError)};
 			MetadataFiles.emplace_back(RelativePath, StampError ? FContentFileStamp{} : Stamp);
 		}
 		else
@@ -141,6 +152,7 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 			Sources.insert(RelativePath);
 		}
 	}
+
 	if (Error)
 	{
 		return std::unexpected(FAssetError{std::format("Cannot enumerate content root '{}': {}", PathToUtf8(ContentRoot), Error.message())});
@@ -156,12 +168,13 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 		RegisteredSources.insert(SourcePath);
 		if (!Sources.contains(SourcePath))
 		{
-			Result.Errors.push_back({MetadataFile, "Metadata has no source file"});
+			Result.Errors.push_back({.Path = MetadataFile, .Message = "Metadata has no source file"});
 			continue;
 		}
+
 		if (!IsValidAssetPath(SourcePath))
 		{
-			Result.Errors.push_back({SourcePath, "Path is not portable across Windows and Linux"});
+			Result.Errors.push_back({.Path = SourcePath, .Message = "Path is not portable across Windows and Linux"});
 			continue;
 		}
 
@@ -176,16 +189,19 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 		{
 			Metadata = LoadAssetMetadata(ContentRoot / Utf8ToPath(SourcePath));
 		}
+
 		if (Cache)
 		{
-			UpdatedCache.insert_or_assign(MetadataFile, FContentScanCache::FEntry{Stamp, Metadata});
+			UpdatedCache.insert_or_assign(MetadataFile, FContentScanCache::FEntry{.Stamp = Stamp, .Metadata = Metadata});
 		}
+
 		if (!Metadata)
 		{
-			Result.Errors.push_back({MetadataFile, Metadata.error().Message});
+			Result.Errors.push_back({.Path = MetadataFile, .Message = Metadata.error().Message});
 			continue;
 		}
-		RecordsById[Metadata->Id].push_back(FAssetRecord{Metadata->Id, std::move(SourcePath), std::move(Metadata->Importer)});
+
+		RecordsById[Metadata->Id].push_back(FAssetRecord{.Id = Metadata->Id, .SourcePath = std::move(SourcePath), .Importer = std::move(Metadata->Importer)});
 	}
 
 	if (Cache)
@@ -201,9 +217,10 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 			Records.push_back(std::move(Matches.front()));
 			continue;
 		}
+
 		for (const FAssetRecord& Match : Matches)
 		{
-			Result.Errors.push_back({Match.SourcePath, std::format("ID {} is shared by {} assets", Id.ToString(), Matches.size())});
+			Result.Errors.push_back({.Path = Match.SourcePath, .Message = std::format("ID {} is shared by {} assets", Id.ToString(), Matches.size())});
 		}
 	}
 
@@ -214,14 +231,15 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 	}
 	else
 	{
-		Result.Errors.push_back({{}, Registry.error().Message});
+		Result.Errors.push_back({.Path = {}, .Message = Registry.error().Message});
 	}
 
 	// Only files an importer understands can become assets; fonts, licenses, and other raw files are not reported.
 	std::ranges::copy_if(Sources, std::back_inserter(Result.UnregisteredSources), [&RegisteredSources](const std::string& Source)
-	                     {
-		                     return !RegisteredSources.contains(Source) && FindImporterForSource(Utf8ToPath(Source));
-	                     });
+	{
+		return !RegisteredSources.contains(Source) && FindImporterForSource(Utf8ToPath(Source));
+	});
+
 	std::ranges::stable_sort(Result.Errors, {}, &FContentDiagnostic::Path);
 	return Result;
 }
@@ -233,10 +251,12 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 	{
 		return std::unexpected(FAssetError{std::format("Content root '{}' is not a directory", PathToUtf8(ContentRoot))});
 	}
+
 	if (std::filesystem::symlink_status(Source, Error).type() != std::filesystem::file_type::regular)
 	{
 		return std::unexpected(FAssetError{std::format("'{}' is not a regular file", PathToUtf8(Source))});
 	}
+
 	if (!DestinationDirectory.empty() && !IsValidAssetPath(DestinationDirectory))
 	{
 		return std::unexpected(FAssetError{std::format("Invalid destination directory '{}'", DestinationDirectory)});
@@ -262,6 +282,7 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 	{
 		return std::unexpected(FAssetError{"A .gltf is imported in place. Copy it with its buffers and images into content first, or import a self-contained .glb"});
 	}
+
 	const std::filesystem::path Destination = bInsideContent ? CanonicalSource : CanonicalRoot / Utf8ToPath(DestinationDirectory) / Source.filename();
 	FImportedSource Imported;
 	Imported.SourcePath = GenericPathToUtf8(Destination.lexically_relative(CanonicalRoot));
@@ -276,7 +297,7 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 		return std::unexpected(FAssetError{std::format("'{}' is already imported", Imported.SourcePath)});
 	}
 
-	Imported.Metadata = FAssetMetadata{FAssetId::Generate(), std::string(*Importer), {}};
+	Imported.Metadata = FAssetMetadata{.Id = FAssetId::Generate(), .Importer = std::string(*Importer), .Settings = {}};
 	std::expected<std::string, FAssetError> Text = SerializeAssetMetadata(Imported.Metadata);
 	if (!Text)
 	{
@@ -295,6 +316,7 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 		{
 			return std::unexpected(Bytes ? FAssetError{std::format("'{}' disappeared during import", PathToUtf8(Source))} : std::move(Bytes.error()));
 		}
+
 		if (std::expected<void, FAssetError> Copied = WriteFileAtomically(Destination, **Bytes); !Copied)
 		{
 			return std::unexpected(std::move(Copied.error()));
@@ -307,8 +329,10 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 		{
 			std::filesystem::remove(Destination, Error);
 		}
+
 		return std::unexpected(std::move(Written.error()));
 	}
+
 	return Imported;
 }
 }

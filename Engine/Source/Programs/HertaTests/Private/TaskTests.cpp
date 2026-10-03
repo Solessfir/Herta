@@ -1,10 +1,11 @@
 #include "Herta/Core/Log.h"
 #include "Herta/Tasks/TaskSystem.h"
 
+#include <doctest/doctest.h>
+
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <doctest/doctest.h>
 #include <future>
 #include <mutex>
 #include <stdexcept>
@@ -20,7 +21,9 @@ namespace
 	FTaskSystemOptions Options{
 	    .MaximumQueuedCpuTasks = CpuQueueCapacity,
 	    .MaximumQueuedIoTasks = IoQueueCapacity,
-	    .bDeterministic = true};
+	    .bDeterministic = true,
+	};
+
 	std::expected<std::unique_ptr<FTaskSystem>, FTaskError> Result = FTaskSystem::Create(Options);
 	REQUIRE(Result.has_value());
 	return std::move(*Result);
@@ -57,7 +60,7 @@ TEST_CASE("Cancelled scopes reject new work")
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Closed scope test");
 	Scope->RequestCancellation();
 
-	const std::expected<FTaskHandle, FTaskError> Result = TaskSystem->Submit(*Scope, {"Rejected work", ETaskLane::Cpu}, [](FTaskContext&) {});
+	const std::expected<FTaskHandle, FTaskError> Result = TaskSystem->Submit(*Scope, {.Name = "Rejected work", .Lane = ETaskLane::Cpu}, [](FTaskContext&) {});
 
 	REQUIRE_FALSE(Result.has_value());
 	CHECK(Result.error().Code == ETaskErrorCode::InvalidScope);
@@ -68,7 +71,7 @@ TEST_CASE("Dependencies cannot cross structured task scopes")
 	const std::unique_ptr<FTaskSystem> TaskSystem = CreateDeterministicTaskSystem();
 	const std::unique_ptr<FTaskScope> FirstScope = RequireScope(*TaskSystem, "First scope");
 	const std::unique_ptr<FTaskScope> SecondScope = RequireScope(*TaskSystem, "Second scope");
-	const FTaskHandle Prerequisite = RequireTask(TaskSystem->Submit(*FirstScope, {"Prerequisite", ETaskLane::Cpu}, [](FTaskContext&) {}));
+	const FTaskHandle Prerequisite = RequireTask(TaskSystem->Submit(*FirstScope, {.Name = "Prerequisite", .Lane = ETaskLane::Cpu}, [](FTaskContext&) {}));
 
 	const std::expected<FTaskHandle, FTaskError> Continuation = TaskSystem->ContinueOnMainThread(*SecondScope, Prerequisite, "Invalid continuation", [](FTaskContext&) {});
 	const std::array<FTaskHandle, 1> Prerequisites{Prerequisite};
@@ -87,22 +90,25 @@ TEST_CASE("Deterministic tasks preserve priority and FIFO order")
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Priority test");
 	std::vector<int> ExecutionOrder;
 
-	const FTaskHandle Low = RequireTask(TaskSystem->Submit(*Scope, {"Low", ETaskLane::Cpu, ETaskPriority::Low}, [&ExecutionOrder](FTaskContext&)
-	                                                       {
-		                                                       ExecutionOrder.push_back(4);
-	                                                       }));
-	const FTaskHandle HighFirst = RequireTask(TaskSystem->Submit(*Scope, {"High first", ETaskLane::Cpu, ETaskPriority::High}, [&ExecutionOrder](FTaskContext&)
-	                                                             {
-		                                                             ExecutionOrder.push_back(1);
-	                                                             }));
-	const FTaskHandle Normal = RequireTask(TaskSystem->Submit(*Scope, {"Normal", ETaskLane::Cpu, ETaskPriority::Normal}, [&ExecutionOrder](FTaskContext&)
-	                                                          {
-		                                                          ExecutionOrder.push_back(3);
-	                                                          }));
-	const FTaskHandle HighSecond = RequireTask(TaskSystem->Submit(*Scope, {"High second", ETaskLane::Cpu, ETaskPriority::High}, [&ExecutionOrder](FTaskContext&)
-	                                                              {
-		                                                              ExecutionOrder.push_back(2);
-	                                                              }));
+	const FTaskHandle Low = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Low", .Lane = ETaskLane::Cpu, .Priority = ETaskPriority::Low}, [&ExecutionOrder](FTaskContext&)
+	{
+		ExecutionOrder.push_back(4);
+	}));
+
+	const FTaskHandle HighFirst = RequireTask(TaskSystem->Submit(*Scope, {.Name = "High first", .Lane = ETaskLane::Cpu, .Priority = ETaskPriority::High}, [&ExecutionOrder](FTaskContext&)
+	{
+		ExecutionOrder.push_back(1);
+	}));
+
+	const FTaskHandle Normal = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Normal", .Lane = ETaskLane::Cpu, .Priority = ETaskPriority::Normal}, [&ExecutionOrder](FTaskContext&)
+	{
+		ExecutionOrder.push_back(3);
+	}));
+
+	const FTaskHandle HighSecond = RequireTask(TaskSystem->Submit(*Scope, {.Name = "High second", .Lane = ETaskLane::Cpu, .Priority = ETaskPriority::High}, [&ExecutionOrder](FTaskContext&)
+	{
+		ExecutionOrder.push_back(2);
+	}));
 
 	CHECK(TaskSystem->RunUntilIdle() == 4);
 	CHECK(ExecutionOrder == std::vector<int>{1, 2, 3, 4});
@@ -110,7 +116,7 @@ TEST_CASE("Deterministic tasks preserve priority and FIFO order")
 	CHECK(HighFirst.GetState() == ETaskState::Succeeded);
 	CHECK(Normal.GetState() == ETaskState::Succeeded);
 	CHECK(HighSecond.GetState() == ETaskState::Succeeded);
-	CHECK(Low.GetProgress() == doctest::Approx(1.0f));
+	CHECK(Low.GetProgress() == doctest::Approx(1.f));
 	CHECK(Scope->GetOutstandingTaskCount() == 0);
 }
 
@@ -119,13 +125,13 @@ TEST_CASE("Task queues are bounded independently")
 	const std::unique_ptr<FTaskSystem> TaskSystem = CreateDeterministicTaskSystem(1, 1);
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Capacity test");
 
-	const FTaskHandle CpuTask = RequireTask(TaskSystem->Submit(*Scope, {"CPU one", ETaskLane::Cpu}, [](FTaskContext&) {}));
-	const std::expected<FTaskHandle, FTaskError> RejectedCpuTask = TaskSystem->Submit(*Scope, {"CPU two", ETaskLane::Cpu}, [](FTaskContext&) {});
+	const FTaskHandle CpuTask = RequireTask(TaskSystem->Submit(*Scope, {.Name = "CPU one", .Lane = ETaskLane::Cpu}, [](FTaskContext&) {}));
+	const std::expected<FTaskHandle, FTaskError> RejectedCpuTask = TaskSystem->Submit(*Scope, {.Name = "CPU two", .Lane = ETaskLane::Cpu}, [](FTaskContext&) {});
 	REQUIRE_FALSE(RejectedCpuTask.has_value());
 	CHECK(RejectedCpuTask.error().Code == ETaskErrorCode::QueueFull);
 
-	const FTaskHandle IoTask = RequireTask(TaskSystem->Submit(*Scope, {"IO one", ETaskLane::BlockingIo}, [](FTaskContext&) {}));
-	const std::expected<FTaskHandle, FTaskError> RejectedIoTask = TaskSystem->Submit(*Scope, {"IO two", ETaskLane::BlockingIo}, [](FTaskContext&) {});
+	const FTaskHandle IoTask = RequireTask(TaskSystem->Submit(*Scope, {.Name = "IO one", .Lane = ETaskLane::BlockingIo}, [](FTaskContext&) {}));
+	const std::expected<FTaskHandle, FTaskError> RejectedIoTask = TaskSystem->Submit(*Scope, {.Name = "IO two", .Lane = ETaskLane::BlockingIo}, [](FTaskContext&) {});
 	REQUIRE_FALSE(RejectedIoTask.has_value());
 	CHECK(RejectedIoTask.error().Code == ETaskErrorCode::QueueFull);
 
@@ -139,10 +145,10 @@ TEST_CASE("Queued cancellation skips task work")
 	const std::unique_ptr<FTaskSystem> TaskSystem = CreateDeterministicTaskSystem();
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Cancellation test");
 	bool bExecuted = false;
-	const FTaskHandle Task = RequireTask(TaskSystem->Submit(*Scope, {"Cancelled task", ETaskLane::Cpu}, [&bExecuted](FTaskContext&)
-	                                                        {
-		                                                        bExecuted = true;
-	                                                        }));
+	const FTaskHandle Task = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Cancelled task", .Lane = ETaskLane::Cpu}, [&bExecuted](FTaskContext&)
+	{
+		bExecuted = true;
+	}));
 
 	Scope->RequestCancellation();
 	CHECK(TaskSystem->RunUntilIdle() == 1);
@@ -154,16 +160,16 @@ TEST_CASE("Task progress is clamped and failures do not cross the boundary")
 {
 	const std::unique_ptr<FTaskSystem> TaskSystem = CreateDeterministicTaskSystem();
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Failure test");
-	const FTaskHandle Task = RequireTask(TaskSystem->Submit(*Scope, {"Failing task", ETaskLane::Cpu}, [](FTaskContext& Context)
-	                                                        {
-		                                                        Context.ReportProgress(1.5f);
-		                                                        throw std::runtime_error("Expected failure");
-	                                                        }));
+	const FTaskHandle Task = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Failing task", .Lane = ETaskLane::Cpu}, [](FTaskContext& Context)
+	{
+		Context.ReportProgress(1.5f);
+		throw std::runtime_error("Expected failure");
+	}));
 
 	const FTaskResult Result = Task.Wait();
 	CHECK(Result.State == ETaskState::Failed);
 	CHECK(Result.ErrorMessage == "Expected failure");
-	CHECK(Task.GetProgress() == doctest::Approx(1.0f));
+	CHECK(Task.GetProgress() == doctest::Approx(1.f));
 }
 
 TEST_CASE("Main-thread continuations execute after their prerequisite")
@@ -171,14 +177,15 @@ TEST_CASE("Main-thread continuations execute after their prerequisite")
 	const std::unique_ptr<FTaskSystem> TaskSystem = CreateDeterministicTaskSystem();
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Continuation test");
 	int Value = 0;
-	const FTaskHandle Prerequisite = RequireTask(TaskSystem->Submit(*Scope, {"Prerequisite", ETaskLane::Cpu}, [&Value](FTaskContext&)
-	                                                                {
-		                                                                Value = 1;
-	                                                                }));
+	const FTaskHandle Prerequisite = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Prerequisite", .Lane = ETaskLane::Cpu}, [&Value](FTaskContext&)
+	{
+		Value = 1;
+	}));
+
 	const FTaskHandle Continuation = RequireTask(TaskSystem->ContinueOnMainThread(*Scope, Prerequisite, "Continuation", [&Value](FTaskContext&)
-	                                                                              {
-		                                                                              Value *= 2;
-	                                                                              }));
+	{
+		Value *= 2;
+	}));
 
 	CHECK(TaskSystem->RunUntilIdle() == 2);
 	CHECK(Value == 2);
@@ -191,10 +198,10 @@ TEST_CASE("ParallelFor covers each item and completes through WhenAll")
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Parallel test");
 	std::array<int, 37> VisitCounts{};
 
-	const FTaskHandle ParallelTask = RequireTask(TaskSystem->ParallelFor(*Scope, {"Visit items", ETaskLane::Cpu, ETaskPriority::Normal}, VisitCounts.size(), 5, [&VisitCounts](const std::size_t Index, FTaskContext&)
-	                                                                     {
-		                                                                     ++VisitCounts[Index];
-	                                                                     }));
+	const FTaskHandle ParallelTask = RequireTask(TaskSystem->ParallelFor(*Scope, {.Name = "Visit items", .Lane = ETaskLane::Cpu, .Priority = ETaskPriority::Normal}, VisitCounts.size(), 5, [&VisitCounts](const std::size_t Index, FTaskContext&)
+	{
+		++VisitCounts[Index];
+	}));
 
 	CHECK(ParallelTask.Wait().State == ETaskState::Succeeded);
 	for (const int VisitCount : VisitCounts)
@@ -209,10 +216,10 @@ TEST_CASE("ParallelFor adapts its chunk count to bounded queue capacity")
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Bounded parallel test");
 	std::array<int, 1000> VisitCounts{};
 
-	const FTaskHandle ParallelTask = RequireTask(TaskSystem->ParallelFor(*Scope, {"Bounded visit", ETaskLane::Cpu}, VisitCounts.size(), 1, [&VisitCounts](const std::size_t Index, FTaskContext&)
-	                                                                     {
-		                                                                     ++VisitCounts[Index];
-	                                                                     }));
+	const FTaskHandle ParallelTask = RequireTask(TaskSystem->ParallelFor(*Scope, {.Name = "Bounded visit", .Lane = ETaskLane::Cpu}, VisitCounts.size(), 1, [&VisitCounts](const std::size_t Index, FTaskContext&)
+	{
+		++VisitCounts[Index];
+	}));
 
 	CHECK(ParallelTask.Wait().State == ETaskState::Succeeded);
 	for (const int VisitCount : VisitCounts)
@@ -226,11 +233,12 @@ TEST_CASE("WhenAll propagates prerequisite failure")
 	const std::unique_ptr<FTaskSystem> TaskSystem = CreateDeterministicTaskSystem();
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Barrier test");
 	const std::array Prerequisites{
-	    RequireTask(TaskSystem->Submit(*Scope, {"Successful", ETaskLane::Cpu}, [](FTaskContext&) {})),
-	    RequireTask(TaskSystem->Submit(*Scope, {"Failed", ETaskLane::Cpu}, [](FTaskContext&)
-	                                   {
-		                                   throw std::runtime_error("Failure");
-	                                   }))};
+	    RequireTask(TaskSystem->Submit(*Scope, {.Name = "Successful", .Lane = ETaskLane::Cpu}, [](FTaskContext&) {})),
+	    RequireTask(TaskSystem->Submit(*Scope, {.Name = "Failed", .Lane = ETaskLane::Cpu}, [](FTaskContext&)
+	{
+		throw std::runtime_error("Failure");
+	}))};
+
 	const FTaskHandle Barrier = RequireTask(TaskSystem->WhenAll(*Scope, Prerequisites, "Barrier"));
 
 	const FTaskResult Result = Barrier.Wait();
@@ -244,7 +252,9 @@ TEST_CASE("Blocking IO cannot starve CPU workers")
 	    .CpuWorkerCount = 1,
 	    .BlockingIoWorkerCount = 1,
 	    .MaximumQueuedCpuTasks = 8,
-	    .MaximumQueuedIoTasks = 8};
+	    .MaximumQueuedIoTasks = 8,
+	};
+
 	std::expected<std::unique_ptr<FTaskSystem>, FTaskError> CreationResult = FTaskSystem::Create(Options);
 	REQUIRE(CreationResult.has_value());
 	const std::unique_ptr<FTaskSystem> TaskSystem = std::move(*CreationResult);
@@ -253,14 +263,15 @@ TEST_CASE("Blocking IO cannot starve CPU workers")
 	const std::shared_future<void> ReleaseIoFuture = ReleaseIo.get_future().share();
 	std::atomic_bool bCpuExecuted = false;
 
-	const FTaskHandle IoTask = RequireTask(TaskSystem->Submit(*Scope, {"Blocked IO", ETaskLane::BlockingIo}, [ReleaseIoFuture](FTaskContext&)
-	                                                          {
-		                                                          ReleaseIoFuture.wait();
-	                                                          }));
-	const FTaskHandle CpuTask = RequireTask(TaskSystem->Submit(*Scope, {"CPU work", ETaskLane::Cpu}, [&bCpuExecuted](FTaskContext&)
-	                                                           {
-		                                                           bCpuExecuted.store(true, std::memory_order_release);
-	                                                           }));
+	const FTaskHandle IoTask = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Blocked IO", .Lane = ETaskLane::BlockingIo}, [ReleaseIoFuture](FTaskContext&)
+	{
+		ReleaseIoFuture.wait();
+	}));
+
+	const FTaskHandle CpuTask = RequireTask(TaskSystem->Submit(*Scope, {.Name = "CPU work", .Lane = ETaskLane::Cpu}, [&bCpuExecuted](FTaskContext&)
+	{
+		bCpuExecuted.store(true, std::memory_order_release);
+	}));
 
 	CHECK(CpuTask.Wait().State == ETaskState::Succeeded);
 	CHECK(bCpuExecuted.load(std::memory_order_acquire));
@@ -274,24 +285,27 @@ TEST_CASE("CPU workers help while waiting for child tasks")
 	    .CpuWorkerCount = 1,
 	    .BlockingIoWorkerCount = 1,
 	    .MaximumQueuedCpuTasks = 8,
-	    .MaximumQueuedIoTasks = 8};
+	    .MaximumQueuedIoTasks = 8,
+	};
+
 	std::expected<std::unique_ptr<FTaskSystem>, FTaskError> CreationResult = FTaskSystem::Create(Options);
 	REQUIRE(CreationResult.has_value());
 	const std::unique_ptr<FTaskSystem> TaskSystem = std::move(*CreationResult);
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Nested task test");
 	std::atomic_int Value = 0;
 
-	const FTaskHandle Parent = RequireTask(TaskSystem->Submit(*Scope, {"Parent", ETaskLane::Cpu}, [&TaskSystem, &Scope, &Value](FTaskContext&)
-	                                                          {
-		                                                          std::expected<FTaskHandle, FTaskError> ChildResult = TaskSystem->Submit(*Scope, {"Child", ETaskLane::Cpu}, [&Value](FTaskContext&)
-		                                                                                                                                  {
-			                                                                                                                                  Value.store(42, std::memory_order_release);
-		                                                                                                                                  });
-		                                                          if (!ChildResult || ChildResult->Wait().State != ETaskState::Succeeded)
-		                                                          {
-			                                                          throw std::runtime_error("Child task failed");
-		                                                          }
-	                                                          }));
+	const FTaskHandle Parent = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Parent", .Lane = ETaskLane::Cpu}, [&TaskSystem, &Scope, &Value](FTaskContext&)
+	{
+		std::expected<FTaskHandle, FTaskError> ChildResult = TaskSystem->Submit(*Scope, {.Name = "Child", .Lane = ETaskLane::Cpu}, [&Value](FTaskContext&)
+		{
+			Value.store(42, std::memory_order_release);
+		});
+
+		if (!ChildResult || ChildResult->Wait().State != ETaskState::Succeeded)
+		{
+			throw std::runtime_error("Child task failed");
+		}
+	}));
 
 	CHECK(Parent.Wait().State == ETaskState::Succeeded);
 	CHECK(Value.load(std::memory_order_acquire) == 42);
@@ -303,24 +317,27 @@ TEST_CASE("Blocking IO workers help while waiting for child IO tasks")
 	    .CpuWorkerCount = 1,
 	    .BlockingIoWorkerCount = 1,
 	    .MaximumQueuedCpuTasks = 8,
-	    .MaximumQueuedIoTasks = 8};
+	    .MaximumQueuedIoTasks = 8,
+	};
+
 	std::expected<std::unique_ptr<FTaskSystem>, FTaskError> CreationResult = FTaskSystem::Create(Options);
 	REQUIRE(CreationResult.has_value());
 	const std::unique_ptr<FTaskSystem> TaskSystem = std::move(*CreationResult);
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Nested IO task test");
 	std::atomic_int Value = 0;
 
-	const FTaskHandle Parent = RequireTask(TaskSystem->Submit(*Scope, {"IO parent", ETaskLane::BlockingIo}, [&TaskSystem, &Scope, &Value](FTaskContext&)
-	                                                          {
-		                                                          std::expected<FTaskHandle, FTaskError> ChildResult = TaskSystem->Submit(*Scope, {"IO child", ETaskLane::BlockingIo}, [&Value](FTaskContext&)
-		                                                                                                                                  {
-			                                                                                                                                  Value.store(42, std::memory_order_release);
-		                                                                                                                                  });
-		                                                          if (!ChildResult || ChildResult->Wait().State != ETaskState::Succeeded)
-		                                                          {
-			                                                          throw std::runtime_error("IO child task failed");
-		                                                          }
-	                                                          }));
+	const FTaskHandle Parent = RequireTask(TaskSystem->Submit(*Scope, {.Name = "IO parent", .Lane = ETaskLane::BlockingIo}, [&TaskSystem, &Scope, &Value](FTaskContext&)
+	{
+		std::expected<FTaskHandle, FTaskError> ChildResult = TaskSystem->Submit(*Scope, {.Name = "IO child", .Lane = ETaskLane::BlockingIo}, [&Value](FTaskContext&)
+		{
+			Value.store(42, std::memory_order_release);
+		});
+
+		if (!ChildResult || ChildResult->Wait().State != ETaskState::Succeeded)
+		{
+			throw std::runtime_error("IO child task failed");
+		}
+	}));
 
 	CHECK(Parent.Wait().State == ETaskState::Succeeded);
 	CHECK(Value.load(std::memory_order_acquire) == 42);
@@ -332,18 +349,20 @@ TEST_CASE("Production continuations run on the composing main thread")
 	    .CpuWorkerCount = 1,
 	    .BlockingIoWorkerCount = 1,
 	    .MaximumQueuedCpuTasks = 8,
-	    .MaximumQueuedIoTasks = 8};
+	    .MaximumQueuedIoTasks = 8,
+	};
+
 	std::expected<std::unique_ptr<FTaskSystem>, FTaskError> CreationResult = FTaskSystem::Create(Options);
 	REQUIRE(CreationResult.has_value());
 	const std::unique_ptr<FTaskSystem> TaskSystem = std::move(*CreationResult);
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Main thread test");
 	const std::thread::id MainThreadId = std::this_thread::get_id();
 	std::thread::id ContinuationThreadId;
-	const FTaskHandle Prerequisite = RequireTask(TaskSystem->Submit(*Scope, {"Background work", ETaskLane::Cpu}, [](FTaskContext&) {}));
+	const FTaskHandle Prerequisite = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Background work", .Lane = ETaskLane::Cpu}, [](FTaskContext&) {}));
 	const FTaskHandle Continuation = RequireTask(TaskSystem->ContinueOnMainThread(*Scope, Prerequisite, "Publish result", [&ContinuationThreadId](FTaskContext&)
-	                                                                              {
-		                                                                              ContinuationThreadId = std::this_thread::get_id();
-	                                                                              }));
+	{
+		ContinuationThreadId = std::this_thread::get_id();
+	}));
 
 	CHECK(Prerequisite.Wait().State == ETaskState::Succeeded);
 	CHECK_FALSE(Continuation.IsComplete());
@@ -358,7 +377,9 @@ TEST_CASE("Concurrent submission cannot cross task-system shutdown")
 	    .CpuWorkerCount = 2,
 	    .BlockingIoWorkerCount = 1,
 	    .MaximumQueuedCpuTasks = 4096,
-	    .MaximumQueuedIoTasks = 8};
+	    .MaximumQueuedIoTasks = 8,
+	};
+
 	std::expected<std::unique_ptr<FTaskSystem>, FTaskError> CreationResult = FTaskSystem::Create(Options);
 	REQUIRE(CreationResult.has_value());
 	const std::unique_ptr<FTaskSystem> TaskSystem = std::move(*CreationResult);
@@ -366,27 +387,27 @@ TEST_CASE("Concurrent submission cannot cross task-system shutdown")
 	std::atomic_size_t AcceptedTaskCount = 0;
 	std::atomic_bool bObservedShutdown = false;
 
-	const FTaskHandle Producer = RequireTask(TaskSystem->Submit(*Scope, {"Concurrent producer", ETaskLane::Cpu}, [&TaskSystem, &Scope, &AcceptedTaskCount, &bObservedShutdown](FTaskContext&)
-	                                                            {
-		                                                            for (;;)
-		                                                            {
-			                                                            std::expected<FTaskHandle, FTaskError> Result = TaskSystem->Submit(*Scope, {"Concurrent submission", ETaskLane::Cpu}, [](FTaskContext&) {});
-			                                                            if (Result)
-			                                                            {
-				                                                            AcceptedTaskCount.fetch_add(1, std::memory_order_release);
-				                                                            continue;
-			                                                            }
+	const FTaskHandle Producer = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Concurrent producer", .Lane = ETaskLane::Cpu}, [&TaskSystem, &Scope, &AcceptedTaskCount, &bObservedShutdown](FTaskContext&)
+	{
+		for (;;)
+		{
+			std::expected<FTaskHandle, FTaskError> Result = TaskSystem->Submit(*Scope, {.Name = "Concurrent submission", .Lane = ETaskLane::Cpu}, [](FTaskContext&) {});
+			if (Result)
+			{
+				AcceptedTaskCount.fetch_add(1, std::memory_order_release);
+				continue;
+			}
 
-			                                                            if (Result.error().Code == ETaskErrorCode::QueueFull)
-			                                                            {
-				                                                            std::this_thread::yield();
-				                                                            continue;
-			                                                            }
+			if (Result.error().Code == ETaskErrorCode::QueueFull)
+			{
+				std::this_thread::yield();
+				continue;
+			}
 
-			                                                            bObservedShutdown.store(Result.error().Code == ETaskErrorCode::ShuttingDown, std::memory_order_release);
-			                                                            return;
-		                                                            }
-	                                                            }));
+			bObservedShutdown.store(Result.error().Code == ETaskErrorCode::ShuttingDown, std::memory_order_release);
+			return;
+		}
+	}));
 
 	while (AcceptedTaskCount.load(std::memory_order_acquire) < 32)
 	{
@@ -406,7 +427,9 @@ TEST_CASE("Task wait publishes scope completion before returning")
 	    .CpuWorkerCount = 2,
 	    .BlockingIoWorkerCount = 1,
 	    .MaximumQueuedCpuTasks = 8,
-	    .MaximumQueuedIoTasks = 8};
+	    .MaximumQueuedIoTasks = 8,
+	};
+
 	std::expected<std::unique_ptr<FTaskSystem>, FTaskError> CreationResult = FTaskSystem::Create(Options);
 	REQUIRE(CreationResult.has_value());
 	const std::unique_ptr<FTaskSystem> TaskSystem = std::move(*CreationResult);
@@ -414,7 +437,7 @@ TEST_CASE("Task wait publishes scope completion before returning")
 
 	for (int Iteration = 0; Iteration < 100; ++Iteration)
 	{
-		const FTaskHandle Task = RequireTask(TaskSystem->Submit(*Scope, {"Completion ordering task", ETaskLane::Cpu}, [](FTaskContext&) {}));
+		const FTaskHandle Task = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Completion ordering task", .Lane = ETaskLane::Cpu}, [](FTaskContext&) {}));
 		CHECK(Task.Wait().State == ETaskState::Succeeded);
 		CHECK(Scope->GetOutstandingTaskCount() == 0);
 	}
@@ -436,7 +459,9 @@ TEST_CASE("Blocking the main thread on task work emits a diagnostic")
 	    .EditorBufferCapacity = 8,
 	    .bConsoleOutput = false,
 	    .bDebuggerOutput = false,
-	    .bFileOutput = false};
+	    .bFileOutput = false,
+	};
+
 	std::expected<std::unique_ptr<FLogService>, FLogError> LogResult = FLogService::Create(std::move(LogOptions));
 	REQUIRE(LogResult.has_value());
 	const std::unique_ptr<FLogService> Log = std::move(*LogResult);
@@ -446,17 +471,19 @@ TEST_CASE("Blocking the main thread on task work emits a diagnostic")
 	    .BlockingIoWorkerCount = 1,
 	    .MaximumQueuedCpuTasks = 8,
 	    .MaximumQueuedIoTasks = 8,
-	    .Log = Log.get()};
+	    .Log = Log.get(),
+	};
+
 	std::expected<std::unique_ptr<FTaskSystem>, FTaskError> CreationResult = FTaskSystem::Create(Options);
 	REQUIRE(CreationResult.has_value());
 	const std::unique_ptr<FTaskSystem> TaskSystem = std::move(*CreationResult);
 	const std::unique_ptr<FTaskScope> Scope = RequireScope(*TaskSystem, "Main thread diagnostic test");
 	std::atomic_bool bStarted = false;
-	const FTaskHandle Task = RequireTask(TaskSystem->Submit(*Scope, {"Slow task", ETaskLane::Cpu}, [&bStarted](FTaskContext&)
-	                                                        {
-		                                                        bStarted.store(true, std::memory_order_release);
-		                                                        std::this_thread::sleep_for(std::chrono::milliseconds(40));
-	                                                        }));
+	const FTaskHandle Task = RequireTask(TaskSystem->Submit(*Scope, {.Name = "Slow task", .Lane = ETaskLane::Cpu}, [&bStarted](FTaskContext&)
+	{
+		bStarted.store(true, std::memory_order_release);
+		std::this_thread::sleep_for(std::chrono::milliseconds(40));
+	}));
 	while (!bStarted.load(std::memory_order_acquire))
 	{
 		std::this_thread::yield();

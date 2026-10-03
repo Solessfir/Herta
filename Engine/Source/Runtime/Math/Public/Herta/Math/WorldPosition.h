@@ -9,6 +9,7 @@ struct FWorldPosition
 	FVector3d Meters = FVector3d::Zero();
 
 	constexpr FWorldPosition() = default;
+
 	explicit constexpr FWorldPosition(const FVector3d& InMeters)
 	    : Meters(InMeters)
 	{

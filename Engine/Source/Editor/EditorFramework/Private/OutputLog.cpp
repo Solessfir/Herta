@@ -14,7 +14,7 @@ namespace Herta
 {
 namespace
 {
-inline constexpr FLogCategory CommandCategory{"Command"};
+inline constexpr FLogCategory CommandCategory{.Name = "Command"};
 
 [[nodiscard]] constexpr char FoldAscii(const char Character) noexcept
 {
@@ -29,10 +29,10 @@ inline constexpr FLogCategory CommandCategory{"Command"};
 	}
 
 	return std::ranges::search(Text, Search, [](const char Left, const char Right)
-	                           {
-		                           return FoldAscii(Left) == FoldAscii(Right);
-	                           })
-	           .begin() != Text.end();
+	{
+		return FoldAscii(Left) == FoldAscii(Right);
+	}).begin()
+	       != Text.end();
 }
 
 [[nodiscard]] bool MatchesSearch(const FLogRecord& Record, const std::string_view Search)
@@ -54,6 +54,7 @@ inline constexpr FLogCategory CommandCategory{"Command"};
 	{
 		Text.remove_suffix(1);
 	}
+
 	return Text;
 }
 
@@ -81,11 +82,12 @@ inline constexpr FLogCategory CommandCategory{"Command"};
 		const std::size_t LastByte = Newline == std::string::npos ? Record.Message.size() : Newline;
 		std::string Line = Lines.empty() ? Prefix : std::string(MessageBegin, ' ');
 		Line.append(Record.Message, FirstByte, LastByte - FirstByte);
-		Lines.emplace_back(FOutputLogLine{Record, std::move(Line), CategoryBegin, CategoryEnd, MessageBegin, TimeEnd});
+		Lines.emplace_back(FOutputLogLine{.Record = Record, .Text = std::move(Line), .CategoryBegin = CategoryBegin, .CategoryEnd = CategoryEnd, .MessageBegin = MessageBegin, .TimeEnd = TimeEnd});
 		if (Newline == std::string::npos)
 		{
 			break;
 		}
+
 		FirstByte = Newline + 1;
 	} while (FirstByte <= Record.Message.size());
 	return Lines;
@@ -100,8 +102,10 @@ inline constexpr FLogCategory CommandCategory{"Command"};
 		{
 			Text.push_back('\n');
 		}
+
 		Text += Lines[Index];
 	}
+
 	return Text;
 }
 }
@@ -174,12 +178,14 @@ std::expected<bool, FOutputLogError> FOutputLogModel::Synchronize()
 			Implementation->Records.clear();
 			Implementation->Selection.Clear();
 		}
+
 		if (ReadResult->Records.empty())
 		{
 			if (ReadResult->bGenerationReset || ReadResult->bHistoryTruncated)
 			{
 				RebuildVisibleLines();
 			}
+
 			return false;
 		}
 
@@ -190,6 +196,7 @@ std::expected<bool, FOutputLogError> FOutputLogModel::Synchronize()
 			Implementation->Records.erase(Implementation->Records.begin(), Implementation->Records.begin() + static_cast<std::ptrdiff_t>(RemoveCount));
 			Implementation->Selection.Clear();
 		}
+
 		RebuildVisibleLines();
 		return true;
 	}
@@ -251,6 +258,7 @@ std::expected<void, FOutputLogError> FOutputLogModel::SetLevelVisible(const ELog
 			Implementation->Selection.Clear();
 			RebuildVisibleLines();
 		}
+
 		return {};
 	}
 	catch (const std::exception& Exception)
@@ -313,6 +321,7 @@ std::expected<std::string, FOutputLogError> FOutputLogModel::CopySelectionOrVisi
 		{
 			return Implementation->Selection.Copy(Implementation->VisibleText);
 		}
+
 		return JoinLines(Implementation->VisibleText);
 	}
 	catch (const std::exception& Exception)
@@ -368,6 +377,7 @@ std::expected<void, FOutputLogError> FOutputLogModel::SubmitCommand(const std::s
 				Implementation->CommandHistory.erase(Implementation->CommandHistory.begin());
 			}
 		}
+
 		Implementation->CommandHistoryIndex = Implementation->CommandHistory.size();
 		Implementation->bTailRequested = Implementation->Options.bAutoScroll;
 		return {};
@@ -390,6 +400,7 @@ std::expected<std::vector<std::string>, FOutputLogError> FOutputLogModel::Comple
 	{
 		return std::unexpected(FOutputLogError{std::move(Result.error().Message)});
 	}
+
 	return std::move(*Result);
 }
 
@@ -408,6 +419,7 @@ std::expected<std::string, FOutputLogError> FOutputLogModel::NavigateHistory(con
 	{
 		++Implementation->CommandHistoryIndex;
 	}
+
 	try
 	{
 		return Implementation->CommandHistoryIndex < Implementation->CommandHistory.size() ? Implementation->CommandHistory[Implementation->CommandHistoryIndex] : std::string{};
@@ -453,6 +465,7 @@ void FOutputLogModel::RebuildVisibleLines()
 			Implementation->VisibleLines.emplace_back(std::move(Line));
 		}
 	}
+
 	Implementation->Selection.ClampTo(Implementation->VisibleText);
 }
 }

@@ -74,7 +74,7 @@ public:
 	// Release drops graph ownership; the RHI must retain submitted resources until GPU completion.
 	[[nodiscard]] FRenderGraphResourceHandle CreateResource(std::string Name, FRenderGraphCallback Acquire = {}, std::function<void()> Release = {});
 	// Declaration order defines resource versions, including overwrite and read-before-write hazards.
-	[[nodiscard]] FRenderGraphPassHandle AddPass(std::string Name, std::vector<FRenderGraphAccess> Accesses, FRenderGraphCallback Execute);
+	FRenderGraphPassHandle AddPass(std::string Name, std::vector<FRenderGraphAccess> Accesses, FRenderGraphCallback Execute);
 	void AddDependency(FRenderGraphPassHandle Before, FRenderGraphPassHandle After);
 	[[nodiscard]] std::expected<FRenderGraphPlan, FRenderGraphError> Compile() const;
 	[[nodiscard]] std::expected<void, FRenderGraphError> Execute() const;

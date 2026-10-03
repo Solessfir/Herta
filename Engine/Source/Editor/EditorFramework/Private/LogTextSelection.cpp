@@ -8,6 +8,7 @@ void FLogTextSelection::Begin(const FLogTextPosition Position, const bool bExten
 	{
 		Anchor = Position;
 	}
+
 	Caret = Position;
 }
 
@@ -17,6 +18,7 @@ void FLogTextSelection::Update(const FLogTextPosition Position) noexcept
 	{
 		Anchor = Position;
 	}
+
 	Caret = Position;
 }
 
@@ -35,7 +37,7 @@ void FLogTextSelection::SelectAll(const std::span<const std::string> Lines) noex
 	}
 
 	Anchor = FLogTextPosition{};
-	Caret = FLogTextPosition{Lines.size() - 1, Lines.back().size()};
+	Caret = FLogTextPosition{.Line = Lines.size() - 1, .Byte = Lines.back().size()};
 }
 
 void FLogTextSelection::ClampTo(const std::span<const std::string> Lines) noexcept
@@ -51,10 +53,12 @@ void FLogTextSelection::ClampTo(const std::span<const std::string> Lines) noexce
 		Position.Line = std::min(Position.Line, Lines.size() - 1);
 		Position.Byte = std::min(Position.Byte, Lines[Position.Line].size());
 	};
+
 	if (Anchor)
 	{
 		ClampPosition(*Anchor);
 	}
+
 	if (Caret)
 	{
 		ClampPosition(*Caret);
@@ -72,6 +76,7 @@ std::pair<FLogTextPosition, FLogTextPosition> FLogTextSelection::GetOrderedRange
 	{
 		return {};
 	}
+
 	return IsBefore(*Caret, *Anchor) ? std::pair{*Caret, *Anchor} : std::pair{*Anchor, *Caret};
 }
 
@@ -100,6 +105,7 @@ std::string FLogTextSelection::Copy(const std::span<const std::string> Lines) co
 		const std::size_t ByteCount = LineIndex == Last.Line ? Last.Byte : Lines[LineIndex].size();
 		Text.append(Lines[LineIndex], 0, ByteCount);
 	}
+
 	return Text;
 }
 }

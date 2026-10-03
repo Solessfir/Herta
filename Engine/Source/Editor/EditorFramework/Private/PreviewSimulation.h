@@ -18,8 +18,16 @@ public:
 	[[nodiscard]] std::expected<void, FPhysicsError> Start(const FTransform& CubeTransform, const FTransform& FloorTransform, const FPreviewBodyShape& CubeShape = {}, const FPreviewBodyShape& FloorShape = {});
 	void Stop() noexcept;
 	[[nodiscard]] std::expected<void, FPhysicsError> Update(float DeltaSeconds);
-	[[nodiscard]] bool IsRunning() const noexcept { return World != nullptr; }
-	[[nodiscard]] const FTransform& GetTransform() const noexcept { return RenderTransform; }
+
+	[[nodiscard]] bool IsRunning() const noexcept
+	{
+		return World != nullptr;
+	}
+
+	[[nodiscard]] const FTransform& GetTransform() const noexcept
+	{
+		return RenderTransform;
+	}
 
 private:
 	std::unique_ptr<FPhysicsWorld> World;

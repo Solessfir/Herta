@@ -17,10 +17,12 @@ inline constexpr std::size_t CanonicalLength = 36;
 	{
 		return Character - '0';
 	}
+
 	if (Character >= 'a' && Character <= 'f')
 	{
 		return Character - 'a' + 10;
 	}
+
 	return -1;
 }
 }
@@ -58,6 +60,7 @@ std::optional<FAssetId> FAssetId::Parse(const std::string_view Text) noexcept
 			{
 				return std::nullopt;
 			}
+
 			++HyphenIndex;
 			continue;
 		}
@@ -67,6 +70,7 @@ std::optional<FAssetId> FAssetId::Parse(const std::string_view Text) noexcept
 		{
 			return std::nullopt;
 		}
+
 		std::uint64_t& Word = Words[Digit / 16];
 		Word = (Word << 4) | static_cast<std::uint64_t>(Value);
 		++Digit;

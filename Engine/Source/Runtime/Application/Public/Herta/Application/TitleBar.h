@@ -97,7 +97,7 @@ struct FTitleBarHitTestState
 
 [[nodiscard]] constexpr float ResolveTitleBarUiScale(const bool bWayland, const float ContentScale) noexcept
 {
-	return bWayland || ContentScale <= 0.0f ? 1.0f : ContentScale;
+	return bWayland || ContentScale <= 0.f ? 1.f : ContentScale;
 }
 
 [[nodiscard]] constexpr int ScaleTitleBarMetric(const int Value, const float ContentScale) noexcept
@@ -134,7 +134,8 @@ struct FTitleBarHitTestState
 	    .bCloseVisible = bAllowControls && Policy.bAllowClose,
 	    .bMinimizeVisible = bAllowControls && Capabilities.bMinimize && Policy.bAllowMinimize,
 	    .bMaximizeVisible = bAllowControls && Capabilities.bMaximize && Policy.bAllowMaximize && bResizable,
-	    .bSystemMenuEnabled = bAllowControls && Capabilities.bWindowMenu && Policy.bAllowWindowMenu};
+	    .bSystemMenuEnabled = bAllowControls && Capabilities.bWindowMenu && Policy.bAllowWindowMenu,
+	};
 }
 
 [[nodiscard]] constexpr FTitleBarControlBounds GetTitleBarControlBounds(const FTitleBarLayout& Layout, const ETitleBarHitRegion Region) noexcept
@@ -147,6 +148,7 @@ struct FTitleBarHitTestState
 		{
 			return CloseBounds;
 		}
+
 		MaximumX = CloseBounds.MinimumX;
 	}
 
@@ -157,6 +159,7 @@ struct FTitleBarHitTestState
 		{
 			return MaximizeBounds;
 		}
+
 		MaximumX = MaximizeBounds.MinimumX;
 	}
 

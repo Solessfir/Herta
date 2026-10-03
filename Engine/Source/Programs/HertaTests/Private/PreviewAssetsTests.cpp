@@ -6,9 +6,10 @@
 #include "TestFiles.h"
 #include "TestGraphicsDevice.h"
 
+#include <doctest/doctest.h>
+
 #include <array>
 #include <cmath>
-#include <doctest/doctest.h>
 
 namespace Herta
 {
@@ -48,6 +49,8 @@ struct FPreviewAssetsFixture
 
 	FPreviewAssetsFixture(const FPreviewAssetsFixture&) = delete;
 	FPreviewAssetsFixture& operator=(const FPreviewAssetsFixture&) = delete;
+	FPreviewAssetsFixture(FPreviewAssetsFixture&&) = delete;
+	FPreviewAssetsFixture& operator=(FPreviewAssetsFixture&&) = delete;
 
 	static void WriteTexture(const std::filesystem::path& Root, const std::string& Path, const FAssetId& Id, const std::array<std::uint8_t, 4>& Pixel)
 	{
@@ -58,7 +61,7 @@ struct FPreviewAssetsFixture
 	[[nodiscard]] std::unique_ptr<FPreviewAssets> CreateAssets()
 	{
 		const std::filesystem::path& Root = Scratch.GetPath();
-		return FPreviewAssets::Create(*Tasks, Device, *Log, {Root / "Engine", Root / "Game", Root / "DerivedDataCache", Tests::GetSiblingExecutable("HertaAssetWorker"), "TestPlatform"}, 2);
+		return FPreviewAssets::Create(*Tasks, Device, *Log, {.EngineContentRoot = Root / "Engine", .ContentRoot = Root / "Game", .DerivedDataRoot = Root / "DerivedDataCache", .WorkerPath = Tests::GetSiblingExecutable("HertaAssetWorker"), .TargetPlatform = "TestPlatform"}, 2);
 	}
 };
 }
@@ -193,9 +196,9 @@ TEST_CASE("Dropped files import into Game content through asset.import and appea
 	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Game/Models/Notes.txt"));
 	const std::span<const FPreviewAssetOption> Options = Assets->GetOptions();
 	CHECK(std::ranges::any_of(Options, [](const FPreviewAssetOption& Option)
-	                          {
-		                          return Option.Label == "Game/Textures/Grass Tile.png";
-	                          }));
+	{
+		return Option.Label == "Game/Textures/Grass Tile.png";
+	}));
 }
 
 TEST_CASE("Content snapshots notice edits, additions, and removals but skip dot-prefixed entries")
@@ -228,7 +231,7 @@ TEST_CASE("Engine content provides the 1 m preview cube with outward faces and u
 	CHECK(Cube->SourcePath == "Shapes/Cube.gltf");
 
 	const Tests::FScratchDirectory Scratch("HertaEngineContent");
-	const auto Cooked = CookAsset({"Engine/Content", Scratch.GetPath(), Cube->SourcePath, "TestPlatform", false});
+	const auto Cooked = CookAsset({.ContentRoot = "Engine/Content", .DerivedDataRoot = Scratch.GetPath(), .SourcePath = Cube->SourcePath, .TargetPlatform = "TestPlatform", .bForce = false});
 	REQUIRE(Cooked);
 	CHECK(Cooked->Warnings.empty());
 	auto Asset = LoadCookedAsset(Scratch.GetPath(), Cooked->Key);
@@ -247,6 +250,7 @@ TEST_CASE("Engine content provides the 1 m preview cube with outward faces and u
 			CHECK(std::abs(Coordinate) == 0.5f);
 		}
 	}
+
 	for (std::size_t Index = 0; Index < Model.Indices.size(); Index += 3)
 	{
 		const FCookedVertex& A = Model.Vertices[Model.Indices[Index]];
@@ -255,9 +259,9 @@ TEST_CASE("Engine content provides the 1 m preview cube with outward faces and u
 		const FVector3 PositionA{A.Position[0], A.Position[1], A.Position[2]};
 		const FVector3 PositionB{B.Position[0], B.Position[1], B.Position[2]};
 		const FVector3 PositionC{C.Position[0], C.Position[1], C.Position[2]};
-		CHECK((PositionB - PositionA).Cross(PositionC - PositionA).Dot(PositionA + PositionB + PositionC) > 0.0f);
+		CHECK((PositionB - PositionA).Cross(PositionC - PositionA).Dot(PositionA + PositionB + PositionC) > 0.f);
 		const float UVArea = (B.UV[0] - A.UV[0]) * (C.UV[1] - A.UV[1]) - (B.UV[1] - A.UV[1]) * (C.UV[0] - A.UV[0]);
-		CHECK(UVArea < 0.0f);
+		CHECK(UVArea < 0.f);
 	}
 }
 }

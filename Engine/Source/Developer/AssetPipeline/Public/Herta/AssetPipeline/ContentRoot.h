@@ -56,6 +56,7 @@ struct FContentScanCache
 		FContentFileStamp Stamp;
 		std::expected<FAssetMetadata, FAssetError> Metadata;
 	};
+
 	std::map<std::string, FEntry> Metadata;
 };
 

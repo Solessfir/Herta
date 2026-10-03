@@ -66,10 +66,12 @@ public:
 	// Imports files into Game content in the background through asset.import, the same command HertaEditorCmd runs.
 	// Models land in Models and images in Textures; the next poll picks the new assets up.
 	void ImportFiles(std::vector<std::filesystem::path> Files);
+
 	[[nodiscard]] bool IsImporting() const noexcept
 	{
 		return ImportsInFlight > 0;
 	}
+
 	// Requests made before the first scan finishes wait for it.
 	void RequestMesh(std::size_t Object, const FAssetId& Asset);
 
@@ -77,10 +79,12 @@ public:
 	{
 		return Options;
 	}
+
 	[[nodiscard]] bool IsScanning() const noexcept
 	{
 		return bScanning;
 	}
+
 	[[nodiscard]] const FPreviewMeshSlot& GetSlot(std::size_t Object) const
 	{
 		return Slots.at(Object);

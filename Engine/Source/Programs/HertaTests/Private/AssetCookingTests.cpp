@@ -3,9 +3,10 @@
 #include "Herta/Core/BinaryStream.h"
 #include "TestFiles.h"
 
+#include <doctest/doctest.h>
+
 #include <algorithm>
 #include <array>
-#include <doctest/doctest.h>
 #include <initializer_list>
 
 namespace Herta
@@ -49,18 +50,21 @@ constexpr std::array<std::uint8_t, 16> CheckerPixels{255, 255, 255, 255, 0, 0, 0
 std::vector<std::byte> MakeQuadBuffer()
 {
 	FBinaryWriter Writer;
-	for (const float Value : {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f})
+	for (const float Value : {0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 1.f, 0.f})
 	{
 		Writer.WriteFloat(Value);
 	}
-	for (const float Value : {0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f})
+
+	for (const float Value : {0.f, 1.f, 1.f, 1.f, 1.f, 0.f, 0.f, 0.f})
 	{
 		Writer.WriteFloat(Value);
 	}
+
 	for (const std::uint16_t Index : std::initializer_list<std::uint16_t>{0, 1, 2, 0, 2, 3})
 	{
 		Writer.Write(Index);
 	}
+
 	return Writer.TakeBytes();
 }
 
@@ -75,7 +79,7 @@ void WriteQuadModel(const std::filesystem::path& Root, const std::string_view Gl
 
 FAssetCookRequest MakeRequest(const Tests::FScratchDirectory& Scratch, const std::string_view SourcePath)
 {
-	return {Scratch.GetPath() / "Content", Scratch.GetPath() / "DerivedDataCache", std::string(SourcePath), "TestPlatform", false};
+	return {.ContentRoot = Scratch.GetPath() / "Content", .DerivedDataRoot = Scratch.GetPath() / "DerivedDataCache", .SourcePath = std::string(SourcePath), .TargetPlatform = "TestPlatform", .bForce = false};
 }
 
 std::array<std::uint8_t, 4> Texel(const FCookedTextureMip& Mip, const std::size_t Index = 0)
@@ -85,6 +89,7 @@ std::array<std::uint8_t, 4> Texel(const FCookedTextureMip& Mip, const std::size_
 	{
 		Result[Channel] = static_cast<std::uint8_t>(Mip.Pixels[Index * 4 + Channel]);
 	}
+
 	return Result;
 }
 
@@ -144,7 +149,7 @@ TEST_CASE("Texture cooking filters mips in linear light")
 	CHECK(Texel(Linear->Mips[1]) == std::array<std::uint8_t, 4>{128, 128, 128, 255});
 
 	const std::array<std::uint8_t, 4> White{255, 255, 255, 255};
-	const auto Tinted = CookTexture(1, 1, std::as_bytes(std::span(White)), ETextureColorSpace::Srgb, {0.5f, 1.0f, 0.0f, 0.5f});
+	const auto Tinted = CookTexture(1, 1, std::as_bytes(std::span(White)), ETextureColorSpace::Srgb, {0.5f, 1.f, 0.f, 0.5f});
 	REQUIRE(Tinted);
 	CHECK(Texel(Tinted->Mips[0]) == std::array<std::uint8_t, 4>{188, 255, 0, 128});
 
@@ -168,7 +173,7 @@ TEST_CASE("Texture cooking filters mips in linear light")
 	CHECK(Decoded->Mips[0].Pixels == Checker->Mips[0].Pixels);
 
 	CHECK_FALSE(CookTexture(2, 2, std::as_bytes(std::span(White)), ETextureColorSpace::Srgb));
-	CHECK_FALSE(CookTexture(1, 1, std::as_bytes(std::span(White)), ETextureColorSpace::Srgb, {-1.0f, 1.0f, 1.0f, 1.0f}));
+	CHECK_FALSE(CookTexture(1, 1, std::as_bytes(std::span(White)), ETextureColorSpace::Srgb, {-1.f, 1.f, 1.f, 1.f}));
 	CHECK_FALSE(CookEncodedTexture(std::as_bytes(std::span(White)), ETextureColorSpace::Srgb));
 }
 
@@ -177,10 +182,10 @@ TEST_CASE("Cooked assets round-trip and reject corrupt data")
 	const auto Texture = CookTexture(2, 2, std::as_bytes(std::span(CheckerPixels)), ETextureColorSpace::Srgb);
 	REQUIRE(Texture);
 	FCookedModel Model;
-	Model.Vertices = {{{0, 0, 0}, {0, 0}}, {{1, 0, 0}, {1, 0}}, {{0, 1, 0}, {0, 1}}};
+	Model.Vertices = {{.Position = {0, 0, 0}, .UV = {0, 0}}, {.Position = {1, 0, 0}, .UV = {1, 0}}, {.Position = {0, 1, 0}, .UV = {0, 1}}};
 	Model.Indices = {0, 1, 2};
-	Model.Sections = {{0, 3, 0}};
-	Model.Materials = {{"Default", 0}};
+	Model.Sections = {{.FirstIndex = 0, .IndexCount = 3, .Material = 0}};
+	Model.Materials = {{.Name = "Default", .BaseColorTexture = 0}};
 	Model.Textures = {*Texture};
 
 	const auto Bytes = SerializeCookedAsset(Model);
@@ -241,10 +246,11 @@ TEST_CASE("glTF cooking flattens nodes, merges materials, and keeps canonical wi
 	const auto HasPosition = [&Model](const std::array<float, 3>& Position)
 	{
 		return std::ranges::any_of(Model.Vertices, [&Position](const FCookedVertex& Vertex)
-		                           {
-			                           return Vertex.Position == Position;
-		                           });
+		{
+			return Vertex.Position == Position;
+		});
 	};
+
 	CHECK(HasPosition({1, 2, 3}));
 	CHECK(HasPosition({2, 3, 3}));
 	CHECK(HasPosition({-6, 1, 0}));
@@ -256,7 +262,7 @@ TEST_CASE("glTF cooking flattens nodes, merges materials, and keeps canonical wi
 		const auto& B = Model.Vertices[Model.Indices[Index + 1]].Position;
 		const auto& C = Model.Vertices[Model.Indices[Index + 2]].Position;
 		const float NormalZ = (B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0]);
-		CHECK(NormalZ > 0.0f);
+		CHECK(NormalZ > 0.f);
 	}
 
 	const FCookedTexture& CheckerTexture = Model.Textures[Model.Materials[Model.Sections[0].Material].BaseColorTexture];

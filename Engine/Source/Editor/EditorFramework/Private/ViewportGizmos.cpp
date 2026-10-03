@@ -23,9 +23,10 @@ THE SOFTWARE.
 
 #include "ViewportGizmos.h"
 
-#include <array>
 #include <im3d.h>
 #include <im3d_math.h>
+
+#include <array>
 
 namespace Herta
 {
@@ -34,7 +35,7 @@ bool DrawPreviewTranslationGizmo(Im3d::Vec3& Translation, const Im3d::Mat3& Rota
 	Im3d::Context& Context = Im3d::GetContext();
 	Im3d::AppData& AppData = Context.getAppData();
 	const Im3d::Vec3 DrawAt = Translation;
-	const Im3d::Mat3 Basis = bLocal ? Rotation : Im3d::Mat3(1.0f);
+	const Im3d::Mat3 Basis = bLocal ? Rotation : Im3d::Mat3(1.f);
 	const Im3d::Mat3 InverseBasis = Im3d::Transpose(Basis);
 	std::array Axes{Basis.getCol(0), Basis.getCol(1), Basis.getCol(2)};
 	constexpr std::array PlaneColors{Im3d::Color_Red, Im3d::Color_Green, Im3d::Color_Blue};
@@ -42,19 +43,20 @@ bool DrawPreviewTranslationGizmo(Im3d::Vec3& Translation, const Im3d::Mat3& Rota
 	const Im3d::Vec3 ViewDirection = AppData.m_projOrtho ? -AppData.m_viewDirection : Im3d::Normalize(AppData.m_viewOrigin - DrawAt);
 	for (Im3d::Vec3& Axis : Axes)
 	{
-		if (AppData.m_flipGizmoWhenBehind && Im3d::Dot(Axis, ViewDirection) < 0.0f)
+		if (AppData.m_flipGizmoWhenBehind && Im3d::Dot(Axis, ViewDirection) < 0.f)
 		{
 			Axis = -Axis;
 		}
 	}
+
 	const float WorldHeight = Context.pixelsToWorldSize(DrawAt, Context.m_gizmoHeightPixels);
 	const float WorldSize = Context.pixelsToWorldSize(DrawAt, Context.m_gizmoSizePixels);
-	const float PlaneHalfSize = WorldHeight * (6.0f / 80.0f);
-	const float PlaneOffset = WorldHeight * 0.60f;
+	const float PlaneHalfSize = WorldHeight * (6.f / 80.f);
+	const float PlaneOffset = WorldHeight * 0.6f;
 	const Im3d::Id AppId = Im3d::MakeId("PreviewCube");
 	Context.pushId(AppId);
 	Context.m_appId = AppId;
-	Context.pushMatrix(Im3d::Mat4(1.0f));
+	Context.pushMatrix(Im3d::Mat4(1.f));
 	Context.pushEnableSorting(true);
 	bool bChanged = false;
 	constexpr std::array PlaneNames{"planeYZ", "planeXZ", "planeXY"};
@@ -78,6 +80,7 @@ bool DrawPreviewTranslationGizmo(Im3d::Vec3& Translation, const Im3d::Mat3& Rota
 			Translation = Basis * LocalTranslation;
 			bChanged = true;
 		}
+
 		const bool bHighlighted = PlaneId == Context.m_hotId || PlaneId == Context.m_activeId;
 		Im3d::PushColor(bHighlighted ? Im3d::Color_Yellow : PlaneColors[Index]);
 		const Im3d::Vec3 SideA = Axes[First] * PlaneHalfSize;
@@ -89,6 +92,7 @@ bool DrawPreviewTranslationGizmo(Im3d::Vec3& Translation, const Im3d::Mat3& Rota
 			AxisColors[First] = AxisColors[Second] = Im3d::Color_Yellow;
 		}
 	}
+
 	const Im3d::Id CenterId = Im3d::MakeId("planeV");
 	const Im3d::Id PreviousActiveId = Context.m_activeId;
 	const Im3d::Vec3 CenterNormal = CenterId == PreviousActiveId ? Context.m_gizmoStateMat3.getCol(0) : AppData.m_viewDirection;
@@ -97,7 +101,8 @@ bool DrawPreviewTranslationGizmo(Im3d::Vec3& Translation, const Im3d::Mat3& Rota
 	{
 		Context.m_gizmoStateMat3.setCol(0, CenterNormal);
 	}
-	Im3d::DrawPoint(DrawAt, Context.m_gizmoSizePixels * 2.0f, CenterId == Context.m_hotId || CenterId == Context.m_activeId ? Im3d::Color_Yellow : Im3d::Color_White);
+
+	Im3d::DrawPoint(DrawAt, Context.m_gizmoSizePixels * 2.f, CenterId == Context.m_hotId || CenterId == Context.m_activeId ? Im3d::Color_Yellow : Im3d::Color_White);
 	constexpr std::array AxisNames{"axisX", "axisY", "axisZ"};
 	for (std::size_t Index = 0; Index < Axes.size(); ++Index)
 	{
@@ -110,6 +115,7 @@ bool DrawPreviewTranslationGizmo(Im3d::Vec3& Translation, const Im3d::Mat3& Rota
 		Im3d::PopSize();
 		Im3d::PopColor();
 	}
+
 	Context.popEnableSorting();
 	Context.popMatrix();
 	Context.popId();

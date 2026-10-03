@@ -24,19 +24,20 @@ struct FExtent2D
 
 struct FSrgbColor
 {
-	float Red = 0.0f;
-	float Green = 0.0f;
-	float Blue = 0.0f;
-	float Alpha = 1.0f;
+	float Red = 0.f;
+	float Green = 0.f;
+	float Blue = 0.f;
+	float Alpha = 1.f;
 };
 
 [[nodiscard]] constexpr FSrgbColor ConvertSrgb8ToSrgbColor(const std::uint8_t Red, const std::uint8_t Green, const std::uint8_t Blue, const std::uint8_t Alpha = 255) noexcept
 {
 	return {
-	    static_cast<float>(Red) / 255.0f,
-	    static_cast<float>(Green) / 255.0f,
-	    static_cast<float>(Blue) / 255.0f,
-	    static_cast<float>(Alpha) / 255.0f};
+	    static_cast<float>(Red) / 255.f,
+	    static_cast<float>(Green) / 255.f,
+	    static_cast<float>(Blue) / 255.f,
+	    static_cast<float>(Alpha) / 255.f,
+	};
 }
 
 struct FPresentationViewportHandle
@@ -91,7 +92,8 @@ struct FPresentationError
 {
 	return {
 	    std::clamp(Requested.Width, Minimum.Width, Maximum.Width),
-	    std::clamp(Requested.Height, Minimum.Height, Maximum.Height)};
+	    std::clamp(Requested.Height, Minimum.Height, Maximum.Height),
+	};
 }
 
 [[nodiscard]] std::string_view ToString(EPresentationErrorCode Code) noexcept;

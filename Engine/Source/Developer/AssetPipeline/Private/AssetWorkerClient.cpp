@@ -20,6 +20,7 @@ std::expected<FAssetCookResult, FAssetError> CookAssetInWorker(const FAssetCookR
 	{
 		return std::unexpected(FAssetError{std::format("Asset worker for '{}' failed: {}", Request.SourcePath, Result.error().Message)});
 	}
+
 	if (Result->ExitCode != 0)
 	{
 		std::string Message = Result->StandardError;
@@ -27,12 +28,15 @@ std::expected<FAssetCookResult, FAssetError> CookAssetInWorker(const FAssetCookR
 		{
 			Message.pop_back();
 		}
+
 		if (Message.empty())
 		{
 			Message = std::format("the worker exited with code {}", Result->ExitCode);
 		}
+
 		return std::unexpected(FAssetError{std::format("Cannot cook '{}': {}", Request.SourcePath, Message)});
 	}
+
 	return ParseAssetWorkerOutput(Result->StandardOutput);
 }
 }

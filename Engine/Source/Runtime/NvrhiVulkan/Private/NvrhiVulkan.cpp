@@ -12,6 +12,10 @@
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include <imgui.h>
+#include <nvrhi/validation.h>
+#include <nvrhi/vulkan.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -20,10 +24,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <format>
-#include <imgui.h>
 #include <limits>
-#include <nvrhi/validation.h>
-#include <nvrhi/vulkan.h>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -37,7 +38,7 @@ namespace Herta
 {
 namespace
 {
-inline constexpr FLogCategory RhiLog{"RHI"};
+inline constexpr FLogCategory RhiLog{.Name = "RHI"};
 inline constexpr std::string_view ValidationLayerName = "VK_LAYER_KHRONOS_validation";
 inline constexpr std::size_t VulkanBufferUpdateAlignment = 4;
 
@@ -50,7 +51,7 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 
 [[nodiscard]] FPresentationError MakeVulkanError(const EPresentationErrorCode Code, const std::string_view Operation, const VkResult Result)
 {
-	return {Code, std::format("{} failed with VkResult {}", Operation, static_cast<int>(Result))};
+	return {.Code = Code, .Message = std::format("{} failed with VkResult {}", Operation, static_cast<int>(Result))};
 }
 
 [[nodiscard]] EPresentationErrorCode ToDeviceErrorCode(const VkResult Result, const EPresentationErrorCode Fallback) noexcept
@@ -61,17 +62,17 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 [[nodiscard]] bool ContainsExtension(const std::span<const VkExtensionProperties> Extensions, const std::string_view Name) noexcept
 {
 	return std::ranges::any_of(Extensions, [Name](const VkExtensionProperties& Extension)
-	                           {
-		                           return Name == Extension.extensionName;
-	                           });
+	{
+		return Name == Extension.extensionName;
+	});
 }
 
 [[nodiscard]] bool ContainsLayer(const std::span<const VkLayerProperties> Layers, const std::string_view Name) noexcept
 {
 	return std::ranges::any_of(Layers, [Name](const VkLayerProperties& Layer)
-	                           {
-		                           return Name == Layer.layerName;
-	                           });
+	{
+		return Name == Layer.layerName;
+	});
 }
 
 [[nodiscard]] nvrhi::Format ToNvrhiFormat(const VkFormat Format) noexcept
@@ -95,19 +96,21 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 {
 	if (Formats.size() == 1 && Formats.front().format == VK_FORMAT_UNDEFINED && Formats.front().colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
 	{
-		return VkSurfaceFormatKHR{VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
+		return VkSurfaceFormatKHR{.format = VK_FORMAT_B8G8R8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
 	}
 
 	constexpr std::array PreferredFormats{
 	    VK_FORMAT_B8G8R8A8_UNORM,
-	    VK_FORMAT_R8G8B8A8_UNORM};
+	    VK_FORMAT_R8G8B8A8_UNORM,
+	};
 
 	for (const VkFormat Preferred : PreferredFormats)
 	{
 		const auto Match = std::ranges::find_if(Formats, [Preferred](const VkSurfaceFormatKHR& Format)
-		                                        {
-			                                        return Format.format == Preferred && Format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-		                                        });
+		{
+			return Format.format == Preferred && Format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+		});
+
 		if (Match != Formats.end())
 		{
 			return *Match;
@@ -123,6 +126,7 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 	{
 		return VK_PRESENT_MODE_MAILBOX_KHR;
 	}
+
 	if (!bVSync && std::ranges::find(Modes, VK_PRESENT_MODE_IMMEDIATE_KHR) != Modes.end())
 	{
 		return VK_PRESENT_MODE_IMMEDIATE_KHR;
@@ -137,7 +141,8 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 	    VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
 	    VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
 	    VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
-	    VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR};
+	    VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR,
+	};
 
 	for (const VkCompositeAlphaFlagBitsKHR Candidate : Candidates)
 	{
@@ -218,7 +223,7 @@ struct FQueueSelection
 
 		if ((Queues[Index].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0 && bSupportsPresentation == VK_TRUE)
 		{
-			return FQueueSelection{Index, Queues[Index].queueCount};
+			return FQueueSelection{.FamilyIndex = Index, .Score = Queues[Index].queueCount};
 		}
 	}
 
@@ -260,6 +265,7 @@ struct FPhysicalDeviceSelection
 	{
 		return std::nullopt;
 	}
+
 	std::vector<VkExtensionProperties> Extensions(ExtensionCount);
 	if (vkEnumerateDeviceExtensionProperties(Device, nullptr, &ExtensionCount, Extensions.data()) != VK_SUCCESS || !ContainsExtension(Extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME))
 	{
@@ -282,7 +288,7 @@ struct FPhysicalDeviceSelection
 		Score += 500'000;
 	}
 
-	return FPhysicalDeviceSelection{Device, Queue->FamilyIndex, Score};
+	return FPhysicalDeviceSelection{.Device = Device, .QueueFamilyIndex = Queue->FamilyIndex, .Score = Score};
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT* const CallbackData, void* const UserData)
@@ -313,6 +319,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(const VkDebugUtilsMessageSeve
 	{
 		State->Log->LogText(RhiLog, Level, CallbackData && CallbackData->pMessage ? CallbackData->pMessage : "Vulkan reported an empty diagnostic");
 	}
+
 	return VK_FALSE;
 }
 
@@ -342,7 +349,7 @@ private:
 	{
 		double Total = 0.0;
 		float Minimum = std::numeric_limits<float>::max();
-		float Maximum = 0.0f;
+		float Maximum = 0.f;
 
 		void Add(const float Milliseconds) noexcept
 		{
@@ -400,6 +407,7 @@ public:
 		{
 			bProfileBlur = ProfileBlur && std::string_view(ProfileBlur) == "1";
 		}
+
 		std::free(ProfileBlur);
 #else
 		const char* const ProfileBlur = std::getenv("HERTA_PROFILE_BLUR");
@@ -412,11 +420,16 @@ public:
 		Shutdown();
 	}
 
+	FNvrhiVulkanPresentation(const FNvrhiVulkanPresentation&) = delete;
+	FNvrhiVulkanPresentation& operator=(const FNvrhiVulkanPresentation&) = delete;
+	FNvrhiVulkanPresentation(FNvrhiVulkanPresentation&&) = delete;
+	FNvrhiVulkanPresentation& operator=(FNvrhiVulkanPresentation&&) = delete;
+
 	[[nodiscard]] std::expected<void, FPresentationError> Initialize()
 	{
 		if (!Descriptor.WindowBackendHandle || Descriptor.RequiredInstanceExtensions.empty() || Descriptor.DesiredImageCount == 0)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Vulkan presentation requires a window, instance extensions, and at least one desired image"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Vulkan presentation requires a window, instance extensions, and at least one desired image"});
 		}
 
 		std::uint32_t LoaderVersion = VK_API_VERSION_1_0;
@@ -431,7 +444,7 @@ public:
 
 		if (LoaderVersion < VK_API_VERSION_1_3)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "Herta requires a Vulkan 1.3 loader"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "Herta requires a Vulkan 1.3 loader"});
 		}
 
 		std::vector<const char*> InstanceExtensions;
@@ -451,18 +464,21 @@ public:
 			{
 				return std::unexpected(MakeVulkanError(EPresentationErrorCode::InstanceCreationFailed, "vkEnumerateInstanceLayerProperties", Result));
 			}
+
 			std::vector<VkLayerProperties> AvailableLayers(LayerCount);
 			Result = vkEnumerateInstanceLayerProperties(&LayerCount, AvailableLayers.data());
 			if (Result != VK_SUCCESS)
 			{
 				return std::unexpected(MakeVulkanError(EPresentationErrorCode::InstanceCreationFailed, "vkEnumerateInstanceLayerProperties", Result));
 			}
+
 			if (!ContainsLayer(AvailableLayers, ValidationLayerName))
 			{
 				if (Descriptor.bRequireValidation)
 				{
-					return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "Renderer tests require VK_LAYER_KHRONOS_validation. Set VK_ADD_LAYER_PATH to the pinned Vulkan SDK validation-layer directory"});
+					return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "Renderer tests require VK_LAYER_KHRONOS_validation. Set VK_ADD_LAYER_PATH to the pinned Vulkan SDK validation-layer directory"});
 				}
+
 				bEnableValidation = false;
 				if (Descriptor.Log)
 				{
@@ -479,12 +495,14 @@ public:
 				{
 					return std::unexpected(MakeVulkanError(EPresentationErrorCode::InstanceCreationFailed, "vkEnumerateInstanceExtensionProperties", Result));
 				}
+
 				std::vector<VkExtensionProperties> AvailableExtensions(ExtensionCount);
 				Result = vkEnumerateInstanceExtensionProperties(nullptr, &ExtensionCount, AvailableExtensions.data());
 				if (Result != VK_SUCCESS)
 				{
 					return std::unexpected(MakeVulkanError(EPresentationErrorCode::InstanceCreationFailed, "vkEnumerateInstanceExtensionProperties", Result));
 				}
+
 				if (ContainsExtension(AvailableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
 				{
 					InstanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -513,6 +531,7 @@ public:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::InstanceCreationFailed, "vkCreateInstance", Result));
 		}
+
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(vk::Instance(Instance));
 
@@ -547,6 +566,7 @@ public:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::PhysicalDeviceUnavailable, "vkEnumeratePhysicalDevices", Result));
 		}
+
 		std::vector<VkPhysicalDevice> PhysicalDevices(DeviceCount);
 		Result = vkEnumeratePhysicalDevices(Instance, &DeviceCount, PhysicalDevices.data());
 		if (Result != VK_SUCCESS)
@@ -563,9 +583,10 @@ public:
 				Selection = CandidateSelection;
 			}
 		}
+
 		if (!Selection)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::PhysicalDeviceUnavailable, "No Vulkan 1.3 device supports timeline semaphores, synchronization2, dynamic rendering, graphics, presentation, and VK_KHR_swapchain"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::PhysicalDeviceUnavailable, .Message = "No Vulkan 1.3 device supports timeline semaphores, synchronization2, dynamic rendering, graphics, presentation, and VK_KHR_swapchain"});
 		}
 
 		PhysicalDevice = Selection->Device;
@@ -588,7 +609,8 @@ public:
 			    QueueFamilyIndex,
 			    bEnableValidation ? "enabled" : "disabled");
 		}
-		constexpr float QueuePriority = 1.0f;
+
+		constexpr float QueuePriority = 1.f;
 		VkDeviceQueueCreateInfo QueueInfo{};
 		QueueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 		QueueInfo.queueFamilyIndex = QueueFamilyIndex;
@@ -618,6 +640,7 @@ public:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::DeviceCreationFailed, "vkCreateDevice", Result));
 		}
+
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(vk::Device(Device));
 		vkGetDeviceQueue(Device, QueueFamilyIndex, 0, &GraphicsQueue);
 
@@ -636,13 +659,14 @@ public:
 		VulkanNvrhiDevice = nvrhi::vulkan::createDevice(NvrhiDescriptor);
 		if (!VulkanNvrhiDevice)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not wrap the Vulkan device"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "NVRHI could not wrap the Vulkan device"});
 		}
+
 		NvrhiDevice = bEnableValidation ? nvrhi::validation::createValidationLayer(VulkanNvrhiDevice) : nvrhi::DeviceHandle(VulkanNvrhiDevice);
 		CommandList = NvrhiDevice->createCommandList();
 		if (!CommandList)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create the presentation command list"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "NVRHI could not create the presentation command list"});
 		}
 
 		auto GraphicsResult = CreateGraphicsDevice(NvrhiDevice, VulkanNvrhiDevice, Device);
@@ -650,6 +674,7 @@ public:
 		{
 			return std::unexpected(GraphicsResult.error());
 		}
+
 		GraphicsDevice = std::move(*GraphicsResult);
 		return Resize(Descriptor.InitialExtent);
 	}
@@ -664,8 +689,9 @@ public:
 		nvrhi::ITexture* const NativeTexture = GetNvrhiTexture(Texture, NvrhiDevice);
 		if (!bToolUIInitialized || !NativeTexture || Texture->GetDescriptor().Format == ETextureFormat::Depth32)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "ToolUI requires an initialized renderer and a color texture from its graphics device"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "ToolUI requires an initialized renderer and a color texture from its graphics device"});
 		}
+
 		FToolUITexture Entry;
 		Entry.bBackdropSource = bBackdropSource;
 		Entry.Texture = NativeTexture;
@@ -679,8 +705,9 @@ public:
 		Entry.BindingSet = NvrhiDevice->createBindingSet(Bindings, ToolUIBindingLayout);
 		if (!Entry.BindingSet)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not bind the scene texture for ToolUI"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not bind the scene texture for ToolUI"});
 		}
+
 		const std::uint64_t Id = NextToolUITextureId++;
 		ToolUITextures.emplace(Id, std::move(Entry));
 		return Id;
@@ -707,9 +734,10 @@ public:
 		{
 			return {};
 		}
+
 		if (bFrameActive || HasActiveSecondaryViewport())
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Cannot change VSync while a presentation frame is active"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Cannot change VSync while a presentation frame is active"});
 		}
 
 		Descriptor.bVSync = bEnabled;
@@ -717,6 +745,7 @@ public:
 		{
 			return MainResult;
 		}
+
 		for (const auto& [Handle, Viewport] : Viewports)
 		{
 			if (const auto ViewportResult = ResizeViewport({Handle}, Viewport->Extent); !ViewportResult)
@@ -724,6 +753,7 @@ public:
 				return ViewportResult;
 			}
 		}
+
 		return {};
 	}
 
@@ -731,7 +761,7 @@ public:
 	{
 		if (bFrameActive)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Cannot resize presentation while a frame is active"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Cannot resize presentation while a frame is active"});
 		}
 
 		if (RequestedExtent.IsEmpty())
@@ -741,6 +771,7 @@ public:
 			{
 				return IdleResult;
 			}
+
 			DestroySwapchain();
 			Extent = RequestedExtent;
 			return {};
@@ -753,8 +784,9 @@ public:
 	{
 		if (bFrameActive || HasActiveSecondaryViewport())
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "BeginFrame was called while another presentation frame is active"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "BeginFrame was called while another presentation frame is active"});
 		}
+
 		if (Extent.IsEmpty() || Swapchain == VK_NULL_HANDLE)
 		{
 			return EPresentationStatus::Minimized;
@@ -781,6 +813,7 @@ public:
 		{
 			return EPresentationStatus::SurfaceOutOfDate;
 		}
+
 		if (AcquireResult != VK_SUCCESS && AcquireResult != VK_SUBOPTIMAL_KHR)
 		{
 			return std::unexpected(MakeVulkanError(ToDeviceErrorCode(AcquireResult, EPresentationErrorCode::FrameAcquisitionFailed), "vkAcquireNextImageKHR", AcquireResult));
@@ -797,7 +830,7 @@ public:
 	{
 		if (!bFrameActive)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Clear requires an active presentation frame"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Clear requires an active presentation frame"});
 		}
 
 		CommandList->clearTextureFloat(BackBuffers[ActiveImageIndex], nvrhi::AllSubresources, nvrhi::Color(Color.Red, Color.Green, Color.Blue, Color.Alpha));
@@ -808,7 +841,7 @@ public:
 	{
 		if (!bFrameActive)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Present requires an active presentation frame"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Present requires an active presentation frame"});
 		}
 
 		CommandList->close();
@@ -832,6 +865,7 @@ public:
 		{
 			return EPresentationStatus::SurfaceOutOfDate;
 		}
+
 		if (PresentResult != VK_SUCCESS && PresentResult != VK_SUBOPTIMAL_KHR)
 		{
 			return std::unexpected(MakeVulkanError(ToDeviceErrorCode(PresentResult, EPresentationErrorCode::PresentationFailed), "vkQueuePresentKHR", PresentResult));
@@ -844,23 +878,25 @@ public:
 	{
 		if (bFrameActive || HasActiveSecondaryViewport())
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Cannot wait for idle while a presentation frame is active"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Cannot wait for idle while a presentation frame is active"});
 		}
+
 		try
 		{
 			if (NvrhiDevice && !NvrhiDevice->waitForIdle())
 			{
-				return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceLost, "NVRHI could not wait for the Vulkan device to become idle"});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceLost, .Message = "NVRHI could not wait for the Vulkan device to become idle"});
 			}
 		}
 		catch (const std::exception& Exception)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceLost, Exception.what()});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceLost, .Message = Exception.what()});
 		}
 		catch (...)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceLost, "Unknown exception while waiting for the Vulkan device"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceLost, .Message = "Unknown exception while waiting for the Vulkan device"});
 		}
+
 		return {};
 	}
 
@@ -868,7 +904,7 @@ public:
 	{
 		if (bFrameActive || HasActiveSecondaryViewport() || bToolUIInitialized)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI renderer initialization requires an idle, uninitialized presentation device"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "ToolUI renderer initialization requires an idle, uninitialized presentation device"});
 		}
 
 		nvrhi::ShaderDesc VertexShaderDescriptor;
@@ -883,13 +919,15 @@ public:
 		ToolUIBlurPixelShader = NvrhiDevice->createShader(PixelShaderDescriptor, GToolUIBlurFragmentShader, sizeof(GToolUIBlurFragmentShader));
 		if (!ToolUIVertexShader || !ToolUIPixelShader || !ToolUIBlurPixelShader)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create ToolUI shaders"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "NVRHI could not create ToolUI shaders"});
 		}
 
 		const std::array VertexAttributes{
 		    nvrhi::VertexAttributeDesc().setName("POSITION").setFormat(nvrhi::Format::RG32_FLOAT).setOffset(offsetof(ImDrawVert, pos)).setElementStride(sizeof(ImDrawVert)),
 		    nvrhi::VertexAttributeDesc().setName("TEXCOORD").setFormat(nvrhi::Format::RG32_FLOAT).setOffset(offsetof(ImDrawVert, uv)).setElementStride(sizeof(ImDrawVert)),
-		    nvrhi::VertexAttributeDesc().setName("COLOR").setFormat(nvrhi::Format::RGBA8_UNORM).setOffset(offsetof(ImDrawVert, col)).setElementStride(sizeof(ImDrawVert))};
+		    nvrhi::VertexAttributeDesc().setName("COLOR").setFormat(nvrhi::Format::RGBA8_UNORM).setOffset(offsetof(ImDrawVert, col)).setElementStride(sizeof(ImDrawVert)),
+		};
+
 		ToolUIInputLayout = NvrhiDevice->createInputLayout(VertexAttributes.data(), static_cast<std::uint32_t>(VertexAttributes.size()), ToolUIVertexShader);
 
 		nvrhi::BindingLayoutDesc BindingLayoutDescriptor;
@@ -903,7 +941,7 @@ public:
 		if (!ToolUIInputLayout || !ToolUIBindingLayout || !ToolUISampler)
 		{
 			ShutdownToolUIResources();
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create ToolUI pipeline resources"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "NVRHI could not create ToolUI pipeline resources"});
 		}
 
 		bToolUIInitialized = true;
@@ -913,6 +951,7 @@ public:
 			ShutdownToolUIRenderer();
 			return std::unexpected(PipelineResult.error());
 		}
+
 		for (auto& [Handle, Viewport] : Viewports)
 		{
 			(void)Handle;
@@ -948,6 +987,7 @@ public:
 		{
 			return RenderToolUIDrawDataImpl(OpaqueDrawData);
 		}
+
 		if (bToolUIGpuTimingPending && NvrhiDevice->pollTimerQuery(ToolUIGpuTiming))
 		{
 			const double Milliseconds = static_cast<double>(NvrhiDevice->getTimerQueryTime(ToolUIGpuTiming)) * 1000.0;
@@ -955,13 +995,16 @@ public:
 			{
 				ToolUIGpuMilliseconds = Milliseconds;
 			}
+
 			bToolUIGpuTimingPending = false;
 			bDiscardToolUIGpuTimingPending = false;
 		}
+
 		if (bToolUIGpuTimingPending)
 		{
 			return RenderToolUIDrawDataImpl(OpaqueDrawData);
 		}
+
 		if (!ToolUIGpuTiming)
 		{
 			ToolUIGpuTiming = NvrhiDevice->createTimerQuery();
@@ -971,11 +1014,13 @@ public:
 				return RenderToolUIDrawDataImpl(OpaqueDrawData);
 			}
 		}
+
 		nvrhi::ICommandList* const RenderCommandList = ToolUIOverrideCommandList ? ToolUIOverrideCommandList : CommandList.Get();
 		if (!RenderCommandList)
 		{
 			return RenderToolUIDrawDataImpl(OpaqueDrawData);
 		}
+
 		RenderCommandList->beginTimerQuery(ToolUIGpuTiming);
 		const std::expected Result = RenderToolUIDrawDataImpl(OpaqueDrawData);
 		RenderCommandList->endTimerQuery(ToolUIGpuTiming);
@@ -987,31 +1032,34 @@ public:
 	{
 		if (!bFrameActive || !bToolUIInitialized || !OpaqueDrawData)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI rendering requires initialized resources, draw data, and an active presentation frame"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "ToolUI rendering requires initialized resources, draw data, and an active presentation frame"});
 		}
 
 		const ImDrawData& DrawData = *static_cast<const ImDrawData*>(OpaqueDrawData);
 		nvrhi::ICommandList* const RenderCommandList = ToolUIOverrideCommandList ? ToolUIOverrideCommandList : CommandList.Get();
 		if (!RenderCommandList)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI rendering requires an active command list"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "ToolUI rendering requires an active command list"});
 		}
+
 		const std::expected TextureResult = UpdateToolUITextures(DrawData, *RenderCommandList);
 		if (!TextureResult)
 		{
 			return TextureResult;
 		}
+
 		const int FramebufferWidth = static_cast<int>(DrawData.DisplaySize.x * DrawData.FramebufferScale.x);
 		const int FramebufferHeight = static_cast<int>(DrawData.DisplaySize.y * DrawData.FramebufferScale.y);
 		if (FramebufferWidth <= 0 || FramebufferHeight <= 0 || DrawData.TotalVtxCount == 0 || DrawData.TotalIdxCount == 0)
 		{
 			return {};
 		}
+
 		nvrhi::IGraphicsPipeline* const RenderPipeline = ToolUIOverridePipeline ? ToolUIOverridePipeline : ToolUIPipeline.Get();
 		nvrhi::IFramebuffer* const RenderFramebuffer = ToolUIOverrideFramebuffer ? ToolUIOverrideFramebuffer : (ActiveImageIndex < ToolUIFramebuffers.size() ? ToolUIFramebuffers[ActiveImageIndex].Get() : nullptr);
 		if (!RenderCommandList || !RenderPipeline || !RenderFramebuffer)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI pipeline is not compatible with the active swapchain"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "ToolUI pipeline is not compatible with the active swapchain"});
 		}
 
 		constexpr auto GlassMarkerMax = std::numeric_limits<ImTextureID>::max();
@@ -1032,6 +1080,7 @@ public:
 				}
 			}
 		}
+
 		const bool bNeedsBackdrop = BlurRadiusPixels > 0;
 		const std::size_t VertexBytes = (static_cast<std::size_t>(DrawData.TotalVtxCount) + (bNeedsBackdrop ? 8 : 0)) * sizeof(ImDrawVert);
 		const std::size_t IndexBytes = (static_cast<std::size_t>(DrawData.TotalIdxCount) + (bNeedsBackdrop ? 12 : 0)) * sizeof(ImDrawIdx);
@@ -1056,6 +1105,7 @@ public:
 			VertexOffset += static_cast<std::size_t>(DrawList->VtxBuffer.Size);
 			IndexOffset += static_cast<std::size_t>(DrawList->IdxBuffer.Size);
 		}
+
 		if (bNeedsBackdrop)
 		{
 			const auto Red = static_cast<unsigned int>((BlurRadiusPixels * 255 + 80) / 160);
@@ -1063,14 +1113,14 @@ public:
 			const ImU32 VerticalTint = IM_COL32(Red, 255, 0, 255);
 			const ImVec2 Minimum = DrawData.DisplayPos;
 			const ImVec2 Maximum{Minimum.x + DrawData.DisplaySize.x, Minimum.y + DrawData.DisplaySize.y};
-			ToolUIVertices[VertexOffset + 0] = ImDrawVert{{Minimum.x, Minimum.y}, {0.0f, 0.0f}, HorizontalTint};
-			ToolUIVertices[VertexOffset + 1] = ImDrawVert{{Maximum.x, Minimum.y}, {1.0f, 0.0f}, HorizontalTint};
-			ToolUIVertices[VertexOffset + 2] = ImDrawVert{{Maximum.x, Maximum.y}, {1.0f, 1.0f}, HorizontalTint};
-			ToolUIVertices[VertexOffset + 3] = ImDrawVert{{Minimum.x, Maximum.y}, {0.0f, 1.0f}, HorizontalTint};
-			ToolUIVertices[VertexOffset + 4] = ImDrawVert{{Minimum.x, Minimum.y}, {0.0f, 0.0f}, VerticalTint};
-			ToolUIVertices[VertexOffset + 5] = ImDrawVert{{Maximum.x, Minimum.y}, {1.0f, 0.0f}, VerticalTint};
-			ToolUIVertices[VertexOffset + 6] = ImDrawVert{{Maximum.x, Maximum.y}, {1.0f, 1.0f}, VerticalTint};
-			ToolUIVertices[VertexOffset + 7] = ImDrawVert{{Minimum.x, Maximum.y}, {0.0f, 1.0f}, VerticalTint};
+			ToolUIVertices[VertexOffset + 0] = ImDrawVert{.pos = {Minimum.x, Minimum.y}, .uv = {0.f, 0.f}, .col = HorizontalTint};
+			ToolUIVertices[VertexOffset + 1] = ImDrawVert{.pos = {Maximum.x, Minimum.y}, .uv = {1.f, 0.f}, .col = HorizontalTint};
+			ToolUIVertices[VertexOffset + 2] = ImDrawVert{.pos = {Maximum.x, Maximum.y}, .uv = {1.f, 1.f}, .col = HorizontalTint};
+			ToolUIVertices[VertexOffset + 3] = ImDrawVert{.pos = {Minimum.x, Maximum.y}, .uv = {0.f, 1.f}, .col = HorizontalTint};
+			ToolUIVertices[VertexOffset + 4] = ImDrawVert{.pos = {Minimum.x, Minimum.y}, .uv = {0.f, 0.f}, .col = VerticalTint};
+			ToolUIVertices[VertexOffset + 5] = ImDrawVert{.pos = {Maximum.x, Minimum.y}, .uv = {1.f, 0.f}, .col = VerticalTint};
+			ToolUIVertices[VertexOffset + 6] = ImDrawVert{.pos = {Maximum.x, Maximum.y}, .uv = {1.f, 1.f}, .col = VerticalTint};
+			ToolUIVertices[VertexOffset + 7] = ImDrawVert{.pos = {Minimum.x, Maximum.y}, .uv = {0.f, 1.f}, .col = VerticalTint};
 			constexpr std::array<ImDrawIdx, 12> BlurIndices{0, 1, 2, 0, 2, 3, 0, 1, 2, 0, 2, 3};
 			std::ranges::copy(BlurIndices, ToolUIIndices.begin() + static_cast<std::ptrdiff_t>(IndexOffset));
 		}
@@ -1078,8 +1128,9 @@ public:
 		RenderCommandList->writeBuffer(ToolUIVertexBuffer, ToolUIVertices.data(), VertexBytes);
 		RenderCommandList->writeBuffer(ToolUIIndexBuffer, ToolUIIndices.data(), IndexBytes);
 		const FToolUIPushConstants PushConstants{
-		    .Scale = {2.0f / DrawData.DisplaySize.x, -2.0f / DrawData.DisplaySize.y},
-		    .Translate = {-1.0f - DrawData.DisplayPos.x * (2.0f / DrawData.DisplaySize.x), 1.0f + DrawData.DisplayPos.y * (2.0f / DrawData.DisplaySize.y)}};
+		    .Scale = {2.f / DrawData.DisplaySize.x, -2.f / DrawData.DisplaySize.y},
+		    .Translate = {-1.f - DrawData.DisplayPos.x * (2.f / DrawData.DisplaySize.x), 1.f + DrawData.DisplayPos.y * (2.f / DrawData.DisplaySize.y)},
+		};
 
 		std::uint32_t GlobalVertexOffset = 0;
 		std::uint32_t GlobalIndexOffset = 0;
@@ -1098,13 +1149,18 @@ public:
 						{
 							DrawCommand.UserCallback(DrawList, &DrawCommand);
 						}
+
 						continue;
 					}
+
 					const auto RegisteredTexture = ToolUITextures.find(static_cast<std::uint64_t>(DrawCommand.GetTexID()));
 					// ImGui's per-viewport background list and explicitly tagged scene images precede all foreground UI.
 					const bool bBackground = (DrawList->_OwnerName && std::string_view(DrawList->_OwnerName) == "##Background") || (RegisteredTexture != ToolUITextures.end() && RegisteredTexture->second.bBackdropSource);
 					if ((Pass == 0 && !bBackground) || (Pass == 1 && bNeedsBackdrop && bBackground))
+					{
 						continue;
+					}
+
 					nvrhi::BindingSetHandle Bindings;
 					if (DrawCommand.GetTexID() >= GlassMarkerMin)
 					{
@@ -1112,6 +1168,7 @@ public:
 						{
 							continue;
 						}
+
 						Bindings = GlassResources.BlurBindings;
 					}
 					else
@@ -1119,17 +1176,22 @@ public:
 						const auto Texture = ToolUITextures.find(static_cast<std::uint64_t>(DrawCommand.GetTexID()));
 						if (Texture == ToolUITextures.end())
 						{
-							return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI draw data references an unavailable renderer texture"});
+							return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "ToolUI draw data references an unavailable renderer texture"});
 						}
+
 						Bindings = Texture->second.BindingSet;
 					}
 
 					const ImVec2 ClipMinimum{
 					    (DrawCommand.ClipRect.x - DrawData.DisplayPos.x) * DrawData.FramebufferScale.x,
-					    (DrawCommand.ClipRect.y - DrawData.DisplayPos.y) * DrawData.FramebufferScale.y};
+					    (DrawCommand.ClipRect.y - DrawData.DisplayPos.y) * DrawData.FramebufferScale.y,
+					};
+
 					const ImVec2 ClipMaximum{
 					    (DrawCommand.ClipRect.z - DrawData.DisplayPos.x) * DrawData.FramebufferScale.x,
-					    (DrawCommand.ClipRect.w - DrawData.DisplayPos.y) * DrawData.FramebufferScale.y};
+					    (DrawCommand.ClipRect.w - DrawData.DisplayPos.y) * DrawData.FramebufferScale.y,
+					};
+
 					const int ClipLeft = std::clamp(static_cast<int>(ClipMinimum.x), 0, FramebufferWidth);
 					const int ClipTop = std::clamp(static_cast<int>(ClipMinimum.y), 0, FramebufferHeight);
 					const int ClipRight = std::clamp(static_cast<int>(ClipMaximum.x), 0, FramebufferWidth);
@@ -1160,6 +1222,7 @@ public:
 				GlobalIndexOffset += static_cast<std::uint32_t>(DrawList->IdxBuffer.Size);
 				GlobalVertexOffset += static_cast<std::uint32_t>(DrawList->VtxBuffer.Size);
 			}
+
 			if (Pass == 0)
 			{
 				nvrhi::ITexture* const Source = RenderFramebuffer->getDesc().colorAttachments[0].texture;
@@ -1168,18 +1231,21 @@ public:
 				{
 					return GlassResult;
 				}
+
 				// The background and scene are complete; foreground panels never enter the shared snapshot.
 				FBlurTiming* const Timing = PrepareBlurTiming(static_cast<std::uint32_t>(FramebufferWidth), static_cast<std::uint32_t>(FramebufferHeight), BlurRadiusPixels);
 				if (Timing)
 				{
 					RenderCommandList->beginTimerQuery(Timing->Copy);
 				}
+
 				RenderCommandList->copyTexture(GlassResources.Snapshot, nvrhi::TextureSlice{}, Source, nvrhi::TextureSlice{});
 				if (Timing)
 				{
 					RenderCommandList->endTimerQuery(Timing->Copy);
 					RenderCommandList->beginTimerQuery(Timing->Blur);
 				}
+
 				const auto& BlurDescriptor = GlassResources.Blurred->getDesc();
 				for (std::uint32_t Direction = 0; Direction < 2; ++Direction)
 				{
@@ -1199,6 +1265,7 @@ public:
 					BlurArguments.startVertexLocation = static_cast<std::uint32_t>(DrawData.TotalVtxCount) + Direction * 4;
 					RenderCommandList->drawIndexed(BlurArguments);
 				}
+
 				if (Timing)
 				{
 					RenderCommandList->endTimerQuery(Timing->Blur);
@@ -1215,6 +1282,7 @@ public:
 		{
 			return;
 		}
+
 		if (NvrhiDevice)
 		{
 			try
@@ -1229,6 +1297,7 @@ public:
 				return;
 			}
 		}
+
 		ShutdownToolUIResources();
 	}
 
@@ -1239,8 +1308,9 @@ public:
 		{
 			if (!bToolUIInitialized || !WindowBackendHandle)
 			{
-				return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "A secondary viewport requires initialized ToolUI and a native window handle"});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "A secondary viewport requires initialized ToolUI and a native window handle"});
 			}
+
 			const std::expected IdleResult = WaitIdle();
 			if (!IdleResult)
 			{
@@ -1260,14 +1330,14 @@ public:
 			if (Result != VK_SUCCESS || bSupportsPresentation != VK_TRUE)
 			{
 				DestroySecondaryViewport(*Viewport);
-				return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The selected Vulkan graphics queue cannot present to this viewport"});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The selected Vulkan graphics queue cannot present to this viewport"});
 			}
 
 			Viewport->CommandList = NvrhiDevice->createCommandList();
 			if (!Viewport->CommandList)
 			{
 				DestroySecondaryViewport(*Viewport);
-				return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create a secondary viewport command list"});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "NVRHI could not create a secondary viewport command list"});
 			}
 
 			Viewport->Extent = RequestedExtent;
@@ -1285,6 +1355,7 @@ public:
 			{
 				++NextViewportHandle;
 			}
+
 			const FPresentationViewportHandle Handle{NextViewportHandle++};
 			Viewports.emplace(Handle.Value, std::move(Viewport));
 			return Handle;
@@ -1295,7 +1366,8 @@ public:
 			{
 				DestroySecondaryViewport(*Viewport);
 			}
-			return std::unexpected(FPresentationError{EPresentationErrorCode::SwapchainCreationFailed, Exception.what()});
+
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::SwapchainCreationFailed, .Message = Exception.what()});
 		}
 		catch (...)
 		{
@@ -1303,7 +1375,8 @@ public:
 			{
 				DestroySecondaryViewport(*Viewport);
 			}
-			return std::unexpected(FPresentationError{EPresentationErrorCode::SwapchainCreationFailed, "Unknown exception while creating a secondary viewport"});
+
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::SwapchainCreationFailed, .Message = "Unknown exception while creating a secondary viewport"});
 		}
 	}
 
@@ -1312,11 +1385,12 @@ public:
 		const auto Match = Viewports.find(Handle.Value);
 		if (Match == Viewports.end())
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Secondary viewport handle is invalid"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Secondary viewport handle is invalid"});
 		}
+
 		if (Match->second->bFrameActive)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Cannot destroy a secondary viewport while its frame is active"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Cannot destroy a secondary viewport while its frame is active"});
 		}
 
 		const std::expected IdleResult = WaitIdle();
@@ -1324,6 +1398,7 @@ public:
 		{
 			return IdleResult;
 		}
+
 		DestroySecondaryViewport(*Match->second);
 		Viewports.erase(Match);
 		return {};
@@ -1337,11 +1412,12 @@ public:
 			Viewport = FindViewport(Handle);
 			if (!Viewport)
 			{
-				return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Secondary viewport handle is invalid"});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Secondary viewport handle is invalid"});
 			}
+
 			if (Viewport->bFrameActive)
 			{
-				return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Cannot resize a secondary viewport while its frame is active"});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Cannot resize a secondary viewport while its frame is active"});
 			}
 
 			const std::expected IdleResult = WaitIdle();
@@ -1349,6 +1425,7 @@ public:
 			{
 				return IdleResult;
 			}
+
 			DestroySecondarySwapchain(*Viewport);
 			Viewport->Extent = RequestedExtent;
 			return RequestedExtent.IsEmpty() ? std::expected<void, FPresentationError>{} : CreateSecondarySwapchain(*Viewport, RequestedExtent);
@@ -1359,7 +1436,8 @@ public:
 			{
 				DestroySecondarySwapchain(*Viewport);
 			}
-			return std::unexpected(FPresentationError{EPresentationErrorCode::SwapchainCreationFailed, Exception.what()});
+
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::SwapchainCreationFailed, .Message = Exception.what()});
 		}
 		catch (...)
 		{
@@ -1367,7 +1445,8 @@ public:
 			{
 				DestroySecondarySwapchain(*Viewport);
 			}
-			return std::unexpected(FPresentationError{EPresentationErrorCode::SwapchainCreationFailed, "Unknown exception while resizing a secondary viewport"});
+
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::SwapchainCreationFailed, .Message = "Unknown exception while resizing a secondary viewport"});
 		}
 	}
 
@@ -1376,12 +1455,14 @@ public:
 		FSecondaryViewport* const Viewport = FindViewport(Handle);
 		if (!Viewport)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidDescriptor, "Secondary viewport handle is invalid"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Secondary viewport handle is invalid"});
 		}
+
 		if (bFrameActive || HasActiveSecondaryViewport())
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "A presentation frame is already active"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "A presentation frame is already active"});
 		}
+
 		if (Viewport->Extent.IsEmpty() || Viewport->Swapchain == VK_NULL_HANDLE)
 		{
 			return EPresentationStatus::Minimized;
@@ -1408,6 +1489,7 @@ public:
 		{
 			return EPresentationStatus::SurfaceOutOfDate;
 		}
+
 		if (AcquireResult != VK_SUCCESS && AcquireResult != VK_SUBOPTIMAL_KHR)
 		{
 			return std::unexpected(MakeVulkanError(ToDeviceErrorCode(AcquireResult, EPresentationErrorCode::FrameAcquisitionFailed), "vkAcquireNextImageKHR", AcquireResult));
@@ -1420,12 +1502,13 @@ public:
 		}
 		catch (const std::exception& Exception)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::CommandSubmissionFailed, Exception.what()});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = Exception.what()});
 		}
 		catch (...)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::CommandSubmissionFailed, "Unknown exception while beginning a secondary viewport command list"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = "Unknown exception while beginning a secondary viewport command list"});
 		}
+
 		Viewport->bFrameActive = true;
 		Viewport->bFrameSuboptimal = AcquireResult == VK_SUBOPTIMAL_KHR;
 		return Viewport->bFrameSuboptimal ? EPresentationStatus::Suboptimal : EPresentationStatus::Ready;
@@ -1436,11 +1519,12 @@ public:
 		FSecondaryViewport* const Viewport = FindViewport(Handle);
 		if (!Viewport || !Viewport->bFrameActive || Viewport->ActiveImageIndex >= Viewport->Framebuffers.size())
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Secondary viewport rendering requires a valid active frame"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Secondary viewport rendering requires a valid active frame"});
 		}
+
 		if (bFrameActive || ToolUIOverrideCommandList)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI viewport rendering is serialized on the presentation thread"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "ToolUI viewport rendering is serialized on the presentation thread"});
 		}
 
 		ToolUIOverrideCommandList = Viewport->CommandList.Get();
@@ -1455,12 +1539,13 @@ public:
 		}
 		catch (const std::exception& Exception)
 		{
-			Result = std::unexpected(FPresentationError{EPresentationErrorCode::CommandSubmissionFailed, Exception.what()});
+			Result = std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = Exception.what()});
 		}
 		catch (...)
 		{
-			Result = std::unexpected(FPresentationError{EPresentationErrorCode::CommandSubmissionFailed, "Unknown exception while rendering a ToolUI viewport"});
+			Result = std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = "Unknown exception while rendering a ToolUI viewport"});
 		}
+
 		bFrameActive = false;
 		ToolUIOverrideFramebuffer = nullptr;
 		ToolUIOverrideViewport = nullptr;
@@ -1474,7 +1559,7 @@ public:
 		FSecondaryViewport* const Viewport = FindViewport(Handle);
 		if (!Viewport || !Viewport->bFrameActive)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "Secondary viewport presentation requires an active frame"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Secondary viewport presentation requires an active frame"});
 		}
 
 		FFrameSync& Frame = Viewport->FrameSync[Viewport->FrameSlot];
@@ -1487,13 +1572,14 @@ public:
 		catch (const std::exception& Exception)
 		{
 			Viewport->bFrameActive = false;
-			return std::unexpected(FPresentationError{EPresentationErrorCode::CommandSubmissionFailed, Exception.what()});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = Exception.what()});
 		}
 		catch (...)
 		{
 			Viewport->bFrameActive = false;
-			return std::unexpected(FPresentationError{EPresentationErrorCode::CommandSubmissionFailed, "Unknown exception while submitting a secondary viewport command list"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = "Unknown exception while submitting a secondary viewport command list"});
 		}
+
 		const VkSemaphore WaitSemaphore = Viewport->RenderFinished[Viewport->ActiveImageIndex];
 		VkPresentInfoKHR PresentInfo{};
 		PresentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1509,10 +1595,12 @@ public:
 		{
 			return EPresentationStatus::SurfaceOutOfDate;
 		}
+
 		if (PresentResult != VK_SUCCESS && PresentResult != VK_SUBOPTIMAL_KHR)
 		{
 			return std::unexpected(MakeVulkanError(ToDeviceErrorCode(PresentResult, EPresentationErrorCode::PresentationFailed), "vkQueuePresentKHR", PresentResult));
 		}
+
 		return Viewport->bFrameSuboptimal || PresentResult == VK_SUBOPTIMAL_KHR ? EPresentationStatus::Suboptimal : EPresentationStatus::Ready;
 	}
 
@@ -1548,8 +1636,9 @@ private:
 			{
 				return nullptr;
 			}
-			const float CopyMilliseconds = NvrhiDevice->getTimerQueryTime(BlurTiming.Copy) * 1000.0f;
-			const float BlurMilliseconds = NvrhiDevice->getTimerQueryTime(BlurTiming.Blur) * 1000.0f;
+
+			const float CopyMilliseconds = NvrhiDevice->getTimerQueryTime(BlurTiming.Copy) * 1000.f;
+			const float BlurMilliseconds = NvrhiDevice->getTimerQueryTime(BlurTiming.Blur) * 1000.f;
 			BlurTiming.bPending = false;
 			if (!BlurTiming.bDiscardPending)
 			{
@@ -1558,16 +1647,14 @@ private:
 					BlurTiming.CopyMetric.Add(CopyMilliseconds);
 					BlurTiming.BlurMetric.Add(BlurMilliseconds);
 				}
+
 				++BlurTiming.Completed;
 				if (BlurTiming.Completed == WarmupSamples + MeasuredSamples && Descriptor.Log)
 				{
-					HERTA_LOG_INFO(*Descriptor.Log, RhiLog,
-					               "Backdrop GPU {}x{}, radius {} px, {} samples: copy avg {:.3f} ms (min {:.3f}, max {:.3f}); blur avg {:.3f} ms (min {:.3f}, max {:.3f})",
-					               Width, Height, Radius, MeasuredSamples,
-					               BlurTiming.CopyMetric.Total / MeasuredSamples, BlurTiming.CopyMetric.Minimum, BlurTiming.CopyMetric.Maximum,
-					               BlurTiming.BlurMetric.Total / MeasuredSamples, BlurTiming.BlurMetric.Minimum, BlurTiming.BlurMetric.Maximum);
+					HERTA_LOG_INFO(*Descriptor.Log, RhiLog, "Backdrop GPU {}x{}, radius {} px, {} samples: copy avg {:.3f} ms (min {:.3f}, max {:.3f}); blur avg {:.3f} ms (min {:.3f}, max {:.3f})", Width, Height, Radius, MeasuredSamples, BlurTiming.CopyMetric.Total / MeasuredSamples, BlurTiming.CopyMetric.Minimum, BlurTiming.CopyMetric.Maximum, BlurTiming.BlurMetric.Total / MeasuredSamples, BlurTiming.BlurMetric.Minimum, BlurTiming.BlurMetric.Maximum);
 				}
 			}
+
 			BlurTiming.bDiscardPending = false;
 		}
 
@@ -1575,6 +1662,7 @@ private:
 		{
 			return nullptr;
 		}
+
 		if (!BlurTiming.Copy)
 		{
 			BlurTiming.Copy = NvrhiDevice->createTimerQuery();
@@ -1586,9 +1674,11 @@ private:
 				{
 					HERTA_LOG_WARNING(*Descriptor.Log, RhiLog, "Backdrop GPU timing unavailable: timer query creation failed");
 				}
+
 				return nullptr;
 			}
 		}
+
 		BlurTiming.bPending = true;
 		return &BlurTiming;
 	}
@@ -1616,6 +1706,7 @@ private:
 			(void)Handle;
 			Frames = std::max(Frames, Viewport->FrameSync.size());
 		}
+
 		return Frames;
 	}
 
@@ -1637,7 +1728,7 @@ private:
 			{
 				if (TextureData->Format != ImTextureFormat_RGBA32 || TextureData->Width <= 0 || TextureData->Height <= 0 || TextureData->Pixels == nullptr)
 				{
-					return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "ToolUI dynamic textures require non-empty RGBA32 pixels"});
+					return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "ToolUI dynamic textures require non-empty RGBA32 pixels"});
 				}
 
 				nvrhi::TextureDesc TextureDescriptor;
@@ -1653,7 +1744,7 @@ private:
 				Texture.Height = TextureDescriptor.height;
 				if (!Texture.Texture)
 				{
-					return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create a ToolUI dynamic texture"});
+					return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "NVRHI could not create a ToolUI dynamic texture"});
 				}
 
 				nvrhi::BindingSetDesc BindingSetDescriptor;
@@ -1663,7 +1754,7 @@ private:
 				Texture.BindingSet = NvrhiDevice->createBindingSet(BindingSetDescriptor, ToolUIBindingLayout);
 				if (!Texture.BindingSet)
 				{
-					return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create a ToolUI dynamic texture binding set"});
+					return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "NVRHI could not create a ToolUI dynamic texture binding set"});
 				}
 
 				const std::uint64_t TextureId = NextToolUITextureId++;
@@ -1676,7 +1767,7 @@ private:
 				const auto Texture = ToolUITextures.find(static_cast<std::uint64_t>(TextureData->GetTexID()));
 				if (Texture == ToolUITextures.end() || TextureData->Pixels == nullptr || TextureData->Format != ImTextureFormat_RGBA32 || Texture->second.Width != static_cast<std::uint32_t>(TextureData->Width) || Texture->second.Height != static_cast<std::uint32_t>(TextureData->Height))
 				{
-					return std::unexpected(FPresentationError{EPresentationErrorCode::InvalidState, "ToolUI requested an invalid dynamic texture update"});
+					return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "ToolUI requested an invalid dynamic texture update"});
 				}
 
 				// NVRHI exposes full-mip writes here. Atlas updates are infrequent, so a full upload keeps the backend simple and correct.
@@ -1723,8 +1814,9 @@ private:
 
 		if (!ToolUIVertexBuffer || !ToolUIIndexBuffer)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not allocate ToolUI draw buffers"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "NVRHI could not allocate ToolUI draw buffers"});
 		}
+
 		return {};
 	}
 
@@ -1739,6 +1831,7 @@ private:
 			BlendTarget.srcBlendAlpha = nvrhi::BlendFactor::One;
 			BlendTarget.destBlendAlpha = nvrhi::BlendFactor::InvSrcAlpha;
 		}
+
 		nvrhi::RenderState RenderState;
 		RenderState.blendState.setRenderTarget(0, BlendTarget);
 		RenderState.depthStencilState.disableDepthTest();
@@ -1781,8 +1874,9 @@ private:
 		NewResources.Blurred = NvrhiDevice->createTexture(BlurDescriptor);
 		if (!NewResources.Snapshot || !NewResources.HorizontalBlur || !NewResources.Blurred)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not create ToolUI glass textures"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI glass textures"});
 		}
+
 		nvrhi::FramebufferDesc FramebufferDescriptor;
 		FramebufferDescriptor.addColorAttachment(NewResources.HorizontalBlur);
 		NewResources.HorizontalFramebuffer = NvrhiDevice->createFramebuffer(FramebufferDescriptor);
@@ -1791,13 +1885,15 @@ private:
 		NewResources.BlurFramebuffer = NvrhiDevice->createFramebuffer(FramebufferDescriptor);
 		if (!NewResources.HorizontalFramebuffer || !NewResources.BlurFramebuffer)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not create ToolUI blur framebuffer"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI blur framebuffer"});
 		}
+
 		NewResources.BlurPipeline = CreateToolUIGraphicsPipeline(NewResources.BlurFramebuffer, ToolUIBlurPixelShader, false);
 		if (!NewResources.BlurPipeline)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not create ToolUI blur pipeline"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI blur pipeline"});
 		}
+
 		const auto MakeBindings = [this](nvrhi::ITexture* const Texture)
 		{
 			nvrhi::BindingSetDesc Bindings;
@@ -1806,13 +1902,15 @@ private:
 			Bindings.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(FToolUIPushConstants)));
 			return NvrhiDevice->createBindingSet(Bindings, ToolUIBindingLayout);
 		};
+
 		NewResources.SnapshotBindings = MakeBindings(NewResources.Snapshot);
 		NewResources.HorizontalBindings = MakeBindings(NewResources.HorizontalBlur);
 		NewResources.BlurBindings = MakeBindings(NewResources.Blurred);
 		if (!NewResources.SnapshotBindings || !NewResources.HorizontalBindings || !NewResources.BlurBindings)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Could not bind ToolUI glass textures"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not bind ToolUI glass textures"});
 		}
+
 		GlassResources = std::move(NewResources);
 		return {};
 	}
@@ -1835,8 +1933,9 @@ private:
 			if (!Framebuffer)
 			{
 				Framebuffers.clear();
-				return std::unexpected(FPresentationError{EPresentationErrorCode::SwapchainCreationFailed, "NVRHI could not create a ToolUI framebuffer"});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::SwapchainCreationFailed, .Message = "NVRHI could not create a ToolUI framebuffer"});
 			}
+
 			Framebuffers.push_back(std::move(Framebuffer));
 		}
 
@@ -1844,7 +1943,7 @@ private:
 		if (!Pipeline)
 		{
 			Framebuffers.clear();
-			return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "NVRHI could not create the ToolUI graphics pipeline"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "NVRHI could not create the ToolUI graphics pipeline"});
 		}
 
 		return {};
@@ -1858,6 +1957,7 @@ private:
 		{
 			return {};
 		}
+
 		return CreateToolUIRenderTargets(BackBuffers, ToolUIFramebuffers, ToolUIPipeline);
 	}
 
@@ -1871,6 +1971,7 @@ private:
 			Viewport->Pipeline = nullptr;
 			Viewport->Glass = {};
 		}
+
 		ToolUIVertices.clear();
 		ToolUIIndices.clear();
 		ToolUIVertexBuffer = nullptr;
@@ -1892,9 +1993,9 @@ private:
 	[[nodiscard]] bool HasActiveSecondaryViewport() const noexcept
 	{
 		return std::ranges::any_of(Viewports, [](const auto& Entry)
-		                           {
-			                           return Entry.second->bFrameActive;
-		                           });
+		{
+			return Entry.second->bFrameActive;
+		});
 	}
 
 	[[nodiscard]] FSecondaryViewport* FindViewport(const FPresentationViewportHandle Handle) noexcept
@@ -1911,11 +2012,13 @@ private:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", Result));
 		}
+
 		constexpr VkImageUsageFlags RequiredUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 		if ((Capabilities.supportedUsageFlags & RequiredUsage) != RequiredUsage)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The secondary Vulkan surface does not support color attachment and transfer destination usage"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The secondary Vulkan surface does not support color attachment and transfer destination usage"});
 		}
+
 		Viewport.bBackdropCopySupported = (Capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
 
 		std::uint32_t FormatCount = 0;
@@ -1924,10 +2027,12 @@ private:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfaceFormatsKHR", Result));
 		}
+
 		if (FormatCount == 0)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The secondary Vulkan surface exposes no swapchain formats"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The secondary Vulkan surface exposes no swapchain formats"});
 		}
+
 		std::vector<VkSurfaceFormatKHR> Formats(FormatCount);
 		Result = vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, Viewport.Surface, &FormatCount, Formats.data());
 		if (Result != VK_SUCCESS)
@@ -1941,10 +2046,12 @@ private:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfacePresentModesKHR", Result));
 		}
+
 		if (PresentModeCount == 0)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The secondary Vulkan surface exposes no presentation modes"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The secondary Vulkan surface exposes no presentation modes"});
 		}
+
 		std::vector<VkPresentModeKHR> PresentModes(PresentModeCount);
 		Result = vkGetPhysicalDeviceSurfacePresentModesKHR(PhysicalDevice, Viewport.Surface, &PresentModeCount, PresentModes.data());
 		if (Result != VK_SUCCESS)
@@ -1955,22 +2062,23 @@ private:
 		const std::optional<VkSurfaceFormatKHR> SelectedSurfaceFormat = ChooseSurfaceFormat(Formats);
 		if (!SelectedSurfaceFormat)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The secondary Vulkan surface does not expose an 8-bit UNORM swapchain format with the sRGB nonlinear color space required by ToolUI"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The secondary Vulkan surface does not expose an 8-bit UNORM swapchain format with the sRGB nonlinear color space required by ToolUI"});
 		}
+
 		Viewport.SurfaceFormat = *SelectedSurfaceFormat;
 		const nvrhi::Format NvrhiFormat = ToNvrhiFormat(Viewport.SurfaceFormat.format);
 		if (NvrhiFormat == nvrhi::Format::UNKNOWN)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The secondary Vulkan surface does not expose a supported 8-bit RGBA swapchain format"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The secondary Vulkan surface does not expose a supported 8-bit RGBA swapchain format"});
 		}
 
 		if (Capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max())
 		{
-			Viewport.Extent = {Capabilities.currentExtent.width, Capabilities.currentExtent.height};
+			Viewport.Extent = {.Width = Capabilities.currentExtent.width, .Height = Capabilities.currentExtent.height};
 		}
 		else
 		{
-			Viewport.Extent = ClampPresentationExtent(RequestedExtent, {Capabilities.minImageExtent.width, Capabilities.minImageExtent.height}, {Capabilities.maxImageExtent.width, Capabilities.maxImageExtent.height});
+			Viewport.Extent = ClampPresentationExtent(RequestedExtent, {.Width = Capabilities.minImageExtent.width, .Height = Capabilities.minImageExtent.height}, {.Width = Capabilities.maxImageExtent.width, .Height = Capabilities.maxImageExtent.height});
 		}
 
 		VkSwapchainCreateInfoKHR SwapchainInfo{};
@@ -1979,7 +2087,7 @@ private:
 		SwapchainInfo.minImageCount = ChooseSwapchainImageCount(Capabilities.minImageCount, Capabilities.maxImageCount, Descriptor.DesiredImageCount);
 		SwapchainInfo.imageFormat = Viewport.SurfaceFormat.format;
 		SwapchainInfo.imageColorSpace = Viewport.SurfaceFormat.colorSpace;
-		SwapchainInfo.imageExtent = {Viewport.Extent.Width, Viewport.Extent.Height};
+		SwapchainInfo.imageExtent = {.width = Viewport.Extent.Width, .height = Viewport.Extent.Height};
 		SwapchainInfo.imageArrayLayers = 1;
 		SwapchainInfo.imageUsage = RequiredUsage | (Viewport.bBackdropCopySupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
 		SwapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -1999,9 +2107,10 @@ private:
 		{
 			DestroySecondarySwapchain(Viewport);
 			return Result == VK_SUCCESS
-			           ? std::unexpected(FPresentationError{EPresentationErrorCode::SwapchainCreationFailed, "The secondary Vulkan swapchain exposes no images"})
-			           : std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetSwapchainImagesKHR", Result));
+			           ? std::unexpected(FPresentationError{.Code = EPresentationErrorCode::SwapchainCreationFailed, .Message = "The secondary Vulkan swapchain exposes no images"})
+					   : std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetSwapchainImagesKHR", Result));
 		}
+
 		std::vector<VkImage> Images(ImageCount);
 		Result = vkGetSwapchainImagesKHR(Device, Viewport.Swapchain, &ImageCount, Images.data());
 		if (Result != VK_SUCCESS)
@@ -2028,8 +2137,9 @@ private:
 			if (!BackBuffer)
 			{
 				DestroySecondarySwapchain(Viewport);
-				return std::unexpected(FPresentationError{EPresentationErrorCode::SwapchainCreationFailed, "NVRHI could not wrap a secondary Vulkan swapchain image"});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::SwapchainCreationFailed, .Message = "NVRHI could not wrap a secondary Vulkan swapchain image"});
 			}
+
 			Viewport.BackBuffers.push_back(std::move(BackBuffer));
 		}
 
@@ -2045,6 +2155,7 @@ private:
 				DestroySecondarySwapchain(Viewport);
 				return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkCreateSemaphore", Result));
 			}
+
 			Result = vkCreateSemaphore(Device, &SemaphoreInfo, nullptr, &Viewport.FrameSync[Index].ImageAvailable);
 			if (Result != VK_SUCCESS)
 			{
@@ -2060,6 +2171,7 @@ private:
 			DestroySecondarySwapchain(Viewport);
 			return RenderTargetsResult;
 		}
+
 		return {};
 	}
 
@@ -2079,6 +2191,7 @@ private:
 					vkDestroySemaphore(Device, Frame.ImageAvailable, nullptr);
 				}
 			}
+
 			for (const VkSemaphore Semaphore : Viewport.RenderFinished)
 			{
 				if (Semaphore != VK_NULL_HANDLE)
@@ -2087,12 +2200,14 @@ private:
 				}
 			}
 		}
+
 		Viewport.FrameSync.clear();
 		Viewport.RenderFinished.clear();
 		if (Device != VK_NULL_HANDLE && Viewport.Swapchain != VK_NULL_HANDLE)
 		{
 			vkDestroySwapchainKHR(Device, Viewport.Swapchain, nullptr);
 		}
+
 		Viewport.Swapchain = VK_NULL_HANDLE;
 		Viewport.FrameSlot = 0;
 		Viewport.ActiveImageIndex = 0;
@@ -2107,6 +2222,7 @@ private:
 		{
 			vkDestroySurfaceKHR(Instance, Viewport.Surface, nullptr);
 		}
+
 		Viewport.Surface = VK_NULL_HANDLE;
 		Viewport.WindowBackendHandle = nullptr;
 	}
@@ -2118,6 +2234,7 @@ private:
 		{
 			return IdleResult;
 		}
+
 		DestroySwapchain();
 
 		VkSurfaceCapabilitiesKHR Capabilities{};
@@ -2126,11 +2243,13 @@ private:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR", Result));
 		}
+
 		constexpr VkImageUsageFlags RequiredUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 		if ((Capabilities.supportedUsageFlags & RequiredUsage) != RequiredUsage)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The Vulkan surface does not support color attachment and transfer destination usage"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The Vulkan surface does not support color attachment and transfer destination usage"});
 		}
+
 		bBackdropCopySupported = (Capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) != 0;
 
 		std::uint32_t FormatCount = 0;
@@ -2139,6 +2258,7 @@ private:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfaceFormatsKHR", Result));
 		}
+
 		std::vector<VkSurfaceFormatKHR> Formats(FormatCount);
 		Result = vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, Surface, &FormatCount, Formats.data());
 		if (Result != VK_SUCCESS)
@@ -2152,6 +2272,7 @@ private:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfacePresentModesKHR", Result));
 		}
+
 		std::vector<VkPresentModeKHR> PresentModes(PresentModeCount);
 		Result = vkGetPhysicalDeviceSurfacePresentModesKHR(PhysicalDevice, Surface, &PresentModeCount, PresentModes.data());
 		if (Result != VK_SUCCESS)
@@ -2162,21 +2283,23 @@ private:
 		const std::optional<VkSurfaceFormatKHR> SelectedSurfaceFormat = ChooseSurfaceFormat(Formats);
 		if (!SelectedSurfaceFormat)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The Vulkan surface does not expose an 8-bit UNORM swapchain format with the sRGB nonlinear color space required by ToolUI"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The Vulkan surface does not expose an 8-bit UNORM swapchain format with the sRGB nonlinear color space required by ToolUI"});
 		}
+
 		SurfaceFormat = *SelectedSurfaceFormat;
 		const nvrhi::Format NvrhiFormat = ToNvrhiFormat(SurfaceFormat.format);
 		if (NvrhiFormat == nvrhi::Format::UNKNOWN)
 		{
-			return std::unexpected(FPresentationError{EPresentationErrorCode::Unsupported, "The Vulkan surface does not expose a supported 8-bit RGBA swapchain format"});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The Vulkan surface does not expose a supported 8-bit RGBA swapchain format"});
 		}
+
 		if (Capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max())
 		{
-			Extent = {Capabilities.currentExtent.width, Capabilities.currentExtent.height};
+			Extent = {.Width = Capabilities.currentExtent.width, .Height = Capabilities.currentExtent.height};
 		}
 		else
 		{
-			Extent = ClampPresentationExtent(RequestedExtent, {Capabilities.minImageExtent.width, Capabilities.minImageExtent.height}, {Capabilities.maxImageExtent.width, Capabilities.maxImageExtent.height});
+			Extent = ClampPresentationExtent(RequestedExtent, {.Width = Capabilities.minImageExtent.width, .Height = Capabilities.minImageExtent.height}, {.Width = Capabilities.maxImageExtent.width, .Height = Capabilities.maxImageExtent.height});
 		}
 
 		const std::uint32_t ImageCount = ChooseSwapchainImageCount(Capabilities.minImageCount, Capabilities.maxImageCount, Descriptor.DesiredImageCount);
@@ -2186,7 +2309,7 @@ private:
 		SwapchainInfo.minImageCount = ImageCount;
 		SwapchainInfo.imageFormat = SurfaceFormat.format;
 		SwapchainInfo.imageColorSpace = SurfaceFormat.colorSpace;
-		SwapchainInfo.imageExtent = {Extent.Width, Extent.Height};
+		SwapchainInfo.imageExtent = {.width = Extent.Width, .height = Extent.Height};
 		SwapchainInfo.imageArrayLayers = 1;
 		SwapchainInfo.imageUsage = RequiredUsage | (bBackdropCopySupported ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0);
 		SwapchainInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -2206,6 +2329,7 @@ private:
 		{
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetSwapchainImagesKHR", Result));
 		}
+
 		std::vector<VkImage> Images(SwapchainImageCount);
 		Result = vkGetSwapchainImagesKHR(Device, Swapchain, &SwapchainImageCount, Images.data());
 		if (Result != VK_SUCCESS)
@@ -2230,8 +2354,9 @@ private:
 			nvrhi::TextureHandle BackBuffer = NvrhiDevice->createHandleForNativeTexture(nvrhi::ObjectTypes::VK_Image, nvrhi::Object(ImageValue), TextureDescriptor);
 			if (!BackBuffer)
 			{
-				return std::unexpected(FPresentationError{EPresentationErrorCode::SwapchainCreationFailed, "NVRHI could not wrap a Vulkan swapchain image"});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::SwapchainCreationFailed, .Message = "NVRHI could not wrap a Vulkan swapchain image"});
 			}
+
 			BackBuffers.push_back(std::move(BackBuffer));
 		}
 
@@ -2246,6 +2371,7 @@ private:
 			{
 				return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkCreateSemaphore", Result));
 			}
+
 			Result = vkCreateSemaphore(Device, &SemaphoreInfo, nullptr, &FrameSync[Index].ImageAvailable);
 			if (Result != VK_SUCCESS)
 			{
@@ -2259,6 +2385,7 @@ private:
 		{
 			return ToolUIPipelineResult;
 		}
+
 		return {};
 	}
 
@@ -2273,6 +2400,7 @@ private:
 					vkDestroySemaphore(Device, Frame.ImageAvailable, nullptr);
 				}
 			}
+
 			for (const VkSemaphore Semaphore : RenderFinished)
 			{
 				if (Semaphore != VK_NULL_HANDLE)
@@ -2292,6 +2420,7 @@ private:
 		{
 			vkDestroySwapchainKHR(Device, Swapchain, nullptr);
 		}
+
 		Swapchain = VK_NULL_HANDLE;
 	}
 
@@ -2303,22 +2432,25 @@ private:
 			(void)Handle;
 			Viewport->bFrameActive = false;
 		}
+
 		if (NvrhiDevice)
 		{
 			try
 			{
-				(void)NvrhiDevice->waitForIdle();
+				NvrhiDevice->waitForIdle();
 			}
 			catch (...) // NOLINT(bugprone-empty-catch)
 			{
 				// Teardown still needs to release the native device after a backend failure.
 			}
 		}
+
 		for (auto& [Handle, Viewport] : Viewports)
 		{
 			(void)Handle;
 			DestroySecondaryViewport(*Viewport);
 		}
+
 		Viewports.clear();
 		DestroySwapchain();
 		ShutdownToolUIResources();
@@ -2334,11 +2466,13 @@ private:
 			vkDestroyDevice(Device, nullptr);
 			Device = VK_NULL_HANDLE;
 		}
+
 		if (Instance != VK_NULL_HANDLE && Surface != VK_NULL_HANDLE)
 		{
 			vkDestroySurfaceKHR(Instance, Surface, nullptr);
 			Surface = VK_NULL_HANDLE;
 		}
+
 		if (Instance != VK_NULL_HANDLE && DebugMessenger != VK_NULL_HANDLE)
 		{
 			const auto DestroyDebugMessenger = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(Instance, "vkDestroyDebugUtilsMessengerEXT"));
@@ -2346,8 +2480,10 @@ private:
 			{
 				DestroyDebugMessenger(Instance, DebugMessenger, nullptr);
 			}
+
 			DebugMessenger = VK_NULL_HANDLE;
 		}
+
 		if (Instance != VK_NULL_HANDLE)
 		{
 			vkDestroyInstance(Instance, nullptr);
@@ -2425,15 +2561,16 @@ std::expected<std::unique_ptr<INvrhiVulkanPresentation>, FPresentationError> Cre
 		{
 			return std::unexpected(Result.error());
 		}
+
 		return std::unique_ptr<INvrhiVulkanPresentation>(std::move(Presentation));
 	}
 	catch (const std::exception& Exception)
 	{
-		return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, Exception.what()});
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = Exception.what()});
 	}
 	catch (...)
 	{
-		return std::unexpected(FPresentationError{EPresentationErrorCode::DeviceCreationFailed, "Unknown exception while creating Vulkan presentation"});
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Unknown exception while creating Vulkan presentation"});
 	}
 }
 }

@@ -17,6 +17,7 @@ template <std::floating_point T> struct TQuaternion
 	T W = T{1};
 
 	constexpr TQuaternion() = default;
+
 	constexpr TQuaternion(T InX, T InY, T InZ, T InW)
 	    : X(InX)
 	    , Y(InY)
@@ -58,6 +59,7 @@ template <std::floating_point T> struct TQuaternion
 	{
 		return {-X, -Y, -Z, W};
 	}
+
 	[[nodiscard]] constexpr T LengthSquared() const
 	{
 		return X * X + Y * Y + Z * Z + W * W;
@@ -78,9 +80,9 @@ template <std::floating_point T> struct TQuaternion
 	[[nodiscard]] constexpr TQuaternion operator*(const TQuaternion& Other) const
 	{
 		return {W * Other.X + X * Other.W + Y * Other.Z - Z * Other.Y,
-		        W * Other.Y - X * Other.Z + Y * Other.W + Z * Other.X,
-		        W * Other.Z + X * Other.Y - Y * Other.X + Z * Other.W,
-		        W * Other.W - X * Other.X - Y * Other.Y - Z * Other.Z};
+		    W * Other.Y - X * Other.Z + Y * Other.W + Z * Other.X,
+		    W * Other.Z + X * Other.Y - Y * Other.X + Z * Other.W,
+		    W * Other.W - X * Other.X - Y * Other.Y - Z * Other.Z};
 	}
 
 	[[nodiscard]] TVector3<T> RotateVector(const TVector3<T>& Vector) const
@@ -93,8 +95,7 @@ template <std::floating_point T> struct TQuaternion
 
 	[[nodiscard]] bool IsNearlyEqual(const TQuaternion& Other, T Tolerance) const
 	{
-		return std::abs(X - Other.X) <= Tolerance && std::abs(Y - Other.Y) <= Tolerance &&
-		       std::abs(Z - Other.Z) <= Tolerance && std::abs(W - Other.W) <= Tolerance;
+		return std::abs(X - Other.X) <= Tolerance && std::abs(Y - Other.Y) <= Tolerance && std::abs(Z - Other.Z) <= Tolerance && std::abs(W - Other.W) <= Tolerance;
 	}
 
 	[[nodiscard]] constexpr bool operator==(const TQuaternion&) const = default;

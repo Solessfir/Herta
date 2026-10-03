@@ -3,7 +3,6 @@
 #include "Herta/EditorCore/CommandRegistry.h"
 
 #include <memory>
-#include <utility>
 #include <string>
 #include <utility>
 
@@ -23,15 +22,15 @@ struct FViewportStats
 	}
 
 	return Registry.Register({"stat", "Toggle viewport statistics: stat unit or stat fps", [Stats = std::move(Stats)](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
-	                          {
-		                          if (Arguments.size() != 1 || (Arguments[0] != "unit" && Arguments[0] != "fps"))
-		                          {
-			                          return std::unexpected(FEditorCommandError{EEditorCommandErrorCode::ExecutionFailed, "Usage: stat unit | stat fps"});
-		                          }
+	{
+		if (Arguments.size() != 1 || (Arguments[0] != "unit" && Arguments[0] != "fps"))
+		{
+			return std::unexpected(FEditorCommandError{EEditorCommandErrorCode::ExecutionFailed, "Usage: stat unit | stat fps"});
+		}
 
-		                          bool& bVisible = Arguments[0] == "unit" ? Stats->bUnitVisible : Stats->bFpsVisible;
-		                          bVisible = !bVisible;
-		                          return FEditorCommandResult{0, std::string(Arguments[0]) + (bVisible ? " enabled" : " disabled")};
-	                          }});
+		bool& bVisible = Arguments[0] == "unit" ? Stats->bUnitVisible : Stats->bFpsVisible;
+		bVisible = !bVisible;
+		return FEditorCommandResult{0, std::string(Arguments[0]) + (bVisible ? " enabled" : " disabled")};
+	}});
 }
 }

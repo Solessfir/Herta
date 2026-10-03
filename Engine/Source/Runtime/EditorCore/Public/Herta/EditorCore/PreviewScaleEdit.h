@@ -7,7 +7,7 @@
 namespace Herta
 {
 inline constexpr float MinimumPreviewScale = 0.001f;
-inline constexpr float MaximumPreviewScale = 1000.0f;
+inline constexpr float MaximumPreviewScale = 1000.f;
 
 [[nodiscard]] inline bool TrySetProportionalPreviewScale(std::array<float, 3>& Scale, const std::size_t Axis, const float Value) noexcept
 {
@@ -15,6 +15,7 @@ inline constexpr float MaximumPreviewScale = 1000.0f;
 	{
 		return false;
 	}
+
 	for (const float Component : Scale)
 	{
 		if (!std::isfinite(Component) || Component < MinimumPreviewScale || Component > MaximumPreviewScale)
@@ -22,6 +23,7 @@ inline constexpr float MaximumPreviewScale = 1000.0f;
 			return false;
 		}
 	}
+
 	const float Factor = Value / Scale[Axis];
 	std::array<float, 3> Candidate = Scale;
 	for (float& Component : Candidate)
@@ -32,6 +34,7 @@ inline constexpr float MaximumPreviewScale = 1000.0f;
 			return false;
 		}
 	}
+
 	Candidate[Axis] = Value;
 	Scale = Candidate;
 	return true;

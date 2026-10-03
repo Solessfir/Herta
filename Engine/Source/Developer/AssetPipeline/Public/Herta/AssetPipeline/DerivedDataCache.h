@@ -24,6 +24,7 @@ public:
 	[[nodiscard]] std::expected<void, FAssetError> Put(const FHash128& Key, std::span<const std::byte> Payload) const;
 
 	[[nodiscard]] std::filesystem::path GetEntryPath(const FHash128& Key) const;
+
 	[[nodiscard]] const std::filesystem::path& GetRoot() const noexcept
 	{
 		return Root;

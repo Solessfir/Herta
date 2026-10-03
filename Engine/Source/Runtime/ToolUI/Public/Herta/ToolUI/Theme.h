@@ -35,11 +35,11 @@ enum class EPanelTransparency : std::uint8_t
 struct FEditorAppearance
 {
 	FToolUIColor Accent{184, 184, 184, 255};
-	float GradientHeight = 0.50f;
-	float Saturation = 0.80f;
+	float GradientHeight = 0.5f;
+	float Saturation = 0.8f;
 	float Intensity = 0.15f;
-	float PanelOpacity = 0.90f;
-	float BlurRadius = 24.0f;
+	float PanelOpacity = 0.9f;
+	float BlurRadius = 24.f;
 	EPanelTransparency PanelTransparency = EPanelTransparency::AllPanels;
 	bool bReducedMotion = false;
 
@@ -49,17 +49,17 @@ struct FEditorAppearance
 struct FToolUIThemeMetrics
 {
 	float BaseFontSize = 15.625f;
-	float TitleBarHeight = 36.0f;
-	float StatusBarHeight = 38.0f;
-	float WindowPadding = 12.0f;
-	float WindowRounding = 6.0f;
-	float ChildRounding = 6.0f;
-	float PopupRounding = 5.0f;
-	float FrameRounding = 4.0f;
-	float PrimaryButtonRounding = 8.0f;
-	float TitleBarControlRounding = 4.0f;
-	float ScrollbarSize = 12.0f;
-	float ScrollbarRounding = 5.0f;
+	float TitleBarHeight = 36.f;
+	float StatusBarHeight = 38.f;
+	float WindowPadding = 12.f;
+	float WindowRounding = 6.f;
+	float ChildRounding = 6.f;
+	float PopupRounding = 5.f;
+	float FrameRounding = 4.f;
+	float PrimaryButtonRounding = 8.f;
+	float TitleBarControlRounding = 4.f;
+	float ScrollbarSize = 12.f;
+	float ScrollbarRounding = 5.f;
 };
 
 struct FToolUIColorPreset
@@ -87,10 +87,10 @@ inline constexpr FToolUIColor TitleBarControlHover{255, 255, 255, 24};
 inline constexpr FToolUIColor CloseHover{196, 43, 28, 255};
 inline constexpr FToolUIColor Warning{246, 196, 101, 255};
 inline constexpr FToolUIColor Error{255, 125, 125, 255};
-inline constexpr float TrailingIntensityRatio = 0.40f;
-inline constexpr float UnfocusedSaturationRatio = 0.90f;
+inline constexpr float TrailingIntensityRatio = 0.4f;
+inline constexpr float UnfocusedSaturationRatio = 0.9f;
 inline constexpr float SubtleTint = 0.06f;
-inline constexpr float HoverTint = 0.10f;
+inline constexpr float HoverTint = 0.1f;
 inline constexpr float ActiveTint = 0.16f;
 inline constexpr float StrongTint = 0.24f;
 
@@ -103,13 +103,14 @@ inline constexpr std::array Presets = {
     FToolUIColorPreset{"Sky", {67, 164, 210, 255}},
     FToolUIColorPreset{"Cobalt", {84, 108, 232, 255}},
     FToolUIColorPreset{"Violet", {147, 80, 220, 255}},
-    FToolUIColorPreset{"Plum", {194, 83, 177, 255}}};
+    FToolUIColorPreset{"Plum", {194, 83, 177, 255}},
+};
 }
 
 [[nodiscard]] constexpr float ClampToolUIUnit(const float Value) noexcept
 {
-	return Value < 0.0f ? 0.0f : Value > 1.0f ? 1.0f
-	                                          : Value;
+	return Value < 0.f ? 0.f : Value > 1.f ? 1.f
+	                                       : Value;
 }
 
 [[nodiscard]] constexpr FToolUIColor MixToolUIColor(const FToolUIColor Left, const FToolUIColor Right, const float Amount) noexcept
@@ -134,7 +135,7 @@ inline constexpr std::array Presets = {
 	const auto AddChannel = [Strength](const std::uint8_t BaseChannel, const std::uint8_t TintChannel) constexpr
 	{
 		const float Value = static_cast<float>(BaseChannel) + static_cast<float>(TintChannel) * ClampToolUIUnit(Strength);
-		return static_cast<std::uint8_t>(Value > 255.0f ? 255.0f : Value + 0.5f);
+		return static_cast<std::uint8_t>(Value > 255.f ? 255.f : Value + 0.5f);
 	};
 
 	return {AddChannel(Base.Red, Tint.Red), AddChannel(Base.Green, Tint.Green), AddChannel(Base.Blue, Tint.Blue), Base.Alpha};
@@ -148,7 +149,8 @@ inline constexpr std::array Presets = {
 	    MixToolUIColor(ToolUITheme::Canvas, Accent, Appearance.Intensity),
 	    MixToolUIColor(ToolUITheme::Canvas, Accent, Appearance.Intensity * ToolUITheme::TrailingIntensityRatio),
 	    ToolUITheme::Canvas,
-	    ToolUITheme::Canvas};
+	    ToolUITheme::Canvas,
+	};
 }
 
 [[nodiscard]] constexpr bool IsToolUIPanelTransparent(const EPanelTransparency Mode, const bool bDocked) noexcept
@@ -171,6 +173,6 @@ inline constexpr std::array Presets = {
 [[nodiscard]] constexpr float ResolveToolUIPanelBackgroundAlpha(const EPanelTransparency Mode, const bool bDocked, const bool bSceneViewport) noexcept
 {
 	// Scene images and glass surfaces are composed separately from ImGui window backgrounds.
-	return bSceneViewport || IsToolUIPanelTransparent(Mode, bDocked) ? 0.0f : 1.0f;
+	return bSceneViewport || IsToolUIPanelTransparent(Mode, bDocked) ? 0.f : 1.f;
 }
 }

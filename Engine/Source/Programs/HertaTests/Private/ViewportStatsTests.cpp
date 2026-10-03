@@ -1,6 +1,7 @@
 #include "ViewportStats.h"
 
 #include <doctest/doctest.h>
+
 #include <initializer_list>
 
 namespace Herta
@@ -39,6 +40,7 @@ TEST_CASE("Stat command rejects invalid arguments without changing visibility")
 		CHECK_FALSE(Stats->bUnitVisible);
 		CHECK_FALSE(Stats->bFpsVisible);
 	}
+
 	CHECK_FALSE(RegisterViewportStatsCommand(Registry, {}).has_value());
 }
 }

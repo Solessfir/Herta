@@ -26,6 +26,7 @@ int wmain(const int ArgumentCount, wchar_t** const Arguments)
 			const std::u8string Text = std::filesystem::path(Arguments[Index]).u8string();
 			Utf8Arguments.emplace_back(Text.begin(), Text.end());
 		}
+
 		return Run(Utf8Arguments);
 	}
 	catch (...)

@@ -69,9 +69,11 @@ void AppendJsonString(std::string& Output, const std::string_view Value)
 				{
 					Output.push_back(static_cast<char>(Character));
 				}
+
 				break;
 		}
 	}
+
 	Output.push_back('"');
 }
 
@@ -108,13 +110,16 @@ void ReportJsonDiagnostic(const std::string_view Status, const std::string_view 
 			{
 				return Start;
 			}
+
 			if (Start == Start.parent_path())
 			{
 				break;
 			}
+
 			Start = Start.parent_path();
 		}
 	}
+
 	return {};
 }
 
@@ -135,10 +140,13 @@ void ReportJsonDiagnostic(const std::string_view Status, const std::string_view 
 			{
 				CommandLine.push_back('\\');
 			}
+
 			CommandLine.push_back(Character);
 		}
+
 		CommandLine.push_back('"');
 	}
+
 	return CommandLine;
 }
 
@@ -162,11 +170,13 @@ int Run(const std::span<const std::string> Arguments)
 				AssetOptions.DefaultContentRoot = RepositoryRoot / "Games/Sandbox/Content";
 				AssetOptions.DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform;
 			}
+
 			AssetOptions.WorkerPath = ExecutablePath.parent_path() / "HertaAssetWorker";
 			AssetOptions.WorkerPath += ExecutablePath.extension();
 			AssetOptions.TargetPlatform = Platform;
 			RegistrationResult = Herta::RegisterAssetCommands(Registry, AssetOptions);
 		}
+
 		if (!RegistrationResult)
 		{
 			if (bJson)
@@ -177,6 +187,7 @@ int Run(const std::span<const std::string> Arguments)
 			{
 				ReportFailure(RegistrationResult.error().Message);
 			}
+
 			return HostFailureExitCode;
 		}
 
@@ -192,6 +203,7 @@ int Run(const std::span<const std::string> Arguments)
 			{
 				ReportFailure(Result.error().Message);
 			}
+
 			return CommandFailureExitCode;
 		}
 
@@ -203,6 +215,7 @@ int Run(const std::span<const std::string> Arguments)
 		{
 			std::println("{}", Result->Message);
 		}
+
 		return static_cast<int>(Result->ExitCode);
 	}
 	catch (const std::exception& Exception)
@@ -227,6 +240,7 @@ int Run(const std::span<const std::string> Arguments)
 			ReportFailure("An unknown failure crossed the headless editor boundary");
 		}
 	}
+
 	return HostFailureExitCode;
 }
 }
@@ -249,6 +263,7 @@ int wmain(const int ArgumentCount, wchar_t** const Arguments)
 		ReportFailure("Command-line arguments are not valid Unicode");
 		return HostFailureExitCode;
 	}
+
 	return Run(Utf8Arguments);
 }
 #else

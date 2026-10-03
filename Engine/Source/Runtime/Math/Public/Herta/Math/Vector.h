@@ -15,6 +15,7 @@ template <std::floating_point T> struct TVector2
 	T Y = T{0};
 
 	constexpr TVector2() = default;
+
 	constexpr TVector2(T InX, T InY)
 	    : X(InX)
 	    , Y(InY)
@@ -32,6 +33,7 @@ template <std::floating_point T> struct TVector2
 	{
 		return {};
 	}
+
 	[[nodiscard]] static constexpr TVector2 One()
 	{
 		return {T{1}, T{1}};
@@ -44,8 +46,10 @@ template <std::floating_point T> struct TVector2
 		{
 			std::unreachable();
 		}
+
 		return Index == 0 ? X : Y;
 	}
+
 	[[nodiscard]] constexpr const T& operator[](std::size_t Index) const
 	{
 		assert(Index < 2);
@@ -53,6 +57,7 @@ template <std::floating_point T> struct TVector2
 		{
 			std::unreachable();
 		}
+
 		return Index == 0 ? X : Y;
 	}
 
@@ -60,18 +65,22 @@ template <std::floating_point T> struct TVector2
 	{
 		return {-X, -Y};
 	}
+
 	[[nodiscard]] constexpr TVector2 operator+(const TVector2& Other) const
 	{
 		return {X + Other.X, Y + Other.Y};
 	}
+
 	[[nodiscard]] constexpr TVector2 operator-(const TVector2& Other) const
 	{
 		return {X - Other.X, Y - Other.Y};
 	}
+
 	[[nodiscard]] constexpr TVector2 operator*(T Scalar) const
 	{
 		return {X * Scalar, Y * Scalar};
 	}
+
 	[[nodiscard]] constexpr TVector2 operator/(T Scalar) const
 	{
 		return {X / Scalar, Y / Scalar};
@@ -83,18 +92,21 @@ template <std::floating_point T> struct TVector2
 		Y += Other.Y;
 		return *this;
 	}
+
 	constexpr TVector2& operator-=(const TVector2& Other)
 	{
 		X -= Other.X;
 		Y -= Other.Y;
 		return *this;
 	}
+
 	constexpr TVector2& operator*=(T Scalar)
 	{
 		X *= Scalar;
 		Y *= Scalar;
 		return *this;
 	}
+
 	constexpr TVector2& operator/=(T Scalar)
 	{
 		X /= Scalar;
@@ -106,10 +118,12 @@ template <std::floating_point T> struct TVector2
 	{
 		return X * Other.X + Y * Other.Y;
 	}
+
 	[[nodiscard]] constexpr T LengthSquared() const
 	{
 		return Dot(*this);
 	}
+
 	[[nodiscard]] T Length() const
 	{
 		return std::sqrt(LengthSquared());
@@ -141,6 +155,7 @@ template <std::floating_point T> struct TVector3
 	T Z = T{0};
 
 	constexpr TVector3() = default;
+
 	constexpr TVector3(T InX, T InY, T InZ)
 	    : X(InX)
 	    , Y(InY)
@@ -160,30 +175,37 @@ template <std::floating_point T> struct TVector3
 	{
 		return {};
 	}
+
 	[[nodiscard]] static constexpr TVector3 One()
 	{
 		return {T{1}, T{1}, T{1}};
 	}
+
 	[[nodiscard]] static constexpr TVector3 Left()
 	{
 		return {T{1}, T{0}, T{0}};
 	}
+
 	[[nodiscard]] static constexpr TVector3 Right()
 	{
 		return {T{-1}, T{0}, T{0}};
 	}
+
 	[[nodiscard]] static constexpr TVector3 Up()
 	{
 		return {T{0}, T{1}, T{0}};
 	}
+
 	[[nodiscard]] static constexpr TVector3 Down()
 	{
 		return {T{0}, T{-1}, T{0}};
 	}
+
 	[[nodiscard]] static constexpr TVector3 Forward()
 	{
 		return {T{0}, T{0}, T{1}};
 	}
+
 	[[nodiscard]] static constexpr TVector3 Backward()
 	{
 		return {T{0}, T{0}, T{-1}};
@@ -196,6 +218,7 @@ template <std::floating_point T> struct TVector3
 		{
 			std::unreachable();
 		}
+
 		return Index == 0 ? X : (Index == 1 ? Y : Z);
 	}
 
@@ -206,6 +229,7 @@ template <std::floating_point T> struct TVector3
 		{
 			std::unreachable();
 		}
+
 		return Index == 0 ? X : (Index == 1 ? Y : Z);
 	}
 
@@ -213,18 +237,22 @@ template <std::floating_point T> struct TVector3
 	{
 		return {-X, -Y, -Z};
 	}
+
 	[[nodiscard]] constexpr TVector3 operator+(const TVector3& Other) const
 	{
 		return {X + Other.X, Y + Other.Y, Z + Other.Z};
 	}
+
 	[[nodiscard]] constexpr TVector3 operator-(const TVector3& Other) const
 	{
 		return {X - Other.X, Y - Other.Y, Z - Other.Z};
 	}
+
 	[[nodiscard]] constexpr TVector3 operator*(T Scalar) const
 	{
 		return {X * Scalar, Y * Scalar, Z * Scalar};
 	}
+
 	[[nodiscard]] constexpr TVector3 operator/(T Scalar) const
 	{
 		return {X / Scalar, Y / Scalar, Z / Scalar};
@@ -237,6 +265,7 @@ template <std::floating_point T> struct TVector3
 		Z += Other.Z;
 		return *this;
 	}
+
 	constexpr TVector3& operator-=(const TVector3& Other)
 	{
 		X -= Other.X;
@@ -244,6 +273,7 @@ template <std::floating_point T> struct TVector3
 		Z -= Other.Z;
 		return *this;
 	}
+
 	constexpr TVector3& operator*=(T Scalar)
 	{
 		X *= Scalar;
@@ -251,6 +281,7 @@ template <std::floating_point T> struct TVector3
 		Z *= Scalar;
 		return *this;
 	}
+
 	constexpr TVector3& operator/=(T Scalar)
 	{
 		X /= Scalar;
@@ -278,6 +309,7 @@ template <std::floating_point T> struct TVector3
 	{
 		return Dot(*this);
 	}
+
 	[[nodiscard]] T Length() const
 	{
 		return std::sqrt(LengthSquared());
@@ -291,8 +323,7 @@ template <std::floating_point T> struct TVector3
 
 	[[nodiscard]] bool IsNearlyEqual(const TVector3& Other, T Tolerance) const
 	{
-		return std::abs(X - Other.X) <= Tolerance && std::abs(Y - Other.Y) <= Tolerance &&
-		       std::abs(Z - Other.Z) <= Tolerance;
+		return std::abs(X - Other.X) <= Tolerance && std::abs(Y - Other.Y) <= Tolerance && std::abs(Z - Other.Z) <= Tolerance;
 	}
 
 	[[nodiscard]] constexpr bool operator==(const TVector3&) const = default;
@@ -311,6 +342,7 @@ template <std::floating_point T> struct TVector4
 	T W = T{0};
 
 	constexpr TVector4() = default;
+
 	constexpr TVector4(T InX, T InY, T InZ, T InW)
 	    : X(InX)
 	    , Y(InY)
@@ -340,6 +372,7 @@ template <std::floating_point T> struct TVector4
 	{
 		return {};
 	}
+
 	[[nodiscard]] static constexpr TVector4 One()
 	{
 		return {T{1}, T{1}, T{1}, T{1}};
@@ -352,10 +385,17 @@ template <std::floating_point T> struct TVector4
 		{
 			std::unreachable();
 		}
+
 		if (Index == 0)
+		{
 			return X;
+		}
+
 		if (Index == 1)
+		{
 			return Y;
+		}
+
 		return Index == 2 ? Z : W;
 	}
 
@@ -366,10 +406,17 @@ template <std::floating_point T> struct TVector4
 		{
 			std::unreachable();
 		}
+
 		if (Index == 0)
+		{
 			return X;
+		}
+
 		if (Index == 1)
+		{
 			return Y;
+		}
+
 		return Index == 2 ? Z : W;
 	}
 
@@ -377,18 +424,22 @@ template <std::floating_point T> struct TVector4
 	{
 		return {-X, -Y, -Z, -W};
 	}
+
 	[[nodiscard]] constexpr TVector4 operator+(const TVector4& Other) const
 	{
 		return {X + Other.X, Y + Other.Y, Z + Other.Z, W + Other.W};
 	}
+
 	[[nodiscard]] constexpr TVector4 operator-(const TVector4& Other) const
 	{
 		return {X - Other.X, Y - Other.Y, Z - Other.Z, W - Other.W};
 	}
+
 	[[nodiscard]] constexpr TVector4 operator*(T Scalar) const
 	{
 		return {X * Scalar, Y * Scalar, Z * Scalar, W * Scalar};
 	}
+
 	[[nodiscard]] constexpr TVector4 operator/(T Scalar) const
 	{
 		return {X / Scalar, Y / Scalar, Z / Scalar, W / Scalar};
@@ -402,6 +453,7 @@ template <std::floating_point T> struct TVector4
 		W += Other.W;
 		return *this;
 	}
+
 	constexpr TVector4& operator-=(const TVector4& Other)
 	{
 		X -= Other.X;
@@ -410,6 +462,7 @@ template <std::floating_point T> struct TVector4
 		W -= Other.W;
 		return *this;
 	}
+
 	constexpr TVector4& operator*=(T Scalar)
 	{
 		X *= Scalar;
@@ -418,6 +471,7 @@ template <std::floating_point T> struct TVector4
 		W *= Scalar;
 		return *this;
 	}
+
 	constexpr TVector4& operator/=(T Scalar)
 	{
 		X /= Scalar;
@@ -431,10 +485,12 @@ template <std::floating_point T> struct TVector4
 	{
 		return X * Other.X + Y * Other.Y + Z * Other.Z + W * Other.W;
 	}
+
 	[[nodiscard]] constexpr T LengthSquared() const
 	{
 		return Dot(*this);
 	}
+
 	[[nodiscard]] T Length() const
 	{
 		return std::sqrt(LengthSquared());
@@ -448,8 +504,7 @@ template <std::floating_point T> struct TVector4
 
 	[[nodiscard]] bool IsNearlyEqual(const TVector4& Other, T Tolerance) const
 	{
-		return std::abs(X - Other.X) <= Tolerance && std::abs(Y - Other.Y) <= Tolerance &&
-		       std::abs(Z - Other.Z) <= Tolerance && std::abs(W - Other.W) <= Tolerance;
+		return std::abs(X - Other.X) <= Tolerance && std::abs(Y - Other.Y) <= Tolerance && std::abs(Z - Other.Z) <= Tolerance && std::abs(W - Other.W) <= Tolerance;
 	}
 
 	[[nodiscard]] constexpr bool operator==(const TVector4&) const = default;

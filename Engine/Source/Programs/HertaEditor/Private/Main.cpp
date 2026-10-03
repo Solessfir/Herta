@@ -30,7 +30,7 @@ namespace Herta
 {
 namespace
 {
-inline constexpr FLogCategory EditorLog{"Editor"};
+inline constexpr FLogCategory EditorLog{.Name = "Editor"};
 
 void ReportFailure(const std::string_view Message) noexcept
 {
@@ -60,16 +60,19 @@ void ReportFailure(const std::string_view Message) noexcept
 		{
 			return Candidate;
 		}
+
 		Candidate = Candidate.parent_path();
 	}
+
 	return {};
 }
 
 [[nodiscard]] FExtent2D GetFramebufferExtent(const FWindow& Window) noexcept
 {
 	return {
-	    static_cast<std::uint32_t>(std::max(0, Window.GetFramebufferWidth())),
-	    static_cast<std::uint32_t>(std::max(0, Window.GetFramebufferHeight()))};
+	    .Width = static_cast<std::uint32_t>(std::max(0, Window.GetFramebufferWidth())),
+	    .Height = static_cast<std::uint32_t>(std::max(0, Window.GetFramebufferHeight())),
+	};
 }
 
 [[nodiscard]] constexpr EToolUIViewportFrameStatus ToToolUIViewportFrameStatus(const EPresentationStatus Status) noexcept
@@ -84,6 +87,7 @@ void ReportFailure(const std::string_view Message) noexcept
 		case EPresentationStatus::Suboptimal:
 			return EToolUIViewportFrameStatus::NeedsResize;
 	}
+
 	return EToolUIViewportFrameStatus::Skipped;
 }
 
@@ -164,6 +168,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		std::println(stderr, "Could not initialize logging: {}", LogResult.error().Message);
 		return 1;
 	}
+
 	std::unique_ptr<FLogService> Log = std::move(*LogResult);
 
 	FTaskSystemOptions TaskOptions;
@@ -174,6 +179,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize task system: {}", TaskSystemResult.error().Message);
 		return 1;
 	}
+
 	std::unique_ptr<FTaskSystem> TaskSystem = std::move(*TaskSystemResult);
 
 	const EWindowSystem RequestedWindowSystem = ParseWindowSystem(ExpectedWindowSystem);
@@ -191,6 +197,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize Application: {}", ApplicationResult.error().Message);
 		return 1;
 	}
+
 	std::unique_ptr<FApplication> Application = std::move(*ApplicationResult);
 	if (!ExpectedWindowSystem.empty())
 	{
@@ -211,22 +218,24 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not create the editor window: {}", WindowResult.error().Message);
 		return 1;
 	}
+
 	FWindow& Window = **WindowResult;
 	const bool bShowBeforePresentation = Application->GetCapabilities().WindowSystem == EWindowSystem::Wayland;
 	if (bShowBeforePresentation)
 	{
 		// Wayland must configure the XDG surface before Vulkan attaches a swapchain image.
 		Window.Show();
-		(void)Application->PumpEvents();
+		Application->PumpEvents();
 	}
 
 	if (bPlatformSmokeTest)
 	{
 		for (std::uint32_t Iteration = 0; Iteration < 3; ++Iteration)
 		{
-			(void)Application->PumpEvents();
-			(void)TaskSystem->RunMainThreadTasks();
+			Application->PumpEvents();
+			TaskSystem->RunMainThreadTasks();
 		}
+
 		return 0;
 	}
 
@@ -251,6 +260,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize Vulkan presentation: {}", PresentationResult.error().Message);
 		return 1;
 	}
+
 	std::unique_ptr<INvrhiVulkanPresentation> Presentation = std::move(*PresentationResult);
 	const std::filesystem::path ShaderDirectory = std::filesystem::absolute(ExecutablePath).parent_path() / "Shaders";
 	auto VertexShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.vert.hshader");
@@ -264,16 +274,19 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load cooked shaders: {}. Build HertaShaders before launching the editor.", !VertexShader ? VertexShader.error().Message : FragmentShader.error().Message);
 		return 1;
 	}
+
 	if (!DebugVertexShader || !DebugFragmentShader)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load debug shaders: {}. Build HertaShaders before launching the editor.", !DebugVertexShader ? DebugVertexShader.error().Message : DebugFragmentShader.error().Message);
 		return 1;
 	}
+
 	if (!GridVertexShader || !GridFragmentShader)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load grid shaders: {}. Build HertaShaders before launching the editor.", !GridVertexShader ? GridVertexShader.error().Message : GridFragmentShader.error().Message);
 		return 1;
 	}
+
 	if (bRendererTest)
 	{
 		auto VSyncResult = Presentation->SetVSyncEnabled(false);
@@ -281,25 +294,30 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			VSyncResult = Presentation->SetVSyncEnabled(true);
 		}
+
 		if (!VSyncResult || !Presentation->IsVSyncEnabled())
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer VSync toggle regression failed: {}", VSyncResult ? "VSync state was not restored" : VSyncResult.error().Message);
 			return 1;
 		}
+
 		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *DebugVertexShader, *DebugFragmentShader, *GridVertexShader, *GridFragmentShader);
 		if (!Test || Presentation->HasValidationErrors())
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer regression failed: {}", Test ? "Validation reported an error" : Test.error().Message);
 			return 1;
 		}
+
 		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, reversed-Z, resize, and frame retirement checks passed");
 	}
+
 	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader), std::move(*DebugVertexShader), std::move(*DebugFragmentShader), std::move(*GridVertexShader), std::move(*GridFragmentShader));
 	if (!MeshResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize the mesh renderer: {}", MeshResult.error().Message);
 		return 1;
 	}
+
 	std::unique_ptr<FMeshRenderer> MeshRenderer = std::move(*MeshResult);
 
 	FEditorCommandRegistry Commands;
@@ -325,8 +343,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			return std::unexpected(FToolUIError{std::move(Result.error().Message)});
 		}
+
 		return {};
 	};
+
 	RendererBridge.Render = [&Presentation](const void* const DrawData) -> std::expected<void, FToolUIError>
 	{
 		std::expected<void, FPresentationError> Result = Presentation->RenderToolUIDrawData(DrawData);
@@ -334,17 +354,21 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			return std::unexpected(FToolUIError{std::move(Result.error().Message)});
 		}
+
 		return {};
 	};
+
 	RendererBridge.CreateViewport = [&Presentation](void* const WindowBackendHandle, const std::uint32_t Width, const std::uint32_t Height) -> std::expected<std::uint64_t, FToolUIError>
 	{
-		std::expected<FPresentationViewportHandle, FPresentationError> Result = Presentation->CreateViewport(WindowBackendHandle, {Width, Height});
+		std::expected<FPresentationViewportHandle, FPresentationError> Result = Presentation->CreateViewport(WindowBackendHandle, {.Width = Width, .Height = Height});
 		if (!Result)
 		{
 			return std::unexpected(FToolUIError{std::move(Result.error().Message)});
 		}
+
 		return Result->Value;
 	};
+
 	RendererBridge.DestroyViewport = [&Presentation](const std::uint64_t Handle) -> std::expected<void, FToolUIError>
 	{
 		std::expected<void, FPresentationError> Result = Presentation->DestroyViewport({Handle});
@@ -352,17 +376,21 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			return std::unexpected(FToolUIError{std::move(Result.error().Message)});
 		}
+
 		return {};
 	};
+
 	RendererBridge.ResizeViewport = [&Presentation](const std::uint64_t Handle, const std::uint32_t Width, const std::uint32_t Height) -> std::expected<void, FToolUIError>
 	{
-		std::expected<void, FPresentationError> Result = Presentation->ResizeViewport({Handle}, {Width, Height});
+		std::expected<void, FPresentationError> Result = Presentation->ResizeViewport({Handle}, {.Width = Width, .Height = Height});
 		if (!Result)
 		{
 			return std::unexpected(FToolUIError{std::move(Result.error().Message)});
 		}
+
 		return {};
 	};
+
 	RendererBridge.BeginViewportFrame = [&Presentation](const std::uint64_t Handle) -> std::expected<EToolUIViewportFrameStatus, FToolUIError>
 	{
 		std::expected<EPresentationStatus, FPresentationError> Result = Presentation->BeginViewportFrame({Handle});
@@ -370,8 +398,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			return std::unexpected(FToolUIError{std::move(Result.error().Message)});
 		}
+
 		return ToToolUIViewportFrameStatus(*Result);
 	};
+
 	RendererBridge.RenderViewport = [&Presentation](const std::uint64_t Handle, const void* const DrawData) -> std::expected<void, FToolUIError>
 	{
 		std::expected<void, FPresentationError> Result = Presentation->RenderViewportToolUIDrawData({Handle}, DrawData);
@@ -379,8 +409,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			return std::unexpected(FToolUIError{std::move(Result.error().Message)});
 		}
+
 		return {};
 	};
+
 	RendererBridge.PresentViewport = [&Presentation](const std::uint64_t Handle) -> std::expected<EToolUIViewportFrameStatus, FToolUIError>
 	{
 		std::expected<EPresentationStatus, FPresentationError> Result = Presentation->PresentViewport({Handle});
@@ -388,8 +420,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			return std::unexpected(FToolUIError{std::move(Result.error().Message)});
 		}
+
 		return ToToolUIViewportFrameStatus(*Result);
 	};
+
 	RendererBridge.Shutdown = [&Presentation]
 	{
 		Presentation->ShutdownToolUIRenderer();
@@ -411,38 +445,44 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		ToolUIDescriptor.LayoutPath = RepositoryRoot / "TestResults/Smoke/ImGui.ini";
 		ToolUIDescriptor.AppearancePath = RepositoryRoot / "TestResults/Smoke/Appearance.ini";
 	}
+
 	ToolUIDescriptor.Renderer = std::move(RendererBridge);
 	ToolUIDescriptor.bVSync = Presentation->IsVSyncEnabled();
+
 	ToolUIDescriptor.VSyncChanged = [&PendingVSync](const bool bEnabled)
 	{
 		PendingVSync = bEnabled;
 	};
+
 	ToolUIDescriptor.RefreshRequested = [&RenderFrame]
 	{
 		if (RenderFrame)
 		{
-			(void)RenderFrame();
+			RenderFrame();
 		}
 	};
+
 	std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> ToolUIResult = FToolUIContext::Create(std::move(ToolUIDescriptor));
 	if (!ToolUIResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize ToolUI: {}", ToolUIResult.error().Message);
 		return 1;
 	}
+
 	std::unique_ptr<FToolUIContext> ToolUI = std::move(*ToolUIResult);
 
 	const std::filesystem::path EditorExecutable = GetExecutablePath();
 	std::filesystem::path AssetWorker = EditorExecutable.parent_path() / "HertaAssetWorker";
 	AssetWorker += EditorExecutable.extension();
 	const std::string_view Platform = GetPlatformName(GetCurrentPlatform());
-	const FEditorAssetPaths AssetPaths{RepositoryRoot / "Engine/Content", RepositoryRoot / "Games/Sandbox/Content", RepositoryRoot / "DerivedDataCache" / Platform, AssetWorker, std::string(Platform)};
+	const FEditorAssetPaths AssetPaths{.EngineContentRoot = RepositoryRoot / "Engine/Content", .ContentRoot = RepositoryRoot / "Games/Sandbox/Content", .DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform, .WorkerPath = AssetWorker, .TargetPlatform = std::string(Platform)};
 	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths});
 	if (!EditorFrameworkResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize EditorFramework: {}", EditorFrameworkResult.error().Message);
 		return 1;
 	}
+
 	std::unique_ptr<FEditorFramework> EditorFramework = std::move(*EditorFrameworkResult);
 	if (bSmokeTest)
 	{
@@ -456,6 +496,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 		}
 	}
+
 	const FToolUIColor CanvasColor = ToolUITheme::Canvas;
 	const FSrgbColor EditorClearColor = ConvertSrgb8ToSrgbColor(CanvasColor.Red, CanvasColor.Green, CanvasColor.Blue, CanvasColor.Alpha);
 
@@ -468,16 +509,28 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			return false;
 		}
+
 		bRendering = true;
 		const auto CpuFrameStart = std::chrono::steady_clock::now();
 		Presentation->SetToolUIGpuTimingEnabled(EditorFramework->IsUnitStatsVisible());
 		struct FRenderGuard
 		{
-			bool& bRendering;
+			explicit FRenderGuard(bool& bInRendering)
+			    : bRendering(bInRendering)
+			{
+			}
+
 			~FRenderGuard()
 			{
 				bRendering = false;
 			}
+
+			FRenderGuard(const FRenderGuard&) = delete;
+			FRenderGuard& operator=(const FRenderGuard&) = delete;
+			FRenderGuard(FRenderGuard&&) = delete;
+			FRenderGuard& operator=(FRenderGuard&&) = delete;
+
+			bool& bRendering;
 		} RenderGuard{bRendering};
 
 		if (PendingVSync)
@@ -508,38 +561,46 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		bool bPresentedMainFrame = false;
 
 		ToolUI->BeginFrame();
+
 		std::expected<void, FEditorFrameworkError> DrawResult = EditorFramework->Draw([&]
-		                                                                              {
-			                                                                              const FExtent2D ViewExtent = EditorFramework->GetViewportExtent();
-			                                                                              if (ViewExtent.IsEmpty() || Window.IsMinimized())
-				                                                                              return;
-			                                                                              auto MeshFrame = MeshRenderer->Render(ViewExtent, EditorFramework->GetViewportRenderView(), EditorFramework->GetViewportDebugDrawLists());
-			                                                                              if (!MeshFrame)
-			                                                                              {
-				                                                                              HERTA_LOG_ERROR(*Log, EditorLog, "Could not render scene: {}", MeshFrame.error().Message);
-				                                                                              bFrameFailed = true;
-				                                                                              return;
-			                                                                              }
-			                                                                              if (RegisteredSceneTexture != MeshRenderer->GetColorTarget())
-			                                                                              {
-				                                                                              auto TextureId = Presentation->RegisterToolUITexture(MeshRenderer->GetColorTarget(), true);
-				                                                                              if (!TextureId)
-				                                                                              {
-					                                                                              HERTA_LOG_ERROR(*Log, EditorLog, "Could not display scene: {}", TextureId.error().Message);
-					                                                                              bFrameFailed = true;
-					                                                                              return;
-				                                                                              }
-				                                                                              Presentation->UnregisterToolUITexture(SceneTextureId);
-				                                                                              SceneTextureId = *TextureId;
-				                                                                              RegisteredSceneTexture = MeshRenderer->GetColorTarget();
-				                                                                              EditorFramework->SetViewportImage(SceneTextureId);
-			                                                                              }
-		                                                                              });
+		{
+			const FExtent2D ViewExtent = EditorFramework->GetViewportExtent();
+			if (ViewExtent.IsEmpty() || Window.IsMinimized())
+			{
+				return;
+			}
+
+			auto MeshFrame = MeshRenderer->Render(ViewExtent, EditorFramework->GetViewportRenderView(), EditorFramework->GetViewportDebugDrawLists());
+			if (!MeshFrame)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not render scene: {}", MeshFrame.error().Message);
+				bFrameFailed = true;
+				return;
+			}
+
+			if (RegisteredSceneTexture != MeshRenderer->GetColorTarget())
+			{
+				auto TextureId = Presentation->RegisterToolUITexture(MeshRenderer->GetColorTarget(), true);
+				if (!TextureId)
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Could not display scene: {}", TextureId.error().Message);
+					bFrameFailed = true;
+					return;
+				}
+
+				Presentation->UnregisterToolUITexture(SceneTextureId);
+				SceneTextureId = *TextureId;
+				RegisteredSceneTexture = MeshRenderer->GetColorTarget();
+				EditorFramework->SetViewportImage(SceneTextureId);
+			}
+		});
+
 		if (!DrawResult)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not draw the editor: {}", DrawResult.error().Message);
 			bFrameFailed = true;
 		}
+
 		std::expected<EPresentationStatus, FPresentationError> BeginResult = Presentation->BeginFrame();
 		const bool bMainFrameReady = BeginResult && (*BeginResult == EPresentationStatus::Ready || *BeginResult == EPresentationStatus::Suboptimal);
 		if (!BeginResult)
@@ -555,6 +616,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				bFrameFailed = true;
 			}
 		}
+
 		if (bMainFrameReady)
 		{
 			if (auto ClearResult = Presentation->Clear(EditorClearColor); !ClearResult)
@@ -563,6 +625,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				bFrameFailed = true;
 			}
 		}
+
 		std::expected<void, FToolUIError> ToolUIRenderResult = ToolUI->EndFrame(bMainFrameReady);
 		if (!ToolUIRenderResult)
 		{
@@ -587,11 +650,13 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 					bFrameFailed = true;
 				}
 			}
+
 			if (PresentResult && (*PresentResult == EPresentationStatus::Ready || *PresentResult == EPresentationStatus::Suboptimal))
 			{
 				bPresentedMainFrame = true;
 			}
 		}
+
 		if (!bFrameFailed)
 		{
 			std::expected<void, FToolUIError> PlatformRenderResult = ToolUI->RenderPlatformWindows();
@@ -601,6 +666,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				bFrameFailed = true;
 			}
 		}
+
 		bRenderFailed = bFrameFailed;
 		if (Presentation->HasValidationErrors())
 		{
@@ -608,11 +674,13 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			bRenderFailed = true;
 			return false;
 		}
+
 		if (bPresentedMainFrame && !bFrameFailed)
 		{
 			const double CpuMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - CpuFrameStart).count();
 			EditorFramework->SetFrameTimings(CpuMilliseconds, Presentation->GetToolUIGpuMilliseconds());
 		}
+
 		return bPresentedMainFrame && !bFrameFailed;
 	};
 
@@ -622,6 +690,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	{
 		Window.Show();
 	}
+
 	std::uint32_t SmokeFrameCount = bInitialFramePresented ? 1 : 0;
 	std::uint32_t SmokeAttemptCount = 1;
 	std::uint32_t StressStep = 0;
@@ -631,9 +700,9 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		if (bRendererTest && StressStep < 12)
 		{
 			FEditorAppearance Appearance = SmokeAppearance;
-			Appearance.PanelOpacity = StressStep % 3 == 0 ? 0.0f : 0.35f;
-			Appearance.BlurRadius = StressStep % 3 == 0 ? 0.0f : StressStep % 3 == 1 ? 10.0f
-			                                                                         : 40.0f;
+			Appearance.PanelOpacity = StressStep % 3 == 0 ? 0.f : 0.35f;
+			Appearance.BlurRadius = StressStep % 3 == 0 ? 0.f : StressStep % 3 == 1 ? 10.f
+			                                                                        : 40.f;
 			ToolUI->SetAppearance(Appearance);
 			if (StressStep == 4)
 			{
@@ -653,12 +722,16 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 					break;
 				}
 			}
+
 			++StressStep;
 			if (StressStep == 12)
+			{
 				ToolUI->SetAppearance(SmokeAppearance);
+			}
 		}
-		(void)Application->PumpEvents();
-		(void)TaskSystem->RunMainThreadTasks();
+
+		Application->PumpEvents();
+		TaskSystem->RunMainThreadTasks();
 		if (RenderFrame())
 		{
 			++SmokeFrameCount;
@@ -681,11 +754,15 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not wait for the editor renderer: {}", IdleResult.error().Message);
 		return 1;
 	}
+
 	if (bSmokeTest)
 	{
 		if (const auto GpuMilliseconds = Presentation->GetToolUIGpuMilliseconds())
+		{
 			HERTA_LOG_INFO(*Log, EditorLog, "Viewport stats received GPU UI timing: {:.3f} ms", *GpuMilliseconds);
+		}
 	}
+
 	return bRenderFailed ? 1 : 0;
 }
 }

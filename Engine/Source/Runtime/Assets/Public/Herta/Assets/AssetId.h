@@ -13,6 +13,7 @@ class FAssetId final
 {
 public:
 	constexpr FAssetId() noexcept = default;
+
 	constexpr FAssetId(const std::uint64_t InHigh, const std::uint64_t InLow) noexcept
 	    : High(InHigh)
 	    , Low(InLow)
@@ -25,14 +26,17 @@ public:
 	[[nodiscard]] static std::optional<FAssetId> Parse(std::string_view Text) noexcept;
 
 	[[nodiscard]] std::string ToString() const;
+
 	[[nodiscard]] constexpr bool IsValid() const noexcept
 	{
 		return High != 0 || Low != 0;
 	}
+
 	[[nodiscard]] constexpr std::uint64_t GetHigh() const noexcept
 	{
 		return High;
 	}
+
 	[[nodiscard]] constexpr std::uint64_t GetLow() const noexcept
 	{
 		return Low;

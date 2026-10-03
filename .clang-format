@@ -4,7 +4,7 @@ BasedOnStyle: Microsoft
 Standard: Latest
 
 AccessModifierOffset: -4
-AlignAfterOpenBracket: Align
+AlignAfterOpenBracket: DontAlign
 AllowShortBlocksOnASingleLine: Empty
 AllowShortCaseLabelsOnASingleLine: false
 AllowShortEnumsOnASingleLine: false
@@ -13,8 +13,9 @@ AllowShortIfStatementsOnASingleLine: Never
 AllowShortLambdasOnASingleLine: Empty
 AllowShortLoopsOnASingleLine: false
 AlwaysBreakTemplateDeclarations: No
-BinPackArguments: false
+BinPackArguments: true
 BinPackParameters: false
+BreakBeforeBinaryOperators: NonAssignment
 BreakBeforeBraces: Allman
 BreakConstructorInitializers: BeforeComma
 ColumnLimit: 0
@@ -23,14 +24,29 @@ Cpp11BracedListStyle: true
 DerivePointerAlignment: false
 FixNamespaceComments: false
 IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^"'
+    Priority: 1
+  # Jolt requires Jolt.h before any other Jolt header.
+  - Regex: '^<Jolt/Jolt\.h>'
+    Priority: 2
+    SortPriority: 2
+  - Regex: '^<[a-z0-9_]+>$'
+    Priority: 4
+  - Regex: '^<'
+    Priority: 2
+    SortPriority: 3
 IndentCaseBlocks: false
 IndentCaseLabels: true
 IndentPPDirectives: BeforeHash
 IndentWidth: 4
+InsertBraces: true
 KeepEmptyLinesAtTheStartOfBlocks: false
+LambdaBodyIndentation: OuterScope
 MaxEmptyLinesToKeep: 1
 NamespaceIndentation: None
 PointerAlignment: Left
+SeparateDefinitionBlocks: Always
 ReferenceAlignment: Left
 SortIncludes: CaseSensitive
 SpaceAfterTemplateKeyword: true

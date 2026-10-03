@@ -1,6 +1,7 @@
 #pragma once
 
 #include <im3d.h>
+
 #include <optional>
 
 namespace Herta
@@ -9,7 +10,7 @@ struct FViewportRotationFeedbackState
 {
 	std::optional<float> AngleDegrees;
 	Im3d::Id ActiveId = Im3d::Id_Invalid;
-	Im3d::Vec3 InitialRadial{1.0f, 0.0f, 0.0f};
+	Im3d::Vec3 InitialRadial{1.f, 0.f, 0.f};
 
 	void Reset() noexcept
 	{

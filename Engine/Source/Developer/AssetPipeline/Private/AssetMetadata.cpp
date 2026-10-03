@@ -21,9 +21,9 @@ inline constexpr std::size_t MaximumMetadataSize = std::size_t{64} * 1024;
 [[nodiscard]] constexpr bool IsIdentifier(const std::string_view Text) noexcept
 {
 	return !Text.empty() && std::ranges::all_of(Text, [](const char Character)
-	                                            {
-		                                            return (Character >= 'A' && Character <= 'Z') || (Character >= 'a' && Character <= 'z') || (Character >= '0' && Character <= '9') || Character == '_';
-	                                            });
+	{
+		return (Character >= 'A' && Character <= 'Z') || (Character >= 'a' && Character <= 'z') || (Character >= '0' && Character <= '9') || Character == '_';
+	});
 }
 
 [[nodiscard]] constexpr bool IsValidValue(const std::string_view Value) noexcept
@@ -34,10 +34,10 @@ inline constexpr std::size_t MaximumMetadataSize = std::size_t{64} * 1024;
 	}
 
 	return std::ranges::none_of(Value, [](const char Character)
-	                            {
-		                            const auto Byte = static_cast<unsigned char>(Character);
-		                            return Byte < 0x20 || Byte == 0x7f;
-	                            });
+	{
+		const auto Byte = static_cast<unsigned char>(Character);
+		return Byte < 0x20 || Byte == 0x7f;
+	});
 }
 
 struct FLine
@@ -53,7 +53,8 @@ struct FLine
 	{
 		return std::nullopt;
 	}
-	return FLine{Line.substr(0, Position), Line.substr(Position + Separator.size())};
+
+	return FLine{.Key = Line.substr(0, Position), .Value = Line.substr(Position + Separator.size())};
 }
 
 [[nodiscard]] std::expected<void, FAssetError> ValidateMetadata(const FAssetMetadata& Metadata)
@@ -62,10 +63,12 @@ struct FLine
 	{
 		return std::unexpected(FAssetError{"Asset metadata requires a valid ID"});
 	}
+
 	if (!IsIdentifier(Metadata.Importer))
 	{
 		return std::unexpected(FAssetError{std::format("Invalid importer name '{}'", Metadata.Importer)});
 	}
+
 	for (const auto& [Name, Value] : Metadata.Settings)
 	{
 		if (!IsIdentifier(Name) || !IsValidValue(Value))
@@ -73,6 +76,7 @@ struct FLine
 			return std::unexpected(FAssetError{std::format("Invalid import setting '{}'", Name)});
 		}
 	}
+
 	return {};
 }
 }
@@ -93,8 +97,10 @@ std::expected<FAssetMetadata, FAssetError> ParseAssetMetadata(const std::string_
 		{
 			Line.remove_suffix(1);
 		}
+
 		Lines.push_back(Line);
 	}
+
 	if (!Lines.empty() && Lines.back().empty())
 	{
 		Lines.pop_back();
@@ -118,11 +124,11 @@ std::expected<FAssetMetadata, FAssetError> ParseAssetMetadata(const std::string_
 
 	const std::optional<FLine> Version = SplitLine(Lines[1]);
 	std::uint32_t VersionNumber = 0;
-	if (!Version || Version->Key != "Version" ||
-	    std::from_chars(Version->Value.data(), Version->Value.data() + Version->Value.size(), VersionNumber).ptr != Version->Value.data() + Version->Value.size())
+	if (!Version || Version->Key != "Version" || std::from_chars(Version->Value.data(), Version->Value.data() + Version->Value.size(), VersionNumber).ptr != Version->Value.data() + Version->Value.size())
 	{
 		return LineError(1, "expected 'Version = <number>'");
 	}
+
 	if (VersionNumber != AssetMetadataVersion)
 	{
 		return LineError(1, std::format("unsupported metadata version {}", VersionNumber));
@@ -146,6 +152,7 @@ std::expected<FAssetMetadata, FAssetError> ParseAssetMetadata(const std::string_
 			{
 				return LineError(Index, "invalid or duplicate ID");
 			}
+
 			Metadata.Id = *Id;
 			bHasId = true;
 		}
@@ -155,6 +162,7 @@ std::expected<FAssetMetadata, FAssetError> ParseAssetMetadata(const std::string_
 			{
 				return LineError(Index, "duplicate importer");
 			}
+
 			Metadata.Importer = Line->Value;
 			bHasImporter = true;
 		}
@@ -181,6 +189,7 @@ std::expected<FAssetMetadata, FAssetError> ParseAssetMetadata(const std::string_
 	{
 		return std::unexpected(std::move(Valid.error()));
 	}
+
 	return Metadata;
 }
 
@@ -196,6 +205,7 @@ std::expected<std::string, FAssetError> SerializeAssetMetadata(const FAssetMetad
 	{
 		Text.append(std::format("{}{} = {}\n", SettingPrefix, Name, Value));
 	}
+
 	return Text;
 }
 
@@ -214,10 +224,12 @@ std::expected<FAssetMetadata, FAssetError> LoadAssetMetadata(const std::filesyst
 	{
 		return std::unexpected(std::move(Bytes.error()));
 	}
+
 	if (!*Bytes)
 	{
 		return std::unexpected(FAssetError{std::format("'{}' has no metadata", PathToUtf8(SourcePath))});
 	}
+
 	return ParseAssetMetadata(std::string_view(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size()));
 }
 }

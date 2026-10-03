@@ -94,14 +94,15 @@ public:
 				}
 			}
 		}
+
 		return Result;
 	}
 
 	[[nodiscard]] constexpr TVector3<T> operator*(const TVector3<T>& Vector) const
 	{
 		return {(*this)(0, 0) * Vector.X + (*this)(0, 1) * Vector.Y + (*this)(0, 2) * Vector.Z,
-		        (*this)(1, 0) * Vector.X + (*this)(1, 1) * Vector.Y + (*this)(1, 2) * Vector.Z,
-		        (*this)(2, 0) * Vector.X + (*this)(2, 1) * Vector.Y + (*this)(2, 2) * Vector.Z};
+		    (*this)(1, 0) * Vector.X + (*this)(1, 1) * Vector.Y + (*this)(1, 2) * Vector.Z,
+		    (*this)(2, 0) * Vector.X + (*this)(2, 1) * Vector.Y + (*this)(2, 2) * Vector.Z};
 	}
 
 	[[nodiscard]] constexpr bool operator==(const TMatrix3&) const = default;
@@ -159,12 +160,13 @@ public:
 				Result(Row, Column) = Rotation3(Row, Column);
 			}
 		}
+
 		return Result;
 	}
 
 	[[nodiscard]] static TMatrix4 Transform(const TVector3<T>& InTranslation,
-	                                        const TQuaternion<T>& InRotation,
-	                                        const TVector3<T>& InScale)
+	    const TQuaternion<T>& InRotation,
+	    const TVector3<T>& InScale)
 	{
 		return TMatrix4::Translation(InTranslation) * TMatrix4::Rotation(InRotation) * TMatrix4::Scale(InScale);
 	}
@@ -215,6 +217,7 @@ public:
 				}
 			}
 		}
+
 		return Result;
 	}
 
@@ -224,7 +227,8 @@ public:
 		    (*this)(0, 0) * Vector.X + (*this)(0, 1) * Vector.Y + (*this)(0, 2) * Vector.Z + (*this)(0, 3) * Vector.W,
 		    (*this)(1, 0) * Vector.X + (*this)(1, 1) * Vector.Y + (*this)(1, 2) * Vector.Z + (*this)(1, 3) * Vector.W,
 		    (*this)(2, 0) * Vector.X + (*this)(2, 1) * Vector.Y + (*this)(2, 2) * Vector.Z + (*this)(2, 3) * Vector.W,
-		    (*this)(3, 0) * Vector.X + (*this)(3, 1) * Vector.Y + (*this)(3, 2) * Vector.Z + (*this)(3, 3) * Vector.W};
+		    (*this)(3, 0) * Vector.X + (*this)(3, 1) * Vector.Y + (*this)(3, 2) * Vector.Z + (*this)(3, 3) * Vector.W,
+		};
 	}
 
 	[[nodiscard]] constexpr TVector3<T> TransformPosition(const TVector3<T>& Position) const
@@ -244,7 +248,23 @@ public:
 private:
 	// The public matrix contract is column-major even though element access stays row-column.
 	std::array<T, 16> Elements{
-	    T{1}, T{0}, T{0}, T{0}, T{0}, T{1}, T{0}, T{0}, T{0}, T{0}, T{1}, T{0}, T{0}, T{0}, T{0}, T{1}};
+	    T{1},
+	    T{0},
+	    T{0},
+	    T{0},
+	    T{0},
+	    T{1},
+	    T{0},
+	    T{0},
+	    T{0},
+	    T{0},
+	    T{1},
+	    T{0},
+	    T{0},
+	    T{0},
+	    T{0},
+	    T{1},
+	};
 };
 
 using FMatrix3 = TMatrix3<float>;

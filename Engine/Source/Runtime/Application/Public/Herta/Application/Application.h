@@ -262,7 +262,8 @@ struct FWindowBehaviorPolicy
 	return {
 	    .bShowInTaskbar = bTaskbarVisibilitySupported ? Descriptor.bShowInTaskbar : true,
 	    .bTopMost = bTopMostSupported && Descriptor.bTopMost,
-	    .bFocusOnShow = Descriptor.bFocusOnShow};
+	    .bFocusOnShow = Descriptor.bFocusOnShow,
+	};
 }
 
 struct FWindowBackendHandle
@@ -372,7 +373,7 @@ public:
 
 	[[nodiscard]] std::expected<FWindow*, FApplicationError> CreateWindow(FWindowDescriptor Descriptor);
 	void DestroyWindow(FWindow& Window) noexcept;
-	[[nodiscard]] EEventPumpMode PumpEvents();
+	EEventPumpMode PumpEvents();
 	void PostEmptyEvent() noexcept;
 	[[nodiscard]] bool ShouldWaitForEvents() const noexcept;
 	[[nodiscard]] const FApplicationCapabilities& GetCapabilities() const noexcept;

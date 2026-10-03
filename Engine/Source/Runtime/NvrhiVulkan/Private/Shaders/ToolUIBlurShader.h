@@ -100,5 +100,6 @@ inline constexpr std::uint32_t GToolUIBlurFragmentShader[] = {
 	0x0000000b,0x00050057,0x00000009,0x00000019,0x00000017,0x00000018,0x000200fe,0x00000019,
 	0x00010038
 };
+
 // clang-format on
 }

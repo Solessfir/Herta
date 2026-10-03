@@ -3,14 +3,15 @@
 #include "FileUtilities.h"
 #include "Herta/AssetPipeline/TextureCooker.h"
 
-#include <algorithm>
-#include <array>
 #include <fastgltf/core.hpp>
 #include <fastgltf/tools.hpp>
+#include <meshoptimizer.h>
+
+#include <algorithm>
+#include <array>
 #include <format>
 #include <limits>
 #include <map>
-#include <meshoptimizer.h>
 #include <optional>
 #include <set>
 #include <type_traits>
@@ -41,10 +42,12 @@ inline constexpr std::size_t MaximumWarnings = 32;
 	{
 		return std::unexpected(FAssetError{std::format("Cannot parse glTF: {}", fastgltf::getErrorMessage(Asset.error()))});
 	}
+
 	if (const fastgltf::Error Error = fastgltf::validate(Asset.get()); Error != fastgltf::Error::None)
 	{
 		return std::unexpected(FAssetError{std::format("Invalid glTF: {}", fastgltf::getErrorMessage(Error))});
 	}
+
 	return std::move(Asset.get());
 }
 
@@ -54,38 +57,41 @@ inline constexpr std::size_t MaximumWarnings = 32;
 	{
 		return std::unexpected(FAssetError{std::format("glTF URI '{}' is not a relative file path", Uri.path())});
 	}
+
 	const std::filesystem::path Relative = Uri.fspath();
 	if (Relative.has_root_name() || Relative.has_root_directory())
 	{
 		return std::unexpected(FAssetError{std::format("glTF URI '{}' must be relative", Uri.path())});
 	}
+
 	std::string Resolved = GenericPathToUtf8((Utf8ToPath(SourcePath).parent_path() / Relative).lexically_normal());
 	if (!IsValidAssetPath(Resolved))
 	{
 		return std::unexpected(FAssetError{std::format("glTF URI '{}' escapes the content root or is not portable", Uri.path())});
 	}
+
 	return Resolved;
 }
 
 [[nodiscard]] std::span<const std::byte> GetBufferBytes(const fastgltf::Buffer& Buffer)
 {
 	return std::visit(fastgltf::visitor{[](const auto&)
-	                                    {
-		                                    return std::span<const std::byte>{};
-	                                    },
-	                                    [](const fastgltf::sources::Array& Array)
-	                                    {
-		                                    return std::span<const std::byte>(Array.bytes.data(), Array.bytes.size_bytes());
-	                                    },
-	                                    [](const fastgltf::sources::Vector& Vector)
-	                                    {
-		                                    return std::span<const std::byte>(Vector.bytes.data(), Vector.bytes.size());
-	                                    },
-	                                    [](const fastgltf::sources::ByteView& View)
-	                                    {
-		                                    return std::span<const std::byte>(View.bytes.data(), View.bytes.size());
-	                                    }},
-	                  Buffer.data);
+	{
+		return std::span<const std::byte>{};
+	},
+	                      [](const fastgltf::sources::Array& Array)
+	{
+		return std::span<const std::byte>(Array.bytes.data(), Array.bytes.size_bytes());
+	},
+	                      [](const fastgltf::sources::Vector& Vector)
+	{
+		return std::span<const std::byte>(Vector.bytes.data(), Vector.bytes.size());
+	},
+	                      [](const fastgltf::sources::ByteView& View)
+	{
+		return std::span<const std::byte>(View.bytes.data(), View.bytes.size());
+	}},
+	    Buffer.data);
 }
 
 [[nodiscard]] std::optional<std::span<const std::byte>> GetImageBytes(const fastgltf::Asset& Asset, const fastgltf::Image& Image)
@@ -98,16 +104,20 @@ inline constexpr std::size_t MaximumWarnings = 32;
 		{
 			return std::nullopt;
 		}
+
 		return Buffer.subspan(BufferView.byteOffset, BufferView.byteLength);
 	}
+
 	if (const auto* Array = std::get_if<fastgltf::sources::Array>(&Image.data))
 	{
 		return std::span<const std::byte>(Array->bytes.data(), Array->bytes.size_bytes());
 	}
+
 	if (const auto* View = std::get_if<fastgltf::sources::ByteView>(&Image.data))
 	{
 		return std::span<const std::byte>(View->bytes.data(), View->bytes.size());
 	}
+
 	return std::nullopt;
 }
 
@@ -141,6 +151,7 @@ public:
 		{
 			return std::unexpected(std::move(*Error));
 		}
+
 		if (Buckets.empty())
 		{
 			return std::unexpected(FAssetError{"glTF contains no triangle geometry"});
@@ -150,8 +161,8 @@ public:
 		std::map<std::pair<std::size_t, std::array<float, 4>>, std::uint32_t> TextureLookup;
 		for (auto& [MaterialKey, Bucket] : Buckets)
 		{
-			FCookedMaterial Material{"Default", 0};
-			std::array<float, 4> Factor{1.0f, 1.0f, 1.0f, 1.0f};
+			FCookedMaterial Material{.Name = "Default", .BaseColorTexture = 0};
+			std::array<float, 4> Factor{1.f, 1.f, 1.f, 1.f};
 			std::optional<std::size_t> ImageIndex;
 			if (MaterialKey > 0)
 			{
@@ -161,6 +172,7 @@ public:
 				{
 					Factor[Channel] = static_cast<float>(Source.pbrData.baseColorFactor[Channel]);
 				}
+
 				if (Source.pbrData.baseColorTexture && Asset.textures[Source.pbrData.baseColorTexture->textureIndex].imageIndex)
 				{
 					ImageIndex = *Asset.textures[Source.pbrData.baseColorTexture->textureIndex].imageIndex;
@@ -175,22 +187,25 @@ public:
 				Texture = TextureLookup.emplace(Key, static_cast<std::uint32_t>(Model.Textures.size())).first;
 				Model.Textures.push_back(CookBaseColor(ImageIndex, Factor));
 			}
+
 			Material.BaseColorTexture = Texture->second;
 			Model.Materials.push_back(std::move(Material));
 
 			const auto VertexBase = static_cast<std::uint32_t>(Model.Vertices.size());
-			Model.Sections.push_back({static_cast<std::uint32_t>(Model.Indices.size()), static_cast<std::uint32_t>(Bucket.Indices.size()), static_cast<std::uint32_t>(Model.Materials.size() - 1)});
+			Model.Sections.push_back({.FirstIndex = static_cast<std::uint32_t>(Model.Indices.size()), .IndexCount = static_cast<std::uint32_t>(Bucket.Indices.size()), .Material = static_cast<std::uint32_t>(Model.Materials.size() - 1)});
 			Model.Vertices.insert(Model.Vertices.end(), Bucket.Vertices.begin(), Bucket.Vertices.end());
 			for (const std::uint32_t Index : Bucket.Indices)
 			{
 				Model.Indices.push_back(VertexBase + Index);
 			}
 		}
+
 		Optimize(Model);
 		if (std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)
 		{
 			return std::unexpected(std::move(Valid.error()));
 		}
+
 		return Model;
 	}
 
@@ -221,6 +236,7 @@ private:
 			Warn(std::format("Mesh '{}' primitive {} is not a triangle list and was skipped", MeshName, PrimitiveIndex));
 			return;
 		}
+
 		const auto* Position = Primitive.findAttribute("POSITION");
 		if (Position == Primitive.attributes.end())
 		{
@@ -250,14 +266,15 @@ private:
 		}
 
 		Bucket.Vertices.resize(VertexBase + VertexCount);
+
 		fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec3>(Asset, PositionAccessor, [&](const fastgltf::math::fvec3& Local, const std::size_t Index)
-		                                                          {
-			                                                          std::array<float, 3>& Target = Bucket.Vertices[VertexBase + Index].Position;
-			                                                          for (std::size_t Row = 0; Row < 3; ++Row)
-			                                                          {
-				                                                          Target[Row] = World[0][Row] * Local[0] + World[1][Row] * Local[1] + World[2][Row] * Local[2] + World[3][Row];
-			                                                          }
-		                                                          });
+		{
+			std::array<float, 3>& Target = Bucket.Vertices[VertexBase + Index].Position;
+			for (std::size_t Row = 0; Row < 3; ++Row)
+			{
+				Target[Row] = World[0][Row] * Local[0] + World[1][Row] * Local[1] + World[2][Row] * Local[2] + World[3][Row];
+			}
+		});
 
 		const std::string TexCoordName = std::format("TEXCOORD_{}", TexCoordSet);
 		if (const auto* TexCoord = Primitive.findAttribute(TexCoordName); TexCoord != Primitive.attributes.end())
@@ -268,10 +285,11 @@ private:
 				Fail(std::format("Mesh '{}' primitive {} has mismatched {} and POSITION counts", MeshName, PrimitiveIndex, TexCoordName));
 				return;
 			}
+
 			fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec2>(Asset, TexCoordAccessor, [&](const fastgltf::math::fvec2& UV, const std::size_t Index)
-			                                                          {
-				                                                          Bucket.Vertices[VertexBase + Index].UV = {UV[0], UV[1]};
-			                                                          });
+			{
+				Bucket.Vertices[VertexBase + Index].UV = {UV[0], UV[1]};
+			});
 		}
 
 		const std::size_t IndexBase = Bucket.Indices.size();
@@ -279,10 +297,11 @@ private:
 		{
 			bool bOutOfRange = false;
 			fastgltf::iterateAccessor<std::uint32_t>(Asset, Asset.accessors[*Primitive.indicesAccessor], [&](const std::uint32_t Index)
-			                                         {
-				                                         bOutOfRange |= Index >= VertexCount;
-				                                         Bucket.Indices.push_back(static_cast<std::uint32_t>(VertexBase + std::min<std::size_t>(Index, VertexCount - 1)));
-			                                         });
+			{
+				bOutOfRange |= Index >= VertexCount;
+				Bucket.Indices.push_back(static_cast<std::uint32_t>(VertexBase + std::min<std::size_t>(Index, VertexCount - 1)));
+			});
+
 			if (bOutOfRange)
 			{
 				Fail(std::format("Mesh '{}' primitive {} references a missing vertex", MeshName, PrimitiveIndex));
@@ -296,6 +315,7 @@ private:
 				Bucket.Indices.push_back(static_cast<std::uint32_t>(VertexBase + Index));
 			}
 		}
+
 		if ((Bucket.Indices.size() - IndexBase) % 3 != 0)
 		{
 			Fail(std::format("Mesh '{}' primitive {} does not contain whole triangles", MeshName, PrimitiveIndex));
@@ -307,11 +327,12 @@ private:
 		{
 			return std::array<float, 3>{World[Index][0], World[Index][1], World[Index][2]};
 		};
+
 		const std::array<float, 3> X = Column(0);
 		const std::array<float, 3> Y = Column(1);
 		const std::array<float, 3> Z = Column(2);
 		const float Determinant = X[0] * (Y[1] * Z[2] - Y[2] * Z[1]) - X[1] * (Y[0] * Z[2] - Y[2] * Z[0]) + X[2] * (Y[0] * Z[1] - Y[1] * Z[0]);
-		if (Determinant < 0.0f)
+		if (Determinant < 0.f)
 		{
 			for (std::size_t Index = IndexBase; Index < Bucket.Indices.size(); Index += 3)
 			{
@@ -357,6 +378,7 @@ private:
 		{
 			meshopt_optimizeVertexCache(Optimized.data() + Section.FirstIndex, Model.Indices.data() + Section.FirstIndex, Section.IndexCount, Vertices.size());
 		}
+
 		Model.Indices = std::move(Optimized);
 
 		Model.Vertices.resize(Vertices.size());
@@ -389,10 +411,13 @@ std::expected<std::vector<std::string>, FAssetError> FindGltfDependencies(const 
 			{
 				return std::unexpected(std::move(Resolved.error()));
 			}
+
 			Dependencies.insert(std::move(*Resolved));
 		}
+
 		return {};
 	};
+
 	for (const fastgltf::Buffer& Buffer : Parsed->buffers)
 	{
 		if (std::expected<void, FAssetError> Added = AddUri(Buffer.data); !Added)
@@ -400,6 +425,7 @@ std::expected<std::vector<std::string>, FAssetError> FindGltfDependencies(const 
 			return std::unexpected(std::move(Added.error()));
 		}
 	}
+
 	for (const fastgltf::Image& Image : Parsed->images)
 	{
 		if (std::expected<void, FAssetError> Added = AddUri(Image.data); !Added)
@@ -407,6 +433,7 @@ std::expected<std::vector<std::string>, FAssetError> FindGltfDependencies(const 
 			return std::unexpected(std::move(Added.error()));
 		}
 	}
+
 	return std::vector<std::string>(Dependencies.begin(), Dependencies.end());
 }
 
@@ -423,6 +450,7 @@ std::expected<FCookedModel, FAssetError> CookGltf(const std::filesystem::path& C
 	{
 		return std::unexpected(std::move(Parsed.error()));
 	}
+
 	const fastgltf::Asset& Asset = *Parsed;
 	for (const fastgltf::Buffer& Buffer : Asset.buffers)
 	{
@@ -444,13 +472,14 @@ std::expected<FCookedModel, FAssetError> CookGltf(const std::filesystem::path& C
 	{
 		const std::size_t SceneIndex = Asset.defaultScene ? *Asset.defaultScene : 0;
 		fastgltf::iterateSceneNodes(Asset, SceneIndex, fastgltf::math::fmat4x4(), [&](const fastgltf::Node& Node, const fastgltf::math::fmat4x4& World)
-		                            {
-			                            if (Node.meshIndex)
-			                            {
-				                            Builder.AddMesh(*Node.meshIndex, World);
-			                            }
-		                            });
+		{
+			if (Node.meshIndex)
+			{
+				Builder.AddMesh(*Node.meshIndex, World);
+			}
+		});
 	}
+
 	return Builder.Build();
 }
 }

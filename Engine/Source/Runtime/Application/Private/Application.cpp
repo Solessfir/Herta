@@ -31,7 +31,7 @@ namespace Herta
 {
 namespace
 {
-inline constexpr FLogCategory ApplicationLog{"Application"};
+inline constexpr FLogCategory ApplicationLog{.Name = "Application"};
 constinit std::atomic_bool GApplicationExists = false;
 thread_local int GWindowCallbackDispatchDepth = 0;
 
@@ -245,7 +245,7 @@ struct FWindow::FImplementation
 	int PositionY = 0;
 	int FramebufferWidth = 0;
 	int FramebufferHeight = 0;
-	float ContentScale = 1.0f;
+	float ContentScale = 1.f;
 	bool bVisible = false;
 	bool bFocused = false;
 	bool bMinimized = false;
@@ -283,7 +283,9 @@ struct FWindow::FImplementation
 		const FWindowActionCapabilities LatestCapabilities{
 		    .bMinimize = glfwGetWindowAttrib(Handle, GLFW_MINIMIZE_SUPPORTED) == GLFW_TRUE,
 		    .bMaximize = glfwGetWindowAttrib(Handle, GLFW_MAXIMIZE_SUPPORTED) == GLFW_TRUE,
-		    .bWindowMenu = glfwGetWindowAttrib(Handle, GLFW_WINDOW_MENU_SUPPORTED) == GLFW_TRUE};
+		    .bWindowMenu = glfwGetWindowAttrib(Handle, GLFW_WINDOW_MENU_SUPPORTED) == GLFW_TRUE,
+		};
+
 		if (LatestCapabilities == ActionCapabilities)
 		{
 			return;
@@ -313,9 +315,14 @@ public:
 	{
 		--GWindowCallbackDispatchDepth;
 	}
+
+	FWindowCallbackScope(const FWindowCallbackScope&) = delete;
+	FWindowCallbackScope& operator=(const FWindowCallbackScope&) = delete;
+	FWindowCallbackScope(FWindowCallbackScope&&) = delete;
+	FWindowCallbackScope& operator=(FWindowCallbackScope&&) = delete;
 };
 
-template <typename... CallbackArguments, typename... Arguments> void InvokeWindowCallback(FWindow::FImplementation* const Window, const std::function<void(FWindow&, CallbackArguments...)> FWindowCallbacks::*const Member, Arguments&&... Values) noexcept
+template <typename... CallbackArguments, typename... Arguments> void InvokeWindowCallback(FWindow::FImplementation* const Window, const std::function<void(FWindow&, CallbackArguments...)> FWindowCallbacks::* const Member, Arguments&&... Values) noexcept
 {
 	try
 	{
@@ -474,6 +481,7 @@ void DropCallback(GLFWwindow* const Handle, const int Count, const char** const 
 		{
 			DroppedPaths.emplace_back(std::u8string(reinterpret_cast<const char8_t*>(Paths[Index])));
 		}
+
 		InvokeWindowCallback(Window, &FWindowCallbacks::FilesDropped, std::span<const std::filesystem::path>(DroppedPaths));
 	}
 	catch (...)
@@ -563,46 +571,55 @@ int FWindow::GetWidth() const noexcept
 	Implementation->VerifyMainThread();
 	return Implementation->Width;
 }
+
 int FWindow::GetHeight() const noexcept
 {
 	Implementation->VerifyMainThread();
 	return Implementation->Height;
 }
+
 int FWindow::GetFramebufferWidth() const noexcept
 {
 	Implementation->VerifyMainThread();
 	return Implementation->FramebufferWidth;
 }
+
 int FWindow::GetFramebufferHeight() const noexcept
 {
 	Implementation->VerifyMainThread();
 	return Implementation->FramebufferHeight;
 }
+
 FWindowPosition FWindow::GetPosition() const noexcept
 {
 	Implementation->VerifyMainThread();
-	return {Implementation->PositionX, Implementation->PositionY};
+	return {.X = Implementation->PositionX, .Y = Implementation->PositionY};
 }
+
 float FWindow::GetContentScale() const noexcept
 {
 	Implementation->VerifyMainThread();
 	return Implementation->ContentScale;
 }
+
 bool FWindow::IsVisible() const noexcept
 {
 	Implementation->VerifyMainThread();
 	return Implementation->bVisible;
 }
+
 bool FWindow::IsFocused() const noexcept
 {
 	Implementation->VerifyMainThread();
 	return Implementation->bFocused;
 }
+
 bool FWindow::IsMinimized() const noexcept
 {
 	Implementation->VerifyMainThread();
 	return Implementation->bMinimized;
 }
+
 bool FWindow::IsMaximized() const noexcept
 {
 	Implementation->VerifyMainThread();
@@ -673,14 +690,14 @@ std::expected<std::string, FApplicationError> FWindow::GetClipboardText() const
 		const char* const Text = glfwGetClipboardString(Implementation->Handle);
 		if (!Text)
 		{
-			return std::unexpected(FApplicationError{EApplicationErrorCode::ClipboardUnavailable, "The platform clipboard does not contain UTF-8 text"});
+			return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::ClipboardUnavailable, .Message = "The platform clipboard does not contain UTF-8 text"});
 		}
 
 		return std::string(Text);
 	}
 	catch (...)
 	{
-		return std::unexpected(FApplicationError{EApplicationErrorCode::ClipboardUnavailable, "Could not copy text from the platform clipboard"});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::ClipboardUnavailable, .Message = "Could not copy text from the platform clipboard"});
 	}
 }
 
@@ -728,7 +745,7 @@ std::expected<void, FApplicationError> FWindow::SetPosition(const int X, const i
 	Implementation->VerifyMainThread();
 	if (!Implementation->bProgrammaticWindowPosition)
 	{
-		return std::unexpected(FApplicationError{EApplicationErrorCode::OperationUnsupported, "The active window system does not support programmatic window positioning"});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::OperationUnsupported, .Message = "The active window system does not support programmatic window positioning"});
 	}
 
 	glfwSetWindowPos(Implementation->Handle, X, Y);
@@ -742,7 +759,7 @@ std::expected<void, FApplicationError> FWindow::SetSize(const int Width, const i
 	Implementation->VerifyMainThread();
 	if (Width <= 0 || Height <= 0)
 	{
-		return std::unexpected(FApplicationError{EApplicationErrorCode::InvalidWindowDescriptor, "Window dimensions must be greater than zero"});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::InvalidWindowDescriptor, .Message = "Window dimensions must be greater than zero"});
 	}
 
 	glfwSetWindowSize(Implementation->Handle, Width, Height);
@@ -771,7 +788,7 @@ std::expected<void, FApplicationError> FWindow::SetClipboardText(const std::stri
 	}
 	catch (...)
 	{
-		return std::unexpected(FApplicationError{EApplicationErrorCode::ClipboardUnavailable, "Could not copy text to the platform clipboard"});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::ClipboardUnavailable, .Message = "Could not copy text to the platform clipboard"});
 	}
 }
 
@@ -815,7 +832,7 @@ std::expected<std::unique_ptr<FApplication>, FApplicationError> FApplication::Cr
 	bool bExpected = false;
 	if (!GApplicationExists.compare_exchange_strong(bExpected, true, std::memory_order_acq_rel))
 	{
-		return std::unexpected(FApplicationError{EApplicationErrorCode::AlreadyInitialized, "Only one GLFW application may exist in a process"});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::AlreadyInitialized, .Message = "Only one GLFW application may exist in a process"});
 	}
 
 	glfwSetErrorCallback(GlfwErrorCallback);
@@ -825,7 +842,7 @@ std::expected<std::unique_ptr<FApplication>, FApplicationError> FApplication::Cr
 		const char* Description = nullptr;
 		const int Error = glfwGetError(&Description);
 		GApplicationExists.store(false, std::memory_order_release);
-		return std::unexpected(FApplicationError{EApplicationErrorCode::GlfwInitializationFailed, std::format("Could not initialize GLFW ({}): {}", Error, Description ? Description : "Unknown error")});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::GlfwInitializationFailed, .Message = std::format("Could not initialize GLFW ({}): {}", Error, Description ? Description : "Unknown error")});
 	}
 
 	try
@@ -846,13 +863,13 @@ std::expected<std::unique_ptr<FApplication>, FApplicationError> FApplication::Cr
 	{
 		glfwTerminate();
 		GApplicationExists.store(false, std::memory_order_release);
-		return std::unexpected(FApplicationError{EApplicationErrorCode::GlfwInitializationFailed, Exception.what()});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::GlfwInitializationFailed, .Message = Exception.what()});
 	}
 	catch (...)
 	{
 		glfwTerminate();
 		GApplicationExists.store(false, std::memory_order_release);
-		return std::unexpected(FApplicationError{EApplicationErrorCode::GlfwInitializationFailed, "Could not create the application due to an unknown error"});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::GlfwInitializationFailed, .Message = "Could not create the application due to an unknown error"});
 	}
 }
 
@@ -869,6 +886,7 @@ FApplication::~FApplication()
 		// Window destruction is deferred, but the process-wide GLFW owner cannot be destroyed reentrantly.
 		std::terminate();
 	}
+
 	Implementation->Windows.clear();
 	glfwTerminate();
 	GApplicationExists.store(false, std::memory_order_release);
@@ -879,7 +897,7 @@ std::expected<FWindow*, FApplicationError> FApplication::CreateWindow(FWindowDes
 	Implementation->VerifyMainThread();
 	if (Descriptor.Title.empty() || Descriptor.Width < 0 || Descriptor.Height < 0 || Descriptor.WorkAreaPercent < 1 || Descriptor.WorkAreaPercent > 100)
 	{
-		return std::unexpected(FApplicationError{EApplicationErrorCode::InvalidWindowDescriptor, "Window title, dimensions, or work-area percentage are invalid"});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::InvalidWindowDescriptor, .Message = "Window title, dimensions, or work-area percentage are invalid"});
 	}
 
 	GLFWwindow* CreatedHandle = nullptr;
@@ -918,19 +936,21 @@ std::expected<FWindow*, FApplicationError> FApplication::CreateWindow(FWindowDes
 		{
 			glfwWindowHint(GLFW_FLOATING, GLFW_TRUE);
 		}
+
 		const bool bCustomTitleBar = Descriptor.bCustomTitleBar && Implementation->Capabilities.bCustomTitleBars;
 		glfwWindowHint(GLFW_TITLEBAR, bCustomTitleBar ? GLFW_FALSE : GLFW_TRUE);
 
 		CreatedHandle = glfwCreateWindow(Placement.Width, Placement.Height, Descriptor.Title.c_str(), nullptr, nullptr);
 		if (!CreatedHandle)
 		{
-			return std::unexpected(FApplicationError{EApplicationErrorCode::WindowCreationFailed, "GLFW could not create the window"});
+			return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = "GLFW could not create the window"});
 		}
+
 		if (!ApplyTaskbarVisibility(CreatedHandle, Implementation->Capabilities.WindowSystem, Behavior.bShowInTaskbar))
 		{
 			glfwDestroyWindow(CreatedHandle);
 			CreatedHandle = nullptr;
-			return std::unexpected(FApplicationError{EApplicationErrorCode::WindowCreationFailed, "Could not apply the requested taskbar visibility"});
+			return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = "Could not apply the requested taskbar visibility"});
 		}
 
 		auto WindowImplementation = std::make_unique<FWindow::FImplementation>();
@@ -956,8 +976,8 @@ std::expected<FWindow*, FApplicationError> FApplication::CreateWindow(FWindowDes
 		}
 
 		glfwGetFramebufferSize(CreatedHandle, &WindowImplementation->FramebufferWidth, &WindowImplementation->FramebufferHeight);
-		float XScale = 1.0f;
-		float YScale = 1.0f;
+		float XScale = 1.f;
+		float YScale = 1.f;
 		glfwGetWindowContentScale(CreatedHandle, &XScale, &YScale);
 		WindowImplementation->ContentScale = ResolveTitleBarUiScale(Implementation->Capabilities.WindowSystem == EWindowSystem::Wayland, std::max(XScale, YScale));
 		WindowImplementation->RefreshActionCapabilities();
@@ -988,7 +1008,8 @@ std::expected<FWindow*, FApplicationError> FApplication::CreateWindow(FWindowDes
 		{
 			glfwDestroyWindow(CreatedHandle);
 		}
-		return std::unexpected(FApplicationError{EApplicationErrorCode::WindowCreationFailed, Exception.what()});
+
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = Exception.what()});
 	}
 	catch (...)
 	{
@@ -996,17 +1017,20 @@ std::expected<FWindow*, FApplicationError> FApplication::CreateWindow(FWindowDes
 		{
 			glfwDestroyWindow(CreatedHandle);
 		}
-		return std::unexpected(FApplicationError{EApplicationErrorCode::WindowCreationFailed, "Could not create the window due to an unknown error"});
+
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::WindowCreationFailed, .Message = "Could not create the window due to an unknown error"});
 	}
 }
 
 void FApplication::DestroyWindow(FWindow& Window) noexcept
 {
 	Implementation->VerifyMainThread();
+
 	const auto OwnedWindow = std::ranges::find_if(Implementation->Windows, [&Window](const std::unique_ptr<FWindow>& Candidate)
-	                                              {
-		                                              return Candidate.get() == &Window;
-	                                              });
+	{
+		return Candidate.get() == &Window;
+	});
+
 	if (OwnedWindow == Implementation->Windows.end())
 	{
 		return;
@@ -1047,11 +1071,13 @@ EEventPumpMode FApplication::PumpEvents()
 	if (Implementation->bHasDeferredWindowDestruction)
 	{
 		std::erase_if(Implementation->Windows, [](const std::unique_ptr<FWindow>& Candidate)
-		              {
-			              return Candidate->Implementation->bPendingDestruction;
-		              });
+		{
+			return Candidate->Implementation->bPendingDestruction;
+		});
+
 		Implementation->bHasDeferredWindowDestruction = false;
 	}
+
 	return Mode;
 }
 
@@ -1098,7 +1124,7 @@ std::expected<std::vector<std::string>, FApplicationError> FApplication::GetRequ
 	Implementation->VerifyMainThread();
 	if (!Implementation->Capabilities.bVulkanPresentation)
 	{
-		return std::unexpected(FApplicationError{EApplicationErrorCode::VulkanUnavailable, "GLFW reports that Vulkan presentation is unavailable"});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::VulkanUnavailable, .Message = "GLFW reports that Vulkan presentation is unavailable"});
 	}
 
 	try
@@ -1107,7 +1133,7 @@ std::expected<std::vector<std::string>, FApplicationError> FApplication::GetRequ
 		const char** const Extensions = glfwGetRequiredInstanceExtensions(&ExtensionCount);
 		if (!Extensions || ExtensionCount == 0)
 		{
-			return std::unexpected(FApplicationError{EApplicationErrorCode::VulkanUnavailable, "GLFW did not provide required Vulkan instance extensions"});
+			return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::VulkanUnavailable, .Message = "GLFW did not provide required Vulkan instance extensions"});
 		}
 
 		std::vector<std::string> Result;
@@ -1116,15 +1142,16 @@ std::expected<std::vector<std::string>, FApplicationError> FApplication::GetRequ
 		{
 			Result.emplace_back(Extensions[Index]);
 		}
+
 		return Result;
 	}
 	catch (const std::exception& Exception)
 	{
-		return std::unexpected(FApplicationError{EApplicationErrorCode::VulkanUnavailable, Exception.what()});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::VulkanUnavailable, .Message = Exception.what()});
 	}
 	catch (...)
 	{
-		return std::unexpected(FApplicationError{EApplicationErrorCode::VulkanUnavailable, "Could not copy required Vulkan instance extensions"});
+		return std::unexpected(FApplicationError{.Code = EApplicationErrorCode::VulkanUnavailable, .Message = "Could not copy required Vulkan instance extensions"});
 	}
 }
 }

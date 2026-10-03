@@ -1,12 +1,13 @@
 #pragma once
 
+#include <imgui.h>
+
 #include <algorithm>
 #include <cmath>
-#include <imgui.h>
 
 namespace Herta
 {
-inline constexpr float ViewportIconButtonSize = 28.0f;
+inline constexpr float ViewportIconButtonSize = 28.f;
 
 [[nodiscard]] constexpr bool CanFitViewportToolbarIsland(const float MinimumX, const float Width, const float LeftOccupiedEnd, const float RightOccupiedStart, const float Gap) noexcept
 {
@@ -37,24 +38,29 @@ inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, c
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
 	const ImGuiID ItemId = ImGui::GetItemID();
 	float Highlight = ImGui::GetStateStorage()->GetFloat(ItemId);
-	Highlight += ((bSelected ? 0.20f : bHovered ? 0.10f
-	                                            : 0.0f) -
-	              Highlight) *
-	             (bReducedMotion ? 1.0f : std::min(1.0f, ImGui::GetIO().DeltaTime * 16.0f));
+	Highlight += ((bSelected ? 0.2f : bHovered ? 0.1f
+	                                           : 0.f)
+	                 - Highlight)
+	             * (bReducedMotion ? 1.f : std::min(1.f, ImGui::GetIO().DeltaTime * 16.f));
 	ImGui::GetStateStorage()->SetFloat(ItemId, Highlight);
 	Draw->AddRectFilled(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImVec4{1, 1, 1, Highlight}), Size.y * 0.5f);
 	if (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)
+	{
 		Draw->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), Size.y * 0.5f, 0, Scale);
+	}
+
 	const ImU32 Color = Icon == EViewportIcon::Play ? IM_COL32(105, 200, 139, 255) : ImGui::GetColorU32(bSelected || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 	const ImVec2 Center{Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f};
 	const auto Point = [&](const float X, const float Y)
 	{
 		return ImVec2{Center.x + X * Scale, Center.y + Y * Scale};
 	};
+
 	const auto Line = [&](const float X, const float Y, const float EndX, const float EndY)
 	{
 		Draw->AddLine(Point(X, Y), Point(EndX, EndY), Color, 1.25f * Scale);
 	};
+
 	switch (Icon)
 	{
 		case EViewportIcon::Select:
@@ -76,7 +82,7 @@ inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, c
 			Line(0, 7, 3, 4);
 			break;
 		case EViewportIcon::Rotate:
-			Draw->PathArcTo(Center, 6.0f * Scale, 0.3f, 5.5f, 16);
+			Draw->PathArcTo(Center, 6.f * Scale, 0.3f, 5.5f, 16);
 			Draw->PathStroke(Color, 0, 1.25f * Scale);
 			Line(5, -6, 5, -1);
 			Line(5, -1, 0, -1);
@@ -89,7 +95,7 @@ inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, c
 			Line(-6, 6, 0, 6);
 			break;
 		case EViewportIcon::World:
-			Draw->AddCircle(Center, 7.0f * Scale, Color, 20, Scale);
+			Draw->AddCircle(Center, 7.f * Scale, Color, 20, Scale);
 			Line(-7, 0, 7, 0);
 			Draw->AddEllipse(Center, {3 * Scale, 7 * Scale}, Color, 0, 20, Scale);
 			break;
@@ -112,8 +118,11 @@ inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, c
 			Draw->AddCircle(Center, 2 * Scale, Color);
 			break;
 		case EViewportIcon::Settings:
-			for (const float Y : {-5.0f, 0.0f, 5.0f})
+			for (const float Y : {-5.f, 0.f, 5.f})
+			{
 				Draw->AddCircleFilled(Point(0, Y), 1.2f * Scale, Color);
+			}
+
 			break;
 		case EViewportIcon::Stop:
 			Draw->AddRectFilled(Point(-5, -5), Point(5, 5), Color, Scale);
@@ -131,8 +140,12 @@ inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, c
 			Line(-4, 2, 4, 2);
 			break;
 	}
+
 	if (bHovered)
+	{
 		ImGui::SetTooltip("%s", Tooltip);
+	}
+
 	return bPressed;
 }
 }

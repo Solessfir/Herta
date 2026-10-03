@@ -21,7 +21,7 @@ int main(const int ArgumentCount, char** const Arguments)
 
 	try
 	{
-		const Herta::FShaderCompileRequest Request{Arguments[1], Arguments[3], Stage == "vertex" ? Herta::EShaderStage::Vertex : Herta::EShaderStage::Fragment, ArgumentCount == 6};
+		const Herta::FShaderCompileRequest Request{.Source = Arguments[1], .EntryPoint = Arguments[3], .Stage = Stage == "vertex" ? Herta::EShaderStage::Vertex : Herta::EShaderStage::Fragment, .bDebugInformation = ArgumentCount == 6};
 		const auto Shader = Herta::CompileShader(Request);
 		if (!Shader)
 		{

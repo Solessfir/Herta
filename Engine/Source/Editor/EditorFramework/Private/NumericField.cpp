@@ -2,9 +2,10 @@
 
 #include "Herta/EditorCore/TransformText.h"
 
+#include <imgui_internal.h>
+
 #include <algorithm>
 #include <format>
-#include <imgui_internal.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -34,12 +35,15 @@ FNumericEditState& GetEditState()
 	{
 		ImGuiContextHook Hook;
 		Hook.Type = ImGuiContextHookType_Shutdown;
+
 		Hook.Callback = [](ImGuiContext* const DestroyedContext, ImGuiContextHook*)
 		{
 			NumericEditStates.erase(DestroyedContext);
 		};
+
 		ImGui::AddContextHook(Context, &Hook);
 	}
+
 	return Entry->second;
 }
 
@@ -56,6 +60,7 @@ int UpdateInputState(ImGuiInputTextCallbackData* const Data)
 	{
 		State.bInvalid = false;
 	}
+
 	return 0;
 }
 
@@ -68,6 +73,7 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 	{
 		State = {};
 	}
+
 	const float Before = *Value;
 	const auto ApplyValue = [&](const float Candidate)
 	{
@@ -76,8 +82,10 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 		{
 			ImGui::MarkItemEdited(Id);
 		}
+
 		return *Value != Before;
 	};
+
 	const auto BeginTextEditing = [&](const bool bMouseActivation)
 	{
 		*Value = Before;
@@ -86,11 +94,12 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 		State.Id = Id;
 		State.LastFrame = ImGui::GetFrameCount();
 		const std::string Text = std::format("{:.9g}", Before);
-		std::copy(Text.begin(), Text.end(), State.Text.begin());
+		std::ranges::copy(Text, State.Text.begin());
 		State.bFocusRequested = true;
 		State.bMouseActivation = bMouseActivation;
 		ImGui::ActivateItemByID(Id);
 	};
+
 	const bool bEditing = State.Id == Id;
 	bool bChanged = false;
 	bool bEntered = false;
@@ -104,12 +113,15 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 			{
 				ImGui::SetNavCursorVisible(false);
 			}
+
 			State.bFocusRequested = false;
 		}
+
 		if (bMouseFocusRequested)
 		{
-			ImGui::PushStyleColor(ImGuiCol_NavCursor, {0.0f, 0.0f, 0.0f, 0.0f});
+			ImGui::PushStyleColor(ImGuiCol_NavCursor, {0.f, 0.f, 0.f, 0.f});
 		}
+
 		bEntered = ImGui::InputText(Label, State.Text.data(), State.Text.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_CallbackEdit, UpdateInputState, &State);
 		if (bMouseFocusRequested)
 		{
@@ -129,6 +141,7 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 			return false;
 		}
 	}
+
 	const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride);
 	const ImGuiIO& Io = ImGui::GetIO();
 	const bool bShiftCopy = bHovered && Io.KeyShift && ImGui::IsMouseClicked(ImGuiMouseButton_Right);
@@ -149,8 +162,10 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 				return ApplyValue(*Parsed);
 			}
 		}
+
 		return false;
 	}
+
 	if (!bEditing)
 	{
 		const bool bMouseText = bHovered && ((Io.KeyCtrl && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) || ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left));
@@ -160,8 +175,10 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 			BeginTextEditing(bMouseText);
 			return false;
 		}
+
 		return bChanged;
 	}
+
 	if (bEntered)
 	{
 		if (const auto Parsed = EvaluateNumericExpression(State.Text.data()))
@@ -169,10 +186,12 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 			State = {};
 			return ApplyValue(*Parsed);
 		}
+
 		State.bInvalid = true;
 		State.bFocusRequested = true;
 		ImGui::ActivateItemByID(Id);
 	}
+
 	if (State.bInvalid)
 	{
 		ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), IM_COL32(217, 64, 64, 220), ImGui::GetStyle().FrameRounding);
@@ -181,6 +200,7 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 			ImGui::SetTooltip("Invalid expression");
 		}
 	}
+
 	const bool bActive = ImGui::IsItemActive();
 	const bool bLostFocus = State.bHadFocus && !bActive && !bEntered;
 	State.bHadFocus = bActive || State.bFocusRequested;
@@ -188,6 +208,7 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 	{
 		State = {};
 	}
+
 	return false;
 }
 }
@@ -195,16 +216,16 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 bool DrawNumericDragFloat(const char* const Label, float* const Value, const float Speed, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags)
 {
 	return DrawNumericField(Label, Value, Minimum, Maximum, (Flags & ImGuiSliderFlags_AlwaysClamp) != 0, true, [&]
-	                        {
-		                        return ImGui::DragFloat(Label, Value, Speed, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
-	                        });
+	{
+		return ImGui::DragFloat(Label, Value, Speed, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
+	});
 }
 
 bool DrawNumericSliderFloat(const char* const Label, float* const Value, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags)
 {
 	return DrawNumericField(Label, Value, Minimum, Maximum, true, false, [&]
-	                        {
-		                        return ImGui::SliderFloat(Label, Value, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
-	                        });
+	{
+		return ImGui::SliderFloat(Label, Value, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
+	});
 }
 }

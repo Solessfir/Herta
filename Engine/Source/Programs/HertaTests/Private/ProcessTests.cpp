@@ -1,8 +1,9 @@
 #include "Herta/Platform/Process.h"
 #include "TestFiles.h"
 
-#include <chrono>
 #include <doctest/doctest.h>
+
+#include <chrono>
 
 namespace Herta
 {
@@ -14,15 +15,16 @@ std::string TrimLineEnd(std::string Text)
 	{
 		Text.pop_back();
 	}
+
 	return Text;
 }
 
 FProcessRequest MakeLongRunningRequest()
 {
 #ifdef HERTA_PLATFORM_WINDOWS
-	return {"C:\\Windows\\System32\\ping.exe", {"-n", "30", "127.0.0.1"}};
+	return {.Executable = "C:\\Windows\\System32\\ping.exe", .Arguments = {"-n", "30", "127.0.0.1"}};
 #else
-	return {"/bin/sleep", {"30"}};
+	return {.Executable = "/bin/sleep", .Arguments = {"30"}};
 #endif
 }
 }
@@ -35,7 +37,7 @@ TEST_CASE("The executable path names the running test binary")
 TEST_CASE("Processes receive UTF-8 arguments without shell interpretation")
 {
 	const std::vector<std::string> Arguments{"echo", "a b", "quote\"inside", "back\\slash\\", "trailing\\\\", "\xc3\xbcnicode", "$HOME", "%PATH%"};
-	const auto Result = RunProcess({Tests::GetSiblingExecutable("HertaEditorCmd"), Arguments});
+	const auto Result = RunProcess({.Executable = Tests::GetSiblingExecutable("HertaEditorCmd"), .Arguments = Arguments});
 	REQUIRE(Result);
 	CHECK(Result->ExitCode == 0);
 	CHECK(TrimLineEnd(Result->StandardOutput) == "a b quote\"inside back\\slash\\ trailing\\\\ \xc3\xbcnicode $HOME %PATH%");
@@ -44,7 +46,7 @@ TEST_CASE("Processes receive UTF-8 arguments without shell interpretation")
 
 TEST_CASE("Process results report exit codes and standard error")
 {
-	const auto Result = RunProcess({Tests::GetSiblingExecutable("HertaEditorCmd"), {"definitely.unknown"}});
+	const auto Result = RunProcess({.Executable = Tests::GetSiblingExecutable("HertaEditorCmd"), .Arguments = {"definitely.unknown"}});
 	REQUIRE(Result);
 	CHECK(Result->ExitCode == 1);
 	CHECK(Result->StandardError.find("Unknown command") != std::string::npos);
@@ -66,6 +68,7 @@ TEST_CASE("Processes are killed on timeout and cancellation")
 	{
 		return ++Polls > 2;
 	};
+
 	const auto CancelResult = RunProcess(Cancelled);
 	REQUIRE_FALSE(CancelResult);
 	CHECK(CancelResult.error().Code == EProcessErrorCode::Cancelled);
@@ -73,7 +76,7 @@ TEST_CASE("Processes are killed on timeout and cancellation")
 
 TEST_CASE("Missing executables fail to launch")
 {
-	const auto Result = RunProcess({Tests::GetSiblingExecutable("HertaMissingProgram"), {}});
+	const auto Result = RunProcess({.Executable = Tests::GetSiblingExecutable("HertaMissingProgram"), .Arguments = {}});
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Code == EProcessErrorCode::LaunchFailed);
 	CHECK_FALSE(RunProcess({{}, {}}));

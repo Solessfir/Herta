@@ -61,6 +61,7 @@ struct FTextureDescriptor
 	{
 		++Levels;
 	}
+
 	return Levels;
 }
 
@@ -71,6 +72,7 @@ struct FTextureDescriptor
 		const std::uint32_t Shifted = MipLevel < 32 ? Size >> MipLevel : 0;
 		return Shifted > 0 ? Shifted : 1u;
 	};
+
 	return {Shrink(Extent.Width), Shrink(Extent.Height)};
 }
 

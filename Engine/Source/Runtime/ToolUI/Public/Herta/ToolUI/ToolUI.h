@@ -33,27 +33,27 @@ enum class EToolUIViewportFrameStatus : std::uint8_t
 
 struct FToolUIViewportPosition
 {
-	float X = 0.0f;
-	float Y = 0.0f;
+	float X = 0.f;
+	float Y = 0.f;
 
 	[[nodiscard]] constexpr bool operator==(const FToolUIViewportPosition&) const noexcept = default;
 };
 
 struct FToolUICanvasBounds
 {
-	float X = 0.0f;
-	float Y = 0.0f;
-	float Width = 0.0f;
-	float Height = 0.0f;
+	float X = 0.f;
+	float Y = 0.f;
+	float Width = 0.f;
+	float Height = 0.f;
 
 	[[nodiscard]] constexpr bool operator==(const FToolUICanvasBounds&) const noexcept = default;
 };
 
 [[nodiscard]] constexpr FToolUICanvasBounds ResolveToolUIWorkspaceCanvas(const FToolUICanvasBounds Window, const float TitleBarHeight, const float StatusBarHeight) noexcept
 {
-	const float Top = std::clamp(TitleBarHeight, 0.0f, std::max(0.0f, Window.Height));
-	const float Bottom = std::clamp(StatusBarHeight, 0.0f, std::max(0.0f, Window.Height - Top));
-	return {Window.X, Window.Y + Top, std::max(0.0f, Window.Width), std::max(0.0f, Window.Height - Top - Bottom)};
+	const float Top = std::clamp(TitleBarHeight, 0.f, std::max(0.f, Window.Height));
+	const float Bottom = std::clamp(StatusBarHeight, 0.f, std::max(0.f, Window.Height - Top));
+	return {Window.X, Window.Y + Top, std::max(0.f, Window.Width), std::max(0.f, Window.Height - Top - Bottom)};
 }
 
 struct FToolUIViewportWindowPolicy
@@ -70,7 +70,8 @@ struct FToolUIViewportWindowPolicy
 	return {
 	    .bShowInTaskbar = !bNoTaskBarIcon,
 	    .bTopMost = bTopMost,
-	    .bFocusOnShow = !bNoFocusOnAppearing};
+	    .bFocusOnShow = !bNoFocusOnAppearing,
+	};
 }
 
 [[nodiscard]] constexpr FToolUIViewportPosition ResolveToolUIViewportPosition(const bool bProgrammaticPositionSupported, const FToolUIViewportPosition CachedPosition, const FToolUIViewportPosition PlatformPosition) noexcept
@@ -119,7 +120,7 @@ enum class EToolUIMenuIcon : std::uint8_t
 	Import
 };
 
-[[nodiscard]] bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);
+bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);
 // Switch for boolean settings, right-aligned within the next item width.
 bool ToolUIToggle(const char* Id, bool* bValue);
 
@@ -152,7 +153,7 @@ public:
 	void PopLogFont();
 	[[nodiscard]] std::optional<FToolUICanvasBounds> GetWorkspaceCanvasForCurrentPanel() const noexcept;
 	void DrawGlassSurface(float X, float Y, float Width, float Height, float Radius) const;
-	[[nodiscard]] bool DrawSearchField(const char* Label, const char* Hint, char* Buffer, std::size_t BufferSize) const;
+	bool DrawSearchField(const char* Label, const char* Hint, char* Buffer, std::size_t BufferSize) const;
 
 	void SetAppearance(FEditorAppearance Appearance) noexcept;
 	[[nodiscard]] const FEditorAppearance& GetAppearance() const noexcept;

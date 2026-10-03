@@ -26,6 +26,7 @@ namespace
 	{
 		return {};
 	}
+
 	const int Length = MultiByteToWideChar(CP_UTF8, 0, Text.data(), static_cast<int>(Text.size()), nullptr, 0);
 	std::wstring Result(static_cast<std::size_t>(std::max(Length, 0)), L'\0');
 	MultiByteToWideChar(CP_UTF8, 0, Text.data(), static_cast<int>(Text.size()), Result.data(), Length);
@@ -40,6 +41,7 @@ public:
 	    : bInitialized(SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE)))
 	{
 	}
+
 	~FComScope()
 	{
 		if (bInitialized)
@@ -47,6 +49,7 @@ public:
 			CoUninitialize();
 		}
 	}
+
 	FComScope(const FComScope&) = delete;
 	FComScope& operator=(const FComScope&) = delete;
 
@@ -63,6 +66,7 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 	{
 		return std::unexpected(FFileDialogError{"Could not create the Windows file dialog"});
 	}
+
 	FILEOPENDIALOGOPTIONS Options = 0;
 	Dialog->GetOptions(&Options);
 	Dialog->SetOptions(Options | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM);
@@ -78,14 +82,17 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 		{
 			Pattern += (Pattern.empty() ? L"*." : L";*.") + Widen(Extension);
 		}
+
 		Names.push_back(Widen(Filter.Name));
 		Patterns.push_back(std::move(Pattern));
 	}
+
 	std::vector<COMDLG_FILTERSPEC> Specs;
 	for (std::size_t Index = 0; Index < Names.size(); ++Index)
 	{
 		Specs.push_back({Names[Index].c_str(), Patterns[Index].c_str()});
 	}
+
 	if (!Specs.empty())
 	{
 		Dialog->SetFileTypes(static_cast<UINT>(Specs.size()), Specs.data());
@@ -96,12 +103,14 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 	{
 		return std::vector<std::filesystem::path>{};
 	}
+
 	Microsoft::WRL::ComPtr<IShellItemArray> Items;
 	DWORD Count = 0;
 	if (FAILED(Shown) || FAILED(Dialog->GetResults(&Items)) || FAILED(Items->GetCount(&Count)))
 	{
 		return std::unexpected(FFileDialogError{std::format("The Windows file dialog failed with HRESULT 0x{:08x}", static_cast<unsigned long>(Shown))});
 	}
+
 	std::vector<std::filesystem::path> Paths;
 	for (DWORD Index = 0; Index < Count; ++Index)
 	{
@@ -113,6 +122,7 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 			CoTaskMemFree(Name);
 		}
 	}
+
 	return Paths;
 }
 #else
@@ -126,6 +136,7 @@ namespace
 	{
 		return std::nullopt;
 	}
+
 	std::error_code Error;
 	for (const auto Part : std::views::split(std::string_view(Path), ':'))
 	{
@@ -135,6 +146,7 @@ namespace
 			return Candidate;
 		}
 	}
+
 	return std::nullopt;
 }
 
@@ -149,6 +161,7 @@ namespace
 			Paths.emplace_back(Line);
 		}
 	}
+
 	return Paths;
 }
 }
@@ -162,24 +175,28 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 		{
 			Pattern += (Pattern.empty() ? "*." : " *.") + Extension;
 		}
+
 		return Pattern;
 	};
 
 	// Both tools exit with 1 on cancel and print one chosen path per line.
 	if (const std::optional<std::filesystem::path> Zenity = FindOnPath("zenity"))
 	{
-		FProcessRequest Request{*Zenity, {"--file-selection", "--multiple", "--separator=\n", std::format("--title={}", Title)}};
+		FProcessRequest Request{.Executable = *Zenity, .Arguments = {"--file-selection", "--multiple", "--separator=\n", std::format("--title={}", Title)}};
 		for (const FFileDialogFilter& Filter : Filters)
 		{
 			Request.Arguments.push_back(std::format("--file-filter={} | {}", Filter.Name, Patterns(Filter)));
 		}
+
 		const std::expected<FProcessResult, FProcessError> Result = RunProcess(Request);
 		if (!Result)
 		{
 			return std::unexpected(FFileDialogError{std::format("zenity failed: {}", Result.error().Message)});
 		}
+
 		return Result->ExitCode == 0 ? SplitLines(Result->StandardOutput) : std::vector<std::filesystem::path>{};
 	}
+
 	if (const std::optional<std::filesystem::path> KDialog = FindOnPath("kdialog"))
 	{
 		std::string FilterSpec;
@@ -187,14 +204,17 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 		{
 			FilterSpec += std::format("{}{}|{}", FilterSpec.empty() ? "" : "\n", Patterns(Filter), Filter.Name);
 		}
+
 		const char* const Home = std::getenv("HOME");
-		const std::expected<FProcessResult, FProcessError> Result = RunProcess({*KDialog, {"--title", std::string(Title), "--getopenfilename", Home != nullptr ? Home : ".", FilterSpec, "--multiple", "--separate-output"}});
+		const std::expected<FProcessResult, FProcessError> Result = RunProcess({.Executable = *KDialog, .Arguments = {"--title", std::string(Title), "--getopenfilename", Home != nullptr ? Home : ".", FilterSpec, "--multiple", "--separate-output"}});
 		if (!Result)
 		{
 			return std::unexpected(FFileDialogError{std::format("kdialog failed: {}", Result.error().Message)});
 		}
+
 		return Result->ExitCode == 0 ? SplitLines(Result->StandardOutput) : std::vector<std::filesystem::path>{};
 	}
+
 	return std::unexpected(FFileDialogError{"No file dialog is available. Install zenity or kdialog, or drop files onto the editor instead"});
 }
 #endif

@@ -22,7 +22,7 @@ struct FDebugDrawVertex
 {
 	FVector3 Position;
 	// Point diameter or line width in framebuffer pixels; triangles ignore Size.
-	float Size = 1.0f;
+	float Size = 1.f;
 	std::array<float, 4> Color{1, 1, 1, 1};
 };
 
@@ -57,6 +57,7 @@ public:
 	{
 		return BoundsMinimum;
 	}
+
 	[[nodiscard]] const FVector3& GetBoundsMaximum() const noexcept
 	{
 		return BoundsMaximum;

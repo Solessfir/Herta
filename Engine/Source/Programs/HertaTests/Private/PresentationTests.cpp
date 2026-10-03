@@ -1,6 +1,7 @@
 #include "Herta/RHI/Presentation.h"
 
 #include <doctest/doctest.h>
+
 #include <ostream>
 
 TEST_CASE("Swapchain image count respects surface limits")
@@ -13,8 +14,8 @@ TEST_CASE("Swapchain image count respects surface limits")
 
 TEST_CASE("Presentation extent is clamped to surface limits")
 {
-	constexpr Herta::FExtent2D Minimum{320, 200};
-	constexpr Herta::FExtent2D Maximum{3840, 2160};
+	constexpr Herta::FExtent2D Minimum{.Width = 320, .Height = 200};
+	constexpr Herta::FExtent2D Maximum{.Width = 3840, .Height = 2160};
 
 	CHECK(Herta::ClampPresentationExtent({1920, 1080}, Minimum, Maximum) == Herta::FExtent2D{1920, 1080});
 	CHECK(Herta::ClampPresentationExtent({100, 100}, Minimum, Maximum) == Minimum);
@@ -43,12 +44,12 @@ TEST_CASE("sRGB palette colors normalize without changing transfer function")
 	constexpr Herta::FSrgbColor White = Herta::ConvertSrgb8ToSrgbColor(255, 255, 255, 255);
 	constexpr Herta::FSrgbColor Canvas = Herta::ConvertSrgb8ToSrgbColor(18, 18, 19);
 
-	CHECK(Black.Red == doctest::Approx(0.0f));
-	CHECK(Black.Alpha == doctest::Approx(0.0f));
-	CHECK(White.Red == doctest::Approx(1.0f));
-	CHECK(White.Alpha == doctest::Approx(1.0f));
-	CHECK(Canvas.Red == doctest::Approx(18.0f / 255.0f));
-	CHECK(Canvas.Green == doctest::Approx(18.0f / 255.0f));
-	CHECK(Canvas.Blue == doctest::Approx(19.0f / 255.0f));
-	CHECK(Canvas.Alpha == doctest::Approx(1.0f));
+	CHECK(Black.Red == doctest::Approx(0.f));
+	CHECK(Black.Alpha == doctest::Approx(0.f));
+	CHECK(White.Red == doctest::Approx(1.f));
+	CHECK(White.Alpha == doctest::Approx(1.f));
+	CHECK(Canvas.Red == doctest::Approx(18.f / 255.f));
+	CHECK(Canvas.Green == doctest::Approx(18.f / 255.f));
+	CHECK(Canvas.Blue == doctest::Approx(19.f / 255.f));
+	CHECK(Canvas.Alpha == doctest::Approx(1.f));
 }

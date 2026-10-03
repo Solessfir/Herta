@@ -2,13 +2,14 @@
 #include "Herta/EditorFramework/OutputLog.h"
 #include "OutputLogTextLayout.h"
 
+#include <doctest/doctest.h>
+#include <imgui.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <ctime>
-#include <doctest/doctest.h>
 #include <format>
-#include <imgui.h>
 #include <limits>
 #include <string>
 #include <string_view>
@@ -27,25 +28,26 @@ struct FOutputLogLayoutTestContext
 	{
 		ImGui::SetCurrentContext(Context);
 		ImGuiIO& Io = ImGui::GetIO();
-		Io.DisplaySize = {640.0f, 480.0f};
-		Io.DisplayFramebufferScale = {1.0f, 1.0f};
-		Io.DeltaTime = 1.0f / 60.0f;
+		Io.DisplaySize = {640.f, 480.f};
+		Io.DisplayFramebufferScale = {1.f, 1.f};
+		Io.DeltaTime = 1.f / 60.f;
 		Io.IniFilename = nullptr;
 		ImFontConfig FontConfig;
 		FontConfig.PixelSnapH = false;
 		FontConfig.RasterizerDensity = 1.25f;
-		bRobotoLoaded = Io.Fonts->AddFontFromFileTTF("Engine/Content/Editor/Fonts/Roboto/Roboto-Regular.ttf", 15.0f, &FontConfig) != nullptr;
+		bRobotoLoaded = Io.Fonts->AddFontFromFileTTF("Engine/Content/Editor/Fonts/Roboto/Roboto-Regular.ttf", 15.f, &FontConfig) != nullptr;
 		if (!bRobotoLoaded)
 		{
 			Io.Fonts->AddFontDefault();
 		}
+
 		ImGui::GetStyle().FontScaleMain = 1.13f;
 		unsigned char* Pixels = nullptr;
 		int Width = 0;
 		int Height = 0;
 		Io.Fonts->GetTexDataAsRGBA32(&Pixels, &Width, &Height);
 		ImGui::NewFrame();
-		ImGui::SetNextWindowPos({0.0f, 0.0f}, ImGuiCond_Always);
+		ImGui::SetNextWindowPos({0.f, 0.f}, ImGuiCond_Always);
 		ImGui::SetNextWindowSize(Io.DisplaySize, ImGuiCond_Always);
 		ImGui::Begin("Output Log layout test", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings);
 	}
@@ -57,6 +59,11 @@ struct FOutputLogLayoutTestContext
 		ImGui::DestroyContext(Context);
 		ImGui::SetCurrentContext(PreviousContext);
 	}
+
+	FOutputLogLayoutTestContext(const FOutputLogLayoutTestContext&) = delete;
+	FOutputLogLayoutTestContext& operator=(const FOutputLogLayoutTestContext&) = delete;
+	FOutputLogLayoutTestContext(FOutputLogLayoutTestContext&&) = delete;
+	FOutputLogLayoutTestContext& operator=(FOutputLogLayoutTestContext&&) = delete;
 };
 
 [[nodiscard]] std::unique_ptr<FLogService> CreateOutputLogTestService()
@@ -94,7 +101,7 @@ TEST_CASE("Output Log filters records and preserves severity overrides")
 	REQUIRE(RegisterCoreEditorCommands(Commands).has_value());
 	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
 	REQUIRE(Model.has_value());
-	constexpr FLogCategory Renderer{"Renderer"};
+	constexpr FLogCategory Renderer{.Name = "Renderer"};
 	Log->LogText(Renderer, ELogLevel::Info, "Created device");
 	Log->LogText(Renderer, ELogLevel::Warning, "Fallback format");
 	REQUIRE((*Model)->Synchronize().has_value());
@@ -116,8 +123,8 @@ TEST_CASE("Output Log selection copies continuously across lines")
 {
 	const std::array Lines = {std::string("first"), std::string("second"), std::string("third")};
 	FLogTextSelection Selection;
-	Selection.Begin({0, 2}, false);
-	Selection.Update({2, 2});
+	Selection.Begin({.Line = 0, .Byte = 2}, false);
+	Selection.Update({.Line = 2, .Byte = 2});
 	CHECK(Selection.Copy(Lines) == "rst\nsecond\nth");
 	Selection.SelectAll(Lines);
 	CHECK(Selection.Copy(Lines) == "first\nsecond\nthird");
@@ -130,7 +137,7 @@ TEST_CASE("Output Log expands multiline records into selectable display lines")
 	REQUIRE(RegisterCoreEditorCommands(Commands).has_value());
 	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
 	REQUIRE(Model.has_value());
-	constexpr FLogCategory Editor{"Editor"};
+	constexpr FLogCategory Editor{.Name = "Editor"};
 	Log->LogText(Editor, ELogLevel::Info, "first\nsecond");
 	REQUIRE((*Model)->Synchronize().has_value());
 	REQUIRE((*Model)->GetVisibleLines().size() == 2);
@@ -145,8 +152,8 @@ TEST_CASE("Output Log exposes byte offsets for padded and long category columns"
 	REQUIRE(RegisterCoreEditorCommands(Commands).has_value());
 	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
 	REQUIRE(Model.has_value());
-	constexpr FLogCategory ShortCategory{"Renderer"};
-	constexpr FLogCategory LongUtf8Category{"渲染BackendLongCategoryName🌙"};
+	constexpr FLogCategory ShortCategory{.Name = "Renderer"};
+	constexpr FLogCategory LongUtf8Category{.Name = "渲染BackendLongCategoryName🌙"};
 	Log->LogText(ShortCategory, ELogLevel::Info, "short message");
 	Log->LogText(LongUtf8Category, ELogLevel::Info, "long category message");
 	REQUIRE((*Model)->Synchronize().has_value());
@@ -180,7 +187,7 @@ TEST_CASE("Output Log multiline continuation keeps byte offsets for aligned blan
 	REQUIRE(RegisterCoreEditorCommands(Commands).has_value());
 	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
 	REQUIRE(Model.has_value());
-	constexpr FLogCategory Category{"Editor"};
+	constexpr FLogCategory Category{.Name = "Editor"};
 	Log->LogText(Category, ELogLevel::Info, "first\nsecond");
 	REQUIRE((*Model)->Synchronize().has_value());
 	REQUIRE((*Model)->GetVisibleLines().size() == 2);
@@ -199,26 +206,27 @@ TEST_CASE("Output Log text layout aligns RHI and Editor columns and round-trips 
 	FOutputLogLayoutTestContext ImGuiContext;
 	CHECK(ImGuiContext.bRobotoLoaded);
 	constexpr char FontProbe[] = "Wi";
-	const float FontProbeWidth = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), std::numeric_limits<float>::max(), 0.0f, FontProbe, FontProbe + 2).x;
+	const float FontProbeWidth = ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize(), std::numeric_limits<float>::max(), 0.f, FontProbe, FontProbe + 2).x;
 	CHECK(std::abs(FontProbeWidth - std::round(FontProbeWidth)) > 0.01f);
 	std::unique_ptr<FLogService> Log = CreateOutputLogTestService();
 	FEditorCommandRegistry Commands;
 	REQUIRE(RegisterCoreEditorCommands(Commands).has_value());
 	std::expected<std::unique_ptr<FOutputLogModel>, FOutputLogError> Model = FOutputLogModel::Create(*Log, Commands);
 	REQUIRE(Model.has_value());
-	constexpr FLogCategory RhiCategory{"RHI"};
-	constexpr FLogCategory EditorCategory{"Editor"};
+	constexpr FLogCategory RhiCategory{.Name = "RHI"};
+	constexpr FLogCategory EditorCategory{.Name = "Editor"};
 	Log->LogText(RhiCategory, ELogLevel::Info, "device α😊 ready");
 	Log->LogText(EditorCategory, ELogLevel::Info, "preview λ🧪 updated\ncontinuation 🌙");
 	REQUIRE((*Model)->Synchronize().has_value());
 	REQUIRE((*Model)->GetVisibleLines().size() == 3);
-	const FOutputLogColumns Columns{90.0f, 310.0f};
+	const FOutputLogColumns Columns{.CategoryX = 90.f, .MessageX = 310.f};
 	for (const FOutputLogLine& Line : (*Model)->GetVisibleLines())
 	{
 		CHECK(MeasureOutputLogTextPrefix(Line, Line.CategoryBegin, Columns) == doctest::Approx(Columns.CategoryX));
 		CHECK(MeasureOutputLogTextPrefix(Line, Line.MessageBegin, Columns) == doctest::Approx(Columns.MessageX));
 		CheckOutputLogHitRoundTrips(Line, Columns);
 	}
+
 	CHECK((*Model)->GetVisibleLines()[2].Text.substr((*Model)->GetVisibleLines()[2].MessageBegin) == "continuation 🌙");
 	FLogRecord Record;
 	Record.ElapsedSeconds = 1234.567;
@@ -229,9 +237,9 @@ TEST_CASE("Output Log text layout aligns RHI and Editor columns and round-trips 
 	const std::size_t CategoryBegin = Time.size() + 2;
 	const std::size_t CategoryEnd = CategoryBegin + Record.Category.size();
 	const std::size_t MessageBegin = CategoryBegin + Category.size() + 2;
-	FOutputLogLine Line{Record, std::format("{}  {}  {}", Time, Category, Record.Message), CategoryBegin, CategoryEnd, MessageBegin, Time.size()};
-	FOutputLogLine Continuation{Record, std::string(MessageBegin, ' ') + "second 🌌", CategoryBegin, CategoryEnd, MessageBegin, Time.size()};
-	const FOutputLogColumns LongColumns{135.0f, 850.0f};
+	FOutputLogLine Line{.Record = Record, .Text = std::format("{}  {}  {}", Time, Category, Record.Message), .CategoryBegin = CategoryBegin, .CategoryEnd = CategoryEnd, .MessageBegin = MessageBegin, .TimeEnd = Time.size()};
+	FOutputLogLine Continuation{.Record = Record, .Text = std::string(MessageBegin, ' ') + "second 🌌", .CategoryBegin = CategoryBegin, .CategoryEnd = CategoryEnd, .MessageBegin = MessageBegin, .TimeEnd = Time.size()};
+	const FOutputLogColumns LongColumns{.CategoryX = 135.f, .MessageX = 850.f};
 	CHECK(Line.TimeEnd > std::format("{:7.3f}", 1.0).size());
 	CHECK(Line.CategoryEnd - Line.CategoryBegin > 14);
 	for (const FOutputLogLine* const Current : {&Line, &Continuation})
@@ -257,9 +265,10 @@ TEST_CASE("Output Log sends lines starting with ! to the shell runner instead of
 
 	std::vector<std::string> Ran;
 	(*Model)->SetShellRunner([&Ran](std::string Command)
-	                         {
-		                         Ran.push_back(std::move(Command));
-	                         });
+	{
+		Ran.push_back(std::move(Command));
+	});
+
 	REQUIRE((*Model)->SubmitCommand("  !  git commit -m \"Fixed tabs\"  ").has_value());
 	REQUIRE((*Model)->SubmitCommand("!").has_value());
 	REQUIRE(Ran.size() == 1);

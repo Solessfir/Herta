@@ -8,19 +8,19 @@ namespace Herta
 {
 FRenderGraphResourceHandle FRenderGraph::ImportResource(std::string Name)
 {
-	Resources.push_back({std::move(Name), {}, {}, true});
+	Resources.push_back({.Name = std::move(Name), .Acquire = {}, .Release = {}, .bImported = true});
 	return {Resources.size() - 1};
 }
 
 FRenderGraphResourceHandle FRenderGraph::CreateResource(std::string Name, FRenderGraphCallback Acquire, std::function<void()> Release)
 {
-	Resources.push_back({std::move(Name), std::move(Acquire), std::move(Release), false});
+	Resources.push_back({.Name = std::move(Name), .Acquire = std::move(Acquire), .Release = std::move(Release), .bImported = false});
 	return {Resources.size() - 1};
 }
 
 FRenderGraphPassHandle FRenderGraph::AddPass(std::string Name, std::vector<FRenderGraphAccess> Accesses, FRenderGraphCallback Execute)
 {
-	Passes.push_back({std::move(Name), std::move(Accesses), std::move(Execute)});
+	Passes.push_back({.Name = std::move(Name), .Accesses = std::move(Accesses), .Execute = std::move(Execute)});
 	return {Passes.size() - 1};
 }
 
@@ -46,7 +46,7 @@ std::expected<FRenderGraphPlan, FRenderGraphError> FRenderGraph::Compile() const
 	{
 		if (Before.Index >= Passes.size() || After.Index >= Passes.size())
 		{
-			return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::InvalidPass, "Dependency refers to an invalid pass"});
+			return std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::InvalidPass, .Message = "Dependency refers to an invalid pass"});
 		}
 
 		AddEdge(Before.Index, After.Index);
@@ -63,7 +63,7 @@ std::expected<FRenderGraphPlan, FRenderGraphError> FRenderGraph::Compile() const
 	{
 		if (static_cast<bool>(Resource.Acquire) != static_cast<bool>(Resource.Release))
 		{
-			return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::InvalidResource, "Transient resource requires both acquire and release callbacks: " + Resource.Name});
+			return std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::InvalidResource, .Message = "Transient resource requires both acquire and release callbacks: " + Resource.Name});
 		}
 	}
 
@@ -72,7 +72,7 @@ std::expected<FRenderGraphPlan, FRenderGraphError> FRenderGraph::Compile() const
 		const FPass& Pass = Passes[PassIndex];
 		if (!Pass.Execute)
 		{
-			return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::InvalidPass, "Pass has no execution callback: " + Pass.Name});
+			return std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::InvalidPass, .Message = "Pass has no execution callback: " + Pass.Name});
 		}
 
 		std::vector<bool> Used(Resources.size(), false);
@@ -81,19 +81,19 @@ std::expected<FRenderGraphPlan, FRenderGraphError> FRenderGraph::Compile() const
 			const std::size_t ResourceIndex = Access.Resource.Index;
 			if (ResourceIndex >= Resources.size())
 			{
-				return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::InvalidResource, "Pass refers to an invalid resource: " + Pass.Name});
+				return std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::InvalidResource, .Message = "Pass refers to an invalid resource: " + Pass.Name});
 			}
 
 			if (Used[ResourceIndex] || (Access.Access != ERenderGraphAccess::Read && Access.Access != ERenderGraphAccess::Write && Access.Access != ERenderGraphAccess::ReadWrite))
 			{
-				return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::InvalidAccess, "Duplicate or invalid resource access in pass: " + Pass.Name});
+				return std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::InvalidAccess, .Message = "Duplicate or invalid resource access in pass: " + Pass.Name});
 			}
 
 			Used[ResourceIndex] = true;
 			FResourceHistory& Previous = History[ResourceIndex];
 			if (Access.Access != ERenderGraphAccess::Write && !Previous.Writer && !Resources[ResourceIndex].bImported)
 			{
-				return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::UninitializedRead, "Pass '" + Pass.Name + "' reads uninitialized resource '" + Resources[ResourceIndex].Name + "'"});
+				return std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::UninitializedRead, .Message = "Pass '" + Pass.Name + "' reads uninitialized resource '" + Resources[ResourceIndex].Name + "'"});
 			}
 
 			if (Previous.Writer)
@@ -130,7 +130,7 @@ std::expected<FRenderGraphPlan, FRenderGraphError> FRenderGraph::Compile() const
 
 		if (Next == Passes.size())
 		{
-			return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::DependencyCycle, "Render graph contains a dependency cycle"});
+			return std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::DependencyCycle, .Message = "Render graph contains a dependency cycle"});
 		}
 
 		Scheduled[Next] = true;
@@ -150,7 +150,7 @@ std::expected<FRenderGraphPlan, FRenderGraphError> FRenderGraph::Compile() const
 			if (!Index)
 			{
 				Index = Plan.Lifetimes.size();
-				Plan.Lifetimes.push_back({Access.Resource, Position, Position});
+				Plan.Lifetimes.push_back({.Resource = Access.Resource, .FirstUse = Position, .LastUse = Position});
 			}
 			else
 			{
@@ -182,12 +182,13 @@ std::expected<void, FRenderGraphError> FRenderGraph::Execute() const
 			}
 			catch (...)
 			{
-				return std::unexpected(FRenderGraphError{ERenderGraphErrorCode::ExecutionFailed, "Resource release failed: " + Resources[Index].Name});
+				return std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::ExecutionFailed, .Message = "Resource release failed: " + Resources[Index].Name});
 			}
 		}
 
 		return {};
 	};
+
 	const auto Run = [&]() -> std::expected<void, FRenderGraphError>
 	{
 		for (std::size_t Position = 0; Position < Plan->PassOrder.size(); ++Position)
@@ -233,11 +234,11 @@ std::expected<void, FRenderGraphError> FRenderGraph::Execute() const
 	}
 	catch (const std::exception& Error)
 	{
-		Result = std::unexpected(FRenderGraphError{ERenderGraphErrorCode::ExecutionFailed, Error.what()});
+		Result = std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::ExecutionFailed, .Message = Error.what()});
 	}
 	catch (...)
 	{
-		Result = std::unexpected(FRenderGraphError{ERenderGraphErrorCode::ExecutionFailed, "Render graph callback threw an unknown exception"});
+		Result = std::unexpected(FRenderGraphError{.Code = ERenderGraphErrorCode::ExecutionFailed, .Message = "Render graph callback threw an unknown exception"});
 	}
 
 	for (std::size_t Index = Resources.size(); Index > 0; --Index)

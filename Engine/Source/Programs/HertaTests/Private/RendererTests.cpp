@@ -2,10 +2,11 @@
 #include "Herta/Renderer/MeshRenderer.h"
 #include "TestGraphicsDevice.h"
 
+#include <doctest/doctest.h>
+
 #include <algorithm>
 #include <array>
 #include <cstring>
-#include <doctest/doctest.h>
 #include <limits>
 #include <numbers>
 
@@ -22,7 +23,7 @@ Herta::FVector3 Position(const Herta::FCookedVertex& Vertex)
 // The renderer owns no content, so tests draw the same 1 m cube that texture previews use.
 std::shared_ptr<const Herta::FRenderMesh> CreateTestCube(FTestGraphicsDevice& Device)
 {
-	Herta::FCookedTexture White{Herta::ETextureColorSpace::Srgb, {{1, 1, std::vector<std::byte>(4, std::byte{255})}}};
+	Herta::FCookedTexture White{.ColorSpace = Herta::ETextureColorSpace::Srgb, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(4, std::byte{255})}}};
 	auto Mesh = Herta::FRenderMesh::Create(Device, Herta::CreateTexturedCubeModel(std::move(White)), "Test cube");
 	REQUIRE(Mesh);
 	return std::move(*Mesh);
@@ -41,11 +42,13 @@ struct FCubeScene
 
 	FCubeScene(const FCubeScene&) = delete;
 	FCubeScene& operator=(const FCubeScene&) = delete;
+	FCubeScene(FCubeScene&&) = delete;
+	FCubeScene& operator=(FCubeScene&&) = delete;
 
 	std::shared_ptr<const Herta::FRenderMesh> Cube;
 	const Herta::FRenderMesh* Mesh = nullptr;
 	Herta::FMatrix4 Model;
-	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 5}), Herta::FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.0f, 4.0f / 3.0f, 0.1f), {}};
+	Herta::FMeshRenderView View{.View = Herta::FMatrix4::Translation({0, 0, 5}), .Projection = Herta::FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.f, 4.f / 3.f, 0.1f), .Models = {}};
 };
 
 std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> CreateDebugRenderer(FTestGraphicsDevice& Device)
@@ -71,6 +74,7 @@ std::expected<std::unique_ptr<Herta::FMeshRenderer>, Herta::FPresentationError> 
 	{
 		GridFragment.Bytecode.clear();
 	}
+
 	return Herta::FMeshRenderer::Create(Device, {}, {}, DebugVertex, DebugFragment, GridVertex, GridFragment);
 }
 }
@@ -133,12 +137,12 @@ TEST_CASE("Mesh renderer records clear before indexed reversed-Z geometry")
 	CHECK(Near.W > 0);
 	CHECK(Far.W > Near.W);
 	CHECK(Near.Z / Near.W > Far.Z / Far.W);
-	CHECK(Near.Z / Near.W < 1.0f);
+	CHECK(Near.Z / Near.W < 1.f);
 }
 
 TEST_CASE("Textured cube models are 1 m with outward counter-clockwise faces and unmirrored UVs")
 {
-	const Herta::FCookedModel Cube = Herta::CreateTexturedCubeModel({Herta::ETextureColorSpace::Srgb, {{1, 1, std::vector<std::byte>(4)}}});
+	const Herta::FCookedModel Cube = Herta::CreateTexturedCubeModel({.ColorSpace = Herta::ETextureColorSpace::Srgb, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(4)}}});
 	REQUIRE(Herta::ValidateCookedModel(Cube));
 	REQUIRE(Cube.Vertices.size() == 24);
 	REQUIRE(Cube.Indices.size() == 36);
@@ -148,11 +152,13 @@ TEST_CASE("Textured cube models are 1 m with outward counter-clockwise faces and
 		{
 			CHECK(std::abs(Coordinate) == 0.5f);
 		}
-		CHECK(Vertex.UV[0] >= 0.0f);
-		CHECK(Vertex.UV[0] <= 1.0f);
-		CHECK(Vertex.UV[1] >= 0.0f);
-		CHECK(Vertex.UV[1] <= 1.0f);
+
+		CHECK(Vertex.UV[0] >= 0.f);
+		CHECK(Vertex.UV[0] <= 1.f);
+		CHECK(Vertex.UV[1] >= 0.f);
+		CHECK(Vertex.UV[1] <= 1.f);
 	}
+
 	for (std::size_t Index = 0; Index < Cube.Indices.size(); Index += 3)
 	{
 		const Herta::FCookedVertex& A = Cube.Vertices[Cube.Indices[Index]];
@@ -162,7 +168,7 @@ TEST_CASE("Textured cube models are 1 m with outward counter-clockwise faces and
 		CHECK(Normal.Dot(Position(A) + Position(B) + Position(C)) > 0);
 		// V grows downward, so an unmirrored texture winds clockwise in UV space on a counter-clockwise face.
 		const float UVArea = (B.UV[0] - A.UV[0]) * (C.UV[1] - A.UV[1]) - (B.UV[1] - A.UV[1]) * (C.UV[0] - A.UV[0]);
-		CHECK(UVArea < 0.0f);
+		CHECK(UVArea < 0.f);
 	}
 }
 
@@ -175,7 +181,7 @@ TEST_CASE("Mesh renderer cancels recording after a failed graph pass")
 	Device.Events.clear();
 	Device.bFailDraw = true;
 	const std::uint64_t Submission = Device.Submissions;
-	const auto Result = (*Renderer)->Render({320, 240}, Scene.View);
+	const auto Result = (*Renderer)->Render({.Width = 320, .Height = 240}, Scene.View);
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Message == "Draw failed");
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Cancel"});
@@ -208,7 +214,7 @@ TEST_CASE("Mesh renderer records distinct transforms for every model and accepts
 	REQUIRE(Renderer);
 	std::array Models{Herta::FMatrix4::Translation({2, 0, 0}), Herta::FMatrix4::Translation({-2, 0, 0}) * Herta::FMatrix4::Scale({2, 0.25f, 3})};
 	const std::array<const Herta::FRenderMesh*, 2> Meshes{Cube.get(), Cube.get()};
-	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 5}), Herta::FMatrix4{}, Models};
+	Herta::FMeshRenderView View{.View = Herta::FMatrix4::Translation({0, 0, 5}), .Projection = Herta::FMatrix4{}, .Models = Models};
 	View.Meshes = Meshes;
 	Device.Events.clear();
 	REQUIRE((*Renderer)->Render({320, 240}, View));
@@ -219,6 +225,7 @@ TEST_CASE("Mesh renderer records distinct transforms for every model and accepts
 		CHECK(Device.Draws[Index].WorldToClip == (View.Projection * View.View * Models[Index]).Data());
 		CHECK(Device.Draws[Index].IndexCount == 36);
 	}
+
 	Device.Events.clear();
 	Models[1](0, 0) = std::numeric_limits<float>::infinity();
 	CHECK_FALSE((*Renderer)->Render({320, 240}, View));
@@ -236,10 +243,10 @@ TEST_CASE("Debug renderer expands portable pixel sizes and orders depth-tested d
 	const Herta::FRenderMesh* const CubeMesh = Cube.get();
 	const auto Renderer = CreateDebugRenderer(Device);
 	REQUIRE(Renderer);
-	const std::array<Herta::FDebugDrawVertex, 1> Points{{{{0, 0, 0.5f}, 10, {1, 0, 0, 1}}}};
-	const std::array<Herta::FDebugDrawVertex, 2> Lines{{{{-0.5f, 0, 0.5f}, 4, {0, 1, 0, 1}}, {{0.5f, 0, 0.5f}, 4, {0, 1, 0, 1}}}};
-	const std::array<Herta::FDebugDrawVertex, 3> Triangles{{{{0, 0, 0.5f}}, {{0, 0.5f, 0.5f}}, {{0.5f, 0, 0.5f}}}};
-	const std::array Lists{Herta::FDebugDrawList{Herta::EDebugPrimitive::Lines, Lines, false}, Herta::FDebugDrawList{Herta::EDebugPrimitive::Points, Points}, Herta::FDebugDrawList{Herta::EDebugPrimitive::Lines, Lines}, Herta::FDebugDrawList{Herta::EDebugPrimitive::Triangles, Triangles}};
+	const std::array<Herta::FDebugDrawVertex, 1> Points{{{.Position = {0, 0, 0.5f}, .Size = 10, .Color = {1, 0, 0, 1}}}};
+	const std::array<Herta::FDebugDrawVertex, 2> Lines{{{.Position = {-0.5f, 0, 0.5f}, .Size = 4, .Color = {0, 1, 0, 1}}, {.Position = {0.5f, 0, 0.5f}, .Size = 4, .Color = {0, 1, 0, 1}}}};
+	const std::array<Herta::FDebugDrawVertex, 3> Triangles{{{.Position = {0, 0, 0.5f}}, {.Position = {0, 0.5f, 0.5f}}, {.Position = {0.5f, 0, 0.5f}}}};
+	const std::array Lists{Herta::FDebugDrawList{.Primitive = Herta::EDebugPrimitive::Lines, .Vertices = Lines, .bDepthTest = false}, Herta::FDebugDrawList{.Primitive = Herta::EDebugPrimitive::Points, .Vertices = Points}, Herta::FDebugDrawList{.Primitive = Herta::EDebugPrimitive::Lines, .Vertices = Lines}, Herta::FDebugDrawList{.Primitive = Herta::EDebugPrimitive::Triangles, .Vertices = Triangles}};
 	Device.Events.clear();
 	const Herta::FMatrix4 Model;
 	Herta::FMeshRenderView View;
@@ -267,9 +274,9 @@ TEST_CASE("Debug renderer clips camera-crossing lines and rejects incomplete or 
 	FTestGraphicsDevice Device;
 	const auto Renderer = CreateDebugRenderer(Device);
 	REQUIRE(Renderer);
-	const Herta::FMeshRenderView View{Herta::FMatrix4{}, Herta::FMatrix4::PerspectiveReversedInfinite(1.0f, 1, 0.1f), {}};
-	std::array<Herta::FDebugDrawVertex, 2> Vertices{{{{0, 0, -1}, 4}, {{0.5f, 0, 1}, 4}}};
-	Herta::FDebugDrawList List{Herta::EDebugPrimitive::Lines, Vertices};
+	const Herta::FMeshRenderView View{.View = Herta::FMatrix4{}, .Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.f, 1, 0.1f), .Models = {}};
+	std::array<Herta::FDebugDrawVertex, 2> Vertices{{{.Position = {0, 0, -1}, .Size = 4}, {.Position = {0.5f, 0, 1}, .Size = 4}}};
+	Herta::FDebugDrawList List{.Primitive = Herta::EDebugPrimitive::Lines, .Vertices = Vertices};
 	REQUIRE((*Renderer)->Render({100, 100}, View, std::span{&List, 1}));
 	REQUIRE(Device.DebugUploads.size() == 1);
 	for (const auto& Vertex : Device.DebugUploads[0])
@@ -281,6 +288,7 @@ TEST_CASE("Debug renderer clips camera-crossing lines and rejects incomplete or 
 			CHECK(std::isfinite(Value));
 		}
 	}
+
 	Device.Events.clear();
 	List.Vertices = std::span{Vertices}.first(1);
 	CHECK_FALSE((*Renderer)->Render({100, 100}, View, std::span{&List, 1}));
@@ -306,11 +314,11 @@ TEST_CASE("Mesh renderer draws the optional world grid between mesh and debug ov
 	View.Models = std::span{&Model, 1};
 	View.Meshes = std::span{&CubeMesh, 1};
 	View.View = Herta::FMatrix4::Translation({-3, 0, -7});
-	View.Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.0f, 1.5f, 0.1f);
+	View.Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.f, 1.5f, 0.1f);
 	View.bDrawGrid = true;
 	View.GridCenter = {3, 9, 7};
-	const std::array<Herta::FDebugDrawVertex, 2> Overlay{{{{2.5f, 0, 8.0f}, 4}, {{3.5f, 0, 8.0f}, 4}}};
-	const Herta::FDebugDrawList Debug{Herta::EDebugPrimitive::Lines, Overlay, false};
+	const std::array<Herta::FDebugDrawVertex, 2> Overlay{{{.Position = {2.5f, 0, 8.f}, .Size = 4}, {.Position = {3.5f, 0, 8.f}, .Size = 4}}};
+	const Herta::FDebugDrawList Debug{.Primitive = Herta::EDebugPrimitive::Lines, .Vertices = Overlay, .bDepthTest = false};
 	Device.Events.clear();
 	Device.DebugUploads.clear();
 	Device.Draws.clear();
@@ -328,11 +336,12 @@ TEST_CASE("Mesh renderer draws the optional world grid between mesh and debug ov
 	REQUIRE(Device.IndexUploads.size() == 3);
 	CHECK(Device.IndexUploads[1] == std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3});
 	CHECK(std::all_of(Device.IndexUploads[1].begin(), Device.IndexUploads[1].end(), [](const std::uint32_t Index)
-	                   {
-		                   return Index < 4;
-	                   }));
-	float CenterX = 0.0f;
-	float CenterZ = 0.0f;
+	{
+		return Index < 4;
+	}));
+
+	float CenterX = 0.f;
+	float CenterZ = 0.f;
 	for (const Herta::FColoredClipVertex& Vertex : Device.DebugUploads[0])
 	{
 		CHECK(Vertex.Color[2] == doctest::Approx(View.GridCenter.X));
@@ -346,6 +355,7 @@ TEST_CASE("Mesh renderer draws the optional world grid between mesh and debug ov
 			CHECK(Vertex.Position[Index] == doctest::Approx(ExpectedClip[Index]));
 		}
 	}
+
 	CHECK(CenterX == doctest::Approx(View.GridCenter.X));
 	CHECK(CenterZ == doctest::Approx(View.GridCenter.Z));
 }
@@ -379,17 +389,18 @@ TEST_CASE("Render meshes draw each section with its texture and upload within th
 	const auto Renderer = CreateDebugRenderer(Device);
 	REQUIRE(Renderer);
 
-	Herta::FCookedTexture Small{Herta::ETextureColorSpace::Srgb, {{2, 2, std::vector<std::byte>(16)}, {1, 1, std::vector<std::byte>(4)}}};
-	Herta::FCookedTexture Large{Herta::ETextureColorSpace::Linear, {}};
+	Herta::FCookedTexture Small{.ColorSpace = Herta::ETextureColorSpace::Srgb, .Mips = {{.Width = 2, .Height = 2, .Pixels = std::vector<std::byte>(16)}, {.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(4)}}};
+	Herta::FCookedTexture Large{.ColorSpace = Herta::ETextureColorSpace::Linear, .Mips = {}};
 	for (std::uint32_t Size = Herta::MaximumCookedTextureDimension; Size > 0; Size /= 2)
 	{
-		Large.Mips.push_back({Size, Size, std::vector<std::byte>(std::size_t{Size} * Size * 4)});
+		Large.Mips.push_back({.Width = Size, .Height = Size, .Pixels = std::vector<std::byte>(std::size_t{Size} * Size * 4)});
 	}
+
 	Herta::FCookedModel Model;
-	Model.Vertices = {{{-1, 0, 2}, {0, 0}}, {{3, 0, 2}, {1, 0}}, {{0, 5, -4}, {0, 1}}};
+	Model.Vertices = {{.Position = {-1, 0, 2}, .UV = {0, 0}}, {.Position = {3, 0, 2}, .UV = {1, 0}}, {.Position = {0, 5, -4}, .UV = {0, 1}}};
 	Model.Indices = {0, 1, 2, 0, 2, 1};
-	Model.Sections = {{0, 3, 0}, {3, 3, 1}};
-	Model.Materials = {{"Near", 0}, {"Far", 1}};
+	Model.Sections = {{.FirstIndex = 0, .IndexCount = 3, .Material = 0}, {.FirstIndex = 3, .IndexCount = 3, .Material = 1}};
+	Model.Materials = {{.Name = "Near", .BaseColorTexture = 0}, {.Name = "Far", .BaseColorTexture = 1}};
 	Model.Textures = {Small, Large};
 
 	Device.Events.clear();
@@ -406,7 +417,7 @@ TEST_CASE("Render meshes draw each section with its texture and upload within th
 
 	const std::array<Herta::FMatrix4, 2> Models{Herta::FMatrix4{}, Herta::FMatrix4::Translation({0, 1, 0})};
 	const std::array<const Herta::FRenderMesh*, 2> Meshes{Mesh->get(), nullptr};
-	Herta::FMeshRenderView View{Herta::FMatrix4::Translation({0, 0, 5}), Herta::FMatrix4{}, Models};
+	Herta::FMeshRenderView View{.View = Herta::FMatrix4::Translation({0, 0, 5}), .Projection = Herta::FMatrix4{}, .Models = Models};
 	View.Meshes = Meshes;
 	Device.Draws.clear();
 	REQUIRE((*Renderer)->Render({64, 64}, View));

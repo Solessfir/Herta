@@ -4,9 +4,10 @@
 #include "Herta/Platform/Process.h"
 #include "TestFiles.h"
 
+#include <doctest/doctest.h>
+
 #include <array>
 #include <cstdlib>
-#include <doctest/doctest.h>
 #include <optional>
 #include <string>
 #include <variant>
@@ -57,6 +58,7 @@ bpy.ops.wm.save_as_mainfile(filepath=blend, relative_remap=True)
 		MESSAGE("Skipping: ", Blender.error().Message);
 		return std::nullopt;
 	}
+
 	return *Blender;
 }
 
@@ -65,7 +67,7 @@ void WriteEdgeCaseBlend(const FBlenderInstallation& Blender, const Tests::FScrat
 {
 	Tests::WriteText(Scratch.GetPath() / "Scene.py", SceneScript);
 	std::filesystem::create_directories(Blend.parent_path());
-	const auto Result = RunProcess({Blender.Executable, {"--background", "--factory-startup", "--python-exit-code", "1", "--python", (Scratch.GetPath() / "Scene.py").generic_string(), "--", Blend.generic_string(), ExternalImage.generic_string()}, std::chrono::minutes(2)});
+	const auto Result = RunProcess({.Executable = Blender.Executable, .Arguments = {"--background", "--factory-startup", "--python-exit-code", "1", "--python", (Scratch.GetPath() / "Scene.py").generic_string(), "--", Blend.generic_string(), ExternalImage.generic_string()}, .Timeout = std::chrono::minutes(2)});
 	REQUIRE(Result);
 	INFO(Result->StandardError);
 	REQUIRE(Result->ExitCode == 0);
@@ -79,12 +81,16 @@ void WriteBlenderMetadata(const std::filesystem::path& Blend)
 void SetBlenderOverride(const std::optional<std::string>& Value)
 {
 #ifdef HERTA_PLATFORM_WINDOWS
-	(void)_putenv_s("HERTA_BLENDER", Value ? Value->c_str() : "");
+	_putenv_s("HERTA_BLENDER", Value ? Value->c_str() : "");
 #else
 	if (Value)
+	{
 		setenv("HERTA_BLENDER", Value->c_str(), 1);
+	}
 	else
+	{
 		unsetenv("HERTA_BLENDER");
+	}
 #endif
 }
 }
@@ -96,6 +102,7 @@ TEST_CASE("Blender import cooks a .blend through Herta's preset, tracks external
 	{
 		return;
 	}
+
 	const Tests::FScratchDirectory Scratch("HertaBlender");
 	const std::filesystem::path Content = Scratch.GetPath() / "Content";
 	const std::array<std::uint8_t, 16> Pixels{0, 128, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 0, 128, 255, 255};
@@ -103,7 +110,7 @@ TEST_CASE("Blender import cooks a .blend through Herta's preset, tracks external
 	WriteEdgeCaseBlend(*Blender, Scratch, Content / "Models/Edge.blend", Content / "Textures/Checker.png");
 	WriteBlenderMetadata(Content / "Models/Edge.blend");
 
-	const FAssetCookRequest Request{Content, Scratch.GetPath() / "DerivedDataCache", "Models/Edge.blend", "TestPlatform", false};
+	const FAssetCookRequest Request{.ContentRoot = Content, .DerivedDataRoot = Scratch.GetPath() / "DerivedDataCache", .SourcePath = "Models/Edge.blend", .TargetPlatform = "TestPlatform", .bForce = false};
 	const auto First = CookAsset(Request);
 	REQUIRE_MESSAGE(First, (First ? std::string() : First.error().Message));
 	CHECK_FALSE(First->bCacheHit);
@@ -151,6 +158,7 @@ TEST_CASE("Blender import rejects images outside the content root")
 	{
 		return;
 	}
+
 	const Tests::FScratchDirectory Scratch("HertaBlenderOutside");
 	const std::filesystem::path Content = Scratch.GetPath() / "Content";
 	const std::array<std::uint8_t, 4> Pixel{255, 255, 255, 255};
@@ -158,7 +166,7 @@ TEST_CASE("Blender import rejects images outside the content root")
 	WriteEdgeCaseBlend(*Blender, Scratch, Content / "Escape.blend", Scratch.GetPath() / "Outside.png");
 	WriteBlenderMetadata(Content / "Escape.blend");
 
-	const auto Cooked = CookAsset({Content, Scratch.GetPath() / "DerivedDataCache", "Escape.blend", "TestPlatform", false});
+	const auto Cooked = CookAsset({.ContentRoot = Content, .DerivedDataRoot = Scratch.GetPath() / "DerivedDataCache", .SourcePath = "Escape.blend", .TargetPlatform = "TestPlatform", .bForce = false});
 	REQUIRE_FALSE(Cooked);
 	CHECK(Cooked.error().Message.find("outside the content root") != std::string::npos);
 }
@@ -170,7 +178,7 @@ TEST_CASE("Blender import fails clearly when Blender is unavailable")
 	WriteBlenderMetadata(Scratch.GetPath() / "Missing.blend");
 
 	SetBlenderOverride((Scratch.GetPath() / "NoBlenderHere").string());
-	const auto Cooked = CookAsset({Scratch.GetPath(), Scratch.GetPath() / "DerivedDataCache", "Missing.blend", "TestPlatform", false});
+	const auto Cooked = CookAsset({.ContentRoot = Scratch.GetPath(), .DerivedDataRoot = Scratch.GetPath() / "DerivedDataCache", .SourcePath = "Missing.blend", .TargetPlatform = "TestPlatform", .bForce = false});
 	SetBlenderOverride(std::nullopt);
 	REQUIRE_FALSE(Cooked);
 	CHECK(Cooked.error().Message.find("Blender was not found") != std::string::npos);

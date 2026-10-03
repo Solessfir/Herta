@@ -1,12 +1,13 @@
 #include "Herta/EditorFramework/ViewportInteraction.h"
 #include "ViewportGizmos.h"
 
-#include <algorithm>
-#include <cmath>
-#include <cstdint>
 #include <doctest/doctest.h>
 #include <im3d.h>
 #include <im3d_math.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <limits>
 #include <numbers>
 
@@ -28,9 +29,9 @@ struct FViewportGizmoTestContext final
 {
 	Im3d::Context Context;
 	Im3d::Context& Previous = Im3d::GetContext();
-	Im3d::Vec3 Translation{0.0f};
-	Im3d::Mat3 Rotation{1.0f};
-	Im3d::Vec3 Scale{1.0f};
+	Im3d::Vec3 Translation{0.f};
+	Im3d::Mat3 Rotation{1.f};
+	Im3d::Vec3 Scale{1.f};
 	bool bCustomTranslation = false;
 	bool bLocal = false;
 
@@ -39,9 +40,9 @@ struct FViewportGizmoTestContext final
 		Im3d::SetContext(Context);
 		Context.m_gizmoMode = Im3d::GizmoMode_Translation;
 		Im3d::AppData& AppData = Im3d::GetAppData();
-		AppData.m_viewOrigin = {0.0f, 0.0f, -5.0f};
-		AppData.m_viewDirection = {0.0f, 0.0f, 1.0f};
-		AppData.m_viewportSize = {960.0f, 540.0f};
+		AppData.m_viewOrigin = {0.f, 0.f, -5.f};
+		AppData.m_viewDirection = {0.f, 0.f, 1.f};
+		AppData.m_viewportSize = {960.f, 540.f};
 		AppData.m_projScaleY = 1.1547005f;
 		AppData.m_snapTranslation = 0.5f;
 		AppData.m_cursorRayOrigin = AppData.m_viewOrigin;
@@ -52,9 +53,14 @@ struct FViewportGizmoTestContext final
 		Im3d::SetContext(Previous);
 	}
 
+	FViewportGizmoTestContext(const FViewportGizmoTestContext&) = delete;
+	FViewportGizmoTestContext& operator=(const FViewportGizmoTestContext&) = delete;
+	FViewportGizmoTestContext(FViewportGizmoTestContext&&) = delete;
+	FViewportGizmoTestContext& operator=(FViewportGizmoTestContext&&) = delete;
+
 	void Frame(const float CursorX, const bool bSelect)
 	{
-		FrameRay({CursorX, 0.0f, 5.0f}, bSelect);
+		FrameRay({CursorX, 0.f, 5.f}, bSelect);
 	}
 
 	void FrameRay(const Im3d::Vec3 Direction, const bool bSelect)
@@ -71,6 +77,7 @@ struct FViewportGizmoTestContext final
 		{
 			Im3d::Gizmo("PreviewCube", Translation, Rotation, Scale);
 		}
+
 		Im3d::EndFrame();
 	}
 };
@@ -154,6 +161,7 @@ TEST_CASE("Viewport focus loss popups and competing widgets cancel ownership")
 		{
 			CHECK_FALSE(State.bKeyboardFocus);
 		}
+
 		Input.bWindowFocused = true;
 		Input.bInputBlocked = false;
 		Input.bImageActive = true;
@@ -200,15 +208,16 @@ TEST_CASE("Viewport camera chords do not steal an owned gizmo drag")
 
 TEST_CASE("Viewport gizmo pixels preserve UI scale after image downsampling")
 {
-	for (const float InterfaceScale : {1.0f, 1.5f, 2.0f})
+	for (const float InterfaceScale : {1.f, 1.5f, 2.f})
 	{
-		constexpr float ImageHeight = 600.0f;
+		constexpr float ImageHeight = 600.f;
 		const float FramebufferHeight = ImageHeight * InterfaceScale;
 		const float GizmoScale = GetViewportGizmoPixelScale(InterfaceScale, ImageHeight, FramebufferHeight);
-		CHECK(80.0f * GizmoScale * ImageHeight / FramebufferHeight == doctest::Approx(80.0f * InterfaceScale));
-		CHECK(4.0f * GizmoScale * ImageHeight / FramebufferHeight == doctest::Approx(4.0f * InterfaceScale));
+		CHECK(80.f * GizmoScale * ImageHeight / FramebufferHeight == doctest::Approx(80.f * InterfaceScale));
+		CHECK(4.f * GizmoScale * ImageHeight / FramebufferHeight == doctest::Approx(4.f * InterfaceScale));
 	}
-	CHECK(80.0f * GetViewportGizmoPixelScale(2.0f, 3000.0f, 4096.0f) * 3000.0f / 4096.0f == doctest::Approx(160.0f));
+
+	CHECK(80.f * GetViewportGizmoPixelScale(2.f, 3000.f, 4096.f) * 3000.f / 4096.f == doctest::Approx(160.f));
 }
 
 TEST_CASE("Viewport im3d gizmo hits drags snaps and releases")
@@ -220,8 +229,8 @@ TEST_CASE("Viewport im3d gizmo hits drags snaps and releases")
 	REQUIRE(Im3d::GetActiveId() != Im3d::Id_Invalid);
 	Gizmo.Frame(1.13f, true);
 	CHECK(Gizmo.Translation.x == doctest::Approx(0.5f));
-	CHECK(Gizmo.Translation.y == doctest::Approx(0.0f));
-	CHECK(Gizmo.Translation.z == doctest::Approx(0.0f));
+	CHECK(Gizmo.Translation.y == doctest::Approx(0.f));
+	CHECK(Gizmo.Translation.z == doctest::Approx(0.f));
 	Gizmo.Frame(1.13f, false);
 	CHECK(Im3d::GetActiveId() == Im3d::Id_Invalid);
 
@@ -232,7 +241,7 @@ TEST_CASE("Viewport im3d gizmo hits drags snaps and releases")
 	Gizmo.Frame(-0.1f, true);
 	REQUIRE(Im3d::GetActiveId() != Im3d::Id_Invalid);
 	Gizmo.Context.resetId();
-	Gizmo.Frame(2.0f, false);
+	Gizmo.Frame(2.f, false);
 	CHECK(Im3d::GetActiveId() == Im3d::Id_Invalid);
 	CHECK(Gizmo.Translation.x == doctest::Approx(0.5f));
 }
@@ -240,29 +249,29 @@ TEST_CASE("Viewport im3d gizmo hits drags snaps and releases")
 TEST_CASE("Viewport im3d stale hot plane does not own a parallel empty click")
 {
 	FViewportGizmoTestContext Gizmo;
-	Im3d::GetAppData().m_viewOrigin = {0.0f, 1.0f, -5.0f};
+	Im3d::GetAppData().m_viewOrigin = {0.f, 1.f, -5.f};
 	Im3d::GetAppData().m_cursorRayOrigin = Im3d::GetAppData().m_viewOrigin;
-	Gizmo.FrameRay({0.43f, -1.0f, 4.57f}, false);
+	Gizmo.FrameRay({0.43f, -1.f, 4.57f}, false);
 	REQUIRE(Im3d::GetHotId() != Im3d::Id_Invalid);
 	const Im3d::Id PreviouslyHotId = Gizmo.Context.m_hotId;
 
-	Gizmo.FrameRay({2.0f, 0.0f, 1.0f}, true);
+	Gizmo.FrameRay({2.f, 0.f, 1.f}, true);
 	CHECK(Im3d::GetActiveId() == Im3d::Id_Invalid);
 	CHECK(Gizmo.Context.m_hotId == PreviouslyHotId);
 	CHECK(Im3d::GetHotId() != Im3d::Id_Invalid);
-	CHECK(Gizmo.Translation.x == doctest::Approx(0.0f));
-	CHECK(Gizmo.Translation.y == doctest::Approx(0.0f));
-	CHECK(Gizmo.Translation.z == doctest::Approx(0.0f));
+	CHECK(Gizmo.Translation.x == doctest::Approx(0.f));
+	CHECK(Gizmo.Translation.y == doctest::Approx(0.f));
+	CHECK(Gizmo.Translation.z == doctest::Approx(0.f));
 }
 
 TEST_CASE("Viewport translation plane is a small solid square with matching world hit bounds")
 {
 	FViewportGizmoTestContext Gizmo;
 	Gizmo.bCustomTranslation = true;
-	Gizmo.Context.m_gizmoHeightPixels = 80.0f;
-	Gizmo.Context.m_gizmoSizePixels = 4.0f;
-	const float Center = Gizmo.Context.pixelsToWorldSize(Im3d::Vec3(0.0f), 80.0f) * 0.60f;
-	Gizmo.FrameRay({Center + 0.1f, Center, 5.0f}, false);
+	Gizmo.Context.m_gizmoHeightPixels = 80.f;
+	Gizmo.Context.m_gizmoSizePixels = 4.f;
+	const float Center = Gizmo.Context.pixelsToWorldSize(Im3d::Vec3(0.f), 80.f) * 0.6f;
+	Gizmo.FrameRay({Center + 0.1f, Center, 5.f}, false);
 	CHECK(Im3d::GetHotId() == Im3d::Id_Invalid);
 	float MinimumX = std::numeric_limits<float>::max();
 	float MaximumX = std::numeric_limits<float>::lowest();
@@ -274,6 +283,7 @@ TEST_CASE("Viewport translation plane is a small solid square with matching worl
 		{
 			continue;
 		}
+
 		for (std::uint32_t VertexIndex = 0; VertexIndex < List.m_vertexCount; ++VertexIndex)
 		{
 			const Im3d::VertexData& Vertex = List.m_vertexData[VertexIndex];
@@ -285,17 +295,18 @@ TEST_CASE("Viewport translation plane is a small solid square with matching worl
 			}
 		}
 	}
+
 	REQUIRE(BluePlaneVertices == 6);
-	CHECK(Gizmo.Context.worldSizeToPixels(Im3d::Vec3(0.0f), MaximumX - MinimumX) == doctest::Approx(12.0f));
-	Gizmo.FrameRay({Center, Center, 5.0f}, false);
+	CHECK(Gizmo.Context.worldSizeToPixels(Im3d::Vec3(0.f), MaximumX - MinimumX) == doctest::Approx(12.f));
+	Gizmo.FrameRay({Center, Center, 5.f}, false);
 	REQUIRE(Im3d::GetHotId() != Im3d::Id_Invalid);
-	Gizmo.FrameRay({Center, Center, 5.0f}, true);
+	Gizmo.FrameRay({Center, Center, 5.f}, true);
 	REQUIRE(Im3d::GetActiveId() != Im3d::Id_Invalid);
-	Gizmo.FrameRay({Center + 0.53f, Center + 0.53f, 5.0f}, true);
+	Gizmo.FrameRay({Center + 0.53f, Center + 0.53f, 5.f}, true);
 	CHECK(Gizmo.Translation.x == doctest::Approx(0.5f));
 	CHECK(Gizmo.Translation.y == doctest::Approx(0.5f));
-	CHECK(Gizmo.Translation.z == doctest::Approx(0.0f));
-	Gizmo.FrameRay({Center + 0.53f, Center + 0.53f, 5.0f}, false);
+	CHECK(Gizmo.Translation.z == doctest::Approx(0.f));
+	Gizmo.FrameRay({Center + 0.53f, Center + 0.53f, 5.f}, false);
 	CHECK(Im3d::GetActiveId() == Im3d::Id_Invalid);
 }
 
@@ -304,16 +315,16 @@ TEST_CASE("Viewport local translation plane hit bounds rotate with the drawn squ
 	FViewportGizmoTestContext Gizmo;
 	Gizmo.bCustomTranslation = true;
 	Gizmo.bLocal = true;
-	Gizmo.Context.m_gizmoHeightPixels = 80.0f;
-	Gizmo.Context.m_gizmoSizePixels = 4.0f;
-	Gizmo.Rotation = Im3d::Rotation({0.0f, 0.0f, 1.0f}, std::numbers::pi_v<float> * 0.25f);
-	const float Center = Gizmo.Context.pixelsToWorldSize(Im3d::Vec3(0.0f), 80.0f) * 0.60f;
-	const Im3d::Vec3 Inside = Gizmo.Rotation * Im3d::Vec3(Center + 0.06f, Center + 0.06f, 0.0f);
-	Gizmo.FrameRay({Inside.x, Inside.y, 5.0f}, false);
+	Gizmo.Context.m_gizmoHeightPixels = 80.f;
+	Gizmo.Context.m_gizmoSizePixels = 4.f;
+	Gizmo.Rotation = Im3d::Rotation({0.f, 0.f, 1.f}, std::numbers::pi_v<float> * 0.25f);
+	const float Center = Gizmo.Context.pixelsToWorldSize(Im3d::Vec3(0.f), 80.f) * 0.6f;
+	const Im3d::Vec3 Inside = Gizmo.Rotation * Im3d::Vec3(Center + 0.06f, Center + 0.06f, 0.f);
+	Gizmo.FrameRay({Inside.x, Inside.y, 5.f}, false);
 	REQUIRE(Im3d::GetHotId() != Im3d::Id_Invalid);
 	Gizmo.Context.resetId();
-	const Im3d::Vec3 Outside = Gizmo.Rotation * Im3d::Vec3(Center + 0.09f, Center, 0.0f);
-	Gizmo.FrameRay({Outside.x, Outside.y, 5.0f}, false);
+	const Im3d::Vec3 Outside = Gizmo.Rotation * Im3d::Vec3(Center + 0.09f, Center, 0.f);
+	Gizmo.FrameRay({Outside.x, Outside.y, 5.f}, false);
 	CHECK(Im3d::GetHotId() == Im3d::Id_Invalid);
 }
 
@@ -321,8 +332,8 @@ TEST_CASE("Viewport translation drag keeps geometry local instead of drawing an 
 {
 	FViewportGizmoTestContext Gizmo;
 	Gizmo.bCustomTranslation = true;
-	Gizmo.Context.m_gizmoHeightPixels = 80.0f;
-	Gizmo.Context.m_gizmoSizePixels = 4.0f;
+	Gizmo.Context.m_gizmoHeightPixels = 80.f;
+	Gizmo.Context.m_gizmoSizePixels = 4.f;
 	Gizmo.Frame(0.6f, false);
 	Gizmo.Frame(0.6f, true);
 	REQUIRE(Im3d::GetActiveId() != Im3d::Id_Invalid);
@@ -334,7 +345,7 @@ TEST_CASE("Viewport translation drag keeps geometry local instead of drawing an 
 		for (std::uint32_t VertexIndex = 0; VertexIndex < List.m_vertexCount; ++VertexIndex)
 		{
 			const auto& Position = List.m_vertexData[VertexIndex].m_positionSize;
-			CHECK(std::hypot(Position.x, Position.y, Position.z) < 5.0f);
+			CHECK(std::hypot(Position.x, Position.y, Position.z) < 5.f);
 		}
 	}
 }

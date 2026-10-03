@@ -6,17 +6,18 @@
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include <backends/imgui_impl_glfw.h>
+#include <imgui.h>
+#include <imgui_internal.h>
+#include <misc/freetype/imgui_freetype.h>
+
 #include <algorithm>
 #include <array>
-#include <backends/imgui_impl_glfw.h>
 #include <cfloat>
 #include <cmath>
 #include <format>
 #include <fstream>
-#include <imgui.h>
-#include <imgui_internal.h>
 #include <limits>
-#include <misc/freetype/imgui_freetype.h>
 #include <optional>
 #include <system_error>
 #include <unordered_map>
@@ -35,7 +36,7 @@ namespace
 
 [[nodiscard]] ImVec4 ToImGuiColor(const FToolUIColor Color) noexcept
 {
-	constexpr float InverseByte = 1.0f / 255.0f;
+	constexpr float InverseByte = 1.f / 255.f;
 	return {static_cast<float>(Color.Red) * InverseByte, static_cast<float>(Color.Green) * InverseByte, static_cast<float>(Color.Blue) * InverseByte, static_cast<float>(Color.Alpha) * InverseByte};
 }
 
@@ -58,6 +59,7 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 	const float Scale = Height / static_cast<float>(DefaultTitleBarHeight);
 	const float CenterY = Origin.y + Height * 0.5f;
 	const ImU32 GlyphColor = ToImGuiPackedColor(ToolUITheme::TextPrimary);
+
 	const auto DrawBackground = [&](const FTitleBarControlBounds Bounds, const bool bClose)
 	{
 		if (!Bounds.bVisible || MousePosition.x < Origin.x + static_cast<float>(Bounds.MinimumX) || MousePosition.x >= Origin.x + static_cast<float>(Bounds.MaximumX) || MousePosition.y < Origin.y || MousePosition.y >= Origin.y + Height)
@@ -69,8 +71,9 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 		    {Origin.x + static_cast<float>(Bounds.MinimumX), Origin.y},
 		    {Origin.x + static_cast<float>(Bounds.MaximumX), Origin.y + Height},
 		    ToImGuiPackedColor(bClose ? ToolUITheme::CloseHover : ToolUITheme::TitleBarControlHover),
-		    4.0f * Scale);
+		    4.f * Scale);
 	};
+
 	const FTitleBarControlBounds Minimize = GetTitleBarControlBounds(Layout, ETitleBarHitRegion::MinimizeButton);
 	const FTitleBarControlBounds Maximize = GetTitleBarControlBounds(Layout, ETitleBarHitRegion::MaximizeButton);
 	const FTitleBarControlBounds Close = GetTitleBarControlBounds(Layout, ETitleBarHitRegion::CloseButton);
@@ -81,7 +84,7 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 	if (Minimize.bVisible)
 	{
 		const float CenterX = Origin.x + static_cast<float>(Minimize.MinimumX + Minimize.MaximumX) * 0.5f;
-		DrawList.AddLine({CenterX - 5.0f * Scale, CenterY + 3.0f * Scale}, {CenterX + 5.0f * Scale, CenterY + 3.0f * Scale}, GlyphColor, Scale);
+		DrawList.AddLine({CenterX - 5.f * Scale, CenterY + 3.f * Scale}, {CenterX + 5.f * Scale, CenterY + 3.f * Scale}, GlyphColor, Scale);
 	}
 
 	if (Maximize.bVisible)
@@ -89,25 +92,25 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 		const float CenterX = Origin.x + static_cast<float>(Maximize.MinimumX + Maximize.MaximumX) * 0.5f;
 		if (Layout.bMaximized)
 		{
-			DrawList.PathLineTo({CenterX - 3.0f * Scale, CenterY - 3.0f * Scale});
-			DrawList.PathArcToFast({CenterX - 2.0f * Scale, CenterY - 4.0f * Scale}, Scale, 6, 9);
-			DrawList.PathArcToFast({CenterX + 4.0f * Scale, CenterY - 4.0f * Scale}, Scale, 9, 12);
-			DrawList.PathArcToFast({CenterX + 4.0f * Scale, CenterY + 2.0f * Scale}, Scale, 0, 3);
-			DrawList.PathLineTo({CenterX + 3.0f * Scale, CenterY + 3.0f * Scale});
+			DrawList.PathLineTo({CenterX - 3.f * Scale, CenterY - 3.f * Scale});
+			DrawList.PathArcToFast({CenterX - 2.f * Scale, CenterY - 4.f * Scale}, Scale, 6, 9);
+			DrawList.PathArcToFast({CenterX + 4.f * Scale, CenterY - 4.f * Scale}, Scale, 9, 12);
+			DrawList.PathArcToFast({CenterX + 4.f * Scale, CenterY + 2.f * Scale}, Scale, 0, 3);
+			DrawList.PathLineTo({CenterX + 3.f * Scale, CenterY + 3.f * Scale});
 			DrawList.PathStroke(GlyphColor, 0, Scale);
-			DrawList.AddRect({CenterX - 5.0f * Scale, CenterY - 3.0f * Scale}, {CenterX + 3.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, Scale, 0, Scale);
+			DrawList.AddRect({CenterX - 5.f * Scale, CenterY - 3.f * Scale}, {CenterX + 3.f * Scale, CenterY + 5.f * Scale}, GlyphColor, Scale, 0, Scale);
 		}
 		else
 		{
-			DrawList.AddRect({CenterX - 5.0f * Scale, CenterY - 5.0f * Scale}, {CenterX + 5.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, 0.0f, 0, Scale);
+			DrawList.AddRect({CenterX - 5.f * Scale, CenterY - 5.f * Scale}, {CenterX + 5.f * Scale, CenterY + 5.f * Scale}, GlyphColor, 0.f, 0, Scale);
 		}
 	}
 
 	if (Close.bVisible)
 	{
 		const float CenterX = Origin.x + static_cast<float>(Close.MinimumX + Close.MaximumX) * 0.5f;
-		DrawList.AddLine({CenterX - 5.0f * Scale, CenterY - 5.0f * Scale}, {CenterX + 5.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, Scale);
-		DrawList.AddLine({CenterX + 5.0f * Scale, CenterY - 5.0f * Scale}, {CenterX - 5.0f * Scale, CenterY + 5.0f * Scale}, GlyphColor, Scale);
+		DrawList.AddLine({CenterX - 5.f * Scale, CenterY - 5.f * Scale}, {CenterX + 5.f * Scale, CenterY + 5.f * Scale}, GlyphColor, Scale);
+		DrawList.AddLine({CenterX + 5.f * Scale, CenterY - 5.f * Scale}, {CenterX - 5.f * Scale, CenterY + 5.f * Scale}, GlyphColor, Scale);
 	}
 }
 
@@ -133,6 +136,7 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 		{
 			return std::unexpected(FToolUIError{"Could not read editor resource: " + PathToUtf8(Path)});
 		}
+
 		return Bytes;
 	}
 	catch (const std::exception& Exception)
@@ -154,40 +158,35 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 	FEditorAppearance Appearance;
 	std::string PanelLabel;
 	int PanelMode = 0;
-	if (!(Stream >> Header >> Version) || Header != "HertaEditorAppearance" || (Version != 1 && Version != 2) ||
-	    !(Stream >> AccentLabel >> Red >> Green >> Blue) || AccentLabel != "Accent" ||
-	    !(Stream >> GradientLabel >> Appearance.GradientHeight >> Appearance.Saturation >> Appearance.Intensity) || GradientLabel != "Gradient" ||
-	    !(Stream >> PanelLabel >> PanelMode) || PanelLabel != "Panel")
+	if (!(Stream >> Header >> Version) || Header != "HertaEditorAppearance" || (Version != 1 && Version != 2) || !(Stream >> AccentLabel >> Red >> Green >> Blue) || AccentLabel != "Accent" || !(Stream >> GradientLabel >> Appearance.GradientHeight >> Appearance.Saturation >> Appearance.Intensity) || GradientLabel != "Gradient" || !(Stream >> PanelLabel >> PanelMode) || PanelLabel != "Panel")
 	{
 		return std::nullopt;
 	}
+
 	if (Version == 2)
 	{
 		std::string GlassLabel;
 		std::string MotionLabel;
 		int ReducedMotion = 0;
-		if (!(Stream >> GlassLabel >> Appearance.PanelOpacity >> Appearance.BlurRadius) || GlassLabel != "Glass" ||
-		    !(Stream >> MotionLabel >> ReducedMotion) || MotionLabel != "Motion" || (ReducedMotion != 0 && ReducedMotion != 1))
+		if (!(Stream >> GlassLabel >> Appearance.PanelOpacity >> Appearance.BlurRadius) || GlassLabel != "Glass" || !(Stream >> MotionLabel >> ReducedMotion) || MotionLabel != "Motion" || (ReducedMotion != 0 && ReducedMotion != 1))
 		{
 			return std::nullopt;
 		}
+
 		Appearance.bReducedMotion = ReducedMotion != 0;
 	}
 
-	if (Red < 0 || Red > 255 || Green < 0 || Green > 255 || Blue < 0 || Blue > 255 ||
-	    !std::isfinite(Appearance.GradientHeight) || Appearance.GradientHeight < 0.0f || Appearance.GradientHeight > 1.0f ||
-	    !std::isfinite(Appearance.Saturation) || Appearance.Saturation < 0.0f || Appearance.Saturation > 1.0f ||
-	    !std::isfinite(Appearance.Intensity) || Appearance.Intensity < 0.0f || Appearance.Intensity > 1.0f ||
-	    !std::isfinite(Appearance.PanelOpacity) || Appearance.PanelOpacity < 0.0f || Appearance.PanelOpacity > 1.0f ||
-	    !std::isfinite(Appearance.BlurRadius) || Appearance.BlurRadius < 0.0f || Appearance.BlurRadius > 40.0f ||
-	    PanelMode < static_cast<int>(EPanelTransparency::AllPanels) || PanelMode > static_cast<int>(EPanelTransparency::Disabled))
+	if (Red < 0 || Red > 255 || Green < 0 || Green > 255 || Blue < 0 || Blue > 255 || !std::isfinite(Appearance.GradientHeight) || Appearance.GradientHeight < 0.f || Appearance.GradientHeight > 1.f || !std::isfinite(Appearance.Saturation) || Appearance.Saturation < 0.f || Appearance.Saturation > 1.f || !std::isfinite(Appearance.Intensity) || Appearance.Intensity < 0.f || Appearance.Intensity > 1.f || !std::isfinite(Appearance.PanelOpacity) || Appearance.PanelOpacity < 0.f || Appearance.PanelOpacity > 1.f || !std::isfinite(Appearance.BlurRadius) || Appearance.BlurRadius < 0.f || Appearance.BlurRadius > 40.f || PanelMode < static_cast<int>(EPanelTransparency::AllPanels) || PanelMode > static_cast<int>(EPanelTransparency::Disabled))
 	{
 		return std::nullopt;
 	}
 
-	Appearance.Accent = {static_cast<std::uint8_t>(Red), static_cast<std::uint8_t>(Green), static_cast<std::uint8_t>(Blue), 255};
-	if (Version == 1 && Appearance.Accent == FToolUIColor{84, 108, 232, 255})
+	Appearance.Accent = {.Red = static_cast<std::uint8_t>(Red), .Green = static_cast<std::uint8_t>(Green), .Blue = static_cast<std::uint8_t>(Blue), .Alpha = 255};
+	if (Version == 1 && Appearance.Accent == FToolUIColor{.Red = 84, .Green = 108, .Blue = 232, .Alpha = 255})
+	{
 		Appearance.Accent = FEditorAppearance{}.Accent;
+	}
+
 	Appearance.PanelTransparency = static_cast<EPanelTransparency>(PanelMode);
 	return Appearance;
 }
@@ -201,6 +200,7 @@ void SaveAppearance(const std::filesystem::path& Path, const FEditorAppearance& 
 		{
 			return;
 		}
+
 		Stream << "HertaEditorAppearance 2\n";
 		Stream << "Accent " << static_cast<int>(Appearance.Accent.Red) << ' ' << static_cast<int>(Appearance.Accent.Green) << ' ' << static_cast<int>(Appearance.Accent.Blue) << '\n';
 		Stream << "Gradient " << Appearance.GradientHeight << ' ' << Appearance.Saturation << ' ' << Appearance.Intensity << '\n';
@@ -225,6 +225,7 @@ void ResetRendererTextureState() noexcept
 			Texture->SetStatus(ImTextureStatus_Destroyed);
 		}
 	}
+
 	ImGui::GetIO().BackendFlags &= ~ImGuiBackendFlags_RendererHasTextures;
 }
 
@@ -232,44 +233,44 @@ void ApplyBaseStyle(ImGuiStyle& Style, const FToolUIThemeMetrics& Metrics)
 {
 	Style.FontSizeBase = Metrics.BaseFontSize;
 	Style.WindowPadding = {Metrics.WindowPadding, Metrics.WindowPadding};
-	Style.WindowTitleAlign = {0.0f, 0.5f};
+	Style.WindowTitleAlign = {0.f, 0.5f};
 	Style.WindowRounding = Metrics.WindowRounding;
-	Style.WindowBorderSize = 0.0f;
+	Style.WindowBorderSize = 0.f;
 	Style.ChildRounding = Metrics.ChildRounding;
-	Style.ChildBorderSize = 0.0f;
+	Style.ChildBorderSize = 0.f;
 	Style.PopupRounding = Metrics.PopupRounding;
-	Style.PopupBorderSize = 1.0f;
-	Style.FramePadding = {12.0f, 8.0f};
+	Style.PopupBorderSize = 1.f;
+	Style.FramePadding = {12.f, 8.f};
 	Style.FrameRounding = Metrics.FrameRounding;
-	Style.FrameBorderSize = 1.0f;
-	Style.ItemSpacing = {8.0f, 8.0f};
-	Style.ItemInnerSpacing = {8.0f, 6.0f};
-	Style.CellPadding = {10.0f, 8.0f};
-	Style.IndentSpacing = 20.0f;
+	Style.FrameBorderSize = 1.f;
+	Style.ItemSpacing = {8.f, 8.f};
+	Style.ItemInnerSpacing = {8.f, 6.f};
+	Style.CellPadding = {10.f, 8.f};
+	Style.IndentSpacing = 20.f;
 	Style.ScrollbarSize = Metrics.ScrollbarSize;
 	Style.ScrollbarRounding = Metrics.ScrollbarRounding;
-	Style.GrabMinSize = 10.0f;
+	Style.GrabMinSize = 10.f;
 	Style.GrabRounding = Metrics.FrameRounding;
 	Style.ImageRounding = Metrics.FrameRounding;
 	Style.TabRounding = Metrics.FrameRounding;
 	Style.MenuItemRounding = Metrics.FrameRounding;
 	Style.DragDropTargetRounding = Metrics.FrameRounding;
-	Style.TabBorderSize = 0.0f;
-	Style.TabBarBorderSize = 0.0f;
-	Style.TabBarOverlineSize = 0.0f;
-	Style.TabCloseButtonMinWidthSelected = 0.0f;
-	Style.DockingSeparatorSize = 1.0f;
-	Style.SeparatorSize = 1.0f;
+	Style.TabBorderSize = 0.f;
+	Style.TabBarBorderSize = 0.f;
+	Style.TabBarOverlineSize = 0.f;
+	Style.TabCloseButtonMinWidthSelected = 0.f;
+	Style.DockingSeparatorSize = 1.f;
+	Style.SeparatorSize = 1.f;
 	Style.DisabledAlpha = 0.55f;
 
 	ImVec4* const Palette = Style.Colors;
 	Palette[ImGuiCol_Text] = ToImGuiColor(ToolUITheme::TextPrimary);
 	Palette[ImGuiCol_TextDisabled] = ToImGuiColor(ToolUITheme::TextMuted);
 	Palette[ImGuiCol_WindowBg] = WithAlpha(ToolUITheme::Surface0, 0.94f);
-	Palette[ImGuiCol_ChildBg] = WithAlpha(ToolUITheme::Surface1, 0.90f);
+	Palette[ImGuiCol_ChildBg] = WithAlpha(ToolUITheme::Surface1, 0.9f);
 	Palette[ImGuiCol_PopupBg] = ToImGuiColor(ToolUITheme::Surface1);
 	Palette[ImGuiCol_Border] = ToImGuiColor(ToolUITheme::Border);
-	Palette[ImGuiCol_BorderShadow] = WithAlpha(ToolUITheme::Canvas, 0.0f);
+	Palette[ImGuiCol_BorderShadow] = WithAlpha(ToolUITheme::Canvas, 0.f);
 	Palette[ImGuiCol_FrameBg] = ToImGuiColor(ToolUITheme::Surface1);
 	Palette[ImGuiCol_TitleBg] = ToImGuiColor(ToolUITheme::Surface0);
 	Palette[ImGuiCol_TitleBgActive] = ToImGuiColor(ToolUITheme::Surface0);
@@ -279,17 +280,17 @@ void ApplyBaseStyle(ImGuiStyle& Style, const FToolUIThemeMetrics& Metrics)
 	Palette[ImGuiCol_ScrollbarGrab] = ToImGuiColor(ToolUITheme::Border);
 	Palette[ImGuiCol_Button] = ToImGuiColor(ToolUITheme::Surface1);
 	Palette[ImGuiCol_Separator] = ToImGuiColor(ToolUITheme::BorderSoft);
-	Palette[ImGuiCol_ResizeGrip] = WithAlpha(ToolUITheme::Canvas, 0.0f);
-	Palette[ImGuiCol_Tab] = WithAlpha(ToolUITheme::Surface0, 0.0f);
-	Palette[ImGuiCol_TabSelected] = WithAlpha(ToolUITheme::Surface0, 0.0f);
-	Palette[ImGuiCol_TabDimmed] = WithAlpha(ToolUITheme::Surface0, 0.0f);
-	Palette[ImGuiCol_TabDimmedSelected] = WithAlpha(ToolUITheme::Surface0, 0.0f);
+	Palette[ImGuiCol_ResizeGrip] = WithAlpha(ToolUITheme::Canvas, 0.f);
+	Palette[ImGuiCol_Tab] = WithAlpha(ToolUITheme::Surface0, 0.f);
+	Palette[ImGuiCol_TabSelected] = WithAlpha(ToolUITheme::Surface0, 0.f);
+	Palette[ImGuiCol_TabDimmed] = WithAlpha(ToolUITheme::Surface0, 0.f);
+	Palette[ImGuiCol_TabDimmedSelected] = WithAlpha(ToolUITheme::Surface0, 0.f);
 	Palette[ImGuiCol_DockingPreview] = WithAlpha(ToolUITheme::TextPrimary, 0.15f);
-	Palette[ImGuiCol_DockingEmptyBg] = WithAlpha(ToolUITheme::Canvas, 0.0f);
+	Palette[ImGuiCol_DockingEmptyBg] = WithAlpha(ToolUITheme::Canvas, 0.f);
 	Palette[ImGuiCol_TableHeaderBg] = ToImGuiColor(ToolUITheme::Surface2);
 	Palette[ImGuiCol_TableBorderStrong] = ToImGuiColor(ToolUITheme::Border);
 	Palette[ImGuiCol_TableBorderLight] = ToImGuiColor(ToolUITheme::BorderSoft);
-	Palette[ImGuiCol_TableRowBg] = WithAlpha(ToolUITheme::Canvas, 0.0f);
+	Palette[ImGuiCol_TableRowBg] = WithAlpha(ToolUITheme::Canvas, 0.f);
 	Palette[ImGuiCol_TableRowBgAlt] = WithAlpha(ToolUITheme::Surface2, 0.45f);
 	Palette[ImGuiCol_NavWindowingHighlight] = ToImGuiColor(ToolUITheme::TextPrimary);
 	Palette[ImGuiCol_NavWindowingDimBg] = WithAlpha(ToolUITheme::Canvas, 0.72f);
@@ -299,10 +300,12 @@ void ApplyBaseStyle(ImGuiStyle& Style, const FToolUIThemeMetrics& Metrics)
 void ApplyInteractiveColors(ImGuiStyle& Style, const FToolUIColor Accent)
 {
 	ImVec4* const Palette = Style.Colors;
+
 	const auto Tint = [Accent](const FToolUIColor Base, const float Strength)
 	{
 		return ToImGuiColor(AdditiveToolUITint(Base, Accent, Strength));
 	};
+
 	Palette[ImGuiCol_FrameBgHovered] = Tint(ToolUITheme::Surface1, ToolUITheme::HoverTint);
 	Palette[ImGuiCol_FrameBgActive] = Tint(ToolUITheme::Surface1, ToolUITheme::ActiveTint);
 	Palette[ImGuiCol_ScrollbarGrabHovered] = Tint(ToolUITheme::Border, ToolUITheme::HoverTint);
@@ -342,20 +345,20 @@ void ApplyAppearanceStyle(ImGuiStyle& Style, const FEditorAppearance& Appearance
 	const float Alpha = ClampToolUIUnit(Appearance.PanelOpacity);
 	ImVec4* const Palette = Style.Colors;
 	Palette[ImGuiCol_WindowBg] = WithAlpha(ToolUITheme::Surface0, Alpha);
-	Palette[ImGuiCol_ChildBg] = WithAlpha(ToolUITheme::Surface0, 0.0f);
+	Palette[ImGuiCol_ChildBg] = WithAlpha(ToolUITheme::Surface0, 0.f);
 	Palette[ImGuiCol_FrameBg] = WithAlpha(ToolUITheme::Surface1, Alpha * 0.5f);
 	Palette[ImGuiCol_Button] = WithAlpha(ToolUITheme::Surface1, Alpha * 0.5f);
-	Palette[ImGuiCol_PopupBg] = WithAlpha(ToolUITheme::Surface1, 0.0f);
-	Palette[ImGuiCol_TitleBg] = WithAlpha(ToolUITheme::Surface0, 0.0f);
-	Palette[ImGuiCol_TitleBgActive] = WithAlpha(ToolUITheme::Surface0, 0.0f);
-	Palette[ImGuiCol_TitleBgCollapsed] = WithAlpha(ToolUITheme::Surface0, 0.0f);
-	Palette[ImGuiCol_MenuBarBg] = WithAlpha(ToolUITheme::Surface0, 0.0f);
-	Palette[ImGuiCol_ScrollbarBg] = WithAlpha(ToolUITheme::Surface0, 0.0f);
+	Palette[ImGuiCol_PopupBg] = WithAlpha(ToolUITheme::Surface1, 0.f);
+	Palette[ImGuiCol_TitleBg] = WithAlpha(ToolUITheme::Surface0, 0.f);
+	Palette[ImGuiCol_TitleBgActive] = WithAlpha(ToolUITheme::Surface0, 0.f);
+	Palette[ImGuiCol_TitleBgCollapsed] = WithAlpha(ToolUITheme::Surface0, 0.f);
+	Palette[ImGuiCol_MenuBarBg] = WithAlpha(ToolUITheme::Surface0, 0.f);
+	Palette[ImGuiCol_ScrollbarBg] = WithAlpha(ToolUITheme::Surface0, 0.f);
 	Palette[ImGuiCol_TableHeaderBg] = WithAlpha(ToolUITheme::Surface2, Alpha);
 	Palette[ImGuiCol_TableRowBgAlt] = WithAlpha(ToolUITheme::Surface2, Alpha * 0.5f);
 	Palette[ImGuiCol_TabHovered] = WithAlpha(ToolUITheme::SurfaceHover, Alpha * 0.5f);
 	Palette[ImGuiCol_Border] = WithAlpha(ToolUITheme::Border, Alpha);
-	Palette[ImGuiCol_BorderShadow] = WithAlpha(ToolUITheme::Canvas, 0.0f);
+	Palette[ImGuiCol_BorderShadow] = WithAlpha(ToolUITheme::Canvas, 0.f);
 }
 
 }
@@ -388,8 +391,8 @@ struct FToolUIContext::FImplementation
 	bool bFocusViewportRequested = false;
 	std::vector<std::filesystem::path> DroppedFiles;
 	FToolUICanvasBounds WorkspaceCanvas;
-	float CurrentStyleScale = 1.0f;
-	float MainMenuRight = 0.0f;
+	float CurrentStyleScale = 1.f;
+	float MainMenuRight = 0.f;
 	double MainCursorX = 0.0;
 	double MainCursorY = 0.0;
 	EWindowSystem WindowSystem = EWindowSystem::Unknown;
@@ -413,19 +416,22 @@ namespace
 {
 void DrawGlassSurface(ImDrawList& DrawList, const ImGuiViewport& Viewport, const FEditorAppearance& Appearance, const ImVec2 Minimum, const ImVec2 Maximum, const float Radius)
 {
-	const float BlurRadius = std::clamp(Appearance.BlurRadius, 0.0f, 40.0f);
-	if (BlurRadius > 0.0f && Viewport.Size.x > 0.0f && Viewport.Size.y > 0.0f)
+	const float BlurRadius = std::clamp(Appearance.BlurRadius, 0.f, 40.f);
+	if (BlurRadius > 0.f && Viewport.Size.x > 0.f && Viewport.Size.y > 0.f)
 	{
 		// Reserved renderer IDs encode the shared backdrop radius in framebuffer pixels.
-		const auto PixelRadius = static_cast<ImTextureID>(std::clamp(std::round(BlurRadius * Viewport.DpiScale), 1.0f, 160.0f));
+		const auto PixelRadius = static_cast<ImTextureID>(std::clamp(std::round(BlurRadius * Viewport.DpiScale), 1.f, 160.f));
 		const ImTextureID BackdropId = std::numeric_limits<ImTextureID>::max() - PixelRadius;
 		const ImVec2 UVMinimum{(Minimum.x - Viewport.Pos.x) / Viewport.Size.x, (Minimum.y - Viewport.Pos.y) / Viewport.Size.y};
 		const ImVec2 UVMaximum{(Maximum.x - Viewport.Pos.x) / Viewport.Size.x, (Maximum.y - Viewport.Pos.y) / Viewport.Size.y};
 		DrawList.AddImageRounded(ImTextureRef(BackdropId), Minimum, Maximum, UVMinimum, UVMaximum, IM_COL32_WHITE, Radius);
 	}
+
 	DrawList.AddRectFilled(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(WithAlpha(ToolUITheme::Surface0, ClampToolUIUnit(Appearance.PanelOpacity))), Radius);
-	if (Radius > 0.0f)
+	if (Radius > 0.f)
+	{
 		DrawList.AddRect(Minimum, Maximum, ImGui::ColorConvertFloat4ToU32(WithAlpha(ToolUITheme::NeutralAccent, ClampToolUIUnit(Appearance.PanelOpacity) * 0.28f)), Radius, 0, Viewport.DpiScale);
+	}
 }
 
 void DrawPanelIcon(ImDrawList& DrawList, const ImVec2 Center, const float Scale, const ImU32 Color, const EToolUIMenuIcon Icon)
@@ -434,11 +440,12 @@ void DrawPanelIcon(ImDrawList& DrawList, const ImVec2 Center, const float Scale,
 	{
 		DrawList.AddLine({Center.x + X * Scale, Center.y + Y * Scale}, {Center.x + EndX * Scale, Center.y + EndY * Scale}, Color, Scale);
 	};
+
 	if (Icon == EToolUIMenuIcon::Outliner)
 	{
-		for (const float Y : {-4.0f, 0.0f, 4.0f})
+		for (const float Y : {-4.f, 0.f, 4.f})
 		{
-			DrawList.AddRectFilled({Center.x - 6.0f * Scale, Center.y + (Y - 1.0f) * Scale}, {Center.x - 4.0f * Scale, Center.y + (Y + 1.0f) * Scale}, Color);
+			DrawList.AddRectFilled({Center.x - 6.f * Scale, Center.y + (Y - 1.f) * Scale}, {Center.x - 4.f * Scale, Center.y + (Y + 1.f) * Scale}, Color);
 			Line(-2, Y, 6, Y);
 		}
 	}
@@ -459,20 +466,29 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 	for (ImGuiWindow* const Window : Owner.Context->Windows)
 	{
 		if (!Window->Active || Window->Hidden)
+		{
 			continue;
+		}
+
 		const bool bPopup = (Window->Flags & (ImGuiWindowFlags_Popup | ImGuiWindowFlags_Tooltip)) != 0;
 		const auto Panel = Owner.PresentedPanels.find(Window->ID);
 		const bool bPanel = Panel != Owner.PresentedPanels.end();
 		if (!bPopup && !bPanel)
+		{
 			continue;
+		}
+
 		ImGuiDockNode* const Node = Window->DockNode;
 		if (Node && Node->VisibleWindow != Window)
+		{
 			continue;
+		}
+
 		ImDrawList* const DrawList = Node && Node->HostWindow ? Node->HostWindow->DrawList : Window->DrawList;
 		const ImVec2 Minimum = Node ? Node->Pos : Window->Pos;
 		const ImVec2 Size = Node ? Node->Size : Window->Size;
 		const ImVec2 Maximum{Minimum.x + Size.x, Minimum.y + Size.y};
-		const float Radius = Node ? 0.0f : Window->WindowRounding;
+		const float Radius = Node ? 0.f : Window->WindowRounding;
 		if (bPopup || (bPanel && !Panel->second && IsToolUIPanelTransparent(Owner.Appearance.PanelTransparency, Node != nullptr)))
 		{
 			ImDrawListSplitter Splitter;
@@ -484,6 +500,7 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 			Splitter.SwapChannels(DrawList, 0, 1);
 			Splitter.Merge(DrawList);
 		}
+
 		if (Node && Node->TabBar && !Node->IsHiddenTabBar())
 		{
 			const ImGuiTabBar& Bar = *Node->TabBar;
@@ -498,21 +515,28 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 				{
 					const float Scale = Window->Viewport->DpiScale;
 					const float Left = Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim;
-					const ImVec2 Center{Left + Bar.FramePadding.x + 6.0f * Scale, (Bar.BarRect.Min.y + Bar.BarRect.Max.y) * 0.5f};
+					const ImVec2 Center{Left + Bar.FramePadding.x + 6.f * Scale, (Bar.BarRect.Min.y + Bar.BarRect.Max.y) * 0.5f};
 					const bool bHovered = Owner.Context->HoveredWindow == Node->HostWindow && ImGui::IsMouseHoveringRect(Tab.Window->DC.DockTabItemRect.Min, Tab.Window->DC.DockTabItemRect.Max, false);
 					const ImU32 Color = ToImGuiPackedColor(Tab.ID == Bar.VisibleTabId || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
 					DrawList->PushClipRect({Bar.ScrollingRectMinX, Bar.BarRect.Min.y}, {Bar.ScrollingRectMaxX, Bar.BarRect.Max.y}, false);
 					DrawPanelIcon(*DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : EToolUIMenuIcon::Details);
 					DrawList->PopClipRect();
 				}
+
 				if (Tab.ID != Bar.VisibleTabId)
+				{
 					continue;
+				}
+
 				const float Left = std::max(Bar.ScrollingRectMinX, Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim);
 				const float Right = std::min(Bar.ScrollingRectMaxX, Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim + Tab.Width);
 				DrawList->PushClipRect(Bar.BarRect.Min, Bar.BarRect.Max, false);
-				const float UnderlineThickness = 2.0f * LineScale;
+				const float UnderlineThickness = 2.f * LineScale;
 				if (Right > Left)
+				{
 					DrawList->AddRectFilled({Left, Bar.BarRect.Max.y - UnderlineThickness}, {Right, Bar.BarRect.Max.y}, ToImGuiPackedColor(ToolUITheme::NeutralAccent), UnderlineThickness * 0.5f);
+				}
+
 				DrawList->PopClipRect();
 			}
 		}
@@ -546,6 +570,7 @@ struct FToolUIViewportData
 	{
 		return nullptr;
 	}
+
 	return static_cast<FToolUIViewportData*>(Viewport->PlatformUserData);
 }
 
@@ -555,11 +580,12 @@ struct FToolUIViewportData
 	{
 		return GetToolUIImplementation()->Window;
 	}
+
 	const FToolUIViewportData* const Data = GetViewportData(Viewport);
 	return Data != nullptr ? Data->Window : nullptr;
 }
 
-void UpdateTitleBarUiCaptureRegions(FWindow& Window, const ImGuiViewport& Viewport, const ImGuiWindow* const IgnoredWindow, const float MainMenuRight = 0.0f)
+void UpdateTitleBarUiCaptureRegions(FWindow& Window, const ImGuiViewport& Viewport, const ImGuiWindow* const IgnoredWindow, const float MainMenuRight = 0.f)
 {
 	FTitleBarHitTestState HitTestState = Window.GetTitleBarHitTestState();
 	HitTestState.UiCaptureRegionCount = 0;
@@ -568,7 +594,9 @@ void UpdateTitleBarUiCaptureRegions(FWindow& Window, const ImGuiViewport& Viewpo
 	const FTitleBarLayout& Layout = HitTestState.Layout;
 	const ImRect TitleBarRect{
 	    Viewport.Pos,
-	    {Viewport.Pos.x + static_cast<float>(Layout.WindowWidth), Viewport.Pos.y + static_cast<float>(Layout.TitleBarHeight)}};
+	    {Viewport.Pos.x + static_cast<float>(Layout.WindowWidth), Viewport.Pos.y + static_cast<float>(Layout.TitleBarHeight)},
+	};
+
 	const ImGuiContext& Context = *ImGui::GetCurrentContext();
 	// A detached viewport owner spans Herta's native chrome internally, but the chrome must retain native dragging.
 	const ImGuiWindow* const ViewportOwnerWindow = static_cast<const ImGuiViewportP&>(Viewport).Window;
@@ -581,7 +609,9 @@ void UpdateTitleBarUiCaptureRegions(FWindow& Window, const ImGuiViewport& Viewpo
 
 		const ImRect Intersection{
 		    {std::max(UiWindow->OuterRectClipped.Min.x, TitleBarRect.Min.x), std::max(UiWindow->OuterRectClipped.Min.y, TitleBarRect.Min.y)},
-		    {std::min(UiWindow->OuterRectClipped.Max.x, TitleBarRect.Max.x), std::min(UiWindow->OuterRectClipped.Max.y, TitleBarRect.Max.y)}};
+		    {std::min(UiWindow->OuterRectClipped.Max.x, TitleBarRect.Max.x), std::min(UiWindow->OuterRectClipped.Max.y, TitleBarRect.Max.y)},
+		};
+
 		if (Intersection.Min.x >= Intersection.Max.x || Intersection.Min.y >= Intersection.Max.y)
 		{
 			continue;
@@ -599,7 +629,8 @@ void UpdateTitleBarUiCaptureRegions(FWindow& Window, const ImGuiViewport& Viewpo
 		    .MinimumX = std::clamp(static_cast<int>(std::floor(Intersection.Min.x - Viewport.Pos.x)), 0, Layout.WindowWidth),
 		    .MinimumY = std::clamp(static_cast<int>(std::floor(Intersection.Min.y - Viewport.Pos.y)), 0, Layout.TitleBarHeight),
 		    .MaximumX = std::clamp(static_cast<int>(std::ceil(Intersection.Max.x - Viewport.Pos.x)), 0, Layout.WindowWidth),
-		    .MaximumY = std::clamp(static_cast<int>(std::ceil(Intersection.Max.y - Viewport.Pos.y)), 0, Layout.TitleBarHeight)};
+		    .MaximumY = std::clamp(static_cast<int>(std::ceil(Intersection.Max.y - Viewport.Pos.y)), 0, Layout.TitleBarHeight),
+		};
 	}
 
 	if (MainMenuRight > Viewport.Pos.x && HitTestState.UiCaptureRegionCount < HitTestState.UiCaptureRegions.size())
@@ -608,8 +639,10 @@ void UpdateTitleBarUiCaptureRegions(FWindow& Window, const ImGuiViewport& Viewpo
 		    .MinimumX = Layout.TitleBarHeight,
 		    .MinimumY = 0,
 		    .MaximumX = std::clamp(static_cast<int>(std::ceil(MainMenuRight - Viewport.Pos.x)), 0, Layout.WindowWidth),
-		    .MaximumY = Layout.TitleBarHeight};
+		    .MaximumY = Layout.TitleBarHeight,
+		};
 	}
+
 	Window.SetTitleBarHitTestState(HitTestState);
 }
 
@@ -866,6 +899,7 @@ void RecordViewportError(FToolUIContext::FImplementation& Implementation, FToolU
 		case EKey::Unknown:
 			return ImGuiKey_None;
 	}
+
 	return ImGuiKey_None;
 }
 
@@ -901,6 +935,7 @@ void AddModifierEvents(ImGuiIO& Input, const EKey Key, const EInputAction Action
 		case EMouseButton::Eight:
 			return -1;
 	}
+
 	return -1;
 }
 
@@ -912,7 +947,7 @@ void AddModifierEvents(ImGuiIO& Input, const EKey Key, const EInputAction Action
 	}
 
 	const FWindowPosition PlatformPosition = Window.GetPosition();
-	const FToolUIViewportPosition Position = ResolveToolUIViewportPosition(Owner.bProgrammaticWindowPosition, Data->CachedPosition, {static_cast<float>(PlatformPosition.X), static_cast<float>(PlatformPosition.Y)});
+	const FToolUIViewportPosition Position = ResolveToolUIViewportPosition(Owner.bProgrammaticWindowPosition, Data->CachedPosition, {.X = static_cast<float>(PlatformPosition.X), .Y = static_cast<float>(PlatformPosition.Y)});
 	return {Position.X + static_cast<float>(X), Position.Y + static_cast<float>(Y)};
 }
 
@@ -931,19 +966,22 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 			Viewport.PlatformRequestClose = true;
 		}
 	};
+
 	Callbacks.Moved = [&Owner, &Viewport, Data](FWindow&, const int X, const int Y)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
 		if (Data != nullptr)
 		{
-			Data->CachedPosition = {static_cast<float>(X), static_cast<float>(Y)};
+			Data->CachedPosition = {.X = static_cast<float>(X), .Y = static_cast<float>(Y)};
 			if (ImGui::GetFrameCount() <= Data->IgnoreMoveEventFrame + 1)
 			{
 				return;
 			}
 		}
+
 		Viewport.PlatformRequestMove = true;
 	};
+
 	Callbacks.Resized = [&Owner, &Viewport, Data](FWindow&, const int, const int)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
@@ -951,17 +989,21 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 		{
 			return;
 		}
+
 		Viewport.PlatformRequestResize = true;
 	};
+
 	Callbacks.FilesDropped = [&Owner](FWindow&, const std::span<const std::filesystem::path> Paths)
 	{
 		Owner.DroppedFiles.insert(Owner.DroppedFiles.end(), Paths.begin(), Paths.end());
 	};
+
 	Callbacks.FocusChanged = [&Owner](FWindow&, const bool bFocused)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
 		ImGui::GetIO().AddFocusEvent(bFocused);
 	};
+
 	Callbacks.RefreshRequested = [&Owner, RefreshRequested = std::move(RefreshRequested)](FWindow&)
 	{
 		if (RefreshRequested)
@@ -973,6 +1015,7 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 			Owner.Application->PostEmptyEvent();
 		}
 	};
+
 	Callbacks.KeyChanged = [&Owner](FWindow&, const EKey Key, const EInputAction Action, const EModifierFlags Modifiers)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
@@ -982,17 +1025,20 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 		{
 			return;
 		}
+
 		const ImGuiKey ImGuiKeyValue = ToImGuiKey(Key);
 		if (ImGuiKeyValue != ImGuiKey_None)
 		{
 			Input.AddKeyEvent(ImGuiKeyValue, Action == EInputAction::Pressed);
 		}
 	};
+
 	Callbacks.TextInput = [&Owner](FWindow&, const char32_t Character)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
 		ImGui::GetIO().AddInputCharacter(static_cast<unsigned int>(Character));
 	};
+
 	Callbacks.MouseButtonChanged = [&Owner, &Viewport, Data](FWindow& EventWindow, const EMouseButton Button, const EInputAction Action, const EModifierFlags)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
@@ -1000,6 +1046,7 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 		{
 			return;
 		}
+
 		const int ImGuiButton = ToImGuiMouseButton(Button);
 		if (ImGuiButton >= 0)
 		{
@@ -1013,9 +1060,11 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 				// Keep the press paired with the native cursor sample that produced it. ImGui may otherwise consume a stale position when events arrive between frames.
 				Input.AddMousePosEvent(MousePosition.x, MousePosition.y);
 			}
+
 			Input.AddMouseButtonEvent(ImGuiButton, Action == EInputAction::Pressed);
 		}
 	};
+
 	Callbacks.CursorMoved = [&Owner, &Viewport, Data](FWindow& EventWindow, const double X, const double Y)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
@@ -1031,9 +1080,11 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 			Owner.MainCursorY = Y;
 			Owner.bMainCursorPositionValid = true;
 		}
+
 		const ImVec2 MousePosition = ResolveMousePosition(Owner, Viewport, Data, EventWindow, X, Y);
 		ImGui::GetIO().AddMousePosEvent(MousePosition.x, MousePosition.y);
 	};
+
 	Callbacks.CursorEntered = [&Owner, &Viewport, Data](FWindow&, const bool bEntered)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
@@ -1049,6 +1100,7 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 		{
 			Owner.bMainCursorPositionValid = false;
 		}
+
 		ImGuiIO& Input = ImGui::GetIO();
 		Input.AddMouseViewportEvent(bEntered ? Viewport.ID : 0);
 		if (!bEntered)
@@ -1056,11 +1108,13 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 			Input.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 		}
 	};
+
 	Callbacks.Scrolled = [&Owner](FWindow&, const double X, const double Y)
 	{
 		ImGui::SetCurrentContext(Owner.Context);
 		ImGui::GetIO().AddMouseWheelEvent(static_cast<float>(X), static_cast<float>(Y));
 	};
+
 	Window.SetCallbacks(std::move(Callbacks));
 }
 
@@ -1099,7 +1153,7 @@ void PlatformCreateWindow(ImGuiViewport* const Viewport)
 #ifdef __linux__
 		Data->Window->SetActionPolicy({.bRequireMinimizeSupport = true});
 #endif
-		Data->CachedPosition = {Viewport->Pos.x, Viewport->Pos.y};
+		Data->CachedPosition = {.X = Viewport->Pos.x, .Y = Viewport->Pos.y};
 		Viewport->PlatformUserData = Data.get();
 		Viewport->PlatformHandle = Data->Window->GetBackendHandle().Value;
 		SetViewportCallbacks(Owner, *Viewport, *Data->Window, Data.get());
@@ -1112,6 +1166,7 @@ void PlatformCreateWindow(ImGuiViewport* const Viewport)
 				RecordViewportError(Owner, FToolUIError{std::move(PositionResult.error().Message)});
 			}
 		}
+
 		Viewport->PlatformUserData = Data.release();
 	}
 	catch (const std::exception& Exception)
@@ -1121,6 +1176,7 @@ void PlatformCreateWindow(ImGuiViewport* const Viewport)
 			CreatedWindow->SetCallbacks({});
 			Owner.Application->DestroyWindow(*CreatedWindow);
 		}
+
 		Viewport->PlatformUserData = nullptr;
 		Viewport->PlatformHandle = nullptr;
 		RecordViewportError(Owner, FToolUIError{Exception.what()});
@@ -1133,6 +1189,7 @@ void PlatformCreateWindow(ImGuiViewport* const Viewport)
 			CreatedWindow->SetCallbacks({});
 			Owner.Application->DestroyWindow(*CreatedWindow);
 		}
+
 		Viewport->PlatformUserData = nullptr;
 		Viewport->PlatformHandle = nullptr;
 		RecordViewportError(Owner, FToolUIError{"Could not create a ToolUI platform window"});
@@ -1147,6 +1204,7 @@ void PlatformDestroyWindow(ImGuiViewport* const Viewport)
 	{
 		return;
 	}
+
 	Data->Window->SetCallbacks({});
 	Data->Owner->Application->DestroyWindow(*Data->Window);
 	delete Data;
@@ -1170,12 +1228,14 @@ void PlatformSetWindowPosition(ImGuiViewport* const Viewport, const ImVec2 Posit
 	{
 		return;
 	}
-	Data->CachedPosition = {Position.x, Position.y};
+
+	Data->CachedPosition = {.X = Position.x, .Y = Position.y};
 	Data->IgnoreMoveEventFrame = ImGui::GetFrameCount();
 	if (!Data->Owner->bProgrammaticWindowPosition)
 	{
 		return;
 	}
+
 	std::expected<void, FApplicationError> Result = Data->Window->SetPosition(static_cast<int>(std::lround(Position.x)), static_cast<int>(std::lround(Position.y)));
 	if (!Result)
 	{
@@ -1190,10 +1250,11 @@ void PlatformSetWindowPosition(ImGuiViewport* const Viewport, const ImVec2 Posit
 	{
 		return Viewport->Pos;
 	}
+
 	const FWindowPosition PlatformPosition = Window->GetPosition();
 	const FToolUIViewportData* const Data = GetViewportData(Viewport);
-	const FToolUIViewportPosition CachedPosition = Data != nullptr ? Data->CachedPosition : FToolUIViewportPosition{Viewport->Pos.x, Viewport->Pos.y};
-	const FToolUIViewportPosition Position = ResolveToolUIViewportPosition(GetToolUIImplementation()->bProgrammaticWindowPosition, CachedPosition, {static_cast<float>(PlatformPosition.X), static_cast<float>(PlatformPosition.Y)});
+	const FToolUIViewportPosition CachedPosition = Data != nullptr ? Data->CachedPosition : FToolUIViewportPosition{.X = Viewport->Pos.x, .Y = Viewport->Pos.y};
+	const FToolUIViewportPosition Position = ResolveToolUIViewportPosition(GetToolUIImplementation()->bProgrammaticWindowPosition, CachedPosition, {.X = static_cast<float>(PlatformPosition.X), .Y = static_cast<float>(PlatformPosition.Y)});
 	return {Position.X, Position.Y};
 }
 
@@ -1204,6 +1265,7 @@ void PlatformSetWindowSize(ImGuiViewport* const Viewport, const ImVec2 Size)
 	{
 		return;
 	}
+
 	Data->IgnoreResizeEventFrame = ImGui::GetFrameCount();
 	std::expected<void, FApplicationError> Result = Data->Window->SetSize(std::max(1, static_cast<int>(std::lround(Size.x))), std::max(1, static_cast<int>(std::lround(Size.y))));
 	if (!Result)
@@ -1223,11 +1285,13 @@ void PlatformSetWindowSize(ImGuiViewport* const Viewport, const ImVec2 Size)
 	FWindow* const Window = GetViewportWindow(Viewport);
 	if (Window == nullptr || Window->GetWidth() <= 0 || Window->GetHeight() <= 0)
 	{
-		return {1.0f, 1.0f};
+		return {1.f, 1.f};
 	}
+
 	return {
 	    static_cast<float>(Window->GetFramebufferWidth()) / static_cast<float>(Window->GetWidth()),
-	    static_cast<float>(Window->GetFramebufferHeight()) / static_cast<float>(Window->GetHeight())};
+	    static_cast<float>(Window->GetFramebufferHeight()) / static_cast<float>(Window->GetHeight()),
+	};
 }
 
 void PlatformSetWindowFocus(ImGuiViewport* const Viewport)
@@ -1262,7 +1326,7 @@ void PlatformSetWindowTitle(ImGuiViewport* const Viewport, const char* const Tit
 {
 	FToolUIContext::FImplementation& Owner = *GetToolUIImplementation();
 	FWindow* const Window = GetViewportWindow(Viewport);
-	return Window != nullptr && Owner.WindowSystem != EWindowSystem::Wayland ? std::max(0.01f, Window->GetContentScale()) : 1.0f;
+	return Window != nullptr && Owner.WindowSystem != EWindowSystem::Wayland ? std::max(0.01f, Window->GetContentScale()) : 1.f;
 }
 
 [[nodiscard]] ImVec4 PlatformGetWindowWorkAreaInsets(ImGuiViewport* const Viewport)
@@ -1271,8 +1335,9 @@ void PlatformSetWindowTitle(ImGuiViewport* const Viewport, const char* const Tit
 	{
 		return {};
 	}
+
 	FWindow* const Window = GetViewportWindow(Viewport);
-	return Window != nullptr ? ImVec4{0.0f, static_cast<float>(Window->GetTitleBarHitTestState().Layout.TitleBarHeight), 0.0f, 0.0f} : ImVec4{};
+	return Window != nullptr ? ImVec4{0.f, static_cast<float>(Window->GetTitleBarHitTestState().Layout.TitleBarHeight), 0.f, 0.f} : ImVec4{};
 }
 
 void PlatformOnChangedViewport(ImGuiViewport* const Viewport)
@@ -1283,6 +1348,7 @@ void PlatformOnChangedViewport(ImGuiViewport* const Viewport)
 	{
 		return;
 	}
+
 	ImGuiStyle& Style = ImGui::GetStyle();
 	Style = Owner.BaseStyle;
 	Style.ScaleAllSizes(DpiScale);
@@ -1294,7 +1360,8 @@ void PlatformOnChangedViewport(ImGuiViewport* const Viewport)
 {
 	return {
 	    static_cast<std::uint32_t>(std::max(0, Window.GetFramebufferWidth())),
-	    static_cast<std::uint32_t>(std::max(0, Window.GetFramebufferHeight()))};
+	    static_cast<std::uint32_t>(std::max(0, Window.GetFramebufferHeight())),
+	};
 }
 
 void ResizeViewportRenderer(FToolUIViewportData& Data)
@@ -1303,11 +1370,13 @@ void ResizeViewportRenderer(FToolUIViewportData& Data)
 	{
 		return;
 	}
+
 	const auto [Width, Height] = GetFramebufferSize(*Data.Window);
 	if (Width == 0 || Height == 0)
 	{
 		return;
 	}
+
 	std::expected<void, FToolUIError> Result = Data.Owner->Renderer.ResizeViewport(Data.RendererHandle, Width, Height);
 	if (!Result)
 	{
@@ -1322,6 +1391,7 @@ void RendererCreateWindow(ImGuiViewport* const Viewport)
 	{
 		return;
 	}
+
 	const auto [Width, Height] = GetFramebufferSize(*Data->Window);
 	std::expected<std::uint64_t, FToolUIError> Result = Data->Owner->Renderer.CreateViewport(Data->Window->GetBackendHandle().Value, Width, Height);
 	if (!Result)
@@ -1329,6 +1399,7 @@ void RendererCreateWindow(ImGuiViewport* const Viewport)
 		RecordViewportError(*Data->Owner, std::move(Result.error()));
 		return;
 	}
+
 	Data->RendererHandle = *Result;
 	Viewport->RendererUserData = Data;
 }
@@ -1343,8 +1414,10 @@ void RendererDestroyWindow(ImGuiViewport* const Viewport)
 		{
 			RecordViewportError(*Data->Owner, std::move(Result.error()));
 		}
+
 		Data->RendererHandle = 0;
 	}
+
 	Viewport->RendererUserData = nullptr;
 }
 
@@ -1363,6 +1436,7 @@ void RendererRenderWindow(ImGuiViewport* const Viewport, void*)
 	{
 		return;
 	}
+
 	Data->bFrameReady = false;
 	std::expected<EToolUIViewportFrameStatus, FToolUIError> BeginResult = Data->Owner->Renderer.BeginViewportFrame(Data->RendererHandle);
 	if (!BeginResult)
@@ -1370,15 +1444,18 @@ void RendererRenderWindow(ImGuiViewport* const Viewport, void*)
 		RecordViewportError(*Data->Owner, std::move(BeginResult.error()));
 		return;
 	}
+
 	if (*BeginResult == EToolUIViewportFrameStatus::NeedsResize)
 	{
 		ResizeViewportRenderer(*Data);
 		return;
 	}
+
 	if (*BeginResult == EToolUIViewportFrameStatus::Skipped)
 	{
 		return;
 	}
+
 	Data->bFrameReady = true;
 	std::expected<void, FToolUIError> RenderResult = Data->Owner->Renderer.RenderViewport(Data->RendererHandle, Viewport->DrawData);
 	if (!RenderResult)
@@ -1395,6 +1472,7 @@ void RendererSwapBuffers(ImGuiViewport* const Viewport, void*)
 	{
 		return;
 	}
+
 	Data->bFrameReady = false;
 	std::expected<EToolUIViewportFrameStatus, FToolUIError> PresentResult = Data->Owner->Renderer.PresentViewport(Data->RendererHandle);
 	if (!PresentResult)
@@ -1402,6 +1480,7 @@ void RendererSwapBuffers(ImGuiViewport* const Viewport, void*)
 		RecordViewportError(*Data->Owner, std::move(PresentResult.error()));
 		return;
 	}
+
 	if (*PresentResult == EToolUIViewportFrameStatus::NeedsResize)
 	{
 		ResizeViewportRenderer(*Data);
@@ -1431,13 +1510,13 @@ void DrawDetachedViewportChrome(FToolUIContext::FImplementation& Owner)
 		Background->AddRectFilled(Minimum, ViewportMaximum, ToImGuiPackedColor(ToolUITheme::Canvas));
 		Background->AddRectFilledMultiColor(Minimum, {ViewportMaximum.x, GradientBottom}, ToImGuiPackedColor(Gradient.TopLeft), ToImGuiPackedColor(Gradient.TopRight), ToImGuiPackedColor(Gradient.BottomRight), ToImGuiPackedColor(Gradient.BottomLeft));
 		ImDrawList* const DrawList = ImGui::GetForegroundDrawList(Viewport);
-		DrawGlassSurface(*DrawList, *Viewport, Owner.Appearance, Minimum, TitleBarMaximum, 0.0f);
+		DrawGlassSurface(*DrawList, *Viewport, Owner.Appearance, Minimum, TitleBarMaximum, 0.f);
 		DrawList->AddLine({Minimum.x, TitleBarMaximum.y}, {TitleBarMaximum.x, TitleBarMaximum.y}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
-		DrawList->AddCircle({Minimum.x + 18.0f * Scale, Minimum.y + 18.0f * Scale}, 7.0f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.0f * Scale);
-		DrawList->AddCircleFilled({Minimum.x + 18.0f * Scale, Minimum.y + 18.0f * Scale}, 2.0f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
+		DrawList->AddCircle({Minimum.x + 18.f * Scale, Minimum.y + 18.f * Scale}, 7.f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.f * Scale);
+		DrawList->AddCircleFilled({Minimum.x + 18.f * Scale, Minimum.y + 18.f * Scale}, 2.f * Scale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
 		DrawWindowControls(*DrawList, Minimum, Layout);
 		const std::string_view Title = Data->Window->GetTitle();
-		DrawList->AddText(Owner.MediumFont, Owner.Metrics.BaseFontSize * std::max(1.0f, Viewport->DpiScale), {Minimum.x + 50.0f * Scale, Minimum.y + 10.0f * Scale}, ToImGuiPackedColor(ToolUITheme::TextPrimary), Title.data(), Title.data() + Title.size());
+		DrawList->AddText(Owner.MediumFont, Owner.Metrics.BaseFontSize * std::max(1.f, Viewport->DpiScale), {Minimum.x + 50.f * Scale, Minimum.y + 10.f * Scale}, ToImGuiPackedColor(ToolUITheme::TextPrimary), Title.data(), Title.data() + Title.size());
 		UpdateTitleBarUiCaptureRegions(*Data->Window, *Viewport, nullptr);
 	}
 }
@@ -1449,6 +1528,7 @@ void DestroyHertaPlatformWindows(FToolUIContext::FImplementation& Owner) noexcep
 	{
 		ImGui::DestroyPlatformWindow(static_cast<ImGuiViewportP*>(Platform.Viewports[ViewportIndex]));
 	}
+
 	Platform.Platform_DestroyWindow = Owner.BackendPlatformDestroyWindow;
 	Platform.Renderer_DestroyWindow = nullptr;
 }
@@ -1506,7 +1586,9 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 
 	std::expected<std::vector<std::byte>, FToolUIError> LogFontBytes = ReadFile(Descriptor.LogFontPath);
 	if (!LogFontBytes)
+	{
 		return std::unexpected(std::move(LogFontBytes.error()));
+	}
 
 	std::error_code DirectoryError;
 	if (!Descriptor.LayoutPath.parent_path().empty())
@@ -1517,6 +1599,7 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 			return std::unexpected(FToolUIError{"Could not create the editor layout directory: " + DirectoryError.message()});
 		}
 	}
+
 	if (!Descriptor.AppearancePath.parent_path().empty())
 	{
 		std::filesystem::create_directories(Descriptor.AppearancePath.parent_path(), DirectoryError);
@@ -1533,25 +1616,30 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		{
 			return;
 		}
+
 		ImGui::SetCurrentContext(Implementation->Context);
 		Implementation->bDestroying = true;
 		if (Implementation->bHertaPlatformInterfaceInstalled)
 		{
 			DestroyHertaPlatformWindows(*Implementation);
 		}
+
 		if (Implementation->bCallbacksInstalled)
 		{
 			Implementation->Window->SetCallbacks({});
 		}
+
 		if (Implementation->bRendererInitialized && Implementation->Renderer.Shutdown)
 		{
 			Implementation->Renderer.Shutdown();
 			ResetRendererTextureState();
 		}
+
 		if (Implementation->bGlfwInitialized)
 		{
 			ImGui_ImplGlfw_Shutdown();
 		}
+
 		ImGui::DestroyContext(Implementation->Context);
 		Implementation->Context = nullptr;
 	};
@@ -1572,6 +1660,7 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		{
 			Implementation->Appearance = *SavedAppearance;
 		}
+
 		Implementation->Renderer = std::move(Descriptor.Renderer);
 		Implementation->bVSync = Descriptor.bVSync;
 		Implementation->VSyncChanged = std::move(Descriptor.VSyncChanged);
@@ -1597,12 +1686,14 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		{
 			Input.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
 		}
+
 		Input.ConfigDpiScaleFonts = true;
 		Input.ConfigDpiScaleViewports = true;
 		if (Implementation->Renderer.Initialize)
 		{
 			Input.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
 		}
+
 		Input.UserData = Implementation.get();
 		Input.IniFilename = Implementation->LayoutPath.c_str();
 		Input.ConfigWindowsMoveFromTitleBarOnly = true;
@@ -1610,16 +1701,17 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 
 		ImFontConfig FontConfiguration;
 		FontConfiguration.FontDataOwnedByAtlas = false;
-		Implementation->RegularFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->RegularFontBytes.data(), static_cast<int>(Implementation->RegularFontBytes.size()), 0.0f, &FontConfiguration);
+		Implementation->RegularFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->RegularFontBytes.data(), static_cast<int>(Implementation->RegularFontBytes.size()), 0.f, &FontConfiguration);
 		ImFontConfig MediumConfiguration = FontConfiguration;
-		Implementation->MediumFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->MediumFontBytes.data(), static_cast<int>(Implementation->MediumFontBytes.size()), 0.0f, &MediumConfiguration);
+		Implementation->MediumFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->MediumFontBytes.data(), static_cast<int>(Implementation->MediumFontBytes.size()), 0.f, &MediumConfiguration);
 		ImFontConfig LogConfiguration = FontConfiguration;
-		Implementation->LogFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->LogFontBytes.data(), static_cast<int>(Implementation->LogFontBytes.size()), 0.0f, &LogConfiguration);
+		Implementation->LogFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->LogFontBytes.data(), static_cast<int>(Implementation->LogFontBytes.size()), 0.f, &LogConfiguration);
 		if (Implementation->RegularFont == nullptr || Implementation->MediumFont == nullptr || Implementation->LogFont == nullptr)
 		{
 			CleanupFailedInitialization();
 			return std::unexpected(FToolUIError{"Could not register the editor fonts"});
 		}
+
 		Input.FontDefault = Implementation->RegularFont;
 
 		ApplyBaseStyle(ImGui::GetStyle(), Implementation->Metrics);
@@ -1631,12 +1723,14 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 			CleanupFailedInitialization();
 			return std::unexpected(FToolUIError{"Could not initialize the Dear ImGui GLFW platform adapter"});
 		}
+
 		Implementation->bGlfwInitialized = true;
 		if (bMultiViewportRendererAvailable)
 		{
 			InstallHertaPlatformInterface(*Implementation);
 			Implementation->bHertaPlatformInterfaceInstalled = true;
 		}
+
 		SetViewportCallbacks(*Implementation, *ImGui::GetMainViewport(), *Descriptor.Window, nullptr, std::move(Descriptor.RefreshRequested));
 		Implementation->bCallbacksInstalled = true;
 
@@ -1682,21 +1776,25 @@ FToolUIContext::~FToolUIContext()
 	{
 		SaveAppearance(Implementation->AppearancePath, Implementation->Appearance);
 	}
+
 	Implementation->bDestroying = true;
 	if (Implementation->bHertaPlatformInterfaceInstalled)
 	{
 		DestroyHertaPlatformWindows(*Implementation);
 	}
+
 	Implementation->Window->SetCallbacks({});
 	if (Implementation->bRendererInitialized && Implementation->Renderer.Shutdown)
 	{
 		Implementation->Renderer.Shutdown();
 		ResetRendererTextureState();
 	}
+
 	if (Implementation->bGlfwInitialized)
 	{
 		ImGui_ImplGlfw_Shutdown();
 	}
+
 	ImGui::DestroyContext(Implementation->Context);
 }
 
@@ -1734,6 +1832,7 @@ void FToolUIContext::BeginFrame()
 			}
 		}
 	}
+
 	// Alt belongs to editor shortcuts and camera controls, not menu-layer navigation.
 	const ImGuiID AltOwner = ImHashStr("HertaAltShortcuts");
 	ImGui::SetKeyOwner(ImGuiKey_LeftAlt, AltOwner);
@@ -1750,6 +1849,7 @@ void FToolUIContext::BeginFrame()
 			Window->DockStyle.Colors[ImGuiWindowDockStyleCol_Text] = ToImGuiPackedColor(bSelected || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
 		}
 	}
+
 	Implementation->bFrameActive = true;
 }
 
@@ -1770,6 +1870,7 @@ std::expected<void, FToolUIError> FToolUIContext::EndFrame(const bool bRenderMai
 	{
 		return Implementation->Renderer.Render(ImGui::GetDrawData());
 	}
+
 	return {};
 }
 
@@ -1780,6 +1881,7 @@ std::expected<void, FToolUIError> FToolUIContext::RenderPlatformWindows()
 	{
 		return std::unexpected(FToolUIError{"ToolUI platform windows cannot render before EndFrame"});
 	}
+
 	if (Implementation->bPlatformWindowsRendered)
 	{
 		return {};
@@ -1796,25 +1898,30 @@ std::expected<void, FToolUIError> FToolUIContext::RenderPlatformWindows()
 			{
 				continue;
 			}
+
 			if (Platform.Renderer_RenderWindow)
 			{
 				Platform.Renderer_RenderWindow(Viewport, nullptr);
 			}
+
 			if (Platform.Renderer_SwapBuffers)
 			{
 				Platform.Renderer_SwapBuffers(Viewport, nullptr);
 			}
+
 			if (Implementation->PendingError)
 			{
 				break;
 			}
 		}
 	}
+
 	Implementation->bPlatformWindowsRendered = true;
 	if (std::optional<FToolUIError> Error = std::exchange(Implementation->PendingError, std::nullopt); Error.has_value())
 	{
 		return std::unexpected(std::move(Error).value());
 	}
+
 	return {};
 }
 
@@ -1822,7 +1929,10 @@ bool ToolUIToggle(const char* const Id, bool* const bValue)
 {
 	ImGuiWindow* const Window = ImGui::GetCurrentWindow();
 	if (Window->SkipItems)
+	{
 		return false;
+	}
+
 	const float TrackHeight = std::round(ImGui::GetFontSize() * 0.9f);
 	const float TrackWidth = std::round(TrackHeight * 1.8f);
 	const float RowHeight = ImGui::GetFrameHeight();
@@ -1832,7 +1942,10 @@ bool ToolUIToggle(const char* const Id, bool* const bValue)
 	const ImGuiID WidgetId = Window->GetID(Id);
 	ImGui::ItemSize({ItemWidth, RowHeight}, ImGui::GetStyle().FramePadding.y);
 	if (!ImGui::ItemAdd(Bounds, WidgetId))
+	{
 		return false;
+	}
+
 	bool bHovered = false;
 	bool bHeld = false;
 	const bool bPressed = ImGui::ButtonBehavior(Bounds, WidgetId, &bHovered, &bHeld);
@@ -1841,6 +1954,7 @@ bool ToolUIToggle(const char* const Id, bool* const bValue)
 		*bValue = !*bValue;
 		ImGui::MarkItemEdited(WidgetId);
 	}
+
 	ImGui::RenderNavCursor(Bounds, WidgetId);
 	const float Radius = TrackHeight * 0.5f;
 	const ImVec2 TrackMin{Bounds.Min.x, std::round(Bounds.GetCenter().y - Radius)};
@@ -1848,14 +1962,15 @@ bool ToolUIToggle(const char* const Id, bool* const bValue)
 	ImDrawList* const DrawList = Window->DrawList;
 	if (*bValue)
 	{
-		DrawList->AddRectFilled(TrackMin, TrackMax, ImGui::GetColorU32(ImGuiCol_CheckMark, bHovered ? 1.0f : 0.85f), Radius);
+		DrawList->AddRectFilled(TrackMin, TrackMax, ImGui::GetColorU32(ImGuiCol_CheckMark, bHovered ? 1.f : 0.85f), Radius);
 	}
 	else
 	{
 		DrawList->AddRectFilled(TrackMin, TrackMax, ImGui::GetColorU32(bHovered ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg), Radius);
 		DrawList->AddRect(TrackMin, TrackMax, ImGui::GetColorU32(ImGuiCol_Border), Radius);
 	}
-	const float KnobRadius = Radius - std::max(2.0f, std::round(TrackHeight * 0.15f));
+
+	const float KnobRadius = Radius - std::max(2.f, std::round(TrackHeight * 0.15f));
 	const float KnobX = *bValue ? TrackMax.x - Radius : TrackMin.x + Radius;
 	DrawList->AddCircleFilled({KnobX, TrackMin.y + Radius}, KnobRadius, ToImGuiPackedColor(*bValue ? ToolUITheme::Surface0 : ToolUITheme::TextMuted));
 	return bPressed;
@@ -1868,24 +1983,27 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 	const float Scale = ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
 	const ImVec2 Min = ImGui::GetItemRectMin();
 	const ImVec2 Max = ImGui::GetItemRectMax();
-	const ImVec2 Center{Min.x + 16.0f * Scale, (Min.y + Max.y) * 0.5f};
+	const ImVec2 Center{Min.x + 16.f * Scale, (Min.y + Max.y) * 0.5f};
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
-	Draw->AddText({Min.x + 36.0f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label.data(), Label.data() + Label.size());
+	Draw->AddText({Min.x + 36.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label.data(), Label.data() + Label.size());
 	const ImU32 Color = ImGui::GetColorU32(ImGuiCol_TextDisabled);
 	const auto Line = [&](const float X, const float Y, const float EndX, const float EndY)
 	{
 		Draw->AddLine({Center.x + X * Scale, Center.y + Y * Scale}, {Center.x + EndX * Scale, Center.y + EndY * Scale}, Color, Scale);
 	};
+
 	if (Icon == EToolUIMenuIcon::Outliner || Icon == EToolUIMenuIcon::Details)
 	{
 		DrawPanelIcon(*Draw, Center, Scale, Color, Icon);
 	}
 	else if (Icon == EToolUIMenuIcon::Panel || Icon == EToolUIMenuIcon::Layout)
 	{
-		Draw->AddRect({Center.x - 6.0f * Scale, Center.y - 5.0f * Scale}, {Center.x + 6.0f * Scale, Center.y + 5.0f * Scale}, Color, Scale);
+		Draw->AddRect({Center.x - 6.f * Scale, Center.y - 5.f * Scale}, {Center.x + 6.f * Scale, Center.y + 5.f * Scale}, Color, Scale);
 		Line(-6, -2, 6, -2);
 		if (Icon == EToolUIMenuIcon::Layout)
+		{
 			Line(2, -2, 2, 5);
+		}
 	}
 	else if (Icon == EToolUIMenuIcon::Log)
 	{
@@ -1917,13 +2035,17 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 		Line(3, -3, 6, 0);
 		Line(3, 3, 6, 0);
 	}
+
 	return bPressed;
 }
 
 void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems)
 {
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
+	{
 		Implementation->Window->RequestClose();
+	}
+
 	const ImGuiViewport* const Viewport = ImGui::GetMainViewport();
 	const ImVec2 ViewportMinimum = Viewport->Pos;
 	const ImVec2 ViewportMaximum{Viewport->Pos.x + Viewport->Size.x, Viewport->Pos.y + Viewport->Size.y};
@@ -1943,7 +2065,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	ImGui::SetNextWindowPos(ViewportMinimum);
 	ImGui::SetNextWindowSize(Viewport->Size);
 	ImGui::SetNextWindowViewport(Viewport->ID);
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.f, 0.f});
 	ImGui::Begin("HertaWorkspaceHost", nullptr, HostFlags);
 	ImGui::PopStyleVar();
 
@@ -1954,7 +2076,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	const float ChromeScale = TitleBarHeight / static_cast<float>(DefaultTitleBarHeight);
 	const float TitleBarBottom = ViewportMinimum.y + TitleBarHeight;
 	const float StatusBarHeight = Implementation->Metrics.StatusBarHeight * ChromeScale;
-	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, ViewportMinimum, {ViewportMaximum.x, TitleBarBottom}, 0.0f);
+	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, ViewportMinimum, {ViewportMaximum.x, TitleBarBottom}, 0.f);
 
 	const ImVec2 SystemMinimum = ViewportMinimum;
 	const ImVec2 SystemMaximum{ViewportMinimum.x + TitleBarHeight, TitleBarBottom};
@@ -1963,32 +2085,34 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	{
 		return MousePosition.x >= Minimum.x && MousePosition.x < Maximum.x && MousePosition.y >= Minimum.y && MousePosition.y < Maximum.y;
 	};
+
 	if (TitleBarLayout.bSystemMenuEnabled && IsHovered(SystemMinimum, SystemMaximum))
 	{
 		DrawList->AddRectFilled(SystemMinimum, SystemMaximum, IM_COL32(255, 255, 255, 24), Implementation->Metrics.TitleBarControlRounding * ChromeScale);
 	}
 
-	DrawList->AddCircle({SystemMinimum.x + 18.0f * ChromeScale, SystemMinimum.y + 18.0f * ChromeScale}, 7.0f * ChromeScale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.0f * ChromeScale);
-	DrawList->AddCircleFilled({SystemMinimum.x + 18.0f * ChromeScale, SystemMinimum.y + 18.0f * ChromeScale}, 2.0f * ChromeScale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
+	DrawList->AddCircle({SystemMinimum.x + 18.f * ChromeScale, SystemMinimum.y + 18.f * ChromeScale}, 7.f * ChromeScale, ToImGuiPackedColor(ToolUITheme::NeutralAccent), 24, 2.f * ChromeScale);
+	DrawList->AddCircleFilled({SystemMinimum.x + 18.f * ChromeScale, SystemMinimum.y + 18.f * ChromeScale}, 2.f * ChromeScale, ToImGuiPackedColor(ToolUITheme::NeutralAccent));
 	DrawWindowControls(*DrawList, ViewportMinimum, TitleBarLayout);
 
-	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.0f * ChromeScale, 7.0f * ChromeScale});
-	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * ChromeScale, 6.0f * ChromeScale});
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * ChromeScale, 7.f * ChromeScale});
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 6.f * ChromeScale});
 	if (ImGui::BeginMenuBar())
 	{
 		const float MenuTop = ViewportMinimum.y + (TitleBarHeight - ImGui::GetFontSize()) * 0.5f - ImGui::GetStyle().FramePadding.y;
-		ImGui::SetCursorScreenPos({SystemMaximum.x + 4.0f * ChromeScale, MenuTop});
-		const ImVec2 MinimumMenuSize{220.0f * ChromeScale + ImGui::GetStyle().WindowPadding.x * 2.0f, 0.0f};
+		ImGui::SetCursorScreenPos({SystemMaximum.x + 4.f * ChromeScale, MenuTop});
+		const ImVec2 MinimumMenuSize{220.f * ChromeScale + ImGui::GetStyle().WindowPadding.x * 2.f, 0.f};
 		constexpr ImVec2 MaximumMenuSize{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
 		ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
 		if (ImGui::BeginMenu("File"))
 		{
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * ChromeScale, 10.0f * ChromeScale});
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 10.f * ChromeScale});
 			if (DrawFileMenuItems)
 			{
 				DrawFileMenuItems();
 				ImGui::Spacing();
 			}
+
 			ImGui::TextUnformatted("Workspace");
 			ImGui::Separator();
 			bool bVSync = Implementation->bVSync;
@@ -2000,26 +2124,30 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 					Implementation->VSyncChanged(Implementation->bVSync);
 				}
 			}
+
 			ImGui::Separator();
 			if (ToolUIMenuItem("Reset layout", EToolUIMenuIcon::Layout))
 			{
 				Implementation->bBuildDefaultLayout = true;
 			}
+
 			ImGui::Separator();
 			if (ToolUIMenuItem("Exit", EToolUIMenuIcon::Exit, nullptr, "Ctrl+Q"))
 			{
 				Implementation->Window->RequestClose();
 			}
+
 			ImGui::PopStyleVar();
 			ImGui::EndMenu();
 		}
+
 		for (const char* const Label : {"Edit", "Window", "Tools", "Help"})
 		{
 			const bool bWindowMenu = std::string_view(Label) == "Window";
 			ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
 			if (ImGui::BeginMenu(Label, bWindowMenu && static_cast<bool>(DrawWindowMenuItems)))
 			{
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.0f * ChromeScale, 10.0f * ChromeScale});
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 10.f * ChromeScale});
 				ImGui::TextUnformatted("Panels");
 				ImGui::Separator();
 				DrawWindowMenuItems();
@@ -2027,62 +2155,68 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 				ImGui::EndMenu();
 			}
 		}
-		Implementation->MainMenuRight = ImGui::GetItemRectMax().x + 8.0f * ChromeScale;
+
+		Implementation->MainMenuRight = ImGui::GetItemRectMax().x + 8.f * ChromeScale;
 		ImGui::EndMenuBar();
 	}
+
 	ImGui::PopStyleVar(2);
 
 	const std::string Version = std::format("Herta {}", GetBuildRevision());
+
 	const float RightEdge = [&]
 	{
-		float Edge = ViewportMinimum.x + static_cast<float>(TitleBarLayout.WindowWidth) - 12.0f * ChromeScale;
+		float Edge = ViewportMinimum.x + static_cast<float>(TitleBarLayout.WindowWidth) - 12.f * ChromeScale;
 		for (const ETitleBarHitRegion Region : {ETitleBarHitRegion::MinimizeButton, ETitleBarHitRegion::MaximizeButton, ETitleBarHitRegion::CloseButton})
 		{
 			const FTitleBarControlBounds Bounds = GetTitleBarControlBounds(TitleBarLayout, Region);
 			if (Bounds.bVisible)
 			{
-				Edge = std::min(Edge, ViewportMinimum.x + static_cast<float>(Bounds.MinimumX) - 12.0f * ChromeScale);
+				Edge = std::min(Edge, ViewportMinimum.x + static_cast<float>(Bounds.MinimumX) - 12.f * ChromeScale);
 			}
 		}
+
 		return Edge;
 	}();
+
 	float TextRight = RightEdge;
 	const auto DrawRightText = [&](const std::string_view Value, const ImU32 Color)
 	{
 		const float Width = ImGui::CalcTextSize(Value.data(), Value.data() + Value.size()).x;
-		if (TextRight - Width > Implementation->MainMenuRight + 20.0f * ChromeScale)
+		if (TextRight - Width > Implementation->MainMenuRight + 20.f * ChromeScale)
 		{
-			DrawList->AddText({TextRight - Width, ViewportMinimum.y + 10.0f * ChromeScale}, Color, Value.data(), Value.data() + Value.size());
-			TextRight -= Width + 24.0f * ChromeScale;
+			DrawList->AddText({TextRight - Width, ViewportMinimum.y + 10.f * ChromeScale}, Color, Value.data(), Value.data() + Value.size());
+			TextRight -= Width + 24.f * ChromeScale;
 		}
 	};
+
 	DrawRightText(Version, ToImGuiPackedColor(ToolUITheme::TextMuted));
 	DrawRightText(ApplicationTitle, ToImGuiPackedColor(ToolUITheme::TextSecondary));
 	const float Fps = ImGui::GetIO().Framerate;
-	if (Fps > 0.0f)
+	if (Fps > 0.f)
 	{
-		const std::string Values = std::format("{:.1f} / {:.1f} ms", Fps, 1000.0f / Fps);
+		const std::string Values = std::format("{:.1f} / {:.1f} ms", Fps, 1000.f / Fps);
 		const float LabelWidth = ImGui::CalcTextSize("FPS: ").x;
 		const float Width = LabelWidth + ImGui::CalcTextSize(Values.c_str()).x;
-		if (TextRight - Width > Implementation->MainMenuRight + 20.0f * ChromeScale)
+		if (TextRight - Width > Implementation->MainMenuRight + 20.f * ChromeScale)
 		{
-			const ImVec2 Position{TextRight - Width, ViewportMinimum.y + 10.0f * ChromeScale};
+			const ImVec2 Position{TextRight - Width, ViewportMinimum.y + 10.f * ChromeScale};
 			DrawList->AddText(Position, ToImGuiPackedColor(ToolUITheme::TextMuted), "FPS: ");
 			DrawList->AddText({Position.x + LabelWidth, Position.y}, ToImGuiPackedColor(ToolUITheme::TextPrimary), Values.c_str());
 		}
 	}
 
-	Implementation->WorkspaceCanvas = ResolveToolUIWorkspaceCanvas({ViewportMinimum.x, ViewportMinimum.y, Viewport->Size.x, Viewport->Size.y}, TitleBarHeight, StatusBarHeight);
+	Implementation->WorkspaceCanvas = ResolveToolUIWorkspaceCanvas({.X = ViewportMinimum.x, .Y = ViewportMinimum.y, .Width = Viewport->Size.x, .Height = Viewport->Size.y}, TitleBarHeight, StatusBarHeight);
 	ImGui::SetCursorScreenPos({Implementation->WorkspaceCanvas.X, Implementation->WorkspaceCanvas.Y});
-	const ImVec2 DockSize{std::max(1.0f, Implementation->WorkspaceCanvas.Width), std::max(1.0f, Implementation->WorkspaceCanvas.Height)};
+	const ImVec2 DockSize{std::max(1.f, Implementation->WorkspaceCanvas.Width), std::max(1.f, Implementation->WorkspaceCanvas.Height)};
 	// Changing the ID migrates pre-Viewport layouts once while preserving user layouts from this version onward.
 	Implementation->DockspaceId = ImGui::GetID("HertaEditorDockspaceV3");
 	const bool bDockspaceMissing = ImGui::DockBuilderGetNode(Implementation->DockspaceId) == nullptr;
 	ImVec4 DockspaceBackground = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
 	// Panel surfaces supply their own opacity; the dock host must not cover the scene behind them.
-	DockspaceBackground.w = 0.0f;
+	DockspaceBackground.w = 0.f;
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, DockspaceBackground);
-	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.0f * ChromeScale, ImGui::GetStyle().FramePadding.y});
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * ChromeScale, ImGui::GetStyle().FramePadding.y});
 	ImGui::DockSpace(Implementation->DockspaceId, DockSize, Implementation->bViewportImmersive ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_PassthruCentralNode);
 	ImGui::PopStyleVar();
 	ImGui::PopStyleColor();
@@ -2093,7 +2227,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		ImGui::DockBuilderSetNodeSize(Implementation->DockspaceId, DockSize);
 		ImGuiID CenterId = Implementation->DockspaceId;
 		// The side column spans the full height; Output Log only sits under the Viewport.
-		const float DetailsFraction = std::clamp(350.0f * ChromeScale / DockSize.x, 0.18f, 0.38f);
+		const float DetailsFraction = std::clamp(350.f * ChromeScale / DockSize.x, 0.18f, 0.38f);
 		const ImGuiID SideId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Right, DetailsFraction, nullptr, &CenterId);
 		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.26f, nullptr, &CenterId);
 		ImGuiID DetailsId = SideId;
@@ -2102,6 +2236,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		{
 			CenterNode->LocalFlags |= ImGuiDockNodeFlags_AutoHideTabBar;
 		}
+
 		ImGui::DockBuilderDockWindow("Outliner", OutlinerId);
 		ImGui::DockBuilderDockWindow("Details", DetailsId);
 		ImGui::DockBuilderDockWindow("Start", DetailsId);
@@ -2111,6 +2246,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		Implementation->bBuildDefaultLayout = false;
 		Implementation->bOutlinerDockMigrationComplete = true;
 	}
+
 	if (!Implementation->bDetailsDockMigrationComplete)
 	{
 		Implementation->bDetailsDockMigrationComplete = true;
@@ -2127,6 +2263,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 			}
 		}
 	}
+
 	if (!Implementation->bOutlinerDockMigrationComplete)
 	{
 		Implementation->bOutlinerDockMigrationComplete = true;
@@ -2148,10 +2285,10 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	}
 
 	const ImVec2 StatusMinimum{ViewportMinimum.x, ViewportMaximum.y - StatusBarHeight};
-	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, StatusMinimum, ViewportMaximum, 0.0f);
+	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, StatusMinimum, ViewportMaximum, 0.f);
 	DrawList->AddLine(StatusMinimum, {ViewportMaximum.x, StatusMinimum.y}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
 	ImGui::SetCursorScreenPos(StatusMinimum);
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10.0f * ChromeScale, 6.0f * ChromeScale});
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10.f * ChromeScale, 6.f * ChromeScale});
 	if (ImGui::BeginChild("HertaStatusBar", {Viewport->Size.x, StatusBarHeight}, ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 	{
 		if (DrawStatusItems)
@@ -2159,6 +2296,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 			DrawStatusItems();
 		}
 	}
+
 	ImGui::EndChild();
 	ImGui::PopStyleVar();
 
@@ -2174,28 +2312,45 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	const bool bPreviouslyDocked = Previous != Implementation->PreviousDockState.end() && Previous->second;
 	ImGui::SetNextWindowBgAlpha(ResolveToolUIPanelBackgroundAlpha(Implementation->Appearance.PanelTransparency, bPreviouslyDocked, bViewport));
 	if (bViewport)
+	{
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+	}
+
 	const std::string Label = Name == "Outliner" || Name == "Details" ? std::format("      {}###{}", Name, Name) : std::string(Name);
 	if (bImmersive)
 	{
 		// Submit the original window so docking retains its place while the overlay is active.
-		(void)ImGui::Begin(Label.c_str(), bOpen, ImGuiWindowFlags_NoInputs);
+		ImGui::Begin(Label.c_str(), bOpen, ImGuiWindowFlags_NoInputs);
 		ImGui::End();
 	}
+
 	if (bViewport && !bImmersive && Implementation->bFocusViewportRequested)
+	{
 		ImGui::SetNextWindowFocus();
+	}
+
 	const bool bVisible = bImmersive ? BeginImmersiveViewport(Implementation->WorkspaceCanvas, Implementation->bFocusViewportRequested) : ImGui::Begin(Label.c_str(), bOpen, Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
 	if (bViewport)
+	{
 		Implementation->bFocusViewportRequested = false;
+	}
+
 	if (bViewport)
+	{
 		ImGui::PopStyleVar();
+	}
+
 	Implementation->PreviousDockState[WindowId] = ImGui::IsWindowDocked();
 	if (ImGuiDockNode* const Node = ImGui::GetCurrentWindow()->DockNode)
+	{
 		Node->LocalFlags |= ImGuiDockNodeFlags_NoWindowMenuButton | ImGuiDockNodeFlags_NoCloseButton;
+	}
+
 	if (bVisible && (!Implementation->bViewportImmersive || bViewport))
 	{
 		Implementation->PresentedPanels[WindowId] = bViewport;
 	}
+
 	if (bViewport)
 	{
 		if (ImGuiDockNode* const Node = ImGui::GetCurrentWindow()->DockNode)
@@ -2203,6 +2358,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 			Node->LocalFlags |= ImGuiDockNodeFlags_AutoHideTabBar;
 		}
 	}
+
 	return bVisible && (!Implementation->bViewportImmersive || bViewport);
 }
 
@@ -2214,7 +2370,10 @@ void FToolUIContext::EndPanel()
 void FToolUIContext::SetViewportImmersive(const bool bImmersive) noexcept
 {
 	if (Implementation->bViewportImmersive == bImmersive)
+	{
 		return;
+	}
+
 	Implementation->bViewportImmersive = bImmersive;
 	Implementation->bFocusViewportRequested = true;
 }
@@ -2233,28 +2392,34 @@ std::optional<FToolUICanvasBounds> FToolUIContext::GetWorkspaceCanvasForCurrentP
 {
 	const ImGuiWindow* const Window = ImGui::GetCurrentWindow();
 	if (Implementation->bViewportImmersive && Window->ID == ImHashStr(ImmersiveViewportName))
+	{
 		return Implementation->WorkspaceCanvas;
-	if (Window->Viewport != ImGui::GetMainViewport() || Window->DockNode == nullptr ||
-	    ImGui::DockNodeGetRootNode(Window->DockNode)->ID != Implementation->DockspaceId)
+	}
+
+	if (Window->Viewport != ImGui::GetMainViewport() || Window->DockNode == nullptr || ImGui::DockNodeGetRootNode(Window->DockNode)->ID != Implementation->DockspaceId)
+	{
 		return std::nullopt;
+	}
+
 	return Implementation->WorkspaceCanvas;
 }
 
 void FToolUIContext::DrawGlassSurface(const float X, const float Y, const float Width, const float Height, const float Radius) const
 {
-	if (Width <= 0.0f || Height <= 0.0f)
+	if (Width <= 0.f || Height <= 0.f)
 	{
 		return;
 	}
+
 	Herta::DrawGlassSurface(*ImGui::GetWindowDrawList(), *ImGui::GetWindowViewport(), Implementation->Appearance, {X, Y}, {X + Width, Y + Height}, Radius);
 }
 
 bool FToolUIContext::DrawSearchField(const char* const Label, const char* const Hint, char* const Buffer, const std::size_t BufferSize) const
 {
 	const float Scale = ImGui::GetFontSize() / Implementation->Metrics.BaseFontSize;
-	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {32.0f * Scale, 5.0f * Scale});
-	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFontSize() * 0.5f + 5.0f * Scale);
-	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f * Scale);
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {32.f * Scale, 5.f * Scale});
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, ImGui::GetFontSize() * 0.5f + 5.f * Scale);
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.f * Scale);
 	ImGui::PushStyleColor(ImGuiCol_Border, ToImGuiColor(ToolUITheme::Border));
 	const bool bChanged = ImGui::InputTextWithHint(Label, Hint, Buffer, BufferSize);
 	ImGui::PopStyleColor();
@@ -2262,13 +2427,13 @@ bool FToolUIContext::DrawSearchField(const char* const Label, const char* const 
 
 	const ImVec2 Minimum = ImGui::GetItemRectMin();
 	const ImVec2 Maximum = ImGui::GetItemRectMax();
-	const ImVec2 Center{Minimum.x + 15.0f * Scale, (Minimum.y + Maximum.y) * 0.5f};
-	const float Radius = 4.0f * Scale;
+	const ImVec2 Center{Minimum.x + 15.f * Scale, (Minimum.y + Maximum.y) * 0.5f};
+	const float Radius = 4.f * Scale;
 	const ImU32 IconColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
 	DrawList->PushClipRect(Minimum, Maximum, true);
 	DrawList->AddCircle(Center, Radius, IconColor, 12, 1.25f * Scale);
-	DrawList->AddLine({Center.x + 3.0f * Scale, Center.y + 3.0f * Scale}, {Center.x + 7.0f * Scale, Center.y + 7.0f * Scale}, IconColor, 1.25f * Scale);
+	DrawList->AddLine({Center.x + 3.f * Scale, Center.y + 3.f * Scale}, {Center.x + 7.f * Scale, Center.y + 7.f * Scale}, IconColor, 1.25f * Scale);
 	DrawList->PopClipRect();
 	return bChanged;
 }

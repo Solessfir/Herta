@@ -1,7 +1,8 @@
 #include "Herta/Assets/AssetSearch.h"
 
-#include <array>
 #include <doctest/doctest.h>
+
+#include <array>
 #include <ostream>
 #include <string_view>
 #include <vector>
@@ -16,7 +17,8 @@ constexpr std::array<std::string_view, 6> Paths{
     "Game/Textures/Wood.png",
     "Game/Models/Crate/CrateLid.gltf",
     "Game/Textures/Concrete_Wall.png",
-    "Game/Models/Crate/Crate.gltf"};
+    "Game/Models/Crate/Crate.gltf",
+};
 
 [[nodiscard]] std::vector<std::string_view> Search(const std::string_view Query)
 {
@@ -27,6 +29,7 @@ constexpr std::array<std::string_view, 6> Paths{
 	{
 		Result.push_back(Paths[Match.Index]);
 	}
+
 	return Result;
 }
 }
@@ -54,9 +57,10 @@ TEST_CASE("Asset search is deterministic, keeps order for an empty query, and ca
 	const std::vector<std::string_view> Everything = Search("");
 	CHECK(Everything == std::vector<std::string_view>(Paths.begin(), Paths.end()));
 	CHECK(Search("g") == Search("g"));
+
 	CHECK_FALSE(SearchAssets(Paths, "crate", []
-	                         {
-		                         return true;
-	                         }));
+	{
+		return true;
+	}));
 }
 }

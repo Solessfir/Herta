@@ -1,6 +1,7 @@
 #include "Herta/Core/Log.h"
 
 #include <doctest/doctest.h>
+
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -44,8 +45,8 @@ namespace Herta
 {
 namespace
 {
-constexpr FLogCategory TestCategory{"Tests"};
-constexpr FLogCategory InfoCategory{"InfoOnly", ELogLevel::Info};
+constexpr FLogCategory TestCategory{.Name = "Tests"};
+constexpr FLogCategory InfoCategory{.Name = "InfoOnly", .MinimumLevel = ELogLevel::Info};
 
 [[nodiscard]] FLogOptions MakeTestLogOptions(const std::size_t Capacity)
 {
@@ -55,7 +56,8 @@ constexpr FLogCategory InfoCategory{"InfoOnly", ELogLevel::Info};
 	    .bConsoleOutput = false,
 	    .bDebuggerOutput = false,
 	    .bFileOutput = false,
-	    .bCaptureSourceLocation = true};
+	    .bCaptureSourceLocation = true,
+	};
 }
 
 [[nodiscard]] std::unique_ptr<FLogService> CreateTestLog(const std::size_t Capacity)
@@ -183,12 +185,12 @@ TEST_CASE("Concurrent log producers receive one ordered sequence")
 	for (std::size_t ThreadIndex = 0; ThreadIndex < ThreadCount; ++ThreadIndex)
 	{
 		Threads.emplace_back([&Log, ThreadIndex]
-		                     {
-			                     for (std::size_t RecordIndex = 0; RecordIndex < RecordsPerThread; ++RecordIndex)
-			                     {
-				                     HERTA_LOG_DEBUG(*Log, TestCategory, "{}:{}", ThreadIndex, RecordIndex);
-			                     }
-		                     });
+		{
+			for (std::size_t RecordIndex = 0; RecordIndex < RecordsPerThread; ++RecordIndex)
+			{
+				HERTA_LOG_DEBUG(*Log, TestCategory, "{}:{}", ThreadIndex, RecordIndex);
+			}
+		});
 	}
 
 	for (std::thread& Thread : Threads)

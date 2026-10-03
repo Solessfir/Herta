@@ -8,10 +8,10 @@ namespace Herta
 {
 namespace
 {
-constexpr float CameraVerticalFieldOfView = 65.0f * std::numbers::pi_v<float> / 180.0f;
+constexpr float CameraVerticalFieldOfView = 65.f * std::numbers::pi_v<float> / 180.f;
 constexpr float CameraNearPlane = 0.1f;
-constexpr float MinimumOrbitDistance = CameraNearPlane * 2.0f;
-constexpr float MaximumOrbitDistance = 1'000'000.0f;
+constexpr float MinimumOrbitDistance = CameraNearPlane * 2.f;
+constexpr float MaximumOrbitDistance = 1'000'000.f;
 constexpr float MaximumPitch = std::numbers::pi_v<float> * 0.5f - 0.01f;
 
 bool IsFinite(const FVector2& Value)
@@ -26,18 +26,18 @@ bool IsFinite(const FVector3& Value)
 
 float GetValidAspectRatio(const float AspectRatio)
 {
-	return std::isfinite(AspectRatio) && AspectRatio > 0.0f ? AspectRatio : 1.0f;
+	return std::isfinite(AspectRatio) && AspectRatio > 0.f ? AspectRatio : 1.f;
 }
 
 FVector2 GetValidProjectionCenter(const FVector2& ProjectionCenter)
 {
-	return IsFinite(ProjectionCenter) ? FVector2{std::clamp(ProjectionCenter.X, 0.0f, 1.0f), std::clamp(ProjectionCenter.Y, 0.0f, 1.0f)} : FVector2{0.5f, 0.5f};
+	return IsFinite(ProjectionCenter) ? FVector2{std::clamp(ProjectionCenter.X, 0.f, 1.f), std::clamp(ProjectionCenter.Y, 0.f, 1.f)} : FVector2{0.5f, 0.5f};
 }
 }
 
 void FViewportCameraController::Update(const FViewportCameraInput& Input, const float DeltaSeconds, const FVector2& ViewportSize)
 {
-	if (!IsFinite(Input.MouseDeltaPixels) || !IsFinite(Input.Movement) || !std::isfinite(Input.ScrollDelta) || !std::isfinite(DeltaSeconds) || DeltaSeconds < 0.0f || !IsFinite(ViewportSize) || ViewportSize.X <= 0.0f || ViewportSize.Y <= 0.0f)
+	if (!IsFinite(Input.MouseDeltaPixels) || !IsFinite(Input.Movement) || !std::isfinite(Input.ScrollDelta) || !std::isfinite(DeltaSeconds) || DeltaSeconds < 0.f || !IsFinite(ViewportSize) || ViewportSize.X <= 0.f || ViewportSize.Y <= 0.f)
 	{
 		return;
 	}
@@ -45,9 +45,9 @@ void FViewportCameraController::Update(const FViewportCameraInput& Input, const 
 	if (Input.Mode == EViewportCameraMode::Fly)
 	{
 		Rotate(Input.MouseDeltaPixels);
-		const FVector3 Movement{std::clamp(Input.Movement.X, -1.0f, 1.0f), std::clamp(Input.Movement.Y, -1.0f, 1.0f), std::clamp(Input.Movement.Z, -1.0f, 1.0f)};
-		const FVector3 Direction = Movement.LengthSquared() > 1.0f ? Movement.Normalized() : Movement;
-		Translate(GetOrientation().RotateVector(Direction) * (MovementSpeed * (Input.bFast ? 4.0f : 1.0f) * DeltaSeconds));
+		const FVector3 Movement{std::clamp(Input.Movement.X, -1.f, 1.f), std::clamp(Input.Movement.Y, -1.f, 1.f), std::clamp(Input.Movement.Z, -1.f, 1.f)};
+		const FVector3 Direction = Movement.LengthSquared() > 1.f ? Movement.Normalized() : Movement;
+		Translate(GetOrientation().RotateVector(Direction) * (MovementSpeed * (Input.bFast ? 4.f : 1.f) * DeltaSeconds));
 		Pivot = Position + GetOrientation().RotateVector(FVector3::Forward()) * OrbitDistance;
 	}
 	else if (Input.Mode == EViewportCameraMode::Orbit)
@@ -57,15 +57,15 @@ void FViewportCameraController::Update(const FViewportCameraInput& Input, const 
 	}
 	else if (Input.Mode == EViewportCameraMode::Pan)
 	{
-		const float UnitsPerPixel = 2.0f * OrbitDistance * std::tan(CameraVerticalFieldOfView * 0.5f) / ViewportSize.Y;
-		Translate(GetOrientation().RotateVector({Input.MouseDeltaPixels.X * UnitsPerPixel, Input.MouseDeltaPixels.Y * UnitsPerPixel, 0.0f}));
+		const float UnitsPerPixel = 2.f * OrbitDistance * std::tan(CameraVerticalFieldOfView * 0.5f) / ViewportSize.Y;
+		Translate(GetOrientation().RotateVector({Input.MouseDeltaPixels.X * UnitsPerPixel, Input.MouseDeltaPixels.Y * UnitsPerPixel, 0.f}));
 	}
 	else if (Input.Mode == EViewportCameraMode::Dolly)
 	{
 		Dolly(Input.MouseDeltaPixels.Y * MouseSensitivity);
 	}
 
-	if (Input.ScrollDelta != 0.0f)
+	if (Input.ScrollDelta != 0.f)
 	{
 		Dolly(-Input.ScrollDelta * 0.15f);
 	}
@@ -73,7 +73,7 @@ void FViewportCameraController::Update(const FViewportCameraInput& Input, const 
 
 void FViewportCameraController::Focus(const FVector3& Center, const FVector3& HalfExtent, const float AspectRatio, const FVector2 VisibleSize)
 {
-	if (!IsFinite(Center) || !IsFinite(HalfExtent) || !IsFinite(VisibleSize) || HalfExtent.X < 0.0f || HalfExtent.Y < 0.0f || HalfExtent.Z < 0.0f || VisibleSize.X <= 0.0f || VisibleSize.X > 1.0f || VisibleSize.Y <= 0.0f || VisibleSize.Y > 1.0f)
+	if (!IsFinite(Center) || !IsFinite(HalfExtent) || !IsFinite(VisibleSize) || HalfExtent.X < 0.f || HalfExtent.Y < 0.f || HalfExtent.Z < 0.f || VisibleSize.X <= 0.f || VisibleSize.X > 1.f || VisibleSize.Y <= 0.f || VisibleSize.Y > 1.f)
 	{
 		return;
 	}
@@ -98,7 +98,7 @@ void FViewportCameraController::SetMovementSpeed(const float Speed)
 {
 	if (std::isfinite(Speed))
 	{
-		MovementSpeed = std::clamp(Speed, 0.01f, 10'000.0f);
+		MovementSpeed = std::clamp(Speed, 0.01f, 10'000.f);
 	}
 }
 
@@ -114,9 +114,9 @@ FViewportCameraSnapshot FViewportCameraController::GetSnapshot(const float Aspec
 {
 	FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(CameraVerticalFieldOfView, GetValidAspectRatio(AspectRatio), CameraNearPlane);
 	const FVector2 Center = GetValidProjectionCenter(ProjectionCenter);
-	Projection(0, 2) = 2.0f * Center.X - 1.0f;
-	Projection(1, 2) = 1.0f - 2.0f * Center.Y;
-	return {FMatrix4::Rotation(GetOrientation().Conjugated()) * FMatrix4::Translation(-Position), Projection, Position};
+	Projection(0, 2) = 2.f * Center.X - 1.f;
+	Projection(1, 2) = 1.f - 2.f * Center.Y;
+	return {.View = FMatrix4::Rotation(GetOrientation().Conjugated()) * FMatrix4::Translation(-Position), .Projection = Projection, .Position = Position};
 }
 
 FViewportPickingRay FViewportCameraController::MakePickingRay(const FVector2& NormalizedPosition, const float AspectRatio, const FVector2 ProjectionCenter) const
@@ -124,8 +124,8 @@ FViewportPickingRay FViewportCameraController::MakePickingRay(const FVector2& No
 	const FVector2 ScreenPosition = IsFinite(NormalizedPosition) ? NormalizedPosition : FVector2{0.5f, 0.5f};
 	const FVector2 Center = GetValidProjectionCenter(ProjectionCenter);
 	const float HalfHeight = std::tan(CameraVerticalFieldOfView * 0.5f);
-	const FVector3 ViewDirection{2.0f * (Center.X - ScreenPosition.X) * HalfHeight * GetValidAspectRatio(AspectRatio), 2.0f * (Center.Y - ScreenPosition.Y) * HalfHeight, 1.0f};
-	return {Position, GetOrientation().RotateVector(ViewDirection.Normalized())};
+	const FVector3 ViewDirection{2.f * (Center.X - ScreenPosition.X) * HalfHeight * GetValidAspectRatio(AspectRatio), 2.f * (Center.Y - ScreenPosition.Y) * HalfHeight, 1.f};
+	return {.Origin = Position, .Direction = GetOrientation().RotateVector(ViewDirection.Normalized())};
 }
 
 FQuaternion FViewportCameraController::GetOrientation() const
@@ -135,7 +135,7 @@ FQuaternion FViewportCameraController::GetOrientation() const
 
 void FViewportCameraController::Rotate(const FVector2& MouseDeltaPixels)
 {
-	Yaw = std::remainder(Yaw - MouseDeltaPixels.X * MouseSensitivity, 2.0f * std::numbers::pi_v<float>);
+	Yaw = std::remainder(Yaw - MouseDeltaPixels.X * MouseSensitivity, 2.f * std::numbers::pi_v<float>);
 	Pitch = std::clamp(Pitch - MouseDeltaPixels.Y * MouseSensitivity, -MaximumPitch, MaximumPitch);
 }
 
@@ -152,7 +152,7 @@ void FViewportCameraController::Translate(const FVector3& Offset)
 
 void FViewportCameraController::Dolly(const float LogDistanceDelta)
 {
-	const float NewDistance = std::clamp(OrbitDistance * std::exp(std::clamp(LogDistanceDelta, -20.0f, 20.0f)), MinimumOrbitDistance, MaximumOrbitDistance);
+	const float NewDistance = std::clamp(OrbitDistance * std::exp(std::clamp(LogDistanceDelta, -20.f, 20.f)), MinimumOrbitDistance, MaximumOrbitDistance);
 	const FVector3 NewPosition = Pivot - GetOrientation().RotateVector(FVector3::Forward()) * NewDistance;
 	if (IsFinite(NewPosition))
 	{

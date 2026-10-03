@@ -51,6 +51,7 @@ constexpr std::uint64_t MaximumGlbSize = std::uint64_t{1} << 30;
 	{
 		Result = Value;
 	}
+
 	std::free(Value);
 	return Result;
 #else
@@ -72,8 +73,10 @@ constexpr std::uint64_t MaximumGlbSize = std::uint64_t{1} << 30;
 		{
 			return {};
 		}
+
 		Parts.push_back(Value);
 	}
+
 	return Parts;
 }
 
@@ -83,6 +86,7 @@ constexpr std::uint64_t MaximumGlbSize = std::uint64_t{1} << 30;
 	{
 		return {Utf8ToPath(*Override)};
 	}
+
 	std::vector<std::filesystem::path> Candidates;
 	std::error_code Error;
 #ifdef HERTA_PLATFORM_WINDOWS
@@ -94,6 +98,7 @@ constexpr std::uint64_t MaximumGlbSize = std::uint64_t{1} << 30;
 		{
 			continue;
 		}
+
 		for (const std::filesystem::directory_entry& Entry : std::filesystem::directory_iterator(Utf8ToPath(*Root) / "Blender Foundation", Error))
 		{
 			const std::filesystem::path Executable = Entry.path() / "blender.exe";
@@ -105,6 +110,7 @@ constexpr std::uint64_t MaximumGlbSize = std::uint64_t{1} << 30;
 			}
 		}
 	}
+
 	std::ranges::sort(Installs, std::ranges::greater{});
 	for (auto& [Version, Executable] : Installs)
 	{
@@ -148,11 +154,13 @@ public:
 		{
 			return std::unexpected(FAssetError{std::format("Cannot find a temporary directory for Blender export: {}", Error.message())});
 		}
+
 		const std::filesystem::path Path = Base / std::format("HertaBlender-{}-{}", std::chrono::steady_clock::now().time_since_epoch().count(), Counter.fetch_add(1));
 		if (!std::filesystem::create_directory(Path, Error))
 		{
 			return std::unexpected(FAssetError{std::format("Cannot create '{}' for Blender export", PathToUtf8(Path))});
 		}
+
 		return FScratchDirectory(Path);
 	}
 
@@ -160,6 +168,7 @@ public:
 	    : Path(std::exchange(Other.Path, {}))
 	{
 	}
+
 	FScratchDirectory(const FScratchDirectory&) = delete;
 	FScratchDirectory& operator=(const FScratchDirectory&) = delete;
 	FScratchDirectory& operator=(FScratchDirectory&&) = delete;
@@ -192,11 +201,12 @@ std::expected<FBlenderInstallation, FAssetError> FindBlender()
 {
 	for (const std::filesystem::path& Executable : GetCandidateExecutables())
 	{
-		const std::expected<FProcessResult, FProcessError> Result = RunProcess({Executable, {"--version"}, std::chrono::seconds(30)});
+		const std::expected<FProcessResult, FProcessError> Result = RunProcess({.Executable = Executable, .Arguments = {"--version"}, .Timeout = std::chrono::seconds(30)});
 		if (!Result || Result->ExitCode != 0)
 		{
 			continue;
 		}
+
 		// The first line reads like "Blender 5.2.2 LTS".
 		const std::string_view Output = Result->StandardOutput;
 		const std::size_t Start = Output.find("Blender ");
@@ -204,13 +214,15 @@ std::expected<FBlenderInstallation, FAssetError> FindBlender()
 		{
 			continue;
 		}
+
 		const std::string_view Rest = Output.substr(Start + 8);
 		const std::string_view Version = Rest.substr(0, Rest.find_first_of(" \r\n"));
 		if (ParseVersion(Version).size() >= 2)
 		{
-			return FBlenderInstallation{Executable, std::string(Version)};
+			return FBlenderInstallation{.Executable = Executable, .Version = std::string(Version)};
 		}
 	}
+
 	return std::unexpected(FAssetError{"Blender was not found. Install Blender, or set HERTA_BLENDER to its executable, to import .blend files"});
 }
 
@@ -221,6 +233,7 @@ std::expected<FBlenderExport, FAssetError> ExportBlend(const FBlenderInstallatio
 	{
 		return std::unexpected(std::move(Scratch.error()));
 	}
+
 	const std::filesystem::path Script = Scratch->GetPath() / "HertaExport.py";
 	const std::filesystem::path Glb = Scratch->GetPath() / "Export.glb";
 	const std::filesystem::path Manifest = Scratch->GetPath() / "Dependencies.txt";
@@ -231,11 +244,12 @@ std::expected<FBlenderExport, FAssetError> ExportBlend(const FBlenderInstallatio
 
 	// Factory startup ignores user add-ons and preferences; disabling autoexec keeps scripts embedded in the .blend from running.
 	const std::filesystem::path Source = ContentRoot / Utf8ToPath(SourcePath);
-	const std::expected<FProcessResult, FProcessError> Result = RunProcess({Blender.Executable, {"--background", "--factory-startup", "--disable-autoexec", "-noaudio", PathToUtf8(Source), "--python-exit-code", "1", "--python", PathToUtf8(Script), "--", PathToUtf8(Glb), PathToUtf8(Manifest)}, ExportTimeout});
+	const std::expected<FProcessResult, FProcessError> Result = RunProcess({.Executable = Blender.Executable, .Arguments = {"--background", "--factory-startup", "--disable-autoexec", "-noaudio", PathToUtf8(Source), "--python-exit-code", "1", "--python", PathToUtf8(Script), "--", PathToUtf8(Glb), PathToUtf8(Manifest)}, .Timeout = ExportTimeout});
 	if (!Result)
 	{
 		return std::unexpected(FAssetError{std::format("Blender {} could not export '{}': {}", Blender.Version, SourcePath, Result.error().Message)});
 	}
+
 	if (Result->ExitCode != 0)
 	{
 		return std::unexpected(FAssetError{std::format("Blender {} failed to export '{}' with exit code {}: {}", Blender.Version, SourcePath, Result->ExitCode, GetOutputTail(*Result))});
@@ -247,6 +261,7 @@ std::expected<FBlenderExport, FAssetError> ExportBlend(const FBlenderInstallatio
 	{
 		return std::unexpected(Bytes ? FAssetError{std::format("Blender {} wrote no GLB for '{}'", Blender.Version, SourcePath)} : std::move(Bytes.error()));
 	}
+
 	Export.Glb = std::move(**Bytes);
 
 	std::expected<std::optional<std::vector<std::byte>>, FAssetError> ManifestBytes = ReadWholeFile(Manifest, MaximumGlbSize);
@@ -254,12 +269,14 @@ std::expected<FBlenderExport, FAssetError> ExportBlend(const FBlenderInstallatio
 	{
 		return std::unexpected(ManifestBytes ? FAssetError{std::format("Blender {} wrote no dependency list for '{}'", Blender.Version, SourcePath)} : std::move(ManifestBytes.error()));
 	}
+
 	std::error_code Error;
 	const std::filesystem::path Root = std::filesystem::weakly_canonical(ContentRoot, Error);
 	if (Error)
 	{
 		return std::unexpected(FAssetError{std::format("Cannot resolve content root '{}': {}", PathToUtf8(ContentRoot), Error.message())});
 	}
+
 	const std::string_view Lines(reinterpret_cast<const char*>((*ManifestBytes)->data()), (*ManifestBytes)->size());
 	for (const auto Line : std::views::split(Lines, '\n'))
 	{
@@ -268,18 +285,22 @@ std::expected<FBlenderExport, FAssetError> ExportBlend(const FBlenderInstallatio
 		{
 			continue;
 		}
+
 		const std::filesystem::path Dependency = std::filesystem::weakly_canonical(Utf8ToPath(Text), Error);
 		const std::string Relative = GenericPathToUtf8(Dependency.lexically_relative(Root));
 		if (Error || Relative.empty() || Relative.starts_with("..") || !IsValidAssetPath(Relative))
 		{
 			return std::unexpected(FAssetError{std::format("'{}' references '{}' outside the content root", SourcePath, Text)});
 		}
+
 		if (!std::filesystem::is_regular_file(Dependency, Error))
 		{
 			Export.Warnings.push_back(std::format("'{}' references missing '{}'", SourcePath, Relative));
 		}
+
 		Export.Dependencies.push_back(Relative);
 	}
+
 	std::ranges::sort(Export.Dependencies);
 	return Export;
 }

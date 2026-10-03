@@ -15,8 +15,8 @@ FShaderAsset MakeShader()
 	Shader.PermutationKey = "test";
 	Shader.PushConstantSize = 64;
 	Shader.bDebugInformation = true;
-	Shader.Bindings = {{"Texture", EShaderBindingType::Texture, 0, 0}, {"Sampler", EShaderBindingType::Sampler, 128, 0}};
-	Shader.Dependencies = {{"TexturedMesh.slang", 42}};
+	Shader.Bindings = {{.Name = "Texture", .Type = EShaderBindingType::Texture, .Binding = 0, .Space = 0}, {.Name = "Sampler", .Type = EShaderBindingType::Sampler, .Binding = 128, .Space = 0}};
+	Shader.Dependencies = {{.Path = "TexturedMesh.slang", .ContentHash = 42}};
 	Shader.Bytecode = {0x07230203, 0x00010500, 0, 1, 0};
 	return Shader;
 }

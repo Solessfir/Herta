@@ -1,6 +1,7 @@
 #include "Herta/Core/Build.h"
 
 #include <doctest/doctest.h>
+
 #include <ostream>
 
 namespace Herta

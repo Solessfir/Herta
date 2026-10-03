@@ -42,10 +42,12 @@ FHash128 ComputeAssetBuildKey(const FAssetBuildKeyInput& Input)
 	{
 		Dependencies.push_back(&Dependency);
 	}
+
 	std::ranges::sort(Dependencies, [](const FAssetBuildDependency* Left, const FAssetBuildDependency* Right)
-	                  {
-		                  return std::tie(Left->Path, Left->ContentHash) < std::tie(Right->Path, Right->ContentHash);
-	                  });
+	{
+		return std::tie(Left->Path, Left->ContentHash) < std::tie(Right->Path, Right->ContentHash);
+	});
+
 	Writer.Write(static_cast<std::uint64_t>(Dependencies.size()));
 	for (const FAssetBuildDependency* Dependency : Dependencies)
 	{

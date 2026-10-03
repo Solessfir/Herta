@@ -28,6 +28,7 @@ constexpr std::size_t CancellationStride = 256;
 	{
 		return true;
 	}
+
 	const char Previous = Text[Index - 1];
 	const char Current = Text[Index];
 	return IsSeparator(Previous) || (Previous >= 'a' && Previous <= 'z' && Current >= 'A' && Current <= 'Z');
@@ -46,21 +47,26 @@ constexpr std::size_t CancellationStride = 256;
 		{
 			++Position;
 		}
+
 		if (Position == Candidate.size())
 		{
 			return std::nullopt;
 		}
+
 		Score += MatchScore;
 		if (Previous != std::string_view::npos)
 		{
 			Score += Position == Previous + 1 ? ConsecutiveBonus : -static_cast<int>(std::min<std::size_t>(Position - Previous - 1, 8));
 		}
+
 		if (IsWordStart(Candidate, Position))
 		{
 			Score += WordStartBonus;
 		}
+
 		Previous = Position++;
 	}
+
 	return Start == FileNameStart ? Score + FileNameBonus : Score;
 }
 
@@ -76,14 +82,17 @@ constexpr std::size_t CancellationStride = 256;
 		{
 			continue;
 		}
+
 		const std::optional<int> Score = ScoreFrom(Candidate, Query, Start, FileNameStart);
 		if (!Score)
 		{
 			// Later starts only see a shorter tail, so they cannot fit either.
 			break;
 		}
+
 		Best = std::max(Best.value_or(*Score), *Score);
 	}
+
 	return Best;
 }
 }
@@ -97,15 +106,17 @@ std::optional<std::vector<FAssetSearchMatch>> SearchAssets(const std::span<const
 		{
 			return std::nullopt;
 		}
+
 		if (Query.empty())
 		{
-			Matches.push_back({Index, 0});
+			Matches.push_back({.Index = Index, .Score = 0});
 		}
 		else if (const std::optional<int> Score = ScoreCandidate(Candidates[Index], Query))
 		{
-			Matches.push_back({Index, *Score});
+			Matches.push_back({.Index = Index, .Score = *Score});
 		}
 	}
+
 	std::ranges::stable_sort(Matches, std::ranges::greater{}, &FAssetSearchMatch::Score);
 	return Matches;
 }

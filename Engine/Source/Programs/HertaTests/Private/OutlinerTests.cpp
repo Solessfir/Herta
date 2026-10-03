@@ -1,9 +1,10 @@
 #include "OutlinerPanel.h"
 #include "PreviewScene.h"
 
+#include <doctest/doctest.h>
+
 #include <array>
 #include <cstdio>
-#include <doctest/doctest.h>
 #include <initializer_list>
 
 namespace Herta
@@ -22,7 +23,7 @@ TEST_CASE("Preview object rename trims edges and rejects blank labels")
 
 TEST_CASE("Multi-selection translation changes only selected secondary objects")
 {
-	std::array<FPreviewObject, 3> Objects{{{"Active", {1, 2, 3}}, {"Selected", {3, 2, 3}}, {"Unselected", {9, 8, 7}}}};
+	std::array<FPreviewObject, 3> Objects{{{.Label = "Active", .Translation = {1, 2, 3}}, {.Label = "Selected", .Translation = {3, 2, 3}}, {.Label = "Unselected", .Translation = {9, 8, 7}}}};
 	FPreviewSelection Selection;
 	Selection.Select(1, true);
 	Selection.Active = 0;
@@ -42,15 +43,15 @@ TEST_CASE("Multi-selection translation changes only selected secondary objects")
 
 TEST_CASE("Multi-selection rotation orbits secondary objects around the active pivot")
 {
-	std::array<FPreviewObject, 2> Objects{{{"Active", {1, 2, 3}}, {"Selected", {3, 2, 3}}}};
+	std::array<FPreviewObject, 2> Objects{{{.Label = "Active", .Translation = {1, 2, 3}}, {.Label = "Selected", .Translation = {3, 2, 3}}}};
 	FPreviewSelection Selection;
 	Selection.Select(1, true);
 	Selection.Active = 0;
 	const FPreviewObject Previous = Objects[0];
 	Im3d::Mat3& Rotation = Objects[0].Rotation;
-	Rotation(0, 0) = Rotation(1, 1) = 0.0f;
-	Rotation(0, 1) = -1.0f;
-	Rotation(1, 0) = 1.0f;
+	Rotation(0, 0) = Rotation(1, 1) = 0.f;
+	Rotation(0, 1) = -1.f;
+	Rotation(1, 0) = 1.f;
 	ApplyPreviewTransformDelta(Objects, Selection, Previous);
 	CHECK(Objects[1].Translation.x == doctest::Approx(1));
 	CHECK(Objects[1].Translation.y == doctest::Approx(4));
@@ -58,13 +59,15 @@ TEST_CASE("Multi-selection rotation orbits secondary objects around the active p
 	for (int Row = 0; Row < 3; ++Row)
 	{
 		for (int Column = 0; Column < 3; ++Column)
+		{
 			CHECK(Objects[1].Rotation(Row, Column) == doctest::Approx(Rotation(Row, Column)));
+		}
 	}
 }
 
 TEST_CASE("Multi-selection uniform scale adjusts object sizes and pivot distances")
 {
-	std::array<FPreviewObject, 2> Objects{{{"Active", {1, 2, 3}, Im3d::Mat3(1.0f), {2, 2, 2}}, {"Selected", {3, 2, 3}, Im3d::Mat3(1.0f), {1, 2, 3}}}};
+	std::array<FPreviewObject, 2> Objects{{{.Label = "Active", .Translation = {1, 2, 3}, .Rotation = Im3d::Mat3(1.f), .Scale = {2, 2, 2}}, {.Label = "Selected", .Translation = {3, 2, 3}, .Rotation = Im3d::Mat3(1.f), .Scale = {1, 2, 3}}}};
 	FPreviewSelection Selection;
 	Selection.Select(1, true);
 	Selection.Active = 0;
@@ -82,7 +85,7 @@ TEST_CASE("Multi-selection uniform scale adjusts object sizes and pivot distance
 
 TEST_CASE("Overflowing group edits restore the active transform without changing other objects")
 {
-	std::array<FPreviewObject, 3> Objects{{{"Active", {-3.0e38f, 0, 0}}, {"Near", {-3.0e38f, 1, 0}}, {"Far", {3.0e38f, 0, 0}}}};
+	std::array<FPreviewObject, 3> Objects{{{.Label = "Active", .Translation = {-3.0e38f, 0, 0}}, {.Label = "Near", .Translation = {-3.0e38f, 1, 0}}, {.Label = "Far", .Translation = {3.0e38f, 0, 0}}}};
 	FPreviewSelection Selection;
 	Selection.Select(1, true);
 	Selection.Select(2, true);
@@ -175,12 +178,14 @@ TEST_CASE("Outliner search matches preview labels and types without case sensiti
 		State.Search.Build();
 		CHECK(State.IsObjectVisible("Preview Cube"));
 	}
+
 	for (const char* const Query : {"missing", "-Cube"})
 	{
 		std::snprintf(State.Search.InputBuf, sizeof(State.Search.InputBuf), "%s", Query);
 		State.Search.Build();
 		CHECK_FALSE(State.IsObjectVisible("Preview Cube"));
 	}
+
 	State.Search.Clear();
 	CHECK(State.IsObjectVisible("Preview Cube"));
 	for (const char* const Query : {"floor", "FLOOR", "static mesh", "-Cube"})
@@ -189,6 +194,7 @@ TEST_CASE("Outliner search matches preview labels and types without case sensiti
 		State.Search.Build();
 		CHECK(State.IsObjectVisible("Floor"));
 	}
+
 	std::snprintf(State.Search.InputBuf, sizeof(State.Search.InputBuf), "%s", "Floor,-Static");
 	State.Search.Build();
 	CHECK_FALSE(State.IsObjectVisible("Floor"));

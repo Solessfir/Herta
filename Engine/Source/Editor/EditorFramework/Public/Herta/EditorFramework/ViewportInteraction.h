@@ -9,12 +9,12 @@ namespace Herta
 {
 [[nodiscard]] constexpr FVector2 GetViewportProjectionCenter(const FVector2 CanvasMinimum, const FVector2 CanvasSize, const FVector2 ViewportMinimum, const FVector2 ViewportSize) noexcept
 {
-	return CanvasSize.X > 0.0f && CanvasSize.Y > 0.0f ? FVector2{(ViewportMinimum.X + ViewportSize.X * 0.5f - CanvasMinimum.X) / CanvasSize.X, (ViewportMinimum.Y + ViewportSize.Y * 0.5f - CanvasMinimum.Y) / CanvasSize.Y} : FVector2{0.5f, 0.5f};
+	return CanvasSize.X > 0.f && CanvasSize.Y > 0.f ? FVector2{(ViewportMinimum.X + ViewportSize.X * 0.5f - CanvasMinimum.X) / CanvasSize.X, (ViewportMinimum.Y + ViewportSize.Y * 0.5f - CanvasMinimum.Y) / CanvasSize.Y} : FVector2{0.5f, 0.5f};
 }
 
 [[nodiscard]] constexpr float GetViewportGizmoPixelScale(const float InterfaceScale, const float ImageHeight, const float FramebufferHeight) noexcept
 {
-	return ImageHeight > 0.0f ? InterfaceScale * FramebufferHeight / ImageHeight : InterfaceScale;
+	return ImageHeight > 0.f ? InterfaceScale * FramebufferHeight / ImageHeight : InterfaceScale;
 }
 
 struct FViewportInteractionInput
@@ -54,11 +54,13 @@ struct FViewportInteractionState
 			Cancel();
 			return;
 		}
+
 		if (DragButton >= 0 && (!Input.bImageActive || !Input.MouseDown[static_cast<std::size_t>(DragButton)]))
 		{
 			CameraMode = EViewportCameraMode::None;
 			DragButton = -1;
 		}
+
 		if (DragButton < 0 && Input.bImageHovered && Input.bImageActive)
 		{
 			for (int Button = 0; Button < 3; ++Button)
@@ -67,6 +69,7 @@ struct FViewportInteractionState
 				{
 					continue;
 				}
+
 				DragButton = Button;
 				bKeyboardFocus = true;
 				CameraMode = Button == 2 ? EViewportCameraMode::Pan : Button == 1 ? (Input.bAlt ? EViewportCameraMode::Dolly : EViewportCameraMode::Fly)

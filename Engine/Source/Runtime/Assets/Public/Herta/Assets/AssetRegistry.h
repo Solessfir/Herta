@@ -38,6 +38,7 @@ public:
 
 	[[nodiscard]] const FAssetRecord* Find(const FAssetId& Id) const noexcept;
 	[[nodiscard]] const FAssetRecord* FindBySourcePath(std::string_view SourcePath) const noexcept;
+
 	// Sorted by source path.
 	[[nodiscard]] std::span<const FAssetRecord> GetRecords() const noexcept
 	{

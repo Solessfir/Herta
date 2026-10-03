@@ -71,6 +71,7 @@ void AcquireRuntime()
 	{
 		throw std::runtime_error("Jolt is already registered outside Herta Physics");
 	}
+
 	JPH::RegisterDefaultAllocator();
 	auto Factory = std::make_unique<JPH::Factory>();
 	PreviousTrace = JPH::Trace;
@@ -154,7 +155,7 @@ struct FPhysicsWorld::FImplementation
 		CollisionLayers.EnableCollision(DynamicLayer, DynamicLayer);
 		BroadPhaseFilter = std::make_unique<JPH::ObjectVsBroadPhaseLayerFilterTable>(BroadPhaseLayers, 2, CollisionLayers, 2);
 		Physics.Init(MaxBodies, 0, MaxBodyPairs, MaxContactConstraints, BroadPhaseLayers, *BroadPhaseFilter, CollisionLayers);
-		Physics.SetGravity(JPH::Vec3(0.0f, -9.80665f, 0.0f));
+		Physics.SetGravity(JPH::Vec3(0.f, -9.80665f, 0.f));
 		BodyIds.reserve(MaxBodies);
 	}
 
@@ -167,6 +168,11 @@ struct FPhysicsWorld::FImplementation
 			Bodies.DestroyBody(Id);
 		}
 	}
+
+	FImplementation(const FImplementation&) = delete;
+	FImplementation& operator=(const FImplementation&) = delete;
+	FImplementation(FImplementation&&) = delete;
+	FImplementation& operator=(FImplementation&&) = delete;
 };
 
 FPhysicsWorld::FPhysicsWorld(std::unique_ptr<FImplementation> InImplementation) noexcept
@@ -195,6 +201,7 @@ std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> FPhysicsWorld::Crea
 		{
 			ReleaseRuntime();
 		}
+
 		return std::unexpected(FPhysicsError{Error.what()});
 	}
 	catch (...)
@@ -203,21 +210,24 @@ std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> FPhysicsWorld::Crea
 		{
 			ReleaseRuntime();
 		}
+
 		return std::unexpected(FPhysicsError{"Physics world initialization failed"});
 	}
 }
 
 std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const FPhysicsBoxBodySettings& Settings)
 {
-	if (!IsFinite(Settings.HalfExtents) || Settings.HalfExtents.X <= 0.0f || Settings.HalfExtents.Y <= 0.0f || Settings.HalfExtents.Z <= 0.0f)
+	if (!IsFinite(Settings.HalfExtents) || Settings.HalfExtents.X <= 0.f || Settings.HalfExtents.Y <= 0.f || Settings.HalfExtents.Z <= 0.f)
 	{
 		return std::unexpected(FPhysicsError{"Box half extents must be finite and positive"});
 	}
+
 	const float RotationLengthSquared = Settings.Rotation.LengthSquared();
-	if (!IsFinite(Settings.Position) || !IsFinite(Settings.Rotation) || !std::isfinite(RotationLengthSquared) || RotationLengthSquared <= 0.0f)
+	if (!IsFinite(Settings.Position) || !IsFinite(Settings.Rotation) || !std::isfinite(RotationLengthSquared) || RotationLengthSquared <= 0.f)
 	{
 		return std::unexpected(FPhysicsError{"Body position and rotation must be finite, with a nonzero rotation"});
 	}
+
 	if (Settings.MotionType != EPhysicsMotionType::Static && Settings.MotionType != EPhysicsMotionType::Dynamic)
 	{
 		return std::unexpected(FPhysicsError{"Unsupported body motion type"});
@@ -234,15 +244,14 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const 
 
 		const bool bDynamic = Settings.MotionType == EPhysicsMotionType::Dynamic;
 		const FQuaternion Rotation = Settings.Rotation.NormalizedOrIdentity();
-		const JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation),
-		                                              bDynamic ? JPH::EMotionType::Dynamic : JPH::EMotionType::Static,
-		                                              bDynamic ? DynamicLayer : StaticLayer);
+		const JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), bDynamic ? JPH::EMotionType::Dynamic : JPH::EMotionType::Static, bDynamic ? DynamicLayer : StaticLayer);
 		JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
 		const JPH::BodyID Id = Bodies.CreateAndAddBody(BodySettings, bDynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
 		if (Id.IsInvalid())
 		{
 			return std::unexpected(FPhysicsError{"Physics world body capacity reached"});
 		}
+
 		Implementation->BodyIds.push_back(Id);
 		return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
 	}
@@ -258,16 +267,18 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const 
 
 std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSeconds)
 {
-	if (!std::isfinite(FixedDeltaSeconds) || FixedDeltaSeconds <= 0.0f)
+	if (!std::isfinite(FixedDeltaSeconds) || FixedDeltaSeconds <= 0.f)
 	{
 		return std::unexpected(FPhysicsError{"Physics step must be finite and positive"});
 	}
+
 	try
 	{
 		if (Implementation->Physics.Update(FixedDeltaSeconds, 1, &Implementation->TempAllocator, &Implementation->JobSystem) != JPH::EPhysicsUpdateError::None)
 		{
 			return std::unexpected(FPhysicsError{"Physics contact capacity exceeded"});
 		}
+
 		return {};
 	}
 	catch (const std::exception& Error)
@@ -282,8 +293,11 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 
 std::expected<FPhysicsBodyTransform, FPhysicsError> FPhysicsWorld::GetBodyTransform(const FPhysicsBodyId BodyId) const
 {
-	const auto Match = std::find_if(Implementation->BodyIds.begin(), Implementation->BodyIds.end(),
-	                                [BodyId](const JPH::BodyID Id) { return Id.GetIndexAndSequenceNumber() == BodyId.Value; });
+	const auto Match = std::ranges::find_if(Implementation->BodyIds, [BodyId](const JPH::BodyID Id)
+	{
+		return Id.GetIndexAndSequenceNumber() == BodyId.Value;
+	});
+
 	if (Match == Implementation->BodyIds.end())
 	{
 		return std::unexpected(FPhysicsError{"Unknown physics body"});
@@ -292,7 +306,7 @@ std::expected<FPhysicsBodyTransform, FPhysicsError> FPhysicsWorld::GetBodyTransf
 	JPH::RVec3 Position;
 	JPH::Quat Rotation;
 	Implementation->Physics.GetBodyInterface().GetPositionAndRotation(*Match, Position, Rotation);
-	return FPhysicsBodyTransform{{Position.GetX(), Position.GetY(), Position.GetZ()},
-	                             {Rotation.GetX(), Rotation.GetY(), Rotation.GetZ(), Rotation.GetW()}};
+	return FPhysicsBodyTransform{.Position = {Position.GetX(), Position.GetY(), Position.GetZ()},
+	    .Rotation = {Rotation.GetX(), Rotation.GetY(), Rotation.GetZ(), Rotation.GetW()}};
 }
 }

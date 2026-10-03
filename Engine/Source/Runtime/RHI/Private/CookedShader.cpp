@@ -85,11 +85,7 @@ bool IsValidString(const std::string& Value)
 
 bool IsValidAsset(const FShaderAsset& Shader)
 {
-	if (Shader.Stage > EShaderStage::Fragment || Shader.EntryPoint.empty() || Shader.CompilerVersion.empty() ||
-	    !IsValidString(Shader.EntryPoint) || !IsValidString(Shader.CompilerVersion) || !IsValidString(Shader.PermutationKey) ||
-	    Shader.Bindings.size() > MaximumRecords || Shader.Dependencies.size() > MaximumRecords ||
-	    Shader.Bytecode.size() < 5 || Shader.Bytecode.size() > MaximumAssetSize / 4 || Shader.Bytecode[0] != 0x07230203 ||
-	    Shader.Bytecode[3] == 0 || Shader.Bytecode[4] != 0 || Shader.PushConstantSize > 128 || Shader.PushConstantSize % 4 != 0)
+	if (Shader.Stage > EShaderStage::Fragment || Shader.EntryPoint.empty() || Shader.CompilerVersion.empty() || !IsValidString(Shader.EntryPoint) || !IsValidString(Shader.CompilerVersion) || !IsValidString(Shader.PermutationKey) || Shader.Bindings.size() > MaximumRecords || Shader.Dependencies.size() > MaximumRecords || Shader.Bytecode.size() < 5 || Shader.Bytecode.size() > MaximumAssetSize / 4 || Shader.Bytecode[0] != 0x07230203 || Shader.Bytecode[3] == 0 || Shader.Bytecode[4] != 0 || Shader.PushConstantSize > 128 || Shader.PushConstantSize % 4 != 0)
 	{
 		return false;
 	}

@@ -1,14 +1,15 @@
 #include "Herta/Core/Log.h"
 
+#include <spdlog/logger.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
 #include <algorithm>
 #include <atomic>
 #include <deque>
 #include <exception>
 #include <functional>
 #include <mutex>
-#include <spdlog/logger.h>
-#include <spdlog/sinks/rotating_file_sink.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <system_error>
 #include <thread>
 
@@ -84,10 +85,11 @@ struct FLogService::FImplementation
 		BackendLogger->set_level(spdlog::level::trace);
 		BackendLogger->set_pattern("%^[%H:%M:%S.%e] [%l] %v%$");
 		BackendLogger->flush_on(spdlog::level::err);
+
 		BackendLogger->set_error_handler([this](const std::string&)
-		                                 {
-			                                 SinkFailures.fetch_add(1, std::memory_order_relaxed);
-		                                 });
+		{
+			SinkFailures.fetch_add(1, std::memory_order_relaxed);
+		});
 	}
 
 	FLogOptions Options;
@@ -273,7 +275,8 @@ FLogStatistics FLogService::GetStatistics() const noexcept
 	return {
 	    .DroppedRecords = Implementation->DroppedRecords.load(std::memory_order_relaxed),
 	    .FormattingFailures = Implementation->FormattingFailures.load(std::memory_order_relaxed),
-	    .SinkFailures = Implementation->SinkFailures.load(std::memory_order_relaxed)};
+	    .SinkFailures = Implementation->SinkFailures.load(std::memory_order_relaxed),
+	};
 }
 
 void FLogService::WriteRecord(const FLogCategory& Category, const ELogLevel Level, std::string Message, const std::source_location& Location) noexcept
@@ -288,14 +291,16 @@ void FLogService::WriteRecord(const FLogCategory& Category, const ELogLevel Leve
 		    .Category = std::string(Category.Name),
 		    .Level = Level,
 		    .Message = std::move(Message),
-		    .Source = std::nullopt};
+		    .Source = std::nullopt,
+		};
 
 		if (Implementation->Options.bCaptureSourceLocation)
 		{
 			Record.Source = FLogSourceLocation{
 			    .FileName = Location.file_name(),
 			    .FunctionName = Location.function_name(),
-			    .Line = Location.line()};
+			    .Line = Location.line(),
+			};
 		}
 
 		{

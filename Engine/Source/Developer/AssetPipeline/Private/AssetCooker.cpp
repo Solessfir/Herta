@@ -25,15 +25,18 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 	{
 		return std::unexpected(FAssetError{std::format("'{}' is missing or not a regular file", PathToUtf8(Path))});
 	}
+
 	std::expected<std::optional<std::vector<std::byte>>, FAssetError> Bytes = ReadWholeFile(Path, MaximumSourceFileSize);
 	if (!Bytes)
 	{
 		return std::unexpected(std::move(Bytes.error()));
 	}
+
 	if (!*Bytes)
 	{
 		return std::unexpected(FAssetError{std::format("'{}' disappeared while cooking", PathToUtf8(Path))});
 	}
+
 	return std::move(**Bytes);
 }
 
@@ -46,8 +49,10 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 		{
 			return std::unexpected(FAssetError{std::format("Unsupported texture setting '{} = {}'. Use ColorSpace = Srgb or Linear", Name, Value)});
 		}
+
 		ColorSpace = Value == "Linear" ? ETextureColorSpace::Linear : ETextureColorSpace::Srgb;
 	}
+
 	return ColorSpace;
 }
 
@@ -60,6 +65,7 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 		Text += Dependency;
 		Text += '\n';
 	}
+
 	const std::span<const std::byte> Bytes = std::as_bytes(std::span(Text));
 	return {Bytes.begin(), Bytes.end()};
 }
@@ -75,12 +81,15 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 		{
 			continue;
 		}
+
 		if (!IsValidAssetPath(Path))
 		{
 			return std::nullopt;
 		}
+
 		Dependencies.emplace_back(Path);
 	}
+
 	return Dependencies;
 }
 
@@ -92,6 +101,7 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 	{
 		return std::unexpected(std::move(Bytes.error()));
 	}
+
 	return *Bytes ? HashBytes(**Bytes) : FHash128{};
 }
 }
@@ -109,13 +119,14 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	{
 		return std::unexpected(std::move(Metadata.error()));
 	}
+
 	std::expected<std::vector<std::byte>, FAssetError> Source = ReadSource(SourceFile);
 	if (!Source)
 	{
 		return std::unexpected(std::move(Source.error()));
 	}
 
-	FAssetBuildKeyInput KeyInput{HashBytes(*Source), Request.SourcePath, Metadata->Importer, 0, Metadata->Settings, {}, Request.TargetPlatform, CookedAssetFormatVersion};
+	FAssetBuildKeyInput KeyInput{.SourceHash = HashBytes(*Source), .SourcePath = Request.SourcePath, .Importer = Metadata->Importer, .ImporterVersion = 0, .Settings = Metadata->Settings, .Dependencies = {}, .TargetPlatform = Request.TargetPlatform, .CookedFormatVersion = CookedAssetFormatVersion};
 	const FDerivedDataCache Cache(Request.DerivedDataRoot);
 	FAssetCookResult Result;
 	std::optional<FBlenderInstallation> Blender;
@@ -137,11 +148,13 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 		{
 			return std::unexpected(FAssetError{"The Gltf importer has no settings"});
 		}
+
 		std::expected<std::vector<std::string>, FAssetError> Dependencies = FindGltfDependencies(Request.ContentRoot, Request.SourcePath, *Source);
 		if (!Dependencies)
 		{
 			return std::unexpected(std::move(Dependencies.error()));
 		}
+
 		for (std::string& Dependency : *Dependencies)
 		{
 			std::expected<std::vector<std::byte>, FAssetError> Bytes = ReadSource(Request.ContentRoot / Utf8ToPath(Dependency));
@@ -149,7 +162,8 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 			{
 				return std::unexpected(std::move(Bytes.error()));
 			}
-			KeyInput.Dependencies.push_back({std::move(Dependency), HashBytes(*Bytes)});
+
+			KeyInput.Dependencies.push_back({.Path = std::move(Dependency), .ContentHash = HashBytes(*Bytes)});
 		}
 	}
 	else if (Metadata->Importer == "Blender")
@@ -159,13 +173,15 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 		{
 			return std::unexpected(FAssetError{"The Blender importer has no settings"});
 		}
+
 		std::expected<FBlenderInstallation, FAssetError> Found = FindBlender();
 		if (!Found)
 		{
 			return std::unexpected(std::move(Found.error()));
 		}
+
 		Blender = std::move(*Found);
-		KeyInput.Dependencies.push_back({"<Blender>", HashBytes(std::as_bytes(std::span(Blender->Version)))});
+		KeyInput.Dependencies.push_back({.Path = "<Blender>", .ContentHash = HashBytes(std::as_bytes(std::span(Blender->Version)))});
 
 		FAssetBuildKeyInput RecordInput = KeyInput;
 		RecordInput.Importer = "Blender/Dependencies";
@@ -179,6 +195,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 				Dependencies = ParseDependencyRecord(**Record);
 			}
 		}
+
 		if (!Dependencies)
 		{
 			std::expected<FBlenderExport, FAssetError> Exported = ExportBlend(*Blender, Request.ContentRoot, Request.SourcePath);
@@ -186,6 +203,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 			{
 				return std::unexpected(std::move(Exported.error()));
 			}
+
 			BlenderExport = std::move(*Exported);
 			Dependencies = BlenderExport->Dependencies;
 			std::ranges::move(BlenderExport->Warnings, std::back_inserter(Result.Warnings));
@@ -194,6 +212,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 				return std::unexpected(std::move(Stored.error()));
 			}
 		}
+
 		for (std::string& Dependency : *Dependencies)
 		{
 			std::expected<FHash128, FAssetError> Hash = HashDependency(Request.ContentRoot, Dependency);
@@ -201,7 +220,8 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 			{
 				return std::unexpected(std::move(Hash.error()));
 			}
-			KeyInput.Dependencies.push_back({std::move(Dependency), *Hash});
+
+			KeyInput.Dependencies.push_back({.Path = std::move(Dependency), .ContentHash = *Hash});
 		}
 	}
 	else
@@ -218,6 +238,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 			Result.bCacheHit = true;
 			return Result;
 		}
+
 		if (!Cached)
 		{
 			Result.Warnings.push_back(std::format("{}; cooking again", Cached.error().Message));
@@ -244,18 +265,22 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 			{
 				return std::unexpected(std::move(Exported.error()));
 			}
+
 			BlenderExport = std::move(*Exported);
 			std::ranges::move(BlenderExport->Warnings, std::back_inserter(Result.Warnings));
 		}
+
 		// The GLB is parsed as if it sat beside the .blend. The preset embeds every image, so an external reference means the export is not what Herta asked for.
 		std::expected<std::vector<std::string>, FAssetError> External = FindGltfDependencies(Request.ContentRoot, Request.SourcePath, BlenderExport->Glb);
 		if (!External || !External->empty())
 		{
 			return std::unexpected(External ? FAssetError{std::format("Blender's export of '{}' references external files", Request.SourcePath)} : std::move(External.error()));
 		}
+
 		std::expected<FCookedModel, FAssetError> Model = CookGltf(Request.ContentRoot, Request.SourcePath, BlenderExport->Glb, Result.Warnings);
 		Cooked = Model ? std::expected<FCookedAsset, FAssetError>(std::move(*Model)) : std::unexpected(std::move(Model.error()));
 	}
+
 	if (!Cooked)
 	{
 		return std::unexpected(std::move(Cooked.error()));
@@ -266,10 +291,12 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	{
 		return std::unexpected(std::move(Bytes.error()));
 	}
+
 	if (std::expected<void, FAssetError> Stored = Cache.Put(Result.Key, *Bytes); !Stored)
 	{
 		return std::unexpected(std::move(Stored.error()));
 	}
+
 	return Result;
 }
 
@@ -280,10 +307,12 @@ std::expected<FCookedAsset, FAssetError> LoadCookedAsset(const std::filesystem::
 	{
 		return std::unexpected(std::move(Bytes.error()));
 	}
+
 	if (!*Bytes)
 	{
 		return std::unexpected(FAssetError{std::format("Derived data {} is missing", ToString(Key))});
 	}
+
 	return DeserializeCookedAsset(**Bytes);
 }
 }

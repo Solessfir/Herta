@@ -27,6 +27,7 @@ public:
 		{
 			return std::nullopt;
 		}
+
 		const auto Value = ParseExpression();
 		SkipWhitespace();
 		return Value && Position == Expression.size() && std::isfinite(*Value) ? Value : std::nullopt;
@@ -51,18 +52,21 @@ private:
 			{
 				return Left;
 			}
+
 			const char Operation = Expression[Position++];
 			const auto Right = ParseTerm();
 			if (!Right)
 			{
 				return std::nullopt;
 			}
+
 			*Left = Operation == '+' ? *Left + *Right : *Left - *Right;
 			if (!std::isfinite(*Left))
 			{
 				return std::nullopt;
 			}
 		}
+
 		return std::nullopt;
 	}
 
@@ -76,18 +80,21 @@ private:
 			{
 				return Left;
 			}
+
 			const char Operation = Expression[Position++];
 			const auto Right = ParseUnary();
-			if (!Right || (Operation == '/' && *Right == 0.0f))
+			if (!Right || (Operation == '/' && *Right == 0.f))
 			{
 				return std::nullopt;
 			}
+
 			*Left = Operation == '*' ? *Left * *Right : *Left / *Right;
 			if (!std::isfinite(*Left))
 			{
 				return std::nullopt;
 			}
 		}
+
 		return std::nullopt;
 	}
 
@@ -101,11 +108,13 @@ private:
 			++Position;
 			SkipWhitespace();
 		}
+
 		auto Value = ParsePrimary();
 		if (Value && bNegative)
 		{
 			*Value = -*Value;
 		}
+
 		return Value;
 	}
 
@@ -116,12 +125,14 @@ private:
 		{
 			return std::nullopt;
 		}
+
 		if (Expression[Position] == '(')
 		{
 			if (++Nesting > MaximumNesting)
 			{
 				return std::nullopt;
 			}
+
 			++Position;
 			auto Value = ParseExpression();
 			SkipWhitespace();
@@ -130,10 +141,11 @@ private:
 			{
 				return std::nullopt;
 			}
+
 			return Value;
 		}
 
-		float Value = 0.0f;
+		float Value = 0.f;
 		const char* const Begin = Expression.data() + Position;
 		const char* const End = Expression.data() + Expression.size();
 		const auto Result = std::from_chars(Begin, End, Value, std::chars_format::general);
@@ -141,6 +153,7 @@ private:
 		{
 			return std::nullopt;
 		}
+
 		Position += static_cast<std::size_t>(Result.ptr - Begin);
 		return std::isfinite(Value) ? std::optional{Value} : std::nullopt;
 	}
@@ -165,6 +178,7 @@ bool Consume(const std::string_view Text, std::size_t& Position, const char Char
 	{
 		return false;
 	}
+
 	++Position;
 	return true;
 }
@@ -186,14 +200,17 @@ std::optional<float> ParseVectorComponent(const std::string_view Text, std::size
 			{
 				break;
 			}
+
 			--Nesting;
 		}
 		else if (Text[Position] == ',' && Nesting == 0)
 		{
 			break;
 		}
+
 		++Position;
 	}
+
 	return EvaluateNumericExpression(Text.substr(Start, Position - Start));
 }
 
@@ -208,11 +225,13 @@ std::optional<FVector3> ParseVectorClipboard(const std::string_view Text, const 
 	{
 		return std::nullopt;
 	}
+
 	std::size_t Position = 0;
 	if (!Consume(Text, Position, '('))
 	{
 		return std::nullopt;
 	}
+
 	std::array<float, 3> Components{};
 	for (std::size_t Index = 0; Index < Labels.size(); ++Index)
 	{
@@ -221,26 +240,31 @@ std::optional<FVector3> ParseVectorClipboard(const std::string_view Text, const 
 		{
 			return std::nullopt;
 		}
+
 		Position += Labels[Index].size();
 		if (!Consume(Text, Position, '='))
 		{
 			return std::nullopt;
 		}
+
 		const auto Component = ParseVectorComponent(Text, Position);
 		if (!Component)
 		{
 			return std::nullopt;
 		}
+
 		Components[Index] = *Component;
 		if (Index + 1 < Labels.size() && !Consume(Text, Position, ','))
 		{
 			return std::nullopt;
 		}
 	}
+
 	if (!Consume(Text, Position, ')'))
 	{
 		return std::nullopt;
 	}
+
 	SkipWhitespace(Text, Position);
 	return Position == Text.size() ? std::optional{FVector3{Components[0], Components[1], Components[2]}} : std::nullopt;
 }

@@ -1,11 +1,12 @@
 #include "Herta/ShaderCompiler/ShaderCompiler.h"
 
+#include <slang-com-ptr.h>
+#include <slang.h>
+
 #include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <map>
-#include <slang-com-ptr.h>
-#include <slang.h>
 #include <system_error>
 
 #ifdef _WIN32
@@ -186,7 +187,7 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 				return std::unexpected(FShaderError{"Unsupported reflected shader parameter: " + std::string(Parameter->getName())});
 		}
 
-		Shader.Bindings.push_back({Parameter->getName(), BindingType, Parameter->getBindingIndex(), Parameter->getBindingSpace()});
+		Shader.Bindings.push_back({.Name = Parameter->getName(), .Type = BindingType, .Binding = Parameter->getBindingIndex(), .Space = Parameter->getBindingSpace()});
 	}
 
 	std::map<std::string, std::uint64_t> Dependencies;
@@ -214,7 +215,7 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 
 	for (const auto& [Path, Hash] : Dependencies)
 	{
-		Shader.Dependencies.push_back({Path, Hash});
+		Shader.Dependencies.push_back({.Path = Path, .ContentHash = Hash});
 	}
 
 	Slang::ComPtr<slang::IBlob> Bytecode;

@@ -7,20 +7,22 @@
 #include <vector>
 
 #ifdef HERTA_PLATFORM_WINDOWS
+	#include <windows.h>
+
 	#include <atomic>
 	#include <memory>
 	#include <string_view>
 	#include <type_traits>
-	#include <windows.h>
 #else
-	#include <cerrno>
-	#include <csignal>
-	#include <cstring>
 	#include <fcntl.h>
 	#include <spawn.h>
 	#include <sys/wait.h>
-	#include <thread>
 	#include <unistd.h>
+
+	#include <cerrno>
+	#include <csignal>
+	#include <cstring>
+	#include <thread>
 #endif
 
 #ifdef HERTA_PLATFORM_WINDOWS
@@ -48,7 +50,7 @@ using FUniqueHandle = std::unique_ptr<std::remove_pointer_t<HANDLE>, FHandleClos
 
 [[nodiscard]] std::unexpected<FProcessError> Failure(const EProcessErrorCode Code, const std::string_view Message)
 {
-	return std::unexpected(FProcessError{Code, std::format("{} (Windows error {})", Message, GetLastError())});
+	return std::unexpected(FProcessError{.Code = Code, .Message = std::format("{} (Windows error {})", Message, GetLastError())});
 }
 
 [[nodiscard]] bool Widen(const std::string_view Text, std::wstring& Result)
@@ -58,11 +60,13 @@ using FUniqueHandle = std::unique_ptr<std::remove_pointer_t<HANDLE>, FHandleClos
 	{
 		return true;
 	}
+
 	const int Size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, Text.data(), static_cast<int>(Text.size()), nullptr, 0);
 	if (Size <= 0)
 	{
 		return false;
 	}
+
 	Result.resize(static_cast<std::size_t>(Size));
 	return MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, Text.data(), static_cast<int>(Text.size()), Result.data(), Size) == Size;
 }
@@ -74,6 +78,7 @@ void AppendQuotedArgument(std::wstring& CommandLine, const std::wstring_view Arg
 	{
 		CommandLine.push_back(L' ');
 	}
+
 	if (!Argument.empty() && Argument.find_first_of(L" \t\n\v\"") == std::wstring_view::npos)
 	{
 		CommandLine.append(Argument);
@@ -89,11 +94,13 @@ void AppendQuotedArgument(std::wstring& CommandLine, const std::wstring_view Arg
 			++Character;
 			++Backslashes;
 		}
+
 		if (Character == Argument.end())
 		{
 			CommandLine.append(Backslashes * 2, L'\\');
 			break;
 		}
+
 		if (*Character == L'"')
 		{
 			CommandLine.append(Backslashes * 2 + 1, L'\\');
@@ -102,8 +109,10 @@ void AppendQuotedArgument(std::wstring& CommandLine, const std::wstring_view Arg
 		{
 			CommandLine.append(Backslashes, L'\\');
 		}
+
 		CommandLine.push_back(*Character);
 	}
+
 	CommandLine.push_back(L'"');
 }
 
@@ -117,6 +126,7 @@ void AppendQuotedArgument(std::wstring& CommandLine, const std::wstring_view Arg
 	{
 		return {};
 	}
+
 	return MakeHandle(CreateFileW(Path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, &Inheritable, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr));
 }
 
@@ -128,12 +138,14 @@ void AppendQuotedArgument(std::wstring& CommandLine, const std::wstring_view Arg
 	{
 		return Text;
 	}
+
 	std::array<char, 4096> Buffer{};
 	DWORD Read = 0;
 	while (Text.size() < MaximumBytes && ReadFile(File, Buffer.data(), static_cast<DWORD>(Buffer.size()), &Read, nullptr) && Read > 0)
 	{
 		Text.append(Buffer.data(), std::min<std::size_t>(Read, MaximumBytes - Text.size()));
 	}
+
 	return Text;
 }
 }
@@ -142,7 +154,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 {
 	if (Request.Executable.empty() || Request.Timeout.count() < 0)
 	{
-		return std::unexpected(FProcessError{EProcessErrorCode::InvalidRequest, "A process requires an executable and a nonnegative timeout"});
+		return std::unexpected(FProcessError{.Code = EProcessErrorCode::InvalidRequest, .Message = "A process requires an executable and a nonnegative timeout"});
 	}
 
 	std::wstring CommandLine;
@@ -152,21 +164,24 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	{
 		if (!Widen(Argument, WideArgument))
 		{
-			return std::unexpected(FProcessError{EProcessErrorCode::InvalidRequest, "Process arguments must be valid UTF-8"});
+			return std::unexpected(FProcessError{.Code = EProcessErrorCode::InvalidRequest, .Message = "Process arguments must be valid UTF-8"});
 		}
+
 		AppendQuotedArgument(CommandLine, WideArgument);
 	}
+
 	if (!Request.RawArguments.empty())
 	{
 		if (!Widen(Request.RawArguments, WideArgument))
 		{
-			return std::unexpected(FProcessError{EProcessErrorCode::InvalidRequest, "Process arguments must be valid UTF-8"});
+			return std::unexpected(FProcessError{.Code = EProcessErrorCode::InvalidRequest, .Message = "Process arguments must be valid UTF-8"});
 		}
+
 		CommandLine.push_back(L' ');
 		CommandLine.append(WideArgument);
 	}
 
-	SECURITY_ATTRIBUTES Inheritable{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+	SECURITY_ATTRIBUTES Inheritable{.nLength = sizeof(SECURITY_ATTRIBUTES), .lpSecurityDescriptor = nullptr, .bInheritHandle = TRUE};
 	const FUniqueHandle Output = CreateCaptureFile(Inheritable);
 	const FUniqueHandle ErrorOutput = CreateCaptureFile(Inheritable);
 	const FUniqueHandle Input = MakeHandle(CreateFileW(L"NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, &Inheritable, OPEN_EXISTING, 0, nullptr));
@@ -185,6 +200,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	{
 		return Failure(EProcessErrorCode::LaunchFailed, "Cannot initialize process attributes");
 	}
+
 	const std::unique_ptr<std::remove_pointer_t<LPPROC_THREAD_ATTRIBUTE_LIST>, decltype(&DeleteProcThreadAttributeList)> AttributeScope(Attributes, &DeleteProcThreadAttributeList);
 	if (!UpdateProcThreadAttribute(Attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, InheritedHandles.data(), sizeof(InheritedHandles), nullptr, nullptr))
 	{
@@ -212,8 +228,9 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	{
 		const DWORD Error = GetLastError();
 		const std::u8string Executable = Request.Executable.u8string();
-		return std::unexpected(FProcessError{EProcessErrorCode::LaunchFailed, std::format("Cannot start '{}' (Windows error {})", std::string_view(reinterpret_cast<const char*>(Executable.data()), Executable.size()), Error)});
+		return std::unexpected(FProcessError{.Code = EProcessErrorCode::LaunchFailed, .Message = std::format("Cannot start '{}' (Windows error {})", std::string_view(reinterpret_cast<const char*>(Executable.data()), Executable.size()), Error)});
 	}
+
 	const FUniqueHandle Process(Information.hProcess);
 	const FUniqueHandle Thread(Information.hThread);
 	if (!AssignProcessToJobObject(Job.get(), Process.get()))
@@ -221,6 +238,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 		TerminateProcess(Process.get(), 1);
 		return Failure(EProcessErrorCode::LaunchFailed, "Cannot assign the process to its job");
 	}
+
 	ResumeThread(Thread.get());
 
 	const auto Started = std::chrono::steady_clock::now();
@@ -231,19 +249,21 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 		{
 			break;
 		}
+
 		std::optional<FProcessError> Stop;
 		if (Wait != WAIT_TIMEOUT)
 		{
-			Stop = FProcessError{EProcessErrorCode::WaitFailed, std::format("Waiting for the process failed (Windows error {})", GetLastError())};
+			Stop = FProcessError{.Code = EProcessErrorCode::WaitFailed, .Message = std::format("Waiting for the process failed (Windows error {})", GetLastError())};
 		}
 		else if (Request.ShouldCancel && Request.ShouldCancel())
 		{
-			Stop = FProcessError{EProcessErrorCode::Cancelled, "The process was cancelled"};
+			Stop = FProcessError{.Code = EProcessErrorCode::Cancelled, .Message = "The process was cancelled"};
 		}
 		else if (Request.Timeout.count() > 0 && std::chrono::steady_clock::now() - Started > Request.Timeout)
 		{
-			Stop = FProcessError{EProcessErrorCode::TimedOut, std::format("The process exceeded its {} ms timeout", Request.Timeout.count())};
+			Stop = FProcessError{.Code = EProcessErrorCode::TimedOut, .Message = std::format("The process exceeded its {} ms timeout", Request.Timeout.count())};
 		}
+
 		if (Stop)
 		{
 			TerminateJobObject(Job.get(), 1);
@@ -257,7 +277,8 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	{
 		return Failure(EProcessErrorCode::WaitFailed, "Cannot read the process exit code");
 	}
-	return FProcessResult{static_cast<int>(ExitCode), ReadCapture(Output.get(), Request.MaximumOutputBytes), ReadCapture(ErrorOutput.get(), Request.MaximumOutputBytes)};
+
+	return FProcessResult{.ExitCode = static_cast<int>(ExitCode), .StandardOutput = ReadCapture(Output.get(), Request.MaximumOutputBytes), .StandardError = ReadCapture(ErrorOutput.get(), Request.MaximumOutputBytes)};
 }
 
 FProcessRequest MakeShellRequest(const std::string_view CommandLine)
@@ -266,7 +287,7 @@ FProcessRequest MakeShellRequest(const std::string_view CommandLine)
 	const DWORD Length = GetEnvironmentVariableW(L"ComSpec", ComSpec.data(), static_cast<DWORD>(ComSpec.size()));
 	ComSpec.resize(Length > 0 && Length < ComSpec.size() ? Length : 0);
 	// cmd /s /c strips one pair of outer quotes and runs the rest verbatim, so the line keeps its own quoting.
-	FProcessRequest Request{ComSpec.empty() ? std::filesystem::path(L"cmd.exe") : std::filesystem::path(ComSpec), {"/d", "/s", "/c"}};
+	FProcessRequest Request{.Executable = ComSpec.empty() ? std::filesystem::path(L"cmd.exe") : std::filesystem::path(ComSpec), .Arguments = {"/d", "/s", "/c"}};
 	Request.RawArguments = std::format("\"{}\"", CommandLine);
 	return Request;
 }
@@ -281,11 +302,13 @@ std::filesystem::path GetExecutablePath()
 		{
 			return {};
 		}
+
 		if (Length < Buffer.size())
 		{
 			Buffer.resize(Length);
 			return Buffer;
 		}
+
 		Buffer.resize(Buffer.size() * 2);
 	}
 }
@@ -302,6 +325,7 @@ public:
 	    : Value(InValue)
 	{
 	}
+
 	~FFileDescriptor()
 	{
 		if (Value >= 0)
@@ -309,8 +333,11 @@ public:
 			close(Value);
 		}
 	}
+
 	FFileDescriptor(const FFileDescriptor&) = delete;
 	FFileDescriptor& operator=(const FFileDescriptor&) = delete;
+	FFileDescriptor(FFileDescriptor&&) = delete;
+	FFileDescriptor& operator=(FFileDescriptor&&) = delete;
 
 	[[nodiscard]] int Get() const noexcept
 	{
@@ -323,7 +350,7 @@ private:
 
 [[nodiscard]] std::unexpected<FProcessError> Failure(const EProcessErrorCode Code, const std::string_view Message, const int Error)
 {
-	return std::unexpected(FProcessError{Code, std::format("{}: {}", Message, std::strerror(Error))});
+	return std::unexpected(FProcessError{.Code = Code, .Message = std::format("{}: {}", Message, std::strerror(Error))});
 }
 
 // Unlinked immediately, so the capture never outlives the descriptors.
@@ -335,11 +362,13 @@ private:
 	{
 		return -1;
 	}
+
 	const int Descriptor = mkostemp(Template.data(), O_CLOEXEC);
 	if (Descriptor >= 0)
 	{
 		unlink(Template.c_str());
 	}
+
 	return Descriptor;
 }
 
@@ -350,6 +379,7 @@ private:
 	{
 		return Text;
 	}
+
 	std::array<char, 4096> Buffer{};
 	while (Text.size() < MaximumBytes)
 	{
@@ -358,12 +388,15 @@ private:
 		{
 			continue;
 		}
+
 		if (Read <= 0)
 		{
 			break;
 		}
+
 		Text.append(Buffer.data(), std::min<std::size_t>(static_cast<std::size_t>(Read), MaximumBytes - Text.size()));
 	}
+
 	return Text;
 }
 
@@ -373,6 +406,7 @@ private:
 	{
 		return WEXITSTATUS(Status);
 	}
+
 	return WIFSIGNALED(Status) ? 128 + WTERMSIG(Status) : -1;
 }
 }
@@ -381,7 +415,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 {
 	if (Request.Executable.empty() || Request.Timeout.count() < 0 || !Request.RawArguments.empty())
 	{
-		return std::unexpected(FProcessError{EProcessErrorCode::InvalidRequest, "A process requires an executable and a nonnegative timeout"});
+		return std::unexpected(FProcessError{.Code = EProcessErrorCode::InvalidRequest, .Message = "A process requires an executable and a nonnegative timeout"});
 	}
 
 	const FFileDescriptor Output(CreateCaptureFile());
@@ -412,6 +446,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	{
 		Arguments.push_back(const_cast<char*>(Argument.c_str()));
 	}
+
 	Arguments.push_back(nullptr);
 
 	pid_t Process = 0;
@@ -432,32 +467,36 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 		{
 			break;
 		}
+
 		std::optional<FProcessError> Stop;
 		if (Waited < 0 && errno != EINTR)
 		{
-			Stop = FProcessError{EProcessErrorCode::WaitFailed, std::format("Waiting for the process failed: {}", std::strerror(errno))};
+			Stop = FProcessError{.Code = EProcessErrorCode::WaitFailed, .Message = std::format("Waiting for the process failed: {}", std::strerror(errno))};
 		}
 		else if (Request.ShouldCancel && Request.ShouldCancel())
 		{
-			Stop = FProcessError{EProcessErrorCode::Cancelled, "The process was cancelled"};
+			Stop = FProcessError{.Code = EProcessErrorCode::Cancelled, .Message = "The process was cancelled"};
 		}
 		else if (Request.Timeout.count() > 0 && std::chrono::steady_clock::now() - Started > Request.Timeout)
 		{
-			Stop = FProcessError{EProcessErrorCode::TimedOut, std::format("The process exceeded its {} ms timeout", Request.Timeout.count())};
+			Stop = FProcessError{.Code = EProcessErrorCode::TimedOut, .Message = std::format("The process exceeded its {} ms timeout", Request.Timeout.count())};
 		}
+
 		if (Stop)
 		{
 			kill(-Process, SIGKILL);
 			while (waitpid(Process, &Status, 0) < 0 && errno == EINTR)
 			{
 			}
+
 			return std::unexpected(std::move(*Stop));
 		}
+
 		// ponytail: 20 ms polling; switch to pidfd_open and poll if launch latency matters.
 		std::this_thread::sleep_for(std::chrono::milliseconds(20));
 	}
 
-	return FProcessResult{ToExitCode(Status), ReadCapture(Output.Get(), Request.MaximumOutputBytes), ReadCapture(ErrorOutput.Get(), Request.MaximumOutputBytes)};
+	return FProcessResult{.ExitCode = ToExitCode(Status), .StandardOutput = ReadCapture(Output.Get(), Request.MaximumOutputBytes), .StandardError = ReadCapture(ErrorOutput.Get(), Request.MaximumOutputBytes)};
 }
 
 std::filesystem::path GetExecutablePath()
@@ -465,13 +504,14 @@ std::filesystem::path GetExecutablePath()
 	std::error_code Error;
 	return std::filesystem::read_symlink("/proc/self/exe", Error);
 }
+
 FProcessRequest MakeShellRequest(const std::string_view CommandLine)
 {
 	// A stale $SHELL, such as one copied from another machine, falls back to /bin/sh instead of failing every command.
 	const char* const Shell = std::getenv("SHELL");
 	std::error_code Error;
 	const bool bUsable = Shell != nullptr && *Shell != '\0' && std::filesystem::is_regular_file(Shell, Error);
-	return {bUsable ? std::filesystem::path(Shell) : std::filesystem::path("/bin/sh"), {"-c", std::string(CommandLine)}};
+	return {.Executable = bUsable ? std::filesystem::path(Shell) : std::filesystem::path("/bin/sh"), .Arguments = {"-c", std::string(CommandLine)}};
 }
 }
 #endif

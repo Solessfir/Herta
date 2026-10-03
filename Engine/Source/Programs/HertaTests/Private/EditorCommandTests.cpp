@@ -8,31 +8,30 @@ TEST_CASE("Editor commands are validated and sorted")
 {
 	FEditorCommandRegistry Registry;
 	CHECK(Registry.Register({"zeta", "Last command", [](std::span<const std::string_view>)
-	                         {
-		                         return FEditorCommandResult{};
-	                         }})
-	          .has_value());
+	{
+		return FEditorCommandResult{};
+	}}).has_value());
+
 	CHECK(Registry.Register({"alpha", "First command", [](std::span<const std::string_view>)
-	                         {
-		                         return FEditorCommandResult{};
-	                         }})
-	          .has_value());
+	{
+		return FEditorCommandResult{};
+	}}).has_value());
 
 	const std::expected<std::vector<FEditorCommandInfo>, FEditorCommandError> Commands = Registry.List();
 	REQUIRE(Commands.has_value());
 	REQUIRE(Commands->size() == 2);
 	CHECK((*Commands)[0].Name == "alpha");
 	CHECK((*Commands)[1].Name == "zeta");
+
 	CHECK_FALSE(Registry.Register({"alpha", "Duplicate", [](std::span<const std::string_view>)
-	                               {
-		                               return FEditorCommandResult{};
-	                               }})
-	                .has_value());
+	{
+		return FEditorCommandResult{};
+	}}).has_value());
+
 	CHECK_FALSE(Registry.Register({"bad name", "Invalid", [](std::span<const std::string_view>)
-	                               {
-		                               return FEditorCommandResult{};
-	                               }})
-	                .has_value());
+	{
+		return FEditorCommandResult{};
+	}}).has_value());
 }
 
 TEST_CASE("Editor command parsing preserves quoted and escaped arguments")
@@ -51,16 +50,17 @@ TEST_CASE("Editor command parsing preserves empty quoted arguments")
 {
 	FEditorCommandRegistry Registry;
 	CHECK(Registry.Register({"capture",
-	                         "Capture arguments",
-	                         [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
-	                         {
-		                         if (Arguments.size() != 2 || !Arguments.front().empty() || Arguments.back() != "tail")
-		                         {
-			                         return std::unexpected(FEditorCommandError{EEditorCommandErrorCode::ExecutionFailed, "Empty quoted argument was not preserved"});
-		                         }
-		                         return FEditorCommandResult{};
-	                         }})
-	          .has_value());
+	                            "Capture arguments",
+	                            [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	{
+		if (Arguments.size() != 2 || !Arguments.front().empty() || Arguments.back() != "tail")
+		{
+			return std::unexpected(FEditorCommandError{EEditorCommandErrorCode::ExecutionFailed, "Empty quoted argument was not preserved"});
+		}
+
+		return FEditorCommandResult{};
+	}})
+	        .has_value());
 
 	CHECK(Registry.Execute(R"(capture "" tail)").has_value());
 }
@@ -85,10 +85,9 @@ TEST_CASE("Core editor command registration is transactional")
 {
 	FEditorCommandRegistry Registry;
 	CHECK(Registry.Register({"help", "Existing help", [](std::span<const std::string_view>)
-	                         {
-		                         return FEditorCommandResult{};
-	                         }})
-	          .has_value());
+	{
+		return FEditorCommandResult{};
+	}}).has_value());
 
 	const std::expected<void, FEditorCommandError> Result = RegisterCoreEditorCommands(Registry);
 	REQUIRE_FALSE(Result.has_value());

@@ -2,8 +2,8 @@
 
 #include "Herta/EditorCore/ViewportCamera.h"
 
-#include <utility>
 #include <optional>
+#include <utility>
 #include <vector>
 
 namespace Herta
