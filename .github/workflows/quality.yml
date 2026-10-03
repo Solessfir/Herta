@@ -74,7 +74,7 @@ jobs:
       - name: Test bootstrap scripts
         shell: pwsh
         run: |
-          ./Scripts/Tests/DependencyLock.Tests.ps1
+          ./Scripts/Windows/Tests/DependencyLock.Tests.ps1
           ./Setup.bat -ValidateOnly
           ./Cleanup.bat -WhatIf
 
@@ -96,7 +96,7 @@ jobs:
       - name: Test bootstrap scripts
         shell: bash
         run: |
-          ./Scripts/Tests/DependencyLock.Tests.sh
+          ./Scripts/Linux/Tests/DependencyLock.Tests.sh
           ./Setup.sh --validate-only
           ./Cleanup.sh --dry-run
 
@@ -181,7 +181,7 @@ jobs:
           path: |
             External/Premake
             SDK
-          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/**/Setup.*', 'Scripts/**/DependencyLock.*') }}
 
       - name: Install compilation database capture
         shell: bash
@@ -234,7 +234,7 @@ jobs:
           path: |
             External/Premake
             SDK
-          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/**/Setup.*', 'Scripts/**/DependencyLock.*') }}
 
   required:
     name: required

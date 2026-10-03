@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$RepositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$RepositoryRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 $ProfilePath = Join-Path $RepositoryRoot '.run/HertaEditor.run.xml'
 [xml]$Profile = Get-Content -LiteralPath $ProfilePath -Raw
 $Configuration = $Profile.component.configuration
@@ -9,7 +9,7 @@ if ($Configuration.type -ne 'CppProject' -or $Configuration.name -ne 'HertaEdito
     throw 'Expected the shared HertaEditor C++ launch configuration.'
 }
 
-. (Join-Path $RepositoryRoot 'Scripts/DependencyLock.ps1')
+. (Join-Path $RepositoryRoot 'Scripts/Windows/DependencyLock.ps1')
 $Dependencies = Read-HertaDependencyLock -Path (Join-Path $RepositoryRoot 'Config/Dependencies.lock')
 $Vulkan = $Dependencies | Where-Object { $_.Name -eq 'vulkan-sdk' -and $_.Platform -eq 'windows-x64' }
 $SdkRoot = Join-Path $RepositoryRoot "SDK/Windows/Vulkan/$($Vulkan.Version)"

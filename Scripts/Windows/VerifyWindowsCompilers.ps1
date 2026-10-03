@@ -25,7 +25,7 @@ if ($env:OS -ne 'Windows_NT') {
     throw 'Windows compiler verification requires Windows.'
 }
 
-$RepositoryRoot = Split-Path -Parent $PSScriptRoot
+$RepositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $SetupPath = Join-Path $PSScriptRoot 'Setup.ps1'
 $VisualStudioAction = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $SetupPath -PrintVisualStudioAction
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

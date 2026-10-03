@@ -1180,14 +1180,14 @@ GitHub Actions must call the same checked-in entry points used locally. Workflow
 
 | Workflow | Triggers | Responsibility |
 |---|---|---|
-| `ci.yml` | Pull request, changed daily `main`, `merge_group`, optional manual | Required builds, unit tests, platform integration, and small asset smoke tests |
+| `ci.yml` | Push to `main`, pull request, changed daily `main`, `merge_group`, optional manual | Required builds, unit tests, platform integration, small asset smoke tests, and experimental Shipping packages |
 | `quality.yml` | Pull request, changed daily `main`, `merge_group`, optional manual | Formatting, warnings, clang-tidy, generated-file checks, and sanitizers |
 | `codeql.yml` | Weekly and optional manual | C/C++ CodeQL analysis using the real build |
 | `dependency-review.yml` | Pull request | Vulnerability, license, submodule, binary-lock, and workflow-action review |
 | `nightly.yml` | Scheduled and manual | Full asset corpus, optional Blender integration, render regression, stress, TSan, and recovery tests |
 | `release.yml` | Protected version tag or manual | Clean reproducible packages, checksums, notices, SBOM, attestations, and draft release |
 
-All required workflows listen for `merge_group` from the start so they remain compatible with GitHub's [merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue). CI and Quality batch direct `main` development into daily validation and compare the scheduled revision with the previous completed scheduled run. They skip their expensive jobs when the revision is unchanged. Manual dispatch remains available for diagnostics and always runs.
+All required workflows listen for `merge_group` from the start so they remain compatible with GitHub's [merge queue](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue). CI validates every push to `main`; Quality batches direct `main` development into daily validation. Scheduled CI and Quality compare the scheduled revision with the previous completed scheduled run and skip their expensive jobs when the revision is unchanged. Manual dispatch remains available for diagnostics and always runs.
 
 Use workflow concurrency to cancel superseded work on the same ref. A newer revision is the authoritative validation target, including scheduled and direct diagnostic runs.
 
@@ -1279,6 +1279,8 @@ Artifacts are used for job outputs and diagnostics, never as an undeclared build
 - Successful `main` packages: 30 days.
 - Nightly packages and diagnostics: 14 days.
 - Releases: permanent GitHub Release assets, not temporary workflow artifacts.
+
+Shipping jobs publish experimental editor archives after successful `main` pushes and manual runs on `main`. Windows uses ZIP with statically linked CRT; Linux uses tar.gz to preserve executable permissions. Platform-specific helpers and tests live under `Scripts/Windows` and `Scripts/Linux`; root Setup, project-generation, and Cleanup launchers remain the public entry points. Linux packaging uses Bash without PowerShell. Archives contain the editor, command host, asset worker, cooked shaders, tracked Engine and Sandbox content, and third-party notices. Tests, shader compiler, SDKs, build tools, saved state, and caches are excluded. Extracted archives are checked outside the checkout before upload; Linux also runs the packaged renderer smoke test. These are temporary CI artifacts, not production releases.
 
 ### 9.6 Reproducibility
 

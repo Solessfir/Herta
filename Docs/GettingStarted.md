@@ -2,6 +2,18 @@
 
 [Back to README](../README.md)
 
+## Prebuilt editor
+
+Successful pushes to `main` and manual CI runs on `main` upload experimental Windows and Linux Shipping packages, retained for 30 days. Open [CI](https://github.com/Solessfir/Herta/actions/workflows/ci.yml), select a successful run, and download the `CI-Herta-...-Shipping-<commit>` artifact for your platform. GitHub requires signing in to download workflow artifacts.
+
+Unzip the downloaded artifact, then extract its inner Windows `.zip` or Linux `.tar.gz` into a writable directory. Keep the complete folder structure. Launch `Binaries/windows/x86_64/Shipping/HertaEditor.exe` or `Binaries/linux/x86_64/Shipping/HertaEditor` inside the extracted package.
+
+A Vulkan-capable GPU, driver, and system Vulkan loader are required. Windows Shipping statically links the CRT, so no separate MSVC runtime DLLs are needed. Linux builds target Ubuntu 24.04 with the GCC 14 libstdc++ runtime and X11/Wayland libraries; older distributions may not be compatible. Neither Git, Visual Studio, the Vulkan SDK, nor Setup is required to run the package. Blender remains optional for `.blend` import.
+
+These are experimental editor builds, not releases. The game runtime is not implemented and preview scene edits are not saved.
+
+After building Shipping locally, create the same archives with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/PackageEditor.ps1` on Windows or `./Scripts/Linux/PackageEditor.sh` on Linux. Archives are written to `Intermediate/Packages`; Linux packaging does not require PowerShell.
+
 ## Clone and setup
 
 ```sh
@@ -59,7 +71,7 @@ Adjust the MSBuild path for your Visual Studio installation. `&&` launches the e
 To verify both Windows compilers locally, add **C++ Clang tools for Windows** and **MSBuild support for LLVM (clang-cl)** to the same Visual Studio installation, then run:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/VerifyWindowsCompilers.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/VerifyWindowsCompilers.ps1
 ```
 
 The script regenerates projects, rebuilds the entire solution with ClangCL and MSVC, and runs `HertaTests` after each successful build. MSVC runs last even if Clang fails because both compilers share output directories. Build and test logs are saved under `Intermediate/CompilerVerification`. It uses Setup's detected Visual Studio toolchain without downloading anything. Pass `-Configuration Debug` or `-Configuration Shipping` to check another configuration; the default is `Development`.

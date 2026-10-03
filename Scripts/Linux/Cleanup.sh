@@ -2,7 +2,7 @@
 set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-repository_root="$(cd -- "${script_dir}/.." && pwd -P)"
+repository_root="$(cd -- "${script_dir}/../.." && pwd -P)"
 dry_run=false
 
 for argument in "$@"; do

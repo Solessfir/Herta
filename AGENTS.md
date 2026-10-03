@@ -105,7 +105,7 @@ Cleanup scripts remove only explicit Herta-managed generated paths. Without Git 
 - Lock down math conventions, serialization, asset conversion, stable IDs, and failure behavior with focused tests.
 - Add regression tests with bug fixes when practical.
 - Run the smallest relevant test or build first. Expand verification only when the affected boundary warrants it.
-- For meaningful Windows C++ changes, run `Scripts/VerifyWindowsCompilers.ps1` to rebuild all projects and run tests with ClangCL and MSVC. Resolve all reported errors and warnings before declaring verification complete.
+- For meaningful Windows C++ changes, run `Scripts/Windows/VerifyWindowsCompilers.ps1` to rebuild all projects and run tests with ClangCL and MSVC. Resolve all reported errors and warnings before declaring verification complete.
 - Run Cppcheck on the Visual Studio project of each module touched by a meaningful C++ change, for example `& "C:\Program Files\Cppcheck\cppcheck.exe" --project=Intermediate/ProjectFiles/vs2026/Platform/Platform.vcxproj "--project-configuration=Development|x64" --enable=warning,performance,portability --inline-suppr --quiet --error-exitcode=1`. On Linux, use `cppcheck` from `PATH` with `--project=compile_commands.json`. Fix findings or suppress a false positive inline with `// cppcheck-suppress <id>` and a short reason. Cppcheck is optional; skip it and say so when it is not installed.
 - Do not rebuild the entire engine for comments, documentation-only edits, or other non-code changes.
 - Verify Windows and Linux implications for platform, build, filesystem, threading, and rendering changes.

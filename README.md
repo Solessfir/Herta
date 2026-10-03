@@ -8,6 +8,8 @@ Herta is a learning project in active development, not a production-ready engine
 
 ## Getting started
 
+To try Herta without building, download an experimental Windows or Linux Shipping artifact from a successful [CI run](https://github.com/Solessfir/Herta/actions/workflows/ci.yml) on `main`. See [running a prebuilt editor](Docs/GettingStarted.md#prebuilt-editor) for requirements and launch paths.
+
 Clone the repository:
 
 ```sh

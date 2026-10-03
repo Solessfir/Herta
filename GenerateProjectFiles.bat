@@ -14,14 +14,14 @@ set "HERTA_VISUAL_STUDIO_ARGUMENTS="
 if /I "%HERTA_REQUESTED_ACTION%"=="vs2026" set "HERTA_VISUAL_STUDIO_ARGUMENTS=-VisualStudioVersion 2026"
 if /I "%HERTA_REQUESTED_ACTION%"=="vs2022" set "HERTA_VISUAL_STUDIO_ARGUMENTS=-VisualStudioVersion 2022"
 
-for /f "usebackq delims=" %%A in (`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HERTA_ROOT%Scripts\Setup.ps1" -PrintVisualStudioAction %HERTA_VISUAL_STUDIO_ARGUMENTS% 2^>nul`) do set "HERTA_ACTION=%%A"
+for /f "usebackq delims=" %%A in (`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HERTA_ROOT%Scripts\Windows\Setup.ps1" -PrintVisualStudioAction %HERTA_VISUAL_STUDIO_ARGUMENTS% 2^>nul`) do set "HERTA_ACTION=%%A"
 if not defined HERTA_ACTION (
     echo Could not find a supported Visual Studio toolchain. Run Setup.bat first. 1>&2
     set "HERTA_EXIT_CODE=1"
     goto :error
 )
 
-for /f "usebackq delims=" %%P in (`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HERTA_ROOT%Scripts\Setup.ps1" -PrintPremakePath 2^>nul`) do set "HERTA_PREMAKE=%%P"
+for /f "usebackq delims=" %%P in (`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HERTA_ROOT%Scripts\Windows\Setup.ps1" -PrintPremakePath 2^>nul`) do set "HERTA_PREMAKE=%%P"
 if not defined HERTA_PREMAKE (
     echo Could not find project-local Premake. Run Setup.bat first. 1>&2
     set "HERTA_EXIT_CODE=1"
@@ -29,7 +29,7 @@ if not defined HERTA_PREMAKE (
 )
 
 set "HERTA_VULKAN_SDK="
-for /f "usebackq delims=" %%V in (`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HERTA_ROOT%Scripts\Setup.ps1" -PrintVulkanSdkPath 2^>nul`) do set "HERTA_VULKAN_SDK=%%V"
+for /f "usebackq delims=" %%V in (`powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%HERTA_ROOT%Scripts\Windows\Setup.ps1" -PrintVulkanSdkPath 2^>nul`) do set "HERTA_VULKAN_SDK=%%V"
 if not defined HERTA_VULKAN_SDK (
     echo Could not find the project-local Vulkan SDK. Run Setup.bat first. 1>&2
     set "HERTA_EXIT_CODE=1"

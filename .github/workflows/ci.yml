@@ -1,6 +1,9 @@
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -114,7 +117,7 @@ jobs:
           path: |
             External/Premake
             SDK
-          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/**/Setup.*', 'Scripts/**/DependencyLock.*') }}
 
       - name: Install Linux C++23 library support
         if: matrix.platform == 'linux'
@@ -137,7 +140,7 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          $MSBuildPath = & .\Scripts\Setup.ps1 -PrintMSBuildPath -VisualStudioVersion 2026
+          $MSBuildPath = & .\Scripts\Windows\Setup.ps1 -PrintMSBuildPath -VisualStudioVersion 2026
           if ([string]::IsNullOrWhiteSpace($MSBuildPath)) {
             throw 'Could not resolve MSBuild for Visual Studio 2026.'
           }
@@ -290,7 +293,95 @@ jobs:
           path: |
             External/Premake
             SDK
-          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/Setup.*', 'Scripts/DependencyLock.*') }}
+          key: ${{ runner.os }}-herta-bootstrap-v2-${{ hashFiles('Config/Dependencies.lock', 'Scripts/**/Setup.*', 'Scripts/**/DependencyLock.*') }}
+
+      - name: Verify Windows Shipping uses static CRT
+        if: matrix.platform == 'windows' && matrix.configuration == 'Shipping'
+        shell: pwsh
+        run: |
+          $MSBuildPath = & .\Scripts\Windows\Setup.ps1 -PrintMSBuildPath -VisualStudioVersion 2026
+          $VisualStudioRoot = $MSBuildPath -replace '[\\/]MSBuild[\\/].*$', ''
+          $Toolset = Get-ChildItem -LiteralPath "$VisualStudioRoot/VC/Tools/MSVC" -Directory |
+            Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+          $Dumpbin = Join-Path $Toolset.FullName 'bin/Hostx64/x64/dumpbin.exe'
+          foreach ($Program in @('HertaEditor', 'HertaEditorCmd', 'HertaAssetWorker')) {
+            $Imports = & $Dumpbin /nologo /dependents "Binaries/windows/x86_64/Shipping/$Program.exe"
+            if ($LASTEXITCODE -ne 0 -or ($Imports -match '(?i)(vcruntime|msvcp|concrt|ucrtbase|api-ms-win-crt).*\.dll')) {
+              throw "$Program could not be inspected or still imports a CRT DLL."
+            }
+          }
+
+      - name: Test Windows editor packaging
+        if: matrix.platform == 'windows' && matrix.configuration == 'Shipping'
+        shell: pwsh
+        run: ./Scripts/Windows/Tests/PackageEditor.Tests.ps1
+
+      - name: Test Linux editor packaging
+        if: matrix.platform == 'linux' && matrix.configuration == 'Shipping'
+        shell: bash
+        run: ./Scripts/Linux/Tests/PackageEditor.Tests.sh
+
+      - name: Package experimental Windows editor
+        if: matrix.platform == 'windows' && matrix.configuration == 'Shipping' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: pwsh
+        run: ./Scripts/Windows/PackageEditor.ps1
+
+      - name: Package experimental Linux editor
+        if: matrix.platform == 'linux' && matrix.configuration == 'Shipping' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        run: ./Scripts/Linux/PackageEditor.sh
+
+      - name: Verify extracted Windows package
+        if: matrix.platform == 'windows' && matrix.configuration == 'Shipping' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: pwsh
+        timeout-minutes: 2
+        run: |
+          $ExtractRoot = Join-Path $env:RUNNER_TEMP 'herta-shipping-package'
+          Expand-Archive -LiteralPath 'Intermediate/Packages/Herta-windows-x86_64-Shipping.zip' -DestinationPath $ExtractRoot
+          Push-Location (Join-Path $ExtractRoot 'Herta-windows-x86_64-Shipping')
+          try {
+            $CommandHost = '.\Binaries\windows\x86_64\Shipping\HertaEditorCmd.exe'
+            $Diagnostic = & $CommandHost --json asset.validate | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or $Diagnostic.status -ne 'success') {
+              throw 'Extracted package could not validate its content.'
+            }
+            $Diagnostic = & $CommandHost --json asset.reimport Shapes/Cube.gltf --content-root Engine/Content | ConvertFrom-Json
+            if ($LASTEXITCODE -ne 0 -or $Diagnostic.status -ne 'success') {
+              throw 'Extracted package could not cook the engine cube with its asset worker.'
+            }
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Verify extracted Linux package
+        if: matrix.platform == 'linux' && matrix.configuration == 'Shipping' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        timeout-minutes: 2
+        run: |
+          ExtractRoot="$(mktemp -d "${RUNNER_TEMP}/herta-shipping-package.XXXXXX")"
+          tar -xzf Intermediate/Packages/Herta-linux-x86_64-Shipping.tar.gz -C "$ExtractRoot"
+          cd "$ExtractRoot/Herta-linux-x86_64-Shipping"
+          CommandHost='./Binaries/linux/x86_64/Shipping/HertaEditorCmd'
+          Diagnostic="$("$CommandHost" --json asset.validate)"
+          python3 -c 'import json,sys; assert json.loads(sys.argv[1])["status"] == "success"' "$Diagnostic"
+          Diagnostic="$("$CommandHost" --json asset.reimport Shapes/Cube.gltf --content-root Engine/Content)"
+          python3 -c 'import json,sys; assert json.loads(sys.argv[1])["status"] == "success"' "$Diagnostic"
+          LavapipeIcd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)"
+          test -n "$LavapipeIcd"
+          env -u WAYLAND_DISPLAY VK_DRIVER_FILES="$LavapipeIcd" \
+            xvfb-run --auto-servernum ./Binaries/linux/x86_64/Shipping/HertaEditor --renderer-test --expect-window-system=x11
+
+      - name: Upload experimental Shipping editor
+        if: matrix.configuration == 'Shipping' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: CI-Herta-${{ matrix.platform }}-x86_64-${{ matrix.compiler }}-Shipping-${{ github.sha }}
+          path: |
+            Intermediate/Packages/*.zip
+            Intermediate/Packages/*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Upload test results
         if: ${{ always() }}

@@ -47,5 +47,8 @@ function HertaApplyToolchainSettings()
         symbols "Off"
         optimize "Full"
 
+    filter { "system:windows", "configurations:Shipping" }
+        staticruntime "On"
+
     filter {}
 end

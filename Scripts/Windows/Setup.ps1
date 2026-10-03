@@ -12,7 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$RepositoryRoot = Split-Path -Parent $PSScriptRoot
+$RepositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $LockPath = Join-Path $RepositoryRoot 'Config/Dependencies.lock'
 . (Join-Path $PSScriptRoot 'DependencyLock.ps1')
 

@@ -29,8 +29,8 @@ jobs:
       - name: Validate Herta dependency manifests
         shell: bash
         run: |
-          bash ./Scripts/Setup.sh --validate-only
-          bash ./Scripts/Tests/DependencyLock.Tests.sh
+          bash ./Scripts/Linux/Setup.sh --validate-only
+          bash ./Scripts/Linux/Tests/DependencyLock.Tests.sh
 
       - name: Review dependency changes
         # Private repositories require GitHub Code Security. Herta's manifest validation above always remains active.
