@@ -19,6 +19,9 @@ struct FNumericEditState
 	ImGuiID Id = 0;
 	std::vector<char> Text = std::vector<char>(257);
 	int LastFrame = -1;
+	float InitialValue = 0.f;
+	bool bTextEditing = false;
+	bool bGestureStarted = false;
 	bool bHadFocus = false;
 	bool bFocusRequested = false;
 	bool bMouseActivation = false;
@@ -65,8 +68,15 @@ int UpdateInputState(ImGuiInputTextCallbackData* const Data)
 }
 
 template <typename DrawWidget>
-bool DrawNumericField(const char* const Label, float* const Value, const float Minimum, const float Maximum, const bool bAlwaysClamp, const bool bClickToEdit, DrawWidget&& DrawWidgetFunction)
+bool DrawNumericField(const char* const Label, float* const Value, const float Minimum, const float Maximum, const bool bAlwaysClamp, const bool bClickToEdit, FNumericEditLifecycle* const Edit, DrawWidget&& DrawWidgetFunction)
 {
+	if (Edit != nullptr)
+	{
+		Edit->bStarted = false;
+		Edit->bFinished = false;
+		Edit->bCanceled = false;
+	}
+
 	const ImGuiID Id = ImGui::GetID(Label);
 	FNumericEditState& State = GetEditState();
 	if (State.Id != 0 && ImGui::GetFrameCount() > State.LastFrame + 1)
@@ -74,7 +84,52 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 		State = {};
 	}
 
-	const float Before = *Value;
+	float Before = *Value;
+	const auto BeginGesture = [&]
+	{
+		if (State.bGestureStarted)
+		{
+			return;
+		}
+
+		State.bGestureStarted = true;
+		if (Edit != nullptr)
+		{
+			Edit->bStarted = true;
+			if (Edit->Begin)
+			{
+				Edit->Begin();
+			}
+		}
+
+		State.InitialValue = *Value;
+	};
+
+	const auto FinishGesture = [&](const bool bCanceled)
+	{
+		if (Edit != nullptr && State.bGestureStarted)
+		{
+			Edit->bFinished = !bCanceled;
+			Edit->bCanceled = bCanceled;
+		}
+
+		State = {};
+	};
+
+	const auto FlushGesture = [&](const bool bCanceled)
+	{
+		if (State.bGestureStarted && Edit != nullptr && Edit->Flush)
+		{
+			State = {};
+			Edit->Flush(bCanceled);
+			Before = *Value;
+		}
+		else
+		{
+			FinishGesture(bCanceled);
+		}
+	};
+
 	const auto ApplyValue = [&](const float Candidate)
 	{
 		*Value = bAlwaysClamp && Minimum < Maximum ? std::clamp(Candidate, Minimum, Maximum) : Candidate;
@@ -88,10 +143,20 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 
 	const auto BeginTextEditing = [&](const bool bMouseActivation)
 	{
+		if (State.Id != 0 && State.Id != Id)
+		{
+			FlushGesture(State.bTextEditing);
+		}
+
 		*Value = Before;
 		ImGui::ClearActiveID();
+		const bool bGestureStarted = State.Id == Id && State.bGestureStarted;
+		const float InitialValue = bGestureStarted ? State.InitialValue : Before;
 		State = {};
 		State.Id = Id;
+		State.InitialValue = InitialValue;
+		State.bGestureStarted = bGestureStarted;
+		State.bTextEditing = true;
 		State.LastFrame = ImGui::GetFrameCount();
 		const std::string Text = std::format("{:.9g}", Before);
 		std::ranges::copy(Text, State.Text.begin());
@@ -100,9 +165,10 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 		ImGui::ActivateItemByID(Id);
 	};
 
-	const bool bEditing = State.Id == Id;
+	const bool bEditing = State.Id == Id && State.bTextEditing;
 	bool bChanged = false;
 	bool bEntered = false;
+	float Candidate = Before;
 	if (bEditing)
 	{
 		State.LastFrame = ImGui::GetFrameCount();
@@ -132,7 +198,7 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 	else
 	{
 		const bool bActiveBeforeDraw = GImGui->ActiveId == Id;
-		bChanged = DrawWidgetFunction();
+		bChanged = DrawWidgetFunction(&Candidate);
 		const ImGuiIO& Io = ImGui::GetIO();
 		const bool bClickReleased = bClickToEdit && bActiveBeforeDraw && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !Io.KeyShift && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left, Io.MouseDragThreshold * 0.5f);
 		if (bClickReleased && ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride))
@@ -150,7 +216,7 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 	{
 		*Value = Before;
 		ImGui::ClearActiveID();
-		State = {};
+		FlushGesture(State.bTextEditing);
 		if (bShiftCopy)
 		{
 			ImGui::SetClipboardText(std::format("{:.9g}", Before).c_str());
@@ -159,7 +225,10 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 		{
 			if (const auto Parsed = EvaluateNumericExpression(Clipboard))
 			{
-				return ApplyValue(*Parsed);
+				BeginGesture();
+				const bool bApplied = ApplyValue(*Parsed);
+				FinishGesture(false);
+				return bApplied;
 			}
 		}
 
@@ -176,6 +245,41 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 			return false;
 		}
 
+		if (ImGui::IsItemActivated())
+		{
+			if (State.Id != 0 && State.Id != Id)
+			{
+				FlushGesture(State.bTextEditing);
+			}
+
+			State = {};
+			State.Id = Id;
+			State.InitialValue = Before;
+			BeginGesture();
+		}
+
+		if (State.Id == Id)
+		{
+			State.LastFrame = ImGui::GetFrameCount();
+			if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+			{
+				const float InitialValue = State.InitialValue;
+				ImGui::ClearActiveID();
+				FinishGesture(true);
+				return ApplyValue(InitialValue);
+			}
+		}
+
+		if (bChanged)
+		{
+			bChanged = ApplyValue(Candidate);
+		}
+
+		if (State.Id == Id && !ImGui::IsItemActive())
+		{
+			FinishGesture(false);
+		}
+
 		return bChanged;
 	}
 
@@ -183,8 +287,10 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 	{
 		if (const auto Parsed = EvaluateNumericExpression(State.Text.data()))
 		{
-			State = {};
-			return ApplyValue(*Parsed);
+			BeginGesture();
+			const bool bApplied = ApplyValue(*Parsed);
+			FinishGesture(false);
+			return bApplied;
 		}
 
 		State.bInvalid = true;
@@ -206,26 +312,31 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 	State.bHadFocus = bActive || State.bFocusRequested;
 	if (ImGui::IsKeyPressed(ImGuiKey_Escape) || bLostFocus)
 	{
-		State = {};
+		if (GImGui->ActiveId == Id)
+		{
+			ImGui::ClearActiveID();
+		}
+
+		FinishGesture(true);
 	}
 
 	return false;
 }
 }
 
-bool DrawNumericDragFloat(const char* const Label, float* const Value, const float Speed, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags)
+bool DrawNumericDragFloat(const char* const Label, float* const Value, const float Speed, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags, FNumericEditLifecycle* const Edit)
 {
-	return DrawNumericField(Label, Value, Minimum, Maximum, (Flags & ImGuiSliderFlags_AlwaysClamp) != 0, true, [&]
+	return DrawNumericField(Label, Value, Minimum, Maximum, (Flags & ImGuiSliderFlags_AlwaysClamp) != 0, true, Edit, [&](float* const Candidate)
 	{
-		return ImGui::DragFloat(Label, Value, Speed, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
+		return ImGui::DragFloat(Label, Candidate, Speed, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
 	});
 }
 
-bool DrawNumericSliderFloat(const char* const Label, float* const Value, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags)
+bool DrawNumericSliderFloat(const char* const Label, float* const Value, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags, FNumericEditLifecycle* const Edit)
 {
-	return DrawNumericField(Label, Value, Minimum, Maximum, true, true, [&]
+	return DrawNumericField(Label, Value, Minimum, Maximum, true, true, Edit, [&](float* const Candidate)
 	{
-		return ImGui::SliderFloat(Label, Value, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
+		return ImGui::SliderFloat(Label, Candidate, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
 	});
 }
 }

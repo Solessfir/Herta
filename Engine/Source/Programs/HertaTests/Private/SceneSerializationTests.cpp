@@ -33,13 +33,13 @@ FSceneDocument MakeSceneDocument()
 	                .Scale = FVector3{1.25f, 0.125f, 4.f},
 	            },
 	            .Mesh = FStaticMeshComponent{.Asset = FAssetId{3, 3}},
-	            .BodyMotion = ESceneBodyMotion::Static,
+	            .BodyType = ESceneBodyType::Static,
 	        },
 	        FSceneEntity{
 	            .Id = FObjectId{2, 1},
 	            .Name = "Child",
 	            .Parent = FObjectId{2, 2},
-	            .BodyMotion = ESceneBodyMotion::Dynamic,
+	            .BodyType = ESceneBodyType::Dynamic,
 	        },
 	    },
 	};
@@ -82,9 +82,13 @@ TEST_CASE("Scenes round-trip in canonical sorted UTF-8 JSON")
 	FSceneDocument Document = MakeSceneDocument();
 	const auto Serialized = SerializeScene(Document);
 	REQUIRE(Serialized);
+	CHECK(Serialized->find("\"type\": \"dynamic\"") != std::string::npos);
+	CHECK(Serialized->find("\"motion\"") == std::string::npos);
+	CHECK_FALSE(ParseScene(ReplaceSceneText(*Serialized, "\"type\": \"dynamic\"", "\"motion\": \"dynamic\"")));
 	CHECK(Serialized->back() == '\n');
 	CHECK(Serialized->find('\r') == std::string::npos);
-	CHECK(Serialized->find("\"magic\": \"HertaScene\"") != std::string::npos);
+	CHECK(Serialized->find("\"format\": \"HertaScene\"") != std::string::npos);
+	CHECK_FALSE(ParseScene(ReplaceSceneText(*Serialized, "\"format\":", "\"magic\":")));
 	CHECK(Serialized->find("\"rotation\": [") != std::string::npos);
 	CHECK(Serialized->find("\"id\": \"00000000-0000-0002-0000-000000000001\"") < Serialized->find("\"id\": \"00000000-0000-0002-0000-000000000002\""));
 
@@ -162,10 +166,10 @@ TEST_CASE("Scenes reject unsupported versions, malformed input, and unknown data
 	    ReplaceSceneText(*Serialized, "\"name\": \"Child\"", "\"name\": \"Child\", \"name\": \"Again\""),
 	    ReplaceSceneText(*Serialized, "\"parent\": null", "\"parent\": null, \"unexpected\": 1"),
 	    ReplaceSceneText(*Serialized, "\"scale\": [1, 1, 1]", "\"scale\": [1, 1, 1], \"scale\": [1, 1, 1]"),
-	    ReplaceSceneText(*Serialized, "\"motion\": \"dynamic\"", "\"motion\": \"dynamic\", \"motion\": \"static\""),
-	    ReplaceSceneText(*Serialized, "\"body\": {\"motion\": \"dynamic\"}", "\"body\": {\"motion\": \"dynamic\"}, \"body\": {\"motion\": \"static\"}"),
-	    ReplaceSceneText(*Serialized, "\"motion\": \"dynamic\"", "\"motion\": \"kinematic\""),
-	    ReplaceSceneText(*Serialized, "\"motion\": \"dynamic\"", "\"motion\": \"dynamic\", \"mass\": 1"),
+	    ReplaceSceneText(*Serialized, "\"type\": \"dynamic\"", "\"type\": \"dynamic\", \"type\": \"static\""),
+	    ReplaceSceneText(*Serialized, "\"body\": {\"type\": \"dynamic\"}", "\"body\": {\"type\": \"dynamic\"}, \"body\": {\"type\": \"static\"}"),
+	    ReplaceSceneText(*Serialized, "\"type\": \"dynamic\"", "\"type\": \"kinematic\""),
+	    ReplaceSceneText(*Serialized, "\"type\": \"dynamic\"", "\"type\": \"dynamic\", \"mass\": 1"),
 	    ReplaceSceneText(*Serialized, "\"components\": {", "\"components\": {\"script\": {},"),
 	    ReplaceSceneText(*Serialized, "00000000-0000-0001-0000-000000000001", "invalid-id"),
 	    ReplaceSceneText(*Serialized, "00000000-0000-0001-0000-000000000001", "00000000-0000-0000-0000-000000000000"),

@@ -83,7 +83,7 @@ struct FStaticMeshComponent
 	FAssetId Asset;
 };
 
-enum class ESceneBodyMotion : std::uint8_t
+enum class ESceneBodyType : std::uint8_t
 {
 	None,
 	Static,
@@ -99,7 +99,13 @@ struct FSceneEntity
 	FObjectId Parent{};
 	FSceneTransform Transform{};
 	std::optional<FStaticMeshComponent> Mesh{};
-	ESceneBodyMotion BodyMotion = ESceneBodyMotion::None;
+	ESceneBodyType BodyType = ESceneBodyType::None;
+};
+
+struct FSceneEntityChange
+{
+	std::optional<FSceneEntity> Before{};
+	std::optional<FSceneEntity> After{};
 };
 
 struct FSceneError
@@ -126,6 +132,8 @@ public:
 	[[nodiscard]] std::expected<void, FSceneError> FlushStructuralChanges();
 	// Successful replacement discards pending changes and invalidates every old handle.
 	[[nodiscard]] std::expected<void, FSceneError> ReplaceEntities(std::span<const FSceneEntity> Entities);
+	// Applies a validated batch at a structural barrier while preserving surviving handles.
+	[[nodiscard]] std::expected<void, FSceneError> ApplyEntityChanges(std::span<const FSceneEntityChange> Changes);
 	[[nodiscard]] std::expected<void, FSceneError> SetEntity(FEntityId Entity, const FSceneEntity& Snapshot);
 	std::optional<FEntityId> FindEntity(FObjectId Object) const;
 	std::optional<FSceneEntity> GetEntity(FEntityId Entity) const;

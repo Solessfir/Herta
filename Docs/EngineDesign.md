@@ -464,7 +464,7 @@ Phase 2 uses standard reflection to produce the same Herta descriptors after all
 
 Serialization rules:
 
-- Every format has a magic value, format version, and engine schema version.
+- Every format has a format identifier (binary magic or a textual field), format version, and engine schema version.
 - Never dump a C++ object ABI directly.
 - Unknown fields can be skipped where forward compatibility matters.
 - Migrations are explicit and tested.
@@ -655,7 +655,7 @@ Live reimport is one-way from Blender to Herta. Herta must not write changes bac
 
 Jolt is private to Physics. Herta supplies allocator, job-system, logging, assertion, layer-filter, and debug-draw adapters.
 
-EditorFramework owns two editable preview objects, Cube and Floor, before the runtime Scene milestone. Both render through the mesh path and support Outliner selection, viewport picking, Details editing, and transform gizmos. Their transforms supply both render matrices and collision bodies, so floor edits affect simulation without a separate physics pose. The floor remains static while simulation runs.
+EditorFramework adapts Scene-owned mesh entities to the viewport. The default Cube and Floor support Outliner selection, viewport picking, Details editing, and transform gizmos. Authored transforms supply both render matrices and the initial collision bodies. Simulation updates a transient viewport pose without changing the authored world; the floor remains static while simulation runs.
 
 - Physics uses a fixed timestep, initially 60 Hz.
 - Game/render interpolation is separate from simulation state.
@@ -1670,6 +1670,6 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Milestone 3 is implemented. Milestone 4 has started with private EnTT storage, stable object IDs, generational entity handles, validated hierarchy, deferred create/destroy barriers, and canonical versioned `.hscene` save/load. The editor's cube and floor are Scene-owned entities, with Ctrl+S, File menu operations, and headless scene validation. See [Scenes.md](Scenes.md) for the initial contracts and limitations.
+Milestone 3 is implemented. Milestone 4 has started with private EnTT storage, stable object IDs, generational entity handles, validated hierarchy, deferred create/destroy barriers, atomic authoring patches, and canonical versioned `.hscene` save/load. EditorCore owns bounded transaction history; the editor groups property gestures and supports undo/redo, create/duplicate/delete, stable-ID selection restoration, and canonical scene clipboard excerpts. The editor's cube and floor are Scene-owned entities, with Ctrl+S, File/Edit menu operations, and headless scene validation. Project loading, Content Browser authoring, runtime descriptors, prefabs, and gameplay-system scheduling remain later slices. See [Scenes.md](Scenes.md) for the current contracts and limitations.
 
 Next are transactional property editing and undo/redo, stable selection and reference remapping, runtime descriptors, project creation/loading, Content Browser authoring, and gameplay-system scheduling and hot reload. Localization, networking, graph tooling, full physics, animation, audio, and scripting remain in their later milestones.

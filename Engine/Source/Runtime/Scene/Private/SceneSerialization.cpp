@@ -232,19 +232,19 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 2;
-			const auto Body = ReadFields(Component.value, std::array<std::string_view, 1>{"motion"}, 1);
+			const auto Body = ReadFields(Component.value, std::array<std::string_view, 1>{"type"}, 1);
 			if (!Body)
 			{
 				return std::unexpected(Body.error());
 			}
 
-			const auto Motion = ReadString((*Body)[0]);
-			if (!Motion || (*Motion != "static" && *Motion != "dynamic"))
+			const auto Type = ReadString((*Body)[0]);
+			if (!Type || (*Type != "static" && *Type != "dynamic"))
 			{
-				return SceneError("Unknown scene body motion");
+				return SceneError("Unknown scene body type");
 			}
 
-			Entity.BodyMotion = *Motion == "static" ? ESceneBodyMotion::Static : ESceneBodyMotion::Dynamic;
+			Entity.BodyType = *Type == "static" ? ESceneBodyType::Static : ESceneBodyType::Dynamic;
 		}
 		else
 		{
@@ -380,7 +380,7 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"magic\": \"HertaScene\",\n  \"formatVersion\": 1,\n  \"engineSchemaVersion\": 1,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaScene\",\n  \"formatVersion\": 1,\n  \"engineSchemaVersion\": 1,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -422,15 +422,15 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 			Output += '}';
 		}
 
-		if (Entity.BodyMotion != ESceneBodyMotion::None)
+		if (Entity.BodyType != ESceneBodyType::None)
 		{
 			Output += Entity.Mesh ? ",\n" : "\n";
-			Output += "        \"body\": {\"motion\": ";
-			AppendString(Output, Entity.BodyMotion == ESceneBodyMotion::Static ? "static" : "dynamic");
+			Output += "        \"body\": {\"type\": ";
+			AppendString(Output, Entity.BodyType == ESceneBodyType::Static ? "static" : "dynamic");
 			Output += '}';
 		}
 
-		Output += Entity.Mesh || Entity.BodyMotion != ESceneBodyMotion::None ? "\n      }\n    }" : "}\n    }";
+		Output += Entity.Mesh || Entity.BodyType != ESceneBodyType::None ? "\n      }\n    }" : "}\n    }";
 		if (Output.size() > MaximumSceneBytes)
 		{
 			return SceneError("Scene exceeds the 64 MiB limit");
@@ -466,16 +466,16 @@ std::expected<FSceneDocument, FSceneError> ParseScene(const std::string_view Tex
 		return SceneError("Malformed scene JSON or invalid UTF-8");
 	}
 
-	const auto Fields = ReadFields(Root, std::array<std::string_view, 6>{"magic", "formatVersion", "engineSchemaVersion", "id", "name", "entities"}, 0x3f);
+	const auto Fields = ReadFields(Root, std::array<std::string_view, 6>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities"}, 0x3f);
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
 	}
 
-	const auto Magic = ReadString((*Fields)[0]);
+	const auto Format = ReadString((*Fields)[0]);
 	std::uint64_t FormatVersion = 0;
 	std::uint64_t SchemaVersion = 0;
-	if (!Magic || *Magic != "HertaScene" || (*Fields)[1].get_uint64().get(FormatVersion) || (*Fields)[2].get_uint64().get(SchemaVersion))
+	if (!Format || *Format != "HertaScene" || (*Fields)[1].get_uint64().get(FormatVersion) || (*Fields)[2].get_uint64().get(SchemaVersion))
 	{
 		return SceneError("Invalid scene format header");
 	}

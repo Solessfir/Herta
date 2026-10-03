@@ -26,11 +26,19 @@ Press F2 in the Viewport, Outliner, or Details to rename the active object in De
 
 ## Scenes
 
-The editor loads `Games/Sandbox/Scenes/Sandbox.hscene` on startup. **File > Save scene** or **Ctrl+S** saves names, transforms, mesh asset IDs, and body motion components. Changes are not saved automatically on exit. **File > Open scene...** loads another `.hscene`; a failed load keeps the current scene intact. These are flat mesh scenes for now; the runtime supports hierarchy and non-mesh entities, but their editor UI comes later.
+The editor loads `Games/Sandbox/Scenes/Sandbox.hscene` on startup. **File > Save scene** or **Ctrl+S** saves names, transforms, mesh asset IDs, and body type components. Changes are not saved automatically on exit. **File > Open scene...** loads another `.hscene`; a failed load keeps the current scene intact. These are flat mesh scenes for now; the runtime supports hierarchy and non-mesh entities, but their editor UI comes later.
 
 Output Log commands: `scene.save [path]`, `scene.load <path>`, and `scene.validate <path>`. Quote paths containing spaces. Saving during simulation writes authored transforms, never the transient physics pose. `scene.load` requires simulation to be stopped.
 
-Headlessly, use `HertaEditorCmd scene.validate <path>` or `HertaEditorCmd scene.canonicalize <source> <destination>`. Scene files are canonical UTF-8 JSON with stable object and asset IDs. Unsupported versions, unknown fields, malformed transforms, duplicate IDs, and broken hierarchy references are rejected. See [Scenes.md](Scenes.md) for the runtime and file contracts. Undo/redo, prefab authoring, and gameplay are later slices.
+The scene title shows `*` while changes are unsaved. Opening another scene from File prompts to Save, Discard, or Cancel. Successful loading clears undo history; explicit `scene.load` replaces edits without prompting.
+
+Headlessly, use `HertaEditorCmd scene.validate <path>` or `HertaEditorCmd scene.canonicalize <source> <destination>`. Scene files are canonical UTF-8 JSON with stable object and asset IDs. Unsupported versions, unknown fields, malformed transforms, duplicate IDs, and broken hierarchy references are rejected. See [Scenes.md](Scenes.md) for the runtime and file contracts. Prefab authoring and gameplay are later slices.
+
+## Authoring and undo
+
+**Edit** provides Undo, Redo, Add cube, Duplicate, Copy, Delete, and Paste. New cubes appear at the camera pivot. Ctrl+Z undoes; Ctrl+Y or Ctrl+Shift+Z redoes. A gizmo or numeric drag is one undo step for the entire selection. Names, transforms, mesh choices, reset, and structural edits are undoable. Escape cancels an active transform gesture.
+
+Ctrl+D duplicates selected objects, Delete removes them, and Ctrl+C/Ctrl+V copy/paste a canonical scene excerpt. Pasted objects receive new UUIDs while retaining asset references. These shortcuts work in Viewport, Outliner, and Details; text inputs retain their own editing shortcuts. Authoring and undo/redo are disabled during simulation and active gestures. Exit does not automatically save.
 
 ## Outliner
 

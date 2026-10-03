@@ -139,7 +139,7 @@ TEST_CASE("World snapshots preserve components and have canonical object orderin
 	FWorld World;
 	FSceneEntity Mesh = MakeEntity(3, "Mesh");
 	Mesh.Mesh = FStaticMeshComponent{FAssetId{1, 2}};
-	Mesh.BodyMotion = ESceneBodyMotion::Dynamic;
+	Mesh.BodyType = ESceneBodyType::Dynamic;
 	Mesh.Transform.Translation = FWorldPosition{1234567890.125, 2., 3.};
 	Mesh.Transform.Rotation = FQuaternion::FromAxisAngle(FVector3::Up(), 0.25f);
 	Mesh.Transform.Scale = {1.f, 2.f, 3.f};
@@ -155,7 +155,7 @@ TEST_CASE("World snapshots preserve components and have canonical object orderin
 	REQUIRE(Clone.ReplaceEntities(Snapshot).has_value());
 	CHECK(Clone.SnapshotEntities() == Snapshot);
 	Mesh.Mesh.reset();
-	Mesh.BodyMotion = ESceneBodyMotion::None;
+	Mesh.BodyType = ESceneBodyType::None;
 	REQUIRE(World.SetEntity(*World.FindEntity(Mesh.Id), Mesh).has_value());
 	CHECK(World.GetEntity(*World.FindEntity(Mesh.Id)) == Mesh);
 }
@@ -280,7 +280,7 @@ TEST_CASE("Scene validation rejects cycles invalid names and invalid components"
 	Entity.Mesh = FStaticMeshComponent{};
 	CHECK_FALSE(IsValid());
 	Entity.Mesh.reset();
-	Entity.BodyMotion = static_cast<ESceneBodyMotion>(255);
+	Entity.BodyType = static_cast<ESceneBodyType>(255);
 	CHECK_FALSE(IsValid());
 
 	std::array Cycle{MakeEntity(1), MakeEntity(2), MakeEntity(3)};
@@ -305,5 +305,161 @@ TEST_CASE("Scene validation handles deep hierarchies without recursion")
 	CHECK(ValidateSceneEntities(Entities).has_value());
 	Entities.back().Parent = Entities.front().Id;
 	CHECK_FALSE(ValidateSceneEntities(Entities).has_value());
+}
+
+TEST_CASE("World entity patches preserve surviving handles and retire restored handles")
+{
+	FWorld World;
+	const std::array Initial{MakeEntity(1, "Updated"), MakeEntity(2, "Removed"), MakeEntity(3, "Unchanged")};
+	REQUIRE(World.ReplaceEntities(Initial));
+	const FEntityId UpdatedHandle = *World.FindEntity(Initial[0].Id);
+	const FEntityId RemovedHandle = *World.FindEntity(Initial[1].Id);
+	const FEntityId UnchangedHandle = *World.FindEntity(Initial[2].Id);
+	FSceneEntity Updated = Initial[0];
+	Updated.Name = "Renamed";
+	Updated.Transform.Translation = FWorldPosition{1., 2., 3.};
+	Updated.Mesh = FStaticMeshComponent{FAssetId{7, 8}};
+	Updated.BodyType = ESceneBodyType::Dynamic;
+	const FSceneEntity Inserted = MakeEntity(4, "Inserted");
+	const std::array Changes{
+	    FSceneEntityChange{.Before = Initial[0], .After = Updated},
+	    FSceneEntityChange{.Before = Initial[1]},
+	    FSceneEntityChange{.After = Inserted},
+	};
+
+	REQUIRE(World.ApplyEntityChanges(Changes));
+	CHECK(World.FindEntity(Updated.Id) == UpdatedHandle);
+	CHECK(World.GetEntity(UpdatedHandle) == Updated);
+	CHECK(World.FindEntity(Initial[2].Id) == UnchangedHandle);
+	CHECK(World.GetEntity(UnchangedHandle) == Initial[2]);
+	CHECK_FALSE(World.GetEntity(RemovedHandle).has_value());
+	CHECK(World.GetEntity(*World.FindEntity(Inserted.Id)) == Inserted);
+	const std::array Restore{FSceneEntityChange{.After = Initial[1]}};
+	REQUIRE(World.ApplyEntityChanges(Restore));
+	const FEntityId RestoredHandle = *World.FindEntity(Initial[1].Id);
+	CHECK(RestoredHandle != RemovedHandle);
+	CHECK_FALSE(World.GetEntity(RemovedHandle).has_value());
+	CHECK(World.GetEntity(RestoredHandle) == Initial[1]);
+}
+
+TEST_CASE("World entity patches validate the complete hierarchy independent of change order")
+{
+	FWorld World;
+	const FSceneEntity Parent = MakeEntity(1, "Parent");
+	FSceneEntity Child = MakeEntity(2, "Child");
+	Child.Parent = Parent.Id;
+	const std::array Initial{Parent, Child};
+	REQUIRE(World.ReplaceEntities(Initial));
+	const FEntityId ChildHandle = *World.FindEntity(Child.Id);
+	const FSceneEntity ReplacementParent = MakeEntity(3, "Replacement parent");
+	FSceneEntity Reparented = Child;
+	Reparented.Parent = ReplacementParent.Id;
+	const std::array Changes{
+	    FSceneEntityChange{.Before = Parent},
+	    FSceneEntityChange{.Before = Child, .After = Reparented},
+	    FSceneEntityChange{.After = ReplacementParent},
+	};
+
+	REQUIRE(World.ApplyEntityChanges(Changes));
+	CHECK(World.GetEntity(ChildHandle) == Reparented);
+	CHECK_FALSE(World.FindEntity(Parent.Id).has_value());
+	CHECK(World.FindEntity(ReplacementParent.Id).has_value());
+}
+
+TEST_CASE("Rejected world entity patches never modify snapshots or handles")
+{
+	FWorld World;
+	FSceneEntity Parent = MakeEntity(1, "Parent");
+	FSceneEntity Child = MakeEntity(2, "Child");
+	Child.Parent = Parent.Id;
+	const std::array Initial{Parent, Child};
+	REQUIRE(World.ReplaceEntities(Initial));
+	const auto Snapshot = World.SnapshotEntities();
+	const FEntityId ParentHandle = *World.FindEntity(Parent.Id);
+	const FEntityId ChildHandle = *World.FindEntity(Child.Id);
+	FSceneEntity Updated = Parent;
+	Updated.Name = "Valid update";
+	std::vector<FSceneEntityChange> Changes{{.Before = Parent, .After = Updated}};
+
+	SUBCASE("empty change")
+	{
+		Changes.push_back({});
+	}
+
+	SUBCASE("invalid stable ID")
+	{
+		Changes.push_back({.After = FSceneEntity{}});
+	}
+
+	SUBCASE("changed stable ID")
+	{
+		Updated.Id = FObjectId{0, 3};
+		Changes[0].After = Updated;
+	}
+
+	SUBCASE("duplicate patch ID")
+	{
+		Changes.push_back({.Before = Parent, .After = Updated});
+	}
+
+	SUBCASE("insertion already exists")
+	{
+		Changes.push_back({.After = Child});
+	}
+
+	SUBCASE("before snapshot is stale")
+	{
+		Changes[0].Before->Name = "Stale";
+	}
+
+	SUBCASE("before entity does not exist")
+	{
+		Changes.push_back({.Before = MakeEntity(3)});
+	}
+
+	SUBCASE("invalid final transform")
+	{
+		Changes.push_back({.Before = Child, .After = Child});
+		Changes.back().After->Transform.Scale.X = 0.f;
+	}
+
+	SUBCASE("parent cycle")
+	{
+		Changes[0].After->Parent = Child.Id;
+	}
+
+	SUBCASE("surviving orphan")
+	{
+		Changes[0].After.reset();
+	}
+
+	CHECK_FALSE(World.ApplyEntityChanges(Changes).has_value());
+	CHECK(World.SnapshotEntities() == Snapshot);
+	CHECK(World.FindEntity(Parent.Id) == ParentHandle);
+	CHECK(World.FindEntity(Child.Id) == ChildHandle);
+}
+
+TEST_CASE("World entity patches reject pending queues without consuming them")
+{
+	FWorld World;
+	const FSceneEntity Entity = MakeEntity(1);
+	const std::array Initial{Entity};
+	REQUIRE(World.ReplaceEntities(Initial));
+	const FEntityId Handle = *World.FindEntity(Entity.Id);
+	FSceneEntity Updated = Entity;
+	Updated.Name = "Updated";
+	const std::array Changes{FSceneEntityChange{.Before = Entity, .After = Updated}};
+	REQUIRE(World.QueueCreateEntity(MakeEntity(2)));
+	CHECK_FALSE(World.ApplyEntityChanges(Changes).has_value());
+	CHECK(World.GetEntity(Handle) == Entity);
+	REQUIRE(World.FlushStructuralChanges());
+	CHECK(World.FindEntity(FObjectId{0, 2}).has_value());
+	REQUIRE(World.QueueDestroyEntity(Handle));
+	CHECK_FALSE(World.ApplyEntityChanges({}).has_value());
+	CHECK(World.GetEntity(Handle).has_value());
+	REQUIRE(World.FlushStructuralChanges());
+	CHECK_FALSE(World.GetEntity(Handle).has_value());
+	REQUIRE(World.ApplyEntityChanges({}));
+	CHECK(World.GetEntityCount() == 1);
 }
 }

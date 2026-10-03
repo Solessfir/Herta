@@ -77,6 +77,14 @@ Do not preserve obsolete compatibility paths merely because an earlier unshipped
 
 Comments should read like one developer explaining a non-obvious decision to another. Explain why a constraint, engine quirk, or lifetime rule exists instead of narrating what the code already shows. Do not add comments for obvious behavior or generate documentation-style comments for every declaration. Keep comments concise and naturally formatted, without abrupt wrapping or long blocks. If a comment becomes long, first consider whether the code can express the decision more clearly.
 
+## Editor UI
+
+- Build polished, production-ready UI by default, including early milestone features. New features should not look like debug controls or unfinished placeholders.
+- Match the existing editor's visual language. Reuse shared widgets and icons; keep typography, spacing, alignment, and control sizes consistent across panels and menus.
+- Design hover, active, selected, disabled, and keyboard-focus states deliberately. Keep shortcuts visible and related actions grouped without excessive headings or separators.
+- Make layouts work at supported DPI scales and narrow panel sizes. Prefer restrained visual polish over decorative effects that reduce readability or responsiveness.
+- Check visual changes against screenshots or live UI when available. Compilation alone does not verify appearance.
+
 ## Modules and dependencies
 
 - Add dependencies only when the current milestone requires them.
@@ -138,6 +146,6 @@ Milestones 0 through 2.5 are implemented. The repository contains structured log
 
 An early Physics preview slice uses Jolt behind Herta-owned box-body APIs. Simulate or Alt+S drops the dynamic mesh onto the static floor, and Escape stops simulation and restores the authored transform. It does not implement the full physics milestone.
 
-Milestone 4 has started. The runtime Scene module owns `FWorld`, stable object UUIDs, world-scoped generational handles, hierarchy validation, deferred structural changes, and versioned canonical `.hscene` save/load, with EnTT v3.16.0 private to its implementation. Cube and Floor are authored Scene entities adapted to the editor's float viewport. Ctrl+S persists names, transforms, and mesh choices in `Games/Sandbox/Scenes/Sandbox.hscene`; simulation poses remain transient. The editor opens flat static-mesh scenes only, while runtime and headless validation support hierarchy and non-mesh entities. Undo/redo, runtime descriptors, project loading, Content Browser authoring, and gameplay-system scheduling remain later slices.
+Milestone 4 has started. The runtime Scene module owns `FWorld`, stable object UUIDs, world-scoped generational handles, hierarchy validation, deferred structural changes, atomic before/after authoring patches, and versioned canonical `.hscene` save/load, with EnTT v3.16.0 private to its implementation. Cube and Floor are authored Scene entities adapted to the editor's float viewport. Ctrl+S persists names, transforms, and mesh choices in `Games/Sandbox/Scenes/Sandbox.hscene`; simulation poses remain transient. EditorCore owns bounded transaction history; EditorScene records stable-ID changes and selection for grouped property gestures, create/duplicate/delete, and canonical JSON clipboard operations. The editor opens flat static-mesh scenes only, while runtime and headless validation support hierarchy and non-mesh entities. Runtime descriptors, project loading, Content Browser authoring, and gameplay-system scheduling remain later slices.
 
 Update this section when a milestone changes those facts.

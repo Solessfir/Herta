@@ -44,6 +44,7 @@
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -53,6 +54,18 @@ namespace
 {
 inline constexpr FLogCategory EditorLog{.Name = "Editor"};
 inline constexpr FLogCategory ShellLog{.Name = "Shell"};
+
+enum class EAuthoringAction
+{
+	None,
+	Undo,
+	Redo,
+	Create,
+	Copy,
+	Paste,
+	Duplicate,
+	Delete
+};
 
 // Runs Output Log "!" lines through the user's shell on a blocking-IO task and logs the output when the command exits.
 // ponytail: output arrives at exit and stdin is empty, so interactive programs fail; the Milestone 15 terminal plugin covers those.
@@ -474,6 +487,8 @@ struct FEditorFramework::FImplementation
 	void OpenSceneWithDialog();
 	void SaveCurrentScene();
 	void RefreshScene();
+	void ApplyAuthoringAction(EAuthoringAction Action);
+	void ReportSceneResult(std::expected<void, FSceneError> Result);
 	// Maps the built-in cube's [-1, 1] box onto the object's mesh bounds, so cube-based picking, outlines, and physics fit any mesh.
 	[[nodiscard]] FMatrix4 GetPreviewBoundsMatrix(std::size_t Index) const;
 	[[nodiscard]] FPreviewBodyShape GetPreviewBodyShape(std::size_t Index) const;
@@ -516,6 +531,8 @@ struct FEditorFramework::FImplementation
 	FPreviewSelection PreviewSelection;
 	std::optional<Im3d::Mat4> PreviewDragStart;
 	std::vector<FPreviewObject> PreviewDragObjects;
+	bool bViewportEditFinished = false;
+	bool bViewportEditCanceled = false;
 
 	FPreviewSimulation Simulation;
 	std::optional<FPreviewObject> SimulationStart;
@@ -702,7 +719,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		Implementation->ToggleSimulation();
 	}
 
-	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && !Implementation->Scene->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{
 		Implementation->ToggleSimulation();
 	}
@@ -725,8 +742,43 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 	bool bImportRequested = false;
 	bool bOpenSceneRequested = false;
-	bool bSaveSceneRequested = !IO.AppFocusLost && !IO.WantTextInput && IO.KeyCtrl && !IO.KeyAlt && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false);
-	Implementation->ToolUI->DrawWorkspace("Herta Editor", [&]
+	const bool bAuthoringAvailable = !Implementation->Simulation.IsRunning() && !Implementation->Scene->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
+	const bool bShortcutsAvailable = bAuthoringAvailable && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
+	bool bSaveSceneRequested = bShortcutsAvailable && IO.KeyCtrl && !IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S, false);
+	EAuthoringAction AuthoringAction = EAuthoringAction::None;
+	if (bShortcutsAvailable && (Implementation->ToolUI->IsPanelFocused("Viewport") || Implementation->ToolUI->IsPanelFocused("Outliner") || Implementation->ToolUI->IsPanelFocused("Details")))
+	{
+		if (IO.KeyCtrl)
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_Z, false))
+			{
+				AuthoringAction = IO.KeyShift ? EAuthoringAction::Redo : EAuthoringAction::Undo;
+			}
+			else if (!IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Y, false))
+			{
+				AuthoringAction = EAuthoringAction::Redo;
+			}
+			else if (!IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_D, false))
+			{
+				AuthoringAction = EAuthoringAction::Duplicate;
+			}
+			else if (!IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_C, false))
+			{
+				AuthoringAction = EAuthoringAction::Copy;
+			}
+			else if (!IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_V, false))
+			{
+				AuthoringAction = EAuthoringAction::Paste;
+			}
+		}
+		else if (!IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+		{
+			AuthoringAction = EAuthoringAction::Delete;
+		}
+	}
+
+	const std::string SceneTitle = std::format("{}{} - Herta Editor", Implementation->Scene->GetName(), Implementation->Scene->IsDirty() ? "*" : "");
+	Implementation->ToolUI->DrawWorkspace(SceneTitle, [&]
 	{
 		ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
 		ImGui::Separator();
@@ -938,22 +990,109 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	{
 		ImGui::TextUnformatted("Scene");
 		ImGui::Separator();
-		ImGui::BeginDisabled(Implementation->Simulation.IsRunning() || Implementation->ViewportInteraction.DragButton >= 0);
-		bOpenSceneRequested = ImGui::MenuItem("Open scene...");
+		ImGui::BeginDisabled(!bAuthoringAvailable);
+		bOpenSceneRequested = ToolUIMenuItem("Open scene...", EToolUIMenuIcon::Open);
+		bSaveSceneRequested |= ToolUIMenuItem("Save scene", EToolUIMenuIcon::Save, nullptr, "Ctrl+S");
 		ImGui::EndDisabled();
-		bSaveSceneRequested |= ImGui::MenuItem("Save scene", "Ctrl+S");
-		ImGui::Separator();
+		ImGui::Spacing();
 		ImGui::TextUnformatted("Content");
 		ImGui::Separator();
 		ImGui::BeginDisabled(!Implementation->Assets);
 		bImportRequested = ToolUIMenuItem("Import...", EToolUIMenuIcon::Import);
 		ImGui::EndDisabled();
+	}, [&]
+	{
+		ImGui::BeginDisabled(!bAuthoringAvailable);
+		ImGui::BeginDisabled(!Implementation->Scene->CanUndo());
+		const std::string UndoLabel = Implementation->Scene->CanUndo() ? std::format("Undo {}", Implementation->Scene->GetUndoLabel()) : "Undo";
+		if (ToolUIMenuItem(UndoLabel, EToolUIMenuIcon::Undo, nullptr, "Ctrl+Z"))
+		{
+			AuthoringAction = EAuthoringAction::Undo;
+		}
+
+		ImGui::EndDisabled();
+		ImGui::BeginDisabled(!Implementation->Scene->CanRedo());
+		const std::string RedoLabel = Implementation->Scene->CanRedo() ? std::format("Redo {}", Implementation->Scene->GetRedoLabel()) : "Redo";
+		if (ToolUIMenuItem(RedoLabel, EToolUIMenuIcon::Redo, nullptr, "Ctrl+Y"))
+		{
+			AuthoringAction = EAuthoringAction::Redo;
+		}
+
+		ImGui::EndDisabled();
+		ImGui::Separator();
+		if (ToolUIMenuItem("Add cube", EToolUIMenuIcon::Add))
+		{
+			AuthoringAction = EAuthoringAction::Create;
+		}
+
+		ImGui::BeginDisabled(Implementation->PreviewSelection.Indices.empty());
+		for (const auto& [Label, Icon, Shortcut, Action] : std::array{
+		         std::tuple{"Duplicate", EToolUIMenuIcon::Duplicate, "Ctrl+D", EAuthoringAction::Duplicate},
+		         std::tuple{"Copy", EToolUIMenuIcon::Copy, "Ctrl+C", EAuthoringAction::Copy},
+		         std::tuple{"Delete", EToolUIMenuIcon::Delete, "Delete", EAuthoringAction::Delete},
+		     })
+		{
+			if (ToolUIMenuItem(Label, Icon, nullptr, Shortcut))
+			{
+				AuthoringAction = Action;
+			}
+		}
+
+		ImGui::EndDisabled();
+		if (ToolUIMenuItem("Paste", EToolUIMenuIcon::Paste, nullptr, "Ctrl+V"))
+		{
+			AuthoringAction = EAuthoringAction::Paste;
+		}
+
+		ImGui::EndDisabled();
 	});
+
+	Implementation->ApplyAuthoringAction(AuthoringAction);
 
 	if (bOpenSceneRequested)
 	{
-		Implementation->OpenSceneWithDialog();
-		Implementation->RefreshScene();
+		if (Implementation->Scene->IsDirty())
+		{
+			ImGui::OpenPopup("Unsaved scene changes");
+		}
+		else
+		{
+			Implementation->OpenSceneWithDialog();
+			Implementation->RefreshScene();
+		}
+	}
+
+	if (ImGui::BeginPopupModal("Unsaved scene changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::TextUnformatted("Save changes before opening another scene?");
+		ImGui::Spacing();
+		bool bContinueOpening = false;
+		if (ImGui::Button("Save"))
+		{
+			Implementation->SaveCurrentScene();
+			bContinueOpening = !Implementation->Scene->IsDirty();
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Discard"))
+		{
+			bContinueOpening = true;
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+
+		if (bContinueOpening)
+		{
+			ImGui::CloseCurrentPopup();
+			Implementation->OpenSceneWithDialog();
+			Implementation->RefreshScene();
+		}
+
+		ImGui::EndPopup();
 	}
 
 	if (bSaveSceneRequested)
@@ -983,9 +1122,28 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 
 	Implementation->DrawViewport(RenderViewport);
-	if (auto Result = Implementation->Scene->CommitEdits(); !Result)
+	if (!Implementation->Simulation.IsRunning())
 	{
-		HERTA_LOG_ERROR(*Implementation->Log, EditorLog, "Could not apply scene edits: {}", Result.error().Message);
+		if (Implementation->bViewportEditCanceled && Implementation->Scene->HasActiveEdit())
+		{
+			Implementation->ReportSceneResult(Implementation->Scene->CancelEdit());
+		}
+		else if (Implementation->bViewportEditFinished && Implementation->Scene->HasActiveEdit())
+		{
+			Implementation->ReportSceneResult(Implementation->Scene->EndEdit());
+		}
+		else if (Implementation->Scene->HasActiveEdit() && !Implementation->PreviewDragStart && !ImGui::IsAnyItemActive() && !IO.WantTextInput && !Implementation->DetailsPanelState.bRenaming)
+		{
+			Implementation->ReportSceneResult(Implementation->Scene->EndEdit());
+		}
+		else
+		{
+			Implementation->ReportSceneResult(Implementation->Scene->CommitEdits());
+		}
+
+		Implementation->bViewportEditFinished = false;
+		Implementation->bViewportEditCanceled = false;
+		Implementation->RefreshScene();
 	}
 
 	return Implementation->DrawOutputLog();
@@ -1084,7 +1242,31 @@ void FEditorFramework::FImplementation::RefreshScene()
 	}
 
 	SceneGeneration = Scene->GetGeneration();
-	PreviewSelection.Select(PreviewObjects.empty() ? -1 : 0);
+	PreviewSelection.Indices.clear();
+	PreviewSelection.Active = -1;
+	PreviewSelection.Anchor = -1;
+	for (const FObjectId Id : Scene->GetSelection())
+	{
+		const auto Object = std::ranges::find(PreviewObjects, Id, &FPreviewObject::Id);
+		if (Object == PreviewObjects.end())
+		{
+			continue;
+		}
+
+		const int Index = static_cast<int>(Object - PreviewObjects.begin());
+		PreviewSelection.Indices.push_back(Index);
+		if (Scene->GetActiveObject() == Id)
+		{
+			PreviewSelection.Active = Index;
+		}
+	}
+
+	if (PreviewSelection.Active < 0 && !PreviewSelection.Indices.empty())
+	{
+		PreviewSelection.Active = PreviewSelection.Indices.back();
+	}
+
+	PreviewSelection.Anchor = PreviewSelection.Active;
 	DetailsPanelState.bRenaming = false;
 	DetailsPanelState.bRenameRequested = false;
 	PreviewDragStart.reset();
@@ -1114,6 +1296,75 @@ void FEditorFramework::FImplementation::RefreshScene()
 
 	ViewportRenderView.Models = PreviewModels;
 	ViewportRenderView.Meshes = PreviewMeshes;
+}
+
+void FEditorFramework::FImplementation::ReportSceneResult(const std::expected<void, FSceneError> Result)
+{
+	if (!Result)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Scene operation failed: {}", Result.error().Message);
+	}
+}
+
+void FEditorFramework::FImplementation::ApplyAuthoringAction(const EAuthoringAction Action)
+{
+	if (Action == EAuthoringAction::None || Simulation.IsRunning() || Scene->HasActiveEdit())
+	{
+		return;
+	}
+
+	if (Action == EAuthoringAction::Undo)
+	{
+		if (Scene->CanUndo())
+		{
+			ReportSceneResult(Scene->Undo());
+		}
+	}
+	else if (Action == EAuthoringAction::Redo)
+	{
+		if (Scene->CanRedo())
+		{
+			ReportSceneResult(Scene->Redo());
+		}
+	}
+	else if (Action == EAuthoringAction::Create)
+	{
+		const FVector3 Position = ViewportCamera.GetPivot();
+		const auto Result = Scene->CreateEntity(FWorldPosition{Position.X, Position.Y, Position.Z});
+		if (!Result)
+		{
+			ReportSceneResult(std::unexpected(Result.error()));
+		}
+	}
+	else if (Action == EAuthoringAction::Copy)
+	{
+		const auto Text = Scene->CopySelected();
+		if (Text)
+		{
+			ImGui::SetClipboardText(Text->c_str());
+		}
+		else
+		{
+			ReportSceneResult(std::unexpected(Text.error()));
+		}
+	}
+	else if (Action == EAuthoringAction::Paste)
+	{
+		if (const char* const Text = ImGui::GetClipboardText(); Text != nullptr)
+		{
+			ReportSceneResult(Scene->PasteEntities(Text));
+		}
+	}
+	else if (Action == EAuthoringAction::Duplicate)
+	{
+		ReportSceneResult(Scene->DuplicateSelected());
+	}
+	else if (Action == EAuthoringAction::Delete)
+	{
+		ReportSceneResult(Scene->DeleteSelected());
+	}
+
+	RefreshScene();
 }
 
 void FEditorFramework::FImplementation::OpenSceneWithDialog()
@@ -1527,10 +1778,11 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		}
 
 		ImGui::Spacing();
-		ImGui::BeginDisabled(Simulation.IsRunning() || PreviewSelection.Active < 0);
+		ImGui::BeginDisabled(Simulation.IsRunning() || Scene->HasActiveEdit() || PreviewSelection.Active < 0);
 
 		if (ImGui::Button("Reset preview transform", {-1.f, 0.f}))
 		{
+			ReportSceneResult(Scene->BeginEdit("Reset transform"));
 			const FEditorScene DefaultScene;
 			const auto& Defaults = DefaultScene.GetObjects();
 
@@ -1542,6 +1794,8 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 				Object.Rotation = Default == Defaults.end() ? Im3d::Mat3(1.f) : Default->Rotation;
 				Object.Scale = Default == Defaults.end() ? Im3d::Vec3(1.f) : Default->Scale;
 			}
+
+			ReportSceneResult(Scene->EndEdit());
 		}
 
 		ImGui::EndDisabled();
@@ -1571,6 +1825,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 	if (bEscapePressed && PreviewDragStart)
 	{
 		std::ranges::copy(PreviewDragObjects, PreviewObjects.begin());
+		bViewportEditCanceled = true;
 	}
 	else if (bDeselectPressed && !bSimulationStoppedThisFrame && !bPopupOpen && !IO.WantTextInput && ViewportInteraction.DragButton < 0)
 	{
@@ -1602,12 +1857,18 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 	{
 		if (!PreviewDragStart)
 		{
+			ReportSceneResult(Scene->BeginEdit("Transform objects"));
 			PreviewDragStart.emplace(PreviewTranslation, PreviewRotation, PreviewScale);
 			PreviewDragObjects = PreviewObjects;
 		}
 	}
 	else
 	{
+		if (PreviewDragStart && !bViewportEditCanceled)
+		{
+			bViewportEditFinished = true;
+		}
+
 		PreviewDragStart.reset();
 	}
 
@@ -2091,6 +2352,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 		else
 		{
 			ViewportInteraction.Cancel();
+			bViewportEditCanceled |= PreviewDragStart.has_value();
 			PreviewDragStart.reset();
 			ViewportGizmos.resetId();
 			ViewportDebugDrawLists.clear();
@@ -2100,6 +2362,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 	{
 		ViewportExtent = {};
 		ViewportInteraction.Cancel();
+		bViewportEditCanceled |= PreviewDragStart.has_value();
 		PreviewDragStart.reset();
 		ViewportGizmos.resetId();
 		ViewportDebugDrawLists.clear();
@@ -2125,9 +2388,22 @@ void FEditorFramework::FImplementation::SetPreviewSelection(FPreviewSelection Se
 	if (DetailsPanelState.bRenaming && PreviewSelection.Active >= 0)
 	{
 		RenamePreviewObject(GetActivePreviewObject().Label, DetailsPanelState.RenameBuffer.data());
+		ReportSceneResult(Scene->CommitEdits("Rename object"));
+	}
+
+	if (Scene->HasActiveEdit())
+	{
+		ReportSceneResult(Scene->EndEdit());
 	}
 
 	PreviewSelection = std::move(Selection);
+	std::vector<FObjectId> SelectedIds;
+	for (const int Index : PreviewSelection.Indices)
+	{
+		SelectedIds.push_back(PreviewObjects[static_cast<std::size_t>(Index)].Id);
+	}
+
+	Scene->SetSelection(SelectedIds, PreviewSelection.Active >= 0 ? std::optional(PreviewObjects[static_cast<std::size_t>(PreviewSelection.Active)].Id) : std::nullopt);
 	DetailsPanelState.bRenaming = false;
 	DetailsPanelState.bRenameRequested = false;
 	PreviewDragStart.reset();
@@ -2162,14 +2438,23 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 	}
 	else
 	{
+		if (Scene->HasActiveEdit())
+		{
+			if (auto Result = Scene->EndEdit(); !Result)
+			{
+				ReportSceneResult(std::move(Result));
+				return;
+			}
+		}
+
 		if (auto Result = Scene->CommitEdits(); !Result)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not apply scene edits: {}", Result.error().Message);
 			return;
 		}
 
-		const auto Cube = Scene->FindBody(ESceneBodyMotion::Dynamic);
-		const auto Floor = Scene->FindBody(ESceneBodyMotion::Static);
+		const auto Cube = Scene->FindBody(ESceneBodyType::Dynamic);
+		const auto Floor = Scene->FindBody(ESceneBodyType::Static);
 		if (!Cube || !Floor)
 		{
 			HERTA_LOG_WARNING(*Log, EditorLog, "Simulation preview requires a dynamic mesh and a static floor");
@@ -2222,7 +2507,7 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
-	const FPreviewObject PreviousObject = GetActivePreviewObject();
+	FPreviewObject PreviousObject = GetActivePreviewObject();
 	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh, ObjectId] = GetActivePreviewObject();
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
@@ -2276,8 +2561,34 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		MeshField.Status = MeshStatus;
 	}
 
-	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && !PreviewObjects.empty() ? &MeshField : nullptr);
-	ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
+	const FDetailsEditCallbacks Edits{
+	    .Begin = [&]
+	{
+		if (!Scene->HasActiveEdit())
+		{
+			ReportSceneResult(Scene->BeginEdit("Edit properties"));
+		}
+	},
+	    .Flush = [&](const bool bCanceled)
+	{
+		if (bCanceled && Scene->HasActiveEdit())
+		{
+			ReportSceneResult(Scene->CancelEdit());
+		}
+		else if (Scene->HasActiveEdit())
+		{
+			ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
+			ReportSceneResult(Scene->EndEdit());
+		}
+
+		PreviousObject = GetActivePreviewObject();
+	},
+	};
+	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && !PreviewObjects.empty() ? &MeshField : nullptr, &Edits);
+	if (!MeshResult.bEditCanceled)
+	{
+		ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
+	}
 
 	if (Assets && MeshResult.bOptionsOpened)
 	{
@@ -2286,6 +2597,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 
 	if (Assets && MeshResult.Chosen >= 0)
 	{
+		ReportSceneResult(Scene->BeginEdit("Change mesh"));
 		const FAssetId Chosen = MeshOptionIds[static_cast<std::size_t>(MeshResult.Chosen)];
 
 		for (const int Index : PreviewSelection.Indices)
@@ -2295,7 +2607,19 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		}
 
 		RefreshPreviewMeshes();
+		ReportSceneResult(Scene->EndEdit());
 	}
+
+	if (MeshResult.bEditCanceled && Scene->HasActiveEdit())
+	{
+		ReportSceneResult(Scene->CancelEdit());
+	}
+	else if (MeshResult.bEditFinished && Scene->HasActiveEdit())
+	{
+		ReportSceneResult(Scene->EndEdit());
+	}
+
+	RefreshScene();
 }
 
 void FEditorFramework::FImplementation::DrawOutlinerPanel()

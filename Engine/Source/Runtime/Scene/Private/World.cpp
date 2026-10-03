@@ -160,9 +160,9 @@ std::expected<void, FSceneError> ValidateEntityProperties(const FSceneEntity& En
 		return std::unexpected(FSceneError{"Static mesh component has an invalid asset ID"});
 	}
 
-	if (Entity.BodyMotion != ESceneBodyMotion::None && Entity.BodyMotion != ESceneBodyMotion::Static && Entity.BodyMotion != ESceneBodyMotion::Dynamic)
+	if (Entity.BodyType != ESceneBodyType::None && Entity.BodyType != ESceneBodyType::Static && Entity.BodyType != ESceneBodyType::Dynamic)
 	{
-		return std::unexpected(FSceneError{"Entity has an unknown body motion type"});
+		return std::unexpected(FSceneError{"Entity has an unknown body type"});
 	}
 
 	return {};
@@ -299,7 +299,7 @@ FSceneEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .Parent = Registry.get<FEntityParent>(Entity).Value,
 	    .Transform = Registry.get<FSceneTransform>(Entity),
 	    .Mesh = Mesh ? std::optional<FStaticMeshComponent>{*Mesh} : std::nullopt,
-	    .BodyMotion = Registry.get<ESceneBodyMotion>(Entity),
+	    .BodyType = Registry.get<ESceneBodyType>(Entity),
 	};
 }
 
@@ -309,7 +309,7 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FSceneEnti
 	Registry.emplace_or_replace<FEntityName>(Entity, Snapshot.Name);
 	Registry.emplace_or_replace<FEntityParent>(Entity, Snapshot.Parent);
 	Registry.emplace_or_replace<FSceneTransform>(Entity, Snapshot.Transform);
-	Registry.emplace_or_replace<ESceneBodyMotion>(Entity, Snapshot.BodyMotion);
+	Registry.emplace_or_replace<ESceneBodyType>(Entity, Snapshot.BodyType);
 
 	if (Snapshot.Mesh)
 	{
@@ -452,6 +452,120 @@ std::expected<void, FSceneError> FWorld::ReplaceEntities(const std::span<const F
 	}
 
 	Implementation = std::move(Replacement);
+	return {};
+}
+
+std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<const FSceneEntityChange> Changes)
+{
+	if (!Implementation->PendingCreates.empty() || !Implementation->PendingDestroys.empty())
+	{
+		return std::unexpected(FSceneError{"Flush pending structural changes before applying an entity patch"});
+	}
+
+	if (Changes.empty())
+	{
+		return {};
+	}
+
+	std::unordered_map<FObjectId, std::size_t, FObjectIdHash> ChangedObjects;
+	ChangedObjects.reserve(Changes.size());
+	std::size_t InsertCount = 0;
+	std::size_t RemoveCount = 0;
+
+	for (std::size_t Index = 0; Index < Changes.size(); ++Index)
+	{
+		const FSceneEntityChange& Change = Changes[Index];
+		if (!Change.Before && !Change.After)
+		{
+			return std::unexpected(FSceneError{"Entity change must contain a before or after snapshot"});
+		}
+
+		const FObjectId Id = Change.Before ? Change.Before->Id : Change.After->Id;
+		if (!Id.IsValid() || (Change.Before && Change.After && Change.Before->Id != Change.After->Id))
+		{
+			return std::unexpected(FSceneError{"Entity change must preserve a valid stable object ID"});
+		}
+
+		if (!ChangedObjects.emplace(Id, Index).second)
+		{
+			return std::unexpected(FSceneError{"Entity patch contains duplicate object IDs"});
+		}
+
+		const auto Existing = Implementation->Objects.find(Id);
+		if (Change.Before)
+		{
+			if (Existing == Implementation->Objects.end() || Implementation->Snapshot(Existing->second) != *Change.Before)
+			{
+				return std::unexpected(FSceneError{"Entity patch before snapshot does not match the current world"});
+			}
+		}
+		else if (Existing != Implementation->Objects.end())
+		{
+			return std::unexpected(FSceneError{"Entity patch inserts an object ID that already exists"});
+		}
+
+		InsertCount += !Change.Before;
+		RemoveCount += !Change.After;
+	}
+
+	if (InsertCount > MaximumEntityCount || Implementation->Objects.size() - RemoveCount > MaximumEntityCount - InsertCount)
+	{
+		return std::unexpected(FSceneError{"Entity patch exceeds the limit of 1000000 entities"});
+	}
+
+	std::vector<FSceneEntity> Candidate;
+	Candidate.reserve(Implementation->Objects.size() - RemoveCount + InsertCount);
+
+	for (const auto& [Id, Entity] : Implementation->Objects)
+	{
+		const auto Changed = ChangedObjects.find(Id);
+		if (Changed == ChangedObjects.end())
+		{
+			Candidate.push_back(Implementation->Snapshot(Entity));
+		}
+		else if (Changes[Changed->second].After)
+		{
+			Candidate.push_back(*Changes[Changed->second].After);
+		}
+	}
+
+	for (const FSceneEntityChange& Change : Changes)
+	{
+		if (!Change.Before)
+		{
+			Candidate.push_back(*Change.After);
+		}
+	}
+
+	const auto Valid = ValidateSceneEntities(Candidate);
+	if (!Valid)
+	{
+		return Valid;
+	}
+
+	// Retire removals first so a full-capacity patch can reuse storage for its insertions.
+	for (const FSceneEntityChange& Change : Changes)
+	{
+		if (!Change.After)
+		{
+			const auto Existing = Implementation->Objects.find(Change.Before->Id);
+			Implementation->Registry.destroy(Existing->second);
+			Implementation->Objects.erase(Existing);
+		}
+	}
+
+	for (const FSceneEntityChange& Change : Changes)
+	{
+		if (Change.Before && Change.After)
+		{
+			Implementation->Assign(Implementation->Objects.find(Change.Before->Id)->second, *Change.After);
+		}
+		else if (Change.After)
+		{
+			Implementation->Insert(*Change.After);
+		}
+	}
+
 	return {};
 }
 

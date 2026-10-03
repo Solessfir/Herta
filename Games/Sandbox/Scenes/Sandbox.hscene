@@ -1,5 +1,5 @@
 {
-  "magic": "HertaScene",
+  "format": "HertaScene",
   "formatVersion": 1,
   "engineSchemaVersion": 1,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
@@ -16,7 +16,7 @@
       },
       "components": {
         "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242"},
-        "body": {"motion": "dynamic"}
+        "body": {"type": "dynamic"}
       }
     },
     {
@@ -30,7 +30,7 @@
       },
       "components": {
         "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242"},
-        "body": {"motion": "static"}
+        "body": {"type": "static"}
       }
     }
   ]

@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -47,7 +48,17 @@ struct FDetailsMeshResult
 	// The option chosen this frame, or -1.
 	int Chosen = -1;
 	bool bOptionsOpened = false;
+	// Complete the transaction after propagating this frame's transform to the selection.
+	bool bEditFinished = false;
+	bool bEditCanceled = false;
 };
 
-FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, std::size_t SelectedCount = 1, const FDetailsMeshField* Mesh = nullptr);
+struct FDetailsEditCallbacks
+{
+	std::function<void()> Begin;
+	// Flush a previous gesture before another edit starts in the same frame.
+	std::function<void(bool)> Flush;
+};
+
+FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, std::size_t SelectedCount = 1, const FDetailsMeshField* Mesh = nullptr, const FDetailsEditCallbacks* Edits = nullptr);
 }

@@ -10,6 +10,72 @@
 
 namespace Herta
 {
+TEST_CASE("Panel focus uses stable IDs and the immersive viewport alias")
+{
+	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
+	ImGuiContext* const Context = ImGui::CreateContext();
+	ImGui::SetCurrentContext(Context);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1280, 720};
+	IO.DeltaTime = 1.f / 60.f;
+	IO.IniFilename = nullptr;
+	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+	IO.Fonts->AddFontDefault();
+	ImGui::NewFrame();
+	ImGui::Begin("      Outliner###Outliner");
+	ImGui::SetWindowFocus();
+	CHECK(IsToolUIPanelFocused("Outliner", false));
+	CHECK_FALSE(IsToolUIPanelFocused("Details", false));
+	ImGui::BeginChild("Rows");
+	ImGui::SetWindowFocus();
+	CHECK(IsToolUIPanelFocused("Outliner", false));
+	ImGui::EndChild();
+	ImGui::End();
+	ImGui::Begin(ImmersiveViewportName);
+	ImGui::SetWindowFocus();
+	CHECK(IsToolUIPanelFocused("Viewport", true));
+	CHECK_FALSE(IsToolUIPanelFocused("Viewport", false));
+	CHECK_FALSE(IsToolUIPanelFocused("Outliner", true));
+	ImGui::End();
+	ImGui::Render();
+	ImGui::DestroyContext(Context);
+	ImGui::SetCurrentContext(PreviousContext);
+}
+
+TEST_CASE("Icon menu sizing reserves long authoring labels and shortcut columns")
+{
+	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
+	ImGuiContext* const Context = ImGui::CreateContext();
+	ImGui::SetCurrentContext(Context);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1280, 720};
+	IO.DeltaTime = 1.f / 60.f;
+	IO.IniFilename = nullptr;
+	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+	IO.Fonts->AddFontDefault();
+	constexpr std::string_view Label = "Undo Duplicate selected scene objects";
+
+	for (int Frame = 0; Frame < 4; ++Frame)
+	{
+		ImGui::NewFrame();
+		ImGui::Begin("AuthoringMenuMeasurement", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+		const float LabelWidth = ImGui::CalcTextSize(Label.data(), Label.data() + Label.size()).x + 36.f * ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
+		ToolUIMenuItem(Label, EToolUIMenuIcon::Undo, nullptr, "Ctrl+Z");
+		const ImGuiMenuColumns& Columns = ImGui::GetCurrentWindow()->DC.MenuColumns;
+		CHECK(Columns.Widths[1] >= static_cast<ImU16>(LabelWidth));
+		if (Frame > 0)
+		{
+			CHECK(Columns.OffsetShortcut >= Columns.OffsetLabel + static_cast<ImU16>(LabelWidth));
+		}
+
+		ImGui::End();
+		ImGui::Render();
+	}
+
+	ImGui::DestroyContext(Context);
+	ImGui::SetCurrentContext(PreviousContext);
+}
+
 TEST_CASE("Immersive viewport follows workspace bounds without changing dock membership")
 {
 	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();

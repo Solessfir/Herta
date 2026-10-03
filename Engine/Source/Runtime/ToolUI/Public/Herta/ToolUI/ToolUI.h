@@ -117,7 +117,16 @@ enum class EToolUIMenuIcon : std::uint8_t
 	Layout,
 	Sync,
 	Exit,
-	Import
+	Import,
+	Open,
+	Save,
+	Undo,
+	Redo,
+	Add,
+	Copy,
+	Paste,
+	Duplicate,
+	Delete
 };
 
 bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);
@@ -142,11 +151,12 @@ public:
 	[[nodiscard]] std::expected<void, FToolUIError> EndFrame(bool bRenderMainViewport = true);
 	[[nodiscard]] std::expected<void, FToolUIError> RenderPlatformWindows();
 	// DrawFileMenuItems adds items at the top of the File menu, above the workspace section.
-	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems = {}, const std::function<void()>& DrawStatusItems = {}, const std::function<void()>& DrawFileMenuItems = {});
+	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems = {}, const std::function<void()>& DrawStatusItems = {}, const std::function<void()>& DrawFileMenuItems = {}, const std::function<void()>& DrawEditMenuItems = {});
 	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, bool bViewport = false);
 	void EndPanel();
 	void SetViewportImmersive(bool bImmersive) noexcept;
 	[[nodiscard]] bool IsViewportImmersive() const noexcept;
+	bool IsPanelFocused(std::string_view Name) const noexcept;
 	// Files dropped onto any editor window since the last call, in drop order.
 	[[nodiscard]] std::vector<std::filesystem::path> TakeDroppedFiles();
 	void PushLogFont();

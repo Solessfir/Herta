@@ -35,6 +35,29 @@ enum class ETransformClipboardFormat
 	Rotation
 };
 
+void FlushDetailsEdit(const FDetailsEditCallbacks* const Edits, FDetailsMeshResult& Result, const bool bCanceled)
+{
+	Result.bEditFinished = false;
+	Result.bEditCanceled = false;
+	if (Edits != nullptr && Edits->Flush)
+	{
+		Edits->Flush(bCanceled);
+	}
+}
+
+void BeginDetailsEdit(const FDetailsEditCallbacks* const Edits, FDetailsMeshResult& Result)
+{
+	if (Result.bEditFinished || Result.bEditCanceled)
+	{
+		FlushDetailsEdit(Edits, Result, Result.bEditCanceled);
+	}
+
+	if (Edits != nullptr && Edits->Begin)
+	{
+		Edits->Begin();
+	}
+}
+
 [[nodiscard]] bool MatchesSearch(const std::string_view Name, const std::string_view Query)
 {
 	return std::ranges::search(Name, Query, [](const char Left, const char Right)
@@ -217,8 +240,17 @@ void DrawLockButton(bool& bLocked)
 }
 
 template <typename Change, typename ChangeRow>
-bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Speed, const float Minimum, const float Maximum, const float Reset, EDetailsTransformSpace& Space, const ETransformClipboardFormat ClipboardFormat, const char* const Format, Change&& OnChange, ChangeRow&& OnRowChange, bool* const bLocked = nullptr)
+bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Speed, const float Minimum, const float Maximum, const float Reset, EDetailsTransformSpace& Space, const ETransformClipboardFormat ClipboardFormat, const char* const Format, Change&& OnChange, ChangeRow&& OnRowChange, const FDetailsEditCallbacks* const Edits, FDetailsMeshResult& Result, bool* const bLocked = nullptr, const std::function<void()>& RefreshValue = {})
 {
+	const auto BeginEdit = [&]
+	{
+		BeginDetailsEdit(Edits, Result);
+		if (RefreshValue)
+		{
+			RefreshValue();
+		}
+	};
+
 	ImGui::PushID(Label);
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f * Scale, ImGui::GetStyle().ItemSpacing.y});
@@ -231,7 +263,9 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 
 	if (const auto PastedValue = DrawSpaceSelector(Label, Space, Value, ClipboardFormat))
 	{
+		BeginEdit();
 		OnRowChange(*PastedValue);
+		Result.bEditFinished = true;
 	}
 
 	if (bLocked != nullptr)
@@ -258,11 +292,31 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 		ImGui::SetNextItemWidth(Width);
 		float Candidate = Value[Axis];
 		const ImGuiSliderFlags Flags = Minimum < Maximum ? ImGuiSliderFlags_AlwaysClamp : 0;
+		FNumericEditLifecycle Edit{
+		    .Begin = [&]
+		{
+			BeginEdit();
+			Candidate = Value[Axis];
+		},
+		    .Flush = [&](const bool bCanceled)
+		{
+			FlushDetailsEdit(Edits, Result, bCanceled);
+			if (RefreshValue)
+			{
+				RefreshValue();
+			}
 
-		if (DrawNumericDragFloat("##Value", &Candidate, Speed, Minimum, Maximum, Format, Flags))
+			Candidate = Value[Axis];
+		},
+		};
+
+		if (DrawNumericDragFloat("##Value", &Candidate, Speed, Minimum, Maximum, Format, Flags, &Edit) && !Edit.bCanceled)
 		{
 			OnChange(Axis, Candidate);
 		}
+
+		Result.bEditFinished |= Edit.bFinished;
+		Result.bEditCanceled |= Edit.bCanceled;
 
 		const ImVec2 Min = ImGui::GetItemRectMin();
 		const ImVec2 Max = ImGui::GetItemRectMax();
@@ -274,7 +328,9 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 	const bool bReset = DrawResetButton(Label);
 	if (bReset)
 	{
+		BeginEdit();
 		Value = Im3d::Vec3(Reset);
+		Result.bEditFinished = true;
 	}
 
 	ImGui::PopStyleVar(2);
@@ -283,7 +339,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 }
 }
 
-FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh)
+FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh, const FDetailsEditCallbacks* const Edits)
 {
 	FDetailsMeshResult MeshResult;
 
@@ -339,7 +395,9 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		{
 			if (!bCancel)
 			{
+				BeginDetailsEdit(Edits, MeshResult);
 				RenamePreviewObject(ObjectLabel, State.RenameBuffer.data());
+				MeshResult.bEditFinished = true;
 			}
 
 			State.bRenaming = false;
@@ -434,7 +492,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 				Translation = Candidate;
 				return true;
-			});
+			}, Edits, MeshResult);
 		}
 
 		Im3d::Vec3 RotationDegrees = Im3d::ToEulerXYZ(Rotation) * (180.f / std::numbers::pi_v<float>);
@@ -457,6 +515,10 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			const Im3d::Vec3 Radians = RotationDegrees * (std::numbers::pi_v<float> / 180.f);
 			Rotation = FromPreviewEulerXYZ(Radians);
 			return true;
+		}, Edits, MeshResult, nullptr, [&]
+		{
+			// A canceled preceding gesture can restore the authored matrix during this row.
+			RotationDegrees = Im3d::ToEulerXYZ(Rotation) * (180.f / std::numbers::pi_v<float>);
 		});
 
 		if (bRotationReset)
@@ -495,7 +557,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 				Scale = {std::clamp(Candidate.x, MinimumPreviewScale, MaximumPreviewScale), std::clamp(Candidate.y, MinimumPreviewScale, MaximumPreviewScale), std::clamp(Candidate.z, MinimumPreviewScale, MaximumPreviewScale)};
 				return true;
-			}, &State.bScaleLocked);
+			}, Edits, MeshResult, &State.bScaleLocked);
 		}
 
 		ImGui::EndDisabled();

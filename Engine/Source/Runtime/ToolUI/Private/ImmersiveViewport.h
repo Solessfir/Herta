@@ -2,11 +2,19 @@
 
 #include "Herta/ToolUI/ToolUI.h"
 
-#include <imgui.h>
+#include <imgui_internal.h>
 
 namespace Herta
 {
 inline constexpr char ImmersiveViewportName[] = "Viewport###HertaImmersiveViewport";
+
+inline bool IsToolUIPanelFocused(const std::string_view Name, const bool bImmersive) noexcept
+{
+	const ImGuiID Id = Name == "Viewport" && bImmersive ? ImHashStr(ImmersiveViewportName) : ImHashStr(Name.data(), Name.size());
+	const ImGuiWindow* const Panel = ImGui::FindWindowByID(Id);
+	const ImGuiWindow* const Focused = GImGui->NavWindow;
+	return Panel != nullptr && Focused != nullptr && Panel->RootWindow == Focused->RootWindow;
+}
 
 inline bool BeginImmersiveViewport(const FToolUICanvasBounds& Canvas, const bool bFocus)
 {

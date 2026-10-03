@@ -1932,17 +1932,26 @@ bool ToolUIToggle(const char* const Id, bool* const bValue)
 	return bPressed;
 }
 
+bool FToolUIContext::IsPanelFocused(const std::string_view Name) const noexcept
+{
+	return IsToolUIPanelFocused(Name, Implementation->bViewportImmersive);
+}
+
 bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bool* const bSelected, const char* const Shortcut)
 {
+	const float Scale = ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
+	const float LabelWidth = ImGui::CalcTextSize(Label.data(), Label.data() + Label.size(), false).x + 36.f * Scale;
+	const float ShortcutWidth = Shortcut != nullptr ? ImGui::CalcTextSize(Shortcut).x : 0.f;
+	// Hidden labels still need to reserve their icon and text columns for menu auto-sizing.
+	ImGui::GetCurrentWindow()->DC.MenuColumns.DeclColumns(0.f, LabelWidth, ShortcutWidth, ImGui::GetFontSize() * 1.2f);
 	const std::string Display = std::format("##{}", Label);
 	const bool bPressed = ImGui::MenuItem(Display.c_str(), Shortcut, bSelected);
-	const float Scale = ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
 	const ImVec2 Min = ImGui::GetItemRectMin();
 	const ImVec2 Max = ImGui::GetItemRectMax();
 	const ImVec2 Center{Min.x + 16.f * Scale, (Min.y + Max.y) * 0.5f};
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
 	Draw->AddText({Min.x + 36.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label.data(), Label.data() + Label.size());
-	const ImU32 Color = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+	const ImU32 Color = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 	const auto Line = [&](const float X, const float Y, const float EndX, const float EndY)
 	{
 		Draw->AddLine({Center.x + X * Scale, Center.y + Y * Scale}, {Center.x + EndX * Scale, Center.y + EndY * Scale}, Color, Scale);
@@ -1973,6 +1982,62 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 		Line(0, -3, 0, 0);
 		Line(0, 0, 3, 0);
 	}
+	else if (Icon == EToolUIMenuIcon::Open)
+	{
+		Line(-6, 5, -6, -5);
+		Line(-6, -5, -1, -5);
+		Line(-1, -5, 1, -3);
+		Line(1, -3, 5, -3);
+		Line(5, -3, 5, -1);
+		Line(-6, 5, 4, 5);
+		Line(4, 5, 7, -1);
+		Line(7, -1, -3, -1);
+		Line(-3, -1, -6, 5);
+	}
+	else if (Icon == EToolUIMenuIcon::Save)
+	{
+		Line(-5, -6, 3, -6);
+		Line(3, -6, 6, -3);
+		Line(6, -3, 6, 6);
+		Line(6, 6, -5, 6);
+		Line(-5, 6, -5, -6);
+		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y - 1.f * Scale}, Color, 0.f, 0, Scale);
+		Draw->AddRect({Center.x - 2.f * Scale, Center.y + 2.f * Scale}, {Center.x + 3.f * Scale, Center.y + 6.f * Scale}, Color, 0.f, 0, Scale);
+	}
+	else if (Icon == EToolUIMenuIcon::Undo || Icon == EToolUIMenuIcon::Redo)
+	{
+		const float Direction = Icon == EToolUIMenuIcon::Undo ? 1.f : -1.f;
+		Line(-6 * Direction, -2, 1 * Direction, -2);
+		Line(1 * Direction, -2, 5 * Direction, 1);
+		Line(5 * Direction, 1, 5 * Direction, 5);
+		Line(-3 * Direction, -5, -6 * Direction, -2);
+		Line(-3 * Direction, 1, -6 * Direction, -2);
+	}
+	else if (Icon == EToolUIMenuIcon::Add)
+	{
+		Line(-5, 0, 5, 0);
+		Line(0, -5, 0, 5);
+	}
+	else if (Icon == EToolUIMenuIcon::Copy || Icon == EToolUIMenuIcon::Duplicate)
+	{
+		Draw->AddRect({Center.x - 6.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y + 2.f * Scale}, Color, Scale);
+		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 2.f * Scale}, {Center.x + 6.f * Scale, Center.y + 6.f * Scale}, Color, Scale);
+	}
+	else if (Icon == EToolUIMenuIcon::Paste)
+	{
+		Draw->AddRect({Center.x - 5.f * Scale, Center.y - 4.f * Scale}, {Center.x + 5.f * Scale, Center.y + 6.f * Scale}, Color, Scale);
+		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y - 2.f * Scale}, Color, Scale);
+	}
+	else if (Icon == EToolUIMenuIcon::Delete)
+	{
+		Line(-6, -4, 6, -4);
+		Line(-2, -6, 2, -6);
+		Line(-4, -4, -3, 6);
+		Line(-3, 6, 3, 6);
+		Line(3, 6, 4, -4);
+		Line(-1, -1, -1, 3);
+		Line(1, -1, 1, 3);
+	}
 	else if (Icon == EToolUIMenuIcon::Import)
 	{
 		Line(0, -6, 0, 2);
@@ -1995,7 +2060,7 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 	return bPressed;
 }
 
-void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems)
+void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems, const std::function<void()>& DrawEditMenuItems)
 {
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
 	{
@@ -2062,7 +2127,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
 		if (ImGui::BeginMenu("File"))
 		{
-			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 10.f * ChromeScale});
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 6.f * ChromeScale});
 			if (DrawFileMenuItems)
 			{
 				DrawFileMenuItems();
@@ -2081,7 +2146,6 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 				}
 			}
 
-			ImGui::Separator();
 			if (ToolUIMenuItem("Reset layout", EToolUIMenuIcon::Layout))
 			{
 				Implementation->bBuildDefaultLayout = true;
@@ -2100,13 +2164,22 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		for (const char* const Label : {"Edit", "Window", "Tools", "Help"})
 		{
 			const bool bWindowMenu = std::string_view(Label) == "Window";
+			const bool bEditMenu = std::string_view(Label) == "Edit";
 			ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
-			if (ImGui::BeginMenu(Label, bWindowMenu && static_cast<bool>(DrawWindowMenuItems)))
+			if (ImGui::BeginMenu(Label, (bWindowMenu && static_cast<bool>(DrawWindowMenuItems)) || (bEditMenu && static_cast<bool>(DrawEditMenuItems))))
 			{
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 10.f * ChromeScale});
-				ImGui::TextUnformatted("Panels");
-				ImGui::Separator();
-				DrawWindowMenuItems();
+				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 6.f * ChromeScale});
+				if (bWindowMenu)
+				{
+					ImGui::TextUnformatted("Panels");
+					ImGui::Separator();
+					DrawWindowMenuItems();
+				}
+				else
+				{
+					DrawEditMenuItems();
+				}
+
 				ImGui::PopStyleVar();
 				ImGui::EndMenu();
 			}
