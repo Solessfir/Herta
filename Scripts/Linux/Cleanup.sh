@@ -56,7 +56,7 @@ for directory in "${generated_directories[@]}"; do
     remove_herta_path "${repository_root}/${directory}"
 done
 
-for file in .run/HertaEditor.run.xml Makefile compile_commands.json .DS_Store Desktop.ini Thumbs.db; do
+for file in Makefile compile_commands.json .DS_Store Desktop.ini Thumbs.db; do
     remove_herta_path "${repository_root}/${file}"
 done
 

@@ -104,7 +104,7 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 
 ## Configurations and validation
 
-Generated Visual Studio launch settings provide the project-local Vulkan SDK tools and validation-layer paths. Windows project generation also creates the Git-ignored `.run/HertaEditor.run.xml`; select **HertaEditor** in Rider and use the solution configuration dropdown to choose Debug, Debug-ASan, Development, or Shipping. Regeneration updates this managed profile without modifying personal Rider configurations.
+Generated Visual Studio launch settings provide the project-local Vulkan SDK tools and validation-layer paths. Select **HertaEditor** in Rider and use the solution configuration dropdown to choose Debug, Debug-ASan, Development, or Shipping. Project generation does not create Rider-specific run profiles.
 
 Debug and Debug-ASan enable Vulkan and NVRHI validation by default. Development disables validation by default; add `--validation` to the launch arguments (including Rider EzArgs) to enable it. Shipping keeps validation disabled. Renderer regression tests require validation in non-Shipping builds. When requested validation layers are unavailable, normal launches report the downgrade and continue; renderer regression tests fail instead.
 

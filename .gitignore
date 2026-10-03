@@ -23,7 +23,6 @@
 
 # IDE and editor state
 /.idea/
-/.run/HertaEditor.run.xml
 /.vscode/*
 !/.vscode/extensions.json
 !/.vscode/settings.json
