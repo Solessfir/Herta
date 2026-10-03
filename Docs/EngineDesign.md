@@ -669,7 +669,7 @@ EditorFramework adapts Scene-owned mesh entities to the viewport. The default Cu
 
 Thread count, temporary allocator size, broad-phase layers, sleeping, and determinism are configuration, not scattered constants.
 
-The current editor preview implements only box bodies through `FPhysicsWorld`: a dynamic cube and a static floor, with fixed 60 Hz stepping, render interpolation, and transform restoration on stop. Jolt is pinned to v5.6.0 under `External/Jolt`. The initial adapter uses Jolt's single-threaded job system and default allocator, with centralized capacities of 1,024 bodies and contact constraints and 4,096 body pairs. It does not implement scene ownership, collision events, physics-origin shifting, or a Herta Tasks job adapter yet. Those remain part of the full physics milestone rather than prerequisites for this two-body preview.
+The current editor preview implements mesh-bounds box bodies through `FPhysicsWorld`: every meshed dynamic body simulates against static and other dynamic bodies, with fixed 60 Hz stepping, per-body render interpolation, and restoration of all authored transforms on stop. Jolt is pinned to v5.6.0 under `External/Jolt`. The initial adapter uses Jolt's single-threaded job system and default allocator, with centralized capacities of 1,024 bodies and contact constraints and 4,096 body pairs. Runtime world synchronization, collision events, physics-origin shifting, and a Herta Tasks job adapter remain part of the full physics milestone. The early Milestone 4 scaling checkpoint measures this preview and establishes explicit capacity handling before larger simulations are supported.
 
 ### 4.12 Animation
 
@@ -1519,6 +1519,7 @@ Content lives in `Games/Sandbox/Content` until projects exist. Block compression
 
 ### Milestone 4 - World and editor authoring
 
+- Run the early scaling checkpoint below as the next authoring slice, before project creation, hot reload, and the Content Browser.
 - Add the Herta ECS contracts, entities, components, hierarchy, scene save/load, and version migration.
 - Run the EnTT storage and scheduling spike, record results, and either adopt its pinned revision privately or document why another implementation is required.
 - Add deferred structural barriers, explicit query read/write access, buffered events, and deterministic system ordering.
@@ -1533,6 +1534,14 @@ Content lives in `Games/Sandbox/Content` until projects exist. Block compression
 
 Exit condition: scenes round-trip in canonical mergeable text, undo/redo and cross-scene paste are reliable, ECS mutation and query rules pass focused and scale tests, a generated Game project builds, and compatible gameplay-system changes reload without losing engine-owned state. Incompatible native state produces an actionable restart requirement, and runtime remains independent of editor modules.
 
+#### Early scaling checkpoint
+
+- Add reproducible scenes with 1,000, 5,000, and 10,000 cube entities sharing one mesh asset. Measure rendering and ECS extraction separately from physics, then exercise many dynamic bodies against static floors and other dynamics. Exceeding configured body, pair, contact, or temporary-memory capacities must fail clearly without replacing valid editor state; raise preview capacities deliberately to support the measured workloads.
+- Stress Outliner search, scrolling, range selection, and select-all, then Details with thousands of selected entities. Show aggregated component and property values, including mixed values, rather than expanding one full inspector per entity. Clip or virtualize entity and component lists so off-screen entries do not submit ImGui widgets. Keep hover, keyboard navigation, and scrolling responsive.
+- Exercise batch transforms, component addition and removal, duplication, deletion, undo/redo, scene save/load, and repeated Simulate/Stop cycles at scale. Verify stable IDs, selection, authored-transform restoration, and no stale references or accumulating resources.
+- Record CPU frame median and p95/p99, UI submission time, ECS extraction time, physics step time, draw calls, and memory usage with build configuration and reference hardware on Windows and Linux. Add GPU timings when available; retain repeatable fixtures and headless correctness checks alongside interactive measurements.
+- Profile before optimizing. Bring shared-mesh instancing or a bounded physics job adapter forward from Milestones 6 and 7 if measurements show they are needed for this checkpoint. The checkpoint is not blocked on PBR, full runtime physics, or a production renderer.
+
 ### Milestone 5 - Localization and typography
 
 - Add Localization, TextLayout, LocalizationPipeline, and LocalizationEditor boundaries.
@@ -1545,6 +1554,7 @@ Exit condition: Polish plural and formatting fixtures, forced RTL, mixed Arabic 
 
 ### Milestone 6 - Production raster renderer
 
+- Add shared-mesh/material instancing and culling, retaining the early cube stress scenes as draw-call, memory, and frame-time regressions.
 - Add PBR materials, image-based lighting, direct lights, shadow maps, motion vectors, depth hierarchy, exposure, and tone mapping.
 - Add GTAO and crisp native-resolution TAA with correct history rejection, reactive masks, camera-cut resets, render regressions, and configurable modest sharpening.
 - Add the Herta temporal-upscaler contract and FSR as the first optional Vulkan adapter while retaining native TAA and non-temporal fallbacks.
@@ -1556,6 +1566,7 @@ Exit condition: representative scenes render without baked lighting across the d
 ### Milestone 7 - Physics
 
 - Add Jolt adapters, collision layers, shapes, bodies, fixed-step simulation, and debug draw.
+- Add a bounded Herta Tasks job adapter and configurable body, pair, contact, and temporary-memory capacities with actionable exhaustion handling. Extend the early multi-body stress scenes into repeatable runtime scaling and lifecycle tests.
 - Add origin-relative physics transforms and buffered events.
 
 Exit condition: physics tests are repeatable for the supported configuration and world mutation never occurs inside callbacks.
@@ -1670,6 +1681,6 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Milestone 3 is implemented. Milestone 4 has started with private EnTT storage, stable object IDs, generational entity handles, validated hierarchy, deferred create/destroy barriers, atomic authoring patches, and canonical versioned `.hscene` save/load. EditorCore owns bounded transaction history; the editor groups property gestures and supports undo/redo, create/duplicate/delete, stable-ID selection restoration, and canonical scene clipboard excerpts. The editor's cube and floor are Scene-owned entities, with Ctrl+S, File/Edit menu operations, and headless scene validation. Project loading, Content Browser authoring, runtime descriptors, prefabs, and gameplay-system scheduling remain later slices. See [Scenes.md](Scenes.md) for the current contracts and limitations.
+Milestone 3 is implemented. Milestone 4 has started with private EnTT storage, stable object IDs, generational entity handles, validated hierarchy, deferred create/destroy barriers, atomic authoring patches, and canonical versioned `.hscene` save/load. EditorCore owns bounded transaction history; the editor groups property gestures and supports undo/redo, create/duplicate/delete, stable-ID selection restoration, and canonical scene clipboard excerpts. The editor authors flat scenes with empty and mesh entities, selectable empty-entity markers, and independent Static Mesh and Rigid Body component stacks in Details. Component edits use the existing atomic scene patches without adding a reflection framework or changing the file schema. Project loading, Content Browser authoring, runtime descriptors, prefabs, hierarchy authoring, and gameplay-system scheduling remain later slices. See [Scenes.md](Scenes.md) for the current contracts and limitations.
 
-Next are transactional property editing and undo/redo, stable selection and reference remapping, runtime descriptors, project creation/loading, Content Browser authoring, and gameplay-system scheduling and hot reload. Localization, networking, graph tooling, full physics, animation, audio, and scripting remain in their later milestones.
+Next is the early Milestone 4 scaling checkpoint for rendering, multi-body simulation, Outliner, and Details, followed by hierarchy authoring, runtime descriptors, project creation/loading, Content Browser authoring, and gameplay-system scheduling and hot reload. Localization, networking, graph tooling, full physics, animation, audio, and scripting remain in their later milestones.
