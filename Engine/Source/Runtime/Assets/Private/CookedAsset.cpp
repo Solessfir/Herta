@@ -31,6 +31,7 @@ void WriteTexture(FBinaryWriter& Writer, const FCookedTexture& Texture)
 {
 	Writer.Write(static_cast<std::uint8_t>(Texture.ColorSpace));
 	Writer.Write(static_cast<std::uint32_t>(Texture.Mips.size()));
+
 	for (const FCookedTextureMip& Mip : Texture.Mips)
 	{
 		Writer.Write(Mip.Width);
@@ -98,6 +99,7 @@ std::expected<void, FAssetError> ValidateCookedTexture(const FCookedTexture& Tex
 
 	std::uint32_t Width = Top.Width;
 	std::uint32_t Height = Top.Height;
+
 	for (std::size_t Index = 0; Index < Texture.Mips.size(); ++Index)
 	{
 		const FCookedTextureMip& Mip = Texture.Mips[Index];
@@ -133,6 +135,7 @@ std::expected<void, FAssetError> ValidateCookedModel(const FCookedModel& Model)
 	{
 		return Invalid("Cooked model vertices must be finite");
 	}
+
 	const std::size_t VertexCount = Model.Vertices.size();
 	if (!std::ranges::all_of(Model.Indices, [VertexCount](const std::uint32_t Index)
 	{
@@ -141,6 +144,7 @@ std::expected<void, FAssetError> ValidateCookedModel(const FCookedModel& Model)
 	{
 		return Invalid("Cooked model index references a missing vertex");
 	}
+
 	if (Model.Sections.empty() || Model.Sections.size() > MaximumSections || Model.Materials.empty() || Model.Materials.size() > MaximumMaterials || Model.Textures.empty() || Model.Textures.size() > MaximumTextures)
 	{
 		return Invalid("Cooked model requires sections, materials, and textures within their limits");
@@ -178,6 +182,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 	FBinaryWriter Writer;
 	Writer.Write(CookedAssetMagic);
 	Writer.Write(CookedAssetFormatVersion);
+
 	if (const auto* Texture = std::get_if<FCookedTexture>(&Asset))
 	{
 		if (std::expected<void, FAssetError> Valid = ValidateCookedTexture(*Texture); !Valid)
@@ -191,6 +196,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 	}
 
 	const FCookedModel& Model = std::get<FCookedModel>(Asset);
+
 	if (std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)
 	{
 		return std::unexpected(std::move(Valid.error()));
@@ -198,6 +204,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 
 	Writer.Write(ModelTag);
 	Writer.Write(static_cast<std::uint32_t>(Model.Vertices.size()));
+
 	for (const FCookedVertex& Vertex : Model.Vertices)
 	{
 		for (const float Value : Vertex.Position)
@@ -212,12 +219,14 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 	}
 
 	Writer.Write(static_cast<std::uint32_t>(Model.Indices.size()));
+
 	for (const std::uint32_t Index : Model.Indices)
 	{
 		Writer.Write(Index);
 	}
 
 	Writer.Write(static_cast<std::uint32_t>(Model.Sections.size()));
+
 	for (const FCookedMeshSection& Section : Model.Sections)
 	{
 		Writer.Write(Section.FirstIndex);
@@ -226,6 +235,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 	}
 
 	Writer.Write(static_cast<std::uint32_t>(Model.Materials.size()));
+
 	for (const FCookedMaterial& Material : Model.Materials)
 	{
 		Writer.WriteString(Material.Name);
@@ -233,6 +243,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 	}
 
 	Writer.Write(static_cast<std::uint32_t>(Model.Textures.size()));
+
 	for (const FCookedTexture& Texture : Model.Textures)
 	{
 		WriteTexture(Writer, Texture);
@@ -244,6 +255,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<const std::byte> Bytes)
 {
 	FBinaryReader Reader(Bytes);
+
 	if (Reader.Read<std::uint32_t>() != CookedAssetMagic || Reader.Read<std::uint32_t>() != CookedAssetFormatVersion)
 	{
 		return Invalid("Unsupported cooked asset format or version");
@@ -276,6 +288,7 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 	if (VertexCount <= MaximumVertices && Reader.CanRead(VertexCount, sizeof(float) * 5))
 	{
 		Model.Vertices.resize(VertexCount);
+
 		for (FCookedVertex& Vertex : Model.Vertices)
 		{
 			for (float& Value : Vertex.Position)
@@ -294,6 +307,7 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 	if (IndexCount <= MaximumIndices && Reader.CanRead(IndexCount, sizeof(std::uint32_t)))
 	{
 		Model.Indices.resize(IndexCount);
+
 		for (std::uint32_t& Index : Model.Indices)
 		{
 			Index = Reader.Read<std::uint32_t>();
@@ -304,6 +318,7 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 	if (SectionCount <= MaximumSections && Reader.CanRead(SectionCount, sizeof(std::uint32_t) * 3))
 	{
 		Model.Sections.resize(SectionCount);
+
 		for (FCookedMeshSection& Section : Model.Sections)
 		{
 			Section.FirstIndex = Reader.Read<std::uint32_t>();
@@ -316,6 +331,7 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 	if (MaterialCount <= MaximumMaterials && Reader.CanRead(MaterialCount, sizeof(std::uint32_t) * 2))
 	{
 		Model.Materials.resize(MaterialCount);
+
 		for (FCookedMaterial& Material : Model.Materials)
 		{
 			Material.Name = Reader.ReadString(MaximumNameLength);

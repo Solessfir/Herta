@@ -35,6 +35,7 @@ std::expected<void, FAssetError> WriteFileAtomically(const std::filesystem::path
 	std::random_device Device;
 	std::filesystem::path TemporaryPath = Path;
 	TemporaryPath += std::format(".{:08x}{:08x}.tmp", Device(), Device());
+
 	{
 		std::ofstream Stream(TemporaryPath, std::ios::binary | std::ios::trunc);
 		Stream.write(reinterpret_cast<const char*>(Bytes.data()), static_cast<std::streamsize>(Bytes.size()));
@@ -55,6 +56,7 @@ std::expected<void, FAssetError> WriteFileAtomically(const std::filesystem::path
 		// Unlike rename, link creation atomically fails if another import already published this name.
 		std::filesystem::create_hard_link(TemporaryPath, Path, Error);
 	}
+
 	if (Error)
 	{
 		const std::string Message = Error.message();

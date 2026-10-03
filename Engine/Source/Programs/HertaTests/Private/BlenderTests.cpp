@@ -115,6 +115,7 @@ TEST_CASE("Blender import cooks a .blend through Herta's preset, tracks external
 	REQUIRE_MESSAGE(First, (First ? std::string() : First.error().Message));
 	CHECK_FALSE(First->bCacheHit);
 	CHECK(First->Warnings.empty());
+
 	auto Asset = LoadCookedAsset(Request.DerivedDataRoot, First->Key);
 	REQUIRE(Asset);
 	REQUIRE(std::holds_alternative<FCookedModel>(*Asset));
@@ -133,11 +134,13 @@ TEST_CASE("Blender import cooks a .blend through Herta's preset, tracks external
 	const FDerivedDataCache Cache(Request.DerivedDataRoot);
 	const auto Before = Cache.Get(First->Key);
 	REQUIRE((Before && *Before));
+
 	FAssetCookRequest Forced = Request;
 	Forced.bForce = true;
 	const auto Recooked = CookAsset(Forced);
 	REQUIRE(Recooked);
 	CHECK(Recooked->Key == First->Key);
+
 	const auto After = Cache.Get(First->Key);
 	REQUIRE((After && *After));
 	CHECK(**After == **Before);
@@ -201,6 +204,7 @@ bpy.ops.wm.save_as_mainfile(filepath=root, relative_remap=True)
 	REQUIRE_MESSAGE(LibraryChanged, (LibraryChanged ? std::string() : LibraryChanged.error().Message));
 	CHECK_FALSE(LibraryChanged->bCacheHit);
 	CHECK(LibraryChanged->Key != First->Key);
+
 	const auto Repeated = CookAsset(Request);
 	REQUIRE(Repeated);
 	CHECK(Repeated->bCacheHit);

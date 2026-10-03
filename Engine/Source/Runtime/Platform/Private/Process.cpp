@@ -58,6 +58,7 @@ using FUniqueHandle = std::unique_ptr<std::remove_pointer_t<HANDLE>, FHandleClos
 [[nodiscard]] bool Widen(const std::string_view Text, std::wstring& Result)
 {
 	Result.clear();
+
 	if (Text.empty())
 	{
 		return true;
@@ -88,9 +89,11 @@ void AppendQuotedArgument(std::wstring& CommandLine, const std::wstring_view Arg
 	}
 
 	CommandLine.push_back(L'"');
+
 	for (auto Character = Argument.begin();; ++Character)
 	{
 		std::size_t Backslashes = 0;
+
 		while (Character != Argument.end() && *Character == L'\\')
 		{
 			++Character;
@@ -136,6 +139,7 @@ void AppendQuotedArgument(std::wstring& CommandLine, const std::wstring_view Arg
 {
 	std::string Text;
 	LARGE_INTEGER Start{};
+
 	if (!SetFilePointerEx(File, Start, nullptr, FILE_BEGIN))
 	{
 		return Text;
@@ -143,6 +147,7 @@ void AppendQuotedArgument(std::wstring& CommandLine, const std::wstring_view Arg
 
 	std::array<char, 4096> Buffer{};
 	DWORD Read = 0;
+
 	while (Text.size() < MaximumBytes && ReadFile(File, Buffer.data(), static_cast<DWORD>(Buffer.size()), &Read, nullptr) && Read > 0)
 	{
 		Text.append(Buffer.data(), std::min<std::size_t>(Read, MaximumBytes - Text.size()));
@@ -162,6 +167,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	std::wstring CommandLine;
 	AppendQuotedArgument(CommandLine, Request.Executable.native());
 	std::wstring WideArgument;
+
 	for (const std::string& Argument : Request.Arguments)
 	{
 		if (!Widen(Argument, WideArgument))
@@ -198,12 +204,14 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	InitializeProcThreadAttributeList(nullptr, 1, 0, &AttributeSize);
 	std::vector<std::byte> AttributeStorage(AttributeSize);
 	const auto Attributes = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(AttributeStorage.data());
+
 	if (!InitializeProcThreadAttributeList(Attributes, 1, 0, &AttributeSize))
 	{
 		return Failure(EProcessErrorCode::LaunchFailed, "Cannot initialize process attributes");
 	}
 
 	const std::unique_ptr<std::remove_pointer_t<LPPROC_THREAD_ATTRIBUTE_LIST>, decltype(&DeleteProcThreadAttributeList)> AttributeScope(Attributes, &DeleteProcThreadAttributeList);
+
 	if (!UpdateProcThreadAttribute(Attributes, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, InheritedHandles.data(), sizeof(InheritedHandles), nullptr, nullptr))
 	{
 		return Failure(EProcessErrorCode::LaunchFailed, "Cannot restrict inherited handles");
@@ -213,6 +221,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	const FUniqueHandle Job(CreateJobObjectW(nullptr, nullptr));
 	JOBOBJECT_EXTENDED_LIMIT_INFORMATION Limits{};
 	Limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
 	if (!Job || !SetInformationJobObject(Job.get(), JobObjectExtendedLimitInformation, &Limits, sizeof(Limits)))
 	{
 		return Failure(EProcessErrorCode::LaunchFailed, "Cannot create a process job");
@@ -226,6 +235,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	Startup.StartupInfo.hStdError = ErrorOutput.get();
 	Startup.lpAttributeList = Attributes;
 	PROCESS_INFORMATION Information{};
+
 	if (!CreateProcessW(Request.Executable.c_str(), CommandLine.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, nullptr, nullptr, &Startup.StartupInfo, &Information))
 	{
 		const DWORD Error = GetLastError();
@@ -235,6 +245,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 
 	const FUniqueHandle Process(Information.hProcess);
 	const FUniqueHandle Thread(Information.hThread);
+
 	if (!AssignProcessToJobObject(Job.get(), Process.get()))
 	{
 		TerminateProcess(Process.get(), 1);
@@ -244,6 +255,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	ResumeThread(Thread.get());
 
 	const auto Started = std::chrono::steady_clock::now();
+
 	while (true)
 	{
 		const DWORD Wait = WaitForSingleObject(Process.get(), 20);
@@ -253,6 +265,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 		}
 
 		std::optional<FProcessError> Stop;
+
 		if (Wait != WAIT_TIMEOUT)
 		{
 			Stop = FProcessError{.Code = EProcessErrorCode::WaitFailed, .Message = std::format("Waiting for the process failed (Windows error {})", GetLastError())};
@@ -275,6 +288,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	}
 
 	DWORD ExitCode = 0;
+
 	if (!GetExitCodeProcess(Process.get(), &ExitCode))
 	{
 		return Failure(EProcessErrorCode::WaitFailed, "Cannot read the process exit code");
@@ -291,12 +305,14 @@ FProcessRequest MakeShellRequest(const std::string_view CommandLine)
 	// cmd /s /c strips one pair of outer quotes and runs the rest verbatim, so the line keeps its own quoting.
 	FProcessRequest Request{.Executable = ComSpec.empty() ? std::filesystem::path(L"cmd.exe") : std::filesystem::path(ComSpec), .Arguments = {"/d", "/s", "/c"}};
 	Request.RawArguments = std::format("\"{}\"", CommandLine);
+
 	return Request;
 }
 
 std::filesystem::path GetExecutablePath()
 {
 	std::wstring Buffer(MAX_PATH, L'\0');
+
 	while (true)
 	{
 		const DWORD Length = GetModuleFileNameW(nullptr, Buffer.data(), static_cast<DWORD>(Buffer.size()));
@@ -386,12 +402,14 @@ private:
 [[nodiscard]] std::string ReadCapture(const int Descriptor, const std::size_t MaximumBytes)
 {
 	std::string Text;
+
 	if (lseek(Descriptor, 0, SEEK_SET) != 0)
 	{
 		return Text;
 	}
 
 	std::array<char, 4096> Buffer{};
+
 	while (Text.size() < MaximumBytes)
 	{
 		const ssize_t Read = read(Descriptor, Buffer.data(), Buffer.size());
@@ -426,6 +444,7 @@ private:
 	while (write(Descriptor, &Error, sizeof(Error)) < 0 && errno == EINTR)
 	{
 	}
+
 	_exit(127);
 }
 }
@@ -447,6 +466,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	const std::string Executable = Request.Executable.string();
 	std::vector<char*> Arguments;
 	Arguments.push_back(const_cast<char*>(Executable.c_str()));
+
 	for (const std::string& Argument : Request.Arguments)
 	{
 		Arguments.push_back(const_cast<char*>(Argument.c_str()));
@@ -455,10 +475,12 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	Arguments.push_back(nullptr);
 
 	std::array<int, 2> LaunchPipe{};
+
 	if (pipe2(LaunchPipe.data(), O_CLOEXEC) != 0)
 	{
 		return Failure(EProcessErrorCode::LaunchFailed, "Cannot create the process launch pipe", errno);
 	}
+
 	const FFileDescriptor LaunchRead(LaunchPipe[0]);
 	FFileDescriptor LaunchWrite(LaunchPipe[1]);
 	const long MaximumDescriptors = sysconf(_SC_OPEN_MAX);
@@ -466,6 +488,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	{
 		return Failure(EProcessErrorCode::LaunchFailed, "Cannot query the process descriptor limit", errno);
 	}
+
 	const int OutputDescriptor = Output.Get();
 	const int ErrorDescriptor = ErrorOutput.Get();
 	const int LaunchWriteDescriptor = LaunchWrite.Get();
@@ -480,29 +503,37 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	{
 		return Failure(EProcessErrorCode::LaunchFailed, std::format("Cannot start '{}'", Executable), errno);
 	}
+
 	if (Process == 0)
 	{
 		int FailureDescriptor = LaunchWriteDescriptor;
+
 		// Linux watches the spawning thread, which stays alive for this blocking call. Verify the parent after arming the signal to close the fork race.
 		if (prctl(PR_SET_PDEATHSIG, SIGKILL) != 0 || setpgid(0, 0) != 0)
 		{
 			ReportLaunchFailure(FailureDescriptor, errno);
 		}
+
 		if (getppid() != Parent || syscall(SYS_tgkill, Parent, ParentThread, 0) != 0)
 		{
 			ReportLaunchFailure(FailureDescriptor, ECHILD);
 		}
+
 		const int Input = open("/dev/null", O_RDONLY);
 		if (Input < 0 || dup2(Input, STDIN_FILENO) < 0 || dup2(OutputDescriptor, STDOUT_FILENO) < 0 || dup2(ErrorDescriptor, STDERR_FILENO) < 0)
 		{
 			ReportLaunchFailure(FailureDescriptor, errno);
 		}
+
 		constexpr int LaunchDescriptor = STDERR_FILENO + 1;
+
 		if (FailureDescriptor != LaunchDescriptor && dup3(FailureDescriptor, LaunchDescriptor, O_CLOEXEC) < 0)
 		{
 			ReportLaunchFailure(FailureDescriptor, errno);
 		}
+
 		FailureDescriptor = LaunchDescriptor;
+
 		// Keep the error pipe until exec, but never inherit unrelated editor descriptors.
 		if (syscall(SYS_close_range, LaunchDescriptor + 1, std::numeric_limits<unsigned int>::max(), 0) < 0)
 		{
@@ -511,6 +542,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 				close(static_cast<int>(Descriptor));
 			}
 		}
+
 		execve(ExecutableName, ArgumentData, Environment);
 		ReportLaunchFailure(FailureDescriptor, errno);
 	}
@@ -518,10 +550,12 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	LaunchWrite.Close();
 	int LaunchError = 0;
 	ssize_t Read = 0;
+
 	do
 	{
 		Read = read(LaunchRead.Get(), &LaunchError, sizeof(LaunchError));
 	} while (Read < 0 && errno == EINTR);
+
 	if (Read != 0)
 	{
 		if (Read < 0)
@@ -530,15 +564,19 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 			kill(-Process, SIGKILL);
 			kill(Process, SIGKILL);
 		}
+
 		int Status = 0;
+
 		while (waitpid(Process, &Status, 0) < 0 && errno == EINTR)
 		{
 		}
+
 		return Failure(EProcessErrorCode::LaunchFailed, std::format("Cannot start '{}'", Executable), LaunchError);
 	}
 
 	const auto Started = std::chrono::steady_clock::now();
 	int Status = 0;
+
 	while (true)
 	{
 		const pid_t Waited = waitpid(Process, &Status, WNOHANG);
@@ -548,6 +586,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 		}
 
 		std::optional<FProcessError> Stop;
+
 		if (Waited < 0 && errno != EINTR)
 		{
 			Stop = FProcessError{.Code = EProcessErrorCode::WaitFailed, .Message = std::format("Waiting for the process failed: {}", std::strerror(errno))};
@@ -564,6 +603,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 		if (Stop)
 		{
 			kill(-Process, SIGKILL);
+
 			while (waitpid(Process, &Status, 0) < 0 && errno == EINTR)
 			{
 			}

@@ -53,6 +53,7 @@ inline constexpr std::array ImporterExtensions{
 std::vector<std::string_view> GetImportableExtensions()
 {
 	std::vector<std::string_view> Extensions;
+
 	for (const FImporterExtension& Entry : ImporterExtensions)
 	{
 		Extensions.push_back(Entry.Extension);
@@ -74,6 +75,7 @@ FContentSnapshot TakeContentSnapshot(const std::filesystem::path& ContentRoot)
 	FContentSnapshot Snapshot;
 	std::error_code Error;
 	std::filesystem::recursive_directory_iterator Iterator(ContentRoot, Error);
+
 	for (; !Error && Iterator != std::filesystem::recursive_directory_iterator(); Iterator.increment(Error))
 	{
 		const std::filesystem::directory_entry& Entry = *Iterator;
@@ -107,6 +109,7 @@ FContentSnapshot TakeContentSnapshot(const std::filesystem::path& ContentRoot)
 std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesystem::path& ContentRoot, FContentScanCache* const Cache)
 {
 	std::error_code Error;
+
 	if (!std::filesystem::is_directory(ContentRoot, Error))
 	{
 		return std::unexpected(FAssetError{std::format("Content root '{}' is not a directory", PathToUtf8(ContentRoot))});
@@ -116,10 +119,12 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 	std::set<std::string> Sources;
 	std::vector<std::pair<std::string, FContentFileStamp>> MetadataFiles;
 	std::filesystem::recursive_directory_iterator Iterator(ContentRoot, Error);
+
 	for (; !Error && Iterator != std::filesystem::recursive_directory_iterator(); Iterator.increment(Error))
 	{
 		const std::filesystem::directory_entry& Entry = *Iterator;
 		const std::string RelativePath = GenericPathToUtf8(Entry.path().lexically_relative(ContentRoot));
+
 		if (PathToUtf8(Entry.path().filename()).starts_with('.'))
 		{
 			if (Entry.is_directory(Error))
@@ -162,10 +167,12 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 	std::set<std::string> RegisteredSources;
 	std::map<FAssetId, std::vector<FAssetRecord>> RecordsById;
 	std::map<std::string, FContentScanCache::FEntry> UpdatedCache;
+
 	for (const auto& [MetadataFile, Stamp] : MetadataFiles)
 	{
 		std::string SourcePath = MetadataFile.substr(0, MetadataFile.size() - AssetMetadataExtension.size());
 		RegisteredSources.insert(SourcePath);
+
 		if (!Sources.contains(SourcePath))
 		{
 			Result.Errors.push_back({.Path = MetadataFile, .Message = "Metadata has no source file"});
@@ -210,6 +217,7 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 	}
 
 	std::vector<FAssetRecord> Records;
+
 	for (auto& [Id, Matches] : RecordsById)
 	{
 		if (Matches.size() == 1)
@@ -247,6 +255,7 @@ std::expected<FContentScanResult, FAssetError> ScanContentRoot(const std::filesy
 std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::path& ContentRoot, const std::filesystem::path& Source, const std::string_view DestinationDirectory)
 {
 	std::error_code Error;
+
 	if (!std::filesystem::is_directory(ContentRoot, Error))
 	{
 		return std::unexpected(FAssetError{std::format("Content root '{}' is not a directory", PathToUtf8(ContentRoot))});
@@ -277,6 +286,7 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 
 	const std::filesystem::path RelativeSource = CanonicalSource.lexically_relative(CanonicalRoot);
 	const bool bInsideContent = IsInside(RelativeSource);
+
 	// A .gltf usually references separate buffers and images. Copying it alone would register an asset that cannot cook.
 	if (!bInsideContent && ToLowerAscii(PathToUtf8(Source.extension())) == ".gltf")
 	{

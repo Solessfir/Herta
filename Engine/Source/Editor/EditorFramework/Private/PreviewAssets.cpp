@@ -56,6 +56,7 @@ std::unique_ptr<FPreviewAssets> FPreviewAssets::Create(FTaskSystem& Tasks, IGrap
 	}
 
 	std::unique_ptr<FPreviewAssets> Assets(new FPreviewAssets(Tasks, Device, Log, std::move(Paths), ObjectCount, std::move(*Scope)));
+
 	if (const auto Registered = RegisterAssetCommands(Assets->AssetCommands, {.DefaultContentRoot = Assets->Paths.ContentRoot, .DerivedDataRoot = Assets->Paths.DerivedDataRoot, .WorkerPath = Assets->Paths.WorkerPath, .TargetPlatform = Assets->Paths.TargetPlatform}); !Registered)
 	{
 		HERTA_LOG_ERROR(Log, AssetLog, "Dropped files cannot be imported: {}", Registered.error().Message);
@@ -84,6 +85,7 @@ void FPreviewAssets::RequestScan()
 
 	std::vector<std::filesystem::path> Roots;
 	Roots.reserve(Mounts.size());
+
 	for (const FMount& Mount : Mounts)
 	{
 		Roots.push_back(Mount.Root);
@@ -108,6 +110,7 @@ void FPreviewAssets::RequestScan()
 		PublishScan(*Results);
 	})
 	                                                      : std::unexpected(Scan.error());
+
 	if (!Publish)
 	{
 		bScanning = false;
@@ -136,6 +139,7 @@ void FPreviewAssets::CheckForChanges()
 
 	std::vector<std::filesystem::path> Roots;
 	Roots.reserve(Mounts.size());
+
 	for (const FMount& Mount : Mounts)
 	{
 		Roots.push_back(Mount.Root);
@@ -158,6 +162,7 @@ void FPreviewAssets::CheckForChanges()
 		}
 
 		bPolling = false;
+
 		if (*Taken == Snapshots)
 		{
 			return;
@@ -165,6 +170,7 @@ void FPreviewAssets::CheckForChanges()
 
 		const bool bBaseline = Snapshots.empty();
 		Snapshots = std::move(*Taken);
+
 		if (bBaseline)
 		{
 			return;
@@ -174,6 +180,7 @@ void FPreviewAssets::CheckForChanges()
 		ContentChanged();
 	})
 	                                                      : std::unexpected(Poll.error());
+
 	if (!Compare)
 	{
 		bPolling = false;
@@ -215,6 +222,7 @@ void FPreviewAssets::ImportFiles(std::vector<std::filesystem::path> Files)
 			}
 
 			std::string Quoted;
+
 			for (const char Character : Path)
 			{
 				if (Character == '"' || Character == '\\')
@@ -245,6 +253,7 @@ void FPreviewAssets::ImportFiles(std::vector<std::filesystem::path> Files)
 		}
 
 		--ImportsInFlight;
+
 		for (const FImportOutcome& Outcome : *Outcomes)
 		{
 			if (Outcome.bSucceeded)
@@ -260,6 +269,7 @@ void FPreviewAssets::ImportFiles(std::vector<std::filesystem::path> Files)
 		CheckForChanges();
 	})
 	                                                       : std::unexpected(Import.error());
+
 	if (!Report)
 	{
 		HERTA_LOG_ERROR(Log, AssetLog, "Could not import dropped files: {}", Report.error().Message);
@@ -274,6 +284,7 @@ void FPreviewAssets::PublishScan(const std::vector<std::expected<FContentScanRes
 	bScanning = false;
 	Options.clear();
 	Locations.clear();
+
 	for (std::size_t Mount = 0; Mount < Results.size(); ++Mount)
 	{
 		const std::expected<FContentScanResult, FAssetError>& Result = Results[Mount];
@@ -324,6 +335,7 @@ void FPreviewAssets::RequestMesh(const std::size_t Object, const FAssetId& Asset
 	Slot.Label = Asset.ToString();
 	Slot.bLoading = true;
 	Slot.Error.clear();
+
 	if (bScanned)
 	{
 		StartLoad(Object);
@@ -352,6 +364,7 @@ void FPreviewAssets::StartLoad(const std::size_t Object)
 	}
 
 	Slot.Label = std::format("{}/{}", Mounts[Location->second.Mount].Name, Location->second.SourcePath);
+
 	if (const FPreviewMeshSlot* const Shared = FindLoadedSlot(Slot.Asset, Object))
 	{
 		Slot.Mesh = Shared->Mesh;
@@ -419,6 +432,7 @@ bool FPreviewAssets::SubmitCook(const FLocation& Location, const std::string& La
 		}
 	})
 	                                                        : std::unexpected(Cook.error());
+
 	return Published.has_value();
 }
 
@@ -426,6 +440,7 @@ void FPreviewAssets::ReimportShownAssets()
 {
 	// One cook per asset, published to every object showing it. Failed loads retry too, since the edit may be their fix.
 	std::map<FAssetId, std::vector<std::pair<std::size_t, std::uint64_t>>> Targets;
+
 	for (std::size_t Object = 0; Object < Slots.size(); ++Object)
 	{
 		FPreviewMeshSlot& Slot = Slots[Object];
@@ -471,6 +486,7 @@ void FPreviewAssets::PublishReimport(const FAssetId& Asset, const std::vector<st
 {
 	// A newer request for an object replaced what it shows, so this reimport no longer applies to it.
 	std::vector<FPreviewMeshSlot*> Current;
+
 	for (const auto& [Object, Generation] : Targets)
 	{
 		FPreviewMeshSlot& Slot = Slots[Object];
@@ -486,6 +502,7 @@ void FPreviewAssets::PublishReimport(const FAssetId& Asset, const std::vector<st
 	}
 
 	const std::string Label = Current.front()->Label;
+
 	for (const std::string& Warning : Load.Warnings)
 	{
 		HERTA_LOG_WARNING(Log, AssetLog, "{}: {}", Label, Warning);
@@ -569,6 +586,7 @@ void FPreviewAssets::PublishMesh(const std::size_t Object, const std::uint64_t G
 	}
 
 	Slot.bLoading = false;
+
 	for (const std::string& Warning : Load.Warnings)
 	{
 		HERTA_LOG_WARNING(Log, AssetLog, "{}: {}", Slot.Label, Warning);

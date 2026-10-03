@@ -57,6 +57,7 @@ struct FTextureDescriptor
 [[nodiscard]] constexpr std::uint32_t GetMipLevelCount(const FExtent2D Extent) noexcept
 {
 	std::uint32_t Levels = 1;
+
 	for (std::uint32_t Size = Extent.Width > Extent.Height ? Extent.Width : Extent.Height; Size > 1; Size /= 2)
 	{
 		++Levels;
@@ -155,6 +156,7 @@ public:
 	[[nodiscard]] virtual std::expected<FGraphicsPipelineHandle, FPresentationError> CreateGraphicsPipeline(const FGraphicsPipelineDescriptor& Descriptor) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> BeginCommands() = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> WriteBuffer(const FBufferHandle& Buffer, std::span<const std::byte> Data) = 0;
+
 	// A texture becomes readable once every mip level has been written.
 	[[nodiscard]] virtual std::expected<void, FPresentationError> WriteTexture(const FTextureHandle& Texture, std::uint32_t MipLevel, std::span<const std::byte> RgbaPixels) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> ClearTargets(const FTextureHandle& Color, const FTextureHandle& Depth, const std::array<float, 4>& LinearColor) = 0;
@@ -162,6 +164,7 @@ public:
 	[[nodiscard]] virtual std::expected<std::uint64_t, FPresentationError> SubmitCommands() = 0;
 	virtual void CancelCommands() noexcept = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> WaitForIdle() = 0;
+
 	// Readback is an explicit blocking diagnostic path, never part of interactive rendering.
 	[[nodiscard]] virtual std::expected<std::vector<std::byte>, FPresentationError> ReadbackTexture(const FTextureHandle& Texture) = 0;
 	[[nodiscard]] virtual FGraphicsStatistics GetStatistics() const noexcept = 0;

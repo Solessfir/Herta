@@ -18,6 +18,7 @@ namespace Herta
 // Bump an importer version whenever its output changes for the same source and settings.
 inline constexpr std::uint32_t TextureImporterVersion = 2;
 inline constexpr std::uint32_t GltfImporterVersion = 2;
+
 // Also covers the Herta export preset script run inside Blender.
 inline constexpr std::uint32_t BlenderImporterVersion = 2;
 
@@ -26,9 +27,11 @@ struct FAssetCookRequest
 	std::filesystem::path ContentRoot;
 	// Normally DerivedDataCache/<platform> in the repository.
 	std::filesystem::path DerivedDataRoot;
+
 	// Content-relative source path with '/' separators.
 	std::string SourcePath;
 	std::string TargetPlatform;
+
 	// Cooks and replaces the cache entry even when a valid one exists.
 	bool bForce = false;
 };
@@ -47,6 +50,7 @@ struct FAssetWorkerOptions
 {
 	std::filesystem::path WorkerPath;
 	std::chrono::milliseconds Timeout{std::chrono::minutes(10)};
+
 	// Polled while the worker runs. Returning true kills the worker.
 	std::function<bool()> ShouldCancel{};
 };

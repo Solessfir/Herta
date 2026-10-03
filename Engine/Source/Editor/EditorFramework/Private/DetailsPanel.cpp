@@ -60,6 +60,7 @@ void DrawCubeIcon(const ImVec2 Position, const float Size)
 	const ImVec2 Bottom{Center.x, Center.y + Radius * 1.2f};
 	const ImU32 Color = ImGui::GetColorU32(ImGuiCol_TextDisabled);
 	const float Stroke = std::max(1.f, Size / 30.f);
+
 	for (const auto& [From, To] : {std::pair{Top, LeftTop}, std::pair{Top, RightTop}, std::pair{LeftTop, Middle}, std::pair{RightTop, Middle}, std::pair{Middle, Bottom}, std::pair{LeftTop, LeftBottom}, std::pair{RightTop, RightBottom}, std::pair{LeftBottom, Bottom}, std::pair{RightBottom, Bottom}})
 	{
 		Draw->AddLine(From, To, Color, Stroke);
@@ -72,6 +73,7 @@ void DrawCheckerThumbnail(const ImVec2 Position, const float Size)
 	const float Cell = Size / 4.f;
 	const float Seam = std::max(1.f, Size / 40.f);
 	Draw->AddRectFilled(Position, {Position.x + Size, Position.y + Size}, IM_COL32(70, 83, 96, 255));
+
 	for (int Row = 0; Row < 4; ++Row)
 	{
 		for (int Column = 0; Column < 4; ++Column)
@@ -94,6 +96,7 @@ std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTra
 	const ImGuiIO& Io = ImGui::GetIO();
 	const bool bCopyRow = bHovered && Io.KeyShift && Io.MouseClicked[ImGuiMouseButton_Right];
 	const bool bPasteRow = bHovered && Io.KeyShift && Io.MouseClicked[ImGuiMouseButton_Left];
+
 	if (bCopyRow)
 	{
 		const FVector3 Vector{Value.x, Value.y, Value.z};
@@ -102,9 +105,11 @@ std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTra
 	}
 
 	std::optional<Im3d::Vec3> PastedValue;
+
 	if (bPasteRow)
 	{
 		ImGui::ClearActiveID();
+
 		if (const char* const Clipboard = ImGui::GetClipboardText(); Clipboard != nullptr)
 		{
 			const auto Parsed = ClipboardFormat == ETransformClipboardFormat::Rotation ? ParseTransformRotationClipboard(Clipboard) : ParseTransformVectorClipboard(Clipboard);
@@ -121,6 +126,7 @@ std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTra
 	}
 
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+
 	if (ImGui::IsItemHovered())
 	{
 		DrawList->AddRectFilled(Position, {Position.x + Size.x, Position.y + Size.y}, IM_COL32(255, 255, 255, 12), 4.f * Scale);
@@ -137,6 +143,7 @@ std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTra
 	const ImU32 ArrowColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
 	DrawList->AddLine({ArrowX - 3.f * Scale, ArrowY - 1.f * Scale}, {ArrowX, ArrowY + 2.f * Scale}, ArrowColor, Scale);
 	DrawList->AddLine({ArrowX, ArrowY + 2.f * Scale}, {ArrowX + 3.f * Scale, ArrowY - 1.f * Scale}, ArrowColor, Scale);
+
 	if (ImGui::BeginPopup("Space"))
 	{
 		if (ImGui::MenuItem("Local", nullptr, Space == EDetailsTransformSpace::Local))
@@ -160,6 +167,7 @@ void DrawLockButton(bool& bLocked)
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	const ImVec2 Size{17.f * Scale, ImGui::GetFrameHeight()};
 	const ImVec2 Position = ImGui::GetCursorScreenPos();
+
 	if (ImGui::InvisibleButton("Scale proportions##ScaleLock", Size, ImGuiButtonFlags_EnableNav))
 	{
 		bLocked = !bLocked;
@@ -167,6 +175,7 @@ void DrawLockButton(bool& bLocked)
 
 	const ImU32 Color = ImGui::GetColorU32(bLocked ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+
 	if (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)
 	{
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 3.f * Scale);
@@ -187,6 +196,7 @@ void DrawLockButton(bool& bLocked)
 	const ImVec2 Position = ImGui::GetCursorScreenPos();
 	const bool bReset = ImGui::InvisibleButton("Reset transform##Reset", Size, ImGuiButtonFlags_EnableNav);
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+
 	if (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)
 	{
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 3.f * Scale);
@@ -197,6 +207,7 @@ void DrawLockButton(bool& bLocked)
 	DrawList->PathArcTo(Center, 4.f * Scale, 0.f, 5.f, 12);
 	DrawList->PathStroke(Color, 0, Scale);
 	DrawList->AddTriangleFilled({Center.x + 0.5f * Scale, Center.y - 5.f * Scale}, {Center.x + 5.f * Scale, Center.y - 5.f * Scale}, {Center.x + 3.f * Scale, Center.y - 1.f * Scale}, Color);
+
 	if (ImGui::IsItemHovered())
 	{
 		ImGui::SetTooltip("Reset %s", Label);
@@ -217,6 +228,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 	const float LockWidth = 17.f * Scale + Spacing;
 	const float ResetWidth = 18.f * Scale;
 	const float Width = std::max(1.f, (ImGui::GetContentRegionAvail().x - LabelWidth - LockWidth - ResetWidth - Spacing * 4.f) / 3.f);
+
 	if (const auto PastedValue = DrawSpaceSelector(Label, Space, Value, ClipboardFormat))
 	{
 		OnRowChange(*PastedValue);
@@ -234,6 +246,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 	}
 
 	ImGui::SameLine();
+
 	for (int Axis = 0; Axis < 3; ++Axis)
 	{
 		if (Axis > 0)
@@ -245,6 +258,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 		ImGui::SetNextItemWidth(Width);
 		float Candidate = Value[Axis];
 		const ImGuiSliderFlags Flags = Minimum < Maximum ? ImGuiSliderFlags_AlwaysClamp : 0;
+
 		if (DrawNumericDragFloat("##Value", &Candidate, Speed, Minimum, Maximum, "%.3f", Flags))
 		{
 			OnChange(Axis, Candidate);
@@ -272,6 +286,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh)
 {
 	FDetailsMeshResult MeshResult;
+
 	if (!ToolUI.BeginPanel("Details", &bOpen))
 	{
 		ToolUI.EndPanel();
@@ -298,6 +313,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const std::string SelectionText = std::to_string(SelectedCount) + " selected";
 	const bool bStartRename = !bDragging && (State.bRenameRequested || (!State.bRenaming && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F2, false)));
 	State.bRenameRequested = false;
+
 	if (bDragging)
 	{
 		State.bRenaming = false;
@@ -318,6 +334,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
 		const bool bCommit = ImGui::InputText("##ObjectLabel", State.RenameBuffer.data(), State.RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
 		ImGui::PopStyleColor();
+
 		if (bCancel || bCommit || (!bStartRename && ImGui::IsItemDeactivated()))
 		{
 			if (!bCancel)
@@ -331,6 +348,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	else
 	{
 		ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
+
 		if (!bDragging && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 		{
 			State.bRenameRequested = true;
@@ -396,6 +414,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	if (bTransform && DrawSectionHeader("Transform"))
 	{
 		ImGui::BeginDisabled(bDragging);
+
 		if (bLocation)
 		{
 			DrawTransformRow("Location", Translation, 0.01f, 0.f, 0.f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, [&](const int Axis, const float Candidate)
@@ -456,6 +475,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				if (State.bScaleLocked)
 				{
 					std::array Current{Scale.x, Scale.y, Scale.z};
+
 					if (TrySetProportionalPreviewScale(Current, static_cast<std::size_t>(Axis), Candidate))
 					{
 						Scale = {Current[0], Current[1], Current[2]};
@@ -498,10 +518,12 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		DrawCheckerThumbnail(ThumbnailPosition, ThumbnailSize);
 		ImGui::SameLine();
 		ImGui::BeginGroup();
+
 		if (Mesh != nullptr && !Mesh->Options.empty())
 		{
 			ImGui::BeginDisabled(bDragging);
 			ImGui::SetNextItemWidth(-FLT_MIN);
+
 			if (ImGui::BeginCombo("##PreviewMesh", MeshName.c_str()))
 			{
 				MeshResult.bOptionsOpened = ImGui::IsWindowAppearing();

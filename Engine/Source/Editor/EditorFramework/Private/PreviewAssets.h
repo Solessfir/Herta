@@ -30,11 +30,13 @@ struct FPreviewMeshSlot
 	FAssetId Asset;
 	std::string Label;
 	std::shared_ptr<const FRenderMesh> Mesh;
+
 	// Build key of Mesh, so a reimport that cooks the same key keeps the GPU copy.
 	FHash128 Key;
 	std::uint64_t ContentGeneration = 0;
 	bool bLoading = false;
 	std::string Error;
+
 	// Only the newest request for a slot may publish its result.
 	std::uint64_t Generation = 0;
 };
@@ -121,20 +123,27 @@ private:
 	FTaskSystem& Tasks;
 	IGraphicsDevice& Device;
 	FLogService& Log;
+
 	FEditorAssetPaths Paths;
 	std::vector<FMount> Mounts;
+
 	std::vector<FPreviewAssetOption> Options;
 	std::map<FAssetId, FLocation> Locations;
+
 	std::vector<FPreviewMeshSlot> Slots;
 	std::uint64_t ContentGeneration = 0;
+
 	bool bScanning = false;
 	bool bScanned = false;
+
 	std::vector<FContentSnapshot> Snapshots;
 	// One per mount. Only the scan task touches these, and RequestScan never overlaps two scans.
 	std::vector<FContentScanCache> ScanCaches;
+
 	std::chrono::steady_clock::time_point NextPoll;
 	bool bPolling = false;
 	bool bReimportAfterScan = false;
+
 	// Asset commands run on blocking-IO tasks, so they stay off the console, which executes on the main thread.
 	FEditorCommandRegistry AssetCommands;
 	std::size_t ImportsInFlight = 0;

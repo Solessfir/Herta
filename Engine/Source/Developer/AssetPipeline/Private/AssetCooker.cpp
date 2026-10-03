@@ -21,6 +21,7 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 [[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> ReadSource(const std::filesystem::path& Path)
 {
 	std::error_code Error;
+
 	if (std::filesystem::symlink_status(Path, Error).type() != std::filesystem::file_type::regular)
 	{
 		return std::unexpected(FAssetError{std::format("'{}' is missing or not a regular file", PathToUtf8(Path))});
@@ -43,6 +44,7 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 [[nodiscard]] std::expected<ETextureColorSpace, FAssetError> GetTextureColorSpace(const FAssetImportSettings& Settings)
 {
 	ETextureColorSpace ColorSpace = ETextureColorSpace::Srgb;
+
 	for (const auto& [Name, Value] : Settings)
 	{
 		if (Name != "ColorSpace" || (Value != "Srgb" && Value != "Linear"))
@@ -60,6 +62,7 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 [[nodiscard]] std::vector<std::byte> SerializeDependencyRecord(const std::vector<std::string>& Dependencies)
 {
 	std::string Text;
+
 	for (const std::string& Dependency : Dependencies)
 	{
 		Text += Dependency;
@@ -74,6 +77,7 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 {
 	std::vector<std::string> Dependencies;
 	const std::string_view Text(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
+
 	for (const auto Line : std::views::split(Text, '\n'))
 	{
 		const std::string_view Path(Line.begin(), Line.end());
@@ -149,6 +153,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	std::optional<FBlenderExport> BlenderExport;
 	FHash128 BlenderRecordKey;
 	std::expected<ETextureColorSpace, FAssetError> ColorSpace = ETextureColorSpace::Srgb;
+
 	if (Metadata->Importer == "Texture")
 	{
 		KeyInput.ImporterVersion = TextureImporterVersion;
@@ -161,6 +166,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	else if (Metadata->Importer == "Gltf")
 	{
 		KeyInput.ImporterVersion = GltfImporterVersion;
+
 		if (!Metadata->Settings.empty())
 		{
 			return std::unexpected(FAssetError{"The Gltf importer has no settings"});
@@ -186,6 +192,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	else if (Metadata->Importer == "Blender")
 	{
 		KeyInput.ImporterVersion = BlenderImporterVersion;
+
 		if (!Metadata->Settings.empty())
 		{
 			return std::unexpected(FAssetError{"The Blender importer has no settings"});
@@ -204,6 +211,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 		RecordInput.Importer = "Blender/Dependencies";
 		BlenderRecordKey = ComputeAssetBuildKey(RecordInput);
 		std::optional<std::vector<std::string>> Dependencies;
+
 		if (!Request.bForce)
 		{
 			std::expected<std::optional<std::vector<std::byte>>, FAssetError> Record = Cache.Get(BlenderRecordKey);
@@ -224,6 +232,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 			BlenderExport = std::move(*Exported);
 			Dependencies = BlenderExport->Dependencies;
 			std::ranges::move(BlenderExport->Warnings, std::back_inserter(Result.Warnings));
+
 			if (std::expected<void, FAssetError> Stored = Cache.Put(BlenderRecordKey, SerializeDependencyRecord(*Dependencies)); !Stored)
 			{
 				return std::unexpected(std::move(Stored.error()));
@@ -241,6 +250,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	}
 
 	Result.Key = ComputeAssetBuildKey(KeyInput);
+
 	if (!Request.bForce)
 	{
 		std::expected<std::optional<std::vector<std::byte>>, FAssetError> Cached = Cache.Get(Result.Key);
@@ -257,6 +267,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	}
 
 	std::expected<FCookedAsset, FAssetError> Cooked = std::unexpected(FAssetError{});
+
 	if (Metadata->Importer == "Texture")
 	{
 		std::expected<FCookedTexture, FAssetError> Texture = CookEncodedTexture(*Source, *ColorSpace);
@@ -279,8 +290,10 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 
 			BlenderExport = std::move(*Exported);
 			std::ranges::move(BlenderExport->Warnings, std::back_inserter(Result.Warnings));
+
 			// A changed linked library can introduce new images or libraries without changing the root .blend.
 			KeyInput.Dependencies.resize(1);
+
 			if (std::expected<void, FAssetError> Hashed = AppendDependencyHashes(Request.ContentRoot, BlenderExport->Dependencies, KeyInput.Dependencies); !Hashed)
 			{
 				return std::unexpected(std::move(Hashed.error()));

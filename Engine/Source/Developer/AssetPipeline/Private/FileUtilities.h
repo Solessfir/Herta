@@ -21,6 +21,7 @@ namespace Herta
 
 // Publishes a completed sibling file. Exclusive publication requires filesystem hard-link support.
 [[nodiscard]] std::expected<void, FAssetError> WriteFileAtomically(const std::filesystem::path& Path, std::span<const std::byte> Bytes, bool bReplaceExisting = true);
+
 // Returns nullopt when the file does not exist.
 [[nodiscard]] std::expected<std::optional<std::vector<std::byte>>, FAssetError> ReadWholeFile(const std::filesystem::path& Path, std::uint64_t MaximumSize);
 }

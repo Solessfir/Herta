@@ -77,6 +77,7 @@ using FCookedAsset = std::variant<FCookedTexture, FCookedModel>;
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedModel(const FCookedModel& Model);
 
 [[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FCookedAsset& Asset);
+
 // Validates every count, index, and dimension before allocating, so corrupt derived data cannot drive large allocations.
 [[nodiscard]] std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(std::span<const std::byte> Bytes);
 }

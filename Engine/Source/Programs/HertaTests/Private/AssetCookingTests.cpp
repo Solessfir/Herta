@@ -51,6 +51,7 @@ constexpr std::array<std::uint8_t, 16> CheckerPixels{255, 255, 255, 255, 0, 0, 0
 std::vector<std::byte> MakeQuadBuffer()
 {
 	FBinaryWriter Writer;
+
 	for (const float Value : {0.f, 0.f, 0.f, 1.f, 0.f, 0.f, 1.f, 1.f, 0.f, 0.f, 1.f, 0.f})
 	{
 		Writer.WriteFloat(Value);
@@ -86,6 +87,7 @@ FAssetCookRequest MakeRequest(const Tests::FScratchDirectory& Scratch, const std
 std::array<std::uint8_t, 4> Texel(const FCookedTextureMip& Mip, const std::size_t Index = 0)
 {
 	std::array<std::uint8_t, 4> Result{};
+
 	for (std::size_t Channel = 0; Channel < 4; ++Channel)
 	{
 		Result[Channel] = static_cast<std::uint8_t>(Mip.Pixels[Index * 4 + Channel]);
@@ -98,9 +100,11 @@ FCookedModel CookQuad(const Tests::FScratchDirectory& Scratch)
 {
 	const auto Result = CookAsset(MakeRequest(Scratch, "Models/Quad.gltf"));
 	REQUIRE(Result);
+
 	auto Asset = LoadCookedAsset(Scratch.GetPath() / "DerivedDataCache", Result->Key);
 	REQUIRE(Asset);
 	REQUIRE(std::holds_alternative<FCookedModel>(*Asset));
+
 	return std::get<FCookedModel>(std::move(*Asset));
 }
 }
@@ -181,6 +185,7 @@ TEST_CASE("Texture cooking filters mips in linear light")
 TEST_CASE("Texture mip filtering includes odd edges with proportional area weights")
 {
 	const std::array<std::uint8_t, 12> Edge{0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255};
+
 	for (const bool bVertical : {false, true})
 	{
 		const auto Texture = CookTexture(bVertical ? 1u : 3u, bVertical ? 3u : 1u, std::as_bytes(std::span(Edge)), ETextureColorSpace::Linear);
@@ -198,10 +203,12 @@ TEST_CASE("Texture mip filtering includes odd edges with proportional area weigh
 	CHECK(Texel(Fractional->Mips[2]) == std::array<std::uint8_t, 4>{51, 51, 51, 255});
 
 	std::array<std::uint8_t, 36> Corner{};
+
 	for (std::size_t Index = 3; Index < Corner.size(); Index += 4)
 	{
 		Corner[Index] = 255;
 	}
+
 	Corner[32] = Corner[33] = Corner[34] = 255;
 	const auto TwoDimensions = CookTexture(3, 3, std::as_bytes(std::span(Corner)), ETextureColorSpace::Linear);
 	REQUIRE(TwoDimensions);

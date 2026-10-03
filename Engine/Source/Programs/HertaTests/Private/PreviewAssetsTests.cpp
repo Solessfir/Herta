@@ -45,6 +45,7 @@ struct FPreviewAssetsFixture
 		auto LogResult = FLogService::Create({.bConsoleOutput = false, .bDebuggerOutput = false, .bFileOutput = false});
 		REQUIRE(LogResult);
 		Log = std::move(*LogResult);
+
 		auto TaskResult = FTaskSystem::Create({.bDeterministic = true, .Log = Log.get()});
 		REQUIRE(TaskResult);
 		Tasks = std::move(*TaskResult);
@@ -350,6 +351,7 @@ TEST_CASE("Engine content provides the 1 m preview cube with outward faces and u
 	REQUIRE(Model.Indices.size() == 36);
 	REQUIRE(Model.Textures.size() == 1);
 	CHECK(Model.Textures[0].Mips.size() == 10);
+
 	for (const FCookedVertex& Vertex : Model.Vertices)
 	{
 		for (const float Coordinate : Vertex.Position)

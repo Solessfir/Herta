@@ -140,6 +140,7 @@ public:
 	void AddMesh(const std::size_t MeshIndex, const fastgltf::math::fmat4x4& World)
 	{
 		const fastgltf::Mesh& Mesh = Asset.meshes[MeshIndex];
+
 		for (std::size_t PrimitiveIndex = 0; PrimitiveIndex < Mesh.primitives.size() && !Error; ++PrimitiveIndex)
 		{
 			AddPrimitive(Mesh, PrimitiveIndex, World);
@@ -160,15 +161,18 @@ public:
 
 		FCookedModel Model;
 		std::map<std::pair<std::size_t, std::array<float, 4>>, std::uint32_t> TextureLookup;
+
 		for (auto& [MaterialKey, Bucket] : Buckets)
 		{
 			FCookedMaterial Material{.Name = "Default", .BaseColorTexture = 0};
 			std::array<float, 4> Factor{1.f, 1.f, 1.f, 1.f};
 			std::optional<std::size_t> ImageIndex;
+
 			if (MaterialKey > 0)
 			{
 				const fastgltf::Material& Source = Asset.materials[MaterialKey - 1];
 				Material.Name = std::string(Source.name.begin(), Source.name.end()).substr(0, 256);
+
 				for (std::size_t Channel = 0; Channel < 4; ++Channel)
 				{
 					Factor[Channel] = static_cast<float>(Source.pbrData.baseColorFactor[Channel]);
@@ -195,6 +199,7 @@ public:
 			const auto VertexBase = static_cast<std::uint32_t>(Model.Vertices.size());
 			Model.Sections.push_back({.FirstIndex = static_cast<std::uint32_t>(Model.Indices.size()), .IndexCount = static_cast<std::uint32_t>(Bucket.Indices.size()), .Material = static_cast<std::uint32_t>(Model.Materials.size() - 1)});
 			Model.Vertices.insert(Model.Vertices.end(), Bucket.Vertices.begin(), Bucket.Vertices.end());
+
 			for (const std::uint32_t Index : Bucket.Indices)
 			{
 				Model.Indices.push_back(VertexBase + Index);
@@ -202,6 +207,7 @@ public:
 		}
 
 		Optimize(Model);
+
 		if (std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)
 		{
 			return std::unexpected(std::move(Valid.error()));
@@ -232,6 +238,7 @@ private:
 	{
 		const fastgltf::Primitive& Primitive = Mesh.primitives[PrimitiveIndex];
 		const std::string MeshName(Mesh.name.begin(), Mesh.name.end());
+
 		if (Primitive.type != fastgltf::PrimitiveType::Triangles)
 		{
 			Warn(std::format("Mesh '{}' primitive {} is not a triangle list and was skipped", MeshName, PrimitiveIndex));
@@ -260,6 +267,7 @@ private:
 		const std::size_t VertexCount = PositionAccessor.count;
 		FMaterialBucket& Bucket = Buckets[MaterialKey];
 		const std::size_t VertexBase = Bucket.Vertices.size();
+
 		if (VertexCount == 0 || VertexCount > MaximumVertices - TotalVertices)
 		{
 			Fail(std::format("Mesh '{}' primitive {} has an unsupported vertex count", MeshName, PrimitiveIndex));
@@ -280,6 +288,7 @@ private:
 		fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec3>(Asset, PositionAccessor, [&](const fastgltf::math::fvec3& Local, const std::size_t Index)
 		{
 			std::array<float, 3>& Target = Bucket.Vertices[VertexBase + Index].Position;
+
 			for (std::size_t Row = 0; Row < 3; ++Row)
 			{
 				Target[Row] = World[0][Row] * Local[0] + World[1][Row] * Local[1] + World[2][Row] * Local[2] + World[3][Row];
@@ -287,6 +296,7 @@ private:
 		});
 
 		const std::string TexCoordName = std::format("TEXCOORD_{}", TexCoordSet);
+
 		if (const auto* TexCoord = Primitive.findAttribute(TexCoordName); TexCoord != Primitive.attributes.end())
 		{
 			const fastgltf::Accessor& TexCoordAccessor = Asset.accessors[TexCoord->accessorIndex];
@@ -303,6 +313,7 @@ private:
 		}
 
 		const std::size_t IndexBase = Bucket.Indices.size();
+
 		if (Primitive.indicesAccessor)
 		{
 			bool bOutOfRange = false;
@@ -378,6 +389,7 @@ private:
 		meshopt_remapIndexBuffer(Model.Indices.data(), Model.Indices.data(), Model.Indices.size(), Remap.data());
 
 		std::vector<std::uint32_t> Optimized(Model.Indices.size());
+
 		for (const FCookedMeshSection& Section : Model.Sections)
 		{
 			meshopt_optimizeVertexCache(Optimized.data() + Section.FirstIndex, Model.Indices.data() + Section.FirstIndex, Section.IndexCount, Vertices.size());
@@ -391,6 +403,7 @@ private:
 
 	const fastgltf::Asset& Asset;
 	std::vector<std::string>& Warnings;
+
 	// Material index plus one, so the default material sorts first and the output order is deterministic.
 	std::map<std::size_t, FMaterialBucket> Buckets;
 	std::size_t TotalVertices = 0;
@@ -458,6 +471,7 @@ std::expected<FCookedModel, FAssetError> CookGltf(const std::filesystem::path& C
 	}
 
 	const fastgltf::Asset& Asset = *Parsed;
+
 	for (const fastgltf::Buffer& Buffer : Asset.buffers)
 	{
 		if (GetBufferBytes(Buffer).size() < Buffer.byteLength)
@@ -467,6 +481,7 @@ std::expected<FCookedModel, FAssetError> CookGltf(const std::filesystem::path& C
 	}
 
 	FGltfModelBuilder Builder(Asset, Warnings);
+
 	if (Asset.scenes.empty())
 	{
 		for (std::size_t MeshIndex = 0; MeshIndex < Asset.meshes.size(); ++MeshIndex)

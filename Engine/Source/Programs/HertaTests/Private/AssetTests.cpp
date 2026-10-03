@@ -80,6 +80,7 @@ FAssetBuildKeyInput MakeBuildKeyInput()
 	Input.Dependencies = {{.Path = "Meshes/Cube.bin", .ContentHash = HashBytes(AsBytes("buffer"))}, {.Path = "Textures/Wood.png", .ContentHash = HashBytes(AsBytes("image"))}};
 	Input.TargetPlatform = "windows";
 	Input.CookedFormatVersion = 1;
+
 	return Input;
 }
 }
@@ -118,6 +119,7 @@ TEST_CASE("Asset paths must be relative and portable")
 {
 	CHECK(IsValidAssetPath("Meshes/Cube.glb"));
 	CHECK(IsValidAssetPath("Textures/\xc3\x9cmlaut.png"));
+
 	for (const std::string_view Path : {"", "/Meshes/Cube.glb", "Meshes//Cube.glb", "Meshes/./Cube.glb", "../Cube.glb", "Meshes\\Cube.glb", "C:/Cube.glb", "Cube.", "Cube ", "Meshes/", "Cube?.glb", "Cu\tbe.glb"})
 	{
 		const std::string PathText(Path);
@@ -253,9 +255,11 @@ TEST_CASE("Asset build keys cover every input")
 	FAssetBuildKeyInput Left = Base;
 	Left.SourcePath = "ab";
 	Left.Importer = "c";
+
 	FAssetBuildKeyInput Right = Base;
 	Right.SourcePath = "a";
 	Right.Importer = "bc";
+
 	CHECK(ComputeAssetBuildKey(Left) != ComputeAssetBuildKey(Right));
 }
 
@@ -295,6 +299,7 @@ TEST_CASE("Derived data cache entries are atomic and validated")
 		Stream.seekp(40);
 		Stream.put('X');
 	}
+
 	CHECK_FALSE(Cache.Get(Key));
 
 	std::filesystem::resize_file(Cache.GetEntryPath(Key), 10);
@@ -306,6 +311,7 @@ TEST_CASE("Importable extensions cover every importer and drive the import dialo
 	const std::vector<std::string_view> Extensions = GetImportableExtensions();
 	CHECK(std::ranges::find(Extensions, ".blend") != Extensions.end());
 	CHECK(std::ranges::find(Extensions, ".gltf") != Extensions.end());
+
 	for (const std::string_view Extension : Extensions)
 	{
 		CHECK(Extension.starts_with('.'));
@@ -373,6 +379,7 @@ TEST_CASE("Content scans register sources and report problems")
 	CHECK(Scan->UnregisteredSources == std::vector<std::string>{"Textures/Wood.png"});
 
 	std::vector<std::string> ErrorPaths;
+
 	for (const FContentDiagnostic& Diagnostic : Scan->Errors)
 	{
 		ErrorPaths.push_back(Diagnostic.Path);
@@ -437,9 +444,11 @@ TEST_CASE("Concurrent imports never replace a winning source or sidecar")
 	{
 		Payloads[Index] = std::string(1024 * 1024, static_cast<char>('a' + Index));
 		WriteText(Scratch.Path / std::to_string(Index) / "Shared.png", Payloads[Index]);
+
 		Threads[Index] = std::jthread([&, Index]
 		{
 			Start.arrive_and_wait();
+
 			if (auto Imported = ImportSource(Root, Scratch.Path / std::to_string(Index) / "Shared.png", "Textures"))
 			{
 				Results[Index] = std::move(*Imported);
@@ -456,14 +465,17 @@ TEST_CASE("Concurrent imports never replace a winning source or sidecar")
 	{
 		return Result.has_value();
 	}) == 1);
+
 	const auto Winner = std::ranges::find_if(Results, [](const auto& Result)
 	{
 		return Result.has_value();
 	});
+
 	const std::size_t WinnerIndex = static_cast<std::size_t>(Winner - Results.begin());
 	std::ifstream Source(Root / "Textures/Shared.png", std::ios::binary);
 	const std::string Published{std::istreambuf_iterator<char>(Source), std::istreambuf_iterator<char>()};
 	CHECK(Published == Payloads[WinnerIndex]);
+
 	const auto Scan = ScanContentRoot(Root);
 	REQUIRE(Scan);
 	CHECK(Scan->Errors.empty());
@@ -522,6 +534,7 @@ TEST_CASE("Asset commands run headlessly against a content root")
 	const auto Cached = Registry.Execute("asset.reimport \"Textures/Wood Planks.png\"");
 	REQUIRE(Cached);
 	CHECK(Cached->Message.ends_with("(cache hit)"));
+
 	const auto Forced = Registry.Execute("asset.reimport \"Textures/Wood Planks.png\" --force");
 	REQUIRE(Forced);
 	CHECK(Forced->Message.ends_with("(cooked)"));

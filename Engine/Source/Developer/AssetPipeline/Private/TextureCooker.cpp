@@ -277,6 +277,7 @@ inline constexpr std::array<std::uint16_t, 256> SrgbToLinear{
 inline constexpr auto LinearThresholds = []()
 {
 	std::array<std::uint32_t, 255> Result{};
+
 	for (std::size_t Index = 0; Index < Result.size(); ++Index)
 	{
 		Result[Index] = (std::uint32_t{SrgbToLinear[Index]} + SrgbToLinear[Index + 1] + 1) / 2;
@@ -301,6 +302,7 @@ struct FWideImage
 [[nodiscard]] FWideImage Widen(const std::uint32_t Width, const std::uint32_t Height, const std::span<const std::byte> Pixels, const ETextureColorSpace ColorSpace, const std::array<float, 4>& Factor)
 {
 	FWideImage Image{.Width = Width, .Height = Height, .Texels = std::vector<std::uint16_t>(Pixels.size())};
+
 	for (std::size_t Index = 0; Index < Pixels.size(); ++Index)
 	{
 		const std::size_t Channel = Index % 4;
@@ -315,6 +317,7 @@ struct FWideImage
 [[nodiscard]] FCookedTextureMip Narrow(const FWideImage& Image, const ETextureColorSpace ColorSpace)
 {
 	FCookedTextureMip Mip{.Width = Image.Width, .Height = Image.Height, .Pixels = std::vector<std::byte>(Image.Texels.size())};
+
 	for (std::size_t Index = 0; Index < Image.Texels.size(); ++Index)
 	{
 		const std::uint32_t Value = Image.Texels[Index];
@@ -331,20 +334,25 @@ struct FWideImage
 	FWideImage Target{.Width = std::max(1u, Source.Width / 2), .Height = std::max(1u, Source.Height / 2), .Texels = {}};
 	Target.Texels.resize(std::size_t{Target.Width} * Target.Height * 4);
 	const std::uint64_t TotalWeight = std::uint64_t{Source.Width} * Source.Height;
+
 	for (std::uint32_t Y = 0; Y < Target.Height; ++Y)
 	{
 		const std::uint32_t YBegin = Y * Source.Height;
 		const std::uint32_t YEnd = (Y + 1) * Source.Height;
+
 		for (std::uint32_t X = 0; X < Target.Width; ++X)
 		{
 			const std::uint32_t XBegin = X * Source.Width;
 			const std::uint32_t XEnd = (X + 1) * Source.Width;
+
 			for (std::size_t Channel = 0; Channel < 4; ++Channel)
 			{
 				std::uint64_t Sum = 0;
+
 				for (std::uint32_t SourceY = YBegin / Target.Height; SourceY * Target.Height < YEnd; ++SourceY)
 				{
 					const std::uint32_t YWeight = std::min(YEnd, (SourceY + 1) * Target.Height) - std::max(YBegin, SourceY * Target.Height);
+
 					for (std::uint32_t SourceX = XBegin / Target.Width; SourceX * Target.Width < XEnd; ++SourceX)
 					{
 						const std::uint32_t XWeight = std::min(XEnd, (SourceX + 1) * Target.Width) - std::max(XBegin, SourceX * Target.Width);
@@ -383,6 +391,7 @@ std::expected<FCookedTexture, FAssetError> CookTexture(const std::uint32_t Width
 
 	FCookedTexture Texture{.ColorSpace = ColorSpace, .Mips = {}};
 	FWideImage Image = Widen(Width, Height, RgbaPixels, ColorSpace, Factor);
+
 	while (true)
 	{
 		if (Image.Width <= MaximumCookedTextureDimension && Image.Height <= MaximumCookedTextureDimension)

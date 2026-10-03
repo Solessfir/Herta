@@ -48,6 +48,7 @@ inline constexpr const char* NestedProcessDirectory = "HERTA_PROCESS_TEST_DIRECT
 	std::ifstream Stream(Path);
 	pid_t Process = 0;
 	Stream >> Process;
+
 	return Process;
 }
 
@@ -57,6 +58,7 @@ inline constexpr const char* NestedProcessDirectory = "HERTA_PROCESS_TEST_DIRECT
 	{
 		return false;
 	}
+
 	std::ifstream Stream(std::filesystem::path("/proc") / std::to_string(Process) / "stat");
 	std::string Status;
 	std::getline(Stream, Status);
@@ -67,10 +69,12 @@ inline constexpr const char* NestedProcessDirectory = "HERTA_PROCESS_TEST_DIRECT
 [[nodiscard]] bool WaitForProcessExit(const pid_t Process)
 {
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+
 	while (IsProcessRunning(Process) && std::chrono::steady_clock::now() < Deadline)
 	{
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
+
 	return !IsProcessRunning(Process);
 }
 
@@ -84,6 +88,7 @@ public:
 		{
 			PreviousDirectory = Previous;
 		}
+
 		Tests::WriteText(Scratch.GetPath() / "Mode", Mode);
 		(void)setenv(NestedProcessDirectory, Scratch.GetPath().c_str(), 1);
 	}
@@ -93,12 +98,14 @@ public:
 		for (const std::string_view Name : {"Worker", "Child"})
 		{
 			const pid_t Process = ReadProcessId(Scratch.GetPath() / Name);
+
 			if (IsProcessRunning(Process))
 			{
 				kill(-Process, SIGKILL);
 				kill(Process, SIGKILL);
 			}
 		}
+
 		if (PreviousDirectory)
 		{
 			(void)setenv(NestedProcessDirectory, PreviousDirectory->c_str(), 1);
@@ -212,12 +219,14 @@ TEST_CASE("Nested process test child" * doctest::skip())
 	{
 		return;
 	}
+
 	const std::filesystem::path Root(Directory);
 	std::ifstream ModeStream(Root / "Mode");
 	std::string Mode;
 	ModeStream >> Mode;
 	Tests::WriteText(Root / "Worker", std::to_string(getpid()));
 	FProcessRequest Child{.Executable = "/bin/sh", .Arguments = {"-c", "echo $$ > \"$1\"; exec /bin/sleep 30", "sh", (Root / "Child").string()}, .Timeout = std::chrono::seconds(10)};
+
 	if (Mode == "inner-timeout")
 	{
 		Child.Timeout = std::chrono::milliseconds(200);
@@ -228,7 +237,9 @@ TEST_CASE("Nested process test child" * doctest::skip())
 		{
 			return ReadProcessId(Root / "Child") > 0;
 		};
+
 	}
+
 	const auto Result = RunProcess(Child);
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Code == (Mode == "inner-cancel" ? EProcessErrorCode::Cancelled : EProcessErrorCode::TimedOut));
@@ -239,18 +250,22 @@ TEST_CASE("Cancelling or timing out a process kills nested RunProcess launches")
 	FNestedProcessFiles Files("outer");
 	FProcessRequest Request = Files.MakeRequest();
 	EProcessErrorCode Expected = EProcessErrorCode::Cancelled;
+
 	SUBCASE("Cancellation")
 	{
 		Request.ShouldCancel = [&Files]
 		{
 			return Files.GetChild() > 0;
 		};
+
 	}
+
 	SUBCASE("Timeout")
 	{
 		Request.Timeout = std::chrono::seconds(2);
 		Expected = EProcessErrorCode::TimedOut;
 	}
+
 	const auto Result = RunProcess(Request);
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Code == Expected);
@@ -261,14 +276,17 @@ TEST_CASE("Cancelling or timing out a process kills nested RunProcess launches")
 TEST_CASE("Nested process timeouts and cancellation leave their caller alive")
 {
 	std::string_view Mode;
+
 	SUBCASE("Timeout")
 	{
 		Mode = "inner-timeout";
 	}
+
 	SUBCASE("Cancellation")
 	{
 		Mode = "inner-cancel";
 	}
+
 	FNestedProcessFiles Files(Mode);
 	const auto Result = RunProcess(Files.MakeRequest());
 	REQUIRE(Result);
@@ -288,12 +306,15 @@ TEST_CASE("Exiting the spawning thread kills its process and nested launches")
 		{
 			pthread_exit(nullptr);
 		}
+
 		return false;
 	};
+
 	std::thread Thread([&Request]
 	{
 		(void)RunProcess(Request);
 	});
+
 	Thread.join();
 	REQUIRE(Files.GetChild() > 0);
 	REQUIRE(Files.GetWorker() > 0);
