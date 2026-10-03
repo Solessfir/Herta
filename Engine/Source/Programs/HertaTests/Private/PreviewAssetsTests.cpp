@@ -100,7 +100,8 @@ TEST_CASE("Preview assets scan Engine and Game content and publish cooked meshes
 	Assets->RequestMesh(1, RobotId);
 	Fixture.Tasks->RunUntilIdle();
 	CHECK_FALSE(Assets->GetSlot(1).Mesh);
-	CHECK(Assets->GetSlot(1).Error.find("not available yet") != std::string::npos);
+	// The fake .blend fails whether or not Blender is installed, and a failed load clears the mesh.
+	CHECK(Assets->GetSlot(1).Error.find("Blender") != std::string::npos);
 
 	Assets->RequestMesh(1, FAssetId(0x1, 0x2));
 	CHECK_FALSE(Assets->GetSlot(1).bLoading);

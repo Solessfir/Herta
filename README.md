@@ -8,7 +8,7 @@ The architecture takes inspiration from Unreal Engine's runtime and tooling boun
 
 ## Status
 
-Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and an interactive editor Viewport with reversed-Z, camera navigation, transform gizmos, and depth-tested debug drawing. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is in progress: stable asset IDs, metadata sidecars, the content registry, build keys, DerivedDataCache, texture and glTF cooking in an isolated worker process, headless asset commands, and editor mesh previews are implemented. Blender import, live reimport, and the game runtime have not started.
+Milestones 0 through 2.5 are implemented. Herta includes RHI graphics resources, submission-based frame retirement, RenderGraph, Slang shader cooking, and an interactive editor Viewport with reversed-Z, camera navigation, transform gizmos, and depth-tested debug drawing. The editor retains docking, platform viewports, Output Log, and a separate display-independent command host. Milestone 3 - Asset pipeline is in progress: stable asset IDs, metadata sidecars, the content registry, build keys, DerivedDataCache, texture, glTF, and Blender cooking in an isolated worker process, headless asset commands, and editor mesh previews are implemented. Live reimport and the game runtime have not started.
 
 The current architecture and implementation roadmap are documented in [EngineDesign.md](Docs/EngineDesign.md). The initial editor visual and interaction baseline is documented in [EditorStyle.md](Docs/EditorStyle.md).
 
@@ -47,7 +47,7 @@ HertaEditorCmd asset.list
 HertaEditorCmd asset.validate
 ```
 
-Every asset command accepts `--content-root <path>`. Import a `.gltf` with separate files by copying its folder into content first, then running `asset.import` on the copied file.
+Every asset command accepts `--content-root <path>`. Import a `.gltf` with separate files by copying its folder into content first, then running `asset.import` on the copied file. `.blend` files import the same way when Blender is installed; set `HERTA_BLENDER` to its executable if it is not found automatically. Keep textures a `.blend` references inside the content root.
 
 In the editor, select an object and choose a model or texture from **Static Mesh** in Details, which lists `Engine/` and `Game/` content. It cooks in the background and replaces the mesh between frames; textures preview on a 1 m cube. Picking, outlines, focus, bounds, and Simulate use the loaded mesh's bounds. Choices are not saved yet. See [AssetPipeline.md](Docs/AssetPipeline.md) for the metadata format, cooking rules, cooked formats, build keys, and DerivedDataCache layout.
 

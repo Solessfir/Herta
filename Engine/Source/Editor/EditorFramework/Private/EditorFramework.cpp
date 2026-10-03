@@ -1583,7 +1583,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		const FPreviewMeshSlot& Slot = Assets->GetSlot(static_cast<std::size_t>(std::max(PreviewSelection.Active, 0)));
 		for (const FPreviewAssetOption& Option : Assets->GetOptions())
 		{
-			if (Option.Importer != "Gltf" && Option.Importer != "Texture")
+			if (Option.Importer != "Gltf" && Option.Importer != "Blender" && Option.Importer != "Texture")
 			{
 				continue;
 			}

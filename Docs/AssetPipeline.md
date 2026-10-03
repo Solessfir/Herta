@@ -1,6 +1,6 @@
 # Herta Asset Pipeline
 
-Status: Milestone 3 in progress - asset identity, metadata, registry, build keys, DerivedDataCache, texture and glTF cooking in an isolated worker, headless commands, and editor mesh previews are implemented. Blender import, file watching, live reimport, and search are next.
+Status: Milestone 3 in progress - asset identity, metadata, registry, build keys, DerivedDataCache, texture, glTF, and Blender cooking in an isolated worker, headless commands, and editor mesh previews are implemented. File watching, live reimport, and search are next.
 
 This document records the contracts that later importers, cookers, and editor jobs build on. The roadmap lives in [EngineDesign.md](EngineDesign.md).
 
@@ -104,7 +104,7 @@ On success the worker exits with 0 and prints `HertaAssetCook/1`, `Key <hex>`, `
 |---|---|---|---|
 | `Texture` | 1 | `ColorSpace = Srgb` (default) or `Linear` | Cooked texture |
 | `Gltf` | 1 | None | Cooked model |
-| `Blender` | - | - | Not available yet |
+| `Blender` | 1 | None | Cooked model, through a GLB export |
 
 Unknown settings are errors, so a typo never silently cooks with defaults. Bump an importer's version whenever its output changes for the same input, and bump `CookedAssetFormatVersion` when any cooked layout changes. Both are part of the build key.
 
@@ -126,6 +126,16 @@ glTF 2.0 `.gltf` and `.glb` sources are parsed with fastgltf and validated befor
 - Only positions and the texture coordinate set used by the base color texture are kept. Normals and tangents are not cooked yet; the mesh shader derives flat normals instead.
 - Non-triangle primitives are skipped with a warning. An image that cannot be decoded is replaced by its factor with a warning.
 - `KHR_mesh_quantization` is supported. Any other required extension, such as Draco compression, fails the cook instead of producing wrong data.
+
+### Blender
+
+`.blend` sources are imported through a system Blender install, which Herta detects but never downloads. `FindBlender` uses `HERTA_BLENDER` when set, otherwise the newest `Blender Foundation` install under Program Files on Windows, or `blender` on `PATH` on Linux. Without Blender, Herta builds, runs, and cooks everything else; only `.blend` cooks fail, with a message naming `HERTA_BLENDER`.
+
+Inside `HertaAssetWorker`, Herta runs `blender --background --factory-startup --disable-autoexec` with a fixed export script. Factory startup ignores user add-ons and preferences, and disabling autoexec keeps scripts embedded in the `.blend` from running. The script exports a GLB with modifiers applied, Y-up axes, embedded images in their source encoding, and no cameras, lights, animations, or extras. The GLB then goes through the glTF cooker above, so both importers produce identical models for the same scene. Blender's export runs within a 5 minute limit.
+
+The build key includes the Blender version and every external image or linked library the `.blend` uses. Those dependencies are only known after Blender opens the file, so the first export stores them in a small DerivedDataCache record keyed by the `.blend` and Blender version. Later cooks read the record, hash the listed files, and hit the cache without starting Blender. Editing a texture beside the `.blend` changes the key; a missing dependency hashes to zero, so adding it later also recooks. Packed images live in the `.blend` itself. A dependency outside the content root fails the cook.
+
+The same source, Blender version, and settings export identical GLB bytes, so cooked hashes are reproducible. Updating Blender changes the key and recooks `.blend` assets.
 
 External buffer and image URIs must be relative and stay inside the content root. They are resolved before the loader reads any file, so a crafted glTF cannot read arbitrary files. Each one becomes a build-key dependency, so editing a `.bin` or texture invalidates the cooked model.
 

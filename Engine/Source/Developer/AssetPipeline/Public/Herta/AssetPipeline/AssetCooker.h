@@ -18,6 +18,8 @@ namespace Herta
 // Bump an importer version whenever its output changes for the same source and settings.
 inline constexpr std::uint32_t TextureImporterVersion = 1;
 inline constexpr std::uint32_t GltfImporterVersion = 1;
+// Also covers the Herta export preset script run inside Blender.
+inline constexpr std::uint32_t BlenderImporterVersion = 1;
 
 struct FAssetCookRequest
 {

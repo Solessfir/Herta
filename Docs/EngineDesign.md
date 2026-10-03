@@ -1508,6 +1508,7 @@ Implemented so far:
 - RGBA8 texture cooking with linear-light mips, and glTF cooking that flattens the default scene into one static model with sections per material.
 - Cooking runs in the `HertaAssetWorker` process, launched through Platform's process API with timeouts and cancellation.
 - Headless `asset.validate`, `asset.list`, `asset.import`, and `asset.reimport` commands.
+- Optional `.blend` import through a detected system Blender, exported headlessly to GLB with a fixed preset and cached by Blender version and external dependencies.
 - Asynchronous editor mesh previews that publish GPU uploads between frames.
 
 Content lives in `Games/Sandbox/Content` until projects exist. Block compression follows measurement. See [AssetPipeline.md](AssetPipeline.md).
