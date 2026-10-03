@@ -217,7 +217,7 @@ void DrawLockButton(bool& bLocked)
 }
 
 template <typename Change, typename ChangeRow>
-bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Speed, const float Minimum, const float Maximum, const float Reset, EDetailsTransformSpace& Space, const ETransformClipboardFormat ClipboardFormat, Change&& OnChange, ChangeRow&& OnRowChange, bool* const bLocked = nullptr)
+bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Speed, const float Minimum, const float Maximum, const float Reset, EDetailsTransformSpace& Space, const ETransformClipboardFormat ClipboardFormat, const char* const Format, Change&& OnChange, ChangeRow&& OnRowChange, bool* const bLocked = nullptr)
 {
 	ImGui::PushID(Label);
 	const float Scale = ImGui::GetFontSize() / 15.f;
@@ -259,7 +259,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 		float Candidate = Value[Axis];
 		const ImGuiSliderFlags Flags = Minimum < Maximum ? ImGuiSliderFlags_AlwaysClamp : 0;
 
-		if (DrawNumericDragFloat("##Value", &Candidate, Speed, Minimum, Maximum, "%.3f", Flags))
+		if (DrawNumericDragFloat("##Value", &Candidate, Speed, Minimum, Maximum, Format, Flags))
 		{
 			OnChange(Axis, Candidate);
 		}
@@ -417,7 +417,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bLocation)
 		{
-			DrawTransformRow("Location", Translation, 0.01f, 0.f, 0.f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, [&](const int Axis, const float Candidate)
+			DrawTransformRow("Location", Translation, 0.01f, 0.f, 0.f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, "%.3f m", [&](const int Axis, const float Candidate)
 			{
 				if (std::isfinite(Candidate))
 				{
@@ -436,7 +436,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		}
 
 		Im3d::Vec3 RotationDegrees = Im3d::ToEulerXYZ(Rotation) * (180.f / std::numbers::pi_v<float>);
-		const bool bRotationReset = bRotation && DrawTransformRow("Rotation", RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, [&](const int Axis, const float Candidate)
+		const bool bRotationReset = bRotation && DrawTransformRow("Rotation", RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, "%.3f°", [&](const int Axis, const float Candidate)
 		{
 			if (std::isfinite(Candidate))
 			{
@@ -465,7 +465,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bScale)
 		{
-			DrawTransformRow("Scale", Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, 1.f, State.Spaces[2], ETransformClipboardFormat::XYZ, [&](const int Axis, const float Candidate)
+			DrawTransformRow("Scale", Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, 1.f, State.Spaces[2], ETransformClipboardFormat::XYZ, "%.3f", [&](const int Axis, const float Candidate)
 			{
 				if (!std::isfinite(Candidate) || Candidate < MinimumPreviewScale || Candidate > MaximumPreviewScale)
 				{

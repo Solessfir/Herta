@@ -223,7 +223,7 @@ bool DrawNumericDragFloat(const char* const Label, float* const Value, const flo
 
 bool DrawNumericSliderFloat(const char* const Label, float* const Value, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags)
 {
-	return DrawNumericField(Label, Value, Minimum, Maximum, true, false, [&]
+	return DrawNumericField(Label, Value, Minimum, Maximum, true, true, [&]
 	{
 		return ImGui::SliderFloat(Label, Value, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
 	});

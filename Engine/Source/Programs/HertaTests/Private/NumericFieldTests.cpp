@@ -22,6 +22,7 @@ struct FNumericFieldTestContext
 	ImGuiSliderFlags Flags = ImGuiSliderFlags_AlwaysClamp;
 	bool bTextEditing = false;
 	bool bRequestFocus = false;
+	bool bSlider = false;
 
 	FNumericFieldTestContext()
 	{
@@ -80,7 +81,7 @@ struct FNumericFieldTestContext
 			ImGui::BeginDisabled();
 		}
 
-		const bool bChanged = DrawNumericDragFloat("##Value", &Value, 0.1f, Minimum, Maximum, "%.3f", Flags);
+		const bool bChanged = bSlider ? DrawNumericSliderFloat("##Value", &Value, Minimum, Maximum, "%.3f", Flags) : DrawNumericDragFloat("##Value", &Value, 0.1f, Minimum, Maximum, "%.3f", Flags);
 		bTextEditing = ImGui::IsItemActive() && GImGui->InputTextState.ID == ImGui::GetItemID();
 		if (bDisabled)
 		{
@@ -150,6 +151,49 @@ TEST_CASE("Numeric field opens text entry on single click release without a mous
 	Io.AddKeyEvent(ImGuiKey_Enter, true);
 	CHECK(Test.Frame(Value));
 	CHECK(Value == doctest::Approx(5.f));
+}
+
+TEST_CASE("Numeric slider opens expression entry on single click release")
+{
+	FNumericFieldTestContext Test;
+	Test.bSlider = true;
+	float Value = 50.f;
+	Test.Frame(Value);
+	Test.MoveToField();
+	ImGuiIO& Io = ImGui::GetIO();
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	Test.Frame(Value);
+	CHECK_FALSE(Test.bTextEditing);
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	Test.Frame(Value);
+	Test.Frame(Value);
+	CHECK(Test.bTextEditing);
+	CHECK_FALSE(GImGui->NavCursorVisible);
+	Io.AddInputCharactersUTF8("10/2");
+	Test.Frame(Value);
+	Io.AddKeyEvent(ImGuiKey_Enter, true);
+	CHECK(Test.Frame(Value));
+	CHECK(Value == doctest::Approx(5.f));
+}
+
+TEST_CASE("Numeric slider still drags without entering text")
+{
+	FNumericFieldTestContext Test;
+	Test.bSlider = true;
+	float Value = 50.f;
+	Test.Frame(Value);
+	Test.MoveToField();
+	Test.Frame(Value);
+	ImGuiIO& Io = ImGui::GetIO();
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	Test.Frame(Value);
+	Io.AddMousePosEvent(Test.FieldCenter.x + 30.f, Test.FieldCenter.y);
+	CHECK(Test.Frame(Value));
+	CHECK(Value > 50.f);
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	Test.Frame(Value);
+	Test.Frame(Value);
+	CHECK_FALSE(Test.bTextEditing);
 }
 
 TEST_CASE("Unbounded location-style numeric field drags in either direction without entering text")

@@ -1360,11 +1360,11 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		{
 			Toggle("Snap to grid", bSnapEnabled, "S");
 			ImGui::BeginDisabled(!bSnapEnabled);
-			DrawFieldLabel("Translation (m)", ValueWidth);
-			DrawNumericDragFloat("##SnapTranslation", &TranslationSnap, 0.05f, 0.001f, 100.f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+			DrawFieldLabel("Translation", ValueWidth);
+			DrawNumericDragFloat("##SnapTranslation", &TranslationSnap, 0.05f, 0.001f, 100.f, "%.3f m", ImGuiSliderFlags_AlwaysClamp);
 			TranslationSnap = std::isfinite(TranslationSnap) ? std::clamp(TranslationSnap, 0.001f, 100.f) : 0.5f;
-			DrawFieldLabel("Rotation (deg)", ValueWidth);
-			DrawNumericDragFloat("##SnapRotation", &RotationSnapDegrees, 1.f, 0.1f, 180.f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+			DrawFieldLabel("Rotation", ValueWidth);
+			DrawNumericDragFloat("##SnapRotation", &RotationSnapDegrees, 1.f, 0.1f, 180.f, "%.1f°", ImGuiSliderFlags_AlwaysClamp);
 			DrawFieldLabel("Scale", ValueWidth);
 			DrawNumericDragFloat("##SnapScale", &ScaleSnap, 0.01f, 0.001f, 10.f, "%.3f", ImGuiSliderFlags_AlwaysClamp);
 			RotationSnapDegrees = std::isfinite(RotationSnapDegrees) ? std::clamp(RotationSnapDegrees, 0.1f, 180.f) : 15.f;
@@ -1375,17 +1375,17 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		if (Section("Camera"))
 		{
 			float MovementSpeed = ViewportCamera.GetMovementSpeed();
-			DrawFieldLabel("Speed (m/s)", ValueWidth);
+			DrawFieldLabel("Speed", ValueWidth);
 
-			if (DrawNumericSliderFloat("##CameraSpeed", &MovementSpeed, 0.1f, 100.f, "%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+			if (DrawNumericSliderFloat("##CameraSpeed", &MovementSpeed, 0.1f, 100.f, "%.1f m/s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
 			{
 				ViewportCamera.SetMovementSpeed(MovementSpeed);
 			}
 
 			float Sensitivity = ViewportCamera.GetMouseSensitivity() * 180.f / std::numbers::pi_v<float>;
-			DrawFieldLabel("Look (deg/pixel)", ValueWidth);
+			DrawFieldLabel("Look", ValueWidth);
 
-			if (DrawNumericSliderFloat("##CameraLook", &Sensitivity, 0.02f, 1.f, "%.2f", ImGuiSliderFlags_AlwaysClamp))
+			if (DrawNumericSliderFloat("##CameraLook", &Sensitivity, 0.02f, 1.f, "%.2f°/px", ImGuiSliderFlags_AlwaysClamp))
 			{
 				ViewportCamera.SetMouseSensitivity(Sensitivity * std::numbers::pi_v<float> / 180.f);
 			}
