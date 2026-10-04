@@ -2,15 +2,164 @@
 #include "PreviewScene.h"
 
 #include <doctest/doctest.h>
+#include <imgui_internal.h>
 
 #include <array>
 #include <cstdio>
 #include <initializer_list>
 #include <numeric>
+#include <ostream>
 #include <vector>
 
 namespace Herta
 {
+namespace
+{
+struct FOutlinerRenameTestContext
+{
+	FOutlinerRenameTestContext();
+	~FOutlinerRenameTestContext();
+	FOutlinerRenameTestContext(const FOutlinerRenameTestContext&) = delete;
+	FOutlinerRenameTestContext& operator=(const FOutlinerRenameTestContext&) = delete;
+	FOutlinerRenameTestContext(FOutlinerRenameTestContext&&) = delete;
+	FOutlinerRenameTestContext& operator=(FOutlinerRenameTestContext&&) = delete;
+
+	void Frame(int RenameRow, bool bStartRename = false);
+
+	ImGuiContext* Previous = ImGui::GetCurrentContext();
+	ImGuiContext* Context = ImGui::CreateContext();
+	FOutlinerPanelState State;
+	bool bRenameActive = false;
+};
+
+FOutlinerRenameTestContext::FOutlinerRenameTestContext()
+{
+	ImGui::SetCurrentContext(Context);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {640.f, 480.f};
+	IO.DeltaTime = 1.f / 60.f;
+	IO.IniFilename = nullptr;
+	IO.ConfigInputTrickleEventQueue = false;
+	IO.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+	IO.Fonts->AddFontDefault();
+	std::snprintf(State.RenameBuffer.data(), State.RenameBuffer.size(), "%s", "Cube");
+}
+
+FOutlinerRenameTestContext::~FOutlinerRenameTestContext()
+{
+	ImGui::DestroyContext(Context);
+	ImGui::SetCurrentContext(Previous);
+}
+
+void FOutlinerRenameTestContext::Frame(const int RenameRow, const bool bStartRename)
+{
+	if (bStartRename)
+	{
+		State.bRenaming = true;
+	}
+
+	bRenameActive = false;
+	ImGui::NewFrame();
+	ImGui::SetNextWindowPos({20.f, 20.f});
+	ImGui::SetNextWindowSize({500.f, 360.f});
+	ImGui::Begin("Outliner rename test host", nullptr, ImGuiWindowFlags_NoSavedSettings);
+	if (ImGui::BeginChild("Entries"))
+	{
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f, 2.f});
+		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8.f, 6.f});
+		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.f, 8.f});
+		if (ImGui::BeginTable("Objects", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX))
+		{
+			ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 105.f);
+			ImGui::TableHeadersRow();
+
+			for (int Row = 0; Row < 3; ++Row)
+			{
+				ImGui::PushID(Row);
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				const bool bRenamingRow = Row == RenameRow && State.bRenaming;
+				if (bRenamingRow)
+				{
+					ImGui::SetNextItemAllowOverlap();
+				}
+
+				ImGui::Selectable("##Object", Row == RenameRow, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick);
+				if (bRenamingRow)
+				{
+					const ImVec2 Minimum = ImGui::GetItemRectMin();
+					const ImVec2 Maximum = ImGui::GetItemRectMax();
+					const float LabelX = Minimum.x + 24.f;
+					const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
+					const float Width = ImGui::GetCurrentTable()->Columns[0].WorkMaxX - LabelX;
+					DrawOutlinerRenameField(State, {LabelX, CenterY - ImGui::GetFrameHeight() * 0.5f}, Width, bStartRename);
+					bRenameActive = ImGui::IsItemActive();
+					CHECK_FALSE(ImGui::GetCurrentWindow()->DC.IsSetPos);
+				}
+
+				ImGui::TableSetColumnIndex(1);
+				ImGui::TextUnformatted("Static Mesh");
+				ImGui::PopID();
+			}
+
+			ImGui::EndTable();
+		}
+
+		ImGui::PopStyleVar(3);
+	}
+
+	ImGui::EndChild();
+	ImGui::End();
+	ImGui::Render();
+	CHECK(Context->ErrorCountCurrentFrame == 0);
+}
+}
+
+TEST_CASE("Outliner rename stays inside table layout and Enter commits an edited label")
+{
+	for (const int Row : {0, 2})
+	{
+		CAPTURE(Row);
+		FOutlinerRenameTestContext Test;
+		Test.Frame(Row, true);
+		Test.Frame(Row);
+		Test.Frame(Row);
+		REQUIRE(Test.bRenameActive);
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.AddInputCharactersUTF8("Renamed Cube");
+		Test.Frame(Row);
+		CHECK(std::string_view(Test.State.RenameBuffer.data()) == "Renamed Cube");
+		CHECK(Test.State.bRenaming);
+		CHECK_FALSE(Test.State.bRenameCommitted);
+		IO.AddKeyEvent(ImGuiKey_Enter, true);
+		Test.Frame(Row);
+		CHECK_FALSE(Test.State.bRenaming);
+		CHECK(Test.State.bRenameCommitted);
+	}
+}
+
+TEST_CASE("Outliner rename Escape cancels without committing at either table boundary")
+{
+	for (const int Row : {0, 2})
+	{
+		CAPTURE(Row);
+		FOutlinerRenameTestContext Test;
+		Test.Frame(Row, true);
+		Test.Frame(Row);
+		Test.Frame(Row);
+		REQUIRE(Test.bRenameActive);
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.AddInputCharactersUTF8("Canceled edit");
+		Test.Frame(Row);
+		IO.AddKeyEvent(ImGuiKey_Escape, true);
+		Test.Frame(Row);
+		CHECK_FALSE(Test.State.bRenaming);
+		CHECK_FALSE(Test.State.bRenameCommitted);
+	}
+}
+
 TEST_CASE("Preview object rename trims edges and rejects blank labels")
 {
 	std::string Label = "Preview Cube";

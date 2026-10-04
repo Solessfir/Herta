@@ -373,7 +373,7 @@ void DrawLockButton(bool& bLocked)
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	const ImVec2 Size{18.f * Scale, ImGui::GetFrameHeight()};
 	const ImVec2 Position = ImGui::GetCursorScreenPos();
-	const bool bReset = ImGui::InvisibleButton("Reset transform##Reset", Size, ImGuiButtonFlags_EnableNav);
+	const bool bReset = ImGui::InvisibleButton("Reset property##Reset", Size, ImGuiButtonFlags_EnableNav);
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
 
 	if (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)
@@ -383,13 +383,19 @@ void DrawLockButton(bool& bLocked)
 
 	const ImVec2 Center{Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f};
 	const ImU32 Color = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-	DrawList->PathArcTo(Center, 4.f * Scale, 0.f, 5.f, 12);
-	DrawList->PathStroke(Color, 0, Scale);
-	DrawList->AddTriangleFilled({Center.x + 0.5f * Scale, Center.y - 5.f * Scale}, {Center.x + 5.f * Scale, Center.y - 5.f * Scale}, {Center.x + 3.f * Scale, Center.y - 1.f * Scale}, Color);
+	const ImVec2 Tip{Center.x - 5.f * Scale, Center.y - Scale};
+	DrawList->PathLineTo({Center.x - 2.f * Scale, Center.y - 4.f * Scale});
+	DrawList->PathLineTo(Tip);
+	DrawList->PathLineTo({Center.x - 2.f * Scale, Center.y + 2.f * Scale});
+	DrawList->PathStroke(Color, 0, 1.4f * Scale);
+	DrawList->PathLineTo(Tip);
+	DrawList->PathArcTo({Center.x + 2.f * Scale, Center.y + 1.5f * Scale}, 2.5f * Scale, -std::numbers::pi_v<float> * 0.5f, std::numbers::pi_v<float> * 0.5f, 8);
+	DrawList->PathLineTo({Center.x + Scale, Center.y + 4.f * Scale});
+	DrawList->PathStroke(Color, 0, 1.4f * Scale);
 
 	if (ImGui::IsItemHovered())
 	{
-		ImGui::SetTooltip("Reset %s", Label);
+		ImGui::SetTooltip("Reset %s to default", Label);
 	}
 
 	return bReset;
@@ -481,7 +487,14 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 	}
 
 	ImGui::SameLine();
-	const bool bReset = DrawResetButton(Label);
+	const bool bChanged = Value.x != Reset || Value.y != Reset || Value.z != Reset;
+	const bool bReset = bChanged && DrawResetButton(Label);
+
+	if (!bChanged)
+	{
+		ImGui::Dummy({ResetWidth, ImGui::GetFrameHeight()});
+	}
+
 	if (bReset)
 	{
 		BeginEdit();
@@ -595,7 +608,6 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		{
 			const ImVec2 HeaderMaximum = ImGui::GetItemRectMax();
 			ImGui::PopClipRect();
-			const ImVec2 NextRow = ImGui::GetCursorScreenPos();
 			ImGui::PushID(Label);
 			ImGui::SetCursorScreenPos({ActionX, Position.y});
 			ImGui::BeginDisabled(bDragging);
@@ -618,7 +630,6 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 			ImGui::EndDisabled();
 			ImGui::PopID();
-			ImGui::SetCursorScreenPos(NextRow);
 		}
 
 		return bOpen;
@@ -812,10 +823,11 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * UiScale, 4.f * UiScale});
 		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {0.f, 2.f * UiScale});
-		if (ImGui::BeginTable("##RigidBodySettings", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
+		if (ImGui::BeginTable("##RigidBodySettings", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
 		{
 			ImGui::TableSetupColumn("##BodyLabel", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("Angular damping").x + 12.f * UiScale);
 			ImGui::TableSetupColumn("##BodyValue", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn("##BodyReset", ImGuiTableColumnFlags_WidthFixed, 22.f * UiScale);
 			ImGui::TableNextRow();
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
@@ -837,6 +849,16 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				}
 
 				ImGui::EndCombo();
+			}
+
+			ImGui::TableSetColumnIndex(2);
+			if (Components->BodyType != ESceneBodyType::Dynamic)
+			{
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * UiScale);
+				if (DrawResetButton("Body type"))
+				{
+					MeshResult.BodyTypeChosen = ESceneBodyType::Dynamic;
+				}
 			}
 
 			ImGui::EndDisabled();
@@ -896,9 +918,29 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 					Components->BodySettings.*Property.Member = Candidate;
 					Components->MixedBodySettings[Index] = false;
 				}
-				ImGui::EndDisabled();
 				MeshResult.bEditFinished |= Edit.bFinished;
 				MeshResult.bEditCanceled |= Edit.bCanceled;
+				ImGui::TableSetColumnIndex(2);
+				const float Default = FSceneRigidBodySettings{}.*Property.Member;
+				if (Components->MixedBodySettings[Index] || Components->BodySettings.*Property.Member != Default)
+				{
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * UiScale);
+					if (DrawResetButton(Property.Label.data()))
+					{
+						BeginDetailsEdit(Edits, MeshResult);
+
+						if (Edits != nullptr && Edits->ApplyBodyProperty)
+						{
+							Edits->ApplyBodyProperty(Property.Member, Default);
+						}
+
+						Components->BodySettings.*Property.Member = Default;
+						Components->MixedBodySettings[Index] = false;
+						MeshResult.bEditFinished = true;
+					}
+				}
+
+				ImGui::EndDisabled();
 				ImGui::PopID();
 			}
 

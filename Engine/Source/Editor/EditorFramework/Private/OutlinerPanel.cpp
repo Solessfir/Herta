@@ -10,6 +10,30 @@
 
 namespace Herta
 {
+bool DrawOutlinerRenameField(FOutlinerPanelState& State, const ImVec2 Position, const float Width, const bool bStartRename)
+{
+	ImGui::SetCursorScreenPos(Position);
+	ImGui::SetNextItemWidth(std::max(1.f, Width));
+	if (bStartRename)
+	{
+		ImGui::SetKeyboardFocusHere();
+	}
+
+	const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+	ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
+	const bool bCommit = ImGui::InputText("##ObjectLabel", State.RenameBuffer.data(), State.RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+	ImGui::PopStyleColor();
+	const bool bHovered = ImGui::IsItemHovered();
+
+	if (bCancel || bCommit || (!bStartRename && ImGui::IsItemDeactivated()))
+	{
+		State.bRenameCommitted = !bCancel;
+		State.bRenaming = false;
+	}
+
+	return bHovered;
+}
+
 bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelection& Selection, const std::span<const FPreviewObject> Objects, const bool bDragging, FOutlinerPanelState& State)
 {
 	State.bRenameCommitted = false;
@@ -213,28 +237,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 					const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
 					if (bRenamingRow)
 					{
-						const ImVec2 Cursor = ImGui::GetCursorScreenPos();
-						ImGui::SetCursorScreenPos({LabelX, CenterY - ImGui::GetFrameHeight() * 0.5f});
-						ImGui::SetNextItemWidth(std::max(1.f, Table->Columns[0].WorkMaxX - LabelX));
-
-						if (bStartRename)
-						{
-							ImGui::SetKeyboardFocusHere();
-						}
-
-						const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
-						ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-						const bool bCommit = ImGui::InputText("##ObjectLabel", State.RenameBuffer.data(), State.RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-						ImGui::PopStyleColor();
-						bRowHovered |= ImGui::IsItemHovered();
-
-						if (bCancel || bCommit || (!bStartRename && ImGui::IsItemDeactivated()))
-						{
-							State.bRenameCommitted = !bCancel;
-							State.bRenaming = false;
-						}
-
-						ImGui::SetCursorScreenPos(Cursor);
+						bRowHovered |= DrawOutlinerRenameField(State, {LabelX, CenterY - ImGui::GetFrameHeight() * 0.5f}, Table->Columns[0].WorkMaxX - LabelX, bStartRename);
 					}
 					else
 					{
