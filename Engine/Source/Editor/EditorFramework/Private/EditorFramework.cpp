@@ -1,5 +1,6 @@
 #include "Herta/EditorFramework/EditorFramework.h"
 
+#include "ConsoleInput.h"
 #include "DetailsPanel.h"
 #include "EditorScene.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
@@ -507,7 +508,7 @@ struct FEditorFramework::FImplementation
 	void RequestPreviewRename();
 	void ToggleSimulation();
 	void UpdateSimulation(float DeltaSeconds);
-	void RebuildSuggestions();
+	void RebuildSuggestions(std::string_view Prefix);
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> SubmitCommand();
 
 	FToolUIContext* ToolUI = nullptr;
@@ -3036,9 +3037,17 @@ void FEditorFramework::FImplementation::DrawStartPanel()
 	ToolUI->EndPanel();
 }
 
-void FEditorFramework::FImplementation::RebuildSuggestions()
+void FEditorFramework::FImplementation::RebuildSuggestions(const std::string_view Prefix)
 {
-	Suggestions = OutputLog->CompleteCommand(CommandBuffer.data());
+	if (HasConsoleCommandText(Prefix))
+	{
+		Suggestions = OutputLog->CompleteCommand(Prefix);
+	}
+	else
+	{
+		Suggestions.clear();
+	}
+
 	if (Suggestions.empty())
 	{
 		SuggestionIndex = -1;
@@ -3364,10 +3373,20 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	{
 		FImplementation& Editor = *static_cast<FInputCallbackContext*>(Data->UserData)->Editor;
 
-		if (Data->EventFlag == ImGuiInputTextFlags_CallbackEdit)
+		if (Data->EventFlag == ImGuiInputTextFlags_CallbackCharFilter)
 		{
-			Editor.SuggestionIndex = 0;
-			Editor.RebuildSuggestions();
+			return HandleConsoleInputShortcuts(*Data);
+		}
+
+		if (Data->EventFlag == ImGuiInputTextFlags_CallbackEdit || Data->EventFlag == ImGuiInputTextFlags_CallbackAlways)
+		{
+			HandleConsoleInputShortcuts(*Data);
+			if (Data->EventFlag == ImGuiInputTextFlags_CallbackEdit || Data->BufDirty)
+			{
+				Editor.SuggestionIndex = 0;
+				Editor.RebuildSuggestions({Data->Buf, static_cast<std::size_t>(Data->BufTextLen)});
+			}
+
 			return 0;
 		}
 
@@ -3416,7 +3435,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		return 0;
 	};
 
-	constexpr ImGuiInputTextFlags CommandFlags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_CallbackHistory;
+	constexpr ImGuiInputTextFlags CommandFlags = ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackCompletion | ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_CallbackHistory | ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_CallbackCharFilter;
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.f * InterfaceScale, 5.f * InterfaceScale});
 	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
 	constexpr const char* SubmitLabel = "Enter";
@@ -3433,8 +3452,18 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		bFocusCommandRequested = false;
 	}
 
+	ImGui::PushStyleColor(ImGuiCol_NavCursor, {0.f, 0.f, 0.f, 0.f});
 	const bool bCommandSubmitted = ImGui::InputTextWithHint("##OutputLogCommand", "Enter Console Command", CommandBuffer.data(), CommandBuffer.size(), CommandFlags, InputCallback, &CallbackContext);
-	ImGui::PopStyleColor();
+	const bool bCommandActive = ImGui::IsItemActive();
+	const bool bEscapePressed = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+
+	if (bEscapePressed)
+	{
+		Suggestions.clear();
+		SuggestionIndex = -1;
+	}
+
+	ImGui::PopStyleColor(2);
 	ImGui::PopStyleVar(3);
 
 	if (bCommandSubmitted)
@@ -3489,6 +3518,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	ImGui::PopStyleVar(4);
 
 	std::optional<std::string> ClickedSuggestion;
+	bool bSuggestionsHovered = false;
 
 	if (!Suggestions.empty())
 	{
@@ -3505,6 +3535,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 
 		if (ImGui::Begin("Command suggestions###OutputLogCommandSuggestions", nullptr, SuggestionFlags))
 		{
+			bSuggestionsHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 			const ImVec2 Position = ImGui::GetWindowPos();
 			const ImVec2 Size = ImGui::GetWindowSize();
 			ImGui::GetWindowDrawList()->PushClipRect(Position, {Position.x + Size.x, Position.y + Size.y}, false);
@@ -3539,6 +3570,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		Suggestions.clear();
 		SuggestionIndex = -1;
 		bReclaimCommandFocus = true;
+	}
+	else if (ShouldDismissConsoleSuggestions(bCommandActive, bSuggestionsHovered, bEscapePressed))
+	{
+		Suggestions.clear();
+		SuggestionIndex = -1;
 	}
 
 	ToolUI->EndPanel();

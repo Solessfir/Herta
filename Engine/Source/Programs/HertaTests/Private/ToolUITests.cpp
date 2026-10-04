@@ -1,9 +1,12 @@
+#include "../../../Editor/EditorFramework/Private/ConsoleInput.h"
 #include "../../../Runtime/ToolUI/Private/ImmersiveViewport.h"
 #include "Herta/ToolUI/ToolUI.h"
 
 #include <doctest/doctest.h>
 #include <imgui_internal.h>
 
+#include <algorithm>
+#include <array>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -244,5 +247,210 @@ TEST_CASE("Roboto editor resources retain their redistribution license")
 	std::ifstream Medium("Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf", std::ios::binary | std::ios::ate);
 	CHECK(Regular.tellg() > 0);
 	CHECK(Medium.tellg() > 0);
+}
+
+TEST_CASE("Console shortcuts operate on the active ImGui text editor")
+{
+	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
+	ImGuiContext* const Context = ImGui::CreateContext();
+	ImGui::SetCurrentContext(Context);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1280, 720};
+	IO.DeltaTime = 1.f / 60.f;
+	IO.IniFilename = nullptr;
+	IO.ConfigInputTrickleEventQueue = false;
+	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+	IO.Fonts->AddFontDefault();
+
+	struct FInputProbe
+	{
+		std::array<char, 256> Buffer{};
+		int Cursor = 0;
+		int SelectionStart = 0;
+		int SelectionEnd = 0;
+		bool bSeedCaret = true;
+	} Probe;
+
+	const auto DrawFrame = [&](const bool bFocus = false)
+	{
+		ImGui::NewFrame();
+		ImGui::Begin("ConsoleShortcutTest", nullptr, ImGuiWindowFlags_NoSavedSettings);
+
+		if (bFocus)
+		{
+			ImGui::SetKeyboardFocusHere();
+		}
+
+		ImGui::InputText("Console", Probe.Buffer.data(), Probe.Buffer.size(), ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_CallbackCharFilter, [](ImGuiInputTextCallbackData* const Data)
+		{
+			FInputProbe& Input = *static_cast<FInputProbe*>(Data->UserData);
+			if (Input.bSeedCaret && Data->EventFlag == ImGuiInputTextFlags_CallbackAlways)
+			{
+				Data->CursorPos = Input.Cursor;
+				Data->SelectionStart = Input.SelectionStart;
+				Data->SelectionEnd = Input.SelectionEnd;
+				Input.bSeedCaret = false;
+			}
+
+			const int Result = HandleConsoleInputShortcuts(*Data);
+			if (Data->EventFlag != ImGuiInputTextFlags_CallbackCharFilter)
+			{
+				Input.Cursor = Data->CursorPos;
+				Input.SelectionStart = Data->SelectionStart;
+				Input.SelectionEnd = Data->SelectionEnd;
+			}
+
+			return Result;
+		}, &Probe);
+
+		ImGui::End();
+		ImGui::Render();
+	};
+	const auto Focus = [&](const std::string_view Text, const int Cursor, const int SelectionStart = -1, const int SelectionEnd = -1)
+	{
+		std::ranges::copy(Text, Probe.Buffer.begin());
+		Probe.Cursor = Cursor;
+		Probe.SelectionStart = SelectionStart < 0 ? Cursor : SelectionStart;
+		Probe.SelectionEnd = SelectionEnd < 0 ? Cursor : SelectionEnd;
+		DrawFrame(true);
+		DrawFrame();
+		DrawFrame();
+		CHECK_FALSE(Probe.bSeedCaret);
+		CHECK(Probe.Cursor == Cursor);
+	};
+	const auto Press = [&](const ImGuiKey Key, const bool bCtrl = false, const bool bAlt = false, const bool bShift = false, const char* const Text = nullptr)
+	{
+		IO.AddKeyEvent(ImGuiMod_Ctrl, bCtrl);
+		IO.AddKeyEvent(ImGuiMod_Alt, bAlt);
+		IO.AddKeyEvent(ImGuiMod_Shift, bShift);
+		IO.AddKeyEvent(Key, true);
+
+		if (Text != nullptr)
+		{
+			IO.AddInputCharactersUTF8(Text);
+		}
+
+		DrawFrame();
+		IO.AddKeyEvent(Key, false);
+		IO.AddKeyEvent(ImGuiMod_Ctrl, false);
+		IO.AddKeyEvent(ImGuiMod_Alt, false);
+		IO.AddKeyEvent(ImGuiMod_Shift, false);
+		DrawFrame();
+	};
+	const auto CheckUnselected = [&](const int Cursor)
+	{
+		CHECK(Probe.Cursor == Cursor);
+		CHECK(Probe.SelectionStart == Cursor);
+		CHECK(Probe.SelectionEnd == Cursor);
+	};
+
+	SUBCASE("Ctrl A overrides built-in select-all and Ctrl Shift A selects all")
+	{
+		Focus("alpha beta", 6);
+		Press(ImGuiKey_A, true);
+		CheckUnselected(0);
+		Press(ImGuiKey_E, true);
+		CheckUnselected(10);
+		Press(ImGuiKey_A, true, false, true);
+		CHECK(std::min(Probe.SelectionStart, Probe.SelectionEnd) == 0);
+		CHECK(std::max(Probe.SelectionStart, Probe.SelectionEnd) == 10);
+		CHECK(std::string_view(Probe.Buffer.data()) == "alpha beta");
+	}
+
+	SUBCASE("Ctrl U deletes the prefix and Ctrl Z restores it")
+	{
+		Focus("alpha beta", 6);
+		Press(ImGuiKey_U, true);
+		CHECK(std::string_view(Probe.Buffer.data()) == "beta");
+		CheckUnselected(0);
+		Press(ImGuiKey_Z, true);
+		CHECK(std::string_view(Probe.Buffer.data()) == "alpha beta");
+	}
+
+	SUBCASE("Ctrl K deletes the suffix from a nonzero caret")
+	{
+		Focus("alpha beta", 6);
+		Press(ImGuiKey_K, true);
+		CHECK(std::string_view(Probe.Buffer.data()) == "alpha ");
+		CheckUnselected(6);
+	}
+
+	SUBCASE("Ctrl U from the end removes the command suggestion prefix")
+	{
+		Focus("scene.load", 10);
+		CHECK(HasConsoleCommandText(Probe.Buffer.data()));
+		Press(ImGuiKey_U, true);
+		CHECK(std::string_view(Probe.Buffer.data()).empty());
+		CHECK_FALSE(HasConsoleCommandText(Probe.Buffer.data()));
+		CheckUnselected(0);
+	}
+
+	SUBCASE("Ctrl W removes the previous whitespace-delimited word")
+	{
+		Focus("alpha beta.gamma tail", 17);
+		Press(ImGuiKey_W, true);
+		CHECK(std::string_view(Probe.Buffer.data()) == "alpha tail");
+		CheckUnselected(6);
+	}
+
+	SUBCASE("A deletion shortcut prefers the selected range")
+	{
+		Focus("alpha beta tail", 10, 6, 10);
+		Press(ImGuiKey_U, true);
+		CHECK(std::string_view(Probe.Buffer.data()) == "alpha  tail");
+		CheckUnselected(6);
+	}
+
+	SUBCASE("Alt word movement skips punctuation and filters shortcut characters")
+	{
+		Focus("alpha.beta_gamma tail", 5);
+		Press(ImGuiKey_F, false, true, false, "f");
+		CheckUnselected(16);
+		Press(ImGuiKey_B, false, true, false, "b");
+		CheckUnselected(6);
+		Press(ImGuiKey_B, false, true);
+		CheckUnselected(0);
+		CHECK(std::string_view(Probe.Buffer.data()) == "alpha.beta_gamma tail");
+	}
+
+	SUBCASE("Alt word movement remains on UTF8 character boundaries")
+	{
+		Focus("one caf\xC3\xA9.foo", 4);
+		Press(ImGuiKey_F, false, true);
+		CheckUnselected(9);
+		Press(ImGuiKey_B, false, true);
+		CheckUnselected(4);
+		CHECK(std::string_view(Probe.Buffer.data()) == "one caf\xC3\xA9.foo");
+	}
+
+	SUBCASE("Ordinary input is not intercepted")
+	{
+		Focus("alpha", 5);
+		Press(ImGuiKey_B, false, false, false, "b");
+		Press(ImGuiKey_F, false, false, false, "f");
+		CHECK(std::string_view(Probe.Buffer.data()) == "alphabf");
+		CHECK(Probe.Cursor == 7);
+		CHECK(Probe.SelectionStart == Probe.SelectionEnd);
+	}
+
+	ImGui::DestroyContext(Context);
+	ImGui::SetCurrentContext(PreviousContext);
+}
+
+TEST_CASE("Console suggestions require command text and dismiss when interaction ends")
+{
+	CHECK_FALSE(HasConsoleCommandText(""));
+	CHECK_FALSE(HasConsoleCommandText(" \t\r\n\v\f"));
+	CHECK(HasConsoleCommandText("scene"));
+	CHECK(HasConsoleCommandText(" \tscene.load \n"));
+
+	CHECK_FALSE(ShouldDismissConsoleSuggestions(true, false, false));
+	CHECK_FALSE(ShouldDismissConsoleSuggestions(true, true, false));
+	CHECK_FALSE(ShouldDismissConsoleSuggestions(false, true, false));
+	CHECK(ShouldDismissConsoleSuggestions(false, false, false));
+	CHECK(ShouldDismissConsoleSuggestions(true, false, true));
+	CHECK(ShouldDismissConsoleSuggestions(true, true, true));
+	CHECK(ShouldDismissConsoleSuggestions(false, true, true));
+	CHECK(ShouldDismissConsoleSuggestions(false, false, true));
 }
 }

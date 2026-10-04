@@ -439,7 +439,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 		},
 		};
 
-		if (DrawNumericDragFloat("##Value", &Candidate, Speed, Minimum, Maximum, Format, Flags, &Edit) && !Edit.bCanceled)
+		if (DrawNumericDragFloat("##Value", &Candidate, Speed, Minimum, Maximum, Format, Flags, &Edit, true) && !Edit.bCanceled)
 		{
 			OnChange(Axis, Candidate);
 		}
@@ -604,7 +604,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bLocation)
 		{
-			DrawTransformRow("Location", Translation, 0.01f, -1.e7f, 1.e7f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, "%g m", [&](const int Axis, const float Candidate)
+			DrawTransformRow("Location", Translation, 0.01f, -1.e7f, 1.e7f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, "%.2f m", [&](const int Axis, const float Candidate)
 			{
 				if (std::isfinite(Candidate) && std::abs(Candidate) <= 1.e7f)
 				{
@@ -623,7 +623,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		}
 
 		Im3d::Vec3 RotationDegrees = Im3d::ToEulerXYZ(Rotation) * (180.f / std::numbers::pi_v<float>);
-		const bool bRotationReset = bRotation && DrawTransformRow("Rotation", RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, "%g°", [&](const int Axis, const float Candidate)
+		const bool bRotationReset = bRotation && DrawTransformRow("Rotation", RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, "%.1f°", [&](const int Axis, const float Candidate)
 		{
 			if (std::isfinite(Candidate))
 			{
@@ -655,7 +655,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bScale)
 		{
-			DrawTransformRow("Scale", Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, 1.f, State.Spaces[2], ETransformClipboardFormat::XYZ, "%g", [&](const int Axis, const float Candidate)
+			DrawTransformRow("Scale", Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, 1.f, State.Spaces[2], ETransformClipboardFormat::XYZ, "%.3f", [&](const int Axis, const float Candidate)
 			{
 				if (!std::isfinite(Candidate) || Candidate < MinimumPreviewScale || Candidate > MaximumPreviewScale)
 				{

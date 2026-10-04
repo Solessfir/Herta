@@ -12,6 +12,8 @@ See [Rendering.md](Rendering.md) for GPU ownership, shader cooking, and renderer
 
 ## Viewport controls
 
+Transform readouts use fixed-point numbers with trailing zeros removed. Display rounding does not change stored values or text-entry precision.
+
 In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB on empty space to orbit, MMB to pan, and the wheel to dolly. Alt+drag a transform gizmo to duplicate the selection and transform the copies as one undo step. Copies appear only when the transform changes; Escape cancels the drag and removes them. Press F to focus the selection. F11 toggles a full-workspace viewport without changing the saved panel layout. Click an object to select it; Ctrl+click or Shift+click toggles additional objects. Click empty viewport space or press Escape in the focused viewport to deselect. During a transform drag, Escape restores the entire selection instead. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits apply to the selection around its active object's pivot.
 
 Press G in the focused Viewport to toggle Game view, or use **Overlays > Game view** in viewport settings. It hides the grid, gizmos, selection outlines, empty-entity markers, bounds, axes, viewport stats, and fly-speed HUD without changing individual overlay settings. Camera coordinates remain visible and clickable for copying. Panels and the viewport toolbar remain visible. This does not start Play or Simulate.
@@ -61,6 +63,8 @@ Ctrl+D duplicates selected objects and offsets the copies by one configured tran
 The Outliner docks above Details and lists the cube and floor with label and type columns. Search filters the list. Shift+click selects a range of visible rows, Ctrl+click toggles individual rows, and Ctrl+A selects all visible objects. Ctrl+Shift+click adds a range to the selection. Selecting a row updates Details and viewport outlines; double-clicking focuses the selection. Click empty list space to deselect. Reopen it from **Window > Outliner**. Existing layouts with docked Details gain the panel above it without resetting other dock positions; detached panels are preserved.
 
 ## Output Log
+
+Command entry uses shell-style shortcuts: Ctrl+A/E moves to the beginning/end, Alt+B/F moves by word, Ctrl+U/K deletes to the beginning/end, and Ctrl+W deletes the previous whitespace-delimited word. Ctrl+Shift+A selects all. Deletions are undoable with Ctrl+Z; history and completion remain available. Suggestions hide when the command is empty; Escape or clicking outside dismisses them.
 
 The Output Log supports search, verbosity filtering, text selection, copying, pause, auto-scroll, and commands with completion and history. Timestamps show local clock time in `HH:mm:ss` format. Normal messages use category colors; warnings stay yellow/orange and errors red. Search and command entry share an outlined input style. Start a line with `!` to run it through your shell (`cmd.exe` on Windows, `$SHELL` on Linux), for example `!git status`. Shell commands run in the background and their output appears under the `Shell` category when they exit; they get no input, so interactive programs and prompts do not work.
 

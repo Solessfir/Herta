@@ -4,6 +4,7 @@
 #include <imgui.h>
 #include <imgui_internal.h>
 
+#include <cmath>
 #include <initializer_list>
 #include <string>
 
@@ -33,6 +34,7 @@ struct FNumericFieldTestContext
 	bool bTextEditing = false;
 	bool bRequestFocus = false;
 	bool bSlider = false;
+	bool bCompactDisplay = false;
 
 	FNumericFieldTestContext()
 	{
@@ -121,7 +123,7 @@ struct FNumericFieldTestContext
 			ValueAtBegin = Value;
 		};
 
-		const bool bChanged = bSlider ? DrawNumericSliderFloat("##Value", &Value, Minimum, Maximum, "%.3f", Flags, &Edit) : DrawNumericDragFloat("##Value", &Value, 0.1f, Minimum, Maximum, "%.3f", Flags, &Edit);
+		const bool bChanged = bSlider ? DrawNumericSliderFloat("##Value", &Value, Minimum, Maximum, "%.3f", Flags, &Edit) : DrawNumericDragFloat("##Value", &Value, 0.1f, Minimum, Maximum, "%.3f", Flags, &Edit, bCompactDisplay);
 		Finishes += Edit.bFinished ? 1 : 0;
 		Cancels += Edit.bCanceled ? 1 : 0;
 		bTextEditing = ImGui::IsItemActive() && GImGui->InputTextState.ID == ImGui::GetItemID();
@@ -156,6 +158,51 @@ void BeginExpression(FNumericFieldTestContext& Test, float& Value)
 	Io.AddKeyEvent(ImGuiMod_Ctrl, false);
 	Test.Frame(Value);
 }
+}
+
+TEST_CASE("Compact numeric formatting trims display precision without changing values")
+{
+	CHECK(FormatCompactNumericValue(1.f, "%.2f m") == "1 m");
+	CHECK(FormatCompactNumericValue(1.f, "%.1f\xC2\xB0") == "1\xC2\xB0");
+	CHECK(FormatCompactNumericValue(1.f, "%.3f") == "1");
+	CHECK(FormatCompactNumericValue(1.2f, "%.2f m") == "1.2 m");
+	CHECK(FormatCompactNumericValue(1.2f, "%.1f\xC2\xB0") == "1.2\xC2\xB0");
+	CHECK(FormatCompactNumericValue(1.2f, "%.3f") == "1.2");
+	CHECK(FormatCompactNumericValue(0.001f, "%.3f") == "0.001");
+	CHECK(FormatCompactNumericValue(0.01f, "%.1f\xC2\xB0") == "0\xC2\xB0");
+	CHECK(FormatCompactNumericValue(-0.01f, "%.1f\xC2\xB0") == "0\xC2\xB0");
+	CHECK(FormatCompactNumericValue(1e7f, "%.2f m") == "10000000 m");
+
+	float Value = -14.3239f;
+	const float Original = Value;
+	CHECK(FormatCompactNumericValue(Value, "%.1f\xC2\xB0") == "-14.3\xC2\xB0");
+	CHECK(Value == Original);
+	Value = -0.f;
+	CHECK(FormatCompactNumericValue(Value, "%.2f m") == "0 m");
+	CHECK(std::signbit(Value));
+}
+
+TEST_CASE("Compact numeric display preserves precision and expression edit lifecycle")
+{
+	FNumericFieldTestContext Test;
+	Test.bCompactDisplay = true;
+	Test.Flags |= ImGuiSliderFlags_NoRoundToFormat;
+	float Value = 1.234567f;
+	CHECK_FALSE(Test.Frame(Value));
+	CHECK(Value == 1.234567f);
+	CHECK(Test.Begins == 0);
+	BeginExpression(Test, Value);
+	CHECK(Value == 1.234567f);
+	ImGuiIO& Io = ImGui::GetIO();
+	Io.AddInputCharactersUTF8("1/4");
+	Test.Frame(Value);
+	Io.AddKeyEvent(ImGuiKey_Enter, true);
+	CHECK(Test.Frame(Value));
+	CHECK(Value == 0.25f);
+	CHECK(Test.ValueAtBegin == 1.234567f);
+	CHECK(Test.Begins == 1);
+	CHECK(Test.Finishes == 1);
+	CHECK(Test.Cancels == 0);
 }
 
 TEST_CASE("Numeric field evaluates expression entry without changing the drag value first")

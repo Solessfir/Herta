@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <format>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -324,11 +325,61 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 }
 }
 
-bool DrawNumericDragFloat(const char* const Label, float* const Value, const float Speed, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags, FNumericEditLifecycle* const Edit)
+std::string FormatCompactNumericValue(const float Value, const char* const Format)
+{
+	char Buffer[128];
+	ImGui::DataTypeFormatString(Buffer, static_cast<int>(sizeof(Buffer)), ImGuiDataType_Float, &Value, Format);
+	std::string Text = Buffer;
+	const std::size_t Decimal = Text.find('.');
+	std::size_t NumberEnd = Text.find_first_not_of("-0123456789.");
+	if (NumberEnd == std::string::npos)
+	{
+		NumberEnd = Text.size();
+	}
+
+	if (Decimal < NumberEnd)
+	{
+		std::size_t TrimmedEnd = NumberEnd;
+		while (TrimmedEnd > Decimal + 1 && Text[TrimmedEnd - 1] == '0')
+		{
+			--TrimmedEnd;
+		}
+
+		if (TrimmedEnd == Decimal + 1)
+		{
+			--TrimmedEnd;
+		}
+
+		Text.erase(TrimmedEnd, NumberEnd - TrimmedEnd);
+		NumberEnd = TrimmedEnd;
+	}
+
+	if (std::string_view(Text).substr(0, NumberEnd) == "-0")
+	{
+		Text.erase(0, 1);
+	}
+
+	return Text;
+}
+
+bool DrawNumericDragFloat(const char* const Label, float* const Value, const float Speed, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags, FNumericEditLifecycle* const Edit, const bool bCompactDisplay)
 {
 	return DrawNumericField(Label, Value, Minimum, Maximum, (Flags & ImGuiSliderFlags_AlwaysClamp) != 0, true, Edit, [&](float* const Candidate)
 	{
-		return ImGui::DragFloat(Label, Candidate, Speed, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
+		if (bCompactDisplay)
+		{
+			ImGui::PushStyleColor(ImGuiCol_Text, {0.f, 0.f, 0.f, 0.f});
+		}
+
+		const bool bChanged = ImGui::DragFloat(Label, Candidate, Speed, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
+		if (bCompactDisplay)
+		{
+			ImGui::PopStyleColor();
+			const std::string Text = FormatCompactNumericValue(*Candidate, Format);
+			ImGui::RenderTextClipped(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), Text.data(), Text.data() + Text.size(), nullptr, {0.5f, 0.5f});
+		}
+
+		return bChanged;
 	});
 }
 
