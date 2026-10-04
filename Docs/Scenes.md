@@ -4,7 +4,7 @@
 
 ## Runtime ownership
 
-`Scene` owns `FWorld`, with EnTT hidden behind its implementation. `FSceneEntity` is a copied inspection/serialization snapshot, not a borrowed component reference. The initial components are name, parent, transform, optional static mesh asset ID, and optional static/dynamic body type. The body component describes authored intent; it does not create a Jolt body by itself.
+`Scene` owns `FWorld`, with EnTT hidden behind its implementation. `FSceneEntity` is a copied inspection/serialization snapshot, not a borrowed component reference. The initial components are name, parent, transform, optional static mesh asset ID, and optional static/dynamic rigid body with authored material and motion settings. The body component describes authored intent; it does not create a Jolt body by itself.
 
 `FObjectId` is a stable UUID written to scene files. `FEntityId` is a transient world-scoped handle with a Herta-owned 64-bit generation. Recycled EnTT handles cannot revive stale Herta handles. Replacing a world invalidates all previous runtime handles. IDs are not row indices or raw EnTT values.
 
@@ -14,9 +14,11 @@ World access is single-owner for now. Create/destroy requests apply only at `Flu
 
 ## File contract
 
-`.hscene` is UTF-8 JSON with `format: "HertaScene"`, `formatVersion: 1`, and `engineSchemaVersion: 1`. Scene and entity UUIDs, names, parent UUIDs, TRS, mesh asset UUIDs, and body types are explicit. Positions are double-precision meters; rotations are float XYZW quaternions; scale is positive. Missing optional components are omitted.
+`.hscene` is UTF-8 JSON with `format: "HertaScene"`, `formatVersion: 1`, and `engineSchemaVersion: 2`. Scene and entity UUIDs, names, parent UUIDs, TRS, mesh asset UUIDs, and rigid body properties are explicit. Positions are double-precision meters; rotations are float XYZW quaternions; scale is positive. Missing optional components are omitted.
 
-Serialization sorts entities by UUID, keeps a fixed field order, uses round-trip numeric formatting, normalizes negative zero, and ends with LF. Reads reject unknown or duplicate fields, unsupported versions, malformed UTF-8, control characters in names, invalid IDs, non-finite/degenerate transforms, and invalid hierarchy. Limits are 64 MiB per file, one million entities, and 1,024 UTF-8 bytes per name. Version 1 has no predecessor to migrate; future changes require explicit version handling.
+Schema 2 rigid bodies write `type`, `massKg`, `friction`, `restitution`, `linearDamping`, `angularDamping`, and `gravityScale` in that order. Mass is finite and between 0.001 and 1,000,000 kg. Friction, restitution, and both damping values are finite and between 0 and 1. Gravity scale is finite and between 0 and 10. An entity without a rigid body must keep default settings so removing the component cannot silently preserve unsaved data.
+
+Serialization sorts entities by UUID, keeps a fixed field order, uses round-trip numeric formatting, normalizes negative zero, and ends with LF. Reads reject unknown or duplicate fields, unsupported versions, malformed UTF-8, control characters in names, invalid IDs, non-finite or out-of-range values, degenerate transforms, and invalid hierarchy. Limits are 64 MiB per file, one million entities, and 1,024 UTF-8 bytes per name. Engine schema 1 remains readable and migrates type-only rigid bodies to the schema 2 defaults. Saving always writes schema 2.
 
 Saving writes and flushes a unique sibling temporary file, then atomically replaces the target. A failed write or replacement preserves the previous file. Only the operation's own temporary file is removed on failure.
 

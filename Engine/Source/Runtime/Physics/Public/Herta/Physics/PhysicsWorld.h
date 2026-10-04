@@ -27,12 +27,23 @@ enum class EPhysicsMotionType : std::uint8_t
 	Dynamic
 };
 
+struct FPhysicsBodyProperties
+{
+	float MassKg = 1.f;
+	float Friction = 0.2f;
+	float Restitution = 0.f;
+	float LinearDamping = 0.05f;
+	float AngularDamping = 0.05f;
+	float GravityScale = 1.f;
+};
+
 struct FPhysicsBoxBodySettings
 {
 	FVector3 HalfExtents = FVector3::One();
 	FVector3 Position = FVector3::Zero();
 	FQuaternion Rotation = FQuaternion::Identity();
 	EPhysicsMotionType MotionType = EPhysicsMotionType::Static;
+	FPhysicsBodyProperties Properties{};
 };
 
 struct FPhysicsBodyTransform

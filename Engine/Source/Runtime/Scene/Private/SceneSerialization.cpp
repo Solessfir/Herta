@@ -145,7 +145,18 @@ template <typename T, std::size_t N> std::expected<std::array<T, N>, FSceneError
 	return Values;
 }
 
-std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element Element)
+template <typename T> std::expected<T, FSceneError> ReadNumber(const simdjson::dom::element Element)
+{
+	double Value = 0;
+	if (Element.get_double().get(Value) || !std::isfinite(Value) || Value < -std::numeric_limits<T>::max() || Value > std::numeric_limits<T>::max())
+	{
+		return SceneError("Invalid scene number");
+	}
+
+	return static_cast<T>(Value);
+}
+
+std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
 	const auto Fields = ReadFields(Element, std::array<std::string_view, 5>{"id", "name", "parent", "transform", "components"}, 0x1f);
 	if (!Fields)
@@ -232,7 +243,26 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 2;
-			const auto Body = ReadFields(Component.value, std::array<std::string_view, 1>{"type"}, 1);
+
+			if (SchemaVersion == 1)
+			{
+				const auto Body = ReadFields(Component.value, std::array<std::string_view, 1>{"type"}, 0x01);
+				if (!Body)
+				{
+					return std::unexpected(Body.error());
+				}
+
+				const auto Type = ReadString((*Body)[0]);
+				if (!Type || (*Type != "static" && *Type != "dynamic"))
+				{
+					return SceneError("Unknown scene body type");
+				}
+
+				Entity.BodyType = *Type == "static" ? ESceneBodyType::Static : ESceneBodyType::Dynamic;
+				continue;
+			}
+
+			const auto Body = ReadFields(Component.value, std::array<std::string_view, 7>{"type", "massKg", "friction", "restitution", "linearDamping", "angularDamping", "gravityScale"}, 0x7f);
 			if (!Body)
 			{
 				return std::unexpected(Body.error());
@@ -244,7 +274,26 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 				return SceneError("Unknown scene body type");
 			}
 
+			const auto MassKg = ReadNumber<float>((*Body)[1]);
+			const auto Friction = ReadNumber<float>((*Body)[2]);
+			const auto Restitution = ReadNumber<float>((*Body)[3]);
+			const auto LinearDamping = ReadNumber<float>((*Body)[4]);
+			const auto AngularDamping = ReadNumber<float>((*Body)[5]);
+			const auto GravityScale = ReadNumber<float>((*Body)[6]);
+			if (!MassKg || !Friction || !Restitution || !LinearDamping || !AngularDamping || !GravityScale)
+			{
+				return SceneError("Invalid scene rigid body settings");
+			}
+
 			Entity.BodyType = *Type == "static" ? ESceneBodyType::Static : ESceneBodyType::Dynamic;
+			Entity.BodySettings = {
+			    .MassKg = *MassKg,
+			    .Friction = *Friction,
+			    .Restitution = *Restitution,
+			    .LinearDamping = *LinearDamping,
+			    .AngularDamping = *AngularDamping,
+			    .GravityScale = *GravityScale,
+			};
 		}
 		else
 		{
@@ -380,7 +429,7 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaScene\",\n  \"formatVersion\": 1,\n  \"engineSchemaVersion\": 1,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaScene\",\n  \"formatVersion\": 1,\n  \"engineSchemaVersion\": 2,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -425,9 +474,21 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 		if (Entity.BodyType != ESceneBodyType::None)
 		{
 			Output += Entity.Mesh ? ",\n" : "\n";
-			Output += "        \"body\": {\"type\": ";
+			Output += "        \"body\": {\n          \"type\": ";
 			AppendString(Output, Entity.BodyType == ESceneBodyType::Static ? "static" : "dynamic");
-			Output += '}';
+			Output += ",\n          \"massKg\": ";
+			AppendNumber(Output, Entity.BodySettings.MassKg);
+			Output += ",\n          \"friction\": ";
+			AppendNumber(Output, Entity.BodySettings.Friction);
+			Output += ",\n          \"restitution\": ";
+			AppendNumber(Output, Entity.BodySettings.Restitution);
+			Output += ",\n          \"linearDamping\": ";
+			AppendNumber(Output, Entity.BodySettings.LinearDamping);
+			Output += ",\n          \"angularDamping\": ";
+			AppendNumber(Output, Entity.BodySettings.AngularDamping);
+			Output += ",\n          \"gravityScale\": ";
+			AppendNumber(Output, Entity.BodySettings.GravityScale);
+			Output += "\n        }";
 		}
 
 		Output += Entity.Mesh || Entity.BodyType != ESceneBodyType::None ? "\n      }\n    }" : "}\n    }";
@@ -480,9 +541,9 @@ std::expected<FSceneDocument, FSceneError> ParseScene(const std::string_view Tex
 		return SceneError("Invalid scene format header");
 	}
 
-	if (FormatVersion != 1 || SchemaVersion != 1)
+	if (FormatVersion != 1 || (SchemaVersion != 1 && SchemaVersion != 2))
 	{
-		return SceneError("Unsupported scene format or engine schema version; supported versions are 1 and 1");
+		return SceneError("Unsupported scene format or engine schema version; supported format is 1 and engine schemas are 1 through 2");
 	}
 
 	const auto Id = ReadId<FObjectId>((*Fields)[3]);
@@ -503,7 +564,7 @@ std::expected<FSceneDocument, FSceneError> ParseScene(const std::string_view Tex
 
 	for (const auto Element : Entities)
 	{
-		auto Entity = ReadEntity(Element);
+		auto Entity = ReadEntity(Element, SchemaVersion);
 		if (!Entity)
 		{
 			return std::unexpected(Entity.error());

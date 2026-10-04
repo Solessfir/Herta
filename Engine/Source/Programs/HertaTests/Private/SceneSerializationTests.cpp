@@ -40,6 +40,14 @@ FSceneDocument MakeSceneDocument()
 	            .Name = "Child",
 	            .Parent = FObjectId{2, 2},
 	            .BodyType = ESceneBodyType::Dynamic,
+	            .BodySettings = {
+	                .MassKg = 2.5f,
+	                .Friction = 0.75f,
+	                .Restitution = 0.25f,
+	                .LinearDamping = 0.1f,
+	                .AngularDamping = 0.2f,
+	                .GravityScale = 1.5f,
+	            },
 	        },
 	    },
 	};
@@ -88,8 +96,22 @@ TEST_CASE("Scenes round-trip in canonical sorted UTF-8 JSON")
 	CHECK(Serialized->back() == '\n');
 	CHECK(Serialized->find('\r') == std::string::npos);
 	CHECK(Serialized->find("\"format\": \"HertaScene\"") != std::string::npos);
+	CHECK(Serialized->find("\"engineSchemaVersion\": 2") != std::string::npos);
 	CHECK_FALSE(ParseScene(ReplaceSceneText(*Serialized, "\"format\":", "\"magic\":")));
 	CHECK(Serialized->find("\"rotation\": [") != std::string::npos);
+	const std::size_t TypePosition = Serialized->find("\"type\": \"dynamic\"");
+	const std::size_t MassPosition = Serialized->find("\"massKg\": 2.5");
+	const std::size_t FrictionPosition = Serialized->find("\"friction\": 0.75");
+	const std::size_t RestitutionPosition = Serialized->find("\"restitution\": 0.25");
+	const std::size_t LinearDampingPosition = Serialized->find("\"linearDamping\": 0.1");
+	const std::size_t AngularDampingPosition = Serialized->find("\"angularDamping\": 0.2");
+	const std::size_t GravityScalePosition = Serialized->find("\"gravityScale\": 1.5");
+	CHECK(TypePosition < MassPosition);
+	CHECK(MassPosition < FrictionPosition);
+	CHECK(FrictionPosition < RestitutionPosition);
+	CHECK(RestitutionPosition < LinearDampingPosition);
+	CHECK(LinearDampingPosition < AngularDampingPosition);
+	CHECK(AngularDampingPosition < GravityScalePosition);
 	CHECK(Serialized->find("\"id\": \"00000000-0000-0002-0000-000000000001\"") < Serialized->find("\"id\": \"00000000-0000-0002-0000-000000000002\""));
 
 	const auto Parsed = ParseScene(*Serialized);
@@ -106,6 +128,51 @@ TEST_CASE("Scenes round-trip in canonical sorted UTF-8 JSON")
 	const auto Reordered = SerializeScene(Document);
 	REQUIRE(Reordered);
 	CHECK(*Reordered == *Serialized);
+}
+
+TEST_CASE("Schema 1 body types migrate to canonical schema 2 settings")
+{
+	constexpr std::string_view VersionOne = R"({
+  "format": "HertaScene",
+  "formatVersion": 1,
+  "engineSchemaVersion": 1,
+  "id": "00000000-0000-0001-0000-000000000001",
+  "name": "Legacy",
+  "entities": [
+    {
+      "id": "00000000-0000-0002-0000-000000000001",
+      "name": "Body",
+      "parent": null,
+      "transform": {
+        "translation": [0, 0, 0],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "body": {"type": "dynamic"}
+      }
+    }
+  ]
+}
+)";
+
+	const auto Migrated = ParseScene(VersionOne);
+	REQUIRE(Migrated);
+	REQUIRE(Migrated->Entities.size() == 1);
+	CHECK(Migrated->Entities[0].BodyType == ESceneBodyType::Dynamic);
+	CHECK(Migrated->Entities[0].BodySettings == FSceneRigidBodySettings{});
+	CHECK_FALSE(ParseScene(ReplaceSceneText(std::string(VersionOne), "\"type\": \"dynamic\"", "\"type\": \"dynamic\", \"massKg\": 1")));
+
+	const auto Canonical = SerializeScene(*Migrated);
+	REQUIRE(Canonical);
+	CHECK(Canonical->find("\"engineSchemaVersion\": 2") != std::string::npos);
+	CHECK(Canonical->find("\"massKg\": 1") != std::string::npos);
+	CHECK(Canonical->find("\"gravityScale\": 1") != std::string::npos);
+	const auto Reparsed = ParseScene(*Canonical);
+	REQUIRE(Reparsed);
+	CHECK(Reparsed->Id == Migrated->Id);
+	CHECK(Reparsed->Name == Migrated->Name);
+	CHECK(Reparsed->Entities == Migrated->Entities);
 }
 
 TEST_CASE("Scene labels and filesystem paths preserve Unicode")
@@ -157,7 +224,7 @@ TEST_CASE("Scenes reject unsupported versions, malformed input, and unknown data
 	    ReplaceSceneText(*Serialized, "\"HertaScene\"", "\"OtherScene\""),
 	    ReplaceSceneText(*Serialized, "\"formatVersion\": 1", "\"formatVersion\": 0"),
 	    ReplaceSceneText(*Serialized, "\"formatVersion\": 1", "\"formatVersion\": 2"),
-	    ReplaceSceneText(*Serialized, "\"engineSchemaVersion\": 1", "\"engineSchemaVersion\": 2"),
+	    ReplaceSceneText(*Serialized, "\"engineSchemaVersion\": 2", "\"engineSchemaVersion\": 3"),
 	    ReplaceSceneText(*Serialized, "\"formatVersion\": 1", "\"formatVersion\": 1.5"),
 	    ReplaceSceneText(*Serialized, "\"formatVersion\": 1", "\"formatVersion\": \"1\""),
 	    ReplaceSceneText(*Serialized, "\"formatVersion\": 1", "\"formatVersion\": true"),
@@ -167,9 +234,11 @@ TEST_CASE("Scenes reject unsupported versions, malformed input, and unknown data
 	    ReplaceSceneText(*Serialized, "\"parent\": null", "\"parent\": null, \"unexpected\": 1"),
 	    ReplaceSceneText(*Serialized, "\"scale\": [1, 1, 1]", "\"scale\": [1, 1, 1], \"scale\": [1, 1, 1]"),
 	    ReplaceSceneText(*Serialized, "\"type\": \"dynamic\"", "\"type\": \"dynamic\", \"type\": \"static\""),
-	    ReplaceSceneText(*Serialized, "\"body\": {\"type\": \"dynamic\"}", "\"body\": {\"type\": \"dynamic\"}, \"body\": {\"type\": \"static\"}"),
+	    ReplaceSceneText(*Serialized, "\"body\": {", "\"body\": {\"type\": \"static\", \"massKg\": 1, \"friction\": 0.2, \"restitution\": 0, \"linearDamping\": 0.05, \"angularDamping\": 0.05, \"gravityScale\": 1}, \"body\": {"),
 	    ReplaceSceneText(*Serialized, "\"type\": \"dynamic\"", "\"type\": \"kinematic\""),
 	    ReplaceSceneText(*Serialized, "\"type\": \"dynamic\"", "\"type\": \"dynamic\", \"mass\": 1"),
+	    ReplaceSceneText(*Serialized, "          \"massKg\": 2.5,\n", ""),
+	    ReplaceSceneText(*Serialized, "\"gravityScale\": 1.5", "\"gravityScale\": 11"),
 	    ReplaceSceneText(*Serialized, "\"components\": {", "\"components\": {\"script\": {},"),
 	    ReplaceSceneText(*Serialized, "00000000-0000-0001-0000-000000000001", "invalid-id"),
 	    ReplaceSceneText(*Serialized, "00000000-0000-0001-0000-000000000001", "00000000-0000-0000-0000-000000000000"),

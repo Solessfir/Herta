@@ -90,6 +90,18 @@ enum class ESceneBodyType : std::uint8_t
 	Dynamic,
 };
 
+struct FSceneRigidBodySettings
+{
+	constexpr bool operator==(const FSceneRigidBodySettings&) const = default;
+
+	float MassKg = 1.f;
+	float Friction = 0.2f;
+	float Restitution = 0.f;
+	float LinearDamping = 0.05f;
+	float AngularDamping = 0.05f;
+	float GravityScale = 1.f;
+};
+
 struct FSceneEntity
 {
 	bool operator==(const FSceneEntity&) const = default;
@@ -100,6 +112,7 @@ struct FSceneEntity
 	FSceneTransform Transform{};
 	std::optional<FStaticMeshComponent> Mesh{};
 	ESceneBodyType BodyType = ESceneBodyType::None;
+	FSceneRigidBodySettings BodySettings{};
 };
 
 struct FSceneEntityChange
@@ -114,6 +127,7 @@ struct FSceneError
 };
 
 [[nodiscard]] std::expected<void, FSceneError> ValidateSceneEntities(std::span<const FSceneEntity> Entities);
+[[nodiscard]] std::expected<void, FSceneError> ValidateSceneRigidBodySettings(const FSceneRigidBodySettings& Settings);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final

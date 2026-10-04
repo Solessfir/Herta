@@ -32,6 +32,7 @@ struct FDetailsPanelState
 	std::array<char, 96> Search{};
 	std::array<char, 96> MeshSearch{};
 	std::array<char, 96> ComponentSearch{};
+	std::array<bool, 6> BodyPropertyWasMixed{};
 	int ComponentResult = 0;
 	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;
@@ -62,6 +63,9 @@ struct FDetailsComponentField
 	bool bMixedMeshAsset = false;
 	bool bAnyBody = false;
 	bool bAllBody = false;
+	FSceneRigidBodySettings BodySettings{};
+	std::array<bool, 6> MixedBodySettings{};
+	bool bAnyDynamicBody = false;
 	std::optional<ESceneBodyType> BodyType{};
 };
 
@@ -82,7 +86,9 @@ struct FDetailsEditCallbacks
 	std::function<void()> Begin;
 	// Flush a previous gesture before another edit starts in the same frame.
 	std::function<void(bool)> Flush;
+	std::function<void(float FSceneRigidBodySettings::*, float)> ApplyBodyProperty;
+	std::function<float(float FSceneRigidBodySettings::*)> ReadBodyProperty;
 };
 
-FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, std::size_t SelectedCount = 1, const FDetailsMeshField* Mesh = nullptr, const FDetailsEditCallbacks* Edits = nullptr, const FDetailsComponentField* Components = nullptr);
+FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, std::size_t SelectedCount = 1, const FDetailsMeshField* Mesh = nullptr, const FDetailsEditCallbacks* Edits = nullptr, FDetailsComponentField* Components = nullptr);
 }

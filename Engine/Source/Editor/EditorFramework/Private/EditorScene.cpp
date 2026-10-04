@@ -772,10 +772,62 @@ std::expected<void, FSceneError> FEditorScene::ApplySelectedBodyType(const EScen
 
 		FSceneEntity After = Before;
 		After.BodyType = Type;
+
+		if (Type == ESceneBodyType::None)
+		{
+			After.BodySettings = {};
+		}
+
 		Changes.push_back({.Before = Before, .After = std::move(After)});
 	}
 
 	return ApplyStructuralChanges(bOnlyAbsent ? "Add rigid body" : (Type == ESceneBodyType::None ? "Remove rigid body" : "Set rigid body motion"), Changes, Selection, ActiveObject);
+}
+
+std::expected<void, FSceneError> FEditorScene::SetSelectedBodyProperty(float FSceneRigidBodySettings::* const Property, const float Value)
+{
+	if (auto Result = CheckAuthoringAllowed(true); !Result)
+	{
+		return Result;
+	}
+
+	if (!Property)
+	{
+		return std::unexpected(FSceneError{"A rigid body property is required"});
+	}
+
+	if (auto Result = CommitEdits(); !Result)
+	{
+		return Result;
+	}
+
+	std::vector<FSceneEntityChange> Changes;
+
+	for (const FObjectId Object : Selection)
+	{
+		const FSceneEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		if (Before.BodyType == ESceneBodyType::None || Before.BodySettings.*Property == Value)
+		{
+			continue;
+		}
+
+		FSceneEntity After = Before;
+		After.BodySettings.*Property = Value;
+
+		if (auto Result = ValidateSceneRigidBodySettings(After.BodySettings); !Result)
+		{
+			return Result;
+		}
+
+		Changes.push_back({.Before = Before, .After = std::move(After)});
+	}
+
+	if (ActiveEdit)
+	{
+		return World.ApplyEntityChanges(Changes);
+	}
+
+	return ApplyStructuralChanges("Edit rigid body", Changes, Selection, ActiveObject);
 }
 
 std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWithinActiveEdit, const FVector3d& WorldOffset)

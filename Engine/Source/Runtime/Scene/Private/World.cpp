@@ -165,6 +165,17 @@ std::expected<void, FSceneError> ValidateEntityProperties(const FSceneEntity& En
 		return std::unexpected(FSceneError{"Entity has an unknown body type"});
 	}
 
+	const auto ValidBodySettings = ValidateSceneRigidBodySettings(Entity.BodySettings);
+	if (!ValidBodySettings)
+	{
+		return ValidBodySettings;
+	}
+
+	if (Entity.BodyType == ESceneBodyType::None && Entity.BodySettings != FSceneRigidBodySettings{})
+	{
+		return std::unexpected(FSceneError{"Entity without a rigid body must use default body settings"});
+	}
+
 	return {};
 }
 
@@ -190,6 +201,29 @@ std::optional<FObjectId> FObjectId::Parse(const std::string_view Text) noexcept
 std::string FObjectId::ToString() const
 {
 	return FAssetId{High, Low}.ToString();
+}
+
+std::expected<void, FSceneError> ValidateSceneRigidBodySettings(const FSceneRigidBodySettings& Settings)
+{
+	if (!std::isfinite(Settings.MassKg) || Settings.MassKg < 0.001f || Settings.MassKg > 1'000'000.f)
+	{
+		return std::unexpected(FSceneError{"Rigid body mass must be finite and between 0.001 and 1000000 kg"});
+	}
+
+	if (!std::isfinite(Settings.Friction) || Settings.Friction < 0.f || Settings.Friction > 1.f
+	    || !std::isfinite(Settings.Restitution) || Settings.Restitution < 0.f || Settings.Restitution > 1.f
+	    || !std::isfinite(Settings.LinearDamping) || Settings.LinearDamping < 0.f || Settings.LinearDamping > 1.f
+	    || !std::isfinite(Settings.AngularDamping) || Settings.AngularDamping < 0.f || Settings.AngularDamping > 1.f)
+	{
+		return std::unexpected(FSceneError{"Rigid body friction, restitution, and damping must be finite and between 0 and 1"});
+	}
+
+	if (!std::isfinite(Settings.GravityScale) || Settings.GravityScale < 0.f || Settings.GravityScale > 10.f)
+	{
+		return std::unexpected(FSceneError{"Rigid body gravity scale must be finite and between 0 and 10"});
+	}
+
+	return {};
 }
 
 std::expected<void, FSceneError> ValidateSceneEntities(const std::span<const FSceneEntity> Entities)
@@ -300,6 +334,7 @@ FSceneEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .Transform = Registry.get<FSceneTransform>(Entity),
 	    .Mesh = Mesh ? std::optional<FStaticMeshComponent>{*Mesh} : std::nullopt,
 	    .BodyType = Registry.get<ESceneBodyType>(Entity),
+	    .BodySettings = Registry.get<FSceneRigidBodySettings>(Entity),
 	};
 }
 
@@ -310,6 +345,7 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FSceneEnti
 	Registry.emplace_or_replace<FEntityParent>(Entity, Snapshot.Parent);
 	Registry.emplace_or_replace<FSceneTransform>(Entity, Snapshot.Transform);
 	Registry.emplace_or_replace<ESceneBodyType>(Entity, Snapshot.BodyType);
+	Registry.emplace_or_replace<FSceneRigidBodySettings>(Entity, Snapshot.BodySettings);
 
 	if (Snapshot.Mesh)
 	{

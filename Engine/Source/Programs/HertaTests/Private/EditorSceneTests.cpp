@@ -969,6 +969,81 @@ TEST_CASE("Rigid body authoring is independent from meshes and addition preserve
 	CHECK(SelectedEditorObjects(Scene) == std::vector<FObjectId>(Selected.begin(), Selected.end()));
 }
 
+TEST_CASE("Rigid body property gestures preserve mixed values and undo as one edit")
+{
+	FEditorScene Scene;
+	const FObjectId Cube = Scene.GetObjects()[0].Id;
+	const FObjectId Floor = Scene.GetObjects()[1].Id;
+	const auto Empty = Scene.CreateEmptyEntity();
+	REQUIRE(Empty);
+	Scene.SetSelection(std::array{Cube}, Cube);
+	REQUIRE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::MassKg, 12.f));
+	Scene.SetSelection(std::array{Floor}, Floor);
+	REQUIRE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::MassKg, 30.f));
+	Scene.SetSelection(std::array{Cube, Floor, *Empty}, Cube);
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	REQUIRE(Scene.BeginEdit("Edit friction"));
+	REQUIRE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::Friction, 0.4f));
+	REQUIRE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::Friction, 0.8f));
+	REQUIRE(Scene.EndEdit());
+	const auto After = Scene.GetWorld().SnapshotEntities();
+	CHECK(Scene.GetWorld().GetEntity(*Scene.GetWorld().FindEntity(Cube))->BodySettings.MassKg == 12.f);
+	CHECK(Scene.GetWorld().GetEntity(*Scene.GetWorld().FindEntity(Floor))->BodySettings.MassKg == 30.f);
+	CHECK(Scene.GetWorld().GetEntity(*Scene.GetWorld().FindEntity(*Empty))->BodySettings == FSceneRigidBodySettings{});
+	CHECK(Scene.GetUndoLabel() == "Edit friction");
+	REQUIRE(Scene.Undo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	REQUIRE(Scene.Redo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == After);
+	REQUIRE(Scene.BeginEdit("Cancel damping"));
+	REQUIRE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::AngularDamping, 0.5f));
+	REQUIRE(Scene.CancelEdit());
+	CHECK(Scene.GetWorld().SnapshotEntities() == After);
+	REQUIRE(Scene.SetSelectedBodyType(ESceneBodyType::None));
+	CHECK(Scene.GetWorld().GetEntity(*Scene.GetWorld().FindEntity(Cube))->BodySettings == FSceneRigidBodySettings{});
+	REQUIRE(Scene.Undo());
+	CHECK(Scene.GetWorld().SnapshotEntities() == After);
+}
+
+TEST_CASE("Rigid body property admission rejects invalid edits atomically")
+{
+	FEditorScene Scene;
+	Scene.SetSelection(std::array{Scene.GetObjects()[0].Id, Scene.GetObjects()[1].Id});
+	const auto Before = Scene.GetWorld().SnapshotEntities();
+	CHECK_FALSE(Scene.SetSelectedBodyProperty(nullptr, 1.f));
+	CHECK_FALSE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::MassKg, 0.f));
+	CHECK_FALSE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::Friction, 2.f));
+	CHECK_FALSE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::GravityScale, std::numeric_limits<float>::quiet_NaN()));
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK_FALSE(Scene.CanUndo());
+	Scene.SetSimulationRunning(true);
+	CHECK_FALSE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::MassKg, 2.f));
+	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+}
+
+TEST_CASE("Authored rigid body properties survive scene and clipboard round trips")
+{
+	Tests::FScratchDirectory Scratch("HertaBodyProperties");
+	FEditorScene Scene;
+	const FObjectId Cube = Scene.GetObjects()[0].Id;
+	Scene.SetSelection(std::array{Cube}, Cube);
+	REQUIRE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::MassKg, 25.f));
+	REQUIRE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::GravityScale, 0.5f));
+	REQUIRE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::Restitution, 0.75f));
+	const auto Expected = Scene.GetWorld().GetEntity(*Scene.GetWorld().FindEntity(Cube))->BodySettings;
+	const auto Clipboard = Scene.CopySelected();
+	REQUIRE(Clipboard);
+	REQUIRE(Scene.PasteEntities(*Clipboard));
+	CHECK(Scene.GetWorld().GetEntity(*Scene.GetWorld().FindEntity(*Scene.GetActiveObject()))->BodySettings == Expected);
+	REQUIRE(Scene.DuplicateSelected());
+	CHECK(Scene.GetWorld().GetEntity(*Scene.GetWorld().FindEntity(*Scene.GetActiveObject()))->BodySettings == Expected);
+	const auto Path = Scratch.GetPath() / "Bodies.hscene";
+	REQUIRE(Scene.Save(Path));
+	FEditorScene Loaded;
+	REQUIRE(Loaded.Load(Path));
+	CHECK(Loaded.GetWorld().SnapshotEntities() == Scene.GetWorld().SnapshotEntities());
+}
+
 TEST_CASE("Mixed rigid body edits never insert missing components or consume no-op redo branches")
 {
 	FEditorScene Scene;

@@ -112,6 +112,11 @@ void ReleaseRuntime()
 	return std::isfinite(Value.X) && std::isfinite(Value.Y) && std::isfinite(Value.Z) && std::isfinite(Value.W);
 }
 
+[[nodiscard]] bool IsInRange(const float Value, const float Minimum, const float Maximum)
+{
+	return std::isfinite(Value) && Value >= Minimum && Value <= Maximum;
+}
+
 [[nodiscard]] JPH::Vec3 ToJolt(const FVector3& Value)
 {
 	return {Value.X, Value.Y, Value.Z};
@@ -200,6 +205,22 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const 
 		return std::unexpected(FPhysicsError{"Unsupported body motion type"});
 	}
 
+	const FPhysicsBodyProperties& Properties = Settings.Properties;
+	if (!IsInRange(Properties.MassKg, 0.001f, 1000000.f))
+	{
+		return std::unexpected(FPhysicsError{"Body mass must be finite and between 0.001 and 1000000 kg"});
+	}
+
+	if (!IsInRange(Properties.Friction, 0.f, 1.f) || !IsInRange(Properties.Restitution, 0.f, 1.f) || !IsInRange(Properties.LinearDamping, 0.f, 1.f) || !IsInRange(Properties.AngularDamping, 0.f, 1.f))
+	{
+		return std::unexpected(FPhysicsError{"Body friction, restitution, and damping must be finite and between 0 and 1"});
+	}
+
+	if (!IsInRange(Properties.GravityScale, 0.f, 10.f))
+	{
+		return std::unexpected(FPhysicsError{"Body gravity scale must be finite and between 0 and 10"});
+	}
+
 	const JPH::BoxShapeSettings ShapeSettings(ToJolt(Settings.HalfExtents));
 	const JPH::ShapeSettings::ShapeResult Shape = ShapeSettings.Create();
 	if (Shape.HasError())
@@ -209,7 +230,20 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const 
 
 	const bool bDynamic = Settings.MotionType == EPhysicsMotionType::Dynamic;
 	const FQuaternion Rotation = Settings.Rotation.NormalizedOrIdentity();
-	const JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), bDynamic ? JPH::EMotionType::Dynamic : JPH::EMotionType::Static, bDynamic ? DynamicLayer : StaticLayer);
+	JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), bDynamic ? JPH::EMotionType::Dynamic : JPH::EMotionType::Static, bDynamic ? DynamicLayer : StaticLayer);
+	BodySettings.mFriction = Properties.Friction;
+	BodySettings.mRestitution = Properties.Restitution;
+
+	if (bDynamic)
+	{
+		// Let Jolt scale the box's inertia to the authored mass.
+		BodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+		BodySettings.mMassPropertiesOverride.mMass = Properties.MassKg;
+		BodySettings.mLinearDamping = Properties.LinearDamping;
+		BodySettings.mAngularDamping = Properties.AngularDamping;
+		BodySettings.mGravityFactor = Properties.GravityScale;
+	}
+
 	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
 	const JPH::BodyID Id = Bodies.CreateAndAddBody(BodySettings, bDynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
 	if (Id.IsInvalid())

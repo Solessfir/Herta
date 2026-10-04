@@ -30,6 +30,28 @@ namespace
 constexpr std::array AxisColors{IM_COL32(213, 123, 127, 255), IM_COL32(131, 185, 147, 255), IM_COL32(124, 158, 213, 255)};
 constexpr float TransformLabelWidth = 72.f;
 
+struct FBodyPropertyDisplay
+{
+	std::string_view Label;
+	std::string_view SearchAlias;
+	std::string_view Tooltip;
+	float FSceneRigidBodySettings::* Member = nullptr;
+	float Speed = 0.01f;
+	float Minimum = 0.f;
+	float Maximum = 1.f;
+	const char* Format = "%.3f";
+	bool bDynamicOnly = false;
+};
+
+constexpr std::array BodyProperties{
+    FBodyPropertyDisplay{"Mass", "Mass (kg)", "Mass in kilograms. Only dynamic bodies respond to forces.", &FSceneRigidBodySettings::MassKg, 0.1f, 0.001f, 1'000'000.f, "%.3f kg", true},
+    FBodyPropertyDisplay{"Friction", "Surface friction", "Resistance to sliding contact. Applies to static and dynamic bodies.", &FSceneRigidBodySettings::Friction, 0.01f, 0.f, 1.f, "%.3f", false},
+    FBodyPropertyDisplay{"Bounciness", "Restitution", "Fraction of impact speed retained after a collision.", &FSceneRigidBodySettings::Restitution, 0.01f, 0.f, 1.f, "%.3f", false},
+    FBodyPropertyDisplay{"Linear damping", "Linear Damping", "Reduces linear velocity over time, in inverse seconds.", &FSceneRigidBodySettings::LinearDamping, 0.01f, 0.f, 1.f, "%.2f /s", true},
+    FBodyPropertyDisplay{"Angular damping", "Angular Damping", "Reduces angular velocity over time, in inverse seconds.", &FSceneRigidBodySettings::AngularDamping, 0.01f, 0.f, 1.f, "%.2f /s", true},
+    FBodyPropertyDisplay{"Gravity scale", "Gravity", "Multiplier for the world's gravity acceleration.", &FSceneRigidBodySettings::GravityScale, 0.05f, 0.f, 10.f, "%.2f", true},
+};
+
 enum class ETransformClipboardFormat
 {
 	XYZ,
@@ -66,6 +88,11 @@ void BeginDetailsEdit(const FDetailsEditCallbacks* const Edits, FDetailsMeshResu
 		return std::tolower(static_cast<unsigned char>(Left)) == std::tolower(static_cast<unsigned char>(Right));
 	}).begin()
 	       != Name.end();
+}
+
+[[nodiscard]] bool MatchesBodyProperty(const FBodyPropertyDisplay& Property, const std::string_view Query)
+{
+	return MatchesSearch(Property.Label, Query) || MatchesSearch(Property.SearchAlias, Query);
 }
 
 void DrawObjectIcon(const ImVec2 Position, const float Size, const bool bEntity)
@@ -468,7 +495,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 }
 }
 
-FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh, const FDetailsEditCallbacks* const Edits, const FDetailsComponentField* const Components)
+FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh, const FDetailsEditCallbacks* const Edits, FDetailsComponentField* const Components)
 {
 	FDetailsMeshResult MeshResult;
 
@@ -526,7 +553,11 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const std::string_view MeshLabel = Components != nullptr && (!Components->bAllMesh || Components->bMixedMeshAsset) ? std::string_view("Multiple values") : bHasMesh ? std::string_view(Mesh->Options[static_cast<std::size_t>(Mesh->Selected)])
 	                                                                                                                                                                    : std::string_view(Components != nullptr ? "No asset selected" : "No mesh");
 	const bool bMesh = (Components == nullptr || Components->bAnyMesh) && (Query.empty() || MatchesSearch("Static Mesh", Query) || MatchesSearch(ObjectLabel, Query) || MatchesSearch(MeshLabel, Query));
-	const bool bBody = Components != nullptr && Components->bAnyBody && (Query.empty() || MatchesSearch("Rigid Body", Query) || MatchesSearch("Body type", Query) || MatchesSearch("Shape", Query) || MatchesSearch("Static", Query) || MatchesSearch("Dynamic", Query));
+	const bool bBodyProperty = std::ranges::any_of(BodyProperties, [&](const FBodyPropertyDisplay& Property)
+	{
+		return MatchesBodyProperty(Property, Query);
+	});
+	const bool bBody = Components != nullptr && Components->bAnyBody && (Query.empty() || bBodyProperty || MatchesSearch("Rigid Body", Query) || MatchesSearch("Body type", Query) || MatchesSearch("Shape", Query) || MatchesSearch("Static", Query) || MatchesSearch("Dynamic", Query));
 	if (!bTransform && !bMesh && !bBody)
 	{
 		ImGui::TextDisabled("No matching properties.");
@@ -771,32 +802,107 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 	if (bBody && DrawSectionHeader("Rigid Body", !Components->bAllBody, EDetailsComponentAction::RemoveRigidBody))
 	{
-		ImGui::BeginDisabled(bDragging);
-		ImGui::AlignTextToFramePadding();
-		ImGui::TextDisabled("Body type");
-		ImGui::SameLine();
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		const char* const BodyLabel = !Components->bAllBody || !Components->BodyType ? "Multiple values" : *Components->BodyType == ESceneBodyType::Static ? "Static"
-		                                                                                                                                                   : "Dynamic";
-		if (ImGui::BeginCombo("##BodyType", BodyLabel))
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * UiScale, 4.f * UiScale});
+		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {0.f, 2.f * UiScale});
+		if (ImGui::BeginTable("##RigidBodySettings", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
 		{
-			for (const auto& [Label, Type] : {std::pair{"Static", ESceneBodyType::Static}, std::pair{"Dynamic", ESceneBodyType::Dynamic}})
+			ImGui::TableSetupColumn("##BodyLabel", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("Angular damping").x + 12.f * UiScale);
+			ImGui::TableSetupColumn("##BodyValue", ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::AlignTextToFramePadding();
+			ImGui::TextUnformatted("Body type");
+			ImGui::TableSetColumnIndex(1);
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			ImGui::BeginDisabled(bDragging);
+			const char* const BodyLabel = !Components->bAllBody || !Components->BodyType ? "Multiple values" : *Components->BodyType == ESceneBodyType::Static ? "Static"
+			                                                                                                                                                   : "Dynamic";
+			if (ImGui::BeginCombo("##BodyType", BodyLabel))
 			{
-				const bool bCurrent = Components->BodyType == Type;
-				if (ImGui::Selectable(Label, bCurrent) && !bCurrent)
+				for (const auto& [Label, Type] : {std::pair{"Static", ESceneBodyType::Static}, std::pair{"Dynamic", ESceneBodyType::Dynamic}})
 				{
-					MeshResult.BodyTypeChosen = Type;
+					const bool bCurrent = Components->BodyType == Type;
+					if (ImGui::Selectable(Label, bCurrent) && !bCurrent)
+					{
+						MeshResult.BodyTypeChosen = Type;
+					}
 				}
+
+				ImGui::EndCombo();
 			}
 
-			ImGui::EndCombo();
+			ImGui::EndDisabled();
+
+			for (std::size_t Index = 0; Index < BodyProperties.size(); ++Index)
+			{
+				const FBodyPropertyDisplay& Property = BodyProperties[Index];
+				if (!Query.empty() && !MatchesBodyProperty(Property, Query))
+				{
+					continue;
+				}
+
+				ImGui::TableNextRow();
+				ImGui::PushID(static_cast<int>(Index));
+				ImGui::TableSetColumnIndex(0);
+				ImGui::AlignTextToFramePadding();
+				ImGui::TextUnformatted(Property.Label.data(), Property.Label.data() + Property.Label.size());
+				ImGui::SetItemTooltip("%.*s", static_cast<int>(Property.Tooltip.size()), Property.Tooltip.data());
+				ImGui::TableSetColumnIndex(1);
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				const bool bMixed = Components->MixedBodySettings[Index];
+				float Candidate = Components->BodySettings.*Property.Member;
+				FNumericEditLifecycle Edit{
+				    .Begin = [&]
+				{
+					BeginDetailsEdit(Edits, MeshResult);
+					State.BodyPropertyWasMixed[Index] = Components->MixedBodySettings[Index];
+					if (Edits != nullptr && Edits->ReadBodyProperty)
+					{
+						Components->BodySettings.*Property.Member = Edits->ReadBodyProperty(Property.Member);
+					}
+					Candidate = Components->BodySettings.*Property.Member;
+				},
+				    .Flush = [&](const bool bCanceled)
+				{
+					FlushDetailsEdit(Edits, MeshResult, bCanceled);
+					if (Edits != nullptr && Edits->ReadBodyProperty)
+					{
+						Components->BodySettings.*Property.Member = Edits->ReadBodyProperty(Property.Member);
+					}
+					Candidate = Components->BodySettings.*Property.Member;
+					if (bCanceled)
+					{
+						Components->MixedBodySettings[Index] = State.BodyPropertyWasMixed[Index];
+					}
+				},
+				};
+				const char* const Format = bMixed ? "Multiple values" : Property.Format;
+				ImGui::BeginDisabled(bDragging || (Property.bDynamicOnly && !Components->bAnyDynamicBody));
+				if (DrawNumericDragFloat("##BodyValue", &Candidate, Property.Speed, Property.Minimum, Property.Maximum, Format, ImGuiSliderFlags_AlwaysClamp, &Edit, true) && !Edit.bCanceled)
+				{
+					if (Edits != nullptr && Edits->ApplyBodyProperty)
+					{
+						Edits->ApplyBodyProperty(Property.Member, Candidate);
+					}
+
+					Components->BodySettings.*Property.Member = Candidate;
+					Components->MixedBodySettings[Index] = false;
+				}
+				ImGui::EndDisabled();
+				MeshResult.bEditFinished |= Edit.bFinished;
+				MeshResult.bEditCanceled |= Edit.bCanceled;
+				ImGui::PopID();
+			}
+
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::TextDisabled("Shape");
+			ImGui::TableSetColumnIndex(1);
+			ImGui::TextDisabled("Box (mesh bounds)");
+			ImGui::EndTable();
 		}
 
-		ImGui::EndDisabled();
-		ImGui::TextDisabled("Shape: Box");
-		ImGui::PushTextWrapPos(0.f);
-		ImGui::TextDisabled("Box shape uses Static Mesh bounds when available.");
-		ImGui::PopTextWrapPos();
+		ImGui::PopStyleVar(2);
 	}
 
 	ToolUI.EndPanel();

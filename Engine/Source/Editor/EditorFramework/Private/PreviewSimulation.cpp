@@ -54,7 +54,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		const FVector3 HalfExtents = Absolute(Body.Transform.Scale3D.ComponentMultiply(Body.Shape.HalfExtents));
 		const FVector3 Offset = Body.Transform.Scale3D.ComponentMultiply(Body.Shape.Center);
 		const FVector3 Position = Body.Transform.Translation + Body.Transform.Rotation.RotateVector(Offset);
-		const auto Id = (*NewWorld)->CreateBoxBody({.HalfExtents = HalfExtents, .Position = Position, .Rotation = Body.Transform.Rotation, .MotionType = Body.MotionType});
+		const auto Id = (*NewWorld)->CreateBoxBody({.HalfExtents = HalfExtents, .Position = Position, .Rotation = Body.Transform.Rotation, .MotionType = Body.MotionType, .Properties = Body.Properties});
 		if (!Id)
 		{
 			return std::unexpected(Id.error());

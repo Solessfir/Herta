@@ -245,6 +245,36 @@ TEST_CASE("Preview simulation body capacity failure leaves no partially running 
 	REQUIRE(Simulation.Start(Bodies));
 	Simulation.Stop();
 }
+
+TEST_CASE("Preview simulation forwards authored body properties and restores transforms")
+{
+	FPreviewSimulation Simulation;
+	const std::array<FPreviewSimulationBody, 2> Bodies{{
+	    {.ObjectIndex = 3, .Transform = {{-3.f, 8.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.GravityScale = 0.f}},
+	    {.ObjectIndex = 7, .Transform = {{3.f, 8.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 2.f, .GravityScale = 1.f}},
+	}};
+
+	REQUIRE(Simulation.Start(Bodies));
+
+	for (int Frame = 0; Frame < 120; ++Frame)
+	{
+		REQUIRE(Simulation.Update(1.f / 120.f));
+	}
+
+	CHECK(Simulation.GetTransforms()[0].Transform == Bodies[0].Transform);
+	CHECK(Simulation.GetTransforms()[1].Transform.Translation.Y < 4.f);
+	Simulation.Stop();
+	CHECK(Simulation.GetTransforms()[0].Transform == Bodies[0].Transform);
+	CHECK(Simulation.GetTransforms()[1].Transform == Bodies[1].Transform);
+
+	auto Invalid = Bodies;
+	Invalid[1].Properties.Friction = std::numeric_limits<float>::quiet_NaN();
+	CHECK_FALSE(Simulation.Start(Invalid));
+	CHECK_FALSE(Simulation.IsRunning());
+	CHECK(Simulation.GetTransforms()[0].Transform == Bodies[0].Transform);
+	CHECK(Simulation.GetTransforms()[1].Transform == Bodies[1].Transform);
+	REQUIRE(Simulation.Start(Bodies));
+}
 }
 
 TEST_CASE("Preview simulation collides with offset mesh bounds and restores the object origin")

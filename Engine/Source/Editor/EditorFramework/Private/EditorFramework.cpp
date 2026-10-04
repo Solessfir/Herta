@@ -2758,11 +2758,21 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 		{
 			for (const std::size_t Index : Scene->FindBodies(Type))
 			{
+				const auto Entity = Scene->GetWorld().GetEntity(*Scene->GetWorld().FindEntity(PreviewObjects[Index].Id));
+				const FSceneRigidBodySettings& Settings = Entity->BodySettings;
 				Bodies.push_back({
 				    .ObjectIndex = Index,
 				    .Transform = ToHertaTransform(PreviewObjects[Index]),
 				    .Shape = GetPreviewBodyShape(Index),
 				    .MotionType = Type == ESceneBodyType::Dynamic ? EPhysicsMotionType::Dynamic : EPhysicsMotionType::Static,
+				    .Properties = {
+				        .MassKg = Settings.MassKg,
+				        .Friction = Settings.Friction,
+				        .Restitution = Settings.Restitution,
+				        .LinearDamping = Settings.LinearDamping,
+				        .AngularDamping = Settings.AngularDamping,
+				        .GravityScale = Settings.GravityScale,
+				    },
 				});
 			}
 		}
@@ -2829,6 +2839,8 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	std::string MeshStatus;
 	FDetailsComponentField Components{.bAllMesh = !PreviewSelection.Indices.empty(), .bAllBody = !PreviewSelection.Indices.empty()};
 	bool bFirstBody = true;
+	bool bFirstBodySettings = true;
+	constexpr std::array BodyProperties{&FSceneRigidBodySettings::MassKg, &FSceneRigidBodySettings::Friction, &FSceneRigidBodySettings::Restitution, &FSceneRigidBodySettings::LinearDamping, &FSceneRigidBodySettings::AngularDamping, &FSceneRigidBodySettings::GravityScale};
 
 	for (const int Index : PreviewSelection.Indices)
 	{
@@ -2841,6 +2853,25 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		Components.bMixedMeshAsset |= Object.Mesh != Mesh;
 		Components.bAnyBody |= Type != ESceneBodyType::None;
 		Components.bAllBody &= Type != ESceneBodyType::None;
+		Components.bAnyDynamicBody |= Type == ESceneBodyType::Dynamic;
+
+		if (Type != ESceneBodyType::None)
+		{
+			if (bFirstBodySettings)
+			{
+				Components.BodySettings = Entity->BodySettings;
+				bFirstBodySettings = false;
+			}
+			else
+			{
+				for (std::size_t PropertyIndex = 0; PropertyIndex < BodyProperties.size(); ++PropertyIndex)
+				{
+					const auto Property = BodyProperties[PropertyIndex];
+					Components.MixedBodySettings[PropertyIndex] |= Entity->BodySettings.*Property != Components.BodySettings.*Property;
+				}
+			}
+		}
+
 		if (bFirstBody)
 		{
 			Components.BodyType = Type;
@@ -2922,6 +2953,23 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		}
 
 		PreviousObject = GetActivePreviewObject();
+	},
+	    .ApplyBodyProperty = [&](float FSceneRigidBodySettings::* const Property, const float Value)
+	{
+		ReportSceneResult(Scene->SetSelectedBodyProperty(Property, Value));
+	},
+	    .ReadBodyProperty = [&](float FSceneRigidBodySettings::* const Property)
+	{
+		for (const FObjectId Selected : Scene->GetSelection())
+		{
+			const auto Entity = Scene->GetWorld().GetEntity(*Scene->GetWorld().FindEntity(Selected));
+			if (Entity->BodyType != ESceneBodyType::None)
+			{
+				return Entity->BodySettings.*Property;
+			}
+		}
+
+		return FSceneRigidBodySettings{}.*Property;
 	},
 	};
 	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && Mesh.IsValid() ? &MeshField : nullptr, &Edits, &Components);

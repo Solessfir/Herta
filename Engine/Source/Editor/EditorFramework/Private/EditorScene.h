@@ -38,6 +38,7 @@ public:
 	[[nodiscard]] std::expected<void, FSceneError> RemoveStaticMeshFromSelected();
 	[[nodiscard]] std::expected<void, FSceneError> AddRigidBodyToSelected(ESceneBodyType Type = ESceneBodyType::Dynamic);
 	[[nodiscard]] std::expected<void, FSceneError> SetSelectedBodyType(ESceneBodyType Type);
+	[[nodiscard]] std::expected<void, FSceneError> SetSelectedBodyProperty(float FSceneRigidBodySettings::* Property, float Value);
 	[[nodiscard]] std::expected<void, FSceneError> DuplicateSelected(bool bWithinActiveEdit = false, const FVector3d& WorldOffset = {});
 	[[nodiscard]] std::expected<void, FSceneError> DeleteSelected();
 	[[nodiscard]] std::expected<std::string, FSceneError> CopySelected() const;

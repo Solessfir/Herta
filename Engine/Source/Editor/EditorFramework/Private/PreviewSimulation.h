@@ -22,6 +22,7 @@ struct FPreviewSimulationBody
 	FTransform Transform{};
 	FPreviewBodyShape Shape{};
 	EPhysicsMotionType MotionType = EPhysicsMotionType::Static;
+	FPhysicsBodyProperties Properties{};
 };
 
 struct FPreviewSimulationTransform

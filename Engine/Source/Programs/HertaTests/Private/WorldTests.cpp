@@ -140,6 +140,14 @@ TEST_CASE("World snapshots preserve components and have canonical object orderin
 	FSceneEntity Mesh = MakeEntity(3, "Mesh");
 	Mesh.Mesh = FStaticMeshComponent{FAssetId{1, 2}};
 	Mesh.BodyType = ESceneBodyType::Dynamic;
+	Mesh.BodySettings = {
+	    .MassKg = 42.f,
+	    .Friction = 0.7f,
+	    .Restitution = 0.3f,
+	    .LinearDamping = 0.1f,
+	    .AngularDamping = 0.2f,
+	    .GravityScale = 2.f,
+	};
 	Mesh.Transform.Translation = FWorldPosition{1234567890.125, 2., 3.};
 	Mesh.Transform.Rotation = FQuaternion::FromAxisAngle(FVector3::Up(), 0.25f);
 	Mesh.Transform.Scale = {1.f, 2.f, 3.f};
@@ -156,8 +164,58 @@ TEST_CASE("World snapshots preserve components and have canonical object orderin
 	CHECK(Clone.SnapshotEntities() == Snapshot);
 	Mesh.Mesh.reset();
 	Mesh.BodyType = ESceneBodyType::None;
+	Mesh.BodySettings = {};
 	REQUIRE(World.SetEntity(*World.FindEntity(Mesh.Id), Mesh).has_value());
 	CHECK(World.GetEntity(*World.FindEntity(Mesh.Id)) == Mesh);
+}
+
+TEST_CASE("Rigid body settings validate ranges and update atomically")
+{
+	static_assert(FSceneRigidBodySettings{} == FSceneRigidBodySettings{});
+
+	FSceneRigidBodySettings Settings{
+	    .MassKg = 0.001f,
+	    .Friction = 0.f,
+	    .Restitution = 1.f,
+	    .LinearDamping = 0.f,
+	    .AngularDamping = 1.f,
+	    .GravityScale = 10.f,
+	};
+	CHECK(ValidateSceneRigidBodySettings(Settings).has_value());
+
+	Settings.MassKg = 1'000'000.f;
+	CHECK(ValidateSceneRigidBodySettings(Settings).has_value());
+	Settings.MassKg = 0.f;
+	CHECK_FALSE(ValidateSceneRigidBodySettings(Settings).has_value());
+	Settings = {};
+	Settings.Friction = std::numeric_limits<float>::quiet_NaN();
+	CHECK_FALSE(ValidateSceneRigidBodySettings(Settings).has_value());
+	Settings = {};
+	Settings.Restitution = 1.01f;
+	CHECK_FALSE(ValidateSceneRigidBodySettings(Settings).has_value());
+	Settings = {};
+	Settings.LinearDamping = -0.01f;
+	CHECK_FALSE(ValidateSceneRigidBodySettings(Settings).has_value());
+	Settings = {};
+	Settings.AngularDamping = std::numeric_limits<float>::infinity();
+	CHECK_FALSE(ValidateSceneRigidBodySettings(Settings).has_value());
+	Settings = {};
+	Settings.GravityScale = 10.01f;
+	CHECK_FALSE(ValidateSceneRigidBodySettings(Settings).has_value());
+
+	FSceneEntity Entity = MakeEntity(1);
+	Entity.BodySettings.MassKg = 2.f;
+	CHECK_FALSE(ValidateSceneEntities(std::span{&Entity, 1}).has_value());
+	Entity.BodyType = ESceneBodyType::Dynamic;
+	REQUIRE(ValidateSceneEntities(std::span{&Entity, 1}).has_value());
+
+	FWorld World;
+	REQUIRE(World.ReplaceEntities(std::span{&Entity, 1}));
+	const FEntityId Handle = *World.FindEntity(Entity.Id);
+	FSceneEntity Invalid = Entity;
+	Invalid.BodySettings.GravityScale = -1.f;
+	CHECK_FALSE(World.SetEntity(Handle, Invalid));
+	CHECK(World.GetEntity(Handle) == Entity);
 }
 
 TEST_CASE("Rejected structural batches leave the live world unchanged")
