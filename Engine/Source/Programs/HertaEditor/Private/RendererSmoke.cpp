@@ -5,8 +5,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <format>
+#include <limits>
 #include <memory>
 #include <numbers>
+#include <print>
 
 namespace Herta
 {
@@ -399,9 +402,95 @@ namespace
 	return {};
 }
 
-[[nodiscard]] std::expected<void, FPresentationError> CheckDebugDraw(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader)
+[[nodiscard]] std::expected<void, FPresentationError> CheckInstancing(IGraphicsDevice& Device, FMeshRenderer& Reference, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader)
 {
-	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader, GridVertexShader, GridFragmentShader);
+	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader);
+	const auto First = CreateSmokeCube(Device);
+	const auto Second = CreateSmokeCube(Device);
+	if (!Renderer || !First || !Second)
+	{
+		return std::unexpected(!Renderer ? Renderer.error() : !First ? First.error()
+		                                                             : Second.error());
+	}
+
+	constexpr FExtent2D Extent{.Width = 256, .Height = 128};
+	std::array Models{
+	    FMatrix4::Translation({-2, 1, 0}) * FMatrix4::Rotation(FQuaternion::FromAxisAngle({0, 1, 0}, 0.45f)) * FMatrix4::Scale({1.5f, 0.8f, 1.f}),
+	    FMatrix4::Translation({2, -1, 0.5f}) * FMatrix4::Rotation(FQuaternion::FromAxisAngle({1, 0, 0}, -0.3f)) * FMatrix4::Scale({1.f, 1.5f, 0.8f}),
+	    FMatrix4::Translation({2, 1, 0}) * FMatrix4::Rotation(FQuaternion::FromAxisAngle({0, 0, 1}, 0.35f)) * FMatrix4::Scale({-1.2f, 1.f, 1.f}),
+	    FMatrix4::Translation({-2, -1, -0.5f}) * FMatrix4::Scale({0.7f, 1.3f, 1.1f}),
+	};
+
+	const std::array Meshes{First->get(), Second->get(), First->get(), Second->get()};
+	const FMeshRenderView View{.View = FMatrix4::Rotation(FQuaternion::FromAxisAngle({0, 1, 0}, 0.12f) * FQuaternion::FromAxisAngle({1, 0, 0}, -0.08f)) * FMatrix4::Translation({0.2f, -0.3f, 8}), .Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.f, 2.f, 0.1f), .Models = Models, .Meshes = Meshes};
+	for (std::size_t Frame = 0; Frame < 2; ++Frame)
+	{
+		if (const auto Result = Reference.Render(Extent, View); !Result)
+		{
+			return Result;
+		}
+
+		const auto Baseline = Device.ReadbackTexture(Reference.GetColorTarget());
+		if (!Baseline)
+		{
+			return std::unexpected(Baseline.error());
+		}
+
+		if (const auto Result = (*Renderer)->Render(Extent, View); !Result)
+		{
+			return Result;
+		}
+
+		const auto Instanced = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+		if (!Instanced)
+		{
+			return std::unexpected(Instanced.error());
+		}
+
+		if (Baseline->size() != Instanced->size() || Reference.GetLastDrawCount() != 4 || (*Renderer)->GetLastDrawCount() != 2)
+		{
+			return Failure("Shared meshes did not reduce to one instanced draw per mesh section");
+		}
+
+		std::size_t DifferentPixels = 0;
+		std::size_t MeshPixels = 0;
+		int MaximumDifference = 0;
+		for (std::size_t Pixel = 0; Pixel < Baseline->size(); Pixel += 4)
+		{
+			bool bDifferent = false;
+			for (std::size_t Channel = 0; Channel < 3; ++Channel)
+			{
+				const int Difference = std::to_integer<int>((*Baseline)[Pixel + Channel]) - std::to_integer<int>((*Instanced)[Pixel + Channel]);
+				MaximumDifference = std::max(MaximumDifference, std::abs(Difference));
+				bDifferent |= std::abs(Difference) > 8;
+			}
+
+			DifferentPixels += bDifferent ? 1u : 0u;
+			MeshPixels += std::to_integer<unsigned>((*Baseline)[Pixel]) > 120 ? 1u : 0u;
+		}
+
+		std::println("Instancing readback frame {}: {} mesh pixels, {} differing pixels, maximum channel difference {}", Frame, MeshPixels, DifferentPixels, MaximumDifference);
+
+		// Separate matrix-column arithmetic can shift edge samples slightly without changing the image.
+		if (MeshPixels < 250 || DifferentPixels > Baseline->size() / 4 / 100)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Instanced transforms, view-space lighting, or winding differ from individual mesh draws: frame {}, {} mesh pixels, {} differing pixels, maximum channel difference {}", Frame, MeshPixels, DifferentPixels, MaximumDifference)});
+		}
+
+		Models[0] = FMatrix4::Translation({0.4f, -0.2f, 0.3f}) * Models[0];
+	}
+
+	if (const auto Sections = CheckRenderMeshSections(Device, **Renderer); !Sections)
+	{
+		return Sections;
+	}
+
+	return CheckMultipleModels(Device, **Renderer);
+}
+
+[[nodiscard]] std::expected<void, FPresentationError> CheckDebugDraw(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader, const FShaderAsset& InstancedVertexShader)
+{
+	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader, GridVertexShader, GridFragmentShader, InstancedVertexShader);
 	if (!Renderer)
 	{
 		return std::unexpected(Renderer.error());
@@ -488,7 +577,7 @@ namespace
 }
 }
 
-std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader)
+std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader, const FShaderAsset& InstancedVertexShader)
 {
 	if (const auto InvalidCommands = CheckInvalidCommands(Device); !InvalidCommands)
 	{
@@ -555,6 +644,11 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return MultipleModels;
 	}
 
+	if (const auto Instancing = CheckInstancing(Device, **Renderer, VertexShader, FragmentShader, InstancedVertexShader); !Instancing)
+	{
+		return Instancing;
+	}
+
 	// Submit the near red quad before the far green quad so a disabled depth test cannot pass.
 	constexpr std::array<FMeshVertex, 4> NearVertices{{{.Position = {-1, -1, 0}, .UV = {0.25f, 0.5f}}, {.Position = {-1, 1, 0}, .UV = {0.25f, 0.5f}}, {.Position = {1, 1, 0}, .UV = {0.25f, 0.5f}}, {.Position = {1, -1, 0}, .UV = {0.25f, 0.5f}}}};
 	auto FarVertices = NearVertices;
@@ -572,6 +666,8 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	auto Color = Device.CreateTexture({.Name = "Depth test color", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
 	auto Depth = Device.CreateTexture({.Name = "Depth test depth", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
 	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb});
+	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true});
+	auto Instances = Device.CreateBuffer({.Name = "Instance validation transforms", .Size = 2 * sizeof(FMeshInstance), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
 	if (!Near)
 	{
 		return std::unexpected(Near.error());
@@ -607,6 +703,11 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(Pipeline.error());
 	}
 
+	if (!InstancedPipeline || !Instances)
+	{
+		return std::unexpected(!InstancedPipeline ? InstancedPipeline.error() : Instances.error());
+	}
+
 	auto Result = Device.BeginCommands();
 	if (!Result)
 	{
@@ -635,6 +736,63 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.f, 1, 0.1f);
+	if (Result)
+	{
+		FIndexedDraw InstanceDraw{.Pipeline = *InstancedPipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .IndexCount = 6, .Instances = *Instances, .InstanceCount = 2};
+		if (Device.DrawIndexed(InstanceDraw))
+		{
+			Device.CancelCommands();
+			return Failure("Indexed instancing accepted an uninitialized instance buffer");
+		}
+
+		std::array InstanceData{FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data()}, FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 4}).Data()}};
+		InstanceData[0].WorldToClip[0] = std::numeric_limits<float>::quiet_NaN();
+		if (Device.WriteBuffer(*Instances, std::as_bytes(std::span{InstanceData})))
+		{
+			Device.CancelCommands();
+			return Failure("Mesh instances accepted a nonfinite transform");
+		}
+
+		InstanceData[0].WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data();
+		Result = Device.WriteBuffer(*Instances, std::as_bytes(std::span{InstanceData}));
+		if (Result)
+		{
+			for (const std::uint32_t Count : {0u, 3u})
+			{
+				InstanceDraw.InstanceCount = Count;
+				if (Device.DrawIndexed(InstanceDraw))
+				{
+					Device.CancelCommands();
+					return Failure("Indexed instancing accepted an empty or out-of-range instance count");
+				}
+			}
+
+			InstanceDraw.InstanceCount = 2;
+			InstanceDraw.FirstInstance = 1;
+			if (Device.DrawIndexed(InstanceDraw))
+			{
+				Device.CancelCommands();
+				return Failure("Indexed instancing accepted a range beyond its instance buffer");
+			}
+
+			InstanceDraw.FirstInstance = 0;
+			InstanceDraw.Instances = *Near;
+			if (Device.DrawIndexed(InstanceDraw))
+			{
+				Device.CancelCommands();
+				return Failure("Indexed instancing accepted an ordinary vertex buffer as instance data");
+			}
+
+			InstanceDraw.Instances = *Instances;
+			InstanceDraw.Pipeline = *Pipeline;
+			if (Device.DrawIndexed(InstanceDraw))
+			{
+				Device.CancelCommands();
+				return Failure("A non-instanced pipeline accepted instance data");
+			}
+		}
+	}
+
 	if (Result && Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 7, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data()}))
 	{
 		Device.CancelCommands();
@@ -682,7 +840,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return Failure("Reversed-Z regression: far geometry overwrote the near red quad");
 	}
 
-	Result = CheckDebugDraw(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader, GridVertexShader, GridFragmentShader);
+	Result = CheckDebugDraw(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader, GridVertexShader, GridFragmentShader, InstancedVertexShader);
 	if (!Result)
 	{
 		return Result;

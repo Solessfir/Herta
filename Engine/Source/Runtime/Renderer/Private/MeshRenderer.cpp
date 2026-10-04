@@ -11,6 +11,7 @@
 #include <limits>
 #include <numeric>
 #include <ranges>
+#include <unordered_map>
 #include <utility>
 
 namespace Herta
@@ -43,8 +44,8 @@ static_assert(sizeof(FCookedVertex) == sizeof(FMeshVertex) && offsetof(FCookedVe
 struct FProjectedDebugVertex
 {
 	FVector4 Position;
-	float Size;
-	std::array<float, 4> Color;
+	float Size = 1.f;
+	std::array<float, 4> Color{};
 };
 
 [[nodiscard]] double ClipDistance(const FVector4& Position, const std::size_t Plane)
@@ -365,10 +366,22 @@ std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> FRenderMes
 
 struct FMeshRenderer::FImplementation
 {
+	struct FInstanceBatch
+	{
+		const FRenderMesh* Mesh = nullptr;
+		std::uint32_t FirstInstance = 0;
+		std::uint32_t InstanceCount = 0;
+	};
+
 	IGraphicsDevice* Device = nullptr;
 	FTextureHandle Color;
 	FTextureHandle Depth;
 	FGraphicsPipelineHandle Pipeline;
+	FGraphicsPipelineHandle InstancedPipeline;
+	FBufferHandle Instances;
+	std::vector<FMeshInstance> InstanceData;
+	std::vector<FInstanceBatch> InstanceBatches;
+	std::unordered_map<const FRenderMesh*, std::size_t> InstanceBatchIndices;
 	FGraphicsPipelineHandle GridPipeline;
 	FBufferHandle GridVertices;
 	FBufferHandle GridIndices;
@@ -376,6 +389,7 @@ struct FMeshRenderer::FImplementation
 	std::array<FBufferHandle, 2> DebugVertices;
 	std::array<FBufferHandle, 2> DebugIndices;
 	std::array<std::vector<FColoredClipVertex>, 2> DebugBatches;
+	std::size_t LastDrawCount = 0;
 };
 
 FMeshRenderer::FMeshRenderer(std::unique_ptr<FImplementation> InImplementation)
@@ -385,7 +399,7 @@ FMeshRenderer::FMeshRenderer(std::unique_ptr<FImplementation> InImplementation)
 
 FMeshRenderer::~FMeshRenderer() = default;
 
-std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer::Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader, FShaderAsset DebugFragmentShader, FShaderAsset GridVertexShader, FShaderAsset GridFragmentShader)
+std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer::Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader, FShaderAsset DebugFragmentShader, FShaderAsset GridVertexShader, FShaderAsset GridFragmentShader, FShaderAsset InstancedVertexShader)
 {
 	if (DebugVertexShader.Bytecode.empty() != DebugFragmentShader.Bytecode.empty())
 	{
@@ -399,6 +413,17 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 	auto State = std::make_unique<FImplementation>();
 	State->Device = &Device;
+	if (!InstancedVertexShader.Bytecode.empty())
+	{
+		auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instanced textured mesh reversed-Z", .VertexShader = std::move(InstancedVertexShader), .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true});
+		if (!InstancedPipeline)
+		{
+			return std::unexpected(InstancedPipeline.error());
+		}
+
+		State->InstancedPipeline = std::move(*InstancedPipeline);
+	}
+
 	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Textured mesh reversed-Z", .VertexShader = std::move(VertexShader), .FragmentShader = std::move(FragmentShader), .ColorFormat = ETextureFormat::Rgba8Srgb});
 	if (!Pipeline)
 	{
@@ -467,8 +492,14 @@ const FTextureHandle& FMeshRenderer::GetColorTarget() const noexcept
 	return Implementation->Color;
 }
 
+std::size_t FMeshRenderer::GetLastDrawCount() const noexcept
+{
+	return Implementation->LastDrawCount;
+}
+
 std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Extent, const FMeshRenderView& View, const std::span<const FDebugDrawList> DebugDraw)
 {
+	Implementation->LastDrawCount = 0;
 	if (Extent.IsEmpty())
 	{
 		return {};
@@ -484,7 +515,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	if (!IsFinite(View.View) || !IsFinite(View.Projection) || !IsFinite(WorldToClip) || !std::ranges::all_of(View.Models, [&](const FMatrix4& Model)
 	{
-		return IsFinite(Model) && IsFinite(WorldToClip * Model);
+		return IsFinite(Model) && IsFinite(WorldToClip * Model) && IsFinite(View.View * Model);
 	}) || (View.bDrawGrid && (!std::isfinite(View.GridCenter.X) || !std::isfinite(View.GridCenter.Z))))
 	{
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Mesh view, projection, model, and grid center must be finite"});
@@ -527,6 +558,66 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		}
 	}
 
+	if (State.InstancedPipeline)
+	{
+		State.InstanceBatches.clear();
+		State.InstanceBatchIndices.clear();
+		std::size_t InstanceCount = 0;
+		for (const FRenderMesh* Mesh : View.Meshes)
+		{
+			if (!Mesh)
+			{
+				continue;
+			}
+
+			const auto [Entry, bInserted] = State.InstanceBatchIndices.try_emplace(Mesh, State.InstanceBatches.size());
+			if (bInserted)
+			{
+				State.InstanceBatches.push_back({.Mesh = Mesh});
+			}
+
+			++State.InstanceBatches[Entry->second].InstanceCount;
+			++InstanceCount;
+		}
+
+		if (InstanceCount > MaximumUploadBytesPerRecording / sizeof(FMeshInstance))
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Mesh instances must fit the 64 MiB recording upload budget"});
+		}
+
+		std::uint32_t FirstInstance = 0;
+		for (FImplementation::FInstanceBatch& Batch : State.InstanceBatches)
+		{
+			Batch.FirstInstance = FirstInstance;
+			FirstInstance += Batch.InstanceCount;
+			Batch.InstanceCount = 0;
+		}
+
+		State.InstanceData.resize(InstanceCount);
+		for (std::size_t Index = 0; Index < View.Models.size(); ++Index)
+		{
+			if (!View.Meshes[Index])
+			{
+				continue;
+			}
+
+			FImplementation::FInstanceBatch& Batch = State.InstanceBatches[State.InstanceBatchIndices.at(View.Meshes[Index])];
+			State.InstanceData[Batch.FirstInstance + Batch.InstanceCount++] = {.WorldToClip = (WorldToClip * View.Models[Index]).Data(), .ObjectToView = (View.View * View.Models[Index]).Data()};
+		}
+
+		const std::size_t InstanceBytes = InstanceCount * sizeof(FMeshInstance);
+		if (InstanceBytes > 0 && (!State.Instances || State.Instances->GetDescriptor().Size != InstanceBytes))
+		{
+			auto Instances = Device.CreateBuffer({.Name = "Mesh instances", .Size = InstanceBytes, .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
+			if (!Instances)
+			{
+				return std::unexpected(Instances.error());
+			}
+
+			State.Instances = std::move(*Instances);
+		}
+	}
+
 	if (!State.Color || State.Color->GetDescriptor().Extent != Extent)
 	{
 		auto Color = Device.CreateTexture({.Name = "Scene color", .Extent = Extent, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
@@ -562,6 +653,34 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	Graph.AddPass("Textured meshes", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 	{
+		if (State.InstancedPipeline)
+		{
+			if (!State.InstanceData.empty())
+			{
+				if (const auto Written = Device.WriteBuffer(State.Instances, std::as_bytes(std::span{State.InstanceData})); !Written)
+				{
+					return GraphResult(Written);
+				}
+			}
+
+			for (const FImplementation::FInstanceBatch& Batch : State.InstanceBatches)
+			{
+				const FRenderMesh& Mesh = *Batch.Mesh;
+				for (const FRenderMesh::FSection& Section : Mesh.Sections)
+				{
+					const auto Result = Device.DrawIndexed({.Pipeline = State.InstancedPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Mesh.Textures[Section.Texture], .ColorTarget = State.Color, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Batch.InstanceCount, .FirstInstance = Batch.FirstInstance});
+					if (!Result)
+					{
+						return GraphResult(Result);
+					}
+
+					++State.LastDrawCount;
+				}
+			}
+
+			return {};
+		}
+
 		for (std::size_t Index = 0; Index < View.Models.size(); ++Index)
 		{
 			if (View.Meshes[Index] == nullptr)
@@ -579,6 +698,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				{
 					return GraphResult(Result);
 				}
+
+				++State.LastDrawCount;
 			}
 		}
 
@@ -605,6 +726,10 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			if (Result)
 			{
 				Result = Device.DrawIndexed({.Pipeline = State.GridPipeline, .Vertices = State.GridVertices, .Indices = State.GridIndices, .Texture = {}, .ColorTarget = State.Color, .DepthTarget = FrameDepth, .WorldToClip = FMatrix4::Identity().Data(), .IndexCount = static_cast<std::uint32_t>(GridIndices.size())});
+				if (Result)
+				{
+					++State.LastDrawCount;
+				}
 			}
 
 			return GraphResult(Result);
@@ -638,6 +763,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			{
 				return GraphResult(Result);
 			}
+
+			++State.LastDrawCount;
 		}
 
 		return {};

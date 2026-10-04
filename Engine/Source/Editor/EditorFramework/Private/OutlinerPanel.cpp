@@ -5,6 +5,9 @@
 
 #include <imgui_internal.h>
 
+#include <algorithm>
+#include <string>
+
 namespace Herta
 {
 bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelection& Selection, const std::span<const FPreviewObject> Objects, const bool bDragging, FOutlinerPanelState& State)
@@ -25,10 +28,24 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 		State.Search.Build();
 	}
 
-	std::vector<int> VisibleIndices;
+	auto& VisibleIndices = State.VisibleIndices;
+	VisibleIndices.clear();
+	VisibleIndices.reserve(Objects.size());
+	std::string SearchText;
+	const auto IsObjectVisible = [&](const std::string_view Label)
+	{
+		if (!State.Search.IsActive())
+		{
+			return true;
+		}
+
+		SearchText.assign(Label);
+		SearchText.append(" Static Mesh");
+		return State.Search.PassFilter(SearchText.c_str());
+	};
 	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
 	{
-		if (State.IsObjectVisible(Objects[Index].Label))
+		if (IsObjectVisible(Objects[Index].Label))
 		{
 			VisibleIndices.push_back(static_cast<int>(Index));
 		}
@@ -45,7 +62,22 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 		State.bRenameRequested |= Selection.Active >= 0 && ImGui::IsKeyPressed(ImGuiKey_F2, false);
 	}
 
-	const bool bStartRename = !bDragging && State.bRenameRequested && Selection.Active >= 0 && State.IsObjectVisible(Objects[static_cast<std::size_t>(Selection.Active)].Label);
+	auto& SelectedMask = State.SelectedMask;
+	const auto RefreshSelectedMask = [&]
+	{
+		SelectedMask.resize(Objects.size());
+		std::ranges::fill(SelectedMask, false);
+		for (const int Index : Selection.Indices)
+		{
+			if (Index >= 0 && static_cast<std::size_t>(Index) < SelectedMask.size())
+			{
+				SelectedMask[static_cast<std::size_t>(Index)] = true;
+			}
+		}
+	};
+	RefreshSelectedMask();
+
+	const bool bStartRename = !bDragging && State.bRenameRequested && Selection.Active >= 0 && static_cast<std::size_t>(Selection.Active) < Objects.size() && IsObjectVisible(Objects[static_cast<std::size_t>(Selection.Active)].Label);
 	State.bRenameRequested = false;
 
 	if (bDragging)
@@ -56,7 +88,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 	if (State.bRenaming)
 	{
 		const auto Object = std::ranges::find(Objects, State.RenameObject, &FPreviewObject::Id);
-		if (Object == Objects.end() || !State.IsObjectVisible(Object->Label))
+		if (Object == Objects.end() || !IsObjectVisible(Object->Label))
 		{
 			State.bRenameCommitted = Object != Objects.end();
 			State.bRenaming = false;
@@ -96,114 +128,144 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 			ImGui::GetWindowDrawList()->AddRectFilled({Table->WorkRect.Min.x, Table->RowPosY1}, {Table->WorkRect.Max.x, Table->RowPosY2}, ImGui::GetColorU32(ImVec4{1, 1, 1, 0.05f}), 4.f * Scale);
 			ImGui::TablePopBackgroundChannel();
 			RowsTop = ImGui::GetCursorScreenPos().y;
-			for (std::size_t Index = 0; Index < Objects.size(); ++Index)
+			ImGuiListClipper Clipper;
+			Clipper.Begin(static_cast<int>(VisibleIndices.size()));
+			const auto IncludeObject = [&](const int ObjectIndex)
 			{
-				const FPreviewObject& Object = Objects[Index];
-				if (!State.IsObjectVisible(Object.Label))
+				const auto Visible = std::ranges::find(VisibleIndices, ObjectIndex);
+				if (Visible != VisibleIndices.end())
 				{
-					continue;
+					Clipper.IncludeItemByIndex(static_cast<int>(Visible - VisibleIndices.begin()));
 				}
+			};
+			if (Selection.Active >= 0)
+			{
+				IncludeObject(Selection.Active);
+			}
 
-				ImGui::PushID(static_cast<int>(Index));
-				ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8.f * Scale, 6.f * Scale});
-				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.f * Scale, 12.f * Scale});
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				const float IconX = ImGui::GetCursorScreenPos().x + 2.f * Scale;
-				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 22.f * Scale);
-				ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
-				ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0, 0, 0, 0});
-				ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
-				ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-				const float LabelX = ImGui::GetCursorScreenPos().x;
-				const bool bRenamingRow = State.bRenaming && State.RenameObject == Object.Id;
-				if (bRenamingRow)
+			if (Selection.Anchor >= 0)
+			{
+				IncludeObject(Selection.Anchor);
+			}
+
+			if (State.bRenaming)
+			{
+				const auto Object = std::ranges::find(Objects, State.RenameObject, &FPreviewObject::Id);
+				if (Object != Objects.end())
 				{
-					ImGui::SetNextItemAllowOverlap();
+					IncludeObject(static_cast<int>(Object - Objects.begin()));
 				}
+			}
 
-				if (ImGui::Selectable("##Object", Selection.Contains(static_cast<int>(Index)), ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) && !bRenamingRow)
+			while (Clipper.Step())
+			{
+				for (int VisibleIndex = Clipper.DisplayStart; VisibleIndex < Clipper.DisplayEnd; ++VisibleIndex)
 				{
-					if (IO.KeyShift)
-					{
-						Selection.SelectRange(static_cast<int>(Index), VisibleIndices, IO.KeyCtrl);
-					}
-					else if (!IO.KeyCtrl || !ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-					{
-						Selection.Select(static_cast<int>(Index), IO.KeyCtrl);
-					}
+					const std::size_t Index = static_cast<std::size_t>(VisibleIndices[static_cast<std::size_t>(VisibleIndex)]);
+					const FPreviewObject& Object = Objects[Index];
 
-					bFocusRequested = !bRenamingRow && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter));
-				}
-
-				ImGui::PopStyleColor(4);
-				const bool bCurrentRowHovered = ImGui::IsItemHovered();
-				bRowHovered |= bCurrentRowHovered;
-				const ImVec2 Minimum = ImGui::GetItemRectMin();
-				const ImVec2 Maximum = ImGui::GetItemRectMax();
-				if (Selection.Contains(static_cast<int>(Index)) || bCurrentRowHovered)
-				{
-					const ImGuiCol Color = bCurrentRowHovered ? (ImGui::IsItemActive() ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered) : ImGuiCol_Header;
-					ImGui::TablePushBackgroundChannel();
-					ImGui::GetWindowDrawList()->AddRectFilled({Table->WorkRect.Min.x, Minimum.y}, {Table->WorkRect.Max.x, Maximum.y}, ImGui::GetColorU32(Color), 4.f * Scale);
-					ImGui::TablePopBackgroundChannel();
-				}
-
-				const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
-				if (bRenamingRow)
-				{
-					const ImVec2 Cursor = ImGui::GetCursorScreenPos();
-					ImGui::SetCursorScreenPos({LabelX, CenterY - ImGui::GetFrameHeight() * 0.5f});
-					ImGui::SetNextItemWidth(std::max(1.f, Table->Columns[0].WorkMaxX - LabelX));
-
-					if (bStartRename)
-					{
-						ImGui::SetKeyboardFocusHere();
-					}
-
-					const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+					ImGui::PushID(static_cast<int>(Index));
+					ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8.f * Scale, 6.f * Scale});
+					ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.f * Scale, 12.f * Scale});
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					const float IconX = ImGui::GetCursorScreenPos().x + 2.f * Scale;
+					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 22.f * Scale);
+					ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
+					ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0, 0, 0, 0});
+					ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
 					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-					const bool bCommit = ImGui::InputText("##ObjectLabel", State.RenameBuffer.data(), State.RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
-					ImGui::PopStyleColor();
-					bRowHovered |= ImGui::IsItemHovered();
-
-					if (bCancel || bCommit || (!bStartRename && ImGui::IsItemDeactivated()))
+					const float LabelX = ImGui::GetCursorScreenPos().x;
+					const bool bRenamingRow = State.bRenaming && State.RenameObject == Object.Id;
+					if (bRenamingRow)
 					{
-						State.bRenameCommitted = !bCancel;
-						State.bRenaming = false;
+						ImGui::SetNextItemAllowOverlap();
 					}
 
-					ImGui::SetCursorScreenPos(Cursor);
+					if (ImGui::Selectable("##Object", SelectedMask[Index], ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) && !bRenamingRow)
+					{
+						if (IO.KeyShift)
+						{
+							Selection.SelectRange(static_cast<int>(Index), VisibleIndices, IO.KeyCtrl);
+						}
+						else if (!IO.KeyCtrl || !ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+						{
+							Selection.Select(static_cast<int>(Index), IO.KeyCtrl);
+						}
+						RefreshSelectedMask();
+
+						bFocusRequested = !bRenamingRow && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter));
+					}
+
+					ImGui::PopStyleColor(4);
+					const bool bCurrentRowHovered = ImGui::IsItemHovered();
+					bRowHovered |= bCurrentRowHovered;
+					const ImVec2 Minimum = ImGui::GetItemRectMin();
+					const ImVec2 Maximum = ImGui::GetItemRectMax();
+					if (SelectedMask[Index] || bCurrentRowHovered)
+					{
+						const ImGuiCol Color = bCurrentRowHovered ? (ImGui::IsItemActive() ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered) : ImGuiCol_Header;
+						ImGui::TablePushBackgroundChannel();
+						ImGui::GetWindowDrawList()->AddRectFilled({Table->WorkRect.Min.x, Minimum.y}, {Table->WorkRect.Max.x, Maximum.y}, ImGui::GetColorU32(Color), 4.f * Scale);
+						ImGui::TablePopBackgroundChannel();
+					}
+
+					const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
+					if (bRenamingRow)
+					{
+						const ImVec2 Cursor = ImGui::GetCursorScreenPos();
+						ImGui::SetCursorScreenPos({LabelX, CenterY - ImGui::GetFrameHeight() * 0.5f});
+						ImGui::SetNextItemWidth(std::max(1.f, Table->Columns[0].WorkMaxX - LabelX));
+
+						if (bStartRename)
+						{
+							ImGui::SetKeyboardFocusHere();
+						}
+
+						const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+						ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
+						const bool bCommit = ImGui::InputText("##ObjectLabel", State.RenameBuffer.data(), State.RenameBuffer.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+						ImGui::PopStyleColor();
+						bRowHovered |= ImGui::IsItemHovered();
+
+						if (bCancel || bCommit || (!bStartRename && ImGui::IsItemDeactivated()))
+						{
+							State.bRenameCommitted = !bCancel;
+							State.bRenaming = false;
+						}
+
+						ImGui::SetCursorScreenPos(Cursor);
+					}
+					else
+					{
+						ImGui::GetWindowDrawList()->AddText({LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Object.Label.data(), Object.Label.data() + Object.Label.size());
+					}
+					const ImVec2 Top{IconX + 6.f * Scale, CenterY - 7.f * Scale};
+					const ImVec2 Left{IconX, CenterY - 4.f * Scale};
+					const ImVec2 Right{IconX + 12.f * Scale, Left.y};
+					const ImVec2 Center{Top.x, CenterY - Scale};
+					const ImVec2 Bottom{Top.x, CenterY + 7.f * Scale};
+					const ImVec2 Outline[]{Top, Right, {Right.x, CenterY + 4.f * Scale}, Bottom, {Left.x, CenterY + 4.f * Scale}, Left};
+					ImDrawList* const Draw = ImGui::GetWindowDrawList();
+					const ImU32 IconColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
+					if (Object.Mesh.IsValid())
+					{
+						Draw->AddPolyline(Outline, 6, IconColor, ImDrawFlags_Closed, Scale);
+						Draw->AddLine(Left, Center, IconColor, Scale);
+						Draw->AddLine(Right, Center, IconColor, Scale);
+						Draw->AddLine(Center, Bottom, IconColor, Scale);
+					}
+					else
+					{
+						const ImVec2 EntityCenter{Top.x, CenterY};
+						Draw->AddCircle(EntityCenter, 6.f * Scale, IconColor, 16, Scale);
+						Draw->AddCircleFilled(EntityCenter, 1.5f * Scale, IconColor);
+					}
+					ImGui::TableSetColumnIndex(1);
+					ImGui::TextDisabled("%s", Object.Mesh.IsValid() ? "Static Mesh" : "Entity");
+					ImGui::PopStyleVar(2);
+					ImGui::PopID();
 				}
-				else
-				{
-					ImGui::GetWindowDrawList()->AddText({LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Object.Label.data(), Object.Label.data() + Object.Label.size());
-				}
-				const ImVec2 Top{IconX + 6.f * Scale, CenterY - 7.f * Scale};
-				const ImVec2 Left{IconX, CenterY - 4.f * Scale};
-				const ImVec2 Right{IconX + 12.f * Scale, Left.y};
-				const ImVec2 Center{Top.x, CenterY - Scale};
-				const ImVec2 Bottom{Top.x, CenterY + 7.f * Scale};
-				const ImVec2 Outline[]{Top, Right, {Right.x, CenterY + 4.f * Scale}, Bottom, {Left.x, CenterY + 4.f * Scale}, Left};
-				ImDrawList* const Draw = ImGui::GetWindowDrawList();
-				const ImU32 IconColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-				if (Object.Mesh.IsValid())
-				{
-					Draw->AddPolyline(Outline, 6, IconColor, ImDrawFlags_Closed, Scale);
-					Draw->AddLine(Left, Center, IconColor, Scale);
-					Draw->AddLine(Right, Center, IconColor, Scale);
-					Draw->AddLine(Center, Bottom, IconColor, Scale);
-				}
-				else
-				{
-					const ImVec2 EntityCenter{Top.x, CenterY};
-					Draw->AddCircle(EntityCenter, 6.f * Scale, IconColor, 16, Scale);
-					Draw->AddCircleFilled(EntityCenter, 1.5f * Scale, IconColor);
-				}
-				ImGui::TableSetColumnIndex(1);
-				ImGui::TextDisabled("%s", Object.Mesh.IsValid() ? "Static Mesh" : "Entity");
-				ImGui::PopStyleVar(2);
-				ImGui::PopID();
 			}
 
 			ImGui::EndTable();
@@ -214,6 +276,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 		if (!bDragging && ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::GetIO().MousePos.y >= RowsTop && !bRowHovered)
 		{
 			Selection.Select(-1);
+			RefreshSelectedMask();
 		}
 	}
 

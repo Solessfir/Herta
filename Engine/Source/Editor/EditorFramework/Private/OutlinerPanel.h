@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Herta
 {
@@ -19,6 +20,8 @@ struct FOutlinerPanelState
 {
 	ImGuiTextFilter Search;
 	std::array<char, 1025> RenameBuffer{};
+	std::vector<int> VisibleIndices;
+	std::vector<bool> SelectedMask;
 	FObjectId RenameObject{};
 	bool bRenameRequested = false;
 	bool bRenaming = false;

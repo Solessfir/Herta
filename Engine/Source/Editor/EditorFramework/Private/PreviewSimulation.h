@@ -9,6 +9,8 @@
 
 namespace Herta
 {
+inline constexpr FPhysicsWorldSettings PreviewPhysicsSettings{.MaxBodies = 16384, .MaxBodyPairs = 65536, .MaxContactConstraints = 32768, .TempMemoryBytes = 64 * 1024 * 1024};
+
 // Model-space box that a preview object collides with. The default matches the built-in 2 m cube.
 struct FPreviewBodyShape
 {
@@ -34,7 +36,7 @@ struct FPreviewSimulationTransform
 class FPreviewSimulation final
 {
 public:
-	[[nodiscard]] std::expected<void, FPhysicsError> Start(std::span<const FPreviewSimulationBody> Bodies);
+	[[nodiscard]] std::expected<void, FPhysicsError> Start(std::span<const FPreviewSimulationBody> Bodies, const FPhysicsWorldSettings& Settings = PreviewPhysicsSettings);
 	void Stop() noexcept;
 	[[nodiscard]] std::expected<void, FPhysicsError> Update(float DeltaSeconds);
 

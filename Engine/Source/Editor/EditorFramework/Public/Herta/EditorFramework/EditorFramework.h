@@ -46,6 +46,17 @@ struct FEditorFrameworkDescriptor
 	std::filesystem::path ScenePath;
 };
 
+struct FEditorFrameMetrics
+{
+	double InspectorMilliseconds = 0.;
+	double ExtractionMilliseconds = 0.;
+	double SimulationMilliseconds = 0.;
+	std::size_t ObjectCount = 0;
+	std::size_t SelectedCount = 0;
+	bool bAssetsReady = false;
+	bool bSimulationRunning = false;
+};
+
 class FEditorFramework final
 {
 public:
@@ -64,6 +75,9 @@ public:
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> Draw(const std::function<void()>& RenderViewport);
 	void SetViewportImage(std::uint64_t TextureId) noexcept;
 	void SetFrameTimings(double CpuMilliseconds, std::optional<double> GpuUIMilliseconds) noexcept;
+	FEditorFrameMetrics GetFrameMetrics() const noexcept;
+	// Bounded diagnostic phases reuse the same selection, camera, and simulation paths as interactive editing.
+	[[nodiscard]] std::expected<void, FEditorFrameworkError> SetScalingTestPhase(bool bSelectAll, bool bSimulate);
 	[[nodiscard]] bool IsUnitStatsVisible() const noexcept;
 	[[nodiscard]] FExtent2D GetViewportExtent() const noexcept;
 	[[nodiscard]] FMeshRenderView GetViewportRenderView() const noexcept;

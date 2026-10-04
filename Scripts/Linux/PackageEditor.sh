@@ -66,6 +66,7 @@ for shader in TexturedMesh DebugDraw WorldGrid; do
         package_files+=("${binary_directory}/Shaders/${shader}.${stage}.hshader")
     done
 done
+package_files+=("${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader")
 
 # These dependencies embed their notices in source files rather than separate license files.
 license_files=(

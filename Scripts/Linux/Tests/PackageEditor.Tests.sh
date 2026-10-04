@@ -100,6 +100,7 @@ for shader in TexturedMesh DebugDraw WorldGrid; do
         write_fixture_file "${binary_directory}/Shaders/${shader}.${stage}.hshader"
     done
 done
+write_fixture_file "${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader"
 
 excluded_files=(
     "${binary_directory}/HertaTests"
@@ -146,6 +147,7 @@ for shader in TexturedMesh DebugDraw WorldGrid; do
         assert_file "${extracted_package}/${binary_directory}/Shaders/${shader}.${stage}.hshader"
     done
 done
+assert_file "${extracted_package}/${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader"
 
 for relative_path in "${excluded_files[@]}"; do
     assert_absent "${extracted_package}/${relative_path}"
@@ -182,6 +184,7 @@ missing_inputs=(
     "${binary_directory}/HertaEditorCmd"
     "${binary_directory}/HertaAssetWorker"
     "${binary_directory}/Shaders/WorldGrid.frag.hshader"
+    "${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader"
     Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf
     Engine/Content/Shapes/Cube.gltf.hmeta
     'Games/Sandbox/Content/fixture texture.png'

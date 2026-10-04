@@ -763,13 +763,21 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 					ImGui::TextDisabled("No matching assets");
 				}
 
-				for (const FAssetSearchMatch& Match : Matches.value_or(std::vector<FAssetSearchMatch>{}))
+				if (Matches)
 				{
-					const std::size_t Index = Match.Index;
-					const bool bCurrent = static_cast<int>(Index) == Mesh->Selected && (Components == nullptr || !Components->bMixedMeshAsset);
-					if (ImGui::Selectable(Mesh->Options[Index].c_str(), bCurrent) && !bCurrent)
+					ImGuiListClipper Clipper;
+					Clipper.Begin(static_cast<int>(Matches->size()));
+					while (Clipper.Step())
 					{
-						MeshResult.Chosen = static_cast<int>(Index);
+						for (int MatchIndex = Clipper.DisplayStart; MatchIndex < Clipper.DisplayEnd; ++MatchIndex)
+						{
+							const std::size_t Index = (*Matches)[static_cast<std::size_t>(MatchIndex)].Index;
+							const bool bCurrent = static_cast<int>(Index) == Mesh->Selected && (Components == nullptr || !Components->bMixedMeshAsset);
+							if (ImGui::Selectable(Mesh->Options[Index].c_str(), bCurrent) && !bCurrent)
+							{
+								MeshResult.Chosen = static_cast<int>(Index);
+							}
+						}
 					}
 				}
 

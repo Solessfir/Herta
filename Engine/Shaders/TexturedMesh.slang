@@ -25,6 +25,28 @@ FVertexOutput vertexMain(float3 Position : POSITION, float2 TexCoord : TEXCOORD0
     return Output;
 }
 
+struct FInstanceInput
+{
+    float4 Clip0 : TEXCOORD1;
+    float4 Clip1 : TEXCOORD2;
+    float4 Clip2 : TEXCOORD3;
+    float4 Clip3 : TEXCOORD4;
+    float4 View0 : TEXCOORD5;
+    float4 View1 : TEXCOORD6;
+    float4 View2 : TEXCOORD7;
+    float4 View3 : TEXCOORD8;
+};
+
+[shader("vertex")]
+FVertexOutput instancedVertexMain(float3 Position : POSITION, float2 TexCoord : TEXCOORD0, FInstanceInput Instance)
+{
+    FVertexOutput Output;
+    Output.Position = Instance.Clip0 * Position.x + Instance.Clip1 * Position.y + Instance.Clip2 * Position.z + Instance.Clip3;
+    Output.TexCoord = TexCoord;
+    Output.ViewPosition = (Instance.View0 * Position.x + Instance.View1 * Position.y + Instance.View2 * Position.z + Instance.View3).xyz;
+    return Output;
+}
+
 [shader("fragment")]
 float4 fragmentMain(FVertexOutput Input) : SV_Target
 {

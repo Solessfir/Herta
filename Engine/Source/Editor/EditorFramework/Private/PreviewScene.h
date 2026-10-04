@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -103,14 +104,22 @@ struct FPreviewSelection
 			return;
 		}
 
-		if (!bAdd)
+		const auto RangeBegin = std::min(First, Target);
+		const auto RangeEnd = std::max(First, Target) + 1;
+		std::unordered_set<int> Existing;
+		Existing.reserve((bAdd ? Indices.size() : 0) + static_cast<std::size_t>(RangeEnd - RangeBegin));
+		if (bAdd)
+		{
+			Existing.insert(Indices.begin(), Indices.end());
+		}
+		else
 		{
 			Indices.clear();
 		}
 
-		for (auto Item = std::min(First, Target); Item <= std::max(First, Target); ++Item)
+		for (auto Item = RangeBegin; Item != RangeEnd; ++Item)
 		{
-			if (!Contains(*Item))
+			if (Existing.insert(*Item).second)
 			{
 				Indices.push_back(*Item);
 			}

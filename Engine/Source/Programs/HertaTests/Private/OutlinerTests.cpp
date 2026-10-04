@@ -6,6 +6,8 @@
 #include <array>
 #include <cstdio>
 #include <initializer_list>
+#include <numeric>
+#include <vector>
 
 namespace Herta
 {
@@ -165,6 +167,17 @@ TEST_CASE("Outliner ranges follow visible order and preserve their anchor")
 	Selection.SelectAll({});
 	CHECK(Selection.Indices.empty());
 	CHECK(Selection.Active == -1);
+}
+
+TEST_CASE("Large additive Outliner ranges preserve unique selection")
+{
+	std::vector<int> Visible(10'000);
+	std::iota(Visible.begin(), Visible.end(), 0);
+	FPreviewSelection Selection;
+	Selection.SelectAll(std::span<const int>(Visible).first(Visible.size() / 2));
+	Selection.SelectRange(Visible.back(), Visible, true);
+	CHECK(Selection.Indices.size() == Visible.size());
+	CHECK(Selection.Indices == Visible);
 }
 
 TEST_CASE("Outliner search matches preview labels and types without case sensitivity")

@@ -46,7 +46,7 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Editor guide](Docs/EditorGuide.md) - controls, selection, simulation, assets, and the Output Log.
 - [Engine design](Docs/EngineDesign.md) - architecture and roadmap.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
-- [Rendering](Docs/Rendering.md) and [editor style](Docs/EditorStyle.md) - implementation details.
+- [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.
 
 ## License
 

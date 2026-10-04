@@ -88,12 +88,13 @@ private:
 class FMeshRenderer final
 {
 public:
-	[[nodiscard]] static std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader = {}, FShaderAsset DebugFragmentShader = {}, FShaderAsset GridVertexShader = {}, FShaderAsset GridFragmentShader = {});
+	[[nodiscard]] static std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader = {}, FShaderAsset DebugFragmentShader = {}, FShaderAsset GridVertexShader = {}, FShaderAsset GridFragmentShader = {}, FShaderAsset InstancedVertexShader = {});
 	~FMeshRenderer();
 	FMeshRenderer(const FMeshRenderer&) = delete;
 	FMeshRenderer& operator=(const FMeshRenderer&) = delete;
 	[[nodiscard]] std::expected<void, FPresentationError> Render(FExtent2D Extent, const FMeshRenderView& View, std::span<const FDebugDrawList> DebugDraw = {});
 	[[nodiscard]] const FTextureHandle& GetColorTarget() const noexcept;
+	std::size_t GetLastDrawCount() const noexcept;
 
 private:
 	struct FImplementation;

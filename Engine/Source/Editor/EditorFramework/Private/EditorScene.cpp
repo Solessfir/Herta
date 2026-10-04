@@ -5,6 +5,7 @@
 #include <cmath>
 #include <exception>
 #include <format>
+#include <set>
 #include <unordered_set>
 
 namespace Herta
@@ -599,10 +600,11 @@ void FEditorScene::SetSelection(const std::span<const FObjectId> Selected, const
 {
 	std::vector<FObjectId> ValidSelection;
 	ValidSelection.reserve(Selected.size());
+	std::set<FObjectId> Seen;
 
 	for (const FObjectId Object : Selected)
 	{
-		if (World.FindEntity(Object) && !ContainsObjectId(ValidSelection, Object))
+		if (World.FindEntity(Object) && Seen.insert(Object).second)
 		{
 			ValidSelection.push_back(Object);
 		}

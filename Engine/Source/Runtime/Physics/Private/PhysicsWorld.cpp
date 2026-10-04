@@ -11,12 +11,13 @@
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
+#include <Jolt/Physics/PhysicsUpdateContext.h>
 #include <Jolt/RegisterTypes.h>
 
-#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <format>
 #include <mutex>
 #include <utility>
 #include <vector>
@@ -27,9 +28,16 @@ namespace
 {
 constexpr JPH::ObjectLayer StaticLayer = 0;
 constexpr JPH::ObjectLayer DynamicLayer = 1;
-constexpr JPH::uint MaxBodies = 1024;
-constexpr JPH::uint MaxBodyPairs = 4096;
-constexpr JPH::uint MaxContactConstraints = 1024;
+
+[[nodiscard]] constexpr std::size_t RequiredTempMemory(const FPhysicsWorldSettings& Settings)
+{
+	// Jolt 5.6: one discrete rigid-body step, no joints, soft bodies, or parallel island splitting.
+	// Cover contact buffers, island arrays, CCD-index mapping, and alignment padding before Jolt can abort.
+	return sizeof(JPH::PhysicsUpdateContext::Step) + 64 * 1024
+	       + static_cast<std::size_t>(Settings.MaxBodies) * 128
+	       + static_cast<std::size_t>(Settings.MaxBodyPairs) * sizeof(JPH::BodyPair)
+	       + static_cast<std::size_t>(Settings.MaxContactConstraints) * (JPH::ContactConstraintManager::cMaxConstraintSize + 32);
+}
 
 std::mutex RuntimeMutex;
 std::size_t RuntimeUsers = 0;
@@ -134,20 +142,29 @@ struct FPhysicsWorld::FImplementation
 	JPH::ObjectLayerPairFilterTable CollisionLayers{2};
 	std::unique_ptr<JPH::ObjectVsBroadPhaseLayerFilterTable> BroadPhaseFilter;
 	JPH::PhysicsSystem Physics;
-	JPH::TempAllocatorImpl TempAllocator{4 * 1024 * 1024};
+	JPH::TempAllocatorImpl TempAllocator;
 	JPH::JobSystemSingleThreaded JobSystem{2048};
 	std::vector<JPH::BodyID> BodyIds;
+	const FPhysicsWorldSettings Settings;
+	std::string StepFailure;
+	std::size_t BodyCount = 0;
 
-	FImplementation()
+	explicit FImplementation(const FPhysicsWorldSettings& InSettings)
+	    : TempAllocator(InSettings.TempMemoryBytes)
+	    , Settings(InSettings)
 	{
 		BroadPhaseLayers.MapObjectToBroadPhaseLayer(StaticLayer, JPH::BroadPhaseLayer(0));
 		BroadPhaseLayers.MapObjectToBroadPhaseLayer(DynamicLayer, JPH::BroadPhaseLayer(1));
 		CollisionLayers.EnableCollision(StaticLayer, DynamicLayer);
 		CollisionLayers.EnableCollision(DynamicLayer, DynamicLayer);
 		BroadPhaseFilter = std::make_unique<JPH::ObjectVsBroadPhaseLayerFilterTable>(BroadPhaseLayers, 2, CollisionLayers, 2);
-		Physics.Init(MaxBodies, 0, MaxBodyPairs, MaxContactConstraints, BroadPhaseLayers, *BroadPhaseFilter, CollisionLayers);
+		Physics.Init(Settings.MaxBodies, 0, Settings.MaxBodyPairs, Settings.MaxContactConstraints, BroadPhaseLayers, *BroadPhaseFilter, CollisionLayers);
+		JPH::PhysicsSettings PhysicsSettings = Physics.GetPhysicsSettings();
+		PhysicsSettings.mMaxInFlightBodyPairs = static_cast<int>(Settings.MaxBodyPairs);
+		PhysicsSettings.mUseLargeIslandSplitter = false;
+		Physics.SetPhysicsSettings(PhysicsSettings);
 		Physics.SetGravity(JPH::Vec3(0.f, -9.80665f, 0.f));
-		BodyIds.reserve(MaxBodies);
+		BodyIds.resize(Settings.MaxBodies);
 	}
 
 	~FImplementation()
@@ -155,6 +172,11 @@ struct FPhysicsWorld::FImplementation
 		JPH::BodyInterface& Bodies = Physics.GetBodyInterface();
 		for (const JPH::BodyID Id : BodyIds)
 		{
+			if (Id.IsInvalid())
+			{
+				continue;
+			}
+
 			Bodies.RemoveBody(Id);
 			Bodies.DestroyBody(Id);
 		}
@@ -177,18 +199,36 @@ FPhysicsWorld::~FPhysicsWorld()
 	ReleaseRuntime();
 }
 
-std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> FPhysicsWorld::Create()
+std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> FPhysicsWorld::Create(const FPhysicsWorldSettings& Settings)
 {
+	if (Settings.MaxBodies == 0 || Settings.MaxBodies > JPH::BodyID::cMaxBodyIndex + 1
+	    || Settings.MaxBodyPairs < 4 || Settings.MaxBodyPairs > JPH::ContactConstraintManager::cMaxBodyPairsLimit
+	    || Settings.MaxContactConstraints < 4 || Settings.MaxContactConstraints > JPH::ContactConstraintManager::cMaxContactConstraintsLimit)
+	{
+		return std::unexpected(FPhysicsError{"Physics capacities exceed supported body, pair, or contact limits (pairs and contacts require at least 4)"});
+	}
+
+	const std::size_t RequiredBytes = RequiredTempMemory(Settings);
+	if (Settings.TempMemoryBytes < RequiredBytes)
+	{
+		return std::unexpected(FPhysicsError{std::format("Physics temporary-memory capacity is {} bytes; configured body, pair, and contact limits require at least {} bytes", Settings.TempMemoryBytes, RequiredBytes)});
+	}
+
 	if (!AcquireRuntime())
 	{
 		return std::unexpected(FPhysicsError{"Jolt is already registered outside Herta Physics"});
 	}
 
-	return std::unique_ptr<FPhysicsWorld>(new FPhysicsWorld(std::make_unique<FImplementation>()));
+	return std::unique_ptr<FPhysicsWorld>(new FPhysicsWorld(std::make_unique<FImplementation>(Settings)));
 }
 
 std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const FPhysicsBoxBodySettings& Settings)
 {
+	if (Implementation->BodyCount >= Implementation->Settings.MaxBodies)
+	{
+		return std::unexpected(FPhysicsError{std::format("Physics world body capacity reached (MaxBodies={})", Implementation->Settings.MaxBodies)});
+	}
+
 	if (!IsFinite(Settings.HalfExtents) || Settings.HalfExtents.X <= 0.f || Settings.HalfExtents.Y <= 0.f || Settings.HalfExtents.Z <= 0.f)
 	{
 		return std::unexpected(FPhysicsError{"Box half extents must be finite and positive"});
@@ -251,7 +291,8 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const 
 		return std::unexpected(FPhysicsError{"Physics world body capacity reached"});
 	}
 
-	Implementation->BodyIds.push_back(Id);
+	Implementation->BodyIds[Id.GetIndex()] = Id;
+	++Implementation->BodyCount;
 	return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
 }
 
@@ -262,9 +303,26 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 		return std::unexpected(FPhysicsError{"Physics step must be finite and positive"});
 	}
 
-	if (Implementation->Physics.Update(FixedDeltaSeconds, 1, &Implementation->TempAllocator, &Implementation->JobSystem) != JPH::EPhysicsUpdateError::None)
+	if (!Implementation->StepFailure.empty())
 	{
-		return std::unexpected(FPhysicsError{"Physics contact capacity exceeded"});
+		return std::unexpected(FPhysicsError{Implementation->StepFailure});
+	}
+
+	const JPH::EPhysicsUpdateError Error = Implementation->Physics.Update(FixedDeltaSeconds, 1, &Implementation->TempAllocator, &Implementation->JobSystem);
+	if (Error != JPH::EPhysicsUpdateError::None)
+	{
+		if ((Error & JPH::EPhysicsUpdateError::BodyPairCacheFull) != JPH::EPhysicsUpdateError::None)
+		{
+			Implementation->StepFailure = std::format("Physics body-pair capacity exceeded (MaxBodyPairs={}); ", Implementation->Settings.MaxBodyPairs);
+		}
+
+		if ((Error & (JPH::EPhysicsUpdateError::ManifoldCacheFull | JPH::EPhysicsUpdateError::ContactConstraintsFull)) != JPH::EPhysicsUpdateError::None)
+		{
+			Implementation->StepFailure += std::format("Physics contact capacity exceeded (MaxContactConstraints={}); ", Implementation->Settings.MaxContactConstraints);
+		}
+
+		Implementation->StepFailure += "recreate the world with larger capacities";
+		return std::unexpected(FPhysicsError{Implementation->StepFailure});
 	}
 
 	return {};
@@ -272,19 +330,20 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 
 std::expected<FPhysicsBodyTransform, FPhysicsError> FPhysicsWorld::GetBodyTransform(const FPhysicsBodyId BodyId) const
 {
-	const auto Match = std::ranges::find_if(Implementation->BodyIds, [BodyId](const JPH::BodyID Id)
+	if ((BodyId.Value & JPH::BodyID::cBroadPhaseBit) != 0)
 	{
-		return Id.GetIndexAndSequenceNumber() == BodyId.Value;
-	});
+		return std::unexpected(FPhysicsError{"Unknown physics body"});
+	}
 
-	if (Match == Implementation->BodyIds.end())
+	const JPH::BodyID Id(BodyId.Value);
+	if (Id.IsInvalid() || Id.GetIndex() >= Implementation->BodyIds.size() || Implementation->BodyIds[Id.GetIndex()] != Id)
 	{
 		return std::unexpected(FPhysicsError{"Unknown physics body"});
 	}
 
 	JPH::RVec3 Position;
 	JPH::Quat Rotation;
-	Implementation->Physics.GetBodyInterface().GetPositionAndRotation(*Match, Position, Rotation);
+	Implementation->Physics.GetBodyInterface().GetPositionAndRotation(Id, Position, Rotation);
 	return FPhysicsBodyTransform{.Position = {Position.GetX(), Position.GetY(), Position.GetZ()},
 	    .Rotation = {Rotation.GetX(), Rotation.GetY(), Rotation.GetZ(), Rotation.GetW()}};
 }

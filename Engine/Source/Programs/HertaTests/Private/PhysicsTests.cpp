@@ -5,9 +5,77 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <numbers>
 
 namespace Herta
 {
+TEST_CASE("Physics capacity validation and exhaustion are explicit")
+{
+	FPhysicsWorldSettings Invalid;
+	Invalid.MaxBodies = 0;
+	CHECK_FALSE(FPhysicsWorld::Create(Invalid));
+	Invalid = {};
+	Invalid.MaxBodyPairs = 0;
+	CHECK_FALSE(FPhysicsWorld::Create(Invalid));
+	Invalid = {};
+	Invalid.MaxContactConstraints = std::numeric_limits<std::uint32_t>::max();
+	CHECK_FALSE(FPhysicsWorld::Create(Invalid));
+	Invalid = {};
+	Invalid.TempMemoryBytes = 1;
+	const auto InsufficientMemory = FPhysicsWorld::Create(Invalid);
+	REQUIRE_FALSE(InsufficientMemory);
+	CHECK(InsufficientMemory.error().Message.find("temporary-memory capacity") != std::string::npos);
+
+	auto World = FPhysicsWorld::Create({.MaxBodies = 1, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024});
+	REQUIRE(World);
+	const auto Body = (*World)->CreateBoxBody({});
+	REQUIRE(Body);
+	const auto Overflow = (*World)->CreateBoxBody({});
+	REQUIRE_FALSE(Overflow);
+	CHECK(Overflow.error().Message.find("MaxBodies=1") != std::string::npos);
+	CHECK((*World)->GetBodyTransform(*Body));
+	CHECK_FALSE((*World)->GetBodyTransform({Body->Value ^ (1u << 23)}));
+	CHECK_FALSE((*World)->GetBodyTransform({0x80000000u}));
+	REQUIRE((*World)->Step(1.f / 60.f));
+}
+
+TEST_CASE("Physics reports contact overflow and refuses to continue a truncated step")
+{
+	auto World = FPhysicsWorld::Create({.MaxBodies = 32, .MaxBodyPairs = 1024, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024});
+	REQUIRE(World);
+
+	for (int Index = 0; Index < 32; ++Index)
+	{
+		REQUIRE((*World)->CreateBoxBody({.Position = {0.f, 4.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic}));
+	}
+
+	const auto Result = (*World)->Step(1.f / 60.f);
+	REQUIRE_FALSE(Result);
+	CHECK(Result.error().Message.find("MaxContactConstraints=4") != std::string::npos);
+	const auto Repeated = (*World)->Step(1.f / 60.f);
+	REQUIRE_FALSE(Repeated);
+	CHECK(Repeated.error().Message == Result.error().Message);
+}
+
+TEST_CASE("Physics reports body-pair cache overflow independently of contacts")
+{
+	auto World = FPhysicsWorld::Create({.MaxBodies = 64, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024});
+	REQUIRE(World);
+	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, std::numbers::pi_v<float> * 0.25f);
+
+	for (int Index = 0; Index < 64; ++Index)
+	{
+		// Parallel thin boxes have overlapping broad-phase bounds but no contact manifolds.
+		const float Offset = static_cast<float>(Index) * 0.25f;
+		REQUIRE((*World)->CreateBoxBody({.HalfExtents = {10.f, 0.05f, 0.05f}, .Position = {Offset, 4.f, Offset}, .Rotation = Rotation, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.GravityScale = 0.f}}));
+	}
+
+	const auto Result = (*World)->Step(1.f / 60.f);
+	REQUIRE_FALSE(Result);
+	CHECK(Result.error().Message.find("MaxBodyPairs=4") != std::string::npos);
+	CHECK(Result.error().Message.find("MaxContactConstraints") == std::string::npos);
+}
+
 TEST_CASE("Dynamic box settles on a static floor")
 {
 	auto FirstWorld = FPhysicsWorld::Create();

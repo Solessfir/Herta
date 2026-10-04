@@ -56,6 +56,7 @@ class FTestGraphicsDevice final : public Herta::IGraphicsDevice
 public:
 	std::vector<Herta::FMeshVertex> Vertices;
 	std::vector<std::vector<Herta::FColoredClipVertex>> DebugUploads;
+	std::vector<Herta::FMeshInstance> InstanceUpload;
 	std::vector<std::uint32_t> Indices;
 	std::vector<std::vector<std::uint32_t>> IndexUploads;
 	std::vector<std::string> Events;
@@ -110,6 +111,11 @@ public:
 		{
 			auto& Upload = DebugUploads.emplace_back(Data.size() / sizeof(Herta::FColoredClipVertex));
 			std::memcpy(Upload.data(), Data.data(), Data.size());
+		}
+		else if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex && Buffer->GetDescriptor().VertexFormat == Herta::EGraphicsVertexFormat::MeshInstance)
+		{
+			InstanceUpload.resize(Data.size() / sizeof(Herta::FMeshInstance));
+			std::memcpy(InstanceUpload.data(), Data.data(), Data.size());
 		}
 		else if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex)
 		{

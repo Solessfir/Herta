@@ -588,6 +588,8 @@ struct FEditorFramework::FImplementation
 	std::shared_ptr<FViewportStats> Stats = std::make_shared<FViewportStats>();
 	double CpuFrameMilliseconds = 0.0;
 	std::optional<double> GpuUIMilliseconds;
+	FEditorFrameMetrics FrameMetrics;
+	bool bScalingTest = false;
 
 	std::vector<std::string> MeshOptions;
 	std::vector<FAssetId> MeshOptionIds;
@@ -703,6 +705,54 @@ void FEditorFramework::SetFrameTimings(const double CpuMilliseconds, const std::
 	Implementation->GpuUIMilliseconds = GpuUIMilliseconds;
 }
 
+FEditorFrameMetrics FEditorFramework::GetFrameMetrics() const noexcept
+{
+	FEditorFrameMetrics Metrics = Implementation->FrameMetrics;
+	Metrics.ObjectCount = Implementation->PreviewObjects.size();
+	Metrics.SelectedCount = Implementation->PreviewSelection.Indices.size();
+	Metrics.bSimulationRunning = Implementation->Simulation.IsRunning();
+	Metrics.bAssetsReady = true;
+
+	for (std::size_t Index = 0; Index < Implementation->PreviewObjects.size(); ++Index)
+	{
+		if (Implementation->PreviewObjects[Index].Mesh.IsValid() && Implementation->PreviewMeshes[Index] == nullptr)
+		{
+			Metrics.bAssetsReady = false;
+			break;
+		}
+	}
+
+	return Metrics;
+}
+
+std::expected<void, FEditorFrameworkError> FEditorFramework::SetScalingTestPhase(const bool bSelectAll, const bool bSimulate)
+{
+	auto& State = *Implementation;
+	State.bScalingTest = true;
+	if (State.Simulation.IsRunning())
+	{
+		State.ToggleSimulation();
+	}
+
+	State.ApplyAuthoringAction(EAuthoringAction::SelectAll);
+	State.FocusPreview();
+	if (!bSelectAll)
+	{
+		State.SetPreviewSelection(-1);
+	}
+
+	if (bSimulate)
+	{
+		State.ToggleSimulation();
+		if (!State.Simulation.IsRunning())
+		{
+			return std::unexpected(FEditorFrameworkError{"Scaling simulation could not start; see the physics diagnostic"});
+		}
+	}
+
+	return {};
+}
+
 bool FEditorFramework::IsUnitStatsVisible() const noexcept
 {
 	return Implementation->Stats->bUnitVisible;
@@ -710,6 +760,7 @@ bool FEditorFramework::IsUnitStatsVisible() const noexcept
 
 std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::function<void()>& RenderViewport)
 {
+	Implementation->FrameMetrics = {};
 	ImGuiIO& IO = ImGui::GetIO();
 	Implementation->RefreshScene();
 	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyMods == 0 && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
@@ -746,7 +797,9 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		Implementation->ToggleSimulation();
 	}
 
-	Implementation->UpdateSimulation(IO.DeltaTime);
+	const auto SimulationStart = std::chrono::steady_clock::now();
+	Implementation->UpdateSimulation(Implementation->bScalingTest ? 1.f / 60.f : IO.DeltaTime);
+	Implementation->FrameMetrics.SimulationMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - SimulationStart).count();
 
 	if (IO.KeyMods == 0 && ImGui::IsKeyPressed(ImGuiKey_GraveAccent, false))
 	{
@@ -1152,6 +1205,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		Implementation->DrawStartPanel();
 	}
 
+	const auto InspectorStart = std::chrono::steady_clock::now();
 	if (Implementation->bOutlinerOpen)
 	{
 		Implementation->DrawOutlinerPanel();
@@ -1161,6 +1215,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	{
 		Implementation->DrawDetailsPanel();
 	}
+
+	Implementation->FrameMetrics.InspectorMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - InspectorStart).count();
 
 	Implementation->DrawViewport(RenderViewport);
 	if (!Implementation->Simulation.IsRunning())
@@ -1286,10 +1342,11 @@ void FEditorFramework::FImplementation::RefreshScene(const bool bPreserveGizmoDr
 	PreviewSelection.Indices.clear();
 	PreviewSelection.Active = -1;
 	PreviewSelection.Anchor = -1;
+	// Scene rebuilds preserve stable-ID order; avoid a full object scan per selected entity.
 	for (const FObjectId Id : Scene->GetSelection())
 	{
-		const auto Object = std::ranges::find(PreviewObjects, Id, &FPreviewObject::Id);
-		if (Object == PreviewObjects.end())
+		const auto Object = std::ranges::lower_bound(PreviewObjects, Id, {}, &FPreviewObject::Id);
+		if (Object == PreviewObjects.end() || Object->Id != Id)
 		{
 			continue;
 		}
@@ -2236,12 +2293,15 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
 	Im3d::PopLayerId();
 	const Im3d::Mat4 Model(PreviewTranslation, PreviewRotation, PreviewScale);
+	const auto ExtractionStart = std::chrono::steady_clock::now();
 
 	for (std::size_t Index = 0; Index < PreviewObjects.size(); ++Index)
 	{
 		const FPreviewObject& Object = PreviewObjects[Index];
 		PreviewModels[Index] = ToHertaMatrix(Im3d::Mat4(Object.Translation, Object.Rotation, Object.Scale));
 	}
+
+	FrameMetrics.ExtractionMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - ExtractionStart).count();
 
 	if (bGizmoInput && ViewportInteraction.DragButton == ImGuiMouseButton_Left && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && Im3d::GetActiveId() == Im3d::Id_Invalid)
 	{

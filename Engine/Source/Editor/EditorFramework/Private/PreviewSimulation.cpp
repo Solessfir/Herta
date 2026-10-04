@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 #include <unordered_set>
 
 namespace Herta
@@ -14,7 +15,7 @@ namespace
 }
 }
 
-std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<const FPreviewSimulationBody> Bodies)
+std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<const FPreviewSimulationBody> Bodies, const FPhysicsWorldSettings& Settings)
 {
 	if (IsRunning())
 	{
@@ -26,7 +27,12 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		return std::unexpected(FPhysicsError{"Preview simulation requires at least one body"});
 	}
 
-	auto NewWorld = FPhysicsWorld::Create();
+	if (Bodies.size() > Settings.MaxBodies)
+	{
+		return std::unexpected(FPhysicsError{std::format("Preview requires {} bodies but MaxBodies={}", Bodies.size(), Settings.MaxBodies)});
+	}
+
+	auto NewWorld = FPhysicsWorld::Create(Settings);
 	if (!NewWorld)
 	{
 		return std::unexpected(NewWorld.error());

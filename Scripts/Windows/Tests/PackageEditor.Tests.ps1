@@ -92,6 +92,7 @@ try {
             $WindowsPayload += "Binaries/windows/x86_64/Shipping/Shaders/$Shader.$Stage.hshader"
         }
     }
+    $WindowsPayload += 'Binaries/windows/x86_64/Shipping/Shaders/TexturedMesh.instanced.vert.hshader'
     $ExcludedFiles = @(
         'Binaries/windows/x86_64/Shipping/HertaShaderWorker.exe',
         'Binaries/windows/x86_64/Shipping/HertaTests.exe',
@@ -130,7 +131,7 @@ try {
     }
 
     $Arguments.OutputDirectory = Join-Path $TemporaryRoot 'MissingInput'
-    foreach ($Path in @($WindowsPayload[-1], 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Scenes/Sandbox.hscene', 'External/example/LICENSE')) {
+    foreach ($Path in @('Binaries/windows/x86_64/Shipping/Shaders/TexturedMesh.instanced.vert.hshader', 'Binaries/windows/x86_64/Shipping/Shaders/WorldGrid.frag.hshader', 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Scenes/Sandbox.hscene', 'External/example/LICENSE')) {
         $MissingPath = Join-Path $FixtureRoot $Path
         [IO.File]::Move($MissingPath, "$MissingPath.saved")
         Assert-PackageFails $Arguments 'Required package file is missing'

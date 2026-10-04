@@ -399,6 +399,16 @@ project "HertaShaders"
             '"' .. ShaderWorker .. '" "%{file.abspath}" vertex vertexMain "' .. path.join(ShaderOutput, "%{file.basename}.vert.hshader") .. '" --debug',
             '"' .. ShaderWorker .. '" "%{file.abspath}" fragment fragmentMain "' .. path.join(ShaderOutput, "%{file.basename}.frag.hshader") .. '" --debug'
         }
+    filter "files:**/TexturedMesh.slang"
+        buildoutputs { path.join(ShaderOutput, "TexturedMesh.instanced.vert.hshader") }
+    filter { "files:**/TexturedMesh.slang", "configurations:Shipping" }
+        buildcommands {
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVertexMain "' .. path.join(ShaderOutput, "TexturedMesh.instanced.vert.hshader") .. '"'
+        }
+    filter { "files:**/TexturedMesh.slang", "configurations:not Shipping" }
+        buildcommands {
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVertexMain "' .. path.join(ShaderOutput, "TexturedMesh.instanced.vert.hshader") .. '" --debug'
+        }
     filter {}
 
 project "HertaTests"

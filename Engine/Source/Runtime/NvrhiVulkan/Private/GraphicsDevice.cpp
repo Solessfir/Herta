@@ -16,7 +16,7 @@ namespace
 {
 constexpr std::size_t FrameCount = 3;
 constexpr std::size_t MaximumUploadBytes = MaximumUploadBytesPerRecording;
-constexpr std::size_t MaximumCommands = 4096;
+constexpr std::size_t MaximumCommands = 16'384;
 constexpr std::uint32_t MaximumTextureDimension = 8192;
 constexpr std::uint32_t MeshPushConstantSize = sizeof(FIndexedDraw::WorldToClip) + sizeof(FIndexedDraw::ObjectToView);
 
@@ -88,6 +88,7 @@ struct FPipeline final : IRhiGraphicsPipeline
 	nvrhi::SamplerHandle Sampler;
 	ETextureFormat ColorFormat;
 	EGraphicsVertexFormat VertexFormat;
+	bool bInstanced = false;
 };
 
 struct FFrame
@@ -162,9 +163,10 @@ public:
 	[[nodiscard]] std::expected<FBufferHandle, FPresentationError> CreateBuffer(const FBufferDescriptor& Descriptor) override
 	{
 		const bool bVertex = Descriptor.Usage == EBufferUsage::Vertex;
-		const std::size_t VertexStride = Descriptor.VertexFormat == EGraphicsVertexFormat::Mesh ? sizeof(FMeshVertex) : sizeof(FColoredClipVertex);
+		const std::size_t VertexStride = Descriptor.VertexFormat == EGraphicsVertexFormat::Mesh ? sizeof(FMeshVertex) : Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance ? sizeof(FMeshInstance)
+		                                                                                                                                                                               : sizeof(FColoredClipVertex);
 		const std::size_t Stride = bVertex ? VertexStride : sizeof(std::uint32_t);
-		if ((!bVertex && Descriptor.Usage != EBufferUsage::Index) || (Descriptor.VertexFormat != EGraphicsVertexFormat::Mesh && Descriptor.VertexFormat != EGraphicsVertexFormat::ColoredClipPosition) || Descriptor.Size == 0 || Descriptor.Size > MaximumUploadBytes || Descriptor.Size % Stride != 0)
+		if ((!bVertex && Descriptor.Usage != EBufferUsage::Index) || (Descriptor.VertexFormat != EGraphicsVertexFormat::Mesh && Descriptor.VertexFormat != EGraphicsVertexFormat::ColoredClipPosition && Descriptor.VertexFormat != EGraphicsVertexFormat::MeshInstance) || Descriptor.Size == 0 || Descriptor.Size > MaximumUploadBytes || Descriptor.Size % Stride != 0)
 		{
 			return Invalid("Mesh buffer size must contain complete vertices or uint32 indices and fit the 64 MiB upload budget");
 		}
@@ -220,7 +222,7 @@ public:
 	[[nodiscard]] std::expected<FGraphicsPipelineHandle, FPresentationError> CreateGraphicsPipeline(const FGraphicsPipelineDescriptor& Descriptor) override
 	{
 		const bool bColored = Descriptor.VertexFormat == EGraphicsVertexFormat::ColoredClipPosition;
-		if ((!bColored && Descriptor.VertexFormat != EGraphicsVertexFormat::Mesh) || Descriptor.VertexShader.Stage != EShaderStage::Vertex || Descriptor.FragmentShader.Stage != EShaderStage::Fragment || !SerializeCookedShader(Descriptor.VertexShader) || !SerializeCookedShader(Descriptor.FragmentShader) || (Descriptor.ColorFormat != ETextureFormat::Rgba8 && Descriptor.ColorFormat != ETextureFormat::Rgba8Srgb))
+		if ((!bColored && Descriptor.VertexFormat != EGraphicsVertexFormat::Mesh) || (bColored && Descriptor.bInstanced) || Descriptor.VertexShader.Stage != EShaderStage::Vertex || Descriptor.FragmentShader.Stage != EShaderStage::Fragment || !SerializeCookedShader(Descriptor.VertexShader) || !SerializeCookedShader(Descriptor.FragmentShader) || (Descriptor.ColorFormat != ETextureFormat::Rgba8 && Descriptor.ColorFormat != ETextureFormat::Rgba8Srgb))
 		{
 			return Invalid("Graphics pipeline requires vertex and fragment SPIR-V shaders and an RGBA8 color format");
 		}
@@ -233,6 +235,7 @@ public:
 			});
 		};
 
+		// Slang reflects the module-global transform block even when the instanced entry point does not read it.
 		if (bColored ? Descriptor.VertexShader.PushConstantSize != 0 || Descriptor.FragmentShader.PushConstantSize != 0 || !Descriptor.VertexShader.Bindings.empty() || !Descriptor.FragmentShader.Bindings.empty() : Descriptor.VertexShader.PushConstantSize != MeshPushConstantSize || !HasSupportedBindings(Descriptor.VertexShader) || !HasSupportedBindings(Descriptor.FragmentShader))
 		{
 			return Invalid("Graphics shaders do not match the selected vertex format and binding ABI");
@@ -255,11 +258,21 @@ public:
 		    nvrhi::VertexAttributeDesc().setName("COLOR").setFormat(nvrhi::Format::RGBA32_FLOAT).setOffset(offsetof(FColoredClipVertex, Color)).setElementStride(sizeof(FColoredClipVertex)),
 		};
 
-		const auto InputLayout = Device->createInputLayout(bColored ? ColoredAttributes.data() : Attributes.data(), static_cast<std::uint32_t>(Attributes.size()), Vertex);
+		std::array<nvrhi::VertexAttributeDesc, 10> InstancedAttributes;
+		std::ranges::copy(Attributes, InstancedAttributes.begin());
+		for (std::uint32_t Column = 0; Column < 8; ++Column)
+		{
+			InstancedAttributes[Column + 2] = nvrhi::VertexAttributeDesc().setName("TEXCOORD").setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(1).setOffset(Column * 16u).setElementStride(sizeof(FMeshInstance)).setIsInstanced(true);
+		}
+
+		const auto InputLayout = Device->createInputLayout(bColored ? ColoredAttributes.data() : Descriptor.bInstanced ? InstancedAttributes.data()
+		                                                                                                               : Attributes.data(),
+		    static_cast<std::uint32_t>(Descriptor.bInstanced ? InstancedAttributes.size() : Attributes.size()), Vertex);
 		auto Pipeline = std::make_shared<FPipeline>();
 		Pipeline->Owner = Owner;
 		Pipeline->ColorFormat = Descriptor.ColorFormat;
 		Pipeline->VertexFormat = Descriptor.VertexFormat;
+		Pipeline->bInstanced = Descriptor.bInstanced;
 		if (!bColored)
 		{
 			Pipeline->Layout = Device->createBindingLayout(nvrhi::BindingLayoutDesc().setVisibility(nvrhi::ShaderType::AllGraphics).addItem(nvrhi::BindingLayoutItem::Texture_SRV(0)).addItem(nvrhi::BindingLayoutItem::Sampler(0)).addItem(nvrhi::BindingLayoutItem::PushConstants(0, MeshPushConstantSize)));
@@ -328,6 +341,19 @@ public:
 		if (const auto Ready = CanRecord(Data.size()); !Ready)
 		{
 			return Ready;
+		}
+
+		if (Native->Descriptor.Usage == EBufferUsage::Vertex && Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance)
+		{
+			for (std::size_t Offset = 0; Offset < Data.size(); Offset += sizeof(float))
+			{
+				float Value;
+				std::memcpy(&Value, Data.data() + Offset, sizeof(Value));
+				if (!std::isfinite(Value))
+				{
+					return Invalid("Mesh instance transforms must be finite");
+				}
+			}
 		}
 
 		std::uint32_t MaximumIndex = 0;
@@ -421,6 +447,7 @@ public:
 		const auto Pipeline = std::dynamic_pointer_cast<FPipeline>(Draw.Pipeline);
 		const auto Vertices = std::dynamic_pointer_cast<FBuffer>(Draw.Vertices);
 		const auto Indices = std::dynamic_pointer_cast<FBuffer>(Draw.Indices);
+		const auto Instances = std::dynamic_pointer_cast<FBuffer>(Draw.Instances);
 		const auto Texture = std::dynamic_pointer_cast<FTexture>(Draw.Texture);
 		const auto Color = std::dynamic_pointer_cast<FTexture>(Draw.ColorTarget);
 		const auto Depth = std::dynamic_pointer_cast<FTexture>(Draw.DepthTarget);
@@ -436,11 +463,16 @@ public:
 			return Invalid("Indexed draw has incompatible resources, indices, targets, or transform");
 		}
 
+		if (Pipeline->bInstanced ? !Owns(Instances) || Instances->Descriptor.Usage != EBufferUsage::Vertex || Instances->Descriptor.VertexFormat != EGraphicsVertexFormat::MeshInstance || Draw.InstanceCount == 0 || Draw.FirstInstance > Instances->Descriptor.Size / sizeof(FMeshInstance) || Draw.InstanceCount > Instances->Descriptor.Size / sizeof(FMeshInstance) - Draw.FirstInstance : Draw.Instances || Draw.InstanceCount != 1 || Draw.FirstInstance != 0)
+		{
+			return Invalid("Indexed draw instances must match the pipeline and fit a mesh instance buffer belonging to this device");
+		}
+
 		FFrame& Frame = Frames[FrameIndex];
 		const auto IndexUpload = Frame.UploadedBuffers.find(Indices.get());
 		const std::uint32_t MaximumIndex = IndexUpload == Frame.UploadedBuffers.end() ? Indices->MaximumIndex : IndexUpload->second;
 		const std::size_t VertexStride = bColored ? sizeof(FColoredClipVertex) : sizeof(FMeshVertex);
-		if ((!Vertices->bInitialized && !Frame.UploadedBuffers.contains(Vertices.get())) || (!Indices->bInitialized && IndexUpload == Frame.UploadedBuffers.end()) || MaximumIndex >= Vertices->Descriptor.Size / VertexStride || (!bColored && !IsInitialized(Texture)) || !IsInitialized(Color) || !IsInitialized(Depth))
+		if ((!Vertices->bInitialized && !Frame.UploadedBuffers.contains(Vertices.get())) || (!Indices->bInitialized && IndexUpload == Frame.UploadedBuffers.end()) || (Instances && !Instances->bInitialized && !Frame.UploadedBuffers.contains(Instances.get())) || MaximumIndex >= Vertices->Descriptor.Size / VertexStride || (!bColored && !IsInitialized(Texture)) || !IsInitialized(Color) || !IsInitialized(Depth))
 		{
 			return Invalid("Indexed draw reads uninitialized resources or references vertices outside the vertex buffer");
 		}
@@ -452,11 +484,16 @@ public:
 			return Failed("Could not create draw framebuffer or bindings");
 		}
 
-		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Framebuffer, Bindings, bColored, Extent = Color->Descriptor.Extent](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, Framebuffer, Bindings, bColored, Extent = Color->Descriptor.Extent](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(bColored ? "Draw debug primitives" : "Draw textured mesh");
 			nvrhi::GraphicsState State;
 			State.setPipeline(Pipeline->Handle).setFramebuffer(Framebuffer).addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(Vertices->Handle).setSlot(0).setOffset(0)).setIndexBuffer(nvrhi::IndexBufferBinding().setBuffer(Indices->Handle).setFormat(nvrhi::Format::R32_UINT).setOffset(0)).setViewport(nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(static_cast<float>(Extent.Width), static_cast<float>(Extent.Height))));
+			if (Instances)
+			{
+				State.addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(Instances->Handle).setSlot(1).setOffset(0));
+			}
+
 			if (!bColored)
 			{
 				State.addBindingSet(Bindings);
@@ -471,7 +508,7 @@ public:
 				Commands->setPushConstants(Constants.data(), sizeof(Constants));
 			}
 
-			Commands->drawIndexed(nvrhi::DrawArguments().setVertexCount(Draw.IndexCount).setStartIndexLocation(Draw.FirstIndex));
+			Commands->drawIndexed(nvrhi::DrawArguments().setVertexCount(Draw.IndexCount).setStartIndexLocation(Draw.FirstIndex).setInstanceCount(Draw.InstanceCount).setStartInstanceLocation(Draw.FirstInstance));
 			Commands->endMarker();
 		});
 

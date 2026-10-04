@@ -3,6 +3,7 @@
 #include "Herta/Core/Log.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorFramework/EditorFramework.h"
+#include "Herta/EditorFramework/ScalingStatistics.h"
 #include "Herta/NvrhiVulkan/NvrhiVulkan.h"
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
@@ -12,6 +13,7 @@
 #include "RendererSmoke.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <exception>
@@ -25,6 +27,7 @@
 #include <string_view>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace Herta
 {
@@ -158,8 +161,9 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingScenePath, const bool bScalingSimulate)
 {
+	const bool bScalingTest = !ScalingScenePath.empty();
 	FLogOptions LogOptions;
 	LogOptions.EditorBufferCapacity = 20'000;
 	std::expected<std::unique_ptr<FLogService>, FLogError> LogResult = FLogService::Create(std::move(LogOptions));
@@ -264,6 +268,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::unique_ptr<INvrhiVulkanPresentation> Presentation = std::move(*PresentationResult);
 	const std::filesystem::path ShaderDirectory = std::filesystem::absolute(ExecutablePath).parent_path() / "Shaders";
 	auto VertexShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.vert.hshader");
+	auto InstancedVertexShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.instanced.vert.hshader");
 	auto FragmentShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.frag.hshader");
 	auto DebugVertexShader = LoadCookedShader(ShaderDirectory / "DebugDraw.vert.hshader");
 	auto DebugFragmentShader = LoadCookedShader(ShaderDirectory / "DebugDraw.frag.hshader");
@@ -272,6 +277,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	if (!VertexShader || !FragmentShader)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load cooked shaders: {}. Build HertaShaders before launching the editor.", !VertexShader ? VertexShader.error().Message : FragmentShader.error().Message);
+		return 1;
+	}
+
+	if (!InstancedVertexShader)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not load instanced mesh shader: {}. Build HertaShaders before launching the editor.", InstancedVertexShader.error().Message);
 		return 1;
 	}
 
@@ -301,7 +312,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			return 1;
 		}
 
-		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *DebugVertexShader, *DebugFragmentShader, *GridVertexShader, *GridFragmentShader);
+		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *DebugVertexShader, *DebugFragmentShader, *GridVertexShader, *GridFragmentShader, *InstancedVertexShader);
 		if (!Test || Presentation->HasValidationErrors())
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer regression failed: {}", Test ? "Validation reported an error" : Test.error().Message);
@@ -311,7 +322,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, reversed-Z, resize, and frame retirement checks passed");
 	}
 
-	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader), std::move(*DebugVertexShader), std::move(*DebugFragmentShader), std::move(*GridVertexShader), std::move(*GridFragmentShader));
+	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader), std::move(*DebugVertexShader), std::move(*DebugFragmentShader), std::move(*GridVertexShader), std::move(*GridFragmentShader), std::move(*InstancedVertexShader));
 	if (!MeshResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize the mesh renderer: {}", MeshResult.error().Message);
@@ -446,6 +457,17 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		ToolUIDescriptor.AppearancePath = RepositoryRoot / "TestResults/Smoke/Appearance.ini";
 	}
 
+	if (bScalingTest)
+	{
+		ToolUIDescriptor.LayoutPath.clear();
+		ToolUIDescriptor.AppearancePath.clear();
+		if (auto Result = Presentation->SetVSyncEnabled(false); !Result)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not disable VSync for scaling capture: {}", Result.error().Message);
+			return 1;
+		}
+	}
+
 	ToolUIDescriptor.Renderer = std::move(RendererBridge);
 	ToolUIDescriptor.bVSync = Presentation->IsVSyncEnabled();
 
@@ -476,7 +498,18 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	AssetWorker += EditorExecutable.extension();
 	const std::string_view Platform = GetPlatformName(GetCurrentPlatform());
 	const FEditorAssetPaths AssetPaths{.EngineContentRoot = RepositoryRoot / "Engine/Content", .ContentRoot = RepositoryRoot / "Games/Sandbox/Content", .DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform, .WorkerPath = AssetWorker, .TargetPlatform = std::string(Platform)};
-	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .ScenePath = RepositoryRoot / "Games/Sandbox/Scenes/Sandbox.hscene"});
+	const std::filesystem::path ScenePath = bScalingTest ? std::filesystem::path(std::u8string(ScalingScenePath.begin(), ScalingScenePath.end())) : RepositoryRoot / "Games/Sandbox/Scenes/Sandbox.hscene";
+	if (bScalingTest)
+	{
+		std::error_code Error;
+		if (!std::filesystem::is_regular_file(ScenePath, Error))
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Scaling capture requires an existing scene: {}", ScenePath.string());
+			return 1;
+		}
+	}
+
+	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .ScenePath = ScenePath});
 	if (!EditorFrameworkResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize EditorFramework: {}", EditorFrameworkResult.error().Message);
@@ -503,6 +536,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	bool bRenderFailed = false;
 	FTextureHandle RegisteredSceneTexture;
 	std::uint64_t SceneTextureId = 0;
+	double RenderMilliseconds = 0.;
+	double LastCpuMilliseconds = 0.;
 	RenderFrame = [&]
 	{
 		if (bRendering || bRenderFailed)
@@ -512,7 +547,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 		bRendering = true;
 		const auto CpuFrameStart = std::chrono::steady_clock::now();
-		Presentation->SetToolUIGpuTimingEnabled(EditorFramework->IsUnitStatsVisible());
+		bool bViewportRendered = false;
+		Presentation->SetToolUIGpuTimingEnabled(bScalingTest || EditorFramework->IsUnitStatsVisible());
 		struct FRenderGuard
 		{
 			explicit FRenderGuard(bool& bInRendering)
@@ -570,7 +606,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				return;
 			}
 
+			const auto RenderStart = std::chrono::steady_clock::now();
 			auto MeshFrame = MeshRenderer->Render(ViewExtent, EditorFramework->GetViewportRenderView(), EditorFramework->GetViewportDebugDrawLists());
+			RenderMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - RenderStart).count();
+			bViewportRendered = MeshFrame.has_value();
 			if (!MeshFrame)
 			{
 				HERTA_LOG_ERROR(*Log, EditorLog, "Could not render scene: {}", MeshFrame.error().Message);
@@ -679,9 +718,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			const double CpuMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - CpuFrameStart).count();
 			EditorFramework->SetFrameTimings(CpuMilliseconds, Presentation->GetToolUIGpuMilliseconds());
+			LastCpuMilliseconds = CpuMilliseconds;
 		}
 
-		return bPresentedMainFrame && !bFrameFailed;
+		return bPresentedMainFrame && !bFrameFailed && (!bScalingTest || bViewportRendered);
 	};
 
 	HERTA_LOG_INFO(*Log, EditorLog, "Herta Editor started in {} configuration", GetBuildConfigurationName(GetBuildConfiguration()));
@@ -695,6 +735,17 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::uint32_t SmokeAttemptCount = 1;
 	std::uint32_t StressStep = 0;
 	const FEditorAppearance SmokeAppearance = ToolUI->GetAppearance();
+	std::array<std::vector<double>, 5> ScalingSamples;
+	std::vector<FMatrix4> AuthoredModels;
+	std::size_t ScalingPhase = 0;
+	std::size_t ScalingFrame = 0;
+	bool bScalingStarted = false;
+	bool bScalingCompleted = false;
+	const auto ScalingDeadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
+	constexpr std::size_t ScalingWarmupFrames = 60;
+	constexpr std::size_t ScalingSampleFrames = 240;
+	constexpr std::array<std::string_view, 4> ScalingPhaseNames{"rendering", "selected", "simulation", "restored"};
+	constexpr std::array<std::string_view, 5> ScalingMetricNames{"cpu_frame", "inspectors", "extraction", "simulation_and_sync", "render_submission"};
 	while (!Window.ShouldClose() && !bRenderFailed)
 	{
 		if (bRendererTest && StressStep < 12)
@@ -732,9 +783,118 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 		Application->PumpEvents();
 		TaskSystem->RunMainThreadTasks();
-		if (RenderFrame())
+		const bool bPresented = RenderFrame();
+		if (bPresented)
 		{
 			++SmokeFrameCount;
+		}
+
+		if (bScalingTest)
+		{
+			if (std::chrono::steady_clock::now() >= ScalingDeadline)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Scaling capture exceeded its five minute budget, including asset loading");
+				bRenderFailed = true;
+				break;
+			}
+
+			const FEditorFrameMetrics Metrics = EditorFramework->GetFrameMetrics();
+			if (ScalingPhase == 2 && bScalingStarted && !Metrics.bSimulationRunning)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Scaling simulation stopped before capture completed");
+				bRenderFailed = true;
+				break;
+			}
+
+			if (!bPresented || !Metrics.bAssetsReady)
+			{
+				continue;
+			}
+
+			if (!bScalingStarted)
+			{
+				const auto Prepared = EditorFramework->SetScalingTestPhase(false, false);
+				if (!Prepared)
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Scaling phase failed: {}", Prepared.error().Message);
+					bRenderFailed = true;
+					break;
+				}
+
+				bScalingStarted = true;
+				continue;
+			}
+
+			if (ScalingFrame == 0 && ScalingPhase == 0)
+			{
+				const auto Models = EditorFramework->GetViewportRenderView().Models;
+				AuthoredModels.assign(Models.begin(), Models.end());
+			}
+
+			if (ScalingPhase == 3)
+			{
+				const auto Models = EditorFramework->GetViewportRenderView().Models;
+				if (Models.size() != AuthoredModels.size() || !std::ranges::equal(Models, AuthoredModels, [](const FMatrix4& Left, const FMatrix4& Right)
+				{
+					return Left.Data() == Right.Data();
+				}))
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Scaling Stop did not restore every authored model");
+					bRenderFailed = true;
+					break;
+				}
+			}
+
+			if (++ScalingFrame > ScalingWarmupFrames)
+			{
+				const std::array Values{LastCpuMilliseconds, Metrics.InspectorMilliseconds, Metrics.ExtractionMilliseconds, Metrics.SimulationMilliseconds, RenderMilliseconds};
+				for (std::size_t Index = 0; Index < Values.size(); ++Index)
+				{
+					ScalingSamples[Index].push_back(Values[Index]);
+				}
+			}
+
+			if (ScalingFrame < ScalingWarmupFrames + ScalingSampleFrames)
+			{
+				continue;
+			}
+
+			const FExtent2D Extent = EditorFramework->GetViewportExtent();
+			HERTA_LOG_INFO(*Log, EditorLog, "Scaling phase={} objects={} selected={} frames={} draws={} viewport={}x{} configuration={}", ScalingPhaseNames[ScalingPhase], Metrics.ObjectCount, Metrics.SelectedCount, ScalingSampleFrames, MeshRenderer->GetLastDrawCount(), Extent.Width, Extent.Height, GetBuildConfigurationName(GetBuildConfiguration()));
+			for (std::size_t Index = 0; Index < ScalingSamples.size(); ++Index)
+			{
+				const FScalingStatistics Summary = SummarizeScalingSamples(ScalingSamples[Index]);
+				HERTA_LOG_INFO(*Log, EditorLog, "Scaling metric={} median_ms={:.4f} p95_ms={:.4f} p99_ms={:.4f}", ScalingMetricNames[Index], Summary.Median, Summary.P95, Summary.P99);
+				ScalingSamples[Index].clear();
+			}
+
+			if (const auto Gpu = Presentation->GetToolUIGpuMilliseconds())
+			{
+				HERTA_LOG_INFO(*Log, EditorLog, "Scaling GPU UI last_ms={:.4f} (not scene GPU timing)", *Gpu);
+			}
+
+			++ScalingPhase;
+			if (ScalingPhase == 2 && !bScalingSimulate)
+			{
+				bScalingCompleted = true;
+				Window.RequestClose();
+				continue;
+			}
+
+			if (ScalingPhase == ScalingPhaseNames.size())
+			{
+				bScalingCompleted = true;
+				Window.RequestClose();
+				continue;
+			}
+
+			ScalingFrame = 0;
+			if (auto Prepared = EditorFramework->SetScalingTestPhase(ScalingPhase != 0, ScalingPhase == 2); !Prepared)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Scaling phase failed: {}", Prepared.error().Message);
+				bRenderFailed = true;
+				break;
+			}
 		}
 
 		if (bSmokeTest && SmokeFrameCount >= (bRendererTest ? 24u : 3u))
@@ -746,6 +906,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			HERTA_LOG_ERROR(*Log, EditorLog, "Smoke test did not present three frames within the bounded attempt budget");
 			bRenderFailed = true;
 		}
+	}
+
+	if (bScalingTest && !bScalingCompleted)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Scaling capture ended before every required phase completed");
+		bRenderFailed = true;
 	}
 
 	std::expected<void, FPresentationError> IdleResult = Presentation->WaitIdle();
@@ -778,7 +944,9 @@ int main(const int ArgumentCount, char** const Arguments)
 		const bool bRendererTest = Herta::HasArgument(ArgumentCount, Arguments, "--renderer-test");
 		const bool bValidationRequested = Herta::HasArgument(ArgumentCount, Arguments, "--validation");
 		const std::string_view ExpectedWindowSystem = Herta::FindArgumentValue(ArgumentCount, Arguments, "--expect-window-system=");
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem);
+		const std::string_view ScalingScenePath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--scaling-test=");
+		const bool bScalingSimulate = Herta::HasArgument(ArgumentCount, Arguments, "--scaling-simulate");
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingScenePath, bScalingSimulate);
 	}
 	catch (const std::exception& Exception)
 	{

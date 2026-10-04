@@ -33,7 +33,8 @@ enum class ETextureFormat : std::uint8_t
 enum class EGraphicsVertexFormat : std::uint8_t
 {
 	Mesh,
-	ColoredClipPosition
+	ColoredClipPosition,
+	MeshInstance
 };
 
 struct FBufferDescriptor
@@ -110,6 +111,7 @@ struct FGraphicsPipelineDescriptor
 	ETextureFormat ColorFormat = ETextureFormat::Rgba8Srgb;
 	EGraphicsVertexFormat VertexFormat = EGraphicsVertexFormat::Mesh;
 	bool bDepthTest = true;
+	bool bInstanced = false;
 };
 
 struct FMeshVertex
@@ -122,6 +124,13 @@ struct FColoredClipVertex
 {
 	std::array<float, 4> Position;
 	std::array<float, 4> Color;
+};
+
+// Column-major transforms consumed by the mesh pipeline's per-instance vertex stream.
+struct FMeshInstance
+{
+	std::array<float, 16> WorldToClip;
+	std::array<float, 16> ObjectToView;
 };
 
 struct FIndexedDraw
@@ -137,6 +146,9 @@ struct FIndexedDraw
 	std::uint32_t FirstIndex = 0;
 	// Pushed after WorldToClip; mesh shaders light in view space.
 	std::array<float, 16> ObjectToView{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+	FBufferHandle Instances{};
+	std::uint32_t InstanceCount = 1;
+	std::uint32_t FirstInstance = 0;
 };
 
 struct FGraphicsStatistics

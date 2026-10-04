@@ -1057,7 +1057,7 @@ public:
 
 		nvrhi::IGraphicsPipeline* const RenderPipeline = ToolUIOverridePipeline ? ToolUIOverridePipeline : ToolUIPipeline.Get();
 		nvrhi::IFramebuffer* const RenderFramebuffer = ToolUIOverrideFramebuffer ? ToolUIOverrideFramebuffer : (ActiveImageIndex < ToolUIFramebuffers.size() ? ToolUIFramebuffers[ActiveImageIndex].Get() : nullptr);
-		if (!RenderCommandList || !RenderPipeline || !RenderFramebuffer)
+		if (!RenderPipeline || !RenderFramebuffer)
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "ToolUI pipeline is not compatible with the active swapchain"});
 		}

@@ -2,6 +2,7 @@
 
 #include "Herta/Math/Quaternion.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -52,10 +53,19 @@ struct FPhysicsBodyTransform
 	FQuaternion Rotation;
 };
 
+struct FPhysicsWorldSettings
+{
+	std::uint32_t MaxBodies = 1024;
+	std::uint32_t MaxBodyPairs = 4096;
+	std::uint32_t MaxContactConstraints = 1024;
+	// Create rejects budgets below the scratch bound for the configured capacities.
+	std::size_t TempMemoryBytes = 4 * 1024 * 1024;
+};
+
 class FPhysicsWorld final
 {
 public:
-	[[nodiscard]] static std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> Create();
+	[[nodiscard]] static std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> Create(const FPhysicsWorldSettings& Settings = {});
 
 	~FPhysicsWorld();
 

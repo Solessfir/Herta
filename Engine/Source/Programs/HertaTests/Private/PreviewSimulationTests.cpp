@@ -236,13 +236,109 @@ TEST_CASE("Preview simulation body capacity failure leaves no partially running 
 		Bodies[Index].Transform.Translation.X = static_cast<float>(Index) * 3.f;
 	}
 
-	const auto Result = Simulation.Start(Bodies);
+	const auto Result = Simulation.Start(Bodies, FPhysicsWorldSettings{});
 	REQUIRE_FALSE(Result);
-	CHECK(Result.error().Message == "Physics world body capacity reached");
+	CHECK(Result.error().Message.find("MaxBodies=1024") != std::string::npos);
 	CHECK_FALSE(Simulation.IsRunning());
 	CHECK(Simulation.GetTransforms().empty());
 	Bodies.resize(2);
 	REQUIRE(Simulation.Start(Bodies));
+	Simulation.Stop();
+}
+
+TEST_CASE("Preview capacity admission preserves authored outputs and permits restart")
+{
+	FPreviewSimulation Simulation;
+	const auto Bodies = MakeBodies({{0.f, 4.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, DefaultFloor);
+	REQUIRE(Simulation.Start(Bodies));
+	Simulation.Stop();
+
+	FPhysicsWorldSettings Settings;
+	SUBCASE("Body capacity")
+	{
+		Settings.MaxBodies = 1;
+	}
+
+	SUBCASE("Temporary memory capacity")
+	{
+		Settings.TempMemoryBytes = 1;
+	}
+
+	REQUIRE_FALSE(Simulation.Start(Bodies, Settings));
+	CHECK_FALSE(Simulation.IsRunning());
+	REQUIRE(Simulation.GetTransforms().size() == Bodies.size());
+	CHECK(Simulation.GetTransforms()[0].Transform == Bodies[0].Transform);
+	CHECK(Simulation.GetTransforms()[1].Transform == Bodies[1].Transform);
+	REQUIRE(Simulation.Start(Bodies));
+	Simulation.Stop();
+}
+
+TEST_CASE("Preview scaling checkpoint repeats simulation and restores all authored transforms")
+{
+	for (const std::size_t DynamicCount : {1000u, 5000u, 10000u})
+	{
+		CAPTURE(DynamicCount);
+		std::vector<FPreviewSimulationBody> Bodies;
+		Bodies.reserve(DynamicCount + 1);
+		Bodies.push_back({.ObjectIndex = 0, .Transform = {{150.f, -0.25f, 150.f}, FQuaternion::Identity(), {160.f, 0.25f, 160.f}}});
+
+		for (std::size_t Index = 0; Index < DynamicCount; ++Index)
+		{
+			const std::size_t Column = Index / 2;
+			const FVector3 Position{static_cast<float>(Column % 100) * 3.f, Index % 2 == 0 ? 0.5f : 1.49f, static_cast<float>(Column / 100) * 3.f};
+			Bodies.push_back({.ObjectIndex = Index + 1, .Transform = {Position, FQuaternion::Identity(), {0.5f, 0.5f, 0.5f}}, .MotionType = EPhysicsMotionType::Dynamic});
+		}
+
+		FPreviewSimulation Simulation;
+		for (int Cycle = 0; Cycle < 3; ++Cycle)
+		{
+			CAPTURE(Cycle);
+			REQUIRE(Simulation.Start(Bodies));
+			REQUIRE(Simulation.GetTransforms().size() == Bodies.size());
+
+			for (int Frame = 0; Frame < 4; ++Frame)
+			{
+				REQUIRE(Simulation.Update(1.f / 30.f));
+			}
+
+			CHECK(Simulation.GetTransforms()[1].Transform.Translation.Y >= 0.475f);
+			CHECK(Simulation.GetTransforms()[2].Transform.Translation.Y >= 1.45f);
+			Simulation.Stop();
+			CHECK_FALSE(Simulation.IsRunning());
+
+			for (std::size_t Index = 0; Index < Bodies.size(); ++Index)
+			{
+				CHECK(Simulation.GetTransforms()[Index].ObjectIndex == Bodies[Index].ObjectIndex);
+				CHECK(Simulation.GetTransforms()[Index].Transform == Bodies[Index].Transform);
+			}
+		}
+	}
+}
+
+TEST_CASE("Preview collision-capacity failure does not publish partial poses and stop restores authoring")
+{
+	std::vector<FPreviewSimulationBody> Bodies;
+	for (std::size_t Index = 0; Index < 32; ++Index)
+	{
+		Bodies.push_back({.ObjectIndex = Index, .Transform = {{0.f, 4.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, .MotionType = EPhysicsMotionType::Dynamic});
+	}
+
+	FPreviewSimulation Simulation;
+	REQUIRE(Simulation.Start(Bodies, {.MaxBodies = 32, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024}));
+	const auto Result = Simulation.Update(1.f / 30.f);
+	REQUIRE_FALSE(Result);
+	CHECK(Result.error().Message.find("capacity exceeded") != std::string::npos);
+
+	for (std::size_t Index = 0; Index < Bodies.size(); ++Index)
+	{
+		CHECK(Simulation.GetTransforms()[Index].Transform == Bodies[Index].Transform);
+	}
+
+	Simulation.Stop();
+	CHECK_FALSE(Simulation.IsRunning());
+	Bodies.resize(1);
+	REQUIRE(Simulation.Start(Bodies));
+	REQUIRE(Simulation.Update(1.f / 30.f));
 	Simulation.Stop();
 }
 

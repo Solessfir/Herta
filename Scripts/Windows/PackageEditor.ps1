@@ -39,6 +39,7 @@ foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid')) {
         $RequiredFiles += "$BinaryDirectory/Shaders/$Shader.$Stage.hshader"
     }
 }
+$RequiredFiles += "$BinaryDirectory/Shaders/TexturedMesh.instanced.vert.hshader"
 
 foreach ($RelativePath in $RequiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot $RelativePath) -PathType Leaf)) {

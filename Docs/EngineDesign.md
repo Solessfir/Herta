@@ -1,7 +1,7 @@
 # Herta Engine Design
 
-Status: Active design - Milestone 3 implemented
-Last updated: 2026-10-02
+Status: Active design - Milestone 4 in progress
+Last updated: 2026-10-04
 
 ## 1. Purpose
 
@@ -22,6 +22,8 @@ The priorities are:
 Editor responsiveness is an architectural requirement. Work is not parallelized merely because threads exist, but interactive threads must not wait on import, cooking, shader compilation, source control, search indexing, package construction, external tools, or other latency-bound work that can run asynchronously.
 
 Herta does not claim production readiness during its foundation milestones. Production readiness is earned through shipped projects, measured performance, stable data formats, upgrade paths, broad hardware testing, and reliable tooling.
+
+Implementation is driven by one playable Sandbox game, not disconnected feature demonstrations. Build the first standalone game loop before broad localization, graph tooling, scripting, native hot reload, or editor extensibility. Later milestones extend that same game with real rendering, simulation, animation, sound, NPCs, and multiplayer use cases. Optional features enter only when that game or another concrete project needs them.
 
 Herta is not required to become:
 
@@ -194,6 +196,7 @@ Herta/
 |       |   |-- Scripting/
 |       |   |-- Localization/
 |       |   |-- TextLayout/
+|       |   |-- GameUI/
 |       |   |-- Networking/
 |       |   |-- Replication/
 |       |   |-- ToolUI/
@@ -326,10 +329,11 @@ Core
 |-- GraphCore -> Core + Reflection + Assets
 |-- Scripting -> Core + Reflection + Assets
 |-- Localization -> Core + Assets
-|-- TextLayout -> Core + Math + Assets + Localization
+|-- TextLayout -> Core + Math + Assets
+|-- GameUI -> Core + Math + Application + Assets + RHI
 |-- Networking -> Core + Platform + Tasks
 |-- Replication -> Networking + Math + Reflection + Scene
-|-- ToolUI -> Core + Application + RHI + TextLayout
+|-- ToolUI -> Core + Application + RHI
 |-- RHI -> Core + Math
 |   `-- NvrhiVulkan -> RHI + Platform
 |-- RenderGraph -> Core + RHI
@@ -341,7 +345,8 @@ Core
 |-- Navigation -> Core + Math + Assets
 `-- AI -> Core + Math + Assets + Scene + GraphCore + Physics + Navigation
 
-Full game composition -> Application + Scene + Renderer + Physics + Animation + Audio + Navigation + AI + optional SteamAudio + optional Localization + optional Scripting + optional (Networking + Replication)
+Initial game composition -> Application + Scene + Renderer + GameUI + Physics + project gameplay systems
+Extended game composition -> initial game + selected Animation, Audio, Navigation, AI, SteamAudio, Localization, Scripting, Networking, and Replication modules
 Dedicated server composition -> Scene + Physics + Networking + Replication + selected gameplay modules
 EditorCore -> Core + Platform, then adds Reflection + Assets + Scene as those milestones arrive
 EditorFramework -> EditorCore + ToolUI
@@ -366,6 +371,8 @@ Runtime modules must never depend on `Editor`, `Developer`, or `Programs`. Edito
 
 The graph above shows the eventual dependency direction, not a requirement that Milestone 1 link modules that do not exist yet. Composition roots grow with the roadmap. The initial `EditorCore` uses only Core and Platform services; project assets, reflection, scenes, graph compilers, and other services are added when their owning milestones arrive.
 
+GameUI and ToolUI consume plain UTF-8 without localization services. Their optional shaped-text paths use TextLayout once those features exist; catalog resolution occurs before layout and does not make Localization a dependency of ordinary glyph rendering. The narrow GraphCore contracts needed by StateTree arrive with Navigation and AI; the later graph milestone extends only that proven subset.
+
 Start with these modules. Do not reproduce Unreal's current module count. Split a module when at least one is true:
 
 - It has a reusable public contract with multiple implementations.
@@ -386,7 +393,7 @@ Core contains types that do not know about windows, rendering, scenes, or editor
 - Time primitives, byte buffers, UUIDs, and lightweight profiling markers.
 - Module registration contracts.
 
-Core defines the stable `FTextId` namespace-and-key value used by descriptors and serialized data, but it does not resolve cultures or load catalogs. Those behaviors belong to Localization so Core and headless applications remain independent of ICU.
+Core owns the planned stable `FTextId` namespace-and-key value when the first serialized localizable field needs it, but it does not resolve cultures or load catalogs. Ordinary component names and inspector labels do not require a localization framework. Culture resolution and catalogs belong to Localization so Core and headless applications remain independent of ICU.
 
 Herta uses `spdlog` as a compiled private backend when Milestone 1 introduces application and headless-editor diagnostics. It provides console, debugger, rotating-file, and editor-buffer sink plumbing. Herta owns log categories, record fields, source locations, filtering, lifecycle, failure policy, and public macros. No `spdlog` or `fmt` type appears in a Herta public header or crosses a game-module boundary.
 
@@ -669,7 +676,7 @@ EditorFramework adapts Scene-owned mesh entities to the viewport. The default Cu
 
 Thread count, temporary allocator size, broad-phase layers, sleeping, and determinism are configuration, not scattered constants.
 
-The current editor preview implements mesh-bounds box bodies through `FPhysicsWorld`: every meshed dynamic body simulates against static and other dynamic bodies, with fixed 60 Hz stepping, per-body render interpolation, and restoration of all authored transforms on stop. Jolt is pinned to v5.6.0 under `External/Jolt`. The initial adapter uses Jolt's single-threaded job system and default allocator, with centralized capacities of 1,024 bodies and contact constraints and 4,096 body pairs. Runtime world synchronization, collision events, physics-origin shifting, and a Herta Tasks job adapter remain part of the full physics milestone. The early Milestone 4 scaling checkpoint measures this preview and establishes explicit capacity handling before larger simulations are supported.
+The current editor preview implements mesh-bounds box bodies through `FPhysicsWorld`: every meshed dynamic body simulates against static and other dynamic bodies, with fixed 60 Hz stepping, per-body render interpolation, and restoration of all authored transforms on stop. Jolt is pinned to v5.6.0 under `External/Jolt`. The adapter uses Jolt's single-threaded job system and default allocator. `FPhysicsWorldSettings` centralizes body, pair-cache, contact, and temporary-memory budgets; preview defaults support the measured 10,000-body checkpoint with 16,384 bodies, 65,536 pair entries, 32,768 contacts, and 64 MiB scratch storage. Startup admits the configured scratch bound before allocation; step-time cache/contact exhaustion fails explicitly and restores authored editor poses. Runtime world synchronization, collision events, physics-origin shifting, and a Herta Tasks job adapter remain part of the full physics milestone. See [Scaling.md](Scaling.md) for workload fixtures, measurements, limits, and platform coverage.
 
 ### 4.12 Animation
 
@@ -743,7 +750,7 @@ Source icons remain `.svg` files under `Engine/Content/Editor/Icons`; fonts rema
 
 The Milestone 1 editor font is Roboto Regular and Medium, rasterized through Dear ImGui's FreeType builder with normal hinting. The centralized base size is 15.625 logical pixels; monitor DPI controls interface sizing, while framebuffer density controls glyph rasterization independently of screen resolution. Its SIL Open Font License and the required FreeType attribution are stored with dependency and content metadata, included in generated third-party notices, and available through the editor About surface. Packaging fails when redistributed font or library bytes lack required license metadata. Tests validate semantic markers instead of exact license byte counts. ToolUI keeps the font content generation alive as long as Dear ImGui may reference its source bytes for atlas rebuilding or dynamic glyph generation.
 
-Development reads editor resources loosely for immediate iteration. Packaged editor builds read external or embedded cooked resources through the same Herta-owned provider. Milestone 1 keeps this provider narrow; the package milestone later replaces its storage backend with VFS mounts without changing ToolUI call sites. Executable embedding uses one cooked editor package rather than generating a public C++ array API per asset.
+Development reads editor resources loosely for immediate iteration. Packaged editor builds read external or embedded cooked resources through the same Herta-owned provider. Milestone 1 keeps this provider narrow; Milestone 5 introduces directory-backed VFS mounts and Milestone 13 adds package-backed mounts without changing ToolUI call sites. Executable embedding uses one cooked editor package rather than generating a public C++ array API per asset.
 
 `EditorFramework` owns a Herta SVG adapter with LunaSVG private behind it. The adapter rasterizes an icon to RGBA at the requested physical pixel size, uploads it as an ImGui texture, and caches by source hash, pixel dimensions, and scale. Rasterization may run off the UI thread, but GPU upload and cache publication occur at an explicit frame boundary.
 
@@ -801,6 +808,8 @@ One compiled program is shared by all agents using that tree. Each agent stores 
 
 All runtime content is read through a Herta virtual filesystem and package interface. Loose cooked files, external packages, executable-embedded packages, and mod packages differ only in how their byte ranges are mounted.
 
+Milestone 5 starts with directory-backed mounts and deterministic staging of the reference game's cooked dependency closure. Package containers, compression, signing, embedding, and supported data mods follow in Milestone 13 through the same asset lookup path. Standalone deployment must not wait for those later container and release features.
+
 Assets owns runtime package reading, VFS mounts, precedence, decompression, and asset lookup. `AssetPipeline` owns source import and canonical asset cooking. `PackageBuilder` owns package indexes, chunk layout, compression, executable embedding, and deterministic archive output. `HertaAssetWorker` isolates individual imports and cooks, `HertaCooker` orchestrates AssetPipeline and PackageBuilder for a target, and `HertaEditorCmd` only exposes those implementations as headless commands.
 
 ```text
@@ -829,7 +838,7 @@ Native C++ binary mods are deferred because they would expose an unstable ABI an
 
 ### 4.18 Projects and templates
 
-Game and GUI application projects are first-class source trees described by `<ProjectName>.hertaproject`. The versioned descriptor contains a stable project ID, display name, engine association, modules, program targets, content roots, and enabled features. It never stores an absolute engine path or user-specific directory. Project generation receives an explicit descriptor path and resolves the associated engine through command-line selection or user-local installation metadata.
+Game and GUI application projects are first-class source trees described by `<ProjectName>.hertaproject`. Project descriptors use versioned UTF-8 JSON, matching the scene format's strict parsing and deterministic writing policy without introducing a YAML dependency. The descriptor contains a stable project ID, display name, engine association, modules, program targets, content roots, and enabled features. It never stores an absolute engine path or user-specific directory. Project generation receives an explicit descriptor path and resolves the associated engine through command-line selection or user-local installation metadata.
 
 Built-in templates live under `Templates/Projects/<TemplateId>` and are versioned with the engine. Each template has a data-only manifest declaring its stable ID, version, compatible project-descriptor version, files, and allowed substitutions. Templates never execute scripts, download dependencies, or duplicate engine build logic.
 
@@ -869,6 +878,8 @@ Script behavior mods remain disabled until the same cooked-format validation, ca
 
 Localization is an optional runtime composition, but its data identity is designed before scene, graph, and project formats become public. Internal identifiers, paths, logs, console commands, and diagnostics remain non-localized UTF-8 strings. User-visible localizable content uses `FText`; user-authored names and chat remain plain text.
 
+This section describes the eventual contract, not an early dependency requirement. Milestone 14 introduces localization after real game UI and distribution exist. Earlier work reserves stable namespace/key identity only where an actual serialized localizable field requires it. Initial localization targets left-to-right game and editor text, including Polish. Full RTL/BiDi display and editing, complex-script acceptance, and translator interchange tooling are separate follow-ups triggered by a project requirement; they do not block the first playable game or the initial localization milestone.
+
 `FTextId` is a stable namespace and key, never an English string or asset path. A source entry also carries source text, source hash, developer context, message-syntax version, and a named argument schema. Source wording changes mark translations stale without changing identity. Renames require explicit redirects or migrations. Canonical source catalogs generate `constexpr` C++ text-ID constants, so Herta does not scrape macros or depend on runtime code coverage to gather text.
 
 `FText` has no implicit conversion to `std::string`. A resolved string deliberately loses localization identity. Formatted text retains an immutable recipe and typed named arguments so a culture change can resolve it again. Do not concatenate sentence fragments; translators receive complete messages whose arguments can be reordered and selected by grammar.
@@ -883,7 +894,7 @@ Localized display also requires typography rather than byte-oriented glyph looku
 
 ```text
 UTF-8 logical text
-    -> ICU paragraph direction, script, and break runs
+    -> script and break runs (paragraph direction and BiDi when enabled)
     -> project font fallback
     -> HarfBuzz shaping
     -> line layout, hit testing, and grapheme-aware editing
@@ -893,7 +904,7 @@ UTF-8 logical text
 
 `TextLayout` owns this pipeline and keeps HarfBuzz and FreeType private. Project fonts and fallback chains are cooked assets; system fonts are not authoritative because their availability differs across machines. Shape and raster work runs off the UI thread, while GPU publication occurs at a frame boundary. Cursor movement, selection, deletion, wrapping, and hit testing operate on grapheme and shaped clusters, not bytes or isolated code points. ToolUI uses a Herta shaped-text draw and input path for complex scripts without requiring an ImGui fork.
 
-`LocalizationPipeline` validates, pseudolocalizes, imports, exports, and cooks without ToolUI or a GPU. `HertaEditorCmd` exposes the same operations used by LocalizationEditor. Editor culture switching and catalog hot reload publish a new immutable generation; failed catalogs leave the previous generation active. Required tests cover locale fallback, plural and select behavior, argument parity, stale translations, deterministic cooking, hostile XLIFF, expanded pseudolocalization, forced RTL, mixed Arabic and Latin text, Indic shaping, combining marks, CJK fallback and line breaking, emoji sequences, and grapheme-aware editing.
+`LocalizationPipeline` validates, pseudolocalizes, imports, exports, and cooks without ToolUI or a GPU. `HertaEditorCmd` exposes the same operations used by LocalizationEditor. Editor culture switching and catalog hot reload publish a new immutable generation; failed catalogs leave the previous generation active. Initial tests cover locale fallback, plural and select behavior, argument parity, stale translations, deterministic cooking, expanded pseudolocalization, combining marks, emoji sequences, and grapheme-aware editing. Hostile XLIFF tests become mandatory before interchange is enabled; RTL, mixed-direction, Indic, and CJK acceptance becomes mandatory before those capabilities are advertised.
 
 Network gameplay sends semantic event or text IDs plus validated arguments when clients should localize a message. It does not send server-rendered language strings as authoritative gameplay UI. Localized voice, subtitle, and lip-sync variants use stable asset indirection and culture fallback rather than hard-coded paths.
 
@@ -949,6 +960,8 @@ EditorCore exposes semantic, schema-described automation commands with stable ob
 Static module composition is the Shipping default. Development editor builds may compile project gameplay code as one reloadable game module. This is a fast iteration facility for source projects built against the exact Herta revision, toolchain, architecture, and configuration. It is not a stable binary-plugin or native-mod ABI.
 
 ### 5.1 Game C++ hot reload
+
+Native hot reload is a Milestone 17 iteration feature, not a prerequisite for game development. Initial Game modules use normal build-and-restart iteration and static composition; the engine-owned runtime world and system contracts must work before reload is implemented.
 
 Platform loads game DLLs on Windows and shared objects on Linux through Herta's dynamic-library wrapper. The module exports one `extern "C"` entry point that returns a versioned, sized POD function table. The boundary carries Herta handles and explicitly owned buffers, not STL objects, exceptions, RTTI objects, allocators, virtual interfaces, `spdlog` state, or ownership that could be destroyed by the other binary.
 
@@ -1033,15 +1046,15 @@ Source dependencies live under `External`. Single-header and amalgamated librari
 | [stb](https://github.com/nothings/stb) | Adopted at MS3 | AssetPipeline | Private `stb_image` PNG and JPEG decoding inside HertaAssetWorker, limited to 8192 pixels per side. Tests use `stb_image_write`. Both headers are vendored at commit `2c980bb`. |
 | [xxHash](https://github.com/Cyan4973/xxHash) | Adopted at MS3 | Core | Private XXH3-128 behind `HashBytes` for build keys, DerivedDataCache checksums, and content identity. The single `xxhash.h` header is vendored at `v0.8.3`; the XXH3 output is frozen. |
 | [Blender](https://www.blender.org/) | Optional system tool | AssetPipeline | Used only for `.blend` import and live reimport. Never downloaded by Setup or required to build or run Herta. |
-| [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | Adopt at physics milestone | Physics | Collision and rigid-body simulation behind Herta types. |
+| [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | Adopted for preview; runtime bridge at MS5, expanded at MS7 | Physics | Collision and rigid-body simulation behind Herta types. |
 | [ozz-animation](https://github.com/guillaumeblanc/ozz-animation) | Adopt at animation milestone | Animation, AssetPipeline | Offline optimization plus runtime sampling and blending primitives. |
 | [miniaudio](https://github.com/mackron/miniaudio) | Adopt at audio milestone | Audio | Private device, decoder, mixer, resampler, spatialization, and null-backend implementation behind Herta Audio. |
-| [Steam Audio](https://github.com/ValveSoftware/steam-audio) | Preferred optional candidate after base audio spike | SteamAudio | Private HRTF and environmental-acoustics backend behind Herta Audio. Start with the built-in CPU ray tracer; do not make OpenCL, Radeon Rays, TrueAudio Next, or acoustic baking mandatory. Preserve Apache-2.0 notices and Valve trademark boundaries. |
+| [Steam Audio](https://github.com/ValveSoftware/steam-audio) | Optional MS18 candidate after a measured acoustic use case | SteamAudio | Private HRTF and environmental-acoustics backend behind Herta Audio. Start with the built-in CPU ray tracer; do not make OpenCL, Radeon Rays, TrueAudio Next, or acoustic baking mandatory. Preserve Apache-2.0 notices and Valve trademark boundaries. |
 | [Recast Navigation](https://github.com/recastnavigation/recastnavigation) | Adopt at navigation milestone | Navigation subsystem | NavigationBuilder owns offline Recast use; runtime Navigation owns Detour queries, streaming, tile-cache updates, and DetourCrowd behind Herta APIs. |
 | [GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) | Preferred transport candidate after spike | Networking | Message transport, encryption, lanes, statistics, and network simulation behind Herta sessions. It does not own replication or serialization. Defer optional P2P and ICE dependencies. |
 | [ICU4C](https://github.com/unicode-org/icu) | Adopt at localization milestone | Localization | Private Unicode, BCP 47 locale, MessageFormat, plural, formatting, collation, BiDi, and boundary services with pinned CLDR data. |
 | [HarfBuzz](https://github.com/harfbuzz/harfbuzz) | Adopt at localization milestone | TextLayout | Private shaping backend. Herta owns font fallback, layout, hit testing, caches, and public text types. |
-| [FreeType](https://gitlab.freedesktop.org/freetype/freetype) | Adopted at MS1, expand at localization milestone | ToolUI, TextLayout | Private hinted rasterization for the editor, later expanded to project text parsing and glyph rasterization. Font data is untrusted and worker lifetime and face concurrency are explicit. |
+| [FreeType](https://gitlab.freedesktop.org/freetype/freetype) | Adopted at MS1; game HUD at MS5, expanded text at MS14 | ToolUI, GameUI, TextLayout | Private hinted rasterization for editor and project fonts. Font data is untrusted and worker lifetime and face concurrency are explicit. |
 | [Zstandard](https://github.com/facebook/zstd) | Adopt at package milestone | Assets | Default general-purpose package chunk compression behind Herta stream and package APIs. Use the BSD license option. |
 | [libsodium](https://github.com/jedisct1/libsodium) | Adopt when package signing is implemented | PackageBuilder | Private Ed25519 signing and verification; optional authenticated encryption only after a reviewed threat and reproducibility policy. |
 | [Slang](https://github.com/shader-slang/slang) | Adopt at shader milestone | ShaderCompiler | HLSL-like source to SPIR-V plus reflection. |
@@ -1441,6 +1454,10 @@ When diagnosing engine failures, add logs, validation, captures, and assertions 
 
 ## 12. Milestones
 
+Milestones 0 through 3 retain their implemented scope. Milestone 4 finishes practical authoring, and Milestone 5 delivers the first playable standalone game. Every later core milestone adds a working feature to that same reference game, with headless correctness checks and Windows/Linux validation. A library integration or isolated demo alone is not an exit condition. Translation tooling, advanced acoustics, optional upscalers, native hot reload, and plugin tooling are not prerequisites for this first playable path.
+
+A later feature can move forward when the reference game demonstrates a concrete blocking need, provided its ownership, failure behavior, and prerequisite tests remain intact. The roadmap is delivery order, not a requirement to complete unrelated subsystems before solving a measured problem.
+
 ### Milestone 0 - Foundation
 
 - Replace the preserved GLFW-only Lua recipe with the Herta Premake workspace.
@@ -1519,20 +1536,18 @@ Content lives in `Games/Sandbox/Content` until projects exist. Block compression
 
 ### Milestone 4 - World and editor authoring
 
-- Run the early scaling checkpoint below as the next authoring slice, before project creation, hot reload, and the Content Browser.
+- Run the early scaling checkpoint below as the next authoring slice, before project creation and the Content Browser.
 - Add the Herta ECS contracts, entities, components, hierarchy, scene save/load, and version migration.
 - Run the EnTT storage and scheduling spike, record results, and either adopt its pinned revision privately or document why another implementation is required.
 - Add deferred structural barriers, explicit query read/write access, buffered events, and deterministic system ordering.
 - Add explicit Herta runtime descriptors needed by inspectors and serialization, without requiring C++26 reflection.
-- Add stable `FTextId` serialization and localizable descriptor metadata before scene and graph formats settle.
+- Reserve stable namespace/key identity when a descriptor actually introduces serialized localizable text; do not add catalogs, ICU, or translation tooling for inspector labels.
 - Add `.hertaproject` loading, transactional project creation from the minimal Game template, and matching headless commands.
-- Add editor-only game-module hot reload with build/API validation, shadow copies, safe-point quiescence, rollback, and an explicit restart result for incompatible state.
-- Add deterministic UTF-8 scene and prefab serialization, transactions, property editing, selection, gizmos, and play-in-editor lifecycle.
+- Add deterministic JSON scene serialization, hierarchy authoring, transactions, property editing, selection, and gizmos. Keep preview simulation separate from the runtime Play lifecycle introduced in Milestone 5.
 - Add numeric property expressions and transactional cross-scene entity copy/paste with stable-reference remapping.
-- Add a Content Browser over the asset registry: folder tree, asset grid, `SearchAssets` filtering, drag into the viewport to spawn entities, and transactional create, rename, move, and delete through AssetPipeline commands that preserve asset IDs. Placeholder thumbnails come first; rendered thumbnails follow once the renderer supports offscreen thumbnail passes.
-- Define source-plugin descriptors, extension registries, and semantic EditorCore automation commands without promising dynamic unload or a stable binary ABI.
+- Add the basic Content Browser needed to build the sample level: folder tree, asset grid, `SearchAssets` filtering, and drag into the viewport to spawn entities. Use placeholder thumbnails first; richer asset operations, reusable prefabs, and rendered thumbnails follow concrete authoring needs.
 
-Exit condition: scenes round-trip in canonical mergeable text, undo/redo and cross-scene paste are reliable, ECS mutation and query rules pass focused and scale tests, a generated Game project builds, and compatible gameplay-system changes reload without losing engine-owned state. Incompatible native state produces an actionable restart requirement, and runtime remains independent of editor modules.
+Exit condition: a sample level can be authored from imported assets, scenes round-trip in canonical mergeable JSON, undo/redo and cross-scene paste are reliable, ECS mutation and query rules pass focused and scale tests, and a generated Game project builds against the engine. Runtime remains independent of editor modules. Native hot reload, plugin registries, advanced prefab tooling, and translation services are not exit requirements.
 
 #### Early scaling checkpoint
 
@@ -1542,73 +1557,112 @@ Exit condition: scenes round-trip in canonical mergeable text, undo/redo and cro
 - Record CPU frame median and p95/p99, UI submission time, ECS extraction time, physics step time, draw calls, and memory usage with build configuration and reference hardware on Windows and Linux. Add GPU timings when available; retain repeatable fixtures and headless correctness checks alongside interactive measurements.
 - Profile before optimizing. Bring shared-mesh instancing or a bounded physics job adapter forward from Milestones 6 and 7 if measurements show they are needed for this checkpoint. The checkpoint is not blocked on PBR, full runtime physics, or a production renderer.
 
-### Milestone 5 - Localization and typography
+### Milestone 5 - Playable runtime and standalone game
 
-- Add Localization, TextLayout, LocalizationPipeline, and LocalizationEditor boundaries.
-- Add pinned ICU4C with filtered CLDR data and stable MessageFormat support behind Herta APIs.
-- Add canonical UTF-8 source and translation catalogs, generated `constexpr` text IDs, deterministic fallback, hot reload, pseudolocalization, and per-culture cooking.
-- Add validated XLIFF 2.1 import and export through `HertaEditorCmd` without interactive editor dependencies.
-- Add project font fallback, ICU BiDi and break analysis, HarfBuzz shaping, FreeType rasterization, grapheme-aware editing, and asynchronous GPU-atlas publication.
+- Implement `HertaGame` as a runtime-only composition that loads the project and authored starting scene, resolves cooked assets, and renders World entities without EditorFramework or ToolUI.
+- Add game input, a controllable player or camera, C++ gameplay systems, pause/reset, and a simple objective in the Sandbox level. Build only the input bindings that this sample needs, with cursor capture, focus-loss handling, fullscreen, and quit.
+- Add a narrow GameUI runtime module for the sample's screen-space text, images, anchors, and input focus using a cooked project font and the existing FreeType backend. It is independent of ImGui, ToolUI, and localization services; a general widget framework or UI designer is not required.
+- Connect the existing fixed-step Jolt adapters to runtime World state through narrow bridge data, with collision feedback sufficient for the sample. Rendering consumes immutable world extraction, not editor preview objects.
+- Add Play/Stop using an isolated runtime world and the same gameplay path as the standalone target. Stopping or a failed start preserves authored entities, selection, transforms, and undo history.
+- Add directory-backed asset mounts and a minimal deployment path that gathers the sample's cooked assets, registry, shaders, and versioned scene/project JSON into a relocatable loose-content build. Ship required runtime files and license notices; do not invoke importers, shader compilers, Blender, or editor modules at runtime.
+- Exercise repeated startup, scene reset, input-focus loss, Play/Stop, and shutdown. Keep headless gameplay/world lifecycle checks alongside interactive Windows/Linux runs.
 
-Exit condition: Polish plural and formatting fixtures, forced RTL, mixed Arabic and Latin, Indic shaping, CJK fallback, combining marks, emoji sequences, and grapheme editing behave consistently on Windows and Linux. Catalogs cook deterministically, invalid translation input preserves the last valid generation, and selected language packs mount through the VFS.
+Exit condition: the same authored Sandbox game is playable in the editor and as a relocated standalone build on Windows and Linux without the source checkout or development SDKs. Input, basic simulation, gameplay, HUD, restart, and shutdown work together. Full package containers, localization, native hot reload, scripting, and production rendering are not prerequisites.
 
 ### Milestone 6 - Production raster renderer
 
 - Add shared-mesh/material instancing and culling, retaining the early cube stress scenes as draw-call, memory, and frame-time regressions.
 - Add PBR materials, image-based lighting, direct lights, shadow maps, motion vectors, depth hierarchy, exposure, and tone mapping.
+- Add authored runtime camera, light, and material components plus the asset and inspector paths needed to use them in the sample. Renderer algorithms without usable level authoring do not complete this milestone.
 - Add GTAO and crisp native-resolution TAA with correct history rejection, reactive masks, camera-cut resets, render regressions, and configurable modest sharpening.
-- Add the Herta temporal-upscaler contract and FSR as the first optional Vulkan adapter while retaining native TAA and non-temporal fallbacks.
+- Retain native-resolution and non-temporal fallbacks. Optional temporal-upscaler backends remain in Milestone 18 unless measured sample performance requires one earlier.
 - Add GPU timings, feature capability reporting, quality tiers, and validation for multi-viewport editor rendering.
 - Keep lightmap authoring, baking, lightmap UVs, and baked-light data out of the asset pipeline.
 
-Exit condition: representative scenes render without baked lighting across the declared low, medium, and high raster tiers. TAA remains stable and crisp under motion, disocclusion, foliage, particles, thin geometry, specular highlights, and camera cuts, and every optional feature has a tested fallback.
+Exit condition: the playable Sandbox uses authored materials and lights without baked lighting across the declared low, medium, and high raster tiers. TAA remains stable and crisp under camera and rigid-object motion, disocclusion, thin geometry, specular highlights, and camera cuts, and every optional feature has a tested fallback. Later animation and VFX milestones add their own motion-vector and history regressions. This is an extension of the runtime game, not an editor-only rendering demonstration.
 
 ### Milestone 7 - Physics
 
-- Add Jolt adapters, collision layers, shapes, bodies, fixed-step simulation, and debug draw.
+- Expand the existing Jolt adapters with runtime collision layers, shapes, bodies, fixed-step simulation, and debug draw needed beyond the first playable slice.
 - Add a bounded Herta Tasks job adapter and configurable body, pair, contact, and temporary-memory capacities with actionable exhaustion handling. Extend the early multi-body stress scenes into repeatable runtime scaling and lifecycle tests.
 - Add origin-relative physics transforms and buffered events.
+- Add the collision shapes, scene authoring, and player collision behavior needed by the sample instead of keeping runtime physics limited to preview boxes.
 
-Exit condition: physics tests are repeatable for the supported configuration and world mutation never occurs inside callbacks.
+Exit condition: the playable Sandbox exercises collisions, dynamic props, runtime spawn/despawn, collision events, and repeated reset, physics tests are repeatable for the supported configuration, and world mutation never occurs inside callbacks.
 
-### Milestone 8 - Multiplayer
+### Milestone 8 - Animation
 
-- Add Networking and Replication with the selected GameNetworkingSockets transport revision behind Herta APIs.
-- Add `HertaServer`, direct-IP dedicated servers, and player-hosted listen servers using the same authoritative simulation and replication path.
-- Add versioned handshakes and wire schemas, stable network entity IDs, input commands, snapshots and deltas, relevancy, bandwidth budgets, interpolation, prediction, and reconciliation.
-- Add loopback and multi-process tests with simulated loss, latency, jitter, reordering, duplication, bandwidth limits, reconnects, incompatibility, and hostile input.
+- Add skeleton and clip import through ozz offline tools.
+- Extend model cooking for skeletal glTF assets and connect runtime skinning and skinned motion vectors to Renderer through narrow bridge data.
+- Add sampling, blending, skinning, root motion, and animation events.
+- Add an initial Herta-owned animation state machine using explicit cooked data. It is not the NPC StateTree runtime and does not become a GraphCore authoring domain yet.
 
-Exit condition: dedicated and player-hosted sessions produce the same authoritative gameplay behavior, local listen-server clients do not bypass replication or permission checks, prediction reconciles under simulated adverse networks, and headless servers run without window, renderer, ImGui, or audio-device dependencies.
+Exit condition: a controllable character in the Sandbox blends and plays cooked animations, a cooked skinned asset animates identically after reload, and the runtime has no dependency on offline ozz tools.
 
-### Milestone 9 - Navigation and AI
+### Milestone 9 - Audio
+
+- Add miniaudio behind Herta Audio with real and null device paths.
+- Add cooked sound assets, voices, buses, streaming, spatial playback, concurrency policy, and real-time-safe command queues.
+- Add sound import/cooking and scene emitter/listener components with the authoring controls needed by the sample.
+- Add audio diagnostics and deterministic headless tests without requiring an audio device.
+- Add movement, interaction, impact, and ambient sounds to the Sandbox. Keep basic spatial playback usable without Steam Audio; evaluate advanced acoustics only when a real scene demonstrates the need.
+
+Exit condition: the playable game uses static and streaming spatial sounds on Windows and Linux, the callback remains real-time safe under stress, and headless gameplay produces the same audio commands through the null path. Advanced acoustics and audio graph tooling do not block this milestone.
+
+### Milestone 10 - Game systems and world scaling
+
+- Add save-game persistence for actual sample progress and mutable world state, with stable references, explicit versions, atomic writes, and invalid-save recovery. Save data is separate from authored scenes.
+- Expand GameUI only for the sample's pause, settings, HUD, and interaction screens. Add gamepad support, input rebinding, and tested UI/gameplay focus routing.
+- Add bounded particle/VFX runtime and authored assets for the sample's impacts, trails, or ambient effects. Validate resource retirement, transparency, and temporal history without requiring a node editor or a general Niagara-like framework.
+- Add asynchronous world-region loading and unloading through existing task, asset, and world contracts. Keep stable references, origin-relative transforms, cancellation, and bounded memory correct while the player crosses regions.
+- Extend editor authoring only as needed to build and inspect that streamed sample, including reusable object/prefab authoring when repeated content makes it necessary.
+
+Exit condition: the same playable game can save/load progress, use keyboard/mouse or gamepad, interact with its menus, show authored effects, and traverse a streamed level without stale references, frame-blocking loads, or accumulating resources on Windows and Linux.
+
+### Milestone 11 - Navigation and AI
 
 - Add Recast offline tiled-navmesh cooking, Detour runtime queries and tile streaming, and initial DetourCrowd integration.
 - Add asynchronous path requests, cancellation, dynamic-obstacle handling, debug draw, and deterministic fixtures.
+- Add navmesh source geometry, agent/obstacle scene components, and the authoring/cooking path needed to place NPCs in the reference game.
 - Add AI perception, working memory, scheduling, gameplay-task contracts, and ECS integration.
 - Add GraphCore, StateTreeCompiler, and a nested StateTree authoring view for the first narrow graph domain without requiring a free-form node canvas.
 - Add the first-party contiguous StateTree runtime program with direct index jumps, pooled instance data, utility selection, tracing, and bounded transitions.
 
-Exit condition: agents navigate a streamed test level, avoidance behaves consistently, and authored StateTrees compile and produce matching headless execution traces after reload.
+Exit condition: NPCs in the playable Sandbox navigate, avoid obstacles, react, and animate through authored StateTrees. Navigation works in a streamed test level, avoidance behaves consistently, and authored StateTrees compile and produce matching headless execution traces after reload.
 
-### Milestone 10 - Animation
+### Milestone 12 - Multiplayer
 
-- Add skeleton and clip import through ozz offline tools.
-- Add sampling, blending, skinning, root motion, and animation events.
-- Add an initial Herta-owned animation state machine using explicit cooked data. It is not the NPC StateTree runtime and does not become a GraphCore authoring domain yet.
+- Add Networking and Replication with the selected GameNetworkingSockets transport revision behind Herta APIs.
+- Add `HertaServer`, direct-IP dedicated servers, and player-hosted listen servers using the same authoritative simulation and replication path.
+- Replicate the sample's actual player input, interactions, physics state, and gameplay outcomes rather than introducing networking before gameplay exists.
+- Add versioned handshakes and wire schemas, stable network entity IDs, input commands, snapshots and deltas, relevancy, bandwidth budgets, interpolation, prediction, and reconciliation.
+- Add loopback and multi-process tests with simulated loss, latency, jitter, reordering, duplication, bandwidth limits, reconnects, incompatibility, and hostile input.
 
-Exit condition: a cooked skinned asset animates identically after reload and has no runtime dependency on offline ozz tools.
+Exit condition: multiple players can complete the sample's gameplay loop through dedicated and player-hosted sessions with the same authoritative behavior. Local listen-server clients do not bypass replication or permission checks, prediction reconciles under simulated adverse networks, and headless servers run without window, renderer, ImGui, or audio-device dependencies.
 
-### Milestone 11 - Audio
+### Milestone 13 - Cooking and distribution
 
-- Add miniaudio behind Herta Audio with real and null device paths.
-- Add cooked sound assets, voices, buses, streaming, spatial playback, concurrency policy, and real-time-safe command queues.
-- Add audio diagnostics and deterministic headless tests without requiring an audio device.
-- Run a focused Steam Audio spike covering Windows and Linux builds, miniaudio buffer integration, HRTF quality, coordinate conversion, thread ownership, source-count scaling, simulation update rates, dynamic geometry, and fallback behavior.
-- If the spike passes, add optional HRTF, occlusion, transmission, and bounded real-time acoustics through the private SteamAudio integration. Defer acoustic probe baking, Embree, and custom renderer ray tracing until measured requirements justify them.
+- Extend the Milestone 5 loose deployment path with HertaCooker, versioned package indexes, dependency closure, zstd chunk compression, and platform deployment.
+- Add Ed25519 package-index signing and verification through libsodium with keys kept outside source and player builds.
+- Add loose, external-package, and executable-embedded output modes through the same VFS and package reader.
+- Add deterministic data-mod discovery, manifests, dependency resolution, namespaces, override policy, and compatibility diagnostics when exercising a sample data mod. Keep script behavior mods disabled until Milestone 16 sandbox gates pass; native binary mods remain disabled.
+- Add third-party notices, crash build IDs, and reproducible Shipping configuration.
+- For published releases, add protected tags, clean double-build verification, SBOM generation, artifact attestations, and immutable GitHub releases where available. These release-process gates do not block local package development.
 
-Exit condition: static and streaming sounds play spatially on Windows and Linux, the callback remains real-time safe under stress, and headless gameplay produces the same audio commands through the null path. Steam Audio-enabled builds preserve those constraints and disabled builds contain no Steam Audio code or runtime dependency.
+Exit condition: the reference game and server run from relocated external or embedded cooked data without editor or developer modules, unsigned package output reproduces byte-for-byte, and signed packages reject index or chunk tampering. Supported data mods mount deterministically without changing the base package. Language packs and script behavior mods are added by their later owning milestones, not required in advance.
 
-### Milestone 12 - Graph domains
+### Milestone 14 - Localization and text
+
+- Add Localization, TextLayout, LocalizationPipeline, and LocalizationEditor boundaries when the sample's real game UI and messages are ready for translation. Share the infrastructure with localizable editor UI without requiring every engine diagnostic to be translated.
+- Add pinned ICU4C with only the locale features and CLDR data needed by shipped cultures, plus stable MessageFormat support behind Herta APIs.
+- Add canonical UTF-8 source and translation catalogs, generated `constexpr` text IDs, deterministic fallback, hot reload, pseudolocalization, and per-culture cooking.
+- Localize the sample into English and Polish, with complete-message arguments, plural rules, and number/date formatting. Add base-culture and optional language-pack output to the existing package system.
+- Extend the existing FreeType integration for project font fallback and runtime text; add HarfBuzz shaping, grapheme-aware editing, and asynchronous GPU-atlas publication as required by supported text. Do not replace the established basic HUD with a speculative general UI framework.
+- Defer XLIFF 2.1 interchange until a translator workflow requires it. Defer full RTL/BiDi display and editing, Indic, and CJK acceptance to a separately scoped international-text slice; keep text direction and font fallback representable without claiming unsupported scripts work.
+
+Exit condition: the actual game and representative editor UI switch between English and Polish with correct plurals, formatting, fallback, accented text, and supported emoji editing on Windows and Linux. Catalogs cook deterministically, invalid translation input preserves the last valid generation, and optional language packs mount through the VFS. XLIFF and full RTL/BiDi support are not exit requirements.
+
+### Milestone 15 - Graph domains
 
 - Add the pinned Herta imgui-node-editor fork behind GraphEditor for the first domain that requires a free-form node canvas.
 - Promote the animation state machine into a typed animation-graph domain and compiler.
@@ -1618,7 +1672,7 @@ Exit condition: static and streaming sounds play spatially on Windows and Linux,
 
 Exit condition: StateTree and the animation graph compile headless and execute from cooked data without ImGui or imgui-node-editor linked, while sharing only proven GraphCore infrastructure.
 
-### Milestone 13 - Scripting
+### Milestone 16 - Scripting
 
 - Run a focused Umka spike covering Windows and Linux integration, binding-call overhead, VM memory behavior, worker compilation, cooked-program persistence, diagnostics, hot reload, and hostile-script controls.
 - Adopt a pinned upstream revision or narrow Herta fork only if the spike satisfies the documented production gates. Record the rejection and evaluate alternatives if it does not.
@@ -1627,39 +1681,31 @@ Exit condition: StateTree and the animation graph compile headless and execute f
 - Add editor breakpoints, stepping, stack frames, variables, profiling, and structured runtime errors without linking editor code into Shipping execution.
 - Add transactional script hot reload with explicit persistent-state serialization, binding compatibility checks, rollback, and stable script function handles.
 - Allow StateTree and graph domains to invoke validated script functions without compiling their own programs to Umka bytecode.
+- Implement one real sample gameplay behavior in script while keeping the C++-only game fully usable. Enable cooked script behavior mods only after all capability, budget, persistence, and hostile-input gates pass.
 
 Exit condition: the same cooked script fixtures produce matching logical results on Windows and Linux, hostile fixtures are stopped by enforced limits, compatible state survives reload, failures preserve the last valid generation, and a scripting-disabled target contains no Umka code or script compiler.
 
-### Milestone 14 - Cooking and distribution
+### Milestone 17 - Editor iteration and extensibility
 
-- Add HertaCooker, versioned package indexes, dependency closure, zstd chunk compression, and platform deployment.
-- Add Ed25519 package-index signing and verification through libsodium with keys kept outside source and player builds.
-- Add loose, external-package, and executable-embedded output modes through the same VFS and package reader.
-- Add deterministic base-culture and optional language-pack output through the same package system.
-- Add deterministic data-mod discovery, manifests, dependency resolution, namespaces, override policy, and compatibility diagnostics.
-- Add opt-in cooked script behavior mods with explicit capability profiles after all Milestone 13 sandbox gates pass. Keep native binary mods disabled.
-- Add third-party notices, crash build IDs, and reproducible Shipping configuration.
-- Add protected release tags, clean double-build verification, SBOM generation, artifact attestations, and immutable GitHub releases where available.
-
-Exit condition: HertaGame runs from external or embedded cooked data without editor or developer modules, unsigned package output reproduces byte-for-byte, signed packages reject index or chunk tampering, language packs and compatible enabled mods mount deterministically without changing the base package, and disallowed script capabilities fail closed.
-
-### Milestone 15 - Editor tooling and extensibility
-
+- Add editor-only game-module hot reload with build/API validation, shadow copies, safe-point quiescence, rollback, and an explicit restart result for incompatible state. Validate it against real sample gameplay systems; normal build-and-restart remains supported.
+- Expand the Content Browser with transactional create, rename, move, and delete through AssetPipeline commands that preserve asset IDs. Improve prefab tooling and rendered thumbnails from demonstrated level-authoring needs; basic prefab use introduced by the streamed sample does not wait for this milestone.
 - Complete project and engine plugin discovery, dependency diagnostics, restart-required enable and disable, first-party extension registries, and startup safe mode.
-- Add the first-party Git source-control plugin using asynchronous Git CLI operations and credential helpers.
-- Add the first-party terminal plugin through ConPTY and Linux PTYs without replacing structured build, cook, test, or source-control APIs.
-- Add `HertaEditorMcp` over authenticated local IPC and semantic EditorCore automation with read-only defaults, explicit capabilities, transactions, progress, cancellation, and audit records.
-- Add final translucent-panel backdrop blur, per-user appearance settings, performance scaling, and detached-viewport fallbacks.
+- Add the first-party Git source-control plugin when the authoring workflow needs it, using asynchronous Git CLI operations and credential helpers.
+- Add an optional first-party terminal plugin through ConPTY and Linux PTYs when in-editor terminal use is justified, without replacing structured build, cook, test, or source-control APIs.
+- Add `HertaEditorMcp` only for a real automation consumer, over authenticated local IPC and semantic EditorCore automation with read-only defaults, explicit capabilities, transactions, progress, cancellation, and audit records.
+- Add optional final translucent-panel backdrop blur, per-user appearance settings, performance scaling, and detached-viewport fallbacks when visual and performance evidence justifies them.
 
-Exit condition: an external source plugin extends the editor without private headers, Git and terminal work cannot stall the editor, automation operations match interactive and headless behavior, MCP mutation requires explicit authority and remains undoable where applicable, and plugin startup failure can be recovered through safe mode.
+Exit condition: compatible sample gameplay-system changes reload without losing engine-owned state, incompatible native state produces an actionable restart requirement, and an external source plugin extends the editor without private headers. Enabled Git and terminal integrations cannot stall the editor, implemented automation operations match interactive and headless behavior, MCP mutation requires explicit authority and remains undoable where applicable, and plugin startup failure can be recovered through safe mode. Optional terminal, MCP, and appearance features do not block the milestone.
 
-### Milestone 16 - Advanced dynamic rendering
+### Milestone 18 - Advanced rendering and acoustics
 
+- Run these optional integrations against measured limitations in a real scene; they are not prerequisites for a usable or shippable core engine.
 - Add SSGI as an optional medium-tier dynamic-lighting enhancement.
 - Add capability-driven Vulkan KHR ray queries and ray-tracing pipelines for selected effects without weakening the raster fallback.
 - Run the Radiance Cascades 3D acceptance spike against path-traced references before deciding whether it becomes a shipping GI backend.
-- Add optional DLSS and XeSS plugins through the temporal-upscaler contract. Defer frame generation until latency, frame pacing, UI composition, and swapchain requirements pass dedicated gates.
+- Add the Herta temporal-upscaler contract and FSR as the first optional Vulkan adapter when performance measurements justify it. DLSS and XeSS may follow through that same contract. Retain native TAA and non-temporal fallbacks; defer frame generation until latency, frame pacing, UI composition, and swapchain requirements pass dedicated gates.
 - Add atmosphere, volumetric fog, cloud shadows, and temporally reconstructed volumetric clouds with measured quality tiers.
+- Run the Steam Audio spike only for a scene that needs HRTF, occlusion, transmission, or real-time acoustics beyond basic spatial playback. Validate Windows/Linux builds, mixer integration, coordinates, thread budgets, source scaling, and fallbacks before adoption. Defer acoustic baking, Embree, and custom renderer ray tracing until measured requirements justify them.
 
 Exit condition: advanced features pass capability, memory, performance, camera-cut, multi-view, dynamic-geometry, and render-regression gates; unsupported hardware retains the production raster path; and Herta still has no light-baking pipeline.
 
@@ -1681,6 +1727,6 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Milestone 3 is implemented. Milestone 4 has started with private EnTT storage, stable object IDs, generational entity handles, validated hierarchy, deferred create/destroy barriers, atomic authoring patches, and canonical versioned `.hscene` save/load. EditorCore owns bounded transaction history; the editor groups property gestures and supports undo/redo, create/duplicate/delete, stable-ID selection restoration, and canonical scene clipboard excerpts. The editor authors flat scenes with empty and mesh entities, selectable empty-entity markers, and independent Static Mesh and Rigid Body component stacks in Details. Component edits use the existing atomic scene patches without adding a reflection framework or changing the file schema. Project loading, Content Browser authoring, runtime descriptors, prefabs, hierarchy authoring, and gameplay-system scheduling remain later slices. See [Scenes.md](Scenes.md) for the current contracts and limitations.
+Milestone 3 is implemented. Milestone 4 has started with private EnTT storage, stable object IDs, generational entity handles, validated hierarchy, deferred create/destroy barriers, atomic authoring patches, and canonical versioned `.hscene` save/load. EditorCore owns bounded transaction history; the editor groups property gestures and supports undo/redo, create/duplicate/delete, stable-ID selection restoration, and canonical scene clipboard excerpts. The editor authors flat scenes with empty and mesh entities, selectable empty-entity markers, and independent Static Mesh and Rigid Body component stacks in Details. Rigid Body settings use the existing atomic scene patches and schema 2 persistence, with schema 1 migration, without adding a reflection framework. Project loading, Content Browser authoring, runtime descriptors, prefabs, hierarchy authoring, and gameplay-system scheduling remain later slices. See [Scenes.md](Scenes.md) for the current contracts and limitations.
 
-Next is the early Milestone 4 scaling checkpoint for rendering, multi-body simulation, Outliner, and Details, followed by hierarchy authoring, runtime descriptors, project creation/loading, Content Browser authoring, and gameplay-system scheduling and hot reload. Localization, networking, graph tooling, full physics, animation, audio, and scripting remain in their later milestones.
+The early Milestone 4 scaling slice now provides deterministic 1,000/5,000/10,000-cube fixtures, clipped Outliner and asset-picker lists, large-selection batch history tests, explicit physics capacity failures, native capture phases, and shared-mesh instancing brought forward by measured render-submission cost. [Scaling.md](Scaling.md) records Windows measurements and outstanding Linux runtime coverage. Next authoring work is hierarchy, concrete runtime descriptors and gameplay-system contracts, project creation/loading, and the basic Content Browser. Milestone 5 then builds one playable Sandbox through runtime-only HertaGame, input, basic physics, a minimal HUD, isolated editor Play/Stop, and relocatable loose deployment. Production rendering, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend that same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.
