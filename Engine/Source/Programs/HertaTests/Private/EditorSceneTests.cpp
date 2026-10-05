@@ -753,7 +753,9 @@ TEST_CASE("Scene clipboard paste remaps UUIDs and rejects unsupported input atom
 	CHECK(Target.GetWorld().SnapshotEntities() == After);
 	CHECK(SelectedEditorObjects(Target) == Pasted);
 	FSceneDocument Invalid{.Id = FObjectId::Generate(), .Name = "Invalid", .Entities = Before};
+	Invalid.Entities[0].Transform.Scale = {2.f, 1.f, 1.f};
 	Invalid.Entities[1].Parent = Invalid.Entities[0].Id;
+	Invalid.Entities[1].Transform.Rotation = FQuaternion::FromAxisAngle({0.f, 0.f, 1.f}, 0.4f);
 	const auto Hierarchy = SerializeScene(Invalid);
 	REQUIRE(Hierarchy);
 	CHECK_FALSE(Target.PasteEntities(*Hierarchy));

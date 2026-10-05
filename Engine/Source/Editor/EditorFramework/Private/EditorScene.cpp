@@ -1,10 +1,12 @@
 #include "EditorScene.h"
 
 #include "Herta/EditorCore/CommandRegistry.h"
+#include "Herta/Math/AffineTransform.h"
 
 #include <cmath>
 #include <exception>
 #include <format>
+#include <map>
 #include <set>
 #include <unordered_set>
 
@@ -41,21 +43,17 @@ Im3d::Mat3 ToEditorRotation(const FQuaternion& Rotation)
 	return Result;
 }
 
-FQuaternion ToSceneRotation(const Im3d::Mat3& Rotation)
+FPreviewObject ToEditorObject(const FSceneEntity& Entity, const TTransform<double>& WorldPose)
 {
-	const Im3d::Vec3 Euler = Im3d::ToEulerXYZ(Rotation);
-	return FQuaternion::FromAxisAngle({0.f, 0.f, 1.f}, Euler.z) * FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, Euler.y) * FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, Euler.x);
-}
-
-FPreviewObject ToEditorObject(const FSceneEntity& Entity)
-{
+	const auto& Rotation = WorldPose.Rotation;
 	return {
 	    .Label = Entity.Name,
-	    .Translation = {static_cast<float>(Entity.Transform.Translation.Meters.X), static_cast<float>(Entity.Transform.Translation.Meters.Y), static_cast<float>(Entity.Transform.Translation.Meters.Z)},
-	    .Rotation = ToEditorRotation(Entity.Transform.Rotation),
-	    .Scale = {Entity.Transform.Scale.X, Entity.Transform.Scale.Y, Entity.Transform.Scale.Z},
+	    .Translation = {static_cast<float>(WorldPose.Translation.X), static_cast<float>(WorldPose.Translation.Y), static_cast<float>(WorldPose.Translation.Z)},
+	    .Rotation = ToEditorRotation({static_cast<float>(Rotation.X), static_cast<float>(Rotation.Y), static_cast<float>(Rotation.Z), static_cast<float>(Rotation.W)}),
+	    .Scale = {static_cast<float>(WorldPose.Scale3D.X), static_cast<float>(WorldPose.Scale3D.Y), static_cast<float>(WorldPose.Scale3D.Z)},
 	    .Mesh = Entity.Mesh ? Entity.Mesh->Asset : FAssetId{},
 	    .Id = Entity.Id,
+	    .Parent = Entity.Parent.IsValid() ? std::optional{Entity.Parent} : std::nullopt,
 	};
 }
 
@@ -64,16 +62,216 @@ std::filesystem::path Utf8Path(const std::string_view Text)
 	return std::filesystem::path(std::u8string(Text.begin(), Text.end()));
 }
 
-std::expected<void, FSceneError> ValidateEditorEntityRange(const FSceneEntity& Entity)
+std::expected<void, FSceneError> ValidateEditorPoseRange(const TTransform<double>& Pose)
 {
-	const auto& Position = Entity.Transform.Translation.Meters;
-	const auto& Scale = Entity.Transform.Scale;
+	const auto& Position = Pose.Translation;
+	const FVector3 Scale{Pose.Scale3D};
 	if (std::abs(Position.X) > 1.e7 || std::abs(Position.Y) > 1.e7 || std::abs(Position.Z) > 1.e7 || Scale.X < 0.001f || Scale.Y < 0.001f || Scale.Z < 0.001f || Scale.X > 1000.f || Scale.Y > 1000.f || Scale.Z > 1000.f)
 	{
 		return std::unexpected(FSceneError{"Scene transform exceeds the current float viewport editing range"});
 	}
 
 	return {};
+}
+
+TMatrix4<double> MakeLocalMatrix(const FSceneTransform& Transform)
+{
+	const auto& Rotation = Transform.Rotation;
+	return TMatrix4<double>::Transform(Transform.Translation.Meters, TQuaternion<double>{Rotation.X, Rotation.Y, Rotation.Z, Rotation.W}, FVector3d{Transform.Scale});
+}
+
+struct FEditorHierarchy
+{
+	std::map<FObjectId, std::size_t> Indices;
+	std::vector<std::size_t> Parents;
+	std::vector<std::size_t> Order;
+	std::vector<TMatrix4<double>> Matrices;
+	std::vector<TTransform<double>> Poses;
+};
+
+std::expected<TTransform<double>, FSceneError> DecomposeEditorWorld(const TMatrix4<double>& Matrix)
+{
+	const auto Pose = TryDecomposeTransform(Matrix);
+	if (!Pose)
+	{
+		return std::unexpected(FSceneError{"Scene hierarchy requires shear or an unrepresentable world transform"});
+	}
+
+	if (auto Result = ValidateEditorPoseRange(*Pose); !Result)
+	{
+		return std::unexpected(Result.error());
+	}
+
+	return *Pose;
+}
+
+std::expected<FEditorHierarchy, FSceneError> BuildEditorHierarchy(const std::span<const FSceneEntity> Entities)
+{
+	if (auto Result = ValidateSceneEntities(Entities); !Result)
+	{
+		return std::unexpected(Result.error());
+	}
+
+	FEditorHierarchy Hierarchy;
+	Hierarchy.Parents.resize(Entities.size(), Entities.size());
+	Hierarchy.Matrices.resize(Entities.size());
+	Hierarchy.Poses.resize(Entities.size());
+	Hierarchy.Order.reserve(Entities.size());
+
+	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
+	{
+		Hierarchy.Indices.emplace(Entities[Index].Id, Index);
+	}
+
+	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
+	{
+		if (Entities[Index].Parent.IsValid())
+		{
+			Hierarchy.Parents[Index] = Hierarchy.Indices.at(Entities[Index].Parent);
+		}
+	}
+
+	std::vector<bool> Evaluated(Entities.size());
+	std::vector<std::size_t> Ancestors;
+
+	for (std::size_t Start = 0; Start < Entities.size(); ++Start)
+	{
+		std::size_t Current = Start;
+
+		while (Current != Entities.size() && !Evaluated[Current])
+		{
+			Ancestors.push_back(Current);
+			Current = Hierarchy.Parents[Current];
+		}
+
+		while (!Ancestors.empty())
+		{
+			const std::size_t Index = Ancestors.back();
+			Ancestors.pop_back();
+			const std::size_t Parent = Hierarchy.Parents[Index];
+			const auto Local = MakeLocalMatrix(Entities[Index].Transform);
+			Hierarchy.Matrices[Index] = Parent == Entities.size() ? Local : Hierarchy.Matrices[Parent] * Local;
+			const auto Pose = DecomposeEditorWorld(Hierarchy.Matrices[Index]);
+			if (!Pose)
+			{
+				return std::unexpected(Pose.error());
+			}
+
+			Hierarchy.Poses[Index] = *Pose;
+			Hierarchy.Order.push_back(Index);
+			Evaluated[Index] = true;
+		}
+	}
+
+	return Hierarchy;
+}
+
+std::expected<void, FSceneError> SetLocalFromWorld(FSceneEntity& Entity, const TMatrix4<double>& DesiredWorld, const TMatrix4<double>& ParentWorld)
+{
+	const auto Inverse = TryInverseAffine(ParentWorld);
+	if (!Inverse)
+	{
+		return std::unexpected(FSceneError{"The parent world transform cannot be inverted"});
+	}
+
+	const auto Local = TryDecomposeTransform(*Inverse * DesiredWorld);
+	if (!Local)
+	{
+		return std::unexpected(FSceneError{"This hierarchy edit would require shear or an unrepresentable local transform"});
+	}
+
+	const auto& Rotation = Local->Rotation;
+	Entity.Transform = {
+	    .Translation = FWorldPosition{Local->Translation},
+	    .Rotation = {static_cast<float>(Rotation.X), static_cast<float>(Rotation.Y), static_cast<float>(Rotation.Z), static_cast<float>(Rotation.W)},
+	    .Scale = FVector3{Local->Scale3D},
+	};
+
+	return {};
+}
+
+std::expected<TTransform<double>, FSceneError> EditedWorldPose(const FPreviewObject& Object, const FPreviewObject& Previous, TTransform<double> Pose)
+{
+	for (int Axis = 0; Axis < 3; ++Axis)
+	{
+		if (Object.Translation[Axis] != Previous.Translation[Axis])
+		{
+			Pose.Translation[static_cast<std::size_t>(Axis)] = Object.Translation[Axis];
+		}
+
+		if (Object.Scale[Axis] != Previous.Scale[Axis])
+		{
+			Pose.Scale3D[static_cast<std::size_t>(Axis)] = Object.Scale[Axis];
+		}
+	}
+
+	if (!std::ranges::equal(Object.Rotation.m, Previous.Rotation.m))
+	{
+		TMatrix4<double> Matrix;
+
+		for (int Column = 0; Column < 3; ++Column)
+		{
+			for (int Row = 0; Row < 3; ++Row)
+			{
+				Matrix(static_cast<std::size_t>(Row), static_cast<std::size_t>(Column)) = Object.Rotation(Row, Column);
+			}
+		}
+
+		const auto Rotation = TryDecomposeTransform(Matrix);
+		if (!Rotation || std::abs(Rotation->Scale3D.X - 1.) > 1e-6 || std::abs(Rotation->Scale3D.Y - 1.) > 1e-6 || std::abs(Rotation->Scale3D.Z - 1.) > 1e-6)
+		{
+			return std::unexpected(FSceneError{"The edited world rotation is not representable"});
+		}
+
+		Pose.Rotation = Rotation->Rotation;
+	}
+
+	if (auto Result = ValidateEditorPoseRange(Pose); !Result)
+	{
+		return std::unexpected(Result.error());
+	}
+
+	return DecomposeEditorWorld(Pose.ToMatrix());
+}
+
+bool SamePreviewPose(const FPreviewObject& Left, const FPreviewObject& Right)
+{
+	return Left.Translation.x == Right.Translation.x && Left.Translation.y == Right.Translation.y && Left.Translation.z == Right.Translation.z
+	       && Left.Scale.x == Right.Scale.x && Left.Scale.y == Right.Scale.y && Left.Scale.z == Right.Scale.z
+	       && std::ranges::equal(Left.Rotation.m, Right.Rotation.m);
+}
+
+std::expected<FEditorHierarchy, FSceneError> ValidateEditorChanges(const std::span<const FSceneEntity> Before, const std::span<const FSceneEntityChange> Changes)
+{
+	std::map<FObjectId, FSceneEntity> Candidates;
+
+	for (const auto& Entity : Before)
+	{
+		Candidates.emplace(Entity.Id, Entity);
+	}
+
+	for (const auto& Change : Changes)
+	{
+		if (Change.Before)
+		{
+			Candidates.erase(Change.Before->Id);
+		}
+
+		if (Change.After)
+		{
+			Candidates.insert_or_assign(Change.After->Id, *Change.After);
+		}
+	}
+
+	std::vector<FSceneEntity> Entities;
+	Entities.reserve(Candidates.size());
+
+	for (auto& [Id, Entity] : Candidates)
+	{
+		Entities.push_back(std::move(Entity));
+	}
+
+	return BuildEditorHierarchy(Entities);
 }
 
 std::vector<FSceneEntityChange> ReverseChanges(const std::span<const FSceneEntityChange> Changes)
@@ -156,10 +354,7 @@ FEditorScene::FEditorScene(const std::size_t MaximumTransactions, const std::siz
 		std::terminate();
 	}
 
-	for (const FSceneEntity& Entity : World.SnapshotEntities())
-	{
-		Objects.push_back(ToEditorObject(Entity));
-	}
+	RebuildObjects();
 
 	Selection.push_back(Objects.front().Id);
 	ActiveObject = Objects.front().Id;
@@ -183,18 +378,9 @@ std::expected<void, FSceneError> FEditorScene::Load(const std::filesystem::path&
 		return std::unexpected(Document.error());
 	}
 
-	// Hierarchy authoring is a later slice; flat entities may have no components.
-	for (const FSceneEntity& Entity : Document->Entities)
+	if (const auto Hierarchy = BuildEditorHierarchy(Document->Entities); !Hierarchy)
 	{
-		if (Entity.Parent.IsValid())
-		{
-			return std::unexpected(FSceneError{"This editor slice opens flat scenes only"});
-		}
-
-		if (auto Result = ValidateEditorEntityRange(Entity); !Result)
-		{
-			return Result;
-		}
+		return std::unexpected(Hierarchy.error());
 	}
 
 	if (auto Result = World.ReplaceEntities(Document->Entities); !Result)
@@ -228,74 +414,121 @@ std::expected<void, FSceneError> FEditorScene::CommitEdits(const std::string_vie
 
 	if (Objects.size() != World.GetEntityCount())
 	{
-		RestoreObjects();
+		RestoreObjects(false);
 		return std::unexpected(FSceneError{"Editor view no longer matches the authored entity set"});
 	}
 
-	std::vector<FSceneEntity> Candidates;
-	Candidates.reserve(Objects.size());
+	bool bChanged = false;
 
-	for (const FPreviewObject& Object : Objects)
+	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
 	{
-		const auto Handle = World.FindEntity(Object.Id);
-		if (!Handle)
+		const auto& Object = Objects[Index];
+		const auto& Previous = AuthoredObjects[Index];
+
+		if (Object.Id != Previous.Id || Object.Parent != Previous.Parent)
 		{
-			RestoreObjects();
-			return std::unexpected(FSceneError{"Editor view contains a stale entity"});
+			RestoreObjects(false);
+			return std::unexpected(FSceneError{"Editor view contains stale identity or hierarchy data"});
 		}
 
-		FSceneEntity Entity = *World.GetEntity(*Handle);
-		const FPreviewObject Previous = ToEditorObject(Entity);
+		bChanged = bChanged || Object.Label != Previous.Label || Object.Mesh != Previous.Mesh || !SamePreviewPose(Object, Previous);
+	}
+
+	if (!bChanged)
+	{
+		return {};
+	}
+
+	const auto Before = World.SnapshotEntities();
+	auto Candidates = Before;
+	auto Hierarchy = BuildEditorHierarchy(Before);
+	if (!Hierarchy)
+	{
+		RestoreObjects(false);
+		return std::unexpected(Hierarchy.error());
+	}
+
+	for (const std::size_t Index : Hierarchy->Order)
+	{
+		const auto& Object = Objects[Index];
+		const auto& Previous = AuthoredObjects[Index];
+		auto& Entity = Candidates[Index];
 		Entity.Name = Object.Label;
 		Entity.Mesh = Object.Mesh.IsValid() ? std::optional{FStaticMeshComponent{Object.Mesh}} : std::nullopt;
+		const auto Parent = Hierarchy->Parents[Index];
+		const auto ParentWorld = Parent == Candidates.size() ? TMatrix4<double>::Identity() : Hierarchy->Matrices[Parent];
 
-		// Preserve double coordinates on axes that the float editing view did not change.
-		if (Object.Translation.x != Previous.Translation.x)
+		if (!SamePreviewPose(Object, Previous))
 		{
-			Entity.Transform.Translation.Meters.X = Object.Translation.x;
+			const auto FollowingWorld = ParentWorld * MakeLocalMatrix(Entity.Transform);
+			const auto FollowingPose = DecomposeEditorWorld(FollowingWorld);
+			// Group gestures may already place a child exactly where its edited parent takes it.
+			if (FollowingPose && SamePreviewPose(Object, ToEditorObject(Entity, *FollowingPose)))
+			{
+				Hierarchy->Matrices[Index] = FollowingWorld;
+				continue;
+			}
+
+			const auto Pose = EditedWorldPose(Object, Previous, Hierarchy->Poses[Index]);
+			if (!Pose)
+			{
+				RestoreObjects(false);
+				return std::unexpected(Pose.error());
+			}
+
+			const auto OldTransform = Entity.Transform;
+			const auto OldLocal = MakeLocalMatrix(OldTransform);
+			if (auto Result = SetLocalFromWorld(Entity, Pose->ToMatrix(), ParentWorld); !Result)
+			{
+				RestoreObjects(false);
+				return Result;
+			}
+
+			// Translation-only gestures must not renormalize untouched authored rotation or scale.
+			const auto NewLocal = MakeLocalMatrix(Entity.Transform);
+			bool bSameLinear = true;
+
+			for (std::size_t Column = 0; Column < 3; ++Column)
+			{
+				const double Scale = std::hypot(OldLocal(0, Column), OldLocal(1, Column), OldLocal(2, Column));
+
+				for (std::size_t Row = 0; Row < 3; ++Row)
+				{
+					bSameLinear = bSameLinear && std::abs(OldLocal(Row, Column) / Scale - NewLocal(Row, Column) / Scale) <= 1e-7;
+				}
+			}
+
+			if (bSameLinear)
+			{
+				Entity.Transform.Rotation = OldTransform.Rotation;
+				Entity.Transform.Scale = OldTransform.Scale;
+			}
 		}
 
-		if (Object.Translation.y != Previous.Translation.y)
+		Hierarchy->Matrices[Index] = ParentWorld * MakeLocalMatrix(Entity.Transform);
+		if (const auto Pose = DecomposeEditorWorld(Hierarchy->Matrices[Index]); !Pose)
 		{
-			Entity.Transform.Translation.Meters.Y = Object.Translation.y;
+			RestoreObjects(false);
+			return std::unexpected(Pose.error());
 		}
-
-		if (Object.Translation.z != Previous.Translation.z)
-		{
-			Entity.Transform.Translation.Meters.Z = Object.Translation.z;
-		}
-
-		if (!std::ranges::equal(Object.Rotation.m, Previous.Rotation.m))
-		{
-			Entity.Transform.Rotation = ToSceneRotation(Object.Rotation);
-		}
-
-		Entity.Transform.Scale = {Object.Scale.x, Object.Scale.y, Object.Scale.z};
-		if (auto Result = ValidateEditorEntityRange(Entity); !Result)
-		{
-			RestoreObjects();
-			return Result;
-		}
-
-		Candidates.push_back(std::move(Entity));
 	}
 
 	if (auto Result = ValidateSceneEntities(Candidates); !Result)
 	{
-		RestoreObjects();
+		RestoreObjects(false);
 		return Result;
 	}
 
-	std::ranges::sort(Candidates, {}, &FSceneEntity::Id);
-	const auto Changes = DiffEntities(World.SnapshotEntities(), Candidates);
+	const auto Changes = DiffEntities(Before, Candidates);
 	if (Changes.empty())
 	{
+		RestoreObjects(false);
 		return {};
 	}
 
 	if (auto Result = World.ApplyEntityChanges(Changes); !Result)
 	{
-		RestoreObjects();
+		RestoreObjects(false);
 		return Result;
 	}
 
@@ -308,11 +541,12 @@ std::expected<void, FSceneError> FEditorScene::CommitEdits(const std::string_vie
 				std::terminate();
 			}
 
-			RestoreObjects();
+			RestoreObjects(false);
 			return Result;
 		}
 	}
 
+	RestoreObjects(false);
 	return {};
 }
 
@@ -364,12 +598,21 @@ std::expected<void, FSceneError> FEditorScene::CheckAuthoringAllowed(const bool 
 
 void FEditorScene::RebuildObjects()
 {
+	const auto Entities = World.SnapshotEntities();
+	const auto Hierarchy = BuildEditorHierarchy(Entities);
+	if (!Hierarchy)
+	{
+		std::terminate();
+	}
+
 	Objects.clear();
 
-	for (const FSceneEntity& Entity : World.SnapshotEntities())
+	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
 	{
-		Objects.push_back(ToEditorObject(Entity));
+		Objects.push_back(ToEditorObject(Entities[Index], Hierarchy->Poses[Index]));
 	}
+
+	AuthoredObjects = Objects;
 
 	if (++Generation == 0)
 	{
@@ -377,21 +620,29 @@ void FEditorScene::RebuildObjects()
 	}
 }
 
-void FEditorScene::RestoreObjects()
+void FEditorScene::RestoreObjects(const bool bNotify)
 {
 	const auto Entities = World.SnapshotEntities();
-	if (Objects.size() != Entities.size())
+	if (Objects.size() != Entities.size() || !std::ranges::equal(Objects, Entities, {}, &FPreviewObject::Id, &FSceneEntity::Id))
 	{
 		RebuildObjects();
 		return;
 	}
 
-	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
+	const auto Hierarchy = BuildEditorHierarchy(Entities);
+	if (!Hierarchy)
 	{
-		Objects[Index] = ToEditorObject(Entities[Index]);
+		std::terminate();
 	}
 
-	if (++Generation == 0)
+	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
+	{
+		Objects[Index] = ToEditorObject(Entities[Index], Hierarchy->Poses[Index]);
+	}
+
+	AuthoredObjects = Objects;
+
+	if (bNotify && ++Generation == 0)
 	{
 		std::terminate();
 	}
@@ -412,13 +663,18 @@ FEditorTransaction FEditorScene::MakeTransaction(const std::string_view Label, c
 	    .Apply = [this, Changes, BeforeSelection = std::move(BeforeSelection), BeforeActive, AfterSelection, AfterActive](const bool bUndo) -> std::expected<void, FEditorCommandError>
 	{
 		const auto Replay = bUndo ? ReverseChanges(Changes) : Changes;
+		if (const auto Hierarchy = ValidateEditorChanges(World.SnapshotEntities(), Replay); !Hierarchy)
+		{
+			return std::unexpected(FEditorCommandError{.Message = Hierarchy.error().Message});
+		}
+
 		if (auto Result = World.ApplyEntityChanges(Replay); !Result)
 		{
 			return std::unexpected(FEditorCommandError{.Message = Result.error().Message});
 		}
 
 		SetSelection(bUndo ? BeforeSelection : AfterSelection, bUndo ? BeforeActive : AfterActive);
-		RebuildObjects();
+		RestoreObjects();
 		return {};
 	},
 	    .MemoryCost = Cost,
@@ -663,7 +919,7 @@ std::expected<FObjectId, FSceneError> FEditorScene::CreateEmptyEntity(const FWor
 
 std::expected<FObjectId, FSceneError> FEditorScene::InsertEntity(FSceneEntity Entity)
 {
-	if (auto Result = ValidateEditorEntityRange(Entity); !Result)
+	if (const auto Result = DecomposeEditorWorld(MakeLocalMatrix(Entity.Transform)); !Result)
 	{
 		return std::unexpected(Result.error());
 	}
@@ -873,21 +1129,48 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWit
 	std::vector<FSceneEntityChange> Changes;
 	std::vector<FObjectId> Duplicated;
 	std::optional<FObjectId> DuplicatedActive;
+	const auto Hierarchy = BuildEditorHierarchy(Entities);
+	if (!Hierarchy)
+	{
+		return std::unexpected(Hierarchy.error());
+	}
+
+	std::map<FObjectId, FObjectId> Remapped;
+
+	for (const FObjectId Object : Selection)
+	{
+		Remapped.emplace(Object, FObjectId::Generate());
+	}
 
 	for (const FSceneEntity& Original : Entities)
 	{
-		if (!ContainsObjectId(Selection, Original.Id))
+		if (!Remapped.contains(Original.Id))
 		{
 			continue;
 		}
 
 		FSceneEntity Entity = Original;
-		Entity.Id = FObjectId::Generate();
+		Entity.Id = Remapped.at(Original.Id);
 		Entity.Name = UniqueEntityName(Original.Name, Names, " Copy");
-		Entity.Transform.Translation = Entity.Transform.Translation.TranslatedBy(WorldOffset);
-		if (auto Result = ValidateEditorEntityRange(Entity); !Result)
+		const auto Parent = Remapped.find(Original.Parent);
+
+		if (Parent != Remapped.end())
 		{
-			return Result;
+			Entity.Parent = Parent->second;
+		}
+		else if (WorldOffset != FVector3d::Zero())
+		{
+			const auto Index = Hierarchy->Indices.at(Original.Id);
+			const auto ParentIndex = Hierarchy->Parents[Index];
+			const auto ParentWorld = ParentIndex == Entities.size() ? TMatrix4<double>::Identity() : Hierarchy->Matrices[ParentIndex];
+			const auto DesiredWorld = TMatrix4<double>::Translation(WorldOffset) * Hierarchy->Matrices[Index];
+			if (auto Result = SetLocalFromWorld(Entity, DesiredWorld, ParentWorld); !Result)
+			{
+				return Result;
+			}
+
+			Entity.Transform.Rotation = Original.Transform.Rotation;
+			Entity.Transform.Scale = Original.Transform.Scale;
 		}
 
 		if (ActiveObject == Original.Id)
@@ -906,6 +1189,11 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWit
 			return {};
 		}
 
+		if (const auto Valid = ValidateEditorChanges(Entities, Changes); !Valid)
+		{
+			return std::unexpected(Valid.error());
+		}
+
 		if (auto Result = World.ApplyEntityChanges(Changes); !Result)
 		{
 			return Result;
@@ -917,7 +1205,7 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWit
 		return {};
 	}
 
-	return ApplyStructuralChanges("Duplicate objects", Changes, Duplicated);
+	return ApplyStructuralChanges("Duplicate objects", Changes, Duplicated, DuplicatedActive);
 }
 
 std::expected<void, FSceneError> FEditorScene::DeleteSelected()
@@ -933,17 +1221,141 @@ std::expected<void, FSceneError> FEditorScene::DeleteSelected()
 	}
 
 	std::vector<FSceneEntityChange> Changes;
-
-	for (const FObjectId Object : Selection)
+	const auto Entities = World.SnapshotEntities();
+	const auto Hierarchy = BuildEditorHierarchy(Entities);
+	if (!Hierarchy)
 	{
-		const auto Handle = World.FindEntity(Object);
-		if (Handle)
+		return std::unexpected(Hierarchy.error());
+	}
+
+	const std::set<FObjectId> Deleted(Selection.begin(), Selection.end());
+
+	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
+	{
+		const auto& Entity = Entities[Index];
+
+		if (Deleted.contains(Entity.Id))
 		{
-			Changes.push_back({.Before = *World.GetEntity(*Handle)});
+			Changes.push_back({.Before = Entity});
+		}
+		else if (Deleted.contains(Entity.Parent))
+		{
+			auto After = Entity;
+			After.Parent = {};
+			if (auto Result = SetLocalFromWorld(After, Hierarchy->Matrices[Index], TMatrix4<double>::Identity()); !Result)
+			{
+				return Result;
+			}
+
+			Changes.push_back({.Before = Entity, .After = std::move(After)});
 		}
 	}
 
 	return ApplyStructuralChanges("Delete objects", std::move(Changes), {});
+}
+
+std::expected<void, FSceneError> FEditorScene::ReparentEntities(const std::span<const FObjectId> Requested, const std::optional<FObjectId> Parent)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	if (Parent && (!Parent->IsValid() || !World.FindEntity(*Parent)))
+	{
+		return std::unexpected(FSceneError{"The requested parent no longer exists"});
+	}
+
+	for (const auto Object : Requested)
+	{
+		if (!World.FindEntity(Object))
+		{
+			return std::unexpected(FSceneError{"A reparented entity no longer exists"});
+		}
+	}
+
+	const auto Before = World.SnapshotEntities();
+	const auto Hierarchy = BuildEditorHierarchy(Before);
+	if (!Hierarchy)
+	{
+		return std::unexpected(Hierarchy.error());
+	}
+
+	const std::set<FObjectId> Selected(Requested.begin(), Requested.end());
+	std::vector<std::size_t> Roots;
+	std::vector<bool> HasSelectedAncestor(Before.size());
+
+	for (const auto Index : Hierarchy->Order)
+	{
+		const auto Ancestor = Hierarchy->Parents[Index];
+		HasSelectedAncestor[Index] = Ancestor != Before.size() && (Selected.contains(Before[Ancestor].Id) || HasSelectedAncestor[Ancestor]);
+	}
+
+	for (const auto Object : Selected)
+	{
+		const auto Index = Hierarchy->Indices.at(Object);
+
+		if (!HasSelectedAncestor[Index])
+		{
+			Roots.push_back(Index);
+		}
+	}
+
+	if (Parent)
+	{
+		auto Ancestor = Hierarchy->Indices.at(*Parent);
+
+		while (Ancestor != Before.size())
+		{
+			if (Selected.contains(Before[Ancestor].Id))
+			{
+				return std::unexpected(FSceneError{"An entity cannot be parented to itself or one of its descendants"});
+			}
+
+			Ancestor = Hierarchy->Parents[Ancestor];
+		}
+	}
+
+	if (auto Result = CommitEdits(); !Result)
+	{
+		return Result;
+	}
+
+	// A pending property edit may have changed the world poses without changing identities.
+	const auto Entities = World.SnapshotEntities();
+	const auto Current = BuildEditorHierarchy(Entities);
+	if (!Current)
+	{
+		return std::unexpected(Current.error());
+	}
+
+	const auto ParentWorld = Parent ? Current->Matrices[Current->Indices.at(*Parent)] : TMatrix4<double>::Identity();
+	std::vector<FSceneEntityChange> Changes;
+
+	for (const auto Index : Roots)
+	{
+		const auto& Original = Entities[Index];
+		if (Original.Parent == Parent.value_or(FObjectId{}))
+		{
+			continue;
+		}
+
+		auto After = Original;
+		After.Parent = Parent.value_or(FObjectId{});
+		if (auto Result = SetLocalFromWorld(After, Current->Matrices[Index], ParentWorld); !Result)
+		{
+			return Result;
+		}
+
+		Changes.push_back({.Before = Original, .After = std::move(After)});
+	}
+
+	return ApplyStructuralChanges(Parent ? "Reparent objects" : "Detach objects", Changes, Selection, ActiveObject);
+}
+
+std::expected<void, FSceneError> FEditorScene::ReparentSelected(const std::optional<FObjectId> Parent)
+{
+	return ReparentEntities(Selection, Parent);
 }
 
 std::expected<std::string, FSceneError> FEditorScene::CopySelected() const
@@ -954,13 +1366,33 @@ std::expected<std::string, FSceneError> FEditorScene::CopySelected() const
 	}
 
 	FSceneDocument Document{.Id = Id, .Name = "Clipboard"};
+	const auto Entities = World.SnapshotEntities();
+	const auto Hierarchy = BuildEditorHierarchy(Entities);
+	if (!Hierarchy)
+	{
+		return std::unexpected(Hierarchy.error());
+	}
+
+	const std::set<FObjectId> Selected(Selection.begin(), Selection.end());
 
 	for (const FObjectId Object : Selection)
 	{
-		const auto Handle = World.FindEntity(Object);
-		if (Handle)
+		const auto Found = Hierarchy->Indices.find(Object);
+		if (Found != Hierarchy->Indices.end())
 		{
-			Document.Entities.push_back(*World.GetEntity(*Handle));
+			const auto Index = Found->second;
+			auto Entity = Entities[Index];
+
+			if (Entity.Parent.IsValid() && !Selected.contains(Entity.Parent))
+			{
+				Entity.Parent = {};
+				if (auto Result = SetLocalFromWorld(Entity, Hierarchy->Matrices[Index], TMatrix4<double>::Identity()); !Result)
+				{
+					return std::unexpected(Result.error());
+				}
+			}
+
+			Document.Entities.push_back(std::move(Entity));
 		}
 	}
 
@@ -980,6 +1412,11 @@ std::expected<void, FSceneError> FEditorScene::PasteEntities(const std::string_v
 		return std::unexpected(Document.error());
 	}
 
+	if (const auto Hierarchy = BuildEditorHierarchy(Document->Entities); !Hierarchy)
+	{
+		return std::unexpected(Hierarchy.error());
+	}
+
 	std::vector<FSceneEntityChange> Changes;
 	std::vector<FObjectId> Pasted;
 	std::unordered_set<std::string> Names;
@@ -989,19 +1426,22 @@ std::expected<void, FSceneError> FEditorScene::PasteEntities(const std::string_v
 		Names.insert(Object.Label);
 	}
 
+	std::map<FObjectId, FObjectId> Remapped;
+
+	for (const auto& Entity : Document->Entities)
+	{
+		Remapped.emplace(Entity.Id, FObjectId::Generate());
+	}
+
 	for (FSceneEntity& Entity : Document->Entities)
 	{
+		Entity.Id = Remapped.at(Entity.Id);
+
 		if (Entity.Parent.IsValid())
 		{
-			return std::unexpected(FSceneError{"This editor slice pastes flat entities only"});
+			Entity.Parent = Remapped.at(Entity.Parent);
 		}
 
-		if (auto Result = ValidateEditorEntityRange(Entity); !Result)
-		{
-			return Result;
-		}
-
-		Entity.Id = FObjectId::Generate();
 		Entity.Name = UniqueEntityName(Entity.Name, Names);
 		Pasted.push_back(Entity.Id);
 		Changes.push_back({.After = std::move(Entity)});
@@ -1018,6 +1458,91 @@ void FEditorScene::SetPath(std::filesystem::path Path)
 void FEditorScene::SetSimulationRunning(const bool bRunning)
 {
 	bSimulationRunning = bRunning;
+}
+
+std::expected<void, FSceneError> FEditorScene::UpdatePreviewHierarchy(const std::span<const FObjectId> OverrideWorldPoses)
+{
+	if (std::ranges::none_of(AuthoredObjects, [](const FPreviewObject& Object)
+	{
+		return Object.Parent.has_value();
+	}))
+	{
+		if (Objects.size() != World.GetEntityCount() || !std::ranges::equal(Objects, AuthoredObjects, {}, &FPreviewObject::Id, &FPreviewObject::Id))
+		{
+			return std::unexpected(FSceneError{"Simulation preview contains a stale entity set"});
+		}
+
+		for (const auto Object : OverrideWorldPoses)
+		{
+			if (!World.FindEntity(Object))
+			{
+				return std::unexpected(FSceneError{"A simulation pose refers to a stale entity"});
+			}
+		}
+
+		return {};
+	}
+
+	const auto Entities = World.SnapshotEntities();
+	auto Hierarchy = BuildEditorHierarchy(Entities);
+	if (!Hierarchy)
+	{
+		return std::unexpected(Hierarchy.error());
+	}
+
+	if (Objects.size() != Entities.size() || !std::ranges::equal(Objects, Entities, {}, &FPreviewObject::Id, &FSceneEntity::Id))
+	{
+		return std::unexpected(FSceneError{"Simulation preview contains a stale entity set"});
+	}
+
+	const std::set<FObjectId> Overrides(OverrideWorldPoses.begin(), OverrideWorldPoses.end());
+
+	for (const auto Object : Overrides)
+	{
+		if (!Hierarchy->Indices.contains(Object))
+		{
+			return std::unexpected(FSceneError{"A simulation pose refers to a stale entity"});
+		}
+	}
+
+	for (const auto Index : Hierarchy->Order)
+	{
+		if (Overrides.contains(Entities[Index].Id))
+		{
+			const auto& Object = Objects[Index];
+			const auto Pose = EditedWorldPose(Object, AuthoredObjects[Index], Hierarchy->Poses[Index]);
+			if (!Pose)
+			{
+				return std::unexpected(Pose.error());
+			}
+
+			Hierarchy->Matrices[Index] = Pose->ToMatrix();
+		}
+		else
+		{
+			const auto Parent = Hierarchy->Parents[Index];
+			const auto Local = MakeLocalMatrix(Entities[Index].Transform);
+			Hierarchy->Matrices[Index] = Parent == Entities.size() ? Local : Hierarchy->Matrices[Parent] * Local;
+		}
+
+		const auto Pose = DecomposeEditorWorld(Hierarchy->Matrices[Index]);
+		if (!Pose)
+		{
+			return std::unexpected(Pose.error());
+		}
+
+		Hierarchy->Poses[Index] = *Pose;
+	}
+
+	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
+	{
+		if (!Overrides.contains(Entities[Index].Id))
+		{
+			Objects[Index] = ToEditorObject(Entities[Index], Hierarchy->Poses[Index]);
+		}
+	}
+
+	return {};
 }
 
 std::vector<std::size_t> FEditorScene::FindBodies(const ESceneBodyType Type) const

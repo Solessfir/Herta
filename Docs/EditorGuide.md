@@ -34,7 +34,7 @@ Press F2 in the Viewport or Outliner to rename the active object's Outliner row.
 
 ## Scenes
 
-The editor loads `Games/Sandbox/Scenes/Sandbox.hscene` on startup. **File > Save scene** or **Ctrl+S** saves names, transforms, mesh asset IDs, and body type components. Changes are not saved automatically on exit. **File > Open scene...** loads another `.hscene`; a failed load keeps the current scene intact. The editor supports flat scenes with empty and mesh entities; hierarchy authoring comes later.
+The editor loads `Games/Sandbox/Scenes/Sandbox.hscene` on startup. **File > Save scene** or **Ctrl+S** saves names, transforms, hierarchy, mesh asset IDs, and rigid body components. Changes are not saved automatically on exit. **File > Open scene...** loads another `.hscene`; a failed load keeps the current scene intact. Scenes support parented mesh and empty entities. Details and gizmos edit world-space transforms; the scene stores parent-local transforms.
 
 File > Open scene starts in the current scene's folder, initially `Games/Sandbox/Scenes`. File > Save scene and Ctrl+S write directly to the current scene path without opening a dialog.
 
@@ -58,11 +58,13 @@ Rigid Body exposes Mass (kg), Friction, Bounciness, Linear Damping and Angular D
 
 The physics preview simulates all meshed Dynamic and Static bodies using scaled box colliders and their authored properties. Meshless rigid bodies persist as authored intent but have no preview collider; general collision shapes remain a later physics slice.
 
-Ctrl+D duplicates selected objects and offsets the copies by one configured translation grid step along world X and Z, even when snapping is off. Alt+drag applies no extra offset. Delete removes selected objects, and Ctrl+C/Ctrl+V copy/paste a canonical scene excerpt. Pasted objects receive new UUIDs while retaining asset references. These shortcuts work in Viewport, Outliner, and Details; text inputs retain their own editing shortcuts. Authoring and undo/redo are disabled during simulation and active gestures. Exit does not automatically save.
+Ctrl+D duplicates selected objects and offsets the copies by one configured translation grid step along world X and Z, even when snapping is off. Selected parent-child links are remapped to the copies; the offset is applied only once per selected hierarchy root. Alt+drag applies no extra offset. Delete removes selected objects but preserves unselected descendants, moving surviving direct children to the scene root without changing their world pose. Ctrl+C/Ctrl+V copy/paste a canonical scene excerpt. Pasted objects receive new UUIDs while retaining asset references and internal parent links; copied objects whose parents are not selected become roots at their original world poses. These shortcuts work in Viewport, Outliner, and Details; text inputs retain their own editing shortcuts. Authoring and undo/redo are disabled during simulation and active gestures. Exit does not automatically save.
 
 ## Outliner
 
-The Outliner docks above Details and lists the cube and floor with label and type columns. Search filters the list. Shift+click selects a range of visible rows, Ctrl+click toggles individual rows, and Ctrl+A selects all visible objects. Ctrl+Shift+click adds a range to the selection. Selecting a row updates Details and viewport outlines; double-clicking focuses the selection. Click empty list space to deselect. Reopen it from **Window > Outliner**. Existing layouts with docked Details gain the panel above it without resetting other dock positions; detached panels are preserved.
+The Outliner docks above Details and displays collapsible scene hierarchies with label and type columns. Search retains ancestors of matching objects and reveals matches inside collapsed branches. Shift+click selects a range of visible rows, Ctrl+click toggles individual rows, and Ctrl+A selects all visible objects. Ctrl+Shift+click adds a range to the selection. Selecting a row updates Details and viewport outlines; double-clicking focuses the selection. Click empty list space to deselect. Reopen it from **Window > Outliner**. Existing layouts with docked Details gain the panel above it without resetting other dock positions; detached panels are preserved.
+
+Drag objects onto another row to parent them. Drop onto empty list space or use **Move to root** in the context menu to unparent. World poses stay unchanged, and the operation is one undo step. If both a parent and its descendants are selected, only the highest selected ancestors move. Cycles and poses that require shear are rejected without changing the scene; rotated non-uniform scale can cause this restriction.
 
 ## Output Log
 

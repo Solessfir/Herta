@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -29,11 +30,13 @@ inline Im3d::Mat3 FromPreviewEulerXYZ(const Im3d::Vec3& Radians)
 struct FPreviewObject
 {
 	std::string Label;
+	// Gizmos and rendering consume world poses; Scene stores parent-local transforms.
 	Im3d::Vec3 Translation;
 	Im3d::Mat3 Rotation{1.f};
 	Im3d::Vec3 Scale{1.f};
 	FAssetId Mesh{};
 	FObjectId Id{};
+	std::optional<FObjectId> Parent{};
 };
 
 inline constexpr int PreviewCubeIndex = 0;

@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdio>
+#include <cstring>
 #include <initializer_list>
 #include <numeric>
 #include <ostream>
@@ -25,10 +26,13 @@ struct FOutlinerRenameTestContext
 	FOutlinerRenameTestContext& operator=(FOutlinerRenameTestContext&&) = delete;
 
 	void Frame(int RenameRow, bool bStartRename = false);
+	void PanelFrame(std::span<const FPreviewObject> Objects, FPreviewSelection& Selection, ImVec2 Size = {500.f, 360.f}, bool bDragging = false, std::span<const FObjectId> DraggedObjects = {});
 
 	ImGuiContext* Previous = ImGui::GetCurrentContext();
 	ImGuiContext* Context = ImGui::CreateContext();
 	FOutlinerPanelState State;
+	ImGuiWindow* Entries = nullptr;
+	ImGuiTable* Table = nullptr;
 	bool bRenameActive = false;
 };
 
@@ -111,6 +115,40 @@ void FOutlinerRenameTestContext::Frame(const int RenameRow, const bool bStartRen
 	}
 
 	ImGui::EndChild();
+	ImGui::End();
+	ImGui::Render();
+	CHECK(Context->ErrorCountCurrentFrame == 0);
+}
+
+void FOutlinerRenameTestContext::PanelFrame(const std::span<const FPreviewObject> Objects, FPreviewSelection& Selection, const ImVec2 Size, const bool bDragging, const std::span<const FObjectId> DraggedObjects)
+{
+	ImGui::NewFrame();
+	ImGui::SetNextWindowPos({20.f, 20.f});
+	ImGui::SetNextWindowSize(Size);
+	ImGui::Begin("Outliner panel test host", nullptr, ImGuiWindowFlags_NoSavedSettings);
+	if (ImGui::IsWindowAppearing())
+	{
+		ImGui::SetWindowFocus();
+	}
+
+	ImGuiWindow* const Host = ImGui::GetCurrentWindow();
+	if (!DraggedObjects.empty() && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceExtern))
+	{
+		ImGui::SetDragDropPayload("Herta.OutlinerObjects", DraggedObjects.data(), DraggedObjects.size_bytes(), ImGuiCond_Once);
+		ImGui::TextUnformatted("External test drag");
+		ImGui::EndDragDropSource();
+	}
+
+	DrawPreviewOutlinerContents(Selection, Objects, bDragging, State);
+	for (ImGuiWindow* const Window : Context->Windows)
+	{
+		if (Window->ParentWindow == Host && Window->ChildId == Host->GetID("##OutlinerEntries"))
+		{
+			Entries = Window;
+			Table = Context->Tables.GetByKey(Window->GetID("##OutlinerObjects"));
+		}
+	}
+
 	ImGui::End();
 	ImGui::Render();
 	CHECK(Context->ErrorCountCurrentFrame == 0);
@@ -360,5 +398,271 @@ TEST_CASE("Outliner search matches preview labels and types without case sensiti
 	std::snprintf(State.Search.InputBuf, sizeof(State.Search.InputBuf), "%s", "Floor,-Static");
 	State.Search.Build();
 	CHECK_FALSE(State.IsObjectVisible("Floor"));
+}
+
+TEST_CASE("Outliner hierarchy flattens sibling order and collapse excludes whole subtrees")
+{
+	const std::array<FPreviewObject, 5> Objects{{
+	    {.Label = "Child", .Translation = {}, .Id = {1, 2}, .Parent = FObjectId{1, 1}},
+	    {.Label = "Root", .Translation = {}, .Id = {1, 1}},
+	    {.Label = "Grandchild", .Translation = {}, .Id = {1, 3}, .Parent = FObjectId{1, 2}},
+	    {.Label = "Other root", .Translation = {}, .Id = {1, 4}},
+	    {.Label = "Sibling", .Translation = {}, .Id = {1, 5}, .Parent = FObjectId{1, 1}},
+	}};
+	FOutlinerPanelState State;
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleIndices == std::vector<int>{1, 0, 2, 4, 3});
+	CHECK(State.VisibleRows[0].Depth == 0);
+	CHECK(State.VisibleRows[1].Depth == 1);
+	CHECK(State.VisibleRows[2].Depth == 2);
+	CHECK(State.VisibleRows[3].Depth == 1);
+	CHECK(State.VisibleRows[4].Depth == 0);
+	CHECK(State.VisibleRows[0].bHasChildren);
+	CHECK_FALSE(State.VisibleRows[2].bHasChildren);
+
+	State.CollapsedObjects.insert(Objects[0].Id);
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleIndices == std::vector<int>{1, 0, 4, 3});
+	FPreviewSelection Selection;
+	Selection.Select(0);
+	Selection.SelectRange(3, State.VisibleIndices);
+	CHECK(Selection.Indices == std::vector<int>{0, 4, 3});
+
+	State.CollapsedObjects.insert(Objects[1].Id);
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleIndices == std::vector<int>{1, 3});
+	Selection.SelectAll(State.VisibleIndices);
+	CHECK(Selection.Indices == State.VisibleIndices);
+}
+
+TEST_CASE("Outliner search reveals matching descendant ancestors without changing collapse")
+{
+	const std::array<FPreviewObject, 4> Objects{{
+	    {.Label = "Assembly", .Translation = {}, .Id = {1, 1}},
+	    {.Label = "Branch", .Translation = {}, .Id = {1, 2}, .Parent = FObjectId{1, 1}},
+	    {.Label = "Needle", .Translation = {}, .Mesh = EngineCubeAsset, .Id = {1, 3}, .Parent = FObjectId{1, 2}},
+	    {.Label = "Unrelated", .Translation = {}, .Id = {1, 4}, .Parent = FObjectId{1, 1}},
+	}};
+	FOutlinerPanelState State;
+	State.CollapsedObjects.insert(Objects[0].Id);
+	State.CollapsedObjects.insert(Objects[1].Id);
+	for (const char* const Query : {"needle", "STATIC MESH"})
+	{
+		std::snprintf(State.Search.InputBuf, sizeof(State.Search.InputBuf), "%s", Query);
+		State.Search.Build();
+		BuildOutlinerVisibleRows(State, Objects);
+		CHECK(State.VisibleIndices == std::vector<int>{0, 1, 2});
+		CHECK(State.VisibleRows.back().Depth == 2);
+	}
+
+	CHECK(State.CollapsedObjects.size() == 2);
+	State.Search.Clear();
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleIndices == std::vector<int>{0});
+	CHECK(State.IsObjectVisible("Assembly", false));
+	std::snprintf(State.Search.InputBuf, sizeof(State.Search.InputBuf), "%s", "entity");
+	State.Search.Build();
+	CHECK(State.IsObjectVisible("Assembly", false));
+	CHECK_FALSE(State.IsObjectVisible("Needle", true));
+}
+
+TEST_CASE("Outliner hierarchy refreshes metadata and bounds deep or invalid preview trees")
+{
+	std::vector<FPreviewObject> Objects(10'000);
+	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
+	{
+		Objects[Index].Id = {1, Index + 1};
+		Objects[Index].Label = Index + 1 == Objects.size() ? "Needle" : "Node";
+		if (Index > 0)
+		{
+			Objects[Index].Parent = Objects[Index - 1].Id;
+		}
+	}
+
+	FOutlinerPanelState State;
+	BuildOutlinerVisibleRows(State, Objects);
+	REQUIRE(State.VisibleRows.size() == Objects.size());
+	CHECK(State.VisibleRows.back().Depth == 9'999);
+	State.CollapsedObjects.insert(Objects[0].Id);
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleRows.size() == 1);
+	std::snprintf(State.Search.InputBuf, sizeof(State.Search.InputBuf), "%s", "Needle");
+	State.Search.Build();
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleRows.size() == Objects.size());
+	State.Search.Clear();
+	Objects.back().Parent.reset();
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleIndices == std::vector<int>{0, 9'999});
+
+	Objects.resize(3);
+	Objects[0].Parent = Objects[2].Id;
+	State.CollapsedObjects.clear();
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleRows.size() == Objects.size());
+	Objects[0].Parent = FObjectId{9, 9};
+	Objects[1].Parent = Objects[1].Id;
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleIndices == std::vector<int>{0, 1, 2});
+	CHECK(State.VisibleRows[0].Depth == 0);
+	CHECK(State.VisibleRows[1].Depth == 0);
+	Objects.clear();
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.VisibleRows.empty());
+	CHECK(State.CollapsedObjects.empty());
+}
+
+TEST_CASE("Outliner reparent requests carry selected stable IDs or just an unselected drag source")
+{
+	const std::array<FPreviewObject, 3> Objects{{
+	    {.Label = "First", .Translation = {}, .Id = {1, 1}},
+	    {.Label = "Second", .Translation = {}, .Id = {1, 2}, .Parent = FObjectId{1, 1}},
+	    {.Label = "Third", .Translation = {}, .Id = {1, 3}},
+	}};
+	FPreviewSelection Selection;
+	Selection.Indices = {1, 0, 1, -1, 99};
+	const auto Multi = MakeOutlinerReparentRequest(Objects, Selection, 1, Objects[2].Id);
+	REQUIRE(Multi);
+	CHECK(Multi->Objects == std::vector<FObjectId>{Objects[1].Id, Objects[0].Id});
+	CHECK(Multi->Parent == Objects[2].Id);
+	const auto Single = MakeOutlinerReparentRequest(Objects, Selection, 2, Objects[1].Id);
+	REQUIRE(Single);
+	CHECK(Single->Objects == std::vector<FObjectId>{Objects[2].Id});
+	const auto Root = MakeOutlinerReparentRequest(Objects, Selection, 1, std::nullopt);
+	REQUIRE(Root);
+	CHECK_FALSE(Root->Parent);
+	CHECK(Root->Objects == Multi->Objects);
+	CHECK_FALSE(MakeOutlinerReparentRequest(Objects, Selection, 1, Objects[0].Id));
+	CHECK_FALSE(MakeOutlinerReparentRequest(Objects, Selection, -1, std::nullopt));
+	CHECK_FALSE(MakeOutlinerReparentRequest(Objects, Selection, 99, std::nullopt));
+}
+
+TEST_CASE("Outliner panel clips large hierarchy rows and focuses an offscreen indented rename")
+{
+	std::vector<FPreviewObject> Objects(10'000);
+	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
+	{
+		Objects[Index].Id = {1, Index + 1};
+		Objects[Index].Label = "Entity " + std::to_string(Index);
+		if (Index + 1 == Objects.size())
+		{
+			Objects[Index].Parent = Objects[Index - 1].Id;
+		}
+	}
+
+	for (const float Width : {500.f, 220.f})
+	{
+		CAPTURE(Width);
+		FOutlinerRenameTestContext Test;
+		FPreviewSelection Selection;
+		Test.PanelFrame(Objects, Selection, {Width, 360.f});
+		Test.PanelFrame(Objects, Selection, {Width, 360.f});
+		REQUIRE(Test.Entries != nullptr);
+		CHECK(ImGui::GetDrawData()->TotalVtxCount < 10'000);
+		Selection.Select(9'999);
+		Test.State.bRenameRequested = true;
+		for (int Frame = 0; Frame < 4; ++Frame)
+		{
+			Test.PanelFrame(Objects, Selection, {Width, 360.f});
+		}
+
+		CHECK(Test.State.bRenaming);
+		CHECK(Test.State.RenameObject == Objects.back().Id);
+		CHECK(Test.Entries->Scroll.y > 0.f);
+		CHECK(Test.Context->ActiveId != 0);
+		CHECK(Test.Context->ActiveId == Test.Context->InputTextState.ID);
+		ImGui::GetIO().AddInputCharactersUTF8("Renamed descendant");
+		Test.PanelFrame(Objects, Selection, {Width, 360.f});
+		CHECK(std::string_view(Test.State.RenameBuffer.data()) == "Renamed descendant");
+		Test.PanelFrame(Objects, Selection, {Width, 360.f}, true);
+		CHECK_FALSE(Test.State.bRenaming);
+		CHECK_FALSE(Test.State.bRenameCommitted);
+		CHECK_FALSE(Test.State.ReparentRequest);
+	}
+}
+
+TEST_CASE("Outliner panel drop targets distinguish object rows from empty root space and disable during dragging")
+{
+	const std::array<FPreviewObject, 3> Objects{{
+	    {.Label = "Root", .Translation = {}, .Id = {1, 1}},
+	    {.Label = "Child", .Translation = {}, .Id = {1, 2}, .Parent = FObjectId{1, 1}},
+	    {.Label = "Other root", .Translation = {}, .Id = {1, 3}},
+	}};
+	for (const bool bDropOnRow : {false, true})
+	{
+		for (const bool bDisabled : {false, true})
+		{
+			CAPTURE(bDropOnRow);
+			CAPTURE(bDisabled);
+			FOutlinerRenameTestContext Test;
+			FPreviewSelection Selection;
+			Test.PanelFrame(Objects, Selection);
+			Test.PanelFrame(Objects, Selection);
+			REQUIRE(Test.Entries != nullptr);
+			REQUIRE(Test.Table != nullptr);
+			const float MouseY = bDropOnRow ? (Test.Table->RowPosY1 + Test.Table->RowPosY2) * 0.5f : Test.Entries->InnerRect.Max.y - 20.f;
+			ImGuiIO& IO = ImGui::GetIO();
+			IO.AddMousePosEvent(Test.Entries->InnerRect.Min.x + 80.f, MouseY);
+			IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+			const std::array Dragged{Objects[1].Id};
+			Test.PanelFrame(Objects, Selection, {500.f, 360.f}, bDisabled, Dragged);
+			Test.PanelFrame(Objects, Selection, {500.f, 360.f}, bDisabled, Dragged);
+			CHECK_FALSE(Test.State.ReparentRequest);
+			IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+			Test.PanelFrame(Objects, Selection, {500.f, 360.f}, bDisabled);
+			if (bDisabled)
+			{
+				CHECK_FALSE(Test.State.ReparentRequest);
+			}
+			else
+			{
+				REQUIRE(Test.State.ReparentRequest);
+				CHECK(Test.State.ReparentRequest->Objects == std::vector<FObjectId>{Objects[1].Id});
+				CHECK(Test.State.ReparentRequest->Parent == (bDropOnRow ? std::optional{Objects[2].Id} : std::nullopt));
+			}
+		}
+	}
+}
+
+TEST_CASE("Outliner panel drag snapshots multi-selection and does not replace selection on release")
+{
+	const std::array<FPreviewObject, 3> Objects{{
+	    {.Label = "Root", .Translation = {}, .Id = {1, 1}},
+	    {.Label = "Child", .Translation = {}, .Id = {1, 2}, .Parent = FObjectId{1, 1}},
+	    {.Label = "Other root", .Translation = {}, .Id = {1, 3}},
+	}};
+	for (const int SourceIndex : {0, 2})
+	{
+		CAPTURE(SourceIndex);
+		FOutlinerRenameTestContext Test;
+		FPreviewSelection Selection;
+		Selection.Select(0);
+		Selection.Select(1, true);
+		const FPreviewSelection Original = Selection;
+		Test.PanelFrame(Objects, Selection);
+		Test.PanelFrame(Objects, Selection);
+		REQUIRE(Test.Table != nullptr);
+		REQUIRE(Test.Entries != nullptr);
+		const float RowHeight = Test.Table->RowPosY2 - Test.Table->RowPosY1;
+		const float MouseY = (Test.Table->RowPosY1 + Test.Table->RowPosY2) * 0.5f - static_cast<float>(2 - SourceIndex) * RowHeight;
+		const float MouseX = Test.Entries->InnerRect.Min.x + 80.f;
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.AddMousePosEvent(MouseX, MouseY);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+		Test.PanelFrame(Objects, Selection);
+		IO.AddMousePosEvent(MouseX + 20.f, MouseY);
+		Test.PanelFrame(Objects, Selection);
+		Test.PanelFrame(Objects, Selection);
+		const ImGuiPayload* const Payload = ImGui::GetDragDropPayload();
+		REQUIRE(Payload != nullptr);
+		REQUIRE(Payload->IsDataType("Herta.OutlinerObjects"));
+		std::vector<FObjectId> Dragged(static_cast<std::size_t>(Payload->DataSize) / sizeof(FObjectId));
+		std::memcpy(Dragged.data(), Payload->Data, static_cast<std::size_t>(Payload->DataSize));
+		CHECK(Dragged == (SourceIndex == 0 ? std::vector<FObjectId>{Objects[0].Id, Objects[1].Id} : std::vector<FObjectId>{Objects[2].Id}));
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+		Test.PanelFrame(Objects, Selection);
+		CHECK(Selection == Original);
+		CHECK_FALSE(Test.State.ReparentRequest);
+	}
 }
 }

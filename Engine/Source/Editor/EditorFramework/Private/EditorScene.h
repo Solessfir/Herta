@@ -41,10 +41,13 @@ public:
 	[[nodiscard]] std::expected<void, FSceneError> SetSelectedBodyProperty(float FSceneRigidBodySettings::* Property, float Value);
 	[[nodiscard]] std::expected<void, FSceneError> DuplicateSelected(bool bWithinActiveEdit = false, const FVector3d& WorldOffset = {});
 	[[nodiscard]] std::expected<void, FSceneError> DeleteSelected();
+	[[nodiscard]] std::expected<void, FSceneError> ReparentEntities(std::span<const FObjectId> Entities, std::optional<FObjectId> Parent);
+	[[nodiscard]] std::expected<void, FSceneError> ReparentSelected(std::optional<FObjectId> Parent);
 	[[nodiscard]] std::expected<std::string, FSceneError> CopySelected() const;
 	[[nodiscard]] std::expected<void, FSceneError> PasteEntities(std::string_view Text);
 	void SetPath(std::filesystem::path Path);
 	void SetSimulationRunning(bool bRunning);
+	[[nodiscard]] std::expected<void, FSceneError> UpdatePreviewHierarchy(std::span<const FObjectId> OverrideWorldPoses);
 	std::vector<std::size_t> FindBodies(ESceneBodyType Type) const;
 	std::vector<FPreviewObject>& GetObjects();
 	const std::vector<FPreviewObject>& GetObjects() const;
@@ -64,7 +67,7 @@ private:
 	};
 
 	void RebuildObjects();
-	void RestoreObjects();
+	void RestoreObjects(bool bNotify = true);
 	FEditorTransaction MakeTransaction(std::string_view Label, const std::vector<FSceneEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, std::optional<FObjectId> BeforeActive, const std::vector<FObjectId>& AfterSelection, std::optional<FObjectId> AfterActive);
 	[[nodiscard]] std::expected<void, FSceneError> RecordChanges(std::string_view Label, const std::vector<FSceneEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, std::optional<FObjectId> BeforeActive);
 	[[nodiscard]] std::expected<void, FSceneError> ApplyStructuralChanges(std::string_view Label, const std::vector<FSceneEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, std::optional<FObjectId> AfterActive = std::nullopt);
@@ -78,6 +81,7 @@ private:
 	std::string Name;
 	std::filesystem::path CurrentPath;
 	std::vector<FPreviewObject> Objects;
+	std::vector<FPreviewObject> AuthoredObjects;
 	std::uint64_t Generation = 1;
 	bool bSimulationRunning = false;
 

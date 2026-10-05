@@ -2240,7 +2240,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 	Im3d::PushLayerId("ViewportGizmos");
 	FPreviewObject Candidate = GetActivePreviewObject();
-	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh, ObjectId] = Candidate;
+	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh, ObjectId, Parent] = Candidate;
 	const Im3d::Vec3 PreviousTranslation = PreviewTranslation;
 	const Im3d::Mat3 PreviousRotation = PreviewRotation;
 	const Im3d::Vec3 PreviousScale = PreviewScale;
@@ -2291,6 +2291,26 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	ActiveObject.Rotation = PreviewRotation;
 	ActiveObject.Scale = PreviewScale;
 	ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
+	if (!Simulation.IsRunning())
+	{
+		const auto Result = Scene->CommitEdits();
+		ReportSceneResult(Result);
+		if (!Result)
+		{
+			if (Scene->HasActiveEdit())
+			{
+				ReportSceneResult(Scene->CancelEdit());
+				RefreshScene();
+			}
+
+			Candidate = GetActivePreviewObject();
+			ViewportGizmos.resetId();
+			ViewportInteraction.Cancel();
+			bViewportEditCanceled = true;
+			PreviewDragStart.reset();
+		}
+	}
+
 	Im3d::PopLayerId();
 	const Im3d::Mat4 Model(PreviewTranslation, PreviewRotation, PreviewScale);
 	const auto ExtractionStart = std::chrono::steady_clock::now();
@@ -2873,10 +2893,13 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 		return;
 	}
 
+	std::vector<FObjectId> Overrides;
+	Overrides.reserve(Simulation.GetTransforms().size());
 	for (const FPreviewSimulationTransform& Snapshot : Simulation.GetTransforms())
 	{
 		const FTransform& Transform = Snapshot.Transform;
 		FPreviewObject& Object = PreviewObjects[Snapshot.ObjectIndex];
+		Overrides.push_back(Object.Id);
 		Object.Translation = ToIm3dVector(Transform.Translation);
 		Object.Scale = ToIm3dVector(Transform.Scale3D);
 		const FMatrix3 Rotation = FMatrix3::Rotation(Transform.Rotation);
@@ -2889,12 +2912,18 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 			}
 		}
 	}
+
+	if (auto Result = Scene->UpdatePreviewHierarchy(Overrides); !Result)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Simulation stopped: {}", Result.error().Message);
+		ToggleSimulation();
+	}
 }
 
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	FPreviewObject PreviousObject = GetActivePreviewObject();
-	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh, ObjectId] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh, ObjectId, Parent] = GetActivePreviewObject();
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	FDetailsComponentField Components{.bAllMesh = !PreviewSelection.Indices.empty(), .bAllBody = !PreviewSelection.Indices.empty()};
@@ -3122,6 +3151,16 @@ void FEditorFramework::FImplementation::DrawOutlinerPanel()
 	}
 
 	SetPreviewSelection(std::move(NewSelection));
+	if (auto Request = std::exchange(OutlinerPanelState.ReparentRequest, std::nullopt))
+	{
+		if (Scene->HasActiveEdit())
+		{
+			ReportSceneResult(Scene->EndEdit());
+		}
+
+		ReportSceneResult(Scene->ReparentEntities(Request->Objects, Request->Parent));
+		RefreshScene();
+	}
 
 	if (bFocusRequested)
 	{
