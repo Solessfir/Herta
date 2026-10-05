@@ -30,6 +30,17 @@ namespace
 constexpr std::array AxisColors{IM_COL32(213, 123, 127, 255), IM_COL32(131, 185, 147, 255), IM_COL32(124, 158, 213, 255)};
 constexpr float TransformLabelWidth = 72.f;
 
+float GetPropertyLabelWidth()
+{
+	const float Scale = ImGui::GetFontSize() / 15.f;
+	return std::max((TransformLabelWidth + 25.f) * Scale, ImGui::CalcTextSize("Angular damping").x + 12.f * Scale);
+}
+
+ImVec4 GetPropertyLabelColor()
+{
+	return ImLerp(ImGui::GetStyleColorVec4(ImGuiCol_Text), ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), 0.6f);
+}
+
 struct FBodyPropertyDisplay
 {
 	std::string_view Label;
@@ -130,7 +141,17 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 {
 	ImGui::BeginDisabled(bDragging);
 	const bool bRequested = std::exchange(State.bAddComponentRequested, false);
-	if (ImGui::Button("+ Add Component", {ImGui::GetContentRegionAvail().x, 0.f}) || (bRequested && !bDragging))
+	const float ButtonScale = ImGui::GetFontSize() / 15.f;
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * ButtonScale, 4.f * ButtonScale});
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
+	ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f * ButtonScale);
+	ImGui::PushStyleColor(ImGuiCol_Button, {1, 1, 1, 0.04f});
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
+	const bool bButtonPressed = ImGui::Button("+ Add Component");
+	ImGui::PopStyleColor(3);
+	ImGui::PopStyleVar(3);
+	if (bButtonPressed || (bRequested && !bDragging))
 	{
 		State.ComponentSearch.fill('\0');
 		State.ComponentResult = -1;
@@ -265,10 +286,10 @@ void DrawCheckerThumbnail(const ImVec2 Position, const float Size)
 	Draw->AddRect(Position, {Position.x + Size, Position.y + Size}, ImGui::GetColorU32(ImGuiCol_Border));
 }
 
-std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTransformSpace& Space, const Im3d::Vec3& Value, const ETransformClipboardFormat ClipboardFormat)
+std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, const float Width, EDetailsTransformSpace& Space, const Im3d::Vec3& Value, const ETransformClipboardFormat ClipboardFormat)
 {
 	const float Scale = ImGui::GetFontSize() / 15.f;
-	const ImVec2 Size{TransformLabelWidth * Scale, ImGui::GetFrameHeight()};
+	const ImVec2 Size{Width, ImGui::GetFrameHeight()};
 	const ImVec2 Position = ImGui::GetCursorScreenPos();
 	const bool bPressed = ImGui::InvisibleButton("Coordinate space##Space", Size, ImGuiButtonFlags_EnableNav);
 	const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride);
@@ -316,7 +337,7 @@ std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, EDetailsTra
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 4.f * Scale);
 	}
 
-	DrawList->AddText({Position.x + 8.f * Scale, Position.y + (Size.y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label);
+	DrawList->AddText({Position.x, Position.y + (Size.y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(GetPropertyLabelColor()), Label);
 	const float ArrowX = Position.x + Size.x - 11.f * Scale;
 	const float ArrowY = Position.y + Size.y * 0.5f;
 	const ImU32 ArrowColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
@@ -352,8 +373,13 @@ void DrawLockButton(bool& bLocked)
 		bLocked = !bLocked;
 	}
 
-	const ImU32 Color = ImGui::GetColorU32(bLocked ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+	const bool bHovered = ImGui::IsItemHovered();
+	const ImU32 Color = ImGui::GetColorU32(bLocked || bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+	if (bHovered)
+	{
+		DrawList->AddRectFilled(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_ButtonHovered), 3.f * Scale);
+	}
 
 	if (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)
 	{
@@ -361,11 +387,16 @@ void DrawLockButton(bool& bLocked)
 	}
 
 	const ImVec2 Center{Position.x + Size.x * 0.5f - 3.f * Scale, Position.y + Size.y * 0.5f};
-	DrawList->AddRect({Center.x - 4.f * Scale, Center.y}, {Center.x + 4.f * Scale, Center.y + 5.f * Scale}, Color, Scale, 0, Scale);
+	const float Stroke = 1.4f * Scale;
+	DrawList->AddRect({Center.x - 4.5f * Scale, Center.y - 0.5f * Scale}, {Center.x + 4.5f * Scale, Center.y + 6.f * Scale}, Color, 1.5f * Scale, 0, Stroke);
+	DrawList->AddCircleFilled({Center.x, Center.y + 2.f * Scale}, 0.8f * Scale, Color);
+	DrawList->AddLine({Center.x, Center.y + 2.f * Scale}, {Center.x, Center.y + 4.f * Scale}, Color, Scale);
 	const float Offset = bLocked ? 0.f : 3.f * Scale;
-	DrawList->AddLine({Center.x - 2.5f * Scale + Offset, Center.y}, {Center.x - 2.5f * Scale + Offset, Center.y - 4.f * Scale}, Color, Scale);
-	DrawList->AddLine({Center.x - 2.5f * Scale + Offset, Center.y - 4.f * Scale}, {Center.x + 2.5f * Scale + Offset, Center.y - 4.f * Scale}, Color, Scale);
-	DrawList->AddLine({Center.x + 2.5f * Scale + Offset, Center.y - 4.f * Scale}, {Center.x + 2.5f * Scale + Offset, Center.y - (bLocked ? 0.f : 2.f) * Scale}, Color, Scale);
+	DrawList->PathLineTo({Center.x - 3.f * Scale + Offset, Center.y + 0.5f * Scale});
+	DrawList->PathArcTo({Center.x + Offset, Center.y - 3.f * Scale}, 3.f * Scale, std::numbers::pi_v<float>, std::numbers::pi_v<float> * 2.f, 12);
+	DrawList->PathLineTo({Center.x + 3.f * Scale + Offset, Center.y + (bLocked ? 0.5f : -1.5f) * Scale});
+	DrawList->PathStroke(Color, 0, Stroke);
+	ImGui::SetItemTooltip(bLocked ? "Unlock scale proportions" : "Lock scale proportions");
 }
 
 [[nodiscard]] bool DrawResetButton(const char* const Label)
@@ -418,12 +449,12 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f * Scale, ImGui::GetStyle().ItemSpacing.y});
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 4.f * Scale});
 	const float Spacing = ImGui::GetStyle().ItemSpacing.x;
-	const float LabelWidth = TransformLabelWidth * Scale;
 	const float LockWidth = 17.f * Scale + Spacing;
+	const float LabelWidth = GetPropertyLabelWidth() - LockWidth - Spacing;
 	const float ResetWidth = 18.f * Scale;
 	const float Width = std::max(1.f, (ImGui::GetContentRegionAvail().x - LabelWidth - LockWidth - ResetWidth - Spacing * 4.f) / 3.f);
 
-	if (const auto PastedValue = DrawSpaceSelector(Label, Space, Value, ClipboardFormat))
+	if (const auto PastedValue = DrawSpaceSelector(Label, LabelWidth, Space, Value, ClipboardFormat))
 	{
 		BeginEdit();
 		OnRowChange(*PastedValue);
@@ -532,26 +563,33 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bEntity = Components != nullptr && Mesh == nullptr;
 	DrawObjectIcon(HeadingPosition, 30.f * UiScale, bEntity);
 	ImGui::SameLine();
-	ImGui::BeginGroup();
 	const float HeadingTextX = ImGui::GetCursorPosX();
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ImGui::GetStyle().ItemSpacing.x, 2.f * UiScale});
 	const std::string SelectionText = std::to_string(SelectedCount) + " selected";
-	ImGui::TextUnformatted(ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size());
-
-	ImGui::SameLine();
-	ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(SelectionText.c_str()).x));
-	ImGui::TextDisabled("%s", SelectionText.c_str());
-	ImGui::SetCursorPosX(HeadingTextX);
+	const float SelectionWidth = ImGui::CalcTextSize(SelectionText.c_str()).x;
+	const float ActionWidth = Components != nullptr ? ImGui::CalcTextSize("+ Add Component").x + 12.f * UiScale : 0.f;
+	const float TrailingWidth = std::max(ActionWidth, SelectionWidth);
+	const float NameWidth = std::max(1.f, ImGui::GetContentRegionAvail().x - TrailingWidth - ImGui::GetStyle().ItemSpacing.x);
+	const float HeadingActionX = HeadingTextX + NameWidth + ImGui::GetStyle().ItemSpacing.x;
+	ImGui::BeginGroup();
+	ImGui::Dummy({NameWidth, ImGui::GetTextLineHeight() + 8.f * UiScale});
+	const ImVec2 NamePosition{ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y + 4.f * UiScale};
+	ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), NamePosition, ImGui::GetItemRectMax(), ImGui::GetItemRectMax().x, ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size(), nullptr);
+	ImGui::SetItemTooltip("%.*s", static_cast<int>(ObjectLabel.size()), ObjectLabel.data());
 	ImGui::TextDisabled("%s", bEntity ? "Entity" : "Static Mesh");
-	ImGui::PopStyleVar();
 	ImGui::EndGroup();
-	ImGui::Spacing();
+	ImGui::SameLine(HeadingActionX);
+	ImGui::BeginGroup();
 	if (Components != nullptr)
 	{
 		MeshResult.ComponentAction = DrawAddComponent(ToolUI, State, *Components, bDragging);
-		ImGui::Spacing();
 	}
 
+	ImGui::SetCursorPosX(HeadingActionX + TrailingWidth - SelectionWidth);
+	ImGui::TextDisabled("%s", SelectionText.c_str());
+	ImGui::EndGroup();
+	ImGui::PopStyleVar();
+	ImGui::Spacing();
 	ImGui::SetNextItemWidth(-1.f);
 	ToolUI.DrawSearchField("##PropertySearch", "Search", State.Search.data(), State.Search.size());
 	const std::string_view Query(State.Search.data());
@@ -580,12 +618,16 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 	const auto DrawSectionHeader = [&](const char* const Label, const bool bMixed = false, const EDetailsComponentAction RemoveAction = EDetailsComponentAction::None)
 	{
+		ImGui::Spacing();
 		const ImVec2 Position = ImGui::GetCursorScreenPos();
 		const ImVec2 Padding = ImGui::GetStyle().FramePadding;
 		const float FontSize = ImGui::GetFontSize();
-		const ImU32 TextColor = ImGui::GetColorU32(ImGuiCol_Text);
 		const bool bRemovable = Components != nullptr && RemoveAction != EDetailsComponentAction::None;
 		const float ActionX = ImGui::GetWindowContentRegionMax().x + ImGui::GetWindowPos().x - ImGui::GetFrameHeight();
+		ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+		const ImVec2 HeaderBackgroundMaximum{Position.x + ImGui::GetContentRegionAvail().x, Position.y + ImGui::GetFrameHeight()};
+		DrawList->AddRectFilled(Position, HeaderBackgroundMaximum, ImGui::GetColorU32(ImGuiCol_TableHeaderBg), ImGui::GetStyle().FrameRounding);
+		DrawList->AddRect(Position, HeaderBackgroundMaximum, ImGui::GetColorU32(ImGuiCol_Separator), ImGui::GetStyle().FrameRounding);
 		if (bRemovable)
 		{
 			ImGui::PushClipRect(Position, {ActionX, ImGui::GetCurrentWindow()->ClipRect.Max.y}, true);
@@ -593,14 +635,20 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
 		ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
+		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0, 0, 0, 0});
+		ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
 		ImGui::PushStyleColor(ImGuiCol_Text, {0, 0, 0, 0});
-		const bool bOpen = ImGui::TreeNodeEx(Label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed);
-		ImGui::PopStyleColor(2);
+		const bool bOpen = ImGui::TreeNodeEx(Label, ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding);
+		ImGui::PopStyleColor(4);
 		ImGui::PopStyleVar();
+		if (ImGui::IsItemHovered())
+		{
+			DrawList->AddRectFilled(Position, HeaderBackgroundMaximum, ImGui::GetColorU32(ImGui::IsItemActive() ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered), ImGui::GetStyle().FrameRounding);
+		}
+
 		const float ArrowScale = 0.7f;
 		const float ArrowInsetY = FontSize * (1.f - ArrowScale) * 0.5f;
-		ImDrawList* const DrawList = ImGui::GetWindowDrawList();
-		ImGui::RenderArrow(DrawList, {Position.x + Padding.x, Position.y + Padding.y + ArrowInsetY}, TextColor, bOpen ? ImGuiDir_Down : ImGuiDir_Right, ArrowScale);
+		ImGui::RenderArrow(DrawList, {Position.x + Padding.x, Position.y + Padding.y + ArrowInsetY}, ImGui::GetColorU32(GetPropertyLabelColor()), bOpen ? ImGuiDir_Down : ImGuiDir_Right, ArrowScale);
 		const std::string DisplayLabel = std::string(Label) + (bMixed ? " (mixed)" : "");
 		const ImVec2 TextPosition{Position.x + FontSize + Padding.x * 2.f, Position.y + Padding.y};
 		ImGui::RenderTextEllipsis(DrawList, TextPosition, {bRemovable ? ActionX : ImGui::GetItemRectMax().x, Position.y + FontSize + Padding.y}, bRemovable ? ActionX : ImGui::GetItemRectMax().x, DisplayLabel.c_str(), DisplayLabel.c_str() + DisplayLabel.size(), nullptr);
@@ -825,13 +873,15 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {0.f, 2.f * UiScale});
 		if (ImGui::BeginTable("##RigidBodySettings", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
 		{
-			ImGui::TableSetupColumn("##BodyLabel", ImGuiTableColumnFlags_WidthFixed, ImGui::CalcTextSize("Angular damping").x + 12.f * UiScale);
+			ImGui::TableSetupColumn("##BodyLabel", ImGuiTableColumnFlags_WidthFixed, GetPropertyLabelWidth());
 			ImGui::TableSetupColumn("##BodyValue", ImGuiTableColumnFlags_WidthStretch);
 			ImGui::TableSetupColumn("##BodyReset", ImGuiTableColumnFlags_WidthFixed, 22.f * UiScale);
 			ImGui::TableNextRow();
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
+			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
 			ImGui::TextUnformatted("Body type");
+			ImGui::PopStyleColor();
 			ImGui::TableSetColumnIndex(1);
 			ImGui::SetNextItemWidth(-FLT_MIN);
 			ImGui::BeginDisabled(bDragging);
@@ -875,7 +925,9 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				ImGui::PushID(static_cast<int>(Index));
 				ImGui::TableSetColumnIndex(0);
 				ImGui::AlignTextToFramePadding();
+				ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
 				ImGui::TextUnformatted(Property.Label.data(), Property.Label.data() + Property.Label.size());
+				ImGui::PopStyleColor();
 				ImGui::SetItemTooltip("%.*s", static_cast<int>(Property.Tooltip.size()), Property.Tooltip.data());
 				ImGui::TableSetColumnIndex(1);
 				ImGui::SetNextItemWidth(-FLT_MIN);

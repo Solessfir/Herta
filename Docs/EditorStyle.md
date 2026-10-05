@@ -113,6 +113,14 @@ The scene viewport has no native ImGui window fill. Its opaque rendered image is
 
 Do not patch Dear ImGui internals merely to hide dock-node corner notches or other small upstream rendering details. First use public style controls, then carry a narrow documented patch only if the defect materially affects the editor.
 
+## Details
+
+The entity header keeps a compact `+ Add Component` action beside the name, with the selection count beneath the action. Long names truncate within their column instead of pushing the action outside the panel.
+
+Component sections use compact rounded header bars with subtle borders, bright titles, and quieter chevrons. Property labels use secondary contrast while editable values retain primary contrast. Transform and Rigid Body fields share a value-column alignment; reset controls keep a reserved trailing slot so fields do not shift when a property changes.
+
+Section surfaces use the shared theme and workspace opacity. Keep property rows compact and avoid decorative effects or nested cards that compete with the values.
+
 ## Output Log
 
 The Output Log is an EditorFramework panel docked across the bottom of the first-run layout. It uses Roboto timestamp, category, and message rows without bracketed metadata. Muted timestamps and severity colors keep warnings distinct. Its toolbar contains search, a visible-warning count opening the level filter, Options, Clear, and Copy. Options expose auto-scroll, pause, and category colorization without adding permanent chrome.

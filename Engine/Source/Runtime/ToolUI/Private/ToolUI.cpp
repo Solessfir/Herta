@@ -2507,7 +2507,7 @@ bool FToolUIContext::DrawSearchField(const char* const Label, const char* const 
 
 	const ImVec2 Minimum = ImGui::GetItemRectMin();
 	const ImVec2 Maximum = ImGui::GetItemRectMax();
-	const ImVec2 Center{Minimum.x + 15.f * Scale, (Minimum.y + Maximum.y) * 0.5f};
+	const ImVec2 Center{Minimum.x + 13.5f * Scale, (Minimum.y + Maximum.y) * 0.5f - 1.5f * Scale};
 	const float Radius = 4.f * Scale;
 	const ImU32 IconColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
