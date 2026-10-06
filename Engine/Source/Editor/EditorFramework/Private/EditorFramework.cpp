@@ -551,7 +551,8 @@ struct FEditorFramework::FImplementation
 	bool bStartPanelOpen = false;
 	bool bBottomPanelOpen = true;
 	bool bBottomBrowserSelected = true;
-	bool bRestoreBottomPanelFocus = false;
+	// Startup restores like a reopened panel; otherwise the last tab to appear, the Output Log, is selected.
+	bool bRestoreBottomPanelFocus = true;
 	bool bContentBrowserOpen = true;
 	FContentBrowserState ContentBrowserState;
 	FDetailsPanelState DetailsPanelState;
@@ -621,6 +622,7 @@ struct FEditorFramework::FImplementation
 	bool bAxesVisible = false;
 	bool bOrientationIndicatorVisible = true;
 	bool bBoundsVisible = false;
+	bool bCameraReadoutVisible = false;
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
 
@@ -2787,6 +2789,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			Toggle("World axes", bAxesVisible);
 			Toggle("Corner axis indicator", bOrientationIndicatorVisible);
 			Toggle("Preview bounds", bBoundsVisible);
+			Toggle("Camera coordinates", bCameraReadoutVisible);
 		}
 
 		if (Section("Navigation"))
@@ -3426,19 +3429,26 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			const float CoordinatesWidth = CameraLabelWidth + ImGui::CalcTextSize(LayoutCoordinates.c_str()).x + 52.f * HudScale;
 			const float CoordinatesHeight = 32.f * HudScale;
 			const ImVec2 CoordinatesPosition{ImageMinimum.x + std::max(0.f, Size.x - CoordinatesWidth - 14.f * HudScale), ImageMinimum.y + std::max(0.f, Size.y - CoordinatesHeight - 14.f * HudScale)};
-			ImGui::SetCursorScreenPos(CoordinatesPosition);
-			ImGui::BeginDisabled(ViewportInteraction.DragButton >= 0);
-			const bool bCopyCoordinates = ImGui::InvisibleButton("Copy camera coordinates##CameraCoordinates", {CoordinatesWidth, CoordinatesHeight}, ImGuiButtonFlags_EnableNav);
-			const bool bCoordinatesHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride);
-			const bool bCoordinatesFocused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
-			bViewportControlsHovered |= bCoordinatesHovered;
-
-			if (bCoordinatesHovered)
+			bool bCopyCoordinates = false;
+			bool bCoordinatesHovered = false;
+			bool bCoordinatesFocused = false;
+			if (bCameraReadoutVisible)
 			{
-				ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+				ImGui::SetCursorScreenPos(CoordinatesPosition);
+				ImGui::BeginDisabled(ViewportInteraction.DragButton >= 0);
+				bCopyCoordinates = ImGui::InvisibleButton("Copy camera coordinates##CameraCoordinates", {CoordinatesWidth, CoordinatesHeight}, ImGuiButtonFlags_EnableNav);
+				bCoordinatesHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride);
+				bCoordinatesFocused = ImGui::IsItemFocused() && ImGui::GetIO().NavVisible;
+				bViewportControlsHovered |= bCoordinatesHovered;
+
+				if (bCoordinatesHovered)
+				{
+					ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+				}
+
+				ImGui::EndDisabled();
 			}
 
-			ImGui::EndDisabled();
 			ImGui::SetCursorScreenPos(ImageMinimum);
 			ImGui::BeginDisabled(bViewportControlsHovered && ViewportInteraction.DragButton < 0);
 			ImGui::InvisibleButton("##ViewportInteraction", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
@@ -3635,27 +3645,30 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				}
 			}
 
-			ToolUI->DrawGlassSurface(CoordinatesPosition.x, CoordinatesPosition.y, CoordinatesWidth, CoordinatesHeight, CoordinatesHeight * 0.5f);
-			const float CoordinatesTextY = CoordinatesPosition.y + (CoordinatesHeight - ImGui::GetFontSize()) * 0.5f;
-			ImDrawList* const HudDraw = ImGui::GetWindowDrawList();
-
-			if (bCoordinatesHovered)
+			if (bCameraReadoutVisible)
 			{
-				HudDraw->AddRectFilled(CoordinatesPosition, {CoordinatesPosition.x + CoordinatesWidth, CoordinatesPosition.y + CoordinatesHeight}, IM_COL32(255, 255, 255, 12), CoordinatesHeight * 0.5f);
-			}
+				ToolUI->DrawGlassSurface(CoordinatesPosition.x, CoordinatesPosition.y, CoordinatesWidth, CoordinatesHeight, CoordinatesHeight * 0.5f);
+				const float CoordinatesTextY = CoordinatesPosition.y + (CoordinatesHeight - ImGui::GetFontSize()) * 0.5f;
+				ImDrawList* const HudDraw = ImGui::GetWindowDrawList();
 
-			if (bCoordinatesFocused)
-			{
-				HudDraw->AddRect(CoordinatesPosition, {CoordinatesPosition.x + CoordinatesWidth, CoordinatesPosition.y + CoordinatesHeight}, ImGui::GetColorU32(ImGuiCol_NavCursor), CoordinatesHeight * 0.5f);
-			}
+				if (bCoordinatesHovered)
+				{
+					HudDraw->AddRectFilled(CoordinatesPosition, {CoordinatesPosition.x + CoordinatesWidth, CoordinatesPosition.y + CoordinatesHeight}, IM_COL32(255, 255, 255, 12), CoordinatesHeight * 0.5f);
+				}
 
-			const ImVec2 CameraIconCenter{CoordinatesPosition.x + 18.f * HudScale, CoordinatesPosition.y + CoordinatesHeight * 0.5f};
-			const ImU32 CameraIconColor = PackColor(ToolUITheme::TextSecondary);
-			HudDraw->AddRect({CameraIconCenter.x - 6.f * HudScale, CameraIconCenter.y - 4.f * HudScale}, {CameraIconCenter.x + 6.f * HudScale, CameraIconCenter.y + 4.f * HudScale}, CameraIconColor, 2.f * HudScale, 0, HudScale);
-			HudDraw->AddRectFilled({CameraIconCenter.x - 3.f * HudScale, CameraIconCenter.y - 6.f * HudScale}, {CameraIconCenter.x + HudScale, CameraIconCenter.y - 4.f * HudScale}, CameraIconColor, HudScale);
-			HudDraw->AddCircle(CameraIconCenter, 2.f * HudScale, CameraIconColor, 12, HudScale);
-			HudDraw->AddText({CoordinatesPosition.x + 32.f * HudScale, CoordinatesTextY}, CameraIconColor, ImGui::GetTime() < CameraCoordinatesCopiedUntil ? "Copied" : "Camera");
-			HudDraw->AddText({CoordinatesPosition.x + 40.f * HudScale + CameraLabelWidth, CoordinatesTextY}, PackColor(ToolUITheme::TextPrimary), Coordinates.c_str());
+				if (bCoordinatesFocused)
+				{
+					HudDraw->AddRect(CoordinatesPosition, {CoordinatesPosition.x + CoordinatesWidth, CoordinatesPosition.y + CoordinatesHeight}, ImGui::GetColorU32(ImGuiCol_NavCursor), CoordinatesHeight * 0.5f);
+				}
+
+				const ImVec2 CameraIconCenter{CoordinatesPosition.x + 18.f * HudScale, CoordinatesPosition.y + CoordinatesHeight * 0.5f};
+				const ImU32 CameraIconColor = PackColor(ToolUITheme::TextSecondary);
+				HudDraw->AddRect({CameraIconCenter.x - 6.f * HudScale, CameraIconCenter.y - 4.f * HudScale}, {CameraIconCenter.x + 6.f * HudScale, CameraIconCenter.y + 4.f * HudScale}, CameraIconColor, 2.f * HudScale, 0, HudScale);
+				HudDraw->AddRectFilled({CameraIconCenter.x - 3.f * HudScale, CameraIconCenter.y - 6.f * HudScale}, {CameraIconCenter.x + HudScale, CameraIconCenter.y - 4.f * HudScale}, CameraIconColor, HudScale);
+				HudDraw->AddCircle(CameraIconCenter, 2.f * HudScale, CameraIconColor, 12, HudScale);
+				HudDraw->AddText({CoordinatesPosition.x + 32.f * HudScale, CoordinatesTextY}, CameraIconColor, ImGui::GetTime() < CameraCoordinatesCopiedUntil ? "Copied" : "Camera");
+				HudDraw->AddText({CoordinatesPosition.x + 40.f * HudScale + CameraLabelWidth, CoordinatesTextY}, PackColor(ToolUITheme::TextPrimary), Coordinates.c_str());
+			}
 
 			if (!bGameView && ViewportInteraction.CameraMode == EViewportCameraMode::Fly)
 			{
@@ -3664,7 +3677,8 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				const float LabelWidth = ImGui::CalcTextSize("Speed").x;
 				const float Width = LabelWidth + ImGui::CalcTextSize(Speed.c_str()).x + 52.f * UiScale;
 				const float Height = 32.f * UiScale;
-				const ImVec2 Position{ImageMinimum.x + std::max(0.f, Size.x - Width - 14.f * UiScale), CoordinatesPosition.y - Height - 6.f * UiScale};
+				const float Bottom = bCameraReadoutVisible ? CoordinatesPosition.y - 6.f * UiScale : CoordinatesPosition.y + CoordinatesHeight;
+				const ImVec2 Position{ImageMinimum.x + std::max(0.f, Size.x - Width - 14.f * UiScale), Bottom - Height};
 				ToolUI->DrawGlassSurface(Position.x, Position.y, Width, Height, Height * 0.5f);
 				ImDrawList* const Draw = ImGui::GetWindowDrawList();
 				const ImVec2 Center{Position.x + 18.f * UiScale, Position.y + Height * 0.5f};
