@@ -3901,7 +3901,7 @@
       },
       "components": {
         "heightFog": {
-          "density": 0.008,
+          "density": 0.015,
           "heightFalloff": 0.18,
           "albedo": [
             0.8,

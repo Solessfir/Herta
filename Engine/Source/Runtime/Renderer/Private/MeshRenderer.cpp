@@ -414,6 +414,7 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle Edges;
 	FTextureHandle Weights;
 	FTextureHandle SelectionDepth;
+	FTextureHandle SkyView;
 	FTextureHandle ShadowAtlas;
 	FTextureHandle White;
 	FTextureHandle EnvironmentDiffuse;
@@ -423,7 +424,7 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle SmaaSearch;
 	FBufferHandle FullscreenVertices;
 	FBufferHandle FullscreenIndices;
-	std::array<FGraphicsPipelineHandle, 7> VisualPipelines;
+	std::array<FGraphicsPipelineHandle, 8> VisualPipelines;
 	FGraphicsPipelineHandle OutlinePipeline;
 	FGraphicsPipelineHandle ShadowPipeline;
 	FGraphicsPipelineHandle InstancedShadowPipeline;
@@ -538,13 +539,13 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	std::vector<std::byte> SearchPixels;
 	if (!VisualShaders.FullscreenVertex.Bytecode.empty())
 	{
-		std::array<FShaderAsset, 7> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), std::move(VisualShaders.CompositeFragment), std::move(VisualShaders.ToneMapFragment), std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), std::move(VisualShaders.SmaaNeighborhood)};
-		constexpr std::array<std::uint32_t, 7> TextureCounts{1, 3, 3, 1, 1, 3, 2};
-		constexpr std::array<std::string_view, 7> Names{"Sky", "Volumetric fog", "Depth-aware fog composite", "Exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood"};
+		std::array<FShaderAsset, 8> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), std::move(VisualShaders.CompositeFragment), std::move(VisualShaders.ToneMapFragment), std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), std::move(VisualShaders.SmaaNeighborhood), std::move(VisualShaders.SkyViewFragment)};
+		constexpr std::array<std::uint32_t, 8> TextureCounts{2, 3, 3, 1, 1, 3, 2, 1};
+		constexpr std::array<std::string_view, 8> Names{"Sky", "Volumetric fog", "Depth-aware fog composite", "Exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view"};
+		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float};
 		for (std::size_t Index = 0; Index < Fragments.size(); ++Index)
 		{
-			auto VisualPipeline = Device.CreateGraphicsPipeline({.Name = std::string(Names[Index]), .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(Fragments[Index]), .ColorFormat = Index < 3 ? ETextureFormat::Rgba16Float : Index == 4 || Index == 5 ? ETextureFormat::Rgba8
-			                                                                                                                                                                                                                                                                         : ETextureFormat::Rgba8Srgb,
+			auto VisualPipeline = Device.CreateGraphicsPipeline({.Name = std::string(Names[Index]), .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(Fragments[Index]), .ColorFormat = Formats[Index],
 			    .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition,
 			    .bDepthTest = false,
 			    .TextureCount = TextureCounts[Index],
@@ -588,6 +589,13 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 		State->ShadowPipeline = std::move(*ShadowPipeline);
 		State->InstancedShadowPipeline = std::move(*InstancedShadowPipeline);
+		auto SkyView = Device.CreateTexture({.Name = "Sky view", .Extent = {256, 128}, .Format = ETextureFormat::Rgba16Float, .bRenderTarget = true});
+		if (!SkyView)
+		{
+			return std::unexpected(SkyView.error());
+		}
+
+		State->SkyView = std::move(*SkyView);
 		State->FullscreenVertices = std::move(*FullscreenVertices);
 		State->FullscreenIndices = std::move(*FullscreenIndices);
 		State->SmaaArea = std::move(*Area);
@@ -684,7 +692,7 @@ std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 {
 	const FImplementation& State = *Implementation;
 	std::size_t Bytes = 0;
-	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogColor, &State.CompositeColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.ShadowAtlas})
+	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogColor, &State.CompositeColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas})
 	{
 		if (*Target)
 		{
@@ -1119,7 +1127,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	const auto Fullscreen = [&](const std::size_t Pipeline, const FTextureHandle& Destination, const std::span<const FTextureHandle> Sources)
 	{
-		constexpr std::array Names{"Sky", "Volumetric fog", "Fog composite", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood"};
+		constexpr std::array Names{"Sky", "Volumetric fog", "Fog composite", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view"};
 		const auto Timer = TimedPass(Names[Pipeline]);
 		if (const auto Cleared = Device.ClearTargets(Destination, {}, {}); !Cleared)
 		{
@@ -1237,7 +1245,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		auto Result = Device.ClearTargets(MeshColor, FrameDepth, {0.035f, 0.035f, 0.035f, 1.f});
 		if (Result && State.VisualPipelines[0])
 		{
-			const std::array Sources{State.EnvironmentSpecular};
+			// The shared include declares the sampler, which the RHI only binds alongside a texture slot.
+			const std::array SkySources{State.White};
+			Result = Fullscreen(7, State.SkyView, SkySources);
+		}
+
+		if (Result && State.VisualPipelines[0])
+		{
+			const std::array Sources{State.EnvironmentSpecular, State.SkyView};
 			Result = Fullscreen(0, MeshColor, Sources);
 		}
 

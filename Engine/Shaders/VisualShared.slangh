@@ -67,33 +67,121 @@ float3 WorldPosition(float2 UV, float Depth)
     return mul(Visual.ViewToWorld, float4(View.xyz / View.w, 1.0)).xyz;
 }
 
-float3 ProceduralSky(float3 Direction)
+// Keep in sync with ProceduralSky in EnvironmentLighting.cpp, which bakes the same sky for image-based lighting.
+// Distances are kilometres; scale heights and the ozone layer follow the authored atmosphere height.
+float3 SkyExtinction(float3 Position, float PlanetRadius, float HeightScale, out float Rayleigh, out float Mie)
 {
-    float3 SunDirection = float3(0.0, 1.0, 0.0);
-    float3 SunRadiance = 1.0;
+    float Height = max(0.0, length(Position) - PlanetRadius);
+    Rayleigh = exp(-Height / (8.0 * HeightScale));
+    Mie = exp(-Height / (1.2 * HeightScale));
+    float Ozone = max(0.0, 1.0 - abs(Height - 25.0 * HeightScale) / (15.0 * HeightScale));
+    return float3(5.802e-3, 13.558e-3, 33.1e-3) * Visual.Atmosphere.x * Rayleigh + 3.996e-3 / 0.9 * Visual.Atmosphere.y * Mie + float3(0.65e-3, 1.881e-3, 0.085e-3) * Ozone;
+}
+
+float SkyExit(float3 Position, float3 Direction, float Radius)
+{
+    float B = dot(Position, Direction);
+    float C = dot(Position, Position) - Radius * Radius;
+    return -B + sqrt(max(0.0, B * B - C));
+}
+
+void FindSkySun(out float3 Direction, out float3 Illuminance)
+{
+    Direction = float3(0.0, 1.0, 0.0);
+    Illuminance = 50000.0;
     for (int I = 0; I < int(Visual.Controls.x); ++I)
     {
         if (int(Visual.Lights[I].PositionType.w) == 0)
         {
-            SunDirection = -Visual.Lights[I].DirectionRange.xyz;
-            SunRadiance = Visual.Lights[I].ColorIntensity.rgb * Visual.Lights[I].ColorIntensity.w / 50000.0;
-            break;
+            Direction = -Visual.Lights[I].DirectionRange.xyz;
+            Illuminance = Visual.Lights[I].ColorIntensity.rgb * Visual.Lights[I].ColorIntensity.w;
+            return;
         }
     }
-    float Mu = dot(Direction, SunDirection);
+}
+
+// Single-scattering Rayleigh, Mie, and ozone radiance along an upper-hemisphere ray from sea level, and its transmittance.
+float3 SkyScattering(float3 View, out float3 Transmittance)
+{
+    float3 SunDirection;
+    float3 SunIlluminance;
+    FindSkySun(SunDirection, SunIlluminance);
+    float PlanetRadius = Visual.AtmosphereGeometry.x / 1000.0;
+    float HeightScale = Visual.AtmosphereGeometry.y / 80000.0;
+    float AtmosphereRadius = PlanetRadius + Visual.AtmosphereGeometry.y / 1000.0;
+    float3 Origin = float3(0.0, PlanetRadius + 0.001, 0.0);
+    float Length = SkyExit(Origin, View, AtmosphereRadius);
+    float Mu = dot(View, SunDirection);
     float G = Visual.Atmosphere.z;
     float RayleighPhase = 3.0 / (16.0 * PI) * (1.0 + Mu * Mu);
-    float MiePhase = (1.0 - G * G) / (4.0 * PI * pow(max(0.002, 1.0 + G * G - 2.0 * G * Mu), 1.5));
-    // Optical depth rises towards the horizon; extinction keeps the scattering energy bounded.
-    float Curvature = sqrt(Visual.AtmosphereGeometry.y / max(1.0, Visual.AtmosphereGeometry.x));
-    float Height = max(0.025, Direction.y + Curvature);
-    float3 OpticalDepth = float3(0.055, 0.13, 0.3) * Visual.Atmosphere.x * (Visual.AtmosphereGeometry.y / 80000.0) / Height;
-    SunRadiance *= smoothstep(-0.12, 0.03, SunDirection.y) * exp(-float3(0.02, 0.05, 0.12) / max(0.025, SunDirection.y + 0.08));
-    float3 Transmittance = exp(-OpticalDepth);
-    float3 Scattering = (1.0 - Transmittance) * (RayleighPhase * 12.0 + MiePhase * Visual.Atmosphere.y * 0.4);
-    float3 Ground = float3(0.025, 0.03, 0.04) * saturate(SunDirection.y + 0.2);
-    float SunDisc = smoothstep(cos(0.005), cos(0.0044), Mu);
-    return max(0.0, lerp(Ground, Scattering * SunRadiance, smoothstep(-0.03, 0.03, Direction.y)) + SunDisc * Transmittance * SunRadiance * 20.0);
+    float MiePhase = (1.0 - G * G) / (4.0 * PI * pow(max(1e-4, 1.0 + G * G - 2.0 * G * Mu), 1.5));
+    float3 ViewDepth = 0.0;
+    float3 Single = 0.0;
+    float3 Multiple = 0.0;
+    const int Steps = 12;
+    const int SunSteps = 4;
+    for (int S = 0; S < Steps; ++S)
+    {
+        // Quadratic spacing concentrates samples in the dense air near the viewer.
+        float Start = float(S * S) / float(Steps * Steps);
+        float End = float((S + 1) * (S + 1)) / float(Steps * Steps);
+        float Segment = Length * (End - Start);
+        float3 Position = Origin + View * (Length * (Start + End) * 0.5);
+        float Rayleigh, Mie;
+        float3 Extinction = SkyExtinction(Position, PlanetRadius, HeightScale, Rayleigh, Mie) * Segment;
+        float3 ViewTransmittance = exp(-(ViewDepth + 0.5 * Extinction));
+        ViewDepth += Extinction;
+        float B = dot(Position, SunDirection);
+        if (B < 0.0 && B * B - dot(Position, Position) + PlanetRadius * PlanetRadius > 0.0) continue;
+        float SunLength = SkyExit(Position, SunDirection, AtmosphereRadius);
+        float3 SunDepth = 0.0;
+        for (int L = 0; L < SunSteps; ++L)
+        {
+            float SunRayleigh, SunMie;
+            SunDepth += SkyExtinction(Position + SunDirection * (SunLength * (float(L) + 0.5) / float(SunSteps)), PlanetRadius, HeightScale, SunRayleigh, SunMie);
+        }
+
+        float3 Lit = ViewTransmittance * exp(-SunDepth * (SunLength / float(SunSteps))) * Segment;
+        float3 RayleighScattering = float3(5.802e-3, 13.558e-3, 33.1e-3) * Visual.Atmosphere.x * Rayleigh;
+        float MieScattering = 3.996e-3 * Visual.Atmosphere.y * Mie;
+        Single += Lit * (RayleighScattering * RayleighPhase + MieScattering * MiePhase);
+        Multiple += Lit * (RayleighScattering + MieScattering) / (4.0 * PI);
+    }
+
+    Transmittance = exp(-ViewDepth);
+    // Single scattering alone underexposes skylight; the isotropic term and gain approximate multiple scattering at the previous sky's zenith brightness.
+    return (Single + Multiple) * 2.0 * SunIlluminance;
+}
+
+// The sky-view table covers the upper hemisphere; latitude is square-root mapped so the horizon band gets most rows.
+float2 SkyViewUV(float3 View)
+{
+    return float2(atan2(View.z, View.x) / (2.0 * PI) + 0.5, sqrt(saturate(asin(saturate(View.y)) / (0.5 * PI))));
+}
+
+float3 SkyViewDirection(float2 UV)
+{
+    float Latitude = UV.y * UV.y * 0.5 * PI;
+    float Azimuth = (UV.x - 0.5) * 2.0 * PI;
+    return float3(cos(Latitude) * cos(Azimuth), sin(Latitude), cos(Latitude) * sin(Azimuth));
+}
+
+// The lower hemisphere mirrors the sky and darkens, reading as distant haze rather than a flat ground plane.
+float3 ComposeProceduralSky(float3 Direction, float3 MirroredScattering)
+{
+    float3 Radiance = MirroredScattering * (Direction.y < 0.0 ? 1.0 - 0.7 * sqrt(saturate(-Direction.y)) : 1.0);
+    float3 SunDirection;
+    float3 SunIlluminance;
+    FindSkySun(SunDirection, SunIlluminance);
+    float Mu = dot(Direction, SunDirection);
+    if (Direction.y >= 0.0 && Mu > cos(0.005))
+    {
+        float3 Transmittance;
+        SkyScattering(Direction, Transmittance);
+        Radiance += Transmittance * SunIlluminance * (smoothstep(cos(0.005), cos(0.0044), Mu) * 6.0);
+    }
+
+    return max(0.0, Radiance);
 }
 
 float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, int ShadowIndex)

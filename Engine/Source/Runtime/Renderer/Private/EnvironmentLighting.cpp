@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <numbers>
+#include <optional>
 
 namespace Herta
 {
@@ -38,6 +39,39 @@ FVector3 Lerp(const FVector3& A, const FVector3& B, const float Weight)
 	return A * (1.f - Weight) + B * Weight;
 }
 
+constexpr FVector3 RayleighScattering{5.802e-3f, 13.558e-3f, 33.1e-3f};
+constexpr float MieScattering = 3.996e-3f;
+constexpr FVector3 OzoneAbsorption{0.65e-3f, 1.881e-3f, 0.085e-3f};
+
+struct FSkySample
+{
+	float Rayleigh = 0.f;
+	float Mie = 0.f;
+	FVector3 Extinction;
+};
+
+FSkySample SampleSky(const FVector3& Position, const float PlanetRadius, const float HeightScale, const FVisualUniforms& Snapshot)
+{
+	const float Height = std::max(0.f, Position.Length() - PlanetRadius);
+	const float Rayleigh = std::exp(-Height / (8.f * HeightScale));
+	const float Mie = std::exp(-Height / (1.2f * HeightScale));
+	const float Ozone = std::max(0.f, 1.f - std::abs(Height - 25.f * HeightScale) / (15.f * HeightScale));
+	return {.Rayleigh = Rayleigh, .Mie = Mie, .Extinction = RayleighScattering * (Snapshot.Atmosphere[0] * Rayleigh) + FVector3::One() * (MieScattering / 0.9f * Snapshot.Atmosphere[1] * Mie) + OzoneAbsorption * Ozone};
+}
+
+float SkyExit(const FVector3& Position, const FVector3& Direction, const float Radius)
+{
+	const float B = Position.Dot(Direction);
+	const float C = Position.Dot(Position) - Radius * Radius;
+	return -B + std::sqrt(std::max(0.f, B * B - C));
+}
+
+FVector3 Exp(const FVector3& Value)
+{
+	return {std::exp(Value.X), std::exp(Value.Y), std::exp(Value.Z)};
+}
+
+// Mirrors SkyScattering and ComposeProceduralSky in VisualShared.slangh so baked image-based lighting matches the visible sky.
 FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapshot)
 {
 	if (Snapshot.Atmosphere[3] < 0.5f)
@@ -46,7 +80,7 @@ FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapsho
 	}
 
 	FVector3 SunDirection{0.f, 1.f, 0.f};
-	FVector3 SunRadiance{1.f, 1.f, 1.f};
+	FVector3 SunIlluminance = FVector3::One() * 50000.f;
 
 	for (std::size_t Index = 0; Index < static_cast<std::size_t>(Snapshot.Controls[0]); ++Index)
 	{
@@ -54,26 +88,63 @@ FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapsho
 		if (Light.PositionType[3] == static_cast<float>(ELightType::Directional))
 		{
 			SunDirection = FVector3{-Light.DirectionRange[0], -Light.DirectionRange[1], -Light.DirectionRange[2]}.Normalized();
-			SunRadiance = FVector3{Light.ColorIntensity[0], Light.ColorIntensity[1], Light.ColorIntensity[2]} * (Light.ColorIntensity[3] / 50000.f);
+			SunIlluminance = FVector3{Light.ColorIntensity[0], Light.ColorIntensity[1], Light.ColorIntensity[2]} * Light.ColorIntensity[3];
 			break;
 		}
 	}
 
-	const float Mu = std::clamp(Direction.Dot(SunDirection), -1.f, 1.f);
+	const float PlanetRadius = Snapshot.AtmosphereGeometry[0] / 1000.f;
+	const float HeightScale = Snapshot.AtmosphereGeometry[1] / 80000.f;
+	const float AtmosphereRadius = PlanetRadius + Snapshot.AtmosphereGeometry[1] / 1000.f;
+	const FVector3 View{Direction.X, std::abs(Direction.Y), Direction.Z};
+	const FVector3 Origin{0.f, PlanetRadius + 0.001f, 0.f};
+	const float Length = SkyExit(Origin, View, AtmosphereRadius);
+	const float Mu = std::clamp(View.Dot(SunDirection), -1.f, 1.f);
 	const float G = Snapshot.Atmosphere[2];
 	const float RayleighPhase = 3.f / (16.f * Pi) * (1.f + Mu * Mu);
-	const float MiePhase = (1.f - G * G) / (4.f * Pi * std::pow(std::max(0.002f, 1.f + G * G - 2.f * G * Mu), 1.5f));
-	const float Curvature = std::sqrt(Snapshot.AtmosphereGeometry[1] / std::max(1.f, Snapshot.AtmosphereGeometry[0]));
-	const float Height = std::max(0.025f, Direction.Y + Curvature);
-	const FVector3 OpticalDepth = FVector3{0.055f, 0.13f, 0.3f} * (Snapshot.Atmosphere[0] * Snapshot.AtmosphereGeometry[1] / 80000.f / Height);
-	const float SunHeight = std::max(0.025f, SunDirection.Y + 0.08f);
-	SunRadiance = Multiply(SunRadiance, FVector3{std::exp(-0.02f / SunHeight), std::exp(-0.05f / SunHeight), std::exp(-0.12f / SunHeight)}) * SmoothStep(-0.12f, 0.03f, SunDirection.Y);
-	const FVector3 Transmittance{std::exp(-OpticalDepth.X), std::exp(-OpticalDepth.Y), std::exp(-OpticalDepth.Z)};
-	const FVector3 Scattering = (FVector3::One() - Transmittance) * (RayleighPhase * 12.f + MiePhase * Snapshot.Atmosphere[1] * 0.4f);
-	const FVector3 Ground = FVector3{0.025f, 0.03f, 0.04f} * Saturate(SunDirection.Y + 0.2f);
-	const float SunDisc = SmoothStep(std::cos(0.005f), std::cos(0.0044f), Mu);
-	const FVector3 Result = Lerp(Ground, Multiply(Scattering, SunRadiance), SmoothStep(-0.03f, 0.03f, Direction.Y)) + Multiply(Transmittance, SunRadiance) * (SunDisc * 20.f);
-	return FVector3{std::max(0.f, Result.X), std::max(0.f, Result.Y), std::max(0.f, Result.Z)} * 15000.f;
+	const float MiePhase = (1.f - G * G) / (4.f * Pi * std::pow(std::max(1e-4f, 1.f + G * G - 2.f * G * Mu), 1.5f));
+	constexpr int Steps = 12;
+	constexpr int SunSteps = 4;
+	FVector3 ViewDepth;
+	FVector3 Single;
+	FVector3 Multiple;
+
+	for (int Step = 0; Step < Steps; ++Step)
+	{
+		const float Start = static_cast<float>(Step * Step) / static_cast<float>(Steps * Steps);
+		const float End = static_cast<float>((Step + 1) * (Step + 1)) / static_cast<float>(Steps * Steps);
+		const float Segment = Length * (End - Start);
+		const FVector3 Position = Origin + View * (Length * (Start + End) * 0.5f);
+		const FSkySample Sample = SampleSky(Position, PlanetRadius, HeightScale, Snapshot);
+		const FVector3 Extinction = Sample.Extinction * Segment;
+		const FVector3 ViewTransmittance = Exp(-(ViewDepth + Extinction * 0.5f));
+		ViewDepth += Extinction;
+		const float B = Position.Dot(SunDirection);
+		if (B < 0.f && B * B - Position.Dot(Position) + PlanetRadius * PlanetRadius > 0.f)
+		{
+			continue;
+		}
+
+		const float SunLength = SkyExit(Position, SunDirection, AtmosphereRadius);
+		FVector3 SunDepth;
+
+		for (int SunStep = 0; SunStep < SunSteps; ++SunStep)
+		{
+			SunDepth += SampleSky(Position + SunDirection * (SunLength * (static_cast<float>(SunStep) + 0.5f) / static_cast<float>(SunSteps)), PlanetRadius, HeightScale, Snapshot).Extinction;
+		}
+
+		const FVector3 Lit = Multiply(ViewTransmittance, Exp(-SunDepth * (SunLength / static_cast<float>(SunSteps)))) * Segment;
+		const FVector3 Rayleigh = RayleighScattering * (Snapshot.Atmosphere[0] * Sample.Rayleigh);
+		const float Mie = MieScattering * Snapshot.Atmosphere[1] * Sample.Mie;
+		Single += Multiply(Lit, Rayleigh * RayleighPhase + FVector3::One() * (Mie * MiePhase));
+		Multiple += Multiply(Lit, Rayleigh + FVector3::One() * Mie) * (1.f / (4.f * Pi));
+	}
+
+	FVector3 Radiance = Multiply(Single + Multiple, SunIlluminance) * 2.f;
+	Radiance = Radiance * (Direction.Y < 0.f ? 1.f - 0.7f * std::sqrt(Saturate(-Direction.Y)) : 1.f);
+	const float SunDisc = Direction.Y < 0.f ? 0.f : SmoothStep(std::cos(0.005f), std::cos(0.0044f), Direction.Dot(SunDirection));
+	Radiance += Multiply(Exp(-ViewDepth), SunIlluminance) * (SunDisc * 6.f);
+	return {std::max(0.f, Radiance.X), std::max(0.f, Radiance.Y), std::max(0.f, Radiance.Z)};
 }
 
 FVector3 ReadPixel(const FCookedTexture& Texture, const std::uint32_t X, const std::uint32_t Y)
@@ -97,14 +168,9 @@ FVector3 ReadPixel(const FCookedTexture& Texture, const std::uint32_t X, const s
 	return {Channel(0), Channel(1), Channel(2)};
 }
 
-FVector3 SampleEnvironment(const FCookedTexture* Environment, const FVisualUniforms& Snapshot, const FVector3& Direction)
+FVector3 SampleEnvironment(const FCookedTexture& Environment, const FVector3& Direction)
 {
-	if (!Environment)
-	{
-		return ProceduralSky(Direction, Snapshot);
-	}
-
-	const auto& Mip = Environment->Mips.front();
+	const auto& Mip = Environment.Mips.front();
 	const float U = std::atan2(Direction.Z, Direction.X) / (2.f * Pi) + 0.5f;
 	const float V = std::acos(std::clamp(Direction.Y, -1.f, 1.f)) / Pi;
 	const float X = U * static_cast<float>(Mip.Width) - 0.5f;
@@ -122,8 +188,8 @@ FVector3 SampleEnvironment(const FCookedTexture* Environment, const FVisualUnifo
 		return static_cast<std::uint32_t>(std::clamp(Value, 0, static_cast<std::int32_t>(Mip.Height) - 1));
 	};
 
-	const FVector3 Top = Lerp(ReadPixel(*Environment, WrapX(X0), ClampY(Y0)), ReadPixel(*Environment, WrapX(X0 + 1), ClampY(Y0)), X - std::floor(X));
-	const FVector3 Bottom = Lerp(ReadPixel(*Environment, WrapX(X0), ClampY(Y0 + 1)), ReadPixel(*Environment, WrapX(X0 + 1), ClampY(Y0 + 1)), X - std::floor(X));
+	const FVector3 Top = Lerp(ReadPixel(Environment, WrapX(X0), ClampY(Y0)), ReadPixel(Environment, WrapX(X0 + 1), ClampY(Y0)), X - std::floor(X));
+	const FVector3 Bottom = Lerp(ReadPixel(Environment, WrapX(X0), ClampY(Y0 + 1)), ReadPixel(Environment, WrapX(X0 + 1), ClampY(Y0 + 1)), X - std::floor(X));
 	return Lerp(Top, Bottom, Y - std::floor(Y));
 }
 
@@ -152,7 +218,7 @@ FVector3 LocalToWorld(const FVector3& Local, const FVector3& Normal)
 	return Tangent * Local.X + Normal.Cross(Tangent) * Local.Y + Normal * Local.Z;
 }
 
-FVector3 IntegrateDiffuse(const FCookedTexture* Environment, const FVisualUniforms& Snapshot, const FVector3& Normal)
+FVector3 IntegrateDiffuse(const FCookedTexture& Environment, const FVector3& Normal)
 {
 	FVector3 Sum;
 
@@ -162,17 +228,17 @@ FVector3 IntegrateDiffuse(const FCookedTexture* Environment, const FVisualUnifor
 		const float Phi = 2.f * Pi * RadicalInverse(Index);
 		const float Radius = std::sqrt(U);
 		const FVector3 Local{Radius * std::cos(Phi), Radius * std::sin(Phi), std::sqrt(1.f - U)};
-		Sum += SampleEnvironment(Environment, Snapshot, LocalToWorld(Local, Normal));
+		Sum += SampleEnvironment(Environment, LocalToWorld(Local, Normal));
 	}
 
 	return Sum * (Pi / static_cast<float>(SampleCount));
 }
 
-FVector3 IntegrateSpecular(const FCookedTexture* Environment, const FVisualUniforms& Snapshot, const FVector3& Normal, const float Roughness)
+FVector3 IntegrateSpecular(const FCookedTexture& Environment, const FVector3& Normal, const float Roughness)
 {
 	if (Roughness == 0.f)
 	{
-		return SampleEnvironment(Environment, Snapshot, Normal);
+		return SampleEnvironment(Environment, Normal);
 	}
 
 	const float Alpha = Roughness * Roughness;
@@ -191,12 +257,12 @@ FVector3 IntegrateSpecular(const FCookedTexture* Environment, const FVisualUnifo
 		const float NDotL = std::max(0.f, Normal.Dot(Light));
 		if (NDotL > 0.f)
 		{
-			Sum += SampleEnvironment(Environment, Snapshot, Light) * NDotL;
+			Sum += SampleEnvironment(Environment, Light) * NDotL;
 			Weight += NDotL;
 		}
 	}
 
-	return Weight > 0.f ? Sum / Weight : SampleEnvironment(Environment, Snapshot, Normal);
+	return Weight > 0.f ? Sum / Weight : SampleEnvironment(Environment, Normal);
 }
 
 void WritePixel(FCookedTextureMip& Mip, const std::uint32_t X, const std::uint32_t Y, const FVector3& Color)
@@ -241,6 +307,21 @@ void AppendDiffuseMips(FCookedTexture& Texture)
 		Texture.Mips.push_back(std::move(Mip));
 	}
 }
+
+// The ray-marched sky is evaluated once per texel, then filtered like an authored environment map.
+FCookedTexture BakeProceduralSky(const FVisualUniforms& Snapshot)
+{
+	FCookedTexture Sky{.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {MakeMip(SpecularWidth, SpecularHeight)}};
+	for (std::uint32_t Y = 0; Y < SpecularHeight; ++Y)
+	{
+		for (std::uint32_t X = 0; X < SpecularWidth; ++X)
+		{
+			WritePixel(Sky.Mips.front(), X, Y, ProceduralSky(TexelDirection(X, Y, SpecularWidth, SpecularHeight), Snapshot));
+		}
+	}
+
+	return Sky;
+}
 }
 
 std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const FCookedTexture* Environment, const FVisualUniforms& Snapshot, const std::stop_token StopToken)
@@ -283,6 +364,8 @@ std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const 
 		}
 	}
 
+	const std::optional<FCookedTexture> Baked = Environment ? std::nullopt : std::optional{BakeProceduralSky(Snapshot)};
+	const FCookedTexture* const Source = Environment ? Environment : &*Baked;
 	FEnvironmentLighting Result{
 	    .Diffuse = {.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {}},
 	    .Specular = {.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {}},
@@ -300,7 +383,7 @@ std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const 
 
 		for (std::uint32_t X = 0; X < DiffuseWidth; ++X)
 		{
-			WritePixel(Diffuse, X, Y, IntegrateDiffuse(Environment, Snapshot, TexelDirection(X, Y, DiffuseWidth, DiffuseHeight)));
+			WritePixel(Diffuse, X, Y, IntegrateDiffuse(*Source, TexelDirection(X, Y, DiffuseWidth, DiffuseHeight)));
 		}
 	}
 
@@ -324,7 +407,7 @@ std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const 
 
 			for (std::uint32_t X = 0; X < Width; ++X)
 			{
-				WritePixel(Mip, X, Y, IntegrateSpecular(Environment, Snapshot, TexelDirection(X, Y, Width, Height), Roughness));
+				WritePixel(Mip, X, Y, IntegrateSpecular(*Source, TexelDirection(X, Y, Width, Height), Roughness));
 			}
 		}
 

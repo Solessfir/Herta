@@ -14,11 +14,14 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
     float StepLength = Distance / max(1, Steps);
     float Transmittance = 1.0;
     float3 Scattering = 0.0;
-    float3 Ambient = DiffuseEnvironment.SampleLevel(LinearSampler, DirectionUV(Direction), 0).rgb * Visual.Sky.x * Visual.SkyColor.rgb / (4.0 * PI);
+    // Isotropic in-scattering needs the sky's mean radiance; the zenith and nadir irradiance pair recovers it for a smooth sky.
+    float3 SkyIrradiance = DiffuseEnvironment.SampleLevel(LinearSampler, DirectionUV(float3(0.0, 1.0, 0.0)), 0).rgb + DiffuseEnvironment.SampleLevel(LinearSampler, DirectionUV(float3(0.0, -1.0, 0.0)), 0).rgb;
+    float3 Ambient = SkyIrradiance * Visual.Sky.x * Visual.SkyColor.rgb / (2.0 * PI);
     for (int S = 0; S < Steps; ++S)
     {
         float3 Position = Eye + Direction * (float(S) + 0.5) * StepLength;
-        float Density = Visual.Fog.x * exp(clamp(-Visual.Fog.y * (Position.y - Visual.FogColor.w), -8.0, 8.0));
+        // Constant below the fog height and exponential above it, so an open void beneath the level is not filled with opaque fog.
+        float Density = Visual.Fog.x * exp(clamp(-Visual.Fog.y * (Position.y - Visual.FogColor.w), -8.0, 0.0));
         float SegmentT = exp(-Density * StepLength);
         float3 Incoming = Ambient;
         if (Visual.Controls.w > 0.0)

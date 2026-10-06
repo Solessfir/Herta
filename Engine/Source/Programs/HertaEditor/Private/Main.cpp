@@ -306,7 +306,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	const FShaderAsset ThumbnailFragmentShader = *FragmentShader;
 	FVisualShaderSet VisualShaders;
 	const std::array VisualShaderFiles{
-	    std::pair{"Sky.vert.hshader", &VisualShaders.FullscreenVertex},
+	    // Slang reflects module-global bindings into the vertex stage, so the shared fullscreen vertex comes from a module without textures.
+	    std::pair{"SkyView.vert.hshader", &VisualShaders.FullscreenVertex},
 	    std::pair{"Sky.frag.hshader", &VisualShaders.SkyFragment},
 	    std::pair{"VolumetricFog.frag.hshader", &VisualShaders.FogFragment},
 	    std::pair{"FogComposite.frag.hshader", &VisualShaders.CompositeFragment},
@@ -318,6 +319,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"SmaaWeights.frag.hshader", &VisualShaders.SmaaWeights},
 	    std::pair{"SmaaNeighborhood.frag.hshader", &VisualShaders.SmaaNeighborhood},
 	    std::pair{"SelectionOutline.frag.hshader", &VisualShaders.SelectionOutline},
+	    std::pair{"SkyView.frag.hshader", &VisualShaders.SkyViewFragment},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)
