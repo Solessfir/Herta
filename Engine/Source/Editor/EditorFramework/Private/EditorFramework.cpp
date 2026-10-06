@@ -519,6 +519,7 @@ struct FEditorFramework::FImplementation
 	void FocusPreview();
 	void RefreshPreviewMeshes();
 	void RefreshVisuals();
+	void RefreshSelectedVisualEntities();
 	void DrawMaterialPanel();
 	void ImportWithDialog();
 	void OpenLevelWithDialog();
@@ -1908,6 +1909,26 @@ void FEditorFramework::FImplementation::RefreshPreviewMeshes()
 	}
 
 	RefreshVisuals();
+}
+
+// Property edits inside an active gesture change the world without a level generation bump, so the render snapshot follows the selection directly.
+void FEditorFramework::FImplementation::RefreshSelectedVisualEntities()
+{
+	const FWorld& World = Level->GetWorld();
+	for (const FObjectId Selected : Level->GetSelection())
+	{
+		const auto Visual = std::ranges::find(VisualEntities, Selected, &FLevelEntity::Id);
+		const auto Handle = World.FindEntity(Selected);
+		if (Visual == VisualEntities.end() || !Handle)
+		{
+			continue;
+		}
+
+		if (auto Entity = World.GetEntity(*Handle))
+		{
+			*Visual = std::move(*Entity);
+		}
+	}
 }
 
 void FEditorFramework::FImplementation::RefreshVisuals()
@@ -4169,6 +4190,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	    .ApplyVisualProperty = [&](const ELevelComponentType Type, const std::string_view Key, const FLevelPropertyValue& Value)
 	{
 		ReportLevelResult(Level->SetSelectedVisualProperty(Type, Key, Value));
+		RefreshSelectedVisualEntities();
 	},
 	    .ReadVisualProperty = [&](const ELevelComponentType Type, const std::string_view Key) -> std::optional<FLevelPropertyValue>
 	{
