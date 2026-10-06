@@ -47,6 +47,7 @@ namespace
 constexpr FAssetId StoneId{0x0000000000004000, 0x8000000000000003};
 constexpr FAssetId WoodId{0x0000000000004000, 0x8000000000000001};
 constexpr FAssetId RobotId{0x0000000000004000, 0x8000000000000002};
+constexpr FAssetId PreviewSphereId{0x0000000000004000, 0x8000000000000004};
 
 void CheckEmptyMeshSlot(const FPreviewMeshSlot& Slot)
 {
@@ -71,6 +72,9 @@ struct FPreviewAssetsFixture
 
 	FPreviewAssetsFixture()
 	{
+		std::error_code Error;
+		std::filesystem::create_directories(Scratch.GetPath() / "Shaders", Error);
+		REQUIRE_FALSE(Error);
 		const std::array<std::uint8_t, 4> Pixel{150, 111, 51, 255};
 		WriteTexture(Scratch.GetPath() / "Game", "Textures/Wood.png", WoodId, Pixel);
 		WriteTexture(Scratch.GetPath() / "Engine", "Textures/Stone.png", StoneId, Pixel);
@@ -100,6 +104,15 @@ struct FPreviewAssetsFixture
 	{
 		Tests::WritePng(Root / Path, 1, 1, Pixel);
 		Tests::WriteText(Root / (Path + ".hmeta"), "Format = HertaAssetMetadata\nVersion = 1\nId = " + Id.ToString() + "\nImporter = Texture\n");
+	}
+
+	void WritePreviewMesh()
+	{
+		const auto Root = Scratch.GetPath() / "Engine/Shapes";
+		const std::array<float, 9> Positions{-1.f, 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 1.f, 0.f};
+		Tests::WriteBytes(Root / "Sphere.bin", std::as_bytes(std::span(Positions)));
+		Tests::WriteText(Root / "Sphere.gltf", R"({"asset":{"version":"2.0"},"buffers":[{"uri":"Sphere.bin","byteLength":36}],"bufferViews":[{"buffer":0,"byteLength":36}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[-1,0,0],"max":[1,1,0]}],"meshes":[{"primitives":[{"attributes":{"POSITION":0}}]}],"nodes":[{"mesh":0}],"scenes":[{"nodes":[0]}],"scene":0})");
+		Tests::WriteText(Root / "Sphere.gltf.hmeta", "Format = HertaAssetMetadata\nVersion = 1\nId = " + PreviewSphereId.ToString() + "\nImporter = Gltf\n");
 	}
 
 	[[nodiscard]] std::unique_ptr<FPreviewAssets> CreateAssets(FEditorAssetThumbnailRenderer RenderThumbnail = {})
@@ -135,7 +148,7 @@ TEST_CASE("Preview metadata describes cooked assets rather than their preview ge
 	    .Vertices = {{.Position = {2.f, -8.f, 1.f}, .UV = {}}, {.Position = {5.f, -3.f, 7.f}, .UV = {}}, {.Position = {3.f, -4.f, 2.f}, .UV = {}}},
 	    .Indices = {0, 1, 2},
 	    .Sections = {},
-	    .Materials = {{.Name = "First", .BaseColorTexture = 0}, {.Name = "Second", .BaseColorTexture = 0}},
+	    .Materials = {{.Name = "First"}, {.Name = "Second"}},
 	    .Textures = {},
 	};
 
@@ -147,6 +160,302 @@ TEST_CASE("Preview metadata describes cooked assets rather than their preview ge
 	CHECK(Mesh.Materials == 2);
 	CHECK(Mesh.BoundsMinimum == FVector3{2.f, -8.f, 1.f});
 	CHECK(Mesh.BoundsMaximum == FVector3{5.f, -3.f, 7.f});
+
+	FMaterialAsset Material{.Name = "Stone"};
+	Material.Parameters.BlendMode = EMaterialBlendMode::Masked;
+	Material.Textures[0].Texture = StoneId;
+	Material.Textures[3].Texture = WoodId;
+	const auto MaterialMetadata = GetPreviewAssetMetadata(Material);
+	REQUIRE(std::holds_alternative<FPreviewMaterialMetadata>(MaterialMetadata));
+	const auto& Surface = std::get<FPreviewMaterialMetadata>(MaterialMetadata);
+	CHECK(Surface.Name == "Stone");
+	CHECK(Surface.TextureMaps == 2);
+	CHECK(Surface.BlendMode == EMaterialBlendMode::Masked);
+}
+
+TEST_CASE("Preview material creation and save preserve identity and the last valid GPU material")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Created = Assets->CreateMaterial("Game", "New Material");
+	REQUIRE_MESSAGE(Created.has_value(), (Created ? "" : Created.error().Message));
+	Fixture.Tasks->RunUntilIdle();
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE_MESSAGE(Assets->GetMaterial(*Created), (Assets->GetCachedAsset(*Created) ? Assets->GetCachedAsset(*Created)->Error : "Material not cached"));
+	REQUIRE(Assets->GetMaterialSource(*Created));
+	CHECK(Assets->GetMaterialSource(*Created)->Name == "New Material");
+	const auto Path = Assets->GetMaterialPath(*Created);
+	REQUIRE(Path);
+	const auto Identity = LoadAssetMetadata(*Path);
+	REQUIRE(Identity);
+	CHECK(Identity->Id == *Created);
+
+	FMaterialAsset Changed = *Assets->GetMaterialSource(*Created);
+	Changed.Parameters.BaseColor = {0.25f, 0.5f, 0.75f, 1.f};
+	Changed.Parameters.Roughness = 0.75f;
+	Changed.Textures[0].Texture = StoneId;
+	Changed.Textures[2].Texture = WoodId;
+	REQUIRE(Assets->SaveMaterial(*Created, Changed));
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetMaterial(*Created));
+	REQUIRE(Assets->GetMaterialSource(*Created));
+	CHECK(*Assets->GetMaterialSource(*Created) == Changed);
+	const auto SavedIdentity = LoadAssetMetadata(*Path);
+	REQUIRE(SavedIdentity);
+	CHECK(SavedIdentity->Id == *Created);
+
+	const auto LastValid = Assets->GetMaterial(*Created);
+	Tests::WriteText(*Path, "broken material");
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetMaterial(*Created) == LastValid);
+	CHECK(*Assets->GetMaterialSource(*Created) == Changed);
+	REQUIRE(Assets->GetCachedAsset(*Created));
+	CHECK(Assets->GetCachedAsset(*Created)->Error.find("previous version") != std::string::npos);
+
+	FMaterialAsset Invalid = Changed;
+	Invalid.Parameters.Roughness = -1.f;
+	CHECK_FALSE(Assets->SaveMaterial(*Created, Invalid));
+	CHECK(Assets->GetMaterial(*Created) == LastValid);
+	REQUIRE(Assets->SaveMaterial(*Created, Changed));
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetMaterial(*Created) == LastValid);
+	CHECK(Assets->GetCachedAsset(*Created)->Error.empty());
+}
+
+TEST_CASE("Preview materials remain Game-owned and have portable unique names")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK_FALSE(Assets->CreateMaterial("Engine", "Material"));
+	CHECK_FALSE(Assets->CreateMaterial("Game/..", "Material"));
+	CHECK_FALSE(Assets->CreateMaterial("Game", "../Material"));
+	CHECK_FALSE(Assets->CreateMaterial("Game", "CON"));
+	const auto First = Assets->CreateMaterial("Game", "Material");
+	REQUIRE(First);
+	const auto Second = Assets->CreateMaterial("Game", "Material");
+	REQUIRE(Second);
+	CHECK(*First != *Second);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	const auto FirstPath = Assets->GetMaterialPath(*First);
+	const auto SecondPath = Assets->GetMaterialPath(*Second);
+	REQUIRE(FirstPath);
+	REQUIRE(SecondPath);
+	CHECK(FirstPath->filename() == "Material.hmat");
+	CHECK(SecondPath->filename() == "Material 1.hmat");
+	CHECK_FALSE(Assets->SaveMaterial(StoneId, FMaterialAsset{}));
+	CHECK_FALSE(Assets->SaveMaterial(WoodId, FMaterialAsset{}));
+	Assets->SetMaterialAssets({});
+	CHECK_FALSE(Assets->GetMaterial(*First));
+	CHECK_FALSE(Assets->GetMaterial(*Second));
+}
+
+TEST_CASE("Material drafts coalesce without saving or uploading unchanged texture bindings")
+{
+	FPreviewAssetsFixture Fixture;
+	Fixture.WritePreviewMesh();
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Created = Assets->CreateMaterial("Game", "Draft");
+	REQUIRE(Created);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	const auto SavedGpu = Assets->GetMaterial(*Created);
+	REQUIRE(SavedGpu);
+	const FMaterialAsset Saved = *Assets->GetMaterialSource(*Created);
+	const auto Path = Assets->GetMaterialPath(*Created);
+	REQUIRE(Path);
+	const auto ModifiedBefore = std::filesystem::last_write_time(*Path);
+	std::uint64_t RenderCount = 0;
+	Assets->SetMaterialThumbnailRenderer([&RenderCount, &Assets](const FRenderMesh& Mesh, const FRenderMaterial&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		REQUIRE(Assets->GetCachedAsset(PreviewSphereId));
+		CHECK(Assets->GetCachedAsset(PreviewSphereId)->Mesh.get() == &Mesh);
+		return std::make_shared<const std::uint64_t>(++RenderCount);
+	});
+
+	CHECK(Assets->AreMaterialThumbnailsReady());
+	CHECK_FALSE(Assets->GetCachedAsset(PreviewSphereId));
+
+	FMaterialAsset Draft = Saved;
+	Draft.Parameters.Roughness = 0.1f;
+	Assets->RequestMaterialPreview(*Created, Draft);
+	CHECK(Assets->IsMaterialPreviewLoading());
+	CHECK_FALSE(Assets->GetMaterialPreview());
+	Draft.Parameters.Roughness = 0.3f;
+	Assets->RequestMaterialPreview(*Created, Draft);
+	Draft.Parameters.Roughness = 0.8f;
+	Assets->RequestMaterialPreview(*Created, Draft);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK_FALSE(Assets->AreMaterialThumbnailsReady());
+	REQUIRE(Assets->GetCachedAsset(PreviewSphereId));
+	const auto Sphere = Assets->GetCachedAsset(PreviewSphereId)->Mesh;
+	REQUIRE_MESSAGE(Sphere, Assets->GetCachedAsset(PreviewSphereId)->Error);
+	const auto WritesBefore = Fixture.Device.TextureWrites.size();
+	const auto SubmissionsBefore = Fixture.Device.Submissions;
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetMaterialPreview());
+	CHECK(Assets->GetMaterialPreview()->GetParameters() == Draft.Parameters);
+	CHECK(Assets->GetMaterialPreviewAsset() == *Created);
+	CHECK_FALSE(Assets->IsMaterialPreviewLoading());
+	CHECK(Assets->GetMaterialPreviewError().empty());
+	REQUIRE(Assets->GetMaterialPreviewThumbnail());
+	CHECK(RenderCount == 1);
+	CHECK(Fixture.Device.TextureWrites.size() == WritesBefore);
+	CHECK(Fixture.Device.Submissions == SubmissionsBefore);
+	CHECK(Assets->GetMaterial(*Created) == SavedGpu);
+	CHECK(*Assets->GetMaterialSource(*Created) == Saved);
+	CHECK(std::filesystem::last_write_time(*Path) == ModifiedBefore);
+	Assets->RequestMaterialPreview(*Created, Draft);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(RenderCount == 1);
+	Assets->SetThumbnailAssets({});
+	REQUIRE(Assets->GetCachedAsset(PreviewSphereId));
+	CHECK(Assets->GetCachedAsset(PreviewSphereId)->Mesh == Sphere);
+	const auto RequestsBefore = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+	Assets->SetMaterialShaderGeneration(1);
+	CHECK(Assets->IsMaterialPreviewLoading());
+	Assets->Tick();
+	CHECK(RenderCount == 2);
+	CHECK_FALSE(Assets->IsMaterialPreviewLoading());
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == RequestsBefore);
+	CHECK(Fixture.Device.TextureWrites.size() == WritesBefore);
+	CHECK(Fixture.Device.Submissions == SubmissionsBefore);
+	Assets->SetMaterialShaderGeneration(1);
+	for (int Frame = 0; Frame < 3; ++Frame)
+	{
+		Assets->Tick();
+		Fixture.Tasks->RunUntilIdle();
+	}
+
+	CHECK(RenderCount == 2);
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == RequestsBefore);
+	CHECK(Fixture.Device.TextureWrites.size() == WritesBefore);
+	CHECK(Fixture.Device.Submissions == SubmissionsBefore);
+}
+
+TEST_CASE("Material draft failures keep the last valid preview and cancel without resurrection")
+{
+	FPreviewAssetsFixture Fixture;
+	Fixture.WritePreviewMesh();
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Created = Assets->CreateMaterial("Game", "Draft");
+	REQUIRE(Created);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetMaterialSource(*Created));
+	FMaterialAsset Draft = *Assets->GetMaterialSource(*Created);
+	Assets->SetMaterialThumbnailRenderer([](const FRenderMesh&, const FRenderMaterial&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		return std::make_shared<const std::uint64_t>(7);
+	});
+
+	Fixture.Tasks->RunUntilIdle();
+
+	Draft.Parameters.Metallic = 0.8f;
+	Assets->RequestMaterialPreview(*Created, Draft);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	const auto LastGood = Assets->GetMaterialPreview();
+	const auto LastThumbnail = Assets->GetMaterialPreviewThumbnail();
+	REQUIRE_MESSAGE(LastGood, Assets->GetMaterialPreviewError());
+	REQUIRE(LastThumbnail);
+	Draft.Textures[0].Texture = RobotId;
+	Assets->RequestMaterialPreview(*Created, Draft);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetMaterialPreview() == LastGood);
+	CHECK(Assets->GetMaterialPreviewThumbnail() == LastThumbnail);
+	CHECK_FALSE(Assets->GetMaterialPreviewError().empty());
+	CHECK_FALSE(Assets->IsMaterialPreviewLoading());
+	Draft.Parameters.Roughness = -1.f;
+	Assets->RequestMaterialPreview(*Created, Draft);
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetMaterialPreview() == LastGood);
+	CHECK_FALSE(Assets->GetMaterialPreviewError().empty());
+	CHECK_FALSE(Assets->IsMaterialPreviewLoading());
+	Draft = *Assets->GetMaterialSource(*Created);
+	Draft.Parameters.Roughness = 0.1f;
+	Assets->RequestMaterialPreview(*Created, Draft);
+	Assets->RequestMaterialPreview({}, {});
+	Fixture.Tasks->RunUntilIdle();
+	CHECK_FALSE(Assets->GetMaterialPreview());
+	CHECK_FALSE(Assets->GetMaterialPreviewThumbnail());
+	CHECK_FALSE(Assets->GetMaterialPreviewAsset().IsValid());
+	CHECK_FALSE(Assets->IsMaterialPreviewLoading());
+	CHECK(Assets->GetMaterialPreviewError().empty());
+}
+
+TEST_CASE("Material drafts cook cross-mount textures with per-binding color spaces off the UI path")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Created = Assets->CreateMaterial("Game", "Draft");
+	REQUIRE(Created);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetMaterialSource(*Created));
+	FMaterialAsset Draft = *Assets->GetMaterialSource(*Created);
+	Draft.Textures[0].Texture = StoneId;
+	Draft.Textures[2].Texture = WoodId;
+	const auto WritesBefore = Fixture.Device.TextureWrites.size();
+	const auto TexturesBefore = Fixture.Device.TextureDescriptors.size();
+	Assets->RequestMaterialPreview(*Created, Draft);
+	CHECK(Fixture.Device.TextureWrites.size() == WritesBefore);
+	CHECK_FALSE(Assets->GetMaterialPreview());
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetMaterialPreview());
+	CHECK(Fixture.Device.TextureWrites.size() > WritesBefore);
+	REQUIRE(Fixture.Device.TextureDescriptors.size() == TexturesBefore + 2);
+	CHECK(Fixture.Device.TextureDescriptors[TexturesBefore].Format == ETextureFormat::Rgba8Srgb);
+	CHECK(Fixture.Device.TextureDescriptors[TexturesBefore + 1].Format == ETextureFormat::Rgba8);
+	CHECK(Assets->GetMaterialPreviewError().empty());
+	CHECK_FALSE(Assets->GetMaterialSource(*Created)->Textures[0].Texture.IsValid());
+	const auto WritesAfter = Fixture.Device.TextureWrites.size();
+	Draft.Parameters.BaseColor = {0.1f, 0.2f, 0.3f, 1.f};
+	Assets->RequestMaterialPreview(*Created, Draft);
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetMaterialPreview());
+	CHECK(Assets->GetMaterialPreview()->GetParameters() == Draft.Parameters);
+	CHECK(Fixture.Device.TextureWrites.size() == WritesAfter);
+}
+
+TEST_CASE("Preview texture requests retain cooked texture data and release inactive environments")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Assets->RequestTexture(StoneId);
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetCookedTexture(StoneId));
+	REQUIRE(Assets->GetTexture(StoneId));
+	CHECK(Assets->GetCookedTexture(StoneId)->Mips.front().Width == 1);
+	CHECK(Assets->GetTexture(StoneId)->GetDescriptor().Format == ETextureFormat::Rgba8Srgb);
+	Assets->SetTextureAssets(std::array{StoneId});
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetTexture(StoneId));
+	Assets->SetTextureAssets({});
+	CHECK_FALSE(Assets->GetTexture(StoneId));
+	CHECK_FALSE(Assets->GetCookedTexture(StoneId));
 }
 
 TEST_CASE("Preview thumbnails load without level bindings and share the existing mesh cache")

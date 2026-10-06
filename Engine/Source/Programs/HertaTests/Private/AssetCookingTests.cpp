@@ -1,4 +1,6 @@
+#include "Herta/AssetPipeline/AssetCommands.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
+#include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/AssetPipeline/TextureCooker.h"
 #include "Herta/Core/BinaryStream.h"
 #include "TestFiles.h"
@@ -7,8 +9,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstring>
 #include <format>
 #include <initializer_list>
+#include <limits>
 
 namespace Herta
 {
@@ -141,6 +146,220 @@ TEST_CASE("Binary streams use little-endian fields and fail closed")
 	CHECK_FALSE(ParseHash128(std::string(32, 'G')));
 }
 
+TEST_CASE("Material assets round-trip canonical JSON and cooked data")
+{
+	FMaterialAsset Material;
+	Material.Name = "Copper \"polished\"";
+	Material.Parameters.BaseColor = {0.9f, 0.5f, 0.2f, 1.f};
+	Material.Parameters.Metallic = 1.f;
+	Material.Parameters.Roughness = 0.15f;
+	Material.Parameters.BlendMode = EMaterialBlendMode::Masked;
+	Material.Textures[1].Texture = FAssetId{1, 2};
+	Material.Textures[1].Channel = EMaterialChannel::Blue;
+	Material.ShaderPath = "Shaders/Copper.slang";
+	const auto Text = SerializeMaterial(Material);
+	REQUIRE(Text);
+	const auto Loaded = DeserializeMaterial(*Text);
+	REQUIRE(Loaded);
+	CHECK(*Loaded == Material);
+	const auto Again = SerializeMaterial(*Loaded);
+	REQUIRE(Again);
+	CHECK(*Again == *Text);
+	const auto Cooked = SerializeCookedAsset(Material);
+	REQUIRE(Cooked);
+	const auto Reopened = DeserializeCookedAsset(*Cooked);
+	REQUIRE(Reopened);
+	REQUIRE(std::holds_alternative<FMaterialAsset>(*Reopened));
+	CHECK(std::get<FMaterialAsset>(*Reopened) == Material);
+	CHECK_FALSE(DeserializeCookedAsset(std::span(*Cooked).first(Cooked->size() - 1)));
+}
+
+TEST_CASE("Material assets reject invalid fields channels and unsafe shader paths")
+{
+	const auto Canonical = SerializeMaterial(FMaterialAsset{});
+	REQUIRE(Canonical);
+	CHECK_FALSE(DeserializeMaterial("{}"));
+	CHECK_FALSE(DeserializeMaterial("[]"));
+	CHECK_FALSE(DeserializeMaterial(Canonical->substr(0, Canonical->size() - 3)));
+	std::string Duplicate = *Canonical;
+	Duplicate.insert(1, "\"version\":1,");
+	CHECK_FALSE(DeserializeMaterial(Duplicate));
+	std::string Unknown = *Canonical;
+	Unknown.insert(1, "\"unknown\":1,");
+	CHECK_FALSE(DeserializeMaterial(Unknown));
+	FMaterialAsset Material;
+	Material.Parameters.Roughness = std::numeric_limits<float>::quiet_NaN();
+	CHECK_FALSE(SerializeMaterial(Material));
+	Material.Parameters.Roughness = -0.1f;
+	CHECK_FALSE(SerializeMaterial(Material));
+	Material.Parameters.Roughness = 0.5f;
+	Material.ShaderPath = "../outside.slang";
+	CHECK_FALSE(SerializeMaterial(Material));
+	Material.ShaderPath = "";
+	Material.Textures[1].ColorSpace = ETextureColorSpace::Srgb;
+	CHECK_FALSE(SerializeMaterial(Material));
+	Material.Textures[1].ColorSpace = ETextureColorSpace::Linear;
+	Material.Textures[1].Channel = EMaterialChannel::Rgb;
+	CHECK_FALSE(SerializeMaterial(Material));
+	CHECK(FMaterialAsset{}.Textures[0].ColorSpace == ETextureColorSpace::Srgb);
+	CHECK(FMaterialAsset{}.Textures[3].ColorSpace == ETextureColorSpace::Linear);
+}
+
+TEST_CASE("Material cooking tracks cross-mount texture and shader dependencies")
+{
+	const Tests::FScratchDirectory Scratch("HertaMaterialCook");
+	const auto Root = Scratch.GetPath() / "Content";
+	const auto EngineRoot = Scratch.GetPath() / "EngineContent";
+	Tests::WritePng(EngineRoot / "Textures/Checker.png", 2, 2, CheckerPixels);
+	Tests::WriteText(EngineRoot / "Textures/Checker.png.hmeta", "Format = HertaAssetMetadata\nVersion = 1\nId = 00000000-0000-4000-8000-000000000002\nImporter = Texture\n");
+	FMaterialAsset Material;
+	Material.Textures[0].Texture = *FAssetId::Parse("00000000-0000-4000-8000-000000000002");
+	Material.ShaderPath = "Shaders/Material.slang";
+	Tests::WriteText(Root / "Shaders/Material.slang", "#include \"Common.slang\"\n");
+	Tests::WriteText(Root / "Shaders/Common.slang", "float value = 1;\n");
+	const auto Text = SerializeMaterial(Material);
+	REQUIRE(Text);
+	Tests::WriteText(Root / "Copper.hmat", *Text);
+	Tests::WriteText(Root / "Copper.hmat.hmeta", "Format = HertaAssetMetadata\nVersion = 1\nId = 00000000-0000-4000-8000-000000000001\nImporter = Material\n");
+	auto Request = MakeRequest(Scratch, "Copper.hmat");
+	CHECK_FALSE(CookAsset(Request));
+	Request.DependencyContentRoots = {EngineRoot};
+	const auto First = CookAsset(Request);
+	REQUIRE(First);
+	const auto Second = CookAsset(Request);
+	REQUIRE(Second);
+	CHECK(Second->bCacheHit);
+	CHECK(Second->Key == First->Key);
+	Request.DependencyContentRoots.push_back(Request.ContentRoot);
+	const auto DuplicateRoot = CookAsset(Request);
+	REQUIRE(DuplicateRoot);
+	CHECK(DuplicateRoot->Key == First->Key);
+
+	const auto Loaded = LoadCookedAsset(Request.DerivedDataRoot, First->Key);
+	REQUIRE(Loaded);
+	CHECK(std::get<FMaterialAsset>(*Loaded) == Material);
+	Tests::WriteText(Root / "Shaders/Common.slang", "float value = 2;\n");
+	const auto IncludeChanged = CookAsset(Request);
+	REQUIRE(IncludeChanged);
+	CHECK(IncludeChanged->Key != First->Key);
+	Tests::WriteText(Root / "Shaders/Common.slang", "#include \"../Common.slang\"\n");
+	CHECK_FALSE(CookAsset(Request));
+	Tests::WriteText(Root / "Shaders/Common.slang", "float value = 2;\n");
+	constexpr std::array<std::uint8_t, 4> Red{255, 0, 0, 255};
+	Tests::WritePng(EngineRoot / "Textures/Checker.png", 1, 1, Red);
+	const auto TextureChanged = CookAsset(Request);
+	REQUIRE(TextureChanged);
+	CHECK(TextureChanged->Key != IncludeChanged->Key);
+}
+
+TEST_CASE("Headless material reimport resolves explicit engine content and shader roots")
+{
+	const Tests::FScratchDirectory Scratch("HertaMaterialCommands");
+	const auto Game = Scratch.GetPath() / "Game";
+	const auto Engine = Scratch.GetPath() / "Engine/Content";
+	const auto Shaders = Scratch.GetPath() / "Engine/Shaders";
+	Tests::WritePng(Engine / "Textures/Checker.png", 2, 2, CheckerPixels);
+	Tests::WriteText(Engine / "Textures/Checker.png.hmeta", "Format = HertaAssetMetadata\nVersion = 1\nId = 00000000-0000-4000-8000-000000000002\nImporter = Texture\n");
+	Tests::WriteText(Game / "Shaders/Material.slang", "#include \"Shared.slangh\"\n");
+	Tests::WriteText(Shaders / "Shared.slangh", "float value = 1;\n");
+	FMaterialAsset Material;
+	Material.Textures[0].Texture = *FAssetId::Parse("00000000-0000-4000-8000-000000000002");
+	Material.ShaderPath = "Shaders/Material.slang";
+	REQUIRE(WriteMaterialAsset(Game / "Copper.hmat", Material));
+	Tests::WriteText(Game / "Copper.hmat.hmeta", "Format = HertaAssetMetadata\nVersion = 1\nId = 00000000-0000-4000-8000-000000000001\nImporter = Material\n");
+	FAssetCommandOptions Options{.DefaultContentRoot = Game, .DerivedDataRoot = Scratch.GetPath() / "DerivedDataCache", .WorkerPath = Tests::GetSiblingExecutable("HertaAssetWorker"), .TargetPlatform = "TestPlatform"};
+	FEditorCommandRegistry Unconfigured;
+	REQUIRE(RegisterAssetCommands(Unconfigured, Options));
+	CHECK_FALSE(Unconfigured.Execute("asset.reimport Copper.hmat"));
+	Options.DependencyContentRoots = {Engine, Shaders};
+	FEditorCommandRegistry Configured;
+	REQUIRE(RegisterAssetCommands(Configured, Options));
+	const auto Cooked = Configured.Execute("asset.reimport Copper.hmat");
+	REQUIRE_MESSAGE(Cooked.has_value(), (Cooked ? "" : Cooked.error().Message));
+	CHECK(Cooked->Message.ends_with("(cooked)"));
+	const auto Cached = Configured.Execute("asset.reimport Copper.hmat");
+	REQUIRE(Cached);
+	CHECK(Cached->Message.ends_with("(cache hit)"));
+	Tests::WriteText(Shaders / "Shared.slangh", "float value = 2;\n");
+	const auto Changed = Configured.Execute("asset.reimport Copper.hmat");
+	REQUIRE(Changed);
+	CHECK(Changed->Message.ends_with("(cooked)"));
+	CHECK(Changed->Message != Cooked->Message);
+}
+
+TEST_CASE("HDR cooking preserves radiance and deterministic linear mip filtering")
+{
+	constexpr std::array<float, 12> Pixels{4.f, 2.f, 1.f, 1.f, 8.f, 4.f, 2.f, 1.f, 12.f, 6.f, 3.f, 1.f};
+	const auto Texture = CookHdrTexture(3, 1, Pixels);
+	REQUIRE(Texture);
+	CHECK(Texture->ColorSpace == ETextureColorSpace::Linear);
+	CHECK(Texture->PixelFormat == ETexturePixelFormat::Rgba32Float);
+	REQUIRE(Texture->Mips.size() == 2);
+	std::array<float, 4> Average{};
+	std::memcpy(Average.data(), Texture->Mips[1].Pixels.data(), sizeof(Average));
+	CHECK(Average == std::array<float, 4>{8.f, 4.f, 2.f, 1.f});
+	const auto Bytes = SerializeCookedAsset(*Texture);
+	REQUIRE(Bytes);
+	const auto Loaded = DeserializeCookedAsset(*Bytes);
+	REQUIRE(Loaded);
+	const auto Again = SerializeCookedAsset(*Loaded);
+	REQUIRE(Again);
+	CHECK(*Again == *Bytes);
+	CHECK_FALSE(CookHdrTexture(1, 1, std::array<float, 4>{-1.f, 1.f, 1.f, 1.f}));
+	FCookedTexture Bad = *Texture;
+	Bad.ColorSpace = ETextureColorSpace::Srgb;
+	CHECK_FALSE(ValidateCookedTexture(Bad));
+}
+
+TEST_CASE("Material source saves atomically without changing registered identity")
+{
+	const Tests::FScratchDirectory Scratch("HertaMaterialSave");
+	const auto Root = Scratch.GetPath() / "Content";
+	std::filesystem::create_directories(Root);
+	const auto Path = Root / "Test.hmat";
+	FMaterialAsset Material;
+	REQUIRE(WriteMaterialAsset(Path, Material, false));
+	CHECK_FALSE(WriteMaterialAsset(Path, Material, false));
+	const auto Imported = ImportSource(Root, Path);
+	REQUIRE(Imported);
+	Material.Parameters.Roughness = 0.1f;
+	REQUIRE(WriteMaterialAsset(Path, Material));
+	const auto Scan = ScanContentRoot(Root);
+	REQUIRE(Scan);
+	REQUIRE(Scan->Registry.GetRecords().size() == 1);
+	CHECK(Scan->Registry.GetRecords()[0].Id == Imported->Metadata.Id);
+	CHECK_FALSE(WriteMaterialAsset(Root / "Test.txt", Material));
+	const auto Cooked = CookAsset(MakeRequest(Scratch, "Test.hmat"));
+	REQUIRE(Cooked);
+	CHECK(std::get<FMaterialAsset>(*LoadCookedAsset(Scratch.GetPath() / "DerivedDataCache", Cooked->Key)) == Material);
+}
+
+TEST_CASE("Texture color-space requests recook shared sources with correct filtering")
+{
+	const Tests::FScratchDirectory Scratch("HertaTextureOverrides");
+	const auto Root = Scratch.GetPath() / "Content";
+	Tests::WritePng(Root / "Checker.png", 2, 2, CheckerPixels);
+	Tests::WriteText(Root / "Checker.png.hmeta", "Format = HertaAssetMetadata\nVersion = 1\nId = 00000000-0000-4000-8000-000000000001\nImporter = Texture\n");
+	auto Request = MakeRequest(Scratch, "Checker.png");
+	const auto Color = CookAsset(Request);
+	REQUIRE(Color);
+	Request.TextureColorSpace = ETextureColorSpace::Linear;
+	const auto Linear = CookAsset(Request);
+	REQUIRE(Linear);
+	CHECK(Linear->Key != Color->Key);
+	const auto LinearAsset = LoadCookedAsset(Request.DerivedDataRoot, Linear->Key);
+	const auto ColorAsset = LoadCookedAsset(Request.DerivedDataRoot, Color->Key);
+	REQUIRE(LinearAsset);
+	REQUIRE(ColorAsset);
+	CHECK(Texel(std::get<FCookedTexture>(*LinearAsset).Mips.back())[0] == 128);
+	CHECK(Texel(std::get<FCookedTexture>(*ColorAsset).Mips.back())[0] == 188);
+	const FAssetWorkerOptions Options{.WorkerPath = Tests::GetSiblingExecutable("HertaAssetWorker")};
+	Request.bForce = true;
+	const auto Worker = CookAssetInWorker(Request, Options);
+	REQUIRE(Worker);
+	CHECK(Worker->Key == Linear->Key);
+}
+
 TEST_CASE("Texture cooking filters mips in linear light")
 {
 	const auto Checker = CookTexture(2, 2, std::as_bytes(std::span(CheckerPixels)), ETextureColorSpace::Srgb);
@@ -223,7 +442,8 @@ TEST_CASE("Cooked assets round-trip and reject corrupt data")
 	Model.Vertices = {{.Position = {0, 0, 0}, .UV = {0, 0}}, {.Position = {1, 0, 0}, .UV = {1, 0}}, {.Position = {0, 1, 0}, .UV = {0, 1}}};
 	Model.Indices = {0, 1, 2};
 	Model.Sections = {{.FirstIndex = 0, .IndexCount = 3, .Material = 0}};
-	Model.Materials = {{.Name = "Default", .BaseColorTexture = 0}};
+	Model.Materials = {{.Name = "Default"}};
+	Model.Materials[0].Textures[0] = 0;
 	Model.Textures = {*Texture};
 
 	const auto Bytes = SerializeCookedAsset(Model);
@@ -256,7 +476,7 @@ TEST_CASE("Cooked assets round-trip and reject corrupt data")
 	BadSection.Sections[0].IndexCount = 6;
 	CHECK_FALSE(SerializeCookedAsset(BadSection));
 	FCookedModel BadMaterial = Model;
-	BadMaterial.Materials[0].BaseColorTexture = 1;
+	BadMaterial.Materials[0].Textures[0] = 1;
 	CHECK_FALSE(SerializeCookedAsset(BadMaterial));
 	FCookedTexture BadChain = *Texture;
 	BadChain.Mips.pop_back();
@@ -303,12 +523,20 @@ TEST_CASE("glTF cooking flattens nodes, merges materials, and keeps canonical wi
 		CHECK(NormalZ > 0.f);
 	}
 
-	const FCookedTexture& CheckerTexture = Model.Textures[Model.Materials[Model.Sections[0].Material].BaseColorTexture];
+	const FCookedTexture& CheckerTexture = Model.Textures[Model.Materials[Model.Sections[0].Material].Textures[0]];
 	REQUIRE(CheckerTexture.Mips.size() == 2);
 	CHECK(Texel(CheckerTexture.Mips[1]) == std::array<std::uint8_t, 4>{188, 188, 188, 255});
-	const FCookedTexture& RedTexture = Model.Textures[Model.Materials[Model.Sections[1].Material].BaseColorTexture];
-	REQUIRE(RedTexture.Mips.size() == 1);
-	CHECK(Texel(RedTexture.Mips[0]) == std::array<std::uint8_t, 4>{255, 0, 0, 255});
+	const FCookedMaterial& RedMaterial = Model.Materials[Model.Sections[1].Material];
+	CHECK(RedMaterial.Textures[0] == NoCookedTexture);
+	CHECK(RedMaterial.Parameters.BaseColor == std::array<float, 4>{1.f, 0.f, 0.f, 1.f});
+	CHECK(RedMaterial.Parameters.Metallic == 1.f);
+	CHECK(RedMaterial.Parameters.Roughness == 1.f);
+
+	for (const auto& Vertex : Model.Vertices)
+	{
+		CHECK(Vertex.Normal == std::array<float, 3>{0.f, 0.f, 1.f});
+		CHECK(Vertex.Tangent[3] == (Vertex.Position[0] < 0.f ? 1.f : -1.f));
+	}
 
 	FAssetCookRequest Forced = MakeRequest(Scratch, "Models/Quad.gltf");
 	Forced.bForce = true;
@@ -349,6 +577,97 @@ TEST_CASE("glTF cooking bounds cumulative geometry before decoding")
 	SUBCASE("Index counts are bounded before decoding either accessor")
 	{
 		CheckRejected(R"({"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[0,0,0]},{"componentType":5125,"count":4294967295,"type":"SCALAR"})", R"({"attributes":{"POSITION":0},"indices":1})", "unsupported triangle index count");
+	}
+}
+
+TEST_CASE("glTF PBR maps retain independent factors channels and color spaces")
+{
+	const Tests::FScratchDirectory Scratch("HertaPbrCook");
+	std::string Source(QuadGltf);
+	const std::string Original = R"({"name": "Checker", "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}})";
+	const std::string Replacement = R"({"name":"Checker","pbrMetallicRoughness":{"baseColorFactor":[0.2,0.4,0.6,0.8],"baseColorTexture":{"index":0},"metallicFactor":0.7,"roughnessFactor":0.3,"metallicRoughnessTexture":{"index":0}},"normalTexture":{"index":0,"scale":0.5},"occlusionTexture":{"index":0,"strength":0.6},"emissiveTexture":{"index":0},"emissiveFactor":[0.1,0.2,0.3],"alphaMode":"MASK","alphaCutoff":0.4})";
+	const auto Position = Source.find(Original);
+	REQUIRE(Position != std::string::npos);
+	Source.replace(Position, Original.size(), Replacement);
+	WriteQuadModel(Scratch.GetPath() / "Content", Source);
+	const auto Model = CookQuad(Scratch);
+	const auto& Material = Model.Materials[0];
+	CHECK(Material.Parameters.BaseColor == std::array<float, 4>{0.2f, 0.4f, 0.6f, 0.8f});
+	CHECK(Material.Parameters.Metallic == 0.7f);
+	CHECK(Material.Parameters.Roughness == 0.3f);
+	CHECK(Material.Parameters.NormalStrength == 0.5f);
+	CHECK(Material.Parameters.OcclusionStrength == 0.6f);
+	CHECK(Material.Parameters.Emissive == std::array<float, 3>{0.1f, 0.2f, 0.3f});
+	CHECK(Material.Parameters.BlendMode == EMaterialBlendMode::Masked);
+	CHECK(Material.Parameters.AlphaCutoff == 0.4f);
+	CHECK(Material.Channels[1] == EMaterialChannel::Blue);
+	CHECK(Material.Channels[2] == EMaterialChannel::Green);
+	CHECK(Material.Textures[1] == Material.Textures[2]);
+	CHECK(Model.Textures[Material.Textures[0]].ColorSpace == ETextureColorSpace::Srgb);
+	CHECK(Model.Textures[Material.Textures[1]].ColorSpace == ETextureColorSpace::Linear);
+	CHECK(Texel(Model.Textures[Material.Textures[0]].Mips[0]) == std::array<std::uint8_t, 4>{255, 255, 255, 255});
+	CHECK(Model.Textures.size() == 2);
+}
+
+TEST_CASE("glTF degenerate UVs generate finite orthonormal tangent frames")
+{
+	const Tests::FScratchDirectory Scratch("HertaTangentCook");
+	WriteQuadModel(Scratch.GetPath() / "Content");
+	auto Buffer = MakeQuadBuffer();
+	std::ranges::fill(std::span(Buffer).subspan(48, 32), std::byte{});
+	Tests::WriteBytes(Scratch.GetPath() / "Content/Models/Quad.bin", Buffer);
+	const auto Model = CookQuad(Scratch);
+	REQUIRE(ValidateCookedModel(Model));
+
+	for (const auto& Vertex : Model.Vertices)
+	{
+		CHECK(Vertex.Normal == std::array<float, 3>{0.f, 0.f, 1.f});
+		CHECK(Vertex.Tangent == std::array<float, 4>{1.f, 0.f, 0.f, 1.f});
+	}
+}
+
+TEST_CASE("glTF supplied tangent frames preserve mirrored handedness")
+{
+	const Tests::FScratchDirectory Scratch("HertaSuppliedTangentCook");
+	std::string Source(QuadGltf);
+	const auto Replace = [&Source](const std::string_view From, const std::string_view To)
+	{
+		const auto Position = Source.find(From);
+		REQUIRE(Position != std::string::npos);
+		Source.replace(Position, From.size(), To);
+	};
+
+	Replace(R"("TEXCOORD_0": 1)", R"("TEXCOORD_0": 1, "NORMAL": 3, "TANGENT": 4)");
+	Replace(R"("byteLength": 92)", R"("byteLength": 204)");
+	Replace(R"("byteLength": 12})", R"("byteLength": 12}, {"buffer":0,"byteOffset":92,"byteLength":48}, {"buffer":0,"byteOffset":140,"byteLength":64})");
+	Replace(R"("type": "SCALAR"})", R"("type": "SCALAR"}, {"bufferView":3,"componentType":5126,"count":4,"type":"VEC3"}, {"bufferView":4,"componentType":5126,"count":4,"type":"VEC4"})");
+	WriteQuadModel(Scratch.GetPath() / "Content", Source);
+	FBinaryWriter Writer;
+	Writer.WriteBytes(MakeQuadBuffer());
+
+	for (std::size_t Index = 0; Index < 4; ++Index)
+	{
+		Writer.WriteFloat(0.f);
+		Writer.WriteFloat(0.f);
+		Writer.WriteFloat(1.f);
+	}
+
+	for (std::size_t Index = 0; Index < 4; ++Index)
+	{
+		Writer.WriteFloat(1.f);
+		Writer.WriteFloat(0.f);
+		Writer.WriteFloat(0.f);
+		Writer.WriteFloat(-1.f);
+	}
+
+	Tests::WriteBytes(Scratch.GetPath() / "Content/Models/Quad.bin", Writer.TakeBytes());
+	const auto Model = CookQuad(Scratch);
+	REQUIRE(ValidateCookedModel(Model));
+
+	for (const auto& Vertex : Model.Vertices)
+	{
+		CHECK(Vertex.Normal[2] == 1.f);
+		CHECK(Vertex.Tangent[3] == (Vertex.Position[0] < 0.f ? 1.f : -1.f));
 	}
 }
 

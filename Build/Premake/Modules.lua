@@ -203,8 +203,10 @@ HertaRuntimeModule("Math", {
 })
 
 HertaRuntimeModule("Assets", {
-    PublicDependencies = { "Core" }
+    PublicDependencies = { "Core" },
+    PrivateThirdPartyDependencies = { "SimdJson" }
 })
+    externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
 
 HertaRuntimeModule("Project", {
     PublicDependencies = { "Core" },
@@ -320,9 +322,10 @@ HertaRuntimeModule("RenderGraph", {
 })
 
 HertaRuntimeModule("Renderer", {
-    PublicDependencies = { "RHI", "Math", "Assets" },
+    PublicDependencies = { "RHI", "Math", "Assets", "Level" },
     PrivateDependencies = { "RenderGraph" }
 })
+    externalincludedirs { path.join(RepositoryRoot, "External/smaa/Textures") }
 
 local VulkanSdk = HertaGetVulkanSdk()
 HertaRuntimeModule("NvrhiVulkan", {
@@ -384,12 +387,13 @@ project "HertaShaderWorker"
 local ShaderOutput = path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/Shaders")
 local ShaderWorker = path.join(ShaderOutput, "../HertaShaderWorker") .. (os.host() == "windows" and ".exe" or "")
 local ShaderInputs = os.matchfiles(path.join(RepositoryRoot, "Engine/Shaders/**"))
+table.insert(ShaderInputs, path.join(RepositoryRoot, "External/smaa/SMAA.hlsl"))
 table.insert(ShaderInputs, ShaderWorker)
 project "HertaShaders"
     kind "Utility"
     location(path.join(ProjectFilesRoot, "HertaShaders"))
     dependson { "HertaShaderWorker" }
-    files { path.join(RepositoryRoot, "Engine/Shaders/TexturedMesh.slang"), path.join(RepositoryRoot, "Engine/Shaders/DebugDraw.slang"), path.join(RepositoryRoot, "Engine/Shaders/WorldGrid.slang") }
+    files { path.join(RepositoryRoot, "Engine/Shaders/*.slang") }
     filter "files:**.slang"
         buildmessage "Cooking %{file.basename} shaders"
         buildinputs(ShaderInputs)
@@ -415,6 +419,16 @@ project "HertaShaders"
     filter { "files:**/TexturedMesh.slang", "configurations:not Shipping" }
         buildcommands {
             '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVertexMain "' .. path.join(ShaderOutput, "TexturedMesh.instanced.vert.hshader") .. '" --debug'
+        }
+    filter "files:**/Shadow.slang"
+        buildoutputs { path.join(ShaderOutput, "Shadow.instanced.vert.hshader") }
+    filter { "files:**/Shadow.slang", "configurations:Shipping" }
+        buildcommands {
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVertexMain "' .. path.join(ShaderOutput, "Shadow.instanced.vert.hshader") .. '"'
+        }
+    filter { "files:**/Shadow.slang", "configurations:not Shipping" }
+        buildcommands {
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVertexMain "' .. path.join(ShaderOutput, "Shadow.instanced.vert.hshader") .. '" --debug'
         }
     filter {}
 

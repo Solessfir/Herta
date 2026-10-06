@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Herta/AssetPipeline/AssetMetadata.h"
+#include "Herta/Assets/Material.h"
 
 #include <cstdint>
 #include <expected>
@@ -70,4 +71,8 @@ struct FContentScanCache
 
 // Registers a source with a new ID. Sources outside the content root are first copied into DestinationDirectory.
 [[nodiscard]] std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::path& ContentRoot, const std::filesystem::path& Source, std::string_view DestinationDirectory = {});
+
+// Publishes canonical material JSON without changing its asset identity sidecar.
+[[nodiscard]] std::expected<void, FAssetError> WriteMaterialAsset(const std::filesystem::path& Path, const FMaterialAsset& Material, bool bReplaceExisting = true);
+[[nodiscard]] std::expected<FMaterialAsset, FAssetError> LoadMaterialAsset(const std::filesystem::path& Path);
 }

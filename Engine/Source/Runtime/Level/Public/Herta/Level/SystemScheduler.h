@@ -7,7 +7,7 @@
 
 namespace Herta
 {
-enum class ELevelComponent : std::uint8_t
+enum class ELevelComponent : std::uint16_t
 {
 	None = 0,
 	Name = 1 << 0,
@@ -15,7 +15,10 @@ enum class ELevelComponent : std::uint8_t
 	Transform = 1 << 2,
 	StaticMesh = 1 << 3,
 	RigidBody = 1 << 4,
-	All = (1 << 5) - 1,
+	Light = 1 << 5,
+	SkyAtmosphere = 1 << 6,
+	HeightFog = 1 << 7,
+	All = (1 << 8) - 1,
 };
 
 constexpr ELevelComponent operator|(const ELevelComponent Left, const ELevelComponent Right)
@@ -69,6 +72,9 @@ struct FLevelQueryEntity
 	std::optional<FLevelTransform> Transform{};
 	std::optional<FStaticMeshComponent> Mesh{};
 	std::optional<FLevelRigidBodyComponent> RigidBody{};
+	std::optional<FLightComponent> Light{};
+	std::optional<FSkyAtmosphereComponent> SkyAtmosphere{};
+	std::optional<FHeightFogComponent> HeightFog{};
 };
 
 struct FLevelComponentUpdate
@@ -79,6 +85,9 @@ struct FLevelComponentUpdate
 	// Outer optional means update; an empty inner optional removes the component.
 	std::optional<std::optional<FStaticMeshComponent>> Mesh{};
 	std::optional<FLevelRigidBodyComponent> RigidBody{};
+	std::optional<std::optional<FLightComponent>> Light{};
+	std::optional<std::optional<FSkyAtmosphereComponent>> SkyAtmosphere{};
+	std::optional<std::optional<FHeightFogComponent>> HeightFog{};
 };
 
 struct FLevelEvent

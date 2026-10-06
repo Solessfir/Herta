@@ -34,6 +34,30 @@ std::vector<std::string> MakeAssetWorkerArguments(const FAssetCookRequest& Reque
 		Arguments.emplace_back("--force");
 	}
 
+	for (const auto& Root : Request.DependencyContentRoots)
+	{
+		Arguments.emplace_back("--dependency-root");
+		Arguments.push_back(PathToUtf8(Root));
+	}
+
+	if (Request.TextureColorSpace)
+	{
+		Arguments.emplace_back("--texture-color-space");
+		Arguments.emplace_back(*Request.TextureColorSpace == ETextureColorSpace::Linear ? "Linear" : "Srgb");
+	}
+
+	if (!Request.EngineContentRoot.empty())
+	{
+		Arguments.emplace_back("--engine-content-root");
+		Arguments.push_back(PathToUtf8(Request.EngineContentRoot));
+	}
+
+	if (!Request.GameContentRoot.empty())
+	{
+		Arguments.emplace_back("--game-content-root");
+		Arguments.push_back(PathToUtf8(Request.GameContentRoot));
+	}
+
 	Arguments.push_back(Request.SourcePath);
 	return Arguments;
 }
@@ -128,6 +152,24 @@ int RunAssetWorker(const std::span<const std::string_view> Arguments)
 			else if (Argument == "--derived-data" && bHasValue)
 			{
 				Request.DerivedDataRoot = Utf8ToPath(Arguments[++Index]);
+			}
+			else if (Argument == "--dependency-root" && bHasValue)
+			{
+				Request.DependencyContentRoots.push_back(Utf8ToPath(Arguments[++Index]));
+			}
+			else if (Argument == "--engine-content-root" && bHasValue)
+			{
+				Request.EngineContentRoot = Utf8ToPath(Arguments[++Index]);
+			}
+			else if (Argument == "--game-content-root" && bHasValue)
+			{
+				Request.GameContentRoot = Utf8ToPath(Arguments[++Index]);
+			}
+			else if (Argument == "--texture-color-space" && bHasValue)
+			{
+				const std::string_view Value = Arguments[++Index];
+				bValid = Value == "Linear" || Value == "Srgb";
+				Request.TextureColorSpace = Value == "Linear" ? ETextureColorSpace::Linear : ETextureColorSpace::Srgb;
 			}
 			else if (Argument == "--platform" && bHasValue)
 			{

@@ -63,6 +63,24 @@ TEST_CASE("Cooked shaders reject corruption and every truncated prefix")
 	CHECK_FALSE(DeserializeCookedShader(Corrupt));
 }
 
+TEST_CASE("Cooked shaders preserve bounded reflected uniform sizes")
+{
+	FShaderAsset Shader = MakeShader();
+	Shader.Bindings.push_back({.Name = "Uniforms", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .Space = 0, .ByteSize = 16 * 1024});
+	const auto Bytes = SerializeCookedShader(Shader);
+	REQUIRE(Bytes);
+	const auto Loaded = DeserializeCookedShader(*Bytes);
+	REQUIRE(Loaded);
+	CHECK(Loaded->Bindings.back().ByteSize == 16 * 1024);
+	Shader.Bindings.back().ByteSize = 16 * 1024 + 1;
+	CHECK_FALSE(SerializeCookedShader(Shader));
+	Shader.Bindings.back().ByteSize = 0;
+	CHECK_FALSE(SerializeCookedShader(Shader));
+	Shader.Bindings.back().Type = EShaderBindingType::Texture;
+	Shader.Bindings.back().ByteSize = 16;
+	CHECK_FALSE(SerializeCookedShader(Shader));
+}
+
 TEST_CASE("Cooked shaders reject unsupported metadata")
 {
 	FShaderAsset Shader = MakeShader();

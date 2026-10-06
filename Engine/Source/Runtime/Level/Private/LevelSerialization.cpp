@@ -15,6 +15,7 @@
 #include <map>
 #include <span>
 #include <system_error>
+#include <type_traits>
 
 #ifdef _WIN32
 	#include <Windows.h>
@@ -171,6 +172,132 @@ template <typename T> std::expected<T, FLevelError> ReadNumber(const simdjson::d
 	return static_cast<T>(Value);
 }
 
+std::expected<bool, FLevelError> ReadBoolean(const simdjson::dom::element Element)
+{
+	bool Value = false;
+	if (Element.get_bool().get(Value))
+	{
+		return LevelError("Expected a level JSON boolean");
+	}
+
+	return Value;
+}
+
+template <typename TId> std::expected<TId, FLevelError> ReadOptionalId(const simdjson::dom::element Element)
+{
+	return Element.is_null() ? std::expected<TId, FLevelError>{TId{}} : ReadId<TId>(Element);
+}
+
+std::expected<FLightComponent, FLevelError> ReadLight(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<17>(Element, GetLevelComponentDescriptor(ELevelComponentType::Light));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Type = ReadString((*Fields)[0]);
+	constexpr std::array<std::string_view, 5> Types{"directional", "sky", "point", "spot", "rect"};
+	const auto Color = ReadNumbers<float, 3>((*Fields)[1]);
+	const auto Intensity = ReadNumber<float>((*Fields)[2]);
+	const auto UseTemperature = ReadBoolean((*Fields)[3]);
+	const auto Temperature = ReadNumber<float>((*Fields)[4]);
+	const auto CastShadows = ReadBoolean((*Fields)[5]);
+	const auto Bias = ReadNumber<float>((*Fields)[6]);
+	const auto NormalBias = ReadNumber<float>((*Fields)[7]);
+	const auto Range = ReadNumber<float>((*Fields)[8]);
+	const auto Inner = ReadNumber<float>((*Fields)[9]);
+	const auto Outer = ReadNumber<float>((*Fields)[10]);
+	const auto Width = ReadNumber<float>((*Fields)[11]);
+	const auto Height = ReadNumber<float>((*Fields)[12]);
+	const auto Environment = ReadOptionalId<FAssetId>((*Fields)[13]);
+	const auto Ambient = ReadNumber<float>((*Fields)[14]);
+	const auto Visible = ReadBoolean((*Fields)[15]);
+	const auto Enabled = ReadBoolean((*Fields)[16]);
+	if (!Type || std::ranges::find(Types, *Type) == Types.end() || !Color || !Intensity || !UseTemperature || !Temperature || !CastShadows || !Bias || !NormalBias
+	    || !Range || !Inner || !Outer || !Width || !Height || !Environment || !Ambient || !Visible || !Enabled)
+	{
+		return LevelError("Invalid light component field");
+	}
+
+	return FLightComponent{
+	    .Type = static_cast<ELightType>(std::ranges::find(Types, *Type) - Types.begin()),
+	    .Color = {(*Color)[0], (*Color)[1], (*Color)[2]},
+	    .Intensity = *Intensity,
+	    .bUseTemperature = *UseTemperature,
+	    .TemperatureKelvin = *Temperature,
+	    .bCastShadows = *CastShadows,
+	    .ShadowBias = *Bias,
+	    .ShadowNormalBias = *NormalBias,
+	    .Range = *Range,
+	    .InnerConeAngle = *Inner,
+	    .OuterConeAngle = *Outer,
+	    .Width = *Width,
+	    .Height = *Height,
+	    .Environment = *Environment,
+	    .AmbientStrength = *Ambient,
+	    .bEnvironmentVisible = *Visible,
+	    .bEnabled = *Enabled,
+	};
+}
+
+std::expected<FSkyAtmosphereComponent, FLevelError> ReadAtmosphere(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<7>(Element, GetLevelComponentDescriptor(ELevelComponentType::SkyAtmosphere));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Sun = ReadOptionalId<FObjectId>((*Fields)[0]);
+	const auto Rayleigh = ReadNumber<float>((*Fields)[1]);
+	const auto Mie = ReadNumber<float>((*Fields)[2]);
+	const auto Anisotropy = ReadNumber<float>((*Fields)[3]);
+	const auto Radius = ReadNumber<float>((*Fields)[4]);
+	const auto Height = ReadNumber<float>((*Fields)[5]);
+	const auto Enabled = ReadBoolean((*Fields)[6]);
+	if (!Sun || !Rayleigh || !Mie || !Anisotropy || !Radius || !Height || !Enabled)
+	{
+		return LevelError("Invalid atmosphere component field");
+	}
+
+	return FSkyAtmosphereComponent{.Sun = *Sun, .RayleighScattering = *Rayleigh, .MieScattering = *Mie, .MieAnisotropy = *Anisotropy, .PlanetRadius = *Radius, .AtmosphereHeight = *Height, .bEnabled = *Enabled};
+}
+
+std::expected<FHeightFogComponent, FLevelError> ReadFog(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<8>(Element, GetLevelComponentDescriptor(ELevelComponentType::HeightFog));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Density = ReadNumber<float>((*Fields)[0]);
+	const auto Falloff = ReadNumber<float>((*Fields)[1]);
+	const auto Albedo = ReadNumbers<float, 3>((*Fields)[2]);
+	const auto Anisotropy = ReadNumber<float>((*Fields)[3]);
+	const auto Distance = ReadNumber<float>((*Fields)[4]);
+	const auto Quality = ReadString((*Fields)[5]);
+	constexpr std::array<std::string_view, 3> Qualities{"low", "medium", "high"};
+	const auto Enabled = ReadBoolean((*Fields)[6]);
+	const auto Volumetric = ReadBoolean((*Fields)[7]);
+	if (!Density || !Falloff || !Albedo || !Anisotropy || !Distance || !Quality || std::ranges::find(Qualities, *Quality) == Qualities.end() || !Enabled || !Volumetric)
+	{
+		return LevelError("Invalid height fog component field");
+	}
+
+	return FHeightFogComponent{
+	    .Density = *Density,
+	    .HeightFalloff = *Falloff,
+	    .Albedo = {(*Albedo)[0], (*Albedo)[1], (*Albedo)[2]},
+	    .Anisotropy = *Anisotropy,
+	    .MaxDistance = *Distance,
+	    .Quality = static_cast<EFogQuality>(std::ranges::find(Qualities, *Quality) - Qualities.begin()),
+	    .bEnabled = *Enabled,
+	    .bVolumetric = *Volumetric,
+	};
+}
+
 std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
 	const auto& TransformDescriptor = GetLevelComponentDescriptor(ELevelComponentType::Transform);
@@ -239,7 +366,13 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 1;
-			const auto Mesh = ReadComponentFields<1>(Component.value, MeshDescriptor);
+
+			if (SchemaVersion < 4 && Component.value["materials"].error() == simdjson::SUCCESS)
+			{
+				return LevelError("Material slot overrides require engine schema 4");
+			}
+
+			const auto Mesh = ReadFields(Component.value, std::array<std::string_view, 2>{MeshDescriptor.Properties[0].Key, MeshDescriptor.Properties[1].Key}, SchemaVersion >= 4 ? 3 : 1);
 			if (!Mesh)
 			{
 				return std::unexpected(Mesh.error());
@@ -252,6 +385,26 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			Entity.Mesh = FStaticMeshComponent{.Asset = *Asset};
+
+			if (SchemaVersion >= 4)
+			{
+				simdjson::dom::array Materials;
+				if ((*Mesh)[1].get_array().get(Materials) || Materials.size() > 256)
+				{
+					return LevelError("Invalid mesh material slots array");
+				}
+
+				for (const auto Material : Materials)
+				{
+					const auto MaterialId = ReadOptionalId<FAssetId>(Material);
+					if (!MaterialId)
+					{
+						return std::unexpected(MaterialId.error());
+					}
+
+					Entity.Mesh->Materials.push_back(*MaterialId);
+				}
+			}
 		}
 		else if (Component.key == BodyDescriptor.SerializationKey)
 		{
@@ -312,6 +465,54 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			    .AngularDamping = *AngularDamping,
 			    .GravityScale = *GravityScale,
 			};
+		}
+		else if (SchemaVersion >= 4 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Light).SerializationKey)
+		{
+			if ((SeenComponents & 4) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 4;
+			const auto Light = ReadLight(Component.value);
+			if (!Light)
+			{
+				return std::unexpected(Light.error());
+			}
+
+			Entity.Light = *Light;
+		}
+		else if (SchemaVersion >= 4 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::SkyAtmosphere).SerializationKey)
+		{
+			if ((SeenComponents & 8) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 8;
+			const auto Atmosphere = ReadAtmosphere(Component.value);
+			if (!Atmosphere)
+			{
+				return std::unexpected(Atmosphere.error());
+			}
+
+			Entity.SkyAtmosphere = *Atmosphere;
+		}
+		else if (SchemaVersion >= 4 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::HeightFog).SerializationKey)
+		{
+			if ((SeenComponents & 16) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 16;
+			const auto Fog = ReadFog(Component.value);
+			if (!Fog)
+			{
+				return std::unexpected(Fog.error());
+			}
+
+			Entity.HeightFog = *Fog;
 		}
 		else
 		{
@@ -517,6 +718,54 @@ template <typename T, std::size_t N> void AppendNumbers(std::string& Output, con
 	Output += ']';
 }
 
+using FVisualValue = std::variant<float, bool, FVector3, FAssetId, FObjectId, std::string_view>;
+
+void AppendVisualComponent(std::string& Output, const ELevelComponentType Type, const std::span<const FVisualValue> Values, bool& bHasComponent)
+{
+	const auto& Descriptor = GetLevelComponentDescriptor(Type);
+	AppendFieldKey(Output, bHasComponent ? ",\n        " : "\n        ", Descriptor.SerializationKey);
+	Output += '{';
+	for (std::size_t Index = 0; Index < Values.size(); ++Index)
+	{
+		AppendFieldKey(Output, Index == 0 ? "\n          " : ",\n          ", Descriptor.Properties[Index].Key);
+
+		std::visit([&Output](const auto& Value)
+		{
+			using T = std::decay_t<decltype(Value)>;
+			if constexpr (std::is_same_v<T, bool>)
+			{
+				Output += Value ? "true" : "false";
+			}
+			else if constexpr (std::is_same_v<T, float>)
+			{
+				AppendNumber(Output, Value);
+			}
+			else if constexpr (std::is_same_v<T, FVector3>)
+			{
+				AppendNumbers(Output, std::array{Value.X, Value.Y, Value.Z});
+			}
+			else if constexpr (std::is_same_v<T, std::string_view>)
+			{
+				AppendString(Output, Value);
+			}
+			else
+			{
+				if (Value.IsValid())
+				{
+					AppendString(Output, Value.ToString());
+				}
+				else
+				{
+					Output += "null";
+				}
+			}
+		}, Values[Index]);
+	}
+
+	Output += "\n        }";
+	bHasComponent = true;
+}
+
 std::expected<void, FLevelError> WriteTemporaryFile(const std::filesystem::path& Path, const std::string_view Text)
 {
 #ifdef _WIN32
@@ -610,7 +859,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 3,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 4,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -651,6 +900,24 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			AppendFieldKey(Output, "\n        ", MeshDescriptor.SerializationKey);
 			AppendFieldKey(Output, "{", MeshDescriptor.Properties[0].Key);
 			AppendString(Output, Entity.Mesh->Asset.ToString());
+			AppendFieldKey(Output, ", ", MeshDescriptor.Properties[1].Key);
+			Output += '[';
+
+			for (std::size_t Slot = 0; Slot < Entity.Mesh->Materials.size(); ++Slot)
+			{
+				Output += Slot == 0 ? "" : ", ";
+
+				if (Entity.Mesh->Materials[Slot].IsValid())
+				{
+					AppendString(Output, Entity.Mesh->Materials[Slot].ToString());
+				}
+				else
+				{
+					Output += "null";
+				}
+			}
+
+			Output += ']';
 			Output += '}';
 		}
 
@@ -675,7 +942,70 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			Output += "\n        }";
 		}
 
-		Output += Entity.Mesh || Entity.BodyType != ELevelBodyType::None ? "\n      }\n    }" : "}\n    }";
+		bool bHasComponent = Entity.Mesh.has_value() || Entity.BodyType != ELevelBodyType::None;
+
+		if (Entity.Light)
+		{
+			const auto& Light = *Entity.Light;
+			constexpr std::array<std::string_view, 5> Types{"directional", "sky", "point", "spot", "rect"};
+			const std::array<FVisualValue, 17> Values{
+			    Types[static_cast<std::size_t>(Light.Type)],
+			    Light.Color,
+			    Light.Intensity,
+			    Light.bUseTemperature,
+			    Light.TemperatureKelvin,
+			    Light.bCastShadows,
+			    Light.ShadowBias,
+			    Light.ShadowNormalBias,
+			    Light.Range,
+			    Light.InnerConeAngle,
+			    Light.OuterConeAngle,
+			    Light.Width,
+			    Light.Height,
+			    Light.Environment,
+			    Light.AmbientStrength,
+			    Light.bEnvironmentVisible,
+			    Light.bEnabled,
+			};
+
+			AppendVisualComponent(Output, ELevelComponentType::Light, Values, bHasComponent);
+		}
+
+		if (Entity.SkyAtmosphere)
+		{
+			const auto& Atmosphere = *Entity.SkyAtmosphere;
+			const std::array<FVisualValue, 7> Values{
+			    Atmosphere.Sun,
+			    Atmosphere.RayleighScattering,
+			    Atmosphere.MieScattering,
+			    Atmosphere.MieAnisotropy,
+			    Atmosphere.PlanetRadius,
+			    Atmosphere.AtmosphereHeight,
+			    Atmosphere.bEnabled,
+			};
+
+			AppendVisualComponent(Output, ELevelComponentType::SkyAtmosphere, Values, bHasComponent);
+		}
+
+		if (Entity.HeightFog)
+		{
+			const auto& Fog = *Entity.HeightFog;
+			constexpr std::array<std::string_view, 3> Qualities{"low", "medium", "high"};
+			const std::array<FVisualValue, 8> Values{
+			    Fog.Density,
+			    Fog.HeightFalloff,
+			    Fog.Albedo,
+			    Fog.Anisotropy,
+			    Fog.MaxDistance,
+			    Qualities[static_cast<std::size_t>(Fog.Quality)],
+			    Fog.bEnabled,
+			    Fog.bVolumetric,
+			};
+
+			AppendVisualComponent(Output, ELevelComponentType::HeightFog, Values, bHasComponent);
+		}
+
+		Output += bHasComponent ? "\n      }\n    }" : "}\n    }";
 		if (Output.size() > MaximumLevelBytes)
 		{
 			return LevelError("Level exceeds the 64 MiB limit");
@@ -780,15 +1110,15 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 3 || (*Format == "HertaScene" && SchemaVersion == 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 4 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 3 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 4 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
-	if ((SchemaVersion == 3) != bHasFolders)
+	if ((SchemaVersion >= 3) != bHasFolders)
 	{
-		return LevelError("Level folders are required only in engine schema 3");
+		return LevelError("Level folders are required in engine schemas 3 and later");
 	}
 
 	const auto Id = ReadId<FObjectId>((*Fields)[3]);
@@ -818,7 +1148,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		Document.Entities.push_back(std::move(*Entity));
 	}
 
-	if (SchemaVersion == 3)
+	if (SchemaVersion >= 3)
 	{
 		simdjson::dom::array Folders;
 		if ((*Fields)[6].get_array().get(Folders) || Folders.size() > MaximumLevelEntities)

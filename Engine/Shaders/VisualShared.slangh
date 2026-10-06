@@ -1,0 +1,160 @@
+#pragma once
+
+struct FVisualLight
+{
+    float4 PositionType;
+    float4 DirectionRange;
+    float4 ColorIntensity;
+    float4 RightWidth;
+    float4 UpHeight;
+    float4 ConeShadow;
+};
+
+struct FShadow
+{
+    column_major float4x4 WorldToClip;
+    float4 Atlas;
+    float4 Parameters;
+};
+
+struct FMaterial
+{
+    float4 BaseColor;
+    float4 Surface;
+    float4 Emissive;
+    float4 UV;
+    float4 Channels0;
+    float4 Channels1;
+    float4 TextureFlags;
+};
+
+struct FVisualUniforms
+{
+    column_major float4x4 ViewToWorld;
+    column_major float4x4 ClipToView;
+    float4 Viewport;
+    float4 Sky;
+    float4 SkyColor;
+    float4 Atmosphere;
+    float4 AtmosphereGeometry;
+    float4 Fog;
+    float4 FogColor;
+    float4 Controls;
+    FVisualLight Lights[32];
+    FShadow Shadows[16];
+    FMaterial Material;
+};
+
+[[vk::binding(64, 0)]] ConstantBuffer<FVisualUniforms> Visual;
+[[vk::binding(128, 0)]] SamplerState LinearSampler;
+static const float PI = 3.14159265358979323846;
+
+float2 DirectionUV(float3 Direction)
+{
+    Direction = normalize(Direction);
+    return float2(frac(atan2(Direction.z, Direction.x) / (2.0 * PI) + 0.5), acos(clamp(Direction.y, -1.0, 1.0)) / PI);
+}
+
+float3 CameraRay(float2 UV)
+{
+    float4 View = mul(Visual.ClipToView, float4(UV.x * 2.0 - 1.0, 1.0 - UV.y * 2.0, 0.0001, 1.0));
+    return normalize(mul((float3x3)Visual.ViewToWorld, View.xyz / View.w));
+}
+
+float3 WorldPosition(float2 UV, float Depth)
+{
+    float4 View = mul(Visual.ClipToView, float4(UV.x * 2.0 - 1.0, 1.0 - UV.y * 2.0, Depth, 1.0));
+    return mul(Visual.ViewToWorld, float4(View.xyz / View.w, 1.0)).xyz;
+}
+
+float3 ProceduralSky(float3 Direction)
+{
+    float3 SunDirection = float3(0.0, 1.0, 0.0);
+    float3 SunRadiance = 1.0;
+    for (int I = 0; I < int(Visual.Controls.x); ++I)
+    {
+        if (int(Visual.Lights[I].PositionType.w) == 0)
+        {
+            SunDirection = -Visual.Lights[I].DirectionRange.xyz;
+            SunRadiance = Visual.Lights[I].ColorIntensity.rgb * Visual.Lights[I].ColorIntensity.w / 50000.0;
+            break;
+        }
+    }
+    float Mu = dot(Direction, SunDirection);
+    float G = Visual.Atmosphere.z;
+    float RayleighPhase = 3.0 / (16.0 * PI) * (1.0 + Mu * Mu);
+    float MiePhase = (1.0 - G * G) / (4.0 * PI * pow(max(0.002, 1.0 + G * G - 2.0 * G * Mu), 1.5));
+    // Optical depth rises towards the horizon; extinction keeps the scattering energy bounded.
+    float Curvature = sqrt(Visual.AtmosphereGeometry.y / max(1.0, Visual.AtmosphereGeometry.x));
+    float Height = max(0.025, Direction.y + Curvature);
+    float3 OpticalDepth = float3(0.055, 0.13, 0.3) * Visual.Atmosphere.x * (Visual.AtmosphereGeometry.y / 80000.0) / Height;
+    SunRadiance *= smoothstep(-0.12, 0.03, SunDirection.y) * exp(-float3(0.02, 0.05, 0.12) / max(0.025, SunDirection.y + 0.08));
+    float3 Transmittance = exp(-OpticalDepth);
+    float3 Scattering = (1.0 - Transmittance) * (RayleighPhase * 12.0 + MiePhase * Visual.Atmosphere.y * 0.4);
+    float3 Ground = float3(0.025, 0.03, 0.04) * saturate(SunDirection.y + 0.2);
+    float SunDisc = smoothstep(cos(0.005), cos(0.0044), Mu);
+    return max(0.0, lerp(Ground, Scattering * SunRadiance, smoothstep(-0.03, 0.03, Direction.y)) + SunDisc * Transmittance * SunRadiance * 20.0);
+}
+
+float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, int ShadowIndex)
+{
+    if (ShadowIndex < 0 || ShadowIndex >= int(Visual.Controls.y)) return 1.0;
+    FShadow Shadow = Visual.Shadows[ShadowIndex];
+    float4 Clip = mul(Shadow.WorldToClip, float4(Position, 1.0));
+    float3 NDC = Clip.xyz / max(Clip.w, 0.00001);
+    if (any(abs(NDC.xy) > 1.0) || NDC.z < 0.0 || NDC.z > 1.0) return 1.0;
+    float2 UV = float2(NDC.x * 0.5 + 0.5, 0.5 - NDC.y * 0.5) * Shadow.Atlas.xy + Shadow.Atlas.zw;
+    float Visibility = 0.0;
+    int Radius = Visual.AtmosphereGeometry.w > 1.5 ? 1 : 0;
+    for (int Y = -Radius; Y <= Radius; ++Y)
+    for (int X = -Radius; X <= Radius; ++X)
+    {
+        float2 SampleUV = clamp(UV + float2(X, Y) / 2048.0, Shadow.Atlas.zw + 0.5 / 2048.0, Shadow.Atlas.zw + Shadow.Atlas.xy - 0.5 / 2048.0);
+        float Depth = Atlas.Load(int3(int2(SampleUV * 2048.0), 0)).r;
+        Visibility += NDC.z + Shadow.Parameters.x >= Depth ? 1.0 : 0.0;
+    }
+    return Visibility / float((2 * Radius + 1) * (2 * Radius + 1));
+}
+
+float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Position)
+{
+    int First = int(Light.ConeShadow.z);
+    int Count = int(Light.ConeShadow.w);
+    if (First < 0 || Count == 0) return 1.0;
+    int Type = int(Light.PositionType.w);
+    if (Type == 2 && Count == 6)
+    {
+        float3 D = Position - Light.PositionType.xyz;
+        float3 A = abs(D);
+        int Face = A.x >= A.y && A.x >= A.z ? (D.x > 0.0 ? 0 : 1) : A.y >= A.z ? (D.y > 0.0 ? 2 : 3) : (D.z > 0.0 ? 4 : 5);
+        return ShadowVisibility(Atlas, Position, First + Face);
+    }
+    if (Type == 0)
+    {
+        float3 Eye = mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+        float Distance = dot(Position - Eye, normalize(mul((float3x3)Visual.ViewToWorld, float3(0.0, 0.0, 1.0))));
+        for (int I = 0; I < Count; ++I)
+        {
+            if (Distance <= Visual.Shadows[First + I].Parameters.y) return ShadowVisibility(Atlas, Position, First + I);
+        }
+        return 1.0;
+    }
+    return ShadowVisibility(Atlas, Position, First);
+}
+
+float LightAttenuation(FVisualLight Light, float3 Position, out float3 L)
+{
+    int Type = int(Light.PositionType.w);
+    if (Type == 0) { L = -Light.DirectionRange.xyz; return 1.0; }
+    float3 Delta = Light.PositionType.xyz - Position;
+    float Distance = length(Delta);
+    L = Delta / max(Distance, 0.001);
+    float Fade = pow(saturate(1.0 - pow(Distance / max(Light.DirectionRange.w, 0.01), 4.0)), 2.0);
+    float Attenuation = Fade / max(Distance * Distance, 0.01);
+    if (Type == 3 || Type == 4)
+    {
+        float Cone = dot(-L, Light.DirectionRange.xyz);
+        Attenuation *= Type == 3 ? smoothstep(Light.ConeShadow.y, Light.ConeShadow.x, Cone) : saturate(Cone);
+    }
+    return Attenuation;
+}

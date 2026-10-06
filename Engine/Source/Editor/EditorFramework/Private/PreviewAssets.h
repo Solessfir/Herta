@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Assets/AssetRegistry.h"
 #include "Herta/Core/Hash.h"
@@ -7,6 +8,7 @@
 #include "Herta/EditorFramework/EditorFramework.h"
 #include "Herta/Renderer/MeshRenderer.h"
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -42,9 +44,17 @@ struct FPreviewTextureMetadata
 	std::uint32_t Height = 0;
 	std::size_t Mips = 0;
 	ETextureColorSpace ColorSpace = ETextureColorSpace::Srgb;
+	ETexturePixelFormat PixelFormat = ETexturePixelFormat::Rgba8;
 };
 
-using FPreviewAssetMetadata = std::variant<FPreviewModelMetadata, FPreviewTextureMetadata>;
+struct FPreviewMaterialMetadata
+{
+	std::string Name;
+	std::size_t TextureMaps = 0;
+	EMaterialBlendMode BlendMode = EMaterialBlendMode::Opaque;
+};
+
+using FPreviewAssetMetadata = std::variant<FPreviewModelMetadata, FPreviewTextureMetadata, FPreviewMaterialMetadata>;
 
 FPreviewAssetMetadata GetPreviewAssetMetadata(const FCookedAsset& Asset);
 
@@ -53,6 +63,10 @@ struct FPreviewMeshSlot
 	FAssetId Asset;
 	std::string Label;
 	std::shared_ptr<const FRenderMesh> Mesh;
+	std::shared_ptr<const FRenderMaterial> Material;
+	std::optional<FMaterialAsset> MaterialSource;
+	std::shared_ptr<const FCookedTexture> CookedTexture;
+	FTextureHandle Texture;
 	FEditorAssetThumbnail Thumbnail;
 	std::optional<FPreviewAssetMetadata> Metadata;
 
@@ -107,6 +121,26 @@ public:
 
 	// Requests made before the first scan finishes wait for it. An invalid asset clears the mesh component.
 	void RequestMesh(std::size_t Object, const FAssetId& Asset);
+	void RequestMaterial(const FAssetId& Asset);
+	void SetMaterialAssets(std::span<const FAssetId> Assets);
+	std::shared_ptr<const FRenderMaterial> GetMaterial(const FAssetId& Asset) const noexcept;
+	const FMaterialAsset* GetMaterialSource(const FAssetId& Asset) const noexcept;
+	[[nodiscard]] std::expected<std::filesystem::path, FAssetError> GetMaterialPath(const FAssetId& Asset) const;
+	[[nodiscard]] std::expected<FAssetId, FAssetError> CreateMaterial(std::string_view MountedParent, std::string_view Name);
+	[[nodiscard]] std::expected<void, FAssetError> SaveMaterial(const FAssetId& Asset, const FMaterialAsset& Material);
+	void RequestTexture(const FAssetId& Asset);
+	void SetTextureAssets(std::span<const FAssetId> Assets);
+	std::shared_ptr<const FCookedTexture> GetCookedTexture(const FAssetId& Asset) const noexcept;
+	FTextureHandle GetTexture(const FAssetId& Asset) const noexcept;
+	void SetMaterialThumbnailRenderer(FEditorMaterialThumbnailRenderer Renderer);
+	void SetMaterialShaderGeneration(std::uint64_t Generation);
+	bool AreMaterialThumbnailsReady() const noexcept;
+	void RequestMaterialPreview(const FAssetId& Asset, const FMaterialAsset& Draft);
+	std::shared_ptr<const FRenderMaterial> GetMaterialPreview() const noexcept;
+	FEditorAssetThumbnail GetMaterialPreviewThumbnail() const noexcept;
+	FAssetId GetMaterialPreviewAsset() const noexcept;
+	bool IsMaterialPreviewLoading() const noexcept;
+	std::string_view GetMaterialPreviewError() const noexcept;
 	// Level edits change bindings, not the lifetime of loaded meshes or pending cooks. Invalid assets leave empty slots.
 	void RebindObjects(std::span<const FAssetId> Assets);
 	// The browser retains at most 64 visible thumbnails. Tick performs GPU work, never the draw-time request.
@@ -166,6 +200,10 @@ private:
 	void PublishSlots(const FPreviewMeshSlot& Slot);
 	void PruneCache();
 	void UpdateThumbnail(FCachedMesh& Cached);
+	void StartMaterialPreview();
+	void UpdateMaterialPreviewThumbnail();
+	[[nodiscard]] std::expected<std::shared_ptr<const FRenderMesh>, FAssetError> GetMaterialPreviewMesh();
+	std::map<FAssetId, FAssetCookRequest> GetTextureRequests() const;
 
 	FTaskSystem& Tasks;
 	IGraphicsDevice& Device;
@@ -182,13 +220,32 @@ private:
 	std::vector<FPreviewMeshSlot> Slots;
 	std::map<FAssetId, FCachedMesh> MeshCache;
 	std::set<FAssetId> ThumbnailAssets;
+	std::set<FAssetId> MaterialAssets;
+	std::set<FAssetId> TextureAssets;
 	FEditorAssetThumbnailRenderer RenderThumbnail;
+	FEditorMaterialThumbnailRenderer RenderMaterialThumbnail;
+	FAssetId MaterialPreviewMeshAsset{};
+	std::uint64_t MaterialShaderGeneration = 0;
 	bool bThumbnailRequestsChanged = false;
 	std::uint64_t RequestGeneration = 0;
 	std::uint64_t ContentGeneration = 0;
 	std::uint64_t OptionsGeneration = 0;
 
+	FAssetId PreviewDraftAsset;
+	std::optional<FMaterialAsset> PreviewDraft;
+	std::optional<FMaterialAsset> PublishedPreviewDraft;
+	FAssetId PublishedPreviewAsset;
+	std::uint64_t PublishedPreviewContentGeneration = 0;
+	std::shared_ptr<const FRenderMaterial> PreviewMaterial;
+	FEditorAssetThumbnail PreviewThumbnail;
+	std::shared_ptr<std::atomic<std::uint64_t>> PreviewGeneration = std::make_shared<std::atomic<std::uint64_t>>(0);
+	bool bPreviewTask = false;
+	bool bPreviewPending = false;
+	bool bPreviewThumbnailDirty = false;
+	std::string PreviewError;
+
 	bool bScanning = false;
+	bool bScanAgain = false;
 	bool bScanned = false;
 
 	std::vector<FContentSnapshot> Snapshots;

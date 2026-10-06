@@ -35,3 +35,6 @@
 [submodule "External/entt"]
 	path = External/entt
 	url = https://github.com/skypjack/entt.git
+[submodule "External/smaa"]
+	path = External/smaa
+	url = https://github.com/iryoku/smaa.git

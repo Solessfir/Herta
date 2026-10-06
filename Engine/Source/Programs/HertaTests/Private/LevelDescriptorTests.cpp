@@ -12,9 +12,9 @@ namespace Herta
 TEST_CASE("Level descriptors register stable built-in component and property identities")
 {
 	const auto Components = GetLevelComponentDescriptors();
-	REQUIRE(Components.size() == 3);
-	const std::array<std::string_view, 3> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody"};
-	const std::array<std::string_view, 3> Keys{"transform", "staticMesh", "body"};
+	REQUIRE(Components.size() == 6);
+	const std::array<std::string_view, 6> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody", "Herta.Level.Light", "Herta.Level.SkyAtmosphere", "Herta.Level.HeightFog"};
+	const std::array<std::string_view, 6> Keys{"transform", "staticMesh", "body", "light", "skyAtmosphere", "heightFog"};
 
 	for (std::size_t Index = 0; Index < Components.size(); ++Index)
 	{
@@ -39,6 +39,29 @@ TEST_CASE("Level descriptors register stable built-in component and property ide
 	CHECK(FindLevelComponentDescriptor("missing") == nullptr);
 }
 
+TEST_CASE("Visual descriptor property access preserves types and rejects invalid values atomically")
+{
+	FLevelEntity Entity{.Id = FObjectId{1, 1}, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}};
+	for (const ELevelComponentType Type : {ELevelComponentType::Light, ELevelComponentType::SkyAtmosphere, ELevelComponentType::HeightFog})
+	{
+		const auto& Descriptor = GetLevelComponentDescriptor(Type);
+		for (const auto& Property : Descriptor.Properties)
+		{
+			const auto Value = GetLevelVisualProperty(Entity, Type, Property.Key);
+			REQUIRE(Value);
+			CHECK(*Value == Property.Default);
+			CHECK(SetLevelVisualProperty(Entity, Type, Property.Key, Property.Default));
+		}
+	}
+
+	const auto Before = Entity;
+	CHECK_FALSE(SetLevelVisualProperty(Entity, ELevelComponentType::Light, "intensity", true));
+	CHECK_FALSE(SetLevelVisualProperty(Entity, ELevelComponentType::HeightFog, "density", -1.f));
+	CHECK_FALSE(SetLevelVisualProperty(Entity, ELevelComponentType::Light, "missing", 1.f));
+	CHECK(Entity == Before);
+	CHECK_FALSE(GetLevelVisualProperty(Entity, ELevelComponentType::Light, "missing"));
+}
+
 TEST_CASE("Level descriptors preserve typed storage defaults and physical units")
 {
 	const auto& Transform = GetLevelComponentDescriptor(ELevelComponentType::Transform);
@@ -54,7 +77,7 @@ TEST_CASE("Level descriptors preserve typed storage defaults and physical units"
 	CHECK_FALSE(Transform.Properties[2].Range);
 
 	const auto& Mesh = GetLevelComponentDescriptor(ELevelComponentType::StaticMesh);
-	REQUIRE(Mesh.Properties.size() == 1);
+	REQUIRE(Mesh.Properties.size() == 2);
 	CHECK(Mesh.Properties[0].Type == ELevelPropertyType::AssetReference);
 	CHECK(std::get<FAssetId>(Mesh.Properties[0].Default) == FStaticMeshComponent{}.Asset);
 
@@ -84,16 +107,16 @@ TEST_CASE("Level descriptors preserve typed storage defaults and physical units"
 	CHECK(Body.Properties[5].Unit == ELevelPropertyUnit::InverseSeconds);
 }
 
-TEST_CASE("Level serialization consumes every registered built-in property key without changing schema")
+TEST_CASE("Level serialization consumes every registered built-in property key")
 {
 	const FLevelDocument Document{
 	    .Id = FObjectId{1, 1},
 	    .Name = "Descriptors",
-	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic}},
+	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}}},
 	};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
-	CHECK(Text->find("\"engineSchemaVersion\": 3") != std::string::npos);
+	CHECK(Text->find("\"engineSchemaVersion\": 4") != std::string::npos);
 
 	for (const auto& Component : GetLevelComponentDescriptors())
 	{

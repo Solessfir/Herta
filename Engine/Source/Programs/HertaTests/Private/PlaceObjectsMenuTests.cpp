@@ -147,6 +147,25 @@ FPlaceObjectsMenuState MakeState(const std::string_view Query)
 }
 }
 
+TEST_CASE("Place objects offers authored lights and environment through ranked fuzzy search")
+{
+	const auto Spot = MakeState("spot");
+	CHECK(Spot.HasMatch(EPlaceObjectType::SpotLight));
+	CHECK_FALSE(Spot.HasMatch(EPlaceObjectType::PointLight));
+	auto Fog = MakeState("heightfog");
+	CHECK(Fog.HasMatch(EPlaceObjectType::HeightFog));
+	Fog.SelectFirstResult();
+	CHECK(Fog.SelectedResult == EPlaceObjectType::HeightFog);
+	const auto Atmosphere = MakeState("atm");
+	CHECK(Atmosphere.HasMatch(EPlaceObjectType::SkyAtmosphere));
+	CHECK(MakeState("sphere").HasMatch(EPlaceObjectType::SkyAtmosphere));
+	const auto Lights = MakeState("light");
+	for (const auto Type : {EPlaceObjectType::DirectionalLight, EPlaceObjectType::SkyLight, EPlaceObjectType::PointLight, EPlaceObjectType::SpotLight, EPlaceObjectType::RectLight})
+	{
+		CHECK(Lights.HasMatch(Type));
+	}
+}
+
 TEST_CASE("Place objects search matches Cube with case-insensitive subsequences")
 {
 	for (const std::string_view Query : std::array{"", "Cube", "cube", "CUBE", "cb", "ue", "  cB \t", " \t "})
@@ -183,7 +202,7 @@ TEST_CASE("Place objects keyboard focus cannot select a filtered-out result")
 	CHECK(State.bResultsFocused);
 	State.SetResultFocus(false);
 	CHECK_FALSE(State.bResultsFocused);
-	State = MakeState("sphere");
+	State = MakeState("zzzz");
 	State.SetResultFocus(true);
 	CHECK_FALSE(State.bResultsFocused);
 }
@@ -287,7 +306,7 @@ TEST_CASE("Place objects Enter creates an Empty Entity by default and closes the
 
 TEST_CASE("Place objects Enter confirms from search but never adds a filtered-out shape")
 {
-	for (const std::string_view Query : {"cb", "sphere"})
+	for (const std::string_view Query : {"cb", "zzzz"})
 	{
 		FPlaceObjectsMenuTestContext Test;
 		Test.Frame(true);

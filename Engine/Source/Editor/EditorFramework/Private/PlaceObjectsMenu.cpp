@@ -16,7 +16,7 @@ namespace
 {
 constexpr const char* PopupName = "Add###PlaceObjectsMenu";
 constexpr const char* SearchLabel = "##PlaceObjectsSearch";
-constexpr std::array Candidates{std::string_view("Empty Entity"), std::string_view("Cube")};
+constexpr std::array<std::string_view, 9> Candidates{"Empty Entity", "Cube", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog"};
 
 std::optional<std::vector<FAssetSearchMatch>> GetMatches(const FPlaceObjectsMenuState& State)
 {
@@ -31,12 +31,37 @@ std::optional<std::vector<FAssetSearchMatch>> GetMatches(const FPlaceObjectsMenu
 		Query = {};
 	}
 
-	return SearchAssets(Candidates, Query);
+	auto Matches = SearchAssets(Candidates, Query);
+	if (Matches)
+	{
+		const auto Group = [](const std::size_t Index)
+		{
+			return Index == 0 ? 0u : Index == 1 ? 1u
+			                     : Index < 7    ? 2u
+			                                    : 3u;
+		};
+
+		std::array<std::size_t, 4> GroupRank;
+		GroupRank.fill(Matches->size());
+
+		for (std::size_t Index = 0; Index < Matches->size(); ++Index)
+		{
+			const auto GroupIndex = Group((*Matches)[Index].Index);
+			GroupRank[GroupIndex] = std::min(GroupRank[GroupIndex], Index);
+		}
+
+		std::ranges::stable_sort(*Matches, [&](const auto& Left, const auto& Right)
+		{
+			return GroupRank[Group(Left.Index)] < GroupRank[Group(Right.Index)];
+		});
+	}
+
+	return Matches;
 }
 
 bool ContainsResult(const std::optional<std::vector<FAssetSearchMatch>>& Matches, const EPlaceObjectType Type)
 {
-	const std::size_t Index = Type == EPlaceObjectType::EmptyEntity ? 0 : 1;
+	const std::size_t Index = static_cast<std::size_t>(Type);
 	return Matches && std::ranges::any_of(*Matches, [Index](const FAssetSearchMatch& Match)
 	{
 		return Match.Index == Index;
@@ -45,7 +70,7 @@ bool ContainsResult(const std::optional<std::vector<FAssetSearchMatch>>& Matches
 
 EPlaceObjectType GetResultType(const std::size_t Index)
 {
-	return Index == 0 ? EPlaceObjectType::EmptyEntity : EPlaceObjectType::Cube;
+	return static_cast<EPlaceObjectType>(Index);
 }
 
 bool DrawPlaceObjectResult(const std::string_view Label, const EToolUIMenuIcon Icon, const bool bSelected)
@@ -88,6 +113,11 @@ bool FPlaceObjectsMenuState::HasAnyMatch() const
 {
 	const auto Matches = GetMatches(*this);
 	return Matches && !Matches->empty();
+}
+
+bool FPlaceObjectsMenuState::HasMatch(const EPlaceObjectType Type) const
+{
+	return ContainsResult(GetMatches(*this), Type);
 }
 
 void FPlaceObjectsMenuState::SetResultFocus(const bool bFocused)
@@ -251,33 +281,30 @@ std::optional<EPlaceObjectType> DrawPlaceObjectsMenu(FToolUIContext& ToolUI, FPl
 	if (Matches && !Matches->empty())
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 7.f * Scale});
-		if (ContainsResult(Matches, EPlaceObjectType::EmptyEntity))
+		constexpr std::array<std::string_view, 9> Groups{"Entity", "Basic shapes", "Lights", "Lights", "Lights", "Lights", "Lights", "Environment", "Environment"};
+		std::string_view PreviousGroup;
+		for (const auto& Match : *Matches)
 		{
-			ImGui::TextDisabled("Entity");
-			const bool bPressed = DrawPlaceObjectResult("Empty Entity", EToolUIMenuIcon::Entity, State.SelectedResult == EPlaceObjectType::EmptyEntity);
-			if (Navigation.bFocusResult && State.SelectedResult == EPlaceObjectType::EmptyEntity)
+			const auto Type = GetResultType(Match.Index);
+			const auto Group = Groups[Match.Index];
+			if (Group != PreviousGroup)
+			{
+				ImGui::TextDisabled("%.*s", static_cast<int>(Group.size()), Group.data());
+				PreviousGroup = Group;
+			}
+
+			const EToolUIMenuIcon Icon = Type == EPlaceObjectType::EmptyEntity ? EToolUIMenuIcon::Entity : Type == EPlaceObjectType::Cube        ? EToolUIMenuIcon::Cube
+			                                                                                           : Type == EPlaceObjectType::SkyAtmosphere ? EToolUIMenuIcon::SkyAtmosphere
+			                                                                                           : Type == EPlaceObjectType::HeightFog     ? EToolUIMenuIcon::Fog
+			                                                                                                                                     : EToolUIMenuIcon::Light;
+			if (DrawPlaceObjectResult(Candidates[Match.Index], Icon, State.SelectedResult == Type))
+			{
+				Chosen = Type;
+			}
+
+			if (Navigation.bFocusResult && State.SelectedResult == Type)
 			{
 				ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
-			}
-
-			if (bPressed)
-			{
-				Chosen = EPlaceObjectType::EmptyEntity;
-			}
-		}
-
-		if (ContainsResult(Matches, EPlaceObjectType::Cube))
-		{
-			ImGui::TextDisabled("Basic shapes");
-			const bool bPressed = DrawPlaceObjectResult("Cube", EToolUIMenuIcon::Cube, State.SelectedResult == EPlaceObjectType::Cube);
-			if (Navigation.bFocusResult && State.SelectedResult == EPlaceObjectType::Cube)
-			{
-				ImGui::SetFocusID(ImGui::GetItemID(), ImGui::GetCurrentWindow());
-			}
-
-			if (bPressed)
-			{
-				Chosen = EPlaceObjectType::Cube;
 			}
 		}
 

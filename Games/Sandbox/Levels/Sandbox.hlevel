@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 3,
+  "engineSchemaVersion": 4,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "entities": [
@@ -10,12 +10,28 @@
       "name": "Drop cube - 1 kg",
       "parent": null,
       "transform": {
-        "translation": [0, 4, 0],
-        "rotation": [-0.12218954, 0.19711925, 0.024769045, 0.9724198],
-        "scale": [1, 1, 1]
+        "translation": [
+          0,
+          4,
+          0
+        ],
+        "rotation": [
+          -0.12218954,
+          0.19711925,
+          0.024769045,
+          0.9724198
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": []
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -32,12 +48,30 @@
       "name": "Sandbox floor",
       "parent": null,
       "transform": {
-        "translation": [0, -0.25, 9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [24, 0.5, 26]
+        "translation": [
+          0,
+          -0.25,
+          9
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          24,
+          0.5,
+          26
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06001-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06001-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -54,12 +88,30 @@
       "name": "Edge rail",
       "parent": null,
       "transform": {
-        "translation": [-11.7, 0.15, 9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.18, 0.3, 25.6]
+        "translation": [
+          -11.7,
+          0.15,
+          9
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.18,
+          0.3,
+          25.6
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -76,12 +128,30 @@
       "name": "Edge rail",
       "parent": null,
       "transform": {
-        "translation": [11.7, 0.15, 9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.18, 0.3, 25.6]
+        "translation": [
+          11.7,
+          0.15,
+          9
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.18,
+          0.3,
+          25.6
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -98,12 +168,30 @@
       "name": "Back rail",
       "parent": null,
       "transform": {
-        "translation": [0, 0.15, 21.7],
-        "rotation": [0, 0, 0, 1],
-        "scale": [23.5, 0.3, 0.18]
+        "translation": [
+          0,
+          0.15,
+          21.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          23.5,
+          0.3,
+          0.18
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -120,12 +208,30 @@
       "name": "Corner beacon",
       "parent": null,
       "transform": {
-        "translation": [-10.8, 1, -2.8],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.3, 2, 0.3]
+        "translation": [
+          -10.8,
+          1,
+          -2.8
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          2,
+          0.3
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -142,12 +248,30 @@
       "name": "Corner beacon",
       "parent": null,
       "transform": {
-        "translation": [-10.8, 1, 20.8],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.3, 2, 0.3]
+        "translation": [
+          -10.8,
+          1,
+          20.8
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          2,
+          0.3
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -164,12 +288,30 @@
       "name": "Corner beacon",
       "parent": null,
       "transform": {
-        "translation": [10.8, 1, -2.8],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.3, 2, 0.3]
+        "translation": [
+          10.8,
+          1,
+          -2.8
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          2,
+          0.3
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -186,12 +328,30 @@
       "name": "Corner beacon",
       "parent": null,
       "transform": {
-        "translation": [10.8, 1, 20.8],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.3, 2, 0.3]
+        "translation": [
+          10.8,
+          1,
+          20.8
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          2,
+          0.3
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -208,12 +368,30 @@
       "name": "Walkway stripe",
       "parent": null,
       "transform": {
-        "translation": [0, 0.006, -1.9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [22, 0.012, 0.08]
+        "translation": [
+          0,
+          0.006,
+          -1.9
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          22,
+          0.012,
+          0.08
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
       }
     },
     {
@@ -221,12 +399,30 @@
       "name": "Walkway stripe",
       "parent": null,
       "transform": {
-        "translation": [0, 0.006, 4.2],
-        "rotation": [0, 0, 0, 1],
-        "scale": [22, 0.012, 0.08]
+        "translation": [
+          0,
+          0.006,
+          4.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          22,
+          0.012,
+          0.08
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
       }
     },
     {
@@ -234,12 +430,30 @@
       "name": "Walkway stripe",
       "parent": null,
       "transform": {
-        "translation": [0, 0.006, 13.2],
-        "rotation": [0, 0, 0, 1],
-        "scale": [22, 0.012, 0.08]
+        "translation": [
+          0,
+          0.006,
+          13.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          22,
+          0.012,
+          0.08
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
       }
     },
     {
@@ -247,12 +461,30 @@
       "name": "Bounce test pad",
       "parent": null,
       "transform": {
-        "translation": [5.5, 0.075, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [5, 0.15, 3.4]
+        "translation": [
+          5.5,
+          0.075,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          5,
+          0.15,
+          3.4
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -269,12 +501,30 @@
       "name": "Restitution 0",
       "parent": null,
       "transform": {
-        "translation": [3.9, 3.5, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.75, 0.75, 0.75]
+        "translation": [
+          3.9,
+          3.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.75,
+          0.75,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -291,12 +541,30 @@
       "name": "Restitution 0.45",
       "parent": null,
       "transform": {
-        "translation": [5.5, 3.5, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.75, 0.75, 0.75]
+        "translation": [
+          5.5,
+          3.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.75,
+          0.75,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -313,12 +581,30 @@
       "name": "Restitution 0.9",
       "parent": null,
       "transform": {
-        "translation": [7.1, 3.5, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.75, 0.75, 0.75]
+        "translation": [
+          7.1,
+          3.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.75,
+          0.75,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -335,12 +621,30 @@
       "name": "Gravity test pad",
       "parent": null,
       "transform": {
-        "translation": [-5.5, 0.075, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [5, 0.15, 3.4]
+        "translation": [
+          -5.5,
+          0.075,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          5,
+          0.15,
+          3.4
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -357,12 +661,30 @@
       "name": "Gravity scale 0",
       "parent": null,
       "transform": {
-        "translation": [-7.1, 3.5, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.75, 0.75, 0.75]
+        "translation": [
+          -7.1,
+          3.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.75,
+          0.75,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -379,12 +701,30 @@
       "name": "Gravity scale 0.35",
       "parent": null,
       "transform": {
-        "translation": [-5.5, 3.5, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.75, 0.75, 0.75]
+        "translation": [
+          -5.5,
+          3.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.75,
+          0.75,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -401,12 +741,30 @@
       "name": "Gravity scale 1",
       "parent": null,
       "transform": {
-        "translation": [-3.9, 3.5, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.75, 0.75, 0.75]
+        "translation": [
+          -3.9,
+          3.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.75,
+          0.75,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -423,12 +781,30 @@
       "name": "18 deg ramp - friction 0",
       "parent": null,
       "transform": {
-        "translation": [4.85, 1.12, 8.2],
-        "rotation": [0.15643446, 0, 0, 0.98768836],
-        "scale": [1.9, 0.18, 6]
+        "translation": [
+          4.85,
+          1.12,
+          8.2
+        ],
+        "rotation": [
+          0.15643446,
+          0,
+          0,
+          0.98768836
+        ],
+        "scale": [
+          1.9,
+          0.18,
+          6
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -445,12 +821,30 @@
       "name": "Slider - friction 0",
       "parent": null,
       "transform": {
-        "translation": [4.85, 2.15, 6.699999999999999],
-        "rotation": [0.15643446, 0, 0, 0.98768836],
-        "scale": [0.75, 0.75, 0.75]
+        "translation": [
+          4.85,
+          2.15,
+          6.699999999999999
+        ],
+        "rotation": [
+          0.15643446,
+          0,
+          0,
+          0.98768836
+        ],
+        "scale": [
+          0.75,
+          0.75,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -467,12 +861,30 @@
       "name": "18 deg ramp - friction 0.8",
       "parent": null,
       "transform": {
-        "translation": [7.15, 1.12, 8.2],
-        "rotation": [0.15643446, 0, 0, 0.98768836],
-        "scale": [1.9, 0.18, 6]
+        "translation": [
+          7.15,
+          1.12,
+          8.2
+        ],
+        "rotation": [
+          0.15643446,
+          0,
+          0,
+          0.98768836
+        ],
+        "scale": [
+          1.9,
+          0.18,
+          6
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -489,12 +901,30 @@
       "name": "Slider - friction 0.8",
       "parent": null,
       "transform": {
-        "translation": [7.15, 2.15, 6.699999999999999],
-        "rotation": [0.15643446, 0, 0, 0.98768836],
-        "scale": [0.75, 0.75, 0.75]
+        "translation": [
+          7.15,
+          2.15,
+          6.699999999999999
+        ],
+        "rotation": [
+          0.15643446,
+          0,
+          0,
+          0.98768836
+        ],
+        "scale": [
+          0.75,
+          0.75,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -511,12 +941,30 @@
       "name": "Tumble ramp - damping 0",
       "parent": null,
       "transform": {
-        "translation": [9.1, 1.12, 8.2],
-        "rotation": [0.15643446, 0, 0, 0.98768836],
-        "scale": [1.25, 0.18, 6]
+        "translation": [
+          9.1,
+          1.12,
+          8.2
+        ],
+        "rotation": [
+          0.15643446,
+          0,
+          0,
+          0.98768836
+        ],
+        "scale": [
+          1.25,
+          0.18,
+          6
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06001-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06001-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -533,12 +981,30 @@
       "name": "Tumbler - damping 0",
       "parent": null,
       "transform": {
-        "translation": [9.1, 2.8, 6.499999999999999],
-        "rotation": [0, 0, 0.32556817, 0.94551855],
-        "scale": [0.65, 0.65, 0.65]
+        "translation": [
+          9.1,
+          2.8,
+          6.499999999999999
+        ],
+        "rotation": [
+          0,
+          0,
+          0.32556817,
+          0.94551855
+        ],
+        "scale": [
+          0.65,
+          0.65,
+          0.65
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -555,12 +1021,30 @@
       "name": "Tumble ramp - damping 1",
       "parent": null,
       "transform": {
-        "translation": [10.6, 1.12, 8.2],
-        "rotation": [0.15643446, 0, 0, 0.98768836],
-        "scale": [1.25, 0.18, 6]
+        "translation": [
+          10.6,
+          1.12,
+          8.2
+        ],
+        "rotation": [
+          0.15643446,
+          0,
+          0,
+          0.98768836
+        ],
+        "scale": [
+          1.25,
+          0.18,
+          6
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06001-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06001-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -577,12 +1061,30 @@
       "name": "Tumbler - damping 1",
       "parent": null,
       "transform": {
-        "translation": [10.6, 2.8, 6.499999999999999],
-        "rotation": [0, 0, 0.32556817, 0.94551855],
-        "scale": [0.65, 0.65, 0.65]
+        "translation": [
+          10.6,
+          2.8,
+          6.499999999999999
+        ],
+        "rotation": [
+          0,
+          0,
+          0.32556817,
+          0.94551855
+        ],
+        "scale": [
+          0.65,
+          0.65,
+          0.65
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -599,12 +1101,30 @@
       "name": "Stack plinth",
       "parent": null,
       "transform": {
-        "translation": [0, 0.15, 7.5],
-        "rotation": [0, 0, 0, 1],
-        "scale": [3.4, 0.3, 3.4]
+        "translation": [
+          0,
+          0.15,
+          7.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3.4,
+          0.3,
+          3.4
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06001-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06001-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -621,12 +1141,30 @@
       "name": "Stack 1 - 10 kg",
       "parent": null,
       "transform": {
-        "translation": [-0.12, 0.9, 7.5],
-        "rotation": [0, -0.043619387, 0, 0.99904823],
-        "scale": [1, 1, 1]
+        "translation": [
+          -0.12,
+          0.9,
+          7.5
+        ],
+        "rotation": [
+          0,
+          -0.043619387,
+          0,
+          0.99904823
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 10,
@@ -643,12 +1181,30 @@
       "name": "Stack 2 - 1 kg",
       "parent": null,
       "transform": {
-        "translation": [0.12, 2, 7.5],
-        "rotation": [0, 0.043619387, 0, 0.99904823],
-        "scale": [1, 1, 1]
+        "translation": [
+          0.12,
+          2,
+          7.5
+        ],
+        "rotation": [
+          0,
+          0.043619387,
+          0,
+          0.99904823
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -665,12 +1221,30 @@
       "name": "Stack 3 - 1 kg",
       "parent": null,
       "transform": {
-        "translation": [-0.12, 3.1, 7.5],
-        "rotation": [0, -0.043619387, 0, 0.99904823],
-        "scale": [1, 1, 1]
+        "translation": [
+          -0.12,
+          3.1,
+          7.5
+        ],
+        "rotation": [
+          0,
+          -0.043619387,
+          0,
+          0.99904823
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -687,12 +1261,30 @@
       "name": "Stack 4 - 1 kg",
       "parent": null,
       "transform": {
-        "translation": [0.12, 4.2, 7.5],
-        "rotation": [0, 0.043619387, 0, 0.99904823],
-        "scale": [1, 1, 1]
+        "translation": [
+          0.12,
+          4.2,
+          7.5
+        ],
+        "rotation": [
+          0,
+          0.043619387,
+          0,
+          0.99904823
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -709,12 +1301,30 @@
       "name": "Stack 5 - 1 kg",
       "parent": null,
       "transform": {
-        "translation": [-0.12, 5.300000000000001, 7.5],
-        "rotation": [0, -0.043619387, 0, 0.99904823],
-        "scale": [1, 1, 1]
+        "translation": [
+          -0.12,
+          5.300000000000001,
+          7.5
+        ],
+        "rotation": [
+          0,
+          -0.043619387,
+          0,
+          0.99904823
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06002-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "dynamic",
           "massKg": 1,
@@ -731,12 +1341,30 @@
       "name": "Step 1",
       "parent": null,
       "transform": {
-        "translation": [-6.2, 0.15, 5.6000000000000005],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2.5, 0.3, 0.75]
+        "translation": [
+          -6.2,
+          0.15,
+          5.6000000000000005
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2.5,
+          0.3,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -753,12 +1381,30 @@
       "name": "Step 2",
       "parent": null,
       "transform": {
-        "translation": [-6.2, 0.3, 6.3500000000000005],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2.5, 0.6, 0.75]
+        "translation": [
+          -6.2,
+          0.3,
+          6.3500000000000005
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2.5,
+          0.6,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -775,12 +1421,30 @@
       "name": "Step 3",
       "parent": null,
       "transform": {
-        "translation": [-6.2, 0.44999999999999996, 7.1000000000000005],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2.5, 0.9, 0.75]
+        "translation": [
+          -6.2,
+          0.44999999999999996,
+          7.1000000000000005
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2.5,
+          0.9,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -797,12 +1461,30 @@
       "name": "Step 4",
       "parent": null,
       "transform": {
-        "translation": [-6.2, 0.6, 7.8500000000000005],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2.5, 1.2, 0.75]
+        "translation": [
+          -6.2,
+          0.6,
+          7.8500000000000005
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2.5,
+          1.2,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -819,12 +1501,30 @@
       "name": "Step 5",
       "parent": null,
       "transform": {
-        "translation": [-6.2, 0.75, 8.600000000000001],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2.5, 1.5, 0.75]
+        "translation": [
+          -6.2,
+          0.75,
+          8.600000000000001
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2.5,
+          1.5,
+          0.75
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -841,12 +1541,30 @@
       "name": "Raised landing",
       "parent": null,
       "transform": {
-        "translation": [-6.2, 0.75, 10.4],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2.5, 1.5, 2.8]
+        "translation": [
+          -6.2,
+          0.75,
+          10.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2.5,
+          1.5,
+          2.8
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -863,12 +1581,30 @@
       "name": "Descent ramp",
       "parent": null,
       "transform": {
-        "translation": [-9.2, 0.74, 10.4],
-        "rotation": [0, 0, 0.17364818, 0.9848077],
-        "scale": [3.9, 0.2, 2.8]
+        "translation": [
+          -9.2,
+          0.74,
+          10.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0.17364818,
+          0.9848077
+        ],
+        "scale": [
+          3.9,
+          0.2,
+          2.8
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -885,12 +1621,30 @@
       "name": "Low hurdle",
       "parent": null,
       "transform": {
-        "translation": [-3.4000000000000004, 0.3, 7.4],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.45, 0.6, 2]
+        "translation": [
+          -3.4000000000000004,
+          0.3,
+          7.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.45,
+          0.6,
+          2
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -907,12 +1661,30 @@
       "name": "High hurdle",
       "parent": null,
       "transform": {
-        "translation": [-3.4000000000000004, 0.65, 9.9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.45, 1.3, 2]
+        "translation": [
+          -3.4000000000000004,
+          0.65,
+          9.9
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.45,
+          1.3,
+          2
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -929,12 +1701,30 @@
       "name": "Gap platform 1",
       "parent": null,
       "transform": {
-        "translation": [-6.2, 0.3, 13.9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2.5, 0.6, 1.2]
+        "translation": [
+          -6.2,
+          0.3,
+          13.9
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2.5,
+          0.6,
+          1.2
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -951,12 +1741,30 @@
       "name": "Gap platform 2",
       "parent": null,
       "transform": {
-        "translation": [-6.2, 0.3, 16],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2.5, 0.6, 1.2]
+        "translation": [
+          -6.2,
+          0.3,
+          16
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2.5,
+          0.6,
+          1.2
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -973,12 +1781,30 @@
       "name": "Gap platform 3",
       "parent": null,
       "transform": {
-        "translation": [-6.2, 0.3, 18.1],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2.5, 0.6, 1.2]
+        "translation": [
+          -6.2,
+          0.3,
+          18.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2.5,
+          0.6,
+          1.2
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06004-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -995,9 +1821,22 @@
       "name": "Arch assembly - move this parent",
       "parent": null,
       "transform": {
-        "translation": [4.2, 0, 17],
-        "rotation": [0, -0.13052619, 0, 0.9914449],
-        "scale": [1, 1, 1]
+        "translation": [
+          4.2,
+          0,
+          17
+        ],
+        "rotation": [
+          0,
+          -0.13052619,
+          0,
+          0.9914449
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "components": {}
     },
@@ -1006,12 +1845,30 @@
       "name": "Arch pillar",
       "parent": "4c060001-2738-4e25-9b9e-000000000034",
       "transform": {
-        "translation": [-2, 1.5, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.7, 3, 0.7]
+        "translation": [
+          -2,
+          1.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.7,
+          3,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -1028,12 +1885,30 @@
       "name": "Arch pillar",
       "parent": "4c060001-2738-4e25-9b9e-000000000034",
       "transform": {
-        "translation": [2, 1.5, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.7, 3, 0.7]
+        "translation": [
+          2,
+          1.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.7,
+          3,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -1050,12 +1925,30 @@
       "name": "Arch beam",
       "parent": "4c060001-2738-4e25-9b9e-000000000034",
       "transform": {
-        "translation": [0, 3.2, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [4.7, 0.5, 0.7]
+        "translation": [
+          0,
+          3.2,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          4.7,
+          0.5,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -1072,9 +1965,22 @@
       "name": "Nested shelf",
       "parent": "4c060001-2738-4e25-9b9e-000000000034",
       "transform": {
-        "translation": [0, 0, 1.5],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
+        "translation": [
+          0,
+          0,
+          1.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "components": {}
     },
@@ -1083,12 +1989,30 @@
       "name": "Shelf",
       "parent": "4c060001-2738-4e25-9b9e-000000000038",
       "transform": {
-        "translation": [0, 1, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [2, 0.2, 0.8]
+        "translation": [
+          0,
+          1,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          2,
+          0.2,
+          0.8
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"},
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
         "body": {
           "type": "static",
           "massKg": 1,
@@ -1105,12 +2029,30 @@
       "name": "Child mesh - no rigid body",
       "parent": "4c060001-2738-4e25-9b9e-000000000038",
       "transform": {
-        "translation": [0, 1.5, 0],
-        "rotation": [0, 0.17364818, 0, 0.9848077],
-        "scale": [0.65, 0.65, 0.65]
+        "translation": [
+          0,
+          1.5,
+          0
+        ],
+        "rotation": [
+          0,
+          0.17364818,
+          0,
+          0.9848077
+        ],
+        "scale": [
+          0.65,
+          0.65,
+          0.65
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06003-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
       }
     },
     {
@@ -1118,9 +2060,22 @@
       "name": "Empty entity - add components",
       "parent": null,
       "transform": {
-        "translation": [4.2, 0.8, 14.5],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
+        "translation": [
+          4.2,
+          0.8,
+          14.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
       },
       "components": {}
     },
@@ -1129,12 +2084,30 @@
       "name": "Instance 1",
       "parent": null,
       "transform": {
-        "translation": [-2.7, 0.4, 18],
-        "rotation": [0, 0, 0, 1],
-        "scale": [0.7, 0.8, 0.7]
+        "translation": [
+          -2.7,
+          0.4,
+          18
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.7,
+          0.8,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
       }
     },
     {
@@ -1142,12 +2115,30 @@
       "name": "Instance 2",
       "parent": null,
       "transform": {
-        "translation": [-1.4500000000000002, 0.4, 18],
-        "rotation": [0, 0.17364818, 0, 0.9848077],
-        "scale": [0.7, 0.8, 0.7]
+        "translation": [
+          -1.4500000000000002,
+          0.4,
+          18
+        ],
+        "rotation": [
+          0,
+          0.17364818,
+          0,
+          0.9848077
+        ],
+        "scale": [
+          0.7,
+          0.8,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
       }
     },
     {
@@ -1155,12 +2146,30 @@
       "name": "Instance 3",
       "parent": null,
       "transform": {
-        "translation": [-0.20000000000000018, 0.4, 18],
-        "rotation": [0, 0.34202015, 0, 0.9396926],
-        "scale": [0.7, 0.8, 0.7]
+        "translation": [
+          -0.20000000000000018,
+          0.4,
+          18
+        ],
+        "rotation": [
+          0,
+          0.34202015,
+          0,
+          0.9396926
+        ],
+        "scale": [
+          0.7,
+          0.8,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
       }
     },
     {
@@ -1168,12 +2177,28 @@
       "name": "Instance 4",
       "parent": null,
       "transform": {
-        "translation": [-2.7, 0.8, 19.3],
-        "rotation": [0, 0.087155744, 0, 0.9961947],
-        "scale": [0.7, 1.6, 0.7]
+        "translation": [
+          -2.7,
+          0.8,
+          19.3
+        ],
+        "rotation": [
+          0,
+          0.087155744,
+          0,
+          0.9961947
+        ],
+        "scale": [
+          0.7,
+          1.6,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": []
+        }
       }
     },
     {
@@ -1181,12 +2206,28 @@
       "name": "Instance 5",
       "parent": null,
       "transform": {
-        "translation": [-1.4500000000000002, 0.8, 19.3],
-        "rotation": [0, 0.25881904, 0, 0.9659258],
-        "scale": [0.7, 1.6, 0.7]
+        "translation": [
+          -1.4500000000000002,
+          0.8,
+          19.3
+        ],
+        "rotation": [
+          0,
+          0.25881904,
+          0,
+          0.9659258
+        ],
+        "scale": [
+          0.7,
+          1.6,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": []
+        }
       }
     },
     {
@@ -1194,12 +2235,28 @@
       "name": "Instance 6",
       "parent": null,
       "transform": {
-        "translation": [-0.20000000000000018, 0.8, 19.3],
-        "rotation": [0, 0.42261827, 0, 0.9063078],
-        "scale": [0.7, 1.6, 0.7]
+        "translation": [
+          -0.20000000000000018,
+          0.8,
+          19.3
+        ],
+        "rotation": [
+          0,
+          0.42261827,
+          0,
+          0.9063078
+        ],
+        "scale": [
+          0.7,
+          1.6,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": []
+        }
       }
     },
     {
@@ -1207,12 +2264,30 @@
       "name": "Instance 7",
       "parent": null,
       "transform": {
-        "translation": [-2.7, 1.2000000000000002, 20.6],
-        "rotation": [0, 0.17364818, 0, 0.9848077],
-        "scale": [0.7, 2.4, 0.7]
+        "translation": [
+          -2.7,
+          1.2000000000000002,
+          20.6
+        ],
+        "rotation": [
+          0,
+          0.17364818,
+          0,
+          0.9848077
+        ],
+        "scale": [
+          0.7,
+          2.4,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
       }
     },
     {
@@ -1220,12 +2295,30 @@
       "name": "Instance 8",
       "parent": null,
       "transform": {
-        "translation": [-1.4500000000000002, 1.2000000000000002, 20.6],
-        "rotation": [0, 0.34202015, 0, 0.9396926],
-        "scale": [0.7, 2.4, 0.7]
+        "translation": [
+          -1.4500000000000002,
+          1.2000000000000002,
+          20.6
+        ],
+        "rotation": [
+          0,
+          0.34202015,
+          0,
+          0.9396926
+        ],
+        "scale": [
+          0.7,
+          2.4,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
       }
     },
     {
@@ -1233,12 +2326,2699 @@
       "name": "Instance 9",
       "parent": null,
       "transform": {
-        "translation": [-0.20000000000000018, 1.2000000000000002, 20.6],
-        "rotation": [0, 0.5, 0, 0.8660254],
-        "scale": [0.7, 2.4, 0.7]
+        "translation": [
+          -0.20000000000000018,
+          1.2000000000000002,
+          20.6
+        ],
+        "rotation": [
+          0,
+          0.5,
+          0,
+          0.8660254
+        ],
+        "scale": [
+          0.7,
+          2.4,
+          0.7
+        ]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000001",
+      "name": "Material gallery terrace",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          -0.25,
+          -6
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          24,
+          0.5,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000002",
+      "name": "Gallery front - cyan emission",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          0.045,
+          -7.75
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          23.4,
+          0.06,
+          0.075
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000f"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000003",
+      "name": "Gallery row separator",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          0.025,
+          -4.6
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          23.4,
+          0.04,
+          0.055
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000004",
+      "name": "Metal 0.06 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -9,
+          0.1,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000005",
+      "name": "Metallic 1 - roughness 0.06",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -9,
+          0.9,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000007"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000006",
+      "name": "Metal 0.18 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -5.4,
+          0.1,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000007",
+      "name": "Metallic 1 - roughness 0.18",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -5.4,
+          0.9,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000008"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000008",
+      "name": "Metal 0.35 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -1.7999999999999998,
+          0.1,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000009",
+      "name": "Metallic 1 - roughness 0.35",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -1.7999999999999998,
+          0.9,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000009"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000000a",
+      "name": "Metal 0.55 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          1.8000000000000007,
+          0.1,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000000b",
+      "name": "Metallic 1 - roughness 0.55",
+      "parent": null,
+      "transform": {
+        "translation": [
+          1.8000000000000007,
+          0.9,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000a"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000000c",
+      "name": "Metal 0.75 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          5.4,
+          0.1,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000000d",
+      "name": "Metallic 1 - roughness 0.75",
+      "parent": null,
+      "transform": {
+        "translation": [
+          5.4,
+          0.9,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000b"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000000e",
+      "name": "Metal 0.95 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          9,
+          0.1,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000000f",
+      "name": "Metallic 1 - roughness 0.95",
+      "parent": null,
+      "transform": {
+        "translation": [
+          9,
+          0.9,
+          -6.25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000c"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000010",
+      "name": "Ceramic 0.06 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -9,
+          0.1,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000011",
+      "name": "Metallic 0 - roughness 0.06",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -9,
+          0.9,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000012",
+      "name": "Ceramic 0.18 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -5.4,
+          0.1,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000013",
+      "name": "Metallic 0 - roughness 0.18",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -5.4,
+          0.9,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000002"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000014",
+      "name": "Ceramic 0.35 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -1.7999999999999998,
+          0.1,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000015",
+      "name": "Metallic 0 - roughness 0.35",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -1.7999999999999998,
+          0.9,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000003"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000016",
+      "name": "Ceramic 0.55 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          1.8000000000000007,
+          0.1,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000017",
+      "name": "Metallic 0 - roughness 0.55",
+      "parent": null,
+      "transform": {
+        "translation": [
+          1.8000000000000007,
+          0.9,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000004"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000018",
+      "name": "Ceramic 0.75 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          5.4,
+          0.1,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000019",
+      "name": "Metallic 0 - roughness 0.75",
+      "parent": null,
+      "transform": {
+        "translation": [
+          5.4,
+          0.9,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000005"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000001a",
+      "name": "Ceramic 0.95 pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [
+          9,
+          0.1,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.65,
+          0.2,
+          1.65
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000001b",
+      "name": "Metallic 0 - roughness 0.95",
+      "parent": null,
+      "transform": {
+        "translation": [
+          9,
+          0.9,
+          -3.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.4,
+          1.4,
+          1.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000006"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000001c",
+      "name": "Texture terrace",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -16,
+          -0.25,
+          5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          8,
+          0.5,
+          18
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000001d",
+      "name": "Textured tile wall - base color normal ORM",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -16,
+          1.7,
+          4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          5,
+          3.4,
+          0.15
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000011"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000001e",
+      "name": "Alpha-tested grille - see wall through holes",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -16,
+          1.55,
+          2.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          4,
+          2.7,
+          0.09
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000012"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000001f",
+      "name": "Normal-mapped cube",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -14.3,
+          0.85,
+          -0.2
+        ],
+        "rotation": [
+          0.073785271,
+          0.173618688,
+          -0.013045872,
+          0.981958293
+        ],
+        "scale": [
+          1.6,
+          1.6,
+          1.6
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000011"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000020",
+      "name": "Normal-mapped sphere",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -17.7,
+          0.95,
+          -0.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.8,
+          1.8,
+          1.8
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000011"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000021",
+      "name": "Emissive amber - HDR factor",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -16,
+          1.8,
+          6.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          5,
+          0.12,
+          0.18
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000010"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000022",
+      "name": "Emissive cyan - HDR factor",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -16,
+          1.4,
+          6.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          5,
+          0.12,
+          0.18
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000f"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000023",
+      "name": "Fine silhouette AA comparison",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -16,
+          0.025,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6,
+          0.04,
+          5
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000024",
+      "name": "SMAA diagonal 1",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -18.5,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.099833417,
+          0,
+          0.995004165
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000025",
+      "name": "SMAA diagonal 2",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -17.98,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.119712207,
+          0,
+          0.992808636
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000026",
+      "name": "SMAA diagonal 3",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -17.46,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.139543115,
+          0,
+          0.990215996
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000027",
+      "name": "SMAA diagonal 4",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -16.94,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.159318207,
+          0,
+          0.987227283
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000028",
+      "name": "SMAA diagonal 5",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -16.42,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.179029573,
+          0,
+          0.983843693
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000029",
+      "name": "SMAA diagonal 6",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -15.9,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.198669331,
+          0,
+          0.980066578
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000002a",
+      "name": "SMAA diagonal 7",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -15.379999999999999,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.218229623,
+          0,
+          0.975897449
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000002b",
+      "name": "SMAA diagonal 8",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -14.86,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.237702626,
+          0,
+          0.971337975
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000002c",
+      "name": "SMAA diagonal 9",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -14.34,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.257080552,
+          0,
+          0.966389978
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000002d",
+      "name": "SMAA diagonal 10",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -13.82,
+          0.3,
+          10.5
+        ],
+        "rotation": [
+          0,
+          0.276355649,
+          0,
+          0.961055438
+        ],
+        "scale": [
+          0.035,
+          0.55,
+          4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000002e",
+      "name": "Sun - warm afternoon directional",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -10,
+          12,
+          -8
+        ],
+        "rotation": [
+          0.482962913,
+          -0.224143868,
+          0.129409523,
+          0.836516304
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "light": {
+          "type": "directional",
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 50000,
+          "useTemperature": true,
+          "temperatureKelvin": 5800,
+          "castShadows": true,
+          "shadowBias": 0.001,
+          "shadowNormalBias": 0.02,
+          "range": 10,
+          "innerConeAngle": 0.34906585,
+          "outerConeAngle": 0.61086524,
+          "width": 1,
+          "height": 1,
+          "environment": null,
+          "ambientStrength": 0.3,
+          "environmentVisible": true,
+          "enabled": true
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000002f",
+      "name": "Sky - atmosphere diffuse and reflections",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          10,
+          10
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "light": {
+          "type": "sky",
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 1,
+          "useTemperature": false,
+          "temperatureKelvin": 6500,
+          "castShadows": false,
+          "shadowBias": 0.001,
+          "shadowNormalBias": 0.02,
+          "range": 10,
+          "innerConeAngle": 0.34906585,
+          "outerConeAngle": 0.61086524,
+          "width": 1,
+          "height": 1,
+          "environment": null,
+          "ambientStrength": 0.45,
+          "environmentVisible": true,
+          "enabled": true
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000030",
+      "name": "Atmosphere - Rayleigh and Mie scattering",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "skyAtmosphere": {
+          "sun": "4c060045-2738-4e25-9b9e-00000000002e",
+          "rayleighScattering": 1,
+          "mieScattering": 0.8,
+          "mieAnisotropy": 0.8,
+          "planetRadius": 6360000,
+          "atmosphereHeight": 80000,
+          "enabled": true
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000031",
+      "name": "Height fog - volumetric light shafts",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "heightFog": {
+          "density": 0.008,
+          "heightFalloff": 0.18,
+          "albedo": [
+            0.8,
+            0.9,
+            1
+          ],
+          "anisotropy": 0.4,
+          "maxDistance": 110,
+          "quality": "medium",
+          "enabled": true,
+          "volumetric": true
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000032",
+      "name": "Lighting terrace",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          -0.25,
+          25
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          23,
+          0.5,
+          7
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000033",
+      "name": "Point bay floor",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -7,
+          0.035,
+          25.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.5,
+          0.06,
+          6
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000034",
+      "name": "Point bay back wall",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -7,
+          2,
+          28.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.8,
+          4,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000035",
+      "name": "Point bay roof",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -7,
+          4.15,
+          25.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.8,
+          0.3,
+          6.2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000036",
+      "name": "Point bay side wall",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -10.3,
+          2,
+          25.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.2,
+          4,
+          6.2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000037",
+      "name": "Point bay side wall",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -3.7,
+          2,
+          25.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.2,
+          4,
+          6.2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000038",
+      "name": "Point bay threshold",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -7,
+          0.08,
+          22.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.2,
+          0.08,
+          0.075
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000010"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000039",
+      "name": "Point shadow pillar",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -7.75,
+          1.1,
+          25.9
+        ],
+        "rotation": [
+          0,
+          0.149438132,
+          0,
+          0.988771078
+        ],
+        "scale": [
+          0.55,
+          2.2,
+          0.55
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000003a",
+      "name": "Point glossy test sphere",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -6.15,
+          0.85,
+          26.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.6,
+          1.6,
+          1.6
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000002"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000003b",
+      "name": "Point shadow receiver",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -7,
+          0.025,
+          24.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          4.5,
+          0.025,
+          3.8
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000003c",
+      "name": "Spot bay floor",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          0.035,
+          25.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.5,
+          0.06,
+          6
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000003d",
+      "name": "Spot bay back wall",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          2,
+          28.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.8,
+          4,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000003e",
+      "name": "Spot bay roof",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          4.15,
+          25.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.8,
+          0.3,
+          6.2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000003f",
+      "name": "Spot bay side wall",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -3.3,
+          2,
+          25.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.2,
+          4,
+          6.2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000040",
+      "name": "Spot bay side wall",
+      "parent": null,
+      "transform": {
+        "translation": [
+          3.3,
+          2,
+          25.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.2,
+          4,
+          6.2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000041",
+      "name": "Spot bay threshold",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          0.08,
+          22.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.2,
+          0.08,
+          0.075
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000f"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000042",
+      "name": "Spot shadow pillar",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -0.75,
+          1.1,
+          25.9
+        ],
+        "rotation": [
+          0,
+          0.149438132,
+          0,
+          0.988771078
+        ],
+        "scale": [
+          0.55,
+          2.2,
+          0.55
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000043",
+      "name": "Spot glossy test sphere",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0.85,
+          0.85,
+          26.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.6,
+          1.6,
+          1.6
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000002"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000044",
+      "name": "Spot shadow receiver",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          0.025,
+          24.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          4.5,
+          0.025,
+          3.8
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000045",
+      "name": "Rect bay floor",
+      "parent": null,
+      "transform": {
+        "translation": [
+          7,
+          0.035,
+          25.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.5,
+          0.06,
+          6
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000046",
+      "name": "Rect bay back wall",
+      "parent": null,
+      "transform": {
+        "translation": [
+          7,
+          2,
+          28.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.8,
+          4,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000047",
+      "name": "Rect bay roof",
+      "parent": null,
+      "transform": {
+        "translation": [
+          7,
+          4.15,
+          25.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.8,
+          0.3,
+          6.2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000048",
+      "name": "Rect bay side wall",
+      "parent": null,
+      "transform": {
+        "translation": [
+          3.7,
+          2,
+          25.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.2,
+          4,
+          6.2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000049",
+      "name": "Rect bay side wall",
+      "parent": null,
+      "transform": {
+        "translation": [
+          10.3,
+          2,
+          25.15
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.2,
+          4,
+          6.2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000004a",
+      "name": "Rect bay threshold",
+      "parent": null,
+      "transform": {
+        "translation": [
+          7,
+          0.08,
+          22.1
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.2,
+          0.08,
+          0.075
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000f"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000004b",
+      "name": "Rect shadow pillar",
+      "parent": null,
+      "transform": {
+        "translation": [
+          6.25,
+          1.1,
+          25.9
+        ],
+        "rotation": [
+          0,
+          0.149438132,
+          0,
+          0.988771078
+        ],
+        "scale": [
+          0.55,
+          2.2,
+          0.55
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000004c",
+      "name": "Rect glossy test sphere",
+      "parent": null,
+      "transform": {
+        "translation": [
+          7.85,
+          0.85,
+          26.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.6,
+          1.6,
+          1.6
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000002"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000004d",
+      "name": "Rect shadow receiver",
+      "parent": null,
+      "transform": {
+        "translation": [
+          7,
+          0.025,
+          24.4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          4.5,
+          0.025,
+          3.8
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000d"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000004e",
+      "name": "Point - warm omnidirectional shadows",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -7,
+          3.25,
+          24.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "light": {
+          "type": "point",
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 90000,
+          "useTemperature": true,
+          "temperatureKelvin": 3200,
+          "castShadows": true,
+          "shadowBias": 0.001,
+          "shadowNormalBias": 0.02,
+          "range": 7,
+          "innerConeAngle": 0.34906585,
+          "outerConeAngle": 0.61086524,
+          "width": 1,
+          "height": 1,
+          "environment": null,
+          "ambientStrength": 0.3,
+          "environmentVisible": true,
+          "enabled": true
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000004f",
+      "name": "Point fixture - emission is not illumination",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -7,
+          3.25,
+          24.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.22,
+          0.22,
+          0.22
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "a4c06010-2738-4e25-9b9e-816ae7c00001",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000010"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000050",
+      "name": "Spot - cone and volumetric beam",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          3.75,
+          23.3
+        ],
+        "rotation": [
+          0.382683432,
+          0,
+          0,
+          0.923879533
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "light": {
+          "type": "spot",
+          "color": [
+            0.55,
+            0.8,
+            1
+          ],
+          "intensity": 65000,
+          "useTemperature": false,
+          "temperatureKelvin": 6500,
+          "castShadows": true,
+          "shadowBias": 0.001,
+          "shadowNormalBias": 0.02,
+          "range": 8,
+          "innerConeAngle": 0.28,
+          "outerConeAngle": 0.52,
+          "width": 1,
+          "height": 1,
+          "environment": null,
+          "ambientStrength": 0.3,
+          "environmentVisible": true,
+          "enabled": true
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000051",
+      "name": "Spot fixture",
+      "parent": null,
+      "transform": {
+        "translation": [
+          0,
+          3.8,
+          23.25
+        ],
+        "rotation": [
+          0.382683432,
+          0,
+          0,
+          0.923879533
+        ],
+        "scale": [
+          0.3,
+          0.3,
+          0.15
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000f"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000052",
+      "name": "Rect - broad warm emitter",
+      "parent": null,
+      "transform": {
+        "translation": [
+          7,
+          3.35,
+          23.4
+        ],
+        "rotation": [
+          0.562083378,
+          0,
+          0,
+          0.827080574
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "light": {
+          "type": "rect",
+          "color": [
+            1,
+            1,
+            1
+          ],
+          "intensity": 45000,
+          "useTemperature": true,
+          "temperatureKelvin": 4500,
+          "castShadows": true,
+          "shadowBias": 0.001,
+          "shadowNormalBias": 0.02,
+          "range": 8,
+          "innerConeAngle": 0.34906585,
+          "outerConeAngle": 0.61086524,
+          "width": 2,
+          "height": 0.6,
+          "environment": null,
+          "ambientStrength": 0.3,
+          "environmentVisible": true,
+          "enabled": true
+        }
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000053",
+      "name": "Rect fixture - 2 by 0.6 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          7,
+          3.4,
+          23.38
+        ],
+        "rotation": [
+          0.562083378,
+          0,
+          0,
+          0.827080574
+        ],
+        "scale": [
+          2,
+          0.6,
+          0.03
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-000000000010"
+          ]
+        }
       }
     }
   ],
@@ -1247,49 +5027,225 @@
       "id": "4c060001-2738-4e25-9b9e-000000000001",
       "name": "00 - Arena",
       "parent": null,
-      "entities": ["31935c1f-4f59-4b12-9a13-9dca302101e2", "4c060001-2738-4e25-9b9e-000000000002", "4c060001-2738-4e25-9b9e-000000000003", "4c060001-2738-4e25-9b9e-000000000004", "4c060001-2738-4e25-9b9e-000000000005", "4c060001-2738-4e25-9b9e-000000000006", "4c060001-2738-4e25-9b9e-000000000007", "4c060001-2738-4e25-9b9e-000000000008", "4c060001-2738-4e25-9b9e-000000000009", "4c060001-2738-4e25-9b9e-00000000000a", "4c060001-2738-4e25-9b9e-00000000000b"]
+      "entities": [
+        "31935c1f-4f59-4b12-9a13-9dca302101e2",
+        "4c060001-2738-4e25-9b9e-000000000002",
+        "4c060001-2738-4e25-9b9e-000000000003",
+        "4c060001-2738-4e25-9b9e-000000000004",
+        "4c060001-2738-4e25-9b9e-000000000005",
+        "4c060001-2738-4e25-9b9e-000000000006",
+        "4c060001-2738-4e25-9b9e-000000000007",
+        "4c060001-2738-4e25-9b9e-000000000008",
+        "4c060001-2738-4e25-9b9e-000000000009",
+        "4c060001-2738-4e25-9b9e-00000000000a",
+        "4c060001-2738-4e25-9b9e-00000000000b"
+      ]
     },
     {
       "id": "4c060001-2738-4e25-9b9e-00000000000c",
       "name": "01 - Bounce comparison",
       "parent": null,
-      "entities": ["4c060001-2738-4e25-9b9e-00000000000d", "4c060001-2738-4e25-9b9e-00000000000e", "4c060001-2738-4e25-9b9e-00000000000f", "4c060001-2738-4e25-9b9e-000000000010"]
+      "entities": [
+        "4c060001-2738-4e25-9b9e-00000000000d",
+        "4c060001-2738-4e25-9b9e-00000000000e",
+        "4c060001-2738-4e25-9b9e-00000000000f",
+        "4c060001-2738-4e25-9b9e-000000000010"
+      ]
     },
     {
       "id": "4c060001-2738-4e25-9b9e-000000000011",
       "name": "02 - Gravity comparison",
       "parent": null,
-      "entities": ["4c060001-2738-4e25-9b9e-000000000012", "4c060001-2738-4e25-9b9e-000000000013", "4c060001-2738-4e25-9b9e-000000000014", "4c060001-2738-4e25-9b9e-000000000015"]
+      "entities": [
+        "4c060001-2738-4e25-9b9e-000000000012",
+        "4c060001-2738-4e25-9b9e-000000000013",
+        "4c060001-2738-4e25-9b9e-000000000014",
+        "4c060001-2738-4e25-9b9e-000000000015"
+      ]
     },
     {
       "id": "4c060001-2738-4e25-9b9e-000000000016",
       "name": "03 - Friction and damping",
       "parent": null,
-      "entities": ["4c060001-2738-4e25-9b9e-000000000017", "4c060001-2738-4e25-9b9e-000000000018", "4c060001-2738-4e25-9b9e-000000000019", "4c060001-2738-4e25-9b9e-00000000001a", "4c060001-2738-4e25-9b9e-00000000001b", "4c060001-2738-4e25-9b9e-00000000001c", "4c060001-2738-4e25-9b9e-00000000001d", "4c060001-2738-4e25-9b9e-00000000001e"]
+      "entities": [
+        "4c060001-2738-4e25-9b9e-000000000017",
+        "4c060001-2738-4e25-9b9e-000000000018",
+        "4c060001-2738-4e25-9b9e-000000000019",
+        "4c060001-2738-4e25-9b9e-00000000001a",
+        "4c060001-2738-4e25-9b9e-00000000001b",
+        "4c060001-2738-4e25-9b9e-00000000001c",
+        "4c060001-2738-4e25-9b9e-00000000001d",
+        "4c060001-2738-4e25-9b9e-00000000001e"
+      ]
     },
     {
       "id": "4c060001-2738-4e25-9b9e-00000000001f",
       "name": "04 - Stack and mass",
       "parent": null,
-      "entities": ["21935c1f-4f59-4b12-9a13-9dca302101e1", "4c060001-2738-4e25-9b9e-000000000020", "4c060001-2738-4e25-9b9e-000000000021", "4c060001-2738-4e25-9b9e-000000000022", "4c060001-2738-4e25-9b9e-000000000023", "4c060001-2738-4e25-9b9e-000000000024", "4c060001-2738-4e25-9b9e-000000000025"]
+      "entities": [
+        "21935c1f-4f59-4b12-9a13-9dca302101e1",
+        "4c060001-2738-4e25-9b9e-000000000020",
+        "4c060001-2738-4e25-9b9e-000000000021",
+        "4c060001-2738-4e25-9b9e-000000000022",
+        "4c060001-2738-4e25-9b9e-000000000023",
+        "4c060001-2738-4e25-9b9e-000000000024",
+        "4c060001-2738-4e25-9b9e-000000000025"
+      ]
     },
     {
       "id": "4c060001-2738-4e25-9b9e-000000000026",
       "name": "05 - Traversal course",
       "parent": null,
-      "entities": ["4c060001-2738-4e25-9b9e-000000000027", "4c060001-2738-4e25-9b9e-000000000028", "4c060001-2738-4e25-9b9e-000000000029", "4c060001-2738-4e25-9b9e-00000000002a", "4c060001-2738-4e25-9b9e-00000000002b", "4c060001-2738-4e25-9b9e-00000000002c", "4c060001-2738-4e25-9b9e-00000000002d", "4c060001-2738-4e25-9b9e-00000000002e", "4c060001-2738-4e25-9b9e-00000000002f", "4c060001-2738-4e25-9b9e-000000000030", "4c060001-2738-4e25-9b9e-000000000031", "4c060001-2738-4e25-9b9e-000000000032"]
+      "entities": [
+        "4c060001-2738-4e25-9b9e-000000000027",
+        "4c060001-2738-4e25-9b9e-000000000028",
+        "4c060001-2738-4e25-9b9e-000000000029",
+        "4c060001-2738-4e25-9b9e-00000000002a",
+        "4c060001-2738-4e25-9b9e-00000000002b",
+        "4c060001-2738-4e25-9b9e-00000000002c",
+        "4c060001-2738-4e25-9b9e-00000000002d",
+        "4c060001-2738-4e25-9b9e-00000000002e",
+        "4c060001-2738-4e25-9b9e-00000000002f",
+        "4c060001-2738-4e25-9b9e-000000000030",
+        "4c060001-2738-4e25-9b9e-000000000031",
+        "4c060001-2738-4e25-9b9e-000000000032"
+      ]
     },
     {
       "id": "4c060001-2738-4e25-9b9e-000000000033",
       "name": "06 - Hierarchy workshop",
       "parent": null,
-      "entities": ["4c060001-2738-4e25-9b9e-000000000034", "4c060001-2738-4e25-9b9e-00000000003b"]
+      "entities": [
+        "4c060001-2738-4e25-9b9e-000000000034",
+        "4c060001-2738-4e25-9b9e-00000000003b"
+      ]
     },
     {
       "id": "4c060001-2738-4e25-9b9e-00000000003c",
       "name": "07 - Shared mesh gallery",
       "parent": null,
-      "entities": ["4c060001-2738-4e25-9b9e-00000000003d", "4c060001-2738-4e25-9b9e-00000000003e", "4c060001-2738-4e25-9b9e-00000000003f", "4c060001-2738-4e25-9b9e-000000000040", "4c060001-2738-4e25-9b9e-000000000041", "4c060001-2738-4e25-9b9e-000000000042", "4c060001-2738-4e25-9b9e-000000000043", "4c060001-2738-4e25-9b9e-000000000044", "4c060001-2738-4e25-9b9e-000000000045"]
+      "entities": [
+        "4c060001-2738-4e25-9b9e-00000000003d",
+        "4c060001-2738-4e25-9b9e-00000000003e",
+        "4c060001-2738-4e25-9b9e-00000000003f",
+        "4c060001-2738-4e25-9b9e-000000000040",
+        "4c060001-2738-4e25-9b9e-000000000041",
+        "4c060001-2738-4e25-9b9e-000000000042",
+        "4c060001-2738-4e25-9b9e-000000000043",
+        "4c060001-2738-4e25-9b9e-000000000044",
+        "4c060001-2738-4e25-9b9e-000000000045"
+      ]
+    },
+    {
+      "id": "4c060046-2738-4e25-9b9e-000000000001",
+      "name": "08 - PBR material gallery",
+      "parent": null,
+      "entities": [
+        "4c060045-2738-4e25-9b9e-000000000001",
+        "4c060045-2738-4e25-9b9e-000000000002",
+        "4c060045-2738-4e25-9b9e-000000000003",
+        "4c060045-2738-4e25-9b9e-000000000004",
+        "4c060045-2738-4e25-9b9e-000000000005",
+        "4c060045-2738-4e25-9b9e-000000000006",
+        "4c060045-2738-4e25-9b9e-000000000007",
+        "4c060045-2738-4e25-9b9e-000000000008",
+        "4c060045-2738-4e25-9b9e-000000000009",
+        "4c060045-2738-4e25-9b9e-00000000000a",
+        "4c060045-2738-4e25-9b9e-00000000000b",
+        "4c060045-2738-4e25-9b9e-00000000000c",
+        "4c060045-2738-4e25-9b9e-00000000000d",
+        "4c060045-2738-4e25-9b9e-00000000000e",
+        "4c060045-2738-4e25-9b9e-00000000000f",
+        "4c060045-2738-4e25-9b9e-000000000010",
+        "4c060045-2738-4e25-9b9e-000000000011",
+        "4c060045-2738-4e25-9b9e-000000000012",
+        "4c060045-2738-4e25-9b9e-000000000013",
+        "4c060045-2738-4e25-9b9e-000000000014",
+        "4c060045-2738-4e25-9b9e-000000000015",
+        "4c060045-2738-4e25-9b9e-000000000016",
+        "4c060045-2738-4e25-9b9e-000000000017",
+        "4c060045-2738-4e25-9b9e-000000000018",
+        "4c060045-2738-4e25-9b9e-000000000019",
+        "4c060045-2738-4e25-9b9e-00000000001a",
+        "4c060045-2738-4e25-9b9e-00000000001b"
+      ]
+    },
+    {
+      "id": "4c060046-2738-4e25-9b9e-000000000002",
+      "name": "09 - Textures and alpha cutout",
+      "parent": null,
+      "entities": [
+        "4c060045-2738-4e25-9b9e-00000000001c",
+        "4c060045-2738-4e25-9b9e-00000000001d",
+        "4c060045-2738-4e25-9b9e-00000000001e",
+        "4c060045-2738-4e25-9b9e-00000000001f",
+        "4c060045-2738-4e25-9b9e-000000000020",
+        "4c060045-2738-4e25-9b9e-000000000021",
+        "4c060045-2738-4e25-9b9e-000000000022",
+        "4c060045-2738-4e25-9b9e-000000000023",
+        "4c060045-2738-4e25-9b9e-000000000024",
+        "4c060045-2738-4e25-9b9e-000000000025",
+        "4c060045-2738-4e25-9b9e-000000000026",
+        "4c060045-2738-4e25-9b9e-000000000027",
+        "4c060045-2738-4e25-9b9e-000000000028",
+        "4c060045-2738-4e25-9b9e-000000000029",
+        "4c060045-2738-4e25-9b9e-00000000002a",
+        "4c060045-2738-4e25-9b9e-00000000002b",
+        "4c060045-2738-4e25-9b9e-00000000002c",
+        "4c060045-2738-4e25-9b9e-00000000002d"
+      ]
+    },
+    {
+      "id": "4c060046-2738-4e25-9b9e-000000000003",
+      "name": "10 - Sun sky and volumetric fog",
+      "parent": null,
+      "entities": [
+        "4c060045-2738-4e25-9b9e-00000000002e",
+        "4c060045-2738-4e25-9b9e-00000000002f",
+        "4c060045-2738-4e25-9b9e-000000000030",
+        "4c060045-2738-4e25-9b9e-000000000031"
+      ]
+    },
+    {
+      "id": "4c060046-2738-4e25-9b9e-000000000004",
+      "name": "11 - Local lighting shadow bays",
+      "parent": null,
+      "entities": [
+        "4c060045-2738-4e25-9b9e-000000000032",
+        "4c060045-2738-4e25-9b9e-000000000033",
+        "4c060045-2738-4e25-9b9e-000000000034",
+        "4c060045-2738-4e25-9b9e-000000000035",
+        "4c060045-2738-4e25-9b9e-000000000036",
+        "4c060045-2738-4e25-9b9e-000000000037",
+        "4c060045-2738-4e25-9b9e-000000000038",
+        "4c060045-2738-4e25-9b9e-000000000039",
+        "4c060045-2738-4e25-9b9e-00000000003a",
+        "4c060045-2738-4e25-9b9e-00000000003b",
+        "4c060045-2738-4e25-9b9e-00000000003c",
+        "4c060045-2738-4e25-9b9e-00000000003d",
+        "4c060045-2738-4e25-9b9e-00000000003e",
+        "4c060045-2738-4e25-9b9e-00000000003f",
+        "4c060045-2738-4e25-9b9e-000000000040",
+        "4c060045-2738-4e25-9b9e-000000000041",
+        "4c060045-2738-4e25-9b9e-000000000042",
+        "4c060045-2738-4e25-9b9e-000000000043",
+        "4c060045-2738-4e25-9b9e-000000000044",
+        "4c060045-2738-4e25-9b9e-000000000045",
+        "4c060045-2738-4e25-9b9e-000000000046",
+        "4c060045-2738-4e25-9b9e-000000000047",
+        "4c060045-2738-4e25-9b9e-000000000048",
+        "4c060045-2738-4e25-9b9e-000000000049",
+        "4c060045-2738-4e25-9b9e-00000000004a",
+        "4c060045-2738-4e25-9b9e-00000000004b",
+        "4c060045-2738-4e25-9b9e-00000000004c",
+        "4c060045-2738-4e25-9b9e-00000000004d",
+        "4c060045-2738-4e25-9b9e-00000000004e",
+        "4c060045-2738-4e25-9b9e-00000000004f",
+        "4c060045-2738-4e25-9b9e-000000000050",
+        "4c060045-2738-4e25-9b9e-000000000051",
+        "4c060045-2738-4e25-9b9e-000000000052",
+        "4c060045-2738-4e25-9b9e-000000000053"
+      ]
     }
   ]
 }

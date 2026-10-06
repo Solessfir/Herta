@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <format>
 #include <limits>
 #include <memory>
@@ -407,7 +408,25 @@ std::expected<FCookedTexture, FAssetError> CookTexture(const std::uint32_t Width
 		Image = Downsample(Image);
 	}
 
+	std::size_t TotalBytes = 0;
+
+	for (const auto& Mip : Texture.Mips)
+	{
+		TotalBytes += Mip.Pixels.size();
+	}
+
+	while (TotalBytes > MaximumCookedBufferBytes)
+	{
+		TotalBytes -= Texture.Mips.front().Pixels.size();
+		Texture.Mips.erase(Texture.Mips.begin());
+	}
+
 	return Texture;
+}
+
+bool IsEncodedHdrTexture(const std::span<const std::byte> EncodedImage)
+{
+	return !EncodedImage.empty() && EncodedImage.size() <= static_cast<std::size_t>(std::numeric_limits<int>::max()) && stbi_is_hdr_from_memory(reinterpret_cast<const stbi_uc*>(EncodedImage.data()), static_cast<int>(EncodedImage.size()));
 }
 
 std::expected<FCookedTexture, FAssetError> CookEncodedTexture(const std::span<const std::byte> EncodedImage, const ETextureColorSpace ColorSpace, const std::array<float, 4>& Factor)
@@ -420,6 +439,22 @@ std::expected<FCookedTexture, FAssetError> CookEncodedTexture(const std::span<co
 	int Width = 0;
 	int Height = 0;
 	int Channels = 0;
+	if (IsEncodedHdrTexture(EncodedImage))
+	{
+		if (ColorSpace != ETextureColorSpace::Linear)
+		{
+			return std::unexpected(FAssetError{"HDR textures require Linear color space"});
+		}
+
+		const std::unique_ptr<float, decltype(&stbi_image_free)> Pixels(stbi_loadf_from_memory(reinterpret_cast<const stbi_uc*>(EncodedImage.data()), static_cast<int>(EncodedImage.size()), &Width, &Height, &Channels, 4), &stbi_image_free);
+		if (!Pixels)
+		{
+			return std::unexpected(FAssetError{std::format("Cannot decode HDR image: {}", stbi_failure_reason())});
+		}
+
+		return CookHdrTexture(static_cast<std::uint32_t>(Width), static_cast<std::uint32_t>(Height), std::span(Pixels.get(), static_cast<std::size_t>(Width) * static_cast<std::size_t>(Height) * 4));
+	}
+
 	const std::unique_ptr<stbi_uc, decltype(&stbi_image_free)> Pixels(stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(EncodedImage.data()), static_cast<int>(EncodedImage.size()), &Width, &Height, &Channels, 4), &stbi_image_free);
 	if (!Pixels)
 	{
@@ -428,5 +463,76 @@ std::expected<FCookedTexture, FAssetError> CookEncodedTexture(const std::span<co
 
 	const auto PixelBytes = std::as_bytes(std::span(Pixels.get(), static_cast<std::size_t>(Width) * static_cast<std::size_t>(Height) * 4));
 	return CookTexture(static_cast<std::uint32_t>(Width), static_cast<std::uint32_t>(Height), PixelBytes, ColorSpace, Factor);
+}
+
+std::expected<FCookedTexture, FAssetError> CookHdrTexture(const std::uint32_t Width, const std::uint32_t Height, const std::span<const float> RgbaPixels)
+{
+	if (Width == 0 || Height == 0 || Width > STBI_MAX_DIMENSIONS || Height > STBI_MAX_DIMENSIONS || RgbaPixels.size() != std::size_t{Width} * Height * 4
+	    || !std::ranges::all_of(RgbaPixels, [](const float Value)
+	{
+		return std::isfinite(Value) && Value >= 0.f && Value <= 1.e12f;
+	}))
+	{
+		return std::unexpected(FAssetError{"HDR source must contain bounded finite nonnegative RGBA32F pixels"});
+	}
+
+	FCookedTexture Texture{.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {}};
+	std::uint32_t CurrentWidth = Width;
+	std::uint32_t CurrentHeight = Height;
+	std::vector<float> Current(RgbaPixels.begin(), RgbaPixels.end());
+
+	while (true)
+	{
+		if (CurrentWidth <= 1024 && CurrentHeight <= 1024)
+		{
+			const auto Bytes = std::as_bytes(std::span(Current));
+			Texture.Mips.push_back({.Width = CurrentWidth, .Height = CurrentHeight, .Pixels = {Bytes.begin(), Bytes.end()}});
+		}
+
+		if (CurrentWidth == 1 && CurrentHeight == 1)
+		{
+			break;
+		}
+
+		const std::uint32_t NextWidth = std::max(1u, CurrentWidth / 2);
+		const std::uint32_t NextHeight = std::max(1u, CurrentHeight / 2);
+		std::vector<float> Next(std::size_t{NextWidth} * NextHeight * 4);
+
+		for (std::uint32_t Y = 0; Y < NextHeight; ++Y)
+		{
+			const std::uint32_t YBegin = Y * CurrentHeight;
+			const std::uint32_t YEnd = (Y + 1) * CurrentHeight;
+
+			for (std::uint32_t X = 0; X < NextWidth; ++X)
+			{
+				const std::uint32_t XBegin = X * CurrentWidth;
+				const std::uint32_t XEnd = (X + 1) * CurrentWidth;
+
+				for (std::size_t Channel = 0; Channel < 4; ++Channel)
+				{
+					double Sum = 0;
+
+					for (std::uint32_t SourceY = YBegin / NextHeight; SourceY * NextHeight < YEnd; ++SourceY)
+					{
+						const auto YWeight = std::min(YEnd, (SourceY + 1) * NextHeight) - std::max(YBegin, SourceY * NextHeight);
+
+						for (std::uint32_t SourceX = XBegin / NextWidth; SourceX * NextWidth < XEnd; ++SourceX)
+						{
+							const auto XWeight = std::min(XEnd, (SourceX + 1) * NextWidth) - std::max(XBegin, SourceX * NextWidth);
+							Sum += static_cast<double>(Current[(std::size_t{SourceY} * CurrentWidth + SourceX) * 4 + Channel]) * XWeight * YWeight;
+						}
+					}
+
+					Next[(std::size_t{Y} * NextWidth + X) * 4 + Channel] = static_cast<float>(Sum / (std::uint64_t{CurrentWidth} * CurrentHeight));
+				}
+			}
+		}
+
+		Current = std::move(Next);
+		CurrentWidth = NextWidth;
+		CurrentHeight = NextHeight;
+	}
+
+	return Texture;
 }
 }

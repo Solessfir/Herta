@@ -148,8 +148,9 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 		ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + Width);
 		const auto Name = Leaf(Asset.Label);
 		ImGui::TextUnformatted(Name.data(), Name.data() + Name.size());
-		ImGui::TextDisabled("%s", IsPlaceableContentAsset(Asset) ? "Static Mesh" : Asset.Importer == "Texture" ? "Texture"
-		                                                                                                       : "Asset");
+		ImGui::TextDisabled("%s", IsPlaceableContentAsset(Asset) ? "Static Mesh" : Asset.Importer == "Material" ? "Material"
+		                                                                       : Asset.Importer == "Texture"    ? "Texture"
+		                                                                                                        : "Asset");
 		ImGui::Separator();
 		const FPreviewMeshSlot* const Cached = Assets ? Assets->GetCachedAsset(Asset.Id) : nullptr;
 		if (ImGui::BeginTable("##AssetMetadata", 2, ImGuiTableFlags_SizingStretchProp, {Width, 0.f}))
@@ -184,9 +185,16 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 				else if (const auto* Texture = std::get_if<FPreviewTextureMetadata>(&*Cached->Metadata))
 				{
 					Row("Dimensions", std::format("{} x {}", Texture->Width, Texture->Height));
-					Row("Format", "RGBA8");
+					Row("Format", Texture->PixelFormat == ETexturePixelFormat::Rgba32Float ? "RGBA32F (HDR)" : "RGBA8");
 					Row("Color space", Texture->ColorSpace == ETextureColorSpace::Srgb ? "sRGB" : "Linear");
 					Row("Mip levels", std::format("{}", Texture->Mips));
+				}
+				else if (const auto* Material = std::get_if<FPreviewMaterialMetadata>(&*Cached->Metadata))
+				{
+					Row("Name", Material->Name);
+					Row("Texture maps", std::format("{}", Material->TextureMaps));
+					Row("Blend", Material->BlendMode == EMaterialBlendMode::Masked ? "Masked" : "Opaque");
+					Row("Shader", Cached->MaterialSource && !Cached->MaterialSource->ShaderPath.empty() ? std::string_view(Cached->MaterialSource->ShaderPath) : "Engine PBR");
 				}
 			}
 
@@ -209,6 +217,11 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 			ImGui::Separator();
 			ImGui::TextDisabled("Drag into the viewport to place");
 		}
+		else if (Asset.Importer == "Material")
+		{
+			ImGui::Separator();
+			ImGui::TextDisabled("Double-click to edit. Drag onto a mesh to assign.");
+		}
 
 		ImGui::PopTextWrapPos();
 		ImGui::EndTooltip();
@@ -222,17 +235,27 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 	const std::string Id = Asset.Id.ToString();
 	ImGui::PushID(Id.c_str());
 	const ImVec2 Start = ImGui::GetCursorScreenPos();
-	if (ImGui::Selectable("##Asset", State.Selected == Asset.Id, ImGuiSelectableFlags_NoPadWithHalfSpacing, Size))
+	if (ImGui::Selectable("##Asset", State.Selected == Asset.Id, static_cast<ImGuiSelectableFlags>(ImGuiSelectableFlags_NoPadWithHalfSpacing) | ImGuiSelectableFlags_AllowDoubleClick, Size))
 	{
 		State.Selected = Asset.Id;
 		State.SelectedFolder.clear();
+		if (Asset.Importer == "Material" && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		{
+			State.OpenMaterialRequested = Asset.Id;
+		}
 	}
 
-	if (IsPlaceableContentAsset(Asset) && ImGui::BeginDragDropSource())
+	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+	{
+		State.ContextAsset = State.Selected = Asset.Id;
+		State.SelectedFolder.clear();
+	}
+
+	if ((IsPlaceableContentAsset(Asset) || Asset.Importer == "Material") && ImGui::BeginDragDropSource())
 	{
 		ImGui::SetDragDropPayload(ContentAssetPayload, &Asset.Id, sizeof(Asset.Id));
 		ImGui::TextUnformatted(Asset.Label.c_str());
-		ImGui::TextDisabled("Place static mesh");
+		ImGui::TextDisabled("%s", Asset.Importer == "Material" ? "Assign material" : "Place static mesh");
 		ImGui::EndDragDropSource();
 	}
 
@@ -245,7 +268,9 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 	const float Font = ImGui::GetFontSize();
 	if (bList)
 	{
-		ToolUIIcon(IsPlaceableContentAsset(Asset) ? EToolUIMenuIcon::Cube : EToolUIMenuIcon::Panel, Start.x + Font * 0.5f + 6.f * Scale, Start.y + Size.y * 0.5f, Scale);
+		ToolUIIcon(IsPlaceableContentAsset(Asset) ? EToolUIMenuIcon::Cube : Asset.Importer == "Material" ? EToolUIMenuIcon::Material
+		                                                                                                 : EToolUIMenuIcon::Panel,
+		    Start.x + Font * 0.5f + 6.f * Scale, Start.y + Size.y * 0.5f, Scale);
 		const auto Name = Leaf(Asset.Label);
 		ImGui::RenderTextClipped({Start.x + Font + 16.f * Scale, Start.y + (Size.y - Font) * 0.5f}, {Start.x + Size.x - 4.f * Scale, Start.y + Size.y}, Name.data(), Name.data() + Name.size(), nullptr);
 		ImGui::PopID();
@@ -263,8 +288,11 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 	}
 	else
 	{
-		ToolUIIcon(IsPlaceableContentAsset(Asset) ? EToolUIMenuIcon::Cube : EToolUIMenuIcon::Panel, (Minimum.x + Maximum.x) * 0.5f, (Minimum.y + Maximum.y) * 0.5f, std::max(Scale, IconSize / 32.f));
+		ToolUIIcon(IsPlaceableContentAsset(Asset) ? EToolUIMenuIcon::Cube : Asset.Importer == "Material" ? EToolUIMenuIcon::Material
+		                                                                                                 : EToolUIMenuIcon::Panel,
+		    (Minimum.x + Maximum.x) * 0.5f, (Minimum.y + Maximum.y) * 0.5f, std::max(Scale, IconSize / 32.f));
 	}
+
 	const auto Name = Leaf(Asset.Label);
 	ImGui::RenderTextClipped({Start.x + 4.f, Maximum.y + Font * 0.3f}, {Start.x + Size.x - 4.f, Maximum.y + Font * 1.3f}, Name.data(), Name.data() + Name.size(), nullptr, {0.5f, 0.f});
 	ImGui::PopID();
@@ -300,6 +328,7 @@ void FContentBrowserState::Refresh(const std::span<const FPreviewAssetOption> Op
 	{
 		return Character == '/' ? 0 : Character;
 	};
+
 	std::ranges::sort(Folders, [HierarchyCharacter](const auto& First, const auto& Second)
 	{
 		const bool bFirstGame = First == "Game" || First.starts_with("Game/");
@@ -452,6 +481,8 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 	State.Refresh(Assets ? Assets->GetOptions() : std::span<const FPreviewAssetOption>{}, Assets ? Assets->GetOptionsGeneration() : 0, Assets ? Assets->GetFolders() : std::span<const std::string>{});
 	const bool bBusy = Assets && (Assets->IsScanning() || Assets->IsImporting());
 	bool bImport = false;
+	bool bNewMaterial = false;
+	std::string CreationFolder = State.Folder;
 	std::vector<FAssetId> ThumbnailAssets;
 	if (State.bFocusRequested)
 	{
@@ -494,6 +525,11 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		}
 
 		ImGui::PopStyleVar();
+		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
+		{
+			State.ContextAsset = {};
+		}
+
 		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
 		{
 			State.ContextFolder = State.Folder;
@@ -511,9 +547,31 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			ImGui::BeginDisabled(!Assets || bBusy);
 			bImport |= ToolUIMenuItem("Import...", EToolUIMenuIcon::Import, nullptr, "Ctrl+I");
 			ImGui::EndDisabled();
-			ImGui::BeginDisabled(!bCanCreateFolder);
-			bNewFolder |= ToolUIMenuItem("New folder", EToolUIMenuIcon::ContentBrowser, nullptr, "Ctrl+Shift+N");
+			const bool bContextWritable = Assets && !bBusy && State.RenamingFolder.empty() && (State.ContextFolder == "Game" || State.ContextFolder.starts_with("Game/"));
+			ImGui::BeginDisabled(!bContextWritable);
+			if (ToolUIMenuItem("New folder", EToolUIMenuIcon::ContentBrowser, nullptr, "Ctrl+Shift+N"))
+			{
+				bNewFolder = true;
+				CreationFolder = State.ContextFolder;
+			}
+
+			bNewMaterial |= ToolUIMenuItem("New material", EToolUIMenuIcon::Material);
+			if (bNewMaterial)
+			{
+				CreationFolder = State.ContextFolder;
+			}
+
 			ImGui::EndDisabled();
+			const auto Context = std::ranges::find(State.Assets, State.ContextAsset, &FPreviewAssetOption::Id);
+			if (Context != State.Assets.end() && Context->Importer == "Material")
+			{
+				ImGui::Separator();
+				if (ToolUIMenuItem("Edit material", EToolUIMenuIcon::Material))
+				{
+					State.OpenMaterialRequested = Context->Id;
+				}
+			}
+
 			ImGui::Separator();
 			ImGui::BeginDisabled(!Assets);
 #ifdef HERTA_PLATFORM_WINDOWS
@@ -551,7 +609,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 
 		if (bNewFolder)
 		{
-			const auto Created = Assets->CreateFolder(State.Folder, "New Folder", true);
+			const auto Created = Assets->CreateFolder(CreationFolder, "New Folder", true);
 			if (Created)
 			{
 				State.SelectedFolder = *Created;
@@ -567,6 +625,23 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				State.bFocusFolderName = true;
 				State.FolderName.fill('\0');
 				std::ranges::copy(Leaf(*Created), State.FolderName.begin());
+				State.FolderError.clear();
+			}
+			else
+			{
+				State.FolderError = Created.error().Message;
+			}
+		}
+
+		if (bNewMaterial)
+		{
+			const auto Created = Assets->CreateMaterial(CreationFolder, "New Material");
+			if (Created)
+			{
+				State.Selected = State.OpenMaterialRequested = *Created;
+				State.SelectedFolder.clear();
+				State.Search.fill('\0');
+				State.Filter();
 				State.FolderError.clear();
 			}
 			else
@@ -635,6 +710,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 					{
 						State.ContextFolder = Path;
 					}
+
 					if (ImGui::IsItemToggledOpen())
 					{
 						if (bExpanded)
@@ -645,6 +721,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 						{
 							State.Collapsed.insert(Path);
 						}
+
 						bFoldersChanged = true;
 					}
 
@@ -724,10 +801,12 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 					{
 						break;
 					}
+
 					if (Column > 0)
 					{
 						ImGui::SameLine();
 					}
+
 					if (Match < State.FolderMatches.size())
 					{
 						const std::string& Path = State.Folders[State.FolderMatches[Match]];
@@ -788,6 +867,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		{
 			State.RefreshFolders();
 		}
+
 		if (!State.FolderError.empty())
 		{
 			ImGui::TextColored({0.92f, 0.45f, 0.42f, 1.f}, "%s", State.FolderError.c_str());
@@ -796,10 +876,12 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		{
 			ImGui::TextDisabled("%s  -  %zu folders, %zu assets%s", State.Folder.c_str(), State.FolderMatches.size(), State.Matches.size(), bBusy ? "  -  Working..." : "");
 		}
+
 		if (ImGui::IsItemHovered())
 		{
 			ImGui::SetTooltip("Drop files from your file manager to import. Engine content is read-only; imports always go to Game.");
 		}
+
 		if (!State.FolderError.empty())
 		{
 			ImGui::SetItemTooltip("%s", State.FolderError.c_str());

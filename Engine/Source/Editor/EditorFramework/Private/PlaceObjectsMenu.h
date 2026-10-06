@@ -12,6 +12,13 @@ enum class EPlaceObjectType : std::uint8_t
 {
 	EmptyEntity,
 	Cube,
+	DirectionalLight,
+	SkyLight,
+	PointLight,
+	SpotLight,
+	RectLight,
+	SkyAtmosphere,
+	HeightFog,
 };
 
 struct FPlaceObjectsMenuState
@@ -19,6 +26,7 @@ struct FPlaceObjectsMenuState
 	void Reset() noexcept;
 	bool HasCubeMatch() const;
 	bool HasEmptyEntityMatch() const;
+	bool HasMatch(EPlaceObjectType Type) const;
 	bool HasAnyMatch() const;
 	void SetResultFocus(bool bFocused);
 	void SelectFirstResult();

@@ -8,6 +8,7 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -16,11 +17,12 @@
 namespace Herta
 {
 // Bump an importer version whenever its output changes for the same source and settings.
-inline constexpr std::uint32_t TextureImporterVersion = 2;
-inline constexpr std::uint32_t GltfImporterVersion = 2;
+inline constexpr std::uint32_t TextureImporterVersion = 3;
+inline constexpr std::uint32_t GltfImporterVersion = 3;
+inline constexpr std::uint32_t MaterialImporterVersion = 1;
 
 // Also covers the Herta export preset script run inside Blender.
-inline constexpr std::uint32_t BlenderImporterVersion = 2;
+inline constexpr std::uint32_t BlenderImporterVersion = 3;
 
 struct FAssetCookRequest
 {
@@ -34,6 +36,13 @@ struct FAssetCookRequest
 
 	// Cooks and replaces the cache entry even when a valid one exists.
 	bool bForce = false;
+	// Texture and shader lookup roots. Missing optional roots fail only when a referenced dependency needs them.
+	std::vector<std::filesystem::path> DependencyContentRoots{};
+	// The same source may need different mip filtering when sampled as color or numerical data.
+	std::optional<ETextureColorSpace> TextureColorSpace{};
+	// Explicit mounts resolve Engine/ and Game/ shader paths without guessing directory names.
+	std::filesystem::path EngineContentRoot{};
+	std::filesystem::path GameContentRoot{};
 };
 
 struct FAssetCookResult

@@ -40,7 +40,10 @@ ELevelComponent PresentComponents(const FLevelEntity& Entity)
 {
 	return ELevelComponent::Name | ELevelComponent::Hierarchy | ELevelComponent::Transform
 	       | (Entity.Mesh ? ELevelComponent::StaticMesh : ELevelComponent::None)
-	       | (Entity.BodyType != ELevelBodyType::None ? ELevelComponent::RigidBody : ELevelComponent::None);
+	       | (Entity.BodyType != ELevelBodyType::None ? ELevelComponent::RigidBody : ELevelComponent::None)
+	       | (Entity.Light ? ELevelComponent::Light : ELevelComponent::None)
+	       | (Entity.SkyAtmosphere ? ELevelComponent::SkyAtmosphere : ELevelComponent::None)
+	       | (Entity.HeightFog ? ELevelComponent::HeightFog : ELevelComponent::None);
 }
 
 FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Entity, const ELevelComponent Components)
@@ -70,6 +73,21 @@ FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Enti
 	if (HasLevelComponents(Components, ELevelComponent::RigidBody) && Entity.BodyType != ELevelBodyType::None)
 	{
 		Result.RigidBody = FLevelRigidBodyComponent{.Type = Entity.BodyType, .Settings = Entity.BodySettings};
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::Light))
+	{
+		Result.Light = Entity.Light;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::SkyAtmosphere))
+	{
+		Result.SkyAtmosphere = Entity.SkyAtmosphere;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::HeightFog))
+	{
+		Result.HeightFog = Entity.HeightFog;
 	}
 
 	return Result;
@@ -223,7 +241,10 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	                               | (Update.Parent ? ELevelComponent::Hierarchy : ELevelComponent::None)
 	                               | (Update.Transform ? ELevelComponent::Transform : ELevelComponent::None)
 	                               | (Update.Mesh ? ELevelComponent::StaticMesh : ELevelComponent::None)
-	                               | (Update.RigidBody ? ELevelComponent::RigidBody : ELevelComponent::None);
+	                               | (Update.RigidBody ? ELevelComponent::RigidBody : ELevelComponent::None)
+	                               | (Update.Light ? ELevelComponent::Light : ELevelComponent::None)
+	                               | (Update.SkyAtmosphere ? ELevelComponent::SkyAtmosphere : ELevelComponent::None)
+	                               | (Update.HeightFog ? ELevelComponent::HeightFog : ELevelComponent::None);
 	const auto Allowed = CheckAccess({.Write = Writes});
 	if (!Allowed)
 	{
@@ -245,7 +266,10 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	FLevelEntity Candidate = Pending == Implementation.Changes.end() ? *Live : *Pending->second.After;
 	const bool bStructural = Update.Parent.has_value()
 	                         || (Update.Mesh && Update.Mesh->has_value() != Candidate.Mesh.has_value())
-	                         || (Update.RigidBody && (Update.RigidBody->Type != ELevelBodyType::None) != (Candidate.BodyType != ELevelBodyType::None));
+	                         || (Update.RigidBody && (Update.RigidBody->Type != ELevelBodyType::None) != (Candidate.BodyType != ELevelBodyType::None))
+	                         || (Update.Light && Update.Light->has_value() != Candidate.Light.has_value())
+	                         || (Update.SkyAtmosphere && Update.SkyAtmosphere->has_value() != Candidate.SkyAtmosphere.has_value())
+	                         || (Update.HeightFog && Update.HeightFog->has_value() != Candidate.HeightFog.has_value());
 	if (bStructural && !Implementation.Descriptor.bStructuralChanges)
 	{
 		return Fail("System attempted undeclared structural mutation");
@@ -275,6 +299,21 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	{
 		Candidate.BodyType = Update.RigidBody->Type;
 		Candidate.BodySettings = Update.RigidBody->Settings;
+	}
+
+	if (Update.Light)
+	{
+		Candidate.Light = *Update.Light;
+	}
+
+	if (Update.SkyAtmosphere)
+	{
+		Candidate.SkyAtmosphere = *Update.SkyAtmosphere;
+	}
+
+	if (Update.HeightFog)
+	{
+		Candidate.HeightFog = *Update.HeightFog;
 	}
 
 	if (bStructural || Pending != Implementation.Changes.end())

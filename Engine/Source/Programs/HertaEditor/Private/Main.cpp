@@ -8,6 +8,7 @@
 #include "Herta/NvrhiVulkan/NvrhiVulkan.h"
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
+#include "Herta/Renderer/EnvironmentLighting.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Tasks/TaskSystem.h"
 #include "Herta/ToolUI/ToolUI.h"
@@ -164,7 +165,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -301,6 +302,35 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		return 1;
 	}
 
+	const FShaderAsset ThumbnailVertexShader = *VertexShader;
+	const FShaderAsset ThumbnailFragmentShader = *FragmentShader;
+	FVisualShaderSet VisualShaders;
+	const std::array VisualShaderFiles{
+	    std::pair{"Sky.vert.hshader", &VisualShaders.FullscreenVertex},
+	    std::pair{"Sky.frag.hshader", &VisualShaders.SkyFragment},
+	    std::pair{"VolumetricFog.frag.hshader", &VisualShaders.FogFragment},
+	    std::pair{"FogComposite.frag.hshader", &VisualShaders.CompositeFragment},
+	    std::pair{"ToneMap.frag.hshader", &VisualShaders.ToneMapFragment},
+	    std::pair{"Shadow.vert.hshader", &VisualShaders.ShadowVertex},
+	    std::pair{"Shadow.instanced.vert.hshader", &VisualShaders.ShadowInstancedVertex},
+	    std::pair{"Shadow.frag.hshader", &VisualShaders.ShadowFragment},
+	    std::pair{"SmaaEdges.frag.hshader", &VisualShaders.SmaaEdges},
+	    std::pair{"SmaaWeights.frag.hshader", &VisualShaders.SmaaWeights},
+	    std::pair{"SmaaNeighborhood.frag.hshader", &VisualShaders.SmaaNeighborhood},
+	};
+
+	for (const auto& [File, Destination] : VisualShaderFiles)
+	{
+		auto Shader = LoadCookedShader(ShaderDirectory / File);
+		if (!Shader)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not load {}: {}", File, Shader.error().Message);
+			return 1;
+		}
+
+		*Destination = std::move(*Shader);
+	}
+
 	if (bRendererTest)
 	{
 		auto VSyncResult = Presentation->SetVSyncEnabled(false);
@@ -315,19 +345,18 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			return 1;
 		}
 
-		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *DebugVertexShader, *DebugFragmentShader, *GridVertexShader, *GridFragmentShader, *InstancedVertexShader);
+		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *DebugVertexShader, *DebugFragmentShader, *GridVertexShader, *GridFragmentShader, *InstancedVertexShader, VisualShaders);
 		if (!Test || Presentation->HasValidationErrors())
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Renderer regression failed: {}", Test ? "Validation reported an error" : Test.error().Message);
 			return 1;
 		}
 
-		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, reversed-Z, resize, and frame retirement checks passed");
+		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, visual authoring, resize, and frame retirement checks passed");
 	}
 
-	const FShaderAsset ThumbnailVertexShader = *VertexShader;
-	const FShaderAsset ThumbnailFragmentShader = *FragmentShader;
-	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader), std::move(*DebugVertexShader), std::move(*DebugFragmentShader), std::move(*GridVertexShader), std::move(*GridFragmentShader), std::move(*InstancedVertexShader));
+	const FVisualShaderSet ThumbnailVisualShaders = VisualShaders;
+	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader), std::move(*DebugVertexShader), std::move(*DebugFragmentShader), std::move(*GridVertexShader), std::move(*GridFragmentShader), std::move(*InstancedVertexShader), std::move(VisualShaders));
 	if (!MeshResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize the mesh renderer: {}", MeshResult.error().Message);
@@ -462,10 +491,14 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		ToolUIDescriptor.AppearancePath = RepositoryRoot / "TestResults/Smoke/Appearance.ini";
 	}
 
-	if (bScalingTest)
+	if (bScalingTest || bVisualTest)
 	{
 		ToolUIDescriptor.LayoutPath.clear();
 		ToolUIDescriptor.AppearancePath.clear();
+	}
+
+	if (bScalingTest)
+	{
 		if (auto Result = Presentation->SetVSyncEnabled(false); !Result)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not disable VSync for scaling capture: {}", Result.error().Message);
@@ -516,7 +549,28 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		}
 	}
 
-	const auto RenderAssetThumbnail = [&](const FRenderMesh& Mesh) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	const std::array MaterialStudioLights{
+	    FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 45000.f, .bCastShadows = false}, .Transform = FMatrix4::Rotation(FQuaternion::FromAxisAngle(FVector3::Up(), -0.6f) * FQuaternion::FromAxisAngle(FVector3::Left(), 0.7f))},
+	    FRenderLight{.Settings = {.Type = ELightType::Sky, .Intensity = 1.f, .bCastShadows = false, .bEnvironmentVisible = false}},
+	};
+
+	const FVisualSettings MaterialStudioSettings{.Atmosphere = FSkyAtmosphereComponent{}, .ShadowQuality = EShadowQuality::Off, .bStudioPreview = false};
+	const auto StudioUniforms = BuildVisualUniforms(FMatrix4{}, FMatrix4{}, {512, 512}, MaterialStudioLights, MaterialStudioSettings);
+	if (!StudioUniforms)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize material studio lighting: {}", StudioUniforms.error().Message);
+		return 1;
+	}
+
+	// Filter the reusable studio before interactive frames, not during property gestures.
+	const auto StudioEnvironment = BuildEnvironmentLighting(nullptr, *StudioUniforms);
+	if (!StudioEnvironment)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not filter material studio environment: {}", StudioEnvironment.error().Message);
+		return 1;
+	}
+
+	const auto RenderThumbnail = [&](const FRenderMesh& Mesh, const FRenderMaterial* Material) -> std::expected<FEditorAssetThumbnail, FPresentationError>
 	{
 		const FVector3 Center = Mesh.GetBoundsMinimum() * 0.5f + Mesh.GetBoundsMaximum() * 0.5f;
 		const FVector3 HalfExtent = Mesh.GetBoundsMaximum() * 0.5f - Mesh.GetBoundsMinimum() * 0.5f;
@@ -530,20 +584,42 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		const float Scale = 1.f / Radius;
 		const std::array Models{FMatrix4::Scale({Scale, Scale, Scale}) * FMatrix4::Translation(-Center)};
 		const std::array<const FRenderMesh*, 1> Meshes{&Mesh};
+		const std::array<const FRenderMaterial*, 1> MaterialSlots{Material};
+		const std::array<std::span<const FRenderMaterial* const>, 1> Materials{MaterialSlots};
 		FViewportCameraController Camera;
 		const float Sensitivity = Camera.GetMouseSensitivity();
 		Camera.Update({.Mode = EViewportCameraMode::Orbit, .MouseDeltaPixels = {-std::numbers::pi_v<float> / (4.f * Sensitivity), (Camera.GetPitch() + std::numbers::pi_v<float> / 6.f) / Sensitivity}, .Movement = {}}, 0.f, {192.f, 192.f});
-		Camera.Focus({}, HalfExtent * Scale, 1.f, {0.9f, 0.9f});
+		Camera.Focus({}, HalfExtent * (Scale * (Material ? 0.65f : 1.f)), 1.f, {0.9f, 0.9f});
 		const FViewportCameraSnapshot View = Camera.GetSnapshot(1.f);
 
 		// ponytail: one pipeline per cached thumbnail; reuse pipelines when RHI supports copying render targets.
-		auto Renderer = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), ThumbnailVertexShader, ThumbnailFragmentShader);
+		auto Renderer = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), ThumbnailVertexShader, ThumbnailFragmentShader, {}, {}, {}, {}, {}, Material ? ThumbnailVisualShaders : FVisualShaderSet{});
 		if (!Renderer)
 		{
 			return std::unexpected(Renderer.error());
 		}
 
-		if (auto Result = (*Renderer)->Render({192, 192}, {.View = View.View, .Projection = View.Projection, .Models = Models, .Meshes = Meshes}); !Result)
+		const std::array StudioLights{
+		    FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 3.f, .bCastShadows = false}, .Transform = FMatrix4::Rotation(FQuaternion::FromAxisAngle(FVector3::Up(), -0.6f) * FQuaternion::FromAxisAngle(FVector3::Left(), 0.7f))},
+		    FRenderLight{.Settings = {.Type = ELightType::Sky, .Intensity = 0.4f, .bCastShadows = false}},
+		};
+
+		if (Material)
+		{
+			if (const auto SharedShaders = (*Renderer)->ShareMaterialShaders(*MeshRenderer); !SharedShaders)
+			{
+				return std::unexpected(SharedShaders.error());
+			}
+
+			if (const auto Environment = (*Renderer)->SetEnvironmentLighting(*StudioEnvironment); !Environment)
+			{
+				return std::unexpected(Environment.error());
+			}
+		}
+
+		const std::span<const FRenderLight> Lights = Material ? std::span<const FRenderLight>(MaterialStudioLights) : std::span<const FRenderLight>(StudioLights);
+		const FExtent2D Extent = Material ? FExtent2D{512, 512} : FExtent2D{192, 192};
+		if (auto Result = (*Renderer)->Render(Extent, {.View = View.View, .Projection = View.Projection, .Models = Models, .Meshes = Meshes, .Materials = Materials, .Lights = Lights, .Visuals = Material ? MaterialStudioSettings : FVisualSettings{}}); !Result)
 		{
 			return std::unexpected(Result.error());
 		}
@@ -560,8 +636,17 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			delete Id;
 		});
 	};
+	const auto RenderAssetThumbnail = [&](const FRenderMesh& Mesh)
+	{
+		return RenderThumbnail(Mesh, nullptr);
+	};
 
-	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .LevelPath = LevelPath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail});
+	const auto RenderMaterialThumbnail = [&](const FRenderMesh& Mesh, const FRenderMaterial& Material) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		return RenderThumbnail(Mesh, &Material);
+	};
+
+	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .LevelPath = LevelPath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail, .RenderMaterialThumbnail = RenderMaterialThumbnail, .MeshRenderer = MeshRenderer.get()});
 	if (!EditorFrameworkResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize EditorFramework: {}", EditorFrameworkResult.error().Message);
@@ -791,6 +876,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::vector<FMatrix4> AuthoredModels;
 	std::size_t ScalingPhase = 0;
 	std::size_t ScalingFrame = 0;
+	std::size_t VisualFrames = 0;
 	bool bScalingStarted = false;
 	bool bScalingCompleted = false;
 	const auto ScalingDeadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
@@ -798,8 +884,18 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	constexpr std::size_t ScalingSampleFrames = 240;
 	constexpr std::array<std::string_view, 4> ScalingPhaseNames{"rendering", "selected", "simulation", "restored"};
 	constexpr std::array<std::string_view, 5> ScalingMetricNames{"cpu_frame", "inspectors", "extraction", "simulation_and_sync", "render_submission"};
-	while (!Window.ShouldClose() && !bRenderFailed)
+	while (!bRenderFailed)
 	{
+		if (Window.ShouldClose())
+		{
+			if (EditorFramework->RequestClose())
+			{
+				break;
+			}
+
+			Window.SetShouldClose(false);
+		}
+
 		if (bRendererTest && StressStep < 12)
 		{
 			FEditorAppearance Appearance = SmokeAppearance;
@@ -836,9 +932,36 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		Application->PumpEvents();
 		TaskSystem->RunMainThreadTasks();
 		const bool bPresented = RenderFrame();
+		if (EditorFramework->HasConfirmedClose())
+		{
+			break;
+		}
+
 		if (bPresented)
 		{
 			++SmokeFrameCount;
+		}
+
+		if (bVisualTest)
+		{
+			if (std::chrono::steady_clock::now() >= ScalingDeadline)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Visual capture exceeded its five minute asset loading and presentation budget");
+				bRenderFailed = true;
+				break;
+			}
+
+			if (bPresented && EditorFramework->GetFrameMetrics().bAssetsReady && ++VisualFrames == 600)
+			{
+				const FExtent2D Extent = EditorFramework->GetViewportExtent();
+				HERTA_LOG_INFO(*Log, EditorLog, "Visual capture completed: frames={} viewport={}x{} target_bytes={}", VisualFrames, Extent.Width, Extent.Height, MeshRenderer->GetRenderTargetBytes());
+				for (const auto& Timing : MeshRenderer->GetGpuTimings())
+				{
+					HERTA_LOG_INFO(*Log, EditorLog, "Visual pass={} gpu_ms={:.3f}", Timing.Name, Timing.Milliseconds);
+				}
+
+				Window.RequestClose();
+			}
 		}
 
 		if (bScalingTest)
@@ -966,6 +1089,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		bRenderFailed = true;
 	}
 
+	if (bVisualTest && VisualFrames < 600)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Visual capture ended before its ready-frame budget completed");
+		bRenderFailed = true;
+	}
+
 	std::expected<void, FPresentationError> IdleResult = Presentation->WaitIdle();
 	if (!IdleResult)
 	{
@@ -994,12 +1123,13 @@ int main(const int ArgumentCount, char** const Arguments)
 		const bool bSmokeTest = Herta::HasArgument(ArgumentCount, Arguments, "--smoke-test");
 		const bool bPlatformSmokeTest = Herta::HasArgument(ArgumentCount, Arguments, "--platform-smoke-test");
 		const bool bRendererTest = Herta::HasArgument(ArgumentCount, Arguments, "--renderer-test");
+		const bool bVisualTest = Herta::HasArgument(ArgumentCount, Arguments, "--visual-test");
 		const bool bValidationRequested = Herta::HasArgument(ArgumentCount, Arguments, "--validation");
 		const std::string_view ExpectedWindowSystem = Herta::FindArgumentValue(ArgumentCount, Arguments, "--expect-window-system=");
 		const std::string_view ScalingLevelPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--scaling-test=");
 		const bool bScalingSimulate = Herta::HasArgument(ArgumentCount, Arguments, "--scaling-simulate");
 		const std::string_view ProjectPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--project=");
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest);
 	}
 	catch (const std::exception& Exception)
 	{

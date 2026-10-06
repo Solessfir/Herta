@@ -84,6 +84,74 @@ struct FStaticMeshComponent
 	constexpr bool operator==(const FStaticMeshComponent&) const = default;
 
 	FAssetId Asset;
+	// An invalid slot reference uses the material imported with the mesh.
+	std::vector<FAssetId> Materials{};
+};
+
+enum class ELightType : std::uint8_t
+{
+	Directional,
+	Sky,
+	Point,
+	Spot,
+	Rect,
+};
+
+struct FLightComponent
+{
+	constexpr bool operator==(const FLightComponent&) const = default;
+
+	ELightType Type = ELightType::Point;
+	FVector3 Color = FVector3::One();
+	float Intensity = 1.f;
+	bool bUseTemperature = false;
+	float TemperatureKelvin = 6500.f;
+	bool bCastShadows = true;
+	float ShadowBias = 0.001f;
+	float ShadowNormalBias = 0.02f;
+	float Range = 10.f;
+	float InnerConeAngle = 0.34906585f;
+	float OuterConeAngle = 0.61086524f;
+	float Width = 1.f;
+	float Height = 1.f;
+	FAssetId Environment{};
+	float AmbientStrength = 1.f;
+	bool bEnvironmentVisible = true;
+	bool bEnabled = true;
+};
+
+struct FSkyAtmosphereComponent
+{
+	constexpr bool operator==(const FSkyAtmosphereComponent&) const = default;
+
+	FObjectId Sun{};
+	float RayleighScattering = 1.f;
+	float MieScattering = 1.f;
+	float MieAnisotropy = 0.8f;
+	float PlanetRadius = 6'360'000.f;
+	float AtmosphereHeight = 80'000.f;
+	bool bEnabled = true;
+};
+
+enum class EFogQuality : std::uint8_t
+{
+	Low,
+	Medium,
+	High,
+};
+
+struct FHeightFogComponent
+{
+	constexpr bool operator==(const FHeightFogComponent&) const = default;
+
+	float Density = 0.005f;
+	float HeightFalloff = 0.1f;
+	FVector3 Albedo = FVector3::One();
+	float Anisotropy = 0.2f;
+	float MaxDistance = 100.f;
+	EFogQuality Quality = EFogQuality::Medium;
+	bool bEnabled = true;
+	bool bVolumetric = true;
 };
 
 enum class ELevelBodyType : std::uint8_t
@@ -116,6 +184,9 @@ struct FLevelEntity
 	std::optional<FStaticMeshComponent> Mesh{};
 	ELevelBodyType BodyType = ELevelBodyType::None;
 	FLevelRigidBodySettings BodySettings{};
+	std::optional<FLightComponent> Light{};
+	std::optional<FSkyAtmosphereComponent> SkyAtmosphere{};
+	std::optional<FHeightFogComponent> HeightFog{};
 };
 
 struct FLevelEntityChange
@@ -131,6 +202,9 @@ struct FLevelError
 
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelEntities(std::span<const FLevelEntity> Entities);
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelRigidBodySettings(const FLevelRigidBodySettings& Settings);
+[[nodiscard]] std::expected<void, FLevelError> ValidateLightComponent(const FLightComponent& Light);
+[[nodiscard]] std::expected<void, FLevelError> ValidateSkyAtmosphereComponent(const FSkyAtmosphereComponent& Atmosphere);
+[[nodiscard]] std::expected<void, FLevelError> ValidateHeightFogComponent(const FHeightFogComponent& Fog);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final

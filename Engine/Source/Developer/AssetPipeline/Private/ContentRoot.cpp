@@ -26,6 +26,8 @@ inline constexpr std::array ImporterExtensions{
     FImporterExtension{.Extension = ".blend", .Importer = "Blender"},
     FImporterExtension{.Extension = ".glb", .Importer = "Gltf"},
     FImporterExtension{.Extension = ".gltf", .Importer = "Gltf"},
+    FImporterExtension{.Extension = ".hmat", .Importer = "Material"},
+    FImporterExtension{.Extension = ".hdr", .Importer = "Texture"},
     FImporterExtension{.Extension = ".jpeg", .Importer = "Texture"},
     FImporterExtension{.Extension = ".jpg", .Importer = "Texture"},
     FImporterExtension{.Extension = ".png", .Importer = "Texture"},
@@ -346,5 +348,38 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 	}
 
 	return Imported;
+}
+
+std::expected<FMaterialAsset, FAssetError> LoadMaterialAsset(const std::filesystem::path& Path)
+{
+	const auto Bytes = ReadWholeFile(Path, 1024 * 1024);
+	if (!Bytes)
+	{
+		return std::unexpected(Bytes.error());
+	}
+
+	if (!*Bytes)
+	{
+		return std::unexpected(FAssetError{"Material file does not exist"});
+	}
+
+	const auto& Data = **Bytes;
+	return DeserializeMaterial(std::string_view(reinterpret_cast<const char*>(Data.data()), Data.size()));
+}
+
+std::expected<void, FAssetError> WriteMaterialAsset(const std::filesystem::path& Path, const FMaterialAsset& Material, const bool bReplaceExisting)
+{
+	if (ToLowerAscii(PathToUtf8(Path.extension())) != ".hmat")
+	{
+		return std::unexpected(FAssetError{"Material assets require the .hmat extension"});
+	}
+
+	const auto Text = SerializeMaterial(Material);
+	if (!Text)
+	{
+		return std::unexpected(Text.error());
+	}
+
+	return WriteFileAtomically(Path, std::as_bytes(std::span(*Text)), bReplaceExisting);
 }
 }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Herta/Assets/AssetRegistry.h"
+#include "Herta/Assets/Material.h"
 
 #include <array>
 #include <cstddef>
@@ -14,19 +14,19 @@
 namespace Herta
 {
 // Bump when any cooked layout or cooking rule changes; build keys include it, so stale derived data is never reused.
-inline constexpr std::uint32_t CookedAssetFormatVersion = 1;
+inline constexpr std::uint32_t CookedAssetFormatVersion = 2;
 
 inline constexpr std::uint32_t MaximumCookedTextureDimension = 4096;
 // Matches the per-recording GPU upload budget.
 inline constexpr std::size_t MaximumCookedBufferBytes = std::size_t{64} * 1024 * 1024;
 
-enum class ETextureColorSpace : std::uint8_t
+enum class ETexturePixelFormat : std::uint8_t
 {
-	Linear,
-	Srgb
+	Rgba8,
+	Rgba32Float
 };
 
-// Tightly packed RGBA8 rows, top row first.
+// Tightly packed rows, top row first. RGBA32F retains linear HDR radiance.
 struct FCookedTextureMip
 {
 	std::uint32_t Width = 0;
@@ -38,6 +38,7 @@ struct FCookedTextureMip
 struct FCookedTexture
 {
 	ETextureColorSpace ColorSpace = ETextureColorSpace::Srgb;
+	ETexturePixelFormat PixelFormat = ETexturePixelFormat::Rgba8;
 	std::vector<FCookedTextureMip> Mips;
 };
 
@@ -45,6 +46,8 @@ struct FCookedVertex
 {
 	std::array<float, 3> Position{};
 	std::array<float, 2> UV{};
+	std::array<float, 3> Normal{0.f, 1.f, 0.f};
+	std::array<float, 4> Tangent{1.f, 0.f, 0.f, 1.f};
 };
 
 struct FCookedMeshSection
@@ -54,11 +57,14 @@ struct FCookedMeshSection
 	std::uint32_t Material = 0;
 };
 
+inline constexpr std::uint32_t NoCookedTexture = UINT32_MAX;
+
 struct FCookedMaterial
 {
 	std::string Name;
-	// Base color with the source material's color factor already applied.
-	std::uint32_t BaseColorTexture = 0;
+	FMaterialParameters Parameters{};
+	std::array<std::uint32_t, MaterialTextureSlotCount> Textures{NoCookedTexture, NoCookedTexture, NoCookedTexture, NoCookedTexture, NoCookedTexture, NoCookedTexture};
+	std::array<EMaterialChannel, MaterialTextureSlotCount> Channels{EMaterialChannel::Rgb, EMaterialChannel::Red, EMaterialChannel::Red, EMaterialChannel::Rgb, EMaterialChannel::Red, EMaterialChannel::Rgb};
 };
 
 // A static mesh in model space with counter-clockwise front faces and uint32 triangle lists.
@@ -71,7 +77,7 @@ struct FCookedModel
 	std::vector<FCookedTexture> Textures;
 };
 
-using FCookedAsset = std::variant<FCookedTexture, FCookedModel>;
+using FCookedAsset = std::variant<FCookedTexture, FCookedModel, FMaterialAsset>;
 
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedTexture(const FCookedTexture& Texture);
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedModel(const FCookedModel& Model);

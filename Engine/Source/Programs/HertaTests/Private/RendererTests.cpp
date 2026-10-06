@@ -25,7 +25,7 @@ std::shared_ptr<const Herta::FRenderMesh> CreateTestCube(FTestGraphicsDevice& De
 {
 	Herta::FCookedTexture White{.ColorSpace = Herta::ETextureColorSpace::Srgb, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(4, std::byte{255})}}};
 	auto Mesh = Herta::FRenderMesh::Create(Device, Herta::CreateTexturedCubeModel(std::move(White)), "Test cube");
-	REQUIRE(Mesh);
+	REQUIRE_MESSAGE(Mesh, (Mesh ? "" : Mesh.error().Message));
 	return std::move(*Mesh);
 }
 
@@ -393,24 +393,27 @@ TEST_CASE("Render meshes draw each section with its texture and upload within th
 	Herta::FCookedTexture Large{.ColorSpace = Herta::ETextureColorSpace::Linear, .Mips = {}};
 	for (std::uint32_t Size = Herta::MaximumCookedTextureDimension; Size > 0; Size /= 2)
 	{
-		Large.Mips.push_back({.Width = Size, .Height = Size, .Pixels = std::vector<std::byte>(std::size_t{Size} * Size * 4)});
+		const auto Height = std::max(1u, Size / 2);
+		Large.Mips.push_back({.Width = Size, .Height = Height, .Pixels = std::vector<std::byte>(std::size_t{Size} * Height * 4)});
 	}
 
 	Herta::FCookedModel Model;
 	Model.Vertices = {{.Position = {-1, 0, 2}, .UV = {0, 0}}, {.Position = {3, 0, 2}, .UV = {1, 0}}, {.Position = {0, 5, -4}, .UV = {0, 1}}};
 	Model.Indices = {0, 1, 2, 0, 2, 1};
 	Model.Sections = {{.FirstIndex = 0, .IndexCount = 3, .Material = 0}, {.FirstIndex = 3, .IndexCount = 3, .Material = 1}};
-	Model.Materials = {{.Name = "Near", .BaseColorTexture = 0}, {.Name = "Far", .BaseColorTexture = 1}};
-	Model.Textures = {Small, Large};
+	Model.Materials = {{.Name = "Near"}, {.Name = "Far"}};
+	Model.Materials[0].Textures[0] = 0;
+	Model.Materials[1].Textures[0] = 1;
+	Model.Textures = {Small, Large, Large};
 
 	Device.Events.clear();
 	Device.TextureWrites.clear();
 	Device.MaximumRecordingBytes = 0;
 	const auto Mesh = Herta::FRenderMesh::Create(Device, Model, "Test model");
-	REQUIRE(Mesh);
-	CHECK(Device.TextureWrites.size() == Small.Mips.size() + Large.Mips.size());
+	REQUIRE_MESSAGE(Mesh, (Mesh ? "" : Mesh.error().Message));
+	CHECK(Device.TextureWrites.size() == Small.Mips.size() + Large.Mips.size() * 2);
 	CHECK(Device.MaximumRecordingBytes <= Herta::MaximumUploadBytesPerRecording);
-	CHECK(std::ranges::count(Device.Events, std::string("Submit")) == 3);
+	CHECK(std::ranges::count(Device.Events, std::string("Submit")) == 2);
 	CHECK(Device.Events.back() == "Submit");
 	CHECK((*Mesh)->GetBoundsMinimum() == Herta::FVector3{-1, 0, -4});
 	CHECK((*Mesh)->GetBoundsMaximum() == Herta::FVector3{3, 5, 2});
@@ -426,14 +429,53 @@ TEST_CASE("Render meshes draw each section with its texture and upload within th
 	CHECK(Device.Draws[0].FirstIndex == 0);
 	CHECK(Device.Draws[1].FirstIndex == 3);
 	CHECK(Device.Draws[1].IndexCount == 3);
-	CHECK(Device.Draws[0].Texture != Device.Draws[1].Texture);
-	CHECK(Device.Draws[1].Texture->GetDescriptor().MipLevels == Large.Mips.size());
-	CHECK(Device.Draws[1].Texture->GetDescriptor().Format == Herta::ETextureFormat::Rgba8);
+	REQUIRE(Device.Draws[0].Textures.size() == 9);
+	REQUIRE(Device.Draws[1].Textures.size() == 9);
+	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
+	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().MipLevels == Large.Mips.size());
+	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().Format == Herta::ETextureFormat::Rgba8);
 
 	View.Meshes = std::span(Meshes).first(1);
 	CHECK_FALSE((*Renderer)->Render({64, 64}, View));
 	Model.Indices[5] = 7;
 	CHECK_FALSE(Herta::FRenderMesh::Create(Device, Model, "Broken model"));
+}
+
+TEST_CASE("Render material packed maps share uploads while parameter edits keep GPU textures")
+{
+	FTestGraphicsDevice Device;
+	Herta::FMaterialAsset Material;
+	const Herta::FAssetId PackedId{0x0000000000004000, 0x8000000000000001};
+	Material.Textures[1].Texture = PackedId;
+	Material.Textures[1].Channel = Herta::EMaterialChannel::Blue;
+	Material.Textures[2].Texture = PackedId;
+	Material.Textures[2].Channel = Herta::EMaterialChannel::Green;
+	std::array<std::optional<Herta::FCookedTexture>, Herta::MaterialTextureSlotCount> Sources{};
+	Sources[1] = Herta::FCookedTexture{.ColorSpace = Herta::ETextureColorSpace::Linear, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(4, std::byte{128})}}};
+	Sources[2] = Sources[1];
+	const auto Created = Herta::FRenderMaterial::Create(Device, Material, Sources, "Packed material");
+	REQUIRE(Created);
+	CHECK(Device.TextureDescriptors.size() == 1);
+	CHECK(Device.TextureWrites.size() == 1);
+	CHECK(Device.Submissions == 1);
+	Material.Parameters.Roughness = 0.75f;
+	const auto Updated = (*Created)->WithParameters(Material.Parameters);
+	REQUIRE(Updated);
+	CHECK((*Updated)->GetParameters() == Material.Parameters);
+	CHECK((*Created)->GetParameters().Roughness == 0.5f);
+	CHECK(Device.TextureDescriptors.size() == 1);
+	CHECK(Device.Submissions == 1);
+	Material.Parameters.Roughness = -1.f;
+	CHECK_FALSE((*Created)->WithParameters(Material.Parameters));
+	Material.Parameters.Roughness = 0.5f;
+	Material.Textures[0].Texture = PackedId;
+	Sources[0] = Sources[1];
+	Sources[0]->ColorSpace = Herta::ETextureColorSpace::Srgb;
+	const auto Separate = Herta::FRenderMaterial::Create(Device, Material, Sources, "Separate material");
+	REQUIRE(Separate);
+	REQUIRE(Device.TextureDescriptors.size() == 3);
+	CHECK(Device.TextureDescriptors[1].Format == Herta::ETextureFormat::Rgba8Srgb);
+	CHECK(Device.TextureDescriptors[2].Format == Herta::ETextureFormat::Rgba8);
 }
 
 TEST_CASE("Mesh renderer submits ten thousand shared cubes as one indexed instanced draw")
@@ -496,7 +538,8 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	Herta::FCookedTexture White{.ColorSpace = Herta::ETextureColorSpace::Srgb, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(4, std::byte{255})}}};
 	Herta::FCookedModel Model = Herta::CreateTexturedCubeModel(White);
 	Model.Textures.push_back(White);
-	Model.Materials.push_back({.Name = "Second section", .BaseColorTexture = 1});
+	Model.Materials.push_back({.Name = "Second section"});
+	Model.Materials.back().Textures[0] = 1;
 	Model.Sections = {{.FirstIndex = 0, .IndexCount = 18, .Material = 0}, {.FirstIndex = 18, .IndexCount = 18, .Material = 1}};
 	const auto First = Herta::FRenderMesh::Create(Device, Model, "First mesh");
 	const auto Second = CreateTestCube(Device);
@@ -517,7 +560,9 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	CHECK(Device.Draws[1].FirstInstance == 0);
 	CHECK(Device.Draws[1].InstanceCount == 2);
 	CHECK(Device.Draws[1].FirstIndex == 18);
-	CHECK(Device.Draws[0].Texture != Device.Draws[1].Texture);
+	REQUIRE(Device.Draws[0].Textures.size() == 9);
+	REQUIRE(Device.Draws[1].Textures.size() == 9);
+	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
 	CHECK(Device.Draws[2].FirstInstance == 2);
 	CHECK(Device.Draws[2].InstanceCount == 1);
 	REQUIRE(Device.InstanceUpload.size() == 3);
@@ -531,4 +576,111 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	REQUIRE((*Renderer)->Render({64, 64}, View));
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Submit"});
 	CHECK((*Renderer)->GetLastDrawCount() == 0);
+}
+
+TEST_CASE("Material shader sharing reuses compatible pipelines and counts only successful publications")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FTestGraphicsDevice OtherDevice;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	Visuals.FullscreenVertex.Bytecode = {1};
+	const auto Source = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	const auto Preview = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	const auto Other = FMeshRenderer::Create(OtherDevice, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	const auto Legacy = FMeshRenderer::Create(Device, {}, {});
+	REQUIRE(Source);
+	REQUIRE(Preview);
+	REQUIRE(Other);
+	REQUIRE(Legacy);
+	CHECK((*Source)->GetMaterialShaderGeneration() == 0);
+	CHECK_FALSE((*Preview)->ShareMaterialShaders(**Other));
+	CHECK_FALSE((*Preview)->ShareMaterialShaders(**Legacy));
+
+	const auto Shader = [](const EShaderStage Stage, const std::string_view EntryPoint)
+	{
+		FShaderAsset Result;
+		Result.Stage = Stage;
+		Result.EntryPoint = EntryPoint;
+		Result.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = sizeof(FVisualUniforms)}};
+		Result.Bytecode = {1};
+		return Result;
+	};
+
+	const auto Vertex = Shader(EShaderStage::Vertex, "vertexMain");
+	const auto Instanced = Shader(EShaderStage::Vertex, "instancedVertexMain");
+	const auto Fragment = Shader(EShaderStage::Fragment, "fragmentMain");
+	const auto Material = FRenderMaterial::Create(Device, FMaterialAsset{.ShaderPath = "Game/Shared.slang"}, {}, "Shared");
+	REQUIRE(Material);
+	const FRenderMaterial* const MaterialPointer = Material->get();
+	const std::span<const FRenderMaterial* const> Slots{&MaterialPointer, 1};
+	Scene.View.Materials = {&Slots, 1};
+	const auto Draw = [&](FMeshRenderer& Renderer)
+	{
+		Device.Draws.clear();
+		REQUIRE(Renderer.Render({64, 64}, Scene.View));
+		const auto MeshDraw = std::ranges::find_if(Device.Draws, [](const FIndexedDraw& Item)
+		{
+			return std::static_pointer_cast<FTestPipeline>(Item.Pipeline)->Descriptor.VertexFormat == EGraphicsVertexFormat::Mesh;
+		});
+
+		REQUIRE(MeshDraw != Device.Draws.end());
+		return MeshDraw->Pipeline;
+	};
+
+	const auto Original = Draw(**Preview);
+	REQUIRE((*Source)->PublishMaterialShader("Game/Shared.slang", Vertex, Instanced, Fragment));
+	CHECK((*Source)->GetMaterialShaderGeneration() == 1);
+	const auto Published = Draw(**Source);
+	REQUIRE(Published != Original);
+	const std::uint64_t Submissions = Device.Submissions;
+	bool bPipelineCreated = false;
+	Device.ValidatePipeline = [&](const FGraphicsPipelineDescriptor&) -> std::expected<void, FPresentationError>
+	{
+		bPipelineCreated = true;
+		return {};
+	};
+
+	REQUIRE((*Preview)->ShareMaterialShaders(**Source));
+	CHECK_FALSE(bPipelineCreated);
+	CHECK(Device.Submissions == Submissions);
+	CHECK((*Preview)->GetMaterialShaderGeneration() == 0);
+	CHECK(Draw(**Preview) == Published);
+	CHECK_FALSE((*Preview)->ShareMaterialShaders(**Other));
+	CHECK(Draw(**Preview) == Published);
+	Device.ValidatePipeline = [](const FGraphicsPipelineDescriptor& Descriptor) -> std::expected<void, FPresentationError>
+	{
+		if (Descriptor.bInstanced)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Rejected instanced material"});
+		}
+
+		return {};
+	};
+
+	CHECK_FALSE((*Source)->PublishMaterialShader("Game/Shared.slang", Vertex, Instanced, Fragment));
+	CHECK((*Source)->GetMaterialShaderGeneration() == 1);
+	REQUIRE((*Preview)->ShareMaterialShaders(**Source));
+	CHECK(Draw(**Preview) == Published);
+	FShaderAsset Invalid = Fragment;
+	Invalid.Bindings.clear();
+	CHECK_FALSE((*Source)->PublishMaterialShader("Game/Shared.slang", Vertex, Instanced, Invalid));
+	CHECK((*Source)->GetMaterialShaderGeneration() == 1);
+	Device.ValidatePipeline = {};
+	REQUIRE((*Source)->PublishMaterialShader("Game/Shared.slang", Vertex, Instanced, Fragment));
+	CHECK((*Source)->GetMaterialShaderGeneration() == 2);
+	const auto Updated = Draw(**Source);
+	CHECK(Updated != Published);
+	CHECK(Draw(**Preview) == Published);
+	REQUIRE((*Preview)->ShareMaterialShaders(**Source));
+	CHECK(Draw(**Preview) == Updated);
+
+	Scene.View.Materials = {};
+	REQUIRE((*Source)->PublishMaterialShader("", Vertex, Instanced, Fragment));
+	CHECK((*Source)->GetMaterialShaderGeneration() == 3);
+	const auto Default = Draw(**Source);
+	REQUIRE((*Preview)->ShareMaterialShaders(**Source));
+	CHECK(Draw(**Preview) == Default);
+	CHECK((*Preview)->GetMaterialShaderGeneration() == 0);
 }

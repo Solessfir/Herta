@@ -1,8 +1,11 @@
 #include "EditorLevel.h"
 #include "Herta/EditorCore/LevelCommands.h"
+#include "MaterialPanel.h"
+#include "PreviewVisuals.h"
 #include "TestFiles.h"
 
 #include <doctest/doctest.h>
+#include <im3d.h>
 
 #include <array>
 #include <limits>
@@ -12,6 +15,34 @@ namespace Herta
 {
 namespace
 {
+struct FVisualPreviewTestContext
+{
+	FVisualPreviewTestContext();
+	~FVisualPreviewTestContext();
+	FVisualPreviewTestContext(const FVisualPreviewTestContext&) = delete;
+	FVisualPreviewTestContext& operator=(const FVisualPreviewTestContext&) = delete;
+	FVisualPreviewTestContext(FVisualPreviewTestContext&&) = delete;
+	FVisualPreviewTestContext& operator=(FVisualPreviewTestContext&&) = delete;
+
+	Im3d::Context Context;
+	Im3d::Context& Previous = Im3d::GetContext();
+};
+
+FVisualPreviewTestContext::FVisualPreviewTestContext()
+{
+	Im3d::SetContext(Context);
+	auto& AppData = Context.getAppData();
+	AppData.m_viewOrigin = {0.f, 0.f, -10.f};
+	AppData.m_viewDirection = {0.f, 0.f, 1.f};
+	AppData.m_viewportSize = {960.f, 540.f};
+	AppData.m_projScaleY = 1.1547005f;
+}
+
+FVisualPreviewTestContext::~FVisualPreviewTestContext()
+{
+	Im3d::SetContext(Previous);
+}
+
 FPreviewObject& FindEditorObject(FEditorLevel& Level, const FObjectId Id)
 {
 	const auto Found = std::ranges::find(Level.GetObjects(), Id, &FPreviewObject::Id);
@@ -24,6 +55,168 @@ std::vector<FObjectId> SelectedEditorObjects(const FEditorLevel& Level)
 	const auto Selected = Level.GetSelection();
 	return {Selected.begin(), Selected.end()};
 }
+}
+
+TEST_CASE("Visual preview ranges use physical meters and game view hides all guides")
+{
+	FVisualPreviewTestContext Context;
+	FWorld World;
+	FLightComponent Light;
+	Light.Range = 8.f;
+	const auto Id = World.QueueCreateEntity(FLevelEntity{.Name = "Point", .Light = Light});
+	REQUIRE(Id);
+	REQUIRE(World.FlushStructuralChanges());
+	const std::array<FPreviewObject, 1> Objects{{{.Label = "Point", .Translation = {0.f}, .Scale = {100.f}, .Id = *Id, .Kind = EPreviewObjectKind::PointLight}}};
+	FPreviewSelection Selection;
+	Im3d::NewFrame();
+	DrawPreviewVisuals(World, Objects, Selection, false);
+	Im3d::EndFrame();
+	REQUIRE(Im3d::GetDrawListCount() > 0);
+	float MaximumDistance = 0.f;
+
+	for (const Im3d::DrawList& List : std::span{Im3d::GetDrawLists(), Im3d::GetDrawListCount()})
+	{
+		for (const Im3d::VertexData& Vertex : std::span{List.m_vertexData, List.m_vertexCount})
+		{
+			const auto& Position = Vertex.m_positionSize;
+			MaximumDistance = std::max(MaximumDistance, Im3d::Length(Im3d::Vec3{Position.x, Position.y, Position.z}));
+		}
+	}
+
+	CHECK(MaximumDistance == doctest::Approx(8.f));
+	Im3d::NewFrame();
+	DrawPreviewVisuals(World, Objects, Selection, true);
+	Im3d::EndFrame();
+	CHECK(Im3d::GetDrawListCount() == 0);
+}
+
+TEST_CASE("Material drafts keep gesture history separate from level history and preserve failed saves")
+{
+	FMaterialPanel Panel;
+	const FAssetId Asset{5, 5};
+	FMaterialAsset Original;
+	Panel.Open(Asset, Original, "Game/Test.hmat");
+	CHECK_FALSE(Panel.IsDirty());
+	Panel.BeginEdit("Roughness gesture");
+	FMaterialAsset Changed = Original;
+	Changed.Parameters.Roughness = 0.1f;
+	REQUIRE(Panel.SetDraft(Changed));
+	Changed.Parameters.Roughness = 0.3f;
+	REQUIRE(Panel.SetDraft(Changed));
+	REQUIRE(Panel.EndEdit());
+	CHECK(Panel.IsDirty());
+	REQUIRE(Panel.Undo());
+	CHECK(Panel.GetDraft() == Original);
+	CHECK_FALSE(Panel.IsDirty());
+	REQUIRE(Panel.Redo());
+	CHECK(Panel.GetDraft() == Changed);
+	FMaterialPanelContext Context{
+	    .Save = [](FAssetId, const FMaterialAsset&) -> std::expected<void, FAssetError>
+	{
+		return std::unexpected(FAssetError{.Message = "Read-only directory"});
+	},
+	};
+
+	CHECK_FALSE(Panel.Save(Context));
+	CHECK(Panel.IsDirty());
+	CHECK(Panel.GetDraft() == Changed);
+	Context.Save = [Asset](const FAssetId SavedId, const FMaterialAsset&) -> std::expected<void, FAssetError>
+	{
+		CHECK(SavedId == Asset);
+		return {};
+	};
+	REQUIRE(Panel.Save(Context));
+	CHECK_FALSE(Panel.IsDirty());
+	REQUIRE(Panel.Undo());
+	CHECK(Panel.IsDirty());
+	Panel.BeginEdit("Cancel tint");
+	FMaterialAsset Tint = Panel.GetDraft();
+	Tint.Parameters.BaseColor = {0.2f, 0.3f, 0.4f, 1.f};
+	REQUIRE(Panel.SetDraft(Tint));
+	Panel.CancelEdit();
+	CHECK(Panel.GetDraft() == Original);
+	FMaterialAsset Invalid = Panel.GetDraft();
+	Invalid.Parameters.Roughness = -1.f;
+	CHECK_FALSE(Panel.SetDraft(Invalid));
+	CHECK(Panel.GetDraft() == Original);
+	Panel.Open(FAssetId{6, 6}, FMaterialAsset{}, "Game/Other.hmat");
+	CHECK(Panel.GetAsset() == Asset);
+	FMaterialPanel Engine;
+	Engine.Open(Asset, Original, "Engine/Test.hmat", true);
+	CHECK_FALSE(Engine.SetDraft(Changed));
+	CHECK_FALSE(Engine.Save(Context));
+}
+
+TEST_CASE("Mixed visual property edits preserve unrelated component values")
+{
+	FEditorLevel Level;
+	const auto First = Level.CreateLightEntity(ELightType::Point);
+	REQUIRE(First);
+	REQUIRE(Level.SetSelectedVisualProperty(ELevelComponentType::Light, "intensity", 2000.f));
+	const auto Second = Level.CreateLightEntity(ELightType::Point);
+	REQUIRE(Second);
+	Level.SetSelection(std::array{*First, *Second});
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	REQUIRE(Level.SetSelectedVisualProperty(ELevelComponentType::Light, "color", FVector3{0.3f, 0.5f, 0.7f}));
+	const auto A = Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*First));
+	const auto B = Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Second));
+	CHECK(A->Light->Intensity == 2000.f);
+	CHECK(B->Light->Intensity == 1000.f);
+	CHECK(A->Light->Color == B->Light->Color);
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	CHECK_FALSE(Level.SetSelectedVisualProperty(ELevelComponentType::Light, "intensity", true));
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+}
+
+TEST_CASE("Visual authoring and material overrides use grouped reversible transactions")
+{
+	FEditorLevel Level;
+	const auto Created = Level.CreateLightEntity(ELightType::Directional, FWorldPosition{1., 2., 3.});
+	REQUIRE(Created);
+	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Created))->Light->Intensity == 50'000.f);
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	REQUIRE(Level.BeginEdit("Tune sun"));
+	FLightComponent Light = *Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Created))->Light;
+	Light.Intensity = 60'000.f;
+	REQUIRE(Level.SetSelectedLight(Light));
+	Light.Intensity = 80'000.f;
+	REQUIRE(Level.SetSelectedLight(Light));
+	REQUIRE(Level.EndEdit());
+	CHECK(Level.GetUndoLabel() == "Tune sun");
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	REQUIRE(Level.Redo());
+	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Created))->Light->Intensity == 80'000.f);
+	REQUIRE(Level.SetSelectedLight(std::nullopt));
+	CHECK_FALSE(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Created))->Light);
+	REQUIRE(Level.Undo());
+	REQUIRE(Level.AddSkyAtmosphereToSelected());
+	REQUIRE(Level.AddHeightFogToSelected());
+	const auto Visual = *Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Created));
+	REQUIRE(Visual.SkyAtmosphere);
+	REQUIRE(Visual.HeightFog);
+	FHeightFogComponent Invalid = *Visual.HeightFog;
+	Invalid.Density = -1.f;
+	CHECK_FALSE(Level.SetSelectedHeightFog(Invalid));
+	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Created)) == Visual);
+	Level.SetSimulationRunning(true);
+	CHECK_FALSE(Level.SetSelectedLight(Light));
+	Level.SetSimulationRunning(false);
+	const auto Cube = Level.CreateEntity();
+	REQUIRE(Cube);
+	REQUIRE(Level.SetSelectedMaterial(2, FAssetId{4, 2}));
+	const auto Mesh = Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Cube))->Mesh;
+	REQUIRE(Mesh);
+	REQUIRE(Mesh->Materials.size() == 3);
+	CHECK_FALSE(Mesh->Materials[0].IsValid());
+	CHECK(Mesh->Materials[2] == FAssetId{4, 2});
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Cube))->Mesh->Materials.empty());
+	REQUIRE(Level.Redo());
+	REQUIRE(Level.SetSelectedMaterial(2, {}));
+	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Cube))->Mesh->Materials.empty());
+	CHECK_FALSE(Level.SetSelectedMaterial(256, FAssetId{4, 3}));
 }
 
 TEST_CASE("Editor level edits and saves Level-owned transforms and stable identities")

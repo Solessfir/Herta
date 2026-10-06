@@ -3,6 +3,7 @@
 #include "Herta/Assets/CookedAsset.h"
 #include "Herta/Math/Matrix.h"
 #include "Herta/RHI/Graphics.h"
+#include "Herta/Renderer/Visuals.h"
 
 #include <expected>
 #include <memory>
@@ -34,6 +35,8 @@ struct FDebugDrawList
 };
 
 class FRenderMesh;
+class FRenderMaterial;
+struct FEnvironmentLighting;
 
 struct FMeshRenderView
 {
@@ -44,6 +47,25 @@ struct FMeshRenderView
 	FVector3 GridCenter{};
 	// One entry per model. Null entries are skipped, such as meshes that are still loading.
 	std::span<const FRenderMesh* const> Meshes{};
+	std::span<const std::span<const FRenderMaterial* const>> Materials{};
+	std::span<const FRenderLight> Lights{};
+	FVisualSettings Visuals{};
+};
+
+class FRenderMaterial final
+{
+public:
+	[[nodiscard]] static std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> Create(IGraphicsDevice& Device, const FMaterialAsset& Material, const std::array<std::optional<FCookedTexture>, MaterialTextureSlotCount>& Textures, std::string_view Name);
+	const FMaterialParameters& GetParameters() const noexcept;
+	std::string_view GetShaderKey() const noexcept;
+	[[nodiscard]] std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> WithParameters(const FMaterialParameters& Parameters) const;
+
+private:
+	FMaterialParameters Parameters;
+	std::array<EMaterialChannel, MaterialTextureSlotCount> Channels{};
+	std::array<FTextureHandle, MaterialTextureSlotCount> Textures{};
+	std::string ShaderKey;
+	friend class FMeshRenderer;
 };
 
 // GPU copy of a cooked model. Recorded frames share its buffers and textures, so dropping a mesh never waits on the GPU.
@@ -63,17 +85,20 @@ public:
 		return BoundsMaximum;
 	}
 
+	std::span<const FCookedMaterial> GetMaterials() const noexcept;
+
 private:
 	struct FSection
 	{
 		std::uint32_t FirstIndex = 0;
 		std::uint32_t IndexCount = 0;
-		std::size_t Texture = 0;
+		std::size_t Material = 0;
 	};
 
 	FBufferHandle Vertices;
 	FBufferHandle Indices;
 	std::vector<FTextureHandle> Textures;
+	std::vector<FCookedMaterial> Materials;
 	std::vector<FSection> Sections;
 	FVector3 BoundsMinimum{};
 	FVector3 BoundsMaximum{};
@@ -88,13 +113,19 @@ private:
 class FMeshRenderer final
 {
 public:
-	[[nodiscard]] static std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader = {}, FShaderAsset DebugFragmentShader = {}, FShaderAsset GridVertexShader = {}, FShaderAsset GridFragmentShader = {}, FShaderAsset InstancedVertexShader = {});
+	[[nodiscard]] static std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> Create(IGraphicsDevice& Device, FShaderAsset VertexShader, FShaderAsset FragmentShader, FShaderAsset DebugVertexShader = {}, FShaderAsset DebugFragmentShader = {}, FShaderAsset GridVertexShader = {}, FShaderAsset GridFragmentShader = {}, FShaderAsset InstancedVertexShader = {}, FVisualShaderSet VisualShaders = {});
 	~FMeshRenderer();
 	FMeshRenderer(const FMeshRenderer&) = delete;
 	FMeshRenderer& operator=(const FMeshRenderer&) = delete;
 	[[nodiscard]] std::expected<void, FPresentationError> Render(FExtent2D Extent, const FMeshRenderView& View, std::span<const FDebugDrawList> DebugDraw = {});
 	[[nodiscard]] const FTextureHandle& GetColorTarget() const noexcept;
 	std::size_t GetLastDrawCount() const noexcept;
+	std::vector<FGpuPassTiming> GetGpuTimings() const;
+	std::size_t GetRenderTargetBytes() const noexcept;
+	[[nodiscard]] std::expected<void, FPresentationError> SetEnvironmentLighting(const FEnvironmentLighting& Lighting);
+	[[nodiscard]] std::expected<void, FPresentationError> PublishMaterialShader(std::string Key, FShaderAsset Vertex, FShaderAsset InstancedVertex, FShaderAsset Fragment);
+	[[nodiscard]] std::expected<void, FPresentationError> ShareMaterialShaders(const FMeshRenderer& Source);
+	std::uint64_t GetMaterialShaderGeneration() const noexcept;
 
 private:
 	struct FImplementation;

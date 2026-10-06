@@ -20,6 +20,42 @@ std::expected<void, FLevelError> EmptySystem(FLevelSystemContext&)
 }
 }
 
+TEST_CASE("Level systems extract visual components and guard their structural changes")
+{
+	FWorld World;
+	FLevelEntity Entity{.Id = FObjectId{1, 1}, .Name = "Light", .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}};
+	REQUIRE(World.ReplaceEntities(std::array{Entity}));
+	FLevelSystemScheduler Scheduler(World);
+	const ELevelComponent Visual = ELevelComponent::Light | ELevelComponent::SkyAtmosphere | ELevelComponent::HeightFog;
+
+	REQUIRE(Scheduler.AddSystem({.Name = "ExtractVisual", .Phase = ELevelSystemPhase::Extract, .Access = {.Read = Visual, .Write = ELevelComponent::Light}}, [](FLevelSystemContext& Context) -> std::expected<void, FLevelError>
+	{
+		const auto Rows = Context.Query({.Access = {.Read = Visual}, .Require = Visual});
+		REQUIRE(Rows);
+		REQUIRE(Rows->size() == 1);
+		const auto& Row = Rows->front();
+		CHECK_FALSE(Row.Transform);
+		REQUIRE(Row.Light);
+		REQUIRE(Row.SkyAtmosphere);
+		REQUIRE(Row.HeightFog);
+		FLightComponent Light = *Row.Light;
+		Light.Intensity = 25.f;
+		return Context.UpdateEntity(Row.Entity, {.Light = std::optional{Light}});
+	}));
+	REQUIRE(Scheduler.RunPhase(ELevelSystemPhase::Extract, 0.));
+	CHECK(World.GetEntity(*World.FindEntity(Entity.Id))->Light->Intensity == 25.f);
+	REQUIRE(Scheduler.Clear());
+
+	REQUIRE(Scheduler.AddSystem({.Name = "RemoveUndeclared", .Access = {.Read = ELevelComponent::Light, .Write = ELevelComponent::Light}}, [](FLevelSystemContext& Context) -> std::expected<void, FLevelError>
+	{
+		const auto Rows = Context.Query({.Access = {.Read = ELevelComponent::Light}, .Require = ELevelComponent::Light});
+		REQUIRE(Rows);
+		return Context.UpdateEntity(Rows->front().Entity, {.Light = std::optional<FLightComponent>{}});
+	}));
+	CHECK_FALSE(Scheduler.RunPhase(ELevelSystemPhase::Update, 0.));
+	CHECK(World.GetEntity(*World.FindEntity(Entity.Id))->Light.has_value());
+}
+
 TEST_CASE("Level systems validate lifecycle and deterministic dependency ordering")
 {
 	FWorld World;
@@ -197,7 +233,7 @@ TEST_CASE("Level systems enforce access even when a callback ignores a rejected 
 
 		SUBCASE("Unknown component bit")
 		{
-			CHECK_FALSE(Context.Query({.Access = {.Read = static_cast<ELevelComponent>(128)}}));
+			CHECK_FALSE(Context.Query({.Access = {.Read = static_cast<ELevelComponent>(256)}}));
 		}
 
 		return {};

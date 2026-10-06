@@ -1,10 +1,14 @@
 #include "RendererSmoke.h"
 
 #include "Herta/Math/Matrix.h"
+#include "Herta/Renderer/EnvironmentLighting.h"
+#include "Herta/Renderer/Visuals.h"
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <cstring>
 #include <format>
 #include <limits>
 #include <memory>
@@ -80,6 +84,137 @@ namespace
 	}
 
 	Device.CancelCommands();
+	return {};
+}
+
+[[nodiscard]] std::expected<void, FPresentationError> CheckHdrResources(IGraphicsDevice& Device)
+{
+	for (const ETextureFormat Format : {ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float})
+	{
+		const auto Texture = Device.CreateTexture({.Name = "HDR clear regression", .Extent = {.Width = 4, .Height = 2}, .Format = Format, .bRenderTarget = true});
+		if (!Texture)
+		{
+			return std::unexpected(Texture.error());
+		}
+
+		if (const auto Begin = Device.BeginCommands(); !Begin)
+		{
+			return Begin;
+		}
+
+		if (Device.WriteTexture(*Texture, 0, std::span<const std::byte>{}))
+		{
+			Device.CancelCommands();
+			return Failure("HDR texture accepted a partial upload");
+		}
+
+		Device.BeginGpuTiming("HDR clear");
+		const auto Clear = Device.ClearTargets(*Texture, {}, {4.f, 2.f, 0.5f, 1.f});
+		Device.EndGpuTiming();
+		if (!Clear)
+		{
+			Device.CancelCommands();
+			return Clear;
+		}
+
+		if (const auto Submit = Device.SubmitCommands(); !Submit)
+		{
+			Device.CancelCommands();
+			return std::unexpected(Submit.error());
+		}
+
+		const auto Pixels = Device.ReadbackTexture(*Texture);
+		if (!Pixels)
+		{
+			return std::unexpected(Pixels.error());
+		}
+
+		if (Pixels->size() != 8 * GetTextureTexelBytes(Format))
+		{
+			return Failure("HDR readback has an incorrect texel stride");
+		}
+
+		for (const FGpuPassTiming& Timing : Device.GetGpuTimings())
+		{
+			if (Timing.Name != "HDR clear" || !std::isfinite(Timing.Milliseconds) || Timing.Milliseconds < 0)
+			{
+				return Failure("Completed GPU timing reported an invalid sample");
+			}
+		}
+
+		if (Format == ETextureFormat::Rgba32Float)
+		{
+			std::array<float, 4> Color;
+			std::memcpy(Color.data(), Pixels->data(), sizeof(Color));
+			if (Color != std::array<float, 4>{4.f, 2.f, 0.5f, 1.f})
+			{
+				return Failure("HDR clear clamped or changed radiance");
+			}
+		}
+		else
+		{
+			std::array<std::uint16_t, 4> Color;
+			std::memcpy(Color.data(), Pixels->data(), sizeof(Color));
+			if (Color != std::array<std::uint16_t, 4>{0x4400, 0x4000, 0x3800, 0x3c00})
+			{
+				return Failure("Half-float HDR clear changed representable radiance");
+			}
+		}
+	}
+
+	const auto Hdr = Device.CreateTexture({.Name = "HDR upload regression", .Extent = {.Width = 1, .Height = 1}, .Format = ETextureFormat::Rgba32Float});
+	const auto Depth = Device.CreateTexture({.Name = "Depth-only clear regression", .Extent = {.Width = 1, .Height = 1}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
+	if (!Hdr || !Depth)
+	{
+		return std::unexpected(!Hdr ? Hdr.error() : Depth.error());
+	}
+
+	constexpr std::array<float, 4> Radiance{8.f, 3.f, 0.25f, 1.f};
+	for (const bool bSubmit : {false, true})
+	{
+		if (const auto Begin = Device.BeginCommands(); !Begin)
+		{
+			return Begin;
+		}
+
+		auto Result = Device.WriteTexture(*Hdr, 0, std::as_bytes(std::span(Radiance)));
+		if (Result)
+		{
+			Result = Device.ClearTargets({}, *Depth, {});
+		}
+
+		if (!Result)
+		{
+			Device.CancelCommands();
+			return Result;
+		}
+
+		if (!bSubmit)
+		{
+			Device.CancelCommands();
+			if (Device.ReadbackTexture(*Hdr))
+			{
+				return Failure("Cancelled HDR upload initialized its texture");
+			}
+		}
+		else if (const auto Submit = Device.SubmitCommands(); !Submit)
+		{
+			Device.CancelCommands();
+			return std::unexpected(Submit.error());
+		}
+	}
+
+	const auto Pixels = Device.ReadbackTexture(*Hdr);
+	if (!Pixels)
+	{
+		return std::unexpected(Pixels.error());
+	}
+
+	if (*Pixels != std::vector<std::byte>(std::as_bytes(std::span(Radiance)).begin(), std::as_bytes(std::span(Radiance)).end()))
+	{
+		return Failure("HDR upload did not preserve radiance bytes");
+	}
+
 	return {};
 }
 
@@ -354,9 +489,16 @@ namespace
 	// +X is left in Herta, so the negative-X quad appears on the right half of the image.
 	FCookedModel Model;
 	Model.Vertices = {{.Position = {-3, -2, 0}, .UV = {0, 1}}, {.Position = {-3, 2, 0}, .UV = {0, 0}}, {.Position = {-0.5f, 2, 0}, .UV = {1, 0}}, {.Position = {-0.5f, -2, 0}, .UV = {1, 1}}, {.Position = {0.5f, -2, 0}, .UV = {0, 1}}, {.Position = {0.5f, 2, 0}, .UV = {0, 0}}, {.Position = {3, 2, 0}, .UV = {1, 0}}, {.Position = {3, -2, 0}, .UV = {1, 1}}};
+	for (FCookedVertex& Vertex : Model.Vertices)
+	{
+		Vertex.Normal = {0, 0, -1};
+	}
+
 	Model.Indices = {0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7};
 	Model.Sections = {{.FirstIndex = 0, .IndexCount = 6, .Material = 0}, {.FirstIndex = 6, .IndexCount = 6, .Material = 1}};
-	Model.Materials = {{.Name = "Red", .BaseColorTexture = 0}, {.Name = "Green", .BaseColorTexture = 1}};
+	Model.Materials = {{.Name = "Red"}, {.Name = "Green"}};
+	Model.Materials[0].Textures[0] = 0;
+	Model.Materials[1].Textures[0] = 1;
 	Model.Textures = {SolidTexture(1, {255, 0, 0, 255}), SolidTexture(8, {0, 255, 0, 255})};
 	auto Mesh = FRenderMesh::Create(Device, Model, "Section smoke");
 	if (!Mesh)
@@ -382,6 +524,8 @@ namespace
 
 	std::size_t RedOnRight = 0;
 	std::size_t GreenOnLeft = 0;
+	std::uint8_t MaximumRed = 0;
+	std::uint8_t MaximumGreen = 0;
 	for (std::size_t Pixel = 0; Pixel < Pixels->size() / 4; ++Pixel)
 	{
 		const auto Channel = [&](const std::size_t Index)
@@ -390,13 +534,15 @@ namespace
 		};
 
 		const bool bRight = Pixel % Extent.Width >= Extent.Width / 2;
-		RedOnRight += bRight && Channel(0) > 200 && Channel(1) < 50 ? 1u : 0u;
-		GreenOnLeft += !bRight && Channel(1) > 200 && Channel(0) < 50 ? 1u : 0u;
+		MaximumRed = std::max(MaximumRed, Channel(0));
+		MaximumGreen = std::max(MaximumGreen, Channel(1));
+		RedOnRight += bRight && Channel(0) > 150 && Channel(1) < 50 ? 1u : 0u;
+		GreenOnLeft += !bRight && Channel(1) > 150 && Channel(0) < 50 ? 1u : 0u;
 	}
 
 	if (RedOnRight < 100 || GreenOnLeft < 100)
 	{
-		return Failure("Render mesh sections did not draw with their own index ranges and textures");
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Render mesh sections did not draw with their own index ranges and textures: red {}, green {}, maxima {}/{}", RedOnRight, GreenOnLeft, MaximumRed, MaximumGreen)});
 	}
 
 	return {};
@@ -575,10 +721,296 @@ namespace
 
 	return CheckWorldGrid(Device, **Renderer);
 }
+
+[[nodiscard]] std::expected<void, FPresentationError> CheckVisualPipeline(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
+{
+	if (Shaders.FullscreenVertex.Bytecode.empty())
+	{
+		return Failure("Visual smoke requires the cooked HDR, shadows, fog and SMAA shaders");
+	}
+
+	const auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, Shaders);
+	const auto Cube = CreateSmokeCube(Device);
+	if (!Renderer || !Cube)
+	{
+		return std::unexpected(!Renderer ? Renderer.error() : Cube.error());
+	}
+
+	constexpr FExtent2D Extent{192, 128};
+	const std::array Models{
+	    FMatrix4::Rotation(FQuaternion::FromAxisAngle({0, 1, 0}, 0.35f)) * FMatrix4::Scale({1.5f, 1.5f, 1.5f}),
+	    FMatrix4::Translation({0, -0.85f, 1}) * FMatrix4::Scale({8, 0.2f, 8}),
+	};
+
+	const std::array<const FRenderMesh*, 2> Meshes{Cube->get(), Cube->get()};
+	FMeshRenderView View{
+	    .View = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1, 0, 0}, -0.25f)) * FMatrix4::Translation({0, -2, 7}),
+	    .Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.f, 1.5f, 0.1f),
+	    .Models = Models,
+	    .Meshes = Meshes,
+	    .Visuals = {.ExposureEV = -8.f, .AntiAliasing = EAntiAliasing::Off},
+	};
+
+	View.Visuals.bStudioPreview = false;
+	const auto Capture = [&]() -> std::expected<std::vector<std::byte>, FPresentationError>
+	{
+		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+		{
+			return std::unexpected(Rendered.error());
+		}
+
+		auto Image = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+		if (!Image)
+		{
+			return std::unexpected(Image.error());
+		}
+
+		if (Image->size() != static_cast<std::size_t>(Extent.Width) * Extent.Height * 4)
+		{
+			return Failure("Visual pipeline returned an invalid LDR image size");
+		}
+
+		return Image;
+	};
+
+	const auto Difference = [](const std::vector<std::byte>& A, const std::vector<std::byte>& B)
+	{
+		std::size_t Count = 0;
+		for (std::size_t Pixel = 0; Pixel < A.size(); Pixel += 4)
+		{
+			bool bChanged = false;
+			for (std::size_t Channel = 0; Channel < 3; ++Channel)
+			{
+				bChanged |= std::abs(std::to_integer<int>(A[Pixel + Channel]) - std::to_integer<int>(B[Pixel + Channel])) > 2;
+			}
+
+			Count += bChanged ? 1u : 0u;
+		}
+
+		return Count;
+	};
+
+	const auto Brightness = [](const std::vector<std::byte>& Image)
+	{
+		std::uint64_t Sum = 0;
+		for (std::size_t Pixel = 0; Pixel < Image.size(); Pixel += 4)
+		{
+			Sum += std::to_integer<unsigned>(Image[Pixel]) + std::to_integer<unsigned>(Image[Pixel + 1]) + std::to_integer<unsigned>(Image[Pixel + 2]);
+		}
+
+		return Sum;
+	};
+
+	const auto Dark = Capture();
+	if (!Dark)
+	{
+		return std::unexpected(Dark.error());
+	}
+
+	std::array<std::size_t, 4> LitPixels{};
+	const FMatrix4 LightTransform = FMatrix4::Translation({2, 4, -3}) * FMatrix4::Rotation(FQuaternion::FromAxisAngle({0, 1, 0}, -0.35f) * FQuaternion::FromAxisAngle({1, 0, 0}, 0.7f));
+	std::array<FRenderLight, 2> Lights{
+	    FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 3000.f, .bCastShadows = false, .Range = 40.f}, .Transform = LightTransform},
+	    FRenderLight{.Settings = {.Type = ELightType::Sky, .Intensity = 10.f, .bCastShadows = false, .bEnvironmentVisible = false}, .Transform = FMatrix4{}},
+	};
+
+	constexpr std::array Types{ELightType::Directional, ELightType::Point, ELightType::Spot, ELightType::Rect};
+	for (std::size_t Index = 0; Index < Types.size(); ++Index)
+	{
+		Lights[0].Settings.Type = Types[Index];
+		Lights[0].Settings.Intensity = Types[Index] == ELightType::Directional ? 3000.f : 100000.f;
+		View.Lights = std::span(Lights).first(1);
+		const auto Lit = Capture();
+		if (!Lit)
+		{
+			return std::unexpected(Lit.error());
+		}
+
+		LitPixels[Index] = Difference(*Dark, *Lit);
+		if (LitPixels[Index] < 10 || Brightness(*Lit) <= Brightness(*Dark))
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Authored light {} failed to illuminate PBR geometry: {} changed pixels, brightness dark {} lit {}", static_cast<unsigned>(Types[Index]), LitPixels[Index], Brightness(*Dark), Brightness(*Lit))});
+		}
+	}
+
+	Lights[0].Settings.Type = ELightType::Directional;
+	Lights[0].Settings.Intensity = 3000.f;
+	View.Lights = Lights;
+	const auto Unshadowed = Capture();
+	Lights[0].Settings.bCastShadows = true;
+	const auto Shadowed = Capture();
+	if (!Unshadowed || !Shadowed)
+	{
+		return std::unexpected(!Unshadowed ? Unshadowed.error() : Shadowed.error());
+	}
+
+	const std::size_t ShadowPixels = Difference(*Unshadowed, *Shadowed);
+	if (ShadowPixels < 10 || Brightness(*Shadowed) >= Brightness(*Unshadowed))
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Directional atlas shadows did not darken visible receiver geometry: {} changed pixels", ShadowPixels)});
+	}
+
+	View.Visuals.ExposureEV = -7.f;
+	const auto Exposed = Capture();
+	if (!Exposed)
+	{
+		return std::unexpected(Exposed.error());
+	}
+
+	if (Brightness(*Exposed) <= Brightness(*Shadowed))
+	{
+		return Failure("HDR exposure did not increase tone-mapped output brightness");
+	}
+
+	View.Visuals.ExposureEV = -8.f;
+	View.Visuals.Atmosphere = FSkyAtmosphereComponent{};
+	Lights[1].Settings.bEnvironmentVisible = true;
+	const auto Sky = Capture();
+	if (!Sky)
+	{
+		return std::unexpected(Sky.error());
+	}
+
+	const std::size_t SkyPixels = Difference(*Shadowed, *Sky);
+	if (SkyPixels < 100)
+	{
+		return Failure("Procedural atmosphere and visible sky did not change the background");
+	}
+
+	View.Visuals.Fog = FHeightFogComponent{.Density = 0.05f, .MaxDistance = 30.f};
+	const auto Fogged = Capture();
+	if (!Fogged)
+	{
+		return std::unexpected(Fogged.error());
+	}
+
+	const std::size_t FogPixels = Difference(*Sky, *Fogged);
+	if (FogPixels < 100)
+	{
+		return Failure("Volumetric fog and depth-aware composite did not change visible output");
+	}
+
+	View.Visuals.AntiAliasing = EAntiAliasing::SmaaHigh;
+	const auto Antialiased = Capture();
+	if (!Antialiased)
+	{
+		return std::unexpected(Antialiased.error());
+	}
+
+	const std::size_t SmaaPixels = Difference(*Fogged, *Antialiased);
+	if (SmaaPixels == 0)
+	{
+		return Failure("SMAA edges, weights and neighborhood passes did not modify any edge pixels");
+	}
+
+	bool bPbrTiming = false;
+	for (const FGpuPassTiming& Timing : Device.GetGpuTimings())
+	{
+		if (!std::isfinite(Timing.Milliseconds) || Timing.Milliseconds < 0)
+		{
+			return Failure("Visual passes reported invalid GPU timing samples");
+		}
+
+		bPbrTiming |= Timing.Name == "PBR meshes";
+		std::println("Visual GPU: {} {:.3f} ms", Timing.Name, Timing.Milliseconds);
+	}
+
+	if (!bPbrTiming)
+	{
+		return Failure("Native visual rendering did not publish completed PBR GPU timings");
+	}
+
+	View.Visuals.Fog.reset();
+	View.Visuals.Atmosphere.reset();
+	View.Visuals.AntiAliasing = EAntiAliasing::Off;
+	const auto BeforeEnvironment = Capture();
+	if (!BeforeEnvironment)
+	{
+		return std::unexpected(BeforeEnvironment.error());
+	}
+
+	constexpr std::array<float, 4> Radiance{8, 4, 2, 1};
+	FCookedTexture Environment{.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(sizeof(Radiance))}}};
+	std::memcpy(Environment.Mips[0].Pixels.data(), Radiance.data(), sizeof(Radiance));
+	const auto Snapshot = BuildVisualUniforms(View.View, View.Projection, Extent, View.Lights, View.Visuals);
+	if (!Snapshot)
+	{
+		return std::unexpected(Snapshot.error());
+	}
+
+	const auto Start = std::chrono::steady_clock::now();
+	const auto Filtered = BuildEnvironmentLighting(&Environment, *Snapshot);
+	const double FilterMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count();
+	if (!Filtered)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = Filtered.error().Message});
+	}
+
+	if (const auto Uploaded = (*Renderer)->SetEnvironmentLighting(*Filtered); !Uploaded)
+	{
+		return Uploaded;
+	}
+
+	if (const auto Idle = Device.WaitForIdle(); !Idle)
+	{
+		return Idle;
+	}
+
+	for (const FGpuPassTiming& Timing : Device.GetGpuTimings())
+	{
+		std::println("Environment GPU: {} {:.3f} ms", Timing.Name, Timing.Milliseconds);
+	}
+
+	const auto WithEnvironment = Capture();
+	if (!WithEnvironment)
+	{
+		return std::unexpected(WithEnvironment.error());
+	}
+
+	const std::size_t EnvironmentPixels = Difference(*BeforeEnvironment, *WithEnvironment);
+	if (EnvironmentPixels < 100 || !Filtered->bFromHdr)
+	{
+		return Failure("Filtered HDR environment upload did not change visible sky or PBR lighting");
+	}
+
+	FMaterialAsset Material{.Name = "Smoke emissive"};
+	Material.Parameters.BaseColor = {1, 0, 0, 1};
+	Material.Parameters.Emissive = {1, 0, 0};
+	Material.Parameters.EmissiveIntensity = 1000.f;
+	const auto Override = FRenderMaterial::Create(Device, Material, {}, "Smoke material override");
+	if (!Override)
+	{
+		return std::unexpected(Override.error());
+	}
+
+	const std::array<const FRenderMaterial*, 1> FirstSlot{Override->get()};
+	const std::array<std::span<const FRenderMaterial* const>, 2> Overrides{FirstSlot, {}};
+	View.Materials = Overrides;
+	const auto WithMaterial = Capture();
+	if (!WithMaterial)
+	{
+		return std::unexpected(WithMaterial.error());
+	}
+
+	const std::size_t MaterialPixels = Difference(*WithEnvironment, *WithMaterial);
+	if (MaterialPixels < 10)
+	{
+		return Failure("PBR material-slot override did not change visible mesh output");
+	}
+
+	std::println("Environment CPU: GGX and irradiance {:.3f} ms, changed {} pixels; material override {} pixels", FilterMilliseconds, EnvironmentPixels, MaterialPixels);
+	std::println("Visual smoke: light pixels {}/{}/{}/{}, shadow {}, sky {}, fog {}, SMAA {}", LitPixels[0], LitPixels[1], LitPixels[2], LitPixels[3], ShadowPixels, SkyPixels, FogPixels, SmaaPixels);
+	return {};
+}
 }
 
-std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader, const FShaderAsset& InstancedVertexShader)
+std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& VisualShaders)
 {
+	if (const auto Hdr = CheckHdrResources(Device); !Hdr)
+	{
+		return Hdr;
+	}
+
 	if (const auto InvalidCommands = CheckInvalidCommands(Device); !InvalidCommands)
 	{
 		return InvalidCommands;
@@ -650,7 +1082,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	// Submit the near red quad before the far green quad so a disabled depth test cannot pass.
-	constexpr std::array<FMeshVertex, 4> NearVertices{{{.Position = {-1, -1, 0}, .UV = {0.25f, 0.5f}}, {.Position = {-1, 1, 0}, .UV = {0.25f, 0.5f}}, {.Position = {1, 1, 0}, .UV = {0.25f, 0.5f}}, {.Position = {1, -1, 0}, .UV = {0.25f, 0.5f}}}};
+	constexpr std::array<FMeshVertex, 4> NearVertices{{{.Position = {-1, -1, 0}, .UV = {0.25f, 0.5f}, .Normal = {0, 0, -1}}, {.Position = {-1, 1, 0}, .UV = {0.25f, 0.5f}, .Normal = {0, 0, -1}}, {.Position = {1, 1, 0}, .UV = {0.25f, 0.5f}, .Normal = {0, 0, -1}}, {.Position = {1, -1, 0}, .UV = {0.25f, 0.5f}, .Normal = {0, 0, -1}}}};
 	auto FarVertices = NearVertices;
 	for (FMeshVertex& Vertex : FarVertices)
 	{
@@ -665,8 +1097,10 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	auto Texture = Device.CreateTexture({.Name = "Depth test colors", .Extent = {.Width = 2, .Height = 1}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = false});
 	auto Color = Device.CreateTexture({.Name = "Depth test color", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
 	auto Depth = Device.CreateTexture({.Name = "Depth test depth", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb});
-	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true});
+	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 9, .UniformBufferSize = sizeof(FVisualUniforms)});
+	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 9, .UniformBufferSize = sizeof(FVisualUniforms)});
+	const auto ShadowDepth = Device.CreateTexture({.Name = "Depth-only sampled atlas regression", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
+	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 9, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthOnly = true});
 	auto Instances = Device.CreateBuffer({.Name = "Instance validation transforms", .Size = 2 * sizeof(FMeshInstance), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
 	if (!Near)
 	{
@@ -708,6 +1142,16 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(!InstancedPipeline ? InstancedPipeline.error() : Instances.error());
 	}
 
+	if (!ShadowDepth || !ShadowPipeline)
+	{
+		return std::unexpected(!ShadowDepth ? ShadowDepth.error() : ShadowPipeline.error());
+	}
+
+	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 9, .UniformBufferSize = 16}))
+	{
+		return Failure("Pipeline accepted a uniform block smaller than its shader reflection");
+	}
+
 	auto Result = Device.BeginCommands();
 	if (!Result)
 	{
@@ -736,9 +1180,68 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.f, 1, 0.1f);
+	std::array<FTextureHandle, 9> Textures;
+	std::ranges::fill(Textures, *Texture);
+	FVisualUniforms Uniforms;
+	Uniforms.ViewToWorld = FMatrix4{}.Data();
+	Uniforms.Material.TextureFlags[0] = 1.f;
+	Uniforms.Sky[3] = 2.f;
+	const auto UniformBytes = std::as_bytes(std::span{&Uniforms, 1});
 	if (Result)
 	{
-		FIndexedDraw InstanceDraw{.Pipeline = *InstancedPipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .IndexCount = 6, .Instances = *Instances, .InstanceCount = 2};
+		Result = Device.ClearTargets({}, *ShadowDepth, {});
+	}
+
+	if (Result)
+	{
+		Result = Device.DrawIndexed({.Pipeline = *ShadowPipeline, .Vertices = *Near, .Indices = *Index, .DepthTarget = *ShadowDepth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 6, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .Textures = Textures, .Uniforms = UniformBytes, .Viewport = {.X = 8, .Y = 8, .Width = 16, .Height = 16}});
+	}
+
+	if (Result)
+	{
+		Textures[8] = *ShadowDepth;
+	}
+
+	if (Result)
+	{
+		FIndexedDraw InvalidDraw{.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .IndexCount = 6, .Textures = Textures, .Uniforms = UniformBytes};
+		InvalidDraw.Uniforms = UniformBytes.first(16);
+		if (Device.DrawIndexed(InvalidDraw))
+		{
+			Device.CancelCommands();
+			return Failure("Draw accepted an incomplete uniform block");
+		}
+
+		InvalidDraw.Uniforms = UniformBytes;
+		InvalidDraw.Textures = std::span(Textures).first(8);
+		if (Device.DrawIndexed(InvalidDraw))
+		{
+			Device.CancelCommands();
+			return Failure("Draw accepted incomplete texture bindings");
+		}
+
+		InvalidDraw.Textures = Textures;
+		InvalidDraw.Viewport = {.X = 60, .Y = 0, .Width = 8, .Height = 8};
+		if (Device.DrawIndexed(InvalidDraw))
+		{
+			Device.CancelCommands();
+			return Failure("Draw accepted an out-of-range viewport");
+		}
+
+		InvalidDraw.Viewport = {};
+		Textures[8] = *Depth;
+		if (Device.DrawIndexed(InvalidDraw))
+		{
+			Device.CancelCommands();
+			return Failure("Draw sampled its active depth attachment");
+		}
+
+		Textures[8] = *ShadowDepth;
+	}
+
+	if (Result)
+	{
+		FIndexedDraw InstanceDraw{.Pipeline = *InstancedPipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .IndexCount = 6, .Instances = *Instances, .InstanceCount = 2, .Textures = Textures, .Uniforms = UniformBytes};
 		if (Device.DrawIndexed(InstanceDraw))
 		{
 			Device.CancelCommands();
@@ -793,7 +1296,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		}
 	}
 
-	if (Result && Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 7, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data()}))
+	if (Result && Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 7, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .Textures = Textures, .Uniforms = UniformBytes}))
 	{
 		Device.CancelCommands();
 		return Failure("Indexed draw exceeding the index buffer unexpectedly succeeded");
@@ -801,13 +1304,17 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 
 	if (Result)
 	{
-		Result = Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 6, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data()});
+		Result = Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 6, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .Textures = Textures, .Uniforms = UniformBytes});
 	}
 
 	if (Result)
 	{
-		Result = Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Far, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data(), .IndexCount = 6, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 4}).Data()});
+		Result = Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Far, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data(), .IndexCount = 6, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 4}).Data(), .Textures = Textures, .Uniforms = UniformBytes});
 	}
+
+	// Mutating caller-owned inputs after recording must not change the submitted draws.
+	Uniforms.Material.BaseColor = {0, 1, 0, 1};
+	std::ranges::fill(Textures, FTextureHandle{});
 
 	if (!Result)
 	{
@@ -841,6 +1348,12 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	Result = CheckDebugDraw(Device, VertexShader, FragmentShader, DebugVertexShader, DebugFragmentShader, GridVertexShader, GridFragmentShader, InstancedVertexShader);
+	if (!Result)
+	{
+		return Result;
+	}
+
+	Result = CheckVisualPipeline(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);
 	if (!Result)
 	{
 		return Result;

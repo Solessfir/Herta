@@ -5,6 +5,7 @@
 #include "DetailsPanel.h"
 #include "EditorLevel.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
+#include "Herta/Core/Build.h"
 #include "Herta/Core/Log.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/LevelCommands.h"
@@ -19,6 +20,8 @@
 #include "Herta/Tasks/TaskSystem.h"
 #include "Herta/ToolUI/Theme.h"
 #include "Herta/ToolUI/ToolUI.h"
+#include "MaterialPanel.h"
+#include "MaterialShaders.h"
 #include "NumericField.h"
 #include "OutlinerPanel.h"
 #include "OutputLogTextLayout.h"
@@ -26,12 +29,14 @@
 #include "PreviewAssets.h"
 #include "PreviewLevel.h"
 #include "PreviewSimulation.h"
+#include "PreviewVisuals.h"
 #include "ViewportBoxSelection.h"
 #include "ViewportGizmos.h"
 #include "ViewportIsland.h"
 #include "ViewportRotationFeedback.h"
 #include "ViewportScaleGizmo.h"
 #include "ViewportStats.h"
+#include "VisualEnvironment.h"
 
 #include <im3d.h>
 #include <im3d_math.h>
@@ -63,6 +68,16 @@ namespace
 {
 inline constexpr FLogCategory EditorLog{.Name = "Editor"};
 inline constexpr FLogCategory ShellLog{.Name = "Shell"};
+
+std::string MaterialShaderKey(const std::string_view Path, const std::string_view MaterialPath)
+{
+	if (Path.empty() || Path.starts_with("Engine/") || Path.starts_with("Game/"))
+	{
+		return std::string(Path);
+	}
+
+	return std::format("{}/{}", MaterialPath.starts_with("Engine/") ? "Engine" : "Game", Path);
+}
 
 enum class EAuthoringAction
 {
@@ -503,6 +518,8 @@ struct FEditorFramework::FImplementation
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void FocusPreview();
 	void RefreshPreviewMeshes();
+	void RefreshVisuals();
+	void DrawMaterialPanel();
 	void ImportWithDialog();
 	void OpenLevelWithDialog();
 	void OpenProjectWithDialog();
@@ -538,6 +555,10 @@ struct FEditorFramework::FImplementation
 	bool bContentBrowserOpen = true;
 	FContentBrowserState ContentBrowserState;
 	FDetailsPanelState DetailsPanelState;
+	FMaterialPanel MaterialPanel;
+	FAssetId PendingMaterialOpen;
+	FEditorAssetThumbnail DraftMaterialThumbnail;
+	std::vector<FMaterialTextureOption> MaterialTextureOptions;
 	FOutlinerPanelState OutlinerPanelState;
 	FPlaceObjectsMenuState PlaceObjectsMenuState;
 	bool bPlaceObjectsRequested = false;
@@ -561,6 +582,17 @@ struct FEditorFramework::FImplementation
 	std::vector<FMatrix4> PreviewModels;
 	// Null entries draw the built-in cube. Refreshed from Assets at the start of every frame.
 	std::vector<const FRenderMesh*> PreviewMeshes;
+	std::vector<FLevelEntity> VisualEntities;
+	std::vector<std::vector<const FRenderMaterial*>> PreviewMaterials;
+	std::vector<std::span<const FRenderMaterial* const>> PreviewMaterialSpans;
+	std::vector<FRenderLight> RenderLights;
+	std::size_t EnabledLightCount = 0;
+	std::size_t ReportedLightBudgetCount = 0;
+	FVisualSettings VisualSettings;
+	std::vector<FObjectId> SunIds;
+	std::vector<std::string> SunLabels;
+	std::vector<FAssetId> EnvironmentIds;
+	std::vector<std::string> EnvironmentLabels;
 	FPreviewSelection PreviewSelection;
 	std::optional<Im3d::Mat4> PreviewDragStart;
 	bool bDuplicateOnDrag = false;
@@ -617,6 +649,11 @@ struct FEditorFramework::FImplementation
 	std::unique_ptr<FPreviewAssets> Assets;
 	FEditorAssetPaths AssetPaths;
 	FEditorAssetThumbnailRenderer RenderAssetThumbnail;
+	FEditorMaterialThumbnailRenderer RenderMaterialThumbnail;
+	FMeshRenderer* MeshRenderer = nullptr;
+	std::unique_ptr<FVisualEnvironment> VisualEnvironment;
+	std::unique_ptr<FMaterialShaders> MaterialShaders;
+	std::filesystem::path WatchedShaderContentRoot;
 	FTaskSystem* Tasks = nullptr;
 	IGraphicsDevice* GraphicsDevice = nullptr;
 
@@ -629,6 +666,9 @@ struct FEditorFramework::FImplementation
 	bool bProjectBusy = false;
 	bool bCloseProjectPopup = false;
 	int PendingDocumentAction = 0;
+	bool bWaitingForMaterialClose = false;
+	bool bCloseRequested = false;
+	bool bCloseConfirmed = false;
 	std::stop_source ProjectCancellation;
 	// Drained before callback targets and editor services are destroyed.
 	std::unique_ptr<FTaskScope> ProjectScope;
@@ -686,6 +726,12 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	Implementation->GraphicsDevice = Descriptor.GraphicsDevice;
 	Implementation->AssetPaths = Descriptor.Assets;
 	Implementation->RenderAssetThumbnail = Descriptor.RenderAssetThumbnail;
+	Implementation->RenderMaterialThumbnail = Descriptor.RenderMaterialThumbnail;
+	Implementation->MeshRenderer = Descriptor.MeshRenderer;
+	if (Descriptor.Tasks && Descriptor.MeshRenderer)
+	{
+		Implementation->VisualEnvironment = FVisualEnvironment::Create(*Descriptor.Tasks, *Descriptor.MeshRenderer, *Descriptor.Log);
+	}
 	Implementation->EngineRoot = Descriptor.EngineRoot;
 	Implementation->ProjectPath = Descriptor.ProjectPath;
 	std::filesystem::path InitialLevelPath = Descriptor.LevelPath;
@@ -739,6 +785,10 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	}
 
 	Implementation->RefreshLevel();
+	if (InitialLevelPath.lexically_normal() == (Descriptor.EngineRoot / "Games/Sandbox/Levels/Sandbox.hlevel").lexically_normal())
+	{
+		Implementation->ViewportCamera.Focus({0.f, 1.f, 6.f}, {10.f, 3.f, 12.f}, 16.f / 9.f);
+	}
 
 	if (auto Result = RegisterLevelFileCommands(*Descriptor.Commands); !Result)
 	{
@@ -786,6 +836,37 @@ FEditorFrameMetrics FEditorFramework::GetFrameMetrics() const noexcept
 	Metrics.SelectedCount = Implementation->PreviewSelection.Indices.size();
 	Metrics.bSimulationRunning = Implementation->Simulation.IsRunning();
 	Metrics.bAssetsReady = true;
+	if (Implementation->VisualEnvironment && !Implementation->VisualEnvironment->GetStatus().bReady)
+	{
+		Metrics.bAssetsReady = false;
+	}
+
+	if (Implementation->Assets)
+	{
+		if (!Implementation->Assets->AreMaterialThumbnailsReady())
+		{
+			Metrics.bAssetsReady = false;
+		}
+
+		for (const auto& Entity : Implementation->VisualEntities)
+		{
+			if (Entity.Mesh)
+			{
+				for (const FAssetId Material : Entity.Mesh->Materials)
+				{
+					if (Material.IsValid() && !Implementation->Assets->GetMaterial(Material))
+					{
+						Metrics.bAssetsReady = false;
+					}
+				}
+			}
+
+			if (Entity.Light && Entity.Light->Type == ELightType::Sky && Entity.Light->Environment.IsValid() && !Implementation->Assets->GetCookedTexture(Entity.Light->Environment))
+			{
+				Metrics.bAssetsReady = false;
+			}
+		}
+	}
 
 	for (std::size_t Index = 0; Index < Implementation->PreviewObjects.size(); ++Index)
 	{
@@ -907,7 +988,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	bool bOpenLevelRequested = false;
 	bool bPlaceObjectsRequested = std::exchange(Implementation->bPlaceObjectsRequested, false);
 	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->Simulation.IsRunning() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
-	const bool bShortcutsAvailable = bAuthoringAvailable && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
+	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->MaterialPanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
 	const bool bControlShortcutsAvailable = bShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl;
 	const bool bProjectChangeAvailable = bAuthoringAvailable && !Implementation->EngineRoot.empty() && !(Implementation->Assets && Implementation->Assets->IsImporting());
 	bool bNewProjectRequested = bControlShortcutsAvailable && bProjectChangeAvailable && ImGui::IsKeyPressed(ImGuiKey_N, false);
@@ -1272,11 +1353,71 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	ImGui::BeginDisabled(!bAuthoringAvailable);
 	if (const auto Placement = DrawPlaceObjectsMenu(*Implementation->ToolUI, Implementation->PlaceObjectsMenuState, bPlaceObjectsRequested))
 	{
-		AuthoringAction = *Placement == EPlaceObjectType::EmptyEntity ? EAuthoringAction::CreateEmpty : EAuthoringAction::Create;
+		const FVector3 Pivot = Implementation->ViewportCamera.GetPivot();
+		const FWorldPosition Position{Pivot.X, Pivot.Y, Pivot.Z};
+		const auto Created = [&]() -> std::expected<FObjectId, FLevelError>
+		{
+			switch (*Placement)
+			{
+				case EPlaceObjectType::EmptyEntity:
+					return Implementation->Level->CreateEmptyEntity(Position);
+				case EPlaceObjectType::Cube:
+					return Implementation->Level->CreateEntity(Position);
+				case EPlaceObjectType::DirectionalLight:
+					return Implementation->Level->CreateLightEntity(ELightType::Directional, Position);
+				case EPlaceObjectType::SkyLight:
+					return Implementation->Level->CreateLightEntity(ELightType::Sky, Position);
+				case EPlaceObjectType::PointLight:
+					return Implementation->Level->CreateLightEntity(ELightType::Point, Position);
+				case EPlaceObjectType::SpotLight:
+					return Implementation->Level->CreateLightEntity(ELightType::Spot, Position);
+				case EPlaceObjectType::RectLight:
+					return Implementation->Level->CreateLightEntity(ELightType::Rect, Position);
+				case EPlaceObjectType::SkyAtmosphere:
+					return Implementation->Level->CreateSkyAtmosphereEntity(Position);
+				case EPlaceObjectType::HeightFog:
+					return Implementation->Level->CreateHeightFogEntity(Position);
+			}
+
+			return std::unexpected(FLevelError{"Unsupported placement type"});
+		}();
+
+		if (!Created)
+		{
+			Implementation->ReportLevelResult(std::unexpected(Created.error()));
+		}
+
+		Implementation->RefreshLevel();
 	}
 
 	ImGui::EndDisabled();
 	Implementation->ApplyAuthoringAction(AuthoringAction);
+
+	if (const auto Closed = Implementation->MaterialPanel.TakeCloseResult(); Closed)
+	{
+		if (Implementation->bCloseRequested)
+		{
+			Implementation->bCloseConfirmed = *Closed;
+			Implementation->bCloseRequested = false;
+		}
+		else if (Implementation->bWaitingForMaterialClose)
+		{
+			bOpenProjectRequested = *Closed && Implementation->PendingDocumentAction == 2;
+			bNewProjectRequested = *Closed && Implementation->PendingDocumentAction == 3;
+			Implementation->bWaitingForMaterialClose = false;
+		}
+	}
+
+	if ((bOpenProjectRequested || bNewProjectRequested) && Implementation->MaterialPanel.IsOpen())
+	{
+		Implementation->PendingDocumentAction = bNewProjectRequested ? 3 : 2;
+		Implementation->bWaitingForMaterialClose = !Implementation->MaterialPanel.RequestClose();
+		if (Implementation->bWaitingForMaterialClose)
+		{
+			bOpenProjectRequested = false;
+			bNewProjectRequested = false;
+		}
+	}
 
 	if (bOpenLevelRequested || bOpenProjectRequested || bNewProjectRequested)
 	{
@@ -1402,6 +1543,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 
 	Implementation->DrawViewport(RenderViewport);
+	Implementation->DrawMaterialPanel();
 	if (!Implementation->Simulation.IsRunning())
 	{
 		if (Implementation->bViewportEditCanceled && Implementation->Level->HasActiveEdit())
@@ -1447,6 +1589,30 @@ FOutputLogModel& FEditorFramework::GetOutputLog() noexcept
 const FOutputLogModel& FEditorFramework::GetOutputLog() const noexcept
 {
 	return *Implementation->OutputLog;
+}
+
+bool FEditorFramework::RequestClose()
+{
+	if (Implementation->bCloseConfirmed)
+	{
+		return true;
+	}
+
+	if (Implementation->bCloseRequested)
+	{
+		return false;
+	}
+
+	Implementation->bWaitingForMaterialClose = false;
+	Implementation->PendingMaterialOpen = {};
+	Implementation->bCloseRequested = !Implementation->MaterialPanel.RequestClose();
+	Implementation->bCloseConfirmed = !Implementation->bCloseRequested;
+	return Implementation->bCloseConfirmed;
+}
+
+bool FEditorFramework::HasConfirmedClose() const noexcept
+{
+	return Implementation->bCloseConfirmed;
 }
 
 void FEditorFramework::SetViewportImage(const std::uint64_t TextureId) noexcept
@@ -1537,6 +1703,14 @@ void FEditorFramework::FImplementation::OpenProjectWithDialog()
 
 void FEditorFramework::FImplementation::StartProjectOperation(const std::filesystem::path& Path, std::optional<FCreateProjectRequest> Create)
 {
+	if (MaterialPanel.IsOpen() && MaterialPanel.IsDirty())
+	{
+		ProjectError = "Save or discard material edits before changing projects.";
+		return;
+	}
+
+	MaterialPanel.RequestClose();
+	PendingMaterialOpen = {};
 	if (bProjectBusy || !Tasks || Simulation.IsRunning() || Level->HasActiveEdit())
 	{
 		return;
@@ -1729,6 +1903,253 @@ void FEditorFramework::FImplementation::RefreshPreviewMeshes()
 	{
 		PreviewMeshes[Index] = Assets && PreviewObjects[Index].Mesh.IsValid() ? Assets->GetSlot(Index).Mesh.get() : nullptr;
 	}
+
+	RefreshVisuals();
+}
+
+void FEditorFramework::FImplementation::RefreshVisuals()
+{
+	VisualSettings.bStudioPreview = std::ranges::none_of(VisualEntities, [](const FLevelEntity& Entity)
+	{
+		return Entity.Light.has_value();
+	});
+	RenderLights.clear();
+	SunIds.clear();
+	SunLabels.clear();
+	EnvironmentIds.clear();
+	EnvironmentLabels.clear();
+	VisualSettings.Atmosphere.reset();
+	VisualSettings.Fog.reset();
+	std::vector<FAssetId> Materials;
+	std::vector<FAssetId> Environments;
+	std::vector<std::string> ShaderPaths;
+	if (MaterialPanel.IsOpen())
+	{
+		Materials.push_back(MaterialPanel.GetAsset());
+	}
+
+	PreviewMaterials.resize(PreviewObjects.size());
+	PreviewMaterialSpans.resize(PreviewObjects.size());
+	for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewModels.size(); ++Index)
+	{
+		const FLevelEntity& Entity = VisualEntities[Index];
+		PreviewMaterials[Index].clear();
+		if (Entity.Mesh)
+		{
+			for (const FAssetId Material : Entity.Mesh->Materials)
+			{
+				const auto Preview = Assets && MaterialPanel.IsOpen() && Assets->GetMaterialPreviewAsset() == Material ? Assets->GetMaterialPreview() : std::shared_ptr<const FRenderMaterial>{};
+				PreviewMaterials[Index].push_back(Preview ? Preview.get() : Assets ? Assets->GetMaterial(Material).get()
+				                                                                   : nullptr);
+				if (Material.IsValid())
+				{
+					Materials.push_back(Material);
+				}
+
+				if (const auto* Source = Assets ? Assets->GetMaterialSource(Material) : nullptr; Source && !Source->ShaderPath.empty())
+				{
+					const auto Options = Assets->GetOptions();
+					const auto Option = std::ranges::find(Options, Material, &FPreviewAssetOption::Id);
+					ShaderPaths.push_back(MaterialShaderKey(Source->ShaderPath, Option != Options.end() ? Option->Label : "Game/"));
+				}
+			}
+		}
+
+		PreviewMaterialSpans[Index] = PreviewMaterials[Index];
+		if (Entity.Light)
+		{
+			if (Entity.Light->bEnabled)
+			{
+				RenderLights.push_back({.Settings = *Entity.Light, .Transform = PreviewModels[Index], .Id = Entity.Id});
+			}
+
+			if (Entity.Light->Type == ELightType::Directional)
+			{
+				SunIds.push_back(Entity.Id);
+				SunLabels.push_back(Entity.Name);
+			}
+
+			if (Entity.Light->Type == ELightType::Sky && Entity.Light->bEnabled && Entity.Light->Environment.IsValid())
+			{
+				Environments.push_back(Entity.Light->Environment);
+			}
+		}
+
+		if (!VisualSettings.Atmosphere && Entity.SkyAtmosphere && Entity.SkyAtmosphere->bEnabled)
+		{
+			VisualSettings.Atmosphere = Entity.SkyAtmosphere;
+		}
+
+		if (!VisualSettings.Fog && Entity.HeightFog && Entity.HeightFog->bEnabled)
+		{
+			VisualSettings.Fog = Entity.HeightFog;
+			VisualSettings.FogHeight = PreviewModels[Index](1, 3);
+		}
+	}
+
+	if (VisualSettings.Atmosphere && VisualSettings.Atmosphere->Sun.IsValid())
+	{
+		const FObjectId Sun = VisualSettings.Atmosphere->Sun;
+		const auto Linked = std::ranges::find(RenderLights, Sun, &FRenderLight::Id);
+		if (Linked != RenderLights.end() && Linked->Settings.Type == ELightType::Directional && Linked->Settings.bEnabled)
+		{
+			std::rotate(RenderLights.begin(), Linked, Linked + 1);
+		}
+	}
+
+	EnabledLightCount = RenderLights.size();
+	if (EnabledLightCount > MaximumRenderLights)
+	{
+		if (ReportedLightBudgetCount != EnabledLightCount)
+		{
+			HERTA_LOG_WARNING(*Log, EditorLog, "{} enabled lights exceed the viewport budget of {}; rendering the first stable object IDs and linked sun", EnabledLightCount, MaximumRenderLights);
+		}
+
+		RenderLights.resize(MaximumRenderLights);
+	}
+
+	ReportedLightBudgetCount = EnabledLightCount;
+
+	if (Assets)
+	{
+		if (PendingMaterialOpen.IsValid())
+		{
+			Materials.push_back(PendingMaterialOpen);
+		}
+
+		Assets->SetMaterialAssets(Materials);
+		Assets->SetTextureAssets(Environments);
+		for (const FPreviewAssetOption& Option : Assets->GetOptions())
+		{
+			if (Option.Importer == "Texture")
+			{
+				EnvironmentIds.push_back(Option.Id);
+				EnvironmentLabels.push_back(Option.Label);
+			}
+		}
+	}
+
+	ViewportRenderView.Lights = RenderLights;
+	ViewportRenderView.Materials = PreviewMaterialSpans;
+	ViewportRenderView.Visuals = VisualSettings;
+	if (GetBuildConfiguration() != EBuildConfiguration::Shipping && Tasks && MeshRenderer && !EngineRoot.empty())
+	{
+		if (!MaterialShaders || WatchedShaderContentRoot != AssetPaths.ContentRoot)
+		{
+			std::filesystem::path Worker = AssetPaths.WorkerPath;
+			Worker.replace_filename(Worker.has_extension() ? "HertaShaderWorker.exe" : "HertaShaderWorker");
+			MaterialShaders = FMaterialShaders::Create(*Tasks, *MeshRenderer, *Log, EngineRoot / "Engine/Shaders", Worker, AssetPaths.EngineContentRoot, AssetPaths.ContentRoot);
+			WatchedShaderContentRoot = AssetPaths.ContentRoot;
+		}
+
+		if (Assets && MaterialPanel.IsOpen() && !MaterialPanel.GetDraft().ShaderPath.empty())
+		{
+			const auto Options = Assets->GetOptions();
+			const auto Option = std::ranges::find(Options, MaterialPanel.GetAsset(), &FPreviewAssetOption::Id);
+			ShaderPaths.push_back(MaterialShaderKey(MaterialPanel.GetDraft().ShaderPath, Option != Options.end() ? Option->Label : "Game/"));
+		}
+
+		if (MaterialShaders)
+		{
+			MaterialShaders->Tick(ShaderPaths);
+		}
+	}
+
+	if (Assets && MeshRenderer)
+	{
+		Assets->SetMaterialShaderGeneration(MeshRenderer->GetMaterialShaderGeneration());
+	}
+
+	if (VisualEnvironment && ViewportExtent.Width > 0 && ViewportExtent.Height > 0)
+	{
+		const auto Uniforms = BuildVisualUniforms(ViewportRenderView.View, ViewportRenderView.Projection, ViewportExtent, RenderLights, VisualSettings);
+		if (Uniforms)
+		{
+			const auto Source = Assets && !Environments.empty() ? Assets->GetCookedTexture(Environments.front()) : std::shared_ptr<const FCookedTexture>{};
+			VisualEnvironment->Tick(Source, *Uniforms);
+		}
+	}
+}
+
+void FEditorFramework::FImplementation::DrawMaterialPanel()
+{
+	if (!Assets)
+	{
+		return;
+	}
+
+	if (const auto Requested = std::exchange(ContentBrowserState.OpenMaterialRequested, FAssetId{}); Requested.IsValid() && !bProjectBusy && !bWaitingForMaterialClose && !bCloseRequested)
+	{
+		PendingMaterialOpen = Requested;
+		Assets->RequestMaterial(Requested);
+	}
+
+	if (PendingMaterialOpen.IsValid() && !bProjectBusy && !bWaitingForMaterialClose && !bCloseRequested)
+	{
+		if (const auto* Source = Assets->GetMaterialSource(PendingMaterialOpen))
+		{
+			const auto Options = Assets->GetOptions();
+			const auto Option = std::ranges::find(Options, PendingMaterialOpen, &FPreviewAssetOption::Id);
+			const std::string Label = Option == Options.end() ? "Material" : Option->Label;
+			MaterialPanel.Open(PendingMaterialOpen, *Source, Label, Label.starts_with("Engine/"));
+			DraftMaterialThumbnail = Assets->GetThumbnail(PendingMaterialOpen);
+			PendingMaterialOpen = {};
+		}
+	}
+
+	MaterialTextureOptions.clear();
+	for (const FPreviewAssetOption& Option : Assets->GetOptions())
+	{
+		if (Option.Importer == "Texture")
+		{
+			MaterialTextureOptions.push_back({.Id = Option.Id, .Label = Option.Label});
+		}
+	}
+
+	std::string ShaderStatus;
+	if (GetBuildConfiguration() == EBuildConfiguration::Shipping)
+	{
+		ShaderStatus = MaterialPanel.GetDraft().ShaderPath.empty() ? "Shader iteration is unavailable in Shipping." : "Custom shaders are unavailable in Shipping. Using engine PBR.";
+	}
+	else if (MaterialShaders && MaterialPanel.IsOpen())
+	{
+		const auto Options = Assets->GetOptions();
+		const auto Option = std::ranges::find(Options, MaterialPanel.GetAsset(), &FPreviewAssetOption::Id);
+		const std::string Key = MaterialShaderKey(MaterialPanel.GetDraft().ShaderPath, Option != Options.end() ? Option->Label : "Game/");
+		if (const auto* Status = MaterialShaders->GetStatus(Key))
+		{
+			ShaderStatus = Status->bCompiling ? "Compiling shader..." : !Status->Diagnostics.empty() ? Status->Diagnostics
+			                                                        : Status->bReady                 ? "Shader ready"
+			                                                                                         : "Waiting for shader";
+		}
+	}
+
+	const FMaterialPanelContext Context{
+	    .Textures = MaterialTextureOptions,
+	    .PreviewTexture = Assets->GetMaterialPreviewAsset() == MaterialPanel.GetAsset() && Assets->GetMaterialPreviewThumbnail() ? *Assets->GetMaterialPreviewThumbnail() : DraftMaterialThumbnail ? *DraftMaterialThumbnail
+	                                                                                                                                                                                               : 0,
+	    .PreviewStatus = Assets->IsMaterialPreviewLoading() ? "Updating preview..." : Assets->GetMaterialPreviewError(),
+	    .ShaderStatus = ShaderStatus,
+	    .Save = [&](const FAssetId Id, const FMaterialAsset& Material)
+	{
+		return Assets->SaveMaterial(Id, Material);
+	},
+	    .Reload = [&](const FAssetId Id) -> std::expected<FMaterialAsset, FAssetError>
+	{
+		const auto Path = Assets->GetMaterialPath(Id);
+		if (!Path)
+		{
+			return std::unexpected(Path.error());
+		}
+
+		return LoadMaterialAsset(*Path);
+	},
+	    .Preview = [&](const FAssetId Id, const FMaterialAsset& Material)
+	{
+		Assets->RequestMaterialPreview(Id, Material);
+	},
+	};
+	MaterialPanel.Draw(*ToolUI, Context);
 }
 
 void FEditorFramework::FImplementation::RefreshSelectionFromLevel()
@@ -1773,6 +2194,7 @@ void FEditorFramework::FImplementation::RefreshLevel(const bool bPreserveGizmoDr
 	}
 
 	LevelGeneration = Level->GetGeneration();
+	VisualEntities = Level->GetWorld().SnapshotEntities();
 	RefreshSelectionFromLevel();
 	OutlinerPanelState.bRenaming = false;
 	OutlinerPanelState.bRenameRequested = false;
@@ -1788,10 +2210,13 @@ void FEditorFramework::FImplementation::RefreshLevel(const bool bPreserveGizmoDr
 	}
 	PreviewModels.resize(PreviewObjects.size());
 	PreviewMeshes.assign(PreviewObjects.size(), nullptr);
+	PreviewMaterials.resize(PreviewObjects.size());
+	PreviewMaterialSpans.resize(PreviewObjects.size());
 
 	if (!Assets && Tasks != nullptr && GraphicsDevice != nullptr && !AssetPaths.ContentRoot.empty() && !AssetPaths.DerivedDataRoot.empty() && !AssetPaths.WorkerPath.empty() && !AssetPaths.TargetPlatform.empty())
 	{
 		Assets = FPreviewAssets::Create(*Tasks, *GraphicsDevice, *Log, AssetPaths, PreviewObjects.size(), RenderAssetThumbnail);
+		Assets->SetMaterialThumbnailRenderer(RenderMaterialThumbnail);
 	}
 
 	std::vector<FAssetId> LevelAssets;
@@ -1811,6 +2236,8 @@ void FEditorFramework::FImplementation::RefreshLevel(const bool bPreserveGizmoDr
 
 	ViewportRenderView.Models = PreviewModels;
 	ViewportRenderView.Meshes = PreviewMeshes;
+	ViewportRenderView.Materials = PreviewMaterialSpans;
+	RefreshVisuals();
 }
 
 void FEditorFramework::FImplementation::ReportLevelResult(const std::expected<void, FLevelError> Result)
@@ -2299,6 +2726,56 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			}
 		}
 
+		if (Section("Rendering"))
+		{
+			DrawFieldLabel("Exposure", ValueWidth);
+			DrawNumericSliderFloat("##Exposure", &VisualSettings.ExposureEV, -24.f, 24.f, "%.1f EV", ImGuiSliderFlags_AlwaysClamp);
+			DrawFieldLabel("Anti-aliasing", ValueWidth);
+			constexpr std::array Modes{"Off", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};
+			if (ImGui::BeginCombo("##AntiAliasing", Modes[static_cast<std::size_t>(VisualSettings.AntiAliasing)]))
+			{
+				for (std::size_t Index = 0; Index < Modes.size(); ++Index)
+				{
+					if (ImGui::Selectable(Modes[Index], Index == static_cast<std::size_t>(VisualSettings.AntiAliasing)))
+					{
+						VisualSettings.AntiAliasing = static_cast<EAntiAliasing>(Index);
+					}
+				}
+
+				ImGui::EndCombo();
+			}
+
+			if (MeshRenderer)
+			{
+				DrawFieldLabel("Shadows", ValueWidth);
+				constexpr std::array ShadowModes{"Off", "Hard", "Soft PCF"};
+				if (ImGui::BeginCombo("##ShadowQuality", ShadowModes[static_cast<std::size_t>(VisualSettings.ShadowQuality)]))
+				{
+					for (std::size_t Index = 0; Index < ShadowModes.size(); ++Index)
+					{
+						if (ImGui::Selectable(ShadowModes[Index], Index == static_cast<std::size_t>(VisualSettings.ShadowQuality)))
+						{
+							VisualSettings.ShadowQuality = static_cast<EShadowQuality>(Index);
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
+				ImGui::TextDisabled("Lights %zu / 32 - atlas 16 x 512 px", EnabledLightCount);
+				ImGui::TextDisabled("Targets %.1f MiB - %zu draws", static_cast<double>(MeshRenderer->GetRenderTargetBytes()) / (1024. * 1024.), MeshRenderer->GetLastDrawCount());
+				if (ImGui::TreeNodeEx("GPU passes", ImGuiTreeNodeFlags_NoTreePushOnOpen))
+				{
+					for (const auto& Timing : MeshRenderer->GetGpuTimings())
+					{
+						ImGui::TextDisabled("%s", Timing.Name.c_str());
+						ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ValueWidth);
+						ImGui::Text("%.3f ms", Timing.Milliseconds);
+					}
+				}
+			}
+		}
+
 		if (Section("Overlays"))
 		{
 			if (Toggle("Game view", bGameView, "G"))
@@ -2656,7 +3133,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 	Im3d::PushLayerId("ViewportGizmos");
 	FPreviewObject Candidate = GetActivePreviewObject();
-	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh, ObjectId, Parent] = Candidate;
+	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh, ObjectId, Parent, Kind] = Candidate;
 	const Im3d::Vec3 PreviousTranslation = PreviewTranslation;
 	const Im3d::Mat3 PreviousRotation = PreviewRotation;
 	const Im3d::Vec3 PreviousScale = PreviewScale;
@@ -2738,6 +3215,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	}
 
 	FrameMetrics.ExtractionMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - ExtractionStart).count();
+	RefreshVisuals();
 
 	if (bGizmoInput && ViewportInteraction.DragButton == ImGuiMouseButton_Left && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && Im3d::GetActiveId() == Im3d::Id_Invalid)
 	{
@@ -2786,6 +3264,8 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 		Im3d::PopMatrix();
 	}
 
+	DrawPreviewVisuals(Level->GetWorld(), PreviewObjects, PreviewSelection, bGameView);
+
 	Im3d::PopLayerId();
 
 	if (!bGameView && !PreviewObjects.empty())
@@ -2794,7 +3274,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 		for (std::size_t Index = 0; Index < PreviewObjects.size(); ++Index)
 		{
-			if (PreviewObjects[Index].Mesh.IsValid())
+			if (PreviewObjects[Index].Mesh.IsValid() || PreviewObjects[Index].Kind != EPreviewObjectKind::Entity)
 			{
 				continue;
 			}
@@ -2982,26 +3462,56 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				const auto Options = Assets->GetOptions();
 				const auto Asset = std::ranges::find_if(Options, [&DroppedAsset](const auto& Option)
 				{
-					return Option.Id == *DroppedAsset && IsPlaceableContentAsset(Option);
+					return Option.Id == *DroppedAsset && (IsPlaceableContentAsset(Option) || Option.Importer == "Material");
 				});
 				if (Asset != Options.end())
 				{
 					const ImVec2 Mouse = ImGui::GetIO().MousePos;
 					const FVector2 Normalized{(Mouse.x - RenderMinimum.x) / RenderSize.x, (Mouse.y - RenderMinimum.y) / RenderSize.y};
 					const auto Ray = ViewportCamera.MakePickingRay(Normalized, RenderSize.x / RenderSize.y, ViewportProjectionCenter);
-					const FVector3 Pivot = ViewportCamera.GetPivot();
-					const float PlaneDistance = std::abs(Ray.Direction.Y) > 0.001f ? (Pivot.Y - Ray.Origin.Y) / Ray.Direction.Y : -1.f;
-					const float Distance = PlaneDistance > 0.f && PlaneDistance < 10000.f ? PlaneDistance : (Pivot - Ray.Origin).Length();
-					const FVector3 Position = Ray.Origin + Ray.Direction * Distance;
-					const auto Separator = Asset->Label.rfind('/');
-					const auto Label = Asset->Label.substr(Separator == std::string::npos ? 0 : Separator + 1);
-					const auto Dot = Label.rfind('.');
-					const auto Created = Level->CreateMeshEntity(Asset->Id, Label.substr(0, Dot), {Position.X, Position.Y, Position.Z});
-					if (!Created)
+					if (Asset->Importer == "Material")
 					{
-						ReportLevelResult(std::unexpected(Created.error()));
+						int Hit = -1;
+						double Closest = std::numeric_limits<double>::infinity();
+
+						for (std::size_t Index = 0; Index < PreviewObjects.size(); ++Index)
+						{
+							if (!PreviewObjects[Index].Mesh.IsValid())
+							{
+								continue;
+							}
+
+							const auto Distance = HitTestPreviewCube(Ray, PreviewModels[Index] * GetPreviewBoundsMatrix(Index));
+							if (Distance && *Distance < Closest)
+							{
+								Hit = static_cast<int>(Index);
+								Closest = *Distance;
+							}
+						}
+
+						if (Hit >= 0)
+						{
+							SetPreviewSelection(Hit, false);
+							ReportLevelResult(Level->SetSelectedMaterial(0, Asset->Id));
+							RefreshLevel();
+						}
 					}
-					RefreshLevel();
+					else
+					{
+						const FVector3 Pivot = ViewportCamera.GetPivot();
+						const float PlaneDistance = std::abs(Ray.Direction.Y) > 0.001f ? (Pivot.Y - Ray.Origin.Y) / Ray.Direction.Y : -1.f;
+						const float Distance = PlaneDistance > 0.f && PlaneDistance < 10000.f ? PlaneDistance : (Pivot - Ray.Origin).Length();
+						const FVector3 Position = Ray.Origin + Ray.Direction * Distance;
+						const auto Separator = Asset->Label.rfind('/');
+						const auto Label = Asset->Label.substr(Separator == std::string::npos ? 0 : Separator + 1);
+						const auto Dot = Label.rfind('.');
+						const auto Created = Level->CreateMeshEntity(Asset->Id, Label.substr(0, Dot), {Position.X, Position.Y, Position.Z});
+						if (!Created)
+						{
+							ReportLevelResult(std::unexpected(Created.error()));
+						}
+						RefreshLevel();
+					}
 				}
 			}
 
@@ -3397,10 +3907,17 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	FPreviewObject PreviousObject = GetActivePreviewObject();
-	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh, ObjectId, Parent] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh, ObjectId, Parent, Kind] = GetActivePreviewObject();
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
-	FDetailsComponentField Components{.bAllMesh = !PreviewSelection.Indices.empty(), .bAllBody = !PreviewSelection.Indices.empty()};
+	const bool bHasSelection = !PreviewSelection.Indices.empty();
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
+	std::vector<FDetailsMaterialSlot> MaterialSlots;
+	std::vector<FAssetId> MaterialIds;
+	std::vector<std::string> MaterialLabels;
+	std::vector<std::uint64_t> MaterialThumbnails;
+	std::vector<FLevelEntity> SelectedMeshes;
+	std::array<std::optional<FLevelEntity>, 3> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -3417,6 +3934,54 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		Components.bAnyBody |= Type != ELevelBodyType::None;
 		Components.bAllBody &= Type != ELevelBodyType::None;
 		Components.bAnyDynamicBody |= Type == ELevelBodyType::Dynamic;
+		if (Entity)
+		{
+			if (Entity->Mesh)
+			{
+				SelectedMeshes.push_back(*Entity);
+				const FRenderMesh* const RenderMesh = Assets ? Assets->GetSlot(static_cast<std::size_t>(Index)).Mesh.get() : nullptr;
+				const std::size_t Count = std::min<std::size_t>(256, std::max({std::size_t{1}, Entity->Mesh->Materials.size(), RenderMesh ? RenderMesh->GetMaterials().size() : 0}));
+				MaterialSlots.resize(std::max(MaterialSlots.size(), Count));
+
+				if (RenderMesh)
+				{
+					const auto Imported = RenderMesh->GetMaterials();
+					for (std::size_t Slot = 0; Slot < std::min(Imported.size(), MaterialSlots.size()); ++Slot)
+					{
+						if (MaterialSlots[Slot].Name.empty())
+						{
+							MaterialSlots[Slot].Name = Imported[Slot].Name;
+						}
+					}
+				}
+			}
+
+			const auto Aggregate = [&](const std::size_t Baseline, const ELevelComponentType Component, const bool bPresent, bool& bAny, bool& bAll, const std::span<bool> Mixed)
+			{
+				bAny |= bPresent;
+				bAll &= bPresent;
+				if (!bPresent)
+				{
+					return;
+				}
+
+				if (!VisualBaselines[Baseline])
+				{
+					VisualBaselines[Baseline] = Entity;
+					return;
+				}
+
+				const auto Properties = GetLevelComponentDescriptor(Component).Properties;
+				for (std::size_t Property = 0; Property < std::min(Properties.size(), Mixed.size()); ++Property)
+				{
+					Mixed[Property] |= GetLevelVisualProperty(*Entity, Component, Properties[Property].Key) != GetLevelVisualProperty(*VisualBaselines[Baseline], Component, Properties[Property].Key);
+				}
+			};
+
+			Aggregate(0, ELevelComponentType::Light, Entity->Light.has_value(), Components.bAnyLight, Components.bAllLight, Components.MixedLight);
+			Aggregate(1, ELevelComponentType::SkyAtmosphere, Entity->SkyAtmosphere.has_value(), Components.bAnySkyAtmosphere, Components.bAllSkyAtmosphere, Components.MixedSkyAtmosphere);
+			Aggregate(2, ELevelComponentType::HeightFog, Entity->HeightFog.has_value(), Components.bAnyHeightFog, Components.bAllHeightFog, Components.MixedHeightFog);
+		}
 
 		if (Type != ELevelBodyType::None)
 		{
@@ -3444,6 +4009,60 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		{
 			Components.BodyType.reset();
 		}
+	}
+
+	for (std::size_t Slot = 0; Slot < MaterialSlots.size(); ++Slot)
+	{
+		bool bFirst = true;
+
+		for (const FLevelEntity& Entity : SelectedMeshes)
+		{
+			const auto& Overrides = Entity.Mesh->Materials;
+			const FAssetId Material = Slot < Overrides.size() ? Overrides[Slot] : FAssetId{};
+			if (bFirst)
+			{
+				MaterialSlots[Slot].Selected = Material;
+				bFirst = false;
+			}
+			else
+			{
+				MaterialSlots[Slot].bMixed |= Material != MaterialSlots[Slot].Selected;
+			}
+		}
+	}
+
+	if (Assets)
+	{
+		for (const FPreviewAssetOption& Option : Assets->GetOptions())
+		{
+			if (Option.Importer == "Material")
+			{
+				MaterialIds.push_back(Option.Id);
+				MaterialLabels.push_back(Option.Label);
+				const auto Thumbnail = Assets->GetThumbnail(Option.Id);
+				MaterialThumbnails.push_back(Thumbnail ? *Thumbnail : 0);
+			}
+		}
+	}
+
+	Components.MaterialSlots = MaterialSlots;
+	Components.MaterialOptionIds = MaterialIds;
+	Components.MaterialOptionLabels = MaterialLabels;
+	Components.MaterialThumbnails = MaterialThumbnails;
+
+	if (VisualBaselines[0])
+	{
+		Components.Light = *VisualBaselines[0]->Light;
+	}
+
+	if (VisualBaselines[1])
+	{
+		Components.SkyAtmosphere = *VisualBaselines[1]->SkyAtmosphere;
+	}
+
+	if (VisualBaselines[2])
+	{
+		Components.HeightFog = *VisualBaselines[2]->HeightFog;
 	}
 
 	if (Assets && !PreviewObjects.empty() && Mesh.IsValid())
@@ -3534,6 +4153,27 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 
 		return FLevelRigidBodySettings{}.*Property;
 	},
+	    .ApplyVisualProperty = [&](const ELevelComponentType Type, const std::string_view Key, const FLevelPropertyValue& Value)
+	{
+		ReportLevelResult(Level->SetSelectedVisualProperty(Type, Key, Value));
+	},
+	    .ReadVisualProperty = [&](const ELevelComponentType Type, const std::string_view Key) -> std::optional<FLevelPropertyValue>
+	{
+		for (const FObjectId Selected : Level->GetSelection())
+		{
+			const auto Handle = Level->GetWorld().FindEntity(Selected);
+			const auto Entity = Handle ? Level->GetWorld().GetEntity(*Handle) : std::nullopt;
+			if (Entity)
+			{
+				if (const auto Value = GetLevelVisualProperty(*Entity, Type, Key))
+				{
+					return Value;
+				}
+			}
+		}
+
+		return std::nullopt;
+	},
 	};
 	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, bProjectBusy || Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && Mesh.IsValid() ? &MeshField : nullptr, &Edits, &Components);
 	if (!MeshResult.bEditCanceled)
@@ -3544,6 +4184,22 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (Assets && MeshResult.bOptionsOpened)
 	{
 		Assets->RequestScan();
+	}
+
+	if (MeshResult.MaterialOpenRequested.IsValid() && Assets)
+	{
+		PendingMaterialOpen = MeshResult.MaterialOpenRequested;
+		Assets->RequestMaterial(PendingMaterialOpen);
+	}
+
+	if (MeshResult.MaterialChosen)
+	{
+		if (Level->HasActiveEdit())
+		{
+			ReportLevelResult(Level->EndEdit());
+		}
+
+		ReportLevelResult(Level->SetSelectedMaterial(MeshResult.MaterialChosen->first, MeshResult.MaterialChosen->second));
 	}
 
 	if (Assets && MeshResult.Chosen >= 0)
@@ -3596,6 +4252,36 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveRigidBody:
 				ReportLevelResult(Level->SetSelectedBodyType(ELevelBodyType::None));
+				break;
+			case EDetailsComponentAction::AddDirectionalLight:
+				ReportLevelResult(Level->AddLightToSelected(ELightType::Directional));
+				break;
+			case EDetailsComponentAction::AddSkyLight:
+				ReportLevelResult(Level->AddLightToSelected(ELightType::Sky));
+				break;
+			case EDetailsComponentAction::AddPointLight:
+				ReportLevelResult(Level->AddLightToSelected(ELightType::Point));
+				break;
+			case EDetailsComponentAction::AddSpotLight:
+				ReportLevelResult(Level->AddLightToSelected(ELightType::Spot));
+				break;
+			case EDetailsComponentAction::AddRectLight:
+				ReportLevelResult(Level->AddLightToSelected(ELightType::Rect));
+				break;
+			case EDetailsComponentAction::RemoveLight:
+				ReportLevelResult(Level->SetSelectedLight(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddSkyAtmosphere:
+				ReportLevelResult(Level->AddSkyAtmosphereToSelected());
+				break;
+			case EDetailsComponentAction::RemoveSkyAtmosphere:
+				ReportLevelResult(Level->SetSelectedSkyAtmosphere(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddHeightFog:
+				ReportLevelResult(Level->AddHeightFogToSelected());
+				break;
+			case EDetailsComponentAction::RemoveHeightFog:
+				ReportLevelResult(Level->SetSelectedHeightFog(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;

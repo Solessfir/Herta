@@ -1,5 +1,7 @@
 #include "Herta/ShaderCompiler/ShaderCompiler.h"
 
+#include "Herta/RHI/Graphics.h"
+
 #include <slang-com-ptr.h>
 #include <slang.h>
 
@@ -19,6 +21,12 @@ namespace Herta
 {
 namespace
 {
+std::string Utf8Path(const std::filesystem::path& Path)
+{
+	const auto Text = Path.generic_u8string();
+	return {Text.begin(), Text.end()};
+}
+
 FShaderError CompilerError(const char* const Operation, const Slang::ComPtr<slang::IBlob>& Diagnostics)
 {
 	std::string Message = Operation;
@@ -36,20 +44,20 @@ std::expected<std::vector<std::byte>, FShaderError> ReadSource(const std::filesy
 	std::ifstream Input(Path, std::ios::binary | std::ios::ate);
 	if (!Input)
 	{
-		return std::unexpected(FShaderError{"Cannot open shader dependency: " + Path.string()});
+		return std::unexpected(FShaderError{"Cannot open shader dependency: " + Utf8Path(Path)});
 	}
 
 	const auto Size = Input.tellg();
 	if (Size < 0 || Size > 16 * 1024 * 1024)
 	{
-		return std::unexpected(FShaderError{"Shader dependency exceeds the 16 MiB limit: " + Path.string()});
+		return std::unexpected(FShaderError{"Shader dependency exceeds the 16 MiB limit: " + Utf8Path(Path)});
 	}
 
 	std::vector<std::byte> Bytes(static_cast<std::size_t>(Size));
 	Input.seekg(0);
 	if (!Input.read(reinterpret_cast<char*>(Bytes.data()), Size))
 	{
-		return std::unexpected(FShaderError{"Cannot read shader dependency: " + Path.string()});
+		return std::unexpected(FShaderError{"Cannot read shader dependency: " + Utf8Path(Path)});
 	}
 
 	return Bytes;
@@ -94,14 +102,39 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 	Target.profile = GlobalSession->findProfile("spirv_1_5");
 	Target.compilerOptionEntries = Options;
 	Target.compilerOptionEntryCount = 3;
-	const std::string Directory = Source.parent_path().generic_string();
-	const char* const SearchPaths[] = {Directory.c_str()};
+	const std::string Directory = Utf8Path(Source.parent_path());
+	std::vector<std::string> Directories{Directory};
+	if (Request.IncludeRoots.size() > 16)
+	{
+		return std::unexpected(FShaderError{"Shader compilation supports at most 16 include roots"});
+	}
+
+	for (const auto& Root : Request.IncludeRoots)
+	{
+		const auto Absolute = std::filesystem::absolute(Root, Error).lexically_normal();
+		if (Error || !std::filesystem::is_directory(Absolute, Error))
+		{
+			return std::unexpected(FShaderError{"Shader include root is unavailable"});
+		}
+
+		const auto Text = Absolute.generic_u8string();
+		Directories.emplace_back(Text.begin(), Text.end());
+	}
+
+	std::vector<const char*> SearchPaths;
+	SearchPaths.reserve(Directories.size());
+
+	for (const auto& Path : Directories)
+	{
+		SearchPaths.push_back(Path.c_str());
+	}
+
 	slang::SessionDesc SessionDescription;
 	SessionDescription.targets = &Target;
 	SessionDescription.targetCount = 1;
 	SessionDescription.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_COLUMN_MAJOR;
-	SessionDescription.searchPaths = SearchPaths;
-	SessionDescription.searchPathCount = 1;
+	SessionDescription.searchPaths = SearchPaths.data();
+	SessionDescription.searchPathCount = static_cast<SlangInt>(SearchPaths.size());
 	Slang::ComPtr<slang::ISession> Session;
 	if (SLANG_FAILED(GlobalSession->createSession(SessionDescription, Session.writeRef())))
 	{
@@ -110,9 +143,9 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 
 	Slang::ComPtr<slang::IBlob> Diagnostics;
 	// A relative source identity keeps cooked metadata independent of the checkout location.
-	const std::string SourceName = Source.filename().generic_string();
+	const std::string SourceName = Utf8Path(Source.filename());
 	std::string SourceText(reinterpret_cast<const char*>(SourceBytes->data()), SourceBytes->size());
-	slang::IModule* const Module = Session->loadModuleFromSourceString(Source.stem().string().c_str(), SourceName.c_str(), SourceText.c_str(), Diagnostics.writeRef());
+	slang::IModule* const Module = Session->loadModuleFromSourceString(Utf8Path(Source.stem()).c_str(), SourceName.c_str(), SourceText.c_str(), Diagnostics.writeRef());
 	if (Module == nullptr)
 	{
 		return std::unexpected(CompilerError("Slang source compilation failed", Diagnostics));
@@ -181,13 +214,29 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 				BindingType = EShaderBindingType::Sampler;
 				break;
 			case slang::TypeReflection::Kind::ConstantBuffer:
+				if (Type->getElementTypeLayout()->getSize() == 0 || Type->getElementTypeLayout()->getSize() > MaximumGraphicsUniformBytes)
+				{
+					return std::unexpected(FShaderError{"Shader uniforms must fit the 16 KiB graphics binding limit"});
+				}
+
 				BindingType = EShaderBindingType::ConstantBuffer;
 				break;
 			default:
 				return std::unexpected(FShaderError{"Unsupported reflected shader parameter: " + std::string(Parameter->getName())});
 		}
 
-		Shader.Bindings.push_back({.Name = Parameter->getName(), .Type = BindingType, .Binding = Parameter->getBindingIndex(), .Space = Parameter->getBindingSpace()});
+		const std::uint32_t Binding = Parameter->getBindingIndex();
+		if (Parameter->getBindingSpace() != 0 || (BindingType == EShaderBindingType::Texture ? Binding >= MaximumGraphicsTextures : BindingType == EShaderBindingType::Sampler ? Binding != 128
+		                                                                                                                                                                       : Binding != 64)
+		    || std::ranges::any_of(Shader.Bindings, [Binding](const FShaderBinding& Existing)
+		{
+			return Existing.Binding == Binding;
+		}))
+		{
+			return std::unexpected(FShaderError{"Shader resources must use unique bindings t0..t15, b0 at 64, and s0 at 128 in space 0"});
+		}
+
+		Shader.Bindings.push_back({.Name = Parameter->getName(), .Type = BindingType, .Binding = Binding, .Space = Parameter->getBindingSpace(), .ByteSize = BindingType == EShaderBindingType::ConstantBuffer ? static_cast<std::uint32_t>(Type->getElementTypeLayout()->getSize()) : 0u});
 	}
 
 	std::map<std::string, std::uint64_t> Dependencies;
@@ -197,10 +246,24 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 		slang::IModule* const DependencyModule = Session->getLoadedModule(ModuleIndex);
 		for (SlangInt32 Index = 0; Index < DependencyModule->getDependencyFileCount(); ++Index)
 		{
-			std::filesystem::path DependencyPath(DependencyModule->getDependencyFilePath(Index));
+			const std::string_view DependencyText(DependencyModule->getDependencyFilePath(Index));
+			std::filesystem::path DependencyPath(std::u8string(DependencyText.begin(), DependencyText.end()));
 			if (DependencyPath.is_relative())
 			{
-				DependencyPath = Source.parent_path() / DependencyPath;
+				const auto Relative = DependencyPath;
+				DependencyPath = Source.parent_path() / Relative;
+				if (!std::filesystem::is_regular_file(DependencyPath, Error))
+				{
+					for (const auto& Root : Request.IncludeRoots)
+					{
+						const auto Candidate = Root / Relative;
+						if (std::filesystem::is_regular_file(Candidate, Error))
+						{
+							DependencyPath = Candidate;
+							break;
+						}
+					}
+				}
 			}
 
 			const auto Data = ReadSource(DependencyPath);
@@ -209,7 +272,7 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 				return std::unexpected(Data.error());
 			}
 
-			Dependencies[DependencyPath.lexically_relative(Source.parent_path()).generic_string()] = HashShaderContent(*Data);
+			Dependencies[Utf8Path(std::filesystem::absolute(DependencyPath, Error).lexically_normal().lexically_relative(Source.parent_path()))] = HashShaderContent(*Data);
 		}
 	}
 
@@ -253,7 +316,8 @@ std::expected<void, FShaderError> SaveCookedShader(const std::filesystem::path& 
 #else
 	const auto ProcessId = getpid();
 #endif
-	const std::filesystem::path Temporary = Path.string() + "." + std::to_string(ProcessId) + ".tmp";
+	std::filesystem::path Temporary = Path;
+	Temporary += "." + std::to_string(ProcessId) + ".tmp";
 	{
 		std::ofstream Output(Temporary, std::ios::binary | std::ios::trunc);
 		Output.write(reinterpret_cast<const char*>(Bytes->data()), static_cast<std::streamsize>(Bytes->size()));
@@ -261,7 +325,7 @@ std::expected<void, FShaderError> SaveCookedShader(const std::filesystem::path& 
 		if (!Output)
 		{
 			std::filesystem::remove(Temporary, Error);
-			return std::unexpected(FShaderError{"Cannot write cooked shader: " + Path.string()});
+			return std::unexpected(FShaderError{"Cannot write cooked shader: " + Utf8Path(Path)});
 		}
 	}
 

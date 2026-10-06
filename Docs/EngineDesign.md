@@ -1,6 +1,6 @@
 # Herta Engine Design
 
-Status: Active design - Milestone 4 implemented, Milestone 4.5 visual authoring next
+Status: Active design - Milestone 4.5 visual authoring implemented, Milestone 5 playable runtime next
 Last updated: 2026-10-06
 
 ## 1. Purpose
@@ -1558,7 +1558,7 @@ The default Sandbox content lives in `Games/Sandbox/Content`; opened projects su
 
 Exit condition: a sample level can be authored from imported assets, levels round-trip in canonical mergeable JSON, undo/redo and cross-level paste are reliable, ECS mutation and query rules pass focused and scale tests, and a generated Game project builds against the engine. Runtime remains independent of editor modules. Native hot reload, plugin registries, advanced prefab tooling, and translation services are not exit requirements.
 
-Implemented: the existing level/hierarchy/transaction slice now includes concrete runtime descriptors, guarded serial systems and owned queries, buffered events, `.hertaproject` loading, transactional Game-template creation, and `project.create`/`project.validate` commands. Generated native Game modules build as static libraries against the selected source checkout, with engine revision identity recorded during generation. The Content Browser provides a clipped folder tree and asset grid, fuzzy filtering, mesh placement as one undoable level transaction, and background external-file import into selected Game subfolders. Engine content remains read-only. Focused runtime tests passed; full Linux renderer and scaling validation remains outstanding. See [Levels.md](Levels.md), [Projects.md](Projects.md), and [Scaling.md](Scaling.md). Prefabs, native module loading, and standalone gameplay are not implemented.
+Implemented: the existing level/hierarchy/transaction slice now includes concrete runtime descriptors, guarded serial systems and owned queries, buffered events, `.hertaproject` loading, transactional Game-template creation, and `project.create`/`project.validate` commands. Generated native Game modules build as static libraries against the selected source checkout, with engine revision identity recorded during generation. The Content Browser provides a clipped folder tree and asset grid, fuzzy filtering, mesh placement as one undoable level transaction, and background external-file import into selected Game subfolders. Engine content remains read-only. Native Linux renderer validation passed; large-fixture Linux hardware performance remains outstanding. See [Levels.md](Levels.md), [Projects.md](Projects.md), and [Scaling.md](Scaling.md). Prefabs, native module loading, and standalone gameplay are not implemented.
 
 #### Early scaling checkpoint
 
@@ -1570,7 +1570,7 @@ Implemented: the existing level/hierarchy/transaction slice now includes concret
 
 ### Milestone 4.5 - Materials, lighting, and visual authoring
 
-Deliver these slices in order. Extend the existing Sandbox and shared runtime renderer rather than creating an editor-only rendering path.
+Implemented through the existing Sandbox and shared runtime renderer. The following scope remains the milestone's acceptance contract. See the [completion report](Milestone45.md) for verification and measurements, and [Materials.md](Materials.md), [Rendering.md](Rendering.md), and [Playground.md](Playground.md) for controls, budgets, and limitations.
 
 #### A. Materials and shader iteration
 
@@ -1776,8 +1776,8 @@ A module is not complete because its happy path works. It is complete when:
 
 Milestones 3 and 4 are implemented. Level owns private EnTT storage, stable identities, validated hierarchy, atomic authoring patches, canonical `.hlevel` persistence, concrete runtime descriptors, and guarded serial system/query/event contracts. EditorCore owns bounded transaction history; the editor supports hierarchy and optional-component authoring, world-pose-preserving parenting, selection-aware undo/redo, and canonical level clipboard excerpts. Project descriptors resolve content and starting levels; transactional Game-template creation and headless commands share the runtime Project API. Generated C++ Game modules build as static libraries, not dynamically loaded gameplay modules. The Content Browser supports mounted folders, clipped assets, fuzzy filtering, undoable viewport mesh placement, and background external-file import into Game content. See [Levels.md](Levels.md) and [Projects.md](Projects.md) for contracts and limitations.
 
-The early scaling slice provides deterministic 1,000/5,000/10,000-cube fixtures, clipped authoring widgets, large-selection batch history tests, explicit physics capacity failures, native capture phases, and shared-mesh instancing. Focused runtime checks do not establish full Linux renderer or scaling validation; [Scaling.md](Scaling.md) records the measurements and outstanding coverage.
+The early scaling slice provides deterministic 1,000/5,000/10,000-cube fixtures, clipped authoring widgets, large-selection batch history tests, explicit physics capacity failures, native capture phases, and shared-mesh instancing. Native Linux visual rendering is validated; large-fixture Linux hardware performance remains outstanding. [Scaling.md](Scaling.md) records the measurements and outstanding coverage.
 
-The next implementation slice is Milestone 4.5 A: separate mesh geometry from material assignments, add editable material assets and per-entity slots, cook normals/tangents, and establish the PBR shader/texture path. First prove that the same cube can have independently editable colors and textures without another glTF import. Follow with authored lights and shadows, sky/atmosphere and volumetric fog, and native SMAA 1x. The existing camera-relative studio light, baked color-factor textures, and separate colored block assets are interim limitations, not the target authoring workflow.
+Milestone 4.5 adds canonical `.hmat` assets, independently assigned mesh slots, cooked normals/tangents, HDR textures, PBR shading, asynchronous custom shader iteration, and material editing with save/reload and undo/redo. Level schema 4 persists all five light types, Sky Atmosphere, and Fog. The shared runtime renderer provides HDR scene color, manual exposure, filtered environment lighting, bounded shadow maps, reduced-resolution volumetric fog, and reference SMAA 1x before editor overlays. The updated Sandbox exercises these features without separate colored glTF meshes. See [Materials.md](Materials.md) and [Rendering.md](Rendering.md).
 
-Only after these visual-authoring gates pass does Milestone 5 deliver one playable Sandbox through runtime-only `HertaGame`, input, basic physics, a minimal HUD, isolated editor Play/Stop, and relocatable loose deployment. Prefabs remain unimplemented and enter only with a concrete authoring need. Rendering improvements, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend the same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.
+The next implementation slice is Milestone 5: one playable Sandbox through runtime-only `HertaGame`, input, basic physics, a minimal HUD, isolated editor Play/Stop, and relocatable loose deployment. Prefabs remain unimplemented and enter only with a concrete authoring need. Rendering improvements, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend the same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.

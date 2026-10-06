@@ -1,3 +1,4 @@
+#include "Herta/RHI/Graphics.h"
 #include "Herta/RHI/Presentation.h"
 
 #include <doctest/doctest.h>
@@ -52,4 +53,17 @@ TEST_CASE("sRGB palette colors normalize without changing transfer function")
 	CHECK(Canvas.Green == doctest::Approx(18.f / 255.f));
 	CHECK(Canvas.Blue == doctest::Approx(19.f / 255.f));
 	CHECK(Canvas.Alpha == doctest::Approx(1.f));
+}
+
+TEST_CASE("RHI visual authoring texture formats preserve HDR storage sizes")
+{
+	CHECK(Herta::GetTextureTexelBytes(Herta::ETextureFormat::Rgba8) == 4);
+	CHECK(Herta::GetTextureTexelBytes(Herta::ETextureFormat::Rgba8Srgb) == 4);
+	CHECK(Herta::GetTextureTexelBytes(Herta::ETextureFormat::Depth32) == 4);
+	CHECK(Herta::GetTextureTexelBytes(Herta::ETextureFormat::Rgba16Float) == 8);
+	CHECK(Herta::GetTextureTexelBytes(Herta::ETextureFormat::Rgba32Float) == 16);
+	CHECK(Herta::GetTextureTexelBytes(static_cast<Herta::ETextureFormat>(255)) == 0);
+	CHECK(sizeof(Herta::FMeshVertex) == 48);
+	CHECK(offsetof(Herta::FMeshVertex, Normal) == 20);
+	CHECK(offsetof(Herta::FMeshVertex, Tangent) == 32);
 }

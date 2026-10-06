@@ -1,6 +1,6 @@
 # Herta Asset Pipeline
 
-Status: Milestone 3 implemented - asset identity, metadata, registry, build keys, DerivedDataCache, texture, glTF, and Blender cooking in an isolated worker, headless commands, editor mesh previews with live reimport, drag-and-drop import, incremental scans, and fuzzy search.
+Status: Milestones 3 and 4.5 implemented - stable asset identity, isolated cooking, editable PBR materials, HDR environments, cooked normals/tangents, headless commands, editor previews, live reimport, and Content Browser import.
 
 This document records the contracts that later importers, cookers, and editor jobs build on. The roadmap lives in [EngineDesign.md](EngineDesign.md).
 
@@ -8,7 +8,7 @@ This document records the contracts that later importers, cookers, and editor jo
 
 | Module | Kind | Owns |
 |---|---|---|
-| `Assets` | Runtime | `FAssetId`, portable asset paths, the immutable `FAssetRegistry` snapshot, and the cooked texture and model formats. |
+| `Assets` | Runtime | `FAssetId`, portable asset paths, the immutable `FAssetRegistry` snapshot, material documents, and cooked texture/model/material formats. |
 | `AssetPipeline` | Developer | `.hmeta` metadata, content scanning and import, build keys, DerivedDataCache, the texture and glTF cookers, the worker client, and the `asset.*` editor commands. |
 | `HertaAssetWorker` | Program | Runs one cook per process so untrusted source parsing cannot crash or hang its caller. |
 
@@ -16,7 +16,7 @@ Core provides `FHash128` and `HashBytes`, a private XXH3-128 implementation from
 
 ## Content root
 
-Until Milestone 4 introduces `.hertaproject` loading, content lives in `Games/Sandbox/Content`. `HertaEditorCmd` finds it by walking up from the working directory, then from the executable, until it reaches a directory containing `Engine/Content`. Every asset command accepts `--content-root <path>` to override it.
+The editor mounts `Engine/Content` as `Engine` and the opened project's content directory as `Game`. The default project uses `Games/Sandbox/Content`. `HertaEditorCmd` discovers the engine checkout from the working directory or executable and accepts `--content-root <path>` on every asset command. Material cooking can resolve texture and shader dependencies across the configured content roots.
 
 Scanning ignores dot-prefixed files and directories. Symbolic links are reported as errors and never followed.
 
@@ -48,7 +48,7 @@ Setting.ColorSpace = Linear
 - Herta writes LF line endings and settings in byte-wise name order. Parsing accepts any field order and CRLF checkouts, so rewriting a hand-edited file produces the canonical form.
 - Unknown keys are errors in version 1.
 
-Importers are selected by extension: `.gltf` and `.glb` use `Gltf`, `.png`, `.jpg`, and `.jpeg` use `Texture`, and `.blend` uses `Blender`.
+Importers are selected by extension: `.gltf` and `.glb` use `Gltf`; `.png`, `.jpg`, `.jpeg`, and `.hdr` use `Texture`; `.hmat` uses `Material`; `.blend` uses `Blender`.
 
 ## Registry
 
@@ -95,16 +95,17 @@ Writes go to a uniquely named temporary file beside the entry, then rename over 
 Importers parse untrusted files, so only `HertaAssetWorker` and tests call `CookAsset` in-process. Editors and commands call `CookAssetInWorker`, which runs:
 
 ```text
-HertaAssetWorker cook --content-root <path> --derived-data <path> --platform <name> [--force] <content-path>
+HertaAssetWorker cook --content-root <path> --derived-data <path> --platform <name> [--dependency-root <path>] [--texture-color-space Linear|Srgb] [--force] <content-path>
 ```
 
 On success the worker exits with 0 and prints `HertaAssetCook/1`, `Key <hex>`, `Cache hit` or `Cache miss`, and one `Warning <text>` line per warning. A failed cook exits with 1 and writes the reason to standard error. The default timeout is 10 minutes.
 
 | Importer | Version | Settings | Output |
 |---|---|---|---|
-| `Texture` | 2 | `ColorSpace = Srgb` (default) or `Linear` | Cooked texture |
-| `Gltf` | 2 | None | Cooked model |
-| `Blender` | 2 | None | Cooked model, through a GLB export |
+| `Texture` | 3 | `ColorSpace = Srgb` (default) or `Linear` | Cooked texture |
+| `Gltf` | 3 | None | Cooked PBR model |
+| `Material` | 1 | None | Cooked material document |
+| `Blender` | 3 | None | Cooked PBR model, through a GLB export |
 
 Unknown settings are errors, so a typo never silently cooks with defaults. Bump an importer's version whenever its output changes for the same input, and bump `CookedAssetFormatVersion` when any cooked layout changes. Both are part of the build key.
 
@@ -114,17 +115,26 @@ PNG and JPEG sources are decoded with stb_image inside the worker, up to 8192 pi
 
 Integer filtering and fixed tables make cooked bytes identical across compilers and C runtimes.
 
+Radiance `.hdr` sources retain finite, nonnegative linear radiance in RGBA32F mips. HDR mips above 1024 pixels per side are dropped to bound upload and environment-prefilter costs. HDR color is not gamma-encoded or clipped to the ordinary 0-to-1 texture range.
+
+Material bindings explicitly choose sRGB or linear interpretation. A requested interpretation overrides texture metadata and enters the build key, so one source can produce separate color and data-texture cooks without reusing incompatible mip data. Normal, metallic, roughness, and occlusion bindings are linear.
+
+### Materials
+
+Editable `.hmat` files contain canonical JSON PBR parameters, six texture bindings, channel selections, and an optional compatible shader source. They reference textures by stable asset ID, not filenames. The worker validates the document and hashes referenced texture sources, sidecars, and shader dependencies across the configured mounts. Missing references or incompatible asset types fail the cook. See [Materials.md](Materials.md) for the source format, shader contract, and editor workflow.
+
 ### glTF
 
 glTF 2.0 `.gltf` and `.glb` sources are parsed with fastgltf and validated before use. Herta and glTF share axes, units, and counter-clockwise winding, so positions need no conversion.
 
 - The default scene is flattened into one static model. Node transforms are baked into positions, and nodes that reuse a mesh produce separate copies.
 - Primitives are grouped into one section per material, so a model draws once per material.
-- Each section's base color texture is cooked with the material's `baseColorFactor` baked in. Materials without a texture get a 1x1 texture of the factor.
+- Each section retains its material's base color, metallic, roughness, normal strength, occlusion strength, emission, and alpha-cutoff parameters. Factors remain editable data and are not baked into texture pixels.
+- Base-color and emissive textures use sRGB; normal and scalar maps use linear data. Packed metallic/roughness uses B/G, and occlusion uses R. Opaque and masked materials are supported; blended transparency fails explicitly.
 - A transform with a negative determinant mirrors geometry, so its triangles are reversed once to keep counter-clockwise front faces.
 - Vertices are deduplicated and reordered for the GPU vertex cache with meshoptimizer.
-- Only positions and the texture coordinate set used by the base color texture are kept. Normals and tangents are not cooked yet; the mesh shader derives flat normals instead.
-- Non-triangle primitives are skipped with a warning. An image that cannot be decoded is replaced by its factor with a warning.
+- Positions, one UV set, normals, and tangent XYZ plus handedness are cooked. Supplied normals use the inverse-transpose transform; supplied tangents preserve mirrored handedness. Missing directions are generated from geometry and UVs with deterministic degenerate fallbacks. A material using different UV sets for its maps fails instead of silently sampling the wrong coordinates.
+- Non-triangle primitives are skipped with a warning. A referenced image that cannot be loaded or decoded fails the cook rather than silently changing the material.
 - `KHR_mesh_quantization` is supported. Any other required extension, such as Draco compression, fails the cook instead of producing wrong data.
 
 ### Blender
@@ -143,8 +153,9 @@ External buffer and image URIs must be relative and stay inside the content root
 
 Cooked assets start with the magic `HCAS`, `CookedAssetFormatVersion`, and a type tag, followed by little-endian fields:
 
-- A texture stores its color space and RGBA8 mips from largest to 1x1.
-- A model stores position and UV vertices, uint32 triangle indices, sections, materials, and the textures they reference.
+- A texture stores its color space, RGBA8 or RGBA32F pixel format, and mips from largest to 1x1.
+- A model stores position/UV/normal/tangent vertices, uint32 triangle indices, sections, PBR materials, channels, and the textures they reference.
+- A material stores its validated material document. Mesh-slot overrides in a level reference these material assets by UUID; an empty override uses the imported material.
 
 `DeserializeCookedAsset` validates every count, index, range, and mip dimension before allocating. Valid models stay within 64 MiB per vertex or index buffer.
 
@@ -167,7 +178,7 @@ A `.gltf` usually references separate buffers and images, so it is only imported
 
 ## Editor previews
 
-The editor mounts two content roots: `Engine/Content` as `Engine` and the opened project's content root as `Game` (`Games/Sandbox/Content` by default). Asset IDs are global, so a reference does not depend on its mount; the picker shows mount-prefixed paths such as `Engine/Shapes/Cube.gltf`. Engine content holds the 1 m `Shapes/Cube.gltf`; its ID is fixed in `PreviewLevel.h`, and a test cooks it to verify its size, winding, and unmirrored UVs. The [Sandbox playground](Playground.md) also uses project-owned colored block assets with embedded geometry and glTF base-color factors, requiring no external textures or Blender.
+Asset IDs are global, so a reference does not depend on its mount; pickers show paths such as `Engine/Shapes/Cube.gltf`. Engine content holds the shared 1 m cube and sphere. A test cooks the cube to verify size, winding, and unmirrored UVs. The [Sandbox playground](Playground.md) assigns project-owned `.hmat` materials to shared meshes and includes normal/scalar/alpha texture examples without requiring Blender.
 
 The editor scans content in the background at startup and again whenever the Static Mesh picker in Details opens. Choosing a model or texture cooks it in `HertaAssetWorker` on a blocking-IO task. A main-thread continuation uploads the result between frames, so the GPU upload never overlaps a frame recording. The newest choice for an object wins, and older results are discarded when they finish. Closing the editor cancels in-flight work and kills running workers.
 
@@ -177,7 +188,7 @@ Textures preview on a 1 m cube generated by `CreateTexturedCubeModel`. Picking, 
 
 ### Live reimport
 
-The editor polls both content roots about once per second on a blocking-IO task, comparing each file's size and write time from `TakeContentSnapshot`. Polling replaces native watchers for now; switch to `ReadDirectoryChangesW` and inotify if content trees grow large. Any change rescans content and reimports every shown asset once, with the result published to all objects showing it. Build keys do the dependency tracking: an edit that does not affect an asset cooks to the same key, so its GPU mesh is kept and nothing uploads. Editing a `.blend`, glTF, texture, or any file a source depends on produces a new key and swaps the mesh between frames.
+The editor polls both content roots about once per second on a blocking-IO task, comparing each file's size and write time from `TakeContentSnapshot`. Polling replaces native watchers for now; switch to `ReadDirectoryChangesW` and inotify if content trees grow large. Any change rescans content and reimports every shown asset once, with the result published to all objects showing it. Build keys do the dependency tracking: an unrelated edit cooks to the same key and keeps the existing GPU resource. Changes to models, materials, textures, or shader dependencies produce new keys and replace affected resources between frames.
 
 A failed reimport keeps the previous mesh and reports `Reimport failed; keeping the previous version` in Details and the Output Log. Objects whose earlier load failed retry on the next change, since the edit may be the fix. A newer Static Mesh choice for an object always wins over a reimport still in flight.
 

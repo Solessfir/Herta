@@ -3,6 +3,7 @@
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/Math/AffineTransform.h"
 
+#include <array>
 #include <cmath>
 #include <exception>
 #include <format>
@@ -46,6 +47,20 @@ Im3d::Mat3 ToEditorRotation(const FQuaternion& Rotation)
 FPreviewObject ToEditorObject(const FLevelEntity& Entity, const TTransform<double>& WorldPose)
 {
 	const auto& Rotation = WorldPose.Rotation;
+	EPreviewObjectKind Kind = Entity.Mesh ? EPreviewObjectKind::Mesh : EPreviewObjectKind::Entity;
+	if (Entity.Light)
+	{
+		Kind = static_cast<EPreviewObjectKind>(static_cast<std::uint8_t>(EPreviewObjectKind::DirectionalLight) + static_cast<std::uint8_t>(Entity.Light->Type));
+	}
+	else if (Entity.SkyAtmosphere)
+	{
+		Kind = EPreviewObjectKind::SkyAtmosphere;
+	}
+	else if (Entity.HeightFog)
+	{
+		Kind = EPreviewObjectKind::HeightFog;
+	}
+
 	return {
 	    .Label = Entity.Name,
 	    .Translation = {static_cast<float>(WorldPose.Translation.X), static_cast<float>(WorldPose.Translation.Y), static_cast<float>(WorldPose.Translation.Z)},
@@ -54,6 +69,7 @@ FPreviewObject ToEditorObject(const FLevelEntity& Entity, const TTransform<doubl
 	    .Mesh = Entity.Mesh ? Entity.Mesh->Asset : FAssetId{},
 	    .Id = Entity.Id,
 	    .Parent = Entity.Parent.IsValid() ? std::optional{Entity.Parent} : std::nullopt,
+	    .Kind = Kind,
 	};
 }
 
@@ -749,6 +765,8 @@ FEditorTransaction FEditorLevel::MakeTransaction(const std::string_view Label, c
 	{
 		Cost += Change.Before ? Change.Before->Name.size() : 0;
 		Cost += Change.After ? Change.After->Name.size() : 0;
+		Cost += Change.Before && Change.Before->Mesh ? sizeof(FAssetId) * Change.Before->Mesh->Materials.size() : 0;
+		Cost += Change.After && Change.After->Mesh ? sizeof(FAssetId) * Change.After->Mesh->Materials.size() : 0;
 	}
 
 	for (const auto* Snapshot : {&BeforeFolders, &AfterFolders})
@@ -1424,6 +1442,188 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedBodyProperty(float FLe
 	return ApplyStructuralChanges("Edit rigid body", Changes, Selection, ActiveObject);
 }
 
+template <typename T> std::expected<void, FLevelError> FEditorLevel::ApplySelectedComponent(std::optional<T> FLevelEntity::* const Member, const std::optional<T> Value, const std::string_view Label, const bool bOnlyAbsent)
+{
+	if (auto Result = CheckAuthoringAllowed(true); !Result)
+	{
+		return Result;
+	}
+
+	if (auto Result = CommitEdits(); !Result)
+	{
+		return Result;
+	}
+
+	std::vector<FLevelEntityChange> Changes;
+
+	for (const FObjectId Object : Selection)
+	{
+		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		if (Before.*Member == Value || (bOnlyAbsent && (Before.*Member).has_value()) || (!bOnlyAbsent && Value && !(Before.*Member)))
+		{
+			continue;
+		}
+
+		FLevelEntity After = Before;
+		After.*Member = Value;
+		Changes.push_back({.Before = Before, .After = std::move(After)});
+	}
+
+	if (ActiveEdit)
+	{
+		return World.ApplyEntityChanges(Changes);
+	}
+
+	return ApplyStructuralChanges(Label, Changes, Selection, ActiveObject);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedMaterial(const std::size_t Slot, const FAssetId Asset)
+{
+	if (Slot >= 256)
+	{
+		return std::unexpected(FLevelError{"Material slot index exceeds the limit of 256 slots"});
+	}
+
+	if (auto Result = CheckAuthoringAllowed(true); !Result)
+	{
+		return Result;
+	}
+
+	if (auto Result = CommitEdits(); !Result)
+	{
+		return Result;
+	}
+
+	std::vector<FLevelEntityChange> Changes;
+
+	for (const FObjectId Object : Selection)
+	{
+		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		if (!Before.Mesh || (Slot < Before.Mesh->Materials.size() ? Before.Mesh->Materials[Slot] : FAssetId{}) == Asset)
+		{
+			continue;
+		}
+
+		FLevelEntity After = Before;
+		After.Mesh->Materials.resize(std::max(Slot + 1, After.Mesh->Materials.size()));
+		After.Mesh->Materials[Slot] = Asset;
+
+		while (!After.Mesh->Materials.empty() && !After.Mesh->Materials.back().IsValid())
+		{
+			After.Mesh->Materials.pop_back();
+		}
+
+		Changes.push_back({.Before = Before, .After = std::move(After)});
+	}
+
+	if (ActiveEdit)
+	{
+		return World.ApplyEntityChanges(Changes);
+	}
+
+	return ApplyStructuralChanges("Assign material", Changes, Selection, ActiveObject);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedVisualProperty(const ELevelComponentType Type, const std::string_view Key, const FLevelPropertyValue& Value)
+{
+	if (auto Result = CheckAuthoringAllowed(true); !Result)
+	{
+		return Result;
+	}
+
+	if (auto Result = CommitEdits(); !Result)
+	{
+		return Result;
+	}
+
+	std::vector<FLevelEntityChange> Changes;
+
+	for (const FObjectId Object : Selection)
+	{
+		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		const auto Previous = GetLevelVisualProperty(Before, Type, Key);
+		if (!Previous || *Previous == Value)
+		{
+			continue;
+		}
+
+		FLevelEntity After = Before;
+		if (auto Result = SetLevelVisualProperty(After, Type, Key, Value); !Result)
+		{
+			return Result;
+		}
+
+		Changes.push_back({.Before = Before, .After = std::move(After)});
+	}
+
+	if (ActiveEdit)
+	{
+		return World.ApplyEntityChanges(Changes);
+	}
+
+	return ApplyStructuralChanges("Edit visual property", Changes, Selection, ActiveObject);
+}
+
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateLightEntity(const ELightType Type, const FWorldPosition& Position)
+{
+	constexpr std::array<std::string_view, 5> Names{"Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light"};
+	if (Type > ELightType::Rect)
+	{
+		return std::unexpected(FLevelError{"Unknown light type"});
+	}
+
+	FLightComponent Light{.Type = Type};
+	Light.Intensity = Type == ELightType::Directional ? 50'000.f : (Type == ELightType::Sky ? 1.f : 1000.f);
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = std::string(Names[static_cast<std::size_t>(Type)]), .Transform = {.Translation = Position}, .Light = Light});
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddLightToSelected(const ELightType Type)
+{
+	if (Type > ELightType::Rect)
+	{
+		return std::unexpected(FLevelError{"Unknown light type"});
+	}
+
+	FLightComponent Light{.Type = Type};
+	Light.Intensity = Type == ELightType::Directional ? 50'000.f : (Type == ELightType::Sky ? 1.f : 1000.f);
+	return ApplySelectedComponent(&FLevelEntity::Light, std::optional{Light}, "Add light", true);
+}
+
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateSkyAtmosphereEntity(const FWorldPosition& Position)
+{
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = "Sky Atmosphere", .Transform = {.Translation = Position}, .SkyAtmosphere = FSkyAtmosphereComponent{}});
+}
+
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateHeightFogEntity(const FWorldPosition& Position)
+{
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = "Height Fog", .Transform = {.Translation = Position}, .HeightFog = FHeightFogComponent{}});
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedLight(const std::optional<FLightComponent> Light)
+{
+	return ApplySelectedComponent(&FLevelEntity::Light, Light, Light ? "Edit light" : "Remove light");
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddSkyAtmosphereToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::SkyAtmosphere, std::optional{FSkyAtmosphereComponent{}}, "Add sky atmosphere", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedSkyAtmosphere(const std::optional<FSkyAtmosphereComponent> Atmosphere)
+{
+	return ApplySelectedComponent(&FLevelEntity::SkyAtmosphere, Atmosphere, Atmosphere ? "Edit sky atmosphere" : "Remove sky atmosphere");
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddHeightFogToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::HeightFog, std::optional{FHeightFogComponent{}}, "Add height fog", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedHeightFog(const std::optional<FHeightFogComponent> Fog)
+{
+	return ApplySelectedComponent(&FLevelEntity::HeightFog, Fog, Fog ? "Edit height fog" : "Remove height fog");
+}
+
 std::expected<void, FLevelError> FEditorLevel::DuplicateSelected(const bool bWithinActiveEdit, const FVector3d& WorldOffset)
 {
 	if (auto Result = CheckAuthoringAllowed(bWithinActiveEdit); !Result)
@@ -1488,6 +1688,11 @@ std::expected<void, FLevelError> FEditorLevel::DuplicateSelected(const bool bWit
 		FLevelEntity Entity = Original;
 		Entity.Id = Remapped.at(Original.Id);
 		Entity.Name = UniqueEntityName(Original.Name, Names, " Copy");
+
+		if (Entity.SkyAtmosphere && Remapped.contains(Entity.SkyAtmosphere->Sun))
+		{
+			Entity.SkyAtmosphere->Sun = Remapped.at(Entity.SkyAtmosphere->Sun);
+		}
 		const auto Parent = Remapped.find(Original.Parent);
 
 		if (Parent != Remapped.end())
@@ -1785,6 +1990,11 @@ std::expected<void, FLevelError> FEditorLevel::PasteEntities(const std::string_v
 	for (FLevelEntity& Entity : Document->Entities)
 	{
 		Entity.Id = Remapped.at(Entity.Id);
+
+		if (Entity.SkyAtmosphere && Remapped.contains(Entity.SkyAtmosphere->Sun))
+		{
+			Entity.SkyAtmosphere->Sun = Remapped.at(Entity.SkyAtmosphere->Sun);
+		}
 
 		if (Entity.Parent.IsValid())
 		{

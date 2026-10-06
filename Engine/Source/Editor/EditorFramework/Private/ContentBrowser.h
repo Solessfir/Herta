@@ -28,6 +28,8 @@ struct FContentBrowserState
 	std::string SelectedFolder;
 	std::string ContextFolder;
 	FAssetId Selected{};
+	FAssetId ContextAsset{};
+	FAssetId OpenMaterialRequested{};
 	std::vector<FPreviewAssetOption> Assets;
 	std::vector<std::string> Folders;
 	std::vector<std::size_t> VisibleFolders;

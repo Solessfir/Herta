@@ -33,14 +33,20 @@ $RequiredFiles = @(
     'Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf',
     'Engine/Content/Editor/Fonts/DroidSansMono/LICENSE.txt',
     'Engine/Content/Shapes/Cube.gltf',
-    'Engine/Content/Shapes/Cube.gltf.hmeta'
+    'Engine/Content/Shapes/Cube.gltf.hmeta',
+    'Engine/Content/Shapes/Sphere.gltf',
+    'Engine/Content/Shapes/Sphere.gltf.hmeta'
 )
-foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid')) {
+foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow')) {
     foreach ($Stage in @('vert', 'frag')) {
         $RequiredFiles += "$BinaryDirectory/Shaders/$Shader.$Stage.hshader"
     }
 }
 $RequiredFiles += "$BinaryDirectory/Shaders/TexturedMesh.instanced.vert.hshader"
+$RequiredFiles += "$BinaryDirectory/Shaders/Shadow.instanced.vert.hshader"
+foreach ($Shader in @('VolumetricFog', 'FogComposite', 'ToneMap', 'SmaaEdges', 'SmaaWeights', 'SmaaNeighborhood')) {
+    $RequiredFiles += "$BinaryDirectory/Shaders/$Shader.frag.hshader"
+}
 
 foreach ($RelativePath in $RequiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot $RelativePath) -PathType Leaf)) {

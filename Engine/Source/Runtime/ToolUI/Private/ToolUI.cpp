@@ -15,6 +15,7 @@
 #include <array>
 #include <cfloat>
 #include <cmath>
+#include <numbers>
 #include <format>
 #include <fstream>
 #include <limits>
@@ -468,6 +469,35 @@ void DrawToolUIIcon(ImDrawList* const Draw, const ImVec2 Center, const float Sca
 		Draw->AddCircle(Center, 6.f * Scale, Color, 16, Scale);
 		Line(-6.f, 0.f, 6.f, 0.f);
 		Draw->AddEllipse(Center, {3.f * Scale, 6.f * Scale}, Color, 0.f, 16, Scale);
+	}
+	else if (Icon == EToolUIMenuIcon::Light)
+	{
+		Draw->AddCircle(Center, 3.f * Scale, Color, 20, Scale);
+		for (int Ray = 0; Ray < 8; ++Ray)
+		{
+			const float Angle = static_cast<float>(Ray) * std::numbers::pi_v<float> / 4.f;
+			Line(std::cos(Angle) * 4.5f, std::sin(Angle) * 4.5f, std::cos(Angle) * 6.5f, std::sin(Angle) * 6.5f);
+		}
+	}
+	else if (Icon == EToolUIMenuIcon::SkyAtmosphere)
+	{
+		Draw->AddCircle({Center.x + 3.f * Scale, Center.y - 3.f * Scale}, 3.f * Scale, Color, 16, Scale);
+		Draw->AddBezierCubic({Center.x - 6.f * Scale, Center.y + 4.f * Scale}, {Center.x - 4.f * Scale, Center.y - 2.f * Scale}, {Center.x + 1.f * Scale, Center.y - 2.f * Scale}, {Center.x + 6.f * Scale, Center.y + 4.f * Scale}, Color, Scale);
+		Line(-6, 5, 6, 5);
+	}
+	else if (Icon == EToolUIMenuIcon::Fog)
+	{
+		for (int Row = -1; Row <= 1; ++Row)
+		{
+			const float Y = static_cast<float>(Row) * 4.f;
+			Line(Row == 0 ? -6.f : -4.f, Y, Row == 0 ? 6.f : 4.f, Y);
+		}
+	}
+	else if (Icon == EToolUIMenuIcon::Material)
+	{
+		Draw->AddCircle(Center, 6.f * Scale, Color, 24, Scale);
+		Draw->AddCircleFilled({Center.x - 2.f * Scale, Center.y - 2.f * Scale}, 1.5f * Scale, Color);
+		Draw->AddBezierCubic({Center.x - 5.f * Scale, Center.y + 3.f * Scale}, {Center.x - 2.f * Scale, Center.y + 1.f * Scale}, {Center.x + 1.f * Scale, Center.y + 5.f * Scale}, {Center.x + 5.f * Scale, Center.y + 2.f * Scale}, Color, Scale);
 	}
 	else if (Icon == EToolUIMenuIcon::Cube)
 	{

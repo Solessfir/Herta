@@ -35,6 +35,7 @@ struct FEditorAssetPaths
 
 using FEditorAssetThumbnail = std::shared_ptr<const std::uint64_t>;
 using FEditorAssetThumbnailRenderer = std::function<std::expected<FEditorAssetThumbnail, FPresentationError>(const FRenderMesh&)>;
+using FEditorMaterialThumbnailRenderer = std::function<std::expected<FEditorAssetThumbnail, FPresentationError>(const FRenderMesh&, const FRenderMaterial&)>;
 
 struct FEditorFrameworkDescriptor
 {
@@ -51,6 +52,8 @@ struct FEditorFrameworkDescriptor
 	std::filesystem::path ProjectPath{};
 	// Called between frames; the shared handle owns the registered UI texture.
 	FEditorAssetThumbnailRenderer RenderAssetThumbnail;
+	FEditorMaterialThumbnailRenderer RenderMaterialThumbnail;
+	FMeshRenderer* MeshRenderer = nullptr;
 };
 
 struct FEditorFrameMetrics
@@ -80,6 +83,8 @@ public:
 
 	// RenderViewport runs after viewport layout/input and must set the image before it is queued for display.
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> Draw(const std::function<void()>& RenderViewport);
+	bool RequestClose();
+	bool HasConfirmedClose() const noexcept;
 	void SetViewportImage(std::uint64_t TextureId) noexcept;
 	void SetFrameTimings(double CpuMilliseconds, std::optional<double> GpuUIMilliseconds) noexcept;
 	FEditorFrameMetrics GetFrameMetrics() const noexcept;

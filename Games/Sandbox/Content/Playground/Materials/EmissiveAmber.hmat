@@ -1,0 +1,66 @@
+{
+  "format": "HertaMaterial",
+  "version": 1,
+  "name": "EmissiveAmber",
+  "parameters": {
+    "baseColor": [
+      0.12,
+      0.06,
+      0.02,
+      1
+    ],
+    "metallic": 0,
+    "roughness": 0.3,
+    "normalStrength": 1,
+    "occlusionStrength": 1,
+    "emissive": [
+      1,
+      0.3,
+      0.04
+    ],
+    "emissiveIntensity": 12000,
+    "uvScale": [
+      1,
+      1
+    ],
+    "uvOffset": [
+      0,
+      0
+    ],
+    "blendMode": "opaque",
+    "alphaCutoff": 0.5
+  },
+  "textures": {
+    "baseColor": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    },
+    "metallic": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "roughness": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "normal": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "linear"
+    },
+    "occlusion": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "emissive": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    }
+  },
+  "shader": ""
+}

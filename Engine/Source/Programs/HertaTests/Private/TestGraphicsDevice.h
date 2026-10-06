@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -61,13 +62,17 @@ public:
 	std::vector<std::vector<std::uint32_t>> IndexUploads;
 	std::vector<std::string> Events;
 	std::vector<Herta::FIndexedDraw> Draws;
+	std::vector<std::vector<Herta::FTextureHandle>> DrawTextures;
+	std::vector<std::vector<std::byte>> DrawUniforms;
 	Herta::FIndexedDraw LastDraw;
 	std::uint64_t Submissions = 0;
 	std::vector<std::uint32_t> TextureWrites;
+	std::vector<Herta::FTextureDescriptor> TextureDescriptors;
 	std::size_t RecordingBytes = 0;
 	std::size_t MaximumRecordingBytes = 0;
 	bool bFailDepth = false;
 	bool bFailDraw = false;
+	std::function<std::expected<void, Herta::FPresentationError>(const Herta::FGraphicsPipelineDescriptor&)> ValidatePipeline;
 
 	std::expected<Herta::FBufferHandle, Herta::FPresentationError> CreateBuffer(const Herta::FBufferDescriptor& Descriptor) override
 	{
@@ -81,11 +86,20 @@ public:
 			return std::unexpected(Herta::FPresentationError{Herta::EPresentationErrorCode::InvalidDescriptor, "Depth allocation failed"});
 		}
 
+		TextureDescriptors.push_back(Descriptor);
 		return std::make_shared<FTestTexture>(Descriptor);
 	}
 
 	std::expected<Herta::FGraphicsPipelineHandle, Herta::FPresentationError> CreateGraphicsPipeline(const Herta::FGraphicsPipelineDescriptor& Descriptor) override
 	{
+		if (ValidatePipeline)
+		{
+			if (auto Valid = ValidatePipeline(Descriptor); !Valid)
+			{
+				return std::unexpected(Valid.error());
+			}
+		}
+
 		auto Pipeline = std::make_shared<FTestPipeline>();
 		Pipeline->Descriptor = Descriptor;
 		return Pipeline;
@@ -150,6 +164,11 @@ public:
 		Events.emplace_back("Draw");
 		LastDraw = Draw;
 		Draws.push_back(Draw);
+		DrawTextures.emplace_back(Draw.Textures.begin(), Draw.Textures.end());
+		DrawUniforms.emplace_back(Draw.Uniforms.begin(), Draw.Uniforms.end());
+		Draws.back().Textures = DrawTextures.back();
+		Draws.back().Uniforms = DrawUniforms.back();
+		LastDraw = Draws.back();
 		if (bFailDraw)
 		{
 			return std::unexpected(Herta::FPresentationError{Herta::EPresentationErrorCode::CommandSubmissionFailed, "Draw failed"});

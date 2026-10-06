@@ -189,7 +189,8 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 		for (std::size_t Index = 0; Index < Objects.size(); ++Index)
 		{
 			SearchText.assign(Objects[Index].Label);
-			SearchText.append(Objects[Index].Mesh.IsValid() ? " Static Mesh" : " Entity");
+			SearchText += ' ';
+			SearchText.append(GetPreviewObjectTypeName(Objects[Index]));
 			Matches[Index] = State.Search.PassFilter(SearchText.c_str());
 		}
 
@@ -750,34 +751,17 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 					{
 						ImGui::GetWindowDrawList()->AddText({LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label.data(), Label.data() + Label.size());
 					}
-					const ImVec2 Top{IconX + 6.f * Scale, CenterY - 7.f * Scale};
-					const ImVec2 Left{IconX, CenterY - 4.f * Scale};
-					const ImVec2 Right{IconX + 12.f * Scale, Left.y};
-					const ImVec2 Center{Top.x, CenterY - Scale};
-					const ImVec2 Bottom{Top.x, CenterY + 7.f * Scale};
-					const ImVec2 Outline[]{Top, Right, {Right.x, CenterY + 4.f * Scale}, Bottom, {Left.x, CenterY + 4.f * Scale}, Left};
-					ImDrawList* const Draw = ImGui::GetWindowDrawList();
-					const ImU32 IconColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-					if (bFolder)
-					{
-						ToolUIIcon(EToolUIMenuIcon::ContentBrowser, Top.x, CenterY, Scale * 0.8f);
-					}
-					else if (Object->Mesh.IsValid())
-					{
-						Draw->AddPolyline(Outline, 6, IconColor, ImDrawFlags_Closed, Scale);
-						Draw->AddLine(Left, Center, IconColor, Scale);
-						Draw->AddLine(Right, Center, IconColor, Scale);
-						Draw->AddLine(Center, Bottom, IconColor, Scale);
-					}
-					else
-					{
-						const ImVec2 EntityCenter{Top.x, CenterY};
-						Draw->AddCircle(EntityCenter, 6.f * Scale, IconColor, 16, Scale);
-						Draw->AddCircleFilled(EntityCenter, 1.5f * Scale, IconColor);
-					}
+					const auto Kind = bFolder ? EPreviewObjectKind::Entity : Object->Kind;
+					const EToolUIMenuIcon Icon = bFolder                                                                                 ? EToolUIMenuIcon::ContentBrowser
+					                             : Kind == EPreviewObjectKind::SkyAtmosphere                                             ? EToolUIMenuIcon::SkyAtmosphere
+					                             : Kind == EPreviewObjectKind::HeightFog                                                 ? EToolUIMenuIcon::Fog
+					                             : Kind >= EPreviewObjectKind::DirectionalLight && Kind <= EPreviewObjectKind::RectLight ? EToolUIMenuIcon::Light
+					                             : Object->Mesh.IsValid()                                                                ? EToolUIMenuIcon::Cube
+					                                                                                                                     : EToolUIMenuIcon::Entity;
+					ToolUIIcon(Icon, IconX + 6.f * Scale, CenterY, Scale * 0.8f);
 					ImGui::TableSetColumnIndex(1);
-					ImGui::TextDisabled("%s", bFolder ? "Folder" : Object->Mesh.IsValid() ? "Static Mesh"
-					                                                                      : "Entity");
+					const std::string_view TypeName = bFolder ? "Folder" : GetPreviewObjectTypeName(*Object);
+					ImGui::TextDisabled("%.*s", static_cast<int>(TypeName.size()), TypeName.data());
 					ImGui::PopStyleVar(2);
 					ImGui::PopID();
 				}

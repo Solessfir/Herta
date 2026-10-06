@@ -1,0 +1,17 @@
+#pragma once
+#include "VisualShared.slangh"
+
+struct FFullscreenOutput
+{
+    float4 Position : SV_Position;
+    float2 UV : TEXCOORD0;
+};
+
+[shader("vertex")]
+FFullscreenOutput vertexMain(float4 Position : POSITION, float4 Color : COLOR)
+{
+    FFullscreenOutput Output;
+    Output.Position = Position;
+    Output.UV = Color.xy;
+    return Output;
+}

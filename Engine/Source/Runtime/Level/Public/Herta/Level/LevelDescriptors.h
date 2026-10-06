@@ -15,6 +15,9 @@ enum class ELevelComponentType : std::uint8_t
 	Transform,
 	StaticMesh,
 	RigidBody,
+	Light,
+	SkyAtmosphere,
+	HeightFog,
 };
 
 enum class ELevelPropertyType : std::uint8_t
@@ -25,6 +28,11 @@ enum class ELevelPropertyType : std::uint8_t
 	AssetReference,
 	BodyType,
 	Float,
+	Boolean,
+	LightType,
+	FogQuality,
+	ObjectReference,
+	AssetReferences,
 };
 
 enum class ELevelPropertyUnit : std::uint8_t
@@ -33,9 +41,12 @@ enum class ELevelPropertyUnit : std::uint8_t
 	Meters,
 	Kilograms,
 	InverseSeconds,
+	InverseMeters,
+	Radians,
+	Kelvin,
 };
 
-using FLevelPropertyValue = std::variant<FWorldPosition, FQuaternion, FVector3, FAssetId, ELevelBodyType, float>;
+using FLevelPropertyValue = std::variant<FWorldPosition, FQuaternion, FVector3, FAssetId, ELevelBodyType, float, bool, ELightType, EFogQuality, FObjectId, std::vector<FAssetId>>;
 
 struct FLevelPropertyRange
 {
@@ -68,4 +79,6 @@ std::span<const FLevelComponentDescriptor> GetLevelComponentDescriptors();
 const FLevelComponentDescriptor& GetLevelComponentDescriptor(ELevelComponentType Type);
 const FLevelComponentDescriptor* FindLevelComponentDescriptor(std::string_view TypeId);
 const FLevelPropertyDescriptor* FindLevelPropertyDescriptor(const FLevelComponentDescriptor& Component, std::string_view Key);
+std::optional<FLevelPropertyValue> GetLevelVisualProperty(const FLevelEntity& Entity, ELevelComponentType Type, std::string_view Key);
+[[nodiscard]] std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, ELevelComponentType Type, std::string_view Key, const FLevelPropertyValue& Value);
 }

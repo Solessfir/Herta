@@ -55,6 +55,8 @@ content_files=(
     Engine/Content/Editor/Fonts/DroidSansMono/LICENSE.txt
     Engine/Content/Shapes/Cube.gltf
     Engine/Content/Shapes/Cube.gltf.hmeta
+    Engine/Content/Shapes/Sphere.gltf
+    Engine/Content/Shapes/Sphere.gltf.hmeta
     'Games/Sandbox/Content/fixture texture.png'
     'Games/Sandbox/Content/fixture texture.png.hmeta'
     Games/Sandbox/Levels/Sandbox.hlevel
@@ -104,12 +106,16 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
     chmod 755 -- "${repository_root}/${binary_directory}/${program}"
 done
 
-for shader in TexturedMesh DebugDraw WorldGrid; do
+for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow; do
     for stage in vert frag; do
         write_fixture_file "${binary_directory}/Shaders/${shader}.${stage}.hshader"
     done
 done
 write_fixture_file "${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader"
+visual_shader_files=(Sky.vert Sky.frag Shadow.vert Shadow.instanced.vert Shadow.frag VolumetricFog.frag FogComposite.frag ToneMap.frag SmaaEdges.frag SmaaWeights.frag SmaaNeighborhood.frag)
+for shader in "${visual_shader_files[@]}"; do
+    write_fixture_file "${binary_directory}/Shaders/${shader}.hshader"
+done
 
 excluded_files=(
     "${binary_directory}/HertaTests"
@@ -151,12 +157,15 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
     [[ "$(stat -c '%a' "${extracted_package}/${binary_directory}/${program}")" == 755 ]]
 done
 
-for shader in TexturedMesh DebugDraw WorldGrid; do
+for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow; do
     for stage in vert frag; do
         assert_file "${extracted_package}/${binary_directory}/Shaders/${shader}.${stage}.hshader"
     done
 done
 assert_file "${extracted_package}/${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader"
+for shader in "${visual_shader_files[@]}"; do
+    assert_file "${extracted_package}/${binary_directory}/Shaders/${shader}.hshader"
+done
 
 for relative_path in "${excluded_files[@]}"; do
     assert_absent "${extracted_package}/${relative_path}"
@@ -197,12 +206,17 @@ missing_inputs=(
     "${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader"
     Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf
     Engine/Content/Shapes/Cube.gltf.hmeta
+    Engine/Content/Shapes/Sphere.gltf
+    Engine/Content/Shapes/Sphere.gltf.hmeta
     'Games/Sandbox/Content/fixture texture.png'
     Games/Sandbox/Levels/Sandbox.hlevel
     Templates/Projects/Game/Main.hlevel
     External/freetype/src/gzip/zlib.h
     External/example/LICENSE
 )
+for shader in "${visual_shader_files[@]}"; do
+    missing_inputs+=("${binary_directory}/Shaders/${shader}.hshader")
+done
 for relative_path in "${missing_inputs[@]}"; do
     mv -- "${repository_root}/${relative_path}" "${temporary_root}/missing-input"
     assert_fails "Required package file is missing: ${relative_path}" --output-directory "${temporary_root}/missing-output"
@@ -221,7 +235,7 @@ assert_fails 'Missing value' --configuration
 assert_fails 'Unknown PackageEditor argument' --unknown
 
 # An empty tracked Game mount still needs a writable directory in the archive.
-git -C "${repository_root}" rm --quiet --cached "${content_files[7]}" "${content_files[8]}"
+git -C "${repository_root}" rm --quiet --cached 'Games/Sandbox/Content/fixture texture.png' 'Games/Sandbox/Content/fixture texture.png.hmeta'
 cp -a -- "${repository_root}/${binary_directory}" "${repository_root}/Binaries/linux/x86_64/Development"
 development_output="${temporary_root}/development-output"
 bash "${package_script}" --repository-root "${repository_root}" --configuration Development --output-directory "${development_output}"

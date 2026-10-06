@@ -1,5 +1,6 @@
 #include "DetailsPanel.h"
 
+#include "ContentBrowser.h"
 #include "Herta/Assets/AssetSearch.h"
 #include "Herta/EditorCore/PreviewScaleEdit.h"
 #include "Herta/EditorCore/TransformText.h"
@@ -17,6 +18,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstring>
 #include <numbers>
 #include <optional>
 #include <string>
@@ -193,8 +195,19 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
-		const std::array Names{GetLevelComponentDescriptor(ELevelComponentType::StaticMesh).Label, GetLevelComponentDescriptor(ELevelComponentType::RigidBody).Label};
-		const std::array Added{Components.bAllMesh, Components.bAllBody};
+		const std::array<std::string_view, 9> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog"};
+		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog};
+		constexpr std::array Actions{
+		    EDetailsComponentAction::AddStaticMesh,
+		    EDetailsComponentAction::AddRigidBody,
+		    EDetailsComponentAction::AddDirectionalLight,
+		    EDetailsComponentAction::AddSkyLight,
+		    EDetailsComponentAction::AddPointLight,
+		    EDetailsComponentAction::AddSpotLight,
+		    EDetailsComponentAction::AddRectLight,
+		    EDetailsComponentAction::AddSkyAtmosphere,
+		    EDetailsComponentAction::AddHeightFog,
+		};
 		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
 		std::vector<int> Available;
 		for (const FAssetSearchMatch& Match : Matches.value_or(std::vector<FAssetSearchMatch>{}))
@@ -233,7 +246,11 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 			ImDrawListSplitter Layers;
 			Layers.Split(Draw, 2);
 			Layers.SetCurrentChannel(Draw, 1);
-			const bool bPressed = ToolUIMenuItem(Names[Index], Index == 0 ? EToolUIMenuIcon::Cube : EToolUIMenuIcon::Physics, nullptr, Added[Index] ? "Added" : nullptr);
+			const EToolUIMenuIcon Icon = Index == 0 ? EToolUIMenuIcon::Cube : Index == 1 ? EToolUIMenuIcon::Physics
+			                                                              : Index == 7   ? EToolUIMenuIcon::SkyAtmosphere
+			                                                              : Index == 8   ? EToolUIMenuIcon::Fog
+			                                                                             : EToolUIMenuIcon::Light;
+			const bool bPressed = ToolUIMenuItem(Names[Index], Icon, nullptr, Added[Index] ? "Added" : nullptr);
 			const ImVec2 Minimum = ImGui::GetItemRectMin();
 			const ImVec2 Maximum = ImGui::GetItemRectMax();
 			Layers.SetCurrentChannel(Draw, 0);
@@ -245,7 +262,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 			Layers.Merge(Draw);
 			if (!Added[Index] && (bPressed || (bConfirm && State.ComponentResult == static_cast<int>(Index))))
 			{
-				Action = Index == 0 ? EDetailsComponentAction::AddStaticMesh : EDetailsComponentAction::AddRigidBody;
+				Action = Actions[Index];
 			}
 
 			ImGui::EndDisabled();
@@ -436,6 +453,492 @@ void DrawLockButton(bool& bLocked)
 	return bReset;
 }
 
+void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const FDetailsComponentField& Components, const bool bDragging, FDetailsMeshResult& Result)
+{
+	if (Components.MaterialSlots.empty())
+	{
+		return;
+	}
+
+	const float Scale = ImGui::GetFontSize() / 15.f;
+	ImGui::Spacing();
+	ImGui::TextDisabled("Materials");
+	ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {0.f, 2.f * Scale});
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 4.f * Scale});
+	ImGui::BeginDisabled(bDragging);
+	if (ImGui::BeginTable("##MeshMaterials", 4, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
+	{
+		ImGui::TableSetupColumn("##Slot", ImGuiTableColumnFlags_WidthFixed, std::min(GetPropertyLabelWidth(), ImGui::GetContentRegionAvail().x * 0.38f));
+		ImGui::TableSetupColumn("##Material", ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableSetupColumn("##Edit", ImGuiTableColumnFlags_WidthFixed, 26.f * Scale);
+		ImGui::TableSetupColumn("##Reset", ImGuiTableColumnFlags_WidthFixed, 22.f * Scale);
+		const std::size_t OptionCount = std::min(Components.MaterialOptionIds.size(), Components.MaterialOptionLabels.size());
+
+		for (std::size_t SlotIndex = 0; SlotIndex < Components.MaterialSlots.size(); ++SlotIndex)
+		{
+			const auto& Slot = Components.MaterialSlots[SlotIndex];
+			ImGui::PushID(static_cast<int>(SlotIndex));
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::AlignTextToFramePadding();
+			const std::string Name = Slot.Name.empty() ? std::string("Slot ") + std::to_string(SlotIndex) : Slot.Name;
+			const ImVec2 Position = ImGui::GetCursorScreenPos();
+			const float Width = std::max(1.f, ImGui::GetContentRegionAvail().x - 4.f * Scale);
+			ImGui::Dummy({Width, ImGui::GetTextLineHeight()});
+			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
+			ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), Position, {Position.x + Width, Position.y + ImGui::GetFontSize()}, Position.x + Width, Name.c_str(), Name.c_str() + Name.size(), nullptr);
+			ImGui::PopStyleColor();
+			ImGui::SetItemTooltip("%s", Name.c_str());
+			ImGui::TableSetColumnIndex(1);
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			std::string_view Label = Slot.bMixed ? "Multiple values" : Slot.Selected.IsValid() ? "Missing material"
+			                                                                                   : "Default (imported)";
+			for (std::size_t Index = 0; Index < OptionCount; ++Index)
+			{
+				if (!Slot.bMixed && Slot.Selected == Components.MaterialOptionIds[Index])
+				{
+					Label = Components.MaterialOptionLabels[Index];
+				}
+			}
+
+			const auto Slash = Label.rfind('/');
+			const std::string Display(Slash == std::string_view::npos ? Label : Label.substr(Slash + 1));
+			if (ImGui::BeginCombo("##Material", Display.c_str()))
+			{
+				if (ImGui::IsWindowAppearing())
+				{
+					State.MaterialSearch.fill('\0');
+					ImGui::SetKeyboardFocusHere();
+				}
+
+				ImGui::SetNextItemWidth(-FLT_MIN);
+				ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
+				ToolUI.DrawSearchField("##MaterialSearch", "Search materials", State.MaterialSearch.data(), State.MaterialSearch.size());
+				ImGui::PopStyleColor();
+				if (ImGui::Selectable("Default (imported)", !Slot.bMixed && !Slot.Selected.IsValid()))
+				{
+					Result.MaterialChosen = {{SlotIndex, FAssetId{}}};
+				}
+
+				const std::vector<std::string_view> Names(Components.MaterialOptionLabels.begin(), Components.MaterialOptionLabels.begin() + static_cast<std::ptrdiff_t>(OptionCount));
+				const auto Matches = SearchAssets(Names, State.MaterialSearch.data());
+				ImGuiListClipper Clipper;
+				Clipper.Begin(Matches ? static_cast<int>(Matches->size()) : 0);
+				while (Clipper.Step())
+				{
+					for (int MatchIndex = Clipper.DisplayStart; MatchIndex < Clipper.DisplayEnd; ++MatchIndex)
+					{
+						const std::size_t Index = (*Matches)[static_cast<std::size_t>(MatchIndex)].Index;
+						if (ImGui::Selectable(Components.MaterialOptionLabels[Index].c_str(), !Slot.bMixed && Components.MaterialOptionIds[Index] == Slot.Selected))
+						{
+							Result.MaterialChosen = {{SlotIndex, Components.MaterialOptionIds[Index]}};
+						}
+					}
+				}
+
+				ImGui::EndCombo();
+			}
+
+			ImGui::SetItemTooltip("%.*s", static_cast<int>(Label.size()), Label.data());
+			if (ImGui::BeginDragDropTarget())
+			{
+				if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(ContentAssetPayload))
+				{
+					FAssetId Material;
+					if (Payload->DataSize == sizeof(Material))
+					{
+						std::memcpy(&Material, Payload->Data, sizeof(Material));
+						if (std::ranges::any_of(Components.MaterialOptionIds, [Material](const FAssetId Id)
+						{
+							return Id == Material;
+						}))
+						{
+							Result.MaterialChosen = {{SlotIndex, Material}};
+						}
+					}
+				}
+
+				ImGui::EndDragDropTarget();
+			}
+
+			if (ImGui::BeginPopupContextItem("Material slot"))
+			{
+				if (ToolUIMenuItem("Reset to imported material", EToolUIMenuIcon::Undo))
+				{
+					Result.MaterialChosen = {{SlotIndex, FAssetId{}}};
+				}
+
+				ImGui::BeginDisabled(Slot.bMixed || !Slot.Selected.IsValid());
+				if (ToolUIMenuItem("Edit material", EToolUIMenuIcon::Material))
+				{
+					Result.MaterialOpenRequested = Slot.Selected;
+				}
+
+				ImGui::EndDisabled();
+				ImGui::EndPopup();
+			}
+
+			ImGui::TableSetColumnIndex(2);
+			ImGui::BeginDisabled(Slot.bMixed || !Slot.Selected.IsValid());
+			if (ImGui::Button("...##EditMaterial", {22.f * Scale, 0.f}))
+			{
+				Result.MaterialOpenRequested = Slot.Selected;
+			}
+
+			ImGui::SetItemTooltip("Edit material");
+			ImGui::EndDisabled();
+			ImGui::TableSetColumnIndex(3);
+			if ((Slot.bMixed || Slot.Selected.IsValid()) && DrawResetButton(Name.c_str()))
+			{
+				Result.MaterialChosen = {{SlotIndex, FAssetId{}}};
+			}
+
+			ImGui::PopID();
+		}
+
+		ImGui::EndTable();
+	}
+
+	ImGui::EndDisabled();
+	ImGui::PopStyleVar(2);
+}
+
+bool MatchesVisualSection(const ELevelComponentType Type, const std::string_view Query)
+{
+	const auto& Descriptor = GetLevelComponentDescriptor(Type);
+	return Query.empty() || MatchesSearch(Descriptor.Label, Query) || (Type == ELevelComponentType::Light && MatchesSearch("Shadow distance", Query)) || std::ranges::any_of(Descriptor.Properties, [Query](const auto& Property)
+	{
+		return MatchesSearch(Property.Label, Query);
+	});
+}
+
+bool IsVisualPropertyVisible(const FLevelEntity& Entity, const ELevelComponentType Type, const std::string_view Key)
+{
+	if (Type == ELevelComponentType::Light)
+	{
+		const auto& Light = *Entity.Light;
+		if (Key == "range")
+		{
+			return Light.Type != ELightType::Sky && (Light.Type != ELightType::Directional || Light.bCastShadows);
+		}
+
+		if (Key == "innerConeAngle" || Key == "outerConeAngle")
+		{
+			return Light.Type == ELightType::Spot;
+		}
+
+		if (Key == "width" || Key == "height")
+		{
+			return Light.Type == ELightType::Rect;
+		}
+
+		if (Key == "environment" || Key == "ambientStrength" || Key == "environmentVisible")
+		{
+			return Light.Type == ELightType::Sky;
+		}
+
+		if (Key == "temperatureKelvin")
+		{
+			return Light.bUseTemperature;
+		}
+
+		if (Key == "castShadows")
+		{
+			return Light.Type != ELightType::Sky;
+		}
+
+		if (Key == "shadowBias" || Key == "shadowNormalBias")
+		{
+			return Light.Type != ELightType::Sky && Light.bCastShadows;
+		}
+	}
+
+	if (Type == ELevelComponentType::HeightFog && (Key == "quality" || Key == "anisotropy"))
+	{
+		return Entity.HeightFog->bVolumetric;
+	}
+
+	return true;
+}
+
+void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type, FLevelEntity& Entity, const std::span<bool> Mixed, FDetailsPanelState& State, const FDetailsComponentField& Components, const std::string_view Query, const bool bDragging, const FDetailsEditCallbacks* Edits, FDetailsMeshResult& Result)
+{
+	const auto& Descriptor = GetLevelComponentDescriptor(Type);
+	const float Scale = ImGui::GetFontSize() / 15.f;
+	ImGui::PushID(Descriptor.TypeId.data());
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 4.f * Scale});
+	ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {0.f, 2.f * Scale});
+	ImGui::BeginDisabled(bDragging);
+	if (ImGui::BeginTable("##VisualProperties", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_NoSavedSettings))
+	{
+		const float LabelWidth = std::min(GetPropertyLabelWidth(), ImGui::GetContentRegionAvail().x * 0.44f);
+		ImGui::TableSetupColumn("##Label", ImGuiTableColumnFlags_WidthFixed, LabelWidth);
+		ImGui::TableSetupColumn("##Value", ImGuiTableColumnFlags_WidthStretch);
+		ImGui::TableSetupColumn("##Reset", ImGuiTableColumnFlags_WidthFixed, 22.f * Scale);
+
+		for (std::size_t Index = 0; Index < Descriptor.Properties.size(); ++Index)
+		{
+			const auto& Property = Descriptor.Properties[Index];
+			const std::string_view DisplayLabel = Type == ELevelComponentType::Light && Property.Key == "range" && Entity.Light->Type == ELightType::Directional ? "Shadow distance" : Property.Label;
+			if ((!Query.empty() && !MatchesSearch(Descriptor.Label, Query) && !MatchesSearch(DisplayLabel, Query)) || !IsVisualPropertyVisible(Entity, Type, Property.Key))
+			{
+				continue;
+			}
+
+			const auto Previous = GetLevelVisualProperty(Entity, Type, Property.Key);
+			if (!Previous)
+			{
+				continue;
+			}
+
+			FLevelPropertyValue Candidate = *Previous;
+			FLevelPropertyValue Default = Property.Default;
+			if (Type == ELevelComponentType::Light && Property.Key == "intensity")
+			{
+				Default = Entity.Light->Type == ELightType::Directional ? 50'000.f : (Entity.Light->Type == ELightType::Sky ? 1.f : 1000.f);
+			}
+
+			ImGui::PushID(static_cast<int>(Index));
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::AlignTextToFramePadding();
+			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
+			const float LabelLimit = ImGui::GetCursorScreenPos().x + LabelWidth - 4.f * Scale;
+			const ImVec2 LabelPosition = ImGui::GetCursorScreenPos();
+			ImGui::Dummy({std::max(1.f, LabelWidth - 4.f * Scale), ImGui::GetTextLineHeight()});
+			ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), LabelPosition, {LabelLimit, LabelPosition.y + ImGui::GetFontSize()}, LabelLimit, DisplayLabel.data(), DisplayLabel.data() + DisplayLabel.size(), nullptr);
+			ImGui::PopStyleColor();
+			ImGui::SetItemTooltip("%.*s", static_cast<int>(DisplayLabel.size()), DisplayLabel.data());
+			ImGui::TableSetColumnIndex(1);
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			const std::size_t StateIndex = Index + (Type == ELevelComponentType::Light ? 0 : Type == ELevelComponentType::SkyAtmosphere ? 17
+			                                                                                                                            : 24);
+			const float Conversion = Property.Unit == ELevelPropertyUnit::Radians ? 180.f / std::numbers::pi_v<float> : 1.f;
+			float NumericValue = std::get_if<float>(&Candidate) ? std::get<float>(Candidate) * Conversion : 0.f;
+			FNumericEditLifecycle Edit{
+			    .Begin = [&]
+			{
+				BeginDetailsEdit(Edits, Result);
+				State.VisualPropertyWasMixed[StateIndex] = Mixed[Index];
+				if (Edits && Edits->ReadVisualProperty)
+				{
+					Candidate = Edits->ReadVisualProperty(Type, Property.Key).value_or(Candidate);
+				}
+
+				if (const auto* Value = std::get_if<float>(&Candidate))
+				{
+					NumericValue = *Value * Conversion;
+				}
+			},
+			    .Flush = [&](const bool bCanceled)
+			{
+				FlushDetailsEdit(Edits, Result, bCanceled);
+				if (Edits && Edits->ReadVisualProperty)
+				{
+					Candidate = Edits->ReadVisualProperty(Type, Property.Key).value_or(Candidate);
+				}
+
+				if (const auto* Value = std::get_if<float>(&Candidate))
+				{
+					NumericValue = *Value * Conversion;
+				}
+
+				if (bCanceled)
+				{
+					Mixed[Index] = State.VisualPropertyWasMixed[StateIndex];
+				}
+			},
+			};
+			bool bChanged = false;
+			bool bImmediate = false;
+			if (Property.Type == ELevelPropertyType::Float)
+			{
+				float Minimum = Property.Range ? static_cast<float>(Property.Range->Minimum) * Conversion : 0.f;
+				float Maximum = Property.Range ? static_cast<float>(Property.Range->Maximum) * Conversion : 1.f;
+				if (Type == ELevelComponentType::Light && Property.Key == "innerConeAngle")
+				{
+					Maximum = std::min(Maximum, Entity.Light->OuterConeAngle * Conversion);
+				}
+
+				if (Type == ELevelComponentType::Light && Property.Key == "outerConeAngle")
+				{
+					Minimum = std::max(Minimum, Entity.Light->InnerConeAngle * Conversion);
+				}
+
+				const char* Format = Property.Unit == ELevelPropertyUnit::Meters ? "%.2f m" : Property.Unit == ELevelPropertyUnit::InverseMeters ? "%.3f /m"
+				                                                                          : Property.Unit == ELevelPropertyUnit::Kelvin          ? "%.0f K"
+				                                                                          : Property.Unit == ELevelPropertyUnit::Radians         ? "%.1f°"
+				                                                                                                                                 : "%.3f";
+				if (Type == ELevelComponentType::Light && Property.Key == "intensity")
+				{
+					Format = Entity.Light->Type == ELightType::Directional ? "%.0f lx" : Entity.Light->Type == ELightType::Sky ? "%.2f"
+					                                                                                                           : "%.0f lm";
+				}
+
+				const float Speed = Property.Unit == ELevelPropertyUnit::Kelvin || Property.Key == "intensity" || Property.Key == "planetRadius" || Property.Key == "atmosphereHeight" ? 10.f
+				                    : Property.Unit == ELevelPropertyUnit::Radians                                                                                                     ? 0.1f
+				                    : Property.Key == "shadowBias"                                                                                                                     ? 0.0001f
+				                    : Property.Key == "density"                                                                                                                        ? 0.0005f
+				                                                                                                                                                                       : 0.01f;
+				bChanged = DrawNumericDragFloat("##Value", &NumericValue, Speed, Minimum, Maximum, Mixed[Index] ? "Multiple values" : Format, ImGuiSliderFlags_AlwaysClamp, &Edit, true);
+				Candidate = NumericValue / Conversion;
+			}
+			else if (Property.Type == ELevelPropertyType::Boolean)
+			{
+				bool Value = std::get<bool>(Candidate);
+				bChanged = ToolUIToggle("##Value", &Value);
+				Candidate = Value;
+				bImmediate = true;
+			}
+			else if (Property.Type == ELevelPropertyType::Vector3)
+			{
+				const auto Color = std::get<FVector3>(Candidate);
+				std::array Values{Color.X, Color.Y, Color.Z};
+				bChanged = DrawLinearColorField("##Value", Values);
+				Candidate = FVector3{Values[0], Values[1], Values[2]};
+				if (ImGui::IsItemActivated())
+				{
+					BeginDetailsEdit(Edits, Result);
+				}
+
+				Result.bEditFinished |= ImGui::IsItemDeactivatedAfterEdit();
+			}
+			else if (Property.Type == ELevelPropertyType::LightType || Property.Type == ELevelPropertyType::FogQuality)
+			{
+				constexpr std::array<std::string_view, 5> Lights{"Directional", "Sky", "Point", "Spot", "Rect"};
+				constexpr std::array<std::string_view, 3> Qualities{"Low", "Medium", "High"};
+				const std::span<const std::string_view> Labels = Property.Type == ELevelPropertyType::LightType ? std::span<const std::string_view>{Lights} : std::span<const std::string_view>{Qualities};
+				const auto Current = Property.Type == ELevelPropertyType::LightType ? static_cast<std::size_t>(std::get<ELightType>(Candidate)) : static_cast<std::size_t>(std::get<EFogQuality>(Candidate));
+				if (ImGui::BeginCombo("##Value", Mixed[Index] ? "Multiple values" : Labels[Current].data()))
+				{
+					for (std::size_t Option = 0; Option < Labels.size(); ++Option)
+					{
+						if (ImGui::Selectable(Labels[Option].data(), !Mixed[Index] && Option == Current))
+						{
+							Candidate = Property.Type == ELevelPropertyType::LightType ? FLevelPropertyValue{static_cast<ELightType>(Option)} : FLevelPropertyValue{static_cast<EFogQuality>(Option)};
+							bChanged = true;
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
+				bImmediate = true;
+			}
+			else if (Property.Type == ELevelPropertyType::AssetReference || Property.Type == ELevelPropertyType::ObjectReference)
+			{
+				const bool bSun = Property.Type == ELevelPropertyType::ObjectReference;
+				const auto Labels = bSun ? Components.SunLabels : Components.EnvironmentLabels;
+				const std::size_t Count = std::min(Labels.size(), bSun ? Components.SunIds.size() : Components.EnvironmentIds.size());
+				const char* CurrentLabel = bSun ? "Automatic sun" : "Procedural sky";
+				if (bSun ? std::get<FObjectId>(Candidate).IsValid() : std::get<FAssetId>(Candidate).IsValid())
+				{
+					CurrentLabel = bSun ? "Missing sun (automatic)" : "Missing environment";
+				}
+
+				for (std::size_t Option = 0; Option < Count; ++Option)
+				{
+					if (bSun ? Components.SunIds[Option] == std::get<FObjectId>(Candidate) : Components.EnvironmentIds[Option] == std::get<FAssetId>(Candidate))
+					{
+						CurrentLabel = Labels[Option].c_str();
+					}
+				}
+
+				if (ImGui::BeginCombo("##Value", Mixed[Index] ? "Multiple values" : CurrentLabel))
+				{
+					if (ImGui::IsWindowAppearing())
+					{
+						State.VisualReferenceSearch.fill('\0');
+						ImGui::SetKeyboardFocusHere();
+					}
+
+					ImGui::SetNextItemWidth(-FLT_MIN);
+					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
+					ToolUI.DrawSearchField("##ReferenceSearch", bSun ? "Search lights" : "Search environments", State.VisualReferenceSearch.data(), State.VisualReferenceSearch.size());
+					ImGui::PopStyleColor();
+					std::vector<std::string_view> Candidates(Labels.begin(), Labels.begin() + static_cast<std::ptrdiff_t>(Count));
+					const auto Matches = SearchAssets(Candidates, State.VisualReferenceSearch.data());
+					if (ImGui::Selectable(bSun ? "Automatic sun" : "Procedural sky"))
+					{
+						Candidate = bSun ? FLevelPropertyValue{FObjectId{}} : FLevelPropertyValue{FAssetId{}};
+						bChanged = true;
+					}
+
+					ImGuiListClipper Clipper;
+					Clipper.Begin(Matches ? static_cast<int>(Matches->size()) : 0);
+					while (Clipper.Step())
+					{
+						for (int Option = Clipper.DisplayStart; Option < Clipper.DisplayEnd; ++Option)
+						{
+							const std::size_t AssetIndex = (*Matches)[static_cast<std::size_t>(Option)].Index;
+							if (ImGui::Selectable(Labels[AssetIndex].c_str()))
+							{
+								Candidate = bSun ? FLevelPropertyValue{Components.SunIds[AssetIndex]} : FLevelPropertyValue{Components.EnvironmentIds[AssetIndex]};
+								bChanged = true;
+							}
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+
+				bImmediate = true;
+			}
+
+			if (bChanged && !Edit.bCanceled)
+			{
+				if (bImmediate || Property.Type == ELevelPropertyType::Vector3)
+				{
+					BeginDetailsEdit(Edits, Result);
+				}
+
+				if (Edits && Edits->ApplyVisualProperty)
+				{
+					Edits->ApplyVisualProperty(Type, Property.Key, Candidate);
+				}
+
+				if (SetLevelVisualProperty(Entity, Type, Property.Key, Candidate))
+				{
+					Mixed[Index] = false;
+				}
+
+				Result.bEditFinished |= bImmediate;
+			}
+
+			Result.bEditFinished |= Edit.bFinished;
+			Result.bEditCanceled |= Edit.bCanceled;
+			ImGui::TableSetColumnIndex(2);
+			if (Mixed[Index] || *GetLevelVisualProperty(Entity, Type, Property.Key) != Default)
+			{
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * Scale);
+				if (DrawResetButton(Property.Label.data()))
+				{
+					BeginDetailsEdit(Edits, Result);
+					if (Edits && Edits->ApplyVisualProperty)
+					{
+						Edits->ApplyVisualProperty(Type, Property.Key, Default);
+					}
+
+					if (SetLevelVisualProperty(Entity, Type, Property.Key, Default))
+					{
+						Mixed[Index] = false;
+					}
+
+					Result.bEditFinished = true;
+				}
+			}
+
+			ImGui::PopID();
+		}
+
+		ImGui::EndTable();
+	}
+
+	ImGui::EndDisabled();
+	ImGui::PopStyleVar(2);
+	ImGui::PopID();
+}
+
 template <typename Change, typename ChangeRow>
 bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Speed, const float Minimum, const float Maximum, const float Reset, EDetailsTransformSpace& Space, const ETransformClipboardFormat ClipboardFormat, const char* const Format, Change&& OnChange, ChangeRow&& OnRowChange, const FDetailsEditCallbacks* const Edits, FDetailsMeshResult& Result, bool* const bLocked = nullptr, const std::function<void()>& RefreshValue = {})
 {
@@ -543,6 +1046,45 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 }
 }
 
+bool DrawDetailsResetButton(const char* const Label)
+{
+	return DrawResetButton(Label);
+}
+
+bool DrawLinearColorField(const char* const Label, const std::span<float> Channels)
+{
+	std::array<float, 4> Display{0.f, 0.f, 0.f, 1.f};
+	for (std::size_t Index = 0; Index < 3; ++Index)
+	{
+		const float Value = Channels[Index];
+		Display[Index] = Value <= 0.0031308f ? 12.92f * Value : 1.055f * std::pow(Value, 1.f / 2.4f) - 0.055f;
+	}
+
+	const bool bAlpha = Channels.size() == 4;
+	if (bAlpha)
+	{
+		Display[3] = Channels[3];
+	}
+
+	const ImGuiColorEditFlags Flags = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_NoInputs | (bAlpha ? ImGuiColorEditFlags_AlphaBar : 0);
+	const bool bChanged = bAlpha ? ImGui::ColorEdit4(Label, Display.data(), Flags) : ImGui::ColorEdit3(Label, Display.data(), Flags);
+	if (bChanged)
+	{
+		for (std::size_t Index = 0; Index < 3; ++Index)
+		{
+			const float Value = Display[Index];
+			Channels[Index] = Value <= 0.04045f ? Value / 12.92f : std::pow((Value + 0.055f) / 1.055f, 2.4f);
+		}
+
+		if (bAlpha)
+		{
+			Channels[3] = Display[3];
+		}
+	}
+
+	return bChanged;
+}
+
 FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh, const FDetailsEditCallbacks* const Edits, FDetailsComponentField* const Components)
 {
 	FDetailsMeshResult MeshResult;
@@ -615,13 +1157,19 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	// bHasMesh checks the selected index against the options size.
 	const std::string_view MeshLabel = Components != nullptr && (!Components->bAllMesh || Components->bMixedMeshAsset) ? std::string_view("Multiple values") : bHasMesh ? std::string_view(Mesh->Options[static_cast<std::size_t>(Mesh->Selected)])
 	                                                                                                                                                                    : std::string_view(Components != nullptr ? "No asset selected" : "No mesh");
-	const bool bMesh = (Components == nullptr || Components->bAnyMesh) && (Query.empty() || MatchesSearch(MeshDescriptor.Label, Query) || MatchesSearch(ObjectLabel, Query) || MatchesSearch(MeshLabel, Query));
+	const bool bMesh = (Components == nullptr || Components->bAnyMesh) && (Query.empty() || MatchesSearch(MeshDescriptor.Label, Query) || MatchesSearch(ObjectLabel, Query) || MatchesSearch(MeshLabel, Query) || MatchesSearch("Materials", Query) || (Components && std::ranges::any_of(Components->MaterialSlots, [Query](const auto& Slot)
+	{
+		return MatchesSearch(Slot.Name, Query);
+	})));
 	const bool bBodyProperty = std::ranges::any_of(BodyProperties, [&](const FBodyPropertyDisplay& Property)
 	{
 		return MatchesBodyProperty(Property, Query);
 	});
 	const bool bBody = Components != nullptr && Components->bAnyBody && (Query.empty() || bBodyProperty || MatchesSearch(BodyDescriptor.Label, Query) || MatchesSearch(BodyTypeProperty.Label, Query) || MatchesSearch("Shape", Query) || MatchesSearch("Static", Query) || MatchesSearch("Dynamic", Query));
-	if (!bTransform && !bMesh && !bBody)
+	const bool bLight = Components && Components->bAnyLight && MatchesVisualSection(ELevelComponentType::Light, Query);
+	const bool bAtmosphere = Components && Components->bAnySkyAtmosphere && MatchesVisualSection(ELevelComponentType::SkyAtmosphere, Query);
+	const bool bFog = Components && Components->bAnyHeightFog && MatchesVisualSection(ELevelComponentType::HeightFog, Query);
+	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog)
 	{
 		ImGui::TextDisabled("No matching properties.");
 		ToolUI.EndPanel();
@@ -876,6 +1424,11 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		ImGui::PopTextWrapPos();
 		ImGui::PopStyleColor();
 		ImGui::EndGroup();
+
+		if (Components)
+		{
+			DrawMaterialSlots(ToolUI, State, *Components, bDragging, MeshResult);
+		}
 	}
 
 	if (bBody && !Query.empty())
@@ -959,6 +1512,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 					{
 						Components->BodySettings.*Property.Member = Edits->ReadBodyProperty(Property.Member);
 					}
+
 					Candidate = Components->BodySettings.*Property.Member;
 				},
 				    .Flush = [&](const bool bCanceled)
@@ -968,6 +1522,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 					{
 						Components->BodySettings.*Property.Member = Edits->ReadBodyProperty(Property.Member);
 					}
+
 					Candidate = Components->BodySettings.*Property.Member;
 					if (bCanceled)
 					{
@@ -987,6 +1542,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 					Components->BodySettings.*Property.Member = Candidate;
 					Components->MixedBodySettings[Index] = false;
 				}
+
 				MeshResult.bEditFinished |= Edit.bFinished;
 				MeshResult.bEditCanceled |= Edit.bCanceled;
 				ImGui::TableSetColumnIndex(2);
@@ -1022,6 +1578,29 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		}
 
 		ImGui::PopStyleVar(2);
+	}
+
+	if (Components)
+	{
+		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog};
+		constexpr std::array<std::string_view, 5> LightLabels{"Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light"};
+		if (bLight && DrawSectionHeader(LightLabels[static_cast<std::size_t>(Visual.Light->Type)].data(), !Components->bAllLight || Components->MixedLight[0], EDetailsComponentAction::RemoveLight))
+		{
+			DrawVisualProperties(ToolUI, ELevelComponentType::Light, Visual, Components->MixedLight, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->Light = *Visual.Light;
+		}
+
+		if (bAtmosphere && DrawSectionHeader("Sky Atmosphere", !Components->bAllSkyAtmosphere, EDetailsComponentAction::RemoveSkyAtmosphere))
+		{
+			DrawVisualProperties(ToolUI, ELevelComponentType::SkyAtmosphere, Visual, Components->MixedSkyAtmosphere, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->SkyAtmosphere = *Visual.SkyAtmosphere;
+		}
+
+		if (bFog && DrawSectionHeader("Height Fog", !Components->bAllHeightFog, EDetailsComponentAction::RemoveHeightFog))
+		{
+			DrawVisualProperties(ToolUI, ELevelComponentType::HeightFog, Visual, Components->MixedHeightFog, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->HeightFog = *Visual.HeightFog;
+		}
 	}
 
 	ToolUI.EndPanel();

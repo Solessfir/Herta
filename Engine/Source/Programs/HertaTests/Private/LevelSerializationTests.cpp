@@ -83,7 +83,13 @@ std::string ReplaceLevelText(std::string Text, const std::string_view From, cons
 
 std::string MakeSchemaTwoText(std::string Text)
 {
-	Text = ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 3", "\"engineSchemaVersion\": 2");
+	Text = ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 2");
+
+	while (Text.contains(", \"materials\": []"))
+	{
+		Text = ReplaceLevelText(std::move(Text), ", \"materials\": []", "");
+	}
+
 	return ReplaceLevelText(std::move(Text), ",\n  \"folders\": []", "");
 }
 
@@ -121,7 +127,7 @@ TEST_CASE("Levels round-trip in canonical sorted UTF-8 JSON")
 	CHECK(Serialized->find('\r') == std::string::npos);
 	CHECK(Serialized->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Serialized->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Serialized->find("\"engineSchemaVersion\": 3") != std::string::npos);
+	CHECK(Serialized->find("\"engineSchemaVersion\": 4") != std::string::npos);
 	CHECK(Serialized->find("\"folders\": []") != std::string::npos);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"format\":", "\"magic\":")));
 	CHECK(Serialized->find("\"rotation\": [") != std::string::npos);
@@ -194,7 +200,7 @@ TEST_CASE("Schema 1 body types migrate to canonical schema 3 settings and empty 
 	REQUIRE(Canonical);
 	CHECK(Canonical->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Canonical->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Canonical->find("\"engineSchemaVersion\": 3") != std::string::npos);
+	CHECK(Canonical->find("\"engineSchemaVersion\": 4") != std::string::npos);
 	CHECK(Canonical->find("\"folders\": []") != std::string::npos);
 	CHECK(Canonical->find("\"massKg\": 1") != std::string::npos);
 	CHECK(Canonical->find("\"gravityScale\": 1") != std::string::npos);
@@ -296,7 +302,7 @@ TEST_CASE("Levels reject unsupported versions, malformed input, and unknown data
 	    ReplaceLevelText(*Serialized, "\"HertaLevel\"", "\"OtherLevel\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 0"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 3"),
-	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 3", "\"engineSchemaVersion\": 4"),
+	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 5"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 1.5"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": \"2\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": true"),
@@ -455,14 +461,14 @@ TEST_CASE("Level folder JSON rejects unknown, duplicate, missing, and invalid da
 	}
 }
 
-TEST_CASE("Only schema 3 accepts folders and requires the folders array")
+TEST_CASE("Schemas 3 and 4 accept folders and require the folders array")
 {
 	const auto Serialized = SerializeLevel(FLevelDocument{.Id = FObjectId{1, 1}, .Name = "Empty"});
 	REQUIRE(Serialized);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, ",\n  \"folders\": []", "")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"folders\": []", "\"folders\": null")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 3", "\"engineSchemaVersion\": 1")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 3", "\"engineSchemaVersion\": 2")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 1")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 2")));
 	const auto SchemaTwo = ParseLevel(MakeSchemaTwoText(*Serialized));
 	REQUIRE(SchemaTwo);
 	CHECK(SchemaTwo->Folders.empty());
@@ -656,6 +662,77 @@ TEST_CASE("Failed level saves preserve existing files and clean sibling temporar
 	CHECK_FALSE(LoadLevel(Directory.GetPath() / "Missing.hlevel"));
 	Tests::WriteText(Path, Original.substr(0, Original.size() - 3));
 	CHECK_FALSE(LoadLevel(Path));
+}
+
+TEST_CASE("Visual level components and material slots have deterministic schema four persistence")
+{
+	FLevelDocument Document = MakeLevelFolderDocument();
+	Document.Entities[0].Mesh->Materials = {FAssetId{8, 1}, FAssetId{}, FAssetId{8, 2}};
+	Document.Entities[0].Light = FLightComponent{.Type = ELightType::Rect, .Color = {0.1f, 0.2f, 0.3f}, .Intensity = 1800.f, .Width = 2.f, .Height = 3.f, .Environment = FAssetId{9, 1}};
+	Document.Entities[1].SkyAtmosphere = FSkyAtmosphereComponent{.Sun = Document.Entities[0].Id, .RayleighScattering = 1.5f};
+	Document.Entities[1].HeightFog = FHeightFogComponent{.Density = 0.04f, .Albedo = {0.5f, 0.8f, 1.f}, .Quality = EFogQuality::High};
+	const auto Text = SerializeLevel(Document);
+	REQUIRE(Text);
+	CHECK(Text->find("\"engineSchemaVersion\": 4") != std::string::npos);
+	CHECK(Text->find("\"materials\": [\"" + FAssetId{8, 1}.ToString() + "\", null,") != std::string::npos);
+	const auto Restored = ParseLevel(*Text);
+	REQUIRE(Restored);
+	std::ranges::sort(Document.Entities, {}, &FLevelEntity::Id);
+	CHECK(Restored->Entities == Document.Entities);
+	const auto Canonical = SerializeLevel(*Restored);
+	REQUIRE(Canonical);
+	CHECK(*Canonical == *Text);
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"density\": 0.04", "\"density\": -1")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"type\": \"rect\"", "\"type\": \"unknown\"")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"volumetric\": true", "\"volumetric\": 1")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"enabled\": true", "\"enabled\": true, \"enabled\": true")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 3")));
+}
+
+TEST_CASE("Schema three folder metadata migrates without introducing visual components")
+{
+	const auto Text = SerializeLevel(MakeLevelFolderDocument());
+	REQUIRE(Text);
+	std::string Legacy = ReplaceLevelText(*Text, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 3");
+	Legacy = ReplaceLevelText(std::move(Legacy), ", \"materials\": []", "");
+	const auto Restored = ParseLevel(Legacy);
+	REQUIRE(Restored);
+	CHECK(Restored->Folders.size() == 3);
+
+	for (const auto& Entity : Restored->Entities)
+	{
+		CHECK_FALSE(Entity.Light);
+		CHECK_FALSE(Entity.SkyAtmosphere);
+		CHECK_FALSE(Entity.HeightFog);
+		CHECK((!Entity.Mesh || Entity.Mesh->Materials.empty()));
+	}
+}
+
+TEST_CASE("Visual component validation rejects invalid values before atomic publication")
+{
+	FLevelEntity Entity{.Id = FObjectId{1, 1}, .Name = "Visual", .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}};
+	FWorld World;
+	REQUIRE(World.ReplaceEntities(std::array{Entity}));
+	const auto Handle = *World.FindEntity(Entity.Id);
+	const auto Before = *World.GetEntity(Handle);
+	Entity.Light->Intensity = std::numeric_limits<float>::infinity();
+	CHECK_FALSE(World.ApplyEntityChanges(std::array{FLevelEntityChange{.Before = Before, .After = Entity}}));
+	CHECK(World.GetEntity(Handle) == Before);
+	Entity = Before;
+	Entity.Light->InnerConeAngle = Entity.Light->OuterConeAngle + 0.01f;
+	CHECK_FALSE(ValidateLevelEntities(std::array{Entity}));
+	Entity = Before;
+	Entity.SkyAtmosphere->MieAnisotropy = 1.f;
+	CHECK_FALSE(ValidateLevelEntities(std::array{Entity}));
+	Entity = Before;
+	Entity.HeightFog->Quality = static_cast<EFogQuality>(255);
+	CHECK_FALSE(ValidateLevelEntities(std::array{Entity}));
+	Entity = Before;
+	Entity.Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}, .Materials = std::vector<FAssetId>(257)};
+	CHECK_FALSE(ValidateLevelEntities(std::array{Entity}));
+	Entity = Before;
+	Entity.SkyAtmosphere->Sun = FObjectId{9, 9};
+	CHECK(ValidateLevelEntities(std::array{Entity}));
 }
 
 TEST_CASE("Level loads reject oversized files before allocating or parsing")

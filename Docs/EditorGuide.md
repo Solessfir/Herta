@@ -6,9 +6,9 @@ The editor loads and saves levels with selectable entities, editable components,
 
 ## Workspace
 
-The workspace renders the scene across the canvas beneath blurred Outliner, Details, and Output Log overlays, with compact chrome, glass viewport controls, and inline transform editing. The camera's projection center follows the unobscured Viewport pane, so overlays do not push the subject off-center. The main Viewport stays anchored to the central dock area with no tab bar; other panels remain movable, dockable, and resizable. The world grid is procedural on the GPU, with antialiased lines and a distance fade.
+The workspace renders the level across the canvas beneath blurred Outliner, Details, Content Browser, and Output Log overlays, with compact chrome, glass viewport controls, and inline transform editing. The camera's projection center follows the unobscured Viewport pane, so overlays do not push the subject off-center. The main Viewport stays anchored to the central dock area with no tab bar; other panels remain movable, dockable, and resizable. The world grid is procedural on the GPU, with antialiased lines and a distance fade.
 
-See [Rendering.md](Rendering.md) for GPU ownership, shader cooking, and renderer verification. Use **File > Reset layout** to restore the default arrangement: Outliner takes 35% of the right column, Details takes the rest, and Output Log takes 26% of the workspace height. Existing saved layouts are preserved when defaults change.
+See [Rendering.md](Rendering.md) for GPU ownership, shader cooking, and renderer verification. Use **File > Reset layout** to restore the default arrangement: Outliner takes 35% of the right column, Details takes the rest, and the bottom dock takes 30% of the workspace height with Content Browser before Output Log. Existing saved layouts are preserved when defaults change.
 
 ## Viewport controls
 
@@ -40,11 +40,19 @@ Details shows the active object's editable location, rotation, and scale. With m
 
 Press F2 in the Viewport or Outliner to rename the active object's Outliner row. Details displays the name without an inline editor. Enter or moving focus commits the name; Escape cancels. Blank names are rejected. S toggles grid snapping in the focused viewport when no drag is active; RMB+S still flies backward. Ctrl+Q quits the editor from any panel.
 
+## Materials and environment
+
+Right-click a Game folder in the Content Browser to create a reusable `.hmat` material; double-click it to edit. Static Mesh exposes material slots in Details; drag a material onto a viewport mesh to override slot zero. The material editor previews unsaved edits, supports its own undo/redo, and exposes color, PBR maps, packed channels, UVs, masked opacity, and a Slang shader path. Closing a dirty material, changing projects, or exiting prompts to Save, Discard, or Cancel. See [Materials](Materials.md) for the shader contract and save/reload behavior.
+
+Shift+A places Directional, Sky, Point, Spot, or Rect Light, Sky Atmosphere, and Height Fog as well as Empty Entity and Cube. Add Component attaches the same visual components to an existing entity. Light guides show emitter shape, direction, and selected range/cones; G hides them with other editor overlays. Changes support level undo/redo, duplication, clipboard, and saving.
+
+Viewport settings > Rendering controls manual exposure, shadow quality, and native SMAA 1x. Defaults are -14 EV, Soft PCF shadows, and SMAA High. The panel reports GPU pass timings, render-target memory, and light/atlas budgets. Sky Light separates ambient intensity from visible sky, using a cooked HDR texture or the linked atmosphere's generated sky. Height Fog supports non-volumetric and volumetric modes plus low/medium/high integration quality. See [Rendering](Rendering.md) for budgets and current limitations.
+
 ## Levels
 
 The default project is `Games/Sandbox/Sandbox.hertaproject`. Use **File > Open project...** or launch `HertaEditor --project=<path>` to choose another project. **File > New project...** creates a minimal C++ Game module, content folder, and empty level in a new directory. Creation runs in the background and never overwrites an existing directory. Opening another level or project prompts to Save, Discard, or Cancel when the current level is dirty. Invalid projects or starting levels leave the current document intact. See [Projects.md](Projects.md) for headless commands and generated module builds.
 
-The editor loads `Games/Sandbox/Levels/Sandbox.hlevel` on startup. **File > Save level** or **Ctrl+S** saves names, transforms, hierarchy, mesh asset IDs, and rigid body components. Changes are not saved automatically on exit. **File > Open level...** loads another `.hlevel`; a failed load keeps the current level intact. Levels support parented mesh and empty entities. Details and gizmos edit world-space transforms; the level stores parent-local transforms.
+The editor loads `Games/Sandbox/Levels/Sandbox.hlevel` on startup. **File > Save level** or **Ctrl+S** saves names, folders, transforms, hierarchy, mesh/material asset IDs, and authored components, including rigid bodies, lights, atmosphere, and fog. Material source edits are saved separately in their material editor. Changes are not saved automatically on exit. **File > Open level...** loads another `.hlevel`; a failed load keeps the current level intact. Levels support parented mesh and empty entities. Details and gizmos edit world-space transforms; the level stores parent-local transforms.
 
 File > Open level starts in the current level's folder, initially `Games/Sandbox/Levels`. File > Save level and Ctrl+S write directly to the current level path without opening a dialog.
 
@@ -62,7 +70,7 @@ Right-click the viewport without dragging to open Select All (Ctrl+A) and Add (S
 
 Shift+A while hovering Details opens Add Component for the selection. Over other UI, it opens the level's Add menu at the cursor, regardless of keyboard focus. The viewport context menu's Add also opens the level menu. Type to fuzzy-search, use arrows or Tab to focus a result, Enter to add it, and Escape to close. Empty Entity and Cube spawn at the camera pivot. Cube is an entity preset with the engine cube Static Mesh attached; an empty entity has only its name, transform, and a selectable editor marker.
 
-Use **Add Component** in Details to attach Static Mesh or Jolt Rigid Body. A new Static Mesh starts with the engine cube asset; its picker selects imported assets. A new Rigid Body defaults to Dynamic; its Body type picker also supports Static. Click the X on a component header to remove it, including when collapsed. Components are independent: removing Static Mesh leaves Rigid Body intact. Add, remove, and property changes support undo/redo, saving, duplication, and clipboard operations. On multi-selection, adding fills missing components and removing removes existing ones; component types are not duplicated. Transform stays built-in.
+Use **Add Component** in Details to attach Static Mesh, Jolt Rigid Body, a light, Sky Atmosphere, or Height Fog. A new Static Mesh starts with the engine cube asset; its picker selects imported assets, and its material slots override imported defaults independently. A new Rigid Body defaults to Dynamic; its Body type picker also supports Static. Click the X on a component header to remove it, including when collapsed. Components are independent: removing Static Mesh leaves Rigid Body intact. Add, remove, and property changes support undo/redo, saving, duplication, and clipboard operations. On multi-selection, adding fills missing components and removing removes existing ones; component types are not duplicated. Transform stays built-in.
 
 Rigid Body exposes Mass (kg), Friction, Bounciness, Linear Damping and Angular Damping (1/s), and Gravity Scale. Mass is the body's inertia, not its weight. Friction controls sliding resistance; bounciness ranges from 0 (no bounce) to 1 (elastic). Damping slows motion over time. Gravity Scale 0 disables gravity, 1 uses normal gravity, and larger values accelerate the fall. Static bodies use friction and bounciness but do not use mass, damping, or gravity. Numeric property edits support multi-selection and one undo step per gesture.
 
@@ -104,7 +112,7 @@ Model tiles show textured previews of their cooked meshes. Visible tile previews
 
 Hover an asset for its type, mounted source path, and stable ID. Loaded previews also show mesh vertex/triangle/material counts and bounds in meters, or texture dimensions, format, color space, and mip count. Hovering never loads an asset; uncached previews show their loading status instead.
 
-Game content comes from the loaded project's content root, initially `Games/Sandbox/Content`. Each source file is registered with a `<source>.hmeta` sidecar that holds its stable ID, importer, and import settings; commit both. PNG and JPEG textures and glTF 2.0 `.gltf` and `.glb` models cook in the isolated `HertaAssetWorker` process into the project's ignored `DerivedDataCache` folder. Manage content headlessly:
+Game content comes from the loaded project's content root, initially `Games/Sandbox/Content`. Each source file is registered with a `<source>.hmeta` sidecar that holds its stable ID, importer, and import settings; commit both. PNG/JPEG/HDR textures, `.hmat` materials, and glTF 2.0 `.gltf`/`.glb` models cook in the isolated `HertaAssetWorker` process into the project's ignored `DerivedDataCache` folder. HDR radiance remains floating-point Linear data. Manage content headlessly:
 
 ```bat
 HertaEditorCmd asset.import path\to\Crate.glb --destination Models

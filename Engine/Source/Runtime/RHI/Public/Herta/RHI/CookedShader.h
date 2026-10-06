@@ -29,6 +29,7 @@ struct FShaderBinding
 	EShaderBindingType Type = EShaderBindingType::Texture;
 	std::uint32_t Binding = 0;
 	std::uint32_t Space = 0;
+	std::uint32_t ByteSize = 0;
 };
 
 struct FShaderSourceDependency

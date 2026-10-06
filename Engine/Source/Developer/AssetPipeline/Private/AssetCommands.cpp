@@ -84,7 +84,7 @@ struct FParsedArguments
 		return std::unexpected(FAssetError{"Cooking requires an asset worker, derived data root, and target platform"});
 	}
 
-	std::expected<FAssetCookResult, FAssetError> Result = CookAssetInWorker({.ContentRoot = ContentRoot, .DerivedDataRoot = Options.DerivedDataRoot, .SourcePath = SourcePath, .TargetPlatform = Options.TargetPlatform, .bForce = bForce}, {.WorkerPath = Options.WorkerPath});
+	std::expected<FAssetCookResult, FAssetError> Result = CookAssetInWorker({.ContentRoot = ContentRoot, .DerivedDataRoot = Options.DerivedDataRoot, .SourcePath = SourcePath, .TargetPlatform = Options.TargetPlatform, .bForce = bForce, .DependencyContentRoots = Options.DependencyContentRoots, .EngineContentRoot = Options.EngineContentRoot, .GameContentRoot = Options.GameContentRoot.empty() ? ContentRoot : Options.GameContentRoot}, {.WorkerPath = Options.WorkerPath});
 	if (!Result)
 	{
 		return std::unexpected(std::move(Result.error()));

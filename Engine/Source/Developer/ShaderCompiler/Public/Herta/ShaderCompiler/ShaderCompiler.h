@@ -10,6 +10,7 @@ struct FShaderCompileRequest
 	std::string EntryPoint;
 	EShaderStage Stage = EShaderStage::Vertex;
 	bool bDebugInformation = false;
+	std::vector<std::filesystem::path> IncludeRoots{};
 };
 
 [[nodiscard]] std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequest& Request);

@@ -27,6 +27,26 @@ inline Im3d::Mat3 FromPreviewEulerXYZ(const Im3d::Vec3& Radians)
 	return Im3d::Rotation({0.f, 0.f, 1.f}, Radians.z) * Im3d::Rotation({0.f, 1.f, 0.f}, Radians.y) * Im3d::Rotation({1.f, 0.f, 0.f}, Radians.x);
 }
 
+enum class EPreviewObjectKind : std::uint8_t
+{
+	Mesh,
+	Entity,
+	DirectionalLight,
+	SkyLight,
+	PointLight,
+	SpotLight,
+	RectLight,
+	SkyAtmosphere,
+	HeightFog,
+};
+
+constexpr std::string_view GetPreviewObjectTypeName(const EPreviewObjectKind Kind)
+{
+	constexpr std::array<std::string_view, 9> Names{"Static Mesh", "Entity", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog"};
+	const auto Index = static_cast<std::size_t>(Kind);
+	return Index < Names.size() ? Names[Index] : "Entity";
+}
+
 struct FPreviewObject
 {
 	std::string Label;
@@ -37,7 +57,13 @@ struct FPreviewObject
 	FAssetId Mesh{};
 	FObjectId Id{};
 	std::optional<FObjectId> Parent{};
+	EPreviewObjectKind Kind = EPreviewObjectKind::Entity;
 };
+
+inline std::string_view GetPreviewObjectTypeName(const FPreviewObject& Object)
+{
+	return GetPreviewObjectTypeName(Object.Kind == EPreviewObjectKind::Entity && Object.Mesh.IsValid() ? EPreviewObjectKind::Mesh : Object.Kind);
+}
 
 inline constexpr int PreviewCubeIndex = 0;
 inline constexpr int PreviewFloorIndex = 1;

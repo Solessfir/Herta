@@ -50,6 +50,8 @@ required_content=(
     Engine/Content/Editor/Fonts/DroidSansMono/LICENSE.txt
     Engine/Content/Shapes/Cube.gltf
     Engine/Content/Shapes/Cube.gltf.hmeta
+    Engine/Content/Shapes/Sphere.gltf
+    Engine/Content/Shapes/Sphere.gltf.hmeta
 )
 package_files=(LICENSE Games/Sandbox/Sandbox.hertaproject)
 while IFS= read -r -d '' template_file; do
@@ -64,12 +66,16 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
     fi
 done
 
-for shader in TexturedMesh DebugDraw WorldGrid; do
+for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow; do
     for stage in vert frag; do
         package_files+=("${binary_directory}/Shaders/${shader}.${stage}.hshader")
     done
 done
 package_files+=("${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader")
+package_files+=("${binary_directory}/Shaders/Shadow.instanced.vert.hshader")
+for shader in VolumetricFog FogComposite ToneMap SmaaEdges SmaaWeights SmaaNeighborhood; do
+    package_files+=("${binary_directory}/Shaders/${shader}.frag.hshader")
+done
 
 # These dependencies embed their notices in source files rather than separate license files.
 license_files=(

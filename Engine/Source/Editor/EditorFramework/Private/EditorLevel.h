@@ -2,6 +2,7 @@
 
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/TransactionHistory.h"
+#include "Herta/Level/LevelDescriptors.h"
 #include "Herta/Level/LevelSerialization.h"
 #include "PreviewLevel.h"
 
@@ -47,6 +48,17 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> AddRigidBodyToSelected(ELevelBodyType Type = ELevelBodyType::Dynamic);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedBodyType(ELevelBodyType Type);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedBodyProperty(float FLevelRigidBodySettings::* Property, float Value);
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedMaterial(std::size_t Slot, FAssetId Asset);
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedVisualProperty(ELevelComponentType Type, std::string_view Key, const FLevelPropertyValue& Value);
+	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateLightEntity(ELightType Type, const FWorldPosition& Position = {});
+	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateSkyAtmosphereEntity(const FWorldPosition& Position = {});
+	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateHeightFogEntity(const FWorldPosition& Position = {});
+	[[nodiscard]] std::expected<void, FLevelError> AddLightToSelected(ELightType Type);
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedLight(std::optional<FLightComponent> Light);
+	[[nodiscard]] std::expected<void, FLevelError> AddSkyAtmosphereToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedSkyAtmosphere(std::optional<FSkyAtmosphereComponent> Atmosphere);
+	[[nodiscard]] std::expected<void, FLevelError> AddHeightFogToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedHeightFog(std::optional<FHeightFogComponent> Fog);
 	[[nodiscard]] std::expected<void, FLevelError> DuplicateSelected(bool bWithinActiveEdit = false, const FVector3d& WorldOffset = {});
 	[[nodiscard]] std::expected<void, FLevelError> DeleteSelected();
 	[[nodiscard]] std::expected<void, FLevelError> ReparentEntities(std::span<const FObjectId> Entities, std::optional<FObjectId> Parent);
@@ -84,6 +96,7 @@ private:
 	[[nodiscard]] std::expected<FObjectId, FLevelError> InsertEntity(FLevelEntity Entity);
 	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedMesh(std::optional<FStaticMeshComponent> Mesh);
 	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedBodyType(ELevelBodyType Type, bool bOnlyAbsent);
+	template <typename T> [[nodiscard]] std::expected<void, FLevelError> ApplySelectedComponent(std::optional<T> FLevelEntity::* Member, std::optional<T> Value, std::string_view Label, bool bOnlyAbsent = false);
 	[[nodiscard]] std::expected<void, FLevelError> CheckAuthoringAllowed(bool bAllowActiveEdit = false) const;
 
 	FWorld World;

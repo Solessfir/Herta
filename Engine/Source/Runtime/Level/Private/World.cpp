@@ -160,6 +160,38 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		return std::unexpected(FLevelError{"Static mesh component has an invalid asset ID"});
 	}
 
+	if (Entity.Mesh && Entity.Mesh->Materials.size() > 256)
+	{
+		return std::unexpected(FLevelError{"Static mesh exceeds the limit of 256 material slots"});
+	}
+
+	if (Entity.Light)
+	{
+		const auto Valid = ValidateLightComponent(*Entity.Light);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
+	if (Entity.SkyAtmosphere)
+	{
+		const auto Valid = ValidateSkyAtmosphereComponent(*Entity.SkyAtmosphere);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
+	if (Entity.HeightFog)
+	{
+		const auto Valid = ValidateHeightFogComponent(*Entity.HeightFog);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
 	if (Entity.BodyType != ELevelBodyType::None && Entity.BodyType != ELevelBodyType::Static && Entity.BodyType != ELevelBodyType::Dynamic)
 	{
 		return std::unexpected(FLevelError{"Entity has an unknown body type"});
@@ -221,6 +253,57 @@ std::expected<void, FLevelError> ValidateLevelRigidBodySettings(const FLevelRigi
 	if (!std::isfinite(Settings.GravityScale) || Settings.GravityScale < 0.f || Settings.GravityScale > 10.f)
 	{
 		return std::unexpected(FLevelError{"Rigid body gravity scale must be finite and between 0 and 10"});
+	}
+
+	return {};
+}
+
+std::expected<void, FLevelError> ValidateLightComponent(const FLightComponent& Light)
+{
+	const auto InRange = [](const float Value, const float Minimum, const float Maximum)
+	{
+		return std::isfinite(Value) && Value >= Minimum && Value <= Maximum;
+	};
+
+	if (Light.Type > ELightType::Rect || !InRange(Light.Color.X, 0.f, 1.f) || !InRange(Light.Color.Y, 0.f, 1.f) || !InRange(Light.Color.Z, 0.f, 1.f)
+	    || !InRange(Light.Intensity, 0.f, 1'000'000'000.f) || !InRange(Light.TemperatureKelvin, 1000.f, 40'000.f)
+	    || !InRange(Light.ShadowBias, 0.f, 1.f) || !InRange(Light.ShadowNormalBias, 0.f, 10.f)
+	    || !InRange(Light.Range, 0.001f, 1'000'000.f) || !InRange(Light.InnerConeAngle, 0.f, 1.553343f)
+	    || !InRange(Light.OuterConeAngle, 0.001f, 1.553343f) || Light.InnerConeAngle > Light.OuterConeAngle
+	    || !InRange(Light.Width, 0.001f, 10'000.f) || !InRange(Light.Height, 0.001f, 10'000.f) || !InRange(Light.AmbientStrength, 0.f, 100.f))
+	{
+		return std::unexpected(FLevelError{"Light settings contain an unknown type, nonfinite value, or out-of-range property"});
+	}
+
+	return {};
+}
+
+std::expected<void, FLevelError> ValidateSkyAtmosphereComponent(const FSkyAtmosphereComponent& Atmosphere)
+{
+	if (!std::isfinite(Atmosphere.RayleighScattering) || Atmosphere.RayleighScattering < 0.f || Atmosphere.RayleighScattering > 100.f
+	    || !std::isfinite(Atmosphere.MieScattering) || Atmosphere.MieScattering < 0.f || Atmosphere.MieScattering > 100.f
+	    || !std::isfinite(Atmosphere.MieAnisotropy) || Atmosphere.MieAnisotropy < -0.99f || Atmosphere.MieAnisotropy > 0.99f
+	    || !std::isfinite(Atmosphere.PlanetRadius) || Atmosphere.PlanetRadius < 1000.f || Atmosphere.PlanetRadius > 100'000'000.f
+	    || !std::isfinite(Atmosphere.AtmosphereHeight) || Atmosphere.AtmosphereHeight < 1.f || Atmosphere.AtmosphereHeight > 1'000'000.f
+	    || Atmosphere.AtmosphereHeight > Atmosphere.PlanetRadius)
+	{
+		return std::unexpected(FLevelError{"Atmosphere settings must be finite, in range, with atmosphere height no greater than planet radius"});
+	}
+
+	return {};
+}
+
+std::expected<void, FLevelError> ValidateHeightFogComponent(const FHeightFogComponent& Fog)
+{
+	if (!std::isfinite(Fog.Density) || Fog.Density < 0.f || Fog.Density > 10.f
+	    || !std::isfinite(Fog.HeightFalloff) || Fog.HeightFalloff < 0.f || Fog.HeightFalloff > 100.f
+	    || !std::isfinite(Fog.Albedo.X) || Fog.Albedo.X < 0.f || Fog.Albedo.X > 1.f
+	    || !std::isfinite(Fog.Albedo.Y) || Fog.Albedo.Y < 0.f || Fog.Albedo.Y > 1.f
+	    || !std::isfinite(Fog.Albedo.Z) || Fog.Albedo.Z < 0.f || Fog.Albedo.Z > 1.f
+	    || !std::isfinite(Fog.Anisotropy) || Fog.Anisotropy < -0.99f || Fog.Anisotropy > 0.99f
+	    || !std::isfinite(Fog.MaxDistance) || Fog.MaxDistance < 0.1f || Fog.MaxDistance > 100'000.f || Fog.Quality > EFogQuality::High)
+	{
+		return std::unexpected(FLevelError{"Fog settings contain a nonfinite value, unknown quality, or out-of-range property"});
 	}
 
 	return {};
@@ -327,6 +410,9 @@ bool FWorld::FImplementation::IsValid(const FEntityId Entity) const
 FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 {
 	const FStaticMeshComponent* Mesh = Registry.try_get<FStaticMeshComponent>(Entity);
+	const FLightComponent* Light = Registry.try_get<FLightComponent>(Entity);
+	const FSkyAtmosphereComponent* Atmosphere = Registry.try_get<FSkyAtmosphereComponent>(Entity);
+	const FHeightFogComponent* Fog = Registry.try_get<FHeightFogComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -335,6 +421,9 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .Mesh = Mesh ? std::optional<FStaticMeshComponent>{*Mesh} : std::nullopt,
 	    .BodyType = Registry.get<ELevelBodyType>(Entity),
 	    .BodySettings = Registry.get<FLevelRigidBodySettings>(Entity),
+	    .Light = Light ? std::optional{*Light} : std::nullopt,
+	    .SkyAtmosphere = Atmosphere ? std::optional{*Atmosphere} : std::nullopt,
+	    .HeightFog = Fog ? std::optional{*Fog} : std::nullopt,
 	};
 }
 
@@ -354,6 +443,33 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FStaticMeshComponent>(Entity);
+	}
+
+	if (Snapshot.Light)
+	{
+		Registry.emplace_or_replace<FLightComponent>(Entity, *Snapshot.Light);
+	}
+	else
+	{
+		Registry.remove<FLightComponent>(Entity);
+	}
+
+	if (Snapshot.SkyAtmosphere)
+	{
+		Registry.emplace_or_replace<FSkyAtmosphereComponent>(Entity, *Snapshot.SkyAtmosphere);
+	}
+	else
+	{
+		Registry.remove<FSkyAtmosphereComponent>(Entity);
+	}
+
+	if (Snapshot.HeightFog)
+	{
+		Registry.emplace_or_replace<FHeightFogComponent>(Entity, *Snapshot.HeightFog);
+	}
+	else
+	{
+		Registry.remove<FHeightFogComponent>(Entity);
 	}
 }
 

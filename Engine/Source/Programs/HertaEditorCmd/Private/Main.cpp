@@ -181,6 +181,8 @@ int Run(const std::span<const std::string> Arguments)
 			{
 				AssetOptions.DefaultContentRoot = RepositoryRoot / "Games/Sandbox/Content";
 				AssetOptions.DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform;
+				AssetOptions.DependencyContentRoots = {RepositoryRoot / "Engine/Content", RepositoryRoot / "Engine/Shaders"};
+				AssetOptions.EngineContentRoot = RepositoryRoot / "Engine/Content";
 			}
 
 			AssetOptions.WorkerPath = ExecutablePath.parent_path() / "HertaAssetWorker";

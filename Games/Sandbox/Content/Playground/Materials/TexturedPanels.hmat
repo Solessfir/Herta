@@ -1,0 +1,66 @@
+{
+  "format": "HertaMaterial",
+  "version": 1,
+  "name": "Textured panels",
+  "parameters": {
+    "baseColor": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "metallic": 1,
+    "roughness": 1,
+    "normalStrength": 1.6,
+    "occlusionStrength": 1,
+    "emissive": [
+      0,
+      0,
+      0
+    ],
+    "emissiveIntensity": 1,
+    "uvScale": [
+      2,
+      2
+    ],
+    "uvOffset": [
+      0,
+      0
+    ],
+    "blendMode": "opaque",
+    "alphaCutoff": 0.5
+  },
+  "textures": {
+    "baseColor": {
+      "asset": "a4c06200-2738-4e25-9b9e-000000000001",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    },
+    "metallic": {
+      "asset": "a4c06200-2738-4e25-9b9e-000000000003",
+      "channel": "b",
+      "colorSpace": "linear"
+    },
+    "roughness": {
+      "asset": "a4c06200-2738-4e25-9b9e-000000000003",
+      "channel": "g",
+      "colorSpace": "linear"
+    },
+    "normal": {
+      "asset": "a4c06200-2738-4e25-9b9e-000000000002",
+      "channel": "rgb",
+      "colorSpace": "linear"
+    },
+    "occlusion": {
+      "asset": "a4c06200-2738-4e25-9b9e-000000000003",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "emissive": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    }
+  },
+  "shader": ""
+}

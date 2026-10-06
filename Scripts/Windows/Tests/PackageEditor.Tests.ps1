@@ -69,6 +69,8 @@ try {
         'Engine/Content/Editor/Fonts/DroidSansMono/LICENSE.txt',
         'Engine/Content/Shapes/Cube.gltf',
         'Engine/Content/Shapes/Cube.gltf.hmeta',
+        'Engine/Content/Shapes/Sphere.gltf',
+        'Engine/Content/Shapes/Sphere.gltf.hmeta',
         'Games/Sandbox/Content/Tracked.gltf',
         'Games/Sandbox/Content/Tracked.gltf.hmeta',
         'Games/Sandbox/Levels/Sandbox.hlevel',
@@ -96,12 +98,14 @@ try {
         'External/freetype/src/autofit/hb-script-list.h'
     )
     $WindowsPayload = @('HertaEditor.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe') | ForEach-Object { "Binaries/windows/x86_64/Shipping/$_" }
-    foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid')) {
+    foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow')) {
         foreach ($Stage in @('vert', 'frag')) {
             $WindowsPayload += "Binaries/windows/x86_64/Shipping/Shaders/$Shader.$Stage.hshader"
         }
     }
     $WindowsPayload += 'Binaries/windows/x86_64/Shipping/Shaders/TexturedMesh.instanced.vert.hshader'
+    $VisualShaderFiles = @('Sky.vert', 'Sky.frag', 'Shadow.vert', 'Shadow.instanced.vert', 'Shadow.frag', 'VolumetricFog.frag', 'FogComposite.frag', 'ToneMap.frag', 'SmaaEdges.frag', 'SmaaWeights.frag', 'SmaaNeighborhood.frag') | ForEach-Object { "Binaries/windows/x86_64/Shipping/Shaders/$_.hshader" }
+    $WindowsPayload += $VisualShaderFiles
     $ExcludedFiles = @(
         'Binaries/windows/x86_64/Shipping/HertaShaderWorker.exe',
         'Binaries/windows/x86_64/Shipping/HertaTests.exe',
@@ -140,7 +144,7 @@ try {
     }
 
     $Arguments.OutputDirectory = Join-Path $TemporaryRoot 'MissingInput'
-    foreach ($Path in @('Binaries/windows/x86_64/Shipping/Shaders/TexturedMesh.instanced.vert.hshader', 'Binaries/windows/x86_64/Shipping/Shaders/WorldGrid.frag.hshader', 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Levels/Sandbox.hlevel', 'Games/Sandbox/Sandbox.hertaproject', 'Templates/Projects/Game/Main.hlevel', 'External/example/LICENSE')) {
+    foreach ($Path in ($VisualShaderFiles + @('Binaries/windows/x86_64/Shipping/Shaders/TexturedMesh.instanced.vert.hshader', 'Binaries/windows/x86_64/Shipping/Shaders/WorldGrid.frag.hshader', 'Engine/Content/Shapes/Sphere.gltf', 'Engine/Content/Shapes/Sphere.gltf.hmeta', 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Levels/Sandbox.hlevel', 'Games/Sandbox/Sandbox.hertaproject', 'Templates/Projects/Game/Main.hlevel', 'External/example/LICENSE'))) {
         $MissingPath = Join-Path $FixtureRoot $Path
         [IO.File]::Move($MissingPath, "$MissingPath.saved")
         Assert-PackageFails $Arguments 'Required package file is missing'

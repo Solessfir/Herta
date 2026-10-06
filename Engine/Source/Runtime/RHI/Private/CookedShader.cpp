@@ -8,7 +8,7 @@ namespace Herta
 namespace
 {
 constexpr std::uint32_t Magic = 0x48534848;
-constexpr std::uint32_t Version = 1;
+constexpr std::uint32_t Version = 2;
 constexpr std::size_t MaximumAssetSize = 16 * 1024 * 1024;
 constexpr std::uint32_t MaximumRecords = 4096;
 
@@ -92,7 +92,7 @@ bool IsValidAsset(const FShaderAsset& Shader)
 
 	for (const FShaderBinding& Binding : Shader.Bindings)
 	{
-		if (!IsValidString(Binding.Name) || Binding.Name.empty() || Binding.Type > EShaderBindingType::ConstantBuffer)
+		if (!IsValidString(Binding.Name) || Binding.Name.empty() || Binding.Type > EShaderBindingType::ConstantBuffer || (Binding.Type == EShaderBindingType::ConstantBuffer ? Binding.ByteSize == 0 || Binding.ByteSize > 16 * 1024 : Binding.ByteSize != 0))
 		{
 			return false;
 		}
@@ -144,6 +144,7 @@ std::expected<std::vector<std::byte>, FShaderError> SerializeCookedShader(const 
 		AppendInteger(Bytes, static_cast<std::uint32_t>(Binding.Type), 4);
 		AppendInteger(Bytes, Binding.Binding, 4);
 		AppendInteger(Bytes, Binding.Space, 4);
+		AppendInteger(Bytes, Binding.ByteSize, 4);
 	}
 
 	AppendInteger(Bytes, Shader.Dependencies.size(), 4);
@@ -208,6 +209,7 @@ std::expected<FShaderAsset, FShaderError> DeserializeCookedShader(const std::spa
 		Binding.Type = static_cast<EShaderBindingType>(Reader.Integer(4));
 		Binding.Binding = static_cast<std::uint32_t>(Reader.Integer(4));
 		Binding.Space = static_cast<std::uint32_t>(Reader.Integer(4));
+		Binding.ByteSize = static_cast<std::uint32_t>(Reader.Integer(4));
 		Shader.Bindings.push_back(std::move(Binding));
 	}
 

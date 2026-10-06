@@ -1,0 +1,66 @@
+{
+  "format": "HertaMaterial",
+  "version": 1,
+  "name": "Cyan",
+  "parameters": {
+    "baseColor": [
+      0.16,
+      0.57,
+      0.82,
+      1
+    ],
+    "metallic": 0,
+    "roughness": 0.65,
+    "normalStrength": 1,
+    "occlusionStrength": 1,
+    "emissive": [
+      0,
+      0,
+      0
+    ],
+    "emissiveIntensity": 1,
+    "uvScale": [
+      1,
+      1
+    ],
+    "uvOffset": [
+      0,
+      0
+    ],
+    "blendMode": "opaque",
+    "alphaCutoff": 0.5
+  },
+  "textures": {
+    "baseColor": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    },
+    "metallic": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "roughness": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "normal": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "linear"
+    },
+    "occlusion": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "emissive": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    }
+  },
+  "shader": ""
+}

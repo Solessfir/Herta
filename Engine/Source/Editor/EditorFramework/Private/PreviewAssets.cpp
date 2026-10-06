@@ -214,11 +214,63 @@ std::vector<std::string> DiscoverFolders(const std::filesystem::path& Root, cons
 	std::ranges::sort(Folders);
 	return Folders;
 }
+
+using FMaterialTextureData = std::array<std::optional<FCookedTexture>, MaterialTextureSlotCount>;
+
+std::expected<FMaterialTextureData, FAssetError> CookMaterialTextures(const FMaterialAsset& Material, const std::map<FAssetId, FAssetCookRequest>& Dependencies, const std::filesystem::path& Worker, const std::function<bool()>& ShouldCancel)
+{
+	FMaterialTextureData Textures;
+	for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
+	{
+		if (ShouldCancel())
+		{
+			return std::unexpected(FAssetError{"Material preview was superseded or cancelled"});
+		}
+
+		const FMaterialTextureBinding& Binding = Material.Textures[Slot];
+		if (!Binding.Texture.IsValid())
+		{
+			continue;
+		}
+
+		const auto Dependency = Dependencies.find(Binding.Texture);
+		if (Dependency == Dependencies.end())
+		{
+			return std::unexpected(FAssetError{std::format("Material texture {} is not registered in mounted content", Binding.Texture.ToString())});
+		}
+
+		FAssetCookRequest TextureRequest = Dependency->second;
+		TextureRequest.TextureColorSpace = Binding.ColorSpace;
+		const auto Cooked = CookAssetInWorker(TextureRequest, {.WorkerPath = Worker, .ShouldCancel = ShouldCancel});
+		if (!Cooked)
+		{
+			return std::unexpected(Cooked.error());
+		}
+
+		auto TextureAsset = LoadCookedAsset(TextureRequest.DerivedDataRoot, Cooked->Key);
+		if (!TextureAsset || !std::holds_alternative<FCookedTexture>(*TextureAsset))
+		{
+			return std::unexpected(TextureAsset ? FAssetError{"Material dependency is not a cooked texture"} : TextureAsset.error());
+		}
+
+		Textures[Slot] = std::move(std::get<FCookedTexture>(*TextureAsset));
+		if (Textures[Slot]->PixelFormat == ETexturePixelFormat::Rgba32Float && Binding.ColorSpace != ETextureColorSpace::Linear)
+		{
+			return std::unexpected(FAssetError{"HDR textures require Linear color space"});
+		}
+	}
+
+	return Textures;
+}
 }
 
 struct FPreviewAssets::FMeshLoad
 {
 	std::expected<FCookedModel, FAssetError> Model = std::unexpected(FAssetError{"The cook task did not run"});
+	std::optional<FMaterialAsset> Material;
+	std::array<std::optional<FCookedTexture>, MaterialTextureSlotCount> MaterialTextures;
+	std::shared_ptr<const FCookedTexture> Texture;
+	bool bSucceeded = false;
 	std::optional<FPreviewAssetMetadata> Metadata;
 	std::vector<std::string> Warnings;
 	FHash128 Key;
@@ -229,7 +281,16 @@ FPreviewAssetMetadata GetPreviewAssetMetadata(const FCookedAsset& Asset)
 {
 	if (const auto* Texture = std::get_if<FCookedTexture>(&Asset))
 	{
-		return FPreviewTextureMetadata{.Width = Texture->Mips.empty() ? 0 : Texture->Mips.front().Width, .Height = Texture->Mips.empty() ? 0 : Texture->Mips.front().Height, .Mips = Texture->Mips.size(), .ColorSpace = Texture->ColorSpace};
+		return FPreviewTextureMetadata{.Width = Texture->Mips.empty() ? 0 : Texture->Mips.front().Width, .Height = Texture->Mips.empty() ? 0 : Texture->Mips.front().Height, .Mips = Texture->Mips.size(), .ColorSpace = Texture->ColorSpace, .PixelFormat = Texture->PixelFormat};
+	}
+
+	if (const auto* Material = std::get_if<FMaterialAsset>(&Asset))
+	{
+		return FPreviewMaterialMetadata{.Name = Material->Name, .TextureMaps = static_cast<std::size_t>(std::ranges::count_if(Material->Textures, [](const FMaterialTextureBinding& Binding)
+		{
+			return Binding.Texture.IsValid();
+		})),
+		    .BlendMode = Material->Parameters.BlendMode};
 	}
 
 	const auto& Model = std::get<FCookedModel>(Asset);
@@ -291,7 +352,18 @@ std::unique_ptr<FPreviewAssets> FPreviewAssets::Create(FTaskSystem& Tasks, IGrap
 
 	std::unique_ptr<FPreviewAssets> Assets(new FPreviewAssets(Tasks, Device, Log, std::move(Paths), ObjectCount, std::move(*Scope), std::move(RenderThumbnail)));
 
-	if (const auto Registered = RegisterAssetCommands(Assets->AssetCommands, {.DefaultContentRoot = Assets->Paths.ContentRoot, .DerivedDataRoot = Assets->Paths.DerivedDataRoot, .WorkerPath = Assets->Paths.WorkerPath, .TargetPlatform = Assets->Paths.TargetPlatform}); !Registered)
+	std::vector<std::filesystem::path> DependencyRoots;
+	for (const auto& Mount : Assets->Mounts)
+	{
+		DependencyRoots.push_back(Mount.Root);
+	}
+
+	if (!Assets->Paths.EngineContentRoot.empty())
+	{
+		DependencyRoots.push_back(Assets->Paths.EngineContentRoot.parent_path() / "Shaders");
+	}
+
+	if (const auto Registered = RegisterAssetCommands(Assets->AssetCommands, {.DefaultContentRoot = Assets->Paths.ContentRoot, .DerivedDataRoot = Assets->Paths.DerivedDataRoot, .WorkerPath = Assets->Paths.WorkerPath, .TargetPlatform = Assets->Paths.TargetPlatform, .DependencyContentRoots = std::move(DependencyRoots), .EngineContentRoot = Assets->Paths.EngineContentRoot, .GameContentRoot = Assets->Paths.ContentRoot}); !Registered)
 	{
 		HERTA_LOG_ERROR(Log, AssetLog, "Dropped files cannot be imported: {}", Registered.error().Message);
 	}
@@ -312,6 +384,7 @@ void FPreviewAssets::RequestScan()
 {
 	if (bScanning)
 	{
+		bScanAgain = true;
 		return;
 	}
 
@@ -369,6 +442,21 @@ void FPreviewAssets::RequestScan()
 
 void FPreviewAssets::Tick()
 {
+	if (bPreviewPending && !bPreviewTask && bScanned && !bReimportAfterScan)
+	{
+		StartMaterialPreview();
+	}
+
+	if (bPreviewThumbnailDirty && !bPreviewTask && PreviewMaterial)
+	{
+		UpdateMaterialPreviewThumbnail();
+	}
+
+	if (!bScanning && std::exchange(bScanAgain, false))
+	{
+		RequestScan();
+	}
+
 	if (std::exchange(bThumbnailRequestsChanged, false))
 	{
 		PruneCache();
@@ -755,7 +843,7 @@ void FPreviewAssets::PublishScan(const std::vector<std::expected<FContentScanRes
 	}
 
 	// The first scan releases requests made before it, such as the default preview meshes at startup.
-	if (!std::exchange(bScanned, true))
+	if (!std::exchange(bScanned, true) && !bReimportAfterScan)
 	{
 		for (const auto& [Asset, Cached] : MeshCache)
 		{
@@ -878,6 +966,585 @@ const FPreviewMeshSlot* FPreviewAssets::GetCachedAsset(const FAssetId& Asset) co
 	return Cached == MeshCache.end() ? nullptr : &Cached->second.Slot;
 }
 
+void FPreviewAssets::RequestMaterial(const FAssetId& Asset)
+{
+	if (!Asset.IsValid())
+	{
+		return;
+	}
+
+	MaterialAssets.insert(Asset);
+	GetOrLoadMesh(Asset);
+}
+
+void FPreviewAssets::SetMaterialAssets(const std::span<const FAssetId> Assets)
+{
+	std::set<FAssetId> Requested;
+	for (const FAssetId& Asset : Assets)
+	{
+		if (Asset.IsValid())
+		{
+			Requested.insert(Asset);
+		}
+	}
+
+	MaterialAssets = std::move(Requested);
+	PruneCache();
+
+	for (const FAssetId& Asset : MaterialAssets)
+	{
+		GetOrLoadMesh(Asset);
+	}
+}
+
+std::shared_ptr<const FRenderMaterial> FPreviewAssets::GetMaterial(const FAssetId& Asset) const noexcept
+{
+	const auto* Cached = GetCachedAsset(Asset);
+	return Cached ? Cached->Material : nullptr;
+}
+
+const FMaterialAsset* FPreviewAssets::GetMaterialSource(const FAssetId& Asset) const noexcept
+{
+	const auto* Cached = GetCachedAsset(Asset);
+	return Cached && Cached->MaterialSource ? &*Cached->MaterialSource : nullptr;
+}
+
+std::expected<FAssetId, FAssetError> FPreviewAssets::CreateMaterial(const std::string_view MountedParent, const std::string_view Name)
+{
+	if (const auto Valid = ValidateFolderName(Name); !Valid)
+	{
+		return std::unexpected(Valid.error());
+	}
+
+	const auto Parent = ResolveContentFolder(Paths.ContentRoot, "Game", MountedParent);
+	if (!Parent)
+	{
+		return std::unexpected(Parent.error());
+	}
+
+	const auto Names = ReadSiblingNames(*Parent);
+	if (!Names)
+	{
+		return std::unexpected(Names.error());
+	}
+
+	std::string UniqueName(Name);
+	for (std::size_t Suffix = 1; Names->contains(FoldFolderName(UniqueName + ".hmat")) || Names->contains(FoldFolderName(UniqueName + ".hmat.hmeta")); ++Suffix)
+	{
+		UniqueName = std::format("{} {}", Name, Suffix);
+	}
+
+	if (UniqueName.size() > 244)
+	{
+		return std::unexpected(FAssetError{"Material name is too long"});
+	}
+
+	const auto Path = *Parent / Utf8Path(UniqueName + ".hmat");
+	if (const auto Written = WriteMaterialAsset(Path, FMaterialAsset{.Name = UniqueName}, false); !Written)
+	{
+		return std::unexpected(Written.error());
+	}
+
+	const auto Imported = ImportSource(Paths.ContentRoot, Path);
+	if (!Imported)
+	{
+		return std::unexpected(FAssetError{std::format("Created {}; asset registration failed: {}", PathToUtf8(Path), Imported.error().Message)});
+	}
+
+	const auto Mount = std::ranges::find(Mounts, "Game", &FMount::Name);
+	if (Mount == Mounts.end())
+	{
+		return std::unexpected(FAssetError{"Game content mount is unavailable"});
+	}
+
+	Locations[Imported->Metadata.Id] = {.Mount = static_cast<std::size_t>(Mount - Mounts.begin()), .SourcePath = Imported->SourcePath};
+	ContentChanged();
+	RequestMaterial(Imported->Metadata.Id);
+	return Imported->Metadata.Id;
+}
+
+std::expected<void, FAssetError> FPreviewAssets::SaveMaterial(const FAssetId& Asset, const FMaterialAsset& Material)
+{
+	const auto Location = Locations.find(Asset);
+	if (Location == Locations.end() || Mounts[Location->second.Mount].Name != "Game")
+	{
+		return std::unexpected(FAssetError{"Engine content is read-only; save a material in Game content"});
+	}
+
+	const auto Path = GetMaterialPath(Asset);
+	if (!Path)
+	{
+		return std::unexpected(Path.error());
+	}
+
+	if (const auto Written = WriteMaterialAsset(*Path, Material); !Written)
+	{
+		return Written;
+	}
+
+	ContentChanged();
+	return {};
+}
+
+std::expected<std::filesystem::path, FAssetError> FPreviewAssets::GetMaterialPath(const FAssetId& Asset) const
+{
+	const auto Location = Locations.find(Asset);
+	if (Location == Locations.end() || FindImporterForSource(Utf8Path(Location->second.SourcePath)) != "Material")
+	{
+		return std::unexpected(FAssetError{"Material is not registered in content"});
+	}
+
+	const FMount& Mount = Mounts[Location->second.Mount];
+	const auto Relative = Utf8Path(Location->second.SourcePath);
+	const auto Parent = ResolveContentFolder(Mount.Root, Mount.Name, Relative.parent_path().empty() ? Mount.Name : std::format("{}/{}", Mount.Name, PathToUtf8(Relative.parent_path())));
+	if (!Parent)
+	{
+		return std::unexpected(Parent.error());
+	}
+
+	const auto Path = *Parent / Relative.filename();
+	std::error_code Error;
+	if (std::filesystem::is_symlink(Path, Error) || Error)
+	{
+		return std::unexpected(FAssetError{"Material source must not be a symbolic link"});
+	}
+
+	return Path;
+}
+
+void FPreviewAssets::RequestTexture(const FAssetId& Asset)
+{
+	if (!Asset.IsValid())
+	{
+		return;
+	}
+
+	const bool bNewRequest = TextureAssets.insert(Asset).second;
+	const auto& Cached = GetOrLoadMesh(Asset);
+	if (bNewRequest && Cached.Mesh && !Cached.Texture && !Cached.bLoading)
+	{
+		StartLoad(Asset);
+	}
+}
+
+void FPreviewAssets::SetTextureAssets(const std::span<const FAssetId> Assets)
+{
+	std::set<FAssetId> Requested;
+	for (const FAssetId& Asset : Assets)
+	{
+		if (Asset.IsValid())
+		{
+			Requested.insert(Asset);
+		}
+	}
+
+	std::erase_if(TextureAssets, [&Requested](const FAssetId& Asset)
+	{
+		return !Requested.contains(Asset);
+	});
+
+	for (const FAssetId& Asset : Requested)
+	{
+		RequestTexture(Asset);
+	}
+
+	PruneCache();
+}
+
+std::shared_ptr<const FCookedTexture> FPreviewAssets::GetCookedTexture(const FAssetId& Asset) const noexcept
+{
+	const auto* Cached = GetCachedAsset(Asset);
+	return Cached ? Cached->CookedTexture : nullptr;
+}
+
+FTextureHandle FPreviewAssets::GetTexture(const FAssetId& Asset) const noexcept
+{
+	const auto* Cached = GetCachedAsset(Asset);
+	return Cached ? Cached->Texture : nullptr;
+}
+
+void FPreviewAssets::SetMaterialThumbnailRenderer(FEditorMaterialThumbnailRenderer Renderer)
+{
+	RenderMaterialThumbnail = std::move(Renderer);
+	for (auto& [Asset, Cached] : MeshCache)
+	{
+		if (Cached.Slot.Material)
+		{
+			Cached.ThumbnailKey.reset();
+		}
+	}
+
+	bPreviewThumbnailDirty = PreviewMaterial != nullptr;
+}
+
+void FPreviewAssets::SetMaterialShaderGeneration(const std::uint64_t Generation)
+{
+	if (MaterialShaderGeneration == Generation)
+	{
+		return;
+	}
+
+	MaterialShaderGeneration = Generation;
+	for (auto& [Asset, Cached] : MeshCache)
+	{
+		if (Cached.Slot.Material)
+		{
+			Cached.ThumbnailKey.reset();
+		}
+	}
+
+	bPreviewThumbnailDirty = PreviewMaterial != nullptr;
+}
+
+void FPreviewAssets::UpdateMaterialPreviewThumbnail()
+{
+	if (!RenderMaterialThumbnail || !PreviewMaterial)
+	{
+		bPreviewThumbnailDirty = false;
+		return;
+	}
+
+	const auto Mesh = GetMaterialPreviewMesh();
+	if (!Mesh)
+	{
+		PreviewError = Mesh.error().Message;
+		bPreviewThumbnailDirty = false;
+		return;
+	}
+
+	if (!*Mesh)
+	{
+		return;
+	}
+
+	const auto Thumbnail = RenderMaterialThumbnail(**Mesh, *PreviewMaterial);
+	bPreviewThumbnailDirty = false;
+	if (!Thumbnail)
+	{
+		PreviewError = Thumbnail.error().Message;
+		return;
+	}
+
+	PreviewThumbnail = *Thumbnail;
+}
+
+bool FPreviewAssets::AreMaterialThumbnailsReady() const noexcept
+{
+	if (!RenderMaterialThumbnail)
+	{
+		return true;
+	}
+
+	bool bNeeded = PreviewDraft.has_value();
+	for (const FAssetId Asset : ThumbnailAssets)
+	{
+		const auto Cached = MeshCache.find(Asset);
+		const auto Option = std::ranges::find(Options, Asset, &FPreviewAssetOption::Id);
+		if (Option != Options.end() && Option->Importer == "Material")
+		{
+			bNeeded = true;
+			if (Cached == MeshCache.end() || Cached->second.Slot.bLoading || !Cached->second.Slot.Thumbnail || Cached->second.ThumbnailKey != Cached->second.Slot.Key)
+			{
+				return false;
+			}
+		}
+	}
+
+	const auto* Sphere = GetCachedAsset(MaterialPreviewMeshAsset);
+	return !bNeeded || (Sphere && Sphere->Mesh && !Sphere->bLoading && !IsMaterialPreviewLoading());
+}
+
+std::expected<std::shared_ptr<const FRenderMesh>, FAssetError> FPreviewAssets::GetMaterialPreviewMesh()
+{
+	if (!bScanned)
+	{
+		return nullptr;
+	}
+
+	if (!MaterialPreviewMeshAsset.IsValid())
+	{
+		const auto Sphere = std::ranges::find(Options, "Engine/Shapes/Sphere.gltf", &FPreviewAssetOption::Label);
+		if (Sphere == Options.end())
+		{
+			return std::unexpected(FAssetError{"Material preview requires the registered Engine/Shapes/Sphere.gltf asset"});
+		}
+
+		MaterialPreviewMeshAsset = Sphere->Id;
+	}
+
+	const auto& Cached = GetOrLoadMesh(MaterialPreviewMeshAsset);
+	if (!Cached.Mesh && !Cached.bLoading && !Cached.Error.empty())
+	{
+		return std::unexpected(FAssetError{Cached.Error});
+	}
+
+	return Cached.Mesh;
+}
+
+void FPreviewAssets::RequestMaterialPreview(const FAssetId& Asset, const FMaterialAsset& Draft)
+{
+	if (!Asset.IsValid())
+	{
+		PreviewGeneration->fetch_add(1, std::memory_order_acq_rel);
+		PreviewDraft.reset();
+		PreviewDraftAsset = {};
+		PublishedPreviewDraft.reset();
+		PublishedPreviewAsset = {};
+		PreviewMaterial.reset();
+		PreviewThumbnail.reset();
+		bPreviewThumbnailDirty = false;
+		PreviewError.clear();
+		bPreviewPending = false;
+		return;
+	}
+
+	if (PreviewDraftAsset == Asset && PreviewDraft && *PreviewDraft == Draft)
+	{
+		return;
+	}
+
+	if (PreviewDraftAsset != Asset)
+	{
+		PublishedPreviewDraft.reset();
+		PublishedPreviewAsset = {};
+		PreviewMaterial.reset();
+		PreviewThumbnail.reset();
+		bPreviewThumbnailDirty = false;
+	}
+
+	PreviewDraftAsset = Asset;
+	PreviewDraft = Draft;
+	PreviewGeneration->fetch_add(1, std::memory_order_acq_rel);
+	PreviewError.clear();
+	const auto Valid = ValidateMaterial(Draft);
+	if (!Valid)
+	{
+		PreviewError = Valid.error().Message;
+		bPreviewPending = false;
+		return;
+	}
+
+	bPreviewPending = true;
+	if (!bPreviewTask && bScanned && !bReimportAfterScan)
+	{
+		StartMaterialPreview();
+	}
+}
+
+std::shared_ptr<const FRenderMaterial> FPreviewAssets::GetMaterialPreview() const noexcept
+{
+	return PreviewMaterial;
+}
+
+FEditorAssetThumbnail FPreviewAssets::GetMaterialPreviewThumbnail() const noexcept
+{
+	return PreviewThumbnail;
+}
+
+FAssetId FPreviewAssets::GetMaterialPreviewAsset() const noexcept
+{
+	return PublishedPreviewAsset;
+}
+
+bool FPreviewAssets::IsMaterialPreviewLoading() const noexcept
+{
+	return PreviewDraft && (bPreviewTask || bPreviewPending || bPreviewThumbnailDirty);
+}
+
+std::string_view FPreviewAssets::GetMaterialPreviewError() const noexcept
+{
+	return PreviewError;
+}
+
+std::map<FAssetId, FAssetCookRequest> FPreviewAssets::GetTextureRequests() const
+{
+	std::map<FAssetId, FAssetCookRequest> Requests;
+	for (const auto& [Asset, Location] : Locations)
+	{
+		if (FindImporterForSource(Utf8Path(Location.SourcePath)) != "Texture")
+		{
+			continue;
+		}
+
+		FAssetCookRequest Request{.ContentRoot = Mounts[Location.Mount].Root, .DerivedDataRoot = Paths.DerivedDataRoot, .SourcePath = Location.SourcePath, .TargetPlatform = Paths.TargetPlatform};
+		Request.EngineContentRoot = Paths.EngineContentRoot;
+		Request.GameContentRoot = Paths.ContentRoot;
+		for (const FMount& Mount : Mounts)
+		{
+			Request.DependencyContentRoots.push_back(Mount.Root);
+		}
+
+		if (!Paths.EngineContentRoot.empty())
+		{
+			Request.DependencyContentRoots.push_back(Paths.EngineContentRoot.parent_path() / "Shaders");
+		}
+
+		Requests.emplace(Asset, std::move(Request));
+	}
+
+	return Requests;
+}
+
+void FPreviewAssets::StartMaterialPreview()
+{
+	if (!PreviewDraft || !bPreviewPending || bPreviewTask)
+	{
+		return;
+	}
+
+	std::shared_ptr<const FRenderMesh> PreviewMesh;
+	if (RenderMaterialThumbnail)
+	{
+		const auto Mesh = GetMaterialPreviewMesh();
+		if (!Mesh)
+		{
+			PreviewError = Mesh.error().Message;
+			bPreviewPending = false;
+			return;
+		}
+
+		if (!*Mesh)
+		{
+			return;
+		}
+
+		PreviewMesh = *Mesh;
+	}
+
+	const FMaterialAsset Draft = *PreviewDraft;
+	const auto Valid = ValidateMaterial(Draft);
+	if (!Valid)
+	{
+		PreviewError = Valid.error().Message;
+		bPreviewPending = false;
+		return;
+	}
+
+	const FAssetId Asset = PreviewDraftAsset;
+	const auto Location = Locations.find(Asset);
+	const std::string Label = Location != Locations.end() ? std::format("{}/{} draft", Mounts[Location->second.Mount].Name, Location->second.SourcePath) : "Game/Material draft";
+	const std::uint64_t Generation = PreviewGeneration->load(std::memory_order_acquire);
+	const std::uint64_t Content = ContentGeneration;
+	std::shared_ptr<const FRenderMaterial> Reuse;
+	if (PublishedPreviewAsset == Asset && PublishedPreviewContentGeneration == Content && PublishedPreviewDraft && PublishedPreviewDraft->Textures == Draft.Textures && PublishedPreviewDraft->ShaderPath == Draft.ShaderPath)
+	{
+		Reuse = PreviewMaterial;
+	}
+	else if (const auto* Saved = GetCachedAsset(Asset); Saved && Saved->ContentGeneration == Content && Saved->MaterialSource && Saved->MaterialSource->Textures == Draft.Textures && Saved->MaterialSource->ShaderPath == Draft.ShaderPath)
+	{
+		Reuse = Saved->Material;
+	}
+
+	auto Textures = std::make_shared<std::expected<FMaterialTextureData, FAssetError>>(std::unexpected(FAssetError{"Material preview task did not run"}));
+	const auto Cook = Tasks.Submit(*Scope, {.Name = "Cook material draft", .Lane = ETaskLane::BlockingIo}, [Textures, Draft, Dependencies = GetTextureRequests(), Worker = Paths.WorkerPath, Token = PreviewGeneration, Generation, bReuse = static_cast<bool>(Reuse)](FTaskContext& Context)
+	{
+		const auto Cancelled = [&]
+		{
+			return Context.IsCancellationRequested() || Token->load(std::memory_order_acquire) != Generation;
+		};
+
+		if (Cancelled())
+		{
+			return;
+		}
+
+		if (bReuse)
+		{
+			*Textures = FMaterialTextureData{};
+		}
+		else
+		{
+			*Textures = CookMaterialTextures(Draft, Dependencies, Worker, Cancelled);
+		}
+	});
+
+	const auto Publish = Cook ? Tasks.ContinueOnMainThread(*Scope, *Cook, "Publish material draft", [this, Textures, Draft, Asset, Label, Generation, Content, Reuse = std::move(Reuse), PreviewMesh = std::move(PreviewMesh)](FTaskContext& Context)
+	{
+		if (Context.IsCancellationRequested())
+		{
+			return;
+		}
+
+		bPreviewTask = false;
+		if (PreviewGeneration->load(std::memory_order_acquire) != Generation || ContentGeneration != Content)
+		{
+			if (PreviewDraft && ContentGeneration != Content)
+			{
+				bPreviewPending = true;
+			}
+
+			if (bPreviewPending && bScanned && !bReimportAfterScan)
+			{
+				StartMaterialPreview();
+			}
+
+			return;
+		}
+
+		if (!*Textures)
+		{
+			PreviewError = Textures->error().Message;
+			return;
+		}
+
+		std::shared_ptr<const FRenderMaterial> Material;
+		if (Reuse)
+		{
+			const auto Updated = Reuse->WithParameters(Draft.Parameters);
+			if (!Updated)
+			{
+				PreviewError = Updated.error().Message;
+				return;
+			}
+
+			Material = *Updated;
+		}
+		else
+		{
+			const auto Created = FRenderMaterial::Create(Device, Draft, **Textures, Label);
+			if (!Created)
+			{
+				PreviewError = Created.error().Message;
+				return;
+			}
+
+			Material = *Created;
+		}
+
+		FEditorAssetThumbnail Thumbnail;
+		if (RenderMaterialThumbnail)
+		{
+			const auto Rendered = RenderMaterialThumbnail(*PreviewMesh, *Material);
+			if (!Rendered)
+			{
+				PreviewError = Rendered.error().Message;
+				return;
+			}
+
+			Thumbnail = *Rendered;
+		}
+
+		PreviewMaterial = std::move(Material);
+		PreviewThumbnail = std::move(Thumbnail);
+		bPreviewThumbnailDirty = false;
+		PublishedPreviewDraft = Draft;
+		PublishedPreviewAsset = Asset;
+		PublishedPreviewContentGeneration = Content;
+		PreviewError.clear();
+	})
+	                          : std::unexpected(Cook.error());
+
+	if (!Publish)
+	{
+		PreviewError = Publish.error().Message;
+		bPreviewPending = false;
+		return;
+	}
+
+	bPreviewTask = true;
+	bPreviewPending = false;
+}
+
 FPreviewMeshSlot& FPreviewAssets::GetOrLoadMesh(const FAssetId& Asset, const bool bThumbnailOnly)
 {
 	auto [Entry, bInserted] = MeshCache.try_emplace(Asset);
@@ -910,6 +1577,12 @@ FPreviewMeshSlot& FPreviewAssets::GetOrLoadMesh(const FAssetId& Asset, const boo
 void FPreviewAssets::ContentChanged()
 {
 	++ContentGeneration;
+	if (PreviewDraft)
+	{
+		PreviewGeneration->fetch_add(1, std::memory_order_acq_rel);
+		bPreviewPending = true;
+	}
+
 	PruneCache();
 	bReimportAfterScan = true;
 	RequestScan();
@@ -933,7 +1606,7 @@ void FPreviewAssets::StartLoad(const FAssetId& Asset)
 	if (Location == Locations.end())
 	{
 		Slot.bLoading = false;
-		Slot.Error = Slot.Mesh ? std::format("{} is no longer registered; keeping the previous version", Slot.Label) : std::format("Asset {} is not registered in content", Slot.Asset.ToString());
+		Slot.Error = Slot.Mesh || Slot.Material ? std::format("{} is no longer registered; keeping the previous version", Slot.Label) : std::format("Asset {} is not registered in content", Slot.Asset.ToString());
 		HERTA_LOG_ERROR(Log, AssetLog, "{}", Slot.Error);
 		PublishSlots(Slot);
 		return;
@@ -969,7 +1642,19 @@ bool FPreviewAssets::SubmitCook(const FLocation& Location, const std::string& La
 {
 	auto Load = std::make_shared<FMeshLoad>();
 	FAssetCookRequest Request{.ContentRoot = Mounts[Location.Mount].Root, .DerivedDataRoot = Paths.DerivedDataRoot, .SourcePath = Location.SourcePath, .TargetPlatform = Paths.TargetPlatform, .bForce = false};
-	std::expected<FTaskHandle, FTaskError> Cook = Tasks.Submit(*Scope, {.Name = "Cook " + Label, .Lane = ETaskLane::BlockingIo}, [Load, Request, Worker = Paths.WorkerPath](FTaskContext& Context)
+	Request.EngineContentRoot = Paths.EngineContentRoot;
+	Request.GameContentRoot = Paths.ContentRoot;
+	for (const FMount& Mount : Mounts)
+	{
+		Request.DependencyContentRoots.push_back(Mount.Root);
+	}
+
+	if (!Paths.EngineContentRoot.empty())
+	{
+		Request.DependencyContentRoots.push_back(Paths.EngineContentRoot.parent_path() / "Shaders");
+	}
+
+	std::expected<FTaskHandle, FTaskError> Cook = Tasks.Submit(*Scope, {.Name = "Cook " + Label, .Lane = ETaskLane::BlockingIo}, [Load, Request, Dependencies = GetTextureRequests(), Worker = Paths.WorkerPath](FTaskContext& Context)
 	{
 		std::expected<FAssetCookResult, FAssetError> Cooked = CookAssetInWorker(Request, {.WorkerPath = Worker, .ShouldCancel = [&Context]
 		{
@@ -995,12 +1680,31 @@ bool FPreviewAssets::SubmitCook(const FLocation& Location, const std::string& La
 		Load->Metadata = GetPreviewAssetMetadata(*Asset);
 		if (auto* const Texture = std::get_if<FCookedTexture>(&*Asset))
 		{
-			Load->Model = CreateTexturedCubeModel(std::move(*Texture));
+			Load->Texture = std::make_shared<const FCookedTexture>(std::move(*Texture));
+			Load->Model = CreateTexturedCubeModel(*Load->Texture);
+		}
+		else if (auto* const Material = std::get_if<FMaterialAsset>(&*Asset))
+		{
+			Load->Material = std::move(*Material);
+			auto Textures = CookMaterialTextures(*Load->Material, Dependencies, Worker, [&Context]
+			{
+				return Context.IsCancellationRequested();
+			});
+
+			if (!Textures)
+			{
+				Load->Model = std::unexpected(Textures.error());
+				return;
+			}
+
+			Load->MaterialTextures = std::move(*Textures);
 		}
 		else
 		{
 			Load->Model = std::move(std::get<FCookedModel>(*Asset));
 		}
+
+		Load->bSucceeded = true;
 	});
 
 	std::expected<FTaskHandle, FTaskError> Published = Cook ? Tasks.ContinueOnMainThread(*Scope, *Cook, "Publish preview mesh", [this, Load, Generation = ContentGeneration, Publish = std::move(Publish)](FTaskContext& Context)
@@ -1019,6 +1723,12 @@ void FPreviewAssets::ReimportShownAssets()
 {
 	// One cook per shown asset, including failed loads that an edit may have fixed.
 	std::set<FAssetId> Shown = ThumbnailAssets;
+	if (MaterialPreviewMeshAsset.IsValid())
+	{
+		Shown.insert(MaterialPreviewMeshAsset);
+	}
+	Shown.insert(MaterialAssets.begin(), MaterialAssets.end());
+	Shown.insert(TextureAssets.begin(), TextureAssets.end());
 
 	for (const FPreviewMeshSlot& Slot : Slots)
 	{
@@ -1070,7 +1780,7 @@ void FPreviewAssets::PruneCache()
 	std::erase_if(MeshCache, [this](const auto& Entry)
 	{
 		const auto& [Asset, Cached] = Entry;
-		return !ThumbnailAssets.contains(Asset) && (Cached.bThumbnailOnly || !Cached.Slot.bLoading || Cached.Slot.Generation == 0 || Cached.RequestContentGeneration != ContentGeneration) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
+		return Asset != MaterialPreviewMeshAsset && !ThumbnailAssets.contains(Asset) && !MaterialAssets.contains(Asset) && !TextureAssets.contains(Asset) && (Cached.bThumbnailOnly || !Cached.Slot.bLoading || Cached.Slot.Generation == 0 || Cached.RequestContentGeneration != ContentGeneration) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
 		{
 			return Slot.Asset == Asset;
 		});
@@ -1085,7 +1795,7 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 		return;
 	}
 
-	if (!ThumbnailAssets.contains(Asset) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
+	if (Asset != MaterialPreviewMeshAsset && !ThumbnailAssets.contains(Asset) && !MaterialAssets.contains(Asset) && !TextureAssets.contains(Asset) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
 	{
 		return Slot.Asset == Asset;
 	}))
@@ -1103,15 +1813,15 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 		HERTA_LOG_WARNING(Log, AssetLog, "{}: {}", Slot.Label, Warning);
 	}
 
-	if (!Load.Model)
+	if (!Load.bSucceeded)
 	{
-		Slot.Error = Slot.Mesh ? std::format("Reimport failed; keeping the previous version: {}", Load.Model.error().Message) : Load.Model.error().Message;
+		Slot.Error = Slot.Mesh || Slot.Material ? std::format("Reimport failed; keeping the previous version: {}", Load.Model.error().Message) : Load.Model.error().Message;
 		HERTA_LOG_ERROR(Log, AssetLog, "{}", Slot.Error);
 		PublishSlots(Slot);
 		return;
 	}
 
-	if (Slot.Mesh && Slot.Key == Load.Key)
+	if ((Slot.Mesh || Slot.Material) && Slot.Key == Load.Key && (!TextureAssets.contains(Asset) || Slot.Texture))
 	{
 		Slot.Metadata = Load.Metadata;
 		Slot.ContentGeneration = ContentGeneration;
@@ -1120,16 +1830,91 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 		return;
 	}
 
-	std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> Mesh = FRenderMesh::Create(Device, *Load.Model, Slot.Label);
-	if (!Mesh)
+	if (Load.Material)
 	{
-		Slot.Error = Slot.Mesh ? std::format("Reimport failed; keeping the previous version: {}", Mesh.error().Message) : Mesh.error().Message;
-		HERTA_LOG_ERROR(Log, AssetLog, "Could not upload {}: {}", Slot.Label, Slot.Error);
-		PublishSlots(Slot);
-		return;
+		const auto Material = FRenderMaterial::Create(Device, *Load.Material, Load.MaterialTextures, Slot.Label);
+		if (!Material)
+		{
+			Slot.Error = Slot.Material ? std::format("Reimport failed; keeping the previous version: {}", Material.error().Message) : Material.error().Message;
+			HERTA_LOG_ERROR(Log, AssetLog, "Could not upload {}: {}", Slot.Label, Slot.Error);
+			return;
+		}
+
+		Slot.Material = *Material;
+		Slot.MaterialSource = std::move(Load.Material);
+		Slot.Mesh.reset();
+	}
+	else
+	{
+		const auto Mesh = FRenderMesh::Create(Device, *Load.Model, Slot.Label);
+		if (!Mesh)
+		{
+			Slot.Error = Slot.Mesh ? std::format("Reimport failed; keeping the previous version: {}", Mesh.error().Message) : Mesh.error().Message;
+			HERTA_LOG_ERROR(Log, AssetLog, "Could not upload {}: {}", Slot.Label, Slot.Error);
+			PublishSlots(Slot);
+			return;
+		}
+
+		FTextureHandle Texture;
+		if (Load.Texture && TextureAssets.contains(Asset))
+		{
+			const FCookedTexture& Cooked = *Load.Texture;
+			const ETextureFormat Format = Cooked.PixelFormat == ETexturePixelFormat::Rgba32Float ? ETextureFormat::Rgba32Float : Cooked.ColorSpace == ETextureColorSpace::Srgb ? ETextureFormat::Rgba8Srgb
+			                                                                                                                                                                   : ETextureFormat::Rgba8;
+			const auto Created = Device.CreateTexture({.Name = Slot.Label, .Extent = {.Width = Cooked.Mips.front().Width, .Height = Cooked.Mips.front().Height}, .Format = Format, .MipLevels = static_cast<std::uint32_t>(Cooked.Mips.size())});
+			if (!Created)
+			{
+				Slot.Error = Created.error().Message;
+				return;
+			}
+
+			auto Uploaded = Device.BeginCommands();
+			if (!Uploaded)
+			{
+				Slot.Error = Uploaded.error().Message;
+				return;
+			}
+
+			for (std::uint32_t Mip = 0; Mip < Cooked.Mips.size() && Uploaded; ++Mip)
+			{
+				Uploaded = Device.WriteTexture(*Created, Mip, Cooked.Mips[Mip].Pixels);
+			}
+
+			if (!Uploaded)
+			{
+				Device.CancelCommands();
+				Slot.Error = Uploaded.error().Message;
+				return;
+			}
+
+			const auto Submitted = Device.SubmitCommands();
+			if (!Submitted)
+			{
+				Device.CancelCommands();
+				Slot.Error = Submitted.error().Message;
+				return;
+			}
+
+			Texture = *Created;
+		}
+
+		Slot.Mesh = *Mesh;
+		if (Asset == MaterialPreviewMeshAsset)
+		{
+			for (auto& [Id, Cached] : MeshCache)
+			{
+				if (Cached.Slot.Material)
+				{
+					Cached.ThumbnailKey.reset();
+				}
+			}
+		}
+		Slot.CookedTexture = std::move(Load.Texture);
+		Slot.Texture = std::move(Texture);
+		Slot.Material.reset();
+		Slot.MaterialSource.reset();
 	}
 
-	Slot.Mesh = std::move(*Mesh);
 	Slot.Metadata = Load.Metadata;
 	Slot.Key = Load.Key;
 	Slot.ContentGeneration = ContentGeneration;
@@ -1141,13 +1926,35 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 void FPreviewAssets::UpdateThumbnail(FCachedMesh& Cached)
 {
 	FPreviewMeshSlot& Slot = Cached.Slot;
-	if (!RenderThumbnail || !ThumbnailAssets.contains(Slot.Asset) || !Slot.Mesh || Cached.ThumbnailKey == Slot.Key)
+	if (!ThumbnailAssets.contains(Slot.Asset) || Cached.ThumbnailKey == Slot.Key || (Slot.Material ? !RenderMaterialThumbnail : !RenderThumbnail || !Slot.Mesh))
 	{
 		return;
 	}
 
-	Cached.ThumbnailKey = Slot.Key;
-	auto Thumbnail = RenderThumbnail(*Slot.Mesh);
+	std::expected<FEditorAssetThumbnail, FPresentationError> Thumbnail;
+	if (Slot.Material)
+	{
+		const auto Mesh = GetMaterialPreviewMesh();
+		if (!Mesh)
+		{
+			Cached.ThumbnailKey = Slot.Key;
+			HERTA_LOG_WARNING(Log, AssetLog, "{}", Mesh.error().Message);
+			return;
+		}
+
+		if (!*Mesh)
+		{
+			return;
+		}
+
+		Cached.ThumbnailKey = Slot.Key;
+		Thumbnail = RenderMaterialThumbnail(**Mesh, *Slot.Material);
+	}
+	else
+	{
+		Cached.ThumbnailKey = Slot.Key;
+		Thumbnail = RenderThumbnail(*Slot.Mesh);
+	}
 	if (!Thumbnail)
 	{
 		HERTA_LOG_WARNING(Log, AssetLog, "Could not render thumbnail for {}: {}", Slot.Label, Thumbnail.error().Message);

@@ -130,6 +130,10 @@ enum class EToolUIMenuIcon : std::uint8_t
 	Cube,
 	Entity,
 	Physics,
+	Light,
+	SkyAtmosphere,
+	Fog,
+	Material,
 	SelectAll,
 	ContentBrowser
 };

@@ -10,12 +10,15 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace Herta
 {
 // Writes recorded between BeginCommands and SubmitCommands may upload at most this many bytes in total.
 inline constexpr std::size_t MaximumUploadBytesPerRecording = std::size_t{64} * 1024 * 1024;
+inline constexpr std::uint32_t MaximumGraphicsTextures = 16;
+inline constexpr std::uint32_t MaximumGraphicsUniformBytes = 16 * 1024;
 
 enum class EBufferUsage : std::uint8_t
 {
@@ -27,14 +30,42 @@ enum class ETextureFormat : std::uint8_t
 {
 	Rgba8,
 	Rgba8Srgb,
-	Depth32
+	Depth32,
+	Rgba16Float,
+	Rgba32Float
+};
+
+[[nodiscard]] constexpr std::size_t GetTextureTexelBytes(const ETextureFormat Format) noexcept
+{
+	switch (Format)
+	{
+		case ETextureFormat::Rgba8:
+		case ETextureFormat::Rgba8Srgb:
+		case ETextureFormat::Depth32:
+			return 4;
+		case ETextureFormat::Rgba16Float:
+			return 8;
+		case ETextureFormat::Rgba32Float:
+			return 16;
+	}
+
+	return 0;
+}
+
+enum class EGraphicsCullMode : std::uint8_t
+{
+	None,
+	Back,
+	Front
 };
 
 enum class EGraphicsVertexFormat : std::uint8_t
 {
 	Mesh,
 	ColoredClipPosition,
-	MeshInstance
+	MeshInstance,
+	// Position and UV from a Mesh buffer, with view-space instance columns for shadow pipelines.
+	ShadowMesh
 };
 
 struct FBufferDescriptor
@@ -106,19 +137,30 @@ using FGraphicsPipelineHandle = std::shared_ptr<IRhiGraphicsPipeline>;
 struct FGraphicsPipelineDescriptor
 {
 	std::string Name;
-	FShaderAsset VertexShader;
-	FShaderAsset FragmentShader;
+	FShaderAsset VertexShader{};
+	FShaderAsset FragmentShader{};
 	ETextureFormat ColorFormat = ETextureFormat::Rgba8Srgb;
 	EGraphicsVertexFormat VertexFormat = EGraphicsVertexFormat::Mesh;
 	bool bDepthTest = true;
 	bool bInstanced = false;
+	std::uint32_t TextureCount = 1;
+	std::uint32_t UniformBufferSize = 0;
+	bool bDepthOnly = false;
+	bool bDepthWrite = true;
+	EGraphicsCullMode CullMode = EGraphicsCullMode::Back;
+	bool bAlphaBlend = false;
+	bool bClampSampler = false;
 };
 
 struct FMeshVertex
 {
-	std::array<float, 3> Position;
-	std::array<float, 2> UV;
+	std::array<float, 3> Position{};
+	std::array<float, 2> UV{};
+	std::array<float, 3> Normal{0, 1, 0};
+	std::array<float, 4> Tangent{1, 0, 0, 1};
 };
+
+static_assert(sizeof(FMeshVertex) == 48);
 
 struct FColoredClipVertex
 {
@@ -133,14 +175,22 @@ struct FMeshInstance
 	std::array<float, 16> ObjectToView;
 };
 
+struct FRenderViewport
+{
+	std::uint32_t X = 0;
+	std::uint32_t Y = 0;
+	std::uint32_t Width = 0;
+	std::uint32_t Height = 0;
+};
+
 struct FIndexedDraw
 {
-	FGraphicsPipelineHandle Pipeline;
-	FBufferHandle Vertices;
-	FBufferHandle Indices;
-	FTextureHandle Texture;
-	FTextureHandle ColorTarget;
-	FTextureHandle DepthTarget;
+	FGraphicsPipelineHandle Pipeline{};
+	FBufferHandle Vertices{};
+	FBufferHandle Indices{};
+	FTextureHandle Texture{};
+	FTextureHandle ColorTarget{};
+	FTextureHandle DepthTarget{};
 	std::array<float, 16> WorldToClip{};
 	std::uint32_t IndexCount = 0;
 	std::uint32_t FirstIndex = 0;
@@ -149,6 +199,11 @@ struct FIndexedDraw
 	FBufferHandle Instances{};
 	std::uint32_t InstanceCount = 1;
 	std::uint32_t FirstInstance = 0;
+	// Recording copies these inputs. Registers are t0..t15, b0 at Vulkan binding 64, and s0 at 128.
+	std::span<const FTextureHandle> Textures{};
+	std::span<const std::byte> Uniforms{};
+	// A zero extent selects the complete target.
+	FRenderViewport Viewport{};
 };
 
 struct FGraphicsStatistics
@@ -156,6 +211,12 @@ struct FGraphicsStatistics
 	std::uint64_t SubmittedSerial = 0;
 	std::uint64_t CompletedSerial = 0;
 	std::size_t InFlightFrames = 0;
+};
+
+struct FGpuPassTiming
+{
+	std::string Name;
+	double Milliseconds = 0;
 };
 
 class IGraphicsDevice
@@ -180,5 +241,21 @@ public:
 	// Readback is an explicit blocking diagnostic path, never part of interactive rendering.
 	[[nodiscard]] virtual std::expected<std::vector<std::byte>, FPresentationError> ReadbackTexture(const FTextureHandle& Texture) = 0;
 	[[nodiscard]] virtual FGraphicsStatistics GetStatistics() const noexcept = 0;
+	virtual void BeginGpuTiming(std::string_view Name);
+	virtual void EndGpuTiming();
+	virtual std::vector<FGpuPassTiming> GetGpuTimings() const;
 };
+
+inline void IGraphicsDevice::BeginGpuTiming(std::string_view)
+{
+}
+
+inline void IGraphicsDevice::EndGpuTiming()
+{
+}
+
+inline std::vector<FGpuPassTiming> IGraphicsDevice::GetGpuTimings() const
+{
+	return {};
+}
 }

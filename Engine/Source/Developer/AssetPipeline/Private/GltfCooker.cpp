@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <format>
 #include <map>
 #include <optional>
@@ -21,7 +22,7 @@ namespace Herta
 namespace
 {
 static_assert(std::is_same_v<unsigned int, std::uint32_t>, "meshoptimizer indices are unsigned int");
-static_assert(sizeof(FCookedVertex) == sizeof(float) * 5, "Vertex deduplication compares raw bytes, so vertices must not contain padding");
+static_assert(sizeof(FCookedVertex) == sizeof(float) * 12, "Vertex deduplication compares raw bytes, so vertices must not contain padding");
 
 // Quantized attributes decode through fastgltf's accessor tools. Other required extensions fail the parse instead of cooking incorrect data.
 inline constexpr fastgltf::Extensions SupportedExtensions = fastgltf::Extensions::KHR_mesh_quantization;
@@ -49,6 +50,8 @@ inline constexpr std::size_t MaximumIndices = MaximumCookedBufferBytes / sizeof(
 		return std::unexpected(FAssetError{std::format("Invalid glTF: {}", fastgltf::getErrorMessage(Error))});
 	}
 
+	// get() returns a reference to the wrapper's move-only payload, not an elidable local.
+	// cppcheck-suppress returnStdMoveLocal
 	return std::move(Asset.get());
 }
 
@@ -128,6 +131,40 @@ struct FMaterialBucket
 	std::vector<std::uint32_t> Indices;
 };
 
+using FDirection = std::array<float, 3>;
+
+FDirection Subtract(const FDirection& A, const FDirection& B)
+{
+	return {A[0] - B[0], A[1] - B[1], A[2] - B[2]};
+}
+
+float Dot(const FDirection& A, const FDirection& B)
+{
+	return A[0] * B[0] + A[1] * B[1] + A[2] * B[2];
+}
+
+FDirection Cross(const FDirection& A, const FDirection& B)
+{
+	return {A[1] * B[2] - A[2] * B[1], A[2] * B[0] - A[0] * B[2], A[0] * B[1] - A[1] * B[0]};
+}
+
+FDirection Normalize(const FDirection& Value, const FDirection& Fallback)
+{
+	const float LengthSquared = Dot(Value, Value);
+	if (!std::isfinite(LengthSquared) || LengthSquared < 1.e-20f)
+	{
+		return Fallback;
+	}
+
+	const float InverseLength = 1.f / std::sqrt(LengthSquared);
+	return {Value[0] * InverseLength, Value[1] * InverseLength, Value[2] * InverseLength};
+}
+
+FDirection Orthogonal(const FDirection& Normal)
+{
+	return Normalize(Cross(std::abs(Normal[1]) < 0.9f ? FDirection{0.f, 1.f, 0.f} : FDirection{1.f, 0.f, 0.f}, Normal), {1.f, 0.f, 0.f});
+}
+
 class FGltfModelBuilder
 {
 public:
@@ -160,40 +197,88 @@ public:
 		}
 
 		FCookedModel Model;
-		std::map<std::pair<std::size_t, std::array<float, 4>>, std::uint32_t> TextureLookup;
+		std::map<std::pair<std::size_t, ETextureColorSpace>, std::uint32_t> TextureLookup;
 
 		for (auto& [MaterialKey, Bucket] : Buckets)
 		{
-			FCookedMaterial Material{.Name = "Default", .BaseColorTexture = 0};
-			std::array<float, 4> Factor{1.f, 1.f, 1.f, 1.f};
-			std::optional<std::size_t> ImageIndex;
+			FCookedMaterial Material{.Name = "Default"};
+			// glTF defaults differ from a newly authored dielectric material.
+			Material.Parameters.Metallic = 1.f;
+			Material.Parameters.Roughness = 1.f;
+			const auto AddTexture = [&](const auto& Info, const EMaterialTextureSlot Slot, const ETextureColorSpace ColorSpace, const EMaterialChannel Channel)
+			{
+				if (!Info || !Asset.textures[Info->textureIndex].imageIndex)
+				{
+					return;
+				}
+
+				const std::size_t ImageIndex = *Asset.textures[Info->textureIndex].imageIndex;
+				const auto Key = std::make_pair(ImageIndex, ColorSpace);
+				auto Found = TextureLookup.find(Key);
+				if (Found == TextureLookup.end())
+				{
+					const auto Bytes = GetImageBytes(Asset, Asset.images[ImageIndex]);
+					if (!Bytes)
+					{
+						Fail(std::format("Image {} has no loadable data", ImageIndex));
+						return;
+					}
+
+					auto Texture = CookEncodedTexture(*Bytes, ColorSpace);
+					if (!Texture)
+					{
+						Fail(std::format("Image {}: {}", ImageIndex, Texture.error().Message));
+						return;
+					}
+
+					Found = TextureLookup.emplace(Key, static_cast<std::uint32_t>(Model.Textures.size())).first;
+					Model.Textures.push_back(std::move(*Texture));
+				}
+
+				const auto Index = static_cast<std::size_t>(Slot);
+				Material.Textures[Index] = Found->second;
+				Material.Channels[Index] = Channel;
+			};
 
 			if (MaterialKey > 0)
 			{
 				const fastgltf::Material& Source = Asset.materials[MaterialKey - 1];
 				Material.Name = std::string(Source.name.begin(), Source.name.end()).substr(0, 256);
+				if (Material.Name.empty())
+				{
+					Material.Name = "Default";
+				}
 
 				for (std::size_t Channel = 0; Channel < 4; ++Channel)
 				{
-					Factor[Channel] = static_cast<float>(Source.pbrData.baseColorFactor[Channel]);
+					Material.Parameters.BaseColor[Channel] = static_cast<float>(Source.pbrData.baseColorFactor[Channel]);
 				}
 
-				if (Source.pbrData.baseColorTexture && Asset.textures[Source.pbrData.baseColorTexture->textureIndex].imageIndex)
+				Material.Parameters.Metallic = static_cast<float>(Source.pbrData.metallicFactor);
+				Material.Parameters.Roughness = static_cast<float>(Source.pbrData.roughnessFactor);
+				Material.Parameters.NormalStrength = Source.normalTexture ? static_cast<float>(Source.normalTexture->scale) : 1.f;
+				Material.Parameters.OcclusionStrength = Source.occlusionTexture ? static_cast<float>(Source.occlusionTexture->strength) : 1.f;
+				Material.Parameters.Emissive = {Source.emissiveFactor[0], Source.emissiveFactor[1], Source.emissiveFactor[2]};
+				Material.Parameters.AlphaCutoff = static_cast<float>(Source.alphaCutoff);
+				Material.Parameters.BlendMode = Source.alphaMode == fastgltf::AlphaMode::Mask ? EMaterialBlendMode::Masked : EMaterialBlendMode::Opaque;
+				if (Source.alphaMode == fastgltf::AlphaMode::Blend)
 				{
-					ImageIndex = *Asset.textures[Source.pbrData.baseColorTexture->textureIndex].imageIndex;
+					return std::unexpected(FAssetError{"Transparent glTF materials are not supported; use opaque or masked materials"});
 				}
+
+				AddTexture(Source.pbrData.baseColorTexture, EMaterialTextureSlot::BaseColor, ETextureColorSpace::Srgb, EMaterialChannel::Rgb);
+				AddTexture(Source.pbrData.metallicRoughnessTexture, EMaterialTextureSlot::Metallic, ETextureColorSpace::Linear, EMaterialChannel::Blue);
+				AddTexture(Source.pbrData.metallicRoughnessTexture, EMaterialTextureSlot::Roughness, ETextureColorSpace::Linear, EMaterialChannel::Green);
+				AddTexture(Source.normalTexture, EMaterialTextureSlot::Normal, ETextureColorSpace::Linear, EMaterialChannel::Rgb);
+				AddTexture(Source.occlusionTexture, EMaterialTextureSlot::Occlusion, ETextureColorSpace::Linear, EMaterialChannel::Red);
+				AddTexture(Source.emissiveTexture, EMaterialTextureSlot::Emissive, ETextureColorSpace::Srgb, EMaterialChannel::Rgb);
 			}
 
-			// Image indices are offset by one so zero means "factor only".
-			const auto Key = std::make_pair(ImageIndex ? *ImageIndex + 1 : 0, Factor);
-			auto Texture = TextureLookup.find(Key);
-			if (Texture == TextureLookup.end())
+			if (Error)
 			{
-				Texture = TextureLookup.emplace(Key, static_cast<std::uint32_t>(Model.Textures.size())).first;
-				Model.Textures.push_back(CookBaseColor(ImageIndex, Factor));
+				return std::unexpected(std::move(*Error));
 			}
 
-			Material.BaseColorTexture = Texture->second;
 			Model.Materials.push_back(std::move(Material));
 
 			const auto VertexBase = static_cast<std::uint32_t>(Model.Vertices.size());
@@ -257,9 +342,31 @@ private:
 		if (MaterialKey > 0)
 		{
 			const fastgltf::Material& Material = Asset.materials[MaterialKey - 1];
-			if (Material.pbrData.baseColorTexture)
+			std::optional<std::size_t> SelectedSet;
+			const auto CheckSet = [&](const auto& Texture)
 			{
-				TexCoordSet = Material.pbrData.baseColorTexture->texCoordIndex;
+				if (!Texture)
+				{
+					return;
+				}
+
+				if (SelectedSet && *SelectedSet != Texture->texCoordIndex)
+				{
+					Fail("glTF material uses multiple UV sets; Herta currently supports one UV set per primitive");
+				}
+
+				SelectedSet = Texture->texCoordIndex;
+			};
+
+			CheckSet(Material.pbrData.baseColorTexture);
+			CheckSet(Material.pbrData.metallicRoughnessTexture);
+			CheckSet(Material.normalTexture);
+			CheckSet(Material.occlusionTexture);
+			CheckSet(Material.emissiveTexture);
+			TexCoordSet = SelectedSet.value_or(0);
+			if (Error)
+			{
+				return;
 			}
 		}
 
@@ -354,30 +461,144 @@ private:
 				std::swap(Bucket.Indices[Index + 1], Bucket.Indices[Index + 2]);
 			}
 		}
+
+		if (!std::isfinite(Determinant) || std::abs(Determinant) < 1.e-12f)
+		{
+			Fail("glTF geometry has a singular or nonfinite node transform");
+			return;
+		}
+
+		GenerateFrame(Primitive, World, Bucket, VertexBase, VertexCount, IndexBase, Determinant);
 	}
 
-	[[nodiscard]] FCookedTexture CookBaseColor(const std::optional<std::size_t> ImageIndex, const std::array<float, 4>& Factor)
+	void GenerateFrame(const fastgltf::Primitive& Primitive, const fastgltf::math::fmat4x4& World, FMaterialBucket& Bucket, const std::size_t VertexBase, const std::size_t VertexCount, const std::size_t IndexBase, const float Determinant)
 	{
-		if (ImageIndex)
+		std::vector<FDirection> Normals(VertexCount);
+		std::vector<FDirection> Tangents(VertexCount);
+		std::vector<FDirection> Bitangents(VertexCount);
+		const auto Accumulate = [](FDirection& Target, const FDirection& Value)
 		{
-			const std::optional<std::span<const std::byte>> Bytes = GetImageBytes(Asset, Asset.images[*ImageIndex]);
-			if (!Bytes)
+			for (std::size_t Axis = 0; Axis < 3; ++Axis)
 			{
-				Warn(std::format("Image {} has no embedded or loadable data; using the base color factor", *ImageIndex));
+				Target[Axis] += Value[Axis];
 			}
-			else if (std::expected<FCookedTexture, FAssetError> Texture = CookEncodedTexture(*Bytes, ETextureColorSpace::Srgb, Factor))
+		};
+
+		for (std::size_t Index = IndexBase; Index < Bucket.Indices.size(); Index += 3)
+		{
+			const auto A = Bucket.Indices[Index] - VertexBase;
+			const auto B = Bucket.Indices[Index + 1] - VertexBase;
+			const auto C = Bucket.Indices[Index + 2] - VertexBase;
+			const auto& VA = Bucket.Vertices[VertexBase + A];
+			const auto& VB = Bucket.Vertices[VertexBase + B];
+			const auto& VC = Bucket.Vertices[VertexBase + C];
+			const auto Edge1 = Subtract(VB.Position, VA.Position);
+			const auto Edge2 = Subtract(VC.Position, VA.Position);
+			const auto FaceNormal = Cross(Edge1, Edge2);
+			const float U1 = VB.UV[0] - VA.UV[0];
+			const float V1 = VB.UV[1] - VA.UV[1];
+			const float U2 = VC.UV[0] - VA.UV[0];
+			const float V2 = VC.UV[1] - VA.UV[1];
+			const float UVDeterminant = U1 * V2 - U2 * V1;
+			FDirection Tangent{};
+			FDirection Bitangent{};
+			if (std::abs(UVDeterminant) > 1.e-12f)
 			{
-				return std::move(*Texture);
+				for (std::size_t Axis = 0; Axis < 3; ++Axis)
+				{
+					Tangent[Axis] = (Edge1[Axis] * V2 - Edge2[Axis] * V1) / UVDeterminant;
+					Bitangent[Axis] = (Edge2[Axis] * U1 - Edge1[Axis] * U2) / UVDeterminant;
+				}
 			}
-			else
+
+			for (const std::size_t Vertex : {A, B, C})
 			{
-				Warn(std::format("Image {}: {}; using the base color factor", *ImageIndex, Texture.error().Message));
+				Accumulate(Normals[Vertex], FaceNormal);
+				Accumulate(Tangents[Vertex], Tangent);
+				Accumulate(Bitangents[Vertex], Bitangent);
 			}
 		}
 
-		constexpr std::array White{std::byte{255}, std::byte{255}, std::byte{255}, std::byte{255}};
-		std::expected<FCookedTexture, FAssetError> Texture = CookTexture(1, 1, White, ETextureColorSpace::Srgb, Factor);
-		return Texture ? std::move(*Texture) : FCookedTexture{};
+		const auto* NormalAttribute = Primitive.findAttribute("NORMAL");
+		if (NormalAttribute != Primitive.attributes.end())
+		{
+			const auto& Accessor = Asset.accessors[NormalAttribute->accessorIndex];
+			if (Accessor.count != VertexCount)
+			{
+				Fail("glTF NORMAL count differs from POSITION");
+				return;
+			}
+
+			const FDirection X{World[0][0], World[0][1], World[0][2]};
+			const FDirection Y{World[1][0], World[1][1], World[1][2]};
+			const FDirection Z{World[2][0], World[2][1], World[2][2]};
+			const auto CX = Cross(Y, Z);
+			const auto CY = Cross(Z, X);
+			const auto CZ = Cross(X, Y);
+
+			fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec3>(Asset, Accessor, [&](const auto& Source, const std::size_t Index)
+			{
+				if (!std::isfinite(Source[0]) || !std::isfinite(Source[1]) || !std::isfinite(Source[2]))
+				{
+					Fail("glTF NORMAL contains nonfinite values");
+					return;
+				}
+
+				FDirection Normal;
+
+				for (std::size_t Axis = 0; Axis < 3; ++Axis)
+				{
+					Normal[Axis] = (CX[Axis] * Source[0] + CY[Axis] * Source[1] + CZ[Axis] * Source[2]) / Determinant;
+				}
+
+				Normals[Index] = Normalize(Normal, Normalize(Normals[Index], {0.f, 1.f, 0.f}));
+			});
+		}
+
+		const auto* TangentAttribute = Primitive.findAttribute("TANGENT");
+		std::vector<float> Signs(VertexCount, 0.f);
+		if (TangentAttribute != Primitive.attributes.end())
+		{
+			const auto& Accessor = Asset.accessors[TangentAttribute->accessorIndex];
+			if (Accessor.count != VertexCount)
+			{
+				Fail("glTF TANGENT count differs from POSITION");
+				return;
+			}
+
+			fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec4>(Asset, Accessor, [&](const auto& Source, const std::size_t Index)
+			{
+				if (!std::isfinite(Source[0]) || !std::isfinite(Source[1]) || !std::isfinite(Source[2]) || !std::isfinite(Source[3]) || std::abs(std::abs(Source[3]) - 1.f) > 0.01f)
+				{
+					Fail("glTF TANGENT contains nonfinite values or invalid handedness");
+					return;
+				}
+
+				for (std::size_t Axis = 0; Axis < 3; ++Axis)
+				{
+					Tangents[Index][Axis] = World[0][Axis] * Source[0] + World[1][Axis] * Source[1] + World[2][Axis] * Source[2];
+				}
+
+				Signs[Index] = (Source[3] < 0.f ? -1.f : 1.f) * (Determinant < 0.f ? -1.f : 1.f);
+			});
+		}
+
+		for (std::size_t Index = 0; Index < VertexCount; ++Index)
+		{
+			auto& Vertex = Bucket.Vertices[VertexBase + Index];
+			Vertex.Normal = Normalize(Normals[Index], {0.f, 1.f, 0.f});
+			const float Projection = Dot(Vertex.Normal, Tangents[Index]);
+			FDirection Tangent = Tangents[Index];
+
+			for (std::size_t Axis = 0; Axis < 3; ++Axis)
+			{
+				Tangent[Axis] -= Vertex.Normal[Axis] * Projection;
+			}
+
+			Tangent = Normalize(Tangent, Orthogonal(Vertex.Normal));
+			const float Sign = Signs[Index] != 0.f ? Signs[Index] : (Dot(Cross(Vertex.Normal, Tangent), Bitangents[Index]) < 0.f ? -1.f : 1.f);
+			Vertex.Tangent = {Tangent[0], Tangent[1], Tangent[2], Sign};
+		}
 	}
 
 	static void Optimize(FCookedModel& Model)
