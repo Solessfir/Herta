@@ -1,7 +1,7 @@
 # Herta Engine Design
 
 Status: Active design - Milestone 4 implemented, Milestone 5 next
-Last updated: 2026-10-05
+Last updated: 2026-10-06
 
 ## 1. Purpose
 
@@ -24,6 +24,8 @@ Editor responsiveness is an architectural requirement. Work is not parallelized 
 Herta does not claim production readiness during its foundation milestones. Production readiness is earned through shipped projects, measured performance, stable data formats, upgrade paths, broad hardware testing, and reliable tooling.
 
 Implementation is driven by one playable Sandbox game, not disconnected feature demonstrations. Build the first standalone game loop before broad localization, graph tooling, scripting, native hot reload, or editor extensibility. Later milestones extend that same game with real rendering, simulation, animation, sound, NPCs, and multiplayer use cases. Optional features enter only when that game or another concrete project needs them.
+
+The default [Sandbox playground](Playground.md) already exercises physics preview, hierarchy/component authoring, and shared-mesh rendering. Its static traversal course becomes the first playable objective in Milestone 5. Extend this same level with repeatable checks as new systems become available, rather than adding speculative components or disconnected demos.
 
 Herta is not required to become:
 

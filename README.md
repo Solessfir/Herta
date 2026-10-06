@@ -44,6 +44,7 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 
 - [Getting started](Docs/GettingStarted.md) - prerequisites, command-line builds, validation, tests, and cleanup.
 - [Editor guide](Docs/EditorGuide.md) - controls, selection, simulation, assets, and the Output Log.
+- [Sandbox playground](Docs/Playground.md) - feature stations and how to test them.
 - [Projects](Docs/Projects.md) - project creation, loading, and C++ module builds.
 - [Levels](Docs/Levels.md) - authored documents, world ownership, and legacy migration.
 - [Engine design](Docs/EngineDesign.md) - architecture and roadmap.

@@ -167,7 +167,7 @@ A `.gltf` usually references separate buffers and images, so it is only imported
 
 ## Editor previews
 
-The editor mounts two content roots: `Engine/Content` as `Engine` and `Games/Sandbox/Content` as `Game`. Asset IDs are global, so a reference does not depend on its mount; the picker shows mount-prefixed paths such as `Engine/Shapes/Cube.gltf`. Engine content holds the 1 m `Shapes/Cube.gltf`, which the preview cube and the scaled floor load by default. Its ID is fixed in `PreviewLevel.h`, and a test cooks it to verify its size, winding, and unmirrored UVs.
+The editor mounts two content roots: `Engine/Content` as `Engine` and the opened project's content root as `Game` (`Games/Sandbox/Content` by default). Asset IDs are global, so a reference does not depend on its mount; the picker shows mount-prefixed paths such as `Engine/Shapes/Cube.gltf`. Engine content holds the 1 m `Shapes/Cube.gltf`; its ID is fixed in `PreviewLevel.h`, and a test cooks it to verify its size, winding, and unmirrored UVs. The [Sandbox playground](Playground.md) also uses project-owned colored block assets with embedded geometry and glTF base-color factors, requiring no external textures or Blender.
 
 The editor scans content in the background at startup and again whenever the Static Mesh picker in Details opens. Choosing a model or texture cooks it in `HertaAssetWorker` on a blocking-IO task. A main-thread continuation uploads the result between frames, so the GPU upload never overlaps a frame recording. The newest choice for an object wins, and older results are discarded when they finish. Closing the editor cancels in-flight work and kills running workers.
 

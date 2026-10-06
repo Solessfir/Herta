@@ -24,7 +24,7 @@ Drag LMB from empty viewport space to box-select intersecting projected mesh bou
 
 ## Simulation
 
-The editor preview includes a 1 m cube initially positioned at Y=4 m and a 10 m square floor whose top is at Y=0. Both use the engine cube asset `Engine/Content/Shapes/Cube.gltf`; the floor is that cube scaled to 10 x 0.5 x 10 m. Click **Simulate** or press **Alt+S** to drop the cube from its current editor transform using Jolt Physics. Camera navigation and selection remain available, but transform editing is locked. Press **Escape** or click the active Simulate button to stop and restore the original transform. Physics runs at 60 Hz with render interpolation and bounded catch-up after stalls. **Play** remains disabled because the game runtime is not implemented. This is an editor preview slice, not the full physics milestone.
+The default [Sandbox playground](Playground.md) includes bounce, gravity, friction/damping, and stacking comparisons, plus a static traversal course and hierarchy workshop. Click **Simulate** or press **Alt+S** to run its dynamic bodies using Jolt Physics. Camera navigation and selection remain available, but transform editing is locked. Press **Escape** or click the active Simulate button to stop and restore every authored transform. Physics runs at 60 Hz with render interpolation and bounded catch-up after stalls. **Play** remains disabled because the game runtime is not implemented. This is an editor preview slice, not the full physics milestone.
 
 All entities with Static Mesh and Dynamic Rigid Body components simulate, including duplicates. Static bodies and other dynamics collide using mesh-bounds boxes. A floor is optional. Stopping restores every authored transform; simulated poses are never saved.
 
