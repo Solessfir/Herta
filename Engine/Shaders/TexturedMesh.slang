@@ -131,9 +131,7 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     {
         FVisualLight Light = Visual.Lights[I];
         if (int(Light.PositionType.w) == 1) continue;
-        int ShadowIndex = int(Light.ConeShadow.z);
-        float NormalBias = ShadowIndex >= 0 ? Visual.Shadows[ShadowIndex].Parameters.z : 0.0;
-        float Shadow = LightVisibility(ShadowAtlas, Light, Input.WorldPosition + N * NormalBias);
+        float Shadow = LightVisibility(ShadowAtlas, Light, Input.WorldPosition, N);
         if (int(Light.PositionType.w) == 4)
             Result += RectLighting(Light, Input.WorldPosition, N, V, Base.rgb, Metallic, Roughness) * Shadow;
         else

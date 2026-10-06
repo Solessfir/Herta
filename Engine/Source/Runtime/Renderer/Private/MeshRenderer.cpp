@@ -522,7 +522,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	}
 
 	auto White = Device.CreateTexture({.Name = "Default material map", .Extent = {1, 1}, .Format = ETextureFormat::Rgba8});
-	auto ShadowAtlas = Device.CreateTexture({.Name = "Shadow atlas 16 x 512", .Extent = {2048, 2048}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
+	auto ShadowAtlas = Device.CreateTexture({.Name = "Shadow atlas", .Extent = {ShadowAtlasWidth, ShadowAtlasHeight}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
 	if (!White || !ShadowAtlas)
 	{
 		return std::unexpected(!White ? White.error() : ShadowAtlas.error());

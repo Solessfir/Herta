@@ -96,27 +96,42 @@ float3 ProceduralSky(float3 Direction)
     return max(0.0, lerp(Ground, Scattering * SunRadiance, smoothstep(-0.03, 0.03, Direction.y)) + SunDisc * Transmittance * SunRadiance * 20.0);
 }
 
-float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, int ShadowIndex)
+float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, int ShadowIndex)
 {
     if (ShadowIndex < 0 || ShadowIndex >= int(Visual.Controls.y)) return 1.0;
     FShadow Shadow = Visual.Shadows[ShadowIndex];
+    int Radius = Visual.AtmosphereGeometry.w > 1.5 ? 1 : 0;
+    // Cascades store their world texel size; scaling the normal offset by the PCF footprint keeps coarse cascades free of acne.
+    Position += Normal * (Shadow.Parameters.z + Shadow.Parameters.w * float(Radius + 1));
     float4 Clip = mul(Shadow.WorldToClip, float4(Position, 1.0));
     float3 NDC = Clip.xyz / max(Clip.w, 0.00001);
     if (any(abs(NDC.xy) > 1.0) || NDC.z < 0.0 || NDC.z > 1.0) return 1.0;
     float2 UV = float2(NDC.x * 0.5 + 0.5, 0.5 - NDC.y * 0.5) * Shadow.Atlas.xy + Shadow.Atlas.zw;
+    // (2R+1)^2 bilinear PCF taps collapse to (2R+2)^2 loads with fractional edge weights, so texel edges do not show as steps.
+    uint Width, Height;
+    Atlas.GetDimensions(Width, Height);
+    float2 Size = float2(Width, Height);
+    int Last = 2 * Radius + 1;
+    float2 Texel = UV * Size - 0.5;
+    float2 Fraction = frac(Texel);
+    int2 Origin = int2(floor(Texel)) - Radius;
+    int2 TileMin = int2(Shadow.Atlas.zw * Size + 0.5);
+    int2 TileMax = TileMin + int2(Shadow.Atlas.xy * Size + 0.5) - 1;
     float Visibility = 0.0;
-    int Radius = Visual.AtmosphereGeometry.w > 1.5 ? 1 : 0;
-    for (int Y = -Radius; Y <= Radius; ++Y)
-    for (int X = -Radius; X <= Radius; ++X)
+    for (int Y = 0; Y <= Last; ++Y)
     {
-        float2 SampleUV = clamp(UV + float2(X, Y) / 2048.0, Shadow.Atlas.zw + 0.5 / 2048.0, Shadow.Atlas.zw + Shadow.Atlas.xy - 0.5 / 2048.0);
-        float Depth = Atlas.Load(int3(int2(SampleUV * 2048.0), 0)).r;
-        Visibility += NDC.z + Shadow.Parameters.x >= Depth ? 1.0 : 0.0;
+        float WeightY = Y == 0 ? 1.0 - Fraction.y : Y == Last ? Fraction.y : 1.0;
+        for (int X = 0; X <= Last; ++X)
+        {
+            float WeightX = X == 0 ? 1.0 - Fraction.x : X == Last ? Fraction.x : 1.0;
+            float Depth = Atlas.Load(int3(clamp(Origin + int2(X, Y), TileMin, TileMax), 0)).r;
+            Visibility += NDC.z + Shadow.Parameters.x >= Depth ? WeightX * WeightY : 0.0;
+        }
     }
-    return Visibility / float((2 * Radius + 1) * (2 * Radius + 1));
+    return Visibility / float(Last * Last);
 }
 
-float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Position)
+float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Position, float3 Normal)
 {
     int First = int(Light.ConeShadow.z);
     int Count = int(Light.ConeShadow.w);
@@ -127,7 +142,7 @@ float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Positi
         float3 D = Position - Light.PositionType.xyz;
         float3 A = abs(D);
         int Face = A.x >= A.y && A.x >= A.z ? (D.x > 0.0 ? 0 : 1) : A.y >= A.z ? (D.y > 0.0 ? 2 : 3) : (D.z > 0.0 ? 4 : 5);
-        return ShadowVisibility(Atlas, Position, First + Face);
+        return ShadowVisibility(Atlas, Position, Normal, First + Face);
     }
     if (Type == 0)
     {
@@ -135,11 +150,17 @@ float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Positi
         float Distance = dot(Position - Eye, normalize(mul((float3x3)Visual.ViewToWorld, float3(0.0, 0.0, 1.0))));
         for (int I = 0; I < Count; ++I)
         {
-            if (Distance <= Visual.Shadows[First + I].Parameters.y) return ShadowVisibility(Atlas, Position, First + I);
+            float Split = Visual.Shadows[First + I].Parameters.y;
+            if (Distance <= Split)
+            {
+                // Fade the last cascade out so the shadow distance does not end on a hard line.
+                float Fade = I == Count - 1 ? saturate((Distance - Split * 0.85) / (Split * 0.15)) : 0.0;
+                return lerp(ShadowVisibility(Atlas, Position, Normal, First + I), 1.0, Fade);
+            }
         }
         return 1.0;
     }
-    return ShadowVisibility(Atlas, Position, First);
+    return ShadowVisibility(Atlas, Position, Normal, First);
 }
 
 float LightAttenuation(FVisualLight Light, float3 Position, out float3 L)

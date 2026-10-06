@@ -232,6 +232,8 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 	};
 
 	std::size_t UniformIndex = 0;
+	bool bCascadesAssigned = false;
+	std::uint32_t LocalTiles = 0;
 	for (const FRenderLight& Source : Lights)
 	{
 		const FLightComponent& Light = Source.Settings;
@@ -248,10 +250,13 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 
 		const std::size_t Count = Light.Type == ELightType::Directional ? 4 : Light.Type == ELightType::Point ? 6
 		                                                                                                      : 1;
-		if (Count > MaximumRenderShadows - Result.size())
+		const bool bCascaded = Light.Type == ELightType::Directional;
+		if (Count > MaximumRenderShadows - Result.size() || (bCascaded && bCascadesAssigned))
 		{
 			continue;
 		}
+
+		bCascadesAssigned = bCascadesAssigned || bCascaded;
 
 		Target.ConeShadow[2] = static_cast<float>(Result.size());
 		Target.ConeShadow[3] = static_cast<float>(Count);
@@ -263,6 +268,7 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 		{
 			FMatrix4 Matrix;
 			float Split = Light.Range;
+			float Texel = 0.f;
 			if (Light.Type == ELightType::Directional)
 			{
 				constexpr std::array<float, 4> Splits{0.04f, 0.14f, 0.4f, 1.f};
@@ -285,7 +291,7 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 
 				Radius = std::ceil(Radius * 16.f) / 16.f;
 				FMatrix4 LightView = Look(Center - Direction * (Radius + 64.f), Direction, Up);
-				const float Texel = 2.f * Radius / 512.f;
+				Texel = 2.f * Radius / static_cast<float>(ShadowCascadeResolution);
 				LightView(0, 3) = std::round(LightView(0, 3) / Texel) * Texel;
 				LightView(1, 3) = std::round(LightView(1, 3) / Texel) * Texel;
 				FMatrix4 Ortho = FMatrix4::Zero();
@@ -310,9 +316,14 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 				Matrix = FMatrix4::PerspectiveReversedInfinite(FOV, 1.f, 0.05f) * Look(Position, Direction, Up);
 			}
 
-			const auto Tile = static_cast<std::uint32_t>(Result.size());
-			Uniforms.Shadows[Tile] = {.WorldToClip = Matrix.Data(), .Atlas = {0.25f, 0.25f, static_cast<float>(Tile % 4) * 0.25f, static_cast<float>(Tile / 4) * 0.25f}, .Parameters = {Light.ShadowBias, Split, Light.ShadowNormalBias, 0}};
-			Result.push_back({.WorldToClip = Matrix, .Viewport = {.X = (Tile % 4) * 512, .Y = (Tile / 4) * 512, .Width = 512, .Height = 512}});
+			const auto Cascade = static_cast<std::uint32_t>(Face);
+			const FRenderViewport Viewport = bCascaded ? FRenderViewport{.X = Cascade % 2 * ShadowCascadeResolution, .Y = Cascade / 2 * ShadowCascadeResolution, .Width = ShadowCascadeResolution, .Height = ShadowCascadeResolution}
+			                                          : FRenderViewport{.X = LocalTiles % 8 * ShadowTileResolution, .Y = 2 * ShadowCascadeResolution + LocalTiles / 8 * ShadowTileResolution, .Width = ShadowTileResolution, .Height = ShadowTileResolution};
+			LocalTiles += bCascaded ? 0 : 1;
+			constexpr float Width = ShadowAtlasWidth;
+			constexpr float Height = ShadowAtlasHeight;
+			Uniforms.Shadows[Result.size()] = {.WorldToClip = Matrix.Data(), .Atlas = {static_cast<float>(Viewport.Width) / Width, static_cast<float>(Viewport.Height) / Height, static_cast<float>(Viewport.X) / Width, static_cast<float>(Viewport.Y) / Height}, .Parameters = {Light.ShadowBias, Split, Light.ShadowNormalBias, Texel}};
+			Result.push_back({.WorldToClip = Matrix, .Viewport = Viewport});
 		}
 	}
 

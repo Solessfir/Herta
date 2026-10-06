@@ -2762,7 +2762,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 					ImGui::EndCombo();
 				}
 
-				ImGui::TextDisabled("Lights %zu / 32 - atlas 16 x 512 px", EnabledLightCount);
+				ImGui::TextDisabled("Lights %zu / 32 - shadows 2048 px cascades, 512 px tiles", EnabledLightCount);
 				ImGui::TextDisabled("Targets %.1f MiB - %zu draws", static_cast<double>(MeshRenderer->GetRenderTargetBytes()) / (1024. * 1024.), MeshRenderer->GetLastDrawCount());
 				if (ImGui::TreeNodeEx("GPU passes", ImGuiTreeNodeFlags_NoTreePushOnOpen))
 				{

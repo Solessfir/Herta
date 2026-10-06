@@ -168,13 +168,16 @@ TEST_CASE("Directional shadows allocate stable cascade tiles with increasing spl
 	{
 		const auto& Shadow = Shadows[Index];
 		CheckFinite(Shadow.WorldToClip);
-		CHECK(Shadow.Viewport.X == Index * 512);
-		CHECK(Shadow.Viewport.Y == 0);
-		CHECK(Shadow.Viewport.Width == 512);
-		CHECK(Shadow.Viewport.Height == 512);
+		CHECK(Shadow.Viewport.X == Index % 2 * ShadowCascadeResolution);
+		CHECK(Shadow.Viewport.Y == Index / 2 * ShadowCascadeResolution);
+		CHECK(Shadow.Viewport.Width == ShadowCascadeResolution);
+		CHECK(Shadow.Viewport.Height == ShadowCascadeResolution);
 		CHECK(Uniforms.Shadows[Index].WorldToClip == Shadow.WorldToClip.Data());
-		CHECK(Uniforms.Shadows[Index].Atlas[0] == 0.25f);
-		CHECK(Uniforms.Shadows[Index].Atlas[2] == static_cast<float>(Index) * 0.25f);
+		CHECK(Uniforms.Shadows[Index].Atlas[0] == 0.5f);
+		CHECK(Uniforms.Shadows[Index].Atlas[1] == 0.4f);
+		CHECK(Uniforms.Shadows[Index].Atlas[2] == static_cast<float>(Index % 2) * 0.5f);
+		CHECK(Uniforms.Shadows[Index].Atlas[3] == static_cast<float>(Index / 2) * 0.4f);
+		CHECK(Uniforms.Shadows[Index].Parameters[3] > 0.f);
 		CHECK(Uniforms.Shadows[Index].Parameters[1] > Previous);
 		CHECK(Shadow.WorldToClip(2, 2) < 0.f);
 		Previous = Uniforms.Shadows[Index].Parameters[1];
@@ -252,8 +255,8 @@ TEST_CASE("Directional cascades contain camera frustum corners for off-center pr
 						const FVector4 Clip = Shadows[Cascade].WorldToClip * World;
 						REQUIRE(Clip.W > 0.f);
 						// Snapping the light view can move a boundary by at most one atlas texel.
-						CHECK(std::abs(Clip.X / Clip.W) <= 1.f + 2.f / 512.f);
-						CHECK(std::abs(Clip.Y / Clip.W) <= 1.f + 2.f / 512.f);
+						CHECK(std::abs(Clip.X / Clip.W) <= 1.f + 2.f / ShadowCascadeResolution);
+						CHECK(std::abs(Clip.Y / Clip.W) <= 1.f + 2.f / ShadowCascadeResolution);
 						CHECK(Clip.Z / Clip.W >= 0.f);
 						CHECK(Clip.Z / Clip.W <= 1.f);
 					}
@@ -281,11 +284,29 @@ TEST_CASE("Shadow atlas budget skips whole lights instead of allocating partial 
 	CHECK(Uniforms.Controls[1] == static_cast<float>(MaximumRenderShadows));
 	CHECK(Uniforms.Lights[3].ConeShadow[2] == -1.f);
 	CHECK(Uniforms.Lights[3].ConeShadow[3] == 0.f);
-	CHECK(Shadows.back().Viewport.X == 1536);
-	CHECK(Shadows.back().Viewport.Y == 1536);
+	CHECK(Shadows.back().Viewport.X == 3 * ShadowTileResolution);
+	CHECK(Shadows.back().Viewport.Y == 2 * ShadowCascadeResolution + ShadowTileResolution);
+	CHECK(Shadows.back().Viewport.Width == ShadowTileResolution);
 	Lights[1].Settings.bCastShadows = false;
 	Uniforms = *Built;
 	const auto Reduced = BuildShadowViews(Uniforms, Lights, TestProjection());
 	CHECK(Reduced.size() == 13);
 	CHECK(Uniforms.Lights[0].ConeShadow[2] == -1.f);
+}
+
+TEST_CASE("Only the first shadowed directional light receives cascades")
+{
+	std::array<FRenderLight, 3> Lights{};
+	Lights[0].Settings.Type = ELightType::Directional;
+	Lights[1].Settings.Type = ELightType::Directional;
+	Lights[2].Settings.Type = ELightType::Spot;
+	const auto Built = BuildVisualUniforms({}, TestProjection(), {64, 64}, Lights, {});
+	REQUIRE(Built);
+	FVisualUniforms Uniforms = *Built;
+	const auto Shadows = BuildShadowViews(Uniforms, Lights, TestProjection());
+	REQUIRE(Shadows.size() == 5);
+	CHECK(Uniforms.Lights[1].ConeShadow[2] == -1.f);
+	CHECK(Uniforms.Lights[2].ConeShadow[2] == 4.f);
+	CHECK(Shadows[4].Viewport.X == 0);
+	CHECK(Shadows[4].Viewport.Y == 2 * ShadowCascadeResolution);
 }

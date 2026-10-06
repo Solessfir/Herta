@@ -32,7 +32,7 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
                 float G = Visual.Fog.z;
                 float Mu = dot(-Direction, L);
                 float Phase = (1.0 - G * G) / (4.0 * PI * pow(max(0.002, 1.0 + G * G - 2.0 * G * Mu), 1.5));
-                Incoming += Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Phase * LightVisibility(ShadowAtlas, Light, Position);
+                Incoming += Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Phase * LightVisibility(ShadowAtlas, Light, Position, float3(0.0, 0.0, 0.0));
             }
         }
         Scattering += Transmittance * (1.0 - SegmentT) * Visual.FogColor.rgb * Incoming;

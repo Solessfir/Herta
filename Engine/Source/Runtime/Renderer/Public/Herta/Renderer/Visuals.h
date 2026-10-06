@@ -11,6 +11,12 @@ namespace Herta
 inline constexpr std::size_t MaximumRenderLights = 32;
 inline constexpr std::size_t MaximumRenderShadows = 16;
 
+// One directional light owns four 2048 cascades in the top 4096x4096 of the atlas; local lights share sixteen 512 tiles in the strip below.
+inline constexpr std::uint32_t ShadowCascadeResolution = 2048;
+inline constexpr std::uint32_t ShadowTileResolution = 512;
+inline constexpr std::uint32_t ShadowAtlasWidth = 2 * ShadowCascadeResolution;
+inline constexpr std::uint32_t ShadowAtlasHeight = 2 * ShadowCascadeResolution + 2 * ShadowTileResolution;
+
 enum class EAntiAliasing : std::uint8_t
 {
 	Off,

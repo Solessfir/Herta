@@ -3783,7 +3783,7 @@
           "castShadows": true,
           "shadowBias": 0.001,
           "shadowNormalBias": 0.02,
-          "range": 10,
+          "range": 60,
           "innerConeAngle": 0.34906585,
           "outerConeAngle": 0.61086524,
           "width": 1,

@@ -1574,6 +1574,7 @@ std::expected<FObjectId, FLevelError> FEditorLevel::CreateLightEntity(const ELig
 
 	FLightComponent Light{.Type = Type};
 	Light.Intensity = Type == ELightType::Directional ? 50'000.f : (Type == ELightType::Sky ? 1.f : 1000.f);
+	Light.Range = Type == ELightType::Directional ? 60.f : Light.Range;
 	return InsertEntity({.Id = FObjectId::Generate(), .Name = std::string(Names[static_cast<std::size_t>(Type)]), .Transform = {.Translation = Position}, .Light = Light});
 }
 
@@ -1586,6 +1587,7 @@ std::expected<void, FLevelError> FEditorLevel::AddLightToSelected(const ELightTy
 
 	FLightComponent Light{.Type = Type};
 	Light.Intensity = Type == ELightType::Directional ? 50'000.f : (Type == ELightType::Sky ? 1.f : 1000.f);
+	Light.Range = Type == ELightType::Directional ? 60.f : Light.Range;
 	return ApplySelectedComponent(&FLevelEntity::Light, std::optional{Light}, "Add light", true);
 }
 

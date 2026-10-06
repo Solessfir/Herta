@@ -59,7 +59,7 @@ At 1280x726, Linux captures reported 50,697,216 bytes (48.3 MiB) of viewport tar
 
 ## Explicit limits
 
-- 32 enabled lights and 16 shadow views in a 2048x2048 atlas with 512 px tiles. The playground uses 12 views. Over-budget lights/shadows degrade predictably and expose their limits in Rendering settings.
+- 32 enabled lights and 16 shadow views in a 4096x5120 atlas: one directional light with four 2048 px cascades and 512 px local tiles. The playground uses 12 views. Over-budget lights/shadows degrade predictably and expose their limits in Rendering settings.
 - Rect shading integrates an area emitter; its shadow is a single center-emitter approximation. This is not soft area-shadow tracing or dynamic GI.
 - Analytic atmosphere and filtered sky lighting, not a full multi-scattering atmospheric LUT system. No clouds, weather, baked lighting, or emissive-surface GI.
 - Fog is quarter-resolution, capped at 512 px per dimension, with 16/32/64 ray steps. Depth-aware compositing avoids opaque-surface bleed. There is no temporal history; camera cuts and resize need no accumulation reset. Fine shafts can retain sampling noise/banding.
