@@ -405,8 +405,9 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 	ImGui::BeginDisabled(bDragging);
 	auto& VisibleIndices = State.VisibleIndices;
 	BuildOutlinerVisibleRows(State, Objects, Folders);
+	// A viewport pick keeps its drag interaction until release, so the request waits for the panel to accept input.
 	const bool bReveal = State.bRevealSelection && !bDragging;
-	State.bRevealSelection = false;
+	State.bRevealSelection &= bDragging;
 	if (bReveal && ExpandOutlinerAncestors(State, Objects, Folders, Selection.Active))
 	{
 		BuildOutlinerVisibleRows(State, Objects, Folders);

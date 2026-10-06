@@ -588,6 +588,44 @@ TEST_CASE("Outliner panel clips large hierarchy rows and focuses an offscreen in
 	}
 }
 
+TEST_CASE("Outliner reveal scrolls a viewport pick inside a collapsed folder into view")
+{
+	std::vector<FPreviewObject> Objects(400);
+	std::vector<FObjectId> Members;
+	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
+	{
+		Objects[Index].Id = {1, Index + 1};
+		Objects[Index].Label = "Entity " + std::to_string(Index);
+		Members.push_back(Objects[Index].Id);
+	}
+
+	const std::array<FLevelFolder, 1> Folders{{{.Id = {2, 1}, .Name = "Group", .Entities = Members}}};
+	FOutlinerRenameTestContext Test;
+	FPreviewSelection Selection;
+	Test.State.CollapsedFolders.insert(Folders[0].Id);
+	Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
+	Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
+	REQUIRE(Test.Entries != nullptr);
+	CHECK(Test.Entries->Scroll.y == 0.f);
+
+	// A viewport click holds the drag interaction for the frame after the pick, so the reveal must wait for release.
+	Selection.Select(350);
+	Test.State.bRevealSelection = true;
+	Test.PanelFrame(Objects, Selection, {500.f, 360.f}, true, {}, Folders);
+	CHECK(Test.State.bRevealSelection);
+	for (int Frame = 0; Frame < 3; ++Frame)
+	{
+		Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
+	}
+
+	CHECK(Test.State.CollapsedFolders.empty());
+	CHECK_FALSE(Test.State.bRevealSelection);
+	CHECK(Test.Entries->Scroll.y > 0.f);
+	const float Scroll = Test.Entries->Scroll.y;
+	Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
+	CHECK(Test.Entries->Scroll.y == Scroll);
+}
+
 TEST_CASE("Outliner panel drop targets distinguish object rows from empty root space and disable during dragging")
 {
 	const std::array<FPreviewObject, 3> Objects{{
