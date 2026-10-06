@@ -71,7 +71,16 @@ try {
         'Engine/Content/Shapes/Cube.gltf.hmeta',
         'Games/Sandbox/Content/Tracked.gltf',
         'Games/Sandbox/Content/Tracked.gltf.hmeta',
-        'Games/Sandbox/Scenes/Sandbox.hscene'
+        'Games/Sandbox/Levels/Sandbox.hlevel',
+        'Games/Sandbox/Sandbox.hertaproject',
+        'Templates/Projects/Game/Content.gitkeep',
+        'Templates/Projects/Game/Game.cpp.in',
+        'Templates/Projects/Game/Game.h.in',
+        'Templates/Projects/Game/Gitignore.in',
+        'Templates/Projects/Game/Main.hlevel',
+        'Templates/Projects/Game/Project.hertaproject.in',
+        'Templates/Projects/Game/Readme.in',
+        'Templates/Projects/Game/Template.json'
     )
     $NoticeFiles = @(
         'External/example/LICENSE',
@@ -131,7 +140,7 @@ try {
     }
 
     $Arguments.OutputDirectory = Join-Path $TemporaryRoot 'MissingInput'
-    foreach ($Path in @('Binaries/windows/x86_64/Shipping/Shaders/TexturedMesh.instanced.vert.hshader', 'Binaries/windows/x86_64/Shipping/Shaders/WorldGrid.frag.hshader', 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Scenes/Sandbox.hscene', 'External/example/LICENSE')) {
+    foreach ($Path in @('Binaries/windows/x86_64/Shipping/Shaders/TexturedMesh.instanced.vert.hshader', 'Binaries/windows/x86_64/Shipping/Shaders/WorldGrid.frag.hshader', 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Levels/Sandbox.hlevel', 'Games/Sandbox/Sandbox.hertaproject', 'Templates/Projects/Game/Main.hlevel', 'External/example/LICENSE')) {
         $MissingPath = Join-Path $FixtureRoot $Path
         [IO.File]::Move($MissingPath, "$MissingPath.saved")
         Assert-PackageFails $Arguments 'Required package file is missing'

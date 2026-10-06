@@ -1,4 +1,4 @@
-#include "EditorScene.h"
+#include "EditorLevel.h"
 #include "TestFiles.h"
 
 #include <doctest/doctest.h>
@@ -15,7 +15,7 @@ constexpr FObjectId HierarchyChild{20, 1};
 constexpr FObjectId HierarchyGrandchild{10, 1};
 constexpr FObjectId HierarchyTarget{40, 1};
 
-FSceneDocument MakeHierarchyDocument()
+FLevelDocument MakeHierarchyDocument()
 {
 	return {
 	    .Id = {1, 1},
@@ -29,35 +29,35 @@ FSceneDocument MakeHierarchyDocument()
 	};
 }
 
-void LoadHierarchy(FEditorScene& Scene, const std::filesystem::path& Directory)
+void LoadHierarchy(FEditorLevel& Level, const std::filesystem::path& Directory)
 {
-	const auto Path = Directory / "Hierarchy.hscene";
-	REQUIRE(SaveScene(Path, MakeHierarchyDocument()));
-	REQUIRE(Scene.Load(Path));
+	const auto Path = Directory / "Hierarchy.hlevel";
+	REQUIRE(SaveLevel(Path, MakeHierarchyDocument()));
+	REQUIRE(Level.Load(Path));
 }
 
-FSceneEntity ReadHierarchyEntity(const FEditorScene& Scene, const FObjectId Id)
+FLevelEntity ReadHierarchyEntity(const FEditorLevel& Level, const FObjectId Id)
 {
-	const auto Handle = Scene.GetWorld().FindEntity(Id);
+	const auto Handle = Level.GetWorld().FindEntity(Id);
 	REQUIRE(Handle);
-	const auto Entity = Scene.GetWorld().GetEntity(*Handle);
+	const auto Entity = Level.GetWorld().GetEntity(*Handle);
 	REQUIRE(Entity);
 	return *Entity;
 }
 
-TMatrix4<double> ReadHierarchyWorld(const FEditorScene& Scene, const FObjectId Id)
+TMatrix4<double> ReadHierarchyWorld(const FEditorLevel& Level, const FObjectId Id)
 {
-	const auto Handle = Scene.GetWorld().FindEntity(Id);
+	const auto Handle = Level.GetWorld().FindEntity(Id);
 	REQUIRE(Handle);
-	const auto Matrix = Scene.GetWorld().GetWorldMatrix(*Handle);
+	const auto Matrix = Level.GetWorld().GetWorldMatrix(*Handle);
 	REQUIRE(Matrix);
 	return *Matrix;
 }
 
-FPreviewObject& ReadHierarchyPreview(FEditorScene& Scene, const FObjectId Id)
+FPreviewObject& ReadHierarchyPreview(FEditorLevel& Level, const FObjectId Id)
 {
-	const auto Object = std::ranges::find(Scene.GetObjects(), Id, &FPreviewObject::Id);
-	REQUIRE(Object != Scene.GetObjects().end());
+	const auto Object = std::ranges::find(Level.GetObjects(), Id, &FPreviewObject::Id);
+	REQUIRE(Object != Level.GetObjects().end());
 	return *Object;
 }
 
@@ -69,10 +69,10 @@ void CheckHierarchyMatrix(const TMatrix4<double>& Actual, const TMatrix4<double>
 	}
 }
 
-void CheckHierarchyPreview(FEditorScene& Scene, const FObjectId Id)
+void CheckHierarchyPreview(FEditorLevel& Level, const FObjectId Id)
 {
-	const auto Expected = ReadHierarchyWorld(Scene, Id);
-	const auto& Object = ReadHierarchyPreview(Scene, Id);
+	const auto Expected = ReadHierarchyWorld(Level, Id);
+	const auto& Object = ReadHierarchyPreview(Level, Id);
 	const Im3d::Mat4 Actual(Object.Translation, Object.Rotation, Object.Scale);
 	for (int Row = 0; Row < 4; ++Row)
 	{
@@ -87,17 +87,17 @@ void CheckHierarchyPreview(FEditorScene& Scene, const FObjectId Id)
 TEST_CASE("Hierarchy authoring previews world poses and reparents selected roots as one transaction")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchyReparent");
-	FEditorScene Scene;
-	LoadHierarchy(Scene, Scratch.GetPath());
-	CHECK_FALSE(Scene.IsDirty());
-	CheckHierarchyPreview(Scene, HierarchyChild);
-	CheckHierarchyPreview(Scene, HierarchyGrandchild);
-	CHECK(ReadHierarchyPreview(Scene, HierarchyChild).Parent == HierarchyRoot);
-	const auto Before = Scene.GetWorld().SnapshotEntities();
-	const auto RootWorld = ReadHierarchyWorld(Scene, HierarchyRoot);
-	const auto ChildWorld = ReadHierarchyWorld(Scene, HierarchyChild);
-	const auto GrandchildWorld = ReadHierarchyWorld(Scene, HierarchyGrandchild);
-	const auto RootHandle = Scene.GetWorld().FindEntity(HierarchyRoot);
+	FEditorLevel Level;
+	LoadHierarchy(Level, Scratch.GetPath());
+	CHECK_FALSE(Level.IsDirty());
+	CheckHierarchyPreview(Level, HierarchyChild);
+	CheckHierarchyPreview(Level, HierarchyGrandchild);
+	CHECK(ReadHierarchyPreview(Level, HierarchyChild).Parent == HierarchyRoot);
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	const auto RootWorld = ReadHierarchyWorld(Level, HierarchyRoot);
+	const auto ChildWorld = ReadHierarchyWorld(Level, HierarchyChild);
+	const auto GrandchildWorld = ReadHierarchyWorld(Level, HierarchyGrandchild);
+	const auto RootHandle = Level.GetWorld().FindEntity(HierarchyRoot);
 	std::array Selected{HierarchyChild, HierarchyRoot};
 	SUBCASE("Child before parent")
 	{
@@ -108,25 +108,25 @@ TEST_CASE("Hierarchy authoring previews world poses and reparents selected roots
 		Selected = {HierarchyRoot, HierarchyChild};
 	}
 
-	Scene.SetSelection(Selected, HierarchyChild);
-	REQUIRE(Scene.ReparentEntities(Selected, HierarchyTarget));
-	CHECK(ReadHierarchyEntity(Scene, HierarchyRoot).Parent == HierarchyTarget);
-	CHECK(ReadHierarchyEntity(Scene, HierarchyChild).Parent == HierarchyRoot);
-	CHECK(Scene.GetWorld().FindEntity(HierarchyRoot) == RootHandle);
-	CHECK(Scene.GetActiveObject() == HierarchyChild);
-	CHECK(Scene.IsDirty());
-	CheckHierarchyMatrix(ReadHierarchyWorld(Scene, HierarchyRoot), RootWorld);
-	CheckHierarchyMatrix(ReadHierarchyWorld(Scene, HierarchyChild), ChildWorld);
-	CheckHierarchyMatrix(ReadHierarchyWorld(Scene, HierarchyGrandchild), GrandchildWorld);
-	const auto After = Scene.GetWorld().SnapshotEntities();
-	REQUIRE(Scene.Undo());
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	CHECK_FALSE(Scene.IsDirty());
-	REQUIRE(Scene.Redo());
-	CHECK(Scene.GetWorld().SnapshotEntities() == After);
-	REQUIRE(Scene.Save());
-	FEditorScene Loaded;
-	REQUIRE(Loaded.Load(Scene.GetPath()));
+	Level.SetSelection(Selected, HierarchyChild);
+	REQUIRE(Level.ReparentEntities(Selected, HierarchyTarget));
+	CHECK(ReadHierarchyEntity(Level, HierarchyRoot).Parent == HierarchyTarget);
+	CHECK(ReadHierarchyEntity(Level, HierarchyChild).Parent == HierarchyRoot);
+	CHECK(Level.GetWorld().FindEntity(HierarchyRoot) == RootHandle);
+	CHECK(Level.GetActiveObject() == HierarchyChild);
+	CHECK(Level.IsDirty());
+	CheckHierarchyMatrix(ReadHierarchyWorld(Level, HierarchyRoot), RootWorld);
+	CheckHierarchyMatrix(ReadHierarchyWorld(Level, HierarchyChild), ChildWorld);
+	CheckHierarchyMatrix(ReadHierarchyWorld(Level, HierarchyGrandchild), GrandchildWorld);
+	const auto After = Level.GetWorld().SnapshotEntities();
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	CHECK_FALSE(Level.IsDirty());
+	REQUIRE(Level.Redo());
+	CHECK(Level.GetWorld().SnapshotEntities() == After);
+	REQUIRE(Level.Save());
+	FEditorLevel Loaded;
+	REQUIRE(Loaded.Load(Level.GetPath()));
 	CHECK(Loaded.GetWorld().SnapshotEntities() == After);
 	CheckHierarchyPreview(Loaded, HierarchyGrandchild);
 }
@@ -134,89 +134,89 @@ TEST_CASE("Hierarchy authoring previews world poses and reparents selected roots
 TEST_CASE("Hierarchy reparent rejects cycles self and stale IDs without changing state")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchyFailures");
-	FEditorScene Scene;
-	LoadHierarchy(Scene, Scratch.GetPath());
-	const auto Before = Scene.GetWorld().SnapshotEntities();
-	const auto Selection = std::vector<FObjectId>(Scene.GetSelection().begin(), Scene.GetSelection().end());
-	const auto Generation = Scene.GetGeneration();
+	FEditorLevel Level;
+	LoadHierarchy(Level, Scratch.GetPath());
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	const auto Selection = std::vector<FObjectId>(Level.GetSelection().begin(), Level.GetSelection().end());
+	const auto Generation = Level.GetGeneration();
 	const std::array Root{HierarchyRoot};
-	CHECK_FALSE(Scene.ReparentEntities(Root, HierarchyRoot));
-	CHECK_FALSE(Scene.ReparentEntities(Root, HierarchyGrandchild));
-	CHECK_FALSE(Scene.ReparentEntities(Root, FObjectId{99, 99}));
+	CHECK_FALSE(Level.ReparentEntities(Root, HierarchyRoot));
+	CHECK_FALSE(Level.ReparentEntities(Root, HierarchyGrandchild));
+	CHECK_FALSE(Level.ReparentEntities(Root, FObjectId{99, 99}));
 	const std::array Stale{FObjectId{99, 99}};
-	CHECK_FALSE(Scene.ReparentEntities(Stale, HierarchyTarget));
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	CHECK(std::vector<FObjectId>(Scene.GetSelection().begin(), Scene.GetSelection().end()) == Selection);
-	CHECK(Scene.GetGeneration() == Generation);
-	CHECK_FALSE(Scene.CanUndo());
-	CHECK_FALSE(Scene.IsDirty());
+	CHECK_FALSE(Level.ReparentEntities(Stale, HierarchyTarget));
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	CHECK(std::vector<FObjectId>(Level.GetSelection().begin(), Level.GetSelection().end()) == Selection);
+	CHECK(Level.GetGeneration() == Generation);
+	CHECK_FALSE(Level.CanUndo());
+	CHECK_FALSE(Level.IsDirty());
 	const std::array Child{HierarchyChild};
-	REQUIRE(Scene.ReparentEntities(Child, HierarchyRoot));
-	CHECK_FALSE(Scene.CanUndo());
-	Scene.SetSimulationRunning(true);
-	CHECK_FALSE(Scene.ReparentEntities(Child, std::nullopt));
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	REQUIRE(Level.ReparentEntities(Child, HierarchyRoot));
+	CHECK_FALSE(Level.CanUndo());
+	Level.SetSimulationRunning(true);
+	CHECK_FALSE(Level.ReparentEntities(Child, std::nullopt));
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
 }
 
 TEST_CASE("Hierarchy edits move unselected descendants and preserve locals during grouped world edits")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchyEdits");
-	FEditorScene Scene;
-	LoadHierarchy(Scene, Scratch.GetPath());
-	const auto Before = Scene.GetWorld().SnapshotEntities();
-	const auto ChildLocal = ReadHierarchyEntity(Scene, HierarchyChild).Transform;
-	const auto GrandchildLocal = ReadHierarchyEntity(Scene, HierarchyGrandchild).Transform;
-	const auto ChildWorld = ReadHierarchyWorld(Scene, HierarchyChild);
-	const auto GrandchildWorld = ReadHierarchyWorld(Scene, HierarchyGrandchild);
-	const auto Generation = Scene.GetGeneration();
-	const auto* ObjectsData = Scene.GetObjects().data();
-	REQUIRE(Scene.BeginEdit("Move hierarchy"));
-	ReadHierarchyPreview(Scene, HierarchyRoot).Translation.x += 3.f;
-	REQUIRE(Scene.CommitEdits());
-	CHECK(Scene.GetGeneration() == Generation);
-	CHECK(Scene.GetObjects().data() == ObjectsData);
-	CHECK(ReadHierarchyEntity(Scene, HierarchyChild).Transform == ChildLocal);
-	CHECK(ReadHierarchyEntity(Scene, HierarchyGrandchild).Transform == GrandchildLocal);
-	CheckHierarchyMatrix(ReadHierarchyWorld(Scene, HierarchyChild), TMatrix4<double>::Translation({3., 0., 0.}) * ChildWorld);
-	CheckHierarchyPreview(Scene, HierarchyGrandchild);
-	ReadHierarchyPreview(Scene, HierarchyRoot).Translation.y += 2.f;
-	ReadHierarchyPreview(Scene, HierarchyChild).Translation.y += 2.f;
-	REQUIRE(Scene.EndEdit());
-	CHECK(ReadHierarchyEntity(Scene, HierarchyChild).Transform.Translation.Meters.IsNearlyEqual(ChildLocal.Translation.Meters, 0.00001));
-	CheckHierarchyMatrix(ReadHierarchyWorld(Scene, HierarchyGrandchild), TMatrix4<double>::Translation({3., 2., 0.}) * GrandchildWorld);
-	REQUIRE(Scene.Undo());
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	CHECK_FALSE(Scene.CanUndo());
+	FEditorLevel Level;
+	LoadHierarchy(Level, Scratch.GetPath());
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	const auto ChildLocal = ReadHierarchyEntity(Level, HierarchyChild).Transform;
+	const auto GrandchildLocal = ReadHierarchyEntity(Level, HierarchyGrandchild).Transform;
+	const auto ChildWorld = ReadHierarchyWorld(Level, HierarchyChild);
+	const auto GrandchildWorld = ReadHierarchyWorld(Level, HierarchyGrandchild);
+	const auto Generation = Level.GetGeneration();
+	const auto* ObjectsData = Level.GetObjects().data();
+	REQUIRE(Level.BeginEdit("Move hierarchy"));
+	ReadHierarchyPreview(Level, HierarchyRoot).Translation.x += 3.f;
+	REQUIRE(Level.CommitEdits());
+	CHECK(Level.GetGeneration() == Generation);
+	CHECK(Level.GetObjects().data() == ObjectsData);
+	CHECK(ReadHierarchyEntity(Level, HierarchyChild).Transform == ChildLocal);
+	CHECK(ReadHierarchyEntity(Level, HierarchyGrandchild).Transform == GrandchildLocal);
+	CheckHierarchyMatrix(ReadHierarchyWorld(Level, HierarchyChild), TMatrix4<double>::Translation({3., 0., 0.}) * ChildWorld);
+	CheckHierarchyPreview(Level, HierarchyGrandchild);
+	ReadHierarchyPreview(Level, HierarchyRoot).Translation.y += 2.f;
+	ReadHierarchyPreview(Level, HierarchyChild).Translation.y += 2.f;
+	REQUIRE(Level.EndEdit());
+	CHECK(ReadHierarchyEntity(Level, HierarchyChild).Transform.Translation.Meters.IsNearlyEqual(ChildLocal.Translation.Meters, 0.00001));
+	CheckHierarchyMatrix(ReadHierarchyWorld(Level, HierarchyGrandchild), TMatrix4<double>::Translation({3., 2., 0.}) * GrandchildWorld);
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	CHECK_FALSE(Level.CanUndo());
 }
 
 TEST_CASE("Hierarchy child world edits and unparenting preserve sibling poses")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchyChildEdit");
-	FEditorScene Scene;
-	LoadHierarchy(Scene, Scratch.GetPath());
-	const auto RootBefore = ReadHierarchyEntity(Scene, HierarchyRoot);
-	const auto ChildWorld = ReadHierarchyWorld(Scene, HierarchyChild);
-	ReadHierarchyPreview(Scene, HierarchyChild).Translation.z += 4.f;
-	REQUIRE(Scene.CommitEdits());
-	CHECK(ReadHierarchyEntity(Scene, HierarchyRoot) == RootBefore);
+	FEditorLevel Level;
+	LoadHierarchy(Level, Scratch.GetPath());
+	const auto RootBefore = ReadHierarchyEntity(Level, HierarchyRoot);
+	const auto ChildWorld = ReadHierarchyWorld(Level, HierarchyChild);
+	ReadHierarchyPreview(Level, HierarchyChild).Translation.z += 4.f;
+	REQUIRE(Level.CommitEdits());
+	CHECK(ReadHierarchyEntity(Level, HierarchyRoot) == RootBefore);
 	const auto Expected = TMatrix4<double>::Translation({0., 0., 4.}) * ChildWorld;
-	CheckHierarchyMatrix(ReadHierarchyWorld(Scene, HierarchyChild), Expected);
+	CheckHierarchyMatrix(ReadHierarchyWorld(Level, HierarchyChild), Expected);
 	const std::array Selected{HierarchyChild};
-	REQUIRE(Scene.ReparentEntities(Selected, std::nullopt));
-	CHECK_FALSE(ReadHierarchyEntity(Scene, HierarchyChild).Parent.IsValid());
-	CHECK(ReadHierarchyEntity(Scene, HierarchyGrandchild).Parent == HierarchyChild);
-	CheckHierarchyMatrix(ReadHierarchyWorld(Scene, HierarchyChild), Expected);
-	CheckHierarchyPreview(Scene, HierarchyGrandchild);
+	REQUIRE(Level.ReparentEntities(Selected, std::nullopt));
+	CHECK_FALSE(ReadHierarchyEntity(Level, HierarchyChild).Parent.IsValid());
+	CHECK(ReadHierarchyEntity(Level, HierarchyGrandchild).Parent == HierarchyChild);
+	CheckHierarchyMatrix(ReadHierarchyWorld(Level, HierarchyChild), Expected);
+	CheckHierarchyPreview(Level, HierarchyGrandchild);
 }
 
 TEST_CASE("Deleting hierarchy parents detaches surviving children without deleting descendants")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchyDelete");
-	FEditorScene Scene;
-	LoadHierarchy(Scene, Scratch.GetPath());
-	const auto Before = Scene.GetWorld().SnapshotEntities();
-	const auto ChildWorld = ReadHierarchyWorld(Scene, HierarchyChild);
-	const auto GrandchildWorld = ReadHierarchyWorld(Scene, HierarchyGrandchild);
+	FEditorLevel Level;
+	LoadHierarchy(Level, Scratch.GetPath());
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	const auto ChildWorld = ReadHierarchyWorld(Level, HierarchyChild);
+	const auto GrandchildWorld = ReadHierarchyWorld(Level, HierarchyGrandchild);
 	std::vector Selected{HierarchyRoot};
 	SUBCASE("Delete only the parent")
 	{
@@ -227,37 +227,37 @@ TEST_CASE("Deleting hierarchy parents detaches surviving children without deleti
 		Selected.push_back(HierarchyChild);
 	}
 
-	Scene.SetSelection(Selected, HierarchyRoot);
-	REQUIRE(Scene.DeleteSelected());
-	CHECK_FALSE(Scene.GetWorld().FindEntity(HierarchyRoot));
+	Level.SetSelection(Selected, HierarchyRoot);
+	REQUIRE(Level.DeleteSelected());
+	CHECK_FALSE(Level.GetWorld().FindEntity(HierarchyRoot));
 	if (Selected.size() == 1)
 	{
-		CHECK_FALSE(ReadHierarchyEntity(Scene, HierarchyChild).Parent.IsValid());
-		CHECK(ReadHierarchyEntity(Scene, HierarchyGrandchild).Parent == HierarchyChild);
-		CheckHierarchyMatrix(ReadHierarchyWorld(Scene, HierarchyChild), ChildWorld);
+		CHECK_FALSE(ReadHierarchyEntity(Level, HierarchyChild).Parent.IsValid());
+		CHECK(ReadHierarchyEntity(Level, HierarchyGrandchild).Parent == HierarchyChild);
+		CheckHierarchyMatrix(ReadHierarchyWorld(Level, HierarchyChild), ChildWorld);
 	}
 	else
 	{
-		CHECK_FALSE(Scene.GetWorld().FindEntity(HierarchyChild));
-		CHECK_FALSE(ReadHierarchyEntity(Scene, HierarchyGrandchild).Parent.IsValid());
+		CHECK_FALSE(Level.GetWorld().FindEntity(HierarchyChild));
+		CHECK_FALSE(ReadHierarchyEntity(Level, HierarchyGrandchild).Parent.IsValid());
 	}
 
-	CheckHierarchyMatrix(ReadHierarchyWorld(Scene, HierarchyGrandchild), GrandchildWorld);
-	const auto After = Scene.GetWorld().SnapshotEntities();
-	REQUIRE(Scene.Undo());
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	REQUIRE(Scene.Redo());
-	CHECK(Scene.GetWorld().SnapshotEntities() == After);
+	CheckHierarchyMatrix(ReadHierarchyWorld(Level, HierarchyGrandchild), GrandchildWorld);
+	const auto After = Level.GetWorld().SnapshotEntities();
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	REQUIRE(Level.Redo());
+	CHECK(Level.GetWorld().SnapshotEntities() == After);
 }
 
 TEST_CASE("Hierarchical duplication remaps selected parents and applies world offsets once")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchyDuplicate");
-	FEditorScene Scene;
-	LoadHierarchy(Scene, Scratch.GetPath());
-	const auto Before = Scene.GetWorld().SnapshotEntities();
-	const auto RootWorld = ReadHierarchyWorld(Scene, HierarchyRoot);
-	const auto ChildWorld = ReadHierarchyWorld(Scene, HierarchyChild);
+	FEditorLevel Level;
+	LoadHierarchy(Level, Scratch.GetPath());
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	const auto RootWorld = ReadHierarchyWorld(Level, HierarchyRoot);
+	const auto ChildWorld = ReadHierarchyWorld(Level, HierarchyChild);
 	std::vector Selected{HierarchyRoot, HierarchyChild};
 	SUBCASE("Duplicate parent and child together")
 	{
@@ -268,11 +268,11 @@ TEST_CASE("Hierarchical duplication remaps selected parents and applies world of
 		Selected = {HierarchyChild};
 	}
 
-	Scene.SetSelection(Selected, HierarchyChild);
-	REQUIRE(Scene.DuplicateSelected(false, {3., 1., -2.}));
+	Level.SetSelection(Selected, HierarchyChild);
+	REQUIRE(Level.DuplicateSelected(false, {3., 1., -2.}));
 	FObjectId RootCopy;
 	FObjectId ChildCopy;
-	for (const auto& Entity : Scene.GetWorld().SnapshotEntities())
+	for (const auto& Entity : Level.GetWorld().SnapshotEntities())
 	{
 		if (Entity.Name == "Root Copy")
 		{
@@ -286,21 +286,21 @@ TEST_CASE("Hierarchical duplication remaps selected parents and applies world of
 	}
 
 	REQUIRE(ChildCopy.IsValid());
-	CHECK(ReadHierarchyEntity(Scene, ChildCopy).Parent == (RootCopy.IsValid() ? RootCopy : HierarchyRoot));
-	CheckHierarchyMatrix(ReadHierarchyWorld(Scene, ChildCopy), TMatrix4<double>::Translation({3., 1., -2.}) * ChildWorld);
+	CHECK(ReadHierarchyEntity(Level, ChildCopy).Parent == (RootCopy.IsValid() ? RootCopy : HierarchyRoot));
+	CheckHierarchyMatrix(ReadHierarchyWorld(Level, ChildCopy), TMatrix4<double>::Translation({3., 1., -2.}) * ChildWorld);
 	if (RootCopy.IsValid())
 	{
-		CheckHierarchyMatrix(ReadHierarchyWorld(Scene, RootCopy), TMatrix4<double>::Translation({3., 1., -2.}) * RootWorld);
+		CheckHierarchyMatrix(ReadHierarchyWorld(Level, RootCopy), TMatrix4<double>::Translation({3., 1., -2.}) * RootWorld);
 	}
 
-	REQUIRE(Scene.Undo());
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
 }
 
 TEST_CASE("Hierarchy clipboard remaps internal links and roots fragments copied without parents")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchyClipboard");
-	FEditorScene Source;
+	FEditorLevel Source;
 	LoadHierarchy(Source, Scratch.GetPath());
 	const auto ChildWorld = ReadHierarchyWorld(Source, HierarchyChild);
 	std::vector Selected{HierarchyRoot, HierarchyChild};
@@ -316,7 +316,7 @@ TEST_CASE("Hierarchy clipboard remaps internal links and roots fragments copied 
 	Source.SetSelection(Selected, HierarchyChild);
 	const auto Clipboard = Source.CopySelected();
 	REQUIRE(Clipboard);
-	FEditorScene Target;
+	FEditorLevel Target;
 	const auto Before = Target.GetWorld().SnapshotEntities();
 	REQUIRE(Target.PasteEntities(*Clipboard));
 	FObjectId ChildCopy;
@@ -349,67 +349,67 @@ TEST_CASE("Hierarchy clipboard remaps internal links and roots fragments copied 
 TEST_CASE("Hierarchy rejects sheared poses before loading or reparenting")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchyShear");
-	FEditorScene Scene;
-	const auto Before = Scene.GetWorld().SnapshotEntities();
+	FEditorLevel Level;
+	const auto Before = Level.GetWorld().SnapshotEntities();
 	auto Document = MakeHierarchyDocument();
 	Document.Entities[2].Transform.Scale = {2.f, 1.f, 1.f};
-	const auto Path = Scratch.GetPath() / "Sheared.hscene";
-	REQUIRE(SaveScene(Path, Document));
-	CHECK_FALSE(Scene.Load(Path));
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	const auto Child = Scene.GetObjects()[0].Id;
-	const auto Floor = Scene.GetObjects()[1].Id;
+	const auto Path = Scratch.GetPath() / "Sheared.hlevel";
+	REQUIRE(SaveLevel(Path, Document));
+	CHECK_FALSE(Level.Load(Path));
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	const auto Child = Level.GetObjects()[0].Id;
+	const auto Floor = Level.GetObjects()[1].Id;
 	const std::array Selected{Child};
-	CHECK_FALSE(Scene.ReparentEntities(Selected, Floor));
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	CHECK_FALSE(Scene.CanUndo());
+	CHECK_FALSE(Level.ReparentEntities(Selected, Floor));
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	CHECK_FALSE(Level.CanUndo());
 }
 
 TEST_CASE("Hierarchy rejected world edits restore preview and leave transaction history untouched")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchyRejectedEdit");
-	FEditorScene Scene;
-	LoadHierarchy(Scene, Scratch.GetPath());
-	const auto Before = Scene.GetWorld().SnapshotEntities();
-	const auto Generation = Scene.GetGeneration();
-	const auto ChildBefore = ReadHierarchyPreview(Scene, HierarchyChild);
-	const auto* ObjectsData = Scene.GetObjects().data();
+	FEditorLevel Level;
+	LoadHierarchy(Level, Scratch.GetPath());
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	const auto Generation = Level.GetGeneration();
+	const auto ChildBefore = ReadHierarchyPreview(Level, HierarchyChild);
+	const auto* ObjectsData = Level.GetObjects().data();
 
 	SUBCASE("Non-finite world translation")
 	{
-		ReadHierarchyPreview(Scene, HierarchyChild).Translation.x = std::numeric_limits<float>::quiet_NaN();
+		ReadHierarchyPreview(Level, HierarchyChild).Translation.x = std::numeric_limits<float>::quiet_NaN();
 	}
 
 	SUBCASE("Parent nonuniform scale creates descendant shear")
 	{
-		ReadHierarchyPreview(Scene, HierarchyRoot).Scale.x = 3.f;
+		ReadHierarchyPreview(Level, HierarchyRoot).Scale.x = 3.f;
 	}
 
-	CHECK_FALSE(Scene.CommitEdits());
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	CHECK(Scene.GetGeneration() == Generation);
-	CHECK(Scene.GetObjects().data() == ObjectsData);
-	const auto& ChildAfter = ReadHierarchyPreview(Scene, HierarchyChild);
+	CHECK_FALSE(Level.CommitEdits());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	CHECK(Level.GetGeneration() == Generation);
+	CHECK(Level.GetObjects().data() == ObjectsData);
+	const auto& ChildAfter = ReadHierarchyPreview(Level, HierarchyChild);
 	CHECK(ChildAfter.Translation.x == ChildBefore.Translation.x);
 	CHECK(ChildAfter.Translation.y == ChildBefore.Translation.y);
 	CHECK(ChildAfter.Translation.z == ChildBefore.Translation.z);
-	CheckHierarchyPreview(Scene, HierarchyRoot);
-	CHECK_FALSE(Scene.CanUndo());
-	CHECK_FALSE(Scene.IsDirty());
-	REQUIRE(Scene.CommitEdits());
+	CheckHierarchyPreview(Level, HierarchyRoot);
+	CHECK_FALSE(Level.CanUndo());
+	CHECK_FALSE(Level.IsDirty());
+	REQUIRE(Level.CommitEdits());
 }
 
 TEST_CASE("Hierarchy simulation world overrides are independent and propagate to non-body descendants")
 {
 	Tests::FScratchDirectory Scratch("HertaHierarchySimulation");
-	FEditorScene Scene;
-	LoadHierarchy(Scene, Scratch.GetPath());
-	const auto Before = Scene.GetWorld().SnapshotEntities();
-	const auto GrandchildWorld = ReadHierarchyWorld(Scene, HierarchyGrandchild);
-	const auto ChildWorld = ReadHierarchyWorld(Scene, HierarchyChild);
-	const auto AuthoredPreview = Scene.GetObjects();
-	Scene.SetSimulationRunning(true);
-	ReadHierarchyPreview(Scene, HierarchyRoot).Translation.y -= 2.f;
+	FEditorLevel Level;
+	LoadHierarchy(Level, Scratch.GetPath());
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	const auto GrandchildWorld = ReadHierarchyWorld(Level, HierarchyGrandchild);
+	const auto ChildWorld = ReadHierarchyWorld(Level, HierarchyChild);
+	const auto AuthoredPreview = Level.GetObjects();
+	Level.SetSimulationRunning(true);
+	ReadHierarchyPreview(Level, HierarchyRoot).Translation.y -= 2.f;
 	std::vector Overrides{HierarchyRoot};
 	FVector3d ExpectedDelta{0., -2., 0.};
 
@@ -419,15 +419,15 @@ TEST_CASE("Hierarchy simulation world overrides are independent and propagate to
 
 	SUBCASE("Simulated child keeps its independent world pose")
 	{
-		ReadHierarchyPreview(Scene, HierarchyChild).Translation.y -= 1.f;
+		ReadHierarchyPreview(Level, HierarchyChild).Translation.y -= 1.f;
 		Overrides.push_back(HierarchyChild);
 		ExpectedDelta = {0., -1., 0.};
 	}
 
-	REQUIRE(Scene.UpdatePreviewHierarchy(Overrides));
+	REQUIRE(Level.UpdatePreviewHierarchy(Overrides));
 	const auto CheckTransient = [&](const FObjectId Id, const TMatrix4<double>& Authored)
 	{
-		const auto& Object = ReadHierarchyPreview(Scene, Id);
+		const auto& Object = ReadHierarchyPreview(Level, Id);
 		const Im3d::Mat4 Preview(Object.Translation, Object.Rotation, Object.Scale);
 		const auto Expected = TMatrix4<double>::Translation(ExpectedDelta) * Authored;
 
@@ -442,12 +442,12 @@ TEST_CASE("Hierarchy simulation world overrides are independent and propagate to
 
 	CheckTransient(HierarchyChild, ChildWorld);
 	CheckTransient(HierarchyGrandchild, GrandchildWorld);
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	CHECK_FALSE(Scene.IsDirty());
-	CHECK_FALSE(Scene.CanUndo());
-	Scene.GetObjects() = AuthoredPreview;
-	Scene.SetSimulationRunning(false);
-	REQUIRE(Scene.CommitEdits());
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	CHECK_FALSE(Level.IsDirty());
+	CHECK_FALSE(Level.CanUndo());
+	Level.GetObjects() = AuthoredPreview;
+	Level.SetSimulationRunning(false);
+	REQUIRE(Level.CommitEdits());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
 }
 }

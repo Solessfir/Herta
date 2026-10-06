@@ -1,4 +1,4 @@
-#include "EditorScene.h"
+#include "EditorLevel.h"
 
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/Math/AffineTransform.h"
@@ -14,7 +14,7 @@ namespace Herta
 {
 namespace
 {
-constexpr FObjectId DefaultSceneId{0x10935c1f4f594b12, 0x9a139dca302101e0};
+constexpr FObjectId DefaultLevelId{0x10935c1f4f594b12, 0x9a139dca302101e0};
 constexpr FObjectId DefaultCubeId{0x21935c1f4f594b12, 0x9a139dca302101e1};
 constexpr FObjectId DefaultFloorId{0x31935c1f4f594b12, 0x9a139dca302101e2};
 
@@ -43,7 +43,7 @@ Im3d::Mat3 ToEditorRotation(const FQuaternion& Rotation)
 	return Result;
 }
 
-FPreviewObject ToEditorObject(const FSceneEntity& Entity, const TTransform<double>& WorldPose)
+FPreviewObject ToEditorObject(const FLevelEntity& Entity, const TTransform<double>& WorldPose)
 {
 	const auto& Rotation = WorldPose.Rotation;
 	return {
@@ -62,19 +62,19 @@ std::filesystem::path Utf8Path(const std::string_view Text)
 	return std::filesystem::path(std::u8string(Text.begin(), Text.end()));
 }
 
-std::expected<void, FSceneError> ValidateEditorPoseRange(const TTransform<double>& Pose)
+std::expected<void, FLevelError> ValidateEditorPoseRange(const TTransform<double>& Pose)
 {
 	const auto& Position = Pose.Translation;
 	const FVector3 Scale{Pose.Scale3D};
 	if (std::abs(Position.X) > 1.e7 || std::abs(Position.Y) > 1.e7 || std::abs(Position.Z) > 1.e7 || Scale.X < 0.001f || Scale.Y < 0.001f || Scale.Z < 0.001f || Scale.X > 1000.f || Scale.Y > 1000.f || Scale.Z > 1000.f)
 	{
-		return std::unexpected(FSceneError{"Scene transform exceeds the current float viewport editing range"});
+		return std::unexpected(FLevelError{"Level transform exceeds the current float viewport editing range"});
 	}
 
 	return {};
 }
 
-TMatrix4<double> MakeLocalMatrix(const FSceneTransform& Transform)
+TMatrix4<double> MakeLocalMatrix(const FLevelTransform& Transform)
 {
 	const auto& Rotation = Transform.Rotation;
 	return TMatrix4<double>::Transform(Transform.Translation.Meters, TQuaternion<double>{Rotation.X, Rotation.Y, Rotation.Z, Rotation.W}, FVector3d{Transform.Scale});
@@ -89,12 +89,12 @@ struct FEditorHierarchy
 	std::vector<TTransform<double>> Poses;
 };
 
-std::expected<TTransform<double>, FSceneError> DecomposeEditorWorld(const TMatrix4<double>& Matrix)
+std::expected<TTransform<double>, FLevelError> DecomposeEditorWorld(const TMatrix4<double>& Matrix)
 {
 	const auto Pose = TryDecomposeTransform(Matrix);
 	if (!Pose)
 	{
-		return std::unexpected(FSceneError{"Scene hierarchy requires shear or an unrepresentable world transform"});
+		return std::unexpected(FLevelError{"Level hierarchy requires shear or an unrepresentable world transform"});
 	}
 
 	if (auto Result = ValidateEditorPoseRange(*Pose); !Result)
@@ -105,9 +105,9 @@ std::expected<TTransform<double>, FSceneError> DecomposeEditorWorld(const TMatri
 	return *Pose;
 }
 
-std::expected<FEditorHierarchy, FSceneError> BuildEditorHierarchy(const std::span<const FSceneEntity> Entities)
+std::expected<FEditorHierarchy, FLevelError> BuildEditorHierarchy(const std::span<const FLevelEntity> Entities)
 {
-	if (auto Result = ValidateSceneEntities(Entities); !Result)
+	if (auto Result = ValidateLevelEntities(Entities); !Result)
 	{
 		return std::unexpected(Result.error());
 	}
@@ -166,18 +166,18 @@ std::expected<FEditorHierarchy, FSceneError> BuildEditorHierarchy(const std::spa
 	return Hierarchy;
 }
 
-std::expected<void, FSceneError> SetLocalFromWorld(FSceneEntity& Entity, const TMatrix4<double>& DesiredWorld, const TMatrix4<double>& ParentWorld)
+std::expected<void, FLevelError> SetLocalFromWorld(FLevelEntity& Entity, const TMatrix4<double>& DesiredWorld, const TMatrix4<double>& ParentWorld)
 {
 	const auto Inverse = TryInverseAffine(ParentWorld);
 	if (!Inverse)
 	{
-		return std::unexpected(FSceneError{"The parent world transform cannot be inverted"});
+		return std::unexpected(FLevelError{"The parent world transform cannot be inverted"});
 	}
 
 	const auto Local = TryDecomposeTransform(*Inverse * DesiredWorld);
 	if (!Local)
 	{
-		return std::unexpected(FSceneError{"This hierarchy edit would require shear or an unrepresentable local transform"});
+		return std::unexpected(FLevelError{"This hierarchy edit would require shear or an unrepresentable local transform"});
 	}
 
 	const auto& Rotation = Local->Rotation;
@@ -190,7 +190,7 @@ std::expected<void, FSceneError> SetLocalFromWorld(FSceneEntity& Entity, const T
 	return {};
 }
 
-std::expected<TTransform<double>, FSceneError> EditedWorldPose(const FPreviewObject& Object, const FPreviewObject& Previous, TTransform<double> Pose)
+std::expected<TTransform<double>, FLevelError> EditedWorldPose(const FPreviewObject& Object, const FPreviewObject& Previous, TTransform<double> Pose)
 {
 	for (int Axis = 0; Axis < 3; ++Axis)
 	{
@@ -220,7 +220,7 @@ std::expected<TTransform<double>, FSceneError> EditedWorldPose(const FPreviewObj
 		const auto Rotation = TryDecomposeTransform(Matrix);
 		if (!Rotation || std::abs(Rotation->Scale3D.X - 1.) > 1e-6 || std::abs(Rotation->Scale3D.Y - 1.) > 1e-6 || std::abs(Rotation->Scale3D.Z - 1.) > 1e-6)
 		{
-			return std::unexpected(FSceneError{"The edited world rotation is not representable"});
+			return std::unexpected(FLevelError{"The edited world rotation is not representable"});
 		}
 
 		Pose.Rotation = Rotation->Rotation;
@@ -241,9 +241,9 @@ bool SamePreviewPose(const FPreviewObject& Left, const FPreviewObject& Right)
 	       && std::ranges::equal(Left.Rotation.m, Right.Rotation.m);
 }
 
-std::expected<FEditorHierarchy, FSceneError> ValidateEditorChanges(const std::span<const FSceneEntity> Before, const std::span<const FSceneEntityChange> Changes)
+std::expected<FEditorHierarchy, FLevelError> ValidateEditorChanges(const std::span<const FLevelEntity> Before, const std::span<const FLevelEntityChange> Changes)
 {
-	std::map<FObjectId, FSceneEntity> Candidates;
+	std::map<FObjectId, FLevelEntity> Candidates;
 
 	for (const auto& Entity : Before)
 	{
@@ -263,7 +263,7 @@ std::expected<FEditorHierarchy, FSceneError> ValidateEditorChanges(const std::sp
 		}
 	}
 
-	std::vector<FSceneEntity> Entities;
+	std::vector<FLevelEntity> Entities;
 	Entities.reserve(Candidates.size());
 
 	for (auto& [Id, Entity] : Candidates)
@@ -274,11 +274,11 @@ std::expected<FEditorHierarchy, FSceneError> ValidateEditorChanges(const std::sp
 	return BuildEditorHierarchy(Entities);
 }
 
-std::vector<FSceneEntityChange> ReverseChanges(const std::span<const FSceneEntityChange> Changes)
+std::vector<FLevelEntityChange> ReverseChanges(const std::span<const FLevelEntityChange> Changes)
 {
-	std::vector<FSceneEntityChange> Reversed(Changes.begin(), Changes.end());
+	std::vector<FLevelEntityChange> Reversed(Changes.begin(), Changes.end());
 
-	for (FSceneEntityChange& Change : Reversed)
+	for (FLevelEntityChange& Change : Reversed)
 	{
 		std::swap(Change.Before, Change.After);
 	}
@@ -286,9 +286,9 @@ std::vector<FSceneEntityChange> ReverseChanges(const std::span<const FSceneEntit
 	return Reversed;
 }
 
-std::vector<FSceneEntityChange> DiffEntities(const std::span<const FSceneEntity> Before, const std::span<const FSceneEntity> After)
+std::vector<FLevelEntityChange> DiffEntities(const std::span<const FLevelEntity> Before, const std::span<const FLevelEntity> After)
 {
-	std::vector<FSceneEntityChange> Changes;
+	std::vector<FLevelEntityChange> Changes;
 	std::size_t BeforeIndex = 0;
 	std::size_t AfterIndex = 0;
 
@@ -338,15 +338,15 @@ std::string UniqueEntityName(const std::string_view Base, std::unordered_set<std
 }
 }
 
-FEditorScene::FEditorScene(const std::size_t MaximumTransactions, const std::size_t MaximumMemoryCost)
-    : Id(DefaultSceneId)
+FEditorLevel::FEditorLevel(const std::size_t MaximumTransactions, const std::size_t MaximumMemoryCost)
+    : Id(DefaultLevelId)
     , Name("Sandbox")
     , History(MaximumTransactions, MaximumMemoryCost)
 {
 	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, 0.4f) * FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, -0.25f);
 	const std::array Defaults{
-	    FSceneEntity{.Id = DefaultCubeId, .Name = "Preview Cube", .Transform = {.Translation = FWorldPosition{0., 4., 0.}, .Rotation = Rotation}, .Mesh = FStaticMeshComponent{EngineCubeAsset}, .BodyType = ESceneBodyType::Dynamic},
-	    FSceneEntity{.Id = DefaultFloorId, .Name = "Floor", .Transform = {.Translation = FWorldPosition{0., -0.25, 0.}, .Scale = {10.f, 0.5f, 10.f}}, .Mesh = FStaticMeshComponent{EngineCubeAsset}, .BodyType = ESceneBodyType::Static},
+	    FLevelEntity{.Id = DefaultCubeId, .Name = "Preview Cube", .Transform = {.Translation = FWorldPosition{0., 4., 0.}, .Rotation = Rotation}, .Mesh = FStaticMeshComponent{EngineCubeAsset}, .BodyType = ELevelBodyType::Dynamic},
+	    FLevelEntity{.Id = DefaultFloorId, .Name = "Floor", .Transform = {.Translation = FWorldPosition{0., -0.25, 0.}, .Scale = {10.f, 0.5f, 10.f}}, .Mesh = FStaticMeshComponent{EngineCubeAsset}, .BodyType = ELevelBodyType::Static},
 	};
 
 	if (!World.ReplaceEntities(Defaults))
@@ -360,9 +360,9 @@ FEditorScene::FEditorScene(const std::size_t MaximumTransactions, const std::siz
 	ActiveObject = Objects.front().Id;
 }
 
-std::expected<void, FSceneError> FEditorScene::Load(const std::filesystem::path& Path)
+std::expected<void, FLevelError> FEditorLevel::Load(const std::filesystem::path& Path)
 {
-	auto Document = LoadScene(Path);
+	auto Document = LoadLevel(Path);
 	if (!Document)
 	{
 		return std::unexpected(Document.error());
@@ -371,21 +371,21 @@ std::expected<void, FSceneError> FEditorScene::Load(const std::filesystem::path&
 	return LoadDocument(std::move(*Document), Path);
 }
 
-std::expected<void, FSceneError> FEditorScene::LoadDocument(FSceneDocument Document, const std::filesystem::path& Path)
+std::expected<void, FLevelError> FEditorLevel::LoadDocument(FLevelDocument Document, const std::filesystem::path& Path)
 {
-	if (auto Result = ValidateSceneDocument(Document); !Result)
+	if (auto Result = ValidateLevelDocument(Document); !Result)
 	{
 		return Result;
 	}
 
 	if (bSimulationRunning)
 	{
-		return std::unexpected(FSceneError{"Stop simulation before loading a scene"});
+		return std::unexpected(FLevelError{"Stop simulation before loading a level"});
 	}
 
 	if (ActiveEdit)
 	{
-		return std::unexpected(FSceneError{"Finish or cancel the active edit before loading a scene"});
+		return std::unexpected(FLevelError{"Finish or cancel the active edit before loading a level"});
 	}
 
 	if (const auto Hierarchy = BuildEditorHierarchy(Document.Entities); !Hierarchy)
@@ -415,7 +415,7 @@ std::expected<void, FSceneError> FEditorScene::LoadDocument(FSceneDocument Docum
 	return {};
 }
 
-std::expected<void, FSceneError> FEditorScene::CommitEdits(const std::string_view Label)
+std::expected<void, FLevelError> FEditorLevel::CommitEdits(const std::string_view Label)
 {
 	if (auto Result = CheckAuthoringAllowed(true); !Result)
 	{
@@ -425,7 +425,7 @@ std::expected<void, FSceneError> FEditorScene::CommitEdits(const std::string_vie
 	if (Objects.size() != World.GetEntityCount())
 	{
 		RestoreObjects(false);
-		return std::unexpected(FSceneError{"Editor view no longer matches the authored entity set"});
+		return std::unexpected(FLevelError{"Editor view no longer matches the authored entity set"});
 	}
 
 	bool bChanged = false;
@@ -438,7 +438,7 @@ std::expected<void, FSceneError> FEditorScene::CommitEdits(const std::string_vie
 		if (Object.Id != Previous.Id || Object.Parent != Previous.Parent)
 		{
 			RestoreObjects(false);
-			return std::unexpected(FSceneError{"Editor view contains stale identity or hierarchy data"});
+			return std::unexpected(FLevelError{"Editor view contains stale identity or hierarchy data"});
 		}
 
 		bChanged = bChanged || Object.Label != Previous.Label || Object.Mesh != Previous.Mesh || !SamePreviewPose(Object, Previous);
@@ -523,7 +523,7 @@ std::expected<void, FSceneError> FEditorScene::CommitEdits(const std::string_vie
 		}
 	}
 
-	if (auto Result = ValidateSceneEntities(Candidates); !Result)
+	if (auto Result = ValidateLevelEntities(Candidates); !Result)
 	{
 		RestoreObjects(false);
 		return Result;
@@ -560,11 +560,11 @@ std::expected<void, FSceneError> FEditorScene::CommitEdits(const std::string_vie
 	return {};
 }
 
-std::expected<void, FSceneError> FEditorScene::Save(const std::filesystem::path& Path)
+std::expected<void, FLevelError> FEditorLevel::Save(const std::filesystem::path& Path)
 {
 	if (ActiveEdit)
 	{
-		return std::unexpected(FSceneError{"Finish or cancel the active edit before saving a scene"});
+		return std::unexpected(FLevelError{"Finish or cancel the active edit before saving a level"});
 	}
 
 	if (!bSimulationRunning)
@@ -578,10 +578,10 @@ std::expected<void, FSceneError> FEditorScene::Save(const std::filesystem::path&
 	const std::filesystem::path Target = Path.empty() ? CurrentPath : Path;
 	if (Target.empty())
 	{
-		return std::unexpected(FSceneError{"No scene path is set; use scene.save <path>"});
+		return std::unexpected(FLevelError{"No level path is set; use level.save <path>"});
 	}
 
-	if (auto Result = SaveScene(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities()}); !Result)
+	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities()}); !Result)
 	{
 		return Result;
 	}
@@ -591,22 +591,22 @@ std::expected<void, FSceneError> FEditorScene::Save(const std::filesystem::path&
 	return {};
 }
 
-std::expected<void, FSceneError> FEditorScene::CheckAuthoringAllowed(const bool bAllowActiveEdit) const
+std::expected<void, FLevelError> FEditorLevel::CheckAuthoringAllowed(const bool bAllowActiveEdit) const
 {
 	if (bSimulationRunning)
 	{
-		return std::unexpected(FSceneError{"Stop simulation before editing the authored scene"});
+		return std::unexpected(FLevelError{"Stop simulation before editing the authored level"});
 	}
 
 	if (ActiveEdit && !bAllowActiveEdit)
 	{
-		return std::unexpected(FSceneError{"Finish or cancel the active edit first"});
+		return std::unexpected(FLevelError{"Finish or cancel the active edit first"});
 	}
 
 	return {};
 }
 
-void FEditorScene::RebuildObjects()
+void FEditorLevel::RebuildObjects()
 {
 	const auto Entities = World.SnapshotEntities();
 	const auto Hierarchy = BuildEditorHierarchy(Entities);
@@ -630,10 +630,10 @@ void FEditorScene::RebuildObjects()
 	}
 }
 
-void FEditorScene::RestoreObjects(const bool bNotify)
+void FEditorLevel::RestoreObjects(const bool bNotify)
 {
 	const auto Entities = World.SnapshotEntities();
-	if (Objects.size() != Entities.size() || !std::ranges::equal(Objects, Entities, {}, &FPreviewObject::Id, &FSceneEntity::Id))
+	if (Objects.size() != Entities.size() || !std::ranges::equal(Objects, Entities, {}, &FPreviewObject::Id, &FLevelEntity::Id))
 	{
 		RebuildObjects();
 		return;
@@ -658,11 +658,11 @@ void FEditorScene::RestoreObjects(const bool bNotify)
 	}
 }
 
-FEditorTransaction FEditorScene::MakeTransaction(const std::string_view Label, const std::vector<FSceneEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, const std::optional<FObjectId> BeforeActive, const std::vector<FObjectId>& AfterSelection, const std::optional<FObjectId> AfterActive)
+FEditorTransaction FEditorLevel::MakeTransaction(const std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, const std::optional<FObjectId> BeforeActive, const std::vector<FObjectId>& AfterSelection, const std::optional<FObjectId> AfterActive)
 {
-	std::size_t Cost = sizeof(FSceneEntityChange) * Changes.size() + sizeof(FObjectId) * (BeforeSelection.size() + AfterSelection.size());
+	std::size_t Cost = sizeof(FLevelEntityChange) * Changes.size() + sizeof(FObjectId) * (BeforeSelection.size() + AfterSelection.size());
 
-	for (const FSceneEntityChange& Change : Changes)
+	for (const FLevelEntityChange& Change : Changes)
 	{
 		Cost += Change.Before ? Change.Before->Name.size() : 0;
 		Cost += Change.After ? Change.After->Name.size() : 0;
@@ -691,7 +691,7 @@ FEditorTransaction FEditorScene::MakeTransaction(const std::string_view Label, c
 	};
 }
 
-std::expected<void, FSceneError> FEditorScene::RecordChanges(const std::string_view Label, const std::vector<FSceneEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, const std::optional<FObjectId> BeforeActive)
+std::expected<void, FLevelError> FEditorLevel::RecordChanges(const std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, const std::optional<FObjectId> BeforeActive)
 {
 	if (Changes.empty())
 	{
@@ -702,13 +702,13 @@ std::expected<void, FSceneError> FEditorScene::RecordChanges(const std::string_v
 
 	if (!Recorded)
 	{
-		return std::unexpected(FSceneError{Recorded.error().Message});
+		return std::unexpected(FLevelError{Recorded.error().Message});
 	}
 
 	return {};
 }
 
-std::expected<void, FSceneError> FEditorScene::BeginEdit(const std::string_view Label)
+std::expected<void, FLevelError> FEditorLevel::BeginEdit(const std::string_view Label)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -717,7 +717,7 @@ std::expected<void, FSceneError> FEditorScene::BeginEdit(const std::string_view 
 
 	if (Label.empty())
 	{
-		return std::unexpected(FSceneError{"An edit requires a transaction label"});
+		return std::unexpected(FLevelError{"An edit requires a transaction label"});
 	}
 
 	// Flush any preceding discrete edit before taking the gesture's original snapshots.
@@ -730,7 +730,7 @@ std::expected<void, FSceneError> FEditorScene::BeginEdit(const std::string_view 
 	return {};
 }
 
-std::expected<void, FSceneError> FEditorScene::EndEdit()
+std::expected<void, FLevelError> FEditorLevel::EndEdit()
 {
 	if (auto Result = CheckAuthoringAllowed(true); !Result)
 	{
@@ -739,7 +739,7 @@ std::expected<void, FSceneError> FEditorScene::EndEdit()
 
 	if (!ActiveEdit)
 	{
-		return std::unexpected(FSceneError{"There is no active edit to finish"});
+		return std::unexpected(FLevelError{"There is no active edit to finish"});
 	}
 
 	if (auto Result = CommitEdits(); !Result)
@@ -768,7 +768,7 @@ std::expected<void, FSceneError> FEditorScene::EndEdit()
 	return {};
 }
 
-std::expected<void, FSceneError> FEditorScene::CancelEdit()
+std::expected<void, FLevelError> FEditorLevel::CancelEdit()
 {
 	if (auto Result = CheckAuthoringAllowed(true); !Result)
 	{
@@ -777,7 +777,7 @@ std::expected<void, FSceneError> FEditorScene::CancelEdit()
 
 	if (!ActiveEdit)
 	{
-		return std::unexpected(FSceneError{"There is no active edit to cancel"});
+		return std::unexpected(FLevelError{"There is no active edit to cancel"});
 	}
 
 	const auto Changes = DiffEntities(World.SnapshotEntities(), ActiveEdit->Before);
@@ -792,12 +792,12 @@ std::expected<void, FSceneError> FEditorScene::CancelEdit()
 	return {};
 }
 
-bool FEditorScene::HasActiveEdit() const
+bool FEditorLevel::HasActiveEdit() const
 {
 	return ActiveEdit.has_value();
 }
 
-std::expected<void, FSceneError> FEditorScene::Undo()
+std::expected<void, FLevelError> FEditorLevel::Undo()
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -811,13 +811,13 @@ std::expected<void, FSceneError> FEditorScene::Undo()
 
 	if (auto Result = History.Undo(); !Result)
 	{
-		return std::unexpected(FSceneError{Result.error().Message});
+		return std::unexpected(FLevelError{Result.error().Message});
 	}
 
 	return {};
 }
 
-std::expected<void, FSceneError> FEditorScene::Redo()
+std::expected<void, FLevelError> FEditorLevel::Redo()
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -831,38 +831,38 @@ std::expected<void, FSceneError> FEditorScene::Redo()
 
 	if (auto Result = History.Redo(); !Result)
 	{
-		return std::unexpected(FSceneError{Result.error().Message});
+		return std::unexpected(FLevelError{Result.error().Message});
 	}
 
 	return {};
 }
 
-bool FEditorScene::CanUndo() const
+bool FEditorLevel::CanUndo() const
 {
 	return !bSimulationRunning && !ActiveEdit && History.CanUndo();
 }
 
-bool FEditorScene::CanRedo() const
+bool FEditorLevel::CanRedo() const
 {
 	return !bSimulationRunning && !ActiveEdit && History.CanRedo();
 }
 
-bool FEditorScene::IsDirty() const
+bool FEditorLevel::IsDirty() const
 {
 	return History.IsDirty() || (ActiveEdit && ActiveEdit->Before != World.SnapshotEntities());
 }
 
-std::string_view FEditorScene::GetUndoLabel() const
+std::string_view FEditorLevel::GetUndoLabel() const
 {
 	return History.GetUndoLabel();
 }
 
-std::string_view FEditorScene::GetRedoLabel() const
+std::string_view FEditorLevel::GetRedoLabel() const
 {
 	return History.GetRedoLabel();
 }
 
-void FEditorScene::SetSelection(const std::span<const FObjectId> Selected, const std::optional<FObjectId> Active)
+void FEditorLevel::SetSelection(const std::span<const FObjectId> Selected, const std::optional<FObjectId> Active)
 {
 	std::vector<FObjectId> ValidSelection;
 	ValidSelection.reserve(Selected.size());
@@ -880,17 +880,17 @@ void FEditorScene::SetSelection(const std::span<const FObjectId> Selected, const
 	ActiveObject = Active && ContainsObjectId(Selection, *Active) ? Active : (Selection.empty() ? std::nullopt : std::optional{Selection.back()});
 }
 
-std::span<const FObjectId> FEditorScene::GetSelection() const
+std::span<const FObjectId> FEditorLevel::GetSelection() const
 {
 	return Selection;
 }
 
-std::optional<FObjectId> FEditorScene::GetActiveObject() const
+std::optional<FObjectId> FEditorLevel::GetActiveObject() const
 {
 	return ActiveObject;
 }
 
-std::expected<void, FSceneError> FEditorScene::ApplyStructuralChanges(const std::string_view Label, const std::vector<FSceneEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, const std::optional<FObjectId> AfterActive)
+std::expected<void, FLevelError> FEditorLevel::ApplyStructuralChanges(const std::string_view Label, const std::vector<FLevelEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, const std::optional<FObjectId> AfterActive)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -911,33 +911,33 @@ std::expected<void, FSceneError> FEditorScene::ApplyStructuralChanges(const std:
 	const auto Executed = History.Execute(MakeTransaction(Label, Changes, Selection, ActiveObject, AfterSelection, EffectiveActive));
 	if (!Executed)
 	{
-		return std::unexpected(FSceneError{Executed.error().Message});
+		return std::unexpected(FLevelError{Executed.error().Message});
 	}
 
 	return {};
 }
 
-std::expected<FObjectId, FSceneError> FEditorScene::CreateEntity(const FWorldPosition& Position)
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateEntity(const FWorldPosition& Position)
 {
 	return InsertEntity({.Id = FObjectId::Generate(), .Name = "Cube", .Transform = {.Translation = Position}, .Mesh = FStaticMeshComponent{.Asset = EngineCubeAsset}});
 }
 
-std::expected<FObjectId, FSceneError> FEditorScene::CreateEmptyEntity(const FWorldPosition& Position)
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateEmptyEntity(const FWorldPosition& Position)
 {
 	return InsertEntity({.Id = FObjectId::Generate(), .Name = "Entity", .Transform = {.Translation = Position}});
 }
 
-std::expected<FObjectId, FSceneError> FEditorScene::CreateMeshEntity(const FAssetId Asset, const std::string_view Label, const FWorldPosition& Position)
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateMeshEntity(const FAssetId Asset, const std::string_view Label, const FWorldPosition& Position)
 {
 	if (!Asset.IsValid())
 	{
-		return std::unexpected(FSceneError{"A static mesh requires a valid asset ID"});
+		return std::unexpected(FLevelError{"A static mesh requires a valid asset ID"});
 	}
 
 	return InsertEntity({.Id = FObjectId::Generate(), .Name = std::string(Label), .Transform = {.Translation = Position}, .Mesh = FStaticMeshComponent{.Asset = Asset}});
 }
 
-std::expected<FObjectId, FSceneError> FEditorScene::InsertEntity(FSceneEntity Entity)
+std::expected<FObjectId, FLevelError> FEditorLevel::InsertEntity(FLevelEntity Entity)
 {
 	if (const auto Result = DecomposeEditorWorld(MakeLocalMatrix(Entity.Transform)); !Result)
 	{
@@ -961,22 +961,22 @@ std::expected<FObjectId, FSceneError> FEditorScene::InsertEntity(FSceneEntity En
 	return Entity.Id;
 }
 
-std::expected<void, FSceneError> FEditorScene::AddStaticMeshToSelected(const FAssetId Asset)
+std::expected<void, FLevelError> FEditorLevel::AddStaticMeshToSelected(const FAssetId Asset)
 {
 	if (!Asset.IsValid())
 	{
-		return std::unexpected(FSceneError{"A static mesh requires a valid asset ID"});
+		return std::unexpected(FLevelError{"A static mesh requires a valid asset ID"});
 	}
 
 	return ApplySelectedMesh(FStaticMeshComponent{.Asset = Asset});
 }
 
-std::expected<void, FSceneError> FEditorScene::RemoveStaticMeshFromSelected()
+std::expected<void, FLevelError> FEditorLevel::RemoveStaticMeshFromSelected()
 {
 	return ApplySelectedMesh(std::nullopt);
 }
 
-std::expected<void, FSceneError> FEditorScene::ApplySelectedMesh(const std::optional<FStaticMeshComponent> Mesh)
+std::expected<void, FLevelError> FEditorLevel::ApplySelectedMesh(const std::optional<FStaticMeshComponent> Mesh)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -988,17 +988,17 @@ std::expected<void, FSceneError> FEditorScene::ApplySelectedMesh(const std::opti
 		return Result;
 	}
 
-	std::vector<FSceneEntityChange> Changes;
+	std::vector<FLevelEntityChange> Changes;
 
 	for (const FObjectId Object : Selection)
 	{
-		const FSceneEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
 		if (Before.Mesh.has_value() == Mesh.has_value())
 		{
 			continue;
 		}
 
-		FSceneEntity After = Before;
+		FLevelEntity After = Before;
 		After.Mesh = Mesh;
 		Changes.push_back({.Before = Before, .After = std::move(After)});
 	}
@@ -1006,27 +1006,27 @@ std::expected<void, FSceneError> FEditorScene::ApplySelectedMesh(const std::opti
 	return ApplyStructuralChanges(Mesh ? "Add static mesh" : "Remove static mesh", Changes, Selection, ActiveObject);
 }
 
-std::expected<void, FSceneError> FEditorScene::AddRigidBodyToSelected(const ESceneBodyType Type)
+std::expected<void, FLevelError> FEditorLevel::AddRigidBodyToSelected(const ELevelBodyType Type)
 {
-	if (Type != ESceneBodyType::Static && Type != ESceneBodyType::Dynamic)
+	if (Type != ELevelBodyType::Static && Type != ELevelBodyType::Dynamic)
 	{
-		return std::unexpected(FSceneError{"Adding a rigid body requires Static or Dynamic motion"});
+		return std::unexpected(FLevelError{"Adding a rigid body requires Static or Dynamic motion"});
 	}
 
 	return ApplySelectedBodyType(Type, true);
 }
 
-std::expected<void, FSceneError> FEditorScene::SetSelectedBodyType(const ESceneBodyType Type)
+std::expected<void, FLevelError> FEditorLevel::SetSelectedBodyType(const ELevelBodyType Type)
 {
-	if (Type != ESceneBodyType::None && Type != ESceneBodyType::Static && Type != ESceneBodyType::Dynamic)
+	if (Type != ELevelBodyType::None && Type != ELevelBodyType::Static && Type != ELevelBodyType::Dynamic)
 	{
-		return std::unexpected(FSceneError{"The rigid body motion type is invalid"});
+		return std::unexpected(FLevelError{"The rigid body motion type is invalid"});
 	}
 
 	return ApplySelectedBodyType(Type, false);
 }
 
-std::expected<void, FSceneError> FEditorScene::ApplySelectedBodyType(const ESceneBodyType Type, const bool bOnlyAbsent)
+std::expected<void, FLevelError> FEditorLevel::ApplySelectedBodyType(const ELevelBodyType Type, const bool bOnlyAbsent)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -1038,20 +1038,20 @@ std::expected<void, FSceneError> FEditorScene::ApplySelectedBodyType(const EScen
 		return Result;
 	}
 
-	std::vector<FSceneEntityChange> Changes;
+	std::vector<FLevelEntityChange> Changes;
 
 	for (const FObjectId Object : Selection)
 	{
-		const FSceneEntity Before = *World.GetEntity(*World.FindEntity(Object));
-		if (Before.BodyType == Type || (bOnlyAbsent && Before.BodyType != ESceneBodyType::None) || (!bOnlyAbsent && Before.BodyType == ESceneBodyType::None))
+		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		if (Before.BodyType == Type || (bOnlyAbsent && Before.BodyType != ELevelBodyType::None) || (!bOnlyAbsent && Before.BodyType == ELevelBodyType::None))
 		{
 			continue;
 		}
 
-		FSceneEntity After = Before;
+		FLevelEntity After = Before;
 		After.BodyType = Type;
 
-		if (Type == ESceneBodyType::None)
+		if (Type == ELevelBodyType::None)
 		{
 			After.BodySettings = {};
 		}
@@ -1059,10 +1059,10 @@ std::expected<void, FSceneError> FEditorScene::ApplySelectedBodyType(const EScen
 		Changes.push_back({.Before = Before, .After = std::move(After)});
 	}
 
-	return ApplyStructuralChanges(bOnlyAbsent ? "Add rigid body" : (Type == ESceneBodyType::None ? "Remove rigid body" : "Set rigid body motion"), Changes, Selection, ActiveObject);
+	return ApplyStructuralChanges(bOnlyAbsent ? "Add rigid body" : (Type == ELevelBodyType::None ? "Remove rigid body" : "Set rigid body motion"), Changes, Selection, ActiveObject);
 }
 
-std::expected<void, FSceneError> FEditorScene::SetSelectedBodyProperty(float FSceneRigidBodySettings::* const Property, const float Value)
+std::expected<void, FLevelError> FEditorLevel::SetSelectedBodyProperty(float FLevelRigidBodySettings::* const Property, const float Value)
 {
 	if (auto Result = CheckAuthoringAllowed(true); !Result)
 	{
@@ -1071,7 +1071,7 @@ std::expected<void, FSceneError> FEditorScene::SetSelectedBodyProperty(float FSc
 
 	if (!Property)
 	{
-		return std::unexpected(FSceneError{"A rigid body property is required"});
+		return std::unexpected(FLevelError{"A rigid body property is required"});
 	}
 
 	if (auto Result = CommitEdits(); !Result)
@@ -1079,20 +1079,20 @@ std::expected<void, FSceneError> FEditorScene::SetSelectedBodyProperty(float FSc
 		return Result;
 	}
 
-	std::vector<FSceneEntityChange> Changes;
+	std::vector<FLevelEntityChange> Changes;
 
 	for (const FObjectId Object : Selection)
 	{
-		const FSceneEntity Before = *World.GetEntity(*World.FindEntity(Object));
-		if (Before.BodyType == ESceneBodyType::None || Before.BodySettings.*Property == Value)
+		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		if (Before.BodyType == ELevelBodyType::None || Before.BodySettings.*Property == Value)
 		{
 			continue;
 		}
 
-		FSceneEntity After = Before;
+		FLevelEntity After = Before;
 		After.BodySettings.*Property = Value;
 
-		if (auto Result = ValidateSceneRigidBodySettings(After.BodySettings); !Result)
+		if (auto Result = ValidateLevelRigidBodySettings(After.BodySettings); !Result)
 		{
 			return Result;
 		}
@@ -1108,7 +1108,7 @@ std::expected<void, FSceneError> FEditorScene::SetSelectedBodyProperty(float FSc
 	return ApplyStructuralChanges("Edit rigid body", Changes, Selection, ActiveObject);
 }
 
-std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWithinActiveEdit, const FVector3d& WorldOffset)
+std::expected<void, FLevelError> FEditorLevel::DuplicateSelected(const bool bWithinActiveEdit, const FVector3d& WorldOffset)
 {
 	if (auto Result = CheckAuthoringAllowed(bWithinActiveEdit); !Result)
 	{
@@ -1119,7 +1119,7 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWit
 	{
 		if (!ActiveEdit)
 		{
-			return std::unexpected(FSceneError{"Begin an edit before duplicating within a gesture"});
+			return std::unexpected(FLevelError{"Begin an edit before duplicating within a gesture"});
 		}
 
 		if (ActiveEdit->bDuplicated)
@@ -1130,7 +1130,7 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWit
 
 	if (!std::isfinite(WorldOffset.X) || !std::isfinite(WorldOffset.Y) || !std::isfinite(WorldOffset.Z))
 	{
-		return std::unexpected(FSceneError{"Duplication requires a finite world translation offset"});
+		return std::unexpected(FLevelError{"Duplication requires a finite world translation offset"});
 	}
 
 	if (auto Result = CommitEdits(); !Result)
@@ -1141,12 +1141,12 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWit
 	std::unordered_set<std::string> Names;
 	const auto Entities = World.SnapshotEntities();
 
-	for (const FSceneEntity& Entity : Entities)
+	for (const FLevelEntity& Entity : Entities)
 	{
 		Names.insert(Entity.Name);
 	}
 
-	std::vector<FSceneEntityChange> Changes;
+	std::vector<FLevelEntityChange> Changes;
 	std::vector<FObjectId> Duplicated;
 	std::optional<FObjectId> DuplicatedActive;
 	const auto Hierarchy = BuildEditorHierarchy(Entities);
@@ -1162,14 +1162,14 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWit
 		Remapped.emplace(Object, FObjectId::Generate());
 	}
 
-	for (const FSceneEntity& Original : Entities)
+	for (const FLevelEntity& Original : Entities)
 	{
 		if (!Remapped.contains(Original.Id))
 		{
 			continue;
 		}
 
-		FSceneEntity Entity = Original;
+		FLevelEntity Entity = Original;
 		Entity.Id = Remapped.at(Original.Id);
 		Entity.Name = UniqueEntityName(Original.Name, Names, " Copy");
 		const auto Parent = Remapped.find(Original.Parent);
@@ -1228,7 +1228,7 @@ std::expected<void, FSceneError> FEditorScene::DuplicateSelected(const bool bWit
 	return ApplyStructuralChanges("Duplicate objects", Changes, Duplicated, DuplicatedActive);
 }
 
-std::expected<void, FSceneError> FEditorScene::DeleteSelected()
+std::expected<void, FLevelError> FEditorLevel::DeleteSelected()
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -1240,7 +1240,7 @@ std::expected<void, FSceneError> FEditorScene::DeleteSelected()
 		return Result;
 	}
 
-	std::vector<FSceneEntityChange> Changes;
+	std::vector<FLevelEntityChange> Changes;
 	const auto Entities = World.SnapshotEntities();
 	const auto Hierarchy = BuildEditorHierarchy(Entities);
 	if (!Hierarchy)
@@ -1274,7 +1274,7 @@ std::expected<void, FSceneError> FEditorScene::DeleteSelected()
 	return ApplyStructuralChanges("Delete objects", std::move(Changes), {});
 }
 
-std::expected<void, FSceneError> FEditorScene::ReparentEntities(const std::span<const FObjectId> Requested, const std::optional<FObjectId> Parent)
+std::expected<void, FLevelError> FEditorLevel::ReparentEntities(const std::span<const FObjectId> Requested, const std::optional<FObjectId> Parent)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -1283,14 +1283,14 @@ std::expected<void, FSceneError> FEditorScene::ReparentEntities(const std::span<
 
 	if (Parent && (!Parent->IsValid() || !World.FindEntity(*Parent)))
 	{
-		return std::unexpected(FSceneError{"The requested parent no longer exists"});
+		return std::unexpected(FLevelError{"The requested parent no longer exists"});
 	}
 
 	for (const auto Object : Requested)
 	{
 		if (!World.FindEntity(Object))
 		{
-			return std::unexpected(FSceneError{"A reparented entity no longer exists"});
+			return std::unexpected(FLevelError{"A reparented entity no longer exists"});
 		}
 	}
 
@@ -1329,7 +1329,7 @@ std::expected<void, FSceneError> FEditorScene::ReparentEntities(const std::span<
 		{
 			if (Selected.contains(Before[Ancestor].Id))
 			{
-				return std::unexpected(FSceneError{"An entity cannot be parented to itself or one of its descendants"});
+				return std::unexpected(FLevelError{"An entity cannot be parented to itself or one of its descendants"});
 			}
 
 			Ancestor = Hierarchy->Parents[Ancestor];
@@ -1350,7 +1350,7 @@ std::expected<void, FSceneError> FEditorScene::ReparentEntities(const std::span<
 	}
 
 	const auto ParentWorld = Parent ? Current->Matrices[Current->Indices.at(*Parent)] : TMatrix4<double>::Identity();
-	std::vector<FSceneEntityChange> Changes;
+	std::vector<FLevelEntityChange> Changes;
 
 	for (const auto Index : Roots)
 	{
@@ -1373,19 +1373,19 @@ std::expected<void, FSceneError> FEditorScene::ReparentEntities(const std::span<
 	return ApplyStructuralChanges(Parent ? "Reparent objects" : "Detach objects", Changes, Selection, ActiveObject);
 }
 
-std::expected<void, FSceneError> FEditorScene::ReparentSelected(const std::optional<FObjectId> Parent)
+std::expected<void, FLevelError> FEditorLevel::ReparentSelected(const std::optional<FObjectId> Parent)
 {
 	return ReparentEntities(Selection, Parent);
 }
 
-std::expected<std::string, FSceneError> FEditorScene::CopySelected() const
+std::expected<std::string, FLevelError> FEditorLevel::CopySelected() const
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
 		return std::unexpected(Result.error());
 	}
 
-	FSceneDocument Document{.Id = Id, .Name = "Clipboard"};
+	FLevelDocument Document{.Id = Id, .Name = "Clipboard"};
 	const auto Entities = World.SnapshotEntities();
 	const auto Hierarchy = BuildEditorHierarchy(Entities);
 	if (!Hierarchy)
@@ -1416,17 +1416,17 @@ std::expected<std::string, FSceneError> FEditorScene::CopySelected() const
 		}
 	}
 
-	return SerializeScene(Document);
+	return SerializeLevel(Document);
 }
 
-std::expected<void, FSceneError> FEditorScene::PasteEntities(const std::string_view Text)
+std::expected<void, FLevelError> FEditorLevel::PasteEntities(const std::string_view Text)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
 		return Result;
 	}
 
-	auto Document = ParseScene(Text);
+	auto Document = ParseLevel(Text);
 	if (!Document)
 	{
 		return std::unexpected(Document.error());
@@ -1437,7 +1437,7 @@ std::expected<void, FSceneError> FEditorScene::PasteEntities(const std::string_v
 		return std::unexpected(Hierarchy.error());
 	}
 
-	std::vector<FSceneEntityChange> Changes;
+	std::vector<FLevelEntityChange> Changes;
 	std::vector<FObjectId> Pasted;
 	std::unordered_set<std::string> Names;
 
@@ -1453,7 +1453,7 @@ std::expected<void, FSceneError> FEditorScene::PasteEntities(const std::string_v
 		Remapped.emplace(Entity.Id, FObjectId::Generate());
 	}
 
-	for (FSceneEntity& Entity : Document->Entities)
+	for (FLevelEntity& Entity : Document->Entities)
 	{
 		Entity.Id = Remapped.at(Entity.Id);
 
@@ -1470,17 +1470,17 @@ std::expected<void, FSceneError> FEditorScene::PasteEntities(const std::string_v
 	return ApplyStructuralChanges("Paste objects", std::move(Changes), std::move(Pasted));
 }
 
-void FEditorScene::SetPath(std::filesystem::path Path)
+void FEditorLevel::SetPath(std::filesystem::path Path)
 {
 	CurrentPath = std::move(Path);
 }
 
-void FEditorScene::SetSimulationRunning(const bool bRunning)
+void FEditorLevel::SetSimulationRunning(const bool bRunning)
 {
 	bSimulationRunning = bRunning;
 }
 
-std::expected<void, FSceneError> FEditorScene::UpdatePreviewHierarchy(const std::span<const FObjectId> OverrideWorldPoses)
+std::expected<void, FLevelError> FEditorLevel::UpdatePreviewHierarchy(const std::span<const FObjectId> OverrideWorldPoses)
 {
 	if (std::ranges::none_of(AuthoredObjects, [](const FPreviewObject& Object)
 	{
@@ -1489,14 +1489,14 @@ std::expected<void, FSceneError> FEditorScene::UpdatePreviewHierarchy(const std:
 	{
 		if (Objects.size() != World.GetEntityCount() || !std::ranges::equal(Objects, AuthoredObjects, {}, &FPreviewObject::Id, &FPreviewObject::Id))
 		{
-			return std::unexpected(FSceneError{"Simulation preview contains a stale entity set"});
+			return std::unexpected(FLevelError{"Simulation preview contains a stale entity set"});
 		}
 
 		for (const auto Object : OverrideWorldPoses)
 		{
 			if (!World.FindEntity(Object))
 			{
-				return std::unexpected(FSceneError{"A simulation pose refers to a stale entity"});
+				return std::unexpected(FLevelError{"A simulation pose refers to a stale entity"});
 			}
 		}
 
@@ -1510,9 +1510,9 @@ std::expected<void, FSceneError> FEditorScene::UpdatePreviewHierarchy(const std:
 		return std::unexpected(Hierarchy.error());
 	}
 
-	if (Objects.size() != Entities.size() || !std::ranges::equal(Objects, Entities, {}, &FPreviewObject::Id, &FSceneEntity::Id))
+	if (Objects.size() != Entities.size() || !std::ranges::equal(Objects, Entities, {}, &FPreviewObject::Id, &FLevelEntity::Id))
 	{
-		return std::unexpected(FSceneError{"Simulation preview contains a stale entity set"});
+		return std::unexpected(FLevelError{"Simulation preview contains a stale entity set"});
 	}
 
 	const std::set<FObjectId> Overrides(OverrideWorldPoses.begin(), OverrideWorldPoses.end());
@@ -1521,7 +1521,7 @@ std::expected<void, FSceneError> FEditorScene::UpdatePreviewHierarchy(const std:
 	{
 		if (!Hierarchy->Indices.contains(Object))
 		{
-			return std::unexpected(FSceneError{"A simulation pose refers to a stale entity"});
+			return std::unexpected(FLevelError{"A simulation pose refers to a stale entity"});
 		}
 	}
 
@@ -1565,7 +1565,7 @@ std::expected<void, FSceneError> FEditorScene::UpdatePreviewHierarchy(const std:
 	return {};
 }
 
-std::vector<std::size_t> FEditorScene::FindBodies(const ESceneBodyType Type) const
+std::vector<std::size_t> FEditorLevel::FindBodies(const ELevelBodyType Type) const
 {
 	std::vector<std::size_t> Indices;
 	for (std::size_t Index = 0; Index < Objects.size(); ++Index)
@@ -1581,70 +1581,70 @@ std::vector<std::size_t> FEditorScene::FindBodies(const ESceneBodyType Type) con
 	return Indices;
 }
 
-std::vector<FPreviewObject>& FEditorScene::GetObjects()
+std::vector<FPreviewObject>& FEditorLevel::GetObjects()
 {
 	return Objects;
 }
 
-const std::vector<FPreviewObject>& FEditorScene::GetObjects() const
+const std::vector<FPreviewObject>& FEditorLevel::GetObjects() const
 {
 	return Objects;
 }
 
-std::uint64_t FEditorScene::GetGeneration() const
+std::uint64_t FEditorLevel::GetGeneration() const
 {
 	return Generation;
 }
 
-const std::filesystem::path& FEditorScene::GetPath() const
+const std::filesystem::path& FEditorLevel::GetPath() const
 {
 	return CurrentPath;
 }
 
-std::string_view FEditorScene::GetName() const
+std::string_view FEditorLevel::GetName() const
 {
 	return Name;
 }
 
-const FWorld& FEditorScene::GetWorld() const
+const FWorld& FEditorLevel::GetWorld() const
 {
 	return World;
 }
 
-std::expected<void, FEditorCommandError> RegisterEditorSceneCommands(FEditorCommandRegistry& Commands, const std::shared_ptr<FEditorScene>& Scene)
+std::expected<void, FEditorCommandError> RegisterEditorLevelCommands(FEditorCommandRegistry& Commands, const std::shared_ptr<FEditorLevel>& Level)
 {
-	if (auto Result = Commands.Register({.Name = "scene.save", .Description = "Save the authored scene. Usage: scene.save [path]", .Handler = [Scene](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	if (auto Result = Commands.Register({.Name = "level.save", .Description = "Save the authored level. Usage: level.save [path]", .Handler = [Level](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() > 1)
 		{
-			return std::unexpected(FEditorCommandError{.Message = "Usage: scene.save [path]"});
+			return std::unexpected(FEditorCommandError{.Message = "Usage: level.save [path]"});
 		}
 
-		if (auto Saved = Scene->Save(Arguments.empty() ? std::filesystem::path{} : Utf8Path(Arguments.front())); !Saved)
+		if (auto Saved = Level->Save(Arguments.empty() ? std::filesystem::path{} : Utf8Path(Arguments.front())); !Saved)
 		{
 			return std::unexpected(FEditorCommandError{.Message = Saved.error().Message});
 		}
 
-		return FEditorCommandResult{.Message = "Scene saved"};
+		return FEditorCommandResult{.Message = "Level saved"};
 	}});
 	    !Result)
 	{
 		return Result;
 	}
 
-	return Commands.Register({.Name = "scene.load", .Description = "Load a scene without replacing the current scene on failure. Usage: scene.load <path>", .Handler = [Scene](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	return Commands.Register({.Name = "level.load", .Description = "Load a level without replacing the current level on failure. Usage: level.load <path>", .Handler = [Level](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() != 1)
 		{
-			return std::unexpected(FEditorCommandError{.Message = "Usage: scene.load <path>"});
+			return std::unexpected(FEditorCommandError{.Message = "Usage: level.load <path>"});
 		}
 
-		if (auto Loaded = Scene->Load(Utf8Path(Arguments.front())); !Loaded)
+		if (auto Loaded = Level->Load(Utf8Path(Arguments.front())); !Loaded)
 		{
 			return std::unexpected(FEditorCommandError{.Message = Loaded.error().Message});
 		}
 
-		return FEditorCommandResult{.Message = "Scene loaded"};
+		return FEditorCommandResult{.Message = "Level loaded"};
 	}});
 }
 }

@@ -1,7 +1,7 @@
 {
   "format": "HertaProject",
   "formatVersion": 1,
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "ec34e991-d3c7-41cb-aae7-d6659f062afa",
   "name": "Sandbox",
   "engineAssociation": "Herta",
@@ -9,5 +9,5 @@
   "targets": [],
   "contentRoots": [{"name": "Game", "path": "Content"}],
   "features": [],
-  "startingScene": "Scenes/Sandbox.hscene"
+  "startingLevel": "Levels/Sandbox.hlevel"
 }

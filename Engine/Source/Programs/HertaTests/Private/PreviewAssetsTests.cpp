@@ -3,7 +3,7 @@
 #include "Herta/Platform/Process.h"
 #include "Herta/Tasks/TaskSystem.h"
 #include "PreviewAssets.h"
-#include "PreviewScene.h"
+#include "PreviewLevel.h"
 #include "TestFiles.h"
 #include "TestGraphicsDevice.h"
 
@@ -149,7 +149,7 @@ TEST_CASE("Preview metadata describes cooked assets rather than their preview ge
 	CHECK(Mesh.BoundsMaximum == FVector3{5.f, -3.f, 7.f});
 }
 
-TEST_CASE("Preview thumbnails load without scene bindings and share the existing mesh cache")
+TEST_CASE("Preview thumbnails load without level bindings and share the existing mesh cache")
 {
 	FPreviewAssetsFixture Fixture;
 	std::uint64_t RenderCount = 0;
@@ -685,7 +685,7 @@ TEST_CASE("Meshless slots can rejoin pending assets without duplicate requests")
 	}
 }
 
-TEST_CASE("Scene rebinding retains loaded meshes across copies reorder deletion and load")
+TEST_CASE("Level rebinding retains loaded meshes across copies reorder deletion and load")
 {
 	FPreviewAssetsFixture Fixture;
 	auto Assets = Fixture.CreateAssets();
@@ -718,7 +718,7 @@ TEST_CASE("Scene rebinding retains loaded meshes across copies reorder deletion 
 	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
 }
 
-TEST_CASE("Scene rebinding coalesces pending copies before and after the first content scan")
+TEST_CASE("Level rebinding coalesces pending copies before and after the first content scan")
 {
 	for (const bool bScanned : {false, true})
 	{
@@ -768,7 +768,7 @@ TEST_CASE("Rebound slots cannot receive removed loads and can restore pending as
 	CHECK(Fixture.Device.Submissions == 1);
 }
 
-TEST_CASE("Copies retain visible meshes and share reimport results while scene bindings change")
+TEST_CASE("Copies retain visible meshes and share reimport results while level bindings change")
 {
 	FPreviewAssetsFixture Fixture;
 	auto Assets = Fixture.CreateAssets();

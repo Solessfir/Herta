@@ -45,8 +45,8 @@ struct FEditorFrameworkDescriptor
 	FTaskSystem* Tasks = nullptr;
 	IGraphicsDevice* GraphicsDevice = nullptr;
 	FEditorAssetPaths Assets;
-	// Empty disables automatic scene loading and the default save path.
-	std::filesystem::path ScenePath;
+	// Empty disables automatic level loading and the default save path.
+	std::filesystem::path LevelPath;
 	std::filesystem::path EngineRoot{};
 	std::filesystem::path ProjectPath{};
 	// Called between frames; the shared handle owns the registered UI texture.

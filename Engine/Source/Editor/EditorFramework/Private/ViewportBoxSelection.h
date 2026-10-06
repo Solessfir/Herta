@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Herta/Math/Vector.h"
-#include "PreviewScene.h"
+#include "PreviewLevel.h"
 
 #include <span>
 #include <utility>

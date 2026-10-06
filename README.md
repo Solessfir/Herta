@@ -2,7 +2,7 @@
 
 A C++23 game engine for Windows and Linux, built around Vulkan. Inspired by Unreal Engine, with a modular architecture.
 
-Herta is a learning project in active development, not a production-ready engine. The editor supports projects, a Content Browser, scene hierarchies and component authoring with undo/redo, asset import and live reimport, and a basic Jolt Physics simulation. The game runtime is not implemented yet.
+Herta is a learning project in active development, not a production-ready engine. The editor supports projects, a Content Browser, level hierarchies and component authoring with undo/redo, asset import and live reimport, and a basic Jolt Physics simulation. The game runtime is not implemented yet.
 
 ![Herta Editor](.github/Herta.png)
 
@@ -45,6 +45,7 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Getting started](Docs/GettingStarted.md) - prerequisites, command-line builds, validation, tests, and cleanup.
 - [Editor guide](Docs/EditorGuide.md) - controls, selection, simulation, assets, and the Output Log.
 - [Projects](Docs/Projects.md) - project creation, loading, and C++ module builds.
+- [Levels](Docs/Levels.md) - authored documents, world ownership, and legacy migration.
 - [Engine design](Docs/EngineDesign.md) - architecture and roadmap.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
 - [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.

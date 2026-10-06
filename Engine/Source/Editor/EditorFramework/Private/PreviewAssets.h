@@ -107,7 +107,7 @@ public:
 
 	// Requests made before the first scan finishes wait for it. An invalid asset clears the mesh component.
 	void RequestMesh(std::size_t Object, const FAssetId& Asset);
-	// Scene edits change bindings, not the lifetime of loaded meshes or pending cooks. Invalid assets leave empty slots.
+	// Level edits change bindings, not the lifetime of loaded meshes or pending cooks. Invalid assets leave empty slots.
 	void RebindObjects(std::span<const FAssetId> Assets);
 	// The browser retains at most 64 visible thumbnails. Tick performs GPU work, never the draw-time request.
 	void SetThumbnailAssets(std::span<const FAssetId> Assets);

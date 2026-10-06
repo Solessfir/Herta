@@ -43,7 +43,7 @@ struct FProjectDescriptor
 	std::vector<FProjectTarget> Targets{};
 	std::vector<FProjectContentRoot> ContentRoots{};
 	std::vector<std::string> Features{};
-	std::string StartingScene{};
+	std::string StartingLevel{};
 };
 
 struct FLoadedProject
@@ -52,7 +52,7 @@ struct FLoadedProject
 	std::filesystem::path DescriptorPath{};
 	std::filesystem::path Root{};
 	std::filesystem::path ContentRoot{};
-	std::filesystem::path StartingScene{};
+	std::filesystem::path StartingLevel{};
 };
 
 struct FCreateProjectRequest

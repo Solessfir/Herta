@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Herta/Scene/World.h"
+#include "Herta/Level/World.h"
 
 #include <array>
 #include <cstddef>
@@ -63,10 +63,10 @@ struct FDetailsComponentField
 	bool bMixedMeshAsset = false;
 	bool bAnyBody = false;
 	bool bAllBody = false;
-	FSceneRigidBodySettings BodySettings{};
+	FLevelRigidBodySettings BodySettings{};
 	std::array<bool, 6> MixedBodySettings{};
 	bool bAnyDynamicBody = false;
-	std::optional<ESceneBodyType> BodyType{};
+	std::optional<ELevelBodyType> BodyType{};
 };
 
 struct FDetailsMeshResult
@@ -78,7 +78,7 @@ struct FDetailsMeshResult
 	bool bEditFinished = false;
 	bool bEditCanceled = false;
 	EDetailsComponentAction ComponentAction = EDetailsComponentAction::None;
-	std::optional<ESceneBodyType> BodyTypeChosen{};
+	std::optional<ELevelBodyType> BodyTypeChosen{};
 };
 
 struct FDetailsEditCallbacks
@@ -86,8 +86,8 @@ struct FDetailsEditCallbacks
 	std::function<void()> Begin;
 	// Flush a previous gesture before another edit starts in the same frame.
 	std::function<void(bool)> Flush;
-	std::function<void(float FSceneRigidBodySettings::*, float)> ApplyBodyProperty;
-	std::function<float(float FSceneRigidBodySettings::*)> ReadBodyProperty;
+	std::function<void(float FLevelRigidBodySettings::*, float)> ApplyBodyProperty;
+	std::function<float(float FLevelRigidBodySettings::*)> ReadBodyProperty;
 };
 
 FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, bool bSelected, bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, std::size_t SelectedCount = 1, const FDetailsMeshField* Mesh = nullptr, const FDetailsEditCallbacks* Edits = nullptr, FDetailsComponentField* Components = nullptr);

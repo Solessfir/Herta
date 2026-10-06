@@ -1,22 +1,24 @@
 # Projects
 
-[Editor usage](EditorGuide.md) | [Scene contracts](Scenes.md)
+[Editor usage](EditorGuide.md) | [Level contracts](Levels.md)
 
 ## Descriptor and runtime API
 
-`Project` owns `.hertaproject` parsing, canonical serialization, path resolution, and transactional template creation. Its public API is `ParseProject`, `SerializeProject`, `LoadProject`, and `CreateProject`, returning `std::expected` with `FProjectError`. `FLoadedProject` contains the validated descriptor and resolved project, content, and starting-scene paths; it does not load native code or instantiate a world.
+`Project` owns `.hertaproject` parsing, canonical serialization, path resolution, and transactional template creation. Its public API is `ParseProject`, `SerializeProject`, `LoadProject`, and `CreateProject`, returning `std::expected` with `FProjectError`. `FLoadedProject` contains the validated descriptor and resolved project, content, and starting-level paths; it does not load native code or instantiate a world.
 
-Descriptors use UTF-8 JSON with `format: "HertaProject"`, `formatVersion: 1`, and `schemaVersion: 1`. They record a UUID, project name, engine association, native modules, editor targets, one `Game` content root, an empty feature list, and the starting scene. Loading currently requires `engineAssociation: "Herta"`. Unknown or duplicate fields, unsupported versions/features/dependencies, unsafe relative paths, and paths escaping the project through symbolic links are rejected. The descriptor limit is 1 MiB.
+Descriptors use UTF-8 JSON with `format: "HertaProject"`, `formatVersion: 1`, and `schemaVersion: 2`. They record a UUID, project name, engine association, native modules, editor targets, one `Game` content root, an empty feature list, and `startingLevel`. Loading currently requires `engineAssociation: "Herta"`. Unknown or duplicate fields, unsupported versions/features/dependencies, unsafe relative paths, and paths escaping the project through symbolic links are rejected. The descriptor limit is 1 MiB.
 
-Modules live at `Source/<ModuleName>`, with `Public` headers and `Private` implementation files. Supported dependencies are `Core`, `Math`, `Assets`, and `Scene`; names cannot collide with engine modules. Targets currently describe editor composition, not standalone game executables. Paths use forward slashes and remain relative to the descriptor directory.
+Legacy schema 1 descriptors remain readable with `startingScene`; their `Scene` module dependency migrates in memory to `Level`. Serialization always writes schema 2 with `startingLevel`. Mixed or cross-version starting-document fields are rejected. Parsing does not rewrite descriptors or rename referenced files, so an existing `.hscene` path stays unchanged until explicitly migrated. See [Level contracts](Levels.md#file-contract) for document canonicalization.
 
-`LoadProject` checks the content, scene file, and module directories exist. Starting-scene JSON is validated when the editor loads it; project creation validates the template scene before publishing. `HertaEditor --project=<descriptor>` opens the project; without this flag it opens `Games/Sandbox/Sandbox.hertaproject`.
+Modules live at `Source/<ModuleName>`, with `Public` headers and `Private` implementation files. Supported dependencies are `Core`, `Math`, `Assets`, and `Level`; names cannot collide with engine modules. Targets currently describe editor composition, not standalone game executables. Paths use forward slashes and remain relative to the descriptor directory.
+
+`LoadProject` checks the content, level file, and module directories exist. Starting-level JSON is validated when the editor loads it; project creation validates the template level before publishing. `HertaEditor --project=<descriptor>` opens the project; without this flag it opens `Games/Sandbox/Sandbox.hertaproject`.
 
 ## Creation and headless commands
 
 `project.create <name> <module> <destination>` uses `Templates/Projects/Game` from the associated source checkout. The destination must not exist and its parent directory must already exist. Names use portable C++-style identifiers. Creation expands only whitelisted manifest substitutions in a sibling staging directory, validates the result, and atomically publishes without replacing existing data. Cancellation or failure removes only that staging directory. The C++ request exposes a `std::stop_token`.
 
-The template supplies a descriptor, empty starting scene, content directory, and one native module with a deferred entity-creation example. It does not generate a standalone game application. `project.validate <descriptor>` checks the same project-loading contract; `--json` must precede the command when machine-readable diagnostics are wanted.
+The template supplies a descriptor, empty starting level, content directory, and one native module with a deferred entity-creation example. It does not generate a standalone game application. `project.validate <descriptor>` checks the same project-loading contract; `--json` must precede the command when machine-readable diagnostics are wanted.
 
 Windows example, after building `HertaEditorCmd`:
 

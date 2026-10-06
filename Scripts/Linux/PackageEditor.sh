@@ -88,7 +88,7 @@ declare -A tracked_files=()
 while IFS= read -r -d '' relative_path; do
     tracked_files["${relative_path}"]=1
     case "${relative_path}" in
-        Engine/Content/*|Games/Sandbox/Content/*|Games/Sandbox/Scenes/*) package_files+=("${relative_path}") ;;
+        Engine/Content/*|Games/Sandbox/Content/*|Games/Sandbox/Levels/*|Templates/Projects/Game/*) package_files+=("${relative_path}") ;;
         External/*)
             filename="${relative_path##*/}"
             if [[ "${filename,,}" =~ (license|copying|notice|^ofl\.|^ftl\.) ]]; then
@@ -136,7 +136,7 @@ Revision: ${revision}
 
 Extract the complete archive into a writable directory.
 Run ${binary_directory}/HertaEditor.
-The game runtime is not implemented. Save scene edits with Ctrl+S.
+The game runtime is not implemented. Save level edits with Ctrl+S.
 A Vulkan-capable GPU, driver, and system Vulkan loader are required.
 Linux builds target Ubuntu 24.04 with the GCC 14 libstdc++ runtime and X11/Wayland libraries.
 Blender is optional and only required to import .blend files.

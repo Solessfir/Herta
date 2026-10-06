@@ -1,13 +1,13 @@
 {
   "format": "HertaProject",
   "formatVersion": 1,
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "{{ProjectId}}",
   "name": "{{ProjectName}}",
   "engineAssociation": "{{EngineAssociation}}",
-  "modules": [{"name": "{{ModuleName}}", "source": "Source/{{ModuleName}}", "dependencies": ["Scene"]}],
+  "modules": [{"name": "{{ModuleName}}", "source": "Source/{{ModuleName}}", "dependencies": ["Level"]}],
   "targets": [{"name": "{{ModuleName}}Editor", "type": "Editor", "modules": ["{{ModuleName}}"]}],
   "contentRoots": [{"name": "Game", "path": "Content"}],
   "features": [],
-  "startingScene": "Scenes/Main.hscene"
+  "startingLevel": "Levels/Main.hlevel"
 }

@@ -3,10 +3,10 @@
 #include "Herta/Assets/AssetSearch.h"
 #include "Herta/EditorCore/PreviewScaleEdit.h"
 #include "Herta/EditorCore/TransformText.h"
-#include "Herta/Scene/SceneDescriptors.h"
+#include "Herta/Level/LevelDescriptors.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "NumericField.h"
-#include "PreviewScene.h"
+#include "PreviewLevel.h"
 
 #include <im3d.h>
 #include <im3d_math.h>
@@ -47,24 +47,24 @@ struct FBodyPropertyDisplay
 	std::string_view Key;
 	std::string_view SearchAlias;
 	std::string_view Tooltip;
-	float FSceneRigidBodySettings::* Member = nullptr;
+	float FLevelRigidBodySettings::* Member = nullptr;
 	float Speed = 0.01f;
 	const char* Format = "%.3f";
 	bool bDynamicOnly = false;
 };
 
 constexpr std::array BodyProperties{
-    FBodyPropertyDisplay{.Key = "massKg", .SearchAlias = "Mass (kg)", .Tooltip = "Mass in kilograms. Only dynamic bodies respond to forces.", .Member = &FSceneRigidBodySettings::MassKg, .Speed = 0.1f, .Format = "%.3f kg", .bDynamicOnly = true},
-    FBodyPropertyDisplay{.Key = "friction", .SearchAlias = "Surface friction", .Tooltip = "Resistance to sliding contact. Applies to static and dynamic bodies.", .Member = &FSceneRigidBodySettings::Friction},
-    FBodyPropertyDisplay{.Key = "restitution", .SearchAlias = "Restitution", .Tooltip = "Fraction of impact speed retained after a collision.", .Member = &FSceneRigidBodySettings::Restitution},
-    FBodyPropertyDisplay{.Key = "linearDamping", .SearchAlias = "Linear Damping", .Tooltip = "Reduces linear velocity over time, in inverse seconds.", .Member = &FSceneRigidBodySettings::LinearDamping, .Format = "%.2f /s", .bDynamicOnly = true},
-    FBodyPropertyDisplay{.Key = "angularDamping", .SearchAlias = "Angular Damping", .Tooltip = "Reduces angular velocity over time, in inverse seconds.", .Member = &FSceneRigidBodySettings::AngularDamping, .Format = "%.2f /s", .bDynamicOnly = true},
-    FBodyPropertyDisplay{.Key = "gravityScale", .SearchAlias = "Gravity", .Tooltip = "Multiplier for the world's gravity acceleration.", .Member = &FSceneRigidBodySettings::GravityScale, .Speed = 0.05f, .Format = "%.2f", .bDynamicOnly = true},
+    FBodyPropertyDisplay{.Key = "massKg", .SearchAlias = "Mass (kg)", .Tooltip = "Mass in kilograms. Only dynamic bodies respond to forces.", .Member = &FLevelRigidBodySettings::MassKg, .Speed = 0.1f, .Format = "%.3f kg", .bDynamicOnly = true},
+    FBodyPropertyDisplay{.Key = "friction", .SearchAlias = "Surface friction", .Tooltip = "Resistance to sliding contact. Applies to static and dynamic bodies.", .Member = &FLevelRigidBodySettings::Friction},
+    FBodyPropertyDisplay{.Key = "restitution", .SearchAlias = "Restitution", .Tooltip = "Fraction of impact speed retained after a collision.", .Member = &FLevelRigidBodySettings::Restitution},
+    FBodyPropertyDisplay{.Key = "linearDamping", .SearchAlias = "Linear Damping", .Tooltip = "Reduces linear velocity over time, in inverse seconds.", .Member = &FLevelRigidBodySettings::LinearDamping, .Format = "%.2f /s", .bDynamicOnly = true},
+    FBodyPropertyDisplay{.Key = "angularDamping", .SearchAlias = "Angular Damping", .Tooltip = "Reduces angular velocity over time, in inverse seconds.", .Member = &FLevelRigidBodySettings::AngularDamping, .Format = "%.2f /s", .bDynamicOnly = true},
+    FBodyPropertyDisplay{.Key = "gravityScale", .SearchAlias = "Gravity", .Tooltip = "Multiplier for the world's gravity acceleration.", .Member = &FLevelRigidBodySettings::GravityScale, .Speed = 0.05f, .Format = "%.2f", .bDynamicOnly = true},
 };
 
-const FScenePropertyDescriptor& GetBodyPropertyDescriptor(const FBodyPropertyDisplay& Property)
+const FLevelPropertyDescriptor& GetBodyPropertyDescriptor(const FBodyPropertyDisplay& Property)
 {
-	return *FindScenePropertyDescriptor(GetSceneComponentDescriptor(ESceneComponentType::RigidBody), Property.Key);
+	return *FindLevelPropertyDescriptor(GetLevelComponentDescriptor(ELevelComponentType::RigidBody), Property.Key);
 }
 
 enum class ETransformClipboardFormat
@@ -193,7 +193,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
-		const std::array Names{GetSceneComponentDescriptor(ESceneComponentType::StaticMesh).Label, GetSceneComponentDescriptor(ESceneComponentType::RigidBody).Label};
+		const std::array Names{GetLevelComponentDescriptor(ELevelComponentType::StaticMesh).Label, GetLevelComponentDescriptor(ELevelComponentType::RigidBody).Label};
 		const std::array Added{Components.bAllMesh, Components.bAllBody};
 		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
 		std::vector<int> Available;
@@ -546,14 +546,14 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh, const FDetailsEditCallbacks* const Edits, FDetailsComponentField* const Components)
 {
 	FDetailsMeshResult MeshResult;
-	const auto& TransformDescriptor = GetSceneComponentDescriptor(ESceneComponentType::Transform);
-	const auto& MeshDescriptor = GetSceneComponentDescriptor(ESceneComponentType::StaticMesh);
-	const auto& BodyDescriptor = GetSceneComponentDescriptor(ESceneComponentType::RigidBody);
+	const auto& TransformDescriptor = GetLevelComponentDescriptor(ELevelComponentType::Transform);
+	const auto& MeshDescriptor = GetLevelComponentDescriptor(ELevelComponentType::StaticMesh);
+	const auto& BodyDescriptor = GetLevelComponentDescriptor(ELevelComponentType::RigidBody);
 	const auto& LocationProperty = TransformDescriptor.Properties[0];
 	const auto& RotationProperty = TransformDescriptor.Properties[1];
 	const auto& ScaleProperty = TransformDescriptor.Properties[2];
 	const auto& BodyTypeProperty = BodyDescriptor.Properties[0];
-	const auto DefaultBodyType = std::get<ESceneBodyType>(BodyTypeProperty.Default);
+	const auto DefaultBodyType = std::get<ELevelBodyType>(BodyTypeProperty.Default);
 
 	if (!ToolUI.BeginPanel("Details", &bOpen))
 	{
@@ -897,11 +897,11 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			ImGui::TableSetColumnIndex(1);
 			ImGui::SetNextItemWidth(-FLT_MIN);
 			ImGui::BeginDisabled(bDragging);
-			const char* const BodyLabel = !Components->bAllBody || !Components->BodyType ? "Multiple values" : *Components->BodyType == ESceneBodyType::Static ? "Static"
+			const char* const BodyLabel = !Components->bAllBody || !Components->BodyType ? "Multiple values" : *Components->BodyType == ELevelBodyType::Static ? "Static"
 			                                                                                                                                                   : "Dynamic";
 			if (ImGui::BeginCombo("##BodyType", BodyLabel))
 			{
-				for (const auto& [Label, Type] : {std::pair{"Static", ESceneBodyType::Static}, std::pair{"Dynamic", ESceneBodyType::Dynamic}})
+				for (const auto& [Label, Type] : {std::pair{"Static", ELevelBodyType::Static}, std::pair{"Dynamic", ELevelBodyType::Dynamic}})
 				{
 					const bool bCurrent = Components->BodyType == Type;
 					if (ImGui::Selectable(Label, bCurrent) && !bCurrent)
@@ -928,7 +928,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			for (std::size_t Index = 0; Index < BodyProperties.size(); ++Index)
 			{
 				const FBodyPropertyDisplay& Property = BodyProperties[Index];
-				const FScenePropertyDescriptor& Descriptor = GetBodyPropertyDescriptor(Property);
+				const FLevelPropertyDescriptor& Descriptor = GetBodyPropertyDescriptor(Property);
 				if (!Query.empty() && !MatchesBodyProperty(Property, Query))
 				{
 					continue;

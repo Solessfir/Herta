@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Herta/Scene/World.h"
+#include "Herta/Level/World.h"
 
 #include <imgui.h>
 

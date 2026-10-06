@@ -1,7 +1,7 @@
 #include "OutlinerPanel.h"
 
 #include "Herta/ToolUI/ToolUI.h"
-#include "PreviewScene.h"
+#include "PreviewLevel.h"
 
 #include <imgui_internal.h>
 

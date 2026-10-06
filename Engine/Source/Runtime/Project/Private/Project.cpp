@@ -1,7 +1,7 @@
 #include "Herta/Project/Project.h"
 
 #include "Herta/Assets/AssetId.h"
-#include "Herta/Scene/SceneSerialization.h"
+#include "Herta/Level/LevelSerialization.h"
 
 #include <simdjson.h>
 
@@ -77,7 +77,7 @@ bool PortableFilename(const std::string_view Text)
 
 bool ModuleName(const std::string_view Text)
 {
-	constexpr std::array<std::string_view, 36> EngineModules{"Core", "Math", "Assets", "Scene", "Project", "Physics", "Platform", "Tasks", "EditorCore", "Application", "ToolUI", "AssetPipeline", "EditorFramework", "RHI", "RenderGraph", "Renderer", "NvrhiVulkan", "ShaderCompiler", "HertaEditor", "HertaEditorCmd", "HertaTests", "HertaAssetWorker", "HertaShaderWorker", "HertaShaders", "Spdlog", "SimdJson", "NVRHI", "NVRHIVulkanBackend", "MeshOptimizer", "Jolt", "FreeType", "FastGltf", "GLFW", "EnkiTS", "ImGui", "Im3d"};
+	constexpr std::array<std::string_view, 36> EngineModules{"Core", "Math", "Assets", "Level", "Project", "Physics", "Platform", "Tasks", "EditorCore", "Application", "ToolUI", "AssetPipeline", "EditorFramework", "RHI", "RenderGraph", "Renderer", "NvrhiVulkan", "ShaderCompiler", "HertaEditor", "HertaEditorCmd", "HertaTests", "HertaAssetWorker", "HertaShaderWorker", "HertaShaders", "Spdlog", "SimdJson", "NVRHI", "NVRHIVulkanBackend", "MeshOptimizer", "Jolt", "FreeType", "FastGltf", "GLFW", "EnkiTS", "ImGui", "Im3d"};
 	return Identifier(Text) && PortableFilename(Text) && std::ranges::none_of(EngineModules, [&](const std::string_view Name)
 	{
 		return Lowercase(std::string(Name)) == Lowercase(std::string(Text));
@@ -175,7 +175,7 @@ bool Strings(const simdjson::dom::element Element, std::vector<std::string>& Out
 
 std::expected<void, FProjectError> Validate(const FProjectDescriptor& Project)
 {
-	if (!FAssetId::Parse(Project.Id) || !ValidText(Project.Name) || !Identifier(Project.EngineAssociation) || !RelativePath(Project.StartingScene)
+	if (!FAssetId::Parse(Project.Id) || !ValidText(Project.Name) || !Identifier(Project.EngineAssociation) || !RelativePath(Project.StartingLevel)
 	    || Project.Modules.size() > 64 || Project.Targets.size() > 64 || Project.ContentRoots.size() != 1 || Project.ContentRoots[0].Name != "Game" || !RelativePath(Project.ContentRoots[0].Path) || !Project.Features.empty())
 	{
 		return ProjectError("Invalid project identity, paths, content roots, or unsupported features");
@@ -194,7 +194,7 @@ std::expected<void, FProjectError> Validate(const FProjectDescriptor& Project)
 
 		for (const auto& Dependency : Module.Dependencies)
 		{
-			if ((Dependency != "Core" && Dependency != "Math" && Dependency != "Assets" && Dependency != "Scene") || !Dependencies.insert(Dependency).second)
+			if ((Dependency != "Core" && Dependency != "Math" && Dependency != "Assets" && Dependency != "Level") || !Dependencies.insert(Dependency).second)
 			{
 				return ProjectError("Unsupported or duplicate project module dependency");
 			}
@@ -365,7 +365,13 @@ std::expected<FProjectDescriptor, FProjectError> ParseProject(const std::string_
 		return ProjectError("Invalid project JSON");
 	}
 
-	const auto Values = Fields(Document, std::array<std::string_view, 11>{"format", "formatVersion", "id", "name", "engineAssociation", "modules", "targets", "contentRoots", "features", "startingScene", "schemaVersion"});
+	std::uint64_t Schema = 0;
+	if (Document["schemaVersion"].get_uint64().get(Schema) || (Schema != 1 && Schema != 2))
+	{
+		return ProjectError("Unsupported project schema version; supported schemas are 1 through 2");
+	}
+
+	const auto Values = Fields(Document, std::array<std::string_view, 11>{"format", "formatVersion", "id", "name", "engineAssociation", "modules", "targets", "contentRoots", "features", Schema == 1 ? "startingScene" : "startingLevel", "schemaVersion"});
 	if (!Values)
 	{
 		return std::unexpected(Values.error());
@@ -373,10 +379,9 @@ std::expected<FProjectDescriptor, FProjectError> ParseProject(const std::string_
 
 	std::string Format;
 	std::uint64_t Version = 0;
-	std::uint64_t Schema = 0;
 	FProjectDescriptor Project;
-	if (!String((*Values)[0], Format) || Format != "HertaProject" || (*Values)[1].get_uint64().get(Version) || Version != 1 || (*Values)[10].get_uint64().get(Schema) || Schema != 1
-	    || !String((*Values)[2], Project.Id) || !String((*Values)[3], Project.Name) || !String((*Values)[4], Project.EngineAssociation) || !Strings((*Values)[8], Project.Features) || !String((*Values)[9], Project.StartingScene))
+	if (!String((*Values)[0], Format) || Format != "HertaProject" || (*Values)[1].get_uint64().get(Version) || Version != 1
+	    || !String((*Values)[2], Project.Id) || !String((*Values)[3], Project.Name) || !String((*Values)[4], Project.EngineAssociation) || !Strings((*Values)[8], Project.Features) || !String((*Values)[9], Project.StartingLevel))
 	{
 		return ProjectError("Invalid or unsupported project format, schema, or fields");
 	}
@@ -396,6 +401,11 @@ std::expected<FProjectDescriptor, FProjectError> ParseProject(const std::string_
 		if (!Parts || !String((*Parts)[0], Module.Name) || !String((*Parts)[1], Module.Source) || !Strings((*Parts)[2], Module.Dependencies))
 		{
 			return ProjectError("Invalid project module fields");
+		}
+
+		if (Schema == 1)
+		{
+			std::ranges::replace(Module.Dependencies, "Scene", "Level");
 		}
 
 		Project.Modules.push_back(std::move(Module));
@@ -440,7 +450,7 @@ std::expected<std::string, FProjectError> SerializeProject(const FProjectDescrip
 		return std::unexpected(Result.error());
 	}
 
-	std::string Output = "{\n  \"format\": \"HertaProject\",\n  \"formatVersion\": 1,\n  \"schemaVersion\": 1,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaProject\",\n  \"formatVersion\": 1,\n  \"schemaVersion\": 2,\n  \"id\": ";
 	Quote(Output, Descriptor.Id);
 	Output += ",\n  \"name\": ";
 	Quote(Output, Descriptor.Name);
@@ -480,8 +490,8 @@ std::expected<std::string, FProjectError> SerializeProject(const FProjectDescrip
 
 	Output += Targets.empty() ? "],\n  \"contentRoots\": [{\"name\": \"Game\", \"path\": " : "\n  ],\n  \"contentRoots\": [{\"name\": \"Game\", \"path\": ";
 	Quote(Output, Descriptor.ContentRoots[0].Path);
-	Output += "}],\n  \"features\": [],\n  \"startingScene\": ";
-	Quote(Output, Descriptor.StartingScene);
+	Output += "}],\n  \"features\": [],\n  \"startingLevel\": ";
+	Quote(Output, Descriptor.StartingLevel);
 	Output += "\n}\n";
 	return Output;
 }
@@ -519,10 +529,10 @@ std::expected<FLoadedProject, FProjectError> LoadProject(const std::filesystem::
 
 	const auto Root = Path.parent_path();
 	const auto Content = Resolve(Root, Descriptor->ContentRoots[0].Path);
-	const auto Scene = Resolve(Root, Descriptor->StartingScene);
-	if (!Content || !Scene || !std::filesystem::is_directory(*Content, Error) || Error || !std::filesystem::is_regular_file(*Scene, Error) || Error)
+	const auto Level = Resolve(Root, Descriptor->StartingLevel);
+	if (!Content || !Level || !std::filesystem::is_directory(*Content, Error) || Error || !std::filesystem::is_regular_file(*Level, Error) || Error)
 	{
-		return ProjectError("Project content directory or starting scene is missing or unsafe");
+		return ProjectError("Project content directory or starting level is missing or unsafe");
 	}
 
 	for (const auto& Module : Descriptor->Modules)
@@ -534,7 +544,7 @@ std::expected<FLoadedProject, FProjectError> LoadProject(const std::filesystem::
 		}
 	}
 
-	return FLoadedProject{.Descriptor = std::move(*Descriptor), .DescriptorPath = Path, .Root = Root, .ContentRoot = *Content, .StartingScene = *Scene};
+	return FLoadedProject{.Descriptor = std::move(*Descriptor), .DescriptorPath = Path, .Root = Root, .ContentRoot = *Content, .StartingLevel = *Level};
 }
 
 std::expected<FLoadedProject, FProjectError> CreateProject(const FCreateProjectRequest& Request)
@@ -689,9 +699,9 @@ std::expected<FLoadedProject, FProjectError> CreateProject(const FCreateProjectR
 		return ProjectError("Staged template does not match the requested project identity");
 	}
 
-	if (!LoadScene(Project->StartingScene))
+	if (!LoadLevel(Project->StartingLevel))
 	{
-		return ProjectError("Staged project starting scene is invalid");
+		return ProjectError("Staged project starting level is invalid");
 	}
 
 	{

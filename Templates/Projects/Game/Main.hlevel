@@ -1,6 +1,6 @@
 {
-  "format": "HertaScene",
-  "formatVersion": 1,
+  "format": "HertaLevel",
+  "formatVersion": 2,
   "engineSchemaVersion": 2,
   "id": "{{ProjectId}}",
   "name": "Main",

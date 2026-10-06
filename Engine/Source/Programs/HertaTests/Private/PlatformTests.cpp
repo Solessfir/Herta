@@ -39,7 +39,7 @@ TEST_CASE("File dialogs reject invalid initial directories before showing UI")
 		Tests::WriteText(Directory, "not a directory");
 	}
 
-	const auto Result = OpenFilesDialog("Scene", {}, Directory);
+	const auto Result = OpenFilesDialog("Level", {}, Directory);
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Message.find("initial directory is unavailable") != std::string::npos);
 }

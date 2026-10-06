@@ -57,7 +57,16 @@ content_files=(
     Engine/Content/Shapes/Cube.gltf.hmeta
     'Games/Sandbox/Content/fixture texture.png'
     'Games/Sandbox/Content/fixture texture.png.hmeta'
-    Games/Sandbox/Scenes/Sandbox.hscene
+    Games/Sandbox/Levels/Sandbox.hlevel
+    Games/Sandbox/Sandbox.hertaproject
+    Templates/Projects/Game/Content.gitkeep
+    Templates/Projects/Game/Game.cpp.in
+    Templates/Projects/Game/Game.h.in
+    Templates/Projects/Game/Gitignore.in
+    Templates/Projects/Game/Main.hlevel
+    Templates/Projects/Game/Project.hertaproject.in
+    Templates/Projects/Game/Readme.in
+    Templates/Projects/Game/Template.json
 )
 license_files=(
     External/example/LICENSE
@@ -180,6 +189,7 @@ assert_fails 'Package output already exists' --output-directory "${existing_arch
 
 missing_inputs=(
     LICENSE
+    Games/Sandbox/Sandbox.hertaproject
     "${binary_directory}/HertaEditor"
     "${binary_directory}/HertaEditorCmd"
     "${binary_directory}/HertaAssetWorker"
@@ -188,7 +198,8 @@ missing_inputs=(
     Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf
     Engine/Content/Shapes/Cube.gltf.hmeta
     'Games/Sandbox/Content/fixture texture.png'
-    Games/Sandbox/Scenes/Sandbox.hscene
+    Games/Sandbox/Levels/Sandbox.hlevel
+    Templates/Projects/Game/Main.hlevel
     External/freetype/src/gzip/zlib.h
     External/example/LICENSE
 )

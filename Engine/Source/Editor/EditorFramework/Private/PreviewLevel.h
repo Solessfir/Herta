@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Herta/Assets/AssetId.h"
-#include "Herta/Scene/World.h"
+#include "Herta/Level/World.h"
 
 #include <im3d_math.h>
 
@@ -30,7 +30,7 @@ inline Im3d::Mat3 FromPreviewEulerXYZ(const Im3d::Vec3& Radians)
 struct FPreviewObject
 {
 	std::string Label;
-	// Gizmos and rendering consume world poses; Scene stores parent-local transforms.
+	// Gizmos and rendering consume world poses; Level stores parent-local transforms.
 	Im3d::Vec3 Translation;
 	Im3d::Mat3 Rotation{1.f};
 	Im3d::Vec3 Scale{1.f};

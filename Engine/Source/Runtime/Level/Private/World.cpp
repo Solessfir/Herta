@@ -1,4 +1,4 @@
-#include "Herta/Scene/World.h"
+#include "Herta/Level/World.h"
 
 #include <entt/entity/registry.hpp>
 
@@ -130,16 +130,16 @@ bool IsValidUtf8(const std::string_view Text)
 	return true;
 }
 
-std::expected<void, FSceneError> ValidateEntityProperties(const FSceneEntity& Entity)
+std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& Entity)
 {
 	if (!Entity.Id.IsValid())
 	{
-		return std::unexpected(FSceneError{"Entity has an invalid object ID"});
+		return std::unexpected(FLevelError{"Entity has an invalid object ID"});
 	}
 
 	if (Entity.Name.size() > MaximumNameBytes || !IsValidUtf8(Entity.Name))
 	{
-		return std::unexpected(FSceneError{"Entity name must be valid UTF-8 without control characters and at most 1024 bytes"});
+		return std::unexpected(FLevelError{"Entity name must be valid UTF-8 without control characters and at most 1024 bytes"});
 	}
 
 	const FVector3d& Position = Entity.Transform.Translation.Meters;
@@ -152,34 +152,34 @@ std::expected<void, FSceneError> ValidateEntityProperties(const FSceneEntity& En
 	    || !std::isfinite(Rotation.X) || !std::isfinite(Rotation.Y) || !std::isfinite(Rotation.Z) || !std::isfinite(Rotation.W)
 	    || !std::isfinite(RotationLengthSquared) || RotationLengthSquared <= std::numeric_limits<float>::epsilon())
 	{
-		return std::unexpected(FSceneError{"Entity transform must be finite, with positive scale and a nondegenerate quaternion"});
+		return std::unexpected(FLevelError{"Entity transform must be finite, with positive scale and a nondegenerate quaternion"});
 	}
 
 	if (Entity.Mesh && !Entity.Mesh->Asset.IsValid())
 	{
-		return std::unexpected(FSceneError{"Static mesh component has an invalid asset ID"});
+		return std::unexpected(FLevelError{"Static mesh component has an invalid asset ID"});
 	}
 
-	if (Entity.BodyType != ESceneBodyType::None && Entity.BodyType != ESceneBodyType::Static && Entity.BodyType != ESceneBodyType::Dynamic)
+	if (Entity.BodyType != ELevelBodyType::None && Entity.BodyType != ELevelBodyType::Static && Entity.BodyType != ELevelBodyType::Dynamic)
 	{
-		return std::unexpected(FSceneError{"Entity has an unknown body type"});
+		return std::unexpected(FLevelError{"Entity has an unknown body type"});
 	}
 
-	const auto ValidBodySettings = ValidateSceneRigidBodySettings(Entity.BodySettings);
+	const auto ValidBodySettings = ValidateLevelRigidBodySettings(Entity.BodySettings);
 	if (!ValidBodySettings)
 	{
 		return ValidBodySettings;
 	}
 
-	if (Entity.BodyType == ESceneBodyType::None && Entity.BodySettings != FSceneRigidBodySettings{})
+	if (Entity.BodyType == ELevelBodyType::None && Entity.BodySettings != FLevelRigidBodySettings{})
 	{
-		return std::unexpected(FSceneError{"Entity without a rigid body must use default body settings"});
+		return std::unexpected(FLevelError{"Entity without a rigid body must use default body settings"});
 	}
 
 	return {};
 }
 
-TMatrix4<double> MakeLocalMatrix(const FSceneTransform& Transform)
+TMatrix4<double> MakeLocalMatrix(const FLevelTransform& Transform)
 {
 	const FQuaternion& Rotation = Transform.Rotation;
 	return TMatrix4<double>::Transform(Transform.Translation.Meters, TQuaternion<double>{Rotation.X, Rotation.Y, Rotation.Z, Rotation.W}, FVector3d{Transform.Scale});
@@ -203,11 +203,11 @@ std::string FObjectId::ToString() const
 	return FAssetId{High, Low}.ToString();
 }
 
-std::expected<void, FSceneError> ValidateSceneRigidBodySettings(const FSceneRigidBodySettings& Settings)
+std::expected<void, FLevelError> ValidateLevelRigidBodySettings(const FLevelRigidBodySettings& Settings)
 {
 	if (!std::isfinite(Settings.MassKg) || Settings.MassKg < 0.001f || Settings.MassKg > 1'000'000.f)
 	{
-		return std::unexpected(FSceneError{"Rigid body mass must be finite and between 0.001 and 1000000 kg"});
+		return std::unexpected(FLevelError{"Rigid body mass must be finite and between 0.001 and 1000000 kg"});
 	}
 
 	if (!std::isfinite(Settings.Friction) || Settings.Friction < 0.f || Settings.Friction > 1.f
@@ -215,22 +215,22 @@ std::expected<void, FSceneError> ValidateSceneRigidBodySettings(const FSceneRigi
 	    || !std::isfinite(Settings.LinearDamping) || Settings.LinearDamping < 0.f || Settings.LinearDamping > 1.f
 	    || !std::isfinite(Settings.AngularDamping) || Settings.AngularDamping < 0.f || Settings.AngularDamping > 1.f)
 	{
-		return std::unexpected(FSceneError{"Rigid body friction, restitution, and damping must be finite and between 0 and 1"});
+		return std::unexpected(FLevelError{"Rigid body friction, restitution, and damping must be finite and between 0 and 1"});
 	}
 
 	if (!std::isfinite(Settings.GravityScale) || Settings.GravityScale < 0.f || Settings.GravityScale > 10.f)
 	{
-		return std::unexpected(FSceneError{"Rigid body gravity scale must be finite and between 0 and 10"});
+		return std::unexpected(FLevelError{"Rigid body gravity scale must be finite and between 0 and 10"});
 	}
 
 	return {};
 }
 
-std::expected<void, FSceneError> ValidateSceneEntities(const std::span<const FSceneEntity> Entities)
+std::expected<void, FLevelError> ValidateLevelEntities(const std::span<const FLevelEntity> Entities)
 {
 	if (Entities.size() > MaximumEntityCount)
 	{
-		return std::unexpected(FSceneError{"Scene exceeds the limit of 1000000 entities"});
+		return std::unexpected(FLevelError{"Level exceeds the limit of 1000000 entities"});
 	}
 
 	std::unordered_map<FObjectId, std::size_t, FObjectIdHash> Indices;
@@ -238,7 +238,7 @@ std::expected<void, FSceneError> ValidateSceneEntities(const std::span<const FSc
 
 	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
 	{
-		const FSceneEntity& Entity = Entities[Index];
+		const FLevelEntity& Entity = Entities[Index];
 		const auto Valid = ValidateEntityProperties(Entity);
 		if (!Valid)
 		{
@@ -247,7 +247,7 @@ std::expected<void, FSceneError> ValidateSceneEntities(const std::span<const FSc
 
 		if (!Indices.emplace(Entity.Id, Index).second)
 		{
-			return std::unexpected(FSceneError{std::format("Duplicate object ID '{}'", Entity.Id.ToString())});
+			return std::unexpected(FLevelError{std::format("Duplicate object ID '{}'", Entity.Id.ToString())});
 		}
 	}
 
@@ -264,7 +264,7 @@ std::expected<void, FSceneError> ValidateSceneEntities(const std::span<const FSc
 		const auto Found = Indices.find(Parent);
 		if (Found == Indices.end())
 		{
-			return std::unexpected(FSceneError{std::format("Entity '{}' references missing parent '{}'", Entities[Index].Id.ToString(), Parent.ToString())});
+			return std::unexpected(FLevelError{std::format("Entity '{}' references missing parent '{}'", Entities[Index].Id.ToString(), Parent.ToString())});
 		}
 
 		Parents[Index] = Found->second;
@@ -285,7 +285,7 @@ std::expected<void, FSceneError> ValidateSceneEntities(const std::span<const FSc
 
 		if (Current != Entities.size() && States[Current] == 1)
 		{
-			return std::unexpected(FSceneError{"Scene hierarchy contains a parent cycle"});
+			return std::unexpected(FLevelError{"Level hierarchy contains a parent cycle"});
 		}
 
 		Current = Start;
@@ -303,9 +303,9 @@ std::expected<void, FSceneError> ValidateSceneEntities(const std::span<const FSc
 struct FWorld::FImplementation
 {
 	bool IsValid(FEntityId Entity) const;
-	FSceneEntity Snapshot(entt::entity Entity) const;
-	void Assign(entt::entity Entity, const FSceneEntity& Snapshot);
-	void Insert(const FSceneEntity& Snapshot);
+	FLevelEntity Snapshot(entt::entity Entity) const;
+	void Assign(entt::entity Entity, const FLevelEntity& Snapshot);
+	void Insert(const FLevelEntity& Snapshot);
 	void ClearPending();
 
 	entt::registry Registry;
@@ -313,7 +313,7 @@ struct FWorld::FImplementation
 	std::uint64_t Token = AllocateWorldToken();
 	std::uint64_t NextGeneration = 1;
 
-	std::vector<FSceneEntity> PendingCreates;
+	std::vector<FLevelEntity> PendingCreates;
 	std::unordered_set<FObjectId, FObjectIdHash> PendingIds;
 	std::unordered_set<std::uint32_t> PendingDestroys;
 };
@@ -324,28 +324,28 @@ bool FWorld::FImplementation::IsValid(const FEntityId Entity) const
 	return Entity.World == Token && Entity.Generation != 0 && Registry.valid(StorageEntity) && Registry.get<FEntityGeneration>(StorageEntity).Value == Entity.Generation;
 }
 
-FSceneEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
+FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 {
 	const FStaticMeshComponent* Mesh = Registry.try_get<FStaticMeshComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
 	    .Parent = Registry.get<FEntityParent>(Entity).Value,
-	    .Transform = Registry.get<FSceneTransform>(Entity),
+	    .Transform = Registry.get<FLevelTransform>(Entity),
 	    .Mesh = Mesh ? std::optional<FStaticMeshComponent>{*Mesh} : std::nullopt,
-	    .BodyType = Registry.get<ESceneBodyType>(Entity),
-	    .BodySettings = Registry.get<FSceneRigidBodySettings>(Entity),
+	    .BodyType = Registry.get<ELevelBodyType>(Entity),
+	    .BodySettings = Registry.get<FLevelRigidBodySettings>(Entity),
 	};
 }
 
-void FWorld::FImplementation::Assign(const entt::entity Entity, const FSceneEntity& Snapshot)
+void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEntity& Snapshot)
 {
 	Registry.emplace_or_replace<FObjectId>(Entity, Snapshot.Id);
 	Registry.emplace_or_replace<FEntityName>(Entity, Snapshot.Name);
 	Registry.emplace_or_replace<FEntityParent>(Entity, Snapshot.Parent);
-	Registry.emplace_or_replace<FSceneTransform>(Entity, Snapshot.Transform);
-	Registry.emplace_or_replace<ESceneBodyType>(Entity, Snapshot.BodyType);
-	Registry.emplace_or_replace<FSceneRigidBodySettings>(Entity, Snapshot.BodySettings);
+	Registry.emplace_or_replace<FLevelTransform>(Entity, Snapshot.Transform);
+	Registry.emplace_or_replace<ELevelBodyType>(Entity, Snapshot.BodyType);
+	Registry.emplace_or_replace<FLevelRigidBodySettings>(Entity, Snapshot.BodySettings);
 
 	if (Snapshot.Mesh)
 	{
@@ -357,7 +357,7 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FSceneEnti
 	}
 }
 
-void FWorld::FImplementation::Insert(const FSceneEntity& Snapshot)
+void FWorld::FImplementation::Insert(const FLevelEntity& Snapshot)
 {
 	const std::uint64_t Generation = NextGeneration++;
 	if (Generation == 0)
@@ -385,11 +385,11 @@ FWorld::FWorld()
 
 FWorld::~FWorld() = default;
 
-std::expected<FObjectId, FSceneError> FWorld::QueueCreateEntity(FSceneEntity Entity)
+std::expected<FObjectId, FLevelError> FWorld::QueueCreateEntity(FLevelEntity Entity)
 {
 	if (bExecutingSystems)
 	{
-		return std::unexpected(FSceneError{"Systems must queue structural changes through their execution context"});
+		return std::unexpected(FLevelError{"Systems must queue structural changes through their execution context"});
 	}
 
 	if (!Entity.Id.IsValid())
@@ -405,12 +405,12 @@ std::expected<FObjectId, FSceneError> FWorld::QueueCreateEntity(FSceneEntity Ent
 
 	if (Implementation->Objects.contains(Entity.Id) || Implementation->PendingIds.contains(Entity.Id))
 	{
-		return std::unexpected(FSceneError{"Object ID already exists or is queued for creation"});
+		return std::unexpected(FLevelError{"Object ID already exists or is queued for creation"});
 	}
 
 	if (Implementation->Objects.size() + Implementation->PendingCreates.size() - Implementation->PendingDestroys.size() >= MaximumEntityCount)
 	{
-		return std::unexpected(FSceneError{"World exceeds the limit of 1000000 entities"});
+		return std::unexpected(FLevelError{"World exceeds the limit of 1000000 entities"});
 	}
 
 	const FObjectId Id = Entity.Id;
@@ -419,31 +419,31 @@ std::expected<FObjectId, FSceneError> FWorld::QueueCreateEntity(FSceneEntity Ent
 	return Id;
 }
 
-std::expected<void, FSceneError> FWorld::QueueDestroyEntity(const FEntityId Entity)
+std::expected<void, FLevelError> FWorld::QueueDestroyEntity(const FEntityId Entity)
 {
 	if (bExecutingSystems)
 	{
-		return std::unexpected(FSceneError{"Systems must queue structural changes through their execution context"});
+		return std::unexpected(FLevelError{"Systems must queue structural changes through their execution context"});
 	}
 
 	if (!Implementation->IsValid(Entity))
 	{
-		return std::unexpected(FSceneError{"Entity handle is stale or belongs to another world"});
+		return std::unexpected(FLevelError{"Entity handle is stale or belongs to another world"});
 	}
 
 	if (!Implementation->PendingDestroys.insert(Entity.Value).second)
 	{
-		return std::unexpected(FSceneError{"Entity is already queued for destruction"});
+		return std::unexpected(FLevelError{"Entity is already queued for destruction"});
 	}
 
 	return {};
 }
 
-std::expected<void, FSceneError> FWorld::FlushStructuralChanges()
+std::expected<void, FLevelError> FWorld::FlushStructuralChanges()
 {
 	if (bExecutingSystems)
 	{
-		return std::unexpected(FSceneError{"Structural barriers cannot run inside a system"});
+		return std::unexpected(FLevelError{"Structural barriers cannot run inside a system"});
 	}
 
 	if (Implementation->PendingCreates.empty() && Implementation->PendingDestroys.empty())
@@ -451,7 +451,7 @@ std::expected<void, FSceneError> FWorld::FlushStructuralChanges()
 		return {};
 	}
 
-	std::vector<FSceneEntity> Candidate;
+	std::vector<FLevelEntity> Candidate;
 	Candidate.reserve(Implementation->Objects.size() + Implementation->PendingCreates.size());
 
 	for (const auto& [Id, Entity] : Implementation->Objects)
@@ -463,11 +463,11 @@ std::expected<void, FSceneError> FWorld::FlushStructuralChanges()
 	}
 
 	Candidate.insert(Candidate.end(), Implementation->PendingCreates.begin(), Implementation->PendingCreates.end());
-	const auto Valid = ValidateSceneEntities(Candidate);
+	const auto Valid = ValidateLevelEntities(Candidate);
 	if (!Valid)
 	{
 		Implementation->ClearPending();
-		return std::unexpected(FSceneError{std::format("Structural batch rejected: {}. Reparent or destroy children before destroying their parent", Valid.error().Message)});
+		return std::unexpected(FLevelError{std::format("Structural batch rejected: {}. Reparent or destroy children before destroying their parent", Valid.error().Message)});
 	}
 
 	for (const std::uint32_t Value : Implementation->PendingDestroys)
@@ -477,7 +477,7 @@ std::expected<void, FSceneError> FWorld::FlushStructuralChanges()
 		Implementation->Registry.destroy(Entity);
 	}
 
-	for (const FSceneEntity& Entity : Implementation->PendingCreates)
+	for (const FLevelEntity& Entity : Implementation->PendingCreates)
 	{
 		Implementation->Insert(Entity);
 	}
@@ -486,14 +486,14 @@ std::expected<void, FSceneError> FWorld::FlushStructuralChanges()
 	return {};
 }
 
-std::expected<void, FSceneError> FWorld::ReplaceEntities(const std::span<const FSceneEntity> Entities)
+std::expected<void, FLevelError> FWorld::ReplaceEntities(const std::span<const FLevelEntity> Entities)
 {
 	if (bExecutingSystems)
 	{
-		return std::unexpected(FSceneError{"World replacement cannot run inside a system"});
+		return std::unexpected(FLevelError{"World replacement cannot run inside a system"});
 	}
 
-	const auto Valid = ValidateSceneEntities(Entities);
+	const auto Valid = ValidateLevelEntities(Entities);
 	if (!Valid)
 	{
 		return Valid;
@@ -502,7 +502,7 @@ std::expected<void, FSceneError> FWorld::ReplaceEntities(const std::span<const F
 	auto Replacement = std::make_unique<FImplementation>();
 	Replacement->Objects.reserve(Entities.size());
 
-	for (const FSceneEntity& Entity : Entities)
+	for (const FLevelEntity& Entity : Entities)
 	{
 		Replacement->Insert(Entity);
 	}
@@ -511,16 +511,16 @@ std::expected<void, FSceneError> FWorld::ReplaceEntities(const std::span<const F
 	return {};
 }
 
-std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<const FSceneEntityChange> Changes)
+std::expected<void, FLevelError> FWorld::ApplyEntityChanges(const std::span<const FLevelEntityChange> Changes)
 {
 	if (bExecutingSystems)
 	{
-		return std::unexpected(FSceneError{"Entity patches cannot publish inside a system"});
+		return std::unexpected(FLevelError{"Entity patches cannot publish inside a system"});
 	}
 
 	if (!Implementation->PendingCreates.empty() || !Implementation->PendingDestroys.empty())
 	{
-		return std::unexpected(FSceneError{"Flush pending structural changes before applying an entity patch"});
+		return std::unexpected(FLevelError{"Flush pending structural changes before applying an entity patch"});
 	}
 
 	if (Changes.empty())
@@ -535,21 +535,21 @@ std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<cons
 
 	for (std::size_t Index = 0; Index < Changes.size(); ++Index)
 	{
-		const FSceneEntityChange& Change = Changes[Index];
+		const FLevelEntityChange& Change = Changes[Index];
 		if (!Change.Before && !Change.After)
 		{
-			return std::unexpected(FSceneError{"Entity change must contain a before or after snapshot"});
+			return std::unexpected(FLevelError{"Entity change must contain a before or after snapshot"});
 		}
 
 		const FObjectId Id = Change.Before ? Change.Before->Id : Change.After->Id;
 		if (!Id.IsValid() || (Change.Before && Change.After && Change.Before->Id != Change.After->Id))
 		{
-			return std::unexpected(FSceneError{"Entity change must preserve a valid stable object ID"});
+			return std::unexpected(FLevelError{"Entity change must preserve a valid stable object ID"});
 		}
 
 		if (!ChangedObjects.emplace(Id, Index).second)
 		{
-			return std::unexpected(FSceneError{"Entity patch contains duplicate object IDs"});
+			return std::unexpected(FLevelError{"Entity patch contains duplicate object IDs"});
 		}
 
 		const auto Existing = Implementation->Objects.find(Id);
@@ -557,12 +557,12 @@ std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<cons
 		{
 			if (Existing == Implementation->Objects.end() || Implementation->Snapshot(Existing->second) != *Change.Before)
 			{
-				return std::unexpected(FSceneError{"Entity patch before snapshot does not match the current world"});
+				return std::unexpected(FLevelError{"Entity patch before snapshot does not match the current world"});
 			}
 		}
 		else if (Existing != Implementation->Objects.end())
 		{
-			return std::unexpected(FSceneError{"Entity patch inserts an object ID that already exists"});
+			return std::unexpected(FLevelError{"Entity patch inserts an object ID that already exists"});
 		}
 
 		InsertCount += !Change.Before;
@@ -571,10 +571,10 @@ std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<cons
 
 	if (InsertCount > MaximumEntityCount || Implementation->Objects.size() - RemoveCount > MaximumEntityCount - InsertCount)
 	{
-		return std::unexpected(FSceneError{"Entity patch exceeds the limit of 1000000 entities"});
+		return std::unexpected(FLevelError{"Entity patch exceeds the limit of 1000000 entities"});
 	}
 
-	std::vector<FSceneEntity> Candidate;
+	std::vector<FLevelEntity> Candidate;
 	Candidate.reserve(Implementation->Objects.size() - RemoveCount + InsertCount);
 
 	for (const auto& [Id, Entity] : Implementation->Objects)
@@ -590,7 +590,7 @@ std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<cons
 		}
 	}
 
-	for (const FSceneEntityChange& Change : Changes)
+	for (const FLevelEntityChange& Change : Changes)
 	{
 		if (!Change.Before)
 		{
@@ -598,14 +598,14 @@ std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<cons
 		}
 	}
 
-	const auto Valid = ValidateSceneEntities(Candidate);
+	const auto Valid = ValidateLevelEntities(Candidate);
 	if (!Valid)
 	{
 		return Valid;
 	}
 
 	// Retire removals first so a full-capacity patch can reuse storage for its insertions.
-	for (const FSceneEntityChange& Change : Changes)
+	for (const FLevelEntityChange& Change : Changes)
 	{
 		if (!Change.After)
 		{
@@ -615,7 +615,7 @@ std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<cons
 		}
 	}
 
-	for (const FSceneEntityChange& Change : Changes)
+	for (const FLevelEntityChange& Change : Changes)
 	{
 		if (Change.Before && Change.After)
 		{
@@ -630,27 +630,27 @@ std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<cons
 	return {};
 }
 
-std::expected<void, FSceneError> FWorld::SetEntity(const FEntityId Entity, const FSceneEntity& Snapshot)
+std::expected<void, FLevelError> FWorld::SetEntity(const FEntityId Entity, const FLevelEntity& Snapshot)
 {
 	if (bExecutingSystems)
 	{
-		return std::unexpected(FSceneError{"Systems must write components through their execution context"});
+		return std::unexpected(FLevelError{"Systems must write components through their execution context"});
 	}
 
 	return SetEntityForSystem(Entity, Snapshot);
 }
 
-std::expected<void, FSceneError> FWorld::SetEntityForSystem(const FEntityId Entity, const FSceneEntity& Snapshot)
+std::expected<void, FLevelError> FWorld::SetEntityForSystem(const FEntityId Entity, const FLevelEntity& Snapshot)
 {
 	if (!Implementation->IsValid(Entity))
 	{
-		return std::unexpected(FSceneError{"Entity handle is stale or belongs to another world"});
+		return std::unexpected(FLevelError{"Entity handle is stale or belongs to another world"});
 	}
 
 	const auto StorageEntity = static_cast<entt::entity>(Entity.Value);
 	if (Snapshot.Id != Implementation->Registry.get<FObjectId>(StorageEntity))
 	{
-		return std::unexpected(FSceneError{"An existing entity's stable object ID cannot change"});
+		return std::unexpected(FLevelError{"An existing entity's stable object ID cannot change"});
 	}
 
 	const auto Valid = ValidateEntityProperties(Snapshot);
@@ -665,13 +665,13 @@ std::expected<void, FSceneError> FWorld::SetEntityForSystem(const FEntityId Enti
 	{
 		if (Parent == Snapshot.Id)
 		{
-			return std::unexpected(FSceneError{"Reparenting would create a hierarchy cycle"});
+			return std::unexpected(FLevelError{"Reparenting would create a hierarchy cycle"});
 		}
 
 		const auto Found = Implementation->Objects.find(Parent);
 		if (Found == Implementation->Objects.end())
 		{
-			return std::unexpected(FSceneError{"Entity references a missing parent"});
+			return std::unexpected(FLevelError{"Entity references a missing parent"});
 		}
 
 		Parent = Implementation->Registry.get<FEntityParent>(Found->second).Value;
@@ -687,24 +687,24 @@ std::optional<FEntityId> FWorld::FindEntity(const FObjectId Object) const
 	return Found == Implementation->Objects.end() ? std::nullopt : std::optional<FEntityId>{{.World = Implementation->Token, .Value = entt::to_integral(Found->second), .Generation = Implementation->Registry.get<FEntityGeneration>(Found->second).Value}};
 }
 
-std::optional<FSceneEntity> FWorld::GetEntity(const FEntityId Entity) const
+std::optional<FLevelEntity> FWorld::GetEntity(const FEntityId Entity) const
 {
 	return bExecutingSystems ? std::nullopt : GetEntityForSystem(Entity);
 }
 
-std::optional<FSceneEntity> FWorld::GetEntityForSystem(const FEntityId Entity) const
+std::optional<FLevelEntity> FWorld::GetEntityForSystem(const FEntityId Entity) const
 {
-	return Implementation->IsValid(Entity) ? std::optional<FSceneEntity>{Implementation->Snapshot(static_cast<entt::entity>(Entity.Value))} : std::nullopt;
+	return Implementation->IsValid(Entity) ? std::optional<FLevelEntity>{Implementation->Snapshot(static_cast<entt::entity>(Entity.Value))} : std::nullopt;
 }
 
-std::vector<FSceneEntity> FWorld::SnapshotEntities() const
+std::vector<FLevelEntity> FWorld::SnapshotEntities() const
 {
-	return bExecutingSystems ? std::vector<FSceneEntity>{} : SnapshotEntitiesForSystem();
+	return bExecutingSystems ? std::vector<FLevelEntity>{} : SnapshotEntitiesForSystem();
 }
 
-std::vector<FSceneEntity> FWorld::SnapshotEntitiesForSystem() const
+std::vector<FLevelEntity> FWorld::SnapshotEntitiesForSystem() const
 {
-	std::vector<FSceneEntity> Entities;
+	std::vector<FLevelEntity> Entities;
 	Entities.reserve(Implementation->Objects.size());
 
 	for (const auto& [Id, Entity] : Implementation->Objects)
@@ -712,7 +712,7 @@ std::vector<FSceneEntity> FWorld::SnapshotEntitiesForSystem() const
 		Entities.push_back(Implementation->Snapshot(Entity));
 	}
 
-	std::ranges::sort(Entities, {}, &FSceneEntity::Id);
+	std::ranges::sort(Entities, {}, &FLevelEntity::Id);
 	return Entities;
 }
 
@@ -742,31 +742,31 @@ void FWorld::EndSystemExecution()
 	bExecutingSystems = false;
 }
 
-std::expected<TMatrix4<double>, FSceneError> FWorld::GetWorldMatrix(const FEntityId Entity) const
+std::expected<TMatrix4<double>, FLevelError> FWorld::GetWorldMatrix(const FEntityId Entity) const
 {
 	if (bExecutingSystems)
 	{
-		return std::unexpected(FSceneError{"Systems must read components through their execution context"});
+		return std::unexpected(FLevelError{"Systems must read components through their execution context"});
 	}
 
 	return GetWorldMatrixForSystem(Entity);
 }
 
-std::expected<TMatrix4<double>, FSceneError> FWorld::GetWorldMatrixForSystem(const FEntityId Entity) const
+std::expected<TMatrix4<double>, FLevelError> FWorld::GetWorldMatrixForSystem(const FEntityId Entity) const
 {
 	if (!Implementation->IsValid(Entity))
 	{
-		return std::unexpected(FSceneError{"Entity handle is stale or belongs to another world"});
+		return std::unexpected(FLevelError{"Entity handle is stale or belongs to another world"});
 	}
 
 	auto Current = static_cast<entt::entity>(Entity.Value);
-	TMatrix4<double> Matrix = MakeLocalMatrix(Implementation->Registry.get<FSceneTransform>(Current));
+	TMatrix4<double> Matrix = MakeLocalMatrix(Implementation->Registry.get<FLevelTransform>(Current));
 	FObjectId Parent = Implementation->Registry.get<FEntityParent>(Current).Value;
 
 	while (Parent.IsValid())
 	{
 		Current = Implementation->Objects.find(Parent)->second;
-		Matrix = MakeLocalMatrix(Implementation->Registry.get<FSceneTransform>(Current)) * Matrix;
+		Matrix = MakeLocalMatrix(Implementation->Registry.get<FLevelTransform>(Current)) * Matrix;
 		Parent = Implementation->Registry.get<FEntityParent>(Current).Value;
 	}
 

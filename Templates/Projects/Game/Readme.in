@@ -1,6 +1,6 @@
 # {{ProjectName}}
 
-Open `{{ProjectName}}.hertaproject` with HertaEditor. The Game template includes an empty scene and a native C++ module, not a standalone game runtime.
+Open `{{ProjectName}}.hertaproject` with HertaEditor. The Game template includes an empty level and a native C++ module, not a standalone game runtime.
 
 Generate projects from the associated Herta source checkout with its pinned Premake:
 

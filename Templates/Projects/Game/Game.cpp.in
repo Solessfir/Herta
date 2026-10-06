@@ -2,7 +2,7 @@
 
 namespace Herta
 {
-std::expected<FObjectId, FSceneError> Create{{ModuleName}}Entity(FWorld& World)
+std::expected<FObjectId, FLevelError> Create{{ModuleName}}Entity(FWorld& World)
 {
 	return World.QueueCreateEntity({.Name = "{{ProjectName}} entity"});
 }

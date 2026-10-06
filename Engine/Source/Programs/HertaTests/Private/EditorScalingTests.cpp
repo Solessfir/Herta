@@ -1,6 +1,6 @@
-#include "EditorScene.h"
+#include "EditorLevel.h"
 #include "Herta/EditorFramework/ScalingStatistics.h"
-#include "Herta/Scene/ScalingScene.h"
+#include "Herta/Level/ScalingLevel.h"
 #include "TestFiles.h"
 
 #include <doctest/doctest.h>
@@ -29,17 +29,17 @@ TEST_CASE("Scaling editor authoring preserves batch history selection and canoni
 	{
 		CAPTURE(Count);
 		Tests::FScratchDirectory Scratch("HertaScalingAuthoring");
-		const auto Path = Scratch.GetPath() / "Scaling.hscene";
-		const auto Fixture = GenerateScalingScene({.CubeCount = Count, .Workload = EScalingSceneWorkload::Rendering});
+		const auto Path = Scratch.GetPath() / "Scaling.hlevel";
+		const auto Fixture = GenerateScalingLevel({.CubeCount = Count, .Workload = EScalingLevelWorkload::Rendering});
 		REQUIRE(Fixture);
-		REQUIRE(SaveScene(Path, *Fixture));
-		FEditorScene Scene;
-		REQUIRE(Scene.Load(Path));
-		const auto Before = Scene.GetWorld().SnapshotEntities();
-		const auto OriginalHandle = Scene.GetWorld().FindEntity(Scene.GetObjects()[0].Id);
+		REQUIRE(SaveLevel(Path, *Fixture));
+		FEditorLevel Level;
+		REQUIRE(Level.Load(Path));
+		const auto Before = Level.GetWorld().SnapshotEntities();
+		const auto OriginalHandle = Level.GetWorld().FindEntity(Level.GetObjects()[0].Id);
 		std::vector<FObjectId> Selected;
 
-		for (const auto& Object : Scene.GetObjects())
+		for (const auto& Object : Level.GetObjects())
 		{
 			Selected.push_back(Object.Id);
 		}
@@ -48,65 +48,65 @@ TEST_CASE("Scaling editor authoring preserves batch history selection and canoni
 		auto RequestedSelection = Selected;
 		RequestedSelection.push_back(Selected.front());
 		RequestedSelection.push_back(FObjectId{1, 1});
-		Scene.SetSelection(RequestedSelection, Selected.front());
+		Level.SetSelection(RequestedSelection, Selected.front());
 		const double SelectionMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count();
-		CHECK(Scene.GetSelection().size() == Count + 1);
-		CHECK(Scene.GetActiveObject() == Selected.front());
-		REQUIRE(Scene.BeginEdit("Scaling transform"));
+		CHECK(Level.GetSelection().size() == Count + 1);
+		CHECK(Level.GetActiveObject() == Selected.front());
+		REQUIRE(Level.BeginEdit("Scaling transform"));
 
-		for (auto& Object : Scene.GetObjects())
+		for (auto& Object : Level.GetObjects())
 		{
 			Object.Translation.x += 1.f;
 		}
 
-		REQUIRE(Scene.EndEdit());
-		const auto Transformed = Scene.GetWorld().SnapshotEntities();
+		REQUIRE(Level.EndEdit());
+		const auto Transformed = Level.GetWorld().SnapshotEntities();
 		CHECK(Transformed != Before);
-		REQUIRE(Scene.Undo());
-		CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-		REQUIRE(Scene.Redo());
-		CHECK(Scene.GetWorld().SnapshotEntities() == Transformed);
-		REQUIRE(Scene.RemoveStaticMeshFromSelected());
-		CHECK_FALSE(Scene.GetObjects()[0].Mesh.IsValid());
-		REQUIRE(Scene.Undo());
-		CHECK(Scene.GetWorld().SnapshotEntities() == Transformed);
-		REQUIRE(Scene.AddRigidBodyToSelected());
-		REQUIRE(Scene.SetSelectedBodyProperty(&FSceneRigidBodySettings::MassKg, 2.f));
-		REQUIRE(Scene.SetSelectedBodyType(ESceneBodyType::None));
-		REQUIRE(Scene.Undo());
+		REQUIRE(Level.Undo());
+		CHECK(Level.GetWorld().SnapshotEntities() == Before);
+		REQUIRE(Level.Redo());
+		CHECK(Level.GetWorld().SnapshotEntities() == Transformed);
+		REQUIRE(Level.RemoveStaticMeshFromSelected());
+		CHECK_FALSE(Level.GetObjects()[0].Mesh.IsValid());
+		REQUIRE(Level.Undo());
+		CHECK(Level.GetWorld().SnapshotEntities() == Transformed);
+		REQUIRE(Level.AddRigidBodyToSelected());
+		REQUIRE(Level.SetSelectedBodyProperty(&FLevelRigidBodySettings::MassKg, 2.f));
+		REQUIRE(Level.SetSelectedBodyType(ELevelBodyType::None));
+		REQUIRE(Level.Undo());
 
-		for (const auto& Entity : Scene.GetWorld().SnapshotEntities())
+		for (const auto& Entity : Level.GetWorld().SnapshotEntities())
 		{
-			CHECK(Entity.BodyType != ESceneBodyType::None);
+			CHECK(Entity.BodyType != ELevelBodyType::None);
 		}
 
-		REQUIRE(Scene.Save());
-		const auto Saved = LoadScene(Path);
+		REQUIRE(Level.Save());
+		const auto Saved = LoadLevel(Path);
 		REQUIRE(Saved);
-		CHECK(Saved->Entities == Scene.GetWorld().SnapshotEntities());
-		const auto Copy = Scene.CopySelected();
+		CHECK(Saved->Entities == Level.GetWorld().SnapshotEntities());
+		const auto Copy = Level.CopySelected();
 		REQUIRE(Copy);
-		const auto ParsedCopy = ParseScene(*Copy);
+		const auto ParsedCopy = ParseLevel(*Copy);
 		REQUIRE(ParsedCopy);
 		CHECK(ParsedCopy->Entities.size() == Count + 1);
-		REQUIRE(Scene.DuplicateSelected(false, {1., 0., 0.}));
-		CHECK(Scene.GetObjects().size() == (Count + 1) * 2);
-		CHECK(Scene.GetSelection().size() == Count + 1);
-		REQUIRE(Scene.Undo());
-		CHECK(Scene.GetObjects().size() == Count + 1);
-		CHECK(Scene.GetSelection().size() == Selected.size());
-		REQUIRE(Scene.DeleteSelected());
-		CHECK(Scene.GetObjects().empty());
-		REQUIRE(Scene.Undo());
-		CHECK(Scene.GetObjects().size() == Count + 1);
-		CHECK(Scene.GetSelection().size() == Selected.size());
-		CHECK_FALSE(Scene.GetWorld().GetEntity(*OriginalHandle));
+		REQUIRE(Level.DuplicateSelected(false, {1., 0., 0.}));
+		CHECK(Level.GetObjects().size() == (Count + 1) * 2);
+		CHECK(Level.GetSelection().size() == Count + 1);
+		REQUIRE(Level.Undo());
+		CHECK(Level.GetObjects().size() == Count + 1);
+		CHECK(Level.GetSelection().size() == Selected.size());
+		REQUIRE(Level.DeleteSelected());
+		CHECK(Level.GetObjects().empty());
+		REQUIRE(Level.Undo());
+		CHECK(Level.GetObjects().size() == Count + 1);
+		CHECK(Level.GetSelection().size() == Selected.size());
+		CHECK_FALSE(Level.GetWorld().GetEntity(*OriginalHandle));
 		const double Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count();
 		std::vector<double> SnapshotSamples;
 		for (std::size_t Index = 0; Index < 68; ++Index)
 		{
 			const auto SnapshotStart = std::chrono::steady_clock::now();
-			const auto Snapshot = Scene.GetWorld().SnapshotEntities();
+			const auto Snapshot = Level.GetWorld().SnapshotEntities();
 			const double Elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - SnapshotStart).count();
 			CHECK(Snapshot.size() == Count + 1);
 			if (Index >= 8)

@@ -2,7 +2,7 @@
 
 ## Scope
 
-The opt-in `EnTT adoption spike` doctest evaluates EnTT v3.16.0, revision `b4e58bdd364ad72246c123a0c28538eab3252672`, against [EngineDesign.md](EngineDesign.md) section 4.6. It is a storage and integration probe, separate from the Scene implementation. Its results support adopting EnTT privately inside `FWorld`, not adopting a runtime scheduler.
+The opt-in `EnTT adoption spike` doctest evaluates EnTT v3.16.0, revision `b4e58bdd364ad72246c123a0c28538eab3252672`, against [EngineDesign.md](EngineDesign.md) section 4.6. It is a storage and integration probe, separate from the Level implementation. Its results support adopting EnTT privately inside `FWorld`, not adopting a runtime scheduler.
 
 Run the existing `HertaTests` executable with `--no-skip --test-case="EnTT adoption spike"`. Normal test runs skip this probe. There are no timing pass thresholds. Creation, structural churn, eight mixed-component iteration passes, hierarchy/clone, deferred mutation, and parallel query wall-clock times are printed. Every measured workload also checks data invariants.
 

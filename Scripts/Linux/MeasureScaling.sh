@@ -23,9 +23,9 @@ cd -- "$repository_root"
 for workload in rendering dynamic; do
     for count in 1000 5000 10000; do
         name="$workload-$count"
-        scene="$output_directory/$name.hscene"
-        "$command" scene.generate-scaling "$workload" "$count" "$scene"
-        arguments=("--scaling-test=$scene")
+        level="$output_directory/$name.hlevel"
+        "$command" level.generate-scaling "$workload" "$count" "$level"
+        arguments=("--scaling-test=$level")
         if [[ "$workload" == dynamic ]]; then
             arguments+=(--scaling-simulate)
         fi

@@ -164,9 +164,9 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingScenePath, const bool bScalingSimulate, const std::string_view ProjectArgument)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument)
 {
-	const bool bScalingTest = !ScalingScenePath.empty();
+	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
 	LogOptions.EditorBufferCapacity = 20'000;
 	std::expected<std::unique_ptr<FLogService>, FLogError> LogResult = FLogService::Create(std::move(LogOptions));
@@ -505,13 +505,13 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	const FEditorAssetPaths AssetPaths{.EngineContentRoot = RepositoryRoot / "Engine/Content", .ContentRoot = RepositoryRoot / "Games/Sandbox/Content", .DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform, .WorkerPath = AssetWorker, .TargetPlatform = std::string(Platform)};
 	const std::filesystem::path ProjectPath = bScalingTest ? std::filesystem::path{} : ProjectArgument.empty() ? RepositoryRoot / "Games/Sandbox/Sandbox.hertaproject"
 	                                                                                                           : std::filesystem::path(std::u8string(ProjectArgument.begin(), ProjectArgument.end()));
-	const std::filesystem::path ScenePath = bScalingTest ? std::filesystem::path(std::u8string(ScalingScenePath.begin(), ScalingScenePath.end())) : std::filesystem::path{};
+	const std::filesystem::path LevelPath = bScalingTest ? std::filesystem::path(std::u8string(ScalingLevelPath.begin(), ScalingLevelPath.end())) : std::filesystem::path{};
 	if (bScalingTest)
 	{
 		std::error_code Error;
-		if (!std::filesystem::is_regular_file(ScenePath, Error))
+		if (!std::filesystem::is_regular_file(LevelPath, Error))
 		{
-			HERTA_LOG_ERROR(*Log, EditorLog, "Scaling capture requires an existing scene: {}", ScenePath.string());
+			HERTA_LOG_ERROR(*Log, EditorLog, "Scaling capture requires an existing level: {}", LevelPath.string());
 			return 1;
 		}
 	}
@@ -561,7 +561,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		});
 	};
 
-	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .ScenePath = ScenePath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail});
+	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .LevelPath = LevelPath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail});
 	if (!EditorFrameworkResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize EditorFramework: {}", EditorFrameworkResult.error().Message);
@@ -586,8 +586,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	const FSrgbColor EditorClearColor = ConvertSrgb8ToSrgbColor(CanvasColor.Red, CanvasColor.Green, CanvasColor.Blue, CanvasColor.Alpha);
 
 	bool bRenderFailed = false;
-	FTextureHandle RegisteredSceneTexture;
-	std::uint64_t SceneTextureId = 0;
+	FTextureHandle RegisteredLevelTexture;
+	std::uint64_t LevelTextureId = 0;
 	double RenderMilliseconds = 0.;
 	double LastCpuMilliseconds = 0.;
 	RenderFrame = [&]
@@ -664,25 +664,25 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			bViewportRendered = MeshFrame.has_value();
 			if (!MeshFrame)
 			{
-				HERTA_LOG_ERROR(*Log, EditorLog, "Could not render scene: {}", MeshFrame.error().Message);
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not render level: {}", MeshFrame.error().Message);
 				bFrameFailed = true;
 				return;
 			}
 
-			if (RegisteredSceneTexture != MeshRenderer->GetColorTarget())
+			if (RegisteredLevelTexture != MeshRenderer->GetColorTarget())
 			{
 				auto TextureId = Presentation->RegisterToolUITexture(MeshRenderer->GetColorTarget(), true);
 				if (!TextureId)
 				{
-					HERTA_LOG_ERROR(*Log, EditorLog, "Could not display scene: {}", TextureId.error().Message);
+					HERTA_LOG_ERROR(*Log, EditorLog, "Could not display level: {}", TextureId.error().Message);
 					bFrameFailed = true;
 					return;
 				}
 
-				Presentation->UnregisterToolUITexture(SceneTextureId);
-				SceneTextureId = *TextureId;
-				RegisteredSceneTexture = MeshRenderer->GetColorTarget();
-				EditorFramework->SetViewportImage(SceneTextureId);
+				Presentation->UnregisterToolUITexture(LevelTextureId);
+				LevelTextureId = *TextureId;
+				RegisteredLevelTexture = MeshRenderer->GetColorTarget();
+				EditorFramework->SetViewportImage(LevelTextureId);
 			}
 		});
 
@@ -922,7 +922,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 			if (const auto Gpu = Presentation->GetToolUIGpuMilliseconds())
 			{
-				HERTA_LOG_INFO(*Log, EditorLog, "Scaling GPU UI last_ms={:.4f} (not scene GPU timing)", *Gpu);
+				HERTA_LOG_INFO(*Log, EditorLog, "Scaling GPU UI last_ms={:.4f} (not level GPU timing)", *Gpu);
 			}
 
 			++ScalingPhase;
@@ -996,10 +996,10 @@ int main(const int ArgumentCount, char** const Arguments)
 		const bool bRendererTest = Herta::HasArgument(ArgumentCount, Arguments, "--renderer-test");
 		const bool bValidationRequested = Herta::HasArgument(ArgumentCount, Arguments, "--validation");
 		const std::string_view ExpectedWindowSystem = Herta::FindArgumentValue(ArgumentCount, Arguments, "--expect-window-system=");
-		const std::string_view ScalingScenePath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--scaling-test=");
+		const std::string_view ScalingLevelPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--scaling-test=");
 		const bool bScalingSimulate = Herta::HasArgument(ArgumentCount, Arguments, "--scaling-simulate");
 		const std::string_view ProjectPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--project=");
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingScenePath, bScalingSimulate, ProjectPath);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath);
 	}
 	catch (const std::exception& Exception)
 	{

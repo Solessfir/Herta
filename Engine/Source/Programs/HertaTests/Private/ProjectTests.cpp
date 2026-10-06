@@ -1,6 +1,6 @@
 #include "Herta/EditorCore/ProjectCommands.h"
+#include "Herta/Level/LevelSerialization.h"
 #include "Herta/Project/Project.h"
-#include "Herta/Scene/SceneSerialization.h"
 #include "TestFiles.h"
 
 #include <doctest/doctest.h>
@@ -9,6 +9,8 @@
 #include <fstream>
 #include <iterator>
 #include <stop_token>
+#include <string>
+#include <vector>
 
 namespace Herta
 {
@@ -40,7 +42,7 @@ std::filesystem::path EngineRoot()
 
 FProjectDescriptor MakeProject()
 {
-	return {.Id = "ec34e991-d3c7-41cb-aae7-d6659f062afa", .Name = "Test project", .EngineAssociation = "Herta", .Modules = {{.Name = "TestGame", .Source = "Source/TestGame", .Dependencies = {"Scene"}}}, .Targets = {{.Name = "TestGameEditor", .Type = "Editor", .Modules = {"TestGame"}}}, .ContentRoots = {{.Name = "Game", .Path = "Content"}}, .StartingScene = "Scenes/Main.hscene"};
+	return {.Id = "ec34e991-d3c7-41cb-aae7-d6659f062afa", .Name = "Test project", .EngineAssociation = "Herta", .Modules = {{.Name = "TestGame", .Source = "Source/TestGame", .Dependencies = {"Level"}}}, .Targets = {{.Name = "TestGameEditor", .Type = "Editor", .Modules = {"TestGame"}}}, .ContentRoots = {{.Name = "Game", .Path = "Content"}}, .StartingLevel = "Levels/Main.hlevel"};
 }
 
 std::string Replace(std::string Text, const std::string_view From, const std::string_view To)
@@ -62,15 +64,38 @@ TEST_CASE("Project JSON is strict, versioned, and canonical")
 	REQUIRE(Canonical);
 	CHECK(*Canonical == *Text);
 	CHECK_FALSE(ParseProject(Replace(*Text, "\"formatVersion\": 1", "\"formatVersion\": 2")));
-	CHECK_FALSE(ParseProject(Replace(*Text, "\"schemaVersion\": 1", "\"schemaVersion\": 2")));
+	CHECK(Text->find("\"schemaVersion\": 2") != std::string::npos);
+	CHECK(Text->find("\"startingLevel\":") != std::string::npos);
+	CHECK_FALSE(ParseProject(Replace(*Text, "\"schemaVersion\": 2", "\"schemaVersion\": 3")));
 	CHECK_FALSE(ParseProject(Replace(*Text, "\"features\": []", "\"features\": [\"Scripting\"]")));
 	CHECK_FALSE(ParseProject(Replace(*Text, "\"name\": \"Test project\"", "\"name\": \"Test project\", \"name\": \"Duplicate\"")));
 	CHECK_FALSE(ParseProject(Replace(*Text, "\"name\": \"Test project\"", "\"unknown\": 1, \"name\": \"Test project\"")));
 	CHECK_FALSE(ParseProject(Replace(*Text, "Source/TestGame", "../TestGame")));
-	CHECK_FALSE(ParseProject(Replace(*Text, "Scenes/Main.hscene", "C:/Main.hscene")));
-	CHECK_FALSE(ParseProject(Replace(*Text, "\"Scene\"", "\"Unknown\"")));
+	CHECK_FALSE(ParseProject(Replace(*Text, "Levels/Main.hlevel", "C:/Main.hlevel")));
+	CHECK_FALSE(ParseProject(Replace(*Text, "\"Level\"", "\"Unknown\"")));
 	CHECK_FALSE(ParseProject(Replace(*Text, "\"modules\": [\"TestGame\"]", "\"modules\": [\"Missing\"]")));
 	CHECK_FALSE(ParseProject(std::string("\xff", 1)));
+}
+
+TEST_CASE("Legacy projects migrate starting scenes and module dependencies to level contracts")
+{
+	const auto Current = SerializeProject(MakeProject());
+	REQUIRE(Current);
+	const auto Legacy = Replace(Replace(Replace(Replace(*Current, "\"schemaVersion\": 2", "\"schemaVersion\": 1"), "\"startingLevel\":", "\"startingScene\":"), "\"Level\"", "\"Scene\""), "Levels/Main.hlevel", "Scenes/Main.hscene");
+	const auto Migrated = ParseProject(Legacy);
+	REQUIRE(Migrated);
+	CHECK(Migrated->StartingLevel == "Scenes/Main.hscene");
+	REQUIRE(Migrated->Modules.size() == 1);
+	CHECK(Migrated->Modules[0].Dependencies == std::vector<std::string>{"Level"});
+	const auto Canonical = SerializeProject(*Migrated);
+	REQUIRE(Canonical);
+	CHECK(*Canonical == Replace(*Current, "Levels/Main.hlevel", "Scenes/Main.hscene"));
+	CHECK(ParseProject(*Canonical).has_value());
+	CHECK_FALSE(ParseProject(Replace(*Current, "\"startingLevel\":", "\"startingScene\":")));
+	CHECK_FALSE(ParseProject(Replace(Legacy, "\"startingScene\":", "\"startingLevel\":")));
+	CHECK_FALSE(ParseProject(Replace(*Current, "\"startingLevel\":", "\"startingScene\": \"Scenes/Main.hscene\", \"startingLevel\":")));
+	CHECK_FALSE(ParseProject(Replace(Legacy, "\"startingScene\":", "\"startingLevel\": \"Levels/Main.hlevel\", \"startingScene\":")));
+	CHECK_FALSE(ParseProject(Replace(*Current, "\"Level\"", "\"Scene\"")));
 }
 
 TEST_CASE("Game project creation is transactional and produces a loadable source tree")
@@ -86,7 +111,7 @@ TEST_CASE("Game project creation is transactional and produces a loadable source
 	std::error_code PathError;
 	CHECK(std::filesystem::equivalent(Project->ContentRoot, Destination / "Content", PathError));
 	CHECK_FALSE(PathError);
-	CHECK(LoadScene(Project->StartingScene).has_value());
+	CHECK(LoadLevel(Project->StartingLevel).has_value());
 	CHECK(std::filesystem::is_regular_file(Destination / "Source/ExampleGame/Private/ExampleGameGame.cpp"));
 	CHECK_FALSE(CreateProject(Request));
 	CHECK(LoadProject(Destination / "Example.hertaproject").has_value());

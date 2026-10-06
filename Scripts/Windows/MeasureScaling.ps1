@@ -22,13 +22,13 @@ New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
 foreach ($Workload in $Workloads) {
     foreach ($Count in $Counts) {
         $Name = "$Workload-$Count"
-        $Scene = Join-Path $OutputDirectory "$Name.hscene"
-        & $Command scene.generate-scaling $Workload $Count $Scene
+        $Level = Join-Path $OutputDirectory "$Name.hlevel"
+        & $Command level.generate-scaling $Workload $Count $Level
         if ($LASTEXITCODE -ne 0) {
             throw "Could not generate $Name."
         }
 
-        $EditorArguments = @('"--scaling-test=' + $Scene + '"')
+        $EditorArguments = @('"--scaling-test=' + $Level + '"')
         if ($Workload -eq 'dynamic') {
             $EditorArguments += '--scaling-simulate'
         }

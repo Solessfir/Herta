@@ -3,13 +3,13 @@
 #include "ConsoleInput.h"
 #include "ContentBrowser.h"
 #include "DetailsPanel.h"
-#include "EditorScene.h"
+#include "EditorLevel.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Core/Log.h"
 #include "Herta/EditorCore/CommandRegistry.h"
+#include "Herta/EditorCore/LevelCommands.h"
 #include "Herta/EditorCore/PreviewSelection.h"
 #include "Herta/EditorCore/ProjectCommands.h"
-#include "Herta/EditorCore/SceneCommands.h"
 #include "Herta/EditorCore/TransformText.h"
 #include "Herta/EditorCore/ViewportCamera.h"
 #include "Herta/EditorFramework/ViewportInteraction.h"
@@ -24,7 +24,7 @@
 #include "OutputLogTextLayout.h"
 #include "PlaceObjectsMenu.h"
 #include "PreviewAssets.h"
-#include "PreviewScene.h"
+#include "PreviewLevel.h"
 #include "PreviewSimulation.h"
 #include "ViewportBoxSelection.h"
 #include "ViewportGizmos.h"
@@ -504,14 +504,14 @@ struct FEditorFramework::FImplementation
 	void FocusPreview();
 	void RefreshPreviewMeshes();
 	void ImportWithDialog();
-	void OpenSceneWithDialog();
+	void OpenLevelWithDialog();
 	void OpenProjectWithDialog();
 	void DrawNewProject();
 	void StartProjectOperation(const std::filesystem::path& Path, std::optional<FCreateProjectRequest> Create = std::nullopt);
-	void SaveCurrentScene();
-	void RefreshScene(bool bPreserveGizmoDrag = false);
+	void SaveCurrentLevel();
+	void RefreshLevel(bool bPreserveGizmoDrag = false);
 	void ApplyAuthoringAction(EAuthoringAction Action);
-	void ReportSceneResult(std::expected<void, FSceneError> Result);
+	void ReportLevelResult(std::expected<void, FLevelError> Result);
 	// Maps the built-in cube's [-1, 1] box onto the object's mesh bounds, so cube-based picking, outlines, and physics fit any mesh.
 	[[nodiscard]] FMatrix4 GetPreviewBoundsMatrix(std::size_t Index) const;
 	[[nodiscard]] FPreviewBodyShape GetPreviewBodyShape(std::size_t Index) const;
@@ -553,10 +553,10 @@ struct FEditorFramework::FImplementation
 	bool bReclaimCommandFocus = false;
 	bool bFocusCommandRequested = false;
 
-	std::shared_ptr<FEditorScene> Scene = std::make_shared<FEditorScene>();
-	std::vector<FPreviewObject>& PreviewObjects = Scene->GetObjects();
+	std::shared_ptr<FEditorLevel> Level = std::make_shared<FEditorLevel>();
+	std::vector<FPreviewObject>& PreviewObjects = Level->GetObjects();
 	FPreviewObject EmptyPreviewObject;
-	std::uint64_t SceneGeneration = 0;
+	std::uint64_t LevelGeneration = 0;
 	std::vector<FMatrix4> PreviewModels;
 	// Null entries draw the built-in cube. Refreshed from Assets at the start of every frame.
 	std::vector<const FRenderMesh*> PreviewMeshes;
@@ -687,7 +687,7 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	Implementation->RenderAssetThumbnail = Descriptor.RenderAssetThumbnail;
 	Implementation->EngineRoot = Descriptor.EngineRoot;
 	Implementation->ProjectPath = Descriptor.ProjectPath;
-	std::filesystem::path InitialScenePath = Descriptor.ScenePath;
+	std::filesystem::path InitialLevelPath = Descriptor.LevelPath;
 	if (!Descriptor.ProjectPath.empty())
 	{
 		const auto Project = LoadProject(Descriptor.ProjectPath);
@@ -699,26 +699,26 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		Implementation->ProjectPath = Project->DescriptorPath;
 		Implementation->AssetPaths.ContentRoot = Project->ContentRoot;
 		Implementation->AssetPaths.DerivedDataRoot = Project->Root / "DerivedDataCache" / Descriptor.Assets.TargetPlatform;
-		if (InitialScenePath.empty())
+		if (InitialLevelPath.empty())
 		{
-			InitialScenePath = Project->StartingScene;
+			InitialLevelPath = Project->StartingLevel;
 		}
 	}
 
-	Implementation->Scene->SetPath(InitialScenePath);
+	Implementation->Level->SetPath(InitialLevelPath);
 
-	if (!InitialScenePath.empty())
+	if (!InitialLevelPath.empty())
 	{
 		std::error_code Error;
-		const bool bExists = std::filesystem::exists(InitialScenePath, Error);
+		const bool bExists = std::filesystem::exists(InitialLevelPath, Error);
 		if (Error)
 		{
-			return std::unexpected(FEditorFrameworkError{std::format("Cannot query scene path: {}", Error.message())});
+			return std::unexpected(FEditorFrameworkError{std::format("Cannot query level path: {}", Error.message())});
 		}
 
 		if (bExists)
 		{
-			if (auto Loaded = Implementation->Scene->Load(InitialScenePath); !Loaded)
+			if (auto Loaded = Implementation->Level->Load(InitialLevelPath); !Loaded)
 			{
 				return std::unexpected(FEditorFrameworkError{Loaded.error().Message});
 			}
@@ -737,14 +737,14 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		}
 	}
 
-	Implementation->RefreshScene();
+	Implementation->RefreshLevel();
 
-	if (auto Result = RegisterSceneFileCommands(*Descriptor.Commands); !Result)
+	if (auto Result = RegisterLevelFileCommands(*Descriptor.Commands); !Result)
 	{
 		return std::unexpected(FEditorFrameworkError{Result.error().Message});
 	}
 
-	if (auto Result = RegisterEditorSceneCommands(*Descriptor.Commands, Implementation->Scene); !Result)
+	if (auto Result = RegisterEditorLevelCommands(*Descriptor.Commands, Implementation->Level); !Result)
 	{
 		return std::unexpected(FEditorFrameworkError{Result.error().Message});
 	}
@@ -835,7 +835,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 {
 	Implementation->FrameMetrics = {};
 	ImGuiIO& IO = ImGui::GetIO();
-	Implementation->RefreshScene();
+	Implementation->RefreshLevel();
 	if (!IO.AppFocusLost && IO.KeyMods == ImGuiMod_Ctrl && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_Space, false))
 	{
 		Implementation->SetBottomPanelOpen(!(Implementation->bBottomPanelOpen && (Implementation->bContentBrowserOpen || Implementation->bOutputLogOpen)));
@@ -879,7 +879,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		Implementation->ToggleSimulation();
 	}
 
-	if (!Implementation->bProjectBusy && !IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && !Implementation->Scene->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+	if (!Implementation->bProjectBusy && !IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{
 		Implementation->ToggleSimulation();
 	}
@@ -903,14 +903,14 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 	}
 
-	bool bOpenSceneRequested = false;
+	bool bOpenLevelRequested = false;
 	bool bPlaceObjectsRequested = std::exchange(Implementation->bPlaceObjectsRequested, false);
-	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->Simulation.IsRunning() && !Implementation->Scene->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
+	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->Simulation.IsRunning() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
 	const bool bShortcutsAvailable = bAuthoringAvailable && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
 	const bool bControlShortcutsAvailable = bShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl;
 	const bool bProjectChangeAvailable = bAuthoringAvailable && !Implementation->EngineRoot.empty() && !(Implementation->Assets && Implementation->Assets->IsImporting());
 	bool bNewProjectRequested = bControlShortcutsAvailable && bProjectChangeAvailable && ImGui::IsKeyPressed(ImGuiKey_N, false);
-	bool bSaveSceneRequested = bControlShortcutsAvailable && ImGui::IsKeyPressed(ImGuiKey_S, false);
+	bool bSaveLevelRequested = bControlShortcutsAvailable && ImGui::IsKeyPressed(ImGuiKey_S, false);
 	bool bImportRequested = bControlShortcutsAvailable && Implementation->Assets && ImGui::IsKeyPressed(ImGuiKey_I, false);
 	bool bOpenProjectRequested = bControlShortcutsAvailable && bProjectChangeAvailable && ImGui::IsKeyPressed(ImGuiKey_O, false);
 	EAuthoringAction AuthoringAction = EAuthoringAction::None;
@@ -961,8 +961,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 	}
 
-	const std::string SceneTitle = std::format("{}{} - Herta Editor", Implementation->Scene->GetName(), Implementation->Scene->IsDirty() ? "*" : "");
-	Implementation->ToolUI->DrawWorkspace(SceneTitle, [&]
+	const std::string LevelTitle = std::format("{}{} - Herta Editor", Implementation->Level->GetName(), Implementation->Level->IsDirty() ? "*" : "");
+	Implementation->ToolUI->DrawWorkspace(LevelTitle, [&]
 	{
 		ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
 		ImGui::Separator();
@@ -1214,11 +1214,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		bOpenProjectRequested |= ToolUIMenuItem("Open project...", EToolUIMenuIcon::Open, nullptr, "Ctrl+O");
 		ImGui::EndDisabled();
 		ImGui::Spacing();
-		ImGui::TextUnformatted("Scene");
+		ImGui::TextUnformatted("Level");
 		ImGui::Separator();
 		ImGui::BeginDisabled(!bAuthoringAvailable);
-		bOpenSceneRequested = ToolUIMenuItem("Open scene...", EToolUIMenuIcon::Open);
-		bSaveSceneRequested |= ToolUIMenuItem("Save scene", EToolUIMenuIcon::Save, nullptr, "Ctrl+S");
+		bOpenLevelRequested = ToolUIMenuItem("Open level...", EToolUIMenuIcon::Open);
+		bSaveLevelRequested |= ToolUIMenuItem("Save level", EToolUIMenuIcon::Save, nullptr, "Ctrl+S");
 		ImGui::EndDisabled();
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Content");
@@ -1229,16 +1229,16 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}, [&]
 	{
 		ImGui::BeginDisabled(!bAuthoringAvailable);
-		ImGui::BeginDisabled(!Implementation->Scene->CanUndo());
-		const std::string UndoLabel = Implementation->Scene->CanUndo() ? std::format("Undo {}", Implementation->Scene->GetUndoLabel()) : "Undo";
+		ImGui::BeginDisabled(!Implementation->Level->CanUndo());
+		const std::string UndoLabel = Implementation->Level->CanUndo() ? std::format("Undo {}", Implementation->Level->GetUndoLabel()) : "Undo";
 		if (ToolUIMenuItem(UndoLabel, EToolUIMenuIcon::Undo, nullptr, "Ctrl+Z"))
 		{
 			AuthoringAction = EAuthoringAction::Undo;
 		}
 
 		ImGui::EndDisabled();
-		ImGui::BeginDisabled(!Implementation->Scene->CanRedo());
-		const std::string RedoLabel = Implementation->Scene->CanRedo() ? std::format("Redo {}", Implementation->Scene->GetRedoLabel()) : "Redo";
+		ImGui::BeginDisabled(!Implementation->Level->CanRedo());
+		const std::string RedoLabel = Implementation->Level->CanRedo() ? std::format("Redo {}", Implementation->Level->GetRedoLabel()) : "Redo";
 		if (ToolUIMenuItem(RedoLabel, EToolUIMenuIcon::Redo, nullptr, "Ctrl+Y"))
 		{
 			AuthoringAction = EAuthoringAction::Redo;
@@ -1277,13 +1277,13 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	ImGui::EndDisabled();
 	Implementation->ApplyAuthoringAction(AuthoringAction);
 
-	if (bOpenSceneRequested || bOpenProjectRequested || bNewProjectRequested)
+	if (bOpenLevelRequested || bOpenProjectRequested || bNewProjectRequested)
 	{
 		Implementation->PendingDocumentAction = bNewProjectRequested ? 3 : bOpenProjectRequested ? 2
 		                                                                                         : 1;
-		if (Implementation->Scene->IsDirty())
+		if (Implementation->Level->IsDirty())
 		{
-			ImGui::OpenPopup("Unsaved scene changes");
+			ImGui::OpenPopup("Unsaved level changes");
 		}
 		else
 		{
@@ -1297,23 +1297,23 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			}
 			else
 			{
-				Implementation->OpenSceneWithDialog();
+				Implementation->OpenLevelWithDialog();
 			}
-			Implementation->RefreshScene();
+			Implementation->RefreshLevel();
 		}
 	}
 
 	bool bOpenNewProjectPopup = false;
 
-	if (ImGui::BeginPopupModal("Unsaved scene changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	if (ImGui::BeginPopupModal("Unsaved level changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 	{
-		ImGui::TextUnformatted("Save scene changes before continuing?");
+		ImGui::TextUnformatted("Save level changes before continuing?");
 		ImGui::Spacing();
 		bool bContinueOpening = false;
 		if (ImGui::Button("Save"))
 		{
-			Implementation->SaveCurrentScene();
-			bContinueOpening = !Implementation->Scene->IsDirty();
+			Implementation->SaveCurrentLevel();
+			bContinueOpening = !Implementation->Level->IsDirty();
 		}
 
 		ImGui::SameLine();
@@ -1341,9 +1341,9 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			}
 			else
 			{
-				Implementation->OpenSceneWithDialog();
+				Implementation->OpenLevelWithDialog();
 			}
-			Implementation->RefreshScene();
+			Implementation->RefreshLevel();
 		}
 
 		ImGui::EndPopup();
@@ -1355,9 +1355,9 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 	Implementation->DrawNewProject();
 
-	if (bSaveSceneRequested)
+	if (bSaveLevelRequested)
 	{
-		Implementation->SaveCurrentScene();
+		Implementation->SaveCurrentLevel();
 	}
 
 	// The native dialog is modal and blocks this frame, like Unreal's import dialog, so nothing outlives editor shutdown.
@@ -1403,26 +1403,26 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->DrawViewport(RenderViewport);
 	if (!Implementation->Simulation.IsRunning())
 	{
-		if (Implementation->bViewportEditCanceled && Implementation->Scene->HasActiveEdit())
+		if (Implementation->bViewportEditCanceled && Implementation->Level->HasActiveEdit())
 		{
-			Implementation->ReportSceneResult(Implementation->Scene->CancelEdit());
+			Implementation->ReportLevelResult(Implementation->Level->CancelEdit());
 		}
-		else if (Implementation->bViewportEditFinished && Implementation->Scene->HasActiveEdit())
+		else if (Implementation->bViewportEditFinished && Implementation->Level->HasActiveEdit())
 		{
-			Implementation->ReportSceneResult(Implementation->Scene->EndEdit());
+			Implementation->ReportLevelResult(Implementation->Level->EndEdit());
 		}
-		else if (Implementation->Scene->HasActiveEdit() && !Implementation->PreviewDragStart && !ImGui::IsAnyItemActive() && !IO.WantTextInput && !Implementation->OutlinerPanelState.bRenaming)
+		else if (Implementation->Level->HasActiveEdit() && !Implementation->PreviewDragStart && !ImGui::IsAnyItemActive() && !IO.WantTextInput && !Implementation->OutlinerPanelState.bRenaming)
 		{
-			Implementation->ReportSceneResult(Implementation->Scene->EndEdit());
+			Implementation->ReportLevelResult(Implementation->Level->EndEdit());
 		}
 		else
 		{
-			Implementation->ReportSceneResult(Implementation->Scene->CommitEdits());
+			Implementation->ReportLevelResult(Implementation->Level->CommitEdits());
 		}
 
 		Implementation->bViewportEditFinished = false;
 		Implementation->bViewportEditCanceled = false;
-		Implementation->RefreshScene();
+		Implementation->RefreshLevel();
 	}
 
 	auto LogResult = Implementation->DrawOutputLog();
@@ -1536,7 +1536,7 @@ void FEditorFramework::FImplementation::OpenProjectWithDialog()
 
 void FEditorFramework::FImplementation::StartProjectOperation(const std::filesystem::path& Path, std::optional<FCreateProjectRequest> Create)
 {
-	if (bProjectBusy || !Tasks || Simulation.IsRunning() || Scene->HasActiveEdit())
+	if (bProjectBusy || !Tasks || Simulation.IsRunning() || Level->HasActiveEdit())
 	{
 		return;
 	}
@@ -1563,7 +1563,7 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 	struct FLoadResult
 	{
 		std::expected<FLoadedProject, FProjectError> Project = std::unexpected(FProjectError{"Project operation did not run"});
-		std::expected<FSceneDocument, FSceneError> Document = std::unexpected(FSceneError{"Starting scene did not load"});
+		std::expected<FLevelDocument, FLevelError> Document = std::unexpected(FLevelError{"Starting level did not load"});
 	};
 
 	ProjectCancellation = {};
@@ -1572,9 +1572,9 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 	{
 		Create->StopToken = ProjectCancellation.get_token();
 	}
-	const auto Before = Scene->GetWorld().SnapshotEntities();
-	const auto BeforePath = Scene->GetPath();
-	const auto BeforeGeneration = Scene->GetGeneration();
+	const auto Before = Level->GetWorld().SnapshotEntities();
+	const auto BeforePath = Level->GetPath();
+	const auto BeforeGeneration = Level->GetGeneration();
 	auto Result = std::make_shared<FLoadResult>();
 	const auto StopToken = ProjectCancellation.get_token();
 	auto Work = Tasks->Submit(*ProjectScope, {.Name = Create ? "Create project" : "Load project", .Lane = ETaskLane::BlockingIo}, [Result, Path, Create = std::move(Create), StopToken](FTaskContext& Context)
@@ -1586,7 +1586,7 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 		Result->Project = Create ? CreateProject(*Create) : LoadProject(Path);
 		if (Result->Project && !StopToken.stop_requested())
 		{
-			Result->Document = LoadScene(Result->Project->StartingScene);
+			Result->Document = LoadLevel(Result->Project->StartingLevel);
 		}
 	});
 
@@ -1616,11 +1616,11 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 		{
 			ProjectError = Result->Document.error().Message;
 		}
-		else if (Scene->GetGeneration() != BeforeGeneration || Scene->GetPath() != BeforePath || Scene->GetWorld().SnapshotEntities() != Before)
+		else if (Level->GetGeneration() != BeforeGeneration || Level->GetPath() != BeforePath || Level->GetWorld().SnapshotEntities() != Before)
 		{
-			ProjectError = "The scene changed while loading. Open the project again.";
+			ProjectError = "The level changed while loading. Open the project again.";
 		}
-		else if (auto Loaded = Scene->LoadDocument(std::move(*Result->Document), Result->Project->StartingScene); !Loaded)
+		else if (auto Loaded = Level->LoadDocument(std::move(*Result->Document), Result->Project->StartingLevel); !Loaded)
 		{
 			ProjectError = Loaded.error().Message;
 		}
@@ -1634,7 +1634,7 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 			DetailsPanelState = {};
 			OutlinerPanelState = {};
 			bCloseProjectPopup = true;
-			RefreshScene();
+			RefreshLevel();
 			HERTA_LOG_INFO(*Log, EditorLog, "Opened project '{}'", Result->Project->Descriptor.Name);
 		}
 
@@ -1672,7 +1672,7 @@ void FEditorFramework::FImplementation::DrawNewProject()
 	}
 
 	ImGui::TextUnformatted("Game project");
-	ImGui::TextDisabled("C++ module, content folder, and an empty starting scene.");
+	ImGui::TextDisabled("C++ module, content folder, and an empty starting level.");
 	ImGui::Separator();
 	ImGui::BeginDisabled(bProjectBusy);
 	ImGui::TextUnformatted("Name");
@@ -1730,19 +1730,19 @@ void FEditorFramework::FImplementation::RefreshPreviewMeshes()
 	}
 }
 
-void FEditorFramework::FImplementation::RefreshScene(const bool bPreserveGizmoDrag)
+void FEditorFramework::FImplementation::RefreshLevel(const bool bPreserveGizmoDrag)
 {
-	if (SceneGeneration == Scene->GetGeneration())
+	if (LevelGeneration == Level->GetGeneration())
 	{
 		return;
 	}
 
-	SceneGeneration = Scene->GetGeneration();
+	LevelGeneration = Level->GetGeneration();
 	PreviewSelection.Indices.clear();
 	PreviewSelection.Active = -1;
 	PreviewSelection.Anchor = -1;
-	// Scene rebuilds preserve stable-ID order; avoid a full object scan per selected entity.
-	for (const FObjectId Id : Scene->GetSelection())
+	// Level rebuilds preserve stable-ID order; avoid a full object scan per selected entity.
+	for (const FObjectId Id : Level->GetSelection())
 	{
 		const auto Object = std::ranges::lower_bound(PreviewObjects, Id, {}, &FPreviewObject::Id);
 		if (Object == PreviewObjects.end() || Object->Id != Id)
@@ -1752,7 +1752,7 @@ void FEditorFramework::FImplementation::RefreshScene(const bool bPreserveGizmoDr
 
 		const int Index = static_cast<int>(Object - PreviewObjects.begin());
 		PreviewSelection.Indices.push_back(Index);
-		if (Scene->GetActiveObject() == Id)
+		if (Level->GetActiveObject() == Id)
 		{
 			PreviewSelection.Active = Index;
 		}
@@ -1784,18 +1784,18 @@ void FEditorFramework::FImplementation::RefreshScene(const bool bPreserveGizmoDr
 		Assets = FPreviewAssets::Create(*Tasks, *GraphicsDevice, *Log, AssetPaths, PreviewObjects.size(), RenderAssetThumbnail);
 	}
 
-	std::vector<FAssetId> SceneAssets;
-	SceneAssets.reserve(PreviewObjects.size());
+	std::vector<FAssetId> LevelAssets;
+	LevelAssets.reserve(PreviewObjects.size());
 	for (std::size_t Index = 0; Index < PreviewObjects.size(); ++Index)
 	{
 		const FPreviewObject& Object = PreviewObjects[Index];
 		PreviewModels[Index] = ToHertaMatrix(Im3d::Mat4(Object.Translation, Object.Rotation, Object.Scale));
-		SceneAssets.push_back(Object.Mesh);
+		LevelAssets.push_back(Object.Mesh);
 	}
 
 	if (Assets)
 	{
-		Assets->RebindObjects(SceneAssets);
+		Assets->RebindObjects(LevelAssets);
 		RefreshPreviewMeshes();
 	}
 
@@ -1803,17 +1803,17 @@ void FEditorFramework::FImplementation::RefreshScene(const bool bPreserveGizmoDr
 	ViewportRenderView.Meshes = PreviewMeshes;
 }
 
-void FEditorFramework::FImplementation::ReportSceneResult(const std::expected<void, FSceneError> Result)
+void FEditorFramework::FImplementation::ReportLevelResult(const std::expected<void, FLevelError> Result)
 {
 	if (!Result)
 	{
-		HERTA_LOG_ERROR(*Log, EditorLog, "Scene operation failed: {}", Result.error().Message);
+		HERTA_LOG_ERROR(*Log, EditorLog, "Level operation failed: {}", Result.error().Message);
 	}
 }
 
 void FEditorFramework::FImplementation::ApplyAuthoringAction(const EAuthoringAction Action)
 {
-	if (Action == EAuthoringAction::None || bProjectBusy || Simulation.IsRunning() || Scene->HasActiveEdit())
+	if (Action == EAuthoringAction::None || bProjectBusy || Simulation.IsRunning() || Level->HasActiveEdit())
 	{
 		return;
 	}
@@ -1830,88 +1830,88 @@ void FEditorFramework::FImplementation::ApplyAuthoringAction(const EAuthoringAct
 
 	if (Action == EAuthoringAction::Undo)
 	{
-		if (Scene->CanUndo())
+		if (Level->CanUndo())
 		{
-			ReportSceneResult(Scene->Undo());
+			ReportLevelResult(Level->Undo());
 		}
 	}
 	else if (Action == EAuthoringAction::Redo)
 	{
-		if (Scene->CanRedo())
+		if (Level->CanRedo())
 		{
-			ReportSceneResult(Scene->Redo());
+			ReportLevelResult(Level->Redo());
 		}
 	}
 	else if (Action == EAuthoringAction::Create || Action == EAuthoringAction::CreateEmpty)
 	{
 		const FVector3 Position = ViewportCamera.GetPivot();
 		const FWorldPosition WorldPosition{Position.X, Position.Y, Position.Z};
-		const auto Result = Action == EAuthoringAction::CreateEmpty ? Scene->CreateEmptyEntity(WorldPosition) : Scene->CreateEntity(WorldPosition);
+		const auto Result = Action == EAuthoringAction::CreateEmpty ? Level->CreateEmptyEntity(WorldPosition) : Level->CreateEntity(WorldPosition);
 		if (!Result)
 		{
-			ReportSceneResult(std::unexpected(Result.error()));
+			ReportLevelResult(std::unexpected(Result.error()));
 		}
 	}
 	else if (Action == EAuthoringAction::Copy)
 	{
-		const auto Text = Scene->CopySelected();
+		const auto Text = Level->CopySelected();
 		if (Text)
 		{
 			ImGui::SetClipboardText(Text->c_str());
 		}
 		else
 		{
-			ReportSceneResult(std::unexpected(Text.error()));
+			ReportLevelResult(std::unexpected(Text.error()));
 		}
 	}
 	else if (Action == EAuthoringAction::Paste)
 	{
 		if (const char* const Text = ImGui::GetClipboardText(); Text != nullptr)
 		{
-			ReportSceneResult(Scene->PasteEntities(Text));
+			ReportLevelResult(Level->PasteEntities(Text));
 		}
 	}
 	else if (Action == EAuthoringAction::Duplicate)
 	{
-		ReportSceneResult(Scene->DuplicateSelected(false, {TranslationSnap, 0.f, TranslationSnap}));
+		ReportLevelResult(Level->DuplicateSelected(false, {TranslationSnap, 0.f, TranslationSnap}));
 	}
 	else if (Action == EAuthoringAction::Delete)
 	{
-		ReportSceneResult(Scene->DeleteSelected());
+		ReportLevelResult(Level->DeleteSelected());
 	}
 
-	RefreshScene();
+	RefreshLevel();
 }
 
-void FEditorFramework::FImplementation::OpenSceneWithDialog()
+void FEditorFramework::FImplementation::OpenLevelWithDialog()
 {
-	const FFileDialogFilter Filter{.Name = "Herta scene", .Extensions = {"hscene"}};
-	const std::filesystem::path Directory = Scene->GetPath().has_parent_path() ? Scene->GetPath().parent_path() : AssetPaths.ContentRoot.parent_path();
-	const auto Chosen = OpenFilesDialog("Open scene", std::span(&Filter, 1), Directory);
+	const FFileDialogFilter Filter{.Name = "Herta level", .Extensions = {"hlevel", "hscene"}};
+	const std::filesystem::path Directory = Level->GetPath().has_parent_path() ? Level->GetPath().parent_path() : AssetPaths.ContentRoot.parent_path();
+	const auto Chosen = OpenFilesDialog("Open level", std::span(&Filter, 1), Directory);
 	if (!Chosen)
 	{
-		HERTA_LOG_ERROR(*Log, EditorLog, "Could not open scene dialog: {}", Chosen.error().Message);
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not open level dialog: {}", Chosen.error().Message);
 		return;
 	}
 
 	if (!Chosen->empty())
 	{
-		if (auto Loaded = Scene->Load(Chosen->front()); !Loaded)
+		if (auto Loaded = Level->Load(Chosen->front()); !Loaded)
 		{
-			HERTA_LOG_ERROR(*Log, EditorLog, "Could not load scene: {}", Loaded.error().Message);
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not load level: {}", Loaded.error().Message);
 		}
 	}
 }
 
-void FEditorFramework::FImplementation::SaveCurrentScene()
+void FEditorFramework::FImplementation::SaveCurrentLevel()
 {
-	if (auto Result = Scene->Save(); !Result)
+	if (auto Result = Level->Save(); !Result)
 	{
-		HERTA_LOG_ERROR(*Log, EditorLog, "Could not save scene: {}", Result.error().Message);
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not save level: {}", Result.error().Message);
 		return;
 	}
 
-	HERTA_LOG_INFO(*Log, EditorLog, "Scene saved");
+	HERTA_LOG_INFO(*Log, EditorLog, "Level saved");
 }
 
 FMatrix4 FEditorFramework::FImplementation::GetPreviewBoundsMatrix(const std::size_t Index) const
@@ -2309,13 +2309,13 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		}
 
 		ImGui::Spacing();
-		ImGui::BeginDisabled(Simulation.IsRunning() || Scene->HasActiveEdit() || PreviewSelection.Active < 0);
+		ImGui::BeginDisabled(Simulation.IsRunning() || Level->HasActiveEdit() || PreviewSelection.Active < 0);
 
 		if (ImGui::Button("Reset preview transform", {-1.f, 0.f}))
 		{
-			ReportSceneResult(Scene->BeginEdit("Reset transform"));
-			const FEditorScene DefaultScene;
-			const auto& Defaults = DefaultScene.GetObjects();
+			ReportLevelResult(Level->BeginEdit("Reset transform"));
+			const FEditorLevel DefaultLevel;
+			const auto& Defaults = DefaultLevel.GetObjects();
 
 			for (const int Index : PreviewSelection.Indices)
 			{
@@ -2326,7 +2326,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 				Object.Scale = Default == Defaults.end() ? Im3d::Vec3(1.f) : Default->Scale;
 			}
 
-			ReportSceneResult(Scene->EndEdit());
+			ReportLevelResult(Level->EndEdit());
 		}
 
 		ImGui::EndDisabled();
@@ -2359,8 +2359,8 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 	}
 	else if (bEscapePressed && PreviewDragStart)
 	{
-		ReportSceneResult(Scene->CancelEdit());
-		RefreshScene();
+		ReportLevelResult(Level->CancelEdit());
+		RefreshLevel();
 		PreviewDragStart.reset();
 		bDuplicateOnDrag = false;
 		bViewportEditCanceled = true;
@@ -2425,8 +2425,8 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 	{
 		if (!PreviewDragStart)
 		{
-			const auto Result = Scene->BeginEdit(IO.KeyAlt ? "Duplicate objects" : "Transform objects");
-			ReportSceneResult(Result);
+			const auto Result = Level->BeginEdit(IO.KeyAlt ? "Duplicate objects" : "Transform objects");
+			ReportLevelResult(Result);
 			if (Result)
 			{
 				const FPreviewObject& Object = GetActivePreviewObject();
@@ -2672,11 +2672,11 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	if (bDuplicateOnDrag && PreviewDragStart && Im3d::GetActiveId() != Im3d::Id_Invalid && bTransformChanged)
 	{
 		bDuplicateOnDrag = false;
-		const auto Result = Scene->DuplicateSelected(true);
-		ReportSceneResult(Result);
+		const auto Result = Level->DuplicateSelected(true);
+		ReportLevelResult(Result);
 		if (Result)
 		{
-			RefreshScene(true);
+			RefreshLevel(true);
 		}
 		else
 		{
@@ -2695,14 +2695,14 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
 	if (!Simulation.IsRunning())
 	{
-		const auto Result = Scene->CommitEdits();
-		ReportSceneResult(Result);
+		const auto Result = Level->CommitEdits();
+		ReportLevelResult(Result);
 		if (!Result)
 		{
-			if (Scene->HasActiveEdit())
+			if (Level->HasActiveEdit())
 			{
-				ReportSceneResult(Scene->CancelEdit());
-				RefreshScene();
+				ReportLevelResult(Level->CancelEdit());
+				RefreshLevel();
 			}
 
 			Candidate = GetActivePreviewObject();
@@ -2848,7 +2848,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 void FEditorFramework::FImplementation::DrawViewportContextMenu()
 {
-	const bool bAuthoringAvailable = !bProjectBusy && !Simulation.IsRunning() && !Scene->HasActiveEdit();
+	const bool bAuthoringAvailable = !bProjectBusy && !Simulation.IsRunning() && !Level->HasActiveEdit();
 	if (ViewportInteraction.bContextMenuRequested && bAuthoringAvailable)
 	{
 		ImGui::OpenPopup("Viewport context menu");
@@ -2950,7 +2950,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			ImGui::InvisibleButton("##ViewportInteraction", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
 			ImGui::EndDisabled();
 			std::optional<FAssetId> DroppedAsset;
-			if (Assets && !bProjectBusy && !Simulation.IsRunning() && !Scene->HasActiveEdit() && ImGui::BeginDragDropTarget())
+			if (Assets && !bProjectBusy && !Simulation.IsRunning() && !Level->HasActiveEdit() && ImGui::BeginDragDropTarget())
 			{
 				if (const ImGuiPayload* const Payload = ImGui::AcceptDragDropPayload(ContentAssetPayload); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetId))
 				{
@@ -2982,12 +2982,12 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 					const auto Separator = Asset->Label.rfind('/');
 					const auto Label = Asset->Label.substr(Separator == std::string::npos ? 0 : Separator + 1);
 					const auto Dot = Label.rfind('.');
-					const auto Created = Scene->CreateMeshEntity(Asset->Id, Label.substr(0, Dot), {Position.X, Position.Y, Position.Z});
+					const auto Created = Level->CreateMeshEntity(Asset->Id, Label.substr(0, Dot), {Position.X, Position.Y, Position.Z});
 					if (!Created)
 					{
-						ReportSceneResult(std::unexpected(Created.error()));
+						ReportLevelResult(std::unexpected(Created.error()));
 					}
-					RefreshScene();
+					RefreshLevel();
 				}
 			}
 
@@ -3212,13 +3212,13 @@ void FEditorFramework::FImplementation::SetPreviewSelection(FPreviewSelection Se
 		if (Object != PreviewObjects.end())
 		{
 			RenamePreviewObject(Object->Label, OutlinerPanelState.RenameBuffer.data());
-			ReportSceneResult(Scene->CommitEdits("Rename object"));
+			ReportLevelResult(Level->CommitEdits("Rename object"));
 		}
 	}
 
-	if (Scene->HasActiveEdit())
+	if (Level->HasActiveEdit())
 	{
-		ReportSceneResult(Scene->EndEdit());
+		ReportLevelResult(Level->EndEdit());
 	}
 
 	PreviewSelection = std::move(Selection);
@@ -3228,7 +3228,7 @@ void FEditorFramework::FImplementation::SetPreviewSelection(FPreviewSelection Se
 		SelectedIds.push_back(PreviewObjects[static_cast<std::size_t>(Index)].Id);
 	}
 
-	Scene->SetSelection(SelectedIds, PreviewSelection.Active >= 0 ? std::optional(PreviewObjects[static_cast<std::size_t>(PreviewSelection.Active)].Id) : std::nullopt);
+	Level->SetSelection(SelectedIds, PreviewSelection.Active >= 0 ? std::optional(PreviewObjects[static_cast<std::size_t>(PreviewSelection.Active)].Id) : std::nullopt);
 	OutlinerPanelState.bRenaming = false;
 	OutlinerPanelState.bRenameRequested = false;
 	PreviewDragStart.reset();
@@ -3261,38 +3261,38 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 	{
 		Simulation.Stop();
 		PreviewObjects = std::move(SimulationStart);
-		Scene->SetSimulationRunning(false);
+		Level->SetSimulationRunning(false);
 		bSimulationStoppedThisFrame = true;
 	}
 	else
 	{
-		if (Scene->HasActiveEdit())
+		if (Level->HasActiveEdit())
 		{
-			if (auto Result = Scene->EndEdit(); !Result)
+			if (auto Result = Level->EndEdit(); !Result)
 			{
-				ReportSceneResult(std::move(Result));
+				ReportLevelResult(std::move(Result));
 				return;
 			}
 		}
 
-		if (auto Result = Scene->CommitEdits(); !Result)
+		if (auto Result = Level->CommitEdits(); !Result)
 		{
-			HERTA_LOG_ERROR(*Log, EditorLog, "Could not apply scene edits: {}", Result.error().Message);
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not apply level edits: {}", Result.error().Message);
 			return;
 		}
 
 		std::vector<FPreviewSimulationBody> Bodies;
-		for (const ESceneBodyType Type : {ESceneBodyType::Static, ESceneBodyType::Dynamic})
+		for (const ELevelBodyType Type : {ELevelBodyType::Static, ELevelBodyType::Dynamic})
 		{
-			for (const std::size_t Index : Scene->FindBodies(Type))
+			for (const std::size_t Index : Level->FindBodies(Type))
 			{
-				const auto Entity = Scene->GetWorld().GetEntity(*Scene->GetWorld().FindEntity(PreviewObjects[Index].Id));
-				const FSceneRigidBodySettings& Settings = Entity->BodySettings;
+				const auto Entity = Level->GetWorld().GetEntity(*Level->GetWorld().FindEntity(PreviewObjects[Index].Id));
+				const FLevelRigidBodySettings& Settings = Entity->BodySettings;
 				Bodies.push_back({
 				    .ObjectIndex = Index,
 				    .Transform = ToHertaTransform(PreviewObjects[Index]),
 				    .Shape = GetPreviewBodyShape(Index),
-				    .MotionType = Type == ESceneBodyType::Dynamic ? EPhysicsMotionType::Dynamic : EPhysicsMotionType::Static,
+				    .MotionType = Type == ELevelBodyType::Dynamic ? EPhysicsMotionType::Dynamic : EPhysicsMotionType::Static,
 				    .Properties = {
 				        .MassKg = Settings.MassKg,
 				        .Friction = Settings.Friction,
@@ -3319,7 +3319,7 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 		}
 
 		SimulationStart = std::move(OriginalObjects);
-		Scene->SetSimulationRunning(true);
+		Level->SetSimulationRunning(true);
 		UpdateSimulation(0.f);
 	}
 
@@ -3361,7 +3361,7 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 		}
 	}
 
-	if (auto Result = Scene->UpdatePreviewHierarchy(Overrides); !Result)
+	if (auto Result = Level->UpdatePreviewHierarchy(Overrides); !Result)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Simulation stopped: {}", Result.error().Message);
 		ToggleSimulation();
@@ -3377,22 +3377,22 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsComponentField Components{.bAllMesh = !PreviewSelection.Indices.empty(), .bAllBody = !PreviewSelection.Indices.empty()};
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
-	constexpr std::array BodyProperties{&FSceneRigidBodySettings::MassKg, &FSceneRigidBodySettings::Friction, &FSceneRigidBodySettings::Restitution, &FSceneRigidBodySettings::LinearDamping, &FSceneRigidBodySettings::AngularDamping, &FSceneRigidBodySettings::GravityScale};
+	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
 
 	for (const int Index : PreviewSelection.Indices)
 	{
 		const FPreviewObject& Object = PreviewObjects[static_cast<std::size_t>(Index)];
-		const auto Handle = Scene->GetWorld().FindEntity(Object.Id);
-		const auto Entity = Handle ? Scene->GetWorld().GetEntity(*Handle) : std::nullopt;
-		const ESceneBodyType Type = Entity ? Entity->BodyType : ESceneBodyType::None;
+		const auto Handle = Level->GetWorld().FindEntity(Object.Id);
+		const auto Entity = Handle ? Level->GetWorld().GetEntity(*Handle) : std::nullopt;
+		const ELevelBodyType Type = Entity ? Entity->BodyType : ELevelBodyType::None;
 		Components.bAnyMesh |= Object.Mesh.IsValid();
 		Components.bAllMesh &= Object.Mesh.IsValid();
 		Components.bMixedMeshAsset |= Object.Mesh != Mesh;
-		Components.bAnyBody |= Type != ESceneBodyType::None;
-		Components.bAllBody &= Type != ESceneBodyType::None;
-		Components.bAnyDynamicBody |= Type == ESceneBodyType::Dynamic;
+		Components.bAnyBody |= Type != ELevelBodyType::None;
+		Components.bAllBody &= Type != ELevelBodyType::None;
+		Components.bAnyDynamicBody |= Type == ELevelBodyType::Dynamic;
 
-		if (Type != ESceneBodyType::None)
+		if (Type != ELevelBodyType::None)
 		{
 			if (bFirstBodySettings)
 			{
@@ -3472,41 +3472,41 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	const FDetailsEditCallbacks Edits{
 	    .Begin = [&]
 	{
-		if (!Scene->HasActiveEdit())
+		if (!Level->HasActiveEdit())
 		{
-			ReportSceneResult(Scene->BeginEdit("Edit properties"));
+			ReportLevelResult(Level->BeginEdit("Edit properties"));
 		}
 	},
 	    .Flush = [&](const bool bCanceled)
 	{
-		if (bCanceled && Scene->HasActiveEdit())
+		if (bCanceled && Level->HasActiveEdit())
 		{
-			ReportSceneResult(Scene->CancelEdit());
+			ReportLevelResult(Level->CancelEdit());
 		}
-		else if (Scene->HasActiveEdit())
+		else if (Level->HasActiveEdit())
 		{
 			ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
-			ReportSceneResult(Scene->EndEdit());
+			ReportLevelResult(Level->EndEdit());
 		}
 
 		PreviousObject = GetActivePreviewObject();
 	},
-	    .ApplyBodyProperty = [&](float FSceneRigidBodySettings::* const Property, const float Value)
+	    .ApplyBodyProperty = [&](float FLevelRigidBodySettings::* const Property, const float Value)
 	{
-		ReportSceneResult(Scene->SetSelectedBodyProperty(Property, Value));
+		ReportLevelResult(Level->SetSelectedBodyProperty(Property, Value));
 	},
-	    .ReadBodyProperty = [&](float FSceneRigidBodySettings::* const Property)
+	    .ReadBodyProperty = [&](float FLevelRigidBodySettings::* const Property)
 	{
-		for (const FObjectId Selected : Scene->GetSelection())
+		for (const FObjectId Selected : Level->GetSelection())
 		{
-			const auto Entity = Scene->GetWorld().GetEntity(*Scene->GetWorld().FindEntity(Selected));
-			if (Entity->BodyType != ESceneBodyType::None)
+			const auto Entity = Level->GetWorld().GetEntity(*Level->GetWorld().FindEntity(Selected));
+			if (Entity->BodyType != ELevelBodyType::None)
 			{
 				return Entity->BodySettings.*Property;
 			}
 		}
 
-		return FSceneRigidBodySettings{}.*Property;
+		return FLevelRigidBodySettings{}.*Property;
 	},
 	};
 	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, bProjectBusy || Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && Mesh.IsValid() ? &MeshField : nullptr, &Edits, &Components);
@@ -3522,7 +3522,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 
 	if (Assets && MeshResult.Chosen >= 0)
 	{
-		ReportSceneResult(Scene->BeginEdit("Change mesh"));
+		ReportLevelResult(Level->BeginEdit("Change mesh"));
 		const FAssetId Chosen = MeshOptionIds[static_cast<std::size_t>(MeshResult.Chosen)];
 
 		for (const int Index : PreviewSelection.Indices)
@@ -3538,38 +3538,38 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		}
 
 		RefreshPreviewMeshes();
-		ReportSceneResult(Scene->EndEdit());
+		ReportLevelResult(Level->EndEdit());
 	}
 
-	if (MeshResult.bEditCanceled && Scene->HasActiveEdit())
+	if (MeshResult.bEditCanceled && Level->HasActiveEdit())
 	{
-		ReportSceneResult(Scene->CancelEdit());
+		ReportLevelResult(Level->CancelEdit());
 	}
-	else if (MeshResult.bEditFinished && Scene->HasActiveEdit())
+	else if (MeshResult.bEditFinished && Level->HasActiveEdit())
 	{
-		ReportSceneResult(Scene->EndEdit());
+		ReportLevelResult(Level->EndEdit());
 	}
 
 	if (MeshResult.ComponentAction != EDetailsComponentAction::None || MeshResult.BodyTypeChosen)
 	{
-		if (Scene->HasActiveEdit())
+		if (Level->HasActiveEdit())
 		{
-			ReportSceneResult(Scene->EndEdit());
+			ReportLevelResult(Level->EndEdit());
 		}
 
 		switch (MeshResult.ComponentAction)
 		{
 			case EDetailsComponentAction::AddStaticMesh:
-				ReportSceneResult(Scene->AddStaticMeshToSelected(EngineCubeAsset));
+				ReportLevelResult(Level->AddStaticMeshToSelected(EngineCubeAsset));
 				break;
 			case EDetailsComponentAction::RemoveStaticMesh:
-				ReportSceneResult(Scene->RemoveStaticMeshFromSelected());
+				ReportLevelResult(Level->RemoveStaticMeshFromSelected());
 				break;
 			case EDetailsComponentAction::AddRigidBody:
-				ReportSceneResult(Scene->AddRigidBodyToSelected());
+				ReportLevelResult(Level->AddRigidBodyToSelected());
 				break;
 			case EDetailsComponentAction::RemoveRigidBody:
-				ReportSceneResult(Scene->SetSelectedBodyType(ESceneBodyType::None));
+				ReportLevelResult(Level->SetSelectedBodyType(ELevelBodyType::None));
 				break;
 			case EDetailsComponentAction::None:
 				break;
@@ -3577,11 +3577,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 
 		if (MeshResult.BodyTypeChosen)
 		{
-			ReportSceneResult(Scene->SetSelectedBodyType(*MeshResult.BodyTypeChosen));
+			ReportLevelResult(Level->SetSelectedBodyType(*MeshResult.BodyTypeChosen));
 		}
 	}
 
-	RefreshScene();
+	RefreshLevel();
 }
 
 void FEditorFramework::FImplementation::DrawOutlinerPanel()
@@ -3594,20 +3594,20 @@ void FEditorFramework::FImplementation::DrawOutlinerPanel()
 		if (Object != PreviewObjects.end())
 		{
 			RenamePreviewObject(Object->Label, OutlinerPanelState.RenameBuffer.data());
-			ReportSceneResult(Scene->CommitEdits("Rename object"));
+			ReportLevelResult(Level->CommitEdits("Rename object"));
 		}
 	}
 
 	SetPreviewSelection(std::move(NewSelection));
 	if (auto Request = std::exchange(OutlinerPanelState.ReparentRequest, std::nullopt))
 	{
-		if (Scene->HasActiveEdit())
+		if (Level->HasActiveEdit())
 		{
-			ReportSceneResult(Scene->EndEdit());
+			ReportLevelResult(Level->EndEdit());
 		}
 
-		ReportSceneResult(Scene->ReparentEntities(Request->Objects, Request->Parent));
-		RefreshScene();
+		ReportLevelResult(Level->ReparentEntities(Request->Objects, Request->Parent));
+		RefreshLevel();
 	}
 
 	if (bFocusRequested)
@@ -3818,14 +3818,14 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 
 	if (ImGui::BeginPopup("OutputLogFilter"))
 	{
-		for (const ELogLevel Level : {ELogLevel::Trace, ELogLevel::Debug, ELogLevel::Info, ELogLevel::Warning, ELogLevel::Error, ELogLevel::Critical})
+		for (const ELogLevel Verbosity : {ELogLevel::Trace, ELogLevel::Debug, ELogLevel::Info, ELogLevel::Warning, ELogLevel::Error, ELogLevel::Critical})
 		{
-			bool bVisible = OutputLog->IsLevelVisible(Level);
-			const std::string LevelName{GetLogLevelName(Level)};
+			bool bVisible = OutputLog->IsLevelVisible(Verbosity);
+			const std::string LevelName{GetLogLevelName(Verbosity)};
 
 			if (ImGui::MenuItem(LevelName.c_str(), nullptr, &bVisible))
 			{
-				OutputLog->SetLevelVisible(Level, bVisible);
+				OutputLog->SetLevelVisible(Verbosity, bVisible);
 			}
 		}
 

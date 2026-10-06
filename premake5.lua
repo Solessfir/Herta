@@ -23,19 +23,24 @@ if _OPTIONS["project"] then
     HertaProjectDescriptor = json.decode(Text)
     HertaProjectRoot = path.getdirectory(DescriptorPath)
     local Descriptor = HertaProjectDescriptor
-    if not Descriptor or Descriptor.format ~= "HertaProject" or Descriptor.formatVersion ~= 1 or Descriptor.schemaVersion ~= 1 or Descriptor.engineAssociation ~= "Herta" or type(Descriptor.modules) ~= "table" then
+    if not Descriptor or Descriptor.format ~= "HertaProject" or Descriptor.formatVersion ~= 1 or (Descriptor.schemaVersion ~= 1 and Descriptor.schemaVersion ~= 2) or Descriptor.engineAssociation ~= "Herta" or type(Descriptor.modules) ~= "table" then
         error("Invalid project descriptor or incompatible engine association")
     end
 
     local Seen = {}
-    local Dependencies = { Core = true, Math = true, Assets = true, Scene = true }
+    local Dependencies = { Core = true, Math = true, Assets = true, Level = true }
     for _, Module in ipairs(Descriptor.modules) do
         if type(Module.name) ~= "string" or not Module.name:match("^[A-Za-z][A-Za-z0-9_]*$") or #Module.name > 64 or Seen[Module.name] or Module.source ~= "Source/" .. Module.name or type(Module.dependencies) ~= "table" or #Module.dependencies == 0 then
             error("Invalid project module name, source path, or dependencies")
         end
 
         Seen[Module.name] = true
-        for _, Dependency in ipairs(Module.dependencies) do
+        for Index, Dependency in ipairs(Module.dependencies) do
+            if Descriptor.schemaVersion == 1 and Dependency == "Scene" then
+                Dependency = "Level"
+                Module.dependencies[Index] = Dependency
+            end
+
             if not Dependencies[Dependency] then
                 error("Unsupported native project dependency: " .. tostring(Dependency))
             end

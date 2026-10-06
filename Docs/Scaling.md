@@ -1,17 +1,17 @@
 # Scaling checkpoint
 
-The early Milestone 4 checkpoint uses deterministic scenes with 1,000, 5,000, and 10,000 cubes plus one floor, sharing the engine cube asset. Rendering fixtures have no rigid bodies. Dynamic fixtures have ten-cube stacks against a static floor. IDs and canonical scene text repeat across runs.
+The early Milestone 4 checkpoint uses deterministic levels with 1,000, 5,000, and 10,000 cubes plus one floor, sharing the engine cube asset. Rendering fixtures have no rigid bodies. Dynamic fixtures have ten-cube stacks against a static floor. IDs and canonical level text repeat across runs.
 
 ## Generate and inspect
 
 Use `HertaEditorCmd` or the editor console:
 
 ```text
-scene.generate-scaling rendering 10000 TestResults/Rendering10000.hscene
-scene.generate-scaling dynamic 10000 TestResults/Dynamic10000.hscene
+level.generate-scaling rendering 10000 TestResults/Rendering10000.hlevel
+level.generate-scaling dynamic 10000 TestResults/Dynamic10000.hlevel
 ```
 
-The destination directory must already exist. The command appears in console completion. Generation writes atomically and does not replace the current editor scene. Use `scene.load <path>` to inspect the fixture, then exercise search, scrolling, Shift/Ctrl selection, batch component edits, undo/redo, and Simulate/Stop. Outliner and asset-picker widgets clip off-screen rows; Details submits one aggregated component inspector rather than one inspector per selected entity.
+The destination directory must already exist. The command appears in console completion. Generation writes atomically and does not replace the current editor level. Use `level.load <path>` to inspect the fixture, then exercise search, scrolling, Shift/Ctrl selection, batch component edits, undo/redo, and Simulate/Stop. Outliner and asset-picker widgets clip off-screen rows; Details submits one aggregated component inspector rather than one inspector per selected entity.
 
 ## Repeatable capture
 
@@ -30,11 +30,11 @@ The scripts generate all six fixtures under a unique `TestResults/Scaling` direc
 Individual captures also work:
 
 ```text
-HertaEditor --scaling-test=TestResults/Rendering10000.hscene
-HertaEditor --scaling-test=TestResults/Dynamic10000.hscene --scaling-simulate
+HertaEditor --scaling-test=TestResults/Rendering10000.hlevel
+HertaEditor --scaling-test=TestResults/Dynamic10000.hlevel --scaling-simulate
 ```
 
-Captures use an isolated default workspace, disable VSync, wait for shared assets to load, and frame the entire fixture. Each phase warms up for 60 frames and samples 240 presented frames. Rendering and select-all phases always run. Dynamic captures additionally simulate at a fixed 60 Hz for one step per frame, stop, and verify every model matrix against its authored pose before sampling the restored scene. Early close, rendering errors, physics failures, or the five-minute budget produce failure, not a partial success.
+Captures use an isolated default workspace, disable VSync, wait for shared assets to load, and frame the entire fixture. Each phase warms up for 60 frames and samples 240 presented frames. Rendering and select-all phases always run. Dynamic captures additionally simulate at a fixed 60 Hz for one step per frame, stop, and verify every model matrix against its authored pose before sampling the restored level. Early close, rendering errors, physics failures, or the five-minute budget produce failure, not a partial success.
 
 Logs report configuration, viewport resolution, entity/selection count, scene draw count, and median/p95/p99 milliseconds for CPU frame, inspector submission, float model extraction, simulation plus synchronization, and render submission. CPU frame includes presentation waits; render submission is CPU recording, not GPU execution. GPU UI timing is explicitly UI-only. No scene GPU timing is claimed.
 
@@ -44,7 +44,7 @@ Logs report configuration, viewport resolution, entity/selection count, scene dr
 
 `FPhysicsWorldSettings` centralizes body, body-pair cache, contact, and temporary-memory budgets. Runtime adapter defaults remain small. Editor preview defaults support the checkpoint with 16,384 bodies, 65,536 body-pair entries, 32,768 contact constraints, and 64 MiB temporary storage.
 
-Startup validates the whole configured scratch budget against the pinned Jolt box-body path before allocation and stages bodies locally. Failed admission leaves existing preview state untouched. Jolt reports pair-cache/contact exhaustion during stepping; the error latches, no partial preview transforms publish, and the editor stops and restores authored poses. Pair capacity sizes Jolt's cache, not a promise of a strict observed pair-count cutoff. Dense overlapping scenes can exceed contact budgets even below the body limit.
+Startup validates the whole configured scratch budget against the pinned Jolt box-body path before allocation and stages bodies locally. Failed admission leaves existing preview state untouched. Jolt reports pair-cache/contact exhaustion during stepping; the error latches, no partial preview transforms publish, and the editor stops and restores authored poses. Pair capacity sizes Jolt's cache, not a promise of a strict observed pair-count cutoff. Dense overlapping levels can exceed contact budgets even below the body limit.
 
 The scratch bound accounts for discrete rigid boxes, one single-threaded update step, island/body arrays, pair queue, and contact constraints with alignment margin. It must be revisited when adding CCD, joints, soft bodies, or a parallel job adapter. Large-island splitting is disabled under the existing single-threaded preview job system.
 

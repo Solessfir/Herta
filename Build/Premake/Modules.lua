@@ -208,12 +208,12 @@ HertaRuntimeModule("Assets", {
 
 HertaRuntimeModule("Project", {
     PublicDependencies = { "Core" },
-    PrivateDependencies = { "Assets", "Math", "Scene" },
+    PrivateDependencies = { "Assets", "Math", "Level" },
     PrivateThirdPartyDependencies = { "SimdJson" }
 })
     externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
 
-HertaRuntimeModule("Scene", {
+HertaRuntimeModule("Level", {
     PublicDependencies = { "Math", "Assets" },
     PrivateThirdPartyDependencies = { "SimdJson" }
 })
@@ -264,7 +264,7 @@ HertaRuntimeModule("Tasks", {
 
 HertaRuntimeModule("EditorCore", {
     PublicDependencies = { "Math" },
-    PrivateDependencies = { "Scene", "Assets", "Project" }
+    PrivateDependencies = { "Level", "Assets", "Project" }
 })
 
 HertaRuntimeModule("Application", {
@@ -304,7 +304,7 @@ HertaRuntimeModule("AssetPipeline", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
-    PrivateDependencies = { "Physics", "Platform", "Tasks", "AssetPipeline", "Scene" },
+    PrivateDependencies = { "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
 })
 
@@ -432,7 +432,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Scene", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
@@ -442,7 +442,7 @@ project "HertaEditorCmd"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaEditorCmd"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditorCmd"))
-    ApplyRuntimeDependencies { "EditorCore", "Scene", "Project", "AssetPipeline", "Platform" }
+    ApplyRuntimeDependencies { "EditorCore", "Level", "Project", "AssetPipeline", "Platform" }
     dependson { "HertaAssetWorker" }
 
 project "HertaEditor"

@@ -166,7 +166,7 @@ TEST_CASE("Project modal width constraints prevent fill-width inputs from shrink
 			Widths[Frame] = ImGui::GetWindowWidth();
 			Heights[Frame] = ImGui::GetWindowHeight();
 			ImGui::TextUnformatted("Game project");
-			ImGui::TextDisabled("C++ module, content folder, and an empty starting scene.");
+			ImGui::TextDisabled("C++ module, content folder, and an empty starting level.");
 			ImGui::Separator();
 			ImGui::TextUnformatted("Name");
 			ImGui::SetNextItemWidth(-1.f);
@@ -466,7 +466,7 @@ TEST_CASE("Icon menu sizing reserves long authoring labels and shortcut columns"
 	IO.IniFilename = nullptr;
 	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
 	IO.Fonts->AddFontDefault();
-	constexpr std::string_view Label = "Undo Duplicate selected scene objects";
+	constexpr std::string_view Label = "Undo Duplicate selected level objects";
 
 	for (int Frame = 0; Frame < 4; ++Frame)
 	{
@@ -767,7 +767,7 @@ TEST_CASE("Console shortcuts operate on the active ImGui text editor")
 
 	SUBCASE("Ctrl U from the end removes the command suggestion prefix")
 	{
-		Focus("scene.load", 10);
+		Focus("level.load", 10);
 		CHECK(HasConsoleCommandText(Probe.Buffer.data()));
 		Press(ImGuiKey_U, true);
 		CHECK(std::string_view(Probe.Buffer.data()).empty());
@@ -831,8 +831,8 @@ TEST_CASE("Console suggestions require command text and dismiss when interaction
 {
 	CHECK_FALSE(HasConsoleCommandText(""));
 	CHECK_FALSE(HasConsoleCommandText(" \t\r\n\v\f"));
-	CHECK(HasConsoleCommandText("scene"));
-	CHECK(HasConsoleCommandText(" \tscene.load \n"));
+	CHECK(HasConsoleCommandText("level"));
+	CHECK(HasConsoleCommandText(" \tlevel.load \n"));
 
 	CHECK_FALSE(ShouldDismissConsoleSuggestions(true, false, false));
 	CHECK_FALSE(ShouldDismissConsoleSuggestions(true, true, false));

@@ -1,7 +1,7 @@
 #include "Herta/AssetPipeline/AssetCommands.h"
 #include "Herta/EditorCore/CommandRegistry.h"
+#include "Herta/EditorCore/LevelCommands.h"
 #include "Herta/EditorCore/ProjectCommands.h"
-#include "Herta/EditorCore/SceneCommands.h"
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
 
@@ -163,7 +163,7 @@ int Run(const std::span<const std::string> Arguments)
 		std::expected<void, Herta::FEditorCommandError> RegistrationResult = Herta::RegisterCoreEditorCommands(Registry);
 		if (RegistrationResult)
 		{
-			RegistrationResult = Herta::RegisterSceneFileCommands(Registry);
+			RegistrationResult = Herta::RegisterLevelFileCommands(Registry);
 		}
 
 		if (RegistrationResult)

@@ -10,7 +10,7 @@ Unzip the downloaded artifact, then extract its inner Windows `.zip` or Linux `.
 
 A Vulkan-capable GPU, driver, and system Vulkan loader are required. Windows Shipping statically links the CRT, so no separate MSVC runtime DLLs are needed. Linux builds target Ubuntu 24.04 with the GCC 14 libstdc++ runtime and X11/Wayland libraries; older distributions may not be compatible. Neither Git, Visual Studio, the Vulkan SDK, nor Setup is required to run the package. Blender remains optional for `.blend` import.
 
-These are experimental editor builds, not releases. The game runtime is not implemented. Save scene edits with Ctrl+S; changes are not saved automatically on exit.
+These are experimental editor builds, not releases. The game runtime is not implemented. Save level edits with Ctrl+S; changes are not saved automatically on exit.
 
 After building Shipping locally, create the same archives with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/PackageEditor.ps1` on Windows or `./Scripts/Linux/PackageEditor.sh` on Linux. Archives are written to `Intermediate/Packages`; Linux packaging does not require PowerShell.
 

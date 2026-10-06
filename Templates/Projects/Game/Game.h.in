@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Herta/Scene/World.h"
+#include "Herta/Level/World.h"
 
 namespace Herta
 {
-[[nodiscard]] std::expected<FObjectId, FSceneError> Create{{ModuleName}}Entity(FWorld& World);
+[[nodiscard]] std::expected<FObjectId, FLevelError> Create{{ModuleName}}Entity(FWorld& World);
 }

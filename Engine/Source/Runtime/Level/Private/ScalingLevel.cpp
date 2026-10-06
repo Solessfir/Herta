@@ -1,4 +1,4 @@
-#include "Herta/Scene/ScalingScene.h"
+#include "Herta/Level/ScalingLevel.h"
 
 #include <algorithm>
 #include <format>
@@ -34,44 +34,44 @@ constexpr double DynamicVerticalSpacing = 1.02;
 	return static_cast<double>(Index) * Spacing - static_cast<double>(Extent - 1) * Spacing * 0.5;
 }
 
-[[nodiscard]] FObjectId MakeSceneId(const FScalingSceneOptions& Options) noexcept
+[[nodiscard]] FObjectId MakeLevelId(const FScalingLevelOptions& Options) noexcept
 {
-	const std::uint64_t Workload = Options.Workload == EScalingSceneWorkload::Rendering ? 1 : 2;
+	const std::uint64_t Workload = Options.Workload == EScalingLevelWorkload::Rendering ? 1 : 2;
 	return FObjectId{0x485254415343414c, (Workload << 32) | Options.CubeCount};
 }
 
-[[nodiscard]] FObjectId MakeEntityId(const EScalingSceneWorkload Workload, const std::size_t Index) noexcept
+[[nodiscard]] FObjectId MakeEntityId(const EScalingLevelWorkload Workload, const std::size_t Index) noexcept
 {
-	const std::uint64_t Namespace = Workload == EScalingSceneWorkload::Rendering ? 0x4852544152454e44 : 0x4852544150485953;
+	const std::uint64_t Namespace = Workload == EScalingLevelWorkload::Rendering ? 0x4852544152454e44 : 0x4852544150485953;
 	return FObjectId{Namespace, Index + 1};
 }
 }
 
-std::expected<FSceneDocument, FSceneError> GenerateScalingScene(const FScalingSceneOptions Options)
+std::expected<FLevelDocument, FLevelError> GenerateScalingLevel(const FScalingLevelOptions Options)
 {
 	if (!IsSupportedCubeCount(Options.CubeCount))
 	{
-		return std::unexpected(FSceneError{"Scaling scenes support exactly 1000, 5000, or 10000 cubes"});
+		return std::unexpected(FLevelError{"Scaling levels support exactly 1000, 5000, or 10000 cubes"});
 	}
 
-	if (Options.Workload != EScalingSceneWorkload::Rendering && Options.Workload != EScalingSceneWorkload::DynamicBodies)
+	if (Options.Workload != EScalingLevelWorkload::Rendering && Options.Workload != EScalingLevelWorkload::DynamicBodies)
 	{
-		return std::unexpected(FSceneError{"Unknown scaling scene workload"});
+		return std::unexpected(FLevelError{"Unknown scaling level workload"});
 	}
 
-	const bool bDynamic = Options.Workload == EScalingSceneWorkload::DynamicBodies;
+	const bool bDynamic = Options.Workload == EScalingLevelWorkload::DynamicBodies;
 	const std::size_t StackHeight = bDynamic ? DynamicStackHeight : 1;
 	const std::size_t ColumnCount = (Options.CubeCount + StackHeight - 1) / StackHeight;
 	const std::size_t GridWidth = SquareGridWidth(ColumnCount);
 	const std::size_t GridDepth = (ColumnCount + GridWidth - 1) / GridWidth;
 	const double Spacing = bDynamic ? DynamicSpacing : RenderingSpacing;
 
-	FSceneDocument Document{
-	    .Id = MakeSceneId(Options),
+	FLevelDocument Document{
+	    .Id = MakeLevelId(Options),
 	    .Name = std::format("Scaling {} {}", bDynamic ? "Dynamic" : "Rendering", Options.CubeCount),
 	};
 	Document.Entities.reserve(Options.CubeCount + 1);
-	Document.Entities.push_back(FSceneEntity{
+	Document.Entities.push_back(FLevelEntity{
 	    .Id = MakeEntityId(Options.Workload, 0),
 	    .Name = "Floor",
 	    .Transform = {
@@ -83,7 +83,7 @@ std::expected<FSceneDocument, FSceneError> GenerateScalingScene(const FScalingSc
 	        },
 	    },
 	    .Mesh = FStaticMeshComponent{.Asset = EngineCubeAsset},
-	    .BodyType = bDynamic ? ESceneBodyType::Static : ESceneBodyType::None,
+	    .BodyType = bDynamic ? ELevelBodyType::Static : ELevelBodyType::None,
 	});
 
 	for (std::size_t Index = 0; Index < Options.CubeCount; ++Index)
@@ -92,20 +92,20 @@ std::expected<FSceneDocument, FSceneError> GenerateScalingScene(const FScalingSc
 		const std::size_t Layer = Index % StackHeight;
 		const std::size_t X = Column % GridWidth;
 		const std::size_t Z = Column / GridWidth;
-		Document.Entities.push_back(FSceneEntity{
+		Document.Entities.push_back(FLevelEntity{
 		    .Id = MakeEntityId(Options.Workload, Index + 1),
 		    .Name = std::format("Cube {:05}", Index + 1),
 		    .Transform = {.Translation = FWorldPosition{
-		        GridCoordinate(X, GridWidth, Spacing),
-		        0.5 + static_cast<double>(Layer) * DynamicVerticalSpacing,
-		        GridCoordinate(Z, GridDepth, Spacing),
-		    }},
+		                      GridCoordinate(X, GridWidth, Spacing),
+		                      0.5 + static_cast<double>(Layer) * DynamicVerticalSpacing,
+		                      GridCoordinate(Z, GridDepth, Spacing),
+		                  }},
 		    .Mesh = FStaticMeshComponent{.Asset = EngineCubeAsset},
-		    .BodyType = bDynamic ? ESceneBodyType::Dynamic : ESceneBodyType::None,
+		    .BodyType = bDynamic ? ELevelBodyType::Dynamic : ELevelBodyType::None,
 		});
 	}
 
-	if (auto Result = ValidateSceneEntities(Document.Entities); !Result)
+	if (auto Result = ValidateLevelEntities(Document.Entities); !Result)
 	{
 		return std::unexpected(Result.error());
 	}

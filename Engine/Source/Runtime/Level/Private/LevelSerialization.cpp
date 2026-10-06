@@ -1,6 +1,6 @@
-#include "Herta/Scene/SceneSerialization.h"
+#include "Herta/Level/LevelSerialization.h"
 
-#include "Herta/Scene/SceneDescriptors.h"
+#include "Herta/Level/LevelDescriptors.h"
 
 #include <simdjson.h>
 
@@ -28,13 +28,13 @@ namespace Herta
 {
 namespace
 {
-constexpr std::size_t MaximumSceneBytes = 64 * 1024 * 1024;
-constexpr std::size_t MaximumSceneEntities = 1'000'000;
+constexpr std::size_t MaximumLevelBytes = 64 * 1024 * 1024;
+constexpr std::size_t MaximumLevelEntities = 1'000'000;
 constexpr std::size_t MaximumNameBytes = 1024;
 
-std::unexpected<FSceneError> SceneError(const std::string_view Message)
+std::unexpected<FLevelError> LevelError(const std::string_view Message)
 {
-	return std::unexpected(FSceneError{std::string(Message)});
+	return std::unexpected(FLevelError{std::string(Message)});
 }
 
 bool IsValidName(const std::string_view Name)
@@ -56,12 +56,12 @@ bool IsValidName(const std::string_view Name)
 	return true;
 }
 
-template <std::size_t N> std::expected<std::array<simdjson::dom::element, N>, FSceneError> ReadFields(const simdjson::dom::element Element, const std::array<std::string_view, N>& Names, const std::uint64_t Required)
+template <std::size_t N> std::expected<std::array<simdjson::dom::element, N>, FLevelError> ReadFields(const simdjson::dom::element Element, const std::array<std::string_view, N>& Names, const std::uint64_t Required)
 {
 	simdjson::dom::object Object;
 	if (Element.get_object().get(Object))
 	{
-		return SceneError("Expected a scene JSON object");
+		return LevelError("Expected a level JSON object");
 	}
 
 	std::array<simdjson::dom::element, N> Values;
@@ -72,14 +72,14 @@ template <std::size_t N> std::expected<std::array<simdjson::dom::element, N>, FS
 		const auto Iterator = std::ranges::find(Names, Field.key);
 		if (Iterator == Names.end())
 		{
-			return SceneError("Unknown scene JSON field");
+			return LevelError("Unknown level JSON field");
 		}
 
 		const auto Index = static_cast<std::size_t>(Iterator - Names.begin());
 		const std::uint64_t Bit = std::uint64_t{1} << Index;
 		if ((Seen & Bit) != 0)
 		{
-			return SceneError("Duplicate scene JSON field");
+			return LevelError("Duplicate level JSON field");
 		}
 
 		Seen |= Bit;
@@ -88,13 +88,13 @@ template <std::size_t N> std::expected<std::array<simdjson::dom::element, N>, FS
 
 	if ((Seen & Required) != Required)
 	{
-		return SceneError("Missing required scene JSON field");
+		return LevelError("Missing required level JSON field");
 	}
 
 	return Values;
 }
 
-template <std::size_t N> std::expected<std::array<simdjson::dom::element, N>, FSceneError> ReadComponentFields(const simdjson::dom::element Element, const FSceneComponentDescriptor& Descriptor)
+template <std::size_t N> std::expected<std::array<simdjson::dom::element, N>, FLevelError> ReadComponentFields(const simdjson::dom::element Element, const FLevelComponentDescriptor& Descriptor)
 {
 	std::array<std::string_view, N> Keys;
 
@@ -106,18 +106,18 @@ template <std::size_t N> std::expected<std::array<simdjson::dom::element, N>, FS
 	return ReadFields(Element, Keys, (std::uint64_t{1} << N) - 1);
 }
 
-std::expected<std::string_view, FSceneError> ReadString(const simdjson::dom::element Element)
+std::expected<std::string_view, FLevelError> ReadString(const simdjson::dom::element Element)
 {
 	std::string_view Text;
 	if (Element.get_string().get(Text))
 	{
-		return SceneError("Expected a scene JSON string");
+		return LevelError("Expected a level JSON string");
 	}
 
 	return Text;
 }
 
-template <typename TId> std::expected<TId, FSceneError> ReadId(const simdjson::dom::element Element)
+template <typename TId> std::expected<TId, FLevelError> ReadId(const simdjson::dom::element Element)
 {
 	const auto Text = ReadString(Element);
 	if (!Text)
@@ -128,18 +128,18 @@ template <typename TId> std::expected<TId, FSceneError> ReadId(const simdjson::d
 	const auto Id = TId::Parse(*Text);
 	if (!Id || !Id->IsValid())
 	{
-		return SceneError("Invalid stable scene ID");
+		return LevelError("Invalid stable level ID");
 	}
 
 	return *Id;
 }
 
-template <typename T, std::size_t N> std::expected<std::array<T, N>, FSceneError> ReadNumbers(const simdjson::dom::element Element)
+template <typename T, std::size_t N> std::expected<std::array<T, N>, FLevelError> ReadNumbers(const simdjson::dom::element Element)
 {
 	simdjson::dom::array Array;
 	if (Element.get_array().get(Array) || Array.size() != N)
 	{
-		return SceneError("Invalid scene transform array");
+		return LevelError("Invalid level transform array");
 	}
 
 	std::array<T, N> Values;
@@ -150,7 +150,7 @@ template <typename T, std::size_t N> std::expected<std::array<T, N>, FSceneError
 		double Value = 0;
 		if (Number.get_double().get(Value) || !std::isfinite(Value) || Value < -std::numeric_limits<T>::max() || Value > std::numeric_limits<T>::max())
 		{
-			return SceneError("Invalid scene transform number");
+			return LevelError("Invalid level transform number");
 		}
 
 		Values[Index++] = static_cast<T>(Value);
@@ -159,22 +159,22 @@ template <typename T, std::size_t N> std::expected<std::array<T, N>, FSceneError
 	return Values;
 }
 
-template <typename T> std::expected<T, FSceneError> ReadNumber(const simdjson::dom::element Element)
+template <typename T> std::expected<T, FLevelError> ReadNumber(const simdjson::dom::element Element)
 {
 	double Value = 0;
 	if (Element.get_double().get(Value) || !std::isfinite(Value) || Value < -std::numeric_limits<T>::max() || Value > std::numeric_limits<T>::max())
 	{
-		return SceneError("Invalid scene number");
+		return LevelError("Invalid level number");
 	}
 
 	return static_cast<T>(Value);
 }
 
-std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
+std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
-	const auto& TransformDescriptor = GetSceneComponentDescriptor(ESceneComponentType::Transform);
-	const auto& MeshDescriptor = GetSceneComponentDescriptor(ESceneComponentType::StaticMesh);
-	const auto& BodyDescriptor = GetSceneComponentDescriptor(ESceneComponentType::RigidBody);
+	const auto& TransformDescriptor = GetLevelComponentDescriptor(ELevelComponentType::Transform);
+	const auto& MeshDescriptor = GetLevelComponentDescriptor(ELevelComponentType::StaticMesh);
+	const auto& BodyDescriptor = GetLevelComponentDescriptor(ELevelComponentType::RigidBody);
 	const auto Fields = ReadFields(Element, std::array<std::string_view, 5>{"id", "name", "parent", TransformDescriptor.SerializationKey, "components"}, 0x1f);
 	if (!Fields)
 	{
@@ -185,10 +185,10 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 	const auto Name = ReadString((*Fields)[1]);
 	if (!Id || !Name || !IsValidName(*Name))
 	{
-		return SceneError("Invalid scene entity ID or name");
+		return LevelError("Invalid level entity ID or name");
 	}
 
-	FSceneEntity Entity{.Id = *Id, .Name = std::string(*Name)};
+	FLevelEntity Entity{.Id = *Id, .Name = std::string(*Name)};
 	if (!(*Fields)[2].is_null())
 	{
 		const auto Parent = ReadId<FObjectId>((*Fields)[2]);
@@ -211,10 +211,10 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 	const auto Scale = ReadNumbers<float, 3>((*Transform)[2]);
 	if (!Translation || !Rotation || !Scale)
 	{
-		return SceneError("Invalid scene transform");
+		return LevelError("Invalid level transform");
 	}
 
-	Entity.Transform = FSceneTransform{
+	Entity.Transform = FLevelTransform{
 	    .Translation = FWorldPosition{(*Translation)[0], (*Translation)[1], (*Translation)[2]},
 	    .Rotation = FQuaternion{(*Rotation)[0], (*Rotation)[1], (*Rotation)[2], (*Rotation)[3]},
 	    .Scale = FVector3{(*Scale)[0], (*Scale)[1], (*Scale)[2]},
@@ -223,7 +223,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 	simdjson::dom::object Components;
 	if ((*Fields)[4].get_object().get(Components))
 	{
-		return SceneError("Expected scene components object");
+		return LevelError("Expected level components object");
 	}
 
 	std::uint32_t SeenComponents = 0;
@@ -234,7 +234,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 		{
 			if ((SeenComponents & 1) != 0)
 			{
-				return SceneError("Duplicate scene component");
+				return LevelError("Duplicate level component");
 			}
 
 			SeenComponents |= 1;
@@ -256,7 +256,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 		{
 			if ((SeenComponents & 2) != 0)
 			{
-				return SceneError("Duplicate scene component");
+				return LevelError("Duplicate level component");
 			}
 
 			SeenComponents |= 2;
@@ -272,10 +272,10 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 				const auto Type = ReadString((*Body)[0]);
 				if (!Type || (*Type != "static" && *Type != "dynamic"))
 				{
-					return SceneError("Unknown scene body type");
+					return LevelError("Unknown level body type");
 				}
 
-				Entity.BodyType = *Type == "static" ? ESceneBodyType::Static : ESceneBodyType::Dynamic;
+				Entity.BodyType = *Type == "static" ? ELevelBodyType::Static : ELevelBodyType::Dynamic;
 				continue;
 			}
 
@@ -288,7 +288,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 			const auto Type = ReadString((*Body)[0]);
 			if (!Type || (*Type != "static" && *Type != "dynamic"))
 			{
-				return SceneError("Unknown scene body type");
+				return LevelError("Unknown level body type");
 			}
 
 			const auto MassKg = ReadNumber<float>((*Body)[1]);
@@ -299,10 +299,10 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 			const auto GravityScale = ReadNumber<float>((*Body)[6]);
 			if (!MassKg || !Friction || !Restitution || !LinearDamping || !AngularDamping || !GravityScale)
 			{
-				return SceneError("Invalid scene rigid body settings");
+				return LevelError("Invalid level rigid body settings");
 			}
 
-			Entity.BodyType = *Type == "static" ? ESceneBodyType::Static : ESceneBodyType::Dynamic;
+			Entity.BodyType = *Type == "static" ? ELevelBodyType::Static : ELevelBodyType::Dynamic;
 			Entity.BodySettings = {
 			    .MassKg = *MassKg,
 			    .Friction = *Friction,
@@ -314,7 +314,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 		}
 		else
 		{
-			return SceneError("Unknown scene component");
+			return LevelError("Unknown level component");
 		}
 	}
 
@@ -369,13 +369,13 @@ template <typename T, std::size_t N> void AppendNumbers(std::string& Output, con
 	Output += ']';
 }
 
-std::expected<void, FSceneError> WriteTemporaryFile(const std::filesystem::path& Path, const std::string_view Text)
+std::expected<void, FLevelError> WriteTemporaryFile(const std::filesystem::path& Path, const std::string_view Text)
 {
 #ifdef _WIN32
 	const HANDLE File = CreateFileW(Path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
 	if (File == INVALID_HANDLE_VALUE)
 	{
-		return SceneError("Cannot create scene temporary file");
+		return LevelError("Cannot create level temporary file");
 	}
 
 	DWORD Written = 0;
@@ -386,7 +386,7 @@ std::expected<void, FSceneError> WriteTemporaryFile(const std::filesystem::path&
 	const int File = open(Path.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
 	if (File < 0)
 	{
-		return SceneError("Cannot create scene temporary file");
+		return LevelError("Cannot create level temporary file");
 	}
 
 	std::size_t Written = 0;
@@ -415,35 +415,35 @@ std::expected<void, FSceneError> WriteTemporaryFile(const std::filesystem::path&
 	{
 		std::error_code Error;
 		std::filesystem::remove(Path, Error);
-		return SceneError("Cannot write scene temporary file");
+		return LevelError("Cannot write level temporary file");
 	}
 
 	return {};
 }
 }
 
-std::expected<void, FSceneError> ValidateSceneDocument(const FSceneDocument& Document)
+std::expected<void, FLevelError> ValidateLevelDocument(const FLevelDocument& Document)
 {
-	if (!Document.Id.IsValid() || !IsValidName(Document.Name) || Document.Entities.size() > MaximumSceneEntities)
+	if (!Document.Id.IsValid() || !IsValidName(Document.Name) || Document.Entities.size() > MaximumLevelEntities)
 	{
-		return SceneError("Invalid scene document ID, name, or entity count");
+		return LevelError("Invalid level document ID, name, or entity count");
 	}
 
-	return ValidateSceneEntities(Document.Entities);
+	return ValidateLevelEntities(Document.Entities);
 }
 
-std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Document)
+std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Document)
 {
-	const auto Validation = ValidateSceneDocument(Document);
+	const auto Validation = ValidateLevelDocument(Document);
 	if (!Validation)
 	{
 		return std::unexpected(Validation.error());
 	}
 
-	const auto& TransformDescriptor = GetSceneComponentDescriptor(ESceneComponentType::Transform);
-	const auto& MeshDescriptor = GetSceneComponentDescriptor(ESceneComponentType::StaticMesh);
-	const auto& BodyDescriptor = GetSceneComponentDescriptor(ESceneComponentType::RigidBody);
-	std::vector<const FSceneEntity*> Entities;
+	const auto& TransformDescriptor = GetLevelComponentDescriptor(ELevelComponentType::Transform);
+	const auto& MeshDescriptor = GetLevelComponentDescriptor(ELevelComponentType::StaticMesh);
+	const auto& BodyDescriptor = GetLevelComponentDescriptor(ELevelComponentType::RigidBody);
+	std::vector<const FLevelEntity*> Entities;
 	Entities.reserve(Document.Entities.size());
 
 	for (const auto& Entity : Document.Entities)
@@ -451,12 +451,12 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 		Entities.push_back(&Entity);
 	}
 
-	std::ranges::sort(Entities, [](const FSceneEntity* Left, const FSceneEntity* Right)
+	std::ranges::sort(Entities, [](const FLevelEntity* Left, const FLevelEntity* Right)
 	{
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaScene\",\n  \"formatVersion\": 1,\n  \"engineSchemaVersion\": 2,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 2,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -464,7 +464,7 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 
 	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
 	{
-		const FSceneEntity& Entity = *Entities[Index];
+		const FLevelEntity& Entity = *Entities[Index];
 		Output += Index == 0 ? "\n" : ",\n";
 		Output += "    {\n      \"id\": ";
 		AppendString(Output, Entity.Id.ToString());
@@ -500,12 +500,12 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 			Output += '}';
 		}
 
-		if (Entity.BodyType != ESceneBodyType::None)
+		if (Entity.BodyType != ELevelBodyType::None)
 		{
 			Output += Entity.Mesh ? ",\n" : "\n";
 			AppendFieldKey(Output, "        ", BodyDescriptor.SerializationKey);
 			AppendFieldKey(Output, "{\n          ", BodyDescriptor.Properties[0].Key);
-			AppendString(Output, Entity.BodyType == ESceneBodyType::Static ? "static" : "dynamic");
+			AppendString(Output, Entity.BodyType == ELevelBodyType::Static ? "static" : "dynamic");
 			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[1].Key);
 			AppendNumber(Output, Entity.BodySettings.MassKg);
 			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[2].Key);
@@ -521,30 +521,30 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 			Output += "\n        }";
 		}
 
-		Output += Entity.Mesh || Entity.BodyType != ESceneBodyType::None ? "\n      }\n    }" : "}\n    }";
-		if (Output.size() > MaximumSceneBytes)
+		Output += Entity.Mesh || Entity.BodyType != ELevelBodyType::None ? "\n      }\n    }" : "}\n    }";
+		if (Output.size() > MaximumLevelBytes)
 		{
-			return SceneError("Scene exceeds the 64 MiB limit");
+			return LevelError("Level exceeds the 64 MiB limit");
 		}
 	}
 
 	Output += Entities.empty() ? "]\n}\n" : "\n  ]\n}\n";
-	if (Output.size() > MaximumSceneBytes)
+	if (Output.size() > MaximumLevelBytes)
 	{
-		return SceneError("Scene exceeds the 64 MiB limit");
+		return LevelError("Level exceeds the 64 MiB limit");
 	}
 
 	return Output;
 }
 
-std::expected<FSceneDocument, FSceneError> ParseScene(const std::string_view Text)
+std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Text)
 {
-	if (Text.size() > MaximumSceneBytes)
+	if (Text.size() > MaximumLevelBytes)
 	{
-		return SceneError("Scene exceeds the 64 MiB limit");
+		return LevelError("Level exceeds the 64 MiB limit");
 	}
 
-	simdjson::dom::parser Parser(MaximumSceneBytes);
+	simdjson::dom::parser Parser(MaximumLevelBytes);
 	simdjson::dom::element Root;
 	const auto ParseError = Parser.parse(Text.data(), Text.size()).get(Root);
 	if (ParseError == simdjson::MEMALLOC)
@@ -554,7 +554,7 @@ std::expected<FSceneDocument, FSceneError> ParseScene(const std::string_view Tex
 
 	if (ParseError)
 	{
-		return SceneError("Malformed scene JSON or invalid UTF-8");
+		return LevelError("Malformed level JSON or invalid UTF-8");
 	}
 
 	const auto Fields = ReadFields(Root, std::array<std::string_view, 6>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities"}, 0x3f);
@@ -566,30 +566,31 @@ std::expected<FSceneDocument, FSceneError> ParseScene(const std::string_view Tex
 	const auto Format = ReadString((*Fields)[0]);
 	std::uint64_t FormatVersion = 0;
 	std::uint64_t SchemaVersion = 0;
-	if (!Format || *Format != "HertaScene" || (*Fields)[1].get_uint64().get(FormatVersion) || (*Fields)[2].get_uint64().get(SchemaVersion))
+	if (!Format || (*Format != "HertaLevel" && *Format != "HertaScene") || (*Fields)[1].get_uint64().get(FormatVersion) || (*Fields)[2].get_uint64().get(SchemaVersion))
 	{
-		return SceneError("Invalid scene format header");
+		return LevelError("Invalid level format header");
 	}
 
-	if (FormatVersion != 1 || (SchemaVersion != 1 && SchemaVersion != 2))
+	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
+	if (FormatVersion != ExpectedFormatVersion || (SchemaVersion != 1 && SchemaVersion != 2))
 	{
-		return SceneError("Unsupported scene format or engine schema version; supported format is 1 and engine schemas are 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 and legacy HertaScene 1, with engine schemas 1 through 2");
 	}
 
 	const auto Id = ReadId<FObjectId>((*Fields)[3]);
 	const auto Name = ReadString((*Fields)[4]);
 	if (!Id || !Name || !IsValidName(*Name))
 	{
-		return SceneError("Invalid scene document ID or name");
+		return LevelError("Invalid level document ID or name");
 	}
 
 	simdjson::dom::array Entities;
-	if ((*Fields)[5].get_array().get(Entities) || Entities.size() > MaximumSceneEntities)
+	if ((*Fields)[5].get_array().get(Entities) || Entities.size() > MaximumLevelEntities)
 	{
-		return SceneError("Invalid scene entities array or entity count");
+		return LevelError("Invalid level entities array or entity count");
 	}
 
-	FSceneDocument Document{.Id = *Id, .Name = std::string(*Name)};
+	FLevelDocument Document{.Id = *Id, .Name = std::string(*Name)};
 	Document.Entities.reserve(Entities.size());
 
 	for (const auto Element : Entities)
@@ -603,7 +604,7 @@ std::expected<FSceneDocument, FSceneError> ParseScene(const std::string_view Tex
 		Document.Entities.push_back(std::move(*Entity));
 	}
 
-	const auto Validation = ValidateSceneDocument(Document);
+	const auto Validation = ValidateLevelDocument(Document);
 	if (!Validation)
 	{
 		return std::unexpected(Validation.error());
@@ -612,13 +613,13 @@ std::expected<FSceneDocument, FSceneError> ParseScene(const std::string_view Tex
 	return Document;
 }
 
-std::expected<FSceneDocument, FSceneError> LoadScene(const std::filesystem::path& Path)
+std::expected<FLevelDocument, FLevelError> LoadLevel(const std::filesystem::path& Path)
 {
 	std::error_code Error;
 	const std::uintmax_t Size = std::filesystem::file_size(Path, Error);
-	if (Error || Size > MaximumSceneBytes)
+	if (Error || Size > MaximumLevelBytes)
 	{
-		return SceneError("Cannot read scene file or scene exceeds the 64 MiB limit");
+		return LevelError("Cannot read level file or level exceeds the 64 MiB limit");
 	}
 
 	std::ifstream Stream(Path, std::ios::binary);
@@ -626,20 +627,20 @@ std::expected<FSceneDocument, FSceneError> LoadScene(const std::filesystem::path
 	Stream.read(Text.data(), static_cast<std::streamsize>(Text.size()));
 	if (!Stream)
 	{
-		return SceneError("Cannot read complete scene file");
+		return LevelError("Cannot read complete level file");
 	}
 
 	if (Stream.peek() != std::char_traits<char>::eof() || Stream.bad())
 	{
-		return SceneError("Scene file changed during read or could not be read completely");
+		return LevelError("Level file changed during read or could not be read completely");
 	}
 
-	return ParseScene(Text);
+	return ParseLevel(Text);
 }
 
-std::expected<void, FSceneError> SaveScene(const std::filesystem::path& Path, const FSceneDocument& Document)
+std::expected<void, FLevelError> SaveLevel(const std::filesystem::path& Path, const FLevelDocument& Document)
 {
-	const auto Text = SerializeScene(Document);
+	const auto Text = SerializeLevel(Document);
 	if (!Text)
 	{
 		return std::unexpected(Text.error());
@@ -664,7 +665,7 @@ std::expected<void, FSceneError> SaveScene(const std::filesystem::path& Path, co
 	if (!bPublished)
 	{
 		std::filesystem::remove(TemporaryPath, Error);
-		return SceneError("Cannot atomically replace scene file");
+		return LevelError("Cannot atomically replace level file");
 	}
 
 	return {};

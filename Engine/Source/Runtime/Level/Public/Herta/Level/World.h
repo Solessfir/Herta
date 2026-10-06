@@ -18,8 +18,8 @@
 
 namespace Herta
 {
-class FSceneSystemContext;
-class FSceneSystemScheduler;
+class FLevelSystemContext;
+class FLevelSystemScheduler;
 
 class FObjectId final
 {
@@ -69,9 +69,9 @@ struct FEntityId
 	std::uint64_t Generation = 0;
 };
 
-struct FSceneTransform
+struct FLevelTransform
 {
-	constexpr bool operator==(const FSceneTransform&) const = default;
+	constexpr bool operator==(const FLevelTransform&) const = default;
 
 	// Translation is parent-local, or world-space for root entities.
 	FWorldPosition Translation{};
@@ -86,16 +86,16 @@ struct FStaticMeshComponent
 	FAssetId Asset;
 };
 
-enum class ESceneBodyType : std::uint8_t
+enum class ELevelBodyType : std::uint8_t
 {
 	None,
 	Static,
 	Dynamic,
 };
 
-struct FSceneRigidBodySettings
+struct FLevelRigidBodySettings
 {
-	constexpr bool operator==(const FSceneRigidBodySettings&) const = default;
+	constexpr bool operator==(const FLevelRigidBodySettings&) const = default;
 
 	float MassKg = 1.f;
 	float Friction = 0.2f;
@@ -105,32 +105,32 @@ struct FSceneRigidBodySettings
 	float GravityScale = 1.f;
 };
 
-struct FSceneEntity
+struct FLevelEntity
 {
-	bool operator==(const FSceneEntity&) const = default;
+	bool operator==(const FLevelEntity&) const = default;
 
 	FObjectId Id{};
 	std::string Name{};
 	FObjectId Parent{};
-	FSceneTransform Transform{};
+	FLevelTransform Transform{};
 	std::optional<FStaticMeshComponent> Mesh{};
-	ESceneBodyType BodyType = ESceneBodyType::None;
-	FSceneRigidBodySettings BodySettings{};
+	ELevelBodyType BodyType = ELevelBodyType::None;
+	FLevelRigidBodySettings BodySettings{};
 };
 
-struct FSceneEntityChange
+struct FLevelEntityChange
 {
-	std::optional<FSceneEntity> Before{};
-	std::optional<FSceneEntity> After{};
+	std::optional<FLevelEntity> Before{};
+	std::optional<FLevelEntity> After{};
 };
 
-struct FSceneError
+struct FLevelError
 {
 	std::string Message;
 };
 
-[[nodiscard]] std::expected<void, FSceneError> ValidateSceneEntities(std::span<const FSceneEntity> Entities);
-[[nodiscard]] std::expected<void, FSceneError> ValidateSceneRigidBodySettings(const FSceneRigidBodySettings& Settings);
+[[nodiscard]] std::expected<void, FLevelError> ValidateLevelEntities(std::span<const FLevelEntity> Entities);
+[[nodiscard]] std::expected<void, FLevelError> ValidateLevelRigidBodySettings(const FLevelRigidBodySettings& Settings);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final
@@ -143,30 +143,30 @@ public:
 	FWorld(FWorld&&) = delete;
 	FWorld& operator=(FWorld&&) = delete;
 
-	[[nodiscard]] std::expected<FObjectId, FSceneError> QueueCreateEntity(FSceneEntity Entity);
-	[[nodiscard]] std::expected<void, FSceneError> QueueDestroyEntity(FEntityId Entity);
+	[[nodiscard]] std::expected<FObjectId, FLevelError> QueueCreateEntity(FLevelEntity Entity);
+	[[nodiscard]] std::expected<void, FLevelError> QueueDestroyEntity(FEntityId Entity);
 	// A rejected batch is discarded without changing live entities or their handles.
-	[[nodiscard]] std::expected<void, FSceneError> FlushStructuralChanges();
+	[[nodiscard]] std::expected<void, FLevelError> FlushStructuralChanges();
 	// Successful replacement discards pending changes and invalidates every old handle.
-	[[nodiscard]] std::expected<void, FSceneError> ReplaceEntities(std::span<const FSceneEntity> Entities);
+	[[nodiscard]] std::expected<void, FLevelError> ReplaceEntities(std::span<const FLevelEntity> Entities);
 	// Applies a validated batch at a structural barrier while preserving surviving handles.
-	[[nodiscard]] std::expected<void, FSceneError> ApplyEntityChanges(std::span<const FSceneEntityChange> Changes);
-	[[nodiscard]] std::expected<void, FSceneError> SetEntity(FEntityId Entity, const FSceneEntity& Snapshot);
+	[[nodiscard]] std::expected<void, FLevelError> ApplyEntityChanges(std::span<const FLevelEntityChange> Changes);
+	[[nodiscard]] std::expected<void, FLevelError> SetEntity(FEntityId Entity, const FLevelEntity& Snapshot);
 	std::optional<FEntityId> FindEntity(FObjectId Object) const;
-	std::optional<FSceneEntity> GetEntity(FEntityId Entity) const;
-	std::vector<FSceneEntity> SnapshotEntities() const;
+	std::optional<FLevelEntity> GetEntity(FEntityId Entity) const;
+	std::vector<FLevelEntity> SnapshotEntities() const;
 	std::size_t GetEntityCount() const;
 	bool HasPendingStructuralChanges() const;
-	[[nodiscard]] std::expected<TMatrix4<double>, FSceneError> GetWorldMatrix(FEntityId Entity) const;
+	[[nodiscard]] std::expected<TMatrix4<double>, FLevelError> GetWorldMatrix(FEntityId Entity) const;
 
 private:
-	friend class FSceneSystemContext;
-	friend class FSceneSystemScheduler;
+	friend class FLevelSystemContext;
+	friend class FLevelSystemScheduler;
 
-	[[nodiscard]] std::expected<void, FSceneError> SetEntityForSystem(FEntityId Entity, const FSceneEntity& Snapshot);
-	std::optional<FSceneEntity> GetEntityForSystem(FEntityId Entity) const;
-	std::vector<FSceneEntity> SnapshotEntitiesForSystem() const;
-	[[nodiscard]] std::expected<TMatrix4<double>, FSceneError> GetWorldMatrixForSystem(FEntityId Entity) const;
+	[[nodiscard]] std::expected<void, FLevelError> SetEntityForSystem(FEntityId Entity, const FLevelEntity& Snapshot);
+	std::optional<FLevelEntity> GetEntityForSystem(FEntityId Entity) const;
+	std::vector<FLevelEntity> SnapshotEntitiesForSystem() const;
+	[[nodiscard]] std::expected<TMatrix4<double>, FLevelError> GetWorldMatrixForSystem(FEntityId Entity) const;
 	bool BeginSystemExecution();
 	void EndSystemExecution();
 

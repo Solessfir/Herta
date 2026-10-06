@@ -1,5 +1,5 @@
 #include "OutlinerPanel.h"
-#include "PreviewScene.h"
+#include "PreviewLevel.h"
 
 #include <doctest/doctest.h>
 #include <imgui_internal.h>

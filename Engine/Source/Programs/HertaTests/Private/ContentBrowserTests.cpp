@@ -1,5 +1,5 @@
 #include "ContentBrowser.h"
-#include "EditorScene.h"
+#include "EditorLevel.h"
 
 #include <doctest/doctest.h>
 #include <imgui_internal.h>
@@ -38,9 +38,9 @@ std::vector<std::string> VisibleContentFolders(const FContentBrowserState& State
 	return Folders;
 }
 
-std::vector<FObjectId> ContentSceneSelection(const FEditorScene& Scene)
+std::vector<FObjectId> ContentLevelSelection(const FEditorLevel& Level)
 {
-	const auto Selection = Scene.GetSelection();
+	const auto Selection = Level.GetSelection();
 	return {Selection.begin(), Selection.end()};
 }
 
@@ -321,51 +321,51 @@ TEST_CASE("Content browser import destinations never target the read-only Engine
 
 TEST_CASE("Content browser mesh placement is one undoable transaction with stable selection")
 {
-	FEditorScene Scene;
-	const auto Before = Scene.GetWorld().SnapshotEntities();
+	FEditorLevel Level;
+	const auto Before = Level.GetWorld().SnapshotEntities();
 	const std::array PreviousSelection{Before[0].Id, Before[1].Id};
-	Scene.SetSelection(PreviousSelection, Before[0].Id);
+	Level.SetSelection(PreviousSelection, Before[0].Id);
 	const FAssetId Asset{7, 9};
 	const FWorldPosition Position{3.25, 4.5, -2.};
-	const auto Created = Scene.CreateMeshEntity(Asset, "Imported mesh", Position);
+	const auto Created = Level.CreateMeshEntity(Asset, "Imported mesh", Position);
 	REQUIRE(Created);
-	const auto Handle = Scene.GetWorld().FindEntity(*Created);
+	const auto Handle = Level.GetWorld().FindEntity(*Created);
 	REQUIRE(Handle);
-	const auto Entity = Scene.GetWorld().GetEntity(*Handle);
+	const auto Entity = Level.GetWorld().GetEntity(*Handle);
 	REQUIRE(Entity);
 	REQUIRE(Entity->Mesh);
 	CHECK(Entity->Mesh->Asset == Asset);
 	CHECK(Entity->Name == "Imported mesh");
 	CHECK(Entity->Transform.Translation == Position);
-	CHECK(Entity->BodyType == ESceneBodyType::None);
-	CHECK(ContentSceneSelection(Scene) == std::vector<FObjectId>{*Created});
-	CHECK(Scene.GetActiveObject() == *Created);
-	CHECK(Scene.CanUndo());
-	REQUIRE(Scene.Undo());
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	CHECK(ContentSceneSelection(Scene) == std::vector<FObjectId>(PreviousSelection.begin(), PreviousSelection.end()));
-	CHECK(Scene.GetActiveObject() == Before[0].Id);
-	CHECK_FALSE(Scene.CanUndo());
-	REQUIRE(Scene.Redo());
-	CHECK(Scene.GetWorld().FindEntity(*Created));
-	CHECK(ContentSceneSelection(Scene) == std::vector<FObjectId>{*Created});
-	const auto After = Scene.GetWorld().SnapshotEntities();
-	CHECK_FALSE(Scene.CreateMeshEntity({}, "Invalid asset"));
-	CHECK(Scene.GetWorld().SnapshotEntities() == After);
+	CHECK(Entity->BodyType == ELevelBodyType::None);
+	CHECK(ContentLevelSelection(Level) == std::vector<FObjectId>{*Created});
+	CHECK(Level.GetActiveObject() == *Created);
+	CHECK(Level.CanUndo());
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	CHECK(ContentLevelSelection(Level) == std::vector<FObjectId>(PreviousSelection.begin(), PreviousSelection.end()));
+	CHECK(Level.GetActiveObject() == Before[0].Id);
+	CHECK_FALSE(Level.CanUndo());
+	REQUIRE(Level.Redo());
+	CHECK(Level.GetWorld().FindEntity(*Created));
+	CHECK(ContentLevelSelection(Level) == std::vector<FObjectId>{*Created});
+	const auto After = Level.GetWorld().SnapshotEntities();
+	CHECK_FALSE(Level.CreateMeshEntity({}, "Invalid asset"));
+	CHECK(Level.GetWorld().SnapshotEntities() == After);
 }
 
-TEST_CASE("Failed in-memory scene loading preserves document identity world selection path and history")
+TEST_CASE("Failed in-memory level loading preserves document identity world selection path and history")
 {
-	FEditorScene Scene;
-	const auto Created = Scene.CreateMeshEntity(FAssetId{2, 2}, "Keep me");
+	FEditorLevel Level;
+	const auto Created = Level.CreateMeshEntity(FAssetId{2, 2}, "Keep me");
 	REQUIRE(Created);
-	Scene.SetPath("Current.hscene");
-	const auto Before = Scene.GetWorld().SnapshotEntities();
-	const auto Selected = ContentSceneSelection(Scene);
-	const auto Active = Scene.GetActiveObject();
-	const auto Generation = Scene.GetGeneration();
-	const std::string Name{Scene.GetName()};
-	FSceneDocument Invalid{.Id = FObjectId{3, 3}, .Name = "Replacement", .Entities = Before};
+	Level.SetPath("Current.hlevel");
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	const auto Selected = ContentLevelSelection(Level);
+	const auto Active = Level.GetActiveObject();
+	const auto Generation = Level.GetGeneration();
+	const std::string Name{Level.GetName()};
+	FLevelDocument Invalid{.Id = FObjectId{3, 3}, .Name = "Replacement", .Entities = Before};
 
 	SUBCASE("Duplicate entity identity")
 	{
@@ -377,26 +377,26 @@ TEST_CASE("Failed in-memory scene loading preserves document identity world sele
 		Invalid.Entities[0].Transform.Translation.Meters.X = std::numeric_limits<double>::infinity();
 	}
 
-	SUBCASE("Invalid scene document identity")
+	SUBCASE("Invalid level document identity")
 	{
 		Invalid.Id = {};
 	}
 
-	SUBCASE("Invalid scene document name")
+	SUBCASE("Invalid level document name")
 	{
 		Invalid.Name = "Invalid\nname";
 	}
 
-	CHECK_FALSE(Scene.LoadDocument(std::move(Invalid), "Replacement.hscene"));
-	CHECK(Scene.GetWorld().SnapshotEntities() == Before);
-	CHECK(ContentSceneSelection(Scene) == Selected);
-	CHECK(Scene.GetActiveObject() == Active);
-	CHECK(Scene.GetGeneration() == Generation);
-	CHECK(Scene.GetName() == Name);
-	CHECK(Scene.GetPath() == std::filesystem::path("Current.hscene"));
-	CHECK(Scene.CanUndo());
-	CHECK(Scene.IsDirty());
-	REQUIRE(Scene.Undo());
-	CHECK_FALSE(Scene.GetWorld().FindEntity(*Created));
+	CHECK_FALSE(Level.LoadDocument(std::move(Invalid), "Replacement.hlevel"));
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+	CHECK(ContentLevelSelection(Level) == Selected);
+	CHECK(Level.GetActiveObject() == Active);
+	CHECK(Level.GetGeneration() == Generation);
+	CHECK(Level.GetName() == Name);
+	CHECK(Level.GetPath() == std::filesystem::path("Current.hlevel"));
+	CHECK(Level.CanUndo());
+	CHECK(Level.IsDirty());
+	REQUIRE(Level.Undo());
+	CHECK_FALSE(Level.GetWorld().FindEntity(*Created));
 }
 }
