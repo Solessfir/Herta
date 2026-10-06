@@ -9,30 +9,6 @@
 
 namespace Herta
 {
-namespace
-{
-void CheckPreviewSilhouetteFaces(const std::vector<std::pair<FVector3, FVector3>>& Edges, const FVector3& CameraPosition)
-{
-	for (const auto& [First, Second] : Edges)
-	{
-		int FrontFaces = 0;
-		int AdjacentFaces = 0;
-		for (std::size_t Axis = 0; Axis < 3; ++Axis)
-		{
-			if (First[Axis] == Second[Axis])
-			{
-				CHECK(std::abs(First[Axis]) == 1.f);
-				++AdjacentFaces;
-				FrontFaces += First[Axis] > 0.f ? CameraPosition[Axis] > 1.f : CameraPosition[Axis] < -1.f;
-			}
-		}
-
-		CHECK(AdjacentFaces == 2);
-		CHECK(FrontFaces == 1);
-	}
-}
-}
-
 TEST_CASE("Preview picking hits only the forward ray including origins inside the cube")
 {
 	const FMatrix4 Model;
@@ -93,63 +69,19 @@ TEST_CASE("Preview picking consumes camera rays without changing screen conventi
 	CHECK_FALSE(HitTestPreviewCube(Camera.MakePickingRay({1.f - LeftCubeScreen.X, LeftCubeScreen.Y}, AspectRatio), LeftCube));
 }
 
-TEST_CASE("Preview silhouette contains four front-facing outline edges")
-{
-	const FVector3 CameraPosition{0.f, 0.f, -5.f};
-	const auto Edges = GetPreviewCubeSilhouette(CameraPosition, FMatrix4::Identity());
-	REQUIRE(Edges.size() == 4);
-	for (const auto& [First, Second] : Edges)
-	{
-		CHECK(First.Z == -1.f);
-		CHECK(Second.Z == -1.f);
-	}
-
-	CheckPreviewSilhouetteFaces(Edges, CameraPosition);
-}
-
-TEST_CASE("Preview silhouette contains six oblique outline edges and no inner edges")
-{
-	for (const FVector3 CameraPosition : std::array{FVector3{3.f, 4.f, -5.f}, FVector3{-3.f, -4.f, 5.f}, FVector3{-3.f, 4.f, -5.f}})
-	{
-		const auto Edges = GetPreviewCubeSilhouette(CameraPosition, FMatrix4::Identity());
-		REQUIRE(Edges.size() == 6);
-		CheckPreviewSilhouetteFaces(Edges, CameraPosition);
-	}
-
-	CHECK(GetPreviewCubeSilhouette(FVector3::Zero(), FMatrix4::Identity()).empty());
-}
-
-TEST_CASE("Preview silhouette transforms rotated nonuniformly scaled endpoints into world space")
-{
-	const FMatrix4 Model = FMatrix4::Transform({2.f, 3.f, 4.f}, FQuaternion::FromAxisAngle(FVector3::Up(), std::numbers::pi_v<float> * 0.5f), {2.f, 3.f, 4.f});
-	const FVector3 LocalCamera{3.f, 4.f, -5.f};
-	const auto LocalEdges = GetPreviewCubeSilhouette(LocalCamera, FMatrix4::Identity());
-	const auto WorldEdges = GetPreviewCubeSilhouette(Model.TransformPosition(LocalCamera), Model);
-	REQUIRE(WorldEdges.size() == LocalEdges.size());
-	for (std::size_t Index = 0; Index < LocalEdges.size(); ++Index)
-	{
-		CHECK(WorldEdges[Index].first.IsNearlyEqual(Model.TransformPosition(LocalEdges[Index].first), 0.0001f));
-		CHECK(WorldEdges[Index].second.IsNearlyEqual(Model.TransformPosition(LocalEdges[Index].second), 0.0001f));
-	}
-}
-
 TEST_CASE("Preview selection rejects singular invalid and non-TRS inputs")
 {
 	const FViewportPickingRay Ray{.Origin = {0.f, 0.f, -5.f}, .Direction = FVector3::Forward()};
 	const FMatrix4 Singular = FMatrix4::Scale({0.f, 1.f, 1.f});
 	CHECK_FALSE(HitTestPreviewCube(Ray, Singular));
-	CHECK(GetPreviewCubeSilhouette(Ray.Origin, Singular).empty());
 	FMatrix4 Sheared;
 	Sheared(0, 1) = 0.5f;
 	CHECK_FALSE(HitTestPreviewCube(Ray, Sheared));
-	CHECK(GetPreviewCubeSilhouette(Ray.Origin, Sheared).empty());
 	FMatrix4 NonAffine;
 	NonAffine(3, 0) = 0.5f;
 	CHECK_FALSE(HitTestPreviewCube(Ray, NonAffine));
-	CHECK(GetPreviewCubeSilhouette(Ray.Origin, NonAffine).empty());
 	const float Invalid = std::numeric_limits<float>::quiet_NaN();
 	CHECK_FALSE(HitTestPreviewCube({Ray.Origin, {Invalid, 0.f, 1.f}}, FMatrix4::Identity()));
-	CHECK(GetPreviewCubeSilhouette({Invalid, 0.f, -5.f}, FMatrix4::Identity()).empty());
 }
 
 TEST_CASE("Preview box selection intersects projected bounds with either drag direction")

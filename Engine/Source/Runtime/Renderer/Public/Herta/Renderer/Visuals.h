@@ -64,6 +64,7 @@ struct FVisualShaderSet
 	FShaderAsset SmaaEdges;
 	FShaderAsset SmaaWeights;
 	FShaderAsset SmaaNeighborhood;
+	FShaderAsset SelectionOutline;
 };
 
 struct FShadowView

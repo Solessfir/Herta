@@ -50,6 +50,8 @@ struct FMeshRenderView
 	std::span<const std::span<const FRenderMaterial* const>> Materials{};
 	std::span<const FRenderLight> Lights{};
 	FVisualSettings Visuals{};
+	// Model indices outlined as the editor selection.
+	std::span<const std::size_t> Selected{};
 };
 
 class FRenderMaterial final

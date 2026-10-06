@@ -120,43 +120,6 @@ std::optional<double> HitTestPreviewCube(const FViewportPickingRay& Ray, const F
 	return NearDistance;
 }
 
-std::vector<std::pair<FVector3, FVector3>> GetPreviewCubeSilhouette(const FVector3& CameraPosition, const FMatrix4& Model)
-{
-	const auto WorldToLocal = GetPreviewWorldToLocal(Model);
-	if (!WorldToLocal || !IsFinitePreviewVector(CameraPosition))
-	{
-		return {};
-	}
-
-	const FVector3 LocalCamera = WorldToLocal->TransformPosition(CameraPosition);
-	if (!IsFinitePreviewVector(LocalCamera))
-	{
-		return {};
-	}
-
-	const std::array FrontFaces{LocalCamera.X < -1.f, LocalCamera.X > 1.f, LocalCamera.Y < -1.f, LocalCamera.Y > 1.f, LocalCamera.Z < -1.f, LocalCamera.Z > 1.f};
-	std::vector<std::pair<FVector3, FVector3>> Edges;
-	Edges.reserve(6);
-	for (const auto& Edge : CubeEdges)
-	{
-		if (FrontFaces[Edge[2]] == FrontFaces[Edge[3]])
-		{
-			continue;
-		}
-
-		const FVector3 First = Model.TransformPosition(CubeCorners[Edge[0]]);
-		const FVector3 Second = Model.TransformPosition(CubeCorners[Edge[1]]);
-		if (!IsFinitePreviewVector(First) || !IsFinitePreviewVector(Second))
-		{
-			return {};
-		}
-
-		Edges.emplace_back(First, Second);
-	}
-
-	return Edges;
-}
-
 bool IntersectsPreviewCubeSelectionRect(const FMatrix4& ViewProjection, const FMatrix4& Model, const FVector2 First, const FVector2 Second)
 {
 	if (!std::isfinite(First.X) || !std::isfinite(First.Y) || !std::isfinite(Second.X) || !std::isfinite(Second.Y) || !std::ranges::all_of(ViewProjection.Data(), [](const float Element)

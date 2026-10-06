@@ -69,6 +69,7 @@ struct FOutlinerPanelState
 	FObjectId SelectedFolder{};
 	FObjectId RenameFolder{};
 	bool bRenameRequested = false;
+	bool bRevealSelection = false;
 	bool bRenaming = false;
 	bool bRenameCommitted = false;
 
@@ -80,6 +81,8 @@ struct FOutlinerPanelState
 };
 
 void BuildOutlinerVisibleRows(FOutlinerPanelState& State, std::span<const FPreviewObject> Objects, std::span<const FLevelFolder> Folders = {});
+
+bool ExpandOutlinerAncestors(FOutlinerPanelState& State, std::span<const FPreviewObject> Objects, std::span<const FLevelFolder> Folders, int ObjectIndex);
 
 std::optional<FOutlinerReparentRequest> MakeOutlinerReparentRequest(std::span<const FPreviewObject> Objects, const FPreviewSelection& Selection, int SourceIndex, std::optional<FObjectId> Parent);
 

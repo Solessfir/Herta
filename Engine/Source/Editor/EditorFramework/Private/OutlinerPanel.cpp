@@ -244,6 +244,25 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 	}
 }
 
+bool ExpandOutlinerAncestors(FOutlinerPanelState& State, const std::span<const FPreviewObject> Objects, const std::span<const FLevelFolder> Folders, const int ObjectIndex)
+{
+	if (ObjectIndex < 0 || static_cast<std::size_t>(ObjectIndex) >= Objects.size() || static_cast<std::size_t>(ObjectIndex) >= State.ParentIndices.size())
+	{
+		return false;
+	}
+
+	bool bExpanded = false;
+	int Parent = State.ParentIndices[static_cast<std::size_t>(ObjectIndex)];
+	for (std::size_t Steps = 0; Parent >= 0 && Steps < State.ParentIndices.size(); ++Steps)
+	{
+		const auto Index = static_cast<std::size_t>(Parent);
+		bExpanded |= Index < Objects.size() ? State.CollapsedObjects.erase(Objects[Index].Id) > 0 : State.CollapsedFolders.erase(Folders[Index - Objects.size()].Id) > 0;
+		Parent = State.ParentIndices[Index];
+	}
+
+	return bExpanded;
+}
+
 std::optional<FOutlinerReparentRequest> MakeOutlinerReparentRequest(const std::span<const FPreviewObject> Objects, const FPreviewSelection& Selection, const int SourceIndex, const std::optional<FObjectId> Parent)
 {
 	if (SourceIndex < 0 || static_cast<std::size_t>(SourceIndex) >= Objects.size())
@@ -386,6 +405,12 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 	ImGui::BeginDisabled(bDragging);
 	auto& VisibleIndices = State.VisibleIndices;
 	BuildOutlinerVisibleRows(State, Objects, Folders);
+	const bool bReveal = State.bRevealSelection && !bDragging;
+	State.bRevealSelection = false;
+	if (bReveal && ExpandOutlinerAncestors(State, Objects, Folders, Selection.Active))
+	{
+		BuildOutlinerVisibleRows(State, Objects, Folders);
+	}
 
 	const ImGuiIO& IO = ImGui::GetIO();
 	if (!bDragging && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !IO.WantTextInput)
@@ -615,6 +640,11 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 					bRowHovered |= bCurrentRowHovered;
 					const ImVec2 Minimum = ImGui::GetItemRectMin();
 					const ImVec2 Maximum = ImGui::GetItemRectMax();
+					if (bReveal && !bFolder && Row.ObjectIndex == Selection.Active)
+					{
+						ImGui::ScrollToItem(ImGuiScrollFlags_KeepVisibleCenterY);
+					}
+
 					if (bSelected || bCurrentRowHovered)
 					{
 						const ImGuiCol Color = bCurrentRowHovered ? (ImGui::IsItemActive() ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered) : ImGuiCol_Header;

@@ -724,6 +724,34 @@ TEST_CASE("Outliner folders organize hierarchy roots without replacing transform
 	CHECK_FALSE(State.SelectedFolder.IsValid());
 }
 
+TEST_CASE("Outliner reveal expands collapsed parent entities and folders of a viewport pick")
+{
+	const std::array<FPreviewObject, 3> Objects{{
+	    {.Label = "Assembly", .Translation = {}, .Id = {1, 1}},
+	    {.Label = "Child", .Translation = {}, .Id = {1, 2}, .Parent = FObjectId{1, 1}},
+	    {.Label = "Other", .Translation = {}, .Id = {1, 3}},
+	}};
+	const std::array<FLevelFolder, 2> Folders{{
+	    {.Id = {2, 1}, .Name = "Group"},
+	    {.Id = {2, 2}, .Name = "Nested", .Parent = {2, 1}, .Entities = {Objects[0].Id}},
+	}};
+	FOutlinerPanelState State;
+	State.CollapsedFolders = {Folders[0].Id, Folders[1].Id};
+	State.CollapsedObjects = {Objects[0].Id};
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	CHECK(State.VisibleIndices == std::vector<int>{2});
+
+	CHECK(ExpandOutlinerAncestors(State, Objects, Folders, 1));
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	CHECK(State.VisibleIndices == std::vector<int>{0, 1, 2});
+	CHECK(State.CollapsedFolders.empty());
+	CHECK(State.CollapsedObjects.empty());
+
+	CHECK_FALSE(ExpandOutlinerAncestors(State, Objects, Folders, 1));
+	CHECK_FALSE(ExpandOutlinerAncestors(State, Objects, Folders, -1));
+	CHECK_FALSE(ExpandOutlinerAncestors(State, Objects, Folders, 3));
+}
+
 TEST_CASE("Outliner folder search preserves matched ancestors and folder collapse")
 {
 	const std::array<FPreviewObject, 2> Objects{{

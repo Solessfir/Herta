@@ -608,6 +608,7 @@ struct FEditorFramework::FImplementation
 	FExtent2D ViewportExtent{.Width = 960, .Height = 540};
 	FViewportCameraController ViewportCamera;
 	FMeshRenderView ViewportRenderView;
+	std::vector<std::size_t> ViewportSelectedModels;
 	FVector2 ViewportProjectionCenter{0.5f, 0.5f};
 	FVector2 ViewportVisibleSize{1.f, 1.f};
 	FViewportInteractionState ViewportInteraction;
@@ -3244,6 +3245,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 		if (ClosestObject >= 0 || (!IO.KeyCtrl && !IO.KeyShift))
 		{
 			SetPreviewSelection(ClosestObject, ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift);
+			OutlinerPanelState.bRevealSelection = ClosestObject >= 0;
 		}
 	}
 
@@ -3290,20 +3292,6 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 			Im3d::DrawLine({0.f, 0.f, -0.15f}, {0.f, 0.f, 0.15f}, 2.f, Color);
 			Im3d::DrawPoint({0.f}, 5.f, Color);
 			Im3d::PopMatrix();
-		}
-
-		for (const int Index : PreviewSelection.Indices)
-		{
-			const auto ObjectIndex = static_cast<std::size_t>(Index);
-			if (!PreviewObjects[ObjectIndex].Mesh.IsValid())
-			{
-				continue;
-			}
-
-			for (const auto& [Start, End] : GetPreviewCubeSilhouette(Camera.Position, PreviewModels[ObjectIndex] * GetPreviewBoundsMatrix(ObjectIndex)))
-			{
-				Im3d::DrawLine(ToIm3dVector(Start), ToIm3dVector(End), ViewportGizmos.m_gizmoSizePixels * 0.5f, Im3d::Color(0xc2b584ff));
-			}
 		}
 
 		Im3d::PopLayerId();
@@ -3534,6 +3522,17 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				ImGui::SetClipboardText(FormatTransformVectorClipboard(CameraPosition).c_str());
 				CameraCoordinatesCopiedUntil = ImGui::GetTime() + 1.5;
 			}
+
+			ViewportSelectedModels.clear();
+			if (!bGameView)
+			{
+				for (const int Index : PreviewSelection.Indices)
+				{
+					ViewportSelectedModels.push_back(static_cast<std::size_t>(Index));
+				}
+			}
+
+			ViewportRenderView.Selected = ViewportSelectedModels;
 
 			// Render after layout and input, before recording the texture ID that resize may replace.
 			RenderViewport();

@@ -413,6 +413,7 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle ToneColor;
 	FTextureHandle Edges;
 	FTextureHandle Weights;
+	FTextureHandle SelectionDepth;
 	FTextureHandle ShadowAtlas;
 	FTextureHandle White;
 	FTextureHandle EnvironmentDiffuse;
@@ -423,6 +424,7 @@ struct FMeshRenderer::FImplementation
 	FBufferHandle FullscreenVertices;
 	FBufferHandle FullscreenIndices;
 	std::array<FGraphicsPipelineHandle, 7> VisualPipelines;
+	FGraphicsPipelineHandle OutlinePipeline;
 	FGraphicsPipelineHandle ShadowPipeline;
 	FGraphicsPipelineHandle InstancedShadowPipeline;
 	FVisualUniforms Uniforms;
@@ -558,6 +560,17 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 			State->VisualPipelines[Index] = std::move(*VisualPipeline);
 		}
 
+		if (!VisualShaders.SelectionOutline.Bytecode.empty())
+		{
+			auto OutlinePipeline = Device.CreateGraphicsPipeline({.Name = "Selection outline", .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(VisualShaders.SelectionOutline), .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = 2, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bAlphaBlend = true});
+			if (!OutlinePipeline)
+			{
+				return std::unexpected(OutlinePipeline.error());
+			}
+
+			State->OutlinePipeline = std::move(*OutlinePipeline);
+		}
+
 		auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Masked shadow atlas", .VertexShader = std::move(VisualShaders.ShadowVertex), .FragmentShader = VisualShaders.ShadowFragment, .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .TextureCount = 1, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthOnly = true});
 		auto InstancedShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Instanced masked shadow atlas", .VertexShader = std::move(VisualShaders.ShadowInstancedVertex), .FragmentShader = std::move(VisualShaders.ShadowFragment), .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .bInstanced = true, .TextureCount = 1, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthOnly = true});
 		auto FullscreenVertices = Device.CreateBuffer({.Name = "Fullscreen quad", .Size = 4 * sizeof(FColoredClipVertex), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition});
@@ -671,7 +684,7 @@ std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 {
 	const FImplementation& State = *Implementation;
 	std::size_t Bytes = 0;
-	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogColor, &State.CompositeColor, &State.ToneColor, &State.Edges, &State.Weights, &State.ShadowAtlas})
+	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogColor, &State.CompositeColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.ShadowAtlas})
 	{
 		if (*Target)
 		{
@@ -1033,6 +1046,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				Created = Target("SMAA weights", Extent, ETextureFormat::Rgba8, State.Weights);
 			}
 
+			if (Created)
+			{
+				Created = Target("Selection depth", Extent, ETextureFormat::Depth32, State.SelectionDepth);
+			}
+
 			if (!Created)
 			{
 				return Created;
@@ -1376,6 +1394,45 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			}
 
 			return GraphResult(Result);
+		});
+	}
+
+	if (State.OutlinePipeline && State.ShadowPipeline && !View.Selected.empty())
+	{
+		const auto Selection = Graph.ImportResource("Selection depth");
+		Graph.AddPass("Selection outline", {{.Resource = Selection, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+		{
+			const auto Timer = TimedPass("Selection outline");
+			if (const auto Cleared = Device.ClearTargets({}, State.SelectionDepth, {}); !Cleared)
+			{
+				return GraphResult(Cleared);
+			}
+
+			// The depth-only shadow pipeline rasterizes the selected meshes, including alpha cutouts, without another mesh shader.
+			for (const std::size_t Index : View.Selected)
+			{
+				if (Index >= View.Models.size() || Index >= View.Meshes.size() || View.Meshes[Index] == nullptr)
+				{
+					continue;
+				}
+
+				const FRenderMesh& Mesh = *View.Meshes[Index];
+				const auto Transform = (WorldToClip * View.Models[Index]).Data();
+				for (const FRenderMesh::FSection& Section : Mesh.Sections)
+				{
+					const auto Textures = MaterialTextures(Mesh, Section, View.Materials.empty() ? std::span<const FRenderMaterial* const>{} : View.Materials[Index]);
+					const auto Draw = Device.DrawIndexed({.Pipeline = State.ShadowPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = State.SelectionDepth, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
+					if (!Draw)
+					{
+						return GraphResult(Draw);
+					}
+
+					++State.LastDrawCount;
+				}
+			}
+
+			const std::array Sources{State.SelectionDepth, State.Depth};
+			return GraphResult(Device.DrawIndexed({.Pipeline = State.OutlinePipeline, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = State.Color, .IndexCount = 6, .Textures = Sources, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})}));
 		});
 	}
 
