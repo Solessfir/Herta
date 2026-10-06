@@ -17,6 +17,7 @@ struct FSceneDocument
 	std::vector<FSceneEntity> Entities{};
 };
 
+[[nodiscard]] std::expected<void, FSceneError> ValidateSceneDocument(const FSceneDocument& Document);
 [[nodiscard]] std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Document);
 [[nodiscard]] std::expected<FSceneDocument, FSceneError> ParseScene(std::string_view Text);
 [[nodiscard]] std::expected<FSceneDocument, FSceneError> LoadScene(const std::filesystem::path& Path);

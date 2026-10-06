@@ -18,6 +18,9 @@
 
 namespace Herta
 {
+class FSceneSystemContext;
+class FSceneSystemScheduler;
+
 class FObjectId final
 {
 public:
@@ -153,10 +156,22 @@ public:
 	std::optional<FSceneEntity> GetEntity(FEntityId Entity) const;
 	std::vector<FSceneEntity> SnapshotEntities() const;
 	std::size_t GetEntityCount() const;
+	bool HasPendingStructuralChanges() const;
 	[[nodiscard]] std::expected<TMatrix4<double>, FSceneError> GetWorldMatrix(FEntityId Entity) const;
 
 private:
+	friend class FSceneSystemContext;
+	friend class FSceneSystemScheduler;
+
+	[[nodiscard]] std::expected<void, FSceneError> SetEntityForSystem(FEntityId Entity, const FSceneEntity& Snapshot);
+	std::optional<FSceneEntity> GetEntityForSystem(FEntityId Entity) const;
+	std::vector<FSceneEntity> SnapshotEntitiesForSystem() const;
+	[[nodiscard]] std::expected<TMatrix4<double>, FSceneError> GetWorldMatrixForSystem(FEntityId Entity) const;
+	bool BeginSystemExecution();
+	void EndSystemExecution();
+
 	struct FImplementation;
 	std::unique_ptr<FImplementation> Implementation;
+	bool bExecutingSystems = false;
 };
 }

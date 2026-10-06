@@ -3,6 +3,7 @@
 #include "Herta/Assets/AssetSearch.h"
 #include "Herta/EditorCore/PreviewScaleEdit.h"
 #include "Herta/EditorCore/TransformText.h"
+#include "Herta/Scene/SceneDescriptors.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "NumericField.h"
 #include "PreviewScene.h"
@@ -43,25 +44,28 @@ ImVec4 GetPropertyLabelColor()
 
 struct FBodyPropertyDisplay
 {
-	std::string_view Label;
+	std::string_view Key;
 	std::string_view SearchAlias;
 	std::string_view Tooltip;
 	float FSceneRigidBodySettings::* Member = nullptr;
 	float Speed = 0.01f;
-	float Minimum = 0.f;
-	float Maximum = 1.f;
 	const char* Format = "%.3f";
 	bool bDynamicOnly = false;
 };
 
 constexpr std::array BodyProperties{
-    FBodyPropertyDisplay{"Mass", "Mass (kg)", "Mass in kilograms. Only dynamic bodies respond to forces.", &FSceneRigidBodySettings::MassKg, 0.1f, 0.001f, 1'000'000.f, "%.3f kg", true},
-    FBodyPropertyDisplay{"Friction", "Surface friction", "Resistance to sliding contact. Applies to static and dynamic bodies.", &FSceneRigidBodySettings::Friction, 0.01f, 0.f, 1.f, "%.3f", false},
-    FBodyPropertyDisplay{"Bounciness", "Restitution", "Fraction of impact speed retained after a collision.", &FSceneRigidBodySettings::Restitution, 0.01f, 0.f, 1.f, "%.3f", false},
-    FBodyPropertyDisplay{"Linear damping", "Linear Damping", "Reduces linear velocity over time, in inverse seconds.", &FSceneRigidBodySettings::LinearDamping, 0.01f, 0.f, 1.f, "%.2f /s", true},
-    FBodyPropertyDisplay{"Angular damping", "Angular Damping", "Reduces angular velocity over time, in inverse seconds.", &FSceneRigidBodySettings::AngularDamping, 0.01f, 0.f, 1.f, "%.2f /s", true},
-    FBodyPropertyDisplay{"Gravity scale", "Gravity", "Multiplier for the world's gravity acceleration.", &FSceneRigidBodySettings::GravityScale, 0.05f, 0.f, 10.f, "%.2f", true},
+    FBodyPropertyDisplay{.Key = "massKg", .SearchAlias = "Mass (kg)", .Tooltip = "Mass in kilograms. Only dynamic bodies respond to forces.", .Member = &FSceneRigidBodySettings::MassKg, .Speed = 0.1f, .Format = "%.3f kg", .bDynamicOnly = true},
+    FBodyPropertyDisplay{.Key = "friction", .SearchAlias = "Surface friction", .Tooltip = "Resistance to sliding contact. Applies to static and dynamic bodies.", .Member = &FSceneRigidBodySettings::Friction},
+    FBodyPropertyDisplay{.Key = "restitution", .SearchAlias = "Restitution", .Tooltip = "Fraction of impact speed retained after a collision.", .Member = &FSceneRigidBodySettings::Restitution},
+    FBodyPropertyDisplay{.Key = "linearDamping", .SearchAlias = "Linear Damping", .Tooltip = "Reduces linear velocity over time, in inverse seconds.", .Member = &FSceneRigidBodySettings::LinearDamping, .Format = "%.2f /s", .bDynamicOnly = true},
+    FBodyPropertyDisplay{.Key = "angularDamping", .SearchAlias = "Angular Damping", .Tooltip = "Reduces angular velocity over time, in inverse seconds.", .Member = &FSceneRigidBodySettings::AngularDamping, .Format = "%.2f /s", .bDynamicOnly = true},
+    FBodyPropertyDisplay{.Key = "gravityScale", .SearchAlias = "Gravity", .Tooltip = "Multiplier for the world's gravity acceleration.", .Member = &FSceneRigidBodySettings::GravityScale, .Speed = 0.05f, .Format = "%.2f", .bDynamicOnly = true},
 };
+
+const FScenePropertyDescriptor& GetBodyPropertyDescriptor(const FBodyPropertyDisplay& Property)
+{
+	return *FindScenePropertyDescriptor(GetSceneComponentDescriptor(ESceneComponentType::RigidBody), Property.Key);
+}
 
 enum class ETransformClipboardFormat
 {
@@ -103,7 +107,7 @@ void BeginDetailsEdit(const FDetailsEditCallbacks* const Edits, FDetailsMeshResu
 
 [[nodiscard]] bool MatchesBodyProperty(const FBodyPropertyDisplay& Property, const std::string_view Query)
 {
-	return MatchesSearch(Property.Label, Query) || MatchesSearch(Property.SearchAlias, Query);
+	return MatchesSearch(GetBodyPropertyDescriptor(Property).Label, Query) || MatchesSearch(Property.SearchAlias, Query);
 }
 
 void DrawObjectIcon(const ImVec2 Position, const float Size, const bool bEntity)
@@ -189,7 +193,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
-		constexpr std::array<std::string_view, 2> Names{"Static Mesh", "Rigid Body"};
+		const std::array Names{GetSceneComponentDescriptor(ESceneComponentType::StaticMesh).Label, GetSceneComponentDescriptor(ESceneComponentType::RigidBody).Label};
 		const std::array Added{Components.bAllMesh, Components.bAllBody};
 		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
 		std::vector<int> Available;
@@ -542,6 +546,14 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, const bool bSelected, const bool bDragging, Im3d::Vec3& Translation, Im3d::Mat3& Rotation, Im3d::Vec3& Scale, FDetailsPanelState& State, const std::string& ObjectLabel, const std::size_t SelectedCount, const FDetailsMeshField* const Mesh, const FDetailsEditCallbacks* const Edits, FDetailsComponentField* const Components)
 {
 	FDetailsMeshResult MeshResult;
+	const auto& TransformDescriptor = GetSceneComponentDescriptor(ESceneComponentType::Transform);
+	const auto& MeshDescriptor = GetSceneComponentDescriptor(ESceneComponentType::StaticMesh);
+	const auto& BodyDescriptor = GetSceneComponentDescriptor(ESceneComponentType::RigidBody);
+	const auto& LocationProperty = TransformDescriptor.Properties[0];
+	const auto& RotationProperty = TransformDescriptor.Properties[1];
+	const auto& ScaleProperty = TransformDescriptor.Properties[2];
+	const auto& BodyTypeProperty = BodyDescriptor.Properties[0];
+	const auto DefaultBodyType = std::get<ESceneBodyType>(BodyTypeProperty.Default);
 
 	if (!ToolUI.BeginPanel("Details", &bOpen))
 	{
@@ -576,7 +588,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const ImVec2 NamePosition{ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y + 4.f * UiScale};
 	ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), NamePosition, ImGui::GetItemRectMax(), ImGui::GetItemRectMax().x, ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size(), nullptr);
 	ImGui::SetItemTooltip("%.*s", static_cast<int>(ObjectLabel.size()), ObjectLabel.data());
-	ImGui::TextDisabled("%s", bEntity ? "Entity" : "Static Mesh");
+	ImGui::TextDisabled("%s", bEntity ? "Entity" : MeshDescriptor.Label.data());
 	ImGui::EndGroup();
 	ImGui::SameLine(HeadingActionX);
 	ImGui::BeginGroup();
@@ -593,22 +605,22 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	ImGui::SetNextItemWidth(-1.f);
 	ToolUI.DrawSearchField("##PropertySearch", "Search", State.Search.data(), State.Search.size());
 	const std::string_view Query(State.Search.data());
-	const bool bShowAll = Query.empty() || MatchesSearch("Transform", Query);
-	const bool bLocation = bShowAll || MatchesSearch("Location", Query);
-	const bool bRotation = bShowAll || MatchesSearch("Rotation", Query);
-	const bool bScale = bShowAll || MatchesSearch("Scale", Query);
+	const bool bShowAll = Query.empty() || MatchesSearch(TransformDescriptor.Label, Query);
+	const bool bLocation = bShowAll || MatchesSearch(LocationProperty.Label, Query);
+	const bool bRotation = bShowAll || MatchesSearch(RotationProperty.Label, Query);
+	const bool bScale = bShowAll || MatchesSearch(ScaleProperty.Label, Query);
 	const bool bTransform = bLocation || bRotation || bScale;
 	const bool bHasMesh = Mesh != nullptr && Mesh->Selected >= 0 && static_cast<std::size_t>(Mesh->Selected) < Mesh->Options.size();
 	// cppcheck-suppress containerOutOfBounds
 	// bHasMesh checks the selected index against the options size.
 	const std::string_view MeshLabel = Components != nullptr && (!Components->bAllMesh || Components->bMixedMeshAsset) ? std::string_view("Multiple values") : bHasMesh ? std::string_view(Mesh->Options[static_cast<std::size_t>(Mesh->Selected)])
 	                                                                                                                                                                    : std::string_view(Components != nullptr ? "No asset selected" : "No mesh");
-	const bool bMesh = (Components == nullptr || Components->bAnyMesh) && (Query.empty() || MatchesSearch("Static Mesh", Query) || MatchesSearch(ObjectLabel, Query) || MatchesSearch(MeshLabel, Query));
+	const bool bMesh = (Components == nullptr || Components->bAnyMesh) && (Query.empty() || MatchesSearch(MeshDescriptor.Label, Query) || MatchesSearch(ObjectLabel, Query) || MatchesSearch(MeshLabel, Query));
 	const bool bBodyProperty = std::ranges::any_of(BodyProperties, [&](const FBodyPropertyDisplay& Property)
 	{
 		return MatchesBodyProperty(Property, Query);
 	});
-	const bool bBody = Components != nullptr && Components->bAnyBody && (Query.empty() || bBodyProperty || MatchesSearch("Rigid Body", Query) || MatchesSearch("Body type", Query) || MatchesSearch("Shape", Query) || MatchesSearch("Static", Query) || MatchesSearch("Dynamic", Query));
+	const bool bBody = Components != nullptr && Components->bAnyBody && (Query.empty() || bBodyProperty || MatchesSearch(BodyDescriptor.Label, Query) || MatchesSearch(BodyTypeProperty.Label, Query) || MatchesSearch("Shape", Query) || MatchesSearch("Static", Query) || MatchesSearch("Dynamic", Query));
 	if (!bTransform && !bMesh && !bBody)
 	{
 		ImGui::TextDisabled("No matching properties.");
@@ -688,13 +700,13 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 	}
 
-	if (bTransform && DrawSectionHeader("Transform"))
+	if (bTransform && DrawSectionHeader(TransformDescriptor.Label.data()))
 	{
 		ImGui::BeginDisabled(bDragging);
 
 		if (bLocation)
 		{
-			DrawTransformRow("Location", Translation, 0.01f, -1.e7f, 1.e7f, 0.f, State.Spaces[0], ETransformClipboardFormat::XYZ, "%.2f m", [&](const int Axis, const float Candidate)
+			DrawTransformRow(LocationProperty.Label.data(), Translation, 0.01f, -1.e7f, 1.e7f, static_cast<float>(std::get<FWorldPosition>(LocationProperty.Default).Meters.X), State.Spaces[0], ETransformClipboardFormat::XYZ, "%.2f m", [&](const int Axis, const float Candidate)
 			{
 				if (std::isfinite(Candidate) && std::abs(Candidate) <= 1.e7f)
 				{
@@ -713,7 +725,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		}
 
 		Im3d::Vec3 RotationDegrees = Im3d::ToEulerXYZ(Rotation) * (180.f / std::numbers::pi_v<float>);
-		const bool bRotationReset = bRotation && DrawTransformRow("Rotation", RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, "%.1f°", [&](const int Axis, const float Candidate)
+		const bool bRotationReset = bRotation && DrawTransformRow(RotationProperty.Label.data(), RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, "%.1f°", [&](const int Axis, const float Candidate)
 		{
 			if (std::isfinite(Candidate))
 			{
@@ -745,7 +757,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bScale)
 		{
-			DrawTransformRow("Scale", Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, 1.f, State.Spaces[2], ETransformClipboardFormat::XYZ, "%.3f", [&](const int Axis, const float Candidate)
+			DrawTransformRow(ScaleProperty.Label.data(), Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, std::get<FVector3>(ScaleProperty.Default).X, State.Spaces[2], ETransformClipboardFormat::XYZ, "%.3f", [&](const int Axis, const float Candidate)
 			{
 				if (!std::isfinite(Candidate) || Candidate < MinimumPreviewScale || Candidate > MaximumPreviewScale)
 				{
@@ -785,7 +797,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 	}
 
-	if (bMesh && DrawSectionHeader("Static Mesh", Components != nullptr && !Components->bAllMesh, EDetailsComponentAction::RemoveStaticMesh))
+	if (bMesh && DrawSectionHeader(MeshDescriptor.Label.data(), Components != nullptr && !Components->bAllMesh, EDetailsComponentAction::RemoveStaticMesh))
 	{
 		// Asset picker row: thumbnail beside the file name, with the folder or load status underneath.
 		const std::size_t FolderEnd = MeshLabel.rfind('/');
@@ -867,7 +879,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		ImGui::SetNextItemOpen(true, ImGuiCond_Always);
 	}
 
-	if (bBody && DrawSectionHeader("Rigid Body", !Components->bAllBody, EDetailsComponentAction::RemoveRigidBody))
+	if (bBody && DrawSectionHeader(BodyDescriptor.Label.data(), !Components->bAllBody, EDetailsComponentAction::RemoveRigidBody))
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * UiScale, 4.f * UiScale});
 		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {0.f, 2.f * UiScale});
@@ -880,7 +892,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
 			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
-			ImGui::TextUnformatted("Body type");
+			ImGui::TextUnformatted(BodyTypeProperty.Label.data());
 			ImGui::PopStyleColor();
 			ImGui::TableSetColumnIndex(1);
 			ImGui::SetNextItemWidth(-FLT_MIN);
@@ -902,12 +914,12 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			}
 
 			ImGui::TableSetColumnIndex(2);
-			if (Components->BodyType != ESceneBodyType::Dynamic)
+			if (Components->BodyType != DefaultBodyType)
 			{
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * UiScale);
-				if (DrawResetButton("Body type"))
+				if (DrawResetButton(BodyTypeProperty.Label.data()))
 				{
-					MeshResult.BodyTypeChosen = ESceneBodyType::Dynamic;
+					MeshResult.BodyTypeChosen = DefaultBodyType;
 				}
 			}
 
@@ -916,6 +928,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			for (std::size_t Index = 0; Index < BodyProperties.size(); ++Index)
 			{
 				const FBodyPropertyDisplay& Property = BodyProperties[Index];
+				const FScenePropertyDescriptor& Descriptor = GetBodyPropertyDescriptor(Property);
 				if (!Query.empty() && !MatchesBodyProperty(Property, Query))
 				{
 					continue;
@@ -926,7 +939,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				ImGui::TableSetColumnIndex(0);
 				ImGui::AlignTextToFramePadding();
 				ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
-				ImGui::TextUnformatted(Property.Label.data(), Property.Label.data() + Property.Label.size());
+				ImGui::TextUnformatted(Descriptor.Label.data(), Descriptor.Label.data() + Descriptor.Label.size());
 				ImGui::PopStyleColor();
 				ImGui::SetItemTooltip("%.*s", static_cast<int>(Property.Tooltip.size()), Property.Tooltip.data());
 				ImGui::TableSetColumnIndex(1);
@@ -960,7 +973,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				};
 				const char* const Format = bMixed ? "Multiple values" : Property.Format;
 				ImGui::BeginDisabled(bDragging || (Property.bDynamicOnly && !Components->bAnyDynamicBody));
-				if (DrawNumericDragFloat("##BodyValue", &Candidate, Property.Speed, Property.Minimum, Property.Maximum, Format, ImGuiSliderFlags_AlwaysClamp, &Edit, true) && !Edit.bCanceled)
+				if (DrawNumericDragFloat("##BodyValue", &Candidate, Property.Speed, static_cast<float>(Descriptor.Range->Minimum), static_cast<float>(Descriptor.Range->Maximum), Format, ImGuiSliderFlags_AlwaysClamp, &Edit, true) && !Edit.bCanceled)
 				{
 					if (Edits != nullptr && Edits->ApplyBodyProperty)
 					{
@@ -973,11 +986,11 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				MeshResult.bEditFinished |= Edit.bFinished;
 				MeshResult.bEditCanceled |= Edit.bCanceled;
 				ImGui::TableSetColumnIndex(2);
-				const float Default = FSceneRigidBodySettings{}.*Property.Member;
+				const float Default = std::get<float>(Descriptor.Default);
 				if (Components->MixedBodySettings[Index] || Components->BodySettings.*Property.Member != Default)
 				{
 					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * UiScale);
-					if (DrawResetButton(Property.Label.data()))
+					if (DrawResetButton(Descriptor.Label.data()))
 					{
 						BeginDetailsEdit(Edits, MeshResult);
 

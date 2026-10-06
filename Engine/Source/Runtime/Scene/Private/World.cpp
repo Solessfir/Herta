@@ -387,6 +387,11 @@ FWorld::~FWorld() = default;
 
 std::expected<FObjectId, FSceneError> FWorld::QueueCreateEntity(FSceneEntity Entity)
 {
+	if (bExecutingSystems)
+	{
+		return std::unexpected(FSceneError{"Systems must queue structural changes through their execution context"});
+	}
+
 	if (!Entity.Id.IsValid())
 	{
 		Entity.Id = FObjectId::Generate();
@@ -416,6 +421,11 @@ std::expected<FObjectId, FSceneError> FWorld::QueueCreateEntity(FSceneEntity Ent
 
 std::expected<void, FSceneError> FWorld::QueueDestroyEntity(const FEntityId Entity)
 {
+	if (bExecutingSystems)
+	{
+		return std::unexpected(FSceneError{"Systems must queue structural changes through their execution context"});
+	}
+
 	if (!Implementation->IsValid(Entity))
 	{
 		return std::unexpected(FSceneError{"Entity handle is stale or belongs to another world"});
@@ -431,6 +441,11 @@ std::expected<void, FSceneError> FWorld::QueueDestroyEntity(const FEntityId Enti
 
 std::expected<void, FSceneError> FWorld::FlushStructuralChanges()
 {
+	if (bExecutingSystems)
+	{
+		return std::unexpected(FSceneError{"Structural barriers cannot run inside a system"});
+	}
+
 	if (Implementation->PendingCreates.empty() && Implementation->PendingDestroys.empty())
 	{
 		return {};
@@ -473,6 +488,11 @@ std::expected<void, FSceneError> FWorld::FlushStructuralChanges()
 
 std::expected<void, FSceneError> FWorld::ReplaceEntities(const std::span<const FSceneEntity> Entities)
 {
+	if (bExecutingSystems)
+	{
+		return std::unexpected(FSceneError{"World replacement cannot run inside a system"});
+	}
+
 	const auto Valid = ValidateSceneEntities(Entities);
 	if (!Valid)
 	{
@@ -493,6 +513,11 @@ std::expected<void, FSceneError> FWorld::ReplaceEntities(const std::span<const F
 
 std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<const FSceneEntityChange> Changes)
 {
+	if (bExecutingSystems)
+	{
+		return std::unexpected(FSceneError{"Entity patches cannot publish inside a system"});
+	}
+
 	if (!Implementation->PendingCreates.empty() || !Implementation->PendingDestroys.empty())
 	{
 		return std::unexpected(FSceneError{"Flush pending structural changes before applying an entity patch"});
@@ -607,6 +632,16 @@ std::expected<void, FSceneError> FWorld::ApplyEntityChanges(const std::span<cons
 
 std::expected<void, FSceneError> FWorld::SetEntity(const FEntityId Entity, const FSceneEntity& Snapshot)
 {
+	if (bExecutingSystems)
+	{
+		return std::unexpected(FSceneError{"Systems must write components through their execution context"});
+	}
+
+	return SetEntityForSystem(Entity, Snapshot);
+}
+
+std::expected<void, FSceneError> FWorld::SetEntityForSystem(const FEntityId Entity, const FSceneEntity& Snapshot)
+{
 	if (!Implementation->IsValid(Entity))
 	{
 		return std::unexpected(FSceneError{"Entity handle is stale or belongs to another world"});
@@ -654,10 +689,20 @@ std::optional<FEntityId> FWorld::FindEntity(const FObjectId Object) const
 
 std::optional<FSceneEntity> FWorld::GetEntity(const FEntityId Entity) const
 {
+	return bExecutingSystems ? std::nullopt : GetEntityForSystem(Entity);
+}
+
+std::optional<FSceneEntity> FWorld::GetEntityForSystem(const FEntityId Entity) const
+{
 	return Implementation->IsValid(Entity) ? std::optional<FSceneEntity>{Implementation->Snapshot(static_cast<entt::entity>(Entity.Value))} : std::nullopt;
 }
 
 std::vector<FSceneEntity> FWorld::SnapshotEntities() const
+{
+	return bExecutingSystems ? std::vector<FSceneEntity>{} : SnapshotEntitiesForSystem();
+}
+
+std::vector<FSceneEntity> FWorld::SnapshotEntitiesForSystem() const
 {
 	std::vector<FSceneEntity> Entities;
 	Entities.reserve(Implementation->Objects.size());
@@ -676,7 +721,38 @@ std::size_t FWorld::GetEntityCount() const
 	return Implementation->Objects.size();
 }
 
+bool FWorld::HasPendingStructuralChanges() const
+{
+	return !Implementation->PendingCreates.empty() || !Implementation->PendingDestroys.empty();
+}
+
+bool FWorld::BeginSystemExecution()
+{
+	if (bExecutingSystems || HasPendingStructuralChanges())
+	{
+		return false;
+	}
+
+	bExecutingSystems = true;
+	return true;
+}
+
+void FWorld::EndSystemExecution()
+{
+	bExecutingSystems = false;
+}
+
 std::expected<TMatrix4<double>, FSceneError> FWorld::GetWorldMatrix(const FEntityId Entity) const
+{
+	if (bExecutingSystems)
+	{
+		return std::unexpected(FSceneError{"Systems must read components through their execution context"});
+	}
+
+	return GetWorldMatrixForSystem(Entity);
+}
+
+std::expected<TMatrix4<double>, FSceneError> FWorld::GetWorldMatrixForSystem(const FEntityId Entity) const
 {
 	if (!Implementation->IsValid(Entity))
 	{

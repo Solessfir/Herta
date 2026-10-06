@@ -1,5 +1,7 @@
 #include "Herta/Scene/SceneSerialization.h"
 
+#include "Herta/Scene/SceneDescriptors.h"
+
 #include <simdjson.h>
 
 #include <algorithm>
@@ -92,6 +94,18 @@ template <std::size_t N> std::expected<std::array<simdjson::dom::element, N>, FS
 	return Values;
 }
 
+template <std::size_t N> std::expected<std::array<simdjson::dom::element, N>, FSceneError> ReadComponentFields(const simdjson::dom::element Element, const FSceneComponentDescriptor& Descriptor)
+{
+	std::array<std::string_view, N> Keys;
+
+	for (std::size_t Index = 0; Index < N; ++Index)
+	{
+		Keys[Index] = Descriptor.Properties[Index].Key;
+	}
+
+	return ReadFields(Element, Keys, (std::uint64_t{1} << N) - 1);
+}
+
 std::expected<std::string_view, FSceneError> ReadString(const simdjson::dom::element Element)
 {
 	std::string_view Text;
@@ -158,7 +172,10 @@ template <typename T> std::expected<T, FSceneError> ReadNumber(const simdjson::d
 
 std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
-	const auto Fields = ReadFields(Element, std::array<std::string_view, 5>{"id", "name", "parent", "transform", "components"}, 0x1f);
+	const auto& TransformDescriptor = GetSceneComponentDescriptor(ESceneComponentType::Transform);
+	const auto& MeshDescriptor = GetSceneComponentDescriptor(ESceneComponentType::StaticMesh);
+	const auto& BodyDescriptor = GetSceneComponentDescriptor(ESceneComponentType::RigidBody);
+	const auto Fields = ReadFields(Element, std::array<std::string_view, 5>{"id", "name", "parent", TransformDescriptor.SerializationKey, "components"}, 0x1f);
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -183,7 +200,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 		Entity.Parent = *Parent;
 	}
 
-	const auto Transform = ReadFields((*Fields)[3], std::array<std::string_view, 3>{"translation", "rotation", "scale"}, 0x7);
+	const auto Transform = ReadComponentFields<3>((*Fields)[3], TransformDescriptor);
 	if (!Transform)
 	{
 		return std::unexpected(Transform.error());
@@ -213,7 +230,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 
 	for (const auto Component : Components)
 	{
-		if (Component.key == "staticMesh")
+		if (Component.key == MeshDescriptor.SerializationKey)
 		{
 			if ((SeenComponents & 1) != 0)
 			{
@@ -221,7 +238,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 1;
-			const auto Mesh = ReadFields(Component.value, std::array<std::string_view, 1>{"asset"}, 1);
+			const auto Mesh = ReadComponentFields<1>(Component.value, MeshDescriptor);
 			if (!Mesh)
 			{
 				return std::unexpected(Mesh.error());
@@ -235,7 +252,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 
 			Entity.Mesh = FStaticMeshComponent{.Asset = *Asset};
 		}
-		else if (Component.key == "body")
+		else if (Component.key == BodyDescriptor.SerializationKey)
 		{
 			if ((SeenComponents & 2) != 0)
 			{
@@ -246,7 +263,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 
 			if (SchemaVersion == 1)
 			{
-				const auto Body = ReadFields(Component.value, std::array<std::string_view, 1>{"type"}, 0x01);
+				const auto Body = ReadComponentFields<1>(Component.value, BodyDescriptor);
 				if (!Body)
 				{
 					return std::unexpected(Body.error());
@@ -262,7 +279,7 @@ std::expected<FSceneEntity, FSceneError> ReadEntity(const simdjson::dom::element
 				continue;
 			}
 
-			const auto Body = ReadFields(Component.value, std::array<std::string_view, 7>{"type", "massKg", "friction", "restitution", "linearDamping", "angularDamping", "gravityScale"}, 0x7f);
+			const auto Body = ReadComponentFields<7>(Component.value, BodyDescriptor);
 			if (!Body)
 			{
 				return std::unexpected(Body.error());
@@ -319,6 +336,13 @@ void AppendString(std::string& Output, const std::string_view Text)
 	}
 
 	Output += '"';
+}
+
+void AppendFieldKey(std::string& Output, const std::string_view Prefix, const std::string_view Key)
+{
+	Output += Prefix;
+	AppendString(Output, Key);
+	Output += ": ";
 }
 
 template <typename T> void AppendNumber(std::string& Output, const T Value)
@@ -398,29 +422,32 @@ std::expected<void, FSceneError> WriteTemporaryFile(const std::filesystem::path&
 }
 }
 
-std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Document)
+std::expected<void, FSceneError> ValidateSceneDocument(const FSceneDocument& Document)
 {
 	if (!Document.Id.IsValid() || !IsValidName(Document.Name) || Document.Entities.size() > MaximumSceneEntities)
 	{
 		return SceneError("Invalid scene document ID, name, or entity count");
 	}
 
-	const auto Validation = ValidateSceneEntities(Document.Entities);
+	return ValidateSceneEntities(Document.Entities);
+}
+
+std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Document)
+{
+	const auto Validation = ValidateSceneDocument(Document);
 	if (!Validation)
 	{
 		return std::unexpected(Validation.error());
 	}
 
+	const auto& TransformDescriptor = GetSceneComponentDescriptor(ESceneComponentType::Transform);
+	const auto& MeshDescriptor = GetSceneComponentDescriptor(ESceneComponentType::StaticMesh);
+	const auto& BodyDescriptor = GetSceneComponentDescriptor(ESceneComponentType::RigidBody);
 	std::vector<const FSceneEntity*> Entities;
 	Entities.reserve(Document.Entities.size());
 
 	for (const auto& Entity : Document.Entities)
 	{
-		if (!IsValidName(Entity.Name))
-		{
-			return SceneError("Invalid scene entity name");
-		}
-
 		Entities.push_back(&Entity);
 	}
 
@@ -454,19 +481,21 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 			Output += "null";
 		}
 
-		Output += ",\n      \"transform\": {\n        \"translation\": ";
+		AppendFieldKey(Output, ",\n      ", TransformDescriptor.SerializationKey);
+		AppendFieldKey(Output, "{\n        ", TransformDescriptor.Properties[0].Key);
 		const auto& Position = Entity.Transform.Translation.Meters;
 		AppendNumbers(Output, std::array{Position.X, Position.Y, Position.Z});
-		Output += ",\n        \"rotation\": ";
+		AppendFieldKey(Output, ",\n        ", TransformDescriptor.Properties[1].Key);
 		AppendNumbers(Output, Entity.Transform.Rotation.ToXYZW());
-		Output += ",\n        \"scale\": ";
+		AppendFieldKey(Output, ",\n        ", TransformDescriptor.Properties[2].Key);
 		const auto& Scale = Entity.Transform.Scale;
 		AppendNumbers(Output, std::array{Scale.X, Scale.Y, Scale.Z});
 		Output += "\n      },\n      \"components\": {";
 
 		if (Entity.Mesh)
 		{
-			Output += "\n        \"staticMesh\": {\"asset\": ";
+			AppendFieldKey(Output, "\n        ", MeshDescriptor.SerializationKey);
+			AppendFieldKey(Output, "{", MeshDescriptor.Properties[0].Key);
 			AppendString(Output, Entity.Mesh->Asset.ToString());
 			Output += '}';
 		}
@@ -474,19 +503,20 @@ std::expected<std::string, FSceneError> SerializeScene(const FSceneDocument& Doc
 		if (Entity.BodyType != ESceneBodyType::None)
 		{
 			Output += Entity.Mesh ? ",\n" : "\n";
-			Output += "        \"body\": {\n          \"type\": ";
+			AppendFieldKey(Output, "        ", BodyDescriptor.SerializationKey);
+			AppendFieldKey(Output, "{\n          ", BodyDescriptor.Properties[0].Key);
 			AppendString(Output, Entity.BodyType == ESceneBodyType::Static ? "static" : "dynamic");
-			Output += ",\n          \"massKg\": ";
+			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[1].Key);
 			AppendNumber(Output, Entity.BodySettings.MassKg);
-			Output += ",\n          \"friction\": ";
+			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[2].Key);
 			AppendNumber(Output, Entity.BodySettings.Friction);
-			Output += ",\n          \"restitution\": ";
+			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[3].Key);
 			AppendNumber(Output, Entity.BodySettings.Restitution);
-			Output += ",\n          \"linearDamping\": ";
+			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[4].Key);
 			AppendNumber(Output, Entity.BodySettings.LinearDamping);
-			Output += ",\n          \"angularDamping\": ";
+			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[5].Key);
 			AppendNumber(Output, Entity.BodySettings.AngularDamping);
-			Output += ",\n          \"gravityScale\": ";
+			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[6].Key);
 			AppendNumber(Output, Entity.BodySettings.GravityScale);
 			Output += "\n        }";
 		}
@@ -573,7 +603,7 @@ std::expected<FSceneDocument, FSceneError> ParseScene(const std::string_view Tex
 		Document.Entities.push_back(std::move(*Entity));
 	}
 
-	const auto Validation = ValidateSceneEntities(Document.Entities);
+	const auto Validation = ValidateSceneDocument(Document);
 	if (!Validation)
 	{
 		return std::unexpected(Validation.error());
