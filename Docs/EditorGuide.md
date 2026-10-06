@@ -22,6 +22,12 @@ Press G in the focused Viewport to toggle Game view, or use **Overlays > Game vi
 
 Drag LMB from empty viewport space to box-select intersecting projected mesh bounds and empty-entity markers. Shift-drag adds objects, Ctrl-drag toggles them, and Escape restores the selection from before the drag. Selection updates live; gizmo drags and Alt+LMB orbit keep their existing behavior.
 
+## Outliner folders
+
+Right-click the Outliner to create a folder, or press **Ctrl+Shift+N** while it is focused. **New Folder from Selection** groups selected assemblies. Creation starts an inline name edit; **F2** renames the selected folder. Drag a folder onto another to nest it, or onto empty Outliner space to move it to the root.
+
+Drag entities onto a folder to organize them. Attached children move with their top-level assembly; folder moves never change entity transforms or transform parents. Entity-on-entity drops still parent entities, and **Unparent** explicitly removes a transform parent. Deleting a folder keeps its entities and unwraps nested folders into its parent. Folder edits support save/load and undo/redo; folders are not selectable viewport anchors or runtime components.
+
 ## Simulation
 
 The default [Sandbox playground](Playground.md) includes bounce, gravity, friction/damping, and stacking comparisons, plus a static traversal course and hierarchy workshop. Click **Simulate** or press **Alt+S** to run its dynamic bodies using Jolt Physics. Camera navigation and selection remain available, but transform editing is locked. Press **Escape** or click the active Simulate button to stop and restore every authored transform. Physics runs at 60 Hz with render interpolation and bounded catch-up after stalls. **Play** remains disabled because the game runtime is not implemented. This is an editor preview slice, not the full physics milestone.

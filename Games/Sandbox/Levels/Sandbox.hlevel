@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 2,
+  "engineSchemaVersion": 3,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "entities": [
@@ -50,20 +50,9 @@
       }
     },
     {
-      "id": "4c060001-2738-4e25-9b9e-000000000001",
-      "name": "00 - Arena",
-      "parent": null,
-      "transform": {
-        "translation": [0, 0, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
-      },
-      "components": {}
-    },
-    {
       "id": "4c060001-2738-4e25-9b9e-000000000002",
       "name": "Edge rail",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [-11.7, 0.15, 9],
         "rotation": [0, 0, 0, 1],
@@ -85,7 +74,7 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000003",
       "name": "Edge rail",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [11.7, 0.15, 9],
         "rotation": [0, 0, 0, 1],
@@ -107,7 +96,7 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000004",
       "name": "Back rail",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [0, 0.15, 21.7],
         "rotation": [0, 0, 0, 1],
@@ -129,7 +118,7 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000005",
       "name": "Corner beacon",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [-10.8, 1, -2.8],
         "rotation": [0, 0, 0, 1],
@@ -151,7 +140,7 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000006",
       "name": "Corner beacon",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [-10.8, 1, 20.8],
         "rotation": [0, 0, 0, 1],
@@ -173,7 +162,7 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000007",
       "name": "Corner beacon",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [10.8, 1, -2.8],
         "rotation": [0, 0, 0, 1],
@@ -195,7 +184,7 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000008",
       "name": "Corner beacon",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [10.8, 1, 20.8],
         "rotation": [0, 0, 0, 1],
@@ -217,7 +206,7 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000009",
       "name": "Walkway stripe",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [0, 0.006, -1.9],
         "rotation": [0, 0, 0, 1],
@@ -230,7 +219,7 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000000a",
       "name": "Walkway stripe",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [0, 0.006, 4.2],
         "rotation": [0, 0, 0, 1],
@@ -243,7 +232,7 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000000b",
       "name": "Walkway stripe",
-      "parent": "4c060001-2738-4e25-9b9e-000000000001",
+      "parent": null,
       "transform": {
         "translation": [0, 0.006, 13.2],
         "rotation": [0, 0, 0, 1],
@@ -254,22 +243,11 @@
       }
     },
     {
-      "id": "4c060001-2738-4e25-9b9e-00000000000c",
-      "name": "01 - Bounce comparison",
-      "parent": null,
-      "transform": {
-        "translation": [5.5, 0, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
-      },
-      "components": {}
-    },
-    {
       "id": "4c060001-2738-4e25-9b9e-00000000000d",
       "name": "Bounce test pad",
-      "parent": "4c060001-2738-4e25-9b9e-00000000000c",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.075, 0],
+        "translation": [5.5, 0.075, 0],
         "rotation": [0, 0, 0, 1],
         "scale": [5, 0.15, 3.4]
       },
@@ -289,9 +267,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000000e",
       "name": "Restitution 0",
-      "parent": "4c060001-2738-4e25-9b9e-00000000000c",
+      "parent": null,
       "transform": {
-        "translation": [-1.6, 3.5, 0],
+        "translation": [3.9, 3.5, 0],
         "rotation": [0, 0, 0, 1],
         "scale": [0.75, 0.75, 0.75]
       },
@@ -311,9 +289,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000000f",
       "name": "Restitution 0.45",
-      "parent": "4c060001-2738-4e25-9b9e-00000000000c",
+      "parent": null,
       "transform": {
-        "translation": [0, 3.5, 0],
+        "translation": [5.5, 3.5, 0],
         "rotation": [0, 0, 0, 1],
         "scale": [0.75, 0.75, 0.75]
       },
@@ -333,9 +311,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000010",
       "name": "Restitution 0.9",
-      "parent": "4c060001-2738-4e25-9b9e-00000000000c",
+      "parent": null,
       "transform": {
-        "translation": [1.6, 3.5, 0],
+        "translation": [7.1, 3.5, 0],
         "rotation": [0, 0, 0, 1],
         "scale": [0.75, 0.75, 0.75]
       },
@@ -353,22 +331,11 @@
       }
     },
     {
-      "id": "4c060001-2738-4e25-9b9e-000000000011",
-      "name": "02 - Gravity comparison",
-      "parent": null,
-      "transform": {
-        "translation": [-5.5, 0, 0],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
-      },
-      "components": {}
-    },
-    {
       "id": "4c060001-2738-4e25-9b9e-000000000012",
       "name": "Gravity test pad",
-      "parent": "4c060001-2738-4e25-9b9e-000000000011",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.075, 0],
+        "translation": [-5.5, 0.075, 0],
         "rotation": [0, 0, 0, 1],
         "scale": [5, 0.15, 3.4]
       },
@@ -388,9 +355,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000013",
       "name": "Gravity scale 0",
-      "parent": "4c060001-2738-4e25-9b9e-000000000011",
+      "parent": null,
       "transform": {
-        "translation": [-1.6, 3.5, 0],
+        "translation": [-7.1, 3.5, 0],
         "rotation": [0, 0, 0, 1],
         "scale": [0.75, 0.75, 0.75]
       },
@@ -410,9 +377,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000014",
       "name": "Gravity scale 0.35",
-      "parent": "4c060001-2738-4e25-9b9e-000000000011",
+      "parent": null,
       "transform": {
-        "translation": [0, 3.5, 0],
+        "translation": [-5.5, 3.5, 0],
         "rotation": [0, 0, 0, 1],
         "scale": [0.75, 0.75, 0.75]
       },
@@ -432,9 +399,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000015",
       "name": "Gravity scale 1",
-      "parent": "4c060001-2738-4e25-9b9e-000000000011",
+      "parent": null,
       "transform": {
-        "translation": [1.6, 3.5, 0],
+        "translation": [-3.9, 3.5, 0],
         "rotation": [0, 0, 0, 1],
         "scale": [0.75, 0.75, 0.75]
       },
@@ -452,22 +419,11 @@
       }
     },
     {
-      "id": "4c060001-2738-4e25-9b9e-000000000016",
-      "name": "03 - Friction and damping",
-      "parent": null,
-      "transform": {
-        "translation": [6, 0, 8.2],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
-      },
-      "components": {}
-    },
-    {
       "id": "4c060001-2738-4e25-9b9e-000000000017",
       "name": "18 deg ramp - friction 0",
-      "parent": "4c060001-2738-4e25-9b9e-000000000016",
+      "parent": null,
       "transform": {
-        "translation": [-1.15, 1.12, 0],
+        "translation": [4.85, 1.12, 8.2],
         "rotation": [0.15643446, 0, 0, 0.98768836],
         "scale": [1.9, 0.18, 6]
       },
@@ -487,9 +443,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000018",
       "name": "Slider - friction 0",
-      "parent": "4c060001-2738-4e25-9b9e-000000000016",
+      "parent": null,
       "transform": {
-        "translation": [-1.15, 2.15, -1.5],
+        "translation": [4.85, 2.15, 6.699999999999999],
         "rotation": [0.15643446, 0, 0, 0.98768836],
         "scale": [0.75, 0.75, 0.75]
       },
@@ -509,9 +465,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000019",
       "name": "18 deg ramp - friction 0.8",
-      "parent": "4c060001-2738-4e25-9b9e-000000000016",
+      "parent": null,
       "transform": {
-        "translation": [1.15, 1.12, 0],
+        "translation": [7.15, 1.12, 8.2],
         "rotation": [0.15643446, 0, 0, 0.98768836],
         "scale": [1.9, 0.18, 6]
       },
@@ -531,9 +487,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000001a",
       "name": "Slider - friction 0.8",
-      "parent": "4c060001-2738-4e25-9b9e-000000000016",
+      "parent": null,
       "transform": {
-        "translation": [1.15, 2.15, -1.5],
+        "translation": [7.15, 2.15, 6.699999999999999],
         "rotation": [0.15643446, 0, 0, 0.98768836],
         "scale": [0.75, 0.75, 0.75]
       },
@@ -553,9 +509,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000001b",
       "name": "Tumble ramp - damping 0",
-      "parent": "4c060001-2738-4e25-9b9e-000000000016",
+      "parent": null,
       "transform": {
-        "translation": [3.1, 1.12, 0],
+        "translation": [9.1, 1.12, 8.2],
         "rotation": [0.15643446, 0, 0, 0.98768836],
         "scale": [1.25, 0.18, 6]
       },
@@ -575,9 +531,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000001c",
       "name": "Tumbler - damping 0",
-      "parent": "4c060001-2738-4e25-9b9e-000000000016",
+      "parent": null,
       "transform": {
-        "translation": [3.1, 2.8, -1.7],
+        "translation": [9.1, 2.8, 6.499999999999999],
         "rotation": [0, 0, 0.32556817, 0.94551855],
         "scale": [0.65, 0.65, 0.65]
       },
@@ -597,9 +553,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000001d",
       "name": "Tumble ramp - damping 1",
-      "parent": "4c060001-2738-4e25-9b9e-000000000016",
+      "parent": null,
       "transform": {
-        "translation": [4.6, 1.12, 0],
+        "translation": [10.6, 1.12, 8.2],
         "rotation": [0.15643446, 0, 0, 0.98768836],
         "scale": [1.25, 0.18, 6]
       },
@@ -619,9 +575,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000001e",
       "name": "Tumbler - damping 1",
-      "parent": "4c060001-2738-4e25-9b9e-000000000016",
+      "parent": null,
       "transform": {
-        "translation": [4.6, 2.8, -1.7],
+        "translation": [10.6, 2.8, 6.499999999999999],
         "rotation": [0, 0, 0.32556817, 0.94551855],
         "scale": [0.65, 0.65, 0.65]
       },
@@ -639,22 +595,11 @@
       }
     },
     {
-      "id": "4c060001-2738-4e25-9b9e-00000000001f",
-      "name": "04 - Stack and mass",
-      "parent": null,
-      "transform": {
-        "translation": [0, 0, 7.5],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
-      },
-      "components": {}
-    },
-    {
       "id": "4c060001-2738-4e25-9b9e-000000000020",
       "name": "Stack plinth",
-      "parent": "4c060001-2738-4e25-9b9e-00000000001f",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.15, 0],
+        "translation": [0, 0.15, 7.5],
         "rotation": [0, 0, 0, 1],
         "scale": [3.4, 0.3, 3.4]
       },
@@ -674,9 +619,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000021",
       "name": "Stack 1 - 10 kg",
-      "parent": "4c060001-2738-4e25-9b9e-00000000001f",
+      "parent": null,
       "transform": {
-        "translation": [-0.12, 0.9, 0],
+        "translation": [-0.12, 0.9, 7.5],
         "rotation": [0, -0.043619387, 0, 0.99904823],
         "scale": [1, 1, 1]
       },
@@ -696,9 +641,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000022",
       "name": "Stack 2 - 1 kg",
-      "parent": "4c060001-2738-4e25-9b9e-00000000001f",
+      "parent": null,
       "transform": {
-        "translation": [0.12, 2, 0],
+        "translation": [0.12, 2, 7.5],
         "rotation": [0, 0.043619387, 0, 0.99904823],
         "scale": [1, 1, 1]
       },
@@ -718,9 +663,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000023",
       "name": "Stack 3 - 1 kg",
-      "parent": "4c060001-2738-4e25-9b9e-00000000001f",
+      "parent": null,
       "transform": {
-        "translation": [-0.12, 3.1, 0],
+        "translation": [-0.12, 3.1, 7.5],
         "rotation": [0, -0.043619387, 0, 0.99904823],
         "scale": [1, 1, 1]
       },
@@ -740,9 +685,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000024",
       "name": "Stack 4 - 1 kg",
-      "parent": "4c060001-2738-4e25-9b9e-00000000001f",
+      "parent": null,
       "transform": {
-        "translation": [0.12, 4.2, 0],
+        "translation": [0.12, 4.2, 7.5],
         "rotation": [0, 0.043619387, 0, 0.99904823],
         "scale": [1, 1, 1]
       },
@@ -762,9 +707,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000025",
       "name": "Stack 5 - 1 kg",
-      "parent": "4c060001-2738-4e25-9b9e-00000000001f",
+      "parent": null,
       "transform": {
-        "translation": [-0.12, 5.300000000000001, 0],
+        "translation": [-0.12, 5.300000000000001, 7.5],
         "rotation": [0, -0.043619387, 0, 0.99904823],
         "scale": [1, 1, 1]
       },
@@ -782,22 +727,11 @@
       }
     },
     {
-      "id": "4c060001-2738-4e25-9b9e-000000000026",
-      "name": "05 - Traversal course",
-      "parent": null,
-      "transform": {
-        "translation": [-6.2, 0, 8.4],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
-      },
-      "components": {}
-    },
-    {
       "id": "4c060001-2738-4e25-9b9e-000000000027",
       "name": "Step 1",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.15, -2.8],
+        "translation": [-6.2, 0.15, 5.6000000000000005],
         "rotation": [0, 0, 0, 1],
         "scale": [2.5, 0.3, 0.75]
       },
@@ -817,9 +751,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000028",
       "name": "Step 2",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.3, -2.05],
+        "translation": [-6.2, 0.3, 6.3500000000000005],
         "rotation": [0, 0, 0, 1],
         "scale": [2.5, 0.6, 0.75]
       },
@@ -839,9 +773,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000029",
       "name": "Step 3",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.44999999999999996, -1.2999999999999998],
+        "translation": [-6.2, 0.44999999999999996, 7.1000000000000005],
         "rotation": [0, 0, 0, 1],
         "scale": [2.5, 0.9, 0.75]
       },
@@ -861,9 +795,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000002a",
       "name": "Step 4",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.6, -0.5499999999999998],
+        "translation": [-6.2, 0.6, 7.8500000000000005],
         "rotation": [0, 0, 0, 1],
         "scale": [2.5, 1.2, 0.75]
       },
@@ -883,9 +817,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000002b",
       "name": "Step 5",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.75, 0.20000000000000018],
+        "translation": [-6.2, 0.75, 8.600000000000001],
         "rotation": [0, 0, 0, 1],
         "scale": [2.5, 1.5, 0.75]
       },
@@ -905,9 +839,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000002c",
       "name": "Raised landing",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.75, 2],
+        "translation": [-6.2, 0.75, 10.4],
         "rotation": [0, 0, 0, 1],
         "scale": [2.5, 1.5, 2.8]
       },
@@ -927,9 +861,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000002d",
       "name": "Descent ramp",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [-3, 0.74, 2],
+        "translation": [-9.2, 0.74, 10.4],
         "rotation": [0, 0, 0.17364818, 0.9848077],
         "scale": [3.9, 0.2, 2.8]
       },
@@ -949,9 +883,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000002e",
       "name": "Low hurdle",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [2.8, 0.3, -1],
+        "translation": [-3.4000000000000004, 0.3, 7.4],
         "rotation": [0, 0, 0, 1],
         "scale": [0.45, 0.6, 2]
       },
@@ -971,9 +905,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000002f",
       "name": "High hurdle",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [2.8, 0.65, 1.5],
+        "translation": [-3.4000000000000004, 0.65, 9.9],
         "rotation": [0, 0, 0, 1],
         "scale": [0.45, 1.3, 2]
       },
@@ -993,9 +927,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000030",
       "name": "Gap platform 1",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.3, 5.5],
+        "translation": [-6.2, 0.3, 13.9],
         "rotation": [0, 0, 0, 1],
         "scale": [2.5, 0.6, 1.2]
       },
@@ -1015,9 +949,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000031",
       "name": "Gap platform 2",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.3, 7.6],
+        "translation": [-6.2, 0.3, 16],
         "rotation": [0, 0, 0, 1],
         "scale": [2.5, 0.6, 1.2]
       },
@@ -1037,9 +971,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000032",
       "name": "Gap platform 3",
-      "parent": "4c060001-2738-4e25-9b9e-000000000026",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.3, 9.7],
+        "translation": [-6.2, 0.3, 18.1],
         "rotation": [0, 0, 0, 1],
         "scale": [2.5, 0.6, 1.2]
       },
@@ -1057,22 +991,11 @@
       }
     },
     {
-      "id": "4c060001-2738-4e25-9b9e-000000000033",
-      "name": "06 - Hierarchy workshop",
+      "id": "4c060001-2738-4e25-9b9e-000000000034",
+      "name": "Arch assembly - move this parent",
       "parent": null,
       "transform": {
         "translation": [4.2, 0, 17],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
-      },
-      "components": {}
-    },
-    {
-      "id": "4c060001-2738-4e25-9b9e-000000000034",
-      "name": "Arch assembly - move this parent",
-      "parent": "4c060001-2738-4e25-9b9e-000000000033",
-      "transform": {
-        "translation": [0, 0, 0],
         "rotation": [0, -0.13052619, 0, 0.9914449],
         "scale": [1, 1, 1]
       },
@@ -1193,20 +1116,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000003b",
       "name": "Empty entity - add components",
-      "parent": "4c060001-2738-4e25-9b9e-000000000033",
-      "transform": {
-        "translation": [0, 0.8, -2.5],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1, 1, 1]
-      },
-      "components": {}
-    },
-    {
-      "id": "4c060001-2738-4e25-9b9e-00000000003c",
-      "name": "07 - Shared mesh gallery",
       "parent": null,
       "transform": {
-        "translation": [-2.7, 0, 18],
+        "translation": [4.2, 0.8, 14.5],
         "rotation": [0, 0, 0, 1],
         "scale": [1, 1, 1]
       },
@@ -1215,9 +1127,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000003d",
       "name": "Instance 1",
-      "parent": "4c060001-2738-4e25-9b9e-00000000003c",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.4, 0],
+        "translation": [-2.7, 0.4, 18],
         "rotation": [0, 0, 0, 1],
         "scale": [0.7, 0.8, 0.7]
       },
@@ -1228,9 +1140,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000003e",
       "name": "Instance 2",
-      "parent": "4c060001-2738-4e25-9b9e-00000000003c",
+      "parent": null,
       "transform": {
-        "translation": [1.25, 0.4, 0],
+        "translation": [-1.4500000000000002, 0.4, 18],
         "rotation": [0, 0.17364818, 0, 0.9848077],
         "scale": [0.7, 0.8, 0.7]
       },
@@ -1241,9 +1153,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-00000000003f",
       "name": "Instance 3",
-      "parent": "4c060001-2738-4e25-9b9e-00000000003c",
+      "parent": null,
       "transform": {
-        "translation": [2.5, 0.4, 0],
+        "translation": [-0.20000000000000018, 0.4, 18],
         "rotation": [0, 0.34202015, 0, 0.9396926],
         "scale": [0.7, 0.8, 0.7]
       },
@@ -1254,9 +1166,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000040",
       "name": "Instance 4",
-      "parent": "4c060001-2738-4e25-9b9e-00000000003c",
+      "parent": null,
       "transform": {
-        "translation": [0, 0.8, 1.3],
+        "translation": [-2.7, 0.8, 19.3],
         "rotation": [0, 0.087155744, 0, 0.9961947],
         "scale": [0.7, 1.6, 0.7]
       },
@@ -1267,9 +1179,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000041",
       "name": "Instance 5",
-      "parent": "4c060001-2738-4e25-9b9e-00000000003c",
+      "parent": null,
       "transform": {
-        "translation": [1.25, 0.8, 1.3],
+        "translation": [-1.4500000000000002, 0.8, 19.3],
         "rotation": [0, 0.25881904, 0, 0.9659258],
         "scale": [0.7, 1.6, 0.7]
       },
@@ -1280,9 +1192,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000042",
       "name": "Instance 6",
-      "parent": "4c060001-2738-4e25-9b9e-00000000003c",
+      "parent": null,
       "transform": {
-        "translation": [2.5, 0.8, 1.3],
+        "translation": [-0.20000000000000018, 0.8, 19.3],
         "rotation": [0, 0.42261827, 0, 0.9063078],
         "scale": [0.7, 1.6, 0.7]
       },
@@ -1293,9 +1205,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000043",
       "name": "Instance 7",
-      "parent": "4c060001-2738-4e25-9b9e-00000000003c",
+      "parent": null,
       "transform": {
-        "translation": [0, 1.2000000000000002, 2.6],
+        "translation": [-2.7, 1.2000000000000002, 20.6],
         "rotation": [0, 0.17364818, 0, 0.9848077],
         "scale": [0.7, 2.4, 0.7]
       },
@@ -1306,9 +1218,9 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000044",
       "name": "Instance 8",
-      "parent": "4c060001-2738-4e25-9b9e-00000000003c",
+      "parent": null,
       "transform": {
-        "translation": [1.25, 1.2000000000000002, 2.6],
+        "translation": [-1.4500000000000002, 1.2000000000000002, 20.6],
         "rotation": [0, 0.34202015, 0, 0.9396926],
         "scale": [0.7, 2.4, 0.7]
       },
@@ -1319,15 +1231,65 @@
     {
       "id": "4c060001-2738-4e25-9b9e-000000000045",
       "name": "Instance 9",
-      "parent": "4c060001-2738-4e25-9b9e-00000000003c",
+      "parent": null,
       "transform": {
-        "translation": [2.5, 1.2000000000000002, 2.6],
+        "translation": [-0.20000000000000018, 1.2000000000000002, 20.6],
         "rotation": [0, 0.5, 0, 0.8660254],
         "scale": [0.7, 2.4, 0.7]
       },
       "components": {
         "staticMesh": {"asset": "a4c06005-2738-4e25-9b9e-816ae7c00001"}
       }
+    }
+  ],
+  "folders": [
+    {
+      "id": "4c060001-2738-4e25-9b9e-000000000001",
+      "name": "00 - Arena",
+      "parent": null,
+      "entities": ["31935c1f-4f59-4b12-9a13-9dca302101e2", "4c060001-2738-4e25-9b9e-000000000002", "4c060001-2738-4e25-9b9e-000000000003", "4c060001-2738-4e25-9b9e-000000000004", "4c060001-2738-4e25-9b9e-000000000005", "4c060001-2738-4e25-9b9e-000000000006", "4c060001-2738-4e25-9b9e-000000000007", "4c060001-2738-4e25-9b9e-000000000008", "4c060001-2738-4e25-9b9e-000000000009", "4c060001-2738-4e25-9b9e-00000000000a", "4c060001-2738-4e25-9b9e-00000000000b"]
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-00000000000c",
+      "name": "01 - Bounce comparison",
+      "parent": null,
+      "entities": ["4c060001-2738-4e25-9b9e-00000000000d", "4c060001-2738-4e25-9b9e-00000000000e", "4c060001-2738-4e25-9b9e-00000000000f", "4c060001-2738-4e25-9b9e-000000000010"]
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-000000000011",
+      "name": "02 - Gravity comparison",
+      "parent": null,
+      "entities": ["4c060001-2738-4e25-9b9e-000000000012", "4c060001-2738-4e25-9b9e-000000000013", "4c060001-2738-4e25-9b9e-000000000014", "4c060001-2738-4e25-9b9e-000000000015"]
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-000000000016",
+      "name": "03 - Friction and damping",
+      "parent": null,
+      "entities": ["4c060001-2738-4e25-9b9e-000000000017", "4c060001-2738-4e25-9b9e-000000000018", "4c060001-2738-4e25-9b9e-000000000019", "4c060001-2738-4e25-9b9e-00000000001a", "4c060001-2738-4e25-9b9e-00000000001b", "4c060001-2738-4e25-9b9e-00000000001c", "4c060001-2738-4e25-9b9e-00000000001d", "4c060001-2738-4e25-9b9e-00000000001e"]
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-00000000001f",
+      "name": "04 - Stack and mass",
+      "parent": null,
+      "entities": ["21935c1f-4f59-4b12-9a13-9dca302101e1", "4c060001-2738-4e25-9b9e-000000000020", "4c060001-2738-4e25-9b9e-000000000021", "4c060001-2738-4e25-9b9e-000000000022", "4c060001-2738-4e25-9b9e-000000000023", "4c060001-2738-4e25-9b9e-000000000024", "4c060001-2738-4e25-9b9e-000000000025"]
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-000000000026",
+      "name": "05 - Traversal course",
+      "parent": null,
+      "entities": ["4c060001-2738-4e25-9b9e-000000000027", "4c060001-2738-4e25-9b9e-000000000028", "4c060001-2738-4e25-9b9e-000000000029", "4c060001-2738-4e25-9b9e-00000000002a", "4c060001-2738-4e25-9b9e-00000000002b", "4c060001-2738-4e25-9b9e-00000000002c", "4c060001-2738-4e25-9b9e-00000000002d", "4c060001-2738-4e25-9b9e-00000000002e", "4c060001-2738-4e25-9b9e-00000000002f", "4c060001-2738-4e25-9b9e-000000000030", "4c060001-2738-4e25-9b9e-000000000031", "4c060001-2738-4e25-9b9e-000000000032"]
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-000000000033",
+      "name": "06 - Hierarchy workshop",
+      "parent": null,
+      "entities": ["4c060001-2738-4e25-9b9e-000000000034", "4c060001-2738-4e25-9b9e-00000000003b"]
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-00000000003c",
+      "name": "07 - Shared mesh gallery",
+      "parent": null,
+      "entities": ["4c060001-2738-4e25-9b9e-00000000003d", "4c060001-2738-4e25-9b9e-00000000003e", "4c060001-2738-4e25-9b9e-00000000003f", "4c060001-2738-4e25-9b9e-000000000040", "4c060001-2738-4e25-9b9e-000000000041", "4c060001-2738-4e25-9b9e-000000000042", "4c060001-2738-4e25-9b9e-000000000043", "4c060001-2738-4e25-9b9e-000000000044", "4c060001-2738-4e25-9b9e-000000000045"]
     }
   ]
 }

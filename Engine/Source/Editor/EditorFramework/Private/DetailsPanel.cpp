@@ -631,6 +631,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const auto DrawSectionHeader = [&](const char* const Label, const bool bMixed = false, const EDetailsComponentAction RemoveAction = EDetailsComponentAction::None)
 	{
 		ImGui::Spacing();
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {ImGui::GetStyle().FramePadding.x, 3.f * UiScale});
 		const ImVec2 Position = ImGui::GetCursorScreenPos();
 		const ImVec2 Padding = ImGui::GetStyle().FramePadding;
 		const float FontSize = ImGui::GetFontSize();
@@ -692,6 +693,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			ImGui::PopID();
 		}
 
+		ImGui::PopStyleVar();
 		return bOpen;
 	};
 
@@ -826,7 +828,9 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				}
 
 				ImGui::SetNextItemWidth(-FLT_MIN);
-				ImGui::InputTextWithHint("##MeshSearch", "Search assets", State.MeshSearch.data(), State.MeshSearch.size());
+				ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
+				ToolUI.DrawSearchField("##MeshSearch", "Search assets", State.MeshSearch.data(), State.MeshSearch.size());
+				ImGui::PopStyleColor();
 				std::vector<std::string_view> Candidates(Mesh->Options.begin(), Mesh->Options.end());
 				const std::optional<std::vector<FAssetSearchMatch>> Matches = SearchAssets(Candidates, State.MeshSearch.data());
 				if (Matches && Matches->empty())

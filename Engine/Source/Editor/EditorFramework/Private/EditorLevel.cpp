@@ -241,7 +241,7 @@ bool SamePreviewPose(const FPreviewObject& Left, const FPreviewObject& Right)
 	       && std::ranges::equal(Left.Rotation.m, Right.Rotation.m);
 }
 
-std::expected<FEditorHierarchy, FLevelError> ValidateEditorChanges(const std::span<const FLevelEntity> Before, const std::span<const FLevelEntityChange> Changes)
+std::vector<FLevelEntity> ChangedEntities(const std::span<const FLevelEntity> Before, const std::span<const FLevelEntityChange> Changes)
 {
 	std::map<FObjectId, FLevelEntity> Candidates;
 
@@ -271,7 +271,7 @@ std::expected<FEditorHierarchy, FLevelError> ValidateEditorChanges(const std::sp
 		Entities.push_back(std::move(Entity));
 	}
 
-	return BuildEditorHierarchy(Entities);
+	return Entities;
 }
 
 std::vector<FLevelEntityChange> ReverseChanges(const std::span<const FLevelEntityChange> Changes)
@@ -335,6 +335,59 @@ std::string UniqueEntityName(const std::string_view Base, std::unordered_set<std
 			return Name;
 		}
 	}
+}
+
+std::expected<void, FLevelError> OrganizeEntities(const std::span<const FLevelEntity> Entities, const std::span<const FObjectId> Requested, const std::optional<FObjectId> Destination, std::vector<FLevelFolder>& Folders)
+{
+	const auto Target = Destination ? std::ranges::find(Folders, *Destination, &FLevelFolder::Id) : Folders.end();
+	if (Destination && Target == Folders.end())
+	{
+		return std::unexpected(FLevelError{"The destination folder no longer exists"});
+	}
+
+	const auto Hierarchy = BuildEditorHierarchy(Entities);
+	if (!Hierarchy)
+	{
+		return std::unexpected(Hierarchy.error());
+	}
+
+	std::map<FObjectId, FObjectId> AssemblyRoots;
+
+	for (const auto Index : Hierarchy->Order)
+	{
+		const auto& Entity = Entities[Index];
+		AssemblyRoots.emplace(Entity.Id, Entity.Parent.IsValid() ? AssemblyRoots.at(Entity.Parent) : Entity.Id);
+	}
+
+	std::set<FObjectId> MovedRoots;
+
+	for (const auto Entity : Requested)
+	{
+		const auto Found = AssemblyRoots.find(Entity);
+		if (Found == AssemblyRoots.end())
+		{
+			return std::unexpected(FLevelError{"An organized entity no longer exists"});
+		}
+
+		MovedRoots.insert(Found->second);
+	}
+
+	// Only hierarchy roots determine visible placement; discard obsolete descendant membership on an assembly move.
+	for (auto& Folder : Folders)
+	{
+		std::erase_if(Folder.Entities, [&AssemblyRoots, &MovedRoots](const FObjectId Entity)
+		{
+			return MovedRoots.contains(AssemblyRoots.at(Entity));
+		});
+	}
+
+	if (Target != Folders.end())
+	{
+		Target->Entities.insert(Target->Entities.end(), MovedRoots.begin(), MovedRoots.end());
+		std::ranges::sort(Target->Entities);
+	}
+
+	return {};
 }
 }
 
@@ -400,6 +453,7 @@ std::expected<void, FLevelError> FEditorLevel::LoadDocument(FLevelDocument Docum
 
 	Id = Document.Id;
 	Name = std::move(Document.Name);
+	Folders = std::move(Document.Folders);
 	CurrentPath = Path;
 	RebuildObjects();
 	Selection.clear();
@@ -581,7 +635,7 @@ std::expected<void, FLevelError> FEditorLevel::Save(const std::filesystem::path&
 		return std::unexpected(FLevelError{"No level path is set; use level.save <path>"});
 	}
 
-	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities()}); !Result)
+	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders}); !Result)
 	{
 		return Result;
 	}
@@ -658,7 +712,36 @@ void FEditorLevel::RestoreObjects(const bool bNotify)
 	}
 }
 
-FEditorTransaction FEditorLevel::MakeTransaction(const std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, const std::optional<FObjectId> BeforeActive, const std::vector<FObjectId>& AfterSelection, const std::optional<FObjectId> AfterActive)
+std::expected<void, FLevelError> FEditorLevel::ApplyAuthoringChanges(const std::span<const FLevelEntityChange> Changes, const std::optional<std::vector<FLevelFolder>>& AfterFolders)
+{
+	const auto Entities = ChangedEntities(World.SnapshotEntities(), Changes);
+	if (auto Result = ValidateLevelDocument({.Id = Id, .Name = Name, .Entities = Entities, .Folders = AfterFolders ? *AfterFolders : Folders}); !Result)
+	{
+		return Result;
+	}
+
+	if (const auto Hierarchy = BuildEditorHierarchy(Entities); !Hierarchy)
+	{
+		return std::unexpected(Hierarchy.error());
+	}
+
+	if (!Changes.empty())
+	{
+		if (auto Result = World.ApplyEntityChanges(Changes); !Result)
+		{
+			return Result;
+		}
+	}
+
+	if (AfterFolders)
+	{
+		Folders = *AfterFolders;
+	}
+
+	return {};
+}
+
+FEditorTransaction FEditorLevel::MakeTransaction(const std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, const std::optional<FObjectId> BeforeActive, const std::vector<FObjectId>& AfterSelection, const std::optional<FObjectId> AfterActive, std::optional<std::vector<FLevelFolder>> BeforeFolders, std::optional<std::vector<FLevelFolder>> AfterFolders)
 {
 	std::size_t Cost = sizeof(FLevelEntityChange) * Changes.size() + sizeof(FObjectId) * (BeforeSelection.size() + AfterSelection.size());
 
@@ -668,37 +751,56 @@ FEditorTransaction FEditorLevel::MakeTransaction(const std::string_view Label, c
 		Cost += Change.After ? Change.After->Name.size() : 0;
 	}
 
+	for (const auto* Snapshot : {&BeforeFolders, &AfterFolders})
+	{
+		if (*Snapshot)
+		{
+			Cost += sizeof(FLevelFolder) * (*Snapshot)->size();
+
+			for (const auto& Folder : **Snapshot)
+			{
+				Cost += Folder.Name.size() + sizeof(FObjectId) * Folder.Entities.size();
+			}
+		}
+	}
+
 	return {
 	    .Label = std::string(Label),
-	    .Apply = [this, Changes, BeforeSelection = std::move(BeforeSelection), BeforeActive, AfterSelection, AfterActive](const bool bUndo) -> std::expected<void, FEditorCommandError>
+	    .Apply = [this, Changes, BeforeSelection = std::move(BeforeSelection), BeforeActive, AfterSelection, AfterActive, BeforeFolders = std::move(BeforeFolders), AfterFolders = std::move(AfterFolders)](const bool bUndo) -> std::expected<void, FEditorCommandError>
 	{
 		const auto Replay = bUndo ? ReverseChanges(Changes) : Changes;
-		if (const auto Hierarchy = ValidateEditorChanges(World.SnapshotEntities(), Replay); !Hierarchy)
-		{
-			return std::unexpected(FEditorCommandError{.Message = Hierarchy.error().Message});
-		}
-
-		if (auto Result = World.ApplyEntityChanges(Replay); !Result)
+		if (auto Result = ApplyAuthoringChanges(Replay, bUndo ? BeforeFolders : AfterFolders); !Result)
 		{
 			return std::unexpected(FEditorCommandError{.Message = Result.error().Message});
 		}
 
 		SetSelection(bUndo ? BeforeSelection : AfterSelection, bUndo ? BeforeActive : AfterActive);
-		RestoreObjects();
+
+		if (!Replay.empty())
+		{
+			RestoreObjects();
+		}
+
 		return {};
 	},
 	    .MemoryCost = Cost,
 	};
 }
 
-std::expected<void, FLevelError> FEditorLevel::RecordChanges(const std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, const std::optional<FObjectId> BeforeActive)
+std::expected<void, FLevelError> FEditorLevel::RecordChanges(const std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, const std::optional<FObjectId> BeforeActive, std::optional<std::vector<FLevelFolder>> BeforeFolders)
 {
-	if (Changes.empty())
+	if (BeforeFolders && *BeforeFolders == Folders)
+	{
+		BeforeFolders.reset();
+	}
+
+	if (Changes.empty() && !BeforeFolders)
 	{
 		return {};
 	}
 
-	const auto Recorded = History.RecordApplied(MakeTransaction(Label, Changes, std::move(BeforeSelection), BeforeActive, Selection, ActiveObject));
+	const auto AfterFolders = BeforeFolders ? std::optional{Folders} : std::nullopt;
+	const auto Recorded = History.RecordApplied(MakeTransaction(Label, Changes, std::move(BeforeSelection), BeforeActive, Selection, ActiveObject, std::move(BeforeFolders), AfterFolders));
 
 	if (!Recorded)
 	{
@@ -726,7 +828,7 @@ std::expected<void, FLevelError> FEditorLevel::BeginEdit(const std::string_view 
 		return Result;
 	}
 
-	ActiveEdit = FActiveEdit{.Label = std::string(Label), .Before = World.SnapshotEntities(), .Selection = Selection, .Active = ActiveObject};
+	ActiveEdit = FActiveEdit{.Label = std::string(Label), .Before = World.SnapshotEntities(), .BeforeFolders = Folders, .Selection = Selection, .Active = ActiveObject};
 	return {};
 }
 
@@ -753,7 +855,7 @@ std::expected<void, FLevelError> FEditorLevel::EndEdit()
 	}
 
 	const auto Changes = DiffEntities(ActiveEdit->Before, World.SnapshotEntities());
-	const auto Recorded = RecordChanges(ActiveEdit->Label, Changes, ActiveEdit->Selection, ActiveEdit->Active);
+	const auto Recorded = RecordChanges(ActiveEdit->Label, Changes, ActiveEdit->Selection, ActiveEdit->Active, ActiveEdit->BeforeFolders);
 	if (!Recorded)
 	{
 		if (auto Result = CancelEdit(); !Result)
@@ -781,7 +883,7 @@ std::expected<void, FLevelError> FEditorLevel::CancelEdit()
 	}
 
 	const auto Changes = DiffEntities(World.SnapshotEntities(), ActiveEdit->Before);
-	if (auto Result = World.ApplyEntityChanges(Changes); !Result)
+	if (auto Result = ApplyAuthoringChanges(Changes, ActiveEdit->BeforeFolders); !Result)
 	{
 		return Result;
 	}
@@ -849,7 +951,7 @@ bool FEditorLevel::CanRedo() const
 
 bool FEditorLevel::IsDirty() const
 {
-	return History.IsDirty() || (ActiveEdit && ActiveEdit->Before != World.SnapshotEntities());
+	return History.IsDirty() || (ActiveEdit && (ActiveEdit->Before != World.SnapshotEntities() || ActiveEdit->BeforeFolders != Folders));
 }
 
 std::string_view FEditorLevel::GetUndoLabel() const
@@ -890,14 +992,227 @@ std::optional<FObjectId> FEditorLevel::GetActiveObject() const
 	return ActiveObject;
 }
 
-std::expected<void, FLevelError> FEditorLevel::ApplyStructuralChanges(const std::string_view Label, const std::vector<FLevelEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, const std::optional<FObjectId> AfterActive)
+std::span<const FLevelFolder> FEditorLevel::GetFolders() const
+{
+	return Folders;
+}
+
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateFolder(const std::optional<FObjectId> Parent, const std::span<const FObjectId> Entities)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return std::unexpected(Result.error());
+	}
+
+	if (Parent && std::ranges::find(Folders, *Parent, &FLevelFolder::Id) == Folders.end())
+	{
+		return std::unexpected(FLevelError{"The parent folder no longer exists"});
+	}
+
+	std::unordered_set<std::string> Names;
+
+	for (const auto& Folder : Folders)
+	{
+		if (Folder.Parent == Parent.value_or(FObjectId{}))
+		{
+			Names.insert(Folder.Name);
+		}
+	}
+
+	auto After = Folders;
+	const auto FolderId = FObjectId::Generate();
+	After.push_back({.Id = FolderId, .Name = UniqueEntityName("New Folder", Names), .Parent = Parent.value_or(FObjectId{})});
+
+	if (auto Result = OrganizeEntities(World.SnapshotEntities(), Entities, FolderId, After); !Result)
+	{
+		return std::unexpected(Result.error());
+	}
+
+	if (auto Result = ApplyStructuralChanges("Create folder", {}, Selection, ActiveObject, std::move(After)); !Result)
+	{
+		return std::unexpected(Result.error());
+	}
+
+	return FolderId;
+}
+
+std::expected<void, FLevelError> FEditorLevel::RenameFolder(const FObjectId Folder, const std::string_view NewName)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
 		return Result;
 	}
 
-	if (Changes.empty())
+	auto After = Folders;
+	const auto Found = std::ranges::find(After, Folder, &FLevelFolder::Id);
+	if (Found == After.end())
+	{
+		return std::unexpected(FLevelError{"The renamed folder no longer exists"});
+	}
+
+	Found->Name = NewName;
+	return ApplyStructuralChanges("Rename folder", {}, Selection, ActiveObject, std::move(After));
+}
+
+std::expected<void, FLevelError> FEditorLevel::DeleteFolder(const FObjectId Folder)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	auto After = Folders;
+	const auto Found = std::ranges::find(After, Folder, &FLevelFolder::Id);
+	if (Found == After.end())
+	{
+		return std::unexpected(FLevelError{"The deleted folder no longer exists"});
+	}
+
+	const auto Parent = Found->Parent;
+	if (Parent.IsValid())
+	{
+		const auto Target = std::ranges::find(After, Parent, &FLevelFolder::Id);
+		Target->Entities.insert(Target->Entities.end(), Found->Entities.begin(), Found->Entities.end());
+		std::ranges::sort(Target->Entities);
+	}
+
+	for (auto& Child : After)
+	{
+		if (Child.Parent == Folder)
+		{
+			Child.Parent = Parent;
+		}
+	}
+
+	After.erase(Found);
+	return ApplyStructuralChanges("Delete folder", {}, Selection, ActiveObject, std::move(After));
+}
+
+std::expected<void, FLevelError> FEditorLevel::MoveFolder(const FObjectId Folder, const std::optional<FObjectId> Parent)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	if (Parent && std::ranges::find(Folders, *Parent, &FLevelFolder::Id) == Folders.end())
+	{
+		return std::unexpected(FLevelError{"The parent folder no longer exists"});
+	}
+
+	auto After = Folders;
+	const auto Found = std::ranges::find(After, Folder, &FLevelFolder::Id);
+	if (Found == After.end())
+	{
+		return std::unexpected(FLevelError{"The moved folder no longer exists"});
+	}
+
+	Found->Parent = Parent.value_or(FObjectId{});
+	return ApplyStructuralChanges("Move folder", {}, Selection, ActiveObject, std::move(After));
+}
+
+std::expected<void, FLevelError> FEditorLevel::MoveEntitiesToFolder(const std::span<const FObjectId> Entities, const std::optional<FObjectId> Folder)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	auto After = Folders;
+	if (auto Result = OrganizeEntities(World.SnapshotEntities(), Entities, Folder, After); !Result)
+	{
+		return Result;
+	}
+
+	return ApplyStructuralChanges("Move objects to folder", {}, Selection, ActiveObject, std::move(After));
+}
+
+std::expected<void, FLevelError> FEditorLevel::ApplyStructuralChanges(const std::string_view Label, const std::vector<FLevelEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, const std::optional<FObjectId> AfterActive, std::optional<std::vector<FLevelFolder>> AfterFolders)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	for (const auto& Change : Changes)
+	{
+		if (!Change.Before || !Change.After || !Change.Before->Parent.IsValid() || Change.After->Parent.IsValid())
+		{
+			continue;
+		}
+
+		const auto& Candidates = AfterFolders ? *AfterFolders : Folders;
+		if (std::ranges::any_of(Candidates, [&Change](const FLevelFolder& Folder)
+		{
+			return ContainsObjectId(Folder.Entities, Change.After->Id);
+		}))
+		{
+			continue;
+		}
+
+		auto Root = Change.Before->Parent;
+
+		while (true)
+		{
+			const auto Entity = World.GetEntity(*World.FindEntity(Root));
+			if (!Entity->Parent.IsValid())
+			{
+				break;
+			}
+
+			Root = Entity->Parent;
+		}
+
+		const auto Placement = std::ranges::find_if(Folders, [Root](const FLevelFolder& Folder)
+		{
+			return ContainsObjectId(Folder.Entities, Root);
+		});
+
+		if (Placement != Folders.end())
+		{
+			if (!AfterFolders)
+			{
+				AfterFolders = Folders;
+			}
+
+			const auto Target = std::ranges::find(*AfterFolders, Placement->Id, &FLevelFolder::Id);
+			Target->Entities.push_back(Change.After->Id);
+			std::ranges::sort(Target->Entities);
+		}
+	}
+
+	std::set<FObjectId> Deleted;
+
+	for (const auto& Change : Changes)
+	{
+		if (Change.Before && !Change.After)
+		{
+			Deleted.insert(Change.Before->Id);
+		}
+	}
+
+	if (!Deleted.empty() && (!Folders.empty() || AfterFolders))
+	{
+		if (!AfterFolders)
+		{
+			AfterFolders = Folders;
+		}
+
+		for (auto& Folder : *AfterFolders)
+		{
+			std::erase_if(Folder.Entities, [&Deleted](const FObjectId Entity)
+			{
+				return Deleted.contains(Entity);
+			});
+		}
+	}
+
+	if (AfterFolders && *AfterFolders == Folders)
+	{
+		AfterFolders.reset();
+	}
+
+	if (Changes.empty() && !AfterFolders)
 	{
 		return {};
 	}
@@ -908,7 +1223,8 @@ std::expected<void, FLevelError> FEditorLevel::ApplyStructuralChanges(const std:
 	}
 
 	const auto EffectiveActive = AfterActive ? AfterActive : (AfterSelection.empty() ? std::nullopt : std::optional{AfterSelection.back()});
-	const auto Executed = History.Execute(MakeTransaction(Label, Changes, Selection, ActiveObject, AfterSelection, EffectiveActive));
+	const auto BeforeFolders = AfterFolders ? std::optional{Folders} : std::nullopt;
+	const auto Executed = History.Execute(MakeTransaction(Label, Changes, Selection, ActiveObject, AfterSelection, EffectiveActive, BeforeFolders, std::move(AfterFolders)));
 	if (!Executed)
 	{
 		return std::unexpected(FLevelError{Executed.error().Message});
@@ -1202,6 +1518,24 @@ std::expected<void, FLevelError> FEditorLevel::DuplicateSelected(const bool bWit
 		Changes.push_back({.After = std::move(Entity)});
 	}
 
+	auto AfterFolders = Folders;
+
+	for (auto& Folder : AfterFolders)
+	{
+		const auto OriginalMembers = Folder.Entities;
+
+		for (const auto Original : OriginalMembers)
+		{
+			const auto Duplicate = Remapped.find(Original);
+			if (Duplicate != Remapped.end())
+			{
+				Folder.Entities.push_back(Duplicate->second);
+			}
+		}
+
+		std::ranges::sort(Folder.Entities);
+	}
+
 	if (bWithinActiveEdit)
 	{
 		if (Changes.empty())
@@ -1209,12 +1543,7 @@ std::expected<void, FLevelError> FEditorLevel::DuplicateSelected(const bool bWit
 			return {};
 		}
 
-		if (const auto Valid = ValidateEditorChanges(Entities, Changes); !Valid)
-		{
-			return std::unexpected(Valid.error());
-		}
-
-		if (auto Result = World.ApplyEntityChanges(Changes); !Result)
+		if (auto Result = ApplyAuthoringChanges(Changes, AfterFolders); !Result)
 		{
 			return Result;
 		}
@@ -1225,7 +1554,7 @@ std::expected<void, FLevelError> FEditorLevel::DuplicateSelected(const bool bWit
 		return {};
 	}
 
-	return ApplyStructuralChanges("Duplicate objects", Changes, Duplicated, DuplicatedActive);
+	return ApplyStructuralChanges("Duplicate objects", Changes, Duplicated, DuplicatedActive, std::move(AfterFolders));
 }
 
 std::expected<void, FLevelError> FEditorLevel::DeleteSelected()

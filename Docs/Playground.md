@@ -1,6 +1,6 @@
 # Sandbox playground
 
-The default Sandbox project opens `Games/Sandbox/Levels/Sandbox.hlevel`: a compact, editable feature playground rather than a separate demo framework. Colored glTF blocks live in `Games/Sandbox/Content/Playground`; all stations use normal entities, components, hierarchy, and asset IDs.
+The default Sandbox project opens `Games/Sandbox/Levels/Sandbox.hlevel`: a compact, editable feature playground rather than a separate demo framework. Colored glTF blocks live in `Games/Sandbox/Content/Playground`; Outliner folders organize the stations without adding ECS entities or transform parents. The arch and nested shelf remain real transform anchors.
 
 Select a station in the Outliner and press **F** to frame it. Use **Alt+S** to simulate and **Escape** to restore the authored poses. Save edits with **Ctrl+S**; simulation never saves its transient poses.
 
@@ -20,4 +20,6 @@ Validate authored content from the repository root with `HertaEditorCmd level.va
 
 ## Growing the same playground
 
-Follow the [milestone order](EngineDesign.md): add a controllable player, collision feedback, a simple course objective, and HUD when the playable runtime arrives. Later rendering, physics, animation, audio, and gameplay slices should add usable examples to these stations or expand the arena. Every new supported engine feature should have a repeatable playground check where practical; unsupported components and placeholder systems do not belong in the level.
+Follow the [milestone order](EngineDesign.md): Milestone 4.5 first adds editable PBR materials and shaders, directional/sky/point/spot/rect lights and shadows, sky/atmosphere, volumetric fog, and SMAA 1x. Add a material gallery, light/environment stations, and AA comparisons as those features become usable. Replace the separate colored glTF blocks with shared mesh geometry and authored material assignments; changing a color must not require re-exporting a model.
+
+Milestone 5 then adds a controllable player, collision feedback, a simple course objective, and HUD using the established renderer. Later rendering, physics, animation, audio, and gameplay slices should add usable examples to these stations or expand the arena. Every new supported engine feature should have a repeatable playground check where practical; unsupported components and placeholder systems do not belong in the level.

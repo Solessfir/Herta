@@ -509,6 +509,7 @@ struct FEditorFramework::FImplementation
 	void DrawNewProject();
 	void StartProjectOperation(const std::filesystem::path& Path, std::optional<FCreateProjectRequest> Create = std::nullopt);
 	void SaveCurrentLevel();
+	void RefreshSelectionFromLevel();
 	void RefreshLevel(bool bPreserveGizmoDrag = false);
 	void ApplyAuthoringAction(EAuthoringAction Action);
 	void ReportLevelResult(std::expected<void, FLevelError> Result);
@@ -1730,14 +1731,8 @@ void FEditorFramework::FImplementation::RefreshPreviewMeshes()
 	}
 }
 
-void FEditorFramework::FImplementation::RefreshLevel(const bool bPreserveGizmoDrag)
+void FEditorFramework::FImplementation::RefreshSelectionFromLevel()
 {
-	if (LevelGeneration == Level->GetGeneration())
-	{
-		return;
-	}
-
-	LevelGeneration = Level->GetGeneration();
 	PreviewSelection.Indices.clear();
 	PreviewSelection.Active = -1;
 	PreviewSelection.Anchor = -1;
@@ -1764,6 +1759,21 @@ void FEditorFramework::FImplementation::RefreshLevel(const bool bPreserveGizmoDr
 	}
 
 	PreviewSelection.Anchor = PreviewSelection.Active;
+	if (!PreviewSelection.Indices.empty())
+	{
+		OutlinerPanelState.SelectedFolder = {};
+	}
+}
+
+void FEditorFramework::FImplementation::RefreshLevel(const bool bPreserveGizmoDrag)
+{
+	if (LevelGeneration == Level->GetGeneration())
+	{
+		return;
+	}
+
+	LevelGeneration = Level->GetGeneration();
+	RefreshSelectionFromLevel();
 	OutlinerPanelState.bRenaming = false;
 	OutlinerPanelState.bRenameRequested = false;
 	if (!bPreserveGizmoDrag)
@@ -1881,6 +1891,10 @@ void FEditorFramework::FImplementation::ApplyAuthoringAction(const EAuthoringAct
 	}
 
 	RefreshLevel();
+	if (Action == EAuthoringAction::Undo || Action == EAuthoringAction::Redo)
+	{
+		RefreshSelectionFromLevel();
+	}
 }
 
 void FEditorFramework::FImplementation::OpenLevelWithDialog()
@@ -3201,6 +3215,11 @@ void FEditorFramework::FImplementation::SetPreviewSelection(const int ObjectInde
 
 void FEditorFramework::FImplementation::SetPreviewSelection(FPreviewSelection Selection)
 {
+	if (!Selection.Indices.empty())
+	{
+		OutlinerPanelState.SelectedFolder = {};
+	}
+
 	if (PreviewSelection == Selection)
 	{
 		return;
@@ -3208,11 +3227,18 @@ void FEditorFramework::FImplementation::SetPreviewSelection(FPreviewSelection Se
 
 	if (OutlinerPanelState.bRenaming)
 	{
-		const auto Object = std::ranges::find(PreviewObjects, OutlinerPanelState.RenameObject, &FPreviewObject::Id);
-		if (Object != PreviewObjects.end())
+		if (OutlinerPanelState.RenameFolder.IsValid())
 		{
-			RenamePreviewObject(Object->Label, OutlinerPanelState.RenameBuffer.data());
-			ReportLevelResult(Level->CommitEdits("Rename object"));
+			ReportLevelResult(Level->RenameFolder(OutlinerPanelState.RenameFolder, OutlinerPanelState.RenameBuffer.data()));
+		}
+		else
+		{
+			const auto Object = std::ranges::find(PreviewObjects, OutlinerPanelState.RenameObject, &FPreviewObject::Id);
+			if (Object != PreviewObjects.end())
+			{
+				RenamePreviewObject(Object->Label, OutlinerPanelState.RenameBuffer.data());
+				ReportLevelResult(Level->CommitEdits("Rename object"));
+			}
 		}
 	}
 
@@ -3587,18 +3613,76 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 void FEditorFramework::FImplementation::DrawOutlinerPanel()
 {
 	FPreviewSelection NewSelection = PreviewSelection;
-	const bool bFocusRequested = DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, NewSelection, PreviewObjects, bProjectBusy || Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, OutlinerPanelState);
+	const bool bFocusRequested = DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, NewSelection, PreviewObjects, bProjectBusy || Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, OutlinerPanelState, Level->GetFolders());
 	if (OutlinerPanelState.bRenameCommitted)
 	{
-		const auto Object = std::ranges::find(PreviewObjects, OutlinerPanelState.RenameObject, &FPreviewObject::Id);
-		if (Object != PreviewObjects.end())
+		if (OutlinerPanelState.RenameFolder.IsValid())
 		{
-			RenamePreviewObject(Object->Label, OutlinerPanelState.RenameBuffer.data());
-			ReportLevelResult(Level->CommitEdits("Rename object"));
+			ReportLevelResult(Level->RenameFolder(OutlinerPanelState.RenameFolder, OutlinerPanelState.RenameBuffer.data()));
+		}
+		else
+		{
+			const auto Object = std::ranges::find(PreviewObjects, OutlinerPanelState.RenameObject, &FPreviewObject::Id);
+			if (Object != PreviewObjects.end())
+			{
+				RenamePreviewObject(Object->Label, OutlinerPanelState.RenameBuffer.data());
+				ReportLevelResult(Level->CommitEdits("Rename object"));
+			}
 		}
 	}
 
 	SetPreviewSelection(std::move(NewSelection));
+	if (auto Request = std::exchange(OutlinerPanelState.FolderRequest, std::nullopt))
+	{
+		if (Level->HasActiveEdit())
+		{
+			ReportLevelResult(Level->EndEdit());
+		}
+
+		switch (Request->Action)
+		{
+			case EOutlinerFolderAction::Create:
+			{
+				const auto Created = Level->CreateFolder(Request->Parent, Request->Objects);
+				if (!Created)
+				{
+					ReportLevelResult(std::unexpected(Created.error()));
+					break;
+				}
+
+				SetPreviewSelection(FPreviewSelection{});
+				OutlinerPanelState.Search.Clear();
+				for (FObjectId Parent = Request->Parent.value_or(FObjectId{}); Parent.IsValid();)
+				{
+					OutlinerPanelState.CollapsedFolders.erase(Parent);
+					const auto Folder = std::ranges::find(Level->GetFolders(), Parent, &FLevelFolder::Id);
+					Parent = Folder == Level->GetFolders().end() ? FObjectId{} : Folder->Parent;
+				}
+
+				OutlinerPanelState.SelectedFolder = *Created;
+				OutlinerPanelState.RenameFolder = {};
+				OutlinerPanelState.bRenameRequested = true;
+				break;
+			}
+			case EOutlinerFolderAction::Delete:
+				ReportLevelResult(Level->DeleteFolder(Request->Folder));
+				break;
+			case EOutlinerFolderAction::MoveFolder:
+				ReportLevelResult(Level->MoveFolder(Request->Folder, Request->Parent));
+				break;
+			case EOutlinerFolderAction::MoveEntities:
+				ReportLevelResult(Level->MoveEntitiesToFolder(Request->Objects, Request->Parent));
+				break;
+		}
+	}
+
+	if (OutlinerPanelState.SelectedFolder.IsValid() && std::ranges::find(Level->GetFolders(), OutlinerPanelState.SelectedFolder, &FLevelFolder::Id) == Level->GetFolders().end())
+	{
+		OutlinerPanelState.SelectedFolder = {};
+		OutlinerPanelState.bRenaming = false;
+		OutlinerPanelState.bRenameRequested = false;
+	}
+
 	if (auto Request = std::exchange(OutlinerPanelState.ReparentRequest, std::nullopt))
 	{
 		if (Level->HasActiveEdit())

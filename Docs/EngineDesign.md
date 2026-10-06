@@ -1,6 +1,6 @@
 # Herta Engine Design
 
-Status: Active design - Milestone 4 implemented, Milestone 5 next
+Status: Active design - Milestone 4 implemented, Milestone 4.5 visual authoring next
 Last updated: 2026-10-06
 
 ## 1. Purpose
@@ -23,9 +23,11 @@ Editor responsiveness is an architectural requirement. Work is not parallelized 
 
 Herta does not claim production readiness during its foundation milestones. Production readiness is earned through shipped projects, measured performance, stable data formats, upgrade paths, broad hardware testing, and reliable tooling.
 
-Implementation is driven by one playable Sandbox game, not disconnected feature demonstrations. Build the first standalone game loop before broad localization, graph tooling, scripting, native hot reload, or editor extensibility. Later milestones extend that same game with real rendering, simulation, animation, sound, NPCs, and multiplayer use cases. Optional features enter only when that game or another concrete project needs them.
+Implementation is driven by one Sandbox project, not disconnected feature demonstrations. Make its materials, lighting, and environment authorable before building the first standalone game loop. Deliver that game before broad localization, graph tooling, scripting, native hot reload, or editor extensibility. Later milestones extend the same game with rendering improvements, simulation, animation, sound, NPCs, and multiplayer use cases. Optional features enter only when that game or another concrete project needs them.
 
 The default [Sandbox playground](Playground.md) already exercises physics preview, hierarchy/component authoring, and shared-mesh rendering. Its static traversal course becomes the first playable objective in Milestone 5. Extend this same level with repeatable checks as new systems become available, rather than adding speculative components or disconnected demos.
+
+Outliner folders are persisted authoring metadata, separate from ECS entities and transform hierarchies. They organize this playground without introducing runtime objects; empty entities remain explicit spatial anchors.
 
 Herta is not required to become:
 
@@ -526,10 +528,11 @@ Renderer progression:
 1. Device, swapchain, clear, and validation-clean triangle.
 2. Shader cooking, vertex/index buffers, textures, and material parameters.
 3. Depth prepass or depth-only path, reversed-Z, camera-relative transforms.
-4. PBR mesh rendering, image-based lighting, direct lights, shadows, motion vectors, depth hierarchy, exposure, and tone mapping.
-5. GTAO and a crisp native-resolution TAA path with correct history invalidation.
-6. GPU-driven culling, indirect draws, meshlets, and async work after profiling.
-7. Optional temporal upscalers, screen-space GI, hardware ray tracing, and experimental dynamic-GI backends after their prerequisites and quality gates exist.
+4. Editable PBR materials and shaders, authored direct lights, image-based lighting, shadow maps, HDR exposure, and tone mapping.
+5. Native-resolution SMAA 1x, sky/atmosphere, and volumetric fog, with usable editor controls.
+6. Motion vectors, depth hierarchy, GTAO, and an additional crisp native-resolution TAA mode with correct history invalidation.
+7. GPU-driven culling, indirect draws, meshlets, and async work after profiling.
+8. Optional temporal upscalers, screen-space GI, hardware ray tracing, and experimental dynamic-GI backends after their prerequisites and quality gates exist.
 
 Herta has no lightmap authoring, baking, or lightmap-UV cooking pipeline. Dynamic lighting must still degrade by capability instead of requiring full GI on every supported GPU:
 
@@ -542,7 +545,9 @@ Radiance Cascades is a research candidate, not Herta's sole shipping GI foundati
 
 Hardware ray tracing is capability-driven and optional. Add Vulkan KHR acceleration structures, ray queries, and ray-tracing pipelines only after the raster path, scene extraction, motion vectors, RenderGraph lifetime rules, and GPU profiling are stable. Raster rendering remains a complete supported path.
 
-Native TAA is Herta's vendor-neutral temporal baseline, not permission to ship a soft image. The default quality contract requires:
+SMAA 1x is the first native-resolution AA mode and the default for Milestone 4.5. Start from the reference spatial algorithm with edge detection, blending-weight calculation, neighborhood blending, and its lookup textures. A compute rewrite is an optimization to justify through measurements, not an initial requirement. Keep `Off` available. SMAA T2x/4x and CMAA2 remain comparison candidates, not requirements for visual authoring.
+
+Native TAA enters later as an additional vendor-neutral temporal mode, not a prerequisite for lighting or permission to ship a soft image. Its quality contract requires:
 
 - Motion vectors for rigid, skinned, procedurally displaced, and camera motion.
 - Pre-tonemap HDR accumulation with jitter-aware reprojection.
@@ -552,11 +557,11 @@ Native TAA is Herta's vendor-neutral temporal baseline, not permission to ship a
 - Motion-adaptive history weighting, deterministic camera-cut resets, and stable low-discrepancy jitter.
 - High-quality reconstruction and a modest configurable post-sharpen. Sharpening must not hide ghosting or incorrect rejection.
 
-Game and editor UI is composited after TAA and temporal upscaling. Render regression scenes cover still detail, motion, foliage, thin geometry, specular highlights, particles, camera cuts, and disocclusion. `Off` and a lightweight non-temporal fallback remain available for accessibility, debugging, and content that deliberately rejects temporal accumulation. SMAA is deferred until a project demonstrates a quality need beyond that fallback.
+SMAA 1x runs after tone mapping and before editor overlays and UI. Game and editor UI is also composited after TAA and temporal upscaling when those modes are enabled. Render regression levels cover still detail, motion, foliage, thin geometry, specular highlights, particles, camera cuts, and disocclusion. `Off` and SMAA 1x remain supported for accessibility, debugging, and content that deliberately rejects temporal accumulation; temporal AA is not required to make ordinary materials and lighting usable.
 
 The renderer owns one temporal-upscaler input contract containing color, depth, motion vectors, exposure, jitter, reactive and transparency masks, reset state, and input/output resolutions. FSR is the first optional Vulkan adapter. DLSS and XeSS may follow as vendor plugins without becoming renderer foundations. Frame generation is deferred until frame pacing, latency markers, UI separation, and swapchain integration are mature, and it is not enabled in the editor.
 
-Atmosphere and volumetric fog precede volumetric clouds. Clouds use reduced-resolution ray marching, temporal reconstruction, cloud shadows, and measured async compute rather than introducing a renderer dependency prematurely.
+Sky/atmosphere and volumetric fog belong to Milestone 4.5, before the standalone game. They have authored settings and explicit quality budgets; the initial fog path must work without TAA. Volumetric clouds and cloud shadows remain later work, using reduced-resolution ray marching, temporal reconstruction, and measured async compute rather than introducing a renderer dependency prematurely.
 
 Debug and Development enable Vulkan validation, object names, RenderDoc markers, and NVRHI validation. Shipping disables validation and runtime shader compilation.
 
@@ -1458,7 +1463,7 @@ When diagnosing engine failures, add logs, validation, captures, and assertions 
 
 ## 12. Milestones
 
-Milestones 0 through 3 retain their implemented scope. Milestone 4 finishes practical authoring, and Milestone 5 delivers the first playable standalone game. Every later core milestone adds a working feature to that same reference game, with headless correctness checks and Windows/Linux validation. A library integration or isolated demo alone is not an exit condition. Translation tooling, advanced acoustics, optional upscalers, native hot reload, and plugin tooling are not prerequisites for this first playable path.
+Milestones 0 through 3 retain their implemented scope. Milestone 4 finishes world and editor authoring. Milestone 4.5 makes the Sandbox visually authorable with materials, shaders, lights, sky/atmosphere, volumetric fog, and SMAA 1x. Milestone 5 then delivers the first playable standalone game using those same runtime rendering systems. Every later core milestone adds a working feature to that reference game, with headless correctness checks and Windows/Linux validation. A library integration or isolated demo alone is not an exit condition. Translation tooling, advanced acoustics, optional upscalers, native hot reload, and plugin tooling are not prerequisites for this first playable path.
 
 A later feature can move forward when the reference game demonstrates a concrete blocking need, provided its ownership, failure behavior, and prerequisite tests remain intact. The roadmap is delivery order, not a requirement to complete unrelated subsystems before solving a measured problem.
 
@@ -1563,29 +1568,65 @@ Implemented: the existing level/hierarchy/transaction slice now includes concret
 - Record CPU frame median and p95/p99, UI submission time, ECS extraction time, physics step time, draw calls, and memory usage with build configuration and reference hardware on Windows and Linux. Add GPU timings when available; retain repeatable fixtures and headless correctness checks alongside interactive measurements.
 - Profile before optimizing. Bring shared-mesh instancing or a bounded physics job adapter forward from Milestones 6 and 7 if measurements show they are needed for this checkpoint. The checkpoint is not blocked on PBR, full runtime physics, or a production renderer.
 
+### Milestone 4.5 - Materials, lighting, and visual authoring
+
+Deliver these slices in order. Extend the existing Sandbox and shared runtime renderer rather than creating an editor-only rendering path.
+
+#### A. Materials and shader iteration
+
+- Add stable-ID, versioned JSON material assets with deterministic cooking and explicit migrations. Separate reusable mesh geometry from material assignments and per-entity material-slot overrides. Preserve glTF defaults, but stop baking editable color factors into texture pixels. Existing content must remain usable through migration or deterministic recooking.
+- Cook authored normals and tangents, generating missing data with explicit handedness and degenerate-geometry handling. Support base-color textures and tint, metallic, roughness, normal maps and strength, ambient occlusion, emissive texture/color/intensity, UV scale/offset, and opaque/masked material settings. Keep color textures sRGB and numerical maps linear; support independent maps and explicit packed-channel selection without forcing a glTF re-export.
+- Add material creation and editing from the Content Browser, material-slot assignment in Details, texture pickers, color controls, live preview, reset-to-default, save/reload, and undo/redo. A single mesh must support differently colored instances sharing its geometry, without importing a separate glTF for each color.
+- Build the PBR shader path through the existing Slang compiler and `HertaShaderWorker`. Allow project material shaders within an explicit supported parameter/binding contract; watch source/includes, compile asynchronously, show actionable diagnostics, and publish compatible shader/pipeline changes atomically. Failed or incompatible edits preserve the last valid material and pipeline. No compiler enters runtime or Shipping targets; a node-based Shader Graph is not part of this slice.
+
+#### B. HDR lighting and shadows
+
+- Replace the camera-relative studio light with authored Directional Light, Sky Light, Point Light, Spot Light, and Rect Light components. Add them through placement and Add Component, with gizmos, bounds, selection, typed units/ranges, defaults, transactions, canonical persistence, and version migrations. Extract immutable Herta-owned light and material data from World; Renderer must not depend on editor preview objects.
+- Implement metallic-roughness PBR shading, HDR scene color, manual exposure and tone mapping. Sky Light supplies diffuse irradiance and prefiltered specular environment lighting from a cooked HDR environment or the generated sky; sky visibility and ambient lighting are separate controls. Move expensive environment filtering off the interactive thread and preserve the last valid environment while updating.
+- Expose light color or temperature, intensity, shadow enable/bias, point/spot range, spot inner/outer cone angles, and rectangle width/height. Rect Light must provide area-shaped diffuse/specular lighting rather than masquerading as a point light; document its initial shadow approximation and any unsupported modes explicitly.
+- Add directional cascaded shadows and bounded point/spot shadow allocation, with visible quality controls and predictable degradation when budgets are exceeded. Keep lightmap authoring and baking out of the pipeline. This establishes direct lighting and environment lighting, not full dynamic global illumination.
+
+#### C. Sky, atmosphere, and volumetric fog
+
+- Add an authored Sky Atmosphere environment with a linked directional sun, atmospheric scattering, sun position/intensity, and coherent sky/ambient updates. Provide a cooked environment-map sky alternative; do not require an external glTF to create the environment.
+- Add authored height fog and actual volumetric fog with density, height falloff, scattering color/albedo, anisotropy, view distance, and quality controls. Integrate supported lights and shadowing, respect opaque depth, and test light shafts and indoor/outdoor transitions. A reduced-resolution volume with depth-aware compositing is the initial path; fog must remain usable with SMAA 1x or AA disabled.
+- Bound volume dimensions, light injection, memory, and update costs. Define camera-cut, resize, and history-reset behavior if fog has its own temporal accumulation. Provide lower-quality or disabled fog fallbacks; defer clouds, weather, and ray-traced atmosphere effects.
+
+#### D. Native anti-aliasing
+
+- Add SMAA 1x through RenderGraph at native resolution after tone mapping and before editor overlays/UI. Use the reference algorithm and lookup textures, with correct color-space handling, intermediate lifetimes, resize behavior, and quality presets. No motion vectors or temporal history are required for this AA mode.
+- Keep `Off` available and test diagonal edges, thin geometry, texture detail, specular highlights, moving objects, and camera motion. Record residual subpixel shimmer rather than hiding it with excessive blur. TAA, SMAA T2x/4x, vendor upscalers, and frame generation do not block this milestone.
+
+#### E. Playground and completion gates
+
+- Add a material gallery, one editable example of every light type, shadow and environment comparisons, a sky/fog station, and AA comparisons to the same Sandbox. Replace the separate colored block meshes with reusable material assignments once that path works, preserving surviving entity identity, geometry, and physics behavior.
+- Test material/light/environment serialization, migrations, undo/redo, texture color spaces and channel mapping, tangent conventions, failed shader updates, missing assets, resource retirement, and shader determinism. Capture representative Windows and Linux rendering with validation, and record GPU time/memory for lighting, shadows, environment updates, fog, and SMAA.
+
+Exit condition: the Sandbox can be visually authored entirely through materials and level components: assign PBR textures, tweak colors and scalar values, add all five light types, configure sky/atmosphere and volumetric fog, and choose SMAA 1x or Off. Changes preview live, save/reload and undo/redo correctly, and remain responsive and validation-clean on Windows and Linux. Rendering and cooked data are runtime-owned and ready for `HertaGame`; full GI, clouds, temporal AA, a Shader Graph, and standalone gameplay are not prerequisites.
+
 ### Milestone 5 - Playable runtime and standalone game
 
-- Implement `HertaGame` as a runtime-only composition that loads the project and authored starting level, resolves cooked assets, and renders World entities without EditorFramework or ToolUI.
+- Implement `HertaGame` as a runtime-only composition that loads the project and authored starting level, resolves cooked assets, and renders World entities using the materials, lights, environment, and SMAA path established in Milestone 4.5, without EditorFramework or ToolUI.
 - Add game input, a controllable player or camera, C++ gameplay systems, pause/reset, and a simple objective in the Sandbox level. Build only the input bindings that this sample needs, with cursor capture, focus-loss handling, fullscreen, and quit.
 - Add a narrow GameUI runtime module for the sample's screen-space text, images, anchors, and input focus using a cooked project font and the existing FreeType backend. It is independent of ImGui, ToolUI, and localization services; a general widget framework or UI designer is not required.
 - Connect the existing fixed-step Jolt adapters to runtime World state through narrow bridge data, with collision feedback sufficient for the sample. Rendering consumes immutable world extraction, not editor preview objects.
 - Add Play/Stop using an isolated runtime world and the same gameplay path as the standalone target. Stopping or a failed start preserves authored entities, selection, transforms, and undo history.
-- Add directory-backed asset mounts and a minimal deployment path that gathers the sample's cooked assets, registry, shaders, and versioned level/project JSON into a relocatable loose-content build. Ship required runtime files and license notices; do not invoke importers, shader compilers, Blender, or editor modules at runtime.
+- Add directory-backed asset mounts and a minimal deployment path that gathers the sample's cooked meshes, textures, materials, environments, registry, shaders, and versioned level/project JSON into a relocatable loose-content build. Ship required runtime files and license notices; do not invoke importers, shader compilers, Blender, or editor modules at runtime.
 - Exercise repeated startup, level reset, input-focus loss, Play/Stop, and shutdown. Keep headless gameplay/world lifecycle checks alongside interactive Windows/Linux runs.
 
 Exit condition: the same authored Sandbox game is playable in the editor and as a relocated standalone build on Windows and Linux without the source checkout or development SDKs. Input, basic simulation, gameplay, HUD, restart, and shutdown work together. Full package containers, localization, native hot reload, scripting, and production rendering are not prerequisites.
 
-### Milestone 6 - Production raster renderer
+### Milestone 6 - Raster renderer scaling and temporal quality
 
 - Add shared-mesh/material instancing and culling, retaining the early cube stress levels as draw-call, memory, and frame-time regressions.
-- Add PBR materials, image-based lighting, direct lights, shadow maps, motion vectors, depth hierarchy, exposure, and tone mapping.
-- Add authored runtime camera, light, and material components plus the asset and inspector paths needed to use them in the sample. Renderer algorithms without usable level authoring do not complete this milestone.
-- Add GTAO and crisp native-resolution TAA with correct history rejection, reactive masks, camera-cut resets, render regressions, and configurable modest sharpening.
-- Retain native-resolution and non-temporal fallbacks. Optional temporal-upscaler backends remain in Milestone 18 unless measured sample performance requires one earlier.
+- Scale the PBR materials, authored lights, environment lighting, shadows, atmosphere, and fog introduced in Milestone 4.5 using measured light culling and resource budgets. Add motion vectors and a depth hierarchy; do not defer basic material or light editing to this milestone.
+- Extend authored runtime cameras and rendering quality controls as needed by the playable sample. Renderer algorithms without usable level authoring do not complete this milestone.
+- Add GTAO and an additional crisp native-resolution TAA mode with correct history rejection, reactive masks, camera-cut resets, render regressions, and configurable modest sharpening.
+- Retain SMAA 1x and Off as supported choices; do not make temporal AA a requirement for basic materials, sky, or fog. Optional temporal-upscaler backends remain in Milestone 18 unless measured sample performance requires one earlier.
 - Add GPU timings, feature capability reporting, quality tiers, and validation for multi-viewport editor rendering.
 - Keep lightmap authoring, baking, lightmap UVs, and baked-light data out of the asset pipeline.
 
-Exit condition: the playable Sandbox uses authored materials and lights without baked lighting across the declared low, medium, and high raster tiers. TAA remains stable and crisp under camera and rigid-object motion, disocclusion, thin geometry, specular highlights, and camera cuts, and every optional feature has a tested fallback. Later animation and VFX milestones add their own motion-vector and history regressions. This is an extension of the runtime game, not an editor-only rendering demonstration.
+Exit condition: the playable Sandbox's existing visual-authoring features scale across the declared low, medium, and high raster tiers without baked lighting. The added TAA mode remains stable and crisp under camera and rigid-object motion, disocclusion, thin geometry, specular highlights, and camera cuts; SMAA 1x and Off remain usable, and every optional feature has a tested fallback. Later animation and VFX milestones add their own motion-vector and history regressions. This improves the runtime game's established renderer, not an editor-only rendering demonstration.
 
 ### Milestone 7 - Physics
 
@@ -1710,7 +1751,7 @@ Exit condition: compatible sample gameplay-system changes reload without losing 
 - Add capability-driven Vulkan KHR ray queries and ray-tracing pipelines for selected effects without weakening the raster fallback.
 - Run the Radiance Cascades 3D acceptance spike against path-traced references before deciding whether it becomes a shipping GI backend.
 - Add the Herta temporal-upscaler contract and FSR as the first optional Vulkan adapter when performance measurements justify it. DLSS and XeSS may follow through that same contract. Retain native TAA and non-temporal fallbacks; defer frame generation until latency, frame pacing, UI composition, and swapchain requirements pass dedicated gates.
-- Add atmosphere, volumetric fog, cloud shadows, and temporally reconstructed volumetric clouds with measured quality tiers.
+- Extend the existing atmosphere and volumetric fog with cloud shadows and temporally reconstructed volumetric clouds, using measured quality tiers.
 - Run the Steam Audio spike only for a scene that needs HRTF, occlusion, transmission, or real-time acoustics beyond basic spatial playback. Validate Windows/Linux builds, mixer integration, coordinates, thread budgets, source scaling, and fallbacks before adoption. Defer acoustic baking, Embree, and custom renderer ray tracing until measured requirements justify them.
 
 Exit condition: advanced features pass capability, memory, performance, camera-cut, multi-view, dynamic-geometry, and render-regression gates; unsupported hardware retains the production raster path; and Herta still has no light-baking pipeline.
@@ -1735,4 +1776,8 @@ A module is not complete because its happy path works. It is complete when:
 
 Milestones 3 and 4 are implemented. Level owns private EnTT storage, stable identities, validated hierarchy, atomic authoring patches, canonical `.hlevel` persistence, concrete runtime descriptors, and guarded serial system/query/event contracts. EditorCore owns bounded transaction history; the editor supports hierarchy and optional-component authoring, world-pose-preserving parenting, selection-aware undo/redo, and canonical level clipboard excerpts. Project descriptors resolve content and starting levels; transactional Game-template creation and headless commands share the runtime Project API. Generated C++ Game modules build as static libraries, not dynamically loaded gameplay modules. The Content Browser supports mounted folders, clipped assets, fuzzy filtering, undoable viewport mesh placement, and background external-file import into Game content. See [Levels.md](Levels.md) and [Projects.md](Projects.md) for contracts and limitations.
 
-The early scaling slice provides deterministic 1,000/5,000/10,000-cube fixtures, clipped authoring widgets, large-selection batch history tests, explicit physics capacity failures, native capture phases, and shared-mesh instancing. Focused runtime checks do not establish full Linux renderer or scaling validation; [Scaling.md](Scaling.md) records the measurements and outstanding coverage. The next implementation slice is Milestone 5: one playable Sandbox through runtime-only `HertaGame`, input, basic physics, a minimal HUD, isolated editor Play/Stop, and relocatable loose deployment. Prefabs remain unimplemented and enter only with a concrete authoring need. Production rendering, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend that same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.
+The early scaling slice provides deterministic 1,000/5,000/10,000-cube fixtures, clipped authoring widgets, large-selection batch history tests, explicit physics capacity failures, native capture phases, and shared-mesh instancing. Focused runtime checks do not establish full Linux renderer or scaling validation; [Scaling.md](Scaling.md) records the measurements and outstanding coverage.
+
+The next implementation slice is Milestone 4.5 A: separate mesh geometry from material assignments, add editable material assets and per-entity slots, cook normals/tangents, and establish the PBR shader/texture path. First prove that the same cube can have independently editable colors and textures without another glTF import. Follow with authored lights and shadows, sky/atmosphere and volumetric fog, and native SMAA 1x. The existing camera-relative studio light, baked color-factor textures, and separate colored block assets are interim limitations, not the target authoring workflow.
+
+Only after these visual-authoring gates pass does Milestone 5 deliver one playable Sandbox through runtime-only `HertaGame`, input, basic physics, a minimal HUD, isolated editor Play/Stop, and relocatable loose deployment. Prefabs remain unimplemented and enter only with a concrete authoring need. Rendering improvements, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend the same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.

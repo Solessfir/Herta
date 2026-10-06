@@ -33,6 +33,12 @@ public:
 	void SetSelection(std::span<const FObjectId> Selected, std::optional<FObjectId> Active = std::nullopt);
 	std::span<const FObjectId> GetSelection() const;
 	std::optional<FObjectId> GetActiveObject() const;
+	std::span<const FLevelFolder> GetFolders() const;
+	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateFolder(std::optional<FObjectId> Parent = {}, std::span<const FObjectId> Entities = {});
+	[[nodiscard]] std::expected<void, FLevelError> RenameFolder(FObjectId Folder, std::string_view Name);
+	[[nodiscard]] std::expected<void, FLevelError> DeleteFolder(FObjectId Folder);
+	[[nodiscard]] std::expected<void, FLevelError> MoveFolder(FObjectId Folder, std::optional<FObjectId> Parent);
+	[[nodiscard]] std::expected<void, FLevelError> MoveEntitiesToFolder(std::span<const FObjectId> Entities, std::optional<FObjectId> Folder);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateMeshEntity(FAssetId Asset, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEmptyEntity(const FWorldPosition& Position = {});
@@ -63,6 +69,7 @@ private:
 	{
 		std::string Label;
 		std::vector<FLevelEntity> Before;
+		std::vector<FLevelFolder> BeforeFolders;
 		std::vector<FObjectId> Selection;
 		std::optional<FObjectId> Active;
 		bool bDuplicated = false;
@@ -70,9 +77,10 @@ private:
 
 	void RebuildObjects();
 	void RestoreObjects(bool bNotify = true);
-	FEditorTransaction MakeTransaction(std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, std::optional<FObjectId> BeforeActive, const std::vector<FObjectId>& AfterSelection, std::optional<FObjectId> AfterActive);
-	[[nodiscard]] std::expected<void, FLevelError> RecordChanges(std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, std::optional<FObjectId> BeforeActive);
-	[[nodiscard]] std::expected<void, FLevelError> ApplyStructuralChanges(std::string_view Label, const std::vector<FLevelEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, std::optional<FObjectId> AfterActive = std::nullopt);
+	FEditorTransaction MakeTransaction(std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, std::optional<FObjectId> BeforeActive, const std::vector<FObjectId>& AfterSelection, std::optional<FObjectId> AfterActive, std::optional<std::vector<FLevelFolder>> BeforeFolders = {}, std::optional<std::vector<FLevelFolder>> AfterFolders = {});
+	[[nodiscard]] std::expected<void, FLevelError> RecordChanges(std::string_view Label, const std::vector<FLevelEntityChange>& Changes, std::vector<FObjectId> BeforeSelection, std::optional<FObjectId> BeforeActive, std::optional<std::vector<FLevelFolder>> BeforeFolders = {});
+	[[nodiscard]] std::expected<void, FLevelError> ApplyStructuralChanges(std::string_view Label, const std::vector<FLevelEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, std::optional<FObjectId> AfterActive = std::nullopt, std::optional<std::vector<FLevelFolder>> AfterFolders = {});
+	[[nodiscard]] std::expected<void, FLevelError> ApplyAuthoringChanges(std::span<const FLevelEntityChange> Changes, const std::optional<std::vector<FLevelFolder>>& AfterFolders);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> InsertEntity(FLevelEntity Entity);
 	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedMesh(std::optional<FStaticMeshComponent> Mesh);
 	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedBodyType(ELevelBodyType Type, bool bOnlyAbsent);
@@ -82,6 +90,7 @@ private:
 	FObjectId Id;
 	std::string Name;
 	std::filesystem::path CurrentPath;
+	std::vector<FLevelFolder> Folders;
 	std::vector<FPreviewObject> Objects;
 	std::vector<FPreviewObject> AuthoredObjects;
 	std::uint64_t Generation = 1;

@@ -26,7 +26,7 @@ struct FOutlinerRenameTestContext
 	FOutlinerRenameTestContext& operator=(FOutlinerRenameTestContext&&) = delete;
 
 	void Frame(int RenameRow, bool bStartRename = false);
-	void PanelFrame(std::span<const FPreviewObject> Objects, FPreviewSelection& Selection, ImVec2 Size = {500.f, 360.f}, bool bDragging = false, std::span<const FObjectId> DraggedObjects = {});
+	void PanelFrame(std::span<const FPreviewObject> Objects, FPreviewSelection& Selection, ImVec2 Size = {500.f, 360.f}, bool bDragging = false, std::span<const FObjectId> DraggedObjects = {}, std::span<const FLevelFolder> Folders = {}, std::optional<FObjectId> DraggedFolder = {});
 
 	ImGuiContext* Previous = ImGui::GetCurrentContext();
 	ImGuiContext* Context = ImGui::CreateContext();
@@ -120,7 +120,7 @@ void FOutlinerRenameTestContext::Frame(const int RenameRow, const bool bStartRen
 	CHECK(Context->ErrorCountCurrentFrame == 0);
 }
 
-void FOutlinerRenameTestContext::PanelFrame(const std::span<const FPreviewObject> Objects, FPreviewSelection& Selection, const ImVec2 Size, const bool bDragging, const std::span<const FObjectId> DraggedObjects)
+void FOutlinerRenameTestContext::PanelFrame(const std::span<const FPreviewObject> Objects, FPreviewSelection& Selection, const ImVec2 Size, const bool bDragging, const std::span<const FObjectId> DraggedObjects, const std::span<const FLevelFolder> Folders, const std::optional<FObjectId> DraggedFolder)
 {
 	ImGui::NewFrame();
 	ImGui::SetNextWindowPos({20.f, 20.f});
@@ -139,7 +139,14 @@ void FOutlinerRenameTestContext::PanelFrame(const std::span<const FPreviewObject
 		ImGui::EndDragDropSource();
 	}
 
-	DrawPreviewOutlinerContents(Selection, Objects, bDragging, State);
+	if (DraggedFolder && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceExtern))
+	{
+		ImGui::SetDragDropPayload("Herta.OutlinerFolder", &*DraggedFolder, sizeof(FObjectId), ImGuiCond_Once);
+		ImGui::TextUnformatted("External folder drag");
+		ImGui::EndDragDropSource();
+	}
+
+	DrawPreviewOutlinerContents(Selection, Objects, bDragging, State, Folders);
 	for (ImGuiWindow* const Window : Context->Windows)
 	{
 		if (Window->ParentWindow == Host && Window->ChildId == Host->GetID("##OutlinerEntries"))
@@ -613,12 +620,22 @@ TEST_CASE("Outliner panel drop targets distinguish object rows from empty root s
 			if (bDisabled)
 			{
 				CHECK_FALSE(Test.State.ReparentRequest);
+				CHECK_FALSE(Test.State.FolderRequest);
 			}
-			else
+			else if (bDropOnRow)
 			{
 				REQUIRE(Test.State.ReparentRequest);
 				CHECK(Test.State.ReparentRequest->Objects == std::vector<FObjectId>{Objects[1].Id});
-				CHECK(Test.State.ReparentRequest->Parent == (bDropOnRow ? std::optional{Objects[2].Id} : std::nullopt));
+				CHECK(Test.State.ReparentRequest->Parent == Objects[2].Id);
+				CHECK_FALSE(Test.State.FolderRequest);
+			}
+			else
+			{
+				REQUIRE(Test.State.FolderRequest);
+				CHECK(Test.State.FolderRequest->Action == EOutlinerFolderAction::MoveEntities);
+				CHECK(Test.State.FolderRequest->Objects == std::vector<FObjectId>{Objects[1].Id});
+				CHECK_FALSE(Test.State.FolderRequest->Parent);
+				CHECK_FALSE(Test.State.ReparentRequest);
 			}
 		}
 	}
@@ -663,6 +680,207 @@ TEST_CASE("Outliner panel drag snapshots multi-selection and does not replace se
 		Test.PanelFrame(Objects, Selection);
 		CHECK(Selection == Original);
 		CHECK_FALSE(Test.State.ReparentRequest);
+	}
+}
+
+TEST_CASE("Outliner folders organize hierarchy roots without replacing transform parenting")
+{
+	const std::array<FPreviewObject, 4> Objects{{
+	    {.Label = "Assembly", .Translation = {}, .Id = {1, 1}},
+	    {.Label = "Child", .Translation = {}, .Id = {1, 2}, .Parent = FObjectId{1, 1}},
+	    {.Label = "Other", .Translation = {}, .Id = {1, 3}},
+	    {.Label = "Loose", .Translation = {}, .Id = {1, 4}},
+	}};
+	std::array<FLevelFolder, 3> Folders{{
+	    {.Id = {2, 2}, .Name = "Nested", .Parent = {2, 1}, .Entities = {Objects[0].Id}},
+	    {.Id = {2, 1}, .Name = "Group"},
+	    {.Id = {2, 3}, .Name = "Other group", .Entities = {Objects[1].Id, Objects[2].Id}},
+	}};
+	FOutlinerPanelState State;
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	REQUIRE(State.VisibleRows.size() == 7);
+	CHECK(State.VisibleIndices == std::vector<int>{0, 1, 2, 3});
+	CHECK(State.VisibleRows[0].FolderIndex == 1);
+	CHECK(State.VisibleRows[1].FolderIndex == 0);
+	CHECK(State.VisibleRows[2].ObjectIndex == 0);
+	CHECK(State.VisibleRows[2].Depth == 2);
+	CHECK(State.VisibleRows[3].ObjectIndex == 1);
+	CHECK(State.VisibleRows[3].Depth == 3);
+	CHECK(State.VisibleRows[4].FolderIndex == 2);
+	CHECK(State.VisibleRows[5].ObjectIndex == 2);
+	CHECK(State.VisibleRows[6].ObjectIndex == 3);
+	State.CollapsedFolders.insert(Folders[1].Id);
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	CHECK(State.VisibleIndices == std::vector<int>{2, 3});
+	CHECK(State.VisibleRows.size() == 4);
+	Folders[0].Parent = {};
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	CHECK(State.VisibleIndices == std::vector<int>{0, 1, 2, 3});
+	CHECK(State.VisibleRows[1].FolderIndex == 0);
+	CHECK(State.VisibleRows[2].Depth == 1);
+	State.SelectedFolder = Folders[1].Id;
+	BuildOutlinerVisibleRows(State, Objects);
+	CHECK(State.CollapsedFolders.empty());
+	CHECK_FALSE(State.SelectedFolder.IsValid());
+}
+
+TEST_CASE("Outliner folder search preserves matched ancestors and folder collapse")
+{
+	const std::array<FPreviewObject, 2> Objects{{
+	    {.Label = "Assembly", .Translation = {}, .Id = {1, 1}},
+	    {.Label = "Needle", .Translation = {}, .Id = {1, 2}, .Parent = FObjectId{1, 1}},
+	}};
+	const std::array<FLevelFolder, 3> Folders{{
+	    {.Id = {2, 1}, .Name = "Group"},
+	    {.Id = {2, 2}, .Name = "Nested", .Parent = {2, 1}, .Entities = {Objects[0].Id}},
+	    {.Id = {2, 3}, .Name = "Empty"},
+	}};
+	FOutlinerPanelState State;
+	State.CollapsedFolders.insert(Folders[0].Id);
+	std::snprintf(State.Search.InputBuf, sizeof(State.Search.InputBuf), "%s", "needle");
+	State.Search.Build();
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	REQUIRE(State.VisibleRows.size() == 4);
+	CHECK(State.VisibleRows[0].FolderIndex == 0);
+	CHECK(State.VisibleRows[1].FolderIndex == 1);
+	CHECK(State.VisibleRows.back().Depth == 3);
+	CHECK(State.VisibleIndices == std::vector<int>{0, 1});
+	CHECK(State.CollapsedFolders.contains(Folders[0].Id));
+	std::snprintf(State.Search.InputBuf, sizeof(State.Search.InputBuf), "%s", "folder");
+	State.Search.Build();
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	CHECK(State.VisibleRows.size() == 3);
+	CHECK(State.VisibleIndices.empty());
+	State.Search.Clear();
+	BuildOutlinerVisibleRows(State, Objects, Folders);
+	CHECK(State.VisibleRows.size() == 2);
+	CHECK(State.VisibleIndices.empty());
+}
+
+TEST_CASE("Outliner folder rename focuses the inline row at narrow widths")
+{
+	const std::array<FPreviewObject, 1> Objects{{{.Label = "Entity", .Translation = {}, .Id = {1, 1}}}};
+	const std::array<FLevelFolder, 1> Folders{{{.Id = {2, 1}, .Name = "New Folder", .Entities = {Objects[0].Id}}}};
+	for (const float Width : {500.f, 220.f})
+	{
+		CAPTURE(Width);
+		FOutlinerRenameTestContext Test;
+		FPreviewSelection Selection;
+		Test.PanelFrame(Objects, Selection, {Width, 360.f}, false, {}, Folders);
+		Test.PanelFrame(Objects, Selection, {Width, 360.f}, false, {}, Folders);
+		REQUIRE(Test.Table != nullptr);
+		const float RowHeight = Test.Table->RowPosY2 - Test.Table->RowPosY1;
+		const float FolderY = (Test.Table->RowPosY1 + Test.Table->RowPosY2) * 0.5f - RowHeight;
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.AddMousePosEvent(Test.Entries->InnerRect.Min.x + 70.f, FolderY);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+		Test.PanelFrame(Objects, Selection, {Width, 360.f}, false, {}, Folders);
+		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+		Test.PanelFrame(Objects, Selection, {Width, 360.f}, false, {}, Folders);
+		CHECK(Selection.Indices.empty());
+		CHECK(Test.State.SelectedFolder == Folders[0].Id);
+		IO.AddKeyEvent(ImGuiKey_F2, true);
+		Test.PanelFrame(Objects, Selection, {Width, 360.f}, false, {}, Folders);
+		IO.AddKeyEvent(ImGuiKey_F2, false);
+		Test.PanelFrame(Objects, Selection, {Width, 360.f}, false, {}, Folders);
+		CHECK(Test.State.bRenaming);
+		CHECK(Test.State.RenameFolder == Folders[0].Id);
+		CHECK_FALSE(Test.State.RenameObject.IsValid());
+		CHECK(Test.Context->ActiveId == Test.Context->InputTextState.ID);
+		IO.AddInputCharactersUTF8("Organized");
+		Test.PanelFrame(Objects, Selection, {Width, 360.f}, false, {}, Folders);
+		IO.AddKeyEvent(ImGuiKey_Enter, true);
+		Test.PanelFrame(Objects, Selection, {Width, 360.f}, false, {}, Folders);
+		CHECK(Test.State.bRenameCommitted);
+		CHECK(Test.State.RenameFolder == Folders[0].Id);
+		CHECK(std::string_view(Test.State.RenameBuffer.data()) == "Organized");
+		CHECK_FALSE(Test.State.FolderRequest);
+		CHECK_FALSE(Test.State.ReparentRequest);
+	}
+}
+
+TEST_CASE("Outliner folder shortcuts request creation and non-destructive deletion")
+{
+	const std::array<FLevelFolder, 1> Folders{{{.Id = {2, 1}, .Name = "Group"}}};
+	FOutlinerRenameTestContext Test;
+	FPreviewSelection Selection;
+	Selection.Select(-1);
+	Test.State.SelectedFolder = Folders[0].Id;
+	Test.PanelFrame({}, Selection, {500.f, 360.f}, false, {}, Folders);
+	Test.PanelFrame({}, Selection, {500.f, 360.f}, false, {}, Folders);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.AddKeyEvent(ImGuiMod_Ctrl, true);
+	IO.AddKeyEvent(ImGuiMod_Shift, true);
+	IO.AddKeyEvent(ImGuiKey_N, true);
+	Test.PanelFrame({}, Selection, {500.f, 360.f}, false, {}, Folders);
+	REQUIRE(Test.State.FolderRequest);
+	CHECK(Test.State.FolderRequest->Action == EOutlinerFolderAction::Create);
+	CHECK(Test.State.FolderRequest->Parent == Folders[0].Id);
+	Test.State.FolderRequest.reset();
+	IO.AddKeyEvent(ImGuiMod_Ctrl, false);
+	IO.AddKeyEvent(ImGuiMod_Shift, false);
+	IO.AddKeyEvent(ImGuiKey_N, false);
+	IO.AddKeyEvent(ImGuiKey_Delete, true);
+	Test.PanelFrame({}, Selection, {500.f, 360.f}, false, {}, Folders);
+	REQUIRE(Test.State.FolderRequest);
+	CHECK(Test.State.FolderRequest->Action == EOutlinerFolderAction::Delete);
+	CHECK(Test.State.FolderRequest->Folder == Folders[0].Id);
+	CHECK(Test.State.FolderRequest->Objects.empty());
+	CHECK_FALSE(Test.State.ReparentRequest);
+}
+
+TEST_CASE("Outliner folder drops never issue transform parenting requests")
+{
+	const std::array<FPreviewObject, 1> Objects{{{.Label = "Entity", .Translation = {}, .Id = {1, 1}}}};
+	const std::array<FLevelFolder, 2> Folders{{
+	    {.Id = {2, 1}, .Name = "First"},
+	    {.Id = {2, 2}, .Name = "Second"},
+	}};
+	for (const bool bFolderSource : {false, true})
+	{
+		for (const int TargetRow : {0, 2, -1})
+		{
+			CAPTURE(bFolderSource);
+			CAPTURE(TargetRow);
+			FOutlinerRenameTestContext Test;
+			FPreviewSelection Selection;
+			Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
+			Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
+			REQUIRE(Test.Table != nullptr);
+			const float RowHeight = Test.Table->RowPosY2 - Test.Table->RowPosY1;
+			const float MouseY = TargetRow < 0 ? Test.Entries->InnerRect.Max.y - 20.f : (Test.Table->RowPosY1 + Test.Table->RowPosY2) * 0.5f - static_cast<float>(2 - TargetRow) * RowHeight;
+			ImGuiIO& IO = ImGui::GetIO();
+			IO.AddMousePosEvent(Test.Entries->InnerRect.Min.x + 70.f, MouseY);
+			IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+			const std::array Dragged{Objects[0].Id};
+			for (int Frame = 0; Frame < 2; ++Frame)
+			{
+				Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, bFolderSource ? std::span<const FObjectId>{} : Dragged, Folders, bFolderSource ? std::optional{Folders[1].Id} : std::nullopt);
+			}
+
+			IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+			Test.PanelFrame(Objects, Selection, {500.f, 360.f}, false, {}, Folders);
+			CHECK_FALSE(Test.State.ReparentRequest);
+			if (TargetRow == 2)
+			{
+				CHECK_FALSE(Test.State.FolderRequest);
+			}
+			else
+			{
+				REQUIRE(Test.State.FolderRequest);
+				CHECK(Test.State.FolderRequest->Action == (bFolderSource ? EOutlinerFolderAction::MoveFolder : EOutlinerFolderAction::MoveEntities));
+				CHECK(Test.State.FolderRequest->Parent == (TargetRow < 0 ? std::nullopt : std::optional{Folders[0].Id}));
+				if (bFolderSource)
+				{
+					CHECK(Test.State.FolderRequest->Folder == Folders[1].Id);
+					CHECK(Test.State.FolderRequest->Objects.empty());
+				}
+				else
+				{
+					CHECK(Test.State.FolderRequest->Objects == std::vector<FObjectId>{Objects[0].Id});
+				}
+			}
+		}
 	}
 }
 }

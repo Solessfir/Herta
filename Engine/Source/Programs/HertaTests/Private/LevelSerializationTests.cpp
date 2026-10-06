@@ -56,12 +56,35 @@ FLevelDocument MakeLevelDocument()
 	return Document;
 }
 
+FLevelDocument MakeLevelFolderDocument()
+{
+	FLevelDocument Document = MakeLevelDocument();
+	Document.Folders = {
+	    FLevelFolder{
+	        .Id = FObjectId{4, 2},
+	        .Name = "Nested \\\"folder\\\"",
+	        .Parent = FObjectId{4, 1},
+	        .Entities = {Document.Entities[0].Id, Document.Entities[1].Id},
+	    },
+	    FLevelFolder{.Id = FObjectId{4, 1}, .Name = "Root folder"},
+	    FLevelFolder{.Id = FObjectId{4, 3}, .Name = "Empty folder", .Parent = FObjectId{4, 2}},
+	};
+
+	return Document;
+}
+
 std::string ReplaceLevelText(std::string Text, const std::string_view From, const std::string_view To)
 {
 	const std::size_t Position = Text.find(From);
 	REQUIRE(Position != std::string::npos);
 	Text.replace(Position, From.size(), To);
 	return Text;
+}
+
+std::string MakeSchemaTwoText(std::string Text)
+{
+	Text = ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 3", "\"engineSchemaVersion\": 2");
+	return ReplaceLevelText(std::move(Text), ",\n  \"folders\": []", "");
 }
 
 std::string ReadLevelText(const std::filesystem::path& Path)
@@ -98,7 +121,8 @@ TEST_CASE("Levels round-trip in canonical sorted UTF-8 JSON")
 	CHECK(Serialized->find('\r') == std::string::npos);
 	CHECK(Serialized->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Serialized->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Serialized->find("\"engineSchemaVersion\": 2") != std::string::npos);
+	CHECK(Serialized->find("\"engineSchemaVersion\": 3") != std::string::npos);
+	CHECK(Serialized->find("\"folders\": []") != std::string::npos);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"format\":", "\"magic\":")));
 	CHECK(Serialized->find("\"rotation\": [") != std::string::npos);
 	const std::size_t TypePosition = Serialized->find("\"type\": \"dynamic\"");
@@ -132,7 +156,7 @@ TEST_CASE("Levels round-trip in canonical sorted UTF-8 JSON")
 	CHECK(*Reordered == *Serialized);
 }
 
-TEST_CASE("Schema 1 body types migrate to canonical schema 2 settings")
+TEST_CASE("Schema 1 body types migrate to canonical schema 3 settings and empty folders")
 {
 	constexpr std::string_view VersionOne = R"({
   "format": "HertaScene",
@@ -163,13 +187,15 @@ TEST_CASE("Schema 1 body types migrate to canonical schema 2 settings")
 	REQUIRE(Migrated->Entities.size() == 1);
 	CHECK(Migrated->Entities[0].BodyType == ELevelBodyType::Dynamic);
 	CHECK(Migrated->Entities[0].BodySettings == FLevelRigidBodySettings{});
+	CHECK(Migrated->Folders.empty());
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(std::string(VersionOne), "\"type\": \"dynamic\"", "\"type\": \"dynamic\", \"massKg\": 1")));
 
 	const auto Canonical = SerializeLevel(*Migrated);
 	REQUIRE(Canonical);
 	CHECK(Canonical->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Canonical->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Canonical->find("\"engineSchemaVersion\": 2") != std::string::npos);
+	CHECK(Canonical->find("\"engineSchemaVersion\": 3") != std::string::npos);
+	CHECK(Canonical->find("\"folders\": []") != std::string::npos);
 	CHECK(Canonical->find("\"massKg\": 1") != std::string::npos);
 	CHECK(Canonical->find("\"gravityScale\": 1") != std::string::npos);
 	const auto Reparsed = ParseLevel(*Canonical);
@@ -183,9 +209,14 @@ TEST_CASE("Legacy scene documents migrate to the level format without changing a
 {
 	const auto Current = SerializeLevel(MakeLevelDocument());
 	REQUIRE(Current);
-	const auto Legacy = ReplaceLevelText(ReplaceLevelText(*Current, "\"HertaLevel\"", "\"HertaScene\""), "\"formatVersion\": 2", "\"formatVersion\": 1");
+	const auto Legacy = ReplaceLevelText(ReplaceLevelText(MakeSchemaTwoText(*Current), "\"HertaLevel\"", "\"HertaScene\""), "\"formatVersion\": 2", "\"formatVersion\": 1");
 	const auto Migrated = ParseLevel(Legacy);
 	REQUIRE(Migrated);
+	CHECK(Migrated->Folders.empty());
+	const auto SchemaTwo = ParseLevel(MakeSchemaTwoText(*Current));
+	REQUIRE(SchemaTwo);
+	CHECK(SchemaTwo->Entities == Migrated->Entities);
+	CHECK(SchemaTwo->Folders.empty());
 	const auto Canonical = SerializeLevel(*Migrated);
 	REQUIRE(Canonical);
 	CHECK(*Canonical == *Current);
@@ -225,7 +256,7 @@ TEST_CASE("Level canonicalization explicitly migrates legacy files and preserves
 	const auto Destination = Directory.GetPath() / "Migrated.hlevel";
 	const auto Current = SerializeLevel(MakeLevelDocument());
 	REQUIRE(Current);
-	const auto Legacy = ReplaceLevelText(ReplaceLevelText(*Current, "\"HertaLevel\"", "\"HertaScene\""), "\"formatVersion\": 2", "\"formatVersion\": 1");
+	const auto Legacy = ReplaceLevelText(ReplaceLevelText(MakeSchemaTwoText(*Current), "\"HertaLevel\"", "\"HertaScene\""), "\"formatVersion\": 2", "\"formatVersion\": 1");
 	Tests::WriteText(Source, Legacy);
 	FEditorCommandRegistry Commands;
 	REQUIRE(RegisterLevelFileCommands(Commands));
@@ -246,6 +277,7 @@ TEST_CASE("Empty levels and entities without optional components round-trip")
 	const auto EmptyLevel = ParseLevel(*EmptyText);
 	REQUIRE(EmptyLevel);
 	CHECK(EmptyLevel->Entities.empty());
+	CHECK(EmptyLevel->Folders.empty());
 	Document.Entities.push_back(FLevelEntity{.Id = FObjectId{2, 1}, .Name = "Plain"});
 	const auto PlainText = SerializeLevel(Document);
 	REQUIRE(PlainText);
@@ -264,7 +296,7 @@ TEST_CASE("Levels reject unsupported versions, malformed input, and unknown data
 	    ReplaceLevelText(*Serialized, "\"HertaLevel\"", "\"OtherLevel\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 0"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 3"),
-	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 2", "\"engineSchemaVersion\": 3"),
+	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 3", "\"engineSchemaVersion\": 4"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 1.5"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": \"2\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": true"),
@@ -327,6 +359,236 @@ TEST_CASE("Levels validate graph references before accepting or saving documents
 	CHECK(World.SnapshotEntities() == Before);
 }
 
+TEST_CASE("Level folders round-trip canonically without changing runtime hierarchy")
+{
+	FLevelDocument Document = MakeLevelFolderDocument();
+	const std::u8string UnicodeName = u8"Zażółć 世界 🙂";
+	Document.Folders[1].Name.assign(UnicodeName.begin(), UnicodeName.end());
+	const auto Serialized = SerializeLevel(Document);
+	REQUIRE(Serialized);
+	const std::size_t FolderOne = Serialized->find("\"id\": \"00000000-0000-0004-0000-000000000001\"");
+	const std::size_t FolderTwo = Serialized->find("\"id\": \"00000000-0000-0004-0000-000000000002\"");
+	const std::size_t FolderThree = Serialized->find("\"id\": \"00000000-0000-0004-0000-000000000003\"");
+	CHECK(FolderOne < FolderTwo);
+	CHECK(FolderTwo < FolderThree);
+	CHECK(Serialized->find("\"entities\": [\"00000000-0000-0002-0000-000000000001\", \"00000000-0000-0002-0000-000000000002\"]") != std::string::npos);
+	CHECK(Serialized->find("\"entities\": []") != std::string::npos);
+	const auto Parsed = ParseLevel(*Serialized);
+	REQUIRE(Parsed);
+	std::ranges::sort(Document.Entities, {}, &FLevelEntity::Id);
+	std::ranges::sort(Document.Folders, {}, &FLevelFolder::Id);
+
+	for (auto& Folder : Document.Folders)
+	{
+		std::ranges::sort(Folder.Entities);
+	}
+
+	CHECK(Parsed->Entities == Document.Entities);
+	CHECK(Parsed->Folders == Document.Folders);
+	CHECK(Parsed->Entities[0].Parent == Parsed->Entities[1].Id);
+	const auto Canonical = SerializeLevel(*Parsed);
+	REQUIRE(Canonical);
+	CHECK(*Canonical == *Serialized);
+	std::ranges::reverse(Document.Folders);
+	std::ranges::reverse(Document.Folders[1].Entities);
+	const auto Reordered = SerializeLevel(Document);
+	REQUIRE(Reordered);
+	CHECK(*Reordered == *Serialized);
+
+	FWorld World;
+	REQUIRE(World.ReplaceEntities(Parsed->Entities));
+	CHECK(World.SnapshotEntities() == Parsed->Entities);
+
+	Tests::FScratchDirectory Directory("HertaLevelFolders");
+	const auto Path = Directory.GetPath() / "Folders.hlevel";
+	REQUIRE(SaveLevel(Path, Document));
+	const auto Loaded = LoadLevel(Path);
+	REQUIRE(Loaded);
+	CHECK(Loaded->Folders == Parsed->Folders);
+}
+
+TEST_CASE("Level folder JSON rejects unknown, duplicate, missing, and invalid data")
+{
+	const auto Serialized = SerializeLevel(MakeLevelFolderDocument());
+	REQUIRE(Serialized);
+	constexpr std::string_view Members = "\"entities\": [\"00000000-0000-0002-0000-000000000001\", \"00000000-0000-0002-0000-000000000002\"]";
+	const std::array InvalidTexts{
+	    ReplaceLevelText(*Serialized, "\"folders\": [", "\"folders\": [], \"folders\": ["),
+	    ReplaceLevelText(*Serialized, "\"folders\": [", "\"folders\": [null,"),
+	    ReplaceLevelText(*Serialized, "      \"id\": \"00000000-0000-0004-0000-000000000001\",\n", ""),
+	    ReplaceLevelText(*Serialized, "      \"name\": \"Root folder\",\n", ""),
+	    ReplaceLevelText(*Serialized, "\"name\": \"Root folder\"", "\"name\": \"Root folder\", \"extra\": 0"),
+	    ReplaceLevelText(*Serialized, "\"name\": \"Root folder\"", "\"name\": \"Root folder\", \"name\": \"Again\""),
+	    ReplaceLevelText(*Serialized, "\"name\": \"Root folder\"", "\"name\": \"\""),
+	    ReplaceLevelText(*Serialized, "\"name\": \"Root folder\"", "\"name\": null"),
+	    ReplaceLevelText(*Serialized, "\"name\": \"Root folder\"", "\"name\": \"Bad\\n\""),
+	    ReplaceLevelText(*Serialized, "\"name\": \"Root folder\"", "\"name\": \"Bad\\ud800\""),
+	    ReplaceLevelText(*Serialized, "\"name\": \"Root folder\"", "\"name\": \"" + std::string(1025, 'x') + "\""),
+	    ReplaceLevelText(*Serialized, "\"id\": \"00000000-0000-0004-0000-000000000001\"", "\"id\": null"),
+	    ReplaceLevelText(*Serialized, "\"id\": \"00000000-0000-0004-0000-000000000001\"", "\"id\": \"00000000-0000-0004-0000-000000000001\", \"id\": \"00000000-0000-0004-0000-000000000001\""),
+	    ReplaceLevelText(*Serialized, "\"id\": \"00000000-0000-0004-0000-000000000001\"", "\"id\": \"invalid\""),
+	    ReplaceLevelText(*Serialized, "\"id\": \"00000000-0000-0004-0000-000000000001\"", "\"id\": \"00000000-0000-0000-0000-000000000000\""),
+	    ReplaceLevelText(*Serialized, "\"id\": \"00000000-0000-0004-0000-000000000003\"", "\"id\": \"00000000-0000-0004-0000-000000000002\""),
+	    ReplaceLevelText(*Serialized, "\"id\": \"00000000-0000-0004-0000-000000000003\"", "\"id\": \"00000000-0000-0002-0000-000000000001\""),
+	    ReplaceLevelText(*Serialized, "      \"parent\": \"00000000-0000-0004-0000-000000000001\",\n", ""),
+	    ReplaceLevelText(*Serialized, "\"parent\": \"00000000-0000-0004-0000-000000000001\"", "\"parent\": 1"),
+	    ReplaceLevelText(*Serialized, "\"parent\": \"00000000-0000-0004-0000-000000000001\"", "\"parent\": null, \"parent\": null"),
+	    ReplaceLevelText(*Serialized, "\"parent\": \"00000000-0000-0004-0000-000000000001\"", "\"parent\": \"00000000-0000-0009-0000-000000000009\""),
+	    ReplaceLevelText(*Serialized, "\"parent\": \"00000000-0000-0004-0000-000000000001\"", "\"parent\": \"00000000-0000-0002-0000-000000000001\""),
+	    ReplaceLevelText(*Serialized, "\"parent\": \"00000000-0000-0004-0000-000000000001\"", "\"parent\": \"00000000-0000-0004-0000-000000000003\""),
+	    ReplaceLevelText(*Serialized, "\"parent\": \"00000000-0000-0004-0000-000000000001\"", "\"parent\": \"00000000-0000-0004-0000-000000000002\""),
+	    ReplaceLevelText(*Serialized, ",\n      " + std::string(Members), ""),
+	    ReplaceLevelText(*Serialized, Members, "\"entities\": null"),
+	    ReplaceLevelText(*Serialized, Members, "\"entities\": [], \"entities\": []"),
+	    ReplaceLevelText(*Serialized, Members, "\"entities\": [null]"),
+	    ReplaceLevelText(*Serialized, Members, "\"entities\": [\"invalid\"]"),
+	    ReplaceLevelText(*Serialized, Members, "\"entities\": [\"00000000-0000-0009-0000-000000000009\"]"),
+	    ReplaceLevelText(*Serialized, Members, "\"entities\": [\"00000000-0000-0004-0000-000000000001\"]"),
+	    ReplaceLevelText(*Serialized, Members, "\"entities\": [\"00000000-0000-0002-0000-000000000001\", \"00000000-0000-0002-0000-000000000001\"]"),
+	    ReplaceLevelText(*Serialized, "\"entities\": []", "\"entities\": [\"00000000-0000-0002-0000-000000000001\"]"),
+	};
+
+	for (std::size_t Index = 0; Index < InvalidTexts.size(); ++Index)
+	{
+		CAPTURE(Index);
+		CHECK_FALSE(ParseLevel(InvalidTexts[Index]));
+	}
+}
+
+TEST_CASE("Only schema 3 accepts folders and requires the folders array")
+{
+	const auto Serialized = SerializeLevel(FLevelDocument{.Id = FObjectId{1, 1}, .Name = "Empty"});
+	REQUIRE(Serialized);
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, ",\n  \"folders\": []", "")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"folders\": []", "\"folders\": null")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 3", "\"engineSchemaVersion\": 1")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 3", "\"engineSchemaVersion\": 2")));
+	const auto SchemaTwo = ParseLevel(MakeSchemaTwoText(*Serialized));
+	REQUIRE(SchemaTwo);
+	CHECK(SchemaTwo->Folders.empty());
+}
+
+TEST_CASE("Level folder metadata is validated before serialization")
+{
+	FLevelDocument Document = MakeLevelFolderDocument();
+
+	SUBCASE("Invalid ID")
+	{
+		Document.Folders[0].Id = {};
+	}
+
+	SUBCASE("Duplicate ID")
+	{
+		Document.Folders[0].Id = Document.Folders[1].Id;
+	}
+
+	SUBCASE("Entity ID conflict")
+	{
+		Document.Folders[0].Id = Document.Entities[0].Id;
+	}
+
+	SUBCASE("Empty name")
+	{
+		Document.Folders[0].Name.clear();
+	}
+
+	SUBCASE("Oversized name")
+	{
+		Document.Folders[0].Name = std::string(1025, 'x');
+	}
+
+	SUBCASE("Invalid UTF-8 name")
+	{
+		Document.Folders[0].Name = std::string("Bad\xc0\xaf", 5);
+	}
+
+	SUBCASE("Control character name")
+	{
+		Document.Folders[0].Name = "Bad\x7f";
+	}
+
+	SUBCASE("Missing parent")
+	{
+		Document.Folders[0].Parent = FObjectId{9, 9};
+	}
+
+	SUBCASE("Entity parent")
+	{
+		Document.Folders[0].Parent = Document.Entities[0].Id;
+	}
+
+	SUBCASE("Self parent")
+	{
+		Document.Folders[0].Parent = Document.Folders[0].Id;
+	}
+
+	SUBCASE("Parent cycle")
+	{
+		Document.Folders[1].Parent = Document.Folders[2].Id;
+	}
+
+	SUBCASE("Unknown member")
+	{
+		Document.Folders[0].Entities.push_back(FObjectId{9, 9});
+	}
+
+	SUBCASE("Invalid member")
+	{
+		Document.Folders[0].Entities.push_back(FObjectId{});
+	}
+
+	SUBCASE("Duplicate member")
+	{
+		Document.Folders[0].Entities.push_back(Document.Folders[0].Entities[0]);
+	}
+
+	SUBCASE("Member in multiple folders")
+	{
+		Document.Folders[1].Entities.push_back(Document.Folders[0].Entities[0]);
+	}
+
+	CHECK_FALSE(ValidateLevelDocument(Document));
+	CHECK_FALSE(SerializeLevel(Document));
+}
+
+TEST_CASE("Level folder bounds reject excessive metadata before processing it")
+{
+	FLevelDocument Document = MakeLevelFolderDocument();
+
+	SUBCASE("Folder count")
+	{
+		Document.Folders.resize(1'000'001);
+	}
+
+	SUBCASE("Membership count")
+	{
+		Document.Folders[0].Entities.resize(1'000'001);
+	}
+
+	CHECK_FALSE(ValidateLevelDocument(Document));
+	CHECK_FALSE(SerializeLevel(Document));
+}
+
+TEST_CASE("Deep folder hierarchies validate iteratively and allow unassigned entities")
+{
+	FLevelDocument Document = MakeLevelDocument();
+	constexpr std::uint64_t FolderCount = 4096;
+
+	for (std::uint64_t Index = 0; Index < FolderCount; ++Index)
+	{
+		Document.Folders.push_back(FLevelFolder{.Id = FObjectId{4, Index + 1}, .Name = "Folder", .Parent = Index + 1 < FolderCount ? FObjectId{4, Index + 2} : FObjectId{}});
+	}
+
+	REQUIRE(ValidateLevelDocument(Document));
+	const auto Serialized = SerializeLevel(Document);
+	REQUIRE(Serialized);
+	const auto Parsed = ParseLevel(*Serialized);
+	REQUIRE(Parsed);
+	CHECK(Parsed->Folders == Document.Folders);
+	Document.Folders.back().Parent = Document.Folders.front().Id;
+	CHECK_FALSE(ValidateLevelDocument(Document));
+}
+
 TEST_CASE("Levels bound names and reject invalid UTF-8 and non-finite state")
 {
 	FLevelDocument Document = MakeLevelDocument();
@@ -362,6 +624,11 @@ TEST_CASE("Failed level saves preserve existing files and clean sibling temporar
 	REQUIRE(SaveLevel(Path, Document));
 	const std::string Original = ReadLevelText(Path);
 	Document.Name = std::string(1025, 'x');
+	CHECK_FALSE(SaveLevel(Path, Document));
+	CHECK(ReadLevelText(Path) == Original);
+	CHECK(CountLevelTemporaryFiles(Directory.GetPath()) == 0);
+	Document = MakeLevelDocument();
+	Document.Folders.push_back(FLevelFolder{.Id = FObjectId{4, 1}, .Name = "Folder", .Entities = {FObjectId{9, 9}}});
 	CHECK_FALSE(SaveLevel(Path, Document));
 	CHECK(ReadLevelText(Path) == Original);
 	CHECK(CountLevelTemporaryFiles(Directory.GetPath()) == 0);

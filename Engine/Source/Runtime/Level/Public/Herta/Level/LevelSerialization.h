@@ -10,11 +10,22 @@
 
 namespace Herta
 {
+struct FLevelFolder
+{
+	bool operator==(const FLevelFolder&) const = default;
+
+	FObjectId Id;
+	std::string Name;
+	FObjectId Parent{};
+	std::vector<FObjectId> Entities{};
+};
+
 struct FLevelDocument
 {
 	FObjectId Id;
 	std::string Name;
 	std::vector<FLevelEntity> Entities{};
+	std::vector<FLevelFolder> Folders{};
 };
 
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelDocument(const FLevelDocument& Document);

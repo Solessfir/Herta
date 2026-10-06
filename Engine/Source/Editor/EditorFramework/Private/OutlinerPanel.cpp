@@ -7,14 +7,20 @@
 
 #include <algorithm>
 #include <cstring>
+#include <format>
 #include <string>
 #include <unordered_map>
 
 namespace Herta
 {
-void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const FPreviewObject> Objects)
+void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const FPreviewObject> Objects, const std::span<const FLevelFolder> Folders)
 {
-	bool bHierarchyChanged = State.CachedHierarchy.size() != Objects.size();
+	const std::size_t NodeCount = Objects.size() + Folders.size();
+	const auto NodeIndex = [&](const FOutlinerRow& Row)
+	{
+		return Row.ObjectIndex >= 0 ? static_cast<std::size_t>(Row.ObjectIndex) : Objects.size() + static_cast<std::size_t>(Row.FolderIndex);
+	};
+	bool bHierarchyChanged = State.CachedHierarchy.size() != Objects.size() || !std::ranges::equal(State.CachedFolders, Folders);
 	for (std::size_t Index = 0; !bHierarchyChanged && Index < Objects.size(); ++Index)
 	{
 		bHierarchyChanged = State.CachedHierarchy[Index] != std::pair{Objects[Index].Id, Objects[Index].Parent};
@@ -27,7 +33,8 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 			return std::hash<std::uint64_t>{}(Id.GetHigh()) ^ (std::hash<std::uint64_t>{}(Id.GetLow()) << 1);
 		};
 		std::unordered_map<FObjectId, int, decltype(HashId)> Indices;
-		Indices.reserve(Objects.size());
+		Indices.reserve(NodeCount);
+		State.CachedFolders.assign(Folders.begin(), Folders.end());
 		State.CachedHierarchy.clear();
 		State.CachedHierarchy.reserve(Objects.size());
 		for (std::size_t Index = 0; Index < Objects.size(); ++Index)
@@ -45,16 +52,45 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 			return !Indices.contains(Id);
 		});
 
-		std::vector<std::vector<int>> Children(Objects.size());
+		for (std::size_t Index = 0; Index < Folders.size(); ++Index)
+		{
+			Indices.emplace(Folders[Index].Id, static_cast<int>(Objects.size() + Index));
+		}
+
+		std::erase_if(State.CollapsedFolders, [&](const FObjectId Id)
+		{
+			return !Indices.contains(Id);
+		});
+
+		if (State.SelectedFolder.IsValid() && std::ranges::find(Folders, State.SelectedFolder, &FLevelFolder::Id) == Folders.end())
+		{
+			State.SelectedFolder = {};
+		}
+
+		std::vector<int> FolderAssignments(Objects.size(), -1);
+		for (std::size_t Index = 0; Index < Folders.size(); ++Index)
+		{
+			for (const FObjectId Id : Folders[Index].Entities)
+			{
+				const auto Object = Indices.find(Id);
+				if (Object != Indices.end() && static_cast<std::size_t>(Object->second) < Objects.size())
+				{
+					FolderAssignments[static_cast<std::size_t>(Object->second)] = static_cast<int>(Objects.size() + Index);
+				}
+			}
+		}
+
+		std::vector<std::vector<int>> Children(NodeCount);
 		std::vector<int> Roots;
-		State.ParentIndices.assign(Objects.size(), -1);
+		State.ParentIndices.assign(NodeCount, -1);
 		for (std::size_t Index = 0; Index < Objects.size(); ++Index)
 		{
 			const auto Parent = Objects[Index].Parent ? Indices.find(*Objects[Index].Parent) : Indices.end();
-			if (Parent != Indices.end() && Parent->second != static_cast<int>(Index))
+			const int ParentIndex = Parent != Indices.end() && static_cast<std::size_t>(Parent->second) < Objects.size() && Parent->second != static_cast<int>(Index) ? Parent->second : FolderAssignments[Index];
+			if (ParentIndex >= 0)
 			{
-				Children[static_cast<std::size_t>(Parent->second)].push_back(static_cast<int>(Index));
-				State.ParentIndices[Index] = Parent->second;
+				Children[static_cast<std::size_t>(ParentIndex)].push_back(static_cast<int>(Index));
+				State.ParentIndices[Index] = ParentIndex;
 			}
 			else
 			{
@@ -62,20 +98,56 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 			}
 		}
 
+		for (std::size_t Index = 0; Index < Folders.size(); ++Index)
+		{
+			const int FolderIndex = static_cast<int>(Objects.size() + Index);
+			const auto Parent = Indices.find(Folders[Index].Parent);
+			if (Parent != Indices.end() && static_cast<std::size_t>(Parent->second) >= Objects.size() && Parent->second != FolderIndex)
+			{
+				Children[static_cast<std::size_t>(Parent->second)].push_back(FolderIndex);
+				State.ParentIndices[static_cast<std::size_t>(FolderIndex)] = Parent->second;
+			}
+			else
+			{
+				Roots.push_back(FolderIndex);
+			}
+		}
+
+		const auto OrderNodes = [&](const int First, const int Second)
+		{
+			const bool bFirstFolder = static_cast<std::size_t>(First) >= Objects.size();
+			const bool bSecondFolder = static_cast<std::size_t>(Second) >= Objects.size();
+			if (bFirstFolder != bSecondFolder)
+			{
+				return bFirstFolder;
+			}
+
+			return bFirstFolder ? Folders[static_cast<std::size_t>(First) - Objects.size()].Id < Folders[static_cast<std::size_t>(Second) - Objects.size()].Id : First < Second;
+		};
+		std::ranges::sort(Roots, OrderNodes);
+		for (auto& Siblings : Children)
+		{
+			std::ranges::sort(Siblings, OrderNodes);
+		}
+
 		State.HierarchyRows.clear();
-		State.HierarchyRows.reserve(Objects.size());
+		State.HierarchyRows.reserve(NodeCount);
 		std::vector<FOutlinerRow> Pending;
-		Pending.reserve(Objects.size());
-		std::vector<bool> Visited(Objects.size());
+		Pending.reserve(NodeCount);
+		std::vector<bool> Visited(NodeCount);
+		const auto MakeRow = [&](const int Index, const int Depth)
+		{
+			return static_cast<std::size_t>(Index) < Objects.size() ? FOutlinerRow{.ObjectIndex = Index, .Depth = Depth} : FOutlinerRow{.FolderIndex = Index - static_cast<int>(Objects.size()), .Depth = Depth};
+		};
 		const auto AppendTree = [&](const int Root)
 		{
 			State.ParentIndices[static_cast<std::size_t>(Root)] = -1;
-			Pending.push_back({.ObjectIndex = Root});
+			Pending.push_back(MakeRow(Root, 0));
 			while (!Pending.empty())
 			{
 				FOutlinerRow Row = Pending.back();
 				Pending.pop_back();
-				const std::size_t Index = static_cast<std::size_t>(Row.ObjectIndex);
+				const std::size_t Index = NodeIndex(Row);
 				if (Visited[Index])
 				{
 					continue;
@@ -88,7 +160,7 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 				{
 					if (!Visited[static_cast<std::size_t>(*Child)])
 					{
-						Pending.push_back({.ObjectIndex = *Child, .Depth = Row.Depth + 1});
+						Pending.push_back(MakeRow(*Child, Row.Depth + 1));
 					}
 				}
 			}
@@ -99,7 +171,7 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 		}
 
 		// Keep malformed preview metadata bounded; the authored world validates hierarchy separately.
-		for (std::size_t Index = 0; Index < Objects.size(); ++Index)
+		for (std::size_t Index = 0; Index < NodeCount; ++Index)
 		{
 			if (!Visited[Index])
 			{
@@ -112,7 +184,7 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 	std::vector<bool> Matches;
 	if (bSearching)
 	{
-		Matches.resize(Objects.size());
+		Matches.resize(NodeCount);
 		std::string SearchText;
 		for (std::size_t Index = 0; Index < Objects.size(); ++Index)
 		{
@@ -121,10 +193,17 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 			Matches[Index] = State.Search.PassFilter(SearchText.c_str());
 		}
 
+		for (std::size_t Index = 0; Index < Folders.size(); ++Index)
+		{
+			SearchText = Folders[Index].Name + " Folder";
+			Matches[Objects.size() + Index] = State.Search.PassFilter(SearchText.c_str());
+		}
+
 		for (auto Row = State.HierarchyRows.rbegin(); Row != State.HierarchyRows.rend(); ++Row)
 		{
-			const int Parent = State.ParentIndices[static_cast<std::size_t>(Row->ObjectIndex)];
-			if (Matches[static_cast<std::size_t>(Row->ObjectIndex)] && Parent >= 0)
+			const std::size_t Index = NodeIndex(*Row);
+			const int Parent = State.ParentIndices[Index];
+			if (Matches[Index] && Parent >= 0)
 			{
 				Matches[static_cast<std::size_t>(Parent)] = true;
 			}
@@ -133,7 +212,7 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 
 	State.VisibleRows.clear();
 	State.VisibleIndices.clear();
-	State.VisibleRows.reserve(Objects.size());
+	State.VisibleRows.reserve(NodeCount);
 	State.VisibleIndices.reserve(Objects.size());
 	int CollapsedDepth = -1;
 	for (const FOutlinerRow& Row : State.HierarchyRows)
@@ -144,15 +223,20 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 		}
 
 		CollapsedDepth = -1;
-		const std::size_t Index = static_cast<std::size_t>(Row.ObjectIndex);
+		const std::size_t Index = NodeIndex(Row);
 		if (bSearching && !Matches[Index])
 		{
 			continue;
 		}
 
 		State.VisibleRows.push_back(Row);
-		State.VisibleIndices.push_back(Row.ObjectIndex);
-		if (!bSearching && State.CollapsedObjects.contains(Objects[Index].Id))
+		if (Row.ObjectIndex >= 0)
+		{
+			State.VisibleIndices.push_back(Row.ObjectIndex);
+		}
+
+		const bool bCollapsed = Row.FolderIndex >= 0 ? State.CollapsedFolders.contains(Folders[static_cast<std::size_t>(Row.FolderIndex)].Id) : State.CollapsedObjects.contains(Objects[Index].Id);
+		if (!bSearching && bCollapsed)
 		{
 			CollapsedDepth = Row.Depth;
 		}
@@ -202,6 +286,49 @@ std::optional<FOutlinerReparentRequest> MakeOutlinerReparentRequest(const std::s
 namespace
 {
 constexpr char OutlinerPayload[] = "Herta.OutlinerObjects";
+constexpr char OutlinerFolderPayload[] = "Herta.OutlinerFolder";
+
+void RequestOutlinerFolder(FOutlinerPanelState& State, const FPreviewSelection& Selection, const std::span<const FPreviewObject> Objects, const std::optional<FObjectId> Parent, const bool bIncludeSelection)
+{
+	FOutlinerFolderRequest Request{.Parent = Parent};
+	if (bIncludeSelection)
+	{
+		const auto Selected = MakeOutlinerReparentRequest(Objects, Selection, Selection.Active, std::nullopt);
+		if (Selected)
+		{
+			Request.Objects = Selected->Objects;
+		}
+	}
+
+	State.FolderRequest = std::move(Request);
+}
+
+void AcceptOutlinerFolderDrop(FOutlinerPanelState& State, const std::optional<FObjectId> Parent)
+{
+	if (const ImGuiPayload* const Payload = ImGui::AcceptDragDropPayload(OutlinerFolderPayload))
+	{
+		if (Payload->DataSize == sizeof(FObjectId))
+		{
+			FObjectId Folder;
+			std::memcpy(&Folder, Payload->Data, sizeof(Folder));
+			if (!Parent || Folder != *Parent)
+			{
+				State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::MoveFolder, .Folder = Folder, .Parent = Parent};
+			}
+		}
+	}
+
+	if (const ImGuiPayload* const Payload = ImGui::AcceptDragDropPayload(OutlinerPayload))
+	{
+		if (Payload->DataSize > 0 && static_cast<std::size_t>(Payload->DataSize) % sizeof(FObjectId) == 0)
+		{
+			FOutlinerFolderRequest Request{.Action = EOutlinerFolderAction::MoveEntities, .Parent = Parent};
+			Request.Objects.resize(static_cast<std::size_t>(Payload->DataSize) / sizeof(FObjectId));
+			std::memcpy(Request.Objects.data(), Payload->Data, static_cast<std::size_t>(Payload->DataSize));
+			State.FolderRequest = std::move(Request);
+		}
+	}
+}
 
 void AcceptOutlinerDrop(FOutlinerPanelState& State, const std::optional<FObjectId> Parent)
 {
@@ -250,24 +377,34 @@ bool DrawOutlinerRenameField(FOutlinerPanelState& State, const ImVec2 Position, 
 	return bHovered;
 }
 
-bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<const FPreviewObject> Objects, const bool bDragging, FOutlinerPanelState& State)
+bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<const FPreviewObject> Objects, const bool bDragging, FOutlinerPanelState& State, const std::span<const FLevelFolder> Folders)
 {
 	State.bRenameCommitted = false;
 	bool bFocusRequested = false;
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	ImGui::BeginDisabled(bDragging);
 	auto& VisibleIndices = State.VisibleIndices;
-	BuildOutlinerVisibleRows(State, Objects);
+	BuildOutlinerVisibleRows(State, Objects, Folders);
 
 	const ImGuiIO& IO = ImGui::GetIO();
 	if (!bDragging && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !IO.WantTextInput)
 	{
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_A, false))
 		{
+			State.SelectedFolder = {};
 			Selection.SelectAll(VisibleIndices);
 		}
 
-		State.bRenameRequested |= Selection.Active >= 0 && ImGui::IsKeyPressed(ImGuiKey_F2, false);
+		State.bRenameRequested |= (State.SelectedFolder.IsValid() || Selection.Active >= 0) && ImGui::IsKeyPressed(ImGuiKey_F2, false);
+		if (State.SelectedFolder.IsValid() && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+		{
+			State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::Delete, .Folder = State.SelectedFolder};
+		}
+
+		if (IO.KeyCtrl && IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_N, false))
+		{
+			RequestOutlinerFolder(State, Selection, Objects, State.SelectedFolder.IsValid() ? std::optional{State.SelectedFolder} : std::nullopt, false);
+		}
 	}
 
 	auto& SelectedMask = State.SelectedMask;
@@ -285,7 +422,12 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 	};
 	RefreshSelectedMask();
 
-	const bool bStartRename = !bDragging && State.bRenameRequested && Selection.Active >= 0 && static_cast<std::size_t>(Selection.Active) < Objects.size() && std::ranges::find(VisibleIndices, Selection.Active) != VisibleIndices.end();
+	const auto SelectedFolder = std::ranges::find(Folders, State.SelectedFolder, &FLevelFolder::Id);
+	const bool bFolderVisible = SelectedFolder != Folders.end() && std::ranges::any_of(State.VisibleRows, [&](const FOutlinerRow& Row)
+	{
+		return Row.FolderIndex == static_cast<int>(SelectedFolder - Folders.begin());
+	});
+	const bool bStartRename = !bDragging && State.bRenameRequested && (bFolderVisible || (Selection.Active >= 0 && static_cast<std::size_t>(Selection.Active) < Objects.size() && std::ranges::find(VisibleIndices, Selection.Active) != VisibleIndices.end()));
 	State.bRenameRequested = false;
 
 	if (bDragging)
@@ -295,20 +437,36 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 
 	if (State.bRenaming)
 	{
-		const auto Object = std::ranges::find(Objects, State.RenameObject, &FPreviewObject::Id);
-		if (Object == Objects.end() || std::ranges::find(VisibleIndices, static_cast<int>(Object - Objects.begin())) == VisibleIndices.end())
+		if (State.RenameFolder.IsValid())
 		{
-			State.bRenameCommitted = Object != Objects.end();
-			State.bRenaming = false;
+			const auto Folder = std::ranges::find(Folders, State.RenameFolder, &FLevelFolder::Id);
+			if (Folder == Folders.end() || !std::ranges::any_of(State.VisibleRows, [&](const FOutlinerRow& Row)
+			{
+				return Row.FolderIndex == static_cast<int>(Folder - Folders.begin());
+			}))
+			{
+				State.bRenameCommitted = Folder != Folders.end();
+				State.bRenaming = false;
+			}
+		}
+		else
+		{
+			const auto Object = std::ranges::find(Objects, State.RenameObject, &FPreviewObject::Id);
+			if (Object == Objects.end() || std::ranges::find(VisibleIndices, static_cast<int>(Object - Objects.begin())) == VisibleIndices.end())
+			{
+				State.bRenameCommitted = Object != Objects.end();
+				State.bRenaming = false;
+			}
 		}
 	}
 
 	if (bStartRename)
 	{
-		const FPreviewObject& Object = Objects[static_cast<std::size_t>(Selection.Active)];
+		const std::string& Label = bFolderVisible ? SelectedFolder->Name : Objects[static_cast<std::size_t>(Selection.Active)].Label;
 		State.RenameBuffer.fill('\0');
-		std::copy_n(Object.Label.begin(), std::min(Object.Label.size(), State.RenameBuffer.size() - 1), State.RenameBuffer.begin());
-		State.RenameObject = Object.Id;
+		std::copy_n(Label.begin(), std::min(Label.size(), State.RenameBuffer.size() - 1), State.RenameBuffer.begin());
+		State.RenameObject = bFolderVisible ? FObjectId{} : Objects[static_cast<std::size_t>(Selection.Active)].Id;
+		State.RenameFolder = bFolderVisible ? SelectedFolder->Id : FObjectId{};
 		State.bRenaming = true;
 	}
 
@@ -337,13 +495,13 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 			ImGui::TablePopBackgroundChannel();
 			RowsTop = ImGui::GetCursorScreenPos().y;
 			ImGuiListClipper Clipper;
-			Clipper.Begin(static_cast<int>(VisibleIndices.size()));
+			Clipper.Begin(static_cast<int>(State.VisibleRows.size()));
 			const auto IncludeObject = [&](const int ObjectIndex)
 			{
-				const auto Visible = std::ranges::find(VisibleIndices, ObjectIndex);
-				if (Visible != VisibleIndices.end())
+				const auto Visible = std::ranges::find(State.VisibleRows, ObjectIndex, &FOutlinerRow::ObjectIndex);
+				if (Visible != State.VisibleRows.end())
 				{
-					Clipper.IncludeItemByIndex(static_cast<int>(Visible - VisibleIndices.begin()));
+					Clipper.IncludeItemByIndex(static_cast<int>(Visible - State.VisibleRows.begin()));
 				}
 			};
 			if (Selection.Active >= 0)
@@ -358,10 +516,25 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 
 			if (State.bRenaming)
 			{
-				const auto Object = std::ranges::find(Objects, State.RenameObject, &FPreviewObject::Id);
-				if (Object != Objects.end())
+				if (State.RenameFolder.IsValid())
 				{
-					IncludeObject(static_cast<int>(Object - Objects.begin()));
+					const auto Folder = std::ranges::find(Folders, State.RenameFolder, &FLevelFolder::Id);
+					if (Folder != Folders.end())
+					{
+						const auto Row = std::ranges::find(State.VisibleRows, static_cast<int>(Folder - Folders.begin()), &FOutlinerRow::FolderIndex);
+						if (Row != State.VisibleRows.end())
+						{
+							Clipper.IncludeItemByIndex(static_cast<int>(Row - State.VisibleRows.begin()));
+						}
+					}
+				}
+				else
+				{
+					const auto Object = std::ranges::find(Objects, State.RenameObject, &FPreviewObject::Id);
+					if (Object != Objects.end())
+					{
+						IncludeObject(static_cast<int>(Object - Objects.begin()));
+					}
 				}
 			}
 
@@ -369,11 +542,15 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 			{
 				for (int VisibleIndex = Clipper.DisplayStart; VisibleIndex < Clipper.DisplayEnd; ++VisibleIndex)
 				{
-					const std::size_t Index = static_cast<std::size_t>(VisibleIndices[static_cast<std::size_t>(VisibleIndex)]);
-					const FPreviewObject& Object = Objects[Index];
 					const FOutlinerRow& Row = State.VisibleRows[static_cast<std::size_t>(VisibleIndex)];
+					const bool bFolder = Row.FolderIndex >= 0;
+					const FLevelFolder* const Folder = bFolder ? &Folders[static_cast<std::size_t>(Row.FolderIndex)] : nullptr;
+					const FPreviewObject* const Object = bFolder ? nullptr : &Objects[static_cast<std::size_t>(Row.ObjectIndex)];
+					const FObjectId Id = bFolder ? Folders[static_cast<std::size_t>(Row.FolderIndex)].Id : Objects[static_cast<std::size_t>(Row.ObjectIndex)].Id;
+					const std::string& Label = bFolder ? Folders[static_cast<std::size_t>(Row.FolderIndex)].Name : Objects[static_cast<std::size_t>(Row.ObjectIndex)].Label;
+					const bool bSelected = bFolder ? State.SelectedFolder == Id : SelectedMask[static_cast<std::size_t>(Row.ObjectIndex)];
 
-					ImGui::PushID(static_cast<int>(Index));
+					ImGui::PushID(bFolder ? -Row.FolderIndex - 1 : Row.ObjectIndex);
 					ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {8.f * Scale, 6.f * Scale});
 					ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.f * Scale, 12.f * Scale});
 					ImGui::TableNextRow();
@@ -387,41 +564,49 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 					ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0, 0, 0, 0});
 					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
 					const float LabelX = ImGui::GetCursorScreenPos().x;
-					const bool bRenamingRow = State.bRenaming && State.RenameObject == Object.Id;
+					const bool bRenamingRow = State.bRenaming && (bFolder ? State.RenameFolder == Id : !State.RenameFolder.IsValid() && State.RenameObject == Id);
 					if (bRenamingRow)
 					{
 						ImGui::SetNextItemAllowOverlap();
 					}
 
 					const bool bArrowHit = Row.bHasChildren && IO.MousePos.x >= ArrowX && IO.MousePos.x < ArrowX + 18.f * Scale;
-					const bool bExpanded = State.Search.IsActive() || !State.CollapsedObjects.contains(Object.Id);
-					if (ImGui::Selectable("##Object", SelectedMask[Index], ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) && !bRenamingRow)
+					auto& Collapsed = bFolder ? State.CollapsedFolders : State.CollapsedObjects;
+					const bool bExpanded = State.Search.IsActive() || !Collapsed.contains(Id);
+					if (ImGui::Selectable("##Object", bSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) && !bRenamingRow)
 					{
-						if (bArrowHit)
+						if (bArrowHit || (bFolder && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)))
 						{
 							if (!State.Search.IsActive())
 							{
 								if (bExpanded)
 								{
-									State.CollapsedObjects.insert(Object.Id);
+									Collapsed.insert(Id);
 								}
 								else
 								{
-									State.CollapsedObjects.erase(Object.Id);
+									Collapsed.erase(Id);
 								}
 							}
 						}
+						else if (bFolder)
+						{
+							State.SelectedFolder = Id;
+							Selection.Select(-1);
+						}
 						else if (IO.KeyShift)
 						{
-							Selection.SelectRange(static_cast<int>(Index), VisibleIndices, IO.KeyCtrl);
+							State.SelectedFolder = {};
+							Selection.SelectRange(Row.ObjectIndex, VisibleIndices, IO.KeyCtrl);
 						}
 						else if (!IO.KeyCtrl || !ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 						{
-							Selection.Select(static_cast<int>(Index), IO.KeyCtrl);
+							State.SelectedFolder = {};
+							Selection.Select(Row.ObjectIndex, IO.KeyCtrl);
 						}
 						RefreshSelectedMask();
 
-						bFocusRequested = !bArrowHit && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter));
+						bFocusRequested = !bFolder && !bArrowHit && (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Enter));
 					}
 
 					ImGui::PopStyleColor(4);
@@ -429,7 +614,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 					bRowHovered |= bCurrentRowHovered;
 					const ImVec2 Minimum = ImGui::GetItemRectMin();
 					const ImVec2 Maximum = ImGui::GetItemRectMax();
-					if (SelectedMask[Index] || bCurrentRowHovered)
+					if (bSelected || bCurrentRowHovered)
 					{
 						const ImGuiCol Color = bCurrentRowHovered ? (ImGui::IsItemActive() ? ImGuiCol_HeaderActive : ImGuiCol_HeaderHovered) : ImGuiCol_Header;
 						ImGui::TablePushBackgroundChannel();
@@ -439,12 +624,16 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 
 					const float CenterY = (Minimum.y + Maximum.y) * 0.5f;
 					const bool bArrowDrag = Row.bHasChildren && IO.MouseClickedPos[ImGuiMouseButton_Left].x >= ArrowX && IO.MouseClickedPos[ImGuiMouseButton_Left].x < ArrowX + 18.f * Scale;
-					if (!bDragging && !bRenamingRow && !bArrowDrag && Object.Id.IsValid() && ImGui::BeginDragDropSource())
+					if (!bDragging && !bRenamingRow && !bArrowDrag && Id.IsValid() && ImGui::BeginDragDropSource())
 					{
 						const ImGuiPayload* Payload = ImGui::GetDragDropPayload();
-						if (!Payload || !Payload->IsDataType(OutlinerPayload))
+						if (bFolder)
 						{
-							const auto Request = MakeOutlinerReparentRequest(Objects, Selection, static_cast<int>(Index), std::nullopt);
+							ImGui::SetDragDropPayload(OutlinerFolderPayload, &Id, sizeof(Id), ImGuiCond_Once);
+						}
+						else if (!Payload || !Payload->IsDataType(OutlinerPayload))
+						{
+							const auto Request = MakeOutlinerReparentRequest(Objects, Selection, Row.ObjectIndex, std::nullopt);
 							if (Request)
 							{
 								ImGui::SetDragDropPayload(OutlinerPayload, Request->Objects.data(), Request->Objects.size() * sizeof(FObjectId), ImGuiCond_Once);
@@ -453,27 +642,87 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 							Payload = ImGui::GetDragDropPayload();
 						}
 
-						ImGui::TextUnformatted(Object.Label.c_str());
-						if (Payload && static_cast<std::size_t>(Payload->DataSize) > sizeof(FObjectId))
+						ImGui::TextUnformatted(Label.c_str());
+						if (!bFolder && Payload && static_cast<std::size_t>(Payload->DataSize) > sizeof(FObjectId))
 						{
 							ImGui::TextDisabled("%d objects", static_cast<int>(static_cast<std::size_t>(Payload->DataSize) / sizeof(FObjectId)));
 						}
-						ImGui::TextDisabled("Drop on an object to parent, or empty space for root");
+						ImGui::TextDisabled("%s", bFolder ? "Drop on a folder to nest, or empty space for root" : "Drop on an entity to parent, or a folder to organize");
 
 						ImGui::EndDragDropSource();
 					}
 
-					if (!bDragging && !bRenamingRow && Object.Id.IsValid() && ImGui::BeginDragDropTarget())
+					if (!bDragging && !bRenamingRow && Id.IsValid() && ImGui::BeginDragDropTarget())
 					{
-						AcceptOutlinerDrop(State, Object.Id);
+						if (bFolder)
+						{
+							AcceptOutlinerFolderDrop(State, Id);
+						}
+						else
+						{
+							AcceptOutlinerDrop(State, Id);
+						}
 						ImGui::EndDragDropTarget();
 					}
 
 					if (!bDragging && !bRenamingRow && ImGui::BeginPopupContextItem("##ObjectActions"))
 					{
-						if (ImGui::MenuItem("Move to root", nullptr, false, Object.Parent.has_value() || Selection.Contains(static_cast<int>(Index))))
+						if (bFolder)
 						{
-							State.ReparentRequest = MakeOutlinerReparentRequest(Objects, Selection, static_cast<int>(Index), std::nullopt);
+							State.SelectedFolder = Id;
+							Selection.Select(-1);
+							if (ToolUIMenuItem("New Folder", EToolUIMenuIcon::ContentBrowser, nullptr, "Ctrl+Shift+N"))
+							{
+								RequestOutlinerFolder(State, Selection, Objects, Id, false);
+							}
+
+							if (ToolUIMenuItem("Rename", EToolUIMenuIcon::Details, nullptr, "F2"))
+							{
+								State.bRenameRequested = true;
+							}
+
+							ImGui::BeginDisabled(!Folder->Parent.IsValid());
+							if (ToolUIMenuItem("Move to root", EToolUIMenuIcon::Outliner))
+							{
+								State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::MoveFolder, .Folder = Id};
+							}
+
+							ImGui::EndDisabled();
+							ImGui::Separator();
+							if (ToolUIMenuItem("Delete Folder", EToolUIMenuIcon::Delete, nullptr, "Delete"))
+							{
+								State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::Delete, .Folder = Id};
+							}
+						}
+						else
+						{
+							if (!Selection.Contains(Row.ObjectIndex))
+							{
+								Selection.Select(Row.ObjectIndex);
+							}
+
+							State.SelectedFolder = {};
+							if (ToolUIMenuItem("New Folder from Selection", EToolUIMenuIcon::ContentBrowser))
+							{
+								RequestOutlinerFolder(State, Selection, Objects, std::nullopt, true);
+							}
+
+							if (ToolUIMenuItem("Move to root", EToolUIMenuIcon::Outliner))
+							{
+								const auto Request = MakeOutlinerReparentRequest(Objects, Selection, Row.ObjectIndex, std::nullopt);
+								if (Request)
+								{
+									State.FolderRequest = FOutlinerFolderRequest{.Action = EOutlinerFolderAction::MoveEntities, .Objects = Request->Objects};
+								}
+							}
+
+							ImGui::BeginDisabled(!Object->Parent.has_value() && Selection.Indices.size() <= 1);
+							if (ToolUIMenuItem("Unparent", EToolUIMenuIcon::Entity))
+							{
+								State.ReparentRequest = MakeOutlinerReparentRequest(Objects, Selection, Row.ObjectIndex, std::nullopt);
+							}
+
+							ImGui::EndDisabled();
 						}
 
 						ImGui::EndPopup();
@@ -499,7 +748,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 					}
 					else
 					{
-						ImGui::GetWindowDrawList()->AddText({LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Object.Label.data(), Object.Label.data() + Object.Label.size());
+						ImGui::GetWindowDrawList()->AddText({LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label.data(), Label.data() + Label.size());
 					}
 					const ImVec2 Top{IconX + 6.f * Scale, CenterY - 7.f * Scale};
 					const ImVec2 Left{IconX, CenterY - 4.f * Scale};
@@ -509,7 +758,11 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 					const ImVec2 Outline[]{Top, Right, {Right.x, CenterY + 4.f * Scale}, Bottom, {Left.x, CenterY + 4.f * Scale}, Left};
 					ImDrawList* const Draw = ImGui::GetWindowDrawList();
 					const ImU32 IconColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-					if (Object.Mesh.IsValid())
+					if (bFolder)
+					{
+						ToolUIIcon(EToolUIMenuIcon::ContentBrowser, Top.x, CenterY, Scale * 0.8f);
+					}
+					else if (Object->Mesh.IsValid())
 					{
 						Draw->AddPolyline(Outline, 6, IconColor, ImDrawFlags_Closed, Scale);
 						Draw->AddLine(Left, Center, IconColor, Scale);
@@ -523,7 +776,8 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 						Draw->AddCircleFilled(EntityCenter, 1.5f * Scale, IconColor);
 					}
 					ImGui::TableSetColumnIndex(1);
-					ImGui::TextDisabled("%s", Object.Mesh.IsValid() ? "Static Mesh" : "Entity");
+					ImGui::TextDisabled("%s", bFolder ? "Folder" : Object->Mesh.IsValid() ? "Static Mesh"
+					                                                                      : "Entity");
 					ImGui::PopStyleVar(2);
 					ImGui::PopID();
 				}
@@ -537,6 +791,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 		if (!bDragging && ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::GetIO().MousePos.y >= RowsTop && !bRowHovered)
 		{
 			Selection.Select(-1);
+			State.SelectedFolder = {};
 			RefreshSelectedMask();
 		}
 
@@ -546,28 +801,55 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 			const ImRect Background{{Window->InnerRect.Min.x, std::max(RowsTop, Window->InnerRect.Min.y)}, Window->InnerRect.Max};
 			if (ImGui::BeginDragDropTargetCustom(Background, ImGui::GetID("##RootDrop")))
 			{
-				AcceptOutlinerDrop(State, std::nullopt);
+				AcceptOutlinerFolderDrop(State, std::nullopt);
 				ImGui::EndDragDropTarget();
 			}
+		}
+
+		if (!bDragging && ImGui::BeginPopupContextWindow("##OutlinerActions", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems))
+		{
+			if (ToolUIMenuItem("New Folder", EToolUIMenuIcon::ContentBrowser, nullptr, "Ctrl+Shift+N"))
+			{
+				RequestOutlinerFolder(State, Selection, Objects, std::nullopt, false);
+			}
+
+			ImGui::BeginDisabled(Selection.Indices.empty());
+			if (ToolUIMenuItem("New Folder from Selection", EToolUIMenuIcon::ContentBrowser))
+			{
+				RequestOutlinerFolder(State, Selection, Objects, std::nullopt, true);
+			}
+
+			ImGui::EndDisabled();
+			ImGui::EndPopup();
 		}
 	}
 
 	ImGui::EndChild();
 	ImGui::Separator();
-	if (State.Search.IsActive())
+	std::string Footer = State.Search.IsActive() ? std::format("{} of {} objects", VisibleIndices.size(), Objects.size()) : std::format("{} objects", Objects.size());
+	if (!Folders.empty())
 	{
-		ImGui::TextDisabled("%d of %d objects (%d selected)", static_cast<int>(VisibleIndices.size()), static_cast<int>(Objects.size()), static_cast<int>(Selection.Indices.size()));
+		Footer += std::format(" | {} folders", Folders.size());
 	}
-	else
+
+	const std::string SelectionCount = std::format(" ({} selected)", Selection.Indices.size());
+	const bool bShowSelectionCount = ImGui::CalcTextSize((Footer + SelectionCount).c_str()).x <= ImGui::GetContentRegionAvail().x;
+	if (bShowSelectionCount)
 	{
-		ImGui::TextDisabled("%d objects (%d selected)", static_cast<int>(Objects.size()), static_cast<int>(Selection.Indices.size()));
+		Footer += SelectionCount;
+	}
+
+	ImGui::TextDisabled("%s", Footer.c_str());
+	if (!bShowSelectionCount && ImGui::IsItemHovered())
+	{
+		ImGui::SetTooltip("%d objects selected", static_cast<int>(Selection.Indices.size()));
 	}
 
 	ImGui::EndDisabled();
 	return bFocusRequested;
 }
 
-bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelection& Selection, const std::span<const FPreviewObject> Objects, const bool bDragging, FOutlinerPanelState& State)
+bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelection& Selection, const std::span<const FPreviewObject> Objects, const bool bDragging, FOutlinerPanelState& State, const std::span<const FLevelFolder> Folders)
 {
 	State.bRenameCommitted = false;
 	if (!ToolUI.BeginPanel("Outliner", &bOpen))
@@ -584,7 +866,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 	}
 
 	ImGui::EndDisabled();
-	const bool bFocusRequested = DrawPreviewOutlinerContents(Selection, Objects, bDragging, State);
+	const bool bFocusRequested = DrawPreviewOutlinerContents(Selection, Objects, bDragging, State, Folders);
 	ToolUI.EndPanel();
 	return bFocusRequested;
 }

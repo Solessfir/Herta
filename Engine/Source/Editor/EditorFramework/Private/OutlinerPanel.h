@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Herta/Level/World.h"
+#include "Herta/Level/LevelSerialization.h"
 
 #include <imgui.h>
 
@@ -22,6 +22,7 @@ struct FPreviewSelection;
 struct FOutlinerRow
 {
 	int ObjectIndex = -1;
+	int FolderIndex = -1;
 	int Depth = 0;
 	bool bHasChildren = false;
 };
@@ -32,6 +33,23 @@ struct FOutlinerReparentRequest
 	std::optional<FObjectId> Parent{};
 };
 
+enum class EOutlinerFolderAction
+{
+	Create,
+	Delete,
+	MoveFolder,
+	MoveEntities,
+};
+
+struct FOutlinerFolderRequest
+{
+	EOutlinerFolderAction Action = EOutlinerFolderAction::Create;
+	FObjectId Folder{};
+	std::optional<FObjectId> Parent{};
+	std::vector<FObjectId> Objects{};
+	std::string Name{};
+};
+
 struct FOutlinerPanelState
 {
 	ImGuiTextFilter Search;
@@ -39,12 +57,17 @@ struct FOutlinerPanelState
 	std::vector<int> VisibleIndices;
 	std::vector<FOutlinerRow> VisibleRows;
 	std::set<FObjectId> CollapsedObjects;
+	std::set<FObjectId> CollapsedFolders;
 	std::optional<FOutlinerReparentRequest> ReparentRequest;
+	std::optional<FOutlinerFolderRequest> FolderRequest;
 	std::vector<bool> SelectedMask;
 	std::vector<std::pair<FObjectId, std::optional<FObjectId>>> CachedHierarchy;
+	std::vector<FLevelFolder> CachedFolders;
 	std::vector<FOutlinerRow> HierarchyRows;
 	std::vector<int> ParentIndices;
 	FObjectId RenameObject{};
+	FObjectId SelectedFolder{};
+	FObjectId RenameFolder{};
 	bool bRenameRequested = false;
 	bool bRenaming = false;
 	bool bRenameCommitted = false;
@@ -56,13 +79,13 @@ struct FOutlinerPanelState
 	}
 };
 
-void BuildOutlinerVisibleRows(FOutlinerPanelState& State, std::span<const FPreviewObject> Objects);
+void BuildOutlinerVisibleRows(FOutlinerPanelState& State, std::span<const FPreviewObject> Objects, std::span<const FLevelFolder> Folders = {});
 
 std::optional<FOutlinerReparentRequest> MakeOutlinerReparentRequest(std::span<const FPreviewObject> Objects, const FPreviewSelection& Selection, int SourceIndex, std::optional<FObjectId> Parent);
 
 bool DrawOutlinerRenameField(FOutlinerPanelState& State, ImVec2 Position, float Width, bool bStartRename);
 
-bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, std::span<const FPreviewObject> Objects, bool bDragging, FOutlinerPanelState& State);
+bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, std::span<const FPreviewObject> Objects, bool bDragging, FOutlinerPanelState& State, std::span<const FLevelFolder> Folders = {});
 
-[[nodiscard]] bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelection& Selection, std::span<const FPreviewObject> Objects, bool bDragging, FOutlinerPanelState& State);
+[[nodiscard]] bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelection& Selection, std::span<const FPreviewObject> Objects, bool bDragging, FOutlinerPanelState& State, std::span<const FLevelFolder> Folders = {});
 }

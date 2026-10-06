@@ -12,6 +12,7 @@
 #include <exception>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <span>
 #include <system_error>
 
@@ -321,6 +322,153 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 	return Entity;
 }
 
+std::expected<FLevelFolder, FLevelError> ReadFolder(const simdjson::dom::element Element, std::size_t& MembershipCount)
+{
+	const auto Fields = ReadFields(Element, std::array<std::string_view, 4>{"id", "name", "parent", "entities"}, 0xf);
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Id = ReadId<FObjectId>((*Fields)[0]);
+	const auto Name = ReadString((*Fields)[1]);
+	if (!Id || !Name || Name->empty() || !IsValidName(*Name))
+	{
+		return LevelError("Invalid level folder ID or name");
+	}
+
+	FLevelFolder Folder{.Id = *Id, .Name = std::string(*Name)};
+	if (!(*Fields)[2].is_null())
+	{
+		const auto Parent = ReadId<FObjectId>((*Fields)[2]);
+		if (!Parent)
+		{
+			return std::unexpected(Parent.error());
+		}
+
+		Folder.Parent = *Parent;
+	}
+
+	simdjson::dom::array Entities;
+	if ((*Fields)[3].get_array().get(Entities) || Entities.size() > MaximumLevelEntities - MembershipCount)
+	{
+		return LevelError("Invalid level folder entities array or membership count");
+	}
+
+	MembershipCount += Entities.size();
+	Folder.Entities.reserve(Entities.size());
+
+	for (const auto Member : Entities)
+	{
+		const auto Entity = ReadId<FObjectId>(Member);
+		if (!Entity)
+		{
+			return std::unexpected(Entity.error());
+		}
+
+		Folder.Entities.push_back(*Entity);
+	}
+
+	return Folder;
+}
+
+std::expected<void, FLevelError> ValidateLevelFolders(const FLevelDocument& Document)
+{
+	if (Document.Folders.empty())
+	{
+		return {};
+	}
+
+	std::map<FObjectId, bool> Entities;
+
+	for (const auto& Entity : Document.Entities)
+	{
+		Entities.emplace(Entity.Id, false);
+	}
+
+	std::map<FObjectId, std::size_t> Indices;
+	std::size_t MembershipCount = 0;
+
+	for (std::size_t Index = 0; Index < Document.Folders.size(); ++Index)
+	{
+		const FLevelFolder& Folder = Document.Folders[Index];
+		if (!Folder.Id.IsValid() || Folder.Name.empty() || !IsValidName(Folder.Name) || Entities.contains(Folder.Id))
+		{
+			return LevelError("Invalid level folder ID or name, or folder ID conflicts with an entity");
+		}
+
+		if (!Indices.emplace(Folder.Id, Index).second)
+		{
+			return LevelError("Duplicate level folder ID");
+		}
+
+		if (Folder.Entities.size() > MaximumLevelEntities - MembershipCount)
+		{
+			return LevelError("Level exceeds the limit of 1000000 folder memberships");
+		}
+
+		MembershipCount += Folder.Entities.size();
+
+		for (const FObjectId Member : Folder.Entities)
+		{
+			const auto Entity = Entities.find(Member);
+			if (Entity == Entities.end() || Entity->second)
+			{
+				return LevelError("Missing level folder entity or duplicate folder membership");
+			}
+
+			Entity->second = true;
+		}
+	}
+
+	std::vector<std::size_t> Parents(Document.Folders.size(), Document.Folders.size());
+
+	for (std::size_t Index = 0; Index < Document.Folders.size(); ++Index)
+	{
+		const FObjectId Parent = Document.Folders[Index].Parent;
+		if (!Parent.IsValid())
+		{
+			continue;
+		}
+
+		const auto Found = Indices.find(Parent);
+		if (Found == Indices.end())
+		{
+			return LevelError("Missing level folder parent");
+		}
+
+		Parents[Index] = Found->second;
+	}
+
+	std::vector<std::uint8_t> States(Document.Folders.size());
+
+	for (std::size_t Start = 0; Start < Document.Folders.size(); ++Start)
+	{
+		std::size_t Current = Start;
+
+		while (Current != Document.Folders.size() && States[Current] == 0)
+		{
+			States[Current] = 1;
+			Current = Parents[Current];
+		}
+
+		if (Current != Document.Folders.size() && States[Current] == 1)
+		{
+			return LevelError("Level folders contain a parent cycle");
+		}
+
+		Current = Start;
+
+		while (Current != Document.Folders.size() && States[Current] == 1)
+		{
+			States[Current] = 2;
+			Current = Parents[Current];
+		}
+	}
+
+	return {};
+}
+
 void AppendString(std::string& Output, const std::string_view Text)
 {
 	Output += '"';
@@ -424,12 +572,18 @@ std::expected<void, FLevelError> WriteTemporaryFile(const std::filesystem::path&
 
 std::expected<void, FLevelError> ValidateLevelDocument(const FLevelDocument& Document)
 {
-	if (!Document.Id.IsValid() || !IsValidName(Document.Name) || Document.Entities.size() > MaximumLevelEntities)
+	if (!Document.Id.IsValid() || !IsValidName(Document.Name) || Document.Entities.size() > MaximumLevelEntities || Document.Folders.size() > MaximumLevelEntities)
 	{
-		return LevelError("Invalid level document ID, name, or entity count");
+		return LevelError("Invalid level document ID, name, entity count, or folder count");
 	}
 
-	return ValidateLevelEntities(Document.Entities);
+	const auto Entities = ValidateLevelEntities(Document.Entities);
+	if (!Entities)
+	{
+		return Entities;
+	}
+
+	return ValidateLevelFolders(Document);
 }
 
 std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Document)
@@ -456,7 +610,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 2,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 3,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -528,7 +682,61 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		}
 	}
 
-	Output += Entities.empty() ? "]\n}\n" : "\n  ]\n}\n";
+	Output += Entities.empty() ? "],\n  \"folders\": [" : "\n  ],\n  \"folders\": [";
+	std::vector<const FLevelFolder*> Folders;
+	Folders.reserve(Document.Folders.size());
+
+	for (const auto& Folder : Document.Folders)
+	{
+		Folders.push_back(&Folder);
+	}
+
+	std::ranges::sort(Folders, [](const FLevelFolder* Left, const FLevelFolder* Right)
+	{
+		return Left->Id < Right->Id;
+	});
+
+	for (std::size_t Index = 0; Index < Folders.size(); ++Index)
+	{
+		const FLevelFolder& Folder = *Folders[Index];
+		Output += Index == 0 ? "\n" : ",\n";
+		Output += "    {\n      \"id\": ";
+		AppendString(Output, Folder.Id.ToString());
+		Output += ",\n      \"name\": ";
+		AppendString(Output, Folder.Name);
+		Output += ",\n      \"parent\": ";
+
+		if (Folder.Parent.IsValid())
+		{
+			AppendString(Output, Folder.Parent.ToString());
+		}
+		else
+		{
+			Output += "null";
+		}
+
+		Output += ",\n      \"entities\": [";
+		std::vector<FObjectId> Members = Folder.Entities;
+		std::ranges::sort(Members);
+
+		for (std::size_t MemberIndex = 0; MemberIndex < Members.size(); ++MemberIndex)
+		{
+			if (MemberIndex != 0)
+			{
+				Output += ", ";
+			}
+
+			AppendString(Output, Members[MemberIndex].ToString());
+		}
+
+		Output += "]\n    }";
+		if (Output.size() > MaximumLevelBytes)
+		{
+			return LevelError("Level exceeds the 64 MiB limit");
+		}
+	}
+
+	Output += Folders.empty() ? "]\n}\n" : "\n  ]\n}\n";
 	if (Output.size() > MaximumLevelBytes)
 	{
 		return LevelError("Level exceeds the 64 MiB limit");
@@ -557,7 +765,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		return LevelError("Malformed level JSON or invalid UTF-8");
 	}
 
-	const auto Fields = ReadFields(Root, std::array<std::string_view, 6>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities"}, 0x3f);
+	const auto Fields = ReadFields(Root, std::array<std::string_view, 7>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders"}, 0x3f);
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -572,9 +780,15 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || (SchemaVersion != 1 && SchemaVersion != 2))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 3 || (*Format == "HertaScene" && SchemaVersion == 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 and legacy HertaScene 1, with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 3 and legacy HertaScene 1 with engine schemas 1 through 2");
+	}
+
+	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
+	if ((SchemaVersion == 3) != bHasFolders)
+	{
+		return LevelError("Level folders are required only in engine schema 3");
 	}
 
 	const auto Id = ReadId<FObjectId>((*Fields)[3]);
@@ -602,6 +816,29 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		}
 
 		Document.Entities.push_back(std::move(*Entity));
+	}
+
+	if (SchemaVersion == 3)
+	{
+		simdjson::dom::array Folders;
+		if ((*Fields)[6].get_array().get(Folders) || Folders.size() > MaximumLevelEntities)
+		{
+			return LevelError("Invalid level folders array or folder count");
+		}
+
+		Document.Folders.reserve(Folders.size());
+		std::size_t MembershipCount = 0;
+
+		for (const auto Element : Folders)
+		{
+			auto Folder = ReadFolder(Element, MembershipCount);
+			if (!Folder)
+			{
+				return std::unexpected(Folder.error());
+			}
+
+			Document.Folders.push_back(std::move(*Folder));
+		}
 	}
 
 	const auto Validation = ValidateLevelDocument(Document);

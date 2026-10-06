@@ -39,6 +39,10 @@ Q hides the transform gizmo without deselecting; W/E/R select move/rotate/scale 
 
 im3d is pinned under `External/im3d` and is private to EditorFramework. The renderer accepts Herta-owned points, lines, and triangles. Pixel-width lines and points expand to triangles without requiring geometry shaders or native wide-line support.
 
+## Next rendering slice
+
+[Milestone 4.5](EngineDesign.md#milestone-45---materials-lighting-and-visual-authoring) precedes the standalone game: editable PBR material assets and mesh-slot assignments, cooked normals/tangents, project Slang shader iteration, authored directional/sky/point/spot/rect lights and shadows, HDR exposure/tone mapping, sky/atmosphere, volumetric fog, and SMAA 1x. These features are planned, not implemented. They replace the current camera-relative studio light and baked color-factor workflow; changing an object's color or PBR textures must not require importing another glTF.
+
 ## Shader cooking
 
 The pinned Vulkan SDK supplies Slang. Setup validates its headers and compiler libraries on Windows and Linux. `ShaderCompiler` is a Developer module; runtime rendering depends only on RHI's cooked reader.
