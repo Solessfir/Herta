@@ -1,0 +1,9 @@
+# {{ProjectName}}
+
+Open `{{ProjectName}}.hertaproject` with HertaEditor. The Game template includes an empty scene and a native C++ module, not a standalone game runtime.
+
+Generate projects from the associated Herta source checkout with its pinned Premake:
+
+`premake5 --file=<engine>/premake5.lua --project=<project>/{{ProjectName}}.hertaproject vs2026`
+
+On Linux use `gmake`. Build the `{{ModuleName}}` static library in the generated workspace. Build rules stay in the engine; project descriptors and templates never execute build scripts.

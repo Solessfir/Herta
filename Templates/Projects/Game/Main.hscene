@@ -1,0 +1,8 @@
+{
+  "format": "HertaScene",
+  "formatVersion": 1,
+  "engineSchemaVersion": 2,
+  "id": "{{ProjectId}}",
+  "name": "Main",
+  "entities": []
+}

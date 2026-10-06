@@ -24,4 +24,7 @@ struct FFileDialogError
 // Shows the platform's open-file dialog with multiple selection and blocks until the user chooses or cancels; an empty result means cancelled.
 // Windows uses IFileOpenDialog. Linux runs zenity, then kdialog, so desktop portals and themes apply; neither being installed is an error.
 [[nodiscard]] std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDialog(std::string_view Title, std::span<const FFileDialogFilter> Filters, const std::filesystem::path& InitialDirectory = {});
+
+// Starts the desktop file manager without waiting for its window to close.
+[[nodiscard]] std::expected<void, FFileDialogError> OpenDirectoryInFileManager(const std::filesystem::path& Directory);
 }

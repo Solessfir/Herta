@@ -3,12 +3,12 @@ local SourceRoot = path.join(RepositoryRoot, "Engine/Source")
 local RuntimeRoot = path.join(SourceRoot, "Runtime")
 local EditorRoot = path.join(SourceRoot, "Editor")
 local ProgramsRoot = path.join(SourceRoot, "Programs")
-local ProjectFilesRoot = path.join(RepositoryRoot, "Intermediate/ProjectFiles", _ACTION or "NoAction")
+local ProjectFilesRoot = path.join(HertaProjectRoot or RepositoryRoot, "Intermediate/ProjectFiles", _ACTION or "NoAction")
 local RuntimeModules = {}
 
-local function GetBuildRevision()
+local function GetBuildRevision(FullRevision)
     local NullDevice = os.host() == "windows" and "nul" or "/dev/null"
-    local Command = 'git -C "' .. RepositoryRoot .. '" rev-parse --short=8 HEAD 2>' .. NullDevice
+    local Command = 'git -C "' .. RepositoryRoot .. '" rev-parse ' .. (FullRevision and "" or "--short=8 ") .. 'HEAD 2>' .. NullDevice
     local Success, Output = pcall(os.outputof, Command)
     local Revision = Success and Output and Output:match("^%s*([0-9a-fA-F]+)%s*$")
     return Revision and #Revision >= 7 and #Revision <= 40 and Revision or "unknown"
@@ -206,6 +206,13 @@ HertaRuntimeModule("Assets", {
     PublicDependencies = { "Core" }
 })
 
+HertaRuntimeModule("Project", {
+    PublicDependencies = { "Core" },
+    PrivateDependencies = { "Assets", "Math", "Scene" },
+    PrivateThirdPartyDependencies = { "SimdJson" }
+})
+    externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
+
 HertaRuntimeModule("Scene", {
     PublicDependencies = { "Math", "Assets" },
     PrivateThirdPartyDependencies = { "SimdJson" }
@@ -231,7 +238,7 @@ HertaRuntimeModule("Physics", {
 
 HertaRuntimeModule("Platform", {
     PublicDependencies = { "Core" },
-    PrivateWindowsSystemDependencies = { "ole32" }
+    PrivateWindowsSystemDependencies = { "ole32", "shell32" }
 })
     filter "system:windows"
         removefiles {
@@ -257,7 +264,7 @@ HertaRuntimeModule("Tasks", {
 
 HertaRuntimeModule("EditorCore", {
     PublicDependencies = { "Math" },
-    PrivateDependencies = { "Scene", "Assets" }
+    PrivateDependencies = { "Scene", "Assets", "Project" }
 })
 
 HertaRuntimeModule("Application", {
@@ -296,7 +303,7 @@ HertaRuntimeModule("AssetPipeline", {
     }
 
 HertaEditorModule("EditorFramework", {
-    PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets" },
+    PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
     PrivateDependencies = { "Physics", "Platform", "Tasks", "AssetPipeline", "Scene" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
 })
@@ -425,7 +432,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Scene", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Scene", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
@@ -435,7 +442,7 @@ project "HertaEditorCmd"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaEditorCmd"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditorCmd"))
-    ApplyRuntimeDependencies { "EditorCore", "Scene", "AssetPipeline", "Platform" }
+    ApplyRuntimeDependencies { "EditorCore", "Scene", "Project", "AssetPipeline", "Platform" }
     dependson { "HertaAssetWorker" }
 
 project "HertaEditor"
@@ -472,3 +479,40 @@ project "HertaEditor"
         }
 
     filter {}
+
+if HertaProjectDescriptor then
+    local BuildIdentityDirectory = path.join(HertaProjectRoot, "Intermediate")
+    os.mkdir(BuildIdentityDirectory)
+    local BuildIdentityFile, BuildIdentityError = io.open(path.join(BuildIdentityDirectory, "HertaEngineBuild.json"), "wb")
+    if not BuildIdentityFile then
+        error("Cannot record the native module engine build identity: " .. tostring(BuildIdentityError))
+    end
+
+    BuildIdentityFile:write(json.encode({ engineAssociation = "Herta", revision = GetBuildRevision(true) }))
+    BuildIdentityFile:write("\n")
+    BuildIdentityFile:close()
+
+    for _, Module in ipairs(HertaProjectDescriptor.modules) do
+        local ReservedNames = { "NVRHI", "NVRHIVulkanBackend", "MeshOptimizer", "Jolt", "FreeType", "FastGltf", "GLFW", "EnkiTS", "ImGui", "Im3d", "Spdlog", "SimdJson", "HertaEditor", "HertaEditorCmd", "HertaTests", "HertaAssetWorker", "HertaShaderWorker", "HertaShaders" }
+        for Name in pairs(RuntimeModules) do
+            table.insert(ReservedNames, Name)
+        end
+
+        local Conflicts = false
+        for _, Name in ipairs(ReservedNames) do
+            Conflicts = Conflicts or Module.name:lower() == Name:lower()
+        end
+
+        if Conflicts then
+            error("Project module name conflicts with an engine module: " .. Module.name)
+        end
+
+        HertaRuntimeModule(Module.name, {
+            SourceRoot = path.join(HertaProjectRoot, Module.source),
+            PublicDependencies = Module.dependencies
+        })
+        ApplyRuntimeDependencies(Module.dependencies)
+        targetdir(path.join(HertaProjectRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}"))
+        objdir(path.join(HertaProjectRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/%{prj.name}"))
+    end
+end

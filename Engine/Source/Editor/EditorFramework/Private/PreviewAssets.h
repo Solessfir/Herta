@@ -15,8 +15,10 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace Herta
@@ -25,11 +27,34 @@ class FLogService;
 class FTaskScope;
 class FTaskSystem;
 
+struct FPreviewModelMetadata
+{
+	std::size_t Vertices = 0;
+	std::size_t Triangles = 0;
+	std::size_t Materials = 0;
+	FVector3 BoundsMinimum{};
+	FVector3 BoundsMaximum{};
+};
+
+struct FPreviewTextureMetadata
+{
+	std::uint32_t Width = 0;
+	std::uint32_t Height = 0;
+	std::size_t Mips = 0;
+	ETextureColorSpace ColorSpace = ETextureColorSpace::Srgb;
+};
+
+using FPreviewAssetMetadata = std::variant<FPreviewModelMetadata, FPreviewTextureMetadata>;
+
+FPreviewAssetMetadata GetPreviewAssetMetadata(const FCookedAsset& Asset);
+
 struct FPreviewMeshSlot
 {
 	FAssetId Asset;
 	std::string Label;
 	std::shared_ptr<const FRenderMesh> Mesh;
+	FEditorAssetThumbnail Thumbnail;
+	std::optional<FPreviewAssetMetadata> Metadata;
 
 	// Build key of Mesh, so a reimport that cooks the same key keeps the GPU copy.
 	FHash128 Key;
@@ -56,7 +81,7 @@ struct FPreviewAssetOption
 class FPreviewAssets final
 {
 public:
-	[[nodiscard]] static std::unique_ptr<FPreviewAssets> Create(FTaskSystem& Tasks, IGraphicsDevice& Device, FLogService& Log, FEditorAssetPaths Paths, std::size_t ObjectCount);
+	[[nodiscard]] static std::unique_ptr<FPreviewAssets> Create(FTaskSystem& Tasks, IGraphicsDevice& Device, FLogService& Log, FEditorAssetPaths Paths, std::size_t ObjectCount, FEditorAssetThumbnailRenderer RenderThumbnail = {});
 	~FPreviewAssets();
 	FPreviewAssets(const FPreviewAssets&) = delete;
 	FPreviewAssets& operator=(const FPreviewAssets&) = delete;
@@ -68,7 +93,12 @@ public:
 	void CheckForChanges();
 	// Imports files into Game content in the background through asset.import, the same command HertaEditorCmd runs.
 	// Models land in Models and images in Textures; the next poll picks the new assets up.
-	void ImportFiles(std::vector<std::filesystem::path> Files);
+	void ImportFiles(std::vector<std::filesystem::path> Files, std::string Destination = {});
+	[[nodiscard]] std::expected<std::string, FAssetError> CreateFolder(std::string_view MountedParent, std::string_view Name, bool bUniqueName = false);
+	[[nodiscard]] std::expected<std::string, FAssetError> RenameFolder(std::string_view MountedFolder, std::string_view NewName);
+	[[nodiscard]] std::expected<std::filesystem::path, FAssetError> GetFolderPath(std::string_view MountedFolder) const;
+	std::span<const std::string> GetFolders() const noexcept;
+	std::uint64_t GetOptionsGeneration() const noexcept;
 
 	[[nodiscard]] bool IsImporting() const noexcept
 	{
@@ -79,6 +109,10 @@ public:
 	void RequestMesh(std::size_t Object, const FAssetId& Asset);
 	// Scene edits change bindings, not the lifetime of loaded meshes or pending cooks. Invalid assets leave empty slots.
 	void RebindObjects(std::span<const FAssetId> Assets);
+	// The browser retains at most 64 visible thumbnails. Tick performs GPU work, never the draw-time request.
+	void SetThumbnailAssets(std::span<const FAssetId> Assets);
+	FEditorAssetThumbnail GetThumbnail(const FAssetId& Asset) const noexcept;
+	const FPreviewMeshSlot* GetCachedAsset(const FAssetId& Asset) const noexcept;
 
 	[[nodiscard]] std::span<const FPreviewAssetOption> GetOptions() const noexcept
 	{
@@ -116,18 +150,22 @@ private:
 	{
 		FPreviewMeshSlot Slot;
 		std::uint64_t RequestContentGeneration = 0;
+		std::optional<FHash128> ThumbnailKey;
+		bool bThumbnailOnly = false;
 	};
 
-	FPreviewAssets(FTaskSystem& Tasks, IGraphicsDevice& Device, FLogService& Log, FEditorAssetPaths Paths, std::size_t ObjectCount, std::unique_ptr<FTaskScope> Scope);
+	FPreviewAssets(FTaskSystem& Tasks, IGraphicsDevice& Device, FLogService& Log, FEditorAssetPaths Paths, std::size_t ObjectCount, std::unique_ptr<FTaskScope> Scope, FEditorAssetThumbnailRenderer RenderThumbnail);
 	void PublishScan(const std::vector<std::expected<FContentScanResult, FAssetError>>& Results);
+	void PublishFolders(std::vector<std::string> NewFolders);
 	void ContentChanged();
-	FPreviewMeshSlot& GetOrLoadMesh(const FAssetId& Asset);
+	FPreviewMeshSlot& GetOrLoadMesh(const FAssetId& Asset, bool bThumbnailOnly = false);
 	void StartLoad(const FAssetId& Asset);
 	[[nodiscard]] bool SubmitCook(const FLocation& Location, const std::string& Label, std::function<void(FMeshLoad&)> Publish);
 	void PublishMesh(const FAssetId& Asset, std::uint64_t Generation, FMeshLoad& Load);
 	void ReimportShownAssets();
 	void PublishSlots(const FPreviewMeshSlot& Slot);
 	void PruneCache();
+	void UpdateThumbnail(FCachedMesh& Cached);
 
 	FTaskSystem& Tasks;
 	IGraphicsDevice& Device;
@@ -137,12 +175,18 @@ private:
 	std::vector<FMount> Mounts;
 
 	std::vector<FPreviewAssetOption> Options;
+	std::vector<std::string> Folders;
 	std::map<FAssetId, FLocation> Locations;
+	std::uint64_t FolderGeneration = 0;
 
 	std::vector<FPreviewMeshSlot> Slots;
 	std::map<FAssetId, FCachedMesh> MeshCache;
+	std::set<FAssetId> ThumbnailAssets;
+	FEditorAssetThumbnailRenderer RenderThumbnail;
+	bool bThumbnailRequestsChanged = false;
 	std::uint64_t RequestGeneration = 0;
 	std::uint64_t ContentGeneration = 0;
+	std::uint64_t OptionsGeneration = 0;
 
 	bool bScanning = false;
 	bool bScanned = false;

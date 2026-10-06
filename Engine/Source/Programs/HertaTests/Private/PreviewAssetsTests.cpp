@@ -1,5 +1,6 @@
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/Core/Log.h"
+#include "Herta/Platform/Process.h"
 #include "Herta/Tasks/TaskSystem.h"
 #include "PreviewAssets.h"
 #include "PreviewScene.h"
@@ -52,6 +53,8 @@ void CheckEmptyMeshSlot(const FPreviewMeshSlot& Slot)
 	CHECK_FALSE(Slot.Asset.IsValid());
 	CHECK(Slot.Label.empty());
 	CHECK_FALSE(Slot.Mesh);
+	CHECK_FALSE(Slot.Thumbnail);
+	CHECK_FALSE(Slot.Metadata);
 	CHECK(Slot.Key == FHash128{});
 	CHECK(Slot.ContentGeneration == 0);
 	CHECK_FALSE(Slot.bLoading);
@@ -99,10 +102,10 @@ struct FPreviewAssetsFixture
 		Tests::WriteText(Root / (Path + ".hmeta"), "Format = HertaAssetMetadata\nVersion = 1\nId = " + Id.ToString() + "\nImporter = Texture\n");
 	}
 
-	[[nodiscard]] std::unique_ptr<FPreviewAssets> CreateAssets()
+	[[nodiscard]] std::unique_ptr<FPreviewAssets> CreateAssets(FEditorAssetThumbnailRenderer RenderThumbnail = {})
 	{
 		const std::filesystem::path& Root = Scratch.GetPath();
-		return FPreviewAssets::Create(*Tasks, Device, *Log, {.EngineContentRoot = Root / "Engine", .ContentRoot = Root / "Game", .DerivedDataRoot = Root / "DerivedDataCache", .WorkerPath = Tests::GetSiblingExecutable("HertaAssetWorker"), .TargetPlatform = "TestPlatform"}, 2);
+		return FPreviewAssets::Create(*Tasks, Device, *Log, {.EngineContentRoot = Root / "Engine", .ContentRoot = Root / "Game", .DerivedDataRoot = Root / "DerivedDataCache", .WorkerPath = Tests::GetSiblingExecutable("HertaAssetWorker"), .TargetPlatform = "TestPlatform"}, 2, std::move(RenderThumbnail));
 	}
 
 	// FIFO waiting stops before continuations queued by the preceding work.
@@ -115,6 +118,228 @@ struct FPreviewAssetsFixture
 		REQUIRE(Checkpoint->Wait().State == ETaskState::Succeeded);
 	}
 };
+}
+
+TEST_CASE("Preview metadata describes cooked assets rather than their preview geometry")
+{
+	const FCookedAsset Texture = FCookedTexture{.ColorSpace = ETextureColorSpace::Linear, .Mips = {{.Width = 8, .Height = 4, .Pixels = {}}, {.Width = 4, .Height = 2, .Pixels = {}}, {.Width = 2, .Height = 1, .Pixels = {}}, {.Width = 1, .Height = 1, .Pixels = {}}}};
+	const auto TextureMetadata = GetPreviewAssetMetadata(Texture);
+	REQUIRE(std::holds_alternative<FPreviewTextureMetadata>(TextureMetadata));
+	const auto& Image = std::get<FPreviewTextureMetadata>(TextureMetadata);
+	CHECK(Image.Width == 8);
+	CHECK(Image.Height == 4);
+	CHECK(Image.Mips == 4);
+	CHECK(Image.ColorSpace == ETextureColorSpace::Linear);
+
+	const FCookedAsset Model = FCookedModel{
+	    .Vertices = {{.Position = {2.f, -8.f, 1.f}, .UV = {}}, {.Position = {5.f, -3.f, 7.f}, .UV = {}}, {.Position = {3.f, -4.f, 2.f}, .UV = {}}},
+	    .Indices = {0, 1, 2},
+	    .Sections = {},
+	    .Materials = {{.Name = "First", .BaseColorTexture = 0}, {.Name = "Second", .BaseColorTexture = 0}},
+	    .Textures = {},
+	};
+
+	const auto ModelMetadata = GetPreviewAssetMetadata(Model);
+	REQUIRE(std::holds_alternative<FPreviewModelMetadata>(ModelMetadata));
+	const auto& Mesh = std::get<FPreviewModelMetadata>(ModelMetadata);
+	CHECK(Mesh.Vertices == 3);
+	CHECK(Mesh.Triangles == 1);
+	CHECK(Mesh.Materials == 2);
+	CHECK(Mesh.BoundsMinimum == FVector3{2.f, -8.f, 1.f});
+	CHECK(Mesh.BoundsMaximum == FVector3{5.f, -3.f, 7.f});
+}
+
+TEST_CASE("Preview thumbnails load without scene bindings and share the existing mesh cache")
+{
+	FPreviewAssetsFixture Fixture;
+	std::uint64_t RenderCount = 0;
+	auto Assets = Fixture.CreateAssets([&RenderCount](const FRenderMesh&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		return std::make_shared<const std::uint64_t>(++RenderCount);
+	});
+
+	REQUIRE(Assets);
+	Assets->SetThumbnailAssets(std::array{WoodId, WoodId, FAssetId{}});
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+	CHECK_FALSE(Assets->GetThumbnail(WoodId));
+	const auto TasksBeforeLookup = FPreviewAssetsTestAccess::GetOutstandingTaskCount(*Assets);
+	CHECK(Assets->GetCachedAsset(WoodId) == nullptr);
+	CHECK(FPreviewAssetsTestAccess::GetOutstandingTaskCount(*Assets) == TasksBeforeLookup);
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+	Assets->Tick();
+	CHECK(RenderCount == 0);
+	REQUIRE(Assets->GetCachedAsset(WoodId));
+	CHECK(Assets->GetCachedAsset(WoodId)->bLoading);
+	CHECK_FALSE(Assets->GetCachedAsset(WoodId)->Metadata);
+	Fixture.Tasks->RunUntilIdle();
+	REQUIRE(Assets->GetThumbnail(WoodId));
+	CHECK(*Assets->GetThumbnail(WoodId) == 1);
+	CHECK(RenderCount == 1);
+	CHECK(Fixture.Device.Submissions == 1);
+	const auto* Cached = Assets->GetCachedAsset(WoodId);
+	REQUIRE(Cached);
+	REQUIRE(Cached->Metadata);
+	REQUIRE(std::holds_alternative<FPreviewTextureMetadata>(*Cached->Metadata));
+	const auto& Texture = std::get<FPreviewTextureMetadata>(*Cached->Metadata);
+	CHECK(Texture.Width == 1);
+	CHECK(Texture.Height == 1);
+	CHECK(Texture.Mips == 1);
+	CHECK(Texture.ColorSpace == ETextureColorSpace::Srgb);
+	CheckEmptyMeshSlot(Assets->GetSlot(0));
+	CheckEmptyMeshSlot(Assets->GetSlot(1));
+
+	const auto Generation = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+	Assets->SetThumbnailAssets(std::array{WoodId});
+	Assets->Tick();
+	Assets->RebindObjects(std::array{WoodId});
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == Generation);
+	CHECK(RenderCount == 1);
+	REQUIRE(Assets->GetSlot(0).Mesh);
+	std::weak_ptr<const std::uint64_t> Released = Assets->GetThumbnail(WoodId);
+	Assets->SetThumbnailAssets({});
+	Assets->Tick();
+	CHECK(Released.expired());
+	CHECK_FALSE(Assets->GetThumbnail(WoodId));
+	REQUIRE(Assets->GetSlot(0).Mesh);
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 1);
+	CHECK(Fixture.Device.Submissions == 1);
+}
+
+TEST_CASE("Preview thumbnail requests are bounded and pruned before their first scan")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets([](const FRenderMesh&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		return std::make_shared<const std::uint64_t>(1);
+	});
+
+	REQUIRE(Assets);
+	std::vector<FAssetId> Visible;
+
+	for (std::uint64_t Index = 1; Index <= 128; ++Index)
+	{
+		Visible.emplace_back(0x4000, 0x8000000000000000 + Index);
+	}
+
+	Assets->SetThumbnailAssets(Visible);
+	Assets->Tick();
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 64);
+	Assets->SetThumbnailAssets({});
+	Assets->Tick();
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == 0);
+	CHECK(Fixture.Device.Submissions == 0);
+}
+
+TEST_CASE("Preview thumbnails discard invisible pending results without uploading meshes")
+{
+	FPreviewAssetsFixture Fixture;
+	std::uint64_t RenderCount = 0;
+	auto Assets = Fixture.CreateAssets([&RenderCount](const FRenderMesh&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		return std::make_shared<const std::uint64_t>(++RenderCount);
+	});
+
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->SetThumbnailAssets(std::array{WoodId});
+	Assets->Tick();
+	Fixture.RunToCheckpoint();
+	Assets->SetThumbnailAssets({});
+	Assets->Tick();
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Assets) == 0);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(RenderCount == 0);
+	CHECK(Fixture.Device.Submissions == 0);
+	CHECK_FALSE(Assets->GetThumbnail(WoodId));
+}
+
+TEST_CASE("Preview thumbnail reimports replace changed keys and preserve the previous image on failure")
+{
+	FPreviewAssetsFixture Fixture;
+	std::uint64_t RenderCount = 0;
+	bool bFailRendering = false;
+	auto Assets = Fixture.CreateAssets([&RenderCount, &bFailRendering](const FRenderMesh&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		++RenderCount;
+		if (bFailRendering)
+		{
+			return std::unexpected(FPresentationError{.Message = "Thumbnail render failed"});
+		}
+
+		return std::make_shared<const std::uint64_t>(RenderCount);
+	});
+
+	REQUIRE(Assets);
+	Assets->SetThumbnailAssets(std::array{WoodId});
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	const auto Original = Assets->GetThumbnail(WoodId);
+	REQUIRE(Original);
+
+	Tests::WriteText(Fixture.Scratch.GetPath() / "Game/Notes.txt", "unrelated");
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetThumbnail(WoodId) == Original);
+	CHECK(RenderCount == 1);
+
+	FPreviewAssetsFixture::WriteTexture(Fixture.Scratch.GetPath() / "Game", "Textures/Wood.png", WoodId, {255, 0, 0, 255});
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Changed = Assets->GetThumbnail(WoodId);
+	REQUIRE(Changed);
+	CHECK(Changed != Original);
+	CHECK(RenderCount == 2);
+
+	bFailRendering = true;
+	FPreviewAssetsFixture::WriteTexture(Fixture.Scratch.GetPath() / "Game", "Textures/Wood.png", WoodId, {0, 255, 0, 255});
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetThumbnail(WoodId) == Changed);
+	CHECK(RenderCount == 3);
+	Assets->Tick();
+	CHECK(RenderCount == 3);
+
+	Tests::WriteText(Fixture.Scratch.GetPath() / "Game/Textures/Wood.png", "broken");
+	FPreviewAssetsTestAccess::ContentChanged(*Assets);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(Assets->GetThumbnail(WoodId) == Changed);
+	CHECK(RenderCount == 3);
+	const auto* Cached = Assets->GetCachedAsset(WoodId);
+	REQUIRE(Cached);
+	CHECK_FALSE(Cached->bLoading);
+	CHECK_FALSE(Cached->Error.empty());
+	REQUIRE(Cached->Metadata);
+	REQUIRE(std::holds_alternative<FPreviewTextureMetadata>(*Cached->Metadata));
+	CHECK(std::get<FPreviewTextureMetadata>(*Cached->Metadata).Width == 1);
+}
+
+TEST_CASE("Preview thumbnails do not schedule work without a renderer and release handles on shutdown")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Disabled = Fixture.CreateAssets();
+	REQUIRE(Disabled);
+	Disabled->SetThumbnailAssets(std::array{WoodId});
+	Disabled->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(FPreviewAssetsTestAccess::GetCachedMeshCount(*Disabled) == 0);
+	CHECK(Fixture.Device.Submissions == 0);
+	Disabled.reset();
+
+	auto Assets = Fixture.CreateAssets([](const FRenderMesh&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		return std::make_shared<const std::uint64_t>(1);
+	});
+
+	REQUIRE(Assets);
+	Assets->SetThumbnailAssets(std::array{WoodId});
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+	std::weak_ptr<const std::uint64_t> Released = Assets->GetThumbnail(WoodId);
+	CHECK_FALSE(Released.expired());
+	Assets.reset();
+	CHECK(Released.expired());
 }
 
 TEST_CASE("Preview assets scan Engine and Game content and publish cooked meshes between frames")
@@ -646,6 +871,417 @@ TEST_CASE("Dropped files import into Game content through asset.import and appea
 	{
 		return Option.Label == "Game/Textures/Grass Tile.png";
 	}));
+}
+
+TEST_CASE("Dropped files import into the chosen Game subfolder and refresh registry options without GPU work")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto BeforeGeneration = Assets->GetOptionsGeneration();
+	const auto BeforeEngine = TakeContentSnapshot(Fixture.Scratch.GetPath() / "Engine");
+	const auto Source = Fixture.Scratch.GetPath() / "Desktop/Grass Tile.png";
+	const std::array<std::uint8_t, 4> Pixel{10, 200, 30, 255};
+	Tests::WritePng(Source, 1, 1, Pixel);
+	Assets->ImportFiles({Source}, "Art Assets/Imported Props");
+	CHECK(Assets->IsImporting());
+	CHECK(Assets->GetOptionsGeneration() == BeforeGeneration);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK_FALSE(Assets->IsImporting());
+	CHECK_FALSE(Assets->IsScanning());
+	CHECK(Assets->GetOptionsGeneration() > BeforeGeneration);
+	const auto Destination = Fixture.Scratch.GetPath() / "Game/Art Assets/Imported Props/Grass Tile.png";
+	CHECK(std::filesystem::is_regular_file(Destination));
+	CHECK(std::filesystem::is_regular_file(Destination.string() + ".hmeta"));
+	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Game/Textures/Grass Tile.png"));
+	CHECK(TakeContentSnapshot(Fixture.Scratch.GetPath() / "Engine") == BeforeEngine);
+	const auto Scan = ScanContentRoot(Fixture.Scratch.GetPath() / "Game");
+	REQUIRE(Scan);
+	CHECK(Scan->Errors.empty());
+	CHECK(Scan->UnregisteredSources.empty());
+	const auto* Imported = Scan->Registry.FindBySourcePath("Art Assets/Imported Props/Grass Tile.png");
+	REQUIRE(Imported);
+	CHECK(Imported->Id.IsValid());
+	CHECK(Imported->Importer == "Texture");
+	const auto Options = Assets->GetOptions();
+	const auto Option = std::ranges::find(Options, Imported->Id, &FPreviewAssetOption::Id);
+	REQUIRE(Option != Options.end());
+	CHECK(Option->Label == "Game/Art Assets/Imported Props/Grass Tile.png");
+	CHECK(Option->Importer == "Texture");
+	CHECK(Fixture.Device.Submissions == 0);
+	CHECK(Fixture.Device.Events.empty());
+}
+
+TEST_CASE("Dropped file imports reject escaping destinations before scheduling or writing files")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Source = Fixture.Scratch.GetPath() / "Desktop/Grass Tile.png";
+	const std::array<std::uint8_t, 4> Pixel{10, 200, 30, 255};
+	Tests::WritePng(Source, 1, 1, Pixel);
+	const auto Before = TakeContentSnapshot(Fixture.Scratch.GetPath());
+	const auto BeforeGeneration = Assets->GetOptionsGeneration();
+	const auto BeforeTasks = FPreviewAssetsTestAccess::GetOutstandingTaskCount(*Assets);
+	const auto BeforeOptions = Assets->GetOptions().size();
+
+	for (const std::string_view Destination : {"../Escaped", "Imported/../../Escaped", "../Engine/Textures"})
+	{
+		CAPTURE(Destination);
+		Assets->ImportFiles({Source}, std::string(Destination));
+		CHECK_FALSE(Assets->IsImporting());
+		CHECK(FPreviewAssetsTestAccess::GetOutstandingTaskCount(*Assets) == BeforeTasks);
+		Fixture.Tasks->RunUntilIdle();
+		CHECK(TakeContentSnapshot(Fixture.Scratch.GetPath()) == Before);
+		CHECK(Assets->GetOptionsGeneration() == BeforeGeneration);
+		CHECK(Assets->GetOptions().size() == BeforeOptions);
+		CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Escaped"));
+		CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Engine/Textures/Grass Tile.png"));
+	}
+
+	CHECK(Fixture.Device.Submissions == 0);
+	CHECK(Fixture.Device.Events.empty());
+}
+
+TEST_CASE("Preview folders include mount roots and empty filesystem directories")
+{
+	FPreviewAssetsFixture Fixture;
+	const auto& Root = Fixture.Scratch.GetPath();
+	REQUIRE(std::filesystem::create_directories(Root / "Engine/Empty/Nested"));
+	REQUIRE(std::filesystem::create_directories(Root / "Game/Empty/Nested"));
+	REQUIRE(std::filesystem::create_directories(Root / "Game/.Hidden/Nested"));
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Folders = Assets->GetFolders();
+	const std::vector<std::string> Expected{
+	    "Engine",
+	    "Engine/Empty",
+	    "Engine/Empty/Nested",
+	    "Engine/Textures",
+	    "Game",
+	    "Game/Empty",
+	    "Game/Empty/Nested",
+	    "Game/Models",
+	    "Game/Textures",
+	};
+
+	CHECK(std::ranges::equal(Folders, Expected));
+	CHECK(Assets->GetOptions().size() == 3);
+	CHECK(Fixture.Device.Submissions == 0);
+}
+
+TEST_CASE("Preview folder creation returns a selectable mounted path and preserves collisions")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto InitialGeneration = Assets->GetOptionsGeneration();
+	const auto InitialOptions = Assets->GetOptions().size();
+	const auto Parent = Assets->CreateFolder("Game", "Art Assets");
+	REQUIRE(Parent);
+	CHECK(*Parent == "Game/Art Assets");
+	CHECK(std::filesystem::is_empty(Fixture.Scratch.GetPath() / "Game/Art Assets"));
+	CHECK(std::ranges::find(Assets->GetFolders(), *Parent) != Assets->GetFolders().end());
+	const auto Nested = Assets->CreateFolder(*Parent, "Props");
+	REQUIRE(Nested);
+	CHECK(*Nested == "Game/Art Assets/Props");
+	CHECK(std::filesystem::is_empty(Fixture.Scratch.GetPath() / "Game/Art Assets/Props"));
+	CHECK(std::ranges::find(Assets->GetFolders(), *Nested) != Assets->GetFolders().end());
+	CHECK(Assets->GetOptionsGeneration() > InitialGeneration);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(std::ranges::find(Assets->GetFolders(), *Nested) != Assets->GetFolders().end());
+	CHECK(Assets->GetOptions().size() == InitialOptions);
+	const auto Generation = Assets->GetOptionsGeneration();
+	const auto FolderCount = Assets->GetFolders().size();
+	Tests::WriteText(Fixture.Scratch.GetPath() / "Game/Art Assets/Keep.txt", "original");
+	const auto Before = TakeContentSnapshot(Fixture.Scratch.GetPath());
+	CHECK_FALSE(Assets->CreateFolder(*Parent, "Props"));
+	CHECK_FALSE(Assets->CreateFolder(*Parent, "pRoPs"));
+	CHECK_FALSE(Assets->CreateFolder(*Parent, "Keep.txt"));
+	CHECK_FALSE(Assets->CreateFolder(*Parent, "KEEP.TXT"));
+	CHECK(TakeContentSnapshot(Fixture.Scratch.GetPath()) == Before);
+	CHECK(Assets->GetFolders().size() == FolderCount);
+	CHECK(Assets->GetOptionsGeneration() == Generation);
+	CHECK(Fixture.Device.Submissions == 0);
+}
+
+TEST_CASE("Preview folder creation rejects invalid names and unsafe mounted parents without writes")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Before = TakeContentSnapshot(Fixture.Scratch.GetPath());
+	const auto Generation = Assets->GetOptionsGeneration();
+	const auto Outstanding = FPreviewAssetsTestAccess::GetOutstandingTaskCount(*Assets);
+	const std::vector<std::string> Folders(Assets->GetFolders().begin(), Assets->GetFolders().end());
+	const std::vector<std::string> InvalidNames{
+	    "",
+	    ".",
+	    "..",
+	    ".Hidden",
+	    "../Escaped",
+	    "Nested/Child",
+	    "Nested\\Child",
+	    "Trailing.",
+	    "Trailing ",
+	    "Bad?Name",
+	    "Bad\tName",
+	    "C:",
+	    "CON",
+	    "con.txt",
+	    "NUL",
+	    "COM1",
+	    "lpt9",
+	    std::string(256, 'A'),
+	    std::string("\xc0\xaf", 2),
+	    std::string("\xed\xa0\x80", 3),
+	    std::string("\xf4\x90\x80\x80", 4),
+	};
+
+	for (const std::string& Name : InvalidNames)
+	{
+		CAPTURE(Name);
+		CHECK_FALSE(Assets->CreateFolder("Game", Name));
+	}
+
+	for (const std::string_view Parent : {"", "Engine", "Engine/Textures", "game", "Other", "Game/../Engine", "Game/Missing", "Game/Textures/..", "Game//Textures", "Game\\Textures"})
+	{
+		CAPTURE(Parent);
+		CHECK_FALSE(Assets->CreateFolder(Parent, "MustNotExist"));
+	}
+
+	CHECK(TakeContentSnapshot(Fixture.Scratch.GetPath()) == Before);
+	CHECK(std::ranges::equal(Assets->GetFolders(), Folders));
+	CHECK(Assets->GetOptionsGeneration() == Generation);
+	CHECK(FPreviewAssetsTestAccess::GetOutstandingTaskCount(*Assets) == Outstanding);
+	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Escaped"));
+	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Engine/MustNotExist"));
+	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Game/Missing"));
+}
+
+TEST_CASE("Preview automatic folder names increment across case-folded file and directory collisions")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto First = Assets->CreateFolder("Game", "New Folder", true);
+	REQUIRE(First);
+	CHECK(*First == "Game/New Folder");
+	const auto Second = Assets->CreateFolder("Game", "New Folder", true);
+	REQUIRE(Second);
+	CHECK(*Second == "Game/New Folder 2");
+	REQUIRE(std::filesystem::create_directory(Fixture.Scratch.GetPath() / "Game/nEW fOLDER 3"));
+	Tests::WriteText(Fixture.Scratch.GetPath() / "Game/nEW fOLDER 4", "keep");
+	const auto Before = TakeContentSnapshot(Fixture.Scratch.GetPath());
+	const auto Fifth = Assets->CreateFolder("Game", "New Folder", true);
+	REQUIRE(Fifth);
+	CHECK(*Fifth == "Game/New Folder 5");
+	CHECK(TakeContentSnapshot(Fixture.Scratch.GetPath()) == Before);
+	Fixture.Tasks->RunUntilIdle();
+
+	for (const std::string* const Created : {&*First, &*Second, &*Fifth})
+	{
+		CHECK(std::ranges::find(Assets->GetFolders(), *Created) != Assets->GetFolders().end());
+		CHECK(std::filesystem::is_empty(Fixture.Scratch.GetPath() / *Created));
+	}
+
+	CHECK_FALSE(Assets->CreateFolder("Game", "New Folder"));
+	CHECK(Assets->GetOptions().size() == 3);
+}
+
+TEST_CASE("Preview inline folder rename updates the filesystem and published mounted selection")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Created = Assets->CreateFolder("Game/Textures", "New Folder", true);
+	REQUIRE(Created);
+	const auto BeforeGeneration = Assets->GetOptionsGeneration();
+	const auto Renamed = Assets->RenameFolder(*Created, "Artwork");
+	REQUIRE(Renamed);
+	CHECK(*Renamed == "Game/Textures/Artwork");
+	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / *Created));
+	CHECK(std::filesystem::is_empty(Fixture.Scratch.GetPath() / *Renamed));
+	CHECK(std::ranges::find(Assets->GetFolders(), *Created) == Assets->GetFolders().end());
+	CHECK(std::ranges::find(Assets->GetFolders(), *Renamed) != Assets->GetFolders().end());
+	CHECK(Assets->GetOptionsGeneration() > BeforeGeneration);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(std::ranges::find(Assets->GetFolders(), *Created) == Assets->GetFolders().end());
+	CHECK(std::ranges::find(Assets->GetFolders(), *Renamed) != Assets->GetFolders().end());
+	const auto Generation = Assets->GetOptionsGeneration();
+	const auto Unchanged = Assets->RenameFolder(*Renamed, "Artwork");
+	REQUIRE(Unchanged);
+	CHECK(*Unchanged == *Renamed);
+	CHECK(Assets->GetOptionsGeneration() == Generation);
+	CHECK(Assets->GetOptions().size() == 3);
+	CHECK(Fixture.Device.Submissions == 0);
+}
+
+TEST_CASE("Preview inline folder rename rejects collisions and invalid destinations without overwriting")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Original = Assets->CreateFolder("Game", "Original");
+	const auto Existing = Assets->CreateFolder("Game", "Existing");
+	REQUIRE(Original);
+	REQUIRE(Existing);
+	Tests::WriteText(Fixture.Scratch.GetPath() / "Game/Keep.txt", "preserve");
+	Fixture.Tasks->RunUntilIdle();
+	const auto Before = TakeContentSnapshot(Fixture.Scratch.GetPath());
+	const auto Generation = Assets->GetOptionsGeneration();
+	const std::vector<std::string> Folders(Assets->GetFolders().begin(), Assets->GetFolders().end());
+
+	for (const std::string_view Name : {"Existing", "eXiStInG", "Keep.txt", "KEEP.TXT", "original", "", ".", "..", ".Hidden", "../Escaped", "Child/Nested", "Child\\Nested", "Trailing.", "Trailing ", "CON", "LPT1", "Bad?Name"})
+	{
+		CAPTURE(Name);
+		CHECK_FALSE(Assets->RenameFolder(*Original, Name));
+	}
+
+	for (const std::string_view Folder : {"Game", "Engine", "Engine/Textures", "Game/../Engine", "Game/Missing", "Game/Keep.txt"})
+	{
+		CAPTURE(Folder);
+		CHECK_FALSE(Assets->RenameFolder(Folder, "MustNotExist"));
+	}
+
+	CHECK(TakeContentSnapshot(Fixture.Scratch.GetPath()) == Before);
+	CHECK(std::filesystem::is_empty(Fixture.Scratch.GetPath() / *Original));
+	CHECK(std::filesystem::is_empty(Fixture.Scratch.GetPath() / *Existing));
+	CHECK(std::ranges::equal(Assets->GetFolders(), Folders));
+	CHECK(Assets->GetOptionsGeneration() == Generation);
+	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Escaped"));
+}
+
+TEST_CASE("Preview inline folder rename rejects nonempty folders without changing assets")
+{
+	FPreviewAssetsFixture Fixture;
+	REQUIRE(std::filesystem::create_directories(Fixture.Scratch.GetPath() / "Game/Container/EmptyChild"));
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto Before = TakeContentSnapshot(Fixture.Scratch.GetPath());
+	const auto Generation = Assets->GetOptionsGeneration();
+	const std::vector<std::string> Folders(Assets->GetFolders().begin(), Assets->GetFolders().end());
+	CHECK_FALSE(Assets->RenameFolder("Game/Textures", "MovedTextures"));
+	CHECK_FALSE(Assets->RenameFolder("Game/Container", "MovedContainer"));
+	CHECK(TakeContentSnapshot(Fixture.Scratch.GetPath()) == Before);
+	CHECK(std::filesystem::is_directory(Fixture.Scratch.GetPath() / "Game/Container/EmptyChild"));
+	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Game/MovedTextures"));
+	CHECK_FALSE(std::filesystem::exists(Fixture.Scratch.GetPath() / "Game/MovedContainer"));
+	CHECK(std::ranges::equal(Assets->GetFolders(), Folders));
+	CHECK(Assets->GetOptionsGeneration() == Generation);
+	const auto Scan = ScanContentRoot(Fixture.Scratch.GetPath() / "Game");
+	REQUIRE(Scan);
+	REQUIRE(Scan->Registry.Find(WoodId));
+	CHECK(Scan->Registry.Find(WoodId)->SourcePath == "Textures/Wood.png");
+	CHECK(Scan->Errors.empty());
+}
+
+TEST_CASE("Preview folder creation cannot escape Game content through linked directories")
+{
+	FPreviewAssetsFixture Fixture;
+	const auto& Root = Fixture.Scratch.GetPath();
+	const auto Outside = Root / "Outside";
+	const auto Linked = Root / "Game/Linked";
+	REQUIRE(std::filesystem::create_directory(Outside));
+	std::error_code Error;
+	std::filesystem::create_directory_symlink(Outside, Linked, Error);
+
+#ifdef _WIN32
+	if (Error)
+	{
+		const auto Junction = RunProcess(MakeShellRequest("mklink /J \"" + Linked.string() + "\" \"" + Outside.string() + "\""));
+		REQUIRE(Junction);
+		REQUIRE(Junction->ExitCode == 0);
+	}
+#else
+	REQUIRE_FALSE(Error);
+#endif
+
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(std::ranges::find(Assets->GetFolders(), "Game/Linked") == Assets->GetFolders().end());
+	CHECK_FALSE(Assets->CreateFolder("Game/Linked", "Escaped"));
+	CHECK_FALSE(Assets->CreateFolder("Game/Linked/Nested", "Escaped"));
+	CHECK_FALSE(Assets->RenameFolder("Game/Linked", "Moved"));
+	CHECK_FALSE(Assets->RenameFolder("Game/Linked/Nested", "Moved"));
+	CHECK_FALSE(Assets->GetFolderPath("Game/Linked"));
+	CHECK(std::filesystem::is_empty(Outside));
+	CHECK_FALSE(std::filesystem::exists(Outside / "Escaped"));
+	CHECK_FALSE(std::filesystem::exists(Outside / "Nested"));
+}
+
+TEST_CASE("Preview folder paths resolve known mounts and reject invalid or missing directories")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto& Root = Fixture.Scratch.GetPath();
+	CHECK(Assets->GetFolderPath("Game") == std::filesystem::canonical(Root / "Game"));
+	CHECK(Assets->GetFolderPath("Game/Models") == std::filesystem::canonical(Root / "Game/Models"));
+	CHECK(Assets->GetFolderPath("Engine") == std::filesystem::canonical(Root / "Engine"));
+	CHECK_FALSE(Assets->GetFolderPath(""));
+	CHECK_FALSE(Assets->GetFolderPath("Unknown"));
+	CHECK_FALSE(Assets->GetFolderPath("Gameplay"));
+	CHECK_FALSE(Assets->GetFolderPath("Game/Missing"));
+	CHECK_FALSE(Assets->GetFolderPath("Game/../Engine"));
+	CHECK_FALSE(Assets->GetFolderPath("Game/Models/Robot.blend"));
+}
+
+TEST_CASE("Preview folder polling notices empty directory additions and removals without mesh requests")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	const auto BeforeOptions = Assets->GetOptions().size();
+	const auto RequestGeneration = FPreviewAssetsTestAccess::GetRequestGeneration(*Assets);
+	const auto InitialGeneration = Assets->GetOptionsGeneration();
+	const auto Empty = Fixture.Scratch.GetPath() / "Game/ExternalEmpty";
+	REQUIRE(std::filesystem::create_directory(Empty));
+	Assets->CheckForChanges();
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(std::ranges::find(Assets->GetFolders(), "Game/ExternalEmpty") != Assets->GetFolders().end());
+	CHECK(Assets->GetOptionsGeneration() > InitialGeneration);
+	const auto AddedGeneration = Assets->GetOptionsGeneration();
+	REQUIRE(std::filesystem::remove(Empty));
+	Assets->CheckForChanges();
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(std::ranges::find(Assets->GetFolders(), "Game/ExternalEmpty") == Assets->GetFolders().end());
+	CHECK(Assets->GetOptionsGeneration() > AddedGeneration);
+	CHECK(Assets->GetOptions().size() == BeforeOptions);
+	CHECK(FPreviewAssetsTestAccess::GetRequestGeneration(*Assets) == RequestGeneration);
+	CHECK(Fixture.Device.Submissions == 0);
+	CHECK(Fixture.Device.Events.empty());
+}
+
+TEST_CASE("Preview folders created during an older scan cannot be replaced by its stale folder snapshot")
+{
+	FPreviewAssetsFixture Fixture;
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Fixture.Tasks->RunUntilIdle();
+	Assets->RequestScan();
+	Fixture.RunToCheckpoint();
+	CHECK(Assets->IsScanning());
+	const auto Created = Assets->CreateFolder("Game", "CreatedDuringScan");
+	REQUIRE(Created);
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(std::ranges::find(Assets->GetFolders(), *Created) != Assets->GetFolders().end());
+	CHECK(std::filesystem::is_directory(Fixture.Scratch.GetPath() / "Game/CreatedDuringScan"));
+	Assets->CheckForChanges();
+	Fixture.Tasks->RunUntilIdle();
+	CHECK(std::ranges::find(Assets->GetFolders(), *Created) != Assets->GetFolders().end());
 }
 
 TEST_CASE("Content snapshots notice edits, additions, and removals but skip dot-prefixed entries")

@@ -7,12 +7,29 @@
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
 #include <fstream>
 #include <iterator>
 #include <string>
 
 namespace Herta
 {
+struct FToolUITestAccess
+{
+	static void MigrateContentDockHeight(std::uint32_t DockspaceId);
+	static bool OrderContentDockTabs();
+};
+
+void FToolUITestAccess::MigrateContentDockHeight(const std::uint32_t DockspaceId)
+{
+	FToolUIContext::MigrateContentDockHeight(DockspaceId);
+}
+
+bool FToolUITestAccess::OrderContentDockTabs()
+{
+	return FToolUIContext::OrderContentDockTabs();
+}
+
 TEST_CASE("Panel focus and hover use stable IDs and the immersive viewport alias")
 {
 	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
@@ -48,6 +65,12 @@ TEST_CASE("Panel focus and hover use stable IDs and the immersive viewport alias
 	CHECK(IsToolUIPanelHovered("Details", false));
 	ImGui::EndChild();
 	ImGui::End();
+	ImGui::Begin("      Content Browser###Content Browser");
+	ImGui::SetWindowFocus();
+	GImGui->HoveredWindow = ImGui::GetCurrentWindow();
+	CHECK(IsToolUIPanelFocused("Content Browser", false));
+	CHECK(IsToolUIPanelHovered("Content Browser", false));
+	ImGui::End();
 	ImGui::Begin(ImmersiveViewportName);
 	ImGui::SetWindowFocus();
 	CHECK(IsToolUIPanelFocused("Viewport", true));
@@ -61,6 +84,373 @@ TEST_CASE("Panel focus and hover use stable IDs and the immersive viewport alias
 	CHECK_FALSE(IsToolUIPanelHovered("Viewport", true));
 	ImGui::End();
 	ImGui::Render();
+	ImGui::DestroyContext(Context);
+	ImGui::SetCurrentContext(PreviousContext);
+}
+
+TEST_CASE("Shared icon buttons retain compact and toolbar dimensions")
+{
+	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
+	ImGuiContext* const Context = ImGui::CreateContext();
+	ImGui::SetCurrentContext(Context);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1280, 720};
+	IO.DeltaTime = 1.f / 60.f;
+	IO.IniFilename = nullptr;
+	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+	IO.Fonts->AddFontDefault();
+	ImGui::NewFrame();
+	ImGui::Begin("IconButtons", nullptr, ImGuiWindowFlags_NoSavedSettings);
+	constexpr std::string_view Label = "Content Browser";
+	const float ExpectedWidth = ImGui::CalcTextSize(Label.data(), Label.data() + Label.size()).x + 36.f * ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
+	ToolUIButton(Label, EToolUIMenuIcon::ContentBrowser, 26.f);
+	CHECK(ImGui::GetItemRectSize().x == doctest::Approx(ExpectedWidth));
+	CHECK(ImGui::GetItemRectSize().y == 26.f);
+	ToolUIButton("Import", EToolUIMenuIcon::Open, 32.f);
+	CHECK(ImGui::GetItemRectSize().y == 32.f);
+	ToolUIButton("Default", EToolUIMenuIcon::ContentBrowser);
+	CHECK(ImGui::GetItemRectSize().y == ImGui::GetFrameHeight());
+	ImGui::End();
+	ImGui::Render();
+	ImGui::DestroyContext(Context);
+	ImGui::SetCurrentContext(PreviousContext);
+}
+
+TEST_CASE("Project modal width constraints prevent fill-width inputs from shrinking the dialog")
+{
+	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
+	ImGuiContext* const Context = ImGui::CreateContext();
+	ImGui::SetCurrentContext(Context);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1280, 720};
+	IO.DeltaTime = 1.f / 60.f;
+	IO.IniFilename = nullptr;
+	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+	IO.Fonts->AddFontDefault();
+	constexpr float Width = 440.f;
+	std::array<char, 256> Name{};
+	std::array<char, 256> Module{};
+	std::array<char, 256> Destination{};
+	std::array<float, 8> Widths{};
+	std::array<float, 8> Heights{};
+	bool bConstrainWidth = false;
+
+	SUBCASE("Appearing size alone reproduces the shrink")
+	{
+		bConstrainWidth = false;
+	}
+
+	SUBCASE("Fixed width retains automatic height")
+	{
+		bConstrainWidth = true;
+	}
+
+	for (std::size_t Frame = 0; Frame < Widths.size(); ++Frame)
+	{
+		ImGui::NewFrame();
+
+		if (Frame == 0)
+		{
+			ImGui::OpenPopup("New project");
+		}
+
+		ImGui::SetNextWindowSize({Width, 0.f}, ImGuiCond_Appearing);
+
+		if (bConstrainWidth)
+		{
+			ImGui::SetNextWindowSizeConstraints({Width, 0.f}, {Width, FLT_MAX});
+		}
+
+		if (ImGui::BeginPopupModal("New project", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+		{
+			Widths[Frame] = ImGui::GetWindowWidth();
+			Heights[Frame] = ImGui::GetWindowHeight();
+			ImGui::TextUnformatted("Game project");
+			ImGui::TextDisabled("C++ module, content folder, and an empty starting scene.");
+			ImGui::Separator();
+			ImGui::TextUnformatted("Name");
+			ImGui::SetNextItemWidth(-1.f);
+			ImGui::InputTextWithHint("##ProjectName", "My Game", Name.data(), Name.size());
+			ImGui::TextUnformatted("C++ module");
+			ImGui::SetNextItemWidth(-1.f);
+			ImGui::InputTextWithHint("##ProjectModule", "MyGame", Module.data(), Module.size());
+			ImGui::TextUnformatted("Location (new directory)");
+			ImGui::SetNextItemWidth(-1.f);
+			ImGui::InputText("##ProjectDestination", Destination.data(), Destination.size());
+
+			if (Frame >= 4)
+			{
+				ImGui::TextWrapped("The destination directory already exists. Choose a new directory before creating the project.");
+			}
+
+			ImGui::Separator();
+			ImGui::Button("Create and open", {150.f, 0.f});
+			ImGui::SameLine();
+			ImGui::Button("Cancel");
+			ImGui::EndPopup();
+		}
+
+		ImGui::Render();
+	}
+
+	CHECK(Widths.front() == Width);
+
+	if (bConstrainWidth)
+	{
+		for (const float ActualWidth : Widths)
+		{
+			CHECK(ActualWidth == Width);
+		}
+
+		CHECK(Heights.back() > Heights[3]);
+	}
+	else
+	{
+		CHECK(Widths.back() < Widths.front());
+	}
+
+	ImGui::DestroyContext(Context);
+	ImGui::SetCurrentContext(PreviousContext);
+}
+
+TEST_CASE("Content dock height migration changes only the original bottom split")
+{
+	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
+	ImGuiContext* const Context = ImGui::CreateContext();
+	ImGui::SetCurrentContext(Context);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1280, 720};
+	IO.DeltaTime = 1.f / 60.f;
+	IO.IniFilename = nullptr;
+	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+	IO.Fonts->AddFontDefault();
+	ImGui::NewFrame();
+	const ImGuiID DockId = ImHashStr("ContentHeightMigration");
+	ImGui::DockBuilderAddNode(DockId, ImGuiDockNodeFlags_DockSpace);
+	ImGui::DockBuilderSetNodeSize(DockId, {1280, 640});
+	ImGuiID BottomId = 0;
+	ImGuiID CenterId = 0;
+	ImGui::DockBuilderSplitNode(DockId, ImGuiDir_Down, 0.26f, &BottomId, &CenterId);
+	ImGui::DockBuilderDockWindow("Viewport", CenterId);
+	ImGui::DockBuilderDockWindow("Output Log", BottomId);
+	ImGui::DockBuilderDockWindow("Content Browser", BottomId);
+	ImGui::DockBuilderFinish(DockId);
+	ImGuiDockNode* const Bottom = ImGui::DockBuilderGetNode(BottomId);
+	ImGuiDockNode* const Center = ImGui::DockBuilderGetNode(CenterId);
+	const float OriginalHeight = Bottom->Size.y;
+	bool bShouldMigrate = true;
+	bool bOtherDockspace = false;
+
+	SUBCASE("Original default grows while preserving membership")
+	{
+		CHECK(Center->IsCentralNode());
+	}
+
+	SUBCASE("Customized bottom height is preserved")
+	{
+		ImGui::DockBuilderSetNodeSize(BottomId, {Bottom->Size.x, 240.f});
+		bShouldMigrate = false;
+	}
+
+	SUBCASE("An extra user docked tab is preserved")
+	{
+		ImGui::DockBuilderDockWindow("Custom Panel", BottomId);
+		bShouldMigrate = false;
+	}
+
+	SUBCASE("Unrelated dockspace is preserved")
+	{
+		bShouldMigrate = false;
+		bOtherDockspace = true;
+	}
+
+	const float HeightBefore = Bottom->Size.y;
+	FToolUITestAccess::MigrateContentDockHeight(bOtherDockspace ? ImHashStr("AnotherDockspace") : DockId);
+	if (bShouldMigrate)
+	{
+		const float AvailableHeight = Bottom->ParentNode->Size.y - ImGui::GetStyle().DockingSeparatorSize;
+		CHECK(Bottom->Size.y == doctest::Approx(AvailableHeight * 0.3f));
+		CHECK(Center->Size.y + Bottom->Size.y == doctest::Approx(AvailableHeight));
+		CHECK(Bottom->Size.y > OriginalHeight);
+	}
+	else
+	{
+		CHECK(Bottom->Size.y == HeightBefore);
+	}
+
+	CHECK(ImGui::FindWindowSettingsByID(ImHashStr("Output Log"))->DockId == BottomId);
+	CHECK(ImGui::FindWindowSettingsByID(ImHashStr("Content Browser"))->DockId == BottomId);
+	CHECK(ImGui::FindWindowSettingsByID(ImHashStr("Viewport"))->DockId == CenterId);
+	ImGui::Render();
+	ImGui::DestroyContext(Context);
+	ImGui::SetCurrentContext(PreviousContext);
+}
+
+TEST_CASE("Content Browser stays first across saved ordering and close reopen without stealing focus")
+{
+	ImGuiContext* const PreviousContext = ImGui::GetCurrentContext();
+	ImGuiContext* const Context = ImGui::CreateContext();
+	ImGui::SetCurrentContext(Context);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1280, 720};
+	IO.DeltaTime = 1.f / 60.f;
+	IO.IniFilename = nullptr;
+	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	IO.BackendFlags |= ImGuiBackendFlags_RendererHasTextures;
+	IO.Fonts->AddFontDefault();
+	const ImGuiID DockId = ImHashStr("ContentTabMigration");
+	ImGuiID BottomId = 0;
+	ImGuiID CenterId = 0;
+	ImGuiID LogTabId = 0;
+	ImGuiID BrowserTabId = 0;
+	float BottomHeight = 0.f;
+	float CenterHeight = 0.f;
+	bool bHideWholeBottom = false;
+	bool bRestoreBrowserFocus = false;
+
+	SUBCASE("Closing only Content Browser preserves Output Log")
+	{
+		bHideWholeBottom = false;
+	}
+
+	SUBCASE("Hiding the whole bottom group preserves its split and tabs")
+	{
+		bHideWholeBottom = true;
+	}
+
+	SUBCASE("Restoring Content Browser focus survives dock tab recreation")
+	{
+		bHideWholeBottom = true;
+		bRestoreBrowserFocus = true;
+	}
+
+	for (int Frame = 0; Frame < 11; ++Frame)
+	{
+		const bool bBottomVisible = Frame < 5 || Frame > 7;
+		ImGui::NewFrame();
+
+		if (Frame == 0)
+		{
+			ImGui::DockBuilderAddNode(DockId, ImGuiDockNodeFlags_DockSpace);
+			ImGui::DockBuilderSetNodeSize(DockId, {1280, 640});
+			ImGui::DockBuilderSplitNode(DockId, ImGuiDir_Down, 0.3f, &BottomId, &CenterId);
+			ImGui::DockBuilderDockWindow("Viewport", CenterId);
+			ImGui::DockBuilderDockWindow("Output Log", BottomId);
+			ImGui::DockBuilderDockWindow("Content Browser", BottomId);
+			ImGui::DockBuilderFinish(DockId);
+			ImGui::FindWindowSettingsByID(ImHashStr("Output Log"))->DockOrder = 0;
+			ImGui::FindWindowSettingsByID(ImHashStr("Content Browser"))->DockOrder = 1;
+		}
+
+		ImGui::SetNextWindowPos({0, 36});
+		ImGui::SetNextWindowSize({1280, 640});
+		ImGui::Begin("ContentDockHost", nullptr, ImGuiWindowFlags_NoSavedSettings);
+		ImGui::DockSpace(DockId, {1280, 640});
+		ImGui::End();
+		ImGui::Begin("Viewport");
+		ImGui::End();
+
+		if (bBottomVisible)
+		{
+			if (bRestoreBrowserFocus && Frame == 9)
+			{
+				ImGui::SetNextWindowFocus();
+			}
+
+			ImGui::Begin("      Content Browser###Content Browser");
+			BrowserTabId = ImGui::GetCurrentWindow()->TabId;
+			ImGui::End();
+		}
+
+		if (!bHideWholeBottom || bBottomVisible)
+		{
+			ImGui::Begin("Output Log");
+			LogTabId = ImGui::GetCurrentWindow()->TabId;
+			ImGui::End();
+		}
+
+		if (Frame == 1)
+		{
+			ImGui::SetWindowFocus("Output Log");
+		}
+
+		ImGuiDockNode* const Bottom = ImGui::DockBuilderGetNode(BottomId);
+		ImGuiDockNode* const Center = ImGui::DockBuilderGetNode(CenterId);
+		REQUIRE(Bottom != nullptr);
+		REQUIRE(Center != nullptr);
+		CHECK(Bottom->ParentNode == ImGui::DockBuilderGetNode(DockId));
+		CHECK(Center->ParentNode == Bottom->ParentNode);
+		CHECK(Bottom->ParentNode->SplitAxis == ImGuiAxis_Y);
+		CHECK(ImGui::FindWindowByName("Output Log")->DockId == BottomId);
+		CHECK(ImGui::FindWindowByID(ImHashStr("Content Browser"))->DockId == BottomId);
+		CHECK(ImGui::FindWindowByName("Viewport")->DockId == CenterId);
+		ImGuiTabBar* const Bar = Bottom->TabBar;
+
+		if (Frame == 2)
+		{
+			REQUIRE(Bar != nullptr);
+			CHECK(Bar->Tabs[0].ID == LogTabId);
+			CHECK(Bar->SelectedTabId == LogTabId);
+			CHECK(FToolUITestAccess::OrderContentDockTabs());
+		}
+
+		if (Frame > 2 && Frame < 5)
+		{
+			REQUIRE(Bar != nullptr);
+			CHECK(Bar->Tabs[0].ID == BrowserTabId);
+			CHECK(Bar->SelectedTabId == (bRestoreBrowserFocus && Frame == 4 ? BrowserTabId : LogTabId));
+		}
+
+		if (Frame == 3 && bRestoreBrowserFocus)
+		{
+			ImGui::SetWindowFocus("Content Browser");
+		}
+
+		if (Frame == 4)
+		{
+			BottomHeight = Bottom->Size.y;
+			CenterHeight = Center->Size.y;
+		}
+
+		if (Frame == 7 && !bHideWholeBottom)
+		{
+			REQUIRE(Bar != nullptr);
+			CHECK(ImGui::TabBarFindTabByID(Bar, BrowserTabId) == nullptr);
+		}
+
+		if (Frame == 7 && bHideWholeBottom)
+		{
+			CHECK_FALSE(Bottom->IsVisible);
+			CHECK(Bottom->Windows.empty());
+			CHECK(Center->Size.y > CenterHeight);
+		}
+
+		if (Frame == 10)
+		{
+			REQUIRE(Bar != nullptr);
+			REQUIRE(Bar->Tabs.Size == 2);
+			CHECK(Bar->Tabs[0].ID == BrowserTabId);
+			CHECK(Bar->Tabs[1].ID == LogTabId);
+			CHECK(Bottom->Size.y == doctest::Approx(BottomHeight));
+			CHECK(Center->Size.y == doctest::Approx(CenterHeight));
+
+			if (bRestoreBrowserFocus)
+			{
+				CHECK(Bar->SelectedTabId == BrowserTabId);
+				CHECK(Bottom->SelectedTabId == BrowserTabId);
+				CHECK(Bar->VisibleTabId == BrowserTabId);
+			}
+		}
+
+		if (Frame > 2)
+		{
+			FToolUITestAccess::OrderContentDockTabs();
+		}
+
+		ImGui::Render();
+	}
+
 	ImGui::DestroyContext(Context);
 	ImGui::SetCurrentContext(PreviousContext);
 }

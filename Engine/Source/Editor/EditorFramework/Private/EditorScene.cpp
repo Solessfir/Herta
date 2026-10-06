@@ -362,6 +362,22 @@ FEditorScene::FEditorScene(const std::size_t MaximumTransactions, const std::siz
 
 std::expected<void, FSceneError> FEditorScene::Load(const std::filesystem::path& Path)
 {
+	auto Document = LoadScene(Path);
+	if (!Document)
+	{
+		return std::unexpected(Document.error());
+	}
+
+	return LoadDocument(std::move(*Document), Path);
+}
+
+std::expected<void, FSceneError> FEditorScene::LoadDocument(FSceneDocument Document, const std::filesystem::path& Path)
+{
+	if (auto Result = ValidateSceneDocument(Document); !Result)
+	{
+		return Result;
+	}
+
 	if (bSimulationRunning)
 	{
 		return std::unexpected(FSceneError{"Stop simulation before loading a scene"});
@@ -372,24 +388,18 @@ std::expected<void, FSceneError> FEditorScene::Load(const std::filesystem::path&
 		return std::unexpected(FSceneError{"Finish or cancel the active edit before loading a scene"});
 	}
 
-	auto Document = LoadScene(Path);
-	if (!Document)
-	{
-		return std::unexpected(Document.error());
-	}
-
-	if (const auto Hierarchy = BuildEditorHierarchy(Document->Entities); !Hierarchy)
+	if (const auto Hierarchy = BuildEditorHierarchy(Document.Entities); !Hierarchy)
 	{
 		return std::unexpected(Hierarchy.error());
 	}
 
-	if (auto Result = World.ReplaceEntities(Document->Entities); !Result)
+	if (auto Result = World.ReplaceEntities(Document.Entities); !Result)
 	{
 		return Result;
 	}
 
-	Id = Document->Id;
-	Name = std::move(Document->Name);
+	Id = Document.Id;
+	Name = std::move(Document.Name);
 	CurrentPath = Path;
 	RebuildObjects();
 	Selection.clear();
@@ -915,6 +925,16 @@ std::expected<FObjectId, FSceneError> FEditorScene::CreateEntity(const FWorldPos
 std::expected<FObjectId, FSceneError> FEditorScene::CreateEmptyEntity(const FWorldPosition& Position)
 {
 	return InsertEntity({.Id = FObjectId::Generate(), .Name = "Entity", .Transform = {.Translation = Position}});
+}
+
+std::expected<FObjectId, FSceneError> FEditorScene::CreateMeshEntity(const FAssetId Asset, const std::string_view Label, const FWorldPosition& Position)
+{
+	if (!Asset.IsValid())
+	{
+		return std::unexpected(FSceneError{"A static mesh requires a valid asset ID"});
+	}
+
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = std::string(Label), .Transform = {.Translation = Position}, .Mesh = FStaticMeshComponent{.Asset = Asset}});
 }
 
 std::expected<FObjectId, FSceneError> FEditorScene::InsertEntity(FSceneEntity Entity)

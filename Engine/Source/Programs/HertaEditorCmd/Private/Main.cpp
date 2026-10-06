@@ -1,5 +1,6 @@
 #include "Herta/AssetPipeline/AssetCommands.h"
 #include "Herta/EditorCore/CommandRegistry.h"
+#include "Herta/EditorCore/ProjectCommands.h"
 #include "Herta/EditorCore/SceneCommands.h"
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
@@ -163,6 +164,11 @@ int Run(const std::span<const std::string> Arguments)
 		if (RegistrationResult)
 		{
 			RegistrationResult = Herta::RegisterSceneFileCommands(Registry);
+		}
+
+		if (RegistrationResult)
+		{
+			RegistrationResult = Herta::RegisterProjectCommands(Registry, FindRepositoryRoot(Herta::GetExecutablePath()));
 		}
 
 		if (RegistrationResult)

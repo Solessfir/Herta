@@ -43,4 +43,29 @@ TEST_CASE("File dialogs reject invalid initial directories before showing UI")
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Message.find("initial directory is unavailable") != std::string::npos);
 }
+
+TEST_CASE("File manager rejects unavailable directories before starting UI")
+{
+	const Tests::FScratchDirectory Scratch("HertaFileManager");
+	std::filesystem::path Directory;
+
+	SUBCASE("An empty path does not open the current directory")
+	{
+	}
+
+	SUBCASE("The directory does not exist")
+	{
+		Directory = Scratch.GetPath() / "Missing";
+	}
+
+	SUBCASE("A regular file is not a directory")
+	{
+		Directory = Scratch.GetPath() / "File.txt";
+		Tests::WriteText(Directory, "not a directory");
+	}
+
+	const auto Result = OpenDirectoryInFileManager(Directory);
+	REQUIRE_FALSE(Result);
+	CHECK(Result.error().Message.find("directory is unavailable") != std::string::npos);
+}
 }

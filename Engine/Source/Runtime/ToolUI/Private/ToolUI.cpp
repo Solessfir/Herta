@@ -388,6 +388,7 @@ struct FToolUIContext::FImplementation
 	bool bBuildDefaultLayout = false;
 	bool bDetailsDockMigrationComplete = false;
 	bool bOutlinerDockMigrationComplete = false;
+	bool bContentDockMigrationComplete = false;
 	bool bFrameActive = false;
 	bool bAppearanceDirty = false;
 	bool bPlatformWindowsRendered = true;
@@ -446,6 +447,156 @@ void DrawPanelIcon(ImDrawList& DrawList, const ImVec2 Center, const float Scale,
 	}
 }
 
+void DrawToolUIIcon(ImDrawList* const Draw, const ImVec2 Center, const float Scale, const ImU32 Color, const EToolUIMenuIcon Icon)
+{
+	const auto Line = [&](const float X, const float Y, const float EndX, const float EndY)
+	{
+		Draw->AddLine({Center.x + X * Scale, Center.y + Y * Scale}, {Center.x + EndX * Scale, Center.y + EndY * Scale}, Color, Scale);
+	};
+
+	if (Icon == EToolUIMenuIcon::Outliner || Icon == EToolUIMenuIcon::Details)
+	{
+		DrawPanelIcon(*Draw, Center, Scale, Color, Icon);
+	}
+	else if (Icon == EToolUIMenuIcon::Entity)
+	{
+		Draw->AddCircle(Center, 6.f * Scale, Color, 16, Scale);
+		Draw->AddCircleFilled(Center, 1.5f * Scale, Color);
+	}
+	else if (Icon == EToolUIMenuIcon::Physics)
+	{
+		Draw->AddCircle(Center, 6.f * Scale, Color, 16, Scale);
+		Line(-6.f, 0.f, 6.f, 0.f);
+		Draw->AddEllipse(Center, {3.f * Scale, 6.f * Scale}, Color, 0.f, 16, Scale);
+	}
+	else if (Icon == EToolUIMenuIcon::Cube)
+	{
+		Draw->PathLineTo({Center.x, Center.y - 7.f * Scale});
+		Draw->PathLineTo({Center.x + 6.f * Scale, Center.y - 3.5f * Scale});
+		Draw->PathLineTo({Center.x + 6.f * Scale, Center.y + 3.5f * Scale});
+		Draw->PathLineTo({Center.x, Center.y + 7.f * Scale});
+		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y + 3.5f * Scale});
+		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y - 3.5f * Scale});
+		Draw->PathStroke(Color, ImDrawFlags_Closed, Scale);
+		Line(-6.f, -3.5f, 0.f, 0.f);
+		Line(6.f, -3.5f, 0.f, 0.f);
+		Line(0.f, 0.f, 0.f, 7.f);
+	}
+	else if (Icon == EToolUIMenuIcon::Panel || Icon == EToolUIMenuIcon::Layout)
+	{
+		Draw->AddRect({Center.x - 6.f * Scale, Center.y - 5.f * Scale}, {Center.x + 6.f * Scale, Center.y + 5.f * Scale}, Color, Scale);
+		Line(-6, -2, 6, -2);
+		if (Icon == EToolUIMenuIcon::Layout)
+		{
+			Line(2, -2, 2, 5);
+		}
+	}
+	else if (Icon == EToolUIMenuIcon::Log)
+	{
+		Line(-5, -4, -1, 0);
+		Line(-1, 0, -5, 4);
+		Line(1, 4, 6, 4);
+	}
+	else if (Icon == EToolUIMenuIcon::Sync)
+	{
+		Draw->AddCircle(Center, 5.5f * Scale, Color, 18, Scale);
+		Line(0, -3, 0, 0);
+		Line(0, 0, 3, 0);
+	}
+	else if (Icon == EToolUIMenuIcon::Open || Icon == EToolUIMenuIcon::ContentBrowser)
+	{
+		for (const ImVec2 Point : {ImVec2{-6.f, 5.f}, {-6.f, -5.f}, {-1.f, -5.f}, {1.f, -3.f}, {5.f, -3.f}, {5.f, -1.f}})
+		{
+			Draw->PathLineTo({Center.x + Point.x * Scale, Center.y + Point.y * Scale});
+		}
+
+		Draw->PathStroke(Color, 0, Scale);
+
+		for (const ImVec2 Point : {ImVec2{-6.f, 5.f}, {-3.f, -1.f}, {7.f, -1.f}, {4.f, 5.f}})
+		{
+			Draw->PathLineTo({Center.x + Point.x * Scale, Center.y + Point.y * Scale});
+		}
+
+		Draw->PathStroke(Color, ImDrawFlags_Closed, Scale);
+	}
+	else if (Icon == EToolUIMenuIcon::Save)
+	{
+		Line(-5, -6, 3, -6);
+		Line(3, -6, 6, -3);
+		Line(6, -3, 6, 6);
+		Line(6, 6, -5, 6);
+		Line(-5, 6, -5, -6);
+		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y - 1.f * Scale}, Color, 0.f, 0, Scale);
+		Draw->AddRect({Center.x - 2.f * Scale, Center.y + 2.f * Scale}, {Center.x + 3.f * Scale, Center.y + 6.f * Scale}, Color, 0.f, 0, Scale);
+	}
+	else if (Icon == EToolUIMenuIcon::Undo || Icon == EToolUIMenuIcon::Redo)
+	{
+		const float Direction = Icon == EToolUIMenuIcon::Undo ? 1.f : -1.f;
+		Line(-6 * Direction, -2, 1 * Direction, -2);
+		Line(1 * Direction, -2, 5 * Direction, 1);
+		Line(5 * Direction, 1, 5 * Direction, 5);
+		Line(-3 * Direction, -5, -6 * Direction, -2);
+		Line(-3 * Direction, 1, -6 * Direction, -2);
+	}
+	else if (Icon == EToolUIMenuIcon::SelectAll)
+	{
+		for (const float X : {-1.f, 1.f})
+		{
+			for (const float Y : {-1.f, 1.f})
+			{
+				Line(6.f * X, 3.f * Y, 6.f * X, 6.f * Y);
+				Line(6.f * X, 6.f * Y, 3.f * X, 6.f * Y);
+			}
+		}
+
+		Line(-3.f, 0.f, -1.f, 2.f);
+		Line(-1.f, 2.f, 3.f, -2.f);
+	}
+	else if (Icon == EToolUIMenuIcon::Add)
+	{
+		Line(-5, 0, 5, 0);
+		Line(0, -5, 0, 5);
+	}
+	else if (Icon == EToolUIMenuIcon::Copy || Icon == EToolUIMenuIcon::Duplicate)
+	{
+		Draw->AddRect({Center.x - 6.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y + 2.f * Scale}, Color, Scale);
+		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 2.f * Scale}, {Center.x + 6.f * Scale, Center.y + 6.f * Scale}, Color, Scale);
+	}
+	else if (Icon == EToolUIMenuIcon::Paste)
+	{
+		Draw->AddRect({Center.x - 5.f * Scale, Center.y - 4.f * Scale}, {Center.x + 5.f * Scale, Center.y + 6.f * Scale}, Color, Scale);
+		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y - 2.f * Scale}, Color, Scale);
+	}
+	else if (Icon == EToolUIMenuIcon::Delete)
+	{
+		Line(-6, -4, 6, -4);
+		Line(-2, -6, 2, -6);
+		Line(-4, -4, -3, 6);
+		Line(-3, 6, 3, 6);
+		Line(3, 6, 4, -4);
+		Line(-1, -1, -1, 3);
+		Line(1, -1, 1, 3);
+	}
+	else if (Icon == EToolUIMenuIcon::Import)
+	{
+		Line(0, -6, 0, 2);
+		Line(-3, -1, 0, 2);
+		Line(3, -1, 0, 2);
+		Line(-6, 2, -6, 5);
+		Line(-6, 5, 6, 5);
+		Line(6, 5, 6, 2);
+	}
+	else
+	{
+		Line(-5, -5, -5, 5);
+		Line(-5, -5, 0, -5);
+		Line(-5, 5, 0, 5);
+		Line(-1, 0, 6, 0);
+		Line(3, -3, 6, 0);
+		Line(3, 3, 6, 0);
+	}
+}
+
 void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 {
 	// ImGui owns dock tabs and popup creation. Keep their surface/underline adapter here, without changing docking internals.
@@ -497,7 +648,8 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 			{
 				const bool bOutliner = Tab.Window && Tab.Window->ID == ImHashStr("Outliner");
 				const bool bDetails = Tab.Window && Tab.Window->ID == ImHashStr("Details");
-				if (bOutliner || bDetails)
+				const bool bContent = Tab.Window && Tab.Window->ID == ImHashStr("Content Browser");
+				if (bOutliner || bDetails || bContent)
 				{
 					const float Scale = Window->Viewport->DpiScale;
 					const float Left = Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim;
@@ -505,7 +657,8 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 					const bool bHovered = Owner.Context->HoveredWindow == Node->HostWindow && ImGui::IsMouseHoveringRect(Tab.Window->DC.DockTabItemRect.Min, Tab.Window->DC.DockTabItemRect.Max, false);
 					const ImU32 Color = ToImGuiPackedColor(Tab.ID == Bar.VisibleTabId || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
 					DrawList->PushClipRect({Bar.ScrollingRectMinX, Bar.BarRect.Min.y}, {Bar.ScrollingRectMaxX, Bar.BarRect.Max.y}, false);
-					DrawPanelIcon(*DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : EToolUIMenuIcon::Details);
+					DrawToolUIIcon(DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : bDetails ? EToolUIMenuIcon::Details
+					                                                                                                : EToolUIMenuIcon::ContentBrowser);
 					DrawList->PopClipRect();
 				}
 
@@ -1816,6 +1969,13 @@ std::expected<void, FToolUIError> FToolUIContext::EndFrame(const bool bRenderMai
 		return std::unexpected(FToolUIError{"ToolUI frame was not started"});
 	}
 
+	if (!Implementation->bContentDockMigrationComplete && !Implementation->bViewportImmersive)
+	{
+		MigrateContentDockHeight(Implementation->DockspaceId);
+		Implementation->bContentDockMigrationComplete = true;
+	}
+
+	OrderContentDockTabs();
 	DrawWindowSurfaces(*Implementation);
 	DrawDetachedViewportChrome(*Implementation);
 	UpdateTitleBarUiCaptureRegions(*Implementation->Window, *ImGui::GetMainViewport(), ImGui::FindWindowByName("HertaWorkspaceHost"), Implementation->MainMenuRight);
@@ -1957,150 +2117,28 @@ bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bo
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
 	Draw->AddText({Min.x + 36.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label.data(), Label.data() + Label.size());
 	const ImU32 Color = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-	const auto Line = [&](const float X, const float Y, const float EndX, const float EndY)
-	{
-		Draw->AddLine({Center.x + X * Scale, Center.y + Y * Scale}, {Center.x + EndX * Scale, Center.y + EndY * Scale}, Color, Scale);
-	};
-
-	if (Icon == EToolUIMenuIcon::Outliner || Icon == EToolUIMenuIcon::Details)
-	{
-		DrawPanelIcon(*Draw, Center, Scale, Color, Icon);
-	}
-	else if (Icon == EToolUIMenuIcon::Entity)
-	{
-		Draw->AddCircle(Center, 6.f * Scale, Color, 16, Scale);
-		Draw->AddCircleFilled(Center, 1.5f * Scale, Color);
-	}
-	else if (Icon == EToolUIMenuIcon::Physics)
-	{
-		Draw->AddCircle(Center, 6.f * Scale, Color, 16, Scale);
-		Line(-6.f, 0.f, 6.f, 0.f);
-		Draw->AddEllipse(Center, {3.f * Scale, 6.f * Scale}, Color, 0.f, 16, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Cube)
-	{
-		Draw->PathLineTo({Center.x, Center.y - 7.f * Scale});
-		Draw->PathLineTo({Center.x + 6.f * Scale, Center.y - 3.5f * Scale});
-		Draw->PathLineTo({Center.x + 6.f * Scale, Center.y + 3.5f * Scale});
-		Draw->PathLineTo({Center.x, Center.y + 7.f * Scale});
-		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y + 3.5f * Scale});
-		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y - 3.5f * Scale});
-		Draw->PathStroke(Color, ImDrawFlags_Closed, Scale);
-		Line(-6.f, -3.5f, 0.f, 0.f);
-		Line(6.f, -3.5f, 0.f, 0.f);
-		Line(0.f, 0.f, 0.f, 7.f);
-	}
-	else if (Icon == EToolUIMenuIcon::Panel || Icon == EToolUIMenuIcon::Layout)
-	{
-		Draw->AddRect({Center.x - 6.f * Scale, Center.y - 5.f * Scale}, {Center.x + 6.f * Scale, Center.y + 5.f * Scale}, Color, Scale);
-		Line(-6, -2, 6, -2);
-		if (Icon == EToolUIMenuIcon::Layout)
-		{
-			Line(2, -2, 2, 5);
-		}
-	}
-	else if (Icon == EToolUIMenuIcon::Log)
-	{
-		Line(-5, -4, -1, 0);
-		Line(-1, 0, -5, 4);
-		Line(1, 4, 6, 4);
-	}
-	else if (Icon == EToolUIMenuIcon::Sync)
-	{
-		Draw->AddCircle(Center, 5.5f * Scale, Color, 18, Scale);
-		Line(0, -3, 0, 0);
-		Line(0, 0, 3, 0);
-	}
-	else if (Icon == EToolUIMenuIcon::Open)
-	{
-		Line(-6, 5, -6, -5);
-		Line(-6, -5, -1, -5);
-		Line(-1, -5, 1, -3);
-		Line(1, -3, 5, -3);
-		Line(5, -3, 5, -1);
-		Line(-6, 5, 4, 5);
-		Line(4, 5, 7, -1);
-		Line(7, -1, -3, -1);
-		Line(-3, -1, -6, 5);
-	}
-	else if (Icon == EToolUIMenuIcon::Save)
-	{
-		Line(-5, -6, 3, -6);
-		Line(3, -6, 6, -3);
-		Line(6, -3, 6, 6);
-		Line(6, 6, -5, 6);
-		Line(-5, 6, -5, -6);
-		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y - 1.f * Scale}, Color, 0.f, 0, Scale);
-		Draw->AddRect({Center.x - 2.f * Scale, Center.y + 2.f * Scale}, {Center.x + 3.f * Scale, Center.y + 6.f * Scale}, Color, 0.f, 0, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Undo || Icon == EToolUIMenuIcon::Redo)
-	{
-		const float Direction = Icon == EToolUIMenuIcon::Undo ? 1.f : -1.f;
-		Line(-6 * Direction, -2, 1 * Direction, -2);
-		Line(1 * Direction, -2, 5 * Direction, 1);
-		Line(5 * Direction, 1, 5 * Direction, 5);
-		Line(-3 * Direction, -5, -6 * Direction, -2);
-		Line(-3 * Direction, 1, -6 * Direction, -2);
-	}
-	else if (Icon == EToolUIMenuIcon::SelectAll)
-	{
-		for (const float X : {-1.f, 1.f})
-		{
-			for (const float Y : {-1.f, 1.f})
-			{
-				Line(6.f * X, 3.f * Y, 6.f * X, 6.f * Y);
-				Line(6.f * X, 6.f * Y, 3.f * X, 6.f * Y);
-			}
-		}
-
-		Line(-3.f, 0.f, -1.f, 2.f);
-		Line(-1.f, 2.f, 3.f, -2.f);
-	}
-	else if (Icon == EToolUIMenuIcon::Add)
-	{
-		Line(-5, 0, 5, 0);
-		Line(0, -5, 0, 5);
-	}
-	else if (Icon == EToolUIMenuIcon::Copy || Icon == EToolUIMenuIcon::Duplicate)
-	{
-		Draw->AddRect({Center.x - 6.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y + 2.f * Scale}, Color, Scale);
-		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 2.f * Scale}, {Center.x + 6.f * Scale, Center.y + 6.f * Scale}, Color, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Paste)
-	{
-		Draw->AddRect({Center.x - 5.f * Scale, Center.y - 4.f * Scale}, {Center.x + 5.f * Scale, Center.y + 6.f * Scale}, Color, Scale);
-		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y - 2.f * Scale}, Color, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Delete)
-	{
-		Line(-6, -4, 6, -4);
-		Line(-2, -6, 2, -6);
-		Line(-4, -4, -3, 6);
-		Line(-3, 6, 3, 6);
-		Line(3, 6, 4, -4);
-		Line(-1, -1, -1, 3);
-		Line(1, -1, 1, 3);
-	}
-	else if (Icon == EToolUIMenuIcon::Import)
-	{
-		Line(0, -6, 0, 2);
-		Line(-3, -1, 0, 2);
-		Line(3, -1, 0, 2);
-		Line(-6, 2, -6, 5);
-		Line(-6, 5, 6, 5);
-		Line(6, 5, 6, 2);
-	}
-	else
-	{
-		Line(-5, -5, -5, 5);
-		Line(-5, -5, 0, -5);
-		Line(-5, 5, 0, 5);
-		Line(-1, 0, 6, 0);
-		Line(3, -3, 6, 0);
-		Line(3, 3, 6, 0);
-	}
-
+	DrawToolUIIcon(Draw, Center, Scale, Color, Icon);
 	return bPressed;
+}
+
+bool ToolUIButton(const std::string_view Label, const EToolUIMenuIcon Icon, const float Height)
+{
+	const float Scale = ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
+	const float Width = ImGui::CalcTextSize(Label.data(), Label.data() + Label.size()).x + 36.f * Scale;
+	const std::string Id = std::format("##{}", Label);
+	const bool bPressed = ImGui::Button(Id.c_str(), {Width, Height > 0.f ? Height : ImGui::GetFrameHeight()});
+	const ImVec2 Minimum = ImGui::GetItemRectMin();
+	const ImVec2 Maximum = ImGui::GetItemRectMax();
+	const ImVec2 Center{Minimum.x + 12.f * Scale, (Minimum.y + Maximum.y) * 0.5f};
+	ImDrawList* const Draw = ImGui::GetWindowDrawList();
+	DrawToolUIIcon(Draw, Center, Scale, ImGui::GetColorU32(ImGuiCol_Text), Icon);
+	Draw->AddText({Minimum.x + 24.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label.data(), Label.data() + Label.size());
+	return bPressed;
+}
+
+void ToolUIIcon(const EToolUIMenuIcon Icon, const float CenterX, const float CenterY, const float Scale)
+{
+	DrawToolUIIcon(ImGui::GetWindowDrawList(), {CenterX, CenterY}, Scale, ImGui::GetColorU32(ImGuiCol_TextDisabled), Icon);
 }
 
 void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems, const std::function<void()>& DrawEditMenuItems)
@@ -2298,10 +2336,10 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		ImGui::DockBuilderAddNode(Implementation->DockspaceId, ImGuiDockNodeFlags_DockSpace);
 		ImGui::DockBuilderSetNodeSize(Implementation->DockspaceId, DockSize);
 		ImGuiID CenterId = Implementation->DockspaceId;
-		// The side column spans the full height; Output Log only sits under the Viewport.
+		// The side column spans the full height; content and log share the area under the Viewport.
 		const float DetailsFraction = std::clamp(350.f * ChromeScale / DockSize.x, 0.18f, 0.38f);
 		const ImGuiID SideId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Right, DetailsFraction, nullptr, &CenterId);
-		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.26f, nullptr, &CenterId);
+		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.3f, nullptr, &CenterId);
 		ImGuiID DetailsId = SideId;
 		const ImGuiID OutlinerId = ImGui::DockBuilderSplitNode(SideId, ImGuiDir_Up, 0.35f, nullptr, &DetailsId);
 		if (ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetNode(CenterId))
@@ -2313,6 +2351,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		ImGui::DockBuilderDockWindow("Details", DetailsId);
 		ImGui::DockBuilderDockWindow("Start", DetailsId);
 		ImGui::DockBuilderDockWindow("Viewport", CenterId);
+		ImGui::DockBuilderDockWindow("Content Browser", BottomId);
 		ImGui::DockBuilderDockWindow("Output Log", BottomId);
 		ImGui::DockBuilderFinish(Implementation->DockspaceId);
 		Implementation->bBuildDefaultLayout = false;
@@ -2382,6 +2421,16 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	const ImGuiID WindowId = bImmersive ? ImHashStr(ImmersiveViewportName) : ImHashStr(Name.data(), Name.size());
 	const auto Previous = Implementation->PreviousDockState.find(WindowId);
 	const bool bPreviouslyDocked = Previous != Implementation->PreviousDockState.end() && Previous->second;
+	if (Name == "Content Browser" && ImGui::FindWindowSettingsByID(WindowId) == nullptr)
+	{
+		// Add the new browser beside the log without resetting an existing workspace.
+		const auto* const LogSettings = ImGui::FindWindowSettingsByID(ImHashStr("Output Log"));
+		if (LogSettings && LogSettings->DockId != 0)
+		{
+			ImGui::SetNextWindowDockID(LogSettings->DockId, ImGuiCond_FirstUseEver);
+		}
+	}
+
 	ImGui::SetNextWindowBgAlpha(ResolveToolUIPanelBackgroundAlpha(Implementation->Appearance.PanelTransparency, bPreviouslyDocked, bViewport));
 	if (bViewport)
 	{
@@ -2394,7 +2443,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		}
 	}
 
-	const std::string Label = Name == "Outliner" || Name == "Details" ? std::format("      {}###{}", Name, Name) : std::string(Name);
+	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" ? std::format("      {}###{}", Name, Name) : std::string(Name);
 	const ImGuiWindowFlags Flags = (bViewport ? ImGuiWindowFlags_NoMove : ImGuiWindowFlags_None) | (Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
 
 	if (bImmersive)
@@ -2445,6 +2494,63 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 void FToolUIContext::EndPanel()
 {
 	ImGui::End();
+}
+
+void FToolUIContext::MigrateContentDockHeight(const std::uint32_t DockspaceId)
+{
+	const auto* const LogSettings = ImGui::FindWindowSettingsByID(ImHashStr("Output Log"));
+	const auto* const ViewportSettings = ImGui::FindWindowSettingsByID(ImHashStr("Viewport"));
+	ImGuiDockNode* const Bottom = LogSettings ? ImGui::DockBuilderGetNode(LogSettings->DockId) : nullptr;
+	ImGuiDockNode* const Parent = Bottom ? Bottom->ParentNode : nullptr;
+	ImGuiDockNode* const Center = Parent ? Parent->ChildNodes[0] : nullptr;
+	if (!Bottom || !Parent || !Center || !ViewportSettings || !Bottom->IsLeafNode() || !Center->IsCentralNode()
+	    || Parent->SplitAxis != ImGuiAxis_Y || Parent->ChildNodes[1] != Bottom
+	    || ViewportSettings->DockId != Center->ID || ImGui::DockNodeGetRootNode(Bottom)->ID != DockspaceId
+	    || Parent->Size.y <= ImGui::GetStyle().DockingSeparatorSize
+	    || std::abs(Bottom->Size.y - (Parent->Size.y - ImGui::GetStyle().DockingSeparatorSize) * 0.26f) > 1.f)
+	{
+		return;
+	}
+
+	for (auto* Settings = GImGui->SettingsWindows.begin(); Settings != nullptr; Settings = GImGui->SettingsWindows.next_chunk(Settings))
+	{
+		if (Settings->DockId == Bottom->ID && Settings->ID != ImHashStr("Output Log") && Settings->ID != ImHashStr("Content Browser"))
+		{
+			return;
+		}
+	}
+
+	// Only the original split is migrated; other saved panel sizes and placements stay authored by the user.
+	const float AvailableHeight = Parent->Size.y - ImGui::GetStyle().DockingSeparatorSize;
+	const float BottomHeight = AvailableHeight * 0.3f;
+	ImGui::DockBuilderSetNodeSize(Bottom->ID, {Bottom->Size.x, BottomHeight});
+	ImGui::DockBuilderSetNodeSize(Center->ID, {Center->Size.x, AvailableHeight - BottomHeight});
+	ImGui::MarkIniSettingsDirty();
+}
+
+bool FToolUIContext::OrderContentDockTabs()
+{
+	const ImGuiWindow* const Browser = ImGui::FindWindowByID(ImHashStr("Content Browser"));
+	const ImGuiWindow* const Log = ImGui::FindWindowByID(ImHashStr("Output Log"));
+	if (!Browser || !Log || !Browser->DockNode || Browser->DockNode != Log->DockNode || !Browser->DockNode->TabBar)
+	{
+		return false;
+	}
+
+	ImGuiTabBar* const Bar = Browser->DockNode->TabBar;
+	ImGuiTabItem* const Tab = ImGui::TabBarFindTabByID(Bar, Browser->TabId);
+	if (!Tab || !ImGui::TabBarFindTabByID(Bar, Log->TabId) || Bar->ReorderRequestTabId != 0)
+	{
+		return false;
+	}
+
+	const int Order = ImGui::TabBarGetTabOrder(Bar, Tab);
+	if (Order > 0)
+	{
+		ImGui::TabBarQueueReorder(Bar, Tab, -Order);
+	}
+
+	return true;
 }
 
 void FToolUIContext::SetViewportImmersive(const bool bImmersive) noexcept

@@ -1,7 +1,7 @@
 # Herta Engine Design
 
-Status: Active design - Milestone 4 in progress
-Last updated: 2026-10-04
+Status: Active design - Milestone 4 implemented, Milestone 5 next
+Last updated: 2026-10-05
 
 ## 1. Purpose
 
@@ -461,7 +461,7 @@ Minimized windows wait for events and do not render continuously. Native move an
 
 Reflection will support serialization, editor property inspection, asset references, and graph pins. Herta does not need a reflection system in Milestone 0.
 
-Phase 0 uses explicit serializers for the few types that exist. Phase 1 introduces Herta-owned runtime descriptors with explicit registration and stable type/property IDs when scene serialization and inspectors need them.
+Phase 0 uses explicit serializers for the few types that exist. Phase 1 now registers Herta-owned runtime descriptors for Transform, Static Mesh, and Rigid Body with stable type/property keys, value types, units, defaults, and ranges. Scene serialization consumes their keys, and Details consumes their labels and property metadata. The catalog is immutable and concrete, not a generic reflection framework. See [Scenes.md](Scenes.md#runtime-descriptors).
 
 [C++26 static reflection](https://www.open-std.org/jtc1/SC22/wg21/docs/papers/2025/p2996r13.html) is the preferred future discovery mechanism, but it does not replace Herta's runtime metadata contract. A standard compiler can enumerate C++ declarations, but Herta must still define stable serialized names and IDs, versions, migrations, editor attributes, object construction, and which members participate.
 
@@ -496,7 +496,7 @@ ECS is Herta's canonical runtime world representation, not its universal object 
 
 Actor-like authoring objects may be added later, but the storage model must not require one heap allocation and virtual tick per object. Physics, animation, audio, navigation, and rendering do not own Scene entities. The program composition root extracts or submits the data each system needs, preventing dependency cycles.
 
-EnTT v3.16.0 is adopted privately by Scene after the [storage and scheduling spike](EnTTSpike.md). It uses sparse-set component pools and has different scheduling and locality tradeoffs from an archetype-chunk ECS such as Unreal Mass. Herta owns entity identity, hierarchy, mutation barriers, serialization, and future query and scheduling contracts. No EnTT type is serialized or exposed by a public Herta API. The initial `FWorld` has single-owner access and copied inspection snapshots; it does not yet expose parallel gameplay queries or a scheduler.
+EnTT v3.16.0 is adopted privately by Scene after the [storage and scheduling spike](EnTTSpike.md). It uses sparse-set component pools and has different scheduling and locality tradeoffs from an archetype-chunk ECS such as Unreal Mass. Herta owns entity identity, hierarchy, mutation barriers, serialization, and query and scheduling contracts. No EnTT type is serialized or exposed by a public Herta API. `FWorld` remains single-owner. A guarded serial scheduler executes declared component access, owned query projections, deterministic same-phase dependencies, deferred structural barriers, and buffered phase events. It is not a parallel executor or game loop; see [Scenes.md](Scenes.md#gameplay-system-contracts).
 
 ### 4.7 RHI, RenderGraph, and Renderer
 
@@ -1532,11 +1532,11 @@ Implemented so far:
 - Background drag-and-drop import through `asset.import`, incremental content scans, and deterministic, cancellable fuzzy asset search.
 - Asynchronous editor mesh previews that publish GPU uploads between frames.
 
-Content lives in `Games/Sandbox/Content` until projects exist. Block compression follows measurement. See [AssetPipeline.md](AssetPipeline.md).
+The default Sandbox content lives in `Games/Sandbox/Content`; opened projects supply their own `Game` content root. Block compression follows measurement. See [AssetPipeline.md](AssetPipeline.md).
 
 ### Milestone 4 - World and editor authoring
 
-- Run the early scaling checkpoint below as the next authoring slice, before project creation and the Content Browser.
+- Retain the early scaling checkpoint below as an authoring regression alongside projects and the Content Browser.
 - Add the Herta ECS contracts, entities, components, hierarchy, scene save/load, and version migration.
 - Run the EnTT storage and scheduling spike, record results, and either adopt its pinned revision privately or document why another implementation is required.
 - Add deferred structural barriers, explicit query read/write access, buffered events, and deterministic system ordering.
@@ -1548,6 +1548,8 @@ Content lives in `Games/Sandbox/Content` until projects exist. Block compression
 - Add the basic Content Browser needed to build the sample level: folder tree, asset grid, `SearchAssets` filtering, and drag into the viewport to spawn entities. Use placeholder thumbnails first; richer asset operations, reusable prefabs, and rendered thumbnails follow concrete authoring needs.
 
 Exit condition: a sample level can be authored from imported assets, scenes round-trip in canonical mergeable JSON, undo/redo and cross-scene paste are reliable, ECS mutation and query rules pass focused and scale tests, and a generated Game project builds against the engine. Runtime remains independent of editor modules. Native hot reload, plugin registries, advanced prefab tooling, and translation services are not exit requirements.
+
+Implemented: the existing scene/hierarchy/transaction slice now includes concrete runtime descriptors, guarded serial systems and owned queries, buffered events, `.hertaproject` loading, transactional Game-template creation, and `project.create`/`project.validate` commands. Generated native Game modules build as static libraries against the selected source checkout, with engine revision identity recorded during generation. The Content Browser provides a clipped folder tree and asset grid, fuzzy filtering, mesh placement as one undoable scene transaction, and background external-file import into selected Game subfolders. Engine content remains read-only. Focused runtime tests passed; full Linux renderer and scaling validation remains outstanding. See [Scenes.md](Scenes.md), [Projects.md](Projects.md), and [Scaling.md](Scaling.md). Prefabs, native module loading, and standalone gameplay are not implemented.
 
 #### Early scaling checkpoint
 
@@ -1727,6 +1729,6 @@ A module is not complete because its happy path works. It is complete when:
 
 ## 14. Immediate next implementation slice
 
-Milestone 3 is implemented. Milestone 4 has started with private EnTT storage, stable object IDs, generational entity handles, validated hierarchy, deferred create/destroy barriers, atomic authoring patches, and canonical versioned `.hscene` save/load. EditorCore owns bounded transaction history; the editor groups property gestures and supports undo/redo, create/duplicate/delete, stable-ID selection restoration, and canonical scene clipboard excerpts. The editor authors hierarchies with empty and mesh entities, selectable empty-entity markers, and independent Static Mesh and Rigid Body component stacks in Details. The clipped Outliner supports collapse, ancestor-preserving search, and undoable drag/drop parenting. Reparenting preserves world poses, deletion keeps unselected descendants, and duplication and clipboard operations remap selected parent links. The float TRS viewport rejects sheared poses before authoring mutations or scene replacement. Rigid Body settings use the existing atomic scene patches and schema 2 persistence, with schema 1 migration, without adding a reflection framework. Project loading, Content Browser authoring, runtime descriptors, prefabs, and gameplay-system scheduling remain later slices. See [Scenes.md](Scenes.md) for the current contracts and limitations.
+Milestones 3 and 4 are implemented. Scene owns private EnTT storage, stable identities, validated hierarchy, atomic authoring patches, canonical `.hscene` persistence, concrete runtime descriptors, and guarded serial system/query/event contracts. EditorCore owns bounded transaction history; the editor supports hierarchy and optional-component authoring, world-pose-preserving parenting, selection-aware undo/redo, and canonical scene clipboard excerpts. Project descriptors resolve content and starting scenes; transactional Game-template creation and headless commands share the runtime Project API. Generated C++ Game modules build as static libraries, not dynamically loaded gameplay modules. The Content Browser supports mounted folders, clipped assets, fuzzy filtering, undoable viewport mesh placement, and background external-file import into Game content. See [Scenes.md](Scenes.md) and [Projects.md](Projects.md) for contracts and limitations.
 
-The early Milestone 4 scaling slice now provides deterministic 1,000/5,000/10,000-cube fixtures, clipped Outliner and asset-picker lists, large-selection batch history tests, explicit physics capacity failures, native capture phases, and shared-mesh instancing brought forward by measured render-submission cost. [Scaling.md](Scaling.md) records Windows measurements and outstanding Linux runtime coverage. Next authoring work is concrete runtime descriptors and gameplay-system contracts, project creation/loading, and the basic Content Browser. Milestone 5 then builds one playable Sandbox through runtime-only HertaGame, input, basic physics, a minimal HUD, isolated editor Play/Stop, and relocatable loose deployment. Production rendering, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend that same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.
+The early scaling slice provides deterministic 1,000/5,000/10,000-cube fixtures, clipped authoring widgets, large-selection batch history tests, explicit physics capacity failures, native capture phases, and shared-mesh instancing. Focused runtime checks do not establish full Linux renderer or scaling validation; [Scaling.md](Scaling.md) records the measurements and outstanding coverage. The next implementation slice is Milestone 5: one playable Sandbox through runtime-only `HertaGame`, input, basic physics, a minimal HUD, isolated editor Play/Stop, and relocatable loose deployment. Prefabs remain unimplemented and enter only with a concrete authoring need. Production rendering, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend that same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.

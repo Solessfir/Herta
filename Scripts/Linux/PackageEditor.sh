@@ -51,7 +51,10 @@ required_content=(
     Engine/Content/Shapes/Cube.gltf
     Engine/Content/Shapes/Cube.gltf.hmeta
 )
-package_files=(LICENSE)
+package_files=(LICENSE Games/Sandbox/Sandbox.hertaproject)
+while IFS= read -r -d '' template_file; do
+    package_files+=("${template_file#"${repository_root}/"}")
+done < <(find "${repository_root}/Templates/Projects/Game" -type f -print0)
 for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
     relative_path="${binary_directory}/${program}"
     package_files+=("${relative_path}")

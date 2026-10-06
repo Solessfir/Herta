@@ -2,6 +2,8 @@
 
 [Editor usage](EditorGuide.md#scenes) | [Engine design](EngineDesign.md)
 
+A scene is the editable `.hscene` document. A world is the live ECS instance created from it.
+
 ## Runtime ownership
 
 `Scene` owns `FWorld`, with EnTT hidden behind its implementation. `FSceneEntity` is a copied inspection/serialization snapshot, not a borrowed component reference. The initial components are name, parent, transform, optional static mesh asset ID, and optional static/dynamic rigid body with authored material and motion settings. The body component describes authored intent; it does not create a Jolt body by itself.
@@ -11,6 +13,26 @@
 World access is single-owner for now. Create/destroy requests apply only at `FlushStructuralChanges`; a rejected batch changes nothing and drops its queued commands. `ReplaceEntities` validates before replacing the world and clears pending changes only on success. Property updates preserve existing handles. A parent may be destroyed only when no surviving child references it. Hierarchy validation rejects missing parents and cycles; world matrices compose parent-to-child `Translation * Rotation * Scale`.
 
 `ApplyEntityChanges` is an atomic authoring barrier with explicit before/after snapshots. It rejects stale before states, duplicate IDs, invalid final scenes, and outstanding queued structural requests without consuming those requests. Updates preserve handles; deletion invalidates a handle, and undo restores the persistent UUID with a new runtime handle.
+
+## Runtime descriptors
+
+`SceneDescriptors.h` exposes an immutable, explicitly registered catalog through `GetSceneComponentDescriptors`, `GetSceneComponentDescriptor`, and keyed component/property lookups. Stable type IDs are `Herta.Scene.Transform`, `Herta.Scene.StaticMesh`, and `Herta.Scene.RigidBody`; their serialized component keys remain `transform`, `staticMesh`, and `body`. A property's identity is its owning type ID plus its serialized key, not its C++ member name or inspector label.
+
+Properties describe Herta-owned value types, typed defaults, physical units, and optional scalar ranges. Positions use meters, mass kilograms, and damping inverse seconds; quaternion storage remains XYZW and editor Euler angles remain degrees. Defaults come from the existing component value types. Adding a rigid body defaults to Dynamic; absent rigid bodies remain `None`.
+
+Serialization reads and writes descriptor keys. Details consumes the same component/property labels, rigid-body ranges, and reset defaults; viewport-specific transform limits and widget behavior remain editor-owned. Descriptors do not replace validation, generate serializers, discover C++ declarations, or provide dynamic plugin registration.
+
+## Gameplay-system contracts
+
+`FSceneSystemScheduler` is a single-owner serial executor over an existing `FWorld`; the world must outlive it. Callers explicitly invoke `FixedUpdate`, `Update`, and `Extract` with finite, nonnegative delta seconds. This is not a game loop or automatic fixed-step accumulator.
+
+Each `FSceneSystemDescriptor` declares component read/write masks, same-phase `After` dependencies, structural mutation permission, and consumed/produced event types. Ready systems run in name order. Missing or cross-phase dependencies and cycles reject the phase before callbacks run. Registration changes and recursive execution are rejected during execution; pending external structural requests must be flushed first.
+
+Callbacks use `FSceneSystemContext`, not captured world APIs. Write access also permits reading that component. Queries require declared access for both their projection and required/excluded component masks, and return owned UUID-sorted copies with only requested fields populated. `ReadEntity` enforces access and handle validity; `GetWorldMatrix` requires Transform and Hierarchy reads. `UpdateEntity` validates each update; create/destroy, parenting, and optional-component presence changes also require structural permission. Creating or destroying entities requires write access to every scene component.
+
+Ordinary property writes are visible immediately to later systems unless their entity already has a staged structural change, in which case subsequent updates remain staged too. Structural changes publish atomically at the phase barrier; queued entities and pending component-presence changes are not visible to queries before it. A failed callback, invalid access, or rejected barrier discards deferred changes and emitted events, but does not roll back earlier validated property writes. Context failures are latched, so ignoring a returned error cannot turn the phase into success. Callback exceptions are fatal boundary violations.
+
+Events are copied, buffered by target phase, and visible only on a later invocation of that phase, never to later systems in the publishing invocation. Successful execution consumes that phase's input batch; failure retains it. Capacity is 65,536 buffered events with at most 65,536 payload bytes per event. This implementation uses sorted snapshots and serial scheduling; parallel views and execution remain unimplemented, and the editor does not run gameplay systems yet.
 
 ## File contract
 
@@ -22,6 +44,8 @@ Serialization sorts entities by UUID, keeps a fixed field order, uses round-trip
 
 Saving writes and flushes a unique sibling temporary file, then atomically replaces the target. A failed write or replacement preserves the previous file. Only the operation's own temporary file is removed on failure.
 
+`ValidateSceneDocument` shares header, name, entity, and hierarchy validation between serialization, parsing, and in-memory editor loading. `FEditorScene::LoadDocument` validates before replacing the world, path, selection, or history; a failed project/scene transition preserves the current editor state.
+
 ## Initial editor boundary
 
 The editor opens hierarchies containing mesh and empty entities. Scene transforms are parent-local; viewport gizmos and Details edit world-space TRS. Moving a parent updates unselected descendants without changing their local transforms. Viewport editing uses float adapters; untouched double position axes remain unchanged when saving other properties. Current editing limits are world position magnitude 10,000,000 m per axis and world scale 0.001 through 1,000.
@@ -30,7 +54,7 @@ Parenting and unparenting preserve world poses and commit atomically through tra
 
 Every entity has a name and transform. Static Mesh and Rigid Body are independently optional components, with one of each type per entity. Details adds, removes, and edits them through atomic authoring patches. Adding a component to a group affects only entities missing it; removal affects only entities that have it. Removing a mesh preserves the rigid body and transform. Meshless entities have a selectable editor marker, never a placeholder render mesh. The physics preview simulates every meshed Dynamic rigid body and collides against every meshed Static rigid body, using box shapes from mesh bounds. A static floor is not required for gravity. Simulated bodies have independent world poses; descendants without a simulated body follow their parent through authored local transforms. All simulation poses remain transient and stop restores every authored transform; this is not yet the full physics milestone.
 
-`Games/Sandbox/Scenes/Sandbox.hscene` is the default scene. Names, transforms, and mesh choices save with Ctrl+S. Simulation changes only the transient viewport pose; saving during simulation writes the authored world. Scene loading and authoring are disabled during simulation. File > Open prompts before replacing unsaved edits; explicit `scene.load` replaces them directly. Exit does not automatically save.
+The current project's `startingScene` is opened initially; `Games/Sandbox/Scenes/Sandbox.hscene` remains the default Sandbox scene. Names, transforms, and mesh choices save with Ctrl+S. Simulation changes only the transient viewport pose; saving during simulation writes the authored world. Scene loading and authoring are disabled during simulation. File > Open prompts before replacing unsaved edits; explicit `scene.load` replaces them directly. Exit does not automatically save. See [Projects](Projects.md) for descriptor and native-module contracts.
 
 ## Transactions and clipboard
 
@@ -42,4 +66,4 @@ Create, duplicate, delete, reparent, and paste use the same atomic patch path. D
 
 Clipboard text is a canonical versioned `HertaScene` excerpt using the existing scene schema. Copy preserves links within the selection and detaches fragment roots from unselected parents while retaining their world poses. Paste allocates new entity UUIDs, remaps internal parent links, and preserves referenced asset UUIDs; it does not copy asset files. Malformed text and unsupported editor entities are rejected before mutation. Selection restores by persistent ID when undoing structural edits.
 
-There is no prefab format, generic runtime descriptor system, parallel world query API, or game runtime yet.
+There is no prefab format, generic reflection framework, parallel world query API, or game runtime yet.

@@ -23,6 +23,7 @@ if ((Test-Path -LiteralPath $PackageRoot) -or (Test-Path -LiteralPath $ArchivePa
 
 $RequiredFiles = @(
     'LICENSE',
+    'Games/Sandbox/Sandbox.hertaproject',
     "$BinaryDirectory/HertaEditor.exe",
     "$BinaryDirectory/HertaEditorCmd.exe",
     "$BinaryDirectory/HertaAssetWorker.exe",
@@ -66,8 +67,9 @@ $LicenseFiles += @(
 )
 
 $PackageFiles = $RequiredFiles + @($TrackedFiles | Where-Object {
-    $_ -like 'Engine/Content/*' -or $_ -like 'Games/Sandbox/Content/*' -or $_ -like 'Games/Sandbox/Scenes/*'
+    $_ -like 'Engine/Content/*' -or $_ -like 'Games/Sandbox/Content/*' -or $_ -like 'Games/Sandbox/Scenes/*' -or $_ -like 'Templates/Projects/Game/*'
 })
+$PackageFiles += @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'Templates/Projects/Game') -File | ForEach-Object { 'Templates/Projects/Game/' + $_.Name })
 foreach ($RelativePath in ($PackageFiles + $LicenseFiles | Sort-Object -Unique)) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot $RelativePath) -PathType Leaf)) {
         throw "Required package file is missing: $RelativePath"

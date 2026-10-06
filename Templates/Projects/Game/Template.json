@@ -1,0 +1,15 @@
+{
+  "id": "Game",
+  "version": 1,
+  "projectVersion": 1,
+  "substitutions": ["ProjectName", "ModuleName", "ProjectId", "EngineAssociation"],
+  "files": [
+    {"source": "Project.hertaproject.in", "destination": "{{ProjectName}}.hertaproject", "type": "text"},
+    {"source": "Game.h.in", "destination": "Source/{{ModuleName}}/Public/{{ModuleName}}Game.h", "type": "text"},
+    {"source": "Game.cpp.in", "destination": "Source/{{ModuleName}}/Private/{{ModuleName}}Game.cpp", "type": "text"},
+    {"source": "Main.hscene", "destination": "Scenes/Main.hscene", "type": "text"},
+    {"source": "Content.gitkeep", "destination": "Content/.gitkeep", "type": "binary"},
+    {"source": "Gitignore.in", "destination": ".gitignore", "type": "text"},
+    {"source": "Readme.in", "destination": "README.md", "type": "text"}
+  ]
+}

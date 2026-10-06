@@ -130,10 +130,13 @@ enum class EToolUIMenuIcon : std::uint8_t
 	Cube,
 	Entity,
 	Physics,
-	SelectAll
+	SelectAll,
+	ContentBrowser
 };
 
 bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);
+bool ToolUIButton(std::string_view Label, EToolUIMenuIcon Icon, float Height = 0.f);
+void ToolUIIcon(EToolUIMenuIcon Icon, float CenterX, float CenterY, float Scale = 1.f);
 // Switch for boolean settings, right-aligned within the next item width.
 bool ToolUIToggle(const char* Id, bool* bValue);
 
@@ -177,6 +180,9 @@ public:
 	[[nodiscard]] bool WantsMouseInput() const noexcept;
 
 private:
+	friend struct FToolUITestAccess;
+	static void MigrateContentDockHeight(std::uint32_t DockspaceId);
+	static bool OrderContentDockTabs();
 	explicit FToolUIContext(std::unique_ptr<FImplementation> Implementation) noexcept;
 
 	std::unique_ptr<FImplementation> Implementation;

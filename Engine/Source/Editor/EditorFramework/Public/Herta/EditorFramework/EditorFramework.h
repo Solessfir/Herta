@@ -33,6 +33,9 @@ struct FEditorAssetPaths
 	std::string TargetPlatform;
 };
 
+using FEditorAssetThumbnail = std::shared_ptr<const std::uint64_t>;
+using FEditorAssetThumbnailRenderer = std::function<std::expected<FEditorAssetThumbnail, FPresentationError>(const FRenderMesh&)>;
+
 struct FEditorFrameworkDescriptor
 {
 	FLogService* Log = nullptr;
@@ -44,6 +47,10 @@ struct FEditorFrameworkDescriptor
 	FEditorAssetPaths Assets;
 	// Empty disables automatic scene loading and the default save path.
 	std::filesystem::path ScenePath;
+	std::filesystem::path EngineRoot{};
+	std::filesystem::path ProjectPath{};
+	// Called between frames; the shared handle owns the registered UI texture.
+	FEditorAssetThumbnailRenderer RenderAssetThumbnail;
 };
 
 struct FEditorFrameMetrics

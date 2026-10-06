@@ -1,0 +1,9 @@
+#include "{{ModuleName}}Game.h"
+
+namespace Herta
+{
+std::expected<FObjectId, FSceneError> Create{{ModuleName}}Entity(FWorld& World)
+{
+	return World.QueueCreateEntity({.Name = "{{ProjectName}} entity"});
+}
+}

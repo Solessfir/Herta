@@ -2,6 +2,7 @@
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Log.h"
 #include "Herta/EditorCore/CommandRegistry.h"
+#include "Herta/EditorCore/ViewportCamera.h"
 #include "Herta/EditorFramework/EditorFramework.h"
 #include "Herta/EditorFramework/ScalingStatistics.h"
 #include "Herta/NvrhiVulkan/NvrhiVulkan.h"
@@ -15,12 +16,14 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <expected>
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <print>
 #include <string>
@@ -161,7 +164,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingScenePath, const bool bScalingSimulate)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingScenePath, const bool bScalingSimulate, const std::string_view ProjectArgument)
 {
 	const bool bScalingTest = !ScalingScenePath.empty();
 	FLogOptions LogOptions;
@@ -322,6 +325,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, reversed-Z, resize, and frame retirement checks passed");
 	}
 
+	const FShaderAsset ThumbnailVertexShader = *VertexShader;
+	const FShaderAsset ThumbnailFragmentShader = *FragmentShader;
 	auto MeshResult = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), std::move(*VertexShader), std::move(*FragmentShader), std::move(*DebugVertexShader), std::move(*DebugFragmentShader), std::move(*GridVertexShader), std::move(*GridFragmentShader), std::move(*InstancedVertexShader));
 	if (!MeshResult)
 	{
@@ -498,7 +503,9 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	AssetWorker += EditorExecutable.extension();
 	const std::string_view Platform = GetPlatformName(GetCurrentPlatform());
 	const FEditorAssetPaths AssetPaths{.EngineContentRoot = RepositoryRoot / "Engine/Content", .ContentRoot = RepositoryRoot / "Games/Sandbox/Content", .DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform, .WorkerPath = AssetWorker, .TargetPlatform = std::string(Platform)};
-	const std::filesystem::path ScenePath = bScalingTest ? std::filesystem::path(std::u8string(ScalingScenePath.begin(), ScalingScenePath.end())) : RepositoryRoot / "Games/Sandbox/Scenes/Sandbox.hscene";
+	const std::filesystem::path ProjectPath = bScalingTest ? std::filesystem::path{} : ProjectArgument.empty() ? RepositoryRoot / "Games/Sandbox/Sandbox.hertaproject"
+	                                                                                                           : std::filesystem::path(std::u8string(ProjectArgument.begin(), ProjectArgument.end()));
+	const std::filesystem::path ScenePath = bScalingTest ? std::filesystem::path(std::u8string(ScalingScenePath.begin(), ScalingScenePath.end())) : std::filesystem::path{};
 	if (bScalingTest)
 	{
 		std::error_code Error;
@@ -509,7 +516,52 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		}
 	}
 
-	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .ScenePath = ScenePath});
+	const auto RenderAssetThumbnail = [&](const FRenderMesh& Mesh) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		const FVector3 Center = Mesh.GetBoundsMinimum() * 0.5f + Mesh.GetBoundsMaximum() * 0.5f;
+		const FVector3 HalfExtent = Mesh.GetBoundsMaximum() * 0.5f - Mesh.GetBoundsMinimum() * 0.5f;
+		const float Radius = std::hypot(HalfExtent.X, HalfExtent.Y, HalfExtent.Z);
+		if (!std::isfinite(Radius) || Radius <= 0.f || !std::isfinite(1.f / Radius))
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Asset thumbnail requires finite, nonzero mesh bounds"});
+		}
+
+		// Normalize before camera fitting so unusually large or small authoring units do not hit camera distance limits.
+		const float Scale = 1.f / Radius;
+		const std::array Models{FMatrix4::Scale({Scale, Scale, Scale}) * FMatrix4::Translation(-Center)};
+		const std::array<const FRenderMesh*, 1> Meshes{&Mesh};
+		FViewportCameraController Camera;
+		const float Sensitivity = Camera.GetMouseSensitivity();
+		Camera.Update({.Mode = EViewportCameraMode::Orbit, .MouseDeltaPixels = {-std::numbers::pi_v<float> / (4.f * Sensitivity), (Camera.GetPitch() + std::numbers::pi_v<float> / 6.f) / Sensitivity}, .Movement = {}}, 0.f, {192.f, 192.f});
+		Camera.Focus({}, HalfExtent * Scale, 1.f, {0.9f, 0.9f});
+		const FViewportCameraSnapshot View = Camera.GetSnapshot(1.f);
+
+		// ponytail: one pipeline per cached thumbnail; reuse pipelines when RHI supports copying render targets.
+		auto Renderer = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), ThumbnailVertexShader, ThumbnailFragmentShader);
+		if (!Renderer)
+		{
+			return std::unexpected(Renderer.error());
+		}
+
+		if (auto Result = (*Renderer)->Render({192, 192}, {.View = View.View, .Projection = View.Projection, .Models = Models, .Meshes = Meshes}); !Result)
+		{
+			return std::unexpected(Result.error());
+		}
+
+		auto TextureId = Presentation->RegisterToolUITexture((*Renderer)->GetColorTarget());
+		if (!TextureId)
+		{
+			return std::unexpected(TextureId.error());
+		}
+
+		return FEditorAssetThumbnail(new std::uint64_t(*TextureId), [Device = Presentation.get()](const std::uint64_t* const Id)
+		{
+			Device->UnregisterToolUITexture(*Id);
+			delete Id;
+		});
+	};
+
+	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .ScenePath = ScenePath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail});
 	if (!EditorFrameworkResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize EditorFramework: {}", EditorFrameworkResult.error().Message);
@@ -946,7 +998,8 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::string_view ExpectedWindowSystem = Herta::FindArgumentValue(ArgumentCount, Arguments, "--expect-window-system=");
 		const std::string_view ScalingScenePath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--scaling-test=");
 		const bool bScalingSimulate = Herta::HasArgument(ArgumentCount, Arguments, "--scaling-simulate");
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingScenePath, bScalingSimulate);
+		const std::string_view ProjectPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--project=");
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingScenePath, bScalingSimulate, ProjectPath);
 	}
 	catch (const std::exception& Exception)
 	{

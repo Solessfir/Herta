@@ -4,15 +4,27 @@
 #include <format>
 
 #ifdef HERTA_PLATFORM_WINDOWS
-	#include <shobjidl.h>
 	#include <windows.h>
+
+    // Shell headers require Win32 declarations first.
+	#include <shellapi.h>
+	#include <shobjidl.h>
 	#include <wrl/client.h>
 #else
 	#include "Herta/Platform/Process.h"
 
+	#include <signal.h>
+	#include <spawn.h>
+	#include <sys/wait.h>
+	#include <unistd.h>
+
+	#include <cerrno>
 	#include <cstdlib>
 	#include <optional>
 	#include <ranges>
+	#include <thread>
+
+extern char** environ;
 #endif
 
 namespace Herta
@@ -247,5 +259,63 @@ std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenFilesDia
 	}
 
 	return OpenFilesDialogImpl(Title, Filters, Directory);
+}
+
+std::expected<void, FFileDialogError> OpenDirectoryInFileManager(const std::filesystem::path& Directory)
+{
+	std::error_code Error;
+	const std::filesystem::path Absolute = Directory.empty() ? std::filesystem::path{} : std::filesystem::absolute(Directory, Error);
+	if (Error || Absolute.empty() || !std::filesystem::is_directory(Absolute, Error))
+	{
+		return std::unexpected(FFileDialogError{std::format("File manager directory is unavailable: {}", Directory.string())});
+	}
+
+#ifdef HERTA_PLATFORM_WINDOWS
+	const FComScope Com;
+	SHELLEXECUTEINFOW Request{};
+	Request.cbSize = sizeof(Request);
+	Request.fMask = SEE_MASK_FLAG_NO_UI;
+	Request.lpVerb = L"open";
+	Request.lpFile = Absolute.c_str();
+	Request.nShow = SW_SHOWNORMAL;
+
+	if (!ShellExecuteExW(&Request))
+	{
+		return std::unexpected(FFileDialogError{std::format("Could not open the Windows file manager (Windows error {})", GetLastError())});
+	}
+#else
+	std::string Path = Absolute.string();
+	char Executable[] = "xdg-open";
+	char* Arguments[] = {Executable, Path.data(), nullptr};
+	pid_t Process = 0;
+	const int Result = posix_spawnp(&Process, Executable, nullptr, nullptr, Arguments, environ);
+	if (Result != 0)
+	{
+		return std::unexpected(FFileDialogError{std::format("Could not start xdg-open: {}", std::error_code(Result, std::generic_category()).message())});
+	}
+
+	try
+	{
+		// Desktop launchers may stay alive with the file manager; reap them without blocking the editor.
+		std::thread([Process]
+		{
+			while (waitpid(Process, nullptr, 0) < 0 && errno == EINTR)
+			{
+			}
+		}).detach();
+	}
+	catch (const std::system_error& Exception)
+	{
+		kill(Process, SIGKILL);
+
+		while (waitpid(Process, nullptr, 0) < 0 && errno == EINTR)
+		{
+		}
+
+		return std::unexpected(FFileDialogError{std::format("Could not monitor xdg-open: {}", Exception.what())});
+	}
+#endif
+
+	return {};
 }
 }

@@ -16,6 +16,7 @@ class FEditorScene final
 public:
 	explicit FEditorScene(std::size_t MaximumTransactions = 256, std::size_t MaximumMemoryCost = 64 * 1024 * 1024);
 	[[nodiscard]] std::expected<void, FSceneError> Load(const std::filesystem::path& Path);
+	[[nodiscard]] std::expected<void, FSceneError> LoadDocument(FSceneDocument Document, const std::filesystem::path& Path);
 	[[nodiscard]] std::expected<void, FSceneError> Save(const std::filesystem::path& Path = {});
 	[[nodiscard]] std::expected<void, FSceneError> BeginEdit(std::string_view Label);
 	[[nodiscard]] std::expected<void, FSceneError> EndEdit();
@@ -33,6 +34,7 @@ public:
 	std::span<const FObjectId> GetSelection() const;
 	std::optional<FObjectId> GetActiveObject() const;
 	[[nodiscard]] std::expected<FObjectId, FSceneError> CreateEntity(const FWorldPosition& Position = {});
+	[[nodiscard]] std::expected<FObjectId, FSceneError> CreateMeshEntity(FAssetId Asset, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FSceneError> CreateEmptyEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<void, FSceneError> AddStaticMeshToSelected(FAssetId Asset);
 	[[nodiscard]] std::expected<void, FSceneError> RemoveStaticMeshFromSelected();

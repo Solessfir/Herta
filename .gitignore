@@ -2,6 +2,7 @@
 /Binaries/
 /Intermediate/
 /DerivedDataCache/
+/Games/*/DerivedDataCache/
 /Saved/
 /SDK/
 /External/Premake/

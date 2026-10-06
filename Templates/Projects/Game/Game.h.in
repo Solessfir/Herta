@@ -1,0 +1,8 @@
+#pragma once
+
+#include "Herta/Scene/World.h"
+
+namespace Herta
+{
+[[nodiscard]] std::expected<FObjectId, FSceneError> Create{{ModuleName}}Entity(FWorld& World);
+}

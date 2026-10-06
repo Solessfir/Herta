@@ -1,18 +1,21 @@
 #include "Herta/EditorFramework/EditorFramework.h"
 
 #include "ConsoleInput.h"
+#include "ContentBrowser.h"
 #include "DetailsPanel.h"
 #include "EditorScene.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Core/Log.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/PreviewSelection.h"
+#include "Herta/EditorCore/ProjectCommands.h"
 #include "Herta/EditorCore/SceneCommands.h"
 #include "Herta/EditorCore/TransformText.h"
 #include "Herta/EditorCore/ViewportCamera.h"
 #include "Herta/EditorFramework/ViewportInteraction.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/Platform/Process.h"
+#include "Herta/Project/Project.h"
 #include "Herta/Tasks/TaskSystem.h"
 #include "Herta/ToolUI/Theme.h"
 #include "Herta/ToolUI/ToolUI.h"
@@ -33,12 +36,14 @@
 #include <im3d.h>
 #include <im3d_math.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -477,7 +482,13 @@ FIm3dContextScope::~FIm3dContextScope()
 struct FEditorFramework::FImplementation
 {
 	FImplementation();
+	~FImplementation();
+	FImplementation(const FImplementation&) = delete;
+	FImplementation& operator=(const FImplementation&) = delete;
+	FImplementation(FImplementation&&) = delete;
+	FImplementation& operator=(FImplementation&&) = delete;
 
+	void SetBottomPanelOpen(bool bOpen);
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> DrawOutputLog();
 	void DrawStartPanel();
 	void DrawDetailsPanel();
@@ -494,6 +505,9 @@ struct FEditorFramework::FImplementation
 	void RefreshPreviewMeshes();
 	void ImportWithDialog();
 	void OpenSceneWithDialog();
+	void OpenProjectWithDialog();
+	void DrawNewProject();
+	void StartProjectOperation(const std::filesystem::path& Path, std::optional<FCreateProjectRequest> Create = std::nullopt);
 	void SaveCurrentScene();
 	void RefreshScene(bool bPreserveGizmoDrag = false);
 	void ApplyAuthoringAction(EAuthoringAction Action);
@@ -517,12 +531,18 @@ struct FEditorFramework::FImplementation
 	bool bOutlinerOpen = true;
 	bool bDetailsOpen = true;
 	bool bStartPanelOpen = false;
+	bool bBottomPanelOpen = true;
+	bool bBottomBrowserSelected = true;
+	bool bRestoreBottomPanelFocus = false;
+	bool bContentBrowserOpen = true;
+	FContentBrowserState ContentBrowserState;
 	FDetailsPanelState DetailsPanelState;
 	FOutlinerPanelState OutlinerPanelState;
 	FPlaceObjectsMenuState PlaceObjectsMenuState;
 	bool bPlaceObjectsRequested = false;
 
 	bool bOutputLogOpen = true;
+	bool bFocusOutputLogRequested = false;
 	std::unique_ptr<FOutputLogModel> OutputLog;
 	// Declared after OutputLog so it drains before the model that forwards to it is destroyed.
 	std::unique_ptr<FShellRunner> Shell;
@@ -595,9 +615,33 @@ struct FEditorFramework::FImplementation
 	std::vector<FAssetId> MeshOptionIds;
 	std::unique_ptr<FPreviewAssets> Assets;
 	FEditorAssetPaths AssetPaths;
+	FEditorAssetThumbnailRenderer RenderAssetThumbnail;
 	FTaskSystem* Tasks = nullptr;
 	IGraphicsDevice* GraphicsDevice = nullptr;
+
+	std::filesystem::path EngineRoot;
+	std::filesystem::path ProjectPath;
+	std::array<char, 128> ProjectName{};
+	std::array<char, 128> ProjectModule{};
+	std::array<char, 1024> ProjectDestination{};
+	std::string ProjectError;
+	bool bProjectBusy = false;
+	bool bCloseProjectPopup = false;
+	int PendingDocumentAction = 0;
+	std::stop_source ProjectCancellation;
+	// Drained before callback targets and editor services are destroyed.
+	std::unique_ptr<FTaskScope> ProjectScope;
 };
+
+FEditorFramework::FImplementation::~FImplementation()
+{
+	ProjectCancellation.request_stop();
+	if (ProjectScope)
+	{
+		ProjectScope->RequestCancellation();
+		ProjectScope->Wait();
+	}
+}
 
 FPreviewObject& FEditorFramework::FImplementation::GetActivePreviewObject() noexcept
 {
@@ -640,12 +684,33 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	Implementation->Tasks = Descriptor.Tasks;
 	Implementation->GraphicsDevice = Descriptor.GraphicsDevice;
 	Implementation->AssetPaths = Descriptor.Assets;
-	Implementation->Scene->SetPath(Descriptor.ScenePath);
+	Implementation->RenderAssetThumbnail = Descriptor.RenderAssetThumbnail;
+	Implementation->EngineRoot = Descriptor.EngineRoot;
+	Implementation->ProjectPath = Descriptor.ProjectPath;
+	std::filesystem::path InitialScenePath = Descriptor.ScenePath;
+	if (!Descriptor.ProjectPath.empty())
+	{
+		const auto Project = LoadProject(Descriptor.ProjectPath);
+		if (!Project)
+		{
+			return std::unexpected(FEditorFrameworkError{Project.error().Message});
+		}
 
-	if (!Descriptor.ScenePath.empty())
+		Implementation->ProjectPath = Project->DescriptorPath;
+		Implementation->AssetPaths.ContentRoot = Project->ContentRoot;
+		Implementation->AssetPaths.DerivedDataRoot = Project->Root / "DerivedDataCache" / Descriptor.Assets.TargetPlatform;
+		if (InitialScenePath.empty())
+		{
+			InitialScenePath = Project->StartingScene;
+		}
+	}
+
+	Implementation->Scene->SetPath(InitialScenePath);
+
+	if (!InitialScenePath.empty())
 	{
 		std::error_code Error;
-		const bool bExists = std::filesystem::exists(Descriptor.ScenePath, Error);
+		const bool bExists = std::filesystem::exists(InitialScenePath, Error);
 		if (Error)
 		{
 			return std::unexpected(FEditorFrameworkError{std::format("Cannot query scene path: {}", Error.message())});
@@ -653,7 +718,7 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 
 		if (bExists)
 		{
-			if (auto Loaded = Implementation->Scene->Load(Descriptor.ScenePath); !Loaded)
+			if (auto Loaded = Implementation->Scene->Load(InitialScenePath); !Loaded)
 			{
 				return std::unexpected(FEditorFrameworkError{Loaded.error().Message});
 			}
@@ -687,6 +752,14 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	if (auto Result = RegisterViewportStatsCommand(*Descriptor.Commands, Implementation->Stats); !Result)
 	{
 		return std::unexpected(FEditorFrameworkError{std::move(Result.error().Message)});
+	}
+
+	if (!Descriptor.EngineRoot.empty())
+	{
+		if (auto Result = RegisterProjectCommands(*Descriptor.Commands, Descriptor.EngineRoot); !Result)
+		{
+			return std::unexpected(FEditorFrameworkError{Result.error().Message});
+		}
 	}
 
 	return std::unique_ptr<FEditorFramework>(new FEditorFramework(std::move(Implementation)));
@@ -763,6 +836,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->FrameMetrics = {};
 	ImGuiIO& IO = ImGui::GetIO();
 	Implementation->RefreshScene();
+	if (!IO.AppFocusLost && IO.KeyMods == ImGuiMod_Ctrl && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_Space, false))
+	{
+		Implementation->SetBottomPanelOpen(!(Implementation->bBottomPanelOpen && (Implementation->bContentBrowserOpen || Implementation->bOutputLogOpen)));
+	}
+
 	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyMods == 0 && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{
 		if (ImGui::IsKeyPressed(ImGuiKey_F11, false))
@@ -781,7 +859,16 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 	if (Implementation->Assets)
 	{
-		Implementation->Assets->ImportFiles(Implementation->ToolUI->TakeDroppedFiles());
+		const auto Destination = Implementation->ToolUI->IsPanelHovered("Content Browser") ? Implementation->ContentBrowserState.GetImportDestination() : std::string{};
+		auto DroppedFiles = Implementation->ToolUI->TakeDroppedFiles();
+		if (!Implementation->bProjectBusy)
+		{
+			Implementation->Assets->ImportFiles(std::move(DroppedFiles), Destination);
+		}
+		else if (!DroppedFiles.empty())
+		{
+			HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "Wait for the project to finish loading before importing files");
+		}
 		Implementation->Assets->Tick();
 	}
 
@@ -792,7 +879,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		Implementation->ToggleSimulation();
 	}
 
-	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && !Implementation->Scene->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+	if (!Implementation->bProjectBusy && !IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && !Implementation->Scene->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{
 		Implementation->ToggleSimulation();
 	}
@@ -803,6 +890,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 	if (IO.KeyMods == 0 && ImGui::IsKeyPressed(ImGuiKey_GraveAccent, false))
 	{
+		Implementation->bBottomPanelOpen = true;
 		Implementation->bOutputLogOpen = true;
 		Implementation->bFocusCommandRequested = true;
 
@@ -815,12 +903,16 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 	}
 
-	bool bImportRequested = false;
 	bool bOpenSceneRequested = false;
 	bool bPlaceObjectsRequested = std::exchange(Implementation->bPlaceObjectsRequested, false);
-	const bool bAuthoringAvailable = !Implementation->Simulation.IsRunning() && !Implementation->Scene->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
+	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->Simulation.IsRunning() && !Implementation->Scene->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
 	const bool bShortcutsAvailable = bAuthoringAvailable && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
-	bool bSaveSceneRequested = bShortcutsAvailable && IO.KeyCtrl && !IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_S, false);
+	const bool bControlShortcutsAvailable = bShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl;
+	const bool bProjectChangeAvailable = bAuthoringAvailable && !Implementation->EngineRoot.empty() && !(Implementation->Assets && Implementation->Assets->IsImporting());
+	bool bNewProjectRequested = bControlShortcutsAvailable && bProjectChangeAvailable && ImGui::IsKeyPressed(ImGuiKey_N, false);
+	bool bSaveSceneRequested = bControlShortcutsAvailable && ImGui::IsKeyPressed(ImGuiKey_S, false);
+	bool bImportRequested = bControlShortcutsAvailable && Implementation->Assets && ImGui::IsKeyPressed(ImGuiKey_I, false);
+	bool bOpenProjectRequested = bControlShortcutsAvailable && bProjectChangeAvailable && ImGui::IsKeyPressed(ImGuiKey_O, false);
 	EAuthoringAction AuthoringAction = EAuthoringAction::None;
 	if (bShortcutsAvailable && !IO.KeyCtrl && IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_A, false))
 	{
@@ -876,8 +968,29 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::Separator();
 		ToolUIMenuItem("Outliner", EToolUIMenuIcon::Outliner, &Implementation->bOutlinerOpen);
 		ToolUIMenuItem("Details", EToolUIMenuIcon::Details, &Implementation->bDetailsOpen);
+		bool bBottomVisible = Implementation->bBottomPanelOpen && (Implementation->bContentBrowserOpen || Implementation->bOutputLogOpen);
+		if (ToolUIMenuItem("Bottom panel", EToolUIMenuIcon::Panel, &bBottomVisible, "Ctrl+Space"))
+		{
+			Implementation->SetBottomPanelOpen(bBottomVisible);
+		}
+		bool bBrowserVisible = Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen;
+		if (ToolUIMenuItem("Content Browser", EToolUIMenuIcon::ContentBrowser, &bBrowserVisible))
+		{
+			Implementation->bContentBrowserOpen = bBrowserVisible;
+			if (bBrowserVisible)
+			{
+				Implementation->bBottomPanelOpen = true;
+				Implementation->ContentBrowserState.bFocusRequested = true;
+			}
+		}
+
 		ImGui::Separator();
-		ToolUIMenuItem("Output Log", EToolUIMenuIcon::Log, &Implementation->bOutputLogOpen);
+		bool bLogVisible = Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen;
+		if (ToolUIMenuItem("Output Log", EToolUIMenuIcon::Log, &bLogVisible))
+		{
+			Implementation->bOutputLogOpen = bLogVisible;
+			Implementation->bBottomPanelOpen |= bLogVisible;
+		}
 	}, [&]
 	{
 		const float Scale = ImGui::GetFontSize() / Implementation->ToolUI->GetMetrics().BaseFontSize;
@@ -888,9 +1001,10 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
 		ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
 
-		const auto StatusButton = [Scale](const char* Label, const bool bAppearance, const bool bSelected)
+		const auto AppearanceButton = [Scale]()
 		{
-			ImGui::PushStyleColor(ImGuiCol_Button, bSelected ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
+			constexpr const char* Label = "Appearance";
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{1, 1, 1, 0.04f});
 			ImGui::PushID(Label);
 			const bool bPressed = ImGui::Button("##Status", {ImGui::CalcTextSize(Label).x + 42.f * Scale, 26.f * Scale});
 			const ImVec2 Minimum = ImGui::GetItemRectMin();
@@ -898,21 +1012,12 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			ImDrawList* const DrawList = ImGui::GetWindowDrawList();
 			const ImU32 Color = ImGui::GetColorU32(ImGuiCol_Text);
 
-			if (bAppearance)
+			for (int Row = -1; Row <= 1; ++Row)
 			{
-				for (int Row = -1; Row <= 1; ++Row)
-				{
-					const float Y = Center.y + static_cast<float>(Row) * 4.f * Scale;
-					DrawList->AddLine({Center.x - 6.f * Scale, Y}, {Center.x + 6.f * Scale, Y}, Color, Scale);
-					const float X = Center.x + (Row == 0 ? 2.f : -2.f) * Scale;
-					DrawList->AddLine({X, Y - 2.f * Scale}, {X, Y + 2.f * Scale}, Color, 2.f * Scale);
-				}
-			}
-			else
-			{
-				DrawList->AddLine({Center.x - 6.f * Scale, Center.y - 4.f * Scale}, {Center.x - 2.f * Scale, Center.y}, Color, Scale);
-				DrawList->AddLine({Center.x - 2.f * Scale, Center.y}, {Center.x - 6.f * Scale, Center.y + 4.f * Scale}, Color, Scale);
-				DrawList->AddLine({Center.x + Scale, Center.y + 4.f * Scale}, {Center.x + 6.f * Scale, Center.y + 4.f * Scale}, Color, Scale);
+				const float Y = Center.y + static_cast<float>(Row) * 4.f * Scale;
+				DrawList->AddLine({Center.x - 6.f * Scale, Y}, {Center.x + 6.f * Scale, Y}, Color, Scale);
+				const float X = Center.x + (Row == 0 ? 2.f : -2.f) * Scale;
+				DrawList->AddLine({X, Y - 2.f * Scale}, {X, Y + 2.f * Scale}, Color, 2.f * Scale);
 			}
 
 			DrawList->AddText({Minimum.x + 30.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, Color, Label);
@@ -921,17 +1026,39 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			return bPressed;
 		};
 
-		if (StatusButton("Output Log", false, Implementation->bOutputLogOpen))
+		ImGui::PushStyleColor(ImGuiCol_Button, Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
+		if (ToolUIButton("Content Browser", EToolUIMenuIcon::ContentBrowser, 26.f * Scale))
 		{
-			Implementation->bOutputLogOpen = !Implementation->bOutputLogOpen;
+			ToggleContentBrowser(Implementation->bContentBrowserOpen, Implementation->ContentBrowserState);
+			Implementation->bBottomPanelOpen = true;
 		}
 
+		ImGui::PopStyleColor();
+		ImGui::SetItemTooltip("Show or hide Content Browser. Ctrl+Space toggles the entire bottom panel.");
+		ImGui::SameLine();
+		ImGui::PushStyleColor(ImGuiCol_Button, Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
+		if (ToolUIButton("Output Log", EToolUIMenuIcon::Log, 26.f * Scale))
+		{
+			Implementation->bOutputLogOpen = !(Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen);
+			Implementation->bBottomPanelOpen = true;
+		}
+
+		ImGui::PopStyleColor();
 		ImGui::SameLine();
 		const ImVec2 DotPosition = ImGui::GetCursorScreenPos();
 		ImGui::Dummy({8.f * Scale, 26.f * Scale});
 		ImGui::SameLine(0.f, 3.f * Scale);
 		ImGui::AlignTextToFramePadding();
-		ImGui::TextDisabled("Ready");
+		ImGui::TextDisabled(Implementation->bProjectBusy ? "Loading project..." : Implementation->Assets && Implementation->Assets->IsImporting() ? "Importing..."
+		                                                                                                                                          : "Ready");
+		if (Implementation->bProjectBusy)
+		{
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Cancel"))
+			{
+				Implementation->ProjectCancellation.request_stop();
+			}
+		}
 		const float ReadyCenterY = (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f;
 		ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.f * Scale, ReadyCenterY}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
 		ImGui::SameLine();
@@ -939,7 +1066,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		const float Width = ImGui::CalcTextSize("Appearance").x + 42.f * Scale;
 		ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - Width - 12.f));
 
-		if (StatusButton("Appearance", true, false))
+		if (AppearanceButton())
 		{
 			ImGui::OpenPopup("WorkspaceAppearance");
 		}
@@ -1080,6 +1207,13 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 	}, [&]
 	{
+		ImGui::TextUnformatted("Project");
+		ImGui::Separator();
+		ImGui::BeginDisabled(!bProjectChangeAvailable);
+		bNewProjectRequested |= ToolUIMenuItem("New project...", EToolUIMenuIcon::Add, nullptr, "Ctrl+N");
+		bOpenProjectRequested |= ToolUIMenuItem("Open project...", EToolUIMenuIcon::Open, nullptr, "Ctrl+O");
+		ImGui::EndDisabled();
+		ImGui::Spacing();
 		ImGui::TextUnformatted("Scene");
 		ImGui::Separator();
 		ImGui::BeginDisabled(!bAuthoringAvailable);
@@ -1089,8 +1223,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Content");
 		ImGui::Separator();
-		ImGui::BeginDisabled(!Implementation->Assets);
-		bImportRequested = ToolUIMenuItem("Import...", EToolUIMenuIcon::Import);
+		ImGui::BeginDisabled(!Implementation->Assets || Implementation->bProjectBusy);
+		bImportRequested |= ToolUIMenuItem("Import...", EToolUIMenuIcon::Import, nullptr, "Ctrl+I");
 		ImGui::EndDisabled();
 	}, [&]
 	{
@@ -1143,22 +1277,37 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	ImGui::EndDisabled();
 	Implementation->ApplyAuthoringAction(AuthoringAction);
 
-	if (bOpenSceneRequested)
+	if (bOpenSceneRequested || bOpenProjectRequested || bNewProjectRequested)
 	{
+		Implementation->PendingDocumentAction = bNewProjectRequested ? 3 : bOpenProjectRequested ? 2
+		                                                                                         : 1;
 		if (Implementation->Scene->IsDirty())
 		{
 			ImGui::OpenPopup("Unsaved scene changes");
 		}
 		else
 		{
-			Implementation->OpenSceneWithDialog();
+			if (bNewProjectRequested)
+			{
+				ImGui::OpenPopup("New project");
+			}
+			else if (bOpenProjectRequested)
+			{
+				Implementation->OpenProjectWithDialog();
+			}
+			else
+			{
+				Implementation->OpenSceneWithDialog();
+			}
 			Implementation->RefreshScene();
 		}
 	}
 
+	bool bOpenNewProjectPopup = false;
+
 	if (ImGui::BeginPopupModal("Unsaved scene changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 	{
-		ImGui::TextUnformatted("Save changes before opening another scene?");
+		ImGui::TextUnformatted("Save scene changes before continuing?");
 		ImGui::Spacing();
 		bool bContinueOpening = false;
 		if (ImGui::Button("Save"))
@@ -1182,12 +1331,29 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		if (bContinueOpening)
 		{
 			ImGui::CloseCurrentPopup();
-			Implementation->OpenSceneWithDialog();
+			if (Implementation->PendingDocumentAction == 3)
+			{
+				bOpenNewProjectPopup = true;
+			}
+			else if (Implementation->PendingDocumentAction == 2)
+			{
+				Implementation->OpenProjectWithDialog();
+			}
+			else
+			{
+				Implementation->OpenSceneWithDialog();
+			}
 			Implementation->RefreshScene();
 		}
 
 		ImGui::EndPopup();
 	}
+
+	if (bOpenNewProjectPopup)
+	{
+		ImGui::OpenPopup("New project");
+	}
+	Implementation->DrawNewProject();
 
 	if (bSaveSceneRequested)
 	{
@@ -1217,6 +1383,22 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 
 	Implementation->FrameMetrics.InspectorMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - InspectorStart).count();
+	if ((!Implementation->bBottomPanelOpen || !Implementation->bContentBrowserOpen) && Implementation->Assets)
+	{
+		Implementation->Assets->SetThumbnailAssets({});
+	}
+
+	if (Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen)
+	{
+		auto* const Assets = Implementation->Assets.get();
+		ImGui::BeginDisabled(Implementation->bProjectBusy);
+		if (DrawContentBrowser(*Implementation->ToolUI, Implementation->bContentBrowserOpen, Implementation->ContentBrowserState, Assets) && Assets)
+		{
+			Implementation->ImportWithDialog();
+		}
+
+		ImGui::EndDisabled();
+	}
 
 	Implementation->DrawViewport(RenderViewport);
 	if (!Implementation->Simulation.IsRunning())
@@ -1243,7 +1425,17 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		Implementation->RefreshScene();
 	}
 
-	return Implementation->DrawOutputLog();
+	auto LogResult = Implementation->DrawOutputLog();
+
+	if (Implementation->bRestoreBottomPanelFocus)
+	{
+		// Newly re-added dock tabs auto-select; restore focus after both windows are registered.
+		Implementation->ContentBrowserState.bFocusRequested = Implementation->bContentBrowserOpen && (Implementation->bBottomBrowserSelected || !Implementation->bOutputLogOpen);
+		Implementation->bFocusOutputLogRequested = !Implementation->ContentBrowserState.bFocusRequested && Implementation->bOutputLogOpen;
+		Implementation->bRestoreBottomPanelFocus = false;
+	}
+
+	return LogResult;
 }
 
 FOutputLogModel& FEditorFramework::GetOutputLog() noexcept
@@ -1306,6 +1498,11 @@ void FEditorFramework::FImplementation::FocusPreview()
 
 void FEditorFramework::FImplementation::ImportWithDialog()
 {
+	if (!Assets || bProjectBusy)
+	{
+		return;
+	}
+
 	FFileDialogFilter Importable{.Name = "Importable assets", .Extensions = {}};
 
 	for (const std::string_view Extension : GetImportableExtensions())
@@ -1320,7 +1517,209 @@ void FEditorFramework::FImplementation::ImportWithDialog()
 		return;
 	}
 
-	Assets->ImportFiles(std::move(*Chosen));
+	Assets->ImportFiles(std::move(*Chosen), ContentBrowserState.GetImportDestination());
+}
+
+void FEditorFramework::FImplementation::OpenProjectWithDialog()
+{
+	const FFileDialogFilter Filter{.Name = "Herta project", .Extensions = {"hertaproject"}};
+	const auto Chosen = OpenFilesDialog("Open project", std::span(&Filter, 1), ProjectPath.empty() ? EngineRoot / "Games" : ProjectPath.parent_path());
+	if (!Chosen)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not open project dialog: {}", Chosen.error().Message);
+	}
+	else if (!Chosen->empty())
+	{
+		StartProjectOperation(Chosen->front());
+	}
+}
+
+void FEditorFramework::FImplementation::StartProjectOperation(const std::filesystem::path& Path, std::optional<FCreateProjectRequest> Create)
+{
+	if (bProjectBusy || !Tasks || Simulation.IsRunning() || Scene->HasActiveEdit())
+	{
+		return;
+	}
+
+	if (Assets && Assets->IsImporting())
+	{
+		ProjectError = "Wait for the current import to finish before switching projects";
+		HERTA_LOG_WARNING(*Log, EditorLog, "{}", ProjectError);
+		return;
+	}
+
+	if (!ProjectScope)
+	{
+		auto Scope = Tasks->CreateScope("Project operations");
+		if (!Scope)
+		{
+			ProjectError = Scope.error().Message;
+			return;
+		}
+
+		ProjectScope = std::move(*Scope);
+	}
+
+	struct FLoadResult
+	{
+		std::expected<FLoadedProject, FProjectError> Project = std::unexpected(FProjectError{"Project operation did not run"});
+		std::expected<FSceneDocument, FSceneError> Document = std::unexpected(FSceneError{"Starting scene did not load"});
+	};
+
+	ProjectCancellation = {};
+	ProjectError.clear();
+	if (Create)
+	{
+		Create->StopToken = ProjectCancellation.get_token();
+	}
+	const auto Before = Scene->GetWorld().SnapshotEntities();
+	const auto BeforePath = Scene->GetPath();
+	const auto BeforeGeneration = Scene->GetGeneration();
+	auto Result = std::make_shared<FLoadResult>();
+	const auto StopToken = ProjectCancellation.get_token();
+	auto Work = Tasks->Submit(*ProjectScope, {.Name = Create ? "Create project" : "Load project", .Lane = ETaskLane::BlockingIo}, [Result, Path, Create = std::move(Create), StopToken](FTaskContext& Context)
+	{
+		if (Context.IsCancellationRequested() || StopToken.stop_requested())
+		{
+			return;
+		}
+		Result->Project = Create ? CreateProject(*Create) : LoadProject(Path);
+		if (Result->Project && !StopToken.stop_requested())
+		{
+			Result->Document = LoadScene(Result->Project->StartingScene);
+		}
+	});
+
+	if (!Work)
+	{
+		ProjectError = Work.error().Message;
+		return;
+	}
+
+	bProjectBusy = true;
+	const auto Report = Tasks->ContinueOnMainThread(*ProjectScope, *Work, "Publish project", [this, Result, Before, BeforePath, BeforeGeneration, StopToken](FTaskContext& Context)
+	{
+		if (Context.IsCancellationRequested())
+		{
+			return;
+		}
+		bProjectBusy = false;
+		if (StopToken.stop_requested())
+		{
+			ProjectError = "Project operation cancelled";
+		}
+		else if (!Result->Project)
+		{
+			ProjectError = Result->Project.error().Message;
+		}
+		else if (!Result->Document)
+		{
+			ProjectError = Result->Document.error().Message;
+		}
+		else if (Scene->GetGeneration() != BeforeGeneration || Scene->GetPath() != BeforePath || Scene->GetWorld().SnapshotEntities() != Before)
+		{
+			ProjectError = "The scene changed while loading. Open the project again.";
+		}
+		else if (auto Loaded = Scene->LoadDocument(std::move(*Result->Document), Result->Project->StartingScene); !Loaded)
+		{
+			ProjectError = Loaded.error().Message;
+		}
+		else
+		{
+			Assets.reset();
+			AssetPaths.ContentRoot = Result->Project->ContentRoot;
+			AssetPaths.DerivedDataRoot = Result->Project->Root / "DerivedDataCache" / AssetPaths.TargetPlatform;
+			ProjectPath = Result->Project->DescriptorPath;
+			ContentBrowserState = {};
+			DetailsPanelState = {};
+			OutlinerPanelState = {};
+			bCloseProjectPopup = true;
+			RefreshScene();
+			HERTA_LOG_INFO(*Log, EditorLog, "Opened project '{}'", Result->Project->Descriptor.Name);
+		}
+
+		if (!ProjectError.empty())
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "{}", ProjectError);
+		}
+	});
+
+	if (!Report)
+	{
+		ProjectCancellation.request_stop();
+		bProjectBusy = false;
+		ProjectError = Report.error().Message;
+	}
+}
+
+void FEditorFramework::FImplementation::DrawNewProject()
+{
+	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
+	ImGui::SetNextWindowSize({440.f * Scale, 0.f}, ImGuiCond_Appearing);
+	ImGui::SetNextWindowSizeConstraints({440.f * Scale, 0.f}, {440.f * Scale, std::numeric_limits<float>::max()});
+	if (!ImGui::BeginPopupModal("New project", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		return;
+	}
+	if (ImGui::IsWindowAppearing())
+	{
+		ProjectError.clear();
+		ProjectName.fill('\0');
+		ProjectModule.fill('\0');
+		ProjectDestination.fill('\0');
+		const auto Directory = (EngineRoot / "Games/NewGame").generic_u8string();
+		std::ranges::copy(Directory | std::views::take(ProjectDestination.size() - 1), ProjectDestination.begin());
+	}
+
+	ImGui::TextUnformatted("Game project");
+	ImGui::TextDisabled("C++ module, content folder, and an empty starting scene.");
+	ImGui::Separator();
+	ImGui::BeginDisabled(bProjectBusy);
+	ImGui::TextUnformatted("Name");
+	ImGui::SetNextItemWidth(-1.f);
+	ImGui::InputTextWithHint("##ProjectName", "My Game", ProjectName.data(), ProjectName.size());
+	ImGui::TextUnformatted("C++ module");
+	ImGui::SetNextItemWidth(-1.f);
+	ImGui::InputTextWithHint("##ProjectModule", "MyGame", ProjectModule.data(), ProjectModule.size());
+	ImGui::TextUnformatted("Location (new directory)");
+	ImGui::SetNextItemWidth(-1.f);
+	ImGui::InputText("##ProjectDestination", ProjectDestination.data(), ProjectDestination.size());
+	ImGui::EndDisabled();
+	if (!ProjectError.empty())
+	{
+		ImGui::TextWrapped("%s", ProjectError.c_str());
+	}
+	ImGui::Separator();
+	ImGui::BeginDisabled(bProjectBusy || ProjectName[0] == '\0' || ProjectModule[0] == '\0' || ProjectDestination[0] == '\0');
+	if (ImGui::Button("Create and open", {150.f * Scale, 0.f}))
+	{
+		const std::string_view Destination(ProjectDestination.data());
+		StartProjectOperation({}, FCreateProjectRequest{.TemplateRoot = EngineRoot / "Templates/Projects/Game", .Destination = std::filesystem::path(std::u8string(Destination.begin(), Destination.end())), .Name = ProjectName.data(), .ModuleName = ProjectModule.data()});
+	}
+
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (ImGui::Button(bProjectBusy ? "Cancel operation" : "Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+	{
+		if (bProjectBusy)
+		{
+			ProjectCancellation.request_stop();
+		}
+		else
+		{
+			ImGui::CloseCurrentPopup();
+		}
+	}
+
+	if (bProjectBusy)
+	{
+		ImGui::TextDisabled("Creating project...");
+	}
+	if (std::exchange(bCloseProjectPopup, false))
+	{
+		ImGui::CloseCurrentPopup();
+	}
+	ImGui::EndPopup();
 }
 
 void FEditorFramework::FImplementation::RefreshPreviewMeshes()
@@ -1382,7 +1781,7 @@ void FEditorFramework::FImplementation::RefreshScene(const bool bPreserveGizmoDr
 
 	if (!Assets && Tasks != nullptr && GraphicsDevice != nullptr && !AssetPaths.ContentRoot.empty() && !AssetPaths.DerivedDataRoot.empty() && !AssetPaths.WorkerPath.empty() && !AssetPaths.TargetPlatform.empty())
 	{
-		Assets = FPreviewAssets::Create(*Tasks, *GraphicsDevice, *Log, AssetPaths, PreviewObjects.size());
+		Assets = FPreviewAssets::Create(*Tasks, *GraphicsDevice, *Log, AssetPaths, PreviewObjects.size(), RenderAssetThumbnail);
 	}
 
 	std::vector<FAssetId> SceneAssets;
@@ -1414,7 +1813,7 @@ void FEditorFramework::FImplementation::ReportSceneResult(const std::expected<vo
 
 void FEditorFramework::FImplementation::ApplyAuthoringAction(const EAuthoringAction Action)
 {
-	if (Action == EAuthoringAction::None || Simulation.IsRunning() || Scene->HasActiveEdit())
+	if (Action == EAuthoringAction::None || bProjectBusy || Simulation.IsRunning() || Scene->HasActiveEdit())
 	{
 		return;
 	}
@@ -1736,10 +2135,13 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		ImGui::EndDisabled();
 		ImGui::SameLine();
 
+		ImGui::BeginDisabled(bProjectBusy);
 		if (IconButton("Simulate", Simulation.IsRunning() ? EViewportIcon::Stop : EViewportIcon::Simulate, Simulation.IsRunning() ? "Stop simulation (Esc)" : "Simulate (Alt+S)", Simulation.IsRunning()))
 		{
 			ToggleSimulation();
 		}
+
+		ImGui::EndDisabled();
 	}
 
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10.f * Scale, 8.f * Scale});
@@ -2168,7 +2570,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 		}
 	}
 
-	const bool bGizmoInput = ViewportInteraction.CanUseGizmo(InteractionInput) && !bBoxGesture;
+	const bool bGizmoInput = !bProjectBusy && ImGui::GetDragDropPayload() == nullptr && ViewportInteraction.CanUseGizmo(InteractionInput) && !bBoxGesture;
 	BuildViewportDebugDraw(bGizmoInput, NormalizedMouse);
 }
 
@@ -2446,7 +2848,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 void FEditorFramework::FImplementation::DrawViewportContextMenu()
 {
-	const bool bAuthoringAvailable = !Simulation.IsRunning() && !Scene->HasActiveEdit();
+	const bool bAuthoringAvailable = !bProjectBusy && !Simulation.IsRunning() && !Scene->HasActiveEdit();
 	if (ViewportInteraction.bContextMenuRequested && bAuthoringAvailable)
 	{
 		ImGui::OpenPopup("Viewport context menu");
@@ -2547,7 +2949,48 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			ImGui::BeginDisabled(bViewportControlsHovered && ViewportInteraction.DragButton < 0);
 			ImGui::InvisibleButton("##ViewportInteraction", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
 			ImGui::EndDisabled();
+			std::optional<FAssetId> DroppedAsset;
+			if (Assets && !bProjectBusy && !Simulation.IsRunning() && !Scene->HasActiveEdit() && ImGui::BeginDragDropTarget())
+			{
+				if (const ImGuiPayload* const Payload = ImGui::AcceptDragDropPayload(ContentAssetPayload); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetId))
+				{
+					FAssetId Asset;
+					std::memcpy(&Asset, Payload->Data, sizeof(Asset));
+					DroppedAsset = Asset;
+				}
+
+				ImGui::EndDragDropTarget();
+			}
+
 			UpdateViewport(RenderMinimum, RenderSize);
+			if (DroppedAsset)
+			{
+				const auto Options = Assets->GetOptions();
+				const auto Asset = std::ranges::find_if(Options, [&DroppedAsset](const auto& Option)
+				{
+					return Option.Id == *DroppedAsset && IsPlaceableContentAsset(Option);
+				});
+				if (Asset != Options.end())
+				{
+					const ImVec2 Mouse = ImGui::GetIO().MousePos;
+					const FVector2 Normalized{(Mouse.x - RenderMinimum.x) / RenderSize.x, (Mouse.y - RenderMinimum.y) / RenderSize.y};
+					const auto Ray = ViewportCamera.MakePickingRay(Normalized, RenderSize.x / RenderSize.y, ViewportProjectionCenter);
+					const FVector3 Pivot = ViewportCamera.GetPivot();
+					const float PlaneDistance = std::abs(Ray.Direction.Y) > 0.001f ? (Pivot.Y - Ray.Origin.Y) / Ray.Direction.Y : -1.f;
+					const float Distance = PlaneDistance > 0.f && PlaneDistance < 10000.f ? PlaneDistance : (Pivot - Ray.Origin).Length();
+					const FVector3 Position = Ray.Origin + Ray.Direction * Distance;
+					const auto Separator = Asset->Label.rfind('/');
+					const auto Label = Asset->Label.substr(Separator == std::string::npos ? 0 : Separator + 1);
+					const auto Dot = Label.rfind('.');
+					const auto Created = Scene->CreateMeshEntity(Asset->Id, Label.substr(0, Dot), {Position.X, Position.Y, Position.Z});
+					if (!Created)
+					{
+						ReportSceneResult(std::unexpected(Created.error()));
+					}
+					RefreshScene();
+				}
+			}
+
 			DrawViewportContextMenu();
 			const FVector3 CameraPosition = ViewportCamera.GetSnapshot(1.f).Position;
 			const std::string Coordinates = FormatCameraHud(CameraPosition);
@@ -2809,6 +3252,11 @@ void FEditorFramework::FImplementation::RequestPreviewRename()
 
 void FEditorFramework::FImplementation::ToggleSimulation()
 {
+	if (bProjectBusy)
+	{
+		return;
+	}
+
 	if (Simulation.IsRunning())
 	{
 		Simulation.Stop();
@@ -3061,7 +3509,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		return FSceneRigidBodySettings{}.*Property;
 	},
 	};
-	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && Mesh.IsValid() ? &MeshField : nullptr, &Edits, &Components);
+	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, bProjectBusy || Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && Mesh.IsValid() ? &MeshField : nullptr, &Edits, &Components);
 	if (!MeshResult.bEditCanceled)
 	{
 		ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
@@ -3139,7 +3587,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 void FEditorFramework::FImplementation::DrawOutlinerPanel()
 {
 	FPreviewSelection NewSelection = PreviewSelection;
-	const bool bFocusRequested = DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, NewSelection, PreviewObjects, Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, OutlinerPanelState);
+	const bool bFocusRequested = DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, NewSelection, PreviewObjects, bProjectBusy || Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, OutlinerPanelState);
 	if (OutlinerPanelState.bRenameCommitted)
 	{
 		const auto Object = std::ranges::find(PreviewObjects, OutlinerPanelState.RenameObject, &FPreviewObject::Id);
@@ -3227,22 +3675,48 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Su
 	return {};
 }
 
+void FEditorFramework::FImplementation::SetBottomPanelOpen(const bool bOpen)
+{
+	const bool bWasOpen = bBottomPanelOpen;
+	if (!bOpen && bWasOpen)
+	{
+		const ImGuiWindow* const Browser = ImGui::FindWindowByID(ImHashStr("Content Browser"));
+		bBottomBrowserSelected = Browser && Browser->DockNode && Browser->DockNode->SelectedTabId == Browser->TabId;
+	}
+
+	bBottomPanelOpen = bOpen;
+
+	if (bOpen && !bContentBrowserOpen && !bOutputLogOpen)
+	{
+		bContentBrowserOpen = true;
+	}
+
+	if (bOpen && !bWasOpen)
+	{
+		bRestoreBottomPanelFocus = true;
+		ContentBrowserState.bFocusFolderName |= !ContentBrowserState.RenamingFolder.empty();
+	}
+}
+
 std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::DrawOutputLog()
 {
 	const bool bReceivedRecords = OutputLog->Synchronize();
 
-	if (!bOutputLogOpen)
+	if (!bBottomPanelOpen || !bOutputLogOpen)
 	{
 		return {};
 	}
 
-	if (bFocusCommandRequested)
+	if (bFocusCommandRequested || bFocusOutputLogRequested)
 	{
 		ImGui::SetNextWindowFocus();
 		ImGui::SetNextWindowCollapsed(false);
 	}
 
-	if (!ToolUI->BeginPanel(">_  Output Log###Output Log", &bOutputLogOpen))
+	const bool bPanelVisible = ToolUI->BeginPanel(">_  Output Log###Output Log", &bOutputLogOpen);
+	bFocusOutputLogRequested = false;
+
+	if (!bPanelVisible)
 	{
 		ToolUI->EndPanel();
 		return {};
