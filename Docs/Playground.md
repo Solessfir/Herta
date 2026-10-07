@@ -1,6 +1,6 @@
 # Sandbox playground
 
-The default project opens `Games/Sandbox/Levels/Sandbox.hlevel`: 146 editable entities in 12 Outliner folders. The original physics course and hierarchy examples remain intact. Cubes share the Engine mesh; editable `.hmat` assets provide their colors. A single shared sphere makes PBR reflections easier to compare.
+The default project opens `Games/Sandbox/Levels/Sandbox.hlevel`: 149 editable entities in 13 Outliner folders. The original physics course and hierarchy examples remain intact. Cubes share the Engine mesh; editable `.hmat` assets provide their colors. A single shared sphere makes PBR reflections easier to compare.
 
 Press **F** to frame a selection, **G** for game view, and **F11** for an immersive viewport. **Alt+S** simulates the physics stations; **Escape** restores authored poses. **Ctrl+S** saves the level, not simulation poses. **Ctrl+Space** reveals the bottom panel.
 
@@ -25,8 +25,9 @@ All five light types are authored entities. Atmosphere references the sun's stab
 - **Traversal:** stairs, a descent ramp, hurdles, and spaced platforms are static collision geometry for the upcoming player controller.
 - **Hierarchy workshop:** a rotated arch, nested shelf, mesh-only child, and empty entity exercise parenting, duplication, component editing, and undo/redo.
 - **Shared mesh gallery:** repeated checker and colored cubes exercise instancing and material overrides without duplicated geometry.
+- **Soft bodies:** a gold rope pinned under the arch beam starts 50 degrees off vertical and swings through the arch, a coral cloth pinned at its top corners is released flat and drops into a hanging drape, and a mint pressurized ball falls onto the floor. The rope follows the arch when its parent moves.
 
-Collision uses mesh-bounds boxes, not arbitrary mesh collision. New visual-gallery objects have no rigid bodies and do not change the 16 dynamic-body comparisons. Use [scaling fixtures](Scaling.md) for 1k/5k/10k stress tests.
+Rigid collision uses mesh-bounds boxes, not arbitrary mesh collision. Soft bodies collide with those boxes through their own vertex radius. New visual-gallery objects have no rigid bodies and do not change the 16 dynamic-body comparisons. Use [scaling fixtures](Scaling.md) for 1k/5k/10k stress tests.
 
 ## Content and validation
 

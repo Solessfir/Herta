@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 4,
+  "engineSchemaVersion": 5,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "entities": [
@@ -5020,6 +5020,117 @@
           ]
         }
       }
+    },
+    {
+      "id": "4c060047-2738-4e25-9b9e-000000000001",
+      "name": "Rope - pinned under arch beam",
+      "parent": "4c060001-2738-4e25-9b9e-000000000034",
+      "transform": {
+        "translation": [
+          0,
+          2.95,
+          0
+        ],
+        "rotation": [
+          0.42261826,
+          0,
+          0,
+          0.90630779
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "softBody": {
+          "shape": "rope",
+          "length": 2.4,
+          "height": 2,
+          "thickness": 0.03,
+          "massKg": 1,
+          "stiffness": 0.9,
+          "pressure": 400,
+          "friction": 0.4,
+          "pinned": true,
+          "material": "a4c06003-2738-4e25-9b9e-816ae7c00001"
+        }
+      }
+    },
+    {
+      "id": "4c060047-2738-4e25-9b9e-000000000002",
+      "name": "Cloth - pinned corners, released flat",
+      "parent": null,
+      "transform": {
+        "translation": [
+          9.5,
+          2.6,
+          15
+        ],
+        "rotation": [
+          -0.70710678,
+          0,
+          0,
+          0.70710678
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "softBody": {
+          "shape": "cloth",
+          "length": 1.6,
+          "height": 1.2,
+          "thickness": 0.03,
+          "massKg": 0.5,
+          "stiffness": 0.9,
+          "pressure": 400,
+          "friction": 0.4,
+          "pinned": true,
+          "material": "a4c06002-2738-4e25-9b9e-816ae7c00001"
+        }
+      }
+    },
+    {
+      "id": "4c060047-2738-4e25-9b9e-000000000003",
+      "name": "Soft ball - 400 Pa pressure",
+      "parent": null,
+      "transform": {
+        "translation": [
+          9.5,
+          3,
+          19
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {
+        "softBody": {
+          "shape": "ball",
+          "length": 0.8,
+          "height": 2,
+          "thickness": 0.03,
+          "massKg": 1,
+          "stiffness": 0.9,
+          "pressure": 400,
+          "friction": 0.4,
+          "pinned": false,
+          "material": "a4c06004-2738-4e25-9b9e-816ae7c00001"
+        }
+      }
     }
   ],
   "folders": [
@@ -5245,6 +5356,16 @@
         "4c060045-2738-4e25-9b9e-000000000051",
         "4c060045-2738-4e25-9b9e-000000000052",
         "4c060045-2738-4e25-9b9e-000000000053"
+      ]
+    },
+    {
+      "id": "4c060046-2738-4e25-9b9e-000000000005",
+      "name": "12 - Soft bodies",
+      "parent": null,
+      "entities": [
+        "4c060047-2738-4e25-9b9e-000000000001",
+        "4c060047-2738-4e25-9b9e-000000000002",
+        "4c060047-2738-4e25-9b9e-000000000003"
       ]
     }
   ]
