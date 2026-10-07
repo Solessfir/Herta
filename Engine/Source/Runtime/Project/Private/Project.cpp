@@ -496,6 +496,39 @@ std::expected<std::string, FProjectError> SerializeProject(const FProjectDescrip
 	return Output;
 }
 
+std::optional<std::filesystem::path> FindOwningProject(const std::filesystem::path& File)
+{
+	std::error_code Error;
+	std::filesystem::path Directory = std::filesystem::absolute(File, Error).parent_path();
+	while (!Error && !Directory.empty())
+	{
+		std::vector<std::filesystem::path> Candidates;
+		for (std::filesystem::directory_iterator Entry(Directory, Error), End; !Error && Entry != End; Entry.increment(Error))
+		{
+			if (Entry->path().extension() == ".hertaproject" && Entry->is_regular_file(Error))
+			{
+				Candidates.push_back(Entry->path());
+			}
+		}
+
+		if (!Candidates.empty())
+		{
+			return std::ranges::min(Candidates);
+		}
+
+		Error.clear();
+		const std::filesystem::path Parent = Directory.parent_path();
+		if (Parent == Directory)
+		{
+			break;
+		}
+
+		Directory = Parent;
+	}
+
+	return std::nullopt;
+}
+
 std::expected<FLoadedProject, FProjectError> LoadProject(const std::filesystem::path& DescriptorPath)
 {
 	if (DescriptorPath.extension() != ".hertaproject")

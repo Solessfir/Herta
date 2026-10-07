@@ -2,6 +2,7 @@
 
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <stop_token>
 #include <string>
 #include <string_view>
@@ -68,5 +69,7 @@ struct FCreateProjectRequest
 [[nodiscard]] std::expected<FProjectDescriptor, FProjectError> ParseProject(std::string_view Text);
 [[nodiscard]] std::expected<std::string, FProjectError> SerializeProject(const FProjectDescriptor& Descriptor);
 [[nodiscard]] std::expected<FLoadedProject, FProjectError> LoadProject(const std::filesystem::path& DescriptorPath);
+// The nearest .hertaproject in the file's directory or an ancestor, choosing the first by name when a directory holds several.
+[[nodiscard]] std::optional<std::filesystem::path> FindOwningProject(const std::filesystem::path& File);
 [[nodiscard]] std::expected<FLoadedProject, FProjectError> CreateProject(const FCreateProjectRequest& Request);
 }

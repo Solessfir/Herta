@@ -12,7 +12,7 @@ Legacy schema 1 descriptors remain readable with `startingScene`; their `Scene` 
 
 Modules live at `Source/<ModuleName>`, with `Public` headers and `Private` implementation files. Supported dependencies are `Core`, `Math`, `Assets`, and `Level`; names cannot collide with engine modules. Targets currently describe editor composition, not standalone game executables. Paths use forward slashes and remain relative to the descriptor directory.
 
-`LoadProject` checks the content, level file, and module directories exist. Starting-level JSON is validated when the editor loads it; project creation validates the template level before publishing. `HertaEditor --project=<descriptor>` opens the project; without this flag it opens `Games/Sandbox/Sandbox.hertaproject`.
+`LoadProject` checks the content, level file, and module directories exist. Starting-level JSON is validated when the editor loads it; project creation validates the template level before publishing. `HertaEditor --project=<descriptor>` opens the project; without this flag it opens `Games/Sandbox/Sandbox.hertaproject`. A plain `.hlevel` argument, such as a file dropped on the executable, opens that level in the project `FindOwningProject` locates, and a plain `.hertaproject` argument opens that project.
 
 ## Creation and headless commands
 

@@ -464,7 +464,7 @@ project "HertaEditor"
     location(path.join(ProjectFilesRoot, "HertaEditor"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditor"))
     debugdir(RepositoryRoot)
-    ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform" }
+    ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project" }
     dependson { "HertaShaders", "HertaAssetWorker" }
 
     files {

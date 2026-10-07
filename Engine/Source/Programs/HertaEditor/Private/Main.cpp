@@ -8,6 +8,7 @@
 #include "Herta/NvrhiVulkan/NvrhiVulkan.h"
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
+#include "Herta/Project/Project.h"
 #include "Herta/Renderer/EnvironmentLighting.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Tasks/TaskSystem.h"
@@ -16,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -165,7 +167,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const std::filesystem::path& OpenPath)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -541,9 +543,39 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	AssetWorker += EditorExecutable.extension();
 	const std::string_view Platform = GetPlatformName(GetCurrentPlatform());
 	const FEditorAssetPaths AssetPaths{.EngineContentRoot = RepositoryRoot / "Engine/Content", .ContentRoot = RepositoryRoot / "Games/Sandbox/Content", .DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform, .WorkerPath = AssetWorker, .TargetPlatform = std::string(Platform)};
-	const std::filesystem::path ProjectPath = bScalingTest ? std::filesystem::path{} : ProjectArgument.empty() ? RepositoryRoot / "Games/Sandbox/Sandbox.hertaproject"
-	                                                                                                           : std::filesystem::path(std::u8string(ProjectArgument.begin(), ProjectArgument.end()));
-	const std::filesystem::path LevelPath = bScalingTest ? std::filesystem::path(std::u8string(ScalingLevelPath.begin(), ScalingLevelPath.end())) : std::filesystem::path{};
+	// A level opens inside the nearest project that owns it, falling back to Sandbox for loose files.
+	std::filesystem::path OpenedLevel;
+	std::filesystem::path OpenedProject;
+	if (!OpenPath.empty() && !bScalingTest)
+	{
+		std::error_code Error;
+		const std::filesystem::path Absolute = std::filesystem::absolute(OpenPath, Error);
+		std::string Extension = OpenPath.extension().string();
+		std::ranges::transform(Extension, Extension.begin(), [](const unsigned char Character)
+		{
+			return static_cast<char>(std::tolower(Character));
+		});
+
+		if (Extension == ".hlevel")
+		{
+			OpenedLevel = Absolute;
+			OpenedProject = FindOwningProject(Absolute).value_or(std::filesystem::path{});
+		}
+		else if (Extension == ".hertaproject")
+		{
+			OpenedProject = Absolute;
+		}
+		else
+		{
+			HERTA_LOG_WARNING(*Log, EditorLog, "Ignoring {}: the editor opens .hlevel and .hertaproject files", OpenPath.string());
+		}
+	}
+
+	const std::filesystem::path DefaultProject = RepositoryRoot / "Games/Sandbox/Sandbox.hertaproject";
+	const std::filesystem::path ProjectPath = bScalingTest ? std::filesystem::path{} : !ProjectArgument.empty() ? std::filesystem::path(std::u8string(ProjectArgument.begin(), ProjectArgument.end()))
+	                                                                                 : !OpenedProject.empty()   ? OpenedProject
+	                                                                                                            : DefaultProject;
+	const std::filesystem::path LevelPath = bScalingTest ? std::filesystem::path(std::u8string(ScalingLevelPath.begin(), ScalingLevelPath.end())) : OpenedLevel;
 	if (bScalingTest)
 	{
 		std::error_code Error;
@@ -1134,7 +1166,18 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::string_view ScalingLevelPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--scaling-test=");
 		const bool bScalingSimulate = Herta::HasArgument(ArgumentCount, Arguments, "--scaling-simulate");
 		const std::string_view ProjectPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--project=");
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest);
+		// Explorer passes a file dropped on the executable as a plain argument.
+		std::filesystem::path OpenPath;
+		for (const std::filesystem::path& Argument : Herta::GetProcessArgumentPaths(ArgumentCount, Arguments))
+		{
+			if (!Argument.u8string().starts_with(u8"-"))
+			{
+				OpenPath = Argument;
+				break;
+			}
+		}
+
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, OpenPath);
 	}
 	catch (const std::exception& Exception)
 	{

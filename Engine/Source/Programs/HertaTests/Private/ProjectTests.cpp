@@ -6,6 +6,8 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <chrono>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <stop_token>
@@ -172,5 +174,26 @@ TEST_CASE("Project headless commands share descriptor validation and creation")
 	CHECK(Registry.Execute("project.validate Games/Sandbox/Sandbox.hertaproject").has_value());
 	CHECK_FALSE(Registry.Execute("project.create missing arguments"));
 	CHECK_FALSE(Registry.Execute("project.validate missing.hertaproject"));
+}
+
+TEST_CASE("Owning project lookup walks up from a level to the nearest project descriptor")
+{
+	const std::filesystem::path Root = EngineRoot();
+	REQUIRE_FALSE(Root.empty());
+	const auto Sandbox = FindOwningProject(Root / "Games/Sandbox/Levels/Sandbox.hlevel");
+	REQUIRE(Sandbox);
+	CHECK(std::filesystem::equivalent(*Sandbox, Root / "Games/Sandbox/Sandbox.hertaproject"));
+
+	std::error_code Error;
+	const std::filesystem::path Scratch = std::filesystem::temp_directory_path(Error) / std::format("HertaOwningProject{}", std::chrono::steady_clock::now().time_since_epoch().count());
+	std::filesystem::create_directories(Scratch / "Content/Levels", Error);
+	REQUIRE_FALSE(Error);
+	CHECK_FALSE(FindOwningProject(Scratch / "Content/Levels/Loose.hlevel"));
+	std::ofstream(Scratch / "B.hertaproject") << "{}";
+	std::ofstream(Scratch / "A.hertaproject") << "{}";
+	const auto Nearest = FindOwningProject(Scratch / "Content/Levels/Loose.hlevel");
+	REQUIRE(Nearest);
+	CHECK(Nearest->filename() == "A.hertaproject");
+	std::filesystem::remove_all(Scratch, Error);
 }
 }

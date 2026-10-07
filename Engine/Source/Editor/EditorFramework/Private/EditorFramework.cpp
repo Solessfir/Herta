@@ -736,6 +736,8 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 			{
 				return std::unexpected(FEditorFrameworkError{Loaded.error().Message});
 			}
+
+			HERTA_LOG_INFO(*Descriptor.Log, EditorLog, "Opened level {} in project {}", InitialLevelPath.string(), Implementation->ProjectPath.string());
 		}
 	}
 

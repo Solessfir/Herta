@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <filesystem>
 #include <string_view>
+#include <vector>
 
 namespace Herta
 {
@@ -25,4 +27,7 @@ enum class EPlatform : std::uint8_t
 }
 
 [[nodiscard]] std::string_view GetPlatformName(EPlatform Platform) noexcept;
+
+// Process arguments after the executable, as paths. Windows rereads the wide command line so non-ANSI paths, such as files dropped on the executable, survive.
+[[nodiscard]] std::vector<std::filesystem::path> GetProcessArgumentPaths(int ArgumentCount, char** Arguments);
 }
