@@ -616,7 +616,6 @@ struct FEditorFramework::FImplementation
 	FViewportBoxSelectionState ViewportBoxSelection;
 	bool bViewportControlsHovered = false;
 	double CameraCoordinatesCopiedUntil = 0.0;
-	float SnapIslandWidth = ViewportIconButtonSize + 6.f;
 	float WorldIslandWidth = ViewportIconButtonSize + 6.f;
 
 	bool bGameView = false;
@@ -1218,8 +1217,6 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 			DrawFieldLabel("Panel blur", ValueWidth);
 			DrawNumericSliderFloat("##Blur", &Appearance.BlurRadius, 0.f, 40.f, "%.0f px", ImGuiSliderFlags_AlwaysClamp);
-			DrawFieldLabel("Reduced motion", ValueWidth);
-			ToolUIToggle("##ReducedMotion", &Appearance.bReducedMotion);
 			ImGui::Separator();
 
 			float GradientHeightPercent = Appearance.GradientHeight * 100.f;
@@ -2461,12 +2458,10 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 	const float Top = Minimum.y + EdgeMargin;
 	float ToolbarBottom = Top + Height;
 	bViewportControlsHovered = false;
-	const bool bReducedMotion = ToolUI->GetAppearance().bReducedMotion;
-	const float AnimationStep = bReducedMotion ? 1.f : std::min(1.f, ImGui::GetIO().DeltaTime * 14.f);
 
 	const auto IconButton = [&](const char* Id, const EViewportIcon Icon, const char* Tooltip, const bool bSelected = false)
 	{
-		return ViewportIconButton(Id, Icon, Tooltip, Scale, bSelected, bReducedMotion);
+		return ViewportIconButton(Id, Icon, Tooltip, Scale, bSelected);
 	};
 
 	const auto Island = [&](const float X, const float Width, const float OffsetY = 0.f)
@@ -2508,9 +2503,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			Right -= Height + Gap;
 		}
 
-		const float SnapTarget = bSnapEnabled ? ViewportIconButtonSize + 75.f : Height / Scale;
-		SnapIslandWidth += (SnapTarget - SnapIslandWidth) * AnimationStep;
-		const float SnapWidth = SnapIslandWidth * Scale;
+		const float SnapWidth = (bSnapEnabled ? ViewportIconButtonSize + 75.f : Height / Scale) * Scale;
 		Island(Right - SnapWidth, SnapWidth);
 
 		if (IconButton("Grid snap", EViewportIcon::Grid, "Toggle grid snapping (S)", bSnapEnabled))
@@ -2518,7 +2511,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			bSnapEnabled = !bSnapEnabled;
 		}
 
-		if (bSnapEnabled && SnapIslandWidth > SnapTarget - 1.f)
+		if (bSnapEnabled)
 		{
 			ImGui::SameLine();
 			ImGui::SetNextItemWidth(68.f * Scale);
@@ -2538,8 +2531,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		if (bExpandedLayout)
 		{
 			const bool bHover = ImGui::IsMouseHoveringRect({Right - WorldIslandWidth * Scale, Top}, {Right, Top + Height});
-			const float Target = bHover ? 100.f : Height / Scale;
-			WorldIslandWidth += (Target - WorldIslandWidth) * AnimationStep;
+			WorldIslandWidth = bHover ? 100.f : Height / Scale;
 			Island(Right - WorldIslandWidth * Scale, WorldIslandWidth * Scale);
 
 			if (IconButton("Coordinate space", EViewportIcon::World, bLocalGizmo ? "Local axes (L)" : "World axes (L)", bLocalGizmo))

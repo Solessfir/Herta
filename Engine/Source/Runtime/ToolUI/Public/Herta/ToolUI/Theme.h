@@ -41,7 +41,6 @@ struct FEditorAppearance
 	float PanelOpacity = 0.9f;
 	float BlurRadius = 24.f;
 	EPanelTransparency PanelTransparency = EPanelTransparency::AllPanels;
-	bool bReducedMotion = false;
 
 	[[nodiscard]] constexpr bool operator==(const FEditorAppearance&) const noexcept = default;
 };

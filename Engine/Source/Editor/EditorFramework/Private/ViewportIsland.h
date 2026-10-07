@@ -29,20 +29,14 @@ enum class EViewportIcon
 	Simulate
 };
 
-inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, const char* const Tooltip, const float Scale, const bool bSelected = false, const bool bReducedMotion = false)
+inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, const char* const Tooltip, const float Scale, const bool bSelected = false)
 {
 	const ImVec2 Position = ImGui::GetCursorScreenPos();
 	const ImVec2 Size{ViewportIconButtonSize * Scale, ViewportIconButtonSize * Scale};
 	const bool bPressed = ImGui::InvisibleButton(Id, Size, ImGuiButtonFlags_EnableNav);
 	const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
-	const ImGuiID ItemId = ImGui::GetItemID();
-	float Highlight = ImGui::GetStateStorage()->GetFloat(ItemId);
-	Highlight += ((bSelected ? 0.2f : bHovered ? 0.1f
-	                                           : 0.f)
-	                 - Highlight)
-	             * (bReducedMotion ? 1.f : std::min(1.f, ImGui::GetIO().DeltaTime * 16.f));
-	ImGui::GetStateStorage()->SetFloat(ItemId, Highlight);
+	const float Highlight = bSelected ? 0.2f : bHovered ? 0.1f : 0.f;
 	Draw->AddRectFilled(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImVec4{1, 1, 1, Highlight}), Size.y * 0.5f);
 	if (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)
 	{

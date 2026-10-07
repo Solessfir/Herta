@@ -152,22 +152,29 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 	FEditorAppearance Appearance;
 	std::string PanelLabel;
 	int PanelMode = 0;
-	if (!(Stream >> Header >> Version) || Header != "HertaEditorAppearance" || (Version != 1 && Version != 2) || !(Stream >> AccentLabel >> Red >> Green >> Blue) || AccentLabel != "Accent" || !(Stream >> GradientLabel >> Appearance.GradientHeight >> Appearance.Saturation >> Appearance.Intensity) || GradientLabel != "Gradient" || !(Stream >> PanelLabel >> PanelMode) || PanelLabel != "Panel")
+	if (!(Stream >> Header >> Version) || Header != "HertaEditorAppearance" || (Version < 1 || Version > 3) || !(Stream >> AccentLabel >> Red >> Green >> Blue) || AccentLabel != "Accent" || !(Stream >> GradientLabel >> Appearance.GradientHeight >> Appearance.Saturation >> Appearance.Intensity) || GradientLabel != "Gradient" || !(Stream >> PanelLabel >> PanelMode) || PanelLabel != "Panel")
 	{
 		return std::nullopt;
 	}
 
-	if (Version == 2)
+	if (Version >= 2)
 	{
 		std::string GlassLabel;
-		std::string MotionLabel;
-		int ReducedMotion = 0;
-		if (!(Stream >> GlassLabel >> Appearance.PanelOpacity >> Appearance.BlurRadius) || GlassLabel != "Glass" || !(Stream >> MotionLabel >> ReducedMotion) || MotionLabel != "Motion" || (ReducedMotion != 0 && ReducedMotion != 1))
+		if (!(Stream >> GlassLabel >> Appearance.PanelOpacity >> Appearance.BlurRadius) || GlassLabel != "Glass")
 		{
 			return std::nullopt;
 		}
+	}
 
-		Appearance.bReducedMotion = ReducedMotion != 0;
+	// Version 2 stored a reduced-motion flag; the editor no longer animates, so it is read and ignored.
+	if (Version == 2)
+	{
+		std::string MotionLabel;
+		int ReducedMotion = 0;
+		if (!(Stream >> MotionLabel >> ReducedMotion) || MotionLabel != "Motion" || (ReducedMotion != 0 && ReducedMotion != 1))
+		{
+			return std::nullopt;
+		}
 	}
 
 	if (Red < 0 || Red > 255 || Green < 0 || Green > 255 || Blue < 0 || Blue > 255 || !std::isfinite(Appearance.GradientHeight) || Appearance.GradientHeight < 0.f || Appearance.GradientHeight > 1.f || !std::isfinite(Appearance.Saturation) || Appearance.Saturation < 0.f || Appearance.Saturation > 1.f || !std::isfinite(Appearance.Intensity) || Appearance.Intensity < 0.f || Appearance.Intensity > 1.f || !std::isfinite(Appearance.PanelOpacity) || Appearance.PanelOpacity < 0.f || Appearance.PanelOpacity > 1.f || !std::isfinite(Appearance.BlurRadius) || Appearance.BlurRadius < 0.f || Appearance.BlurRadius > 40.f || PanelMode < static_cast<int>(EPanelTransparency::AllPanels) || PanelMode > static_cast<int>(EPanelTransparency::Disabled))
@@ -193,12 +200,11 @@ void SaveAppearance(const std::filesystem::path& Path, const FEditorAppearance& 
 		return;
 	}
 
-	Stream << "HertaEditorAppearance 2\n";
+	Stream << "HertaEditorAppearance 3\n";
 	Stream << "Accent " << static_cast<int>(Appearance.Accent.Red) << ' ' << static_cast<int>(Appearance.Accent.Green) << ' ' << static_cast<int>(Appearance.Accent.Blue) << '\n';
 	Stream << "Gradient " << Appearance.GradientHeight << ' ' << Appearance.Saturation << ' ' << Appearance.Intensity << '\n';
 	Stream << "Panel " << static_cast<int>(Appearance.PanelTransparency) << '\n';
 	Stream << "Glass " << Appearance.PanelOpacity << ' ' << Appearance.BlurRadius << '\n';
-	Stream << "Motion " << static_cast<int>(Appearance.bReducedMotion) << '\n';
 }
 
 void ResetRendererTextureState() noexcept

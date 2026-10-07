@@ -94,7 +94,7 @@ Press the backtick key to open Output Log and focus its command field; pressing 
 
 ## Appearance
 
-Use **Appearance** in the bottom bar for all workspace styling, including panel transparency, opacity, blur, reduced motion, gradient, and accent color. Default panel opacity is 90%, with 24 px background blur. Start is a welcome panel, closed by default, and can be reopened from **Window > Start panel**.
+Use **Appearance** in the bottom bar for all workspace styling, including panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 90%, with 24 px background blur. Start is a welcome panel, closed by default, and can be reopened from **Window > Start panel**.
 
 ## Blur profiling
 
