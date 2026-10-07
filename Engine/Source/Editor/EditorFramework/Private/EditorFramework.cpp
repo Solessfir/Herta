@@ -25,6 +25,7 @@
 #include "NumericField.h"
 #include "OutlinerPanel.h"
 #include "OutputLogTextLayout.h"
+#include "PerformancePanel.h"
 #include "PlaceObjectsMenu.h"
 #include "PreviewAssets.h"
 #include "PreviewLevel.h"
@@ -357,51 +358,6 @@ float DrawKeycap(const std::string_view Key, const bool bDraw = true)
 	return Width;
 }
 
-// Space-separated keys become keycaps; "+" and "/" stay plain separators.
-float DrawKeyChord(const std::string_view Keys, const bool bDraw = true)
-{
-	const float Spacing = std::round(ImGui::GetFontSize() * 0.25f);
-	float Width = 0.f;
-	bool bFirst = true;
-
-	for (const auto Part : std::views::split(Keys, ' '))
-	{
-		const std::string_view Token(Part.begin(), Part.end());
-		if (Token.empty())
-		{
-			continue;
-		}
-
-		if (!bFirst)
-		{
-			Width += Spacing;
-
-			if (bDraw)
-			{
-				ImGui::SameLine(0.f, Spacing);
-			}
-		}
-
-		bFirst = false;
-
-		if (Token == "+" || Token == "/")
-		{
-			Width += ImGui::CalcTextSize(Token.data(), Token.data() + Token.size()).x;
-
-			if (bDraw)
-			{
-				ImGui::TextDisabled("%.*s", static_cast<int>(Token.size()), Token.data());
-			}
-		}
-		else
-		{
-			Width += DrawKeycap(Token, bDraw);
-		}
-	}
-
-	return Width;
-}
-
 // Labels a compact settings row on the left, with an optional shortcut keycap, and right-aligns the next item.
 void DrawFieldLabel(const char* const Label, const float ValueWidth, const char* const Shortcut = nullptr)
 {
@@ -521,6 +477,7 @@ struct FEditorFramework::FImplementation
 	void RefreshVisuals();
 	void RefreshSelectedVisualEntities();
 	void DrawMaterialPanel();
+	void DrawPerformancePanel();
 	void ImportWithDialog();
 	void OpenLevelWithDialog();
 	void OpenProjectWithDialog();
@@ -562,6 +519,8 @@ struct FEditorFramework::FImplementation
 	FEditorAssetThumbnail DraftMaterialThumbnail;
 	std::vector<FMaterialTextureOption> MaterialTextureOptions;
 	FOutlinerPanelState OutlinerPanelState;
+	bool bPerformanceOpen = false;
+	FPerformancePanelState PerformanceState;
 	FPlaceObjectsMenuState PlaceObjectsMenuState;
 	bool bPlaceObjectsRequested = false;
 
@@ -624,6 +583,7 @@ struct FEditorFramework::FImplementation
 	bool bOrientationIndicatorVisible = true;
 	bool bBoundsVisible = false;
 	bool bCameraReadoutVisible = false;
+	bool bCameraSpeedVisible = false;
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
 
@@ -1076,6 +1036,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			Implementation->bOutputLogOpen = bLogVisible;
 			Implementation->bBottomPanelOpen |= bLogVisible;
 		}
+
+		ToolUIMenuItem("Performance", EToolUIMenuIcon::Performance, &Implementation->bPerformanceOpen);
 	}, [&]
 	{
 		const float Scale = ImGui::GetFontSize() / Implementation->ToolUI->GetMetrics().BaseFontSize;
@@ -1545,6 +1507,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 	Implementation->DrawViewport(RenderViewport);
 	Implementation->DrawMaterialPanel();
+	Implementation->DrawPerformancePanel();
 	if (!Implementation->Simulation.IsRunning())
 	{
 		if (Implementation->bViewportEditCanceled && Implementation->Level->HasActiveEdit())
@@ -2089,6 +2052,28 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 			const auto Source = Assets && !Environments.empty() ? Assets->GetCookedTexture(Environments.front()) : std::shared_ptr<const FCookedTexture>{};
 			VisualEnvironment->Tick(Source, *Uniforms);
 		}
+	}
+}
+
+void FEditorFramework::FImplementation::DrawPerformancePanel()
+{
+	// Recorded while closed so the graphs already have history when the panel opens.
+	const std::vector<FGpuPassTiming> Passes = MeshRenderer ? MeshRenderer->GetGpuTimings() : std::vector<FGpuPassTiming>{};
+	const FPerformanceSample Sample{
+	    .FrameMilliseconds = ImGui::GetIO().DeltaTime * 1000.,
+	    .CpuMilliseconds = CpuFrameMilliseconds,
+	    .GpuUIMilliseconds = GpuUIMilliseconds,
+	    .Passes = Passes,
+	    .EnabledLights = EnabledLightCount,
+	    .MaximumLights = MaximumRenderLights,
+	    .RenderTargetBytes = MeshRenderer ? MeshRenderer->GetRenderTargetBytes() : 0,
+	    .DrawCount = MeshRenderer ? MeshRenderer->GetLastDrawCount() : 0,
+	};
+
+	RecordPerformanceSample(PerformanceState, Sample);
+	if (bPerformanceOpen)
+	{
+		Herta::DrawPerformancePanel(*ToolUI, bPerformanceOpen, PerformanceState, Sample);
 	}
 }
 
@@ -2640,17 +2625,43 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			return bChanged;
 		};
 
-		const auto ShortcutRow = [](const char* const Action, const char* const Keys)
-		{
-			ImGui::AlignTextToFramePadding();
-			ImGui::TextUnformatted(Action);
-			ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - DrawKeyChord(Keys, false));
-			DrawKeyChord(Keys);
-		};
-
 		// Mirrors the toolbar's island breakpoints: gizmo modes and Focus appear here only while the toolbar hides them.
 		const bool bToolbarShowsModes = Size.x > 340.f * Scale;
 		const bool bToolbarShowsFocus = Size.x > 1040.f * Scale;
+
+		if (Section("Overlays"))
+		{
+			if (Toggle("Game view", bGameView, "G"))
+			{
+				ViewportGizmos.resetId();
+			}
+
+			Toggle("Grid", bGridVisible);
+			Toggle("World axes", bAxesVisible);
+			Toggle("Corner axis indicator", bOrientationIndicatorVisible);
+			Toggle("Preview bounds", bBoundsVisible);
+			Toggle("Camera coordinates", bCameraReadoutVisible);
+			Toggle("Camera speed", bCameraSpeedVisible);
+		}
+
+		if (Section("Camera"))
+		{
+			float MovementSpeed = ViewportCamera.GetMovementSpeed();
+			DrawFieldLabel("Speed", ValueWidth);
+
+			if (DrawNumericSliderFloat("##CameraSpeed", &MovementSpeed, 0.1f, 100.f, "%.1f m/s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+			{
+				ViewportCamera.SetMovementSpeed(MovementSpeed);
+			}
+
+			float Sensitivity = ViewportCamera.GetMouseSensitivity() * 180.f / std::numbers::pi_v<float>;
+			DrawFieldLabel("Look", ValueWidth);
+
+			if (DrawNumericSliderFloat("##CameraLook", &Sensitivity, 0.02f, 1.f, "%.2f°/px", ImGuiSliderFlags_AlwaysClamp))
+			{
+				ViewportCamera.SetMouseSensitivity(Sensitivity * std::numbers::pi_v<float> / 180.f);
+			}
+		}
 
 		if (Section("Gizmo"))
 		{
@@ -2723,25 +2734,6 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			ImGui::EndDisabled();
 		}
 
-		if (Section("Camera"))
-		{
-			float MovementSpeed = ViewportCamera.GetMovementSpeed();
-			DrawFieldLabel("Speed", ValueWidth);
-
-			if (DrawNumericSliderFloat("##CameraSpeed", &MovementSpeed, 0.1f, 100.f, "%.1f m/s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
-			{
-				ViewportCamera.SetMovementSpeed(MovementSpeed);
-			}
-
-			float Sensitivity = ViewportCamera.GetMouseSensitivity() * 180.f / std::numbers::pi_v<float>;
-			DrawFieldLabel("Look", ValueWidth);
-
-			if (DrawNumericSliderFloat("##CameraLook", &Sensitivity, 0.02f, 1.f, "%.2f°/px", ImGuiSliderFlags_AlwaysClamp))
-			{
-				ViewportCamera.SetMouseSensitivity(Sensitivity * std::numbers::pi_v<float> / 180.f);
-			}
-		}
-
 		if (Section("Rendering"))
 		{
 			DrawFieldLabel("Exposure", ValueWidth);
@@ -2777,43 +2769,19 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 					ImGui::EndCombo();
 				}
-
-				ImGui::TextDisabled("Lights %zu / 32 - shadows 2048 px cascades, 512 px tiles", EnabledLightCount);
-				ImGui::TextDisabled("Targets %.1f MiB - %zu draws", static_cast<double>(MeshRenderer->GetRenderTargetBytes()) / (1024. * 1024.), MeshRenderer->GetLastDrawCount());
-				if (ImGui::TreeNodeEx("GPU passes", ImGuiTreeNodeFlags_NoTreePushOnOpen))
-				{
-					for (const auto& Timing : MeshRenderer->GetGpuTimings())
-					{
-						ImGui::TextDisabled("%s", Timing.Name.c_str());
-						ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - ValueWidth);
-						ImGui::Text("%.3f ms", Timing.Milliseconds);
-					}
-				}
 			}
-		}
 
-		if (Section("Overlays"))
-		{
-			if (Toggle("Game view", bGameView, "G"))
+			if (ImGui::Button("Open Performance panel", {-1.f, 0.f}))
 			{
-				ViewportGizmos.resetId();
+				// An already open panel may sit behind another dock tab; a newly opened one takes focus by appearing.
+				if (bPerformanceOpen && ImGui::FindWindowByName("Performance"))
+				{
+					ImGui::SetWindowFocus("Performance");
+				}
+
+				bPerformanceOpen = true;
+				ImGui::CloseCurrentPopup();
 			}
-
-			Toggle("Grid", bGridVisible);
-			Toggle("World axes", bAxesVisible);
-			Toggle("Corner axis indicator", bOrientationIndicatorVisible);
-			Toggle("Preview bounds", bBoundsVisible);
-			Toggle("Camera coordinates", bCameraReadoutVisible);
-		}
-
-		if (Section("Navigation"))
-		{
-			ShortcutRow("Add object", "Shift + A");
-			ShortcutRow("Fly", "RMB + WASD / QE");
-			ShortcutRow("Orbit", "Alt + LMB");
-			ShortcutRow("Pan", "MMB");
-			ShortcutRow("Dolly", "Wheel");
-			ShortcutRow("Fly speed", "RMB + Wheel");
 		}
 
 		ImGui::Spacing();
@@ -3682,7 +3650,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				HudDraw->AddText({CoordinatesPosition.x + 40.f * HudScale + CameraLabelWidth, CoordinatesTextY}, PackColor(ToolUITheme::TextPrimary), Coordinates.c_str());
 			}
 
-			if (!bGameView && ViewportInteraction.CameraMode == EViewportCameraMode::Fly)
+			if (!bGameView && bCameraSpeedVisible)
 			{
 				const float UiScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 				const std::string Speed = std::format("{:.2f} m/s", ViewportCamera.GetMovementSpeed() * (ImGui::GetIO().KeyShift ? 4.f : 1.f));

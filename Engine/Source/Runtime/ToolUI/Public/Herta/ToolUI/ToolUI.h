@@ -135,7 +135,8 @@ enum class EToolUIMenuIcon : std::uint8_t
 	Fog,
 	Material,
 	SelectAll,
-	ContentBrowser
+	ContentBrowser,
+	Performance,
 };
 
 bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);

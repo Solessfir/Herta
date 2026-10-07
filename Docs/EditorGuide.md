@@ -18,7 +18,7 @@ Transform readouts use fixed-point numbers with trailing zeros removed. Display 
 
 In the Viewport, hold RMB and use WASD/QE to fly, Alt+LMB on empty space to orbit, MMB to pan, and the wheel to dolly. Alt+drag a transform gizmo to duplicate the selection and transform the copies as one undo step. Copies appear only when the transform changes; Escape cancels the drag and removes them. Press F to focus the selection. F11 toggles a full-workspace viewport without changing the saved panel layout. Click an object to select it; Ctrl+click or Shift+click toggles additional objects. Click empty viewport space or press Escape in the focused viewport to deselect. During a transform drag, Escape restores the entire selection instead. The toolbar provides move/rotate/scale, local/world axes, snapping, and camera/debug settings. Transform edits apply to the selection around its active object's pivot.
 
-Press G in the focused Viewport to toggle Game view, or use **Overlays > Game view** in viewport settings. It hides the grid, gizmos, selection outlines, empty-entity markers, bounds, axes, viewport stats, and fly-speed HUD without changing individual overlay settings. Camera coordinates, off by default under **Overlays > Camera coordinates**, remain visible and clickable for copying when enabled. Panels and the viewport toolbar remain visible. This does not start Play or Simulate.
+Press G in the focused Viewport to toggle Game view, or use **Overlays > Game view** in viewport settings. It hides the grid, gizmos, selection outlines, empty-entity markers, bounds, axes, viewport stats, and camera speed readout without changing individual overlay settings. Camera coordinates, off by default under **Overlays > Camera coordinates**, remain visible and clickable for copying when enabled. **Overlays > Camera speed**, also off by default, shows the fly speed above the coordinates. Panels and the viewport toolbar remain visible. This does not start Play or Simulate.
 
 Drag LMB from empty viewport space to box-select intersecting projected mesh bounds and empty-entity markers. Shift-drag adds objects, Ctrl-drag toggles them, and Escape restores the selection from before the drag. Selection updates live; gizmo drags and Alt+LMB orbit keep their existing behavior.
 
@@ -46,7 +46,7 @@ Right-click a Game folder in the Content Browser to create a reusable `.hmat` ma
 
 Shift+A places Directional, Sky, Point, Spot, or Rect Light, Sky Atmosphere, and Height Fog as well as Empty Entity and Cube. Add Component attaches the same visual components to an existing entity. Light guides show emitter shape, direction, and selected range/cones; G hides them with other editor overlays. Changes support level undo/redo, duplication, clipboard, and saving.
 
-Viewport settings > Rendering controls manual exposure, shadow quality, and native SMAA 1x. Defaults are -14 EV, Soft PCF shadows, and SMAA High. The panel reports GPU pass timings, render-target memory, and light/atlas budgets. Sky Light separates ambient intensity from visible sky, using a cooked HDR texture or the linked atmosphere's generated sky. Height Fog supports non-volumetric and volumetric modes plus low/medium/high integration quality. See [Rendering](Rendering.md) for budgets and current limitations.
+Viewport settings > Rendering controls manual exposure, shadow quality, and native SMAA 1x. Defaults are -14 EV, Soft PCF shadows, and SMAA High. **Window > Performance** (or **Open Performance panel** in Rendering) opens as a tab beside Details and graphs frame, CPU, and GPU time over the last 240 frames, breaks GPU time down per pass with sparklines on a shared scale, and reports lights, draws, render-target memory, and shadow budgets. **Pause** freezes the history for inspection. Sky Light separates ambient intensity from visible sky, using a cooked HDR texture or the linked atmosphere's generated sky. Height Fog supports non-volumetric and volumetric modes plus low/medium/high integration quality. See [Rendering](Rendering.md) for budgets and current limitations.
 
 ## Levels
 
@@ -94,7 +94,7 @@ Press the backtick key to open Output Log and focus its command field; pressing 
 
 ## Appearance
 
-Use **Appearance** in the bottom bar for all workspace styling, including panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 90%, with 24 px background blur. Start is a welcome panel, closed by default, and can be reopened from **Window > Start panel**.
+Use **Appearance** in the bottom bar for all workspace styling, including panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 95%, with 24 px background blur. Start is a welcome panel, closed by default, and can be reopened from **Window > Start panel**.
 
 ## Blur profiling
 

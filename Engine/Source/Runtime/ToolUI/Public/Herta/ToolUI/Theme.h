@@ -38,7 +38,7 @@ struct FEditorAppearance
 	float GradientHeight = 0.5f;
 	float Saturation = 0.8f;
 	float Intensity = 0.15f;
-	float PanelOpacity = 0.9f;
+	float PanelOpacity = 0.95f;
 	float BlurRadius = 24.f;
 	EPanelTransparency PanelTransparency = EPanelTransparency::AllPanels;
 

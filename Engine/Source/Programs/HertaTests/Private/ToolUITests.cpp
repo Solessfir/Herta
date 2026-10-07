@@ -561,7 +561,7 @@ TEST_CASE("ToolUI theme defaults preserve the editor visual contract")
 
 	CHECK(Appearance.Accent == FToolUIColor{184, 184, 184, 255});
 	CHECK(Appearance.PanelTransparency == EPanelTransparency::AllPanels);
-	CHECK(Appearance.PanelOpacity == doctest::Approx(0.9f));
+	CHECK(Appearance.PanelOpacity == doctest::Approx(0.95f));
 	CHECK(Appearance.BlurRadius == doctest::Approx(24.f));
 	CHECK(Metrics.BaseFontSize == 15.625f);
 	CHECK(Metrics.TitleBarHeight == 36.f);

@@ -533,6 +533,14 @@ void DrawToolUIIcon(ImDrawList* const Draw, const ImVec2 Center, const float Sca
 		Line(-1, 0, -5, 4);
 		Line(1, 4, 6, 4);
 	}
+	else if (Icon == EToolUIMenuIcon::Performance)
+	{
+		Line(-6, -6, -6, 6);
+		Line(-6, 6, 6, 6);
+		Line(-4, 3, -1, -1);
+		Line(-1, -1, 1, 1);
+		Line(1, 1, 5, -4);
+	}
 	else if (Icon == EToolUIMenuIcon::Sync)
 	{
 		Draw->AddCircle(Center, 5.5f * Scale, Color, 18, Scale);
@@ -685,7 +693,8 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 				const bool bOutliner = Tab.Window && Tab.Window->ID == ImHashStr("Outliner");
 				const bool bDetails = Tab.Window && Tab.Window->ID == ImHashStr("Details");
 				const bool bContent = Tab.Window && Tab.Window->ID == ImHashStr("Content Browser");
-				if (bOutliner || bDetails || bContent)
+				const bool bPerformance = Tab.Window && Tab.Window->ID == ImHashStr("Performance");
+				if (bOutliner || bDetails || bContent || bPerformance)
 				{
 					const float Scale = Window->Viewport->DpiScale;
 					const float Left = Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim;
@@ -693,8 +702,7 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 					const bool bHovered = Owner.Context->HoveredWindow == Node->HostWindow && ImGui::IsMouseHoveringRect(Tab.Window->DC.DockTabItemRect.Min, Tab.Window->DC.DockTabItemRect.Max, false);
 					const ImU32 Color = ToImGuiPackedColor(Tab.ID == Bar.VisibleTabId || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
 					DrawList->PushClipRect({Bar.ScrollingRectMinX, Bar.BarRect.Min.y}, {Bar.ScrollingRectMaxX, Bar.BarRect.Max.y}, false);
-					DrawToolUIIcon(DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : bDetails ? EToolUIMenuIcon::Details
-					                                                                                                : EToolUIMenuIcon::ContentBrowser);
+					DrawToolUIIcon(DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : bDetails ? EToolUIMenuIcon::Details : bPerformance ? EToolUIMenuIcon::Performance : EToolUIMenuIcon::ContentBrowser);
 					DrawList->PopClipRect();
 				}
 
@@ -2385,6 +2393,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 
 		ImGui::DockBuilderDockWindow("Outliner", OutlinerId);
 		ImGui::DockBuilderDockWindow("Details", DetailsId);
+		ImGui::DockBuilderDockWindow("Performance", DetailsId);
 		ImGui::DockBuilderDockWindow("Start", DetailsId);
 		ImGui::DockBuilderDockWindow("Viewport", CenterId);
 		ImGui::DockBuilderDockWindow("Content Browser", BottomId);
@@ -2479,7 +2488,17 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		}
 	}
 
-	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" ? std::format("      {}###{}", Name, Name) : std::string(Name);
+	if (Name == "Performance" && ImGui::FindWindowSettingsByID(WindowId) == nullptr)
+	{
+		// Add the panel as a tab beside Details without resetting an existing workspace.
+		const auto* const DetailsSettings = ImGui::FindWindowSettingsByID(ImHashStr("Details"));
+		if (DetailsSettings && DetailsSettings->DockId != 0)
+		{
+			ImGui::SetNextWindowDockID(DetailsSettings->DockId, ImGuiCond_FirstUseEver);
+		}
+	}
+
+	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" || Name == "Performance" ? std::format("      {}###{}", Name, Name) : std::string(Name);
 	const ImGuiWindowFlags Flags = (bViewport ? ImGuiWindowFlags_NoMove : ImGuiWindowFlags_None) | (Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
 
 	if (bImmersive)
