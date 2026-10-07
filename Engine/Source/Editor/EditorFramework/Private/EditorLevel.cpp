@@ -44,6 +44,22 @@ Im3d::Mat3 ToEditorRotation(const FQuaternion& Rotation)
 	return Result;
 }
 
+// Shape-appropriate starting points: a 3 m rope, a 2 x 1.5 m curtain, and a 0.8 m ball that keeps its shape under pressure.
+FSoftBodyComponent MakeDefaultSoftBody(const ESoftBodyShape Shape)
+{
+	switch (Shape)
+	{
+		case ESoftBodyShape::Cloth:
+			return {.Shape = Shape, .Length = 2.f, .Height = 1.5f, .Thickness = 0.02f, .MassKg = 0.6f, .Stiffness = 0.8f};
+		case ESoftBodyShape::Ball:
+			return {.Shape = Shape, .Length = 0.8f, .Thickness = 0.02f, .MassKg = 1.f, .Stiffness = 0.7f, .Pressure = 400.f, .bPinned = false};
+		case ESoftBodyShape::Rope:
+			break;
+	}
+
+	return {};
+}
+
 FPreviewObject ToEditorObject(const FLevelEntity& Entity, const TTransform<double>& WorldPose)
 {
 	const auto& Rotation = WorldPose.Rotation;
@@ -59,6 +75,10 @@ FPreviewObject ToEditorObject(const FLevelEntity& Entity, const TTransform<doubl
 	else if (Entity.HeightFog)
 	{
 		Kind = EPreviewObjectKind::HeightFog;
+	}
+	else if (Entity.SoftBody && !Entity.Mesh)
+	{
+		Kind = EPreviewObjectKind::SoftBody;
 	}
 
 	return {
@@ -1614,6 +1634,27 @@ std::expected<void, FLevelError> FEditorLevel::AddSkyAtmosphereToSelected()
 std::expected<void, FLevelError> FEditorLevel::SetSelectedSkyAtmosphere(const std::optional<FSkyAtmosphereComponent> Atmosphere)
 {
 	return ApplySelectedComponent(&FLevelEntity::SkyAtmosphere, Atmosphere, Atmosphere ? "Edit sky atmosphere" : "Remove sky atmosphere");
+}
+
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateSoftBodyEntity(const ESoftBodyShape Shape, const FWorldPosition& Position)
+{
+	constexpr std::array<std::string_view, 3> Names{"Rope", "Cloth", "Soft Ball"};
+	if (Shape > ESoftBodyShape::Ball)
+	{
+		return std::unexpected(FLevelError{"Unknown soft body shape"});
+	}
+
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = std::string(Names[static_cast<std::size_t>(Shape)]), .Transform = {.Translation = Position}, .SoftBody = MakeDefaultSoftBody(Shape)});
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddSoftBodyToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::SoftBody, std::optional{FSoftBodyComponent{}}, "Add soft body", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedSoftBody(const std::optional<FSoftBodyComponent> SoftBody)
+{
+	return ApplySelectedComponent(&FLevelEntity::SoftBody, SoftBody, SoftBody ? "Edit soft body" : "Remove soft body");
 }
 
 std::expected<void, FLevelError> FEditorLevel::AddHeightFogToSelected()

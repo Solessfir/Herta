@@ -57,6 +57,9 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedLight(std::optional<FLightComponent> Light);
 	[[nodiscard]] std::expected<void, FLevelError> AddSkyAtmosphereToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedSkyAtmosphere(std::optional<FSkyAtmosphereComponent> Atmosphere);
+	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateSoftBodyEntity(ESoftBodyShape Shape, const FWorldPosition& Position = {});
+	[[nodiscard]] std::expected<void, FLevelError> AddSoftBodyToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedSoftBody(std::optional<FSoftBodyComponent> SoftBody);
 	[[nodiscard]] std::expected<void, FLevelError> AddHeightFogToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedHeightFog(std::optional<FHeightFogComponent> Fog);
 	[[nodiscard]] std::expected<void, FLevelError> DuplicateSelected(bool bWithinActiveEdit = false, const FVector3d& WorldOffset = {});

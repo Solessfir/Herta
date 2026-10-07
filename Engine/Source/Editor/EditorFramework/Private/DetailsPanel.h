@@ -40,7 +40,7 @@ struct FDetailsPanelState
 	std::array<char, 96> VisualReferenceSearch{};
 	std::array<char, 96> MaterialSearch{};
 	std::array<bool, 6> BodyPropertyWasMixed{};
-	std::array<bool, 32> VisualPropertyWasMixed{};
+	std::array<bool, 48> VisualPropertyWasMixed{};
 	int ComponentResult = 0;
 	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;
@@ -72,6 +72,8 @@ enum class EDetailsComponentAction
 	RemoveSkyAtmosphere,
 	AddHeightFog,
 	RemoveHeightFog,
+	AddSoftBody,
+	RemoveSoftBody,
 };
 
 struct FDetailsMaterialSlot
@@ -104,6 +106,10 @@ struct FDetailsComponentField
 	bool bAllHeightFog = false;
 	FHeightFogComponent HeightFog{};
 	std::array<bool, 8> MixedHeightFog{};
+	bool bAnySoftBody = false;
+	bool bAllSoftBody = false;
+	FSoftBodyComponent SoftBody{};
+	std::array<bool, 10> MixedSoftBody{};
 	std::span<const FObjectId> SunIds{};
 	std::span<const std::string> SunLabels{};
 	std::span<const FAssetId> EnvironmentIds{};

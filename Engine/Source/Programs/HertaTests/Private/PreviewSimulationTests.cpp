@@ -236,7 +236,7 @@ TEST_CASE("Preview simulation body capacity failure leaves no partially running 
 		Bodies[Index].Transform.Translation.X = static_cast<float>(Index) * 3.f;
 	}
 
-	const auto Result = Simulation.Start(Bodies, FPhysicsWorldSettings{});
+	const auto Result = Simulation.Start(Bodies, {}, FPhysicsWorldSettings{});
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Message.find("MaxBodies=1024") != std::string::npos);
 	CHECK_FALSE(Simulation.IsRunning());
@@ -264,7 +264,7 @@ TEST_CASE("Preview capacity admission preserves authored outputs and permits res
 		Settings.TempMemoryBytes = 1;
 	}
 
-	REQUIRE_FALSE(Simulation.Start(Bodies, Settings));
+	REQUIRE_FALSE(Simulation.Start(Bodies, {}, Settings));
 	CHECK_FALSE(Simulation.IsRunning());
 	REQUIRE(Simulation.GetTransforms().size() == Bodies.size());
 	CHECK(Simulation.GetTransforms()[0].Transform == Bodies[0].Transform);
@@ -324,7 +324,7 @@ TEST_CASE("Preview collision-capacity failure does not publish partial poses and
 	}
 
 	FPreviewSimulation Simulation;
-	REQUIRE(Simulation.Start(Bodies, {.MaxBodies = 32, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024}));
+	REQUIRE(Simulation.Start(Bodies, {}, {.MaxBodies = 32, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024}));
 	const auto Result = Simulation.Update(1.f / 30.f);
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Message.find("capacity exceeded") != std::string::npos);

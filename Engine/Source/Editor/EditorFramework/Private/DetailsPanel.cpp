@@ -195,8 +195,8 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
-		const std::array<std::string_view, 9> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog"};
-		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog};
+		const std::array<std::string_view, 10> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body"};
+		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody};
 		constexpr std::array Actions{
 		    EDetailsComponentAction::AddStaticMesh,
 		    EDetailsComponentAction::AddRigidBody,
@@ -207,6 +207,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		    EDetailsComponentAction::AddRectLight,
 		    EDetailsComponentAction::AddSkyAtmosphere,
 		    EDetailsComponentAction::AddHeightFog,
+		    EDetailsComponentAction::AddSoftBody,
 		};
 		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
 		std::vector<int> Available;
@@ -658,6 +659,25 @@ bool IsVisualPropertyVisible(const FLevelEntity& Entity, const ELevelComponentTy
 		return Entity.HeightFog->bVolumetric;
 	}
 
+	if (Type == ELevelComponentType::SoftBody)
+	{
+		const ESoftBodyShape Shape = Entity.SoftBody->Shape;
+		if (Key == "height")
+		{
+			return Shape == ESoftBodyShape::Cloth;
+		}
+
+		if (Key == "pressure")
+		{
+			return Shape == ESoftBodyShape::Ball;
+		}
+
+		if (Key == "pinned")
+		{
+			return Shape != ESoftBodyShape::Ball;
+		}
+	}
+
 	return true;
 }
 
@@ -679,7 +699,17 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 		for (std::size_t Index = 0; Index < Descriptor.Properties.size(); ++Index)
 		{
 			const auto& Property = Descriptor.Properties[Index];
-			const std::string_view DisplayLabel = Type == ELevelComponentType::Light && Property.Key == "range" && Entity.Light->Type == ELightType::Directional ? "Shadow distance" : Property.Label;
+			std::string_view DisplayLabel = Type == ELevelComponentType::Light && Property.Key == "range" && Entity.Light->Type == ELightType::Directional ? "Shadow distance" : Property.Label;
+			if (Type == ELevelComponentType::SoftBody && Property.Key == "length")
+			{
+				constexpr std::array<std::string_view, 3> LengthLabels{"Length", "Width", "Diameter"};
+				DisplayLabel = LengthLabels[static_cast<std::size_t>(Entity.SoftBody->Shape)];
+			}
+
+			if (Type == ELevelComponentType::SoftBody && Property.Key == "thickness" && Entity.SoftBody->Shape != ESoftBodyShape::Rope)
+			{
+				DisplayLabel = "Collision radius";
+			}
 			if ((!Query.empty() && !MatchesSearch(Descriptor.Label, Query) && !MatchesSearch(DisplayLabel, Query)) || !IsVisualPropertyVisible(Entity, Type, Property.Key))
 			{
 				continue;
@@ -711,8 +741,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			ImGui::SetItemTooltip("%.*s", static_cast<int>(DisplayLabel.size()), DisplayLabel.data());
 			ImGui::TableSetColumnIndex(1);
 			ImGui::SetNextItemWidth(-FLT_MIN);
-			const std::size_t StateIndex = Index + (Type == ELevelComponentType::Light ? 0 : Type == ELevelComponentType::SkyAtmosphere ? 17
-			                                                                                                                            : 24);
+			const std::size_t StateIndex = Index + (Type == ELevelComponentType::Light ? 0 : Type == ELevelComponentType::SkyAtmosphere ? 17 : Type == ELevelComponentType::HeightFog ? 24 : 32);
 			const float Conversion = Property.Unit == ELevelPropertyUnit::Radians ? 180.f / std::numbers::pi_v<float> : 1.f;
 			float NumericValue = std::get_if<float>(&Candidate) ? std::get<float>(Candidate) * Conversion : 0.f;
 			FNumericEditLifecycle Edit{
@@ -766,6 +795,8 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 				}
 
 				const char* Format = Property.Unit == ELevelPropertyUnit::Meters ? "%.2f m" : Property.Unit == ELevelPropertyUnit::InverseMeters ? "%.3f /m"
+				                                                                          : Property.Unit == ELevelPropertyUnit::Kilograms       ? "%.2f kg"
+				                                                                          : Property.Key == "pressure"                           ? "%.0f Pa m3"
 				                                                                          : Property.Unit == ELevelPropertyUnit::Kelvin          ? "%.0f K"
 				                                                                          : Property.Unit == ELevelPropertyUnit::Radians         ? "%.1f°"
 				                                                                                                                                 : "%.3f";
@@ -775,7 +806,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 					                                                                                                           : "%.0f lm";
 				}
 
-				const float Speed = Property.Unit == ELevelPropertyUnit::Kelvin || Property.Key == "intensity" || Property.Key == "planetRadius" || Property.Key == "atmosphereHeight" ? 10.f
+				const float Speed = Property.Unit == ELevelPropertyUnit::Kelvin || Property.Key == "intensity" || Property.Key == "planetRadius" || Property.Key == "atmosphereHeight" || Property.Key == "pressure" ? 10.f
 				                    : Property.Unit == ELevelPropertyUnit::Radians                                                                                                     ? 0.1f
 				                    : Property.Key == "shadowBias"                                                                                                                     ? 0.0001f
 				                    : Property.Key == "density"                                                                                                                        ? 0.0005f
@@ -803,19 +834,24 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 
 				Result.bEditFinished |= ImGui::IsItemDeactivatedAfterEdit();
 			}
-			else if (Property.Type == ELevelPropertyType::LightType || Property.Type == ELevelPropertyType::FogQuality)
+			else if (Property.Type == ELevelPropertyType::LightType || Property.Type == ELevelPropertyType::FogQuality || Property.Type == ELevelPropertyType::SoftBodyShape)
 			{
 				constexpr std::array<std::string_view, 5> Lights{"Directional", "Sky", "Point", "Spot", "Rect"};
 				constexpr std::array<std::string_view, 3> Qualities{"Low", "Medium", "High"};
-				const std::span<const std::string_view> Labels = Property.Type == ELevelPropertyType::LightType ? std::span<const std::string_view>{Lights} : std::span<const std::string_view>{Qualities};
-				const auto Current = Property.Type == ELevelPropertyType::LightType ? static_cast<std::size_t>(std::get<ELightType>(Candidate)) : static_cast<std::size_t>(std::get<EFogQuality>(Candidate));
+				constexpr std::array<std::string_view, 3> Shapes{"Rope", "Cloth", "Ball"};
+				const std::span<const std::string_view> Labels = Property.Type == ELevelPropertyType::LightType ? std::span<const std::string_view>{Lights} : Property.Type == ELevelPropertyType::FogQuality ? std::span<const std::string_view>{Qualities} : std::span<const std::string_view>{Shapes};
+				const auto Current = Property.Type == ELevelPropertyType::LightType    ? static_cast<std::size_t>(std::get<ELightType>(Candidate))
+				                     : Property.Type == ELevelPropertyType::FogQuality ? static_cast<std::size_t>(std::get<EFogQuality>(Candidate))
+				                                                                       : static_cast<std::size_t>(std::get<ESoftBodyShape>(Candidate));
 				if (ImGui::BeginCombo("##Value", Mixed[Index] ? "Multiple values" : Labels[Current].data()))
 				{
 					for (std::size_t Option = 0; Option < Labels.size(); ++Option)
 					{
 						if (ImGui::Selectable(Labels[Option].data(), !Mixed[Index] && Option == Current))
 						{
-							Candidate = Property.Type == ELevelPropertyType::LightType ? FLevelPropertyValue{static_cast<ELightType>(Option)} : FLevelPropertyValue{static_cast<EFogQuality>(Option)};
+							Candidate = Property.Type == ELevelPropertyType::LightType    ? FLevelPropertyValue{static_cast<ELightType>(Option)}
+							            : Property.Type == ELevelPropertyType::FogQuality ? FLevelPropertyValue{static_cast<EFogQuality>(Option)}
+							                                                              : FLevelPropertyValue{static_cast<ESoftBodyShape>(Option)};
 							bChanged = true;
 						}
 					}
@@ -828,17 +864,21 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			else if (Property.Type == ELevelPropertyType::AssetReference || Property.Type == ELevelPropertyType::ObjectReference)
 			{
 				const bool bSun = Property.Type == ELevelPropertyType::ObjectReference;
-				const auto Labels = bSun ? Components.SunLabels : Components.EnvironmentLabels;
-				const std::size_t Count = std::min(Labels.size(), bSun ? Components.SunIds.size() : Components.EnvironmentIds.size());
-				const char* CurrentLabel = bSun ? "Automatic sun" : "Procedural sky";
+				// Soft bodies reference a material; Sky Lights reference an environment texture.
+				const bool bMaterial = Type == ELevelComponentType::SoftBody;
+				const auto Labels = bSun ? Components.SunLabels : bMaterial ? Components.MaterialOptionLabels : Components.EnvironmentLabels;
+				const std::span<const FAssetId> AssetIds = bMaterial ? Components.MaterialOptionIds : Components.EnvironmentIds;
+				const std::size_t Count = std::min(Labels.size(), bSun ? Components.SunIds.size() : AssetIds.size());
+				const char* const NoneLabel = bSun ? "Automatic sun" : bMaterial ? "Default material" : "Procedural sky";
+				const char* CurrentLabel = NoneLabel;
 				if (bSun ? std::get<FObjectId>(Candidate).IsValid() : std::get<FAssetId>(Candidate).IsValid())
 				{
-					CurrentLabel = bSun ? "Missing sun (automatic)" : "Missing environment";
+					CurrentLabel = bSun ? "Missing sun (automatic)" : bMaterial ? "Missing material" : "Missing environment";
 				}
 
 				for (std::size_t Option = 0; Option < Count; ++Option)
 				{
-					if (bSun ? Components.SunIds[Option] == std::get<FObjectId>(Candidate) : Components.EnvironmentIds[Option] == std::get<FAssetId>(Candidate))
+					if (bSun ? Components.SunIds[Option] == std::get<FObjectId>(Candidate) : AssetIds[Option] == std::get<FAssetId>(Candidate))
 					{
 						CurrentLabel = Labels[Option].c_str();
 					}
@@ -854,11 +894,11 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-					ToolUI.DrawSearchField("##ReferenceSearch", bSun ? "Search lights" : "Search environments", State.VisualReferenceSearch.data(), State.VisualReferenceSearch.size());
+					ToolUI.DrawSearchField("##ReferenceSearch", bSun ? "Search lights" : bMaterial ? "Search materials" : "Search environments", State.VisualReferenceSearch.data(), State.VisualReferenceSearch.size());
 					ImGui::PopStyleColor();
 					std::vector<std::string_view> Candidates(Labels.begin(), Labels.begin() + static_cast<std::ptrdiff_t>(Count));
 					const auto Matches = SearchAssets(Candidates, State.VisualReferenceSearch.data());
-					if (ImGui::Selectable(bSun ? "Automatic sun" : "Procedural sky"))
+					if (ImGui::Selectable(NoneLabel))
 					{
 						Candidate = bSun ? FLevelPropertyValue{FObjectId{}} : FLevelPropertyValue{FAssetId{}};
 						bChanged = true;
@@ -873,7 +913,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 							const std::size_t AssetIndex = (*Matches)[static_cast<std::size_t>(Option)].Index;
 							if (ImGui::Selectable(Labels[AssetIndex].c_str()))
 							{
-								Candidate = bSun ? FLevelPropertyValue{Components.SunIds[AssetIndex]} : FLevelPropertyValue{Components.EnvironmentIds[AssetIndex]};
+								Candidate = bSun ? FLevelPropertyValue{Components.SunIds[AssetIndex]} : FLevelPropertyValue{AssetIds[AssetIndex]};
 								bChanged = true;
 							}
 						}
@@ -1169,7 +1209,8 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bLight = Components && Components->bAnyLight && MatchesVisualSection(ELevelComponentType::Light, Query);
 	const bool bAtmosphere = Components && Components->bAnySkyAtmosphere && MatchesVisualSection(ELevelComponentType::SkyAtmosphere, Query);
 	const bool bFog = Components && Components->bAnyHeightFog && MatchesVisualSection(ELevelComponentType::HeightFog, Query);
-	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog)
+	const bool bSoftBody = Components && Components->bAnySoftBody && MatchesVisualSection(ELevelComponentType::SoftBody, Query);
+	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody)
 	{
 		ImGui::TextDisabled("No matching properties.");
 		ToolUI.EndPanel();
@@ -1582,7 +1623,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 	if (Components)
 	{
-		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog};
+		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog, .SoftBody = Components->SoftBody};
 		constexpr std::array<std::string_view, 5> LightLabels{"Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light"};
 		if (bLight && DrawSectionHeader(LightLabels[static_cast<std::size_t>(Visual.Light->Type)].data(), !Components->bAllLight || Components->MixedLight[0], EDetailsComponentAction::RemoveLight))
 		{
@@ -1600,6 +1641,12 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		{
 			DrawVisualProperties(ToolUI, ELevelComponentType::HeightFog, Visual, Components->MixedHeightFog, State, *Components, Query, bDragging, Edits, MeshResult);
 			Components->HeightFog = *Visual.HeightFog;
+		}
+
+		if (bSoftBody && DrawSectionHeader("Soft Body", !Components->bAllSoftBody, EDetailsComponentAction::RemoveSoftBody))
+		{
+			DrawVisualProperties(ToolUI, ELevelComponentType::SoftBody, Visual, Components->MixedSoftBody, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->SoftBody = *Visual.SoftBody;
 		}
 	}
 

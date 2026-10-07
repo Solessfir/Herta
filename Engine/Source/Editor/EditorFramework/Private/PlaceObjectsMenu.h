@@ -19,6 +19,9 @@ enum class EPlaceObjectType : std::uint8_t
 	RectLight,
 	SkyAtmosphere,
 	HeightFog,
+	Rope,
+	Cloth,
+	SoftBall,
 };
 
 struct FPlaceObjectsMenuState

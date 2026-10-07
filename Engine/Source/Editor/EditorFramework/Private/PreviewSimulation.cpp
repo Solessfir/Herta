@@ -15,21 +15,21 @@ namespace
 }
 }
 
-std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<const FPreviewSimulationBody> Bodies, const FPhysicsWorldSettings& Settings)
+std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<const FPreviewSimulationBody> Bodies, const std::span<const FPreviewSimulationSoftBody> SoftBodies, const FPhysicsWorldSettings& Settings)
 {
 	if (IsRunning())
 	{
 		return std::unexpected(FPhysicsError{"Preview simulation is already running"});
 	}
 
-	if (Bodies.empty())
+	if (Bodies.empty() && SoftBodies.empty())
 	{
 		return std::unexpected(FPhysicsError{"Preview simulation requires at least one body"});
 	}
 
-	if (Bodies.size() > Settings.MaxBodies)
+	if (Bodies.size() + SoftBodies.size() > Settings.MaxBodies)
 	{
-		return std::unexpected(FPhysicsError{std::format("Preview requires {} bodies but MaxBodies={}", Bodies.size(), Settings.MaxBodies)});
+		return std::unexpected(FPhysicsError{std::format("Preview requires {} bodies but MaxBodies={}", Bodies.size() + SoftBodies.size(), Settings.MaxBodies)});
 	}
 
 	auto NewWorld = FPhysicsWorld::Create(Settings);
@@ -71,11 +71,55 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		NewTransforms.push_back({.ObjectIndex = Body.ObjectIndex, .Transform = Body.Transform});
 	}
 
+	std::vector<FSoftBodyState> NewSoftBodyStates;
+	NewSoftBodyStates.reserve(SoftBodies.size());
+	for (const FPreviewSimulationSoftBody& SoftBody : SoftBodies)
+	{
+		if (!ObjectIndices.insert(SoftBody.ObjectIndex).second)
+		{
+			return std::unexpected(FPhysicsError{"Preview simulation contains a duplicate object"});
+		}
+
+		const auto Id = (*NewWorld)->CreateSoftBody(SoftBody.Settings);
+		if (!Id)
+		{
+			return std::unexpected(Id.error());
+		}
+
+		NewSoftBodyStates.push_back({.ObjectIndex = SoftBody.ObjectIndex, .Id = *Id, .Positions = {}});
+	}
+
 	World = std::move(*NewWorld);
 	BodyStates = std::move(NewBodyStates);
 	Transforms = std::move(NewTransforms);
+	SoftBodyStates = std::move(NewSoftBodyStates);
 	Accumulator = 0.0;
+	return ReadSoftBodies();
+}
+
+std::expected<void, FPhysicsError> FPreviewSimulation::ReadSoftBodies()
+{
+	for (FSoftBodyState& SoftBody : SoftBodyStates)
+	{
+		if (const auto Result = World->GetSoftBodyVertices(SoftBody.Id, SoftBody.Positions); !Result)
+		{
+			return Result;
+		}
+	}
+
+	++SoftBodyRevision;
 	return {};
+}
+
+std::span<const FVector3> FPreviewSimulation::GetSoftBodyPositions(const std::size_t ObjectIndex) const noexcept
+{
+	const auto Found = std::ranges::find(SoftBodyStates, ObjectIndex, &FSoftBodyState::ObjectIndex);
+	return Found == SoftBodyStates.end() ? std::span<const FVector3>{} : std::span<const FVector3>{Found->Positions};
+}
+
+std::uint64_t FPreviewSimulation::GetSoftBodyRevision() const noexcept
+{
+	return SoftBodyRevision;
 }
 
 void FPreviewSimulation::Stop() noexcept
@@ -86,6 +130,8 @@ void FPreviewSimulation::Stop() noexcept
 	}
 
 	World.reset();
+	SoftBodyStates.clear();
+	++SoftBodyRevision;
 
 	for (std::size_t Index = 0; Index < BodyStates.size(); ++Index)
 	{
@@ -120,6 +166,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 	constexpr double FixedStep = 1.0 / 60.0;
 	// Bound catch-up after a paused debugger or a stalled frame.
 	Accumulator += std::min(static_cast<double>(DeltaSeconds), 0.25);
+	const bool bStepping = Accumulator >= FixedStep;
 	while (Accumulator >= FixedStep)
 	{
 		for (FBodyState& Body : BodyStates)
@@ -149,6 +196,15 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 		}
 
 		Accumulator -= FixedStep;
+	}
+
+	// Soft bodies show the latest step without interpolation; their vertices change shape, not just pose.
+	if (bStepping && !SoftBodyStates.empty())
+	{
+		if (const auto Result = ReadSoftBodies(); !Result)
+		{
+			return Result;
+		}
 	}
 
 	const float Alpha = static_cast<float>(Accumulator / FixedStep);

@@ -16,7 +16,7 @@ namespace
 {
 constexpr const char* PopupName = "Add###PlaceObjectsMenu";
 constexpr const char* SearchLabel = "##PlaceObjectsSearch";
-constexpr std::array<std::string_view, 9> Candidates{"Empty Entity", "Cube", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog"};
+constexpr std::array<std::string_view, 12> Candidates{"Empty Entity", "Cube", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Rope", "Cloth", "Soft Ball"};
 
 std::optional<std::vector<FAssetSearchMatch>> GetMatches(const FPlaceObjectsMenuState& State)
 {
@@ -38,10 +38,11 @@ std::optional<std::vector<FAssetSearchMatch>> GetMatches(const FPlaceObjectsMenu
 		{
 			return Index == 0 ? 0u : Index == 1 ? 1u
 			                     : Index < 7    ? 2u
-			                                    : 3u;
+			                     : Index < 9    ? 3u
+			                                    : 4u;
 		};
 
-		std::array<std::size_t, 4> GroupRank;
+		std::array<std::size_t, 5> GroupRank;
 		GroupRank.fill(Matches->size());
 
 		for (std::size_t Index = 0; Index < Matches->size(); ++Index)
@@ -281,7 +282,7 @@ std::optional<EPlaceObjectType> DrawPlaceObjectsMenu(FToolUIContext& ToolUI, FPl
 	if (Matches && !Matches->empty())
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 7.f * Scale});
-		constexpr std::array<std::string_view, 9> Groups{"Entity", "Basic shapes", "Lights", "Lights", "Lights", "Lights", "Lights", "Environment", "Environment"};
+		constexpr std::array<std::string_view, 12> Groups{"Entity", "Basic shapes", "Lights", "Lights", "Lights", "Lights", "Lights", "Environment", "Environment", "Soft bodies", "Soft bodies", "Soft bodies"};
 		std::string_view PreviousGroup;
 		for (const auto& Match : *Matches)
 		{
@@ -296,6 +297,7 @@ std::optional<EPlaceObjectType> DrawPlaceObjectsMenu(FToolUIContext& ToolUI, FPl
 			const EToolUIMenuIcon Icon = Type == EPlaceObjectType::EmptyEntity ? EToolUIMenuIcon::Entity : Type == EPlaceObjectType::Cube        ? EToolUIMenuIcon::Cube
 			                                                                                           : Type == EPlaceObjectType::SkyAtmosphere ? EToolUIMenuIcon::SkyAtmosphere
 			                                                                                           : Type == EPlaceObjectType::HeightFog     ? EToolUIMenuIcon::Fog
+			                                                                                           : Type >= EPlaceObjectType::Rope          ? EToolUIMenuIcon::Physics
 			                                                                                                                                     : EToolUIMenuIcon::Light;
 			if (DrawPlaceObjectResult(Candidates[Match.Index], Icon, State.SelectedResult == Type))
 			{

@@ -30,6 +30,7 @@
 #include "PreviewAssets.h"
 #include "PreviewLevel.h"
 #include "PreviewSimulation.h"
+#include "SoftBodyGeometry.h"
 #include "TimeOfDay.h"
 #include "PreviewVisuals.h"
 #include "ViewportBoxSelection.h"
@@ -54,6 +55,7 @@
 #include <format>
 #include <iterator>
 #include <limits>
+#include <map>
 #include <numbers>
 #include <numeric>
 #include <optional>
@@ -474,6 +476,7 @@ struct FEditorFramework::FImplementation
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void FocusPreview();
 	void RefreshPreviewMeshes();
+	[[nodiscard]] const FRenderMesh* RefreshSoftBodyPreview(std::size_t Index, const FLevelEntity& Entity);
 	void RefreshVisuals();
 	void RefreshSelectedVisualEntities();
 	void DrawMaterialPanel();
@@ -545,6 +548,17 @@ struct FEditorFramework::FImplementation
 	std::vector<FMatrix4> PreviewModels;
 	// Null entries draw the built-in cube. Refreshed from Assets at the start of every frame.
 	std::vector<const FRenderMesh*> PreviewMeshes;
+
+	// Generated soft body geometry, rebuilt when its settings change or the simulation advances.
+	struct FSoftBodyPreview
+	{
+		FSoftBodyComponent Settings;
+		FSoftBodyTopology Topology;
+		std::shared_ptr<const FRenderMesh> Mesh;
+		std::uint64_t Revision = 0;
+	};
+
+	std::map<FObjectId, FSoftBodyPreview> SoftBodyPreviews;
 	std::vector<FLevelEntity> VisualEntities;
 	std::vector<std::vector<const FRenderMaterial*>> PreviewMaterials;
 	std::vector<std::span<const FRenderMaterial* const>> PreviewMaterialSpans;
@@ -1344,6 +1358,12 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 					return Implementation->Level->CreateSkyAtmosphereEntity(Position);
 				case EPlaceObjectType::HeightFog:
 					return Implementation->Level->CreateHeightFogEntity(Position);
+				case EPlaceObjectType::Rope:
+					return Implementation->Level->CreateSoftBodyEntity(ESoftBodyShape::Rope, Position);
+				case EPlaceObjectType::Cloth:
+					return Implementation->Level->CreateSoftBodyEntity(ESoftBodyShape::Cloth, Position);
+				case EPlaceObjectType::SoftBall:
+					return Implementation->Level->CreateSoftBodyEntity(ESoftBodyShape::Ball, Position);
 			}
 
 			return std::unexpected(FLevelError{"Unsupported placement type"});
@@ -1860,6 +1880,53 @@ void FEditorFramework::FImplementation::DrawNewProject()
 	ImGui::EndPopup();
 }
 
+const FRenderMesh* FEditorFramework::FImplementation::RefreshSoftBodyPreview(const std::size_t Index, const FLevelEntity& Entity)
+{
+	FSoftBodyPreview& Preview = SoftBodyPreviews[Entity.Id];
+	const bool bRebuildTopology = !Preview.Mesh || Preview.Settings != *Entity.SoftBody;
+	if (bRebuildTopology)
+	{
+		Preview.Settings = *Entity.SoftBody;
+		Preview.Topology = BuildSoftBodyTopology(Preview.Settings);
+	}
+
+	const std::span<const FVector3> Simulated = Simulation.IsRunning() ? Simulation.GetSoftBodyPositions(Index) : std::span<const FVector3>{};
+	const std::uint64_t Revision = Simulated.empty() ? 0 : Simulation.GetSoftBodyRevision();
+	if ((!bRebuildTopology && Preview.Revision == Revision) || GraphicsDevice == nullptr)
+	{
+		return Preview.Mesh.get();
+	}
+
+	// Simulated vertices arrive in world space; the entity keeps its authored transform while it simulates.
+	std::vector<FVector3> Local = Preview.Topology.Vertices;
+	if (Simulated.size() == Local.size())
+	{
+		const FPreviewObject& Object = PreviewObjects[Index];
+		for (std::size_t Vertex = 0; Vertex < Local.size(); ++Vertex)
+		{
+			const Im3d::Vec3 Delta = ToIm3dVector(Simulated[Vertex]) - Object.Translation;
+			for (int Axis = 0; Axis < 3; ++Axis)
+			{
+				const float Rotated = Object.Rotation(0, Axis) * Delta.x + Object.Rotation(1, Axis) * Delta.y + Object.Rotation(2, Axis) * Delta.z;
+				const float Scale = Axis == 0 ? Object.Scale.x : Axis == 1 ? Object.Scale.y : Object.Scale.z;
+				Local[Vertex][static_cast<std::size_t>(Axis)] = std::abs(Scale) > 1e-6f ? Rotated / Scale : 0.f;
+			}
+		}
+	}
+
+	// ponytail: a new GPU mesh per simulated step; add a dynamic vertex buffer to FRenderMesh if soft bodies multiply.
+	auto Mesh = FRenderMesh::Create(*GraphicsDevice, BuildSoftBodyModel(Preview.Settings, Preview.Topology, Local), Entity.Name);
+	if (!Mesh)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not build soft body mesh for {}: {}", Entity.Name, Mesh.error().Message);
+		return Preview.Mesh.get();
+	}
+
+	Preview.Mesh = std::move(*Mesh);
+	Preview.Revision = Revision;
+	return Preview.Mesh.get();
+}
+
 void FEditorFramework::FImplementation::RefreshPreviewMeshes()
 {
 	for (std::size_t Index = 0; Index < PreviewMeshes.size(); ++Index)
@@ -1915,6 +1982,14 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 
 	PreviewMaterials.resize(PreviewObjects.size());
 	PreviewMaterialSpans.resize(PreviewObjects.size());
+	std::erase_if(SoftBodyPreviews, [this](const auto& Entry)
+	{
+		return std::ranges::none_of(VisualEntities, [&Entry](const FLevelEntity& Entity)
+		{
+			return Entity.Id == Entry.first && Entity.SoftBody && !Entity.Mesh;
+		});
+	});
+
 	for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewModels.size(); ++Index)
 	{
 		const FLevelEntity& Entity = VisualEntities[Index];
@@ -1937,6 +2012,17 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 					const auto Option = std::ranges::find(Options, Material, &FPreviewAssetOption::Id);
 					ShaderPaths.push_back(MaterialShaderKey(Source->ShaderPath, Option != Options.end() ? Option->Label : "Game/"));
 				}
+			}
+		}
+
+		if (Entity.SoftBody && !Entity.Mesh)
+		{
+			PreviewMeshes[Index] = RefreshSoftBodyPreview(Index, Entity);
+			const FAssetId Material = Entity.SoftBody->Material;
+			PreviewMaterials[Index].push_back(Assets && Material.IsValid() ? Assets->GetMaterial(Material).get() : nullptr);
+			if (Material.IsValid())
+			{
+				Materials.push_back(Material);
 			}
 		}
 
@@ -2449,7 +2535,7 @@ FMatrix4 FEditorFramework::FImplementation::GetPreviewBoundsMatrix(const std::si
 
 FPreviewBodyShape FEditorFramework::FImplementation::GetPreviewBodyShape(const std::size_t Index) const
 {
-	if (!PreviewObjects[Index].Mesh.IsValid())
+	if (!PreviewObjects[Index].Mesh.IsValid() && (Index >= PreviewMeshes.size() || PreviewMeshes[Index] == nullptr))
 	{
 		return {.Center = {}, .HalfExtents = {0.15f, 0.15f, 0.15f}};
 	}
@@ -3913,6 +3999,12 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 			for (const std::size_t Index : Level->FindBodies(Type))
 			{
 				const auto Entity = Level->GetWorld().GetEntity(*Level->GetWorld().FindEntity(PreviewObjects[Index].Id));
+				// A soft body owns its own deformable collision; a Rigid Body on the same entity would fight it.
+				if (Entity->SoftBody)
+				{
+					continue;
+				}
+
 				const FLevelRigidBodySettings& Settings = Entity->BodySettings;
 				Bodies.push_back({
 				    .ObjectIndex = Index,
@@ -3931,14 +4023,44 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 			}
 		}
 
-		if (Bodies.empty())
+		// Topology and world vertices must stay in place until Start copies them into the physics world.
+		std::vector<std::size_t> SoftBodyIndices;
+		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewModels.size(); ++Index)
 		{
-			HERTA_LOG_WARNING(*Log, EditorLog, "Simulation preview requires a Static Mesh with a Rigid Body component");
+			if (VisualEntities[Index].SoftBody && !VisualEntities[Index].Mesh)
+			{
+				SoftBodyIndices.push_back(Index);
+			}
+		}
+
+		std::vector<FSoftBodyTopology> Topologies;
+		std::vector<std::vector<FVector3>> WorldVertices;
+		std::vector<FPreviewSimulationSoftBody> SoftBodies;
+		Topologies.reserve(SoftBodyIndices.size());
+		WorldVertices.reserve(SoftBodyIndices.size());
+		for (const std::size_t Index : SoftBodyIndices)
+		{
+			const FSoftBodyComponent& SoftBody = *VisualEntities[Index].SoftBody;
+			const FSoftBodyTopology& Topology = Topologies.emplace_back(BuildSoftBodyTopology(SoftBody));
+			std::vector<FVector3>& Vertices = WorldVertices.emplace_back();
+			Vertices.reserve(Topology.Vertices.size());
+			for (const FVector3& Vertex : Topology.Vertices)
+			{
+				const FVector4 World = PreviewModels[Index] * FVector4{Vertex.X, Vertex.Y, Vertex.Z, 1.f};
+				Vertices.push_back({World.X, World.Y, World.Z});
+			}
+
+			SoftBodies.push_back({.ObjectIndex = Index, .Settings = MakeSoftBodyPhysicsSettings(SoftBody, Topology, Vertices)});
+		}
+
+		if (Bodies.empty() && SoftBodies.empty())
+		{
+			HERTA_LOG_WARNING(*Log, EditorLog, "Simulation preview requires a Static Mesh with a Rigid Body component or a Soft Body");
 			return;
 		}
 
 		std::vector<FPreviewObject> OriginalObjects = PreviewObjects;
-		if (const auto Result = Simulation.Start(Bodies); !Result)
+		if (const auto Result = Simulation.Start(Bodies, SoftBodies); !Result)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not start simulation: {}", Result.error().Message);
 			return;
@@ -4001,13 +4123,13 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();
-	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
 	std::vector<FDetailsMaterialSlot> MaterialSlots;
 	std::vector<FAssetId> MaterialIds;
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 3> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 4> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -4071,6 +4193,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(0, ELevelComponentType::Light, Entity->Light.has_value(), Components.bAnyLight, Components.bAllLight, Components.MixedLight);
 			Aggregate(1, ELevelComponentType::SkyAtmosphere, Entity->SkyAtmosphere.has_value(), Components.bAnySkyAtmosphere, Components.bAllSkyAtmosphere, Components.MixedSkyAtmosphere);
 			Aggregate(2, ELevelComponentType::HeightFog, Entity->HeightFog.has_value(), Components.bAnyHeightFog, Components.bAllHeightFog, Components.MixedHeightFog);
+			Aggregate(3, ELevelComponentType::SoftBody, Entity->SoftBody.has_value(), Components.bAnySoftBody, Components.bAllSoftBody, Components.MixedSoftBody);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -4153,6 +4276,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[2])
 	{
 		Components.HeightFog = *VisualBaselines[2]->HeightFog;
+	}
+
+	if (VisualBaselines[3])
+	{
+		Components.SoftBody = *VisualBaselines[3]->SoftBody;
 	}
 
 	if (Assets && !PreviewObjects.empty() && Mesh.IsValid())
@@ -4373,6 +4501,12 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveHeightFog:
 				ReportLevelResult(Level->SetSelectedHeightFog(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddSoftBody:
+				ReportLevelResult(Level->AddSoftBodyToSelected());
+				break;
+			case EDetailsComponentAction::RemoveSoftBody:
+				ReportLevelResult(Level->SetSelectedSoftBody(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;

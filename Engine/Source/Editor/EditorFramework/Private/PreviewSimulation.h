@@ -27,6 +27,13 @@ struct FPreviewSimulationBody
 	FPhysicsBodyProperties Properties{};
 };
 
+struct FPreviewSimulationSoftBody
+{
+	std::size_t ObjectIndex = 0;
+	// The spans only need to stay valid until Start returns.
+	FPhysicsSoftBodySettings Settings{};
+};
+
 struct FPreviewSimulationTransform
 {
 	std::size_t ObjectIndex = 0;
@@ -36,12 +43,16 @@ struct FPreviewSimulationTransform
 class FPreviewSimulation final
 {
 public:
-	[[nodiscard]] std::expected<void, FPhysicsError> Start(std::span<const FPreviewSimulationBody> Bodies, const FPhysicsWorldSettings& Settings = PreviewPhysicsSettings);
+	[[nodiscard]] std::expected<void, FPhysicsError> Start(std::span<const FPreviewSimulationBody> Bodies, std::span<const FPreviewSimulationSoftBody> SoftBodies = {}, const FPhysicsWorldSettings& Settings = PreviewPhysicsSettings);
 	void Stop() noexcept;
 	[[nodiscard]] std::expected<void, FPhysicsError> Update(float DeltaSeconds);
 
 	bool IsRunning() const noexcept;
 	std::span<const FPreviewSimulationTransform> GetTransforms() const noexcept;
+	// World-space vertices of an object's soft body after the latest fixed step, or empty when the object has none.
+	std::span<const FVector3> GetSoftBodyPositions(std::size_t ObjectIndex) const noexcept;
+	// Advances whenever soft body positions change, so callers can skip rebuilding unchanged geometry.
+	std::uint64_t GetSoftBodyRevision() const noexcept;
 
 private:
 	struct FBodyState
@@ -55,9 +66,20 @@ private:
 		FPhysicsBodyTransform Current;
 	};
 
+	struct FSoftBodyState
+	{
+		std::size_t ObjectIndex = 0;
+		FPhysicsBodyId Id;
+		std::vector<FVector3> Positions;
+	};
+
+	[[nodiscard]] std::expected<void, FPhysicsError> ReadSoftBodies();
+
 	std::unique_ptr<FPhysicsWorld> World;
 	std::vector<FBodyState> BodyStates;
 	std::vector<FPreviewSimulationTransform> Transforms;
+	std::vector<FSoftBodyState> SoftBodyStates;
+	std::uint64_t SoftBodyRevision = 0;
 
 	double Accumulator = 0.0;
 };
