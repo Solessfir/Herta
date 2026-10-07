@@ -461,7 +461,6 @@ struct FEditorFramework::FImplementation
 
 	void SetBottomPanelOpen(bool bOpen);
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> DrawOutputLog();
-	void DrawStartPanel();
 	void DrawDetailsPanel();
 	void DrawOutlinerPanel();
 	void DrawViewport(const std::function<void()>& RenderViewport);
@@ -506,7 +505,6 @@ struct FEditorFramework::FImplementation
 
 	bool bOutlinerOpen = true;
 	bool bDetailsOpen = true;
-	bool bStartPanelOpen = false;
 	bool bBottomPanelOpen = true;
 	bool bBottomBrowserSelected = true;
 	// Startup restores like a reopened panel; otherwise the last tab to appear, the Output Log, is selected.
@@ -519,7 +517,8 @@ struct FEditorFramework::FImplementation
 	FEditorAssetThumbnail DraftMaterialThumbnail;
 	std::vector<FMaterialTextureOption> MaterialTextureOptions;
 	FOutlinerPanelState OutlinerPanelState;
-	bool bPerformanceOpen = false;
+	bool bPerformanceOpen = true;
+	bool bSelectDetailsTab = true;
 	FPerformancePanelState PerformanceState;
 	FPlaceObjectsMenuState PlaceObjectsMenuState;
 	bool bPlaceObjectsRequested = false;
@@ -1009,8 +1008,6 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	const std::string LevelTitle = std::format("{}{} - Herta Editor", Implementation->Level->GetName(), Implementation->Level->IsDirty() ? "*" : "");
 	Implementation->ToolUI->DrawWorkspace(LevelTitle, [&]
 	{
-		ToolUIMenuItem("Start panel", EToolUIMenuIcon::Panel, &Implementation->bStartPanelOpen);
-		ImGui::Separator();
 		ToolUIMenuItem("Outliner", EToolUIMenuIcon::Outliner, &Implementation->bOutlinerOpen);
 		ToolUIMenuItem("Details", EToolUIMenuIcon::Details, &Implementation->bDetailsOpen);
 		bool bBottomVisible = Implementation->bBottomPanelOpen && (Implementation->bContentBrowserOpen || Implementation->bOutputLogOpen);
@@ -1469,11 +1466,6 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	if (bImportRequested)
 	{
 		Implementation->ImportWithDialog();
-	}
-
-	if (Implementation->bStartPanelOpen)
-	{
-		Implementation->DrawStartPanel();
 	}
 
 	const auto InspectorStart = std::chrono::steady_clock::now();
@@ -2074,6 +2066,21 @@ void FEditorFramework::FImplementation::DrawPerformancePanel()
 	if (bPerformanceOpen)
 	{
 		Herta::DrawPerformancePanel(*ToolUI, bPerformanceOpen, PerformanceState, Sample);
+	}
+
+	// Performance appears after Details and would take its tab at startup; Details stays the main tab without taking keyboard focus.
+	if (bSelectDetailsTab)
+	{
+		const ImGuiWindow* const Details = ImGui::FindWindowByName("Details");
+		if (Details && Details->DockNode && Details->DockNode->TabBar)
+		{
+			Details->DockNode->TabBar->NextSelectedTabId = Details->TabId;
+			bSelectDetailsTab = false;
+		}
+		else if (!bDetailsOpen)
+		{
+			bSelectDetailsTab = false;
+		}
 	}
 }
 
@@ -2769,18 +2776,6 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 					ImGui::EndCombo();
 				}
-			}
-
-			if (ImGui::Button("Open Performance panel", {-1.f, 0.f}))
-			{
-				// An already open panel may sit behind another dock tab; a newly opened one takes focus by appearing.
-				if (bPerformanceOpen && ImGui::FindWindowByName("Performance"))
-				{
-					ImGui::SetWindowFocus("Performance");
-				}
-
-				bPerformanceOpen = true;
-				ImGui::CloseCurrentPopup();
 			}
 		}
 
@@ -4379,22 +4374,6 @@ void FEditorFramework::FImplementation::DrawOutlinerPanel()
 	{
 		FocusPreview();
 	}
-}
-
-void FEditorFramework::FImplementation::DrawStartPanel()
-{
-	if (!ToolUI->BeginPanel("Start", &bStartPanelOpen))
-	{
-		ToolUI->EndPanel();
-		return;
-	}
-
-	ImGui::TextDisabled("HERTA / NATIVE C++23");
-	ImGui::Spacing();
-	ImGui::TextUnformatted("Build something remarkable.");
-	ImGui::TextDisabled("The Viewport renders a textured mesh through Herta RHI and RenderGraph.");
-
-	ToolUI->EndPanel();
 }
 
 void FEditorFramework::FImplementation::RebuildSuggestions(const std::string_view Prefix)

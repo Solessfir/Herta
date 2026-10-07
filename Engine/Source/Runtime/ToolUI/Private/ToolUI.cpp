@@ -393,7 +393,6 @@ struct FToolUIContext::FImplementation
 	bool bProgrammaticWindowPosition = false;
 	bool bVSync = true;
 	bool bBuildDefaultLayout = false;
-	bool bDetailsDockMigrationComplete = false;
 	bool bOutlinerDockMigrationComplete = false;
 	bool bContentDockMigrationComplete = false;
 	bool bFrameActive = false;
@@ -2394,7 +2393,6 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		ImGui::DockBuilderDockWindow("Outliner", OutlinerId);
 		ImGui::DockBuilderDockWindow("Details", DetailsId);
 		ImGui::DockBuilderDockWindow("Performance", DetailsId);
-		ImGui::DockBuilderDockWindow("Start", DetailsId);
 		ImGui::DockBuilderDockWindow("Viewport", CenterId);
 		ImGui::DockBuilderDockWindow("Content Browser", BottomId);
 		ImGui::DockBuilderDockWindow("Output Log", BottomId);
@@ -2403,30 +2401,12 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		Implementation->bOutlinerDockMigrationComplete = true;
 	}
 
-	if (!Implementation->bDetailsDockMigrationComplete)
-	{
-		Implementation->bDetailsDockMigrationComplete = true;
-		if (ImGui::FindWindowSettingsByID(ImHashStr("Details")) == nullptr)
-		{
-			const ImGuiWindowSettings* const StartSettings = ImGui::FindWindowSettingsByID(ImHashStr("Start"));
-			if (StartSettings != nullptr && StartSettings->DockId != 0)
-			{
-				const ImGuiDockNode* const StartNode = ImGui::DockBuilderGetNode(StartSettings->DockId);
-				if (StartNode != nullptr && StartNode->IsLeafNode())
-				{
-					ImGui::DockBuilderDockWindow("Details", StartSettings->DockId);
-				}
-			}
-		}
-	}
-
 	if (!Implementation->bOutlinerDockMigrationComplete)
 	{
 		Implementation->bOutlinerDockMigrationComplete = true;
 		if (ImGui::FindWindowSettingsByID(ImHashStr("Outliner")) == nullptr)
 		{
-			const ImGuiWindowSettings* const DetailsSettings = ImGui::FindWindowSettingsByID(ImHashStr("Details"));
-			const ImGuiWindowSettings* const AnchorSettings = DetailsSettings != nullptr ? DetailsSettings : ImGui::FindWindowSettingsByID(ImHashStr("Start"));
+			const ImGuiWindowSettings* const AnchorSettings = ImGui::FindWindowSettingsByID(ImHashStr("Details"));
 			if (AnchorSettings != nullptr && AnchorSettings->DockId != 0)
 			{
 				ImGuiDockNode* const DetailsNode = ImGui::DockBuilderGetNode(AnchorSettings->DockId);

@@ -46,7 +46,7 @@ Right-click a Game folder in the Content Browser to create a reusable `.hmat` ma
 
 Shift+A places Directional, Sky, Point, Spot, or Rect Light, Sky Atmosphere, and Height Fog as well as Empty Entity and Cube. Add Component attaches the same visual components to an existing entity. Light guides show emitter shape, direction, and selected range/cones; G hides them with other editor overlays. Changes support level undo/redo, duplication, clipboard, and saving.
 
-Viewport settings > Rendering controls manual exposure, shadow quality, and native SMAA 1x. Defaults are -14 EV, Soft PCF shadows, and SMAA High. **Window > Performance** (or **Open Performance panel** in Rendering) opens as a tab beside Details and graphs frame, CPU, and GPU time over the last 240 frames, breaks GPU time down per pass with sparklines on a shared scale, and reports lights, draws, render-target memory, and shadow budgets. **Pause** freezes the history for inspection. Sky Light separates ambient intensity from visible sky, using a cooked HDR texture or the linked atmosphere's generated sky. Height Fog supports non-volumetric and volumetric modes plus low/medium/high integration quality. See [Rendering](Rendering.md) for budgets and current limitations.
+Viewport settings > Rendering controls manual exposure, shadow quality, and native SMAA 1x. Defaults are -14 EV, Soft PCF shadows, and SMAA High. **Window > Performance** is open by default as a tab beside Details, which stays the selected tab. It graphs frame, CPU, and GPU time over the last 240 frames, breaks GPU time down per pass with sparklines on a shared scale, and reports lights, draws, render-target memory, and shadow budgets. **Pause** freezes the history for inspection. Sky Light separates ambient intensity from visible sky, using a cooked HDR texture or the linked atmosphere's generated sky. Height Fog supports non-volumetric and volumetric modes plus low/medium/high integration quality. See [Rendering](Rendering.md) for budgets and current limitations.
 
 ## Levels
 
@@ -94,7 +94,7 @@ Press the backtick key to open Output Log and focus its command field; pressing 
 
 ## Appearance
 
-Use **Appearance** in the bottom bar for all workspace styling, including panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 95%, with 24 px background blur. Start is a welcome panel, closed by default, and can be reopened from **Window > Start panel**.
+Use **Appearance** in the bottom bar for all workspace styling, including panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 95%, with 24 px background blur.
 
 ## Blur profiling
 
