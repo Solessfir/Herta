@@ -3,6 +3,7 @@
 #include "Herta/Assets/AssetSearch.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/ToolUI/ToolUI.h"
+#include "NumericField.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -887,6 +888,15 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			ImGui::SetItemTooltip("%s", State.FolderError.c_str());
 		}
 
+		// Doubles as the zoom indicator; a thin frame keeps it inside the single-line footer.
+		const float ZoomWidth = 112.f * Scale;
+		ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - ZoomWidth));
+		ImGui::SetNextItemWidth(ZoomWidth);
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 1.f * Scale});
+		const std::string ZoomLabel = State.Zoom < 0.5f ? "List" : std::format("{:.0f} px", 48.f + State.Zoom * 16.f);
+		DrawNumericSliderFloat("##ContentZoomLevel", &State.Zoom, 0.f, 9.f, ZoomLabel.c_str(), ImGuiSliderFlags_AlwaysClamp);
+		ImGui::PopStyleVar();
+		ImGui::SetItemTooltip("Thumbnail size. Ctrl+Wheel over the grid also zooms.");
 		ImGui::PopStyleColor();
 		ImGui::PopStyleVar();
 	}
