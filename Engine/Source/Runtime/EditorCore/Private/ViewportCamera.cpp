@@ -8,7 +8,6 @@ namespace Herta
 {
 namespace
 {
-constexpr float CameraVerticalFieldOfView = 65.f * std::numbers::pi_v<float> / 180.f;
 constexpr float CameraNearPlane = 0.1f;
 constexpr float MinimumOrbitDistance = CameraNearPlane * 2.f;
 constexpr float MaximumOrbitDistance = 1'000'000.f;
@@ -57,7 +56,7 @@ void FViewportCameraController::Update(const FViewportCameraInput& Input, const 
 	}
 	else if (Input.Mode == EViewportCameraMode::Pan)
 	{
-		const float UnitsPerPixel = 2.f * OrbitDistance * std::tan(CameraVerticalFieldOfView * 0.5f) / ViewportSize.Y;
+		const float UnitsPerPixel = 2.f * OrbitDistance * std::tan(VerticalFieldOfView * 0.5f) / ViewportSize.Y;
 		Translate(GetOrientation().RotateVector({Input.MouseDeltaPixels.X * UnitsPerPixel, Input.MouseDeltaPixels.Y * UnitsPerPixel, 0.f}));
 	}
 	else if (Input.Mode == EViewportCameraMode::Dolly)
@@ -79,7 +78,7 @@ void FViewportCameraController::Focus(const FVector3& Center, const FVector3& Ha
 	}
 
 	const float Radius = std::hypot(HalfExtent.X, HalfExtent.Y, HalfExtent.Z);
-	const float TanHalfVerticalFov = std::tan(CameraVerticalFieldOfView * 0.5f);
+	const float TanHalfVerticalFov = std::tan(VerticalFieldOfView * 0.5f);
 	const float HalfVerticalFov = std::atan(TanHalfVerticalFov * VisibleSize.Y);
 	const float HalfHorizontalFov = std::atan(TanHalfVerticalFov * GetValidAspectRatio(AspectRatio) * VisibleSize.X);
 	const float Distance = std::max(Radius / std::sin(std::min(HalfVerticalFov, HalfHorizontalFov)), Radius + MinimumOrbitDistance);
@@ -110,9 +109,33 @@ void FViewportCameraController::SetMouseSensitivity(const float RadiansPerPixel)
 	}
 }
 
+void FViewportCameraController::SetVerticalFieldOfView(const float Radians)
+{
+	if (std::isfinite(Radians))
+	{
+		VerticalFieldOfView = std::clamp(Radians, 0.01f, 3.f);
+	}
+}
+
+float FViewportCameraController::GetVerticalFieldOfView() const
+{
+	return VerticalFieldOfView;
+}
+
+float GetPhysicalCameraVerticalFieldOfView(const float FocalLengthMillimeters)
+{
+	return 2.f * std::atan(PhysicalCameraSensorHeightMillimeters * 0.5f / std::max(FocalLengthMillimeters, 1.f));
+}
+
+float GetPhysicalCameraExposureEV100(const FPhysicalCamera& Camera)
+{
+	const float Aperture = std::max(Camera.Aperture, 0.5f);
+	return std::log2(Aperture * Aperture / std::max(Camera.ShutterSeconds, 1e-6f)) - std::log2(std::max(Camera.Iso, 1.f) / 100.f);
+}
+
 FViewportCameraSnapshot FViewportCameraController::GetSnapshot(const float AspectRatio, const FVector2 ProjectionCenter) const
 {
-	FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(CameraVerticalFieldOfView, GetValidAspectRatio(AspectRatio), CameraNearPlane);
+	FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(VerticalFieldOfView, GetValidAspectRatio(AspectRatio), CameraNearPlane);
 	const FVector2 Center = GetValidProjectionCenter(ProjectionCenter);
 	Projection(0, 2) = 2.f * Center.X - 1.f;
 	Projection(1, 2) = 1.f - 2.f * Center.Y;
@@ -123,7 +146,7 @@ FViewportPickingRay FViewportCameraController::MakePickingRay(const FVector2& No
 {
 	const FVector2 ScreenPosition = IsFinite(NormalizedPosition) ? NormalizedPosition : FVector2{0.5f, 0.5f};
 	const FVector2 Center = GetValidProjectionCenter(ProjectionCenter);
-	const float HalfHeight = std::tan(CameraVerticalFieldOfView * 0.5f);
+	const float HalfHeight = std::tan(VerticalFieldOfView * 0.5f);
 	const FVector3 ViewDirection{2.f * (Center.X - ScreenPosition.X) * HalfHeight * GetValidAspectRatio(AspectRatio), 2.f * (Center.Y - ScreenPosition.Y) * HalfHeight, 1.f};
 	return {.Origin = Position, .Direction = GetOrientation().RotateVector(ViewDirection.Normalized())};
 }

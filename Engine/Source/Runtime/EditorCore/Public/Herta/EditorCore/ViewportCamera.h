@@ -39,6 +39,22 @@ struct FViewportPickingRay
 	FVector3 Direction;
 };
 
+// Full-frame 36x24 mm camera. Aperture, shutter, and ISO only set exposure; there is no depth of field or motion blur.
+struct FPhysicalCamera
+{
+	float FocalLengthMillimeters = 19.f;
+	float Aperture = 8.f;
+	float ShutterSeconds = 1.f / 250.f;
+	float Iso = 100.f;
+};
+
+inline constexpr float PhysicalCameraSensorHeightMillimeters = 24.f;
+
+// Radians for the full vertical extent of the sensor.
+[[nodiscard]] float GetPhysicalCameraVerticalFieldOfView(float FocalLengthMillimeters);
+// Photographic exposure value at ISO 100: log2(N^2 / t) - log2(ISO / 100).
+[[nodiscard]] float GetPhysicalCameraExposureEV100(const FPhysicalCamera& Camera);
+
 class FViewportCameraController
 {
 public:
@@ -46,6 +62,8 @@ public:
 	void Focus(const FVector3& Center, const FVector3& HalfExtent, float AspectRatio, FVector2 VisibleSize = {1.f, 1.f});
 	void SetMovementSpeed(float Speed);
 	void SetMouseSensitivity(float RadiansPerPixel);
+	void SetVerticalFieldOfView(float Radians);
+	[[nodiscard]] float GetVerticalFieldOfView() const;
 
 	[[nodiscard]] constexpr float GetMovementSpeed() const
 	{
@@ -92,5 +110,6 @@ private:
 	FVector3 Pivot = Position + GetOrientation().RotateVector(FVector3::Forward()) * OrbitDistance;
 	float MovementSpeed = 5.f;
 	float MouseSensitivity = 0.003f;
+	float VerticalFieldOfView = 65.f * std::numbers::pi_v<float> / 180.f;
 };
 }

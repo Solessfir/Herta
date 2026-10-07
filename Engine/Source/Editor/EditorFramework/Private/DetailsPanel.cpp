@@ -771,7 +771,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 				                                                                                                                                 : "%.3f";
 				if (Type == ELevelComponentType::Light && Property.Key == "intensity")
 				{
-					Format = Entity.Light->Type == ELightType::Directional ? "%.0f lx" : Entity.Light->Type == ELightType::Sky ? "%.2f"
+					Format = Entity.Light->Type == ELightType::Directional ? "%.0f lx" : Entity.Light->Type == ELightType::Sky ? "%.2fx"
 					                                                                                                           : "%.0f lm";
 				}
 

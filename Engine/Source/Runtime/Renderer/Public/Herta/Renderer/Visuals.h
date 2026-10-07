@@ -42,7 +42,8 @@ struct FRenderLight
 
 struct FVisualSettings
 {
-	float ExposureEV = -14.f;
+	// Photographic EV at ISO 100. The saturating luminance is 1.2 * 2^EV100 cd/m^2 (Lagarde and de Rousiers).
+	float ExposureEV100 = 14.f;
 	EAntiAliasing AntiAliasing = EAntiAliasing::SmaaHigh;
 	std::optional<FSkyAtmosphereComponent> Atmosphere{};
 	std::optional<FHeightFogComponent> Fog{};

@@ -331,4 +331,26 @@ TEST_CASE("Viewport camera rejects invalid state and clamps editable settings")
 	Camera.Focus({}, {}, 1.f);
 	CHECK(Camera.GetSnapshot(1.f).Position.Length() == doctest::Approx(0.2f));
 }
+
+TEST_CASE("Physical camera exposure follows aperture, shutter, and ISO")
+{
+	CHECK(GetPhysicalCameraExposureEV100({.Aperture = 8.f, .ShutterSeconds = 1.f / 250.f, .Iso = 100.f}) == doctest::Approx(std::log2(16000.f)));
+	// Sunny 16 at ISO 100.
+	CHECK(GetPhysicalCameraExposureEV100({.Aperture = 16.f, .ShutterSeconds = 1.f / 100.f, .Iso = 100.f}) == doctest::Approx(std::log2(25600.f)));
+	const FPhysicalCamera Base{};
+	CHECK(GetPhysicalCameraExposureEV100({.Aperture = Base.Aperture, .ShutterSeconds = Base.ShutterSeconds, .Iso = Base.Iso * 2.f}) == doctest::Approx(GetPhysicalCameraExposureEV100(Base) - 1.f));
+	CHECK(GetPhysicalCameraExposureEV100({.Aperture = Base.Aperture, .ShutterSeconds = Base.ShutterSeconds * 2.f, .Iso = Base.Iso}) == doctest::Approx(GetPhysicalCameraExposureEV100(Base) - 1.f));
+}
+
+TEST_CASE("Physical camera focal length maps to the full-frame vertical field of view")
+{
+	const float FocalLength = 12.f / std::tan(65.f * std::numbers::pi_v<float> / 360.f);
+	CHECK(GetPhysicalCameraVerticalFieldOfView(FocalLength) == doctest::Approx(65.f * std::numbers::pi_v<float> / 180.f));
+	CHECK(GetPhysicalCameraVerticalFieldOfView(50.f) < GetPhysicalCameraVerticalFieldOfView(24.f));
+	FViewportCameraController Camera;
+	Camera.SetVerticalFieldOfView(GetPhysicalCameraVerticalFieldOfView(50.f));
+	CHECK(Camera.GetVerticalFieldOfView() == doctest::Approx(GetPhysicalCameraVerticalFieldOfView(50.f)));
+	const auto Snapshot = Camera.GetSnapshot(1.f);
+	CHECK(Snapshot.Projection(1, 1) == doctest::Approx(1.f / std::tan(GetPhysicalCameraVerticalFieldOfView(50.f) * 0.5f)));
+}
 }

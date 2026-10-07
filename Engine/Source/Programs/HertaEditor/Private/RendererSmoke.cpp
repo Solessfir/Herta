@@ -748,7 +748,7 @@ namespace
 	    .Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.f, 1.5f, 0.1f),
 	    .Models = Models,
 	    .Meshes = Meshes,
-	    .Visuals = {.ExposureEV = -8.f, .AntiAliasing = EAntiAliasing::Off},
+	    .Visuals = {.ExposureEV100 = 7.737f, .AntiAliasing = EAntiAliasing::Off},
 	};
 
 	View.Visuals.bStudioPreview = false;
@@ -850,7 +850,7 @@ namespace
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Directional atlas shadows did not darken visible receiver geometry: {} changed pixels", ShadowPixels)});
 	}
 
-	View.Visuals.ExposureEV = -7.f;
+	View.Visuals.ExposureEV100 = 6.737f;
 	const auto Exposed = Capture();
 	if (!Exposed)
 	{
@@ -862,7 +862,7 @@ namespace
 		return Failure("HDR exposure did not increase tone-mapped output brightness");
 	}
 
-	View.Visuals.ExposureEV = -8.f;
+	View.Visuals.ExposureEV100 = 7.737f;
 	View.Visuals.Atmosphere = FSkyAtmosphereComponent{};
 	Lights[1].Settings.bEnvironmentVisible = true;
 	const auto Sky = Capture();

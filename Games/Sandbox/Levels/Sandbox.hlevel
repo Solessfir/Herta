@@ -3837,7 +3837,7 @@
           "width": 1,
           "height": 1,
           "environment": null,
-          "ambientStrength": 0.45,
+          "ambientStrength": 1,
           "environmentVisible": true,
           "enabled": true
         }

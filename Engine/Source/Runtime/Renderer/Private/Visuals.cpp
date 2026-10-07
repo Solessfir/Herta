@@ -96,7 +96,7 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 		return std::unexpected(!ViewToWorld ? ViewToWorld.error() : ClipToView.error());
 	}
 
-	if (Lights.size() > MaximumRenderLights || Extent.IsEmpty() || !std::isfinite(Settings.FogHeight) || !std::isfinite(Settings.ExposureEV) || std::abs(Settings.ExposureEV) > 24.f || static_cast<unsigned>(Settings.AntiAliasing) > static_cast<unsigned>(EAntiAliasing::SmaaUltra) || static_cast<unsigned>(Settings.ShadowQuality) > static_cast<unsigned>(EShadowQuality::Soft))
+	if (Lights.size() > MaximumRenderLights || Extent.IsEmpty() || !std::isfinite(Settings.FogHeight) || !std::isfinite(Settings.ExposureEV100) || std::abs(Settings.ExposureEV100) > 24.f || static_cast<unsigned>(Settings.AntiAliasing) > static_cast<unsigned>(EAntiAliasing::SmaaUltra) || static_cast<unsigned>(Settings.ShadowQuality) > static_cast<unsigned>(EShadowQuality::Soft))
 	{
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Visual settings exceed the light, exposure, extent, or antialiasing budget"});
 	}
@@ -105,7 +105,7 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 	Result.ViewToWorld = ViewToWorld->Data();
 	Result.ClipToView = ClipToView->Data();
 	Result.Viewport = {1.f / static_cast<float>(Extent.Width), 1.f / static_cast<float>(Extent.Height), static_cast<float>(Extent.Width), static_cast<float>(Extent.Height)};
-	Result.Controls[2] = std::exp2(Settings.ExposureEV);
+	Result.Controls[2] = 1.f / (1.2f * std::exp2(Settings.ExposureEV100));
 	bool bHasSky = false;
 	FVector3 SkyColor{};
 	for (const FRenderLight& Source : Lights)

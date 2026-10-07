@@ -47,7 +47,7 @@ TEST_CASE("Visual uniforms preserve camera inverses and native pixel dimensions"
 	CHECK(Result->Viewport[1] == doctest::Approx(1.f / 720.f));
 	CHECK(Result->Viewport[2] == 1280.f);
 	CHECK(Result->Viewport[3] == 720.f);
-	CHECK(Result->Controls[2] == doctest::Approx(std::exp2(FVisualSettings{}.ExposureEV)));
+	CHECK(Result->Controls[2] == doctest::Approx(1.f / (1.2f * std::exp2(FVisualSettings{}.ExposureEV100))));
 	CHECK(Result->Controls[0] == 0.f);
 	CHECK(sizeof(FVisualUniforms) <= MaximumGraphicsUniformBytes);
 	CHECK(sizeof(FVisualLightUniform) == 96);
@@ -68,13 +68,13 @@ TEST_CASE("Visual uniforms reject invalid cameras and bounded settings")
 	FMatrix4 Nonfinite = Identity;
 	Nonfinite(0, 0) = std::numeric_limits<float>::quiet_NaN();
 	CHECK_FALSE(BuildVisualUniforms(Nonfinite, TestProjection(), {64, 64}, {}, Settings));
-	Settings.ExposureEV = 24.1f;
+	Settings.ExposureEV100 = 24.1f;
 	CHECK_FALSE(BuildVisualUniforms(Identity, TestProjection(), {64, 64}, {}, Settings));
-	Settings.ExposureEV = -24.f;
+	Settings.ExposureEV100 = -24.f;
 	CHECK(BuildVisualUniforms(Identity, TestProjection(), {64, 64}, {}, Settings));
-	Settings.ExposureEV = std::numeric_limits<float>::infinity();
+	Settings.ExposureEV100 = std::numeric_limits<float>::infinity();
 	CHECK_FALSE(BuildVisualUniforms(Identity, TestProjection(), {64, 64}, {}, Settings));
-	Settings.ExposureEV = 0.f;
+	Settings.ExposureEV100 = 0.f;
 	Settings.AntiAliasing = static_cast<EAntiAliasing>(255);
 	CHECK_FALSE(BuildVisualUniforms(Identity, TestProjection(), {64, 64}, {}, Settings));
 	Settings.AntiAliasing = EAntiAliasing::Off;
@@ -126,7 +126,7 @@ TEST_CASE("Visual temperature sky atmosphere and fog controls use authored setti
 	Lights[2].Settings.Intensity = 2.f;
 	Lights[2].Settings.AmbientStrength = 0.25f;
 	Lights[2].Settings.bEnvironmentVisible = false;
-	FVisualSettings Settings{.ExposureEV = 2.f, .Atmosphere = FSkyAtmosphereComponent{}, .Fog = FHeightFogComponent{}, .FogHeight = 3.f};
+	FVisualSettings Settings{.ExposureEV100 = 2.f, .Atmosphere = FSkyAtmosphereComponent{}, .Fog = FHeightFogComponent{}, .FogHeight = 3.f};
 	const auto Result = BuildVisualUniforms({}, TestProjection(), {64, 64}, Lights, Settings);
 	REQUIRE(Result);
 	CHECK(Result->Lights[0].ColorIntensity[0] > Result->Lights[0].ColorIntensity[2]);
@@ -135,7 +135,7 @@ TEST_CASE("Visual temperature sky atmosphere and fog controls use authored setti
 	CHECK(Result->Sky[1] == 0.f);
 	CHECK(Result->Atmosphere[3] == 1.f);
 	CHECK(Result->AtmosphereGeometry[0] == Settings.Atmosphere->PlanetRadius);
-	CHECK(Result->Controls[2] == 4.f);
+	CHECK(Result->Controls[2] == doctest::Approx(1.f / (1.2f * 4.f)));
 	CHECK(Result->Controls[3] == 32.f);
 	CHECK(Result->Fog[0] == Settings.Fog->Density);
 	CHECK(Result->FogColor[3] == 3.f);

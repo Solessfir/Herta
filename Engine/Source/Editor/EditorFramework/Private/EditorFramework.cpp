@@ -583,6 +583,7 @@ struct FEditorFramework::FImplementation
 	bool bBoundsVisible = false;
 	bool bCameraReadoutVisible = false;
 	bool bCameraSpeedVisible = false;
+	FPhysicalCamera PhysicalCamera;
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
 
@@ -1885,6 +1886,8 @@ void FEditorFramework::FImplementation::RefreshSelectedVisualEntities()
 
 void FEditorFramework::FImplementation::RefreshVisuals()
 {
+	VisualSettings.ExposureEV100 = GetPhysicalCameraExposureEV100(PhysicalCamera);
+	ViewportCamera.SetVerticalFieldOfView(GetPhysicalCameraVerticalFieldOfView(PhysicalCamera.FocalLengthMillimeters));
 	VisualSettings.bStudioPreview = std::ranges::none_of(VisualEntities, [](const FLevelEntity& Entity)
 	{
 		return Entity.Light.has_value();
@@ -2668,6 +2671,22 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			{
 				ViewportCamera.SetMouseSensitivity(Sensitivity * std::numbers::pi_v<float> / 180.f);
 			}
+
+			DrawFieldLabel("Focal length", ValueWidth);
+			DrawNumericSliderFloat("##FocalLength", &PhysicalCamera.FocalLengthMillimeters, 8.f, 300.f, "%.0f mm", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+			DrawFieldLabel("Aperture", ValueWidth);
+			DrawNumericSliderFloat("##Aperture", &PhysicalCamera.Aperture, 1.4f, 22.f, "f/%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+			float ShutterDenominator = 1.f / PhysicalCamera.ShutterSeconds;
+			DrawFieldLabel("Shutter", ValueWidth);
+			if (DrawNumericSliderFloat("##Shutter", &ShutterDenominator, 1.f, 8000.f, "1/%.0f s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+			{
+				PhysicalCamera.ShutterSeconds = 1.f / ShutterDenominator;
+			}
+
+			DrawFieldLabel("ISO", ValueWidth);
+			DrawNumericSliderFloat("##Iso", &PhysicalCamera.Iso, 50.f, 25600.f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+			DrawFieldLabel("Exposure", ValueWidth);
+			ImGui::TextDisabled("EV100 %.1f", GetPhysicalCameraExposureEV100(PhysicalCamera));
 		}
 
 		if (Section("Gizmo"))
@@ -2743,8 +2762,6 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 		if (Section("Rendering"))
 		{
-			DrawFieldLabel("Exposure", ValueWidth);
-			DrawNumericSliderFloat("##Exposure", &VisualSettings.ExposureEV, -24.f, 24.f, "%.1f EV", ImGuiSliderFlags_AlwaysClamp);
 			DrawFieldLabel("Anti-aliasing", ValueWidth);
 			constexpr std::array Modes{"Off", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};
 			if (ImGui::BeginCombo("##AntiAliasing", Modes[static_cast<std::size_t>(VisualSettings.AntiAliasing)]))
