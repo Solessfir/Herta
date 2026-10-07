@@ -36,8 +36,8 @@ struct FPerformanceSample
 {
 	double FrameMilliseconds = 0.;
 	double CpuMilliseconds = 0.;
-	std::optional<double> GpuUIMilliseconds;
-	std::span<const FGpuPassTiming> Passes;
+	std::optional<double> GpuUIMilliseconds{};
+	std::span<const FGpuPassTiming> Passes{};
 	std::size_t EnabledLights = 0;
 	std::size_t MaximumLights = 0;
 	std::size_t RenderTargetBytes = 0;
@@ -47,7 +47,7 @@ struct FPerformanceSample
 struct FPerformancePassHistory
 {
 	std::string Name;
-	FMetricHistory Milliseconds;
+	FMetricHistory Milliseconds{};
 };
 
 struct FPerformancePanelState

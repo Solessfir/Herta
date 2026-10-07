@@ -54,12 +54,12 @@ struct FPhysicsBoxBodySettings
 struct FPhysicsSoftBodySettings
 {
 	// World-space rest positions.
-	std::span<const FVector3> Vertices;
+	std::span<const FVector3> Vertices{};
 	// Vertices that stay where they are, such as a rope's anchor.
-	std::span<const std::uint32_t> PinnedVertices;
-	std::span<const std::array<std::uint32_t, 2>> StretchEdges;
-	std::span<const std::array<std::uint32_t, 2>> BendEdges;
-	std::span<const std::array<std::uint32_t, 3>> Faces;
+	std::span<const std::uint32_t> PinnedVertices{};
+	std::span<const std::array<std::uint32_t, 2>> StretchEdges{};
+	std::span<const std::array<std::uint32_t, 2>> BendEdges{};
+	std::span<const std::array<std::uint32_t, 3>> Faces{};
 	// Spread evenly over the free vertices.
 	float MassKg = 1.f;
 	// Compliance is the inverse of stiffness in m/N; zero is rigid.

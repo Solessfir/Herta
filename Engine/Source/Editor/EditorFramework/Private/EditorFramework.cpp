@@ -3277,7 +3277,6 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	const FIm3dContextScope ContextScope(ViewportGizmos);
 	PrepareViewportGizmos(NormalizedMouse, bGizmoInput, bGizmoInput && ViewportInteraction.DragButton == ImGuiMouseButton_Left && ImGui::IsMouseDown(ImGuiMouseButton_Left));
 	const float AspectRatio = static_cast<float>(ViewportExtent.Width) / static_cast<float>(ViewportExtent.Height);
-	const auto Camera = ViewportCamera.GetSnapshot(AspectRatio, ViewportProjectionCenter);
 	const auto CursorRay = ViewportCamera.MakePickingRay(NormalizedMouse, AspectRatio, ViewportProjectionCenter);
 
 	if (!bGizmoInput || bGameView)
