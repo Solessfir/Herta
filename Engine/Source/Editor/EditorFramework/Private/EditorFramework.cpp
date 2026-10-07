@@ -30,6 +30,7 @@
 #include "PreviewAssets.h"
 #include "PreviewLevel.h"
 #include "PreviewSimulation.h"
+#include "TimeOfDay.h"
 #include "PreviewVisuals.h"
 #include "ViewportBoxSelection.h"
 #include "ViewportGizmos.h"
@@ -477,6 +478,8 @@ struct FEditorFramework::FImplementation
 	void RefreshSelectedVisualEntities();
 	void DrawMaterialPanel();
 	void DrawPerformancePanel();
+	[[nodiscard]] int FindTimeOfDaySun() const;
+	void DrawTimeOfDay(float X, float Top, float Width, float ButtonSize, float Scale);
 	void ImportWithDialog();
 	void OpenLevelWithDialog();
 	void OpenProjectWithDialog();
@@ -583,6 +586,7 @@ struct FEditorFramework::FImplementation
 	bool bBoundsVisible = false;
 	bool bCameraReadoutVisible = false;
 	bool bCameraSpeedVisible = false;
+	bool bTimeOfDayVisible = true;
 	FPhysicalCamera PhysicalCamera;
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
@@ -2050,6 +2054,70 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	}
 }
 
+// The atmosphere's linked sun wins; otherwise the first enabled directional light drives time of day.
+int FEditorFramework::FImplementation::FindTimeOfDaySun() const
+{
+	int Fallback = -1;
+	for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewObjects.size(); ++Index)
+	{
+		const FLevelEntity& Entity = VisualEntities[Index];
+		if (!Entity.Light || Entity.Light->Type != ELightType::Directional || !Entity.Light->bEnabled)
+		{
+			continue;
+		}
+
+		if (VisualSettings.Atmosphere && VisualSettings.Atmosphere->Sun == Entity.Id)
+		{
+			return static_cast<int>(Index);
+		}
+
+		Fallback = Fallback < 0 ? static_cast<int>(Index) : Fallback;
+	}
+
+	return Fallback;
+}
+
+void FEditorFramework::FImplementation::DrawTimeOfDay(const float X, const float Top, const float Width, const float ButtonSize, const float Scale)
+{
+	const int SunIndex = FindTimeOfDaySun();
+	FPreviewObject& Sun = PreviewObjects[static_cast<std::size_t>(SunIndex)];
+	const ImVec2 Center{X + ButtonSize * 0.5f, Top + ButtonSize * 0.5f};
+	ImDrawList* const Draw = ImGui::GetWindowDrawList();
+	const ImU32 Color = ImGui::GetColorU32(ImGuiCol_Text);
+	Draw->AddCircle(Center, 3.5f * Scale, Color, 16, 1.2f * Scale);
+	for (int Ray = 0; Ray < 8; ++Ray)
+	{
+		const float Angle = static_cast<float>(Ray) * std::numbers::pi_v<float> * 0.25f;
+		const ImVec2 Direction{std::cos(Angle), std::sin(Angle)};
+		Draw->AddLine({Center.x + Direction.x * 5.5f * Scale, Center.y + Direction.y * 5.5f * Scale}, {Center.x + Direction.x * 7.5f * Scale, Center.y + Direction.y * 7.5f * Scale}, Color, 1.2f * Scale);
+	}
+
+	// The light travels along its local +Z, so the sun sits opposite it.
+	const Im3d::Vec3 Travel = Sun.Rotation.getCol(2);
+	float Hours = GetTimeOfDayHours(FVector3{-Travel.x, -Travel.y, -Travel.z}.Normalized());
+	ImGui::SetCursorScreenPos({X + ButtonSize, Top});
+	ImGui::SetNextItemWidth(Width);
+	ImGui::BeginDisabled(Simulation.IsRunning() || bProjectBusy);
+	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {8.f * Scale, (ButtonSize - ImGui::GetFontSize()) * 0.5f});
+	const bool bChanged = DrawNumericSliderFloat("##TimeOfDay", &Hours, 0.f, 24.f, FormatTimeOfDay(Hours).c_str(), ImGuiSliderFlags_AlwaysClamp);
+	ImGui::PopStyleVar();
+	if (ImGui::IsItemActivated() && !Level->HasActiveEdit())
+	{
+		ReportLevelResult(Level->BeginEdit("Time of day"));
+	}
+
+	if (bChanged)
+	{
+		const FVector3 Light = -GetTimeOfDaySunDirection(Hours);
+		const FVector3 Reference = std::abs(Light.Y) > 0.999f ? FVector3::Forward() : FVector3::Up();
+		const FVector3 Right = Reference.Cross(Light).Normalized();
+		Sun.Rotation = Im3d::Mat3(ToIm3dVector(Right), ToIm3dVector(Light.Cross(Right)), ToIm3dVector(Light));
+	}
+
+	ImGui::EndDisabled();
+	ImGui::SetItemTooltip("Time of day. Moves %s along an east-to-west arc.", Sun.Label.c_str());
+}
+
 void FEditorFramework::FImplementation::DrawPerformancePanel()
 {
 	// Recorded while closed so the graphs already have history when the panel opens.
@@ -2596,6 +2664,19 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		ImGui::EndDisabled();
 	}
 
+	// Top-left island; it yields to the playback island and right-hand controls instead of overlapping them.
+	if (bTimeOfDayVisible && FindTimeOfDaySun() >= 0)
+	{
+		const float TimeWidth = ButtonSize + 112.f * Scale + 2.f * Padding;
+		const float TimeX = Minimum.x + EdgeMargin;
+		const bool bPlayOnTopRow = bShowPlayControls && CanFitViewportToolbarIsland(PlayX, PlayWidth, Minimum.x, RightControlsLeft, Gap);
+		if (TimeX + TimeWidth + Gap <= (bPlayOnTopRow ? PlayX : RightControlsLeft))
+		{
+			Island(TimeX, TimeWidth);
+			DrawTimeOfDay(TimeX + Padding, Top + Padding, 112.f * Scale, ButtonSize, Scale);
+		}
+	}
+
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10.f * Scale, 8.f * Scale});
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * Scale, 4.f * Scale});
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {7.f * Scale, 3.f * Scale});
@@ -2652,6 +2733,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			Toggle("Preview bounds", bBoundsVisible);
 			Toggle("Camera coordinates", bCameraReadoutVisible);
 			Toggle("Camera speed", bCameraSpeedVisible);
+			Toggle("Time of day", bTimeOfDayVisible);
 		}
 
 		if (Section("Camera"))
