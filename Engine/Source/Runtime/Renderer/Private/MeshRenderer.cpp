@@ -416,6 +416,11 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle SelectionDepth;
 	FTextureHandle SkyView;
 	FTextureHandle SkyMultipleScattering;
+	FTextureHandle ExposureMetering;
+	// Adaptation reads last frame's exposure and writes this frame's, alternating between the two.
+	std::array<FTextureHandle, 2> ExposureStates;
+	std::size_t ExposureStateIndex = 0;
+	bool bExposureAdapted = false;
 	// Rayleigh and Mie scales, planet radius, and atmosphere height the table was built from.
 	std::array<float, 4> SkyMultipleScatteringKey{};
 	FTextureHandle ShadowAtlas;
@@ -427,7 +432,7 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle SmaaSearch;
 	FBufferHandle FullscreenVertices;
 	FBufferHandle FullscreenIndices;
-	std::array<FGraphicsPipelineHandle, 8> VisualPipelines;
+	std::array<FGraphicsPipelineHandle, 10> VisualPipelines;
 	FGraphicsPipelineHandle OutlinePipeline;
 	FGraphicsPipelineHandle ShadowPipeline;
 	FGraphicsPipelineHandle InstancedShadowPipeline;
@@ -542,10 +547,10 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	std::vector<std::byte> SearchPixels;
 	if (!VisualShaders.FullscreenVertex.Bytecode.empty())
 	{
-		std::array<FShaderAsset, 8> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), std::move(VisualShaders.CompositeFragment), std::move(VisualShaders.ToneMapFragment), std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), std::move(VisualShaders.SmaaNeighborhood), std::move(VisualShaders.SkyViewFragment)};
-		constexpr std::array<std::uint32_t, 8> TextureCounts{2, 3, 3, 1, 1, 3, 2, 1};
-		constexpr std::array<std::string_view, 8> Names{"Sky", "Volumetric fog", "Depth-aware fog composite", "Exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view"};
-		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float};
+		std::array<FShaderAsset, 10> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), std::move(VisualShaders.CompositeFragment), std::move(VisualShaders.ToneMapFragment), std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), std::move(VisualShaders.SmaaNeighborhood), std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ExposureMeterFragment), std::move(VisualShaders.ExposureAdaptFragment)};
+		constexpr std::array<std::uint32_t, 10> TextureCounts{2, 3, 3, 2, 1, 3, 2, 1, 1, 2};
+		constexpr std::array<std::string_view, 10> Names{"Sky", "Volumetric fog", "Depth-aware fog composite", "Exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation"};
+		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float};
 		for (std::size_t Index = 0; Index < Fragments.size(); ++Index)
 		{
 			auto VisualPipeline = Device.CreateGraphicsPipeline({.Name = std::string(Names[Index]), .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(Fragments[Index]), .ColorFormat = Formats[Index],
@@ -599,6 +604,23 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		}
 
 		State->SkyView = std::move(*SkyView);
+		auto Metering = Device.CreateTexture({.Name = "Exposure metering", .Extent = {32, 32}, .Format = ETextureFormat::Rgba16Float, .bRenderTarget = true});
+		if (!Metering)
+		{
+			return std::unexpected(Metering.error());
+		}
+
+		State->ExposureMetering = std::move(*Metering);
+		for (FTextureHandle& ExposureState : State->ExposureStates)
+		{
+			auto Texture = Device.CreateTexture({.Name = "Adapted exposure", .Extent = {1, 1}, .Format = ETextureFormat::Rgba32Float, .bRenderTarget = true});
+			if (!Texture)
+			{
+				return std::unexpected(Texture.error());
+			}
+
+			ExposureState = std::move(*Texture);
+		}
 		State->FullscreenVertices = std::move(*FullscreenVertices);
 		State->FullscreenIndices = std::move(*FullscreenIndices);
 		State->SmaaArea = std::move(*Area);
@@ -892,7 +914,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		// Unlit new levels retain a studio preview until authored lighting exists.
 		State.Uniforms.Sky[3] = 2.f;
 		State.Uniforms.Controls[2] = 1.f;
+		State.Uniforms.Exposure[0] = 0.f;
 	}
+
+	// Turning automatic exposure back on starts from the current scene instead of easing from a stale value.
+	const bool bAutoExposure = State.VisualPipelines[0] && State.Uniforms.Exposure[0] > 0.5f;
+	State.Uniforms.Exposure[0] = bAutoExposure ? 1.f : 0.f;
+	State.Uniforms.Exposure[3] = bAutoExposure && !State.bExposureAdapted ? 1.f : 0.f;
+	State.bExposureAdapted = bAutoExposure;
 
 	State.Shadows = State.ShadowPipeline && View.Visuals.ShadowQuality != EShadowQuality::Off ? BuildShadowViews(State.Uniforms, View.Lights, View.Projection) : std::vector<FShadowView>{};
 
@@ -1161,7 +1190,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	const auto Fullscreen = [&](const std::size_t Pipeline, const FTextureHandle& Destination, const std::span<const FTextureHandle> Sources)
 	{
-		constexpr std::array Names{"Sky", "Volumetric fog", "Fog composite", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view"};
+		constexpr std::array Names{"Sky", "Volumetric fog", "Fog composite", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation"};
 		const auto Timer = TimedPass(Names[Pipeline]);
 		if (const auto Cleared = Device.ClearTargets(Destination, {}, {}); !Cleared)
 		{
@@ -1372,8 +1401,30 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				ToneSource = State.CompositeColor;
 			}
 
+			FTextureHandle ExposureSource = State.White;
+			if (State.Uniforms.Exposure[0] > 0.5f)
+			{
+				const std::array MeterSources{ToneSource};
+				if (const auto Result = Fullscreen(8, State.ExposureMetering, MeterSources); !Result)
+				{
+					return GraphResult(Result);
+				}
+
+				const std::size_t Next = State.ExposureStateIndex ^ 1;
+				// A restart ignores the previous value, which may not have been written yet.
+				const bool bRestart = State.Uniforms.Exposure[3] > 0.5f;
+				const std::array AdaptSources{State.ExposureMetering, bRestart ? State.White : State.ExposureStates[State.ExposureStateIndex]};
+				if (const auto Result = Fullscreen(9, State.ExposureStates[Next], AdaptSources); !Result)
+				{
+					return GraphResult(Result);
+				}
+
+				State.ExposureStateIndex = Next;
+				ExposureSource = State.ExposureStates[Next];
+			}
+
 			const bool bSmaa = View.Visuals.AntiAliasing != EAntiAliasing::Off;
-			const std::array ToneSources{ToneSource};
+			const std::array ToneSources{ToneSource, ExposureSource};
 			if (const auto Result = Fullscreen(3, bSmaa ? State.ToneColor : State.Color, ToneSources); !Result)
 			{
 				return GraphResult(Result);

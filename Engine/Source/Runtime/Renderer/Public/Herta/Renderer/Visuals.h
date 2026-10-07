@@ -50,6 +50,12 @@ struct FVisualSettings
 	float FogHeight = 0.f;
 	EShadowQuality ShadowQuality = EShadowQuality::Soft;
 	bool bStudioPreview = true;
+	// Meters the HDR scene on the GPU and eases towards it instead of using ExposureEV100.
+	bool bAutoExposure = false;
+	// Positive values brighten the automatic exposure, in stops.
+	float ExposureCompensation = 0.f;
+	// Frame time that paces automatic adaptation.
+	float DeltaSeconds = 0.f;
 };
 
 struct FVisualShaderSet
@@ -67,6 +73,8 @@ struct FVisualShaderSet
 	FShaderAsset SmaaNeighborhood;
 	FShaderAsset SelectionOutline;
 	FShaderAsset SkyViewFragment;
+	FShaderAsset ExposureMeterFragment;
+	FShaderAsset ExposureAdaptFragment;
 };
 
 struct FShadowView
@@ -118,6 +126,8 @@ struct alignas(16) FVisualUniforms
 	std::array<float, 4> Controls{};
 	// The atmosphere's sun above the air, in lux; w is 1 when present. Its light entry carries what reaches the ground.
 	std::array<float, 4> SunIlluminance{};
+	// x enables automatic exposure, y is its compensation in stops, z the frame time, and w restarts adaptation.
+	std::array<float, 4> Exposure{};
 	std::array<FVisualLightUniform, MaximumRenderLights> Lights{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};
 	FMaterialUniform Material{};

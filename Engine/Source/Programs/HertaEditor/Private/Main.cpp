@@ -377,6 +377,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"SmaaNeighborhood.frag.hshader", &VisualShaders.SmaaNeighborhood},
 	    std::pair{"SelectionOutline.frag.hshader", &VisualShaders.SelectionOutline},
 	    std::pair{"SkyView.frag.hshader", &VisualShaders.SkyViewFragment},
+	    std::pair{"ExposureMeter.frag.hshader", &VisualShaders.ExposureMeterFragment},
+	    std::pair{"ExposureAdapt.frag.hshader", &VisualShaders.ExposureAdaptFragment},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)

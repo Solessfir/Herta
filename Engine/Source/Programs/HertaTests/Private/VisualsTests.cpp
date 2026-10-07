@@ -350,3 +350,23 @@ TEST_CASE("Atmosphere dims the sun at noon, reddens it near the horizon, and rem
 	CHECK(Night.Lights[0].ColorIntensity[0] == 0.f);
 	CHECK(Night.Lights[0].ColorIntensity[2] == 0.f);
 }
+
+TEST_CASE("Automatic exposure settings pack into uniforms with a capped adaptation step")
+{
+	FVisualSettings Settings{.bAutoExposure = true, .ExposureCompensation = -1.5f, .DeltaSeconds = 2.f};
+	const auto Auto = BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, {}, Settings);
+	REQUIRE(Auto);
+	CHECK(Auto->Exposure[0] == 1.f);
+	CHECK(Auto->Exposure[1] == -1.5f);
+	CHECK(Auto->Exposure[2] == 0.25f);
+	CHECK(Auto->Exposure[3] == 0.f);
+
+	const auto Manual = BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, {}, {});
+	REQUIRE(Manual);
+	CHECK(Manual->Exposure[0] == 0.f);
+	Settings.ExposureCompensation = 11.f;
+	CHECK_FALSE(BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, {}, Settings));
+	Settings.ExposureCompensation = 0.f;
+	Settings.DeltaSeconds = std::numeric_limits<float>::quiet_NaN();
+	CHECK_FALSE(BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, {}, Settings));
+}

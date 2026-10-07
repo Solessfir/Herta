@@ -608,6 +608,9 @@ struct FEditorFramework::FImplementation
 	std::array<char, 128> CameraBookmarkName{};
 	bool bTimeOfDayVisible = true;
 	FPhysicalCamera PhysicalCamera;
+	// Like a camera's program mode: the renderer meters the scene, and the manual aperture, shutter, and ISO wait until it is off.
+	bool bAutoExposure = true;
+	float ExposureCompensation = 0.f;
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
 
@@ -2002,6 +2005,9 @@ void FEditorFramework::FImplementation::RefreshSelectedVisualEntities()
 void FEditorFramework::FImplementation::RefreshVisuals()
 {
 	VisualSettings.ExposureEV100 = GetPhysicalCameraExposureEV100(PhysicalCamera);
+	VisualSettings.bAutoExposure = bAutoExposure;
+	VisualSettings.ExposureCompensation = ExposureCompensation;
+	VisualSettings.DeltaSeconds = ImGui::GetIO().DeltaTime;
 	ViewportCamera.SetVerticalFieldOfView(GetPhysicalCameraVerticalFieldOfView(PhysicalCamera.FocalLengthMillimeters));
 	VisualSettings.bStudioPreview = std::ranges::none_of(VisualEntities, [](const FLevelEntity& Entity)
 	{
@@ -2899,6 +2905,14 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 			DrawFieldLabel("Focal length", ValueWidth);
 			DrawNumericSliderFloat("##FocalLength", &PhysicalCamera.FocalLengthMillimeters, 8.f, 300.f, "%.0f mm", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
+			Toggle("Auto exposure", bAutoExposure);
+			if (bAutoExposure)
+			{
+				DrawFieldLabel("Compensation", ValueWidth);
+				DrawNumericSliderFloat("##ExposureCompensation", &ExposureCompensation, -5.f, 5.f, "%+.1f EV", ImGuiSliderFlags_AlwaysClamp);
+			}
+
+			ImGui::BeginDisabled(bAutoExposure);
 			DrawFieldLabel("Aperture", ValueWidth);
 			DrawNumericSliderFloat("##Aperture", &PhysicalCamera.Aperture, 1.4f, 22.f, "f/%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
 			float ShutterDenominator = 1.f / PhysicalCamera.ShutterSeconds;
@@ -2912,6 +2926,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			DrawNumericSliderFloat("##Iso", &PhysicalCamera.Iso, 50.f, 25600.f, "%.0f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
 			DrawFieldLabel("Exposure", ValueWidth);
 			ImGui::TextDisabled("EV100 %.1f", GetPhysicalCameraExposureEV100(PhysicalCamera));
+			ImGui::EndDisabled();
 		}
 
 		if (Section("Bookmarks"))

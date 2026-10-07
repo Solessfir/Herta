@@ -108,6 +108,13 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 	Result.ClipToView = ClipToView->Data();
 	Result.Viewport = {1.f / static_cast<float>(Extent.Width), 1.f / static_cast<float>(Extent.Height), static_cast<float>(Extent.Width), static_cast<float>(Extent.Height)};
 	Result.Controls[2] = 1.f / (1.2f * std::exp2(Settings.ExposureEV100));
+	if (!std::isfinite(Settings.ExposureCompensation) || std::abs(Settings.ExposureCompensation) > 10.f || !std::isfinite(Settings.DeltaSeconds) || Settings.DeltaSeconds < 0.f)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Exposure compensation must be within 10 stops and the frame time finite and nonnegative"});
+	}
+
+	// A stalled frame should not jump the adaptation, so the step is capped like the physics catch-up.
+	Result.Exposure = {Settings.bAutoExposure ? 1.f : 0.f, Settings.ExposureCompensation, std::min(Settings.DeltaSeconds, 0.25f), 0.f};
 	bool bHasSky = false;
 	FVector3 SkyColor{};
 	for (const FRenderLight& Source : Lights)
