@@ -65,6 +65,11 @@ public:
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateSoftBodyEntity(ESoftBodyShape Shape, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<void, FLevelError> AddSoftBodyToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedSoftBody(std::optional<FSoftBodyComponent> SoftBody);
+	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateTriggerEntity(const FWorldPosition& Position = {});
+	[[nodiscard]] std::expected<void, FLevelError> AddMoverToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedMover(std::optional<FMoverComponent> Mover);
+	[[nodiscard]] std::expected<void, FLevelError> AddTriggerToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedTrigger(std::optional<FTriggerComponent> Trigger);
 	[[nodiscard]] std::expected<void, FLevelError> AddHeightFogToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedHeightFog(std::optional<FHeightFogComponent> Fog);
 	[[nodiscard]] std::expected<void, FLevelError> DuplicateSelected(bool bWithinActiveEdit = false, const FVector3d& WorldOffset = {});

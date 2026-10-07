@@ -19,7 +19,9 @@ enum class ELevelComponent : std::uint16_t
 	SkyAtmosphere = 1 << 6,
 	HeightFog = 1 << 7,
 	SoftBody = 1 << 8,
-	All = (1 << 9) - 1,
+	Mover = 1 << 9,
+	Trigger = 1 << 10,
+	All = (1 << 11) - 1,
 };
 
 constexpr ELevelComponent operator|(const ELevelComponent Left, const ELevelComponent Right)
@@ -77,6 +79,8 @@ struct FLevelQueryEntity
 	std::optional<FSkyAtmosphereComponent> SkyAtmosphere{};
 	std::optional<FHeightFogComponent> HeightFog{};
 	std::optional<FSoftBodyComponent> SoftBody{};
+	std::optional<FMoverComponent> Mover{};
+	std::optional<FTriggerComponent> Trigger{};
 };
 
 struct FLevelComponentUpdate
@@ -91,6 +95,8 @@ struct FLevelComponentUpdate
 	std::optional<std::optional<FSkyAtmosphereComponent>> SkyAtmosphere{};
 	std::optional<std::optional<FHeightFogComponent>> HeightFog{};
 	std::optional<std::optional<FSoftBodyComponent>> SoftBody{};
+	std::optional<std::optional<FMoverComponent>> Mover{};
+	std::optional<std::optional<FTriggerComponent>> Trigger{};
 };
 
 struct FLevelEvent

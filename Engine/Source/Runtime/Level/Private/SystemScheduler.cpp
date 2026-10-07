@@ -44,7 +44,9 @@ ELevelComponent PresentComponents(const FLevelEntity& Entity)
 	       | (Entity.Light ? ELevelComponent::Light : ELevelComponent::None)
 	       | (Entity.SkyAtmosphere ? ELevelComponent::SkyAtmosphere : ELevelComponent::None)
 	       | (Entity.HeightFog ? ELevelComponent::HeightFog : ELevelComponent::None)
-	       | (Entity.SoftBody ? ELevelComponent::SoftBody : ELevelComponent::None);
+	       | (Entity.SoftBody ? ELevelComponent::SoftBody : ELevelComponent::None)
+	       | (Entity.Mover ? ELevelComponent::Mover : ELevelComponent::None)
+	       | (Entity.Trigger ? ELevelComponent::Trigger : ELevelComponent::None);
 }
 
 FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Entity, const ELevelComponent Components)
@@ -94,6 +96,16 @@ FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Enti
 	if (HasLevelComponents(Components, ELevelComponent::SoftBody))
 	{
 		Result.SoftBody = Entity.SoftBody;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::Mover))
+	{
+		Result.Mover = Entity.Mover;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::Trigger))
+	{
+		Result.Trigger = Entity.Trigger;
 	}
 
 	return Result;
@@ -251,7 +263,9 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	                               | (Update.Light ? ELevelComponent::Light : ELevelComponent::None)
 	                               | (Update.SkyAtmosphere ? ELevelComponent::SkyAtmosphere : ELevelComponent::None)
 	                               | (Update.HeightFog ? ELevelComponent::HeightFog : ELevelComponent::None)
-	                               | (Update.SoftBody ? ELevelComponent::SoftBody : ELevelComponent::None);
+	                               | (Update.SoftBody ? ELevelComponent::SoftBody : ELevelComponent::None)
+	                               | (Update.Mover ? ELevelComponent::Mover : ELevelComponent::None)
+	                               | (Update.Trigger ? ELevelComponent::Trigger : ELevelComponent::None);
 	const auto Allowed = CheckAccess({.Write = Writes});
 	if (!Allowed)
 	{
@@ -277,7 +291,9 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	                         || (Update.Light && Update.Light->has_value() != Candidate.Light.has_value())
 	                         || (Update.SkyAtmosphere && Update.SkyAtmosphere->has_value() != Candidate.SkyAtmosphere.has_value())
 	                         || (Update.HeightFog && Update.HeightFog->has_value() != Candidate.HeightFog.has_value())
-	                         || (Update.SoftBody && Update.SoftBody->has_value() != Candidate.SoftBody.has_value());
+	                         || (Update.SoftBody && Update.SoftBody->has_value() != Candidate.SoftBody.has_value())
+	                         || (Update.Mover && Update.Mover->has_value() != Candidate.Mover.has_value())
+	                         || (Update.Trigger && Update.Trigger->has_value() != Candidate.Trigger.has_value());
 	if (bStructural && !Implementation.Descriptor.bStructuralChanges)
 	{
 		return Fail("System attempted undeclared structural mutation");
@@ -327,6 +343,16 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	if (Update.SoftBody)
 	{
 		Candidate.SoftBody = *Update.SoftBody;
+	}
+
+	if (Update.Mover)
+	{
+		Candidate.Mover = *Update.Mover;
+	}
+
+	if (Update.Trigger)
+	{
+		Candidate.Trigger = *Update.Trigger;
 	}
 
 	if (bStructural || Pending != Implementation.Changes.end())

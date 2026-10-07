@@ -1404,6 +1404,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 					return Implementation->Level->CreateSoftBodyEntity(ESoftBodyShape::Cloth, Position);
 				case EPlaceObjectType::SoftBall:
 					return Implementation->Level->CreateSoftBodyEntity(ESoftBodyShape::Ball, Position);
+				case EPlaceObjectType::TriggerVolume:
+					return Implementation->Level->CreateTriggerEntity(Position);
 			}
 
 			return std::unexpected(FLevelError{"Unsupported placement type"});
@@ -2583,6 +2585,11 @@ FMatrix4 FEditorFramework::FImplementation::GetPreviewBoundsMatrix(const std::si
 
 FPreviewBodyShape FEditorFramework::FImplementation::GetPreviewBodyShape(const std::size_t Index) const
 {
+	if (!PreviewObjects[Index].Mesh.IsValid() && Index < VisualEntities.size() && VisualEntities[Index].Trigger)
+	{
+		return {.Center = {}, .HalfExtents = VisualEntities[Index].Trigger->Size * 0.5f};
+	}
+
 	if (!PreviewObjects[Index].Mesh.IsValid() && (Index >= PreviewMeshes.size() || PreviewMeshes[Index] == nullptr))
 	{
 		return {.Center = {}, .HalfExtents = {0.15f, 0.15f, 0.15f}};
@@ -3486,6 +3493,29 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 	DrawPreviewVisuals(Level->GetWorld(), PreviewObjects, PreviewSelection, bGameView);
 
+	if (!bGameView)
+	{
+		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewObjects.size(); ++Index)
+		{
+			if (!VisualEntities[Index].Trigger)
+			{
+				continue;
+			}
+
+			// Occupied triggers turn green while simulating so enter and exit are visible without the log.
+			const FVector3 Half = VisualEntities[Index].Trigger->Size * 0.5f;
+			const bool bOccupied = Simulation.IsRunning() && Simulation.IsTriggerOccupied(Index);
+			const Im3d::Color Color(bOccupied ? 0x6fd38aff : PreviewSelection.Contains(static_cast<int>(Index)) ? 0xc2b584ff : 0x5fb3d9cc);
+			Im3d::PushMatrix(Im3d::Mat4(PreviewObjects[Index].Translation, PreviewObjects[Index].Rotation, PreviewObjects[Index].Scale));
+			Im3d::PushColor(Color);
+			Im3d::PushSize(2.f);
+			Im3d::DrawAlignedBox(ToIm3dVector(-Half), ToIm3dVector(Half));
+			Im3d::PopSize();
+			Im3d::PopColor();
+			Im3d::PopMatrix();
+		}
+	}
+
 	Im3d::PopLayerId();
 
 	if (!bGameView && !PreviewObjects.empty())
@@ -4187,7 +4217,33 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 				        .AngularDamping = Settings.AngularDamping,
 				        .GravityScale = Settings.GravityScale,
 				    },
+				    .Mover = Entity->Mover ? std::optional{FPreviewMover{.Offset = Entity->Mover->Offset, .PeriodSeconds = Entity->Mover->PeriodSeconds}} : std::nullopt,
 				});
+			}
+		}
+
+		// Movers without a Rigid Body still collide, as kinematic boxes; triggers become sensors unless the entity already simulates.
+		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewObjects.size(); ++Index)
+		{
+			const FLevelEntity& Entity = VisualEntities[Index];
+			const bool bSimulated = std::ranges::contains(Bodies, Index, &FPreviewSimulationBody::ObjectIndex) || Entity.SoftBody;
+			if (Entity.Mover && Entity.Mesh && !bSimulated)
+			{
+				Bodies.push_back({
+				    .ObjectIndex = Index,
+				    .Transform = ToHertaTransform(PreviewObjects[Index]),
+				    .Shape = GetPreviewBodyShape(Index),
+				    .Mover = FPreviewMover{.Offset = Entity.Mover->Offset, .PeriodSeconds = Entity.Mover->PeriodSeconds},
+				});
+			}
+			else if (Entity.Trigger && bSimulated)
+			{
+				HERTA_LOG_WARNING(*Log, EditorLog, "Trigger on {} is skipped: the entity already simulates as a body", Entity.Name);
+			}
+			else if (Entity.Trigger)
+			{
+				const FVector3& Size = Entity.Trigger->Size;
+				Bodies.push_back({.ObjectIndex = Index, .Transform = ToHertaTransform(PreviewObjects[Index]), .Shape = {.HalfExtents = Size * 0.5f}, .bTrigger = true});
 			}
 		}
 
@@ -4273,6 +4329,11 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 		return;
 	}
 
+	for (const FPreviewTriggerEvent& Event : Simulation.TakeTriggerEvents())
+	{
+		HERTA_LOG_INFO(*Log, EditorLog, "{} {} {}", PreviewObjects[Event.ObjectIndex].Label, Event.bEntered ? "entered" : "left", PreviewObjects[Event.TriggerObjectIndex].Label);
+	}
+
 	std::vector<FObjectId> Overrides;
 	Overrides.reserve(Simulation.GetTransforms().size());
 	for (const FPreviewSimulationTransform& Snapshot : Simulation.GetTransforms())
@@ -4307,13 +4368,13 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();
-	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .AttachmentIds = AttachmentIds, .AttachmentLabels = AttachmentLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .AttachmentIds = AttachmentIds, .AttachmentLabels = AttachmentLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
 	std::vector<FDetailsMaterialSlot> MaterialSlots;
 	std::vector<FAssetId> MaterialIds;
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 4> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 6> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -4378,6 +4439,8 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(1, ELevelComponentType::SkyAtmosphere, Entity->SkyAtmosphere.has_value(), Components.bAnySkyAtmosphere, Components.bAllSkyAtmosphere, Components.MixedSkyAtmosphere);
 			Aggregate(2, ELevelComponentType::HeightFog, Entity->HeightFog.has_value(), Components.bAnyHeightFog, Components.bAllHeightFog, Components.MixedHeightFog);
 			Aggregate(3, ELevelComponentType::SoftBody, Entity->SoftBody.has_value(), Components.bAnySoftBody, Components.bAllSoftBody, Components.MixedSoftBody);
+			Aggregate(4, ELevelComponentType::Mover, Entity->Mover.has_value(), Components.bAnyMover, Components.bAllMover, Components.MixedMover);
+			Aggregate(5, ELevelComponentType::Trigger, Entity->Trigger.has_value(), Components.bAnyTrigger, Components.bAllTrigger, Components.MixedTrigger);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -4467,6 +4530,16 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[3])
 	{
 		Components.SoftBody = *VisualBaselines[3]->SoftBody;
+	}
+
+	if (VisualBaselines[4])
+	{
+		Components.Mover = *VisualBaselines[4]->Mover;
+	}
+
+	if (VisualBaselines[5])
+	{
+		Components.Trigger = *VisualBaselines[5]->Trigger;
 	}
 
 	if (Assets && !PreviewObjects.empty() && Mesh.IsValid())
@@ -4693,6 +4766,18 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveSoftBody:
 				ReportLevelResult(Level->SetSelectedSoftBody(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddMover:
+				ReportLevelResult(Level->AddMoverToSelected());
+				break;
+			case EDetailsComponentAction::RemoveMover:
+				ReportLevelResult(Level->SetSelectedMover(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddTrigger:
+				ReportLevelResult(Level->AddTriggerToSelected());
+				break;
+			case EDetailsComponentAction::RemoveTrigger:
+				ReportLevelResult(Level->SetSelectedTrigger(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;

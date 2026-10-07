@@ -74,6 +74,10 @@ enum class EDetailsComponentAction
 	RemoveHeightFog,
 	AddSoftBody,
 	RemoveSoftBody,
+	AddMover,
+	RemoveMover,
+	AddTrigger,
+	RemoveTrigger,
 };
 
 struct FDetailsMaterialSlot
@@ -111,6 +115,14 @@ struct FDetailsComponentField
 	bool bAllSoftBody = false;
 	FSoftBodyComponent SoftBody{};
 	std::array<bool, 11> MixedSoftBody{};
+	bool bAnyMover = false;
+	bool bAllMover = false;
+	FMoverComponent Mover{};
+	std::array<bool, 2> MixedMover{};
+	bool bAnyTrigger = false;
+	bool bAllTrigger = false;
+	FTriggerComponent Trigger{};
+	std::array<bool, 1> MixedTrigger{};
 	std::span<const FObjectId> SunIds{};
 	std::span<const std::string> SunLabels{};
 	// Dynamic rigid bodies a rope can carry.

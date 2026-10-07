@@ -195,8 +195,8 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
-		const std::array<std::string_view, 10> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body"};
-		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody};
+		const std::array<std::string_view, 12> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Mover", "Trigger"};
+		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody, Components.bAllMover, Components.bAllTrigger};
 		constexpr std::array Actions{
 		    EDetailsComponentAction::AddStaticMesh,
 		    EDetailsComponentAction::AddRigidBody,
@@ -208,6 +208,8 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		    EDetailsComponentAction::AddSkyAtmosphere,
 		    EDetailsComponentAction::AddHeightFog,
 		    EDetailsComponentAction::AddSoftBody,
+		    EDetailsComponentAction::AddMover,
+		    EDetailsComponentAction::AddTrigger,
 		};
 		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
 		std::vector<int> Available;
@@ -746,7 +748,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			ImGui::SetItemTooltip("%.*s", static_cast<int>(DisplayLabel.size()), DisplayLabel.data());
 			ImGui::TableSetColumnIndex(1);
 			ImGui::SetNextItemWidth(-FLT_MIN);
-			const std::size_t StateIndex = Index + (Type == ELevelComponentType::Light ? 0 : Type == ELevelComponentType::SkyAtmosphere ? 17 : Type == ELevelComponentType::HeightFog ? 24 : 32);
+			const std::size_t StateIndex = Index + (Type == ELevelComponentType::Light ? 0 : Type == ELevelComponentType::SkyAtmosphere ? 17 : Type == ELevelComponentType::HeightFog ? 24 : Type == ELevelComponentType::SoftBody ? 32 : Type == ELevelComponentType::Mover ? 43 : 45);
 			const float Conversion = Property.Unit == ELevelPropertyUnit::Radians ? 180.f / std::numbers::pi_v<float> : 1.f;
 			float NumericValue = std::get_if<float>(&Candidate) ? std::get<float>(Candidate) * Conversion : 0.f;
 			FNumericEditLifecycle Edit{
@@ -804,6 +806,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 				                                                                          : Property.Key == "pressure"                           ? "%.0f Pa m3"
 				                                                                          : Property.Unit == ELevelPropertyUnit::Kelvin          ? "%.0f K"
 				                                                                          : Property.Unit == ELevelPropertyUnit::Radians         ? "%.1f°"
+				                                                                          : Property.Unit == ELevelPropertyUnit::Seconds         ? "%.1f s"
 				                                                                                                                                 : "%.3f";
 				if (Type == ELevelComponentType::Light && Property.Key == "intensity")
 				{
@@ -825,6 +828,33 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 				bChanged = ToolUIToggle("##Value", &Value);
 				Candidate = Value;
 				bImmediate = true;
+			}
+			else if (Property.Type == ELevelPropertyType::Vector3 && Property.Unit == ELevelPropertyUnit::Meters)
+			{
+				// Distances get per-axis numeric fields like Transform; unitless vectors are linear colors.
+				const auto Vector = std::get<FVector3>(Candidate);
+				std::array Values{Vector.X, Vector.Y, Vector.Z};
+				const float Minimum = Property.Range ? static_cast<float>(Property.Range->Minimum) : -1000.f;
+				const float Maximum = Property.Range ? static_cast<float>(Property.Range->Maximum) : 1000.f;
+				const float Spacing = 4.f * Scale;
+				const float AxisWidth = std::max(1.f, (ImGui::GetContentRegionAvail().x - Spacing * 2.f) / 3.f);
+				for (std::size_t Axis = 0; Axis < Values.size(); ++Axis)
+				{
+					if (Axis > 0)
+					{
+						ImGui::SameLine(0.f, Spacing);
+					}
+
+					ImGui::PushID(static_cast<int>(Axis));
+					ImGui::SetNextItemWidth(AxisWidth);
+					bChanged |= DrawNumericDragFloat("##Axis", &Values[Axis], 0.01f, Minimum, Maximum, Mixed[Index] ? "-" : "%.2f m", ImGuiSliderFlags_AlwaysClamp, &Edit, true);
+					const ImVec2 AxisMinimum = ImGui::GetItemRectMin();
+					const ImVec2 AxisMaximum = ImGui::GetItemRectMax();
+					ImGui::GetWindowDrawList()->AddRectFilled({AxisMinimum.x, AxisMinimum.y + 3.f}, {AxisMinimum.x + 2.f, AxisMaximum.y - 3.f}, AxisColors[Axis]);
+					ImGui::PopID();
+				}
+
+				Candidate = FVector3{Values[0], Values[1], Values[2]};
 			}
 			else if (Property.Type == ELevelPropertyType::Vector3)
 			{
@@ -933,7 +963,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 
 			if (bChanged && !Edit.bCanceled)
 			{
-				if (bImmediate || Property.Type == ELevelPropertyType::Vector3)
+				if (bImmediate || (Property.Type == ELevelPropertyType::Vector3 && Property.Unit != ELevelPropertyUnit::Meters))
 				{
 					BeginDetailsEdit(Edits, Result);
 				}
@@ -1216,7 +1246,9 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bAtmosphere = Components && Components->bAnySkyAtmosphere && MatchesVisualSection(ELevelComponentType::SkyAtmosphere, Query);
 	const bool bFog = Components && Components->bAnyHeightFog && MatchesVisualSection(ELevelComponentType::HeightFog, Query);
 	const bool bSoftBody = Components && Components->bAnySoftBody && MatchesVisualSection(ELevelComponentType::SoftBody, Query);
-	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody)
+	const bool bMover = Components && Components->bAnyMover && MatchesVisualSection(ELevelComponentType::Mover, Query);
+	const bool bTrigger = Components && Components->bAnyTrigger && MatchesVisualSection(ELevelComponentType::Trigger, Query);
+	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody && !bMover && !bTrigger)
 	{
 		ImGui::TextDisabled("No matching properties.");
 		ToolUI.EndPanel();
@@ -1662,7 +1694,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 	if (Components)
 	{
-		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog, .SoftBody = Components->SoftBody};
+		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog, .SoftBody = Components->SoftBody, .Mover = Components->Mover, .Trigger = Components->Trigger};
 		constexpr std::array<std::string_view, 5> LightLabels{"Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light"};
 		if (bLight && DrawSectionHeader(LightLabels[static_cast<std::size_t>(Visual.Light->Type)].data(), !Components->bAllLight || Components->MixedLight[0], EDetailsComponentAction::RemoveLight))
 		{
@@ -1686,6 +1718,18 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		{
 			DrawVisualProperties(ToolUI, ELevelComponentType::SoftBody, Visual, Components->MixedSoftBody, State, *Components, Query, bDragging, Edits, MeshResult);
 			Components->SoftBody = *Visual.SoftBody;
+		}
+
+		if (bMover && DrawSectionHeader("Mover", !Components->bAllMover, EDetailsComponentAction::RemoveMover))
+		{
+			DrawVisualProperties(ToolUI, ELevelComponentType::Mover, Visual, Components->MixedMover, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->Mover = *Visual.Mover;
+		}
+
+		if (bTrigger && DrawSectionHeader("Trigger", !Components->bAllTrigger, EDetailsComponentAction::RemoveTrigger))
+		{
+			DrawVisualProperties(ToolUI, ELevelComponentType::Trigger, Visual, Components->MixedTrigger, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->Trigger = *Visual.Trigger;
 		}
 	}
 

@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <numbers>
 #include <unordered_set>
+#include <utility>
 
 namespace Herta
 {
@@ -12,6 +14,12 @@ namespace
 [[nodiscard]] FVector3 Absolute(const FVector3& Vector)
 {
 	return {std::abs(Vector.X), std::abs(Vector.Y), std::abs(Vector.Z)};
+}
+
+[[nodiscard]] FVector3 GetMoverPosition(const FVector3& Start, const FPreviewMover& Mover, const double Time)
+{
+	const double Phase = 2.0 * std::numbers::pi * Time / Mover.PeriodSeconds;
+	return Start + Mover.Offset * static_cast<float>(0.5 - 0.5 * std::cos(Phase));
 }
 }
 
@@ -41,6 +49,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 	std::vector<FBodyState> NewBodyStates;
 	std::vector<FPreviewSimulationTransform> NewTransforms;
 	std::vector<FVector3> NewHalfExtents;
+	std::unordered_map<std::uint32_t, std::size_t> NewBodyIndices;
 	std::unordered_set<std::size_t> ObjectIndices;
 	NewBodyStates.reserve(Bodies.size());
 	NewHalfExtents.reserve(Bodies.size());
@@ -62,15 +71,23 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		const FVector3 HalfExtents = Absolute(Body.Transform.Scale3D.ComponentMultiply(Body.Shape.HalfExtents));
 		const FVector3 Offset = Body.Transform.Scale3D.ComponentMultiply(Body.Shape.Center);
 		const FVector3 Position = Body.Transform.Translation + Body.Transform.Rotation.RotateVector(Offset);
+		if (Body.Mover && (!std::isfinite(Body.Mover->PeriodSeconds) || Body.Mover->PeriodSeconds <= 0.f))
+		{
+			return std::unexpected(FPhysicsError{"Preview mover periods must be positive"});
+		}
+
 		const float Radius = Body.Collision == EPhysicsShape::Capsule ? std::max(HalfExtents.X, HalfExtents.Z) : std::max({HalfExtents.X, HalfExtents.Y, HalfExtents.Z});
-		const auto Id = (*NewWorld)->CreateBody({.Shape = Body.Collision, .HalfExtents = HalfExtents, .Radius = Radius, .HalfHeight = std::max(HalfExtents.Y - Radius, 0.f), .Position = Position, .Rotation = Body.Transform.Rotation, .MotionType = Body.MotionType, .Properties = Body.Properties});
+		const EPhysicsMotionType MotionType = Body.Mover || Body.bTrigger ? EPhysicsMotionType::Kinematic : Body.MotionType;
+		const EPhysicsShape Collision = Body.bTrigger ? EPhysicsShape::Box : Body.Collision;
+		const auto Id = (*NewWorld)->CreateBody({.Shape = Collision, .HalfExtents = HalfExtents, .Radius = Radius, .HalfHeight = std::max(HalfExtents.Y - Radius, 0.f), .Position = Position, .Rotation = Body.Transform.Rotation, .MotionType = MotionType, .Properties = Body.Properties, .bSensor = Body.bTrigger});
 		if (!Id)
 		{
 			return std::unexpected(Id.error());
 		}
 
 		const FPhysicsBodyTransform Transform{.Position = Position, .Rotation = Body.Transform.Rotation.NormalizedOrIdentity()};
-		NewBodyStates.push_back({.Id = *Id, .MotionType = Body.MotionType, .OriginalTransform = Body.Transform, .Offset = Offset, .Previous = Transform, .Current = Transform});
+		NewBodyStates.push_back({.Id = *Id, .MotionType = MotionType, .OriginalTransform = Body.Transform, .Offset = Offset, .Previous = Transform, .Current = Transform, .Mover = Body.Mover, .Start = Transform, .bTrigger = Body.bTrigger});
+		NewBodyIndices.emplace(Id->Value, NewBodyStates.size() - 1);
 		NewTransforms.push_back({.ObjectIndex = Body.ObjectIndex, .Transform = Body.Transform});
 		NewHalfExtents.push_back(HalfExtents);
 	}
@@ -116,7 +133,11 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 	BodyStates = std::move(NewBodyStates);
 	Transforms = std::move(NewTransforms);
 	SoftBodyStates = std::move(NewSoftBodyStates);
+	BodyIndices = std::move(NewBodyIndices);
+	TriggerOccupancy.clear();
+	TriggerEvents.clear();
 	Accumulator = 0.0;
+	Time = 0.0;
 	return ReadSoftBodies();
 }
 
@@ -145,6 +166,17 @@ std::uint64_t FPreviewSimulation::GetSoftBodyRevision() const noexcept
 	return SoftBodyRevision;
 }
 
+bool FPreviewSimulation::IsTriggerOccupied(const std::size_t ObjectIndex) const noexcept
+{
+	const auto Found = TriggerOccupancy.find(ObjectIndex);
+	return Found != TriggerOccupancy.end() && Found->second > 0;
+}
+
+std::vector<FPreviewTriggerEvent> FPreviewSimulation::TakeTriggerEvents()
+{
+	return std::exchange(TriggerEvents, {});
+}
+
 void FPreviewSimulation::Stop() noexcept
 {
 	if (!IsRunning())
@@ -154,6 +186,9 @@ void FPreviewSimulation::Stop() noexcept
 
 	World.reset();
 	SoftBodyStates.clear();
+	BodyIndices.clear();
+	TriggerOccupancy.clear();
+	TriggerEvents.clear();
 	++SoftBodyRevision;
 
 	for (std::size_t Index = 0; Index < BodyStates.size(); ++Index)
@@ -192,9 +227,18 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 	const bool bStepping = Accumulator >= FixedStep;
 	while (Accumulator >= FixedStep)
 	{
+		Time += FixedStep;
 		for (FBodyState& Body : BodyStates)
 		{
 			Body.Previous = Body.Current;
+			if (Body.Mover)
+			{
+				const FPhysicsBodyTransform Target{.Position = GetMoverPosition(Body.Start.Position, *Body.Mover, Time), .Rotation = Body.Start.Rotation};
+				if (const auto Result = World->MoveKinematicBody(Body.Id, Target, static_cast<float>(FixedStep)); !Result)
+				{
+					return Result;
+				}
+			}
 		}
 
 		if (const auto Result = World->Step(static_cast<float>(FixedStep)); !Result)
@@ -202,9 +246,25 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 			return Result;
 		}
 
+		for (const FPhysicsSensorEvent& Event : World->GetSensorEvents())
+		{
+			// Jolt sensors also see kinematic bodies, including movers; triggers only care about bodies physics moves.
+			const auto Trigger = BodyIndices.find(Event.Sensor.Value);
+			const auto Object = BodyIndices.find(Event.Body.Value);
+			if (Trigger == BodyIndices.end() || Object == BodyIndices.end() || BodyStates[Object->second].MotionType != EPhysicsMotionType::Dynamic)
+			{
+				continue;
+			}
+
+			const std::size_t TriggerObject = Transforms[Trigger->second].ObjectIndex;
+			std::size_t& Occupancy = TriggerOccupancy[TriggerObject];
+			Occupancy = Event.bEntered ? Occupancy + 1 : Occupancy - std::min<std::size_t>(Occupancy, 1);
+			TriggerEvents.push_back({.TriggerObjectIndex = TriggerObject, .ObjectIndex = Transforms[Object->second].ObjectIndex, .bEntered = Event.bEntered});
+		}
+
 		for (FBodyState& Body : BodyStates)
 		{
-			if (Body.MotionType != EPhysicsMotionType::Dynamic)
+			if (Body.MotionType == EPhysicsMotionType::Static || Body.bTrigger)
 			{
 				continue;
 			}
@@ -235,7 +295,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 	for (std::size_t Index = 0; Index < BodyStates.size(); ++Index)
 	{
 		const FBodyState& Body = BodyStates[Index];
-		if (Body.MotionType != EPhysicsMotionType::Dynamic)
+		if (Body.MotionType == EPhysicsMotionType::Static || Body.bTrigger)
 		{
 			continue;
 		}

@@ -3,6 +3,7 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <iterator>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -288,6 +289,46 @@ TEST_CASE("Physics spheres roll down a ramp that holds a box, and capsules rest 
 	CHECK_FALSE((*World)->CreateBody({.Shape = EPhysicsShape::Capsule, .Radius = 0.5f, .HalfHeight = -1.f}));
 	CHECK_FALSE((*World)->CreateBody({.Shape = static_cast<EPhysicsShape>(7)}));
 	CHECK((*World)->CreateBody({.Shape = EPhysicsShape::Capsule, .Radius = 0.5f, .HalfHeight = 0.f}));
+}
+
+TEST_CASE("Kinematic bodies carry resting bodies and sensors report enter and exit")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	const auto Platform = (*World)->CreateBody({.HalfExtents = {1.f, 0.1f, 1.f}, .Position = {0.f, 1.f, 0.f}, .MotionType = EPhysicsMotionType::Kinematic, .Properties = {.Friction = 1.f}});
+	const auto Box = (*World)->CreateBody({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = {0.f, 1.31f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Friction = 1.f}});
+	const auto Sensor = (*World)->CreateBody({.HalfExtents = {0.5f, 1.f, 0.5f}, .Position = {0.f, 1.5f, 2.f}, .MotionType = EPhysicsMotionType::Kinematic, .bSensor = true});
+	REQUIRE(Platform);
+	REQUIRE(Box);
+	REQUIRE(Sensor);
+	CHECK_FALSE((*World)->MoveKinematicBody(*Box, {.Position = FVector3::Zero(), .Rotation = FQuaternion::Identity()}, 1.f / 60.f));
+
+	// Ease 4 m along +Z over two seconds; peak acceleration stays below what friction can transmit.
+	std::vector<FPhysicsSensorEvent> Events;
+	for (int Step = 1; Step <= 180; ++Step)
+	{
+		const float Time = std::min(static_cast<float>(Step) / 60.f, 2.f);
+		const FVector3 Target{0.f, 1.f, 2.f * (1.f - std::cos(std::numbers::pi_v<float> * Time / 2.f))};
+		REQUIRE((*World)->MoveKinematicBody(*Platform, {.Position = Target, .Rotation = FQuaternion::Identity()}, 1.f / 60.f));
+		REQUIRE((*World)->Step(1.f / 60.f));
+
+		// Sensors also report the kinematic platform passing through; this test follows the box.
+		std::ranges::copy_if((*World)->GetSensorEvents(), std::back_inserter(Events), [&](const FPhysicsSensorEvent& Event)
+		{
+			return Event.Body == *Box;
+		});
+	}
+
+	const auto Transform = (*World)->GetBodyTransform(*Box);
+	REQUIRE(Transform);
+	CHECK(Transform->Position.Z == doctest::Approx(4.f).epsilon(0.03));
+	CHECK(Transform->Position.Y > 1.2f);
+	REQUIRE(Events.size() == 2);
+	CHECK(Events[0].Sensor == *Sensor);
+	CHECK(Events[0].Body == *Box);
+	CHECK(Events[0].bEntered);
+	CHECK(Events[1].Body == *Box);
+	CHECK_FALSE(Events[1].bEntered);
 }
 
 TEST_CASE("Physics authored mass changes dynamic collision response")

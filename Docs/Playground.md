@@ -1,6 +1,6 @@
 # Sandbox playground
 
-The default project opens `Games/Sandbox/Levels/Sandbox.hlevel`: 193 editable entities in 16 Outliner folders. The original physics course and hierarchy examples remain intact. Cubes share the Engine mesh; editable `.hmat` assets provide their colors. A single shared sphere makes PBR reflections easier to compare.
+The default project opens `Games/Sandbox/Levels/Sandbox.hlevel`: 199 editable entities in 17 Outliner folders. The original physics course and hierarchy examples remain intact. Cubes share the Engine mesh; editable `.hmat` assets provide their colors. A single shared sphere makes PBR reflections easier to compare.
 
 Press **F** to frame a selection, **G** for game view, and **F11** for an immersive viewport. **Alt+S** simulates the physics stations; **Escape** restores authored poses. **Ctrl+S** saves the level, not simulation poses. **Ctrl+Space** reveals the bottom panel.
 
@@ -12,7 +12,7 @@ Number keys in the focused viewport jump to the level's camera bookmarks; **View
 | 2 | Physics comparisons |
 | 3 | Traversal and player scale |
 | 4 | Hierarchy workshop |
-| 5 | Soft bodies and collision shapes |
+| 5 | East terrace physics |
 | 6 | Shadow distance lane |
 | 7 | PBR material gallery |
 | 8 | Textures and antialiasing |
@@ -45,8 +45,9 @@ All five light types are authored entities. Atmosphere references the sun's stab
 - **Shared mesh gallery:** repeated checker and colored cubes exercise instancing and material overrides without duplicated geometry.
 - **Soft bodies:** the east bay's cyan gantry carries a gold rope with a 2 kg slate box, which starts 50 degrees off vertical and swings, and a cloth with the normal-mapped panel material, pinned at its top corners and released flat. The cloth checks UVs, tangents, and normal mapping on deforming geometry. A mint pressurized ball drops onto a 20 degree ramp and rolls off it. The rope, box, and cloth follow the gantry when its parent moves.
 - **Collision shapes:** on the east terrace, a 15 degree ramp with friction 0.8 holds a box-collision cube in place while a sphere and a capsule lying on its side roll down to the arena rail. All three use the Engine meshes with matching collision.
+- **Moving platforms and triggers:** at the east end of the terrace, a cyan shuttle travels 6 m and back every 6 s carrying a coral cube through a trigger at its far end, and a gold elevator lifts a mint cube 2.5 m every 5 s into a trigger at the top. Triggers draw as boxes that turn green while occupied and log each enter and exit; the platforms themselves do not set them off.
 
-Rigid collision is a box, sphere, or capsule fitted to mesh bounds, not arbitrary mesh collision. Soft bodies collide with those shapes through their own vertex radius. New visual-gallery objects have no rigid bodies; the rope box and the three collision-shape bodies are the only dynamic bodies outside the 16 physics comparisons. Use [scaling fixtures](Scaling.md) for 1k/5k/10k stress tests.
+Rigid collision is a box, sphere, or capsule fitted to mesh bounds, not arbitrary mesh collision. Soft bodies collide with those shapes through their own vertex radius. New visual-gallery objects have no rigid bodies; the rope box, the three collision-shape bodies, and the two platform riders are the only dynamic bodies outside the 16 physics comparisons. Use [scaling fixtures](Scaling.md) for 1k/5k/10k stress tests.
 
 ## Content and validation
 

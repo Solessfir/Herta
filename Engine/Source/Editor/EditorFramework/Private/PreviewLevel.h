@@ -39,11 +39,12 @@ enum class EPreviewObjectKind : std::uint8_t
 	SkyAtmosphere,
 	HeightFog,
 	SoftBody,
+	Trigger,
 };
 
 constexpr std::string_view GetPreviewObjectTypeName(const EPreviewObjectKind Kind)
 {
-	constexpr std::array<std::string_view, 10> Names{"Static Mesh", "Entity", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body"};
+	constexpr std::array<std::string_view, 11> Names{"Static Mesh", "Entity", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Trigger"};
 	const auto Index = static_cast<std::size_t>(Kind);
 	return Index < Names.size() ? Names[Index] : "Entity";
 }

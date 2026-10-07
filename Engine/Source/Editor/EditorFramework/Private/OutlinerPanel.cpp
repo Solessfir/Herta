@@ -786,7 +786,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 					const EToolUIMenuIcon Icon = bFolder                                                                                 ? EToolUIMenuIcon::ContentBrowser
 					                             : Kind == EPreviewObjectKind::SkyAtmosphere                                             ? EToolUIMenuIcon::SkyAtmosphere
 					                             : Kind == EPreviewObjectKind::HeightFog                                                 ? EToolUIMenuIcon::Fog
-					                             : Kind == EPreviewObjectKind::SoftBody                                                  ? EToolUIMenuIcon::Physics
+					                             : Kind == EPreviewObjectKind::SoftBody || Kind == EPreviewObjectKind::Trigger           ? EToolUIMenuIcon::Physics
 					                             : Kind >= EPreviewObjectKind::DirectionalLight && Kind <= EPreviewObjectKind::RectLight ? EToolUIMenuIcon::Light
 					                             : Object->Mesh.IsValid()                                                                ? EToolUIMenuIcon::Cube
 					                                                                                                                     : EToolUIMenuIcon::Entity;

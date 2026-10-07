@@ -22,6 +22,7 @@ enum class EPlaceObjectType : std::uint8_t
 	Rope,
 	Cloth,
 	SoftBall,
+	TriggerVolume,
 };
 
 struct FPlaceObjectsMenuState

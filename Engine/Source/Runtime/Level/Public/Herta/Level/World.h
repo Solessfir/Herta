@@ -193,6 +193,26 @@ enum class ELevelBodyType : std::uint8_t
 	Dynamic,
 };
 
+// Moves back and forth between its authored pose and that pose plus Offset, easing in and out at both ends.
+struct FMoverComponent
+{
+	constexpr bool operator==(const FMoverComponent&) const = default;
+
+	// World-space meters at the far end of the path.
+	FVector3 Offset{0.f, 0.f, 4.f};
+	// One full round trip.
+	float PeriodSeconds = 6.f;
+};
+
+// Reports bodies entering and leaving a box centered on the entity origin while simulating.
+struct FTriggerComponent
+{
+	constexpr bool operator==(const FTriggerComponent&) const = default;
+
+	// Full box dimensions in meters, before the entity's scale.
+	FVector3 Size{2.f, 2.f, 2.f};
+};
+
 // Collision fitted to the mesh bounds: a sphere encloses the largest half extent, and a capsule stands along local +Y with the larger horizontal half extent as its radius.
 enum class ELevelCollisionShape : std::uint8_t
 {
@@ -229,6 +249,8 @@ struct FLevelEntity
 	std::optional<FSkyAtmosphereComponent> SkyAtmosphere{};
 	std::optional<FHeightFogComponent> HeightFog{};
 	std::optional<FSoftBodyComponent> SoftBody{};
+	std::optional<FMoverComponent> Mover{};
+	std::optional<FTriggerComponent> Trigger{};
 };
 
 struct FLevelEntityChange
@@ -248,6 +270,8 @@ struct FLevelError
 [[nodiscard]] std::expected<void, FLevelError> ValidateSkyAtmosphereComponent(const FSkyAtmosphereComponent& Atmosphere);
 [[nodiscard]] std::expected<void, FLevelError> ValidateHeightFogComponent(const FHeightFogComponent& Fog);
 [[nodiscard]] std::expected<void, FLevelError> ValidateSoftBodyComponent(const FSoftBodyComponent& SoftBody);
+[[nodiscard]] std::expected<void, FLevelError> ValidateMoverComponent(const FMoverComponent& Mover);
+[[nodiscard]] std::expected<void, FLevelError> ValidateTriggerComponent(const FTriggerComponent& Trigger);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final

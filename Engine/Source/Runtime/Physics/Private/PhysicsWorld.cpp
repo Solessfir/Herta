@@ -13,6 +13,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/PhysicsUpdateContext.h>
@@ -27,6 +28,7 @@
 #include <cstdio>
 #include <format>
 #include <mutex>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -154,6 +156,39 @@ void ReleaseRuntime()
 	return Id;
 }
 
+// The single-threaded job system calls this on the stepping thread, so it needs no locking.
+class FSensorListener final : public JPH::ContactListener
+{
+public:
+	void OnContactAdded(const JPH::Body& Body1, const JPH::Body& Body2, const JPH::ContactManifold& Manifold, JPH::ContactSettings& Settings) override;
+	void OnContactRemoved(const JPH::SubShapeIDPair& Pair) override;
+
+	std::unordered_set<std::uint32_t> Sensors;
+	std::vector<FPhysicsSensorEvent> Events;
+};
+
+void FSensorListener::OnContactAdded(const JPH::Body& Body1, const JPH::Body& Body2, const JPH::ContactManifold&, JPH::ContactSettings&)
+{
+	if (Body1.IsSensor() != Body2.IsSensor())
+	{
+		const JPH::Body& Sensor = Body1.IsSensor() ? Body1 : Body2;
+		const JPH::Body& Other = Body1.IsSensor() ? Body2 : Body1;
+		Events.push_back({.Sensor = FPhysicsBodyId{Sensor.GetID().GetIndexAndSequenceNumber()}, .Body = FPhysicsBodyId{Other.GetID().GetIndexAndSequenceNumber()}, .bEntered = true});
+	}
+}
+
+void FSensorListener::OnContactRemoved(const JPH::SubShapeIDPair& Pair)
+{
+	// Removal only names the bodies, which may already be gone, so sensors are remembered by ID.
+	const std::uint32_t Body1 = Pair.GetBody1ID().GetIndexAndSequenceNumber();
+	const std::uint32_t Body2 = Pair.GetBody2ID().GetIndexAndSequenceNumber();
+	const bool bSensor1 = Sensors.contains(Body1);
+	if (bSensor1 != Sensors.contains(Body2))
+	{
+		Events.push_back({.Sensor = FPhysicsBodyId{bSensor1 ? Body1 : Body2}, .Body = FPhysicsBodyId{bSensor1 ? Body2 : Body1}, .bEntered = false});
+	}
+}
+
 struct FSoftBodyAttachmentState
 {
 	JPH::BodyID SoftBody;
@@ -185,6 +220,8 @@ struct FPhysicsWorld::FImplementation
 	JPH::BroadPhaseLayerInterfaceTable BroadPhaseLayers{2, 2};
 	JPH::ObjectLayerPairFilterTable CollisionLayers{2};
 	std::unique_ptr<JPH::ObjectVsBroadPhaseLayerFilterTable> BroadPhaseFilter;
+	// Declared before Physics so it outlives the system that holds a pointer to it.
+	FSensorListener SensorListener;
 	JPH::PhysicsSystem Physics;
 	JPH::TempAllocatorImpl TempAllocator;
 	JPH::JobSystemSingleThreaded JobSystem{2048};
@@ -210,6 +247,7 @@ struct FPhysicsWorld::FImplementation
 		PhysicsSettings.mUseLargeIslandSplitter = false;
 		Physics.SetPhysicsSettings(PhysicsSettings);
 		Physics.SetGravity(JPH::Vec3(0.f, -9.80665f, 0.f));
+		Physics.SetContactListener(&SensorListener);
 		BodyIds.resize(Settings.MaxBodies);
 	}
 
@@ -301,7 +339,7 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 		return std::unexpected(FPhysicsError{"Body position and rotation must be finite, with a nonzero rotation"});
 	}
 
-	if (Settings.MotionType != EPhysicsMotionType::Static && Settings.MotionType != EPhysicsMotionType::Dynamic)
+	if (Settings.MotionType != EPhysicsMotionType::Static && Settings.MotionType != EPhysicsMotionType::Dynamic && Settings.MotionType != EPhysicsMotionType::Kinematic)
 	{
 		return std::unexpected(FPhysicsError{"Unsupported body motion type"});
 	}
@@ -332,10 +370,15 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 	}
 
 	const bool bDynamic = Settings.MotionType == EPhysicsMotionType::Dynamic;
+	const bool bMoving = Settings.MotionType != EPhysicsMotionType::Static;
+	const JPH::EMotionType MotionType = bDynamic ? JPH::EMotionType::Dynamic : bMoving ? JPH::EMotionType::Kinematic : JPH::EMotionType::Static;
 	const FQuaternion Rotation = Settings.Rotation.NormalizedOrIdentity();
-	JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), bDynamic ? JPH::EMotionType::Dynamic : JPH::EMotionType::Static, bDynamic ? DynamicLayer : StaticLayer);
+	JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), MotionType, bMoving ? DynamicLayer : StaticLayer);
 	BodySettings.mFriction = Properties.Friction;
 	BodySettings.mRestitution = Properties.Restitution;
+	BodySettings.mIsSensor = Settings.bSensor;
+	// A sleeping sensor stops reporting, and a resting body inside it would never be seen leaving.
+	BodySettings.mAllowSleeping = !Settings.bSensor;
 
 	if (bDynamic)
 	{
@@ -348,7 +391,7 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 	}
 
 	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
-	const JPH::BodyID Id = Bodies.CreateAndAddBody(BodySettings, bDynamic ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+	const JPH::BodyID Id = Bodies.CreateAndAddBody(BodySettings, bMoving ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
 	if (Id.IsInvalid())
 	{
 		return std::unexpected(FPhysicsError{"Physics world body capacity reached"});
@@ -356,7 +399,35 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 
 	Implementation->BodyIds[Id.GetIndex()] = Id;
 	++Implementation->BodyCount;
+	if (Settings.bSensor)
+	{
+		Implementation->SensorListener.Sensors.insert(Id.GetIndexAndSequenceNumber());
+	}
+
 	return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::MoveKinematicBody(const FPhysicsBodyId BodyId, const FPhysicsBodyTransform& Target, const float DeltaSeconds)
+{
+	const JPH::BodyID Id = FindBody(Implementation->BodyIds, BodyId);
+	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	if (Id.IsInvalid() || Bodies.GetBodyType(Id) != JPH::EBodyType::RigidBody || Bodies.GetMotionType(Id) != JPH::EMotionType::Kinematic)
+	{
+		return std::unexpected(FPhysicsError{"Only kinematic rigid bodies can be moved"});
+	}
+
+	if (!IsFinite(Target.Position) || !IsFinite(Target.Rotation) || !std::isfinite(DeltaSeconds) || DeltaSeconds <= 0.f)
+	{
+		return std::unexpected(FPhysicsError{"Kinematic targets must be finite with a positive step"});
+	}
+
+	Bodies.MoveKinematic(Id, ToJolt(Target.Position), ToJolt(Target.Rotation.NormalizedOrIdentity()), DeltaSeconds);
+	return {};
+}
+
+std::span<const FPhysicsSensorEvent> FPhysicsWorld::GetSensorEvents() const
+{
+	return Implementation->SensorListener.Events;
 }
 
 std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateSoftBody(const FPhysicsSoftBodySettings& Settings)
@@ -517,6 +588,7 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 		return std::unexpected(FPhysicsError{Implementation->StepFailure});
 	}
 
+	Implementation->SensorListener.Events.clear();
 	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
 	for (const FSoftBodyAttachmentState& Attachment : Implementation->Attachments)
 	{

@@ -29,7 +29,9 @@ struct FPhysicsBodyId
 enum class EPhysicsMotionType : std::uint8_t
 {
 	Static,
-	Dynamic
+	Dynamic,
+	// Moved by MoveKinematicBody; pushes dynamic bodies but is never pushed back.
+	Kinematic,
 };
 
 struct FPhysicsBodyProperties
@@ -62,6 +64,15 @@ struct FPhysicsBodySettings
 	FQuaternion Rotation = FQuaternion::Identity();
 	EPhysicsMotionType MotionType = EPhysicsMotionType::Static;
 	FPhysicsBodyProperties Properties{};
+	// Sensors report overlaps with dynamic and kinematic bodies through GetSensorEvents instead of colliding.
+	bool bSensor = false;
+};
+
+struct FPhysicsSensorEvent
+{
+	FPhysicsBodyId Sensor{};
+	FPhysicsBodyId Body{};
+	bool bEntered = false;
 };
 
 // Jolt cannot constrain soft bodies, so the attached vertex becomes kinematic and is driven to a point on a dynamic rigid body every step.
@@ -132,7 +143,11 @@ public:
 
 	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateBody(const FPhysicsBodySettings& Settings);
 	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateSoftBody(const FPhysicsSoftBodySettings& Settings);
+	// Sets velocities that carry a kinematic body to Target over the next step, so bodies resting on it ride along.
+	[[nodiscard]] std::expected<void, FPhysicsError> MoveKinematicBody(FPhysicsBodyId BodyId, const FPhysicsBodyTransform& Target, float DeltaSeconds);
 	[[nodiscard]] std::expected<void, FPhysicsError> Step(float FixedDeltaSeconds);
+	// Sensor overlap changes from the latest Step, in the order Jolt reported them.
+	std::span<const FPhysicsSensorEvent> GetSensorEvents() const;
 	[[nodiscard]] std::expected<FPhysicsBodyTransform, FPhysicsError> GetBodyTransform(FPhysicsBodyId BodyId) const;
 	// World-space vertex positions in creation order.
 	[[nodiscard]] std::expected<void, FPhysicsError> GetSoftBodyVertices(FPhysicsBodyId BodyId, std::vector<FVector3>& OutPositions) const;

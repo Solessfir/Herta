@@ -238,6 +238,24 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		}
 	}
 
+	if (Type == ELevelComponentType::Mover && Entity.Mover)
+	{
+		if (Key == "offset")
+		{
+			return Visitor(Entity.Mover->Offset);
+		}
+
+		if (Key == "periodSeconds")
+		{
+			return Visitor(Entity.Mover->PeriodSeconds);
+		}
+	}
+
+	if (Type == ELevelComponentType::Trigger && Entity.Trigger && Key == "size")
+	{
+		return Visitor(Entity.Trigger->Size);
+	}
+
 	return {};
 }
 
@@ -247,6 +265,8 @@ constexpr FLightComponent LightDefaults{};
 constexpr FSkyAtmosphereComponent AtmosphereDefaults{};
 constexpr FHeightFogComponent FogDefaults{};
 constexpr FSoftBodyComponent SoftBodyDefaults{};
+constexpr FMoverComponent MoverDefaults{};
+constexpr FTriggerComponent TriggerDefaults{};
 
 constexpr std::array TransformProperties{
     FLevelPropertyDescriptor{.Key = "translation", .Label = "Location", .Type = ELevelPropertyType::WorldPosition, .Unit = ELevelPropertyUnit::Meters, .Default = TransformDefaults.Translation},
@@ -326,6 +346,15 @@ constexpr std::array SoftBodyProperties{
     FLevelPropertyDescriptor{.Key = "attachment", .Label = "Attached body", .Type = ELevelPropertyType::ObjectReference, .Default = SoftBodyDefaults.Attachment},
 };
 
+constexpr std::array MoverProperties{
+    FLevelPropertyDescriptor{.Key = "offset", .Label = "Offset", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = MoverDefaults.Offset, .Range = FLevelPropertyRange{.Minimum = -1000., .Maximum = 1000.}},
+    FLevelPropertyDescriptor{.Key = "periodSeconds", .Label = "Period", .Unit = ELevelPropertyUnit::Seconds, .Default = MoverDefaults.PeriodSeconds, .Range = FLevelPropertyRange{.Minimum = 0.5, .Maximum = 600.}},
+};
+
+constexpr std::array TriggerProperties{
+    FLevelPropertyDescriptor{.Key = "size", .Label = "Size", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = TriggerDefaults.Size, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 1000.}},
+};
+
 constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Transform, .TypeId = "Herta.Level.Transform", .SerializationKey = "transform", .Label = "Transform", .Properties = TransformProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::StaticMesh, .TypeId = "Herta.Level.StaticMesh", .SerializationKey = "staticMesh", .Label = "Static Mesh", .Properties = MeshProperties},
@@ -334,6 +363,8 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::SkyAtmosphere, .TypeId = "Herta.Level.SkyAtmosphere", .SerializationKey = "skyAtmosphere", .Label = "Sky Atmosphere", .Properties = AtmosphereProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::HeightFog, .TypeId = "Herta.Level.HeightFog", .SerializationKey = "heightFog", .Label = "Height Fog", .Properties = FogProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::SoftBody, .TypeId = "Herta.Level.SoftBody", .SerializationKey = "softBody", .Label = "Soft Body", .Properties = SoftBodyProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::Mover, .TypeId = "Herta.Level.Mover", .SerializationKey = "mover", .Label = "Mover", .Properties = MoverProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::Trigger, .TypeId = "Herta.Level.Trigger", .SerializationKey = "trigger", .Label = "Trigger", .Properties = TriggerProperties},
 };
 }
 
@@ -373,6 +404,8 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 	const auto Valid = Type == ELevelComponentType::Light           ? ValidateLightComponent(*Candidate.Light)
 	                   : Type == ELevelComponentType::SkyAtmosphere ? ValidateSkyAtmosphereComponent(*Candidate.SkyAtmosphere)
 	                   : Type == ELevelComponentType::SoftBody      ? ValidateSoftBodyComponent(*Candidate.SoftBody)
+	                   : Type == ELevelComponentType::Mover         ? ValidateMoverComponent(*Candidate.Mover)
+	                   : Type == ELevelComponentType::Trigger       ? ValidateTriggerComponent(*Candidate.Trigger)
 	                                                                : ValidateHeightFogComponent(*Candidate.HeightFog);
 	if (!Valid)
 	{

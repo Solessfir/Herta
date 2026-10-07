@@ -19,6 +19,8 @@ enum class ELevelComponentType : std::uint8_t
 	SkyAtmosphere,
 	HeightFog,
 	SoftBody,
+	Mover,
+	Trigger,
 };
 
 enum class ELevelPropertyType : std::uint8_t
@@ -47,6 +49,7 @@ enum class ELevelPropertyUnit : std::uint8_t
 	InverseMeters,
 	Radians,
 	Kelvin,
+	Seconds,
 };
 
 using FLevelPropertyValue = std::variant<FWorldPosition, FQuaternion, FVector3, FAssetId, ELevelBodyType, float, bool, ELightType, EFogQuality, FObjectId, std::vector<FAssetId>, ESoftBodyShape, ELevelCollisionShape>;

@@ -80,6 +80,10 @@ FPreviewObject ToEditorObject(const FLevelEntity& Entity, const TTransform<doubl
 	{
 		Kind = EPreviewObjectKind::SoftBody;
 	}
+	else if (Entity.Trigger && !Entity.Mesh)
+	{
+		Kind = EPreviewObjectKind::Trigger;
+	}
 
 	return {
 	    .Label = Entity.Name,
@@ -1768,6 +1772,31 @@ std::expected<void, FLevelError> FEditorLevel::AddSoftBodyToSelected()
 std::expected<void, FLevelError> FEditorLevel::SetSelectedSoftBody(const std::optional<FSoftBodyComponent> SoftBody)
 {
 	return ApplySelectedComponent(&FLevelEntity::SoftBody, SoftBody, SoftBody ? "Edit soft body" : "Remove soft body");
+}
+
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateTriggerEntity(const FWorldPosition& Position)
+{
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = "Trigger Volume", .Transform = {.Translation = Position}, .Trigger = FTriggerComponent{}});
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddMoverToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::Mover, std::optional{FMoverComponent{}}, "Add mover", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedMover(const std::optional<FMoverComponent> Mover)
+{
+	return ApplySelectedComponent(&FLevelEntity::Mover, Mover, Mover ? "Edit mover" : "Remove mover");
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddTriggerToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::Trigger, std::optional{FTriggerComponent{}}, "Add trigger", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedTrigger(const std::optional<FTriggerComponent> Trigger)
+{
+	return ApplySelectedComponent(&FLevelEntity::Trigger, Trigger, Trigger ? "Edit trigger" : "Remove trigger");
 }
 
 std::expected<void, FLevelError> FEditorLevel::AddHeightFogToSelected()

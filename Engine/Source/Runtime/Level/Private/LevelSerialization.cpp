@@ -342,6 +342,41 @@ std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom:
 	};
 }
 
+std::expected<FMoverComponent, FLevelError> ReadMover(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<2>(Element, GetLevelComponentDescriptor(ELevelComponentType::Mover));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Offset = ReadNumbers<float, 3>((*Fields)[0]);
+	const auto Period = ReadNumber<float>((*Fields)[1]);
+	if (!Offset || !Period)
+	{
+		return LevelError("Invalid mover component field");
+	}
+
+	return FMoverComponent{.Offset = {(*Offset)[0], (*Offset)[1], (*Offset)[2]}, .PeriodSeconds = *Period};
+}
+
+std::expected<FTriggerComponent, FLevelError> ReadTrigger(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<1>(Element, GetLevelComponentDescriptor(ELevelComponentType::Trigger));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Size = ReadNumbers<float, 3>((*Fields)[0]);
+	if (!Size)
+	{
+		return LevelError("Invalid trigger component field");
+	}
+
+	return FTriggerComponent{.Size = {(*Size)[0], (*Size)[1], (*Size)[2]}};
+}
+
 std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
 	const auto& TransformDescriptor = GetLevelComponentDescriptor(ELevelComponentType::Transform);
@@ -582,6 +617,38 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			Entity.SoftBody = *SoftBody;
+		}
+		else if (SchemaVersion >= 5 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Mover).SerializationKey)
+		{
+			if ((SeenComponents & 64) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 64;
+			const auto Mover = ReadMover(Component.value);
+			if (!Mover)
+			{
+				return std::unexpected(Mover.error());
+			}
+
+			Entity.Mover = *Mover;
+		}
+		else if (SchemaVersion >= 5 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Trigger).SerializationKey)
+		{
+			if ((SeenComponents & 128) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 128;
+			const auto Trigger = ReadTrigger(Component.value);
+			if (!Trigger)
+			{
+				return std::unexpected(Trigger.error());
+			}
+
+			Entity.Trigger = *Trigger;
 		}
 		else
 		{
@@ -1152,6 +1219,18 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			};
 
 			AppendVisualComponent(Output, ELevelComponentType::SoftBody, Values, bHasComponent);
+		}
+
+		if (Entity.Mover)
+		{
+			const std::array<FVisualValue, 2> Values{Entity.Mover->Offset, Entity.Mover->PeriodSeconds};
+			AppendVisualComponent(Output, ELevelComponentType::Mover, Values, bHasComponent);
+		}
+
+		if (Entity.Trigger)
+		{
+			const std::array<FVisualValue, 1> Values{Entity.Trigger->Size};
+			AppendVisualComponent(Output, ELevelComponentType::Trigger, Values, bHasComponent);
 		}
 
 		Output += bHasComponent ? "\n      }\n    }" : "}\n    }";

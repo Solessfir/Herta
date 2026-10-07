@@ -201,6 +201,24 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		}
 	}
 
+	if (Entity.Mover)
+	{
+		const auto Valid = ValidateMoverComponent(*Entity.Mover);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
+	if (Entity.Trigger)
+	{
+		const auto Valid = ValidateTriggerComponent(*Entity.Trigger);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
 	if (Entity.BodyType != ELevelBodyType::None && Entity.BodyType != ELevelBodyType::Static && Entity.BodyType != ELevelBodyType::Dynamic)
 	{
 		return std::unexpected(FLevelError{"Entity has an unknown body type"});
@@ -339,6 +357,36 @@ std::expected<void, FLevelError> ValidateSoftBodyComponent(const FSoftBodyCompon
 	return {};
 }
 
+std::expected<void, FLevelError> ValidateMoverComponent(const FMoverComponent& Mover)
+{
+	const auto InRange = [](const float Value, const float Minimum, const float Maximum)
+	{
+		return std::isfinite(Value) && Value >= Minimum && Value <= Maximum;
+	};
+
+	if (!InRange(Mover.Offset.X, -1000.f, 1000.f) || !InRange(Mover.Offset.Y, -1000.f, 1000.f) || !InRange(Mover.Offset.Z, -1000.f, 1000.f) || !InRange(Mover.PeriodSeconds, 0.5f, 600.f))
+	{
+		return std::unexpected(FLevelError{"Mover offsets must be within 1000 m and periods between 0.5 and 600 s"});
+	}
+
+	return {};
+}
+
+std::expected<void, FLevelError> ValidateTriggerComponent(const FTriggerComponent& Trigger)
+{
+	const auto InRange = [](const float Value)
+	{
+		return std::isfinite(Value) && Value >= 0.01f && Value <= 1000.f;
+	};
+
+	if (!InRange(Trigger.Size.X) || !InRange(Trigger.Size.Y) || !InRange(Trigger.Size.Z))
+	{
+		return std::unexpected(FLevelError{"Trigger sizes must be between 0.01 and 1000 m"});
+	}
+
+	return {};
+}
+
 std::expected<void, FLevelError> ValidateLevelEntities(const std::span<const FLevelEntity> Entities)
 {
 	if (Entities.size() > MaximumEntityCount)
@@ -444,6 +492,8 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FSkyAtmosphereComponent* Atmosphere = Registry.try_get<FSkyAtmosphereComponent>(Entity);
 	const FHeightFogComponent* Fog = Registry.try_get<FHeightFogComponent>(Entity);
 	const FSoftBodyComponent* SoftBody = Registry.try_get<FSoftBodyComponent>(Entity);
+	const FMoverComponent* Mover = Registry.try_get<FMoverComponent>(Entity);
+	const FTriggerComponent* Trigger = Registry.try_get<FTriggerComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -456,6 +506,8 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .SkyAtmosphere = Atmosphere ? std::optional{*Atmosphere} : std::nullopt,
 	    .HeightFog = Fog ? std::optional{*Fog} : std::nullopt,
 	    .SoftBody = SoftBody ? std::optional{*SoftBody} : std::nullopt,
+	    .Mover = Mover ? std::optional{*Mover} : std::nullopt,
+	    .Trigger = Trigger ? std::optional{*Trigger} : std::nullopt,
 	};
 }
 
@@ -511,6 +563,24 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FSoftBodyComponent>(Entity);
+	}
+
+	if (Snapshot.Mover)
+	{
+		Registry.emplace_or_replace<FMoverComponent>(Entity, *Snapshot.Mover);
+	}
+	else
+	{
+		Registry.remove<FMoverComponent>(Entity);
+	}
+
+	if (Snapshot.Trigger)
+	{
+		Registry.emplace_or_replace<FTriggerComponent>(Entity, *Snapshot.Trigger);
+	}
+	else
+	{
+		Registry.remove<FTriggerComponent>(Entity);
 	}
 }
 

@@ -22,6 +22,47 @@ std::array<FPreviewSimulationBody, 2> MakeBodies(const FTransform& Object, const
 }
 }
 
+TEST_CASE("Preview movers ping-pong over their period and triggers report bodies riding through")
+{
+	FPreviewSimulation Simulation;
+	const std::array Bodies{
+	    FPreviewSimulationBody{.ObjectIndex = 1, .Transform = FTransform{{0.f, 1.f, 0.f}, FQuaternion::Identity(), {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {1.f, 0.1f, 1.f}}, .Properties = {.Friction = 1.f}, .Mover = FPreviewMover{.Offset = {0.f, 0.f, 4.f}, .PeriodSeconds = 4.f}},
+	    FPreviewSimulationBody{.ObjectIndex = 2, .Transform = FTransform{{0.f, 1.31f, 0.f}, FQuaternion::Identity(), {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {0.2f, 0.2f, 0.2f}}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Friction = 1.f}},
+	    FPreviewSimulationBody{.ObjectIndex = 3, .Transform = FTransform{{0.f, 1.5f, 4.f}, FQuaternion::Identity(), {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {1.f, 1.f, 1.f}}, .bTrigger = true},
+	};
+	REQUIRE(Simulation.Start(Bodies));
+
+	// Half a period carries the box to the far end, inside the trigger.
+	for (int Frame = 0; Frame < 120; ++Frame)
+	{
+		REQUIRE(Simulation.Update(1.f / 60.f));
+	}
+
+	CHECK(Simulation.GetTransforms()[0].Transform.Translation.Z == doctest::Approx(4.f).epsilon(0.02));
+	CHECK(Simulation.GetTransforms()[2].Transform.Translation.Z == doctest::Approx(4.f).epsilon(0.02));
+	CHECK(Simulation.IsTriggerOccupied(3));
+	auto Events = Simulation.TakeTriggerEvents();
+	REQUIRE(Events.size() == 1);
+	CHECK(Events[0].TriggerObjectIndex == 3);
+	CHECK(Events[0].ObjectIndex == 2);
+	CHECK(Events[0].bEntered);
+	CHECK(Simulation.TakeTriggerEvents().empty());
+
+	// The return trip leaves the trigger, and the platform ends where it started.
+	for (int Frame = 0; Frame < 120; ++Frame)
+	{
+		REQUIRE(Simulation.Update(1.f / 60.f));
+	}
+
+	CHECK(std::abs(Simulation.GetTransforms()[0].Transform.Translation.Z) < 0.05f);
+	CHECK_FALSE(Simulation.IsTriggerOccupied(3));
+	Events = Simulation.TakeTriggerEvents();
+	REQUIRE(Events.size() == 1);
+	CHECK_FALSE(Events[0].bEntered);
+	Simulation.Stop();
+	CHECK(Simulation.GetTransforms()[0].Transform == Bodies[0].Transform);
+}
+
 TEST_CASE("Preview simulation falls onto the floor and restores edits")
 {
 	FPreviewSimulation Simulation;

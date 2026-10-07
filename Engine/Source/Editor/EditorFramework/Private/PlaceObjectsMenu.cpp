@@ -16,7 +16,7 @@ namespace
 {
 constexpr const char* PopupName = "Add###PlaceObjectsMenu";
 constexpr const char* SearchLabel = "##PlaceObjectsSearch";
-constexpr std::array<std::string_view, 12> Candidates{"Empty Entity", "Cube", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Rope", "Cloth", "Soft Ball"};
+constexpr std::array<std::string_view, 13> Candidates{"Empty Entity", "Cube", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Rope", "Cloth", "Soft Ball", "Trigger Volume"};
 
 std::optional<std::vector<FAssetSearchMatch>> GetMatches(const FPlaceObjectsMenuState& State)
 {
@@ -282,7 +282,7 @@ std::optional<EPlaceObjectType> DrawPlaceObjectsMenu(FToolUIContext& ToolUI, FPl
 	if (Matches && !Matches->empty())
 	{
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 7.f * Scale});
-		constexpr std::array<std::string_view, 12> Groups{"Entity", "Basic shapes", "Lights", "Lights", "Lights", "Lights", "Lights", "Environment", "Environment", "Soft bodies", "Soft bodies", "Soft bodies"};
+		constexpr std::array<std::string_view, 13> Groups{"Entity", "Basic shapes", "Lights", "Lights", "Lights", "Lights", "Lights", "Environment", "Environment", "Physics", "Physics", "Physics", "Physics"};
 		std::string_view PreviousGroup;
 		for (const auto& Match : *Matches)
 		{

@@ -754,6 +754,23 @@ TEST_CASE("Rigid body collision shapes persist in schema five and older bodies l
 	}
 }
 
+TEST_CASE("Mover and trigger components persist in schema five")
+{
+	FLevelDocument Document = MakeLevelFolderDocument();
+	Document.Entities[0].Mover = FMoverComponent{.Offset = {1.f, 2.f, -3.f}, .PeriodSeconds = 8.f};
+	Document.Entities[1].Trigger = FTriggerComponent{.Size = {3.f, 2.f, 1.5f}};
+	const auto Text = SerializeLevel(Document);
+	REQUIRE(Text);
+	CHECK(Text->find("\"mover\": {") != std::string::npos);
+	CHECK(Text->find("\"trigger\": {") != std::string::npos);
+	const auto Restored = ParseLevel(*Text);
+	REQUIRE(Restored);
+	std::ranges::sort(Document.Entities, {}, &FLevelEntity::Id);
+	CHECK(Restored->Entities == Document.Entities);
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"periodSeconds\": 8", "\"periodSeconds\": 0")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(WithoutSchemaFiveFields(*Text), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 4")));
+}
+
 TEST_CASE("Camera bookmarks persist sorted by slot in schema five and are rejected when invalid")
 {
 	FLevelDocument Document = MakeLevelFolderDocument();

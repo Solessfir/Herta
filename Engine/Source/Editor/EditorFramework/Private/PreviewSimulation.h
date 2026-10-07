@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 namespace Herta
@@ -19,6 +20,13 @@ struct FPreviewBodyShape
 	FVector3 HalfExtents = FVector3::One();
 };
 
+// Kinematic motion from the authored pose to Offset and back, eased at both ends.
+struct FPreviewMover
+{
+	FVector3 Offset{};
+	float PeriodSeconds = 6.f;
+};
+
 struct FPreviewSimulationBody
 {
 	std::size_t ObjectIndex = 0;
@@ -28,6 +36,17 @@ struct FPreviewSimulationBody
 	EPhysicsShape Collision = EPhysicsShape::Box;
 	EPhysicsMotionType MotionType = EPhysicsMotionType::Static;
 	FPhysicsBodyProperties Properties{};
+	// Movers simulate as kinematic bodies whatever their MotionType.
+	std::optional<FPreviewMover> Mover{};
+	// Triggers are box sensors from Shape that report Dynamic bodies instead of colliding.
+	bool bTrigger = false;
+};
+
+struct FPreviewTriggerEvent
+{
+	std::size_t TriggerObjectIndex = 0;
+	std::size_t ObjectIndex = 0;
+	bool bEntered = false;
 };
 
 struct FPreviewSimulationSoftBody
@@ -58,6 +77,9 @@ public:
 	std::span<const FVector3> GetSoftBodyPositions(std::size_t ObjectIndex) const noexcept;
 	// Advances whenever soft body positions change, so callers can skip rebuilding unchanged geometry.
 	std::uint64_t GetSoftBodyRevision() const noexcept;
+	bool IsTriggerOccupied(std::size_t ObjectIndex) const noexcept;
+	// Enter and exit events since the previous call, in step order.
+	std::vector<FPreviewTriggerEvent> TakeTriggerEvents();
 
 private:
 	struct FBodyState
@@ -69,6 +91,9 @@ private:
 		FVector3 Offset;
 		FPhysicsBodyTransform Previous;
 		FPhysicsBodyTransform Current;
+		std::optional<FPreviewMover> Mover;
+		FPhysicsBodyTransform Start;
+		bool bTrigger = false;
 	};
 
 	struct FSoftBodyState
@@ -86,6 +111,12 @@ private:
 	std::vector<FSoftBodyState> SoftBodyStates;
 	std::uint64_t SoftBodyRevision = 0;
 
+	// Physics body IDs back to BodyStates indices for sensor events.
+	std::unordered_map<std::uint32_t, std::size_t> BodyIndices;
+	std::unordered_map<std::size_t, std::size_t> TriggerOccupancy;
+	std::vector<FPreviewTriggerEvent> TriggerEvents;
+
 	double Accumulator = 0.0;
+	double Time = 0.0;
 };
 }
