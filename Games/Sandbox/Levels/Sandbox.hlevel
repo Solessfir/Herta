@@ -1618,7 +1618,7 @@
     },
     {
       "id": "4c060001-2738-4e25-9b9e-00000000002e",
-      "name": "Low hurdle",
+      "name": "Low hurdle - 0.6 m, jump over",
       "parent": null,
       "transform": {
         "translation": [
@@ -1658,7 +1658,7 @@
     },
     {
       "id": "4c060001-2738-4e25-9b9e-00000000002f",
-      "name": "High hurdle",
+      "name": "High hurdle - 1.3 m, blocks",
       "parent": null,
       "transform": {
         "translation": [
@@ -1738,13 +1738,13 @@
     },
     {
       "id": "4c060001-2738-4e25-9b9e-000000000031",
-      "name": "Gap platform 2",
+      "name": "Gap platform 2 - 1 m gap",
       "parent": null,
       "transform": {
         "translation": [
           -6.2,
           0.3,
-          16
+          16.1
         ],
         "rotation": [
           0,
@@ -1778,13 +1778,13 @@
     },
     {
       "id": "4c060001-2738-4e25-9b9e-000000000032",
-      "name": "Gap platform 3",
+      "name": "Gap platform 3 - 2 m gap",
       "parent": null,
       "transform": {
         "translation": [
           -6.2,
           0.3,
-          18.1
+          19.3
         ],
         "rotation": [
           0,
@@ -5024,11 +5024,11 @@
     {
       "id": "4c060047-2738-4e25-9b9e-000000000001",
       "name": "Rope - pinned under arch beam, carries a 2 kg box",
-      "parent": "4c060001-2738-4e25-9b9e-000000000034",
+      "parent": "4c060048-2738-4e25-9b9e-000000000002",
       "transform": {
         "translation": [
-          0,
-          2.95,
+          -1.5,
+          3.2,
           0
         ],
         "rotation": [
@@ -5061,13 +5061,13 @@
     },
     {
       "id": "4c060047-2738-4e25-9b9e-000000000002",
-      "name": "Cloth - pinned corners, released flat",
-      "parent": null,
+      "name": "Cloth - textured, pinned corners, released flat",
+      "parent": "4c060048-2738-4e25-9b9e-000000000002",
       "transform": {
         "translation": [
-          9.5,
-          2.6,
-          15
+          1.5,
+          3.2,
+          0
         ],
         "rotation": [
           -0.70710678,
@@ -5092,20 +5092,20 @@
           "pressure": 400,
           "friction": 0.4,
           "pinned": true,
-          "material": "a4c06002-2738-4e25-9b9e-816ae7c00001",
+          "material": "a4c06100-2738-4e25-9b9e-000000000011",
           "attachment": null
         }
       }
     },
     {
       "id": "4c060047-2738-4e25-9b9e-000000000003",
-      "name": "Soft ball - 400 Pa pressure",
+      "name": "Soft ball - 400 Pa, rolls down the ramp",
       "parent": null,
       "transform": {
         "translation": [
-          9.5,
-          3,
-          19
+          18.2,
+          2.5,
+          8.5
         ],
         "rotation": [
           0,
@@ -5138,11 +5138,11 @@
     {
       "id": "4c060047-2738-4e25-9b9e-000000000004",
       "name": "Rope box - 2 kg",
-      "parent": "4c060001-2738-4e25-9b9e-000000000034",
+      "parent": "4c060048-2738-4e25-9b9e-000000000002",
       "transform": {
         "translation": [
-          0,
-          1.2784,
+          -1.5,
+          1.5287,
           -1.9917
         ],
         "rotation": [
@@ -5168,6 +5168,1469 @@
           "type": "dynamic",
           "massKg": 2,
           "friction": 0.4,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000001",
+      "name": "Soft body terrace",
+      "parent": null,
+      "transform": {
+        "translation": [
+          16.75,
+          -0.25,
+          4.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          8.5,
+          0.5,
+          11
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06100-2738-4e25-9b9e-00000000000e"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000002",
+      "name": "Soft body gantry - move this parent",
+      "parent": null,
+      "transform": {
+        "translation": [
+          16.5,
+          0,
+          4
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      "components": {}
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000003",
+      "name": "Gantry post",
+      "parent": "4c060048-2738-4e25-9b9e-000000000002",
+      "transform": {
+        "translation": [
+          -3,
+          1.6,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          3.2,
+          0.3
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000004",
+      "name": "Gantry post",
+      "parent": "4c060048-2738-4e25-9b9e-000000000002",
+      "transform": {
+        "translation": [
+          3,
+          1.6,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          3.2,
+          0.3
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000005",
+      "name": "Gantry beam",
+      "parent": "4c060048-2738-4e25-9b9e-000000000002",
+      "transform": {
+        "translation": [
+          0,
+          3.35,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          6.6,
+          0.3,
+          0.3
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000006",
+      "name": "Soft ball ramp - 20 deg",
+      "parent": null,
+      "transform": {
+        "translation": [
+          17,
+          0.55,
+          8.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0.17364818,
+          0.98480775
+        ],
+        "scale": [
+          3,
+          0.2,
+          2
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06001-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000007",
+      "name": "Shadow lane floor",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15,
+          -0.25,
+          53.5
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3,
+          0.5,
+          85
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06001-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000008",
+      "name": "Shadow pillar - 5 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          16
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000009",
+      "name": "Shadow pillar - 10 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          21
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000000a",
+      "name": "Shadow pillar - 15 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          26
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000000b",
+      "name": "Shadow pillar - 20 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          31
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000000c",
+      "name": "Shadow pillar - 25 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          36
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000000d",
+      "name": "Shadow pillar - 30 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          41
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000000e",
+      "name": "Shadow pillar - 35 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000000f",
+      "name": "Shadow pillar - 40 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          51
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000010",
+      "name": "Shadow pillar - 45 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          56
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000011",
+      "name": "Shadow pillar - 50 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          61
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000012",
+      "name": "Shadow pillar - 55 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          66
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000013",
+      "name": "Shadow pillar - 60 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          71
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000014",
+      "name": "Shadow pillar - 65 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          76
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000015",
+      "name": "Shadow pillar - 70 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          81
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000016",
+      "name": "Shadow pillar - 75 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          86
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000017",
+      "name": "Shadow pillar - 80 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15.8,
+          1.25,
+          91
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.25,
+          2.5,
+          0.25
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000018",
+      "name": "Distance stripe - 10 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15,
+          0.01,
+          21
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3,
+          0.01,
+          0.08
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000019",
+      "name": "Distance stripe - 20 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15,
+          0.01,
+          31
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3,
+          0.01,
+          0.08
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000001a",
+      "name": "Distance stripe - 30 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15,
+          0.01,
+          41
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3,
+          0.01,
+          0.08
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000001b",
+      "name": "Distance stripe - 40 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15,
+          0.01,
+          51
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3,
+          0.01,
+          0.08
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000001c",
+      "name": "Distance stripe - 50 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15,
+          0.01,
+          61
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3,
+          0.01,
+          0.08
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000001d",
+      "name": "Distance stripe - 60 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15,
+          0.01,
+          71
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3,
+          0.01,
+          0.08
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000001e",
+      "name": "Distance stripe - 70 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15,
+          0.01,
+          81
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3,
+          0.01,
+          0.08
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-00000000001f",
+      "name": "Distance stripe - 80 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          15,
+          0.01,
+          91
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          3,
+          0.01,
+          0.08
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06005-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000020",
+      "name": "Contact cube - 10 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          14.4,
+          0.15,
+          21
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          0.3,
+          0.3
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000021",
+      "name": "Contact cube - 30 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          14.4,
+          0.15,
+          41
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          0.3,
+          0.3
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000022",
+      "name": "Contact cube - 50 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          14.4,
+          0.15,
+          61
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          0.3,
+          0.3
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000023",
+      "name": "Contact cube - 70 m",
+      "parent": null,
+      "transform": {
+        "translation": [
+          14.4,
+          0.15,
+          81
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.3,
+          0.3,
+          0.3
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000024",
+      "name": "Player scale - 1.8 m standing",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -8.4,
+          0.9,
+          5.6
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          0.5,
+          1.8,
+          0.3
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          ]
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000025",
+      "name": "Step-up 0.18 m - walk",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -9.75,
+          0.09,
+          14.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.5,
+          0.18,
+          1
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000026",
+      "name": "Step-up 0.35 m - step-up limit",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -9.75,
+          0.175,
+          15.7
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.5,
+          0.35,
+          1
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
+        }
+      }
+    },
+    {
+      "id": "4c060048-2738-4e25-9b9e-000000000027",
+      "name": "Step-up 0.5 m - jump",
+      "parent": null,
+      "transform": {
+        "translation": [
+          -9.75,
+          0.25,
+          17.2
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1.5,
+          0.5,
+          1
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
           "restitution": 0,
           "linearDamping": 0.05,
           "angularDamping": 0.05,
@@ -5406,12 +6869,159 @@
       "name": "12 - Soft bodies",
       "parent": null,
       "entities": [
-        "4c060047-2738-4e25-9b9e-000000000001",
-        "4c060047-2738-4e25-9b9e-000000000002",
-        "4c060047-2738-4e25-9b9e-000000000003",
-        "4c060047-2738-4e25-9b9e-000000000004"
+        "4c060048-2738-4e25-9b9e-000000000001",
+        "4c060048-2738-4e25-9b9e-000000000002",
+        "4c060048-2738-4e25-9b9e-000000000006",
+        "4c060047-2738-4e25-9b9e-000000000003"
+      ]
+    },
+    {
+      "id": "4c060046-2738-4e25-9b9e-000000000006",
+      "name": "13 - Shadow distance lane",
+      "parent": null,
+      "entities": [
+        "4c060048-2738-4e25-9b9e-000000000007",
+        "4c060048-2738-4e25-9b9e-000000000008",
+        "4c060048-2738-4e25-9b9e-000000000009",
+        "4c060048-2738-4e25-9b9e-00000000000a",
+        "4c060048-2738-4e25-9b9e-00000000000b",
+        "4c060048-2738-4e25-9b9e-00000000000c",
+        "4c060048-2738-4e25-9b9e-00000000000d",
+        "4c060048-2738-4e25-9b9e-00000000000e",
+        "4c060048-2738-4e25-9b9e-00000000000f",
+        "4c060048-2738-4e25-9b9e-000000000010",
+        "4c060048-2738-4e25-9b9e-000000000011",
+        "4c060048-2738-4e25-9b9e-000000000012",
+        "4c060048-2738-4e25-9b9e-000000000013",
+        "4c060048-2738-4e25-9b9e-000000000014",
+        "4c060048-2738-4e25-9b9e-000000000015",
+        "4c060048-2738-4e25-9b9e-000000000016",
+        "4c060048-2738-4e25-9b9e-000000000017",
+        "4c060048-2738-4e25-9b9e-000000000018",
+        "4c060048-2738-4e25-9b9e-000000000019",
+        "4c060048-2738-4e25-9b9e-00000000001a",
+        "4c060048-2738-4e25-9b9e-00000000001b",
+        "4c060048-2738-4e25-9b9e-00000000001c",
+        "4c060048-2738-4e25-9b9e-00000000001d",
+        "4c060048-2738-4e25-9b9e-00000000001e",
+        "4c060048-2738-4e25-9b9e-00000000001f",
+        "4c060048-2738-4e25-9b9e-000000000020",
+        "4c060048-2738-4e25-9b9e-000000000021",
+        "4c060048-2738-4e25-9b9e-000000000022",
+        "4c060048-2738-4e25-9b9e-000000000023"
+      ]
+    },
+    {
+      "id": "4c060046-2738-4e25-9b9e-000000000007",
+      "name": "14 - Player scale gauges",
+      "parent": null,
+      "entities": [
+        "4c060048-2738-4e25-9b9e-000000000024",
+        "4c060048-2738-4e25-9b9e-000000000025",
+        "4c060048-2738-4e25-9b9e-000000000026",
+        "4c060048-2738-4e25-9b9e-000000000027"
       ]
     }
   ],
-  "cameraBookmarks": []
+  "cameraBookmarks": [
+    {
+      "slot": 1,
+      "name": "Overview",
+      "position": [
+        0,
+        12,
+        -20
+      ],
+      "yaw": 0.0,
+      "pitch": -0.3805
+    },
+    {
+      "slot": 2,
+      "name": "Physics comparisons",
+      "position": [
+        2,
+        6,
+        -8
+      ],
+      "yaw": 0.0713,
+      "pitch": -0.3103
+    },
+    {
+      "slot": 3,
+      "name": "Traversal and player scale",
+      "position": [
+        1,
+        4.5,
+        12
+      ],
+      "yaw": -1.5708,
+      "pitch": -0.4182
+    },
+    {
+      "slot": 4,
+      "name": "Hierarchy workshop",
+      "position": [
+        4.2,
+        3,
+        10
+      ],
+      "yaw": 0.0,
+      "pitch": -0.1974
+    },
+    {
+      "slot": 5,
+      "name": "Soft body bay",
+      "position": [
+        16.5,
+        3.5,
+        -4
+      ],
+      "yaw": 0.0,
+      "pitch": -0.2187
+    },
+    {
+      "slot": 6,
+      "name": "Shadow distance lane",
+      "position": [
+        15,
+        1.7,
+        8
+      ],
+      "yaw": 0.0,
+      "pitch": -0.0375
+    },
+    {
+      "slot": 7,
+      "name": "PBR material gallery",
+      "position": [
+        0,
+        3,
+        -14
+      ],
+      "yaw": 0.0,
+      "pitch": -0.2292
+    },
+    {
+      "slot": 8,
+      "name": "Textures and antialiasing",
+      "position": [
+        -16,
+        3,
+        -6
+      ],
+      "yaw": 0.0,
+      "pitch": -0.1974
+    },
+    {
+      "slot": 9,
+      "name": "Local lighting bays",
+      "position": [
+        0,
+        6.5,
+        11
+      ],
+      "yaw": 0.0,
+      "pitch": -0.3514
+    }
+  ]
 }
