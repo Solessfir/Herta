@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <numbers>
@@ -132,6 +133,41 @@ TEST_CASE("Procedural environment follows sun intensity independently of sky vis
 	const auto Dim = BuildEnvironmentLighting(nullptr, Snapshot);
 	REQUIRE(Dim);
 	CHECK(MaximumRadiance(Dim->Specular.Mips.front()) < MaximumRadiance(Day->Specular.Mips.front()));
+}
+
+TEST_CASE("Procedural sky multiple scattering is blue and lights the ground like a clear day")
+{
+	FVisualUniforms Snapshot;
+	Snapshot.Atmosphere = {1.f, 1.f, 0.8f, 1.f};
+	Snapshot.Controls[0] = 1.f;
+	Snapshot.Lights[0].PositionType[3] = static_cast<float>(ELightType::Directional);
+	// The sun 55 degrees above the horizon, as at noon in the playground.
+	const float Elevation = 55.f * std::numbers::pi_v<float> / 180.f;
+	Snapshot.Lights[0].DirectionRange = {0.f, -std::sin(Elevation), std::cos(Elevation), 0.f};
+	Snapshot.Lights[0].ColorIntensity = {1.f, 1.f, 1.f, 50000.f};
+
+	const FCookedTextureMip Mip = BuildSkyMultipleScattering(Snapshot);
+	REQUIRE(Mip.Width == SkyMultipleScatteringSize);
+	REQUIRE(Mip.Pixels.size() == std::size_t{SkyMultipleScatteringSize} * SkyMultipleScatteringSize * 4 * sizeof(float));
+	for (std::size_t Index = 0; Index < std::size_t{Mip.Width} * Mip.Height; ++Index)
+	{
+		const auto Pixel = EnvironmentPixel(Mip, Index);
+		CHECK((std::isfinite(Pixel[0]) && Pixel[0] >= 0.f && Pixel[2] >= 0.f));
+	}
+
+	const auto Overhead = EnvironmentPixel(Mip, SkyMultipleScatteringSize - 1);
+	const auto Night = EnvironmentPixel(Mip, 0);
+	CHECK(Overhead[2] > Overhead[0]);
+	CHECK(Night[2] < Overhead[2] * 0.05f);
+
+	const auto Lighting = BuildEnvironmentLighting(nullptr, Snapshot);
+	REQUIRE(Lighting);
+	// Measured clear skies give diffuse horizontal illuminance of about 5 to 20 percent of direct normal sunlight; clean air sits at the low end.
+	const auto& Diffuse = Lighting->Diffuse.Mips.front();
+	const auto Up = EnvironmentPixel(Diffuse, Diffuse.Width / 2);
+	const float Ratio = (0.2126f * Up[0] + 0.7152f * Up[1] + 0.0722f * Up[2]) / 50000.f;
+	CHECK(Ratio > 0.05f);
+	CHECK(Ratio < 0.2f);
 }
 
 TEST_CASE("Environment filtering validates inputs and supports cancellation")

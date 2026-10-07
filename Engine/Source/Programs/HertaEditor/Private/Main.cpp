@@ -363,7 +363,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	const FShaderAsset ThumbnailFragmentShader = *FragmentShader;
 	FVisualShaderSet VisualShaders;
 	const std::array VisualShaderFiles{
-	    // Slang reflects module-global bindings into the vertex stage, so the shared fullscreen vertex comes from a module without textures.
+	    // Slang reflects module-global bindings into the vertex stage, so the shared fullscreen vertex comes from a module whose only texture is at binding 0.
 	    std::pair{"SkyView.vert.hshader", &VisualShaders.FullscreenVertex},
 	    std::pair{"Sky.frag.hshader", &VisualShaders.SkyFragment},
 	    std::pair{"VolumetricFog.frag.hshader", &VisualShaders.FogFragment},

@@ -6,6 +6,7 @@
 #include <cstring>
 #include <numbers>
 #include <optional>
+#include <vector>
 
 namespace Herta
 {
@@ -23,12 +24,6 @@ float Saturate(const float Value)
 	return std::clamp(Value, 0.f, 1.f);
 }
 
-float SmoothStep(const float Low, const float High, const float Value)
-{
-	const float T = Saturate((Value - Low) / (High - Low));
-	return T * T * (3.f - 2.f * T);
-}
-
 FVector3 Multiply(const FVector3& A, const FVector3& B)
 {
 	return {A.X * B.X, A.Y * B.Y, A.Z * B.Z};
@@ -42,6 +37,39 @@ FVector3 Lerp(const FVector3& A, const FVector3& B, const float Weight)
 constexpr FVector3 RayleighScattering{5.802e-3f, 13.558e-3f, 33.1e-3f};
 constexpr float MieScattering = 3.996e-3f;
 constexpr FVector3 OzoneAbsorption{0.65e-3f, 1.881e-3f, 0.085e-3f};
+// Earth's average albedo; the ground below the horizon still returns light into the sky.
+constexpr float GroundAlbedo = 0.3f;
+constexpr std::uint32_t TransmittanceWidth = 64;
+constexpr std::uint32_t TransmittanceHeight = 32;
+
+struct FAtmosphereShape
+{
+	float PlanetRadius = 0.f;
+	float AtmosphereRadius = 0.f;
+	float HeightScale = 0.f;
+};
+
+// Kilometres, matching the shader.
+FAtmosphereShape GetAtmosphereShape(const FVisualUniforms& Snapshot)
+{
+	return {.PlanetRadius = Snapshot.AtmosphereGeometry[0] / 1000.f, .AtmosphereRadius = (Snapshot.AtmosphereGeometry[0] + Snapshot.AtmosphereGeometry[1]) / 1000.f, .HeightScale = Snapshot.AtmosphereGeometry[1] / 80000.f};
+}
+
+// Bilinear lookup with texel centers at the table edges, like the shader's half-texel inset.
+FVector3 SampleTable(const std::vector<FVector3>& Table, const std::uint32_t Width, const std::uint32_t Height, const float U, const float V)
+{
+	const float X = Saturate(U) * static_cast<float>(Width - 1);
+	const float Y = Saturate(V) * static_cast<float>(Height - 1);
+	const auto X0 = static_cast<std::uint32_t>(X);
+	const auto Y0 = static_cast<std::uint32_t>(Y);
+	const std::uint32_t X1 = std::min(X0 + 1, Width - 1);
+	const std::uint32_t Y1 = std::min(Y0 + 1, Height - 1);
+	const float FX = X - static_cast<float>(X0);
+	const float FY = Y - static_cast<float>(Y0);
+	const FVector3 Top = Lerp(Table[Y0 * Width + X0], Table[Y0 * Width + X1], FX);
+	const FVector3 Bottom = Lerp(Table[Y1 * Width + X0], Table[Y1 * Width + X1], FX);
+	return Lerp(Top, Bottom, FY);
+}
 
 struct FSkySample
 {
@@ -71,8 +99,126 @@ FVector3 Exp(const FVector3& Value)
 	return {std::exp(Value.X), std::exp(Value.Y), std::exp(Value.Z)};
 }
 
+// Ray from Position hits the planet before leaving the atmosphere.
+bool HitsGround(const FVector3& Position, const FVector3& Direction, const float PlanetRadius)
+{
+	const float B = Position.Dot(Direction);
+	return B < 0.f && B * B - Position.Dot(Position) + PlanetRadius * PlanetRadius > 0.f;
+}
+
+// Transmittance from an altitude to the top of the atmosphere, indexed like the multiple-scattering table, and zero towards the ground.
+std::vector<FVector3> BuildTransmittance(const FVisualUniforms& Snapshot)
+{
+	const FAtmosphereShape Shape = GetAtmosphereShape(Snapshot);
+	std::vector<FVector3> Table(std::size_t{TransmittanceWidth} * TransmittanceHeight);
+	constexpr int Steps = 40;
+	for (std::uint32_t Y = 0; Y < TransmittanceHeight; ++Y)
+	{
+		const float Altitude = (Shape.AtmosphereRadius - Shape.PlanetRadius) * static_cast<float>(Y) / static_cast<float>(TransmittanceHeight - 1);
+		const FVector3 Position{0.f, Shape.PlanetRadius + std::max(Altitude, 0.001f), 0.f};
+		for (std::uint32_t X = 0; X < TransmittanceWidth; ++X)
+		{
+			const float Mu = -1.f + 2.f * static_cast<float>(X) / static_cast<float>(TransmittanceWidth - 1);
+			const FVector3 Direction{std::sqrt(std::max(0.f, 1.f - Mu * Mu)), Mu, 0.f};
+			if (HitsGround(Position, Direction, Shape.PlanetRadius))
+			{
+				continue;
+			}
+
+			const float Length = SkyExit(Position, Direction, Shape.AtmosphereRadius);
+			FVector3 Depth;
+			for (int Step = 0; Step < Steps; ++Step)
+			{
+				Depth += SampleSky(Position + Direction * (Length * (static_cast<float>(Step) + 0.5f) / Steps), Shape.PlanetRadius, Shape.HeightScale, Snapshot).Extinction;
+			}
+
+			Table[Y * TransmittanceWidth + X] = Exp(-Depth * (Length / Steps));
+		}
+	}
+
+	return Table;
+}
+
+FVector3 SunTransmittance(const std::vector<FVector3>& Table, const FVector3& Position, const FVector3& SunDirection, const FAtmosphereShape& Shape)
+{
+	const float Radius = Position.Length();
+	return SampleTable(Table, TransmittanceWidth, TransmittanceHeight, Position.Dot(SunDirection) / Radius * 0.5f + 0.5f, (Radius - Shape.PlanetRadius) / (Shape.AtmosphereRadius - Shape.PlanetRadius));
+}
+
+// Hillaire 2020, section 5.5: second-order isotropic scattering, amplified by the infinite series 1 / (1 - f_ms) of further orders.
+std::vector<FVector3> ComputeMultipleScattering(const FVisualUniforms& Snapshot)
+{
+	const FAtmosphereShape Shape = GetAtmosphereShape(Snapshot);
+	const std::vector<FVector3> Transmittance = BuildTransmittance(Snapshot);
+	std::vector<FVector3> Table(std::size_t{SkyMultipleScatteringSize} * SkyMultipleScatteringSize);
+	constexpr int DirectionRows = 8;
+	constexpr int Steps = 20;
+	constexpr float DirectionWeight = 1.f / (DirectionRows * DirectionRows);
+	constexpr float IsotropicPhase = 1.f / (4.f * Pi);
+	for (std::uint32_t Y = 0; Y < SkyMultipleScatteringSize; ++Y)
+	{
+		const float Altitude = (Shape.AtmosphereRadius - Shape.PlanetRadius) * static_cast<float>(Y) / static_cast<float>(SkyMultipleScatteringSize - 1);
+		const FVector3 Origin{0.f, Shape.PlanetRadius + std::max(Altitude, 0.001f), 0.f};
+		for (std::uint32_t X = 0; X < SkyMultipleScatteringSize; ++X)
+		{
+			const float SunMu = -1.f + 2.f * static_cast<float>(X) / static_cast<float>(SkyMultipleScatteringSize - 1);
+			const FVector3 SunDirection{std::sqrt(std::max(0.f, 1.f - SunMu * SunMu)), SunMu, 0.f};
+			FVector3 SecondOrder;
+			FVector3 Transfer;
+			// Equal-area strata over the sphere: uniform in the cosine and the azimuth.
+			for (int Row = 0; Row < DirectionRows; ++Row)
+			{
+				const float CosTheta = 1.f - 2.f * (static_cast<float>(Row) + 0.5f) / DirectionRows;
+				const float SinTheta = std::sqrt(std::max(0.f, 1.f - CosTheta * CosTheta));
+				for (int Column = 0; Column < DirectionRows; ++Column)
+				{
+					const float Phi = 2.f * Pi * (static_cast<float>(Column) + 0.5f) / DirectionRows;
+					const FVector3 Direction{SinTheta * std::cos(Phi), CosTheta, SinTheta * std::sin(Phi)};
+					const bool bGround = HitsGround(Origin, Direction, Shape.PlanetRadius);
+					const float B = Origin.Dot(Direction);
+					const float Length = bGround ? -B - std::sqrt(std::max(0.f, B * B - Origin.Dot(Origin) + Shape.PlanetRadius * Shape.PlanetRadius)) : SkyExit(Origin, Direction, Shape.AtmosphereRadius);
+					const float Segment = Length / Steps;
+					FVector3 Throughput = FVector3::One();
+					FVector3 Luminance;
+					FVector3 Scattered;
+					for (int Step = 0; Step < Steps; ++Step)
+					{
+						const FVector3 Position = Origin + Direction * (Segment * (static_cast<float>(Step) + 0.5f));
+						const FSkySample Sample = SampleSky(Position, Shape.PlanetRadius, Shape.HeightScale, Snapshot);
+						const FVector3 Scattering = RayleighScattering * (Snapshot.Atmosphere[0] * Sample.Rayleigh) + FVector3::One() * (MieScattering * Snapshot.Atmosphere[1] * Sample.Mie);
+						const FVector3 StepTransmittance = Exp(-Sample.Extinction * Segment);
+						// Analytic integration over the step: (1 - e^(-sigma_t dt)) / sigma_t.
+						const FVector3 Integral{(1.f - StepTransmittance.X) / std::max(Sample.Extinction.X, 1e-7f), (1.f - StepTransmittance.Y) / std::max(Sample.Extinction.Y, 1e-7f), (1.f - StepTransmittance.Z) / std::max(Sample.Extinction.Z, 1e-7f)};
+						const FVector3 Sun = HitsGround(Position, SunDirection, Shape.PlanetRadius) ? FVector3{} : SunTransmittance(Transmittance, Position, SunDirection, Shape);
+						Luminance += Multiply(Throughput, Multiply(Multiply(Scattering, Sun) * IsotropicPhase, Integral));
+						Scattered += Multiply(Throughput, Multiply(Scattering, Integral));
+						Throughput = Multiply(Throughput, StepTransmittance);
+					}
+
+					if (bGround)
+					{
+						const FVector3 Ground = Origin + Direction * Length;
+						const FVector3 Normal = Ground.Normalized();
+						const FVector3 Sun = SunTransmittance(Transmittance, Ground * 1.00001f, SunDirection, Shape);
+						Luminance += Multiply(Throughput, Sun) * (std::max(0.f, Normal.Dot(SunDirection)) * GroundAlbedo / Pi);
+					}
+
+					SecondOrder += Luminance * DirectionWeight;
+					Transfer += Scattered * (DirectionWeight * IsotropicPhase * 4.f * Pi);
+				}
+			}
+
+			const FVector3 Series{1.f / std::max(1.f - Transfer.X, 1e-3f), 1.f / std::max(1.f - Transfer.Y, 1e-3f), 1.f / std::max(1.f - Transfer.Z, 1e-3f)};
+			Table[Y * SkyMultipleScatteringSize + X] = Multiply(SecondOrder, Series);
+		}
+	}
+
+	return Table;
+}
+
 // Mirrors SkyScattering and ComposeProceduralSky in VisualShared.slangh so baked image-based lighting matches the visible sky.
-FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapshot)
+// The sun disc is left out: the directional light already lights surfaces with the sun, and a 600 million cd/m2 texel would dominate every filtered mip.
+FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapshot, const std::vector<FVector3>& MultipleScattering)
 {
 	if (Snapshot.Atmosphere[3] < 0.5f)
 	{
@@ -80,7 +226,7 @@ FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapsho
 	}
 
 	FVector3 SunDirection{0.f, 1.f, 0.f};
-	FVector3 SunIlluminance = FVector3::One() * 50000.f;
+	FVector3 SunIlluminance = FVector3::One() * 128000.f;
 
 	for (std::size_t Index = 0; Index < static_cast<std::size_t>(Snapshot.Controls[0]); ++Index)
 	{
@@ -88,7 +234,7 @@ FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapsho
 		if (Light.PositionType[3] == static_cast<float>(ELightType::Directional))
 		{
 			SunDirection = FVector3{-Light.DirectionRange[0], -Light.DirectionRange[1], -Light.DirectionRange[2]}.Normalized();
-			SunIlluminance = FVector3{Light.ColorIntensity[0], Light.ColorIntensity[1], Light.ColorIntensity[2]} * Light.ColorIntensity[3];
+			SunIlluminance = Snapshot.SunIlluminance[3] > 0.5f ? FVector3{Snapshot.SunIlluminance[0], Snapshot.SunIlluminance[1], Snapshot.SunIlluminance[2]} : FVector3{Light.ColorIntensity[0], Light.ColorIntensity[1], Light.ColorIntensity[2]} * Light.ColorIntensity[3];
 			break;
 		}
 	}
@@ -119,6 +265,12 @@ FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapsho
 		const FVector3 Extinction = Sample.Extinction * Segment;
 		const FVector3 ViewTransmittance = Exp(-(ViewDepth + Extinction * 0.5f));
 		ViewDepth += Extinction;
+		const FVector3 Rayleigh = RayleighScattering * (Snapshot.Atmosphere[0] * Sample.Rayleigh);
+		const float Mie = MieScattering * Snapshot.Atmosphere[1] * Sample.Mie;
+		// Multiple scattering reaches points in the planet's shadow too, so it is gathered before the shadow test.
+		const float Radius = Position.Length();
+		const FVector3 Psi = SampleTable(MultipleScattering, SkyMultipleScatteringSize, SkyMultipleScatteringSize, Position.Dot(SunDirection) / Radius * 0.5f + 0.5f, (Radius - PlanetRadius) / (AtmosphereRadius - PlanetRadius));
+		Multiple += Multiply(Multiply(ViewTransmittance, Psi), Rayleigh + FVector3::One() * Mie) * Segment;
 		const float B = Position.Dot(SunDirection);
 		if (B < 0.f && B * B - Position.Dot(Position) + PlanetRadius * PlanetRadius > 0.f)
 		{
@@ -134,16 +286,11 @@ FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapsho
 		}
 
 		const FVector3 Lit = Multiply(ViewTransmittance, Exp(-SunDepth * (SunLength / static_cast<float>(SunSteps)))) * Segment;
-		const FVector3 Rayleigh = RayleighScattering * (Snapshot.Atmosphere[0] * Sample.Rayleigh);
-		const float Mie = MieScattering * Snapshot.Atmosphere[1] * Sample.Mie;
 		Single += Multiply(Lit, Rayleigh * RayleighPhase + FVector3::One() * (Mie * MiePhase));
-		Multiple += Multiply(Lit, Rayleigh + FVector3::One() * Mie) * (1.f / (4.f * Pi));
 	}
 
-	FVector3 Radiance = Multiply(Single + Multiple, SunIlluminance) * 2.f;
+	FVector3 Radiance = Multiply(Single + Multiple, SunIlluminance);
 	Radiance = Radiance * (Direction.Y < 0.f ? 1.f - 0.7f * std::sqrt(Saturate(-Direction.Y)) : 1.f);
-	const float SunDisc = Direction.Y < 0.f ? 0.f : SmoothStep(std::cos(0.005f), std::cos(0.0044f), Direction.Dot(SunDirection));
-	Radiance += Multiply(Exp(-ViewDepth), SunIlluminance) * (SunDisc * 6.f);
 	return {std::max(0.f, Radiance.X), std::max(0.f, Radiance.Y), std::max(0.f, Radiance.Z)};
 }
 
@@ -311,17 +458,57 @@ void AppendDiffuseMips(FCookedTexture& Texture)
 // The ray-marched sky is evaluated once per texel, then filtered like an authored environment map.
 FCookedTexture BakeProceduralSky(const FVisualUniforms& Snapshot)
 {
+	const std::vector<FVector3> MultipleScattering = ComputeMultipleScattering(Snapshot);
 	FCookedTexture Sky{.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {MakeMip(SpecularWidth, SpecularHeight)}};
 	for (std::uint32_t Y = 0; Y < SpecularHeight; ++Y)
 	{
 		for (std::uint32_t X = 0; X < SpecularWidth; ++X)
 		{
-			WritePixel(Sky.Mips.front(), X, Y, ProceduralSky(TexelDirection(X, Y, SpecularWidth, SpecularHeight), Snapshot));
+			WritePixel(Sky.Mips.front(), X, Y, ProceduralSky(TexelDirection(X, Y, SpecularWidth, SpecularHeight), Snapshot, MultipleScattering));
 		}
 	}
 
 	return Sky;
 }
+}
+
+FVector3 GetSkyTransmittance(const FVisualUniforms& Snapshot, const FVector3& Direction)
+{
+	const FAtmosphereShape Shape = GetAtmosphereShape(Snapshot);
+	const FVector3 Origin{0.f, Shape.PlanetRadius + 0.001f, 0.f};
+	const FVector3 View = Direction.Normalized();
+	if (HitsGround(Origin, View, Shape.PlanetRadius))
+	{
+		return {};
+	}
+
+	const float Length = SkyExit(Origin, View, Shape.AtmosphereRadius);
+	constexpr int Steps = 64;
+	FVector3 Depth;
+	for (int Step = 0; Step < Steps; ++Step)
+	{
+		// Quadratic spacing like the sky march; most of the air is close to the ground.
+		const float Start = static_cast<float>(Step * Step) / (Steps * Steps);
+		const float End = static_cast<float>((Step + 1) * (Step + 1)) / (Steps * Steps);
+		Depth += SampleSky(Origin + View * (Length * (Start + End) * 0.5f), Shape.PlanetRadius, Shape.HeightScale, Snapshot).Extinction * (Length * (End - Start));
+	}
+
+	return Exp(-Depth);
+}
+
+FCookedTextureMip BuildSkyMultipleScattering(const FVisualUniforms& Snapshot)
+{
+	FCookedTextureMip Mip = MakeMip(SkyMultipleScatteringSize, SkyMultipleScatteringSize);
+	const std::vector<FVector3> Table = ComputeMultipleScattering(Snapshot);
+	for (std::uint32_t Y = 0; Y < SkyMultipleScatteringSize; ++Y)
+	{
+		for (std::uint32_t X = 0; X < SkyMultipleScatteringSize; ++X)
+		{
+			WritePixel(Mip, X, Y, Table[Y * SkyMultipleScatteringSize + X]);
+		}
+	}
+
+	return Mip;
 }
 
 std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const FCookedTexture* Environment, const FVisualUniforms& Snapshot, const std::stop_token StopToken)

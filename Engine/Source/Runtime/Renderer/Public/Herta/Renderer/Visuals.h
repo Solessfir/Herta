@@ -43,7 +43,7 @@ struct FRenderLight
 struct FVisualSettings
 {
 	// Photographic EV at ISO 100. The saturating luminance is 1.2 * 2^EV100 cd/m^2 (Lagarde and de Rousiers).
-	float ExposureEV100 = 14.f;
+	float ExposureEV100 = 15.f;
 	EAntiAliasing AntiAliasing = EAntiAliasing::SmaaHigh;
 	std::optional<FSkyAtmosphereComponent> Atmosphere{};
 	std::optional<FHeightFogComponent> Fog{};
@@ -116,6 +116,8 @@ struct alignas(16) FVisualUniforms
 	std::array<float, 4> Fog{};
 	std::array<float, 4> FogColor{};
 	std::array<float, 4> Controls{};
+	// The atmosphere's sun above the air, in lux; w is 1 when present. Its light entry carries what reaches the ground.
+	std::array<float, 4> SunIlluminance{};
 	std::array<FVisualLightUniform, MaximumRenderLights> Lights{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};
 	FMaterialUniform Material{};

@@ -1,5 +1,7 @@
 #include "Herta/Renderer/Visuals.h"
 
+#include "Herta/Renderer/EnvironmentLighting.h"
+
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -178,6 +180,23 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 
 		Result.Atmosphere = {Sky.RayleighScattering, Sky.MieScattering, Sky.MieAnisotropy, 1};
 		Result.AtmosphereGeometry = {Sky.PlanetRadius, Sky.AtmosphereHeight, 0, 0};
+
+		// With an atmosphere, the sun is authored above the air. Surfaces receive what it transmits, so sunsets redden and night falls when the sun sets.
+		for (std::size_t Index = 0; Index < static_cast<std::size_t>(Result.Controls[0]); ++Index)
+		{
+			auto& Light = Result.Lights[Index];
+			if (Light.PositionType[3] != static_cast<float>(ELightType::Directional))
+			{
+				continue;
+			}
+
+			Result.SunIlluminance = {Light.ColorIntensity[0] * Light.ColorIntensity[3], Light.ColorIntensity[1] * Light.ColorIntensity[3], Light.ColorIntensity[2] * Light.ColorIntensity[3], 1};
+			const FVector3 Transmittance = GetSkyTransmittance(Result, {-Light.DirectionRange[0], -Light.DirectionRange[1], -Light.DirectionRange[2]});
+			Light.ColorIntensity[0] *= Transmittance.X;
+			Light.ColorIntensity[1] *= Transmittance.Y;
+			Light.ColorIntensity[2] *= Transmittance.Z;
+			break;
+		}
 		if (!bHasSky)
 		{
 			Result.Sky[1] = 1;

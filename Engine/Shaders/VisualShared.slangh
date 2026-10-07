@@ -40,6 +40,7 @@ struct FVisualUniforms
     float4 Fog;
     float4 FogColor;
     float4 Controls;
+    float4 SunIlluminance;
     FVisualLight Lights[32];
     FShadow Shadows[16];
     FMaterial Material;
@@ -85,23 +86,32 @@ float SkyExit(float3 Position, float3 Direction, float Radius)
     return -B + sqrt(max(0.0, B * B - C));
 }
 
+// The sky scatters sunlight from above the atmosphere; the light entry itself is already dimmed by the air.
 void FindSkySun(out float3 Direction, out float3 Illuminance)
 {
     Direction = float3(0.0, 1.0, 0.0);
-    Illuminance = 50000.0;
+    Illuminance = 128000.0;
     for (int I = 0; I < int(Visual.Controls.x); ++I)
     {
         if (int(Visual.Lights[I].PositionType.w) == 0)
         {
             Direction = -Visual.Lights[I].DirectionRange.xyz;
-            Illuminance = Visual.Lights[I].ColorIntensity.rgb * Visual.Lights[I].ColorIntensity.w;
+            Illuminance = Visual.SunIlluminance.w > 0.5 ? Visual.SunIlluminance.rgb : Visual.Lights[I].ColorIntensity.rgb * Visual.Lights[I].ColorIntensity.w;
             return;
         }
     }
 }
 
-// Single-scattering Rayleigh, Mie, and ozone radiance along an upper-hemisphere ray from sea level, and its transmittance.
-float3 SkyScattering(float3 View, out float3 Transmittance)
+// Hillaire's multiple-scattering transfer from BuildSkyMultipleScattering: sun cosine across, altitude down.
+float3 SkyMultipleScattering(Texture2D<float4> Table, float3 Position, float3 SunDirection, float PlanetRadius, float AtmosphereRadius)
+{
+    float Radius = length(Position);
+    float2 UV = float2(dot(Position, SunDirection) / Radius * 0.5 + 0.5, saturate((Radius - PlanetRadius) / (AtmosphereRadius - PlanetRadius)));
+    return Table.SampleLevel(LinearSampler, (UV * 31.0 + 0.5) / 32.0, 0).rgb;
+}
+
+// Rayleigh, Mie, and ozone radiance along an upper-hemisphere ray from sea level: single scattering plus the multiple-scattering table.
+float3 SkyScattering(float3 View, Texture2D<float4> MultipleScatteringTable, out float3 Transmittance)
 {
     float3 SunDirection;
     float3 SunIlluminance;
@@ -131,6 +141,10 @@ float3 SkyScattering(float3 View, out float3 Transmittance)
         float3 Extinction = SkyExtinction(Position, PlanetRadius, HeightScale, Rayleigh, Mie) * Segment;
         float3 ViewTransmittance = exp(-(ViewDepth + 0.5 * Extinction));
         ViewDepth += Extinction;
+        float3 RayleighScattering = float3(5.802e-3, 13.558e-3, 33.1e-3) * Visual.Atmosphere.x * Rayleigh;
+        float MieScattering = 3.996e-3 * Visual.Atmosphere.y * Mie;
+        // Multiple scattering also lights air in the planet's shadow, so it is gathered before the shadow test.
+        Multiple += ViewTransmittance * Segment * (RayleighScattering + MieScattering) * SkyMultipleScattering(MultipleScatteringTable, Position, SunDirection, PlanetRadius, AtmosphereRadius);
         float B = dot(Position, SunDirection);
         if (B < 0.0 && B * B - dot(Position, Position) + PlanetRadius * PlanetRadius > 0.0) continue;
         float SunLength = SkyExit(Position, SunDirection, AtmosphereRadius);
@@ -142,15 +156,31 @@ float3 SkyScattering(float3 View, out float3 Transmittance)
         }
 
         float3 Lit = ViewTransmittance * exp(-SunDepth * (SunLength / float(SunSteps))) * Segment;
-        float3 RayleighScattering = float3(5.802e-3, 13.558e-3, 33.1e-3) * Visual.Atmosphere.x * Rayleigh;
-        float MieScattering = 3.996e-3 * Visual.Atmosphere.y * Mie;
         Single += Lit * (RayleighScattering * RayleighPhase + MieScattering * MiePhase);
-        Multiple += Lit * (RayleighScattering + MieScattering) / (4.0 * PI);
     }
 
     Transmittance = exp(-ViewDepth);
-    // Single scattering alone underexposes skylight; the isotropic term and gain approximate multiple scattering at the previous sky's zenith brightness.
-    return (Single + Multiple) * 2.0 * SunIlluminance;
+    return (Single + Multiple) * SunIlluminance;
+}
+
+// Optical depth from sea level along an upper-hemisphere ray, for the sun disc seen through the air.
+float3 SkyTransmittance(float3 View)
+{
+    float PlanetRadius = Visual.AtmosphereGeometry.x / 1000.0;
+    float HeightScale = Visual.AtmosphereGeometry.y / 80000.0;
+    float3 Origin = float3(0.0, PlanetRadius + 0.001, 0.0);
+    float Length = SkyExit(Origin, View, PlanetRadius + Visual.AtmosphereGeometry.y / 1000.0);
+    float3 Depth = 0.0;
+    const int Steps = 12;
+    for (int S = 0; S < Steps; ++S)
+    {
+        float Start = float(S * S) / float(Steps * Steps);
+        float End = float((S + 1) * (S + 1)) / float(Steps * Steps);
+        float Rayleigh, Mie;
+        Depth += SkyExtinction(Origin + View * (Length * (Start + End) * 0.5), PlanetRadius, HeightScale, Rayleigh, Mie) * (Length * (End - Start));
+    }
+
+    return exp(-Depth);
 }
 
 // The sky-view table covers the upper hemisphere; latitude is square-root mapped so the horizon band gets most rows.
@@ -176,9 +206,9 @@ float3 ComposeProceduralSky(float3 Direction, float3 MirroredScattering)
     float Mu = dot(Direction, SunDirection);
     if (Direction.y >= 0.0 && Mu > cos(0.005))
     {
-        float3 Transmittance;
-        SkyScattering(Direction, Transmittance);
-        Radiance += Transmittance * SunIlluminance * (smoothstep(cos(0.005), cos(0.0044), Mu) * 6.0);
+        // The disc's luminance is the sun's illuminance spread over its 0.27 degree angular radius, about 7e-5 sr.
+        const float SunSolidAngle = 2.0 * PI * (1.0 - cos(0.0047));
+        Radiance += SkyTransmittance(Direction) * SunIlluminance * (smoothstep(cos(0.005), cos(0.0044), Mu) / SunSolidAngle);
     }
 
     return max(0.0, Radiance);

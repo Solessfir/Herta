@@ -415,6 +415,9 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle Weights;
 	FTextureHandle SelectionDepth;
 	FTextureHandle SkyView;
+	FTextureHandle SkyMultipleScattering;
+	// Rayleigh and Mie scales, planet radius, and atmosphere height the table was built from.
+	std::array<float, 4> SkyMultipleScatteringKey{};
 	FTextureHandle ShadowAtlas;
 	FTextureHandle White;
 	FTextureHandle EnvironmentDiffuse;
@@ -893,6 +896,37 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	State.Shadows = State.ShadowPipeline && View.Visuals.ShadowQuality != EShadowQuality::Off ? BuildShadowViews(State.Uniforms, View.Lights, View.Projection) : std::vector<FShadowView>{};
 
+	// The table depends only on the atmosphere, so moving the sun or dragging the time of day reuses it.
+	const std::array AtmosphereKey{State.Uniforms.Atmosphere[0], State.Uniforms.Atmosphere[1], State.Uniforms.AtmosphereGeometry[0], State.Uniforms.AtmosphereGeometry[1]};
+	if (State.VisualPipelines[0] && State.Uniforms.Atmosphere[3] > 0.5f && (!State.SkyMultipleScattering || AtmosphereKey != State.SkyMultipleScatteringKey))
+	{
+		const FCookedTextureMip Table = BuildSkyMultipleScattering(State.Uniforms);
+		auto Texture = Device.CreateTexture({.Name = "Sky multiple scattering", .Extent = {SkyMultipleScatteringSize, SkyMultipleScatteringSize}, .Format = ETextureFormat::Rgba32Float});
+		if (!Texture)
+		{
+			return std::unexpected(Texture.error());
+		}
+
+		if (auto Begun = Device.BeginCommands(); !Begun)
+		{
+			return Begun;
+		}
+
+		if (auto Written = Device.WriteTexture(*Texture, 0, Table.Pixels); !Written)
+		{
+			Device.CancelCommands();
+			return Written;
+		}
+
+		if (auto Submitted = Device.SubmitCommands(); !Submitted)
+		{
+			return std::unexpected(Submitted.error());
+		}
+
+		State.SkyMultipleScattering = std::move(*Texture);
+		State.SkyMultipleScatteringKey = AtmosphereKey;
+	}
+
 	if (!IsFinite(View.View) || !IsFinite(View.Projection) || !IsFinite(WorldToClip) || !std::ranges::all_of(View.Models, [&](const FMatrix4& Model)
 	{
 		return IsFinite(Model) && IsFinite(WorldToClip * Model) && IsFinite(View.View * Model);
@@ -1245,8 +1279,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		auto Result = Device.ClearTargets(MeshColor, FrameDepth, {0.035f, 0.035f, 0.035f, 1.f});
 		if (Result && State.VisualPipelines[0])
 		{
-			// The shared include declares the sampler, which the RHI only binds alongside a texture slot.
-			const std::array SkySources{State.White};
+			const std::array SkySources{State.SkyMultipleScattering ? State.SkyMultipleScattering : State.White};
 			Result = Fullscreen(7, State.SkyView, SkySources);
 		}
 

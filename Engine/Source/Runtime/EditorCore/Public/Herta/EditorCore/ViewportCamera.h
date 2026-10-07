@@ -43,8 +43,8 @@ struct FViewportPickingRay
 struct FPhysicalCamera
 {
 	float FocalLengthMillimeters = 19.f;
-	float Aperture = 8.f;
-	float ShutterSeconds = 1.f / 250.f;
+	float Aperture = 16.f;
+	float ShutterSeconds = 1.f / 125.f;
 	float Iso = 100.f;
 };
 

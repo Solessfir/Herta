@@ -174,7 +174,7 @@ TEST_CASE("Visual authoring and material overrides use grouped reversible transa
 	FEditorLevel Level;
 	const auto Created = Level.CreateLightEntity(ELightType::Directional, FWorldPosition{1., 2., 3.});
 	REQUIRE(Created);
-	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Created))->Light->Intensity == 50'000.f);
+	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Created))->Light->Intensity == 128'000.f);
 	const auto Before = Level.GetWorld().SnapshotEntities();
 	REQUIRE(Level.BeginEdit("Tune sun"));
 	FLightComponent Light = *Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Created))->Light;

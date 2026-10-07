@@ -3,6 +3,7 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -309,4 +310,43 @@ TEST_CASE("Only the first shadowed directional light receives cascades")
 	CHECK(Uniforms.Lights[2].ConeShadow[2] == 4.f);
 	CHECK(Shadows[4].Viewport.X == 0);
 	CHECK(Shadows[4].Viewport.Y == 2 * ShadowCascadeResolution);
+}
+
+TEST_CASE("Atmosphere dims the sun at noon, reddens it near the horizon, and removes it below")
+{
+	const auto Uniforms = [](const float ElevationDegrees, const bool bAtmosphere)
+	{
+		// A light's +Z axis is its travel direction; tilting it down by the elevation raises the sun.
+		const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 128'000.f, .Range = 100.f}, .Transform = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, ElevationDegrees * std::numbers::pi_v<float> / 180.f))}};
+		FVisualSettings Settings;
+		if (bAtmosphere)
+		{
+			Settings.Atmosphere = FSkyAtmosphereComponent{};
+		}
+
+		const auto Result = BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, Lights, Settings);
+		REQUIRE(Result);
+		return *Result;
+	};
+
+	const FVisualUniforms Space = Uniforms(90.f, false);
+	CHECK(Space.SunIlluminance[3] == 0.f);
+	const auto Ratio = [&Space](const FVisualUniforms& Lit, const std::size_t Channel)
+	{
+		return Lit.Lights[0].ColorIntensity[Channel] / Space.Lights[0].ColorIntensity[Channel];
+	};
+
+	const FVisualUniforms Noon = Uniforms(90.f, true);
+	CHECK(Noon.SunIlluminance[3] == 1.f);
+	CHECK(Noon.SunIlluminance[1] == doctest::Approx(Space.Lights[0].ColorIntensity[1] * Space.Lights[0].ColorIntensity[3]));
+	CHECK(Ratio(Noon, 1) > 0.8f);
+	CHECK(Ratio(Noon, 1) < 0.95f);
+
+	const FVisualUniforms Sunset = Uniforms(2.f, true);
+	CHECK(Ratio(Sunset, 0) > Ratio(Sunset, 2) * 2.f);
+	CHECK(Ratio(Sunset, 1) < Ratio(Noon, 1));
+
+	const FVisualUniforms Night = Uniforms(-10.f, true);
+	CHECK(Night.Lights[0].ColorIntensity[0] == 0.f);
+	CHECK(Night.Lights[0].ColorIntensity[2] == 0.f);
 }

@@ -3824,7 +3824,7 @@
             1,
             1
           ],
-          "intensity": 50000,
+          "intensity": 128000,
           "useTemperature": true,
           "temperatureKelvin": 5800,
           "castShadows": true,
@@ -4861,9 +4861,9 @@
             1,
             1
           ],
-          "intensity": 90000,
+          "intensity": 1600,
           "useTemperature": true,
-          "temperatureKelvin": 3200,
+          "temperatureKelvin": 2700,
           "castShadows": true,
           "shadowBias": 0.001,
           "shadowNormalBias": 0.02,
@@ -4936,13 +4936,13 @@
         "light": {
           "type": "spot",
           "color": [
-            0.55,
-            0.8,
+            1,
+            1,
             1
           ],
-          "intensity": 65000,
-          "useTemperature": false,
-          "temperatureKelvin": 6500,
+          "intensity": 1200,
+          "useTemperature": true,
+          "temperatureKelvin": 4000,
           "castShadows": true,
           "shadowBias": 0.001,
           "shadowNormalBias": 0.02,
@@ -5019,9 +5019,9 @@
             1,
             1
           ],
-          "intensity": 45000,
+          "intensity": 2500,
           "useTemperature": true,
-          "temperatureKelvin": 4500,
+          "temperatureKelvin": 3000,
           "castShadows": true,
           "shadowBias": 0.001,
           "shadowNormalBias": 0.02,
