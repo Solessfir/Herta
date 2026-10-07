@@ -1654,11 +1654,6 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				ImGui::PopID();
 			}
 
-			ImGui::TableNextRow();
-			ImGui::TableSetColumnIndex(0);
-			ImGui::TextDisabled("Shape");
-			ImGui::TableSetColumnIndex(1);
-			ImGui::TextDisabled("Box (mesh bounds)");
 			ImGui::EndTable();
 		}
 
