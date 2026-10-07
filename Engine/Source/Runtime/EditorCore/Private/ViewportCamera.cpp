@@ -117,6 +117,19 @@ void FViewportCameraController::SetVerticalFieldOfView(const float Radians)
 	}
 }
 
+void FViewportCameraController::SetView(const FVector3& NewPosition, const float NewYaw, const float NewPitch)
+{
+	if (!IsFinite(NewPosition) || !std::isfinite(NewYaw) || !std::isfinite(NewPitch))
+	{
+		return;
+	}
+
+	Position = NewPosition;
+	Yaw = std::remainder(NewYaw, 2.f * std::numbers::pi_v<float>);
+	Pitch = std::clamp(NewPitch, -MaximumPitch, MaximumPitch);
+	Pivot = Position + GetOrientation().RotateVector(FVector3::Forward()) * OrbitDistance;
+}
+
 float FViewportCameraController::GetVerticalFieldOfView() const
 {
 	return VerticalFieldOfView;

@@ -13,9 +13,11 @@
 #include <fstream>
 #include <limits>
 #include <map>
+#include <numbers>
 #include <span>
 #include <system_error>
 #include <type_traits>
+#include <utility>
 
 #ifdef _WIN32
 	#include <Windows.h>
@@ -580,6 +582,33 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 	return Entity;
 }
 
+std::expected<FLevelCameraBookmark, FLevelError> ReadCameraBookmark(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadFields(Element, std::array<std::string_view, 5>{"slot", "name", "position", "yaw", "pitch"}, 0x1f);
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	std::uint64_t Slot = 0;
+	const auto Name = ReadString((*Fields)[1]);
+	const auto Position = ReadNumbers<double, 3>((*Fields)[2]);
+	const auto Yaw = ReadNumber<float>((*Fields)[3]);
+	const auto Pitch = ReadNumber<float>((*Fields)[4]);
+	if ((*Fields)[0].get_uint64().get(Slot) || Slot == 0 || Slot > MaximumLevelCameraBookmarks || !Name || !Position || !Yaw || !Pitch)
+	{
+		return LevelError("Invalid camera bookmark field");
+	}
+
+	return FLevelCameraBookmark{
+	    .Slot = static_cast<std::uint32_t>(Slot),
+	    .Name = std::string(*Name),
+	    .Position = FWorldPosition{(*Position)[0], (*Position)[1], (*Position)[2]},
+	    .Yaw = *Yaw,
+	    .Pitch = *Pitch,
+	};
+}
+
 std::expected<FLevelFolder, FLevelError> ReadFolder(const simdjson::dom::element Element, std::size_t& MembershipCount)
 {
 	const auto Fields = ReadFields(Element, std::array<std::string_view, 4>{"id", "name", "parent", "entities"}, 0xf);
@@ -876,6 +905,32 @@ std::expected<void, FLevelError> WriteTemporaryFile(const std::filesystem::path&
 }
 }
 
+std::expected<void, FLevelError> ValidateLevelCameraBookmarks(const std::span<const FLevelCameraBookmark> Bookmarks)
+{
+	if (Bookmarks.size() > MaximumLevelCameraBookmarks)
+	{
+		return LevelError("Levels support at most 9 camera bookmarks");
+	}
+
+	std::array<bool, MaximumLevelCameraBookmarks + 1> Used{};
+	for (const FLevelCameraBookmark& Bookmark : Bookmarks)
+	{
+		const FVector3d& Position = Bookmark.Position.Meters;
+		if (Bookmark.Slot == 0 || Bookmark.Slot > MaximumLevelCameraBookmarks || std::exchange(Used[Bookmark.Slot], true))
+		{
+			return LevelError("Camera bookmark slots must be unique and between 1 and 9");
+		}
+
+		if (Bookmark.Name.empty() || !IsValidName(Bookmark.Name) || !std::isfinite(Position.X) || !std::isfinite(Position.Y) || !std::isfinite(Position.Z) || !std::isfinite(Bookmark.Yaw)
+		    || !(std::abs(Bookmark.Pitch) <= std::numbers::pi_v<float> * 0.5f))
+		{
+			return LevelError("Camera bookmarks need a name, a finite position and yaw, and a pitch within 90 degrees");
+		}
+	}
+
+	return {};
+}
+
 std::expected<void, FLevelError> ValidateLevelDocument(const FLevelDocument& Document)
 {
 	if (!Document.Id.IsValid() || !IsValidName(Document.Name) || Document.Entities.size() > MaximumLevelEntities || Document.Folders.size() > MaximumLevelEntities)
@@ -889,7 +944,12 @@ std::expected<void, FLevelError> ValidateLevelDocument(const FLevelDocument& Doc
 		return Entities;
 	}
 
-	return ValidateLevelFolders(Document);
+	if (auto Folders = ValidateLevelFolders(Document); !Folders)
+	{
+		return Folders;
+	}
+
+	return ValidateLevelCameraBookmarks(Document.CameraBookmarks);
 }
 
 std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Document)
@@ -1143,7 +1203,35 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		}
 	}
 
-	Output += Folders.empty() ? "]\n}\n" : "\n  ]\n}\n";
+	Output += Folders.empty() ? "],\n  \"cameraBookmarks\": [" : "\n  ],\n  \"cameraBookmarks\": [";
+	std::vector<const FLevelCameraBookmark*> Bookmarks;
+	Bookmarks.reserve(Document.CameraBookmarks.size());
+
+	for (const auto& Bookmark : Document.CameraBookmarks)
+	{
+		Bookmarks.push_back(&Bookmark);
+	}
+
+	std::ranges::sort(Bookmarks, {}, &FLevelCameraBookmark::Slot);
+
+	for (std::size_t Index = 0; Index < Bookmarks.size(); ++Index)
+	{
+		const FLevelCameraBookmark& Bookmark = *Bookmarks[Index];
+		const FVector3d& Position = Bookmark.Position.Meters;
+		Output += Index == 0 ? "\n    {\n      \"slot\": " : ",\n    {\n      \"slot\": ";
+		Output += std::to_string(Bookmark.Slot);
+		Output += ",\n      \"name\": ";
+		AppendString(Output, Bookmark.Name);
+		Output += ",\n      \"position\": ";
+		AppendNumbers(Output, std::array{Position.X, Position.Y, Position.Z});
+		Output += ",\n      \"yaw\": ";
+		AppendNumber(Output, Bookmark.Yaw);
+		Output += ",\n      \"pitch\": ";
+		AppendNumber(Output, Bookmark.Pitch);
+		Output += "\n    }";
+	}
+
+	Output += Bookmarks.empty() ? "]\n}\n" : "\n  ]\n}\n";
 	if (Output.size() > MaximumLevelBytes)
 	{
 		return LevelError("Level exceeds the 64 MiB limit");
@@ -1172,7 +1260,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		return LevelError("Malformed level JSON or invalid UTF-8");
 	}
 
-	const auto Fields = ReadFields(Root, std::array<std::string_view, 7>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders"}, 0x3f);
+	const auto Fields = ReadFields(Root, std::array<std::string_view, 8>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders", "cameraBookmarks"}, 0x3f);
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -1196,6 +1284,11 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	if ((SchemaVersion >= 3) != bHasFolders)
 	{
 		return LevelError("Level folders are required in engine schemas 3 and later");
+	}
+
+	if ((SchemaVersion >= 5) != (Root["cameraBookmarks"].error() == simdjson::SUCCESS))
+	{
+		return LevelError("Camera bookmarks are required in engine schema 5 and later");
 	}
 
 	const auto Id = ReadId<FObjectId>((*Fields)[3]);
@@ -1245,6 +1338,26 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 			}
 
 			Document.Folders.push_back(std::move(*Folder));
+		}
+	}
+
+	if (SchemaVersion >= 5)
+	{
+		simdjson::dom::array Bookmarks;
+		if ((*Fields)[7].get_array().get(Bookmarks) || Bookmarks.size() > MaximumLevelCameraBookmarks)
+		{
+			return LevelError("Invalid camera bookmarks array or bookmark count");
+		}
+
+		for (const auto Element : Bookmarks)
+		{
+			auto Bookmark = ReadCameraBookmark(Element);
+			if (!Bookmark)
+			{
+				return std::unexpected(Bookmark.error());
+			}
+
+			Document.CameraBookmarks.push_back(std::move(*Bookmark));
 		}
 	}
 

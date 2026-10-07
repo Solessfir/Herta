@@ -40,6 +40,10 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> DeleteFolder(FObjectId Folder);
 	[[nodiscard]] std::expected<void, FLevelError> MoveFolder(FObjectId Folder, std::optional<FObjectId> Parent);
 	[[nodiscard]] std::expected<void, FLevelError> MoveEntitiesToFolder(std::span<const FObjectId> Entities, std::optional<FObjectId> Folder);
+	std::span<const FLevelCameraBookmark> GetCameraBookmarks() const;
+	// Adds the bookmark or replaces the one in its slot.
+	[[nodiscard]] std::expected<void, FLevelError> SetCameraBookmark(FLevelCameraBookmark Bookmark);
+	[[nodiscard]] std::expected<void, FLevelError> RemoveCameraBookmark(std::uint32_t Slot);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateMeshEntity(FAssetId Asset, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEmptyEntity(const FWorldPosition& Position = {});
@@ -101,12 +105,14 @@ private:
 	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedBodyType(ELevelBodyType Type, bool bOnlyAbsent);
 	template <typename T> [[nodiscard]] std::expected<void, FLevelError> ApplySelectedComponent(std::optional<T> FLevelEntity::* Member, std::optional<T> Value, std::string_view Label, bool bOnlyAbsent = false);
 	[[nodiscard]] std::expected<void, FLevelError> CheckAuthoringAllowed(bool bAllowActiveEdit = false) const;
+	[[nodiscard]] std::expected<void, FLevelError> ApplyCameraBookmarks(std::string_view Label, std::vector<FLevelCameraBookmark> After);
 
 	FWorld World;
 	FObjectId Id;
 	std::string Name;
 	std::filesystem::path CurrentPath;
 	std::vector<FLevelFolder> Folders;
+	std::vector<FLevelCameraBookmark> CameraBookmarks;
 	std::vector<FPreviewObject> Objects;
 	std::vector<FPreviewObject> AuthoredObjects;
 	std::uint64_t Generation = 1;

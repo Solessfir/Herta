@@ -490,6 +490,7 @@ std::expected<void, FLevelError> FEditorLevel::LoadDocument(FLevelDocument Docum
 	Id = Document.Id;
 	Name = std::move(Document.Name);
 	Folders = std::move(Document.Folders);
+	CameraBookmarks = std::move(Document.CameraBookmarks);
 	CurrentPath = Path;
 	RebuildObjects();
 	Selection.clear();
@@ -671,7 +672,7 @@ std::expected<void, FLevelError> FEditorLevel::Save(const std::filesystem::path&
 		return std::unexpected(FLevelError{"No level path is set; use level.save <path>"});
 	}
 
-	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders}); !Result)
+	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks}); !Result)
 	{
 		return Result;
 	}
@@ -1072,6 +1073,89 @@ std::expected<FObjectId, FLevelError> FEditorLevel::CreateFolder(const std::opti
 	}
 
 	return FolderId;
+}
+
+std::span<const FLevelCameraBookmark> FEditorLevel::GetCameraBookmarks() const
+{
+	return CameraBookmarks;
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetCameraBookmark(FLevelCameraBookmark Bookmark)
+{
+	auto After = CameraBookmarks;
+	const std::uint32_t Slot = Bookmark.Slot;
+	const auto Existing = std::ranges::find(After, Slot, &FLevelCameraBookmark::Slot);
+	const bool bReplacing = Existing != After.end();
+	if (bReplacing)
+	{
+		*Existing = std::move(Bookmark);
+	}
+	else
+	{
+		After.push_back(std::move(Bookmark));
+	}
+
+	std::ranges::sort(After, {}, &FLevelCameraBookmark::Slot);
+	return ApplyCameraBookmarks(bReplacing ? "Update camera bookmark" : "Add camera bookmark", std::move(After));
+}
+
+std::expected<void, FLevelError> FEditorLevel::RemoveCameraBookmark(const std::uint32_t Slot)
+{
+	auto After = CameraBookmarks;
+	if (std::erase_if(After, [Slot](const FLevelCameraBookmark& Bookmark)
+	{
+		return Bookmark.Slot == Slot;
+	}) == 0)
+	{
+		return std::unexpected(FLevelError{"The camera bookmark no longer exists"});
+	}
+
+	return ApplyCameraBookmarks("Delete camera bookmark", std::move(After));
+}
+
+std::expected<void, FLevelError> FEditorLevel::ApplyCameraBookmarks(const std::string_view Label, std::vector<FLevelCameraBookmark> After)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	if (auto Valid = ValidateLevelCameraBookmarks(After); !Valid)
+	{
+		return Valid;
+	}
+
+	if (After == CameraBookmarks)
+	{
+		return {};
+	}
+
+	std::size_t Cost = sizeof(FLevelCameraBookmark) * (CameraBookmarks.size() + After.size());
+	for (const auto* Snapshot : {&CameraBookmarks, &After})
+	{
+		for (const FLevelCameraBookmark& Bookmark : *Snapshot)
+		{
+			Cost += Bookmark.Name.size();
+		}
+	}
+
+	// Bookmarks are level metadata like folders: undoable and saved, but outside the world and selection.
+	const auto Executed = History.Execute({
+	    .Label = std::string(Label),
+	    .Apply = [this, Before = CameraBookmarks, After = std::move(After)](const bool bUndo) -> std::expected<void, FEditorCommandError>
+	{
+		CameraBookmarks = bUndo ? Before : After;
+		return {};
+	},
+	    .MemoryCost = Cost,
+	});
+
+	if (!Executed)
+	{
+		return std::unexpected(FLevelError{Executed.error().Message});
+	}
+
+	return {};
 }
 
 std::expected<void, FLevelError> FEditorLevel::RenameFolder(const FObjectId Folder, const std::string_view NewName)

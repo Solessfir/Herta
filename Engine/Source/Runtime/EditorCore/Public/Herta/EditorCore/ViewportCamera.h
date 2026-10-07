@@ -63,6 +63,8 @@ public:
 	void SetMovementSpeed(float Speed);
 	void SetMouseSensitivity(float RadiansPerPixel);
 	void SetVerticalFieldOfView(float Radians);
+	// Keeps the orbit distance and clamps pitch like mouse look; non-finite values leave the camera unchanged.
+	void SetView(const FVector3& Position, float Yaw, float Pitch);
 	[[nodiscard]] float GetVerticalFieldOfView() const;
 
 	[[nodiscard]] constexpr float GetMovementSpeed() const
@@ -89,6 +91,11 @@ public:
 	[[nodiscard]] constexpr const FVector3& GetPivot() const
 	{
 		return Pivot;
+	}
+
+	[[nodiscard]] constexpr const FVector3& GetPosition() const
+	{
+		return Position;
 	}
 
 	// ProjectionCenter uses full-target normalized coordinates with a top-left origin.

@@ -78,6 +78,41 @@ TEST_CASE("Editor folders create rename and nest without changing runtime entiti
 	CHECK(Level.GetGeneration() == Generation);
 }
 
+TEST_CASE("Editor camera bookmarks replace by slot, undo, and save with the level")
+{
+	Tests::FScratchDirectory Directory("HertaCameraBookmarks");
+	const auto Path = Directory.GetPath() / "Bookmarks.hlevel";
+	FEditorLevel Level;
+	REQUIRE(Level.LoadDocument(FolderLevelDocument(), Path));
+	REQUIRE(Level.SetCameraBookmark({.Slot = 2, .Name = "Second", .Position = FWorldPosition{1., 2., 3.}, .Yaw = 0.5f}));
+	REQUIRE(Level.SetCameraBookmark({.Slot = 1, .Name = "First"}));
+	REQUIRE(Level.GetCameraBookmarks().size() == 2);
+	CHECK(Level.GetCameraBookmarks()[0].Slot == 1);
+	CHECK(Level.IsDirty());
+	CHECK(Level.GetUndoLabel() == "Add camera bookmark");
+
+	REQUIRE(Level.SetCameraBookmark({.Slot = 2, .Name = "Renamed", .Position = FWorldPosition{1., 2., 3.}, .Yaw = 0.5f}));
+	CHECK(Level.GetUndoLabel() == "Update camera bookmark");
+	CHECK(Level.GetCameraBookmarks().size() == 2);
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetCameraBookmarks()[1].Name == "Second");
+	REQUIRE(Level.Redo());
+	CHECK(Level.GetCameraBookmarks()[1].Name == "Renamed");
+
+	CHECK_FALSE(Level.SetCameraBookmark({.Slot = 10, .Name = "Out of range"}));
+	CHECK_FALSE(Level.SetCameraBookmark({.Slot = 3, .Name = ""}));
+	CHECK_FALSE(Level.RemoveCameraBookmark(7));
+	REQUIRE(Level.RemoveCameraBookmark(1));
+	CHECK(Level.GetCameraBookmarks().size() == 1);
+
+	REQUIRE(Level.Save());
+	CHECK_FALSE(Level.IsDirty());
+	FEditorLevel Reloaded;
+	REQUIRE(Reloaded.Load(Path));
+	REQUIRE(Reloaded.GetCameraBookmarks().size() == 1);
+	CHECK(Reloaded.GetCameraBookmarks()[0] == FLevelCameraBookmark{.Slot = 2, .Name = "Renamed", .Position = FWorldPosition{1., 2., 3.}, .Yaw = 0.5f});
+}
+
 TEST_CASE("Editor folder admission rejects missing objects cycles invalid names and blocked authoring atomically")
 {
 	FEditorLevel Level;

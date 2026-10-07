@@ -46,6 +46,22 @@ TEST_CASE("Viewport camera starts looking down at a pivot above the origin with 
 	CHECK(ProjectCameraPoint(Snapshot, Snapshot.Position + LookDirection * 100'000.f).Z == doctest::Approx(0.000001f));
 }
 
+TEST_CASE("Viewport camera views restore position and direction for bookmarks")
+{
+	FViewportCameraController Camera;
+	const float OrbitDistance = (Camera.GetPivot() - Camera.GetPosition()).Length();
+	// Positive yaw turns from +Z towards +X; negative pitch looks down.
+	Camera.SetView({15.f, 1.7f, 8.f}, std::numbers::pi_v<float> * 0.5f, -0.25f);
+	CheckCameraVector(Camera.GetPosition(), {15.f, 1.7f, 8.f});
+	CheckCameraVector(Camera.MakePickingRay({0.5f, 0.5f}, 1.f).Direction, {std::cos(0.25f), -std::sin(0.25f), 0.f});
+	CHECK((Camera.GetPivot() - Camera.GetPosition()).Length() == doctest::Approx(OrbitDistance));
+
+	Camera.SetView({0.f, 0.f, 0.f}, 0.f, -3.f);
+	CHECK(Camera.GetPitch() > -std::numbers::pi_v<float> * 0.5f);
+	Camera.SetView({std::numeric_limits<float>::quiet_NaN(), 0.f, 0.f}, 0.f, 0.f);
+	CheckCameraVector(Camera.GetPosition(), FVector3::Zero());
+}
+
 TEST_CASE("Viewport camera does not jump on the first orbit frame")
 {
 	FViewportCameraController Camera;

@@ -502,6 +502,9 @@ struct FEditorFramework::FImplementation
 	void CancelViewportBoxSelection();
 	void RequestPreviewRename();
 	void ToggleSimulation();
+	void JumpToCameraBookmark(std::uint32_t Slot);
+	void SaveCameraBookmark(std::uint32_t Slot);
+	void DrawCameraBookmarks(float Scale);
 	void UpdateSimulation(float DeltaSeconds);
 	void RebuildSuggestions(std::string_view Prefix);
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> SubmitCommand();
@@ -602,6 +605,7 @@ struct FEditorFramework::FImplementation
 	bool bBoundsVisible = false;
 	bool bCameraReadoutVisible = false;
 	bool bCameraSpeedVisible = false;
+	std::array<char, 128> CameraBookmarkName{};
 	bool bTimeOfDayVisible = true;
 	FPhysicalCamera PhysicalCamera;
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
@@ -919,6 +923,27 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		{
 			Implementation->bGameView = !Implementation->bGameView;
 			Implementation->ViewportGizmos.resetId();
+		}
+	}
+
+	// Number keys recall camera bookmarks and Ctrl+number saves them, like Unreal's viewport bookmarks.
+	if (!IO.AppFocusLost && !IO.WantTextInput && (IO.KeyMods == 0 || IO.KeyMods == ImGuiMod_Ctrl) && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && Implementation->ToolUI->IsPanelFocused("Viewport"))
+	{
+		for (std::uint32_t Slot = 1; Slot <= MaximumLevelCameraBookmarks; ++Slot)
+		{
+			if (!ImGui::IsKeyPressed(static_cast<ImGuiKey>(ImGuiKey_0 + Slot), false))
+			{
+				continue;
+			}
+
+			if (IO.KeyMods == ImGuiMod_Ctrl)
+			{
+				Implementation->SaveCameraBookmark(Slot);
+			}
+			else
+			{
+				Implementation->JumpToCameraBookmark(Slot);
+			}
 		}
 	}
 
@@ -2869,6 +2894,11 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			ImGui::TextDisabled("EV100 %.1f", GetPhysicalCameraExposureEV100(PhysicalCamera));
 		}
 
+		if (Section("Bookmarks"))
+		{
+			DrawCameraBookmarks(Scale);
+		}
+
 		if (Section("Gizmo"))
 		{
 			if (!bToolbarShowsModes)
@@ -3969,6 +3999,120 @@ void FEditorFramework::FImplementation::RequestPreviewRename()
 	bOutlinerOpen = true;
 	OutlinerPanelState.bRenameRequested = true;
 	ImGui::SetWindowFocus("Outliner");
+}
+
+void FEditorFramework::FImplementation::JumpToCameraBookmark(const std::uint32_t Slot)
+{
+	const auto Bookmarks = Level->GetCameraBookmarks();
+	const auto Found = std::ranges::find(Bookmarks, Slot, &FLevelCameraBookmark::Slot);
+	if (Found == Bookmarks.end())
+	{
+		HERTA_LOG_INFO(*Log, EditorLog, "Camera bookmark {} is empty; press Ctrl+{} in the viewport to save the current view", Slot, Slot);
+		return;
+	}
+
+	const FVector3d& Position = Found->Position.Meters;
+	ViewportCamera.SetView({static_cast<float>(Position.X), static_cast<float>(Position.Y), static_cast<float>(Position.Z)}, Found->Yaw, Found->Pitch);
+}
+
+void FEditorFramework::FImplementation::SaveCameraBookmark(const std::uint32_t Slot)
+{
+	const auto Bookmarks = Level->GetCameraBookmarks();
+	const auto Found = std::ranges::find(Bookmarks, Slot, &FLevelCameraBookmark::Slot);
+	const FVector3& Position = ViewportCamera.GetPosition();
+	FLevelCameraBookmark Bookmark{
+	    .Slot = Slot,
+	    .Name = Found != Bookmarks.end() ? Found->Name : std::format("Bookmark {}", Slot),
+	    .Position = FWorldPosition{Position.X, Position.Y, Position.Z},
+	    .Yaw = ViewportCamera.GetYaw(),
+	    .Pitch = ViewportCamera.GetPitch(),
+	};
+
+	const std::string Name = Bookmark.Name;
+	if (const auto Result = Level->SetCameraBookmark(std::move(Bookmark)); !Result)
+	{
+		ReportLevelResult(Result);
+		return;
+	}
+
+	HERTA_LOG_INFO(*Log, EditorLog, "Saved camera bookmark {} ({})", Slot, Name);
+}
+
+void FEditorFramework::FImplementation::DrawCameraBookmarks(const float Scale)
+{
+	const auto Bookmarks = Level->GetCameraBookmarks();
+	std::optional<std::uint32_t> Jump;
+	std::optional<std::uint32_t> Update;
+	std::optional<std::uint32_t> Remove;
+	std::optional<FLevelCameraBookmark> Renamed;
+	for (const FLevelCameraBookmark& Bookmark : Bookmarks)
+	{
+		ImGui::PushID(static_cast<int>(Bookmark.Slot));
+		const std::string Key = std::to_string(Bookmark.Slot);
+		if (ImGui::Selectable(Bookmark.Name.c_str()))
+		{
+			Jump = Bookmark.Slot;
+		}
+
+		ImGui::SetItemTooltip("Press %s in the viewport to recall. Right-click to rename, update, or delete.", Key.c_str());
+		const ImVec2 RowMaximum = ImGui::GetItemRectMax();
+		const ImVec2 KeySize = ImGui::CalcTextSize(Key.c_str());
+		ImGui::GetWindowDrawList()->AddText({RowMaximum.x - KeySize.x - 4.f * Scale, RowMaximum.y - KeySize.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Key.c_str());
+		if (ImGui::BeginPopupContextItem("BookmarkActions"))
+		{
+			if (ImGui::IsWindowAppearing())
+			{
+				CameraBookmarkName.fill('\0');
+				Bookmark.Name.copy(CameraBookmarkName.data(), std::min(Bookmark.Name.size(), CameraBookmarkName.size() - 1));
+				ImGui::SetKeyboardFocusHere();
+			}
+
+			ImGui::SetNextItemWidth(180.f * Scale);
+			if (ImGui::InputText("##Name", CameraBookmarkName.data(), CameraBookmarkName.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll) && CameraBookmarkName[0] != '\0')
+			{
+				Renamed = Bookmark;
+				Renamed->Name = CameraBookmarkName.data();
+				ImGui::CloseCurrentPopup();
+			}
+
+			if (ImGui::MenuItem("Update to current view", std::format("Ctrl+{}", Key).c_str()))
+			{
+				Update = Bookmark.Slot;
+			}
+
+			if (ImGui::MenuItem("Delete"))
+			{
+				Remove = Bookmark.Slot;
+			}
+
+			ImGui::EndPopup();
+		}
+
+		ImGui::PopID();
+	}
+
+	ImGui::TextDisabled(Bookmarks.empty() ? "Ctrl+1-9 saves the current view" : "1-9 recalls, Ctrl+1-9 saves");
+
+	// Bookmarks are applied after the loop, which reads from the level's own storage.
+	if (Jump)
+	{
+		JumpToCameraBookmark(*Jump);
+	}
+
+	if (Update)
+	{
+		SaveCameraBookmark(*Update);
+	}
+
+	if (Remove)
+	{
+		ReportLevelResult(Level->RemoveCameraBookmark(*Remove));
+	}
+
+	if (Renamed)
+	{
+		ReportLevelResult(Level->SetCameraBookmark(std::move(*Renamed)));
+	}
 }
 
 void FEditorFramework::FImplementation::ToggleSimulation()
