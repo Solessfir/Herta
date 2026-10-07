@@ -94,6 +94,7 @@ struct FDetailsComponentField
 	std::array<bool, 6> MixedBodySettings{};
 	bool bAnyDynamicBody = false;
 	std::optional<ELevelBodyType> BodyType{};
+	bool bMixedCollision = false;
 	bool bAnyLight = false;
 	bool bAllLight = false;
 	FLightComponent Light{};
@@ -133,6 +134,7 @@ struct FDetailsMeshResult
 	bool bEditCanceled = false;
 	EDetailsComponentAction ComponentAction = EDetailsComponentAction::None;
 	std::optional<ELevelBodyType> BodyTypeChosen{};
+	std::optional<ELevelCollisionShape> CollisionChosen{};
 	std::optional<std::pair<std::size_t, FAssetId>> MaterialChosen{};
 	FAssetId MaterialOpenRequested{};
 };

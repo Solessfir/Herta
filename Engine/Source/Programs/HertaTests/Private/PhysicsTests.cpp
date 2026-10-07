@@ -30,9 +30,9 @@ TEST_CASE("Physics capacity validation and exhaustion are explicit")
 
 	auto World = FPhysicsWorld::Create({.MaxBodies = 1, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024});
 	REQUIRE(World);
-	const auto Body = (*World)->CreateBoxBody({});
+	const auto Body = (*World)->CreateBody({});
 	REQUIRE(Body);
-	const auto Overflow = (*World)->CreateBoxBody({});
+	const auto Overflow = (*World)->CreateBody({});
 	REQUIRE_FALSE(Overflow);
 	CHECK(Overflow.error().Message.find("MaxBodies=1") != std::string::npos);
 	CHECK((*World)->GetBodyTransform(*Body));
@@ -48,7 +48,7 @@ TEST_CASE("Physics reports contact overflow and refuses to continue a truncated 
 
 	for (int Index = 0; Index < 32; ++Index)
 	{
-		REQUIRE((*World)->CreateBoxBody({.Position = {0.f, 4.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic}));
+		REQUIRE((*World)->CreateBody({.Position = {0.f, 4.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic}));
 	}
 
 	const auto Result = (*World)->Step(1.f / 60.f);
@@ -69,7 +69,7 @@ TEST_CASE("Physics reports body-pair cache overflow independently of contacts")
 	{
 		// Parallel thin boxes have overlapping broad-phase bounds but no contact manifolds.
 		const float Offset = static_cast<float>(Index) * 0.25f;
-		REQUIRE((*World)->CreateBoxBody({.HalfExtents = {10.f, 0.05f, 0.05f}, .Position = {Offset, 4.f, Offset}, .Rotation = Rotation, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.GravityScale = 0.f}}));
+		REQUIRE((*World)->CreateBody({.HalfExtents = {10.f, 0.05f, 0.05f}, .Position = {Offset, 4.f, Offset}, .Rotation = Rotation, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.GravityScale = 0.f}}));
 	}
 
 	const auto Result = (*World)->Step(1.f / 60.f);
@@ -86,17 +86,17 @@ TEST_CASE("Dynamic box settles on a static floor")
 	REQUIRE(World.has_value());
 	FirstWorld->reset();
 
-	FPhysicsBoxBodySettings Floor;
+	FPhysicsBodySettings Floor;
 	Floor.HalfExtents = {10.f, 0.25f, 10.f};
 	Floor.Position = {0.f, -0.25f, 0.f};
-	const auto FloorId = (*World)->CreateBoxBody(Floor);
+	const auto FloorId = (*World)->CreateBody(Floor);
 	REQUIRE(FloorId.has_value());
 
-	FPhysicsBoxBodySettings Cube;
+	FPhysicsBodySettings Cube;
 	Cube.HalfExtents = {0.5f, 0.5f, 0.5f};
 	Cube.Position = {0.f, 3.f, 0.f};
 	Cube.MotionType = EPhysicsMotionType::Dynamic;
-	const auto CubeId = (*World)->CreateBoxBody(Cube);
+	const auto CubeId = (*World)->CreateBody(Cube);
 	REQUIRE(CubeId.has_value());
 
 	for (int StepIndex = 0; StepIndex < 240; ++StepIndex)
@@ -119,16 +119,16 @@ TEST_CASE("Physics rejects invalid input")
 	auto World = FPhysicsWorld::Create();
 	REQUIRE(World.has_value());
 
-	FPhysicsBoxBodySettings Box;
+	FPhysicsBodySettings Box;
 	Box.HalfExtents.X = 0.f;
-	CHECK_FALSE((*World)->CreateBoxBody(Box).has_value());
+	CHECK_FALSE((*World)->CreateBody(Box).has_value());
 	Box.HalfExtents.X = std::numeric_limits<float>::quiet_NaN();
-	CHECK_FALSE((*World)->CreateBoxBody(Box).has_value());
+	CHECK_FALSE((*World)->CreateBody(Box).has_value());
 	Box.HalfExtents.X = 0.5f;
 	Box.Rotation = {0.f, 0.f, 0.f, 0.f};
-	CHECK_FALSE((*World)->CreateBoxBody(Box).has_value());
+	CHECK_FALSE((*World)->CreateBody(Box).has_value());
 	Box.Rotation = {std::numeric_limits<float>::max(), 0.f, 0.f, 1.f};
-	CHECK_FALSE((*World)->CreateBoxBody(Box).has_value());
+	CHECK_FALSE((*World)->CreateBody(Box).has_value());
 	CHECK_FALSE((*World)->Step(0.f).has_value());
 	CHECK_FALSE((*World)->Step(std::numeric_limits<float>::infinity()).has_value());
 	CHECK_FALSE((*World)->GetBodyTransform({}).has_value());
@@ -161,16 +161,16 @@ TEST_CASE("Physics validates every body property for static and dynamic bodies")
 		{
 			for (const float Value : {Range.Minimum - 1.f, Range.Maximum + 1.f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
 			{
-				FPhysicsBoxBodySettings Box{.MotionType = Type};
+				FPhysicsBodySettings Box{.MotionType = Type};
 				Box.Properties.*Range.Member = Value;
-				CHECK_FALSE((*World)->CreateBoxBody(Box));
+				CHECK_FALSE((*World)->CreateBody(Box));
 			}
 
 			for (const float Value : {Range.Minimum, Range.Maximum})
 			{
-				FPhysicsBoxBodySettings Box{.MotionType = Type};
+				FPhysicsBodySettings Box{.MotionType = Type};
 				Box.Properties.*Range.Member = Value;
-				CHECK((*World)->CreateBoxBody(Box));
+				CHECK((*World)->CreateBody(Box));
 			}
 		}
 	}
@@ -180,9 +180,9 @@ TEST_CASE("Physics applies gravity scale and linear damping independently per bo
 {
 	auto World = FPhysicsWorld::Create();
 	REQUIRE(World);
-	const auto Floating = (*World)->CreateBoxBody({.Position = {-4.f, 8.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.GravityScale = 0.f}});
-	const auto Falling = (*World)->CreateBoxBody({.Position = {0.f, 8.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.LinearDamping = 0.f}});
-	const auto Damped = (*World)->CreateBoxBody({.Position = {4.f, 8.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.LinearDamping = 1.f}});
+	const auto Floating = (*World)->CreateBody({.Position = {-4.f, 8.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.GravityScale = 0.f}});
+	const auto Falling = (*World)->CreateBody({.Position = {0.f, 8.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.LinearDamping = 0.f}});
+	const auto Damped = (*World)->CreateBody({.Position = {4.f, 8.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.LinearDamping = 1.f}});
 	REQUIRE(Floating);
 	REQUIRE(Falling);
 	REQUIRE(Damped);
@@ -207,9 +207,9 @@ TEST_CASE("Physics restitution changes the rebound from a static body")
 {
 	auto World = FPhysicsWorld::Create();
 	REQUIRE(World);
-	REQUIRE((*World)->CreateBoxBody({.HalfExtents = {10.f, 0.25f, 10.f}, .Position = {0.f, -0.25f, 0.f}}));
-	const auto Inelastic = (*World)->CreateBoxBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {-3.f, 3.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Restitution = 0.f, .LinearDamping = 0.f}});
-	const auto Elastic = (*World)->CreateBoxBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {3.f, 3.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Restitution = 1.f, .LinearDamping = 0.f}});
+	REQUIRE((*World)->CreateBody({.HalfExtents = {10.f, 0.25f, 10.f}, .Position = {0.f, -0.25f, 0.f}}));
+	const auto Inelastic = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {-3.f, 3.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Restitution = 0.f, .LinearDamping = 0.f}});
+	const auto Elastic = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {3.f, 3.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Restitution = 1.f, .LinearDamping = 0.f}});
 	REQUIRE(Inelastic);
 	REQUIRE(Elastic);
 
@@ -233,8 +233,8 @@ TEST_CASE("Physics friction opposes sliding on an inclined static body")
 		auto World = FPhysicsWorld::Create();
 		REQUIRE(World);
 		const FQuaternion Rotation = FQuaternion::FromAxisAngle({0.f, 0.f, 1.f}, 0.3f);
-		REQUIRE((*World)->CreateBoxBody({.HalfExtents = {20.f, 0.25f, 2.f}, .Rotation = Rotation, .Properties = {.Friction = Friction}}));
-		const auto Box = (*World)->CreateBoxBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {0.f, 2.f, 0.f}, .Rotation = Rotation, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Friction = Friction}});
+		REQUIRE((*World)->CreateBody({.HalfExtents = {20.f, 0.25f, 2.f}, .Rotation = Rotation, .Properties = {.Friction = Friction}}));
+		const auto Box = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {0.f, 2.f, 0.f}, .Rotation = Rotation, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Friction = Friction}});
 		REQUIRE(Box);
 
 		for (int StepIndex = 0; StepIndex < 180; ++StepIndex)
@@ -252,15 +252,53 @@ TEST_CASE("Physics friction opposes sliding on an inclined static body")
 	CHECK(SlidingDistance > GrippingDistance + 1.f);
 }
 
+TEST_CASE("Physics spheres roll down a ramp that holds a box, and capsules rest upright")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	// A 20 degree ramp descending towards -X; friction 0.8 exceeds tan(20 degrees), so a box sticks while a sphere rolls.
+	const FQuaternion Tilt = FQuaternion::FromAxisAngle({0.f, 0.f, 1.f}, 20.f * std::numbers::pi_v<float> / 180.f);
+	REQUIRE((*World)->CreateBody({.HalfExtents = {6.f, 0.25f, 3.f}, .Rotation = Tilt, .Properties = {.Friction = 0.8f}}));
+	const FVector3 Up = Tilt.RotateVector({0.f, 1.f, 0.f});
+	const auto Box = (*World)->CreateBody({.HalfExtents = {0.25f, 0.25f, 0.25f}, .Position = Up * 0.51f + FVector3{0.f, 0.f, -1.f}, .Rotation = Tilt, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Friction = 0.8f}});
+	const auto Sphere = (*World)->CreateBody({.Shape = EPhysicsShape::Sphere, .Radius = 0.25f, .Position = Up * 0.51f + FVector3{0.f, 0.f, 1.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Friction = 0.8f}});
+	const auto Capsule = (*World)->CreateBody({.Shape = EPhysicsShape::Capsule, .Radius = 0.25f, .HalfHeight = 0.5f, .Position = {20.f, 2.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+	REQUIRE((*World)->CreateBody({.HalfExtents = {2.f, 0.5f, 2.f}, .Position = {20.f, -0.5f, 0.f}}));
+	REQUIRE(Box);
+	REQUIRE(Sphere);
+	REQUIRE(Capsule);
+	for (int Step = 0; Step < 60; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	const auto BoxTransform = (*World)->GetBodyTransform(*Box);
+	const auto SphereTransform = (*World)->GetBodyTransform(*Sphere);
+	const auto CapsuleTransform = (*World)->GetBodyTransform(*Capsule);
+	REQUIRE(BoxTransform);
+	REQUIRE(SphereTransform);
+	REQUIRE(CapsuleTransform);
+	const float StartX = (Up * 0.51f).X;
+	CHECK(std::abs(BoxTransform->Position.X - StartX) < 0.05f);
+	CHECK(SphereTransform->Position.X < StartX - 0.5f);
+	// Upright capsules rest on their lower cap: half height plus radius above the floor.
+	CHECK(CapsuleTransform->Position.Y == doctest::Approx(0.75f).epsilon(0.02));
+
+	CHECK_FALSE((*World)->CreateBody({.Shape = EPhysicsShape::Sphere, .Radius = 0.f}));
+	CHECK_FALSE((*World)->CreateBody({.Shape = EPhysicsShape::Capsule, .Radius = 0.5f, .HalfHeight = -1.f}));
+	CHECK_FALSE((*World)->CreateBody({.Shape = static_cast<EPhysicsShape>(7)}));
+	CHECK((*World)->CreateBody({.Shape = EPhysicsShape::Capsule, .Radius = 0.5f, .HalfHeight = 0.f}));
+}
+
 TEST_CASE("Physics authored mass changes dynamic collision response")
 {
 	const auto Simulate = [](const float MassKg)
 	{
 		auto World = FPhysicsWorld::Create();
 		REQUIRE(World);
-		const auto Target = (*World)->CreateBoxBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {0.f, 2.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = MassKg, .LinearDamping = 0.f, .GravityScale = 0.f}});
+		const auto Target = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {0.f, 2.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = MassKg, .LinearDamping = 0.f, .GravityScale = 0.f}});
 		REQUIRE(Target);
-		REQUIRE((*World)->CreateBoxBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {0.f, 5.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.LinearDamping = 0.f}}));
+		REQUIRE((*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {0.f, 5.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.LinearDamping = 0.f}}));
 
 		for (int StepIndex = 0; StepIndex < 120; ++StepIndex)
 		{
@@ -282,11 +320,11 @@ TEST_CASE("Physics simulates multiple dynamic bodies against each other and mult
 {
 	auto World = FPhysicsWorld::Create();
 	REQUIRE(World);
-	const auto LowFloor = (*World)->CreateBoxBody({.HalfExtents = {2.f, 0.25f, 2.f}, .Position = {-4.f, -0.25f, 0.f}});
-	const auto HighFloor = (*World)->CreateBoxBody({.HalfExtents = {2.f, 0.5f, 2.f}, .Position = {4.f, 2.f, 0.f}});
-	const auto Bottom = (*World)->CreateBoxBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {-4.f, 3.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
-	const auto Top = (*World)->CreateBoxBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {-4.f, 5.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
-	const auto Separate = (*World)->CreateBoxBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {4.f, 6.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+	const auto LowFloor = (*World)->CreateBody({.HalfExtents = {2.f, 0.25f, 2.f}, .Position = {-4.f, -0.25f, 0.f}});
+	const auto HighFloor = (*World)->CreateBody({.HalfExtents = {2.f, 0.5f, 2.f}, .Position = {4.f, 2.f, 0.f}});
+	const auto Bottom = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {-4.f, 3.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+	const auto Top = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {-4.f, 5.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+	const auto Separate = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {4.f, 6.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
 	REQUIRE(LowFloor);
 	REQUIRE(HighFloor);
 	REQUIRE(Bottom);
@@ -362,7 +400,7 @@ TEST_CASE("Pressurized soft body shells land on static bodies without passing th
 {
 	auto World = FPhysicsWorld::Create();
 	REQUIRE(World);
-	REQUIRE((*World)->CreateBoxBody({.HalfExtents = {5.f, 0.5f, 5.f}, .Position = {0.f, -0.5f, 0.f}}));
+	REQUIRE((*World)->CreateBody({.HalfExtents = {5.f, 0.5f, 5.f}, .Position = {0.f, -0.5f, 0.f}}));
 	// Octahedron shell, wound outwards.
 	const std::array<FVector3, 6> Vertices{{{0.5f, 2.f, 0.f}, {-0.5f, 2.f, 0.f}, {0.f, 2.5f, 0.f}, {0.f, 1.5f, 0.f}, {0.f, 2.f, 0.5f}, {0.f, 2.f, -0.5f}}};
 	const std::array<std::array<std::uint32_t, 3>, 8> Faces{{{0, 2, 4}, {4, 2, 1}, {1, 2, 5}, {5, 2, 0}, {4, 3, 0}, {1, 3, 4}, {5, 3, 1}, {0, 3, 5}}};
@@ -407,7 +445,7 @@ TEST_CASE("Attached soft body ropes carry a dynamic box at their length and foll
 	}
 
 	// Released horizontally, the box swings down on the rope like a pendulum.
-	const auto Box = (*World)->CreateBoxBody({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = Vertices.back() - FVector3{0.f, 0.2f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 5.f, .LinearDamping = 0.5f, .AngularDamping = 0.5f}});
+	const auto Box = (*World)->CreateBody({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = Vertices.back() - FVector3{0.f, 0.2f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 5.f, .LinearDamping = 0.5f, .AngularDamping = 0.5f}});
 	REQUIRE(Box);
 	const std::array<std::uint32_t, 1> Pinned{0};
 	const FPhysicsSoftBodyAttachment Attachment{.Body = *Box, .Vertex = Segments, .Point = Vertices.back(), .TetherVertex = 0, .TetherLength = Length};
@@ -428,7 +466,7 @@ TEST_CASE("Attached soft body ropes carry a dynamic box at their length and foll
 	CHECK((Positions.back() - Top).Length() < 0.05f);
 	CHECK((Positions.front() - Pin).Length() < 0.001f);
 
-	const auto Floor = (*World)->CreateBoxBody({});
+	const auto Floor = (*World)->CreateBody({});
 	REQUIRE(Floor);
 	const std::array<std::uint32_t, 2> BothPinned{0, Segments};
 	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = Pinned, .StretchEdges = Stretch, .Attachment = FPhysicsSoftBodyAttachment{.Body = *Floor, .Vertex = Segments}}));
@@ -455,7 +493,7 @@ TEST_CASE("Soft body creation rejects invalid topology and parameters")
 	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = MissingPin, .StretchEdges = Edge}));
 	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .StretchEdges = Edge, .MassKg = std::numeric_limits<float>::quiet_NaN()}));
 	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .StretchEdges = Edge, .Iterations = 0}));
-	const auto Box = (*World)->CreateBoxBody({});
+	const auto Box = (*World)->CreateBody({});
 	REQUIRE(Box);
 	std::vector<FVector3> Positions;
 	CHECK_FALSE((*World)->GetSoftBodyVertices(*Box, Positions));

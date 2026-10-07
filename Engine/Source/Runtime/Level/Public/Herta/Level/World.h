@@ -193,6 +193,14 @@ enum class ELevelBodyType : std::uint8_t
 	Dynamic,
 };
 
+// Collision fitted to the mesh bounds: a sphere encloses the largest half extent, and a capsule stands along local +Y with the larger horizontal half extent as its radius.
+enum class ELevelCollisionShape : std::uint8_t
+{
+	Box,
+	Sphere,
+	Capsule,
+};
+
 struct FLevelRigidBodySettings
 {
 	constexpr bool operator==(const FLevelRigidBodySettings&) const = default;
@@ -203,6 +211,7 @@ struct FLevelRigidBodySettings
 	float LinearDamping = 0.05f;
 	float AngularDamping = 0.05f;
 	float GravityScale = 1.f;
+	ELevelCollisionShape Collision = ELevelCollisionShape::Box;
 };
 
 struct FLevelEntity

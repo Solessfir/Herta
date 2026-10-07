@@ -84,8 +84,10 @@ TEST_CASE("Level descriptors preserve typed storage defaults and physical units"
 	CHECK(std::get<FAssetId>(Mesh.Properties[0].Default) == FStaticMeshComponent{}.Asset);
 
 	const auto& Body = GetLevelComponentDescriptor(ELevelComponentType::RigidBody);
-	REQUIRE(Body.Properties.size() == 7);
+	REQUIRE(Body.Properties.size() == 8);
 	CHECK(std::get<ELevelBodyType>(Body.Properties[0].Default) == ELevelBodyType::Dynamic);
+	CHECK(Body.Properties[7].Type == ELevelPropertyType::CollisionShape);
+	CHECK(std::get<ELevelCollisionShape>(Body.Properties[7].Default) == ELevelCollisionShape::Box);
 	const std::array Members{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
 
 	for (std::size_t Index = 0; Index < Members.size(); ++Index)

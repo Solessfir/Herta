@@ -11,6 +11,8 @@
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/PhysicsUpdateContext.h>
@@ -271,16 +273,26 @@ std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> FPhysicsWorld::Crea
 	return std::unique_ptr<FPhysicsWorld>(new FPhysicsWorld(std::make_unique<FImplementation>(Settings)));
 }
 
-std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const FPhysicsBoxBodySettings& Settings)
+std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPhysicsBodySettings& Settings)
 {
 	if (Implementation->BodyCount >= Implementation->Settings.MaxBodies)
 	{
 		return std::unexpected(FPhysicsError{std::format("Physics world body capacity reached (MaxBodies={})", Implementation->Settings.MaxBodies)});
 	}
 
-	if (!IsFinite(Settings.HalfExtents) || Settings.HalfExtents.X <= 0.f || Settings.HalfExtents.Y <= 0.f || Settings.HalfExtents.Z <= 0.f)
+	if (Settings.Shape != EPhysicsShape::Box && Settings.Shape != EPhysicsShape::Sphere && Settings.Shape != EPhysicsShape::Capsule)
+	{
+		return std::unexpected(FPhysicsError{"Unsupported body shape"});
+	}
+
+	if (Settings.Shape == EPhysicsShape::Box && (!IsFinite(Settings.HalfExtents) || Settings.HalfExtents.X <= 0.f || Settings.HalfExtents.Y <= 0.f || Settings.HalfExtents.Z <= 0.f))
 	{
 		return std::unexpected(FPhysicsError{"Box half extents must be finite and positive"});
+	}
+
+	if (Settings.Shape != EPhysicsShape::Box && (!IsInRange(Settings.Radius, 0.001f, 100000.f) || (Settings.Shape == EPhysicsShape::Capsule && !IsInRange(Settings.HalfHeight, 0.f, 100000.f))))
+	{
+		return std::unexpected(FPhysicsError{"Sphere and capsule radii must be between 1 mm and 100 km, with a finite, non-negative capsule half height"});
 	}
 
 	const float RotationLengthSquared = Settings.Rotation.LengthSquared();
@@ -310,8 +322,10 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const 
 		return std::unexpected(FPhysicsError{"Body gravity scale must be finite and between 0 and 10"});
 	}
 
-	const JPH::BoxShapeSettings ShapeSettings(ToJolt(Settings.HalfExtents));
-	const JPH::ShapeSettings::ShapeResult Shape = ShapeSettings.Create();
+	// A capsule without a cylinder is a sphere; Jolt rejects a zero half height.
+	const JPH::ShapeSettings::ShapeResult Shape = Settings.Shape == EPhysicsShape::Box                                    ? JPH::BoxShapeSettings(ToJolt(Settings.HalfExtents)).Create()
+	                                              : Settings.Shape == EPhysicsShape::Sphere || Settings.HalfHeight <= 0.f ? JPH::SphereShapeSettings(Settings.Radius).Create()
+	                                                                                                                      : JPH::CapsuleShapeSettings(Settings.HalfHeight, Settings.Radius).Create();
 	if (Shape.HasError())
 	{
 		return std::unexpected(FPhysicsError{Shape.GetError().c_str()});
@@ -325,7 +339,7 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const 
 
 	if (bDynamic)
 	{
-		// Let Jolt scale the box's inertia to the authored mass.
+		// Let Jolt scale the shape's inertia to the authored mass.
 		BodySettings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
 		BodySettings.mMassPropertiesOverride.mMass = Properties.MassKg;
 		BodySettings.mLinearDamping = Properties.LinearDamping;

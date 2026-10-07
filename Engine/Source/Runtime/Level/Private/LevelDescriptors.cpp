@@ -267,6 +267,7 @@ constexpr std::array BodyProperties{
     FLevelPropertyDescriptor{.Key = "linearDamping", .Label = "Linear damping", .Type = ELevelPropertyType::Float, .Unit = ELevelPropertyUnit::InverseSeconds, .Default = BodyDefaults.LinearDamping, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1.}},
     FLevelPropertyDescriptor{.Key = "angularDamping", .Label = "Angular damping", .Type = ELevelPropertyType::Float, .Unit = ELevelPropertyUnit::InverseSeconds, .Default = BodyDefaults.AngularDamping, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1.}},
     FLevelPropertyDescriptor{.Key = "gravityScale", .Label = "Gravity scale", .Type = ELevelPropertyType::Float, .Default = BodyDefaults.GravityScale, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 10.}},
+    FLevelPropertyDescriptor{.Key = "collision", .Label = "Collision", .Type = ELevelPropertyType::CollisionShape, .Default = BodyDefaults.Collision},
 };
 
 constexpr std::array LightProperties{

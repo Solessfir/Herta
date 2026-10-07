@@ -1164,6 +1164,25 @@ TEST_CASE("Rigid body authoring is independent from meshes and addition preserve
 	CHECK(SelectedEditorObjects(Level) == std::vector<FObjectId>(Selected.begin(), Selected.end()));
 }
 
+TEST_CASE("Rigid body collision shapes change only bodies and undo as one edit")
+{
+	FEditorLevel Level;
+	const FObjectId Cube = Level.GetObjects()[0].Id;
+	const FObjectId Floor = Level.GetObjects()[1].Id;
+	const auto Empty = Level.CreateEmptyEntity();
+	REQUIRE(Empty);
+	Level.SetSelection(std::array{Cube, Floor, *Empty}, Cube);
+	const auto Before = Level.GetWorld().SnapshotEntities();
+	REQUIRE(Level.SetSelectedCollisionShape(ELevelCollisionShape::Capsule));
+	CHECK(Level.GetUndoLabel() == "Change collision shape");
+	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(Cube))->BodySettings.Collision == ELevelCollisionShape::Capsule);
+	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(Floor))->BodySettings.Collision == ELevelCollisionShape::Capsule);
+	CHECK(Level.GetWorld().GetEntity(*Level.GetWorld().FindEntity(*Empty))->BodySettings == FLevelRigidBodySettings{});
+	CHECK_FALSE(Level.SetSelectedCollisionShape(static_cast<ELevelCollisionShape>(9)));
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetWorld().SnapshotEntities() == Before);
+}
+
 TEST_CASE("Rigid body property gestures preserve mixed values and undo as one edit")
 {
 	FEditorLevel Level;

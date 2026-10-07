@@ -52,6 +52,7 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> AddRigidBodyToSelected(ELevelBodyType Type = ELevelBodyType::Dynamic);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedBodyType(ELevelBodyType Type);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedBodyProperty(float FLevelRigidBodySettings::* Property, float Value);
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedCollisionShape(ELevelCollisionShape Shape);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedMaterial(std::size_t Slot, FAssetId Asset);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedVisualProperty(ELevelComponentType Type, std::string_view Key, const FLevelPropertyValue& Value);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateLightEntity(ELightType Type, const FWorldPosition& Position = {});

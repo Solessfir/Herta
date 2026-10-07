@@ -1546,6 +1546,35 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedBodyProperty(float FLe
 	return ApplyStructuralChanges("Edit rigid body", Changes, Selection, ActiveObject);
 }
 
+std::expected<void, FLevelError> FEditorLevel::SetSelectedCollisionShape(const ELevelCollisionShape Shape)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	std::vector<FLevelEntityChange> Changes;
+	for (const FObjectId Object : Selection)
+	{
+		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		if (Before.BodyType == ELevelBodyType::None || Before.BodySettings.Collision == Shape)
+		{
+			continue;
+		}
+
+		FLevelEntity After = Before;
+		After.BodySettings.Collision = Shape;
+		if (auto Result = ValidateLevelRigidBodySettings(After.BodySettings); !Result)
+		{
+			return Result;
+		}
+
+		Changes.push_back({.Before = Before, .After = std::move(After)});
+	}
+
+	return ApplyStructuralChanges("Change collision shape", Changes, Selection, ActiveObject);
+}
+
 template <typename T> std::expected<void, FLevelError> FEditorLevel::ApplySelectedComponent(std::optional<T> FLevelEntity::* const Member, const std::optional<T> Value, const std::string_view Label, const bool bOnlyAbsent)
 {
 	if (auto Result = CheckAuthoringAllowed(true); !Result)

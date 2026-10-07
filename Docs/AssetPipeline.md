@@ -178,7 +178,7 @@ A `.gltf` usually references separate buffers and images, so it is only imported
 
 ## Editor previews
 
-Asset IDs are global, so a reference does not depend on its mount; pickers show paths such as `Engine/Shapes/Cube.gltf`. Engine content holds the shared 1 m cube and sphere. A test cooks the cube to verify size, winding, and unmirrored UVs. The [Sandbox playground](Playground.md) assigns project-owned `.hmat` materials to shared meshes and includes normal/scalar/alpha texture examples without requiring Blender.
+Asset IDs are global, so a reference does not depend on its mount; pickers show paths such as `Engine/Shapes/Cube.gltf`. Engine content holds the shared 1 m cube and sphere and a 1 m by 2 m capsule. A test cooks the cube to verify size, winding, and unmirrored UVs. The [Sandbox playground](Playground.md) assigns project-owned `.hmat` materials to shared meshes and includes normal/scalar/alpha texture examples without requiring Blender.
 
 The editor scans content in the background at startup and again whenever the Static Mesh picker in Details opens. Choosing a model or texture cooks it in `HertaAssetWorker` on a blocking-IO task. A main-thread continuation uploads the result between frames, so the GPU upload never overlaps a frame recording. The newest choice for an object wins, and older results are discarded when they finish. Closing the editor cancels in-flight work and kills running workers.
 

@@ -1211,7 +1211,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	{
 		return MatchesBodyProperty(Property, Query);
 	});
-	const bool bBody = Components != nullptr && Components->bAnyBody && (Query.empty() || bBodyProperty || MatchesSearch(BodyDescriptor.Label, Query) || MatchesSearch(BodyTypeProperty.Label, Query) || MatchesSearch("Shape", Query) || MatchesSearch("Static", Query) || MatchesSearch("Dynamic", Query));
+	const bool bBody = Components != nullptr && Components->bAnyBody && (Query.empty() || bBodyProperty || MatchesSearch(BodyDescriptor.Label, Query) || MatchesSearch(BodyTypeProperty.Label, Query) || MatchesSearch("Shape", Query) || MatchesSearch("Static", Query) || MatchesSearch("Dynamic", Query) || MatchesSearch("Collision", Query) || MatchesSearch("Sphere", Query) || MatchesSearch("Capsule", Query));
 	const bool bLight = Components && Components->bAnyLight && MatchesVisualSection(ELevelComponentType::Light, Query);
 	const bool bAtmosphere = Components && Components->bAnySkyAtmosphere && MatchesVisualSection(ELevelComponentType::SkyAtmosphere, Query);
 	const bool bFog = Components && Components->bAnyHeightFog && MatchesVisualSection(ELevelComponentType::HeightFog, Query);
@@ -1524,6 +1524,44 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				if (DrawResetButton(BodyTypeProperty.Label.data()))
 				{
 					MeshResult.BodyTypeChosen = DefaultBodyType;
+				}
+			}
+
+			const auto& CollisionProperty = BodyDescriptor.Properties[7];
+			const auto DefaultCollision = std::get<ELevelCollisionShape>(CollisionProperty.Default);
+			const ELevelCollisionShape Collision = Components->BodySettings.Collision;
+			constexpr std::array CollisionLabels{"Box", "Sphere", "Capsule"};
+			ImGui::TableNextRow();
+			ImGui::TableSetColumnIndex(0);
+			ImGui::AlignTextToFramePadding();
+			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
+			ImGui::TextUnformatted(CollisionProperty.Label.data());
+			ImGui::PopStyleColor();
+			ImGui::SetItemTooltip("Shape fitted to the mesh bounds. A sphere encloses the largest extent; a capsule stands along the object's local Y axis.");
+			ImGui::TableSetColumnIndex(1);
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::BeginCombo("##Collision", !Components->bAllBody || Components->bMixedCollision ? "Multiple values" : CollisionLabels[static_cast<std::size_t>(Collision)]))
+			{
+				for (std::size_t Option = 0; Option < CollisionLabels.size(); ++Option)
+				{
+					const auto Shape = static_cast<ELevelCollisionShape>(Option);
+					const bool bCurrent = !Components->bMixedCollision && Collision == Shape;
+					if (ImGui::Selectable(CollisionLabels[Option], bCurrent) && !bCurrent)
+					{
+						MeshResult.CollisionChosen = Shape;
+					}
+				}
+
+				ImGui::EndCombo();
+			}
+
+			ImGui::TableSetColumnIndex(2);
+			if (Components->bMixedCollision || Collision != DefaultCollision)
+			{
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * UiScale);
+				if (DrawResetButton(CollisionProperty.Label.data()))
+				{
+					MeshResult.CollisionChosen = DefaultCollision;
 				}
 			}
 

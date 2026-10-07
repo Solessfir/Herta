@@ -42,9 +42,22 @@ struct FPhysicsBodyProperties
 	float GravityScale = 1.f;
 };
 
-struct FPhysicsBoxBodySettings
+enum class EPhysicsShape : std::uint8_t
 {
+	Box,
+	Sphere,
+	// Upright along the body's local +Y axis.
+	Capsule,
+};
+
+struct FPhysicsBodySettings
+{
+	EPhysicsShape Shape = EPhysicsShape::Box;
 	FVector3 HalfExtents = FVector3::One();
+	// Sphere and capsule radius.
+	float Radius = 0.5f;
+	// Half the length of a capsule's cylinder, excluding its caps.
+	float HalfHeight = 0.5f;
 	FVector3 Position = FVector3::Zero();
 	FQuaternion Rotation = FQuaternion::Identity();
 	EPhysicsMotionType MotionType = EPhysicsMotionType::Static;
@@ -117,7 +130,7 @@ public:
 	FPhysicsWorld(FPhysicsWorld&&) = delete;
 	FPhysicsWorld& operator=(FPhysicsWorld&&) = delete;
 
-	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateBoxBody(const FPhysicsBoxBodySettings& Settings);
+	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateBody(const FPhysicsBodySettings& Settings);
 	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateSoftBody(const FPhysicsSoftBodySettings& Settings);
 	[[nodiscard]] std::expected<void, FPhysicsError> Step(float FixedDeltaSeconds);
 	[[nodiscard]] std::expected<FPhysicsBodyTransform, FPhysicsError> GetBodyTransform(FPhysicsBodyId BodyId) const;

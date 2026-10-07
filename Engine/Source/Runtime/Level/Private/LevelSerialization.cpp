@@ -301,6 +301,7 @@ std::expected<FHeightFogComponent, FLevelError> ReadFog(const simdjson::dom::ele
 }
 
 constexpr std::array<std::string_view, 3> SoftBodyShapes{"rope", "cloth", "ball"};
+constexpr std::array<std::string_view, 3> CollisionShapes{"box", "sphere", "capsule"};
 
 std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom::element Element)
 {
@@ -476,7 +477,13 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 				continue;
 			}
 
-			const auto Body = ReadComponentFields<7>(Component.value, BodyDescriptor);
+			// Schema 5 adds the collision shape; earlier bodies are boxes.
+			const auto Body = SchemaVersion >= 5 ? ReadComponentFields<8>(Component.value, BodyDescriptor) : ReadComponentFields<7>(Component.value, BodyDescriptor).transform([](const auto& Fields)
+			{
+				std::array<simdjson::dom::element, 8> Padded;
+				std::ranges::copy(Fields, Padded.begin());
+				return Padded;
+			});
 			if (!Body)
 			{
 				return std::unexpected(Body.error());
@@ -494,7 +501,9 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			const auto LinearDamping = ReadNumber<float>((*Body)[4]);
 			const auto AngularDamping = ReadNumber<float>((*Body)[5]);
 			const auto GravityScale = ReadNumber<float>((*Body)[6]);
-			if (!MassKg || !Friction || !Restitution || !LinearDamping || !AngularDamping || !GravityScale)
+			const auto Collision = SchemaVersion >= 5 ? ReadString((*Body)[7]) : std::expected<std::string_view, FLevelError>{"box"};
+			const auto CollisionShape = Collision ? std::ranges::find(CollisionShapes, *Collision) : CollisionShapes.end();
+			if (!MassKg || !Friction || !Restitution || !LinearDamping || !AngularDamping || !GravityScale || CollisionShape == CollisionShapes.end())
 			{
 				return LevelError("Invalid level rigid body settings");
 			}
@@ -507,6 +516,7 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			    .LinearDamping = *LinearDamping,
 			    .AngularDamping = *AngularDamping,
 			    .GravityScale = *GravityScale,
+			    .Collision = static_cast<ELevelCollisionShape>(CollisionShape - CollisionShapes.begin()),
 			};
 		}
 		else if (SchemaVersion >= 4 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Light).SerializationKey)
@@ -1056,6 +1066,8 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			AppendNumber(Output, Entity.BodySettings.AngularDamping);
 			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[6].Key);
 			AppendNumber(Output, Entity.BodySettings.GravityScale);
+			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[7].Key);
+			AppendString(Output, CollisionShapes[static_cast<std::size_t>(Entity.BodySettings.Collision)]);
 			Output += "\n        }";
 		}
 

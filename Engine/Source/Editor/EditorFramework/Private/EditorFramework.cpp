@@ -4176,6 +4176,8 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 				    .ObjectIndex = Index,
 				    .Transform = ToHertaTransform(PreviewObjects[Index]),
 				    .Shape = GetPreviewBodyShape(Index),
+				    .Collision = Settings.Collision == ELevelCollisionShape::Sphere ? EPhysicsShape::Sphere : Settings.Collision == ELevelCollisionShape::Capsule ? EPhysicsShape::Capsule
+				                                                                                                                                                    : EPhysicsShape::Box,
 				    .MotionType = Type == ELevelBodyType::Dynamic ? EPhysicsMotionType::Dynamic : EPhysicsMotionType::Static,
 				    .Properties = {
 				        .MassKg = Settings.MassKg,
@@ -4392,6 +4394,8 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 					const auto Property = BodyProperties[PropertyIndex];
 					Components.MixedBodySettings[PropertyIndex] |= Entity->BodySettings.*Property != Components.BodySettings.*Property;
 				}
+
+				Components.bMixedCollision |= Entity->BodySettings.Collision != Components.BodySettings.Collision;
 			}
 		}
 
@@ -4633,7 +4637,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		ReportLevelResult(Level->EndEdit());
 	}
 
-	if (MeshResult.ComponentAction != EDetailsComponentAction::None || MeshResult.BodyTypeChosen)
+	if (MeshResult.ComponentAction != EDetailsComponentAction::None || MeshResult.BodyTypeChosen || MeshResult.CollisionChosen)
 	{
 		if (Level->HasActiveEdit())
 		{
@@ -4697,6 +4701,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		if (MeshResult.BodyTypeChosen)
 		{
 			ReportLevelResult(Level->SetSelectedBodyType(*MeshResult.BodyTypeChosen));
+		}
+
+		if (MeshResult.CollisionChosen)
+		{
+			ReportLevelResult(Level->SetSelectedCollisionShape(*MeshResult.CollisionChosen));
 		}
 	}
 

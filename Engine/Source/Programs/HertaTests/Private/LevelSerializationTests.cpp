@@ -87,9 +87,21 @@ std::string WithoutCameraBookmarks(std::string Text)
 	return ReplaceLevelText(std::move(Text), ",\n  \"cameraBookmarks\": []", "");
 }
 
+// Removes everything schema 5 adds to otherwise older documents: camera bookmarks and rigid body collision shapes.
+std::string WithoutSchemaFiveFields(std::string Text)
+{
+	constexpr std::string_view Collision = ",\n          \"collision\": \"box\"";
+	for (std::size_t Position = Text.find(Collision); Position != std::string::npos; Position = Text.find(Collision))
+	{
+		Text.erase(Position, Collision.size());
+	}
+
+	return WithoutCameraBookmarks(std::move(Text));
+}
+
 std::string MakeSchemaTwoText(std::string Text)
 {
-	Text = ReplaceLevelText(WithoutCameraBookmarks(std::move(Text)), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 2");
+	Text = ReplaceLevelText(WithoutSchemaFiveFields(std::move(Text)), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 2");
 
 	while (Text.contains(", \"materials\": []"))
 	{
@@ -692,7 +704,7 @@ TEST_CASE("Visual level components and material slots have deterministic schema 
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"type\": \"rect\"", "\"type\": \"unknown\"")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"volumetric\": true", "\"volumetric\": 1")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"enabled\": true", "\"enabled\": true, \"enabled\": true")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(WithoutCameraBookmarks(*Text), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 3")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(WithoutSchemaFiveFields(*Text), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 3")));
 }
 
 TEST_CASE("Soft body components persist in schema five and are unknown to schema four")
@@ -714,7 +726,32 @@ TEST_CASE("Soft body components persist in schema five and are unknown to schema
 	CHECK(*Canonical == *Text);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"shape\": \"cloth\"", "\"shape\": \"jelly\"")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"stiffness\": 0.6", "\"stiffness\": 2")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(WithoutCameraBookmarks(*Text), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 4")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(WithoutSchemaFiveFields(*Text), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 4")));
+}
+
+TEST_CASE("Rigid body collision shapes persist in schema five and older bodies load as boxes")
+{
+	FLevelDocument Document = MakeLevelDocument();
+	REQUIRE(!Document.Entities.empty());
+	Document.Entities[0].BodyType = ELevelBodyType::Dynamic;
+	Document.Entities[0].BodySettings.Collision = ELevelCollisionShape::Sphere;
+	const auto Text = SerializeLevel(Document);
+	REQUIRE(Text);
+	CHECK(Text->find("\"collision\": \"sphere\"") != std::string::npos);
+	const auto Restored = ParseLevel(*Text);
+	REQUIRE(Restored);
+	const auto Found = std::ranges::find(Restored->Entities, Document.Entities[0].Id, &FLevelEntity::Id);
+	REQUIRE(Found != Restored->Entities.end());
+	CHECK(Found->BodySettings.Collision == ELevelCollisionShape::Sphere);
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"collision\": \"sphere\"", "\"collision\": \"cone\"")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, ",\n          \"collision\": \"sphere\"", "")));
+
+	const auto Older = ParseLevel(MakeSchemaTwoText(*SerializeLevel(MakeLevelDocument())));
+	REQUIRE(Older);
+	for (const FLevelEntity& Entity : Older->Entities)
+	{
+		CHECK(Entity.BodySettings.Collision == ELevelCollisionShape::Box);
+	}
 }
 
 TEST_CASE("Camera bookmarks persist sorted by slot in schema five and are rejected when invalid")
@@ -754,7 +791,7 @@ TEST_CASE("Schema three folder metadata migrates without introducing visual comp
 {
 	const auto Text = SerializeLevel(MakeLevelFolderDocument());
 	REQUIRE(Text);
-	std::string Legacy = ReplaceLevelText(WithoutCameraBookmarks(*Text), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 3");
+	std::string Legacy = ReplaceLevelText(WithoutSchemaFiveFields(*Text), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 3");
 	Legacy = ReplaceLevelText(std::move(Legacy), ", \"materials\": []", "");
 	const auto Restored = ParseLevel(Legacy);
 	REQUIRE(Restored);

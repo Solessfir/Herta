@@ -264,6 +264,11 @@ std::expected<void, FLevelError> ValidateLevelRigidBodySettings(const FLevelRigi
 		return std::unexpected(FLevelError{"Rigid body gravity scale must be finite and between 0 and 10"});
 	}
 
+	if (Settings.Collision > ELevelCollisionShape::Capsule)
+	{
+		return std::unexpected(FLevelError{"Unknown rigid body collision shape"});
+	}
+
 	return {};
 }
 

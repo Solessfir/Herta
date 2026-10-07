@@ -24,6 +24,8 @@ struct FPreviewSimulationBody
 	std::size_t ObjectIndex = 0;
 	FTransform Transform{};
 	FPreviewBodyShape Shape{};
+	// Fitted to Shape's scaled bounds; see ELevelCollisionShape.
+	EPhysicsShape Collision = EPhysicsShape::Box;
 	EPhysicsMotionType MotionType = EPhysicsMotionType::Static;
 	FPhysicsBodyProperties Properties{};
 };

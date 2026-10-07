@@ -35,6 +35,7 @@ enum class ELevelPropertyType : std::uint8_t
 	ObjectReference,
 	AssetReferences,
 	SoftBodyShape,
+	CollisionShape,
 };
 
 enum class ELevelPropertyUnit : std::uint8_t
@@ -48,7 +49,7 @@ enum class ELevelPropertyUnit : std::uint8_t
 	Kelvin,
 };
 
-using FLevelPropertyValue = std::variant<FWorldPosition, FQuaternion, FVector3, FAssetId, ELevelBodyType, float, bool, ELightType, EFogQuality, FObjectId, std::vector<FAssetId>, ESoftBodyShape>;
+using FLevelPropertyValue = std::variant<FWorldPosition, FQuaternion, FVector3, FAssetId, ELevelBodyType, float, bool, ELightType, EFogQuality, FObjectId, std::vector<FAssetId>, ESoftBodyShape, ELevelCollisionShape>;
 
 struct FLevelPropertyRange
 {
