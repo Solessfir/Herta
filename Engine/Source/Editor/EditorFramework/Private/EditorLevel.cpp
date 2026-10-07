@@ -1736,6 +1736,12 @@ std::expected<void, FLevelError> FEditorLevel::DuplicateSelected(const bool bWit
 		{
 			Entity.SkyAtmosphere->Sun = Remapped.at(Entity.SkyAtmosphere->Sun);
 		}
+
+		if (Entity.SoftBody && Remapped.contains(Entity.SoftBody->Attachment))
+		{
+			Entity.SoftBody->Attachment = Remapped.at(Entity.SoftBody->Attachment);
+		}
+
 		const auto Parent = Remapped.find(Original.Parent);
 
 		if (Parent != Remapped.end())
@@ -2037,6 +2043,11 @@ std::expected<void, FLevelError> FEditorLevel::PasteEntities(const std::string_v
 		if (Entity.SkyAtmosphere && Remapped.contains(Entity.SkyAtmosphere->Sun))
 		{
 			Entity.SkyAtmosphere->Sun = Remapped.at(Entity.SkyAtmosphere->Sun);
+		}
+
+		if (Entity.SoftBody && Remapped.contains(Entity.SoftBody->Attachment))
+		{
+			Entity.SoftBody->Attachment = Remapped.at(Entity.SoftBody->Attachment);
 		}
 
 		if (Entity.Parent.IsValid())

@@ -40,8 +40,10 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 
 	std::vector<FBodyState> NewBodyStates;
 	std::vector<FPreviewSimulationTransform> NewTransforms;
+	std::vector<FVector3> NewHalfExtents;
 	std::unordered_set<std::size_t> ObjectIndices;
 	NewBodyStates.reserve(Bodies.size());
+	NewHalfExtents.reserve(Bodies.size());
 	NewTransforms.reserve(Bodies.size());
 	ObjectIndices.reserve(Bodies.size());
 
@@ -69,6 +71,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		const FPhysicsBodyTransform Transform{.Position = Position, .Rotation = Body.Transform.Rotation.NormalizedOrIdentity()};
 		NewBodyStates.push_back({.Id = *Id, .MotionType = Body.MotionType, .OriginalTransform = Body.Transform, .Offset = Offset, .Previous = Transform, .Current = Transform});
 		NewTransforms.push_back({.ObjectIndex = Body.ObjectIndex, .Transform = Body.Transform});
+		NewHalfExtents.push_back(HalfExtents);
 	}
 
 	std::vector<FSoftBodyState> NewSoftBodyStates;
@@ -80,7 +83,26 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 			return std::unexpected(FPhysicsError{"Preview simulation contains a duplicate object"});
 		}
 
-		const auto Id = (*NewWorld)->CreateSoftBody(SoftBody.Settings);
+		FPhysicsSoftBodySettings Physics = SoftBody.Settings;
+		if (Physics.Attachment)
+		{
+			const auto Attached = SoftBody.AttachedObjectIndex ? std::ranges::find(NewTransforms, *SoftBody.AttachedObjectIndex, &FPreviewSimulationTransform::ObjectIndex) : NewTransforms.end();
+			const auto BodyIndex = static_cast<std::size_t>(Attached - NewTransforms.begin());
+			if (Attached == NewTransforms.end() || NewBodyStates[BodyIndex].MotionType != EPhysicsMotionType::Dynamic)
+			{
+				return std::unexpected(FPhysicsError{"Soft body attachments must reference a Dynamic body in the simulation"});
+			}
+
+			// Clamping into the box puts a rope authored just above it on the box's top face.
+			const FPhysicsBodyTransform& Pose = NewBodyStates[BodyIndex].Current;
+			const FVector3& HalfExtents = NewHalfExtents[BodyIndex];
+			const FVector3 Local = Pose.Rotation.Conjugated().RotateVector(Physics.Attachment->Point - Pose.Position);
+			const FVector3 Clamped{std::clamp(Local.X, -HalfExtents.X, HalfExtents.X), std::clamp(Local.Y, -HalfExtents.Y, HalfExtents.Y), std::clamp(Local.Z, -HalfExtents.Z, HalfExtents.Z)};
+			Physics.Attachment->Body = NewBodyStates[BodyIndex].Id;
+			Physics.Attachment->Point = Pose.Position + Pose.Rotation.RotateVector(Clamped);
+		}
+
+		const auto Id = (*NewWorld)->CreateSoftBody(Physics);
 		if (!Id)
 		{
 			return std::unexpected(Id.error());

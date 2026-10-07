@@ -302,7 +302,7 @@ constexpr std::array<std::string_view, 3> SoftBodyShapes{"rope", "cloth", "ball"
 
 std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom::element Element)
 {
-	const auto Fields = ReadComponentFields<10>(Element, GetLevelComponentDescriptor(ELevelComponentType::SoftBody));
+	const auto Fields = ReadComponentFields<11>(Element, GetLevelComponentDescriptor(ELevelComponentType::SoftBody));
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -318,7 +318,8 @@ std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom:
 	const auto Friction = ReadNumber<float>((*Fields)[7]);
 	const auto Pinned = ReadBoolean((*Fields)[8]);
 	const auto Material = ReadOptionalId<FAssetId>((*Fields)[9]);
-	if (!Shape || std::ranges::find(SoftBodyShapes, *Shape) == SoftBodyShapes.end() || !Length || !Height || !Thickness || !Mass || !Stiffness || !Pressure || !Friction || !Pinned || !Material)
+	const auto Attachment = ReadOptionalId<FObjectId>((*Fields)[10]);
+	if (!Shape || std::ranges::find(SoftBodyShapes, *Shape) == SoftBodyShapes.end() || !Length || !Height || !Thickness || !Mass || !Stiffness || !Pressure || !Friction || !Pinned || !Material || !Attachment)
 	{
 		return LevelError("Invalid soft body component field");
 	}
@@ -334,6 +335,7 @@ std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom:
 	    .Friction = *Friction,
 	    .bPinned = *Pinned,
 	    .Material = *Material,
+	    .Attachment = *Attachment,
 	};
 }
 
@@ -1063,7 +1065,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		if (Entity.SoftBody)
 		{
 			const auto& SoftBody = *Entity.SoftBody;
-			const std::array<FVisualValue, 10> Values{
+			const std::array<FVisualValue, 11> Values{
 			    SoftBodyShapes[static_cast<std::size_t>(SoftBody.Shape)],
 			    SoftBody.Length,
 			    SoftBody.Height,
@@ -1074,6 +1076,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			    SoftBody.Friction,
 			    SoftBody.bPinned,
 			    SoftBody.Material,
+			    SoftBody.Attachment,
 			};
 
 			AppendVisualComponent(Output, ELevelComponentType::SoftBody, Values, bHasComponent);
@@ -1186,7 +1189,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
 	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 5 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 4 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 5 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;

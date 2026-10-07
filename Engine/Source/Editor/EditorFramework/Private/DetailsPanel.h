@@ -109,9 +109,12 @@ struct FDetailsComponentField
 	bool bAnySoftBody = false;
 	bool bAllSoftBody = false;
 	FSoftBodyComponent SoftBody{};
-	std::array<bool, 10> MixedSoftBody{};
+	std::array<bool, 11> MixedSoftBody{};
 	std::span<const FObjectId> SunIds{};
 	std::span<const std::string> SunLabels{};
+	// Dynamic rigid bodies a rope can carry.
+	std::span<const FObjectId> AttachmentIds{};
+	std::span<const std::string> AttachmentLabels{};
 	std::span<const FAssetId> EnvironmentIds{};
 	std::span<const std::string> EnvironmentLabels{};
 	std::span<const FDetailsMaterialSlot> MaterialSlots{};

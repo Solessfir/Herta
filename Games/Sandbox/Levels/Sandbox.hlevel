@@ -5023,7 +5023,7 @@
     },
     {
       "id": "4c060047-2738-4e25-9b9e-000000000001",
-      "name": "Rope - pinned under arch beam",
+      "name": "Rope - pinned under arch beam, carries a 2 kg box",
       "parent": "4c060001-2738-4e25-9b9e-000000000034",
       "transform": {
         "translation": [
@@ -5054,7 +5054,8 @@
           "pressure": 400,
           "friction": 0.4,
           "pinned": true,
-          "material": "a4c06003-2738-4e25-9b9e-816ae7c00001"
+          "material": "a4c06003-2738-4e25-9b9e-816ae7c00001",
+          "attachment": "4c060047-2738-4e25-9b9e-000000000004"
         }
       }
     },
@@ -5091,7 +5092,8 @@
           "pressure": 400,
           "friction": 0.4,
           "pinned": true,
-          "material": "a4c06002-2738-4e25-9b9e-816ae7c00001"
+          "material": "a4c06002-2738-4e25-9b9e-816ae7c00001",
+          "attachment": null
         }
       }
     },
@@ -5128,7 +5130,48 @@
           "pressure": 400,
           "friction": 0.4,
           "pinned": false,
-          "material": "a4c06004-2738-4e25-9b9e-816ae7c00001"
+          "material": "a4c06004-2738-4e25-9b9e-816ae7c00001",
+          "attachment": null
+        }
+      }
+    },
+    {
+      "id": "4c060047-2738-4e25-9b9e-000000000004",
+      "name": "Rope box - 2 kg",
+      "parent": "4c060001-2738-4e25-9b9e-000000000034",
+      "transform": {
+        "translation": [
+          0,
+          1.2784,
+          -1.9917
+        ],
+        "rotation": [
+          0.42261826,
+          0,
+          0,
+          0.90630779
+        ],
+        "scale": [
+          0.4,
+          0.4,
+          0.4
+        ]
+      },
+      "components": {
+        "staticMesh": {
+          "asset": "59f13694-df48-44e5-8635-55194493f242",
+          "materials": [
+            "a4c06001-2738-4e25-9b9e-816ae7c00001"
+          ]
+        },
+        "body": {
+          "type": "dynamic",
+          "massKg": 2,
+          "friction": 0.4,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1
         }
       }
     }
@@ -5365,7 +5408,8 @@
       "entities": [
         "4c060047-2738-4e25-9b9e-000000000001",
         "4c060047-2738-4e25-9b9e-000000000002",
-        "4c060047-2738-4e25-9b9e-000000000003"
+        "4c060047-2738-4e25-9b9e-000000000003",
+        "4c060047-2738-4e25-9b9e-000000000004"
       ]
     }
   ]

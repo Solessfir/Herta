@@ -676,6 +676,11 @@ bool IsVisualPropertyVisible(const FLevelEntity& Entity, const ELevelComponentTy
 		{
 			return Shape != ESoftBodyShape::Ball;
 		}
+
+		if (Key == "attachment")
+		{
+			return Shape == ESoftBodyShape::Rope;
+		}
 	}
 
 	return true;
@@ -863,22 +868,23 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			}
 			else if (Property.Type == ELevelPropertyType::AssetReference || Property.Type == ELevelPropertyType::ObjectReference)
 			{
-				const bool bSun = Property.Type == ELevelPropertyType::ObjectReference;
-				// Soft bodies reference a material; Sky Lights reference an environment texture.
-				const bool bMaterial = Type == ELevelComponentType::SoftBody;
-				const auto Labels = bSun ? Components.SunLabels : bMaterial ? Components.MaterialOptionLabels : Components.EnvironmentLabels;
-				const std::span<const FAssetId> AssetIds = bMaterial ? Components.MaterialOptionIds : Components.EnvironmentIds;
-				const std::size_t Count = std::min(Labels.size(), bSun ? Components.SunIds.size() : AssetIds.size());
-				const char* const NoneLabel = bSun ? "Automatic sun" : bMaterial ? "Default material" : "Procedural sky";
+				// Atmospheres reference a sun and ropes an attached body; soft bodies reference a material and Sky Lights an environment texture.
+				const bool bObject = Property.Type == ELevelPropertyType::ObjectReference;
+				const bool bSoftBody = Type == ELevelComponentType::SoftBody;
+				const auto Labels = bObject ? (bSoftBody ? Components.AttachmentLabels : Components.SunLabels) : bSoftBody ? Components.MaterialOptionLabels : Components.EnvironmentLabels;
+				const std::span<const FObjectId> ObjectIds = bSoftBody ? Components.AttachmentIds : Components.SunIds;
+				const std::span<const FAssetId> AssetIds = bSoftBody ? Components.MaterialOptionIds : Components.EnvironmentIds;
+				const std::size_t Count = std::min(Labels.size(), bObject ? ObjectIds.size() : AssetIds.size());
+				const char* const NoneLabel = bObject ? (bSoftBody ? "None" : "Automatic sun") : bSoftBody ? "Default material" : "Procedural sky";
 				const char* CurrentLabel = NoneLabel;
-				if (bSun ? std::get<FObjectId>(Candidate).IsValid() : std::get<FAssetId>(Candidate).IsValid())
+				if (bObject ? std::get<FObjectId>(Candidate).IsValid() : std::get<FAssetId>(Candidate).IsValid())
 				{
-					CurrentLabel = bSun ? "Missing sun (automatic)" : bMaterial ? "Missing material" : "Missing environment";
+					CurrentLabel = bObject ? (bSoftBody ? "Missing body" : "Missing sun (automatic)") : bSoftBody ? "Missing material" : "Missing environment";
 				}
 
 				for (std::size_t Option = 0; Option < Count; ++Option)
 				{
-					if (bSun ? Components.SunIds[Option] == std::get<FObjectId>(Candidate) : AssetIds[Option] == std::get<FAssetId>(Candidate))
+					if (bObject ? ObjectIds[Option] == std::get<FObjectId>(Candidate) : AssetIds[Option] == std::get<FAssetId>(Candidate))
 					{
 						CurrentLabel = Labels[Option].c_str();
 					}
@@ -894,13 +900,13 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-					ToolUI.DrawSearchField("##ReferenceSearch", bSun ? "Search lights" : bMaterial ? "Search materials" : "Search environments", State.VisualReferenceSearch.data(), State.VisualReferenceSearch.size());
+					ToolUI.DrawSearchField("##ReferenceSearch", bObject ? (bSoftBody ? "Search dynamic bodies" : "Search lights") : bSoftBody ? "Search materials" : "Search environments", State.VisualReferenceSearch.data(), State.VisualReferenceSearch.size());
 					ImGui::PopStyleColor();
 					std::vector<std::string_view> Candidates(Labels.begin(), Labels.begin() + static_cast<std::ptrdiff_t>(Count));
 					const auto Matches = SearchAssets(Candidates, State.VisualReferenceSearch.data());
 					if (ImGui::Selectable(NoneLabel))
 					{
-						Candidate = bSun ? FLevelPropertyValue{FObjectId{}} : FLevelPropertyValue{FAssetId{}};
+						Candidate = bObject ? FLevelPropertyValue{FObjectId{}} : FLevelPropertyValue{FAssetId{}};
 						bChanged = true;
 					}
 
@@ -913,7 +919,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 							const std::size_t AssetIndex = (*Matches)[static_cast<std::size_t>(Option)].Index;
 							if (ImGui::Selectable(Labels[AssetIndex].c_str()))
 							{
-								Candidate = bSun ? FLevelPropertyValue{Components.SunIds[AssetIndex]} : FLevelPropertyValue{AssetIds[AssetIndex]};
+								Candidate = bObject ? FLevelPropertyValue{ObjectIds[AssetIndex]} : FLevelPropertyValue{AssetIds[AssetIndex]};
 								bChanged = true;
 							}
 						}

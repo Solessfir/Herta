@@ -568,6 +568,8 @@ struct FEditorFramework::FImplementation
 	FVisualSettings VisualSettings;
 	std::vector<FObjectId> SunIds;
 	std::vector<std::string> SunLabels;
+	std::vector<FObjectId> AttachmentIds;
+	std::vector<std::string> AttachmentLabels;
 	std::vector<FAssetId> EnvironmentIds;
 	std::vector<std::string> EnvironmentLabels;
 	FPreviewSelection PreviewSelection;
@@ -1968,6 +1970,8 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	RenderLights.clear();
 	SunIds.clear();
 	SunLabels.clear();
+	AttachmentIds.clear();
+	AttachmentLabels.clear();
 	EnvironmentIds.clear();
 	EnvironmentLabels.clear();
 	VisualSettings.Atmosphere.reset();
@@ -2027,6 +2031,12 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 		}
 
 		PreviewMaterialSpans[Index] = PreviewMaterials[Index];
+		if (Entity.Mesh && Entity.BodyType == ELevelBodyType::Dynamic && !Entity.SoftBody)
+		{
+			AttachmentIds.push_back(Entity.Id);
+			AttachmentLabels.push_back(Entity.Name);
+		}
+
 		if (Entity.Light)
 		{
 			if (Entity.Light->bEnabled)
@@ -4049,7 +4059,23 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 				Vertices.push_back({World.X, World.Y, World.Z});
 			}
 
-			SoftBodies.push_back({.ObjectIndex = Index, .Settings = MakeSoftBodyPhysicsSettings(SoftBody, Topology, Vertices)});
+			FPreviewSimulationSoftBody& Simulated = SoftBodies.emplace_back(FPreviewSimulationSoftBody{.ObjectIndex = Index, .Settings = MakeSoftBodyPhysicsSettings(SoftBody, Topology, Vertices)});
+			if (Simulated.Settings.Attachment)
+			{
+				const auto Attached = std::ranges::find_if(Bodies, [&](const FPreviewSimulationBody& Body)
+				{
+					return PreviewObjects[Body.ObjectIndex].Id == SoftBody.Attachment && Body.MotionType == EPhysicsMotionType::Dynamic;
+				});
+				if (Attached != Bodies.end())
+				{
+					Simulated.AttachedObjectIndex = Attached->ObjectIndex;
+				}
+				else
+				{
+					HERTA_LOG_WARNING(*Log, EditorLog, "{} hangs free: its attached body is not a meshed Dynamic rigid body", VisualEntities[Index].Name);
+					Simulated.Settings.Attachment.reset();
+				}
+			}
 		}
 
 		if (Bodies.empty() && SoftBodies.empty())
@@ -4122,7 +4148,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();
-	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .AttachmentIds = AttachmentIds, .AttachmentLabels = AttachmentLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
 	std::vector<FDetailsMaterialSlot> MaterialSlots;
 	std::vector<FAssetId> MaterialIds;
 	std::vector<std::string> MaterialLabels;

@@ -388,6 +388,55 @@ TEST_CASE("Pressurized soft body shells land on static bodies without passing th
 	CHECK(Highest - Lowest > 0.3f);
 }
 
+TEST_CASE("Attached soft body ropes carry a dynamic box at their length and follow it")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	constexpr std::uint32_t Segments = 10;
+	constexpr float Length = 2.f;
+	const FVector3 Pin{0.f, 5.f, 0.f};
+	std::vector<FVector3> Vertices;
+	std::vector<std::array<std::uint32_t, 2>> Stretch;
+	for (std::uint32_t Index = 0; Index <= Segments; ++Index)
+	{
+		Vertices.push_back(Pin + FVector3{static_cast<float>(Index) * Length / Segments, 0.f, 0.f});
+		if (Index > 0)
+		{
+			Stretch.push_back({Index - 1, Index});
+		}
+	}
+
+	// Released horizontally, the box swings down on the rope like a pendulum.
+	const auto Box = (*World)->CreateBoxBody({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = Vertices.back() - FVector3{0.f, 0.2f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 5.f, .LinearDamping = 0.5f, .AngularDamping = 0.5f}});
+	REQUIRE(Box);
+	const std::array<std::uint32_t, 1> Pinned{0};
+	const FPhysicsSoftBodyAttachment Attachment{.Body = *Box, .Vertex = Segments, .Point = Vertices.back(), .TetherVertex = 0, .TetherLength = Length};
+	const auto Rope = (*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = Pinned, .StretchEdges = Stretch, .MassKg = 0.2f, .LinearDamping = 1.f, .Attachment = Attachment});
+	REQUIRE(Rope);
+	for (int Step = 0; Step < 600; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	const auto Transform = (*World)->GetBodyTransform(*Box);
+	REQUIRE(Transform);
+	const FVector3 Top = Transform->Position + Transform->Rotation.RotateVector({0.f, 0.2f, 0.f});
+	CHECK((Top - Pin).Length() == doctest::Approx(Length).epsilon(0.02));
+	CHECK(Top.Y < Pin.Y - Length * 0.9f);
+	std::vector<FVector3> Positions;
+	REQUIRE((*World)->GetSoftBodyVertices(*Rope, Positions));
+	CHECK((Positions.back() - Top).Length() < 0.05f);
+	CHECK((Positions.front() - Pin).Length() < 0.001f);
+
+	const auto Floor = (*World)->CreateBoxBody({});
+	REQUIRE(Floor);
+	const std::array<std::uint32_t, 2> BothPinned{0, Segments};
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = Pinned, .StretchEdges = Stretch, .Attachment = FPhysicsSoftBodyAttachment{.Body = *Floor, .Vertex = Segments}}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = BothPinned, .StretchEdges = Stretch, .Attachment = Attachment}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .StretchEdges = Stretch, .Attachment = Attachment}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = Pinned, .StretchEdges = Stretch, .Attachment = FPhysicsSoftBodyAttachment{.Body = *Rope, .Vertex = Segments}}));
+}
+
 TEST_CASE("Soft body creation rejects invalid topology and parameters")
 {
 	auto World = FPhysicsWorld::Create();

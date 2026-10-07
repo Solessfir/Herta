@@ -108,4 +108,41 @@ TEST_CASE("Preview simulation steps soft bodies and reports their world vertices
 	Simulation.Stop();
 	CHECK(Simulation.GetSoftBodyPositions(4).empty());
 }
+
+TEST_CASE("Preview simulation hangs an attached box from the end of a pinned rope")
+{
+	const FSoftBodyComponent Rope{.Shape = ESoftBodyShape::Rope, .Length = 1.f, .MassKg = 0.2f, .Attachment = FObjectId{1, 7}};
+	const FSoftBodyTopology Topology = BuildSoftBodyTopology(Rope);
+	std::vector<FVector3> World;
+	for (const FVector3& Vertex : Topology.Vertices)
+	{
+		World.push_back(Vertex + FVector3{0.f, 3.f, 0.f});
+	}
+
+	// The box's top face is 15 cm below the rope's end, so the attachment point snaps onto it.
+	const std::array Bodies{FPreviewSimulationBody{.ObjectIndex = 2, .Transform = FTransform{{0.f, 1.6f, 0.f}, FQuaternion::Identity(), {0.5f, 0.5f, 0.5f}}, .Shape = {.HalfExtents = {0.5f, 0.5f, 0.5f}}, .MotionType = EPhysicsMotionType::Dynamic}};
+	const FPhysicsSoftBodySettings Settings = MakeSoftBodyPhysicsSettings(Rope, Topology, World);
+	REQUIRE(Settings.Attachment);
+	CHECK(Settings.Attachment->Vertex == World.size() - 1);
+	CHECK(Settings.Attachment->TetherVertex == 0u);
+
+	FPreviewSimulation Missing;
+	const std::array Unresolved{FPreviewSimulationSoftBody{.ObjectIndex = 4, .Settings = Settings}};
+	CHECK_FALSE(Missing.Start(Bodies, Unresolved));
+
+	FPreviewSimulation Simulation;
+	const std::array SoftBodies{FPreviewSimulationSoftBody{.ObjectIndex = 4, .Settings = Settings, .AttachedObjectIndex = 2}};
+	REQUIRE(Simulation.Start(Bodies, SoftBodies));
+	for (int Frame = 0; Frame < 120; ++Frame)
+	{
+		REQUIRE(Simulation.Update(1.f / 60.f));
+	}
+
+	// The 1.15 m initial gap is longer than the rope, so the tether holds the box there instead of letting it drop.
+	const float BoxY = Simulation.GetTransforms()[0].Transform.Translation.Y;
+	CHECK(BoxY == doctest::Approx(1.6f).epsilon(0.02));
+	const auto Positions = Simulation.GetSoftBodyPositions(4);
+	REQUIRE(!Positions.empty());
+	CHECK((Positions.back() - FVector3{0.f, BoxY + 0.25f, 0.f}).Length() < 0.05f);
+}
 }

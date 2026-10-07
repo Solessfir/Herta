@@ -693,10 +693,11 @@ TEST_CASE("Soft body components persist in schema five and are unknown to schema
 {
 	FLevelDocument Document = MakeLevelFolderDocument();
 	Document.Entities[0].SoftBody = FSoftBodyComponent{.Shape = ESoftBodyShape::Cloth, .Length = 2.5f, .Height = 1.5f, .Thickness = 0.02f, .MassKg = 0.75f, .Stiffness = 0.6f, .Pressure = 0.f, .Friction = 0.5f, .bPinned = false, .Material = FAssetId{8, 3}};
-	Document.Entities[1].SoftBody = FSoftBodyComponent{.Shape = ESoftBodyShape::Ball};
+	Document.Entities[1].SoftBody = FSoftBodyComponent{.Shape = ESoftBodyShape::Rope, .Attachment = Document.Entities[0].Id};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
 	CHECK(Text->find("\"softBody\": {") != std::string::npos);
+	CHECK(Text->find("\"attachment\": \"" + Document.Entities[0].Id.ToString() + "\"") != std::string::npos);
 	CHECK(Text->find("\"shape\": \"cloth\"") != std::string::npos);
 	const auto Restored = ParseLevel(*Text);
 	REQUIRE(Restored);

@@ -4,6 +4,7 @@
 #include "Herta/Physics/PhysicsWorld.h"
 
 #include <cstddef>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -32,6 +33,8 @@ struct FPreviewSimulationSoftBody
 	std::size_t ObjectIndex = 0;
 	// The spans only need to stay valid until Start returns.
 	FPhysicsSoftBodySettings Settings{};
+	// Dynamic body that Settings.Attachment refers to. Start fills in its physics ID and moves the point onto the nearest part of its box.
+	std::optional<std::size_t> AttachedObjectIndex{};
 };
 
 struct FPreviewSimulationTransform

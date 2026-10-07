@@ -231,6 +231,11 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		{
 			return Visitor(Entity.SoftBody->Material);
 		}
+
+		if (Key == "attachment")
+		{
+			return Visitor(Entity.SoftBody->Attachment);
+		}
 	}
 
 	return {};
@@ -317,6 +322,7 @@ constexpr std::array SoftBodyProperties{
     FLevelPropertyDescriptor{.Key = "friction", .Label = "Friction", .Default = SoftBodyDefaults.Friction, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1.}},
     FLevelPropertyDescriptor{.Key = "pinned", .Label = "Pinned", .Type = ELevelPropertyType::Boolean, .Default = SoftBodyDefaults.bPinned},
     FLevelPropertyDescriptor{.Key = "material", .Label = "Material", .Type = ELevelPropertyType::AssetReference, .Default = SoftBodyDefaults.Material},
+    FLevelPropertyDescriptor{.Key = "attachment", .Label = "Attached body", .Type = ELevelPropertyType::ObjectReference, .Default = SoftBodyDefaults.Attachment},
 };
 
 constexpr std::array Components{

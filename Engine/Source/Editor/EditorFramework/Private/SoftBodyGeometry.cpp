@@ -4,6 +4,7 @@
 #include <cmath>
 #include <map>
 #include <numbers>
+#include <optional>
 #include <utility>
 
 namespace Herta
@@ -254,6 +255,18 @@ FPhysicsSoftBodySettings MakeSoftBodyPhysicsSettings(const FSoftBodyComponent& S
 {
 	// Stiffness maps to XPBD compliance on a squared curve, so most of the slider's travel is in the believable range.
 	const float Slack = 1.f - std::clamp(SoftBody.Stiffness, 0.f, 1.f);
+	std::optional<FPhysicsSoftBodyAttachment> Attachment;
+	if (SoftBody.Shape == ESoftBodyShape::Rope && SoftBody.Attachment.IsValid() && !WorldVertices.empty())
+	{
+		// The caller resolves the body; a pinned rope also carries its weight.
+		Attachment = FPhysicsSoftBodyAttachment{
+		    .Vertex = static_cast<std::uint32_t>(WorldVertices.size() - 1),
+		    .Point = WorldVertices.back(),
+		    .TetherVertex = SoftBody.bPinned ? std::optional<std::uint32_t>{0} : std::nullopt,
+		    .TetherLength = SoftBody.Length,
+		};
+	}
+
 	return {
 	    .Vertices = WorldVertices,
 	    .PinnedVertices = Topology.Pinned,
@@ -267,6 +280,7 @@ FPhysicsSoftBodySettings MakeSoftBodyPhysicsSettings(const FSoftBodyComponent& S
 	    .Pressure = SoftBody.Shape == ESoftBodyShape::Ball ? SoftBody.Pressure : 0.f,
 	    .Friction = SoftBody.Friction,
 	    .Iterations = SoftBody.Shape == ESoftBodyShape::Rope ? 16u : 8u,
+	    .Attachment = Attachment,
 	};
 }
 

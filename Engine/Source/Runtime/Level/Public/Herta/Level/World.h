@@ -182,6 +182,8 @@ struct FSoftBodyComponent
 	// Pins the rope's top end or the cloth's top corners in place.
 	bool bPinned = true;
 	FAssetId Material{};
+	// Dynamic rigid body hung from the rope's free end; a soft reference like the atmosphere's sun.
+	FObjectId Attachment{};
 };
 
 enum class ELevelBodyType : std::uint8_t

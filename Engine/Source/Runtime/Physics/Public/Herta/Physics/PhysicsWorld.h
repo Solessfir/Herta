@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -50,6 +51,18 @@ struct FPhysicsBoxBodySettings
 	FPhysicsBodyProperties Properties{};
 };
 
+// Jolt cannot constrain soft bodies, so the attached vertex becomes kinematic and is driven to a point on a dynamic rigid body every step.
+struct FPhysicsSoftBodyAttachment
+{
+	FPhysicsBodyId Body{};
+	std::uint32_t Vertex = 0;
+	// World-space point at creation; it then moves with the body.
+	FVector3 Point = FVector3::Zero();
+	// A pinned vertex that holds the body up like a rope, keeping Point within TetherLength of it (or its initial distance, if longer). None lets the body move freely.
+	std::optional<std::uint32_t> TetherVertex{};
+	float TetherLength = 0.f;
+};
+
 // Position-based soft body. Ropes use explicit edges; cloth and closed shells use faces, which also generate stretch, shear, and bend edges.
 struct FPhysicsSoftBodySettings
 {
@@ -74,6 +87,7 @@ struct FPhysicsSoftBodySettings
 	float LinearDamping = 0.1f;
 	float GravityScale = 1.f;
 	std::uint32_t Iterations = 8;
+	std::optional<FPhysicsSoftBodyAttachment> Attachment{};
 };
 
 struct FPhysicsBodyTransform
