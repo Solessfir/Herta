@@ -255,7 +255,7 @@ void DrawPerformancePanel(FToolUIContext& ToolUI, bool& bOpen, FPerformancePanel
 		{
 			ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthStretch, 1.f);
 			ImGui::TableSetupColumn("History", ImGuiTableColumnFlags_WidthStretch, 1.f);
-			ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 64.f * Scale);
+			ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 84.f * Scale);
 			// Every row shares one scale, so sparkline heights compare pass costs directly.
 			for (const FPerformancePassHistory& Pass : State.Passes)
 			{
@@ -265,7 +265,7 @@ void DrawPerformancePanel(FToolUIContext& ToolUI, bool& bOpen, FPerformancePanel
 				ImGui::TableSetColumnIndex(1);
 				DrawSparkline(Pass.Milliseconds, ImGui::GetContentRegionAvail().x, ImGui::GetTextLineHeight(), Ceiling);
 				ImGui::TableSetColumnIndex(2);
-				const std::string Value = std::format("{:.3f}", Pass.Milliseconds.GetAverage(AverageWindow));
+				const std::string Value = std::format("{:.3f} ms", Pass.Milliseconds.GetAverage(AverageWindow));
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(Value.c_str()).x);
 				ImGui::TextUnformatted(Value.c_str());
 			}
