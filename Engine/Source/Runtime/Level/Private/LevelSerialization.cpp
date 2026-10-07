@@ -298,6 +298,45 @@ std::expected<FHeightFogComponent, FLevelError> ReadFog(const simdjson::dom::ele
 	};
 }
 
+constexpr std::array<std::string_view, 3> SoftBodyShapes{"rope", "cloth", "ball"};
+
+std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<10>(Element, GetLevelComponentDescriptor(ELevelComponentType::SoftBody));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Shape = ReadString((*Fields)[0]);
+	const auto Length = ReadNumber<float>((*Fields)[1]);
+	const auto Height = ReadNumber<float>((*Fields)[2]);
+	const auto Thickness = ReadNumber<float>((*Fields)[3]);
+	const auto Mass = ReadNumber<float>((*Fields)[4]);
+	const auto Stiffness = ReadNumber<float>((*Fields)[5]);
+	const auto Pressure = ReadNumber<float>((*Fields)[6]);
+	const auto Friction = ReadNumber<float>((*Fields)[7]);
+	const auto Pinned = ReadBoolean((*Fields)[8]);
+	const auto Material = ReadOptionalId<FAssetId>((*Fields)[9]);
+	if (!Shape || std::ranges::find(SoftBodyShapes, *Shape) == SoftBodyShapes.end() || !Length || !Height || !Thickness || !Mass || !Stiffness || !Pressure || !Friction || !Pinned || !Material)
+	{
+		return LevelError("Invalid soft body component field");
+	}
+
+	return FSoftBodyComponent{
+	    .Shape = static_cast<ESoftBodyShape>(std::ranges::find(SoftBodyShapes, *Shape) - SoftBodyShapes.begin()),
+	    .Length = *Length,
+	    .Height = *Height,
+	    .Thickness = *Thickness,
+	    .MassKg = *Mass,
+	    .Stiffness = *Stiffness,
+	    .Pressure = *Pressure,
+	    .Friction = *Friction,
+	    .bPinned = *Pinned,
+	    .Material = *Material,
+	};
+}
+
 std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
 	const auto& TransformDescriptor = GetLevelComponentDescriptor(ELevelComponentType::Transform);
@@ -513,6 +552,22 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			Entity.HeightFog = *Fog;
+		}
+		else if (SchemaVersion >= 5 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::SoftBody).SerializationKey)
+		{
+			if ((SeenComponents & 32) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 32;
+			const auto SoftBody = ReadSoftBody(Component.value);
+			if (!SoftBody)
+			{
+				return std::unexpected(SoftBody.error());
+			}
+
+			Entity.SoftBody = *SoftBody;
 		}
 		else
 		{
@@ -859,7 +914,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 4,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 5,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1005,6 +1060,25 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			AppendVisualComponent(Output, ELevelComponentType::HeightFog, Values, bHasComponent);
 		}
 
+		if (Entity.SoftBody)
+		{
+			const auto& SoftBody = *Entity.SoftBody;
+			const std::array<FVisualValue, 10> Values{
+			    SoftBodyShapes[static_cast<std::size_t>(SoftBody.Shape)],
+			    SoftBody.Length,
+			    SoftBody.Height,
+			    SoftBody.Thickness,
+			    SoftBody.MassKg,
+			    SoftBody.Stiffness,
+			    SoftBody.Pressure,
+			    SoftBody.Friction,
+			    SoftBody.bPinned,
+			    SoftBody.Material,
+			};
+
+			AppendVisualComponent(Output, ELevelComponentType::SoftBody, Values, bHasComponent);
+		}
+
 		Output += bHasComponent ? "\n      }\n    }" : "}\n    }";
 		if (Output.size() > MaximumLevelBytes)
 		{
@@ -1110,7 +1184,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 4 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 5 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
 		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 4 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}

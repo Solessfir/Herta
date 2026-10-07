@@ -192,6 +192,15 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		}
 	}
 
+	if (Entity.SoftBody)
+	{
+		const auto Valid = ValidateSoftBodyComponent(*Entity.SoftBody);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
 	if (Entity.BodyType != ELevelBodyType::None && Entity.BodyType != ELevelBodyType::Static && Entity.BodyType != ELevelBodyType::Dynamic)
 	{
 		return std::unexpected(FLevelError{"Entity has an unknown body type"});
@@ -309,6 +318,22 @@ std::expected<void, FLevelError> ValidateHeightFogComponent(const FHeightFogComp
 	return {};
 }
 
+std::expected<void, FLevelError> ValidateSoftBodyComponent(const FSoftBodyComponent& SoftBody)
+{
+	const auto InRange = [](const float Value, const float Minimum, const float Maximum)
+	{
+		return std::isfinite(Value) && Value >= Minimum && Value <= Maximum;
+	};
+
+	if (SoftBody.Shape > ESoftBodyShape::Ball || !InRange(SoftBody.Length, 0.1f, 50.f) || !InRange(SoftBody.Height, 0.1f, 50.f) || !InRange(SoftBody.Thickness, 0.005f, 1.f)
+	    || !InRange(SoftBody.MassKg, 0.001f, 10'000.f) || !InRange(SoftBody.Stiffness, 0.f, 1.f) || !InRange(SoftBody.Pressure, 0.f, 1'000'000.f) || !InRange(SoftBody.Friction, 0.f, 1.f))
+	{
+		return std::unexpected(FLevelError{"Soft body settings contain a nonfinite value, unknown shape, or out-of-range property"});
+	}
+
+	return {};
+}
+
 std::expected<void, FLevelError> ValidateLevelEntities(const std::span<const FLevelEntity> Entities)
 {
 	if (Entities.size() > MaximumEntityCount)
@@ -413,6 +438,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FLightComponent* Light = Registry.try_get<FLightComponent>(Entity);
 	const FSkyAtmosphereComponent* Atmosphere = Registry.try_get<FSkyAtmosphereComponent>(Entity);
 	const FHeightFogComponent* Fog = Registry.try_get<FHeightFogComponent>(Entity);
+	const FSoftBodyComponent* SoftBody = Registry.try_get<FSoftBodyComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -424,6 +450,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .Light = Light ? std::optional{*Light} : std::nullopt,
 	    .SkyAtmosphere = Atmosphere ? std::optional{*Atmosphere} : std::nullopt,
 	    .HeightFog = Fog ? std::optional{*Fog} : std::nullopt,
+	    .SoftBody = SoftBody ? std::optional{*SoftBody} : std::nullopt,
 	};
 }
 
@@ -470,6 +497,15 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FHeightFogComponent>(Entity);
+	}
+
+	if (Snapshot.SoftBody)
+	{
+		Registry.emplace_or_replace<FSoftBodyComponent>(Entity, *Snapshot.SoftBody);
+	}
+	else
+	{
+		Registry.remove<FSoftBodyComponent>(Entity);
 	}
 }
 

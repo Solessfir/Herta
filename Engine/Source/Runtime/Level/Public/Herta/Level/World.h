@@ -154,6 +154,36 @@ struct FHeightFogComponent
 	bool bVolumetric = true;
 };
 
+enum class ESoftBodyShape : std::uint8_t
+{
+	Rope,
+	Cloth,
+	Ball,
+};
+
+// Simulated deformable geometry generated from a few physical dimensions; the editor and physics derive their vertices at 10 cm spacing.
+struct FSoftBodyComponent
+{
+	constexpr bool operator==(const FSoftBodyComponent&) const = default;
+
+	ESoftBodyShape Shape = ESoftBodyShape::Rope;
+	// Rope length, cloth width, or ball diameter.
+	float Length = 3.f;
+	// Cloth only.
+	float Height = 2.f;
+	// Rope radius, and the collision radius of cloth and ball vertices.
+	float Thickness = 0.03f;
+	float MassKg = 1.f;
+	// 0 is slack and floppy, 1 is as stiff as the solver allows.
+	float Stiffness = 0.9f;
+	// Inflates the ball, in Pa * m^3.
+	float Pressure = 400.f;
+	float Friction = 0.4f;
+	// Pins the rope's top end or the cloth's top corners in place.
+	bool bPinned = true;
+	FAssetId Material{};
+};
+
 enum class ELevelBodyType : std::uint8_t
 {
 	None,
@@ -187,6 +217,7 @@ struct FLevelEntity
 	std::optional<FLightComponent> Light{};
 	std::optional<FSkyAtmosphereComponent> SkyAtmosphere{};
 	std::optional<FHeightFogComponent> HeightFog{};
+	std::optional<FSoftBodyComponent> SoftBody{};
 };
 
 struct FLevelEntityChange
@@ -205,6 +236,7 @@ struct FLevelError
 [[nodiscard]] std::expected<void, FLevelError> ValidateLightComponent(const FLightComponent& Light);
 [[nodiscard]] std::expected<void, FLevelError> ValidateSkyAtmosphereComponent(const FSkyAtmosphereComponent& Atmosphere);
 [[nodiscard]] std::expected<void, FLevelError> ValidateHeightFogComponent(const FHeightFogComponent& Fog);
+[[nodiscard]] std::expected<void, FLevelError> ValidateSoftBodyComponent(const FSoftBodyComponent& SoftBody);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final

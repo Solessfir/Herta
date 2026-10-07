@@ -83,7 +83,7 @@ std::string ReplaceLevelText(std::string Text, const std::string_view From, cons
 
 std::string MakeSchemaTwoText(std::string Text)
 {
-	Text = ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 2");
+	Text = ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 2");
 
 	while (Text.contains(", \"materials\": []"))
 	{
@@ -127,7 +127,7 @@ TEST_CASE("Levels round-trip in canonical sorted UTF-8 JSON")
 	CHECK(Serialized->find('\r') == std::string::npos);
 	CHECK(Serialized->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Serialized->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Serialized->find("\"engineSchemaVersion\": 4") != std::string::npos);
+	CHECK(Serialized->find("\"engineSchemaVersion\": 5") != std::string::npos);
 	CHECK(Serialized->find("\"folders\": []") != std::string::npos);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"format\":", "\"magic\":")));
 	CHECK(Serialized->find("\"rotation\": [") != std::string::npos);
@@ -200,7 +200,7 @@ TEST_CASE("Schema 1 body types migrate to canonical schema 3 settings and empty 
 	REQUIRE(Canonical);
 	CHECK(Canonical->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Canonical->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Canonical->find("\"engineSchemaVersion\": 4") != std::string::npos);
+	CHECK(Canonical->find("\"engineSchemaVersion\": 5") != std::string::npos);
 	CHECK(Canonical->find("\"folders\": []") != std::string::npos);
 	CHECK(Canonical->find("\"massKg\": 1") != std::string::npos);
 	CHECK(Canonical->find("\"gravityScale\": 1") != std::string::npos);
@@ -302,7 +302,7 @@ TEST_CASE("Levels reject unsupported versions, malformed input, and unknown data
 	    ReplaceLevelText(*Serialized, "\"HertaLevel\"", "\"OtherLevel\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 0"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 3"),
-	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 5"),
+	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 6"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 1.5"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": \"2\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": true"),
@@ -467,8 +467,8 @@ TEST_CASE("Schemas 3 and 4 accept folders and require the folders array")
 	REQUIRE(Serialized);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, ",\n  \"folders\": []", "")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"folders\": []", "\"folders\": null")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 1")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 2")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 1")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 2")));
 	const auto SchemaTwo = ParseLevel(MakeSchemaTwoText(*Serialized));
 	REQUIRE(SchemaTwo);
 	CHECK(SchemaTwo->Folders.empty());
@@ -673,7 +673,7 @@ TEST_CASE("Visual level components and material slots have deterministic schema 
 	Document.Entities[1].HeightFog = FHeightFogComponent{.Density = 0.04f, .Albedo = {0.5f, 0.8f, 1.f}, .Quality = EFogQuality::High};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
-	CHECK(Text->find("\"engineSchemaVersion\": 4") != std::string::npos);
+	CHECK(Text->find("\"engineSchemaVersion\": 5") != std::string::npos);
 	CHECK(Text->find("\"materials\": [\"" + FAssetId{8, 1}.ToString() + "\", null,") != std::string::npos);
 	const auto Restored = ParseLevel(*Text);
 	REQUIRE(Restored);
@@ -686,14 +686,35 @@ TEST_CASE("Visual level components and material slots have deterministic schema 
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"type\": \"rect\"", "\"type\": \"unknown\"")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"volumetric\": true", "\"volumetric\": 1")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"enabled\": true", "\"enabled\": true, \"enabled\": true")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 3")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 3")));
+}
+
+TEST_CASE("Soft body components persist in schema five and are unknown to schema four")
+{
+	FLevelDocument Document = MakeLevelFolderDocument();
+	Document.Entities[0].SoftBody = FSoftBodyComponent{.Shape = ESoftBodyShape::Cloth, .Length = 2.5f, .Height = 1.5f, .Thickness = 0.02f, .MassKg = 0.75f, .Stiffness = 0.6f, .Pressure = 0.f, .Friction = 0.5f, .bPinned = false, .Material = FAssetId{8, 3}};
+	Document.Entities[1].SoftBody = FSoftBodyComponent{.Shape = ESoftBodyShape::Ball};
+	const auto Text = SerializeLevel(Document);
+	REQUIRE(Text);
+	CHECK(Text->find("\"softBody\": {") != std::string::npos);
+	CHECK(Text->find("\"shape\": \"cloth\"") != std::string::npos);
+	const auto Restored = ParseLevel(*Text);
+	REQUIRE(Restored);
+	std::ranges::sort(Document.Entities, {}, &FLevelEntity::Id);
+	CHECK(Restored->Entities == Document.Entities);
+	const auto Canonical = SerializeLevel(*Restored);
+	REQUIRE(Canonical);
+	CHECK(*Canonical == *Text);
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"shape\": \"cloth\"", "\"shape\": \"jelly\"")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"stiffness\": 0.6", "\"stiffness\": 2")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 4")));
 }
 
 TEST_CASE("Schema three folder metadata migrates without introducing visual components")
 {
 	const auto Text = SerializeLevel(MakeLevelFolderDocument());
 	REQUIRE(Text);
-	std::string Legacy = ReplaceLevelText(*Text, "\"engineSchemaVersion\": 4", "\"engineSchemaVersion\": 3");
+	std::string Legacy = ReplaceLevelText(*Text, "\"engineSchemaVersion\": 5", "\"engineSchemaVersion\": 3");
 	Legacy = ReplaceLevelText(std::move(Legacy), ", \"materials\": []", "");
 	const auto Restored = ParseLevel(Legacy);
 	REQUIRE(Restored);

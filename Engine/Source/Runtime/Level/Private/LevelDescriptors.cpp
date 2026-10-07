@@ -180,6 +180,59 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		}
 	}
 
+	if (Type == ELevelComponentType::SoftBody && Entity.SoftBody)
+	{
+		if (Key == "shape")
+		{
+			return Visitor(Entity.SoftBody->Shape);
+		}
+
+		if (Key == "length")
+		{
+			return Visitor(Entity.SoftBody->Length);
+		}
+
+		if (Key == "height")
+		{
+			return Visitor(Entity.SoftBody->Height);
+		}
+
+		if (Key == "thickness")
+		{
+			return Visitor(Entity.SoftBody->Thickness);
+		}
+
+		if (Key == "massKg")
+		{
+			return Visitor(Entity.SoftBody->MassKg);
+		}
+
+		if (Key == "stiffness")
+		{
+			return Visitor(Entity.SoftBody->Stiffness);
+		}
+
+		if (Key == "pressure")
+		{
+			return Visitor(Entity.SoftBody->Pressure);
+		}
+
+		if (Key == "friction")
+		{
+			return Visitor(Entity.SoftBody->Friction);
+		}
+
+		if (Key == "pinned")
+		{
+			return Visitor(Entity.SoftBody->bPinned);
+		}
+
+		if (Key == "material")
+		{
+			return Visitor(Entity.SoftBody->Material);
+		}
+	}
+
 	return {};
 }
 
@@ -188,6 +241,7 @@ constexpr FLevelRigidBodySettings BodyDefaults{};
 constexpr FLightComponent LightDefaults{};
 constexpr FSkyAtmosphereComponent AtmosphereDefaults{};
 constexpr FHeightFogComponent FogDefaults{};
+constexpr FSoftBodyComponent SoftBodyDefaults{};
 
 constexpr std::array TransformProperties{
     FLevelPropertyDescriptor{.Key = "translation", .Label = "Location", .Type = ELevelPropertyType::WorldPosition, .Unit = ELevelPropertyUnit::Meters, .Default = TransformDefaults.Translation},
@@ -251,6 +305,20 @@ constexpr std::array FogProperties{
     FLevelPropertyDescriptor{.Key = "volumetric", .Label = "Volumetric", .Type = ELevelPropertyType::Boolean, .Default = FogDefaults.bVolumetric},
 };
 
+// Serialized key order is the component's JSON field order.
+constexpr std::array SoftBodyProperties{
+    FLevelPropertyDescriptor{.Key = "shape", .Label = "Shape", .Type = ELevelPropertyType::SoftBodyShape, .Default = SoftBodyDefaults.Shape},
+    FLevelPropertyDescriptor{.Key = "length", .Label = "Length", .Unit = ELevelPropertyUnit::Meters, .Default = SoftBodyDefaults.Length, .Range = FLevelPropertyRange{.Minimum = 0.1f, .Maximum = 50.}},
+    FLevelPropertyDescriptor{.Key = "height", .Label = "Height", .Unit = ELevelPropertyUnit::Meters, .Default = SoftBodyDefaults.Height, .Range = FLevelPropertyRange{.Minimum = 0.1f, .Maximum = 50.}},
+    FLevelPropertyDescriptor{.Key = "thickness", .Label = "Thickness", .Unit = ELevelPropertyUnit::Meters, .Default = SoftBodyDefaults.Thickness, .Range = FLevelPropertyRange{.Minimum = 0.005f, .Maximum = 1.}},
+    FLevelPropertyDescriptor{.Key = "massKg", .Label = "Mass", .Unit = ELevelPropertyUnit::Kilograms, .Default = SoftBodyDefaults.MassKg, .Range = FLevelPropertyRange{.Minimum = 0.001f, .Maximum = 10'000.}},
+    FLevelPropertyDescriptor{.Key = "stiffness", .Label = "Stiffness", .Default = SoftBodyDefaults.Stiffness, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1.}},
+    FLevelPropertyDescriptor{.Key = "pressure", .Label = "Pressure", .Default = SoftBodyDefaults.Pressure, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1'000'000.}},
+    FLevelPropertyDescriptor{.Key = "friction", .Label = "Friction", .Default = SoftBodyDefaults.Friction, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1.}},
+    FLevelPropertyDescriptor{.Key = "pinned", .Label = "Pinned", .Type = ELevelPropertyType::Boolean, .Default = SoftBodyDefaults.bPinned},
+    FLevelPropertyDescriptor{.Key = "material", .Label = "Material", .Type = ELevelPropertyType::AssetReference, .Default = SoftBodyDefaults.Material},
+};
+
 constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Transform, .TypeId = "Herta.Level.Transform", .SerializationKey = "transform", .Label = "Transform", .Properties = TransformProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::StaticMesh, .TypeId = "Herta.Level.StaticMesh", .SerializationKey = "staticMesh", .Label = "Static Mesh", .Properties = MeshProperties},
@@ -258,6 +326,7 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Light, .TypeId = "Herta.Level.Light", .SerializationKey = "light", .Label = "Light", .Properties = LightProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::SkyAtmosphere, .TypeId = "Herta.Level.SkyAtmosphere", .SerializationKey = "skyAtmosphere", .Label = "Sky Atmosphere", .Properties = AtmosphereProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::HeightFog, .TypeId = "Herta.Level.HeightFog", .SerializationKey = "heightFog", .Label = "Height Fog", .Properties = FogProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::SoftBody, .TypeId = "Herta.Level.SoftBody", .SerializationKey = "softBody", .Label = "Soft Body", .Properties = SoftBodyProperties},
 };
 }
 
@@ -296,6 +365,7 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 
 	const auto Valid = Type == ELevelComponentType::Light           ? ValidateLightComponent(*Candidate.Light)
 	                   : Type == ELevelComponentType::SkyAtmosphere ? ValidateSkyAtmosphereComponent(*Candidate.SkyAtmosphere)
+	                   : Type == ELevelComponentType::SoftBody      ? ValidateSoftBodyComponent(*Candidate.SoftBody)
 	                                                                : ValidateHeightFogComponent(*Candidate.HeightFog);
 	if (!Valid)
 	{
