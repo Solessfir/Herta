@@ -466,6 +466,7 @@ project "HertaEditor"
     debugdir(RepositoryRoot)
     ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project" }
     dependson { "HertaShaders", "HertaAssetWorker" }
+    externalincludedirs { path.join(RepositoryRoot, "External/stb") }
 
     files {
         path.join(RepositoryRoot, "Engine/Content/Editor/Icons/Herta.svg")

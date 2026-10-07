@@ -15,6 +15,10 @@
 #include "Herta/ToolUI/ToolUI.h"
 #include "RendererSmoke.h"
 
+#define STBI_WRITE_NO_STDIO
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include <stb_image_write.h>
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -24,6 +28,8 @@
 #include <exception>
 #include <expected>
 #include <filesystem>
+#include <format>
+#include <fstream>
 #include <functional>
 #include <memory>
 #include <numbers>
@@ -51,6 +57,53 @@ void ReportFailure(const std::string_view Message) noexcept
 	{
 		// Reporting must not let a formatting exception escape main.
 	}
+}
+
+[[nodiscard]] std::string MakeVisualCaptureName(const std::uint32_t Slot, const std::string_view Label)
+{
+	std::string Name = std::format("{:02}-", Slot);
+	for (const char Character : Label)
+	{
+		Name += std::isalnum(static_cast<unsigned char>(Character)) ? Character : '-';
+	}
+
+	return Name + ".png";
+}
+
+// Captures keep the viewport's overlays, as the user sees them, but drop alpha so PNG viewers show the image opaque.
+[[nodiscard]] bool WriteVisualCapture(const std::filesystem::path& Path, std::vector<std::byte> Pixels, const FExtent2D Extent)
+{
+	const auto Width = static_cast<int>(Extent.Width);
+	const auto Height = static_cast<int>(Extent.Height);
+	if (Pixels.size() != std::size_t{Extent.Width} * Extent.Height * 4)
+	{
+		return false;
+	}
+
+	for (std::size_t Alpha = 3; Alpha < Pixels.size(); Alpha += 4)
+	{
+		Pixels[Alpha] = std::byte{0xff};
+	}
+
+	// Encoding to memory keeps non-ASCII paths on the standard library instead of stb's narrow fopen.
+	std::vector<char> Encoded;
+	const auto Append = [](void* const Context, void* const Data, const int Size)
+	{
+		auto& Output = *static_cast<std::vector<char>*>(Context);
+		const auto* const Bytes = static_cast<const char*>(Data);
+		Output.insert(Output.end(), Bytes, Bytes + Size);
+	};
+
+	if (stbi_write_png_to_func(Append, &Encoded, Width, Height, 4, Pixels.data(), Width * 4) == 0)
+	{
+		return false;
+	}
+
+	std::error_code Error;
+	std::filesystem::create_directories(Path.parent_path(), Error);
+	std::ofstream File(Path, std::ios::binary | std::ios::trunc);
+	File.write(Encoded.data(), static_cast<std::streamsize>(Encoded.size()));
+	return !Error && static_cast<bool>(File);
 }
 
 [[nodiscard]] std::filesystem::path FindRepositoryRoot(const std::filesystem::path& ExecutablePath)
@@ -914,6 +967,48 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::size_t ScalingPhase = 0;
 	std::size_t ScalingFrame = 0;
 	std::size_t VisualFrames = 0;
+	std::uint32_t VisualSlot = 0;
+	std::string VisualSlotName;
+	std::size_t VisualSettleFrames = 0;
+	std::size_t VisualCaptures = 0;
+	bool bVisualCompleted = false;
+	const std::filesystem::path VisualCaptureDirectory = RepositoryRoot / "Saved/VisualTest";
+	constexpr std::size_t VisualBookmarkSettleFrames = 60;
+	const auto CaptureVisualView = [&](const std::string& FileName)
+	{
+		const auto Pixels = Presentation->GetGraphicsDevice().ReadbackTexture(MeshRenderer->GetColorTarget());
+		if (!Pixels || !WriteVisualCapture(VisualCaptureDirectory / FileName, *Pixels, EditorFramework->GetViewportExtent()))
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not save visual capture {}{}", FileName, Pixels ? "" : std::format(": {}", Pixels.error().Message));
+			bRenderFailed = true;
+			return;
+		}
+
+		++VisualCaptures;
+	};
+
+	const auto ShowNextVisualBookmark = [&]
+	{
+		while (++VisualSlot <= 9)
+		{
+			if (auto Name = EditorFramework->ShowCameraBookmark(VisualSlot))
+			{
+				VisualSlotName = std::move(*Name);
+				VisualSettleFrames = 0;
+				return true;
+			}
+		}
+
+		return false;
+	};
+
+	const auto CompleteVisualCapture = [&]
+	{
+		HERTA_LOG_INFO(*Log, EditorLog, "Visual capture saved {} views to {}", VisualCaptures, VisualCaptureDirectory.generic_string());
+		bVisualCompleted = true;
+		Window.RequestClose();
+	};
+
 	bool bScalingStarted = false;
 	bool bScalingCompleted = false;
 	const auto ScalingDeadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
@@ -988,7 +1083,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				break;
 			}
 
-			if (bPresented && EditorFramework->GetFrameMetrics().bAssetsReady && ++VisualFrames == 600)
+			if (bPresented && EditorFramework->GetFrameMetrics().bAssetsReady && VisualFrames < 600 && ++VisualFrames == 600)
 			{
 				const FExtent2D Extent = EditorFramework->GetViewportExtent();
 				HERTA_LOG_INFO(*Log, EditorLog, "Visual capture completed: frames={} viewport={}x{} target_bytes={}", VisualFrames, Extent.Width, Extent.Height, MeshRenderer->GetRenderTargetBytes());
@@ -997,7 +1092,27 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 					HERTA_LOG_INFO(*Log, EditorLog, "Visual pass={} gpu_ms={:.3f}", Timing.Name, Timing.Milliseconds);
 				}
 
-				Window.RequestClose();
+				CaptureVisualView("00-Start.png");
+				if (!ShowNextVisualBookmark())
+				{
+					CompleteVisualCapture();
+				}
+			}
+			else if (bPresented && VisualFrames == 600 && !bVisualCompleted && ++VisualSettleFrames == VisualBookmarkSettleFrames)
+			{
+				// Each bookmark settles for a second of frames so shadows and GPU timings reflect its view.
+				double GpuMilliseconds = 0.;
+				for (const auto& Timing : MeshRenderer->GetGpuTimings())
+				{
+					GpuMilliseconds += Timing.Milliseconds;
+				}
+
+				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount());
+				CaptureVisualView(MakeVisualCaptureName(VisualSlot, VisualSlotName));
+				if (!ShowNextVisualBookmark())
+				{
+					CompleteVisualCapture();
+				}
 			}
 		}
 
@@ -1126,9 +1241,9 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		bRenderFailed = true;
 	}
 
-	if (bVisualTest && VisualFrames < 600)
+	if (bVisualTest && !bVisualCompleted)
 	{
-		HERTA_LOG_ERROR(*Log, EditorLog, "Visual capture ended before its ready-frame budget completed");
+		HERTA_LOG_ERROR(*Log, EditorLog, "Visual capture ended before its ready-frame budget and bookmark views completed");
 		bRenderFailed = true;
 	}
 

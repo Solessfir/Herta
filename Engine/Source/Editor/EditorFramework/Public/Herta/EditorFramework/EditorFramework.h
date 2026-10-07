@@ -90,6 +90,8 @@ public:
 	FEditorFrameMetrics GetFrameMetrics() const noexcept;
 	// Bounded diagnostic phases reuse the same selection, camera, and simulation paths as interactive editing.
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> SetScalingTestPhase(bool bSelectAll, bool bSimulate);
+	// Moves the viewport camera to a level camera bookmark and returns its name, or nothing when the slot is empty.
+	std::optional<std::string> ShowCameraBookmark(std::uint32_t Slot);
 	[[nodiscard]] bool IsUnitStatsVisible() const noexcept;
 	[[nodiscard]] FExtent2D GetViewportExtent() const noexcept;
 	[[nodiscard]] FMeshRenderView GetViewportRenderView() const noexcept;

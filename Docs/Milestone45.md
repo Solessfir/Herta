@@ -69,6 +69,6 @@ At 1280x726, Linux captures reported 50,697,216 bytes (48.3 MiB) of viewport tar
 
 ## Reproduce
 
-Run the platform's build and tests from [Getting started](GettingStarted.md). `HertaEditor --renderer-test --validation` performs native rendering/readback checks. `HertaEditor --visual-test --validation` renders 600 asset-ready frames from the normal Sandbox camera, logs pass timings and target memory, and leaves saved editor preferences untouched.
+Run the platform's build and tests from [Getting started](GettingStarted.md). `HertaEditor --renderer-test --validation` performs native rendering/readback checks. `HertaEditor --visual-test --validation` renders 600 asset-ready frames from the normal Sandbox camera, logs pass timings and target memory, saves a viewport image for the start view and each camera bookmark under `Saved/VisualTest`, and leaves saved editor preferences untouched.
 
 See [Materials](Materials.md), [Rendering](Rendering.md), and [Sandbox playground](Playground.md) for authoring controls, shader contracts, and feature stations.

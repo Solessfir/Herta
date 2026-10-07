@@ -869,6 +869,19 @@ FEditorFrameMetrics FEditorFramework::GetFrameMetrics() const noexcept
 	return Metrics;
 }
 
+std::optional<std::string> FEditorFramework::ShowCameraBookmark(const std::uint32_t Slot)
+{
+	const auto Bookmarks = Implementation->Level->GetCameraBookmarks();
+	const auto Found = std::ranges::find(Bookmarks, Slot, &FLevelCameraBookmark::Slot);
+	if (Found == Bookmarks.end())
+	{
+		return std::nullopt;
+	}
+
+	Implementation->JumpToCameraBookmark(Slot);
+	return Found->Name;
+}
+
 std::expected<void, FEditorFrameworkError> FEditorFramework::SetScalingTestPhase(const bool bSelectAll, const bool bSimulate)
 {
 	auto& State = *Implementation;
