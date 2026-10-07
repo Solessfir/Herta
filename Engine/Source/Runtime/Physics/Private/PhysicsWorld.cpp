@@ -6,14 +6,19 @@
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/PhysicsUpdateContext.h>
+#include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
+#include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
+#include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
 #include <Jolt/RegisterTypes.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -31,9 +36,9 @@ constexpr JPH::ObjectLayer DynamicLayer = 1;
 
 [[nodiscard]] constexpr std::size_t RequiredTempMemory(const FPhysicsWorldSettings& Settings)
 {
-	// Jolt 5.6: one discrete rigid-body step, no joints, soft bodies, or parallel island splitting.
-	// Cover contact buffers, island arrays, CCD-index mapping, and alignment padding before Jolt can abort.
-	return sizeof(JPH::PhysicsUpdateContext::Step) + 64 * 1024
+	// Jolt 5.6: one discrete step, no joints or parallel island splitting.
+	// Cover contact buffers, island arrays, CCD-index mapping, soft-body update contexts, and alignment padding before Jolt can abort.
+	return sizeof(JPH::PhysicsUpdateContext::Step) + 320 * 1024
 	       + static_cast<std::size_t>(Settings.MaxBodies) * 128
 	       + static_cast<std::size_t>(Settings.MaxBodyPairs) * sizeof(JPH::BodyPair)
 	       + static_cast<std::size_t>(Settings.MaxContactConstraints) * (JPH::ContactConstraintManager::cMaxConstraintSize + 32);
@@ -133,6 +138,23 @@ void ReleaseRuntime()
 [[nodiscard]] JPH::Quat ToJolt(const FQuaternion& Value)
 {
 	return {Value.X, Value.Y, Value.Z, Value.W};
+}
+
+template <std::size_t Count>
+[[nodiscard]] bool AreValidIndices(const std::span<const std::array<std::uint32_t, Count>> Elements, const std::size_t VertexCount)
+{
+	return std::ranges::all_of(Elements, [VertexCount](const std::array<std::uint32_t, Count>& Element)
+	{
+		for (std::size_t Index = 0; Index < Count; ++Index)
+		{
+			if (Element[Index] >= VertexCount || std::ranges::count(Element, Element[Index]) != 1)
+			{
+				return false;
+			}
+		}
+
+		return true;
+	});
 }
 }
 
@@ -296,6 +318,114 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBoxBody(const 
 	return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
 }
 
+std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateSoftBody(const FPhysicsSoftBodySettings& Settings)
+{
+	if (Implementation->BodyCount >= Implementation->Settings.MaxBodies)
+	{
+		return std::unexpected(FPhysicsError{std::format("Physics world body capacity reached (MaxBodies={})", Implementation->Settings.MaxBodies)});
+	}
+
+	const std::size_t VertexCount = Settings.Vertices.size();
+	if (VertexCount < 2 || VertexCount > 65536 || !std::ranges::all_of(Settings.Vertices, [](const FVector3& Vertex)
+	{
+		return IsFinite(Vertex);
+	}))
+	{
+		return std::unexpected(FPhysicsError{"Soft bodies need 2 to 65536 finite vertices"});
+	}
+
+	if (!AreValidIndices(Settings.StretchEdges, VertexCount) || !AreValidIndices(Settings.BendEdges, VertexCount) || !AreValidIndices(Settings.Faces, VertexCount) || (Settings.StretchEdges.empty() && Settings.Faces.empty()))
+	{
+		return std::unexpected(FPhysicsError{"Soft body edges and faces must reference distinct existing vertices, with at least one edge or face"});
+	}
+
+	std::vector<bool> Pinned(VertexCount);
+	for (const std::uint32_t Vertex : Settings.PinnedVertices)
+	{
+		if (Vertex >= VertexCount)
+		{
+			return std::unexpected(FPhysicsError{"Pinned soft body vertex does not exist"});
+		}
+
+		Pinned[Vertex] = true;
+	}
+
+	const auto FreeCount = static_cast<std::size_t>(std::ranges::count(Pinned, false));
+	if (FreeCount == 0)
+	{
+		return std::unexpected(FPhysicsError{"Soft bodies need at least one free vertex"});
+	}
+
+	if (!IsInRange(Settings.MassKg, 0.001f, 1000000.f) || !IsInRange(Settings.StretchCompliance, 0.f, 1000.f) || !IsInRange(Settings.BendCompliance, 0.f, 1000.f) || !IsInRange(Settings.VertexRadius, 0.f, 1.f) || !IsInRange(Settings.Pressure, 0.f, 1000000.f))
+	{
+		return std::unexpected(FPhysicsError{"Soft body mass, compliance, vertex radius, and pressure must be finite and within supported ranges"});
+	}
+
+	if (!IsInRange(Settings.Friction, 0.f, 1.f) || !IsInRange(Settings.Restitution, 0.f, 1.f) || !IsInRange(Settings.LinearDamping, 0.f, 1.f) || !IsInRange(Settings.GravityScale, 0.f, 10.f) || Settings.Iterations == 0 || Settings.Iterations > 64)
+	{
+		return std::unexpected(FPhysicsError{"Soft body friction, restitution, damping, gravity scale, or iteration count is out of range"});
+	}
+
+	// Jolt stores vertices relative to the body; centering them keeps single-precision positions small.
+	FVector3 Origin;
+	for (const FVector3& Vertex : Settings.Vertices)
+	{
+		Origin = Origin + Vertex;
+	}
+
+	Origin = Origin * (1.f / static_cast<float>(VertexCount));
+	const JPH::Ref<JPH::SoftBodySharedSettings> Shared = new JPH::SoftBodySharedSettings;
+	const float InverseMass = static_cast<float>(FreeCount) / Settings.MassKg;
+	for (std::size_t Index = 0; Index < VertexCount; ++Index)
+	{
+		const FVector3 Local = Settings.Vertices[Index] - Origin;
+		Shared->mVertices.emplace_back(JPH::Float3(Local.X, Local.Y, Local.Z), JPH::Float3(0.f, 0.f, 0.f), Pinned[Index] ? 0.f : InverseMass);
+	}
+
+	for (const std::array<std::uint32_t, 3>& Face : Settings.Faces)
+	{
+		Shared->AddFace(JPH::SoftBodySharedSettings::Face(Face[0], Face[1], Face[2]));
+	}
+
+	if (!Settings.Faces.empty())
+	{
+		const JPH::SoftBodySharedSettings::VertexAttributes Attributes(Settings.StretchCompliance, Settings.StretchCompliance, Settings.BendCompliance);
+		Shared->CreateConstraints(&Attributes, 1, JPH::SoftBodySharedSettings::EBendType::Distance);
+	}
+
+	for (const std::array<std::uint32_t, 2>& Edge : Settings.StretchEdges)
+	{
+		Shared->mEdgeConstraints.emplace_back(Edge[0], Edge[1], Settings.StretchCompliance);
+	}
+
+	for (const std::array<std::uint32_t, 2>& Edge : Settings.BendEdges)
+	{
+		Shared->mEdgeConstraints.emplace_back(Edge[0], Edge[1], Settings.BendCompliance);
+	}
+
+	Shared->CalculateEdgeLengths();
+	Shared->Optimize();
+	JPH::SoftBodyCreationSettings Creation(Shared, ToJolt(Origin), JPH::Quat::sIdentity(), DynamicLayer);
+	Creation.mNumIterations = Settings.Iterations;
+	Creation.mLinearDamping = Settings.LinearDamping;
+	Creation.mFriction = Settings.Friction;
+	Creation.mRestitution = Settings.Restitution;
+	Creation.mPressure = Settings.Pressure;
+	Creation.mGravityFactor = Settings.GravityScale;
+	Creation.mVertexRadius = Settings.VertexRadius;
+
+	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	const JPH::BodyID Id = Bodies.CreateAndAddSoftBody(Creation, JPH::EActivation::Activate);
+	if (Id.IsInvalid())
+	{
+		return std::unexpected(FPhysicsError{"Physics world body capacity reached"});
+	}
+
+	Implementation->BodyIds[Id.GetIndex()] = Id;
+	++Implementation->BodyCount;
+	return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
+}
+
 std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSeconds)
 {
 	if (!std::isfinite(FixedDeltaSeconds) || FixedDeltaSeconds <= 0.f)
@@ -346,5 +476,32 @@ std::expected<FPhysicsBodyTransform, FPhysicsError> FPhysicsWorld::GetBodyTransf
 	Implementation->Physics.GetBodyInterface().GetPositionAndRotation(Id, Position, Rotation);
 	return FPhysicsBodyTransform{.Position = {Position.GetX(), Position.GetY(), Position.GetZ()},
 	    .Rotation = {Rotation.GetX(), Rotation.GetY(), Rotation.GetZ(), Rotation.GetW()}};
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::GetSoftBodyVertices(const FPhysicsBodyId BodyId, std::vector<FVector3>& OutPositions) const
+{
+	const JPH::BodyID Id(BodyId.Value);
+	if ((BodyId.Value & JPH::BodyID::cBroadPhaseBit) != 0 || Id.IsInvalid() || Id.GetIndex() >= Implementation->BodyIds.size() || Implementation->BodyIds[Id.GetIndex()] != Id)
+	{
+		return std::unexpected(FPhysicsError{"Unknown physics body"});
+	}
+
+	const JPH::BodyLockRead Lock(Implementation->Physics.GetBodyLockInterface(), Id);
+	if (!Lock.Succeeded() || !Lock.GetBody().IsSoftBody())
+	{
+		return std::unexpected(FPhysicsError{"Physics body is not a soft body"});
+	}
+
+	const JPH::Body& Body = Lock.GetBody();
+	const auto& Motion = static_cast<const JPH::SoftBodyMotionProperties&>(*Body.GetMotionProperties());
+	const JPH::RMat44 Transform = Body.GetCenterOfMassTransform();
+	OutPositions.resize(Motion.GetVertices().size());
+	for (std::size_t Index = 0; Index < OutPositions.size(); ++Index)
+	{
+		const JPH::RVec3 Position = Transform * Motion.GetVertex(static_cast<JPH::uint>(Index)).mPosition;
+		OutPositions[Index] = {Position.GetX(), Position.GetY(), Position.GetZ()};
+	}
+
+	return {};
 }
 }

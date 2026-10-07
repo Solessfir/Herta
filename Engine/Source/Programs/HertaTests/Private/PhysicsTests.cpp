@@ -2,10 +2,12 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <vector>
 
 namespace Herta
 {
@@ -307,5 +309,106 @@ TEST_CASE("Physics simulates multiple dynamic bodies against each other and mult
 	CHECK(SeparateTransform->Position.Y == doctest::Approx(3.f).epsilon(0.02f));
 	CHECK((*World)->GetBodyTransform(*LowFloor)->Position == FVector3{-4.f, -0.25f, 0.f});
 	CHECK((*World)->GetBodyTransform(*HighFloor)->Position == FVector3{4.f, 2.f, 0.f});
+}
+
+TEST_CASE("Pinned soft body ropes hang from their anchor and keep their length")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	constexpr std::uint32_t Segments = 10;
+	constexpr float Length = 2.f;
+	std::vector<FVector3> Vertices;
+	std::vector<std::array<std::uint32_t, 2>> Stretch;
+	std::vector<std::array<std::uint32_t, 2>> Bend;
+	for (std::uint32_t Index = 0; Index <= Segments; ++Index)
+	{
+		Vertices.push_back({static_cast<float>(Index) * Length / Segments, 5.f, 0.f});
+		if (Index > 0)
+		{
+			Stretch.push_back({Index - 1, Index});
+		}
+
+		if (Index > 1)
+		{
+			Bend.push_back({Index - 2, Index});
+		}
+	}
+
+	const std::array<std::uint32_t, 1> Pinned{0};
+	const auto Rope = (*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = Pinned, .StretchEdges = Stretch, .BendEdges = Bend, .MassKg = 0.5f, .BendCompliance = 0.1f, .LinearDamping = 1.f});
+	REQUIRE(Rope);
+	// Released horizontally, the rope swings like a pendulum; heavy damping settles it within the test window.
+	for (int Step = 0; Step < 600; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	std::vector<FVector3> Positions;
+	REQUIRE((*World)->GetSoftBodyVertices(*Rope, Positions));
+	REQUIRE(Positions.size() == Vertices.size());
+	CHECK(Positions.front().X == doctest::Approx(0.f).epsilon(1e-3));
+	CHECK(Positions.front().Y == doctest::Approx(5.f).epsilon(1e-3));
+	CHECK(Positions.back().Y < 5.f - Length * 0.8f);
+	float Total = 0.f;
+	for (std::size_t Index = 1; Index < Positions.size(); ++Index)
+	{
+		Total += (Positions[Index] - Positions[Index - 1]).Length();
+	}
+
+	CHECK(Total == doctest::Approx(Length).epsilon(0.05));
+}
+
+TEST_CASE("Pressurized soft body shells land on static bodies without passing through")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	REQUIRE((*World)->CreateBoxBody({.HalfExtents = {5.f, 0.5f, 5.f}, .Position = {0.f, -0.5f, 0.f}}));
+	// Octahedron shell, wound outwards.
+	const std::array<FVector3, 6> Vertices{{{0.5f, 2.f, 0.f}, {-0.5f, 2.f, 0.f}, {0.f, 2.5f, 0.f}, {0.f, 1.5f, 0.f}, {0.f, 2.f, 0.5f}, {0.f, 2.f, -0.5f}}};
+	const std::array<std::array<std::uint32_t, 3>, 8> Faces{{{0, 2, 4}, {4, 2, 1}, {1, 2, 5}, {5, 2, 0}, {4, 3, 0}, {1, 3, 4}, {5, 3, 1}, {0, 3, 5}}};
+	const auto Ball = (*World)->CreateSoftBody({.Vertices = Vertices, .Faces = Faces, .MassKg = 1.f, .VertexRadius = 0.02f, .Pressure = 2000.f});
+	REQUIRE(Ball);
+	for (int Step = 0; Step < 180; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	std::vector<FVector3> Positions;
+	REQUIRE((*World)->GetSoftBodyVertices(*Ball, Positions));
+	float Lowest = Positions.front().Y;
+	float Highest = Lowest;
+	for (const FVector3& Position : Positions)
+	{
+		Lowest = std::min(Lowest, Position.Y);
+		Highest = std::max(Highest, Position.Y);
+	}
+
+	CHECK(Lowest > -0.05f);
+	CHECK(Highest < 1.5f);
+	CHECK(Highest - Lowest > 0.3f);
+}
+
+TEST_CASE("Soft body creation rejects invalid topology and parameters")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	const std::array<FVector3, 2> Vertices{{{0.f, 1.f, 0.f}, {1.f, 1.f, 0.f}}};
+	const std::array<std::array<std::uint32_t, 2>, 1> Edge{{{0, 1}}};
+	const std::array<std::array<std::uint32_t, 2>, 1> OutOfRange{{{0, 2}}};
+	const std::array<std::array<std::uint32_t, 2>, 1> Degenerate{{{1, 1}}};
+	const std::array<std::uint32_t, 2> AllPinned{0, 1};
+	const std::array<std::uint32_t, 1> MissingPin{5};
+	CHECK((*World)->CreateSoftBody({.Vertices = Vertices, .StretchEdges = Edge}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .StretchEdges = OutOfRange}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .StretchEdges = Degenerate}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = AllPinned, .StretchEdges = Edge}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = MissingPin, .StretchEdges = Edge}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .StretchEdges = Edge, .MassKg = std::numeric_limits<float>::quiet_NaN()}));
+	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .StretchEdges = Edge, .Iterations = 0}));
+	const auto Box = (*World)->CreateBoxBody({});
+	REQUIRE(Box);
+	std::vector<FVector3> Positions;
+	CHECK_FALSE((*World)->GetSoftBodyVertices(*Box, Positions));
 }
 }
