@@ -2380,9 +2380,9 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		ImGui::DockBuilderSetNodeSize(Implementation->DockspaceId, DockSize);
 		ImGuiID CenterId = Implementation->DockspaceId;
 		// The side column spans the full height; content and log share the area under the Viewport.
-		const float DetailsFraction = std::clamp(350.f * ChromeScale / DockSize.x, 0.18f, 0.38f);
+		const float DetailsFraction = std::clamp(440.f * ChromeScale / DockSize.x, 0.2f, 0.4f);
 		const ImGuiID SideId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Right, DetailsFraction, nullptr, &CenterId);
-		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.3f, nullptr, &CenterId);
+		const ImGuiID BottomId = ImGui::DockBuilderSplitNode(CenterId, ImGuiDir_Down, 0.36f, nullptr, &CenterId);
 		ImGuiID DetailsId = SideId;
 		const ImGuiID OutlinerId = ImGui::DockBuilderSplitNode(SideId, ImGuiDir_Up, 0.35f, nullptr, &DetailsId);
 		if (ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetNode(CenterId))

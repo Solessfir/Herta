@@ -220,6 +220,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	WindowDescriptor.Title = "Herta Editor";
 	WindowDescriptor.bVisible = false;
 	WindowDescriptor.bCustomTitleBar = true;
+	// Automated runs keep the work-area-sized window so captures and measurements stay comparable.
+	WindowDescriptor.bMaximized = !bSmokeTest && !bPlatformSmokeTest && !bVisualTest && !bScalingTest;
 	std::expected<FWindow*, FApplicationError> WindowResult = Application->CreateWindow(std::move(WindowDescriptor));
 	if (!WindowResult)
 	{
