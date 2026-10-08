@@ -92,6 +92,31 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 	}
 }
 
+// The glass blur pyramid starts at half resolution; level 0 ends up holding the shared blurred backdrop.
+constexpr std::size_t GlassBlurLevels = 6;
+
+struct FGlassBlurPlan
+{
+	std::uint32_t Levels = 0;
+	float Offset = 0.f;
+};
+
+// Each dual-filter level doubles the blur width and the tap offset fills in between, so radius changes stay continuous.
+// The fit comes from simulating the passes: standard deviation in backdrop pixels is about 2^Levels * (0.76 + 1.21 * Offset).
+[[nodiscard]] constexpr FGlassBlurPlan PlanGlassBlur(const unsigned int RadiusPixels) noexcept
+{
+	// Matches the width of the earlier Gaussian, whose radius spanned two standard deviations.
+	const float Deviation = 0.44f * static_cast<float>(RadiusPixels);
+	FGlassBlurPlan Plan{.Levels = 1};
+	while (Plan.Levels + 1 < GlassBlurLevels && Deviation > 3.18f * static_cast<float>(1u << Plan.Levels))
+	{
+		++Plan.Levels;
+	}
+
+	Plan.Offset = std::clamp((Deviation / static_cast<float>(1u << Plan.Levels) - 0.76f) / 1.21f, 0.f, 2.f);
+	return Plan;
+}
+
 [[nodiscard]] std::optional<VkSurfaceFormatKHR> ChooseSurfaceFormat(const std::span<const VkSurfaceFormatKHR> Formats) noexcept
 {
 	if (Formats.size() == 1 && Formats.front().format == VK_FORMAT_UNDEFINED && Formats.front().colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
@@ -336,13 +361,10 @@ private:
 	{
 		nvrhi::TextureHandle Snapshot;
 		nvrhi::BindingSetHandle SnapshotBindings;
-		nvrhi::TextureHandle HorizontalBlur;
-		nvrhi::FramebufferHandle HorizontalFramebuffer;
-		nvrhi::BindingSetHandle HorizontalBindings;
-		nvrhi::TextureHandle Blurred;
-		nvrhi::FramebufferHandle BlurFramebuffer;
+		std::array<nvrhi::TextureHandle, GlassBlurLevels> Levels;
+		std::array<nvrhi::FramebufferHandle, GlassBlurLevels> LevelFramebuffers;
+		std::array<nvrhi::BindingSetHandle, GlassBlurLevels> LevelBindings;
 		nvrhi::GraphicsPipelineHandle BlurPipeline;
-		nvrhi::BindingSetHandle BlurBindings;
 	};
 
 	struct FBlurTimingMetric
@@ -1106,21 +1128,22 @@ public:
 			IndexOffset += static_cast<std::size_t>(DrawList->IdxBuffer.Size);
 		}
 
+		const FGlassBlurPlan BlurPlan = PlanGlassBlur(BlurRadiusPixels);
 		if (bNeedsBackdrop)
 		{
-			const auto Red = static_cast<unsigned int>((BlurRadiusPixels * 255 + 80) / 160);
-			const ImU32 HorizontalTint = IM_COL32(Red, 0, 0, 255);
-			const ImU32 VerticalTint = IM_COL32(Red, 255, 0, 255);
+			const auto Red = static_cast<unsigned int>(BlurPlan.Offset * 0.5f * 255.f + 0.5f);
+			const ImU32 DownsampleTint = IM_COL32(Red, 0, 0, 255);
+			const ImU32 UpsampleTint = IM_COL32(Red, 255, 0, 255);
 			const ImVec2 Minimum = DrawData.DisplayPos;
 			const ImVec2 Maximum{Minimum.x + DrawData.DisplaySize.x, Minimum.y + DrawData.DisplaySize.y};
-			ToolUIVertices[VertexOffset + 0] = ImDrawVert{.pos = {Minimum.x, Minimum.y}, .uv = {0.f, 0.f}, .col = HorizontalTint};
-			ToolUIVertices[VertexOffset + 1] = ImDrawVert{.pos = {Maximum.x, Minimum.y}, .uv = {1.f, 0.f}, .col = HorizontalTint};
-			ToolUIVertices[VertexOffset + 2] = ImDrawVert{.pos = {Maximum.x, Maximum.y}, .uv = {1.f, 1.f}, .col = HorizontalTint};
-			ToolUIVertices[VertexOffset + 3] = ImDrawVert{.pos = {Minimum.x, Maximum.y}, .uv = {0.f, 1.f}, .col = HorizontalTint};
-			ToolUIVertices[VertexOffset + 4] = ImDrawVert{.pos = {Minimum.x, Minimum.y}, .uv = {0.f, 0.f}, .col = VerticalTint};
-			ToolUIVertices[VertexOffset + 5] = ImDrawVert{.pos = {Maximum.x, Minimum.y}, .uv = {1.f, 0.f}, .col = VerticalTint};
-			ToolUIVertices[VertexOffset + 6] = ImDrawVert{.pos = {Maximum.x, Maximum.y}, .uv = {1.f, 1.f}, .col = VerticalTint};
-			ToolUIVertices[VertexOffset + 7] = ImDrawVert{.pos = {Minimum.x, Maximum.y}, .uv = {0.f, 1.f}, .col = VerticalTint};
+			ToolUIVertices[VertexOffset + 0] = ImDrawVert{.pos = {Minimum.x, Minimum.y}, .uv = {0.f, 0.f}, .col = DownsampleTint};
+			ToolUIVertices[VertexOffset + 1] = ImDrawVert{.pos = {Maximum.x, Minimum.y}, .uv = {1.f, 0.f}, .col = DownsampleTint};
+			ToolUIVertices[VertexOffset + 2] = ImDrawVert{.pos = {Maximum.x, Maximum.y}, .uv = {1.f, 1.f}, .col = DownsampleTint};
+			ToolUIVertices[VertexOffset + 3] = ImDrawVert{.pos = {Minimum.x, Maximum.y}, .uv = {0.f, 1.f}, .col = DownsampleTint};
+			ToolUIVertices[VertexOffset + 4] = ImDrawVert{.pos = {Minimum.x, Minimum.y}, .uv = {0.f, 0.f}, .col = UpsampleTint};
+			ToolUIVertices[VertexOffset + 5] = ImDrawVert{.pos = {Maximum.x, Minimum.y}, .uv = {1.f, 0.f}, .col = UpsampleTint};
+			ToolUIVertices[VertexOffset + 6] = ImDrawVert{.pos = {Maximum.x, Maximum.y}, .uv = {1.f, 1.f}, .col = UpsampleTint};
+			ToolUIVertices[VertexOffset + 7] = ImDrawVert{.pos = {Minimum.x, Maximum.y}, .uv = {0.f, 1.f}, .col = UpsampleTint};
 			constexpr std::array<ImDrawIdx, 12> BlurIndices{0, 1, 2, 0, 2, 3, 0, 1, 2, 0, 2, 3};
 			std::ranges::copy(BlurIndices, ToolUIIndices.begin() + static_cast<std::ptrdiff_t>(IndexOffset));
 		}
@@ -1169,7 +1192,7 @@ public:
 							continue;
 						}
 
-						Bindings = GlassResources.BlurBindings;
+						Bindings = GlassResources.LevelBindings[0];
 					}
 					else
 					{
@@ -1246,13 +1269,17 @@ public:
 					RenderCommandList->beginTimerQuery(Timing->Blur);
 				}
 
-				const auto& BlurDescriptor = GlassResources.Blurred->getDesc();
-				for (std::uint32_t Direction = 0; Direction < 2; ++Direction)
+				// Downsample from the snapshot through each level, then upsample back into level 0.
+				for (std::uint32_t BlurPass = 0; BlurPass <= 2 * BlurPlan.Levels; ++BlurPass)
 				{
+					const bool bUpsample = BlurPass > BlurPlan.Levels;
+					const std::size_t Target = bUpsample ? 2 * BlurPlan.Levels - BlurPass : BlurPass;
+					const nvrhi::BindingSetHandle& BlurSource = bUpsample ? GlassResources.LevelBindings[Target + 1] : BlurPass == 0 ? GlassResources.SnapshotBindings : GlassResources.LevelBindings[Target - 1];
+					const auto& BlurDescriptor = GlassResources.Levels[Target]->getDesc();
 					nvrhi::GraphicsState BlurState;
 					BlurState.pipeline = GlassResources.BlurPipeline;
-					BlurState.framebuffer = Direction == 0 ? GlassResources.HorizontalFramebuffer : GlassResources.BlurFramebuffer;
-					BlurState.bindings.push_back(Direction == 0 ? GlassResources.SnapshotBindings : GlassResources.HorizontalBindings);
+					BlurState.framebuffer = GlassResources.LevelFramebuffers[Target];
+					BlurState.bindings.push_back(BlurSource);
 					BlurState.vertexBuffers.push_back(nvrhi::VertexBufferBinding().setBuffer(ToolUIVertexBuffer).setSlot(0).setOffset(0));
 					BlurState.indexBuffer = nvrhi::IndexBufferBinding().setBuffer(ToolUIIndexBuffer).setFormat(sizeof(ImDrawIdx) == 2 ? nvrhi::Format::R16_UINT : nvrhi::Format::R32_UINT).setOffset(0);
 					BlurState.viewport.addViewport(nvrhi::Viewport(static_cast<float>(BlurDescriptor.width), static_cast<float>(BlurDescriptor.height)));
@@ -1261,8 +1288,8 @@ public:
 					RenderCommandList->setPushConstants(&PushConstants, sizeof(PushConstants));
 					nvrhi::DrawArguments BlurArguments;
 					BlurArguments.vertexCount = 6;
-					BlurArguments.startIndexLocation = static_cast<std::uint32_t>(DrawData.TotalIdxCount) + Direction * 6;
-					BlurArguments.startVertexLocation = static_cast<std::uint32_t>(DrawData.TotalVtxCount) + Direction * 4;
+					BlurArguments.startIndexLocation = static_cast<std::uint32_t>(DrawData.TotalIdxCount) + (bUpsample ? 6 : 0);
+					BlurArguments.startVertexLocation = static_cast<std::uint32_t>(DrawData.TotalVtxCount) + (bUpsample ? 4 : 0);
 					RenderCommandList->drawIndexed(BlurArguments);
 				}
 
@@ -1863,32 +1890,35 @@ private:
 		SnapshotDescriptor.isShaderResource = true;
 		SnapshotDescriptor.enableAutomaticStateTracking(nvrhi::ResourceStates::ShaderResource);
 		NewResources.Snapshot = NvrhiDevice->createTexture(SnapshotDescriptor);
-		nvrhi::TextureDesc BlurDescriptor = SnapshotDescriptor;
-		BlurDescriptor.debugName = "ToolUI shared blurred backdrop";
-		BlurDescriptor.width = std::max(1u, SnapshotDescriptor.width / 2);
-		BlurDescriptor.height = std::max(1u, SnapshotDescriptor.height / 2);
-		BlurDescriptor.isRenderTarget = true;
-		BlurDescriptor.debugName = "ToolUI horizontal blur";
-		NewResources.HorizontalBlur = NvrhiDevice->createTexture(BlurDescriptor);
-		BlurDescriptor.debugName = "ToolUI shared blurred backdrop";
-		NewResources.Blurred = NvrhiDevice->createTexture(BlurDescriptor);
-		if (!NewResources.Snapshot || !NewResources.HorizontalBlur || !NewResources.Blurred)
+		if (!NewResources.Snapshot)
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI glass textures"});
 		}
 
-		nvrhi::FramebufferDesc FramebufferDescriptor;
-		FramebufferDescriptor.addColorAttachment(NewResources.HorizontalBlur);
-		NewResources.HorizontalFramebuffer = NvrhiDevice->createFramebuffer(FramebufferDescriptor);
-		FramebufferDescriptor = {};
-		FramebufferDescriptor.addColorAttachment(NewResources.Blurred);
-		NewResources.BlurFramebuffer = NvrhiDevice->createFramebuffer(FramebufferDescriptor);
-		if (!NewResources.HorizontalFramebuffer || !NewResources.BlurFramebuffer)
+		nvrhi::TextureDesc BlurDescriptor = SnapshotDescriptor;
+		BlurDescriptor.isRenderTarget = true;
+		for (std::size_t Level = 0; Level < GlassBlurLevels; ++Level)
 		{
-			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI blur framebuffer"});
+			BlurDescriptor.debugName = Level == 0 ? "ToolUI shared blurred backdrop" : "ToolUI blur level";
+			BlurDescriptor.width = std::max(1u, BlurDescriptor.width / 2);
+			BlurDescriptor.height = std::max(1u, BlurDescriptor.height / 2);
+			NewResources.Levels[Level] = NvrhiDevice->createTexture(BlurDescriptor);
+			if (!NewResources.Levels[Level])
+			{
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI glass textures"});
+			}
+
+			nvrhi::FramebufferDesc FramebufferDescriptor;
+			FramebufferDescriptor.addColorAttachment(NewResources.Levels[Level]);
+			NewResources.LevelFramebuffers[Level] = NvrhiDevice->createFramebuffer(FramebufferDescriptor);
+			if (!NewResources.LevelFramebuffers[Level])
+			{
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI blur framebuffer"});
+			}
 		}
 
-		NewResources.BlurPipeline = CreateToolUIGraphicsPipeline(NewResources.BlurFramebuffer, ToolUIBlurPixelShader, false);
+		// Every level shares one format, so one pipeline serves them all.
+		NewResources.BlurPipeline = CreateToolUIGraphicsPipeline(NewResources.LevelFramebuffers[0], ToolUIBlurPixelShader, false);
 		if (!NewResources.BlurPipeline)
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not create ToolUI blur pipeline"});
@@ -1904,9 +1934,17 @@ private:
 		};
 
 		NewResources.SnapshotBindings = MakeBindings(NewResources.Snapshot);
-		NewResources.HorizontalBindings = MakeBindings(NewResources.HorizontalBlur);
-		NewResources.BlurBindings = MakeBindings(NewResources.Blurred);
-		if (!NewResources.SnapshotBindings || !NewResources.HorizontalBindings || !NewResources.BlurBindings)
+		for (std::size_t Level = 0; Level < GlassBlurLevels; ++Level)
+		{
+			NewResources.LevelBindings[Level] = MakeBindings(NewResources.Levels[Level]);
+		}
+
+		const auto IsMissing = [](const nvrhi::BindingSetHandle& Bindings)
+		{
+			return !Bindings;
+		};
+
+		if (!NewResources.SnapshotBindings || std::ranges::any_of(NewResources.LevelBindings, IsMissing))
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::DeviceCreationFailed, .Message = "Could not bind ToolUI glass textures"});
 		}

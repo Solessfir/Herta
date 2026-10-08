@@ -12,20 +12,31 @@ vec4 SampleSource(vec2 Coordinate)
 	return texture(sampler2D(SourceTexture, LinearSampler), Coordinate);
 }
 
+// Dual-filter Kawase blur (Bjorge, SIGGRAPH 2015). Red carries the tap offset in source texels over 2; green selects upsampling.
 void main()
 {
-	const bool Vertical = Color.g > 0.5;
-	const float SourceRadius = Color.r * 160.0 * (Vertical ? 0.5 : 1.0);
+	const bool bUpsample = Color.g > 0.5;
 	const vec2 Texel = 1.0 / vec2(textureSize(sampler2D(SourceTexture, LinearSampler), 0));
-	const vec2 Step = (Vertical ? vec2(0.0, 1.0) : vec2(1.0, 0.0)) * Texel * (SourceRadius / 6.0);
-	vec4 Result = vec4(0.0);
-	float TotalWeight = 0.0;
-	for (int Index = -6; Index <= 6; ++Index)
+	const vec2 Offset = Texel * Color.r * 2.0;
+	if (bUpsample)
 	{
-		const float Position = float(Index) / 3.0;
-		const float Weight = exp(-0.5 * Position * Position);
-		Result += SampleSource(UV + Step * float(Index)) * Weight;
-		TotalWeight += Weight;
+		const vec2 Half = Offset * 0.5;
+		vec4 Result = SampleSource(UV + vec2(-Offset.x, 0.0));
+		Result += SampleSource(UV + vec2(Offset.x, 0.0));
+		Result += SampleSource(UV + vec2(0.0, -Offset.y));
+		Result += SampleSource(UV + vec2(0.0, Offset.y));
+		Result += SampleSource(UV + vec2(-Half.x, -Half.y)) * 2.0;
+		Result += SampleSource(UV + vec2(Half.x, -Half.y)) * 2.0;
+		Result += SampleSource(UV + vec2(-Half.x, Half.y)) * 2.0;
+		Result += SampleSource(UV + vec2(Half.x, Half.y)) * 2.0;
+		OutColor = Result / 12.0;
+		return;
 	}
-	OutColor = Result / TotalWeight;
+
+	vec4 Result = SampleSource(UV) * 4.0;
+	Result += SampleSource(UV - Offset);
+	Result += SampleSource(UV + Offset);
+	Result += SampleSource(UV + vec2(Offset.x, -Offset.y));
+	Result += SampleSource(UV + vec2(-Offset.x, Offset.y));
+	OutColor = Result / 8.0;
 }
