@@ -559,7 +559,12 @@ std::expected<void, FLevelError> FEditorLevel::CommitEdits(const std::string_vie
 		const auto& Previous = AuthoredObjects[Index];
 		auto& Entity = Candidates[Index];
 		Entity.Name = Object.Label;
-		Entity.Mesh = Object.Mesh.IsValid() ? std::optional{FStaticMeshComponent{Object.Mesh}} : std::nullopt;
+		// The editor view carries only the mesh asset; rebuilding the component unconditionally would drop every entity's material slots.
+		if (Object.Mesh != Previous.Mesh)
+		{
+			Entity.Mesh = Object.Mesh.IsValid() ? std::optional{FStaticMeshComponent{.Asset = Object.Mesh}} : std::nullopt;
+		}
+
 		const auto Parent = Hierarchy->Parents[Index];
 		const auto ParentWorld = Parent == Candidates.size() ? TMatrix4<double>::Identity() : Hierarchy->Matrices[Parent];
 

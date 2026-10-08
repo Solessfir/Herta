@@ -241,6 +241,30 @@ TEST_CASE("Editor level edits and saves Level-owned transforms and stable identi
 	CHECK(Restored.GetObjects()[1].Scale.x == 20.f);
 }
 
+TEST_CASE("Moving one object keeps every entity's material slots through commit and save")
+{
+	Tests::FScratchDirectory Scratch("HertaEditorLevelMaterials");
+	FEditorLevel Level;
+	const FObjectId Cube = Level.GetObjects()[0].Id;
+	const FObjectId Floor = Level.GetObjects()[1].Id;
+	Level.SetSelection(std::array{Floor}, Floor);
+	REQUIRE(Level.SetSelectedMaterial(0, FAssetId{7, 7}));
+	Level.GetObjects()[0].Translation.y = 9.f;
+	REQUIRE(Level.CommitEdits());
+	const auto Materials = [&](const FEditorLevel& Source, const FObjectId Id)
+	{
+		return Source.GetWorld().GetEntity(*Source.GetWorld().FindEntity(Id))->Mesh->Materials;
+	};
+
+	CHECK(Materials(Level, Floor) == std::vector<FAssetId>{FAssetId{7, 7}});
+	const auto Path = Scratch.GetPath() / "Materials.hlevel";
+	REQUIRE(Level.Save(Path));
+	FEditorLevel Restored;
+	REQUIRE(Restored.Load(Path));
+	CHECK(Materials(Restored, Floor) == std::vector<FAssetId>{FAssetId{7, 7}});
+	CHECK(Restored.GetWorld().GetEntity(*Restored.GetWorld().FindEntity(Cube))->Transform.Translation.Meters.Y == 9.);
+}
+
 TEST_CASE("Editor level saves authored data while simulation changes the transient view")
 {
 	Tests::FScratchDirectory Scratch("HertaLevelSimulation");
