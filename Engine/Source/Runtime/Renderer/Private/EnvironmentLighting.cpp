@@ -242,7 +242,8 @@ FVector3 ProceduralSky(const FVector3& Direction, const FVisualUniforms& Snapsho
 	const float PlanetRadius = Snapshot.AtmosphereGeometry[0] / 1000.f;
 	const float HeightScale = Snapshot.AtmosphereGeometry[1] / 80000.f;
 	const float AtmosphereRadius = PlanetRadius + Snapshot.AtmosphereGeometry[1] / 1000.f;
-	const FVector3 View{Direction.X, std::abs(Direction.Y), Direction.Z};
+	const float Horizontal = std::max(std::hypot(Direction.X, Direction.Z), 1e-5f);
+	const FVector3 View = Direction.Y >= 0.f ? Direction : FVector3{Direction.X / Horizontal, 0.f, Direction.Z / Horizontal};
 	const FVector3 Origin{0.f, PlanetRadius + 0.001f, 0.f};
 	const float Length = SkyExit(Origin, View, AtmosphereRadius);
 	const float Mu = std::clamp(View.Dot(SunDirection), -1.f, 1.f);

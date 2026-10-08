@@ -197,10 +197,10 @@ float3 SkyViewDirection(float2 UV)
     return float3(cos(Latitude) * cos(Azimuth), sin(Latitude), cos(Latitude) * sin(Azimuth));
 }
 
-// The lower hemisphere mirrors the sky and darkens, reading as distant haze rather than a flat ground plane.
-float3 ComposeProceduralSky(float3 Direction, float3 MirroredScattering)
+// Below the horizon, Scattering holds the horizon colour for that direction; it darkens towards the nadir, reading as distant haze rather than a flat ground plane.
+float3 ComposeProceduralSky(float3 Direction, float3 Scattering)
 {
-    float3 Radiance = MirroredScattering * (Direction.y < 0.0 ? 1.0 - 0.7 * sqrt(saturate(-Direction.y)) : 1.0);
+    float3 Radiance = Scattering * (Direction.y < 0.0 ? 1.0 - 0.7 * sqrt(saturate(-Direction.y)) : 1.0);
     float3 SunDirection;
     float3 SunIlluminance;
     FindSkySun(SunDirection, SunIlluminance);
