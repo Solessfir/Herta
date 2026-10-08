@@ -545,7 +545,7 @@ Radiance Cascades is a research candidate, not Herta's sole shipping GI foundati
 
 Hardware ray tracing is capability-driven and optional. Add Vulkan KHR acceleration structures, ray queries, and ray-tracing pipelines only after the raster path, scene extraction, motion vectors, RenderGraph lifetime rules, and GPU profiling are stable. Raster rendering remains a complete supported path.
 
-SMAA 1x is the first native-resolution AA mode and the default for Milestone 4.5. Start from the reference spatial algorithm with edge detection, blending-weight calculation, neighborhood blending, and its lookup textures. A compute rewrite is an optimization to justify through measurements, not an initial requirement. Keep `Off` available. SMAA T2x/4x and CMAA2 remain comparison candidates, not requirements for visual authoring.
+SMAA 1x is the first native-resolution AA mode and the default for Milestone 4.5. Start from the reference spatial algorithm with edge detection, blending-weight calculation, neighborhood blending, and its lookup textures. A compute rewrite is an optimization, not an initial requirement; it is scheduled for Milestone 6, once the RHI supports compute. In October 2026 the pixel-shader passes measured 0.15 ms (edges 0.05, weights 0.06, neighborhood 0.04) of a 5.5 ms Sandbox frame on an RTX 4090 Laptop GPU. Keep `Off` available. SMAA T2x/4x and CMAA2 remain comparison candidates, not requirements for visual authoring.
 
 Native TAA enters later as an additional vendor-neutral temporal mode, not a prerequisite for lighting or permission to ship a soft image. Its quality contract requires:
 
@@ -1621,6 +1621,8 @@ Exit condition: the same authored Sandbox game is playable in the editor and as 
 - Add shared-mesh/material instancing and culling, retaining the early cube stress levels as draw-call, memory, and frame-time regressions.
 - Scale the PBR materials, authored lights, environment lighting, shadows, atmosphere, and fog introduced in Milestone 4.5 using measured light culling and resource budgets. Add motion vectors and a depth hierarchy; do not defer basic material or light editing to this milestone.
 - Extend authored runtime cameras and rendering quality controls as needed by the playable sample. Renderer algorithms without usable level authoring do not complete this milestone.
+- Add compute pipelines, storage images and buffers, atomics, and indirect dispatch to the RHI and RenderGraph, driven by the depth hierarchy, light culling, and GTAO rather than a generic compute framework.
+- Port SMAA 1x to compute following Jimenez's Filmic SMAA (SIGGRAPH 2016): edge detection appends edge pixels to a list, and blending weights run as an indirect dispatch over that list instead of a full-screen pass. Keep the pixel-shader path as the reference, require matching output on the AA station, and report before/after GPU timings at 1080p and 4K.
 - Add GTAO and an additional crisp native-resolution TAA mode with correct history rejection, reactive masks, camera-cut resets, render regressions, and configurable modest sharpening.
 - Retain SMAA 1x and Off as supported choices; do not make temporal AA a requirement for basic materials, sky, or fog. Optional temporal-upscaler backends remain in Milestone 18 unless measured sample performance requires one earlier.
 - Add GPU timings, feature capability reporting, quality tiers, and validation for multi-viewport editor rendering.
