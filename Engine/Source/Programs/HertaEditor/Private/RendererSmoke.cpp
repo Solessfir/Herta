@@ -1052,10 +1052,10 @@ namespace
 	const int Blue = std::to_integer<int>((*Image)[Center + 2]);
 	std::println("Exposure calibration: 18% grey under 100000 lx at EV100 15 displays as {}/{}/{}", Red, Green, Blue);
 
-	// Middle grey is about 118 in sRGB; the tone curve and a little rough specular may lift it a few values.
-	if (Green < 110 || Green > 132 || std::abs(Red - Green) > 3 || std::abs(Blue - Green) > 3)
+	// GT7 keeps midtones nearly linear, so the camera's 14.6% exposed grey lands near 105 in sRGB; a little rough specular may lift it a few values.
+	if (Green < 98 || Green > 116 || std::abs(Red - Green) > 3 || std::abs(Blue - Green) > 3)
 	{
-		return Failure(std::format("An 18% grey card at sunny 16 displayed as {}/{}/{}, not neutral middle grey near 118", Red, Green, Blue).c_str());
+		return Failure(std::format("An 18% grey card at sunny 16 displayed as {}/{}/{}, not neutral middle grey near 105", Red, Green, Blue).c_str());
 	}
 
 	return {};
