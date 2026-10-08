@@ -17,9 +17,12 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
     // Isotropic in-scattering needs the sky's mean radiance; the zenith and nadir irradiance pair recovers it for a smooth sky.
     float3 SkyIrradiance = DiffuseEnvironment.SampleLevel(LinearSampler, DirectionUV(float3(0.0, 1.0, 0.0)), 0).rgb + DiffuseEnvironment.SampleLevel(LinearSampler, DirectionUV(float3(0.0, -1.0, 0.0)), 0).rgb;
     float3 Ambient = SkyIrradiance * Visual.Sky.x * Visual.SkyColor.rgb / (2.0 * PI);
+    // With a few metres between samples, every pixel would test shadows at the same depths and shafts would show as slabs.
+    // Interleaved gradient noise (Jimenez 2014) staggers the samples per pixel; the composite's 3x3 upsample averages the dither out.
+    float Jitter = frac(52.9829189 * frac(dot(Input.Position.xy, float2(0.06711056, 0.00583715))));
     for (int S = 0; S < Steps; ++S)
     {
-        float3 Position = Eye + Direction * (float(S) + 0.5) * StepLength;
+        float3 Position = Eye + Direction * (float(S) + Jitter) * StepLength;
         // Constant below the fog height and exponential above it, so an open void beneath the level is not filled with opaque fog.
         float Density = Visual.Fog.x * exp(clamp(-Visual.Fog.y * (Position.y - Visual.FogColor.w), -8.0, 0.0));
         float SegmentT = exp(-Density * StepLength);

@@ -11,16 +11,18 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
     uint W, H;
     FogVolume.GetDimensions(W, H);
     float2 Pixel = Input.UV * float2(W, H) - 0.5;
-    float2 Base = floor(Pixel);
-    float2 F = frac(Pixel);
+    float2 Center = round(Pixel);
     float4 Fog = 0.0;
     float Total = 0.0;
-    for (int Y = 0; Y < 2; ++Y)
-    for (int X = 0; X < 2; ++X)
+    // A 3x3 Gaussian over the low-resolution volume both upsamples it and averages the per-pixel ray-march dither; depth similarity keeps fog from bleeding across silhouettes.
+    for (int Y = -1; Y <= 1; ++Y)
+    for (int X = -1; X <= 1; ++X)
     {
-        float2 UV = (Base + float2(X, Y) + 0.5) / float2(W, H);
+        float2 Texel = Center + float2(X, Y);
+        float2 UV = (Texel + 0.5) / float2(W, H);
+        float2 Offset = Texel - Pixel;
         float OtherDepth = DepthTexture.SampleLevel(LinearSampler, UV, 0).r;
-        float Weight = (X == 0 ? 1.0 - F.x : F.x) * (Y == 0 ? 1.0 - F.y : F.y);
+        float Weight = exp(-0.5 * dot(Offset, Offset));
         Weight *= exp(-abs(Depth - OtherDepth) / max(0.0001, Depth * 0.1));
         Fog += FogVolume.SampleLevel(LinearSampler, UV, 0) * Weight;
         Total += Weight;
