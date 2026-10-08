@@ -142,6 +142,9 @@ enum class EToolUIMenuIcon : std::uint8_t
 bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);
 bool ToolUIButton(std::string_view Label, EToolUIMenuIcon Icon, float Height = 0.f);
 void ToolUIIcon(EToolUIMenuIcon Icon, float CenterX, float CenterY, float Scale = 1.f);
+// Returns nothing for a missing, older-than-supported, or out-of-range file, which leaves the defaults in place.
+[[nodiscard]] std::optional<FEditorAppearance> LoadEditorAppearance(const std::filesystem::path& Path);
+void SaveEditorAppearance(const std::filesystem::path& Path, const FEditorAppearance& Appearance) noexcept;
 // Switch for boolean settings, right-aligned within the next item width.
 bool ToolUIToggle(const char* Id, bool* bValue);
 

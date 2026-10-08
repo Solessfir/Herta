@@ -67,6 +67,18 @@ struct FEditorFrameMetrics
 	bool bSimulationRunning = false;
 };
 
+// What the host's presentation reports for HDR output, refreshed before each Draw.
+struct FEditorDisplayState
+{
+	bool bHdrSupported = false;
+	bool bHdrActive = false;
+	float PaperWhite = 200.f;
+	float PeakLuminance = 1000.f;
+	// What the operating system reports, or zero when unknown.
+	float SystemPaperWhite = 0.f;
+	float SystemPeakLuminance = 0.f;
+};
+
 class FEditorFramework final
 {
 public:
@@ -86,6 +98,7 @@ public:
 	bool RequestClose();
 	bool HasConfirmedClose() const noexcept;
 	void SetViewportImage(std::uint64_t TextureId) noexcept;
+	void SetDisplayState(const FEditorDisplayState& State) noexcept;
 	void SetFrameTimings(double CpuMilliseconds, std::optional<double> GpuUIMilliseconds) noexcept;
 	FEditorFrameMetrics GetFrameMetrics() const noexcept;
 	// Bounded diagnostic phases reuse the same selection, camera, and simulation paths as interactive editing.

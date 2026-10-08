@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string_view>
@@ -32,6 +33,41 @@ enum class EPanelTransparency : std::uint8_t
 	Disabled
 };
 
+inline constexpr float MinimumHdrPaperWhite = 80.f;
+inline constexpr float MaximumHdrPaperWhite = 500.f;
+// GT7's curve was fitted with a 250 cd/m^2 paper white, so dimmer peaks fall outside its tuning.
+inline constexpr float MinimumHdrPeakLuminance = 250.f;
+inline constexpr float MaximumHdrPeakLuminance = 10000.f;
+
+// Per-user HDR output preferences. A zero luminance follows what the operating system reports.
+struct FEditorDisplay
+{
+	bool bHdrOutput = false;
+	float PaperWhite = 0.f;
+	float PeakLuminance = 0.f;
+
+	[[nodiscard]] constexpr bool operator==(const FEditorDisplay&) const noexcept = default;
+};
+
+struct FEditorDisplayLuminance
+{
+	float PaperWhite = 200.f;
+	float PeakLuminance = 1000.f;
+};
+
+// Fills "follow the system" preferences from what the operating system reports, zero meaning unknown. Without a usable report the paper white is 200 cd/m^2, the HDR reference white, and the peak 1000 cd/m^2.
+[[nodiscard]] constexpr FEditorDisplayLuminance ResolveEditorDisplayLuminance(const FEditorDisplay& Display, const float SystemPaperWhite, const float SystemPeakLuminance) noexcept
+{
+	const auto Resolve = [](const float Preferred, const float System, const float Fallback, const float Minimum, const float Maximum)
+	{
+		const float Value = Preferred > 0.f ? Preferred : System > 0.f ? System : Fallback;
+		return std::clamp(Value, Minimum, Maximum);
+	};
+
+	const float PaperWhite = Resolve(Display.PaperWhite, SystemPaperWhite, 200.f, MinimumHdrPaperWhite, MaximumHdrPaperWhite);
+	return {.PaperWhite = PaperWhite, .PeakLuminance = std::max(Resolve(Display.PeakLuminance, SystemPeakLuminance, 1000.f, MinimumHdrPeakLuminance, MaximumHdrPeakLuminance), PaperWhite)};
+}
+
 struct FEditorAppearance
 {
 	FToolUIColor Accent{184, 184, 184, 255};
@@ -41,6 +77,7 @@ struct FEditorAppearance
 	float PanelOpacity = 0.95f;
 	float BlurRadius = 24.f;
 	EPanelTransparency PanelTransparency = EPanelTransparency::AllPanels;
+	FEditorDisplay Display{};
 
 	[[nodiscard]] constexpr bool operator==(const FEditorAppearance&) const noexcept = default;
 };

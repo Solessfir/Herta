@@ -42,6 +42,7 @@ struct FVisualUniforms
     float4 Controls;
     float4 SunIlluminance;
     float4 Exposure;
+    float4 Display;
     FVisualLight Lights[32];
     FShadow Shadows[16];
     FMaterial Material;

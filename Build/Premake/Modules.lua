@@ -273,7 +273,7 @@ HertaRuntimeModule("Application", {
     PrivateDependencies = { "Core" },
     PrivateThirdPartyDependencies = { "GLFW" },
     PrivateLinuxSystemDependencies = { "X11", "dl", "m", "pthread", "rt" },
-    PrivateWindowsSystemDependencies = { "gdi32", "shell32", "user32" }
+    PrivateWindowsSystemDependencies = { "dxgi", "gdi32", "shell32", "user32" }
 })
 
     externalincludedirs {

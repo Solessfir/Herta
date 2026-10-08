@@ -370,3 +370,20 @@ TEST_CASE("Automatic exposure settings pack into uniforms with a capped adaptati
 	Settings.DeltaSeconds = std::numeric_limits<float>::quiet_NaN();
 	CHECK_FALSE(BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, {}, Settings));
 }
+
+TEST_CASE("HDR display settings pack into uniforms and reject peaks below paper white")
+{
+	FVisualSettings Settings{.HdrDisplay = FHdrDisplaySettings{.PaperWhite = 250.f, .PeakLuminance = 1000.f, .bCalibrationPattern = true}};
+	const auto Hdr = BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, {}, Settings);
+	REQUIRE(Hdr);
+	CHECK(Hdr->Display == std::array<float, 4>{1.f, 250.f, 1000.f, 1.f});
+
+	const auto Sdr = BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, {}, {});
+	REQUIRE(Sdr);
+	CHECK(Sdr->Display == std::array<float, 4>{});
+
+	Settings.HdrDisplay->PeakLuminance = 200.f;
+	CHECK_FALSE(BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, {}, Settings));
+	Settings.HdrDisplay = FHdrDisplaySettings{.PaperWhite = 600.f, .PeakLuminance = 1000.f};
+	CHECK_FALSE(BuildVisualUniforms(FMatrix4{}, TestProjection(), {64, 64}, {}, Settings));
+}

@@ -67,3 +67,24 @@ TEST_CASE("RHI visual authoring texture formats preserve HDR storage sizes")
 	CHECK(offsetof(Herta::FMeshVertex, Normal) == 20);
 	CHECK(offsetof(Herta::FMeshVertex, Tangent) == 32);
 }
+
+TEST_CASE("HDR10 encoding follows SMPTE ST 2084")
+{
+	CHECK(Herta::EncodePqLuminance(0.f) < 1e-5f);
+	CHECK(Herta::EncodePqLuminance(100.f) == doctest::Approx(0.50808f).epsilon(1e-4));
+	CHECK(Herta::EncodePqLuminance(1000.f) == doctest::Approx(0.75183f).epsilon(1e-4));
+	CHECK(Herta::EncodePqLuminance(10000.f) == doctest::Approx(1.f));
+	CHECK(Herta::EncodePqLuminance(20000.f) == doctest::Approx(1.f));
+
+	// The Rec.709 to Rec.2020 rows each sum to one, so white stays neutral at paper white.
+	const Herta::FSrgbColor White = Herta::EncodeHdr10Color({.Red = 1.f, .Green = 1.f, .Blue = 1.f, .Alpha = 0.5f}, 203.f);
+	CHECK(White.Red == doctest::Approx(0.58069f).epsilon(1e-3));
+	CHECK(White.Green == doctest::Approx(White.Red).epsilon(1e-4));
+	CHECK(White.Blue == doctest::Approx(White.Red).epsilon(1e-4));
+	CHECK(White.Alpha == 0.5f);
+
+	const Herta::FSrgbColor Red = Herta::EncodeHdr10Color({.Red = 1.f, .Green = 0.f, .Blue = 0.f, .Alpha = 1.f}, 203.f);
+	CHECK(Red.Red > Red.Green);
+	CHECK(Red.Green > Red.Blue);
+	CHECK(Red.Blue > 0.f);
+}

@@ -40,6 +40,17 @@ struct FRenderLight
 	FObjectId Id{};
 };
 
+// HDR10 output. The display target then holds linear Rec.709 relative to paper white for the presenter to encode, instead of sRGB.
+struct FHdrDisplaySettings
+{
+	// Luminance of SDR white and the scene's diffuse white, in cd/m^2.
+	float PaperWhite = 200.f;
+	// Brightest luminance the tone mapper targets, in cd/m^2. GT7 is tuned for 250 and up.
+	float PeakLuminance = 1000.f;
+	// Replaces the scene with a clipping pattern for matching PeakLuminance to the display.
+	bool bCalibrationPattern = false;
+};
+
 struct FVisualSettings
 {
 	// Photographic EV at ISO 100. The saturating luminance is 1.2 * 2^EV100 cd/m^2 (Lagarde and de Rousiers).
@@ -56,6 +67,8 @@ struct FVisualSettings
 	float ExposureCompensation = 0.f;
 	// Frame time that paces automatic adaptation.
 	float DeltaSeconds = 0.f;
+	// Unset renders for an sRGB display.
+	std::optional<FHdrDisplaySettings> HdrDisplay{};
 };
 
 struct FVisualShaderSet
@@ -128,6 +141,8 @@ struct alignas(16) FVisualUniforms
 	std::array<float, 4> SunIlluminance{};
 	// x enables automatic exposure, y is its compensation in stops, z the frame time, and w restarts adaptation.
 	std::array<float, 4> Exposure{};
+	// x is 1 for HDR output, y the paper white and z the peak in cd/m^2, and w shows the calibration pattern.
+	std::array<float, 4> Display{};
 	std::array<FVisualLightUniform, MaximumRenderLights> Lights{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};
 	FMaterialUniform Material{};

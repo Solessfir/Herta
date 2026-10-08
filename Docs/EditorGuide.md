@@ -96,7 +96,7 @@ Press the backtick key to open Output Log and focus its command field; pressing 
 
 ## Appearance
 
-Use **Appearance** in the bottom bar for all workspace styling, including panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 95%, with 24 px background blur.
+Use **Appearance** in the bottom bar for all workspace styling, including panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 95%, with 24 px background blur. On an HDR display, the same popup turns on **HDR output** and sets peak brightness and paper white, which follow the operating system until changed; **Calibrate peak** shows a clipping pattern in the viewport. See [HdrOutput.md](HdrOutput.md).
 
 ## Blur profiling
 

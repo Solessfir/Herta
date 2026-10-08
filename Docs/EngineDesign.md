@@ -1607,6 +1607,7 @@ Exit condition: the Sandbox can be visually authored entirely through materials 
 ### Milestone 5 - Playable runtime and standalone game
 
 - Implement `HertaGame` as a runtime-only composition that loads the project and authored starting level, resolves cooked assets, and renders World entities using the materials, lights, environment, and SMAA path established in Milestone 4.5, without EditorFramework or ToolUI.
+- Present HDR10 from `HertaGame` through the shared swapchain selection and renderer HDR display target the editor uses, with a per-user display setting for HDR output, peak, and paper white.
 - Add game input, a controllable player or camera, C++ gameplay systems, pause/reset, and a simple objective in the Sandbox level. Build only the input bindings that this sample needs, with cursor capture, focus-loss handling, fullscreen, and quit.
 - Add a narrow GameUI runtime module for the sample's screen-space text, images, anchors, and input focus using a cooked project font and the existing FreeType backend. It is independent of ImGui, ToolUI, and localization services; a general widget framework or UI designer is not required.
 - Connect the existing fixed-step Jolt adapters to runtime World state through narrow bridge data, with collision feedback sufficient for the sample. Rendering consumes immutable world extraction, not editor preview objects.

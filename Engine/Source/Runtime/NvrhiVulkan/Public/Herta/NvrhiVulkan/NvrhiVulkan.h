@@ -28,6 +28,16 @@ struct FNvrhiVulkanPresentationDescriptor
 	FLogService* Log = nullptr;
 };
 
+// HDR10 output: PQ-encoded Rec.2020 on surfaces that offer it. Other surfaces keep sRGB.
+struct FHdrOutputSettings
+{
+	bool bEnabled = false;
+	// Luminance of SDR white, the editor UI, and the scene's paper white, in cd/m^2.
+	float PaperWhite = 200.f;
+	// Peak sent to the display as HDR metadata, in cd/m^2.
+	float PeakLuminance = 1000.f;
+};
+
 class INvrhiVulkanPresentation : public IPresentationDevice
 {
 public:
@@ -46,6 +56,11 @@ public:
 	[[nodiscard]] virtual std::expected<void, FPresentationError> RenderViewportToolUIDrawData(FPresentationViewportHandle Viewport, const void* DrawData) = 0;
 	[[nodiscard]] virtual std::expected<EPresentationStatus, FPresentationError> PresentViewport(FPresentationViewportHandle Viewport) = 0;
 	[[nodiscard]] virtual bool HasValidationErrors() const noexcept = 0;
+	// Whether the main window's surface currently offers HDR10. Moving the window can change monitors, so the answer is refreshed about once per second.
+	[[nodiscard]] virtual bool IsHdrOutputSupported() = 0;
+	[[nodiscard]] virtual bool IsHdrOutputActive() const noexcept = 0;
+	// Recreates swapchains whose HDR state should change. Call it outside a frame; it is cheap when nothing changes.
+	[[nodiscard]] virtual std::expected<void, FPresentationError> SetHdrOutput(const FHdrOutputSettings& Settings) = 0;
 
 protected:
 	INvrhiVulkanPresentation() = default;

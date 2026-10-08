@@ -3,8 +3,8 @@
 [[vk::binding(1, 0)]] Texture2D<float4> AutoExposure;
 
 // GT7 tone mapping, ported from Polyphony Digital's MIT-licensed reference in External/gt7.
-// It works in linear Rec.2020 where 1.0 is 100 cd/m2. SDR output maps the 250 cd/m2 paper white to display 1.0, so HDR output only needs a different peak.
-static const float PaperWhite = 2.5;
+// It works in linear Rec.2020 where 1.0 is 100 cd/m2. SDR output places paper white at 250 cd/m2 and the peak there too, then maps it to display 1.0. HDR output uses the display's paper white and peak, so the same curve covers both.
+static const float SdrPaperWhite = 2.5;
 static const float CurveAlpha = 0.25;
 static const float CurveMidPoint = 0.538;
 static const float CurveLinearSection = 0.444;
@@ -28,18 +28,18 @@ float GtSmoothStep(float X, float Edge0, float Edge1)
     return T * T * (3.0 - 2.0 * T);
 }
 
-float GtCurve(float X)
+float GtCurve(float X, float Peak)
 {
     float K = (CurveLinearSection - 1.0) / (CurveAlpha - 1.0);
-    float A = PaperWhite * CurveLinearSection + PaperWhite * K;
-    float B = -PaperWhite * K * exp(CurveLinearSection / K);
-    float C = -1.0 / (K * PaperWhite);
+    float A = Peak * CurveLinearSection + Peak * K;
+    float B = -Peak * K * exp(CurveLinearSection / K);
+    float C = -1.0 / (K * Peak);
     if (X < 0.0)
     {
         return 0.0;
     }
 
-    if (X >= CurveLinearSection * PaperWhite)
+    if (X >= CurveLinearSection * Peak)
     {
         return A + B * exp(X * C);
     }
@@ -76,26 +76,46 @@ float3 ICtCpToRec2020(float3 ICtCp)
     return max(float3(dot(Lms, float3(3.43661, -2.50645, 0.0698454)), dot(Lms, float3(-0.79133, 1.9836, -0.192271)), dot(Lms, float3(-0.0259499, -0.0989137, 1.12486))), 0.0);
 }
 
-float3 GtToneMap(float3 Rgb)
+// Returns Rec.2020 frame-buffer values no brighter than Peak.
+float3 GtToneMap(float3 Rgb, float Peak)
 {
     float3 Ucs = Rec2020ToICtCp(Rgb);
-    float3 Skewed = float3(GtCurve(Rgb.r), GtCurve(Rgb.g), GtCurve(Rgb.b));
+    float3 Skewed = float3(GtCurve(Rgb.r, Peak), GtCurve(Rgb.g, Peak), GtCurve(Rgb.b, Peak));
     float3 SkewedUcs = Rec2020ToICtCp(Skewed);
 
     // Highlights near the display peak fade towards white instead of clipping to a skewed hue.
-    float TargetIntensity = Rec2020ToICtCp(PaperWhite.xxx).x;
+    float TargetIntensity = Rec2020ToICtCp(Peak.xxx).x;
     float ChromaScale = 1.0 - GtSmoothStep(Ucs.x / TargetIntensity, FadeStart, FadeEnd);
     float3 Scaled = ICtCpToRec2020(float3(SkewedUcs.x, Ucs.yz * ChromaScale));
-    return min(lerp(Skewed, Scaled, BlendRatio), PaperWhite) / PaperWhite;
+    return min(lerp(Skewed, Scaled, BlendRatio), Peak);
+}
+
+// An outer square at the configured peak around an inner square far above any display. Raising the peak until the inner square disappears finds where the display clips.
+float3 CalibrationPattern(float2 UV)
+{
+    float2 Pixel = (UV - 0.5) * Visual.Viewport.zw;
+    float Distance = max(abs(Pixel.x), abs(Pixel.y)) / min(Visual.Viewport.z, Visual.Viewport.w);
+    float Luminance = Distance < 0.08 ? 10000.0 : Distance < 0.2 ? Visual.Display.z : 0.0;
+    return (Luminance / Visual.Display.y).xxx;
 }
 
 [shader("fragment")]
 float4 fragmentMain(FFullscreenOutput Input) : SV_Target
 {
+    bool bHdr = Visual.Display.x > 0.5;
+    if (bHdr && Visual.Display.w > 0.5)
+    {
+        return float4(CalibrationPattern(Input.UV), 1.0);
+    }
+
     float Scale = Visual.Exposure.x > 0.5 ? 1.0 / (1.2 * exp2(AutoExposure.Load(int3(0, 0, 0)).r)) : Visual.Controls.z;
     float3 Exposed = max(0.0, SceneColor.SampleLevel(LinearSampler, Input.UV, 0).rgb * Scale);
 
-    // Exposed 1.0 is display white, which GT7 places at paper white.
-    float3 Mapped = GtToneMap(mul(Rec709ToRec2020, Exposed * PaperWhite));
-    return float4(saturate(mul(Rec2020ToRec709, Mapped)), 1.0);
+    // Exposed 1.0 is paper white: 250 cd/m2 for SDR, the display setting for HDR. Dividing by it again keeps the target relative to paper white.
+    float PaperWhite = bHdr ? Visual.Display.y / 100.0 : SdrPaperWhite;
+    float Peak = bHdr ? Visual.Display.z / 100.0 : SdrPaperWhite;
+    float3 Mapped = mul(Rec2020ToRec709, GtToneMap(mul(Rec709ToRec2020, Exposed * PaperWhite), Peak)) / PaperWhite;
+
+    // ponytail: HDR output clips to Rec.709 primaries; a Rec.2020 display target would keep the wider gamut GT7 produces.
+    return float4(bHdr ? max(Mapped, 0.0) : saturate(Mapped), 1.0);
 }

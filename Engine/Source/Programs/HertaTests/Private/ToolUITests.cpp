@@ -1,6 +1,7 @@
 #include "../../../Editor/EditorFramework/Private/ConsoleInput.h"
 #include "../../../Runtime/ToolUI/Private/ImmersiveViewport.h"
 #include "Herta/ToolUI/ToolUI.h"
+#include "TestFiles.h"
 
 #include <doctest/doctest.h>
 #include <imgui_internal.h>
@@ -8,8 +9,10 @@
 #include <algorithm>
 #include <array>
 #include <cfloat>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 
 namespace Herta
@@ -550,6 +553,57 @@ TEST_CASE("ToolUI scene canvas excludes chrome but not overlay panels")
 	CHECK(ResolveToolUIWorkspaceCanvas({-1920, 80, 1920, 1080}, 54, 48) == FToolUICanvasBounds{-1920, 134, 1920, 978});
 	CHECK(ResolveToolUIWorkspaceCanvas({0, 0, 10, 20}, 36, 32) == FToolUICanvasBounds{0, 20, 10, 0});
 	CHECK(ResolveToolUIWorkspaceCanvas({0, 0, 0, 0}, 36, 32) == FToolUICanvasBounds{});
+}
+
+TEST_CASE("Editor appearance keeps HDR display preferences and reads older files")
+{
+	const Tests::FScratchDirectory Directory("Appearance");
+	const std::filesystem::path Path = Directory.GetPath() / "Appearance.ini";
+	FEditorAppearance Appearance;
+	Appearance.BlurRadius = 12.f;
+	Appearance.Display = {.bHdrOutput = true, .PaperWhite = 240.f, .PeakLuminance = 1000.f};
+	SaveEditorAppearance(Path, Appearance);
+	CHECK(LoadEditorAppearance(Path) == Appearance);
+
+	{
+		std::ofstream Version3(Path, std::ios::trunc);
+		Version3 << "HertaEditorAppearance 3\nAccent 1 2 3\nGradient 0.5 0.8 0.15\nPanel 0\nGlass 0.9 20\n";
+	}
+
+	const std::optional<FEditorAppearance> Older = LoadEditorAppearance(Path);
+	REQUIRE(Older);
+	CHECK(Older->BlurRadius == 20.f);
+	CHECK(Older->Display == FEditorDisplay{});
+
+	{
+		std::ofstream Dim(Path, std::ios::trunc);
+		Dim << "HertaEditorAppearance 4\nAccent 1 2 3\nGradient 0.5 0.8 0.15\nPanel 0\nGlass 0.9 20\nDisplay 1 40 1000\n";
+	}
+
+	CHECK_FALSE(LoadEditorAppearance(Path));
+}
+
+TEST_CASE("HDR display luminance follows the system unless overridden")
+{
+	constexpr FEditorDisplay FollowSystem;
+	constexpr FEditorDisplayLuminance Reported = ResolveEditorDisplayLuminance(FollowSystem, 240.f, 1015.f);
+	CHECK(Reported.PaperWhite == 240.f);
+	CHECK(Reported.PeakLuminance == 1015.f);
+
+	constexpr FEditorDisplayLuminance Unknown = ResolveEditorDisplayLuminance(FollowSystem, 0.f, 0.f);
+	CHECK(Unknown.PaperWhite == 200.f);
+	CHECK(Unknown.PeakLuminance == 1000.f);
+
+	// A dim panel's report still has to fit the range the tone mapper is tuned for.
+	CHECK(ResolveEditorDisplayLuminance(FollowSystem, 60.f, 120.f).PaperWhite == MinimumHdrPaperWhite);
+	CHECK(ResolveEditorDisplayLuminance(FollowSystem, 60.f, 120.f).PeakLuminance == MinimumHdrPeakLuminance);
+
+	constexpr FEditorDisplayLuminance Overridden = ResolveEditorDisplayLuminance({.bHdrOutput = true, .PaperWhite = 300.f, .PeakLuminance = 1600.f}, 240.f, 1015.f);
+	CHECK(Overridden.PaperWhite == 300.f);
+	CHECK(Overridden.PeakLuminance == 1600.f);
+
+	// The peak never drops below paper white.
+	CHECK(ResolveEditorDisplayLuminance({.bHdrOutput = true, .PaperWhite = 400.f, .PeakLuminance = 300.f}, 0.f, 0.f).PeakLuminance == 400.f);
 }
 
 TEST_CASE("ToolUI theme defaults preserve the editor visual contract")

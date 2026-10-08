@@ -8,6 +8,7 @@
 #ifdef HERTA_PLATFORM_WINDOWS
 	#define GLFW_EXPOSE_NATIVE_WIN32
 	#include <GLFW/glfw3native.h>
+	#include <dxgi1_6.h>
 	#undef CreateWindow
 #endif
 #ifdef HERTA_PLATFORM_LINUX
@@ -19,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cwchar>
 #include <exception>
 #include <filesystem>
 #include <format>
@@ -26,6 +28,7 @@
 #include <ranges>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace Herta
 {
@@ -680,6 +683,107 @@ FWindowBackendHandle FWindow::GetBackendHandle() const noexcept
 {
 	Implementation->VerifyMainThread();
 	return {Implementation->Handle};
+}
+
+#ifdef HERTA_PLATFORM_WINDOWS
+namespace
+{
+template <typename T>
+struct FComReleaser
+{
+	void operator()(T* const Object) const noexcept
+	{
+		Object->Release();
+	}
+};
+
+template <typename T>
+using TComPointer = std::unique_ptr<T, FComReleaser<T>>;
+
+// Windows stores the "SDR content brightness" slider per display path, keyed by the GDI device name DXGI reports.
+[[nodiscard]] float QuerySdrWhite(const wchar_t* const GdiDeviceName)
+{
+	UINT32 PathCount = 0;
+	UINT32 ModeCount = 0;
+	if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &PathCount, &ModeCount) != ERROR_SUCCESS)
+	{
+		return 0.f;
+	}
+
+	std::vector<DISPLAYCONFIG_PATH_INFO> Paths(PathCount);
+	std::vector<DISPLAYCONFIG_MODE_INFO> Modes(ModeCount);
+	if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &PathCount, Paths.data(), &ModeCount, Modes.data(), nullptr) != ERROR_SUCCESS)
+	{
+		return 0.f;
+	}
+
+	for (std::uint32_t Index = 0; Index < PathCount; ++Index)
+	{
+		DISPLAYCONFIG_SOURCE_DEVICE_NAME Source{};
+		Source.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+		Source.header.size = sizeof(Source);
+		Source.header.adapterId = Paths[Index].sourceInfo.adapterId;
+		Source.header.id = Paths[Index].sourceInfo.id;
+		if (DisplayConfigGetDeviceInfo(&Source.header) != ERROR_SUCCESS || std::wcscmp(Source.viewGdiDeviceName, GdiDeviceName) != 0)
+		{
+			continue;
+		}
+
+		DISPLAYCONFIG_SDR_WHITE_LEVEL White{};
+		White.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL;
+		White.header.size = sizeof(White);
+		White.header.adapterId = Paths[Index].targetInfo.adapterId;
+		White.header.id = Paths[Index].targetInfo.id;
+		// The level is a multiplier of the 80 cd/m^2 sRGB reference white, scaled by 1000.
+		return DisplayConfigGetDeviceInfo(&White.header) == ERROR_SUCCESS ? static_cast<float>(White.SDRWhiteLevel) / 1000.f * 80.f : 0.f;
+	}
+
+	return 0.f;
+}
+}
+#endif
+
+std::optional<FDisplayLuminance> FWindow::GetDisplayLuminance() const
+{
+	Implementation->VerifyMainThread();
+#ifdef HERTA_PLATFORM_WINDOWS
+	const HMONITOR Monitor = MonitorFromWindow(glfwGetWin32Window(Implementation->Handle), MONITOR_DEFAULTTONEAREST);
+	IDXGIFactory1* RawFactory = nullptr;
+	if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&RawFactory))))
+	{
+		return std::nullopt;
+	}
+
+	const TComPointer<IDXGIFactory1> Factory(RawFactory);
+	// Hybrid laptops attach the panel to either GPU, so every adapter's outputs are searched.
+	IDXGIAdapter1* RawAdapter = nullptr;
+	for (UINT AdapterIndex = 0; Factory->EnumAdapters1(AdapterIndex, &RawAdapter) != DXGI_ERROR_NOT_FOUND; ++AdapterIndex)
+	{
+		const TComPointer<IDXGIAdapter1> Adapter(RawAdapter);
+		IDXGIOutput* RawOutput = nullptr;
+		for (UINT OutputIndex = 0; Adapter->EnumOutputs(OutputIndex, &RawOutput) != DXGI_ERROR_NOT_FOUND; ++OutputIndex)
+		{
+			const TComPointer<IDXGIOutput> Output(RawOutput);
+			IDXGIOutput6* RawOutput6 = nullptr;
+			if (FAILED(Output->QueryInterface(IID_PPV_ARGS(&RawOutput6))))
+			{
+				continue;
+			}
+
+			const TComPointer<IDXGIOutput6> Output6(RawOutput6);
+			DXGI_OUTPUT_DESC1 Description{};
+			if (SUCCEEDED(Output6->GetDesc1(&Description)) && Description.Monitor == Monitor)
+			{
+				return FDisplayLuminance{.PeakLuminance = Description.MaxLuminance, .SdrWhite = QuerySdrWhite(Description.DeviceName)};
+			}
+		}
+	}
+
+	return std::nullopt;
+#else
+	// ponytail: Wayland's color-management protocol can report target luminance; query it through the GLFW fork when Linux defaults prove wrong.
+	return std::nullopt;
+#endif
 }
 
 std::expected<std::string, FApplicationError> FWindow::GetClipboardText() const

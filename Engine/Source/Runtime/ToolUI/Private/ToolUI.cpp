@@ -139,74 +139,6 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 	return Bytes;
 }
 
-[[nodiscard]] std::optional<FEditorAppearance> LoadAppearance(const std::filesystem::path& Path)
-{
-	std::ifstream Stream(Path);
-	std::string Header;
-	int Version = 0;
-	std::string AccentLabel;
-	int Red = 0;
-	int Green = 0;
-	int Blue = 0;
-	std::string GradientLabel;
-	FEditorAppearance Appearance;
-	std::string PanelLabel;
-	int PanelMode = 0;
-	if (!(Stream >> Header >> Version) || Header != "HertaEditorAppearance" || (Version < 1 || Version > 3) || !(Stream >> AccentLabel >> Red >> Green >> Blue) || AccentLabel != "Accent" || !(Stream >> GradientLabel >> Appearance.GradientHeight >> Appearance.Saturation >> Appearance.Intensity) || GradientLabel != "Gradient" || !(Stream >> PanelLabel >> PanelMode) || PanelLabel != "Panel")
-	{
-		return std::nullopt;
-	}
-
-	if (Version >= 2)
-	{
-		std::string GlassLabel;
-		if (!(Stream >> GlassLabel >> Appearance.PanelOpacity >> Appearance.BlurRadius) || GlassLabel != "Glass")
-		{
-			return std::nullopt;
-		}
-	}
-
-	// Version 2 stored a reduced-motion flag; the editor no longer animates, so it is read and ignored.
-	if (Version == 2)
-	{
-		std::string MotionLabel;
-		int ReducedMotion = 0;
-		if (!(Stream >> MotionLabel >> ReducedMotion) || MotionLabel != "Motion" || (ReducedMotion != 0 && ReducedMotion != 1))
-		{
-			return std::nullopt;
-		}
-	}
-
-	if (Red < 0 || Red > 255 || Green < 0 || Green > 255 || Blue < 0 || Blue > 255 || !std::isfinite(Appearance.GradientHeight) || Appearance.GradientHeight < 0.f || Appearance.GradientHeight > 1.f || !std::isfinite(Appearance.Saturation) || Appearance.Saturation < 0.f || Appearance.Saturation > 1.f || !std::isfinite(Appearance.Intensity) || Appearance.Intensity < 0.f || Appearance.Intensity > 1.f || !std::isfinite(Appearance.PanelOpacity) || Appearance.PanelOpacity < 0.f || Appearance.PanelOpacity > 1.f || !std::isfinite(Appearance.BlurRadius) || Appearance.BlurRadius < 0.f || Appearance.BlurRadius > 40.f || PanelMode < static_cast<int>(EPanelTransparency::AllPanels) || PanelMode > static_cast<int>(EPanelTransparency::Disabled))
-	{
-		return std::nullopt;
-	}
-
-	Appearance.Accent = {.Red = static_cast<std::uint8_t>(Red), .Green = static_cast<std::uint8_t>(Green), .Blue = static_cast<std::uint8_t>(Blue), .Alpha = 255};
-	if (Version == 1 && Appearance.Accent == FToolUIColor{.Red = 84, .Green = 108, .Blue = 232, .Alpha = 255})
-	{
-		Appearance.Accent = FEditorAppearance{}.Accent;
-	}
-
-	Appearance.PanelTransparency = static_cast<EPanelTransparency>(PanelMode);
-	return Appearance;
-}
-
-void SaveAppearance(const std::filesystem::path& Path, const FEditorAppearance& Appearance) noexcept
-{
-	std::ofstream Stream(Path, std::ios::trunc);
-	if (!Stream)
-	{
-		return;
-	}
-
-	Stream << "HertaEditorAppearance 3\n";
-	Stream << "Accent " << static_cast<int>(Appearance.Accent.Red) << ' ' << static_cast<int>(Appearance.Accent.Green) << ' ' << static_cast<int>(Appearance.Accent.Blue) << '\n';
-	Stream << "Gradient " << Appearance.GradientHeight << ' ' << Appearance.Saturation << ' ' << Appearance.Intensity << '\n';
-	Stream << "Panel " << static_cast<int>(Appearance.PanelTransparency) << '\n';
-	Stream << "Glass " << Appearance.PanelOpacity << ' ' << Appearance.BlurRadius << '\n';
-}
-
 void ResetRendererTextureState() noexcept
 {
 	for (ImTextureData* const Texture : ImGui::GetPlatformIO().Textures)
@@ -354,6 +286,96 @@ void ApplyAppearanceStyle(ImGuiStyle& Style, const FEditorAppearance& Appearance
 	Palette[ImGuiCol_BorderShadow] = WithAlpha(ToolUITheme::Canvas, 0.f);
 }
 
+}
+
+std::optional<FEditorAppearance> LoadEditorAppearance(const std::filesystem::path& Path)
+{
+	std::ifstream Stream(Path);
+	std::string Header;
+	int Version = 0;
+	std::string AccentLabel;
+	int Red = 0;
+	int Green = 0;
+	int Blue = 0;
+	std::string GradientLabel;
+	FEditorAppearance Appearance;
+	std::string PanelLabel;
+	int PanelMode = 0;
+	if (!(Stream >> Header >> Version) || Header != "HertaEditorAppearance" || (Version < 1 || Version > 4) || !(Stream >> AccentLabel >> Red >> Green >> Blue) || AccentLabel != "Accent" || !(Stream >> GradientLabel >> Appearance.GradientHeight >> Appearance.Saturation >> Appearance.Intensity) || GradientLabel != "Gradient" || !(Stream >> PanelLabel >> PanelMode) || PanelLabel != "Panel")
+	{
+		return std::nullopt;
+	}
+
+	if (Version >= 2)
+	{
+		std::string GlassLabel;
+		if (!(Stream >> GlassLabel >> Appearance.PanelOpacity >> Appearance.BlurRadius) || GlassLabel != "Glass")
+		{
+			return std::nullopt;
+		}
+	}
+
+	if (Version >= 4)
+	{
+		std::string DisplayLabel;
+		int bHdrOutput = 0;
+		if (!(Stream >> DisplayLabel >> bHdrOutput >> Appearance.Display.PaperWhite >> Appearance.Display.PeakLuminance) || DisplayLabel != "Display" || (bHdrOutput != 0 && bHdrOutput != 1))
+		{
+			return std::nullopt;
+		}
+
+		Appearance.Display.bHdrOutput = bHdrOutput == 1;
+		const auto InRangeOrSystem = [](const float Value, const float Minimum, const float Maximum)
+		{
+			return Value == 0.f || (std::isfinite(Value) && Value >= Minimum && Value <= Maximum);
+		};
+
+		if (!InRangeOrSystem(Appearance.Display.PaperWhite, MinimumHdrPaperWhite, MaximumHdrPaperWhite) || !InRangeOrSystem(Appearance.Display.PeakLuminance, MinimumHdrPeakLuminance, MaximumHdrPeakLuminance))
+		{
+			return std::nullopt;
+		}
+	}
+
+	// Version 2 stored a reduced-motion flag; the editor no longer animates, so it is read and ignored.
+	if (Version == 2)
+	{
+		std::string MotionLabel;
+		int ReducedMotion = 0;
+		if (!(Stream >> MotionLabel >> ReducedMotion) || MotionLabel != "Motion" || (ReducedMotion != 0 && ReducedMotion != 1))
+		{
+			return std::nullopt;
+		}
+	}
+
+	if (Red < 0 || Red > 255 || Green < 0 || Green > 255 || Blue < 0 || Blue > 255 || !std::isfinite(Appearance.GradientHeight) || Appearance.GradientHeight < 0.f || Appearance.GradientHeight > 1.f || !std::isfinite(Appearance.Saturation) || Appearance.Saturation < 0.f || Appearance.Saturation > 1.f || !std::isfinite(Appearance.Intensity) || Appearance.Intensity < 0.f || Appearance.Intensity > 1.f || !std::isfinite(Appearance.PanelOpacity) || Appearance.PanelOpacity < 0.f || Appearance.PanelOpacity > 1.f || !std::isfinite(Appearance.BlurRadius) || Appearance.BlurRadius < 0.f || Appearance.BlurRadius > 40.f || PanelMode < static_cast<int>(EPanelTransparency::AllPanels) || PanelMode > static_cast<int>(EPanelTransparency::Disabled))
+	{
+		return std::nullopt;
+	}
+
+	Appearance.Accent = {.Red = static_cast<std::uint8_t>(Red), .Green = static_cast<std::uint8_t>(Green), .Blue = static_cast<std::uint8_t>(Blue), .Alpha = 255};
+	if (Version == 1 && Appearance.Accent == FToolUIColor{.Red = 84, .Green = 108, .Blue = 232, .Alpha = 255})
+	{
+		Appearance.Accent = FEditorAppearance{}.Accent;
+	}
+
+	Appearance.PanelTransparency = static_cast<EPanelTransparency>(PanelMode);
+	return Appearance;
+}
+
+void SaveEditorAppearance(const std::filesystem::path& Path, const FEditorAppearance& Appearance) noexcept
+{
+	std::ofstream Stream(Path, std::ios::trunc);
+	if (!Stream)
+	{
+		return;
+	}
+
+	Stream << "HertaEditorAppearance 4\n";
+	Stream << "Accent " << static_cast<int>(Appearance.Accent.Red) << ' ' << static_cast<int>(Appearance.Accent.Green) << ' ' << static_cast<int>(Appearance.Accent.Blue) << '\n';
+	Stream << "Gradient " << Appearance.GradientHeight << ' ' << Appearance.Saturation << ' ' << Appearance.Intensity << '\n';
+	Stream << "Panel " << static_cast<int>(Appearance.PanelTransparency) << '\n';
+	Stream << "Glass " << Appearance.PanelOpacity << ' ' << Appearance.BlurRadius << '\n';
+	Stream << "Display " << (Appearance.Display.bHdrOutput ? 1 : 0) << ' ' << Appearance.Display.PaperWhite << ' ' << Appearance.Display.PeakLuminance << '\n';
 }
 
 struct FToolUIContext::FImplementation
@@ -1808,7 +1830,7 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		Implementation->WindowSystem = Descriptor.Application->GetCapabilities().WindowSystem;
 		Implementation->bProgrammaticWindowPosition = Descriptor.Application->GetCapabilities().bProgrammaticWindowPosition;
 		Implementation->Appearance = Descriptor.Appearance;
-		if (const std::optional<FEditorAppearance> SavedAppearance = LoadAppearance(Descriptor.AppearancePath))
+		if (const std::optional<FEditorAppearance> SavedAppearance = LoadEditorAppearance(Descriptor.AppearancePath))
 		{
 			Implementation->Appearance = *SavedAppearance;
 		}
@@ -1926,7 +1948,7 @@ FToolUIContext::~FToolUIContext()
 	ImGui::SetCurrentContext(Implementation->Context);
 	if (Implementation->bAppearanceDirty)
 	{
-		SaveAppearance(Implementation->AppearancePath, Implementation->Appearance);
+		SaveEditorAppearance(Implementation->AppearancePath, Implementation->Appearance);
 	}
 
 	Implementation->bDestroying = true;

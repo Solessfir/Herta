@@ -115,6 +115,15 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 
 	// A stalled frame should not jump the adaptation, so the step is capped like the physics catch-up.
 	Result.Exposure = {Settings.bAutoExposure ? 1.f : 0.f, Settings.ExposureCompensation, std::min(Settings.DeltaSeconds, 0.25f), 0.f};
+	if (const std::optional<FHdrDisplaySettings>& Hdr = Settings.HdrDisplay)
+	{
+		if (!std::isfinite(Hdr->PaperWhite) || Hdr->PaperWhite < 80.f || Hdr->PaperWhite > 500.f || !std::isfinite(Hdr->PeakLuminance) || Hdr->PeakLuminance < 250.f || Hdr->PeakLuminance > 10000.f || Hdr->PeakLuminance < Hdr->PaperWhite)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "HDR paper white must be 80 to 500 cd/m2 and the peak 250 to 10000 cd/m2, at least the paper white"});
+		}
+
+		Result.Display = {1.f, Hdr->PaperWhite, Hdr->PeakLuminance, Hdr->bCalibrationPattern ? 1.f : 0.f};
+	}
 	bool bHasSky = false;
 	FVector3 SkyColor{};
 	for (const FRenderLight& Source : Lights)

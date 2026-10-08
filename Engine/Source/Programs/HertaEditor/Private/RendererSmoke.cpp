@@ -1003,6 +1003,15 @@ namespace
 	return {};
 }
 
+[[nodiscard]] float DecodeHalf(const std::byte Low, const std::byte High) noexcept
+{
+	const unsigned Bits = std::to_integer<unsigned>(Low) | (std::to_integer<unsigned>(High) << 8);
+	const int Exponent = static_cast<int>((Bits >> 10) & 0x1f);
+	const auto Mantissa = static_cast<float>(Bits & 0x3ff);
+	const float Magnitude = Exponent == 0 ? std::ldexp(Mantissa, -24) : std::ldexp(Mantissa + 1024.f, Exponent - 25);
+	return (Bits & 0x8000) != 0 ? -Magnitude : Magnitude;
+}
+
 // Locks the physical camera chain: an 18% grey card under 100,000 lx of noon sun at "sunny 16" EV100 15 must display as photographic middle grey.
 [[nodiscard]] std::expected<void, FPresentationError> CheckExposureCalibration(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
 {
@@ -1056,6 +1065,68 @@ namespace
 	if (Green < 98 || Green > 116 || std::abs(Red - Green) > 3 || std::abs(Blue - Green) > 3)
 	{
 		return Failure(std::format("An 18% grey card at sunny 16 displayed as {}/{}/{}, not neutral middle grey near 105", Red, Green, Blue).c_str());
+	}
+
+	// HDR output keeps midtones where SDR puts them, relative to paper white, and compresses highlights to the display peak instead of clipping at white.
+	constexpr FHdrDisplaySettings Hdr{.PaperWhite = 250.f, .PeakLuminance = 1000.f};
+	// Brightening the exposure rather than the sun keeps scene color inside half-float range.
+	const auto RenderHdr = [&](const float ExposureEV100, const bool bCalibrationPattern) -> std::expected<std::vector<std::byte>, FPresentationError>
+	{
+		FMeshRenderView HdrView = View;
+		HdrView.Visuals.ExposureEV100 = ExposureEV100;
+		HdrView.Visuals.HdrDisplay = FHdrDisplaySettings{.PaperWhite = Hdr.PaperWhite, .PeakLuminance = Hdr.PeakLuminance, .bCalibrationPattern = bCalibrationPattern};
+		if (const auto Rendered = (*Renderer)->Render(Extent, HdrView); !Rendered)
+		{
+			return std::unexpected(Rendered.error());
+		}
+
+		auto Pixels = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+		if (Pixels && Pixels->size() != std::size_t{Extent.Width} * Extent.Height * 8)
+		{
+			return Failure("HDR display target is not half-float RGBA");
+		}
+
+		return Pixels;
+	};
+
+	const auto Channel = [&](const std::vector<std::byte>& Pixels, const std::uint32_t X, const std::uint32_t Y, const std::size_t Index)
+	{
+		const std::size_t Offset = (std::size_t{Y} * Extent.Width + X) * 8 + Index * 2;
+		return DecodeHalf(Pixels[Offset], Pixels[Offset + 1]);
+	};
+
+	const auto Midtone = RenderHdr(15.f, false);
+	const auto Highlight = RenderHdr(7.f, false);
+	const auto Pattern = RenderHdr(15.f, true);
+	if (!Midtone || !Highlight || !Pattern)
+	{
+		return std::unexpected(!Midtone ? Midtone.error() : !Highlight ? Highlight.error() : Pattern.error());
+	}
+
+	const std::uint32_t CenterX = Extent.Width / 2;
+	const std::uint32_t CenterY = Extent.Height / 2;
+	const float SdrGrey = std::pow((static_cast<float>(Green) / 255.f + 0.055f) / 1.055f, 2.4f);
+	const float HdrGrey = Channel(*Midtone, CenterX, CenterY, 1);
+	const float HdrHighlight = Channel(*Highlight, CenterX, CenterY, 1);
+	const float PatternInner = Channel(*Pattern, CenterX, CenterY, 1);
+	const float PatternOuter = Channel(*Pattern, CenterX + 10, CenterY, 1);
+	const float PatternBackground = Channel(*Pattern, 0, 0, 1);
+	std::println("HDR calibration: grey {:.4f} (SDR {:.4f}), 8-stop highlight {:.3f}, pattern {:.1f}/{:.2f}/{:.2f} of paper white", HdrGrey, SdrGrey, HdrHighlight, PatternInner, PatternOuter, PatternBackground);
+
+	const float Peak = Hdr.PeakLuminance / Hdr.PaperWhite;
+	if (std::abs(HdrGrey - SdrGrey) > 0.01f || std::abs(Channel(*Midtone, CenterX, CenterY, 0) - HdrGrey) > 0.005f || std::abs(Channel(*Midtone, CenterX, CenterY, 2) - HdrGrey) > 0.005f)
+	{
+		return Failure(std::format("HDR grey card read {:.4f}, not the SDR value {:.4f} relative to paper white", HdrGrey, SdrGrey).c_str());
+	}
+
+	if (HdrHighlight < Peak * 0.97f || HdrHighlight > Peak * 1.001f)
+	{
+		return Failure(std::format("A highlight 8 stops over noon read {:.3f} of paper white, not the {:.1f} peak", HdrHighlight, Peak).c_str());
+	}
+
+	if (std::abs(PatternInner - 10000.f / Hdr.PaperWhite) > 0.05f || std::abs(PatternOuter - Peak) > 0.01f || PatternBackground != 0.f)
+	{
+		return Failure("HDR calibration pattern does not show the peak around a 10000 cd/m2 square on black");
 	}
 
 	return {};

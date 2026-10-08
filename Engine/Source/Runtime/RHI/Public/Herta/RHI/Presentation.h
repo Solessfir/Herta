@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -37,6 +38,32 @@ struct FSrgbColor
 	    static_cast<float>(Green) / 255.f,
 	    static_cast<float>(Blue) / 255.f,
 	    static_cast<float>(Alpha) / 255.f,
+	};
+}
+
+// SMPTE ST 2084 (PQ) signal for an absolute luminance in cd/m^2, as HDR10 swapchains expect.
+[[nodiscard]] inline float EncodePqLuminance(const float Luminance) noexcept
+{
+	const float Y = std::pow(std::clamp(Luminance / 10000.f, 0.f, 1.f), 0.1593017578125f);
+	return std::pow((0.8359375f + 18.8515625f * Y) / (1.f + 18.6875f * Y), 78.84375f);
+}
+
+// An sRGB color shown at paper white on an HDR10 target: decoded, converted from Rec.709 to Rec.2020 primaries, and PQ encoded. ToolUI.frag does the same per pixel.
+[[nodiscard]] inline FSrgbColor EncodeHdr10Color(const FSrgbColor Color, const float PaperWhite) noexcept
+{
+	const auto Decode = [](const float Value)
+	{
+		return Value <= 0.04045f ? Value / 12.92f : std::pow((Value + 0.055f) / 1.055f, 2.4f);
+	};
+
+	const float Red = Decode(Color.Red);
+	const float Green = Decode(Color.Green);
+	const float Blue = Decode(Color.Blue);
+	return {
+	    .Red = EncodePqLuminance((0.627404f * Red + 0.329283f * Green + 0.043313f * Blue) * PaperWhite),
+	    .Green = EncodePqLuminance((0.069097f * Red + 0.919540f * Green + 0.011362f * Blue) * PaperWhite),
+	    .Blue = EncodePqLuminance((0.016391f * Red + 0.088013f * Green + 0.895595f * Blue) * PaperWhite),
+	    .Alpha = Color.Alpha,
 	};
 }
 

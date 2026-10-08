@@ -372,6 +372,87 @@ std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> FRenderMes
 	return Mesh;
 }
 
+namespace
+{
+struct FDisplayShaders
+{
+	FShaderAsset FullscreenVertex;
+	FShaderAsset ToneMap;
+	FShaderAsset SmaaNeighborhood;
+	FShaderAsset Outline;
+	FShaderAsset GridVertex;
+	FShaderAsset GridFragment;
+	FShaderAsset DebugVertex;
+	FShaderAsset DebugFragment;
+};
+
+// Passes that write the display target, for one display format.
+struct FDisplayPipelines
+{
+	FGraphicsPipelineHandle ToneMap;
+	FGraphicsPipelineHandle SmaaNeighborhood;
+	FGraphicsPipelineHandle Outline;
+	FGraphicsPipelineHandle Grid;
+	std::array<FGraphicsPipelineHandle, 2> Debug;
+};
+
+[[nodiscard]] std::expected<FDisplayPipelines, FPresentationError> CreateDisplayPipelines(IGraphicsDevice& Device, const FDisplayShaders& Shaders, const ETextureFormat Format)
+{
+	const std::string_view Suffix = Format == ETextureFormat::Rgba8Srgb ? "" : " (HDR)";
+	FDisplayPipelines Pipelines;
+	const auto Create = [&](FGraphicsPipelineHandle& Destination, FGraphicsPipelineDescriptor Descriptor) -> std::expected<void, FPresentationError>
+	{
+		if (Descriptor.VertexShader.Bytecode.empty() && Descriptor.FragmentShader.Bytecode.empty())
+		{
+			return {};
+		}
+
+		Descriptor.Name += Suffix;
+		auto Pipeline = Device.CreateGraphicsPipeline(Descriptor);
+		if (!Pipeline)
+		{
+			return std::unexpected(Pipeline.error());
+		}
+
+		Destination = std::move(*Pipeline);
+		return {};
+	};
+
+	const auto Fullscreen = [&](std::string Name, const FShaderAsset& Fragment, const bool bAlphaBlend)
+	{
+		return FGraphicsPipelineDescriptor{.Name = std::move(Name), .VertexShader = Shaders.FullscreenVertex, .FragmentShader = Fragment, .ColorFormat = Format, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = 2, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bAlphaBlend = bAlphaBlend, .bClampSampler = !bAlphaBlend};
+	};
+
+	std::expected<void, FPresentationError> Result = Create(Pipelines.ToneMap, Fullscreen("Exposure and tone mapping", Shaders.ToneMap, false));
+	if (Result)
+	{
+		Result = Create(Pipelines.SmaaNeighborhood, Fullscreen("SMAA neighborhood", Shaders.SmaaNeighborhood, false));
+	}
+
+	if (Result && !Shaders.Outline.Bytecode.empty())
+	{
+		Result = Create(Pipelines.Outline, Fullscreen("Selection outline", Shaders.Outline, true));
+	}
+
+	if (Result)
+	{
+		Result = Create(Pipelines.Grid, {.Name = "World grid", .VertexShader = Shaders.GridVertex, .FragmentShader = Shaders.GridFragment, .ColorFormat = Format, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = true, .bDepthWrite = false, .bAlphaBlend = true});
+	}
+
+	for (std::size_t Index = 0; Index < Pipelines.Debug.size() && Result; ++Index)
+	{
+		Result = Create(Pipelines.Debug[Index], {.Name = Index == 0 ? "Depth-tested debug primitives" : "Overlay debug primitives", .VertexShader = Shaders.DebugVertex, .FragmentShader = Shaders.DebugFragment, .ColorFormat = Format, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = Index == 0, .bDepthWrite = false, .bAlphaBlend = true});
+	}
+
+	if (!Result)
+	{
+		return std::unexpected(Result.error());
+	}
+
+	return Pipelines;
+}
+}
+
 struct FMeshRenderer::FImplementation
 {
 	struct FInstanceKey
@@ -432,8 +513,11 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle SmaaSearch;
 	FBufferHandle FullscreenVertices;
 	FBufferHandle FullscreenIndices;
+	// The tone mapping and SMAA neighborhood slots stay empty; those passes write the display target and live in DisplayPipelines.
 	std::array<FGraphicsPipelineHandle, 10> VisualPipelines;
-	FGraphicsPipelineHandle OutlinePipeline;
+	FDisplayShaders DisplayShaders;
+	// SDR, then HDR, which is built the first time HDR output is requested.
+	std::array<FDisplayPipelines, 2> DisplayPipelines;
 	FGraphicsPipelineHandle ShadowPipeline;
 	FGraphicsPipelineHandle InstancedShadowPipeline;
 	FVisualUniforms Uniforms;
@@ -447,10 +531,8 @@ struct FMeshRenderer::FImplementation
 	std::vector<FInstanceBatch> InstanceBatches;
 	std::vector<std::size_t> ModelBatches;
 	std::unordered_map<FInstanceKey, std::size_t, FInstanceKeyHash> InstanceBatchIndices;
-	FGraphicsPipelineHandle GridPipeline;
 	FBufferHandle GridVertices;
 	FBufferHandle GridIndices;
-	std::array<FGraphicsPipelineHandle, 2> DebugPipelines;
 	std::array<FBufferHandle, 2> DebugVertices;
 	std::array<FBufferHandle, 2> DebugIndices;
 	std::array<std::vector<FColoredClipVertex>, 2> DebugBatches;
@@ -506,31 +588,33 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	{
 		auto GridVertices = Device.CreateBuffer({.Name = "World grid vertices", .Size = 4 * sizeof(FColoredClipVertex), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition});
 		auto GridIndexBuffer = Device.CreateBuffer({.Name = "World grid indices", .Size = sizeof(GridIndices), .Usage = EBufferUsage::Index});
-		auto GridPipeline = Device.CreateGraphicsPipeline({.Name = "World grid", .VertexShader = std::move(GridVertexShader), .FragmentShader = std::move(GridFragmentShader), .ColorFormat = ETextureFormat::Rgba8Srgb, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = true, .bDepthWrite = false, .bAlphaBlend = true});
-		if (!GridVertices || !GridIndexBuffer || !GridPipeline)
+		if (!GridVertices || !GridIndexBuffer)
 		{
-			return std::unexpected(!GridVertices ? GridVertices.error() : !GridIndexBuffer ? GridIndexBuffer.error()
-			                                                                               : GridPipeline.error());
+			return std::unexpected(!GridVertices ? GridVertices.error() : GridIndexBuffer.error());
 		}
 
 		State->GridVertices = std::move(*GridVertices);
 		State->GridIndices = std::move(*GridIndexBuffer);
-		State->GridPipeline = std::move(*GridPipeline);
 	}
 
-	if (!DebugVertexShader.Bytecode.empty() || !DebugFragmentShader.Bytecode.empty())
+	State->DisplayShaders = {
+	    .FullscreenVertex = VisualShaders.FullscreenVertex,
+	    .ToneMap = std::move(VisualShaders.ToneMapFragment),
+	    .SmaaNeighborhood = std::move(VisualShaders.SmaaNeighborhood),
+	    .Outline = std::move(VisualShaders.SelectionOutline),
+	    .GridVertex = std::move(GridVertexShader),
+	    .GridFragment = std::move(GridFragmentShader),
+	    .DebugVertex = std::move(DebugVertexShader),
+	    .DebugFragment = std::move(DebugFragmentShader),
+	};
+
+	auto DisplayPipelines = CreateDisplayPipelines(Device, State->DisplayShaders, ETextureFormat::Rgba8Srgb);
+	if (!DisplayPipelines)
 	{
-		for (std::size_t Index = 0; Index < State->DebugPipelines.size(); ++Index)
-		{
-			auto DebugPipeline = Device.CreateGraphicsPipeline({.Name = Index == 0 ? "Depth-tested debug primitives" : "Overlay debug primitives", .VertexShader = DebugVertexShader, .FragmentShader = DebugFragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = Index == 0, .bDepthWrite = false, .bAlphaBlend = true});
-			if (!DebugPipeline)
-			{
-				return std::unexpected(DebugPipeline.error());
-			}
-
-			State->DebugPipelines[Index] = std::move(*DebugPipeline);
-		}
+		return std::unexpected(DisplayPipelines.error());
 	}
+
+	State->DisplayPipelines[0] = std::move(*DisplayPipelines);
 
 	auto White = Device.CreateTexture({.Name = "Default material map", .Extent = {1, 1}, .Format = ETextureFormat::Rgba8});
 	auto ShadowAtlas = Device.CreateTexture({.Name = "Shadow atlas", .Extent = {ShadowAtlasWidth, ShadowAtlasHeight}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
@@ -547,12 +631,18 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	std::vector<std::byte> SearchPixels;
 	if (!VisualShaders.FullscreenVertex.Bytecode.empty())
 	{
-		std::array<FShaderAsset, 10> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), std::move(VisualShaders.CompositeFragment), std::move(VisualShaders.ToneMapFragment), std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), std::move(VisualShaders.SmaaNeighborhood), std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ExposureMeterFragment), std::move(VisualShaders.ExposureAdaptFragment)};
+		std::array<FShaderAsset, 10> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), std::move(VisualShaders.CompositeFragment), FShaderAsset{}, std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), FShaderAsset{}, std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ExposureMeterFragment), std::move(VisualShaders.ExposureAdaptFragment)};
 		constexpr std::array<std::uint32_t, 10> TextureCounts{2, 3, 3, 2, 1, 3, 2, 1, 1, 2};
 		constexpr std::array<std::string_view, 10> Names{"Sky", "Volumetric fog", "Depth-aware fog composite", "Exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation"};
 		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float};
 		for (std::size_t Index = 0; Index < Fragments.size(); ++Index)
 		{
+			// Tone mapping and SMAA neighborhood write the display target and are built with DisplayPipelines.
+			if (Index == 3 || Index == 6)
+			{
+				continue;
+			}
+
 			auto VisualPipeline = Device.CreateGraphicsPipeline({.Name = std::string(Names[Index]), .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(Fragments[Index]), .ColorFormat = Formats[Index],
 			    .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition,
 			    .bDepthTest = false,
@@ -567,17 +657,6 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 			}
 
 			State->VisualPipelines[Index] = std::move(*VisualPipeline);
-		}
-
-		if (!VisualShaders.SelectionOutline.Bytecode.empty())
-		{
-			auto OutlinePipeline = Device.CreateGraphicsPipeline({.Name = "Selection outline", .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(VisualShaders.SelectionOutline), .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = 2, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bAlphaBlend = true});
-			if (!OutlinePipeline)
-			{
-				return std::unexpected(OutlinePipeline.error());
-			}
-
-			State->OutlinePipeline = std::move(*OutlinePipeline);
 		}
 
 		auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Masked shadow atlas", .VertexShader = std::move(VisualShaders.ShadowVertex), .FragmentShader = VisualShaders.ShadowFragment, .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .TextureCount = 1, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthOnly = true});
@@ -905,6 +984,26 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	State.Uniforms = *VisualUniforms;
+	// Thumbnail renderers without the visual passes always produce sRGB.
+	const bool bHdrDisplay = View.Visuals.HdrDisplay.has_value() && State.VisualPipelines[0];
+	if (!bHdrDisplay)
+	{
+		State.Uniforms.Display = {};
+	}
+
+	if (bHdrDisplay && !State.DisplayPipelines[1].ToneMap)
+	{
+		auto Created = CreateDisplayPipelines(Device, State.DisplayShaders, ETextureFormat::Rgba16Float);
+		if (!Created)
+		{
+			return std::unexpected(Created.error());
+		}
+
+		State.DisplayPipelines[1] = std::move(*Created);
+	}
+
+	const FDisplayPipelines& Display = State.DisplayPipelines[bHdrDisplay ? 1 : 0];
+	const ETextureFormat DisplayFormat = bHdrDisplay ? ETextureFormat::Rgba16Float : ETextureFormat::Rgba8Srgb;
 	State.Uniforms.Sky[2] = static_cast<float>(State.EnvironmentSpecular->GetDescriptor().MipLevels - 1);
 	State.Uniforms.Sky[3] = State.VisualPipelines[0] ? 1.f : 0.f;
 	State.Uniforms.AtmosphereGeometry[2] = State.bHdrEnvironment ? 1.f : 0.f;
@@ -964,7 +1063,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Mesh view, projection, model, and grid center must be finite"});
 	}
 
-	if (View.bDrawGrid && !State.GridPipeline)
+	if (View.bDrawGrid && !Display.Grid)
 	{
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "World grid requires grid vertex and fragment shaders"});
 	}
@@ -982,7 +1081,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			continue;
 		}
 
-		if (!State.DebugPipelines[Index])
+		if (!Display.Debug[Index])
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Debug drawing requires debug vertex and fragment shaders"});
 		}
@@ -1071,9 +1170,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		}
 	}
 
-	if (!State.Color || State.Color->GetDescriptor().Extent != Extent)
+	if (!State.Color || State.Color->GetDescriptor().Extent != Extent || State.Color->GetDescriptor().Format != DisplayFormat)
 	{
-		auto Color = Device.CreateTexture({.Name = "Scene color", .Extent = Extent, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
+		auto Color = Device.CreateTexture({.Name = "Scene color", .Extent = Extent, .Format = DisplayFormat, .bRenderTarget = true});
 		auto Depth = Device.CreateTexture({.Name = "Scene reversed-Z depth", .Extent = Extent, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
 		if (!Color || !Depth)
 		{
@@ -1104,7 +1203,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 			if (Created)
 			{
-				Created = Target("Tone-mapped scene", Extent, ETextureFormat::Rgba8Srgb, State.ToneColor);
+				Created = Target("Tone-mapped scene", Extent, DisplayFormat, State.ToneColor);
 			}
 
 			if (Created)
@@ -1197,7 +1296,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			return Cleared;
 		}
 
-		return Device.DrawIndexed({.Pipeline = State.VisualPipelines[Pipeline], .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = Destination, .IndexCount = 6, .Textures = Sources, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
+		// Tone mapping and SMAA neighborhood write the display target, so their pipelines follow its format.
+		const FGraphicsPipelineHandle& Selected = Pipeline == 3 ? Display.ToneMap : Pipeline == 6 ? Display.SmaaNeighborhood : State.VisualPipelines[Pipeline];
+		return Device.DrawIndexed({.Pipeline = Selected, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = Destination, .IndexCount = 6, .Textures = Sources, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
 	};
 
 	const auto MaterialPipeline = [&](const FRenderMesh::FSection& Section, const std::span<const FRenderMaterial* const> Overrides, const bool bInstanced)
@@ -1485,7 +1586,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			auto Result = Device.WriteBuffer(State.GridVertices, std::as_bytes(std::span{Vertices}));
 			if (Result)
 			{
-				Result = Device.DrawIndexed({.Pipeline = State.GridPipeline, .Vertices = State.GridVertices, .Indices = State.GridIndices, .Texture = {}, .ColorTarget = State.Color, .DepthTarget = FrameDepth, .WorldToClip = FMatrix4::Identity().Data(), .IndexCount = static_cast<std::uint32_t>(GridIndices.size())});
+				Result = Device.DrawIndexed({.Pipeline = Display.Grid, .Vertices = State.GridVertices, .Indices = State.GridIndices, .Texture = {}, .ColorTarget = State.Color, .DepthTarget = FrameDepth, .WorldToClip = FMatrix4::Identity().Data(), .IndexCount = static_cast<std::uint32_t>(GridIndices.size())});
 				if (Result)
 				{
 					++State.LastDrawCount;
@@ -1496,7 +1597,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		});
 	}
 
-	if (State.OutlinePipeline && State.ShadowPipeline && !View.Selected.empty())
+	if (Display.Outline && State.ShadowPipeline && !View.Selected.empty())
 	{
 		const auto Selection = Graph.ImportResource("Selection depth");
 		Graph.AddPass("Selection outline", {{.Resource = Selection, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
@@ -1531,7 +1632,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			}
 
 			const std::array Sources{State.SelectionDepth, State.Depth};
-			return GraphResult(Device.DrawIndexed({.Pipeline = State.OutlinePipeline, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = State.Color, .IndexCount = 6, .Textures = Sources, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})}));
+			return GraphResult(Device.DrawIndexed({.Pipeline = Display.Outline, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = State.Color, .IndexCount = 6, .Textures = Sources, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})}));
 		});
 	}
 
@@ -1555,7 +1656,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 			if (Result)
 			{
-				Result = Device.DrawIndexed({.Pipeline = State.DebugPipelines[Index], .Vertices = State.DebugVertices[Index], .Indices = State.DebugIndices[Index], .Texture = {}, .ColorTarget = State.Color, .DepthTarget = Index == 0 ? FrameDepth : FTextureHandle{}, .WorldToClip = FMatrix4::Identity().Data(), .IndexCount = static_cast<std::uint32_t>(Indices.size())});
+				Result = Device.DrawIndexed({.Pipeline = Display.Debug[Index], .Vertices = State.DebugVertices[Index], .Indices = State.DebugIndices[Index], .Texture = {}, .ColorTarget = State.Color, .DepthTarget = Index == 0 ? FrameDepth : FTextureHandle{}, .WorldToClip = FMatrix4::Identity().Data(), .IndexCount = static_cast<std::uint32_t>(Indices.size())});
 			}
 
 			if (!Result)

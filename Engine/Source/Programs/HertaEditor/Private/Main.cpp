@@ -407,6 +407,25 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			return 1;
 		}
 
+		// Recreating the swapchain as HDR10 and back runs under validation wherever the display offers it.
+		if (Presentation->IsHdrOutputSupported())
+		{
+			auto HdrResult = Presentation->SetHdrOutput({.bEnabled = true});
+			const bool bActivated = HdrResult && Presentation->IsHdrOutputActive();
+			if (HdrResult)
+			{
+				HdrResult = Presentation->SetHdrOutput({});
+			}
+
+			if (!HdrResult || !bActivated || Presentation->IsHdrOutputActive())
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Renderer HDR10 swapchain toggle regression failed: {}", HdrResult ? "HDR10 did not activate and release" : HdrResult.error().Message);
+				return 1;
+			}
+
+			HERTA_LOG_INFO(*Log, EditorLog, "HDR10 swapchain enabled and released");
+		}
+
 		auto Test = RunRendererSmoke(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *DebugVertexShader, *DebugFragmentShader, *GridVertexShader, *GridFragmentShader, *InstancedVertexShader, VisualShaders);
 		if (!Test || Presentation->HasValidationErrors())
 		{
@@ -762,6 +781,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	const FToolUIColor CanvasColor = ToolUITheme::Canvas;
 	const FSrgbColor EditorClearColor = ConvertSrgb8ToSrgbColor(CanvasColor.Red, CanvasColor.Green, CanvasColor.Blue, CanvasColor.Alpha);
 
+	// Captures and smoke runs read back sRGB targets, so only interactive sessions follow the HDR preference.
+	const bool bHdrAllowed = !bVisualTest && !bScalingTest && !bSmokeTest;
+	std::optional<FDisplayLuminance> SystemLuminance;
+	std::chrono::steady_clock::time_point SystemLuminanceQuery{};
 	bool bRenderFailed = false;
 	FTextureHandle RegisteredLevelTexture;
 	std::uint64_t LevelTextureId = 0;
@@ -821,6 +844,33 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				return false;
 			}
 		}
+
+		// The display under the window can change as it moves, and querying it walks every DXGI output, so it refreshes once per second.
+		if (const auto Now = std::chrono::steady_clock::now(); Now - SystemLuminanceQuery > std::chrono::seconds(1))
+		{
+			SystemLuminanceQuery = Now;
+			SystemLuminance = Window.GetDisplayLuminance();
+		}
+
+		const FEditorDisplay& DisplayPreference = ToolUI->GetAppearance().Display;
+		const float SystemPaperWhite = SystemLuminance ? SystemLuminance->SdrWhite : 0.f;
+		const float SystemPeakLuminance = SystemLuminance ? SystemLuminance->PeakLuminance : 0.f;
+		const FEditorDisplayLuminance DisplayLuminance = ResolveEditorDisplayLuminance(DisplayPreference, SystemPaperWhite, SystemPeakLuminance);
+		if (auto Result = Presentation->SetHdrOutput({.bEnabled = bHdrAllowed && DisplayPreference.bHdrOutput, .PaperWhite = DisplayLuminance.PaperWhite, .PeakLuminance = DisplayLuminance.PeakLuminance}); !Result)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not change HDR output: {}", Result.error().Message);
+			bRenderFailed = true;
+			return false;
+		}
+
+		EditorFramework->SetDisplayState({
+		    .bHdrSupported = Presentation->IsHdrOutputSupported(),
+		    .bHdrActive = Presentation->IsHdrOutputActive(),
+		    .PaperWhite = DisplayLuminance.PaperWhite,
+		    .PeakLuminance = DisplayLuminance.PeakLuminance,
+		    .SystemPaperWhite = SystemPaperWhite,
+		    .SystemPeakLuminance = SystemPeakLuminance,
+		});
 
 		bool bFrameFailed = false;
 		bool bPresentedMainFrame = false;

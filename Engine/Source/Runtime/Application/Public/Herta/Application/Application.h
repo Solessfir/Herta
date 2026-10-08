@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -271,6 +272,14 @@ struct FWindowBackendHandle
 	void* Value = nullptr;
 };
 
+// Luminance the operating system reports for the display showing a window, in cd/m^2. Zero means unknown.
+struct FDisplayLuminance
+{
+	float PeakLuminance = 0.f;
+	// Where the desktop places SDR white, which HDR output uses as paper white.
+	float SdrWhite = 0.f;
+};
+
 struct FWindowPosition
 {
 	int X = 0;
@@ -330,6 +339,8 @@ public:
 	[[nodiscard]] bool IsMouseButtonDown(EMouseButton Button) const noexcept;
 	[[nodiscard]] bool ShouldClose() const noexcept;
 	[[nodiscard]] FWindowBackendHandle GetBackendHandle() const noexcept;
+	// Queries the display under the window. Only Windows reports values; it enumerates DXGI outputs, so callers should not poll it every frame.
+	[[nodiscard]] std::optional<FDisplayLuminance> GetDisplayLuminance() const;
 	[[nodiscard]] std::expected<std::string, FApplicationError> GetClipboardText() const;
 
 	void Show();

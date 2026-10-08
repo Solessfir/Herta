@@ -478,6 +478,7 @@ struct FEditorFramework::FImplementation
 	void RefreshPreviewMeshes();
 	[[nodiscard]] const FRenderMesh* RefreshSoftBodyPreview(std::size_t Index, const FLevelEntity& Entity);
 	void RefreshVisuals();
+	void DrawHdrDisplaySettings(FEditorDisplay& Display, float ValueWidth);
 	void RefreshSelectedVisualEntities();
 	void DrawMaterialPanel();
 	void DrawPerformancePanel();
@@ -569,6 +570,9 @@ struct FEditorFramework::FImplementation
 	std::size_t EnabledLightCount = 0;
 	std::size_t ReportedLightBudgetCount = 0;
 	FVisualSettings VisualSettings;
+	FEditorDisplayState DisplayState;
+	// Shown only while the Appearance popup that controls it is open.
+	bool bHdrCalibration = false;
 	std::vector<FObjectId> SunIds;
 	std::vector<std::string> SunLabels;
 	std::vector<FObjectId> AttachmentIds;
@@ -1200,7 +1204,10 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 			if (ImGui::Button("Reset"))
 			{
+				// Display settings describe the monitor, not the look, so they survive a reset.
+				const FEditorDisplay Display = Appearance.Display;
 				Appearance = FEditorAppearance{};
+				Appearance.Display = Display;
 			}
 
 			ImGui::PopStyleColor(2);
@@ -1307,9 +1314,14 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 				ImGui::PopID();
 			}
 
+			Implementation->DrawHdrDisplaySettings(Appearance.Display, ValueWidth);
 			ImGui::PopStyleVar();
 			Implementation->ToolUI->SetAppearance(Appearance);
 			ImGui::EndPopup();
+		}
+		else
+		{
+			Implementation->bHdrCalibration = false;
 		}
 	}, [&]
 	{
@@ -1648,6 +1660,11 @@ void FEditorFramework::SetViewportImage(const std::uint64_t TextureId) noexcept
 	Implementation->ViewportTexture = TextureId;
 }
 
+void FEditorFramework::SetDisplayState(const FEditorDisplayState& State) noexcept
+{
+	Implementation->DisplayState = State;
+}
+
 FExtent2D FEditorFramework::GetViewportExtent() const noexcept
 {
 	return Implementation->ViewportExtent;
@@ -1655,7 +1672,15 @@ FExtent2D FEditorFramework::GetViewportExtent() const noexcept
 
 FMeshRenderView FEditorFramework::GetViewportRenderView() const noexcept
 {
-	return Implementation->ViewportRenderView;
+	// The renderer follows the swapchain that will present this frame, not the preference, which may be waiting for an HDR display.
+	FMeshRenderView View = Implementation->ViewportRenderView;
+	const FEditorDisplayState& Display = Implementation->DisplayState;
+	if (Display.bHdrActive)
+	{
+		View.Visuals.HdrDisplay = FHdrDisplaySettings{.PaperWhite = Display.PaperWhite, .PeakLuminance = Display.PeakLuminance, .bCalibrationPattern = Implementation->bHdrCalibration};
+	}
+
+	return View;
 }
 
 std::span<const FDebugDrawList> FEditorFramework::GetViewportDebugDrawLists() const noexcept
@@ -2000,6 +2025,57 @@ void FEditorFramework::FImplementation::RefreshSelectedVisualEntities()
 			*Visual = std::move(*Entity);
 		}
 	}
+}
+
+void FEditorFramework::FImplementation::DrawHdrDisplaySettings(FEditorDisplay& Display, const float ValueWidth)
+{
+	ImGui::Separator();
+	DrawFieldLabel("HDR output", ValueWidth);
+	ImGui::BeginDisabled(!DisplayState.bHdrSupported && !Display.bHdrOutput);
+	ToolUIToggle("##HdrOutput", &Display.bHdrOutput);
+	ImGui::EndDisabled();
+
+	if (!DisplayState.bHdrSupported)
+	{
+		ImGui::PushTextWrapPos(0.f);
+		ImGui::TextDisabled("%s", Display.bHdrOutput ? "Waiting for a display that offers HDR10. On Windows, turn on Use HDR in display settings." : "This display does not offer HDR10. On Windows, turn on Use HDR in display settings.");
+		ImGui::PopTextWrapPos();
+	}
+
+	if (!Display.bHdrOutput || !DisplayState.bHdrActive)
+	{
+		bHdrCalibration = false;
+		return;
+	}
+
+	float Peak = DisplayState.PeakLuminance;
+	DrawFieldLabel("Peak brightness", ValueWidth);
+	if (DrawNumericSliderFloat("##HdrPeak", &Peak, MinimumHdrPeakLuminance, MaximumHdrPeakLuminance, Display.PeakLuminance > 0.f ? "%.0f nits" : "%.0f nits (system)", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
+	{
+		Display.PeakLuminance = Peak;
+	}
+
+	float PaperWhite = DisplayState.PaperWhite;
+	DrawFieldLabel("Paper white", ValueWidth);
+	if (DrawNumericSliderFloat("##HdrPaperWhite", &PaperWhite, MinimumHdrPaperWhite, MaximumHdrPaperWhite, Display.PaperWhite > 0.f ? "%.0f nits" : "%.0f nits (system)", ImGuiSliderFlags_AlwaysClamp))
+	{
+		Display.PaperWhite = PaperWhite;
+	}
+
+	ImGui::SetItemTooltip("Brightness of white in the editor and of a white surface in the scene");
+	DrawFieldLabel("Calibrate peak", ValueWidth);
+	ToolUIToggle("##HdrCalibration", &bHdrCalibration);
+	ImGui::SetItemTooltip("Shows a test pattern in the viewport. Raise Peak brightness until the inner square disappears into the outer one.");
+
+	ImGui::BeginDisabled(Display.PaperWhite == 0.f && Display.PeakLuminance == 0.f);
+	if (ImGui::Button("Use system values", {-1.f, 0.f}))
+	{
+		Display.PaperWhite = 0.f;
+		Display.PeakLuminance = 0.f;
+	}
+
+	ImGui::EndDisabled();
+	ImGui::SetItemTooltip(DisplayState.SystemPeakLuminance > 0.f ? "Follow the brightness the operating system reports for this display" : "The operating system reports no brightness here, so defaults of 200 and 1000 nits apply");
 }
 
 void FEditorFramework::FImplementation::RefreshVisuals()

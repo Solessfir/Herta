@@ -20,6 +20,8 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -87,6 +89,8 @@ static_assert(AlignVulkanBufferUpdateSourceSize(12'510) == 12'512);
 			return nvrhi::Format::BGRA8_UNORM;
 		case VK_FORMAT_R8G8B8A8_UNORM:
 			return nvrhi::Format::RGBA8_UNORM;
+		case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+			return nvrhi::Format::R10G10B10A2_UNORM;
 		default:
 			return nvrhi::Format::UNKNOWN;
 	}
@@ -117,8 +121,28 @@ struct FGlassBlurPlan
 	return Plan;
 }
 
-[[nodiscard]] std::optional<VkSurfaceFormatKHR> ChooseSurfaceFormat(const std::span<const VkSurfaceFormatKHR> Formats) noexcept
+constexpr VkSurfaceFormatKHR Hdr10SurfaceFormat{.format = VK_FORMAT_A2B10G10R10_UNORM_PACK32, .colorSpace = VK_COLOR_SPACE_HDR10_ST2084_EXT};
+
+[[nodiscard]] bool IsHdr10(const VkSurfaceFormatKHR& Format) noexcept
 {
+	return Format.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT;
+}
+
+[[nodiscard]] bool SupportsHdr10(const std::span<const VkSurfaceFormatKHR> Formats) noexcept
+{
+	return std::ranges::any_of(Formats, [](const VkSurfaceFormatKHR& Format)
+	{
+		return Format.format == Hdr10SurfaceFormat.format && Format.colorSpace == Hdr10SurfaceFormat.colorSpace;
+	});
+}
+
+[[nodiscard]] std::optional<VkSurfaceFormatKHR> ChooseSurfaceFormat(const std::span<const VkSurfaceFormatKHR> Formats, const bool bPreferHdr10) noexcept
+{
+	if (bPreferHdr10 && SupportsHdr10(Formats))
+	{
+		return Hdr10SurfaceFormat;
+	}
+
 	if (Formats.size() == 1 && Formats.front().format == VK_FORMAT_UNDEFINED && Formats.front().colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
 	{
 		return VkSurfaceFormatKHR{.format = VK_FORMAT_B8G8R8A8_UNORM, .colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
@@ -260,6 +284,7 @@ struct FPhysicalDeviceSelection
 	VkPhysicalDevice Device = VK_NULL_HANDLE;
 	std::uint32_t QueueFamilyIndex = 0;
 	std::uint32_t Score = 0;
+	bool bHdrMetadata = false;
 };
 
 [[nodiscard]] std::optional<FPhysicalDeviceSelection> EvaluatePhysicalDevice(const VkPhysicalDevice Device, const VkSurfaceKHR Surface)
@@ -313,7 +338,7 @@ struct FPhysicalDeviceSelection
 		Score += 500'000;
 	}
 
-	return FPhysicalDeviceSelection{.Device = Device, .QueueFamilyIndex = Queue->FamilyIndex, .Score = Score};
+	return FPhysicalDeviceSelection{.Device = Device, .QueueFamilyIndex = Queue->FamilyIndex, .Score = Score, .bHdrMetadata = ContainsExtension(Extensions, VK_EXT_HDR_METADATA_EXTENSION_NAME)};
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT* const CallbackData, void* const UserData)
@@ -474,6 +499,27 @@ public:
 		for (const std::string& Extension : Descriptor.RequiredInstanceExtensions)
 		{
 			InstanceExtensions.push_back(Extension.c_str());
+		}
+
+		std::uint32_t InstanceExtensionCount = 0;
+		VkResult InstanceExtensionResult = vkEnumerateInstanceExtensionProperties(nullptr, &InstanceExtensionCount, nullptr);
+		std::vector<VkExtensionProperties> AvailableInstanceExtensions(InstanceExtensionCount);
+		if (InstanceExtensionResult == VK_SUCCESS)
+		{
+			InstanceExtensionResult = vkEnumerateInstanceExtensionProperties(nullptr, &InstanceExtensionCount, AvailableInstanceExtensions.data());
+		}
+
+		if (InstanceExtensionResult != VK_SUCCESS && InstanceExtensionResult != VK_INCOMPLETE)
+		{
+			return std::unexpected(MakeVulkanError(EPresentationErrorCode::InstanceCreationFailed, "vkEnumerateInstanceExtensionProperties", InstanceExtensionResult));
+		}
+
+		// Surfaces only report HDR color spaces once this extension is enabled.
+		AvailableInstanceExtensions.resize(InstanceExtensionCount);
+		if (ContainsExtension(AvailableInstanceExtensions, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME))
+		{
+			InstanceExtensions.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+			bSwapchainColorSpaceEnabled = true;
 		}
 
 		std::vector<const char*> Layers;
@@ -649,7 +695,12 @@ public:
 		VkPhysicalDeviceFeatures2 EnabledFeatures{};
 		EnabledFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 		EnabledFeatures.pNext = &EnabledFeatures13;
-		constexpr std::array DeviceExtensions{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+		std::vector<const char*> DeviceExtensions{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+		if (Selection->bHdrMetadata)
+		{
+			DeviceExtensions.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
+		}
+
 		VkDeviceCreateInfo DeviceInfo{};
 		DeviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 		DeviceInfo.pNext = &EnabledFeatures;
@@ -665,6 +716,11 @@ public:
 
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(vk::Device(Device));
 		vkGetDeviceQueue(Device, QueueFamilyIndex, 0, &GraphicsQueue);
+		if (Selection->bHdrMetadata)
+		{
+			SetHdrMetadata = reinterpret_cast<PFN_vkSetHdrMetadataEXT>(vkGetDeviceProcAddr(Device, "vkSetHdrMetadataEXT"));
+		}
+
 
 		nvrhi::vulkan::DeviceDesc NvrhiDescriptor;
 		NvrhiDescriptor.errorCB = &NvrhiCallback;
@@ -714,14 +770,17 @@ public:
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "ToolUI requires an initialized renderer and a color texture from its graphics device"});
 		}
 
+		const ETextureFormat Format = Texture->GetDescriptor().Format;
+		const bool bLinear = Format == ETextureFormat::Rgba16Float || Format == ETextureFormat::Rgba32Float;
 		FToolUITexture Entry;
 		Entry.bBackdropSource = bBackdropSource;
+		Entry.Encoding = bLinear ? EToolUITextureEncoding::SceneLinear : EToolUITextureEncoding::Display;
 		Entry.Texture = NativeTexture;
 		Entry.Width = Texture->GetDescriptor().Extent.Width;
 		Entry.Height = Texture->GetDescriptor().Extent.Height;
 		nvrhi::BindingSetDesc Bindings;
-		// The scene target stores sRGB, while ToolUI deliberately composites display-encoded colors.
-		Bindings.addItem(nvrhi::BindingSetItem::Texture_SRV(0, NativeTexture, nvrhi::Format::RGBA8_UNORM));
+		// An SDR scene target stores sRGB, while ToolUI deliberately composites display-encoded colors. HDR scene targets are linear and encoded by the shader.
+		Bindings.addItem(bLinear ? nvrhi::BindingSetItem::Texture_SRV(0, NativeTexture) : nvrhi::BindingSetItem::Texture_SRV(0, NativeTexture, nvrhi::Format::RGBA8_UNORM));
 		Bindings.addItem(nvrhi::BindingSetItem::Sampler(0, ToolUISampler));
 		Bindings.addItem(nvrhi::BindingSetItem::PushConstants(0, sizeof(FToolUIPushConstants)));
 		Entry.BindingSet = NvrhiDevice->createBindingSet(Bindings, ToolUIBindingLayout);
@@ -855,7 +914,8 @@ public:
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Clear requires an active presentation frame"});
 		}
 
-		CommandList->clearTextureFloat(BackBuffers[ActiveImageIndex], nvrhi::AllSubresources, nvrhi::Color(Color.Red, Color.Green, Color.Blue, Color.Alpha));
+		const FSrgbColor Encoded = IsHdr10(SurfaceFormat) ? EncodeHdr10Color(Color, HdrOutput.PaperWhite) : Color;
+		CommandList->clearTextureFloat(BackBuffers[ActiveImageIndex], nvrhi::AllSubresources, nvrhi::Color(Encoded.Red, Encoded.Green, Encoded.Blue, Encoded.Alpha));
 		return {};
 	}
 
@@ -1150,9 +1210,11 @@ public:
 
 		RenderCommandList->writeBuffer(ToolUIVertexBuffer, ToolUIVertices.data(), VertexBytes);
 		RenderCommandList->writeBuffer(ToolUIIndexBuffer, ToolUIIndices.data(), IndexBytes);
+		const bool bHdrTarget = IsHdr10(ToolUIOverrideViewport ? ToolUIOverrideViewport->SurfaceFormat : SurfaceFormat);
 		const FToolUIPushConstants PushConstants{
 		    .Scale = {2.f / DrawData.DisplaySize.x, -2.f / DrawData.DisplaySize.y},
 		    .Translate = {-1.f - DrawData.DisplayPos.x * (2.f / DrawData.DisplaySize.x), 1.f + DrawData.DisplayPos.y * (2.f / DrawData.DisplaySize.y)},
+		    .PaperWhite = bHdrTarget ? HdrOutput.PaperWhite : 0.f,
 		};
 
 		std::uint32_t GlobalVertexOffset = 0;
@@ -1185,6 +1247,7 @@ public:
 					}
 
 					nvrhi::BindingSetHandle Bindings;
+					EToolUITextureEncoding Encoding = EToolUITextureEncoding::Target;
 					if (DrawCommand.GetTexID() >= GlassMarkerMin)
 					{
 						if (!bNeedsBackdrop)
@@ -1203,6 +1266,7 @@ public:
 						}
 
 						Bindings = Texture->second.BindingSet;
+						Encoding = Texture->second.Encoding;
 					}
 
 					const ImVec2 ClipMinimum{
@@ -1233,7 +1297,9 @@ public:
 					State.viewport.addViewport(nvrhi::Viewport(static_cast<float>(FramebufferWidth), static_cast<float>(FramebufferHeight)));
 					State.viewport.addScissorRect(nvrhi::Rect(ClipLeft, ClipRight, ClipTop, ClipBottom));
 					RenderCommandList->setGraphicsState(State);
-					RenderCommandList->setPushConstants(&PushConstants, sizeof(PushConstants));
+					FToolUIPushConstants DrawConstants = PushConstants;
+					DrawConstants.Encoding = static_cast<float>(Encoding);
+					RenderCommandList->setPushConstants(&DrawConstants, sizeof(DrawConstants));
 
 					nvrhi::DrawArguments Arguments;
 					Arguments.vertexCount = DrawCommand.ElemCount;
@@ -1636,6 +1702,85 @@ public:
 		return ValidationState.bHasErrors.load(std::memory_order_acquire);
 	}
 
+	[[nodiscard]] bool IsHdrOutputSupported() override
+	{
+		const auto Now = std::chrono::steady_clock::now();
+		if (!bSwapchainColorSpaceEnabled || Surface == VK_NULL_HANDLE || Now - HdrSupportCheck < std::chrono::seconds(1))
+		{
+			return bHdrSupported;
+		}
+
+		HdrSupportCheck = Now;
+		std::uint32_t FormatCount = 0;
+		if (vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, Surface, &FormatCount, nullptr) != VK_SUCCESS)
+		{
+			return bHdrSupported;
+		}
+
+		std::vector<VkSurfaceFormatKHR> Formats(FormatCount);
+		const VkResult Result = vkGetPhysicalDeviceSurfaceFormatsKHR(PhysicalDevice, Surface, &FormatCount, Formats.data());
+		if (Result == VK_SUCCESS || Result == VK_INCOMPLETE)
+		{
+			Formats.resize(FormatCount);
+			bHdrSupported = SupportsHdr10(Formats);
+		}
+
+		return bHdrSupported;
+	}
+
+	[[nodiscard]] bool IsHdrOutputActive() const noexcept override
+	{
+		return Swapchain != VK_NULL_HANDLE && IsHdr10(SurfaceFormat);
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> SetHdrOutput(const FHdrOutputSettings& Settings) override
+	{
+		if (!std::isfinite(Settings.PaperWhite) || Settings.PaperWhite < 80.f || Settings.PaperWhite > 500.f || !std::isfinite(Settings.PeakLuminance) || Settings.PeakLuminance < Settings.PaperWhite || Settings.PeakLuminance > 10000.f)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "HDR paper white must be 80 to 500 cd/m2 and the peak at most 10000 cd/m2, at least the paper white"});
+		}
+
+		if (bFrameActive || HasActiveSecondaryViewport())
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Cannot change HDR output while a presentation frame is active"});
+		}
+
+		const bool bEnabledChanged = Settings.bEnabled != HdrOutput.bEnabled;
+		const bool bLuminanceChanged = Settings.PaperWhite != HdrOutput.PaperWhite || Settings.PeakLuminance != HdrOutput.PeakLuminance;
+		HdrOutput = Settings;
+
+		// The main window also follows its monitor gaining or losing HDR while enabled.
+		if (!Extent.IsEmpty() && (Settings.bEnabled && IsHdrOutputSupported()) != IsHdrOutputActive())
+		{
+			if (const auto Result = Resize(Extent); !Result)
+			{
+				return Result;
+			}
+		}
+
+		for (const auto& [Handle, Viewport] : Viewports)
+		{
+			if (bEnabledChanged)
+			{
+				if (const auto Result = ResizeViewport({Handle}, Viewport->Extent); !Result)
+				{
+					return Result;
+				}
+			}
+			else if (bLuminanceChanged)
+			{
+				ApplyHdrMetadata(Viewport->Swapchain, Viewport->SurfaceFormat);
+			}
+		}
+
+		if (bLuminanceChanged)
+		{
+			ApplyHdrMetadata(Swapchain, SurfaceFormat);
+		}
+
+		return {};
+	}
+
 private:
 	[[nodiscard]] FBlurTiming* PrepareBlurTiming(const std::uint32_t Width, const std::uint32_t Height, const std::uint32_t Radius)
 	{
@@ -1710,15 +1855,52 @@ private:
 		return &BlurTiming;
 	}
 
+	// Displays tone map unknown content to their own range; telling them the content's peak lets mastering-aware displays skip that.
+	void ApplyHdrMetadata(const VkSwapchainKHR Target, const VkSurfaceFormatKHR& Format) const noexcept
+	{
+		if (!SetHdrMetadata || Target == VK_NULL_HANDLE || !IsHdr10(Format))
+		{
+			return;
+		}
+
+		VkHdrMetadataEXT Metadata{};
+		Metadata.sType = VK_STRUCTURE_TYPE_HDR_METADATA_EXT;
+		// Rec.2020 primaries and the D65 white point, matching the HDR10 encoding.
+		Metadata.displayPrimaryRed = {.x = 0.708f, .y = 0.292f};
+		Metadata.displayPrimaryGreen = {.x = 0.170f, .y = 0.797f};
+		Metadata.displayPrimaryBlue = {.x = 0.131f, .y = 0.046f};
+		Metadata.whitePoint = {.x = 0.3127f, .y = 0.3290f};
+		Metadata.maxLuminance = HdrOutput.PeakLuminance;
+		Metadata.minLuminance = 0.f;
+		Metadata.maxContentLightLevel = HdrOutput.PeakLuminance;
+		Metadata.maxFrameAverageLightLevel = HdrOutput.PaperWhite;
+		SetHdrMetadata(Device, 1, &Target, &Metadata);
+	}
+
+	// How ToolUI.frag converts a texture's samples for the target. The values are part of that shader's push constants.
+	enum class EToolUITextureEncoding : std::uint8_t
+	{
+		// sRGB-encoded UI content, such as the font atlas, icons, and thumbnails.
+		Display,
+		// Linear Rec.709 relative to paper white, from an HDR scene target.
+		SceneLinear,
+		// Already in the target's encoding, such as the blurred backdrop copied from it.
+		Target,
+	};
+
 	struct FToolUIPushConstants
 	{
-		std::array<float, 2> Scale;
-		std::array<float, 2> Translate;
+		std::array<float, 2> Scale{};
+		std::array<float, 2> Translate{};
+		// Zero for an sRGB target; otherwise the HDR10 target's paper white in cd/m^2.
+		float PaperWhite = 0.f;
+		float Encoding = 0.f;
 	};
 
 	struct FToolUITexture
 	{
 		bool bBackdropSource = false;
+		EToolUITextureEncoding Encoding = EToolUITextureEncoding::Display;
 		nvrhi::TextureHandle Texture;
 		nvrhi::BindingSetHandle BindingSet;
 		std::uint32_t Width = 0;
@@ -2097,7 +2279,7 @@ private:
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfacePresentModesKHR", Result));
 		}
 
-		const std::optional<VkSurfaceFormatKHR> SelectedSurfaceFormat = ChooseSurfaceFormat(Formats);
+		const std::optional<VkSurfaceFormatKHR> SelectedSurfaceFormat = ChooseSurfaceFormat(Formats, HdrOutput.bEnabled && bSwapchainColorSpaceEnabled);
 		if (!SelectedSurfaceFormat)
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The secondary Vulkan surface does not expose an 8-bit UNORM swapchain format with the sRGB nonlinear color space required by ToolUI"});
@@ -2203,6 +2385,7 @@ private:
 		}
 
 		Viewport.FrameSlot = 0;
+		ApplyHdrMetadata(Viewport.Swapchain, Viewport.SurfaceFormat);
 		const std::expected RenderTargetsResult = CreateToolUIRenderTargets(Viewport.BackBuffers, Viewport.Framebuffers, Viewport.Pipeline);
 		if (!RenderTargetsResult)
 		{
@@ -2318,7 +2501,9 @@ private:
 			return std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetPhysicalDeviceSurfacePresentModesKHR", Result));
 		}
 
-		const std::optional<VkSurfaceFormatKHR> SelectedSurfaceFormat = ChooseSurfaceFormat(Formats);
+		bHdrSupported = bSwapchainColorSpaceEnabled && SupportsHdr10(Formats);
+		HdrSupportCheck = std::chrono::steady_clock::now();
+		const std::optional<VkSurfaceFormatKHR> SelectedSurfaceFormat = ChooseSurfaceFormat(Formats, HdrOutput.bEnabled && bHdrSupported);
 		if (!SelectedSurfaceFormat)
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The Vulkan surface does not expose an 8-bit UNORM swapchain format with the sRGB nonlinear color space required by ToolUI"});
@@ -2418,6 +2603,7 @@ private:
 		}
 
 		FrameSlot = 0;
+		ApplyHdrMetadata(Swapchain, SurfaceFormat);
 		const std::expected ToolUIPipelineResult = CreateToolUIPipeline();
 		if (!ToolUIPipelineResult)
 		{
@@ -2553,6 +2739,12 @@ private:
 	std::size_t FrameSlot = 0;
 	std::uint32_t ActiveImageIndex = 0;
 	bool bDebugUtilsEnabled = false;
+	bool bSwapchainColorSpaceEnabled = false;
+	PFN_vkSetHdrMetadataEXT SetHdrMetadata = nullptr;
+	FHdrOutputSettings HdrOutput;
+	// Whether the main surface offered HDR10 at HdrSupportCheck.
+	bool bHdrSupported = false;
+	std::chrono::steady_clock::time_point HdrSupportCheck{};
 	bool bFrameActive = false;
 	bool bFrameSuboptimal = false;
 	bool bBackdropCopySupported = false;
