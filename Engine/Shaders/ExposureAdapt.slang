@@ -29,9 +29,9 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
         }
     }
 
-    // Averaging the 50th to 95th weighted percentile keeps a dark sky from overexposing a lit room and a few highlights from darkening it.
-    float Low = Total * 0.5;
-    float High = Total * 0.95;
+    // Averaging the 10th to 90th weighted percentile keeps a few highlights or deep shadows from swinging the exposure.
+    float Low = Total * 0.1;
+    float High = Total * 0.9;
     float Below = 0.0;
     float Sum = 0.0;
     float Weight = 0.0;
@@ -43,9 +43,10 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
         Below += Histogram[Bin];
     }
 
-    // Saturation-based EV100 that maps the average to middle grey: log2(L * S / K) with ISO 100 and K = 12.5.
+    // Reflected-light metering puts the average at middle grey: log2(L * S / K) with ISO 100 and K = 12.5, so EV100 = log2(L) + 3.
+    // Like Unreal's default auto-exposure bias, one stop brighter keeps sunlit scenes with bright sky near "sunny 16" instead of underexposed.
     // EV100 1, a night street, is the darkest the camera adapts to.
-    float Target = clamp(Sum / max(Weight, 1e-6) + 3.0 - Visual.Exposure.y, 1.0, 18.0);
+    float Target = clamp(Sum / max(Weight, 1e-6) + 2.0 - Visual.Exposure.y, 1.0, 18.0);
     float4 Last = Previous.Load(int3(0, 0, 0));
     if (Visual.Exposure.w > 0.5 || Last.a < 0.5 || !isfinite(Last.r))
     {
