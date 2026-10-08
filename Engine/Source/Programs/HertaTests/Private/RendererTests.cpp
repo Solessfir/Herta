@@ -684,3 +684,25 @@ TEST_CASE("Material shader sharing reuses compatible pipelines and counts only s
 	CHECK(Draw(**Preview) == Default);
 	CHECK((*Preview)->GetMaterialShaderGeneration() == 0);
 }
+
+TEST_CASE("Mesh vertex updates upload inside the frame's recording and must replace every vertex")
+{
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {});
+	REQUIRE(Renderer);
+
+	std::vector<Herta::FCookedVertex> Moved(Device.Vertices.size());
+	Moved.front().Position = {7.f, 8.f, 9.f};
+	const std::array Updates{Herta::FRenderMeshVertexUpdate{.Mesh = Scene.Mesh, .Vertices = Moved}};
+	Scene.View.VertexUpdates = Updates;
+	Device.Events.clear();
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+	CHECK(std::ranges::count(Device.Events, std::string{"Begin"}) == 1);
+	REQUIRE(Device.Vertices.size() == Moved.size());
+	CHECK(Device.Vertices.front().Position == std::array{7.f, 8.f, 9.f});
+
+	const std::array Partial{Herta::FRenderMeshVertexUpdate{.Mesh = Scene.Mesh, .Vertices = std::span{Moved}.first(1)}};
+	Scene.View.VertexUpdates = Partial;
+	CHECK_FALSE((*Renderer)->Render({64, 64}, Scene.View));
+}

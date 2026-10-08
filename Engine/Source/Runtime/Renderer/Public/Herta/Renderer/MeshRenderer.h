@@ -38,6 +38,13 @@ class FRenderMesh;
 class FRenderMaterial;
 struct FEnvironmentLighting;
 
+// Replaces every vertex of a mesh from this frame on, such as a deforming soft body. The upload is recorded with the frame, so earlier frames still draw the old vertices and nothing waits on the GPU.
+struct FRenderMeshVertexUpdate
+{
+	const FRenderMesh* Mesh = nullptr;
+	std::span<const FCookedVertex> Vertices{};
+};
+
 struct FMeshRenderView
 {
 	FMatrix4 View;
@@ -52,6 +59,7 @@ struct FMeshRenderView
 	FVisualSettings Visuals{};
 	// Model indices outlined as the editor selection.
 	std::span<const std::size_t> Selected{};
+	std::span<const FRenderMeshVertexUpdate> VertexUpdates{};
 };
 
 class FRenderMaterial final

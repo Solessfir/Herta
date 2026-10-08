@@ -1063,6 +1063,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Mesh view, projection, model, and grid center must be finite"});
 	}
 
+	for (const FRenderMeshVertexUpdate& Update : View.VertexUpdates)
+	{
+		if (!Update.Mesh || Update.Vertices.size_bytes() != Update.Mesh->Vertices->GetDescriptor().Size)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "A mesh vertex update must replace every vertex of an existing mesh"});
+		}
+	}
+
 	if (View.bDrawGrid && !Display.Grid)
 	{
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "World grid requires grid vertex and fragment shaders"});
@@ -1331,6 +1339,21 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	const auto Geometry = Graph.ImportResource("Uploaded mesh");
 	const auto Texture = Graph.ImportResource("Mesh textures");
 	const auto Shadow = Graph.ImportResource("Shadow atlas");
+	if (!View.VertexUpdates.empty())
+	{
+		Graph.AddPass("Mesh vertex updates", {{.Resource = Geometry, .Access = ERenderGraphAccess::Write}}, [&]() -> std::expected<void, FRenderGraphError>
+		{
+			for (const FRenderMeshVertexUpdate& Update : View.VertexUpdates)
+			{
+				if (const auto Written = Device.WriteBuffer(Update.Mesh->Vertices, std::as_bytes(Update.Vertices)); !Written)
+				{
+					return GraphResult(Written);
+				}
+			}
+
+			return {};
+		});
+	}
 
 	Graph.AddPass("Shadow atlas", {{.Resource = Shadow, .Access = ERenderGraphAccess::Write}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 	{

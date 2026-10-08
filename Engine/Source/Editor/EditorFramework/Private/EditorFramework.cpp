@@ -553,16 +553,19 @@ struct FEditorFramework::FImplementation
 	// Null entries draw the built-in cube. Refreshed from Assets at the start of every frame.
 	std::vector<const FRenderMesh*> PreviewMeshes;
 
-	// Generated soft body geometry, rebuilt when its settings change or the simulation advances.
+	// Generated soft body geometry. Settings changes rebuild the mesh; simulation steps rewrite its vertices.
 	struct FSoftBodyPreview
 	{
 		FSoftBodyComponent Settings;
 		FSoftBodyTopology Topology;
 		std::shared_ptr<const FRenderMesh> Mesh;
+		std::vector<FCookedVertex> Vertices;
 		std::uint64_t Revision = 0;
 	};
 
 	std::map<FObjectId, FSoftBodyPreview> SoftBodyPreviews;
+	// Vertex rewrites for this frame's render, pointing into SoftBodyPreviews.
+	std::vector<FRenderMeshVertexUpdate> SoftBodyVertexUpdates;
 	std::vector<FLevelEntity> VisualEntities;
 	std::vector<std::vector<const FRenderMaterial*>> PreviewMaterials;
 	std::vector<std::span<const FRenderMaterial* const>> PreviewMaterialSpans;
@@ -925,6 +928,9 @@ bool FEditorFramework::IsUnitStatsVisible() const noexcept
 std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::function<void()>& RenderViewport)
 {
 	Implementation->FrameMetrics = {};
+	// Each frame uploads only the soft body vertices that changed since the last render.
+	Implementation->SoftBodyVertexUpdates.clear();
+	Implementation->ViewportRenderView.VertexUpdates = {};
 	ImGuiIO& IO = ImGui::GetIO();
 	Implementation->RefreshLevel();
 	if (!IO.AppFocusLost && IO.KeyMods == ImGuiMod_Ctrl && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_Space, false))
@@ -1984,8 +1990,24 @@ const FRenderMesh* FEditorFramework::FImplementation::RefreshSoftBodyPreview(con
 		}
 	}
 
-	// ponytail: a new GPU mesh per simulated step; add a dynamic vertex buffer to FRenderMesh if soft bodies multiply.
-	auto Mesh = FRenderMesh::Create(*GraphicsDevice, BuildSoftBodyModel(Preview.Settings, Preview.Topology, Local), Entity.Name);
+	FCookedModel Model = BuildSoftBodyModel(Preview.Settings, Preview.Topology, Local);
+	if (!bRebuildTopology)
+	{
+		// Creating a mesh per step opened extra GPU recordings that stalled on the previous frame; the frame's own recording uploads the vertices instead.
+		// The mesh keeps its rest-pose bounds, which also size the physics shape when simulation starts.
+		const FRenderMesh* const Target = Preview.Mesh.get();
+		std::erase_if(SoftBodyVertexUpdates, [Target](const FRenderMeshVertexUpdate& Update)
+		{
+			return Update.Mesh == Target;
+		});
+
+		Preview.Vertices = std::move(Model.Vertices);
+		Preview.Revision = Revision;
+		SoftBodyVertexUpdates.push_back({.Mesh = Target, .Vertices = Preview.Vertices});
+		return Target;
+	}
+
+	auto Mesh = FRenderMesh::Create(*GraphicsDevice, Model, Entity.Name);
 	if (!Mesh)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not build soft body mesh for {}: {}", Entity.Name, Mesh.error().Message);
@@ -2110,10 +2132,20 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	PreviewMaterialSpans.resize(PreviewObjects.size());
 	std::erase_if(SoftBodyPreviews, [this](const auto& Entry)
 	{
-		return std::ranges::none_of(VisualEntities, [&Entry](const FLevelEntity& Entity)
+		const bool bRemoved = std::ranges::none_of(VisualEntities, [&Entry](const FLevelEntity& Entity)
 		{
 			return Entity.Id == Entry.first && Entity.SoftBody && !Entity.Mesh;
 		});
+
+		if (bRemoved)
+		{
+			std::erase_if(SoftBodyVertexUpdates, [&Entry](const FRenderMeshVertexUpdate& Update)
+			{
+				return Update.Mesh == Entry.second.Mesh.get();
+			});
+		}
+
+		return bRemoved;
 	});
 
 	for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewModels.size(); ++Index)
@@ -2235,6 +2267,7 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	ViewportRenderView.Lights = RenderLights;
 	ViewportRenderView.Materials = PreviewMaterialSpans;
 	ViewportRenderView.Visuals = VisualSettings;
+	ViewportRenderView.VertexUpdates = SoftBodyVertexUpdates;
 	if (GetBuildConfiguration() != EBuildConfiguration::Shipping && Tasks && MeshRenderer && !EngineRoot.empty())
 	{
 		if (!MaterialShaders || WatchedShaderContentRoot != AssetPaths.ContentRoot)
