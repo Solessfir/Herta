@@ -38,6 +38,10 @@ struct FContentBrowserState
 	std::vector<std::size_t> FolderMatches;
 	std::uint64_t Generation = std::numeric_limits<std::uint64_t>::max();
 	float Zoom = 3.f;
+	// The zoom slider appears only while hovered, dragged, or briefly after a change, so the footer stays quiet.
+	float ShownZoom = 3.f;
+	double ZoomVisibleUntil = 0.;
+	bool bZoomHovered = false;
 	float SidebarWidth = 190.f;
 
 	std::array<char, 256> FolderName{};
