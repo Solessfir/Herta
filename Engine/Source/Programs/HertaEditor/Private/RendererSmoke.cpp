@@ -1002,6 +1002,64 @@ namespace
 	std::println("Visual smoke: light pixels {}/{}/{}/{}, shadow {}, sky {}, fog {}, SMAA {}", LitPixels[0], LitPixels[1], LitPixels[2], LitPixels[3], ShadowPixels, SkyPixels, FogPixels, SmaaPixels);
 	return {};
 }
+
+// Locks the physical camera chain: an 18% grey card under 100,000 lx of noon sun at "sunny 16" EV100 15 must display as photographic middle grey.
+[[nodiscard]] std::expected<void, FPresentationError> CheckExposureCalibration(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
+{
+	const auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, Shaders);
+	const auto Cube = CreateSmokeCube(Device);
+	FMaterialAsset GreyCard{.Name = "Grey card"};
+	GreyCard.Parameters.BaseColor = {0.18f, 0.18f, 0.18f, 1.f};
+	GreyCard.Parameters.Metallic = 0.f;
+	GreyCard.Parameters.Roughness = 1.f;
+	const auto Material = FRenderMaterial::Create(Device, GreyCard, {}, "Grey card");
+	if (!Renderer || !Cube || !Material)
+	{
+		return std::unexpected(!Renderer ? Renderer.error() : !Cube ? Cube.error() : Material.error());
+	}
+
+	// No sky light or atmosphere, so the card receives only the overhead sun; the camera looks down at 45 degrees, away from the specular peak.
+	constexpr FExtent2D Extent{64, 64};
+	const FMatrix4 Card = FMatrix4::Scale({40.f, 0.1f, 40.f});
+	const FRenderMesh* const Mesh = Cube->get();
+	const std::array<const FRenderMaterial*, 1> Slots{Material->get()};
+	const std::array<std::span<const FRenderMaterial* const>, 1> Overrides{Slots};
+	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 100'000.f, .bCastShadows = false, .Range = 40.f}, .Transform = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, std::numbers::pi_v<float> / 2.f))}};
+	FMeshRenderView View{
+	    .View = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, -std::numbers::pi_v<float> / 4.f)) * FMatrix4::Translation({0.f, -3.f, 3.f}),
+	    .Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.f, 1.f, 0.1f),
+	    .Models = std::span{&Card, 1},
+	    .Meshes = std::span{&Mesh, 1},
+	    .Materials = Overrides,
+	    .Lights = Lights,
+	    .Visuals = {.ExposureEV100 = 15.f, .AntiAliasing = EAntiAliasing::Off},
+	};
+	View.Visuals.bStudioPreview = false;
+	if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+	{
+		return Rendered;
+	}
+
+	const auto Image = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+	if (!Image || Image->size() != std::size_t{Extent.Width} * Extent.Height * 4)
+	{
+		return Image ? Failure("Exposure calibration returned an invalid image size") : std::unexpected(Image.error());
+	}
+
+	const std::size_t Center = (std::size_t{Extent.Height / 2} * Extent.Width + Extent.Width / 2) * 4;
+	const int Red = std::to_integer<int>((*Image)[Center]);
+	const int Green = std::to_integer<int>((*Image)[Center + 1]);
+	const int Blue = std::to_integer<int>((*Image)[Center + 2]);
+	std::println("Exposure calibration: 18% grey under 100000 lx at EV100 15 displays as {}/{}/{}", Red, Green, Blue);
+
+	// Middle grey is about 118 in sRGB; the tone curve and a little rough specular may lift it a few values.
+	if (Green < 110 || Green > 132 || std::abs(Red - Green) > 3 || std::abs(Blue - Green) > 3)
+	{
+		return Failure(std::format("An 18% grey card at sunny 16 displayed as {}/{}/{}, not neutral middle grey near 118", Red, Green, Blue).c_str());
+	}
+
+	return {};
+}
 }
 
 std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& VisualShaders)
@@ -1354,6 +1412,12 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	Result = CheckVisualPipeline(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);
+	if (!Result)
+	{
+		return Result;
+	}
+
+	Result = CheckExposureCalibration(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);
 	if (!Result)
 	{
 		return Result;
