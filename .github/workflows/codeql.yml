@@ -86,6 +86,35 @@ jobs:
         uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           category: /language:c-cpp
+          upload: never
+          output: codeql-results
+
+      # Extraction follows the compiler, so paths-ignore cannot exclude compiled third-party code. Its findings belong upstream; pinned revisions are updated instead of patched.
+      - name: Drop third-party results
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+
+          def is_third_party(result):
+              locations = result.get("locations", [])
+              return bool(locations) and all(location["physicalLocation"]["artifactLocation"]["uri"].startswith("External/") for location in locations)
+
+          for path in pathlib.Path("codeql-results").glob("*.sarif"):
+              sarif = json.loads(path.read_text(encoding="utf-8"))
+              for run in sarif["runs"]:
+                  results = run.get("results", [])
+                  run["results"] = [result for result in results if not is_third_party(result)]
+                  print(f"{path.name}: kept {len(run['results'])} of {len(results)} results")
+              path.write_text(json.dumps(sarif), encoding="utf-8")
+          PY
+
+      - name: Upload Herta results
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
+        with:
+          sarif_file: codeql-results
+          category: /language:c-cpp
 
       - name: Save project-local tools and SDKs
         if: github.event_name != 'pull_request' && steps.bootstrap-cache.outputs.cache-hit != 'true'

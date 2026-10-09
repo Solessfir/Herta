@@ -1204,7 +1204,7 @@ GitHub Actions must call the same checked-in entry points used locally. Workflow
 |---|---|---|
 | `ci.yml` | Push to `main`, pull request, changed daily `main`, `merge_group`, optional manual | Required builds, unit tests, platform integration, small asset smoke tests, and experimental Shipping packages |
 | `quality.yml` | Pull request, changed daily `main`, `merge_group`, optional manual | Formatting, warnings, clang-tidy, generated-file checks, and sanitizers |
-| `codeql.yml` | Weekly and optional manual | C/C++ CodeQL analysis using the real build |
+| `codeql.yml` | Weekly and optional manual | C/C++ CodeQL analysis using the real build; results located only in `External` third-party code are dropped before upload |
 | `dependency-review.yml` | Pull request | Vulnerability, license, submodule, binary-lock, and workflow-action review |
 | `nightly.yml` | Scheduled and manual | Full asset corpus, optional Blender integration, render regression, stress, TSan, and recovery tests |
 | `release.yml` | Protected version tag or manual | Clean reproducible packages, checksums, notices, SBOM, attestations, and draft release |
