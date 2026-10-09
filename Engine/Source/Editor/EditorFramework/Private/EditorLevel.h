@@ -51,7 +51,7 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> RemoveStaticMeshFromSelected();
 	[[nodiscard]] std::expected<void, FLevelError> AddRigidBodyToSelected(ELevelBodyType Type = ELevelBodyType::Dynamic);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedBodyType(ELevelBodyType Type);
-	[[nodiscard]] std::expected<void, FLevelError> SetSelectedBodyProperty(float FLevelRigidBodySettings::* Property, float Value);
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedBodyProperty(float FLevelRigidBodySettings::*Property, float Value);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedCollisionShape(ELevelCollisionShape Shape);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedMaterial(std::size_t Slot, FAssetId Asset);
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedVisualProperty(ELevelComponentType Type, std::string_view Key, const FLevelPropertyValue& Value);
@@ -109,7 +109,7 @@ private:
 	[[nodiscard]] std::expected<FObjectId, FLevelError> InsertEntity(FLevelEntity Entity);
 	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedMesh(std::optional<FStaticMeshComponent> Mesh);
 	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedBodyType(ELevelBodyType Type, bool bOnlyAbsent);
-	template <typename T> [[nodiscard]] std::expected<void, FLevelError> ApplySelectedComponent(std::optional<T> FLevelEntity::* Member, std::optional<T> Value, std::string_view Label, bool bOnlyAbsent = false);
+	template <typename T> [[nodiscard]] std::expected<void, FLevelError> ApplySelectedComponent(std::optional<T> FLevelEntity::*Member, std::optional<T> Value, std::string_view Label, bool bOnlyAbsent = false);
 	[[nodiscard]] std::expected<void, FLevelError> CheckAuthoringAllowed(bool bAllowActiveEdit = false) const;
 	[[nodiscard]] std::expected<void, FLevelError> ApplyCameraBookmarks(std::string_view Label, std::vector<FLevelCameraBookmark> After);
 

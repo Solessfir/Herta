@@ -1024,7 +1024,8 @@ namespace
 	const auto Material = FRenderMaterial::Create(Device, GreyCard, {}, "Grey card");
 	if (!Renderer || !Cube || !Material)
 	{
-		return std::unexpected(!Renderer ? Renderer.error() : !Cube ? Cube.error() : Material.error());
+		return std::unexpected(!Renderer ? Renderer.error() : !Cube ? Cube.error()
+		                                                            : Material.error());
 	}
 
 	// No sky light or atmosphere, so the card receives only the overhead sun; the camera looks down at 45 degrees, away from the specular peak.
@@ -1100,7 +1101,8 @@ namespace
 	const auto Pattern = RenderHdr(15.f, true);
 	if (!Midtone || !Highlight || !Pattern)
 	{
-		return std::unexpected(!Midtone ? Midtone.error() : !Highlight ? Highlight.error() : Pattern.error());
+		return std::unexpected(!Midtone ? Midtone.error() : !Highlight ? Highlight.error()
+		                                                               : Pattern.error());
 	}
 
 	const std::uint32_t CenterX = Extent.Width / 2;

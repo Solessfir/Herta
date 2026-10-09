@@ -237,7 +237,6 @@ TEST_CASE("Nested process test child" * doctest::skip())
 		{
 			return ReadProcessId(Root / "Child") > 0;
 		};
-
 	}
 
 	const auto Result = RunProcess(Child);
@@ -257,7 +256,6 @@ TEST_CASE("Cancelling or timing out a process kills nested RunProcess launches")
 		{
 			return Files.GetChild() > 0;
 		};
-
 	}
 
 	SUBCASE("Timeout")

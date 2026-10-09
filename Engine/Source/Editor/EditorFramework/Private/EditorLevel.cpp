@@ -1509,7 +1509,7 @@ std::expected<void, FLevelError> FEditorLevel::ApplySelectedBodyType(const ELeve
 	return ApplyStructuralChanges(bOnlyAbsent ? "Add rigid body" : (Type == ELevelBodyType::None ? "Remove rigid body" : "Set rigid body motion"), Changes, Selection, ActiveObject);
 }
 
-std::expected<void, FLevelError> FEditorLevel::SetSelectedBodyProperty(float FLevelRigidBodySettings::* const Property, const float Value)
+std::expected<void, FLevelError> FEditorLevel::SetSelectedBodyProperty(float FLevelRigidBodySettings::*const Property, const float Value)
 {
 	if (auto Result = CheckAuthoringAllowed(true); !Result)
 	{
@@ -1584,7 +1584,7 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedCollisionShape(const E
 	return ApplyStructuralChanges("Change collision shape", Changes, Selection, ActiveObject);
 }
 
-template <typename T> std::expected<void, FLevelError> FEditorLevel::ApplySelectedComponent(std::optional<T> FLevelEntity::* const Member, const std::optional<T> Value, const std::string_view Label, const bool bOnlyAbsent)
+template <typename T> std::expected<void, FLevelError> FEditorLevel::ApplySelectedComponent(std::optional<T> FLevelEntity::*const Member, const std::optional<T> Value, const std::string_view Label, const bool bOnlyAbsent)
 {
 	if (auto Result = CheckAuthoringAllowed(true); !Result)
 	{
@@ -1646,15 +1646,18 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedMaterial(const std::si
 			continue;
 		}
 
-		FLevelEntity After = Before;
-		After.Mesh->Materials.resize(std::max(Slot + 1, After.Mesh->Materials.size()));
-		After.Mesh->Materials[Slot] = Asset;
+		// Editing a separate component, rather than through the copied optional, avoids a GCC 14 -Wmaybe-uninitialized false positive at -O2.
+		FStaticMeshComponent Mesh = *Before.Mesh;
+		Mesh.Materials.resize(std::max(Slot + 1, Mesh.Materials.size()));
+		Mesh.Materials[Slot] = Asset;
 
-		while (!After.Mesh->Materials.empty() && !After.Mesh->Materials.back().IsValid())
+		while (!Mesh.Materials.empty() && !Mesh.Materials.back().IsValid())
 		{
-			After.Mesh->Materials.pop_back();
+			Mesh.Materials.pop_back();
 		}
 
+		FLevelEntity After = Before;
+		After.Mesh = std::move(Mesh);
 		Changes.push_back({.Before = Before, .After = std::move(After)});
 	}
 

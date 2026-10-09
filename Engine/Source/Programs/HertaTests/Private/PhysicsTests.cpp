@@ -3,9 +3,9 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
-#include <iterator>
 #include <array>
 #include <cmath>
+#include <iterator>
 #include <limits>
 #include <numbers>
 #include <vector>
@@ -142,7 +142,7 @@ TEST_CASE("Physics validates every body property for static and dynamic bodies")
 
 	struct FPropertyRange
 	{
-		float FPhysicsBodyProperties::* Member;
+		float FPhysicsBodyProperties::*Member;
 		float Minimum;
 		float Maximum;
 	};

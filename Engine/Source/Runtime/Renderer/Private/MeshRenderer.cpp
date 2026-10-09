@@ -643,14 +643,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 				continue;
 			}
 
-			auto VisualPipeline = Device.CreateGraphicsPipeline({.Name = std::string(Names[Index]), .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(Fragments[Index]), .ColorFormat = Formats[Index],
-			    .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition,
-			    .bDepthTest = false,
-			    .TextureCount = TextureCounts[Index],
-			    .UniformBufferSize = sizeof(FVisualUniforms),
-			    .bDepthWrite = false,
-			    .CullMode = EGraphicsCullMode::None,
-			    .bClampSampler = true});
+			auto VisualPipeline = Device.CreateGraphicsPipeline({.Name = std::string(Names[Index]), .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(Fragments[Index]), .ColorFormat = Formats[Index], .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = TextureCounts[Index], .UniformBufferSize = sizeof(FVisualUniforms), .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bClampSampler = true});
 			if (!VisualPipeline)
 			{
 				return std::unexpected(VisualPipeline.error());
@@ -1305,7 +1298,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		}
 
 		// Tone mapping and SMAA neighborhood write the display target, so their pipelines follow its format.
-		const FGraphicsPipelineHandle& Selected = Pipeline == 3 ? Display.ToneMap : Pipeline == 6 ? Display.SmaaNeighborhood : State.VisualPipelines[Pipeline];
+		const FGraphicsPipelineHandle& Selected = Pipeline == 3 ? Display.ToneMap : Pipeline == 6 ? Display.SmaaNeighborhood
+		                                                                                          : State.VisualPipelines[Pipeline];
 		return Device.DrawIndexed({.Pipeline = Selected, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = Destination, .IndexCount = 6, .Textures = Sources, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
 	};
 

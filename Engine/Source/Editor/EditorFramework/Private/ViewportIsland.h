@@ -36,7 +36,8 @@ inline bool ViewportIconButton(const char* const Id, const EViewportIcon Icon, c
 	const bool bPressed = ImGui::InvisibleButton(Id, Size, ImGuiButtonFlags_EnableNav);
 	const bool bHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
-	const float Highlight = bSelected ? 0.2f : bHovered ? 0.1f : 0.f;
+	const float Highlight = bSelected ? 0.2f : bHovered ? 0.1f
+	                                                    : 0.f;
 	Draw->AddRectFilled(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImVec4{1, 1, 1, Highlight}), Size.y * 0.5f);
 	if (ImGui::IsItemFocused() && ImGui::GetIO().NavVisible)
 	{

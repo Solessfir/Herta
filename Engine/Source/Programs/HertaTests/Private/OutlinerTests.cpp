@@ -5,6 +5,7 @@
 #include <imgui_internal.h>
 
 #include <array>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
@@ -109,6 +110,8 @@ void FOutlinerRenameTestContext::Frame(const int RenameRow, const bool bStartRen
 			}
 
 			ImGui::EndTable();
+			// A stretch-proportional table's first frame must not leave a NaN extent, which UBSan reports when the next Begin truncates it.
+			CHECK(std::isfinite(ImGui::GetCurrentWindow()->DC.CursorMaxPos.x));
 		}
 
 		ImGui::PopStyleVar(3);

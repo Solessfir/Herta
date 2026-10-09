@@ -353,7 +353,7 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 
 			const auto Cascade = static_cast<std::uint32_t>(Face);
 			const FRenderViewport Viewport = bCascaded ? FRenderViewport{.X = Cascade % 2 * ShadowCascadeResolution, .Y = Cascade / 2 * ShadowCascadeResolution, .Width = ShadowCascadeResolution, .Height = ShadowCascadeResolution}
-			                                          : FRenderViewport{.X = LocalTiles % 8 * ShadowTileResolution, .Y = 2 * ShadowCascadeResolution + LocalTiles / 8 * ShadowTileResolution, .Width = ShadowTileResolution, .Height = ShadowTileResolution};
+			                                           : FRenderViewport{.X = LocalTiles % 8 * ShadowTileResolution, .Y = 2 * ShadowCascadeResolution + LocalTiles / 8 * ShadowTileResolution, .Width = ShadowTileResolution, .Height = ShadowTileResolution};
 			LocalTiles += bCascaded ? 0 : 1;
 			constexpr float Width = ShadowAtlasWidth;
 			constexpr float Height = ShadowAtlasHeight;

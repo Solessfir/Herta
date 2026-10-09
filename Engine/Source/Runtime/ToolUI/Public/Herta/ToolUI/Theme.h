@@ -60,7 +60,8 @@ struct FEditorDisplayLuminance
 {
 	const auto Resolve = [](const float Preferred, const float System, const float Fallback, const float Minimum, const float Maximum)
 	{
-		const float Value = Preferred > 0.f ? Preferred : System > 0.f ? System : Fallback;
+		const float Value = Preferred > 0.f ? Preferred : System > 0.f ? System
+		                                                               : Fallback;
 		return std::clamp(Value, Minimum, Maximum);
 	};
 

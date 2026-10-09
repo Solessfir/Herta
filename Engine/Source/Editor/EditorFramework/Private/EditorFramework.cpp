@@ -30,9 +30,9 @@
 #include "PreviewAssets.h"
 #include "PreviewLevel.h"
 #include "PreviewSimulation.h"
+#include "PreviewVisuals.h"
 #include "SoftBodyGeometry.h"
 #include "TimeOfDay.h"
-#include "PreviewVisuals.h"
 #include "ViewportBoxSelection.h"
 #include "ViewportGizmos.h"
 #include "ViewportIsland.h"
@@ -1984,7 +1984,8 @@ const FRenderMesh* FEditorFramework::FImplementation::RefreshSoftBodyPreview(con
 			for (int Axis = 0; Axis < 3; ++Axis)
 			{
 				const float Rotated = Object.Rotation(0, Axis) * Delta.x + Object.Rotation(1, Axis) * Delta.y + Object.Rotation(2, Axis) * Delta.z;
-				const float Scale = Axis == 0 ? Object.Scale.x : Axis == 1 ? Object.Scale.y : Object.Scale.z;
+				const float Scale = Axis == 0 ? Object.Scale.x : Axis == 1 ? Object.Scale.y
+				                                                           : Object.Scale.z;
 				Local[Vertex][static_cast<std::size_t>(Axis)] = std::abs(Scale) > 1e-6f ? Rotated / Scale : 0.f;
 			}
 		}
@@ -3631,7 +3632,8 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 			// Occupied triggers turn green while simulating so enter and exit are visible without the log.
 			const FVector3 Half = VisualEntities[Index].Trigger->Size * 0.5f;
 			const bool bOccupied = Simulation.IsRunning() && Simulation.IsTriggerOccupied(Index);
-			const Im3d::Color Color(bOccupied ? 0x6fd38aff : PreviewSelection.Contains(static_cast<int>(Index)) ? 0xc2b584ff : 0x5fb3d9cc);
+			const Im3d::Color Color(bOccupied ? 0x6fd38aff : PreviewSelection.Contains(static_cast<int>(Index)) ? 0xc2b584ff
+			                                                                                                    : 0x5fb3d9cc);
 			Im3d::PushMatrix(Im3d::Mat4(PreviewObjects[Index].Translation, PreviewObjects[Index].Rotation, PreviewObjects[Index].Scale));
 			Im3d::PushColor(Color);
 			Im3d::PushSize(2.f);
@@ -4333,7 +4335,7 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 				    .Transform = ToHertaTransform(PreviewObjects[Index]),
 				    .Shape = GetPreviewBodyShape(Index),
 				    .Collision = Settings.Collision == ELevelCollisionShape::Sphere ? EPhysicsShape::Sphere : Settings.Collision == ELevelCollisionShape::Capsule ? EPhysicsShape::Capsule
-				                                                                                                                                                    : EPhysicsShape::Box,
+				                                                                                                                                                  : EPhysicsShape::Box,
 				    .MotionType = Type == ELevelBodyType::Dynamic ? EPhysicsMotionType::Dynamic : EPhysicsMotionType::Static,
 				    .Properties = {
 				        .MassKg = Settings.MassKg,
@@ -4739,11 +4741,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 
 		PreviousObject = GetActivePreviewObject();
 	},
-	    .ApplyBodyProperty = [&](float FLevelRigidBodySettings::* const Property, const float Value)
+	    .ApplyBodyProperty = [&](float FLevelRigidBodySettings::*const Property, const float Value)
 	{
 		ReportLevelResult(Level->SetSelectedBodyProperty(Property, Value));
 	},
-	    .ReadBodyProperty = [&](float FLevelRigidBodySettings::* const Property)
+	    .ReadBodyProperty = [&](float FLevelRigidBodySettings::*const Property)
 	{
 		for (const FObjectId Selected : Level->GetSelection())
 		{

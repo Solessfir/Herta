@@ -901,7 +901,8 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 
 		// Hidden sliders stay interactive, so hovering the empty spot reveals it.
 		const bool bZoomChanging = ImGui::GetTime() < State.ZoomVisibleUntil || ImGui::GetActiveID() == ImGui::GetID("##ContentZoomLevel");
-		const std::string ZoomLabel = !bZoomChanging ? "" : State.Zoom < 0.5f ? "List" : std::format("{:.0f} px", 48.f + State.Zoom * 16.f);
+		const std::string ZoomLabel = !bZoomChanging ? "" : State.Zoom < 0.5f ? "List"
+		                                                                      : std::format("{:.0f} px", 48.f + State.Zoom * 16.f);
 		ImGui::PushStyleVar(ImGuiStyleVar_Alpha, bZoomChanging || State.bZoomHovered ? ImGui::GetStyle().Alpha : 0.f);
 		DrawNumericSliderFloat("##ContentZoomLevel", &State.Zoom, 0.f, 9.f, ZoomLabel.c_str(), ImGuiSliderFlags_AlwaysClamp);
 		State.bZoomHovered = ImGui::IsItemHovered();

@@ -9,11 +9,11 @@
 #include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
-#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/PhysicsUpdateContext.h>
@@ -371,7 +371,8 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 
 	const bool bDynamic = Settings.MotionType == EPhysicsMotionType::Dynamic;
 	const bool bMoving = Settings.MotionType != EPhysicsMotionType::Static;
-	const JPH::EMotionType MotionType = bDynamic ? JPH::EMotionType::Dynamic : bMoving ? JPH::EMotionType::Kinematic : JPH::EMotionType::Static;
+	const JPH::EMotionType MotionType = bDynamic ? JPH::EMotionType::Dynamic : bMoving ? JPH::EMotionType::Kinematic
+	                                                                                   : JPH::EMotionType::Static;
 	const FQuaternion Rotation = Settings.Rotation.NormalizedOrIdentity();
 	JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), MotionType, bMoving ? DynamicLayer : StaticLayer);
 	BodySettings.mFriction = Properties.Friction;

@@ -721,7 +721,6 @@ public:
 			SetHdrMetadata = reinterpret_cast<PFN_vkSetHdrMetadataEXT>(vkGetDeviceProcAddr(Device, "vkSetHdrMetadataEXT"));
 		}
 
-
 		nvrhi::vulkan::DeviceDesc NvrhiDescriptor;
 		NvrhiDescriptor.errorCB = &NvrhiCallback;
 		NvrhiDescriptor.instance = Instance;
@@ -1340,7 +1339,8 @@ public:
 				{
 					const bool bUpsample = BlurPass > BlurPlan.Levels;
 					const std::size_t Target = bUpsample ? 2 * BlurPlan.Levels - BlurPass : BlurPass;
-					const nvrhi::BindingSetHandle& BlurSource = bUpsample ? GlassResources.LevelBindings[Target + 1] : BlurPass == 0 ? GlassResources.SnapshotBindings : GlassResources.LevelBindings[Target - 1];
+					const nvrhi::BindingSetHandle& BlurSource = bUpsample ? GlassResources.LevelBindings[Target + 1] : BlurPass == 0 ? GlassResources.SnapshotBindings
+					                                                                                                                 : GlassResources.LevelBindings[Target - 1];
 					const auto& BlurDescriptor = GlassResources.Levels[Target]->getDesc();
 					nvrhi::GraphicsState BlurState;
 					BlurState.pipeline = GlassResources.BlurPipeline;
@@ -2328,7 +2328,7 @@ private:
 			DestroySecondarySwapchain(Viewport);
 			return Result == VK_SUCCESS
 			           ? std::unexpected(FPresentationError{.Code = EPresentationErrorCode::SwapchainCreationFailed, .Message = "The secondary Vulkan swapchain exposes no images"})
-					   : std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetSwapchainImagesKHR", Result));
+			           : std::unexpected(MakeVulkanError(EPresentationErrorCode::SwapchainCreationFailed, "vkGetSwapchainImagesKHR", Result));
 		}
 
 		std::vector<VkImage> Images(ImageCount);

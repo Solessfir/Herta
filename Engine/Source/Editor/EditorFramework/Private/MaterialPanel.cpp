@@ -520,7 +520,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 		{
 			Report(SetDraft(std::move(Candidate), Label));
 		};
-		const auto FloatRow = [&](const char* Label, float FMaterialParameters::* const Member, const float Minimum, const float Maximum, const float Speed = 0.01f, const char* Format = "%.3f")
+		const auto FloatRow = [&](const char* Label, float FMaterialParameters::*const Member, const float Minimum, const float Maximum, const float Speed = 0.01f, const char* Format = "%.3f")
 		{
 			if (!MatchesMaterialSearch(Label, Query))
 			{

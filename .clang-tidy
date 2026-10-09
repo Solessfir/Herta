@@ -55,6 +55,6 @@ WarningsAsErrors: >
   portability-*
 CheckOptions:
   cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
-HeaderFilterRegex:'^(Engine|Games)[\\/]'
+HeaderFilterRegex: '^(Engine|Games)[\\/]'
 FormatStyle: file
 ...

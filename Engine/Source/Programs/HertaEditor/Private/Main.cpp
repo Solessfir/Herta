@@ -647,7 +647,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 	const std::filesystem::path DefaultProject = RepositoryRoot / "Games/Sandbox/Sandbox.hertaproject";
 	const std::filesystem::path ProjectPath = bScalingTest ? std::filesystem::path{} : !ProjectArgument.empty() ? std::filesystem::path(std::u8string(ProjectArgument.begin(), ProjectArgument.end()))
-	                                                                                 : !OpenedProject.empty()   ? OpenedProject
+	                                                                               : !OpenedProject.empty()     ? OpenedProject
 	                                                                                                            : DefaultProject;
 	const std::filesystem::path LevelPath = bScalingTest ? std::filesystem::path(std::u8string(ScalingLevelPath.begin(), ScalingLevelPath.end())) : OpenedLevel;
 	if (bScalingTest)

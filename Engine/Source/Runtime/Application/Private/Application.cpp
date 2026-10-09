@@ -325,7 +325,7 @@ public:
 	FWindowCallbackScope& operator=(FWindowCallbackScope&&) = delete;
 };
 
-template <typename... CallbackArguments, typename... Arguments> void InvokeWindowCallback(FWindow::FImplementation* const Window, const std::function<void(FWindow&, CallbackArguments...)> FWindowCallbacks::* const Member, Arguments&&... Values) noexcept
+template <typename... CallbackArguments, typename... Arguments> void InvokeWindowCallback(FWindow::FImplementation* const Window, const std::function<void(FWindow&, CallbackArguments...)> FWindowCallbacks::*const Member, Arguments&&... Values) noexcept
 {
 	try
 	{

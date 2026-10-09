@@ -303,7 +303,7 @@ FCookedModel BuildSoftBodyModel(const FSoftBodyComponent& SoftBody, const FSoftB
 			}
 
 			const FVector3 Rest = SafeNormalized(Topology.Vertices[Index], FVector3::Up());
-			return {std::atan2(Rest.Z, Rest.X) / (2.f * std::numbers::pi_v<float>) + 0.5f, std::acos(std::clamp(Rest.Y, -1.f, 1.f)) / std::numbers::pi_v<float>};
+			return {std::atan2(Rest.Z, Rest.X) / (2.f * std::numbers::pi_v<float>)+0.5f, std::acos(std::clamp(Rest.Y, -1.f, 1.f)) / std::numbers::pi_v<float>};
 		};
 
 		for (std::size_t Index = 0; Index < Positions.size(); ++Index)

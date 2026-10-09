@@ -15,10 +15,10 @@
 #include <array>
 #include <cfloat>
 #include <cmath>
-#include <numbers>
 #include <format>
 #include <fstream>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <system_error>
 #include <unordered_map>
@@ -723,7 +723,9 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 					const bool bHovered = Owner.Context->HoveredWindow == Node->HostWindow && ImGui::IsMouseHoveringRect(Tab.Window->DC.DockTabItemRect.Min, Tab.Window->DC.DockTabItemRect.Max, false);
 					const ImU32 Color = ToImGuiPackedColor(Tab.ID == Bar.VisibleTabId || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
 					DrawList->PushClipRect({Bar.ScrollingRectMinX, Bar.BarRect.Min.y}, {Bar.ScrollingRectMaxX, Bar.BarRect.Max.y}, false);
-					DrawToolUIIcon(DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : bDetails ? EToolUIMenuIcon::Details : bPerformance ? EToolUIMenuIcon::Performance : EToolUIMenuIcon::ContentBrowser);
+					DrawToolUIIcon(DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : bDetails   ? EToolUIMenuIcon::Details
+					                                                                                   : bPerformance ? EToolUIMenuIcon::Performance
+					                                                                                                  : EToolUIMenuIcon::ContentBrowser);
 					DrawList->PopClipRect();
 				}
 

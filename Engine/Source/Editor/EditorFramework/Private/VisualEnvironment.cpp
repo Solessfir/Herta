@@ -1,7 +1,5 @@
 #include "VisualEnvironment.h"
 
-#include <chrono>
-
 #include "Herta/Core/BinaryStream.h"
 #include "Herta/Core/Log.h"
 #include "Herta/Renderer/EnvironmentLighting.h"
@@ -9,6 +7,7 @@
 #include "Herta/Tasks/TaskSystem.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <expected>
 #include <utility>

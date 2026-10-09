@@ -59,7 +59,7 @@ TEST_CASE("Editor command parsing preserves empty quoted arguments")
 
 		return FEditorCommandResult{};
 	}})
-	        .has_value());
+	          .has_value());
 
 	CHECK(Registry.Execute(R"(capture "" tail)").has_value());
 }
