@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <format>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -19,6 +20,8 @@ struct FNumericEditState
 {
 	ImGuiID Id = 0;
 	std::vector<char> Text = std::vector<char>(257);
+	// Enter on unchanged text keeps the exact value instead of the rounded text.
+	std::string InitialText;
 	int LastFrame = -1;
 	float InitialValue = 0.f;
 	bool bTextEditing = false;
@@ -68,8 +71,27 @@ int UpdateInputState(ImGuiInputTextCallbackData* const Data)
 	return 0;
 }
 
+// The value as the field displays it, without surrounding units or labels. A display with no numeric conversion, such as a clock time, is edited as shown only when the field can parse it back.
+std::optional<std::string> FormatEditableValue(const float Value, const char* const Format, const bool bHasParser)
+{
+	const char* const Conversion = ImParseFormatFindStart(Format);
+	if (*Conversion == '\0')
+	{
+		return bHasParser ? std::optional<std::string>{Format} : std::nullopt;
+	}
+
+	const std::string Specifier(Conversion, ImParseFormatFindEnd(Conversion));
+	std::string Text = FormatCompactNumericValue(Value, Specifier.c_str());
+	if (Text.starts_with('+'))
+	{
+		Text.erase(0, 1);
+	}
+
+	return Text;
+}
+
 template <typename DrawWidget>
-bool DrawNumericField(const char* const Label, float* const Value, const float Minimum, const float Maximum, const bool bAlwaysClamp, const bool bClickToEdit, FNumericEditLifecycle* const Edit, DrawWidget&& DrawWidgetFunction)
+bool DrawNumericField(const char* const Label, float* const Value, const float Minimum, const float Maximum, const char* const Format, const bool bAlwaysClamp, const bool bClickToEdit, FNumericEditLifecycle* const Edit, const FNumericTextParser& ParseText, DrawWidget&& DrawWidgetFunction)
 {
 	if (Edit != nullptr)
 	{
@@ -142,6 +164,7 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 		return *Value != Before;
 	};
 
+	const std::optional<std::string> EditableText = FormatEditableValue(Before, Format, static_cast<bool>(ParseText));
 	const auto BeginTextEditing = [&](const bool bMouseActivation)
 	{
 		if (State.Id != 0 && State.Id != Id)
@@ -159,8 +182,8 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 		State.bGestureStarted = bGestureStarted;
 		State.bTextEditing = true;
 		State.LastFrame = ImGui::GetFrameCount();
-		const std::string Text = std::format("{:.9g}", Before);
-		std::ranges::copy(Text, State.Text.begin());
+		State.InitialText = *EditableText;
+		std::ranges::copy(State.InitialText, State.Text.begin());
 		State.bFocusRequested = true;
 		State.bMouseActivation = bMouseActivation;
 		ImGui::ActivateItemByID(Id);
@@ -201,7 +224,16 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 		const bool bActiveBeforeDraw = GImGui->ActiveId == Id;
 		bChanged = DrawWidgetFunction(&Candidate);
 		const ImGuiIO& Io = ImGui::GetIO();
-		const bool bClickReleased = bClickToEdit && bActiveBeforeDraw && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !Io.KeyShift && !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left, Io.MouseDragThreshold * 0.5f);
+		const bool bWithinClick = !ImGui::IsMouseDragPastThreshold(ImGuiMouseButton_Left, Io.MouseDragThreshold * 0.5f);
+
+		// A slider jumps to the pressed position; until the press becomes a drag it may still be a click, so the value waits.
+		if (bChanged && ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left) && bWithinClick && GImGui->ActiveIdSource == ImGuiInputSource_Mouse)
+		{
+			bChanged = false;
+			Candidate = Before;
+		}
+
+		const bool bClickReleased = bClickToEdit && EditableText && bActiveBeforeDraw && ImGui::IsMouseReleased(ImGuiMouseButton_Left) && !Io.KeyShift && bWithinClick;
 		if (bClickReleased && ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride))
 		{
 			BeginTextEditing(true);
@@ -240,7 +272,7 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 	{
 		const bool bMouseText = bHovered && ((Io.KeyCtrl && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) || ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left));
 		const bool bKeyboardText = ImGui::IsItemFocused() && (ImGui::IsKeyPressed(ImGuiKey_Enter) || (GImGui->NavActivateId == Id && (GImGui->NavActivateFlags & ImGuiActivateFlags_PreferInput) != 0));
-		if (bMouseText || bKeyboardText)
+		if (EditableText && (bMouseText || bKeyboardText))
 		{
 			BeginTextEditing(bMouseText);
 			return false;
@@ -284,9 +316,16 @@ bool DrawNumericField(const char* const Label, float* const Value, const float M
 		return bChanged;
 	}
 
+	if (bEntered && State.InitialText == State.Text.data())
+	{
+		FinishGesture(false);
+		return false;
+	}
+
 	if (bEntered)
 	{
-		if (const auto Parsed = EvaluateNumericExpression(State.Text.data()))
+		const std::optional<float> Typed = ParseText ? ParseText(State.Text.data()) : std::nullopt;
+		if (const auto Parsed = Typed ? Typed : EvaluateNumericExpression(State.Text.data()))
 		{
 			BeginGesture();
 			const bool bApplied = ApplyValue(*Parsed);
@@ -364,7 +403,7 @@ std::string FormatCompactNumericValue(const float Value, const char* const Forma
 
 bool DrawNumericDragFloat(const char* const Label, float* const Value, const float Speed, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags, FNumericEditLifecycle* const Edit, const bool bCompactDisplay)
 {
-	return DrawNumericField(Label, Value, Minimum, Maximum, (Flags & ImGuiSliderFlags_AlwaysClamp) != 0, true, Edit, [&](float* const Candidate)
+	return DrawNumericField(Label, Value, Minimum, Maximum, Format, (Flags & ImGuiSliderFlags_AlwaysClamp) != 0, true, Edit, {}, [&](float* const Candidate)
 	{
 		if (bCompactDisplay)
 		{
@@ -383,9 +422,9 @@ bool DrawNumericDragFloat(const char* const Label, float* const Value, const flo
 	});
 }
 
-bool DrawNumericSliderFloat(const char* const Label, float* const Value, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags, FNumericEditLifecycle* const Edit)
+bool DrawNumericSliderFloat(const char* const Label, float* const Value, const float Minimum, const float Maximum, const char* const Format, const ImGuiSliderFlags Flags, FNumericEditLifecycle* const Edit, const FNumericTextParser& ParseText)
 {
-	return DrawNumericField(Label, Value, Minimum, Maximum, true, true, Edit, [&](float* const Candidate)
+	return DrawNumericField(Label, Value, Minimum, Maximum, Format, true, true, Edit, ParseText, [&](float* const Candidate)
 	{
 		return ImGui::SliderFloat(Label, Candidate, Minimum, Maximum, Format, Flags | ImGuiSliderFlags_NoInput);
 	});

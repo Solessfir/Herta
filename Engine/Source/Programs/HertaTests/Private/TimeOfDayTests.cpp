@@ -32,5 +32,15 @@ TEST_CASE("Time of day round-trips through the sun direction and formats as a cl
 	CHECK(FormatTimeOfDay(0.f) == "00:00");
 	CHECK(FormatTimeOfDay(24.f) == "00:00");
 	CHECK(FormatTimeOfDay(23.999f) == "00:00");
+	CHECK(ParseTimeOfDay("14:30") == 14.5f);
+	CHECK(ParseTimeOfDay(" 7 ") == 7.f);
+	CHECK(ParseTimeOfDay("7:05") == doctest::Approx(7.f + 5.f / 60.f));
+	CHECK(ParseTimeOfDay("24:00") == 24.f);
+	CHECK_FALSE(ParseTimeOfDay("24:01"));
+	CHECK_FALSE(ParseTimeOfDay("12:60"));
+	CHECK_FALSE(ParseTimeOfDay("12:"));
+	CHECK_FALSE(ParseTimeOfDay("18.5"));
+	CHECK_FALSE(ParseTimeOfDay("-5"));
+	CHECK_FALSE(ParseTimeOfDay(""));
 }
 }

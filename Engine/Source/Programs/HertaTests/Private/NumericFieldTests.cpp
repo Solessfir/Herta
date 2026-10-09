@@ -6,7 +6,9 @@
 
 #include <cmath>
 #include <initializer_list>
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace Herta
 {
@@ -35,6 +37,8 @@ struct FNumericFieldTestContext
 	bool bRequestFocus = false;
 	bool bSlider = false;
 	bool bCompactDisplay = false;
+	const char* Format = "%.3f";
+	FNumericTextParser ParseText;
 
 	FNumericFieldTestContext()
 	{
@@ -123,7 +127,7 @@ struct FNumericFieldTestContext
 			ValueAtBegin = Value;
 		};
 
-		const bool bChanged = bSlider ? DrawNumericSliderFloat("##Value", &Value, Minimum, Maximum, "%.3f", Flags, &Edit) : DrawNumericDragFloat("##Value", &Value, 0.1f, Minimum, Maximum, "%.3f", Flags, &Edit, bCompactDisplay);
+		const bool bChanged = bSlider ? DrawNumericSliderFloat("##Value", &Value, Minimum, Maximum, Format, Flags, &Edit, ParseText) : DrawNumericDragFloat("##Value", &Value, 0.1f, Minimum, Maximum, Format, Flags, &Edit, bCompactDisplay);
 		Finishes += Edit.bFinished ? 1 : 0;
 		Cancels += Edit.bCanceled ? 1 : 0;
 		bTextEditing = ImGui::IsItemActive() && GImGui->InputTextState.ID == ImGui::GetItemID();
@@ -263,6 +267,86 @@ TEST_CASE("Numeric slider opens expression entry on single click release")
 	Io.AddKeyEvent(ImGuiKey_Enter, true);
 	CHECK(Test.Frame(Value));
 	CHECK(Value == doctest::Approx(5.f));
+}
+
+TEST_CASE("Numeric slider click opens entry at the shown value without jumping to the pointer")
+{
+	FNumericFieldTestContext Test;
+	Test.bSlider = true;
+	Test.Format = "%.0f px";
+	float Value = 10.f;
+	Test.Frame(Value);
+	Test.MoveToField();
+	ImGuiIO& Io = ImGui::GetIO();
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	CHECK_FALSE(Test.Frame(Value));
+	CHECK(Value == 10.f);
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	Test.Frame(Value);
+	Test.Frame(Value);
+	REQUIRE(Test.bTextEditing);
+	CHECK(Value == 10.f);
+	CHECK(std::string(GImGui->InputTextState.TextA.Data) == "10");
+}
+
+TEST_CASE("Unchanged numeric entry keeps the exact value behind its rounded text")
+{
+	FNumericFieldTestContext Test;
+	float Value = 1.234567f;
+	BeginExpression(Test, Value);
+	REQUIRE(Test.bTextEditing);
+	CHECK(std::string(GImGui->InputTextState.TextA.Data) == "1.235");
+	ImGui::GetIO().AddKeyEvent(ImGuiKey_Enter, true);
+	CHECK_FALSE(Test.Frame(Value));
+	CHECK(Value == 1.234567f);
+}
+
+TEST_CASE("Numeric slider without a numeric display never opens text entry")
+{
+	FNumericFieldTestContext Test;
+	Test.bSlider = true;
+	Test.Format = "01:09";
+	float Value = 1.15f;
+	Test.Frame(Value);
+	Test.MoveToField();
+	ImGuiIO& Io = ImGui::GetIO();
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	Test.Frame(Value);
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	Test.Frame(Value);
+	Test.Frame(Value);
+	CHECK_FALSE(Test.bTextEditing);
+	CHECK(Value == 1.15f);
+}
+
+TEST_CASE("Numeric slider with a text parser edits its literal display")
+{
+	FNumericFieldTestContext Test;
+	Test.bSlider = true;
+	Test.Minimum = 0.f;
+	Test.Maximum = 24.f;
+	Test.Format = "01:09";
+	Test.ParseText = [](const std::string_view Text) -> std::optional<float>
+	{
+		return Text == "15:30" ? std::optional{15.5f} : std::nullopt;
+	};
+
+	float Value = 1.15f;
+	Test.Frame(Value);
+	Test.MoveToField();
+	ImGuiIO& Io = ImGui::GetIO();
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	Test.Frame(Value);
+	Io.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	Test.Frame(Value);
+	Test.Frame(Value);
+	REQUIRE(Test.bTextEditing);
+	CHECK(std::string(GImGui->InputTextState.TextA.Data) == "01:09");
+	Io.AddInputCharactersUTF8("15:30");
+	Test.Frame(Value);
+	Io.AddKeyEvent(ImGuiKey_Enter, true);
+	CHECK(Test.Frame(Value));
+	CHECK(Value == 15.5f);
 }
 
 TEST_CASE("Numeric slider still drags without entering text")

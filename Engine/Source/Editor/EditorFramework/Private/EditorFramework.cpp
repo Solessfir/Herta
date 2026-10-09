@@ -2352,9 +2352,11 @@ void FEditorFramework::FImplementation::DrawTimeOfDay(const float X, const float
 	ImGui::SetNextItemWidth(Width);
 	ImGui::BeginDisabled(Simulation.IsRunning() || bProjectBusy);
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {8.f * Scale, (ButtonSize - ImGui::GetFontSize()) * 0.5f});
-	const bool bChanged = DrawNumericSliderFloat("##TimeOfDay", &Hours, 0.f, 24.f, FormatTimeOfDay(Hours).c_str(), ImGuiSliderFlags_AlwaysClamp);
+	const bool bChanged = DrawNumericSliderFloat("##TimeOfDay", &Hours, 0.f, 24.f, FormatTimeOfDay(Hours).c_str(), ImGuiSliderFlags_AlwaysClamp, nullptr, ParseTimeOfDay);
 	ImGui::PopStyleVar();
-	if (ImGui::IsItemActivated() && !Level->HasActiveEdit())
+
+	// The edit opens on the first real change, not on activation: a click only opens typed entry, and an edit held open by it would block whatever the next click does.
+	if (bChanged && !Level->HasActiveEdit())
 	{
 		ReportLevelResult(Level->BeginEdit("Time of day"));
 	}
