@@ -66,16 +66,15 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
     fi
 done
 
-for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow; do
+# Every Engine/Shaders/*.slang cooks a vertex and fragment stage.
+while IFS= read -r -d '' shader_source; do
+    shader="$(basename "${shader_source}" .slang)"
     for stage in vert frag; do
         package_files+=("${binary_directory}/Shaders/${shader}.${stage}.hshader")
     done
-done
+done < <(find "${repository_root}/Engine/Shaders" -maxdepth 1 -name '*.slang' -print0 | sort -z)
 package_files+=("${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader")
 package_files+=("${binary_directory}/Shaders/Shadow.instanced.vert.hshader")
-for shader in VolumetricFog FogComposite ToneMap SmaaEdges SmaaWeights SmaaNeighborhood; do
-    package_files+=("${binary_directory}/Shaders/${shader}.frag.hshader")
-done
 
 # These dependencies embed their notices in source files rather than separate license files.
 license_files=(
