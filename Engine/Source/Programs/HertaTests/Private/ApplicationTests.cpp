@@ -11,10 +11,10 @@ TEST_CASE("Title bar hit testing routes native regions")
 {
 	const FTitleBarLayout Layout = MakeTitleBarLayout(1280, 720, 1.f, true, false);
 
-	CHECK(Layout.ButtonWidth == 34);
+	CHECK(Layout.ButtonWidth == 46);
 	CHECK(HitTestTitleBar(Layout, 1270, 10) == ETitleBarHitRegion::CloseButton);
 	CHECK(HitTestTitleBar(Layout, 1220, 10) == ETitleBarHitRegion::MaximizeButton);
-	CHECK(HitTestTitleBar(Layout, 1190, 10) == ETitleBarHitRegion::MinimizeButton);
+	CHECK(HitTestTitleBar(Layout, 1160, 10) == ETitleBarHitRegion::MinimizeButton);
 	CHECK(HitTestTitleBar(Layout, 10, 10) == ETitleBarHitRegion::SystemMenu);
 	CHECK(HitTestTitleBar(Layout, 50, 10) == ETitleBarHitRegion::ApplicationMenu);
 	CHECK(HitTestTitleBar(Layout, 300, 10) == ETitleBarHitRegion::Caption);

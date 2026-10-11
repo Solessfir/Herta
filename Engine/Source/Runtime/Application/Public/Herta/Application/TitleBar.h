@@ -6,6 +6,8 @@
 namespace Herta
 {
 inline constexpr int DefaultTitleBarHeight = 36;
+// Matches the Windows 11 caption button width.
+inline constexpr int DefaultTitleBarButtonWidth = 46;
 inline constexpr std::size_t MaxTitleBarUiCaptureRegions = 16;
 
 enum class ETitleBarHitRegion
@@ -64,7 +66,7 @@ struct FTitleBarLayout
 	int WindowWidth = 0;
 	int WindowHeight = 0;
 	int TitleBarHeight = DefaultTitleBarHeight;
-	int ButtonWidth = 34;
+	int ButtonWidth = DefaultTitleBarButtonWidth;
 	int ResizeBorder = 6;
 	bool bResizable = true;
 	bool bMaximized = false;
@@ -127,7 +129,7 @@ struct FTitleBarHitTestState
 	    .WindowWidth = WindowWidth,
 	    .WindowHeight = WindowHeight,
 	    .TitleBarHeight = ScaleTitleBarMetric(DefaultTitleBarHeight, ContentScale),
-	    .ButtonWidth = ScaleTitleBarMetric(34, ContentScale),
+	    .ButtonWidth = ScaleTitleBarMetric(DefaultTitleBarButtonWidth, ContentScale),
 	    .ResizeBorder = ScaleTitleBarMetric(6, ContentScale),
 	    .bResizable = bResizable,
 	    .bMaximized = bMaximized,

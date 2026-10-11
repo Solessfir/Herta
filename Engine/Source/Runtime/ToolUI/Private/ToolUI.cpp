@@ -85,7 +85,7 @@ void DrawWindowControls(ImDrawList& DrawList, const ImVec2 Origin, const FTitleB
 	if (Minimize.bVisible)
 	{
 		const float CenterX = Origin.x + static_cast<float>(Minimize.MinimumX + Minimize.MaximumX) * 0.5f;
-		DrawList.AddLine({CenterX - 5.f * Scale, CenterY + 3.f * Scale}, {CenterX + 5.f * Scale, CenterY + 3.f * Scale}, GlyphColor, Scale);
+		DrawList.AddLine({CenterX - 5.f * Scale, CenterY}, {CenterX + 5.f * Scale, CenterY}, GlyphColor, Scale);
 	}
 
 	if (Maximize.bVisible)
