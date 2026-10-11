@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <format>
@@ -418,12 +419,12 @@ struct FDisplayPipelines
 		return {};
 	};
 
-	const auto Fullscreen = [&](std::string Name, const FShaderAsset& Fragment, const bool bAlphaBlend)
+	const auto Fullscreen = [&](std::string Name, const FShaderAsset& Fragment, const bool bAlphaBlend, const std::uint32_t TextureCount = 2)
 	{
-		return FGraphicsPipelineDescriptor{.Name = std::move(Name), .VertexShader = Shaders.FullscreenVertex, .FragmentShader = Fragment, .ColorFormat = Format, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = 2, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bAlphaBlend = bAlphaBlend, .bClampSampler = !bAlphaBlend};
+		return FGraphicsPipelineDescriptor{.Name = std::move(Name), .VertexShader = Shaders.FullscreenVertex, .FragmentShader = Fragment, .ColorFormat = Format, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = TextureCount, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bAlphaBlend = bAlphaBlend, .bClampSampler = !bAlphaBlend};
 	};
 
-	std::expected<void, FPresentationError> Result = Create(Pipelines.ToneMap, Fullscreen("Exposure and tone mapping", Shaders.ToneMap, false));
+	std::expected<void, FPresentationError> Result = Create(Pipelines.ToneMap, Fullscreen("Fog, exposure and tone mapping", Shaders.ToneMap, false, 5));
 	if (Result)
 	{
 		Result = Create(Pipelines.SmaaNeighborhood, Fullscreen("SMAA neighborhood", Shaders.SmaaNeighborhood, false));
@@ -480,9 +481,22 @@ struct FMeshRenderer::FImplementation
 	struct FInstanceBatch
 	{
 		const FRenderMesh* Mesh = nullptr;
+		std::vector<const FRenderMaterial*> Materials;
+	};
+
+	struct FInstanceDraw
+	{
+		std::size_t Batch = 0;
 		std::uint32_t FirstInstance = 0;
 		std::uint32_t InstanceCount = 0;
-		std::vector<const FRenderMaterial*> Materials;
+	};
+
+	struct FModelBounds
+	{
+		FVector3 Center;
+		FVector3 Extent;
+		// Deforming meshes outgrow their cooked bounds, so they are never culled.
+		bool bAlwaysVisible = false;
 	};
 
 	IGraphicsDevice* Device = nullptr;
@@ -490,7 +504,6 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle Depth;
 	FTextureHandle HdrColor;
 	FTextureHandle FogColor;
-	FTextureHandle CompositeColor;
 	FTextureHandle ToneColor;
 	FTextureHandle Edges;
 	FTextureHandle Weights;
@@ -498,6 +511,7 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle SkyView;
 	FTextureHandle SkyMultipleScattering;
 	FTextureHandle ExposureMetering;
+	FTextureHandle ToneMapLut;
 	// Adaptation reads last frame's exposure and writes this frame's, alternating between the two.
 	std::array<FTextureHandle, 2> ExposureStates;
 	std::size_t ExposureStateIndex = 0;
@@ -529,7 +543,13 @@ struct FMeshRenderer::FImplementation
 	FBufferHandle Instances;
 	std::vector<FMeshInstance> InstanceData;
 	std::vector<FInstanceBatch> InstanceBatches;
-	std::vector<std::size_t> ModelBatches;
+	std::vector<std::vector<std::size_t>> BatchModels;
+	// The camera first, then each shadow view.
+	std::vector<FViewFrustum> ViewFrustums;
+	std::vector<FModelBounds> ModelBounds;
+	// Each view's instances are culled and stored back to back in Instances, in the order of ViewFrustums, then the visible selection.
+	std::vector<std::vector<FInstanceDraw>> ViewDraws;
+	std::vector<bool> SelectedModels;
 	std::unordered_map<FInstanceKey, std::size_t, FInstanceKeyHash> InstanceBatchIndices;
 	FBufferHandle GridVertices;
 	FBufferHandle GridIndices;
@@ -631,14 +651,14 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	std::vector<std::byte> SearchPixels;
 	if (!VisualShaders.FullscreenVertex.Bytecode.empty())
 	{
-		std::array<FShaderAsset, 10> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), std::move(VisualShaders.CompositeFragment), FShaderAsset{}, std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), FShaderAsset{}, std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ExposureMeterFragment), std::move(VisualShaders.ExposureAdaptFragment)};
-		constexpr std::array<std::uint32_t, 10> TextureCounts{2, 3, 3, 2, 1, 3, 2, 1, 1, 2};
-		constexpr std::array<std::string_view, 10> Names{"Sky", "Volumetric fog", "Depth-aware fog composite", "Exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation"};
-		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float};
+		std::array<FShaderAsset, 10> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), FShaderAsset{}, std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), FShaderAsset{}, std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ExposureMeterFragment), std::move(VisualShaders.ExposureAdaptFragment), std::move(VisualShaders.ToneMapLutFragment)};
+		constexpr std::array<std::uint32_t, 10> TextureCounts{2, 3, 5, 1, 3, 2, 1, 2, 2, 1};
+		constexpr std::array<std::string_view, 10> Names{"Sky", "Volumetric fog", "Fog, exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation", "Tone map LUT"};
+		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float, ETextureFormat::Rgba16Float};
 		for (std::size_t Index = 0; Index < Fragments.size(); ++Index)
 		{
 			// Tone mapping and SMAA neighborhood write the display target and are built with DisplayPipelines.
-			if (Index == 3 || Index == 6)
+			if (Index == 2 || Index == 5)
 			{
 				continue;
 			}
@@ -683,6 +703,14 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		}
 
 		State->ExposureMetering = std::move(*Metering);
+		// Matches ToneMapLutSize in VisualShared.slangh.
+		auto ToneMapLut = Device.CreateTexture({.Name = "Tone map LUT", .Extent = {64 * 64, 64}, .Format = ETextureFormat::Rgba16Float, .bRenderTarget = true});
+		if (!ToneMapLut)
+		{
+			return std::unexpected(ToneMapLut.error());
+		}
+
+		State->ToneMapLut = std::move(*ToneMapLut);
 		for (FTextureHandle& ExposureState : State->ExposureStates)
 		{
 			auto Texture = Device.CreateTexture({.Name = "Adapted exposure", .Extent = {1, 1}, .Format = ETextureFormat::Rgba32Float, .bRenderTarget = true});
@@ -789,7 +817,7 @@ std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 {
 	const FImplementation& State = *Implementation;
 	std::size_t Bytes = 0;
-	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogColor, &State.CompositeColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas})
+	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas})
 	{
 		if (*Target)
 		{
@@ -1102,12 +1130,53 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		}
 	}
 
+	State.ViewFrustums.clear();
+	State.ViewFrustums.push_back(MakeViewFrustum(WorldToClip));
+	for (const FShadowView& Shadow : State.Shadows)
+	{
+		State.ViewFrustums.push_back(MakeViewFrustum(Shadow.WorldToClip, Shadow.LightPosition, Shadow.LightRange));
+	}
+
+	State.ModelBounds.resize(View.Models.size());
+	for (std::size_t Model = 0; Model < View.Models.size(); ++Model)
+	{
+		const FRenderMesh* Mesh = View.Meshes[Model];
+		if (!Mesh)
+		{
+			continue;
+		}
+
+		const FMatrix4& Transform = View.Models[Model];
+		const FVector3 LocalCenter = (Mesh->BoundsMinimum + Mesh->BoundsMaximum) * 0.5f;
+		const FVector3 LocalExtent = (Mesh->BoundsMaximum - Mesh->BoundsMinimum) * 0.5f;
+		FImplementation::FModelBounds& Bounds = State.ModelBounds[Model];
+		for (std::size_t Axis = 0; Axis < 3; ++Axis)
+		{
+			Bounds.Center[Axis] = Transform(Axis, 0) * LocalCenter.X + Transform(Axis, 1) * LocalCenter.Y + Transform(Axis, 2) * LocalCenter.Z + Transform(Axis, 3);
+			Bounds.Extent[Axis] = std::abs(Transform(Axis, 0)) * LocalExtent.X + std::abs(Transform(Axis, 1)) * LocalExtent.Y + std::abs(Transform(Axis, 2)) * LocalExtent.Z;
+		}
+
+		Bounds.bAlwaysVisible = std::ranges::any_of(View.VertexUpdates, [Mesh](const FRenderMeshVertexUpdate& Update)
+		{
+			return Update.Mesh == Mesh;
+		});
+	}
+
+	const auto IsVisible = [&](const std::size_t ViewIndex, const std::size_t Model)
+	{
+		const FImplementation::FModelBounds& Bounds = State.ModelBounds[Model];
+		return Bounds.bAlwaysVisible || IsBoxInFrustum(State.ViewFrustums[ViewIndex], Bounds.Center, Bounds.Extent);
+	};
+
 	if (State.InstancedPipeline)
 	{
 		State.InstanceBatches.clear();
 		State.InstanceBatchIndices.clear();
-		State.ModelBatches.resize(View.Models.size());
-		std::size_t InstanceCount = 0;
+		for (std::vector<std::size_t>& Models : State.BatchModels)
+		{
+			Models.clear();
+		}
+
 		for (std::size_t Model = 0; Model < View.Meshes.size(); ++Model)
 		{
 			const FRenderMesh* Mesh = View.Meshes[Model];
@@ -1126,42 +1195,65 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			if (bInserted)
 			{
 				State.InstanceBatches.push_back({.Mesh = Mesh, .Materials = std::move(Key.Materials)});
+				if (State.BatchModels.size() < State.InstanceBatches.size())
+				{
+					State.BatchModels.emplace_back();
+				}
 			}
 
-			State.ModelBatches[Model] = Entry->second;
-			++State.InstanceBatches[Entry->second].InstanceCount;
-			++InstanceCount;
+			State.BatchModels[Entry->second].push_back(Model);
 		}
 
-		if (InstanceCount > MaximumUploadBytesPerRecording / sizeof(FMeshInstance))
+		State.SelectedModels.assign(View.Models.size(), false);
+		for (const std::size_t Index : View.Selected)
 		{
-			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Mesh instances must fit the 64 MiB recording upload budget"});
+			if (Index < State.SelectedModels.size())
+			{
+				State.SelectedModels[Index] = true;
+			}
 		}
 
-		std::uint32_t FirstInstance = 0;
-		for (FImplementation::FInstanceBatch& Batch : State.InstanceBatches)
+		// The selection outline rasterizes the selected models seen by the camera, one instanced draw per batch.
+		const std::size_t SelectionView = State.ViewFrustums.size();
+		State.InstanceData.clear();
+		State.ViewDraws.resize(SelectionView + 1);
+		for (std::size_t ViewIndex = 0; ViewIndex <= SelectionView; ++ViewIndex)
 		{
-			Batch.FirstInstance = FirstInstance;
-			FirstInstance += Batch.InstanceCount;
-			Batch.InstanceCount = 0;
-		}
-
-		State.InstanceData.resize(InstanceCount);
-		for (std::size_t Index = 0; Index < View.Models.size(); ++Index)
-		{
-			if (!View.Meshes[Index])
+			std::vector<FImplementation::FInstanceDraw>& Draws = State.ViewDraws[ViewIndex];
+			Draws.clear();
+			if (ViewIndex == SelectionView && View.Selected.empty())
 			{
 				continue;
 			}
 
-			FImplementation::FInstanceBatch& Batch = State.InstanceBatches[State.ModelBatches[Index]];
-			State.InstanceData[Batch.FirstInstance + Batch.InstanceCount++] = {.WorldToClip = (WorldToClip * View.Models[Index]).Data(), .ObjectToView = (View.View * View.Models[Index]).Data()};
+			for (std::size_t Batch = 0; Batch < State.InstanceBatches.size(); ++Batch)
+			{
+				const std::size_t FirstInstance = State.InstanceData.size();
+				for (const std::size_t Model : State.BatchModels[Batch])
+				{
+					if (ViewIndex == SelectionView ? State.SelectedModels[Model] && IsVisible(0, Model) : IsVisible(ViewIndex, Model))
+					{
+						State.InstanceData.push_back({.WorldToClip = (WorldToClip * View.Models[Model]).Data(), .ObjectToView = (View.View * View.Models[Model]).Data()});
+					}
+				}
+
+				if (State.InstanceData.size() > FirstInstance)
+				{
+					Draws.push_back({.Batch = Batch, .FirstInstance = static_cast<std::uint32_t>(FirstInstance), .InstanceCount = static_cast<std::uint32_t>(State.InstanceData.size() - FirstInstance)});
+				}
+			}
 		}
 
-		const std::size_t InstanceBytes = InstanceCount * sizeof(FMeshInstance);
-		if (InstanceBytes > 0 && (!State.Instances || State.Instances->GetDescriptor().Size != InstanceBytes))
+		if (State.InstanceData.size() > MaximumUploadBytesPerRecording / sizeof(FMeshInstance))
 		{
-			auto Instances = Device.CreateBuffer({.Name = "Mesh instances", .Size = InstanceBytes, .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Mesh instances must fit the 64 MiB recording upload budget"});
+		}
+
+		// Culling changes the instance count every time the camera moves, so the buffer grows by powers of two instead of matching it.
+		const std::size_t InstanceBytes = State.InstanceData.size() * sizeof(FMeshInstance);
+		if (InstanceBytes > 0 && (!State.Instances || State.Instances->GetDescriptor().Size < InstanceBytes))
+		{
+			auto Instances = Device.CreateBuffer({.Name = "Mesh instances", .Size = std::bit_ceil(InstanceBytes), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
 			if (!Instances)
 			{
 				return std::unexpected(Instances.error());
@@ -1197,11 +1289,6 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			};
 
 			std::expected<void, FPresentationError> Created = Target("HDR scene", Extent, ETextureFormat::Rgba16Float, State.HdrColor);
-			if (Created)
-			{
-				Created = Target("HDR fog composite", Extent, ETextureFormat::Rgba16Float, State.CompositeColor);
-			}
-
 			if (Created)
 			{
 				Created = Target("Tone-mapped scene", Extent, DisplayFormat, State.ToneColor);
@@ -1290,7 +1377,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	const auto Fullscreen = [&](const std::size_t Pipeline, const FTextureHandle& Destination, const std::span<const FTextureHandle> Sources)
 	{
-		constexpr std::array Names{"Sky", "Volumetric fog", "Fog composite", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation"};
+		constexpr std::array Names{"Sky", "Volumetric fog", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation", "Tone map LUT"};
 		const auto Timer = TimedPass(Names[Pipeline]);
 		if (const auto Cleared = Device.ClearTargets(Destination, {}, {}); !Cleared)
 		{
@@ -1298,7 +1385,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		}
 
 		// Tone mapping and SMAA neighborhood write the display target, so their pipelines follow its format.
-		const FGraphicsPipelineHandle& Selected = Pipeline == 3 ? Display.ToneMap : Pipeline == 6 ? Display.SmaaNeighborhood
+		const FGraphicsPipelineHandle& Selected = Pipeline == 2 ? Display.ToneMap : Pipeline == 5 ? Display.SmaaNeighborhood
 		                                                                                          : State.VisualPipelines[Pipeline];
 		return Device.DrawIndexed({.Pipeline = Selected, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = Destination, .IndexCount = 6, .Textures = Sources, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
 	};
@@ -1349,6 +1436,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		});
 	}
 
+	if (State.InstancedPipeline && !State.InstanceData.empty())
+	{
+		Graph.AddPass("Mesh instances", {{.Resource = Geometry, .Access = ERenderGraphAccess::Write}}, [&]
+		{
+			return GraphResult(Device.WriteBuffer(State.Instances, std::as_bytes(std::span{State.InstanceData})));
+		});
+	}
+
 	Graph.AddPass("Shadow atlas", {{.Resource = Shadow, .Access = ERenderGraphAccess::Write}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 	{
 		if (State.Shadows.empty())
@@ -1363,26 +1458,20 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			return GraphResult(Cleared);
 		}
 
-		if (State.InstancedShadowPipeline && State.InstancedPipeline && !State.InstanceData.empty())
+		for (std::size_t ShadowIndex = 0; ShadowIndex < State.Shadows.size(); ++ShadowIndex)
 		{
-			if (const auto Written = Device.WriteBuffer(State.Instances, std::as_bytes(std::span{State.InstanceData})); !Written)
-			{
-				return GraphResult(Written);
-			}
-		}
-
-		for (const FShadowView& ShadowView : State.Shadows)
-		{
+			const FShadowView& ShadowView = State.Shadows[ShadowIndex];
 			if (State.InstancedShadowPipeline && State.InstancedPipeline)
 			{
 				const auto Transform = (ShadowView.WorldToClip * FMatrix4(State.Uniforms.ViewToWorld)).Data();
-				for (const FImplementation::FInstanceBatch& Batch : State.InstanceBatches)
+				for (const FImplementation::FInstanceDraw& Instances : State.ViewDraws[ShadowIndex + 1])
 				{
+					const FImplementation::FInstanceBatch& Batch = State.InstanceBatches[Instances.Batch];
 					const FRenderMesh& Mesh = *Batch.Mesh;
 					for (const FRenderMesh::FSection& Section : Mesh.Sections)
 					{
 						const auto Textures = MaterialTextures(Mesh, Section, Batch.Materials);
-						const auto Draw = Device.DrawIndexed({.Pipeline = State.InstancedShadowPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = State.ShadowAtlas, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Batch.InstanceCount, .FirstInstance = Batch.FirstInstance, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1}), .Viewport = ShadowView.Viewport});
+						const auto Draw = Device.DrawIndexed({.Pipeline = State.InstancedShadowPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = State.ShadowAtlas, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1}), .Viewport = ShadowView.Viewport});
 						if (!Draw)
 						{
 							return GraphResult(Draw);
@@ -1396,7 +1485,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			{
 				for (std::size_t Model = 0; Model < View.Models.size(); ++Model)
 				{
-					if (!View.Meshes[Model])
+					if (!View.Meshes[Model] || !IsVisible(ShadowIndex + 1, Model))
 					{
 						continue;
 					}
@@ -1427,7 +1516,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		if (Result && State.VisualPipelines[0])
 		{
 			const std::array SkySources{State.SkyMultipleScattering ? State.SkyMultipleScattering : State.White};
-			Result = Fullscreen(7, State.SkyView, SkySources);
+			Result = Fullscreen(6, State.SkyView, SkySources);
 		}
 
 		if (Result && State.VisualPipelines[0])
@@ -1444,21 +1533,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		const auto Timer = TimedPass("PBR meshes");
 		if (State.InstancedPipeline)
 		{
-			if (!State.InstanceData.empty())
+			for (const FImplementation::FInstanceDraw& Instances : State.ViewDraws[0])
 			{
-				if (const auto Written = Device.WriteBuffer(State.Instances, std::as_bytes(std::span{State.InstanceData})); !Written)
-				{
-					return GraphResult(Written);
-				}
-			}
-
-			for (const FImplementation::FInstanceBatch& Batch : State.InstanceBatches)
-			{
+				const FImplementation::FInstanceBatch& Batch = State.InstanceBatches[Instances.Batch];
 				const FRenderMesh& Mesh = *Batch.Mesh;
 				for (const FRenderMesh::FSection& Section : Mesh.Sections)
 				{
 					const auto Textures = MaterialTextures(Mesh, Section, Batch.Materials);
-					const auto Result = Device.DrawIndexed({.Pipeline = MaterialPipeline(Section, Batch.Materials, true), .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = MeshColor, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Batch.InstanceCount, .FirstInstance = Batch.FirstInstance, .Textures = Textures, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
+					const auto Result = Device.DrawIndexed({.Pipeline = MaterialPipeline(Section, Batch.Materials, true), .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = MeshColor, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
 					if (!Result)
 					{
 						return GraphResult(Result);
@@ -1473,7 +1555,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 		for (std::size_t Index = 0; Index < View.Models.size(); ++Index)
 		{
-			if (View.Meshes[Index] == nullptr)
+			if (View.Meshes[Index] == nullptr || !IsVisible(0, Index))
 			{
 				continue;
 			}
@@ -1501,7 +1583,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	{
 		Graph.AddPass("Fog, tone mapping and SMAA", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}, {.Resource = Shadow, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
-			FTextureHandle ToneSource = State.HdrColor;
+			// Without fog the volume is never written, so the shaders, which skip it, bind a placeholder.
+			FTextureHandle FogSource = State.White;
 			if (State.Uniforms.Fog[0] > 0.f)
 			{
 				const std::array FogSources{State.Depth, State.ShadowAtlas, State.EnvironmentDiffuse};
@@ -1510,20 +1593,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 					return GraphResult(Result);
 				}
 
-				const std::array CompositeSources{State.HdrColor, State.FogColor, State.Depth};
-				if (const auto Result = Fullscreen(2, State.CompositeColor, CompositeSources); !Result)
-				{
-					return GraphResult(Result);
-				}
-
-				ToneSource = State.CompositeColor;
+				FogSource = State.FogColor;
 			}
 
 			FTextureHandle ExposureSource = State.White;
 			if (State.Uniforms.Exposure[0] > 0.5f)
 			{
-				const std::array MeterSources{ToneSource};
-				if (const auto Result = Fullscreen(8, State.ExposureMetering, MeterSources); !Result)
+				const std::array MeterSources{State.HdrColor, FogSource};
+				if (const auto Result = Fullscreen(7, State.ExposureMetering, MeterSources); !Result)
 				{
 					return GraphResult(Result);
 				}
@@ -1532,7 +1609,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				// A restart ignores the previous value, which may not have been written yet.
 				const bool bRestart = State.Uniforms.Exposure[3] > 0.5f;
 				const std::array AdaptSources{State.ExposureMetering, bRestart ? State.White : State.ExposureStates[State.ExposureStateIndex]};
-				if (const auto Result = Fullscreen(9, State.ExposureStates[Next], AdaptSources); !Result)
+				if (const auto Result = Fullscreen(8, State.ExposureStates[Next], AdaptSources); !Result)
 				{
 					return GraphResult(Result);
 				}
@@ -1542,8 +1619,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			}
 
 			const bool bSmaa = View.Visuals.AntiAliasing != EAntiAliasing::Off;
-			const std::array ToneSources{ToneSource, ExposureSource};
-			if (const auto Result = Fullscreen(3, bSmaa ? State.ToneColor : State.Color, ToneSources); !Result)
+			const std::array LutSources{State.White};
+			if (const auto Result = Fullscreen(9, State.ToneMapLut, LutSources); !Result)
+			{
+				return GraphResult(Result);
+			}
+
+			const std::array ToneSources{State.HdrColor, ExposureSource, State.ToneMapLut, FogSource, State.Depth};
+			if (const auto Result = Fullscreen(2, bSmaa ? State.ToneColor : State.Color, ToneSources); !Result)
 			{
 				return GraphResult(Result);
 			}
@@ -1562,19 +1645,19 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				}
 
 				const std::array EdgeSources{State.ToneColor};
-				if (const auto Result = Fullscreen(4, State.Edges, EdgeSources); !Result)
+				if (const auto Result = Fullscreen(3, State.Edges, EdgeSources); !Result)
 				{
 					return GraphResult(Result);
 				}
 
 				const std::array WeightSources{State.Edges, State.SmaaArea, State.SmaaSearch};
-				if (const auto Result = Fullscreen(5, State.Weights, WeightSources); !Result)
+				if (const auto Result = Fullscreen(4, State.Weights, WeightSources); !Result)
 				{
 					return GraphResult(Result);
 				}
 
 				const std::array NeighborSources{State.ToneColor, State.Weights};
-				if (const auto Result = Fullscreen(6, State.Color, NeighborSources); !Result)
+				if (const auto Result = Fullscreen(5, State.Color, NeighborSources); !Result)
 				{
 					return GraphResult(Result);
 				}
@@ -1626,7 +1709,28 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			}
 
 			// The depth-only shadow pipeline rasterizes the selected meshes, including alpha cutouts, without another mesh shader.
-			for (const std::size_t Index : View.Selected)
+			if (State.InstancedShadowPipeline && State.InstancedPipeline)
+			{
+				const auto Transform = (WorldToClip * FMatrix4(State.Uniforms.ViewToWorld)).Data();
+				for (const FImplementation::FInstanceDraw& Instances : State.ViewDraws.back())
+				{
+					const FImplementation::FInstanceBatch& Batch = State.InstanceBatches[Instances.Batch];
+					const FRenderMesh& Mesh = *Batch.Mesh;
+					for (const FRenderMesh::FSection& Section : Mesh.Sections)
+					{
+						const auto Textures = MaterialTextures(Mesh, Section, Batch.Materials);
+						const auto Draw = Device.DrawIndexed({.Pipeline = State.InstancedShadowPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = State.SelectionDepth, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
+						if (!Draw)
+						{
+							return GraphResult(Draw);
+						}
+
+						++State.LastDrawCount;
+					}
+				}
+			}
+
+			for (const std::size_t Index : State.InstancedShadowPipeline&& State.InstancedPipeline ? std::span<const std::size_t>{} : View.Selected)
 			{
 				if (Index >= View.Models.size() || Index >= View.Meshes.size() || View.Meshes[Index] == nullptr)
 				{
@@ -1648,8 +1752,43 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				}
 			}
 
+			// The outline shader works in pixel coordinates, so shading only the selection's screen bounds skips the rest of the target.
+			std::uint32_t Left = Extent.Width;
+			std::uint32_t Top = Extent.Height;
+			std::uint32_t Right = 0;
+			std::uint32_t Bottom = 0;
+			for (const std::size_t Index : View.Selected)
+			{
+				if (Index >= State.ModelBounds.size() || View.Meshes[Index] == nullptr)
+				{
+					continue;
+				}
+
+				const FImplementation::FModelBounds& Bounds = State.ModelBounds[Index];
+				// Deforming meshes outgrow their cooked bounds.
+				const FRenderViewport Screen = Bounds.bAlwaysVisible ? FRenderViewport{.X = 0, .Y = 0, .Width = Extent.Width, .Height = Extent.Height} : GetBoxScreenBounds(WorldToClip, Extent, Bounds.Center, Bounds.Extent);
+				if (Screen.Width > 0 && Screen.Height > 0)
+				{
+					Left = std::min(Left, Screen.X);
+					Top = std::min(Top, Screen.Y);
+					Right = std::max(Right, Screen.X + Screen.Width);
+					Bottom = std::max(Bottom, Screen.Y + Screen.Height);
+				}
+			}
+
+			if (Right <= Left || Bottom <= Top)
+			{
+				return {};
+			}
+
+			// The outline extends two pixels past the silhouette.
+			constexpr std::uint32_t OutlinePadding = 3;
+			Left -= std::min(Left, OutlinePadding);
+			Top -= std::min(Top, OutlinePadding);
+			Right = std::min(Extent.Width, Right + OutlinePadding);
+			Bottom = std::min(Extent.Height, Bottom + OutlinePadding);
 			const std::array Sources{State.SelectionDepth, State.Depth};
-			return GraphResult(Device.DrawIndexed({.Pipeline = Display.Outline, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = State.Color, .IndexCount = 6, .Textures = Sources, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})}));
+			return GraphResult(Device.DrawIndexed({.Pipeline = Display.Outline, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = State.Color, .IndexCount = 6, .Textures = Sources, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1}), .Viewport = {.X = Left, .Y = Top, .Width = Right - Left, .Height = Bottom - Top}}));
 		});
 	}
 

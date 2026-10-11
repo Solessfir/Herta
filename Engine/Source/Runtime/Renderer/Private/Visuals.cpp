@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 namespace Herta
@@ -358,11 +359,104 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 			constexpr float Width = ShadowAtlasWidth;
 			constexpr float Height = ShadowAtlasHeight;
 			Uniforms.Shadows[Result.size()] = {.WorldToClip = Matrix.Data(), .Atlas = {static_cast<float>(Viewport.Width) / Width, static_cast<float>(Viewport.Height) / Height, static_cast<float>(Viewport.X) / Width, static_cast<float>(Viewport.Y) / Height}, .Parameters = {Light.ShadowBias, Split, Light.ShadowNormalBias, Texel}};
-			Result.push_back({.WorldToClip = Matrix, .Viewport = Viewport});
+			Result.push_back({.WorldToClip = Matrix, .Viewport = Viewport, .LightPosition = Position, .LightRange = bCascaded ? 0.f : Light.Range});
 		}
 	}
 
 	Uniforms.Controls[1] = static_cast<float>(Result.size());
 	return Result;
+}
+
+FViewFrustum MakeViewFrustum(const FMatrix4& WorldToClip, const FVector3& SphereCenter, const float SphereRadius)
+{
+	const auto Row = [&](const std::size_t Index)
+	{
+		return FVector4{WorldToClip(Index, 0), WorldToClip(Index, 1), WorldToClip(Index, 2), WorldToClip(Index, 3)};
+	};
+
+	const FVector4 X = Row(0);
+	const FVector4 Y = Row(1);
+	const FVector4 Z = Row(2);
+	const FVector4 W = Row(3);
+	return {.Planes = {W + X, W - X, W + Y, W - Y, Z, W - Z}, .SphereCenter = SphereCenter, .SphereRadius = SphereRadius};
+}
+
+bool IsBoxInFrustum(const FViewFrustum& Frustum, const FVector3& Center, const FVector3& Extent)
+{
+	for (const FVector4& Plane : Frustum.Planes)
+	{
+		const float Distance = Plane.X * Center.X + Plane.Y * Center.Y + Plane.Z * Center.Z + Plane.W;
+		const float Radius = std::abs(Plane.X) * Extent.X + std::abs(Plane.Y) * Extent.Y + std::abs(Plane.Z) * Extent.Z;
+		if (Distance + Radius < 0.f)
+		{
+			return false;
+		}
+	}
+
+	if (Frustum.SphereRadius <= 0.f)
+	{
+		return true;
+	}
+
+	const FVector3 Offset = Center - Frustum.SphereCenter;
+	const FVector3 Outside{std::max(std::abs(Offset.X) - Extent.X, 0.f), std::max(std::abs(Offset.Y) - Extent.Y, 0.f), std::max(std::abs(Offset.Z) - Extent.Z, 0.f)};
+	return Outside.Dot(Outside) <= Frustum.SphereRadius * Frustum.SphereRadius;
+}
+
+FRenderViewport GetBoxScreenBounds(const FMatrix4& WorldToClip, const FExtent2D Target, const FVector3& Center, const FVector3& Extent)
+{
+	float MinimumX = std::numeric_limits<float>::infinity();
+	float MinimumY = MinimumX;
+	float MaximumX = -MinimumX;
+	float MaximumY = -MinimumX;
+	std::uint32_t BehindCorners = 0;
+	for (std::uint32_t Corner = 0; Corner < 8; ++Corner)
+	{
+		const FVector3 Point{Center.X + ((Corner & 1) != 0 ? Extent.X : -Extent.X), Center.Y + ((Corner & 2) != 0 ? Extent.Y : -Extent.Y), Center.Z + ((Corner & 4) != 0 ? Extent.Z : -Extent.Z)};
+		const auto Clip = [&](const std::size_t Row)
+		{
+			return WorldToClip(Row, 0) * Point.X + WorldToClip(Row, 1) * Point.Y + WorldToClip(Row, 2) * Point.Z + WorldToClip(Row, 3);
+		};
+
+		const float W = Clip(3);
+		if (W <= 0.0001f)
+		{
+			++BehindCorners;
+			continue;
+		}
+
+		MinimumX = std::min(MinimumX, Clip(0) / W);
+		MaximumX = std::max(MaximumX, Clip(0) / W);
+		MinimumY = std::min(MinimumY, Clip(1) / W);
+		MaximumY = std::max(MaximumY, Clip(1) / W);
+	}
+
+	// Projecting corners behind the camera inverts them; a box crossing the camera plane can cover any pixel.
+	if (BehindCorners == 8)
+	{
+		return {};
+	}
+
+	if (BehindCorners > 0)
+	{
+		return {.X = 0, .Y = 0, .Width = Target.Width, .Height = Target.Height};
+	}
+
+	// NVRHI flips Vulkan viewports to D3D semantics, so clip-space +Y is the top row.
+	const auto Pixel = [](const float Ndc, const std::uint32_t Size)
+	{
+		return std::clamp((Ndc * 0.5f + 0.5f) * static_cast<float>(Size), 0.f, static_cast<float>(Size));
+	};
+
+	const float Left = std::floor(Pixel(MinimumX, Target.Width));
+	const float Right = std::ceil(Pixel(MaximumX, Target.Width));
+	const float Top = std::floor(Pixel(-MaximumY, Target.Height));
+	const float Bottom = std::ceil(Pixel(-MinimumY, Target.Height));
+	if (Right <= Left || Bottom <= Top)
+	{
+		return {};
+	}
+
+	return {.X = static_cast<std::uint32_t>(Left), .Y = static_cast<std::uint32_t>(Top), .Width = static_cast<std::uint32_t>(Right - Left), .Height = static_cast<std::uint32_t>(Bottom - Top)};
 }
 }

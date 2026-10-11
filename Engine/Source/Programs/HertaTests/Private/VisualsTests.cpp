@@ -226,6 +226,52 @@ TEST_CASE("Local shadows use six point faces and single spot and rect projection
 	}
 }
 
+TEST_CASE("Shadow view frustums reject casters outside the light's faces and range")
+{
+	std::array<FRenderLight, 1> Lights{};
+	Lights[0].Settings.Type = ELightType::Point;
+	Lights[0].Settings.Range = 5.f;
+	const auto Built = BuildVisualUniforms({}, TestProjection(), {64, 64}, Lights, {});
+	REQUIRE(Built);
+	FVisualUniforms Uniforms = *Built;
+	const auto Shadows = BuildShadowViews(Uniforms, Lights, TestProjection());
+	REQUIRE(Shadows.size() == 6);
+	CHECK(Shadows[0].LightRange == 5.f);
+	const FViewFrustum PositiveX = MakeViewFrustum(Shadows[0].WorldToClip, Shadows[0].LightPosition, Shadows[0].LightRange);
+	const FVector3 Extent{0.5f, 0.5f, 0.5f};
+	CHECK(IsBoxInFrustum(PositiveX, {2, 0, 0}, Extent));
+	CHECK_FALSE(IsBoxInFrustum(PositiveX, {-2, 0, 0}, Extent));
+	CHECK_FALSE(IsBoxInFrustum(PositiveX, {0.f, 0.f, 0.02f}, {0.01f, 0.01f, 0.01f}));
+	// Inside the face but past the range, where the light has faded to nothing.
+	CHECK_FALSE(IsBoxInFrustum(PositiveX, {6, 0, 0}, Extent));
+	CHECK(IsBoxInFrustum(PositiveX, {5.4f, 0, 0}, Extent));
+
+	// An infinite far plane never rejects without a range.
+	const FViewFrustum Unbounded = MakeViewFrustum(Shadows[0].WorldToClip);
+	CHECK(IsBoxInFrustum(Unbounded, {1'000'000, 0, 0}, Extent));
+}
+
+TEST_CASE("Box screen bounds cover the projected box and the whole target across the camera plane")
+{
+	const FMatrix4 WorldToClip = TestProjection();
+	constexpr FExtent2D Target{64, 64};
+	const FRenderViewport Ahead = GetBoxScreenBounds(WorldToClip, Target, {0, 0, 5}, {0.5f, 0.5f, 0.5f});
+	CHECK(Ahead.Width > 0);
+	CHECK(Ahead.Width < Target.Width);
+	CHECK(Ahead.X < 32);
+	CHECK(Ahead.X + Ahead.Width > 32);
+	CHECK(Ahead.Y < 32);
+	CHECK(Ahead.Y + Ahead.Height > 32);
+
+	const FRenderViewport Straddling = GetBoxScreenBounds(WorldToClip, Target, {0, 0, 0}, {1, 1, 1});
+	CHECK(Straddling.Width == Target.Width);
+	CHECK(Straddling.Height == Target.Height);
+
+	const FRenderViewport Aside = GetBoxScreenBounds(WorldToClip, Target, {1000, 0, 5}, {0.5f, 0.5f, 0.5f});
+	CHECK(Aside.Width == 0);
+	CHECK(GetBoxScreenBounds(WorldToClip, Target, {0, 0, -5}, {0.5f, 0.5f, 0.5f}).Width == 0);
+}
+
 TEST_CASE("Directional cascades contain camera frustum corners for off-center projections")
 {
 	const FMatrix4 View = FMatrix4::Rotation(FQuaternion::FromAxisAngle({0, 1, 0}, 0.4f) * FQuaternion::FromAxisAngle({1, 0, 0}, -0.2f)) * FMatrix4::Translation({-8, -3, 12});

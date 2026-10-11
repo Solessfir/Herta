@@ -76,8 +76,8 @@ struct FVisualShaderSet
 	FShaderAsset FullscreenVertex;
 	FShaderAsset SkyFragment;
 	FShaderAsset FogFragment;
-	FShaderAsset CompositeFragment;
 	FShaderAsset ToneMapFragment;
+	FShaderAsset ToneMapLutFragment;
 	FShaderAsset ShadowVertex;
 	FShaderAsset ShadowInstancedVertex;
 	FShaderAsset ShadowFragment;
@@ -94,6 +94,18 @@ struct FShadowView
 {
 	FMatrix4 WorldToClip;
 	FRenderViewport Viewport;
+	// Local lights fade to nothing at their range, and their infinite projections have no far plane, so the range bounds which casters matter. Zero for cascades.
+	FVector3 LightPosition{};
+	float LightRange = 0.f;
+};
+
+// The planes of a clip volume in world space, pointing inward, for rejecting bounds that cannot reach a view.
+struct FViewFrustum
+{
+	std::array<FVector4, 6> Planes{};
+	FVector3 SphereCenter{};
+	// Zero leaves the volume bounded by its planes alone.
+	float SphereRadius = 0.f;
 };
 
 // Mirrors VisualShared.slang. Float4 fields keep the uniform layout identical across compilers.
@@ -150,4 +162,10 @@ struct alignas(16) FVisualUniforms
 
 [[nodiscard]] std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMatrix4& View, const FMatrix4& Projection, FExtent2D Extent, std::span<const FRenderLight> Lights, const FVisualSettings& Settings);
 std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, std::span<const FRenderLight> Lights, const FMatrix4& Projection);
+// Expects Vulkan clip space with reversed depth, so a far plane at infinity never rejects anything.
+FViewFrustum MakeViewFrustum(const FMatrix4& WorldToClip, const FVector3& SphereCenter = {}, float SphereRadius = 0.f);
+// Conservative: a box straddling two planes outside a frustum corner can still pass.
+bool IsBoxInFrustum(const FViewFrustum& Frustum, const FVector3& Center, const FVector3& Extent);
+// The pixels a world box covers, clamped to the target. A box crossing the camera plane covers it all; one entirely behind the camera or off screen is empty.
+FRenderViewport GetBoxScreenBounds(const FMatrix4& WorldToClip, FExtent2D Target, const FVector3& Center, const FVector3& Extent);
 }

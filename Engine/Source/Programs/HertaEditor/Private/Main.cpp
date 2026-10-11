@@ -276,7 +276,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	WindowDescriptor.bVisible = false;
 	WindowDescriptor.bCustomTitleBar = true;
 	// Automated runs keep the work-area-sized window so captures and measurements stay comparable.
-	WindowDescriptor.bMaximized = !bSmokeTest && !bPlatformSmokeTest && !bVisualTest && !bScalingTest;
+	WindowDescriptor.bMaximized = !bSmokeTest && !bPlatformSmokeTest && !bScalingTest;
 	std::expected<FWindow*, FApplicationError> WindowResult = Application->CreateWindow(std::move(WindowDescriptor));
 	if (!WindowResult)
 	{
@@ -367,8 +367,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"SkyView.vert.hshader", &VisualShaders.FullscreenVertex},
 	    std::pair{"Sky.frag.hshader", &VisualShaders.SkyFragment},
 	    std::pair{"VolumetricFog.frag.hshader", &VisualShaders.FogFragment},
-	    std::pair{"FogComposite.frag.hshader", &VisualShaders.CompositeFragment},
 	    std::pair{"ToneMap.frag.hshader", &VisualShaders.ToneMapFragment},
+	    std::pair{"ToneMapLut.frag.hshader", &VisualShaders.ToneMapLutFragment},
 	    std::pair{"Shadow.vert.hshader", &VisualShaders.ShadowVertex},
 	    std::pair{"Shadow.instanced.vert.hshader", &VisualShaders.ShadowInstancedVertex},
 	    std::pair{"Shadow.frag.hshader", &VisualShaders.ShadowFragment},
@@ -611,6 +611,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	}
 
 	std::unique_ptr<FToolUIContext> ToolUI = std::move(*ToolUIResult);
+	if (bVisualTest)
+	{
+		// Measure the heaviest common case: a maximized window with the F11 full viewport.
+		ToolUI->SetViewportImmersive(true);
+	}
 
 	const std::filesystem::path EditorExecutable = GetExecutablePath();
 	std::filesystem::path AssetWorker = EditorExecutable.parent_path() / "HertaAssetWorker";
@@ -790,6 +795,18 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::uint64_t LevelTextureId = 0;
 	double RenderMilliseconds = 0.;
 	double LastCpuMilliseconds = 0.;
+
+	// Where the CPU spends the last presented frame, so the visual test can tell recording from waiting.
+	struct FFramePhases
+	{
+		double Total = 0.;
+		double Render = 0.;
+		double Acquire = 0.;
+		double ToolUI = 0.;
+		double Present = 0.;
+	};
+
+	FFramePhases LastFramePhases;
 	RenderFrame = [&]
 	{
 		if (bRendering || bRenderFailed)
@@ -800,7 +817,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		bRendering = true;
 		const auto CpuFrameStart = std::chrono::steady_clock::now();
 		bool bViewportRendered = false;
-		Presentation->SetToolUIGpuTimingEnabled(bScalingTest || EditorFramework->IsUnitStatsVisible());
+		Presentation->SetToolUIGpuTimingEnabled(bScalingTest || bVisualTest || EditorFramework->IsUnitStatsVisible());
 		struct FRenderGuard
 		{
 			explicit FRenderGuard(bool& bInRendering)
@@ -919,7 +936,9 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			bFrameFailed = true;
 		}
 
+		const auto AcquireStart = std::chrono::steady_clock::now();
 		std::expected<EPresentationStatus, FPresentationError> BeginResult = Presentation->BeginFrame();
+		const auto AcquireEnd = std::chrono::steady_clock::now();
 		const bool bMainFrameReady = BeginResult && (*BeginResult == EPresentationStatus::Ready || *BeginResult == EPresentationStatus::Suboptimal);
 		if (!BeginResult)
 		{
@@ -944,7 +963,9 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 		}
 
+		const auto ToolUIStart = std::chrono::steady_clock::now();
 		std::expected<void, FToolUIError> ToolUIRenderResult = ToolUI->EndFrame(bMainFrameReady);
+		const auto PresentStart = std::chrono::steady_clock::now();
 		if (!ToolUIRenderResult)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not render ToolUI: {}", ToolUIRenderResult.error().Message);
@@ -995,9 +1016,16 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 		if (bPresentedMainFrame && !bFrameFailed)
 		{
-			const double CpuMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - CpuFrameStart).count();
+			const auto Now = std::chrono::steady_clock::now();
+			const auto Milliseconds = [](const auto Duration)
+			{
+				return std::chrono::duration<double, std::milli>(Duration).count();
+			};
+
+			const double CpuMilliseconds = Milliseconds(Now - CpuFrameStart);
 			EditorFramework->SetFrameTimings(CpuMilliseconds, Presentation->GetToolUIGpuMilliseconds());
 			LastCpuMilliseconds = CpuMilliseconds;
+			LastFramePhases = {.Total = CpuMilliseconds, .Render = RenderMilliseconds, .Acquire = Milliseconds(AcquireEnd - AcquireStart), .ToolUI = Milliseconds(PresentStart - ToolUIStart), .Present = Milliseconds(Now - PresentStart)};
 		}
 
 		return bPresentedMainFrame && !bFrameFailed && (!bScalingTest || bViewportRendered);
@@ -1019,6 +1047,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::size_t ScalingPhase = 0;
 	std::size_t ScalingFrame = 0;
 	std::size_t VisualFrames = 0;
+	FFramePhases VisualPhaseSums;
+	// Single-frame GPU timings swing with clocks, so the capture averages them.
+	std::vector<std::pair<std::string, double>> VisualPassSums;
+	std::vector<std::pair<std::string, double>> VisualBookmarkPassSums;
+	double VisualToolUIGpuSum = 0.;
+	auto VisualCaptureStart = std::chrono::steady_clock::now();
 	std::uint32_t VisualSlot = 0;
 	std::string VisualSlotName;
 	std::size_t VisualSettleFrames = 0;
@@ -1026,6 +1060,23 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	bool bVisualCompleted = false;
 	const std::filesystem::path VisualCaptureDirectory = RepositoryRoot / "Saved/VisualTest";
 	constexpr std::size_t VisualBookmarkSettleFrames = 60;
+	constexpr std::size_t VisualBookmarkSampleFrames = 30;
+	const auto AccumulateVisualPasses = [&](std::vector<std::pair<std::string, double>>& Sums)
+	{
+		for (const auto& Timing : MeshRenderer->GetGpuTimings())
+		{
+			const auto Existing = std::ranges::find(Sums, Timing.Name, &std::pair<std::string, double>::first);
+			if (Existing == Sums.end())
+			{
+				Sums.emplace_back(Timing.Name, Timing.Milliseconds);
+			}
+			else
+			{
+				Existing->second += Timing.Milliseconds;
+			}
+		}
+	};
+
 	const auto CaptureVisualView = [&](const std::string& FileName)
 	{
 		const auto Pixels = Presentation->GetGraphicsDevice().ReadbackTexture(MeshRenderer->GetColorTarget());
@@ -1138,13 +1189,40 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				break;
 			}
 
+			if (bPresented && VisualFrames == 600 && !bVisualCompleted && VisualSettleFrames >= VisualBookmarkSettleFrames - VisualBookmarkSampleFrames)
+			{
+				AccumulateVisualPasses(VisualBookmarkPassSums);
+			}
+
+			if (bPresented && EditorFramework->GetFrameMetrics().bAssetsReady && VisualFrames < 600)
+			{
+				if (VisualFrames == 0)
+				{
+					VisualCaptureStart = std::chrono::steady_clock::now();
+				}
+				else
+				{
+					VisualPhaseSums.Total += LastFramePhases.Total;
+					VisualPhaseSums.Render += LastFramePhases.Render;
+					VisualPhaseSums.Acquire += LastFramePhases.Acquire;
+					VisualPhaseSums.ToolUI += LastFramePhases.ToolUI;
+					VisualPhaseSums.Present += LastFramePhases.Present;
+					VisualToolUIGpuSum += Presentation->GetToolUIGpuMilliseconds().value_or(0.);
+					AccumulateVisualPasses(VisualPassSums);
+				}
+			}
+
 			if (bPresented && EditorFramework->GetFrameMetrics().bAssetsReady && VisualFrames < 600 && ++VisualFrames == 600)
 			{
 				const FExtent2D Extent = EditorFramework->GetViewportExtent();
 				HERTA_LOG_INFO(*Log, EditorLog, "Visual capture completed: frames={} viewport={}x{} target_bytes={}", VisualFrames, Extent.Width, Extent.Height, MeshRenderer->GetRenderTargetBytes());
-				for (const auto& Timing : MeshRenderer->GetGpuTimings())
+				// The first frame only starts the clock, so averages cover the remaining intervals.
+				constexpr double Intervals = 599.;
+				const double WallMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - VisualCaptureStart).count() / Intervals;
+				HERTA_LOG_INFO(*Log, EditorLog, "Visual frame wall_ms={:.3f} fps={:.1f} cpu_ms={:.3f} render_ms={:.3f} acquire_ms={:.3f} toolui_ms={:.3f} present_ms={:.3f} toolui_gpu_ms={:.3f}", WallMilliseconds, 1000. / WallMilliseconds, VisualPhaseSums.Total / Intervals, VisualPhaseSums.Render / Intervals, VisualPhaseSums.Acquire / Intervals, VisualPhaseSums.ToolUI / Intervals, VisualPhaseSums.Present / Intervals, VisualToolUIGpuSum / Intervals);
+				for (const auto& [Name, Milliseconds] : VisualPassSums)
 				{
-					HERTA_LOG_INFO(*Log, EditorLog, "Visual pass={} gpu_ms={:.3f}", Timing.Name, Timing.Milliseconds);
+					HERTA_LOG_INFO(*Log, EditorLog, "Visual pass={} gpu_ms={:.3f}", Name, Milliseconds / Intervals);
 				}
 
 				CaptureVisualView("00-Start.png");
@@ -1155,14 +1233,21 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 			else if (bPresented && VisualFrames == 600 && !bVisualCompleted && ++VisualSettleFrames == VisualBookmarkSettleFrames)
 			{
-				// Each bookmark settles for a second of frames so shadows and GPU timings reflect its view.
+				// Each bookmark settles for a second of frames so shadows reflect its view, then averages the last half.
+				std::ranges::sort(VisualBookmarkPassSums, std::greater{}, &std::pair<std::string, double>::second);
 				double GpuMilliseconds = 0.;
-				for (const auto& Timing : MeshRenderer->GetGpuTimings())
+				std::string Passes;
+				for (const auto& [Name, Milliseconds] : VisualBookmarkPassSums)
 				{
-					GpuMilliseconds += Timing.Milliseconds;
+					GpuMilliseconds += Milliseconds / VisualBookmarkSampleFrames;
+					if (Milliseconds / VisualBookmarkSampleFrames >= 0.1)
+					{
+						Passes += std::format(" \"{}\"={:.3f}", Name, Milliseconds / VisualBookmarkSampleFrames);
+					}
 				}
 
-				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount());
+				VisualBookmarkPassSums.clear();
+				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Passes);
 				CaptureVisualView(MakeVisualCaptureName(VisualSlot, VisualSlotName));
 				if (!ShowNextVisualBookmark())
 				{

@@ -82,6 +82,9 @@ float3 BRDF(float3 N, float3 V, float3 L, float3 Color, float Metallic, float Ro
 float3 RectLighting(FVisualLight Light, float3 Position, float3 N, float3 V, float3 Color, float Metallic, float Roughness)
 {
     float3 Result = 0.0;
+    // Pixels behind the one-sided emitter or past range from every sample would run all 16 taps for nothing.
+    float3 FromCenter = Position - Light.PositionType.xyz;
+    if (dot(FromCenter, Light.DirectionRange.xyz) <= 0.0 || length(FromCenter) >= Light.DirectionRange.w + 0.5 * length(float2(Light.RightWidth.w, Light.UpHeight.w))) return Result;
     float Area = max(0.0001, Light.RightWidth.w * Light.UpHeight.w);
     float3 Radiance = Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * Area);
     // Area quadrature evaluates both diffuse and GGX across the one-sided emitter.
@@ -131,15 +134,18 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     {
         FVisualLight Light = Visual.Lights[I];
         if (int(Light.PositionType.w) == 1) continue;
-        float Shadow = LightVisibility(ShadowAtlas, Light, Input.WorldPosition, N);
+        float3 Radiance;
         if (int(Light.PositionType.w) == 4)
-            Result += RectLighting(Light, Input.WorldPosition, N, V, Base.rgb, Metallic, Roughness) * Shadow;
+            Radiance = RectLighting(Light, Input.WorldPosition, N, V, Base.rgb, Metallic, Roughness);
         else
         {
             float3 L;
             float Attenuation = LightAttenuation(Light, Input.WorldPosition, L);
-            Result += BRDF(N, V, L, Base.rgb, Metallic, Roughness) * Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Shadow;
+            Radiance = BRDF(N, V, L, Base.rgb, Metallic, Roughness) * Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation;
         }
+        // Shadow filtering costs more than the lighting, so pixels out of range, outside the cone, or facing away skip it.
+        if (all(Radiance <= 0.0)) continue;
+        Result += Radiance * LightVisibility(ShadowAtlas, Light, Input.WorldPosition, N);
     }
     if (Visual.Sky.x > 0.0)
     {

@@ -7,6 +7,7 @@
 #include <format>
 #include <functional>
 #include <limits>
+#include <map>
 #include <optional>
 #include <unordered_map>
 #include <utility>
@@ -117,9 +118,9 @@ struct FFrame
 	std::uint64_t Serial = 0;
 	std::size_t UploadBytes = 0;
 	std::size_t UniformBytes = 0;
-	std::size_t UniformCursor = 0;
-	std::size_t UniformCacheBytes = 0;
-	std::vector<nvrhi::BufferHandle> UniformBuffers;
+	// Draws in a recording mostly share targets and material textures, so their framebuffers and descriptor sets are created once per recording.
+	std::map<std::array<nvrhi::ITexture*, 2>, nvrhi::FramebufferHandle> Framebuffers;
+	std::map<std::vector<nvrhi::IResource*>, nvrhi::BindingSetHandle> BindingSets;
 	std::array<FPassTiming, MaximumGpuPassTimings> Timings;
 	std::size_t TimingCount = 0;
 	std::optional<std::size_t> ActiveTiming;
@@ -134,9 +135,10 @@ struct FFrame
 		Operations.clear();
 		UploadedBuffers.clear();
 		WrittenTextures.clear();
+		Framebuffers.clear();
+		BindingSets.clear();
 		UploadBytes = 0;
 		UniformBytes = 0;
-		UniformCursor = 0;
 		TimingCount = 0;
 		ActiveTiming.reset();
 		SkippedTimingDepth = 0;
@@ -342,7 +344,7 @@ public:
 
 		if (Pipeline->UniformBufferSize != 0)
 		{
-			Layout.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
+			Layout.addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0));
 		}
 
 		if (Pipeline->bPushConstants)
@@ -420,7 +422,9 @@ public:
 	[[nodiscard]] std::expected<void, FPresentationError> WriteBuffer(const FBufferHandle& Buffer, const std::span<const std::byte> Data) override
 	{
 		const auto Native = std::dynamic_pointer_cast<FBuffer>(Buffer);
-		if (!Owns(Native) || Data.size() != Native->Descriptor.Size)
+		// Instance buffers keep spare capacity, and their draws name the instance range they read.
+		const bool bInstances = Owns(Native) && Native->Descriptor.Usage == EBufferUsage::Vertex && Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance;
+		if (!Owns(Native) || (bInstances ? Data.size() > Native->Descriptor.Size : Data.size() != Native->Descriptor.Size))
 		{
 			return Invalid("Buffer upload must fully initialize a buffer belonging to this device");
 		}
@@ -633,31 +637,20 @@ public:
 
 		if (UniformAllocation != 0)
 		{
-			if (Frame.UniformCursor < Frame.UniformBuffers.size() && Frame.UniformBuffers[Frame.UniformCursor]->getDesc().byteSize != UniformAllocation)
+			// Volatile buffers suballocate each write from NVRHI's upload ring. Ordinary buffers would end the render pass and add a barrier before every draw.
+			auto& Volatile = VolatileUniforms[UniformAllocation];
+			if (!Volatile)
 			{
-				for (std::size_t Index = Frame.UniformCursor; Index < Frame.UniformBuffers.size(); ++Index)
+				const auto Versions = static_cast<std::uint32_t>(MaximumUniformBytesPerFrame / UniformAllocation * (FrameCount + 1));
+				Volatile = Device->createBuffer(nvrhi::BufferDesc().setByteSize(UniformAllocation).setIsConstantBuffer(true).setIsVolatile(true).setMaxVersions(Versions).setDebugName("Draw uniforms"));
+				if (!Volatile)
 				{
-					Frame.UniformCacheBytes -= Frame.UniformBuffers[Index]->getDesc().byteSize;
-				}
-
-				Frame.UniformBuffers.resize(Frame.UniformCursor);
-			}
-
-			if (Frame.UniformCursor == Frame.UniformBuffers.size())
-			{
-				UniformBuffer = Device->createBuffer(nvrhi::BufferDesc().setByteSize(UniformAllocation).setIsConstantBuffer(true).setDebugName("Draw uniforms").enableAutomaticStateTracking(nvrhi::ResourceStates::ConstantBuffer));
-				if (!UniformBuffer)
-				{
+					VolatileUniforms.erase(UniformAllocation);
 					return Failed("Could not allocate draw uniform buffer");
 				}
+			}
 
-				Frame.UniformBuffers.push_back(UniformBuffer);
-				Frame.UniformCacheBytes += UniformAllocation;
-			}
-			else
-			{
-				UniformBuffer = Frame.UniformBuffers[Frame.UniformCursor];
-			}
+			UniformBuffer = Volatile;
 		}
 
 		nvrhi::FramebufferDesc FramebufferDescriptor;
@@ -671,7 +664,12 @@ public:
 			FramebufferDescriptor.setDepthAttachment(Depth->Handle);
 		}
 
-		const auto Framebuffer = Device->createFramebuffer(FramebufferDescriptor);
+		nvrhi::FramebufferHandle& Framebuffer = Frame.Framebuffers[{Color ? Color->Handle.Get() : nullptr, Depth ? Depth->Handle.Get() : nullptr}];
+		if (!Framebuffer)
+		{
+			Framebuffer = Device->createFramebuffer(FramebufferDescriptor);
+		}
+
 		nvrhi::BindingSetDesc BindingDescriptor;
 		for (std::uint32_t Slot = 0; Slot < Textures.size(); ++Slot)
 		{
@@ -693,7 +691,23 @@ public:
 			BindingDescriptor.addItem(nvrhi::BindingSetItem::PushConstants(1, MeshPushConstantSize));
 		}
 
-		const nvrhi::BindingSetHandle Bindings = Pipeline->Layout ? Device->createBindingSet(BindingDescriptor, Pipeline->Layout) : nullptr;
+		nvrhi::BindingSetHandle Bindings;
+		if (Pipeline->Layout)
+		{
+			std::vector<nvrhi::IResource*> Key{Pipeline->Layout.Get()};
+			for (const nvrhi::BindingSetItem& Item : BindingDescriptor.bindings)
+			{
+				Key.push_back(Item.resourceHandle);
+			}
+
+			nvrhi::BindingSetHandle& Cached = Frame.BindingSets[std::move(Key)];
+			if (!Cached)
+			{
+				Cached = Device->createBindingSet(BindingDescriptor, Pipeline->Layout);
+			}
+
+			Bindings = Cached;
+		}
 		if (!Framebuffer || (Pipeline->Layout && !Bindings))
 		{
 			return Failed("Could not create draw framebuffer or bindings");
@@ -734,7 +748,6 @@ public:
 
 		Frame.UploadBytes += Draw.Uniforms.size();
 		Frame.UniformBytes += UniformAllocation;
-		Frame.UniformCursor += UniformAllocation != 0 ? 1 : 0;
 		return {};
 	}
 
@@ -1058,6 +1071,8 @@ private:
 	VkDevice NativeDevice;
 	std::shared_ptr<const std::uint8_t> Owner = std::make_shared<const std::uint8_t>(0);
 	std::array<FFrame, FrameCount> Frames;
+	// Keyed by the 256-byte-aligned uniform size. Each holds enough versions for every recording in flight at the per-frame budget.
+	std::unordered_map<std::size_t, nvrhi::BufferHandle> VolatileUniforms;
 	std::size_t FrameIndex = 0;
 	std::uint64_t LastSubmittedSerial = 0;
 	mutable std::uint64_t LastCompletedSerial = 0;

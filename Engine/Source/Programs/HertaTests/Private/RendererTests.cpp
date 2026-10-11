@@ -196,7 +196,8 @@ TEST_CASE("Mesh renderer uses caller matrices and rejects nonfinite views before
 	REQUIRE(Renderer);
 	Scene.Model = Herta::FMatrix4::Translation({1, 2, 3});
 	Scene.View.View = Herta::FMatrix4::Translation({0, 0, 4});
-	Scene.View.Projection = Herta::FMatrix4::Scale({2, 3, 4});
+	// Small enough to keep the cube inside clip space, where culling keeps it.
+	Scene.View.Projection = Herta::FMatrix4::Scale({0.2f, 0.1f, 0.1f});
 	REQUIRE((*Renderer)->Render({320, 240}, Scene.View));
 	CHECK(Device.LastDraw.WorldToClip == (Scene.View.Projection * Scene.View.View * Scene.Model).Data());
 	CHECK(Device.LastDraw.ObjectToView == (Scene.View.View * Scene.Model).Data());
@@ -214,7 +215,7 @@ TEST_CASE("Mesh renderer records distinct transforms for every model and accepts
 	REQUIRE(Renderer);
 	std::array Models{Herta::FMatrix4::Translation({2, 0, 0}), Herta::FMatrix4::Translation({-2, 0, 0}) * Herta::FMatrix4::Scale({2, 0.25f, 3})};
 	const std::array<const Herta::FRenderMesh*, 2> Meshes{Cube.get(), Cube.get()};
-	Herta::FMeshRenderView View{.View = Herta::FMatrix4::Translation({0, 0, 5}), .Projection = Herta::FMatrix4{}, .Models = Models};
+	Herta::FMeshRenderView View{.View = Herta::FMatrix4::Translation({0, 0, 5}), .Projection = Herta::FMatrix4::Scale({0.1f, 0.1f, 0.1f}), .Models = Models};
 	View.Meshes = Meshes;
 	Device.Events.clear();
 	REQUIRE((*Renderer)->Render({320, 240}, View));
@@ -310,7 +311,7 @@ TEST_CASE("Mesh renderer draws the optional world grid between mesh and debug ov
 	const auto Renderer = CreateGridRenderer(Device);
 	REQUIRE(Renderer);
 	Herta::FMeshRenderView View;
-	const Herta::FMatrix4 Model;
+	const Herta::FMatrix4 Model = Herta::FMatrix4::Translation({3, 0, 8});
 	View.Models = std::span{&Model, 1};
 	View.Meshes = std::span{&CubeMesh, 1};
 	View.View = Herta::FMatrix4::Translation({-3, 0, -7});
@@ -493,7 +494,8 @@ TEST_CASE("Mesh renderer submits ten thousand shared cubes as one indexed instan
 	}
 
 	const std::vector<const Herta::FRenderMesh*> Meshes(Models.size(), Cube.get());
-	const Herta::FMeshRenderView View{.View = Herta::FMatrix4::Translation({0, 0, 5}), .Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.f, 1.f, 0.1f), .Models = Models, .Meshes = Meshes};
+	// Far enough back that the whole grid stays inside the frustum.
+	const Herta::FMeshRenderView View{.View = Herta::FMatrix4::Translation({-49.5f, 0, 150}), .Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.f, 1.f, 0.1f), .Models = Models, .Meshes = Meshes};
 	Device.Events.clear();
 	REQUIRE((*Renderer)->Render({64, 64}, View));
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Draw", "Submit"});
@@ -506,7 +508,7 @@ TEST_CASE("Mesh renderer submits ten thousand shared cubes as one indexed instan
 	CHECK(Draw.FirstInstance == 0);
 	REQUIRE(Draw.Instances);
 	CHECK(Draw.Instances->GetDescriptor().VertexFormat == Herta::EGraphicsVertexFormat::MeshInstance);
-	CHECK(Draw.Instances->GetDescriptor().Size == Models.size() * sizeof(Herta::FMeshInstance));
+	CHECK(Draw.Instances->GetDescriptor().Size >= Models.size() * sizeof(Herta::FMeshInstance));
 	REQUIRE(Device.InstanceUpload.size() == Models.size());
 	for (const std::size_t Index : {std::size_t{0}, std::size_t{99}, std::size_t{9'999}})
 	{
@@ -532,6 +534,68 @@ TEST_CASE("Mesh renderer submits ten thousand shared cubes as one indexed instan
 	CHECK((*Renderer)->GetLastDrawCount() == 0);
 }
 
+TEST_CASE("Mesh renderer culls instances outside the camera frustum")
+{
+	FTestGraphicsDevice Device;
+	const auto Cube = CreateTestCube(Device);
+	Herta::FShaderAsset InstancedVertex;
+	InstancedVertex.Bytecode = {1};
+	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex);
+	REQUIRE(Renderer);
+	// In front, behind, far to the side, and straddling the left edge of the view.
+	const std::array Models{Herta::FMatrix4::Translation({0, 0, 10}), Herta::FMatrix4::Translation({0, 0, -10}), Herta::FMatrix4::Translation({100, 0, 10}), Herta::FMatrix4::Translation({5.8f, 0, 10})};
+	const std::vector<const Herta::FRenderMesh*> Meshes(Models.size(), Cube.get());
+	const Herta::FMeshRenderView View{.View = Herta::FMatrix4{}, .Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.f, 1.f, 0.1f), .Models = Models, .Meshes = Meshes};
+	Device.Draws.clear();
+	REQUIRE((*Renderer)->Render({64, 64}, View));
+	REQUIRE(Device.Draws.size() == 1);
+	CHECK(Device.Draws[0].InstanceCount == 2);
+	REQUIRE(Device.InstanceUpload.size() == 2);
+	CHECK(Device.InstanceUpload[0].ObjectToView == Models[0].Data());
+	CHECK(Device.InstanceUpload[1].ObjectToView == Models[3].Data());
+
+	const std::array Hidden{Models[1], Models[2]};
+	const Herta::FMeshRenderView Empty{.View = Herta::FMatrix4{}, .Projection = View.Projection, .Models = Hidden, .Meshes = std::span(Meshes).first(2)};
+	Device.Events.clear();
+	REQUIRE((*Renderer)->Render({64, 64}, Empty));
+	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Submit"});
+	CHECK((*Renderer)->GetLastDrawCount() == 0);
+}
+
+TEST_CASE("Selection outline rasterizes the visible selection as one instanced draw per batch")
+{
+	FTestGraphicsDevice Device;
+	const auto Cube = CreateTestCube(Device);
+	Herta::FShaderAsset InstancedVertex;
+	InstancedVertex.Bytecode = {1};
+	Herta::FVisualShaderSet Visuals;
+	Visuals.FullscreenVertex.Bytecode = {1};
+	Visuals.SelectionOutline.Bytecode = {1};
+	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex, Visuals);
+	REQUIRE(Renderer);
+	// The third selected cube is behind the camera, and the fourth cube is not selected.
+	const std::array Models{Herta::FMatrix4::Translation({0, 0, 10}), Herta::FMatrix4::Translation({1, 0, 10}), Herta::FMatrix4::Translation({0, 0, -10}), Herta::FMatrix4::Translation({-1, 0, 10})};
+	const std::vector<const Herta::FRenderMesh*> Meshes(Models.size(), Cube.get());
+	const std::array<std::size_t, 3> Selected{0, 1, 2};
+	const Herta::FMeshRenderView View{.View = Herta::FMatrix4{}, .Projection = Herta::FMatrix4::PerspectiveReversedInfinite(1.f, 1.f, 0.1f), .Models = Models, .Meshes = Meshes, .Selected = Selected};
+	Device.Draws.clear();
+	REQUIRE((*Renderer)->Render({64, 64}, View));
+	std::vector<const Herta::FIndexedDraw*> SelectionDraws;
+	for (const Herta::FIndexedDraw& Draw : Device.Draws)
+	{
+		if (std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor.Name == "Instanced masked shadow atlas")
+		{
+			SelectionDraws.push_back(&Draw);
+		}
+	}
+
+	REQUIRE(SelectionDraws.size() == 1);
+	CHECK(SelectionDraws[0]->InstanceCount == 2);
+	REQUIRE(Device.InstanceUpload.size() >= SelectionDraws[0]->FirstInstance + 2);
+	CHECK(Device.InstanceUpload[SelectionDraws[0]->FirstInstance].ObjectToView == Models[0].Data());
+	CHECK(Device.InstanceUpload[SelectionDraws[0]->FirstInstance + 1].ObjectToView == Models[1].Data());
+}
+
 TEST_CASE("Mesh instancing groups shared sections and skips null meshes without changing transforms or textures")
 {
 	FTestGraphicsDevice Device;
@@ -548,7 +612,7 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	InstancedVertex.Bytecode = {1};
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex);
 	REQUIRE(Renderer);
-	const std::array Models{Herta::FMatrix4::Translation({1, 0, 0}), Herta::FMatrix4::Translation({2, 0, 0}), Herta::FMatrix4::Translation({3, 0, 0}), Herta::FMatrix4::Translation({4, 0, 0})};
+	const std::array Models{Herta::FMatrix4::Translation({0.1f, 0, 0}), Herta::FMatrix4::Translation({0.2f, 0, 0}), Herta::FMatrix4::Translation({0.3f, 0, 0}), Herta::FMatrix4::Translation({0.4f, 0, 0})};
 	const std::array<const Herta::FRenderMesh*, 4> Meshes{First->get(), Second.get(), nullptr, First->get()};
 	Herta::FMeshRenderView View{.View = Herta::FMatrix4{}, .Projection = Herta::FMatrix4{}, .Models = Models, .Meshes = Meshes};
 	Device.Draws.clear();

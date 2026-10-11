@@ -216,11 +216,23 @@ float3 ComposeProceduralSky(float3 Direction, float3 Scattering)
     return max(0.0, Radiance);
 }
 
-float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, int ShadowIndex)
+// The tone mapping LUT unwraps 64 log2 exposure steps per channel into 64 slices of 64x64 side by side, blue choosing the slice.
+// GT7's hue-preserving highlight fade bends sharply, and 32 steps put saturated highlights 20+ sRGB levels off where 64 stay within a few.
+// 2^-12 is black on any display, and 2^8 of exposed paper white is past every display peak.
+static const float ToneMapLutSize = 64.0;
+static const float ToneMapLutMinimumLog2 = -12.0;
+static const float ToneMapLutMaximumLog2 = 8.0;
+
+float3 ToneMapLutDecode(float3 Index)
+{
+    return exp2(lerp(ToneMapLutMinimumLog2, ToneMapLutMaximumLog2, Index));
+}
+
+float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, int ShadowIndex, bool bAllowSoft)
 {
     if (ShadowIndex < 0 || ShadowIndex >= int(Visual.Controls.y)) return 1.0;
     FShadow Shadow = Visual.Shadows[ShadowIndex];
-    int Radius = Visual.AtmosphereGeometry.w > 1.5 ? 1 : 0;
+    int Radius = bAllowSoft && Visual.AtmosphereGeometry.w > 1.5 ? 1 : 0;
     // Cascades store their world texel size; scaling the normal offset by the PCF footprint keeps coarse cascades free of acne.
     Position += Normal * (Shadow.Parameters.z + Shadow.Parameters.w * float(Radius + 1));
     float4 Clip = mul(Shadow.WorldToClip, float4(Position, 1.0));
@@ -237,21 +249,25 @@ float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, 
     int2 Origin = int2(floor(Texel)) - Radius;
     int2 TileMin = int2(Shadow.Atlas.zw * Size + 0.5);
     int2 TileMax = TileMin + int2(Shadow.Atlas.xy * Size + 0.5) - 1;
+    float Reference = NDC.z + Shadow.Parameters.x;
     float Visibility = 0.0;
-    for (int Y = 0; Y <= Last; ++Y)
+    // Each gather returns a 2x2 block, a quarter of the loads. Its corner stays inside the tile so it never reads a neighbouring one.
+    for (int Y = 0; Y <= Last; Y += 2)
     {
-        float WeightY = Y == 0 ? 1.0 - Fraction.y : Y == Last ? Fraction.y : 1.0;
-        for (int X = 0; X <= Last; ++X)
+        float2 WeightY = float2(Y == 0 ? 1.0 - Fraction.y : 1.0, Y + 1 == Last ? Fraction.y : 1.0);
+        for (int X = 0; X <= Last; X += 2)
         {
-            float WeightX = X == 0 ? 1.0 - Fraction.x : X == Last ? Fraction.x : 1.0;
-            float Depth = Atlas.Load(int3(clamp(Origin + int2(X, Y), TileMin, TileMax), 0)).r;
-            Visibility += NDC.z + Shadow.Parameters.x >= Depth ? WeightX * WeightY : 0.0;
+            float2 WeightX = float2(X == 0 ? 1.0 - Fraction.x : 1.0, X + 1 == Last ? Fraction.x : 1.0);
+            float2 Corner = float2(clamp(Origin + int2(X + 1, Y + 1), TileMin + 1, TileMax));
+            float4 Lit = step(Atlas.GatherRed(LinearSampler, Corner / Size), Reference);
+            Visibility += dot(Lit, float4(WeightX.x * WeightY.y, WeightX.y * WeightY.y, WeightX.y * WeightY.x, WeightX.x * WeightY.x));
         }
     }
     return Visibility / float(Last * Last);
 }
 
-float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Position, float3 Normal)
+// Volumetric fog passes bAllowSoft false: its dither and upsample blur already soften shadows, and soft filtering costs four times the loads at every ray step.
+float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Position, float3 Normal, bool bAllowSoft = true)
 {
     int First = int(Light.ConeShadow.z);
     int Count = int(Light.ConeShadow.w);
@@ -262,7 +278,7 @@ float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Positi
         float3 D = Position - Light.PositionType.xyz;
         float3 A = abs(D);
         int Face = A.x >= A.y && A.x >= A.z ? (D.x > 0.0 ? 0 : 1) : A.y >= A.z ? (D.y > 0.0 ? 2 : 3) : (D.z > 0.0 ? 4 : 5);
-        return ShadowVisibility(Atlas, Position, Normal, First + Face);
+        return ShadowVisibility(Atlas, Position, Normal, First + Face, bAllowSoft);
     }
     if (Type == 0)
     {
@@ -275,12 +291,12 @@ float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Positi
             {
                 // Fade the last cascade out so the shadow distance does not end on a hard line.
                 float Fade = I == Count - 1 ? saturate((Distance - Split * 0.85) / (Split * 0.15)) : 0.0;
-                return lerp(ShadowVisibility(Atlas, Position, Normal, First + I), 1.0, Fade);
+                return lerp(ShadowVisibility(Atlas, Position, Normal, First + I, bAllowSoft), 1.0, Fade);
             }
         }
         return 1.0;
     }
-    return ShadowVisibility(Atlas, Position, Normal, First);
+    return ShadowVisibility(Atlas, Position, Normal, First, bAllowSoft);
 }
 
 float LightAttenuation(FVisualLight Light, float3 Position, out float3 L)
