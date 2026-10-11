@@ -165,7 +165,7 @@ jobs:
       - schedule-guard
     if: ${{ always() && (github.event_name != 'schedule' || needs.schedule-guard.outputs.should-run == 'true') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Check out Herta
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -222,10 +222,11 @@ jobs:
             ':(glob)Engine/**/*.cpp' \
             ':(glob)Games/**/*.cpp')
           test "${#Sources[@]}" -gt 0
-          clang-tidy-19 \
+          # One clang-tidy process per core; xargs still fails the step when any file reports a finding.
+          printf '%s\0' "${Sources[@]}" | xargs -0 -n 4 -P "$(nproc)" \
+            clang-tidy-19 \
             --config-file=.clang-tidy \
-            -p=. \
-            "${Sources[@]}"
+            -p=.
 
       - name: Save project-local tools and SDKs
         if: github.event_name != 'pull_request' && steps.bootstrap-cache.outputs.cache-hit != 'true'

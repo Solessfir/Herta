@@ -845,14 +845,14 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 		}
 
-		// The display under the window can change as it moves, and querying it walks every DXGI output, so it refreshes once per second.
-		if (const auto Now = std::chrono::steady_clock::now(); Now - SystemLuminanceQuery > std::chrono::seconds(1))
+		// The display under the window can change as it moves, and querying it walks every DXGI output, so it refreshes once per second and only while HDR is requested.
+		const FEditorDisplay& DisplayPreference = ToolUI->GetAppearance().Display;
+		if (const auto Now = std::chrono::steady_clock::now(); bHdrAllowed && DisplayPreference.bHdrOutput && Now - SystemLuminanceQuery > std::chrono::seconds(1))
 		{
 			SystemLuminanceQuery = Now;
 			SystemLuminance = Window.GetDisplayLuminance();
 		}
 
-		const FEditorDisplay& DisplayPreference = ToolUI->GetAppearance().Display;
 		const float SystemPaperWhite = SystemLuminance ? SystemLuminance->SdrWhite : 0.f;
 		const float SystemPeakLuminance = SystemLuminance ? SystemLuminance->PeakLuminance : 0.f;
 		const FEditorDisplayLuminance DisplayLuminance = ResolveEditorDisplayLuminance(DisplayPreference, SystemPaperWhite, SystemPeakLuminance);

@@ -1705,7 +1705,8 @@ public:
 	[[nodiscard]] bool IsHdrOutputSupported() override
 	{
 		const auto Now = std::chrono::steady_clock::now();
-		if (!bSwapchainColorSpaceEnabled || Surface == VK_NULL_HANDLE || Now - HdrSupportCheck < std::chrono::seconds(1))
+		// Swapchain creation refreshes the answer; polling between recreations only matters while HDR is requested, to follow the window across monitors.
+		if (!HdrOutput.bEnabled || !bSwapchainColorSpaceEnabled || Surface == VK_NULL_HANDLE || Now - HdrSupportCheck < std::chrono::seconds(1))
 		{
 			return bHdrSupported;
 		}

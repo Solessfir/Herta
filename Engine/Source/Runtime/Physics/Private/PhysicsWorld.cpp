@@ -28,6 +28,7 @@
 #include <cstdio>
 #include <format>
 #include <mutex>
+#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -70,7 +71,9 @@ void TraceJolt(const char* Format, ...)
 bool AssertJolt(const char* Expression, const char* Message, const char* File, JPH::uint Line)
 {
 	std::fprintf(stderr, "Jolt assertion at %s:%u: %s%s%s\n", File, Line, Expression, Message ? " - " : "", Message ? Message : "");
-	return true;
+
+	// Jolt asserts whenever an update reports an error, but capacity overflow is a reported FPhysicsWorld::Step failure, not a programming error, so it must not trap.
+	return std::string_view(Expression) != "errors == EPhysicsUpdateError::None";
 }
 #endif
 

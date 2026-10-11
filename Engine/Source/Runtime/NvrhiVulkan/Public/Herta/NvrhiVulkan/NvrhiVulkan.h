@@ -56,7 +56,7 @@ public:
 	[[nodiscard]] virtual std::expected<void, FPresentationError> RenderViewportToolUIDrawData(FPresentationViewportHandle Viewport, const void* DrawData) = 0;
 	[[nodiscard]] virtual std::expected<EPresentationStatus, FPresentationError> PresentViewport(FPresentationViewportHandle Viewport) = 0;
 	[[nodiscard]] virtual bool HasValidationErrors() const noexcept = 0;
-	// Whether the main window's surface currently offers HDR10. Moving the window can change monitors, so the answer is refreshed about once per second.
+	// Whether the main window's surface offered HDR10 when its swapchain was last created. While HDR is requested it is also refreshed about once per second, because moving the window can change monitors.
 	[[nodiscard]] virtual bool IsHdrOutputSupported() = 0;
 	[[nodiscard]] virtual bool IsHdrOutputActive() const noexcept = 0;
 	// Recreates swapchains whose HDR state should change. Call it outside a frame; it is cheap when nothing changes.
