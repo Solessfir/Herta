@@ -55,4 +55,4 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 
 ## License
 
-[MIT](LICENSE). Third-party dependencies retain their own licenses.
+Licensed under the [MIT License](LICENSE). Third-party dependencies retain their own licenses.
