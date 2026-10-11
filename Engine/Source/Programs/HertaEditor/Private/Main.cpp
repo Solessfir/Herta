@@ -1087,11 +1087,14 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			Appearance.BlurRadius = StressStep % 3 == 0 ? 0.f : StressStep % 3 == 1 ? 10.f
 			                                                                        : 40.f;
 			ToolUI->SetAppearance(Appearance);
-			if (StressStep == 4)
+
+			// Wayland cannot restore an iconified window, and without wp_fifo_v1 its FIFO present then waits forever for frame callbacks.
+			const bool bStressMinimize = Application->GetCapabilities().WindowSystem != EWindowSystem::Wayland;
+			if (bStressMinimize && StressStep == 4)
 			{
 				Window.Minimize();
 			}
-			else if (StressStep == 5)
+			else if (bStressMinimize && StressStep == 5)
 			{
 				Window.Restore();
 			}
