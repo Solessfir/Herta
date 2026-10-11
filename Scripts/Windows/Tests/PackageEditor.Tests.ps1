@@ -98,14 +98,15 @@ try {
         'External/freetype/src/autofit/hb-script-list.h'
     )
     $WindowsPayload = @('HertaEditor.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe') | ForEach-Object { "Binaries/windows/x86_64/Shipping/$_" }
-    foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow')) {
-        foreach ($Stage in @('vert', 'frag')) {
-            $WindowsPayload += "Binaries/windows/x86_64/Shipping/Shaders/$Shader.$Stage.hshader"
-        }
+    # The package requires both stages of every Engine/Shaders/*.slang; shared .slangh headers cook nothing.
+    $ShaderSources = @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow', 'VolumetricFog') | ForEach-Object { "Engine/Shaders/$_.slang" }
+    $ShaderSources += 'Engine/Shaders/Shared.slangh'
+    $ShaderFiles = @('TexturedMesh.instanced.vert', 'Shadow.instanced.vert')
+    foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow', 'VolumetricFog')) {
+        $ShaderFiles += "$Shader.vert", "$Shader.frag"
     }
-    $WindowsPayload += 'Binaries/windows/x86_64/Shipping/Shaders/TexturedMesh.instanced.vert.hshader'
-    $VisualShaderFiles = @('Sky.vert', 'Sky.frag', 'Shadow.vert', 'Shadow.instanced.vert', 'Shadow.frag', 'VolumetricFog.frag', 'FogComposite.frag', 'ToneMap.frag', 'SmaaEdges.frag', 'SmaaWeights.frag', 'SmaaNeighborhood.frag') | ForEach-Object { "Binaries/windows/x86_64/Shipping/Shaders/$_.hshader" }
-    $WindowsPayload += $VisualShaderFiles
+    $ShaderFiles = $ShaderFiles | ForEach-Object { "Binaries/windows/x86_64/Shipping/Shaders/$_.hshader" }
+    $WindowsPayload += $ShaderFiles
     $ExcludedFiles = @(
         'Binaries/windows/x86_64/Shipping/HertaShaderWorker.exe',
         'Binaries/windows/x86_64/Shipping/HertaTests.exe',
@@ -116,7 +117,7 @@ try {
         'Engine/Content/Untracked.gltf',
         'Games/Sandbox/Content/Untracked.gltf'
     )
-    foreach ($Path in (@('LICENSE') + $ContentFiles + $NoticeFiles + $WindowsPayload + $ExcludedFiles[0..5])) {
+    foreach ($Path in (@('LICENSE') + $ContentFiles + $NoticeFiles + $ShaderSources + $WindowsPayload + $ExcludedFiles[0..5])) {
         Write-FixtureFile (Join-Path $FixtureRoot $Path)
     }
     & git -C $FixtureRoot add --all
@@ -144,7 +145,7 @@ try {
     }
 
     $Arguments.OutputDirectory = Join-Path $TemporaryRoot 'MissingInput'
-    foreach ($Path in ($VisualShaderFiles + @('Binaries/windows/x86_64/Shipping/Shaders/TexturedMesh.instanced.vert.hshader', 'Binaries/windows/x86_64/Shipping/Shaders/WorldGrid.frag.hshader', 'Engine/Content/Shapes/Sphere.gltf', 'Engine/Content/Shapes/Sphere.gltf.hmeta', 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Levels/Sandbox.hlevel', 'Games/Sandbox/Sandbox.hertaproject', 'Templates/Projects/Game/Main.hlevel', 'External/example/LICENSE'))) {
+    foreach ($Path in ($ShaderFiles + @('Engine/Content/Shapes/Sphere.gltf', 'Engine/Content/Shapes/Sphere.gltf.hmeta', 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Levels/Sandbox.hlevel', 'Games/Sandbox/Sandbox.hertaproject', 'Templates/Projects/Game/Main.hlevel', 'External/example/LICENSE'))) {
         $MissingPath = Join-Path $FixtureRoot $Path
         [IO.File]::Move($MissingPath, "$MissingPath.saved")
         Assert-PackageFails $Arguments 'Required package file is missing'
@@ -152,6 +153,14 @@ try {
         if (Test-Path -LiteralPath (Join-Path $Arguments.OutputDirectory 'Herta-windows-x86_64-Shipping')) {
             throw 'Missing input created a partial package.'
         }
+    }
+
+    $ShaderDirectory = Join-Path $FixtureRoot 'Engine/Shaders'
+    [IO.Directory]::Move($ShaderDirectory, "$ShaderDirectory.saved")
+    Assert-PackageFails $Arguments 'Required engine shader sources are missing'
+    [IO.Directory]::Move("$ShaderDirectory.saved", $ShaderDirectory)
+    if (Test-Path -LiteralPath (Join-Path $Arguments.OutputDirectory 'Herta-windows-x86_64-Shipping')) {
+        throw 'Missing shader sources created a partial package.'
     }
 
     Write-Output "Passed $TestCount editor packaging regression tests."

@@ -38,7 +38,11 @@ $RequiredFiles = @(
     'Engine/Content/Shapes/Sphere.gltf.hmeta'
 )
 # Every Engine/Shaders/*.slang cooks a vertex and fragment stage.
-foreach ($ShaderSource in Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'Engine/Shaders') -Filter '*.slang' -File | Sort-Object Name) {
+$ShaderSources = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'Engine/Shaders') -Filter '*.slang' -File -ErrorAction SilentlyContinue | Sort-Object Name)
+if ($ShaderSources.Count -eq 0) {
+    throw 'Required engine shader sources are missing: Engine/Shaders/*.slang'
+}
+foreach ($ShaderSource in $ShaderSources) {
     foreach ($Stage in @('vert', 'frag')) {
         $RequiredFiles += "$BinaryDirectory/Shaders/$($ShaderSource.BaseName).$Stage.hshader"
     }

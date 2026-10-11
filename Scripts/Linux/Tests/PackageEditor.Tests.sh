@@ -106,14 +106,14 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
     chmod 755 -- "${repository_root}/${binary_directory}/${program}"
 done
 
-for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow; do
-    for stage in vert frag; do
-        write_fixture_file "${binary_directory}/Shaders/${shader}.${stage}.hshader"
-    done
+# The package requires both stages of every Engine/Shaders/*.slang; shared .slangh headers cook nothing.
+shader_files=(TexturedMesh.instanced.vert Shadow.instanced.vert)
+for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow VolumetricFog; do
+    write_fixture_file "Engine/Shaders/${shader}.slang"
+    shader_files+=("${shader}.vert" "${shader}.frag")
 done
-write_fixture_file "${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader"
-visual_shader_files=(Sky.vert Sky.frag Shadow.vert Shadow.instanced.vert Shadow.frag VolumetricFog.frag FogComposite.frag ToneMap.frag SmaaEdges.frag SmaaWeights.frag SmaaNeighborhood.frag)
-for shader in "${visual_shader_files[@]}"; do
+write_fixture_file Engine/Shaders/Shared.slangh
+for shader in "${shader_files[@]}"; do
     write_fixture_file "${binary_directory}/Shaders/${shader}.hshader"
 done
 
@@ -157,13 +157,7 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
     [[ "$(stat -c '%a' "${extracted_package}/${binary_directory}/${program}")" == 755 ]]
 done
 
-for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow; do
-    for stage in vert frag; do
-        assert_file "${extracted_package}/${binary_directory}/Shaders/${shader}.${stage}.hshader"
-    done
-done
-assert_file "${extracted_package}/${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader"
-for shader in "${visual_shader_files[@]}"; do
+for shader in "${shader_files[@]}"; do
     assert_file "${extracted_package}/${binary_directory}/Shaders/${shader}.hshader"
 done
 
@@ -202,8 +196,6 @@ missing_inputs=(
     "${binary_directory}/HertaEditor"
     "${binary_directory}/HertaEditorCmd"
     "${binary_directory}/HertaAssetWorker"
-    "${binary_directory}/Shaders/WorldGrid.frag.hshader"
-    "${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader"
     Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf
     Engine/Content/Shapes/Cube.gltf.hmeta
     Engine/Content/Shapes/Sphere.gltf
@@ -214,7 +206,7 @@ missing_inputs=(
     External/freetype/src/gzip/zlib.h
     External/example/LICENSE
 )
-for shader in "${visual_shader_files[@]}"; do
+for shader in "${shader_files[@]}"; do
     missing_inputs+=("${binary_directory}/Shaders/${shader}.hshader")
 done
 for relative_path in "${missing_inputs[@]}"; do
@@ -223,6 +215,11 @@ for relative_path in "${missing_inputs[@]}"; do
     assert_absent "${temporary_root}/missing-output"
     mv -- "${temporary_root}/missing-input" "${repository_root}/${relative_path}"
 done
+
+mv -- "${repository_root}/Engine/Shaders" "${temporary_root}/missing-shaders"
+assert_fails 'Required engine shader sources are missing' --output-directory "${temporary_root}/missing-output"
+assert_absent "${temporary_root}/missing-output"
+mv -- "${temporary_root}/missing-shaders" "${repository_root}/Engine/Shaders"
 
 chmod 644 -- "${repository_root}/${binary_directory}/HertaEditor"
 assert_fails 'Required package program is not executable' --output-directory "${temporary_root}/missing-output"

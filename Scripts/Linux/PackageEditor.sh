@@ -67,12 +67,17 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
 done
 
 # Every Engine/Shaders/*.slang cooks a vertex and fragment stage.
-while IFS= read -r -d '' shader_source; do
+shader_sources=("${repository_root}"/Engine/Shaders/*.slang)
+if [[ ! -f "${shader_sources[0]}" ]]; then
+    echo "Required engine shader sources are missing: Engine/Shaders/*.slang" >&2
+    exit 1
+fi
+for shader_source in "${shader_sources[@]}"; do
     shader="$(basename "${shader_source}" .slang)"
     for stage in vert frag; do
         package_files+=("${binary_directory}/Shaders/${shader}.${stage}.hshader")
     done
-done < <(find "${repository_root}/Engine/Shaders" -maxdepth 1 -name '*.slang' -print0 | sort -z)
+done
 package_files+=("${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader")
 package_files+=("${binary_directory}/Shaders/Shadow.instanced.vert.hshader")
 
