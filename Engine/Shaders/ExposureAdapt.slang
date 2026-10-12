@@ -1,32 +1,15 @@
 #include "Fullscreen.slangh"
-[[vk::binding(0, 0)]] Texture2D<float4> Metering;
+[[vk::binding(0, 0)]] Texture2D<float4> Histogram;
 [[vk::binding(1, 0)]] Texture2D<float4> Previous;
 
-static const int BinCount = 64;
-static const float MinimumLog = -10.0;
-static const float MaximumLog = 16.0;
-
-// Reduces the metering grid and eases the exposure towards it. Red holds EV100; alpha marks a valid value.
+// Reduces the metering histogram and eases the exposure towards it. Red holds EV100; alpha marks a valid value.
 [shader("fragment")]
 float4 fragmentMain(FFullscreenOutput Input) : SV_Target
 {
-    float Histogram[BinCount];
-    for (int Bin = 0; Bin < BinCount; ++Bin)
-    {
-        Histogram[Bin] = 0.0;
-    }
-
     float Total = 0.0;
-    for (int Y = 0; Y < 32; ++Y)
+    for (int Bin = 0; Bin < ExposureHistogramBinCount; ++Bin)
     {
-        for (int X = 0; X < 32; ++X)
-        {
-            float2 Cell = Metering.Load(int3(X, Y, 0)).rg;
-            float LogLuminance = Cell.x / max(Cell.y, 1e-6);
-            int Bin = clamp(int((LogLuminance - MinimumLog) / (MaximumLog - MinimumLog) * BinCount), 0, BinCount - 1);
-            Histogram[Bin] += Cell.y;
-            Total += Cell.y;
-        }
+        Total += Histogram.Load(int3(Bin, 0, 0)).r;
     }
 
     // Averaging the 10th to 90th weighted percentile keeps a few highlights or deep shadows from swinging the exposure.
@@ -35,12 +18,13 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
     float Below = 0.0;
     float Sum = 0.0;
     float Weight = 0.0;
-    for (int Bin = 0; Bin < BinCount; ++Bin)
+    for (int Bin = 0; Bin < ExposureHistogramBinCount; ++Bin)
     {
-        float Overlap = max(0.0, min(Below + Histogram[Bin], High) - max(Below, Low));
-        Sum += Overlap * (MinimumLog + (float(Bin) + 0.5) * (MaximumLog - MinimumLog) / float(BinCount));
+        float Count = Histogram.Load(int3(Bin, 0, 0)).r;
+        float Overlap = max(0.0, min(Below + Count, High) - max(Below, Low));
+        Sum += Overlap * (ExposureMinimumLog + (float(Bin) + 0.5) * (ExposureMaximumLog - ExposureMinimumLog) / float(ExposureHistogramBinCount));
         Weight += Overlap;
-        Below += Histogram[Bin];
+        Below += Count;
     }
 
     // Reflected-light metering puts the average at middle grey: log2(L * S / K) with ISO 100 and K = 12.5, so EV100 = log2(L) + 3.

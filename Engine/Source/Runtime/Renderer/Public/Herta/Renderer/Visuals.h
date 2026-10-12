@@ -88,6 +88,7 @@ struct FVisualShaderSet
 	FShaderAsset SkyViewFragment;
 	FShaderAsset ExposureMeterFragment;
 	FShaderAsset ExposureAdaptFragment;
+	FShaderAsset ExposureHistogramFragment;
 };
 
 struct FShadowView

@@ -522,6 +522,13 @@ public:
 			bSwapchainColorSpaceEnabled = true;
 		}
 
+		// Labels name passes in RenderDoc and Nsight captures; the message callback below stays validation-only.
+		if (ContainsExtension(AvailableInstanceExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+		{
+			InstanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+			bDebugUtilsEnabled = true;
+		}
+
 		std::vector<const char*> Layers;
 		bool bEnableValidation = Descriptor.bEnableValidation || Descriptor.bRequireValidation;
 		if (bEnableValidation)
@@ -556,26 +563,6 @@ public:
 			else
 			{
 				Layers.push_back(ValidationLayerName.data());
-
-				std::uint32_t ExtensionCount = 0;
-				Result = vkEnumerateInstanceExtensionProperties(nullptr, &ExtensionCount, nullptr);
-				if (Result != VK_SUCCESS)
-				{
-					return std::unexpected(MakeVulkanError(EPresentationErrorCode::InstanceCreationFailed, "vkEnumerateInstanceExtensionProperties", Result));
-				}
-
-				std::vector<VkExtensionProperties> AvailableExtensions(ExtensionCount);
-				Result = vkEnumerateInstanceExtensionProperties(nullptr, &ExtensionCount, AvailableExtensions.data());
-				if (Result != VK_SUCCESS)
-				{
-					return std::unexpected(MakeVulkanError(EPresentationErrorCode::InstanceCreationFailed, "vkEnumerateInstanceExtensionProperties", Result));
-				}
-
-				if (ContainsExtension(AvailableExtensions, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
-				{
-					InstanceExtensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-					bDebugUtilsEnabled = true;
-				}
 			}
 		}
 
@@ -603,7 +590,7 @@ public:
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(vkGetInstanceProcAddr);
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(vk::Instance(Instance));
 
-		if (bDebugUtilsEnabled)
+		if (bDebugUtilsEnabled && bEnableValidation)
 		{
 			const auto CreateDebugMessenger = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(Instance, "vkCreateDebugUtilsMessengerEXT"));
 			if (CreateDebugMessenger)

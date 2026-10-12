@@ -92,7 +92,7 @@ Comments should read like one developer explaining a non-obvious decision to ano
 ## Modules and dependencies
 
 - Add dependencies only when the current milestone requires them.
-- Source dependencies belong under `External`. Libraries distributed as one or two self-contained files, such as single-header and amalgamated releases, are vendored unmodified with their license and an `UPSTREAM.md` that records the source, exact revision, copied files, and update steps. Every other source dependency is a pinned Git submodule.
+- Source dependencies belong under `External`. Libraries distributed as one or two self-contained files, such as single-header and amalgamated releases, are vendored unmodified with their license and an `UPSTREAM.md` that records the source, exact revision, copied files, and update steps. Data that the engine cannot consume in its upstream format, such as lookup tables published as JavaScript, may be vendored as a generated C++ header instead: keep the license at the top of the header and the converter and its exact source in `UPSTREAM.md`. Every other source dependency is a pinned Git submodule.
 - Downloaded host tools belong under ignored, versioned `External/<tool>/<platform>/<version>` paths.
 - Downloaded development SDKs belong under ignored, versioned `SDK/<platform>/<sdk>/<version>` paths.
 - `Config/Dependencies.lock` is the source of truth for downloaded tool versions, URLs, SHA-256 hashes, and installed entry points.

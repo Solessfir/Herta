@@ -914,8 +914,10 @@ public:
 		Timing.bEnded = false;
 		Device->resetTimerQuery(Timing.Query);
 		Frame.ActiveTiming = Frame.TimingCount++;
-		Frame.Operations.emplace_back([Query = Timing.Query](nvrhi::ICommandList* const Commands)
+		// The marker names the pass in RenderDoc and Nsight captures.
+		Frame.Operations.emplace_back([Query = Timing.Query, Marker = std::string(Name)](nvrhi::ICommandList* const Commands)
 		{
+			Commands->beginMarker(Marker.c_str());
 			Commands->beginTimerQuery(Query);
 		});
 	}
@@ -943,6 +945,7 @@ public:
 		Frame.Operations.emplace_back([Query = Timing.Query](nvrhi::ICommandList* const Commands)
 		{
 			Commands->endTimerQuery(Query);
+			Commands->endMarker();
 		});
 
 		Timing.bEnded = true;

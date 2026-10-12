@@ -11,6 +11,8 @@ struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToVie
 [[vk::binding(6, 0)]] Texture2D<float4> DiffuseEnvironment;
 [[vk::binding(7, 0)]] Texture2D<float4> SpecularEnvironment;
 [[vk::binding(8, 0)]] Texture2D<float4> ShadowAtlas;
+[[vk::binding(9, 0)]] Texture2D<float4> LtcMatrix;
+[[vk::binding(10, 0)]] Texture2D<float4> LtcAmplitude;
 
 struct FVertexOutput
 {
@@ -79,27 +81,59 @@ float3 BRDF(float3 N, float3 V, float3 L, float3 Color, float Metallic, float Ro
     return ((1.0 - F) * (1.0 - Metallic) * Color / PI + D * Visibility * F) * NoL;
 }
 
+// Linearly transformed cosines (Heitz et al. 2016), following three.js: the edge integral uses a rational fit of theta / sin(theta) / 2pi.
+float3 LtcEdge(float3 A, float3 B)
+{
+    float X = dot(A, B);
+    float Y = abs(X);
+    float Fit = (0.8543985 + (0.4965155 + 0.0145206 * Y) * Y) / (3.4175940 + (4.1616724 + Y) * Y);
+    return cross(A, B) * (X > 0.0 ? Fit : 0.5 * rsqrt(max(1.0 - X * X, 1e-7)) - Fit);
+}
+
+// Integrates the clamped cosine, after Transform, over a quad; an emitter filling the hemisphere gives 1.
+float LtcQuad(float3x3 Transform, float3 Corners[4])
+{
+    float3 Projected[4];
+    for (int I = 0; I < 4; ++I)
+    {
+        Projected[I] = normalize(mul(Transform, Corners[I]));
+    }
+
+    float3 FormFactor = LtcEdge(Projected[0], Projected[1]) + LtcEdge(Projected[1], Projected[2]) + LtcEdge(Projected[2], Projected[3]) + LtcEdge(Projected[3], Projected[0]);
+    // A sphere with the same vector form factor approximates clipping the quad at the horizon.
+    float Length = length(FormFactor);
+    return max((Length * Length + FormFactor.z) / (Length + 1.0), 0.0);
+}
+
 float3 RectLighting(FVisualLight Light, float3 Position, float3 N, float3 V, float3 Color, float Metallic, float Roughness)
 {
-    float3 Result = 0.0;
-    // Pixels behind the one-sided emitter or past range from every sample would run all 16 taps for nothing.
     float3 FromCenter = Position - Light.PositionType.xyz;
-    if (dot(FromCenter, Light.DirectionRange.xyz) <= 0.0 || length(FromCenter) >= Light.DirectionRange.w + 0.5 * length(float2(Light.RightWidth.w, Light.UpHeight.w))) return Result;
-    float Area = max(0.0001, Light.RightWidth.w * Light.UpHeight.w);
-    float3 Radiance = Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * Area);
-    // Area quadrature evaluates both diffuse and GGX across the one-sided emitter.
-    for (int Y = 0; Y < 4; ++Y)
-    for (int X = 0; X < 4; ++X)
-    {
-        float3 P = Light.PositionType.xyz + Light.RightWidth.xyz * ((float(X) + 0.5) / 4.0 - 0.5) * Light.RightWidth.w + Light.UpHeight.xyz * ((float(Y) + 0.5) / 4.0 - 0.5) * Light.UpHeight.w;
-        float3 Delta = P - Position;
-        float Distance2 = max(0.01, dot(Delta, Delta));
-        float3 L = Delta / sqrt(Distance2);
-        float CosEmitter = saturate(dot(-L, Light.DirectionRange.xyz));
-        float Fade = pow(saturate(1.0 - pow(sqrt(Distance2) / Light.DirectionRange.w, 4.0)), 2.0);
-        Result += BRDF(N, V, L, Color, Metallic, Roughness) * Radiance * (Area / 16.0) * CosEmitter * Fade / Distance2;
-    }
-    return Result;
+    float3 Right = Light.RightWidth.xyz * (0.5 * Light.RightWidth.w);
+    float3 Up = Light.UpHeight.xyz * (0.5 * Light.UpHeight.w);
+    // Range is measured from the emitter's surface, so long panels light along their whole length.
+    float3 Nearest = Light.RightWidth.xyz * clamp(dot(FromCenter, Light.RightWidth.xyz), -0.5 * Light.RightWidth.w, 0.5 * Light.RightWidth.w) + Light.UpHeight.xyz * clamp(dot(FromCenter, Light.UpHeight.xyz), -0.5 * Light.UpHeight.w, 0.5 * Light.UpHeight.w);
+    float Distance = length(FromCenter - Nearest);
+    if (dot(FromCenter, Light.DirectionRange.xyz) <= 0.0 || Distance >= Light.DirectionRange.w) return 0.0;
+
+    // The corners must wind so their normal faces the lit side; mirroring Right keeps the same quad.
+    if (dot(cross(-Right, Up), Light.DirectionRange.xyz) < 0.0) Right = -Right;
+    float3 Corners[4] = { Right - Up - FromCenter, -Right - Up - FromCenter, -Right + Up - FromCenter, Right + Up - FromCenter };
+
+    // Isotropic GGX only needs some tangent when V lies along N.
+    float3 Tangent = V - N * dot(V, N);
+    Tangent = dot(Tangent, Tangent) > 1e-8 ? normalize(Tangent) : normalize(cross(N, abs(N.x) < 0.9 ? float3(1.0, 0.0, 0.0) : float3(0.0, 1.0, 0.0)));
+    float3x3 Basis = float3x3(Tangent, -cross(N, Tangent), N);
+    float2 UV = float2(Roughness, sqrt(1.0 - saturate(dot(N, V)))) * (63.0 / 64.0) + 0.5 / 64.0;
+    float4 Inverse = LtcMatrix.SampleLevel(LinearSampler, UV, 0);
+    float2 Amplitude = LtcAmplitude.SampleLevel(LinearSampler, UV, 0).xy;
+    float3x3 InverseMatrix = float3x3(Inverse.x, 0.0, Inverse.z, 0.0, 1.0, 0.0, Inverse.y, 0.0, Inverse.w);
+
+    float3 F0 = lerp(0.04, Color, Metallic);
+    float3 Diffuse = (1.0 - Metallic) * Color * LtcQuad(Basis, Corners);
+    float3 Specular = (F0 * Amplitude.x + (1.0 - F0) * Amplitude.y) * LtcQuad(mul(InverseMatrix, Basis), Corners);
+    float3 Radiance = Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * max(0.0001, Light.RightWidth.w * Light.UpHeight.w));
+    float Fade = pow(saturate(1.0 - pow(Distance / Light.DirectionRange.w, 4.0)), 2.0);
+    return Radiance * Fade * (Diffuse + Specular);
 }
 
 [shader("fragment")]

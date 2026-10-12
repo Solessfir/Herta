@@ -216,6 +216,17 @@ float3 ComposeProceduralSky(float3 Direction, float3 Scattering)
     return max(0.0, Radiance);
 }
 
+// Automatic exposure meters a grid of log luminance and histograms it over EV -10 to 16 in 64 bins.
+static const int ExposureMeteringSize = 32;
+static const int ExposureHistogramBinCount = 64;
+static const float ExposureMinimumLog = -10.0;
+static const float ExposureMaximumLog = 16.0;
+
+int ExposureHistogramBin(float LogLuminance)
+{
+    return clamp(int((LogLuminance - ExposureMinimumLog) / (ExposureMaximumLog - ExposureMinimumLog) * ExposureHistogramBinCount), 0, ExposureHistogramBinCount - 1);
+}
+
 // The tone mapping LUT unwraps 64 log2 exposure steps per channel into 64 slices of 64x64 side by side, blue choosing the slice.
 // GT7's hue-preserving highlight fade bends sharply, and 32 steps put saturated highlights 20+ sRGB levels off where 64 stay within a few.
 // 2^-12 is black on any display, and 2^8 of exposed paper white is past every display peak.
