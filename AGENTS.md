@@ -22,6 +22,8 @@ Core conventions are fixed unless the user explicitly changes them:
 
 Do not introduce project-configurable coordinate conventions or unit scales.
 
+Performance is a primary goal on every path: renderer, runtime, editor, and tools. Measure before and after a change, prefer the faster design when quality is equal, and do not leave known waste in place because it is small or the frame is already fast. Record deferred optimizations with the measurement or condition that would justify them.
+
 ## Working method
 
 - Inspect existing code, tests, documentation, and `git status` before editing.
