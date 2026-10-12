@@ -26,7 +26,9 @@ struct FVertexOutput
 FVertexOutput TransformVertex(float3 Position, float2 UV, float3 Normal, float4 Tangent, float4x4 MVP, float4x4 ObjectToView)
 {
     FVertexOutput Output;
-    Output.Position = mul(MVP, float4(Position, 1.0));
+    // The depth prepass runs this same function; precise keeps the compiler from fusing it differently, so equal depth tests pass.
+    precise float4 ClipPosition = mul(MVP, float4(Position, 1.0));
+    Output.Position = ClipPosition;
     Output.UV = UV * Visual.Material.UV.xy + Visual.Material.UV.zw;
     Output.WorldPosition = mul(Visual.ViewToWorld, mul(ObjectToView, float4(Position, 1.0))).xyz;
     float3 X = mul((float3x3)ObjectToView, float3(1.0, 0.0, 0.0));
