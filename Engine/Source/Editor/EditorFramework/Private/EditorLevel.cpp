@@ -1807,6 +1807,16 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedTrigger(const std::opt
 	return ApplySelectedComponent(&FLevelEntity::Trigger, Trigger, Trigger ? "Edit trigger" : "Remove trigger");
 }
 
+std::expected<void, FLevelError> FEditorLevel::AddConstraintToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::Constraint, std::optional{FConstraintComponent{}}, "Add constraint", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedConstraint(const std::optional<FConstraintComponent> Constraint)
+{
+	return ApplySelectedComponent(&FLevelEntity::Constraint, Constraint, Constraint ? "Edit constraint" : "Remove constraint");
+}
+
 std::expected<void, FLevelError> FEditorLevel::AddHeightFogToSelected()
 {
 	return ApplySelectedComponent(&FLevelEntity::HeightFog, std::optional{FHeightFogComponent{}}, "Add height fog", true);
@@ -1887,9 +1897,9 @@ std::expected<void, FLevelError> FEditorLevel::DuplicateSelected(const bool bWit
 			Entity.SkyAtmosphere->Sun = Remapped.at(Entity.SkyAtmosphere->Sun);
 		}
 
-		if (Entity.SoftBody && Remapped.contains(Entity.SoftBody->Attachment))
+		if (Entity.Constraint && Remapped.contains(Entity.Constraint->Target))
 		{
-			Entity.SoftBody->Attachment = Remapped.at(Entity.SoftBody->Attachment);
+			Entity.Constraint->Target = Remapped.at(Entity.Constraint->Target);
 		}
 
 		const auto Parent = Remapped.find(Original.Parent);
@@ -2195,9 +2205,9 @@ std::expected<void, FLevelError> FEditorLevel::PasteEntities(const std::string_v
 			Entity.SkyAtmosphere->Sun = Remapped.at(Entity.SkyAtmosphere->Sun);
 		}
 
-		if (Entity.SoftBody && Remapped.contains(Entity.SoftBody->Attachment))
+		if (Entity.Constraint && Remapped.contains(Entity.Constraint->Target))
 		{
-			Entity.SoftBody->Attachment = Remapped.at(Entity.SoftBody->Attachment);
+			Entity.Constraint->Target = Remapped.at(Entity.Constraint->Target);
 		}
 
 		if (Entity.Parent.IsValid())

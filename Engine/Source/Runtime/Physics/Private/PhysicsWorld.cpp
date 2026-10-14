@@ -10,11 +10,13 @@
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/GroupFilter.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/PhysicsUpdateContext.h>
 #include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
@@ -42,10 +44,10 @@ constexpr JPH::ObjectLayer DynamicLayer = 1;
 
 [[nodiscard]] constexpr std::size_t RequiredTempMemory(const FPhysicsWorldSettings& Settings)
 {
-	// Jolt 5.6: one discrete step, at most one soft-body tether joint per body, and no parallel island splitting.
-	// Cover contact buffers, island and joint arrays, CCD-index mapping, soft-body update contexts, and alignment padding before Jolt can abort.
+	// Jolt 5.6: one discrete step, at most three constraints per body (a rope joint, its length limit, and an attached load), and no parallel island splitting.
+	// Cover contact buffers, island and constraint arrays, CCD-index mapping, soft-body update contexts, and alignment padding before Jolt can abort.
 	return sizeof(JPH::PhysicsUpdateContext::Step) + 320 * 1024
-	       + static_cast<std::size_t>(Settings.MaxBodies) * 192
+	       + static_cast<std::size_t>(Settings.MaxBodies) * (192 + 3 * 64)
 	       + static_cast<std::size_t>(Settings.MaxBodyPairs) * sizeof(JPH::BodyPair)
 	       + static_cast<std::size_t>(Settings.MaxContactConstraints) * (JPH::ContactConstraintManager::cMaxConstraintSize + 32);
 }
@@ -192,12 +194,33 @@ void FSensorListener::OnContactRemoved(const JPH::SubShapeIDPair& Pair)
 	}
 }
 
-struct FSoftBodyAttachmentState
+// Jointed bodies overlap at the joint, and contacts there would push them apart. Each joined body uses its index as its group.
+class FJoinedBodiesFilter final : public JPH::GroupFilter
 {
-	JPH::BodyID SoftBody;
-	JPH::BodyID Body;
-	std::uint32_t Vertex = 0;
-	JPH::Vec3 LocalPoint;
+public:
+	bool CanCollide(const JPH::CollisionGroup& Group1, const JPH::CollisionGroup& Group2) const override;
+
+	std::unordered_set<std::uint64_t> JoinedPairs;
+};
+
+[[nodiscard]] std::uint64_t PairKey(const std::uint32_t Group1, const std::uint32_t Group2)
+{
+	return static_cast<std::uint64_t>(std::min(Group1, Group2)) << 32 | std::max(Group1, Group2);
+}
+
+bool FJoinedBodiesFilter::CanCollide(const JPH::CollisionGroup& Group1, const JPH::CollisionGroup& Group2) const
+{
+	return !JoinedPairs.contains(PairKey(Group1.GetGroupID(), Group2.GetGroupID()));
+}
+
+// A light chain carrying a heavy load converges slowly; the island takes the largest step count of its constraints.
+constexpr JPH::uint JointVelocitySteps = 24;
+constexpr JPH::uint JointPositionSteps = 6;
+
+struct FRopeState
+{
+	std::vector<JPH::BodyID> Segments{};
+	float HalfLength = 0.f;
 };
 
 template <std::size_t Count>
@@ -229,8 +252,9 @@ struct FPhysicsWorld::FImplementation
 	JPH::TempAllocatorImpl TempAllocator;
 	JPH::JobSystemSingleThreaded JobSystem{2048};
 	std::vector<JPH::BodyID> BodyIds;
-	std::vector<FSoftBodyAttachmentState> Attachments;
 	std::vector<JPH::Ref<JPH::Constraint>> Constraints;
+	std::vector<FRopeState> Ropes;
+	JPH::Ref<FJoinedBodiesFilter> JoinedBodies = new FJoinedBodiesFilter;
 	const FPhysicsWorldSettings Settings;
 	std::string StepFailure;
 	std::size_t BodyCount = 0;
@@ -278,7 +302,32 @@ struct FPhysicsWorld::FImplementation
 	FImplementation& operator=(const FImplementation&) = delete;
 	FImplementation(FImplementation&&) = delete;
 	FImplementation& operator=(FImplementation&&) = delete;
+
+	// An invalid Body1 fixes Body2 to the world; otherwise the two stop colliding with each other.
+	void AddJoint(const JPH::TwoBodyConstraintSettings& Joint, JPH::BodyID Body1, JPH::BodyID Body2);
 };
+
+void FPhysicsWorld::FImplementation::AddJoint(const JPH::TwoBodyConstraintSettings& Joint, const JPH::BodyID Body1, const JPH::BodyID Body2)
+{
+	JPH::BodyInterface& Bodies = Physics.GetBodyInterface();
+	const JPH::Ref<JPH::Constraint> Constraint = Bodies.CreateConstraint(&Joint, Body1, Body2);
+	Constraint->SetNumVelocityStepsOverride(JointVelocitySteps);
+	Constraint->SetNumPositionStepsOverride(JointPositionSteps);
+	Physics.AddConstraint(Constraint);
+	Constraints.push_back(Constraint);
+	if (!Body1.IsInvalid())
+	{
+		for (const JPH::BodyID Id : {Body1, Body2})
+		{
+			const JPH::BodyLockWrite Lock(Physics.GetBodyLockInterface(), Id);
+			Lock.GetBody().SetCollisionGroup(JPH::CollisionGroup(JoinedBodies, Id.GetIndex(), 0));
+		}
+
+		JoinedBodies->JoinedPairs.insert(PairKey(Body1.GetIndex(), Body2.GetIndex()));
+	}
+
+	Bodies.ActivateBody(Body2);
+}
 
 FPhysicsWorld::FPhysicsWorld(std::unique_ptr<FImplementation> InImplementation) noexcept
     : Implementation(std::move(InImplementation))
@@ -466,26 +515,6 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateSoftBody(const
 		Pinned[Vertex] = true;
 	}
 
-	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
-	JPH::BodyID AttachedBody;
-	if (Settings.Attachment)
-	{
-		const FPhysicsSoftBodyAttachment& Attachment = *Settings.Attachment;
-		AttachedBody = FindBody(Implementation->BodyIds, Attachment.Body);
-		if (AttachedBody.IsInvalid() || Bodies.GetBodyType(AttachedBody) != JPH::EBodyType::RigidBody || Bodies.GetMotionType(AttachedBody) != JPH::EMotionType::Dynamic)
-		{
-			return std::unexpected(FPhysicsError{"Soft body attachments need an existing dynamic rigid body"});
-		}
-
-		const bool bValidTether = !Attachment.TetherVertex || (*Attachment.TetherVertex < VertexCount && Pinned[*Attachment.TetherVertex] && IsInRange(Attachment.TetherLength, 0.f, 1000.f));
-		if (Attachment.Vertex >= VertexCount || Pinned[Attachment.Vertex] || !IsFinite(Attachment.Point) || !bValidTether)
-		{
-			return std::unexpected(FPhysicsError{"Soft body attachments need a free vertex, a finite point, and a pinned tether vertex with a length up to 1000 m"});
-		}
-
-		Pinned[Attachment.Vertex] = true;
-	}
-
 	const auto FreeCount = static_cast<std::size_t>(std::ranges::count(Pinned, false));
 	if (FreeCount == 0)
 	{
@@ -550,7 +579,7 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateSoftBody(const
 	Creation.mGravityFactor = Settings.GravityScale;
 	Creation.mVertexRadius = Settings.VertexRadius;
 
-	const JPH::BodyID Id = Bodies.CreateAndAddSoftBody(Creation, JPH::EActivation::Activate);
+	const JPH::BodyID Id = Implementation->Physics.GetBodyInterface().CreateAndAddSoftBody(Creation, JPH::EActivation::Activate);
 	if (Id.IsInvalid())
 	{
 		return std::unexpected(FPhysicsError{"Physics world body capacity reached"});
@@ -558,26 +587,107 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateSoftBody(const
 
 	Implementation->BodyIds[Id.GetIndex()] = Id;
 	++Implementation->BodyCount;
-	if (Settings.Attachment)
+	return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
+}
+
+std::expected<FPhysicsRope, FPhysicsError> FPhysicsWorld::CreateRope(const FPhysicsRopeSettings& Settings)
+{
+	const FVector3 Span = Settings.End - Settings.Start;
+	const float Length = Span.Length();
+	if (!IsFinite(Settings.Start) || !IsFinite(Settings.End) || !IsInRange(Length, 0.01f, 1000.f) || Settings.Segments == 0 || Settings.Segments > 256)
 	{
-		const FPhysicsSoftBodyAttachment& Attachment = *Settings.Attachment;
-		const JPH::RVec3 Point = ToJolt(Attachment.Point);
-		Implementation->Attachments.push_back({.SoftBody = Id, .Body = AttachedBody, .Vertex = Attachment.Vertex, .LocalPoint = JPH::Vec3(Bodies.GetWorldTransform(AttachedBody).InversedRotationTranslation() * Point)});
-		if (Attachment.TetherVertex)
+		return std::unexpected(FPhysicsError{"Ropes need finite ends 1 cm to 1000 m apart and 1 to 256 segments"});
+	}
+
+	if (!IsInRange(Settings.Radius, 0.001f, 1.f) || !IsInRange(Settings.MassKg, 0.001f, 1000000.f) || !IsInRange(Settings.Friction, 0.f, 1.f) || !IsInRange(Settings.AngularDamping, 0.f, 1.f))
+	{
+		return std::unexpected(FPhysicsError{"Rope radius, mass, friction, and damping must be finite and within supported ranges"});
+	}
+
+	if (Implementation->BodyCount + Settings.Segments > Implementation->Settings.MaxBodies)
+	{
+		return std::unexpected(FPhysicsError{std::format("Physics world body capacity reached (MaxBodies={})", Implementation->Settings.MaxBodies)});
+	}
+
+	const FVector3 Direction = Span * (1.f / Length);
+	const float SegmentLength = Length / static_cast<float>(Settings.Segments);
+	const JPH::Quat Rotation = JPH::Quat::sFromTo(JPH::Vec3::sAxisY(), ToJolt(Direction));
+	const auto Joint = [&](const std::uint32_t Index)
+	{
+		return Settings.Start + Direction * (SegmentLength * static_cast<float>(Index));
+	};
+
+	FRopeState Rope{.HalfLength = SegmentLength * 0.5f};
+	for (std::uint32_t Index = 0; Index < Settings.Segments; ++Index)
+	{
+		const auto Segment = CreateBody({
+		    .Shape = EPhysicsShape::Capsule,
+		    .Radius = Settings.Radius,
+		    .HalfHeight = std::max(SegmentLength * 0.5f - Settings.Radius, 0.f),
+		    .Position = (Joint(Index) + Joint(Index + 1)) * 0.5f,
+		    .Rotation = {Rotation.GetX(), Rotation.GetY(), Rotation.GetZ(), Rotation.GetW()},
+		    .MotionType = EPhysicsMotionType::Dynamic,
+		    .Properties = {.MassKg = Settings.MassKg / static_cast<float>(Settings.Segments), .Friction = Settings.Friction, .AngularDamping = Settings.AngularDamping},
+		});
+		if (!Segment)
 		{
-			// A distance limit with no minimum behaves like a rope: taut at full length and slack when the body swings closer.
-			JPH::DistanceConstraintSettings Tether;
-			Tether.mPoint1 = ToJolt(Settings.Vertices[*Attachment.TetherVertex]);
-			Tether.mPoint2 = Point;
-			Tether.mMinDistance = 0.f;
-			Tether.mMaxDistance = std::max(Attachment.TetherLength, (Attachment.Point - Settings.Vertices[*Attachment.TetherVertex]).Length());
-			const JPH::Ref<JPH::Constraint> Constraint = Bodies.CreateConstraint(&Tether, JPH::BodyID(), AttachedBody);
-			Implementation->Physics.AddConstraint(Constraint);
-			Implementation->Constraints.push_back(Constraint);
+			return std::unexpected(Segment.error());
+		}
+
+		Rope.Segments.push_back(FindBody(Implementation->BodyIds, *Segment));
+	}
+
+	// Joint 0 is the pin; the free end has none.
+	for (std::uint32_t Index = Settings.bPinned ? 0 : 1; Index < Settings.Segments; ++Index)
+	{
+		JPH::PointConstraintSettings Point;
+		Point.mPoint1 = Point.mPoint2 = ToJolt(Joint(Index));
+		Implementation->AddJoint(Point, Index == 0 ? JPH::BodyID() : Rope.Segments[Index - 1], Rope.Segments[Index]);
+	}
+
+	if (Settings.bPinned)
+	{
+		// Long-range limits, as cloth solvers use, stop joint error from accumulating down the chain into visible stretch under load.
+		for (std::uint32_t Index = 1; Index < Settings.Segments; ++Index)
+		{
+			JPH::DistanceConstraintSettings Limit;
+			Limit.mPoint1 = ToJolt(Settings.Start);
+			Limit.mPoint2 = ToJolt(Joint(Index + 1));
+			Limit.mMinDistance = 0.f;
+			Limit.mMaxDistance = SegmentLength * static_cast<float>(Index + 1);
+			Implementation->AddJoint(Limit, JPH::BodyID(), Rope.Segments[Index]);
 		}
 	}
 
-	return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
+	const FPhysicsRope Result{.Index = static_cast<std::uint32_t>(Implementation->Ropes.size()), .First = FPhysicsBodyId{Rope.Segments.front().GetIndexAndSequenceNumber()}, .Last = FPhysicsBodyId{Rope.Segments.back().GetIndexAndSequenceNumber()}};
+	Implementation->Ropes.push_back(std::move(Rope));
+	return Result;
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::CreatePointConstraint(const FPhysicsPointConstraintSettings& Settings)
+{
+	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	const JPH::BodyID Body = FindBody(Implementation->BodyIds, Settings.Body);
+	const JPH::BodyID Other = Settings.Other ? FindBody(Implementation->BodyIds, *Settings.Other) : JPH::BodyID();
+	if (Body.IsInvalid() || Bodies.GetBodyType(Body) != JPH::EBodyType::RigidBody || Bodies.GetMotionType(Body) != JPH::EMotionType::Dynamic)
+	{
+		return std::unexpected(FPhysicsError{"Point constraints need a dynamic rigid body"});
+	}
+
+	if (Settings.Other && (Other.IsInvalid() || Other == Body || Bodies.GetBodyType(Other) != JPH::EBodyType::RigidBody))
+	{
+		return std::unexpected(FPhysicsError{"Point constraints join a body to the world or to a different rigid body"});
+	}
+
+	if (!IsFinite(Settings.Point))
+	{
+		return std::unexpected(FPhysicsError{"Point constraint position must be finite"});
+	}
+
+	JPH::PointConstraintSettings Point;
+	Point.mPoint1 = Point.mPoint2 = ToJolt(Settings.Point);
+	Implementation->AddJoint(Point, Other, Body);
+	return {};
 }
 
 std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSeconds)
@@ -593,26 +703,6 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 	}
 
 	Implementation->SensorListener.Events.clear();
-	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
-	for (const FSoftBodyAttachmentState& Attachment : Implementation->Attachments)
-	{
-		// Aim for where the attachment point will be after this step, so the vertex keeps pace instead of trailing a step behind.
-		const JPH::RVec3 Point = Bodies.GetWorldTransform(Attachment.Body) * Attachment.LocalPoint;
-		const JPH::RVec3 Target = Point + Bodies.GetPointVelocity(Attachment.Body, Point) * FixedDeltaSeconds;
-		if (Bodies.IsActive(Attachment.Body))
-		{
-			Bodies.ActivateBody(Attachment.SoftBody);
-		}
-
-		const JPH::BodyLockWrite Lock(Implementation->Physics.GetBodyLockInterface(), Attachment.SoftBody);
-		if (Lock.Succeeded())
-		{
-			JPH::Body& SoftBody = Lock.GetBody();
-			JPH::SoftBodyVertex& Vertex = static_cast<JPH::SoftBodyMotionProperties&>(*SoftBody.GetMotionProperties()).GetVertex(Attachment.Vertex);
-			Vertex.mVelocity = (JPH::Vec3(SoftBody.GetInverseCenterOfMassTransform() * Target) - Vertex.mPosition) / FixedDeltaSeconds;
-		}
-	}
-
 	const JPH::EPhysicsUpdateError Error = Implementation->Physics.Update(FixedDeltaSeconds, 1, &Implementation->TempAllocator, &Implementation->JobSystem);
 	if (Error != JPH::EPhysicsUpdateError::None)
 	{
@@ -675,6 +765,35 @@ std::expected<void, FPhysicsError> FPhysicsWorld::GetSoftBodyVertices(const FPhy
 	{
 		const JPH::RVec3 Position = Transform * Motion.GetVertex(static_cast<JPH::uint>(Index)).mPosition;
 		OutPositions[Index] = {Position.GetX(), Position.GetY(), Position.GetZ()};
+	}
+
+	return {};
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::GetRopePoints(const FPhysicsRope& Rope, std::vector<FVector3>& OutPoints) const
+{
+	if (Rope.Index >= Implementation->Ropes.size())
+	{
+		return std::unexpected(FPhysicsError{"Unknown rope"});
+	}
+
+	const FRopeState& State = Implementation->Ropes[Rope.Index];
+	const JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	OutPoints.resize(State.Segments.size() + 1);
+	for (std::size_t Index = 0; Index < State.Segments.size(); ++Index)
+	{
+		JPH::RVec3 Center;
+		JPH::Quat Rotation;
+		Bodies.GetPositionAndRotation(State.Segments[Index], Center, Rotation);
+		const JPH::Vec3 HalfAxis = Rotation.RotateAxisY() * State.HalfLength;
+		const JPH::RVec3 End = Center + HalfAxis;
+		if (Index == 0)
+		{
+			const JPH::RVec3 Start = Center - HalfAxis;
+			OutPoints[0] = {Start.GetX(), Start.GetY(), Start.GetZ()};
+		}
+
+		OutPoints[Index + 1] = {End.GetX(), End.GetY(), End.GetZ()};
 	}
 
 	return {};

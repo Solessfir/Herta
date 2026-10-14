@@ -78,6 +78,8 @@ enum class EDetailsComponentAction
 	RemoveMover,
 	AddTrigger,
 	RemoveTrigger,
+	AddConstraint,
+	RemoveConstraint,
 };
 
 struct FDetailsMaterialSlot
@@ -114,7 +116,7 @@ struct FDetailsComponentField
 	bool bAnySoftBody = false;
 	bool bAllSoftBody = false;
 	FSoftBodyComponent SoftBody{};
-	std::array<bool, 11> MixedSoftBody{};
+	std::array<bool, 10> MixedSoftBody{};
 	bool bAnyMover = false;
 	bool bAllMover = false;
 	FMoverComponent Mover{};
@@ -123,11 +125,15 @@ struct FDetailsComponentField
 	bool bAllTrigger = false;
 	FTriggerComponent Trigger{};
 	std::array<bool, 1> MixedTrigger{};
+	bool bAnyConstraint = false;
+	bool bAllConstraint = false;
+	FConstraintComponent Constraint{};
+	std::array<bool, 2> MixedConstraint{};
 	std::span<const FObjectId> SunIds{};
 	std::span<const std::string> SunLabels{};
-	// Dynamic rigid bodies a rope can carry.
-	std::span<const FObjectId> AttachmentIds{};
-	std::span<const std::string> AttachmentLabels{};
+	// Meshed rigid bodies and ropes a constraint can join.
+	std::span<const FObjectId> ConstraintTargetIds{};
+	std::span<const std::string> ConstraintTargetLabels{};
 	std::span<const FAssetId> EnvironmentIds{};
 	std::span<const std::string> EnvironmentLabels{};
 	std::span<const FDetailsMaterialSlot> MaterialSlots{};

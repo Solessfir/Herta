@@ -23,7 +23,7 @@ namespace
 }
 }
 
-std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<const FPreviewSimulationBody> Bodies, const std::span<const FPreviewSimulationSoftBody> SoftBodies, const FPhysicsWorldSettings& Settings)
+std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<const FPreviewSimulationBody> Bodies, const std::span<const FPreviewSimulationSoftBody> SoftBodies, const std::span<const FPreviewSimulationConstraint> Constraints, const FPhysicsWorldSettings& Settings)
 {
 	if (IsRunning())
 	{
@@ -35,9 +35,15 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		return std::unexpected(FPhysicsError{"Preview simulation requires at least one body"});
 	}
 
-	if (Bodies.size() + SoftBodies.size() > Settings.MaxBodies)
+	std::size_t RequiredBodies = Bodies.size();
+	for (const FPreviewSimulationSoftBody& SoftBody : SoftBodies)
 	{
-		return std::unexpected(FPhysicsError{std::format("Preview requires {} bodies but MaxBodies={}", Bodies.size() + SoftBodies.size(), Settings.MaxBodies)});
+		RequiredBodies += SoftBody.Rope ? SoftBody.Rope->Segments : 1;
+	}
+
+	if (RequiredBodies > Settings.MaxBodies)
+	{
+		return std::unexpected(FPhysicsError{std::format("Preview requires {} bodies but MaxBodies={}", RequiredBodies, Settings.MaxBodies)});
 	}
 
 	auto NewWorld = FPhysicsWorld::Create(Settings);
@@ -48,11 +54,9 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 
 	std::vector<FBodyState> NewBodyStates;
 	std::vector<FPreviewSimulationTransform> NewTransforms;
-	std::vector<FVector3> NewHalfExtents;
 	std::unordered_map<std::uint32_t, std::size_t> NewBodyIndices;
 	std::unordered_set<std::size_t> ObjectIndices;
 	NewBodyStates.reserve(Bodies.size());
-	NewHalfExtents.reserve(Bodies.size());
 	NewTransforms.reserve(Bodies.size());
 	ObjectIndices.reserve(Bodies.size());
 
@@ -89,7 +93,6 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		NewBodyStates.push_back({.Id = *Id, .MotionType = MotionType, .OriginalTransform = Body.Transform, .Offset = Offset, .Previous = Transform, .Current = Transform, .Mover = Body.Mover, .Start = Transform, .bTrigger = Body.bTrigger});
 		NewBodyIndices.emplace(Id->Value, NewBodyStates.size() - 1);
 		NewTransforms.push_back({.ObjectIndex = Body.ObjectIndex, .Transform = Body.Transform});
-		NewHalfExtents.push_back(HalfExtents);
 	}
 
 	std::vector<FSoftBodyState> NewSoftBodyStates;
@@ -101,32 +104,59 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 			return std::unexpected(FPhysicsError{"Preview simulation contains a duplicate object"});
 		}
 
-		FPhysicsSoftBodySettings Physics = SoftBody.Settings;
-		if (Physics.Attachment)
+		if (SoftBody.Rope)
 		{
-			const auto Attached = SoftBody.AttachedObjectIndex ? std::ranges::find(NewTransforms, *SoftBody.AttachedObjectIndex, &FPreviewSimulationTransform::ObjectIndex) : NewTransforms.end();
-			const auto BodyIndex = static_cast<std::size_t>(Attached - NewTransforms.begin());
-			if (Attached == NewTransforms.end() || NewBodyStates[BodyIndex].MotionType != EPhysicsMotionType::Dynamic)
+			const auto Rope = (*NewWorld)->CreateRope(*SoftBody.Rope);
+			if (!Rope)
 			{
-				return std::unexpected(FPhysicsError{"Soft body attachments must reference a Dynamic body in the simulation"});
+				return std::unexpected(Rope.error());
 			}
 
-			// Clamping into the box puts a rope authored just above it on the box's top face.
-			const FPhysicsBodyTransform& Pose = NewBodyStates[BodyIndex].Current;
-			const FVector3& HalfExtents = NewHalfExtents[BodyIndex];
-			const FVector3 Local = Pose.Rotation.Conjugated().RotateVector(Physics.Attachment->Point - Pose.Position);
-			const FVector3 Clamped{std::clamp(Local.X, -HalfExtents.X, HalfExtents.X), std::clamp(Local.Y, -HalfExtents.Y, HalfExtents.Y), std::clamp(Local.Z, -HalfExtents.Z, HalfExtents.Z)};
-			Physics.Attachment->Body = NewBodyStates[BodyIndex].Id;
-			Physics.Attachment->Point = Pose.Position + Pose.Rotation.RotateVector(Clamped);
+			NewSoftBodyStates.push_back({.ObjectIndex = SoftBody.ObjectIndex, .Rope = *Rope, .Positions = std::vector<FVector3>(SoftBody.Settings.Vertices.size())});
+			continue;
 		}
 
-		const auto Id = (*NewWorld)->CreateSoftBody(Physics);
+		const auto Id = (*NewWorld)->CreateSoftBody(SoftBody.Settings);
 		if (!Id)
 		{
 			return std::unexpected(Id.error());
 		}
 
 		NewSoftBodyStates.push_back({.ObjectIndex = SoftBody.ObjectIndex, .Id = *Id, .Positions = {}});
+	}
+
+	for (const FPreviewSimulationConstraint& Constraint : Constraints)
+	{
+		const auto Body = std::ranges::find(NewTransforms, Constraint.ObjectIndex, &FPreviewSimulationTransform::ObjectIndex);
+		if (Body == NewTransforms.end() || NewBodyStates[static_cast<std::size_t>(Body - NewTransforms.begin())].MotionType != EPhysicsMotionType::Dynamic)
+		{
+			return std::unexpected(FPhysicsError{"Constraints must belong to a Dynamic body in the simulation"});
+		}
+
+		std::optional<FPhysicsBodyId> Other;
+		if (Constraint.TargetObjectIndex)
+		{
+			const auto Target = std::ranges::find(NewTransforms, *Constraint.TargetObjectIndex, &FPreviewSimulationTransform::ObjectIndex);
+			const auto Rope = std::ranges::find(NewSoftBodyStates, *Constraint.TargetObjectIndex, &FSoftBodyState::ObjectIndex);
+			if (Target != NewTransforms.end())
+			{
+				Other = NewBodyStates[static_cast<std::size_t>(Target - NewTransforms.begin())].Id;
+			}
+			else if (Rope != NewSoftBodyStates.end() && Rope->Rope)
+			{
+				Other = Rope->Rope->Last;
+			}
+			else
+			{
+				return std::unexpected(FPhysicsError{"Constraint targets must be a rigid body or a rope in the simulation"});
+			}
+		}
+
+		const auto Joined = (*NewWorld)->CreatePointConstraint({.Body = NewBodyStates[static_cast<std::size_t>(Body - NewTransforms.begin())].Id, .Other = Other, .Point = Constraint.Point});
+		if (!Joined)
+		{
+			return Joined;
+		}
 	}
 
 	World = std::move(*NewWorld);
@@ -145,9 +175,29 @@ std::expected<void, FPhysicsError> FPreviewSimulation::ReadSoftBodies()
 {
 	for (FSoftBodyState& SoftBody : SoftBodyStates)
 	{
-		if (const auto Result = World->GetSoftBodyVertices(SoftBody.Id, SoftBody.Positions); !Result)
+		if (!SoftBody.Rope)
+		{
+			if (const auto Result = World->GetSoftBodyVertices(SoftBody.Id, SoftBody.Positions); !Result)
+			{
+				return Result;
+			}
+
+			continue;
+		}
+
+		if (const auto Result = World->GetRopePoints(*SoftBody.Rope, RopePoints); !Result)
 		{
 			return Result;
+		}
+
+		// Rope vertices are evenly spaced like the chain's joints, so each falls at the same fraction along the chain.
+		const std::size_t Last = SoftBody.Positions.size() - 1;
+		for (std::size_t Index = 0; Index <= Last; ++Index)
+		{
+			const float Along = static_cast<float>(Index) / static_cast<float>(Last) * static_cast<float>(RopePoints.size() - 1);
+			const std::size_t Segment = std::min(static_cast<std::size_t>(Along), RopePoints.size() - 2);
+			const float Fraction = Along - static_cast<float>(Segment);
+			SoftBody.Positions[Index] = RopePoints[Segment] + (RopePoints[Segment + 1] - RopePoints[Segment]) * Fraction;
 		}
 	}
 

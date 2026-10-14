@@ -578,8 +578,8 @@ struct FEditorFramework::FImplementation
 	bool bHdrCalibration = false;
 	std::vector<FObjectId> SunIds;
 	std::vector<std::string> SunLabels;
-	std::vector<FObjectId> AttachmentIds;
-	std::vector<std::string> AttachmentLabels;
+	std::vector<FObjectId> ConstraintTargetIds;
+	std::vector<std::string> ConstraintTargetLabels;
 	std::vector<FAssetId> EnvironmentIds;
 	std::vector<std::string> EnvironmentLabels;
 	FPreviewSelection PreviewSelection;
@@ -2115,8 +2115,8 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	RenderLights.clear();
 	SunIds.clear();
 	SunLabels.clear();
-	AttachmentIds.clear();
-	AttachmentLabels.clear();
+	ConstraintTargetIds.clear();
+	ConstraintTargetLabels.clear();
 	EnvironmentIds.clear();
 	EnvironmentLabels.clear();
 	VisualSettings.Atmosphere.reset();
@@ -2186,10 +2186,10 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 		}
 
 		PreviewMaterialSpans[Index] = PreviewMaterials[Index];
-		if (Entity.Mesh && Entity.BodyType == ELevelBodyType::Dynamic && !Entity.SoftBody)
+		if ((Entity.Mesh && Entity.BodyType != ELevelBodyType::None && !Entity.SoftBody) || (Entity.SoftBody && Entity.SoftBody->Shape == ESoftBodyShape::Rope && !Entity.Mesh))
 		{
-			AttachmentIds.push_back(Entity.Id);
-			AttachmentLabels.push_back(Entity.Name);
+			ConstraintTargetIds.push_back(Entity.Id);
+			ConstraintTargetLabels.push_back(Entity.Name);
 		}
 
 		if (Entity.Light)
@@ -4402,23 +4402,58 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 				Vertices.push_back({World.X, World.Y, World.Z});
 			}
 
-			FPreviewSimulationSoftBody& Simulated = SoftBodies.emplace_back(FPreviewSimulationSoftBody{.ObjectIndex = Index, .Settings = MakeSoftBodyPhysicsSettings(SoftBody, Topology, Vertices)});
-			if (Simulated.Settings.Attachment)
+			SoftBodies.push_back({
+			    .ObjectIndex = Index,
+			    .Settings = MakeSoftBodyPhysicsSettings(SoftBody, Topology, Vertices),
+			    .Rope = SoftBody.Shape == ESoftBodyShape::Rope ? std::optional{MakeRopePhysicsSettings(SoftBody, Vertices)} : std::nullopt,
+			});
+		}
+
+		// A constraint that cannot join simulated bodies is reported and left out, so the rest of the level still simulates.
+		std::vector<FPreviewSimulationConstraint> Constraints;
+		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewModels.size(); ++Index)
+		{
+			const std::optional<FConstraintComponent>& Constraint = VisualEntities[Index].Constraint;
+			if (!Constraint)
 			{
-				const auto Attached = std::ranges::find_if(Bodies, [&](const FPreviewSimulationBody& Body)
-				{
-					return PreviewObjects[Body.ObjectIndex].Id == SoftBody.Attachment && Body.MotionType == EPhysicsMotionType::Dynamic;
-				});
-				if (Attached != Bodies.end())
-				{
-					Simulated.AttachedObjectIndex = Attached->ObjectIndex;
-				}
-				else
-				{
-					HERTA_LOG_WARNING(*Log, EditorLog, "{} hangs free: its attached body is not a meshed Dynamic rigid body", VisualEntities[Index].Name);
-					Simulated.Settings.Attachment.reset();
-				}
+				continue;
 			}
+
+			const bool bDynamic = std::ranges::any_of(Bodies, [Index](const FPreviewSimulationBody& Body)
+			{
+				return Body.ObjectIndex == Index && Body.MotionType == EPhysicsMotionType::Dynamic && !Body.Mover && !Body.bTrigger;
+			});
+			if (!bDynamic)
+			{
+				HERTA_LOG_WARNING(*Log, EditorLog, "Constraint on {} is skipped: the entity is not a meshed Dynamic rigid body", VisualEntities[Index].Name);
+				continue;
+			}
+
+			std::optional<std::size_t> Target;
+			if (Constraint->Target.IsValid())
+			{
+				const auto Found = std::ranges::find(PreviewObjects, Constraint->Target, &FPreviewObject::Id);
+				const auto TargetIndex = static_cast<std::size_t>(Found - PreviewObjects.begin());
+				const bool bBody = std::ranges::any_of(Bodies, [TargetIndex](const FPreviewSimulationBody& Body)
+				{
+					return Body.ObjectIndex == TargetIndex && !Body.bTrigger;
+				});
+				const bool bRope = std::ranges::any_of(SoftBodies, [TargetIndex](const FPreviewSimulationSoftBody& SoftBody)
+				{
+					return SoftBody.ObjectIndex == TargetIndex && SoftBody.Rope;
+				});
+				if (Found == PreviewObjects.end() || TargetIndex == Index || (!bBody && !bRope))
+				{
+					HERTA_LOG_WARNING(*Log, EditorLog, "Constraint on {} is skipped: its target is not a rope or another simulated rigid body", VisualEntities[Index].Name);
+					continue;
+				}
+
+				Target = TargetIndex;
+			}
+
+			const FVector3& Anchor = Constraint->Anchor;
+			const FVector4 World = PreviewModels[Index] * FVector4{Anchor.X, Anchor.Y, Anchor.Z, 1.f};
+			Constraints.push_back({.ObjectIndex = Index, .TargetObjectIndex = Target, .Point = {World.X, World.Y, World.Z}});
 		}
 
 		if (Bodies.empty() && SoftBodies.empty())
@@ -4428,7 +4463,7 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 		}
 
 		std::vector<FPreviewObject> OriginalObjects = PreviewObjects;
-		if (const auto Result = Simulation.Start(Bodies, SoftBodies); !Result)
+		if (const auto Result = Simulation.Start(Bodies, SoftBodies, Constraints); !Result)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not start simulation: {}", Result.error().Message);
 			return;
@@ -4496,13 +4531,13 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();
-	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .AttachmentIds = AttachmentIds, .AttachmentLabels = AttachmentLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
 	std::vector<FDetailsMaterialSlot> MaterialSlots;
 	std::vector<FAssetId> MaterialIds;
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 6> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 7> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -4569,6 +4604,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(3, ELevelComponentType::SoftBody, Entity->SoftBody.has_value(), Components.bAnySoftBody, Components.bAllSoftBody, Components.MixedSoftBody);
 			Aggregate(4, ELevelComponentType::Mover, Entity->Mover.has_value(), Components.bAnyMover, Components.bAllMover, Components.MixedMover);
 			Aggregate(5, ELevelComponentType::Trigger, Entity->Trigger.has_value(), Components.bAnyTrigger, Components.bAllTrigger, Components.MixedTrigger);
+			Aggregate(6, ELevelComponentType::Constraint, Entity->Constraint.has_value(), Components.bAnyConstraint, Components.bAllConstraint, Components.MixedConstraint);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -4668,6 +4704,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[5])
 	{
 		Components.Trigger = *VisualBaselines[5]->Trigger;
+	}
+
+	if (VisualBaselines[6])
+	{
+		Components.Constraint = *VisualBaselines[6]->Constraint;
 	}
 
 	if (Assets && !PreviewObjects.empty() && Mesh.IsValid())
@@ -4906,6 +4947,12 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveTrigger:
 				ReportLevelResult(Level->SetSelectedTrigger(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddConstraint:
+				ReportLevelResult(Level->AddConstraintToSelected());
+				break;
+			case EDetailsComponentAction::RemoveConstraint:
+				ReportLevelResult(Level->SetSelectedConstraint(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;

@@ -303,9 +303,24 @@ std::expected<FHeightFogComponent, FLevelError> ReadFog(const simdjson::dom::ele
 constexpr std::array<std::string_view, 3> SoftBodyShapes{"rope", "cloth", "ball"};
 constexpr std::array<std::string_view, 3> CollisionShapes{"box", "sphere", "capsule"};
 
-std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom::element Element)
+// Schema 5 named a body hung from the rope's end; LegacyAttachment returns it so loading can turn it into that body's Constraint.
+std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom::element Element, const std::uint64_t SchemaVersion, FObjectId& LegacyAttachment)
 {
-	const auto Fields = ReadComponentFields<11>(Element, GetLevelComponentDescriptor(ELevelComponentType::SoftBody));
+	const FLevelComponentDescriptor& Descriptor = GetLevelComponentDescriptor(ELevelComponentType::SoftBody);
+	std::array<std::string_view, 11> Keys;
+	for (std::size_t Index = 0; Index < 10; ++Index)
+	{
+		Keys[Index] = Descriptor.Properties[Index].Key;
+	}
+
+	Keys[10] = "attachment";
+	const auto Fields = SchemaVersion >= 6 ? ReadComponentFields<10>(Element, Descriptor).transform([](const auto& Current)
+	{
+		std::array<simdjson::dom::element, 11> Padded;
+		std::ranges::copy(Current, Padded.begin());
+		return Padded;
+	})
+	                                       : ReadFields(Element, Keys, 0x7ff);
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -321,11 +336,13 @@ std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom:
 	const auto Friction = ReadNumber<float>((*Fields)[7]);
 	const auto Pinned = ReadBoolean((*Fields)[8]);
 	const auto Material = ReadOptionalId<FAssetId>((*Fields)[9]);
-	const auto Attachment = ReadOptionalId<FObjectId>((*Fields)[10]);
+	const auto Attachment = SchemaVersion >= 6 ? std::expected<FObjectId, FLevelError>{} : ReadOptionalId<FObjectId>((*Fields)[10]);
 	if (!Shape || std::ranges::find(SoftBodyShapes, *Shape) == SoftBodyShapes.end() || !Length || !Height || !Thickness || !Mass || !Stiffness || !Pressure || !Friction || !Pinned || !Material || !Attachment)
 	{
 		return LevelError("Invalid soft body component field");
 	}
+
+	LegacyAttachment = *Attachment;
 
 	return FSoftBodyComponent{
 	    .Shape = static_cast<ESoftBodyShape>(std::ranges::find(SoftBodyShapes, *Shape) - SoftBodyShapes.begin()),
@@ -338,7 +355,6 @@ std::expected<FSoftBodyComponent, FLevelError> ReadSoftBody(const simdjson::dom:
 	    .Friction = *Friction,
 	    .bPinned = *Pinned,
 	    .Material = *Material,
-	    .Attachment = *Attachment,
 	};
 }
 
@@ -377,7 +393,25 @@ std::expected<FTriggerComponent, FLevelError> ReadTrigger(const simdjson::dom::e
 	return FTriggerComponent{.Size = {(*Size)[0], (*Size)[1], (*Size)[2]}};
 }
 
-std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
+std::expected<FConstraintComponent, FLevelError> ReadConstraint(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<2>(Element, GetLevelComponentDescriptor(ELevelComponentType::Constraint));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Target = ReadOptionalId<FObjectId>((*Fields)[0]);
+	const auto Anchor = ReadNumbers<float, 3>((*Fields)[1]);
+	if (!Target || !Anchor)
+	{
+		return LevelError("Invalid constraint component field");
+	}
+
+	return FConstraintComponent{.Target = *Target, .Anchor = {(*Anchor)[0], (*Anchor)[1], (*Anchor)[2]}};
+}
+
+std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element Element, const std::uint64_t SchemaVersion, FObjectId& LegacyAttachment)
 {
 	const auto& TransformDescriptor = GetLevelComponentDescriptor(ELevelComponentType::Transform);
 	const auto& MeshDescriptor = GetLevelComponentDescriptor(ELevelComponentType::StaticMesh);
@@ -610,7 +644,7 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 32;
-			const auto SoftBody = ReadSoftBody(Component.value);
+			const auto SoftBody = ReadSoftBody(Component.value, SchemaVersion, LegacyAttachment);
 			if (!SoftBody)
 			{
 				return std::unexpected(SoftBody.error());
@@ -649,6 +683,22 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			Entity.Trigger = *Trigger;
+		}
+		else if (SchemaVersion >= 6 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Constraint).SerializationKey)
+		{
+			if ((SeenComponents & 256) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 256;
+			const auto Constraint = ReadConstraint(Component.value);
+			if (!Constraint)
+			{
+				return std::unexpected(Constraint.error());
+			}
+
+			Entity.Constraint = *Constraint;
 		}
 		else
 		{
@@ -1053,7 +1103,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 5,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 6,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1204,7 +1254,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		if (Entity.SoftBody)
 		{
 			const auto& SoftBody = *Entity.SoftBody;
-			const std::array<FVisualValue, 11> Values{
+			const std::array<FVisualValue, 10> Values{
 			    SoftBodyShapes[static_cast<std::size_t>(SoftBody.Shape)],
 			    SoftBody.Length,
 			    SoftBody.Height,
@@ -1215,7 +1265,6 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			    SoftBody.Friction,
 			    SoftBody.bPinned,
 			    SoftBody.Material,
-			    SoftBody.Attachment,
 			};
 
 			AppendVisualComponent(Output, ELevelComponentType::SoftBody, Values, bHasComponent);
@@ -1231,6 +1280,12 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		{
 			const std::array<FVisualValue, 1> Values{Entity.Trigger->Size};
 			AppendVisualComponent(Output, ELevelComponentType::Trigger, Values, bHasComponent);
+		}
+
+		if (Entity.Constraint)
+		{
+			const std::array<FVisualValue, 2> Values{Entity.Constraint->Target, Entity.Constraint->Anchor};
+			AppendVisualComponent(Output, ELevelComponentType::Constraint, Values, bHasComponent);
 		}
 
 		Output += bHasComponent ? "\n      }\n    }" : "}\n    }";
@@ -1366,9 +1421,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 5 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 6 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 5 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 6 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
@@ -1398,15 +1453,32 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	FLevelDocument Document{.Id = *Id, .Name = std::string(*Name)};
 	Document.Entities.reserve(Entities.size());
 
+	std::vector<std::pair<FObjectId, FObjectId>> LegacyAttachments;
 	for (const auto Element : Entities)
 	{
-		auto Entity = ReadEntity(Element, SchemaVersion);
+		FObjectId LegacyAttachment;
+		auto Entity = ReadEntity(Element, SchemaVersion, LegacyAttachment);
 		if (!Entity)
 		{
 			return std::unexpected(Entity.error());
 		}
 
+		if (LegacyAttachment.IsValid())
+		{
+			LegacyAttachments.emplace_back(Entity->Id, LegacyAttachment);
+		}
+
 		Document.Entities.push_back(std::move(*Entity));
+	}
+
+	// Schema 6 constrains a hung body to its rope instead of naming it on the rope. The old attachment point was computed at simulation start, so the anchor starts at the body's origin.
+	for (const auto& [Rope, Body] : LegacyAttachments)
+	{
+		const auto Hung = std::ranges::find(Document.Entities, Body, &FLevelEntity::Id);
+		if (Hung != Document.Entities.end() && !Hung->Constraint)
+		{
+			Hung->Constraint = FConstraintComponent{.Target = Rope};
+		}
 	}
 
 	if (SchemaVersion >= 3)

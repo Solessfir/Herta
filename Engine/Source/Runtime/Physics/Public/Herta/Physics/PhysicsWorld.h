@@ -75,18 +75,6 @@ struct FPhysicsSensorEvent
 	bool bEntered = false;
 };
 
-// Jolt cannot constrain soft bodies, so the attached vertex becomes kinematic and is driven to a point on a dynamic rigid body every step.
-struct FPhysicsSoftBodyAttachment
-{
-	FPhysicsBodyId Body{};
-	std::uint32_t Vertex = 0;
-	// World-space point at creation; it then moves with the body.
-	FVector3 Point = FVector3::Zero();
-	// A pinned vertex that holds the body up like a rope, keeping Point within TetherLength of it (or its initial distance, if longer). None lets the body move freely.
-	std::optional<std::uint32_t> TetherVertex{};
-	float TetherLength = 0.f;
-};
-
 // Position-based soft body. Ropes use explicit edges; cloth and closed shells use faces, which also generate stretch, shear, and bend edges.
 struct FPhysicsSoftBodySettings
 {
@@ -111,7 +99,40 @@ struct FPhysicsSoftBodySettings
 	float LinearDamping = 0.1f;
 	float GravityScale = 1.f;
 	std::uint32_t Iterations = 8;
-	std::optional<FPhysicsSoftBodyAttachment> Attachment{};
+};
+
+// Jolt constraints only join rigid bodies, so a rope that carries a load is a chain of capsules rather than a soft body.
+struct FPhysicsRopeSettings
+{
+	// World-space ends; the rope rests straight between them.
+	FVector3 Start = FVector3::Zero();
+	FVector3 End = FVector3::Down();
+	std::uint32_t Segments = 8;
+	float Radius = 0.03f;
+	// Spread evenly over the segments.
+	float MassKg = 1.f;
+	float Friction = 0.4f;
+	// Damps bending at the joints; a jointed chain has no stable bending stiffness.
+	float AngularDamping = 0.5f;
+	// Fixes Start to the world, and keeps every joint within its rest length of it so a heavy load cannot stretch the chain.
+	bool bPinned = true;
+};
+
+struct FPhysicsRope
+{
+	std::uint32_t Index = 0;
+	// Segments carrying Start and End, for constraints that attach to either end.
+	FPhysicsBodyId First{};
+	FPhysicsBodyId Last{};
+};
+
+// Ball-and-socket joint at a world-space point. Joined bodies stop colliding with each other.
+struct FPhysicsPointConstraintSettings
+{
+	FPhysicsBodyId Body{};
+	// None fixes Body to the world.
+	std::optional<FPhysicsBodyId> Other{};
+	FVector3 Point = FVector3::Zero();
 };
 
 struct FPhysicsBodyTransform
@@ -143,6 +164,8 @@ public:
 
 	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateBody(const FPhysicsBodySettings& Settings);
 	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateSoftBody(const FPhysicsSoftBodySettings& Settings);
+	[[nodiscard]] std::expected<FPhysicsRope, FPhysicsError> CreateRope(const FPhysicsRopeSettings& Settings);
+	[[nodiscard]] std::expected<void, FPhysicsError> CreatePointConstraint(const FPhysicsPointConstraintSettings& Settings);
 	// Sets velocities that carry a kinematic body to Target over the next step, so bodies resting on it ride along.
 	[[nodiscard]] std::expected<void, FPhysicsError> MoveKinematicBody(FPhysicsBodyId BodyId, const FPhysicsBodyTransform& Target, float DeltaSeconds);
 	[[nodiscard]] std::expected<void, FPhysicsError> Step(float FixedDeltaSeconds);
@@ -151,6 +174,8 @@ public:
 	[[nodiscard]] std::expected<FPhysicsBodyTransform, FPhysicsError> GetBodyTransform(FPhysicsBodyId BodyId) const;
 	// World-space vertex positions in creation order.
 	[[nodiscard]] std::expected<void, FPhysicsError> GetSoftBodyVertices(FPhysicsBodyId BodyId, std::vector<FVector3>& OutPositions) const;
+	// World-space joints from Start to End, one more than the segment count.
+	[[nodiscard]] std::expected<void, FPhysicsError> GetRopePoints(const FPhysicsRope& Rope, std::vector<FVector3>& OutPoints) const;
 
 private:
 	struct FImplementation;

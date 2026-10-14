@@ -54,8 +54,17 @@ struct FPreviewSimulationSoftBody
 	std::size_t ObjectIndex = 0;
 	// The spans only need to stay valid until Start returns.
 	FPhysicsSoftBodySettings Settings{};
-	// Dynamic body that Settings.Attachment refers to. Start fills in its physics ID and moves the point onto the nearest part of its box.
-	std::optional<std::size_t> AttachedObjectIndex{};
+	// Simulates a capsule chain instead, which can carry a constrained load, and resamples it onto Settings.Vertices for rendering.
+	std::optional<FPhysicsRopeSettings> Rope{};
+};
+
+struct FPreviewSimulationConstraint
+{
+	// A Dynamic body, joined at Point, a world-space position at the start.
+	std::size_t ObjectIndex = 0;
+	// A rigid body, or a rope that joins by its free end; none fixes the body to the world.
+	std::optional<std::size_t> TargetObjectIndex{};
+	FVector3 Point{};
 };
 
 struct FPreviewSimulationTransform
@@ -67,7 +76,7 @@ struct FPreviewSimulationTransform
 class FPreviewSimulation final
 {
 public:
-	[[nodiscard]] std::expected<void, FPhysicsError> Start(std::span<const FPreviewSimulationBody> Bodies, std::span<const FPreviewSimulationSoftBody> SoftBodies = {}, const FPhysicsWorldSettings& Settings = PreviewPhysicsSettings);
+	[[nodiscard]] std::expected<void, FPhysicsError> Start(std::span<const FPreviewSimulationBody> Bodies, std::span<const FPreviewSimulationSoftBody> SoftBodies = {}, std::span<const FPreviewSimulationConstraint> Constraints = {}, const FPhysicsWorldSettings& Settings = PreviewPhysicsSettings);
 	void Stop() noexcept;
 	[[nodiscard]] std::expected<void, FPhysicsError> Update(float DeltaSeconds);
 
@@ -99,8 +108,9 @@ private:
 	struct FSoftBodyState
 	{
 		std::size_t ObjectIndex = 0;
-		FPhysicsBodyId Id;
-		std::vector<FVector3> Positions;
+		FPhysicsBodyId Id{};
+		std::optional<FPhysicsRope> Rope{};
+		std::vector<FVector3> Positions{};
 	};
 
 	[[nodiscard]] std::expected<void, FPhysicsError> ReadSoftBodies();
@@ -110,6 +120,8 @@ private:
 	std::vector<FPreviewSimulationTransform> Transforms;
 	std::vector<FSoftBodyState> SoftBodyStates;
 	std::uint64_t SoftBodyRevision = 0;
+	// Scratch for rope joints before they are resampled onto rope vertices.
+	std::vector<FVector3> RopePoints;
 
 	// Physics body IDs back to BodyStates indices for sensor events.
 	std::unordered_map<std::uint32_t, std::size_t> BodyIndices;

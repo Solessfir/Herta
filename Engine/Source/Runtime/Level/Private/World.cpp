@@ -219,6 +219,15 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		}
 	}
 
+	if (Entity.Constraint)
+	{
+		const auto Valid = ValidateConstraintComponent(*Entity.Constraint);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
 	if (Entity.BodyType != ELevelBodyType::None && Entity.BodyType != ELevelBodyType::Static && Entity.BodyType != ELevelBodyType::Dynamic)
 	{
 		return std::unexpected(FLevelError{"Entity has an unknown body type"});
@@ -387,6 +396,21 @@ std::expected<void, FLevelError> ValidateTriggerComponent(const FTriggerComponen
 	return {};
 }
 
+std::expected<void, FLevelError> ValidateConstraintComponent(const FConstraintComponent& Constraint)
+{
+	const auto InRange = [](const float Value)
+	{
+		return std::isfinite(Value) && Value >= -1000.f && Value <= 1000.f;
+	};
+
+	if (!InRange(Constraint.Anchor.X) || !InRange(Constraint.Anchor.Y) || !InRange(Constraint.Anchor.Z))
+	{
+		return std::unexpected(FLevelError{"Constraint anchors must be within 1000 m"});
+	}
+
+	return {};
+}
+
 std::expected<void, FLevelError> ValidateLevelEntities(const std::span<const FLevelEntity> Entities)
 {
 	if (Entities.size() > MaximumEntityCount)
@@ -494,6 +518,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FSoftBodyComponent* SoftBody = Registry.try_get<FSoftBodyComponent>(Entity);
 	const FMoverComponent* Mover = Registry.try_get<FMoverComponent>(Entity);
 	const FTriggerComponent* Trigger = Registry.try_get<FTriggerComponent>(Entity);
+	const FConstraintComponent* Constraint = Registry.try_get<FConstraintComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -508,6 +533,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .SoftBody = SoftBody ? std::optional{*SoftBody} : std::nullopt,
 	    .Mover = Mover ? std::optional{*Mover} : std::nullopt,
 	    .Trigger = Trigger ? std::optional{*Trigger} : std::nullopt,
+	    .Constraint = Constraint ? std::optional{*Constraint} : std::nullopt,
 	};
 }
 
@@ -581,6 +607,15 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FTriggerComponent>(Entity);
+	}
+
+	if (Snapshot.Constraint)
+	{
+		Registry.emplace_or_replace<FConstraintComponent>(Entity, *Snapshot.Constraint);
+	}
+	else
+	{
+		Registry.remove<FConstraintComponent>(Entity);
 	}
 }
 

@@ -21,7 +21,8 @@ enum class ELevelComponent : std::uint16_t
 	SoftBody = 1 << 8,
 	Mover = 1 << 9,
 	Trigger = 1 << 10,
-	All = (1 << 11) - 1,
+	Constraint = 1 << 11,
+	All = (1 << 12) - 1,
 };
 
 constexpr ELevelComponent operator|(const ELevelComponent Left, const ELevelComponent Right)
@@ -81,6 +82,7 @@ struct FLevelQueryEntity
 	std::optional<FSoftBodyComponent> SoftBody{};
 	std::optional<FMoverComponent> Mover{};
 	std::optional<FTriggerComponent> Trigger{};
+	std::optional<FConstraintComponent> Constraint{};
 };
 
 struct FLevelComponentUpdate
@@ -97,6 +99,7 @@ struct FLevelComponentUpdate
 	std::optional<std::optional<FSoftBodyComponent>> SoftBody{};
 	std::optional<std::optional<FMoverComponent>> Mover{};
 	std::optional<std::optional<FTriggerComponent>> Trigger{};
+	std::optional<std::optional<FConstraintComponent>> Constraint{};
 };
 
 struct FLevelEvent

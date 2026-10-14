@@ -21,6 +21,7 @@ enum class ELevelComponentType : std::uint8_t
 	SoftBody,
 	Mover,
 	Trigger,
+	Constraint,
 };
 
 enum class ELevelPropertyType : std::uint8_t

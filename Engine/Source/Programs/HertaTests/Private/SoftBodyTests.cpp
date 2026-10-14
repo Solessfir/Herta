@@ -109,9 +109,9 @@ TEST_CASE("Preview simulation steps soft bodies and reports their world vertices
 	CHECK(Simulation.GetSoftBodyPositions(4).empty());
 }
 
-TEST_CASE("Preview simulation hangs an attached box from the end of a pinned rope")
+TEST_CASE("Preview simulation hangs a constrained box from the end of a pinned rope chain")
 {
-	const FSoftBodyComponent Rope{.Shape = ESoftBodyShape::Rope, .Length = 1.f, .MassKg = 0.2f, .Attachment = FObjectId{1, 7}};
+	const FSoftBodyComponent Rope{.Shape = ESoftBodyShape::Rope, .Length = 1.f, .MassKg = 0.2f};
 	const FSoftBodyTopology Topology = BuildSoftBodyTopology(Rope);
 	std::vector<FVector3> World;
 	for (const FVector3& Vertex : Topology.Vertices)
@@ -119,30 +119,33 @@ TEST_CASE("Preview simulation hangs an attached box from the end of a pinned rop
 		World.push_back(Vertex + FVector3{0.f, 3.f, 0.f});
 	}
 
-	// The box's top face is 15 cm below the rope's end, so the attachment point snaps onto it.
-	const std::array Bodies{FPreviewSimulationBody{.ObjectIndex = 2, .Transform = FTransform{{0.f, 1.6f, 0.f}, FQuaternion::Identity(), {0.5f, 0.5f, 0.5f}}, .Shape = {.HalfExtents = {0.5f, 0.5f, 0.5f}}, .MotionType = EPhysicsMotionType::Dynamic}};
-	const FPhysicsSoftBodySettings Settings = MakeSoftBodyPhysicsSettings(Rope, Topology, World);
-	REQUIRE(Settings.Attachment);
-	CHECK(Settings.Attachment->Vertex == World.size() - 1);
-	CHECK(Settings.Attachment->TetherVertex == 0u);
+	// The box's top face sits on the rope's free end at y = 2.
+	const std::array Bodies{FPreviewSimulationBody{.ObjectIndex = 2, .Transform = FTransform{{0.f, 1.75f, 0.f}, FQuaternion::Identity(), {0.25f, 0.25f, 0.25f}}, .MotionType = EPhysicsMotionType::Dynamic}};
+	const FPhysicsRopeSettings RopeSettings = MakeRopePhysicsSettings(Rope, World);
+	CHECK(RopeSettings.Start.Y == doctest::Approx(3.f));
+	CHECK(RopeSettings.End.Y == doctest::Approx(2.f));
+	CHECK(RopeSettings.Segments == 5);
+	const std::array SoftBodies{FPreviewSimulationSoftBody{.ObjectIndex = 4, .Settings = MakeSoftBodyPhysicsSettings(Rope, Topology, World), .Rope = RopeSettings}};
 
 	FPreviewSimulation Missing;
-	const std::array Unresolved{FPreviewSimulationSoftBody{.ObjectIndex = 4, .Settings = Settings}};
-	CHECK_FALSE(Missing.Start(Bodies, Unresolved));
+	const std::array Unresolved{FPreviewSimulationConstraint{.ObjectIndex = 2, .TargetObjectIndex = 9, .Point = {0.f, 2.f, 0.f}}};
+	CHECK_FALSE(Missing.Start(Bodies, SoftBodies, Unresolved));
+	const std::array OnRope{FPreviewSimulationConstraint{.ObjectIndex = 4, .Point = {0.f, 2.f, 0.f}}};
+	CHECK_FALSE(Missing.Start(Bodies, SoftBodies, OnRope));
 
 	FPreviewSimulation Simulation;
-	const std::array SoftBodies{FPreviewSimulationSoftBody{.ObjectIndex = 4, .Settings = Settings, .AttachedObjectIndex = 2}};
-	REQUIRE(Simulation.Start(Bodies, SoftBodies));
+	const std::array Constraints{FPreviewSimulationConstraint{.ObjectIndex = 2, .TargetObjectIndex = 4, .Point = {0.f, 2.f, 0.f}}};
+	REQUIRE(Simulation.Start(Bodies, SoftBodies, Constraints));
 	for (int Frame = 0; Frame < 120; ++Frame)
 	{
 		REQUIRE(Simulation.Update(1.f / 60.f));
 	}
 
-	// The 1.15 m initial gap is longer than the rope, so the tether holds the box there instead of letting it drop.
 	const float BoxY = Simulation.GetTransforms()[0].Transform.Translation.Y;
-	CHECK(BoxY == doctest::Approx(1.6f).epsilon(0.02));
+	CHECK(BoxY == doctest::Approx(1.75f).epsilon(0.02));
 	const auto Positions = Simulation.GetSoftBodyPositions(4);
-	REQUIRE(!Positions.empty());
-	CHECK((Positions.back() - FVector3{0.f, BoxY + 0.25f, 0.f}).Length() < 0.05f);
+	REQUIRE(Positions.size() == World.size());
+	CHECK((Positions.front() - World.front()).Length() < 0.01f);
+	CHECK((Positions.back() - FVector3{0.f, BoxY + 0.25f, 0.f}).Length() < 0.03f);
 }
 }

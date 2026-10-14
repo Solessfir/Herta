@@ -12,9 +12,9 @@ namespace Herta
 TEST_CASE("Level descriptors register stable built-in component and property identities")
 {
 	const auto Components = GetLevelComponentDescriptors();
-	REQUIRE(Components.size() == 9);
-	const std::array<std::string_view, 9> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody", "Herta.Level.Light", "Herta.Level.SkyAtmosphere", "Herta.Level.HeightFog", "Herta.Level.SoftBody", "Herta.Level.Mover", "Herta.Level.Trigger"};
-	const std::array<std::string_view, 9> Keys{"transform", "staticMesh", "body", "light", "skyAtmosphere", "heightFog", "softBody", "mover", "trigger"};
+	REQUIRE(Components.size() == 10);
+	const std::array<std::string_view, 10> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody", "Herta.Level.Light", "Herta.Level.SkyAtmosphere", "Herta.Level.HeightFog", "Herta.Level.SoftBody", "Herta.Level.Mover", "Herta.Level.Trigger", "Herta.Level.Constraint"};
+	const std::array<std::string_view, 10> Keys{"transform", "staticMesh", "body", "light", "skyAtmosphere", "heightFog", "softBody", "mover", "trigger", "constraint"};
 
 	for (std::size_t Index = 0; Index < Components.size(); ++Index)
 	{
@@ -41,8 +41,8 @@ TEST_CASE("Level descriptors register stable built-in component and property ide
 
 TEST_CASE("Visual descriptor property access preserves types and rejects invalid values atomically")
 {
-	FLevelEntity Entity{.Id = FObjectId{1, 1}, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}};
-	for (const ELevelComponentType Type : {ELevelComponentType::Light, ELevelComponentType::SkyAtmosphere, ELevelComponentType::HeightFog, ELevelComponentType::SoftBody, ELevelComponentType::Mover, ELevelComponentType::Trigger})
+	FLevelEntity Entity{.Id = FObjectId{1, 1}, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}, .Constraint = FConstraintComponent{}};
+	for (const ELevelComponentType Type : {ELevelComponentType::Light, ELevelComponentType::SkyAtmosphere, ELevelComponentType::HeightFog, ELevelComponentType::SoftBody, ELevelComponentType::Mover, ELevelComponentType::Trigger, ELevelComponentType::Constraint})
 	{
 		const auto& Descriptor = GetLevelComponentDescriptor(Type);
 		for (const auto& Property : Descriptor.Properties)
@@ -62,6 +62,7 @@ TEST_CASE("Visual descriptor property access preserves types and rejects invalid
 	CHECK_FALSE(SetLevelVisualProperty(Entity, ELevelComponentType::Mover, "periodSeconds", 0.1f));
 	CHECK_FALSE(SetLevelVisualProperty(Entity, ELevelComponentType::Mover, "offset", FVector3{0.f, 2000.f, 0.f}));
 	CHECK_FALSE(SetLevelVisualProperty(Entity, ELevelComponentType::Trigger, "size", FVector3{1.f, 0.f, 1.f}));
+	CHECK_FALSE(SetLevelVisualProperty(Entity, ELevelComponentType::Constraint, "anchor", FVector3{0.f, 2000.f, 0.f}));
 	CHECK_FALSE(SetLevelVisualProperty(Entity, ELevelComponentType::Light, "missing", 1.f));
 	CHECK(Entity == Before);
 	CHECK_FALSE(GetLevelVisualProperty(Entity, ELevelComponentType::Light, "missing"));
@@ -119,11 +120,11 @@ TEST_CASE("Level serialization consumes every registered built-in property key")
 	const FLevelDocument Document{
 	    .Id = FObjectId{1, 1},
 	    .Name = "Descriptors",
-	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}}},
+	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}, .Constraint = FConstraintComponent{}}},
 	};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
-	CHECK(Text->find("\"engineSchemaVersion\": 5") != std::string::npos);
+	CHECK(Text->find("\"engineSchemaVersion\": 6") != std::string::npos);
 
 	for (const auto& Component : GetLevelComponentDescriptors())
 	{

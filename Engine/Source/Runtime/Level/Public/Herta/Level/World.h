@@ -182,8 +182,6 @@ struct FSoftBodyComponent
 	// Pins the rope's top end or the cloth's top corners in place.
 	bool bPinned = true;
 	FAssetId Material{};
-	// Dynamic rigid body hung from the rope's free end; a soft reference like the atmosphere's sun.
-	FObjectId Attachment{};
 };
 
 enum class ELevelBodyType : std::uint8_t
@@ -211,6 +209,17 @@ struct FTriggerComponent
 
 	// Full box dimensions in meters, before the entity's scale.
 	FVector3 Size{2.f, 2.f, 2.f};
+};
+
+// Joins the entity's Dynamic rigid body, at Anchor, to a rope's free end, another rigid body, or a fixed point in the world.
+struct FConstraintComponent
+{
+	constexpr bool operator==(const FConstraintComponent&) const = default;
+
+	// A rope Soft Body, a rigid body, or none for the world; a soft reference like the atmosphere's sun.
+	FObjectId Target{};
+	// The joint, in the entity's local space before the simulation moves it.
+	FVector3 Anchor{};
 };
 
 // Collision fitted to the mesh bounds: a sphere encloses the largest half extent, and a capsule stands along local +Y with the larger horizontal half extent as its radius.
@@ -251,6 +260,7 @@ struct FLevelEntity
 	std::optional<FSoftBodyComponent> SoftBody{};
 	std::optional<FMoverComponent> Mover{};
 	std::optional<FTriggerComponent> Trigger{};
+	std::optional<FConstraintComponent> Constraint{};
 };
 
 struct FLevelEntityChange
@@ -272,6 +282,7 @@ struct FLevelError
 [[nodiscard]] std::expected<void, FLevelError> ValidateSoftBodyComponent(const FSoftBodyComponent& SoftBody);
 [[nodiscard]] std::expected<void, FLevelError> ValidateMoverComponent(const FMoverComponent& Mover);
 [[nodiscard]] std::expected<void, FLevelError> ValidateTriggerComponent(const FTriggerComponent& Trigger);
+[[nodiscard]] std::expected<void, FLevelError> ValidateConstraintComponent(const FConstraintComponent& Constraint);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final

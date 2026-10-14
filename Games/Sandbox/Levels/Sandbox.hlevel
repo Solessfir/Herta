@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 5,
+  "engineSchemaVersion": 6,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "entities": [
@@ -2494,8 +2494,7 @@
           "pressure": 400,
           "friction": 0.4,
           "pinned": true,
-          "material": "a4c06003-2738-4e25-9b9e-816ae7c00001",
-          "attachment": "4c060047-2738-4e25-9b9e-000000000004"
+          "material": "a4c06003-2738-4e25-9b9e-816ae7c00001"
         }
       }
     },
@@ -2519,8 +2518,7 @@
           "pressure": 400,
           "friction": 0.4,
           "pinned": true,
-          "material": "a4c06100-2738-4e25-9b9e-000000000011",
-          "attachment": null
+          "material": "a4c06100-2738-4e25-9b9e-000000000011"
         }
       }
     },
@@ -2544,8 +2542,7 @@
           "pressure": 400,
           "friction": 0.4,
           "pinned": false,
-          "material": "a4c06004-2738-4e25-9b9e-816ae7c00001",
-          "attachment": null
+          "material": "a4c06004-2738-4e25-9b9e-816ae7c00001"
         }
       }
     },
@@ -2554,7 +2551,7 @@
       "name": "Rope box - 2 kg",
       "parent": "4c060048-2738-4e25-9b9e-000000000002",
       "transform": {
-        "translation": [-1.5, 1.5287, -1.9917],
+        "translation": [-1.5, 1.5288, -1.9917],
         "rotation": [0.42261827, 0, 0, 0.9063078],
         "scale": [0.4, 0.4, 0.4]
       },
@@ -2569,6 +2566,10 @@
           "angularDamping": 0.05,
           "gravityScale": 1,
           "collision": "box"
+        },
+        "constraint": {
+          "target": "4c060047-2738-4e25-9b9e-000000000001",
+          "anchor": [0, 0.5, 0]
         }
       }
     },

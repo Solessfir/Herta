@@ -467,31 +467,20 @@ TEST_CASE("Pressurized soft body shells land on static bodies without passing th
 	CHECK(Highest - Lowest > 0.3f);
 }
 
-TEST_CASE("Attached soft body ropes carry a dynamic box at their length and follow it")
+TEST_CASE("Rope chains carry a constrained heavy box two ways and keep their length")
 {
 	auto World = FPhysicsWorld::Create();
 	REQUIRE(World);
-	constexpr std::uint32_t Segments = 10;
 	constexpr float Length = 2.f;
 	const FVector3 Pin{0.f, 5.f, 0.f};
-	std::vector<FVector3> Vertices;
-	std::vector<std::array<std::uint32_t, 2>> Stretch;
-	for (std::uint32_t Index = 0; Index <= Segments; ++Index)
-	{
-		Vertices.push_back(Pin + FVector3{static_cast<float>(Index) * Length / Segments, 0.f, 0.f});
-		if (Index > 0)
-		{
-			Stretch.push_back({Index - 1, Index});
-		}
-	}
+	const FVector3 End = Pin + FVector3{Length, 0.f, 0.f};
 
-	// Released horizontally, the box swings down on the rope like a pendulum.
-	const auto Box = (*World)->CreateBody({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = Vertices.back() - FVector3{0.f, 0.2f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 5.f, .LinearDamping = 0.5f, .AngularDamping = 0.5f}});
-	REQUIRE(Box);
-	const std::array<std::uint32_t, 1> Pinned{0};
-	const FPhysicsSoftBodyAttachment Attachment{.Body = *Box, .Vertex = Segments, .Point = Vertices.back(), .TetherVertex = 0, .TetherLength = Length};
-	const auto Rope = (*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = Pinned, .StretchEdges = Stretch, .MassKg = 0.2f, .LinearDamping = 1.f, .Attachment = Attachment});
+	// Released horizontally, a 5 kg box swings down on a 0.2 kg rope, a mass ratio that stretches a naive chain.
+	const auto Rope = (*World)->CreateRope({.Start = Pin, .End = End, .Segments = 10, .MassKg = 0.2f});
 	REQUIRE(Rope);
+	const auto Box = (*World)->CreateBody({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = End - FVector3{0.f, 0.2f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 5.f, .LinearDamping = 0.5f, .AngularDamping = 0.5f}});
+	REQUIRE(Box);
+	REQUIRE((*World)->CreatePointConstraint({.Body = *Box, .Other = Rope->Last, .Point = End}));
 	for (int Step = 0; Step < 600; ++Step)
 	{
 		REQUIRE((*World)->Step(1.f / 60.f));
@@ -502,18 +491,62 @@ TEST_CASE("Attached soft body ropes carry a dynamic box at their length and foll
 	const FVector3 Top = Transform->Position + Transform->Rotation.RotateVector({0.f, 0.2f, 0.f});
 	CHECK((Top - Pin).Length() == doctest::Approx(Length).epsilon(0.02));
 	CHECK(Top.Y < Pin.Y - Length * 0.9f);
-	std::vector<FVector3> Positions;
-	REQUIRE((*World)->GetSoftBodyVertices(*Rope, Positions));
-	CHECK((Positions.back() - Top).Length() < 0.05f);
-	CHECK((Positions.front() - Pin).Length() < 0.001f);
+
+	std::vector<FVector3> Points;
+	REQUIRE((*World)->GetRopePoints(*Rope, Points));
+	REQUIRE(Points.size() == 11);
+	CHECK((Points.front() - Pin).Length() < 0.01f);
+	CHECK((Points.back() - Top).Length() < 0.02f);
+	// The load pulls the rope taut along the line to the pin; a rope that only followed the box would sag.
+	const FVector3 Axis = (Top - Pin).Normalized();
+	for (const FVector3& Point : Points)
+	{
+		const FVector3 Offset = Point - Pin;
+		CHECK((Offset - Axis * Offset.Dot(Axis)).Length() < 0.05f);
+	}
+}
+
+TEST_CASE("Point constraints hold bodies to the world or each other without self-collision")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	const FVector3 Hook{0.f, 3.f, 0.f};
+	const auto Hung = (*World)->CreateBody({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = Hook - FVector3{0.f, 0.2f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+	REQUIRE(Hung);
+	REQUIRE((*World)->CreatePointConstraint({.Body = *Hung, .Point = Hook}));
+
+	// Half-overlapping boxes would be pushed apart by contacts if the joint did not disable them.
+	const FPhysicsBodyProperties Floating{.GravityScale = 0.f};
+	const auto Left = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {10.f, 0.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = Floating});
+	const auto Right = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {10.5f, 0.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = Floating});
+	REQUIRE(Left);
+	REQUIRE(Right);
+	REQUIRE((*World)->CreatePointConstraint({.Body = *Right, .Other = *Left, .Point = {10.25f, 0.f, 0.f}}));
+	for (int Step = 0; Step < 120; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	const auto HungTransform = (*World)->GetBodyTransform(*Hung);
+	REQUIRE(HungTransform);
+	CHECK((HungTransform->Position + HungTransform->Rotation.RotateVector({0.f, 0.2f, 0.f}) - Hook).Length() < 0.01f);
+	const auto LeftTransform = (*World)->GetBodyTransform(*Left);
+	const auto RightTransform = (*World)->GetBodyTransform(*Right);
+	REQUIRE(LeftTransform);
+	REQUIRE(RightTransform);
+	CHECK((RightTransform->Position - LeftTransform->Position).Length() == doctest::Approx(0.5f).epsilon(0.01));
 
 	const auto Floor = (*World)->CreateBody({});
 	REQUIRE(Floor);
-	const std::array<std::uint32_t, 2> BothPinned{0, Segments};
-	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = Pinned, .StretchEdges = Stretch, .Attachment = FPhysicsSoftBodyAttachment{.Body = *Floor, .Vertex = Segments}}));
-	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = BothPinned, .StretchEdges = Stretch, .Attachment = Attachment}));
-	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .StretchEdges = Stretch, .Attachment = Attachment}));
-	CHECK_FALSE((*World)->CreateSoftBody({.Vertices = Vertices, .PinnedVertices = Pinned, .StretchEdges = Stretch, .Attachment = FPhysicsSoftBodyAttachment{.Body = *Rope, .Vertex = Segments}}));
+	CHECK_FALSE((*World)->CreatePointConstraint({.Body = *Floor, .Point = Hook}));
+	CHECK_FALSE((*World)->CreatePointConstraint({.Body = *Hung, .Other = *Hung, .Point = Hook}));
+	CHECK_FALSE((*World)->CreatePointConstraint({.Body = *Hung, .Other = FPhysicsBodyId{}, .Point = Hook}));
+	CHECK_FALSE((*World)->CreatePointConstraint({.Body = *Hung, .Point = {std::numeric_limits<float>::quiet_NaN(), 0.f, 0.f}}));
+	CHECK_FALSE((*World)->CreateRope({.Segments = 0}));
+	CHECK_FALSE((*World)->CreateRope({.End = FVector3::Zero()}));
+	CHECK_FALSE((*World)->CreateRope({.Radius = 0.f}));
+	std::vector<FVector3> Points;
+	CHECK_FALSE((*World)->GetRopePoints({.Index = 7}, Points));
 }
 
 TEST_CASE("Soft body creation rejects invalid topology and parameters")

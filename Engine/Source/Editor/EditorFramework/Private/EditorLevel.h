@@ -70,6 +70,8 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedMover(std::optional<FMoverComponent> Mover);
 	[[nodiscard]] std::expected<void, FLevelError> AddTriggerToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedTrigger(std::optional<FTriggerComponent> Trigger);
+	[[nodiscard]] std::expected<void, FLevelError> AddConstraintToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedConstraint(std::optional<FConstraintComponent> Constraint);
 	[[nodiscard]] std::expected<void, FLevelError> AddHeightFogToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedHeightFog(std::optional<FHeightFogComponent> Fog);
 	[[nodiscard]] std::expected<void, FLevelError> DuplicateSelected(bool bWithinActiveEdit = false, const FVector3d& WorldOffset = {});

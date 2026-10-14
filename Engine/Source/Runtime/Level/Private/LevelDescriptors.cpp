@@ -231,11 +231,6 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		{
 			return Visitor(Entity.SoftBody->Material);
 		}
-
-		if (Key == "attachment")
-		{
-			return Visitor(Entity.SoftBody->Attachment);
-		}
 	}
 
 	if (Type == ELevelComponentType::Mover && Entity.Mover)
@@ -256,6 +251,19 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		return Visitor(Entity.Trigger->Size);
 	}
 
+	if (Type == ELevelComponentType::Constraint && Entity.Constraint)
+	{
+		if (Key == "target")
+		{
+			return Visitor(Entity.Constraint->Target);
+		}
+
+		if (Key == "anchor")
+		{
+			return Visitor(Entity.Constraint->Anchor);
+		}
+	}
+
 	return {};
 }
 
@@ -267,6 +275,7 @@ constexpr FHeightFogComponent FogDefaults{};
 constexpr FSoftBodyComponent SoftBodyDefaults{};
 constexpr FMoverComponent MoverDefaults{};
 constexpr FTriggerComponent TriggerDefaults{};
+constexpr FConstraintComponent ConstraintDefaults{};
 
 constexpr std::array TransformProperties{
     FLevelPropertyDescriptor{.Key = "translation", .Label = "Location", .Type = ELevelPropertyType::WorldPosition, .Unit = ELevelPropertyUnit::Meters, .Default = TransformDefaults.Translation},
@@ -343,7 +352,6 @@ constexpr std::array SoftBodyProperties{
     FLevelPropertyDescriptor{.Key = "friction", .Label = "Friction", .Default = SoftBodyDefaults.Friction, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1.}},
     FLevelPropertyDescriptor{.Key = "pinned", .Label = "Pinned", .Type = ELevelPropertyType::Boolean, .Default = SoftBodyDefaults.bPinned},
     FLevelPropertyDescriptor{.Key = "material", .Label = "Material", .Type = ELevelPropertyType::AssetReference, .Default = SoftBodyDefaults.Material},
-    FLevelPropertyDescriptor{.Key = "attachment", .Label = "Attached body", .Type = ELevelPropertyType::ObjectReference, .Default = SoftBodyDefaults.Attachment},
 };
 
 constexpr std::array MoverProperties{
@@ -353,6 +361,11 @@ constexpr std::array MoverProperties{
 
 constexpr std::array TriggerProperties{
     FLevelPropertyDescriptor{.Key = "size", .Label = "Size", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = TriggerDefaults.Size, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 1000.}},
+};
+
+constexpr std::array ConstraintProperties{
+    FLevelPropertyDescriptor{.Key = "target", .Label = "Target", .Type = ELevelPropertyType::ObjectReference, .Default = ConstraintDefaults.Target},
+    FLevelPropertyDescriptor{.Key = "anchor", .Label = "Anchor", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = ConstraintDefaults.Anchor, .Range = FLevelPropertyRange{.Minimum = -1000., .Maximum = 1000.}},
 };
 
 constexpr std::array Components{
@@ -365,6 +378,7 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::SoftBody, .TypeId = "Herta.Level.SoftBody", .SerializationKey = "softBody", .Label = "Soft Body", .Properties = SoftBodyProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::Mover, .TypeId = "Herta.Level.Mover", .SerializationKey = "mover", .Label = "Mover", .Properties = MoverProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::Trigger, .TypeId = "Herta.Level.Trigger", .SerializationKey = "trigger", .Label = "Trigger", .Properties = TriggerProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::Constraint, .TypeId = "Herta.Level.Constraint", .SerializationKey = "constraint", .Label = "Constraint", .Properties = ConstraintProperties},
 };
 }
 
@@ -406,6 +420,7 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 	                   : Type == ELevelComponentType::SoftBody      ? ValidateSoftBodyComponent(*Candidate.SoftBody)
 	                   : Type == ELevelComponentType::Mover         ? ValidateMoverComponent(*Candidate.Mover)
 	                   : Type == ELevelComponentType::Trigger       ? ValidateTriggerComponent(*Candidate.Trigger)
+	                   : Type == ELevelComponentType::Constraint    ? ValidateConstraintComponent(*Candidate.Constraint)
 	                                                                : ValidateHeightFogComponent(*Candidate.HeightFog);
 	if (!Valid)
 	{

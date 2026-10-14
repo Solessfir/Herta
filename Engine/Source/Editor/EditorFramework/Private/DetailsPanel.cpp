@@ -195,8 +195,8 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
-		const std::array<std::string_view, 12> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Mover", "Trigger"};
-		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody, Components.bAllMover, Components.bAllTrigger};
+		const std::array<std::string_view, 13> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Mover", "Trigger", "Constraint"};
+		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody, Components.bAllMover, Components.bAllTrigger, Components.bAllConstraint};
 		constexpr std::array Actions{
 		    EDetailsComponentAction::AddStaticMesh,
 		    EDetailsComponentAction::AddRigidBody,
@@ -210,6 +210,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		    EDetailsComponentAction::AddSoftBody,
 		    EDetailsComponentAction::AddMover,
 		    EDetailsComponentAction::AddTrigger,
+		    EDetailsComponentAction::AddConstraint,
 		};
 		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
 		std::vector<int> Available;
@@ -903,21 +904,22 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			}
 			else if (Property.Type == ELevelPropertyType::AssetReference || Property.Type == ELevelPropertyType::ObjectReference)
 			{
-				// Atmospheres reference a sun and ropes an attached body; soft bodies reference a material and Sky Lights an environment texture.
+				// Atmospheres reference a sun and constraints a body or rope; soft bodies reference a material and Sky Lights an environment texture.
 				const bool bObject = Property.Type == ELevelPropertyType::ObjectReference;
 				const bool bSoftBody = Type == ELevelComponentType::SoftBody;
-				const auto Labels = bObject ? (bSoftBody ? Components.AttachmentLabels : Components.SunLabels) : bSoftBody ? Components.MaterialOptionLabels
-				                                                                                                           : Components.EnvironmentLabels;
-				const std::span<const FObjectId> ObjectIds = bSoftBody ? Components.AttachmentIds : Components.SunIds;
+				const bool bConstraint = Type == ELevelComponentType::Constraint;
+				const auto Labels = bObject ? (bConstraint ? Components.ConstraintTargetLabels : Components.SunLabels) : bSoftBody ? Components.MaterialOptionLabels
+				                                                                                                                   : Components.EnvironmentLabels;
+				const std::span<const FObjectId> ObjectIds = bConstraint ? Components.ConstraintTargetIds : Components.SunIds;
 				const std::span<const FAssetId> AssetIds = bSoftBody ? Components.MaterialOptionIds : Components.EnvironmentIds;
 				const std::size_t Count = std::min(Labels.size(), bObject ? ObjectIds.size() : AssetIds.size());
-				const char* const NoneLabel = bObject ? (bSoftBody ? "None" : "Automatic sun") : bSoftBody ? "Default material"
-				                                                                                           : "Procedural sky";
+				const char* const NoneLabel = bObject ? (bConstraint ? "World" : "Automatic sun") : bSoftBody ? "Default material"
+				                                                                                              : "Procedural sky";
 				const char* CurrentLabel = NoneLabel;
 				if (bObject ? std::get<FObjectId>(Candidate).IsValid() : std::get<FAssetId>(Candidate).IsValid())
 				{
-					CurrentLabel = bObject ? (bSoftBody ? "Missing body" : "Missing sun (automatic)") : bSoftBody ? "Missing material"
-					                                                                                              : "Missing environment";
+					CurrentLabel = bObject ? (bConstraint ? "Missing target (world)" : "Missing sun (automatic)") : bSoftBody ? "Missing material"
+					                                                                                                          : "Missing environment";
 				}
 
 				for (std::size_t Option = 0; Option < Count; ++Option)
@@ -938,8 +940,8 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-					ToolUI.DrawSearchField("##ReferenceSearch", bObject ? (bSoftBody ? "Search dynamic bodies" : "Search lights") : bSoftBody ? "Search materials"
-					                                                                                                                          : "Search environments",
+					ToolUI.DrawSearchField("##ReferenceSearch", bObject ? (bConstraint ? "Search bodies and ropes" : "Search lights") : bSoftBody ? "Search materials"
+					                                                                                                                              : "Search environments",
 					    State.VisualReferenceSearch.data(), State.VisualReferenceSearch.size());
 					ImGui::PopStyleColor();
 					std::vector<std::string_view> Candidates(Labels.begin(), Labels.begin() + static_cast<std::ptrdiff_t>(Count));
@@ -1258,7 +1260,8 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bSoftBody = Components && Components->bAnySoftBody && MatchesVisualSection(ELevelComponentType::SoftBody, Query);
 	const bool bMover = Components && Components->bAnyMover && MatchesVisualSection(ELevelComponentType::Mover, Query);
 	const bool bTrigger = Components && Components->bAnyTrigger && MatchesVisualSection(ELevelComponentType::Trigger, Query);
-	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody && !bMover && !bTrigger)
+	const bool bConstraint = Components && Components->bAnyConstraint && MatchesVisualSection(ELevelComponentType::Constraint, Query);
+	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody && !bMover && !bTrigger && !bConstraint)
 	{
 		ImGui::TextDisabled("No matching properties.");
 		ToolUI.EndPanel();
@@ -1704,7 +1707,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 	if (Components)
 	{
-		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog, .SoftBody = Components->SoftBody, .Mover = Components->Mover, .Trigger = Components->Trigger};
+		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog, .SoftBody = Components->SoftBody, .Mover = Components->Mover, .Trigger = Components->Trigger, .Constraint = Components->Constraint};
 		constexpr std::array<std::string_view, 5> LightLabels{"Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light"};
 		if (bLight && DrawSectionHeader(LightLabels[static_cast<std::size_t>(Visual.Light->Type)].data(), !Components->bAllLight || Components->MixedLight[0], EDetailsComponentAction::RemoveLight))
 		{
@@ -1740,6 +1743,12 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		{
 			DrawVisualProperties(ToolUI, ELevelComponentType::Trigger, Visual, Components->MixedTrigger, State, *Components, Query, bDragging, Edits, MeshResult);
 			Components->Trigger = *Visual.Trigger;
+		}
+
+		if (bConstraint && DrawSectionHeader("Constraint", !Components->bAllConstraint, EDetailsComponentAction::RemoveConstraint))
+		{
+			DrawVisualProperties(ToolUI, ELevelComponentType::Constraint, Visual, Components->MixedConstraint, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->Constraint = *Visual.Constraint;
 		}
 	}
 

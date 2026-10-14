@@ -29,6 +29,9 @@ struct FSoftBodyTopology
 // Physics settings over the topology; the spans reference Topology and WorldVertices, which must outlive the call that consumes them.
 [[nodiscard]] FPhysicsSoftBodySettings MakeSoftBodyPhysicsSettings(const FSoftBodyComponent& SoftBody, const FSoftBodyTopology& Topology, std::span<const FVector3> WorldVertices);
 
+// A rope simulates as a capsule chain from its first to its last world vertex, so it can carry a constrained load.
+[[nodiscard]] FPhysicsRopeSettings MakeRopePhysicsSettings(const FSoftBodyComponent& SoftBody, std::span<const FVector3> WorldVertices);
+
 // Renderable surface for topology vertex positions given in local space: a tube for ropes, a two-sided sheet for cloth, and a smooth shell for balls.
 [[nodiscard]] FCookedModel BuildSoftBodyModel(const FSoftBodyComponent& SoftBody, const FSoftBodyTopology& Topology, std::span<const FVector3> Positions);
 }
