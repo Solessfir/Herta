@@ -4539,6 +4539,8 @@ void FEditorFramework::FImplementation::TogglePlay()
 	Level->SetSimulationRunning(true);
 	PreviewDragStart.reset();
 	ViewportGizmos.resetId();
+	// Play keeps the pointer only while the viewport has focus, so take it whichever panel started Play.
+	ImGui::SetWindowFocus("Viewport");
 	ToolUI->SetCursorCaptured(true);
 	HERTA_LOG_INFO(*Log, EditorLog, "Playing; press Esc to stop");
 }
