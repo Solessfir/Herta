@@ -52,6 +52,7 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Next milestone](Docs/EngineDesign.md#milestone-5---playable-runtime-and-standalone-game) - playable Sandbox and standalone runtime.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
 - [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.
+- [Linux todo](Docs/LinuxTodo.md) - checks waiting for a native Linux machine.
 
 ## License
 

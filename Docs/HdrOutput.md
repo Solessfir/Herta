@@ -29,7 +29,7 @@ Visual-test and scaling captures and smoke runs always use SDR, because they rea
 ## Platforms
 
 - **Windows:** turn on Use HDR in Windows display settings. Verified on an NVIDIA RTX 4090 Laptop GPU with a mini-LED panel.
-- **Linux, Wayland:** works when the compositor implements the color management protocol and the Vulkan driver reports HDR10 for the surface (recent Mesa; NVIDIA support depends on the driver version). Otherwise the option stays unavailable. The system luminance query is Windows-only, so Linux starts from the 1000/200 nit defaults; calibrate the peak. Not yet verified on Hyprland.
+- **Linux, Wayland:** works when the compositor implements the color management protocol and the Vulkan driver reports HDR10 for the surface (recent Mesa; NVIDIA support depends on the driver version). Otherwise the option stays unavailable. The system luminance query is Windows-only, so Linux starts from the 1000/200 nit defaults; calibrate the peak. Not yet verified on Hyprland; see [LinuxTodo.md](LinuxTodo.md).
 - **Linux, X11:** no HDR path.
 
 ## Verification

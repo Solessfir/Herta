@@ -89,4 +89,4 @@ Native readback compares instanced and single-draw rendering across two frames w
 
 Windows ClangCL and MSVC Shipping rebuilds passed with zero warnings. Each passed 385 test cases and 189,959 assertions, with one skipped case. Cppcheck passed for the changed modules, and Windows/Linux package tests include the instanced shader. A native early-close probe returned failure as required.
 
-Linux GCC and Clang syntax checks and packaging tests passed through WSL. Full Linux builds, tests, and native measurements remain unverified: the Linux SDK/host tools are not installed in this checkout, and the available Vulkan ICD is software-only. Run the Linux capture on a configured native machine before claiming cross-platform performance.
+Linux GCC and Clang syntax checks and packaging tests passed through WSL. Full Linux builds, tests, and native measurements remain unverified: the Linux SDK/host tools are not installed in this checkout, and the available Vulkan ICD is software-only. The native capture is tracked in [LinuxTodo.md](LinuxTodo.md).
