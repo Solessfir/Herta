@@ -210,13 +210,14 @@ HertaRuntimeModule("Assets", {
 
 HertaRuntimeModule("Project", {
     PublicDependencies = { "Core" },
-    PrivateDependencies = { "Assets", "Math", "Level" },
+    PrivateDependencies = { "Assets", "Math", "Level", "Platform" },
     PrivateThirdPartyDependencies = { "SimdJson" }
 })
     externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
 
 HertaRuntimeModule("Level", {
     PublicDependencies = { "Math", "Assets" },
+    PrivateDependencies = { "Platform" },
     PrivateThirdPartyDependencies = { "SimdJson" }
 })
     externalincludedirs {
@@ -362,6 +363,7 @@ end
 HertaRuntimeModule("ShaderCompiler", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/ShaderCompiler"),
     PublicDependencies = { "RHI" },
+    PrivateDependencies = { "Platform" },
     PrivateThirdPartyDependencies = { "slang-compiler" },
     PrivateLibraryDirectories = { SlangLibraryDirectory }
 })

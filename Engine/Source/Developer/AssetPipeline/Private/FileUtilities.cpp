@@ -1,5 +1,7 @@
 #include "FileUtilities.h"
 
+#include "Herta/Platform/FileSystem.h"
+
 #include <format>
 #include <fstream>
 #include <random>
@@ -49,7 +51,10 @@ std::expected<void, FAssetError> WriteFileAtomically(const std::filesystem::path
 
 	if (bReplaceExisting)
 	{
-		std::filesystem::rename(TemporaryPath, Path, Error);
+		if (const auto Moved = MoveAtomically(TemporaryPath, Path, EMoveMode::ReplaceExisting); !Moved)
+		{
+			Error = Moved.error();
+		}
 	}
 	else
 	{

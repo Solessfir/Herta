@@ -1,5 +1,6 @@
 #include "Herta/ShaderCompiler/ShaderCompiler.h"
 
+#include "Herta/Platform/FileSystem.h"
 #include "Herta/RHI/Graphics.h"
 
 #include <slang-com-ptr.h>
@@ -329,17 +330,9 @@ std::expected<void, FShaderError> SaveCookedShader(const std::filesystem::path& 
 		}
 	}
 
-#ifdef _WIN32
-	if (!MoveFileExW(Temporary.c_str(), Path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+	if (const auto Moved = MoveAtomically(Temporary, Path, EMoveMode::ReplaceExisting); !Moved)
 	{
-		Error = std::error_code(static_cast<int>(GetLastError()), std::system_category());
-	}
-#else
-	std::filesystem::rename(Temporary, Path, Error);
-#endif
-	if (Error)
-	{
-		const std::string Message = Error.message();
+		const std::string Message = Moved.error().message();
 		std::filesystem::remove(Temporary, Error);
 		return std::unexpected(FShaderError{"Cannot publish cooked shader: " + Message});
 	}

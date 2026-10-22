@@ -198,7 +198,8 @@ TEST_CASE("Preview material creation and save preserve identity and the last val
 	Changed.Parameters.Roughness = 0.75f;
 	Changed.Textures[0].Texture = StoneId;
 	Changed.Textures[2].Texture = WoodId;
-	REQUIRE(Assets->SaveMaterial(*Created, Changed));
+	const auto Saved = Assets->SaveMaterial(*Created, Changed);
+	REQUIRE_MESSAGE(Saved.has_value(), (Saved ? "" : Saved.error().Message));
 	Fixture.Tasks->RunUntilIdle();
 	REQUIRE(Assets->GetMaterial(*Created));
 	REQUIRE(Assets->GetMaterialSource(*Created));

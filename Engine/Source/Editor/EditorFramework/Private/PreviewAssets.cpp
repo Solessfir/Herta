@@ -4,6 +4,7 @@
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Core/Log.h"
+#include "Herta/Platform/FileSystem.h"
 #include "Herta/Tasks/TaskSystem.h"
 
 #include <algorithm>
@@ -12,14 +13,6 @@
 #include <set>
 #include <system_error>
 #include <utility>
-
-#ifdef _WIN32
-	#include <Windows.h>
-#else
-	#include <fcntl.h>
-	#include <sys/syscall.h>
-	#include <unistd.h>
-#endif
 
 namespace Herta
 {
@@ -670,12 +663,7 @@ std::expected<std::string, FAssetError> FPreviewAssets::RenameFolder(const std::
 	}
 
 	const auto Destination = Source->parent_path() / Utf8Path(NewName);
-#ifdef _WIN32
-	const bool bRenamed = MoveFileExW(Source->c_str(), Destination.c_str(), MOVEFILE_WRITE_THROUGH) != FALSE;
-#else
-	const bool bRenamed = syscall(SYS_renameat2, AT_FDCWD, Source->c_str(), AT_FDCWD, Destination.c_str(), RENAME_NOREPLACE) == 0;
-#endif
-	if (!bRenamed)
+	if (!MoveAtomically(*Source, Destination, EMoveMode::FailIfExists))
 	{
 		return std::unexpected(FAssetError{"Cannot rename folder without replacing an existing destination"});
 	}

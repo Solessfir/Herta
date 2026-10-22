@@ -323,7 +323,8 @@ TEST_CASE("Material source saves atomically without changing registered identity
 	const auto Imported = ImportSource(Root, Path);
 	REQUIRE(Imported);
 	Material.Parameters.Roughness = 0.1f;
-	REQUIRE(WriteMaterialAsset(Path, Material));
+	const auto Replaced = WriteMaterialAsset(Path, Material);
+	REQUIRE_MESSAGE(Replaced.has_value(), (Replaced ? "" : Replaced.error().Message));
 	const auto Scan = ScanContentRoot(Root);
 	REQUIRE(Scan);
 	REQUIRE(Scan->Registry.GetRecords().size() == 1);

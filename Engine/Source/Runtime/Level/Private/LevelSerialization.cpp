@@ -1,6 +1,7 @@
 #include "Herta/Level/LevelSerialization.h"
 
 #include "Herta/Level/LevelDescriptors.h"
+#include "Herta/Platform/FileSystem.h"
 
 #include <simdjson.h>
 
@@ -1575,14 +1576,7 @@ std::expected<void, FLevelError> SaveLevel(const std::filesystem::path& Path, co
 		return std::unexpected(Written.error());
 	}
 
-#ifdef _WIN32
-	// std::filesystem::rename does not replace an existing destination on Windows.
-	const bool bPublished = MoveFileExW(TemporaryPath.c_str(), Path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
-#else
-	std::filesystem::rename(TemporaryPath, Path, Error);
-	const bool bPublished = !Error;
-#endif
-	if (!bPublished)
+	if (!MoveAtomically(TemporaryPath, Path, EMoveMode::ReplaceExisting))
 	{
 		std::filesystem::remove(TemporaryPath, Error);
 		return LevelError("Cannot atomically replace level file");

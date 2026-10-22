@@ -2,6 +2,7 @@
 
 #include "Herta/Assets/AssetId.h"
 #include "Herta/Level/LevelSerialization.h"
+#include "Herta/Platform/FileSystem.h"
 
 #include <simdjson.h>
 
@@ -10,14 +11,6 @@
 #include <fstream>
 #include <set>
 #include <system_error>
-
-#ifdef _WIN32
-	#include <Windows.h>
-#else
-	#include <fcntl.h>
-	#include <sys/syscall.h>
-	#include <unistd.h>
-#endif
 
 namespace Herta
 {
@@ -750,12 +743,7 @@ std::expected<FLoadedProject, FProjectError> CreateProject(const FCreateProjectR
 		return ProjectError("Project creation cancelled");
 	}
 
-#ifdef _WIN32
-	const bool bPublished = MoveFileExW(Staging.c_str(), Destination.c_str(), MOVEFILE_WRITE_THROUGH) != FALSE;
-#else
-	const bool bPublished = syscall(SYS_renameat2, AT_FDCWD, Staging.c_str(), AT_FDCWD, Destination.c_str(), RENAME_NOREPLACE) == 0;
-#endif
-	if (!bPublished)
+	if (!MoveAtomically(Staging, Destination, EMoveMode::FailIfExists))
 	{
 		return ProjectError("Cannot publish project atomically into an absent destination");
 	}

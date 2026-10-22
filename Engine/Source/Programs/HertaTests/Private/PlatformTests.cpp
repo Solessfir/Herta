@@ -1,10 +1,15 @@
 #include "Herta/Platform/FileDialog.h"
+#include "Herta/Platform/FileSystem.h"
 #include "Herta/Platform/Platform.h"
 #include "TestFiles.h"
 
 #include <doctest/doctest.h>
 
+#include <chrono>
+#include <fstream>
+#include <iterator>
 #include <ostream>
+#include <thread>
 
 namespace Herta
 {
@@ -67,5 +72,47 @@ TEST_CASE("File manager rejects unavailable directories before starting UI")
 	const auto Result = OpenDirectoryInFileManager(Directory);
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Message.find("directory is unavailable") != std::string::npos);
+}
+
+TEST_CASE("Atomic moves wait out a briefly held destination and never replace in fail mode")
+{
+	const Tests::FScratchDirectory Scratch("HertaMoveAtomically");
+	const auto Destination = Scratch.GetPath() / "Asset.txt";
+	const auto Source = Scratch.GetPath() / "Asset.txt.tmp";
+	Tests::WriteText(Destination, "old");
+	Tests::WriteText(Source, "new");
+
+	SUBCASE("A reader without delete sharing, like an antivirus scan, delays the replace")
+	{
+		// The standard library opens files without FILE_SHARE_DELETE on Windows, which blocks a replace until the handle closes.
+		std::ifstream Reader(Destination);
+		REQUIRE(Reader);
+		std::jthread Release([&Reader]
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			Reader.close();
+		});
+
+		REQUIRE(MoveAtomically(Source, Destination, EMoveMode::ReplaceExisting));
+		Release.join();
+		std::ifstream Published(Destination);
+		CHECK(std::string(std::istreambuf_iterator<char>(Published), {}) == "new");
+		CHECK_FALSE(std::filesystem::exists(Source));
+	}
+
+	SUBCASE("Fail mode keeps an existing destination")
+	{
+		CHECK_FALSE(MoveAtomically(Source, Destination, EMoveMode::FailIfExists));
+		std::ifstream Kept(Destination);
+		CHECK(std::string(std::istreambuf_iterator<char>(Kept), {}) == "old");
+	}
+
+	SUBCASE("Directories move when the destination is absent")
+	{
+		const auto Folder = Scratch.GetPath() / "Staging";
+		Tests::WriteText(Folder / "File.txt", "content");
+		REQUIRE(MoveAtomically(Folder, Scratch.GetPath() / "Published", EMoveMode::FailIfExists));
+		CHECK(std::filesystem::exists(Scratch.GetPath() / "Published" / "File.txt"));
+	}
 }
 }
