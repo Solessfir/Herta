@@ -1,8 +1,8 @@
 # Sandbox playground
 
-The default project opens `Games/Sandbox/Levels/Sandbox.hlevel`: 199 editable entities in 17 Outliner folders. The original physics course and hierarchy examples remain intact. Cubes share the Engine mesh; editable `.hmat` assets provide their colors. A single shared sphere makes PBR reflections easier to compare.
+The default project opens `Games/Sandbox/Levels/Sandbox.hlevel`: 201 editable entities in 17 Outliner folders. The original physics course and hierarchy examples remain intact. Cubes share the Engine mesh; editable `.hmat` assets provide their colors. A single shared sphere makes PBR reflections easier to compare.
 
-Press **F** to frame a selection, **G** for game view, and **F11** for an immersive viewport. **Alt+S** simulates the physics stations; **Escape** restores authored poses. **Ctrl+S** saves the level, not simulation poses. **Ctrl+Space** reveals the bottom panel.
+Press **F** to frame a selection, **G** for game view, and **F11** for an immersive viewport. **Alt+S** simulates the physics stations and **Alt+P** plays the course as the player; **Escape** stops either and restores authored poses. **Ctrl+S** saves the level, not simulation poses. **Ctrl+Space** reveals the bottom panel.
 
 Number keys in the focused viewport jump to the level's camera bookmarks; **Viewport settings > Bookmarks** lists them:
 
@@ -40,7 +40,7 @@ All five light types are authored entities. Atmosphere references the sun's stab
 - **Friction and damping:** paired ramps compare friction 0 and 0.8; tilted tumblers compare damping 0 and 1.
 - **Stack and mass:** five dynamic blocks use a 10 kg base and 1 kg upper blocks. Mass affects contact response, not gravitational acceleration.
 - **Traversal:** stairs, a descent ramp, hurdles, and spaced platforms are static collision geometry for the upcoming player controller.
-- **Player scale gauges:** a 1.8 m coral capsule stands at the foot of the stairs for scale. Mint step-up blocks of 0.18, 0.35, and 0.5 m sit beside the gap platforms, and the platforms leave 1 m and 2 m gaps. They encode the proposed Milestone 5 controller limits: walk up 0.18 m, step up to 0.35 m, jump 0.5 m steps, the 0.6 m low hurdle, and a 2 m gap, but not the 1.3 m high hurdle.
+- **Player scale gauges:** a 1.8 m coral capsule stands at the foot of the stairs for scale. Mint step-up blocks of 0.18, 0.35, and 0.5 m sit beside the gap platforms, and the platforms leave 1 m and 2 m gaps. They encode the player controller limits: walk up 0.18 m, step up to 0.35 m, jump 0.5 m steps, the 0.6 m low hurdle, and a 2 m gap, but not the 1.3 m high hurdle.
 - **Hierarchy workshop:** a rotated arch, nested shelf, mesh-only child, and empty entity exercise parenting, duplication, component editing, and undo/redo.
 - **Shared mesh gallery:** repeated checker and colored cubes exercise instancing and material overrides without duplicated geometry.
 - **Soft bodies:** the east bay's cyan gantry carries a gold rope with a 2 kg slate box joined to its free end by a Constraint on the box, which starts 50 degrees off vertical and swings, and a cloth with the normal-mapped panel material, pinned at its top corners and released flat. The cloth checks UVs, tangents, and normal mapping on deforming geometry. A mint pressurized ball drops onto a 20 degree ramp and rolls off it. The rope, box, and cloth follow the gantry when its parent moves.
@@ -55,4 +55,8 @@ Project-owned materials and textures live in `Games/Sandbox/Content/Playground`.
 
 From the repository root, run `HertaEditorCmd level.validate Games/Sandbox/Levels/Sandbox.hlevel` and `HertaEditorCmd asset.validate --content-root Games/Sandbox/Content`. `HertaEditor --visual-test --validation` renders 600 ready frames from the starting camera, logs GPU pass timings and render-target memory, then saves one image per camera bookmark to `Saved/VisualTest` without saving editor settings. `HertaEditor --scaling-test=Games/Sandbox/Levels/Sandbox.hlevel --scaling-simulate --validation` also checks selection, simulation startup, and pose restoration. Inspect the viewport to verify visual quality.
 
-[Milestone 5](EngineDesign.md) adds a controllable player, course objective, collision feedback, and HUD to this same playground. Later engine features should add concrete checks here rather than create separate demo frameworks.
+## Course
+
+**Course start** and **Course finish** triggers in the traversal folder carry the Start and Finish roles. The player spawns in front of the stairs; the timer starts on leaving the start zone and stops on reaching the last gap platform. Any route counts: the stairs, hurdles, and gaps are there to test the controller limits above. Play it with **Alt+P** in the editor or as the standalone game; see [Game runtime](Game.md).
+
+Later engine features should add concrete checks here rather than create separate demo frameworks.

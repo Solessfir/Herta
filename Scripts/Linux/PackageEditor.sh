@@ -146,7 +146,7 @@ Revision: ${revision}
 
 Extract the complete archive into a writable directory.
 Run ${binary_directory}/HertaEditor.
-The game runtime is not implemented. Save level edits with Ctrl+S.
+Press Alt+P in the viewport to play the level. Save level edits with Ctrl+S.
 A Vulkan-capable GPU, driver, and system Vulkan loader are required.
 Linux builds target Ubuntu 24.04 with the GCC 14 libstdc++ runtime and X11/Wayland libraries.
 Blender is optional and only required to import .blend files.

@@ -1,6 +1,6 @@
 # Herta Engine Design
 
-Status: Active design - Milestone 4.5 visual authoring implemented, Milestone 5 playable runtime next
+Status: Active design - Milestone 5 playable runtime implemented on Windows, with Linux runs pending; Milestone 6 raster scaling next
 Last updated: 2026-10-06
 
 ## 1. Purpose
@@ -349,7 +349,8 @@ Core
 |-- Navigation -> Core + Math + Assets
 `-- AI -> Core + Math + Assets + Level + GraphCore + Physics + Navigation
 
-Initial game composition -> Application + Level + Renderer + GameUI + Physics + project gameplay systems
+GameFramework -> Core + Math + Assets + Level + Physics + RHI + Renderer + Tasks
+Initial game composition -> Application + Level + Renderer + GameUI + Physics + GameFramework + project gameplay systems
 Extended game composition -> initial game + selected Animation, Audio, Navigation, AI, SteamAudio, Localization, Scripting, Networking, and Replication modules
 Dedicated server composition -> Level + Physics + Networking + Replication + selected gameplay modules
 EditorCore -> Core + Platform, then adds Reflection + Assets + Level as those milestones arrive
@@ -1617,6 +1618,8 @@ Exit condition: the Sandbox can be visually authored entirely through materials 
 
 Exit condition: the same authored Sandbox game is playable in the editor and as a relocated standalone build on Windows and Linux without the source checkout or development SDKs. Input, basic simulation, gameplay, HUD, restart, and shutdown work together. Full package containers, localization, native hot reload, scripting, and production rendering are not prerequisites.
 
+Implemented on Windows: `HertaGame`, the GameFramework and GameUI runtime modules, directory-mounted staged content from `game.stage`, a Jolt character controller, the Sandbox course objective between Start and Finish trigger roles (level schema 7), HDR10 and fullscreen settings per user, editor Play/Stop through the same session, and `PackageGame` relocated builds verified outside the checkout. Linux builds pass syntax checks; native Linux runs are tracked in [LinuxTodo.md](LinuxTodo.md). Custom-shader materials are not staged yet. See [Game.md](Game.md).
+
 ### Milestone 6 - Raster renderer scaling and temporal quality
 
 - Add shared-mesh/material instancing and culling, retaining the early cube stress levels as draw-call, memory, and frame-time regressions.
@@ -1783,4 +1786,4 @@ The early scaling slice provides deterministic 1,000/5,000/10,000-cube fixtures,
 
 Milestone 4.5 adds canonical `.hmat` assets, independently assigned mesh slots, cooked normals/tangents, HDR textures, PBR shading, asynchronous custom shader iteration, and material editing with save/reload and undo/redo. Level schema 4 persists all five light types, Sky Atmosphere, and Fog. The shared runtime renderer provides HDR scene color, manual exposure, filtered environment lighting, bounded shadow maps, reduced-resolution volumetric fog, and reference SMAA 1x before editor overlays. The updated Sandbox exercises these features without separate colored glTF meshes. See [Materials.md](Materials.md) and [Rendering.md](Rendering.md).
 
-The next implementation slice is Milestone 5: one playable Sandbox through runtime-only `HertaGame`, input, basic physics, a minimal HUD, isolated editor Play/Stop, and relocatable loose deployment. Prefabs remain unimplemented and enter only with a concrete authoring need. Rendering improvements, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend the same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.
+The next implementation slice is Milestone 6: raster renderer scaling and temporal quality for the playable Sandbox, once the Milestone 5 Linux runs in [LinuxTodo.md](LinuxTodo.md) pass. Prefabs remain unimplemented and enter only with a concrete authoring need. Rendering improvements, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend the same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.

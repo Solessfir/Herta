@@ -2,7 +2,7 @@
 
 [Back to README](../README.md) | [Build and run](GettingStarted.md)
 
-The editor loads and saves levels with selectable entities, editable components, and imported assets. An asterisk after the level name in the title bar indicates unsaved changes; saving or undoing back to the saved state clears it. The game runtime is not implemented yet.
+The editor loads and saves levels with selectable entities, editable components, and imported assets. An asterisk after the level name in the title bar indicates unsaved changes; saving or undoing back to the saved state clears it. **Play** (Alt+P) runs the level as the game; see [Game runtime](Game.md).
 
 ## Workspace
 
@@ -32,7 +32,7 @@ Drag entities onto a folder to organize them. Attached children move with their 
 
 ## Simulation
 
-The default [Sandbox playground](Playground.md) includes bounce, gravity, friction/damping, and stacking comparisons, plus a static traversal course and hierarchy workshop. Click **Simulate** or press **Alt+S** to run its dynamic bodies and soft bodies using Jolt Physics. A **Mover** component moves its mesh back and forth by a world-space offset over a period, as a kinematic body that carries what rests on it. A **Trigger** box turns green while a dynamic body overlaps it and logs each enter and exit in the Output Log. Camera navigation and selection remain available, but transform editing is locked. Press **Escape** or click the active Simulate button to stop and restore every authored transform. Physics runs at 60 Hz with render interpolation and bounded catch-up after stalls. **Play** remains disabled because the game runtime is not implemented. This is an editor preview slice, not the full physics milestone.
+The default [Sandbox playground](Playground.md) includes bounce, gravity, friction/damping, and stacking comparisons, plus a static traversal course and hierarchy workshop. Click **Simulate** or press **Alt+S** to run its dynamic bodies and soft bodies using Jolt Physics. A **Mover** component moves its mesh back and forth by a world-space offset over a period, as a kinematic body that carries what rests on it. A **Trigger** box turns green while a dynamic body overlaps it and logs each enter and exit in the Output Log. Camera navigation and selection remain available, but transform editing is locked. Press **Escape** or click the active Simulate button to stop and restore every authored transform. Physics runs at 60 Hz with render interpolation and bounded catch-up after stalls. **Play** or **Alt+P** instead runs the level as the player, through the same session as `HertaGame`; Esc stops it. See [Game runtime](Game.md). This is an editor preview slice, not the full physics milestone.
 
 All entities with Static Mesh and Dynamic Rigid Body components simulate, including duplicates. Static bodies and other dynamics collide using mesh-bounds boxes. A floor is optional. Stopping restores every authored transform; simulated poses are never saved.
 

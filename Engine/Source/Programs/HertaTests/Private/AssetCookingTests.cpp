@@ -2,6 +2,7 @@
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/AssetPipeline/TextureCooker.h"
+#include "Herta/Assets/CookedContent.h"
 #include "Herta/Core/BinaryStream.h"
 #include "TestFiles.h"
 
@@ -333,6 +334,36 @@ TEST_CASE("Material source saves atomically without changing registered identity
 	const auto Cooked = CookAsset(MakeRequest(Scratch, "Test.hmat"));
 	REQUIRE(Cooked);
 	CHECK(std::get<FMaterialAsset>(*LoadCookedAsset(Scratch.GetPath() / "DerivedDataCache", Cooked->Key)) == Material);
+}
+
+TEST_CASE("Staged content loads assets by ID and texture color space without cooking")
+{
+	const Tests::FScratchDirectory Scratch("HertaStagedContent");
+	const FAssetId Material{7, 1};
+	const FAssetId Texture{7, 2};
+	const auto Write = [](const std::filesystem::path& Path, const FCookedAsset& Asset)
+	{
+		const auto Bytes = SerializeCookedAsset(Asset);
+		REQUIRE(Bytes);
+		Tests::WriteBytes(Path, *Bytes);
+	};
+
+	const auto Linear = CookTexture(2, 2, std::as_bytes(std::span(CheckerPixels)), ETextureColorSpace::Linear);
+	REQUIRE(Linear);
+	Write(GetStagedAssetPath(Scratch.GetPath() / "Engine", Texture, ETextureColorSpace::Linear), *Linear);
+	Write(GetStagedAssetPath(Scratch.GetPath() / "Game", Material), FMaterialAsset{.Name = "Staged"});
+	const FCookedContent Content({Scratch.GetPath() / "Game", Scratch.GetPath() / "Engine"});
+
+	const auto LoadedMaterial = Content.Load(Material);
+	REQUIRE(LoadedMaterial);
+	CHECK(std::get<FMaterialAsset>(*LoadedMaterial).Name == "Staged");
+	CHECK(Content.Load(Texture, ETextureColorSpace::Linear));
+	// Each color space is a separate staged file, and a kind mismatch is an error rather than a silent fallback.
+	CHECK_FALSE(Content.Load(Texture, ETextureColorSpace::Srgb));
+	CHECK_FALSE(Content.Load(Material, ETextureColorSpace::Linear));
+	CHECK_FALSE(Content.Load(FAssetId{7, 3}));
+	Tests::WriteText(GetStagedAssetPath(Scratch.GetPath() / "Game", FAssetId{7, 4}), "not a cooked asset");
+	CHECK_FALSE(Content.Load(FAssetId{7, 4}));
 }
 
 TEST_CASE("Texture color-space requests recook shared sources with correct filtering")

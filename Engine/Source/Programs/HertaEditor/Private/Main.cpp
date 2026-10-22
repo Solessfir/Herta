@@ -220,7 +220,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const std::filesystem::path& OpenPath)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -573,7 +573,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		ToolUIDescriptor.AppearancePath = RepositoryRoot / "TestResults/Smoke/Appearance.ini";
 	}
 
-	if (bScalingTest || bVisualTest)
+	if (bScalingTest || bVisualTest || bPlayTest)
 	{
 		ToolUIDescriptor.LayoutPath.clear();
 		ToolUIDescriptor.AppearancePath.clear();
@@ -788,7 +788,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	const FSrgbColor EditorClearColor = ConvertSrgb8ToSrgbColor(CanvasColor.Red, CanvasColor.Green, CanvasColor.Blue, CanvasColor.Alpha);
 
 	// Captures and smoke runs read back sRGB targets, so only interactive sessions follow the HDR preference.
-	const bool bHdrAllowed = !bVisualTest && !bScalingTest && !bSmokeTest;
+	const bool bHdrAllowed = !bVisualTest && !bScalingTest && !bSmokeTest && !bPlayTest;
 	std::optional<FDisplayLuminance> SystemLuminance;
 	std::chrono::steady_clock::time_point SystemLuminanceQuery{};
 	bool bRenderFailed = false;
@@ -1113,6 +1113,14 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		Window.RequestClose();
 	};
 
+	// Play/Stop cycles: each records authored models, plays scripted frames, stops, and requires the exact authored models back.
+	constexpr std::uint32_t PlayTestCycles = 2;
+	constexpr std::size_t PlayTestFrames = 300;
+	std::uint32_t PlayTestCycle = 0;
+	std::size_t PlayTestFrame = 0;
+	std::vector<FMatrix4> PlayTestModels;
+	bool bPlayTestCompleted = false;
+	const auto PlayTestDeadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
 	bool bScalingStarted = false;
 	bool bScalingCompleted = false;
 	const auto ScalingDeadline = std::chrono::steady_clock::now() + std::chrono::minutes(5);
@@ -1257,6 +1265,84 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 		}
 
+		if (bPlayTest && !bPlayTestCompleted)
+		{
+			if (std::chrono::steady_clock::now() >= PlayTestDeadline)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Play test exceeded its five minute budget");
+				bRenderFailed = true;
+				break;
+			}
+
+			if (!bPresented || !EditorFramework->GetFrameMetrics().bAssetsReady)
+			{
+				continue;
+			}
+
+			const auto SameModels = [&PlayTestModels](const std::span<const FMatrix4> Models)
+			{
+				return std::ranges::equal(Models, PlayTestModels, [](const FMatrix4& Left, const FMatrix4& Right)
+				{
+					return Left.Data() == Right.Data();
+				});
+			};
+
+			if (!EditorFramework->IsPlaying() && PlayTestFrame == 0)
+			{
+				const auto Models = EditorFramework->GetViewportRenderView().Models;
+				PlayTestModels.assign(Models.begin(), Models.end());
+				if (auto Started = EditorFramework->SetScriptedPlay(true); !Started)
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Play test failed: {}", Started.error().Message);
+					bRenderFailed = true;
+					break;
+				}
+			}
+			else if (EditorFramework->IsPlaying() && ++PlayTestFrame == PlayTestFrames)
+			{
+				const std::string FileName = std::format("Play-{}.png", PlayTestCycle + 1);
+				const auto Pixels = Presentation->GetGraphicsDevice().ReadbackTexture(MeshRenderer->GetColorTarget());
+				if (!Pixels || !WriteVisualCapture(RepositoryRoot / "Saved/PlayTest" / FileName, *Pixels, EditorFramework->GetViewportExtent()))
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Could not save play capture {}", FileName);
+					bRenderFailed = true;
+					break;
+				}
+
+				if (SameModels(EditorFramework->GetViewportRenderView().Models))
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Play test saw no simulated motion");
+					bRenderFailed = true;
+					break;
+				}
+
+				if (auto Stopped = EditorFramework->SetScriptedPlay(false); !Stopped)
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Play test failed: {}", Stopped.error().Message);
+					bRenderFailed = true;
+					break;
+				}
+			}
+			else if (!EditorFramework->IsPlaying())
+			{
+				// Stopping must hand back exactly the authored level, not the last simulated poses.
+				if (!SameModels(EditorFramework->GetViewportRenderView().Models))
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Stopping play did not restore every authored model");
+					bRenderFailed = true;
+					break;
+				}
+
+				HERTA_LOG_INFO(*Log, EditorLog, "Play test cycle {} restored {} authored models", PlayTestCycle + 1, PlayTestModels.size());
+				PlayTestFrame = 0;
+				if (++PlayTestCycle == PlayTestCycles)
+				{
+					bPlayTestCompleted = true;
+					Window.RequestClose();
+				}
+			}
+		}
+
 		if (bScalingTest)
 		{
 			if (std::chrono::steady_clock::now() >= ScalingDeadline)
@@ -1382,6 +1468,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		bRenderFailed = true;
 	}
 
+	if (bPlayTest && !bPlayTestCompleted)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Play test ended before its Play/Stop cycles completed");
+		bRenderFailed = true;
+	}
+
 	if (bVisualTest && !bVisualCompleted)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Visual capture ended before its ready-frame budget and bookmark views completed");
@@ -1417,6 +1509,7 @@ int main(const int ArgumentCount, char** const Arguments)
 		const bool bPlatformSmokeTest = Herta::HasArgument(ArgumentCount, Arguments, "--platform-smoke-test");
 		const bool bRendererTest = Herta::HasArgument(ArgumentCount, Arguments, "--renderer-test");
 		const bool bVisualTest = Herta::HasArgument(ArgumentCount, Arguments, "--visual-test");
+		const bool bPlayTest = Herta::HasArgument(ArgumentCount, Arguments, "--play-test");
 		const bool bValidationRequested = Herta::HasArgument(ArgumentCount, Arguments, "--validation");
 		const std::string_view ExpectedWindowSystem = Herta::FindArgumentValue(ArgumentCount, Arguments, "--expect-window-system=");
 		const std::string_view ScalingLevelPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--scaling-test=");
@@ -1433,7 +1526,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, OpenPath);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath);
 	}
 	catch (const std::exception& Exception)
 	{

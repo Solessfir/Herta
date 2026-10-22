@@ -2612,6 +2612,14 @@ bool FToolUIContext::OrderContentDockTabs()
 	return true;
 }
 
+void FToolUIContext::SetCursorCaptured(const bool bCaptured)
+{
+	if (Implementation->Window)
+	{
+		Implementation->Window->SetCursorCaptured(bCaptured);
+	}
+}
+
 void FToolUIContext::SetViewportImmersive(const bool bImmersive) noexcept
 {
 	if (Implementation->bViewportImmersive == bImmersive)

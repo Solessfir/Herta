@@ -14,6 +14,8 @@
 #include "Herta/EditorCore/TransformText.h"
 #include "Herta/EditorCore/ViewportCamera.h"
 #include "Herta/EditorFramework/ViewportInteraction.h"
+#include "Herta/GameFramework/GameAssets.h"
+#include "Herta/GameFramework/GameSession.h"
 #include "Herta/GameFramework/LevelSimulation.h"
 #include "Herta/GameFramework/LevelSimulationSetup.h"
 #include "Herta/GameFramework/SoftBodyGeometry.h"
@@ -422,6 +424,41 @@ void CopyBuffer(std::span<char> Destination, const std::string_view Source)
 	return Result;
 }
 
+// Lets play draw with the meshes and materials the editor already loaded, instead of loading the level twice.
+class FEditorGameAssets final : public IGameAssets
+{
+public:
+	explicit FEditorGameAssets(const FPreviewAssets& InAssets);
+
+	[[nodiscard]] const FRenderMesh* FindMesh(const FAssetId& Asset) const override;
+	[[nodiscard]] const FRenderMaterial* FindMaterial(const FAssetId& Asset) const override;
+	[[nodiscard]] std::shared_ptr<const FCookedTexture> FindEnvironment(const FAssetId& Asset) const override;
+
+private:
+	const FPreviewAssets& Assets;
+};
+
+FEditorGameAssets::FEditorGameAssets(const FPreviewAssets& InAssets)
+    : Assets(InAssets)
+{
+}
+
+const FRenderMesh* FEditorGameAssets::FindMesh(const FAssetId& Asset) const
+{
+	const FPreviewMeshSlot* const Slot = Assets.GetCachedAsset(Asset);
+	return Slot ? Slot->Mesh.get() : nullptr;
+}
+
+const FRenderMaterial* FEditorGameAssets::FindMaterial(const FAssetId& Asset) const
+{
+	return Assets.GetMaterial(Asset).get();
+}
+
+std::shared_ptr<const FCookedTexture> FEditorGameAssets::FindEnvironment(const FAssetId& Asset) const
+{
+	return Assets.GetCookedTexture(Asset);
+}
+
 struct FIm3dContextScope final
 {
 	explicit FIm3dContextScope(Im3d::Context& Context) noexcept;
@@ -497,6 +534,16 @@ struct FEditorFramework::FImplementation
 	void CancelViewportBoxSelection();
 	void RequestPreviewRename();
 	void ToggleSimulation();
+	// Play runs the level through the same game session as HertaGame, on a copy that leaves authored state untouched.
+	void TogglePlay();
+	void UpdatePlay(float DeltaSeconds);
+	void DrawPlayHud(ImVec2 Minimum, ImVec2 Size) const;
+
+	[[nodiscard]] bool IsSimulating() const noexcept
+	{
+		return Simulation.IsRunning() || PlaySession != nullptr;
+	}
+
 	void JumpToCameraBookmark(std::uint32_t Slot);
 	void SaveCameraBookmark(std::uint32_t Slot);
 	void DrawCameraBookmarks(float Scale);
@@ -585,6 +632,13 @@ struct FEditorFramework::FImplementation
 	FLevelSimulation Simulation;
 	std::vector<FPreviewObject> SimulationStart;
 	bool bSimulationStoppedThisFrame = false;
+
+	// The session reads meshes and materials through PlayAssets, so it is released first.
+	std::unique_ptr<IGameAssets> PlayAssets;
+	std::unique_ptr<FGameSession> PlaySession;
+	FMeshRenderView PlayRenderView;
+	bool bScriptedPlay = false;
+	std::uint32_t ScriptedPlayFrame = 0;
 
 	std::uint64_t ViewportTexture = 0;
 	FExtent2D ViewportExtent{.Width = 960, .Height = 540};
@@ -914,6 +968,29 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::SetScalingTestPhase
 	return {};
 }
 
+std::expected<void, FEditorFrameworkError> FEditorFramework::SetScriptedPlay(const bool bPlaying)
+{
+	FImplementation& State = *Implementation;
+	State.bScriptedPlay = bPlaying;
+	State.ScriptedPlayFrame = 0;
+	if (bPlaying != (State.PlaySession != nullptr))
+	{
+		State.TogglePlay();
+	}
+
+	if (bPlaying != (State.PlaySession != nullptr))
+	{
+		return std::unexpected(FEditorFrameworkError{bPlaying ? "Play could not start; see the log" : "Play could not stop"});
+	}
+
+	return {};
+}
+
+bool FEditorFramework::IsPlaying() const noexcept
+{
+	return Implementation->PlaySession != nullptr;
+}
+
 bool FEditorFramework::IsUnitStatsVisible() const noexcept
 {
 	return Implementation->Stats->bUnitVisible;
@@ -986,12 +1063,23 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 	Implementation->RefreshPreviewMeshes();
 
-	if (!IO.AppFocusLost && Implementation->Simulation.IsRunning() && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+	if (!IO.AppFocusLost && Implementation->PlaySession && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+	{
+		Implementation->TogglePlay();
+	}
+	else if (!IO.AppFocusLost && Implementation->Simulation.IsRunning() && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
 	{
 		Implementation->ToggleSimulation();
 	}
 
-	if (!Implementation->bProjectBusy && !IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->Simulation.IsRunning() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+	if (!Implementation->bProjectBusy && !IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_P, false) && !Implementation->Simulation.IsRunning() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+	{
+		Implementation->TogglePlay();
+	}
+
+	Implementation->UpdatePlay(IO.DeltaTime);
+
+	if (!Implementation->bProjectBusy && !IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->IsSimulating() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{
 		Implementation->ToggleSimulation();
 	}
@@ -1017,7 +1105,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 	bool bOpenLevelRequested = false;
 	bool bPlaceObjectsRequested = std::exchange(Implementation->bPlaceObjectsRequested, false);
-	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->Simulation.IsRunning() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
+	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->IsSimulating() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
 	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->MaterialPanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
 	const bool bControlShortcutsAvailable = bShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl;
 	const bool bProjectChangeAvailable = bAuthoringAvailable && !Implementation->EngineRoot.empty() && !(Implementation->Assets && Implementation->Assets->IsImporting());
@@ -1584,7 +1672,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->DrawViewport(RenderViewport);
 	Implementation->DrawMaterialPanel();
 	Implementation->DrawPerformancePanel();
-	if (!Implementation->Simulation.IsRunning())
+	if (!Implementation->IsSimulating())
 	{
 		if (Implementation->bViewportEditCanceled && Implementation->Level->HasActiveEdit())
 		{
@@ -1673,7 +1761,7 @@ FExtent2D FEditorFramework::GetViewportExtent() const noexcept
 FMeshRenderView FEditorFramework::GetViewportRenderView() const noexcept
 {
 	// The renderer follows the swapchain that will present this frame, not the preference, which may be waiting for an HDR display.
-	FMeshRenderView View = Implementation->ViewportRenderView;
+	FMeshRenderView View = Implementation->PlaySession ? Implementation->PlayRenderView : Implementation->ViewportRenderView;
 	const FEditorDisplayState& Display = Implementation->DisplayState;
 	if (Display.bHdrActive)
 	{
@@ -1685,7 +1773,8 @@ FMeshRenderView FEditorFramework::GetViewportRenderView() const noexcept
 
 std::span<const FDebugDrawList> FEditorFramework::GetViewportDebugDrawLists() const noexcept
 {
-	return Implementation->ViewportDebugDrawLists;
+	// Play shows the game as a player sees it, without editor overlays.
+	return Implementation->PlaySession ? std::span<const FDebugDrawList>{} : std::span<const FDebugDrawList>(Implementation->ViewportDebugDrawLists);
 }
 
 void FEditorFramework::FImplementation::FocusPreview()
@@ -1764,7 +1853,7 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 
 	MaterialPanel.RequestClose();
 	PendingMaterialOpen = {};
-	if (bProjectBusy || !Tasks || Simulation.IsRunning() || Level->HasActiveEdit())
+	if (bProjectBusy || !Tasks || IsSimulating() || Level->HasActiveEdit())
 	{
 		return;
 	}
@@ -2345,7 +2434,7 @@ void FEditorFramework::FImplementation::DrawTimeOfDay(const float X, const float
 	float Hours = GetTimeOfDayHours(FVector3{-Travel.x, -Travel.y, -Travel.z}.Normalized());
 	ImGui::SetCursorScreenPos({X + ButtonSize, Top});
 	ImGui::SetNextItemWidth(Width);
-	ImGui::BeginDisabled(Simulation.IsRunning() || bProjectBusy);
+	ImGui::BeginDisabled(IsSimulating() || bProjectBusy);
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {8.f * Scale, (ButtonSize - ImGui::GetFontSize()) * 0.5f});
 	const bool bChanged = DrawNumericSliderFloat("##TimeOfDay", &Hours, 0.f, 24.f, FormatTimeOfDay(Hours).c_str(), ImGuiSliderFlags_AlwaysClamp, nullptr, ParseTimeOfDay);
 	ImGui::PopStyleVar();
@@ -2584,7 +2673,7 @@ void FEditorFramework::FImplementation::ReportLevelResult(const std::expected<vo
 
 void FEditorFramework::FImplementation::ApplyAuthoringAction(const EAuthoringAction Action)
 {
-	if (Action == EAuthoringAction::None || bProjectBusy || Simulation.IsRunning() || Level->HasActiveEdit())
+	if (Action == EAuthoringAction::None || bProjectBusy || IsSimulating() || Level->HasActiveEdit())
 	{
 		return;
 	}
@@ -2884,12 +2973,16 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 	{
 		const bool bFitsTopRow = CanFitViewportToolbarIsland(PlayX, PlayWidth, Minimum.x, RightControlsLeft, Gap);
 		Island(PlayX, PlayWidth, bFitsTopRow ? 0.f : Height + Gap);
-		ImGui::BeginDisabled();
-		IconButton("Play", EViewportIcon::Play, "Play - game runtime is not implemented yet.");
+		ImGui::BeginDisabled(bProjectBusy || Simulation.IsRunning());
+		if (IconButton("Play", PlaySession ? EViewportIcon::Stop : EViewportIcon::Play, PlaySession ? "Stop playing (Esc)" : "Play (Alt+P)", PlaySession != nullptr))
+		{
+			TogglePlay();
+		}
+
 		ImGui::EndDisabled();
 		ImGui::SameLine();
 
-		ImGui::BeginDisabled(bProjectBusy);
+		ImGui::BeginDisabled(bProjectBusy || PlaySession != nullptr);
 		if (IconButton("Simulate", Simulation.IsRunning() ? EViewportIcon::Stop : EViewportIcon::Simulate, Simulation.IsRunning() ? "Stop simulation (Esc)" : "Simulate (Alt+S)", Simulation.IsRunning()))
 		{
 			ToggleSimulation();
@@ -3127,7 +3220,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		}
 
 		ImGui::Spacing();
-		ImGui::BeginDisabled(Simulation.IsRunning() || Level->HasActiveEdit() || PreviewSelection.Active < 0);
+		ImGui::BeginDisabled(IsSimulating() || Level->HasActiveEdit() || PreviewSelection.Active < 0);
 
 		if (ImGui::Button("Reset preview transform", {-1.f, 0.f}))
 		{
@@ -3219,7 +3312,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 	ViewportGizmos.m_gizmoHeightPixels = 100.f * GizmoPixelScale;
 	ViewportGizmos.m_gizmoSizePixels = 4.f * GizmoPixelScale;
 
-	if (!bGameView && ViewportInteraction.DragButton < 0 && IO.KeyAlt && InteractionInput.MouseClicked[ImGuiMouseButton_Left] && bImageHovered && bImageActive && InteractionInput.bWindowFocused && !InteractionInput.bInputBlocked && !Simulation.IsRunning() && PreviewSelection.Active >= 0 && bTransformGizmoVisible)
+	if (!bGameView && ViewportInteraction.DragButton < 0 && IO.KeyAlt && InteractionInput.MouseClicked[ImGuiMouseButton_Left] && bImageHovered && bImageActive && InteractionInput.bWindowFocused && !InteractionInput.bInputBlocked && !IsSimulating() && PreviewSelection.Active >= 0 && bTransformGizmoVisible)
 	{
 		const FIm3dContextScope ContextScope(ViewportGizmos);
 		PrepareViewportGizmos(NormalizedMouse, true, false);
@@ -3239,7 +3332,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 		ImGui::SetMouseCursor(ImGuiMouseCursor_None);
 	}
 
-	if (!ViewportBoxSelection.bActive && !Simulation.IsRunning() && PreviewSelection.Active >= 0 && ViewportInteraction.DragButton == ImGuiMouseButton_Left && ViewportInteraction.CameraMode == EViewportCameraMode::None)
+	if (!ViewportBoxSelection.bActive && !IsSimulating() && PreviewSelection.Active >= 0 && ViewportInteraction.DragButton == ImGuiMouseButton_Left && ViewportInteraction.CameraMode == EViewportCameraMode::None)
 	{
 		if (!PreviewDragStart)
 		{
@@ -3270,7 +3363,8 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 		bDuplicateOnDrag = false;
 	}
 
-	const bool bInputAllowed = InteractionInput.bWindowFocused && !InteractionInput.bInputBlocked;
+	// While playing, the game owns the mouse and keyboard.
+	const bool bInputAllowed = InteractionInput.bWindowFocused && !InteractionInput.bInputBlocked && !PlaySession;
 	const bool bKeyboardAllowed = bInputAllowed && ViewportInteraction.bKeyboardFocus;
 	FViewportCameraInput CameraInput;
 	CameraInput.Mode = ViewportInteraction.CameraMode;
@@ -3465,7 +3559,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	const Im3d::Vec3 PreviousScale = PreviewScale;
 	const FPreviewObject PreviousObject = GetActivePreviewObject();
 
-	if (!bGameView && !Simulation.IsRunning() && PreviewSelection.Active >= 0 && bTransformGizmoVisible)
+	if (!bGameView && !IsSimulating() && PreviewSelection.Active >= 0 && bTransformGizmoVisible)
 	{
 		DrawPreviewGizmo(Candidate);
 	}
@@ -3510,7 +3604,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	ActiveObject.Rotation = PreviewRotation;
 	ActiveObject.Scale = PreviewScale;
 	ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
-	if (!Simulation.IsRunning())
+	if (!IsSimulating())
 	{
 		const auto Result = Level->CommitEdits();
 		ReportLevelResult(Result);
@@ -3679,7 +3773,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 void FEditorFramework::FImplementation::DrawViewportContextMenu()
 {
-	const bool bAuthoringAvailable = !bProjectBusy && !Simulation.IsRunning() && !Level->HasActiveEdit();
+	const bool bAuthoringAvailable = !bProjectBusy && !IsSimulating() && !Level->HasActiveEdit();
 	if (ViewportInteraction.bContextMenuRequested && bAuthoringAvailable)
 	{
 		ImGui::OpenPopup("Viewport context menu");
@@ -3745,7 +3839,11 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			Layers.Split(PanelDrawList, 2);
 			Layers.SetCurrentChannel(PanelDrawList, 1);
 			const float ToolbarBottom = DrawViewportToolbar(ImageMinimum, Size);
-			if (!bGameView)
+			if (PlaySession)
+			{
+				DrawPlayHud(ImageMinimum, Size);
+			}
+			else if (!bGameView)
 			{
 				DrawViewportStats(ImageMinimum, Size, ToolbarBottom);
 			}
@@ -3788,7 +3886,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			ImGui::InvisibleButton("##ViewportInteraction", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
 			ImGui::EndDisabled();
 			std::optional<FAssetId> DroppedAsset;
-			if (Assets && !bProjectBusy && !Simulation.IsRunning() && !Level->HasActiveEdit() && ImGui::BeginDragDropTarget())
+			if (Assets && !bProjectBusy && !IsSimulating() && !Level->HasActiveEdit() && ImGui::BeginDragDropTarget())
 			{
 				if (const ImGuiPayload* const Payload = ImGui::AcceptDragDropPayload(ContentAssetPayload); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetId))
 				{
@@ -4135,7 +4233,7 @@ void FEditorFramework::FImplementation::SetPreviewSelection(FPreviewSelection Se
 
 void FEditorFramework::FImplementation::RequestPreviewRename()
 {
-	if (PreviewSelection.Active < 0 || Simulation.IsRunning() || ViewportInteraction.DragButton >= 0)
+	if (PreviewSelection.Active < 0 || IsSimulating() || ViewportInteraction.DragButton >= 0)
 	{
 		return;
 	}
@@ -4316,6 +4414,162 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 
 	PreviewDragStart.reset();
 	ViewportGizmos.resetId();
+}
+
+void FEditorFramework::FImplementation::TogglePlay()
+{
+	if (PlaySession)
+	{
+		PlaySession.reset();
+		PlayAssets.reset();
+		PlayRenderView = {};
+		ToolUI->SetCursorCaptured(false);
+		Level->SetSimulationRunning(false);
+		bSimulationStoppedThisFrame = true;
+		HERTA_LOG_INFO(*Log, EditorLog, "Play stopped");
+		return;
+	}
+
+	if (bProjectBusy || Simulation.IsRunning() || !Assets || !GraphicsDevice)
+	{
+		return;
+	}
+
+	if (Level->HasActiveEdit())
+	{
+		if (auto Result = Level->EndEdit(); !Result)
+		{
+			ReportLevelResult(std::move(Result));
+			return;
+		}
+	}
+
+	if (auto Result = Level->CommitEdits(); !Result)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not apply level edits: {}", Result.error().Message);
+		return;
+	}
+
+	auto GameAssets = std::make_unique<FEditorGameAssets>(*Assets);
+	const auto Loading = std::ranges::find_if(VisualEntities, [&GameAssets](const FLevelEntity& Entity)
+	{
+		return Entity.Mesh && !GameAssets->FindMesh(Entity.Mesh->Asset);
+	});
+
+	if (Loading != VisualEntities.end())
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for every mesh to load; {} is still loading", Loading->Name);
+		return;
+	}
+
+	auto Session = FGameSession::Create(VisualEntities, *GameAssets, GraphicsDevice);
+	if (!Session)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Could not start play: {}", Session.error().Message);
+		return;
+	}
+
+	for (const std::string& Warning : (*Session)->GetWarnings())
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "{}", Warning);
+	}
+
+	PlayAssets = std::move(GameAssets);
+	PlaySession = std::move(*Session);
+	Level->SetSimulationRunning(true);
+	PreviewDragStart.reset();
+	ViewportGizmos.resetId();
+	ToolUI->SetCursorCaptured(true);
+	HERTA_LOG_INFO(*Log, EditorLog, "Playing; press Esc to stop");
+}
+
+void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
+{
+	if (!PlaySession)
+	{
+		return;
+	}
+
+	// Leaving the editor window pauses play and frees the pointer; clicking the viewport resumes.
+	const ImGuiIO& IO = ImGui::GetIO();
+	const bool bFocused = bScriptedPlay || (!IO.AppFocusLost && ToolUI->IsPanelFocused("Viewport"));
+	ToolUI->SetCursorCaptured(bFocused && !bScriptedPlay);
+	FGameInput Input;
+	if (bScriptedPlay)
+	{
+		const std::uint32_t Frame = ScriptedPlayFrame++;
+		Input = {.Move = {0.f, 1.f}, .YawDelta = Frame % 240 < 120 ? 0.004f : -0.004f, .bJump = Frame % 90 == 45};
+	}
+	else if (bFocused)
+	{
+		const auto Axis = [](const ImGuiKey Positive, const ImGuiKey Negative)
+		{
+			return (ImGui::IsKeyDown(Positive) ? 1.f : 0.f) - (ImGui::IsKeyDown(Negative) ? 1.f : 0.f);
+		};
+
+		constexpr float Sensitivity = 0.0022f;
+		Input = {
+		    .Move = {Axis(ImGuiKey_D, ImGuiKey_A), Axis(ImGuiKey_W, ImGuiKey_S)},
+		    .YawDelta = -IO.MouseDelta.x * Sensitivity,
+		    .PitchDelta = -IO.MouseDelta.y * Sensitivity,
+		    .bJump = ImGui::IsKeyPressed(ImGuiKey_Space, false),
+		    .bSprint = IO.KeyShift,
+		};
+
+		if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+		{
+			if (auto Restarted = PlaySession->Restart(); !Restarted)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Play stopped: {}", Restarted.error().Message);
+				TogglePlay();
+				return;
+			}
+		}
+	}
+
+	if (auto Updated = PlaySession->Update(bFocused ? DeltaSeconds : 0.f, Input); !Updated)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Play stopped: {}", Updated.error().Message);
+		TogglePlay();
+		return;
+	}
+
+	for (const std::string& Event : PlaySession->TakeEvents())
+	{
+		HERTA_LOG_INFO(*Log, EditorLog, "{}", Event);
+	}
+
+	PlayRenderView = PlaySession->GetRenderView(ViewportExtent);
+}
+
+void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const ImVec2 Size) const
+{
+	const FGameObjective& Objective = PlaySession->GetObjective();
+	const auto Seconds = [](const double Value)
+	{
+		return std::format("{:.2f}", Value);
+	};
+
+	const std::string Status = Objective.State == EGameObjectiveState::Ready      ? "Leave the start zone to begin the course"
+	                           : Objective.State == EGameObjectiveState::Running  ? std::format("Time {}", Seconds(Objective.ElapsedSeconds))
+	                           : Objective.State == EGameObjectiveState::Finished ? std::format("Finished in {} s", Seconds(Objective.ElapsedSeconds))
+	                                                                              : std::string("Explore the playground");
+	const std::string Best = Objective.BestSeconds ? std::format("Best {} s", Seconds(*Objective.BestSeconds)) : std::string{};
+	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
+	const float Padding = 10.f * Scale;
+	const ImVec2 TextSize = ImGui::CalcTextSize(Status.c_str());
+	const float Height = TextSize.y * (Best.empty() ? 1.f : 2.f) + Padding * 2.f;
+	const ImVec2 PanelMinimum{Minimum.x + 16.f * Scale, Minimum.y + Size.y - Height - 16.f * Scale};
+	ImDrawList* const Draw = ImGui::GetWindowDrawList();
+	Draw->AddRectFilled(PanelMinimum, {PanelMinimum.x + std::max(TextSize.x, ImGui::CalcTextSize(Best.c_str()).x) + Padding * 2.f, PanelMinimum.y + Height}, IM_COL32(12, 14, 20, 180), 6.f * Scale);
+	Draw->AddText({PanelMinimum.x + Padding, PanelMinimum.y + Padding}, Objective.State == EGameObjectiveState::Finished ? IM_COL32(242, 196, 92, 255) : IM_COL32(238, 240, 246, 255), Status.c_str());
+	if (!Best.empty())
+	{
+		Draw->AddText({PanelMinimum.x + Padding, PanelMinimum.y + Padding + TextSize.y}, IM_COL32(170, 176, 190, 255), Best.c_str());
+	}
+
+	const ImVec2 Center{Minimum.x + Size.x * 0.5f, Minimum.y + Size.y * 0.5f};
+	Draw->AddCircleFilled(Center, 2.5f * Scale, IM_COL32(255, 255, 255, 200));
 }
 
 void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSeconds)
@@ -4662,7 +4916,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 		return std::nullopt;
 	},
 	};
-	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, bProjectBusy || Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && Mesh.IsValid() ? &MeshField : nullptr, &Edits, &Components);
+	const FDetailsMeshResult MeshResult = DrawPreviewDetailsPanel(*ToolUI, bDetailsOpen, PreviewSelection.Active >= 0, bProjectBusy || IsSimulating() || ViewportInteraction.DragButton >= 0, Translation, Rotation, Scale, DetailsPanelState, Label, PreviewSelection.Indices.size(), Assets && Mesh.IsValid() ? &MeshField : nullptr, &Edits, &Components);
 	if (!MeshResult.bEditCanceled)
 	{
 		ApplyPreviewTransformDelta(PreviewObjects, PreviewSelection, PreviousObject);
@@ -4815,7 +5069,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 void FEditorFramework::FImplementation::DrawOutlinerPanel()
 {
 	FPreviewSelection NewSelection = PreviewSelection;
-	const bool bFocusRequested = DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, NewSelection, PreviewObjects, bProjectBusy || Simulation.IsRunning() || ViewportInteraction.DragButton >= 0, OutlinerPanelState, Level->GetFolders());
+	const bool bFocusRequested = DrawPreviewOutlinerPanel(*ToolUI, bOutlinerOpen, NewSelection, PreviewObjects, bProjectBusy || IsSimulating() || ViewportInteraction.DragButton >= 0, OutlinerPanelState, Level->GetFolders());
 	if (OutlinerPanelState.bRenameCommitted)
 	{
 		if (OutlinerPanelState.RenameFolder.IsValid())

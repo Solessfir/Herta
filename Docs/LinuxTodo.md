@@ -46,6 +46,19 @@ These were verified only on Windows:
 
 - [ ] Complete a Shipping capture of the 1k/5k/10k fixtures on hardware, and record it in [Scaling.md](Scaling.md).
 
+## Game runtime
+
+```sh
+make --directory=Intermediate/ProjectFiles/gmake --jobs=$(nproc) config=shipping HertaGame HertaEditorCmd HertaAssetWorker HertaShaders
+./Scripts/Linux/PackageGame.sh --verify
+./Binaries/linux/x86_64/Development/HertaEditor --play-test --validation
+```
+
+- [ ] The relocated package passes its scripted run on X11 and Wayland. GCC 16 and Clang syntax checks passed in WSL; nothing has linked or run on Linux yet.
+- [ ] Play the Sandbox course by hand: pointer capture and relative look (Wayland uses the pointer-constraints path in GLFW), F11 fullscreen on the right monitor, focus loss pausing, and the HUD text size.
+- [ ] Settings land in `$XDG_CONFIG_HOME/Herta/Sandbox` or `~/.config/Herta/Sandbox`.
+- [ ] Editor Play/Stop restores the level.
+
 ## HDR
 
 - [ ] HDR10 output on Hyprland: the option is offered, and peak and paper-white calibration look right. See [HdrOutput.md](HdrOutput.md).

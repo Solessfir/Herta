@@ -109,7 +109,7 @@ Revision: $Revision
 
 Extract the complete archive into a writable directory.
 Run $BinaryDirectory/HertaEditor.exe.
-The game runtime is not implemented. Save level edits with Ctrl+S.
+Press Alt+P in the viewport to play the level. Save level edits with Ctrl+S.
 A Vulkan-capable GPU, driver, and system Vulkan loader are required.
 The MSVC runtime is statically linked; no separate CRT DLLs are required.
 Blender is optional and only required to import .blend files.

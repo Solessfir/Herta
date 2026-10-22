@@ -103,6 +103,9 @@ public:
 	FEditorFrameMetrics GetFrameMetrics() const noexcept;
 	// Bounded diagnostic phases reuse the same selection, camera, and simulation paths as interactive editing.
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> SetScalingTestPhase(bool bSelectAll, bool bSimulate);
+	// Starts or stops play for unattended checks. Scripted play walks and jumps on its own, without reading the keyboard or capturing the pointer.
+	[[nodiscard]] std::expected<void, FEditorFrameworkError> SetScriptedPlay(bool bPlaying);
+	[[nodiscard]] bool IsPlaying() const noexcept;
 	// Moves the viewport camera to a level camera bookmark and returns its name, or nothing when the slot is empty.
 	std::optional<std::string> ShowCameraBookmark(std::uint32_t Slot);
 	[[nodiscard]] bool IsUnitStatsVisible() const noexcept;

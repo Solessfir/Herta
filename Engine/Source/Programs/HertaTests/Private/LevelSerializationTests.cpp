@@ -785,6 +785,32 @@ TEST_CASE("Constraint components persist in schema six and replace schema five r
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*LegacyText, "\"material\": null", "\"material\": null, \"attachment\": \"" + Hung + "\"")));
 }
 
+TEST_CASE("Trigger roles persist in schema seven and older triggers have none")
+{
+	FLevelDocument Document = MakeLevelFolderDocument();
+	Document.Entities[0].Trigger = FTriggerComponent{.Size = {3.f, 2.f, 2.f}, .Role = ETriggerRole::Start};
+	Document.Entities[1].Trigger = FTriggerComponent{.Role = ETriggerRole::Finish};
+	const auto Text = SerializeLevel(Document);
+	REQUIRE(Text);
+	CHECK(Text->find("\"role\": \"start\"") != std::string::npos);
+	CHECK(Text->find("\"role\": \"finish\"") != std::string::npos);
+	const auto Restored = ParseLevel(*Text);
+	REQUIRE(Restored);
+	std::ranges::sort(Document.Entities, {}, &FLevelEntity::Id);
+	CHECK(Restored->Entities == Document.Entities);
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"role\": \"start\"", "\"role\": \"middle\"")));
+
+	// Schema 6 had no role field; such triggers load as plain triggers, and a role field there is rejected.
+	const std::string Older = ReplaceLevelText(*Text, "\"engineSchemaVersion\": 7", "\"engineSchemaVersion\": 6");
+	CHECK_FALSE(ParseLevel(Older));
+	const auto Legacy = ParseLevel(ReplaceLevelText(ReplaceLevelText(Older, ",\n          \"role\": \"start\"", ""), ",\n          \"role\": \"finish\"", ""));
+	REQUIRE(Legacy);
+	CHECK(std::ranges::all_of(Legacy->Entities, [](const FLevelEntity& Entity)
+	{
+		return !Entity.Trigger || Entity.Trigger->Role == ETriggerRole::None;
+	}));
+}
+
 TEST_CASE("Mover and trigger components persist in schema five")
 {
 	FLevelDocument Document = MakeLevelFolderDocument();

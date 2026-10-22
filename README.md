@@ -49,7 +49,8 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Levels](Docs/Levels.md) - authored documents, world ownership, and legacy migration.
 - [Materials](Docs/Materials.md) - PBR assets, texture maps, live editing, and custom shaders.
 - [Engine design](Docs/EngineDesign.md) - architecture and roadmap.
-- [Next milestone](Docs/EngineDesign.md#milestone-5---playable-runtime-and-standalone-game) - playable Sandbox and standalone runtime.
+- [Game runtime](Docs/Game.md) - HertaGame, editor Play, staging, and packaging.
+- [Next milestone](Docs/EngineDesign.md#milestone-6---raster-renderer-scaling-and-temporal-quality) - raster renderer scaling and temporal quality.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
 - [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.
 - [Linux todo](Docs/LinuxTodo.md) - checks waiting for a native Linux machine.

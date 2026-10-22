@@ -1,6 +1,6 @@
 # HDR Output
 
-Status: implemented in the editor. `HertaGame` will present through the same swapchain and renderer path in Milestone 5. Rendering was already HDR internally; this covers presenting it to HDR10 displays.
+Status: implemented in the editor and `HertaGame`, which presents through the same swapchain and renderer path with its own per-user settings; see [Game runtime](Game.md). Rendering was already HDR internally; this covers presenting it to HDR10 displays.
 
 ## Pipeline
 

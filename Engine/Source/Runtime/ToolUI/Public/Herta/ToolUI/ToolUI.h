@@ -171,6 +171,8 @@ public:
 	void EndPanel();
 	void SetViewportImmersive(bool bImmersive) noexcept;
 	[[nodiscard]] bool IsViewportImmersive() const noexcept;
+	// Hides the pointer and reports relative motion through ImGui mouse deltas, for play in the viewport.
+	void SetCursorCaptured(bool bCaptured);
 	bool IsPanelFocused(std::string_view Name) const noexcept;
 	bool IsPanelHovered(std::string_view Name) const noexcept;
 	// Files dropped onto any editor window since the last call, in drop order.
