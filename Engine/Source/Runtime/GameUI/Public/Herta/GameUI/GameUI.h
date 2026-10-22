@@ -35,7 +35,7 @@ enum class EGameUIFont : std::uint8_t
 	Title,
 };
 
-// Placement in layout units, which are pixels on a 1080-pixel-tall screen and scale with its height.
+// Placement in layout units, which are pixels on a 1440-pixel-tall screen and scale with its height.
 struct FGameUIPlacement
 {
 	// The screen point the element attaches to: (0, 0) is the top-left corner and (1, 1) the bottom-right.
@@ -81,9 +81,12 @@ public:
 	[[nodiscard]] std::expected<void, FGameUIError> BeginFrame(FExtent2D Extent);
 	// Covers a pixel rectangle with a registered texture, such as the rendered scene.
 	void DrawImage(std::uint64_t TextureId, FVector2 Minimum, FVector2 Maximum, std::uint32_t Color = MakeGameUIColor(255, 255, 255));
-	void DrawRect(const FGameUIPlacement& Placement, FVector2 Size, std::uint32_t Color);
+	// Radius rounds the corners, in layout units.
+	void DrawRect(const FGameUIPlacement& Placement, FVector2 Size, std::uint32_t Color, float Radius = 0.f);
+	// An anti-aliased dot, such as a crosshair.
+	void DrawCircle(const FGameUIPlacement& Placement, float Diameter, std::uint32_t Color);
 	void DrawText(std::string_view Text, const FGameUIPlacement& Placement, EGameUIFont Font, std::uint32_t Color);
-	// Text size in layout units.
+	// Text size in layout units. The height spans the font's ascender to descender, so text centers in a box of that height.
 	[[nodiscard]] FVector2 MeasureText(std::string_view Text, EGameUIFont Font) const;
 	// A vertical list of choices centered on the screen. Returns the item chosen this frame.
 	std::optional<std::size_t> DrawMenu(std::span<const std::string_view> Items, std::size_t& Focus, const FGameUIInput& Input);

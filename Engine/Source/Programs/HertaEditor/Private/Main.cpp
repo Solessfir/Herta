@@ -763,7 +763,14 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		return RenderThumbnail(Mesh, &Material);
 	};
 
-	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .LevelPath = LevelPath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail, .RenderMaterialThumbnail = RenderMaterialThumbnail, .MeshRenderer = MeshRenderer.get()});
+	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .LevelPath = LevelPath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail, .RenderMaterialThumbnail = RenderMaterialThumbnail, .MeshRenderer = MeshRenderer.get(), .RegisterUITexture = [&Presentation](const FTextureHandle& Texture)
+	{
+		return Presentation->RegisterToolUITexture(Texture);
+	},
+	    .UnregisterUITexture = [&Presentation](const std::uint64_t TextureId)
+	{
+		Presentation->UnregisterToolUITexture(TextureId);
+	}});
 	if (!EditorFrameworkResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize EditorFramework: {}", EditorFrameworkResult.error().Message);
@@ -1298,7 +1305,15 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 					break;
 				}
 			}
-			else if (EditorFramework->IsPlaying() && ++PlayTestFrame == PlayTestFrames)
+			else if (EditorFramework->IsPlaying() && PlayTestCycle == 1 && (PlayTestFrame == PlayTestFrames / 2 || PlayTestFrame == PlayTestFrames / 2 + 600))
+			{
+				// The second cycle holds the pause menu open for 600 frames, so a window capture can check the game HUD in the viewport.
+				const bool bPause = PlayTestFrame == PlayTestFrames / 2;
+				EditorFramework->SetPlayPaused(bPause);
+				HERTA_LOG_INFO(*Log, EditorLog, "Play test {} the pause menu", bPause ? "opened" : "closed");
+				++PlayTestFrame;
+			}
+			else if (EditorFramework->IsPlaying() && ++PlayTestFrame == PlayTestFrames + (PlayTestCycle == 1 ? 600 : 0))
 			{
 				const std::string FileName = std::format("Play-{}.png", PlayTestCycle + 1);
 				const auto Pixels = Presentation->GetGraphicsDevice().ReadbackTexture(MeshRenderer->GetColorTarget());

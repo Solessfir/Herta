@@ -300,7 +300,7 @@ HertaRuntimeModule("GameUI", {
     externalincludedirs { path.join(RepositoryRoot, "External/freetype/include") }
 
 HertaRuntimeModule("GameFramework", {
-    PublicDependencies = { "Core", "Math", "Assets", "Level", "Physics", "RHI", "Renderer" },
+    PublicDependencies = { "Core", "Math", "Assets", "Level", "Physics", "RHI", "Renderer", "GameUI" },
     PrivateDependencies = { "Tasks" }
 })
 
@@ -319,7 +319,7 @@ HertaRuntimeModule("AssetPipeline", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
-    PrivateDependencies = { "GameFramework", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
+    PrivateDependencies = { "GameFramework", "GameUI", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
 })
 

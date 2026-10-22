@@ -20,10 +20,10 @@ constexpr char FirstGlyph = ' ';
 constexpr char LastGlyph = '~';
 constexpr std::size_t GlyphCount = LastGlyph - FirstGlyph + 1;
 constexpr std::array<float, 2> FontSizes{30.f, 76.f};
-constexpr float LayoutHeight = 1080.f;
+constexpr float LayoutHeight = 1440.f;
 constexpr std::uint32_t AtlasWidth = 1024;
-// Rectangles sample this solid block, so they share the text texture and batch with it.
-constexpr std::uint32_t SolidBlock = 2;
+// An anti-aliased disc in the atlas corner draws dots and rounded corners; its solid middle fills rectangles, so everything batches with text.
+constexpr std::uint32_t DiscSize = 32;
 
 struct FGlyph
 {
@@ -70,6 +70,8 @@ struct FGameUI::FImplementation
 
 	[[nodiscard]] std::expected<void, FGameUIError> BuildAtlas(float NewScale);
 	void AddQuad(std::uint64_t TextureId, FVector2 Minimum, FVector2 Maximum, FVector2 UvMinimum, FVector2 UvMaximum, std::uint32_t Color);
+	// Corners in drawing order. Every primitive is a quad, so screen draw lists convert quad by quad.
+	void AddQuad(std::uint64_t TextureId, const std::array<FVector2, 4>& Corners, const std::array<FVector2, 4>& Uvs, std::uint32_t Color);
 	[[nodiscard]] FVector2 Place(const FGameUIPlacement& Placement, FVector2 SizePixels) const;
 
 	FGameUIDescriptor Descriptor;
@@ -82,6 +84,7 @@ struct FGameUI::FImplementation
 	FTextureHandle Atlas;
 	std::uint64_t AtlasId = 0;
 	FVector2 SolidUv{};
+	FVector2 DiscUv{};
 	float AtlasScale = 0.f;
 
 	FExtent2D Extent;
@@ -120,9 +123,9 @@ std::expected<void, FGameUIError> FGameUI::FImplementation::BuildAtlas(const flo
 
 	std::array<std::array<FBitmap, GlyphCount>, FontSizes.size()> Bitmaps;
 	std::array<std::array<std::pair<std::uint32_t, std::uint32_t>, GlyphCount>, FontSizes.size()> Positions{};
-	std::uint32_t X = SolidBlock + 1;
+	std::uint32_t X = DiscSize + 1;
 	std::uint32_t Y = 0;
-	std::uint32_t RowHeight = SolidBlock;
+	std::uint32_t RowHeight = DiscSize;
 	for (std::size_t Size = 0; Size < FontSizes.size(); ++Size)
 	{
 		const auto Pixels = static_cast<FT_UInt>(std::max(6.f, std::round(FontSizes[Size] * NewScale)));
@@ -131,8 +134,9 @@ std::expected<void, FGameUIError> FGameUI::FImplementation::BuildAtlas(const flo
 			return UIError("The HUD font cannot be sized");
 		}
 
-		Faces[Size].LineHeight = static_cast<float>(Face->size->metrics.height) / 64.f;
+		// The line box spans ascender to descender without the font's extra line gap, so text sits centered in a box of its measured height.
 		const float Ascender = static_cast<float>(Face->size->metrics.ascender) / 64.f;
+		Faces[Size].LineHeight = Ascender - static_cast<float>(Face->size->metrics.descender) / 64.f;
 		for (std::size_t Index = 0; Index < GlyphCount; ++Index)
 		{
 			if (FT_Load_Char(Face, static_cast<FT_ULong>(FirstGlyph + static_cast<char>(Index)), FT_LOAD_RENDER) != 0)
@@ -178,16 +182,20 @@ std::expected<void, FGameUIError> FGameUI::FImplementation::BuildAtlas(const flo
 		Texel[3] = std::byte{Alpha};
 	};
 
-	for (std::uint32_t Row = 0; Row < SolidBlock; ++Row)
+	// Coverage falls off over one texel at the rim.
+	constexpr float DiscRadius = DiscSize * 0.5f;
+	for (std::uint32_t Row = 0; Row < DiscSize; ++Row)
 	{
-		for (std::uint32_t Column = 0; Column < SolidBlock; ++Column)
+		for (std::uint32_t Column = 0; Column < DiscSize; ++Column)
 		{
-			Write(Column, Row, 255);
+			const float Distance = std::hypot(static_cast<float>(Column) + 0.5f - DiscRadius, static_cast<float>(Row) + 0.5f - DiscRadius);
+			Write(Column, Row, static_cast<std::uint8_t>(std::clamp(DiscRadius - Distance + 0.5f, 0.f, 1.f) * 255.f + 0.5f));
 		}
 	}
 
 	const FVector2 Texel{1.f / static_cast<float>(AtlasWidth), 1.f / static_cast<float>(AtlasHeight)};
-	SolidUv = {Texel.X, Texel.Y};
+	SolidUv = {DiscRadius * Texel.X, DiscRadius * Texel.Y};
+	DiscUv = {DiscSize * Texel.X, DiscSize * Texel.Y};
 	for (std::size_t Size = 0; Size < FontSizes.size(); ++Size)
 	{
 		for (std::size_t Index = 0; Index < GlyphCount; ++Index)
@@ -246,6 +254,11 @@ std::expected<void, FGameUIError> FGameUI::FImplementation::BuildAtlas(const flo
 
 void FGameUI::FImplementation::AddQuad(const std::uint64_t TextureId, const FVector2 Minimum, const FVector2 Maximum, const FVector2 UvMinimum, const FVector2 UvMaximum, const std::uint32_t Color)
 {
+	AddQuad(TextureId, {Minimum, FVector2{Maximum.X, Minimum.Y}, Maximum, FVector2{Minimum.X, Maximum.Y}}, {UvMinimum, FVector2{UvMaximum.X, UvMinimum.Y}, UvMaximum, FVector2{UvMinimum.X, UvMaximum.Y}}, Color);
+}
+
+void FGameUI::FImplementation::AddQuad(const std::uint64_t TextureId, const std::array<FVector2, 4>& Corners, const std::array<FVector2, 4>& Uvs, const std::uint32_t Color)
+{
 	// Indices are 16 bits; a HUD never comes close, so overflow drops quads instead of failing the frame.
 	if (Vertices.size() + 4 > 0xffff)
 	{
@@ -253,17 +266,18 @@ void FGameUI::FImplementation::AddQuad(const std::uint64_t TextureId, const FVec
 	}
 
 	const auto First = static_cast<std::uint16_t>(Vertices.size());
-	Vertices.push_back({.X = Minimum.X, .Y = Minimum.Y, .U = UvMinimum.X, .V = UvMinimum.Y, .Color = Color});
-	Vertices.push_back({.X = Maximum.X, .Y = Minimum.Y, .U = UvMaximum.X, .V = UvMinimum.Y, .Color = Color});
-	Vertices.push_back({.X = Maximum.X, .Y = Maximum.Y, .U = UvMaximum.X, .V = UvMaximum.Y, .Color = Color});
-	Vertices.push_back({.X = Minimum.X, .Y = Maximum.Y, .U = UvMinimum.X, .V = UvMaximum.Y, .Color = Color});
+	for (std::size_t Corner = 0; Corner < Corners.size(); ++Corner)
+	{
+		Vertices.push_back({.X = Corners[Corner].X, .Y = Corners[Corner].Y, .U = Uvs[Corner].X, .V = Uvs[Corner].Y, .Color = Color});
+	}
+
 	if (Commands.empty() || Commands.back().TextureId != TextureId)
 	{
 		Commands.push_back({.TextureId = TextureId, .FirstIndex = static_cast<std::uint32_t>(Indices.size())});
 	}
 
-	constexpr std::array<std::uint16_t, 6> Corners{0, 1, 2, 0, 2, 3};
-	for (const std::uint16_t Corner : Corners)
+	constexpr std::array<std::uint16_t, 6> Triangles{0, 1, 2, 0, 2, 3};
+	for (const std::uint16_t Corner : Triangles)
 	{
 		Indices.push_back(static_cast<std::uint16_t>(First + Corner));
 	}
@@ -341,12 +355,37 @@ void FGameUI::DrawImage(const std::uint64_t TextureId, const FVector2 Minimum, c
 	Implementation->AddQuad(TextureId, Minimum, Maximum, {0.f, 0.f}, {1.f, 1.f}, Color);
 }
 
-void FGameUI::DrawRect(const FGameUIPlacement& Placement, const FVector2 Size, const std::uint32_t Color)
+void FGameUI::DrawRect(const FGameUIPlacement& Placement, const FVector2 Size, const std::uint32_t Color, const float Radius)
 {
 	FImplementation& UI = *Implementation;
 	const FVector2 Pixels{Size.X * UI.Scale, Size.Y * UI.Scale};
 	const FVector2 Minimum = UI.Place(Placement, Pixels);
-	UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Pixels.X, Minimum.Y + Pixels.Y}, UI.SolidUv, UI.SolidUv, Color);
+	const FVector2 Maximum{Minimum.X + Pixels.X, Minimum.Y + Pixels.Y};
+	const float Round = std::clamp(Radius * UI.Scale, 0.f, std::min(Pixels.X, Pixels.Y) * 0.5f);
+	const FVector2 Uv = UI.SolidUv;
+	if (Round < 0.5f)
+	{
+		UI.AddQuad(UI.AtlasId, Minimum, Maximum, Uv, Uv, Color);
+		return;
+	}
+
+	// A cross of three solid bands, with each corner a quarter of the anti-aliased disc.
+	UI.AddQuad(UI.AtlasId, {Minimum.X, Minimum.Y + Round}, {Maximum.X, Maximum.Y - Round}, Uv, Uv, Color);
+	UI.AddQuad(UI.AtlasId, {Minimum.X + Round, Minimum.Y}, {Maximum.X - Round, Minimum.Y + Round}, Uv, Uv, Color);
+	UI.AddQuad(UI.AtlasId, {Minimum.X + Round, Maximum.Y - Round}, {Maximum.X - Round, Maximum.Y}, Uv, Uv, Color);
+	const FVector2 Disc = UI.DiscUv;
+	UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Round, Minimum.Y + Round}, {0.f, 0.f}, Uv, Color);
+	UI.AddQuad(UI.AtlasId, {Maximum.X - Round, Minimum.Y}, {Maximum.X, Minimum.Y + Round}, {Uv.X, 0.f}, {Disc.X, Uv.Y}, Color);
+	UI.AddQuad(UI.AtlasId, {Maximum.X - Round, Maximum.Y - Round}, Maximum, Uv, Disc, Color);
+	UI.AddQuad(UI.AtlasId, {Minimum.X, Maximum.Y - Round}, {Minimum.X + Round, Maximum.Y}, {0.f, Uv.Y}, {Uv.X, Disc.Y}, Color);
+}
+
+void FGameUI::DrawCircle(const FGameUIPlacement& Placement, const float Diameter, const std::uint32_t Color)
+{
+	FImplementation& UI = *Implementation;
+	const FVector2 Pixels{Diameter * UI.Scale, Diameter * UI.Scale};
+	const FVector2 Minimum = UI.Place(Placement, Pixels);
+	UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Pixels.X, Minimum.Y + Pixels.Y}, {0.f, 0.f}, UI.DiscUv, Color);
 }
 
 FVector2 FGameUI::MeasureText(const std::string_view Text, const EGameUIFont Font) const
@@ -422,7 +461,7 @@ std::optional<std::size_t> FGameUI::DrawMenu(const std::span<const std::string_v
 	{
 		const bool bFocused = Index == Focus;
 		const FGameUIPlacement Placement{.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 0.f}, .Offset = {0.f, -Height * 0.5f + static_cast<float>(Index) * (ItemSize.Y + Spacing)}};
-		DrawRect(Placement, ItemSize, bFocused ? MakeGameUIColor(242, 196, 92, 235) : MakeGameUIColor(24, 28, 36, 200));
+		DrawRect(Placement, ItemSize, bFocused ? MakeGameUIColor(242, 196, 92, 235) : MakeGameUIColor(24, 28, 36, 200), 12.f);
 		DrawText(Items[Index], {.Anchor = Placement.Anchor, .Pivot = {0.5f, 0.5f}, .Offset = {0.f, Placement.Offset.Y + ItemSize.Y * 0.5f}}, EGameUIFont::Body, bFocused ? MakeGameUIColor(20, 20, 24) : MakeGameUIColor(235, 238, 245));
 	}
 

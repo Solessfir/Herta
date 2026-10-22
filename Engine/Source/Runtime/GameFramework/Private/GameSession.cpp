@@ -110,6 +110,12 @@ struct FGameSession::FImplementation
 	bool bGrounded = false;
 	float AirborneSeconds = 0.f;
 	float JumpBufferRemaining = 0.f;
+	bool bCrouched = false;
+	bool bSliding = false;
+	float SlideBoostCooldown = 0.f;
+	float WallJumpCooldown = 0.f;
+	// Eases between standing and crouched so the view does not snap.
+	float EyeHeight = 0.f;
 	FGameInput Input{};
 	float Yaw = 0.f;
 	float Pitch = 0.f;
@@ -287,6 +293,11 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	bGrounded = false;
 	AirborneSeconds = 0.f;
 	JumpBufferRemaining = 0.f;
+	bCrouched = false;
+	bSliding = false;
+	SlideBoostCooldown = 0.f;
+	WallJumpCooldown = 0.f;
+	EyeHeight = Player.EyeHeight;
 	Yaw = SpawnYaw;
 	Pitch = 0.f;
 	Objective.State = StartZone && FinishZone ? EGameObjectiveState::Ready : EGameObjectiveState::Exploring;
@@ -313,6 +324,36 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		return std::unexpected(Ground.error());
 	}
 
+	SlideBoostCooldown = std::max(0.f, SlideBoostCooldown - StepSeconds);
+	WallJumpCooldown = std::max(0.f, WallJumpCooldown - StepSeconds);
+
+	// Crouching and sliding share the short capsule; standing back up waits until there is room above.
+	if (Input.bCrouch != bCrouched)
+	{
+		const auto Resized = World.SetCharacterHeight(Character, Input.bCrouch ? Player.CrouchHeight : Player.Height);
+		if (!Resized)
+		{
+			return std::unexpected(Resized.error());
+		}
+
+		bCrouched = *Resized ? Input.bCrouch : bCrouched;
+	}
+
+	const float Speed = HorizontalVelocity.Length();
+	if (bCrouched && Ground->bGrounded && !bSliding && Speed >= Player.SlideMinimumSpeed)
+	{
+		bSliding = true;
+		if (SlideBoostCooldown <= 0.f && Speed > 0.f)
+		{
+			HorizontalVelocity *= std::max(Speed, std::min(Speed + Player.SlideBoost, Player.SlideBoostLimit)) / Speed;
+			SlideBoostCooldown = Player.SlideBoostCooldownSeconds;
+		}
+	}
+	else if (bSliding && (!bCrouched || (Ground->bGrounded && Speed <= Player.CrouchSpeed)))
+	{
+		bSliding = false;
+	}
+
 	const FQuaternion Facing = FQuaternion::FromAxisAngle(FVector3::Up(), Yaw);
 	const FVector3 Forward = Facing.RotateVector(FVector3::Forward());
 	const FVector3 Right = Forward.Cross(FVector3::Up());
@@ -322,11 +363,32 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		Move = {Move.X / Length, Move.Y / Length};
 	}
 
-	const FVector3 Desired = (Right * Move.X + Forward * Move.Y) * (Input.bSprint ? Player.SprintSpeed : Player.WalkSpeed);
-	const float Acceleration = (Ground->bGrounded ? Player.GroundAcceleration : Player.AirAcceleration) * StepSeconds;
-	const FVector3 Change = Desired - HorizontalVelocity;
-	const float ChangeLength = Change.Length();
-	HorizontalVelocity += ChangeLength > Acceleration ? Change * (Acceleration / ChangeLength) : Change;
+	const FVector3 Wish = Right * Move.X + Forward * Move.Y;
+	const float WishSpeed = bCrouched ? Player.CrouchSpeed : Input.bSprint ? Player.SprintSpeed
+	                                                                       : Player.WalkSpeed;
+	if (Ground->bGrounded && bSliding)
+	{
+		// Slopes pull a slide downhill and friction is low, so input only steers it sideways.
+		const FVector3 Downhill{Ground->GroundNormal.X, 0.f, Ground->GroundNormal.Z};
+		HorizontalVelocity += Downhill * (Player.SlideSlopeAcceleration * StepSeconds);
+		HorizontalVelocity *= std::max(0.f, 1.f - Player.SlideFriction * StepSeconds);
+		const FVector3 Side = HorizontalVelocity.Normalized().Cross(FVector3::Up());
+		HorizontalVelocity += Side * (Wish.Dot(Side) * Player.SlideSteerAcceleration * StepSeconds);
+	}
+	else if (Ground->bGrounded)
+	{
+		const FVector3 Change = Wish * WishSpeed - HorizontalVelocity;
+		const float ChangeLength = Change.Length();
+		const float Acceleration = Player.GroundAcceleration * StepSeconds;
+		HorizontalVelocity += ChangeLength > Acceleration ? Change * (Acceleration / ChangeLength) : Change;
+	}
+	else if (const float WishLength = Wish.Length(); WishLength > 0.f)
+	{
+		// Air control only adds speed up to the wish speed along the wish direction, so slide and wall jump momentum carries through the air.
+		const FVector3 Direction = Wish / WishLength;
+		const float Missing = WishSpeed * WishLength - HorizontalVelocity.Dot(Direction);
+		HorizontalVelocity += Direction * std::clamp(Missing, 0.f, Player.AirAcceleration * StepSeconds);
+	}
 
 	// Leaving the ground keeps the platform's motion, so jumping off a moving shuttle carries its speed.
 	if (bGrounded && !Ground->bGrounded)
@@ -343,7 +405,8 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 	}
 
 	FVector3 Carried = Ground->bGrounded ? Ground->GroundVelocity : FVector3{};
-	if (JumpBufferRemaining > 0.f && AirborneSeconds <= CoyoteSeconds && VerticalVelocity <= 0.f)
+	const bool bCanJump = AirborneSeconds <= CoyoteSeconds && VerticalVelocity <= 0.f;
+	if (JumpBufferRemaining > 0.f && bCanJump)
 	{
 		VerticalVelocity = Player.JumpSpeed;
 		JumpBufferRemaining = 0.f;
@@ -351,6 +414,15 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		HorizontalVelocity += FVector3{Carried.X, 0.f, Carried.Z};
 		VerticalVelocity += Carried.Y;
 		Carried = {};
+	}
+	else if (JumpBufferRemaining > 0.f && !Ground->bGrounded && Ground->bTouchingWall && WallJumpCooldown <= 0.f)
+	{
+		// A wall jump rises like a jump and kicks away from the wall, keeping speed along it.
+		const float Into = HorizontalVelocity.Dot(Ground->WallNormal);
+		HorizontalVelocity += Ground->WallNormal * (Player.WallJumpSpeed - std::min(Into, 0.f));
+		VerticalVelocity = Player.JumpSpeed;
+		JumpBufferRemaining = 0.f;
+		WallJumpCooldown = Player.WallJumpCooldownSeconds;
 	}
 	else if (!Ground->bGrounded)
 	{
@@ -371,6 +443,9 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		VerticalVelocity = std::min(VerticalVelocity, Resolved.Y);
 	}
 
+	constexpr float EyeSpeed = 6.f;
+	const float TargetEye = bCrouched ? Player.CrouchEyeHeight : Player.EyeHeight;
+	EyeHeight += std::clamp(TargetEye - EyeHeight, -EyeSpeed * StepSeconds, EyeSpeed * StepSeconds);
 	bGrounded = Moved->bGrounded;
 	PreviousFoot = CurrentFoot;
 	CurrentFoot = Moved->FootPosition;
@@ -386,6 +461,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 
 		HorizontalVelocity = {};
 		VerticalVelocity = 0.f;
+		bSliding = false;
 		PreviousFoot = CurrentFoot = SpawnPosition;
 		Yaw = SpawnYaw;
 		return World.TeleportCharacter(Character, SpawnPosition);
@@ -592,7 +668,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	});
 
 	const float Alpha = Session.Simulation.GetInterpolationAlpha();
-	const FVector3 Eye = Session.PreviousFoot * (1.f - Alpha) + Session.CurrentFoot * Alpha + FVector3::Up() * Session.Player.EyeHeight;
+	const FVector3 Eye = Session.PreviousFoot * (1.f - Alpha) + Session.CurrentFoot * Alpha + FVector3::Up() * Session.EyeHeight;
 	const float Aspect = Extent.Height > 0 ? static_cast<float>(Extent.Width) / static_cast<float>(Extent.Height) : 1.f;
 	Session.View = {
 	    .View = FMatrix4::Rotation(GetLookOrientation(Session.Yaw, Session.Pitch).Conjugated()) * FMatrix4::Translation(-Eye),
@@ -631,6 +707,21 @@ FVector3 FGameSession::GetPlayerFootPosition() const noexcept
 bool FGameSession::IsPlayerGrounded() const noexcept
 {
 	return Implementation->bGrounded;
+}
+
+bool FGameSession::IsPlayerCrouched() const noexcept
+{
+	return Implementation->bCrouched;
+}
+
+bool FGameSession::IsPlayerSliding() const noexcept
+{
+	return Implementation->bSliding;
+}
+
+FVector3 FGameSession::GetPlayerVelocity() const noexcept
+{
+	return Implementation->HorizontalVelocity + FVector3::Up() * Implementation->VerticalVelocity;
 }
 
 std::shared_ptr<const FCookedTexture> FGameSession::GetEnvironment() const

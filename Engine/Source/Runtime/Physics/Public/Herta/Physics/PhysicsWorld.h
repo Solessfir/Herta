@@ -170,7 +170,12 @@ struct FPhysicsCharacterState
 	FVector3 Velocity = FVector3::Zero();
 	// Velocity of the supporting ground, such as a moving platform.
 	FVector3 GroundVelocity = FVector3::Zero();
+	// Points away from the ground; up when airborne.
+	FVector3 GroundNormal = FVector3::Up();
+	// Horizontal direction away from a steep wall the capsule touches, for wall jumps.
+	FVector3 WallNormal = FVector3::Zero();
 	bool bGrounded = false;
+	bool bTouchingWall = false;
 };
 
 struct FPhysicsWorldSettings
@@ -214,6 +219,8 @@ public:
 	// Moves the character by Velocity over one step, then keeps it on ground it was standing on.
 	[[nodiscard]] std::expected<FPhysicsCharacterState, FPhysicsError> MoveCharacter(FPhysicsCharacterId Character, const FVector3& Velocity, float DeltaSeconds);
 	[[nodiscard]] std::expected<void, FPhysicsError> TeleportCharacter(FPhysicsCharacterId Character, const FVector3& FootPosition);
+	// Resizes the capsule, keeping the feet in place. Growing fails without changing anything when the space above is blocked, such as standing up under a bar.
+	[[nodiscard]] std::expected<bool, FPhysicsError> SetCharacterHeight(FPhysicsCharacterId Character, float Height);
 
 private:
 	struct FImplementation;

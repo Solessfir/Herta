@@ -15,6 +15,7 @@
 #include "Herta/EditorCore/ViewportCamera.h"
 #include "Herta/EditorFramework/ViewportInteraction.h"
 #include "Herta/GameFramework/GameAssets.h"
+#include "Herta/GameFramework/GameHud.h"
 #include "Herta/GameFramework/GameSession.h"
 #include "Herta/GameFramework/LevelSimulation.h"
 #include "Herta/GameFramework/LevelSimulationSetup.h"
@@ -537,7 +538,7 @@ struct FEditorFramework::FImplementation
 	// Play runs the level through the same game session as HertaGame, on a copy that leaves authored state untouched.
 	void TogglePlay();
 	void UpdatePlay(float DeltaSeconds);
-	void DrawPlayHud(ImVec2 Minimum, ImVec2 Size) const;
+	void DrawPlayHud(ImVec2 Minimum, ImVec2 Size);
 
 	[[nodiscard]] bool IsSimulating() const noexcept
 	{
@@ -637,7 +638,14 @@ struct FEditorFramework::FImplementation
 	std::unique_ptr<IGameAssets> PlayAssets;
 	std::unique_ptr<FGameSession> PlaySession;
 	FMeshRenderView PlayRenderView;
+	// Play draws the game's own HUD and pause menu with GameUI, so it matches the standalone game.
+	std::unique_ptr<FGameUI> PlayUI;
+	bool bPlayPaused = false;
+	std::size_t PlayMenuFocus = 0;
+	std::optional<std::size_t> PlayMenuChoice;
 	bool bScriptedPlay = false;
+	// Shift+Space starts play, so Space must come up once before it can jump.
+	bool bPlayJumpArmed = false;
 	std::uint32_t ScriptedPlayFrame = 0;
 
 	std::uint64_t ViewportTexture = 0;
@@ -659,7 +667,9 @@ struct FEditorFramework::FImplementation
 	bool bOrientationIndicatorVisible = true;
 	bool bBoundsVisible = false;
 	bool bCameraReadoutVisible = false;
-	bool bCameraSpeedVisible = false;
+	// The speed readout appears while the speed changes and lingers briefly after.
+	bool bCameraSpeedVisible = true;
+	double CameraSpeedShownUntil = 0.;
 	std::array<char, 128> CameraBookmarkName{};
 	bool bTimeOfDayVisible = true;
 	FPhysicalCamera PhysicalCamera;
@@ -696,6 +706,8 @@ struct FEditorFramework::FImplementation
 	FEditorAssetThumbnailRenderer RenderAssetThumbnail;
 	FEditorMaterialThumbnailRenderer RenderMaterialThumbnail;
 	FMeshRenderer* MeshRenderer = nullptr;
+	std::function<std::expected<std::uint64_t, FPresentationError>(const FTextureHandle&)> RegisterUITexture;
+	std::function<void(std::uint64_t)> UnregisterUITexture;
 	std::unique_ptr<FVisualEnvironment> VisualEnvironment;
 	std::unique_ptr<FMaterialShaders> MaterialShaders;
 	std::filesystem::path WatchedShaderContentRoot;
@@ -778,6 +790,8 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		Implementation->VisualEnvironment = FVisualEnvironment::Create(*Descriptor.Tasks, *Descriptor.MeshRenderer, *Descriptor.Log);
 	}
 	Implementation->EngineRoot = Descriptor.EngineRoot;
+	Implementation->RegisterUITexture = Descriptor.RegisterUITexture;
+	Implementation->UnregisterUITexture = Descriptor.UnregisterUITexture;
 	Implementation->ProjectPath = Descriptor.ProjectPath;
 	std::filesystem::path InitialLevelPath = Descriptor.LevelPath;
 	if (!Descriptor.ProjectPath.empty())
@@ -991,6 +1005,11 @@ bool FEditorFramework::IsPlaying() const noexcept
 	return Implementation->PlaySession != nullptr;
 }
 
+void FEditorFramework::SetPlayPaused(const bool bPaused) noexcept
+{
+	Implementation->bPlayPaused = bPaused && Implementation->PlaySession;
+}
+
 bool FEditorFramework::IsUnitStatsVisible() const noexcept
 {
 	return Implementation->Stats->bUnitVisible;
@@ -1063,7 +1082,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 	Implementation->RefreshPreviewMeshes();
 
-	if (!IO.AppFocusLost && Implementation->PlaySession && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+	// Esc stops play like in other editors; Shift+Esc is the game's own Esc and opens its pause menu.
+	if (!IO.AppFocusLost && Implementation->PlaySession && !IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape, false))
 	{
 		Implementation->TogglePlay();
 	}
@@ -1072,7 +1092,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		Implementation->ToggleSimulation();
 	}
 
-	if (!Implementation->bProjectBusy && !IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_P, false) && !Implementation->Simulation.IsRunning() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+	// Shift+Space only starts play, because sprinting players press it to jump.
+	if (!Implementation->bProjectBusy && !IO.AppFocusLost && !IO.WantTextInput && ((IO.KeyMods == ImGuiMod_Alt && ImGui::IsKeyPressed(ImGuiKey_P, false)) || (!Implementation->PlaySession && IO.KeyMods == ImGuiMod_Shift && ImGui::IsKeyPressed(ImGuiKey_Space, false))) && !Implementation->Simulation.IsRunning() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{
 		Implementation->TogglePlay();
 	}
@@ -2865,103 +2886,107 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 	ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
 	ImGui::BeginDisabled(ViewportInteraction.DragButton >= 0);
 	const float SettingsX = std::max(Minimum.x + 4.f * Scale, Minimum.x + Size.x - EdgeMargin - Height);
-	float RightControlsLeft = SettingsX;
-	Island(SettingsX, Height);
-
-	if (IconButton("Viewport settings", EViewportIcon::Settings, "Viewport settings"))
+	// Play keeps only the playback island; editing tools and time of day would cover the game.
+	float RightControlsLeft = PlaySession ? Minimum.x + Size.x : SettingsX;
+	if (!PlaySession)
 	{
-		ImGui::OpenPopup("ViewportSettings");
-	}
+		Island(SettingsX, Height);
 
-	if (Size.x > 340.f * Scale)
-	{
-		float Right = SettingsX - Gap;
-		const bool bExpandedLayout = Size.x > 1040.f * Scale;
-		if (bExpandedLayout)
+		if (IconButton("Viewport settings", EViewportIcon::Settings, "Viewport settings"))
 		{
-			Island(Right - Height, Height);
-
-			if (IconButton("Focus", EViewportIcon::Focus, "Focus selected object (F)"))
-			{
-				FocusPreview();
-			}
-
-			Right -= Height + Gap;
+			ImGui::OpenPopup("ViewportSettings");
 		}
 
-		const float SnapWidth = (bSnapEnabled ? ViewportIconButtonSize + 75.f : Height / Scale) * Scale;
-		Island(Right - SnapWidth, SnapWidth);
-
-		if (IconButton("Grid snap", EViewportIcon::Grid, "Toggle grid snapping (S)", bSnapEnabled))
+		if (Size.x > 340.f * Scale)
 		{
-			bSnapEnabled = !bSnapEnabled;
-		}
-
-		if (bSnapEnabled)
-		{
-			ImGui::SameLine();
-			ImGui::SetNextItemWidth(68.f * Scale);
-			ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {5.f * Scale, (ButtonSize - ImGui::GetFontSize()) * 0.5f});
-			DrawNumericDragFloat("##GridStep", &TranslationSnap, 0.05f, 0.001f, 100.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
-			ImGui::PopStyleVar();
-
-			if (ImGui::IsItemHovered())
+			float Right = SettingsX - Gap;
+			const bool bExpandedLayout = Size.x > 1040.f * Scale;
+			if (bExpandedLayout)
 			{
-				ImGui::SetTooltip("Translation snap step in meters");
-			}
-		}
+				Island(Right - Height, Height);
 
-		TranslationSnap = std::isfinite(TranslationSnap) ? std::clamp(TranslationSnap, 0.001f, 100.f) : 0.5f;
-		Right -= SnapWidth + Gap;
+				if (IconButton("Focus", EViewportIcon::Focus, "Focus selected object (F)"))
+				{
+					FocusPreview();
+				}
 
-		if (bExpandedLayout)
-		{
-			const bool bHover = ImGui::IsMouseHoveringRect({Right - WorldIslandWidth * Scale, Top}, {Right, Top + Height});
-			WorldIslandWidth = bHover ? 100.f : Height / Scale;
-			Island(Right - WorldIslandWidth * Scale, WorldIslandWidth * Scale);
-
-			if (IconButton("Coordinate space", EViewportIcon::World, bLocalGizmo ? "Local axes (L)" : "World axes (L)", bLocalGizmo))
-			{
-				bLocalGizmo = !bLocalGizmo;
-				ViewportGizmos.resetId();
+				Right -= Height + Gap;
 			}
 
-			if (WorldIslandWidth > 90.f)
+			const float SnapWidth = (bSnapEnabled ? ViewportIconButtonSize + 75.f : Height / Scale) * Scale;
+			Island(Right - SnapWidth, SnapWidth);
+
+			if (IconButton("Grid snap", EViewportIcon::Grid, "Toggle grid snapping (S)", bSnapEnabled))
+			{
+				bSnapEnabled = !bSnapEnabled;
+			}
+
+			if (bSnapEnabled)
 			{
 				ImGui::SameLine();
+				ImGui::SetNextItemWidth(68.f * Scale);
+				ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {5.f * Scale, (ButtonSize - ImGui::GetFontSize()) * 0.5f});
+				DrawNumericDragFloat("##GridStep", &TranslationSnap, 0.05f, 0.001f, 100.f, "%.2f m", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::PopStyleVar();
 
-				if (ImGui::Button(bLocalGizmo ? "Local##CoordinateSpaceLabel" : "World##CoordinateSpaceLabel", {WorldIslandWidth * Scale - ButtonSize - ImGui::GetStyle().ItemSpacing.x - 2.f * Padding, ButtonSize}))
+				if (ImGui::IsItemHovered())
+				{
+					ImGui::SetTooltip("Translation snap step in meters");
+				}
+			}
+
+			TranslationSnap = std::isfinite(TranslationSnap) ? std::clamp(TranslationSnap, 0.001f, 100.f) : 0.5f;
+			Right -= SnapWidth + Gap;
+
+			if (bExpandedLayout)
+			{
+				const bool bHover = ImGui::IsMouseHoveringRect({Right - WorldIslandWidth * Scale, Top}, {Right, Top + Height});
+				WorldIslandWidth = bHover ? 100.f : Height / Scale;
+				Island(Right - WorldIslandWidth * Scale, WorldIslandWidth * Scale);
+
+				if (IconButton("Coordinate space", EViewportIcon::World, bLocalGizmo ? "Local axes (L)" : "World axes (L)", bLocalGizmo))
 				{
 					bLocalGizmo = !bLocalGizmo;
 					ViewportGizmos.resetId();
 				}
+
+				if (WorldIslandWidth > 90.f)
+				{
+					ImGui::SameLine();
+
+					if (ImGui::Button(bLocalGizmo ? "Local##CoordinateSpaceLabel" : "World##CoordinateSpaceLabel", {WorldIslandWidth * Scale - ButtonSize - ImGui::GetStyle().ItemSpacing.x - 2.f * Padding, ButtonSize}))
+					{
+						bLocalGizmo = !bLocalGizmo;
+						ViewportGizmos.resetId();
+					}
+				}
+
+				Right -= WorldIslandWidth * Scale + Gap;
 			}
 
-			Right -= WorldIslandWidth * Scale + Gap;
-		}
+			const float ModesWidth = 4.f * ButtonSize + 3.f * ImGui::GetStyle().ItemSpacing.x + 2.f * Padding;
+			RightControlsLeft = std::max(Minimum.x + 4.f * Scale, Right - ModesWidth);
+			Island(RightControlsLeft, ModesWidth);
 
-		const float ModesWidth = 4.f * ButtonSize + 3.f * ImGui::GetStyle().ItemSpacing.x + 2.f * Padding;
-		RightControlsLeft = std::max(Minimum.x + 4.f * Scale, Right - ModesWidth);
-		Island(RightControlsLeft, ModesWidth);
-
-		if (IconButton("Hide gizmo", EViewportIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
-		{
-			bTransformGizmoVisible = false;
-			ViewportGizmos.resetId();
-		}
-
-		constexpr std::array Modes{std::pair{Im3d::GizmoMode_Translation, EViewportIcon::Move}, std::pair{Im3d::GizmoMode_Rotation, EViewportIcon::Rotate}, std::pair{Im3d::GizmoMode_Scale, EViewportIcon::Scale}};
-		constexpr std::array Labels{"Translate (W)", "Rotate (E)", "Scale (R)"};
-
-		for (std::size_t Index = 0; Index < Modes.size(); ++Index)
-		{
-			ImGui::SameLine();
-
-			if (IconButton(Labels[Index], Modes[Index].second, Labels[Index], bTransformGizmoVisible && GizmoMode == Modes[Index].first))
+			if (IconButton("Hide gizmo", EViewportIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
 			{
-				bTransformGizmoVisible = true;
-				GizmoMode = Modes[Index].first;
+				bTransformGizmoVisible = false;
 				ViewportGizmos.resetId();
+			}
+
+			constexpr std::array Modes{std::pair{Im3d::GizmoMode_Translation, EViewportIcon::Move}, std::pair{Im3d::GizmoMode_Rotation, EViewportIcon::Rotate}, std::pair{Im3d::GizmoMode_Scale, EViewportIcon::Scale}};
+			constexpr std::array Labels{"Translate (W)", "Rotate (E)", "Scale (R)"};
+
+			for (std::size_t Index = 0; Index < Modes.size(); ++Index)
+			{
+				ImGui::SameLine();
+
+				if (IconButton(Labels[Index], Modes[Index].second, Labels[Index], bTransformGizmoVisible && GizmoMode == Modes[Index].first))
+				{
+					bTransformGizmoVisible = true;
+					GizmoMode = Modes[Index].first;
+					ViewportGizmos.resetId();
+				}
 			}
 		}
 	}
@@ -2974,7 +2999,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		const bool bFitsTopRow = CanFitViewportToolbarIsland(PlayX, PlayWidth, Minimum.x, RightControlsLeft, Gap);
 		Island(PlayX, PlayWidth, bFitsTopRow ? 0.f : Height + Gap);
 		ImGui::BeginDisabled(bProjectBusy || Simulation.IsRunning());
-		if (IconButton("Play", PlaySession ? EViewportIcon::Stop : EViewportIcon::Play, PlaySession ? "Stop playing (Esc)" : "Play (Alt+P)", PlaySession != nullptr))
+		if (IconButton("Play", PlaySession ? EViewportIcon::Stop : EViewportIcon::Play, PlaySession ? "Stop playing (Esc)" : "Play (Alt+P or Shift+Space)", PlaySession != nullptr))
 		{
 			TogglePlay();
 		}
@@ -2992,7 +3017,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 	}
 
 	// Top-left island; it yields to the playback island and right-hand controls instead of overlapping them.
-	if (bTimeOfDayVisible && FindTimeOfDaySun() >= 0)
+	if (bTimeOfDayVisible && !PlaySession && FindTimeOfDaySun() >= 0)
 	{
 		const float TimeWidth = ButtonSize + 112.f * Scale + 2.f * Padding;
 		const float TimeX = Minimum.x + EdgeMargin;
@@ -3071,6 +3096,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			if (DrawNumericSliderFloat("##CameraSpeed", &MovementSpeed, 0.1f, 100.f, "%.1f m/s", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp))
 			{
 				ViewportCamera.SetMovementSpeed(MovementSpeed);
+				CameraSpeedShownUntil = ImGui::GetTime() + 1.5;
 			}
 
 			float Sensitivity = ViewportCamera.GetMouseSensitivity() * 180.f / std::numbers::pi_v<float>;
@@ -3386,6 +3412,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 		if (CameraInput.Mode == EViewportCameraMode::Fly)
 		{
 			ViewportCamera.SetMovementSpeed(ViewportCamera.GetMovementSpeed() * std::pow(1.2f, IO.MouseWheel));
+			CameraSpeedShownUntil = IO.MouseWheel != 0.f ? ImGui::GetTime() + 1.5 : CameraSpeedShownUntil;
 		}
 		else if (ViewportInteraction.DragButton < 0)
 		{
@@ -3864,7 +3891,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 			bool bCopyCoordinates = false;
 			bool bCoordinatesHovered = false;
 			bool bCoordinatesFocused = false;
-			if (bCameraReadoutVisible)
+			if (bCameraReadoutVisible && !PlaySession)
 			{
 				ImGui::SetCursorScreenPos(CoordinatesPosition);
 				ImGui::BeginDisabled(ViewportInteraction.DragButton >= 0);
@@ -4088,7 +4115,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				}
 			}
 
-			if (bCameraReadoutVisible)
+			if (bCameraReadoutVisible && !PlaySession)
 			{
 				ToolUI->DrawGlassSurface(CoordinatesPosition.x, CoordinatesPosition.y, CoordinatesWidth, CoordinatesHeight, CoordinatesHeight * 0.5f);
 				const float CoordinatesTextY = CoordinatesPosition.y + (CoordinatesHeight - ImGui::GetFontSize()) * 0.5f;
@@ -4113,7 +4140,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				HudDraw->AddText({CoordinatesPosition.x + 40.f * HudScale + CameraLabelWidth, CoordinatesTextY}, PackColor(ToolUITheme::TextPrimary), Coordinates.c_str());
 			}
 
-			if (!bGameView && bCameraSpeedVisible)
+			if (!bGameView && bCameraSpeedVisible && !PlaySession && ImGui::GetTime() < CameraSpeedShownUntil)
 			{
 				const float UiScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 				const std::string Speed = std::format("{:.2f} m/s", ViewportCamera.GetMovementSpeed() * (ImGui::GetIO().KeyShift ? 4.f : 1.f));
@@ -4134,7 +4161,8 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				Draw->AddText({Position.x + 40.f * UiScale + LabelWidth, TextY}, PackColor(ToolUITheme::TextPrimary), Speed.c_str());
 			}
 
-			if (!bGameView && bOrientationIndicatorVisible)
+			// Play shows only the game HUD.
+			if (!bGameView && bOrientationIndicatorVisible && !PlaySession)
 			{
 				DrawViewportAxes(ViewportRenderView.View, ImageMinimum, Size, ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize);
 			}
@@ -4474,8 +4502,40 @@ void FEditorFramework::FImplementation::TogglePlay()
 		HERTA_LOG_WARNING(*Log, EditorLog, "{}", Warning);
 	}
 
+	if (!PlayUI && RegisterUITexture && UnregisterUITexture)
+	{
+		auto UI = FGameUI::Create({
+		    .Device = GraphicsDevice,
+		    .FontPath = EngineRoot / "Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf",
+		    .RegisterTexture = [this](const FTextureHandle& Texture) -> std::expected<std::uint64_t, FGameUIError>
+		{
+			auto Registered = RegisterUITexture(Texture);
+			if (!Registered)
+			{
+				return std::unexpected(FGameUIError{std::move(Registered.error().Message)});
+			}
+
+			return *Registered;
+		},
+		    .UnregisterTexture = UnregisterUITexture,
+		});
+
+		if (!UI)
+		{
+			HERTA_LOG_WARNING(*Log, EditorLog, "Play runs without its HUD: {}", UI.error().Message);
+		}
+		else
+		{
+			PlayUI = std::move(*UI);
+		}
+	}
+
 	PlayAssets = std::move(GameAssets);
 	PlaySession = std::move(*Session);
+	bPlayPaused = false;
+	PlayMenuFocus = 0;
+	PlayMenuChoice.reset();
+	bPlayJumpArmed = false;
 	Level->SetSimulationRunning(true);
 	PreviewDragStart.reset();
 	ViewportGizmos.resetId();
@@ -4490,10 +4550,38 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		return;
 	}
 
-	// Leaving the editor window pauses play and frees the pointer; clicking the viewport resumes.
+	// The pause menu's choice from the previous frame's HUD.
+	if (const std::optional<std::size_t> Choice = std::exchange(PlayMenuChoice, std::nullopt))
+	{
+		bPlayPaused = false;
+		if (*Choice == 2)
+		{
+			TogglePlay();
+			return;
+		}
+
+		if (*Choice == 1)
+		{
+			if (auto Restarted = PlaySession->Restart(); !Restarted)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Play stopped: {}", Restarted.error().Message);
+				TogglePlay();
+				return;
+			}
+		}
+	}
+
+	// Leaving the editor window pauses play like the game losing focus; leaving only the viewport freezes it until clicked again.
 	const ImGuiIO& IO = ImGui::GetIO();
-	const bool bFocused = bScriptedPlay || (!IO.AppFocusLost && ToolUI->IsPanelFocused("Viewport"));
+	if (!bScriptedPlay && (IO.AppFocusLost || (IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape, false))))
+	{
+		bPlayPaused = IO.AppFocusLost || !bPlayPaused;
+		PlayMenuFocus = 0;
+	}
+
+	const bool bFocused = !bPlayPaused && (bScriptedPlay || (!IO.AppFocusLost && ToolUI->IsPanelFocused("Viewport")));
 	ToolUI->SetCursorCaptured(bFocused && !bScriptedPlay);
+	bPlayJumpArmed |= !ImGui::IsKeyDown(ImGuiKey_Space);
 	FGameInput Input;
 	if (bScriptedPlay)
 	{
@@ -4512,8 +4600,9 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		    .Move = {Axis(ImGuiKey_D, ImGuiKey_A), Axis(ImGuiKey_W, ImGuiKey_S)},
 		    .YawDelta = -IO.MouseDelta.x * Sensitivity,
 		    .PitchDelta = -IO.MouseDelta.y * Sensitivity,
-		    .bJump = ImGui::IsKeyPressed(ImGuiKey_Space, false),
+		    .bJump = bPlayJumpArmed && ImGui::IsKeyPressed(ImGuiKey_Space, false),
 		    .bSprint = IO.KeyShift,
+		    .bCrouch = ImGui::IsKeyDown(ImGuiKey_C) || IO.KeyCtrl,
 		};
 
 		if (ImGui::IsKeyPressed(ImGuiKey_R, false))
@@ -4542,34 +4631,67 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	PlayRenderView = PlaySession->GetRenderView(ViewportExtent);
 }
 
-void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const ImVec2 Size) const
+void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const ImVec2 Size)
 {
-	const FGameObjective& Objective = PlaySession->GetObjective();
-	const auto Seconds = [](const double Value)
+	if (!PlayUI || Size.x < 1.f || Size.y < 1.f)
 	{
-		return std::format("{:.2f}", Value);
-	};
-
-	const std::string Status = Objective.State == EGameObjectiveState::Ready      ? "Leave the start zone to begin the course"
-	                           : Objective.State == EGameObjectiveState::Running  ? std::format("Time {}", Seconds(Objective.ElapsedSeconds))
-	                           : Objective.State == EGameObjectiveState::Finished ? std::format("Finished in {} s", Seconds(Objective.ElapsedSeconds))
-	                                                                              : std::string("Explore the playground");
-	const std::string Best = Objective.BestSeconds ? std::format("Best {} s", Seconds(*Objective.BestSeconds)) : std::string{};
-	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
-	const float Padding = 10.f * Scale;
-	const ImVec2 TextSize = ImGui::CalcTextSize(Status.c_str());
-	const float Height = TextSize.y * (Best.empty() ? 1.f : 2.f) + Padding * 2.f;
-	const ImVec2 PanelMinimum{Minimum.x + 16.f * Scale, Minimum.y + Size.y - Height - 16.f * Scale};
-	ImDrawList* const Draw = ImGui::GetWindowDrawList();
-	Draw->AddRectFilled(PanelMinimum, {PanelMinimum.x + std::max(TextSize.x, ImGui::CalcTextSize(Best.c_str()).x) + Padding * 2.f, PanelMinimum.y + Height}, IM_COL32(12, 14, 20, 180), 6.f * Scale);
-	Draw->AddText({PanelMinimum.x + Padding, PanelMinimum.y + Padding}, Objective.State == EGameObjectiveState::Finished ? IM_COL32(242, 196, 92, 255) : IM_COL32(238, 240, 246, 255), Status.c_str());
-	if (!Best.empty())
-	{
-		Draw->AddText({PanelMinimum.x + Padding, PanelMinimum.y + Padding + TextSize.y}, IM_COL32(170, 176, 190, 255), Best.c_str());
+		return;
 	}
 
-	const ImVec2 Center{Minimum.x + Size.x * 0.5f, Minimum.y + Size.y * 0.5f};
-	Draw->AddCircleFilled(Center, 2.5f * Scale, IM_COL32(255, 255, 255, 200));
+	if (auto Begun = PlayUI->BeginFrame({.Width = static_cast<std::uint32_t>(Size.x), .Height = static_cast<std::uint32_t>(Size.y)}); !Begun)
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Play HUD hidden: {}", Begun.error().Message);
+		PlayUI.reset();
+		return;
+	}
+
+	const ImGuiIO& IO = ImGui::GetIO();
+	const auto Pressed = [](const ImGuiKey Key)
+	{
+		return ImGui::IsKeyPressed(Key, true);
+	};
+
+	const bool bHovered = ImGui::IsMouseHoveringRect(Minimum, {Minimum.x + Size.x, Minimum.y + Size.y});
+	const FGameUIInput MenuInput{
+	    .Pointer = bPlayPaused && bHovered ? std::optional{FVector2{IO.MousePos.x - Minimum.x, IO.MousePos.y - Minimum.y}} : std::nullopt,
+	    .bClicked = bPlayPaused && bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+	    .bUp = bPlayPaused && (Pressed(ImGuiKey_UpArrow) || Pressed(ImGuiKey_W)),
+	    .bDown = bPlayPaused && (Pressed(ImGuiKey_DownArrow) || Pressed(ImGuiKey_S)),
+	    .bActivate = bPlayPaused && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false)),
+	};
+
+	constexpr std::array<std::string_view, 3> Items{"Resume", "Restart course", "Exit"};
+	PlayMenuChoice = DrawGameHud(*PlayUI, PlaySession->GetObjective(), bPlayPaused, Items, PlayMenuFocus, MenuInput, "Shift+Esc");
+
+	// GameUI emits textured quads in screen pixels; ImGui draws them over the viewport with the same registered textures.
+	const FScreenDrawList Draws = PlayUI->GetDrawList();
+	ImDrawList* const Draw = ImGui::GetWindowDrawList();
+	const auto Point = [&Draws, Minimum](const std::uint16_t Index)
+	{
+		return ImVec2{Minimum.x + Draws.Vertices[Index].X, Minimum.y + Draws.Vertices[Index].Y};
+	};
+
+	const auto Uv = [&Draws](const std::uint16_t Index)
+	{
+		return ImVec2{Draws.Vertices[Index].U, Draws.Vertices[Index].V};
+	};
+
+	for (const FScreenDrawCommand& Command : Draws.Commands)
+	{
+		Draw->PushTexture(ImTextureRef(static_cast<ImTextureID>(Command.TextureId)));
+		for (std::uint32_t Quad = Command.FirstIndex; Quad + 6 <= Command.FirstIndex + Command.IndexCount; Quad += 6)
+		{
+			// Each quad is the triangles (0, 1, 2) and (0, 2, 3) over its four corners.
+			const std::uint16_t A = Draws.Indices[Quad];
+			const std::uint16_t B = Draws.Indices[Quad + 1];
+			const std::uint16_t C = Draws.Indices[Quad + 2];
+			const std::uint16_t D = Draws.Indices[Quad + 5];
+			Draw->PrimReserve(6, 4);
+			Draw->PrimQuadUV(Point(A), Point(B), Point(C), Point(D), Uv(A), Uv(B), Uv(C), Uv(D), Draws.Vertices[A].Color);
+		}
+
+		Draw->PopTexture();
+	}
 }
 
 void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSeconds)

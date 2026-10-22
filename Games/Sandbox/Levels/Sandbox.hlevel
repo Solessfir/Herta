@@ -1321,6 +1321,144 @@
       }
     },
     {
+      "id": "4c060006-2738-4e25-9b9e-000000000001",
+      "name": "Slide bar - 1.1 m, slide under",
+      "parent": null,
+      "transform": {
+        "translation": [9, 1.25, 13.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [3, 0.3, 0.3]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c060006-2738-4e25-9b9e-000000000002",
+      "name": "Slide bar post",
+      "parent": null,
+      "transform": {
+        "translation": [7.4, 0.675, 13.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.2, 1.35, 0.2]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c060006-2738-4e25-9b9e-000000000003",
+      "name": "Slide bar post",
+      "parent": null,
+      "transform": {
+        "translation": [10.6, 0.675, 13.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.2, 1.35, 0.2]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c060006-2738-4e25-9b9e-000000000004",
+      "name": "Wall jump chimney - left wall",
+      "parent": null,
+      "transform": {
+        "translation": [10.55, 2.25, 18.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.3, 4.5, 2.5]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c060006-2738-4e25-9b9e-000000000005",
+      "name": "Wall jump chimney - right wall",
+      "parent": null,
+      "transform": {
+        "translation": [7.75, 2.25, 18.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.3, 4.5, 2.5]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c060006-2738-4e25-9b9e-000000000006",
+      "name": "Wall jump ledge - 3.5 m, wall jump up",
+      "parent": null,
+      "transform": {
+        "translation": [9.15, 3.35, 20.25],
+        "rotation": [0, 0, 0, 1],
+        "scale": [2.5, 0.3, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06004-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
       "id": "4c060045-2738-4e25-9b9e-000000000001",
       "name": "Material gallery terrace",
       "parent": null,
@@ -3673,6 +3811,12 @@
       "name": "07 - Shared mesh gallery",
       "parent": null,
       "entities": ["4c060001-2738-4e25-9b9e-00000000003d", "4c060001-2738-4e25-9b9e-00000000003e", "4c060001-2738-4e25-9b9e-00000000003f", "4c060001-2738-4e25-9b9e-000000000040", "4c060001-2738-4e25-9b9e-000000000041", "4c060001-2738-4e25-9b9e-000000000042", "4c060001-2738-4e25-9b9e-000000000043", "4c060001-2738-4e25-9b9e-000000000044", "4c060001-2738-4e25-9b9e-000000000045"]
+    },
+    {
+      "id": "4c060006-2738-4e25-9b9e-000000000000",
+      "name": "17 - Slide and wall jump",
+      "parent": null,
+      "entities": ["4c060006-2738-4e25-9b9e-000000000001", "4c060006-2738-4e25-9b9e-000000000002", "4c060006-2738-4e25-9b9e-000000000003", "4c060006-2738-4e25-9b9e-000000000004", "4c060006-2738-4e25-9b9e-000000000005", "4c060006-2738-4e25-9b9e-000000000006"]
     },
     {
       "id": "4c060046-2738-4e25-9b9e-000000000001",

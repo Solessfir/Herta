@@ -91,7 +91,7 @@ Revision: ${revision}
 Run ./${project_name}. Settings and logs are kept per user in \${XDG_CONFIG_HOME:-~/.config}/Herta/${project_name}.
 A Vulkan-capable GPU, driver, and system Vulkan loader are required, with X11 or Wayland.
 
-WASD moves, Space jumps, Shift sprints, R restarts the course, Esc opens the menu, and F11 or Alt+Enter toggles fullscreen.
+WASD moves, Space jumps and wall jumps, Shift sprints, C or Ctrl crouches and slides, R restarts the course, Esc opens the menu, and F11 or Alt+Enter toggles fullscreen.
 
 Herta is licensed under MIT. See LICENSE and ThirdPartyLicenses; the HUD font license is in Engine/Content/Fonts.
 This software is based in part on the work of the FreeType Team (https://freetype.org).

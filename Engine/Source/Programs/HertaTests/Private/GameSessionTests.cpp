@@ -129,4 +129,109 @@ TEST_CASE("Game sessions reject invalid frame input and levels without a start s
 	const FMeshRenderView& View = (*Session)->GetRenderView({1280, 720});
 	CHECK(View.Models.size() == Course.size());
 }
+
+TEST_CASE("Game players slide under a low ceiling and stand once there is room")
+{
+	const FNoGameAssets Assets;
+	std::vector<FLevelEntity> Course = MakeCourse();
+	Course.erase(Course.begin() + 2);
+	// A 12 m slab 1.1 m above the floor, which a standing player cannot pass.
+	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Low ceiling", .Transform = {.Translation = {0., 1.35, 12.}, .Scale = {6.f, 0.5f, 12.f}}, .Mesh = FStaticMeshComponent{.Asset = CubeAsset}, .BodyType = ELevelBodyType::Static});
+	const auto Session = FGameSession::Create(Course, Assets, nullptr);
+	REQUIRE(Session);
+	FGameSession& Game = **Session;
+	Advance(Game, {}, 20);
+	Advance(Game, {.Move = {0.f, 1.f}, .bSprint = true}, 30);
+	CHECK_FALSE(Game.IsPlayerSliding());
+	REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bSprint = true, .bCrouch = true}));
+	CHECK(Game.IsPlayerCrouched());
+	CHECK(Game.IsPlayerSliding());
+	// Entering a slide boosts the 7 m/s sprint once.
+	const FVector3 Velocity = Game.GetPlayerVelocity();
+	CHECK(std::hypot(Velocity.X, Velocity.Z) > 10.f);
+
+	for (int Frame = 0; Frame < 600 && Game.IsPlayerSliding(); ++Frame)
+	{
+		REQUIRE(Game.Update(1.f / 60.f, {.bCrouch = true}));
+	}
+
+	// The slide carried the player under the slab, where standing up has no room.
+	CHECK_FALSE(Game.IsPlayerSliding());
+	CHECK(Game.GetPlayerFootPosition().Z > 7.f);
+	CHECK(Game.GetPlayerFootPosition().Z < 17.f);
+	Advance(Game, {}, 30);
+	CHECK(Game.IsPlayerCrouched());
+	CHECK(Game.GetPlayerFootPosition().Y == doctest::Approx(0.f).epsilon(0.05));
+
+	// Crouch-walking out from under it lets the player stand.
+	for (int Frame = 0; Frame < 600 && Game.IsPlayerCrouched(); ++Frame)
+	{
+		REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, 1.f}}));
+	}
+	CHECK(Game.GetPlayerFootPosition().Z > 18.f);
+	CHECK_FALSE(Game.IsPlayerCrouched());
+}
+
+TEST_CASE("Game players wall jump away from a wall they touch in the air")
+{
+	const FNoGameAssets Assets;
+	std::vector<FLevelEntity> Course = MakeCourse();
+	Course.erase(Course.begin() + 2);
+	// A wall whose face is 1.5 m ahead of the spawn.
+	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Wall", .Transform = {.Translation = {0., 2., 1.75}, .Scale = {6.f, 4.f, 0.5f}}, .Mesh = FStaticMeshComponent{.Asset = CubeAsset}, .BodyType = ELevelBodyType::Static});
+	const auto Session = FGameSession::Create(Course, Assets, nullptr);
+	REQUIRE(Session);
+	FGameSession& Game = **Session;
+	Advance(Game, {}, 20);
+	REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bJump = true}));
+
+	float Away = 0.f;
+	float Rising = 0.f;
+	for (int Frame = 0; Frame < 60; ++Frame)
+	{
+		REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bJump = !Game.IsPlayerGrounded()}));
+		if (Game.GetPlayerVelocity().Z < Away)
+		{
+			Away = Game.GetPlayerVelocity().Z;
+			Rising = Game.GetPlayerVelocity().Y;
+		}
+	}
+
+	// Holding forward into the wall still kicks the player back out and up.
+	CHECK(Away < -3.f);
+	CHECK(Rising > 2.f);
+}
+
+TEST_CASE("Game players climb a 2.5 m chimney by wall jumping between its walls")
+{
+	const FNoGameAssets Assets;
+	std::vector<FLevelEntity> Course = MakeCourse();
+	Course.erase(Course.begin() + 2);
+	// The Sandbox chimney: 0.3 m walls 4.5 m tall with 2.5 m between them, around the spawn.
+	for (const double X : {-1.4, 1.4})
+	{
+		Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Chimney wall", .Transform = {.Translation = {X, 2.25, 0.}, .Scale = {0.3f, 4.5f, 2.5f}}, .Mesh = FStaticMeshComponent{.Asset = CubeAsset}, .BodyType = ELevelBodyType::Static});
+	}
+
+	const auto Session = FGameSession::Create(Course, Assets, nullptr);
+	REQUIRE(Session);
+	FGameSession& Game = **Session;
+	Advance(Game, {}, 20);
+
+	// Steer the way the last kick sent the player and jump whenever airborne, as a player mashing jump between the walls would.
+	float Steer = 1.f;
+	float Highest = 0.f;
+	REQUIRE(Game.Update(1.f / 60.f, {.Move = {Steer, 0.f}, .bJump = true}));
+	for (int Frame = 0; Frame < 600; ++Frame)
+	{
+		const float VelocityX = Game.GetPlayerVelocity().X;
+		Steer = VelocityX < -1.f ? 1.f : VelocityX > 1.f ? -1.f
+		                                                 : Steer;
+		REQUIRE(Game.Update(1.f / 60.f, {.Move = {Steer, 0.f}, .bJump = !Game.IsPlayerGrounded()}));
+		Highest = std::max(Highest, Game.GetPlayerFootPosition().Y);
+	}
+
+	// Above the 3.5 m ledge beside the Sandbox chimney.
+	CHECK(Highest > 3.6f);
+}
 }

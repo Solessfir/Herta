@@ -1,6 +1,6 @@
 # Sandbox playground
 
-The default project opens `Games/Sandbox/Levels/Sandbox.hlevel`: 201 editable entities in 17 Outliner folders. The original physics course and hierarchy examples remain intact. Cubes share the Engine mesh; editable `.hmat` assets provide their colors. A single shared sphere makes PBR reflections easier to compare.
+The default project opens `Games/Sandbox/Levels/Sandbox.hlevel`: 207 editable entities in 18 Outliner folders. The original physics course and hierarchy examples remain intact. Cubes share the Engine mesh; editable `.hmat` assets provide their colors. A single shared sphere makes PBR reflections easier to compare.
 
 Press **F** to frame a selection, **G** for game view, and **F11** for an immersive viewport. **Alt+S** simulates the physics stations and **Alt+P** plays the course as the player; **Escape** stops either and restores authored poses. **Ctrl+S** saves the level, not simulation poses. **Ctrl+Space** reveals the bottom panel.
 
@@ -54,6 +54,8 @@ Rigid collision is a box, sphere, or capsule fitted to mesh bounds, not arbitrar
 Project-owned materials and textures live in `Games/Sandbox/Content/Playground`. The four 128x128 PNG maps are original, procedurally generated test data: beveled panel color/normal/ORM patterns and an RGBA cutout grille. They require no external art tools or third-party license. The Engine sphere is a unit-diameter, 48-segment/24-ring glTF primitive with explicit normals and UVs. The Engine capsule has a 1 m diameter and 2 m height along +Y, with 48 segments and 12 rings per cap.
 
 From the repository root, run `HertaEditorCmd level.validate Games/Sandbox/Levels/Sandbox.hlevel` and `HertaEditorCmd asset.validate --content-root Games/Sandbox/Content`. `HertaEditor --visual-test --validation` renders 600 ready frames from the starting camera, logs GPU pass timings and render-target memory, then saves one image per camera bookmark to `Saved/VisualTest` without saving editor settings. `HertaEditor --scaling-test=Games/Sandbox/Levels/Sandbox.hlevel --scaling-simulate --validation` also checks selection, simulation startup, and pose restoration. Inspect the viewport to verify visual quality.
+
+- **Slide and wall jump:** beside the arch, a coral bar 1.1 m above the floor only lets a sliding or crouching player through, and a 4.5 m chimney with 2.5 m between its walls leads to a mint ledge 3.5 m up that only wall jumps reach.
 
 ## Course
 

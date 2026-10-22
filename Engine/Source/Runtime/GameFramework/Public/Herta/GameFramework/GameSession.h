@@ -35,6 +35,8 @@ struct FGameInput
 	// Pressed since the previous update. A jump is remembered briefly, so pressing just before landing still jumps.
 	bool bJump = false;
 	bool bSprint = false;
+	// Held. Crouches, and slides when moving fast enough.
+	bool bCrouch = false;
 };
 
 // The Sandbox controller limits: walk up 0.18 m steps, step up 0.35 m, jump 0.5 m steps, the 0.6 m hurdle, and a 2 m gap, but not the 1.3 m hurdle.
@@ -51,6 +53,23 @@ struct FGamePlayerSettings
 	float GroundAcceleration = 40.f;
 	float AirAcceleration = 12.f;
 	float VerticalFieldOfView = 1.2f;
+	// Crouching and sliding fit under a 1.1 m bar.
+	float CrouchHeight = 1.f;
+	float CrouchEyeHeight = 0.85f;
+	float CrouchSpeed = 2.2f;
+	// Crouching at this speed starts a slide, which ends once it slows to the crouch speed.
+	float SlideMinimumSpeed = 4.f;
+	// Entering a slide adds this much speed, at most once per cooldown, up to the boost limit.
+	float SlideBoost = 4.f;
+	float SlideBoostLimit = 11.5f;
+	float SlideBoostCooldownSeconds = 0.75f;
+	// Downhill pull on a slide per unit of floor tilt, and the fraction of speed it loses per second.
+	float SlideSlopeAcceleration = 40.f;
+	float SlideFriction = 0.8f;
+	float SlideSteerAcceleration = 6.f;
+	// A wall jump kicks this fast away from the wall while rising like a normal jump.
+	float WallJumpSpeed = 5.5f;
+	float WallJumpCooldownSeconds = 0.2f;
 	// Falling below this height returns the player to the start.
 	float RespawnHeight = -30.f;
 };
@@ -102,6 +121,9 @@ public:
 	[[nodiscard]] std::vector<std::string> TakeEvents();
 	[[nodiscard]] FVector3 GetPlayerFootPosition() const noexcept;
 	[[nodiscard]] bool IsPlayerGrounded() const noexcept;
+	[[nodiscard]] bool IsPlayerCrouched() const noexcept;
+	[[nodiscard]] bool IsPlayerSliding() const noexcept;
+	[[nodiscard]] FVector3 GetPlayerVelocity() const noexcept;
 	// The first enabled Sky light's environment, for the host's environment filtering.
 	[[nodiscard]] std::shared_ptr<const FCookedTexture> GetEnvironment() const;
 

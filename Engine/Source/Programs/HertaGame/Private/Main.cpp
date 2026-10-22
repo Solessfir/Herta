@@ -3,6 +3,7 @@
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Log.h"
 #include "Herta/GameFramework/GameAssets.h"
+#include "Herta/GameFramework/GameHud.h"
 #include "Herta/GameFramework/GameSession.h"
 #include "Herta/GameFramework/VisualEnvironment.h"
 #include "Herta/GameUI/GameUI.h"
@@ -183,12 +184,6 @@ void SaveSettings(const std::filesystem::path& Path, const FGameSettings& Settin
 	    .Width = static_cast<std::uint32_t>(std::max(0, Window.GetFramebufferWidth())),
 	    .Height = static_cast<std::uint32_t>(std::max(0, Window.GetFramebufferHeight())),
 	};
-}
-
-[[nodiscard]] std::string FormatSeconds(const double Seconds)
-{
-	const auto Minutes = static_cast<int>(Seconds / 60.);
-	return Minutes > 0 ? std::format("{}:{:05.2f}", Minutes, Seconds - Minutes * 60.) : std::format("{:.2f}", Seconds);
 }
 
 // Input gathered from window callbacks between frames.
@@ -492,7 +487,7 @@ int RunGame(const FGameOptions& Options)
 		FGameInput GameInput;
 		if (bSmokeTest)
 		{
-			GameInput = {.Move = {0.f, 1.f}, .YawDelta = Frames % 240 < 120 ? 0.004f : -0.004f, .bJump = Frames % 90 == 45, .bSprint = Frames % 300 > 150};
+			GameInput = {.Move = {0.f, 1.f}, .YawDelta = Frames % 240 < 120 ? 0.004f : -0.004f, .bJump = Frames % 90 == 45, .bSprint = Frames % 300 > 150, .bCrouch = Frames % 300 > 240};
 			Input.bEscape = Frames == Options.SmokeFrames / 4 + 30 || Frames == Options.SmokeFrames / 2 || Frames == Options.SmokeFrames / 2 + 20;
 			Input.bRestart = Frames == Options.SmokeFrames * 3 / 4;
 			Input.bFocusLost = Frames == Options.SmokeFrames / 4;
@@ -535,6 +530,7 @@ int RunGame(const FGameOptions& Options)
 			    .PitchDelta = -Input.MouseDelta.Y * Settings.MouseSensitivity,
 			    .bJump = Input.bJump,
 			    .bSprint = Window.IsKeyDown(EKey::LeftShift) || Window.IsKeyDown(EKey::RightShift),
+			    .bCrouch = Window.IsKeyDown(EKey::C) || Window.IsKeyDown(EKey::LeftControl),
 			};
 		}
 
@@ -644,69 +640,40 @@ int RunGame(const FGameOptions& Options)
 		const auto Width = static_cast<float>(Extent.Width);
 		const auto Height = static_cast<float>(Extent.Height);
 		UI->DrawImage(SceneTextureId, {0.f, 0.f}, {Width, Height});
-		const FGameObjective& Objective = Session->GetObjective();
-		const std::string Status = Objective.State == EGameObjectiveState::Ready      ? "Leave the start zone to begin the course"
-		                           : Objective.State == EGameObjectiveState::Running  ? std::format("Time {}", FormatSeconds(Objective.ElapsedSeconds))
-		                           : Objective.State == EGameObjectiveState::Finished ? std::format("Finished in {} s", FormatSeconds(Objective.ElapsedSeconds))
-		                                                                              : std::string("Explore the playground");
-		const std::uint32_t Panel = MakeGameUIColor(12, 14, 20, 170);
-		const std::uint32_t Text = MakeGameUIColor(238, 240, 246);
-		const std::uint32_t Accent = MakeGameUIColor(242, 196, 92);
-		const FVector2 StatusSize = UI->MeasureText(Status, EGameUIFont::Body);
-		UI->DrawRect({.Offset = {24.f, 24.f}}, {StatusSize.X + 40.f, Objective.BestSeconds ? 104.f : 64.f}, Panel);
-		UI->DrawText(Status, {.Offset = {44.f, 34.f}}, EGameUIFont::Body, Objective.State == EGameObjectiveState::Finished ? Accent : Text);
-		if (Objective.BestSeconds)
+		const bool bHdrSupported = Presentation->IsHdrOutputSupported();
+		const std::string FullscreenLabel = std::format("Fullscreen: {}", Window.IsFullscreen() ? "On" : "Off");
+		const std::string HdrLabel = bHdrSupported ? std::format("HDR: {}", Settings.bHdr ? "On" : "Off") : std::string("HDR: not available on this display");
+		const std::array<std::string_view, 5> Items{"Resume", "Restart course", FullscreenLabel, HdrLabel, "Quit"};
+		const FGameUIInput MenuInput{.Pointer = Input.Pointer, .bClicked = Input.bClicked, .bUp = Input.bMenuUp, .bDown = Input.bMenuDown, .bActivate = Input.bMenuActivate};
+		if (const auto Chosen = DrawGameHud(*UI, Session->GetObjective(), bPaused, Items, MenuFocus, MenuInput))
 		{
-			UI->DrawText(std::format("Best {} s", FormatSeconds(*Objective.BestSeconds)), {.Offset = {44.f, 72.f}}, EGameUIFont::Body, MakeGameUIColor(170, 176, 190));
-		}
-
-		if (!bPaused)
-		{
-			UI->DrawRect({.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 0.5f}}, {5.f, 5.f}, MakeGameUIColor(255, 255, 255, 200));
-			constexpr std::string_view Hint = "WASD move    Space jump    Shift sprint    R restart    Esc menu";
-			const FVector2 HintSize = UI->MeasureText(Hint, EGameUIFont::Body);
-			UI->DrawRect({.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -16.f}}, {HintSize.X + 40.f, HintSize.Y + 16.f}, Panel);
-			UI->DrawText(Hint, {.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -24.f}}, EGameUIFont::Body, MakeGameUIColor(220, 224, 232));
-		}
-		else
-		{
-			UI->DrawRect({}, {Width / std::max(Height / 1080.f, 0.001f), 1080.f}, MakeGameUIColor(0, 0, 0, 140));
-			UI->DrawText("Paused", {.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -200.f}}, EGameUIFont::Title, Text);
-			const bool bHdrSupported = Presentation->IsHdrOutputSupported();
-			const std::string FullscreenLabel = std::format("Fullscreen: {}", Window.IsFullscreen() ? "On" : "Off");
-			const std::string HdrLabel = bHdrSupported ? std::format("HDR: {}", Settings.bHdr ? "On" : "Off") : std::string("HDR: not available on this display");
-			const std::array<std::string_view, 5> Items{"Resume", "Restart course", FullscreenLabel, HdrLabel, "Quit"};
-			const FGameUIInput MenuInput{.Pointer = Input.Pointer, .bClicked = Input.bClicked, .bUp = Input.bMenuUp, .bDown = Input.bMenuDown, .bActivate = Input.bMenuActivate};
-			if (const auto Chosen = UI->DrawMenu(Items, MenuFocus, MenuInput))
+			if (*Chosen == 0)
 			{
-				if (*Chosen == 0)
+				bPaused = false;
+			}
+			else if (*Chosen == 1)
+			{
+				bPaused = false;
+				if (auto Restarted = Session->Restart(); !Restarted)
 				{
-					bPaused = false;
+					HERTA_LOG_ERROR(*Log, GameLog, "{}", Restarted.error().Message);
+					bFailed = true;
 				}
-				else if (*Chosen == 1)
-				{
-					bPaused = false;
-					if (auto Restarted = Session->Restart(); !Restarted)
-					{
-						HERTA_LOG_ERROR(*Log, GameLog, "{}", Restarted.error().Message);
-						bFailed = true;
-					}
-				}
-				else if (*Chosen == 2)
-				{
-					Settings.bFullscreen = !Window.IsFullscreen();
-					Window.SetFullscreen(Settings.bFullscreen);
-					SaveSettings(SettingsPath, Settings, *Log);
-				}
-				else if (*Chosen == 3 && bHdrSupported)
-				{
-					Settings.bHdr = !Settings.bHdr;
-					SaveSettings(SettingsPath, Settings, *Log);
-				}
-				else if (*Chosen == 4)
-				{
-					Window.RequestClose();
-				}
+			}
+			else if (*Chosen == 2)
+			{
+				Settings.bFullscreen = !Window.IsFullscreen();
+				Window.SetFullscreen(Settings.bFullscreen);
+				SaveSettings(SettingsPath, Settings, *Log);
+			}
+			else if (*Chosen == 3 && bHdrSupported)
+			{
+				Settings.bHdr = !Settings.bHdr;
+				SaveSettings(SettingsPath, Settings, *Log);
+			}
+			else if (*Chosen == 4)
+			{
+				Window.RequestClose();
 			}
 		}
 
@@ -777,7 +744,7 @@ int RunGame(const FGameOptions& Options)
 		++Frames;
 		if (bSmokeTest && Frames >= Options.SmokeFrames)
 		{
-			HERTA_LOG_INFO(*Log, GameLog, "Smoke run presented {} frames, average {:.3f} ms, objective state {}, player at ({:.2f}, {:.2f}, {:.2f})", Frames, FrameMillisecondsSum / Frames, static_cast<int>(Objective.State), Session->GetPlayerFootPosition().X, Session->GetPlayerFootPosition().Y, Session->GetPlayerFootPosition().Z);
+			HERTA_LOG_INFO(*Log, GameLog, "Smoke run presented {} frames, average {:.3f} ms, objective state {}, player at ({:.2f}, {:.2f}, {:.2f})", Frames, FrameMillisecondsSum / Frames, static_cast<int>(Session->GetObjective().State), Session->GetPlayerFootPosition().X, Session->GetPlayerFootPosition().Y, Session->GetPlayerFootPosition().Z);
 			Window.RequestClose();
 		}
 	}

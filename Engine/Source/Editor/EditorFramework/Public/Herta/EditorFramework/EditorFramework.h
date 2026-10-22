@@ -54,6 +54,9 @@ struct FEditorFrameworkDescriptor
 	FEditorAssetThumbnailRenderer RenderAssetThumbnail;
 	FEditorMaterialThumbnailRenderer RenderMaterialThumbnail;
 	FMeshRenderer* MeshRenderer = nullptr;
+	// Make a texture drawable in the editor UI and release it again, such as the game HUD's glyphs during Play.
+	std::function<std::expected<std::uint64_t, FPresentationError>(const FTextureHandle& Texture)> RegisterUITexture{};
+	std::function<void(std::uint64_t TextureId)> UnregisterUITexture{};
 };
 
 struct FEditorFrameMetrics
@@ -106,6 +109,8 @@ public:
 	// Starts or stops play for unattended checks. Scripted play walks and jumps on its own, without reading the keyboard or capturing the pointer.
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> SetScriptedPlay(bool bPlaying);
 	[[nodiscard]] bool IsPlaying() const noexcept;
+	// Opens or closes the game's pause menu during play, as Shift+Esc does.
+	void SetPlayPaused(bool bPaused) noexcept;
 	// Moves the viewport camera to a level camera bookmark and returns its name, or nothing when the slot is empty.
 	std::optional<std::string> ShowCameraBookmark(std::uint32_t Slot);
 	[[nodiscard]] bool IsUnitStatsVisible() const noexcept;

@@ -271,7 +271,14 @@ struct FPhysicsWorld::FImplementation
 	std::vector<FRopeState> Ropes;
 	// Each character owns an inner body in Physics, so characters are released before the bodies.
 	std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
-	std::vector<float> CharacterStepHeights;
+
+	struct FCharacterShape
+	{
+		float Radius = 0.f;
+		float StepHeight = 0.f;
+	};
+
+	std::vector<FCharacterShape> CharacterShapes;
 	JPH::Ref<FJoinedBodiesFilter> JoinedBodies = new FJoinedBodiesFilter;
 	const FPhysicsWorldSettings Settings;
 	std::string StepFailure;
@@ -325,6 +332,7 @@ struct FPhysicsWorld::FImplementation
 	// An invalid Body1 fixes Body2 to the world; otherwise the two stop colliding with each other.
 	void AddJoint(const JPH::TwoBodyConstraintSettings& Joint, JPH::BodyID Body1, JPH::BodyID Body2);
 	[[nodiscard]] JPH::CharacterVirtual* FindCharacter(FPhysicsCharacterId Character) const;
+	[[nodiscard]] FPhysicsCharacterState GetCharacterState(const JPH::CharacterVirtual& Character) const;
 };
 
 JPH::CharacterVirtual* FPhysicsWorld::FImplementation::FindCharacter(const FPhysicsCharacterId Character) const
@@ -334,18 +342,47 @@ JPH::CharacterVirtual* FPhysicsWorld::FImplementation::FindCharacter(const FPhys
 
 namespace
 {
-[[nodiscard]] FPhysicsCharacterState GetCharacterState(const JPH::CharacterVirtual& Character)
+[[nodiscard]] JPH::ShapeSettings::ShapeResult MakeCharacterShape(const float Height, const float Radius)
+{
+	// The capsule is lifted so the character position is its feet.
+	const JPH::RefConst<JPH::Shape> Capsule = new JPH::CapsuleShape(Height * 0.5f - Radius, Radius);
+	return JPH::RotatedTranslatedShapeSettings(JPH::Vec3(0.f, Height * 0.5f, 0.f), JPH::Quat::sIdentity(), Capsule).Create();
+}
+}
+
+FPhysicsCharacterState FPhysicsWorld::FImplementation::GetCharacterState(const JPH::CharacterVirtual& Character) const
 {
 	const JPH::RVec3 Position = Character.GetPosition();
 	const JPH::Vec3 Velocity = Character.GetLinearVelocity();
 	const JPH::Vec3 Ground = Character.GetGroundVelocity();
-	return {
+	const bool bGrounded = Character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+	const JPH::Vec3 GroundNormal = bGrounded ? Character.GetGroundNormal() : JPH::Vec3::sAxisY();
+	FPhysicsCharacterState State{
 	    .FootPosition = {Position.GetX(), Position.GetY(), Position.GetZ()},
 	    .Velocity = {Velocity.GetX(), Velocity.GetY(), Velocity.GetZ()},
 	    .GroundVelocity = {Ground.GetX(), Ground.GetY(), Ground.GetZ()},
-	    .bGrounded = Character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround,
+	    .GroundNormal = {GroundNormal.GetX(), GroundNormal.GetY(), GroundNormal.GetZ()},
+	    .bGrounded = bGrounded,
 	};
-}
+
+	// Contacts within the character's padding count as touching. A wall is steeper than about 70 degrees, and the closest one wins.
+	float Closest = 0.05f;
+	for (const JPH::CharacterContact& Contact : Character.GetActiveContacts())
+	{
+		const JPH::Vec3 Normal = Contact.mSurfaceNormal;
+		const JPH::Vec3 Horizontal(Normal.GetX(), 0.f, Normal.GetZ());
+		if (Contact.mIsSensorB || Contact.mWasDiscarded || std::abs(Normal.GetY()) > 0.35f || Contact.mDistance > Closest || Horizontal.LengthSq() < 0.01f)
+		{
+			continue;
+		}
+
+		const JPH::Vec3 Away = Horizontal.Normalized();
+		Closest = Contact.mDistance;
+		State.WallNormal = {Away.GetX(), 0.f, Away.GetZ()};
+		State.bTouchingWall = true;
+	}
+
+	return State;
 }
 
 void FPhysicsWorld::FImplementation::AddJoint(const JPH::TwoBodyConstraintSettings& Joint, const JPH::BodyID Body1, const JPH::BodyID Body2)
@@ -853,9 +890,7 @@ std::expected<FPhysicsCharacterId, FPhysicsError> FPhysicsWorld::CreateCharacter
 		return std::unexpected(FPhysicsError{"Character dimensions, mass, slope, step height, and push force must be finite and in range"});
 	}
 
-	// The capsule is lifted so the character position is its feet.
-	const JPH::RefConst<JPH::Shape> Capsule = new JPH::CapsuleShape(Settings.Height * 0.5f - Settings.Radius, Settings.Radius);
-	const JPH::ShapeSettings::ShapeResult Shape = JPH::RotatedTranslatedShapeSettings(JPH::Vec3(0.f, Settings.Height * 0.5f, 0.f), JPH::Quat::sIdentity(), Capsule).Create();
+	const JPH::ShapeSettings::ShapeResult Shape = MakeCharacterShape(Settings.Height, Settings.Radius);
 	if (Shape.HasError())
 	{
 		return std::unexpected(FPhysicsError{Shape.GetError().c_str()});
@@ -872,7 +907,7 @@ std::expected<FPhysicsCharacterId, FPhysicsError> FPhysicsWorld::CreateCharacter
 	CharacterSettings->mInnerBodyShape = Shape.Get();
 	CharacterSettings->mInnerBodyLayer = DynamicLayer;
 	Implementation->Characters.emplace_back(new JPH::CharacterVirtual(CharacterSettings, ToJolt(Settings.FootPosition), JPH::Quat::sIdentity(), 0, &Implementation->Physics));
-	Implementation->CharacterStepHeights.push_back(Settings.StepHeight);
+	Implementation->CharacterShapes.push_back({.Radius = Settings.Radius, .StepHeight = Settings.StepHeight});
 	++Implementation->BodyCount;
 	return FPhysicsCharacterId{static_cast<std::uint32_t>(Implementation->Characters.size())};
 }
@@ -886,7 +921,7 @@ std::expected<FPhysicsCharacterState, FPhysicsError> FPhysicsWorld::UpdateCharac
 	}
 
 	Character->UpdateGroundVelocity();
-	return GetCharacterState(*Character);
+	return Implementation->GetCharacterState(*Character);
 }
 
 std::expected<FPhysicsCharacterState, FPhysicsError> FPhysicsWorld::MoveCharacter(const FPhysicsCharacterId CharacterId, const FVector3& Velocity, const float DeltaSeconds)
@@ -904,11 +939,11 @@ std::expected<FPhysicsCharacterState, FPhysicsError> FPhysicsWorld::MoveCharacte
 
 	JPH::PhysicsSystem& Physics = Implementation->Physics;
 	JPH::CharacterVirtual::ExtendedUpdateSettings Update;
-	Update.mWalkStairsStepUp = JPH::Vec3(0.f, Implementation->CharacterStepHeights[CharacterId.Value - 1], 0.f);
+	Update.mWalkStairsStepUp = JPH::Vec3(0.f, Implementation->CharacterShapes[CharacterId.Value - 1].StepHeight, 0.f);
 	Character->SetLinearVelocity(ToJolt(Velocity));
 	const FCharacterBodyFilter BodyFilter;
 	Character->ExtendedUpdate(DeltaSeconds, Physics.GetGravity(), Update, Physics.GetDefaultBroadPhaseLayerFilter(DynamicLayer), Physics.GetDefaultLayerFilter(DynamicLayer), BodyFilter, {}, Implementation->TempAllocator);
-	return GetCharacterState(*Character);
+	return Implementation->GetCharacterState(*Character);
 }
 
 std::expected<void, FPhysicsError> FPhysicsWorld::TeleportCharacter(const FPhysicsCharacterId CharacterId, const FVector3& FootPosition)
@@ -922,5 +957,37 @@ std::expected<void, FPhysicsError> FPhysicsWorld::TeleportCharacter(const FPhysi
 	Character->SetPosition(ToJolt(FootPosition));
 	Character->SetLinearVelocity(JPH::Vec3::sZero());
 	return {};
+}
+
+std::expected<bool, FPhysicsError> FPhysicsWorld::SetCharacterHeight(const FPhysicsCharacterId CharacterId, const float Height)
+{
+	JPH::CharacterVirtual* const Character = Implementation->FindCharacter(CharacterId);
+	if (!Character)
+	{
+		return std::unexpected(FPhysicsError{"Unknown character"});
+	}
+
+	const float Radius = Implementation->CharacterShapes[CharacterId.Value - 1].Radius;
+	if (!IsInRange(Height, Radius * 2.f, 20.f))
+	{
+		return std::unexpected(FPhysicsError{"Character height must be finite and at least the capsule diameter"});
+	}
+
+	const JPH::ShapeSettings::ShapeResult Shape = MakeCharacterShape(Height, Radius);
+	if (Shape.HasError())
+	{
+		return std::unexpected(FPhysicsError{Shape.GetError().c_str()});
+	}
+
+	// SetShape refuses a size that would sink deeper than the character padding into the world.
+	JPH::PhysicsSystem& Physics = Implementation->Physics;
+	const FCharacterBodyFilter BodyFilter;
+	if (!Character->SetShape(Shape.Get(), 0.02f, Physics.GetDefaultBroadPhaseLayerFilter(DynamicLayer), Physics.GetDefaultLayerFilter(DynamicLayer), BodyFilter, {}, Implementation->TempAllocator))
+	{
+		return false;
+	}
+
+	Character->SetInnerBodyShape(Shape.Get());
+	return true;
 }
 }

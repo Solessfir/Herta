@@ -46,14 +46,15 @@ TEST_CASE("Game UI lays out text at the screen scale and batches it with rectang
 	// One rectangle and nine visible glyphs share the glyph texture.
 	CHECK(Draws.Commands.size() == 1);
 	CHECK(Draws.Indices.size() == 10 * 6);
-	CHECK(Draws.Vertices.front().X == doctest::Approx(24.f));
+	// A 1080-pixel screen is three quarters of the 1440-unit layout.
+	CHECK(Draws.Vertices.front().X == doctest::Approx(18.f));
 
 	// Layout units follow the screen height, so the same placement lands proportionally at 4K.
 	REQUIRE(UI->BeginFrame({3840, 2160}));
 	CHECK(Registered == 2);
 	UI->DrawRect({.Anchor = {1.f, 1.f}, .Pivot = {1.f, 1.f}, .Offset = {-24.f, -24.f}}, {100.f, 50.f}, MakeGameUIColor(255, 0, 0));
-	CHECK(UI->GetDrawList().Vertices[2].X == doctest::Approx(3840.f - 48.f));
-	CHECK(UI->GetDrawList().Vertices[2].Y == doctest::Approx(2160.f - 48.f));
+	CHECK(UI->GetDrawList().Vertices[2].X == doctest::Approx(3840.f - 36.f));
+	CHECK(UI->GetDrawList().Vertices[2].Y == doctest::Approx(2160.f - 36.f));
 }
 
 TEST_CASE("Game UI menus share focus between keys and the pointer")
@@ -75,12 +76,12 @@ TEST_CASE("Game UI menus share focus between keys and the pointer")
 	REQUIRE(UI->BeginFrame({1920, 1080}));
 	CHECK(UI->DrawMenu(Items, Focus, {.bActivate = true}) == std::optional<std::size_t>{2});
 
-	// The first item is centered horizontally, 0.5 * (3 * 64 + 2 * 12) units above the middle.
+	// The 216-unit-tall menu is centered; at 1080 pixels its first item starts 81 pixels above the middle.
 	REQUIRE(UI->BeginFrame({1920, 1080}));
-	CHECK_FALSE(UI->DrawMenu(Items, Focus, {.Pointer = FVector2{960.f, 540.f - 100.f}}));
+	CHECK_FALSE(UI->DrawMenu(Items, Focus, {.Pointer = FVector2{960.f, 540.f - 75.f}}));
 	CHECK(Focus == 0);
 	REQUIRE(UI->BeginFrame({1920, 1080}));
-	CHECK(UI->DrawMenu(Items, Focus, {.Pointer = FVector2{960.f, 540.f + 100.f}, .bClicked = true}) == std::optional<std::size_t>{2});
+	CHECK(UI->DrawMenu(Items, Focus, {.Pointer = FVector2{960.f, 540.f + 75.f}, .bClicked = true}) == std::optional<std::size_t>{2});
 	CHECK(Focus == 2);
 }
 }
