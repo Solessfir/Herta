@@ -1,4 +1,4 @@
-#include "PreviewSimulation.h"
+#include "Herta/GameFramework/LevelSimulation.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,34 +16,34 @@ namespace
 	return {std::abs(Vector.X), std::abs(Vector.Y), std::abs(Vector.Z)};
 }
 
-[[nodiscard]] FVector3 GetMoverPosition(const FVector3& Start, const FPreviewMover& Mover, const double Time)
+[[nodiscard]] FVector3 GetMoverPosition(const FVector3& Start, const FLevelSimulationMover& Mover, const double Time)
 {
 	const double Phase = 2.0 * std::numbers::pi * Time / Mover.PeriodSeconds;
 	return Start + Mover.Offset * static_cast<float>(0.5 - 0.5 * std::cos(Phase));
 }
 }
 
-std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<const FPreviewSimulationBody> Bodies, const std::span<const FPreviewSimulationSoftBody> SoftBodies, const std::span<const FPreviewSimulationConstraint> Constraints, const FPhysicsWorldSettings& Settings)
+std::expected<void, FPhysicsError> FLevelSimulation::Start(const std::span<const FLevelSimulationBody> Bodies, const std::span<const FLevelSimulationSoftBody> SoftBodies, const std::span<const FLevelSimulationConstraint> Constraints, const FPhysicsWorldSettings& Settings)
 {
 	if (IsRunning())
 	{
-		return std::unexpected(FPhysicsError{"Preview simulation is already running"});
+		return std::unexpected(FPhysicsError{"Level simulation is already running"});
 	}
 
 	if (Bodies.empty() && SoftBodies.empty())
 	{
-		return std::unexpected(FPhysicsError{"Preview simulation requires at least one body"});
+		return std::unexpected(FPhysicsError{"Level simulation requires at least one body"});
 	}
 
 	std::size_t RequiredBodies = Bodies.size();
-	for (const FPreviewSimulationSoftBody& SoftBody : SoftBodies)
+	for (const FLevelSimulationSoftBody& SoftBody : SoftBodies)
 	{
 		RequiredBodies += SoftBody.Rope ? SoftBody.Rope->Segments : 1;
 	}
 
 	if (RequiredBodies > Settings.MaxBodies)
 	{
-		return std::unexpected(FPhysicsError{std::format("Preview requires {} bodies but MaxBodies={}", RequiredBodies, Settings.MaxBodies)});
+		return std::unexpected(FPhysicsError{std::format("Level simulation requires {} bodies but MaxBodies={}", RequiredBodies, Settings.MaxBodies)});
 	}
 
 	auto NewWorld = FPhysicsWorld::Create(Settings);
@@ -53,23 +53,23 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 	}
 
 	std::vector<FBodyState> NewBodyStates;
-	std::vector<FPreviewSimulationTransform> NewTransforms;
+	std::vector<FLevelSimulationTransform> NewTransforms;
 	std::unordered_map<std::uint32_t, std::size_t> NewBodyIndices;
 	std::unordered_set<std::size_t> ObjectIndices;
 	NewBodyStates.reserve(Bodies.size());
 	NewTransforms.reserve(Bodies.size());
 	ObjectIndices.reserve(Bodies.size());
 
-	for (const FPreviewSimulationBody& Body : Bodies)
+	for (const FLevelSimulationBody& Body : Bodies)
 	{
 		if (!ObjectIndices.insert(Body.ObjectIndex).second)
 		{
-			return std::unexpected(FPhysicsError{"Preview simulation contains a duplicate object"});
+			return std::unexpected(FPhysicsError{"Level simulation contains a duplicate object"});
 		}
 
 		if (Body.Shape.HalfExtents.X <= 0.f || Body.Shape.HalfExtents.Y <= 0.f || Body.Shape.HalfExtents.Z <= 0.f)
 		{
-			return std::unexpected(FPhysicsError{"Preview box half extents must be positive"});
+			return std::unexpected(FPhysicsError{"Simulated box half extents must be positive"});
 		}
 
 		const FVector3 HalfExtents = Absolute(Body.Transform.Scale3D.ComponentMultiply(Body.Shape.HalfExtents));
@@ -77,7 +77,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		const FVector3 Position = Body.Transform.Translation + Body.Transform.Rotation.RotateVector(Offset);
 		if (Body.Mover && (!std::isfinite(Body.Mover->PeriodSeconds) || Body.Mover->PeriodSeconds <= 0.f))
 		{
-			return std::unexpected(FPhysicsError{"Preview mover periods must be positive"});
+			return std::unexpected(FPhysicsError{"Mover periods must be positive"});
 		}
 
 		const float Radius = Body.Collision == EPhysicsShape::Capsule ? std::max(HalfExtents.X, HalfExtents.Z) : std::max({HalfExtents.X, HalfExtents.Y, HalfExtents.Z});
@@ -97,11 +97,11 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 
 	std::vector<FSoftBodyState> NewSoftBodyStates;
 	NewSoftBodyStates.reserve(SoftBodies.size());
-	for (const FPreviewSimulationSoftBody& SoftBody : SoftBodies)
+	for (const FLevelSimulationSoftBody& SoftBody : SoftBodies)
 	{
 		if (!ObjectIndices.insert(SoftBody.ObjectIndex).second)
 		{
-			return std::unexpected(FPhysicsError{"Preview simulation contains a duplicate object"});
+			return std::unexpected(FPhysicsError{"Level simulation contains a duplicate object"});
 		}
 
 		if (SoftBody.Rope)
@@ -125,9 +125,9 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		NewSoftBodyStates.push_back({.ObjectIndex = SoftBody.ObjectIndex, .Id = *Id, .Positions = {}});
 	}
 
-	for (const FPreviewSimulationConstraint& Constraint : Constraints)
+	for (const FLevelSimulationConstraint& Constraint : Constraints)
 	{
-		const auto Body = std::ranges::find(NewTransforms, Constraint.ObjectIndex, &FPreviewSimulationTransform::ObjectIndex);
+		const auto Body = std::ranges::find(NewTransforms, Constraint.ObjectIndex, &FLevelSimulationTransform::ObjectIndex);
 		if (Body == NewTransforms.end() || NewBodyStates[static_cast<std::size_t>(Body - NewTransforms.begin())].MotionType != EPhysicsMotionType::Dynamic)
 		{
 			return std::unexpected(FPhysicsError{"Constraints must belong to a Dynamic body in the simulation"});
@@ -136,7 +136,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 		std::optional<FPhysicsBodyId> Other;
 		if (Constraint.TargetObjectIndex)
 		{
-			const auto Target = std::ranges::find(NewTransforms, *Constraint.TargetObjectIndex, &FPreviewSimulationTransform::ObjectIndex);
+			const auto Target = std::ranges::find(NewTransforms, *Constraint.TargetObjectIndex, &FLevelSimulationTransform::ObjectIndex);
 			const auto Rope = std::ranges::find(NewSoftBodyStates, *Constraint.TargetObjectIndex, &FSoftBodyState::ObjectIndex);
 			if (Target != NewTransforms.end())
 			{
@@ -171,7 +171,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Start(const std::span<con
 	return ReadSoftBodies();
 }
 
-std::expected<void, FPhysicsError> FPreviewSimulation::ReadSoftBodies()
+std::expected<void, FPhysicsError> FLevelSimulation::ReadSoftBodies()
 {
 	for (FSoftBodyState& SoftBody : SoftBodyStates)
 	{
@@ -205,29 +205,29 @@ std::expected<void, FPhysicsError> FPreviewSimulation::ReadSoftBodies()
 	return {};
 }
 
-std::span<const FVector3> FPreviewSimulation::GetSoftBodyPositions(const std::size_t ObjectIndex) const noexcept
+std::span<const FVector3> FLevelSimulation::GetSoftBodyPositions(const std::size_t ObjectIndex) const noexcept
 {
 	const auto Found = std::ranges::find(SoftBodyStates, ObjectIndex, &FSoftBodyState::ObjectIndex);
 	return Found == SoftBodyStates.end() ? std::span<const FVector3>{} : std::span<const FVector3>{Found->Positions};
 }
 
-std::uint64_t FPreviewSimulation::GetSoftBodyRevision() const noexcept
+std::uint64_t FLevelSimulation::GetSoftBodyRevision() const noexcept
 {
 	return SoftBodyRevision;
 }
 
-bool FPreviewSimulation::IsTriggerOccupied(const std::size_t ObjectIndex) const noexcept
+bool FLevelSimulation::IsTriggerOccupied(const std::size_t ObjectIndex) const noexcept
 {
 	const auto Found = TriggerOccupancy.find(ObjectIndex);
 	return Found != TriggerOccupancy.end() && Found->second > 0;
 }
 
-std::vector<FPreviewTriggerEvent> FPreviewSimulation::TakeTriggerEvents()
+std::vector<FLevelTriggerEvent> FLevelSimulation::TakeTriggerEvents()
 {
 	return std::exchange(TriggerEvents, {});
 }
 
-void FPreviewSimulation::Stop() noexcept
+void FLevelSimulation::Stop() noexcept
 {
 	if (!IsRunning())
 	{
@@ -249,21 +249,31 @@ void FPreviewSimulation::Stop() noexcept
 	Accumulator = 0.0;
 }
 
-bool FPreviewSimulation::IsRunning() const noexcept
+bool FLevelSimulation::IsRunning() const noexcept
 {
 	return World != nullptr;
 }
 
-std::span<const FPreviewSimulationTransform> FPreviewSimulation::GetTransforms() const noexcept
+std::span<const FLevelSimulationTransform> FLevelSimulation::GetTransforms() const noexcept
 {
 	return Transforms;
 }
 
-std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaSeconds)
+FPhysicsWorld* FLevelSimulation::GetPhysicsWorld() noexcept
+{
+	return World.get();
+}
+
+float FLevelSimulation::GetInterpolationAlpha() const noexcept
+{
+	return static_cast<float>(Accumulator / LevelFixedStep);
+}
+
+std::expected<void, FPhysicsError> FLevelSimulation::Update(const float DeltaSeconds, const FFixedStepCallback& OnFixedStep)
 {
 	if (!std::isfinite(DeltaSeconds) || DeltaSeconds < 0.f)
 	{
-		return std::unexpected(FPhysicsError{"Preview frame delta must be finite and nonnegative"});
+		return std::unexpected(FPhysicsError{"Simulation frame delta must be finite and nonnegative"});
 	}
 
 	if (!IsRunning())
@@ -271,7 +281,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 		return {};
 	}
 
-	constexpr double FixedStep = 1.0 / 60.0;
+	constexpr double FixedStep = LevelFixedStep;
 	// Bound catch-up after a paused debugger or a stalled frame.
 	Accumulator += std::min(static_cast<double>(DeltaSeconds), 0.25);
 	const bool bStepping = Accumulator >= FixedStep;
@@ -288,6 +298,14 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 				{
 					return Result;
 				}
+			}
+		}
+
+		if (OnFixedStep)
+		{
+			if (const auto Result = OnFixedStep(*World, static_cast<float>(FixedStep)); !Result)
+			{
+				return Result;
 			}
 		}
 
@@ -340,7 +358,7 @@ std::expected<void, FPhysicsError> FPreviewSimulation::Update(const float DeltaS
 		}
 	}
 
-	const float Alpha = static_cast<float>(Accumulator / FixedStep);
+	const float Alpha = GetInterpolationAlpha();
 
 	for (std::size_t Index = 0; Index < BodyStates.size(); ++Index)
 	{

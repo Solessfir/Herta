@@ -28,6 +28,9 @@ enum class EPlatform : std::uint8_t
 
 [[nodiscard]] std::string_view GetPlatformName(EPlatform Platform) noexcept;
 
+// Where per-user settings belong: %LOCALAPPDATA% on Windows, and $XDG_CONFIG_HOME or ~/.config on Linux. Empty when the platform reports none.
+[[nodiscard]] std::filesystem::path GetUserSettingsDirectory();
+
 // Process arguments after the executable, as paths. Windows rereads the wide command line so non-ANSI paths, such as files dropped on the executable, survive.
 [[nodiscard]] std::vector<std::filesystem::path> GetProcessArgumentPaths(int ArgumentCount, char** Arguments);
 }

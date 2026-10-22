@@ -1,5 +1,5 @@
-#include "PreviewSimulation.h"
-#include "SoftBodyGeometry.h"
+#include "Herta/GameFramework/LevelSimulation.h"
+#include "Herta/GameFramework/SoftBodyGeometry.h"
 
 #include <doctest/doctest.h>
 
@@ -90,8 +90,8 @@ TEST_CASE("Preview simulation steps soft bodies and reports their world vertices
 		World.push_back({-Vertex.Y, 2.f, 0.f});
 	}
 
-	const std::array SoftBodies{FPreviewSimulationSoftBody{.ObjectIndex = 4, .Settings = MakeSoftBodyPhysicsSettings(Rope, Topology, World)}};
-	FPreviewSimulation Simulation;
+	const std::array SoftBodies{FLevelSimulationSoftBody{.ObjectIndex = 4, .Settings = MakeSoftBodyPhysicsSettings(Rope, Topology, World)}};
+	FLevelSimulation Simulation;
 	REQUIRE(Simulation.Start({}, SoftBodies));
 	REQUIRE(Simulation.GetSoftBodyPositions(4).size() == World.size());
 	CHECK(Simulation.GetSoftBodyPositions(3).empty());
@@ -120,21 +120,21 @@ TEST_CASE("Preview simulation hangs a constrained box from the end of a pinned r
 	}
 
 	// The box's top face sits on the rope's free end at y = 2.
-	const std::array Bodies{FPreviewSimulationBody{.ObjectIndex = 2, .Transform = FTransform{{0.f, 1.75f, 0.f}, FQuaternion::Identity(), {0.25f, 0.25f, 0.25f}}, .MotionType = EPhysicsMotionType::Dynamic}};
+	const std::array Bodies{FLevelSimulationBody{.ObjectIndex = 2, .Transform = FTransform{{0.f, 1.75f, 0.f}, FQuaternion::Identity(), {0.25f, 0.25f, 0.25f}}, .MotionType = EPhysicsMotionType::Dynamic}};
 	const FPhysicsRopeSettings RopeSettings = MakeRopePhysicsSettings(Rope, World);
 	CHECK(RopeSettings.Start.Y == doctest::Approx(3.f));
 	CHECK(RopeSettings.End.Y == doctest::Approx(2.f));
 	CHECK(RopeSettings.Segments == 5);
-	const std::array SoftBodies{FPreviewSimulationSoftBody{.ObjectIndex = 4, .Settings = MakeSoftBodyPhysicsSettings(Rope, Topology, World), .Rope = RopeSettings}};
+	const std::array SoftBodies{FLevelSimulationSoftBody{.ObjectIndex = 4, .Settings = MakeSoftBodyPhysicsSettings(Rope, Topology, World), .Rope = RopeSettings}};
 
-	FPreviewSimulation Missing;
-	const std::array Unresolved{FPreviewSimulationConstraint{.ObjectIndex = 2, .TargetObjectIndex = 9, .Point = {0.f, 2.f, 0.f}}};
+	FLevelSimulation Missing;
+	const std::array Unresolved{FLevelSimulationConstraint{.ObjectIndex = 2, .TargetObjectIndex = 9, .Point = {0.f, 2.f, 0.f}}};
 	CHECK_FALSE(Missing.Start(Bodies, SoftBodies, Unresolved));
-	const std::array OnRope{FPreviewSimulationConstraint{.ObjectIndex = 4, .Point = {0.f, 2.f, 0.f}}};
+	const std::array OnRope{FLevelSimulationConstraint{.ObjectIndex = 4, .Point = {0.f, 2.f, 0.f}}};
 	CHECK_FALSE(Missing.Start(Bodies, SoftBodies, OnRope));
 
-	FPreviewSimulation Simulation;
-	const std::array Constraints{FPreviewSimulationConstraint{.ObjectIndex = 2, .TargetObjectIndex = 4, .Point = {0.f, 2.f, 0.f}}};
+	FLevelSimulation Simulation;
+	const std::array Constraints{FLevelSimulationConstraint{.ObjectIndex = 2, .TargetObjectIndex = 4, .Point = {0.f, 2.f, 0.f}}};
 	REQUIRE(Simulation.Start(Bodies, SoftBodies, Constraints));
 	for (int Frame = 0; Frame < 120; ++Frame)
 	{

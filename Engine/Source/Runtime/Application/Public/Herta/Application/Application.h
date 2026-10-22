@@ -335,6 +335,8 @@ public:
 	[[nodiscard]] bool IsShownInTaskbar() const noexcept;
 	[[nodiscard]] bool IsTopMost() const noexcept;
 	[[nodiscard]] bool WillFocusOnShow() const noexcept;
+	[[nodiscard]] bool IsCursorCaptured() const noexcept;
+	[[nodiscard]] bool IsFullscreen() const noexcept;
 	[[nodiscard]] bool IsKeyDown(EKey Key) const noexcept;
 	[[nodiscard]] bool IsMouseButtonDown(EMouseButton Button) const noexcept;
 	[[nodiscard]] bool ShouldClose() const noexcept;
@@ -349,6 +351,10 @@ public:
 	void Maximize();
 	void Restore();
 	void Focus();
+	// Hides the pointer and reports unbounded relative motion through CursorMoved, using raw input where the platform offers it.
+	void SetCursorCaptured(bool bCaptured);
+	// Covers the monitor under the window at its desktop resolution, then restores the previous placement when turned off.
+	void SetFullscreen(bool bFullscreen);
 	[[nodiscard]] std::expected<void, FApplicationError> SetPosition(int X, int Y);
 	[[nodiscard]] std::expected<void, FApplicationError> SetSize(int Width, int Height);
 	void RequestClose() noexcept;

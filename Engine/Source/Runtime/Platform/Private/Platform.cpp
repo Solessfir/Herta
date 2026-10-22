@@ -4,8 +4,10 @@
 	#include <windows.h>
 
 	#include <shellapi.h>
+	#include <shlobj.h>
 #endif
 
+#include <cstdlib>
 #include <string>
 
 namespace Herta
@@ -21,6 +23,31 @@ std::string_view GetPlatformName(const EPlatform Platform) noexcept
 	}
 
 	return "Unknown";
+}
+
+std::filesystem::path GetUserSettingsDirectory()
+{
+#ifdef HERTA_PLATFORM_WINDOWS
+	PWSTR Path = nullptr;
+	std::filesystem::path Result;
+	if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &Path)))
+	{
+		Result = Path;
+	}
+
+	CoTaskMemFree(Path);
+	return Result;
+#else
+	// NOLINTNEXTLINE(concurrency-mt-unsafe): read once at startup, before any thread changes the environment.
+	if (const char* const Config = std::getenv("XDG_CONFIG_HOME"); Config != nullptr && Config[0] == '/')
+	{
+		return std::filesystem::path(Config);
+	}
+
+	// NOLINTNEXTLINE(concurrency-mt-unsafe)
+	const char* const Home = std::getenv("HOME");
+	return Home != nullptr && Home[0] == '/' ? std::filesystem::path(Home) / ".config" : std::filesystem::path{};
+#endif
 }
 
 std::vector<std::filesystem::path> GetProcessArgumentPaths(const int ArgumentCount, char** const Arguments)

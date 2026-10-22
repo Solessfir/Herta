@@ -39,6 +39,7 @@ enum class ELevelPropertyType : std::uint8_t
 	AssetReferences,
 	SoftBodyShape,
 	CollisionShape,
+	TriggerRole,
 };
 
 enum class ELevelPropertyUnit : std::uint8_t
@@ -53,7 +54,7 @@ enum class ELevelPropertyUnit : std::uint8_t
 	Seconds,
 };
 
-using FLevelPropertyValue = std::variant<FWorldPosition, FQuaternion, FVector3, FAssetId, ELevelBodyType, float, bool, ELightType, EFogQuality, FObjectId, std::vector<FAssetId>, ESoftBodyShape, ELevelCollisionShape>;
+using FLevelPropertyValue = std::variant<FWorldPosition, FQuaternion, FVector3, FAssetId, ELevelBodyType, float, bool, ELightType, EFogQuality, FObjectId, std::vector<FAssetId>, ESoftBodyShape, ELevelCollisionShape, ETriggerRole>;
 
 struct FLevelPropertyRange
 {

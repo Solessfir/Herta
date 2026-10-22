@@ -141,6 +141,38 @@ struct FPhysicsBodyTransform
 	FQuaternion Rotation;
 };
 
+struct FPhysicsCharacterId
+{
+	std::uint32_t Value = 0;
+
+	[[nodiscard]] constexpr bool operator==(const FPhysicsCharacterId&) const = default;
+};
+
+// An upright capsule moved by velocity rather than forces. It slides along walls, climbs steps, and pushes dynamic bodies.
+struct FPhysicsCharacterSettings
+{
+	// The bottom of the capsule.
+	FVector3 FootPosition = FVector3::Zero();
+	float Height = 1.8f;
+	float Radius = 0.3f;
+	float MassKg = 80.f;
+	// The steepest ground the character stands on.
+	float MaxSlopeRadians = 0.7853982f;
+	// Ledges up to this height are climbed while walking, such as stairs.
+	float StepHeight = 0.35f;
+	// The largest force the character pushes dynamic bodies with, in newtons.
+	float PushForce = 500.f;
+};
+
+struct FPhysicsCharacterState
+{
+	FVector3 FootPosition = FVector3::Zero();
+	FVector3 Velocity = FVector3::Zero();
+	// Velocity of the supporting ground, such as a moving platform.
+	FVector3 GroundVelocity = FVector3::Zero();
+	bool bGrounded = false;
+};
+
 struct FPhysicsWorldSettings
 {
 	std::uint32_t MaxBodies = 1024;
@@ -176,6 +208,12 @@ public:
 	[[nodiscard]] std::expected<void, FPhysicsError> GetSoftBodyVertices(FPhysicsBodyId BodyId, std::vector<FVector3>& OutPositions) const;
 	// World-space joints from Start to End, one more than the segment count.
 	[[nodiscard]] std::expected<void, FPhysicsError> GetRopePoints(const FPhysicsRope& Rope, std::vector<FVector3>& OutPoints) const;
+	[[nodiscard]] std::expected<FPhysicsCharacterId, FPhysicsError> CreateCharacter(const FPhysicsCharacterSettings& Settings);
+	// Refreshes ground contact and its velocity after kinematic bodies received this step's motion, before the character decides how to move.
+	[[nodiscard]] std::expected<FPhysicsCharacterState, FPhysicsError> UpdateCharacterGround(FPhysicsCharacterId Character);
+	// Moves the character by Velocity over one step, then keeps it on ground it was standing on.
+	[[nodiscard]] std::expected<FPhysicsCharacterState, FPhysicsError> MoveCharacter(FPhysicsCharacterId Character, const FVector3& Velocity, float DeltaSeconds);
+	[[nodiscard]] std::expected<void, FPhysicsError> TeleportCharacter(FPhysicsCharacterId Character, const FVector3& FootPosition);
 
 private:
 	struct FImplementation;

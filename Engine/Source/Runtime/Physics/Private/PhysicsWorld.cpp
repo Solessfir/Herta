@@ -5,8 +5,10 @@
 #include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyFilter.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
@@ -14,6 +16,7 @@
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
@@ -213,6 +216,18 @@ bool FJoinedBodiesFilter::CanCollide(const JPH::CollisionGroup& Group1, const JP
 	return !JoinedPairs.contains(PairKey(Group1.GetGroupID(), Group2.GetGroupID()));
 }
 
+// Characters walk through triggers; gameplay tests trigger overlap itself.
+class FCharacterBodyFilter final : public JPH::BodyFilter
+{
+public:
+	bool ShouldCollideLocked(const JPH::Body& Body) const override;
+};
+
+bool FCharacterBodyFilter::ShouldCollideLocked(const JPH::Body& Body) const
+{
+	return !Body.IsSensor();
+}
+
 // A light chain carrying a heavy load converges slowly; the island takes the largest step count of its constraints.
 constexpr JPH::uint JointVelocitySteps = 24;
 constexpr JPH::uint JointPositionSteps = 6;
@@ -254,6 +269,9 @@ struct FPhysicsWorld::FImplementation
 	std::vector<JPH::BodyID> BodyIds;
 	std::vector<JPH::Ref<JPH::Constraint>> Constraints;
 	std::vector<FRopeState> Ropes;
+	// Each character owns an inner body in Physics, so characters are released before the bodies.
+	std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
+	std::vector<float> CharacterStepHeights;
 	JPH::Ref<FJoinedBodiesFilter> JoinedBodies = new FJoinedBodiesFilter;
 	const FPhysicsWorldSettings Settings;
 	std::string StepFailure;
@@ -280,6 +298,7 @@ struct FPhysicsWorld::FImplementation
 
 	~FImplementation()
 	{
+		Characters.clear();
 		for (const JPH::Ref<JPH::Constraint>& Constraint : Constraints)
 		{
 			Physics.RemoveConstraint(Constraint);
@@ -305,7 +324,29 @@ struct FPhysicsWorld::FImplementation
 
 	// An invalid Body1 fixes Body2 to the world; otherwise the two stop colliding with each other.
 	void AddJoint(const JPH::TwoBodyConstraintSettings& Joint, JPH::BodyID Body1, JPH::BodyID Body2);
+	[[nodiscard]] JPH::CharacterVirtual* FindCharacter(FPhysicsCharacterId Character) const;
 };
+
+JPH::CharacterVirtual* FPhysicsWorld::FImplementation::FindCharacter(const FPhysicsCharacterId Character) const
+{
+	return Character.Value > 0 && Character.Value <= Characters.size() ? Characters[Character.Value - 1].GetPtr() : nullptr;
+}
+
+namespace
+{
+[[nodiscard]] FPhysicsCharacterState GetCharacterState(const JPH::CharacterVirtual& Character)
+{
+	const JPH::RVec3 Position = Character.GetPosition();
+	const JPH::Vec3 Velocity = Character.GetLinearVelocity();
+	const JPH::Vec3 Ground = Character.GetGroundVelocity();
+	return {
+	    .FootPosition = {Position.GetX(), Position.GetY(), Position.GetZ()},
+	    .Velocity = {Velocity.GetX(), Velocity.GetY(), Velocity.GetZ()},
+	    .GroundVelocity = {Ground.GetX(), Ground.GetY(), Ground.GetZ()},
+	    .bGrounded = Character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround,
+	};
+}
+}
 
 void FPhysicsWorld::FImplementation::AddJoint(const JPH::TwoBodyConstraintSettings& Joint, const JPH::BodyID Body1, const JPH::BodyID Body2)
 {
@@ -796,6 +837,90 @@ std::expected<void, FPhysicsError> FPhysicsWorld::GetRopePoints(const FPhysicsRo
 		OutPoints[Index + 1] = {End.GetX(), End.GetY(), End.GetZ()};
 	}
 
+	return {};
+}
+
+std::expected<FPhysicsCharacterId, FPhysicsError> FPhysicsWorld::CreateCharacter(const FPhysicsCharacterSettings& Settings)
+{
+	if (Implementation->BodyCount >= Implementation->Settings.MaxBodies)
+	{
+		return std::unexpected(FPhysicsError{std::format("Physics world body capacity reached (MaxBodies={})", Implementation->Settings.MaxBodies)});
+	}
+
+	if (!IsFinite(Settings.FootPosition) || !IsInRange(Settings.Radius, 0.05f, 10.f) || !IsInRange(Settings.Height, Settings.Radius * 2.f, 20.f) || !IsInRange(Settings.MassKg, 1.f, 10000.f)
+	    || !IsInRange(Settings.MaxSlopeRadians, 0.f, 1.5f) || !IsInRange(Settings.StepHeight, 0.f, Settings.Height) || !IsInRange(Settings.PushForce, 0.f, 1000000.f))
+	{
+		return std::unexpected(FPhysicsError{"Character dimensions, mass, slope, step height, and push force must be finite and in range"});
+	}
+
+	// The capsule is lifted so the character position is its feet.
+	const JPH::RefConst<JPH::Shape> Capsule = new JPH::CapsuleShape(Settings.Height * 0.5f - Settings.Radius, Settings.Radius);
+	const JPH::ShapeSettings::ShapeResult Shape = JPH::RotatedTranslatedShapeSettings(JPH::Vec3(0.f, Settings.Height * 0.5f, 0.f), JPH::Quat::sIdentity(), Capsule).Create();
+	if (Shape.HasError())
+	{
+		return std::unexpected(FPhysicsError{Shape.GetError().c_str()});
+	}
+
+	const JPH::Ref<JPH::CharacterVirtualSettings> CharacterSettings = new JPH::CharacterVirtualSettings;
+	CharacterSettings->mShape = Shape.Get();
+	CharacterSettings->mMaxSlopeAngle = Settings.MaxSlopeRadians;
+	CharacterSettings->mMass = Settings.MassKg;
+	CharacterSettings->mMaxStrength = Settings.PushForce;
+	// Only the bottom hemisphere supports the character; contacts above it are walls.
+	CharacterSettings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -Settings.Radius);
+	// The inner body lets dynamic bodies collide with the character, which the virtual shape alone cannot.
+	CharacterSettings->mInnerBodyShape = Shape.Get();
+	CharacterSettings->mInnerBodyLayer = DynamicLayer;
+	Implementation->Characters.emplace_back(new JPH::CharacterVirtual(CharacterSettings, ToJolt(Settings.FootPosition), JPH::Quat::sIdentity(), 0, &Implementation->Physics));
+	Implementation->CharacterStepHeights.push_back(Settings.StepHeight);
+	++Implementation->BodyCount;
+	return FPhysicsCharacterId{static_cast<std::uint32_t>(Implementation->Characters.size())};
+}
+
+std::expected<FPhysicsCharacterState, FPhysicsError> FPhysicsWorld::UpdateCharacterGround(const FPhysicsCharacterId CharacterId)
+{
+	JPH::CharacterVirtual* const Character = Implementation->FindCharacter(CharacterId);
+	if (!Character)
+	{
+		return std::unexpected(FPhysicsError{"Unknown character"});
+	}
+
+	Character->UpdateGroundVelocity();
+	return GetCharacterState(*Character);
+}
+
+std::expected<FPhysicsCharacterState, FPhysicsError> FPhysicsWorld::MoveCharacter(const FPhysicsCharacterId CharacterId, const FVector3& Velocity, const float DeltaSeconds)
+{
+	JPH::CharacterVirtual* const Character = Implementation->FindCharacter(CharacterId);
+	if (!Character)
+	{
+		return std::unexpected(FPhysicsError{"Unknown character"});
+	}
+
+	if (!IsFinite(Velocity) || !std::isfinite(DeltaSeconds) || DeltaSeconds <= 0.f)
+	{
+		return std::unexpected(FPhysicsError{"Character velocity must be finite with a positive step"});
+	}
+
+	JPH::PhysicsSystem& Physics = Implementation->Physics;
+	JPH::CharacterVirtual::ExtendedUpdateSettings Update;
+	Update.mWalkStairsStepUp = JPH::Vec3(0.f, Implementation->CharacterStepHeights[CharacterId.Value - 1], 0.f);
+	Character->SetLinearVelocity(ToJolt(Velocity));
+	const FCharacterBodyFilter BodyFilter;
+	Character->ExtendedUpdate(DeltaSeconds, Physics.GetGravity(), Update, Physics.GetDefaultBroadPhaseLayerFilter(DynamicLayer), Physics.GetDefaultLayerFilter(DynamicLayer), BodyFilter, {}, Implementation->TempAllocator);
+	return GetCharacterState(*Character);
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::TeleportCharacter(const FPhysicsCharacterId CharacterId, const FVector3& FootPosition)
+{
+	JPH::CharacterVirtual* const Character = Implementation->FindCharacter(CharacterId);
+	if (!Character || !IsFinite(FootPosition))
+	{
+		return std::unexpected(FPhysicsError{"Teleporting requires a known character and a finite position"});
+	}
+
+	Character->SetPosition(ToJolt(FootPosition));
+	Character->SetLinearVelocity(JPH::Vec3::sZero());
 	return {};
 }
 }

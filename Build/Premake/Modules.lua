@@ -292,10 +292,22 @@ HertaRuntimeModule("ToolUI", {
         path.join(RepositoryRoot, "External/glfw/include")
     }
 
+HertaRuntimeModule("GameUI", {
+    PublicDependencies = { "Core", "Math", "RHI" },
+    PrivateThirdPartyDependencies = { "FreeType" }
+})
+
+    externalincludedirs { path.join(RepositoryRoot, "External/freetype/include") }
+
+HertaRuntimeModule("GameFramework", {
+    PublicDependencies = { "Core", "Math", "Assets", "Level", "Physics", "RHI", "Renderer" },
+    PrivateDependencies = { "Tasks" }
+})
+
 HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
     PublicDependencies = { "Core", "Assets", "EditorCore" },
-    PrivateDependencies = { "Platform" },
+    PrivateDependencies = { "Platform", "Level", "Project", "Math" },
     PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer" }
 })
     externalincludedirs {
@@ -307,7 +319,7 @@ HertaRuntimeModule("AssetPipeline", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
-    PrivateDependencies = { "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
+    PrivateDependencies = { "GameFramework", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
 })
 
@@ -448,7 +460,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
@@ -460,6 +472,37 @@ project "HertaEditorCmd"
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditorCmd"))
     ApplyRuntimeDependencies { "EditorCore", "Level", "Project", "AssetPipeline", "Platform" }
     dependson { "HertaAssetWorker" }
+
+project "HertaGame"
+    kind "ConsoleApp"
+    location(path.join(ProjectFilesRoot, "HertaGame"))
+    ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaGame"))
+    debugdir(RepositoryRoot)
+    debugargs { "--project=Saved/StagedBuilds/Sandbox/Sandbox/Sandbox.hertaproject" }
+    ApplyRuntimeDependencies { "Application", "Tasks", "GameFramework", "GameUI", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
+    dependson { "HertaShaders" }
+
+    -- Shipping players should not see a console; development builds keep it for logs.
+    filter { "system:windows", "configurations:Shipping" }
+        kind "WindowedApp"
+        entrypoint "mainCRTStartup"
+
+    filter { "system:windows", "configurations:Debug or Debug-ASan or Development" }
+        debugenvs {
+            "VULKAN_SDK=" .. VulkanSdk.Root,
+            "VK_ADD_LAYER_PATH=" .. VulkanSdk.ValidationLayerDirectory,
+            "PATH=" .. VulkanSdk.BinaryDirectory .. ";%PATH%"
+        }
+
+    filter { "system:linux", "configurations:Debug or Debug-ASan or Development" }
+        debugenvs {
+            "VULKAN_SDK=" .. VulkanSdk.Root,
+            "VK_ADD_LAYER_PATH=" .. VulkanSdk.ValidationLayerDirectory,
+            "PATH=" .. VulkanSdk.BinaryDirectory .. ":$PATH",
+            "LD_LIBRARY_PATH=" .. VulkanSdk.RuntimeLibraryDirectory .. ":$LD_LIBRARY_PATH"
+        }
+
+    filter {}
 
 project "HertaEditor"
     kind "ConsoleApp"
@@ -510,7 +553,7 @@ if HertaProjectDescriptor then
     BuildIdentityFile:close()
 
     for _, Module in ipairs(HertaProjectDescriptor.modules) do
-        local ReservedNames = { "NVRHI", "NVRHIVulkanBackend", "MeshOptimizer", "Jolt", "FreeType", "FastGltf", "GLFW", "EnkiTS", "ImGui", "Im3d", "Spdlog", "SimdJson", "HertaEditor", "HertaEditorCmd", "HertaTests", "HertaAssetWorker", "HertaShaderWorker", "HertaShaders" }
+        local ReservedNames = { "NVRHI", "NVRHIVulkanBackend", "MeshOptimizer", "Jolt", "FreeType", "FastGltf", "GLFW", "EnkiTS", "ImGui", "Im3d", "Spdlog", "SimdJson", "HertaEditor", "HertaEditorCmd", "HertaGame", "HertaTests", "HertaAssetWorker", "HertaShaderWorker", "HertaShaders" }
         for Name in pairs(RuntimeModules) do
             table.insert(ReservedNames, Name)
         end

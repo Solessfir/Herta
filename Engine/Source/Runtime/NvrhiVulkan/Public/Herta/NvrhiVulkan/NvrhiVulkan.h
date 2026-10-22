@@ -49,6 +49,8 @@ public:
 	virtual void SetToolUIGpuTimingEnabled(bool bEnabled) noexcept = 0;
 	[[nodiscard]] virtual std::optional<double> GetToolUIGpuMilliseconds() const noexcept = 0;
 	virtual void ShutdownToolUIRenderer() noexcept = 0;
+	// Draws textured, alpha-blended triangles over the active frame with the ToolUI pipeline, which encodes registered textures for HDR10 targets. Requires InitializeToolUIRenderer.
+	[[nodiscard]] virtual std::expected<void, FPresentationError> RenderScreenDraws(const FScreenDrawList& Draws) = 0;
 	[[nodiscard]] virtual std::expected<FPresentationViewportHandle, FPresentationError> CreateViewport(void* WindowBackendHandle, FExtent2D Extent) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> DestroyViewport(FPresentationViewportHandle Viewport) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> ResizeViewport(FPresentationViewportHandle Viewport, FExtent2D Extent) = 0;

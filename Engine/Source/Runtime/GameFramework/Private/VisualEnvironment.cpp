@@ -1,4 +1,4 @@
-#include "VisualEnvironment.h"
+#include "Herta/GameFramework/VisualEnvironment.h"
 
 #include "Herta/Core/BinaryStream.h"
 #include "Herta/Core/Log.h"

@@ -21,7 +21,7 @@ struct FAssetCommandOptions
 	std::filesystem::path GameContentRoot{};
 };
 
-// Registers asset.validate, asset.list, asset.import, and asset.reimport for both the editor console and HertaEditorCmd.
+// Registers asset.validate, asset.list, asset.import, asset.reimport, and game.stage for both the editor console and HertaEditorCmd.
 // Cooking always runs in HertaAssetWorker.
 [[nodiscard]] std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandRegistry& Registry, const FAssetCommandOptions& Options);
 }

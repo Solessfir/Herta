@@ -1,6 +1,6 @@
 #include "Herta/AssetPipeline/TextureCooker.h"
+#include "Herta/GameFramework/VisualEnvironment.h"
 #include "Herta/Renderer/EnvironmentLighting.h"
-#include "VisualEnvironment.h"
 
 #include <doctest/doctest.h>
 

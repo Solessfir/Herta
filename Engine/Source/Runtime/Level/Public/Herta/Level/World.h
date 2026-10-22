@@ -202,6 +202,14 @@ struct FMoverComponent
 	float PeriodSeconds = 6.f;
 };
 
+// What a trigger means to gameplay. The player spawns in the Start zone, and the course runs from leaving it to entering a Finish zone.
+enum class ETriggerRole : std::uint8_t
+{
+	None,
+	Start,
+	Finish,
+};
+
 // Reports bodies entering and leaving a box centered on the entity origin while simulating.
 struct FTriggerComponent
 {
@@ -209,6 +217,7 @@ struct FTriggerComponent
 
 	// Full box dimensions in meters, before the entity's scale.
 	FVector3 Size{2.f, 2.f, 2.f};
+	ETriggerRole Role = ETriggerRole::None;
 };
 
 // Joins the entity's Dynamic rigid body, at Anchor, to a rope's free end, another rigid body, or a fixed point in the world.

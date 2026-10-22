@@ -22,6 +22,7 @@
 #include <bit>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -30,6 +31,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -1094,6 +1096,77 @@ public:
 		RenderCommandList->endTimerQuery(ToolUIGpuTiming);
 		bToolUIGpuTimingPending = true;
 		return Result;
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> RenderScreenDraws(const FScreenDrawList& Draws) override
+	{
+		static_assert(sizeof(FScreenVertex) == sizeof(ImDrawVert) && offsetof(FScreenVertex, U) == offsetof(ImDrawVert, uv) && offsetof(FScreenVertex, Color) == offsetof(ImDrawVert, col));
+		static_assert(std::is_same_v<ImDrawIdx, std::uint16_t>);
+		if (!bFrameActive || !bToolUIInitialized || ActiveImageIndex >= ToolUIFramebuffers.size())
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Screen draws require an initialized ToolUI renderer and an active presentation frame"});
+		}
+
+		if (Draws.Vertices.empty() || Draws.Indices.empty() || Extent.IsEmpty())
+		{
+			return {};
+		}
+
+		const bool bInBounds = std::ranges::all_of(Draws.Commands, [&Draws](const FScreenDrawCommand& Command)
+		{
+			return std::size_t{Command.FirstIndex} + Command.IndexCount <= Draws.Indices.size();
+		}) && std::ranges::all_of(Draws.Indices, [&Draws](const std::uint16_t Index)
+		{
+			return Index < Draws.Vertices.size();
+		});
+
+		if (!bInBounds)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Screen draw indices reach past their vertices or index list"});
+		}
+
+		const std::size_t VertexBytes = Draws.Vertices.size() * sizeof(ImDrawVert);
+		const std::size_t IndexSourceBytes = AlignVulkanBufferUpdateSourceSize(Draws.Indices.size() * sizeof(ImDrawIdx));
+		if (const std::expected BufferResult = EnsureToolUIBuffers(VertexBytes, IndexSourceBytes); !BufferResult)
+		{
+			return BufferResult;
+		}
+
+		// NVRHI rounds Vulkan inline update source reads to four bytes, so the index copy is padded.
+		ToolUIIndices.assign(IndexSourceBytes / sizeof(ImDrawIdx), 0);
+		std::ranges::copy(Draws.Indices, ToolUIIndices.begin());
+		CommandList->writeBuffer(ToolUIVertexBuffer, Draws.Vertices.data(), VertexBytes);
+		CommandList->writeBuffer(ToolUIIndexBuffer, ToolUIIndices.data(), IndexSourceBytes);
+		const auto Width = static_cast<float>(Extent.Width);
+		const auto Height = static_cast<float>(Extent.Height);
+		const FToolUIPushConstants PushConstants{.Scale = {2.f / Width, -2.f / Height}, .Translate = {-1.f, 1.f}, .PaperWhite = IsHdr10(SurfaceFormat) ? HdrOutput.PaperWhite : 0.f};
+		for (const FScreenDrawCommand& Command : Draws.Commands)
+		{
+			const auto Texture = ToolUITextures.find(Command.TextureId);
+			if (Texture == ToolUITextures.end())
+			{
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "A screen draw references an unregistered texture"});
+			}
+
+			nvrhi::GraphicsState State;
+			State.pipeline = ToolUIPipeline;
+			State.framebuffer = ToolUIFramebuffers[ActiveImageIndex];
+			State.bindings.push_back(Texture->second.BindingSet);
+			State.vertexBuffers.push_back(nvrhi::VertexBufferBinding().setBuffer(ToolUIVertexBuffer).setSlot(0).setOffset(0));
+			State.indexBuffer = nvrhi::IndexBufferBinding().setBuffer(ToolUIIndexBuffer).setFormat(nvrhi::Format::R16_UINT).setOffset(0);
+			State.viewport.addViewport(nvrhi::Viewport(Width, Height));
+			State.viewport.addScissorRect(nvrhi::Rect(0, static_cast<int>(Extent.Width), 0, static_cast<int>(Extent.Height)));
+			CommandList->setGraphicsState(State);
+			FToolUIPushConstants DrawConstants = PushConstants;
+			DrawConstants.Encoding = static_cast<float>(Texture->second.Encoding);
+			CommandList->setPushConstants(&DrawConstants, sizeof(DrawConstants));
+			nvrhi::DrawArguments Arguments;
+			Arguments.vertexCount = Command.IndexCount;
+			Arguments.startIndexLocation = Command.FirstIndex;
+			CommandList->drawIndexed(Arguments);
+		}
+
+		return {};
 	}
 
 	[[nodiscard]] std::expected<void, FPresentationError> RenderToolUIDrawDataImpl(const void* const OpaqueDrawData)

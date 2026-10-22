@@ -49,7 +49,7 @@ struct FBodyPropertyDisplay
 	std::string_view Key;
 	std::string_view SearchAlias;
 	std::string_view Tooltip;
-	float FLevelRigidBodySettings::*Member = nullptr;
+	float FLevelRigidBodySettings::* Member = nullptr;
 	float Speed = 0.01f;
 	const char* Format = "%.3f";
 	bool bDynamicOnly = false;
@@ -874,25 +874,30 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 
 				Result.bEditFinished |= ImGui::IsItemDeactivatedAfterEdit();
 			}
-			else if (Property.Type == ELevelPropertyType::LightType || Property.Type == ELevelPropertyType::FogQuality || Property.Type == ELevelPropertyType::SoftBodyShape)
+			else if (Property.Type == ELevelPropertyType::LightType || Property.Type == ELevelPropertyType::FogQuality || Property.Type == ELevelPropertyType::SoftBodyShape || Property.Type == ELevelPropertyType::TriggerRole)
 			{
 				constexpr std::array<std::string_view, 5> Lights{"Directional", "Sky", "Point", "Spot", "Rect"};
 				constexpr std::array<std::string_view, 3> Qualities{"Low", "Medium", "High"};
 				constexpr std::array<std::string_view, 3> Shapes{"Rope", "Cloth", "Ball"};
-				const std::span<const std::string_view> Labels = Property.Type == ELevelPropertyType::LightType ? std::span<const std::string_view>{Lights} : Property.Type == ELevelPropertyType::FogQuality ? std::span<const std::string_view>{Qualities}
-				                                                                                                                                                                                              : std::span<const std::string_view>{Shapes};
-				const auto Current = Property.Type == ELevelPropertyType::LightType    ? static_cast<std::size_t>(std::get<ELightType>(Candidate))
-				                     : Property.Type == ELevelPropertyType::FogQuality ? static_cast<std::size_t>(std::get<EFogQuality>(Candidate))
-				                                                                       : static_cast<std::size_t>(std::get<ESoftBodyShape>(Candidate));
+				constexpr std::array<std::string_view, 3> Roles{"None", "Start", "Finish"};
+				const std::span<const std::string_view> Labels = Property.Type == ELevelPropertyType::LightType     ? std::span<const std::string_view>{Lights}
+				                                                 : Property.Type == ELevelPropertyType::FogQuality  ? std::span<const std::string_view>{Qualities}
+				                                                 : Property.Type == ELevelPropertyType::TriggerRole ? std::span<const std::string_view>{Roles}
+				                                                                                                    : std::span<const std::string_view>{Shapes};
+				const auto Current = Property.Type == ELevelPropertyType::LightType     ? static_cast<std::size_t>(std::get<ELightType>(Candidate))
+				                     : Property.Type == ELevelPropertyType::FogQuality  ? static_cast<std::size_t>(std::get<EFogQuality>(Candidate))
+				                     : Property.Type == ELevelPropertyType::TriggerRole ? static_cast<std::size_t>(std::get<ETriggerRole>(Candidate))
+				                                                                        : static_cast<std::size_t>(std::get<ESoftBodyShape>(Candidate));
 				if (ImGui::BeginCombo("##Value", Mixed[Index] ? "Multiple values" : Labels[Current].data()))
 				{
 					for (std::size_t Option = 0; Option < Labels.size(); ++Option)
 					{
 						if (ImGui::Selectable(Labels[Option].data(), !Mixed[Index] && Option == Current))
 						{
-							Candidate = Property.Type == ELevelPropertyType::LightType    ? FLevelPropertyValue{static_cast<ELightType>(Option)}
-							            : Property.Type == ELevelPropertyType::FogQuality ? FLevelPropertyValue{static_cast<EFogQuality>(Option)}
-							                                                              : FLevelPropertyValue{static_cast<ESoftBodyShape>(Option)};
+							Candidate = Property.Type == ELevelPropertyType::LightType     ? FLevelPropertyValue{static_cast<ELightType>(Option)}
+							            : Property.Type == ELevelPropertyType::FogQuality  ? FLevelPropertyValue{static_cast<EFogQuality>(Option)}
+							            : Property.Type == ELevelPropertyType::TriggerRole ? FLevelPropertyValue{static_cast<ETriggerRole>(Option)}
+							                                                               : FLevelPropertyValue{static_cast<ESoftBodyShape>(Option)};
 							bChanged = true;
 						}
 					}

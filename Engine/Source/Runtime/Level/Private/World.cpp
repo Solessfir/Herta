@@ -393,6 +393,11 @@ std::expected<void, FLevelError> ValidateTriggerComponent(const FTriggerComponen
 		return std::unexpected(FLevelError{"Trigger sizes must be between 0.01 and 1000 m"});
 	}
 
+	if (Trigger.Role > ETriggerRole::Finish)
+	{
+		return std::unexpected(FLevelError{"Unknown trigger role"});
+	}
+
 	return {};
 }
 

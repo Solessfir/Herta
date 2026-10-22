@@ -3,6 +3,7 @@
 #include "FileUtilities.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
+#include "Herta/AssetPipeline/GameStaging.h"
 
 #include <format>
 #include <optional>
@@ -256,6 +257,37 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			}
 
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::move(*Cooked)};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "game.stage",
+		    .Description = "Cook a project's starting level and its assets into a relocatable loose-content directory",
+		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			if (Arguments.size() != 2)
+			{
+				return UsageError("game.stage <project.hertaproject> <output-directory>");
+			}
+
+			const auto Staged = StageGameContent({
+			    .ProjectPath = Utf8ToPath(Arguments[0]),
+			    .OutputRoot = Utf8ToPath(Arguments[1]),
+			    .EngineContentRoot = Options.EngineContentRoot,
+			    .EngineShaderRoot = Options.EngineContentRoot.parent_path() / "Shaders",
+			    .DerivedDataRoot = Options.DerivedDataRoot,
+			    .WorkerPath = Options.WorkerPath,
+			    .TargetPlatform = Options.TargetPlatform,
+			});
+
+			if (!Staged)
+			{
+				return ExecutionError(Staged.error());
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Staged {} assets ({:.1f} MiB) for {}", Staged->Assets, static_cast<double>(Staged->Bytes) / (1024. * 1024.), GenericPathToUtf8(Staged->ProjectPath))};
 		}});
 	}
 

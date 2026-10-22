@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -66,6 +67,32 @@ struct FSrgbColor
 	    .Alpha = Color.Alpha,
 	};
 }
+
+// Screen-space geometry in pixels from the top-left corner, drawn over the presented frame.
+struct FScreenVertex
+{
+	float X = 0.f;
+	float Y = 0.f;
+	float U = 0.f;
+	float V = 0.f;
+	// sRGB RGBA8 with alpha in the high byte, multiplied with the texture.
+	std::uint32_t Color = 0xffffffffu;
+};
+
+struct FScreenDrawCommand
+{
+	// A texture registered with the presenter.
+	std::uint64_t TextureId = 0;
+	std::uint32_t FirstIndex = 0;
+	std::uint32_t IndexCount = 0;
+};
+
+struct FScreenDrawList
+{
+	std::span<const FScreenVertex> Vertices{};
+	std::span<const std::uint16_t> Indices{};
+	std::span<const FScreenDrawCommand> Commands{};
+};
 
 struct FPresentationViewportHandle
 {

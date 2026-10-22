@@ -261,6 +261,13 @@ struct FWindow::FImplementation
 	bool bWayland = false;
 	bool bProgrammaticWindowPosition = true;
 	bool bPendingDestruction = false;
+	bool bCursorCaptured = false;
+	bool bFullscreen = false;
+	// The windowed placement to return to when fullscreen ends.
+	int WindowedX = 0;
+	int WindowedY = 0;
+	int WindowedWidth = 0;
+	int WindowedHeight = 0;
 	std::array<bool, static_cast<std::size_t>(EKey::Last) + 1> KeyStates{};
 	std::array<bool, static_cast<std::size_t>(EMouseButton::Last) + 1> MouseButtonStates{};
 	FWindowCallbacks Callbacks;
@@ -325,7 +332,7 @@ public:
 	FWindowCallbackScope& operator=(FWindowCallbackScope&&) = delete;
 };
 
-template <typename... CallbackArguments, typename... Arguments> void InvokeWindowCallback(FWindow::FImplementation* const Window, const std::function<void(FWindow&, CallbackArguments...)> FWindowCallbacks::*const Member, Arguments&&... Values) noexcept
+template <typename... CallbackArguments, typename... Arguments> void InvokeWindowCallback(FWindow::FImplementation* const Window, const std::function<void(FWindow&, CallbackArguments...)> FWindowCallbacks::* const Member, Arguments&&... Values) noexcept
 {
 	try
 	{
@@ -835,6 +842,86 @@ void FWindow::Focus()
 {
 	Implementation->VerifyMainThread();
 	glfwFocusWindow(Implementation->Handle);
+}
+
+bool FWindow::IsCursorCaptured() const noexcept
+{
+	return Implementation->bCursorCaptured;
+}
+
+bool FWindow::IsFullscreen() const noexcept
+{
+	return Implementation->bFullscreen;
+}
+
+void FWindow::SetCursorCaptured(const bool bCaptured)
+{
+	Implementation->VerifyMainThread();
+	if (bCaptured == Implementation->bCursorCaptured)
+	{
+		return;
+	}
+
+	Implementation->bCursorCaptured = bCaptured;
+	glfwSetInputMode(Implementation->Handle, GLFW_CURSOR, bCaptured ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
+	if (glfwRawMouseMotionSupported() == GLFW_TRUE)
+	{
+		glfwSetInputMode(Implementation->Handle, GLFW_RAW_MOUSE_MOTION, bCaptured ? GLFW_TRUE : GLFW_FALSE);
+	}
+}
+
+void FWindow::SetFullscreen(const bool bFullscreen)
+{
+	Implementation->VerifyMainThread();
+	if (bFullscreen == Implementation->bFullscreen)
+	{
+		return;
+	}
+
+	GLFWwindow* const Handle = Implementation->Handle;
+	if (!bFullscreen)
+	{
+		glfwSetWindowMonitor(Handle, nullptr, Implementation->WindowedX, Implementation->WindowedY, Implementation->WindowedWidth, Implementation->WindowedHeight, 0);
+		Implementation->bFullscreen = false;
+		return;
+	}
+
+	// The monitor holding most of the window wins; Wayland reports no positions, so it takes the primary monitor.
+	int MonitorCount = 0;
+	GLFWmonitor** const Monitors = glfwGetMonitors(&MonitorCount);
+	GLFWmonitor* Monitor = glfwGetPrimaryMonitor();
+	int BestOverlap = 0;
+	glfwGetWindowPos(Handle, &Implementation->WindowedX, &Implementation->WindowedY);
+	glfwGetWindowSize(Handle, &Implementation->WindowedWidth, &Implementation->WindowedHeight);
+	for (int Index = 0; Index < MonitorCount && !Implementation->bWayland; ++Index)
+	{
+		int X = 0;
+		int Y = 0;
+		glfwGetMonitorPos(Monitors[Index], &X, &Y);
+		const GLFWvidmode* const Mode = glfwGetVideoMode(Monitors[Index]);
+		if (!Mode)
+		{
+			continue;
+		}
+
+		const int Width = std::min(X + Mode->width, Implementation->WindowedX + Implementation->WindowedWidth) - std::max(X, Implementation->WindowedX);
+		const int Height = std::min(Y + Mode->height, Implementation->WindowedY + Implementation->WindowedHeight) - std::max(Y, Implementation->WindowedY);
+		if (Width > 0 && Height > 0 && Width * Height > BestOverlap)
+		{
+			BestOverlap = Width * Height;
+			Monitor = Monitors[Index];
+		}
+	}
+
+	const GLFWvidmode* const Mode = Monitor ? glfwGetVideoMode(Monitor) : nullptr;
+	if (!Mode)
+	{
+		return;
+	}
+
+	// Matching the desktop mode keeps the display from switching modes, so leaving fullscreen is instant.
+	glfwSetWindowMonitor(Handle, Monitor, 0, 0, Mode->width, Mode->height, Mode->refreshRate);
+	Implementation->bFullscreen = true;
 }
 
 std::expected<void, FApplicationError> FWindow::SetPosition(const int X, const int Y)

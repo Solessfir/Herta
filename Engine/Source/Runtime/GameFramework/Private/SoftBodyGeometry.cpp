@@ -1,4 +1,4 @@
-#include "SoftBodyGeometry.h"
+#include "Herta/GameFramework/SoftBodyGeometry.h"
 
 #include <algorithm>
 #include <cmath>

@@ -377,21 +377,30 @@ std::expected<FMoverComponent, FLevelError> ReadMover(const simdjson::dom::eleme
 	return FMoverComponent{.Offset = {(*Offset)[0], (*Offset)[1], (*Offset)[2]}, .PeriodSeconds = *Period};
 }
 
-std::expected<FTriggerComponent, FLevelError> ReadTrigger(const simdjson::dom::element Element)
+constexpr std::array<std::string_view, 3> TriggerRoles{"none", "start", "finish"};
+
+// Schema 7 added the role; older triggers have none.
+std::expected<FTriggerComponent, FLevelError> ReadTrigger(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
-	const auto Fields = ReadComponentFields<1>(Element, GetLevelComponentDescriptor(ELevelComponentType::Trigger));
+	const FLevelComponentDescriptor& Descriptor = GetLevelComponentDescriptor(ELevelComponentType::Trigger);
+	const auto Fields = SchemaVersion >= 7 ? ReadComponentFields<2>(Element, Descriptor) : ReadComponentFields<1>(Element, Descriptor).transform([](const auto& Current)
+	{
+		return std::array<simdjson::dom::element, 2>{Current[0], {}};
+	});
+
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
 	}
 
 	const auto Size = ReadNumbers<float, 3>((*Fields)[0]);
-	if (!Size)
+	const auto Role = SchemaVersion >= 7 ? ReadString((*Fields)[1]) : std::expected<std::string_view, FLevelError>{TriggerRoles[0]};
+	if (!Size || !Role || std::ranges::find(TriggerRoles, *Role) == TriggerRoles.end())
 	{
 		return LevelError("Invalid trigger component field");
 	}
 
-	return FTriggerComponent{.Size = {(*Size)[0], (*Size)[1], (*Size)[2]}};
+	return FTriggerComponent{.Size = {(*Size)[0], (*Size)[1], (*Size)[2]}, .Role = static_cast<ETriggerRole>(std::ranges::find(TriggerRoles, *Role) - TriggerRoles.begin())};
 }
 
 std::expected<FConstraintComponent, FLevelError> ReadConstraint(const simdjson::dom::element Element)
@@ -677,7 +686,7 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 128;
-			const auto Trigger = ReadTrigger(Component.value);
+			const auto Trigger = ReadTrigger(Component.value, SchemaVersion);
 			if (!Trigger)
 			{
 				return std::unexpected(Trigger.error());
@@ -1104,7 +1113,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 6,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 7,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1279,7 +1288,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 
 		if (Entity.Trigger)
 		{
-			const std::array<FVisualValue, 1> Values{Entity.Trigger->Size};
+			const std::array<FVisualValue, 2> Values{Entity.Trigger->Size, TriggerRoles[static_cast<std::size_t>(Entity.Trigger->Role)]};
 			AppendVisualComponent(Output, ELevelComponentType::Trigger, Values, bHasComponent);
 		}
 
@@ -1422,9 +1431,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 6 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 7 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 6 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 7 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;

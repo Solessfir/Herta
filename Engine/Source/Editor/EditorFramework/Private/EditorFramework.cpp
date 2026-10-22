@@ -14,6 +14,10 @@
 #include "Herta/EditorCore/TransformText.h"
 #include "Herta/EditorCore/ViewportCamera.h"
 #include "Herta/EditorFramework/ViewportInteraction.h"
+#include "Herta/GameFramework/LevelSimulation.h"
+#include "Herta/GameFramework/LevelSimulationSetup.h"
+#include "Herta/GameFramework/SoftBodyGeometry.h"
+#include "Herta/GameFramework/VisualEnvironment.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/Platform/Process.h"
 #include "Herta/Project/Project.h"
@@ -29,9 +33,7 @@
 #include "PlaceObjectsMenu.h"
 #include "PreviewAssets.h"
 #include "PreviewLevel.h"
-#include "PreviewSimulation.h"
 #include "PreviewVisuals.h"
-#include "SoftBodyGeometry.h"
 #include "TimeOfDay.h"
 #include "ViewportBoxSelection.h"
 #include "ViewportGizmos.h"
@@ -39,7 +41,6 @@
 #include "ViewportRotationFeedback.h"
 #include "ViewportScaleGizmo.h"
 #include "ViewportStats.h"
-#include "VisualEnvironment.h"
 
 #include <im3d.h>
 #include <im3d_math.h>
@@ -421,13 +422,6 @@ void CopyBuffer(std::span<char> Destination, const std::string_view Source)
 	return Result;
 }
 
-[[nodiscard]] FTransform ToHertaTransform(const FPreviewObject& Object)
-{
-	const Im3d::Vec3 Euler = Im3d::ToEulerXYZ(Object.Rotation);
-	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0, 0, 1}, Euler.z) * FQuaternion::FromAxisAngle({0, 1, 0}, Euler.y) * FQuaternion::FromAxisAngle({1, 0, 0}, Euler.x);
-	return {{Object.Translation.x, Object.Translation.y, Object.Translation.z}, Rotation, {Object.Scale.x, Object.Scale.y, Object.Scale.z}};
-}
-
 struct FIm3dContextScope final
 {
 	explicit FIm3dContextScope(Im3d::Context& Context) noexcept;
@@ -496,7 +490,7 @@ struct FEditorFramework::FImplementation
 	void ReportLevelResult(std::expected<void, FLevelError> Result);
 	// Maps the built-in cube's [-1, 1] box onto the object's mesh bounds, so cube-based picking, outlines, and physics fit any mesh.
 	[[nodiscard]] FMatrix4 GetPreviewBoundsMatrix(std::size_t Index) const;
-	[[nodiscard]] FPreviewBodyShape GetPreviewBodyShape(std::size_t Index) const;
+	[[nodiscard]] FLevelBodyShape GetPreviewBodyShape(std::size_t Index) const;
 	[[nodiscard]] FPreviewObject& GetActivePreviewObject() noexcept;
 	void SetPreviewSelection(int ObjectIndex, bool bToggle = false);
 	void SetPreviewSelection(FPreviewSelection Selection);
@@ -588,7 +582,7 @@ struct FEditorFramework::FImplementation
 	bool bViewportEditFinished = false;
 	bool bViewportEditCanceled = false;
 
-	FPreviewSimulation Simulation;
+	FLevelSimulation Simulation;
 	std::vector<FPreviewObject> SimulationStart;
 	bool bSimulationStoppedThisFrame = false;
 
@@ -2697,34 +2691,13 @@ void FEditorFramework::FImplementation::SaveCurrentLevel()
 
 FMatrix4 FEditorFramework::FImplementation::GetPreviewBoundsMatrix(const std::size_t Index) const
 {
-	const FPreviewBodyShape Shape = GetPreviewBodyShape(Index);
+	const FLevelBodyShape Shape = GetPreviewBodyShape(Index);
 	return FMatrix4::Translation(Shape.Center) * FMatrix4::Scale(Shape.HalfExtents);
 }
 
-FPreviewBodyShape FEditorFramework::FImplementation::GetPreviewBodyShape(const std::size_t Index) const
+FLevelBodyShape FEditorFramework::FImplementation::GetPreviewBodyShape(const std::size_t Index) const
 {
-	if (!PreviewObjects[Index].Mesh.IsValid() && Index < VisualEntities.size() && VisualEntities[Index].Trigger)
-	{
-		return {.Center = {}, .HalfExtents = VisualEntities[Index].Trigger->Size * 0.5f};
-	}
-
-	if (!PreviewObjects[Index].Mesh.IsValid() && (Index >= PreviewMeshes.size() || PreviewMeshes[Index] == nullptr))
-	{
-		return {.Center = {}, .HalfExtents = {0.15f, 0.15f, 0.15f}};
-	}
-
-	const FRenderMesh* const Mesh = PreviewMeshes[Index];
-	if (Mesh == nullptr)
-	{
-		// Use cube bounds until the selected mesh finishes loading.
-		return {.Center = {}, .HalfExtents = {0.5f, 0.5f, 0.5f}};
-	}
-
-	const FVector3& Minimum = Mesh->GetBoundsMinimum();
-	const FVector3& Maximum = Mesh->GetBoundsMaximum();
-	// Flat meshes still need a pickable, collidable volume.
-	constexpr float MinimumHalfExtent = 0.001f;
-	return {.Center = (Minimum + Maximum) * 0.5f, .HalfExtents = {std::max((Maximum.X - Minimum.X) * 0.5f, MinimumHalfExtent), std::max((Maximum.Y - Minimum.Y) * 0.5f, MinimumHalfExtent), std::max((Maximum.Z - Minimum.Z) * 0.5f, MinimumHalfExtent)}};
+	return Index < VisualEntities.size() ? GetLevelBodyShape(VisualEntities[Index], Index < PreviewMeshes.size() ? PreviewMeshes[Index] : nullptr) : FLevelBodyShape{.Center = {}, .HalfExtents = {0.15f, 0.15f, 0.15f}};
 }
 
 void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, const ImVec2 Size, const float ToolbarBottom)
@@ -3610,7 +3583,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 	if (bBoundsVisible && !bGameView && !PreviewObjects.empty())
 	{
-		const FPreviewBodyShape Bounds = GetPreviewBodyShape(static_cast<std::size_t>(std::max(PreviewSelection.Active, 0)));
+		const FLevelBodyShape Bounds = GetPreviewBodyShape(static_cast<std::size_t>(std::max(PreviewSelection.Active, 0)));
 		Im3d::PushMatrix(Model);
 		Im3d::PushColor(Im3d::Color(0xefd07ccc));
 		Im3d::DrawAlignedBox(ToIm3dVector(Bounds.Center - Bounds.HalfExtents), ToIm3dVector(Bounds.Center + Bounds.HalfExtents));
@@ -4317,153 +4290,20 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 			return;
 		}
 
-		std::vector<FPreviewSimulationBody> Bodies;
-		for (const ELevelBodyType Type : {ELevelBodyType::Static, ELevelBodyType::Dynamic})
+		const FLevelSimulationSetup Setup = BuildLevelSimulation(VisualEntities, PreviewModels, PreviewMeshes);
+		for (const std::string& Warning : Setup.Warnings)
 		{
-			for (const std::size_t Index : Level->FindBodies(Type))
-			{
-				const auto Entity = Level->GetWorld().GetEntity(*Level->GetWorld().FindEntity(PreviewObjects[Index].Id));
-				// A soft body owns its own deformable collision; a Rigid Body on the same entity would fight it.
-				if (Entity->SoftBody)
-				{
-					continue;
-				}
-
-				const FLevelRigidBodySettings& Settings = Entity->BodySettings;
-				Bodies.push_back({
-				    .ObjectIndex = Index,
-				    .Transform = ToHertaTransform(PreviewObjects[Index]),
-				    .Shape = GetPreviewBodyShape(Index),
-				    .Collision = Settings.Collision == ELevelCollisionShape::Sphere ? EPhysicsShape::Sphere : Settings.Collision == ELevelCollisionShape::Capsule ? EPhysicsShape::Capsule
-				                                                                                                                                                  : EPhysicsShape::Box,
-				    .MotionType = Type == ELevelBodyType::Dynamic ? EPhysicsMotionType::Dynamic : EPhysicsMotionType::Static,
-				    .Properties = {
-				        .MassKg = Settings.MassKg,
-				        .Friction = Settings.Friction,
-				        .Restitution = Settings.Restitution,
-				        .LinearDamping = Settings.LinearDamping,
-				        .AngularDamping = Settings.AngularDamping,
-				        .GravityScale = Settings.GravityScale,
-				    },
-				    .Mover = Entity->Mover ? std::optional{FPreviewMover{.Offset = Entity->Mover->Offset, .PeriodSeconds = Entity->Mover->PeriodSeconds}} : std::nullopt,
-				});
-			}
+			HERTA_LOG_WARNING(*Log, EditorLog, "{}", Warning);
 		}
 
-		// Movers without a Rigid Body still collide, as kinematic boxes; triggers become sensors unless the entity already simulates.
-		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewObjects.size(); ++Index)
-		{
-			const FLevelEntity& Entity = VisualEntities[Index];
-			const bool bSimulated = std::ranges::contains(Bodies, Index, &FPreviewSimulationBody::ObjectIndex) || Entity.SoftBody;
-			if (Entity.Mover && Entity.Mesh && !bSimulated)
-			{
-				Bodies.push_back({
-				    .ObjectIndex = Index,
-				    .Transform = ToHertaTransform(PreviewObjects[Index]),
-				    .Shape = GetPreviewBodyShape(Index),
-				    .Mover = FPreviewMover{.Offset = Entity.Mover->Offset, .PeriodSeconds = Entity.Mover->PeriodSeconds},
-				});
-			}
-			else if (Entity.Trigger && bSimulated)
-			{
-				HERTA_LOG_WARNING(*Log, EditorLog, "Trigger on {} is skipped: the entity already simulates as a body", Entity.Name);
-			}
-			else if (Entity.Trigger)
-			{
-				const FVector3& Size = Entity.Trigger->Size;
-				Bodies.push_back({.ObjectIndex = Index, .Transform = ToHertaTransform(PreviewObjects[Index]), .Shape = {.HalfExtents = Size * 0.5f}, .bTrigger = true});
-			}
-		}
-
-		// Topology and world vertices must stay in place until Start copies them into the physics world.
-		std::vector<std::size_t> SoftBodyIndices;
-		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewModels.size(); ++Index)
-		{
-			if (VisualEntities[Index].SoftBody && !VisualEntities[Index].Mesh)
-			{
-				SoftBodyIndices.push_back(Index);
-			}
-		}
-
-		std::vector<FSoftBodyTopology> Topologies;
-		std::vector<std::vector<FVector3>> WorldVertices;
-		std::vector<FPreviewSimulationSoftBody> SoftBodies;
-		Topologies.reserve(SoftBodyIndices.size());
-		WorldVertices.reserve(SoftBodyIndices.size());
-		for (const std::size_t Index : SoftBodyIndices)
-		{
-			const FSoftBodyComponent& SoftBody = *VisualEntities[Index].SoftBody;
-			const FSoftBodyTopology& Topology = Topologies.emplace_back(BuildSoftBodyTopology(SoftBody));
-			std::vector<FVector3>& Vertices = WorldVertices.emplace_back();
-			Vertices.reserve(Topology.Vertices.size());
-			for (const FVector3& Vertex : Topology.Vertices)
-			{
-				const FVector4 World = PreviewModels[Index] * FVector4{Vertex.X, Vertex.Y, Vertex.Z, 1.f};
-				Vertices.push_back({World.X, World.Y, World.Z});
-			}
-
-			SoftBodies.push_back({
-			    .ObjectIndex = Index,
-			    .Settings = MakeSoftBodyPhysicsSettings(SoftBody, Topology, Vertices),
-			    .Rope = SoftBody.Shape == ESoftBodyShape::Rope ? std::optional{MakeRopePhysicsSettings(SoftBody, Vertices)} : std::nullopt,
-			});
-		}
-
-		// A constraint that cannot join simulated bodies is reported and left out, so the rest of the level still simulates.
-		std::vector<FPreviewSimulationConstraint> Constraints;
-		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewModels.size(); ++Index)
-		{
-			const std::optional<FConstraintComponent>& Constraint = VisualEntities[Index].Constraint;
-			if (!Constraint)
-			{
-				continue;
-			}
-
-			const bool bDynamic = std::ranges::any_of(Bodies, [Index](const FPreviewSimulationBody& Body)
-			{
-				return Body.ObjectIndex == Index && Body.MotionType == EPhysicsMotionType::Dynamic && !Body.Mover && !Body.bTrigger;
-			});
-			if (!bDynamic)
-			{
-				HERTA_LOG_WARNING(*Log, EditorLog, "Constraint on {} is skipped: the entity is not a meshed Dynamic rigid body", VisualEntities[Index].Name);
-				continue;
-			}
-
-			std::optional<std::size_t> Target;
-			if (Constraint->Target.IsValid())
-			{
-				const auto Found = std::ranges::find(PreviewObjects, Constraint->Target, &FPreviewObject::Id);
-				const auto TargetIndex = static_cast<std::size_t>(Found - PreviewObjects.begin());
-				const bool bBody = std::ranges::any_of(Bodies, [TargetIndex](const FPreviewSimulationBody& Body)
-				{
-					return Body.ObjectIndex == TargetIndex && !Body.bTrigger;
-				});
-				const bool bRope = std::ranges::any_of(SoftBodies, [TargetIndex](const FPreviewSimulationSoftBody& SoftBody)
-				{
-					return SoftBody.ObjectIndex == TargetIndex && SoftBody.Rope;
-				});
-				if (Found == PreviewObjects.end() || TargetIndex == Index || (!bBody && !bRope))
-				{
-					HERTA_LOG_WARNING(*Log, EditorLog, "Constraint on {} is skipped: its target is not a rope or another simulated rigid body", VisualEntities[Index].Name);
-					continue;
-				}
-
-				Target = TargetIndex;
-			}
-
-			const FVector3& Anchor = Constraint->Anchor;
-			const FVector4 World = PreviewModels[Index] * FVector4{Anchor.X, Anchor.Y, Anchor.Z, 1.f};
-			Constraints.push_back({.ObjectIndex = Index, .TargetObjectIndex = Target, .Point = {World.X, World.Y, World.Z}});
-		}
-
-		if (Bodies.empty() && SoftBodies.empty())
+		if (Setup.Bodies.empty() && Setup.SoftBodies.empty())
 		{
 			HERTA_LOG_WARNING(*Log, EditorLog, "Simulation preview requires a Static Mesh with a Rigid Body component or a Soft Body");
 			return;
 		}
 
 		std::vector<FPreviewObject> OriginalObjects = PreviewObjects;
-		if (const auto Result = Simulation.Start(Bodies, SoftBodies, Constraints); !Result)
+		if (const auto Result = Simulation.Start(Setup.Bodies, Setup.SoftBodies, Setup.Constraints); !Result)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not start simulation: {}", Result.error().Message);
 			return;
@@ -4492,14 +4332,14 @@ void FEditorFramework::FImplementation::UpdateSimulation(const float DeltaSecond
 		return;
 	}
 
-	for (const FPreviewTriggerEvent& Event : Simulation.TakeTriggerEvents())
+	for (const FLevelTriggerEvent& Event : Simulation.TakeTriggerEvents())
 	{
 		HERTA_LOG_INFO(*Log, EditorLog, "{} {} {}", PreviewObjects[Event.ObjectIndex].Label, Event.bEntered ? "entered" : "left", PreviewObjects[Event.TriggerObjectIndex].Label);
 	}
 
 	std::vector<FObjectId> Overrides;
 	Overrides.reserve(Simulation.GetTransforms().size());
-	for (const FPreviewSimulationTransform& Snapshot : Simulation.GetTransforms())
+	for (const FLevelSimulationTransform& Snapshot : Simulation.GetTransforms())
 	{
 		const FTransform& Transform = Snapshot.Transform;
 		FPreviewObject& Object = PreviewObjects[Snapshot.ObjectIndex];
@@ -4782,11 +4622,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 
 		PreviousObject = GetActivePreviewObject();
 	},
-	    .ApplyBodyProperty = [&](float FLevelRigidBodySettings::*const Property, const float Value)
+	    .ApplyBodyProperty = [&](float FLevelRigidBodySettings::* const Property, const float Value)
 	{
 		ReportLevelResult(Level->SetSelectedBodyProperty(Property, Value));
 	},
-	    .ReadBodyProperty = [&](float FLevelRigidBodySettings::*const Property)
+	    .ReadBodyProperty = [&](float FLevelRigidBodySettings::* const Property)
 	{
 		for (const FObjectId Selected : Level->GetSelection())
 		{

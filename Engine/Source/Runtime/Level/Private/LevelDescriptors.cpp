@@ -246,9 +246,17 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		}
 	}
 
-	if (Type == ELevelComponentType::Trigger && Entity.Trigger && Key == "size")
+	if (Type == ELevelComponentType::Trigger && Entity.Trigger)
 	{
-		return Visitor(Entity.Trigger->Size);
+		if (Key == "size")
+		{
+			return Visitor(Entity.Trigger->Size);
+		}
+
+		if (Key == "role")
+		{
+			return Visitor(Entity.Trigger->Role);
+		}
 	}
 
 	if (Type == ELevelComponentType::Constraint && Entity.Constraint)
@@ -361,6 +369,7 @@ constexpr std::array MoverProperties{
 
 constexpr std::array TriggerProperties{
     FLevelPropertyDescriptor{.Key = "size", .Label = "Size", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = TriggerDefaults.Size, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 1000.}},
+    FLevelPropertyDescriptor{.Key = "role", .Label = "Role", .Type = ELevelPropertyType::TriggerRole, .Default = TriggerDefaults.Role},
 };
 
 constexpr std::array ConstraintProperties{

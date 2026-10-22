@@ -1,4 +1,4 @@
-#include "PreviewSimulation.h"
+#include "Herta/GameFramework/LevelSimulation.h"
 
 #include <doctest/doctest.h>
 
@@ -13,7 +13,7 @@ namespace
 {
 constexpr FTransform DefaultFloor{{0.f, -0.25f, 0.f}, FQuaternion::Identity(), {10.f, 0.25f, 10.f}};
 
-std::array<FPreviewSimulationBody, 2> MakeBodies(const FTransform& Object, const FTransform& Floor, const FPreviewBodyShape& Shape = {})
+std::array<FLevelSimulationBody, 2> MakeBodies(const FTransform& Object, const FTransform& Floor, const FLevelBodyShape& Shape = {})
 {
 	return {{
 	    {.ObjectIndex = 3, .Transform = Object, .Shape = Shape, .MotionType = EPhysicsMotionType::Dynamic},
@@ -22,13 +22,13 @@ std::array<FPreviewSimulationBody, 2> MakeBodies(const FTransform& Object, const
 }
 }
 
-TEST_CASE("Preview movers ping-pong over their period and triggers report bodies riding through")
+TEST_CASE("Level simulation movers ping-pong over their period and triggers report bodies riding through")
 {
-	FPreviewSimulation Simulation;
+	FLevelSimulation Simulation;
 	const std::array Bodies{
-	    FPreviewSimulationBody{.ObjectIndex = 1, .Transform = FTransform{{0.f, 1.f, 0.f}, FQuaternion::Identity(), {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {1.f, 0.1f, 1.f}}, .Properties = {.Friction = 1.f}, .Mover = FPreviewMover{.Offset = {0.f, 0.f, 4.f}, .PeriodSeconds = 4.f}},
-	    FPreviewSimulationBody{.ObjectIndex = 2, .Transform = FTransform{{0.f, 1.31f, 0.f}, FQuaternion::Identity(), {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {0.2f, 0.2f, 0.2f}}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Friction = 1.f}},
-	    FPreviewSimulationBody{.ObjectIndex = 3, .Transform = FTransform{{0.f, 1.5f, 4.f}, FQuaternion::Identity(), {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {1.f, 1.f, 1.f}}, .bTrigger = true},
+	    FLevelSimulationBody{.ObjectIndex = 1, .Transform = FTransform{{0.f, 1.f, 0.f}, FQuaternion::Identity(), {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {1.f, 0.1f, 1.f}}, .Properties = {.Friction = 1.f}, .Mover = FLevelSimulationMover{.Offset = {0.f, 0.f, 4.f}, .PeriodSeconds = 4.f}},
+	    FLevelSimulationBody{.ObjectIndex = 2, .Transform = FTransform{{0.f, 1.31f, 0.f}, FQuaternion::Identity(), {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {0.2f, 0.2f, 0.2f}}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Friction = 1.f}},
+	    FLevelSimulationBody{.ObjectIndex = 3, .Transform = FTransform{{0.f, 1.5f, 4.f}, FQuaternion::Identity(), {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {1.f, 1.f, 1.f}}, .bTrigger = true},
 	};
 	REQUIRE(Simulation.Start(Bodies));
 
@@ -63,9 +63,9 @@ TEST_CASE("Preview movers ping-pong over their period and triggers report bodies
 	CHECK(Simulation.GetTransforms()[0].Transform == Bodies[0].Transform);
 }
 
-TEST_CASE("Preview simulation falls onto the floor and restores edits")
+TEST_CASE("Level simulation falls onto the floor and restores edits")
 {
-	FPreviewSimulation Simulation;
+	FLevelSimulation Simulation;
 	const FTransform Original{{0.5f, 4.f, 0.25f}, FQuaternion::FromAxisAngle({0, 1, 0}, 0.4f), {1.f, 0.75f, 1.f}};
 	REQUIRE(Simulation.Start(MakeBodies(Original, DefaultFloor)));
 	CHECK(Simulation.IsRunning());
@@ -87,10 +87,10 @@ TEST_CASE("Preview simulation falls onto the floor and restores edits")
 	Simulation.Stop();
 }
 
-TEST_CASE("Preview simulation uses a fixed step and rejects invalid frame deltas")
+TEST_CASE("Level simulation uses a fixed step and rejects invalid frame deltas")
 {
-	FPreviewSimulation Fast;
-	FPreviewSimulation Slow;
+	FLevelSimulation Fast;
+	FLevelSimulation Slow;
 	const FTransform Original{{0, 8, 0}, FQuaternion::Identity(), FVector3::One()};
 	REQUIRE(Fast.Start(MakeBodies(Original, DefaultFloor)));
 	REQUIRE(Slow.Start(MakeBodies(Original, DefaultFloor)));
@@ -112,9 +112,9 @@ TEST_CASE("Preview simulation uses a fixed step and rejects invalid frame deltas
 	CHECK(Fast.GetTransforms()[0].Transform.Translation.Y > Before - 5.f);
 }
 
-TEST_CASE("Preview simulation collision follows the edited floor transform")
+TEST_CASE("Level simulation collision follows the edited floor transform")
 {
-	FPreviewSimulation Simulation;
+	FLevelSimulation Simulation;
 	const FTransform Cube{{6.f, 8.f, 2.f}, FQuaternion::Identity(), {0.25f, 0.25f, 0.25f}};
 	const FTransform Floor{{3.f, 2.f, 2.f}, FQuaternion::FromAxisAngle({0, 1, 0}, std::numbers::pi_v<float> * 0.5f), {-0.75f, 0.5f, 5.f}};
 	REQUIRE(Simulation.Start(MakeBodies(Cube, Floor)));
@@ -139,10 +139,10 @@ TEST_CASE("Preview simulation collision follows the edited floor transform")
 	REQUIRE(Simulation.Start(MakeBodies(Cube, Floor)));
 }
 
-TEST_CASE("Preview simulation admits every dynamic and static body and restores their transforms")
+TEST_CASE("Level simulation admits every dynamic and static body and restores their transforms")
 {
-	FPreviewSimulation Simulation;
-	const std::array<FPreviewSimulationBody, 4> Bodies{{
+	FLevelSimulation Simulation;
+	const std::array<FLevelSimulationBody, 4> Bodies{{
 	    {.ObjectIndex = 7, .Transform = {{-4.f, 4.f, 0.f}, FQuaternion::Identity(), {0.5f, 0.5f, 0.5f}}, .MotionType = EPhysicsMotionType::Dynamic},
 	    {.ObjectIndex = 2, .Transform = {{-4.f, -0.25f, 0.f}, FQuaternion::Identity(), {2.f, 0.25f, 2.f}}},
 	    {.ObjectIndex = 12, .Transform = {{4.f, 8.f, 0.f}, FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, 0.4f), {0.5f, 0.75f, 0.5f}}, .MotionType = EPhysicsMotionType::Dynamic},
@@ -182,10 +182,10 @@ TEST_CASE("Preview simulation admits every dynamic and static body and restores 
 	Simulation.Stop();
 }
 
-TEST_CASE("Preview simulation needs neither a static floor nor a dynamic body")
+TEST_CASE("Level simulation needs neither a static floor nor a dynamic body")
 {
-	FPreviewSimulation Simulation;
-	const std::array<FPreviewSimulationBody, 2> Falling{{
+	FLevelSimulation Simulation;
+	const std::array<FLevelSimulationBody, 2> Falling{{
 	    {.ObjectIndex = 5, .Transform = {{-3.f, 8.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, .MotionType = EPhysicsMotionType::Dynamic},
 	    {.ObjectIndex = 1, .Transform = {{3.f, 12.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, .MotionType = EPhysicsMotionType::Dynamic},
 	}};
@@ -210,7 +210,7 @@ TEST_CASE("Preview simulation needs neither a static floor nor a dynamic body")
 	CHECK(Simulation.GetTransforms()[0].Transform == Falling[0].Transform);
 	CHECK(Simulation.GetTransforms()[1].Transform == Falling[1].Transform);
 
-	const std::array<FPreviewSimulationBody, 1> Static{{{.ObjectIndex = 8, .Transform = DefaultFloor}}};
+	const std::array<FLevelSimulationBody, 1> Static{{{.ObjectIndex = 8, .Transform = DefaultFloor}}};
 	REQUIRE(Simulation.Start(Static));
 	REQUIRE(Simulation.Update(0.25f));
 	REQUIRE(Simulation.GetTransforms().size() == 1);
@@ -218,9 +218,9 @@ TEST_CASE("Preview simulation needs neither a static floor nor a dynamic body")
 	CHECK(Simulation.GetTransforms()[0].Transform == DefaultFloor);
 }
 
-TEST_CASE("Preview simulation admission failures preserve prior authored outputs and allow reuse")
+TEST_CASE("Level simulation admission failures preserve prior authored outputs and allow reuse")
 {
-	FPreviewSimulation Simulation;
+	FLevelSimulation Simulation;
 	CHECK_FALSE(Simulation.Start({}));
 	CHECK(Simulation.GetTransforms().empty());
 	const FTransform Original{{0.f, 4.f, 0.f}, FQuaternion::Identity(), FVector3::One()};
@@ -266,10 +266,10 @@ TEST_CASE("Preview simulation admission failures preserve prior authored outputs
 	Simulation.Stop();
 }
 
-TEST_CASE("Preview simulation body capacity failure leaves no partially running world")
+TEST_CASE("Level simulation body capacity failure leaves no partially running world")
 {
-	FPreviewSimulation Simulation;
-	std::vector<FPreviewSimulationBody> Bodies(1025);
+	FLevelSimulation Simulation;
+	std::vector<FLevelSimulationBody> Bodies(1025);
 
 	for (std::size_t Index = 0; Index < Bodies.size(); ++Index)
 	{
@@ -289,7 +289,7 @@ TEST_CASE("Preview simulation body capacity failure leaves no partially running 
 
 TEST_CASE("Preview capacity admission preserves authored outputs and permits restart")
 {
-	FPreviewSimulation Simulation;
+	FLevelSimulation Simulation;
 	const auto Bodies = MakeBodies({{0.f, 4.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, DefaultFloor);
 	REQUIRE(Simulation.Start(Bodies));
 	Simulation.Stop();
@@ -319,7 +319,7 @@ TEST_CASE("Preview scaling checkpoint repeats simulation and restores all author
 	for (const std::size_t DynamicCount : {1000u, 5000u, 10000u})
 	{
 		CAPTURE(DynamicCount);
-		std::vector<FPreviewSimulationBody> Bodies;
+		std::vector<FLevelSimulationBody> Bodies;
 		Bodies.reserve(DynamicCount + 1);
 		Bodies.push_back({.ObjectIndex = 0, .Transform = {{150.f, -0.25f, 150.f}, FQuaternion::Identity(), {160.f, 0.25f, 160.f}}});
 
@@ -330,7 +330,7 @@ TEST_CASE("Preview scaling checkpoint repeats simulation and restores all author
 			Bodies.push_back({.ObjectIndex = Index + 1, .Transform = {Position, FQuaternion::Identity(), {0.5f, 0.5f, 0.5f}}, .MotionType = EPhysicsMotionType::Dynamic});
 		}
 
-		FPreviewSimulation Simulation;
+		FLevelSimulation Simulation;
 		for (int Cycle = 0; Cycle < 3; ++Cycle)
 		{
 			CAPTURE(Cycle);
@@ -358,13 +358,13 @@ TEST_CASE("Preview scaling checkpoint repeats simulation and restores all author
 
 TEST_CASE("Preview collision-capacity failure does not publish partial poses and stop restores authoring")
 {
-	std::vector<FPreviewSimulationBody> Bodies;
+	std::vector<FLevelSimulationBody> Bodies;
 	for (std::size_t Index = 0; Index < 32; ++Index)
 	{
 		Bodies.push_back({.ObjectIndex = Index, .Transform = {{0.f, 4.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, .MotionType = EPhysicsMotionType::Dynamic});
 	}
 
-	FPreviewSimulation Simulation;
+	FLevelSimulation Simulation;
 	REQUIRE(Simulation.Start(Bodies, {}, {}, {.MaxBodies = 32, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024}));
 	const auto Result = Simulation.Update(1.f / 30.f);
 	REQUIRE_FALSE(Result);
@@ -383,10 +383,10 @@ TEST_CASE("Preview collision-capacity failure does not publish partial poses and
 	Simulation.Stop();
 }
 
-TEST_CASE("Preview simulation forwards authored body properties and restores transforms")
+TEST_CASE("Level simulation forwards authored body properties and restores transforms")
 {
-	FPreviewSimulation Simulation;
-	const std::array<FPreviewSimulationBody, 2> Bodies{{
+	FLevelSimulation Simulation;
+	const std::array<FLevelSimulationBody, 2> Bodies{{
 	    {.ObjectIndex = 3, .Transform = {{-3.f, 8.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.GravityScale = 0.f}},
 	    {.ObjectIndex = 7, .Transform = {{3.f, 8.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 2.f, .GravityScale = 1.f}},
 	}};
@@ -414,13 +414,13 @@ TEST_CASE("Preview simulation forwards authored body properties and restores tra
 }
 }
 
-TEST_CASE("Preview simulation collides with offset mesh bounds and restores the object origin")
+TEST_CASE("Level simulation collides with offset mesh bounds and restores the object origin")
 {
-	Herta::FPreviewSimulation Simulation;
+	Herta::FLevelSimulation Simulation;
 	const Herta::FTransform Cube{{0.f, 4.f, 0.f}, Herta::FQuaternion::Identity(), {2.f, 2.f, 2.f}};
 	const Herta::FTransform Floor{{0.f, -0.25f, 0.f}, Herta::FQuaternion::Identity(), {10.f, 0.25f, 10.f}};
 	// A mesh resting on its origin: its bounds sit entirely above Y=0 in model space.
-	const Herta::FPreviewBodyShape Shape{.Center = {0.f, 0.5f, 0.f}, .HalfExtents = {0.5f, 0.5f, 0.5f}};
+	const Herta::FLevelBodyShape Shape{.Center = {0.f, 0.5f, 0.f}, .HalfExtents = {0.5f, 0.5f, 0.5f}};
 	REQUIRE(Simulation.Start(Herta::MakeBodies(Cube, Floor, Shape)));
 	CHECK(Simulation.GetTransforms()[0].Transform.Translation.Y == doctest::Approx(4.f));
 	for (int Step = 0; Step < 600; ++Step)
