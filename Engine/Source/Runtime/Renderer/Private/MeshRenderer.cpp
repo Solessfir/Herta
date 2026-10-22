@@ -293,18 +293,7 @@ std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> FRenderMes
 	}
 
 	Mesh->Materials = Model.Materials;
-
-	constexpr float Infinity = std::numeric_limits<float>::infinity();
-	Mesh->BoundsMinimum = {Infinity, Infinity, Infinity};
-	Mesh->BoundsMaximum = {-Infinity, -Infinity, -Infinity};
-	for (const FCookedVertex& Vertex : Model.Vertices)
-	{
-		for (std::size_t Axis = 0; Axis < 3; ++Axis)
-		{
-			Mesh->BoundsMinimum[Axis] = std::min(Mesh->BoundsMinimum[Axis], Vertex.Position[Axis]);
-			Mesh->BoundsMaximum[Axis] = std::max(Mesh->BoundsMaximum[Axis], Vertex.Position[Axis]);
-		}
-	}
+	Mesh->UpdateBounds(Model.Vertices);
 
 	// Large textures exceed one recording's upload budget, so submit whenever the next write would not fit.
 	std::size_t RecordedBytes = 0;
@@ -498,8 +487,6 @@ struct FMeshRenderer::FImplementation
 	{
 		FVector3 Center;
 		FVector3 Extent;
-		// Deforming meshes outgrow their cooked bounds, so they are never culled.
-		bool bAlwaysVisible = false;
 	};
 
 	IGraphicsDevice* Device = nullptr;
@@ -570,6 +557,21 @@ struct FMeshRenderer::FImplementation
 std::span<const FCookedMaterial> FRenderMesh::GetMaterials() const noexcept
 {
 	return Materials;
+}
+
+void FRenderMesh::UpdateBounds(const std::span<const FCookedVertex> NewVertices) const noexcept
+{
+	constexpr float Infinity = std::numeric_limits<float>::infinity();
+	BoundsMinimum = {Infinity, Infinity, Infinity};
+	BoundsMaximum = {-Infinity, -Infinity, -Infinity};
+	for (const FCookedVertex& Vertex : NewVertices)
+	{
+		for (std::size_t Axis = 0; Axis < 3; ++Axis)
+		{
+			BoundsMinimum[Axis] = std::min(BoundsMinimum[Axis], Vertex.Position[Axis]);
+			BoundsMaximum[Axis] = std::max(BoundsMaximum[Axis], Vertex.Position[Axis]);
+		}
+	}
 }
 
 FMeshRenderer::FMeshRenderer(std::unique_ptr<FImplementation> InImplementation)
@@ -1149,6 +1151,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		}
 	}
 
+	for (const FRenderMeshVertexUpdate& Update : View.VertexUpdates)
+	{
+		Update.Mesh->UpdateBounds(Update.Vertices);
+	}
+
 	if (View.bDrawGrid && !Display.Grid)
 	{
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "World grid requires grid vertex and fragment shaders"});
@@ -1212,17 +1219,12 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			Bounds.Center[Axis] = Transform(Axis, 0) * LocalCenter.X + Transform(Axis, 1) * LocalCenter.Y + Transform(Axis, 2) * LocalCenter.Z + Transform(Axis, 3);
 			Bounds.Extent[Axis] = std::abs(Transform(Axis, 0)) * LocalExtent.X + std::abs(Transform(Axis, 1)) * LocalExtent.Y + std::abs(Transform(Axis, 2)) * LocalExtent.Z;
 		}
-
-		Bounds.bAlwaysVisible = std::ranges::any_of(View.VertexUpdates, [Mesh](const FRenderMeshVertexUpdate& Update)
-		{
-			return Update.Mesh == Mesh;
-		});
 	}
 
 	const auto IsVisible = [&](const std::size_t ViewIndex, const std::size_t Model)
 	{
 		const FImplementation::FModelBounds& Bounds = State.ModelBounds[Model];
-		return Bounds.bAlwaysVisible || IsBoxInFrustum(State.ViewFrustums[ViewIndex], Bounds.Center, Bounds.Extent);
+		return IsBoxInFrustum(State.ViewFrustums[ViewIndex], Bounds.Center, Bounds.Extent);
 	};
 
 	if (State.InstancedPipeline)
@@ -1860,8 +1862,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				}
 
 				const FImplementation::FModelBounds& Bounds = State.ModelBounds[Index];
-				// Deforming meshes outgrow their cooked bounds.
-				const FRenderViewport Screen = Bounds.bAlwaysVisible ? FRenderViewport{.X = 0, .Y = 0, .Width = Extent.Width, .Height = Extent.Height} : GetBoxScreenBounds(WorldToClip, Extent, Bounds.Center, Bounds.Extent);
+				const FRenderViewport Screen = GetBoxScreenBounds(WorldToClip, Extent, Bounds.Center, Bounds.Extent);
 				if (Screen.Width > 0 && Screen.Height > 0)
 				{
 					Left = std::min(Left, Screen.X);

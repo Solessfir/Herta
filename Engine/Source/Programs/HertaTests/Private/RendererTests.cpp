@@ -765,6 +765,9 @@ TEST_CASE("Mesh vertex updates upload inside the frame's recording and must repl
 	CHECK(std::ranges::count(Device.Events, std::string{"Begin"}) == 1);
 	REQUIRE(Device.Vertices.size() == Moved.size());
 	CHECK(Device.Vertices.front().Position == std::array{7.f, 8.f, 9.f});
+	// Culling refits to the moved vertices, so a soft body that rolls away from its rest pose stays visible on frames without an update.
+	CHECK(Scene.Mesh->GetBoundsMinimum() == Herta::FVector3{0.f, 0.f, 0.f});
+	CHECK(Scene.Mesh->GetBoundsMaximum() == Herta::FVector3{7.f, 8.f, 9.f});
 
 	const std::array Partial{Herta::FRenderMeshVertexUpdate{.Mesh = Scene.Mesh, .Vertices = std::span{Moved}.first(1)}};
 	Scene.View.VertexUpdates = Partial;

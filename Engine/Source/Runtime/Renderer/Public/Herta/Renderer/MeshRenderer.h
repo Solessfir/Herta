@@ -98,6 +98,8 @@ public:
 	std::span<const FCookedMaterial> GetMaterials() const noexcept;
 
 private:
+	void UpdateBounds(std::span<const FCookedVertex> NewVertices) const noexcept;
+
 	struct FSection
 	{
 		std::uint32_t FirstIndex = 0;
@@ -110,8 +112,9 @@ private:
 	std::vector<FTextureHandle> Textures;
 	std::vector<FCookedMaterial> Materials;
 	std::vector<FSection> Sections;
-	FVector3 BoundsMinimum{};
-	FVector3 BoundsMaximum{};
+	// Vertex updates move deforming meshes, such as a rolling soft body, so the renderer refits these for culling.
+	mutable FVector3 BoundsMinimum{};
+	mutable FVector3 BoundsMaximum{};
 
 	friend class FMeshRenderer;
 };
