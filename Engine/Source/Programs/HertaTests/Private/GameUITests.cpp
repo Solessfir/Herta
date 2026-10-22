@@ -4,6 +4,7 @@
 #include <doctest/doctest.h>
 
 #include <array>
+#include <cmath>
 #include <string_view>
 
 namespace Herta
@@ -55,6 +56,27 @@ TEST_CASE("Game UI lays out text at the screen scale and batches it with rectang
 	UI->DrawRect({.Anchor = {1.f, 1.f}, .Pivot = {1.f, 1.f}, .Offset = {-24.f, -24.f}}, {100.f, 50.f}, MakeGameUIColor(255, 0, 0));
 	CHECK(UI->GetDrawList().Vertices[2].X == doctest::Approx(3840.f - 36.f));
 	CHECK(UI->GetDrawList().Vertices[2].Y == doctest::Approx(2160.f - 36.f));
+}
+
+TEST_CASE("Game UI small circles snap to whole pixels and sample their own disc one to one")
+{
+	Tests::FTestGraphicsDevice Device;
+	std::uint64_t Registered = 0;
+	const auto UI = CreateTestUI(Device, Registered);
+	// An odd-sized screen puts the center on a half pixel; 8 units are about 6 pixels at this height.
+	REQUIRE(UI->BeginFrame({1919, 1081}));
+	UI->DrawCircle({.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 0.5f}}, 8.f, MakeGameUIColor(255, 255, 255));
+	const FScreenDrawList Draws = UI->GetDrawList();
+	REQUIRE(Draws.Vertices.size() == 4);
+	const FScreenVertex& Minimum = Draws.Vertices[0];
+	const FScreenVertex& Maximum = Draws.Vertices[2];
+	CHECK(Minimum.X == std::round(Minimum.X));
+	CHECK(Minimum.Y == std::round(Minimum.Y));
+	CHECK(Maximum.X - Minimum.X == doctest::Approx(6.f));
+	CHECK(Maximum.Y - Minimum.Y == doctest::Approx(6.f));
+	CHECK(Minimum.V == 0.f);
+	// The glyph atlas is 1024 texels wide.
+	CHECK((Maximum.U - Minimum.U) * 1024.f == doctest::Approx(6.f));
 }
 
 TEST_CASE("Game UI menus share focus between keys and the pointer")

@@ -24,6 +24,8 @@ constexpr float LayoutHeight = 1440.f;
 constexpr std::uint32_t AtlasWidth = 1024;
 // An anti-aliased disc in the atlas corner draws dots and rounded corners; its solid middle fills rectangles, so everything batches with text.
 constexpr std::uint32_t DiscSize = 32;
+// Small dots would shrink the big disc several times over, which bilinear sampling aliases, so each whole-pixel diameter up to this gets its own exact disc.
+constexpr std::uint32_t SmallDiscCount = 16;
 
 struct FGlyph
 {
@@ -85,6 +87,9 @@ struct FGameUI::FImplementation
 	std::uint64_t AtlasId = 0;
 	FVector2 SolidUv{};
 	FVector2 DiscUv{};
+	// UV minimum of the disc with diameter Index + 1 pixels.
+	std::array<FVector2, SmallDiscCount> SmallDiscUvs{};
+	FVector2 TexelUv{};
 	float AtlasScale = 0.f;
 
 	FExtent2D Extent;
@@ -123,7 +128,8 @@ std::expected<void, FGameUIError> FGameUI::FImplementation::BuildAtlas(const flo
 
 	std::array<std::array<FBitmap, GlyphCount>, FontSizes.size()> Bitmaps;
 	std::array<std::array<std::pair<std::uint32_t, std::uint32_t>, GlyphCount>, FontSizes.size()> Positions{};
-	std::uint32_t X = DiscSize + 1;
+	// The small discs share the first row with the big one, each with a pixel of padding.
+	std::uint32_t X = DiscSize + 1 + SmallDiscCount * (SmallDiscCount + 3) / 2;
 	std::uint32_t Y = 0;
 	std::uint32_t RowHeight = DiscSize;
 	for (std::size_t Size = 0; Size < FontSizes.size(); ++Size)
@@ -182,20 +188,44 @@ std::expected<void, FGameUIError> FGameUI::FImplementation::BuildAtlas(const flo
 		Texel[3] = std::byte{Alpha};
 	};
 
-	// Coverage falls off over one texel at the rim.
-	constexpr float DiscRadius = DiscSize * 0.5f;
-	for (std::uint32_t Row = 0; Row < DiscSize; ++Row)
+	// Coverage is each texel's area inside the circle, sampled on an 8x8 grid.
+	const auto WriteDisc = [&Write](const std::uint32_t Left, const std::uint32_t Diameter)
 	{
-		for (std::uint32_t Column = 0; Column < DiscSize; ++Column)
+		constexpr int Samples = 8;
+		const float Radius = static_cast<float>(Diameter) * 0.5f;
+		for (std::uint32_t Row = 0; Row < Diameter; ++Row)
 		{
-			const float Distance = std::hypot(static_cast<float>(Column) + 0.5f - DiscRadius, static_cast<float>(Row) + 0.5f - DiscRadius);
-			Write(Column, Row, static_cast<std::uint8_t>(std::clamp(DiscRadius - Distance + 0.5f, 0.f, 1.f) * 255.f + 0.5f));
+			for (std::uint32_t Column = 0; Column < Diameter; ++Column)
+			{
+				int Inside = 0;
+				for (int SampleY = 0; SampleY < Samples; ++SampleY)
+				{
+					for (int SampleX = 0; SampleX < Samples; ++SampleX)
+					{
+						const float PointX = static_cast<float>(Column) + (static_cast<float>(SampleX) + 0.5f) / Samples - Radius;
+						const float PointY = static_cast<float>(Row) + (static_cast<float>(SampleY) + 0.5f) / Samples - Radius;
+						Inside += PointX * PointX + PointY * PointY <= Radius * Radius ? 1 : 0;
+					}
+				}
+
+				Write(Left + Column, Row, static_cast<std::uint8_t>((Inside * 255 + Samples * Samples / 2) / (Samples * Samples)));
+			}
 		}
-	}
+	};
 
 	const FVector2 Texel{1.f / static_cast<float>(AtlasWidth), 1.f / static_cast<float>(AtlasHeight)};
-	SolidUv = {DiscRadius * Texel.X, DiscRadius * Texel.Y};
+	WriteDisc(0, DiscSize);
+	TexelUv = Texel;
+	SolidUv = {DiscSize * 0.5f * Texel.X, DiscSize * 0.5f * Texel.Y};
 	DiscUv = {DiscSize * Texel.X, DiscSize * Texel.Y};
+	std::uint32_t DiscLeft = DiscSize + 1;
+	for (std::uint32_t Diameter = 1; Diameter <= SmallDiscCount; ++Diameter)
+	{
+		WriteDisc(DiscLeft, Diameter);
+		SmallDiscUvs[Diameter - 1] = {static_cast<float>(DiscLeft) * Texel.X, 0.f};
+		DiscLeft += Diameter + 1;
+	}
+
 	for (std::size_t Size = 0; Size < FontSizes.size(); ++Size)
 	{
 		for (std::size_t Index = 0; Index < GlyphCount; ++Index)
@@ -383,9 +413,20 @@ void FGameUI::DrawRect(const FGameUIPlacement& Placement, const FVector2 Size, c
 void FGameUI::DrawCircle(const FGameUIPlacement& Placement, const float Diameter, const std::uint32_t Color)
 {
 	FImplementation& UI = *Implementation;
-	const FVector2 Pixels{Diameter * UI.Scale, Diameter * UI.Scale};
-	const FVector2 Minimum = UI.Place(Placement, Pixels);
-	UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Pixels.X, Minimum.Y + Pixels.Y}, {0.f, 0.f}, UI.DiscUv, Color);
+	const float Pixels = Diameter * UI.Scale;
+	if (Pixels > static_cast<float>(SmallDiscCount))
+	{
+		const FVector2 Minimum = UI.Place(Placement, {Pixels, Pixels});
+		UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Pixels, Minimum.Y + Pixels}, {0.f, 0.f}, UI.DiscUv, Color);
+		return;
+	}
+
+	// Snapped to whole pixels, a small disc samples its exact texels one to one.
+	const float Snapped = std::max(std::round(Pixels), 1.f);
+	const FVector2 Placed = UI.Place(Placement, {Snapped, Snapped});
+	const FVector2 Minimum{std::round(Placed.X), std::round(Placed.Y)};
+	const FVector2 Uv = UI.SmallDiscUvs[static_cast<std::size_t>(Snapped) - 1];
+	UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Snapped, Minimum.Y + Snapped}, Uv, {Uv.X + Snapped * UI.TexelUv.X, Snapped * UI.TexelUv.Y}, Color);
 }
 
 FVector2 FGameUI::MeasureText(const std::string_view Text, const EGameUIFont Font) const
