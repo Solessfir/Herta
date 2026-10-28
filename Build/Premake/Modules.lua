@@ -338,7 +338,7 @@ HertaRuntimeModule("Renderer", {
     PublicDependencies = { "RHI", "Math", "Assets", "Level" },
     PrivateDependencies = { "RenderGraph" }
 })
-    externalincludedirs { path.join(RepositoryRoot, "External/smaa/Textures"), path.join(RepositoryRoot, "External/ltc") }
+    externalincludedirs { path.join(RepositoryRoot, "External/smaa/Textures"), path.join(RepositoryRoot, "External/ltc"), path.join(RepositoryRoot, "External") }
 
 local VulkanSdk = HertaGetVulkanSdk()
 HertaRuntimeModule("NvrhiVulkan", {

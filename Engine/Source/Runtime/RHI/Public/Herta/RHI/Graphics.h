@@ -50,7 +50,9 @@ enum class ETextureFormat : std::uint8_t
 	R32Uint,
 	Rg16Float,
 	// Orthographic shadow cascades keep millimetre precision in 16 bits at half the memory and bandwidth.
-	Depth16
+	Depth16,
+	// One unsigned normalized channel, such as a screen-space shadow mask.
+	R8
 };
 
 [[nodiscard]] constexpr bool IsDepthFormat(const ETextureFormat Format) noexcept
@@ -75,6 +77,8 @@ enum class ETextureFormat : std::uint8_t
 			return 16;
 		case ETextureFormat::Depth16:
 			return 2;
+		case ETextureFormat::R8:
+			return 1;
 	}
 
 	return 0;
@@ -205,6 +209,8 @@ struct FComputePipelineDescriptor
 	std::uint32_t StorageBufferCount = 0;
 	std::uint32_t UniformBufferSize = 0;
 	bool bLinearSampler = false;
+	// Reads outside a texture return zero instead of clamping to its edge.
+	bool bBorderSampler = false;
 	// Storage buffers read as StructuredBuffer from ReadBufferBinding.
 	std::uint32_t BufferCount = 0;
 };

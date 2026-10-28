@@ -19,6 +19,8 @@ struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToVie
 // GGX directional albedo terms A, B, and C by view cosine and roughness; see SpecularAlbedoTableSize in Visuals.h.
 [[vk::binding(12, 0)]] Texture2D<float4> SpecularAlbedo;
 [[vk::binding(13, 0)]] Texture2D<float4> LocalShadowAtlas;
+// Screen-space shadows toward the sun that casts the cascades, written when Visual.Occlusion.y is set.
+[[vk::binding(14, 0)]] Texture2D<float4> ContactShadow;
 
 struct FVertexOutput
 {
@@ -284,7 +286,7 @@ void RectLighting(inout FLightSum Sum, FVisualLight Light, float3 Position, floa
     Sum.Specular90 += Specular * Amplitude.y;
 }
 
-void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, float3 V, float Roughness, float DiffuseRoughness)
+void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, float3 V, float Roughness, float DiffuseRoughness, float Contact)
 {
     FVisualLight Light = Lights[Index];
     int Type = int(Light.PositionType.w);
@@ -299,7 +301,10 @@ void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, floa
     float Attenuation = LightAttenuation(Light, Position, L);
     // Shadow filtering costs more than the lighting, so pixels out of range, outside the cone, or facing away skip it.
     if (Attenuation <= 0.0 || dot(N, L) <= 0.0) return;
-    AddLight(Sum, Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, N), N, V, L, Roughness, DiffuseRoughness);
+    float Visibility = LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, N);
+    // Only the cascaded sun has contact shadows.
+    if (Type == 0 && Light.ConeShadow.w == 4.0) Visibility *= Contact;
+    AddLight(Sum, Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Visibility, N, V, L, Roughness, DiffuseRoughness);
 }
 
 [shader("fragment")]
@@ -346,14 +351,15 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     float DiffuseRoughness = Visual.Material.Specular.w;
     FLightSum Sum = (FLightSum)0;
     uint ClusterBase = LightClusterBase(Input.Position.xy, Input.WorldPosition);
+    float Contact = Visual.Occlusion.y > 0.5 ? ContactShadow.Load(int3(int2(Input.Position.xy), 0)).r : 1.0;
     // The first 32 lights get their own loop, so scenes within one mask word never step through words.
     uint WordCount = LightWordCount();
     for (uint Mask = WordCount != 0 ? LightMaskWord(ClusterBase, 0) : 0; Mask != 0; Mask &= Mask - 1)
-        ShadeLight(Sum, firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness);
+        ShadeLight(Sum, firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness, Contact);
     for (uint Word = 1; Word < WordCount; ++Word)
     {
         for (uint Mask = LightMaskWord(ClusterBase, Word); Mask != 0; Mask &= Mask - 1)
-            ShadeLight(Sum, Word * 32 + firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness);
+            ShadeLight(Sum, Word * 32 + firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness, Contact);
     }
 
     float NoV = saturate(dot(N, V));

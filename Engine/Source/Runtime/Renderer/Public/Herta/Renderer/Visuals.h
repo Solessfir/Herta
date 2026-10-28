@@ -90,6 +90,8 @@ struct FVisualSettings
 	float FogResolution = 0.25f;
 	// Skips camera instances hidden behind depth drawn this frame. It changes no pixels, only the work. Off by default: the depth-equal shading pass already skips hidden pixels, so it only pays when hidden meshes carry heavy vertex work, which no content does yet.
 	bool bOcclusionCulling = false;
+	// Screen-space shadows toward the cascaded sun, for contact detail the cascades are too coarse for. About 0.25 ms at 3200x1809, so only the High tier enables them.
+	bool bContactShadows = true;
 	// Writes per-pixel screen motion for temporal techniques; see FMeshRenderer::GetMotionVectors. Off while nothing reads it.
 	bool bMotionVectors = false;
 	bool bStudioPreview = true;
@@ -137,6 +139,8 @@ struct FVisualShaderSet
 	FShaderAsset MotionVectorsCompute;
 	// Reduces the visible view depth so sun cascades cover only what the camera sees.
 	FShaderAsset DepthBoundsCompute;
+	// Screen-space shadows toward the sun for contact detail the cascades miss.
+	FShaderAsset ContactShadowsCompute;
 };
 
 struct FShadowView

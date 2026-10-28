@@ -57,6 +57,8 @@ constexpr std::size_t MaximumGpuPassTimings = 32;
 			return nvrhi::Format::RG16_FLOAT;
 		case ETextureFormat::Depth16:
 			return nvrhi::Format::D16;
+		case ETextureFormat::R8:
+			return nvrhi::Format::R8_UNORM;
 	}
 
 	return nvrhi::Format::UNKNOWN;
@@ -534,7 +536,7 @@ public:
 		if (bSampler)
 		{
 			Layout.addItem(nvrhi::BindingLayoutItem::Sampler(0));
-			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(Descriptor.bLinearSampler).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
+			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(Descriptor.bLinearSampler).setAllAddressModes(Descriptor.bBorderSampler ? nvrhi::SamplerAddressMode::Border : nvrhi::SamplerAddressMode::Clamp).setBorderColor(nvrhi::Color(0.f)));
 		}
 
 		if (Descriptor.UniformBufferSize != 0)

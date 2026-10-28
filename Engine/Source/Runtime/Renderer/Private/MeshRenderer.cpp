@@ -5,6 +5,15 @@
 #include "Herta/Renderer/EnvironmentLighting.h"
 
 #include <AreaTex.h>
+// The vendored header converts int to float implicitly; it stays unmodified.
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4244)
+#endif
+#include <BendScreenSpaceShadows/bend_sss_cpu.h>
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
 #include <LtcTables.h>
 #include <SearchTex.h>
 
@@ -44,7 +53,7 @@ constexpr std::array<std::uint32_t, 6> GridIndices{0, 1, 2, 0, 2, 3};
 
 constexpr float GridHalfExtent = 216.f;
 // Material maps, environment, shadow atlas, and the two Rect light LTC tables, matching TexturedMesh.slang.
-constexpr std::uint32_t MeshTextureCount = 14;
+constexpr std::uint32_t MeshTextureCount = 15;
 // Lights, then their cluster masks, as in VisualLights.slangh.
 constexpr std::uint32_t MeshBufferCount = 2;
 
@@ -449,6 +458,14 @@ struct alignas(16) FDepthHierarchyUniforms
 constexpr std::uint32_t DepthHierarchyLevelsPerDispatch = 5;
 
 // Matches the candidate layout in Compute/OcclusionCull.slang.
+// Mirrors Compute/ContactShadows.slang.
+struct alignas(16) FContactShadowUniforms
+{
+	std::array<float, 4> LightCoordinate{};
+	std::array<std::int32_t, 4> WaveOffset{};
+	std::array<float, 4> InverseSize{};
+};
+
 struct FOcclusionCandidate
 {
 	std::array<float, 3> Center{};
@@ -672,6 +689,9 @@ struct FMeshRenderer::FImplementation
 	FComputePipelineHandle DepthBoundsPipeline;
 	FBufferHandle DepthBounds;
 	std::array<FBufferHandle, 3> DepthBoundsReadback;
+	// Screen-space shadows toward the sun from the depth prepass.
+	FComputePipelineHandle ContactShadowPipeline;
+	FTextureHandle ContactShadows;
 	std::size_t DepthBoundsFrame = 0;
 	float VisibleNear = 0.f;
 	float VisibleFar = std::numeric_limits<float>::infinity();
@@ -811,6 +831,17 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 			State->DepthBoundsPipeline = std::move(*DepthBounds);
 			State->DepthBounds = std::move(*Bounds);
+		}
+
+		if (!VisualShaders.ContactShadowsCompute.Bytecode.empty())
+		{
+			auto Contact = Device.CreateComputePipeline({.Name = "Contact shadows", .Shader = std::move(VisualShaders.ContactShadowsCompute), .TextureCount = 1, .StorageTextureCount = 1, .UniformBufferSize = sizeof(FContactShadowUniforms), .bBorderSampler = true});
+			if (!Contact)
+			{
+				return std::unexpected(Contact.error());
+			}
+
+			State->ContactShadowPipeline = std::move(*Contact);
 		}
 	}
 
@@ -992,7 +1023,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 		if (!VisualShaders.FogCompute.Bytecode.empty() && !VisualShaders.FogDenoiseCompute.Bytecode.empty())
 		{
-			auto March = Device.CreateComputePipeline({.Name = "Volumetric fog", .Shader = std::move(VisualShaders.FogCompute), .TextureCount = 4, .StorageTextureCount = 2, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+			auto March = Device.CreateComputePipeline({.Name = "Volumetric fog", .Shader = std::move(VisualShaders.FogCompute), .TextureCount = 4, .StorageTextureCount = 2, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .BufferCount = MeshBufferCount});
 			auto Denoise = Device.CreateComputePipeline({.Name = "Fog denoise", .Shader = std::move(VisualShaders.FogDenoiseCompute), .TextureCount = 2, .StorageTextureCount = 1, .UniformBufferSize = VisualUniformBytes});
 			if (!March || !Denoise)
 			{
@@ -1067,7 +1098,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		State->SkyView = std::move(*SkyView);
 		if (!VisualShaders.ExposureCompute.Bytecode.empty())
 		{
-			auto Exposure = Device.CreateComputePipeline({.Name = "Exposure", .Shader = std::move(VisualShaders.ExposureCompute), .TextureCount = 3, .StorageTextureCount = 1, .UniformBufferSize = VisualUniformBytes});
+			auto Exposure = Device.CreateComputePipeline({.Name = "Exposure", .Shader = std::move(VisualShaders.ExposureCompute), .TextureCount = 3, .StorageTextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
 			if (!Exposure)
 			{
 				return std::unexpected(Exposure.error());
@@ -1244,7 +1275,7 @@ std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 {
 	const FImplementation& State = *Implementation;
 	std::size_t Bytes = 0;
-	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.LocalShadowAtlas, &State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion})
+	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.LocalShadowAtlas, &State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion, &State.ContactShadows})
 	{
 		if (*Target)
 		{
@@ -1936,6 +1967,40 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	State.Uniforms.Occlusion[0] = bScreenOcclusion ? 1.f : 0.f;
+	// The sun that casts the cascades also gets screen-space contact shadows, marched toward it through the depth prepass.
+	std::optional<Bend::DispatchList> ContactDispatches;
+	if (State.ContactShadowPipeline && State.DepthPrepassPipeline && View.Visuals.bContactShadows && View.Visuals.ShadowQuality != EShadowQuality::Off)
+	{
+		const auto LightCount = static_cast<std::size_t>(State.Uniforms.Controls[0]);
+		const auto Sun = std::ranges::find_if(std::span(State.Uniforms.Lights).first(LightCount), [](const FVisualLightUniform& Light)
+		{
+			return Light.PositionType[3] == 0.f && Light.ConeShadow[3] == 4.f;
+		});
+
+		if (Sun != std::span(State.Uniforms.Lights).first(LightCount).end())
+		{
+			// Directional lights project their direction toward the light with w = 0.
+			const FVector4 Toward = WorldToClip * FVector4{-Sun->DirectionRange[0], -Sun->DirectionRange[1], -Sun->DirectionRange[2], 0.f};
+			std::array<float, 4> Projected{Toward.X, Toward.Y, Toward.Z, Toward.W};
+			std::array<int, 2> Size{static_cast<int>(Extent.Width), static_cast<int>(Extent.Height)};
+			std::array<int, 2> Minimum{0, 0};
+			std::array<int, 2> Maximum{static_cast<int>(Extent.Width), static_cast<int>(Extent.Height)};
+			ContactDispatches = Bend::BuildDispatchList(Projected.data(), Size.data(), Minimum.data(), Maximum.data());
+		}
+	}
+
+	if (ContactDispatches && (!State.ContactShadows || State.ContactShadows->GetDescriptor().Extent != Extent))
+	{
+		auto Contact = Device.CreateTexture({.Name = "Contact shadows", .Extent = Extent, .Format = ETextureFormat::R8, .bStorage = true});
+		if (!Contact)
+		{
+			return std::unexpected(Contact.error());
+		}
+
+		State.ContactShadows = std::move(*Contact);
+	}
+
+	State.Uniforms.Occlusion[1] = ContactDispatches ? 1.f : 0.f;
 	const FExtent2D LightTiles{(Extent.Width + LightClusterTileSize - 1) / LightClusterTileSize, (Extent.Height + LightClusterTileSize - 1) / LightClusterTileSize};
 	const std::size_t ClusterBytes = std::size_t{LightTiles.Width} * LightTiles.Height * LightClusterSlices * LightMaskWords * sizeof(std::uint32_t);
 	if (State.LightClusterPipeline && (!State.LightClusters || State.LightClusters->GetDescriptor().Size != ClusterBytes))
@@ -1997,6 +2062,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		Textures[11] = State.White;
 		Textures[12] = State.SpecularAlbedo;
 		Textures[13] = State.LocalShadowAtlas;
+		// Only the PBR pass reads contact shadows; earlier passes run before they are written.
+		Textures[14] = State.White;
 		return Textures;
 	};
 
@@ -2338,6 +2405,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 						Textures[11] = State.GtaoOcclusion;
 					}
 
+					if (ContactDispatches && !bDepthPrepass)
+					{
+						Textures[14] = State.ContactShadows;
+					}
+
 					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? Prepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bVelocity ? State.MotionVectors : ColorTarget, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers};
 					if (State.bOcclusionCulling)
 					{
@@ -2383,6 +2455,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				if (bScreenOcclusion && !bDepthPrepass)
 				{
 					Textures[11] = State.GtaoOcclusion;
+				}
+
+				if (ContactDispatches && !bDepthPrepass)
+				{
+					Textures[14] = State.ContactShadows;
 				}
 
 				const auto Result = Device.DrawIndexed({.Pipeline = bDepthPrepass ? State.DepthPrepassPipeline : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = ColorTarget, .DepthTarget = FrameDepth, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .ObjectToView = ObjectToView, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers});
@@ -2478,6 +2555,33 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	const auto ScreenOcclusion = Graph.ImportResource("Screen occlusion");
+	if (ContactDispatches)
+	{
+		Graph.AddPass("Contact shadows", {{.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+		{
+			const auto Timer = TimedPass("Contact shadows");
+			const std::array SceneDepth{FrameDepth};
+			const std::array Target{FStorageTextureBinding{.Texture = State.ContactShadows}};
+			for (int Index = 0; Index < ContactDispatches->DispatchCount; ++Index)
+			{
+				const Bend::DispatchData& Dispatch = ContactDispatches->Dispatch[Index];
+				const FContactShadowUniforms Uniforms{
+				    .LightCoordinate = {ContactDispatches->LightCoordinate_Shader[0], ContactDispatches->LightCoordinate_Shader[1], ContactDispatches->LightCoordinate_Shader[2], ContactDispatches->LightCoordinate_Shader[3]},
+				    .WaveOffset = {Dispatch.WaveOffset_Shader[0], Dispatch.WaveOffset_Shader[1], 0, 0},
+				    .InverseSize = {1.f / static_cast<float>(Extent.Width), 1.f / static_cast<float>(Extent.Height), 0.f, 0.f},
+				};
+
+				const std::array<std::uint32_t, 3> Groups{static_cast<std::uint32_t>(Dispatch.WaveCount[0]), static_cast<std::uint32_t>(Dispatch.WaveCount[1]), static_cast<std::uint32_t>(Dispatch.WaveCount[2])};
+				if (const auto Result = Device.Dispatch({.Pipeline = State.ContactShadowPipeline, .Textures = SceneDepth, .StorageTextures = Target, .Uniforms = std::as_bytes(std::span{&Uniforms, 1}), .GroupCount = Groups}); !Result)
+				{
+					return GraphResult(Result);
+				}
+			}
+
+			return {};
+		});
+	}
+
 	if (bScreenOcclusion)
 	{
 		Graph.AddPass("Ambient occlusion", {{.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::Write}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>

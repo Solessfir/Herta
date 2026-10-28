@@ -3285,6 +3285,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 					ImGui::EndCombo();
 				}
 
+				Toggle("Contact shadows", VisualSettings.bContactShadows);
 				Toggle("Occlusion culling", VisualSettings.bOcclusionCulling);
 			}
 		}
@@ -4684,6 +4685,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	PlayVisuals.AmbientOcclusion = VisualSettings.AmbientOcclusion;
 	PlayVisuals.FogResolution = VisualSettings.FogResolution;
 	PlayVisuals.bOcclusionCulling = VisualSettings.bOcclusionCulling;
+	PlayVisuals.bContactShadows = VisualSettings.bContactShadows;
 }
 
 void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const ImVec2 Size)
