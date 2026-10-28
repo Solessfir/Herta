@@ -415,6 +415,14 @@ struct FToolUIContext::FImplementation
 	bool bProgrammaticWindowPosition = false;
 	bool bVSync = true;
 	bool bBuildDefaultLayout = false;
+
+	struct FFloatRequest
+	{
+		FToolUICanvasBounds Bounds;
+		int Frames = 2;
+	};
+
+	std::unordered_map<std::string, FFloatRequest> FloatRequests;
 	bool bOutlinerDockMigrationComplete = false;
 	bool bContentDockMigrationComplete = false;
 	bool bFrameActive = false;
@@ -1858,9 +1866,11 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		ImGuiIO& Input = ImGui::GetIO();
 		Input.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
 		const bool bMultiViewportRendererAvailable = Implementation->Renderer.CreateViewport && Implementation->Renderer.DestroyViewport && Implementation->Renderer.ResizeViewport && Implementation->Renderer.BeginViewportFrame && Implementation->Renderer.RenderViewport && Implementation->Renderer.PresentViewport;
+		// ImGui silently turns multi-viewports off unless the renderer also claims support.
 		if (bMultiViewportRendererAvailable)
 		{
 			Input.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+			Input.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;
 		}
 
 		Input.ConfigDpiScaleFonts = true;
@@ -2492,6 +2502,22 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		}
 	}
 
+	// ImGui gives a window its own native window only when a user drags it out. A floated panel briefly refuses to merge into the main window instead, which needs a frame to undock and one to take the new viewport.
+	ImGuiWindowClass Class;
+	if (const auto Float = Implementation->FloatRequests.find(std::string(Name)); Float != Implementation->FloatRequests.end() && !bViewport)
+	{
+		ImGui::SetNextWindowDockID(0, ImGuiCond_Always);
+		ImGui::SetNextWindowPos({Float->second.Bounds.X, Float->second.Bounds.Y}, ImGuiCond_Always);
+		ImGui::SetNextWindowSize({Float->second.Bounds.Width, Float->second.Bounds.Height}, ImGuiCond_Always);
+		Class.ViewportFlagsOverrideSet = ImGuiViewportFlags_NoAutoMerge;
+		if (--Float->second.Frames == 0)
+		{
+			Implementation->FloatRequests.erase(Float);
+		}
+	}
+
+	ImGui::SetNextWindowClass(&Class);
+
 	if (Name == "Performance" && ImGui::FindWindowSettingsByID(WindowId) == nullptr)
 	{
 		// Add the panel as a tab beside Details without resetting an existing workspace.
@@ -2634,6 +2660,29 @@ void FToolUIContext::SetViewportImmersive(const bool bImmersive) noexcept
 bool FToolUIContext::IsViewportImmersive() const noexcept
 {
 	return Implementation->bViewportImmersive;
+}
+
+void FToolUIContext::FloatPanel(const std::string_view Name, const FToolUICanvasBounds Bounds)
+{
+	Implementation->FloatRequests.insert_or_assign(std::string(Name), FImplementation::FFloatRequest{.Bounds = Bounds});
+}
+
+void FToolUIContext::ResetLayout() noexcept
+{
+	Implementation->bBuildDefaultLayout = true;
+}
+
+std::size_t FToolUIContext::GetPlatformWindowCount() const noexcept
+{
+	ImGui::SetCurrentContext(Implementation->Context);
+	return static_cast<std::size_t>(ImGui::GetPlatformIO().Viewports.Size);
+}
+
+FToolUICanvasBounds FToolUIContext::GetMainWindowBounds() const noexcept
+{
+	ImGui::SetCurrentContext(Implementation->Context);
+	const ImGuiViewport* const Main = ImGui::GetMainViewport();
+	return {.X = Main->Pos.x, .Y = Main->Pos.y, .Width = Main->Size.x, .Height = Main->Size.y};
 }
 
 std::vector<std::filesystem::path> FToolUIContext::TakeDroppedFiles()

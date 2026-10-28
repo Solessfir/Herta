@@ -171,6 +171,14 @@ public:
 	void EndPanel();
 	void SetViewportImmersive(bool bImmersive) noexcept;
 	[[nodiscard]] bool IsViewportImmersive() const noexcept;
+	// Undocks a panel to screen-space bounds the next time it begins. Bounds outside the main window give it its own native window.
+	void FloatPanel(std::string_view Name, FToolUICanvasBounds Bounds);
+	// Rebuilds the default layout next frame, docking every panel back into the main window.
+	void ResetLayout() noexcept;
+	// Native windows ImGui currently renders, including the main one.
+	[[nodiscard]] std::size_t GetPlatformWindowCount() const noexcept;
+	// The main window in the screen coordinates FloatPanel takes.
+	[[nodiscard]] FToolUICanvasBounds GetMainWindowBounds() const noexcept;
 	// Hides the pointer and reports relative motion through ImGui mouse deltas, for play in the viewport.
 	void SetCursorCaptured(bool bCaptured);
 	bool IsPanelFocused(std::string_view Name) const noexcept;

@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -220,7 +221,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -801,6 +802,24 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		EditorFramework->SetRenderQuality(static_cast<ERenderQuality>(Tier - Tiers.begin()));
 	}
 
+	if (!ResolutionArgument.empty())
+	{
+		const std::size_t Separator = ResolutionArgument.find('x');
+		FExtent2D Resolution{};
+		const std::string_view Width = ResolutionArgument.substr(0, Separator);
+		const std::string_view Height = Separator == std::string_view::npos ? std::string_view{} : ResolutionArgument.substr(Separator + 1);
+		const auto [WidthEnd, WidthError] = std::from_chars(Width.data(), Width.data() + Width.size(), Resolution.Width);
+		const auto [HeightEnd, HeightError] = std::from_chars(Height.data(), Height.data() + Height.size(), Resolution.Height);
+		// The viewport caps its render target at 4096 pixels per side.
+		if (WidthError != std::errc{} || HeightError != std::errc{} || WidthEnd != Width.data() + Width.size() || HeightEnd != Height.data() + Height.size() || Resolution.Width == 0 || Resolution.Height == 0 || Resolution.Width > 4096 || Resolution.Height > 4096)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Invalid --resolution={}; expected WIDTHxHEIGHT up to 4096x4096, such as 1920x1080", ResolutionArgument);
+			return 1;
+		}
+
+		EditorFramework->SetViewportResolution(Resolution);
+	}
+
 	if (bSmokeTest)
 	{
 		for (const std::string_view Command : {"stat unit", "stat fps"})
@@ -1072,6 +1091,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::uint32_t SmokeFrameCount = bInitialFramePresented ? 1 : 0;
 	std::uint32_t SmokeAttemptCount = 1;
 	std::uint32_t StressStep = 0;
+	// After the resize stress, panels that show renderer output float into their own native windows, resize, and dock back.
+	// Wayland cannot place windows, so it skips this phase.
+	constexpr std::uint32_t MultiViewportSteps = 13;
+	std::uint32_t MultiViewportStep = bRendererTest && Application->GetCapabilities().bProgrammaticWindowPosition ? 0 : MultiViewportSteps;
 	const FEditorAppearance SmokeAppearance = ToolUI->GetAppearance();
 	std::array<std::vector<double>, 5> ScalingSamples;
 	std::vector<FMatrix4> AuthoredModels;
@@ -1204,6 +1227,48 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			{
 				ToolUI->SetAppearance(SmokeAppearance);
 			}
+		}
+		else if (bRendererTest && MultiViewportStep < MultiViewportSteps)
+		{
+			// Each panel crosses an edge of the main window, so ImGui cannot merge it back and gives it its own swapchain.
+			const FToolUICanvasBounds Main = ToolUI->GetMainWindowBounds();
+			const auto FloatPanels = [&](const float Width, const float Height)
+			{
+				ToolUI->FloatPanel("Content Browser", {.X = Main.X + Main.Width - Width * 0.5f, .Y = Main.Y + 80.f, .Width = Width, .Height = Height});
+				ToolUI->FloatPanel("Details", {.X = Main.X - Width * 0.5f, .Y = Main.Y + 80.f, .Width = Width, .Height = Height});
+			};
+
+			const std::size_t Windows = ToolUI->GetPlatformWindowCount();
+			if (MultiViewportStep == 0)
+			{
+				FloatPanels(640.f, 420.f);
+			}
+			else if (MultiViewportStep == 4 || MultiViewportStep == 8)
+			{
+				if (Windows < 3)
+				{
+					HERTA_LOG_ERROR(*Log, EditorLog, "Floating panels did not open native windows: {} platform windows", Windows);
+					bRenderFailed = true;
+					break;
+				}
+
+				if (MultiViewportStep == 4)
+				{
+					FloatPanels(900.f, 600.f);
+				}
+				else
+				{
+					ToolUI->ResetLayout();
+				}
+			}
+			else if (MultiViewportStep == MultiViewportSteps - 1 && Windows != 1)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Resetting the layout left {} platform windows instead of docking every panel back", Windows);
+				bRenderFailed = true;
+				break;
+			}
+
+			++MultiViewportStep;
 		}
 
 		Application->PumpEvents();
@@ -1489,7 +1554,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 		}
 
-		if (bSmokeTest && SmokeFrameCount >= (bRendererTest ? 24u : 3u))
+		if (bSmokeTest && SmokeFrameCount >= (bRendererTest ? 24u : 3u) && MultiViewportStep == MultiViewportSteps)
 		{
 			Window.RequestClose();
 		}
@@ -1554,6 +1619,7 @@ int main(const int ArgumentCount, char** const Arguments)
 		const bool bScalingSimulate = Herta::HasArgument(ArgumentCount, Arguments, "--scaling-simulate");
 		const std::string_view ProjectPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--project=");
 		const std::string_view Quality = Herta::FindArgumentValue(ArgumentCount, Arguments, "--quality=");
+		const std::string_view Resolution = Herta::FindArgumentValue(ArgumentCount, Arguments, "--resolution=");
 		// Explorer passes a file dropped on the executable as a plain argument.
 		std::filesystem::path OpenPath;
 		for (const std::filesystem::path& Argument : Herta::GetProcessArgumentPaths(ArgumentCount, Arguments))
@@ -1565,7 +1631,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution);
 	}
 	catch (const std::exception& Exception)
 	{

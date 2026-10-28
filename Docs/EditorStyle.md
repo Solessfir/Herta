@@ -225,7 +225,7 @@ The editor shell requires focused coverage for:
 - Focus, maximize, restore, live resize, DPI changes, and system-menu behavior.
 - Minimized event waiting without continuous frame production.
 - Win32, X11, and Wayland lifecycle smoke tests.
-- Per-viewport title-bar and renderer state with Dear ImGui multi-viewports enabled.
+- Per-viewport title-bar and renderer state with Dear ImGui multi-viewports enabled. ImGui disables multi-viewports unless the renderer backend flag is set too, so ToolUI sets `ImGuiBackendFlags_RendererHasViewports` with the viewport callbacks.
 - First-run default docking without overwriting a saved layout.
 - Roboto loading, FreeType integration, and required license metadata.
 - Presence of the Windows `GLFW_ICON` resource in packaged editor builds.

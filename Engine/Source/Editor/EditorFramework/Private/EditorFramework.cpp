@@ -615,6 +615,7 @@ struct FEditorFramework::FImplementation
 	std::size_t EnabledLightCount = 0;
 	std::size_t ReportedLightBudgetCount = 0;
 	FVisualSettings VisualSettings;
+	std::optional<FExtent2D> ViewportResolution;
 	FEditorDisplayState DisplayState;
 	// Shown only while the Appearance popup that controls it is open.
 	bool bHdrCalibration = false;
@@ -1013,6 +1014,11 @@ void FEditorFramework::SetPlayPaused(const bool bPaused) noexcept
 void FEditorFramework::SetRenderQuality(const ERenderQuality Quality) noexcept
 {
 	ApplyRenderQuality(Implementation->VisualSettings, Quality);
+}
+
+void FEditorFramework::SetViewportResolution(const std::optional<FExtent2D> Resolution) noexcept
+{
+	Implementation->ViewportResolution = Resolution;
 }
 
 bool FEditorFramework::IsUnitStatsVisible() const noexcept
@@ -3893,7 +3899,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 		const ImVec2 RenderSize = WorkspaceCanvas ? ImVec2{WorkspaceCanvas->Width, WorkspaceCanvas->Height} : Size;
 		const float Scale = ImGui::GetWindowViewport()->DpiScale;
 		const float RenderScale = std::min(Scale, 4096.f / std::max({RenderSize.x, RenderSize.y, 1.f}));
-		ViewportExtent = {.Width = static_cast<std::uint32_t>(std::max(RenderSize.x * RenderScale, 1.f)), .Height = static_cast<std::uint32_t>(std::max(RenderSize.y * RenderScale, 1.f))};
+		ViewportExtent = ViewportResolution.value_or(FExtent2D{.Width = static_cast<std::uint32_t>(std::max(RenderSize.x * RenderScale, 1.f)), .Height = static_cast<std::uint32_t>(std::max(RenderSize.y * RenderScale, 1.f))});
 
 		if (Size.x > 0 && Size.y > 0 && RenderSize.x > 0 && RenderSize.y > 0)
 		{
