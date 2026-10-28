@@ -116,6 +116,8 @@ Measured and left as they are:
 - Automatic exposure occupies one SM for about 0.03 ms. Spreading it across groups needs a second dispatch for the reduction, which costs a pipeline drain of its own.
 - Each pass boundary still drains the pipe; merging passes that read the same inputs is the remaining lever.
 
+A per-tier GPU Trace on the same day, after the shadow work, found no pass running for a disabled feature: Low runs no GTAO, contact shadows, or soft shadow search, and Medium runs no contact shadows. The remaining clears are needed: depth before the prepass, and SMAA weights, which the indirect weight pass writes only at edge pixels. Two ranges looked expensive in the trace and were not: Low's sky read 0.95 ms because the editor UI's command list executed inside that range (19 draws and 4.7 million extra colour pixels against the sky's one triangle), and Medium's PBR range read 1.38 ms the same way; the renderer's own timestamps put them at 0.08 and 0.73 ms. Idle time in those traces is the visual test waiting on the editor's CPU frame. Bookmark averages at 3200x1809 are 1.32 ms on Low, 2.71 ms on Medium, and 3.48 ms on High, where contact shadows (0.23 ms) and percentage-closer soft shadows (about 0.06 ms) account for most of the rise since the tiers were introduced.
+
 ## Verification
 
 `HertaTests` covers camera/picking and viewport input ownership, grouped authoring, graph/resource failure cleanup, renderer projection/winding, PBR material serialization and color-space/channel rules, normals/tangents, HDR environment filtering, light/shadow budgets, shader reflection and deterministic compilation, and shader snapshot coalescing with last-valid publication.
