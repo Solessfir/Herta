@@ -73,6 +73,7 @@ public:
 	std::vector<bool> IndirectDispatches;
 	std::vector<std::string> StorageWrites;
 	std::vector<std::vector<Herta::FTextureHandle>> DrawTextures;
+	std::vector<std::vector<Herta::FBufferHandle>> DrawBuffers;
 	std::vector<std::vector<std::byte>> DrawUniforms;
 	Herta::FIndexedDraw LastDraw;
 	std::uint64_t Submissions = 0;
@@ -194,8 +195,10 @@ public:
 		LastDraw = Draw;
 		Draws.push_back(Draw);
 		DrawTextures.emplace_back(Draw.Textures.begin(), Draw.Textures.end());
+		DrawBuffers.emplace_back(Draw.Buffers.begin(), Draw.Buffers.end());
 		DrawUniforms.emplace_back(Draw.Uniforms.begin(), Draw.Uniforms.end());
 		Draws.back().Textures = DrawTextures.back();
+		Draws.back().Buffers = DrawBuffers.back();
 		Draws.back().Uniforms = DrawUniforms.back();
 		LastDraw = Draws.back();
 		if (bFailDraw)

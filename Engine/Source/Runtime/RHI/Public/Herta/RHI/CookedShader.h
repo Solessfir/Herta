@@ -24,7 +24,9 @@ enum class EShaderBindingType : std::uint32_t
 	ConstantBuffer,
 	// Compute-only read-write images and uint buffers at Vulkan bindings 384 and up.
 	StorageTexture,
-	StorageBuffer
+	StorageBuffer,
+	// Read-only StructuredBuffer at Vulkan bindings 16..23.
+	Buffer
 };
 
 struct FShaderBinding

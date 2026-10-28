@@ -16,7 +16,7 @@ Missing or failed textures and shader updates retain the last valid preview and 
 
 ## Shader iteration
 
-An empty shader path uses `Engine/Shaders/TexturedMesh.slang`. A nonempty portable `.slang` path is relative to the material's own content mount. Prefix it with `Game/` or `Engine/` to select that content mount explicitly, including cross-mount references. These prefixes select content roots, not `Engine/Shaders`; include `VisualShared.slangh` from the separate engine shader include root. Headless cooks provide explicit Engine/Game roots to resolve mounted paths, and use the requested content root as Game when no separate Game root is configured.
+An empty shader path uses `Engine/Shaders/TexturedMesh.slang`. A nonempty portable `.slang` path is relative to the material's own content mount. Prefix it with `Game/` or `Engine/` to select that content mount explicitly, including cross-mount references. These prefixes select content roots, not `Engine/Shaders`; include `VisualShared.slangh` from the separate engine shader include root, and `VisualLights.slangh` to read lights and their cluster masks; the uniform block no longer carries lights. Headless cooks provide explicit Engine/Game roots to resolve mounted paths, and use the requested content root as Game when no separate Game root is configured.
 
 - Entry points: `vertexMain`, `instancedVertexMain`, and `fragmentMain`.
 - Vertex data: position, UV, normal, and tangent with handedness; instancing carries object-to-clip and object-to-view matrices.

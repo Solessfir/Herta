@@ -1,8 +1,22 @@
 #include "Fullscreen.slangh"
+#include "VisualLights.slangh"
 [[vk::binding(0, 0)]] Texture2D<float4> DepthTexture;
 [[vk::binding(1, 0)]] Texture2D<float4> ShadowAtlas;
 [[vk::binding(2, 0)]] Texture2D<float4> DiffuseEnvironment;
-[[vk::binding(3, 0)]] Texture2D<uint> LightClusters;
+
+// In-scattered light from one light at Position along the view Direction.
+float3 FogLight(uint Index, float3 Position, float3 Direction)
+{
+    FVisualLight Light = Lights[Index];
+    if (int(Light.PositionType.w) == 1) return 0.0;
+    float3 L;
+    float Attenuation = LightAttenuation(Light, Position, L);
+    if (Attenuation <= 0.0) return 0.0;
+    float G = Visual.Fog.z;
+    float Mu = dot(-Direction, L);
+    float Phase = (1.0 - G * G) / (4.0 * PI * pow(max(0.002, 1.0 + G * G - 2.0 * G * Mu), 1.5));
+    return Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Phase * LightVisibility(ShadowAtlas, Light, Position, float3(0.0, 0.0, 0.0), false);
+}
 
 [shader("fragment")]
 float4 fragmentMain(FFullscreenOutput Input) : SV_Target
@@ -30,17 +44,15 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
         float3 Incoming = Ambient;
         if (Visual.Controls.w > 0.0)
         {
-            for (uint Mask = LightMask(LightClusters, Input.UV * Visual.Viewport.zw, Position); Mask != 0; Mask &= Mask - 1)
+            uint ClusterBase = LightClusterBase(Input.UV * Visual.Viewport.zw, Position);
+            // The first 32 lights get their own loop, as in the mesh shader.
+            uint WordCount = LightWordCount();
+            for (uint Mask = WordCount != 0 ? LightMaskWord(ClusterBase, 0) : 0; Mask != 0; Mask &= Mask - 1)
+                Incoming += FogLight(firstbitlow(Mask), Position, Direction);
+            for (uint Word = 1; Word < WordCount; ++Word)
             {
-                FVisualLight Light = Visual.Lights[firstbitlow(Mask)];
-                if (int(Light.PositionType.w) == 1) continue;
-                float3 L;
-                float Attenuation = LightAttenuation(Light, Position, L);
-                if (Attenuation <= 0.0) continue;
-                float G = Visual.Fog.z;
-                float Mu = dot(-Direction, L);
-                float Phase = (1.0 - G * G) / (4.0 * PI * pow(max(0.002, 1.0 + G * G - 2.0 * G * Mu), 1.5));
-                Incoming += Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Phase * LightVisibility(ShadowAtlas, Light, Position, float3(0.0, 0.0, 0.0), false);
+                for (uint Mask = LightMaskWord(ClusterBase, Word); Mask != 0; Mask &= Mask - 1)
+                    Incoming += FogLight(Word * 32 + firstbitlow(Mask), Position, Direction);
             }
         }
         Scattering += Transmittance * (1.0 - SegmentT) * Visual.FogColor.rgb * Incoming;

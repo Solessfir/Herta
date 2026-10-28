@@ -1,5 +1,5 @@
-#include "../VisualShared.slangh"
-[[vk::binding(384, 0)]] [format("r32ui")] RWTexture2D<uint> Clusters;
+#include "../VisualLights.slangh"
+[[vk::binding(384, 0)]] RWStructuredBuffer<uint> ClusterMasks;
 
 // One thread per cluster: a 64-pixel screen tile and one exponential depth slice. Its bits are the lights whose bounding sphere touches the cluster's view-space box.
 [shader("compute")]
@@ -12,7 +12,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     if (Id.x >= TilesX || Id.y >= TilesY || Id.z >= LightClusterSlices)
         return;
 
-    // Inverts Slice = log2(ViewZ) * Scale + Bias. The last slice reaches to infinity.
+    // Inverts Slice = log2(ViewZ) * Scale + Bias. The first slice starts at the eye and the last reaches to infinity.
     float Near = Id.z == 0 ? 0.0 : exp2((float(Id.z) - Visual.LightGrid.z) / Visual.LightGrid.y);
     float Far = Id.z + 1 == LightClusterSlices ? 1e30 : exp2((float(Id.z + 1) - Visual.LightGrid.z) / Visual.LightGrid.y);
     float2 PixelMinimum = float2(Id.xy * TileSize);
@@ -31,27 +31,29 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     }
 
     float3 Eye = mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
-    uint Mask = 0;
+    uint Masks[LightMaskWords];
+    for (uint Word = 0; Word < LightMaskWords; ++Word)
+        Masks[Word] = 0;
+
     for (uint I = 0; I < uint(Visual.Controls.x); ++I)
     {
-        FVisualLight Light = Visual.Lights[I];
+        FVisualLight Light = Lights[I];
         int Type = int(Light.PositionType.w);
-        if (Type == 0)
+        bool bReaches = Type == 0;
+        if (Type > 1)
         {
-            Mask |= 1u << I;
-            continue;
+            // Rect range is measured from the emitter's surface.
+            float Radius = Light.DirectionRange.w + (Type == 4 ? 0.5 * length(float2(Light.RightWidth.w, Light.UpHeight.w)) : 0.0);
+            float3 Center = mul(Light.PositionType.xyz - Eye, (float3x3)Visual.ViewToWorld);
+            float3 Outside = max(Minimum - Center, 0.0) + max(Center - Maximum, 0.0);
+            bReaches = dot(Outside, Outside) <= Radius * Radius;
         }
 
-        if (Type == 1)
-            continue;
-
-        // Rect range is measured from the emitter's surface.
-        float Radius = Light.DirectionRange.w + (Type == 4 ? 0.5 * length(float2(Light.RightWidth.w, Light.UpHeight.w)) : 0.0);
-        float3 Center = mul(Light.PositionType.xyz - Eye, (float3x3)Visual.ViewToWorld);
-        float3 Outside = max(Minimum - Center, 0.0) + max(Center - Maximum, 0.0);
-        if (dot(Outside, Outside) <= Radius * Radius)
-            Mask |= 1u << I;
+        if (bReaches)
+            Masks[I / 32] |= 1u << (I % 32);
     }
 
-    Clusters[uint2(Id.z * TilesX + Id.x, Id.y)] = Mask;
+    uint Base = ((Id.y * TilesX + Id.x) * LightClusterSlices + Id.z) * LightMaskWords;
+    for (uint Word = 0; Word < LightMaskWords; ++Word)
+        ClusterMasks[Base + Word] = Masks[Word];
 }

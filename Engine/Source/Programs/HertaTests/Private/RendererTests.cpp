@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 #include <limits>
 #include <numbers>
@@ -431,8 +432,8 @@ TEST_CASE("Render meshes draw each section with its texture and upload within th
 	CHECK(Device.Draws[0].FirstIndex == 0);
 	CHECK(Device.Draws[1].FirstIndex == 3);
 	CHECK(Device.Draws[1].IndexCount == 3);
-	REQUIRE(Device.Draws[0].Textures.size() == 13);
-	REQUIRE(Device.Draws[1].Textures.size() == 13);
+	REQUIRE(Device.Draws[0].Textures.size() == 12);
+	REQUIRE(Device.Draws[1].Textures.size() == 12);
 	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
 	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().MipLevels == Large.Mips.size());
 	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().Format == Herta::ETextureFormat::Rgba8);
@@ -625,8 +626,8 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	CHECK(Device.Draws[1].FirstInstance == 0);
 	CHECK(Device.Draws[1].InstanceCount == 2);
 	CHECK(Device.Draws[1].FirstIndex == 18);
-	REQUIRE(Device.Draws[0].Textures.size() == 13);
-	REQUIRE(Device.Draws[1].Textures.size() == 13);
+	REQUIRE(Device.Draws[0].Textures.size() == 12);
+	REQUIRE(Device.Draws[1].Textures.size() == 12);
 	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
 	CHECK(Device.Draws[2].FirstInstance == 2);
 	CHECK(Device.Draws[2].InstanceCount == 1);
@@ -720,10 +721,6 @@ TEST_CASE("Light clusters are built before any mesh pass binds them")
 	REQUIRE(FirstDispatch != Device.Events.end());
 	CHECK(std::ranges::count(Device.Events.begin(), FirstDispatch, "Draw") == 0);
 
-	// 16 by 10 tiles of 64 pixels, with every depth slice side by side.
-	const auto Clusters = std::ranges::find(Device.TextureDescriptors, "Light clusters", &FTextureDescriptor::Name);
-	REQUIRE(Clusters != Device.TextureDescriptors.end());
-	CHECK(Clusters->Extent == FExtent2D{16 * LightClusterSlices, 10});
 	const auto ShadedDraw = [&Device]
 	{
 		return *std::ranges::find_if(Device.Draws, [](const FIndexedDraw& Draw)
@@ -733,23 +730,27 @@ TEST_CASE("Light clusters are built before any mesh pass binds them")
 	};
 
 	const FIndexedDraw Shaded = ShadedDraw();
-	REQUIRE(Shaded.Textures.size() == 13);
-	CHECK(Shaded.Textures[12]->GetDescriptor().Name == "Light clusters");
-	FVisualUniforms Uniforms;
-	REQUIRE(Shaded.Uniforms.size() == sizeof(Uniforms));
-	std::memcpy(&Uniforms, Shaded.Uniforms.data(), sizeof(Uniforms));
-	CHECK(Uniforms.LightGrid[0] == 64.f);
-	CHECK(Uniforms.LightGrid[3] == 16.f);
+	REQUIRE(Shaded.Buffers.size() == 2);
+	CHECK(Shaded.Buffers[0]->GetDescriptor().Name == "Lights");
+	// 16 by 10 tiles of 64 pixels, each with every depth slice and one bit per light.
+	CHECK(Shaded.Buffers[1]->GetDescriptor().Name == "Light clusters");
+	CHECK(Shaded.Buffers[1]->GetDescriptor().Size == std::size_t{16} * 10 * LightClusterSlices * LightMaskWords * sizeof(std::uint32_t));
+	// Draws upload only the uniform block, which ends before the lights.
+	REQUIRE(Shaded.Uniforms.size() == VisualUniformBytes);
+	std::array<float, 4> LightGrid;
+	std::memcpy(LightGrid.data(), Shaded.Uniforms.data() + offsetof(FVisualUniforms, LightGrid), sizeof(LightGrid));
+	CHECK(LightGrid[0] == 64.f);
+	CHECK(LightGrid[3] == 16.f);
 	// 0.1 m starts slice 0 and 500 m ends the last one.
-	CHECK(std::log2(0.1f) * Uniforms.LightGrid[1] + Uniforms.LightGrid[2] == doctest::Approx(0.f).epsilon(1e-4));
-	CHECK(std::log2(500.f) * Uniforms.LightGrid[1] + Uniforms.LightGrid[2] == doctest::Approx(static_cast<float>(LightClusterSlices)));
+	CHECK(std::log2(0.1f) * LightGrid[1] + LightGrid[2] == doctest::Approx(0.f).epsilon(1e-4));
+	CHECK(std::log2(500.f) * LightGrid[1] + LightGrid[2] == doctest::Approx(static_cast<float>(LightClusterSlices)));
 
-	// Renderers without the cluster shader bind a texel with every light set and leave the grid off.
+	// Renderers without the cluster shader bind one all-set mask and leave the grid off.
 	const auto Plain = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {});
 	REQUIRE(Plain);
 	Device.Draws.clear();
 	REQUIRE((*Plain)->Render({64, 64}, Scene.View));
-	CHECK(ShadedDraw().Textures[12]->GetDescriptor().Name == "Unculled lights");
+	CHECK(ShadedDraw().Buffers[1]->GetDescriptor().Name == "Unculled lights");
 }
 
 TEST_CASE("Compute SMAA lists edge pixels and runs the weight pass indirectly")
@@ -768,7 +769,7 @@ TEST_CASE("Compute SMAA lists edge pixels and runs the weight pass indirectly")
 	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
 	CHECK(Device.Dispatches == std::vector<std::string>{"SMAA edges", "SMAA weights"});
 	CHECK(Device.IndirectDispatches == std::vector<bool>{false, true});
-	CHECK(Device.StorageWrites == std::vector<std::string>{"SMAA weight arguments"});
+	CHECK(std::ranges::count(Device.StorageWrites, "SMAA weight arguments") == 1);
 	CHECK(std::ranges::none_of(Device.Draws, [](const FIndexedDraw& Draw)
 	{
 		const std::string& Name = std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor.Name;
@@ -806,7 +807,7 @@ TEST_CASE("Material shader sharing reuses compatible pipelines and counts only s
 		FShaderAsset Result;
 		Result.Stage = Stage;
 		Result.EntryPoint = EntryPoint;
-		Result.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = sizeof(FVisualUniforms)}};
+		Result.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = VisualUniformBytes}};
 		Result.Bytecode = {1};
 		return Result;
 	};

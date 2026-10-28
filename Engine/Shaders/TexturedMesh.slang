@@ -1,4 +1,5 @@
 #include "VisualShared.slangh"
+#include "VisualLights.slangh"
 
 struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToView; };
 [[vk::push_constant]] ConstantBuffer<FTransform> Transform;
@@ -15,7 +16,6 @@ struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToVie
 [[vk::binding(10, 0)]] Texture2D<float4> LtcAmplitude;
 // View-space bent normal in rgb and visibility in a, from the GTAO compute passes.
 [[vk::binding(11, 0)]] Texture2D<float4> ScreenOcclusion;
-[[vk::binding(12, 0)]] Texture2D<uint> LightClusters;
 
 struct FVertexOutput
 {
@@ -141,6 +141,24 @@ float3 RectLighting(FVisualLight Light, float3 Position, float3 N, float3 V, flo
     return Radiance * Fade * (Diffuse + Specular);
 }
 
+float3 ShadeLight(uint Index, float3 Position, float3 N, float3 V, float3 BaseColor, float Metallic, float Roughness)
+{
+    FVisualLight Light = Lights[Index];
+    if (int(Light.PositionType.w) == 1) return 0.0;
+    float3 Radiance;
+    if (int(Light.PositionType.w) == 4)
+        Radiance = RectLighting(Light, Position, N, V, BaseColor, Metallic, Roughness);
+    else
+    {
+        float3 L;
+        float Attenuation = LightAttenuation(Light, Position, L);
+        Radiance = BRDF(N, V, L, BaseColor, Metallic, Roughness) * Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation;
+    }
+    // Shadow filtering costs more than the lighting, so pixels out of range, outside the cone, or facing away skip it.
+    if (all(Radiance <= 0.0)) return 0.0;
+    return Radiance * LightVisibility(ShadowAtlas, Light, Position, N);
+}
+
 [shader("fragment")]
 float4 fragmentMain(FVertexOutput Input) : SV_Target
 {
@@ -179,22 +197,15 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     if ((Flags & 32u) != 0u) Emissive *= EmissiveTexture.Sample(LinearSampler, Input.UV).rgb;
     float3 V = normalize(mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz - Input.WorldPosition);
     float3 Result = Emissive;
-    for (uint Mask = LightMask(LightClusters, Input.Position.xy, Input.WorldPosition); Mask != 0; Mask &= Mask - 1)
+    uint ClusterBase = LightClusterBase(Input.Position.xy, Input.WorldPosition);
+    // The first 32 lights get their own loop, so scenes within one mask word never step through words.
+    uint WordCount = LightWordCount();
+    for (uint Mask = WordCount != 0 ? LightMaskWord(ClusterBase, 0) : 0; Mask != 0; Mask &= Mask - 1)
+        Result += ShadeLight(firstbitlow(Mask), Input.WorldPosition, N, V, Base.rgb, Metallic, Roughness);
+    for (uint Word = 1; Word < WordCount; ++Word)
     {
-        FVisualLight Light = Visual.Lights[firstbitlow(Mask)];
-        if (int(Light.PositionType.w) == 1) continue;
-        float3 Radiance;
-        if (int(Light.PositionType.w) == 4)
-            Radiance = RectLighting(Light, Input.WorldPosition, N, V, Base.rgb, Metallic, Roughness);
-        else
-        {
-            float3 L;
-            float Attenuation = LightAttenuation(Light, Input.WorldPosition, L);
-            Radiance = BRDF(N, V, L, Base.rgb, Metallic, Roughness) * Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation;
-        }
-        // Shadow filtering costs more than the lighting, so pixels out of range, outside the cone, or facing away skip it.
-        if (all(Radiance <= 0.0)) continue;
-        Result += Radiance * LightVisibility(ShadowAtlas, Light, Input.WorldPosition, N);
+        for (uint Mask = LightMaskWord(ClusterBase, Word); Mask != 0; Mask &= Mask - 1)
+            Result += ShadeLight(Word * 32 + firstbitlow(Mask), Input.WorldPosition, N, V, Base.rgb, Metallic, Roughness);
     }
     if (Visual.Sky.x > 0.0)
     {

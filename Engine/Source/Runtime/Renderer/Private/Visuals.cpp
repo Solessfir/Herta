@@ -255,6 +255,17 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 	}
 
 	Result.AtmosphereGeometry[3] = static_cast<float>(Settings.ShadowQuality);
+	const auto ActiveLights = std::span(Result.Lights).first(static_cast<std::size_t>(Result.Controls[0]));
+	const auto Sun = std::ranges::find(ActiveLights, static_cast<float>(ELightType::Directional), [](const FVisualLightUniform& Light)
+	{
+		return Light.PositionType[3];
+	});
+
+	if (Sun != ActiveLights.end())
+	{
+		Result.SunDirection = {-Sun->DirectionRange[0], -Sun->DirectionRange[1], -Sun->DirectionRange[2], 1};
+		Result.SunRadiance = {Sun->ColorIntensity[0] * Sun->ColorIntensity[3], Sun->ColorIntensity[1] * Sun->ColorIntensity[3], Sun->ColorIntensity[2] * Sun->ColorIntensity[3], 0};
+	}
 
 	return Result;
 }

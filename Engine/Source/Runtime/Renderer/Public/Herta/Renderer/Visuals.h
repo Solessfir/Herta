@@ -4,11 +4,14 @@
 #include "Herta/RHI/Graphics.h"
 
 #include <array>
+#include <cstddef>
 #include <optional>
 
 namespace Herta
 {
-inline constexpr std::size_t MaximumRenderLights = 32;
+inline constexpr std::size_t MaximumRenderLights = 256;
+// One bit per light in each light cluster. Keep in sync with VisualLights.slangh.
+inline constexpr std::size_t LightMaskWords = MaximumRenderLights / 32;
 // Light clusters are 64-pixel tiles by exponential depth slices from 0.1 to 500 m. Keep the slice count in sync with VisualShared.slangh.
 inline constexpr std::uint32_t LightClusterTileSize = 64;
 inline constexpr std::uint32_t LightClusterSlices = 24;
@@ -180,10 +183,22 @@ struct alignas(16) FVisualUniforms
 	std::array<float, 4> Occlusion{};
 	// Tile size in pixels, slice = log2(ViewZ) * y + z, and tiles across. Zero tile size means no clusters, so every pixel sees every light.
 	std::array<float, 4> LightGrid{};
-	std::array<FVisualLightUniform, MaximumRenderLights> Lights{};
+	// The first directional light: the direction towards it, with w 1 when there is one, and its color times intensity.
+	std::array<float, 4> SunDirection{};
+	std::array<float, 4> SunRadiance{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};
 	FMaterialUniform Material{};
+	// Not part of the uniform block: draws read lights from a storage buffer, so only VisualUniformBytes are uploaded as uniforms.
+	std::array<FVisualLightUniform, MaximumRenderLights> Lights{};
 };
+
+inline constexpr std::size_t VisualUniformBytes = offsetof(FVisualUniforms, Lights);
+static_assert(VisualUniformBytes % 16 == 0 && VisualUniformBytes <= MaximumGraphicsUniformBytes);
+
+[[nodiscard]] inline std::span<const std::byte> GetVisualUniformBytes(const FVisualUniforms& Uniforms) noexcept
+{
+	return std::as_bytes(std::span{&Uniforms, 1}).first(VisualUniformBytes);
+}
 
 inline constexpr std::uint32_t GtaoDepthMips = 5;
 

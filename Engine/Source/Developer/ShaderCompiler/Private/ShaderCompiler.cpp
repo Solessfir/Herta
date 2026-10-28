@@ -217,9 +217,13 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 				{
 					BindingType = EShaderBindingType::StorageBuffer;
 				}
+				else if (Type->getType()->getResourceShape() == SLANG_STRUCTURED_BUFFER && Type->getType()->getResourceAccess() == SLANG_RESOURCE_ACCESS_READ)
+				{
+					BindingType = EShaderBindingType::Buffer;
+				}
 				else
 				{
-					return std::unexpected(FShaderError{"Only Texture2D, and RWTexture2D or RWStructuredBuffer<uint> in compute shaders, are currently supported: " + std::string(Parameter->getName())});
+					return std::unexpected(FShaderError{"Only Texture2D, StructuredBuffer, and RWTexture2D or RWStructuredBuffer<uint> in compute shaders, are currently supported: " + std::string(Parameter->getName())});
 				}
 
 				break;
@@ -239,16 +243,17 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 		}
 
 		const std::uint32_t Binding = Parameter->getBindingIndex();
-		const bool bValidBinding = BindingType == EShaderBindingType::Texture ? Binding < MaximumGraphicsTextures : BindingType == EShaderBindingType::StorageTexture || BindingType == EShaderBindingType::StorageBuffer ? Binding >= StorageBinding && Binding < StorageBinding + MaximumStorageBindings
-		                                                                                                        : BindingType == EShaderBindingType::Sampler                                                              ? Binding == 128
-		                                                                                                                                                                                                                  : Binding == 64;
+		const bool bValidBinding = BindingType == EShaderBindingType::Texture ? Binding < MaximumGraphicsTextures : BindingType == EShaderBindingType::Buffer                                                           ? Binding >= ReadBufferBinding && Binding < ReadBufferBinding + MaximumReadBuffers
+		                                                                                                        : BindingType == EShaderBindingType::StorageTexture || BindingType == EShaderBindingType::StorageBuffer ? Binding >= StorageBinding && Binding < StorageBinding + MaximumStorageBindings
+		                                                                                                        : BindingType == EShaderBindingType::Sampler                                                            ? Binding == 128
+		                                                                                                                                                                                                                : Binding == 64;
 		if (Parameter->getBindingSpace() != 0 || !bValidBinding
 		    || std::ranges::any_of(Shader.Bindings, [Binding](const FShaderBinding& Existing)
 		{
 			return Existing.Binding == Binding;
 		}))
 		{
-			return std::unexpected(FShaderError{"Shader resources must use unique bindings t0..t15, b0 at 64, s0 at 128, and storage images and buffers at 384..391 in space 0"});
+			return std::unexpected(FShaderError{"Shader resources must use unique bindings t0..t15, buffers at t16..t23, b0 at 64, s0 at 128, and storage images and buffers at 384..391 in space 0"});
 		}
 
 		Shader.Bindings.push_back({.Name = Parameter->getName(), .Type = BindingType, .Binding = Binding, .Space = Parameter->getBindingSpace(), .ByteSize = BindingType == EShaderBindingType::ConstantBuffer ? static_cast<std::uint32_t>(Type->getElementTypeLayout()->getSize()) : 0u});

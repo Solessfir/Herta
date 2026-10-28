@@ -1363,10 +1363,10 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	auto Texture = Device.CreateTexture({.Name = "Depth test colors", .Extent = {.Width = 2, .Height = 1}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = false});
 	auto Color = Device.CreateTexture({.Name = "Depth test color", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
 	auto Depth = Device.CreateTexture({.Name = "Depth test depth", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 13, .UniformBufferSize = sizeof(FVisualUniforms)});
-	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 13, .UniformBufferSize = sizeof(FVisualUniforms)});
+	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 12, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
+	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 12, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
 	const auto ShadowDepth = Device.CreateTexture({.Name = "Depth-only sampled atlas regression", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 13, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthOnly = true});
+	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 12, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = 2});
 	auto Instances = Device.CreateBuffer({.Name = "Instance validation transforms", .Size = 2 * sizeof(FMeshInstance), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
 	if (!Near)
 	{
@@ -1413,7 +1413,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(!ShadowDepth ? ShadowDepth.error() : ShadowPipeline.error());
 	}
 
-	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 13, .UniformBufferSize = 16}))
+	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 12, .UniformBufferSize = 16, .BufferCount = 2}))
 	{
 		return Failure("Pipeline accepted a uniform block smaller than its shader reflection");
 	}
@@ -1440,34 +1440,29 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		Result = Device.WriteTexture(*Texture, 0, std::as_bytes(std::span(Texels)));
 	}
 
-	// The mesh shader reads light cluster bits as uints, so that slot needs an integer texture.
-	auto AllLights = Device.CreateTexture({.Name = "Depth test lights", .Extent = {.Width = 1, .Height = 1}, .Format = ETextureFormat::R32Uint});
-	if (!AllLights)
+	// The mesh shaders bind lights and light cluster masks; with no lights neither is read.
+	auto Lights = Device.CreateBuffer({.Name = "Depth test lights", .Size = sizeof(FVisualLightUniform), .Usage = EBufferUsage::Storage});
+	auto LightMasks = Device.CreateBuffer({.Name = "Depth test light masks", .Size = LightMaskWords * sizeof(std::uint32_t), .Usage = EBufferUsage::Storage});
+	if (!Lights || !LightMasks)
 	{
 		Device.CancelCommands();
-		return std::unexpected(AllLights.error());
+		return std::unexpected(!Lights ? Lights.error() : LightMasks.error());
 	}
 
-	if (Result)
-	{
-		constexpr std::uint32_t Bits = ~0u;
-		Result = Device.WriteTexture(*AllLights, 0, std::as_bytes(std::span{&Bits, 1}));
-	}
-
+	const std::array Buffers{*Lights, *LightMasks};
 	if (Result)
 	{
 		Result = Device.ClearTargets(*Color, *Depth, {0, 0, 0, 1});
 	}
 
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.f, 1, 0.1f);
-	std::array<FTextureHandle, 13> Textures;
+	std::array<FTextureHandle, 12> Textures;
 	std::ranges::fill(Textures, *Texture);
-	Textures[12] = *AllLights;
 	FVisualUniforms Uniforms;
 	Uniforms.ViewToWorld = FMatrix4{}.Data();
 	Uniforms.Material.TextureFlags[0] = 1.f;
 	Uniforms.Sky[3] = 2.f;
-	const auto UniformBytes = std::as_bytes(std::span{&Uniforms, 1});
+	const auto UniformBytes = GetVisualUniformBytes(Uniforms);
 	if (Result)
 	{
 		Result = Device.ClearTargets({}, *ShadowDepth, {});
@@ -1475,7 +1470,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 
 	if (Result)
 	{
-		Result = Device.DrawIndexed({.Pipeline = *ShadowPipeline, .Vertices = *Near, .Indices = *Index, .DepthTarget = *ShadowDepth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 6, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .Textures = Textures, .Uniforms = UniformBytes, .Viewport = {.X = 8, .Y = 8, .Width = 16, .Height = 16}});
+		Result = Device.DrawIndexed({.Pipeline = *ShadowPipeline, .Vertices = *Near, .Indices = *Index, .DepthTarget = *ShadowDepth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 6, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .Textures = Textures, .Uniforms = UniformBytes, .Viewport = {.X = 8, .Y = 8, .Width = 16, .Height = 16}, .Buffers = Buffers});
 	}
 
 	if (Result)
@@ -1485,7 +1480,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 
 	if (Result)
 	{
-		FIndexedDraw InvalidDraw{.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .IndexCount = 6, .Textures = Textures, .Uniforms = UniformBytes};
+		FIndexedDraw InvalidDraw{.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .IndexCount = 6, .Textures = Textures, .Uniforms = UniformBytes, .Buffers = Buffers};
 		InvalidDraw.Uniforms = UniformBytes.first(16);
 		if (Device.DrawIndexed(InvalidDraw))
 		{
@@ -1522,7 +1517,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 
 	if (Result)
 	{
-		FIndexedDraw InstanceDraw{.Pipeline = *InstancedPipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .IndexCount = 6, .Instances = *Instances, .InstanceCount = 2, .Textures = Textures, .Uniforms = UniformBytes};
+		FIndexedDraw InstanceDraw{.Pipeline = *InstancedPipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .IndexCount = 6, .Instances = *Instances, .InstanceCount = 2, .Textures = Textures, .Uniforms = UniformBytes, .Buffers = Buffers};
 		if (Device.DrawIndexed(InstanceDraw))
 		{
 			Device.CancelCommands();
@@ -1577,7 +1572,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		}
 	}
 
-	if (Result && Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 7, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .Textures = Textures, .Uniforms = UniformBytes}))
+	if (Result && Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 7, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .Textures = Textures, .Uniforms = UniformBytes, .Buffers = Buffers}))
 	{
 		Device.CancelCommands();
 		return Failure("Indexed draw exceeding the index buffer unexpectedly succeeded");
@@ -1585,12 +1580,12 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 
 	if (Result)
 	{
-		Result = Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 6, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .Textures = Textures, .Uniforms = UniformBytes});
+		Result = Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Near, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .IndexCount = 6, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .Textures = Textures, .Uniforms = UniformBytes, .Buffers = Buffers});
 	}
 
 	if (Result)
 	{
-		Result = Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Far, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data(), .IndexCount = 6, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 4}).Data(), .Textures = Textures, .Uniforms = UniformBytes});
+		Result = Device.DrawIndexed({.Pipeline = *Pipeline, .Vertices = *Far, .Indices = *Index, .Texture = *Texture, .ColorTarget = *Color, .DepthTarget = *Depth, .WorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data(), .IndexCount = 6, .FirstIndex = 0, .ObjectToView = FMatrix4::Translation({0, 0, 4}).Data(), .Textures = Textures, .Uniforms = UniformBytes, .Buffers = Buffers});
 	}
 
 	// Mutating caller-owned inputs after recording must not change the submitted draws.

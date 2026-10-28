@@ -102,12 +102,12 @@ TEST_CASE("Slang worker rejects missing entry points and stage mismatches")
 TEST_CASE("Slang worker rejects unsupported resource kinds instead of treating them as textures")
 {
 	const FShaderFixture Fixture;
-	for (const std::string_view Type : {"RWTexture2D<float4>", "StructuredBuffer<float4>", "Texture3D<float4>", "Texture2DArray<float4>"})
+	for (const std::string_view Type : {"RWTexture2D<float4>", "RWStructuredBuffer<uint>", "Texture3D<float4>", "Texture2DArray<float4>"})
 	{
 		Fixture.Write("Unsupported.slang", "[[vk::binding(0,0)]] " + std::string(Type) + " Resource;\n[shader(\"fragment\")] float4 fragmentMain() : SV_Target { return float4(1,0,0,1); }\n");
 		const auto Shader = CompileShader({.Source = Fixture.Directory / "Unsupported.slang", .EntryPoint = "fragmentMain", .Stage = EShaderStage::Fragment, .bDebugInformation = false});
 		REQUIRE_FALSE(Shader);
-		CHECK(Shader.error().Message.find("Only Texture2D, and RWTexture2D or RWStructuredBuffer<uint> in compute shaders") != std::string::npos);
+		CHECK(Shader.error().Message.find("Only Texture2D, StructuredBuffer, and RWTexture2D or RWStructuredBuffer<uint> in compute shaders") != std::string::npos);
 	}
 }
 
@@ -134,6 +134,16 @@ TEST_CASE("Slang worker reflects compute storage images at the storage bindings"
 	REQUIRE(Counter->Bindings.size() == 1);
 	CHECK(Counter->Bindings[0].Type == EShaderBindingType::StorageBuffer);
 	CHECK(Counter->Bindings[0].Binding == 384);
+
+	// Read-only buffers bind after the textures in any stage.
+	Fixture.Write("Lights.slang", "struct FLight { float4 Position; float4 Color; };\n[[vk::binding(17,0)]] StructuredBuffer<FLight> Lights;\n[shader(\"fragment\")] float4 fragmentMain() : SV_Target { return Lights[1].Color; }\n");
+	const auto Lights = CompileShader({.Source = Fixture.Directory / "Lights.slang", .EntryPoint = "fragmentMain", .Stage = EShaderStage::Fragment});
+	REQUIRE_MESSAGE(Lights.has_value(), (Lights ? "" : Lights.error().Message));
+	REQUIRE(Lights->Bindings.size() == 1);
+	CHECK(Lights->Bindings[0].Type == EShaderBindingType::Buffer);
+	CHECK(Lights->Bindings[0].Binding == 17);
+	Fixture.Write("Misbound.slang", "[[vk::binding(3,0)]] StructuredBuffer<float4> Values;\n[shader(\"fragment\")] float4 fragmentMain() : SV_Target { return Values[0]; }\n");
+	CHECK_FALSE(CompileShader({.Source = Fixture.Directory / "Misbound.slang", .EntryPoint = "fragmentMain", .Stage = EShaderStage::Fragment}));
 
 	// Storage images outside 384..391, and storage metadata on a fragment shader, are rejected.
 	Fixture.Write("Misplaced.slang", "[[vk::binding(400,0)]] [format(\"r32f\")] RWTexture2D<float> Target;\n[shader(\"compute\")] [numthreads(8,8,1)] void computeMain(uint3 Id : SV_DispatchThreadID) { Target[Id.xy] = 1; }\n");

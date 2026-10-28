@@ -22,6 +22,9 @@ inline constexpr std::uint32_t MaximumGraphicsUniformBytes = 16 * 1024;
 // Compute storage images, then storage buffers, use Vulkan bindings from 384, NVRHI's default unordered-access offset.
 inline constexpr std::uint32_t StorageBinding = 384;
 inline constexpr std::uint32_t MaximumStorageBindings = 8;
+// Read-only StructuredBuffer bindings follow the texture registers, at t16..t23 in graphics and compute shaders.
+inline constexpr std::uint32_t ReadBufferBinding = 16;
+inline constexpr std::uint32_t MaximumReadBuffers = 8;
 inline constexpr std::size_t MaximumStorageBufferBytes = std::size_t{256} * 1024 * 1024;
 
 enum class EBufferUsage : std::uint8_t
@@ -169,6 +172,8 @@ struct FGraphicsPipelineDescriptor
 	EGraphicsCullMode CullMode = EGraphicsCullMode::Back;
 	bool bAlphaBlend = false;
 	bool bClampSampler = false;
+	// Storage buffers read as StructuredBuffer from ReadBufferBinding.
+	std::uint32_t BufferCount = 0;
 };
 
 // Compute shaders sample t0..t15 through a clamped s0, write storage textures and then storage buffers from StorageBinding, and read b0.
@@ -182,6 +187,8 @@ struct FComputePipelineDescriptor
 	std::uint32_t StorageBufferCount = 0;
 	std::uint32_t UniformBufferSize = 0;
 	bool bLinearSampler = false;
+	// Storage buffers read as StructuredBuffer from ReadBufferBinding.
+	std::uint32_t BufferCount = 0;
 };
 
 struct FStorageTextureBinding
@@ -201,6 +208,7 @@ struct FComputeDispatch
 	std::array<std::uint32_t, 3> GroupCount{1, 1, 1};
 	// A storage buffer whose first three uints, written earlier on the GPU, replace GroupCount.
 	FBufferHandle IndirectArguments{};
+	std::span<const FBufferHandle> Buffers{};
 };
 
 struct FMeshVertex
@@ -255,6 +263,8 @@ struct FIndexedDraw
 	std::span<const std::byte> Uniforms{};
 	// A zero extent selects the complete target.
 	FRenderViewport Viewport{};
+	// Storage buffers read as StructuredBuffer from ReadBufferBinding.
+	std::span<const FBufferHandle> Buffers{};
 };
 
 struct FGraphicsStatistics

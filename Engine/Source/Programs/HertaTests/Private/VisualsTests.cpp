@@ -50,7 +50,7 @@ TEST_CASE("Visual uniforms preserve camera inverses and native pixel dimensions"
 	CHECK(Result->Viewport[3] == 720.f);
 	CHECK(Result->Controls[2] == doctest::Approx(1.f / (1.2f * std::exp2(FVisualSettings{}.ExposureEV100))));
 	CHECK(Result->Controls[0] == 0.f);
-	CHECK(sizeof(FVisualUniforms) <= MaximumGraphicsUniformBytes);
+	CHECK(VisualUniformBytes <= MaximumGraphicsUniformBytes);
 	CHECK(sizeof(FVisualLightUniform) == 96);
 	CHECK(sizeof(FShadowUniform) == 96);
 }

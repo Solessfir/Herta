@@ -1,0 +1,35 @@
+#pragma once
+#include "VisualShared.slangh"
+// Lights and their cluster masks are storage buffers bound after the textures. Shaders that only need the sun read Visual.SunDirection instead.
+[[vk::binding(16, 0)]] StructuredBuffer<FVisualLight> Lights;
+[[vk::binding(17, 0)]] StructuredBuffer<uint> LightClusters;
+
+// Keep in sync with LightMaskWords in Visuals.h: one bit per light.
+static const uint LightMaskWords = 8;
+
+// Clusters are stored tile by tile with their depth slices adjacent. Without clusters, one all-set mask at 0 covers every pixel.
+uint LightClusterBase(float2 Pixel, float3 Position)
+{
+    if (Visual.LightGrid.x <= 0.0)
+        return 0;
+
+    float3 Eye = mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float3 Forward = mul((float3x3)Visual.ViewToWorld, float3(0.0, 0.0, 1.0));
+    float ViewZ = max(dot(Position - Eye, Forward), 1e-4);
+    uint Slice = uint(clamp(int(floor(log2(ViewZ) * Visual.LightGrid.y + Visual.LightGrid.z)), 0, int(LightClusterSlices) - 1));
+    uint2 Tile = uint2(Pixel / Visual.LightGrid.x);
+    return ((Tile.y * uint(Visual.LightGrid.w) + Tile.x) * LightClusterSlices + Slice) * LightMaskWords;
+}
+
+uint LightWordCount()
+{
+    return (uint(Visual.Controls.x) + 31) / 32;
+}
+
+// Bits for lights Word * 32 onwards that reach the cluster, limited to the lights that exist.
+uint LightMaskWord(uint Base, uint Word)
+{
+    uint Remaining = uint(Visual.Controls.x) - Word * 32;
+    uint Valid = Remaining >= 32 ? 0xFFFFFFFFu : (1u << Remaining) - 1u;
+    return LightClusters[Base + Word] & Valid;
+}
