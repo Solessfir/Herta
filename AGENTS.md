@@ -24,6 +24,8 @@ Do not introduce project-configurable coordinate conventions or unit scales.
 
 Performance is a primary goal on every path: renderer, runtime, editor, and tools. Measure before and after a change, prefer the faster design when quality is equal, and do not leave known waste in place because it is small or the frame is already fast. Record deferred optimizations with the measurement or condition that would justify them.
 
+The GPU frame target is a clean Nsight Graphics GPU Trace: no work whose result is unused or unchanged, no pass that runs for a disabled feature, no redundant clears, copies, or full-screen passes, no barriers or queue idles beyond real dependencies, and no units left idle when independent work could overlap. Reuse results across frames and views when their inputs have not changed, alias transient memory that is never live at the same time, merge passes that read the same data, and run independent compute asynchronously when it measurably shortens the frame. Check new or changed passes in a GPU Trace and record any waste left in place with the reason.
+
 ## Working method
 
 - Inspect existing code, tests, documentation, and `git status` before editing.
