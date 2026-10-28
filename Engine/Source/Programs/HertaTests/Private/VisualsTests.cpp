@@ -471,6 +471,50 @@ TEST_CASE("Shadow atlas budget skips whole lights instead of allocating partial 
 	CHECK(Uniforms.Lights[0].ConeShadow[2] == -1.f);
 }
 
+TEST_CASE("Cascades move in whole texels as the camera moves, so shadow edges do not crawl")
+{
+	FRenderLight Sun{.Settings = {.Type = ELightType::Directional, .Range = 60.f}, .Transform = FMatrix4{}};
+	Sun.Settings.Color = {1.f, 1.f, 1.f};
+	const std::array Lights{Sun};
+	const FVector4 Probe{1.f, 2.f, 3.f, 1.f};
+	std::array<FVector4, 4> FirstClip{};
+	std::array<float, 4> FirstScale{};
+	for (int Step = 0; Step < 50; ++Step)
+	{
+		// Sub-texel steps in every direction, with the visible range held as the renderer's quantized readback would hold it.
+		FMatrix4 View;
+		View(0, 3) = -0.0137f * static_cast<float>(Step);
+		View(1, 3) = 0.0071f * static_cast<float>(Step);
+		View(2, 3) = -0.0093f * static_cast<float>(Step);
+		const auto Built = BuildVisualUniforms(View, TestProjection(), {1920, 1080}, Lights, {});
+		REQUIRE(Built);
+		FVisualUniforms Uniforms = *Built;
+		const auto Shadows = BuildShadowViews(Uniforms, Lights, TestProjection(), 1.f, 2.f, 32.f);
+		REQUIRE(Shadows.size() == 4);
+		for (std::size_t Cascade = 0; Cascade < 4; ++Cascade)
+		{
+			const FVector4 Clip = Shadows[Cascade].WorldToClip * Probe;
+			const float Scale = Shadows[Cascade].WorldToClip(0, 0) * Shadows[Cascade].WorldToClip(0, 0) + Shadows[Cascade].WorldToClip(0, 1) * Shadows[Cascade].WorldToClip(0, 1) + Shadows[Cascade].WorldToClip(0, 2) * Shadows[Cascade].WorldToClip(0, 2);
+			if (Step == 0)
+			{
+				FirstClip[Cascade] = Clip;
+				FirstScale[Cascade] = Scale;
+				continue;
+			}
+
+			CAPTURE(Step);
+			CAPTURE(Cascade);
+			// The cascade keeps its size while the slice it covers keeps its depth range.
+			CHECK(Scale == doctest::Approx(FirstScale[Cascade]).epsilon(1e-5));
+			// One texel is 2 / ShadowCascadeResolution in clip space; a fixed world point may only move by whole texels.
+			const float TexelsX = (Clip.X - FirstClip[Cascade].X) * static_cast<float>(ShadowCascadeResolution) * 0.5f;
+			const float TexelsY = (Clip.Y - FirstClip[Cascade].Y) * static_cast<float>(ShadowCascadeResolution) * 0.5f;
+			CHECK(std::abs(TexelsX - std::round(TexelsX)) < 0.02f);
+			CHECK(std::abs(TexelsY - std::round(TexelsY)) < 0.02f);
+		}
+	}
+}
+
 TEST_CASE("Local shadow tiles follow how large each light's reach looks on screen")
 {
 	std::array<FRenderLight, 2> Lights{};
