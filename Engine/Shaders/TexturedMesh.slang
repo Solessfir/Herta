@@ -96,35 +96,34 @@ float Channel(float4 Sample, float Selection)
     return C < 4 ? Sample[C] : dot(Sample.rgb, float3(0.2126, 0.7152, 0.0722));
 }
 
-// EON, energy-preserving Oren-Nayar (Portsmouth, Kutz, and Hill 2024, as adopted by OpenPBR), with the fast albedo fit. Roughness 0 is Lambert.
-static const float EonConstant1 = 0.5 - 2.0 / (3.0 * PI);
-static const float EonConstant2 = 2.0 / 3.0 - 28.0 / (15.0 * PI);
+// EON, energy-preserving Oren-Nayar (Portsmouth, Kutz, and Hill 2024, as adopted by OpenPBR), cut to fits that cost little: Fujii's scale 1 / (1 + c * r) as a line, accurate to 0.014,
+// its view albedo E(mu) = Scale * (1 + r * G(mu) / pi) with G / pi fitted by least squares as 0.2624 * (1 - mu), accurate to 0.026, and multiple scattering as rho^2 * (1 - E) towards the view only.
+// That keeps rho * E + rho^2 * (1 - E) of light from every view, so a white surface reflects everything. Roughness 0 is Lambert.
+static const float EonScaleSlope = 1.0 - 1.0 / (1.5 - 2.0 / (3.0 * PI));
+static const float EonAlbedoSlope = 0.2624;
 
-float EonFujiiAlbedo(float Mu, float Roughness)
+float EonScale(float Roughness)
 {
-    float Complement = 1.0 - Mu;
-    float GOverPi = Complement * (0.0571085289 + Complement * (0.491881867 + Complement * (-0.332181442 + Complement * 0.0714429953)));
-    return (1.0 + Roughness * GOverPi) / (1.0 + EonConstant1 * Roughness);
+    return 1.0 - EonScaleSlope * Roughness;
 }
 
-float3 EonMultipleScatterAlbedo(float3 Rho, float AverageAlbedo)
+float EonViewAlbedo(float Roughness, float Mu)
 {
-    return Rho * Rho * AverageAlbedo / (1.0 - Rho * (1.0 - AverageAlbedo));
+    return EonScale(Roughness) * (1.0 + Roughness * EonAlbedoSlope * (1.0 - Mu));
 }
 
-
-// Hemispherical reflectance seen from Mu, which stands in for the lobe under environment and area lights.
-float3 EonAlbedo(float3 Rho, float Roughness, float Mu)
+// The single-scattering albedo whose hemispherical average reflectance is Color, so raising diffuse roughness keeps an authored color instead of darkening and saturating it.
+// Solves Rho * E + Rho^2 * (1 - E) = Color with the cosine-weighted average E, in the form that stays stable as E reaches 1.
+float3 EonRho(float3 Color, float Roughness)
 {
-    float Albedo = EonFujiiAlbedo(Mu, Roughness);
-    float AverageAlbedo = (1.0 + EonConstant2 * Roughness) / (1.0 + EonConstant1 * Roughness);
-    return Rho * Albedo + EonMultipleScatterAlbedo(Rho, AverageAlbedo) * (1.0 - Albedo);
+    float Average = EonScale(Roughness) * (1.0 + Roughness * EonAlbedoSlope / 3.0);
+    return 2.0 * Color / (Average + sqrt(Average * Average + 4.0 * (1.0 - Average) * Color));
 }
 
 // Everything about a pixel's material that does not depend on the light, applied once to the light sums and the environment.
 struct FSurface
 {
-    // EON per light is DiffuseSingle * (1 + DiffuseRoughness * s / t) + DiffuseMultiple * (1 - E(NoL)), already scaled by what the specular layer leaves and divided by pi.
+    // EON per light is DiffuseSingle * (1 + DiffuseRoughness * s / t) + DiffuseMultiple, already scaled by what the specular layer leaves and divided by pi.
     float3 DiffuseSingle;
     float3 DiffuseMultiple;
     float DiffuseRoughness;
@@ -172,11 +171,11 @@ FSurface MakeSurface(float3 BaseColor, float Metallic, float Roughness, float Di
     [branch]
     if (DiffuseRoughness > 0.0)
     {
-        float EonScale = 1.0 / (1.0 + EonConstant1 * DiffuseRoughness);
-        float AverageAlbedo = EonScale * (1.0 + EonConstant2 * DiffuseRoughness);
-        Surface.DiffuseSingle *= EonScale;
-        Surface.DiffuseMultiple = DiffuseWeight / PI * EonMultipleScatterAlbedo(BaseColor, AverageAlbedo) * max(1e-7, 1.0 - EonFujiiAlbedo(NoV, DiffuseRoughness)) / max(1e-7, 1.0 - AverageAlbedo);
-        Surface.DiffuseReflectance = DiffuseWeight * EonAlbedo(BaseColor, DiffuseRoughness, NoV);
+        float3 Rho = EonRho(BaseColor, DiffuseRoughness);
+        float ViewAlbedo = EonViewAlbedo(DiffuseRoughness, NoV);
+        Surface.DiffuseSingle = DiffuseWeight / PI * EonScale(DiffuseRoughness) * Rho;
+        Surface.DiffuseMultiple = DiffuseWeight / PI * Rho * Rho * (1.0 - ViewAlbedo);
+        Surface.DiffuseReflectance = DiffuseWeight * Rho * (ViewAlbedo + Rho * (1.0 - ViewAlbedo));
     }
     return Surface;
 }
@@ -186,7 +185,7 @@ struct FLightSum
 {
     // Irradiance, scaled by EON's 1 + r * s / t for rough diffuse (Portsmouth, Kutz, and Hill 2024); the material multiplies by FSurface.DiffuseSingle.
     float3 Diffuse;
-    // Irradiance times EON's 1 - E(NoL), for FSurface.DiffuseMultiple.
+    // Irradiance for FSurface.DiffuseMultiple, gathered only for rough diffuse.
     float3 DiffuseMultiple;
     // The GGX lobe, and the same times (1 - VoH)^5 and VoH * (1 - VoH)^6, for the Fresnel terms in FSurface.
     float3 Specular0;
@@ -215,7 +214,7 @@ void AddLight(inout FLightSum Sum, float3 Radiance, float3 N, float3 V, float3 L
     {
         float S = dot(L, V) - NoL * NoV;
         DiffuseScale += DiffuseRoughness * (S > 0.0 ? S / max(NoL, NoV) : S);
-        Sum.DiffuseMultiple += Lit * max(1e-7, 1.0 - EonFujiiAlbedo(NoL, DiffuseRoughness));
+        Sum.DiffuseMultiple += Lit;
     }
 
     Sum.Diffuse += Lit * DiffuseScale;
@@ -274,9 +273,11 @@ void RectLighting(inout FLightSum Sum, FVisualLight Light, float3 Position, floa
     float2 Amplitude = LtcAmplitude.SampleLevel(LinearSampler, UV, 0).xy;
     float3x3 InverseMatrix = float3x3(Inverse.x, 0.0, Inverse.z, 0.0, 1.0, 0.0, Inverse.y, 0.0, Inverse.w);
 
-    // The LTCs integrate cosine and GGX lobes, so rough diffuse keeps only EON's single-scattering scale and the edge tint is left out.
+    // The LTCs integrate cosine and GGX lobes, so rough diffuse loses only EON's s / t shaping and the edge tint is left out.
     float3 Radiance = Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * max(0.0001, Light.RightWidth.w * Light.UpHeight.w)) * pow(saturate(1.0 - pow(Distance / Light.DirectionRange.w, 4.0)), 2.0) * LightVisibility(ShadowAtlas, Light, Position, N);
-    Sum.Diffuse += Radiance * (PI * LtcQuad(Basis, Corners));
+    float3 Irradiance = Radiance * (PI * LtcQuad(Basis, Corners));
+    Sum.Diffuse += Irradiance;
+    Sum.DiffuseMultiple += Irradiance;
     float3 Specular = Radiance * LtcQuad(mul(InverseMatrix, Basis), Corners);
     Sum.Specular0 += Specular * Amplitude.x;
     Sum.Specular90 += Specular * Amplitude.y;

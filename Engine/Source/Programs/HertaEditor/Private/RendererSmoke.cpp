@@ -1145,6 +1145,7 @@ namespace
 // Locks the physical camera chain: an 18% grey card under 100,000 lx of noon sun at "sunny 16" EV100 15 must display as photographic middle grey.
 // White furnace: under light of the same radiance from every direction, a white surface that conserves energy reflects exactly that radiance, whatever its roughness or metalness.
 // Lambert, rough EON diffuse, and a rough white metal therefore match, first under 240 directional lights spread over the sphere and then under a uniform environment. Single-scattering GGX alone leaves the metal about a fifth darker.
+// Grey Lambert and grey rough EON match too, because EON inverts the authored color into the albedo that reflects as much on average.
 [[nodiscard]] std::expected<void, FPresentationError> CheckWhiteFurnace(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
 {
 	const auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, Shaders);
@@ -1154,16 +1155,17 @@ namespace
 		return std::unexpected(!Renderer ? Renderer.error() : Cube.error());
 	}
 
-	const auto MakeMaterial = [&Device](const float Metallic, const float DiffuseRoughness)
+	const auto MakeMaterial = [&Device](const float Metallic, const float DiffuseRoughness, const float Color = 1.f)
 	{
 		FMaterialAsset Material{.Name = "Furnace"};
+		Material.Parameters.BaseColor = {Color, Color, Color, 1.f};
 		Material.Parameters.Metallic = Metallic;
 		Material.Parameters.Roughness = 1.f;
 		Material.Parameters.DiffuseRoughness = DiffuseRoughness;
 		return FRenderMaterial::Create(Device, Material, {}, "Furnace material");
 	};
 
-	const std::array Materials{MakeMaterial(0.f, 0.f), MakeMaterial(0.f, 1.f), MakeMaterial(1.f, 0.f)};
+	const std::array Materials{MakeMaterial(0.f, 0.f), MakeMaterial(0.f, 1.f), MakeMaterial(1.f, 0.f), MakeMaterial(0.f, 0.f, 0.5f), MakeMaterial(0.f, 1.f, 0.5f)};
 	for (const auto& Material : Materials)
 	{
 		if (!Material)
@@ -1177,6 +1179,9 @@ namespace
 	const std::array<const FRenderMaterial*, 1> Rough{Materials[1]->get()};
 	const std::array<const FRenderMaterial*, 1> Metal{Materials[2]->get()};
 	const std::array<std::span<const FRenderMaterial* const>, 3> Overrides{Lambert, Rough, Metal};
+	const std::array<const FRenderMaterial*, 1> GreyLambert{Materials[3]->get()};
+	const std::array<const FRenderMaterial*, 1> GreyRough{Materials[4]->get()};
+	const std::array<std::span<const FRenderMaterial* const>, 3> GreyOverrides{GreyLambert, GreyRough, Metal};
 	constexpr std::array<float, 3> Offsets{-1.5f, 0.f, 1.5f};
 	const std::array Models{FMatrix4::Translation({Offsets[0], 0, 0}), FMatrix4::Translation({Offsets[1], 0, 0}), FMatrix4::Translation({Offsets[2], 0, 0})};
 	const std::array<const FRenderMesh*, 3> Meshes{Cube->get(), Cube->get(), Cube->get()};
@@ -1192,8 +1197,10 @@ namespace
 	    .Visuals = {.ExposureEV100 = ExposureEV100, .AntiAliasing = EAntiAliasing::Off, .ShadowQuality = EShadowQuality::Off, .AmbientOcclusion = EAmbientOcclusion::Off, .bStudioPreview = false},
 	};
 
-	const auto Measure = [&](const std::string_view Lighting) -> std::expected<void, FPresentationError>
+	// Grey rounds compare only the two diffuse cubes; the metal stays white.
+	const auto Measure = [&](const std::string_view Lighting, const bool bGrey = false) -> std::expected<void, FPresentationError>
 	{
+		View.Materials = bGrey ? GreyOverrides : Overrides;
 		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
 		{
 			return Rendered;
@@ -1222,12 +1229,12 @@ namespace
 			}
 		}
 
-		std::println("White furnace, {}: Lambert {:.1f}, rough EON {:.1f}, rough metal {:.1f}", Lighting, Levels[0], Levels[1], Levels[2]);
-		for (std::size_t Index = 0; Index < Levels.size(); ++Index)
+		std::println("{} furnace, {}: Lambert {:.1f}, rough EON {:.1f}, rough metal {:.1f}", bGrey ? "Grey" : "White", Lighting, Levels[0], Levels[1], Levels[2]);
+		for (std::size_t Index = 0; Index < (bGrey ? 2u : Levels.size()); ++Index)
 		{
-			if (Levels[Index] < 60.f || Levels[Index] > 200.f || std::abs(Levels[Index] - Levels[0]) > 4.f)
+			if (Levels[Index] < 40.f || Levels[Index] > 200.f || std::abs(Levels[Index] - Levels[0]) > 4.f)
 			{
-				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("A white {} surface under the {} furnace read {:.1f}, not Lambert's {:.1f}", Names[Index], Lighting, Levels[Index], Levels[0])});
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("A {} {} surface under the {} furnace read {:.1f}, not Lambert's {:.1f}", bGrey ? "grey" : "white", Names[Index], Lighting, Levels[Index], Levels[0])});
 			}
 		}
 
@@ -1255,6 +1262,11 @@ namespace
 		return Direct;
 	}
 
+	if (const auto Direct = Measure("directional", true); !Direct)
+	{
+		return Direct;
+	}
+
 	constexpr std::array<float, 4> Radiance{1, 1, 1, 1};
 	FCookedTexture Environment{.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(sizeof(Radiance))}}};
 	std::memcpy(Environment.Mips[0].Pixels.data(), Radiance.data(), sizeof(Radiance));
@@ -1277,7 +1289,12 @@ namespace
 		return Uploaded;
 	}
 
-	return Measure("environment");
+	if (const auto Environmental = Measure("environment"); !Environmental)
+	{
+		return Environmental;
+	}
+
+	return Measure("environment", true);
 }
 
 [[nodiscard]] float DecodeHalf(const std::uint16_t Bits)
