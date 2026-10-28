@@ -566,9 +566,18 @@ struct FMeshRenderer::FImplementation
 		std::vector<const FRenderMaterial*> Materials{};
 	};
 
+	// Looks batches up without copying each model's material list; a key is only built when a new batch is inserted.
+	struct FInstanceKeyView
+	{
+		const FRenderMesh* Mesh = nullptr;
+		std::span<const FRenderMaterial* const> Materials{};
+	};
+
 	struct FInstanceKeyHash
 	{
-		std::size_t operator()(const FInstanceKey& Key) const
+		using is_transparent = void;
+
+		std::size_t operator()(const FInstanceKeyView& Key) const
 		{
 			std::size_t Hash = std::hash<const FRenderMesh*>{}(Key.Mesh);
 			for (const FRenderMaterial* Material : Key.Materials)
@@ -577,6 +586,31 @@ struct FMeshRenderer::FImplementation
 			}
 
 			return Hash;
+		}
+
+		std::size_t operator()(const FInstanceKey& Key) const
+		{
+			return (*this)(FInstanceKeyView{.Mesh = Key.Mesh, .Materials = Key.Materials});
+		}
+	};
+
+	struct FInstanceKeyEqual
+	{
+		using is_transparent = void;
+
+		bool operator()(const FInstanceKey& Left, const FInstanceKey& Right) const
+		{
+			return Left == Right;
+		}
+
+		bool operator()(const FInstanceKeyView& Left, const FInstanceKey& Right) const
+		{
+			return Left.Mesh == Right.Mesh && std::ranges::equal(Left.Materials, Right.Materials);
+		}
+
+		bool operator()(const FInstanceKey& Left, const FInstanceKeyView& Right) const
+		{
+			return (*this)(Right, Left);
 		}
 	};
 
@@ -713,7 +747,7 @@ struct FMeshRenderer::FImplementation
 	// Each view's instances are culled and stored back to back in Instances, in the order of ViewFrustums, then the visible selection.
 	std::vector<std::vector<FInstanceDraw>> ViewDraws;
 	std::vector<bool> SelectedModels;
-	std::unordered_map<FInstanceKey, std::size_t, FInstanceKeyHash> InstanceBatchIndices;
+	std::unordered_map<FInstanceKey, std::size_t, FInstanceKeyHash, FInstanceKeyEqual> InstanceBatchIndices;
 	FBufferHandle GridVertices;
 	FBufferHandle GridIndices;
 	std::array<FBufferHandle, 2> DebugVertices;
@@ -1692,16 +1726,13 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				continue;
 			}
 
-			FImplementation::FInstanceKey Key{.Mesh = Mesh};
-			if (!View.Materials.empty())
+			const FImplementation::FInstanceKeyView Key{.Mesh = Mesh, .Materials = View.Materials.empty() ? std::span<const FRenderMaterial* const>{} : View.Materials[Model]};
+			auto Entry = State.InstanceBatchIndices.find(Key);
+			if (Entry == State.InstanceBatchIndices.end())
 			{
-				Key.Materials.assign(View.Materials[Model].begin(), View.Materials[Model].end());
-			}
-
-			const auto [Entry, bInserted] = State.InstanceBatchIndices.try_emplace(Key, State.InstanceBatches.size());
-			if (bInserted)
-			{
-				State.InstanceBatches.push_back({.Mesh = Mesh, .Materials = std::move(Key.Materials)});
+				std::vector<const FRenderMaterial*> Materials(Key.Materials.begin(), Key.Materials.end());
+				Entry = State.InstanceBatchIndices.emplace(FImplementation::FInstanceKey{.Mesh = Mesh, .Materials = Materials}, State.InstanceBatches.size()).first;
+				State.InstanceBatches.push_back({.Mesh = Mesh, .Materials = std::move(Materials)});
 				if (State.BatchModels.size() < State.InstanceBatches.size())
 				{
 					State.BatchModels.emplace_back();

@@ -621,14 +621,19 @@ public:
 
 		if (bInstances)
 		{
-			for (std::size_t Offset = 0; Offset < Data.size(); Offset += sizeof(float))
+			// A float is NaN or infinite exactly when its exponent bits are all set. Testing the bits without branching lets the loop vectorize over
+			// the megabytes of instances a large scene uploads each frame.
+			std::uint32_t NonFinite = 0;
+			for (std::size_t Offset = 0; Offset < Data.size(); Offset += sizeof(std::uint32_t))
 			{
-				float Value;
-				std::memcpy(&Value, Data.data() + Offset, sizeof(Value));
-				if (!std::isfinite(Value))
-				{
-					return Invalid("Mesh instance transforms must be finite");
-				}
+				std::uint32_t Bits;
+				std::memcpy(&Bits, Data.data() + Offset, sizeof(Bits));
+				NonFinite |= static_cast<std::uint32_t>((Bits & 0x7F800000u) == 0x7F800000u);
+			}
+
+			if (NonFinite != 0)
+			{
+				return Invalid("Mesh instance transforms must be finite");
 			}
 		}
 
