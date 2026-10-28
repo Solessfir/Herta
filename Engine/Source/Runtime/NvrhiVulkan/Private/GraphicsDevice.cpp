@@ -53,6 +53,8 @@ constexpr std::size_t MaximumGpuPassTimings = 32;
 			return nvrhi::Format::R32_FLOAT;
 		case ETextureFormat::R32Uint:
 			return nvrhi::Format::R32_UINT;
+		case ETextureFormat::Rg16Float:
+			return nvrhi::Format::RG16_FLOAT;
 	}
 
 	return nvrhi::Format::UNKNOWN;
@@ -220,15 +222,16 @@ public:
 	{
 		if (Descriptor.Usage == EBufferUsage::Storage)
 		{
-			if (Descriptor.Size == 0 || Descriptor.Size > MaximumStorageBufferBytes || Descriptor.Size % sizeof(std::uint32_t) != 0)
+			const bool bInstances = Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance;
+			if (Descriptor.Size == 0 || Descriptor.Size > MaximumStorageBufferBytes || Descriptor.Size % (bInstances ? sizeof(FMeshInstance) : sizeof(std::uint32_t)) != 0)
 			{
-				return Invalid("Storage buffer size must hold whole uints and fit 256 MiB");
+				return Invalid("Storage buffer size must hold whole uints, or whole mesh instances for instance buffers, and fit 256 MiB");
 			}
 
 			auto Buffer = std::make_shared<FBuffer>();
 			Buffer->Descriptor = Descriptor;
 			Buffer->Owner = Owner;
-			Buffer->Handle = Device->createBuffer(nvrhi::BufferDesc().setByteSize(Descriptor.Size).setDebugName(Descriptor.Name).setStructStride(sizeof(std::uint32_t)).setCanHaveUAVs(true).setIsDrawIndirectArgs(true).enableAutomaticStateTracking(nvrhi::ResourceStates::UnorderedAccess));
+			Buffer->Handle = Device->createBuffer(nvrhi::BufferDesc().setByteSize(Descriptor.Size).setDebugName(Descriptor.Name).setStructStride(sizeof(std::uint32_t)).setCanHaveUAVs(true).setIsDrawIndirectArgs(true).setIsVertexBuffer(bInstances).enableAutomaticStateTracking(nvrhi::ResourceStates::UnorderedAccess));
 			if (!Buffer->Handle)
 			{
 				return Failed("Could not create storage buffer '" + Descriptor.Name + "'");
@@ -341,9 +344,10 @@ public:
 		    nvrhi::VertexAttributeDesc().setName("COLOR").setFormat(nvrhi::Format::RGBA32_FLOAT).setOffset(offsetof(FColoredClipVertex, Color)).setElementStride(sizeof(FColoredClipVertex)),
 		};
 
-		std::array<nvrhi::VertexAttributeDesc, 12> InstancedAttributes;
+		// Four vertex attributes and three instance matrices use all 16 locations Vulkan guarantees.
+		std::array<nvrhi::VertexAttributeDesc, 16> InstancedAttributes;
 		std::ranges::copy(Attributes, InstancedAttributes.begin());
-		for (std::uint32_t Column = 0; Column < 8; ++Column)
+		for (std::uint32_t Column = 0; Column < 12; ++Column)
 		{
 			InstancedAttributes[Column + 4] = nvrhi::VertexAttributeDesc().setName("TEXCOORD").setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(1).setOffset(Column * 16u).setElementStride(sizeof(FMeshInstance)).setIsInstanced(true);
 		}
@@ -576,7 +580,8 @@ public:
 		const auto Native = std::dynamic_pointer_cast<FBuffer>(Buffer);
 		// Instance buffers keep spare capacity, and their draws name the instance range they read.
 		// Storage buffers may reset just a header, such as a counter, ahead of the elements the GPU fills.
-		const bool bPartial = Owns(Native) && ((Native->Descriptor.Usage == EBufferUsage::Vertex && Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance) || Native->Descriptor.Usage == EBufferUsage::Storage);
+		const bool bInstances = Owns(Native) && Native->Descriptor.Usage != EBufferUsage::Index && Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance;
+		const bool bPartial = Owns(Native) && (bInstances || Native->Descriptor.Usage == EBufferUsage::Storage);
 		if (!Owns(Native) || (bPartial ? Data.empty() || Data.size() > Native->Descriptor.Size || Data.size() % sizeof(std::uint32_t) != 0 : Data.size() != Native->Descriptor.Size))
 		{
 			return Invalid("Buffer upload must fully initialize a buffer belonging to this device");
@@ -587,7 +592,7 @@ public:
 			return Ready;
 		}
 
-		if (Native->Descriptor.Usage == EBufferUsage::Vertex && Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance)
+		if (bInstances)
 		{
 			for (std::size_t Offset = 0; Offset < Data.size(); Offset += sizeof(float))
 			{
@@ -723,9 +728,15 @@ public:
 			return Invalid(std::format("Indexed draw '{}' has incompatible resources, indices, targets, or transform (uniforms {}/{}, depth {}/{}, color {})", Pipeline ? Pipeline->Name : "invalid pipeline", Draw.Uniforms.size(), Pipeline ? Pipeline->UniformBufferSize : 0, static_cast<bool>(Depth), Pipeline ? Pipeline->bDepthAttachment : false, static_cast<bool>(Color)));
 		}
 
-		if (Pipeline->bInstanced ? !Owns(Instances) || Instances->Descriptor.Usage != EBufferUsage::Vertex || Instances->Descriptor.VertexFormat != EGraphicsVertexFormat::MeshInstance || Draw.InstanceCount == 0 || Draw.FirstInstance > Instances->Descriptor.Size / sizeof(FMeshInstance) || Draw.InstanceCount > Instances->Descriptor.Size / sizeof(FMeshInstance) - Draw.FirstInstance : Draw.Instances || Draw.InstanceCount != 1 || Draw.FirstInstance != 0)
+		if (Pipeline->bInstanced ? !Owns(Instances) || Instances->Descriptor.Usage == EBufferUsage::Index || Instances->Descriptor.VertexFormat != EGraphicsVertexFormat::MeshInstance || Draw.InstanceCount == 0 || Draw.FirstInstance > Instances->Descriptor.Size / sizeof(FMeshInstance) || Draw.InstanceCount > Instances->Descriptor.Size / sizeof(FMeshInstance) - Draw.FirstInstance : Draw.Instances || Draw.InstanceCount != 1 || Draw.FirstInstance != 0)
 		{
 			return Invalid("Indexed draw instances must match the pipeline and fit a mesh instance buffer belonging to this device");
+		}
+
+		const auto Indirect = std::dynamic_pointer_cast<FBuffer>(Draw.IndirectArguments);
+		if (Draw.IndirectArguments && (!Pipeline->bInstanced || !Owns(Indirect) || Indirect->Descriptor.Usage != EBufferUsage::Storage || Draw.IndirectOffset % sizeof(std::uint32_t) != 0 || Draw.IndirectOffset > Indirect->Descriptor.Size || Indirect->Descriptor.Size - Draw.IndirectOffset < 5 * sizeof(std::uint32_t)))
+		{
+			return Invalid("Indirect draw arguments must be five aligned uints inside a storage buffer belonging to this device, for an instanced pipeline");
 		}
 
 		FFrame& Frame = Frames[FrameIndex];
@@ -851,7 +862,7 @@ public:
 			return Failed("Could not create draw framebuffer or bindings");
 		}
 
-		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, Framebuffer, Bindings, bColored, Viewport, Textures = std::move(Textures), Buffers = std::move(Buffers), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, Indirect, Framebuffer, Bindings, bColored, Viewport, Textures = std::move(Textures), Buffers = std::move(Buffers), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(bColored ? "Draw debug primitives" : "Draw textured mesh");
 			if (UniformBuffer)
@@ -871,6 +882,11 @@ public:
 				State.addBindingSet(Bindings);
 			}
 
+			if (Indirect)
+			{
+				State.setIndirectParams(Indirect->Handle);
+			}
+
 			Commands->setGraphicsState(State);
 			if (Pipeline->bPushConstants)
 			{
@@ -880,7 +896,14 @@ public:
 				Commands->setPushConstants(Constants.data(), sizeof(Constants));
 			}
 
-			Commands->drawIndexed(nvrhi::DrawArguments().setVertexCount(Draw.IndexCount).setStartIndexLocation(Draw.FirstIndex).setInstanceCount(Draw.InstanceCount).setStartInstanceLocation(Draw.FirstInstance));
+			if (Indirect)
+			{
+				Commands->drawIndexedIndirect(Draw.IndirectOffset);
+			}
+			else
+			{
+				Commands->drawIndexed(nvrhi::DrawArguments().setVertexCount(Draw.IndexCount).setStartIndexLocation(Draw.FirstIndex).setInstanceCount(Draw.InstanceCount).setStartInstanceLocation(Draw.FirstInstance));
+			}
 			Commands->endMarker();
 		});
 
@@ -1041,6 +1064,12 @@ public:
 		for (std::size_t Index = 0; Index < Storage.size(); ++Index)
 		{
 			Frame.WrittenTextures[Storage[Index].get()] |= 1u << Dispatch.StorageTextures[Index].MipLevel;
+		}
+
+		// Instance buffers that only compute shaders fill become drawable once a dispatch writes them.
+		for (const FBufferHandle& Buffer : Dispatch.StorageBuffers)
+		{
+			Frame.UploadedBuffers.try_emplace(static_cast<FBuffer*>(Buffer.get()), 0u);
 		}
 
 		Frame.UploadBytes += Dispatch.Uniforms.size();

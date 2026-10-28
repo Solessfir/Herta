@@ -24,11 +24,14 @@ struct FVertexOutput
     float3 WorldPosition : TEXCOORD1;
     float3 Normal : TEXCOORD2;
     float4 Tangent : TEXCOORD3;
+    // Last frame's clip position, with w 0 when unknown.
+    float4 PreviousClip : TEXCOORD4;
 };
 
 FVertexOutput TransformVertex(float3 Position, float2 UV, float3 Normal, float4 Tangent, float4x4 MVP, float4x4 ObjectToView)
 {
     FVertexOutput Output;
+    Output.PreviousClip = 0.0;
     // The depth prepass runs this same function; precise keeps the compiler from fusing it differently, so equal depth tests pass.
     precise float4 ClipPosition = mul(MVP, float4(Position, 1.0));
     Output.Position = ClipPosition;
@@ -54,12 +57,35 @@ struct FInstanceInput
 {
     float4 Clip0 : TEXCOORD1; float4 Clip1 : TEXCOORD2; float4 Clip2 : TEXCOORD3; float4 Clip3 : TEXCOORD4;
     float4 View0 : TEXCOORD5; float4 View1 : TEXCOORD6; float4 View2 : TEXCOORD7; float4 View3 : TEXCOORD8;
+    float4 Previous0 : TEXCOORD9; float4 Previous1 : TEXCOORD10; float4 Previous2 : TEXCOORD11; float4 Previous3 : TEXCOORD12;
 };
 
 [shader("vertex")]
 FVertexOutput instancedVertexMain(float3 Position : POSITION, float2 UV : TEXCOORD0, float3 Normal : NORMAL, float4 Tangent : TANGENT, FInstanceInput Instance)
 {
-    return TransformVertex(Position, UV, Normal, Tangent, transpose(float4x4(Instance.Clip0, Instance.Clip1, Instance.Clip2, Instance.Clip3)), transpose(float4x4(Instance.View0, Instance.View1, Instance.View2, Instance.View3)));
+    FVertexOutput Output = TransformVertex(Position, UV, Normal, Tangent, transpose(float4x4(Instance.Clip0, Instance.Clip1, Instance.Clip2, Instance.Clip3)), transpose(float4x4(Instance.View0, Instance.View1, Instance.View2, Instance.View3)));
+    Output.PreviousClip = mul(transpose(float4x4(Instance.Previous0, Instance.Previous1, Instance.Previous2, Instance.Previous3)), float4(Position, 1.0));
+    return Output;
+}
+
+// The instanced depth prepass with motion vectors: the same cutout test as Shadow.slang, then this pixel's screen motion.
+[shader("fragment")]
+float2 velocityFragmentMain(FVertexOutput Input) : SV_Target
+{
+    if (Visual.Material.Channels1.z > 0.5)
+    {
+        float Alpha = Visual.Material.BaseColor.a;
+        if ((uint(Visual.Material.TextureFlags.x) & 1u) != 0u)
+            Alpha *= BaseColorTexture.Sample(LinearSampler, Input.UV).a;
+
+        clip(Alpha - Visual.Material.Channels1.w);
+    }
+
+    if (Input.PreviousClip.w <= 0.0)
+        return MotionVectorUnknown;
+
+    float2 Previous = Input.PreviousClip.xy / Input.PreviousClip.w * float2(0.5, -0.5) + 0.5;
+    return Input.Position.xy * Visual.Viewport.xy - Previous;
 }
 
 float Channel(float4 Sample, float Selection)

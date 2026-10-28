@@ -111,6 +111,7 @@ public:
 	[[nodiscard]] bool IsPlaying() const noexcept;
 	// Opens or closes the game's pause menu during play, as Shift+Esc does.
 	void SetPlayPaused(bool bPaused) noexcept;
+	void SetRenderQuality(ERenderQuality Quality) noexcept;
 	// Moves the viewport camera to a level camera bookmark and returns its name, or nothing when the slot is empty.
 	std::optional<std::string> ShowCameraBookmark(std::uint32_t Slot);
 	[[nodiscard]] bool IsUnitStatsVisible() const noexcept;

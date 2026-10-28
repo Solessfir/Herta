@@ -1010,6 +1010,11 @@ void FEditorFramework::SetPlayPaused(const bool bPaused) noexcept
 	Implementation->bPlayPaused = bPaused && Implementation->PlaySession;
 }
 
+void FEditorFramework::SetRenderQuality(const ERenderQuality Quality) noexcept
+{
+	ApplyRenderQuality(Implementation->VisualSettings, Quality);
+}
+
 bool FEditorFramework::IsUnitStatsVisible() const noexcept
 {
 	return Implementation->Stats->bUnitVisible;
@@ -3211,6 +3216,22 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 		if (Section("Rendering"))
 		{
+			DrawFieldLabel("Quality", ValueWidth);
+			constexpr std::array Tiers{"Low", "Medium", "High"};
+			const std::optional<ERenderQuality> Tier = FindRenderQuality(VisualSettings);
+			if (ImGui::BeginCombo("##RenderQuality", Tier ? Tiers[static_cast<std::size_t>(*Tier)] : "Custom"))
+			{
+				for (std::size_t Index = 0; Index < Tiers.size(); ++Index)
+				{
+					if (ImGui::Selectable(Tiers[Index], Tier && Index == static_cast<std::size_t>(*Tier)))
+					{
+						ApplyRenderQuality(VisualSettings, static_cast<ERenderQuality>(Index));
+					}
+				}
+
+				ImGui::EndCombo();
+			}
+
 			DrawFieldLabel("Anti-aliasing", ValueWidth);
 			constexpr std::array Modes{"Off", "SMAA Low", "SMAA Medium", "SMAA High", "SMAA Ultra"};
 			if (ImGui::BeginCombo("##AntiAliasing", Modes[static_cast<std::size_t>(VisualSettings.AntiAliasing)]))
@@ -3257,6 +3278,8 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 					ImGui::EndCombo();
 				}
+
+				Toggle("Occlusion culling", VisualSettings.bOcclusionCulling);
 			}
 		}
 
@@ -4646,6 +4669,15 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	}
 
 	PlayRenderView = PlaySession->GetRenderView(ViewportExtent);
+
+	// Play keeps the viewport's quality settings, so a tier can be judged in motion.
+	FVisualSettings& PlayVisuals = PlayRenderView.Visuals;
+	PlayVisuals.AntiAliasing = VisualSettings.AntiAliasing;
+	PlayVisuals.ShadowQuality = VisualSettings.ShadowQuality;
+	PlayVisuals.ShadowResolution = VisualSettings.ShadowResolution;
+	PlayVisuals.AmbientOcclusion = VisualSettings.AmbientOcclusion;
+	PlayVisuals.FogResolution = VisualSettings.FogResolution;
+	PlayVisuals.bOcclusionCulling = VisualSettings.bOcclusionCulling;
 }
 
 void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const ImVec2 Size)

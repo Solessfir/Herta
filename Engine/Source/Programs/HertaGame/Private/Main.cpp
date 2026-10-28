@@ -108,6 +108,7 @@ struct FGameSettings
 	float PaperWhite = 0.f;
 	float PeakLuminance = 0.f;
 	float MouseSensitivity = 0.0022f;
+	ERenderQuality Quality = ERenderQuality::High;
 };
 
 [[nodiscard]] FGameSettings LoadSettings(const std::filesystem::path& Path)
@@ -151,6 +152,10 @@ struct FGameSettings
 		{
 			Settings.MouseSensitivity = Number;
 		}
+		else if (Key == "quality" && (Number == 0.f || Number == 1.f || Number == 2.f))
+		{
+			Settings.Quality = static_cast<ERenderQuality>(Number);
+		}
 	}
 
 	return Settings;
@@ -164,7 +169,7 @@ void SaveSettings(const std::filesystem::path& Path, const FGameSettings& Settin
 	Temporary += ".tmp";
 	{
 		std::ofstream File(Temporary, std::ios::trunc);
-		std::println(File, "fullscreen={}\nhdr={}\npaperWhite={}\npeakLuminance={}\nmouseSensitivity={}", Settings.bFullscreen ? 1 : 0, Settings.bHdr ? 1 : 0, Settings.PaperWhite, Settings.PeakLuminance, Settings.MouseSensitivity);
+		std::println(File, "fullscreen={}\nhdr={}\npaperWhite={}\npeakLuminance={}\nmouseSensitivity={}\nquality={}", Settings.bFullscreen ? 1 : 0, Settings.bHdr ? 1 : 0, Settings.PaperWhite, Settings.PeakLuminance, Settings.MouseSensitivity, static_cast<int>(Settings.Quality));
 		if (!File)
 		{
 			HERTA_LOG_WARNING(Log, GameLog, "Could not save settings to {}", Path.generic_string());
@@ -340,6 +345,10 @@ int RunGame(const FGameOptions& Options)
 	    std::pair{"SmaaEdgeList.comp.hshader", &VisualShaders.SmaaEdgeListCompute},
 	    std::pair{"SmaaEdgeWeights.comp.hshader", &VisualShaders.SmaaEdgeWeightsCompute},
 	    std::pair{"LightClusters.comp.hshader", &VisualShaders.LightClustersCompute},
+	    std::pair{"DepthHierarchy.comp.hshader", &VisualShaders.DepthHierarchyCompute},
+	    std::pair{"OcclusionCull.comp.hshader", &VisualShaders.OcclusionCullCompute},
+	    std::pair{"TexturedMesh.velocity.frag.hshader", &VisualShaders.DepthVelocityFragment},
+	    std::pair{"MotionVectors.comp.hshader", &VisualShaders.MotionVectorsCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)
@@ -604,6 +613,7 @@ int RunGame(const FGameOptions& Options)
 		}
 
 		FMeshRenderView View = Session->GetRenderView(Extent);
+		ApplyRenderQuality(View.Visuals, Settings.Quality);
 		if (Presentation->IsHdrOutputActive())
 		{
 			View.Visuals.HdrDisplay = FHdrDisplaySettings{.PaperWhite = PaperWhite, .PeakLuminance = PeakLuminance};
@@ -649,7 +659,9 @@ int RunGame(const FGameOptions& Options)
 		const bool bHdrSupported = Presentation->IsHdrOutputSupported();
 		const std::string FullscreenLabel = std::format("Fullscreen: {}", Window.IsFullscreen() ? "On" : "Off");
 		const std::string HdrLabel = bHdrSupported ? std::format("HDR: {}", Settings.bHdr ? "On" : "Off") : std::string("HDR: not available on this display");
-		const std::array<std::string_view, 5> Items{"Resume", "Restart course", FullscreenLabel, HdrLabel, "Quit"};
+		constexpr std::array QualityNames{"Low", "Medium", "High"};
+		const std::string QualityLabel = std::format("Quality: {}", QualityNames[static_cast<std::size_t>(Settings.Quality)]);
+		const std::array<std::string_view, 6> Items{"Resume", "Restart course", FullscreenLabel, HdrLabel, QualityLabel, "Quit"};
 		const FGameUIInput MenuInput{.Pointer = Input.Pointer, .bClicked = Input.bClicked, .bUp = Input.bMenuUp, .bDown = Input.bMenuDown, .bActivate = Input.bMenuActivate};
 		if (const auto Chosen = DrawGameHud(*UI, Session->GetObjective(), bPaused, Items, MenuFocus, MenuInput))
 		{
@@ -678,6 +690,11 @@ int RunGame(const FGameOptions& Options)
 				SaveSettings(SettingsPath, Settings, *Log);
 			}
 			else if (*Chosen == 4)
+			{
+				Settings.Quality = static_cast<ERenderQuality>((static_cast<int>(Settings.Quality) + 1) % 3);
+				SaveSettings(SettingsPath, Settings, *Log);
+			}
+			else if (*Chosen == 5)
 			{
 				Window.RequestClose();
 			}

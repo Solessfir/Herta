@@ -287,6 +287,8 @@ struct FPhysicalDeviceSelection
 	std::uint32_t QueueFamilyIndex = 0;
 	std::uint32_t Score = 0;
 	bool bHdrMetadata = false;
+	// Milestone 6.5 ray tracing needs both; reported so a capture names the hardware it ran on.
+	bool bRayQuery = false;
 };
 
 [[nodiscard]] std::optional<FPhysicalDeviceSelection> EvaluatePhysicalDevice(const VkPhysicalDevice Device, const VkSurfaceKHR Surface)
@@ -340,7 +342,7 @@ struct FPhysicalDeviceSelection
 		Score += 500'000;
 	}
 
-	return FPhysicalDeviceSelection{.Device = Device, .QueueFamilyIndex = Queue->FamilyIndex, .Score = Score, .bHdrMetadata = ContainsExtension(Extensions, VK_EXT_HDR_METADATA_EXTENSION_NAME)};
+	return FPhysicalDeviceSelection{.Device = Device, .QueueFamilyIndex = Queue->FamilyIndex, .Score = Score, .bHdrMetadata = ContainsExtension(Extensions, VK_EXT_HDR_METADATA_EXTENSION_NAME), .bRayQuery = ContainsExtension(Extensions, VK_KHR_RAY_QUERY_EXTENSION_NAME) && ContainsExtension(Extensions, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)};
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT* const CallbackData, void* const UserData)
@@ -652,10 +654,21 @@ public:
 		{
 			VkPhysicalDeviceProperties SelectedDeviceProperties{};
 			vkGetPhysicalDeviceProperties(PhysicalDevice, &SelectedDeviceProperties);
+			VkPhysicalDeviceMemoryProperties Memory{};
+			vkGetPhysicalDeviceMemoryProperties(PhysicalDevice, &Memory);
+			VkDeviceSize DeviceLocalBytes = 0;
+			for (std::uint32_t Heap = 0; Heap < Memory.memoryHeapCount; ++Heap)
+			{
+				if ((Memory.memoryHeaps[Heap].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0)
+				{
+					DeviceLocalBytes = std::max(DeviceLocalBytes, Memory.memoryHeaps[Heap].size);
+				}
+			}
+
 			HERTA_LOG_INFO(
 			    *Descriptor.Log,
 			    RhiLog,
-			    "Vulkan loader {}.{}.{} selected '{}' with API {}.{}.{}, graphics queue {}, validation {}",
+			    "Vulkan loader {}.{}.{} selected '{}' with API {}.{}.{}, driver {:#x}, {} MiB device memory, graphics queue {}, ray queries {}, HDR metadata {}, validation {}",
 			    VK_API_VERSION_MAJOR(LoaderVersion),
 			    VK_API_VERSION_MINOR(LoaderVersion),
 			    VK_API_VERSION_PATCH(LoaderVersion),
@@ -663,7 +676,11 @@ public:
 			    VK_API_VERSION_MAJOR(SelectedDeviceProperties.apiVersion),
 			    VK_API_VERSION_MINOR(SelectedDeviceProperties.apiVersion),
 			    VK_API_VERSION_PATCH(SelectedDeviceProperties.apiVersion),
+			    SelectedDeviceProperties.driverVersion,
+			    DeviceLocalBytes / (1024 * 1024),
 			    QueueFamilyIndex,
+			    Selection->bRayQuery ? "supported" : "unavailable",
+			    Selection->bHdrMetadata ? "supported" : "unavailable",
 			    bEnableValidation ? "enabled" : "disabled");
 		}
 

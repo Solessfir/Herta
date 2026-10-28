@@ -31,7 +31,8 @@ enum class EBufferUsage : std::uint8_t
 {
 	Vertex,
 	Index,
-	// uint elements that compute shaders read and write, which can also hold indirect dispatch arguments.
+	// uint elements that compute shaders read and write, which can also hold indirect dispatch and draw arguments.
+	// With the MeshInstance vertex format they also feed instanced draws, so compute shaders can cull instances.
 	Storage
 };
 
@@ -43,7 +44,8 @@ enum class ETextureFormat : std::uint8_t
 	Rgba16Float,
 	Rgba32Float,
 	R32Float,
-	R32Uint
+	R32Uint,
+	Rg16Float
 };
 
 [[nodiscard]] constexpr std::size_t GetTextureTexelBytes(const ETextureFormat Format) noexcept
@@ -55,6 +57,7 @@ enum class ETextureFormat : std::uint8_t
 		case ETextureFormat::Depth32:
 		case ETextureFormat::R32Float:
 		case ETextureFormat::R32Uint:
+		case ETextureFormat::Rg16Float:
 			return 4;
 		case ETextureFormat::Rgba16Float:
 			return 8;
@@ -232,6 +235,8 @@ struct FMeshInstance
 {
 	std::array<float, 16> WorldToClip;
 	std::array<float, 16> ObjectToView;
+	// The previous frame's object-to-clip transform, for motion vectors.
+	std::array<float, 16> PreviousWorldToClip;
 };
 
 struct FRenderViewport
@@ -265,6 +270,10 @@ struct FIndexedDraw
 	FRenderViewport Viewport{};
 	// Storage buffers read as StructuredBuffer from ReadBufferBinding.
 	std::span<const FBufferHandle> Buffers{};
+	// An instanced draw may take its arguments from a storage buffer written earlier on the GPU: five uints at IndirectOffset bytes for index count, instance count, first index, vertex offset, and first instance.
+	// IndexCount, FirstIndex, InstanceCount, and FirstInstance still describe the largest ranges those arguments may reach.
+	FBufferHandle IndirectArguments{};
+	std::uint32_t IndirectOffset = 0;
 };
 
 struct FGraphicsStatistics

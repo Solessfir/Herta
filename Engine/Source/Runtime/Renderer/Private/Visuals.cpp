@@ -90,6 +90,76 @@ namespace
 }
 }
 
+namespace
+{
+struct FShadowSizes
+{
+	std::uint32_t Cascade = ShadowCascadeResolution;
+	std::uint32_t Tile = ShadowTileResolution;
+};
+
+FShadowSizes GetShadowSizes(const float Resolution)
+{
+	const float Scale = std::isfinite(Resolution) ? std::clamp(Resolution, 0.25f, 1.f) : 1.f;
+	return {.Cascade = static_cast<std::uint32_t>(std::lround(ShadowCascadeResolution * Scale)), .Tile = static_cast<std::uint32_t>(std::lround(ShadowTileResolution * Scale))};
+}
+
+FVisualSettings MakeQualityPreset(const ERenderQuality Quality)
+{
+	FVisualSettings Preset;
+	ApplyRenderQuality(Preset, Quality);
+	return Preset;
+}
+}
+
+void ApplyRenderQuality(FVisualSettings& Settings, const ERenderQuality Quality)
+{
+	switch (Quality)
+	{
+		case ERenderQuality::Low:
+			Settings.AntiAliasing = EAntiAliasing::SmaaLow;
+			Settings.ShadowQuality = EShadowQuality::Hard;
+			Settings.ShadowResolution = 0.5f;
+			Settings.AmbientOcclusion = EAmbientOcclusion::Off;
+			Settings.FogResolution = 0.125f;
+			break;
+		case ERenderQuality::Medium:
+			Settings.AntiAliasing = EAntiAliasing::SmaaMedium;
+			Settings.ShadowQuality = EShadowQuality::Soft;
+			Settings.ShadowResolution = 0.5f;
+			Settings.AmbientOcclusion = EAmbientOcclusion::Low;
+			Settings.FogResolution = 0.25f;
+			break;
+		case ERenderQuality::High:
+			Settings.AntiAliasing = EAntiAliasing::SmaaHigh;
+			Settings.ShadowQuality = EShadowQuality::Soft;
+			Settings.ShadowResolution = 1.f;
+			Settings.AmbientOcclusion = EAmbientOcclusion::High;
+			Settings.FogResolution = 0.25f;
+			break;
+	}
+}
+
+std::optional<ERenderQuality> FindRenderQuality(const FVisualSettings& Settings)
+{
+	for (const ERenderQuality Quality : {ERenderQuality::Low, ERenderQuality::Medium, ERenderQuality::High})
+	{
+		const FVisualSettings Preset = MakeQualityPreset(Quality);
+		if (Settings.AntiAliasing == Preset.AntiAliasing && Settings.ShadowQuality == Preset.ShadowQuality && Settings.ShadowResolution == Preset.ShadowResolution && Settings.AmbientOcclusion == Preset.AmbientOcclusion && Settings.FogResolution == Preset.FogResolution)
+		{
+			return Quality;
+		}
+	}
+
+	return std::nullopt;
+}
+
+FExtent2D GetShadowAtlasExtent(const float Resolution)
+{
+	const FShadowSizes Sizes = GetShadowSizes(Resolution);
+	return {2 * Sizes.Cascade, 2 * Sizes.Cascade + 2 * Sizes.Tile};
+}
+
 FGtaoUniforms BuildGtaoUniforms(const FMatrix4& Projection, const FMatrix4& ClipToView, const FExtent2D Extent, const EAmbientOcclusion Quality)
 {
 	// Thin rails and posts stay open behind their assumed thickness, while 75 cm of radius still darkens room corners and the ground under props.
@@ -270,8 +340,9 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 	return Result;
 }
 
-std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::span<const FRenderLight> Lights, const FMatrix4& Projection)
+std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::span<const FRenderLight> Lights, const FMatrix4& Projection, const float Resolution)
 {
+	const FShadowSizes Sizes = GetShadowSizes(Resolution);
 	std::vector<FShadowView> Result;
 	if (Lights.size() > MaximumRenderLights)
 	{
@@ -359,7 +430,7 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 
 				Radius = std::ceil(Radius * 16.f) / 16.f;
 				FMatrix4 LightView = Look(Center - Direction * (Radius + 64.f), Direction, Up);
-				Texel = 2.f * Radius / static_cast<float>(ShadowCascadeResolution);
+				Texel = 2.f * Radius / static_cast<float>(Sizes.Cascade);
 				LightView(0, 3) = std::round(LightView(0, 3) / Texel) * Texel;
 				LightView(1, 3) = std::round(LightView(1, 3) / Texel) * Texel;
 				FMatrix4 Ortho = FMatrix4::Zero();
@@ -385,11 +456,11 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 			}
 
 			const auto Cascade = static_cast<std::uint32_t>(Face);
-			const FRenderViewport Viewport = bCascaded ? FRenderViewport{.X = Cascade % 2 * ShadowCascadeResolution, .Y = Cascade / 2 * ShadowCascadeResolution, .Width = ShadowCascadeResolution, .Height = ShadowCascadeResolution}
-			                                           : FRenderViewport{.X = LocalTiles % 8 * ShadowTileResolution, .Y = 2 * ShadowCascadeResolution + LocalTiles / 8 * ShadowTileResolution, .Width = ShadowTileResolution, .Height = ShadowTileResolution};
+			const FRenderViewport Viewport = bCascaded ? FRenderViewport{.X = Cascade % 2 * Sizes.Cascade, .Y = Cascade / 2 * Sizes.Cascade, .Width = Sizes.Cascade, .Height = Sizes.Cascade}
+			                                           : FRenderViewport{.X = LocalTiles % 8 * Sizes.Tile, .Y = 2 * Sizes.Cascade + LocalTiles / 8 * Sizes.Tile, .Width = Sizes.Tile, .Height = Sizes.Tile};
 			LocalTiles += bCascaded ? 0 : 1;
-			constexpr float Width = ShadowAtlasWidth;
-			constexpr float Height = ShadowAtlasHeight;
+			const auto Width = static_cast<float>(2 * Sizes.Cascade);
+			const auto Height = static_cast<float>(2 * Sizes.Cascade + 2 * Sizes.Tile);
 			Uniforms.Shadows[Result.size()] = {.WorldToClip = Matrix.Data(), .Atlas = {static_cast<float>(Viewport.Width) / Width, static_cast<float>(Viewport.Height) / Height, static_cast<float>(Viewport.X) / Width, static_cast<float>(Viewport.Y) / Height}, .Parameters = {Light.ShadowBias, Split, Light.ShadowNormalBias, Texel}};
 			Result.push_back({.WorldToClip = Matrix, .Viewport = Viewport, .LightPosition = Position, .LightRange = bCascaded ? 0.f : Light.Range});
 		}

@@ -47,11 +47,16 @@ struct FVisualUniforms
     float4 LightGrid;
     float4 SunDirection;
     float4 SunRadiance;
+    // Maps this frame's clip space to the previous frame's, for camera motion.
+    column_major float4x4 ClipToPreviousClip;
     FShadow Shadows[16];
     FMaterial Material;
 };
 
 [[vk::binding(64, 0)]] ConstantBuffer<FVisualUniforms> Visual;
+
+// Motion vectors are this frame's UV minus the previous frame's. The depth prepass leaves this where it knows no object motion, and the motion vector pass fills those pixels from depth and camera motion.
+static const float2 MotionVectorUnknown = float2(65504.0, 0.0);
 [[vk::binding(128, 0)]] SamplerState LinearSampler;
 static const float PI = 3.14159265358979323846;
 

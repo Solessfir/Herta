@@ -1143,6 +1143,228 @@ namespace
 }
 
 // Locks the physical camera chain: an 18% grey card under 100,000 lx of noon sun at "sunny 16" EV100 15 must display as photographic middle grey.
+[[nodiscard]] float DecodeHalf(const std::uint16_t Bits)
+{
+	const int Exponent = (Bits >> 10) & 31;
+	const float Mantissa = static_cast<float>(Bits & 1023);
+	const float Magnitude = Exponent == 0 ? std::ldexp(Mantissa, -24) : std::ldexp(1024.f + Mantissa, Exponent - 25);
+	return (Bits & 0x8000) != 0 ? -Magnitude : Magnitude;
+}
+
+// A moving cube reports its own screen motion while the static sky reports none, and a turning camera moves the cube and the sky alike.
+[[nodiscard]] std::expected<void, FPresentationError> CheckMotionVectors(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
+{
+	if (Shaders.MotionVectorsCompute.Bytecode.empty())
+	{
+		return {};
+	}
+
+	const auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, Shaders);
+	const auto Cube = CreateSmokeCube(Device);
+	if (!Renderer || !Cube)
+	{
+		return std::unexpected(!Renderer ? Renderer.error() : Cube.error());
+	}
+
+	constexpr FExtent2D Extent{192, 128};
+	std::array Models{FMatrix4::Translation({0, 0, 0})};
+	std::array PreviousModels = Models;
+	const std::array<const FRenderMesh*, 1> Meshes{Cube->get()};
+	FMeshRenderView View{
+	    .View = FMatrix4::Translation({0, 0, 5}),
+	    .Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.f, 1.5f, 0.1f),
+	    .Models = Models,
+	    .PreviousModels = PreviousModels,
+	    .Meshes = Meshes,
+	    .Visuals = {.AntiAliasing = EAntiAliasing::Off, .bMotionVectors = true, .bStudioPreview = false},
+	};
+
+	const auto Capture = [&]() -> std::expected<std::vector<std::array<float, 2>>, FPresentationError>
+	{
+		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+		{
+			return std::unexpected(Rendered.error());
+		}
+
+		if (!(*Renderer)->GetMotionVectors())
+		{
+			return Failure("Motion vectors were requested but not produced");
+		}
+
+		const auto Bytes = Device.ReadbackTexture((*Renderer)->GetMotionVectors());
+		if (!Bytes)
+		{
+			return std::unexpected(Bytes.error());
+		}
+
+		std::vector<std::array<float, 2>> Motion(Bytes->size() / 4);
+		for (std::size_t Pixel = 0; Pixel < Motion.size(); ++Pixel)
+		{
+			std::array<std::uint16_t, 2> Bits;
+			std::memcpy(Bits.data(), Bytes->data() + Pixel * 4, sizeof(Bits));
+			Motion[Pixel] = {DecodeHalf(Bits[0]), DecodeHalf(Bits[1])};
+		}
+
+		return Motion;
+	};
+
+	const auto ProjectUV = [&](const FMatrix4& WorldToClip, const FVector3& Point)
+	{
+		const FVector4 Clip = WorldToClip * FVector4{Point.X, Point.Y, Point.Z, 1.f};
+		return std::array{Clip.X / Clip.W * 0.5f + 0.5f, 0.5f - Clip.Y / Clip.W * 0.5f};
+	};
+
+	const auto At = [&](const std::vector<std::array<float, 2>>& Motion, const std::array<float, 2>& UV)
+	{
+		const auto X = static_cast<std::size_t>(UV[0] * static_cast<float>(Extent.Width));
+		const auto Y = static_cast<std::size_t>(UV[1] * static_cast<float>(Extent.Height));
+		return Motion[Y * Extent.Width + X];
+	};
+
+	if (const auto First = Capture(); !First)
+	{
+		return std::unexpected(First.error());
+	}
+
+	Models[0] = FMatrix4::Translation({0.2f, 0.1f, 0});
+	const auto Moved = Capture();
+	if (!Moved)
+	{
+		return std::unexpected(Moved.error());
+	}
+
+	const FMatrix4 WorldToClip = View.Projection * View.View;
+	// The visible point is on the cube's front face, half a meter nearer than its center.
+	const auto Current = ProjectUV(WorldToClip, {0.2f, 0.1f, -0.5f});
+	const auto Previous = ProjectUV(WorldToClip, {0, 0, -0.5f});
+	const auto CubeMotion = At(*Moved, Current);
+	const auto Sky = At(*Moved, {0.05f, 0.5f});
+	if (std::abs(CubeMotion[0] - (Current[0] - Previous[0])) > 2e-3f || std::abs(CubeMotion[1] - (Current[1] - Previous[1])) > 2e-3f || std::abs(Sky[0]) > 1e-4f || std::abs(Sky[1]) > 1e-4f)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("A moving cube must report its screen motion over a still sky (cube {} {}, expected {} {}, sky {} {})", CubeMotion[0], CubeMotion[1], Current[0] - Previous[0], Current[1] - Previous[1], Sky[0], Sky[1])});
+	}
+
+	PreviousModels = Models;
+	View.View = FMatrix4::Rotation(FQuaternion::FromAxisAngle({0, 1, 0}, 0.02f)) * FMatrix4::Translation({0, 0, 5});
+	const auto Turned = Capture();
+	if (!Turned)
+	{
+		return std::unexpected(Turned.error());
+	}
+
+	// A small turn shifts pixels in the same column alike, whichever pass wrote them, so compare the cube with the sky above it.
+	const auto CubeUV = ProjectUV(View.Projection * View.View, {0.2f, 0.1f, -0.5f});
+	const auto TurnedCube = At(*Turned, CubeUV);
+	const auto TurnedSky = At(*Turned, {CubeUV[0], 0.1f});
+	if (std::abs(TurnedCube[0]) < 1e-3f || std::abs(TurnedCube[0] - TurnedSky[0]) > 0.1f * std::abs(TurnedCube[0]))
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Turning the camera must move the cube and the sky alike (cube {}, sky {})", TurnedCube[0], TurnedSky[0])});
+	}
+
+	return {};
+}
+
+// Occlusion culling must never change pixels: a cube hidden behind a wall stays culled, and the frame the wall moves away it must already be drawn.
+[[nodiscard]] std::expected<void, FPresentationError> CheckOcclusionCulling(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
+{
+	if (Shaders.OcclusionCullCompute.Bytecode.empty())
+	{
+		return {};
+	}
+
+	const auto Culled = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, Shaders);
+	const auto Reference = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, Shaders);
+	const auto Cube = CreateSmokeCube(Device);
+	if (!Culled || !Reference || !Cube)
+	{
+		return std::unexpected(!Culled ? Culled.error() : !Reference ? Reference.error()
+		                                                             : Cube.error());
+	}
+
+	constexpr FExtent2D Extent{192, 128};
+	std::array Models{
+	    FMatrix4::Translation({0, 1, -2}) * FMatrix4::Scale({8, 6, 0.2f}),
+	    FMatrix4::Translation({0, 1, 2}),
+	    FMatrix4::Translation({0, -0.1f, 0}) * FMatrix4::Scale({12, 0.2f, 12}),
+	};
+
+	const std::array<const FRenderMesh*, 3> Meshes{Cube->get(), Cube->get(), Cube->get()};
+	const std::array Lights{
+	    FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 3000.f, .bCastShadows = false, .Range = 40.f}, .Transform = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1, 0, 0}, 0.7f))},
+	    FRenderLight{.Settings = {.Type = ELightType::Sky, .Intensity = 10.f, .bCastShadows = false, .bEnvironmentVisible = false}, .Transform = FMatrix4{}},
+	};
+
+	FMeshRenderView View{
+	    .View = FMatrix4::Translation({0, -1, 6}),
+	    .Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.f, 1.5f, 0.1f),
+	    .Models = Models,
+	    .Meshes = Meshes,
+	    .Lights = Lights,
+	    .Visuals = {.ExposureEV100 = 7.737f, .AntiAliasing = EAntiAliasing::Off, .bStudioPreview = false},
+	};
+
+	const auto Capture = [&](FMeshRenderer& Renderer, const bool bCulling) -> std::expected<std::vector<std::byte>, FPresentationError>
+	{
+		View.Visuals.bOcclusionCulling = bCulling;
+		if (const auto Rendered = Renderer.Render(Extent, View); !Rendered)
+		{
+			return std::unexpected(Rendered.error());
+		}
+
+		return Device.ReadbackTexture(Renderer.GetColorTarget());
+	};
+
+	const auto Matches = [](const std::vector<std::byte>& A, const std::vector<std::byte>& B)
+	{
+		for (std::size_t Index = 0; Index < A.size(); ++Index)
+		{
+			if (std::abs(std::to_integer<int>(A[Index]) - std::to_integer<int>(B[Index])) > 1)
+			{
+				return false;
+			}
+		}
+
+		return A.size() == B.size();
+	};
+
+	std::expected<std::vector<std::byte>, FPresentationError> Hidden;
+	for (int Frame = 0; Frame < 3 && (Frame == 0 || Hidden); ++Frame)
+	{
+		Hidden = Capture(**Culled, true);
+	}
+
+	const auto HiddenReference = Capture(**Reference, false);
+	if (!Hidden || !HiddenReference)
+	{
+		return std::unexpected(!Hidden ? Hidden.error() : HiddenReference.error());
+	}
+
+	if (!Matches(*Hidden, *HiddenReference))
+	{
+		return Failure("Occlusion culling changed the image of a scene with a hidden cube");
+	}
+
+	Models[0] = FMatrix4::Translation({30, 1, -2}) * FMatrix4::Scale({8, 6, 0.2f});
+	const auto Revealed = Capture(**Culled, true);
+	const auto RevealedReference = Capture(**Reference, false);
+	if (!Revealed || !RevealedReference)
+	{
+		return std::unexpected(!Revealed ? Revealed.error() : RevealedReference.error());
+	}
+
+	if (Matches(*Hidden, *Revealed))
+	{
+		return Failure("Moving the occluding wall did not reveal the cube behind it");
+	}
+
+	if (!Matches(*Revealed, *RevealedReference))
+	{
+		return Failure("Occlusion culling drew a newly revealed cube a frame late");
+	}
+
+	return {};
+}
+
 [[nodiscard]] std::expected<void, FPresentationError> CheckExposureCalibration(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
 {
 	const auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, Shaders);
@@ -1195,7 +1417,7 @@ namespace
 	// GT7 keeps midtones nearly linear, so the camera's 14.6% exposed grey lands near 105 in sRGB; a little rough specular may lift it a few values.
 	if (Green < 98 || Green > 116 || std::abs(Red - Green) > 3 || std::abs(Blue - Green) > 3)
 	{
-		return Failure(std::format("An 18% grey card at sunny 16 displayed as {}/{}/{}, not neutral middle grey near 105", Red, Green, Blue).c_str());
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = std::format("An 18% grey card at sunny 16 displayed as {}/{}/{}, not neutral middle grey near 105", Red, Green, Blue).c_str()});
 	}
 
 	// HDR output keeps midtones where SDR puts them, relative to paper white, and compresses highlights to the display peak instead of clipping at white.
@@ -1248,12 +1470,12 @@ namespace
 	const float Peak = Hdr.PeakLuminance / Hdr.PaperWhite;
 	if (std::abs(HdrGrey - SdrGrey) > 0.01f || std::abs(Channel(*Midtone, CenterX, CenterY, 0) - HdrGrey) > 0.005f || std::abs(Channel(*Midtone, CenterX, CenterY, 2) - HdrGrey) > 0.005f)
 	{
-		return Failure(std::format("HDR grey card read {:.4f}, not the SDR value {:.4f} relative to paper white", HdrGrey, SdrGrey).c_str());
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = std::format("HDR grey card read {:.4f}, not the SDR value {:.4f} relative to paper white", HdrGrey, SdrGrey).c_str()});
 	}
 
 	if (HdrHighlight < Peak * 0.97f || HdrHighlight > Peak * 1.001f)
 	{
-		return Failure(std::format("A highlight 8 stops over noon read {:.3f} of paper white, not the {:.1f} peak", HdrHighlight, Peak).c_str());
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = std::format("A highlight 8 stops over noon read {:.3f} of paper white, not the {:.1f} peak", HdrHighlight, Peak).c_str()});
 	}
 
 	if (std::abs(PatternInner - 10000.f / Hdr.PaperWhite) > 0.05f || std::abs(PatternOuter - Peak) > 0.01f || PatternBackground != 0.f)
@@ -1524,7 +1746,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 			return Failure("Indexed instancing accepted an uninitialized instance buffer");
 		}
 
-		std::array InstanceData{FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data()}, FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 4}).Data()}};
+		std::array InstanceData{FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .PreviousWorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data()}, FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 4}).Data(), .PreviousWorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data()}};
 		InstanceData[0].WorldToClip[0] = std::numeric_limits<float>::quiet_NaN();
 		if (Device.WriteBuffer(*Instances, std::as_bytes(std::span{InstanceData})))
 		{
@@ -1630,6 +1852,18 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	Result = CheckVisualPipeline(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);
+	if (!Result)
+	{
+		return Result;
+	}
+
+	Result = CheckOcclusionCulling(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);
+	if (!Result)
+	{
+		return Result;
+	}
+
+	Result = CheckMotionVectors(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);
 	if (!Result)
 	{
 		return Result;

@@ -220,7 +220,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -386,6 +386,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"SmaaEdgeList.comp.hshader", &VisualShaders.SmaaEdgeListCompute},
 	    std::pair{"SmaaEdgeWeights.comp.hshader", &VisualShaders.SmaaEdgeWeightsCompute},
 	    std::pair{"LightClusters.comp.hshader", &VisualShaders.LightClustersCompute},
+	    std::pair{"DepthHierarchy.comp.hshader", &VisualShaders.DepthHierarchyCompute},
+	    std::pair{"OcclusionCull.comp.hshader", &VisualShaders.OcclusionCullCompute},
+	    std::pair{"TexturedMesh.velocity.frag.hshader", &VisualShaders.DepthVelocityFragment},
+	    std::pair{"MotionVectors.comp.hshader", &VisualShaders.MotionVectorsCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)
@@ -784,6 +788,19 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	}
 
 	std::unique_ptr<FEditorFramework> EditorFramework = std::move(*EditorFrameworkResult);
+	if (!QualityArgument.empty())
+	{
+		constexpr std::array<std::string_view, 3> Tiers{"low", "medium", "high"};
+		const auto Tier = std::ranges::find(Tiers, QualityArgument);
+		if (Tier == Tiers.end())
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Unknown --quality={}; expected low, medium, or high", QualityArgument);
+			return 1;
+		}
+
+		EditorFramework->SetRenderQuality(static_cast<ERenderQuality>(Tier - Tiers.begin()));
+	}
+
 	if (bSmokeTest)
 	{
 		for (const std::string_view Command : {"stat unit", "stat fps"})
@@ -1536,6 +1553,7 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::string_view ScalingLevelPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--scaling-test=");
 		const bool bScalingSimulate = Herta::HasArgument(ArgumentCount, Arguments, "--scaling-simulate");
 		const std::string_view ProjectPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--project=");
+		const std::string_view Quality = Herta::FindArgumentValue(ArgumentCount, Arguments, "--quality=");
 		// Explorer passes a file dropped on the executable as a plain argument.
 		std::filesystem::path OpenPath;
 		for (const std::filesystem::path& Argument : Herta::GetProcessArgumentPaths(ArgumentCount, Arguments))
@@ -1547,7 +1565,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality);
 	}
 	catch (const std::exception& Exception)
 	{

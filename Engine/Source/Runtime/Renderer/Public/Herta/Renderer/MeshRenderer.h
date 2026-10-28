@@ -50,6 +50,8 @@ struct FMeshRenderView
 	FMatrix4 View;
 	FMatrix4 Projection;
 	std::span<const FMatrix4> Models;
+	// Each model's transform in the previous frame, for motion vectors. Leave empty when models never move or their order changed, which treats them as static.
+	std::span<const FMatrix4> PreviousModels{};
 	bool bDrawGrid = false;
 	FVector3 GridCenter{};
 	// One entry per model. Null entries are skipped, such as meshes that are still loading.
@@ -132,6 +134,8 @@ public:
 	FMeshRenderer& operator=(const FMeshRenderer&) = delete;
 	[[nodiscard]] std::expected<void, FPresentationError> Render(FExtent2D Extent, const FMeshRenderView& View, std::span<const FDebugDrawList> DebugDraw = {});
 	[[nodiscard]] const FTextureHandle& GetColorTarget() const noexcept;
+	// Screen-space motion with FVisualSettings::bMotionVectors: this frame's UV minus the previous frame's, in Rg16Float. Empty otherwise.
+	[[nodiscard]] const FTextureHandle& GetMotionVectors() const noexcept;
 	std::size_t GetLastDrawCount() const noexcept;
 	std::vector<FGpuPassTiming> GetGpuTimings() const;
 	std::size_t GetRenderTargetBytes() const noexcept;

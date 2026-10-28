@@ -126,6 +126,8 @@ struct FGameSession::FImplementation
 
 	// Render view storage referenced by View.
 	std::vector<FMatrix4> Models{};
+	// The models the previous view rendered, for motion vectors.
+	std::vector<FMatrix4> PreviousModels{};
 	std::vector<const FRenderMesh*> Meshes{};
 	std::vector<std::vector<const FRenderMaterial*>> MaterialSlots{};
 	std::vector<std::span<const FRenderMaterial* const>> MaterialSpans{};
@@ -606,7 +608,13 @@ void FGameSession::FImplementation::BuildSoftBodies()
 const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 {
 	FImplementation& Session = *Implementation;
+	std::swap(Session.Models, Session.PreviousModels);
 	Session.BuildModels();
+	if (Session.PreviousModels.size() != Session.Models.size())
+	{
+		Session.PreviousModels = Session.Models;
+	}
+
 	Session.BuildSoftBodies();
 
 	const std::size_t Count = Session.Entities.size();
@@ -674,6 +682,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	    .View = FMatrix4::Rotation(GetLookOrientation(Session.Yaw, Session.Pitch).Conjugated()) * FMatrix4::Translation(-Eye),
 	    .Projection = FMatrix4::PerspectiveReversedInfinite(Session.Player.VerticalFieldOfView, std::max(Aspect, 0.01f), CameraNear),
 	    .Models = Session.Models,
+	    .PreviousModels = Session.PreviousModels,
 	    .Meshes = Session.Meshes,
 	    .Materials = Session.MaterialSpans,
 	    .Lights = Session.Lights,

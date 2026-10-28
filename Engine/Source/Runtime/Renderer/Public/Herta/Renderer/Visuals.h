@@ -20,8 +20,6 @@ inline constexpr std::size_t MaximumRenderShadows = 16;
 // One directional light owns four 2048 cascades in the top 4096x4096 of the atlas; local lights share sixteen 512 tiles in the strip below.
 inline constexpr std::uint32_t ShadowCascadeResolution = 2048;
 inline constexpr std::uint32_t ShadowTileResolution = 512;
-inline constexpr std::uint32_t ShadowAtlasWidth = 2 * ShadowCascadeResolution;
-inline constexpr std::uint32_t ShadowAtlasHeight = 2 * ShadowCascadeResolution + 2 * ShadowTileResolution;
 
 enum class EAntiAliasing : std::uint8_t
 {
@@ -43,6 +41,14 @@ enum class EShadowQuality : std::uint8_t
 enum class EAmbientOcclusion : std::uint8_t
 {
 	Off,
+	Low,
+	Medium,
+	High,
+};
+
+// Presets for the settings below that cost GPU time. Each tier is a starting point; the individual settings stay editable.
+enum class ERenderQuality : std::uint8_t
+{
 	Low,
 	Medium,
 	High,
@@ -76,6 +82,14 @@ struct FVisualSettings
 	float FogHeight = 0.f;
 	EShadowQuality ShadowQuality = EShadowQuality::Soft;
 	EAmbientOcclusion AmbientOcclusion = EAmbientOcclusion::High;
+	// Fraction of ShadowCascadeResolution and ShadowTileResolution, from 0.25 to 1.
+	float ShadowResolution = 1.f;
+	// Fog is ray marched at this fraction of the view, capped at 2048 times it per dimension.
+	float FogResolution = 0.25f;
+	// Skips camera instances hidden behind depth drawn this frame. It changes no pixels, only the work. Off by default: the depth-equal shading pass already skips hidden pixels, so it only pays when hidden meshes carry heavy vertex work, which no content does yet.
+	bool bOcclusionCulling = false;
+	// Writes per-pixel screen motion for temporal techniques; see FMeshRenderer::GetMotionVectors. Off while nothing reads it.
+	bool bMotionVectors = false;
 	bool bStudioPreview = true;
 	// Meters the HDR scene on the GPU and eases towards it instead of using ExposureEV100.
 	bool bAutoExposure = false;
@@ -112,6 +126,12 @@ struct FVisualShaderSet
 	FShaderAsset SmaaEdgeListCompute;
 	FShaderAsset SmaaEdgeWeightsCompute;
 	FShaderAsset LightClustersCompute;
+	// Without both, the camera draws every frustum-visible instance.
+	FShaderAsset DepthHierarchyCompute;
+	FShaderAsset OcclusionCullCompute;
+	// The instanced depth prepass fragment that writes object motion, and the pass that fills camera motion everywhere else.
+	FShaderAsset DepthVelocityFragment;
+	FShaderAsset MotionVectorsCompute;
 };
 
 struct FShadowView
@@ -186,6 +206,8 @@ struct alignas(16) FVisualUniforms
 	// The first directional light: the direction towards it, with w 1 when there is one, and its color times intensity.
 	std::array<float, 4> SunDirection{};
 	std::array<float, 4> SunRadiance{};
+	// Maps this frame's clip space to the previous frame's, for camera motion.
+	std::array<float, 16> ClipToPreviousClip{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};
 	FMaterialUniform Material{};
 	// Not part of the uniform block: draws read lights from a storage buffer, so only VisualUniformBytes are uploaded as uniforms.
@@ -216,9 +238,14 @@ struct alignas(16) FGtaoUniforms
 	std::array<float, 4> Settings{};
 };
 
+void ApplyRenderQuality(FVisualSettings& Settings, ERenderQuality Quality);
+// The tier whose preset matches, if any.
+std::optional<ERenderQuality> FindRenderQuality(const FVisualSettings& Settings);
 [[nodiscard]] FGtaoUniforms BuildGtaoUniforms(const FMatrix4& Projection, const FMatrix4& ClipToView, FExtent2D Extent, EAmbientOcclusion Quality);
 [[nodiscard]] std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMatrix4& View, const FMatrix4& Projection, FExtent2D Extent, std::span<const FRenderLight> Lights, const FVisualSettings& Settings);
-std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, std::span<const FRenderLight> Lights, const FMatrix4& Projection);
+// Resolution scales the cascade and tile sizes; the atlas must be scaled to match.
+std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, std::span<const FRenderLight> Lights, const FMatrix4& Projection, float Resolution = 1.f);
+FExtent2D GetShadowAtlasExtent(float Resolution);
 // Expects Vulkan clip space with reversed depth, so a far plane at infinity never rejects anything.
 FViewFrustum MakeViewFrustum(const FMatrix4& WorldToClip, const FVector3& SphereCenter = {}, float SphereRadius = 0.f);
 // Conservative: a box straddling two planes outside a frustum corner can still pass.

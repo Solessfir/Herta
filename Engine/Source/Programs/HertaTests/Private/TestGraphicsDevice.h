@@ -147,7 +147,12 @@ public:
 	std::expected<void, Herta::FPresentationError> WriteBuffer(const Herta::FBufferHandle& Buffer, const std::span<const std::byte> Data) override
 	{
 		RecordUpload(Data.size());
-		if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Storage)
+		if (Buffer->GetDescriptor().Usage != Herta::EBufferUsage::Index && Buffer->GetDescriptor().VertexFormat == Herta::EGraphicsVertexFormat::MeshInstance)
+		{
+			InstanceUpload.resize(Data.size() / sizeof(Herta::FMeshInstance));
+			std::memcpy(InstanceUpload.data(), Data.data(), Data.size());
+		}
+		else if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Storage)
 		{
 			StorageWrites.emplace_back(Buffer->GetDescriptor().Name);
 		}
@@ -155,11 +160,6 @@ public:
 		{
 			auto& Upload = DebugUploads.emplace_back(Data.size() / sizeof(Herta::FColoredClipVertex));
 			std::memcpy(Upload.data(), Data.data(), Data.size());
-		}
-		else if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex && Buffer->GetDescriptor().VertexFormat == Herta::EGraphicsVertexFormat::MeshInstance)
-		{
-			InstanceUpload.resize(Data.size() / sizeof(Herta::FMeshInstance));
-			std::memcpy(InstanceUpload.data(), Data.data(), Data.size());
 		}
 		else if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex)
 		{

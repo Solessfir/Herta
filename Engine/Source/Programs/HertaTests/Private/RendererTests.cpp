@@ -753,6 +753,62 @@ TEST_CASE("Light clusters are built before any mesh pass binds them")
 	CHECK(ShadedDraw().Buffers[1]->GetDescriptor().Name == "Unculled lights");
 }
 
+TEST_CASE("Occlusion culling splits the depth prepass around the depth hierarchy and draws indirectly")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.ShadowFragment, &Visuals.DepthHierarchyCompute, &Visuals.OcclusionCullCompute})
+	{
+		Shader->Bytecode = {1};
+	}
+
+	FShaderAsset InstancedVertex;
+	InstancedVertex.Bytecode = {1};
+	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex, Visuals);
+	REQUIRE(Renderer);
+	const auto PipelineName = [](const FIndexedDraw& Draw)
+	{
+		return std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor.Name;
+	};
+
+	// Off by default: every frustum-visible instance draws directly.
+	REQUIRE((*Renderer)->Render({1000, 600}, Scene.View));
+	CHECK(Device.Dispatches.empty());
+	CHECK(std::ranges::none_of(Device.Draws, [](const FIndexedDraw& Draw)
+	{
+		return static_cast<bool>(Draw.IndirectArguments);
+	}));
+
+	Device.Draws.clear();
+	Scene.View.Visuals.bOcclusionCulling = true;
+	REQUIRE((*Renderer)->Render({1000, 600}, Scene.View));
+	// 500x300 halves to a 256x256 hierarchy of nine levels, built five per dispatch between the early and late cull.
+	CHECK(Device.Dispatches == std::vector<std::string>{"Occlusion culling", "Depth hierarchy", "Depth hierarchy", "Occlusion culling"});
+	CHECK(std::ranges::count(Device.StorageWrites, "Occlusion history") == 1);
+	std::vector<std::string> Indirect;
+	std::vector<std::uint32_t> Offsets;
+	for (const FIndexedDraw& Draw : Device.Draws)
+	{
+		if (Draw.IndirectArguments)
+		{
+			Indirect.push_back(PipelineName(Draw));
+			Offsets.push_back(Draw.IndirectOffset);
+			CHECK(Draw.Instances->GetDescriptor().Name == "Culled mesh instances");
+		}
+	}
+
+	// Early and late depth, then shading, each reading its own list of five-uint arguments.
+	CHECK(Indirect == std::vector<std::string>{"Instanced depth prepass", "Instanced depth prepass", "Instanced PBR reversed-Z"});
+	CHECK(Offsets == std::vector<std::uint32_t>{0, 20, 40});
+
+	// The second frame reuses the history instead of resetting it.
+	Device.StorageWrites.clear();
+	REQUIRE((*Renderer)->Render({1000, 600}, Scene.View));
+	CHECK(std::ranges::count(Device.StorageWrites, "Occlusion history") == 0);
+}
+
 TEST_CASE("Compute SMAA lists edge pixels and runs the weight pass indirectly")
 {
 	using namespace Herta;

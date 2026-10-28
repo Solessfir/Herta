@@ -19,9 +19,9 @@ A Trigger's **Role** places the course: the player spawns at the bottom of the *
 
 ## Controls
 
-WASD moves, the mouse looks, Space jumps and wall jumps, Shift sprints, C or Ctrl crouches and slides, R restarts, Esc opens the pause menu, and F11 or Alt+Enter toggles borderless fullscreen on the monitor under the window. The pause menu resumes, restarts the course, toggles fullscreen, and toggles HDR10 when the display offers it. Losing focus pauses the game and releases the pointer.
+WASD moves, the mouse looks, Space jumps and wall jumps, Shift sprints, C or Ctrl crouches and slides, R restarts, Esc opens the pause menu, and F11 or Alt+Enter toggles borderless fullscreen on the monitor under the window. The pause menu resumes, restarts the course, toggles fullscreen, toggles HDR10 when the display offers it, and cycles the Low, Medium, and High rendering quality tiers. Losing focus pauses the game and releases the pointer.
 
-Settings live per user in `%LOCALAPPDATA%\Herta\<Project>\Settings.ini` on Windows and `$XDG_CONFIG_HOME/Herta/<Project>/Settings.ini` (or `~/.config`) on Linux: `fullscreen`, `hdr`, `paperWhite` and `peakLuminance` in nits (0 follows the operating system, as in the editor), and `mouseSensitivity` in radians per pixel. Logs are written beside them in `Logs/Game.log`.
+Settings live per user in `%LOCALAPPDATA%\Herta\<Project>\Settings.ini` on Windows and `$XDG_CONFIG_HOME/Herta/<Project>/Settings.ini` (or `~/.config`) on Linux: `fullscreen`, `hdr`, `paperWhite` and `peakLuminance` in nits (0 follows the operating system, as in the editor), `mouseSensitivity` in radians per pixel, and `quality` (0 Low, 1 Medium, 2 High, the default). Logs are written beside them in `Logs/Game.log`.
 
 ## Editor Play
 

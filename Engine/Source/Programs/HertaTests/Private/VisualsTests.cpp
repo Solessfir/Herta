@@ -219,6 +219,45 @@ TEST_CASE("Directional shadows allocate stable cascade tiles with increasing spl
 	}
 }
 
+TEST_CASE("Half-resolution shadows keep the same atlas layout at half the texels")
+{
+	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Directional, .Range = 100.f}, .Transform = FMatrix4{}}};
+	const auto Built = BuildVisualUniforms({}, TestProjection(), {1280, 720}, Lights, {});
+	REQUIRE(Built);
+	FVisualUniforms Full = *Built;
+	FVisualUniforms Half = *Built;
+	const auto FullShadows = BuildShadowViews(Full, Lights, TestProjection());
+	const auto HalfShadows = BuildShadowViews(Half, Lights, TestProjection(), 0.5f);
+	REQUIRE(HalfShadows.size() == FullShadows.size());
+	CHECK(GetShadowAtlasExtent(1.f) == FExtent2D{2 * ShadowCascadeResolution, 2 * ShadowCascadeResolution + 2 * ShadowTileResolution});
+	CHECK(GetShadowAtlasExtent(0.5f) == FExtent2D{ShadowCascadeResolution, ShadowCascadeResolution + ShadowTileResolution});
+	CHECK(GetShadowAtlasExtent(0.f) == GetShadowAtlasExtent(0.25f));
+	for (std::size_t Index = 0; Index < HalfShadows.size(); ++Index)
+	{
+		CHECK(HalfShadows[Index].Viewport.Width == ShadowCascadeResolution / 2);
+		CHECK(HalfShadows[Index].Viewport.X == FullShadows[Index].Viewport.X / 2);
+		CHECK(Half.Shadows[Index].Atlas == Full.Shadows[Index].Atlas);
+		CHECK(Half.Shadows[Index].Parameters[3] == doctest::Approx(Full.Shadows[Index].Parameters[3] * 2.f));
+	}
+}
+
+TEST_CASE("Quality tiers are recognized only while their settings match")
+{
+	FVisualSettings Settings;
+	CHECK(FindRenderQuality(Settings) == ERenderQuality::High);
+	for (const ERenderQuality Quality : {ERenderQuality::Low, ERenderQuality::Medium, ERenderQuality::High})
+	{
+		ApplyRenderQuality(Settings, Quality);
+		CHECK(FindRenderQuality(Settings) == Quality);
+	}
+
+	ApplyRenderQuality(Settings, ERenderQuality::Low);
+	CHECK(Settings.AmbientOcclusion == EAmbientOcclusion::Off);
+	CHECK(Settings.ShadowResolution == 0.5f);
+	Settings.AmbientOcclusion = EAmbientOcclusion::High;
+	CHECK_FALSE(FindRenderQuality(Settings));
+}
+
 TEST_CASE("Local shadows use six point faces and single spot and rect projections")
 {
 	std::array<FRenderLight, 4> Lights{};
