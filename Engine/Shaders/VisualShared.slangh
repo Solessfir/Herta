@@ -248,6 +248,14 @@ float3 ToneMapLutDecode(float3 Index)
     return exp2(lerp(ToneMapLutMinimumLog2, ToneMapLutMaximumLog2, Index));
 }
 
+// Each cascade is fitted to its own slice of the view, so a point near a split may fall outside the next one.
+bool ShadowCovers(int ShadowIndex, float3 Position)
+{
+    float4 Clip = mul(Visual.Shadows[ShadowIndex].WorldToClip, float4(Position, 1.0));
+    float3 NDC = Clip.xyz / max(Clip.w, 0.00001);
+    return all(abs(NDC.xy) <= 0.98) && NDC.z >= 0.0 && NDC.z <= 1.0;
+}
+
 float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, int ShadowIndex, bool bAllowSoft)
 {
     if (ShadowIndex < 0 || ShadowIndex >= int(Visual.Controls.y)) return 1.0;
@@ -309,9 +317,22 @@ float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Positi
             float Split = Visual.Shadows[First + I].Parameters.y;
             if (Distance <= Split)
             {
-                // Fade the last cascade out so the shadow distance does not end on a hard line.
-                float Fade = I == Count - 1 ? saturate((Distance - Split * 0.85) / (Split * 0.15)) : 0.0;
-                return lerp(ShadowVisibility(Atlas, Position, Normal, First + I, bAllowSoft), 1.0, Fade);
+                float Visibility = ShadowVisibility(Atlas, Position, Normal, First + I, bAllowSoft);
+                // The last tenth of each cascade blends into the next one, whose texels are about three times larger, so the switch does not show as a line.
+                // The last cascade fades out instead, so the shadow distance does not end on one.
+                float Blend = saturate((Distance - Split * 0.9) / (Split * 0.1));
+                if (I == Count - 1)
+                {
+                    return lerp(Visibility, 1.0, saturate((Distance - Split * 0.85) / (Split * 0.15)));
+                }
+
+                [branch]
+                if (Blend > 0.0 && ShadowCovers(First + I + 1, Position))
+                {
+                    Visibility = lerp(Visibility, ShadowVisibility(Atlas, Position, Normal, First + I + 1, bAllowSoft), Blend);
+                }
+
+                return Visibility;
             }
         }
         return 1.0;
