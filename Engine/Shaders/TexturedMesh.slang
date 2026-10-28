@@ -194,6 +194,8 @@ struct FLightSum
     float3 Specular0;
     float3 Specular90;
     float3 SpecularF82;
+    // Diffuse irradiance weighted towards half-shadowed lights, for the optional penumbra saturation in Visual.Occlusion.z.
+    float3 Penumbra;
 };
 
 void AddLight(inout FLightSum Sum, float3 Radiance, float3 N, float3 V, float3 L, float Roughness, float DiffuseRoughness)
@@ -304,7 +306,10 @@ void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, floa
     float Visibility = LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, N);
     // Only the cascaded sun has contact shadows.
     if (Type == 0 && Light.ConeShadow.w == 4.0) Visibility *= Contact;
+    float3 DiffuseBefore = Sum.Diffuse;
     AddLight(Sum, Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Visibility, N, V, L, Roughness, DiffuseRoughness);
+    // 4 V (1 - V) peaks halfway through the penumbra and vanishes in full light and full shadow.
+    if (Visual.Occlusion.z > 1.0) Sum.Penumbra += (Sum.Diffuse - DiffuseBefore) * 4.0 * Visibility * (1.0 - Visibility);
 }
 
 [shader("fragment")]
@@ -365,6 +370,13 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     float NoV = saturate(dot(N, V));
     FSurface Surface = MakeSurface(Base.rgb, Metallic, Roughness, DiffuseRoughness, Visual.Material.Specular.rgb, NoV);
     Result += Surface.DiffuseSingle * Sum.Diffuse + Surface.DiffuseMultiple * Sum.DiffuseMultiple + max(Surface.Specular0 * Sum.Specular0 + Surface.Specular90 * Sum.Specular90 - Surface.SpecularF82 * Sum.SpecularF82, 0.0);
+    if (Visual.Occlusion.z > 1.0)
+    {
+        // Saturation grows around the penumbra light's own luminance, and no channel drops below zero.
+        float3 Penumbra = Surface.DiffuseSingle * Sum.Penumbra;
+        float Luminance = dot(Penumbra, float3(0.2126, 0.7152, 0.0722));
+        Result += max(Luminance + (Penumbra - Luminance) * Visual.Occlusion.z, 0.0) - Penumbra;
+    }
     if (Visual.Sky.x > 0.0)
     {
         uint DiffuseWidth, DiffuseHeight;

@@ -3286,6 +3286,8 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 				}
 
 				Toggle("Contact shadows", VisualSettings.bContactShadows);
+				DrawFieldLabel("Penumbra saturation", ValueWidth);
+				DrawNumericSliderFloat("##PenumbraSaturation", &VisualSettings.PenumbraSaturation, 1.f, 4.f, VisualSettings.PenumbraSaturation > 1.f ? "%.2fx" : "Off", ImGuiSliderFlags_AlwaysClamp);
 				Toggle("Occlusion culling", VisualSettings.bOcclusionCulling);
 			}
 		}
@@ -4686,6 +4688,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	PlayVisuals.FogResolution = VisualSettings.FogResolution;
 	PlayVisuals.bOcclusionCulling = VisualSettings.bOcclusionCulling;
 	PlayVisuals.bContactShadows = VisualSettings.bContactShadows;
+	PlayVisuals.PenumbraSaturation = VisualSettings.PenumbraSaturation;
 }
 
 void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const ImVec2 Size)

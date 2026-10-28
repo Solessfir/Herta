@@ -2001,6 +2001,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	State.Uniforms.Occlusion[1] = ContactDispatches ? 1.f : 0.f;
+	State.Uniforms.Occlusion[2] = std::isfinite(View.Visuals.PenumbraSaturation) ? std::clamp(View.Visuals.PenumbraSaturation, 1.f, 4.f) : 1.f;
 	const FExtent2D LightTiles{(Extent.Width + LightClusterTileSize - 1) / LightClusterTileSize, (Extent.Height + LightClusterTileSize - 1) / LightClusterTileSize};
 	const std::size_t ClusterBytes = std::size_t{LightTiles.Width} * LightTiles.Height * LightClusterSlices * LightMaskWords * sizeof(std::uint32_t);
 	if (State.LightClusterPipeline && (!State.LightClusters || State.LightClusters->GetDescriptor().Size != ClusterBytes))

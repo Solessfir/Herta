@@ -92,6 +92,9 @@ struct FVisualSettings
 	bool bOcclusionCulling = false;
 	// Screen-space shadows toward the cascaded sun, for contact detail the cascades are too coarse for. About 0.25 ms at 3200x1809, so only the High tier enables them.
 	bool bContactShadows = true;
+	// A stylization, not physics: directly lit diffuse color gains saturation where a light is partly shadowed, the painterly coloured terminator.
+	// 1 leaves shading physically based; up to 4 boosts the penumbra's colour.
+	float PenumbraSaturation = 1.f;
 	// Writes per-pixel screen motion for temporal techniques; see FMeshRenderer::GetMotionVectors. Off while nothing reads it.
 	bool bMotionVectors = false;
 	bool bStudioPreview = true;
