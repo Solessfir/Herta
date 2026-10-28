@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 7,
+  "engineSchemaVersion": 8,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "entities": [
@@ -1810,162 +1810,6 @@
       }
     },
     {
-      "id": "4c060045-2738-4e25-9b9e-000000000054",
-      "name": "Felt pedestal",
-      "parent": null,
-      "transform": {
-        "translation": [4.5, 0.1, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.3, 0.2, 1.3]
-      },
-      "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-000000000055",
-      "name": "Felt - Lambert",
-      "parent": null,
-      "transform": {
-        "translation": [4.5, 0.75, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.1, 1.1, 1.1]
-      },
-      "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000013"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-000000000056",
-      "name": "Felt pedestal",
-      "parent": null,
-      "transform": {
-        "translation": [2.7, 0.1, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.3, 0.2, 1.3]
-      },
-      "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-000000000057",
-      "name": "Felt - EON diffuse roughness 1",
-      "parent": null,
-      "transform": {
-        "translation": [2.7, 0.75, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.1, 1.1, 1.1]
-      },
-      "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000014"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-000000000058",
-      "name": "Concrete pedestal",
-      "parent": null,
-      "transform": {
-        "translation": [0.9, 0.1, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.3, 0.2, 1.3]
-      },
-      "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-000000000059",
-      "name": "Concrete - Lambert",
-      "parent": null,
-      "transform": {
-        "translation": [0.9, 0.75, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.1, 1.1, 1.1]
-      },
-      "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000015"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-00000000005a",
-      "name": "Concrete pedestal",
-      "parent": null,
-      "transform": {
-        "translation": [-0.9, 0.1, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.3, 0.2, 1.3]
-      },
-      "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-00000000005b",
-      "name": "Concrete - EON diffuse roughness 1",
-      "parent": null,
-      "transform": {
-        "translation": [-0.9, 0.75, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.1, 1.1, 1.1]
-      },
-      "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000016"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-00000000005c",
-      "name": "Cast iron pedestal",
-      "parent": null,
-      "transform": {
-        "translation": [-2.7, 0.1, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.3, 0.2, 1.3]
-      },
-      "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-00000000005d",
-      "name": "Cast iron - rough metal",
-      "parent": null,
-      "transform": {
-        "translation": [-2.7, 0.75, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.1, 1.1, 1.1]
-      },
-      "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000017"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-00000000005e",
-      "name": "Copper pedestal",
-      "parent": null,
-      "transform": {
-        "translation": [-4.5, 0.1, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.3, 0.2, 1.3]
-      },
-      "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
-      }
-    },
-    {
-      "id": "4c060045-2738-4e25-9b9e-00000000005f",
-      "name": "Copper - tinted edge",
-      "parent": null,
-      "transform": {
-        "translation": [-4.5, 0.75, -9],
-        "rotation": [0, 0, 0, 1],
-        "scale": [1.1, 1.1, 1.1]
-      },
-      "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000018"]}
-      }
-    },
-    {
       "id": "4c060045-2738-4e25-9b9e-00000000001c",
       "name": "Texture terrace",
       "parent": null,
@@ -2226,7 +2070,8 @@
           "environment": null,
           "ambientStrength": 0.3,
           "environmentVisible": true,
-          "enabled": true
+          "enabled": true,
+          "sourceAngle": 0.00925
         }
       }
     },
@@ -2257,7 +2102,8 @@
           "environment": null,
           "ambientStrength": 1,
           "environmentVisible": true,
-          "enabled": true
+          "enabled": true,
+          "sourceAngle": 0.00925
         }
       }
     },
@@ -2695,7 +2541,8 @@
           "environment": null,
           "ambientStrength": 0.3,
           "environmentVisible": true,
-          "enabled": true
+          "enabled": true,
+          "sourceAngle": 0.00925
         }
       }
     },
@@ -2739,7 +2586,8 @@
           "environment": null,
           "ambientStrength": 0.3,
           "environmentVisible": true,
-          "enabled": true
+          "enabled": true,
+          "sourceAngle": 0.00925
         }
       }
     },
@@ -2783,7 +2631,8 @@
           "environment": null,
           "ambientStrength": 0.3,
           "environmentVisible": true,
-          "enabled": true
+          "enabled": true,
+          "sourceAngle": 0.00925
         }
       }
     },
@@ -2798,6 +2647,162 @@
       },
       "components": {
         "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000010"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000054",
+      "name": "Felt pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [4.5, 0.1, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.3, 0.2, 1.3]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000055",
+      "name": "Felt - Lambert",
+      "parent": null,
+      "transform": {
+        "translation": [4.5, 0.75, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.1, 1.1, 1.1]
+      },
+      "components": {
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000013"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000056",
+      "name": "Felt pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [2.7, 0.1, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.3, 0.2, 1.3]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000057",
+      "name": "Felt - EON diffuse roughness 1",
+      "parent": null,
+      "transform": {
+        "translation": [2.7, 0.75, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.1, 1.1, 1.1]
+      },
+      "components": {
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000014"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000058",
+      "name": "Concrete pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [0.9, 0.1, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.3, 0.2, 1.3]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-000000000059",
+      "name": "Concrete - Lambert",
+      "parent": null,
+      "transform": {
+        "translation": [0.9, 0.75, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.1, 1.1, 1.1]
+      },
+      "components": {
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000015"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000005a",
+      "name": "Concrete pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [-0.9, 0.1, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.3, 0.2, 1.3]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000005b",
+      "name": "Concrete - EON diffuse roughness 1",
+      "parent": null,
+      "transform": {
+        "translation": [-0.9, 0.75, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.1, 1.1, 1.1]
+      },
+      "components": {
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000016"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000005c",
+      "name": "Cast iron pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [-2.7, 0.1, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.3, 0.2, 1.3]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000005d",
+      "name": "Cast iron - rough metal",
+      "parent": null,
+      "transform": {
+        "translation": [-2.7, 0.75, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.1, 1.1, 1.1]
+      },
+      "components": {
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000017"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000005e",
+      "name": "Copper pedestal",
+      "parent": null,
+      "transform": {
+        "translation": [-4.5, 0.1, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.3, 0.2, 1.3]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+      }
+    },
+    {
+      "id": "4c060045-2738-4e25-9b9e-00000000005f",
+      "name": "Copper - tinted edge",
+      "parent": null,
+      "transform": {
+        "translation": [-4.5, 0.75, -9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.1, 1.1, 1.1]
+      },
+      "components": {
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000018"]}
       }
     },
     {

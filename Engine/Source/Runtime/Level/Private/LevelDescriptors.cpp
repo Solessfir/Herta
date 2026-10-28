@@ -97,6 +97,11 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		{
 			return Visitor(Entity.Light->bEnabled);
 		}
+
+		if (Key == "sourceAngle")
+		{
+			return Visitor(Entity.Light->SourceAngle);
+		}
 	}
 
 	if (Type == ELevelComponentType::SkyAtmosphere && Entity.SkyAtmosphere)
@@ -325,6 +330,7 @@ constexpr std::array LightProperties{
     FLevelPropertyDescriptor{.Key = "ambientStrength", .Label = "Ambient strength", .Default = LightDefaults.AmbientStrength, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 100.}},
     FLevelPropertyDescriptor{.Key = "environmentVisible", .Label = "Show environment", .Type = ELevelPropertyType::Boolean, .Default = LightDefaults.bEnvironmentVisible},
     FLevelPropertyDescriptor{.Key = "enabled", .Label = "Enabled", .Type = ELevelPropertyType::Boolean, .Default = LightDefaults.bEnabled},
+    FLevelPropertyDescriptor{.Key = "sourceAngle", .Label = "Source angle", .Unit = ELevelPropertyUnit::Radians, .Default = LightDefaults.SourceAngle, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 0.17453292f}},
 };
 
 constexpr std::array AtmosphereProperties{

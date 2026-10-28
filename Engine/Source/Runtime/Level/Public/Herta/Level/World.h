@@ -118,6 +118,8 @@ struct FLightComponent
 	float AmbientStrength = 1.f;
 	bool bEnvironmentVisible = true;
 	bool bEnabled = true;
+	// Angular diameter of a directional light's disc in radians, which sets how quickly its shadows soften away from the occluder. The sun's is 0.53 degrees.
+	float SourceAngle = 0.00925f;
 };
 
 struct FSkyAtmosphereComponent

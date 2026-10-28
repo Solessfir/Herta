@@ -124,7 +124,7 @@ TEST_CASE("Level serialization consumes every registered built-in property key")
 	};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
-	CHECK(Text->find("\"engineSchemaVersion\": 7") != std::string::npos);
+	CHECK(Text->find("\"engineSchemaVersion\": 8") != std::string::npos);
 
 	for (const auto& Component : GetLevelComponentDescriptors())
 	{

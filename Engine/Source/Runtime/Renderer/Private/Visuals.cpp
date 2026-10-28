@@ -328,7 +328,8 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 		Uniform.ColorIntensity = {Color.X, Color.Y, Color.Z, Intensity};
 		Uniform.RightWidth = {Right.X, Right.Y, Right.Z, Light.Width};
 		Uniform.UpHeight = {Up.X, Up.Y, Up.Z, Light.Height};
-		Uniform.ConeShadow = {std::cos(Light.InnerConeAngle), std::cos(Light.OuterConeAngle), -1, 0};
+		// Directional lights have no cone, so the first slot holds how far their penumbra widens per metre between occluder and receiver.
+		Uniform.ConeShadow = {Light.Type == ELightType::Directional ? 2.f * std::tan(Light.SourceAngle * 0.5f) : std::cos(Light.InnerConeAngle), std::cos(Light.OuterConeAngle), -1, 0};
 		if (Light.Type == ELightType::Sky)
 		{
 			bHasSky = true;

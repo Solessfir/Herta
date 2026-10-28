@@ -655,6 +655,11 @@ bool IsVisualPropertyVisible(const FLevelEntity& Entity, const ELevelComponentTy
 		{
 			return Light.Type != ELightType::Sky && Light.bCastShadows;
 		}
+
+		if (Key == "sourceAngle")
+		{
+			return Light.Type == ELightType::Directional && Light.bCastShadows;
+		}
 	}
 
 	if (Type == ELevelComponentType::HeightFog && (Key == "quality" || Key == "anisotropy"))

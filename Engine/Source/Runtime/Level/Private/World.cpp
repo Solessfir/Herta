@@ -311,7 +311,8 @@ std::expected<void, FLevelError> ValidateLightComponent(const FLightComponent& L
 	    || !InRange(Light.ShadowBias, 0.f, 1.f) || !InRange(Light.ShadowNormalBias, 0.f, 10.f)
 	    || !InRange(Light.Range, 0.001f, 1'000'000.f) || !InRange(Light.InnerConeAngle, 0.f, 1.553343f)
 	    || !InRange(Light.OuterConeAngle, 0.001f, 1.553343f) || Light.InnerConeAngle > Light.OuterConeAngle
-	    || !InRange(Light.Width, 0.001f, 10'000.f) || !InRange(Light.Height, 0.001f, 10'000.f) || !InRange(Light.AmbientStrength, 0.f, 100.f))
+	    || !InRange(Light.Width, 0.001f, 10'000.f) || !InRange(Light.Height, 0.001f, 10'000.f) || !InRange(Light.AmbientStrength, 0.f, 100.f)
+	    || !InRange(Light.SourceAngle, 0.f, 0.17453292f))
 	{
 		return std::unexpected(FLevelError{"Light settings contain an unknown type, nonfinite value, or out-of-range property"});
 	}

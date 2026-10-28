@@ -256,7 +256,58 @@ bool ShadowCovers(int ShadowIndex, float3 Position)
     return all(abs(NDC.xy) <= 0.98) && NDC.z >= 0.0 && NDC.z <= 1.0;
 }
 
-float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, int ShadowIndex, bool bAllowSoft)
+// Sixteen points spread evenly over the unit disc on a Vogel spiral. The pattern is fixed, because a per-pixel rotation would leave grain that only temporal accumulation removes.
+static const float2 PenumbraTaps[16] = {
+    float2(0.1768, 0.0000),
+    float2(-0.2258, 0.2068),
+    float2(0.0346, -0.3938),
+    float2(0.2846, 0.3712),
+    float2(-0.5222, -0.0924),
+    float2(0.4947, -0.3147),
+    float2(-0.1655, 0.6155),
+    float2(-0.3156, -0.6076),
+    float2(0.6846, 0.2500),
+    float2(-0.7123, 0.2940),
+    float2(0.3434, -0.7337),
+    float2(0.2537, 0.8089),
+    float2(-0.7647, -0.4432),
+    float2(0.8971, -0.1972),
+    float2(-0.5475, 0.7788),
+    float2(-0.1265, -0.9761),
+};
+
+// Texels searched for occluders around a sun shadow lookup, and the widest penumbra filter, both in shadow texels. Wider penumbrae are clamped so the cost stays bounded.
+// Widest penumbra filter in shadow texels. Sixteen bilinear taps stay smooth up to about this radius; wider penumbrae are clamped, keeping the cost bounded.
+static const float PenumbraMaximumTexels = 4.0;
+// The occluder search reaches past the widest filter, so a pixel at the outer edge of a wide penumbra still finds what darkens it.
+static const float PenumbraSearchTexels = 3.0;
+
+// Bilinear PCF at one point: a gather of the 2x2 texels around it, weighted by the point's position between them.
+// DepthSlope extends the receiver's plane to the point, so a wide footprint on a slope does not compare against the receiver's own surface.
+float BilinearShadow(Texture2D<float4> Atlas, float2 Texel, float2 Offset, float Reference, float2 DepthSlope, float2 Size, int2 TileMin, int2 TileMax)
+{
+    float2 Point = Texel + Offset;
+    float2 F = frac(Point);
+    float2 Corner = float2(clamp(int2(floor(Point)) + 1, TileMin + 1, TileMax));
+    float4 Lit = step(Atlas.GatherRed(LinearSampler, Corner / Size), Reference + dot(DepthSlope, Offset));
+    return dot(Lit, float4((1.0 - F.x) * F.y, F.x * F.y, F.x * (1.0 - F.y), (1.0 - F.x) * (1.0 - F.y)));
+}
+
+// The receiver's depth change per shadow texel, from its normal in light space: an orthographic projection keeps a plane a plane.
+// Computing it from the normal instead of screen derivatives keeps it valid inside light loops. Near-grazing slopes are clamped to ten metres per metre.
+float2 ReceiverDepthSlope(FShadow Shadow, float3 Normal, float2 TileTexels)
+{
+    float3 Rows[3] = {Shadow.WorldToClip[0].xyz, Shadow.WorldToClip[1].xyz, Shadow.WorldToClip[2].xyz};
+    float3 Gradient = float3(dot(Rows[0], Normal) / dot(Rows[0], Rows[0]), dot(Rows[1], Normal) / dot(Rows[1], Rows[1]), dot(Rows[2], Normal) / dot(Rows[2], Rows[2]));
+    // Texel x follows NDC x; texel y runs against NDC y.
+    float2 Slope = float2(-Gradient.x, Gradient.y) / max(abs(Gradient.z), 1e-6) * sign(Gradient.z) * 2.0 / TileTexels;
+    float Limit = 10.0 * Shadow.Parameters.w * length(Rows[2]);
+    return clamp(Slope, -Limit, Limit);
+}
+
+// PenumbraSlope is how much a directional light's penumbra widens per metre between occluder and receiver. With soft shadows it sizes the filter
+// from the average occluder distance (percentage-closer soft shadows), so shadows are crisp at contact and soften with distance.
+float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, int ShadowIndex, bool bAllowSoft, float PenumbraSlope = 0.0)
 {
     if (ShadowIndex < 0 || ShadowIndex >= int(Visual.Controls.y)) return 1.0;
     FShadow Shadow = Visual.Shadows[ShadowIndex];
@@ -278,6 +329,46 @@ float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, 
     int2 TileMin = int2(Shadow.Atlas.zw * Size + 0.5);
     int2 TileMax = TileMin + int2(Shadow.Atlas.xy * Size + 0.5) - 1;
     float Reference = NDC.z + Shadow.Parameters.x;
+    [branch]
+    if (Radius > 0 && PenumbraSlope > 0.0 && Shadow.Parameters.w > 0.0)
+    {
+        float2 DepthSlope = ReceiverDepthSlope(Shadow, Normal, Shadow.Atlas.xy * Size);
+        // A gather at the centre and one past each corner of the widest filter find the occluders. Reversed depth puts an occluder above the receiver.
+        float BlockerSum = 0.0;
+        float BlockerCount = 0.0;
+        for (int Search = 0; Search < 5; ++Search)
+        {
+            float2 Offset = Search == 0 ? float2(0.0, 0.0) : float2((Search & 1) != 0 ? 1.0 : -1.0, (Search & 2) != 0 ? 1.0 : -1.0) * PenumbraSearchTexels;
+            float2 Sample = float2(clamp(int2(floor(Texel + Offset)) + 1, TileMin + 1, TileMax));
+            float4 Depths = Atlas.GatherRed(LinearSampler, Sample / Size);
+            float4 Blocks = 1.0 - step(Depths, Reference + dot(DepthSlope, Offset));
+            BlockerSum += dot(Blocks, Depths);
+            BlockerCount += dot(Blocks, 1.0);
+        }
+
+        if (BlockerCount == 0.0)
+        {
+            return 1.0;
+        }
+
+        // Orthographic depth is linear, and the depth row of the cascade's matrix holds its NDC change per metre.
+        float Distance = max(0.0, BlockerSum / BlockerCount - Reference) / length(Shadow.WorldToClip[2].xyz);
+        float FilterTexels = clamp(0.5 * PenumbraSlope * Distance / Shadow.Parameters.w, 1.0, PenumbraMaximumTexels);
+        // Every sample occluded around a filter no wider than the search means the whole footprint is in shadow.
+        if (BlockerCount == 20.0 && FilterTexels <= PenumbraSearchTexels)
+        {
+            return 0.0;
+        }
+
+        float Soft = 0.0;
+        for (int Tap = 0; Tap < 16; ++Tap)
+        {
+            Soft += BilinearShadow(Atlas, Texel, PenumbraTaps[Tap] * FilterTexels, Reference, DepthSlope, Size, TileMin, TileMax);
+        }
+
+        return Soft / 16.0;
+    }
+
     float Visibility = 0.0;
     // Each gather returns a 2x2 block, a quarter of the loads. Its corner stays inside the tile so it never reads a neighbouring one.
     for (int Y = 0; Y <= Last; Y += 2)
@@ -323,13 +414,13 @@ float LightVisibility(Texture2D<float4> CascadeAtlas, Texture2D<float4> LocalAtl
             // Cascades fit the depth seen a few frames ago, so the last one also serves anything it covers beyond its split until they catch up.
             if (Distance <= Split || (bLast && ShadowCovers(First + I, Position)))
             {
-                float Visibility = ShadowVisibility(CascadeAtlas, Position, Normal, First + I, bAllowSoft);
+                float Visibility = ShadowVisibility(CascadeAtlas, Position, Normal, First + I, bAllowSoft, Light.ConeShadow.x);
                 // The last tenth of each cascade blends into the next one, whose texels are about three times larger, so the switch does not show as a line.
                 float Blend = saturate((Distance - Split * 0.9) / (Split * 0.1));
                 [branch]
                 if (!bLast && Blend > 0.0 && ShadowCovers(First + I + 1, Position))
                 {
-                    Visibility = lerp(Visibility, ShadowVisibility(CascadeAtlas, Position, Normal, First + I + 1, bAllowSoft), Blend);
+                    Visibility = lerp(Visibility, ShadowVisibility(CascadeAtlas, Position, Normal, First + I + 1, bAllowSoft, Light.ConeShadow.x), Blend);
                 }
 
                 return lerp(Visibility, 1.0, Fade);

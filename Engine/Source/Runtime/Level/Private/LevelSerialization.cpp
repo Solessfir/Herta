@@ -191,9 +191,16 @@ template <typename TId> std::expected<TId, FLevelError> ReadOptionalId(const sim
 	return Element.is_null() ? std::expected<TId, FLevelError>{TId{}} : ReadId<TId>(Element);
 }
 
-std::expected<FLightComponent, FLevelError> ReadLight(const simdjson::dom::element Element)
+std::expected<FLightComponent, FLevelError> ReadLight(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
-	const auto Fields = ReadComponentFields<17>(Element, GetLevelComponentDescriptor(ELevelComponentType::Light));
+	const FLevelComponentDescriptor& Descriptor = GetLevelComponentDescriptor(ELevelComponentType::Light);
+	const auto Fields = SchemaVersion >= 8 ? ReadComponentFields<18>(Element, Descriptor) : ReadComponentFields<17>(Element, Descriptor).transform([](const auto& Current)
+	{
+		std::array<simdjson::dom::element, 18> Extended{};
+		std::ranges::copy(Current, Extended.begin());
+		return Extended;
+	});
+
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -217,8 +224,9 @@ std::expected<FLightComponent, FLevelError> ReadLight(const simdjson::dom::eleme
 	const auto Ambient = ReadNumber<float>((*Fields)[14]);
 	const auto Visible = ReadBoolean((*Fields)[15]);
 	const auto Enabled = ReadBoolean((*Fields)[16]);
+	const auto SourceAngle = SchemaVersion >= 8 ? ReadNumber<float>((*Fields)[17]) : std::expected<float, FLevelError>{FLightComponent{}.SourceAngle};
 	if (!Type || std::ranges::find(Types, *Type) == Types.end() || !Color || !Intensity || !UseTemperature || !Temperature || !CastShadows || !Bias || !NormalBias
-	    || !Range || !Inner || !Outer || !Width || !Height || !Environment || !Ambient || !Visible || !Enabled)
+	    || !Range || !Inner || !Outer || !Width || !Height || !Environment || !Ambient || !Visible || !Enabled || !SourceAngle)
 	{
 		return LevelError("Invalid light component field");
 	}
@@ -241,6 +249,7 @@ std::expected<FLightComponent, FLevelError> ReadLight(const simdjson::dom::eleme
 	    .AmbientStrength = *Ambient,
 	    .bEnvironmentVisible = *Visible,
 	    .bEnabled = *Enabled,
+	    .SourceAngle = *SourceAngle,
 	};
 }
 
@@ -606,7 +615,7 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 4;
-			const auto Light = ReadLight(Component.value);
+			const auto Light = ReadLight(Component.value, SchemaVersion);
 			if (!Light)
 			{
 				return std::unexpected(Light.error());
@@ -1113,7 +1122,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 7,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 8,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1204,7 +1213,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		{
 			const auto& Light = *Entity.Light;
 			constexpr std::array<std::string_view, 5> Types{"directional", "sky", "point", "spot", "rect"};
-			const std::array<FVisualValue, 17> Values{
+			const std::array<FVisualValue, 18> Values{
 			    Types[static_cast<std::size_t>(Light.Type)],
 			    Light.Color,
 			    Light.Intensity,
@@ -1222,6 +1231,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			    Light.AmbientStrength,
 			    Light.bEnvironmentVisible,
 			    Light.bEnabled,
+			    Light.SourceAngle,
 			};
 
 			AppendVisualComponent(Output, ELevelComponentType::Light, Values, bHasComponent);
@@ -1431,7 +1441,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 7 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 8 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
 		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 7 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
