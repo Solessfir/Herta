@@ -592,8 +592,6 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle SelectionDepth;
 	FTextureHandle SkyView;
 	FTextureHandle SkyMultipleScattering;
-	FTextureHandle ExposureMetering;
-	FTextureHandle ExposureHistogram;
 	FTextureHandle ToneMapLut;
 	// Depth prefilter, bitmask GTAO, and denoise. The view depth chain feeds both later passes.
 	std::array<FComputePipelineHandle, 3> GtaoPipelines;
@@ -633,6 +631,7 @@ struct FMeshRenderer::FImplementation
 	FBufferHandle AllLights;
 	// Adaptation reads last frame's exposure and writes this frame's, alternating between the two.
 	std::array<FTextureHandle, 2> ExposureStates;
+	FComputePipelineHandle ExposurePipeline;
 	std::size_t ExposureStateIndex = 0;
 	bool bExposureAdapted = false;
 	// Rayleigh and Mie scales, planet radius, and atmosphere height the table was built from.
@@ -650,7 +649,7 @@ struct FMeshRenderer::FImplementation
 	FBufferHandle FullscreenVertices;
 	FBufferHandle FullscreenIndices;
 	// The tone mapping and SMAA neighborhood slots stay empty; those passes write the display target and live in DisplayPipelines.
-	std::array<FGraphicsPipelineHandle, 11> VisualPipelines;
+	std::array<FGraphicsPipelineHandle, 8> VisualPipelines;
 	FDisplayShaders DisplayShaders;
 	// SDR, then HDR, which is built the first time HDR output is requested.
 	std::array<FDisplayPipelines, 2> DisplayPipelines;
@@ -862,10 +861,10 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	std::vector<std::byte> SearchPixels;
 	if (!VisualShaders.FullscreenVertex.Bytecode.empty())
 	{
-		std::array<FShaderAsset, 11> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), FShaderAsset{}, std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), FShaderAsset{}, std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ExposureMeterFragment), std::move(VisualShaders.ExposureAdaptFragment), std::move(VisualShaders.ToneMapLutFragment), std::move(VisualShaders.ExposureHistogramFragment)};
-		constexpr std::array<std::uint32_t, 11> TextureCounts{2, 3, 5, 1, 3, 2, 1, 2, 2, 1, 1};
-		constexpr std::array<std::string_view, 11> Names{"Sky", "Volumetric fog", "Fog, exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation", "Tone map LUT", "Exposure histogram"};
-		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float};
+		std::array<FShaderAsset, 8> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), FShaderAsset{}, std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), FShaderAsset{}, std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ToneMapLutFragment)};
+		constexpr std::array<std::uint32_t, 8> TextureCounts{2, 3, 5, 1, 3, 2, 1, 1};
+		constexpr std::array<std::string_view, 8> Names{"Sky", "Volumetric fog", "Fog, exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Tone map LUT"};
+		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float};
 		for (std::size_t Index = 0; Index < Fragments.size(); ++Index)
 		{
 			// Tone mapping and SMAA neighborhood write the display target and are built with DisplayPipelines.
@@ -984,21 +983,17 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		}
 
 		State->SkyView = std::move(*SkyView);
-		auto Metering = Device.CreateTexture({.Name = "Exposure metering", .Extent = {32, 32}, .Format = ETextureFormat::Rgba16Float, .bRenderTarget = true});
-		if (!Metering)
+		if (!VisualShaders.ExposureCompute.Bytecode.empty())
 		{
-			return std::unexpected(Metering.error());
+			auto Exposure = Device.CreateComputePipeline({.Name = "Exposure", .Shader = std::move(VisualShaders.ExposureCompute), .TextureCount = 3, .StorageTextureCount = 1, .UniformBufferSize = VisualUniformBytes});
+			if (!Exposure)
+			{
+				return std::unexpected(Exposure.error());
+			}
+
+			State->ExposurePipeline = std::move(*Exposure);
 		}
 
-		State->ExposureMetering = std::move(*Metering);
-		// One texel per bin; matches ExposureHistogramBinCount in VisualShared.slangh.
-		auto Histogram = Device.CreateTexture({.Name = "Exposure histogram", .Extent = {64, 1}, .Format = ETextureFormat::Rgba32Float, .bRenderTarget = true});
-		if (!Histogram)
-		{
-			return std::unexpected(Histogram.error());
-		}
-
-		State->ExposureHistogram = std::move(*Histogram);
 		// Matches ToneMapLutSize in VisualShared.slangh.
 		auto ToneMapLut = Device.CreateTexture({.Name = "Tone map LUT", .Extent = {64 * 64, 64}, .Format = ETextureFormat::Rgba16Float, .bRenderTarget = true});
 		if (!ToneMapLut)
@@ -1009,7 +1004,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		State->ToneMapLut = std::move(*ToneMapLut);
 		for (FTextureHandle& ExposureState : State->ExposureStates)
 		{
-			auto Texture = Device.CreateTexture({.Name = "Adapted exposure", .Extent = {1, 1}, .Format = ETextureFormat::Rgba32Float, .bRenderTarget = true});
+			auto Texture = Device.CreateTexture({.Name = "Adapted exposure", .Extent = {1, 1}, .Format = ETextureFormat::Rgba32Float, .bStorage = true});
 			if (!Texture)
 			{
 				return std::unexpected(Texture.error());
@@ -1402,7 +1397,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	// Turning automatic exposure back on starts from the current scene instead of easing from a stale value.
-	const bool bAutoExposure = State.VisualPipelines[0] && State.Uniforms.Exposure[0] > 0.5f;
+	const bool bAutoExposure = State.ExposurePipeline && State.Uniforms.Exposure[0] > 0.5f;
 	State.Uniforms.Exposure[0] = bAutoExposure ? 1.f : 0.f;
 	State.Uniforms.Exposure[3] = bAutoExposure && !State.bExposureAdapted ? 1.f : 0.f;
 	State.bExposureAdapted = bAutoExposure;
@@ -1904,7 +1899,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	const auto Fullscreen = [&](const std::size_t Pipeline, const FTextureHandle& Destination, const std::span<const FTextureHandle> Sources)
 	{
-		constexpr std::array Names{"Sky", "Volumetric fog", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation", "Tone map LUT", "Exposure histogram"};
+		constexpr std::array Names{"Sky", "Volumetric fog", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Tone map LUT"};
 		const auto Timer = TimedPass(Names[Pipeline]);
 		// Tone mapping and SMAA neighborhood write the display target, so their pipelines follow its format.
 		const FGraphicsPipelineHandle& Selected = Pipeline == 2 ? Display.ToneMap : Pipeline == 5 ? Display.SmaaNeighborhood
@@ -2444,23 +2439,13 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			FTextureHandle ExposureSource = State.White;
 			if (State.Uniforms.Exposure[0] > 0.5f)
 			{
-				const std::array MeterSources{State.HdrColor, FogSource};
-				if (const auto Result = Fullscreen(7, State.ExposureMetering, MeterSources); !Result)
-				{
-					return GraphResult(Result);
-				}
-
-				const std::array HistogramSources{State.ExposureMetering};
-				if (const auto Result = Fullscreen(10, State.ExposureHistogram, HistogramSources); !Result)
-				{
-					return GraphResult(Result);
-				}
-
 				const std::size_t Next = State.ExposureStateIndex ^ 1;
 				// A restart ignores the previous value, which may not have been written yet.
 				const bool bRestart = State.Uniforms.Exposure[3] > 0.5f;
-				const std::array AdaptSources{State.ExposureHistogram, bRestart ? State.White : State.ExposureStates[State.ExposureStateIndex]};
-				if (const auto Result = Fullscreen(8, State.ExposureStates[Next], AdaptSources); !Result)
+				const std::array Sources{State.HdrColor, FogSource, bRestart ? State.White : State.ExposureStates[State.ExposureStateIndex]};
+				const std::array Adapted{FStorageTextureBinding{.Texture = State.ExposureStates[Next]}};
+				const auto Timer = TimedPass("Exposure");
+				if (const auto Result = Device.Dispatch({.Pipeline = State.ExposurePipeline, .Textures = Sources, .StorageTextures = Adapted, .Uniforms = GetVisualUniformBytes(State.Uniforms), .GroupCount = {1, 1, 1}}); !Result)
 				{
 					return GraphResult(Result);
 				}
@@ -2474,7 +2459,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			if (UpdateKey(State.ToneMapLutKey, {KeyBytes(State.Uniforms.Display)}))
 			{
 				const std::array LutSources{State.White};
-				if (const auto Result = Fullscreen(9, State.ToneMapLut, LutSources); !Result)
+				if (const auto Result = Fullscreen(7, State.ToneMapLut, LutSources); !Result)
 				{
 					return GraphResult(Result);
 				}

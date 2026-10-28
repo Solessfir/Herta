@@ -116,9 +116,8 @@ struct FVisualShaderSet
 	FShaderAsset SmaaNeighborhood;
 	FShaderAsset SelectionOutline;
 	FShaderAsset SkyViewFragment;
-	FShaderAsset ExposureMeterFragment;
-	FShaderAsset ExposureAdaptFragment;
-	FShaderAsset ExposureHistogramFragment;
+	// Meters, histograms, and adapts automatic exposure in one dispatch.
+	FShaderAsset ExposureCompute;
 	FShaderAsset GtaoDepthCompute;
 	FShaderAsset GtaoCompute;
 	FShaderAsset GtaoDenoiseCompute;
