@@ -5,6 +5,7 @@
 [[vk::binding(2, 0)]] Texture2D<float4> ToneMapLut;
 [[vk::binding(3, 0)]] Texture2D<float4> FogVolume;
 [[vk::binding(4, 0)]] Texture2D<float4> DepthTexture;
+[[vk::binding(5, 0)]] Texture2D<float> FogDepth;
 
 // An outer square at the configured peak around an inner square far above any display. Raising the peak until the inner square disappears finds where the display clips.
 float3 CalibrationPattern(float2 UV)
@@ -29,7 +30,7 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
     // Fog composites here rather than in its own pass, saving a full-resolution HDR write and read.
     if (Visual.Fog.x > 0.0)
     {
-        float4 Fog = UpsampleFog(FogVolume, DepthTexture, Input.UV, int2(Input.Position.xy));
+        float4 Fog = UpsampleFog(FogVolume, FogDepth, Input.UV, DepthTexture.Load(int3(Input.Position.xy, 0)).r);
         Color = Color * Fog.a + Fog.rgb;
     }
 

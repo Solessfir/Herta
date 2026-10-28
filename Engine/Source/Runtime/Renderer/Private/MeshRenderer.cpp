@@ -508,7 +508,7 @@ struct FDisplayPipelines
 		return FGraphicsPipelineDescriptor{.Name = std::move(Name), .VertexShader = Shaders.FullscreenVertex, .FragmentShader = Fragment, .ColorFormat = Format, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = TextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bAlphaBlend = bAlphaBlend, .bClampSampler = !bAlphaBlend};
 	};
 
-	std::expected<void, FPresentationError> Result = Create(Pipelines.ToneMap, Fullscreen("Fog, exposure and tone mapping", Shaders.ToneMap, false, 5));
+	std::expected<void, FPresentationError> Result = Create(Pipelines.ToneMap, Fullscreen("Fog, exposure and tone mapping", Shaders.ToneMap, false, 6));
 	if (Result)
 	{
 		Result = Create(Pipelines.SmaaNeighborhood, Fullscreen("SMAA neighborhood", Shaders.SmaaNeighborhood, false));
@@ -586,6 +586,10 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle Depth;
 	FTextureHandle HdrColor;
 	FTextureHandle FogColor;
+	// Ray-march dispatch, then the 3x3 denoise into FogColor.
+	std::array<FComputePipelineHandle, 2> FogPipelines;
+	FTextureHandle FogScattering;
+	FTextureHandle FogDepth;
 	FTextureHandle ToneColor;
 	FTextureHandle Edges;
 	FTextureHandle Weights;
@@ -649,7 +653,7 @@ struct FMeshRenderer::FImplementation
 	FBufferHandle FullscreenVertices;
 	FBufferHandle FullscreenIndices;
 	// The tone mapping and SMAA neighborhood slots stay empty; those passes write the display target and live in DisplayPipelines.
-	std::array<FGraphicsPipelineHandle, 8> VisualPipelines;
+	std::array<FGraphicsPipelineHandle, 7> VisualPipelines;
 	FDisplayShaders DisplayShaders;
 	// SDR, then HDR, which is built the first time HDR output is requested.
 	std::array<FDisplayPipelines, 2> DisplayPipelines;
@@ -861,19 +865,19 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	std::vector<std::byte> SearchPixels;
 	if (!VisualShaders.FullscreenVertex.Bytecode.empty())
 	{
-		std::array<FShaderAsset, 8> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), FShaderAsset{}, std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), FShaderAsset{}, std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ToneMapLutFragment)};
-		constexpr std::array<std::uint32_t, 8> TextureCounts{2, 3, 5, 1, 3, 2, 1, 1};
-		constexpr std::array<std::string_view, 8> Names{"Sky", "Volumetric fog", "Fog, exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Tone map LUT"};
-		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float};
+		std::array<FShaderAsset, 7> Fragments{std::move(VisualShaders.SkyFragment), FShaderAsset{}, std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), FShaderAsset{}, std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ToneMapLutFragment)};
+		constexpr std::array<std::uint32_t, 7> TextureCounts{2, 6, 1, 3, 2, 1, 1};
+		constexpr std::array<std::string_view, 7> Names{"Sky", "Fog, exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Tone map LUT"};
+		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float};
 		for (std::size_t Index = 0; Index < Fragments.size(); ++Index)
 		{
 			// Tone mapping and SMAA neighborhood write the display target and are built with DisplayPipelines.
-			if (Index == 2 || Index == 5)
+			if (Index == 1 || Index == 4)
 			{
 				continue;
 			}
 
-			auto VisualPipeline = Device.CreateGraphicsPipeline({.Name = std::string(Names[Index]), .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(Fragments[Index]), .ColorFormat = Formats[Index], .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = TextureCounts[Index], .UniformBufferSize = VisualUniformBytes, .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bClampSampler = true, .BufferCount = Index == 1 ? MeshBufferCount : 0u});
+			auto VisualPipeline = Device.CreateGraphicsPipeline({.Name = std::string(Names[Index]), .VertexShader = VisualShaders.FullscreenVertex, .FragmentShader = std::move(Fragments[Index]), .ColorFormat = Formats[Index], .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = TextureCounts[Index], .UniformBufferSize = VisualUniformBytes, .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bClampSampler = true});
 			if (!VisualPipeline)
 			{
 				return std::unexpected(VisualPipeline.error());
@@ -918,6 +922,18 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 			}
 
 			State->LightClusterPipeline = std::move(*Clusters);
+		}
+
+		if (!VisualShaders.FogCompute.Bytecode.empty() && !VisualShaders.FogDenoiseCompute.Bytecode.empty())
+		{
+			auto March = Device.CreateComputePipeline({.Name = "Volumetric fog", .Shader = std::move(VisualShaders.FogCompute), .TextureCount = 3, .StorageTextureCount = 2, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+			auto Denoise = Device.CreateComputePipeline({.Name = "Fog denoise", .Shader = std::move(VisualShaders.FogDenoiseCompute), .TextureCount = 2, .StorageTextureCount = 1, .UniformBufferSize = VisualUniformBytes});
+			if (!March || !Denoise)
+			{
+				return std::unexpected(!March ? March.error() : Denoise.error());
+			}
+
+			State->FogPipelines = {std::move(*March), std::move(*Denoise)};
 		}
 
 		// Culling feeds the instanced depth prepass, which builds the hierarchy the late phase tests against.
@@ -1157,7 +1173,7 @@ std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 {
 	const FImplementation& State = *Implementation;
 	std::size_t Bytes = 0;
-	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion})
+	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion})
 	{
 		if (*Target)
 		{
@@ -1794,14 +1810,19 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	const float FogResolution = std::isfinite(View.Visuals.FogResolution) ? std::clamp(View.Visuals.FogResolution, 0.0625f, 1.f) : 0.25f;
 	const float FogScale = std::min({FogResolution, 2048.f * FogResolution / static_cast<float>(Extent.Width), 2048.f * FogResolution / static_cast<float>(Extent.Height)});
 	const FExtent2D FogExtent{std::max(1u, static_cast<std::uint32_t>(std::ceil(static_cast<float>(Extent.Width) * FogScale))), std::max(1u, static_cast<std::uint32_t>(std::ceil(static_cast<float>(Extent.Height) * FogScale)))};
-	if (State.VisualPipelines[0] && (!State.FogColor || State.FogColor->GetDescriptor().Extent != FogExtent))
+	if (State.FogPipelines[0] && (!State.FogColor || State.FogColor->GetDescriptor().Extent != FogExtent))
 	{
-		auto Fog = Device.CreateTexture({.Name = "Fog volume", .Extent = FogExtent, .Format = ETextureFormat::Rgba16Float, .bRenderTarget = true});
-		if (!Fog)
+		auto Scattering = Device.CreateTexture({.Name = "Fog scattering", .Extent = FogExtent, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
+		auto FogDepth = Device.CreateTexture({.Name = "Fog depth", .Extent = FogExtent, .Format = ETextureFormat::R32Float, .bStorage = true});
+		auto Fog = Device.CreateTexture({.Name = "Fog volume", .Extent = FogExtent, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
+		if (!Scattering || !FogDepth || !Fog)
 		{
-			return std::unexpected(Fog.error());
+			return std::unexpected(!Scattering ? Scattering.error() : !FogDepth ? FogDepth.error()
+			                                                                  : Fog.error());
 		}
 
+		State.FogScattering = std::move(*Scattering);
+		State.FogDepth = std::move(*FogDepth);
 		State.FogColor = std::move(*Fog);
 	}
 
@@ -1899,13 +1920,13 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	const auto Fullscreen = [&](const std::size_t Pipeline, const FTextureHandle& Destination, const std::span<const FTextureHandle> Sources)
 	{
-		constexpr std::array Names{"Sky", "Volumetric fog", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Tone map LUT"};
+		constexpr std::array Names{"Sky", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Tone map LUT"};
 		const auto Timer = TimedPass(Names[Pipeline]);
 		// Tone mapping and SMAA neighborhood write the display target, so their pipelines follow its format.
-		const FGraphicsPipelineHandle& Selected = Pipeline == 2 ? Display.ToneMap : Pipeline == 5 ? Display.SmaaNeighborhood
+		const FGraphicsPipelineHandle& Selected = Pipeline == 1 ? Display.ToneMap : Pipeline == 4 ? Display.SmaaNeighborhood
 		                                                                                          : State.VisualPipelines[Pipeline];
 		// Only volumetric fog reads lights.
-		return Device.DrawIndexed({.Pipeline = Selected, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = Destination, .IndexCount = 6, .Textures = Sources, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = Pipeline == 1 ? std::span<const FBufferHandle>(LightBuffers) : std::span<const FBufferHandle>{}, .bCoversColorTarget = true});
+		return Device.DrawIndexed({.Pipeline = Selected, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = Destination, .IndexCount = 6, .Textures = Sources, .Uniforms = GetVisualUniformBytes(State.Uniforms), .bCoversColorTarget = true});
 	};
 
 	const auto MaterialPipeline = [&](const FRenderMesh::FSection& Section, const std::span<const FRenderMaterial* const> Overrides, const bool bInstanced)
@@ -2173,7 +2194,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		if (Result && State.VisualPipelines[0] && UpdateKey(State.SkyViewKey, {KeyBytes(Uniforms.Atmosphere), KeyBytes(Uniforms.AtmosphereGeometry), KeyBytes(Uniforms.SunDirection), KeyBytes(Uniforms.SunIlluminance), KeyBytes(Uniforms.SunRadiance), KeyBytes(MultipleScattering.get())}))
 		{
 			const std::array SkySources{MultipleScattering};
-			Result = Fullscreen(6, State.SkyView, SkySources);
+			Result = Fullscreen(5, State.SkyView, SkySources);
 		}
 
 		if (Result && State.VisualPipelines[0])
@@ -2425,15 +2446,30 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		{
 			// Without fog the volume is never written, so the shaders, which skip it, bind a placeholder.
 			FTextureHandle FogSource = State.White;
-			if (State.Uniforms.Fog[0] > 0.f)
+			FTextureHandle FogDepthSource = State.White;
+			if (State.Uniforms.Fog[0] > 0.f && State.FogPipelines[0])
 			{
-				const std::array FogSources{State.Depth, State.ShadowAtlas, State.EnvironmentDiffuse};
-				if (const auto Result = Fullscreen(1, State.FogColor, FogSources); !Result)
+				const auto Timer = TimedPass("Volumetric fog");
+				const FExtent2D FogExtent = State.FogColor->GetDescriptor().Extent;
+				const std::array<std::uint32_t, 3> Groups{(FogExtent.Width + 7) / 8, (FogExtent.Height + 7) / 8, 1};
+				const auto Uniforms = GetVisualUniformBytes(State.Uniforms);
+				const std::array MarchSources{State.Depth, State.ShadowAtlas, State.EnvironmentDiffuse};
+				const std::array MarchTargets{FStorageTextureBinding{.Texture = State.FogScattering}, FStorageTextureBinding{.Texture = State.FogDepth}};
+				auto Result = Device.Dispatch({.Pipeline = State.FogPipelines[0], .Textures = MarchSources, .StorageTextures = MarchTargets, .Uniforms = Uniforms, .GroupCount = Groups, .Buffers = LightBuffers});
+				if (Result)
+				{
+					const std::array DenoiseSources{State.FogScattering, State.FogDepth};
+					const std::array DenoiseTargets{FStorageTextureBinding{.Texture = State.FogColor}};
+					Result = Device.Dispatch({.Pipeline = State.FogPipelines[1], .Textures = DenoiseSources, .StorageTextures = DenoiseTargets, .Uniforms = Uniforms, .GroupCount = Groups});
+				}
+
+				if (!Result)
 				{
 					return GraphResult(Result);
 				}
 
 				FogSource = State.FogColor;
+				FogDepthSource = State.FogDepth;
 			}
 
 			FTextureHandle ExposureSource = State.White;
@@ -2459,14 +2495,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			if (UpdateKey(State.ToneMapLutKey, {KeyBytes(State.Uniforms.Display)}))
 			{
 				const std::array LutSources{State.White};
-				if (const auto Result = Fullscreen(7, State.ToneMapLut, LutSources); !Result)
+				if (const auto Result = Fullscreen(6, State.ToneMapLut, LutSources); !Result)
 				{
 					return GraphResult(Result);
 				}
 			}
 
-			const std::array ToneSources{State.HdrColor, ExposureSource, State.ToneMapLut, FogSource, State.Depth};
-			if (const auto Result = Fullscreen(2, bSmaa ? State.ToneColor : State.Color, ToneSources); !Result)
+			const std::array ToneSources{State.HdrColor, ExposureSource, State.ToneMapLut, FogSource, State.Depth, FogDepthSource};
+			if (const auto Result = Fullscreen(1, bSmaa ? State.ToneColor : State.Color, ToneSources); !Result)
 			{
 				return GraphResult(Result);
 			}
@@ -2520,19 +2556,19 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 						return GraphResult(Result);
 					}
 
-					if (const auto Result = Fullscreen(3, State.Edges, EdgeSources); !Result)
+					if (const auto Result = Fullscreen(2, State.Edges, EdgeSources); !Result)
 					{
 						return GraphResult(Result);
 					}
 
-					if (const auto Result = Fullscreen(4, State.Weights, WeightSources); !Result)
+					if (const auto Result = Fullscreen(3, State.Weights, WeightSources); !Result)
 					{
 						return GraphResult(Result);
 					}
 				}
 
 				const std::array NeighborSources{State.ToneColor, State.Weights};
-				if (const auto Result = Fullscreen(5, State.Color, NeighborSources); !Result)
+				if (const auto Result = Fullscreen(4, State.Color, NeighborSources); !Result)
 				{
 					return GraphResult(Result);
 				}

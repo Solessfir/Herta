@@ -326,7 +326,8 @@ int RunGame(const FGameOptions& Options)
 	const std::array VisualShaderFiles{
 	    std::pair{"SkyView.vert.hshader", &VisualShaders.FullscreenVertex},
 	    std::pair{"Sky.frag.hshader", &VisualShaders.SkyFragment},
-	    std::pair{"VolumetricFog.frag.hshader", &VisualShaders.FogFragment},
+	    std::pair{"VolumetricFog.comp.hshader", &VisualShaders.FogCompute},
+	    std::pair{"FogDenoise.comp.hshader", &VisualShaders.FogDenoiseCompute},
 	    std::pair{"ToneMap.frag.hshader", &VisualShaders.ToneMapFragment},
 	    std::pair{"ToneMapLut.frag.hshader", &VisualShaders.ToneMapLutFragment},
 	    std::pair{"Shadow.vert.hshader", &VisualShaders.ShadowVertex},

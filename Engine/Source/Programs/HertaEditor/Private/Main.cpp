@@ -367,7 +367,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    // Slang reflects module-global bindings into the vertex stage, so the shared fullscreen vertex comes from a module whose only texture is at binding 0.
 	    std::pair{"SkyView.vert.hshader", &VisualShaders.FullscreenVertex},
 	    std::pair{"Sky.frag.hshader", &VisualShaders.SkyFragment},
-	    std::pair{"VolumetricFog.frag.hshader", &VisualShaders.FogFragment},
+	    std::pair{"VolumetricFog.comp.hshader", &VisualShaders.FogCompute},
+	    std::pair{"FogDenoise.comp.hshader", &VisualShaders.FogDenoiseCompute},
 	    std::pair{"ToneMap.frag.hshader", &VisualShaders.ToneMapFragment},
 	    std::pair{"ToneMapLut.frag.hshader", &VisualShaders.ToneMapLutFragment},
 	    std::pair{"Shadow.vert.hshader", &VisualShaders.ShadowVertex},

@@ -105,7 +105,9 @@ struct FVisualShaderSet
 {
 	FShaderAsset FullscreenVertex;
 	FShaderAsset SkyFragment;
-	FShaderAsset FogFragment;
+	// Ray-marches fog at reduced resolution, then denoises it there before the tone mapping composite.
+	FShaderAsset FogCompute;
+	FShaderAsset FogDenoiseCompute;
 	FShaderAsset ToneMapFragment;
 	FShaderAsset ToneMapLutFragment;
 	FShaderAsset ShadowVertex;

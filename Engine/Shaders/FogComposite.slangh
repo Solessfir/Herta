@@ -1,32 +1,33 @@
 #pragma once
 #include "VisualShared.slangh"
 
-// A 3x3 Gaussian over the low-resolution volume both upsamples it and averages the per-pixel ray-march dither; depth similarity keeps fog from bleeding across silhouettes.
-float4 UpsampleFog(Texture2D<float4> FogVolume, Texture2D<float4> DepthTexture, float2 ScreenUV, int2 Pixel)
+// Upsamples the denoised fog with bilinear weights scaled by depth similarity, so fog does not bleed across silhouettes.
+// One gather reads the four texels' depths, keeping the full-resolution pass to few texture fetches.
+float4 UpsampleFog(Texture2D<float4> FogVolume, Texture2D<float> FogDepth, float2 ScreenUV, float Depth)
 {
-    float Depth = DepthTexture.Load(int3(Pixel, 0)).r;
-    uint W, H;
-    FogVolume.GetDimensions(W, H);
-    float2 Size = float2(W, H);
+    uint Width, Height;
+    FogVolume.GetDimensions(Width, Height);
+    float2 Size = float2(Width, Height);
     float2 Texel = ScreenUV * Size - 0.5;
-    float2 Center = round(Texel);
-    // The Gaussian is separable, so three weights per axis replace nine exponentials.
-    float3 OffsetX = Center.x + float3(-1.0, 0.0, 1.0) - Texel.x;
-    float3 OffsetY = Center.y + float3(-1.0, 0.0, 1.0) - Texel.y;
-    float3 WeightX = exp(-0.5 * OffsetX * OffsetX);
-    float3 WeightY = exp(-0.5 * OffsetY * OffsetY);
-    float DepthFalloff = -1.0 / max(0.0001, Depth * 0.1);
-    float4 Fog = 0.0;
-    float Total = 0.0;
-    for (int Y = 0; Y < 3; ++Y)
-    for (int X = 0; X < 3; ++X)
+    float2 Base = floor(Texel);
+    float2 F = Texel - Base;
+    // Gather order: (0, 1), (1, 1), (1, 0), (0, 0) from Base.
+    float4 Depths = FogDepth.Gather(LinearSampler, (Base + 1.0) / Size);
+    float4 Bilinear = float4((1.0 - F.x) * F.y, F.x * F.y, F.x * (1.0 - F.y), (1.0 - F.x) * (1.0 - F.y));
+    float4 Difference = abs(Depth - Depths);
+    float4 Weights = Bilinear * exp(Difference * (-1.0 / max(0.0001, Depth * 0.1)));
+    float Total = dot(Weights, 1.0);
+    // A pixel unlike all four texels, such as a thin object over the sky, takes the closest one.
+    if (Total < 1e-5)
     {
-        float2 UV = (Center + float2(X - 1, Y - 1) + 0.5) / Size;
-        float OtherDepth = DepthTexture.Load(int3(UV * Visual.Viewport.zw, 0)).r;
-        float Weight = WeightX[X] * WeightY[Y] * exp(abs(Depth - OtherDepth) * DepthFalloff);
-        Fog += FogVolume.SampleLevel(LinearSampler, UV, 0) * Weight;
-        Total += Weight;
+        float Closest = min(min(Difference.x, Difference.y), min(Difference.z, Difference.w));
+        Weights = float4(Difference == Closest);
+        Total = dot(Weights, 1.0);
     }
 
-    return Total > 0.00001 ? Fog / Total : FogVolume.SampleLevel(LinearSampler, ScreenUV, 0);
+    float4 Fog = FogVolume.SampleLevel(LinearSampler, (Base + float2(0.5, 1.5)) / Size, 0) * Weights.x;
+    Fog += FogVolume.SampleLevel(LinearSampler, (Base + float2(1.5, 1.5)) / Size, 0) * Weights.y;
+    Fog += FogVolume.SampleLevel(LinearSampler, (Base + float2(1.5, 0.5)) / Size, 0) * Weights.z;
+    Fog += FogVolume.SampleLevel(LinearSampler, (Base + float2(0.5, 0.5)) / Size, 0) * Weights.w;
+    return Fog / Total;
 }
