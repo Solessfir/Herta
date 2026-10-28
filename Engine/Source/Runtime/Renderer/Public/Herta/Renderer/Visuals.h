@@ -139,6 +139,8 @@ struct FVisualShaderSet
 	FShaderAsset OcclusionCullCompute;
 	// The instanced depth prepass fragment that writes object motion, and the pass that fills camera motion everywhere else.
 	FShaderAsset DepthVelocityFragment;
+	// The instanced vertex stage that also reads the previous frame's transforms for that prepass.
+	FShaderAsset DepthVelocityVertex;
 	FShaderAsset MotionVectorsCompute;
 	// Reduces the visible view depth so sun cascades cover only what the camera sees.
 	FShaderAsset DepthBoundsCompute;

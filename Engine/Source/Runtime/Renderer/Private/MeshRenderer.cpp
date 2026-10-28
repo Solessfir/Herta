@@ -477,7 +477,7 @@ struct FOcclusionCandidate
 
 static_assert(sizeof(FOcclusionCandidate) == 9 * sizeof(std::uint32_t));
 // OcclusionCull.slang copies instances as whole uints.
-static_assert(sizeof(FMeshInstance) == 48 * sizeof(std::uint32_t));
+static_assert(sizeof(FMeshInstance) == 32 * sizeof(std::uint32_t));
 
 // Indirect argument lists, in buffer order: drawn before the depth hierarchy, drawn after it, and everything visible for shading.
 enum class EOcclusionList : std::uint32_t
@@ -739,6 +739,9 @@ struct FMeshRenderer::FImplementation
 	std::uint64_t MaterialShaderGeneration = 0;
 	FBufferHandle Instances;
 	std::vector<FMeshInstance> InstanceData;
+	// Parallel to InstanceData, filled and uploaded only while motion vectors are on.
+	FBufferHandle PreviousInstances;
+	std::vector<FMeshInstanceMotion> PreviousInstanceData;
 	std::vector<FInstanceBatch> InstanceBatches;
 	std::vector<std::vector<std::size_t>> BatchModels;
 	// The camera first, then each shadow view.
@@ -829,9 +832,9 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 			}
 
 			State->InstancedDepthPrepassPipeline = std::move(*InstancedDepthPrepass);
-			if (!VisualShaders.DepthVelocityFragment.Bytecode.empty() && !VisualShaders.MotionVectorsCompute.Bytecode.empty())
+			if (!VisualShaders.DepthVelocityFragment.Bytecode.empty() && !VisualShaders.DepthVelocityVertex.Bytecode.empty() && !VisualShaders.MotionVectorsCompute.Bytecode.empty())
 			{
-				auto VelocityPrepass = Device.CreateGraphicsPipeline({.Name = "Instanced velocity prepass", .VertexShader = InstancedVertexShader, .FragmentShader = std::move(VisualShaders.DepthVelocityFragment), .ColorFormat = ETextureFormat::Rg16Float, .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+				auto VelocityPrepass = Device.CreateGraphicsPipeline({.Name = "Instanced velocity prepass", .VertexShader = std::move(VisualShaders.DepthVelocityVertex), .FragmentShader = std::move(VisualShaders.DepthVelocityFragment), .ColorFormat = ETextureFormat::Rg16Float, .bInstanced = true, .bInstanceMotion = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
 				auto MotionVectors = Device.CreateComputePipeline({.Name = "Motion vectors", .Shader = std::move(VisualShaders.MotionVectorsCompute), .TextureCount = 1, .StorageTextureCount = 1, .UniformBufferSize = VisualUniformBytes});
 				if (!VelocityPrepass || !MotionVectors)
 				{
@@ -1754,6 +1757,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		// The selection outline rasterizes the selected models seen by the camera, one instanced draw per batch.
 		const std::size_t SelectionView = State.ViewFrustums.size();
 		State.InstanceData.clear();
+		State.PreviousInstanceData.clear();
 		State.CandidateData.clear();
 		State.OcclusionDrawCount = 0;
 		State.ViewDraws.resize(SelectionView + 1);
@@ -1775,8 +1779,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 					if (ViewIndex == SelectionView ? State.SelectedModels[Model] && IsVisible(0, Model) : IsVisible(ViewIndex, Model))
 					{
 						const FMatrix4 ObjectToClip = WorldToClip * View.Models[Model];
-						const FMatrix4 PreviousObjectToClip = State.bMotionVectors ? PreviousWorldToClip * (bPreviousModels ? View.PreviousModels[Model] : View.Models[Model]) : ObjectToClip;
-						State.InstanceData.push_back({.WorldToClip = ObjectToClip.Data(), .ObjectToView = (View.View * View.Models[Model]).Data(), .PreviousWorldToClip = PreviousObjectToClip.Data()});
+						State.InstanceData.push_back({.WorldToClip = ObjectToClip.Data(), .ObjectToView = (View.View * View.Models[Model]).Data()});
+						if (State.bMotionVectors)
+						{
+							State.PreviousInstanceData.push_back({.PreviousWorldToClip = (PreviousWorldToClip * (bPreviousModels ? View.PreviousModels[Model] : View.Models[Model])).Data()});
+						}
 						if (ViewIndex == 0)
 						{
 							const FImplementation::FModelBounds& Bounds = State.ModelBounds[Model];
@@ -1811,6 +1818,18 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 			State.Instances = std::move(*Instances);
 		}
+
+		const std::size_t PreviousBytes = State.PreviousInstanceData.size() * sizeof(FMeshInstanceMotion);
+		if (PreviousBytes > 0 && (!State.PreviousInstances || State.PreviousInstances->GetDescriptor().Size < PreviousBytes))
+		{
+			auto Previous = Device.CreateBuffer({.Name = "Previous mesh instances", .Size = std::bit_ceil(State.PreviousInstanceData.size()) * sizeof(FMeshInstanceMotion), .Usage = EBufferUsage::Storage, .VertexFormat = EGraphicsVertexFormat::MeshInstanceMotion});
+			if (!Previous)
+			{
+				return std::unexpected(Previous.error());
+			}
+
+			State.PreviousInstances = std::move(*Previous);
+		}
 	}
 
 	if (State.bMotionVectors && (!State.MotionVectors || State.MotionVectors->GetDescriptor().Extent != Extent))
@@ -1825,7 +1844,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	// The hierarchy's first level is the largest power of two within half the view, so it needs at least 2x2 pixels.
-	State.bOcclusionCulling = State.OcclusionPipelines[0] && View.Visuals.bOcclusionCulling && !State.CandidateData.empty() && Extent.Width >= 2 && Extent.Height >= 2;
+	// The culled lists carry no previous-frame transforms, which the velocity prepass reads by instance, so culling waits while motion vectors are on.
+	// Both are off by default; carry the motion stream through culling once a feature needs them together.
+	State.bOcclusionCulling = State.OcclusionPipelines[0] && View.Visuals.bOcclusionCulling && !State.bMotionVectors && !State.CandidateData.empty() && Extent.Width >= 2 && Extent.Height >= 2;
 	if (State.bOcclusionCulling)
 	{
 		const auto CandidateCount = static_cast<std::uint32_t>(State.CandidateData.size());
@@ -2171,6 +2192,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		Graph.AddPass("Mesh instances", {{.Resource = Geometry, .Access = ERenderGraphAccess::Write}}, [&]
 		{
 			auto Result = Device.WriteBuffer(State.Instances, std::as_bytes(std::span{State.InstanceData}));
+			if (Result && !State.PreviousInstanceData.empty())
+			{
+				Result = Device.WriteBuffer(State.PreviousInstances, std::as_bytes(std::span{State.PreviousInstanceData}));
+			}
+
 			if (Result && State.bOcclusionCulling)
 			{
 				Result = Device.WriteBuffer(State.OcclusionCandidates, std::as_bytes(std::span{State.CandidateData}));
@@ -2442,7 +2468,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 						Textures[14] = State.ContactShadows;
 					}
 
-					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? Prepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bVelocity ? State.MotionVectors : ColorTarget, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers};
+					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? Prepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bVelocity ? State.MotionVectors : ColorTarget, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .PreviousInstances = bVelocity ? State.PreviousInstances : FBufferHandle{}, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers};
 					if (State.bOcclusionCulling)
 					{
 						Draw.Instances = State.CulledInstances;

@@ -62,14 +62,30 @@ struct FInstanceInput
 {
     float4 Clip0 : TEXCOORD1; float4 Clip1 : TEXCOORD2; float4 Clip2 : TEXCOORD3; float4 Clip3 : TEXCOORD4;
     float4 View0 : TEXCOORD5; float4 View1 : TEXCOORD6; float4 View2 : TEXCOORD7; float4 View3 : TEXCOORD8;
+};
+
+// The previous frame's object-to-clip, from the second instance stream that only the velocity prepass binds.
+struct FInstanceMotionInput
+{
     float4 Previous0 : TEXCOORD9; float4 Previous1 : TEXCOORD10; float4 Previous2 : TEXCOORD11; float4 Previous3 : TEXCOORD12;
 };
+
+FVertexOutput TransformInstance(float3 Position, float2 UV, float3 Normal, float4 Tangent, FInstanceInput Instance)
+{
+    return TransformVertex(Position, UV, Normal, Tangent, transpose(float4x4(Instance.Clip0, Instance.Clip1, Instance.Clip2, Instance.Clip3)), transpose(float4x4(Instance.View0, Instance.View1, Instance.View2, Instance.View3)));
+}
 
 [shader("vertex")]
 FVertexOutput instancedVertexMain(float3 Position : POSITION, float2 UV : TEXCOORD0, float3 Normal : NORMAL, float4 Tangent : TANGENT, FInstanceInput Instance)
 {
-    FVertexOutput Output = TransformVertex(Position, UV, Normal, Tangent, transpose(float4x4(Instance.Clip0, Instance.Clip1, Instance.Clip2, Instance.Clip3)), transpose(float4x4(Instance.View0, Instance.View1, Instance.View2, Instance.View3)));
-    Output.PreviousClip = mul(transpose(float4x4(Instance.Previous0, Instance.Previous1, Instance.Previous2, Instance.Previous3)), float4(Position, 1.0));
+    return TransformInstance(Position, UV, Normal, Tangent, Instance);
+}
+
+[shader("vertex")]
+FVertexOutput instancedVelocityVertexMain(float3 Position : POSITION, float2 UV : TEXCOORD0, float3 Normal : NORMAL, float4 Tangent : TANGENT, FInstanceInput Instance, FInstanceMotionInput Motion)
+{
+    FVertexOutput Output = TransformInstance(Position, UV, Normal, Tangent, Instance);
+    Output.PreviousClip = mul(transpose(float4x4(Motion.Previous0, Motion.Previous1, Motion.Previous2, Motion.Previous3)), float4(Position, 1.0));
     return Output;
 }
 

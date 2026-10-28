@@ -111,6 +111,7 @@ struct FPipeline final : IRhiGraphicsPipeline
 	ETextureFormat ColorFormat;
 	EGraphicsVertexFormat VertexFormat;
 	bool bInstanced = false;
+	bool bInstanceMotion = false;
 	bool bDepthOnly = false;
 	bool bDepthAttachment = true;
 	bool bPushConstants = false;
@@ -249,8 +250,10 @@ public:
 
 		if (Descriptor.Usage == EBufferUsage::Storage)
 		{
-			const bool bInstances = Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance;
-			if (Descriptor.Size == 0 || Descriptor.Size > MaximumStorageBufferBytes || Descriptor.Size % (bInstances ? sizeof(FMeshInstance) : sizeof(std::uint32_t)) != 0)
+			const bool bInstances = Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance || Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstanceMotion;
+			const std::size_t Element = Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance ? sizeof(FMeshInstance) : bInstances ? sizeof(FMeshInstanceMotion)
+			                                                                                                                                : sizeof(std::uint32_t);
+			if (Descriptor.Size == 0 || Descriptor.Size > MaximumStorageBufferBytes || Descriptor.Size % Element != 0)
 			{
 				return Invalid("Storage buffer size must hold whole uints, or whole mesh instances for instance buffers, and fit 256 MiB");
 			}
@@ -371,12 +374,17 @@ public:
 		    nvrhi::VertexAttributeDesc().setName("COLOR").setFormat(nvrhi::Format::RGBA32_FLOAT).setOffset(offsetof(FColoredClipVertex, Color)).setElementStride(sizeof(FColoredClipVertex)),
 		};
 
-		// Four vertex attributes and three instance matrices use all 16 locations Vulkan guarantees.
+		// Four vertex attributes and two instance matrices, plus the previous-frame matrix from a second stream for motion, use all 16 locations Vulkan guarantees.
 		std::array<nvrhi::VertexAttributeDesc, 16> InstancedAttributes;
 		std::ranges::copy(Attributes, InstancedAttributes.begin());
-		for (std::uint32_t Column = 0; Column < 12; ++Column)
+		for (std::uint32_t Column = 0; Column < 8; ++Column)
 		{
 			InstancedAttributes[Column + 4] = nvrhi::VertexAttributeDesc().setName("TEXCOORD").setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(1).setOffset(Column * 16u).setElementStride(sizeof(FMeshInstance)).setIsInstanced(true);
+		}
+
+		for (std::uint32_t Column = 0; Column < 4; ++Column)
+		{
+			InstancedAttributes[Column + 12] = nvrhi::VertexAttributeDesc().setName("TEXCOORD").setFormat(nvrhi::Format::RGBA32_FLOAT).setBufferIndex(2).setOffset(Column * 16u).setElementStride(sizeof(FMeshInstanceMotion)).setIsInstanced(true);
 		}
 
 		std::array<nvrhi::VertexAttributeDesc, 6> ShadowAttributes;
@@ -387,7 +395,7 @@ public:
 		}
 
 		const std::span<const nvrhi::VertexAttributeDesc> SelectedAttributes = bColored ? std::span<const nvrhi::VertexAttributeDesc>(ColoredAttributes) : bShadow             ? std::span<const nvrhi::VertexAttributeDesc>(ShadowAttributes).first(Descriptor.bInstanced ? 6 : 2)
-		                                                                                                                                               : Descriptor.bInstanced ? std::span<const nvrhi::VertexAttributeDesc>(InstancedAttributes)
+		                                                                                                                                               : Descriptor.bInstanced ? std::span<const nvrhi::VertexAttributeDesc>(InstancedAttributes).first(Descriptor.bInstanceMotion ? 16 : 12)
 		                                                                                                                                                                       : std::span<const nvrhi::VertexAttributeDesc>(Attributes);
 		const auto InputLayout = Device->createInputLayout(SelectedAttributes.data(), static_cast<std::uint32_t>(SelectedAttributes.size()), Vertex);
 		auto Pipeline = std::make_shared<FPipeline>();
@@ -396,6 +404,7 @@ public:
 		Pipeline->ColorFormat = Descriptor.ColorFormat;
 		Pipeline->VertexFormat = Descriptor.VertexFormat;
 		Pipeline->bInstanced = Descriptor.bInstanced;
+		Pipeline->bInstanceMotion = Descriptor.bInstanced && Descriptor.bInstanceMotion;
 		Pipeline->bDepthOnly = Descriptor.bDepthOnly;
 		Pipeline->bDepthAttachment = Descriptor.bDepthTest || Descriptor.bDepthWrite;
 		Pipeline->bPushConstants = Descriptor.VertexShader.PushConstantSize != 0 || Descriptor.FragmentShader.PushConstantSize != 0;
@@ -607,7 +616,7 @@ public:
 		const auto Native = std::dynamic_pointer_cast<FBuffer>(Buffer);
 		// Instance buffers keep spare capacity, and their draws name the instance range they read.
 		// Storage buffers may reset just a header, such as a counter, ahead of the elements the GPU fills.
-		const bool bInstances = Owns(Native) && Native->Descriptor.Usage != EBufferUsage::Index && Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance;
+		const bool bInstances = Owns(Native) && Native->Descriptor.Usage != EBufferUsage::Index && (Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance || Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstanceMotion);
 		const bool bPartial = Owns(Native) && (bInstances || Native->Descriptor.Usage == EBufferUsage::Storage);
 		if (!Owns(Native) || Native->Descriptor.Usage == EBufferUsage::Readback || (bPartial ? Data.empty() || Data.size() > Native->Descriptor.Size || Data.size() % sizeof(std::uint32_t) != 0 : Data.size() != Native->Descriptor.Size))
 		{
@@ -746,6 +755,7 @@ public:
 		const auto Vertices = std::dynamic_pointer_cast<FBuffer>(Draw.Vertices);
 		const auto Indices = std::dynamic_pointer_cast<FBuffer>(Draw.Indices);
 		const auto Instances = std::dynamic_pointer_cast<FBuffer>(Draw.Instances);
+		const auto PreviousInstances = std::dynamic_pointer_cast<FBuffer>(Draw.PreviousInstances);
 		const auto Color = std::dynamic_pointer_cast<FTexture>(Draw.ColorTarget);
 		const auto Depth = std::dynamic_pointer_cast<FTexture>(Draw.DepthTarget);
 		const bool bColored = Pipeline && Pipeline->VertexFormat == EGraphicsVertexFormat::ColoredClipPosition;
@@ -763,6 +773,11 @@ public:
 		if (Pipeline->bInstanced ? !Owns(Instances) || Instances->Descriptor.Usage == EBufferUsage::Index || Instances->Descriptor.VertexFormat != EGraphicsVertexFormat::MeshInstance || Draw.InstanceCount == 0 || Draw.FirstInstance > Instances->Descriptor.Size / sizeof(FMeshInstance) || Draw.InstanceCount > Instances->Descriptor.Size / sizeof(FMeshInstance) - Draw.FirstInstance : Draw.Instances || Draw.InstanceCount != 1 || Draw.FirstInstance != 0)
 		{
 			return Invalid("Indexed draw instances must match the pipeline and fit a mesh instance buffer belonging to this device");
+		}
+
+		if (Pipeline->bInstanceMotion ? !Owns(PreviousInstances) || PreviousInstances->Descriptor.VertexFormat != EGraphicsVertexFormat::MeshInstanceMotion || Draw.FirstInstance + std::size_t{Draw.InstanceCount} > PreviousInstances->Descriptor.Size / sizeof(FMeshInstanceMotion) || (!PreviousInstances->bInitialized && !Frames[FrameIndex].UploadedBuffers.contains(PreviousInstances.get())) : static_cast<bool>(Draw.PreviousInstances))
+		{
+			return Invalid("Previous-frame instances belong only to motion pipelines and must cover the drawn instances");
 		}
 
 		const auto Indirect = std::dynamic_pointer_cast<FBuffer>(Draw.IndirectArguments);
@@ -894,7 +909,7 @@ public:
 			return Failed("Could not create draw framebuffer or bindings");
 		}
 
-		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, Indirect, Framebuffer, Bindings, Viewport, Textures = std::move(Textures), Buffers = std::move(Buffers), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, PreviousInstances, Indirect, Framebuffer, Bindings, Viewport, Textures = std::move(Textures), Buffers = std::move(Buffers), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(Pipeline->Name.c_str());
 			if (UniformBuffer)
@@ -907,6 +922,11 @@ public:
 			if (Instances)
 			{
 				State.addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(Instances->Handle).setSlot(1).setOffset(0));
+			}
+
+			if (PreviousInstances)
+			{
+				State.addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(PreviousInstances->Handle).setSlot(2).setOffset(0));
 			}
 
 			if (Bindings)

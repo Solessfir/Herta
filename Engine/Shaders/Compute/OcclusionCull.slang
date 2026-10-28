@@ -23,7 +23,7 @@ struct FOcclusionCullUniforms
 static const uint CandidateWords = 9;
 static const uint ArgumentWords = 5;
 // Matches sizeof(FMeshInstance).
-static const uint InstanceWords = 48;
+static const uint InstanceWords = 32;
 static const uint EarlyList = 0;
 static const uint LateList = 1;
 static const uint FinalList = 2;

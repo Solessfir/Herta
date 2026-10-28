@@ -1909,7 +1909,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 			return Failure("Indexed instancing accepted an uninitialized instance buffer");
 		}
 
-		std::array InstanceData{FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data(), .PreviousWorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data()}, FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 4}).Data(), .PreviousWorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data()}};
+		std::array InstanceData{FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 2})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 2}).Data()}, FMeshInstance{.WorldToClip = (Projection * FMatrix4::Translation({0, 0, 4})).Data(), .ObjectToView = FMatrix4::Translation({0, 0, 4}).Data()}};
 		InstanceData[0].WorldToClip[0] = std::numeric_limits<float>::quiet_NaN();
 		if (Device.WriteBuffer(*Instances, std::as_bytes(std::span{InstanceData})))
 		{

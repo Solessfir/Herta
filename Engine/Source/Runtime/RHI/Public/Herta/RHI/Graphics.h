@@ -97,7 +97,9 @@ enum class EGraphicsVertexFormat : std::uint8_t
 	ColoredClipPosition,
 	MeshInstance,
 	// Position and UV from a Mesh buffer, with view-space instance columns for shadow pipelines.
-	ShadowMesh
+	ShadowMesh,
+	// FMeshInstanceMotion elements, the second instance stream of pipelines with bInstanceMotion.
+	MeshInstanceMotion
 };
 
 struct FBufferDescriptor
@@ -184,6 +186,8 @@ struct FGraphicsPipelineDescriptor
 	EGraphicsVertexFormat VertexFormat = EGraphicsVertexFormat::Mesh;
 	bool bDepthTest = true;
 	bool bInstanced = false;
+	// Instanced pipelines that also read the previous frame's transforms from a second instance stream, FIndexedDraw::PreviousInstances.
+	bool bInstanceMotion = false;
 	std::uint32_t TextureCount = 1;
 	std::uint32_t UniformBufferSize = 0;
 	bool bDepthOnly = false;
@@ -258,7 +262,11 @@ struct FMeshInstance
 {
 	std::array<float, 16> WorldToClip;
 	std::array<float, 16> ObjectToView;
-	// The previous frame's object-to-clip transform, for motion vectors.
+};
+
+// The previous frame's object-to-clip transform, in its own stream so frames without motion vectors neither build nor upload it.
+struct FMeshInstanceMotion
+{
 	std::array<float, 16> PreviousWorldToClip;
 };
 
@@ -284,6 +292,8 @@ struct FIndexedDraw
 	// Pushed after WorldToClip; mesh shaders light in view space.
 	std::array<float, 16> ObjectToView{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 	FBufferHandle Instances{};
+	// Indexed like Instances, for pipelines with bInstanceMotion.
+	FBufferHandle PreviousInstances{};
 	std::uint32_t InstanceCount = 1;
 	std::uint32_t FirstInstance = 0;
 	// Recording copies these inputs. Registers are t0..t15, b0 at Vulkan binding 64, and s0 at 128.

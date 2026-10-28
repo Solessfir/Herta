@@ -426,16 +426,18 @@ project "HertaShaders"
             '"' .. ShaderWorker .. '" "%{file.abspath}" fragment fragmentMain "' .. path.join(ShaderOutput, "%{file.basename}.frag.hshader") .. '" --debug'
         }
     filter "files:**/TexturedMesh.slang"
-        buildoutputs { path.join(ShaderOutput, "TexturedMesh.instanced.vert.hshader"), path.join(ShaderOutput, "TexturedMesh.velocity.frag.hshader") }
+        buildoutputs { path.join(ShaderOutput, "TexturedMesh.instanced.vert.hshader"), path.join(ShaderOutput, "TexturedMesh.velocity.frag.hshader"), path.join(ShaderOutput, "TexturedMesh.instanced.velocity.vert.hshader") }
     filter { "files:**/TexturedMesh.slang", "configurations:Shipping" }
         buildcommands {
             '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVertexMain "' .. path.join(ShaderOutput, "TexturedMesh.instanced.vert.hshader") .. '"',
-            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment velocityFragmentMain "' .. path.join(ShaderOutput, "TexturedMesh.velocity.frag.hshader") .. '"'
+            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment velocityFragmentMain "' .. path.join(ShaderOutput, "TexturedMesh.velocity.frag.hshader") .. '"',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVelocityVertexMain "' .. path.join(ShaderOutput, "TexturedMesh.instanced.velocity.vert.hshader") .. '"'
         }
     filter { "files:**/TexturedMesh.slang", "configurations:not Shipping" }
         buildcommands {
             '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVertexMain "' .. path.join(ShaderOutput, "TexturedMesh.instanced.vert.hshader") .. '" --debug',
-            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment velocityFragmentMain "' .. path.join(ShaderOutput, "TexturedMesh.velocity.frag.hshader") .. '" --debug'
+            '"' .. ShaderWorker .. '" "%{file.abspath}" fragment velocityFragmentMain "' .. path.join(ShaderOutput, "TexturedMesh.velocity.frag.hshader") .. '" --debug',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVelocityVertexMain "' .. path.join(ShaderOutput, "TexturedMesh.instanced.velocity.vert.hshader") .. '" --debug'
         }
     -- Compute shaders live in their own folder and cook a single computeMain entry point.
     filter "files:**/Compute/*.slang"
