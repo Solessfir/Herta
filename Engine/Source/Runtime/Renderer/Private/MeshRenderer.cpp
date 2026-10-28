@@ -508,6 +508,10 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle GtaoViewDepth;
 	FTextureHandle GtaoNoisy;
 	FTextureHandle GtaoOcclusion;
+	// Filmic SMAA: the edge pass lists edge pixels and counts weight groups, then the weight pass runs indirectly over the list.
+	std::array<FComputePipelineHandle, 2> SmaaPipelines;
+	FBufferHandle SmaaEdgePixels;
+	FBufferHandle SmaaArguments;
 	// Adaptation reads last frame's exposure and writes this frame's, alternating between the two.
 	std::array<FTextureHandle, 2> ExposureStates;
 	std::size_t ExposureStateIndex = 0;
@@ -735,6 +739,21 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 		State->ShadowPipeline = std::move(*ShadowPipeline);
 		State->InstancedShadowPipeline = std::move(*InstancedShadowPipeline);
+		if (!VisualShaders.SmaaEdgeListCompute.Bytecode.empty() && !VisualShaders.SmaaEdgeWeightsCompute.Bytecode.empty())
+		{
+			auto EdgeList = Device.CreateComputePipeline({.Name = "SMAA edges", .Shader = std::move(VisualShaders.SmaaEdgeListCompute), .TextureCount = 1, .StorageTextureCount = 1, .StorageBufferCount = 2, .UniformBufferSize = sizeof(FVisualUniforms), .bLinearSampler = true});
+			auto EdgeWeights = Device.CreateComputePipeline({.Name = "SMAA weights", .Shader = std::move(VisualShaders.SmaaEdgeWeightsCompute), .TextureCount = 3, .StorageTextureCount = 1, .StorageBufferCount = 2, .UniformBufferSize = sizeof(FVisualUniforms), .bLinearSampler = true});
+			auto Arguments = Device.CreateBuffer({.Name = "SMAA weight arguments", .Size = 4 * sizeof(std::uint32_t), .Usage = EBufferUsage::Storage});
+			if (!EdgeList || !EdgeWeights || !Arguments)
+			{
+				return std::unexpected(!EdgeList ? EdgeList.error() : !EdgeWeights ? EdgeWeights.error()
+				                                                                   : Arguments.error());
+			}
+
+			State->SmaaPipelines = {std::move(*EdgeList), std::move(*EdgeWeights)};
+			State->SmaaArguments = std::move(*Arguments);
+		}
+
 		// GTAO reads the prepass depth, so it runs only when there is one.
 		if (bDepthPrepass && !VisualShaders.GtaoCompute.Bytecode.empty())
 		{
@@ -1365,9 +1384,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		State.Depth = std::move(*Depth);
 		if (State.VisualPipelines[0])
 		{
-			const auto Target = [&](const char* Name, const FExtent2D Size, const ETextureFormat Format, FTextureHandle& Destination) -> std::expected<void, FPresentationError>
+			const auto Target = [&](const char* Name, const FExtent2D Size, const ETextureFormat Format, FTextureHandle& Destination, const bool bStorage = false) -> std::expected<void, FPresentationError>
 			{
-				auto Texture = Device.CreateTexture({.Name = Name, .Extent = Size, .Format = Format, .bRenderTarget = true});
+				auto Texture = Device.CreateTexture({.Name = Name, .Extent = Size, .Format = Format, .bRenderTarget = true, .bStorage = bStorage});
 				if (!Texture)
 				{
 					return std::unexpected(Texture.error());
@@ -1385,12 +1404,24 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 			if (Created)
 			{
-				Created = Target("SMAA edges", Extent, ETextureFormat::Rgba8, State.Edges);
+				Created = Target("SMAA edges", Extent, ETextureFormat::Rgba8, State.Edges, static_cast<bool>(State.SmaaPipelines[0]));
 			}
 
 			if (Created)
 			{
-				Created = Target("SMAA weights", Extent, ETextureFormat::Rgba8, State.Weights);
+				Created = Target("SMAA weights", Extent, ETextureFormat::Rgba8, State.Weights, static_cast<bool>(State.SmaaPipelines[0]));
+			}
+
+			// Every pixel can be an edge pixel.
+			if (Created && State.SmaaPipelines[0])
+			{
+				auto EdgePixels = Device.CreateBuffer({.Name = "SMAA edge pixels", .Size = std::size_t{Extent.Width} * Extent.Height * sizeof(std::uint32_t), .Usage = EBufferUsage::Storage});
+				if (!EdgePixels)
+				{
+					return std::unexpected(EdgePixels.error());
+				}
+
+				State.SmaaEdgePixels = std::move(*EdgePixels);
 			}
 
 			if (Created)
@@ -1842,21 +1873,56 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				const std::size_t Preset = static_cast<std::size_t>(View.Visuals.AntiAliasing) - 1;
 				State.Uniforms.Material.BaseColor[0] = Thresholds[Preset];
 				State.Uniforms.Material.TextureFlags = {0, SearchSteps[Preset], DiagonalSteps[Preset], Preset < 2 ? 0.f : 25.f};
-				if (const auto Result = Device.ClearTargets(State.Edges, {}, {}); !Result)
-				{
-					return GraphResult(Result);
-				}
-
 				const std::array EdgeSources{State.ToneColor};
-				if (const auto Result = Fullscreen(3, State.Edges, EdgeSources); !Result)
-				{
-					return GraphResult(Result);
-				}
-
 				const std::array WeightSources{State.Edges, State.SmaaArea, State.SmaaSearch};
-				if (const auto Result = Fullscreen(4, State.Weights, WeightSources); !Result)
+				if (State.SmaaPipelines[0])
 				{
-					return GraphResult(Result);
+					const auto Uniforms = std::as_bytes(std::span{&State.Uniforms, 1});
+					const std::array Buffers{State.SmaaEdgePixels, State.SmaaArguments};
+					const std::array Edges{FStorageTextureBinding{.Texture = State.Edges}};
+					const std::array Weights{FStorageTextureBinding{.Texture = State.Weights}};
+					constexpr std::array<std::uint32_t, 4> ResetArguments{0, 1, 1, 0};
+					std::expected<void, FPresentationError> Result;
+					{
+						const auto Timer = TimedPass("SMAA edges");
+						Result = Device.WriteBuffer(State.SmaaArguments, std::as_bytes(std::span{ResetArguments}));
+						if (Result)
+						{
+							Result = Device.Dispatch({.Pipeline = State.SmaaPipelines[0], .Textures = EdgeSources, .StorageTextures = Edges, .StorageBuffers = Buffers, .Uniforms = Uniforms, .GroupCount = {(Extent.Width + 7) / 8, (Extent.Height + 7) / 8, 1}});
+						}
+					}
+
+					if (Result)
+					{
+						const auto Timer = TimedPass("SMAA weights");
+						Result = Device.ClearTargets(State.Weights, {}, {});
+						if (Result)
+						{
+							Result = Device.Dispatch({.Pipeline = State.SmaaPipelines[1], .Textures = WeightSources, .StorageTextures = Weights, .StorageBuffers = Buffers, .Uniforms = Uniforms, .IndirectArguments = State.SmaaArguments});
+						}
+					}
+
+					if (!Result)
+					{
+						return GraphResult(Result);
+					}
+				}
+				else
+				{
+					if (const auto Result = Device.ClearTargets(State.Edges, {}, {}); !Result)
+					{
+						return GraphResult(Result);
+					}
+
+					if (const auto Result = Fullscreen(3, State.Edges, EdgeSources); !Result)
+					{
+						return GraphResult(Result);
+					}
+
+					if (const auto Result = Fullscreen(4, State.Weights, WeightSources); !Result)
+					{
+						return GraphResult(Result);
+					}
 				}
 
 				const std::array NeighborSources{State.ToneColor, State.Weights};

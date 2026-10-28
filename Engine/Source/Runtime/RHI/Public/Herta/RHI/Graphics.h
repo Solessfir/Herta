@@ -19,14 +19,17 @@ namespace Herta
 inline constexpr std::size_t MaximumUploadBytesPerRecording = std::size_t{64} * 1024 * 1024;
 inline constexpr std::uint32_t MaximumGraphicsTextures = 16;
 inline constexpr std::uint32_t MaximumGraphicsUniformBytes = 16 * 1024;
-// Compute storage images use Vulkan bindings from 384, NVRHI's default unordered-access offset.
-inline constexpr std::uint32_t StorageTextureBinding = 384;
-inline constexpr std::uint32_t MaximumStorageTextures = 8;
+// Compute storage images, then storage buffers, use Vulkan bindings from 384, NVRHI's default unordered-access offset.
+inline constexpr std::uint32_t StorageBinding = 384;
+inline constexpr std::uint32_t MaximumStorageBindings = 8;
+inline constexpr std::size_t MaximumStorageBufferBytes = std::size_t{256} * 1024 * 1024;
 
 enum class EBufferUsage : std::uint8_t
 {
 	Vertex,
-	Index
+	Index,
+	// uint elements that compute shaders read and write, which can also hold indirect dispatch arguments.
+	Storage
 };
 
 enum class ETextureFormat : std::uint8_t
@@ -166,14 +169,17 @@ struct FGraphicsPipelineDescriptor
 	bool bClampSampler = false;
 };
 
-// Compute shaders sample t0..t15 through a point-clamp s0, write u0..u7 at StorageTextureBinding, and read b0.
+// Compute shaders sample t0..t15 through a clamped s0, write storage textures and then storage buffers from StorageBinding, and read b0.
 struct FComputePipelineDescriptor
 {
 	std::string Name;
 	FShaderAsset Shader{};
 	std::uint32_t TextureCount = 0;
 	std::uint32_t StorageTextureCount = 0;
+	// Bound after the storage textures, from StorageBinding + StorageTextureCount.
+	std::uint32_t StorageBufferCount = 0;
 	std::uint32_t UniformBufferSize = 0;
+	bool bLinearSampler = false;
 };
 
 struct FStorageTextureBinding
@@ -188,8 +194,11 @@ struct FComputeDispatch
 	// Recording copies these inputs. A dispatch may not sample a texture it also writes.
 	std::span<const FTextureHandle> Textures{};
 	std::span<const FStorageTextureBinding> StorageTextures{};
+	std::span<const FBufferHandle> StorageBuffers{};
 	std::span<const std::byte> Uniforms{};
 	std::array<std::uint32_t, 3> GroupCount{1, 1, 1};
+	// A storage buffer whose first three uints, written earlier on the GPU, replace GroupCount.
+	FBufferHandle IndirectArguments{};
 };
 
 struct FMeshVertex

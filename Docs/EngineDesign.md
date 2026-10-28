@@ -547,7 +547,7 @@ Radiance Cascades is the planned dynamic-GI backend, built in Milestone 6.5 afte
 
 Hardware ray tracing is capability-driven and optional. Add Vulkan KHR acceleration structures and ray queries in Milestone 6.5, after Milestone 6 stabilizes the raster path, scene extraction, motion vectors, compute, RenderGraph lifetime rules, and GPU profiling. Ray-tracing pipelines wait until an effect needs them. Raster rendering remains a complete supported path.
 
-SMAA 1x is the first native-resolution AA mode and the default for Milestone 4.5. Start from the reference spatial algorithm with edge detection, blending-weight calculation, neighborhood blending, and its lookup textures. A compute rewrite is an optimization, not an initial requirement; it is scheduled for Milestone 6, once the RHI supports compute. In October 2026 the pixel-shader passes measured 0.15 ms (edges 0.05, weights 0.06, neighborhood 0.04) of a 5.5 ms Sandbox frame on an RTX 4090 Laptop GPU. Keep `Off` available. SMAA T2x/4x and CMAA2 remain comparison candidates, not requirements for visual authoring.
+SMAA 1x is the first native-resolution AA mode and the default for Milestone 4.5. Start from the reference spatial algorithm with edge detection, blending-weight calculation, neighborhood blending, and its lookup textures. A compute rewrite is an optimization, not an initial requirement; Milestone 6 ported edges and weights to Filmic SMAA compute passes. In October 2026 the pixel-shader passes measured 0.15 ms (edges 0.05, weights 0.06, neighborhood 0.04) of a 5.5 ms Sandbox frame on an RTX 4090 Laptop GPU. Keep `Off` available. SMAA T2x/4x and CMAA2 remain comparison candidates, not requirements for visual authoring.
 
 Native TAA enters later as an additional vendor-neutral temporal mode, not a prerequisite for lighting or permission to ship a soft image. Its quality contract requires:
 
@@ -1624,7 +1624,7 @@ Implemented on Windows: `HertaGame`, the GameFramework and GameUI runtime module
 
 ### Milestone 6 - Raster renderer scaling
 
-Progress: compute pipelines and storage images are in the RHI, and visibility-bitmask GTAO with bent normals and specular occlusion runs at half resolution with a combined denoise and upsample; see [Rendering.md](Rendering.md). Storage buffers, atomics, indirect dispatch, light culling, motion vectors, the SMAA compute port, and quality tiers remain.
+Progress: compute pipelines, storage images and buffers, atomics, and indirect dispatch are in the RHI. Visibility-bitmask GTAO with bent normals and specular occlusion runs at half resolution with a combined denoise and upsample, and SMAA edges and weights run as Filmic SMAA compute passes; see [Rendering.md](Rendering.md). Light culling, motion vectors, the depth hierarchy for culling, and quality tiers remain.
 
 - Add shared-mesh/material instancing and culling, retaining the early cube stress levels as draw-call, memory, and frame-time regressions.
 - Scale the PBR materials, authored lights, environment lighting, shadows, atmosphere, and fog introduced in Milestone 4.5 using measured light culling and resource budgets. Add motion vectors and a depth hierarchy; do not defer basic material or light editing to this milestone.

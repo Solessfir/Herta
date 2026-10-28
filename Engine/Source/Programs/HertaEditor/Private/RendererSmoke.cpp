@@ -999,6 +999,40 @@ namespace
 		return Failure("SMAA edges, weights and neighborhood passes did not modify any edge pixels");
 	}
 
+	// The compute SMAA path must match the full-screen reference passes.
+	if (!Shaders.SmaaEdgeListCompute.Bytecode.empty())
+	{
+		FVisualShaderSet ReferenceShaders = Shaders;
+		ReferenceShaders.SmaaEdgeListCompute = {};
+		const auto Reference = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, ReferenceShaders);
+		if (!Reference)
+		{
+			return std::unexpected(Reference.error());
+		}
+
+		if (const auto Rendered = (*Reference)->Render(Extent, View); !Rendered)
+		{
+			return Rendered;
+		}
+
+		const auto ReferenceImage = Device.ReadbackTexture((*Reference)->GetColorTarget());
+		if (!ReferenceImage)
+		{
+			return std::unexpected(ReferenceImage.error());
+		}
+
+		int MaximumDifference = 0;
+		for (std::size_t Index = 0; Index < ReferenceImage->size(); ++Index)
+		{
+			MaximumDifference = std::max(MaximumDifference, std::abs(std::to_integer<int>((*ReferenceImage)[Index]) - std::to_integer<int>((*Antialiased)[Index])));
+		}
+
+		if (MaximumDifference > 1)
+		{
+			return Failure("Compute SMAA differs from the full-screen reference passes");
+		}
+	}
+
 	bool bPbrTiming = false;
 	for (const FGpuPassTiming& Timing : Device.GetGpuTimings())
 	{

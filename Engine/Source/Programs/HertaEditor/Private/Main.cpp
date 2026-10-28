@@ -383,6 +383,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"GtaoDepth.comp.hshader", &VisualShaders.GtaoDepthCompute},
 	    std::pair{"Gtao.comp.hshader", &VisualShaders.GtaoCompute},
 	    std::pair{"GtaoDenoise.comp.hshader", &VisualShaders.GtaoDenoiseCompute},
+	    std::pair{"SmaaEdgeList.comp.hshader", &VisualShaders.SmaaEdgeListCompute},
+	    std::pair{"SmaaEdgeWeights.comp.hshader", &VisualShaders.SmaaEdgeWeightsCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)

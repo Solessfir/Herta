@@ -70,6 +70,8 @@ public:
 	std::vector<Herta::FIndexedDraw> Draws;
 	// Pipeline names in dispatch order.
 	std::vector<std::string> Dispatches;
+	std::vector<bool> IndirectDispatches;
+	std::vector<std::string> StorageWrites;
 	std::vector<std::vector<Herta::FTextureHandle>> DrawTextures;
 	std::vector<std::vector<std::byte>> DrawUniforms;
 	Herta::FIndexedDraw LastDraw;
@@ -124,6 +126,7 @@ public:
 	{
 		Events.emplace_back("Dispatch");
 		Dispatches.push_back(static_cast<const FTestComputePipeline&>(*Dispatch.Pipeline).Descriptor.Name);
+		IndirectDispatches.push_back(static_cast<bool>(Dispatch.IndirectArguments));
 		return {};
 	}
 
@@ -143,7 +146,11 @@ public:
 	std::expected<void, Herta::FPresentationError> WriteBuffer(const Herta::FBufferHandle& Buffer, const std::span<const std::byte> Data) override
 	{
 		RecordUpload(Data.size());
-		if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex && Buffer->GetDescriptor().VertexFormat == Herta::EGraphicsVertexFormat::ColoredClipPosition)
+		if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Storage)
+		{
+			StorageWrites.emplace_back(Buffer->GetDescriptor().Name);
+		}
+		else if (Buffer->GetDescriptor().Usage == Herta::EBufferUsage::Vertex && Buffer->GetDescriptor().VertexFormat == Herta::EGraphicsVertexFormat::ColoredClipPosition)
 		{
 			auto& Upload = DebugUploads.emplace_back(Data.size() / sizeof(Herta::FColoredClipVertex));
 			std::memcpy(Upload.data(), Data.data(), Data.size());

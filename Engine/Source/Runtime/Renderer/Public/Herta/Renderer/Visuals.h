@@ -102,6 +102,9 @@ struct FVisualShaderSet
 	FShaderAsset GtaoDepthCompute;
 	FShaderAsset GtaoCompute;
 	FShaderAsset GtaoDenoiseCompute;
+	// Without both, SMAA uses the full-screen edge and weight passes.
+	FShaderAsset SmaaEdgeListCompute;
+	FShaderAsset SmaaEdgeWeightsCompute;
 };
 
 struct FShadowView

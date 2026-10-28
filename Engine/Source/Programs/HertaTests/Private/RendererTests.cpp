@@ -699,6 +699,35 @@ TEST_CASE("Screen occlusion runs its compute passes between the depth prepass an
 	}
 }
 
+TEST_CASE("Compute SMAA lists edge pixels and runs the weight pass indirectly")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.SmaaEdgeListCompute, &Visuals.SmaaEdgeWeightsCompute})
+	{
+		Shader->Bytecode = {1};
+	}
+
+	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	REQUIRE(Renderer);
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+	CHECK(Device.Dispatches == std::vector<std::string>{"SMAA edges", "SMAA weights"});
+	CHECK(Device.IndirectDispatches == std::vector<bool>{false, true});
+	CHECK(Device.StorageWrites == std::vector<std::string>{"SMAA weight arguments"});
+	CHECK(std::ranges::none_of(Device.Draws, [](const FIndexedDraw& Draw)
+	{
+		const std::string& Name = std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor.Name;
+		return Name == "SMAA edges" || Name == "SMAA weights";
+	}));
+
+	Device.Dispatches.clear();
+	Scene.View.Visuals.AntiAliasing = EAntiAliasing::Off;
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+	CHECK(Device.Dispatches.empty());
+}
+
 TEST_CASE("Material shader sharing reuses compatible pipelines and counts only successful publications")
 {
 	using namespace Herta;

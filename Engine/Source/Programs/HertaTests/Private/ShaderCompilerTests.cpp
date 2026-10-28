@@ -107,7 +107,7 @@ TEST_CASE("Slang worker rejects unsupported resource kinds instead of treating t
 		Fixture.Write("Unsupported.slang", "[[vk::binding(0,0)]] " + std::string(Type) + " Resource;\n[shader(\"fragment\")] float4 fragmentMain() : SV_Target { return float4(1,0,0,1); }\n");
 		const auto Shader = CompileShader({.Source = Fixture.Directory / "Unsupported.slang", .EntryPoint = "fragmentMain", .Stage = EShaderStage::Fragment, .bDebugInformation = false});
 		REQUIRE_FALSE(Shader);
-		CHECK(Shader.error().Message.find("Only Texture2D, and RWTexture2D in compute shaders") != std::string::npos);
+		CHECK(Shader.error().Message.find("Only Texture2D, and RWTexture2D or RWStructuredBuffer<uint> in compute shaders") != std::string::npos);
 	}
 }
 
@@ -127,6 +127,13 @@ TEST_CASE("Slang worker reflects compute storage images at the storage bindings"
 	REQUIRE(Loaded);
 	CHECK(Loaded->Stage == EShaderStage::Compute);
 	CHECK_FALSE(CompileShader({.Source = Fixture.Directory / "Compute.slang", .EntryPoint = "computeMain", .Stage = EShaderStage::Fragment}));
+
+	Fixture.Write("Counter.slang", "[[vk::binding(384,0)]] RWStructuredBuffer<uint> Counter;\n[shader(\"compute\")] [numthreads(64,1,1)] void computeMain(uint3 Id : SV_DispatchThreadID) { InterlockedAdd(Counter[0], 1); }\n");
+	const auto Counter = CompileShader({.Source = Fixture.Directory / "Counter.slang", .EntryPoint = "computeMain", .Stage = EShaderStage::Compute});
+	REQUIRE_MESSAGE(Counter.has_value(), (Counter ? "" : Counter.error().Message));
+	REQUIRE(Counter->Bindings.size() == 1);
+	CHECK(Counter->Bindings[0].Type == EShaderBindingType::StorageBuffer);
+	CHECK(Counter->Bindings[0].Binding == 384);
 
 	// Storage images outside 384..391, and storage metadata on a fragment shader, are rejected.
 	Fixture.Write("Misplaced.slang", "[[vk::binding(400,0)]] [format(\"r32f\")] RWTexture2D<float> Target;\n[shader(\"compute\")] [numthreads(8,8,1)] void computeMain(uint3 Id : SV_DispatchThreadID) { Target[Id.xy] = 1; }\n");

@@ -92,7 +92,7 @@ bool IsValidAsset(const FShaderAsset& Shader)
 
 	for (const FShaderBinding& Binding : Shader.Bindings)
 	{
-		if (!IsValidString(Binding.Name) || Binding.Name.empty() || Binding.Type > EShaderBindingType::StorageTexture || (Binding.Type == EShaderBindingType::StorageTexture && Shader.Stage != EShaderStage::Compute) || (Binding.Type == EShaderBindingType::ConstantBuffer ? Binding.ByteSize == 0 || Binding.ByteSize > 16 * 1024 : Binding.ByteSize != 0))
+		if (!IsValidString(Binding.Name) || Binding.Name.empty() || Binding.Type > EShaderBindingType::StorageBuffer || ((Binding.Type == EShaderBindingType::StorageTexture || Binding.Type == EShaderBindingType::StorageBuffer) && Shader.Stage != EShaderStage::Compute) || (Binding.Type == EShaderBindingType::ConstantBuffer ? Binding.ByteSize == 0 || Binding.ByteSize > 16 * 1024 : Binding.ByteSize != 0))
 		{
 			return false;
 		}

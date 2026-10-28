@@ -117,6 +117,7 @@ struct FComputePipeline final : IRhiComputePipeline
 	nvrhi::SamplerHandle Sampler;
 	std::uint32_t TextureCount = 0;
 	std::uint32_t StorageTextureCount = 0;
+	std::uint32_t StorageBufferCount = 0;
 	std::uint32_t UniformBufferSize = 0;
 };
 
@@ -213,6 +214,25 @@ public:
 
 	[[nodiscard]] std::expected<FBufferHandle, FPresentationError> CreateBuffer(const FBufferDescriptor& Descriptor) override
 	{
+		if (Descriptor.Usage == EBufferUsage::Storage)
+		{
+			if (Descriptor.Size == 0 || Descriptor.Size > MaximumStorageBufferBytes || Descriptor.Size % sizeof(std::uint32_t) != 0)
+			{
+				return Invalid("Storage buffer size must hold whole uints and fit 256 MiB");
+			}
+
+			auto Buffer = std::make_shared<FBuffer>();
+			Buffer->Descriptor = Descriptor;
+			Buffer->Owner = Owner;
+			Buffer->Handle = Device->createBuffer(nvrhi::BufferDesc().setByteSize(Descriptor.Size).setDebugName(Descriptor.Name).setStructStride(sizeof(std::uint32_t)).setCanHaveUAVs(true).setIsDrawIndirectArgs(true).enableAutomaticStateTracking(nvrhi::ResourceStates::UnorderedAccess));
+			if (!Buffer->Handle)
+			{
+				return Failed("Could not create storage buffer '" + Descriptor.Name + "'");
+			}
+
+			return Buffer;
+		}
+
 		const bool bVertex = Descriptor.Usage == EBufferUsage::Vertex;
 		const std::size_t VertexStride = Descriptor.VertexFormat == EGraphicsVertexFormat::Mesh ? sizeof(FMeshVertex) : Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance ? sizeof(FMeshInstance)
 		                                                                                                                                                                               : sizeof(FColoredClipVertex);
@@ -429,13 +449,15 @@ public:
 				case EShaderBindingType::ConstantBuffer:
 					return Binding.Binding == 64 && Binding.ByteSize <= Descriptor.UniformBufferSize;
 				case EShaderBindingType::StorageTexture:
-					return Binding.Binding >= StorageTextureBinding && Binding.Binding < StorageTextureBinding + Descriptor.StorageTextureCount;
+					return Binding.Binding >= StorageBinding && Binding.Binding < StorageBinding + Descriptor.StorageTextureCount;
+				case EShaderBindingType::StorageBuffer:
+					return Binding.Binding >= StorageBinding + Descriptor.StorageTextureCount && Binding.Binding < StorageBinding + Descriptor.StorageTextureCount + Descriptor.StorageBufferCount;
 			}
 
 			return false;
 		});
 
-		if (Shader.Stage != EShaderStage::Compute || !SerializeCookedShader(Shader) || Shader.PushConstantSize != 0 || !bValidBindings || Descriptor.TextureCount > MaximumGraphicsTextures || Descriptor.StorageTextureCount > MaximumStorageTextures || Descriptor.UniformBufferSize > MaximumGraphicsUniformBytes || Descriptor.UniformBufferSize % 16 != 0)
+		if (Shader.Stage != EShaderStage::Compute || !SerializeCookedShader(Shader) || Shader.PushConstantSize != 0 || !bValidBindings || Descriptor.TextureCount > MaximumGraphicsTextures || Descriptor.StorageTextureCount + Descriptor.StorageBufferCount > MaximumStorageBindings || Descriptor.UniformBufferSize > MaximumGraphicsUniformBytes || Descriptor.UniformBufferSize % 16 != 0)
 		{
 			return Invalid("Compute pipeline '" + Descriptor.Name + "' requires a compute shader whose bindings fit its texture, storage, and aligned uniform counts");
 		}
@@ -445,10 +467,11 @@ public:
 		Pipeline->Owner = Owner;
 		Pipeline->TextureCount = Descriptor.TextureCount;
 		Pipeline->StorageTextureCount = Descriptor.StorageTextureCount;
+		Pipeline->StorageBufferCount = Descriptor.StorageBufferCount;
 		Pipeline->UniformBufferSize = Descriptor.UniformBufferSize;
 		const auto Module = Device->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Compute).setEntryName(Shader.EntryPoint).setDebugName(Descriptor.Name), Shader.Bytecode.data(), Shader.Bytecode.size() * sizeof(std::uint32_t));
 		nvrhi::BindingLayoutDesc Layout;
-		Layout.setVisibility(nvrhi::ShaderType::Compute).setBindingOffsets(nvrhi::VulkanBindingOffsets().setConstantBufferOffset(64).setUnorderedAccessViewOffset(StorageTextureBinding));
+		Layout.setVisibility(nvrhi::ShaderType::Compute).setBindingOffsets(nvrhi::VulkanBindingOffsets().setConstantBufferOffset(64).setUnorderedAccessViewOffset(StorageBinding));
 		for (std::uint32_t Slot = 0; Slot < Descriptor.TextureCount; ++Slot)
 		{
 			Layout.addItem(nvrhi::BindingLayoutItem::Texture_SRV(Slot));
@@ -457,7 +480,7 @@ public:
 		if (Descriptor.TextureCount != 0)
 		{
 			Layout.addItem(nvrhi::BindingLayoutItem::Sampler(0));
-			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(false).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
+			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(Descriptor.bLinearSampler).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
 		}
 
 		if (Descriptor.UniformBufferSize != 0)
@@ -468,6 +491,11 @@ public:
 		for (std::uint32_t Slot = 0; Slot < Descriptor.StorageTextureCount; ++Slot)
 		{
 			Layout.addItem(nvrhi::BindingLayoutItem::Texture_UAV(Slot));
+		}
+
+		for (std::uint32_t Slot = 0; Slot < Descriptor.StorageBufferCount; ++Slot)
+		{
+			Layout.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(Descriptor.StorageTextureCount + Slot));
 		}
 
 		if (!Layout.bindings.empty())
@@ -522,8 +550,9 @@ public:
 	{
 		const auto Native = std::dynamic_pointer_cast<FBuffer>(Buffer);
 		// Instance buffers keep spare capacity, and their draws name the instance range they read.
-		const bool bInstances = Owns(Native) && Native->Descriptor.Usage == EBufferUsage::Vertex && Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance;
-		if (!Owns(Native) || (bInstances ? Data.size() > Native->Descriptor.Size : Data.size() != Native->Descriptor.Size))
+		// Storage buffers may reset just a header, such as a counter, ahead of the elements the GPU fills.
+		const bool bPartial = Owns(Native) && ((Native->Descriptor.Usage == EBufferUsage::Vertex && Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance) || Native->Descriptor.Usage == EBufferUsage::Storage);
+		if (!Owns(Native) || (bPartial ? Data.empty() || Data.size() > Native->Descriptor.Size || Data.size() % sizeof(std::uint32_t) != 0 : Data.size() != Native->Descriptor.Size))
 		{
 			return Invalid("Buffer upload must fully initialize a buffer belonging to this device");
 		}
@@ -824,7 +853,8 @@ public:
 		}
 
 		const auto Pipeline = std::dynamic_pointer_cast<FComputePipeline>(Dispatch.Pipeline);
-		if (!Owns(Pipeline) || Dispatch.Textures.size() != Pipeline->TextureCount || Dispatch.StorageTextures.size() != Pipeline->StorageTextureCount || Dispatch.Uniforms.size() != Pipeline->UniformBufferSize || std::ranges::any_of(Dispatch.GroupCount, [](const std::uint32_t Count)
+		const auto Indirect = std::dynamic_pointer_cast<FBuffer>(Dispatch.IndirectArguments);
+		if (!Owns(Pipeline) || Dispatch.Textures.size() != Pipeline->TextureCount || Dispatch.StorageTextures.size() != Pipeline->StorageTextureCount || Dispatch.StorageBuffers.size() != Pipeline->StorageBufferCount || (Dispatch.IndirectArguments && (!Owns(Indirect) || Indirect->Descriptor.Usage != EBufferUsage::Storage || Indirect->Descriptor.Size < 3 * sizeof(std::uint32_t))) || Dispatch.Uniforms.size() != Pipeline->UniformBufferSize || std::ranges::any_of(Dispatch.GroupCount, [](const std::uint32_t Count)
 		{
 			return Count == 0 || Count > 65535;
 		}))
@@ -842,6 +872,20 @@ public:
 		for (const FStorageTextureBinding& Binding : Dispatch.StorageTextures)
 		{
 			Storage.push_back(std::dynamic_pointer_cast<FTexture>(Binding.Texture));
+		}
+
+		std::vector<std::shared_ptr<FBuffer>> Buffers;
+		for (const FBufferHandle& Buffer : Dispatch.StorageBuffers)
+		{
+			Buffers.push_back(std::dynamic_pointer_cast<FBuffer>(Buffer));
+		}
+
+		if (!std::ranges::all_of(Buffers, [this](const auto& Buffer)
+		{
+			return Owns(Buffer) && Buffer->Descriptor.Usage == EBufferUsage::Storage;
+		}))
+		{
+			return Invalid(std::format("Dispatch '{}' needs storage buffers owned by this device", Pipeline->Name));
 		}
 
 		const bool bValidTextures = std::ranges::all_of(Textures, [&](const auto& Texture)
@@ -892,6 +936,11 @@ public:
 				BindingDescriptor.addItem(nvrhi::BindingSetItem::Texture_UAV(Slot, Storage[Slot]->Handle, nvrhi::Format::UNKNOWN, nvrhi::TextureSubresourceSet(Dispatch.StorageTextures[Slot].MipLevel, 1, 0, 1)));
 			}
 
+			for (std::uint32_t Slot = 0; Slot < Buffers.size(); ++Slot)
+			{
+				BindingDescriptor.addItem(nvrhi::BindingSetItem::StructuredBuffer_UAV(static_cast<std::uint32_t>(Storage.size()) + Slot, Buffers[Slot]->Handle));
+			}
+
 			Bindings = CachedBindingSet(Frame, BindingDescriptor, Pipeline->Layout);
 			if (!Bindings)
 			{
@@ -899,7 +948,7 @@ public:
 			}
 		}
 
-		Frame.Operations.emplace_back([Pipeline, Bindings, Textures = std::move(Textures), Storage, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Pipeline, Bindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(Pipeline->Name.c_str());
 			if (UniformBuffer)
@@ -914,8 +963,21 @@ public:
 				State.addBindingSet(Bindings);
 			}
 
+			if (Indirect)
+			{
+				State.setIndirectParams(Indirect->Handle);
+			}
+
 			Commands->setComputeState(State);
-			Commands->dispatch(GroupCount[0], GroupCount[1], GroupCount[2]);
+			if (Indirect)
+			{
+				Commands->dispatchIndirect(0);
+			}
+			else
+			{
+				Commands->dispatch(GroupCount[0], GroupCount[1], GroupCount[2]);
+			}
+
 			Commands->endMarker();
 		});
 
