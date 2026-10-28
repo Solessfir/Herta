@@ -1,0 +1,72 @@
+{
+  "format": "HertaMaterial",
+  "version": 2,
+  "name": "CopperEdge",
+  "parameters": {
+    "baseColor": [
+      0.95,
+      0.64,
+      0.54,
+      1
+    ],
+    "metallic": 1,
+    "roughness": 0.3,
+    "diffuseRoughness": 0,
+    "specularColor": [
+      1,
+      0.75,
+      0.6
+    ],
+    "normalStrength": 1,
+    "occlusionStrength": 1,
+    "emissive": [
+      0,
+      0,
+      0
+    ],
+    "emissiveIntensity": 1,
+    "uvScale": [
+      1,
+      1
+    ],
+    "uvOffset": [
+      0,
+      0
+    ],
+    "blendMode": "opaque",
+    "alphaCutoff": 0.5
+  },
+  "textures": {
+    "baseColor": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    },
+    "metallic": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "roughness": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "normal": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "linear"
+    },
+    "occlusion": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "emissive": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    }
+  },
+  "shader": ""
+}
