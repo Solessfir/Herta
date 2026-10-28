@@ -25,9 +25,25 @@ namespace Herta
 namespace
 {
 constexpr std::array<std::uint32_t, 6> GridIndices{0, 1, 2, 0, 2, 3};
+
+// Rounds a finite value in half's normal range or below to the nearest half, flushing values too small for a normal half to zero.
+[[nodiscard]] std::uint16_t ToHalf(const float Value)
+{
+	const auto Bits = std::bit_cast<std::uint32_t>(Value);
+	const std::uint32_t Sign = (Bits >> 16u) & 0x8000u;
+	const int Exponent = static_cast<int>((Bits >> 23u) & 0xFFu) - 127 + 15;
+	if (Exponent <= 0)
+	{
+		return static_cast<std::uint16_t>(Sign);
+	}
+
+	const std::uint32_t Rounded = ((static_cast<std::uint32_t>(Exponent) << 10u) | ((Bits >> 13u) & 0x3FFu)) + ((Bits >> 12u) & 1u);
+	return static_cast<std::uint16_t>(Sign | std::min(Rounded, 0x7BFFu));
+}
+
 constexpr float GridHalfExtent = 216.f;
 // Material maps, environment, shadow atlas, and the two Rect light LTC tables, matching TexturedMesh.slang.
-constexpr std::uint32_t MeshTextureCount = 12;
+constexpr std::uint32_t MeshTextureCount = 13;
 // Lights, then their cluster masks, as in VisualLights.slangh.
 constexpr std::uint32_t MeshBufferCount = 2;
 
@@ -598,6 +614,7 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle SmaaArea;
 	FTextureHandle LtcMatrix;
 	FTextureHandle LtcAmplitude;
+	FTextureHandle SpecularAlbedo;
 	FTextureHandle SmaaSearch;
 	FBufferHandle FullscreenVertices;
 	FBufferHandle FullscreenIndices;
@@ -776,6 +793,14 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	auto ShadowAtlas = Device.CreateTexture({.Name = "Shadow atlas", .Extent = GetShadowAtlasExtent(1.f), .Format = ETextureFormat::Depth32, .bRenderTarget = true});
 	auto LtcMatrix = Device.CreateTexture({.Name = "Rect light LTC matrix", .Extent = {64, 64}, .Format = ETextureFormat::Rgba32Float});
 	auto LtcAmplitude = Device.CreateTexture({.Name = "Rect light LTC amplitude", .Extent = {64, 64}, .Format = ETextureFormat::Rgba32Float});
+	// Half floats filter at full rate, and the lighting pass samples this for every pixel.
+	auto SpecularAlbedo = Device.CreateTexture({.Name = "Specular albedo", .Extent = {SpecularAlbedoTableSize, SpecularAlbedoTableSize}, .Format = ETextureFormat::Rgba16Float});
+	if (!SpecularAlbedo)
+	{
+		return std::unexpected(SpecularAlbedo.error());
+	}
+
+	State->SpecularAlbedo = std::move(*SpecularAlbedo);
 	if (!White || !ShadowAtlas || !LtcMatrix || !LtcAmplitude)
 	{
 		return std::unexpected(!White ? White.error() : !ShadowAtlas ? ShadowAtlas.error()
@@ -996,6 +1021,20 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	if (Result)
 	{
 		Result = Device.WriteTexture(State->LtcAmplitude, 0, std::as_bytes(std::span{Ltc::Amplitude}));
+	}
+
+	if (Result)
+	{
+		std::vector<std::uint16_t> Halves;
+		for (const auto& Texel : GetSpecularAlbedoTable())
+		{
+			for (const float Value : Texel)
+			{
+				Halves.push_back(ToHalf(Value));
+			}
+		}
+
+		Result = Device.WriteTexture(State->SpecularAlbedo, 0, std::as_bytes(std::span{Halves}));
 	}
 
 	if (Result)
@@ -1759,7 +1798,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		const FRenderMaterial* Override = Section.Material < Overrides.size() ? Overrides[Section.Material] : nullptr;
 		const FCookedMaterial& Imported = Mesh.Materials[Section.Material];
 		const FMaterialParameters& Material = Override ? Override->Parameters : Imported.Parameters;
-		State.Uniforms.Material = {.BaseColor = Material.BaseColor, .Surface = {Material.Metallic, Material.Roughness, Material.NormalStrength, Material.OcclusionStrength}, .Emissive = {Material.Emissive[0], Material.Emissive[1], Material.Emissive[2], Material.EmissiveIntensity}, .UV = {Material.UVScale[0], Material.UVScale[1], Material.UVOffset[0], Material.UVOffset[1]}, .Channels1 = {0, 0, static_cast<float>(Material.BlendMode), Material.AlphaCutoff}};
+		State.Uniforms.Material = {.BaseColor = Material.BaseColor, .Surface = {Material.Metallic, Material.Roughness, Material.NormalStrength, Material.OcclusionStrength}, .Emissive = {Material.Emissive[0], Material.Emissive[1], Material.Emissive[2], Material.EmissiveIntensity}, .UV = {Material.UVScale[0], Material.UVScale[1], Material.UVOffset[0], Material.UVOffset[1]}, .Channels1 = {0, 0, static_cast<float>(Material.BlendMode), Material.AlphaCutoff}, .Specular = {Material.SpecularColor[0], Material.SpecularColor[1], Material.SpecularColor[2], Material.DiffuseRoughness}};
 		for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
 		{
 			const EMaterialChannel Channel = Override ? Override->Channels[Slot] : Imported.Channels[Slot];
@@ -1788,6 +1827,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		Textures[10] = State.LtcAmplitude;
 		// Only the PBR pass reads screen occlusion; earlier passes run before it is written.
 		Textures[11] = State.White;
+		Textures[12] = State.SpecularAlbedo;
 		return Textures;
 	};
 

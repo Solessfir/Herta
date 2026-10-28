@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <format>
 #include <limits>
 #include <span>
 
@@ -145,7 +146,11 @@ std::expected<void, FAssetError> ValidateMaterialParameters(const FMaterialParam
 	{
 		return InRange(Value, 0.f, 1.f);
 	}) || !InRange(Parameters.Metallic, 0.f, 1.f)
-	    || !InRange(Parameters.Roughness, 0.f, 1.f) || !InRange(Parameters.NormalStrength, 0.f, 8.f) || !InRange(Parameters.OcclusionStrength, 0.f, 1.f) || !std::ranges::all_of(Parameters.Emissive, [](const float Value)
+	    || !InRange(Parameters.Roughness, 0.f, 1.f) || !InRange(Parameters.DiffuseRoughness, 0.f, 1.f) || !std::ranges::all_of(Parameters.SpecularColor, [](const float Value)
+	{
+		return InRange(Value, 0.f, 1.f);
+	}) || !InRange(Parameters.NormalStrength, 0.f, 8.f)
+	    || !InRange(Parameters.OcclusionStrength, 0.f, 1.f) || !std::ranges::all_of(Parameters.Emissive, [](const float Value)
 	{
 		return InRange(Value, 0.f, 1'000'000.f);
 	}) || !InRange(Parameters.EmissiveIntensity, 0.f, 1'000'000.f)
@@ -211,7 +216,7 @@ std::expected<std::string, FAssetError> SerializeMaterial(const FMaterialAsset& 
 		return std::unexpected(std::move(Valid.error()));
 	}
 
-	std::string Text = "{\n  \"format\": \"HertaMaterial\",\n  \"version\": 1,\n  \"name\": ";
+	std::string Text = std::format("{{\n  \"format\": \"HertaMaterial\",\n  \"version\": {},\n  \"name\": ", MaterialAssetVersion);
 	AppendString(Text, Material.Name);
 	Text += ",\n  \"parameters\": {\n    \"baseColor\": ";
 	AppendFloats(Text, Material.Parameters.BaseColor);
@@ -225,6 +230,9 @@ std::expected<std::string, FAssetError> SerializeMaterial(const FMaterialAsset& 
 
 	Scalar("metallic", Material.Parameters.Metallic);
 	Scalar("roughness", Material.Parameters.Roughness);
+	Scalar("diffuseRoughness", Material.Parameters.DiffuseRoughness);
+	Text += ",\n    \"specularColor\": ";
+	AppendFloats(Text, Material.Parameters.SpecularColor);
 	Scalar("normalStrength", Material.Parameters.NormalStrength);
 	Scalar("occlusionStrength", Material.Parameters.OcclusionStrength);
 	Text += ",\n    \"emissive\": ";
@@ -281,7 +289,7 @@ std::expected<FMaterialAsset, FAssetError> DeserializeMaterial(const std::string
 
 	std::string_view Format, Name, Shader;
 	std::uint64_t Version = 0;
-	if ((*Header)[0].get_string().get(Format) || Format != "HertaMaterial" || (*Header)[1].get_uint64().get(Version) || Version != MaterialAssetVersion
+	if ((*Header)[0].get_string().get(Format) || Format != "HertaMaterial" || (*Header)[1].get_uint64().get(Version) || (Version != 1 && Version != MaterialAssetVersion)
 	    || (*Header)[2].get_string().get(Name) || (*Header)[5].get_string().get(Shader))
 	{
 		return Invalid("Invalid material header or unsupported version");
@@ -290,19 +298,40 @@ std::expected<FMaterialAsset, FAssetError> DeserializeMaterial(const std::string
 	FMaterialAsset Material;
 	Material.Name = Name;
 	Material.ShaderPath = Shader;
-	const auto Values = Fields((*Header)[3], std::array<std::string_view, 11>{"baseColor", "metallic", "roughness", "normalStrength", "occlusionStrength", "emissive", "emissiveIntensity", "uvScale", "uvOffset", "blendMode", "alphaCutoff"});
-	if (!Values)
+	constexpr std::array<std::string_view, 11> VersionOneFields{"baseColor", "metallic", "roughness", "normalStrength", "occlusionStrength", "emissive", "emissiveIntensity", "uvScale", "uvOffset", "blendMode", "alphaCutoff"};
+	constexpr std::array<std::string_view, 13> FieldNames{"baseColor", "metallic", "roughness", "normalStrength", "occlusionStrength", "emissive", "emissiveIntensity", "uvScale", "uvOffset", "blendMode", "alphaCutoff", "diffuseRoughness", "specularColor"};
+	std::array<simdjson::dom::element, 13> Values;
+	if (Version == 1)
 	{
-		return std::unexpected(Values.error());
+		const auto First = Fields((*Header)[3], VersionOneFields);
+		if (!First)
+		{
+			return std::unexpected(First.error());
+		}
+
+		std::ranges::copy(*First, Values.begin());
+	}
+	else if (const auto All = Fields((*Header)[3], FieldNames); All)
+	{
+		Values = *All;
+	}
+	else
+	{
+		return std::unexpected(All.error());
 	}
 
 	auto& Parameters = Material.Parameters;
+	if (Version != 1 && (!ReadFloat(Values[11], Parameters.DiffuseRoughness) || !ReadFloats(Values[12], Parameters.SpecularColor)))
+	{
+		return Invalid("Invalid material parameter value");
+	}
+
 	std::string_view Blend;
-	if (!ReadFloats((*Values)[0], Parameters.BaseColor) || !ReadFloat((*Values)[1], Parameters.Metallic) || !ReadFloat((*Values)[2], Parameters.Roughness)
-	    || !ReadFloat((*Values)[3], Parameters.NormalStrength) || !ReadFloat((*Values)[4], Parameters.OcclusionStrength)
-	    || !ReadFloats((*Values)[5], Parameters.Emissive) || !ReadFloat((*Values)[6], Parameters.EmissiveIntensity)
-	    || !ReadFloats((*Values)[7], Parameters.UVScale) || !ReadFloats((*Values)[8], Parameters.UVOffset)
-	    || (*Values)[9].get_string().get(Blend) || (Blend != "opaque" && Blend != "masked") || !ReadFloat((*Values)[10], Parameters.AlphaCutoff))
+	if (!ReadFloats(Values[0], Parameters.BaseColor) || !ReadFloat(Values[1], Parameters.Metallic) || !ReadFloat(Values[2], Parameters.Roughness)
+	    || !ReadFloat(Values[3], Parameters.NormalStrength) || !ReadFloat(Values[4], Parameters.OcclusionStrength)
+	    || !ReadFloats(Values[5], Parameters.Emissive) || !ReadFloat(Values[6], Parameters.EmissiveIntensity)
+	    || !ReadFloats(Values[7], Parameters.UVScale) || !ReadFloats(Values[8], Parameters.UVOffset)
+	    || Values[9].get_string().get(Blend) || (Blend != "opaque" && Blend != "masked") || !ReadFloat(Values[10], Parameters.AlphaCutoff))
 	{
 		return Invalid("Invalid material parameter value");
 	}

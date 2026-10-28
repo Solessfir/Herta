@@ -1143,6 +1143,143 @@ namespace
 }
 
 // Locks the physical camera chain: an 18% grey card under 100,000 lx of noon sun at "sunny 16" EV100 15 must display as photographic middle grey.
+// White furnace: under light of the same radiance from every direction, a white surface that conserves energy reflects exactly that radiance, whatever its roughness or metalness.
+// Lambert, rough EON diffuse, and a rough white metal therefore match, first under 240 directional lights spread over the sphere and then under a uniform environment. Single-scattering GGX alone leaves the metal about a fifth darker.
+[[nodiscard]] std::expected<void, FPresentationError> CheckWhiteFurnace(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
+{
+	const auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, Shaders);
+	const auto Cube = CreateSmokeCube(Device);
+	if (!Renderer || !Cube)
+	{
+		return std::unexpected(!Renderer ? Renderer.error() : Cube.error());
+	}
+
+	const auto MakeMaterial = [&Device](const float Metallic, const float DiffuseRoughness)
+	{
+		FMaterialAsset Material{.Name = "Furnace"};
+		Material.Parameters.Metallic = Metallic;
+		Material.Parameters.Roughness = 1.f;
+		Material.Parameters.DiffuseRoughness = DiffuseRoughness;
+		return FRenderMaterial::Create(Device, Material, {}, "Furnace material");
+	};
+
+	const std::array Materials{MakeMaterial(0.f, 0.f), MakeMaterial(0.f, 1.f), MakeMaterial(1.f, 0.f)};
+	for (const auto& Material : Materials)
+	{
+		if (!Material)
+		{
+			return std::unexpected(Material.error());
+		}
+	}
+
+	constexpr std::array<const char*, 3> Names{"Lambert", "rough EON", "rough metal"};
+	const std::array<const FRenderMaterial*, 1> Lambert{Materials[0]->get()};
+	const std::array<const FRenderMaterial*, 1> Rough{Materials[1]->get()};
+	const std::array<const FRenderMaterial*, 1> Metal{Materials[2]->get()};
+	const std::array<std::span<const FRenderMaterial* const>, 3> Overrides{Lambert, Rough, Metal};
+	constexpr std::array<float, 3> Offsets{-1.5f, 0.f, 1.5f};
+	const std::array Models{FMatrix4::Translation({Offsets[0], 0, 0}), FMatrix4::Translation({Offsets[1], 0, 0}), FMatrix4::Translation({Offsets[2], 0, 0})};
+	const std::array<const FRenderMesh*, 3> Meshes{Cube->get(), Cube->get(), Cube->get()};
+	constexpr FExtent2D Extent{240, 96};
+	// Unit radiance lands on mid grey: the tone mapper divides by 1.2 * 2^EV100.
+	const float ExposureEV100 = std::log2(1.f / (1.2f * 0.18f));
+	FMeshRenderView View{
+	    .View = FMatrix4::Translation({0, 0, 4}),
+	    .Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 4.f, 2.5f, 0.1f),
+	    .Models = Models,
+	    .Meshes = Meshes,
+	    .Materials = Overrides,
+	    .Visuals = {.ExposureEV100 = ExposureEV100, .AntiAliasing = EAntiAliasing::Off, .ShadowQuality = EShadowQuality::Off, .AmbientOcclusion = EAmbientOcclusion::Off, .bStudioPreview = false},
+	};
+
+	const auto Measure = [&](const std::string_view Lighting) -> std::expected<void, FPresentationError>
+	{
+		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+		{
+			return Rendered;
+		}
+
+		const auto Image = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+		if (!Image)
+		{
+			return std::unexpected(Image.error());
+		}
+
+		// Average the middle of each cube's front face, which looks straight at the camera.
+		std::array<float, 3> Levels{};
+		const FMatrix4 WorldToClip = View.Projection * View.View;
+		for (std::size_t Index = 0; Index < Levels.size(); ++Index)
+		{
+			const FVector4 Clip = WorldToClip * FVector4{Offsets[Index], 0, -0.5f, 1};
+			const auto CenterX = static_cast<int>((Clip.X / Clip.W * 0.5f + 0.5f) * static_cast<float>(Extent.Width));
+			const auto CenterY = static_cast<int>((0.5f - Clip.Y / Clip.W * 0.5f) * static_cast<float>(Extent.Height));
+			for (int Y = CenterY - 2; Y <= CenterY + 2; ++Y)
+			{
+				for (int X = CenterX - 2; X <= CenterX + 2; ++X)
+				{
+					Levels[Index] += static_cast<float>(std::to_integer<int>((*Image)[(static_cast<std::size_t>(Y) * Extent.Width + static_cast<std::size_t>(X)) * 4 + 1])) / 25.f;
+				}
+			}
+		}
+
+		std::println("White furnace, {}: Lambert {:.1f}, rough EON {:.1f}, rough metal {:.1f}", Lighting, Levels[0], Levels[1], Levels[2]);
+		for (std::size_t Index = 0; Index < Levels.size(); ++Index)
+		{
+			if (Levels[Index] < 60.f || Levels[Index] > 200.f || std::abs(Levels[Index] - Levels[0]) > 4.f)
+			{
+				return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("A white {} surface under the {} furnace read {:.1f}, not Lambert's {:.1f}", Names[Index], Lighting, Levels[Index], Levels[0])});
+			}
+		}
+
+		return {};
+	};
+
+	// Each light stands for an equal share of the sphere, so it delivers that share of unit radiance as illuminance.
+	constexpr std::size_t LightCount = 240;
+	std::vector<FRenderLight> Lights(LightCount);
+	for (std::size_t Index = 0; Index < LightCount; ++Index)
+	{
+		const float Z = 1.f - (2.f * static_cast<float>(Index) + 1.f) / static_cast<float>(LightCount);
+		const float Radius = std::sqrt(1.f - Z * Z);
+		const float Angle = static_cast<float>(Index) * std::numbers::pi_v<float> * (3.f - std::sqrt(5.f));
+		FMatrix4 Transform;
+		Transform(0, 2) = Radius * std::cos(Angle);
+		Transform(1, 2) = Radius * std::sin(Angle);
+		Transform(2, 2) = Z;
+		Lights[Index] = {.Settings = {.Type = ELightType::Directional, .Intensity = 4.f * std::numbers::pi_v<float> / static_cast<float>(LightCount), .bCastShadows = false}, .Transform = Transform};
+	}
+
+	View.Lights = Lights;
+	if (const auto Direct = Measure("directional"); !Direct)
+	{
+		return Direct;
+	}
+
+	constexpr std::array<float, 4> Radiance{1, 1, 1, 1};
+	FCookedTexture Environment{.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(sizeof(Radiance))}}};
+	std::memcpy(Environment.Mips[0].Pixels.data(), Radiance.data(), sizeof(Radiance));
+	const std::array Sky{FRenderLight{.Settings = {.Type = ELightType::Sky, .Intensity = 1.f, .bCastShadows = false, .bEnvironmentVisible = false}, .Transform = FMatrix4{}}};
+	View.Lights = Sky;
+	const auto Snapshot = BuildVisualUniforms(View.View, View.Projection, Extent, View.Lights, View.Visuals);
+	if (!Snapshot)
+	{
+		return std::unexpected(Snapshot.error());
+	}
+
+	const auto Filtered = BuildEnvironmentLighting(&Environment, *Snapshot);
+	if (!Filtered)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = Filtered.error().Message});
+	}
+
+	if (const auto Uploaded = (*Renderer)->SetEnvironmentLighting(*Filtered); !Uploaded)
+	{
+		return Uploaded;
+	}
+
+	return Measure("environment");
+}
+
 [[nodiscard]] float DecodeHalf(const std::uint16_t Bits)
 {
 	const int Exponent = (Bits >> 10) & 31;
@@ -1585,10 +1722,10 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	auto Texture = Device.CreateTexture({.Name = "Depth test colors", .Extent = {.Width = 2, .Height = 1}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = false});
 	auto Color = Device.CreateTexture({.Name = "Depth test color", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
 	auto Depth = Device.CreateTexture({.Name = "Depth test depth", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 12, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
-	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 12, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
+	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 13, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
+	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 13, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
 	const auto ShadowDepth = Device.CreateTexture({.Name = "Depth-only sampled atlas regression", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 12, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = 2});
+	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 13, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = 2});
 	auto Instances = Device.CreateBuffer({.Name = "Instance validation transforms", .Size = 2 * sizeof(FMeshInstance), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
 	if (!Near)
 	{
@@ -1635,7 +1772,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(!ShadowDepth ? ShadowDepth.error() : ShadowPipeline.error());
 	}
 
-	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 12, .UniformBufferSize = 16, .BufferCount = 2}))
+	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 13, .UniformBufferSize = 16, .BufferCount = 2}))
 	{
 		return Failure("Pipeline accepted a uniform block smaller than its shader reflection");
 	}
@@ -1678,7 +1815,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.f, 1, 0.1f);
-	std::array<FTextureHandle, 12> Textures;
+	std::array<FTextureHandle, 13> Textures;
 	std::ranges::fill(Textures, *Texture);
 	FVisualUniforms Uniforms;
 	Uniforms.ViewToWorld = FMatrix4{}.Data();
@@ -1864,6 +2001,12 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	Result = CheckMotionVectors(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);
+	if (!Result)
+	{
+		return Result;
+	}
+
+	Result = CheckWhiteFurnace(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);
 	if (!Result)
 	{
 		return Result;

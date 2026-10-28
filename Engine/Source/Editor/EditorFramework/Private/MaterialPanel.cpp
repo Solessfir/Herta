@@ -520,7 +520,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 		{
 			Report(SetDraft(std::move(Candidate), Label));
 		};
-		const auto FloatRow = [&](const char* Label, float FMaterialParameters::*const Member, const float Minimum, const float Maximum, const float Speed = 0.01f, const char* Format = "%.3f")
+		const auto FloatRow = [&](const char* Label, float FMaterialParameters::* const Member, const float Minimum, const float Maximum, const float Speed = 0.01f, const char* Format = "%.3f")
 		{
 			if (!MatchesMaterialSearch(Label, Query))
 			{
@@ -577,7 +577,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 
 			ImGui::PopID();
 		};
-		const auto ColorRow = [&](const char* Label, const bool bEmission)
+		const auto ColorRow = [&](const char* Label, auto FMaterialParameters::* const Member)
 		{
 			if (!MatchesMaterialSearch(Label, Query))
 			{
@@ -587,8 +587,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 			ImGui::PushID(Label);
 			Row(Label);
 			FMaterialAsset Candidate = Draft;
-			float* Values = bEmission ? Candidate.Parameters.Emissive.data() : Candidate.Parameters.BaseColor.data();
-			const bool bChanged = DrawLinearColorField("##Color", std::span<float>{Values, bEmission ? 3u : 4u});
+			const bool bChanged = DrawLinearColorField("##Color", std::span<float>{Candidate.Parameters.*Member});
 			if (ImGui::IsItemActivated() || bChanged)
 			{
 				BeginEdit(Label);
@@ -605,31 +604,28 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 			}
 
 			ImGui::TableSetColumnIndex(2);
-			const bool bDefault = bEmission ? Draft.Parameters.Emissive == FMaterialParameters{}.Emissive : Draft.Parameters.BaseColor == FMaterialParameters{}.BaseColor;
-			if (!bDefault && DrawDetailsResetButton(Label))
+			if (Draft.Parameters.*Member != FMaterialParameters{}.*Member && DrawDetailsResetButton(Label))
 			{
 				Report(EndEdit());
 				FMaterialAsset Reset = Draft;
-				if (bEmission)
-				{
-					Reset.Parameters.Emissive = FMaterialParameters{}.Emissive;
-				}
-				else
-				{
-					Reset.Parameters.BaseColor = FMaterialParameters{}.BaseColor;
-				}
-
+				Reset.Parameters.*Member = FMaterialParameters{}.*Member;
 				Apply(std::move(Reset), Label);
 			}
 
 			ImGui::PopID();
 		};
 
-		if (MatchesMaterialSearch("Base color Metallic Roughness Normal strength Occlusion Blend mode Alpha cutoff", Query) && BeginMaterialSection("Surface", Scale) && BeginTable())
+		if (MatchesMaterialSearch("Base color Metallic Roughness Diffuse roughness Edge color Normal strength Occlusion Blend mode Alpha cutoff", Query) && BeginMaterialSection("Surface", Scale) && BeginTable())
 		{
-			ColorRow("Base color", false);
+			ColorRow("Base color", &FMaterialParameters::BaseColor);
 			FloatRow("Metallic", &FMaterialParameters::Metallic, 0.f, 1.f);
 			FloatRow("Roughness", &FMaterialParameters::Roughness, 0.f, 1.f);
+			FloatRow("Diffuse roughness", &FMaterialParameters::DiffuseRoughness, 0.f, 1.f);
+			if (Draft.Parameters.Metallic > 0.f)
+			{
+				ColorRow("Edge color", &FMaterialParameters::SpecularColor);
+			}
+
 			FloatRow("Normal strength", &FMaterialParameters::NormalStrength, 0.f, 8.f);
 			FloatRow("Occlusion", &FMaterialParameters::OcclusionStrength, 0.f, 1.f);
 			if (MatchesMaterialSearch("Blend mode", Query))
@@ -663,7 +659,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 		ImGui::PushID("Emission");
 		if (MatchesMaterialSearch("Emissive color Intensity", Query) && BeginMaterialSection("Emission", Scale) && BeginTable())
 		{
-			ColorRow("Emissive color", true);
+			ColorRow("Emissive color", &FMaterialParameters::Emissive);
 			FloatRow("Intensity", &FMaterialParameters::EmissiveIntensity, 0.f, 1'000'000.f, 0.1f);
 			ImGui::EndTable();
 		}

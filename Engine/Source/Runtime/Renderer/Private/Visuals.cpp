@@ -6,6 +6,7 @@
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <vector>
 
 namespace Herta
 {
@@ -152,6 +153,65 @@ std::optional<ERenderQuality> FindRenderQuality(const FVisualSettings& Settings)
 	}
 
 	return std::nullopt;
+}
+
+std::span<const std::array<float, 4>> GetSpecularAlbedoTable()
+{
+	// Integrated once per process with the shader's GGX and height-correlated Smith terms, so the table matches the lobe it compensates.
+	static const std::vector<std::array<float, 4>> Table = []
+	{
+		constexpr std::uint32_t Size = SpecularAlbedoTableSize;
+		constexpr std::uint32_t Samples = 1024;
+		std::vector<std::array<float, 4>> Texels(std::size_t{Size} * Size);
+		for (std::uint32_t Row = 0; Row < Size; ++Row)
+		{
+			const double Roughness = static_cast<double>(Row) / (Size - 1);
+			const double Alpha = std::max(0.0025, Roughness * Roughness);
+			const double A2 = Alpha * Alpha;
+			for (std::uint32_t Column = 0; Column < Size; ++Column)
+			{
+				const double NoV = std::max(1e-4, static_cast<double>(Column) / (Size - 1));
+				const double ViewX = std::sqrt(1.0 - NoV * NoV);
+				std::array<double, 3> Sum{};
+				for (std::uint32_t Index = 0; Index < Samples; ++Index)
+				{
+					// Hammersley points importance-sample GGX half vectors.
+					std::uint32_t Bits = Index;
+					Bits = (Bits << 16u) | (Bits >> 16u);
+					Bits = ((Bits & 0x55555555u) << 1u) | ((Bits & 0xAAAAAAAAu) >> 1u);
+					Bits = ((Bits & 0x33333333u) << 2u) | ((Bits & 0xCCCCCCCCu) >> 2u);
+					Bits = ((Bits & 0x0F0F0F0Fu) << 4u) | ((Bits & 0xF0F0F0F0u) >> 4u);
+					Bits = ((Bits & 0x00FF00FFu) << 8u) | ((Bits & 0xFF00FF00u) >> 8u);
+					const double U = (Index + 0.5) / Samples;
+					const double W = static_cast<double>(Bits) / 4294967296.0;
+					const double Phi = 2.0 * std::numbers::pi * U;
+					const double CosTheta = std::sqrt((1.0 - W) / (1.0 + (A2 - 1.0) * W));
+					const double SinTheta = std::sqrt(1.0 - CosTheta * CosTheta);
+					const double HalfX = SinTheta * std::cos(Phi);
+					const double VoH = ViewX * HalfX + NoV * CosTheta;
+					const double NoL = 2.0 * VoH * CosTheta - NoV;
+					if (NoL <= 0.0 || VoH <= 0.0)
+					{
+						continue;
+					}
+
+					const double Visibility = 0.5 / (NoL * std::sqrt(NoV * NoV * (1.0 - A2) + A2) + NoV * std::sqrt(NoL * NoL * (1.0 - A2) + A2));
+					const double Weight = Visibility * 4.0 * VoH * NoL / CosTheta;
+					const double Complement = 1.0 - VoH;
+					const double Fresnel = std::pow(Complement, 5.0);
+					Sum[0] += (1.0 - Fresnel) * Weight;
+					Sum[1] += Fresnel * Weight;
+					Sum[2] += VoH * Fresnel * Complement * Weight;
+				}
+
+				Texels[std::size_t{Row} * Size + Column] = {static_cast<float>(Sum[0] / Samples), static_cast<float>(Sum[1] / Samples), static_cast<float>(Sum[2] / Samples), 1.f};
+			}
+		}
+
+		return Texels;
+	}();
+
+	return Table;
 }
 
 FExtent2D GetShadowAtlasExtent(const float Resolution)

@@ -241,6 +241,32 @@ TEST_CASE("Half-resolution shadows keep the same atlas layout at half the texels
 	}
 }
 
+TEST_CASE("The specular albedo table keeps GGX energy within one and loses it with roughness")
+{
+	const auto Table = GetSpecularAlbedoTable();
+	REQUIRE(Table.size() == std::size_t{SpecularAlbedoTableSize} * SpecularAlbedoTableSize);
+	const auto At = [&](const std::uint32_t Column, const std::uint32_t Row)
+	{
+		return Table[std::size_t{Row} * SpecularAlbedoTableSize + Column];
+	};
+
+	constexpr std::uint32_t Last = SpecularAlbedoTableSize - 1;
+	for (const auto& Texel : Table)
+	{
+		CHECK(Texel[0] >= 0.f);
+		CHECK(Texel[1] >= 0.f);
+		CHECK(Texel[2] >= 0.f);
+		CHECK(Texel[0] + Texel[1] <= 1.01f);
+	}
+
+	// A smooth mirror seen head on reflects everything at F0 = 1, and almost no Schlick edge term.
+	CHECK(At(Last, 0)[0] + At(Last, 0)[1] == doctest::Approx(1.f).epsilon(0.01));
+	CHECK(At(Last, 0)[1] < 0.01f);
+	// Single scattering loses energy as roughness grows, which multiple-scattering compensation restores.
+	CHECK(At(Last, Last)[0] + At(Last, Last)[1] < 0.9f);
+	CHECK(At(Last, Last)[0] + At(Last, Last)[1] < At(Last, Last / 2)[0] + At(Last, Last / 2)[1]);
+}
+
 TEST_CASE("Quality tiers are recognized only while their settings match")
 {
 	FVisualSettings Settings;

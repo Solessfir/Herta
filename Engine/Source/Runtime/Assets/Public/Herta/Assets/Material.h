@@ -44,7 +44,8 @@ enum class EMaterialChannel : std::uint8_t
 };
 
 inline constexpr std::size_t MaterialTextureSlotCount = static_cast<std::size_t>(EMaterialTextureSlot::Count);
-inline constexpr std::uint32_t MaterialAssetVersion = 1;
+// Version 2 adds diffuse roughness and the metal edge tint; version 1 loads with their defaults.
+inline constexpr std::uint32_t MaterialAssetVersion = 2;
 
 struct FMaterialParameters
 {
@@ -53,6 +54,10 @@ struct FMaterialParameters
 	std::array<float, 4> BaseColor{1.f, 1.f, 1.f, 1.f};
 	float Metallic = 0.f;
 	float Roughness = 0.5f;
+	// EON rough diffuse (OpenPBR base_diffuse_roughness). Zero is Lambert.
+	float DiffuseRoughness = 0.f;
+	// The metal's reflectance near grazing (OpenPBR specular_color), applied through the F82-tint Fresnel. White is plain Schlick.
+	std::array<float, 3> SpecularColor{1.f, 1.f, 1.f};
 	float NormalStrength = 1.f;
 	float OcclusionStrength = 1.f;
 	std::array<float, 3> Emissive{};

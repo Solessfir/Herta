@@ -16,6 +16,8 @@ struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToVie
 [[vk::binding(10, 0)]] Texture2D<float4> LtcAmplitude;
 // View-space bent normal in rgb and visibility in a, from the GTAO compute passes.
 [[vk::binding(11, 0)]] Texture2D<float4> ScreenOcclusion;
+// GGX directional albedo terms A, B, and C by view cosine and roughness; see SpecularAlbedoTableSize in Visuals.h.
+[[vk::binding(12, 0)]] Texture2D<float4> SpecularAlbedo;
 
 struct FVertexOutput
 {
@@ -94,7 +96,105 @@ float Channel(float4 Sample, float Selection)
     return C < 4 ? Sample[C] : dot(Sample.rgb, float3(0.2126, 0.7152, 0.0722));
 }
 
-float3 BRDF(float3 N, float3 V, float3 L, float3 Color, float Metallic, float Roughness)
+// EON, energy-preserving Oren-Nayar (Portsmouth, Kutz, and Hill 2024, as adopted by OpenPBR), with the fast albedo fit. Roughness 0 is Lambert.
+static const float EonConstant1 = 0.5 - 2.0 / (3.0 * PI);
+static const float EonConstant2 = 2.0 / 3.0 - 28.0 / (15.0 * PI);
+
+float EonFujiiAlbedo(float Mu, float Roughness)
+{
+    float Complement = 1.0 - Mu;
+    float GOverPi = Complement * (0.0571085289 + Complement * (0.491881867 + Complement * (-0.332181442 + Complement * 0.0714429953)));
+    return (1.0 + Roughness * GOverPi) / (1.0 + EonConstant1 * Roughness);
+}
+
+float3 EonMultipleScatterAlbedo(float3 Rho, float AverageAlbedo)
+{
+    return Rho * Rho * AverageAlbedo / (1.0 - Rho * (1.0 - AverageAlbedo));
+}
+
+
+// Hemispherical reflectance seen from Mu, which stands in for the lobe under environment and area lights.
+float3 EonAlbedo(float3 Rho, float Roughness, float Mu)
+{
+    float Albedo = EonFujiiAlbedo(Mu, Roughness);
+    float AverageAlbedo = (1.0 + EonConstant2 * Roughness) / (1.0 + EonConstant1 * Roughness);
+    return Rho * Albedo + EonMultipleScatterAlbedo(Rho, AverageAlbedo) * (1.0 - Albedo);
+}
+
+// Everything about a pixel's material that does not depend on the light, applied once to the light sums and the environment.
+struct FSurface
+{
+    // EON per light is DiffuseSingle * (1 + DiffuseRoughness * s / t) + DiffuseMultiple * (1 - E(NoL)), already scaled by what the specular layer leaves and divided by pi.
+    float3 DiffuseSingle;
+    float3 DiffuseMultiple;
+    float DiffuseRoughness;
+    // Hemispherical diffuse reflectance towards the view, which stands in for the lobe under environment and rect lights.
+    float3 DiffuseReflectance;
+    float Roughness;
+    // Fresnel times multiple-scattering compensation: Specular0 + Specular90 * (1 - VoH)^5 - SpecularF82 * VoH * (1 - VoH)^6.
+    float3 Specular0;
+    float3 Specular90;
+    float3 SpecularF82;
+    // The specular lobe's directional albedo with compensation, for environment light.
+    float3 SpecularReflectance;
+};
+
+FSurface MakeSurface(float3 BaseColor, float Metallic, float Roughness, float DiffuseRoughness, float3 EdgeColor, float NoV)
+{
+    const float TableSize = 32.0;
+    float3 Table = SpecularAlbedo.SampleLevel(LinearSampler, float2(NoV, Roughness) * ((TableSize - 1.0) / TableSize) + 0.5 / TableSize, 0).xyz;
+    float Single = max(Table.x + Table.y, 1e-4);
+    float3 F0 = lerp(0.04, BaseColor, Metallic);
+    // F82-tint (Hoffman 2019, as in OpenPBR): at cos 1/7, about 82 degrees, metal reflectance becomes EdgeColor times Schlick's.
+    const float MuBar = 1.0 / 7.0;
+    float3 SchlickBar = BaseColor + (1.0 - BaseColor) * pow(1.0 - MuBar, 5.0);
+    // EdgeColor and DiffuseRoughness are per material, so skipping their unused defaults never diverges.
+    float3 F82 = 0.0;
+    [branch]
+    if (any(EdgeColor < 1.0))
+        F82 = Metallic * SchlickBar * (1.0 - EdgeColor) / (MuBar * pow(1.0 - MuBar, 6.0));
+
+    // Single-scattering GGX loses energy as roughness grows; Turquin's (2019) scale restores it.
+    float3 Compensation = 1.0 + F0 * (1.0 / Single - 1.0);
+    FSurface Surface;
+    Surface.Roughness = Roughness;
+    Surface.Specular0 = Compensation * F0;
+    Surface.Specular90 = Compensation * (1.0 - F0);
+    Surface.SpecularF82 = Compensation * F82;
+    Surface.SpecularReflectance = max(Surface.Specular0 * Table.x + Compensation * Table.y - Surface.SpecularF82 * Table.z, 0.0);
+    // OpenPBR's albedo scaling: diffuse gets what the dielectric specular layer does not reflect, so the layers sum to at most one.
+    float DielectricAlbedo = (0.04 * Table.x + Table.y) * (1.0 + 0.04 * (1.0 / Single - 1.0));
+    float DiffuseWeight = (1.0 - Metallic) * saturate(1.0 - DielectricAlbedo);
+    Surface.DiffuseRoughness = DiffuseRoughness;
+    Surface.DiffuseSingle = DiffuseWeight / PI * BaseColor;
+    Surface.DiffuseMultiple = 0.0;
+    Surface.DiffuseReflectance = DiffuseWeight * BaseColor;
+    [branch]
+    if (DiffuseRoughness > 0.0)
+    {
+        float EonScale = 1.0 / (1.0 + EonConstant1 * DiffuseRoughness);
+        float AverageAlbedo = EonScale * (1.0 + EonConstant2 * DiffuseRoughness);
+        Surface.DiffuseSingle *= EonScale;
+        Surface.DiffuseMultiple = DiffuseWeight / PI * EonMultipleScatterAlbedo(BaseColor, AverageAlbedo) * max(1e-7, 1.0 - EonFujiiAlbedo(NoV, DiffuseRoughness)) / max(1e-7, 1.0 - AverageAlbedo);
+        Surface.DiffuseReflectance = DiffuseWeight * EonAlbedo(BaseColor, DiffuseRoughness, NoV);
+    }
+    return Surface;
+}
+
+// What the lights deliver before the material applies. The pass is register-limited, and with material terms in the light loop the driver recomputed them for every light; these sums keep the loop free of them.
+struct FLightSum
+{
+    // Irradiance, scaled by EON's 1 + r * s / t for rough diffuse (Portsmouth, Kutz, and Hill 2024); the material multiplies by FSurface.DiffuseSingle.
+    float3 Diffuse;
+    // Irradiance times EON's 1 - E(NoL), for FSurface.DiffuseMultiple.
+    float3 DiffuseMultiple;
+    // The GGX lobe, and the same times (1 - VoH)^5 and VoH * (1 - VoH)^6, for the Fresnel terms in FSurface.
+    float3 Specular0;
+    float3 Specular90;
+    float3 SpecularF82;
+};
+
+void AddLight(inout FLightSum Sum, float3 Radiance, float3 N, float3 V, float3 L, float Roughness, float DiffuseRoughness)
 {
     float3 H = normalize(V + L);
     float NoL = saturate(dot(N, L));
@@ -107,9 +207,24 @@ float3 BRDF(float3 N, float3 V, float3 L, float3 Color, float Metallic, float Ro
     float GV = NoL * sqrt(NoV * NoV * (1.0 - A2) + A2);
     float GL = NoV * sqrt(NoL * NoL * (1.0 - A2) + A2);
     float Visibility = 0.5 / max(0.00001, GV + GL);
-    float3 F0 = lerp(0.04, Color, Metallic);
-    float3 F = F0 + (1.0 - F0) * pow(1.0 - VoH, 5.0);
-    return ((1.0 - F) * (1.0 - Metallic) * Color / PI + D * Visibility * F) * NoL;
+    float3 Lit = Radiance * NoL;
+    float DiffuseScale = 1.0;
+    // Diffuse roughness is per material, so this never diverges.
+    [branch]
+    if (DiffuseRoughness > 0.0)
+    {
+        float S = dot(L, V) - NoL * NoV;
+        DiffuseScale += DiffuseRoughness * (S > 0.0 ? S / max(NoL, NoV) : S);
+        Sum.DiffuseMultiple += Lit * max(1e-7, 1.0 - EonFujiiAlbedo(NoL, DiffuseRoughness));
+    }
+
+    Sum.Diffuse += Lit * DiffuseScale;
+    float3 Specular = Lit * D * Visibility;
+    float C = 1.0 - VoH;
+    float C5 = C * C * C * C * C;
+    Sum.Specular0 += Specular;
+    Sum.Specular90 += Specular * C5;
+    Sum.SpecularF82 += Specular * (VoH * C5 * C);
 }
 
 // Linearly transformed cosines (Heitz et al. 2016), following three.js: the edge integral uses a rational fit of theta / sin(theta) / 2pi.
@@ -136,7 +251,7 @@ float LtcQuad(float3x3 Transform, float3 Corners[4])
     return max((Length * Length + FormFactor.z) / (Length + 1.0), 0.0);
 }
 
-float3 RectLighting(FVisualLight Light, float3 Position, float3 N, float3 V, float3 Color, float Metallic, float Roughness)
+void RectLighting(inout FLightSum Sum, FVisualLight Light, float3 Position, float3 N, float3 V, float Roughness)
 {
     float3 FromCenter = Position - Light.PositionType.xyz;
     float3 Right = Light.RightWidth.xyz * (0.5 * Light.RightWidth.w);
@@ -144,7 +259,7 @@ float3 RectLighting(FVisualLight Light, float3 Position, float3 N, float3 V, flo
     // Range is measured from the emitter's surface, so long panels light along their whole length.
     float3 Nearest = Light.RightWidth.xyz * clamp(dot(FromCenter, Light.RightWidth.xyz), -0.5 * Light.RightWidth.w, 0.5 * Light.RightWidth.w) + Light.UpHeight.xyz * clamp(dot(FromCenter, Light.UpHeight.xyz), -0.5 * Light.UpHeight.w, 0.5 * Light.UpHeight.w);
     float Distance = length(FromCenter - Nearest);
-    if (dot(FromCenter, Light.DirectionRange.xyz) <= 0.0 || Distance >= Light.DirectionRange.w) return 0.0;
+    if (dot(FromCenter, Light.DirectionRange.xyz) <= 0.0 || Distance >= Light.DirectionRange.w) return;
 
     // The corners must wind so their normal faces the lit side; mirroring Right keeps the same quad.
     if (dot(cross(-Right, Up), Light.DirectionRange.xyz) < 0.0) Right = -Right;
@@ -159,30 +274,30 @@ float3 RectLighting(FVisualLight Light, float3 Position, float3 N, float3 V, flo
     float2 Amplitude = LtcAmplitude.SampleLevel(LinearSampler, UV, 0).xy;
     float3x3 InverseMatrix = float3x3(Inverse.x, 0.0, Inverse.z, 0.0, 1.0, 0.0, Inverse.y, 0.0, Inverse.w);
 
-    float3 F0 = lerp(0.04, Color, Metallic);
-    float3 Diffuse = (1.0 - Metallic) * Color * LtcQuad(Basis, Corners);
-    float3 Specular = (F0 * Amplitude.x + (1.0 - F0) * Amplitude.y) * LtcQuad(mul(InverseMatrix, Basis), Corners);
-    float3 Radiance = Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * max(0.0001, Light.RightWidth.w * Light.UpHeight.w));
-    float Fade = pow(saturate(1.0 - pow(Distance / Light.DirectionRange.w, 4.0)), 2.0);
-    return Radiance * Fade * (Diffuse + Specular);
+    // The LTCs integrate cosine and GGX lobes, so rough diffuse keeps only EON's single-scattering scale and the edge tint is left out.
+    float3 Radiance = Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * max(0.0001, Light.RightWidth.w * Light.UpHeight.w)) * pow(saturate(1.0 - pow(Distance / Light.DirectionRange.w, 4.0)), 2.0) * LightVisibility(ShadowAtlas, Light, Position, N);
+    Sum.Diffuse += Radiance * (PI * LtcQuad(Basis, Corners));
+    float3 Specular = Radiance * LtcQuad(mul(InverseMatrix, Basis), Corners);
+    Sum.Specular0 += Specular * Amplitude.x;
+    Sum.Specular90 += Specular * Amplitude.y;
 }
 
-float3 ShadeLight(uint Index, float3 Position, float3 N, float3 V, float3 BaseColor, float Metallic, float Roughness)
+void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, float3 V, float Roughness, float DiffuseRoughness)
 {
     FVisualLight Light = Lights[Index];
-    if (int(Light.PositionType.w) == 1) return 0.0;
-    float3 Radiance;
-    if (int(Light.PositionType.w) == 4)
-        Radiance = RectLighting(Light, Position, N, V, BaseColor, Metallic, Roughness);
-    else
+    int Type = int(Light.PositionType.w);
+    if (Type == 1) return;
+    if (Type == 4)
     {
-        float3 L;
-        float Attenuation = LightAttenuation(Light, Position, L);
-        Radiance = BRDF(N, V, L, BaseColor, Metallic, Roughness) * Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation;
+        RectLighting(Sum, Light, Position, N, V, Roughness);
+        return;
     }
+
+    float3 L;
+    float Attenuation = LightAttenuation(Light, Position, L);
     // Shadow filtering costs more than the lighting, so pixels out of range, outside the cone, or facing away skip it.
-    if (all(Radiance <= 0.0)) return 0.0;
-    return Radiance * LightVisibility(ShadowAtlas, Light, Position, N);
+    if (Attenuation <= 0.0 || dot(N, L) <= 0.0) return;
+    AddLight(Sum, Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * LightVisibility(ShadowAtlas, Light, Position, N), N, V, L, Roughness, DiffuseRoughness);
 }
 
 [shader("fragment")]
@@ -223,16 +338,25 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     if ((Flags & 32u) != 0u) Emissive *= EmissiveTexture.Sample(LinearSampler, Input.UV).rgb;
     float3 V = normalize(mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz - Input.WorldPosition);
     float3 Result = Emissive;
+    if (Visual.Controls.x == 0.0 && Visual.Sky.x == 0.0 && (Visual.Sky.w < 0.5 || Visual.Sky.w > 1.5))
+        Result += Base.rgb * (0.35 + 0.65 * saturate(dot(N, normalize(mul((float3x3)Visual.ViewToWorld, float3(0.0, 0.5, -1.0))))));
+    // Lights add up without the material, which applies once afterwards; see FLightSum.
+    float DiffuseRoughness = Visual.Material.Specular.w;
+    FLightSum Sum = (FLightSum)0;
     uint ClusterBase = LightClusterBase(Input.Position.xy, Input.WorldPosition);
     // The first 32 lights get their own loop, so scenes within one mask word never step through words.
     uint WordCount = LightWordCount();
     for (uint Mask = WordCount != 0 ? LightMaskWord(ClusterBase, 0) : 0; Mask != 0; Mask &= Mask - 1)
-        Result += ShadeLight(firstbitlow(Mask), Input.WorldPosition, N, V, Base.rgb, Metallic, Roughness);
+        ShadeLight(Sum, firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness);
     for (uint Word = 1; Word < WordCount; ++Word)
     {
         for (uint Mask = LightMaskWord(ClusterBase, Word); Mask != 0; Mask &= Mask - 1)
-            Result += ShadeLight(Word * 32 + firstbitlow(Mask), Input.WorldPosition, N, V, Base.rgb, Metallic, Roughness);
+            ShadeLight(Sum, Word * 32 + firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness);
     }
+
+    float NoV = saturate(dot(N, V));
+    FSurface Surface = MakeSurface(Base.rgb, Metallic, Roughness, DiffuseRoughness, Visual.Material.Specular.rgb, NoV);
+    Result += Surface.DiffuseSingle * Sum.Diffuse + Surface.DiffuseMultiple * Sum.DiffuseMultiple + max(Surface.Specular0 * Sum.Specular0 + Surface.Specular90 * Sum.Specular90 - Surface.SpecularF82 * Sum.SpecularF82, 0.0);
     if (Visual.Sky.x > 0.0)
     {
         uint DiffuseWidth, DiffuseHeight;
@@ -248,11 +372,6 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
         float2 SpecularUV = DirectionUV(R);
         SpecularUV.y = clamp(SpecularUV.y, 0.5 / SpecularHeight, 1.0 - 0.5 / SpecularHeight);
         float3 Specular = SpecularEnvironment.SampleLevel(LinearSampler, SpecularUV, SpecularLod).rgb;
-        float NoV = saturate(dot(N, V));
-        float3 F0 = lerp(0.04, Base.rgb, Metallic);
-        float4 C = Roughness * float4(-1.0, -0.0275, -0.572, 0.022) + float4(1.0, 0.0425, 1.04, -0.04);
-        float A004 = min(C.x * C.x, exp2(-9.28 * NoV)) * C.x + C.y;
-        float2 AB = float2(-1.04, 1.04) * A004 + C.zw;
         // Jimenez et al.'s multi-bounce fit returns light that bright surfaces would reflect back into their own creases.
         float3 Albedo = (1.0 - Metallic) * Base.rgb;
         float3 BounceA = 2.0404 * Albedo - 0.3324;
@@ -261,10 +380,8 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
         float3 DiffuseOcclusion = max(AO, ((AO * BounceA + BounceB) * AO + BounceC) * AO);
         // Lagarde's specular occlusion: grazing and rough reflections see more of the occluded hemisphere.
         float SpecularOcclusion = saturate(pow(NoV + AO, exp2(-16.0 * Roughness - 1.0)) - 1.0 + AO);
-        Result += (Albedo * Diffuse / PI * DiffuseOcclusion + Specular * (F0 * AB.x + AB.y) * SpecularOcclusion) * Visual.Sky.x * Visual.SkyColor.rgb;
+        Result += (Surface.DiffuseReflectance * Diffuse / PI * DiffuseOcclusion + Specular * Surface.SpecularReflectance * SpecularOcclusion) * Visual.Sky.x * Visual.SkyColor.rgb;
     }
-    if (Visual.Controls.x == 0.0 && Visual.Sky.x == 0.0 && (Visual.Sky.w < 0.5 || Visual.Sky.w > 1.5))
-        Result += Base.rgb * (0.35 + 0.65 * saturate(dot(N, normalize(mul((float3x3)Visual.ViewToWorld, float3(0.0, 0.5, -1.0))))));
     if (Visual.Sky.w < 0.5) return float4(Result / (1.0 + Result), 1.0);
     return float4(clamp(Result, 0.0, 65504.0), 1.0);
 }

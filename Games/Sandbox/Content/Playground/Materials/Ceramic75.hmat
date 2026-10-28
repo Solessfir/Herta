@@ -1,6 +1,6 @@
 {
   "format": "HertaMaterial",
-  "version": 1,
+  "version": 2,
   "name": "Ceramic75",
   "parameters": {
     "baseColor": [
@@ -11,6 +11,12 @@
     ],
     "metallic": 0,
     "roughness": 0.75,
+    "diffuseRoughness": 0.75,
+    "specularColor": [
+      1,
+      1,
+      1
+    ],
     "normalStrength": 1,
     "occlusionStrength": 1,
     "emissive": [

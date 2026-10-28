@@ -26,6 +26,8 @@ struct FMaterial
     float4 Channels0;
     float4 Channels1;
     float4 TextureFlags;
+    // The metal edge color for F82-tint Fresnel, and diffuse roughness.
+    float4 Specular;
 };
 
 struct FVisualUniforms

@@ -179,6 +179,8 @@ struct alignas(16) FMaterialUniform
 	std::array<float, 4> Channels0{};
 	std::array<float, 4> Channels1{};
 	std::array<float, 4> TextureFlags{};
+	// The metal edge color for F82-tint Fresnel, and diffuse roughness.
+	std::array<float, 4> Specular{1, 1, 1, 0};
 };
 
 struct alignas(16) FVisualUniforms
@@ -221,6 +223,11 @@ static_assert(VisualUniformBytes % 16 == 0 && VisualUniformBytes <= MaximumGraph
 {
 	return std::as_bytes(std::span{&Uniforms, 1}).first(VisualUniformBytes);
 }
+
+// Directional albedo of the GGX specular lobe by view cosine (x) and roughness (y), for split-sum lighting, multiple-scattering compensation, and diffuse albedo scaling.
+// Each texel holds A and B, where Schlick Fresnel integrates to F0 * A + B, and C, the integral of VoH * (1 - VoH)^6 that F82-tint Fresnel subtracts.
+inline constexpr std::uint32_t SpecularAlbedoTableSize = 32;
+[[nodiscard]] std::span<const std::array<float, 4>> GetSpecularAlbedoTable();
 
 inline constexpr std::uint32_t GtaoDepthMips = 5;
 

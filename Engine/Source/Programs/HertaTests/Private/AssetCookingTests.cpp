@@ -154,6 +154,8 @@ TEST_CASE("Material assets round-trip canonical JSON and cooked data")
 	Material.Parameters.BaseColor = {0.9f, 0.5f, 0.2f, 1.f};
 	Material.Parameters.Metallic = 1.f;
 	Material.Parameters.Roughness = 0.15f;
+	Material.Parameters.DiffuseRoughness = 0.6f;
+	Material.Parameters.SpecularColor = {1.f, 0.8f, 0.7f};
 	Material.Parameters.BlendMode = EMaterialBlendMode::Masked;
 	Material.Textures[1].Texture = FAssetId{1, 2};
 	Material.Textures[1].Channel = EMaterialChannel::Blue;
@@ -173,6 +175,38 @@ TEST_CASE("Material assets round-trip canonical JSON and cooked data")
 	REQUIRE(std::holds_alternative<FMaterialAsset>(*Reopened));
 	CHECK(std::get<FMaterialAsset>(*Reopened) == Material);
 	CHECK_FALSE(DeserializeCookedAsset(std::span(*Cooked).first(Cooked->size() - 1)));
+}
+
+TEST_CASE("Version 1 materials load with Lambert diffuse and an untinted edge")
+{
+	const auto Current = SerializeMaterial(FMaterialAsset{});
+	REQUIRE(Current);
+	std::string VersionOne = *Current;
+	const auto Replace = [&VersionOne](const std::string_view From, const std::string_view To)
+	{
+		const std::size_t Position = VersionOne.find(From);
+		REQUIRE(Position != std::string::npos);
+		VersionOne.replace(Position, From.size(), To);
+	};
+
+	Replace("\"version\": 2", "\"version\": 1");
+	Replace(",\n    \"diffuseRoughness\": 0", "");
+	Replace(",\n    \"specularColor\": [1, 1, 1]", "");
+	const auto Loaded = DeserializeMaterial(VersionOne);
+	REQUIRE(Loaded);
+	CHECK(Loaded->Parameters == FMaterialParameters{});
+
+	// Version 2 requires its new fields, and version 1 rejects them.
+	std::string Missing = *Current;
+	Missing.erase(Missing.find(",\n    \"diffuseRoughness\": 0"), std::string_view(",\n    \"diffuseRoughness\": 0").size());
+	CHECK_FALSE(DeserializeMaterial(Missing));
+	std::string Mixed = *Current;
+	Mixed.replace(Mixed.find("\"version\": 2"), 12, "\"version\": 1");
+	CHECK_FALSE(DeserializeMaterial(Mixed));
+
+	FMaterialAsset Tinted;
+	Tinted.Parameters.SpecularColor[1] = 1.5f;
+	CHECK_FALSE(SerializeMaterial(Tinted));
 }
 
 TEST_CASE("Material assets reject invalid fields channels and unsafe shader paths")
