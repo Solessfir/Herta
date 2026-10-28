@@ -689,6 +689,10 @@ Thread count, temporary allocator size, broad-phase layers, sleeping, and determ
 
 The current editor preview implements mesh-bounds box bodies through `FPhysicsWorld`: every meshed dynamic body simulates against static and other dynamic bodies, with fixed 60 Hz stepping, per-body render interpolation, and restoration of all authored transforms on stop. Jolt is pinned to v5.6.0 under `External/Jolt`. The adapter uses Jolt's single-threaded job system and default allocator. `FPhysicsWorldSettings` centralizes body, pair-cache, contact, and temporary-memory budgets; preview defaults support the measured 10,000-body checkpoint with 16,384 bodies, 65,536 pair entries, 32,768 contacts, and 64 MiB scratch storage. Startup admits the configured scratch bound before allocation; step-time cache/contact exhaustion fails explicitly and restores authored editor poses. Runtime world synchronization, collision events, physics-origin shifting, and a Herta Tasks job adapter remain part of the full physics milestone. See [Scaling.md](Scaling.md) for workload fixtures, measurements, limits, and platform coverage.
 
+Jolt stays the physics backend; Box3D (alpha in July 2026) lacks a character controller and soft bodies, and NVIDIA Newton targets GPU robotics training rather than game worlds. Physics must support deterministic replication. Jolt is deterministic for identical API call order on one binary, and its `CROSS_PLATFORM_DETERMINISTIC` build option, measured by Jolt at about 8% slower, extends that across compilers, operating systems, and x86/ARM; Herta builds Jolt that way once replication needs it, with floating-point contraction disabled in Herta's simulation code too. Jolt's contact and activation callbacks, active-body lists, and broadphase queries arrive in nondeterministic order, so the adapter collects and sorts them by stable IDs before gameplay sees them, and world mutation stays outside callbacks. `PhysicsSystem::SaveState` and `RestoreState` provide rollback snapshots. A CI test hashes the world after a fixed number of steps on Windows and Linux, and with one and several worker threads, because Jolt's documentation does not promise independence from the thread count.
+
+Destruction is pre-fractured and Herta-owned on top of Jolt, which has no fracture system. The asset pipeline fractures source meshes offline (Voronoi cells), cooking chunk meshes and a support graph of which chunks hold which. At runtime an intact object is one body; damage or sorted contact impulses beyond a bond's strength break graph links, a stress pass releases unsupported islands, and released chunks become bodies or split a compound shape. Chunks share instanced meshes, and debris sleeps, merges into visual-only effects, or despawns under explicit body budgets. Breaking decisions read only deterministic, sorted simulation results, so destruction replicates through the same deterministic simulation. NVIDIA Blast (BSD-3, pre-fractured, physics-agnostic) is the reference design for the support graph and stress solver, not a planned dependency.
+
 ### 4.12 Animation
 
 ozz-animation is private to Animation and AssetPipeline.
@@ -1652,10 +1656,12 @@ Exit condition: the path tracer converges on every Sandbox station and matches r
 
 - Expand the existing Jolt adapters with runtime collision layers, shapes, bodies, fixed-step simulation, and debug draw needed beyond the first playable slice.
 - Add a bounded Herta Tasks job adapter and configurable body, pair, contact, and temporary-memory capacities with actionable exhaustion handling. Extend the early multi-body stress levels into repeatable runtime scaling and lifecycle tests.
-- Add origin-relative physics transforms and buffered events.
+- Add origin-relative physics transforms and buffered events, delivered sorted by stable IDs so gameplay never depends on Jolt's callback order.
+- Make physics deterministic: build Jolt with `CROSS_PLATFORM_DETERMINISTIC`, keep Herta's simulation code free of floating-point contraction, add `SaveState`/`RestoreState` snapshots, and hash the world after fixed steps in CI on Windows and Linux with one and several threads.
+- Add pre-fractured destruction: offline Voronoi fracture with a cooked support graph, runtime bond breaking from damage and sorted contact impulses, a stress pass for unsupported islands, and budgeted debris, exercised by a Sandbox destruction station.
 - Add the collision shapes, level authoring, and player collision behavior needed by the sample instead of keeping runtime physics limited to preview boxes.
 
-Exit condition: the playable Sandbox exercises collisions, dynamic props, runtime spawn/despawn, collision events, and repeated reset, physics tests are repeatable for the supported configuration, and world mutation never occurs inside callbacks.
+Exit condition: the playable Sandbox exercises collisions, dynamic props, runtime spawn/despawn, collision events, destruction, and repeated reset, physics tests are repeatable for the supported configuration, world hashes match across Windows, Linux, and thread counts, and world mutation never occurs inside callbacks.
 
 ### Milestone 8 - Animation
 
@@ -1701,7 +1707,7 @@ Exit condition: NPCs in the playable Sandbox navigate, avoid obstacles, react, a
 
 - Add Networking and Replication with the selected GameNetworkingSockets transport revision behind Herta APIs.
 - Add `HertaServer`, direct-IP dedicated servers, and player-hosted listen servers using the same authoritative simulation and replication path.
-- Replicate the sample's actual player input, interactions, physics state, and gameplay outcomes rather than introducing networking before gameplay exists.
+- Replicate the sample's actual player input, interactions, physics state, and gameplay outcomes rather than introducing networking before gameplay exists. Deterministic physics lets destruction and dense physics replicate from inputs, with rollback from physics snapshots, where snapshot bandwidth would not fit; choose per system by measured bandwidth.
 - Add versioned handshakes and wire schemas, stable network entity IDs, input commands, snapshots and deltas, relevancy, bandwidth budgets, interpolation, prediction, and reconciliation.
 - Add loopback and multi-process tests with simulated loss, latency, jitter, reordering, duplication, bandwidth limits, reconnects, incompatibility, and hostile input.
 
