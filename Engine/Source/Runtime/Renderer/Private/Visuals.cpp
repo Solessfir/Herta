@@ -217,6 +217,131 @@ std::span<const std::array<float, 4>> GetSpecularAlbedoTable()
 	return Table;
 }
 
+namespace
+{
+// Admits shadowed lights in order like BuildShadowViews and sizes each local light's tiles by how large its reach looks on screen: twice the base tile
+// when the camera is inside it, down to a quarter far away. Tiles are powers of two in quarter-tile cells, so packing them largest first into aligned cells
+// always succeeds once their total area fits the atlas; until it does, the largest tile halves. The views come back in light order.
+std::vector<FRenderViewport> PackLocalShadowTiles(const std::span<const FRenderLight> Lights, const FMatrix4& CameraToWorld, const FMatrix4& Projection, const float ViewHeight, const std::uint32_t BaseTile)
+{
+	constexpr std::uint32_t GridWidth = 32;
+	constexpr std::uint32_t GridHeight = 8;
+	const std::uint32_t Cell = std::max(1u, BaseTile / 4);
+	const FVector3 Eye{CameraToWorld(0, 3), CameraToWorld(1, 3), CameraToWorld(2, 3)};
+	// Pixels per metre of reach at unit distance.
+	const float Focal = std::abs(Projection(1, 1)) * std::max(1.f, ViewHeight) * 0.5f;
+
+	struct FLocalTile
+	{
+		std::uint32_t Cells = 4;
+		FRenderViewport Viewport{};
+	};
+
+	std::vector<FLocalTile> Tiles;
+	std::size_t ViewCount = 0;
+	bool bCascadesAssigned = false;
+	for (const FRenderLight& Source : Lights)
+	{
+		const FLightComponent& Light = Source.Settings;
+		if (!Light.bEnabled || !Light.bCastShadows || Light.Type == ELightType::Sky)
+		{
+			continue;
+		}
+
+		const bool bCascaded = Light.Type == ELightType::Directional;
+		const std::size_t Count = bCascaded ? 4 : Light.Type == ELightType::Point ? 6
+		                                                                          : 1;
+		if (Count > MaximumRenderShadows - ViewCount || (bCascaded && bCascadesAssigned))
+		{
+			continue;
+		}
+
+		bCascadesAssigned = bCascadesAssigned || bCascaded;
+		ViewCount += Count;
+		if (bCascaded)
+		{
+			continue;
+		}
+
+		const FVector3 Position{Source.Transform(0, 3), Source.Transform(1, 3), Source.Transform(2, 3)};
+		const float Distance = (Position - Eye).Length();
+		const float Reach = Distance <= Light.Range ? std::numeric_limits<float>::infinity() : Light.Range * Focal / std::sqrt(Distance * Distance - Light.Range * Light.Range);
+		std::uint32_t Cells = 1;
+		while (Cells < 8 && static_cast<float>(Cells * Cell) < Reach)
+		{
+			Cells *= 2;
+		}
+
+		for (std::size_t Face = 0; Face < Count; ++Face)
+		{
+			Tiles.push_back({.Cells = Cells});
+		}
+	}
+
+	const auto Area = [&Tiles]
+	{
+		std::uint32_t Total = 0;
+		for (const FLocalTile& Tile : Tiles)
+		{
+			Total += Tile.Cells * Tile.Cells;
+		}
+
+		return Total;
+	};
+
+	while (Area() > GridWidth * GridHeight)
+	{
+		// The last of the largest tiles shrinks first, so earlier lights keep their resolution.
+		std::size_t Largest = Tiles.size() - 1;
+		for (std::size_t Index = Tiles.size(); Index-- > 0;)
+		{
+			Largest = Tiles[Index].Cells > Tiles[Largest].Cells ? Index : Largest;
+		}
+
+		Tiles[Largest].Cells /= 2;
+	}
+
+	std::vector<FLocalTile*> Order;
+	for (FLocalTile& Tile : Tiles)
+	{
+		Order.push_back(&Tile);
+	}
+
+	std::ranges::stable_sort(Order, std::ranges::greater{}, &FLocalTile::Cells);
+	std::array<bool, GridWidth * GridHeight> Used{};
+	for (FLocalTile* const Tile : Order)
+	{
+		bool bPlaced = false;
+		for (std::uint32_t Y = 0; Y + Tile->Cells <= GridHeight && !bPlaced; Y += Tile->Cells)
+		{
+			for (std::uint32_t X = 0; X + Tile->Cells <= GridWidth && !bPlaced; X += Tile->Cells)
+			{
+				if (Used[Y * GridWidth + X])
+				{
+					continue;
+				}
+
+				for (std::uint32_t Row = Y; Row < Y + Tile->Cells; ++Row)
+				{
+					std::fill_n(Used.begin() + Row * GridWidth + X, Tile->Cells, true);
+				}
+
+				Tile->Viewport = {.X = X * Cell, .Y = Y * Cell, .Width = Tile->Cells * Cell, .Height = Tile->Cells * Cell};
+				bPlaced = true;
+			}
+		}
+	}
+
+	std::vector<FRenderViewport> Viewports;
+	for (const FLocalTile& Tile : Tiles)
+	{
+		Viewports.push_back(Tile.Viewport);
+	}
+
+	return Viewports;
+}
+}
+
 FExtent2D GetCascadeAtlasExtent(const float Resolution)
 {
 	const std::uint32_t Cascade = GetShadowSizes(Resolution).Cascade;
@@ -440,9 +565,10 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 		return Matrix;
 	};
 
+	const std::vector<FRenderViewport> LocalViewports = PackLocalShadowTiles(Lights, CameraToWorld, Projection, Uniforms.Viewport[3], Sizes.Tile);
 	std::size_t UniformIndex = 0;
 	bool bCascadesAssigned = false;
-	std::uint32_t LocalTiles = 0;
+	std::size_t LocalTiles = 0;
 	for (const FRenderLight& Source : Lights)
 	{
 		const FLightComponent& Light = Source.Settings;
@@ -530,8 +656,7 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 
 			const auto Cascade = static_cast<std::uint32_t>(Face);
 			const FRenderViewport Viewport = bCascaded ? FRenderViewport{.X = Cascade % 2 * Sizes.Cascade, .Y = Cascade / 2 * Sizes.Cascade, .Width = Sizes.Cascade, .Height = Sizes.Cascade}
-			                                           : FRenderViewport{.X = LocalTiles % 8 * Sizes.Tile, .Y = LocalTiles / 8 * Sizes.Tile, .Width = Sizes.Tile, .Height = Sizes.Tile};
-			LocalTiles += bCascaded ? 0 : 1;
+			                                           : LocalViewports[LocalTiles++];
 			const auto Width = static_cast<float>(bCascaded ? 2 * Sizes.Cascade : 8 * Sizes.Tile);
 			const auto Height = static_cast<float>(bCascaded ? 2 * Sizes.Cascade : 2 * Sizes.Tile);
 			Uniforms.Shadows[Result.size()] = {.WorldToClip = Matrix.Data(), .Atlas = {static_cast<float>(Viewport.Width) / Width, static_cast<float>(Viewport.Height) / Height, static_cast<float>(Viewport.X) / Width, static_cast<float>(Viewport.Y) / Height}, .Parameters = {Light.ShadowBias, Split, Light.ShadowNormalBias, Texel}};

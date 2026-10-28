@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -447,14 +448,45 @@ TEST_CASE("Shadow atlas budget skips whole lights instead of allocating partial 
 	CHECK(Uniforms.Controls[1] == static_cast<float>(MaximumRenderShadows));
 	CHECK(Uniforms.Lights[3].ConeShadow[2] == -1.f);
 	CHECK(Uniforms.Lights[3].ConeShadow[3] == 0.f);
-	CHECK(Shadows.back().Viewport.X == 3 * ShadowTileResolution);
-	CHECK(Shadows.back().Viewport.Y == ShadowTileResolution);
-	CHECK(Shadows.back().Viewport.Width == ShadowTileResolution);
+	// The camera sits inside every light, which asks for the largest tiles; they shrink until the twelve local views fit the atlas without overlapping.
+	const FExtent2D Atlas = GetLocalShadowAtlasExtent(1.f);
+	for (std::size_t Index = 4; Index < Shadows.size(); ++Index)
+	{
+		const FRenderViewport& Tile = Shadows[Index].Viewport;
+		CHECK(Tile.Width == Tile.Height);
+		CHECK(std::has_single_bit(Tile.Width));
+		CHECK(Tile.X + Tile.Width <= Atlas.Width);
+		CHECK(Tile.Y + Tile.Height <= Atlas.Height);
+		for (std::size_t Other = 4; Other < Index; ++Other)
+		{
+			const FRenderViewport& Placed = Shadows[Other].Viewport;
+			CHECK((Tile.X >= Placed.X + Placed.Width || Placed.X >= Tile.X + Tile.Width || Tile.Y >= Placed.Y + Placed.Height || Placed.Y >= Tile.Y + Tile.Height));
+		}
+	}
+
 	Lights[1].Settings.bCastShadows = false;
 	Uniforms = *Built;
 	const auto Reduced = BuildShadowViews(Uniforms, Lights, TestProjection());
 	CHECK(Reduced.size() == 13);
 	CHECK(Uniforms.Lights[0].ConeShadow[2] == -1.f);
+}
+
+TEST_CASE("Local shadow tiles follow how large each light's reach looks on screen")
+{
+	std::array<FRenderLight, 2> Lights{};
+	Lights[0].Settings = {.Type = ELightType::Spot, .Range = 5.f};
+	Lights[1].Settings = {.Type = ELightType::Spot, .Range = 5.f};
+	// The camera looks from the origin; the first light is just outside its reach and the second far away.
+	Lights[0].Transform(2, 3) = 6.f;
+	Lights[1].Transform(2, 3) = 400.f;
+	const auto Built = BuildVisualUniforms({}, TestProjection(), {1920, 1080}, Lights, {});
+	REQUIRE(Built);
+	FVisualUniforms Uniforms = *Built;
+	const auto Shadows = BuildShadowViews(Uniforms, Lights, TestProjection());
+	REQUIRE(Shadows.size() == 2);
+	CHECK(Shadows[0].Viewport.Width == 2 * ShadowTileResolution);
+	CHECK(Shadows[1].Viewport.Width == ShadowTileResolution / 4);
+	CHECK(Uniforms.Shadows[1].Atlas[0] == doctest::Approx(static_cast<float>(ShadowTileResolution / 4) / static_cast<float>(GetLocalShadowAtlasExtent(1.f).Width)));
 }
 
 TEST_CASE("Only the first shadowed directional light receives cascades")
