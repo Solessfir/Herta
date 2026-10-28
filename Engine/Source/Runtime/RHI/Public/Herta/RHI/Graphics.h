@@ -172,6 +172,8 @@ struct FGraphicsPipelineDescriptor
 	std::uint32_t UniformBufferSize = 0;
 	bool bDepthOnly = false;
 	bool bDepthWrite = true;
+	// Depth writes replace whatever the target holds, which clears part of a depth target.
+	bool bDepthOverwrite = false;
 	EGraphicsCullMode CullMode = EGraphicsCullMode::Back;
 	bool bAlphaBlend = false;
 	bool bClampSampler = false;

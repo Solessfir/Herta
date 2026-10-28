@@ -417,7 +417,7 @@ public:
 		}
 
 		nvrhi::RenderState RenderState;
-		RenderState.depthStencilState.setDepthTestEnable(Descriptor.bDepthTest).setDepthWriteEnable(Descriptor.bDepthWrite && !bColored).setDepthFunc(nvrhi::ComparisonFunc::GreaterOrEqual);
+		RenderState.depthStencilState.setDepthTestEnable(Descriptor.bDepthTest).setDepthWriteEnable(Descriptor.bDepthWrite && !bColored).setDepthFunc(Descriptor.bDepthOverwrite ? nvrhi::ComparisonFunc::Always : nvrhi::ComparisonFunc::GreaterOrEqual);
 		const nvrhi::RasterCullMode CullMode = bColored || Descriptor.CullMode == EGraphicsCullMode::None ? nvrhi::RasterCullMode::None : Descriptor.CullMode == EGraphicsCullMode::Front ? nvrhi::RasterCullMode::Front
 		                                                                                                                                                                                  : nvrhi::RasterCullMode::Back;
 		RenderState.rasterState.setFrontCounterClockwise(true).setCullMode(CullMode).setDepthClipEnable(true).setScissorEnable(true);

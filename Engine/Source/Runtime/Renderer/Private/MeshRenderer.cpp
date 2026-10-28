@@ -59,6 +59,37 @@ static_assert(sizeof(FCookedVertex) == sizeof(FMeshVertex) && offsetof(FCookedVe
 	return {};
 }
 
+// Replaces Key with the concatenated Parts and reports whether they differed.
+[[nodiscard]] bool UpdateKey(std::vector<std::byte>& Key, const std::initializer_list<std::span<const std::byte>> Parts)
+{
+	std::size_t Offset = 0;
+	bool bSame = true;
+	for (const std::span<const std::byte> Part : Parts)
+	{
+		bSame = bSame && Offset + Part.size() <= Key.size() && std::ranges::equal(Part, std::span(Key).subspan(Offset, Part.size()));
+		Offset += Part.size();
+	}
+
+	if (bSame && Offset == Key.size())
+	{
+		return false;
+	}
+
+	Key.clear();
+	for (const std::span<const std::byte> Part : Parts)
+	{
+		Key.insert(Key.end(), Part.begin(), Part.end());
+	}
+
+	return true;
+}
+
+template <typename T>
+[[nodiscard]] std::span<const std::byte> KeyBytes(const T& Value)
+{
+	return std::as_bytes(std::span{&Value, 1});
+}
+
 [[nodiscard]] bool IsFinite(const FMatrix4& Matrix)
 {
 	return std::ranges::all_of(Matrix.Data(), [](const float Value)
@@ -625,6 +656,8 @@ struct FMeshRenderer::FImplementation
 	std::array<FDisplayPipelines, 2> DisplayPipelines;
 	FGraphicsPipelineHandle ShadowPipeline;
 	FGraphicsPipelineHandle InstancedShadowPipeline;
+	FGraphicsPipelineHandle ShadowClearPipeline;
+	FBufferHandle ShadowClearVertices;
 	FVisualUniforms Uniforms;
 	std::vector<FShadowView> Shadows;
 	FGraphicsPipelineHandle Pipeline;
@@ -650,6 +683,16 @@ struct FMeshRenderer::FImplementation
 	std::array<FBufferHandle, 2> DebugIndices;
 	std::array<std::vector<FColoredClipVertex>, 2> DebugBatches;
 	std::size_t LastDrawCount = 0;
+
+	// The inputs each cached result was last rendered from. A pass whose inputs match skips its work and keeps the result.
+	std::vector<std::byte> SkyViewKey;
+	std::vector<std::byte> ToneMapLutKey;
+	std::vector<std::byte> LightsKey;
+	std::vector<std::byte> LightClustersKey;
+	// One key per shadow view: its projection, tile, and every caster it saw.
+	std::vector<std::vector<std::byte>> ShadowKeys;
+	std::vector<std::byte> ShadowKeyScratch;
+	std::uint64_t FrameIndex = 0;
 };
 
 std::span<const FCookedMaterial> FRenderMesh::GetMaterials() const noexcept
@@ -840,6 +883,16 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 			State->VisualPipelines[Index] = std::move(*VisualPipeline);
 		}
 
+		// Clears one atlas tile to the far plane, so tiles whose casters did not change keep last frame's depth.
+		auto ShadowClearPipeline = Device.CreateGraphicsPipeline({.Name = "Shadow tile clear", .VertexShader = VisualShaders.ShadowVertex, .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .bDepthOverwrite = true, .CullMode = EGraphicsCullMode::None});
+		auto ShadowClearVertices = Device.CreateBuffer({.Name = "Shadow tile clear quad", .Size = 4 * sizeof(FMeshVertex), .Usage = EBufferUsage::Vertex});
+		if (!ShadowClearPipeline || !ShadowClearVertices)
+		{
+			return std::unexpected(!ShadowClearPipeline ? ShadowClearPipeline.error() : ShadowClearVertices.error());
+		}
+
+		State->ShadowClearPipeline = std::move(*ShadowClearPipeline);
+		State->ShadowClearVertices = std::move(*ShadowClearVertices);
 		auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Masked shadow atlas", .VertexShader = std::move(VisualShaders.ShadowVertex), .FragmentShader = VisualShaders.ShadowFragment, .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true});
 		auto InstancedShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Instanced masked shadow atlas", .VertexShader = std::move(VisualShaders.ShadowInstancedVertex), .FragmentShader = std::move(VisualShaders.ShadowFragment), .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .bInstanced = true, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true});
 		auto FullscreenVertices = Device.CreateBuffer({.Name = "Fullscreen quad", .Size = 4 * sizeof(FColoredClipVertex), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition});
@@ -1049,6 +1102,13 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		if (Result)
 		{
 			Result = Device.WriteBuffer(State->FullscreenIndices, std::as_bytes(std::span{GridIndices}));
+		}
+
+		// Clip space at the reversed-Z far plane; the identity transform keeps it there.
+		if (Result)
+		{
+			constexpr std::array<FMeshVertex, 4> ClearQuad{{{.Position = {-1, -1, 0}}, {.Position = {1, -1, 0}}, {.Position = {1, 1, 0}}, {.Position = {-1, 1, 0}}}};
+			Result = Device.WriteBuffer(State->ShadowClearVertices, std::as_bytes(std::span{ClearQuad}));
 		}
 
 		if (Result)
@@ -1283,6 +1343,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	FImplementation& State = *Implementation;
 	IGraphicsDevice& Device = *State.Device;
+	++State.FrameIndex;
 	const FMatrix4 WorldToClip = View.Projection * View.View;
 	if (View.Meshes.size() != View.Models.size())
 	{
@@ -1932,16 +1993,98 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			return {};
 		}
 
-		const auto Timer = TimedPass("Shadows");
-
-		if (const auto Cleared = Device.ClearTargets({}, State.ShadowAtlas, {}); !Cleared)
+		// A tile keeps last frame's depth while its projection and every caster it saw stay the same.
+		// Casters are keyed by world transform, mesh, and the material inputs the masked shadow shader reads.
+		State.ShadowKeys.resize(State.Shadows.size());
+		std::vector<bool> Stale(State.Shadows.size(), false);
+		std::vector<std::byte>& Key = State.ShadowKeyScratch;
+		const auto Append = [&Key](const std::span<const std::byte> Bytes)
 		{
-			return GraphResult(Cleared);
+			Key.insert(Key.end(), Bytes.begin(), Bytes.end());
+		};
+
+		for (std::size_t ShadowIndex = 0; ShadowIndex < State.Shadows.size(); ++ShadowIndex)
+		{
+			const FShadowView& ShadowView = State.Shadows[ShadowIndex];
+			Key.clear();
+			Append(KeyBytes(ShadowView.WorldToClip));
+			Append(KeyBytes(ShadowView.Viewport));
+			Append(KeyBytes(State.ShadowAtlas.get()));
+			for (std::size_t Model = 0; Model < View.Models.size(); ++Model)
+			{
+				const FRenderMesh* Mesh = View.Meshes[Model];
+				if (!Mesh || !IsVisible(ShadowIndex + 1, Model))
+				{
+					continue;
+				}
+
+				Append(KeyBytes(Mesh));
+				Append(KeyBytes(View.Models[Model]));
+				const auto Overrides = View.Materials.empty() ? std::span<const FRenderMaterial* const>{} : View.Materials[Model];
+				for (const FRenderMesh::FSection& Section : Mesh->Sections)
+				{
+					const FRenderMaterial* Override = Section.Material < Overrides.size() ? Overrides[Section.Material] : nullptr;
+					const FMaterialParameters& Material = Override ? Override->Parameters : Mesh->Materials[Section.Material].Parameters;
+					if (Material.BlendMode != EMaterialBlendMode::Opaque)
+					{
+						Append(KeyBytes(Material.BlendMode));
+						Append(KeyBytes(Material.AlphaCutoff));
+						Append(KeyBytes(Material.BaseColor[3]));
+						Append(KeyBytes(Material.UVScale));
+						Append(KeyBytes(Material.UVOffset));
+						Append(KeyBytes(MaterialTextures(*Mesh, Section, Overrides)[0].get()));
+					}
+				}
+
+				// Deforming meshes change without their transform changing.
+				if (std::ranges::any_of(View.VertexUpdates, [Mesh](const FRenderMeshVertexUpdate& Update)
+				{
+					return Update.Mesh == Mesh;
+				}))
+				{
+					Append(KeyBytes(State.FrameIndex));
+				}
+			}
+
+			if (Key != State.ShadowKeys[ShadowIndex])
+			{
+				Stale[ShadowIndex] = true;
+				State.ShadowKeys[ShadowIndex].swap(Key);
+			}
+		}
+
+		const auto StaleCount = std::ranges::count(Stale, true);
+		if (StaleCount == 0)
+		{
+			return {};
+		}
+
+		const auto Timer = TimedPass("Shadows");
+		if (StaleCount == std::ssize(Stale))
+		{
+			if (const auto Cleared = Device.ClearTargets({}, State.ShadowAtlas, {}); !Cleared)
+			{
+				return GraphResult(Cleared);
+			}
 		}
 
 		for (std::size_t ShadowIndex = 0; ShadowIndex < State.Shadows.size(); ++ShadowIndex)
 		{
 			const FShadowView& ShadowView = State.Shadows[ShadowIndex];
+			if (!Stale[ShadowIndex])
+			{
+				continue;
+			}
+
+			if (StaleCount != std::ssize(Stale))
+			{
+				constexpr std::array<float, 16> Identity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+				if (const auto Cleared = Device.DrawIndexed({.Pipeline = State.ShadowClearPipeline, .Vertices = State.ShadowClearVertices, .Indices = State.FullscreenIndices, .Texture = State.White, .DepthTarget = State.ShadowAtlas, .WorldToClip = Identity, .IndexCount = 6, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport}); !Cleared)
+				{
+					return GraphResult(Cleared);
+				}
+			}
+
 			if (State.InstancedShadowPipeline && State.InstancedPipeline)
 			{
 				const auto Transform = (ShadowView.WorldToClip * FMatrix4(State.Uniforms.ViewToWorld)).Data();
@@ -1995,16 +2138,29 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	const auto LightCount = static_cast<std::size_t>(State.Uniforms.Controls[0]);
 	if (LightCount != 0)
 	{
-		Graph.AddPass("Lights", {{.Resource = LightGrid, .Access = ERenderGraphAccess::Write}}, [&]
+		Graph.AddPass("Lights", {{.Resource = LightGrid, .Access = ERenderGraphAccess::Write}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
-			return GraphResult(Device.WriteBuffer(State.Lights, std::as_bytes(std::span(State.Uniforms.Lights).first(LightCount))));
+			const auto Lights = std::as_bytes(std::span(State.Uniforms.Lights).first(LightCount));
+			if (!UpdateKey(State.LightsKey, {Lights, KeyBytes(State.Lights.get())}))
+			{
+				return {};
+			}
+
+			return GraphResult(Device.WriteBuffer(State.Lights, Lights));
 		});
 	}
 
 	if (State.LightClusterPipeline)
 	{
-		Graph.AddPass("Light clusters", {{.Resource = LightGrid, .Access = ERenderGraphAccess::ReadWrite}}, [&]
+		Graph.AddPass("Light clusters", {{.Resource = LightGrid, .Access = ERenderGraphAccess::ReadWrite}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
+			// The clusters depend only on the lights, the camera, and the tile grid, so a still camera over still lights keeps them.
+			const FVisualUniforms& Uniforms = State.Uniforms;
+			if (!UpdateKey(State.LightClustersKey, {std::as_bytes(std::span(Uniforms.Lights).first(LightCount)), KeyBytes(Uniforms.ViewToWorld), KeyBytes(Uniforms.ClipToView), KeyBytes(Uniforms.Viewport), KeyBytes(Uniforms.LightGrid), KeyBytes(Uniforms.Controls[0]), KeyBytes(State.LightClusters.get())}))
+			{
+				return {};
+			}
+
 			const auto Timer = TimedPass("Light clusters");
 			const std::array Clusters{State.LightClusters};
 			const std::array Sources{State.Lights, State.AllLights};
@@ -2014,10 +2170,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	Graph.AddPass("Clear", {{.Resource = Color, .Access = ERenderGraphAccess::Write}, {.Resource = Depth, .Access = ERenderGraphAccess::Write}}, [&]
 	{
-		auto Result = Device.ClearTargets(MeshColor, FrameDepth, {0.035f, 0.035f, 0.035f, 1.f});
-		if (Result && State.VisualPipelines[0])
+		// The sky pass covers the whole color target, so only depth needs clearing under it.
+		auto Result = Device.ClearTargets(State.VisualPipelines[0] ? FTextureHandle{} : MeshColor, FrameDepth, {0.035f, 0.035f, 0.035f, 1.f});
+		// The table follows only the atmosphere and the sun, not the camera.
+		const FTextureHandle& MultipleScattering = State.SkyMultipleScattering ? State.SkyMultipleScattering : State.White;
+		const FVisualUniforms& Uniforms = State.Uniforms;
+		if (Result && State.VisualPipelines[0] && UpdateKey(State.SkyViewKey, {KeyBytes(Uniforms.Atmosphere), KeyBytes(Uniforms.AtmosphereGeometry), KeyBytes(Uniforms.SunDirection), KeyBytes(Uniforms.SunIlluminance), KeyBytes(Uniforms.SunRadiance), KeyBytes(MultipleScattering.get())}))
 		{
-			const std::array SkySources{State.SkyMultipleScattering ? State.SkyMultipleScattering : State.White};
+			const std::array SkySources{MultipleScattering};
 			Result = Fullscreen(6, State.SkyView, SkySources);
 		}
 
@@ -2310,10 +2470,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			}
 
 			const bool bSmaa = View.Visuals.AntiAliasing != EAntiAliasing::Off;
-			const std::array LutSources{State.White};
-			if (const auto Result = Fullscreen(9, State.ToneMapLut, LutSources); !Result)
+			// The curve depends only on the display's paper white and peak.
+			if (UpdateKey(State.ToneMapLutKey, {KeyBytes(State.Uniforms.Display)}))
 			{
-				return GraphResult(Result);
+				const std::array LutSources{State.White};
+				if (const auto Result = Fullscreen(9, State.ToneMapLut, LutSources); !Result)
+				{
+					return GraphResult(Result);
+				}
 			}
 
 			const std::array ToneSources{State.HdrColor, ExposureSource, State.ToneMapLut, FogSource, State.Depth};
@@ -2557,16 +2721,29 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		return Begin;
 	}
 
+	// A recording that never reached the GPU may have refreshed a cached result, so nothing cached can be trusted afterwards.
+	const auto ResetCaches = [&State]
+	{
+		for (std::vector<std::byte>* Key : {&State.SkyViewKey, &State.ToneMapLutKey, &State.LightsKey, &State.LightClustersKey})
+		{
+			Key->clear();
+		}
+
+		State.ShadowKeys.clear();
+	};
+
 	auto Execution = Graph.Execute();
 	if (!Execution)
 	{
 		Device.CancelCommands();
+		ResetCaches();
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::CommandSubmissionFailed, .Message = Execution.error().Message});
 	}
 
 	auto Submission = Device.SubmitCommands();
 	if (!Submission)
 	{
+		ResetCaches();
 		return std::unexpected(Submission.error());
 	}
 
