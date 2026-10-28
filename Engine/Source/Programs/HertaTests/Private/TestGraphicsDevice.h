@@ -234,5 +234,15 @@ public:
 	{
 		return {Submissions, Submissions, 0};
 	}
+
+	std::expected<void, Herta::FPresentationError> CopyBuffer(const Herta::FBufferHandle&, const Herta::FBufferHandle&) override
+	{
+		return {};
+	}
+
+	std::optional<std::vector<std::byte>> TryReadBuffer(const Herta::FBufferHandle&) override
+	{
+		return std::nullopt;
+	}
 };
 }

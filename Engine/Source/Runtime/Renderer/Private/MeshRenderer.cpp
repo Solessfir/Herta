@@ -13,6 +13,7 @@
 #include <bit>
 #include <cmath>
 #include <cstddef>
+#include <cstring>
 #include <format>
 #include <limits>
 #include <numeric>
@@ -667,6 +668,13 @@ struct FMeshRenderer::FImplementation
 	// Cascade atlas, then local atlas.
 	std::array<FGraphicsPipelineHandle, 2> ShadowClearPipelines;
 	FBufferHandle ShadowClearVertices;
+	// Visible view depth reduced on the GPU and read back a few frames later without stalling, so sun cascades cover only the depth the camera sees.
+	FComputePipelineHandle DepthBoundsPipeline;
+	FBufferHandle DepthBounds;
+	std::array<FBufferHandle, 3> DepthBoundsReadback;
+	std::size_t DepthBoundsFrame = 0;
+	float VisibleNear = 0.f;
+	float VisibleFar = std::numeric_limits<float>::infinity();
 	FVisualUniforms Uniforms;
 	std::vector<FShadowView> Shadows;
 	FGraphicsPipelineHandle Pipeline;
@@ -779,6 +787,30 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 				State->InstancedVelocityPrepassPipeline = std::move(*VelocityPrepass);
 				State->MotionVectorPipeline = std::move(*MotionVectors);
 			}
+		}
+
+		if (!VisualShaders.DepthBoundsCompute.Bytecode.empty())
+		{
+			auto DepthBounds = Device.CreateComputePipeline({.Name = "Depth bounds", .Shader = std::move(VisualShaders.DepthBoundsCompute), .TextureCount = 1, .StorageBufferCount = 1, .UniformBufferSize = VisualUniformBytes});
+			auto Bounds = Device.CreateBuffer({.Name = "Visible depth bounds", .Size = 2 * sizeof(std::uint32_t), .Usage = EBufferUsage::Storage});
+			if (!DepthBounds || !Bounds)
+			{
+				return std::unexpected(!DepthBounds ? DepthBounds.error() : Bounds.error());
+			}
+
+			for (FBufferHandle& Readback : State->DepthBoundsReadback)
+			{
+				auto Created = Device.CreateBuffer({.Name = "Visible depth bounds readback", .Size = 2 * sizeof(std::uint32_t), .Usage = EBufferUsage::Readback});
+				if (!Created)
+				{
+					return std::unexpected(Created.error());
+				}
+
+				Readback = std::move(*Created);
+			}
+
+			State->DepthBoundsPipeline = std::move(*DepthBounds);
+			State->DepthBounds = std::move(*Bounds);
 		}
 	}
 
@@ -1457,7 +1489,25 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	State.Uniforms.Exposure[3] = bAutoExposure && !State.bExposureAdapted ? 1.f : 0.f;
 	State.bExposureAdapted = bAutoExposure;
 
-	State.Shadows = State.ShadowPipeline && View.Visuals.ShadowQuality != EShadowQuality::Off ? BuildShadowViews(State.Uniforms, View.Lights, View.Projection, View.Visuals.ShadowResolution) : std::vector<FShadowView>{};
+	// The slot written two renders ago has usually completed; until one has, the cascades keep the last range they had.
+	if (State.DepthBoundsPipeline)
+	{
+		if (const auto Bytes = Device.TryReadBuffer(State.DepthBoundsReadback[(State.DepthBoundsFrame + 1) % State.DepthBoundsReadback.size()]))
+		{
+			std::array<std::uint32_t, 2> Bits{};
+			std::memcpy(Bits.data(), Bytes->data(), sizeof(Bits));
+			const float Nearest = std::bit_cast<float>(Bits[0]);
+			const float Farthest = std::bit_cast<float>(Bits[1]);
+			// Steps of a quarter octave move the cascades rarely, so their texel grids stay put while the camera moves within a range. The margins cover motion during the readback delay.
+			if (Bits[1] != 0 && std::isfinite(Nearest) && std::isfinite(Farthest) && Nearest > 0.f)
+			{
+				State.VisibleNear = std::exp2(std::floor(std::log2(Nearest * 0.75f) * 4.f) / 4.f);
+				State.VisibleFar = std::exp2(std::ceil(std::log2(Farthest * 1.25f) * 4.f) / 4.f);
+			}
+		}
+	}
+
+	State.Shadows = State.ShadowPipeline && View.Visuals.ShadowQuality != EShadowQuality::Off ? BuildShadowViews(State.Uniforms, View.Lights, View.Projection, View.Visuals.ShadowResolution, State.VisibleNear, State.VisibleFar) : std::vector<FShadowView>{};
 	if (const FExtent2D CascadeExtent = GetCascadeAtlasExtent(View.Visuals.ShadowResolution); !State.Shadows.empty() && State.ShadowAtlas->GetDescriptor().Extent != CascadeExtent)
 	{
 		auto ShadowAtlas = Device.CreateTexture({.Name = "Cascade shadow atlas", .Extent = CascadeExtent, .Format = ETextureFormat::Depth16, .bRenderTarget = true});
@@ -2477,6 +2527,33 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		const auto Timer = TimedPass("PBR meshes");
 		return DrawScene(false, EOcclusionList::Final);
 	});
+
+	// After shading, so the depth of custom-material surfaces counts too. Only the sun's cascades use the result.
+	if (State.DepthBoundsPipeline && std::ranges::any_of(State.Shadows, [](const FShadowView& Shadow)
+	{
+		return Shadow.LightRange == 0.f;
+	}))
+	{
+		Graph.AddPass("Depth bounds", {{.Resource = Depth, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+		{
+			const auto Timer = TimedPass("Depth bounds");
+			constexpr std::array<std::uint32_t, 2> Reset{0xFFFFFFFFu, 0u};
+			auto Result = Device.WriteBuffer(State.DepthBounds, std::as_bytes(std::span{Reset}));
+			if (Result)
+			{
+				const std::array SceneDepth{FrameDepth};
+				const std::array Bounds{State.DepthBounds};
+				Result = Device.Dispatch({.Pipeline = State.DepthBoundsPipeline, .Textures = SceneDepth, .StorageBuffers = Bounds, .Uniforms = GetVisualUniformBytes(State.Uniforms), .GroupCount = {(Extent.Width + 63) / 64, (Extent.Height + 63) / 64, 1}});
+			}
+
+			if (Result)
+			{
+				Result = Device.CopyBuffer(State.DepthBounds, State.DepthBoundsReadback[State.DepthBoundsFrame++ % State.DepthBoundsReadback.size()]);
+			}
+
+			return GraphResult(Result);
+		});
+	}
 
 	// After shading, so custom-material surfaces, which write their own depth, reproject from it too.
 	const auto MotionVectors = Graph.ImportResource("Motion vectors");

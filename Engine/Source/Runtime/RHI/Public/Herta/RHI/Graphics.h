@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -33,7 +34,9 @@ enum class EBufferUsage : std::uint8_t
 	Index,
 	// uint elements that compute shaders read and write, which can also hold indirect dispatch and draw arguments.
 	// With the MeshInstance vertex format they also feed instanced draws, so compute shaders can cull instances.
-	Storage
+	Storage,
+	// CPU-visible uint elements that CopyBuffer fills from a storage buffer, read back without stalling the GPU.
+	Readback
 };
 
 enum class ETextureFormat : std::uint8_t
@@ -328,6 +331,11 @@ public:
 	// Readback is an explicit blocking diagnostic path, never part of interactive rendering.
 	[[nodiscard]] virtual std::expected<std::vector<std::byte>, FPresentationError> ReadbackTexture(const FTextureHandle& Texture) = 0;
 	[[nodiscard]] virtual FGraphicsStatistics GetStatistics() const noexcept = 0;
+
+	// Copies the start of a storage buffer into a readback buffer. TryReadBuffer returns the bytes once the frame that copied them has completed and is empty until then,
+	// so callers keep a few readback buffers in flight and use results a few frames old instead of waiting.
+	[[nodiscard]] virtual std::expected<void, FPresentationError> CopyBuffer(const FBufferHandle& Source, const FBufferHandle& Destination) = 0;
+	[[nodiscard]] virtual std::optional<std::vector<std::byte>> TryReadBuffer(const FBufferHandle& Buffer) = 0;
 	virtual void BeginGpuTiming(std::string_view Name);
 	virtual void EndGpuTiming();
 	virtual std::vector<FGpuPassTiming> GetGpuTimings() const;

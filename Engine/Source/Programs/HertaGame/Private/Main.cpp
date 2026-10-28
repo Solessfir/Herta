@@ -348,6 +348,7 @@ int RunGame(const FGameOptions& Options)
 	    std::pair{"OcclusionCull.comp.hshader", &VisualShaders.OcclusionCullCompute},
 	    std::pair{"TexturedMesh.velocity.frag.hshader", &VisualShaders.DepthVelocityFragment},
 	    std::pair{"MotionVectors.comp.hshader", &VisualShaders.MotionVectorsCompute},
+	    std::pair{"DepthBounds.comp.hshader", &VisualShaders.DepthBoundsCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)

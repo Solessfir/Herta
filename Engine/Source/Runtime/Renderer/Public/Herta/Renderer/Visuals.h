@@ -135,6 +135,8 @@ struct FVisualShaderSet
 	// The instanced depth prepass fragment that writes object motion, and the pass that fills camera motion everywhere else.
 	FShaderAsset DepthVelocityFragment;
 	FShaderAsset MotionVectorsCompute;
+	// Reduces the visible view depth so sun cascades cover only what the camera sees.
+	FShaderAsset DepthBoundsCompute;
 };
 
 struct FShadowView

@@ -69,6 +69,8 @@ struct FBuffer final : IRhiBuffer
 	nvrhi::BufferHandle Handle;
 	bool bInitialized = false;
 	std::uint32_t MaximumIndex = 0;
+	// The frame whose copy filled a readback buffer; zero before any copy completes.
+	std::uint64_t ReadySerial = 0;
 
 	[[nodiscard]] const FBufferDescriptor& GetDescriptor() const noexcept override
 	{
@@ -153,12 +155,14 @@ struct FFrame
 	// NVRHI cannot abandon an open command list. Delay emission until the graph has validated.
 	std::vector<std::function<void(nvrhi::ICommandList*)>> Operations;
 	std::unordered_map<FBuffer*, std::uint32_t> UploadedBuffers;
+	std::vector<FBuffer*> CopiedBuffers;
 	std::unordered_map<FTexture*, std::uint32_t> WrittenTextures;
 
 	void Reset()
 	{
 		Operations.clear();
 		UploadedBuffers.clear();
+		CopiedBuffers.clear();
 		WrittenTextures.clear();
 		Framebuffers.clear();
 		BindingSets.clear();
@@ -222,6 +226,25 @@ public:
 
 	[[nodiscard]] std::expected<FBufferHandle, FPresentationError> CreateBuffer(const FBufferDescriptor& Descriptor) override
 	{
+		if (Descriptor.Usage == EBufferUsage::Readback)
+		{
+			if (Descriptor.Size == 0 || Descriptor.Size > MaximumUploadBytes || Descriptor.Size % sizeof(std::uint32_t) != 0)
+			{
+				return Invalid("Readback buffer size must hold whole uints and fit 64 MiB");
+			}
+
+			auto Buffer = std::make_shared<FBuffer>();
+			Buffer->Descriptor = Descriptor;
+			Buffer->Owner = Owner;
+			Buffer->Handle = Device->createBuffer(nvrhi::BufferDesc().setByteSize(Descriptor.Size).setDebugName(Descriptor.Name).setCpuAccess(nvrhi::CpuAccessMode::Read).enableAutomaticStateTracking(nvrhi::ResourceStates::CopyDest));
+			if (!Buffer->Handle)
+			{
+				return Failed("Could not create readback buffer '" + Descriptor.Name + "'");
+			}
+
+			return Buffer;
+		}
+
 		if (Descriptor.Usage == EBufferUsage::Storage)
 		{
 			const bool bInstances = Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance;
@@ -584,7 +607,7 @@ public:
 		// Storage buffers may reset just a header, such as a counter, ahead of the elements the GPU fills.
 		const bool bInstances = Owns(Native) && Native->Descriptor.Usage != EBufferUsage::Index && Native->Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance;
 		const bool bPartial = Owns(Native) && (bInstances || Native->Descriptor.Usage == EBufferUsage::Storage);
-		if (!Owns(Native) || (bPartial ? Data.empty() || Data.size() > Native->Descriptor.Size || Data.size() % sizeof(std::uint32_t) != 0 : Data.size() != Native->Descriptor.Size))
+		if (!Owns(Native) || Native->Descriptor.Usage == EBufferUsage::Readback || (bPartial ? Data.empty() || Data.size() > Native->Descriptor.Size || Data.size() % sizeof(std::uint32_t) != 0 : Data.size() != Native->Descriptor.Size))
 		{
 			return Invalid("Buffer upload must fully initialize a buffer belonging to this device");
 		}
@@ -1122,6 +1145,11 @@ public:
 			Texture->bInitialized = Texture->WrittenMips == AllMips(*Texture);
 		}
 
+		for (FBuffer* const Buffer : Frame.CopiedBuffers)
+		{
+			Buffer->ReadySerial = Frame.Serial;
+		}
+
 		LastSubmittedSerial = Frame.Serial;
 		FrameIndex = (FrameIndex + 1) % Frames.size();
 		return LastSubmittedSerial;
@@ -1199,6 +1227,49 @@ public:
 
 		Device->unmapStagingTexture(Staging);
 		return Pixels;
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> CopyBuffer(const FBufferHandle& Source, const FBufferHandle& Destination) override
+	{
+		const auto NativeSource = std::dynamic_pointer_cast<FBuffer>(Source);
+		const auto NativeDestination = std::dynamic_pointer_cast<FBuffer>(Destination);
+		FFrame& Frame = Frames[FrameIndex];
+		if (!Owns(NativeSource) || !Owns(NativeDestination) || NativeSource->Descriptor.Usage != EBufferUsage::Storage || NativeDestination->Descriptor.Usage != EBufferUsage::Readback || NativeDestination->Descriptor.Size > NativeSource->Descriptor.Size || (!NativeSource->bInitialized && !Frame.UploadedBuffers.contains(NativeSource.get())))
+		{
+			return Invalid("Buffer copies read an initialized storage buffer into a smaller or equal readback buffer of this device");
+		}
+
+		if (const auto Ready = CanRecord(); !Ready)
+		{
+			return Ready;
+		}
+
+		Frame.Operations.emplace_back([NativeSource, NativeDestination](nvrhi::ICommandList* const Commands)
+		{
+			Commands->copyBuffer(NativeDestination->Handle, 0, NativeSource->Handle, 0, NativeDestination->Descriptor.Size);
+		});
+
+		Frame.CopiedBuffers.push_back(NativeDestination.get());
+		return {};
+	}
+
+	[[nodiscard]] std::optional<std::vector<std::byte>> TryReadBuffer(const FBufferHandle& Buffer) override
+	{
+		const auto Native = std::dynamic_pointer_cast<FBuffer>(Buffer);
+		if (!Owns(Native) || Native->Descriptor.Usage != EBufferUsage::Readback || Native->ReadySerial == 0 || GetStatistics().CompletedSerial < Native->ReadySerial)
+		{
+			return std::nullopt;
+		}
+
+		const auto* const Mapped = static_cast<const std::byte*>(Device->mapBuffer(Native->Handle, nvrhi::CpuAccessMode::Read));
+		if (!Mapped)
+		{
+			return std::nullopt;
+		}
+
+		std::vector<std::byte> Bytes(Mapped, Mapped + Native->Descriptor.Size);
+		Device->unmapBuffer(Native->Handle);
+		return Bytes;
 	}
 
 	[[nodiscard]] FGraphicsStatistics GetStatistics() const noexcept override

@@ -1010,9 +1010,18 @@ namespace
 			return std::unexpected(Reference.error());
 		}
 
-		if (const auto Rendered = (*Reference)->Render(Extent, View); !Rendered)
+		// Sun cascades fit the depth read back two renders earlier, so the fresh renderer needs three completed frames to match the one under test.
+		for (int Frame = 0; Frame < 3; ++Frame)
 		{
-			return Rendered;
+			if (const auto Rendered = (*Reference)->Render(Extent, View); !Rendered)
+			{
+				return Rendered;
+			}
+
+			if (const auto Idle = Device.WaitForIdle(); !Idle)
+			{
+				return Idle;
+			}
 		}
 
 		const auto ReferenceImage = Device.ReadbackTexture((*Reference)->GetColorTarget());
