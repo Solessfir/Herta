@@ -2,6 +2,7 @@
 [[vk::binding(0, 0)]] Texture2D<float4> DepthTexture;
 [[vk::binding(1, 0)]] Texture2D<float4> ShadowAtlas;
 [[vk::binding(2, 0)]] Texture2D<float4> DiffuseEnvironment;
+[[vk::binding(3, 0)]] Texture2D<uint> LightClusters;
 
 [shader("fragment")]
 float4 fragmentMain(FFullscreenOutput Input) : SV_Target
@@ -29,9 +30,9 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
         float3 Incoming = Ambient;
         if (Visual.Controls.w > 0.0)
         {
-            for (int I = 0; I < int(Visual.Controls.x); ++I)
+            for (uint Mask = LightMask(LightClusters, Input.UV * Visual.Viewport.zw, Position); Mask != 0; Mask &= Mask - 1)
             {
-                FVisualLight Light = Visual.Lights[I];
+                FVisualLight Light = Visual.Lights[firstbitlow(Mask)];
                 if (int(Light.PositionType.w) == 1) continue;
                 float3 L;
                 float Attenuation = LightAttenuation(Light, Position, L);

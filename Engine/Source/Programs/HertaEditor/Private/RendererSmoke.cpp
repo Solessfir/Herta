@@ -1363,10 +1363,10 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	auto Texture = Device.CreateTexture({.Name = "Depth test colors", .Extent = {.Width = 2, .Height = 1}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = false});
 	auto Color = Device.CreateTexture({.Name = "Depth test color", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
 	auto Depth = Device.CreateTexture({.Name = "Depth test depth", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 12, .UniformBufferSize = sizeof(FVisualUniforms)});
-	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 12, .UniformBufferSize = sizeof(FVisualUniforms)});
+	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 13, .UniformBufferSize = sizeof(FVisualUniforms)});
+	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 13, .UniformBufferSize = sizeof(FVisualUniforms)});
 	const auto ShadowDepth = Device.CreateTexture({.Name = "Depth-only sampled atlas regression", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 12, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthOnly = true});
+	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 13, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthOnly = true});
 	auto Instances = Device.CreateBuffer({.Name = "Instance validation transforms", .Size = 2 * sizeof(FMeshInstance), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
 	if (!Near)
 	{
@@ -1413,7 +1413,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(!ShadowDepth ? ShadowDepth.error() : ShadowPipeline.error());
 	}
 
-	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 12, .UniformBufferSize = 16}))
+	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 13, .UniformBufferSize = 16}))
 	{
 		return Failure("Pipeline accepted a uniform block smaller than its shader reflection");
 	}
@@ -1440,14 +1440,29 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		Result = Device.WriteTexture(*Texture, 0, std::as_bytes(std::span(Texels)));
 	}
 
+	// The mesh shader reads light cluster bits as uints, so that slot needs an integer texture.
+	auto AllLights = Device.CreateTexture({.Name = "Depth test lights", .Extent = {.Width = 1, .Height = 1}, .Format = ETextureFormat::R32Uint});
+	if (!AllLights)
+	{
+		Device.CancelCommands();
+		return std::unexpected(AllLights.error());
+	}
+
+	if (Result)
+	{
+		constexpr std::uint32_t Bits = ~0u;
+		Result = Device.WriteTexture(*AllLights, 0, std::as_bytes(std::span{&Bits, 1}));
+	}
+
 	if (Result)
 	{
 		Result = Device.ClearTargets(*Color, *Depth, {0, 0, 0, 1});
 	}
 
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.f, 1, 0.1f);
-	std::array<FTextureHandle, 12> Textures;
+	std::array<FTextureHandle, 13> Textures;
 	std::ranges::fill(Textures, *Texture);
+	Textures[12] = *AllLights;
 	FVisualUniforms Uniforms;
 	Uniforms.ViewToWorld = FMatrix4{}.Data();
 	Uniforms.Material.TextureFlags[0] = 1.f;

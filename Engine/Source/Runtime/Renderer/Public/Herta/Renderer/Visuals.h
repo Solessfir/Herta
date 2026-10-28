@@ -9,6 +9,9 @@
 namespace Herta
 {
 inline constexpr std::size_t MaximumRenderLights = 32;
+// Light clusters are 64-pixel tiles by exponential depth slices from 0.1 to 500 m. Keep the slice count in sync with VisualShared.slangh.
+inline constexpr std::uint32_t LightClusterTileSize = 64;
+inline constexpr std::uint32_t LightClusterSlices = 24;
 inline constexpr std::size_t MaximumRenderShadows = 16;
 
 // One directional light owns four 2048 cascades in the top 4096x4096 of the atlas; local lights share sixteen 512 tiles in the strip below.
@@ -105,6 +108,7 @@ struct FVisualShaderSet
 	// Without both, SMAA uses the full-screen edge and weight passes.
 	FShaderAsset SmaaEdgeListCompute;
 	FShaderAsset SmaaEdgeWeightsCompute;
+	FShaderAsset LightClustersCompute;
 };
 
 struct FShadowView
@@ -174,6 +178,8 @@ struct alignas(16) FVisualUniforms
 	std::array<float, 4> Display{};
 	// x is 1 when the mesh pass reads screen-space ambient occlusion and bent normals.
 	std::array<float, 4> Occlusion{};
+	// Tile size in pixels, slice = log2(ViewZ) * y + z, and tiles across. Zero tile size means no clusters, so every pixel sees every light.
+	std::array<float, 4> LightGrid{};
 	std::array<FVisualLightUniform, MaximumRenderLights> Lights{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};
 	FMaterialUniform Material{};

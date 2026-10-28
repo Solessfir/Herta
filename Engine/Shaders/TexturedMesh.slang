@@ -15,6 +15,7 @@ struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToVie
 [[vk::binding(10, 0)]] Texture2D<float4> LtcAmplitude;
 // View-space bent normal in rgb and visibility in a, from the GTAO compute passes.
 [[vk::binding(11, 0)]] Texture2D<float4> ScreenOcclusion;
+[[vk::binding(12, 0)]] Texture2D<uint> LightClusters;
 
 struct FVertexOutput
 {
@@ -178,9 +179,9 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     if ((Flags & 32u) != 0u) Emissive *= EmissiveTexture.Sample(LinearSampler, Input.UV).rgb;
     float3 V = normalize(mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz - Input.WorldPosition);
     float3 Result = Emissive;
-    for (int I = 0; I < int(Visual.Controls.x); ++I)
+    for (uint Mask = LightMask(LightClusters, Input.Position.xy, Input.WorldPosition); Mask != 0; Mask &= Mask - 1)
     {
-        FVisualLight Light = Visual.Lights[I];
+        FVisualLight Light = Visual.Lights[firstbitlow(Mask)];
         if (int(Light.PositionType.w) == 1) continue;
         float3 Radiance;
         if (int(Light.PositionType.w) == 4)

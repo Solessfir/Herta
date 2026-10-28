@@ -44,6 +44,7 @@ struct FVisualUniforms
     float4 Exposure;
     float4 Display;
     float4 Occlusion;
+    float4 LightGrid;
     FVisualLight Lights[32];
     FShadow Shadows[16];
     FMaterial Material;
@@ -57,6 +58,25 @@ float2 DirectionUV(float3 Direction)
 {
     Direction = normalize(Direction);
     return float2(frac(atan2(Direction.z, Direction.x) / (2.0 * PI) + 0.5), acos(clamp(Direction.y, -1.0, 1.0)) / PI);
+}
+
+// Keep in sync with LightClusterSlices in Visuals.h.
+static const uint LightClusterSlices = 24;
+
+// The lights that can reach Position, as bits, from the cluster under Pixel. Without clusters every light is set.
+uint LightMask(Texture2D<uint> Clusters, float2 Pixel, float3 Position)
+{
+    uint Count = uint(Visual.Controls.x);
+    uint All = Count >= 32 ? 0xFFFFFFFFu : (1u << Count) - 1u;
+    if (Visual.LightGrid.x <= 0.0)
+        return All;
+
+    float3 Eye = mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float3 Forward = mul((float3x3)Visual.ViewToWorld, float3(0.0, 0.0, 1.0));
+    float ViewZ = max(dot(Position - Eye, Forward), 1e-4);
+    int Slice = clamp(int(floor(log2(ViewZ) * Visual.LightGrid.y + Visual.LightGrid.z)), 0, int(LightClusterSlices) - 1);
+    int2 Tile = int2(Pixel / Visual.LightGrid.x);
+    return Clusters.Load(int3(Slice * int(Visual.LightGrid.w) + Tile.x, Tile.y, 0)) & All;
 }
 
 float3 CameraRay(float2 UV)

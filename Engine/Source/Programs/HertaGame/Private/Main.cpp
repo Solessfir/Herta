@@ -339,6 +339,7 @@ int RunGame(const FGameOptions& Options)
 	    std::pair{"GtaoDenoise.comp.hshader", &VisualShaders.GtaoDenoiseCompute},
 	    std::pair{"SmaaEdgeList.comp.hshader", &VisualShaders.SmaaEdgeListCompute},
 	    std::pair{"SmaaEdgeWeights.comp.hshader", &VisualShaders.SmaaEdgeWeightsCompute},
+	    std::pair{"LightClusters.comp.hshader", &VisualShaders.LightClustersCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)

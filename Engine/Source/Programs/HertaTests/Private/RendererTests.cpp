@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <numbers>
@@ -430,8 +431,8 @@ TEST_CASE("Render meshes draw each section with its texture and upload within th
 	CHECK(Device.Draws[0].FirstIndex == 0);
 	CHECK(Device.Draws[1].FirstIndex == 3);
 	CHECK(Device.Draws[1].IndexCount == 3);
-	REQUIRE(Device.Draws[0].Textures.size() == 12);
-	REQUIRE(Device.Draws[1].Textures.size() == 12);
+	REQUIRE(Device.Draws[0].Textures.size() == 13);
+	REQUIRE(Device.Draws[1].Textures.size() == 13);
 	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
 	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().MipLevels == Large.Mips.size());
 	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().Format == Herta::ETextureFormat::Rgba8);
@@ -624,8 +625,8 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	CHECK(Device.Draws[1].FirstInstance == 0);
 	CHECK(Device.Draws[1].InstanceCount == 2);
 	CHECK(Device.Draws[1].FirstIndex == 18);
-	REQUIRE(Device.Draws[0].Textures.size() == 12);
-	REQUIRE(Device.Draws[1].Textures.size() == 12);
+	REQUIRE(Device.Draws[0].Textures.size() == 13);
+	REQUIRE(Device.Draws[1].Textures.size() == 13);
 	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
 	CHECK(Device.Draws[2].FirstInstance == 2);
 	CHECK(Device.Draws[2].InstanceCount == 1);
@@ -697,6 +698,58 @@ TEST_CASE("Screen occlusion runs its compute passes between the depth prepass an
 		REQUIRE(PipelineDraws("PBR reversed-Z").size() == 1);
 		CHECK(TextureName(*PipelineDraws("PBR reversed-Z")[0]) == "Default material map");
 	}
+}
+
+TEST_CASE("Light clusters are built before any mesh pass binds them")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.ShadowFragment, &Visuals.LightClustersCompute})
+	{
+		Shader->Bytecode = {1};
+	}
+
+	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	REQUIRE(Renderer);
+	REQUIRE((*Renderer)->Render({1000, 600}, Scene.View));
+	REQUIRE_FALSE(Device.Dispatches.empty());
+	CHECK(Device.Dispatches.front() == "Light clusters");
+	const auto FirstDispatch = std::ranges::find(Device.Events, "Dispatch");
+	REQUIRE(FirstDispatch != Device.Events.end());
+	CHECK(std::ranges::count(Device.Events.begin(), FirstDispatch, "Draw") == 0);
+
+	// 16 by 10 tiles of 64 pixels, with every depth slice side by side.
+	const auto Clusters = std::ranges::find(Device.TextureDescriptors, "Light clusters", &FTextureDescriptor::Name);
+	REQUIRE(Clusters != Device.TextureDescriptors.end());
+	CHECK(Clusters->Extent == FExtent2D{16 * LightClusterSlices, 10});
+	const auto ShadedDraw = [&Device]
+	{
+		return *std::ranges::find_if(Device.Draws, [](const FIndexedDraw& Draw)
+		{
+			return std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor.Name == "PBR reversed-Z";
+		});
+	};
+
+	const FIndexedDraw Shaded = ShadedDraw();
+	REQUIRE(Shaded.Textures.size() == 13);
+	CHECK(Shaded.Textures[12]->GetDescriptor().Name == "Light clusters");
+	FVisualUniforms Uniforms;
+	REQUIRE(Shaded.Uniforms.size() == sizeof(Uniforms));
+	std::memcpy(&Uniforms, Shaded.Uniforms.data(), sizeof(Uniforms));
+	CHECK(Uniforms.LightGrid[0] == 64.f);
+	CHECK(Uniforms.LightGrid[3] == 16.f);
+	// 0.1 m starts slice 0 and 500 m ends the last one.
+	CHECK(std::log2(0.1f) * Uniforms.LightGrid[1] + Uniforms.LightGrid[2] == doctest::Approx(0.f).epsilon(1e-4));
+	CHECK(std::log2(500.f) * Uniforms.LightGrid[1] + Uniforms.LightGrid[2] == doctest::Approx(static_cast<float>(LightClusterSlices)));
+
+	// Renderers without the cluster shader bind a texel with every light set and leave the grid off.
+	const auto Plain = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {});
+	REQUIRE(Plain);
+	Device.Draws.clear();
+	REQUIRE((*Plain)->Render({64, 64}, Scene.View));
+	CHECK(ShadedDraw().Textures[12]->GetDescriptor().Name == "Unculled lights");
 }
 
 TEST_CASE("Compute SMAA lists edge pixels and runs the weight pass indirectly")

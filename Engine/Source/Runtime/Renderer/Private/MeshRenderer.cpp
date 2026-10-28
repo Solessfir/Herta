@@ -27,7 +27,7 @@ namespace
 constexpr std::array<std::uint32_t, 6> GridIndices{0, 1, 2, 0, 2, 3};
 constexpr float GridHalfExtent = 216.f;
 // Material maps, environment, shadow atlas, and the two Rect light LTC tables, matching TexturedMesh.slang.
-constexpr std::uint32_t MeshTextureCount = 12;
+constexpr std::uint32_t MeshTextureCount = 13;
 
 static_assert(sizeof(FCookedVertex) == sizeof(FMeshVertex) && offsetof(FCookedVertex, Position) == offsetof(FMeshVertex, Position) && offsetof(FCookedVertex, UV) == offsetof(FMeshVertex, UV), "Cooked vertices upload directly as RHI mesh vertices");
 
@@ -512,6 +512,10 @@ struct FMeshRenderer::FImplementation
 	std::array<FComputePipelineHandle, 2> SmaaPipelines;
 	FBufferHandle SmaaEdgePixels;
 	FBufferHandle SmaaArguments;
+	FComputePipelineHandle LightClusterPipeline;
+	FTextureHandle LightClusters;
+	// One texel with every light bit set, bound when there are no clusters.
+	FTextureHandle AllLights;
 	// Adaptation reads last frame's exposure and writes this frame's, alternating between the two.
 	std::array<FTextureHandle, 2> ExposureStates;
 	std::size_t ExposureStateIndex = 0;
@@ -680,6 +684,13 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	State->DisplayPipelines[0] = std::move(*DisplayPipelines);
 
 	auto White = Device.CreateTexture({.Name = "Default material map", .Extent = {1, 1}, .Format = ETextureFormat::Rgba8});
+	auto AllLights = Device.CreateTexture({.Name = "Unculled lights", .Extent = {1, 1}, .Format = ETextureFormat::R32Uint});
+	if (!AllLights)
+	{
+		return std::unexpected(AllLights.error());
+	}
+
+	State->AllLights = std::move(*AllLights);
 	auto ShadowAtlas = Device.CreateTexture({.Name = "Shadow atlas", .Extent = {ShadowAtlasWidth, ShadowAtlasHeight}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
 	auto LtcMatrix = Device.CreateTexture({.Name = "Rect light LTC matrix", .Extent = {64, 64}, .Format = ETextureFormat::Rgba32Float});
 	auto LtcAmplitude = Device.CreateTexture({.Name = "Rect light LTC amplitude", .Extent = {64, 64}, .Format = ETextureFormat::Rgba32Float});
@@ -702,7 +713,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	if (!VisualShaders.FullscreenVertex.Bytecode.empty())
 	{
 		std::array<FShaderAsset, 11> Fragments{std::move(VisualShaders.SkyFragment), std::move(VisualShaders.FogFragment), FShaderAsset{}, std::move(VisualShaders.SmaaEdges), std::move(VisualShaders.SmaaWeights), FShaderAsset{}, std::move(VisualShaders.SkyViewFragment), std::move(VisualShaders.ExposureMeterFragment), std::move(VisualShaders.ExposureAdaptFragment), std::move(VisualShaders.ToneMapLutFragment), std::move(VisualShaders.ExposureHistogramFragment)};
-		constexpr std::array<std::uint32_t, 11> TextureCounts{2, 3, 5, 1, 3, 2, 1, 2, 2, 1, 1};
+		constexpr std::array<std::uint32_t, 11> TextureCounts{2, 4, 5, 1, 3, 2, 1, 2, 2, 1, 1};
 		constexpr std::array<std::string_view, 11> Names{"Sky", "Volumetric fog", "Fog, exposure and tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation", "Tone map LUT", "Exposure histogram"};
 		constexpr std::array Formats{ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba8, ETextureFormat::Rgba8, ETextureFormat::Rgba8Srgb, ETextureFormat::Rgba16Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float, ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float};
 		for (std::size_t Index = 0; Index < Fragments.size(); ++Index)
@@ -739,6 +750,17 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 		State->ShadowPipeline = std::move(*ShadowPipeline);
 		State->InstancedShadowPipeline = std::move(*InstancedShadowPipeline);
+		if (!VisualShaders.LightClustersCompute.Bytecode.empty())
+		{
+			auto Clusters = Device.CreateComputePipeline({.Name = "Light clusters", .Shader = std::move(VisualShaders.LightClustersCompute), .StorageTextureCount = 1, .UniformBufferSize = sizeof(FVisualUniforms)});
+			if (!Clusters)
+			{
+				return std::unexpected(Clusters.error());
+			}
+
+			State->LightClusterPipeline = std::move(*Clusters);
+		}
+
 		if (!VisualShaders.SmaaEdgeListCompute.Bytecode.empty() && !VisualShaders.SmaaEdgeWeightsCompute.Bytecode.empty())
 		{
 			auto EdgeList = Device.CreateComputePipeline({.Name = "SMAA edges", .Shader = std::move(VisualShaders.SmaaEdgeListCompute), .TextureCount = 1, .StorageTextureCount = 1, .StorageBufferCount = 2, .UniformBufferSize = sizeof(FVisualUniforms), .bLinearSampler = true});
@@ -850,6 +872,11 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 	if (Result)
 	{
 		Result = Device.WriteTexture(State->White, 0, WhitePixel);
+	}
+
+	if (Result)
+	{
+		Result = Device.WriteTexture(State->AllLights, 0, WhitePixel);
 	}
 
 	if (Result)
@@ -1468,6 +1495,28 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	State.Uniforms.Occlusion[0] = bScreenOcclusion ? 1.f : 0.f;
+	const FExtent2D LightTiles{(Extent.Width + LightClusterTileSize - 1) / LightClusterTileSize, (Extent.Height + LightClusterTileSize - 1) / LightClusterTileSize};
+	const FExtent2D ClusterExtent{LightTiles.Width * LightClusterSlices, LightTiles.Height};
+	if (State.LightClusterPipeline && (!State.LightClusters || State.LightClusters->GetDescriptor().Extent != ClusterExtent))
+	{
+		auto Clusters = Device.CreateTexture({.Name = "Light clusters", .Extent = ClusterExtent, .Format = ETextureFormat::R32Uint, .bStorage = true});
+		if (!Clusters)
+		{
+			return std::unexpected(Clusters.error());
+		}
+
+		State.LightClusters = std::move(*Clusters);
+	}
+
+	const FTextureHandle LightClusters = State.LightClusterPipeline ? State.LightClusters : State.AllLights;
+	if (State.LightClusterPipeline)
+	{
+		constexpr float NearSlice = 0.1f;
+		constexpr float FarSlice = 500.f;
+		const float SliceScale = static_cast<float>(LightClusterSlices) / std::log2(FarSlice / NearSlice);
+		State.Uniforms.LightGrid = {static_cast<float>(LightClusterTileSize), SliceScale, -std::log2(NearSlice) * SliceScale, static_cast<float>(LightTiles.Width)};
+	}
+
 	const FTextureHandle MeshColor = State.HdrColor ? State.HdrColor : State.Color;
 	const auto MaterialTextures = [&](const FRenderMesh& Mesh, const FRenderMesh::FSection& Section, const std::span<const FRenderMaterial* const> Overrides)
 	{
@@ -1505,6 +1554,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		Textures[10] = State.LtcAmplitude;
 		// Only the PBR pass reads screen occlusion; earlier passes run before it is written.
 		Textures[11] = State.White;
+		Textures[12] = LightClusters;
 		return Textures;
 	};
 
@@ -1653,6 +1703,17 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		return {};
 	});
 
+	const auto LightGrid = Graph.ImportResource("Light clusters");
+	if (State.LightClusterPipeline)
+	{
+		Graph.AddPass("Light clusters", {{.Resource = LightGrid, .Access = ERenderGraphAccess::Write}}, [&]
+		{
+			const auto Timer = TimedPass("Light clusters");
+			const std::array Clusters{FStorageTextureBinding{.Texture = State.LightClusters}};
+			return GraphResult(Device.Dispatch({.Pipeline = State.LightClusterPipeline, .StorageTextures = Clusters, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1}), .GroupCount = {(LightTiles.Width + 3) / 4, (LightTiles.Height + 3) / 4, LightClusterSlices / 4}}));
+		});
+	}
+
 	Graph.AddPass("Clear", {{.Resource = Color, .Access = ERenderGraphAccess::Write}, {.Resource = Depth, .Access = ERenderGraphAccess::Write}}, [&]
 	{
 		auto Result = Device.ClearTargets(MeshColor, FrameDepth, {0.035f, 0.035f, 0.035f, 1.f});
@@ -1749,7 +1810,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	if (State.DepthPrepassPipeline)
 	{
-		Graph.AddPass("Depth prepass", {{.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+		Graph.AddPass("Depth prepass", {{.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
 			const auto Timer = TimedPass("Depth prepass");
 			return DrawScene(true);
@@ -1801,7 +1862,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		});
 	}
 
-	Graph.AddPass("PBR meshes", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = Shadow, .Access = ERenderGraphAccess::Read}, {.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+	Graph.AddPass("PBR meshes", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = Shadow, .Access = ERenderGraphAccess::Read}, {.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 	{
 		const auto Timer = TimedPass("PBR meshes");
 		return DrawScene(false);
@@ -1815,7 +1876,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			FTextureHandle FogSource = State.White;
 			if (State.Uniforms.Fog[0] > 0.f)
 			{
-				const std::array FogSources{State.Depth, State.ShadowAtlas, State.EnvironmentDiffuse};
+				const std::array FogSources{State.Depth, State.ShadowAtlas, State.EnvironmentDiffuse, LightClusters};
 				if (const auto Result = Fullscreen(1, State.FogColor, FogSources); !Result)
 				{
 					return GraphResult(Result);

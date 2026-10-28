@@ -39,7 +39,8 @@ enum class ETextureFormat : std::uint8_t
 	Depth32,
 	Rgba16Float,
 	Rgba32Float,
-	R32Float
+	R32Float,
+	R32Uint
 };
 
 [[nodiscard]] constexpr std::size_t GetTextureTexelBytes(const ETextureFormat Format) noexcept
@@ -50,6 +51,7 @@ enum class ETextureFormat : std::uint8_t
 		case ETextureFormat::Rgba8Srgb:
 		case ETextureFormat::Depth32:
 		case ETextureFormat::R32Float:
+		case ETextureFormat::R32Uint:
 			return 4;
 		case ETextureFormat::Rgba16Float:
 			return 8;

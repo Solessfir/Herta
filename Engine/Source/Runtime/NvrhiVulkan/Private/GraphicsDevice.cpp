@@ -51,6 +51,8 @@ constexpr std::size_t MaximumGpuPassTimings = 32;
 			return nvrhi::Format::RGBA32_FLOAT;
 		case ETextureFormat::R32Float:
 			return nvrhi::Format::R32_FLOAT;
+		case ETextureFormat::R32Uint:
+			return nvrhi::Format::R32_UINT;
 	}
 
 	return nvrhi::Format::UNKNOWN;
@@ -268,8 +270,9 @@ public:
 			return Invalid("Texture mip levels must fit the extent, and render targets have exactly one level");
 		}
 
-		const nvrhi::FormatSupport Required = nvrhi::FormatSupport::Texture | nvrhi::FormatSupport::ShaderSample | (bDepth ? nvrhi::FormatSupport::DepthStencil : Descriptor.bRenderTarget ? nvrhi::FormatSupport::RenderTarget
-		                                                                                                                                                                                   : nvrhi::FormatSupport::None)
+		// Integer textures are read with Load, which needs no filtering support.
+		const nvrhi::FormatSupport Required = nvrhi::FormatSupport::Texture | (Descriptor.Format == ETextureFormat::R32Uint ? nvrhi::FormatSupport::ShaderLoad : nvrhi::FormatSupport::ShaderSample) | (bDepth ? nvrhi::FormatSupport::DepthStencil : Descriptor.bRenderTarget ? nvrhi::FormatSupport::RenderTarget
+		                                                                                                                                                                                                                                                                       : nvrhi::FormatSupport::None)
 		                                      | (Descriptor.bStorage ? nvrhi::FormatSupport::ShaderUavStore : nvrhi::FormatSupport::None);
 		if ((Device->queryFormatSupport(Format) & Required) != Required)
 		{
@@ -445,7 +448,7 @@ public:
 				case EShaderBindingType::Texture:
 					return Binding.Binding < Descriptor.TextureCount;
 				case EShaderBindingType::Sampler:
-					return Binding.Binding == 128 && Descriptor.TextureCount != 0;
+					return Binding.Binding == 128;
 				case EShaderBindingType::ConstantBuffer:
 					return Binding.Binding == 64 && Binding.ByteSize <= Descriptor.UniformBufferSize;
 				case EShaderBindingType::StorageTexture:
@@ -477,7 +480,13 @@ public:
 			Layout.addItem(nvrhi::BindingLayoutItem::Texture_SRV(Slot));
 		}
 
-		if (Descriptor.TextureCount != 0)
+		// Shared shader headers can declare the sampler in shaders that sample nothing.
+		const bool bSampler = Descriptor.TextureCount != 0 || std::ranges::any_of(Shader.Bindings, [](const FShaderBinding& Binding)
+		{
+			return Binding.Type == EShaderBindingType::Sampler;
+		});
+
+		if (bSampler)
 		{
 			Layout.addItem(nvrhi::BindingLayoutItem::Sampler(0));
 			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(Descriptor.bLinearSampler).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
@@ -503,7 +512,7 @@ public:
 			Pipeline->Layout = Device->createBindingLayout(Layout);
 		}
 
-		if (!Module || (!Layout.bindings.empty() && !Pipeline->Layout) || (Descriptor.TextureCount != 0 && !Pipeline->Sampler))
+		if (!Module || (!Layout.bindings.empty() && !Pipeline->Layout) || (bSampler && !Pipeline->Sampler))
 		{
 			return Failed("Could not create compute shader, layout, or sampler for '" + Descriptor.Name + "'");
 		}
