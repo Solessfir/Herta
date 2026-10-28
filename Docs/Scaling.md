@@ -85,6 +85,17 @@ Windows capture on 2026-10-11, same machine and settings, after per-view culling
 
 The all-selected phase had been failing since Milestone 4.5 grew the visual uniforms. It drew one selection outline per object and exceeded the 4 MiB per-frame uniform budget. The outline now draws the visible selection as one instanced draw per batch. Logs are under `TestResults/Scaling/20261011-192302-555`.
 
+Windows capture on 2026-10-29, same machine and settings, after the Milestone 6 renderer work (GTAO, clustered lights, compute SMAA, fog, and exposure, quality tiers, and the shadow changes):
+
+| Fixture | Phase | CPU median / p95 / p99 (ms) | Render submission median (ms) |
+| --- | --- | --- | ---: |
+| 1,000 rendering | rendering | 1.369 / 1.769 / 1.800 | |
+| 10,000 rendering | rendering | 2.906 / 3.201 / 3.501 | 1.701 |
+| 10,000 rendering | all selected | 10.007 / 10.715 / 11.084 | 2.903 |
+| 10,000 dynamic | simulation | 15.967 / 19.724 / 20.399 | 2.846 |
+
+Every capture completed, including exact authored-pose restoration after simulation, and wrote empty error logs. Logs are under `TestResults/Scaling/20261029-000059-686`. Against 2026-10-11, inspector and simulation times are unchanged within noise, but CPU render submission grew from 1.351 to 1.701 ms when rendering and from 1.983 to 2.903 ms with everything selected. These fixtures have no shadow-casting lights, so the shadow caches do not run in them; the growth is CPU recording of the passes Milestone 6 added. It has not been attributed per pass yet: profile CPU recording at 10,000 objects, or bisect the Milestone 6 commits, before optimizing it.
+
 Native readback compares instanced and single-draw rendering across two frames with multiple meshes, nonzero instance offsets, rotation, nonuniform and mirrored scale. Both frames matched exactly, with zero differing pixels.
 
 Windows ClangCL and MSVC Shipping rebuilds passed with zero warnings. Each passed 385 test cases and 189,959 assertions, with one skipped case. Cppcheck passed for the changed modules, and Windows/Linux package tests include the instanced shader. A native early-close probe returned failure as required.
