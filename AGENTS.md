@@ -70,6 +70,7 @@ Do not preserve obsolete compatibility paths merely because an earlier unshipped
 - Write float literals without trailing zeros in the fraction: `1.f`, `0.5f`, `10.f`, not `1.0f`, `0.50f`, or `1`.
 - A class that declares a destructor, copy operation, or move operation declares all five. RAII guards and owners usually delete copy and move. Clang-Tidy enforces this with `cppcoreguidelines-special-member-functions`.
 - Mark member functions `const` when they leave the object's observable state unchanged. A pimpl method that mutates state through its implementation pointer stays non-const even when the compiler would accept `const`.
+- Avoid false sharing in parallel code. Workers accumulate into locals and publish once at the end; per-worker slots or atomics written in hot loops get `alignas(std::hardware_destructive_interference_size)` in source files, or a 128-byte constant in headers, since GCC warns that the standard value can change with compiler flags.
 - Prefer `std::ranges` algorithms and whole-range overloads, such as `std::ranges::fill(Buffer, 0)`, over iterator-pair `std` algorithms. Clang-Tidy enforces this with `modernize-use-ranges`.
 - In classes and structs, declare member functions first, in public, protected, then private order, and data members after them.
 - Keep class bodies to declarations. Define member functions outside the class, in the source file, or below the class for `inline`, `constexpr`, and template code that must stay in a header. Only `= default` and `= delete` stay in the body.
