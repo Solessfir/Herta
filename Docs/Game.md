@@ -51,7 +51,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/PackageG
 ./Scripts/Linux/PackageGame.sh --verify
 ```
 
-The package holds the renamed game executable, the cooked engine shaders, the staged content, `LICENSE`, `ThirdPartyLicenses`, and a README, under `Intermediate/Packages/<Project>-<platform>-x86_64-<Configuration>`. Shipping Windows builds have no console. `-Verify` copies the package outside the checkout and plays a scripted run there.
+The package holds the renamed game executable (`<Project>.exe` on Windows, `<Project>.x86_64` on Linux beside the `<Project>` content folder), the cooked engine shaders, the staged content, `LICENSE`, `ThirdPartyLicenses`, and a README, under `Intermediate/Packages/<Project>-<platform>-x86_64-<Configuration>`. Shipping Windows builds have no console. `-Verify` copies the package outside the checkout and plays a scripted run there.
 
 ## Checks
 

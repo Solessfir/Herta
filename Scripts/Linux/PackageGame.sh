@@ -38,6 +38,8 @@ repository_root="$(cd -- "${repository_root}" && pwd -P)"
 output_directory="$(realpath -m -- "${output_directory:-${repository_root}/Intermediate/Packages}")"
 project_path="$(realpath -- "${repository_root}/${project}")"
 project_name="$(basename -- "${project_path}" .hertaproject)"
+# Staging puts the project in a <Project> folder, so the executable needs a suffix to sit beside it.
+executable_name="${project_name}.x86_64"
 package_name="${project_name}-linux-x86_64-${configuration}"
 package_root="${output_directory}/${package_name}"
 archive_path="${output_directory}/${package_name}.tar.gz"
@@ -64,7 +66,7 @@ fi
 
 # Staging cooks the starting level's dependency closure through the asset worker and copies the project and level verbatim.
 "${binary_directory}/HertaEditorCmd" game.stage "${project_path}" "${package_root}"
-cp -- "${binary_directory}/HertaGame" "${package_root}/${project_name}"
+cp -- "${binary_directory}/HertaGame" "${package_root}/${executable_name}"
 mkdir -p -- "${package_root}/Shaders"
 cp -- "${shaders[@]}" "${package_root}/Shaders/"
 
@@ -88,7 +90,7 @@ cat > "${package_root}/README.txt" <<README
 ${project_name} - Herta game, Linux x86_64 ${configuration}
 Revision: ${revision}
 
-Run ./${project_name}. Settings and logs are kept per user in \${XDG_CONFIG_HOME:-~/.config}/Herta/${project_name}.
+Run ./${executable_name}. Settings and logs are kept per user in \${XDG_CONFIG_HOME:-~/.config}/Herta/${project_name}.
 A Vulkan-capable GPU, driver, and system Vulkan loader are required, with X11 or Wayland.
 
 WASD moves, Space jumps and wall jumps, Shift sprints, C or Ctrl crouches and slides, R restarts the course, Esc opens the menu, and F11 or Alt+Enter toggles fullscreen.
@@ -102,7 +104,7 @@ if [[ ${verify} -eq 1 ]]; then
     relocated="$(mktemp -d)"
     trap 'rm -rf -- "${relocated}"' EXIT
     cp -r -- "${package_root}/." "${relocated}/"
-    if ! (cd -- "${relocated}" && "./${project_name}" --smoke-test=600); then
+    if ! (cd -- "${relocated}" && "./${executable_name}" --smoke-test=600); then
         echo "The relocated game failed its scripted run." >&2
         exit 1
     fi

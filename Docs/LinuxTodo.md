@@ -11,7 +11,6 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=$(nproc) config=developm
 ./Binaries/linux/x86_64/Development/HertaTests
 ```
 
-- [ ] Clean GCC and Clang Development builds with zero warnings, and all tests pass.
 - [ ] Cppcheck on the modules touched since Milestone 4.5, using `--project=compile_commands.json`.
 
 ## Renderer changes made after Milestone 4.5
@@ -30,7 +29,6 @@ These were verified only on Windows:
 ./Binaries/linux/x86_64/Development/HertaEditor --visual-test --validation
 ```
 
-- [ ] Both commands report no Vulkan warnings or errors on X11 and on Wayland. On Wayland, check that the validation layer is actually loaded; without it the run is silently clean.
 - [ ] Every image in `Saved/VisualTest` matches the matching Windows capture: same materials, lighting bays, rect light shapes, sky, fog and exposure.
 - [ ] Record the per-bookmark GPU times in [Rendering.md](Rendering.md), next to the Windows numbers.
 
@@ -54,10 +52,8 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=$(nproc) config=shipping
 ./Binaries/linux/x86_64/Development/HertaEditor --play-test --validation
 ```
 
-- [ ] The relocated package passes its scripted run on X11 and Wayland. GCC 16 and Clang syntax checks passed in WSL; nothing has linked or run on Linux yet.
 - [ ] Play the Sandbox course by hand: pointer capture and relative look (Wayland uses the pointer-constraints path in GLFW), F11 fullscreen on the right monitor, focus loss pausing, and the HUD text size.
-- [ ] Settings land in `$XDG_CONFIG_HOME/Herta/Sandbox` or `~/.config/Herta/Sandbox`.
-- [ ] Editor Play/Stop restores the level.
+- [ ] Settings land in `$XDG_CONFIG_HOME/Herta/Sandbox` or `~/.config/Herta/Sandbox`. Logs already land there; the scripted run writes no settings file, so change a setting by hand.
 
 ## HDR
 

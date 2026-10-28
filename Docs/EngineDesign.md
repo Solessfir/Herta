@@ -1624,7 +1624,7 @@ Exit condition: the Sandbox can be visually authored entirely through materials 
 
 Exit condition: the same authored Sandbox game is playable in the editor and as a relocated standalone build on Windows and Linux without the source checkout or development SDKs. Input, basic simulation, gameplay, HUD, restart, and shutdown work together. Full package containers, localization, native hot reload, scripting, and production rendering are not prerequisites.
 
-Implemented on Windows: `HertaGame`, the GameFramework and GameUI runtime modules, directory-mounted staged content from `game.stage`, a Jolt character controller, the Sandbox course objective between Start and Finish trigger roles (level schema 7), HDR10 and fullscreen settings per user, editor Play/Stop through the same session, and `PackageGame` relocated builds verified outside the checkout. Linux builds pass syntax checks; native Linux runs are tracked in [LinuxTodo.md](LinuxTodo.md). Custom-shader materials are not staged yet. See [Game.md](Game.md).
+Implemented on Windows: `HertaGame`, the GameFramework and GameUI runtime modules, directory-mounted staged content from `game.stage`, a Jolt character controller, the Sandbox course objective between Start and Finish trigger roles (level schema 7), HDR10 and fullscreen settings per user, editor Play/Stop through the same session, and `PackageGame` relocated builds verified outside the checkout. On Linux the relocated package passes its scripted run on X11 and Wayland; the remaining hand checks are tracked in [LinuxTodo.md](LinuxTodo.md). Custom-shader materials are not staged yet. See [Game.md](Game.md).
 
 ### Milestone 6 - Raster renderer scaling
 
