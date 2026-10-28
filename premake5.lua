@@ -65,6 +65,16 @@ if HertaProjectRoot then
     end
 end
 
+-- ar -rcs only adds and replaces members, so an archive keeps objects from moved or deleted sources.
+-- Source lists change only on regeneration, so drop the archives and let make re-archive the existing objects without recompiling.
+if Action:match("^gmake") and os.target() == "linux" then
+    for _, Root in ipairs({ RepositoryRoot, HertaProjectRoot }) do
+        for _, Archive in ipairs(os.matchfiles(path.join(Root, "Binaries/linux/*/*/lib*.a"))) do
+            os.remove(Archive)
+        end
+    end
+end
+
 include(PremakeRoot .. "/Toolchains.lua")
 include(PremakeRoot .. "/ThirdParty/EnkiTS.lua")
 include(PremakeRoot .. "/ThirdParty/FastGltf.lua")
