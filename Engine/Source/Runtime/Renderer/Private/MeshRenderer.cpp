@@ -43,7 +43,7 @@ constexpr std::array<std::uint32_t, 6> GridIndices{0, 1, 2, 0, 2, 3};
 
 constexpr float GridHalfExtent = 216.f;
 // Material maps, environment, shadow atlas, and the two Rect light LTC tables, matching TexturedMesh.slang.
-constexpr std::uint32_t MeshTextureCount = 13;
+constexpr std::uint32_t MeshTextureCount = 14;
 // Lights, then their cluster masks, as in VisualLights.slangh.
 constexpr std::uint32_t MeshBufferCount = 2;
 
@@ -640,7 +640,9 @@ struct FMeshRenderer::FImplementation
 	bool bExposureAdapted = false;
 	// Rayleigh and Mie scales, planet radius, and atmosphere height the table was built from.
 	std::array<float, 4> SkyMultipleScatteringKey{};
+	// Directional cascades in 16 bits; local lights in 32 bits, whose perspective depth needs the precision.
 	FTextureHandle ShadowAtlas;
+	FTextureHandle LocalShadowAtlas;
 	FTextureHandle White;
 	FTextureHandle EnvironmentDiffuse;
 	FTextureHandle EnvironmentSpecular;
@@ -659,7 +661,11 @@ struct FMeshRenderer::FImplementation
 	std::array<FDisplayPipelines, 2> DisplayPipelines;
 	FGraphicsPipelineHandle ShadowPipeline;
 	FGraphicsPipelineHandle InstancedShadowPipeline;
-	FGraphicsPipelineHandle ShadowClearPipeline;
+	// The same masked shadow shaders for the 16-bit cascade atlas.
+	FGraphicsPipelineHandle CascadeShadowPipeline;
+	FGraphicsPipelineHandle InstancedCascadeShadowPipeline;
+	// Cascade atlas, then local atlas.
+	std::array<FGraphicsPipelineHandle, 2> ShadowClearPipelines;
 	FBufferHandle ShadowClearVertices;
 	FVisualUniforms Uniforms;
 	std::vector<FShadowView> Shadows;
@@ -836,7 +842,14 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 	State->Lights = std::move(*Lights);
 	State->AllLights = std::move(*AllLights);
-	auto ShadowAtlas = Device.CreateTexture({.Name = "Shadow atlas", .Extent = GetShadowAtlasExtent(1.f), .Format = ETextureFormat::Depth32, .bRenderTarget = true});
+	auto ShadowAtlas = Device.CreateTexture({.Name = "Cascade shadow atlas", .Extent = GetCascadeAtlasExtent(1.f), .Format = ETextureFormat::Depth16, .bRenderTarget = true});
+	auto LocalShadowAtlas = Device.CreateTexture({.Name = "Local shadow atlas", .Extent = GetLocalShadowAtlasExtent(1.f), .Format = ETextureFormat::Depth32, .bRenderTarget = true});
+	if (!LocalShadowAtlas)
+	{
+		return std::unexpected(LocalShadowAtlas.error());
+	}
+
+	State->LocalShadowAtlas = std::move(*LocalShadowAtlas);
 	auto LtcMatrix = Device.CreateTexture({.Name = "Rect light LTC matrix", .Extent = {64, 64}, .Format = ETextureFormat::Rgba32Float});
 	auto LtcAmplitude = Device.CreateTexture({.Name = "Rect light LTC amplitude", .Extent = {64, 64}, .Format = ETextureFormat::Rgba32Float});
 	// Half floats filter at full rate, and the lighting pass samples this for every pixel.
@@ -887,14 +900,35 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		}
 
 		// Clears one atlas tile to the far plane, so tiles whose casters did not change keep last frame's depth.
-		auto ShadowClearPipeline = Device.CreateGraphicsPipeline({.Name = "Shadow tile clear", .VertexShader = VisualShaders.ShadowVertex, .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .bDepthOverwrite = true, .CullMode = EGraphicsCullMode::None});
+		const FGraphicsPipelineDescriptor ClearDescriptor{.Name = "Shadow tile clear", .VertexShader = VisualShaders.ShadowVertex, .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .DepthFormat = ETextureFormat::Depth16, .bDepthOverwrite = true, .CullMode = EGraphicsCullMode::None};
+		const FGraphicsPipelineDescriptor CascadeDescriptor{.Name = "Masked cascade shadow", .VertexShader = VisualShaders.ShadowVertex, .FragmentShader = VisualShaders.ShadowFragment, .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .DepthFormat = ETextureFormat::Depth16};
+		FGraphicsPipelineDescriptor LocalClearDescriptor = ClearDescriptor;
+		LocalClearDescriptor.DepthFormat = ETextureFormat::Depth32;
+		FGraphicsPipelineDescriptor InstancedCascadeDescriptor = CascadeDescriptor;
+		InstancedCascadeDescriptor.Name = "Instanced masked cascade shadow";
+		InstancedCascadeDescriptor.VertexShader = VisualShaders.ShadowInstancedVertex;
+		InstancedCascadeDescriptor.bInstanced = true;
+		auto CascadeClear = Device.CreateGraphicsPipeline(ClearDescriptor);
+		auto LocalClear = Device.CreateGraphicsPipeline(LocalClearDescriptor);
+		auto CascadeShadow = Device.CreateGraphicsPipeline(CascadeDescriptor);
+		auto InstancedCascadeShadow = Device.CreateGraphicsPipeline(InstancedCascadeDescriptor);
 		auto ShadowClearVertices = Device.CreateBuffer({.Name = "Shadow tile clear quad", .Size = 4 * sizeof(FMeshVertex), .Usage = EBufferUsage::Vertex});
-		if (!ShadowClearPipeline || !ShadowClearVertices)
+		for (const auto* Created : {&CascadeClear, &LocalClear, &CascadeShadow, &InstancedCascadeShadow})
 		{
-			return std::unexpected(!ShadowClearPipeline ? ShadowClearPipeline.error() : ShadowClearVertices.error());
+			if (!*Created)
+			{
+				return std::unexpected(Created->error());
+			}
 		}
 
-		State->ShadowClearPipeline = std::move(*ShadowClearPipeline);
+		if (!ShadowClearVertices)
+		{
+			return std::unexpected(ShadowClearVertices.error());
+		}
+
+		State->ShadowClearPipelines = {std::move(*CascadeClear), std::move(*LocalClear)};
+		State->CascadeShadowPipeline = std::move(*CascadeShadow);
+		State->InstancedCascadeShadowPipeline = std::move(*InstancedCascadeShadow);
 		State->ShadowClearVertices = std::move(*ShadowClearVertices);
 		auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Masked shadow atlas", .VertexShader = std::move(VisualShaders.ShadowVertex), .FragmentShader = VisualShaders.ShadowFragment, .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true});
 		auto InstancedShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Instanced masked shadow atlas", .VertexShader = std::move(VisualShaders.ShadowInstancedVertex), .FragmentShader = std::move(VisualShaders.ShadowFragment), .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .bInstanced = true, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true});
@@ -926,7 +960,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 		if (!VisualShaders.FogCompute.Bytecode.empty() && !VisualShaders.FogDenoiseCompute.Bytecode.empty())
 		{
-			auto March = Device.CreateComputePipeline({.Name = "Volumetric fog", .Shader = std::move(VisualShaders.FogCompute), .TextureCount = 3, .StorageTextureCount = 2, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+			auto March = Device.CreateComputePipeline({.Name = "Volumetric fog", .Shader = std::move(VisualShaders.FogCompute), .TextureCount = 4, .StorageTextureCount = 2, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
 			auto Denoise = Device.CreateComputePipeline({.Name = "Fog denoise", .Shader = std::move(VisualShaders.FogDenoiseCompute), .TextureCount = 2, .StorageTextureCount = 1, .UniformBufferSize = VisualUniformBytes});
 			if (!March || !Denoise)
 			{
@@ -1106,6 +1140,11 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		Result = Device.ClearTargets({}, State->ShadowAtlas, {});
 	}
 
+	if (Result)
+	{
+		Result = Device.ClearTargets({}, State->LocalShadowAtlas, {});
+	}
+
 	if (Result && State->FullscreenVertices)
 	{
 		constexpr std::array<FColoredClipVertex, 4> Quad{{{.Position = {-1, 1, 0, 1}, .Color = {0, 0, 0, 0}}, {.Position = {-1, -1, 0, 1}, .Color = {0, 1, 0, 0}}, {.Position = {1, -1, 0, 1}, .Color = {1, 1, 0, 0}}, {.Position = {1, 1, 0, 1}, .Color = {1, 0, 0, 0}}}};
@@ -1173,7 +1212,7 @@ std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 {
 	const FImplementation& State = *Implementation;
 	std::size_t Bytes = 0;
-	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion})
+	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.LocalShadowAtlas, &State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion})
 	{
 		if (*Target)
 		{
@@ -1419,15 +1458,17 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	State.bExposureAdapted = bAutoExposure;
 
 	State.Shadows = State.ShadowPipeline && View.Visuals.ShadowQuality != EShadowQuality::Off ? BuildShadowViews(State.Uniforms, View.Lights, View.Projection, View.Visuals.ShadowResolution) : std::vector<FShadowView>{};
-	if (const FExtent2D ShadowExtent = GetShadowAtlasExtent(View.Visuals.ShadowResolution); !State.Shadows.empty() && State.ShadowAtlas->GetDescriptor().Extent != ShadowExtent)
+	if (const FExtent2D CascadeExtent = GetCascadeAtlasExtent(View.Visuals.ShadowResolution); !State.Shadows.empty() && State.ShadowAtlas->GetDescriptor().Extent != CascadeExtent)
 	{
-		auto ShadowAtlas = Device.CreateTexture({.Name = "Shadow atlas", .Extent = ShadowExtent, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-		if (!ShadowAtlas)
+		auto ShadowAtlas = Device.CreateTexture({.Name = "Cascade shadow atlas", .Extent = CascadeExtent, .Format = ETextureFormat::Depth16, .bRenderTarget = true});
+		auto LocalShadowAtlas = Device.CreateTexture({.Name = "Local shadow atlas", .Extent = GetLocalShadowAtlasExtent(View.Visuals.ShadowResolution), .Format = ETextureFormat::Depth32, .bRenderTarget = true});
+		if (!ShadowAtlas || !LocalShadowAtlas)
 		{
-			return std::unexpected(ShadowAtlas.error());
+			return std::unexpected(!ShadowAtlas ? ShadowAtlas.error() : LocalShadowAtlas.error());
 		}
 
 		State.ShadowAtlas = std::move(*ShadowAtlas);
+		State.LocalShadowAtlas = std::move(*LocalShadowAtlas);
 	}
 
 	// The table depends only on the atmosphere, so moving the sun or dragging the time of day reuses it.
@@ -1905,6 +1946,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		// Only the PBR pass reads screen occlusion; earlier passes run before it is written.
 		Textures[11] = State.White;
 		Textures[12] = State.SpecularAlbedo;
+		Textures[13] = State.LocalShadowAtlas;
 		return Textures;
 	};
 
@@ -2025,7 +2067,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			Key.clear();
 			Append(KeyBytes(ShadowView.WorldToClip));
 			Append(KeyBytes(ShadowView.Viewport));
-			Append(KeyBytes(State.ShadowAtlas.get()));
+			Append(KeyBytes(ShadowView.LightRange == 0.f ? State.ShadowAtlas.get() : State.LocalShadowAtlas.get()));
 			for (std::size_t Model = 0; Model < View.Models.size(); ++Model)
 			{
 				const FRenderMesh* Mesh = View.Meshes[Model];
@@ -2078,9 +2120,12 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		const auto Timer = TimedPass("Shadows");
 		if (StaleCount == std::ssize(Stale))
 		{
-			if (const auto Cleared = Device.ClearTargets({}, State.ShadowAtlas, {}); !Cleared)
+			for (const FTextureHandle* Atlas : {&State.ShadowAtlas, &State.LocalShadowAtlas})
 			{
-				return GraphResult(Cleared);
+				if (const auto Cleared = Device.ClearTargets({}, *Atlas, {}); !Cleared)
+				{
+					return GraphResult(Cleared);
+				}
 			}
 		}
 
@@ -2092,10 +2137,16 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				continue;
 			}
 
+			// Cascades have no light range.
+			const bool bCascade = ShadowView.LightRange == 0.f;
+			const FTextureHandle& Atlas = bCascade ? State.ShadowAtlas : State.LocalShadowAtlas;
+			const FGraphicsPipelineHandle& Pipeline = bCascade ? State.CascadeShadowPipeline : State.ShadowPipeline;
+			const FGraphicsPipelineHandle& InstancedPipeline = bCascade ? State.InstancedCascadeShadowPipeline : State.InstancedShadowPipeline;
+
 			if (StaleCount != std::ssize(Stale))
 			{
 				constexpr std::array<float, 16> Identity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-				if (const auto Cleared = Device.DrawIndexed({.Pipeline = State.ShadowClearPipeline, .Vertices = State.ShadowClearVertices, .Indices = State.FullscreenIndices, .Texture = State.White, .DepthTarget = State.ShadowAtlas, .WorldToClip = Identity, .IndexCount = 6, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport}); !Cleared)
+				if (const auto Cleared = Device.DrawIndexed({.Pipeline = State.ShadowClearPipelines[bCascade ? 0 : 1], .Vertices = State.ShadowClearVertices, .Indices = State.FullscreenIndices, .Texture = State.White, .DepthTarget = Atlas, .WorldToClip = Identity, .IndexCount = 6, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport}); !Cleared)
 				{
 					return GraphResult(Cleared);
 				}
@@ -2111,7 +2162,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 					for (const FRenderMesh::FSection& Section : Mesh.Sections)
 					{
 						const auto Textures = MaterialTextures(Mesh, Section, Batch.Materials);
-						const auto Draw = Device.DrawIndexed({.Pipeline = State.InstancedShadowPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = State.ShadowAtlas, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport});
+						const auto Draw = Device.DrawIndexed({.Pipeline = InstancedPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = Atlas, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport});
 						if (!Draw)
 						{
 							return GraphResult(Draw);
@@ -2135,7 +2186,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 					for (const FRenderMesh::FSection& Section : Mesh.Sections)
 					{
 						const auto Textures = MaterialTextures(Mesh, Section, Overrides);
-						const auto Draw = Device.DrawIndexed({.Pipeline = State.ShadowPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = State.ShadowAtlas, .WorldToClip = (ShadowView.WorldToClip * View.Models[Model]).Data(), .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport});
+						const auto Draw = Device.DrawIndexed({.Pipeline = Pipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = Atlas, .WorldToClip = (ShadowView.WorldToClip * View.Models[Model]).Data(), .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport});
 						if (!Draw)
 						{
 							return GraphResult(Draw);
@@ -2453,7 +2504,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				const FExtent2D FogExtent = State.FogColor->GetDescriptor().Extent;
 				const std::array<std::uint32_t, 3> Groups{(FogExtent.Width + 7) / 8, (FogExtent.Height + 7) / 8, 1};
 				const auto Uniforms = GetVisualUniformBytes(State.Uniforms);
-				const std::array MarchSources{State.Depth, State.ShadowAtlas, State.EnvironmentDiffuse};
+				const std::array MarchSources{State.Depth, State.ShadowAtlas, State.EnvironmentDiffuse, State.LocalShadowAtlas};
 				const std::array MarchTargets{FStorageTextureBinding{.Texture = State.FogScattering}, FStorageTextureBinding{.Texture = State.FogDepth}};
 				auto Result = Device.Dispatch({.Pipeline = State.FogPipelines[0], .Textures = MarchSources, .StorageTextures = MarchTargets, .Uniforms = Uniforms, .GroupCount = Groups, .Buffers = LightBuffers});
 				if (Result)

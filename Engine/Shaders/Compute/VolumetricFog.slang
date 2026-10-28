@@ -2,6 +2,7 @@
 [[vk::binding(0, 0)]] Texture2D<float4> DepthTexture;
 [[vk::binding(1, 0)]] Texture2D<float4> ShadowAtlas;
 [[vk::binding(2, 0)]] Texture2D<float4> DiffuseEnvironment;
+[[vk::binding(3, 0)]] Texture2D<float4> LocalShadowAtlas;
 [[vk::binding(384, 0)]] [format("rgba16f")] RWTexture2D<float4> Scattering;
 // The scene depth at each texel centre, which the denoise and the full-resolution composite compare against.
 [[vk::binding(385, 0)]] [format("r32f")] RWTexture2D<float> FogDepth;
@@ -17,7 +18,7 @@ float3 FogLight(uint Index, float3 Position, float3 Direction)
     float G = Visual.Fog.z;
     float Mu = dot(-Direction, L);
     float Phase = (1.0 - G * G) / (4.0 * PI * pow(max(0.002, 1.0 + G * G - 2.0 * G * Mu), 1.5));
-    return Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Phase * LightVisibility(ShadowAtlas, Light, Position, float3(0.0, 0.0, 0.0), false);
+    return Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Phase * LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, float3(0.0, 0.0, 0.0), false);
 }
 
 [shader("compute")]

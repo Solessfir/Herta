@@ -102,7 +102,7 @@ struct FShadowSizes
 FShadowSizes GetShadowSizes(const float Resolution)
 {
 	const float Scale = std::isfinite(Resolution) ? std::clamp(Resolution, 0.25f, 1.f) : 1.f;
-	return {.Cascade = static_cast<std::uint32_t>(std::lround(ShadowCascadeResolution * Scale)), .Tile = static_cast<std::uint32_t>(std::lround(ShadowTileResolution * Scale))};
+	return {.Cascade = static_cast<std::uint32_t>(std::lround(ShadowCascadeResolution * Scale)), .Tile = static_cast<std::uint32_t>(std::lround(ShadowTileResolution * std::min(1.f, 2.f * Scale)))};
 }
 
 FVisualSettings MakeQualityPreset(const ERenderQuality Quality)
@@ -214,10 +214,16 @@ std::span<const std::array<float, 4>> GetSpecularAlbedoTable()
 	return Table;
 }
 
-FExtent2D GetShadowAtlasExtent(const float Resolution)
+FExtent2D GetCascadeAtlasExtent(const float Resolution)
 {
-	const FShadowSizes Sizes = GetShadowSizes(Resolution);
-	return {2 * Sizes.Cascade, 2 * Sizes.Cascade + 2 * Sizes.Tile};
+	const std::uint32_t Cascade = GetShadowSizes(Resolution).Cascade;
+	return {2 * Cascade, 2 * Cascade};
+}
+
+FExtent2D GetLocalShadowAtlasExtent(const float Resolution)
+{
+	const std::uint32_t Tile = GetShadowSizes(Resolution).Tile;
+	return {8 * Tile, 2 * Tile};
 }
 
 FGtaoUniforms BuildGtaoUniforms(const FMatrix4& Projection, const FMatrix4& ClipToView, const FExtent2D Extent, const EAmbientOcclusion Quality)
@@ -400,7 +406,7 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 	return Result;
 }
 
-std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::span<const FRenderLight> Lights, const FMatrix4& Projection, const float Resolution)
+std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::span<const FRenderLight> Lights, const FMatrix4& Projection, const float Resolution, const float VisibleNear, const float VisibleFar)
 {
 	const FShadowSizes Sizes = GetShadowSizes(Resolution);
 	std::vector<FShadowView> Result;
@@ -462,7 +468,10 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 		const FVector3 Position{Source.Transform(0, 3), Source.Transform(1, 3), Source.Transform(2, 3)};
 		const FVector3 Direction{Target.DirectionRange[0], Target.DirectionRange[1], Target.DirectionRange[2]};
 		const FVector3 Up = std::abs(Direction.Y) > 0.95f ? FVector3{0, 0, 1} : FVector3{0, 1, 0};
-		float PreviousSplit = std::max(0.05f, Projection(2, 3));
+		// Without a visible range yet, the cascades cover the whole shadow distance.
+		const float Far = std::isfinite(VisibleFar) ? std::clamp(VisibleFar, 1.f, Light.Range) : Light.Range;
+		const float Near = std::clamp(VisibleNear, std::max(0.05f, Projection(2, 3)), Far * 0.5f);
+		float PreviousSplit = Near;
 		for (std::size_t Face = 0; Face < Count; ++Face)
 		{
 			FMatrix4 Matrix;
@@ -471,7 +480,7 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 			if (Light.Type == ELightType::Directional)
 			{
 				constexpr std::array<float, 4> Splits{0.04f, 0.14f, 0.4f, 1.f};
-				Split = std::max(PreviousSplit + 0.1f, Light.Range * Splits[Face]);
+				Split = std::max(PreviousSplit + 0.1f, Near + (Far - Near) * Splits[Face]);
 				const float CenterDepth = (PreviousSplit + Split) * 0.5f;
 				const FVector4 Center4 = CameraToWorld * FVector4{-Projection(0, 2) * CenterDepth / Projection(0, 0), -Projection(1, 2) * CenterDepth / Projection(1, 1), CenterDepth, 1};
 				const FVector3 Center{Center4.X, Center4.Y, Center4.Z};
@@ -517,10 +526,10 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 
 			const auto Cascade = static_cast<std::uint32_t>(Face);
 			const FRenderViewport Viewport = bCascaded ? FRenderViewport{.X = Cascade % 2 * Sizes.Cascade, .Y = Cascade / 2 * Sizes.Cascade, .Width = Sizes.Cascade, .Height = Sizes.Cascade}
-			                                           : FRenderViewport{.X = LocalTiles % 8 * Sizes.Tile, .Y = 2 * Sizes.Cascade + LocalTiles / 8 * Sizes.Tile, .Width = Sizes.Tile, .Height = Sizes.Tile};
+			                                           : FRenderViewport{.X = LocalTiles % 8 * Sizes.Tile, .Y = LocalTiles / 8 * Sizes.Tile, .Width = Sizes.Tile, .Height = Sizes.Tile};
 			LocalTiles += bCascaded ? 0 : 1;
-			const auto Width = static_cast<float>(2 * Sizes.Cascade);
-			const auto Height = static_cast<float>(2 * Sizes.Cascade + 2 * Sizes.Tile);
+			const auto Width = static_cast<float>(bCascaded ? 2 * Sizes.Cascade : 8 * Sizes.Tile);
+			const auto Height = static_cast<float>(bCascaded ? 2 * Sizes.Cascade : 2 * Sizes.Tile);
 			Uniforms.Shadows[Result.size()] = {.WorldToClip = Matrix.Data(), .Atlas = {static_cast<float>(Viewport.Width) / Width, static_cast<float>(Viewport.Height) / Height, static_cast<float>(Viewport.X) / Width, static_cast<float>(Viewport.Y) / Height}, .Parameters = {Light.ShadowBias, Split, Light.ShadowNormalBias, Texel}};
 			Result.push_back({.WorldToClip = Matrix, .Viewport = Viewport, .LightPosition = Position, .LightRange = bCascaded ? 0.f : Light.Range});
 		}

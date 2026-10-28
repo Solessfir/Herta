@@ -200,9 +200,9 @@ TEST_CASE("Directional shadows allocate stable cascade tiles with increasing spl
 		CHECK(Shadow.Viewport.Height == ShadowCascadeResolution);
 		CHECK(Uniforms.Shadows[Index].WorldToClip == Shadow.WorldToClip.Data());
 		CHECK(Uniforms.Shadows[Index].Atlas[0] == 0.5f);
-		CHECK(Uniforms.Shadows[Index].Atlas[1] == 0.4f);
+		CHECK(Uniforms.Shadows[Index].Atlas[1] == 0.5f);
 		CHECK(Uniforms.Shadows[Index].Atlas[2] == static_cast<float>(Index % 2) * 0.5f);
-		CHECK(Uniforms.Shadows[Index].Atlas[3] == static_cast<float>(Index / 2) * 0.4f);
+		CHECK(Uniforms.Shadows[Index].Atlas[3] == static_cast<float>(Index / 2) * 0.5f);
 		CHECK(Uniforms.Shadows[Index].Parameters[3] > 0.f);
 		CHECK(Uniforms.Shadows[Index].Parameters[1] > Previous);
 		CHECK(Shadow.WorldToClip(2, 2) < 0.f);
@@ -219,6 +219,28 @@ TEST_CASE("Directional shadows allocate stable cascade tiles with increasing spl
 	}
 }
 
+TEST_CASE("Cascades fit the visible depth inside the light's range")
+{
+	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Directional, .Range = 100.f}, .Transform = FMatrix4{}}};
+	const auto Built = BuildVisualUniforms({}, TestProjection(), {1280, 720}, Lights, {});
+	REQUIRE(Built);
+	FVisualUniforms Full = *Built;
+	FVisualUniforms Close = *Built;
+	FVisualUniforms Beyond = *Built;
+	const auto FullShadows = BuildShadowViews(Full, Lights, TestProjection());
+	const auto CloseShadows = BuildShadowViews(Close, Lights, TestProjection(), 1.f, 4.f, 20.f);
+	BuildShadowViews(Beyond, Lights, TestProjection(), 1.f, 0.f, 500.f);
+	REQUIRE(CloseShadows.size() == 4);
+	CHECK(Close.Shadows[3].Parameters[1] == 20.f);
+	CHECK(Beyond.Shadows[3].Parameters[1] == 100.f);
+	CHECK(Close.Shadows[0].Parameters[1] > 4.f);
+	// A shorter range concentrates the same texels on less of the view. The first cascade starts farther out, so only the later ones must get finer.
+	for (std::size_t Index = 1; Index < CloseShadows.size(); ++Index)
+	{
+		CHECK(Close.Shadows[Index].Parameters[3] < Full.Shadows[Index].Parameters[3]);
+	}
+}
+
 TEST_CASE("Half-resolution shadows keep the same atlas layout at half the texels")
 {
 	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Directional, .Range = 100.f}, .Transform = FMatrix4{}}};
@@ -229,9 +251,13 @@ TEST_CASE("Half-resolution shadows keep the same atlas layout at half the texels
 	const auto FullShadows = BuildShadowViews(Full, Lights, TestProjection());
 	const auto HalfShadows = BuildShadowViews(Half, Lights, TestProjection(), 0.5f);
 	REQUIRE(HalfShadows.size() == FullShadows.size());
-	CHECK(GetShadowAtlasExtent(1.f) == FExtent2D{2 * ShadowCascadeResolution, 2 * ShadowCascadeResolution + 2 * ShadowTileResolution});
-	CHECK(GetShadowAtlasExtent(0.5f) == FExtent2D{ShadowCascadeResolution, ShadowCascadeResolution + ShadowTileResolution});
-	CHECK(GetShadowAtlasExtent(0.f) == GetShadowAtlasExtent(0.25f));
+	CHECK(GetCascadeAtlasExtent(1.f) == FExtent2D{2 * ShadowCascadeResolution, 2 * ShadowCascadeResolution});
+	CHECK(GetCascadeAtlasExtent(0.5f) == FExtent2D{ShadowCascadeResolution, ShadowCascadeResolution});
+	CHECK(GetCascadeAtlasExtent(0.f) == GetCascadeAtlasExtent(0.25f));
+	// Local tiles keep full resolution down to half and halve only at the lowest setting.
+	CHECK(GetLocalShadowAtlasExtent(1.f) == FExtent2D{8 * ShadowTileResolution, 2 * ShadowTileResolution});
+	CHECK(GetLocalShadowAtlasExtent(0.5f) == GetLocalShadowAtlasExtent(1.f));
+	CHECK(GetLocalShadowAtlasExtent(0.25f) == FExtent2D{4 * ShadowTileResolution, ShadowTileResolution});
 	for (std::size_t Index = 0; Index < HalfShadows.size(); ++Index)
 	{
 		CHECK(HalfShadows[Index].Viewport.Width == ShadowCascadeResolution / 2);
@@ -422,7 +448,7 @@ TEST_CASE("Shadow atlas budget skips whole lights instead of allocating partial 
 	CHECK(Uniforms.Lights[3].ConeShadow[2] == -1.f);
 	CHECK(Uniforms.Lights[3].ConeShadow[3] == 0.f);
 	CHECK(Shadows.back().Viewport.X == 3 * ShadowTileResolution);
-	CHECK(Shadows.back().Viewport.Y == 2 * ShadowCascadeResolution + ShadowTileResolution);
+	CHECK(Shadows.back().Viewport.Y == ShadowTileResolution);
 	CHECK(Shadows.back().Viewport.Width == ShadowTileResolution);
 	Lights[1].Settings.bCastShadows = false;
 	Uniforms = *Built;
@@ -445,7 +471,7 @@ TEST_CASE("Only the first shadowed directional light receives cascades")
 	CHECK(Uniforms.Lights[1].ConeShadow[2] == -1.f);
 	CHECK(Uniforms.Lights[2].ConeShadow[2] == 4.f);
 	CHECK(Shadows[4].Viewport.X == 0);
-	CHECK(Shadows[4].Viewport.Y == 2 * ShadowCascadeResolution);
+	CHECK(Shadows[4].Viewport.Y == 0);
 }
 
 TEST_CASE("Atmosphere dims the sun at noon, reddens it near the horizon, and removes it below")

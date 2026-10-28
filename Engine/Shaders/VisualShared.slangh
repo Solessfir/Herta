@@ -295,7 +295,8 @@ float ShadowVisibility(Texture2D<float4> Atlas, float3 Position, float3 Normal, 
 }
 
 // Volumetric fog passes bAllowSoft false: its dither and upsample blur already soften shadows, and soft filtering costs four times the loads at every ray step.
-float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Position, float3 Normal, bool bAllowSoft = true)
+// Directional cascades live in the 16-bit cascade atlas and local lights in the 32-bit local one.
+float LightVisibility(Texture2D<float4> CascadeAtlas, Texture2D<float4> LocalAtlas, FVisualLight Light, float3 Position, float3 Normal, bool bAllowSoft = true)
 {
     int First = int(Light.ConeShadow.z);
     int Count = int(Light.ConeShadow.w);
@@ -306,38 +307,37 @@ float LightVisibility(Texture2D<float4> Atlas, FVisualLight Light, float3 Positi
         float3 D = Position - Light.PositionType.xyz;
         float3 A = abs(D);
         int Face = A.x >= A.y && A.x >= A.z ? (D.x > 0.0 ? 0 : 1) : A.y >= A.z ? (D.y > 0.0 ? 2 : 3) : (D.z > 0.0 ? 4 : 5);
-        return ShadowVisibility(Atlas, Position, Normal, First + Face, bAllowSoft);
+        return ShadowVisibility(LocalAtlas, Position, Normal, First + Face, bAllowSoft);
     }
     if (Type == 0)
     {
         float3 Eye = mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
         float Distance = dot(Position - Eye, normalize(mul((float3x3)Visual.ViewToWorld, float3(0.0, 0.0, 1.0))));
+        // Shadows fade out over the last 15% of the light's range, so the shadow distance does not end on a hard line.
+        float Range = Light.DirectionRange.w;
+        float Fade = saturate((Distance - Range * 0.85) / (Range * 0.15));
         for (int I = 0; I < Count; ++I)
         {
             float Split = Visual.Shadows[First + I].Parameters.y;
-            if (Distance <= Split)
+            bool bLast = I == Count - 1;
+            // Cascades fit the depth seen a few frames ago, so the last one also serves anything it covers beyond its split until they catch up.
+            if (Distance <= Split || (bLast && ShadowCovers(First + I, Position)))
             {
-                float Visibility = ShadowVisibility(Atlas, Position, Normal, First + I, bAllowSoft);
+                float Visibility = ShadowVisibility(CascadeAtlas, Position, Normal, First + I, bAllowSoft);
                 // The last tenth of each cascade blends into the next one, whose texels are about three times larger, so the switch does not show as a line.
-                // The last cascade fades out instead, so the shadow distance does not end on one.
                 float Blend = saturate((Distance - Split * 0.9) / (Split * 0.1));
-                if (I == Count - 1)
-                {
-                    return lerp(Visibility, 1.0, saturate((Distance - Split * 0.85) / (Split * 0.15)));
-                }
-
                 [branch]
-                if (Blend > 0.0 && ShadowCovers(First + I + 1, Position))
+                if (!bLast && Blend > 0.0 && ShadowCovers(First + I + 1, Position))
                 {
-                    Visibility = lerp(Visibility, ShadowVisibility(Atlas, Position, Normal, First + I + 1, bAllowSoft), Blend);
+                    Visibility = lerp(Visibility, ShadowVisibility(CascadeAtlas, Position, Normal, First + I + 1, bAllowSoft), Blend);
                 }
 
-                return Visibility;
+                return lerp(Visibility, 1.0, Fade);
             }
         }
         return 1.0;
     }
-    return ShadowVisibility(Atlas, Position, Normal, First, bAllowSoft);
+    return ShadowVisibility(LocalAtlas, Position, Normal, First, bAllowSoft);
 }
 
 float LightAttenuation(FVisualLight Light, float3 Position, out float3 L)

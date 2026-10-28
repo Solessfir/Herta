@@ -18,6 +18,7 @@ struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToVie
 [[vk::binding(11, 0)]] Texture2D<float4> ScreenOcclusion;
 // GGX directional albedo terms A, B, and C by view cosine and roughness; see SpecularAlbedoTableSize in Visuals.h.
 [[vk::binding(12, 0)]] Texture2D<float4> SpecularAlbedo;
+[[vk::binding(13, 0)]] Texture2D<float4> LocalShadowAtlas;
 
 struct FVertexOutput
 {
@@ -274,7 +275,7 @@ void RectLighting(inout FLightSum Sum, FVisualLight Light, float3 Position, floa
     float3x3 InverseMatrix = float3x3(Inverse.x, 0.0, Inverse.z, 0.0, 1.0, 0.0, Inverse.y, 0.0, Inverse.w);
 
     // The LTCs integrate cosine and GGX lobes, so rough diffuse loses only EON's s / t shaping and the edge tint is left out.
-    float3 Radiance = Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * max(0.0001, Light.RightWidth.w * Light.UpHeight.w)) * pow(saturate(1.0 - pow(Distance / Light.DirectionRange.w, 4.0)), 2.0) * LightVisibility(ShadowAtlas, Light, Position, N);
+    float3 Radiance = Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * max(0.0001, Light.RightWidth.w * Light.UpHeight.w)) * pow(saturate(1.0 - pow(Distance / Light.DirectionRange.w, 4.0)), 2.0) * LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, N);
     float3 Irradiance = Radiance * (PI * LtcQuad(Basis, Corners));
     Sum.Diffuse += Irradiance;
     Sum.DiffuseMultiple += Irradiance;
@@ -298,7 +299,7 @@ void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, floa
     float Attenuation = LightAttenuation(Light, Position, L);
     // Shadow filtering costs more than the lighting, so pixels out of range, outside the cone, or facing away skip it.
     if (Attenuation <= 0.0 || dot(N, L) <= 0.0) return;
-    AddLight(Sum, Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * LightVisibility(ShadowAtlas, Light, Position, N), N, V, L, Roughness, DiffuseRoughness);
+    AddLight(Sum, Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, N), N, V, L, Roughness, DiffuseRoughness);
 }
 
 [shader("fragment")]

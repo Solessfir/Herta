@@ -45,8 +45,15 @@ enum class ETextureFormat : std::uint8_t
 	Rgba32Float,
 	R32Float,
 	R32Uint,
-	Rg16Float
+	Rg16Float,
+	// Orthographic shadow cascades keep millimetre precision in 16 bits at half the memory and bandwidth.
+	Depth16
 };
+
+[[nodiscard]] constexpr bool IsDepthFormat(const ETextureFormat Format) noexcept
+{
+	return Format == ETextureFormat::Depth32 || Format == ETextureFormat::Depth16;
+}
 
 [[nodiscard]] constexpr std::size_t GetTextureTexelBytes(const ETextureFormat Format) noexcept
 {
@@ -63,6 +70,8 @@ enum class ETextureFormat : std::uint8_t
 			return 8;
 		case ETextureFormat::Rgba32Float:
 			return 16;
+		case ETextureFormat::Depth16:
+			return 2;
 	}
 
 	return 0;
@@ -172,6 +181,7 @@ struct FGraphicsPipelineDescriptor
 	std::uint32_t UniformBufferSize = 0;
 	bool bDepthOnly = false;
 	bool bDepthWrite = true;
+	ETextureFormat DepthFormat = ETextureFormat::Depth32;
 	// Depth writes replace whatever the target holds, which clears part of a depth target.
 	bool bDepthOverwrite = false;
 	EGraphicsCullMode CullMode = EGraphicsCullMode::Back;

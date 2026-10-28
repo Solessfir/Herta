@@ -770,7 +770,7 @@ public:
 	[[nodiscard]] std::expected<std::uint64_t, FPresentationError> RegisterToolUITexture(const FTextureHandle& Texture, const bool bBackdropSource) override
 	{
 		nvrhi::ITexture* const NativeTexture = GetNvrhiTexture(Texture, NvrhiDevice);
-		if (!bToolUIInitialized || !NativeTexture || Texture->GetDescriptor().Format == ETextureFormat::Depth32)
+		if (!bToolUIInitialized || !NativeTexture || IsDepthFormat(Texture->GetDescriptor().Format))
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "ToolUI requires an initialized renderer and a color texture from its graphics device"});
 		}

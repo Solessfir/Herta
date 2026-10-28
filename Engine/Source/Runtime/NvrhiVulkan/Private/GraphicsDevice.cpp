@@ -55,6 +55,8 @@ constexpr std::size_t MaximumGpuPassTimings = 32;
 			return nvrhi::Format::R32_UINT;
 		case ETextureFormat::Rg16Float:
 			return nvrhi::Format::RG16_FLOAT;
+		case ETextureFormat::Depth16:
+			return nvrhi::Format::D16;
 	}
 
 	return nvrhi::Format::UNKNOWN;
@@ -264,7 +266,7 @@ public:
 	[[nodiscard]] std::expected<FTextureHandle, FPresentationError> CreateTexture(const FTextureDescriptor& Descriptor) override
 	{
 		const nvrhi::Format Format = ToFormat(Descriptor.Format);
-		const bool bDepth = Descriptor.Format == ETextureFormat::Depth32;
+		const bool bDepth = IsDepthFormat(Descriptor.Format);
 		if (Descriptor.Extent.IsEmpty() || Descriptor.Extent.Width > TextureDimensionLimit || Descriptor.Extent.Height > TextureDimensionLimit || Format == nvrhi::Format::UNKNOWN || (bDepth && (!Descriptor.bRenderTarget || Descriptor.bStorage)))
 		{
 			return Invalid(std::format("Texture requires a supported format and dimensions in [1, {}]; depth textures must be render targets without storage", TextureDimensionLimit));
@@ -306,7 +308,7 @@ public:
 		const bool bColored = Descriptor.VertexFormat == EGraphicsVertexFormat::ColoredClipPosition;
 		const bool bShadow = Descriptor.VertexFormat == EGraphicsVertexFormat::ShadowMesh;
 		const bool bFragment = !Descriptor.FragmentShader.Bytecode.empty();
-		if ((!bColored && !bShadow && Descriptor.VertexFormat != EGraphicsVertexFormat::Mesh) || (bShadow && !Descriptor.bDepthOnly) || (bColored && Descriptor.bInstanced) || (Descriptor.bDepthOnly && !Descriptor.bDepthTest && !Descriptor.bDepthWrite) || Descriptor.VertexShader.Stage != EShaderStage::Vertex || !SerializeCookedShader(Descriptor.VertexShader) || (!Descriptor.bDepthOnly && !bFragment) || (bFragment && (Descriptor.FragmentShader.Stage != EShaderStage::Fragment || !SerializeCookedShader(Descriptor.FragmentShader))) || (!Descriptor.bDepthOnly && (ToFormat(Descriptor.ColorFormat) == nvrhi::Format::UNKNOWN || Descriptor.ColorFormat == ETextureFormat::Depth32)) || Descriptor.TextureCount > MaximumGraphicsTextures || Descriptor.BufferCount > MaximumReadBuffers || Descriptor.UniformBufferSize > MaximumGraphicsUniformBytes || Descriptor.UniformBufferSize % 16 != 0 || (Descriptor.CullMode != EGraphicsCullMode::None && Descriptor.CullMode != EGraphicsCullMode::Back && Descriptor.CullMode != EGraphicsCullMode::Front))
+		if ((!bColored && !bShadow && Descriptor.VertexFormat != EGraphicsVertexFormat::Mesh) || (bShadow && !Descriptor.bDepthOnly) || (bColored && Descriptor.bInstanced) || (Descriptor.bDepthOnly && !Descriptor.bDepthTest && !Descriptor.bDepthWrite) || Descriptor.VertexShader.Stage != EShaderStage::Vertex || !SerializeCookedShader(Descriptor.VertexShader) || (!Descriptor.bDepthOnly && !bFragment) || (bFragment && (Descriptor.FragmentShader.Stage != EShaderStage::Fragment || !SerializeCookedShader(Descriptor.FragmentShader))) || (!Descriptor.bDepthOnly && (ToFormat(Descriptor.ColorFormat) == nvrhi::Format::UNKNOWN || IsDepthFormat(Descriptor.ColorFormat))) || !IsDepthFormat(Descriptor.DepthFormat) || Descriptor.TextureCount > MaximumGraphicsTextures || Descriptor.BufferCount > MaximumReadBuffers || Descriptor.UniformBufferSize > MaximumGraphicsUniformBytes || Descriptor.UniformBufferSize % 16 != 0 || (Descriptor.CullMode != EGraphicsCullMode::None && Descriptor.CullMode != EGraphicsCullMode::Back && Descriptor.CullMode != EGraphicsCullMode::Front))
 		{
 			return Invalid("Graphics pipeline requires supported shaders, color format, binding counts, and aligned uniforms");
 		}
@@ -434,7 +436,7 @@ public:
 		}
 
 		nvrhi::FramebufferInfo FramebufferInfo;
-		FramebufferInfo.setDepthFormat(Descriptor.bDepthTest || Descriptor.bDepthWrite ? nvrhi::Format::D32 : nvrhi::Format::UNKNOWN);
+		FramebufferInfo.setDepthFormat(Descriptor.bDepthTest || Descriptor.bDepthWrite ? ToFormat(Descriptor.DepthFormat) : nvrhi::Format::UNKNOWN);
 
 		if (!Descriptor.bDepthOnly)
 		{
@@ -633,7 +635,7 @@ public:
 	{
 		const auto Native = std::dynamic_pointer_cast<FTexture>(Texture);
 		const FExtent2D Extent = Native ? GetMipExtent(Native->Descriptor.Extent, MipLevel) : FExtent2D{};
-		if (!Owns(Native) || Native->Descriptor.Format == ETextureFormat::Depth32 || MipLevel >= Native->Descriptor.MipLevels || RgbaPixels.size() != static_cast<std::size_t>(Extent.Width) * Extent.Height * GetTextureTexelBytes(Native->Descriptor.Format))
+		if (!Owns(Native) || IsDepthFormat(Native->Descriptor.Format) || MipLevel >= Native->Descriptor.MipLevels || RgbaPixels.size() != static_cast<std::size_t>(Extent.Width) * Extent.Height * GetTextureTexelBytes(Native->Descriptor.Format))
 		{
 			return Invalid("Texture upload must provide every texel in the texture format of one color mip level belonging to this device");
 		}
@@ -1147,7 +1149,7 @@ public:
 	[[nodiscard]] std::expected<std::vector<std::byte>, FPresentationError> ReadbackTexture(const FTextureHandle& Texture) override
 	{
 		const auto Native = std::dynamic_pointer_cast<FTexture>(Texture);
-		if (bRecording || !Owns(Native) || !Native->bInitialized || Native->Descriptor.Format == ETextureFormat::Depth32)
+		if (bRecording || !Owns(Native) || !Native->bInitialized || IsDepthFormat(Native->Descriptor.Format))
 		{
 			return Invalid("Readback requires an initialized color texture and no open graphics frame");
 		}
@@ -1350,7 +1352,7 @@ private:
 
 	[[nodiscard]] bool ValidTargets(const std::shared_ptr<FTexture>& Color, const std::shared_ptr<FTexture>& Depth) const noexcept
 	{
-		return (Color || Depth) && (!Color || (Owns(Color) && Color->Descriptor.bRenderTarget && Color->Descriptor.Format != ETextureFormat::Depth32)) && (!Depth || (Owns(Depth) && Depth->Descriptor.bRenderTarget && Depth->Descriptor.Format == ETextureFormat::Depth32)) && (!Color || !Depth || Color->Descriptor.Extent == Depth->Descriptor.Extent);
+		return (Color || Depth) && (!Color || (Owns(Color) && Color->Descriptor.bRenderTarget && !IsDepthFormat(Color->Descriptor.Format))) && (!Depth || (Owns(Depth) && Depth->Descriptor.bRenderTarget && IsDepthFormat(Depth->Descriptor.Format))) && (!Color || !Depth || Color->Descriptor.Extent == Depth->Descriptor.Extent);
 	}
 
 	[[nodiscard]] bool IsInitialized(const std::shared_ptr<FTexture>& Texture) const

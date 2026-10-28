@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <limits>
 #include <optional>
 
 namespace Herta
@@ -17,8 +18,9 @@ inline constexpr std::uint32_t LightClusterTileSize = 64;
 inline constexpr std::uint32_t LightClusterSlices = 24;
 inline constexpr std::size_t MaximumRenderShadows = 16;
 
-// One directional light owns four 2048 cascades in the top 4096x4096 of the atlas; local lights share sixteen 512 tiles in the strip below.
-inline constexpr std::uint32_t ShadowCascadeResolution = 2048;
+// One directional light owns four 4096 cascades in a 16-bit 8192x8192 atlas; local lights share sixteen 512 tiles in a 32-bit 4096x1024 atlas,
+// because their perspective depth needs the precision.
+inline constexpr std::uint32_t ShadowCascadeResolution = 4096;
 inline constexpr std::uint32_t ShadowTileResolution = 512;
 
 enum class EAntiAliasing : std::uint8_t
@@ -82,7 +84,7 @@ struct FVisualSettings
 	float FogHeight = 0.f;
 	EShadowQuality ShadowQuality = EShadowQuality::Soft;
 	EAmbientOcclusion AmbientOcclusion = EAmbientOcclusion::High;
-	// Fraction of ShadowCascadeResolution and ShadowTileResolution, from 0.25 to 1.
+	// Fraction of ShadowCascadeResolution, from 0.25 to 1. Local tiles scale by twice as much, capped at ShadowTileResolution.
 	float ShadowResolution = 1.f;
 	// Fog is ray marched at this fraction of the view, capped at 2048 times it per dimension.
 	float FogResolution = 0.25f;
@@ -251,9 +253,11 @@ void ApplyRenderQuality(FVisualSettings& Settings, ERenderQuality Quality);
 std::optional<ERenderQuality> FindRenderQuality(const FVisualSettings& Settings);
 [[nodiscard]] FGtaoUniforms BuildGtaoUniforms(const FMatrix4& Projection, const FMatrix4& ClipToView, FExtent2D Extent, EAmbientOcclusion Quality);
 [[nodiscard]] std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMatrix4& View, const FMatrix4& Projection, FExtent2D Extent, std::span<const FRenderLight> Lights, const FVisualSettings& Settings);
-// Resolution scales the cascade and tile sizes; the atlas must be scaled to match.
-std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, std::span<const FRenderLight> Lights, const FMatrix4& Projection, float Resolution = 1.f);
-FExtent2D GetShadowAtlasExtent(float Resolution);
+// Resolution scales the cascade and tile sizes; the atlases must be scaled to match.
+// Cascades cover the view depth from VisibleNear to VisibleFar within the light's range, so a view that ends close puts all of their texels where it can see.
+std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, std::span<const FRenderLight> Lights, const FMatrix4& Projection, float Resolution = 1.f, float VisibleNear = 0.f, float VisibleFar = std::numeric_limits<float>::infinity());
+FExtent2D GetCascadeAtlasExtent(float Resolution);
+FExtent2D GetLocalShadowAtlasExtent(float Resolution);
 // Expects Vulkan clip space with reversed depth, so a far plane at infinity never rejects anything.
 FViewFrustum MakeViewFrustum(const FMatrix4& WorldToClip, const FVector3& SphereCenter = {}, float SphereRadius = 0.f);
 // Conservative: a box straddling two planes outside a frustum corner can still pass.
