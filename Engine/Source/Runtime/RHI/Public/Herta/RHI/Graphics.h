@@ -274,6 +274,8 @@ struct FIndexedDraw
 	// IndexCount, FirstIndex, InstanceCount, and FirstInstance still describe the largest ranges those arguments may reach.
 	FBufferHandle IndirectArguments{};
 	std::uint32_t IndirectOffset = 0;
+	// The draw writes every pixel of ColorTarget, so the target needs no clear first and counts as initialized afterwards.
+	bool bCoversColorTarget = false;
 };
 
 struct FGraphicsStatistics

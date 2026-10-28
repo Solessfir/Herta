@@ -100,6 +100,17 @@ Every timed pass also opens a Vulkan debug label of the same name, and `VK_EXT_d
 
 It needs GPU performance counter access for non-admin users (NVIDIA Control Panel, Developer, Manage GPU Performance Counters). `D3DPERF_EVENTS.xls` holds per-label times and `GPUTRACE_REGIMES.xls` the metrics per range. GPU Trace runs at base clocks with CPU overhead, so idle gaps land in whichever range is open; compare durations with the `--visual-test` averages and use GPU Trace for which unit limits a pass.
 
+### Frame audit
+
+A 2026-10-28 GPU Trace of the High tier at 3200x1809 on an RTX 4090 Laptop GPU averaged 37% SM throughput over the frame, with every pass serialized on the graphics queue. Fullscreen passes no longer clear targets they overwrite completely (`FIndexedDraw::bCoversColorTarget`). Remaining waste, in expected order of payoff:
+
+- No async compute. Shadows and the depth prepass use 3% of the SM while raster bound; light clustering, the sky view and tone map LUTs, and exposure could overlap them on a compute queue.
+- Unchanged work every frame. The shadow atlas redraws static casters (0.11 to 0.2 ms, 115 draws), and the sky view LUT (0.03 ms), tone map LUT (0.016 ms), and light clusters (0.018 ms) recompute although their inputs rarely change. Cache them behind input hashes.
+- Exposure runs three tiny fullscreen passes (metering, histogram, adaptation) that are mostly pipeline drains; one compute pass would do.
+- Tone mapping costs 0.28 to 0.45 ms, which is high for a LUT lookup and should be profiled for what it reads.
+- GTAO denoise sometimes costs more than GTAO itself (up to 0.64 ms).
+- Each pass boundary drains the pipe; merging passes that read the same inputs removes those drains.
+
 ## Verification
 
 `HertaTests` covers camera/picking and viewport input ownership, grouped authoring, graph/resource failure cleanup, renderer projection/winding, PBR material serialization and color-space/channel rules, normals/tangents, HDR environment filtering, light/shadow budgets, shader reflection and deterministic compilation, and shader snapshot coalescing with last-valid publication.

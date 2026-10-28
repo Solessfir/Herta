@@ -1845,16 +1845,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	{
 		constexpr std::array Names{"Sky", "Volumetric fog", "Tone mapping", "SMAA edges", "SMAA weights", "SMAA neighborhood", "Sky view", "Exposure metering", "Exposure adaptation", "Tone map LUT", "Exposure histogram"};
 		const auto Timer = TimedPass(Names[Pipeline]);
-		if (const auto Cleared = Device.ClearTargets(Destination, {}, {}); !Cleared)
-		{
-			return Cleared;
-		}
-
 		// Tone mapping and SMAA neighborhood write the display target, so their pipelines follow its format.
 		const FGraphicsPipelineHandle& Selected = Pipeline == 2 ? Display.ToneMap : Pipeline == 5 ? Display.SmaaNeighborhood
 		                                                                                          : State.VisualPipelines[Pipeline];
 		// Only volumetric fog reads lights.
-		return Device.DrawIndexed({.Pipeline = Selected, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = Destination, .IndexCount = 6, .Textures = Sources, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = Pipeline == 1 ? std::span<const FBufferHandle>(LightBuffers) : std::span<const FBufferHandle>{}});
+		return Device.DrawIndexed({.Pipeline = Selected, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = Destination, .IndexCount = 6, .Textures = Sources, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = Pipeline == 1 ? std::span<const FBufferHandle>(LightBuffers) : std::span<const FBufferHandle>{}, .bCoversColorTarget = true});
 	};
 
 	const auto MaterialPipeline = [&](const FRenderMesh::FSection& Section, const std::span<const FRenderMaterial* const> Overrides, const bool bInstanced)

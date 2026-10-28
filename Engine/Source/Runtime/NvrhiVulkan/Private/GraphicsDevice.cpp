@@ -796,9 +796,9 @@ public:
 		const auto IndexUpload = Frame.UploadedBuffers.find(Indices.get());
 		const std::uint32_t MaximumIndex = IndexUpload == Frame.UploadedBuffers.end() ? Indices->MaximumIndex : IndexUpload->second;
 		const std::size_t VertexStride = bColored ? sizeof(FColoredClipVertex) : sizeof(FMeshVertex);
-		if ((!Vertices->bInitialized && !Frame.UploadedBuffers.contains(Vertices.get())) || (!Indices->bInitialized && IndexUpload == Frame.UploadedBuffers.end()) || (Instances && !Instances->bInitialized && !Frame.UploadedBuffers.contains(Instances.get())) || MaximumIndex >= Vertices->Descriptor.Size / VertexStride || (Color && !IsInitialized(Color)) || (Depth && !IsInitialized(Depth)))
+		if ((!Vertices->bInitialized && !Frame.UploadedBuffers.contains(Vertices.get())) || (!Indices->bInitialized && IndexUpload == Frame.UploadedBuffers.end()) || (Instances && !Instances->bInitialized && !Frame.UploadedBuffers.contains(Instances.get())) || MaximumIndex >= Vertices->Descriptor.Size / VertexStride || (Color && !Draw.bCoversColorTarget && !IsInitialized(Color)) || (Depth && !IsInitialized(Depth)))
 		{
-			return Invalid(std::format("Indexed draw '{}' reads uninitialized resources or references vertices outside the vertex buffer (vertices {}, indices {}, instances {}, color {}, depth {}, maximum index {}, vertex count {})", Pipeline->Name, Vertices->bInitialized || Frame.UploadedBuffers.contains(Vertices.get()), Indices->bInitialized || IndexUpload != Frame.UploadedBuffers.end(), !Instances || Instances->bInitialized || Frame.UploadedBuffers.contains(Instances.get()), !Color || IsInitialized(Color), !Depth || IsInitialized(Depth), MaximumIndex, Vertices->Descriptor.Size / VertexStride));
+			return Invalid(std::format("Indexed draw '{}' reads uninitialized resources or references vertices outside the vertex buffer (vertices {}, indices {}, instances {}, color {}, depth {}, maximum index {}, vertex count {})", Pipeline->Name, Vertices->bInitialized || Frame.UploadedBuffers.contains(Vertices.get()), Indices->bInitialized || IndexUpload != Frame.UploadedBuffers.end(), !Instances || Instances->bInitialized || Frame.UploadedBuffers.contains(Instances.get()), !Color || Draw.bCoversColorTarget || IsInitialized(Color), !Depth || IsInitialized(Depth), MaximumIndex, Vertices->Descriptor.Size / VertexStride));
 		}
 
 		const std::size_t UniformAllocation = (Draw.Uniforms.size() + 255) & ~std::size_t{255};
@@ -862,9 +862,9 @@ public:
 			return Failed("Could not create draw framebuffer or bindings");
 		}
 
-		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, Indirect, Framebuffer, Bindings, bColored, Viewport, Textures = std::move(Textures), Buffers = std::move(Buffers), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, Indirect, Framebuffer, Bindings, Viewport, Textures = std::move(Textures), Buffers = std::move(Buffers), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
 		{
-			Commands->beginMarker(bColored ? "Draw debug primitives" : "Draw textured mesh");
+			Commands->beginMarker(Pipeline->Name.c_str());
 			if (UniformBuffer)
 			{
 				Commands->writeBuffer(UniformBuffer, Uniforms.data(), Uniforms.size());
@@ -906,6 +906,11 @@ public:
 			}
 			Commands->endMarker();
 		});
+
+		if (Color && Draw.bCoversColorTarget)
+		{
+			Frame.WrittenTextures[Color.get()] |= 1u;
+		}
 
 		Frame.UploadBytes += Draw.Uniforms.size();
 		Frame.UniformBytes += UniformAllocation;
