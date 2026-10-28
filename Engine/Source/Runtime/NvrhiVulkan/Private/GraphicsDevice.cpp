@@ -1060,9 +1060,15 @@ public:
 			}
 		}
 
-		Frame.Operations.emplace_back([Pipeline, Bindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Pipeline, Bindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount, bOverlap = Dispatch.bOverlapsPrevious](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(Pipeline->Name.c_str());
+			// NVRHI otherwise separates consecutive writes to one storage texture with a barrier. It applies when the bindings are set.
+			for (const auto& Texture : bOverlap ? Storage : decltype(Storage){})
+			{
+				Commands->setEnableUavBarriersForTexture(Texture->Handle, false);
+			}
+
 			if (UniformBuffer)
 			{
 				Commands->writeBuffer(UniformBuffer, Uniforms.data(), Uniforms.size());
@@ -1088,6 +1094,11 @@ public:
 			else
 			{
 				Commands->dispatch(GroupCount[0], GroupCount[1], GroupCount[2]);
+			}
+
+			for (const auto& Texture : bOverlap ? Storage : decltype(Storage){})
+			{
+				Commands->setEnableUavBarriersForTexture(Texture->Handle, true);
 			}
 
 			Commands->endMarker();

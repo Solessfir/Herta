@@ -2573,7 +2573,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				};
 
 				const std::array<std::uint32_t, 3> Groups{static_cast<std::uint32_t>(Dispatch.WaveCount[0]), static_cast<std::uint32_t>(Dispatch.WaveCount[1]), static_cast<std::uint32_t>(Dispatch.WaveCount[2])};
-				if (const auto Result = Device.Dispatch({.Pipeline = State.ContactShadowPipeline, .Textures = SceneDepth, .StorageTextures = Target, .Uniforms = std::as_bytes(std::span{&Uniforms, 1}), .GroupCount = Groups}); !Result)
+				if (const auto Result = Device.Dispatch({.Pipeline = State.ContactShadowPipeline, .Textures = SceneDepth, .StorageTextures = Target, .Uniforms = std::as_bytes(std::span{&Uniforms, 1}), .GroupCount = Groups, .bOverlapsPrevious = Index > 0}); !Result)
 				{
 					return GraphResult(Result);
 				}
