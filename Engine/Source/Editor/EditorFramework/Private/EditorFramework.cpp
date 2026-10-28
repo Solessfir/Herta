@@ -3242,6 +3242,21 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 					ImGui::EndCombo();
 				}
+
+				DrawFieldLabel("Ambient occlusion", ValueWidth);
+				constexpr std::array OcclusionModes{"Off", "GTAO Low", "GTAO Medium", "GTAO High"};
+				if (ImGui::BeginCombo("##AmbientOcclusion", OcclusionModes[static_cast<std::size_t>(VisualSettings.AmbientOcclusion)]))
+				{
+					for (std::size_t Index = 0; Index < OcclusionModes.size(); ++Index)
+					{
+						if (ImGui::Selectable(OcclusionModes[Index], Index == static_cast<std::size_t>(VisualSettings.AmbientOcclusion)))
+						{
+							VisualSettings.AmbientOcclusion = static_cast<EAmbientOcclusion>(Index);
+						}
+					}
+
+					ImGui::EndCombo();
+				}
 			}
 		}
 

@@ -334,6 +334,9 @@ int RunGame(const FGameOptions& Options)
 	    std::pair{"ExposureMeter.frag.hshader", &VisualShaders.ExposureMeterFragment},
 	    std::pair{"ExposureAdapt.frag.hshader", &VisualShaders.ExposureAdaptFragment},
 	    std::pair{"ExposureHistogram.frag.hshader", &VisualShaders.ExposureHistogramFragment},
+	    std::pair{"GtaoDepth.comp.hshader", &VisualShaders.GtaoDepthCompute},
+	    std::pair{"Gtao.comp.hshader", &VisualShaders.GtaoCompute},
+	    std::pair{"GtaoDenoise.comp.hshader", &VisualShaders.GtaoDenoiseCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)

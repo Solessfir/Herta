@@ -11,12 +11,12 @@ int Run(const int ArgumentCount, const char* const* Arguments)
 {
 	if (ArgumentCount < 5)
 	{
-		std::println(stderr, "Usage: HertaShaderWorker <source.slang> <vertex|fragment> <entry-point> <output.hshader> [--debug] [--include-root <path>]");
+		std::println(stderr, "Usage: HertaShaderWorker <source.slang> <vertex|fragment|compute> <entry-point> <output.hshader> [--debug] [--include-root <path>]");
 		return 2;
 	}
 
 	const std::string_view Stage(Arguments[2]);
-	if (Stage != "vertex" && Stage != "fragment")
+	if (Stage != "vertex" && Stage != "fragment" && Stage != "compute")
 	{
 		std::println(stderr, "Invalid shader stage or option");
 		return 2;
@@ -26,7 +26,8 @@ int Run(const int ArgumentCount, const char* const* Arguments)
 	{
 		const std::string_view SourcePath(Arguments[1]);
 		const std::string_view OutputPath(Arguments[4]);
-		Herta::FShaderCompileRequest Request{.Source = std::filesystem::path(std::u8string(SourcePath.begin(), SourcePath.end())), .EntryPoint = Arguments[3], .Stage = Stage == "vertex" ? Herta::EShaderStage::Vertex : Herta::EShaderStage::Fragment};
+		Herta::FShaderCompileRequest Request{.Source = std::filesystem::path(std::u8string(SourcePath.begin(), SourcePath.end())), .EntryPoint = Arguments[3], .Stage = Stage == "vertex" ? Herta::EShaderStage::Vertex : Stage == "fragment" ? Herta::EShaderStage::Fragment
+		                                                                                                                                                                                                                                      : Herta::EShaderStage::Compute};
 
 		for (int Index = 5; Index < ArgumentCount; ++Index)
 		{

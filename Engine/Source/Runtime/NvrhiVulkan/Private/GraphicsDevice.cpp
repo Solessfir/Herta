@@ -1,6 +1,7 @@
 #include "GraphicsDevice.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <exception>
@@ -48,6 +49,8 @@ constexpr std::size_t MaximumGpuPassTimings = 32;
 			return nvrhi::Format::RGBA16_FLOAT;
 		case ETextureFormat::Rgba32Float:
 			return nvrhi::Format::RGBA32_FLOAT;
+		case ETextureFormat::R32Float:
+			return nvrhi::Format::R32_FLOAT;
 	}
 
 	return nvrhi::Format::UNKNOWN;
@@ -105,6 +108,18 @@ struct FPipeline final : IRhiGraphicsPipeline
 	std::uint32_t UniformBufferSize = 0;
 };
 
+struct FComputePipeline final : IRhiComputePipeline
+{
+	std::string Name;
+	std::shared_ptr<const std::uint8_t> Owner;
+	nvrhi::ComputePipelineHandle Handle;
+	nvrhi::BindingLayoutHandle Layout;
+	nvrhi::SamplerHandle Sampler;
+	std::uint32_t TextureCount = 0;
+	std::uint32_t StorageTextureCount = 0;
+	std::uint32_t UniformBufferSize = 0;
+};
+
 struct FPassTiming
 {
 	std::string Name;
@@ -120,7 +135,8 @@ struct FFrame
 	std::size_t UniformBytes = 0;
 	// Draws in a recording mostly share targets and material textures, so their framebuffers and descriptor sets are created once per recording.
 	std::map<std::array<nvrhi::ITexture*, 2>, nvrhi::FramebufferHandle> Framebuffers;
-	std::map<std::vector<nvrhi::IResource*>, nvrhi::BindingSetHandle> BindingSets;
+	// Keys hold the layout, each bound resource, and the mip level of each storage binding.
+	std::map<std::vector<std::uintptr_t>, nvrhi::BindingSetHandle> BindingSets;
 	std::array<FPassTiming, MaximumGpuPassTimings> Timings;
 	std::size_t TimingCount = 0;
 	std::optional<std::size_t> ActiveTiming;
@@ -222,9 +238,9 @@ public:
 	{
 		const nvrhi::Format Format = ToFormat(Descriptor.Format);
 		const bool bDepth = Descriptor.Format == ETextureFormat::Depth32;
-		if (Descriptor.Extent.IsEmpty() || Descriptor.Extent.Width > TextureDimensionLimit || Descriptor.Extent.Height > TextureDimensionLimit || Format == nvrhi::Format::UNKNOWN || (bDepth && !Descriptor.bRenderTarget))
+		if (Descriptor.Extent.IsEmpty() || Descriptor.Extent.Width > TextureDimensionLimit || Descriptor.Extent.Height > TextureDimensionLimit || Format == nvrhi::Format::UNKNOWN || (bDepth && (!Descriptor.bRenderTarget || Descriptor.bStorage)))
 		{
-			return Invalid(std::format("Texture requires a supported format and dimensions in [1, {}]; depth textures must be render targets", TextureDimensionLimit));
+			return Invalid(std::format("Texture requires a supported format and dimensions in [1, {}]; depth textures must be render targets without storage", TextureDimensionLimit));
 		}
 
 		if (Descriptor.MipLevels == 0 || Descriptor.MipLevels > GetMipLevelCount(Descriptor.Extent) || (Descriptor.bRenderTarget && Descriptor.MipLevels != 1))
@@ -233,7 +249,8 @@ public:
 		}
 
 		const nvrhi::FormatSupport Required = nvrhi::FormatSupport::Texture | nvrhi::FormatSupport::ShaderSample | (bDepth ? nvrhi::FormatSupport::DepthStencil : Descriptor.bRenderTarget ? nvrhi::FormatSupport::RenderTarget
-		                                                                                                                                                                                   : nvrhi::FormatSupport::None);
+		                                                                                                                                                                                   : nvrhi::FormatSupport::None)
+		                                      | (Descriptor.bStorage ? nvrhi::FormatSupport::ShaderUavStore : nvrhi::FormatSupport::None);
 		if ((Device->queryFormatSupport(Format) & Required) != Required)
 		{
 			return Invalid("Texture format does not support the requested usage on this device");
@@ -246,6 +263,7 @@ public:
 		nvrhi::TextureDesc Native;
 		Native.setWidth(Descriptor.Extent.Width).setHeight(Descriptor.Extent.Height).setMipLevels(Descriptor.MipLevels).setFormat(Format).setDebugName(Descriptor.Name).setIsRenderTarget(Descriptor.bRenderTarget).setIsTypeless(Descriptor.Format == ETextureFormat::Rgba8Srgb && Descriptor.bRenderTarget).enableAutomaticStateTracking(bDepth ? nvrhi::ResourceStates::DepthWrite : nvrhi::ResourceStates::ShaderResource);
 		Native.isShaderResource = true;
+		Native.isUAV = Descriptor.bStorage;
 		Texture->Handle = Device->createTexture(Native);
 		if (!Texture->Handle)
 		{
@@ -392,6 +410,87 @@ public:
 		if (!Pipeline->Handle)
 		{
 			return Failed("Could not create graphics pipeline '" + Descriptor.Name + "'");
+		}
+
+		return Pipeline;
+	}
+
+	[[nodiscard]] std::expected<FComputePipelineHandle, FPresentationError> CreateComputePipeline(const FComputePipelineDescriptor& Descriptor) override
+	{
+		const FShaderAsset& Shader = Descriptor.Shader;
+		const bool bValidBindings = std::ranges::all_of(Shader.Bindings, [&Descriptor](const FShaderBinding& Binding)
+		{
+			switch (Binding.Type)
+			{
+				case EShaderBindingType::Texture:
+					return Binding.Binding < Descriptor.TextureCount;
+				case EShaderBindingType::Sampler:
+					return Binding.Binding == 128 && Descriptor.TextureCount != 0;
+				case EShaderBindingType::ConstantBuffer:
+					return Binding.Binding == 64 && Binding.ByteSize <= Descriptor.UniformBufferSize;
+				case EShaderBindingType::StorageTexture:
+					return Binding.Binding >= StorageTextureBinding && Binding.Binding < StorageTextureBinding + Descriptor.StorageTextureCount;
+			}
+
+			return false;
+		});
+
+		if (Shader.Stage != EShaderStage::Compute || !SerializeCookedShader(Shader) || Shader.PushConstantSize != 0 || !bValidBindings || Descriptor.TextureCount > MaximumGraphicsTextures || Descriptor.StorageTextureCount > MaximumStorageTextures || Descriptor.UniformBufferSize > MaximumGraphicsUniformBytes || Descriptor.UniformBufferSize % 16 != 0)
+		{
+			return Invalid("Compute pipeline '" + Descriptor.Name + "' requires a compute shader whose bindings fit its texture, storage, and aligned uniform counts");
+		}
+
+		auto Pipeline = std::make_shared<FComputePipeline>();
+		Pipeline->Name = Descriptor.Name;
+		Pipeline->Owner = Owner;
+		Pipeline->TextureCount = Descriptor.TextureCount;
+		Pipeline->StorageTextureCount = Descriptor.StorageTextureCount;
+		Pipeline->UniformBufferSize = Descriptor.UniformBufferSize;
+		const auto Module = Device->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Compute).setEntryName(Shader.EntryPoint).setDebugName(Descriptor.Name), Shader.Bytecode.data(), Shader.Bytecode.size() * sizeof(std::uint32_t));
+		nvrhi::BindingLayoutDesc Layout;
+		Layout.setVisibility(nvrhi::ShaderType::Compute).setBindingOffsets(nvrhi::VulkanBindingOffsets().setConstantBufferOffset(64).setUnorderedAccessViewOffset(StorageTextureBinding));
+		for (std::uint32_t Slot = 0; Slot < Descriptor.TextureCount; ++Slot)
+		{
+			Layout.addItem(nvrhi::BindingLayoutItem::Texture_SRV(Slot));
+		}
+
+		if (Descriptor.TextureCount != 0)
+		{
+			Layout.addItem(nvrhi::BindingLayoutItem::Sampler(0));
+			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(false).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
+		}
+
+		if (Descriptor.UniformBufferSize != 0)
+		{
+			Layout.addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0));
+		}
+
+		for (std::uint32_t Slot = 0; Slot < Descriptor.StorageTextureCount; ++Slot)
+		{
+			Layout.addItem(nvrhi::BindingLayoutItem::Texture_UAV(Slot));
+		}
+
+		if (!Layout.bindings.empty())
+		{
+			Pipeline->Layout = Device->createBindingLayout(Layout);
+		}
+
+		if (!Module || (!Layout.bindings.empty() && !Pipeline->Layout) || (Descriptor.TextureCount != 0 && !Pipeline->Sampler))
+		{
+			return Failed("Could not create compute shader, layout, or sampler for '" + Descriptor.Name + "'");
+		}
+
+		nvrhi::ComputePipelineDesc NativeDescriptor;
+		NativeDescriptor.setComputeShader(Module);
+		if (Pipeline->Layout)
+		{
+			NativeDescriptor.addBindingLayout(Pipeline->Layout);
+		}
+
+		Pipeline->Handle = Device->createComputePipeline(NativeDescriptor);
+		if (!Pipeline->Handle)
+		{
+			return Failed("Could not create compute pipeline '" + Descriptor.Name + "'");
 		}
 
 		return Pipeline;
@@ -623,34 +722,11 @@ public:
 			return Invalid(std::format("Indexed draw '{}' reads uninitialized resources or references vertices outside the vertex buffer (vertices {}, indices {}, instances {}, color {}, depth {}, maximum index {}, vertex count {})", Pipeline->Name, Vertices->bInitialized || Frame.UploadedBuffers.contains(Vertices.get()), Indices->bInitialized || IndexUpload != Frame.UploadedBuffers.end(), !Instances || Instances->bInitialized || Frame.UploadedBuffers.contains(Instances.get()), !Color || IsInitialized(Color), !Depth || IsInitialized(Depth), MaximumIndex, Vertices->Descriptor.Size / VertexStride));
 		}
 
-		nvrhi::BufferHandle UniformBuffer;
 		const std::size_t UniformAllocation = (Draw.Uniforms.size() + 255) & ~std::size_t{255};
-		if (UniformAllocation > MaximumUniformBytesPerFrame - Frame.UniformBytes)
+		const auto UniformBuffer = AllocateUniforms(UniformAllocation, Draw.Uniforms.size());
+		if (!UniformBuffer)
 		{
-			return Invalid("Draw uniforms exceed the 4 MiB per-frame budget");
-		}
-
-		if (const auto Ready = CanRecord(Draw.Uniforms.size()); !Ready)
-		{
-			return Ready;
-		}
-
-		if (UniformAllocation != 0)
-		{
-			// Volatile buffers suballocate each write from NVRHI's upload ring. Ordinary buffers would end the render pass and add a barrier before every draw.
-			auto& Volatile = VolatileUniforms[UniformAllocation];
-			if (!Volatile)
-			{
-				const auto Versions = static_cast<std::uint32_t>(MaximumUniformBytesPerFrame / UniformAllocation * (FrameCount + 1));
-				Volatile = Device->createBuffer(nvrhi::BufferDesc().setByteSize(UniformAllocation).setIsConstantBuffer(true).setIsVolatile(true).setMaxVersions(Versions).setDebugName("Draw uniforms"));
-				if (!Volatile)
-				{
-					VolatileUniforms.erase(UniformAllocation);
-					return Failed("Could not allocate draw uniform buffer");
-				}
-			}
-
-			UniformBuffer = Volatile;
+			return std::unexpected(UniformBuffer.error());
 		}
 
 		nvrhi::FramebufferDesc FramebufferDescriptor;
@@ -681,9 +757,9 @@ public:
 			BindingDescriptor.addItem(nvrhi::BindingSetItem::Sampler(0, Pipeline->Sampler));
 		}
 
-		if (UniformBuffer)
+		if (*UniformBuffer)
 		{
-			BindingDescriptor.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, UniformBuffer));
+			BindingDescriptor.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, *UniformBuffer));
 		}
 
 		if (Pipeline->bPushConstants)
@@ -694,26 +770,15 @@ public:
 		nvrhi::BindingSetHandle Bindings;
 		if (Pipeline->Layout)
 		{
-			std::vector<nvrhi::IResource*> Key{Pipeline->Layout.Get()};
-			for (const nvrhi::BindingSetItem& Item : BindingDescriptor.bindings)
-			{
-				Key.push_back(Item.resourceHandle);
-			}
-
-			nvrhi::BindingSetHandle& Cached = Frame.BindingSets[std::move(Key)];
-			if (!Cached)
-			{
-				Cached = Device->createBindingSet(BindingDescriptor, Pipeline->Layout);
-			}
-
-			Bindings = Cached;
+			Bindings = CachedBindingSet(Frame, BindingDescriptor, Pipeline->Layout);
 		}
+
 		if (!Framebuffer || (Pipeline->Layout && !Bindings))
 		{
 			return Failed("Could not create draw framebuffer or bindings");
 		}
 
-		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, Framebuffer, Bindings, bColored, Viewport, Textures = std::move(Textures), UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, Framebuffer, Bindings, bColored, Viewport, Textures = std::move(Textures), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(bColored ? "Draw debug primitives" : "Draw textured mesh");
 			if (UniformBuffer)
@@ -747,6 +812,119 @@ public:
 		});
 
 		Frame.UploadBytes += Draw.Uniforms.size();
+		Frame.UniformBytes += UniformAllocation;
+		return {};
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> Dispatch(const FComputeDispatch& Dispatch) override
+	{
+		if (const auto Ready = CanRecord(Dispatch.Uniforms.size()); !Ready)
+		{
+			return Ready;
+		}
+
+		const auto Pipeline = std::dynamic_pointer_cast<FComputePipeline>(Dispatch.Pipeline);
+		if (!Owns(Pipeline) || Dispatch.Textures.size() != Pipeline->TextureCount || Dispatch.StorageTextures.size() != Pipeline->StorageTextureCount || Dispatch.Uniforms.size() != Pipeline->UniformBufferSize || std::ranges::any_of(Dispatch.GroupCount, [](const std::uint32_t Count)
+		{
+			return Count == 0 || Count > 65535;
+		}))
+		{
+			return Invalid(std::format("Dispatch '{}' does not match its pipeline's bindings or has an empty or oversized group count", Pipeline ? Pipeline->Name : "invalid pipeline"));
+		}
+
+		std::vector<std::shared_ptr<FTexture>> Textures;
+		for (const FTextureHandle& Texture : Dispatch.Textures)
+		{
+			Textures.push_back(std::dynamic_pointer_cast<FTexture>(Texture));
+		}
+
+		std::vector<std::shared_ptr<FTexture>> Storage;
+		for (const FStorageTextureBinding& Binding : Dispatch.StorageTextures)
+		{
+			Storage.push_back(std::dynamic_pointer_cast<FTexture>(Binding.Texture));
+		}
+
+		const bool bValidTextures = std::ranges::all_of(Textures, [&](const auto& Texture)
+		{
+			return Owns(Texture) && IsInitialized(Texture) && !std::ranges::contains(Storage, Texture);
+		});
+
+		bool bValidStorage = true;
+		for (std::size_t Index = 0; Index < Storage.size(); ++Index)
+		{
+			bValidStorage = bValidStorage && Owns(Storage[Index]) && Storage[Index]->Descriptor.bStorage && Dispatch.StorageTextures[Index].MipLevel < Storage[Index]->Descriptor.MipLevels;
+		}
+
+		if (!bValidTextures || !bValidStorage)
+		{
+			return Invalid(std::format("Dispatch '{}' needs initialized sampled textures and storage textures with valid mip levels, owned by this device and not both read and written", Pipeline->Name));
+		}
+
+		const std::size_t UniformAllocation = (Dispatch.Uniforms.size() + 255) & ~std::size_t{255};
+		const auto UniformBuffer = AllocateUniforms(UniformAllocation, Dispatch.Uniforms.size());
+		if (!UniformBuffer)
+		{
+			return std::unexpected(UniformBuffer.error());
+		}
+
+		FFrame& Frame = Frames[FrameIndex];
+		nvrhi::BindingSetHandle Bindings;
+		if (Pipeline->Layout)
+		{
+			nvrhi::BindingSetDesc BindingDescriptor;
+			for (std::uint32_t Slot = 0; Slot < Textures.size(); ++Slot)
+			{
+				BindingDescriptor.addItem(nvrhi::BindingSetItem::Texture_SRV(Slot, Textures[Slot]->Handle));
+			}
+
+			if (Pipeline->Sampler)
+			{
+				BindingDescriptor.addItem(nvrhi::BindingSetItem::Sampler(0, Pipeline->Sampler));
+			}
+
+			if (*UniformBuffer)
+			{
+				BindingDescriptor.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, *UniformBuffer));
+			}
+
+			for (std::uint32_t Slot = 0; Slot < Storage.size(); ++Slot)
+			{
+				BindingDescriptor.addItem(nvrhi::BindingSetItem::Texture_UAV(Slot, Storage[Slot]->Handle, nvrhi::Format::UNKNOWN, nvrhi::TextureSubresourceSet(Dispatch.StorageTextures[Slot].MipLevel, 1, 0, 1)));
+			}
+
+			Bindings = CachedBindingSet(Frame, BindingDescriptor, Pipeline->Layout);
+			if (!Bindings)
+			{
+				return Failed("Could not create dispatch bindings");
+			}
+		}
+
+		Frame.Operations.emplace_back([Pipeline, Bindings, Textures = std::move(Textures), Storage, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount](nvrhi::ICommandList* const Commands)
+		{
+			Commands->beginMarker(Pipeline->Name.c_str());
+			if (UniformBuffer)
+			{
+				Commands->writeBuffer(UniformBuffer, Uniforms.data(), Uniforms.size());
+			}
+
+			nvrhi::ComputeState State;
+			State.setPipeline(Pipeline->Handle);
+			if (Bindings)
+			{
+				State.addBindingSet(Bindings);
+			}
+
+			Commands->setComputeState(State);
+			Commands->dispatch(GroupCount[0], GroupCount[1], GroupCount[2]);
+			Commands->endMarker();
+		});
+
+		for (std::size_t Index = 0; Index < Storage.size(); ++Index)
+		{
+			Frame.WrittenTextures[Storage[Index].get()] |= 1u << Dispatch.StorageTextures[Index].MipLevel;
+		}
+
+		Frame.UploadBytes += Dispatch.Uniforms.size();
 		Frame.UniformBytes += UniformAllocation;
 		return {};
 	}
@@ -958,6 +1136,60 @@ public:
 	}
 
 private:
+	// Volatile buffers suballocate each write from NVRHI's upload ring. Ordinary buffers would end the render pass and add a barrier before every draw.
+	[[nodiscard]] std::expected<nvrhi::BufferHandle, FPresentationError> AllocateUniforms(const std::size_t Allocation, const std::size_t Bytes)
+	{
+		if (Allocation > MaximumUniformBytesPerFrame - Frames[FrameIndex].UniformBytes)
+		{
+			return Invalid("Uniforms exceed the 4 MiB per-frame budget");
+		}
+
+		if (const auto Ready = CanRecord(Bytes); !Ready)
+		{
+			return std::unexpected(Ready.error());
+		}
+
+		if (Allocation == 0)
+		{
+			return nvrhi::BufferHandle{};
+		}
+
+		auto& Volatile = VolatileUniforms[Allocation];
+		if (!Volatile)
+		{
+			const auto Versions = static_cast<std::uint32_t>(MaximumUniformBytesPerFrame / Allocation * (FrameCount + 1));
+			Volatile = Device->createBuffer(nvrhi::BufferDesc().setByteSize(Allocation).setIsConstantBuffer(true).setIsVolatile(true).setMaxVersions(Versions).setDebugName("Uniforms"));
+			if (!Volatile)
+			{
+				VolatileUniforms.erase(Allocation);
+				return Failed("Could not allocate a uniform buffer");
+			}
+		}
+
+		return Volatile;
+	}
+
+	[[nodiscard]] nvrhi::BindingSetHandle CachedBindingSet(FFrame& Frame, const nvrhi::BindingSetDesc& Descriptor, nvrhi::IBindingLayout* const Layout) const
+	{
+		std::vector<std::uintptr_t> Key{std::bit_cast<std::uintptr_t>(Layout)};
+		for (const nvrhi::BindingSetItem& Item : Descriptor.bindings)
+		{
+			Key.push_back(std::bit_cast<std::uintptr_t>(Item.resourceHandle));
+			if (Item.type == nvrhi::ResourceType::Texture_UAV)
+			{
+				Key.push_back(Item.subresources.baseMipLevel);
+			}
+		}
+
+		nvrhi::BindingSetHandle& Cached = Frame.BindingSets[std::move(Key)];
+		if (!Cached)
+		{
+			Cached = Device->createBindingSet(Descriptor, Layout);
+		}
+
+		return Cached;
+	}
+
 	template <typename T> [[nodiscard]] bool Owns(const std::shared_ptr<T>& Resource) const noexcept
 	{
 		return Resource && Resource->Owner == Owner;

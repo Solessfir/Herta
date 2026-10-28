@@ -52,6 +52,12 @@ public:
 	Herta::FGraphicsPipelineDescriptor Descriptor;
 };
 
+class FTestComputePipeline final : public Herta::IRhiComputePipeline
+{
+public:
+	Herta::FComputePipelineDescriptor Descriptor;
+};
+
 class FTestGraphicsDevice final : public Herta::IGraphicsDevice
 {
 public:
@@ -62,6 +68,8 @@ public:
 	std::vector<std::vector<std::uint32_t>> IndexUploads;
 	std::vector<std::string> Events;
 	std::vector<Herta::FIndexedDraw> Draws;
+	// Pipeline names in dispatch order.
+	std::vector<std::string> Dispatches;
 	std::vector<std::vector<Herta::FTextureHandle>> DrawTextures;
 	std::vector<std::vector<std::byte>> DrawUniforms;
 	Herta::FIndexedDraw LastDraw;
@@ -103,6 +111,20 @@ public:
 		auto Pipeline = std::make_shared<FTestPipeline>();
 		Pipeline->Descriptor = Descriptor;
 		return Pipeline;
+	}
+
+	std::expected<Herta::FComputePipelineHandle, Herta::FPresentationError> CreateComputePipeline(const Herta::FComputePipelineDescriptor& Descriptor) override
+	{
+		auto Pipeline = std::make_shared<FTestComputePipeline>();
+		Pipeline->Descriptor = Descriptor;
+		return Pipeline;
+	}
+
+	std::expected<void, Herta::FPresentationError> Dispatch(const Herta::FComputeDispatch& Dispatch) override
+	{
+		Events.emplace_back("Dispatch");
+		Dispatches.push_back(static_cast<const FTestComputePipeline&>(*Dispatch.Pipeline).Descriptor.Name);
+		return {};
 	}
 
 	std::expected<void, Herta::FPresentationError> BeginCommands() override

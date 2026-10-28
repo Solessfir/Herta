@@ -1,7 +1,7 @@
 # Herta Engine Design
 
 Status: Active design - Milestone 5 playable runtime implemented on Windows, with Linux runs pending; Milestone 6 raster scaling next
-Last updated: 2026-10-06
+Last updated: 2026-10-23
 
 ## 1. Purpose
 
@@ -531,20 +531,21 @@ Renderer progression:
 3. Depth prepass or depth-only path, reversed-Z, camera-relative transforms.
 4. Editable PBR materials and shaders, authored direct lights, image-based lighting, shadow maps, HDR exposure, and tone mapping.
 5. Native-resolution SMAA 1x, sky/atmosphere, and volumetric fog, with usable editor controls.
-6. Motion vectors, depth hierarchy, GTAO, and an additional crisp native-resolution TAA mode with correct history invalidation.
+6. Motion vectors, depth hierarchy, and visibility-bitmask GTAO.
 7. GPU-driven culling, indirect draws, meshlets, and async work after profiling.
-8. Optional temporal upscalers, screen-space GI, hardware ray tracing, and experimental dynamic-GI backends after their prerequisites and quality gates exist.
+8. Hardware ray queries, a reference path tracer, and Radiance Cascades GI validated against it.
+9. Optional native TAA and temporal upscalers once their quality contracts are met.
 
 Herta has no lightmap authoring, baking, or lightmap-UV cooking pipeline. Dynamic lighting must still degrade by capability instead of requiring full GI on every supported GPU:
 
-- Low uses direct lighting, image-based lighting, shadow maps, and GTAO.
-- Medium adds screen-space GI when enabled.
-- High may add a validated Radiance Cascades or hardware ray-traced GI backend.
+- Low uses direct lighting, image-based lighting, shadow maps, and visibility-bitmask GTAO.
+- Medium raises shadow, GTAO, and fog quality within measured budgets.
+- High adds Radiance Cascades GI on GPUs with ray queries. Screen-space GI is not planned; it misses off-screen and occluded light that Radiance Cascades covers.
 - Headless and unsupported rendering paths retain deterministic unlit or direct-light fallbacks.
 
-Radiance Cascades is a research candidate, not Herta's sole shipping GI foundation. Its acceptance spike must cover free-camera indoor and outdoor scenes, off-screen emitters and occluders, thin walls, foliage, skinned and moving geometry, large worlds, camera cuts, and multiple editor views. Results are compared against path-traced references with recorded GPU time, memory, instability, light leaks, and scene-update cost. Until those gates pass, it remains an internal experimental method.
+Radiance Cascades is the planned dynamic-GI backend, built in Milestone 6.5 after hardware ray queries and the reference path tracer. Before it ships, its acceptance tests must cover free-camera indoor and outdoor scenes, off-screen emitters and occluders, thin walls, foliage, skinned and moving geometry, large worlds, camera cuts, and multiple editor views. Results are compared against the path tracer with recorded GPU time, memory, instability, light leaks, and scene-update cost. Until those gates pass, it remains an internal experimental method, and DDGI is the fallback if it cannot pass them. Visibility-bitmask GTAO stays enabled alongside it for contact occlusion below the probe spacing.
 
-Hardware ray tracing is capability-driven and optional. Add Vulkan KHR acceleration structures, ray queries, and ray-tracing pipelines only after the raster path, scene extraction, motion vectors, RenderGraph lifetime rules, and GPU profiling are stable. Raster rendering remains a complete supported path.
+Hardware ray tracing is capability-driven and optional. Add Vulkan KHR acceleration structures and ray queries in Milestone 6.5, after Milestone 6 stabilizes the raster path, scene extraction, motion vectors, compute, RenderGraph lifetime rules, and GPU profiling. Ray-tracing pipelines wait until an effect needs them. Raster rendering remains a complete supported path.
 
 SMAA 1x is the first native-resolution AA mode and the default for Milestone 4.5. Start from the reference spatial algorithm with edge detection, blending-weight calculation, neighborhood blending, and its lookup textures. A compute rewrite is an optimization, not an initial requirement; it is scheduled for Milestone 6, once the RHI supports compute. In October 2026 the pixel-shader passes measured 0.15 ms (edges 0.05, weights 0.06, neighborhood 0.04) of a 5.5 ms Sandbox frame on an RTX 4090 Laptop GPU. Keep `Off` available. SMAA T2x/4x and CMAA2 remain comparison candidates, not requirements for visual authoring.
 
@@ -1071,7 +1072,7 @@ Source dependencies live under `External`. Single-header and amalgamated librari
 | [AMD FidelityFX FSR](https://gpuopen.com/fidelityfx-super-resolution-3/) | Adopt after native TAA and upscaler contracts | Renderer adapter | First optional Vulkan temporal-upscaling integration. Vendor types and lifecycle remain private. Frame generation is later. |
 | [NVIDIA Streamline/DLSS](https://github.com/NVIDIA-RTX/Streamline) | Optional later plugin | Renderer plugin | Vulkan DLSS integration without making NVIDIA binaries or device capabilities a renderer foundation. Validate Windows and Linux deployment independently. |
 | [Intel XeSS](https://www.intel.com/content/www/us/en/developer/articles/technical/xess-sr-developer-guide.html) | Optional later plugin | Renderer plugin | Vulkan temporal upscaling through the same Herta input contract after native TAA and FSR are stable. |
-| [meshoptimizer](https://github.com/zeux/meshoptimizer) | Adopted at MS3 | AssetPipeline | Vertex deduplication, vertex cache, and vertex fetch optimization during mesh cooking; simplification and meshlets later. Pinned to `v1.3`. |
+| [meshoptimizer](https://github.com/zeux/meshoptimizer) | Adopted at MS3 | AssetPipeline | Vertex deduplication, vertex cache, and vertex fetch optimization during mesh cooking; simplification and meshlets later. Follows reviewed `master` revisions after `v1.3`. |
 | [KTX-Software/Basis Universal](https://github.com/KhronosGroup/KTX-Software) | Add when texture memory or load time justifies block compression | AssetPipeline | KTX2 texture cooking and runtime transcode targets. Audit per-file licenses. |
 | [Tracy](https://github.com/wolfpld/tracy) | Add when frame systems exist | Core, Renderer | CPU, allocation, lock, and Vulkan profiling. Compile out in Shipping. |
 | [VMA](https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator) | Defer | NvrhiVulkan | Requires deliberate NVRHI allocation integration. Do not create two allocation authorities. |
@@ -1081,7 +1082,8 @@ Source dependencies live under `External`. Single-header and amalgamated librari
 | [HFSM2](https://github.com/andrew-gresyk/HFSM2) | Do not adopt | None | Its compile-time static structure does not fit Herta's editor-authored, cooked StateTree assets. Use only as a design reference. |
 | [HTN Planner](https://github.com/urosidoki/htn_planner) | Design reference | None | MIT HTN planner in the style of Guerrilla's Killzone and Horizon AI. Domains are compiled ahead of time to native C, with hot reload, an editor, and language-server tooling. Reference for cooked planning domains and a possible HTN layer above StateTree if goal-directed planning is needed. |
 | [RVO2](https://github.com/snape/RVO2) | Defer | Navigation | Evaluate only if DetourCrowd fails measured avoidance or crowd requirements. |
-| [Radiance Cascades](https://radiance-cascades.com/) | Research only until acceptance gates pass | Renderer | Experimental dynamic-GI reference. Do not make it the sole shipping GI path or add a runtime dependency before the 3D spike succeeds. |
+| [XeGTAO](https://github.com/GameTechDev/XeGTAO) | Implementation reference at MS6 | Renderer | MIT-licensed GTAO with bent normals and spatial denoising. Intel has ended development, so Herta ports the technique into its own shaders with the visibility bitmask and keeps attribution; it is not a dependency. |
+| [Radiance Cascades](https://radiance-cascades.com/) | Planned GI backend at MS6.5, gated | Renderer | High-tier dynamic GI, implemented in Herta shaders rather than as a dependency. It ships only after passing the acceptance gates against the path tracer; DDGI is the fallback. [Split Radiance Cascades](https://arxiv.org/abs/2607.20384) is the starting point for the 3D spike: world-space probes in a sparse hashmap, fed by rays from visible surfaces, with path-traced comparisons. Its reported 13.2 ms single-frame cost on an RTX 3080 Laptop GPU, diffuse-only scope, and leaks through geometry thinner than the base probe spacing are the gates to beat. |
 | [nob.h](https://github.com/tsoding/nob.h) | Do not adopt as primary build | None | Experimental C build-recipe library. Herta would have to own project generation, dependency scanning, incremental scheduling, and IDE integration. |
 | [BGFX](https://github.com/bkaradzic/bgfx) | Reject | None | Overlaps NVRHI, Vulkan ownership, shader abstraction, and renderer learning goals. |
 
@@ -1620,19 +1622,31 @@ Exit condition: the same authored Sandbox game is playable in the editor and as 
 
 Implemented on Windows: `HertaGame`, the GameFramework and GameUI runtime modules, directory-mounted staged content from `game.stage`, a Jolt character controller, the Sandbox course objective between Start and Finish trigger roles (level schema 7), HDR10 and fullscreen settings per user, editor Play/Stop through the same session, and `PackageGame` relocated builds verified outside the checkout. Linux builds pass syntax checks; native Linux runs are tracked in [LinuxTodo.md](LinuxTodo.md). Custom-shader materials are not staged yet. See [Game.md](Game.md).
 
-### Milestone 6 - Raster renderer scaling and temporal quality
+### Milestone 6 - Raster renderer scaling
+
+Progress: compute pipelines and storage images are in the RHI, and visibility-bitmask GTAO with bent normals and specular occlusion runs at half resolution with a combined denoise and upsample; see [Rendering.md](Rendering.md). Storage buffers, atomics, indirect dispatch, light culling, motion vectors, the SMAA compute port, and quality tiers remain.
 
 - Add shared-mesh/material instancing and culling, retaining the early cube stress levels as draw-call, memory, and frame-time regressions.
 - Scale the PBR materials, authored lights, environment lighting, shadows, atmosphere, and fog introduced in Milestone 4.5 using measured light culling and resource budgets. Add motion vectors and a depth hierarchy; do not defer basic material or light editing to this milestone.
 - Extend authored runtime cameras and rendering quality controls as needed by the playable sample. Renderer algorithms without usable level authoring do not complete this milestone.
 - Add compute pipelines, storage images and buffers, atomics, and indirect dispatch to the RHI and RenderGraph, driven by the depth hierarchy, light culling, and GTAO rather than a generic compute framework.
 - Port SMAA 1x to compute following Jimenez's Filmic SMAA (SIGGRAPH 2016): edge detection appends edge pixels to a list, and blending weights run as an indirect dispatch over that list instead of a full-screen pass. Keep the pixel-shader path as the reference, require matching output on the AA station, and report before/after GPU timings at 1080p and 4K.
-- Add GTAO and an additional crisp native-resolution TAA mode with correct history rejection, reactive masks, camera-cut resets, render regressions, and configurable modest sharpening.
-- Retain SMAA 1x and Off as supported choices; do not make temporal AA a requirement for basic materials, sky, or fog. Optional temporal-upscaler backends remain in Milestone 18 unless measured sample performance requires one earlier.
+- Add GTAO with a visibility bitmask (Therrien et al., "Screen Space Indirect Lighting with Visibility Bitmask") from the start instead of plain GTAO. Plain horizon-based GTAO treats every occluder as infinitely thick and darkens surfaces behind rails, posts, and thin walls; the bitmask tracks occluded hemisphere sectors with a finite surface thickness so light passes behind thin geometry. Output bent normals and specular occlusion with the AO term so environment lighting and reflections are occluded too, apply them only to sky and indirect lighting, never to direct lights, and denoise spatially so AO does not depend on TAA history. Use XeGTAO as the MIT-licensed reference implementation, check the Sandbox thin-geometry stations in render regressions, and report GPU timings at 1080p and 4K.
+- Retain SMAA 1x and Off as the supported AA choices; do not make temporal AA a requirement for basic materials, sky, fog, AO, or GI. Native TAA and temporal upscalers wait for Milestone 18 unless measured sample performance requires one earlier.
 - Add GPU timings, feature capability reporting, quality tiers, and validation for multi-viewport editor rendering.
 - Keep lightmap authoring, baking, lightmap UVs, and baked-light data out of the asset pipeline.
 
-Exit condition: the playable Sandbox's existing visual-authoring features scale across the declared low, medium, and high raster tiers without baked lighting. The added TAA mode remains stable and crisp under camera and rigid-object motion, disocclusion, thin geometry, specular highlights, and camera cuts; SMAA 1x and Off remain usable, and every optional feature has a tested fallback. Later animation and VFX milestones add their own motion-vector and history regressions. This improves the runtime game's established renderer, not an editor-only rendering demonstration.
+Exit condition: the playable Sandbox's existing visual-authoring features scale across the declared low, medium, and high raster tiers without baked lighting. SMAA 1x and Off remain usable, and every optional feature has a tested fallback. Later animation and VFX milestones add their own motion-vector and history regressions. This improves the runtime game's established renderer, not an editor-only rendering demonstration.
+
+### Milestone 6.5 - Hardware ray tracing and dynamic GI
+
+- Add capability-driven Vulkan KHR acceleration structures and ray queries to the RHI and RenderGraph: a bottom-level structure per shared mesh, a top-level structure built from render extraction each frame, refits for deforming meshes, and compaction. Ray-tracing pipelines wait until an effect needs them.
+- Add a reference path tracer as an editor viewport mode. It accumulates progressively in a compute pass with ray queries and resets on any camera, scene, or setting change. It shares the Slang BRDF, light units, Rect light shapes, exposure, and tone mapping with the raster path, reaches mesh and material data from hits without per-draw bindings, selects texture mips explicitly, alpha-tests cutouts in the candidate loop, and samples lights and the environment with next-event estimation and multiple importance sampling. Comparisons run with fog off until the tracer handles participating media. It validates the acceleration structures and ray queries before any GI depends on them.
+- Implement Radiance Cascades 3D as the High-tier dynamic-GI backend, starting from Split Radiance Cascades and without depending on temporal accumulation. Compare it against the path tracer on the Sandbox stations and record GPU time, memory, leaks, and instability at 1080p and 4K. Fall back to DDGI if it cannot pass the acceptance gates.
+- Keep visibility-bitmask GTAO enabled with GI for contact occlusion below the probe spacing.
+- Keep the Milestone 6 raster tiers unchanged on GPUs without ray queries.
+
+Exit condition: the path tracer converges on every Sandbox station and matches raster direct lighting within recorded tolerances, Radiance Cascades or its fallback passes the acceptance gates within a measured High-tier budget, and GPUs without ray queries render exactly as in Milestone 6.
 
 ### Milestone 7 - Physics
 
@@ -1753,9 +1767,8 @@ Exit condition: compatible sample gameplay-system changes reload without losing 
 ### Milestone 18 - Advanced rendering and acoustics
 
 - Run these optional integrations against measured limitations in a real scene; they are not prerequisites for a usable or shippable core engine.
-- Add SSGI as an optional medium-tier dynamic-lighting enhancement.
-- Add capability-driven Vulkan KHR ray queries and ray-tracing pipelines for selected effects without weakening the raster fallback.
-- Run the Radiance Cascades 3D acceptance spike against path-traced references before deciding whether it becomes a shipping GI backend.
+- Add an additional crisp native-resolution TAA mode with correct history rejection, reactive masks, camera-cut resets, render regressions, and configurable modest sharpening. It must stay stable and crisp under camera and rigid-object motion, disocclusion, thin geometry, specular highlights, and camera cuts.
+- Add ray-tracing pipelines for selected effects, such as reflections or shadows, when Milestone 6.5's ray queries measurably fall short, without weakening the raster fallback.
 - Add the Herta temporal-upscaler contract and FSR as the first optional Vulkan adapter when performance measurements justify it. DLSS and XeSS may follow through that same contract. Retain native TAA and non-temporal fallbacks; defer frame generation until latency, frame pacing, UI composition, and swapchain requirements pass dedicated gates.
 - Extend the existing atmosphere and volumetric fog with cloud shadows and temporally reconstructed volumetric clouds, using measured quality tiers.
 - Run the Steam Audio spike only for a scene that needs HRTF, occlusion, transmission, or real-time acoustics beyond basic spatial playback. Validate Windows/Linux builds, mixer integration, coordinates, thread budgets, source scaling, and fallbacks before adoption. Defer acoustic baking, Embree, and custom renderer ray tracing until measured requirements justify them.
@@ -1786,4 +1799,4 @@ The early scaling slice provides deterministic 1,000/5,000/10,000-cube fixtures,
 
 Milestone 4.5 adds canonical `.hmat` assets, independently assigned mesh slots, cooked normals/tangents, HDR textures, PBR shading, asynchronous custom shader iteration, and material editing with save/reload and undo/redo. Level schema 4 persists all five light types, Sky Atmosphere, and Fog. The shared runtime renderer provides HDR scene color, manual exposure, filtered environment lighting, bounded shadow maps, reduced-resolution volumetric fog, and reference SMAA 1x before editor overlays. The updated Sandbox exercises these features without separate colored glTF meshes. See [Materials.md](Materials.md) and [Rendering.md](Rendering.md).
 
-The next implementation slice is Milestone 6: raster renderer scaling and temporal quality for the playable Sandbox, once the Milestone 5 Linux runs in [LinuxTodo.md](LinuxTodo.md) pass. Prefabs remain unimplemented and enter only with a concrete authoring need. Rendering improvements, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend the same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.
+The next implementation slice is Milestone 6: raster renderer scaling for the playable Sandbox, once the Milestone 5 Linux runs in [LinuxTodo.md](LinuxTodo.md) pass. Prefabs remain unimplemented and enter only with a concrete authoring need. Rendering improvements, physics, animation, audio, NPCs, multiplayer, and hardened cooking extend the same game before localization, graph tooling, scripting, native hot reload, and optional advanced integrations.

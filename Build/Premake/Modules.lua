@@ -407,18 +407,19 @@ project "HertaShaders"
     kind "Utility"
     location(path.join(ProjectFilesRoot, "HertaShaders"))
     dependson { "HertaShaderWorker" }
-    files { path.join(RepositoryRoot, "Engine/Shaders/*.slang") }
+    files { path.join(RepositoryRoot, "Engine/Shaders/*.slang"), path.join(RepositoryRoot, "Engine/Shaders/Compute/*.slang") }
     filter "files:**.slang"
         buildmessage "Cooking %{file.basename} shaders"
         buildinputs(ShaderInputs)
+    filter { "files:**.slang", "files:not **/Compute/*.slang" }
         buildoutputs { path.join(ShaderOutput, "%{file.basename}.vert.hshader"), path.join(ShaderOutput, "%{file.basename}.frag.hshader") }
-    filter { "files:**.slang", "configurations:Shipping" }
+    filter { "files:**.slang", "files:not **/Compute/*.slang", "configurations:Shipping" }
         buildcommands {
             '{MKDIR} "' .. ShaderOutput .. '"',
             '"' .. ShaderWorker .. '" "%{file.abspath}" vertex vertexMain "' .. path.join(ShaderOutput, "%{file.basename}.vert.hshader") .. '"',
             '"' .. ShaderWorker .. '" "%{file.abspath}" fragment fragmentMain "' .. path.join(ShaderOutput, "%{file.basename}.frag.hshader") .. '"'
         }
-    filter { "files:**.slang", "configurations:not Shipping" }
+    filter { "files:**.slang", "files:not **/Compute/*.slang", "configurations:not Shipping" }
         buildcommands {
             '{MKDIR} "' .. ShaderOutput .. '"',
             '"' .. ShaderWorker .. '" "%{file.abspath}" vertex vertexMain "' .. path.join(ShaderOutput, "%{file.basename}.vert.hshader") .. '" --debug',
@@ -433,6 +434,19 @@ project "HertaShaders"
     filter { "files:**/TexturedMesh.slang", "configurations:not Shipping" }
         buildcommands {
             '"' .. ShaderWorker .. '" "%{file.abspath}" vertex instancedVertexMain "' .. path.join(ShaderOutput, "TexturedMesh.instanced.vert.hshader") .. '" --debug'
+        }
+    -- Compute shaders live in their own folder and cook a single computeMain entry point.
+    filter "files:**/Compute/*.slang"
+        buildoutputs { path.join(ShaderOutput, "%{file.basename}.comp.hshader") }
+    filter { "files:**/Compute/*.slang", "configurations:Shipping" }
+        buildcommands {
+            '{MKDIR} "' .. ShaderOutput .. '"',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" compute computeMain "' .. path.join(ShaderOutput, "%{file.basename}.comp.hshader") .. '"'
+        }
+    filter { "files:**/Compute/*.slang", "configurations:not Shipping" }
+        buildcommands {
+            '{MKDIR} "' .. ShaderOutput .. '"',
+            '"' .. ShaderWorker .. '" "%{file.abspath}" compute computeMain "' .. path.join(ShaderOutput, "%{file.basename}.comp.hshader") .. '" --debug'
         }
     filter "files:**/Shadow.slang"
         buildoutputs { path.join(ShaderOutput, "Shadow.instanced.vert.hshader") }

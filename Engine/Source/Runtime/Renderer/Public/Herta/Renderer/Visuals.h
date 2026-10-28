@@ -33,6 +33,15 @@ enum class EShadowQuality : std::uint8_t
 	Soft,
 };
 
+// Screen-space ambient occlusion slices and steps per side.
+enum class EAmbientOcclusion : std::uint8_t
+{
+	Off,
+	Low,
+	Medium,
+	High,
+};
+
 struct FRenderLight
 {
 	FLightComponent Settings{};
@@ -60,6 +69,7 @@ struct FVisualSettings
 	std::optional<FHeightFogComponent> Fog{};
 	float FogHeight = 0.f;
 	EShadowQuality ShadowQuality = EShadowQuality::Soft;
+	EAmbientOcclusion AmbientOcclusion = EAmbientOcclusion::High;
 	bool bStudioPreview = true;
 	// Meters the HDR scene on the GPU and eases towards it instead of using ExposureEV100.
 	bool bAutoExposure = false;
@@ -89,6 +99,9 @@ struct FVisualShaderSet
 	FShaderAsset ExposureMeterFragment;
 	FShaderAsset ExposureAdaptFragment;
 	FShaderAsset ExposureHistogramFragment;
+	FShaderAsset GtaoDepthCompute;
+	FShaderAsset GtaoCompute;
+	FShaderAsset GtaoDenoiseCompute;
 };
 
 struct FShadowView
@@ -156,11 +169,30 @@ struct alignas(16) FVisualUniforms
 	std::array<float, 4> Exposure{};
 	// x is 1 for HDR output, y the paper white and z the peak in cd/m^2, and w shows the calibration pattern.
 	std::array<float, 4> Display{};
+	// x is 1 when the mesh pass reads screen-space ambient occlusion and bent normals.
+	std::array<float, 4> Occlusion{};
 	std::array<FVisualLightUniform, MaximumRenderLights> Lights{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};
 	FMaterialUniform Material{};
 };
 
+inline constexpr std::uint32_t GtaoDepthMips = 5;
+
+// Matches FGtaoUniforms in Compute/GtaoShared.slangh.
+struct alignas(16) FGtaoUniforms
+{
+	// View depth is (x * Depth + y) / (z * Depth + w).
+	std::array<float, 4> DepthToView{};
+	// View xy is ViewZ * (Ndc * xy + zw).
+	std::array<float, 4> NdcToView{};
+	std::array<float, 4> Extent{};
+	// The half-resolution occlusion, which matches view depth mip 1.
+	std::array<float, 4> HalfExtent{};
+	// Radius and thickness in meters, slices, and steps per side.
+	std::array<float, 4> Settings{};
+};
+
+[[nodiscard]] FGtaoUniforms BuildGtaoUniforms(const FMatrix4& Projection, const FMatrix4& ClipToView, FExtent2D Extent, EAmbientOcclusion Quality);
 [[nodiscard]] std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMatrix4& View, const FMatrix4& Projection, FExtent2D Extent, std::span<const FRenderLight> Lights, const FVisualSettings& Settings);
 std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, std::span<const FRenderLight> Lights, const FMatrix4& Projection);
 // Expects Vulkan clip space with reversed depth, so a far plane at infinity never rejects anything.

@@ -107,8 +107,33 @@ TEST_CASE("Slang worker rejects unsupported resource kinds instead of treating t
 		Fixture.Write("Unsupported.slang", "[[vk::binding(0,0)]] " + std::string(Type) + " Resource;\n[shader(\"fragment\")] float4 fragmentMain() : SV_Target { return float4(1,0,0,1); }\n");
 		const auto Shader = CompileShader({.Source = Fixture.Directory / "Unsupported.slang", .EntryPoint = "fragmentMain", .Stage = EShaderStage::Fragment, .bDebugInformation = false});
 		REQUIRE_FALSE(Shader);
-		CHECK(Shader.error().Message.find("Only read-only Texture2D") != std::string::npos);
+		CHECK(Shader.error().Message.find("Only Texture2D, and RWTexture2D in compute shaders") != std::string::npos);
 	}
+}
+
+TEST_CASE("Slang worker reflects compute storage images at the storage bindings")
+{
+	const FShaderFixture Fixture;
+	Fixture.Write("Compute.slang", "[[vk::binding(0,0)]] Texture2D<float> Source;\n[[vk::binding(385,0)]] [format(\"r32f\")] RWTexture2D<float> Target;\n[shader(\"compute\")] [numthreads(8,8,1)] void computeMain(uint3 Id : SV_DispatchThreadID) { Target[Id.xy] = Source.Load(int3(Id.xy, 0)); }\n");
+	const auto Shader = CompileShader({.Source = Fixture.Directory / "Compute.slang", .EntryPoint = "computeMain", .Stage = EShaderStage::Compute});
+	REQUIRE_MESSAGE(Shader.has_value(), (Shader ? "" : Shader.error().Message));
+	CHECK(Shader->Stage == EShaderStage::Compute);
+	REQUIRE(Shader->Bindings.size() == 2);
+	CHECK(Shader->Bindings[1].Type == EShaderBindingType::StorageTexture);
+	CHECK(Shader->Bindings[1].Binding == 385);
+	const auto Bytes = SerializeCookedShader(*Shader);
+	REQUIRE(Bytes);
+	const auto Loaded = DeserializeCookedShader(*Bytes);
+	REQUIRE(Loaded);
+	CHECK(Loaded->Stage == EShaderStage::Compute);
+	CHECK_FALSE(CompileShader({.Source = Fixture.Directory / "Compute.slang", .EntryPoint = "computeMain", .Stage = EShaderStage::Fragment}));
+
+	// Storage images outside 384..391, and storage metadata on a fragment shader, are rejected.
+	Fixture.Write("Misplaced.slang", "[[vk::binding(400,0)]] [format(\"r32f\")] RWTexture2D<float> Target;\n[shader(\"compute\")] [numthreads(8,8,1)] void computeMain(uint3 Id : SV_DispatchThreadID) { Target[Id.xy] = 1; }\n");
+	CHECK_FALSE(CompileShader({.Source = Fixture.Directory / "Misplaced.slang", .EntryPoint = "computeMain", .Stage = EShaderStage::Compute}));
+	FShaderAsset Fragment = *Shader;
+	Fragment.Stage = EShaderStage::Fragment;
+	CHECK_FALSE(SerializeCookedShader(Fragment));
 }
 
 TEST_CASE("Slang visual authoring ABI reflects multiple textures and draw uniforms")

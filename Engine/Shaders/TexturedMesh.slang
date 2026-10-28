@@ -13,6 +13,8 @@ struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToVie
 [[vk::binding(8, 0)]] Texture2D<float4> ShadowAtlas;
 [[vk::binding(9, 0)]] Texture2D<float4> LtcMatrix;
 [[vk::binding(10, 0)]] Texture2D<float4> LtcAmplitude;
+// View-space bent normal in rgb and visibility in a, from the GTAO compute passes.
+[[vk::binding(11, 0)]] Texture2D<float4> ScreenOcclusion;
 
 struct FVertexOutput
 {
@@ -162,6 +164,16 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     }
     float AO = 1.0;
     if ((Flags & 16u) != 0u) AO = lerp(1.0, Channel(OcclusionTexture.Sample(LinearSampler, Input.UV), Visual.Material.Channels1.x), Visual.Material.Surface.w);
+    float3 DiffuseNormal = N;
+    if (Visual.Occlusion.x > 0.5)
+    {
+        float4 Screen = ScreenOcclusion.Load(int3(int2(Input.Position.xy), 0));
+        AO *= Screen.a;
+        // The bent normal comes from depth and lacks normal-map detail, so it bends the shading normal by its offset from the surface normal.
+        float3 Bent = mul((float3x3)Visual.ViewToWorld, Screen.xyz * 2.0 - 1.0);
+        if (dot(Bent, Bent) > 0.01)
+            DiffuseNormal = normalize(N + normalize(Bent) - normalize(Input.Normal));
+    }
     float3 Emissive = Visual.Material.Emissive.rgb * Visual.Material.Emissive.w;
     if ((Flags & 32u) != 0u) Emissive *= EmissiveTexture.Sample(LinearSampler, Input.UV).rgb;
     float3 V = normalize(mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz - Input.WorldPosition);
@@ -187,7 +199,7 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     {
         uint DiffuseWidth, DiffuseHeight;
         DiffuseEnvironment.GetDimensions(DiffuseWidth, DiffuseHeight);
-        float2 DiffuseUV = DirectionUV(N);
+        float2 DiffuseUV = DirectionUV(DiffuseNormal);
         // Material maps repeat, but environment latitude must not blend the opposite poles.
         DiffuseUV.y = clamp(DiffuseUV.y, 0.5 / DiffuseHeight, 1.0 - 0.5 / DiffuseHeight);
         float3 Diffuse = DiffuseEnvironment.SampleLevel(LinearSampler, DiffuseUV, 0).rgb;
@@ -203,7 +215,15 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
         float4 C = Roughness * float4(-1.0, -0.0275, -0.572, 0.022) + float4(1.0, 0.0425, 1.04, -0.04);
         float A004 = min(C.x * C.x, exp2(-9.28 * NoV)) * C.x + C.y;
         float2 AB = float2(-1.04, 1.04) * A004 + C.zw;
-        Result += ((1.0 - Metallic) * Base.rgb * Diffuse / PI + Specular * (F0 * AB.x + AB.y)) * AO * Visual.Sky.x * Visual.SkyColor.rgb;
+        // Jimenez et al.'s multi-bounce fit returns light that bright surfaces would reflect back into their own creases.
+        float3 Albedo = (1.0 - Metallic) * Base.rgb;
+        float3 BounceA = 2.0404 * Albedo - 0.3324;
+        float3 BounceB = -4.7951 * Albedo + 0.6417;
+        float3 BounceC = 2.7552 * Albedo + 0.6903;
+        float3 DiffuseOcclusion = max(AO, ((AO * BounceA + BounceB) * AO + BounceC) * AO);
+        // Lagarde's specular occlusion: grazing and rough reflections see more of the occluded hemisphere.
+        float SpecularOcclusion = saturate(pow(NoV + AO, exp2(-16.0 * Roughness - 1.0)) - 1.0 + AO);
+        Result += (Albedo * Diffuse / PI * DiffuseOcclusion + Specular * (F0 * AB.x + AB.y) * SpecularOcclusion) * Visual.Sky.x * Visual.SkyColor.rgb;
     }
     if (Visual.Controls.x == 0.0 && Visual.Sky.x == 0.0 && (Visual.Sky.w < 0.5 || Visual.Sky.w > 1.5))
         Result += Base.rgb * (0.35 + 0.65 * saturate(dot(N, normalize(mul((float3x3)Visual.ViewToWorld, float3(0.0, 0.5, -1.0))))));

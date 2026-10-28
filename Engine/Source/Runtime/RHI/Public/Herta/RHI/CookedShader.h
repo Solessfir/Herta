@@ -13,14 +13,17 @@ namespace Herta
 enum class EShaderStage : std::uint32_t
 {
 	Vertex,
-	Fragment
+	Fragment,
+	Compute
 };
 
 enum class EShaderBindingType : std::uint32_t
 {
 	Texture,
 	Sampler,
-	ConstantBuffer
+	ConstantBuffer,
+	// Compute-only read-write images at Vulkan bindings 384 and up.
+	StorageTexture
 };
 
 struct FShaderBinding

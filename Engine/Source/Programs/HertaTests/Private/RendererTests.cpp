@@ -430,8 +430,8 @@ TEST_CASE("Render meshes draw each section with its texture and upload within th
 	CHECK(Device.Draws[0].FirstIndex == 0);
 	CHECK(Device.Draws[1].FirstIndex == 3);
 	CHECK(Device.Draws[1].IndexCount == 3);
-	REQUIRE(Device.Draws[0].Textures.size() == 11);
-	REQUIRE(Device.Draws[1].Textures.size() == 11);
+	REQUIRE(Device.Draws[0].Textures.size() == 12);
+	REQUIRE(Device.Draws[1].Textures.size() == 12);
 	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
 	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().MipLevels == Large.Mips.size());
 	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().Format == Herta::ETextureFormat::Rgba8);
@@ -624,8 +624,8 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	CHECK(Device.Draws[1].FirstInstance == 0);
 	CHECK(Device.Draws[1].InstanceCount == 2);
 	CHECK(Device.Draws[1].FirstIndex == 18);
-	REQUIRE(Device.Draws[0].Textures.size() == 11);
-	REQUIRE(Device.Draws[1].Textures.size() == 11);
+	REQUIRE(Device.Draws[0].Textures.size() == 12);
+	REQUIRE(Device.Draws[1].Textures.size() == 12);
 	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
 	CHECK(Device.Draws[2].FirstInstance == 2);
 	CHECK(Device.Draws[2].InstanceCount == 1);
@@ -640,6 +640,63 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	REQUIRE((*Renderer)->Render({64, 64}, View));
 	CHECK(Device.Events == std::vector<std::string>{"Begin", "Clear", "Submit"});
 	CHECK((*Renderer)->GetLastDrawCount() == 0);
+}
+
+TEST_CASE("Screen occlusion runs its compute passes between the depth prepass and the PBR pass")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.ShadowFragment, &Visuals.GtaoDepthCompute, &Visuals.GtaoCompute, &Visuals.GtaoDenoiseCompute})
+	{
+		Shader->Bytecode = {1};
+	}
+
+	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	REQUIRE(Renderer);
+	const auto TextureName = [](const FIndexedDraw& Draw)
+	{
+		return Draw.Textures[11]->GetDescriptor().Name;
+	};
+
+	const auto PipelineDraws = [&](const std::string_view Name)
+	{
+		std::vector<const FIndexedDraw*> Result;
+		for (const FIndexedDraw& Draw : Device.Draws)
+		{
+			if (std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor.Name == Name)
+			{
+				Result.push_back(&Draw);
+			}
+		}
+
+		return Result;
+	};
+
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+	CHECK(Device.Dispatches == std::vector<std::string>{"GTAO depth", "GTAO", "GTAO denoise"});
+	const auto Prepass = PipelineDraws("Depth prepass");
+	const auto Shaded = PipelineDraws("PBR reversed-Z");
+	REQUIRE(Prepass.size() == 1);
+	REQUIRE(Shaded.size() == 1);
+	CHECK(TextureName(*Prepass[0]) == "Default material map");
+	CHECK(TextureName(*Shaded[0]) == "GTAO occlusion");
+	const auto FirstDispatch = std::ranges::find(Device.Events, "Dispatch");
+	REQUIRE(FirstDispatch != Device.Events.end());
+	CHECK(std::ranges::count(Device.Events.begin(), FirstDispatch, "Draw") >= 1);
+
+	// Turning it off, or a target too small for the five-level depth chain, binds the white default and skips the dispatches.
+	for (const auto& [Quality, Extent] : {std::pair{EAmbientOcclusion::Off, FExtent2D{64, 64}}, std::pair{EAmbientOcclusion::High, FExtent2D{8, 8}}})
+	{
+		Device.Draws.clear();
+		Device.Dispatches.clear();
+		Scene.View.Visuals.AmbientOcclusion = Quality;
+		REQUIRE((*Renderer)->Render(Extent, Scene.View));
+		CHECK(Device.Dispatches.empty());
+		REQUIRE(PipelineDraws("PBR reversed-Z").size() == 1);
+		CHECK(TextureName(*PipelineDraws("PBR reversed-Z")[0]) == "Default material map");
+	}
 }
 
 TEST_CASE("Material shader sharing reuses compatible pipelines and counts only successful publications")

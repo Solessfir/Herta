@@ -19,6 +19,9 @@ namespace Herta
 inline constexpr std::size_t MaximumUploadBytesPerRecording = std::size_t{64} * 1024 * 1024;
 inline constexpr std::uint32_t MaximumGraphicsTextures = 16;
 inline constexpr std::uint32_t MaximumGraphicsUniformBytes = 16 * 1024;
+// Compute storage images use Vulkan bindings from 384, NVRHI's default unordered-access offset.
+inline constexpr std::uint32_t StorageTextureBinding = 384;
+inline constexpr std::uint32_t MaximumStorageTextures = 8;
 
 enum class EBufferUsage : std::uint8_t
 {
@@ -32,7 +35,8 @@ enum class ETextureFormat : std::uint8_t
 	Rgba8Srgb,
 	Depth32,
 	Rgba16Float,
-	Rgba32Float
+	Rgba32Float,
+	R32Float
 };
 
 [[nodiscard]] constexpr std::size_t GetTextureTexelBytes(const ETextureFormat Format) noexcept
@@ -42,6 +46,7 @@ enum class ETextureFormat : std::uint8_t
 		case ETextureFormat::Rgba8:
 		case ETextureFormat::Rgba8Srgb:
 		case ETextureFormat::Depth32:
+		case ETextureFormat::R32Float:
 			return 4;
 		case ETextureFormat::Rgba16Float:
 			return 8;
@@ -82,8 +87,10 @@ struct FTextureDescriptor
 	FExtent2D Extent;
 	ETextureFormat Format = ETextureFormat::Rgba8;
 	bool bRenderTarget = false;
-	// Render targets have exactly one level. Sampled textures may have a full chain down to 1x1.
+	// Render targets have exactly one level. Sampled and storage textures may have a full chain down to 1x1.
 	std::uint32_t MipLevels = 1;
+	// Compute shaders may write any mip level through a storage binding.
+	bool bStorage = false;
 };
 
 [[nodiscard]] constexpr std::uint32_t GetMipLevelCount(const FExtent2D Extent) noexcept
@@ -129,10 +136,17 @@ public:
 	virtual ~IRhiGraphicsPipeline() = default;
 };
 
+class IRhiComputePipeline
+{
+public:
+	virtual ~IRhiComputePipeline() = default;
+};
+
 // Handles share ownership with recorded frames until their GPU submission completes.
 using FBufferHandle = std::shared_ptr<IRhiBuffer>;
 using FTextureHandle = std::shared_ptr<IRhiTexture>;
 using FGraphicsPipelineHandle = std::shared_ptr<IRhiGraphicsPipeline>;
+using FComputePipelineHandle = std::shared_ptr<IRhiComputePipeline>;
 
 struct FGraphicsPipelineDescriptor
 {
@@ -150,6 +164,32 @@ struct FGraphicsPipelineDescriptor
 	EGraphicsCullMode CullMode = EGraphicsCullMode::Back;
 	bool bAlphaBlend = false;
 	bool bClampSampler = false;
+};
+
+// Compute shaders sample t0..t15 through a point-clamp s0, write u0..u7 at StorageTextureBinding, and read b0.
+struct FComputePipelineDescriptor
+{
+	std::string Name;
+	FShaderAsset Shader{};
+	std::uint32_t TextureCount = 0;
+	std::uint32_t StorageTextureCount = 0;
+	std::uint32_t UniformBufferSize = 0;
+};
+
+struct FStorageTextureBinding
+{
+	FTextureHandle Texture{};
+	std::uint32_t MipLevel = 0;
+};
+
+struct FComputeDispatch
+{
+	FComputePipelineHandle Pipeline{};
+	// Recording copies these inputs. A dispatch may not sample a texture it also writes.
+	std::span<const FTextureHandle> Textures{};
+	std::span<const FStorageTextureBinding> StorageTextures{};
+	std::span<const std::byte> Uniforms{};
+	std::array<std::uint32_t, 3> GroupCount{1, 1, 1};
 };
 
 struct FMeshVertex
@@ -227,6 +267,7 @@ public:
 	[[nodiscard]] virtual std::expected<FBufferHandle, FPresentationError> CreateBuffer(const FBufferDescriptor& Descriptor) = 0;
 	[[nodiscard]] virtual std::expected<FTextureHandle, FPresentationError> CreateTexture(const FTextureDescriptor& Descriptor) = 0;
 	[[nodiscard]] virtual std::expected<FGraphicsPipelineHandle, FPresentationError> CreateGraphicsPipeline(const FGraphicsPipelineDescriptor& Descriptor) = 0;
+	[[nodiscard]] virtual std::expected<FComputePipelineHandle, FPresentationError> CreateComputePipeline(const FComputePipelineDescriptor& Descriptor) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> BeginCommands() = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> WriteBuffer(const FBufferHandle& Buffer, std::span<const std::byte> Data) = 0;
 
@@ -234,6 +275,8 @@ public:
 	[[nodiscard]] virtual std::expected<void, FPresentationError> WriteTexture(const FTextureHandle& Texture, std::uint32_t MipLevel, std::span<const std::byte> RgbaPixels) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> ClearTargets(const FTextureHandle& Color, const FTextureHandle& Depth, const std::array<float, 4>& LinearColor) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> DrawIndexed(const FIndexedDraw& Draw) = 0;
+	// A storage write initializes its mip level once the frame is submitted, like a texture upload.
+	[[nodiscard]] virtual std::expected<void, FPresentationError> Dispatch(const FComputeDispatch& Dispatch) = 0;
 	[[nodiscard]] virtual std::expected<std::uint64_t, FPresentationError> SubmitCommands() = 0;
 	virtual void CancelCommands() noexcept = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> WaitForIdle() = 0;

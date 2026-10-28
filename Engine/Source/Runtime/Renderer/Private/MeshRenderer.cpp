@@ -27,7 +27,7 @@ namespace
 constexpr std::array<std::uint32_t, 6> GridIndices{0, 1, 2, 0, 2, 3};
 constexpr float GridHalfExtent = 216.f;
 // Material maps, environment, shadow atlas, and the two Rect light LTC tables, matching TexturedMesh.slang.
-constexpr std::uint32_t MeshTextureCount = 11;
+constexpr std::uint32_t MeshTextureCount = 12;
 
 static_assert(sizeof(FCookedVertex) == sizeof(FMeshVertex) && offsetof(FCookedVertex, Position) == offsetof(FMeshVertex, Position) && offsetof(FCookedVertex, UV) == offsetof(FMeshVertex, UV), "Cooked vertices upload directly as RHI mesh vertices");
 
@@ -503,6 +503,11 @@ struct FMeshRenderer::FImplementation
 	FTextureHandle ExposureMetering;
 	FTextureHandle ExposureHistogram;
 	FTextureHandle ToneMapLut;
+	// Depth prefilter, bitmask GTAO, and denoise. The view depth chain feeds both later passes.
+	std::array<FComputePipelineHandle, 3> GtaoPipelines;
+	FTextureHandle GtaoViewDepth;
+	FTextureHandle GtaoNoisy;
+	FTextureHandle GtaoOcclusion;
 	// Adaptation reads last frame's exposure and writes this frame's, alternating between the two.
 	std::array<FTextureHandle, 2> ExposureStates;
 	std::size_t ExposureStateIndex = 0;
@@ -730,6 +735,27 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 		State->ShadowPipeline = std::move(*ShadowPipeline);
 		State->InstancedShadowPipeline = std::move(*InstancedShadowPipeline);
+		// GTAO reads the prepass depth, so it runs only when there is one.
+		if (bDepthPrepass && !VisualShaders.GtaoCompute.Bytecode.empty())
+		{
+			const std::array<FComputePipelineDescriptor, 3> Descriptors{{
+			    {.Name = "GTAO depth", .Shader = std::move(VisualShaders.GtaoDepthCompute), .TextureCount = 1, .StorageTextureCount = GtaoDepthMips, .UniformBufferSize = sizeof(FGtaoUniforms)},
+			    {.Name = "GTAO", .Shader = std::move(VisualShaders.GtaoCompute), .TextureCount = 1, .StorageTextureCount = 1, .UniformBufferSize = sizeof(FGtaoUniforms)},
+			    {.Name = "GTAO denoise", .Shader = std::move(VisualShaders.GtaoDenoiseCompute), .TextureCount = 2, .StorageTextureCount = 1, .UniformBufferSize = sizeof(FGtaoUniforms)},
+			}};
+
+			for (std::size_t Index = 0; Index < Descriptors.size(); ++Index)
+			{
+				auto GtaoPipeline = Device.CreateComputePipeline(Descriptors[Index]);
+				if (!GtaoPipeline)
+				{
+					return std::unexpected(GtaoPipeline.error());
+				}
+
+				State->GtaoPipelines[Index] = std::move(*GtaoPipeline);
+			}
+		}
+
 		auto SkyView = Device.CreateTexture({.Name = "Sky view", .Extent = {256, 128}, .Format = ETextureFormat::Rgba16Float, .bRenderTarget = true});
 		if (!SkyView)
 		{
@@ -876,12 +902,16 @@ std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 {
 	const FImplementation& State = *Implementation;
 	std::size_t Bytes = 0;
-	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas})
+	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion})
 	{
 		if (*Target)
 		{
 			const auto& Descriptor = (*Target)->GetDescriptor();
-			Bytes += std::size_t{Descriptor.Extent.Width} * Descriptor.Extent.Height * (Descriptor.Format == ETextureFormat::Rgba16Float ? 8 : 4);
+			for (std::uint32_t Mip = 0; Mip < Descriptor.MipLevels; ++Mip)
+			{
+				const FExtent2D MipExtent = GetMipExtent(Descriptor.Extent, Mip);
+				Bytes += std::size_t{MipExtent.Width} * MipExtent.Height * GetTextureTexelBytes(Descriptor.Format);
+			}
 		}
 	}
 
@@ -1388,6 +1418,25 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		State.FogColor = std::move(*Fog);
 	}
 
+	// The depth chain needs every one of its mips, so tiny targets skip occlusion.
+	const bool bScreenOcclusion = State.GtaoPipelines[0] && View.Visuals.AmbientOcclusion != EAmbientOcclusion::Off && GetMipLevelCount(Extent) >= GtaoDepthMips;
+	if (bScreenOcclusion && (!State.GtaoOcclusion || State.GtaoOcclusion->GetDescriptor().Extent != Extent))
+	{
+		auto ViewDepth = Device.CreateTexture({.Name = "GTAO view depth", .Extent = Extent, .Format = ETextureFormat::R32Float, .MipLevels = GtaoDepthMips, .bStorage = true});
+		auto Noisy = Device.CreateTexture({.Name = "GTAO noisy occlusion", .Extent = GetMipExtent(Extent, 1), .Format = ETextureFormat::Rgba8, .bStorage = true});
+		auto Occlusion = Device.CreateTexture({.Name = "GTAO occlusion", .Extent = Extent, .Format = ETextureFormat::Rgba8, .bStorage = true});
+		if (!ViewDepth || !Noisy || !Occlusion)
+		{
+			return std::unexpected(!ViewDepth ? ViewDepth.error() : !Noisy ? Noisy.error()
+			                                                               : Occlusion.error());
+		}
+
+		State.GtaoViewDepth = std::move(*ViewDepth);
+		State.GtaoNoisy = std::move(*Noisy);
+		State.GtaoOcclusion = std::move(*Occlusion);
+	}
+
+	State.Uniforms.Occlusion[0] = bScreenOcclusion ? 1.f : 0.f;
 	const FTextureHandle MeshColor = State.HdrColor ? State.HdrColor : State.Color;
 	const auto MaterialTextures = [&](const FRenderMesh& Mesh, const FRenderMesh::FSection& Section, const std::span<const FRenderMaterial* const> Overrides)
 	{
@@ -1423,6 +1472,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		Textures[8] = State.ShadowAtlas;
 		Textures[9] = State.LtcMatrix;
 		Textures[10] = State.LtcAmplitude;
+		// Only the PBR pass reads screen occlusion; earlier passes run before it is written.
+		Textures[11] = State.White;
 		return Textures;
 	};
 
@@ -1608,7 +1659,12 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 						continue;
 					}
 
-					const auto Textures = MaterialTextures(Mesh, Section, Batch.Materials);
+					auto Textures = MaterialTextures(Mesh, Section, Batch.Materials);
+					if (bScreenOcclusion && !bDepthPrepass)
+					{
+						Textures[11] = State.GtaoOcclusion;
+					}
+
 					const auto Result = Device.DrawIndexed({.Pipeline = bDepthPrepass ? State.InstancedDepthPrepassPipeline : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = ColorTarget, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
 					if (!Result)
 					{
@@ -1641,7 +1697,12 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 					continue;
 				}
 
-				const auto Textures = MaterialTextures(Mesh, Section, Overrides);
+				auto Textures = MaterialTextures(Mesh, Section, Overrides);
+				if (bScreenOcclusion && !bDepthPrepass)
+				{
+					Textures[11] = State.GtaoOcclusion;
+				}
+
 				const auto Result = Device.DrawIndexed({.Pipeline = bDepthPrepass ? State.DepthPrepassPipeline : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = ColorTarget, .DepthTarget = FrameDepth, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .ObjectToView = ObjectToView, .Textures = Textures, .Uniforms = std::as_bytes(std::span{&State.Uniforms, 1})});
 				if (!Result)
 				{
@@ -1664,7 +1725,52 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		});
 	}
 
-	Graph.AddPass("PBR meshes", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = Shadow, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+	const auto ScreenOcclusion = Graph.ImportResource("Screen occlusion");
+	if (bScreenOcclusion)
+	{
+		Graph.AddPass("Ambient occlusion", {{.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::Write}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+		{
+			const FGtaoUniforms Uniforms = BuildGtaoUniforms(View.Projection, FMatrix4(State.Uniforms.ClipToView), Extent, View.Visuals.AmbientOcclusion);
+			const auto UniformBytes = std::as_bytes(std::span{&Uniforms, 1});
+			const auto Groups = [](const FExtent2D Target, const std::uint32_t Size)
+			{
+				return std::array<std::uint32_t, 3>{(Target.Width + Size - 1) / Size, (Target.Height + Size - 1) / Size, 1};
+			};
+
+			std::array<FStorageTextureBinding, GtaoDepthMips> DepthMips;
+			for (std::uint32_t Mip = 0; Mip < GtaoDepthMips; ++Mip)
+			{
+				DepthMips[Mip] = {.Texture = State.GtaoViewDepth, .MipLevel = Mip};
+			}
+
+			const std::array SceneDepth{FrameDepth};
+			const std::array ViewDepth{State.GtaoViewDepth};
+			const std::array DenoiseSources{State.GtaoNoisy, State.GtaoViewDepth};
+			const std::array Noisy{FStorageTextureBinding{.Texture = State.GtaoNoisy}};
+			const std::array Occlusion{FStorageTextureBinding{.Texture = State.GtaoOcclusion}};
+			std::expected<void, FPresentationError> Result;
+			{
+				const auto Timer = TimedPass("GTAO depth");
+				Result = Device.Dispatch({.Pipeline = State.GtaoPipelines[0], .Textures = SceneDepth, .StorageTextures = DepthMips, .Uniforms = UniformBytes, .GroupCount = Groups(Extent, 16)});
+			}
+
+			if (Result)
+			{
+				const auto Timer = TimedPass("GTAO");
+				Result = Device.Dispatch({.Pipeline = State.GtaoPipelines[1], .Textures = ViewDepth, .StorageTextures = Noisy, .Uniforms = UniformBytes, .GroupCount = Groups(GetMipExtent(Extent, 1), 8)});
+			}
+
+			if (Result)
+			{
+				const auto Timer = TimedPass("GTAO denoise");
+				Result = Device.Dispatch({.Pipeline = State.GtaoPipelines[2], .Textures = DenoiseSources, .StorageTextures = Occlusion, .Uniforms = UniformBytes, .GroupCount = Groups(Extent, 8)});
+			}
+
+			return GraphResult(Result);
+		});
+	}
+
+	Graph.AddPass("PBR meshes", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = Shadow, .Access = ERenderGraphAccess::Read}, {.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 	{
 		const auto Timer = TimedPass("PBR meshes");
 		return DrawScene(false);

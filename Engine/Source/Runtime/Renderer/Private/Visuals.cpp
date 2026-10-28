@@ -90,6 +90,27 @@ namespace
 }
 }
 
+FGtaoUniforms BuildGtaoUniforms(const FMatrix4& Projection, const FMatrix4& ClipToView, const FExtent2D Extent, const EAmbientOcclusion Quality)
+{
+	// Thin rails and posts stay open behind their assumed thickness, while 75 cm of radius still darkens room corners and the ground under props.
+	constexpr float Radius = 0.75f;
+	constexpr float Thickness = 0.3f;
+	constexpr std::array<std::array<float, 2>, 4> SlicesAndSteps{{{0.f, 0.f}, {1.f, 3.f}, {2.f, 3.f}, {3.f, 4.f}}};
+	const auto& Sampling = SlicesAndSteps[static_cast<std::size_t>(Quality)];
+	const float Width = static_cast<float>(Extent.Width);
+	const float Height = static_cast<float>(Extent.Height);
+	const FExtent2D Half = GetMipExtent(Extent, 1);
+	const float HalfWidth = static_cast<float>(Half.Width);
+	const float HalfHeight = static_cast<float>(Half.Height);
+	return {
+	    .DepthToView = {ClipToView(2, 2), ClipToView(2, 3), ClipToView(3, 2), ClipToView(3, 3)},
+	    .NdcToView = {1.f / Projection(0, 0), 1.f / Projection(1, 1), -Projection(0, 2) / Projection(0, 0), -Projection(1, 2) / Projection(1, 1)},
+	    .Extent = {Width, Height, 1.f / Width, 1.f / Height},
+	    .HalfExtent = {HalfWidth, HalfHeight, 1.f / HalfWidth, 1.f / HalfHeight},
+	    .Settings = {Radius, Thickness, Sampling[0], Sampling[1]},
+	};
+}
+
 std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMatrix4& View, const FMatrix4& Projection, const FExtent2D Extent, const std::span<const FRenderLight> Lights, const FVisualSettings& Settings)
 {
 	const auto ViewToWorld = Inverse(View);

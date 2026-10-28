@@ -67,7 +67,7 @@ std::expected<std::vector<std::byte>, FShaderError> ReadSource(const std::filesy
 
 std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequest& Request)
 {
-	if (Request.EntryPoint.empty() || Request.Stage > EShaderStage::Fragment)
+	if (Request.EntryPoint.empty() || Request.Stage > EShaderStage::Compute)
 	{
 		return std::unexpected(FShaderError{"Shader compilation requires a valid stage and entry point"});
 	}
@@ -172,7 +172,8 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 	}
 
 	slang::ProgramLayout* const Layout = Linked->getLayout(0, Diagnostics.writeRef());
-	const SlangStage ExpectedStage = Request.Stage == EShaderStage::Vertex ? SLANG_STAGE_VERTEX : SLANG_STAGE_FRAGMENT;
+	const SlangStage ExpectedStage = Request.Stage == EShaderStage::Vertex ? SLANG_STAGE_VERTEX : Request.Stage == EShaderStage::Fragment ? SLANG_STAGE_FRAGMENT
+	                                                                                                                                      : SLANG_STAGE_COMPUTE;
 	if (Layout == nullptr || Layout->getEntryPointCount() != 1 || Layout->getEntryPointByIndex(0)->getStage() != ExpectedStage)
 	{
 		return std::unexpected(FShaderError{"Shader entry point stage does not match the requested stage"});
@@ -204,12 +205,19 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 		switch (Type->getKind())
 		{
 			case slang::TypeReflection::Kind::Resource:
-				if (Type->getType()->getResourceShape() != SLANG_TEXTURE_2D || Type->getType()->getResourceAccess() != SLANG_RESOURCE_ACCESS_READ)
+				if (Type->getType()->getResourceShape() == SLANG_TEXTURE_2D && Type->getType()->getResourceAccess() == SLANG_RESOURCE_ACCESS_READ)
 				{
-					return std::unexpected(FShaderError{"Only read-only Texture2D shader resources are currently supported: " + std::string(Parameter->getName())});
+					BindingType = EShaderBindingType::Texture;
+				}
+				else if (Type->getType()->getResourceShape() == SLANG_TEXTURE_2D && Type->getType()->getResourceAccess() == SLANG_RESOURCE_ACCESS_READ_WRITE && Request.Stage == EShaderStage::Compute)
+				{
+					BindingType = EShaderBindingType::StorageTexture;
+				}
+				else
+				{
+					return std::unexpected(FShaderError{"Only Texture2D, and RWTexture2D in compute shaders, are currently supported: " + std::string(Parameter->getName())});
 				}
 
-				BindingType = EShaderBindingType::Texture;
 				break;
 			case slang::TypeReflection::Kind::SamplerState:
 				BindingType = EShaderBindingType::Sampler;
@@ -227,14 +235,16 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 		}
 
 		const std::uint32_t Binding = Parameter->getBindingIndex();
-		if (Parameter->getBindingSpace() != 0 || (BindingType == EShaderBindingType::Texture ? Binding >= MaximumGraphicsTextures : BindingType == EShaderBindingType::Sampler ? Binding != 128
-		                                                                                                                                                                       : Binding != 64)
+		const bool bValidBinding = BindingType == EShaderBindingType::Texture ? Binding < MaximumGraphicsTextures : BindingType == EShaderBindingType::StorageTexture ? Binding >= StorageTextureBinding && Binding < StorageTextureBinding + MaximumStorageTextures
+		                                                                                                        : BindingType == EShaderBindingType::Sampler          ? Binding == 128
+		                                                                                                                                                              : Binding == 64;
+		if (Parameter->getBindingSpace() != 0 || !bValidBinding
 		    || std::ranges::any_of(Shader.Bindings, [Binding](const FShaderBinding& Existing)
 		{
 			return Existing.Binding == Binding;
 		}))
 		{
-			return std::unexpected(FShaderError{"Shader resources must use unique bindings t0..t15, b0 at 64, and s0 at 128 in space 0"});
+			return std::unexpected(FShaderError{"Shader resources must use unique bindings t0..t15, b0 at 64, s0 at 128, and storage images at 384..391 in space 0"});
 		}
 
 		Shader.Bindings.push_back({.Name = Parameter->getName(), .Type = BindingType, .Binding = Binding, .Space = Parameter->getBindingSpace(), .ByteSize = BindingType == EShaderBindingType::ConstantBuffer ? static_cast<std::uint32_t>(Type->getElementTypeLayout()->getSize()) : 0u});

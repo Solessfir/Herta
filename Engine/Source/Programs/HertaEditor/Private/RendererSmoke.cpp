@@ -87,6 +87,102 @@ namespace
 	return {};
 }
 
+// Runs the GTAO depth prefilter on a cleared depth target: every texel is sky, so mip 0 must read back the clamped far depth.
+[[nodiscard]] std::expected<void, FPresentationError> CheckCompute(IGraphicsDevice& Device, const FVisualShaderSet& Shaders)
+{
+	constexpr FExtent2D Extent{.Width = 40, .Height = 24};
+	auto Pipeline = Device.CreateComputePipeline({.Name = "Compute regression", .Shader = Shaders.GtaoDepthCompute, .TextureCount = 1, .StorageTextureCount = GtaoDepthMips, .UniformBufferSize = sizeof(FGtaoUniforms)});
+	auto Depth = Device.CreateTexture({.Name = "Compute regression depth", .Extent = Extent, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
+	auto ViewDepth = Device.CreateTexture({.Name = "Compute regression view depth", .Extent = Extent, .Format = ETextureFormat::R32Float, .MipLevels = GtaoDepthMips, .bStorage = true});
+	if (!Pipeline || !Depth || !ViewDepth)
+	{
+		return std::unexpected(!Pipeline ? Pipeline.error() : !Depth ? Depth.error()
+		                                                             : ViewDepth.error());
+	}
+
+	if (Device.CreateComputePipeline({.Name = "Undersized storage", .Shader = Shaders.GtaoDepthCompute, .TextureCount = 1, .StorageTextureCount = 1, .UniformBufferSize = sizeof(FGtaoUniforms)}))
+	{
+		return Failure("Compute pipeline accepted fewer storage bindings than its shader declares");
+	}
+
+	const FGtaoUniforms Uniforms{.DepthToView = {0, 1, 0, 1}, .Extent = {40, 24, 1.f / 40.f, 1.f / 24.f}, .Settings = {1, 0.3f, 1, 1}};
+	std::array<FStorageTextureBinding, GtaoDepthMips> Mips;
+	for (std::uint32_t Mip = 0; Mip < GtaoDepthMips; ++Mip)
+	{
+		Mips[Mip] = {.Texture = *ViewDepth, .MipLevel = Mip};
+	}
+
+	const std::array Sources{*Depth};
+	const std::array SelfSources{*ViewDepth};
+	FComputeDispatch Dispatch{.Pipeline = *Pipeline, .Textures = Sources, .StorageTextures = Mips, .Uniforms = std::as_bytes(std::span{&Uniforms, 1}), .GroupCount = {3, 2, 1}};
+	if (const auto Begin = Device.BeginCommands(); !Begin)
+	{
+		return Begin;
+	}
+
+	if (Device.Dispatch(Dispatch))
+	{
+		Device.CancelCommands();
+		return Failure("Dispatch accepted an uninitialized source texture");
+	}
+
+	auto Result = Device.ClearTargets({}, *Depth, {});
+	if (Result)
+	{
+		FComputeDispatch Invalid = Dispatch;
+		Invalid.GroupCount = {0, 1, 1};
+		const bool bEmptyAccepted = Device.Dispatch(Invalid).has_value();
+		Invalid = Dispatch;
+		Invalid.Textures = SelfSources;
+		const bool bAliasAccepted = Device.Dispatch(Invalid).has_value();
+		Invalid = Dispatch;
+		Mips[4].MipLevel = GtaoDepthMips;
+		const bool bMipAccepted = Device.Dispatch(Invalid).has_value();
+		Mips[4].MipLevel = 4;
+		if (bEmptyAccepted || bAliasAccepted || bMipAccepted)
+		{
+			Device.CancelCommands();
+			return Failure("Dispatch accepted an empty group count, a texture both sampled and written, or a missing mip level");
+		}
+
+		Result = Device.Dispatch(Dispatch);
+	}
+
+	if (!Result)
+	{
+		Device.CancelCommands();
+		return Result;
+	}
+
+	if (const auto Submitted = Device.SubmitCommands(); !Submitted)
+	{
+		return std::unexpected(Submitted.error());
+	}
+
+	const auto Pixels = Device.ReadbackTexture(*ViewDepth);
+	if (!Pixels)
+	{
+		return std::unexpected(Pixels.error());
+	}
+
+	if (Pixels->size() != std::size_t{Extent.Width} * Extent.Height * sizeof(float))
+	{
+		return Failure("Compute readback has an incorrect byte count");
+	}
+
+	for (std::size_t Offset = 0; Offset < Pixels->size(); Offset += sizeof(float))
+	{
+		float Value;
+		std::memcpy(&Value, Pixels->data() + Offset, sizeof(Value));
+		if (Value != 100000.f)
+		{
+			return Failure("Compute depth prefilter wrote an unexpected view depth for the sky");
+		}
+	}
+
+	return {};
+}
+
 [[nodiscard]] std::expected<void, FPresentationError> CheckHdrResources(IGraphicsDevice& Device)
 {
 	for (const ETextureFormat Format : {ETextureFormat::Rgba16Float, ETextureFormat::Rgba32Float})
@@ -1147,6 +1243,11 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return InvalidCommands;
 	}
 
+	if (const auto Compute = CheckCompute(Device, VisualShaders); !Compute)
+	{
+		return Compute;
+	}
+
 	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader);
 	if (!Renderer)
 	{
@@ -1228,10 +1329,10 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	auto Texture = Device.CreateTexture({.Name = "Depth test colors", .Extent = {.Width = 2, .Height = 1}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = false});
 	auto Color = Device.CreateTexture({.Name = "Depth test color", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
 	auto Depth = Device.CreateTexture({.Name = "Depth test depth", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 11, .UniformBufferSize = sizeof(FVisualUniforms)});
-	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 11, .UniformBufferSize = sizeof(FVisualUniforms)});
+	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 12, .UniformBufferSize = sizeof(FVisualUniforms)});
+	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 12, .UniformBufferSize = sizeof(FVisualUniforms)});
 	const auto ShadowDepth = Device.CreateTexture({.Name = "Depth-only sampled atlas regression", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 11, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthOnly = true});
+	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 12, .UniformBufferSize = sizeof(FVisualUniforms), .bDepthOnly = true});
 	auto Instances = Device.CreateBuffer({.Name = "Instance validation transforms", .Size = 2 * sizeof(FMeshInstance), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
 	if (!Near)
 	{
@@ -1278,7 +1379,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(!ShadowDepth ? ShadowDepth.error() : ShadowPipeline.error());
 	}
 
-	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 11, .UniformBufferSize = 16}))
+	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 12, .UniformBufferSize = 16}))
 	{
 		return Failure("Pipeline accepted a uniform block smaller than its shader reflection");
 	}
@@ -1311,7 +1412,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.f, 1, 0.1f);
-	std::array<FTextureHandle, 11> Textures;
+	std::array<FTextureHandle, 12> Textures;
 	std::ranges::fill(Textures, *Texture);
 	FVisualUniforms Uniforms;
 	Uniforms.ViewToWorld = FMatrix4{}.Data();

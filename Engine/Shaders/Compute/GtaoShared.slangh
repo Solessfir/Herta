@@ -1,0 +1,29 @@
+#pragma once
+
+struct FGtaoUniforms
+{
+    // View depth is (x * Depth + y) / (z * Depth + w).
+    float4 DepthToView;
+    // View xy is ViewZ * (Ndc * xy + zw).
+    float4 NdcToView;
+    // Width, height, and their reciprocals at full resolution.
+    float4 Extent;
+    // The same for the half-resolution occlusion, which matches view depth mip 1.
+    float4 HalfExtent;
+    // Radius and thickness in meters, slices, and steps per side.
+    float4 Settings;
+};
+
+[[vk::binding(64, 0)]] ConstantBuffer<FGtaoUniforms> Gtao;
+
+static const float GtaoPi = 3.14159265358979323846;
+static const float GtaoHalfPi = 1.57079632679489661923;
+// Reversed infinite depth reaches 0 at the sky; clamping keeps its view depth finite.
+static const float GtaoFarDepth = 100000.0;
+static const uint GtaoDepthMips = 5;
+
+float3 GtaoViewPosition(float2 UV, float ViewZ)
+{
+    float2 Ndc = float2(UV.x * 2.0 - 1.0, 1.0 - UV.y * 2.0);
+    return float3(ViewZ * (Ndc * Gtao.NdcToView.xy + Gtao.NdcToView.zw), ViewZ);
+}

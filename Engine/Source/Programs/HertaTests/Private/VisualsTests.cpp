@@ -55,6 +55,31 @@ TEST_CASE("Visual uniforms preserve camera inverses and native pixel dimensions"
 	CHECK(sizeof(FShadowUniform) == 96);
 }
 
+TEST_CASE("GTAO uniforms reconstruct view positions from reversed depth")
+{
+	const FMatrix4 Projection = TestProjection();
+	const auto Visual = BuildVisualUniforms(FMatrix4{}, Projection, {1920, 1080}, {}, {});
+	REQUIRE(Visual);
+	const FGtaoUniforms Uniforms = BuildGtaoUniforms(Projection, FMatrix4(Visual->ClipToView), {1920, 1080}, EAmbientOcclusion::Medium);
+	CHECK(Uniforms.Extent == std::array{1920.f, 1080.f, 1.f / 1920.f, 1.f / 1080.f});
+	CHECK(Uniforms.HalfExtent == std::array{960.f, 540.f, 1.f / 960.f, 1.f / 540.f});
+	CHECK(Uniforms.Settings[2] == 2.f);
+	CHECK(Uniforms.Settings[3] == 3.f);
+
+	// +X is left and +Z forward, so a point left of and below the view axis lands on the left half of the screen.
+	const FVector3 Position{0.7f, -0.4f, 3.f};
+	const FVector4 Clip = Projection * FVector4{Position, 1.f};
+	const float Depth = Clip.Z / Clip.W;
+	const float NdcX = Clip.X / Clip.W;
+	const float NdcY = Clip.Y / Clip.W;
+	CHECK(NdcX < 0.f);
+	const auto& D = Uniforms.DepthToView;
+	const float ViewZ = (D[0] * Depth + D[1]) / (D[2] * Depth + D[3]);
+	CHECK(ViewZ == doctest::Approx(Position.Z));
+	CHECK(ViewZ * (NdcX * Uniforms.NdcToView[0] + Uniforms.NdcToView[2]) == doctest::Approx(Position.X));
+	CHECK(ViewZ * (NdcY * Uniforms.NdcToView[1] + Uniforms.NdcToView[3]) == doctest::Approx(Position.Y));
+}
+
 TEST_CASE("Visual uniforms reject invalid cameras and bounded settings")
 {
 	const FMatrix4 Identity;
