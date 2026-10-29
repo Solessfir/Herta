@@ -124,6 +124,7 @@ void ApplyRenderQuality(FVisualSettings& Settings, const ERenderQuality Quality)
 			Settings.AmbientOcclusion = EAmbientOcclusion::Off;
 			Settings.FogResolution = 0.125f;
 			Settings.bContactShadows = false;
+			Settings.bGlobalIllumination = false;
 			break;
 		case ERenderQuality::Medium:
 			Settings.AntiAliasing = EAntiAliasing::SmaaMedium;
@@ -132,6 +133,7 @@ void ApplyRenderQuality(FVisualSettings& Settings, const ERenderQuality Quality)
 			Settings.AmbientOcclusion = EAmbientOcclusion::Low;
 			Settings.FogResolution = 0.25f;
 			Settings.bContactShadows = false;
+			Settings.bGlobalIllumination = false;
 			break;
 		case ERenderQuality::High:
 			Settings.AntiAliasing = EAntiAliasing::SmaaHigh;
@@ -140,6 +142,7 @@ void ApplyRenderQuality(FVisualSettings& Settings, const ERenderQuality Quality)
 			Settings.AmbientOcclusion = EAmbientOcclusion::High;
 			Settings.FogResolution = 0.25f;
 			Settings.bContactShadows = true;
+			Settings.bGlobalIllumination = true;
 			break;
 	}
 }
@@ -149,7 +152,7 @@ std::optional<ERenderQuality> FindRenderQuality(const FVisualSettings& Settings)
 	for (const ERenderQuality Quality : {ERenderQuality::Low, ERenderQuality::Medium, ERenderQuality::High})
 	{
 		const FVisualSettings Preset = MakeQualityPreset(Quality);
-		if (Settings.AntiAliasing == Preset.AntiAliasing && Settings.ShadowQuality == Preset.ShadowQuality && Settings.ShadowResolution == Preset.ShadowResolution && Settings.AmbientOcclusion == Preset.AmbientOcclusion && Settings.FogResolution == Preset.FogResolution && Settings.bContactShadows == Preset.bContactShadows)
+		if (Settings.AntiAliasing == Preset.AntiAliasing && Settings.ShadowQuality == Preset.ShadowQuality && Settings.ShadowResolution == Preset.ShadowResolution && Settings.AmbientOcclusion == Preset.AmbientOcclusion && Settings.FogResolution == Preset.FogResolution && Settings.bContactShadows == Preset.bContactShadows && Settings.bGlobalIllumination == Preset.bGlobalIllumination)
 		{
 			return Quality;
 		}

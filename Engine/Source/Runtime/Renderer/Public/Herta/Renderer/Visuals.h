@@ -99,6 +99,9 @@ struct FVisualSettings
 	float PenumbraSaturation = 1.f;
 	// Writes per-pixel screen motion for temporal techniques; see FMeshRenderer::GetMotionVectors. Off while nothing reads it.
 	bool bMotionVectors = false;
+	// Dynamic diffuse global illumination from Split Radiance Cascades, which replaces the environment's diffuse light. Needs ray queries.
+	// Off by default so raster regressions stay deterministic; the High tier enables it, and float atomics make its frames differ in their last bits.
+	bool bGlobalIllumination = false;
 	// Replaces raster shading with the reference path tracer, which accumulates while nothing changes. Needs ray queries; fog, shadow maps, and screen-space effects do not apply.
 	bool bPathTracing = false;
 	bool bStudioPreview = true;
@@ -152,6 +155,11 @@ struct FVisualShaderSet
 	FShaderAsset ContactShadowsCompute;
 	// The reference path tracer behind FVisualSettings::bPathTracing.
 	FShaderAsset PathTraceCompute;
+	// Split Radiance Cascades behind FVisualSettings::bGlobalIllumination; it needs all four.
+	FShaderAsset RadianceCascadeProbesCompute;
+	FShaderAsset RadianceCascadeTraceCompute;
+	FShaderAsset RadianceCascadeIrradianceCompute;
+	FShaderAsset RadianceCascadeShadeCompute;
 };
 
 struct FShadowView

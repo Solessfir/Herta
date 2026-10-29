@@ -432,8 +432,8 @@ TEST_CASE("Render meshes draw each section with its texture and upload within th
 	CHECK(Device.Draws[0].FirstIndex == 0);
 	CHECK(Device.Draws[1].FirstIndex == 3);
 	CHECK(Device.Draws[1].IndexCount == 3);
-	REQUIRE(Device.Draws[0].Textures.size() == 15);
-	REQUIRE(Device.Draws[1].Textures.size() == 15);
+	REQUIRE(Device.Draws[0].Textures.size() == 16);
+	REQUIRE(Device.Draws[1].Textures.size() == 16);
 	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
 	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().MipLevels == Large.Mips.size());
 	CHECK(Device.Draws[1].Textures[0]->GetDescriptor().Format == Herta::ETextureFormat::Rgba8);
@@ -626,8 +626,8 @@ TEST_CASE("Mesh instancing groups shared sections and skips null meshes without 
 	CHECK(Device.Draws[1].FirstInstance == 0);
 	CHECK(Device.Draws[1].InstanceCount == 2);
 	CHECK(Device.Draws[1].FirstIndex == 18);
-	REQUIRE(Device.Draws[0].Textures.size() == 15);
-	REQUIRE(Device.Draws[1].Textures.size() == 15);
+	REQUIRE(Device.Draws[0].Textures.size() == 16);
+	REQUIRE(Device.Draws[1].Textures.size() == 16);
 	CHECK(Device.Draws[0].Textures[0] != Device.Draws[1].Textures[0]);
 	CHECK(Device.Draws[2].FirstInstance == 2);
 	CHECK(Device.Draws[2].InstanceCount == 1);

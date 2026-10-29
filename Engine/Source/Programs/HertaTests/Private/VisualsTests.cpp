@@ -296,7 +296,10 @@ TEST_CASE("The specular albedo table keeps GGX energy within one and loses it wi
 
 TEST_CASE("Quality tiers are recognized only while their settings match")
 {
+	// Defaults are the High tier without global illumination, which only the tier itself turns on.
 	FVisualSettings Settings;
+	CHECK_FALSE(FindRenderQuality(Settings));
+	Settings.bGlobalIllumination = true;
 	CHECK(FindRenderQuality(Settings) == ERenderQuality::High);
 	for (const ERenderQuality Quality : {ERenderQuality::Low, ERenderQuality::Medium, ERenderQuality::High})
 	{

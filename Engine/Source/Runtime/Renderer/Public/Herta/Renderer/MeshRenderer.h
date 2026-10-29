@@ -78,7 +78,7 @@ private:
 	std::array<FTextureHandle, MaterialTextureSlotCount> Textures{};
 	std::string ShaderKey;
 	friend class FMeshRenderer;
-	friend class FPathTracer;
+	friend class FRayTracingScene;
 };
 
 // GPU copy of a cooked model. Recorded frames share its buffers and textures, so dropping a mesh never waits on the GPU.
@@ -120,7 +120,7 @@ private:
 	mutable FVector3 BoundsMaximum{};
 
 	friend class FMeshRenderer;
-	friend class FPathTracer;
+	friend class FRayTracingScene;
 };
 
 // A 1 m cube centered on the origin with the whole texture on every face, unmirrored when viewed from outside.

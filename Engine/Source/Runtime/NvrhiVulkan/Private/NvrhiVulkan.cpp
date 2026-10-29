@@ -294,13 +294,17 @@ struct FPhysicalDeviceSelection
 [[nodiscard]] bool SupportsRayQueryFeatures(const VkPhysicalDevice Device, const std::span<const VkExtensionProperties> Extensions)
 {
 	// NVRHI gives its upload buffers shader binding table usage whenever acceleration structures exist, which is only valid with the ray tracing pipeline extension and feature.
-	if (!ContainsExtension(Extensions, VK_KHR_RAY_QUERY_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME))
+	if (!ContainsExtension(Extensions, VK_KHR_RAY_QUERY_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME))
 	{
 		return false;
 	}
 
+	// Global illumination deposits radiance from many rays into shared probe directions with float atomic adds.
+	VkPhysicalDeviceShaderAtomicFloatFeaturesEXT AtomicFloat{};
+	AtomicFloat.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
 	VkPhysicalDeviceRayTracingPipelineFeaturesKHR Pipeline{};
 	Pipeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+	Pipeline.pNext = &AtomicFloat;
 	VkPhysicalDeviceRayQueryFeaturesKHR RayQuery{};
 	RayQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
 	RayQuery.pNext = &Pipeline;
@@ -314,7 +318,8 @@ struct FPhysicalDeviceSelection
 	Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 	Features.pNext = &Features12;
 	vkGetPhysicalDeviceFeatures2(Device, &Features);
-	return RayQuery.rayQuery == VK_TRUE && Pipeline.rayTracingPipeline == VK_TRUE && AccelerationStructure.accelerationStructure == VK_TRUE && Features12.bufferDeviceAddress == VK_TRUE && Features12.runtimeDescriptorArray == VK_TRUE && Features12.descriptorBindingPartiallyBound == VK_TRUE && Features12.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE
+	// Global illumination packs probe radiance as half floats.
+	return RayQuery.rayQuery == VK_TRUE && Pipeline.rayTracingPipeline == VK_TRUE && AtomicFloat.shaderBufferFloat32AtomicAdd == VK_TRUE && Features.features.shaderInt16 == VK_TRUE && Features12.shaderFloat16 == VK_TRUE && AccelerationStructure.accelerationStructure == VK_TRUE && Features12.bufferDeviceAddress == VK_TRUE && Features12.runtimeDescriptorArray == VK_TRUE && Features12.descriptorBindingPartiallyBound == VK_TRUE && Features12.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE
 	       && Features12.descriptorBindingStorageBufferUpdateAfterBind == VK_TRUE && Features12.descriptorBindingUpdateUnusedWhilePending == VK_TRUE && Features12.shaderSampledImageArrayNonUniformIndexing == VK_TRUE && Features12.shaderStorageBufferArrayNonUniformIndexing == VK_TRUE;
 }
 
@@ -717,8 +722,12 @@ public:
 		QueueInfo.queueFamilyIndex = QueueFamilyIndex;
 		QueueInfo.queueCount = 1;
 		QueueInfo.pQueuePriorities = &QueuePriority;
+		VkPhysicalDeviceShaderAtomicFloatFeaturesEXT EnabledAtomicFloat{};
+		EnabledAtomicFloat.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT;
+		EnabledAtomicFloat.shaderBufferFloat32AtomicAdd = VK_TRUE;
 		VkPhysicalDeviceRayTracingPipelineFeaturesKHR EnabledRayTracingPipeline{};
 		EnabledRayTracingPipeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+		EnabledRayTracingPipeline.pNext = &EnabledAtomicFloat;
 		EnabledRayTracingPipeline.rayTracingPipeline = VK_TRUE;
 		VkPhysicalDeviceRayQueryFeaturesKHR EnabledRayQuery{};
 		EnabledRayQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
@@ -742,6 +751,7 @@ public:
 			EnabledFeatures12.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
 			EnabledFeatures12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
 			EnabledFeatures12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
+			EnabledFeatures12.shaderFloat16 = VK_TRUE;
 		}
 
 		VkPhysicalDeviceVulkan13Features EnabledFeatures13{};
@@ -752,6 +762,7 @@ public:
 		VkPhysicalDeviceFeatures2 EnabledFeatures{};
 		EnabledFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
 		EnabledFeatures.pNext = &EnabledFeatures13;
+		EnabledFeatures.features.shaderInt16 = Selection->bRayQuery ? VK_TRUE : VK_FALSE;
 		std::vector<const char*> DeviceExtensions{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 		if (Selection->bHdrMetadata)
 		{
@@ -760,7 +771,7 @@ public:
 
 		if (Selection->bRayQuery)
 		{
-			DeviceExtensions.insert(DeviceExtensions.end(), {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME});
+			DeviceExtensions.insert(DeviceExtensions.end(), {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME});
 		}
 
 		VkDeviceCreateInfo DeviceInfo{};

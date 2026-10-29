@@ -1,0 +1,545 @@
+#pragma once
+#include "../VisualShared.slangh"
+#include "../Brdf.slangh"
+
+// The ray traced scene that the path tracer and global illumination share: hit data through the resource table, materials evaluated with Brdf.slangh,
+// and light sampling in the same units and shapes as raster shading. Including shaders bind these textures and buffers at the same slots.
+[[vk::binding(0, 0)]] Texture2D<float4> Environment;
+[[vk::binding(1, 0)]] Texture2D<float4> SkyView;
+[[vk::binding(2, 0)]] Texture2D<float4> SpecularAlbedo;
+[[vk::binding(16, 0)]] StructuredBuffer<FVisualLight> Lights;
+
+// Keep in sync with FPathSection and FPathMaterial in PathTracer.cpp.
+struct FPathSection
+{
+    uint VertexSlot;
+    uint IndexSlot;
+    uint FirstIndex;
+    uint Material;
+};
+
+struct FPathMaterial
+{
+    FMaterial Material;
+    // Resource table slots of the six material textures, in MaterialTextureSlot order; TextureFlags says which are bound.
+    uint4 Textures0;
+    uint4 Textures1;
+};
+
+[[vk::binding(17, 0)]] StructuredBuffer<FPathSection> Sections;
+[[vk::binding(18, 0)]] StructuredBuffer<FPathMaterial> Materials;
+[[vk::binding(24, 0)]] RaytracingAccelerationStructure Scene;
+[[vk::binding(0, 1)]] Texture2D<float4> SceneTextures[];
+[[vk::binding(1, 1)]] ByteAddressBuffer SceneBuffers[];
+
+static const float RayOffset = 1e-3;
+
+uint PcgHash(uint Value)
+{
+    uint State = Value * 747796405u + 2891336453u;
+    uint Word = ((State >> ((State >> 28u) + 4u)) ^ State) * 277803737u;
+    return (Word >> 22u) ^ Word;
+}
+
+struct FRandom
+{
+    uint State;
+
+    [mutating]
+    float Next()
+    {
+        State = PcgHash(State);
+        return float(State >> 8) * (1.0 / 16777216.0);
+    }
+};
+
+float Luminance(float3 Color)
+{
+    return dot(Color, float3(0.2126, 0.7152, 0.0722));
+}
+
+float3 TangentToWorld(float3 Local, float3 N)
+{
+    float3 Helper = abs(N.y) < 0.999 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+    float3 T = normalize(cross(Helper, N));
+    float3 B = cross(N, T);
+    return T * Local.x + B * Local.y + N * Local.z;
+}
+
+// What a material looks like at one hit; the mip is chosen from the ray cone instead of screen derivatives.
+struct FHitMaterial
+{
+    float4 Base;
+    float Metallic;
+    float Roughness;
+    float DiffuseRoughness;
+    float3 EdgeColor;
+    float3 Emissive;
+    float3 Normal;
+};
+
+float4 SampleTexture(uint Slot, float2 UV, float LodBias)
+{
+    Texture2D<float4> Texture = SceneTextures[NonUniformResourceIndex(Slot)];
+    uint Width, Height;
+    Texture.GetDimensions(Width, Height);
+    return Texture.SampleLevel(LinearSampler, UV, max(0.0, LodBias + 0.5 * log2(float(Width) * float(Height))));
+}
+
+struct FVertex
+{
+    float3 Position;
+    float2 UV;
+    float3 Normal;
+    float4 Tangent;
+};
+
+FVertex LoadVertex(uint Slot, uint Index)
+{
+    ByteAddressBuffer Buffer = SceneBuffers[NonUniformResourceIndex(Slot)];
+    uint Offset = Index * 48u;
+    FVertex Vertex;
+    Vertex.Position = asfloat(Buffer.Load3(Offset));
+    Vertex.UV = asfloat(Buffer.Load2(Offset + 12u));
+    Vertex.Normal = asfloat(Buffer.Load3(Offset + 20u));
+    Vertex.Tangent = asfloat(Buffer.Load4(Offset + 32u));
+    return Vertex;
+}
+
+uint3 LoadTriangle(FPathSection Section, uint Primitive)
+{
+    return SceneBuffers[NonUniformResourceIndex(Section.IndexSlot)].Load3((Section.FirstIndex + Primitive * 3u) * 4u);
+}
+
+float2 MaterialUV(FMaterial Material, float2 UV)
+{
+    return UV * Material.UV.xy + Material.UV.zw;
+}
+
+// Cutouts are tested at the finest mip; the candidate loop has no cone to choose a coarser one.
+bool PassesAlphaTest(uint InstanceRecord, uint Geometry, uint Primitive, float2 Barycentrics)
+{
+    FPathSection Section = Sections[InstanceRecord + Geometry];
+    FPathMaterial Record = Materials[Section.Material];
+    if (Record.Material.Channels1.z < 0.5)
+        return true;
+
+    float Alpha = Record.Material.BaseColor.a;
+    if ((uint(Record.Material.TextureFlags.x) & 1u) != 0u)
+    {
+        uint3 Indices = LoadTriangle(Section, Primitive);
+        float2 UV = LoadVertex(Section.VertexSlot, Indices.x).UV * (1.0 - Barycentrics.x - Barycentrics.y) + LoadVertex(Section.VertexSlot, Indices.y).UV * Barycentrics.x + LoadVertex(Section.VertexSlot, Indices.z).UV * Barycentrics.y;
+        Alpha *= SceneTextures[NonUniformResourceIndex(Record.Textures0.x)].SampleLevel(LinearSampler, MaterialUV(Record.Material, UV), 0).a;
+    }
+
+    return Alpha >= Record.Material.Channels1.w;
+}
+
+struct FHit
+{
+    float Distance;
+    uint InstanceRecord;
+    uint Geometry;
+    uint Primitive;
+    float2 Barycentrics;
+    float3x4 ObjectToWorld;
+    float3x4 WorldToObject;
+};
+
+bool TraceScene(float3 Origin, float3 Direction, float MaximumDistance, out FHit Hit)
+{
+    RayDesc Ray;
+    Ray.Origin = Origin;
+    Ray.Direction = Direction;
+    Ray.TMin = 0.0;
+    Ray.TMax = MaximumDistance;
+    RayQuery<RAY_FLAG_NONE> Query;
+    Query.TraceRayInline(Scene, RAY_FLAG_NONE, 0xFF, Ray);
+    while (Query.Proceed())
+    {
+        if (Query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE && PassesAlphaTest(Query.CandidateInstanceID(), Query.CandidateGeometryIndex(), Query.CandidatePrimitiveIndex(), Query.CandidateTriangleBarycentrics()))
+            Query.CommitNonOpaqueTriangleHit();
+    }
+
+    Hit = (FHit)0;
+    if (Query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+        return false;
+
+    Hit.Distance = Query.CommittedRayT();
+    Hit.InstanceRecord = Query.CommittedInstanceID();
+    Hit.Geometry = Query.CommittedGeometryIndex();
+    Hit.Primitive = Query.CommittedPrimitiveIndex();
+    Hit.Barycentrics = Query.CommittedTriangleBarycentrics();
+    Hit.ObjectToWorld = Query.CommittedObjectToWorld3x4();
+    Hit.WorldToObject = Query.CommittedWorldToObject3x4();
+    return true;
+}
+
+bool Occluded(float3 Origin, float3 Direction, float MaximumDistance)
+{
+    RayDesc Ray;
+    Ray.Origin = Origin;
+    Ray.Direction = Direction;
+    Ray.TMin = 0.0;
+    Ray.TMax = MaximumDistance;
+    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> Query;
+    Query.TraceRayInline(Scene, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, 0xFF, Ray);
+    while (Query.Proceed())
+    {
+        if (Query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE && PassesAlphaTest(Query.CandidateInstanceID(), Query.CandidateGeometryIndex(), Query.CandidatePrimitiveIndex(), Query.CandidateTriangleBarycentrics()))
+            Query.CommitNonOpaqueTriangleHit();
+    }
+
+    return Query.CommittedStatus() == COMMITTED_TRIANGLE_HIT;
+}
+
+struct FSurfacePoint
+{
+    float3 Position;
+    // Faces the incoming ray, so both sides of thin geometry shade.
+    float3 GeometricNormal;
+    FHitMaterial Material;
+};
+
+FSurfacePoint ShadeHit(FHit Hit, float3 Direction, float ConeWidth)
+{
+    FPathSection Section = Sections[Hit.InstanceRecord + Hit.Geometry];
+    FPathMaterial Record = Materials[Section.Material];
+    uint3 Indices = LoadTriangle(Section, Hit.Primitive);
+    FVertex A = LoadVertex(Section.VertexSlot, Indices.x);
+    FVertex B = LoadVertex(Section.VertexSlot, Indices.y);
+    FVertex C = LoadVertex(Section.VertexSlot, Indices.z);
+    float3 Weights = float3(1.0 - Hit.Barycentrics.x - Hit.Barycentrics.y, Hit.Barycentrics.x, Hit.Barycentrics.y);
+
+    float3x3 NormalToWorld = transpose((float3x3)Hit.WorldToObject);
+    float3 WorldA = mul(Hit.ObjectToWorld, float4(A.Position, 1.0));
+    float3 WorldB = mul(Hit.ObjectToWorld, float4(B.Position, 1.0));
+    float3 WorldC = mul(Hit.ObjectToWorld, float4(C.Position, 1.0));
+    float3 Cross = cross(WorldB - WorldA, WorldC - WorldA);
+    float WorldArea = max(length(Cross), 1e-12);
+    float3 Ng = Cross / WorldArea;
+    float3 N = normalize(mul(NormalToWorld, A.Normal * Weights.x + B.Normal * Weights.y + C.Normal * Weights.z));
+    float4 Tangent = A.Tangent * Weights.x + B.Tangent * Weights.y + C.Tangent * Weights.z;
+    float3 T = mul((float3x3)Hit.ObjectToWorld, Tangent.xyz);
+    float Determinant = dot(Hit.ObjectToWorld[0].xyz, cross(Hit.ObjectToWorld[1].xyz, Hit.ObjectToWorld[2].xyz));
+
+    FMaterial Material = Record.Material;
+    float2 UV = MaterialUV(Material, A.UV * Weights.x + B.UV * Weights.y + C.UV * Weights.z);
+    // Ray cones (Akenine-Moller et al. 2021): the footprint width over the projected triangle, in texels once each texture adds its size.
+    float2 UVEdge0 = (B.UV - A.UV) * Material.UV.xy;
+    float2 UVEdge1 = (C.UV - A.UV) * Material.UV.xy;
+    float UVArea = abs(UVEdge0.x * UVEdge1.y - UVEdge0.y * UVEdge1.x);
+    float LodBias = 0.5 * log2(max(UVArea, 1e-20) / WorldArea) + log2(max(ConeWidth, 1e-8) / max(abs(dot(Ng, Direction)), 1e-3));
+
+    if (dot(Ng, Direction) > 0.0)
+        Ng = -Ng;
+    if (dot(N, Ng) < 0.0)
+        N = -N;
+
+    uint Flags = uint(Material.TextureFlags.x);
+    FHitMaterial Result;
+    Result.Base = Material.BaseColor;
+    if ((Flags & 1u) != 0u) Result.Base *= SampleTexture(Record.Textures0.x, UV, LodBias);
+    Result.Metallic = Material.Surface.x;
+    Result.Roughness = Material.Surface.y;
+    if ((Flags & 2u) != 0u) Result.Metallic *= Channel(SampleTexture(Record.Textures0.y, UV, LodBias), Material.Channels0.y);
+    if ((Flags & 4u) != 0u) Result.Roughness *= Channel(SampleTexture(Record.Textures0.z, UV, LodBias), Material.Channels0.z);
+    Result.Roughness = clamp(Result.Roughness, 0.045, 1.0);
+    Result.DiffuseRoughness = Material.Specular.w;
+    Result.EdgeColor = Material.Specular.rgb;
+    Result.Normal = N;
+    if ((Flags & 8u) != 0u && dot(T, T) > 1e-12)
+    {
+        T = normalize(T - N * dot(N, T));
+        float3 Bitangent = cross(N, T) * Tangent.w * (Determinant < 0.0 ? -1.0 : 1.0);
+        float3 Map = SampleTexture(Record.Textures0.w, UV, LodBias).xyz * 2.0 - 1.0;
+        Map.xy *= Material.Surface.z;
+        float3 Mapped = T * Map.x + Bitangent * Map.y + N * Map.z;
+        Result.Normal = dot(Mapped, Mapped) > 1e-6 ? normalize(Mapped) : N;
+    }
+
+    Result.Emissive = Material.Emissive.rgb * Material.Emissive.w;
+    if ((Flags & 32u) != 0u) Result.Emissive *= SampleTexture(Record.Textures1.y, UV, LodBias).rgb;
+
+    FSurfacePoint Point;
+    Point.Position = mul(Hit.ObjectToWorld, float4(A.Position * Weights.x + B.Position * Weights.y + C.Position * Weights.z, 1.0));
+    Point.GeometricNormal = Ng;
+    Point.Material = Result;
+    return Point;
+}
+
+// The same reflectance raster shading gives one light from L, times the cosine.
+float3 EvaluateBrdf(FSurface Surface, FHitMaterial Material, float3 N, float3 V, float3 L)
+{
+    FLightSum Sum = (FLightSum)0;
+    AddLight(Sum, 1.0, N, V, L, Material.Roughness, Material.DiffuseRoughness);
+    return Surface.DiffuseSingle * Sum.Diffuse + Surface.DiffuseMultiple * Sum.DiffuseMultiple + max(Surface.Specular0 * Sum.Specular0 + Surface.Specular90 * Sum.Specular90 - Surface.SpecularF82 * Sum.SpecularF82, 0.0);
+}
+
+float GgxAlpha(float Roughness)
+{
+    return max(0.0025, Roughness * Roughness);
+}
+
+float SpecularProbability(FSurface Surface)
+{
+    float Specular = Luminance(Surface.SpecularReflectance);
+    float Diffuse = Luminance(Surface.DiffuseReflectance);
+    return Specular + Diffuse > 0.0 ? clamp(Specular / (Specular + Diffuse), 0.1, 0.9) : 0.5;
+}
+
+// Visible normals (Heitz 2018) through Dupuy and Benyoub's spherical caps.
+float3 SampleGgx(float3 V, float3 N, float Alpha, float2 Random)
+{
+    float3 Helper = abs(N.y) < 0.999 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+    float3 T = normalize(cross(Helper, N));
+    float3 B = cross(N, T);
+    float3 LocalV = float3(dot(V, T), dot(V, B), dot(V, N));
+    float3 Stretched = normalize(float3(LocalV.xy * Alpha, LocalV.z));
+    float Phi = 2.0 * PI * Random.x;
+    float Z = (1.0 - Random.y) * (1.0 + Stretched.z) - Stretched.z;
+    float SinTheta = sqrt(saturate(1.0 - Z * Z));
+    float3 Cap = float3(SinTheta * cos(Phi), SinTheta * sin(Phi), Z) + Stretched;
+    float3 LocalH = normalize(float3(Cap.xy * Alpha, max(Cap.z, 0.0)));
+    float3 H = T * LocalH.x + B * LocalH.y + N * LocalH.z;
+    return reflect(-V, H);
+}
+
+float GgxPdf(float3 V, float3 N, float3 L, float Alpha)
+{
+    float NoV = max(dot(N, V), 1e-4);
+    float3 H = normalize(V + L);
+    float NoH = saturate(dot(N, H));
+    float A2 = Alpha * Alpha;
+    float D = A2 / max(1e-5, PI * pow(NoH * NoH * (A2 - 1.0) + 1.0, 2.0));
+    float G1 = 2.0 * NoV / (NoV + sqrt(A2 + (1.0 - A2) * NoV * NoV));
+    return G1 * D / (4.0 * NoV);
+}
+
+float BrdfPdf(float3 V, float3 N, float3 L, float Alpha, float SpecularChance)
+{
+    float NoL = dot(N, L);
+    if (NoL <= 0.0)
+        return 0.0;
+
+    return SpecularChance * GgxPdf(V, N, L, Alpha) + (1.0 - SpecularChance) * NoL / PI;
+}
+
+float PowerHeuristic(float A, float B)
+{
+    return A * A / max(A * A + B * B, 1e-20);
+}
+
+float3 EnvironmentRadiance(float3 Direction)
+{
+    if (Visual.Sky.x <= 0.0)
+        return 0.0;
+
+    uint Width, Height;
+    Environment.GetDimensions(Width, Height);
+    float2 UV = DirectionUV(Direction);
+    UV.y = clamp(UV.y, 0.5 / Height, 1.0 - 0.5 / Height);
+    return Environment.SampleLevel(LinearSampler, UV, 0).rgb * Visual.Sky.x * Visual.SkyColor.rgb;
+}
+
+// What the camera sees past every surface: Sky.slang, sun disc included.
+float3 BackgroundRadiance(float3 Direction)
+{
+    if (Visual.Sky.y < 0.5)
+        return 0.035;
+
+    if (Visual.Atmosphere.w > 0.5 && Visual.AtmosphereGeometry.z < 0.5)
+    {
+        float2 Horizontal = Direction.xz / max(length(Direction.xz), 1e-5);
+        float3 View = Direction.y >= 0.0 ? Direction : float3(Horizontal.x, 0.0, Horizontal.y);
+        float2 UV = SkyViewUV(View);
+        UV.y = clamp(UV.y, 0.5 / 128.0, 1.0 - 0.5 / 128.0);
+        return ComposeProceduralSky(Direction, SkyView.SampleLevel(LinearSampler, UV, 0).rgb);
+    }
+
+    uint Width, Height;
+    Environment.GetDimensions(Width, Height);
+    float2 UV = DirectionUV(Direction);
+    UV.y = clamp(UV.y, 0.5 / Height, 1.0 - 0.5 / Height);
+    return Environment.SampleLevel(LinearSampler, UV, 0).rgb;
+}
+
+uint LightCount()
+{
+    return uint(Visual.Controls.x);
+}
+
+float DirectionalHalfAngle(FVisualLight Light)
+{
+    return atan(0.5 * Light.ConeShadow.x);
+}
+
+// Rect lights emit from their front face with the same radiance and range fade as raster shading.
+float RectFade(FVisualLight Light, float3 Position)
+{
+    float3 FromCenter = Position - Light.PositionType.xyz;
+    float3 Nearest = Light.RightWidth.xyz * clamp(dot(FromCenter, Light.RightWidth.xyz), -0.5 * Light.RightWidth.w, 0.5 * Light.RightWidth.w) + Light.UpHeight.xyz * clamp(dot(FromCenter, Light.UpHeight.xyz), -0.5 * Light.UpHeight.w, 0.5 * Light.UpHeight.w);
+    float Distance = length(FromCenter - Nearest);
+    if (dot(FromCenter, Light.DirectionRange.xyz) <= 0.0 || Distance >= Light.DirectionRange.w)
+        return 0.0;
+
+    return pow(saturate(1.0 - pow(Distance / Light.DirectionRange.w, 4.0)), 2.0);
+}
+
+float3 RectRadiance(FVisualLight Light)
+{
+    return Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * max(1e-4, Light.RightWidth.w * Light.UpHeight.w));
+}
+
+// Unshadowed estimates that choose one local light per vertex in proportion to what it could add.
+float LightWeight(FVisualLight Light, float3 Position, float3 Normal)
+{
+    int Type = int(Light.PositionType.w);
+    if (Type == 0 || Type == 1)
+        return 0.0;
+
+    if (Type == 4)
+    {
+        float Fade = RectFade(Light, Position);
+        if (Fade <= 0.0)
+            return 0.0;
+
+        float3 Right = Light.RightWidth.xyz * (0.5 * Light.RightWidth.w);
+        float3 Up = Light.UpHeight.xyz * (0.5 * Light.UpHeight.w);
+        float3 Center = Light.PositionType.xyz - Position;
+        bool bAbove = dot(Normal, Center + Right + Up) > 0.0 || dot(Normal, Center + Right - Up) > 0.0 || dot(Normal, Center - Right + Up) > 0.0 || dot(Normal, Center - Right - Up) > 0.0;
+        float Area = Light.RightWidth.w * Light.UpHeight.w;
+        return bAbove ? Luminance(RectRadiance(Light)) * Area * Fade / max(dot(Center, Center), 0.01) + 1e-12 : 0.0;
+    }
+
+    float3 L;
+    float Attenuation = LightAttenuation(Light, Position, L);
+    return Attenuation > 0.0 && dot(Normal, L) > 0.0 ? Luminance(Light.ColorIntensity.rgb) * Light.ColorIntensity.w * Attenuation + 1e-12 : 0.0;
+}
+
+// Where a ray meets a Rect light's front face, if before MaximumDistance.
+bool HitRect(FVisualLight Light, float3 Origin, float3 Direction, float MaximumDistance, out float Distance, out float Cosine)
+{
+    Distance = 0.0;
+    Cosine = -dot(Direction, Light.DirectionRange.xyz);
+    if (Cosine <= 0.0)
+        return false;
+
+    Distance = dot(Light.PositionType.xyz - Origin, Light.DirectionRange.xyz) / dot(Direction, Light.DirectionRange.xyz);
+    if (Distance <= 0.0 || Distance >= MaximumDistance)
+        return false;
+
+    float3 Local = Origin + Direction * Distance - Light.PositionType.xyz;
+    return abs(dot(Local, Light.RightWidth.xyz)) <= 0.5 * Light.RightWidth.w && abs(dot(Local, Light.UpHeight.xyz)) <= 0.5 * Light.UpHeight.w;
+}
+
+// Next-event estimation: every directional light, plus one local light chosen by LightWeight.
+// Paths that go on to sample the BRDF weight both against HitLights; one-bounce gathers that never do pass bMultipleImportance false.
+float3 SampleLights(FSurfacePoint Point, FSurface Surface, float3 V, float SpecularChance, bool bMultipleImportance, inout FRandom Random, out float WeightSum)
+{
+    float3 N = Point.Material.Normal;
+    float3 Origin = Point.Position + Point.GeometricNormal * RayOffset;
+    float Alpha = GgxAlpha(Point.Material.Roughness);
+    float3 Result = 0.0;
+    WeightSum = 0.0;
+    for (uint Index = 0; Index < LightCount(); ++Index)
+    {
+        FVisualLight Light = Lights[Index];
+        WeightSum += LightWeight(Light, Point.Position, N);
+        if (int(Light.PositionType.w) != 0)
+            continue;
+
+        float HalfAngle = DirectionalHalfAngle(Light);
+        float CosMax = cos(HalfAngle);
+        float3 L = -Light.DirectionRange.xyz;
+        float Z = 1.0 - Random.Next() * (1.0 - CosMax);
+        float Phi = 2.0 * PI * Random.Next();
+        float SinTheta = sqrt(saturate(1.0 - Z * Z));
+        L = normalize(TangentToWorld(float3(SinTheta * cos(Phi), SinTheta * sin(Phi), Z), L));
+        if (dot(N, L) <= 0.0 || dot(Point.GeometricNormal, L) <= 0.0 || Occluded(Origin, L, 1e30))
+            continue;
+
+        float SolidAngle = 2.0 * PI * (1.0 - CosMax);
+        float Mis = SolidAngle > 1e-9 && bMultipleImportance ? PowerHeuristic(1.0 / SolidAngle, BrdfPdf(V, N, L, Alpha, SpecularChance)) : 1.0;
+        Result += Light.ColorIntensity.rgb * Light.ColorIntensity.w * EvaluateBrdf(Surface, Point.Material, N, V, L) * Mis;
+    }
+
+    if (WeightSum <= 0.0)
+        return Result;
+
+    // Rounding can run past the last light, so the last positive weight is kept.
+    float Target = Random.Next() * WeightSum;
+    uint Chosen = 0;
+    float ChosenWeight = 0.0;
+    for (uint Index = 0; Index < LightCount(); ++Index)
+    {
+        float Weight = LightWeight(Lights[Index], Point.Position, N);
+        if (Weight <= 0.0)
+            continue;
+
+        Chosen = Index;
+        ChosenWeight = Weight;
+        if (Target < Weight)
+            break;
+        Target -= Weight;
+    }
+
+    if (ChosenWeight <= 0.0)
+        return Result;
+
+    FVisualLight Light = Lights[Chosen];
+    float Selection = ChosenWeight / WeightSum;
+    if (int(Light.PositionType.w) == 4)
+    {
+        float2 Offset = float2(Random.Next(), Random.Next()) - 0.5;
+        float3 Sample = Light.PositionType.xyz + Light.RightWidth.xyz * (Offset.x * Light.RightWidth.w) + Light.UpHeight.xyz * (Offset.y * Light.UpHeight.w);
+        float3 Delta = Sample - Origin;
+        float Distance = length(Delta);
+        float3 L = Delta / max(Distance, 1e-6);
+        float Cosine = -dot(L, Light.DirectionRange.xyz);
+        if (Cosine <= 0.0 || dot(N, L) <= 0.0 || dot(Point.GeometricNormal, L) <= 0.0 || Occluded(Origin, L, Distance - RayOffset))
+            return Result;
+
+        float Pdf = Selection * Distance * Distance / (Cosine * max(1e-6, Light.RightWidth.w * Light.UpHeight.w));
+        float Mis = bMultipleImportance ? PowerHeuristic(Pdf, BrdfPdf(V, N, L, Alpha, SpecularChance)) : 1.0;
+        return Result + RectRadiance(Light) * RectFade(Light, Point.Position) * EvaluateBrdf(Surface, Point.Material, N, V, L) * (Mis / Pdf);
+    }
+
+    float3 L;
+    float Attenuation = LightAttenuation(Light, Point.Position, L);
+    float Distance = length(Light.PositionType.xyz - Origin);
+    if (dot(Point.GeometricNormal, L) <= 0.0 || Occluded(Origin, L, Distance - RayOffset))
+        return Result;
+
+    return Result + Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * EvaluateBrdf(Surface, Point.Material, N, V, L) / Selection;
+}
+
+// Light a BRDF-sampled ray from Position finds on its own: the directional light discs and Rect lights it reaches before Limit, weighted against SampleLights.
+float3 HitLights(float3 Position, float3 Origin, float3 Normal, float3 Direction, float Limit, float BrdfPdfValue, float WeightSum)
+{
+    float3 Result = 0.0;
+    for (uint Index = 0; Index < LightCount(); ++Index)
+    {
+        FVisualLight Light = Lights[Index];
+        int Type = int(Light.PositionType.w);
+        if (Type == 0 && Limit >= 1e29)
+        {
+            float CosMax = cos(DirectionalHalfAngle(Light));
+            float SolidAngle = 2.0 * PI * (1.0 - CosMax);
+            if (SolidAngle > 1e-9 && dot(Direction, -Light.DirectionRange.xyz) >= CosMax)
+                Result += Light.ColorIntensity.rgb * Light.ColorIntensity.w / SolidAngle * PowerHeuristic(BrdfPdfValue, 1.0 / SolidAngle);
+        }
+        else if (Type == 4 && WeightSum > 0.0)
+        {
+            float Distance, Cosine;
+            if (!HitRect(Light, Origin, Direction, Limit, Distance, Cosine))
+                continue;
+
+            float Selection = LightWeight(Light, Position, Normal) / WeightSum;
+            float Pdf = Selection * Distance * Distance / (Cosine * max(1e-6, Light.RightWidth.w * Light.UpHeight.w));
+            Result += RectRadiance(Light) * RectFade(Light, Position) * PowerHeuristic(BrdfPdfValue, Pdf);
+        }
+    }
+
+    return Result;
+}

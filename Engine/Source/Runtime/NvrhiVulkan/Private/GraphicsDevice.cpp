@@ -192,11 +192,14 @@ struct FFrame
 	std::vector<FBuffer*> CopiedBuffers;
 	std::unordered_map<FTexture*, std::uint32_t> WrittenTextures;
 	std::vector<FAccelerationStructure*> BuiltStructures;
+	// NVRHI only revisits resource states when a dispatch's bindings differ from the previous one, so a repeat needs its UAV barriers placed explicitly.
+	nvrhi::IBindingSet* PreviousComputeBindings = nullptr;
 
 	void Reset()
 	{
 		Operations.clear();
 		BuiltStructures.clear();
+		PreviousComputeBindings = nullptr;
 		UploadedBuffers.clear();
 		CopiedBuffers.clear();
 		WrittenTextures.clear();
@@ -1174,9 +1177,24 @@ public:
 			}
 		}
 
-		Frame.Operations.emplace_back([Pipeline, Bindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount, bOverlap = Dispatch.bOverlapsPrevious, Scene, Table, TableTextures = Table ? Table->Textures : decltype(FResourceTable::Textures){}, TableBuffers = Table ? Table->Buffers : decltype(FResourceTable::Buffers){}](nvrhi::ICommandList* const Commands)
+		const bool bRepeatedBindings = Bindings && Bindings.Get() == Frame.PreviousComputeBindings && !Dispatch.bOverlapsPrevious;
+		Frame.PreviousComputeBindings = Bindings.Get();
+		Frame.Operations.emplace_back([Pipeline, Bindings, bRepeatedBindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount, bOverlap = Dispatch.bOverlapsPrevious, Scene, Table, TableTextures = Table ? Table->Textures : decltype(FResourceTable::Textures){}, TableBuffers = Table ? Table->Buffers : decltype(FResourceTable::Buffers){}](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(Pipeline->Name.c_str());
+			if (bRepeatedBindings)
+			{
+				for (const auto& Texture : Storage)
+				{
+					Commands->setTextureState(Texture->Handle, nvrhi::AllSubresources, nvrhi::ResourceStates::UnorderedAccess);
+				}
+
+				for (const auto& Buffer : Buffers)
+				{
+					Commands->setBufferState(Buffer->Handle, nvrhi::ResourceStates::UnorderedAccess);
+				}
+			}
+
 			// Descriptor tables bypass NVRHI's binding state tracking, so their resources are made readable here; setComputeState commits the barriers.
 			for (const auto& Texture : TableTextures)
 			{

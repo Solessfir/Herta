@@ -614,7 +614,12 @@ struct FEditorFramework::FImplementation
 	std::vector<FRenderLight> RenderLights;
 	std::size_t EnabledLightCount = 0;
 	std::size_t ReportedLightBudgetCount = 0;
-	FVisualSettings VisualSettings;
+	FVisualSettings VisualSettings = []
+	{
+		FVisualSettings Settings;
+		ApplyRenderQuality(Settings, ERenderQuality::High);
+		return Settings;
+	}();
 	std::optional<FExtent2D> ViewportResolution;
 	FEditorDisplayState DisplayState;
 	// Shown only while the Appearance popup that controls it is open.
@@ -3296,6 +3301,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 				Toggle("Occlusion culling", VisualSettings.bOcclusionCulling);
 				if (MeshRenderer->SupportsPathTracing())
 				{
+					Toggle("Global illumination", VisualSettings.bGlobalIllumination);
 					Toggle("Path tracing", VisualSettings.bPathTracing);
 				}
 			}
@@ -4717,6 +4723,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	PlayVisuals.FogResolution = VisualSettings.FogResolution;
 	PlayVisuals.bOcclusionCulling = VisualSettings.bOcclusionCulling;
 	PlayVisuals.bContactShadows = VisualSettings.bContactShadows;
+	PlayVisuals.bGlobalIllumination = VisualSettings.bGlobalIllumination;
 	PlayVisuals.PenumbraSaturation = VisualSettings.PenumbraSaturation;
 }
 

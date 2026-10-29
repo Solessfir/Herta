@@ -1326,6 +1326,25 @@ namespace
 		return Environmental;
 	}
 
+	// The front faces see nothing but sky, so global illumination's irradiance must match the filtered environment's.
+	const auto Environmental = MeasureLevels(false);
+	View.Visuals.bGlobalIllumination = true;
+	const auto Illuminated = MeasureLevels(false);
+	View.Visuals.bGlobalIllumination = false;
+	if (!Environmental || !Illuminated)
+	{
+		return std::unexpected(!Environmental ? Environmental.error() : Illuminated.error());
+	}
+
+	std::println("Environment furnace, global illumination against raster: Lambert {:.1f}/{:.1f}, rough EON {:.1f}/{:.1f}, rough metal {:.1f}/{:.1f}", (*Illuminated)[0], (*Environmental)[0], (*Illuminated)[1], (*Environmental)[1], (*Illuminated)[2], (*Environmental)[2]);
+	for (std::size_t Index = 0; Index < Names.size(); ++Index)
+	{
+		if (std::abs((*Illuminated)[Index] - (*Environmental)[Index]) > 6.f)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Global illumination lit an open {} face to {:.1f}, not the environment's {:.1f}", Names[Index], (*Illuminated)[Index], (*Environmental)[Index])});
+		}
+	}
+
 	View.Visuals.bPathTracing = true;
 	if (const auto Traced = Measure("path traced environment"); !Traced)
 	{
@@ -1802,10 +1821,10 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	auto Texture = Device.CreateTexture({.Name = "Depth test colors", .Extent = {.Width = 2, .Height = 1}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = false});
 	auto Color = Device.CreateTexture({.Name = "Depth test color", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
 	auto Depth = Device.CreateTexture({.Name = "Depth test depth", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 15, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
-	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 15, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
+	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 16, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
+	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 16, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
 	const auto ShadowDepth = Device.CreateTexture({.Name = "Depth-only sampled atlas regression", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 15, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = 2});
+	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 16, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = 2});
 	auto Instances = Device.CreateBuffer({.Name = "Instance validation transforms", .Size = 2 * sizeof(FMeshInstance), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
 	if (!Near)
 	{
@@ -1852,7 +1871,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(!ShadowDepth ? ShadowDepth.error() : ShadowPipeline.error());
 	}
 
-	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 15, .UniformBufferSize = 16, .BufferCount = 2}))
+	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 16, .UniformBufferSize = 16, .BufferCount = 2}))
 	{
 		return Failure("Pipeline accepted a uniform block smaller than its shader reflection");
 	}
@@ -1895,7 +1914,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	}
 
 	const FMatrix4 Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 2.f, 1, 0.1f);
-	std::array<FTextureHandle, 15> Textures;
+	std::array<FTextureHandle, 16> Textures;
 	std::ranges::fill(Textures, *Texture);
 	FVisualUniforms Uniforms;
 	Uniforms.ViewToWorld = FMatrix4{}.Data();
