@@ -206,14 +206,15 @@ float2 FieldDistanceUV(uint Slot, float3 Direction)
     return Texel / float2(Width, Height);
 }
 
-// Irradiance from one level's eight probes around P for normal N, seen from V, weighted as DDGI does: trilinear, a wrapped cosine towards each probe,
+// Irradiance from one level's eight probes around P for normal N, weighted as DDGI does: trilinear, a wrapped cosine towards each probe,
 // and the probe's distance moments, so probes behind walls drop out instead of leaking. Alpha is 0 where no probe was usable.
-float4 FieldLevelIrradiance(float3 Position, float3 Normal, float3 View, uint Level)
+float4 FieldLevelIrradiance(float3 Position, float3 Normal, uint Level)
 {
     float Spacing = FieldSpacing(Level);
     int3 Origin = FieldOrigin(Level);
-    // Offsetting off the surface and towards the viewer keeps the moments from occluding the very surface being shaded.
-    float3 Biased = Position + (Normal * 0.2 + View * 0.8) * (0.3 * Spacing);
+    // Offsetting off the surface keeps the moments from occluding the very surface being shaded. DDGI also offsets towards the viewer, but then
+    // indirect shadows shift whenever the camera moves.
+    float3 Biased = Position + Normal * (0.3 * Spacing);
     float3 Grid = Biased / Spacing;
     int3 Base = clamp(int3(floor(Grid)), Origin, Origin + FieldGrid - 2);
     float3 Alpha = saturate(Grid - float3(Base));
@@ -261,9 +262,9 @@ float4 FieldLevelIrradiance(float3 Position, float3 Normal, float3 View, uint Le
     return Weights > 0.0 ? float4(Sum / Weights / StoredScale, 1.0) : 0.0;
 }
 
-// Irradiance at P from the finest level that holds it, blended into the next level over the last two cells before its edge; alpha is 0 outside
-// the field.
-float4 FieldIrradiance(float3 Position, float3 Normal, float3 View)
+// Irradiance at P from the finest level that holds it, blended into the next level over the last four cells before its edge, so the switch to
+// coarser probes as the camera moves away is gradual; alpha is 0 outside the field.
+float4 FieldIrradiance(float3 Position, float3 Normal)
 {
     for (uint Level = 0; Level < FieldLevels; ++Level)
     {
@@ -272,15 +273,15 @@ float4 FieldIrradiance(float3 Position, float3 Normal, float3 View)
         if (Edge < 0.5)
             continue;
 
-        float4 Fine = FieldLevelIrradiance(Position, Normal, View, Level);
+        float4 Fine = FieldLevelIrradiance(Position, Normal, Level);
         if (Fine.a <= 0.0)
             continue;
 
-        float Blend = saturate((Edge - 0.5) / 2.0);
+        float Blend = saturate((Edge - 0.5) / 4.0);
         if (Blend >= 1.0 || Level + 1 == FieldLevels)
             return Fine;
 
-        float4 Coarse = FieldLevelIrradiance(Position, Normal, View, Level + 1);
+        float4 Coarse = FieldLevelIrradiance(Position, Normal, Level + 1);
         return Coarse.a > 0.0 ? lerp(Coarse, Fine, Blend) : Fine;
     }
 

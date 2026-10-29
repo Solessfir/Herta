@@ -35,6 +35,6 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     if (any(Surface.rgb != 0.0))
         Normal = DecodeSurfaceNormal(Surface);
 
-    float4 Irradiance = FieldIrradiance(Position, Normal, normalize(CameraPosition() - Position));
+    float4 Irradiance = FieldIrradiance(Position, Normal);
     Output[Id.xy] = Irradiance.a > 0.0 ? float4(Irradiance.rgb * StoredScale, SceneDepth.Load(int3(Pixel, 0))) : 0.0;
 }

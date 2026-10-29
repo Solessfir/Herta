@@ -7,6 +7,6 @@ float3 FieldHitRadiance(FSurfacePoint Point, float3 V, inout FRandom Random)
     FSurface Surface = MakeSurface(SpecularAlbedo, Point.Material.Base.rgb, Point.Material.Metallic, Point.Material.Roughness, Point.Material.DiffuseRoughness, Point.Material.EdgeColor, saturate(dot(Point.Material.Normal, V)));
     float WeightSum;
     float3 Radiance = Point.Material.Emissive + SampleLights(Point, Surface, V, SpecularProbability(Surface), false, Random, WeightSum);
-    float4 Bounce = FieldIrradiance(Point.Position, Point.GeometricNormal, V);
+    float4 Bounce = FieldIrradiance(Point.Position, Point.GeometricNormal);
     return Radiance + Surface.DiffuseReflectance / PI * Bounce.rgb;
 }
