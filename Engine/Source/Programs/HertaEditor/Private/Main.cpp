@@ -1371,7 +1371,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				}
 
 				VisualBookmarkPassSums.clear();
-				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Passes);
+				const FGlobalIlluminationStatistics Probes = MeshRenderer->GetGlobalIlluminationStatistics();
+				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={} gi_probes={}/{}/{}/{} gi_overflow={}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Probes.Probes[0], Probes.Probes[1], Probes.Probes[2], Probes.Probes[3], Probes.Overflow, Passes);
 				CaptureVisualView(MakeVisualCaptureName(VisualSlot, VisualSlotName));
 				if (!ShowNextVisualBookmark())
 				{

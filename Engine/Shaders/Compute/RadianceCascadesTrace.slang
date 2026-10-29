@@ -18,9 +18,9 @@ uint PreviousProbe(uint Key)
     uint Slot = HashKey(Key) & Mask;
     for (uint Step = 0; Step < ProbeSteps; ++Step)
     {
-        uint Existing = PreviousSlots[(SlotBase[0] + Slot) * 4u];
+        uint Existing = PreviousSlots[(SlotBase[0] + Slot) * 2u];
         if (Existing == Key)
-            return PreviousSlots[(SlotBase[0] + Slot) * 4u + 1u];
+            return PreviousSlots[(SlotBase[0] + Slot) * 2u + 1u];
         if (Existing == 0u)
             return MissingProbe;
         Slot = (Slot + 1u) & Mask;
@@ -54,6 +54,35 @@ float2 R2(uint Index)
     return float2(uint2(Index * 3242174889u, Index * 2447445414u)) * (1.0 / 4294967296.0) + 0.5;
 }
 
+// Splits a ray into the intervals of a cascade 0 probe and its ancestors: unoccluded through those it passes, and Radiance where it ends.
+void Deposit(uint Probe, uint Level, float3 Direction, float Distance, float3 Radiance)
+{
+    if (Probe == MissingProbe)
+        return;
+
+    float2 UV = EncodeDirection(Direction);
+    for (uint Cascade = 0; Cascade < CascadeCount; ++Cascade)
+    {
+        bool bEnds = Distance <= IntervalEnd(Level, Cascade);
+        uint Record = RecordIndex(Cascade, Probe, DirectionIndex(Cascade, UV));
+        if (bEnds)
+        {
+            float Previous;
+            InterlockedAdd(Deposits[Record * 3u], Radiance.r, Previous);
+            InterlockedAdd(Deposits[Record * 3u + 1u], Radiance.g, Previous);
+            InterlockedAdd(Deposits[Record * 3u + 2u], Radiance.b, Previous);
+        }
+
+        InterlockedAdd(RecordCounts[Record], bEnds ? 1u : 0x10001u);
+        if (bEnds || Cascade + 1u == CascadeCount)
+            return;
+
+        Probe = Probes[(ProbeBase[Cascade] + Probe) * 3u + 2u];
+        if (Probe == MissingProbe)
+            return;
+    }
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
 void computeMain(uint3 Id : SV_DispatchThreadID)
@@ -69,8 +98,10 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     if (Slot == MissingProbe || SlotProbe(0, Slot) == MissingProbe)
         return;
 
-    uint Sequence;
-    InterlockedAdd(Slots[(SlotBase[0] + Slot) * 4u + 3u], 1u, Sequence);
+    // The direction depends only on where the surface lies: its probe picks a stretch of the sequence, and its place among 8x8x8 cells inside the probe the point in it.
+    // Order-dependent schemes, such as counting rays with atomics, hand a surface new directions every frame, which flickers without accumulation.
+    uint3 Inside = min(uint3(frac(Position / BaseSpacing(Level)) * 8.0), 7u);
+    uint Sequence = HashKey(MakeKey(Level, 0, Cell)) * 512u + Inside.x + Inside.y * 8u + Inside.z * 64u;
     float3 Direction = DecodeDirection(frac(R2(Sequence) + Visual.Material.Surface.xy));
     if (dot(Direction, Normal) < 0.0)
         Direction = -Direction;
@@ -99,29 +130,9 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     if (any(isnan(Radiance)) || any(isinf(Radiance)))
         Radiance = 0.0;
 
+    // Surfaces in a level overlap feed the finer level's probes too, which their gather blends in.
     float Distance = bHit ? Hit.Distance : 1e30;
-    float2 UV = EncodeDirection(Direction);
-    uint Probe = SlotProbe(0, Slot);
-    for (uint Cascade = 0; Cascade < CascadeCount; ++Cascade)
-    {
-        bool bEnds = Distance <= IntervalEnd(Level, Cascade);
-        if (Probe != MissingProbe)
-        {
-            uint Record = RecordIndex(Cascade, Probe, DirectionIndex(Cascade, UV));
-            if (bEnds)
-            {
-                float Previous;
-                InterlockedAdd(Deposits[Record * 3u], Radiance.r, Previous);
-                InterlockedAdd(Deposits[Record * 3u + 1u], Radiance.g, Previous);
-                InterlockedAdd(Deposits[Record * 3u + 2u], Radiance.b, Previous);
-            }
-
-            InterlockedAdd(RecordCounts[Record], bEnds ? 1u : 0x10001u);
-        }
-
-        if (bEnds || Probe == MissingProbe || Cascade + 1u == CascadeCount)
-            break;
-
-        Probe = Probes[(ProbeBase[Cascade] + Probe) * 3u + 2u];
-    }
+    Deposit(SlotProbe(0, Slot), Level, Direction, Distance, Radiance);
+    if (LevelBlend(Position, Level) < 1.0)
+        Deposit(FindProbe(0, MakeKey(Level - 1u, 0, int3(floor(Position / BaseSpacing(Level - 1u))))), Level - 1u, Direction, Distance, Radiance);
 }

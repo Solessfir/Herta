@@ -7,22 +7,9 @@
 [[vk::binding(1, 0)]] Texture2D<float4> IrradianceAtlas;
 [[vk::binding(384, 0)]] [format("rgba16f")] RWTexture2D<float4> Output;
 
-[shader("compute")]
-[numthreads(8, 8, 1)]
-void computeMain(uint3 Id : SV_DispatchThreadID)
+// Irradiance from one level's eight cascade 0 probes around a surface, with alpha 1 when any existed.
+float4 GatherLevel(float3 Position, float3 Normal, uint Level)
 {
-    int2 Pixel = int2(Id.xy);
-    float3 Position, Normal;
-    if (any(Pixel >= int2(Visual.Viewport.zw)))
-        return;
-
-    if (!SurfaceAt(SceneDepth, Pixel, Position, Normal))
-    {
-        Output[Pixel] = 0.0;
-        return;
-    }
-
-    uint Level = LevelOfDetail(Position);
     float Spacing = BaseSpacing(Level);
     float3 Grid = Position / Spacing - 0.5;
     int3 Base = int3(floor(Grid));
@@ -49,5 +36,29 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
         Weight += W;
     }
 
-    Output[Pixel] = Weight > 1e-4 ? float4(Sum / Weight, 1.0) : 0.0;
+    return Weight > 1e-4 ? float4(Sum / Weight, 1.0) : 0.0;
+}
+
+[shader("compute")]
+[numthreads(8, 8, 1)]
+void computeMain(uint3 Id : SV_DispatchThreadID)
+{
+    int2 Pixel = int2(Id.xy);
+    float3 Position, Normal;
+    if (any(Pixel >= int2(Visual.Viewport.zw)))
+        return;
+
+    if (!SurfaceAt(SceneDepth, Pixel, Position, Normal))
+    {
+        Output[Pixel] = 0.0;
+        return;
+    }
+
+    uint Level = LevelOfDetail(Position);
+    float Blend = LevelBlend(Position, Level);
+    float4 Coarse = GatherLevel(Position, Normal, Level);
+    float4 Fine = Blend < 1.0 ? GatherLevel(Position, Normal, Level - 1u) : 0.0;
+    // Where one level found no probes, the other covers the pixel alone.
+    float CoarseWeight = Fine.a > 0.0 ? (Coarse.a > 0.0 ? Blend : 0.0) : 1.0;
+    Output[Pixel] = Coarse.a > 0.0 || Fine.a > 0.0 ? float4(Coarse.rgb * CoarseWeight + Fine.rgb * (1.0 - CoarseWeight), 1.0) : 0.0;
 }

@@ -1330,6 +1330,7 @@ namespace
 	const auto Environmental = MeasureLevels(false);
 	View.Visuals.bGlobalIllumination = true;
 	const auto Illuminated = MeasureLevels(false);
+
 	View.Visuals.bGlobalIllumination = false;
 	if (!Environmental || !Illuminated)
 	{
@@ -1374,6 +1375,49 @@ namespace
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Under one sun, the path traced {} surface read {:.1f} against raster's {:.1f}", Names[Index], (*Traced)[Index], (*Raster)[Index])});
 		}
+	}
+
+	// Without accumulation, a still view must give the same image every frame once its bounces settle; per-frame ray choices would flicker.
+	// The cubes stand on a sunlit floor under the sky, so the light a ray brings back depends on its direction.
+	const std::array FloorModels{Models[0], Models[1], Models[2], FMatrix4::Translation({0, -0.6f, 0}) * FMatrix4::Scale({12, 0.2f, 12})};
+	const std::array<const FRenderMesh*, 4> FloorMeshes{Cube->get(), Cube->get(), Cube->get(), Cube->get()};
+	const std::array<std::span<const FRenderMaterial* const>, 4> FloorOverrides{Lambert, Rough, Metal, GreyLambert};
+	const std::array SunAndSky{Sun[0], Sky[0]};
+	View.Models = FloorModels;
+	View.Meshes = FloorMeshes;
+	View.Materials = FloorOverrides;
+	View.Lights = SunAndSky;
+	View.Visuals.bGlobalIllumination = true;
+	std::array<std::vector<std::byte>, 2> Frames;
+	for (std::size_t Frame = 0; Frame < 22; ++Frame)
+	{
+		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+		{
+			return Rendered;
+		}
+
+		if (Frame >= 20)
+		{
+			auto Image = Device.ReadbackTexture((*Renderer)->GetColorTarget());
+			if (!Image)
+			{
+				return std::unexpected(Image.error());
+			}
+
+			Frames[Frame - 20] = std::move(*Image);
+		}
+	}
+
+	int Flicker = 0;
+	for (std::size_t Byte = 0; Byte < Frames[0].size(); ++Byte)
+	{
+		Flicker = std::max(Flicker, std::abs(std::to_integer<int>(Frames[0][Byte]) - std::to_integer<int>(Frames[1][Byte])));
+	}
+
+	std::println("Global illumination on a still sunlit view changed at most {} levels between frames", Flicker);
+	if (Flicker > 1)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Global illumination flickers on a still view by {} levels between frames", Flicker)});
 	}
 
 	return {};

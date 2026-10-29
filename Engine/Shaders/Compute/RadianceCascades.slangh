@@ -12,24 +12,24 @@ static const float SpacingRatio = 1.0 / 48.0;
 static const float LevelDistance = 1.0;
 static const uint LevelCount = 16;
 static const float BaseInterval = 1.6;
-static const uint ProbeCapacity[CascadeCount] = { 65536u, 16384u, 4096u, 1024u };
+// Thin geometry keeps higher cascades fuller than the 4:1 a flat surface gives, so the top one has twice the share; the Sandbox's busiest view fills 791 of its probes.
+static const uint ProbeCapacity[CascadeCount] = { 65536u, 16384u, 4096u, 2048u };
 static const uint ProbeBase[CascadeCount] = { 0u, 65536u, 81920u, 86016u };
-static const uint SlotCapacity[CascadeCount] = { 131072u, 32768u, 8192u, 2048u };
+static const uint SlotCapacity[CascadeCount] = { 131072u, 32768u, 8192u, 4096u };
 static const uint SlotBase[CascadeCount] = { 0u, 131072u, 163840u, 172032u };
-// Every cascade holds 2M directions, so they share one record layout at fixed offsets.
-static const uint RecordsPerCascade = 2097152u;
+static const uint RecordBase[CascadeCount] = { 0u, 2097152u, 4194304u, 6291456u };
+static const uint RecordTotal = 10485760u;
 // Octahedral irradiance tiles: 6x6 texels inside a one-texel border, 256 tiles to a row of the atlas.
 static const uint IrradianceTexels = 6;
 static const uint IrradianceTile = 8;
 static const uint IrradianceTilesPerRow = 256;
 static const uint MissingProbe = 0xFFFFFFFFu;
 
-// Counters: probes allocated per cascade, then the global ray offset, then probes that did not fit.
+// Counters: probes allocated per cascade, then probes that did not fit.
 static const uint CounterProbes = 0;
-static const uint CounterRays = 4;
 static const uint CounterOverflow = 5;
 
-// Each hash slot holds its key, its probe index, the rays its subtree spawns, and the next free offset in that subtree's ray sequence.
+// Each hash slot holds its key and its probe index.
 [[vk::binding(GiBufferBase + 0, 0)]] RWStructuredBuffer<uint> Slots;
 // Each probe holds its key, its hash slot, and the index of the probe it nests in one cascade up.
 [[vk::binding(GiBufferBase + 1, 0)]] RWStructuredBuffer<uint> Probes;
@@ -71,6 +71,20 @@ uint LevelOfDetailFrom(float3 Eye, float3 Position)
 uint LevelOfDetail(float3 Position)
 {
     return LevelOfDetailFrom(CameraPosition(), Position);
+}
+
+// Each level reaches 1/0.9 of the way into the next one's range, and surfaces in that overlap blend the two, so probes do not pop to the coarser size
+// as the camera moves away. Returns the weight of Level; the finer level, one below, takes the rest.
+static const float LevelOverlap = 1.0 / 0.9;
+
+float LevelBlend(float3 Position, uint Level)
+{
+    if (Level == 0u)
+        return 1.0;
+
+    float3 Delta = abs(Position - CameraPosition());
+    float Distance = max(Delta.x, max(Delta.y, Delta.z));
+    return saturate((Distance / (LevelDistance * float(1u << Level)) - 1.0) / (LevelOverlap - 1.0));
 }
 
 float BaseSpacing(uint Level)
@@ -138,7 +152,7 @@ uint InsertKey(uint Cascade, uint Key)
     uint Slot = HashKey(Key) & Mask;
     for (uint Step = 0; Step < ProbeSteps; ++Step)
     {
-        uint Index = (SlotBase[Cascade] + Slot) * 4u;
+        uint Index = (SlotBase[Cascade] + Slot) * 2u;
         uint Existing = Slots[Index];
         if (Existing == 0u)
             InterlockedCompareExchange(Slots[Index], 0u, Key, Existing);
@@ -159,7 +173,7 @@ uint FindSlot(uint Cascade, uint Key)
     uint Slot = HashKey(Key) & Mask;
     for (uint Step = 0; Step < ProbeSteps; ++Step)
     {
-        uint Existing = Slots[(SlotBase[Cascade] + Slot) * 4u];
+        uint Existing = Slots[(SlotBase[Cascade] + Slot) * 2u];
         if (Existing == Key)
             return Slot;
         if (Existing == 0u)
@@ -173,7 +187,7 @@ uint FindSlot(uint Cascade, uint Key)
 // The probe index of a slot, or MissingProbe when its probe did not fit.
 uint SlotProbe(uint Cascade, uint Slot)
 {
-    return Slot == MissingProbe ? MissingProbe : Slots[(SlotBase[Cascade] + Slot) * 4u + 1u];
+    return Slot == MissingProbe ? MissingProbe : Slots[(SlotBase[Cascade] + Slot) * 2u + 1u];
 }
 
 uint FindProbe(uint Cascade, uint Key)
@@ -183,7 +197,7 @@ uint FindProbe(uint Cascade, uint Key)
 
 uint RecordIndex(uint Cascade, uint Probe, uint Direction)
 {
-    return Cascade * RecordsPerCascade + Probe * DirectionCount(Cascade) + Direction;
+    return RecordBase[Cascade] + Probe * DirectionCount(Cascade) + Direction;
 }
 
 // Equal-area mapping around world up, as in the paper's Algorithm 2.

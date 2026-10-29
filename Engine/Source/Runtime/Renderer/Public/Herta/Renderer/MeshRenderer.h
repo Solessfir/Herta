@@ -36,6 +36,13 @@ struct FDebugDrawList
 
 class FRenderMesh;
 class FRenderMaterial;
+
+// Probes global illumination allocated a few frames ago, read back without waiting, and those that did not fit its fixed capacity.
+struct FGlobalIlluminationStatistics
+{
+	std::array<std::uint32_t, 4> Probes{};
+	std::uint32_t Overflow = 0;
+};
 struct FEnvironmentLighting;
 
 // Replaces every vertex of a mesh from this frame on, such as a deforming soft body. The upload is recorded with the frame, so earlier frames still draw the old vertices and nothing waits on the GPU.
@@ -142,6 +149,7 @@ public:
 	// Samples per pixel the path tracer has accumulated for the current view, or zero while it is off.
 	std::uint32_t GetPathTracingSamples() const noexcept;
 	bool SupportsPathTracing() const noexcept;
+	FGlobalIlluminationStatistics GetGlobalIlluminationStatistics() const noexcept;
 	std::vector<FGpuPassTiming> GetGpuTimings() const;
 	std::size_t GetRenderTargetBytes() const noexcept;
 	[[nodiscard]] std::expected<void, FPresentationError> SetEnvironmentLighting(const FEnvironmentLighting& Lighting);

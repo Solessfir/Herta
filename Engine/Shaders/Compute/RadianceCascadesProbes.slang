@@ -9,7 +9,7 @@ static const uint StageClear = 0;
 static const uint StageInsertPixels = 1;
 static const uint StageCompact = 2;
 static const uint StageInsertParents = 3;
-static const uint StageOffsets = 4;
+static const uint StageLinks = 4;
 static const uint StageMerge = 5;
 static const uint StageResetRecords = 6;
 
@@ -93,7 +93,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
 
     if (Stage == StageClear)
     {
-        if (Thread < (SlotBase[CascadeCount - 1] + SlotCapacity[CascadeCount - 1]) * 4u)
+        if (Thread < (SlotBase[CascadeCount - 1] + SlotCapacity[CascadeCount - 1]) * 2u)
             Slots[Thread] = 0u;
         if (Thread < 8u)
             Counters[Thread] = 0u;
@@ -103,7 +103,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
     // Only new storage needs this; merging clears what it reads. Each thread takes four records to stay within the dispatch size limit.
     if (Stage == StageResetRecords)
     {
-        for (uint Record = Thread * 4u; Record < min(Thread * 4u + 4u, CascadeCount * RecordsPerCascade); ++Record)
+        for (uint Record = Thread * 4u; Record < min(Thread * 4u + 4u, RecordTotal); ++Record)
         {
             Deposits[Record * 3u] = 0.0;
             Deposits[Record * 3u + 1u] = 0.0;
@@ -123,14 +123,10 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
             return;
 
         uint Level = LevelOfDetail(Position);
-        uint Slot = InsertKey(0, MakeKey(Level, 0, int3(floor(Position / BaseSpacing(Level)))));
-        if (Slot == MissingProbe)
-        {
+        if (InsertKey(0, MakeKey(Level, 0, int3(floor(Position / BaseSpacing(Level))))) == MissingProbe)
             InterlockedAdd(Counters[CounterOverflow], 1u);
-            return;
-        }
-
-        InterlockedAdd(Slots[(SlotBase[0] + Slot) * 4u + 2u], 1u);
+        if (LevelBlend(Position, Level) < 1.0 && InsertKey(0, MakeKey(Level - 1u, 0, int3(floor(Position / BaseSpacing(Level - 1u))))) == MissingProbe)
+            InterlockedAdd(Counters[CounterOverflow], 1u);
         return;
     }
 
@@ -139,7 +135,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
         if (Thread >= SlotCapacity[Cascade])
             return;
 
-        uint Index = (SlotBase[Cascade] + Thread) * 4u;
+        uint Index = (SlotBase[Cascade] + Thread) * 2u;
         uint Key = Slots[Index];
         if (Key == 0u)
             return;
@@ -161,56 +157,32 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
 
     if (Stage == StageInsertParents)
     {
-        // Cascade is the parent cascade; each probe of the one below inserts the parent it nests in and adds its rays to it.
+        // Cascade is the parent cascade; each probe of the one below inserts the parent it nests in.
         uint Child = Cascade - 1u;
         if (Thread >= ProbeCount(Child))
             return;
 
         uint Key = Probes[(ProbeBase[Child] + Thread) * 3u];
-        uint ChildSlot = Probes[(ProbeBase[Child] + Thread) * 3u + 1u];
-        uint Slot = InsertKey(Cascade, MakeKey(KeyLevel(Key), Cascade, FloorShift(KeyCell(Key, Child), 1u)));
-        if (Slot == MissingProbe)
-        {
+        if (InsertKey(Cascade, MakeKey(KeyLevel(Key), Cascade, FloorShift(KeyCell(Key, Child), 1u))) == MissingProbe)
             InterlockedAdd(Counters[CounterOverflow], 1u);
-            return;
-        }
-
-        InterlockedAdd(Slots[(SlotBase[Cascade] + Slot) * 4u + 2u], Slots[(SlotBase[Child] + ChildSlot) * 4u + 2u]);
         return;
     }
 
-    if (Stage == StageOffsets)
+    // Rays climb the cascades through these links instead of hashing at every level.
+    if (Stage == StageLinks)
     {
-        // Rays of probes that share a parent take adjacent stretches of the parent's sequence, so every cascade sees evenly spread directions.
         if (Thread >= ProbeCount(Cascade))
             return;
 
         uint Key = Probes[(ProbeBase[Cascade] + Thread) * 3u];
-        uint Slot = Probes[(ProbeBase[Cascade] + Thread) * 3u + 1u];
-        uint Rays = Slots[(SlotBase[Cascade] + Slot) * 4u + 2u];
-        uint Offset;
-        if (Cascade + 1u == CascadeCount)
-        {
-            InterlockedAdd(Counters[CounterRays], Rays, Offset);
-        }
-        else
-        {
-            uint Parent = FindSlot(Cascade + 1u, MakeKey(KeyLevel(Key), Cascade + 1u, FloorShift(KeyCell(Key, Cascade), 1u)));
-            if (Parent == MissingProbe)
-                Offset = 0u;
-            else
-                InterlockedAdd(Slots[(SlotBase[Cascade + 1u] + Parent) * 4u + 3u], Rays, Offset);
-
-            // Rays climb the cascades through these links instead of hashing at every level.
-            Probes[(ProbeBase[Cascade] + Thread) * 3u + 2u] = SlotProbe(Cascade + 1u, Parent);
-        }
-
-        Slots[(SlotBase[Cascade] + Slot) * 4u + 3u] = Offset;
+        Probes[(ProbeBase[Cascade] + Thread) * 3u + 2u] = FindProbe(Cascade + 1u, MakeKey(KeyLevel(Key), Cascade + 1u, FloorShift(KeyCell(Key, Cascade), 1u)));
         return;
     }
 
+    // The top cascade's records outnumber one dimension's dispatch limit, so merging runs in rows of 32768 groups.
     if (Stage == StageMerge)
     {
+        Thread = Id.x + Id.y * 32768u * 64u;
         uint Directions = DirectionCount(Cascade);
         uint Probe = Thread / Directions;
         uint Direction = Thread % Directions;
@@ -219,7 +191,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
         uint GroupProbe = Directions < 64u ? Local.x / Directions : 0u;
         if (!bTop && Local.x < 16u && Local.x / 8u <= (Directions < 64u ? 64u / Directions - 1u : 0u))
         {
-            uint Owner = (Id.x - Local.x) / Directions + Local.x / 8u;
+            uint Owner = (Thread - Local.x) / Directions + Local.x / 8u;
             uint Neighbour = MissingProbe;
             float Weight = 0.0;
             if (Owner < ProbeCount(Cascade))

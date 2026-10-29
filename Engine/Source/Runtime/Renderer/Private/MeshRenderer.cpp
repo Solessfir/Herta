@@ -1343,6 +1343,11 @@ std::uint32_t FMeshRenderer::GetPathTracingSamples() const noexcept
 	return Implementation->PathTracer ? Implementation->PathTracer->GetSampleCount() : 0;
 }
 
+FGlobalIlluminationStatistics FMeshRenderer::GetGlobalIlluminationStatistics() const noexcept
+{
+	return Implementation->RadianceCascades ? Implementation->RadianceCascades->GetStatistics() : FGlobalIlluminationStatistics{};
+}
+
 bool FMeshRenderer::SupportsPathTracing() const noexcept
 {
 	return static_cast<bool>(Implementation->PathTracer);

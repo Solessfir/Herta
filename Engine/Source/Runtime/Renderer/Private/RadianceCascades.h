@@ -41,6 +41,7 @@ public:
 	// Diffuse irradiance per pixel at 1/16 scale, with alpha 1 where probes covered the pixel.
 	const FTextureHandle& GetIrradiance() const noexcept;
 	std::size_t GetMemoryBytes() const noexcept;
+	FGlobalIlluminationStatistics GetStatistics() const noexcept;
 	void Release() noexcept;
 
 private:
@@ -60,6 +61,9 @@ private:
 	FBufferHandle Merged;
 	std::array<FTextureHandle, 2> Atlas;
 	FTextureHandle Irradiance;
+	// Counters copy into these in turn and are read once their frame completes, so nothing waits.
+	std::array<FBufferHandle, 3> CounterReadback;
+	FGlobalIlluminationStatistics Statistics;
 	std::array<float, 3> PreviousEye{};
 	bool bPrevious = false;
 	// New record storage holds garbage until one reset dispatch; after that every merge clears what it read.

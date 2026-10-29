@@ -1,6 +1,7 @@
 #include "RadianceCascades.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace Herta
 {
@@ -8,12 +9,12 @@ namespace
 {
 // Keep in sync with RadianceCascades.slangh.
 constexpr std::uint32_t CascadeCount = 4;
-constexpr std::array<std::uint32_t, CascadeCount> ProbeCapacity{65536, 16384, 4096, 1024};
-constexpr std::array<std::uint32_t, CascadeCount> SlotCapacity{131072, 32768, 8192, 2048};
-constexpr std::uint32_t RecordsPerCascade = 2097152;
-constexpr std::uint32_t MergedRecords = 3670016;
-constexpr std::uint32_t TotalSlots = 174080;
-constexpr std::uint32_t TotalProbes = 87040;
+constexpr std::array<std::uint32_t, CascadeCount> ProbeCapacity{65536, 16384, 4096, 2048};
+constexpr std::array<std::uint32_t, CascadeCount> SlotCapacity{131072, 32768, 8192, 4096};
+constexpr std::uint32_t TotalRecords = 10485760;
+constexpr std::uint32_t MergedRecords = 4194304;
+constexpr std::uint32_t TotalSlots = 176128;
+constexpr std::uint32_t TotalProbes = 88064;
 constexpr FExtent2D AtlasExtent{2048, 2048};
 
 enum class EStage : std::uint32_t
@@ -22,7 +23,7 @@ enum class EStage : std::uint32_t
 	InsertPixels,
 	Compact,
 	InsertParents,
-	Offsets,
+	Links,
 	Merge,
 	ResetRecords,
 };
@@ -71,6 +72,11 @@ const FTextureHandle& FRadianceCascades::GetIrradiance() const noexcept
 	return Irradiance;
 }
 
+FGlobalIlluminationStatistics FRadianceCascades::GetStatistics() const noexcept
+{
+	return Statistics;
+}
+
 std::size_t FRadianceCascades::GetMemoryBytes() const noexcept
 {
 	std::size_t Bytes = 0;
@@ -97,6 +103,8 @@ void FRadianceCascades::Release() noexcept
 	RecordCounts.reset();
 	Merged.reset();
 	Atlas = {};
+	CounterReadback = {};
+	Statistics = {};
 	Irradiance.reset();
 	bRecordsReset = false;
 	bPrevious = false;
@@ -121,10 +129,10 @@ std::expected<void, FPresentationError> FRadianceCascades::Allocate(const FExten
 		return {};
 	};
 
-	auto Result = Buffer(Slots[0], "Radiance cascade slots", std::size_t{TotalSlots} * 4);
+	auto Result = Buffer(Slots[0], "Radiance cascade slots", std::size_t{TotalSlots} * 2);
 	if (Result)
 	{
-		Result = Buffer(Slots[1], "Radiance cascade previous slots", std::size_t{TotalSlots} * 4);
+		Result = Buffer(Slots[1], "Radiance cascade previous slots", std::size_t{TotalSlots} * 2);
 	}
 
 	if (Result)
@@ -137,14 +145,28 @@ std::expected<void, FPresentationError> FRadianceCascades::Allocate(const FExten
 		Result = Buffer(Counters, "Radiance cascade counters", 8);
 	}
 
-	if (Result)
+	for (FBufferHandle& Readback : CounterReadback)
 	{
-		Result = Buffer(Deposits, "Radiance cascade deposits", std::size_t{RecordsPerCascade} * CascadeCount * 3);
+		if (Result && !Readback)
+		{
+			auto Created = Device.CreateBuffer({.Name = "Radiance cascade counter readback", .Size = 8 * sizeof(std::uint32_t), .Usage = EBufferUsage::Readback});
+			if (!Created)
+			{
+				return std::unexpected(Created.error());
+			}
+
+			Readback = std::move(*Created);
+		}
 	}
 
 	if (Result)
 	{
-		Result = Buffer(RecordCounts, "Radiance cascade ray counts", std::size_t{RecordsPerCascade} * CascadeCount);
+		Result = Buffer(Deposits, "Radiance cascade deposits", std::size_t{TotalRecords} * 3);
+	}
+
+	if (Result)
+	{
+		Result = Buffer(RecordCounts, "Radiance cascade ray counts", TotalRecords);
 	}
 
 	if (Result)
@@ -212,13 +234,13 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 	Device.BeginGpuTiming("GI probes");
 	if (!bRecordsReset)
 	{
-		Result = Stage(EStage::ResetRecords, 0, {Groups(RecordsPerCascade * CascadeCount / 4, 64), 1, 1});
+		Result = Stage(EStage::ResetRecords, 0, {Groups(TotalRecords / 4, 64), 1, 1});
 		bRecordsReset = static_cast<bool>(Result);
 	}
 
 	if (Result)
 	{
-		Result = Stage(EStage::Clear, 0, {Groups(TotalSlots * 4, 64), 1, 1});
+		Result = Stage(EStage::Clear, 0, {Groups(TotalSlots * 2, 64), 1, 1});
 	}
 
 	if (Result)
@@ -240,9 +262,9 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 		}
 	}
 
-	for (std::uint32_t Cascade = CascadeCount; Cascade-- > 0 && Result;)
+	for (std::uint32_t Cascade = 0; Cascade + 1 < CascadeCount && Result; ++Cascade)
 	{
-		Result = Stage(EStage::Offsets, Cascade, {Groups(ProbeCapacity[Cascade], 64), 1, 1});
+		Result = Stage(EStage::Links, Cascade, {Groups(ProbeCapacity[Cascade], 64), 1, 1});
 	}
 
 	Time("GI rays");
@@ -259,7 +281,8 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 	Time("GI merge");
 	for (std::uint32_t Cascade = CascadeCount; Cascade-- > 0 && Result;)
 	{
-		Result = Stage(EStage::Merge, Cascade, {Groups(ProbeCapacity[Cascade] * DirectionCount(Cascade), 64), 1, 1});
+		const std::uint32_t MergeGroups = Groups(ProbeCapacity[Cascade] * DirectionCount(Cascade), 64);
+		Result = Stage(EStage::Merge, Cascade, {std::min(MergeGroups, 32768u), Groups(MergeGroups, 32768), 1});
 	}
 
 	Time("GI irradiance");
@@ -278,6 +301,18 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 	}
 
 	Device.EndGpuTiming();
+	if (const auto Bytes = Device.TryReadBuffer(CounterReadback[(Frame + 1) % CounterReadback.size()]))
+	{
+		std::array<std::uint32_t, 8> Words{};
+		std::memcpy(Words.data(), Bytes->data(), sizeof(Words));
+		Statistics = {.Probes = {Words[0], Words[1], Words[2], Words[3]}, .Overflow = Words[5]};
+	}
+
+	if (Result)
+	{
+		Result = Device.CopyBuffer(Counters, CounterReadback[Frame % CounterReadback.size()]);
+	}
+
 	const FMatrix4 ViewToWorld(Inputs.Uniforms->ViewToWorld);
 	PreviousEye = {ViewToWorld.Data()[12], ViewToWorld.Data()[13], ViewToWorld.Data()[14]};
 	bPrevious = static_cast<bool>(Result);
