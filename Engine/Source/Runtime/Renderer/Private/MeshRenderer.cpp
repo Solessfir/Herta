@@ -903,7 +903,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 	if (!VisualShaders.RadianceCascadeProbesCompute.Bytecode.empty() && Device.SupportsRayQueries() && State->DepthPrepassPipeline)
 	{
-		auto Cascades = FRadianceCascades::Create(Device, {.Probes = std::move(VisualShaders.RadianceCascadeProbesCompute), .Trace = std::move(VisualShaders.RadianceCascadeTraceCompute), .Irradiance = std::move(VisualShaders.RadianceCascadeIrradianceCompute), .Shade = std::move(VisualShaders.RadianceCascadeShadeCompute), .Arguments = std::move(VisualShaders.RadianceCascadeArgumentsCompute)});
+		auto Cascades = FRadianceCascades::Create(Device, {.Probes = std::move(VisualShaders.RadianceCascadeProbesCompute), .Trace = std::move(VisualShaders.RadianceCascadeTraceCompute), .Irradiance = std::move(VisualShaders.RadianceCascadeIrradianceCompute), .Shade = std::move(VisualShaders.RadianceCascadeShadeCompute), .Arguments = std::move(VisualShaders.RadianceCascadeArgumentsCompute), .Reflect = std::move(VisualShaders.RadianceCascadeReflectCompute)});
 		if (!Cascades)
 		{
 			return std::unexpected(Cascades.error());
@@ -1346,6 +1346,11 @@ std::uint32_t FMeshRenderer::GetPathTracingSamples() const noexcept
 FGlobalIlluminationStatistics FMeshRenderer::GetGlobalIlluminationStatistics() const noexcept
 {
 	return Implementation->RadianceCascades ? Implementation->RadianceCascades->GetStatistics() : FGlobalIlluminationStatistics{};
+}
+
+void FMeshRenderer::ResetExposureAdaptation() noexcept
+{
+	Implementation->bExposureAdapted = false;
 }
 
 bool FMeshRenderer::SupportsPathTracing() const noexcept

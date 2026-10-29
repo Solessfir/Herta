@@ -150,6 +150,8 @@ public:
 	std::uint32_t GetPathTracingSamples() const noexcept;
 	bool SupportsPathTracing() const noexcept;
 	FGlobalIlluminationStatistics GetGlobalIlluminationStatistics() const noexcept;
+	// Auto exposure meters the next frame directly instead of adapting toward it, as after a camera cut.
+	void ResetExposureAdaptation() noexcept;
 	std::vector<FGpuPassTiming> GetGpuTimings() const;
 	std::size_t GetRenderTargetBytes() const noexcept;
 	[[nodiscard]] std::expected<void, FPresentationError> SetEnvironmentLighting(const FEnvironmentLighting& Lighting);

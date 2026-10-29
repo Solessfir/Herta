@@ -40,17 +40,18 @@ enum class EStage : std::uint32_t
 
 std::expected<std::unique_ptr<FRadianceCascades>, FPresentationError> FRadianceCascades::Create(IGraphicsDevice& Device, FRadianceCascadeShaders Shaders)
 {
-	if (!Device.SupportsRayQueries() || Shaders.Probes.Bytecode.empty() || Shaders.Trace.Bytecode.empty() || Shaders.Irradiance.Bytecode.empty() || Shaders.Shade.Bytecode.empty() || Shaders.Arguments.Bytecode.empty())
+	if (!Device.SupportsRayQueries() || Shaders.Probes.Bytecode.empty() || Shaders.Trace.Bytecode.empty() || Shaders.Irradiance.Bytecode.empty() || Shaders.Shade.Bytecode.empty() || Shaders.Arguments.Bytecode.empty() || Shaders.Reflect.Bytecode.empty())
 	{
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Radiance cascades need ray queries and all six of their shaders"});
 	}
 
 	auto Probes = Device.CreateComputePipeline({.Name = "Radiance cascade probes", .Shader = std::move(Shaders.Probes), .TextureCount = 1, .StorageBufferCount = 7, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
 	auto Trace = Device.CreateComputePipeline({.Name = "Radiance cascade rays", .Shader = std::move(Shaders.Trace), .TextureCount = 5, .StorageBufferCount = 7, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 4, .bRayQuery = true, .bResourceTable = true});
+	auto Reflect = Device.CreateComputePipeline({.Name = "Radiance cascade reflections", .Shader = std::move(Shaders.Reflect), .TextureCount = 5, .StorageTextureCount = 1, .StorageBufferCount = 7, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 4, .bRayQuery = true, .bResourceTable = true});
 	auto Irradiance = Device.CreateComputePipeline({.Name = "Radiance cascade irradiance", .Shader = std::move(Shaders.Irradiance), .TextureCount = 1, .StorageTextureCount = 1, .StorageBufferCount = 7, .UniformBufferSize = VisualUniformBytes, .BufferCount = 1});
 	auto Shade = Device.CreateComputePipeline({.Name = "Radiance cascade gather", .Shader = std::move(Shaders.Shade), .TextureCount = 2, .StorageTextureCount = 1, .StorageBufferCount = 7, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
 	auto Arguments = Device.CreateComputePipeline({.Name = "Radiance cascade arguments", .Shader = std::move(Shaders.Arguments), .StorageBufferCount = 1, .BufferCount = 1});
-	for (const auto* const Pipeline : {&Probes, &Trace, &Irradiance, &Shade, &Arguments})
+	for (const auto* const Pipeline : {&Probes, &Trace, &Irradiance, &Shade, &Arguments, &Reflect})
 	{
 		if (!*Pipeline)
 		{
@@ -58,10 +59,10 @@ std::expected<std::unique_ptr<FRadianceCascades>, FPresentationError> FRadianceC
 		}
 	}
 
-	return std::unique_ptr<FRadianceCascades>(new FRadianceCascades(Device, {std::move(*Probes), std::move(*Trace), std::move(*Irradiance), std::move(*Shade), std::move(*Arguments)}));
+	return std::unique_ptr<FRadianceCascades>(new FRadianceCascades(Device, {std::move(*Probes), std::move(*Trace), std::move(*Irradiance), std::move(*Shade), std::move(*Arguments), std::move(*Reflect)}));
 }
 
-FRadianceCascades::FRadianceCascades(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 5> InPipelines)
+FRadianceCascades::FRadianceCascades(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 6> InPipelines)
     : Device(InDevice)
     , Pipelines(std::move(InPipelines))
 {
@@ -200,7 +201,7 @@ std::expected<void, FPresentationError> FRadianceCascades::Allocate(const FExten
 		}
 	}
 
-	const FExtent2D Half{(Extent.Width + 1) / 2, (Extent.Height + 1) / 2};
+	const FExtent2D Half{(Extent.Width + 1) / 2 * 2, (Extent.Height + 1) / 2};
 	if (Result && (!Gathered || Gathered->GetDescriptor().Extent != Half))
 	{
 		auto Created = Device.CreateTexture({.Name = "Global illumination gathers", .Extent = Half, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
@@ -336,7 +337,17 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 	{
 		const std::array Sources{Inputs.Depth, Atlas[Current]};
 		const std::array Targets{FStorageTextureBinding{.Texture = Gathered}};
-		Result = Device.Dispatch({.Pipeline = Pipelines[3], .Textures = Sources, .StorageTextures = Targets, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups(Gathered->GetDescriptor().Extent.Width, 8), Groups(Gathered->GetDescriptor().Extent.Height, 8), 1}});
+		Result = Device.Dispatch({.Pipeline = Pipelines[3], .Textures = Sources, .StorageTextures = Targets, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups(Gathered->GetDescriptor().Extent.Width / 2, 8), Groups(Gathered->GetDescriptor().Extent.Height, 8), 1}});
+	}
+
+	Time("GI reflections");
+	if (Result)
+	{
+		// The gather writes only the atlas's left half and reflections only its right, so the two need no barrier between them.
+		const std::array Sources{Inputs.Environment, Inputs.SkyView, Inputs.SpecularAlbedo, Inputs.Depth, bPrevious ? Atlas[Previous] : Inputs.Environment};
+		const std::array SceneBuffers{Inputs.Lights, Inputs.Scene->GetSections(), Inputs.Scene->GetMaterials(), Slots[Previous]};
+		const std::array Targets{FStorageTextureBinding{.Texture = Gathered}};
+		Result = Device.Dispatch({.Pipeline = Pipelines[5], .Textures = Sources, .StorageTextures = Targets, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups(Gathered->GetDescriptor().Extent.Width / 2, 8), Groups(Gathered->GetDescriptor().Extent.Height, 8), 1}, .Buffers = SceneBuffers, .bOverlapsPrevious = true, .Scene = Inputs.Scene->GetTopLevel(), .ResourceTable = Inputs.Scene->GetTable()});
 	}
 
 	Device.EndGpuTiming();

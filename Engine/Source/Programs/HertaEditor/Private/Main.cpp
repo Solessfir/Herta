@@ -398,6 +398,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"RadianceCascadesIrradiance.comp.hshader", &VisualShaders.RadianceCascadeIrradianceCompute},
 	    std::pair{"RadianceCascadesShade.comp.hshader", &VisualShaders.RadianceCascadeShadeCompute},
 	    std::pair{"RadianceCascadesArguments.comp.hshader", &VisualShaders.RadianceCascadeArgumentsCompute},
+	    std::pair{"RadianceCascadesReflect.comp.hshader", &VisualShaders.RadianceCascadeReflectCompute},
 	    std::pair{"PathTrace.comp.hshader", &VisualShaders.PathTraceCompute},
 	};
 
@@ -1134,7 +1135,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	const std::filesystem::path VisualCaptureDirectory = RepositoryRoot / (bPathTracing ? "Saved/VisualTest/PathTraced" : "Saved/VisualTest");
 	// Path traced bookmarks settle until this many samples, enough for comparisons with raster shading.
 	constexpr std::uint32_t VisualPathTracingSamples = 1024;
-	constexpr std::size_t VisualBookmarkSettleFrames = 60;
+	constexpr std::size_t VisualBookmarkSettleFrames = 120;
 	constexpr std::size_t VisualBookmarkSampleFrames = 30;
 	const auto AccumulateVisualPasses = [&](std::vector<std::pair<std::string, double>>& Sums)
 	{
@@ -1316,6 +1317,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 			if (bPresented && VisualFrames == 600 && !bVisualCompleted && VisualSettleFrames >= VisualBookmarkSettleFrames - VisualBookmarkSampleFrames && VisualSettleFrames < VisualBookmarkSettleFrames)
 			{
+				// Exposure adapts over seconds, longer than a bookmark settles, so it meters again once global illumination has settled.
+				if (VisualSettleFrames == VisualBookmarkSettleFrames - VisualBookmarkSampleFrames)
+				{
+					MeshRenderer->ResetExposureAdaptation();
+				}
+
 				AccumulateVisualPasses(VisualBookmarkPassSums);
 			}
 
@@ -1358,7 +1365,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 			else if (bPresented && VisualFrames == 600 && !bVisualCompleted && ++VisualSettleFrames >= VisualBookmarkSettleFrames && (!bPathTracing || MeshRenderer->GetPathTracingSamples() >= VisualPathTracingSamples))
 			{
-				// Each bookmark settles for a second of frames so shadows reflect its view, then averages the last half.
+				// Each bookmark settles for 120 frames so shadows and global illumination reflect its view, then averages the last 30.
 				std::ranges::sort(VisualBookmarkPassSums, std::greater{}, &std::pair<std::string, double>::second);
 				double GpuMilliseconds = 0.;
 				std::string Passes;

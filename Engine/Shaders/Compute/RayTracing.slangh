@@ -175,6 +175,32 @@ bool TraceScene(float3 Origin, float3 Direction, float MaximumDistance, out FHit
     return true;
 }
 
+// The surface a ray meets between two distances with every triangle taken as opaque, for finding what a depth buffer already shows: a short
+// segment around it skips nearly all traversal, and alpha cutouts need no test where depth says a surface is.
+bool TraceSurface(float3 Origin, float3 Direction, float MinimumDistance, float MaximumDistance, out FHit Hit)
+{
+    RayDesc Ray;
+    Ray.Origin = Origin;
+    Ray.Direction = Direction;
+    Ray.TMin = MinimumDistance;
+    Ray.TMax = MaximumDistance;
+    RayQuery<RAY_FLAG_FORCE_OPAQUE> Query;
+    Query.TraceRayInline(Scene, RAY_FLAG_FORCE_OPAQUE, 0xFF, Ray);
+    Query.Proceed();
+    Hit = (FHit)0;
+    if (Query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+        return false;
+
+    Hit.Distance = Query.CommittedRayT();
+    Hit.InstanceRecord = Query.CommittedInstanceID();
+    Hit.Geometry = Query.CommittedGeometryIndex();
+    Hit.Primitive = Query.CommittedPrimitiveIndex();
+    Hit.Barycentrics = Query.CommittedTriangleBarycentrics();
+    Hit.ObjectToWorld = Query.CommittedObjectToWorld3x4();
+    Hit.WorldToObject = Query.CommittedWorldToObject3x4();
+    return true;
+}
+
 bool Occluded(float3 Origin, float3 Direction, float MaximumDistance)
 {
     RayDesc Ray;

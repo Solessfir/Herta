@@ -46,9 +46,10 @@ float4 GatherLevel(float3 Position, float3 Normal, uint Level)
 [numthreads(8, 8, 1)]
 void computeMain(uint3 Id : SV_DispatchThreadID)
 {
+    // The atlas's right half holds reflections.
     uint Width, Height;
     Output.GetDimensions(Width, Height);
-    if (any(Id.xy >= uint2(Width, Height)))
+    if (any(Id.xy >= uint2(Width / 2u, Height)))
         return;
 
     int2 Pixel = min(int2(Id.xy) * 2, int2(Visual.Viewport.zw) - 1);

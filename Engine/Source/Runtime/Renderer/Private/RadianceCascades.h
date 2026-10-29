@@ -29,6 +29,7 @@ struct FRadianceCascadeShaders
 	FShaderAsset Irradiance;
 	FShaderAsset Shade;
 	FShaderAsset Arguments;
+	FShaderAsset Reflect;
 };
 
 // Split Radiance Cascades (Freeman and Sannikov 2026) as the High tier's dynamic diffuse global illumination: sparse world-space probes near
@@ -39,20 +40,21 @@ public:
 	[[nodiscard]] static std::expected<std::unique_ptr<FRadianceCascades>, FPresentationError> Create(IGraphicsDevice& Device, FRadianceCascadeShaders Shaders);
 	// Records every pass inside the caller's recording, after the depth prepass and the scene's update.
 	[[nodiscard]] std::expected<void, FPresentationError> Render(const FGlobalIlluminationInputs& Inputs);
-	// Diffuse irradiance at 1/16 scale gathered at each 2x2 block's ray pixel, whose reversed depth alpha holds, or 0 where no probe covered it.
-	// The mesh pass blends the four nearest gathers on each pixel's surface plane.
+	// Two half-resolution images side by side, each sampled at every 2x2 block's first pixel with that pixel's reversed depth in alpha, or 0 where
+	// it has nothing: diffuse irradiance on the left and glossy surfaces' scene reflections on the right, both at 1/16 scale. The mesh pass blends
+	// the four nearest samples on each pixel's surface plane.
 	const FTextureHandle& GetIrradiance() const noexcept;
 	std::size_t GetMemoryBytes() const noexcept;
 	FGlobalIlluminationStatistics GetStatistics() const noexcept;
 	void Release() noexcept;
 
 private:
-	FRadianceCascades(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 5> InPipelines);
+	FRadianceCascades(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 6> InPipelines);
 	[[nodiscard]] std::expected<void, FPresentationError> Allocate(FExtent2D Extent);
 
 	IGraphicsDevice& Device;
-	// Probes, trace, irradiance, gather, and indirect arguments.
-	std::array<FComputePipelineHandle, 5> Pipelines;
+	// Probes, trace, irradiance, gather, indirect arguments, and reflections.
+	std::array<FComputePipelineHandle, 6> Pipelines;
 
 	// The hash slots and irradiance tiles alternate between frames, so rays can read the light that last frame's probes received.
 	std::array<FBufferHandle, 2> Slots;

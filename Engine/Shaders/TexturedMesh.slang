@@ -22,8 +22,9 @@ struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToVie
 [[vk::binding(13, 0)]] Texture2D<float4> LocalShadowAtlas;
 // Screen-space shadows toward the sun that casts the cascades, written when Visual.Occlusion.y is set.
 [[vk::binding(14, 0)]] Texture2D<float4> ContactShadow;
-// Diffuse irradiance from global illumination at 1/16 scale, gathered once per 2x2 block at its first pixel and read when Visual.Occlusion.w is set.
-// Alpha holds that pixel's reversed depth, or 0 where no probe covered it.
+// Global illumination at 1/16 scale, read when Visual.Occlusion.w is set: two half-resolution images side by side, sampled at each 2x2 block's
+// first pixel, with diffuse irradiance on the left and glossy surfaces' scene reflections on the right. Alpha holds the sampled pixel's reversed
+// depth, or 0 where that image has nothing.
 [[vk::binding(15, 0)]] Texture2D<float4> GlobalIllumination;
 
 struct FVertexOutput
@@ -194,12 +195,16 @@ void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, floa
     if (Visual.Occlusion.z > 1.0) Sum.Penumbra += (Sum.Diffuse - DiffuseBefore) * 4.0 * Visibility * (1.0 - Visibility);
 }
 
-// The bilinear blend of the four nearest gathers that lie on this pixel's surface plane, so light does not bleed across depth edges or creases;
-// thin features that no gather shares fall back to the nearest one. Alpha is 1 where any gather covered the pixel.
-float4 GatheredIrradiance(int2 Pixel, float3 Position, float3 Normal)
+// Keep in sync with ReflectionRoughness in Compute/RadianceCascades.slangh.
+static const float SceneReflectionRoughness = 0.4;
+
+// The bilinear blend of one global illumination image's four nearest samples that lie on this pixel's surface plane, so light does not bleed across
+// depth edges or creases; thin features that no sample shares fall back to the nearest one. Alpha is 1 where any sample covered the pixel.
+float4 BlendGathers(int2 Pixel, float3 Position, float3 Normal, uint Image)
 {
     uint Width, Height;
     GlobalIllumination.GetDimensions(Width, Height);
+    Width /= 2u;
     // Probes are about a 48th of the viewing distance apart, so gathers farther off the plane than a quarter of that belong to another surface.
     float3 Eye = mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
     float3 FromCamera = abs(Position - Eye);
@@ -219,7 +224,7 @@ float4 GatheredIrradiance(int2 Pixel, float3 Position, float3 Normal)
             continue;
 
         int2 Sample = min(Base + Offset, int2(Width, Height) - 1);
-        float4 Value = GlobalIllumination.Load(int3(Sample, 0));
+        float4 Value = GlobalIllumination.Load(int3(Sample.x + int(Image * Width), Sample.y, 0));
         if (Value.a <= 0.0)
             continue;
 
@@ -307,7 +312,7 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
         Result += max(Luminance + (Penumbra - Luminance) * Visual.Occlusion.z, 0.0) - Penumbra;
     }
     float3 PlaneNormal = normalize(cross(ddx(Input.WorldPosition), ddy(Input.WorldPosition)));
-    float4 Indirect = Visual.Occlusion.w > 0.5 ? GatheredIrradiance(int2(Input.Position.xy), Input.WorldPosition, PlaneNormal) : 0.0;
+    float4 Indirect = Visual.Occlusion.w > 0.5 ? BlendGathers(int2(Input.Position.xy), Input.WorldPosition, PlaneNormal, 0u) : 0.0;
     if (Visual.Sky.x > 0.0 || Indirect.a > 0.5)
     {
         uint DiffuseWidth, DiffuseHeight;
@@ -340,8 +345,18 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
         float3 BounceC = 2.7552 * Albedo + 0.6903;
         float3 DiffuseOcclusion = max(AO, ((AO * BounceA + BounceB) * AO + BounceC) * AO);
         // Lagarde's specular occlusion: grazing and rough reflections see more of the occluded hemisphere.
-        float SpecularOcclusion = saturate(pow(NoV + AO, exp2(-16.0 * Roughness - 1.0)) - 1.0 + AO) * SkyVisibility;
-        Result += Surface.DiffuseReflectance * Diffuse / PI * DiffuseOcclusion + Specular * Surface.SpecularReflectance * SpecularOcclusion * Visual.Sky.x * Visual.SkyColor.rgb;
+        float AOSpecular = saturate(pow(NoV + AO, exp2(-16.0 * Roughness - 1.0)) - 1.0 + AO);
+        Specular *= AOSpecular * SkyVisibility * Visual.Sky.x * Visual.SkyColor.rgb;
+        // Glossy surfaces reflect the scene that rays found, fading to the environment's filtered reflection as roughness approaches the limit
+        // they trace to; the rays already see what occludes them, so only occlusion finer than the blocks applies.
+        if (Indirect.a > 0.5 && Roughness < SceneReflectionRoughness)
+        {
+            float4 Scene = BlendGathers(int2(Input.Position.xy), Input.WorldPosition, PlaneNormal, 1u);
+            if (Scene.a > 0.5)
+                Specular = lerp(Specular, Scene.rgb * 16.0 * AOSpecular, saturate((SceneReflectionRoughness - Roughness) / 0.25));
+        }
+
+        Result += Surface.DiffuseReflectance * Diffuse / PI * DiffuseOcclusion + Specular * Surface.SpecularReflectance;
     }
     if (Visual.Sky.w < 0.5) return float4(Result / (1.0 + Result), 1.0);
     return float4(clamp(Result, 0.0, 65504.0), 1.0);
