@@ -1010,8 +1010,8 @@ namespace
 			return std::unexpected(Reference.error());
 		}
 
-		// Sun cascades fit the depth read back two renders earlier, so the fresh renderer needs three completed frames to match the one under test.
-		for (int Frame = 0; Frame < 3; ++Frame)
+		// Sun cascades fit the depth read back three renders earlier, so the fresh renderer needs four completed frames to match the one under test.
+		for (int Frame = 0; Frame < 4; ++Frame)
 		{
 			if (const auto Rendered = (*Reference)->Render(Extent, View); !Rendered)
 			{

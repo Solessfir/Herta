@@ -731,7 +731,7 @@ struct FMeshRenderer::FImplementation
 	// Visible view depth reduced on the GPU and read back a few frames later without stalling, so sun cascades cover only the depth the camera sees.
 	FComputePipelineHandle DepthBoundsPipeline;
 	FBufferHandle DepthBounds;
-	std::array<FBufferHandle, 3> DepthBoundsReadback;
+	std::array<FBufferHandle, 4> DepthBoundsReadback;
 	// Screen-space shadows toward the sun from the depth prepass.
 	FComputePipelineHandle ContactShadowPipeline;
 	// Null without ray queries or its shader. The scene they trace is shared, and released while nothing traces.
@@ -1678,7 +1678,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	State.Uniforms.Exposure[3] = bAutoExposure && !State.bExposureAdapted ? 1.f : 0.f;
 	State.bExposureAdapted = bAutoExposure;
 
-	// The slot written two renders ago has usually completed; until one has, the cascades keep the last range they had.
+	// The slot written three renders ago has always completed, because the device keeps three frames in flight; until one has, the cascades keep the last range they had.
 	if (State.DepthBoundsPipeline)
 	{
 		if (const auto Bytes = Device.TryReadBuffer(State.DepthBoundsReadback[(State.DepthBoundsFrame + 1) % State.DepthBoundsReadback.size()]))
