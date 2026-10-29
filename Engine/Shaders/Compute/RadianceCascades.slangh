@@ -38,7 +38,7 @@ static const uint CounterOverflow = 5;
 [[vk::binding(GiBufferBase + 3, 0)]] RWStructuredBuffer<float> Deposits;
 // Rays deposited per record in the low 16 bits, and those that passed the interval unoccluded in the high 16.
 [[vk::binding(GiBufferBase + 4, 0)]] RWStructuredBuffer<uint> RecordCounts;
-// Merged radiance as half floats, two words per record: cascade 0's per direction, higher cascades' already averaged into the next lower cascade's directions.
+// Merged radiance, one RGB9E5 word per record: cascade 0's per direction, higher cascades' already averaged into the next lower cascade's directions.
 [[vk::binding(GiBufferBase + 5, 0)]] RWStructuredBuffer<uint> Merged;
 
 uint DirectionRows(uint Cascade)
@@ -261,18 +261,31 @@ uint2 PackHalf4(float4 Value)
     return uint2(Bits.x | (Bits.y << 16), Bits.z | (Bits.w << 16));
 }
 
-// Merged radiance, the irradiance atlas, and the output are stored at this scale: sunlit irradiance passes 100,000, beyond half precision.
+// The irradiance atlas and the output are stored at this scale: sunlit irradiance passes 100,000, beyond half precision.
 // The mesh pass multiplies the output back.
 static const float StoredScale = 1.0 / 16.0;
 
-uint2 StoreRadiance(float3 Radiance)
+// Merged radiance is RGB9E5, one word per direction: merging reads eight neighbours per direction, so the word it saves halves its loads.
+// Nine mantissa bits under a shared exponent keep 0.2% precision for the brightest channel and reach past 65,000.
+uint StoreRadiance(float3 Radiance)
 {
-    return PackHalf4(float4(Radiance * StoredScale, 1.0));
+    float3 Clamped = clamp(Radiance, 0.0, 65408.0);
+    float Largest = max(Clamped.r, max(Clamped.g, Clamped.b));
+    int Exponent = max(-16, int(floor(log2(max(Largest, 1e-30))))) + 1;
+    float Scale = exp2(float(9 - Exponent));
+    if (uint(floor(Largest * Scale + 0.5)) == 512u)
+    {
+        Exponent += 1;
+        Scale *= 0.5;
+    }
+
+    uint3 Mantissa = min(uint3(floor(Clamped * Scale + 0.5)), 511u);
+    return Mantissa.r | (Mantissa.g << 9) | (Mantissa.b << 18) | (uint(Exponent + 15) << 27);
 }
 
-float3 LoadRadiance(uint2 Words)
+float3 LoadRadiance(uint Word)
 {
-    return UnpackHalf4(Words).rgb / StoredScale;
+    return float3(Word & 511u, (Word >> 9) & 511u, (Word >> 18) & 511u) * exp2(float(int(Word >> 27) - 15 - 9));
 }
 
 // The world position and depth-derived normal under a pixel, or false for the sky.

@@ -1058,7 +1058,7 @@ public:
 
 		const auto Pipeline = std::dynamic_pointer_cast<FComputePipeline>(Dispatch.Pipeline);
 		const auto Indirect = std::dynamic_pointer_cast<FBuffer>(Dispatch.IndirectArguments);
-		if (!Owns(Pipeline) || Dispatch.Textures.size() != Pipeline->TextureCount || Dispatch.StorageTextures.size() != Pipeline->StorageTextureCount || Dispatch.StorageBuffers.size() != Pipeline->StorageBufferCount || (Dispatch.IndirectArguments && (!Owns(Indirect) || Indirect->Descriptor.Usage != EBufferUsage::Storage || Indirect->Descriptor.Size < 3 * sizeof(std::uint32_t))) || Dispatch.Uniforms.size() != Pipeline->UniformBufferSize || std::ranges::any_of(Dispatch.GroupCount, [](const std::uint32_t Count)
+		if (!Owns(Pipeline) || Dispatch.Textures.size() != Pipeline->TextureCount || Dispatch.StorageTextures.size() != Pipeline->StorageTextureCount || Dispatch.StorageBuffers.size() != Pipeline->StorageBufferCount || (Dispatch.IndirectArguments && (!Owns(Indirect) || Indirect->Descriptor.Usage != EBufferUsage::Storage || Dispatch.IndirectOffset % sizeof(std::uint32_t) != 0 || Indirect->Descriptor.Size < Dispatch.IndirectOffset + 3 * sizeof(std::uint32_t))) || Dispatch.Uniforms.size() != Pipeline->UniformBufferSize || std::ranges::any_of(Dispatch.GroupCount, [](const std::uint32_t Count)
 		{
 			return Count == 0 || Count > 65535;
 		}))
@@ -1179,7 +1179,7 @@ public:
 
 		const bool bRepeatedBindings = Bindings && Bindings.Get() == Frame.PreviousComputeBindings && !Dispatch.bOverlapsPrevious;
 		Frame.PreviousComputeBindings = Bindings.Get();
-		Frame.Operations.emplace_back([Pipeline, Bindings, bRepeatedBindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount, bOverlap = Dispatch.bOverlapsPrevious, Scene, Table, TableTextures = Table ? Table->Textures : decltype(FResourceTable::Textures){}, TableBuffers = Table ? Table->Buffers : decltype(FResourceTable::Buffers){}](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Pipeline, Bindings, bRepeatedBindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount, IndirectOffset = Dispatch.IndirectOffset, bOverlap = Dispatch.bOverlapsPrevious, Scene, Table, TableTextures = Table ? Table->Textures : decltype(FResourceTable::Textures){}, TableBuffers = Table ? Table->Buffers : decltype(FResourceTable::Buffers){}](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(Pipeline->Name.c_str());
 			if (bRepeatedBindings)
@@ -1243,7 +1243,7 @@ public:
 			Commands->setComputeState(State);
 			if (Indirect)
 			{
-				Commands->dispatchIndirect(0);
+				Commands->dispatchIndirect(IndirectOffset);
 			}
 			else
 			{

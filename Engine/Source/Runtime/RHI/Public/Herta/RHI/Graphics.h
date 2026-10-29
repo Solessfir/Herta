@@ -294,8 +294,9 @@ struct FComputeDispatch
 	std::span<const FBufferHandle> StorageBuffers{};
 	std::span<const std::byte> Uniforms{};
 	std::array<std::uint32_t, 3> GroupCount{1, 1, 1};
-	// A storage buffer whose first three uints, written earlier on the GPU, replace GroupCount.
+	// A storage buffer whose three uints at IndirectOffset bytes, written earlier on the GPU, replace GroupCount.
 	FBufferHandle IndirectArguments{};
+	std::uint32_t IndirectOffset = 0;
 	std::span<const FBufferHandle> Buffers{};
 	// The previous dispatch wrote other texels of the same storage textures, so this one may run alongside it without a barrier between them.
 	bool bOverlapsPrevious = false;

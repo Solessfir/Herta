@@ -62,8 +62,7 @@ float3 InterpolateUpper(uint Cascade, uint GroupProbe, uint Direction)
             continue;
 
         float W = NeighbourWeights[GroupProbe][Corner];
-        uint Index = MergedIndex(Upper, Probe, Direction) * 2u;
-        Sum += LoadRadiance(uint2(Merged[Index], Merged[Index + 1u])) * W;
+        Sum += LoadRadiance(Merged[MergedIndex(Upper, Probe, Direction)]) * W;
         Weight += W;
     }
 
@@ -207,12 +206,17 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
             uint Record = RecordIndex(Cascade, Probe, Direction);
             uint Counts = RecordCounts[Record];
             uint Total = Counts & 0xFFFFu;
-            float3 Interval = float3(Deposits[Record * 3u], Deposits[Record * 3u + 1u], Deposits[Record * 3u + 2u]);
-            // Each frame clears the records it merged, so the next frame deposits into zeros.
-            Deposits[Record * 3u] = 0.0;
-            Deposits[Record * 3u + 1u] = 0.0;
-            Deposits[Record * 3u + 2u] = 0.0;
-            RecordCounts[Record] = 0u;
+            // Most directions of the higher cascades receive no ray, so only records that did are read and cleared for the next frame.
+            float3 Interval = 0.0;
+            if (Counts != 0u)
+            {
+                Interval = float3(Deposits[Record * 3u], Deposits[Record * 3u + 1u], Deposits[Record * 3u + 2u]);
+                Deposits[Record * 3u] = 0.0;
+                Deposits[Record * 3u + 1u] = 0.0;
+                Deposits[Record * 3u + 2u] = 0.0;
+                RecordCounts[Record] = 0u;
+            }
+
             if (Total == 0u)
             {
                 // No ray sampled this direction: the top cascade assumes open sky, lower ones pass the cascade above through.
@@ -229,9 +233,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
         {
             if (bActive)
             {
-                uint2 Words = StoreRadiance(Radiance);
-                Merged[MergedIndex(0, Probe, Direction) * 2u] = Words.x;
-                Merged[MergedIndex(0, Probe, Direction) * 2u + 1u] = Words.y;
+                Merged[MergedIndex(0, Probe, Direction)] = StoreRadiance(Radiance);
             }
             return;
         }
@@ -242,9 +244,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
         if (bActive && (Direction & 3u) == 0u)
         {
             float3 Average = (MergedShared[Local.x] + MergedShared[Local.x + 1u] + MergedShared[Local.x + 2u] + MergedShared[Local.x + 3u]) * 0.25;
-            uint2 Words = StoreRadiance(Average);
-            Merged[MergedIndex(Cascade, Probe, Direction / 4u) * 2u] = Words.x;
-            Merged[MergedIndex(Cascade, Probe, Direction / 4u) * 2u + 1u] = Words.y;
+            Merged[MergedIndex(Cascade, Probe, Direction / 4u)] = StoreRadiance(Average);
         }
     }
 }

@@ -28,6 +28,7 @@ struct FRadianceCascadeShaders
 	FShaderAsset Trace;
 	FShaderAsset Irradiance;
 	FShaderAsset Shade;
+	FShaderAsset Arguments;
 };
 
 // Split Radiance Cascades (Freeman and Sannikov 2026) as the High tier's dynamic diffuse global illumination: sparse world-space probes near
@@ -45,12 +46,12 @@ public:
 	void Release() noexcept;
 
 private:
-	FRadianceCascades(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 4> InPipelines);
+	FRadianceCascades(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 5> InPipelines);
 	[[nodiscard]] std::expected<void, FPresentationError> Allocate(FExtent2D Extent);
 
 	IGraphicsDevice& Device;
-	// Probes, trace, irradiance, and shade.
-	std::array<FComputePipelineHandle, 4> Pipelines;
+	// Probes, trace, irradiance, shade, and indirect arguments.
+	std::array<FComputePipelineHandle, 5> Pipelines;
 
 	// The hash slots and irradiance tiles alternate between frames, so rays can read the light that last frame's probes received.
 	std::array<FBufferHandle, 2> Slots;
@@ -59,6 +60,8 @@ private:
 	FBufferHandle Deposits;
 	FBufferHandle RecordCounts;
 	FBufferHandle Merged;
+	// Group counts sized to the probes that exist, so stages skip the unused capacity.
+	FBufferHandle Arguments;
 	std::array<FTextureHandle, 2> Atlas;
 	FTextureHandle Irradiance;
 	// Counters copy into these in turn and are read once their frame completes, so nothing waits.

@@ -18,7 +18,7 @@ void computeMain(uint3 Group : SV_GroupID, uint3 Local : SV_GroupThreadID)
     if (Local.x < 32u)
     {
         uint Record = Probe * 32u + Local.x;
-        Radiance[Local.x] = LoadRadiance(uint2(Merged[Record * 2u], Merged[Record * 2u + 1u]));
+        Radiance[Local.x] = LoadRadiance(Merged[Record]);
     }
 
     GroupMemoryBarrierWithGroupSync();
