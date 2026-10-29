@@ -1,7 +1,9 @@
 #define FIELD_IRRADIANCE_BINDING 4
 #define FIELD_DISTANCE_BINDING 5
 #define FIELD_PROBES_BINDING 19
-#define FIELD_USED_BINDING 385
+#define FIELD_CELLS_BINDING 385
+#define FIELD_USED_BINDING 386
+#define FIELD_REQUESTS_BINDING 387
 #define FIELD_USED_BY 1
 #include "RayTracing.slangh"
 #include "IrradianceField.slangh"

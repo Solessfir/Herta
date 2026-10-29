@@ -1493,7 +1493,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				const FGlobalIlluminationStatistics Probes = MeshRenderer->GetGlobalIlluminationStatistics();
 				const std::string CaptureName = MakeVisualCaptureName(VisualSlot, VisualSlotName);
 				const std::string Shimmer = FinishShimmer(CaptureName.substr(0, CaptureName.size() - 4) + "-shimmer.png");
-				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={} gi_probes_traced={} gi_probes_read={} gi_probes_inside={} gi_overflow={}{}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Probes.Traced, Probes.Read, Probes.Inside, Probes.Overflow, Shimmer, Passes);
+				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={} gi_probes_traced={} gi_probes_read={} gi_probes_inside={} gi_overflow={} gi_allocated={} gi_unallocated={}{}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Probes.Traced, Probes.Read, Probes.Inside, Probes.Overflow, Probes.Allocated, Probes.Unallocated, Shimmer, Passes);
 				CaptureVisualView(CaptureName);
 				if (bWalk)
 				{

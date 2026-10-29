@@ -5,15 +5,24 @@
 // that follow the camera, each tracing its own rays and keeping octahedral irradiance and distance moments, so lighting lives in world space and
 // moving the camera never shows sampling noise. Keep the constants in sync with IrradianceField.cpp.
 //
+// Probes exist only in cells something reads. Each level's cells hold an index into one shared pool of probes, so the grids can reach far
+// without paying for the empty air and solid rock that fill most of them: a reader that finds a cell empty asks for a probe, and the next
+// frame's update allocates it.
+//
 // Visual.Material carries the field's frame: BaseColor holds the update stage and the frame number, and UV, Channels0, Channels1, and
-// TextureFlags each level's first probe cell. Includers that sample the field define
-// FIELD_IRRADIANCE_BINDING, FIELD_DISTANCE_BINDING, and FIELD_PROBES_BINDING first, and FIELD_USED_BINDING with FIELD_USED_BY to record which
-// probes they read.
+// TextureFlags each level's first cell. Includers that sample the field define FIELD_IRRADIANCE_BINDING, FIELD_DISTANCE_BINDING,
+// FIELD_PROBES_BINDING, FIELD_CELLS_BINDING, FIELD_USED_BINDING, FIELD_REQUESTS_BINDING, and FIELD_USED_BY, which says whether pixels (0) or
+// rays (1) read the probes.
 
 static const uint FieldLevels = 4;
-static const int3 FieldGrid = int3(32, 32, 32);
-static const uint FieldProbesPerLevel = 32768;
-static const uint FieldProbeCount = FieldProbesPerLevel * FieldLevels;
+static const int3 FieldGrid = int3(64, 64, 64);
+static const uint FieldCellsPerLevel = 262144;
+static const uint FieldProbeCount = 65536;
+// Cells hold a probe's index or one of these.
+static const uint FieldEmpty = 0xFFFFFFFFu;
+static const uint FieldRequested = 0xFFFFFFFEu;
+// Requests past this many in a frame are dropped, and their readers ask again next frame.
+static const uint FieldMaxRequests = 8192;
 static const float FieldBaseSpacing = 1.0;
 static const uint FieldRays = 128;
 // The first rays share the same directions in every probe, so relocation and classification read a regular pattern.
@@ -90,21 +99,34 @@ int3 FieldOrigin(uint Level)
     return int3(Origins[Level].xyz);
 }
 
-// Probes wrap around their level's grid as the camera moves, so a probe keeps its slot, and its history, while it stays inside the clipmap.
+// Cells wrap around their level's grid as the camera moves, so a probe keeps its cell, and its history, while it stays inside the clipmap.
 uint FieldSlot(uint Level, int3 Cell)
 {
     int3 Wrapped = ((Cell % FieldGrid) + FieldGrid) % FieldGrid;
-    return Level * FieldProbesPerLevel + uint((Wrapped.y * FieldGrid.z + Wrapped.z) * FieldGrid.x + Wrapped.x);
+    return Level * FieldCellsPerLevel + uint((Wrapped.y * FieldGrid.z + Wrapped.z) * FieldGrid.x + Wrapped.x);
 }
 
-// The cell a slot holds for the current clipmap origin.
-int3 FieldSlotCell(uint Slot, out uint Level)
+bool FieldInGrid(uint Level, int3 Cell)
 {
-    Level = Slot / FieldProbesPerLevel;
-    uint Local = Slot % FieldProbesPerLevel;
-    int3 Wrapped = int3(Local % uint(FieldGrid.x), Local / uint(FieldGrid.x * FieldGrid.z), (Local / uint(FieldGrid.x)) % uint(FieldGrid.z));
     int3 Origin = FieldOrigin(Level);
-    return Origin + (((Wrapped - Origin) % FieldGrid) + FieldGrid) % FieldGrid;
+    return all(Cell >= Origin) && all(Cell < Origin + FieldGrid);
+}
+
+// Each probe's cell is four ints: the cell, then its level and how many times it has blended since it was allocated, packed, or -1 while the
+// probe is free.
+uint FieldProbeLevel(int Packed)
+{
+    return uint(Packed) >> 8;
+}
+
+uint FieldProbeUpdates(int Packed)
+{
+    return uint(Packed) & 255u;
+}
+
+int FieldPackProbe(uint Level, uint Updates)
+{
+    return int((Level << 8) | min(Updates, 255u));
 }
 
 float2 FieldOctahedralEncode(float3 N)
@@ -124,9 +146,9 @@ float3 FieldOctahedralDecode(float2 UV)
     return normalize(N);
 }
 
-uint2 FieldTileOrigin(uint Slot, uint Tile)
+uint2 FieldTileOrigin(uint Probe, uint Tile)
 {
-    return uint2(Slot % FieldTilesPerRow, Slot / FieldTilesPerRow) * Tile;
+    return uint2(Probe % FieldTilesPerRow, Probe / FieldTilesPerRow) * Tile;
 }
 
 // The interior texel a tile's texel copies, for Texel from -1 to Texels: border rows mirror horizontally, border columns vertically, and corners
@@ -185,24 +207,49 @@ float3 FieldRayDirection(uint Ray, uint Seed)
 [[vk::binding(FIELD_DISTANCE_BINDING, 0)]] Texture2D<float2> FieldDistanceAtlas;
 // Each probe's relocation offset from its cell corner in xyz and its state in w.
 [[vk::binding(FIELD_PROBES_BINDING, 0)]] StructuredBuffer<float4> FieldProbes;
-#ifdef FIELD_USED_BINDING
+// Each level's cells, read and marked requested in place.
+[[vk::binding(FIELD_CELLS_BINDING, 0)]] RWStructuredBuffer<uint> FieldCells;
 // The frame each probe was last read by the camera's pixels (even entries) and by rays (odd entries), which decides what traces next frame.
 [[vk::binding(FIELD_USED_BINDING, 0)]] RWStructuredBuffer<uint> FieldUsed;
-#endif
+// A count, then each requested cell as its xyz and level, from the fifth word on.
+[[vk::binding(FIELD_REQUESTS_BINDING, 0)]] RWStructuredBuffer<uint> FieldRequests;
 
-float2 FieldIrradianceUV(uint Slot, float3 Direction)
+// Only the first reader of an empty cell records the request; a full list leaves the cell empty for a later frame.
+void FieldRequest(uint Level, int3 Cell, uint Slot)
+{
+    uint Previous;
+    InterlockedCompareExchange(FieldCells[Slot], FieldEmpty, FieldRequested, Previous);
+    if (Previous != FieldEmpty)
+        return;
+
+    uint Request;
+    InterlockedAdd(FieldRequests[0], 1u, Request);
+    if (Request >= FieldMaxRequests)
+    {
+        InterlockedExchange(FieldCells[Slot], FieldEmpty, Previous);
+        return;
+    }
+
+    uint Base = 4 + Request * 4;
+    FieldRequests[Base] = uint(Cell.x);
+    FieldRequests[Base + 1] = uint(Cell.y);
+    FieldRequests[Base + 2] = uint(Cell.z);
+    FieldRequests[Base + 3] = Level;
+}
+
+float2 FieldIrradianceUV(uint Probe, float3 Direction)
 {
     uint Width, Height;
     FieldIrradianceAtlas.GetDimensions(Width, Height);
-    float2 Texel = float2(FieldTileOrigin(Slot, FieldIrradianceTile)) + 1.0 + FieldOctahedralEncode(Direction) * float(FieldIrradianceTexels);
+    float2 Texel = float2(FieldTileOrigin(Probe, FieldIrradianceTile)) + 1.0 + FieldOctahedralEncode(Direction) * float(FieldIrradianceTexels);
     return Texel / float2(Width, Height);
 }
 
-float2 FieldDistanceUV(uint Slot, float3 Direction)
+float2 FieldDistanceUV(uint Probe, float3 Direction)
 {
     uint Width, Height;
     FieldDistanceAtlas.GetDimensions(Width, Height);
-    float2 Texel = float2(FieldTileOrigin(Slot, FieldDistanceTile)) + 1.0 + FieldOctahedralEncode(Direction) * float(FieldDistanceTexels);
+    float2 Texel = float2(FieldTileOrigin(Probe, FieldDistanceTile)) + 1.0 + FieldOctahedralEncode(Direction) * float(FieldDistanceTexels);
     return Texel / float2(Width, Height);
 }
 
@@ -225,10 +272,16 @@ float4 FieldLevelIrradiance(float3 Position, float3 Normal, uint Level)
         int3 Offset = int3(Corner & 1u, (Corner >> 1) & 1u, Corner >> 2);
         int3 Cell = Base + Offset;
         uint Slot = FieldSlot(Level, Cell);
-#ifdef FIELD_USED_BINDING
-        FieldUsed[Slot * 2 + FIELD_USED_BY] = FieldFrame();
-#endif
-        float4 Probe = FieldProbes[Slot];
+        uint Index = FieldCells[Slot];
+        if (Index >= FieldRequested)
+        {
+            if (Index == FieldEmpty)
+                FieldRequest(Level, Cell, Slot);
+            continue;
+        }
+
+        FieldUsed[Index * 2 + FIELD_USED_BY] = FieldFrame();
+        float4 Probe = FieldProbes[Index];
         if (Probe.w != FieldProbeActive)
             continue;
 
@@ -239,7 +292,7 @@ float4 FieldLevelIrradiance(float3 Position, float3 Normal, uint Level)
         float Wrap = (dot(ToProbe / max(length(ToProbe), 1e-4), Normal) + 1.0) * 0.5;
         float Weight = Wrap * Wrap + 0.2;
 
-        float2 Moments = FieldDistanceAtlas.SampleLevel(LinearSampler, FieldDistanceUV(Slot, -BiasedToProbe / Distance), 0);
+        float2 Moments = FieldDistanceAtlas.SampleLevel(LinearSampler, FieldDistanceUV(Index, -BiasedToProbe / Distance), 0);
         if (Distance > Moments.x)
         {
             float Variance = abs(Moments.x * Moments.x - Moments.y);
@@ -255,7 +308,7 @@ float4 FieldLevelIrradiance(float3 Position, float3 Normal, uint Level)
 
         float3 Trilinear = max(lerp(1.0 - Alpha, Alpha, float3(Offset)), 0.001);
         Weight *= Trilinear.x * Trilinear.y * Trilinear.z;
-        Sum += FieldIrradianceAtlas.SampleLevel(LinearSampler, FieldIrradianceUV(Slot, Normal), 0).rgb * Weight;
+        Sum += FieldIrradianceAtlas.SampleLevel(LinearSampler, FieldIrradianceUV(Index, Normal), 0).rgb * Weight;
         Weights += Weight;
     }
 

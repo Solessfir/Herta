@@ -2803,7 +2803,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	{
 		Graph.AddPass("Global illumination", {{.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
-			// The cascades time their own stages.
+			// The field times its own stages.
 			if (const auto Updated = State.RayTracingScene->Update(View); !Updated)
 			{
 				return GraphResult(Updated);

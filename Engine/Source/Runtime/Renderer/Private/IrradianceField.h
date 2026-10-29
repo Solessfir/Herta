@@ -60,16 +60,21 @@ private:
 
 	FTextureHandle IrradianceAtlas;
 	FTextureHandle DistanceAtlas;
+	// Each level's cells, holding the index of their probe in the pool.
 	FBufferHandle Cells;
+	FBufferHandle ProbeCells;
 	FBufferHandle Probes;
 	FBufferHandle Used;
+	FBufferHandle Requests;
+	FBufferHandle FreeList;
 	FBufferHandle TraceList;
+	// The trace and blend dispatch arguments, then the update's counters.
 	FBufferHandle Counters;
-	FBufferHandle Arguments;
 	FBufferHandle RayData;
 	FTextureHandle Gathered;
-	// Counters copy into these in turn and are read once their frame completes, so nothing waits.
-	std::array<FBufferHandle, 3> CounterReadback;
+	// Counters copy into these in turn and are read three frames later, when the device has always finished them because it keeps three frames
+	// in flight, so nothing waits and no frame's counters are missed.
+	std::array<FBufferHandle, 4> CounterReadback;
 	FGlobalIlluminationStatistics Statistics;
 
 	// New storage holds garbage until one reset dispatch.

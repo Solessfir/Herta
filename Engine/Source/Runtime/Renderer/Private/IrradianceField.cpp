@@ -5,6 +5,7 @@
 #include <cstring>
 #include <string_view>
 #include <tuple>
+#include <utility>
 
 namespace Herta
 {
@@ -12,8 +13,10 @@ namespace
 {
 // Keep in sync with IrradianceField.slangh.
 constexpr std::uint32_t FieldLevels = 4;
-constexpr std::array<std::int32_t, 3> FieldGrid{32, 32, 32};
-constexpr std::uint32_t FieldProbeCount = 32768 * FieldLevels;
+constexpr std::array<std::int32_t, 3> FieldGrid{64, 64, 64};
+constexpr std::uint32_t FieldCellsPerLevel = 64 * 64 * 64;
+constexpr std::uint32_t FieldProbeCount = 65536;
+constexpr std::uint32_t FieldMaxRequests = 8192;
 constexpr float FieldBaseSpacing = 1.f;
 constexpr std::uint32_t FieldRays = 128;
 constexpr std::uint32_t FieldMaxTraced = 8192;
@@ -29,9 +32,18 @@ enum class EStage : std::uint32_t
 	Reset,
 	Clear,
 	Select,
-	Arguments,
+	Allocate,
 	Settle,
+	Finish,
 };
+
+// The counters follow the dispatch arguments in one buffer. Keep in sync with IrradianceFieldUpdate.slang.
+constexpr std::uint32_t CounterTraced = 4;
+constexpr std::uint32_t CounterRead = 5;
+constexpr std::uint32_t CounterInside = 6;
+constexpr std::uint32_t CounterUnallocated = 7;
+constexpr std::uint32_t CounterFree = 8;
+constexpr std::uint32_t CounterWords = 12;
 
 [[nodiscard]] constexpr std::uint32_t Groups(const std::uint32_t Threads, const std::uint32_t Size) noexcept
 {
@@ -46,11 +58,11 @@ std::expected<std::unique_ptr<FIrradianceField>, FPresentationError> FIrradiance
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "The irradiance field needs ray queries and all five of its shaders"});
 	}
 
-	auto Update = Device.CreateComputePipeline({.Name = "Irradiance field update", .Shader = std::move(Shaders.Update), .StorageTextureCount = 2, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes});
-	auto Trace = Device.CreateComputePipeline({.Name = "Irradiance field rays", .Shader = std::move(Shaders.Trace), .TextureCount = 5, .StorageBufferCount = 2, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 5, .bRayQuery = true, .bResourceTable = true});
+	auto Update = Device.CreateComputePipeline({.Name = "Irradiance field update", .Shader = std::move(Shaders.Update), .StorageBufferCount = 8, .UniformBufferSize = VisualUniformBytes});
+	auto Trace = Device.CreateComputePipeline({.Name = "Irradiance field rays", .Shader = std::move(Shaders.Trace), .TextureCount = 5, .StorageBufferCount = 4, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 6, .bRayQuery = true, .bResourceTable = true});
 	auto Blend = Device.CreateComputePipeline({.Name = "Irradiance field blend", .Shader = std::move(Shaders.Blend), .StorageTextureCount = 2, .StorageBufferCount = 2, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
-	auto Gather = Device.CreateComputePipeline({.Name = "Irradiance field gather", .Shader = std::move(Shaders.Gather), .TextureCount = 4, .StorageTextureCount = 1, .StorageBufferCount = 1, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .BufferCount = 1});
-	auto Reflect = Device.CreateComputePipeline({.Name = "Irradiance field reflections", .Shader = std::move(Shaders.Reflect), .TextureCount = 7, .StorageTextureCount = 1, .StorageBufferCount = 1, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 4, .bRayQuery = true, .bResourceTable = true});
+	auto Gather = Device.CreateComputePipeline({.Name = "Irradiance field gather", .Shader = std::move(Shaders.Gather), .TextureCount = 4, .StorageTextureCount = 1, .StorageBufferCount = 3, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .BufferCount = 1});
+	auto Reflect = Device.CreateComputePipeline({.Name = "Irradiance field reflections", .Shader = std::move(Shaders.Reflect), .TextureCount = 7, .StorageTextureCount = 1, .StorageBufferCount = 3, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 4, .bRayQuery = true, .bResourceTable = true});
 	for (const auto* const Pipeline : {&Update, &Trace, &Blend, &Gather, &Reflect})
 	{
 		if (!*Pipeline)
@@ -81,7 +93,7 @@ FGlobalIlluminationStatistics FIrradianceField::GetStatistics() const noexcept
 std::size_t FIrradianceField::GetMemoryBytes() const noexcept
 {
 	std::size_t Bytes = 0;
-	for (const FBufferHandle* const Buffer : {&Cells, &Probes, &Used, &TraceList, &Counters, &Arguments, &RayData})
+	for (const FBufferHandle* const Buffer : {&Cells, &ProbeCells, &Probes, &Used, &Requests, &FreeList, &TraceList, &Counters, &RayData})
 	{
 		Bytes += *Buffer ? (*Buffer)->GetDescriptor().Size : 0;
 	}
@@ -100,11 +112,13 @@ void FIrradianceField::Release() noexcept
 	IrradianceAtlas.reset();
 	DistanceAtlas.reset();
 	Cells.reset();
+	ProbeCells.reset();
 	Probes.reset();
 	Used.reset();
+	Requests.reset();
+	FreeList.reset();
 	TraceList.reset();
 	Counters.reset();
-	Arguments.reset();
 	RayData.reset();
 	Gathered.reset();
 	CounterReadback = {};
@@ -149,7 +163,7 @@ std::expected<void, FPresentationError> FIrradianceField::Allocate(const FExtent
 	};
 
 	std::expected<void, FPresentationError> Result;
-	for (const auto& [Destination, Name, Words] : {std::tuple{&Cells, "Irradiance field cells", std::size_t{FieldProbeCount} * 4}, std::tuple{&Probes, "Irradiance field probes", std::size_t{FieldProbeCount} * 4}, std::tuple{&Used, "Irradiance field use", std::size_t{FieldProbeCount} * 2}, std::tuple{&TraceList, "Irradiance field trace list", std::size_t{FieldMaxTraced}}, std::tuple{&Counters, "Irradiance field counters", std::size_t{4}}, std::tuple{&Arguments, "Irradiance field arguments", std::size_t{4}}, std::tuple{&RayData, "Irradiance field rays", std::size_t{FieldMaxTraced} * FieldRays * 4}})
+	for (const auto& [Destination, Name, Words] : {std::tuple{&Cells, "Irradiance field cells", std::size_t{FieldLevels} * FieldCellsPerLevel}, std::tuple{&ProbeCells, "Irradiance field probe cells", std::size_t{FieldProbeCount} * 4}, std::tuple{&Probes, "Irradiance field probes", std::size_t{FieldProbeCount} * 4}, std::tuple{&Used, "Irradiance field use", std::size_t{FieldProbeCount} * 2}, std::tuple{&Requests, "Irradiance field requests", std::size_t{FieldMaxRequests + 1} * 4}, std::tuple{&FreeList, "Irradiance field free list", std::size_t{FieldProbeCount}}, std::tuple{&TraceList, "Irradiance field trace list", std::size_t{FieldMaxTraced}}, std::tuple{&Counters, "Irradiance field counters", std::size_t{CounterWords}}, std::tuple{&RayData, "Irradiance field rays", std::size_t{FieldMaxTraced} * FieldRays * 4}})
 	{
 		if (Result)
 		{
@@ -161,7 +175,7 @@ std::expected<void, FPresentationError> FIrradianceField::Allocate(const FExtent
 	{
 		if (Result)
 		{
-			Result = Buffer(Readback, "Irradiance field counter readback", 4, EBufferUsage::Readback);
+			Result = Buffer(Readback, "Irradiance field counter readback", CounterWords, EBufferUsage::Readback);
 		}
 	}
 
@@ -206,12 +220,11 @@ std::expected<void, FPresentationError> FIrradianceField::Render(const FGlobalIl
 		(*Origins[Level])[3] = 0.f;
 	}
 
-	const auto Stage = [&](const EStage Kind, const std::array<std::uint32_t, 3> GroupCount)
+	const auto Stage = [&](const EStage Kind, const std::uint32_t GroupCount)
 	{
 		Uniforms.Material.BaseColor = {static_cast<float>(Kind), 0.f, static_cast<float>(Frame), 0.f};
-		const std::array Targets{FStorageTextureBinding{.Texture = IrradianceAtlas}, FStorageTextureBinding{.Texture = DistanceAtlas}};
-		const std::array Buffers{Cells, Probes, Used, TraceList, Counters, Arguments};
-		return Device.Dispatch({.Pipeline = Pipelines[0], .StorageTextures = Targets, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = GroupCount});
+		const std::array Buffers{Cells, ProbeCells, Probes, Used, Requests, FreeList, TraceList, Counters};
+		return Device.Dispatch({.Pipeline = Pipelines[0], .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups(GroupCount, 64), 1, 1}});
 	};
 
 	// Stages are timed in groups; each group ends before the next begins.
@@ -221,19 +234,30 @@ std::expected<void, FPresentationError> FIrradianceField::Render(const FGlobalIl
 		Device.BeginGpuTiming(Name);
 	};
 
+	const std::array AtlasTargets{FStorageTextureBinding{.Texture = IrradianceAtlas}, FStorageTextureBinding{.Texture = DistanceAtlas}};
+	const std::array BlendOutputs{Probes, ProbeCells};
+	const std::array BlendBuffers{RayData, TraceList};
 	std::expected<void, FPresentationError> Result;
 	Device.BeginGpuTiming("GI probes");
 	if (!bReset)
 	{
-		Result = Stage(EStage::Reset, {Groups(DistanceExtent.Width, 64), DistanceExtent.Height, 1});
+		Result = Stage(EStage::Reset, FieldLevels * FieldCellsPerLevel);
+		if (Result)
+		{
+			// The blend clears new atlases once, over the distance atlas's texels.
+			Uniforms.Material.BaseColor = {0.f, 1.f, static_cast<float>(Frame), 0.f};
+			Result = Device.Dispatch({.Pipeline = Pipelines[2], .StorageTextures = AtlasTargets, .StorageBuffers = BlendOutputs, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {DistanceExtent.Width / 16, DistanceExtent.Height / 16, 1}, .Buffers = BlendBuffers});
+		}
+
 		bReset = static_cast<bool>(Result);
 	}
 
-	for (const EStage Kind : {EStage::Clear, EStage::Select, EStage::Arguments})
+	// Allocation follows selection so it can reuse the probes selection freed, and settling follows both so it only takes what room they leave.
+	for (const auto& [Kind, Threads] : {std::pair{EStage::Clear, 1u}, std::pair{EStage::Select, FieldProbeCount}, std::pair{EStage::Allocate, FieldMaxRequests}, std::pair{EStage::Settle, FieldProbeCount}, std::pair{EStage::Finish, 1u}})
 	{
 		if (Result)
 		{
-			Result = Stage(Kind, {Kind == EStage::Select || Kind == EStage::Settle ? Groups(FieldProbeCount, 64) : 1, 1, 1});
+			Result = Stage(Kind, Threads);
 		}
 	}
 
@@ -243,18 +267,15 @@ std::expected<void, FPresentationError> FIrradianceField::Render(const FGlobalIl
 	if (Result)
 	{
 		const std::array Sources{Inputs.Environment, Inputs.SkyView, Inputs.SpecularAlbedo, IrradianceAtlas, DistanceAtlas};
-		const std::array Buffers{Inputs.Lights, Inputs.Scene->GetSections(), Inputs.Scene->GetMaterials(), Probes, TraceList};
-		const std::array Targets{RayData, Used};
-		Result = Device.Dispatch({.Pipeline = Pipelines[1], .Textures = Sources, .StorageBuffers = Targets, .Uniforms = UniformBytes, .IndirectArguments = Arguments, .Buffers = Buffers, .Scene = Inputs.Scene->GetTopLevel(), .ResourceTable = Inputs.Scene->GetTable()});
+		const std::array Buffers{Inputs.Lights, Inputs.Scene->GetSections(), Inputs.Scene->GetMaterials(), Probes, TraceList, ProbeCells};
+		const std::array Targets{RayData, Cells, Used, Requests};
+		Result = Device.Dispatch({.Pipeline = Pipelines[1], .Textures = Sources, .StorageBuffers = Targets, .Uniforms = UniformBytes, .IndirectArguments = Counters, .Buffers = Buffers, .Scene = Inputs.Scene->GetTopLevel(), .ResourceTable = Inputs.Scene->GetTable()});
 	}
 
 	Time("GI irradiance");
 	if (Result)
 	{
-		const std::array Targets{FStorageTextureBinding{.Texture = IrradianceAtlas}, FStorageTextureBinding{.Texture = DistanceAtlas}};
-		const std::array Outputs{Probes, Cells};
-		const std::array Buffers{RayData, TraceList};
-		Result = Device.Dispatch({.Pipeline = Pipelines[2], .StorageTextures = Targets, .StorageBuffers = Outputs, .Uniforms = UniformBytes, .IndirectArguments = Arguments, .Buffers = Buffers});
+		Result = Device.Dispatch({.Pipeline = Pipelines[2], .StorageTextures = AtlasTargets, .StorageBuffers = BlendOutputs, .Uniforms = UniformBytes, .IndirectArguments = Counters, .Buffers = BlendBuffers});
 	}
 
 	const FExtent2D Half = Gathered->GetDescriptor().Extent;
@@ -265,7 +286,7 @@ std::expected<void, FPresentationError> FIrradianceField::Render(const FGlobalIl
 		const std::array Sources{Inputs.Depth, Inputs.Surface, IrradianceAtlas, DistanceAtlas};
 		const std::array Buffers{Probes};
 		const std::array Targets{FStorageTextureBinding{.Texture = Gathered}};
-		const std::array Outputs{Used};
+		const std::array Outputs{Cells, Used, Requests};
 		Result = Device.Dispatch({.Pipeline = Pipelines[3], .Textures = Sources, .StorageTextures = Targets, .StorageBuffers = Outputs, .Uniforms = UniformBytes, .GroupCount = BlockGroups, .Buffers = Buffers});
 	}
 
@@ -276,16 +297,17 @@ std::expected<void, FPresentationError> FIrradianceField::Render(const FGlobalIl
 		const std::array Sources{Inputs.Environment, Inputs.SkyView, Inputs.SpecularAlbedo, Inputs.Depth, IrradianceAtlas, DistanceAtlas, Inputs.Surface};
 		const std::array Buffers{Inputs.Lights, Inputs.Scene->GetSections(), Inputs.Scene->GetMaterials(), Probes};
 		const std::array Targets{FStorageTextureBinding{.Texture = Gathered}};
-		const std::array Outputs{Used};
+		const std::array Outputs{Cells, Used, Requests};
 		Result = Device.Dispatch({.Pipeline = Pipelines[4], .Textures = Sources, .StorageTextures = Targets, .StorageBuffers = Outputs, .Uniforms = UniformBytes, .GroupCount = BlockGroups, .Buffers = Buffers, .bOverlapsPrevious = true, .Scene = Inputs.Scene->GetTopLevel(), .ResourceTable = Inputs.Scene->GetTable()});
 	}
 
 	Device.EndGpuTiming();
 	if (const auto Bytes = Device.TryReadBuffer(CounterReadback[(Frame + 1) % CounterReadback.size()]))
 	{
-		std::array<std::uint32_t, 4> Words{};
+		std::array<std::uint32_t, CounterWords> Words{};
 		std::memcpy(Words.data(), Bytes->data(), sizeof(Words));
-		Statistics = {.Traced = std::min(Words[0], FieldMaxTraced), .Read = Words[1], .Inside = Words[2], .Overflow = Words[0] > FieldMaxTraced ? Words[0] - FieldMaxTraced : 0};
+		const std::uint32_t Asked = Words[CounterTraced];
+		Statistics = {.Traced = std::min(Asked, FieldMaxTraced), .Read = Words[CounterRead], .Inside = Words[CounterInside], .Overflow = Asked > FieldMaxTraced ? Asked - FieldMaxTraced : 0, .Allocated = FieldProbeCount - std::min(Words[CounterFree], FieldProbeCount), .Unallocated = Words[CounterUnallocated]};
 	}
 
 	if (Result)

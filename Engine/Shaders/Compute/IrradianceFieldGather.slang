@@ -1,13 +1,15 @@
 #define FIELD_IRRADIANCE_BINDING 2
 #define FIELD_DISTANCE_BINDING 3
 #define FIELD_PROBES_BINDING 16
-#define FIELD_USED_BINDING 385
+#define FIELD_CELLS_BINDING 385
+#define FIELD_USED_BINDING 386
+#define FIELD_REQUESTS_BINDING 387
 #define FIELD_USED_BY 0
 #include "IrradianceField.slangh"
 
 // Diffuse irradiance from the field once per 2x2 block, at the block's first pixel with the prepass's shading normal, into the gathers' left half
 // at 1/16 scale with that pixel's reversed depth in alpha, or 0 where the field has nothing, so the mesh pass keeps its environment lighting. The
-// probes it reads are the ones that trace next frame.
+// probes it reads are the ones that trace next frame, and the cells it finds empty get probes next frame.
 [[vk::binding(0, 0)]] Texture2D<float> SceneDepth;
 // The prepass's shading normals and roughness; see EncodeSurface.
 [[vk::binding(1, 0)]] Texture2D<float4> Surfaces;

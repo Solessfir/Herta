@@ -6,8 +6,8 @@
 [[vk::binding(385, 0)]] [format("rg16f")] RWTexture2D<float2> DistanceAtlas;
 // Each probe's offset and state as four floats; see FieldProbes.
 [[vk::binding(386, 0)]] RWStructuredBuffer<float> Probes;
-// Each slot's cell in the first three of four ints and, in the fourth, how many times its probe has blended since it last started over.
-[[vk::binding(387, 0)]] RWStructuredBuffer<int> Cells;
+// Each probe's cell, level, and update count; see FieldProbeLevel.
+[[vk::binding(387, 0)]] RWStructuredBuffer<int> ProbeCells;
 [[vk::binding(16, 0)]] StructuredBuffer<float4> RayData;
 [[vk::binding(17, 0)]] StructuredBuffer<uint> TraceList;
 
@@ -97,11 +97,24 @@ float4 Relocate(float4 Probe, float Spacing, float Updates)
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
-void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex)
+void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex, uint3 Id : SV_DispatchThreadID)
 {
-    uint Slot = TraceList[Group.x];
-    uint Level;
-    int3 Cell = FieldSlotCell(Slot, Level);
+    // New atlases are cleared once, over the distance atlas's texels, because the device never lets a texture be sampled before it is written.
+    if (Visual.Material.BaseColor.y != 0.0)
+    {
+        DistanceAtlas[Id.xy] = 0.0;
+        uint Width, Height;
+        IrradianceAtlas.GetDimensions(Width, Height);
+        if (all(Id.xy < uint2(Width, Height)))
+            IrradianceAtlas[Id.xy] = 0.0;
+
+        return;
+    }
+
+    uint Index = TraceList[Group.x];
+    int Packed = ProbeCells[Index * 4 + 3];
+    uint Level = FieldProbeLevel(Packed);
+    int3 Cell = int3(ProbeCells[Index * 4], ProbeCells[Index * 4 + 1], ProbeCells[Index * 4 + 2]);
     if (Thread < FieldRays)
     {
         SharedRays[Thread] = RayData[Group.x * FieldRays + Thread];
@@ -109,13 +122,13 @@ void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex)
     }
 
     GroupMemoryBarrierWithGroupSync();
-    float4 Probe = float4(Probes[Slot * 4], Probes[Slot * 4 + 1], Probes[Slot * 4 + 2], Probes[Slot * 4 + 3]);
-    // Probes that were new or inside geometry last frame have nothing worth keeping.
-    float Updates = Probe.w == FieldProbeActive ? float(Cells[Slot * 4 + 3]) : 0.0;
+    float4 Probe = float4(Probes[Index * 4], Probes[Index * 4 + 1], Probes[Index * 4 + 2], Probes[Index * 4 + 3]);
+    // Probes that were new or inside geometry last frame have nothing worth keeping, and their tiles may hold another probe's light or garbage.
+    float Updates = Probe.w == FieldProbeActive ? float(FieldProbeUpdates(Packed)) : 0.0;
     float Keep = min(Hysteresis, Updates / (Updates + 1.0));
     float Spacing = FieldSpacing(Level);
-    uint2 IrradianceOrigin = FieldTileOrigin(Slot, FieldIrradianceTile);
-    uint2 DistanceOrigin = FieldTileOrigin(Slot, FieldDistanceTile);
+    uint2 IrradianceOrigin = FieldTileOrigin(Index, FieldIrradianceTile);
+    uint2 DistanceOrigin = FieldTileOrigin(Index, FieldDistanceTile);
 
     if (Thread < FieldIrradianceTexels * FieldIrradianceTexels)
     {
@@ -137,7 +150,7 @@ void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex)
 
         // The cosine-weighted mean radiance times pi is irradiance.
         float3 Irradiance = Weights > 0.0 ? Sum / Weights * (PI * StoredScale) : 0.0;
-        float3 Previous = IrradianceAtlas[IrradianceOrigin + 1 + Texel].rgb;
+        float3 Previous = Keep > 0.0 ? IrradianceAtlas[IrradianceOrigin + 1 + Texel].rgb : Irradiance;
         // Light that changes by more than a third, such as a lamp switching on, should not take a second to arrive.
         float3 Change = abs(Irradiance - Previous);
         float Brightest = max(max(Irradiance.r, max(Irradiance.g, Irradiance.b)), max(Previous.r, max(Previous.g, Previous.b)));
@@ -162,9 +175,8 @@ void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex)
             Weights += Weight;
         }
 
-        float2 Previous = DistanceAtlas[DistanceOrigin + 1 + Texel];
-        float2 Moments = Weights > 1e-4 ? Sum / Weights : (Keep > 0.0 ? Previous : float2(MaximumDistance, MaximumDistance * MaximumDistance));
-        SharedDistance[Thread] = Weights > 1e-4 ? lerp(Moments, Previous, Keep) : Moments;
+        float2 Previous = Keep > 0.0 ? DistanceAtlas[DistanceOrigin + 1 + Texel] : float2(MaximumDistance, MaximumDistance * MaximumDistance);
+        SharedDistance[Thread] = Weights > 1e-4 ? lerp(Sum / Weights, Previous, Keep) : Previous;
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -183,7 +195,7 @@ void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex)
     {
         float4 Moved = Relocate(Probe, Spacing, Updates);
         for (uint Word = 0; Word < 4; ++Word)
-            Probes[Slot * 4 + Word] = Moved[Word];
-        Cells[Slot * 4 + 3] = Moved.w == FieldProbeActive ? int(min(Updates + 1.0, 255.0)) : 0;
+            Probes[Index * 4 + Word] = Moved[Word];
+        ProbeCells[Index * 4 + 3] = FieldPackProbe(Level, Moved.w == FieldProbeActive ? uint(Updates) + 1 : 0);
     }
 }

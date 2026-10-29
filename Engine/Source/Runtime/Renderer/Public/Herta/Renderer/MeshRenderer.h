@@ -38,13 +38,16 @@ class FRenderMesh;
 class FRenderMaterial;
 
 // The irradiance field's probes a few frames ago, read back without waiting: those that traced, those the camera's pixels read, those of them
-// classified inside geometry, and those that asked to trace past the field's per-frame capacity.
+// classified inside geometry, those that asked to trace past the field's per-frame capacity, those holding a cell, and the cells that asked for
+// a probe and found none free.
 struct FGlobalIlluminationStatistics
 {
 	std::uint32_t Traced = 0;
 	std::uint32_t Read = 0;
 	std::uint32_t Inside = 0;
 	std::uint32_t Overflow = 0;
+	std::uint32_t Allocated = 0;
+	std::uint32_t Unallocated = 0;
 };
 struct FEnvironmentLighting;
 
