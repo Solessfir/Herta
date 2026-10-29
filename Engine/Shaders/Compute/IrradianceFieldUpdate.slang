@@ -18,10 +18,14 @@ static const uint StageReset = 0;
 static const uint StageClear = 1;
 static const uint StageSelect = 2;
 static const uint StageArguments = 3;
+static const uint StageSettle = 4;
 
 // Probes the camera read within this many frames trace every frame; probes only rays read trace every fourth frame while they stay in use.
 static const uint CameraFrames = 2;
 static const uint RayFrames = 8;
+// Probes still settling after they appear, relocating and averaging their first bounces, trace every fourth frame in the room the others leave,
+// so places the camera walks into are already lit instead of changing as it arrives.
+static const int SettledUpdates = 16;
 
 [shader("compute")]
 [numthreads(64, 1, 1)]
@@ -99,6 +103,24 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
 
     bool bCamera = Frame - Used[Slot * 2] <= CameraFrames;
     bool bRays = Frame - Used[Slot * 2 + 1] <= RayFrames;
+    bool bSelected = bCamera || (bRays && ((Slot + Frame) & 3u) == 0u);
+    if (Stage == StageSettle)
+    {
+        // Runs after every selected probe has its place, so settling never takes one from a probe in use.
+        bool bSettling = Probes[Slot * 4 + 3] != FieldProbeInside && Cells[Slot * 4 + 3] < SettledUpdates;
+        if (!bSelected && bSettling && ((Slot + Frame) & 3u) == 0u)
+        {
+            uint Index;
+            InterlockedAdd(Counters[0], 1u, Index);
+            if (Index < FieldMaxTraced)
+                TraceList[Index] = Slot;
+            else
+                InterlockedAdd(Counters[0], 0xFFFFFFFFu);
+        }
+
+        return;
+    }
+
     if (bCamera)
     {
         InterlockedAdd(Counters[1], 1u);
@@ -106,7 +128,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
             InterlockedAdd(Counters[2], 1u);
     }
 
-    if (bCamera || (bRays && ((Slot + Frame) & 3u) == 0u))
+    if (bSelected)
     {
         uint Index;
         InterlockedAdd(Counters[0], 1u, Index);

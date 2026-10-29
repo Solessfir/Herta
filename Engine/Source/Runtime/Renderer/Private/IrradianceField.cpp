@@ -30,6 +30,7 @@ enum class EStage : std::uint32_t
 	Clear,
 	Select,
 	Arguments,
+	Settle,
 };
 
 [[nodiscard]] constexpr std::uint32_t Groups(const std::uint32_t Threads, const std::uint32_t Size) noexcept
@@ -232,7 +233,7 @@ std::expected<void, FPresentationError> FIrradianceField::Render(const FGlobalIl
 	{
 		if (Result)
 		{
-			Result = Stage(Kind, {Kind == EStage::Select ? Groups(FieldProbeCount, 64) : 1, 1, 1});
+			Result = Stage(Kind, {Kind == EStage::Select || Kind == EStage::Settle ? Groups(FieldProbeCount, 64) : 1, 1, 1});
 		}
 	}
 

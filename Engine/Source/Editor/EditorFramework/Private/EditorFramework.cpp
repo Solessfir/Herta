@@ -1029,9 +1029,19 @@ void FEditorFramework::SetPathTracing(const bool bEnabled) noexcept
 	Implementation->VisualSettings.bPathTracing = bEnabled;
 }
 
-void FEditorFramework::SetAutoExposure(const bool bEnabled) noexcept
+void FEditorFramework::SetManualExposure(const float ExposureValue) noexcept
 {
-	Implementation->bAutoExposure = bEnabled;
+	// EV100 = log2(N^2 / t) at ISO 100.
+	Implementation->bAutoExposure = false;
+	Implementation->PhysicalCamera.Iso = 100.f;
+	Implementation->PhysicalCamera.ShutterSeconds = Implementation->PhysicalCamera.Aperture * Implementation->PhysicalCamera.Aperture / std::exp2(ExposureValue);
+}
+
+void FEditorFramework::MoveViewportCamera(const float Distance) noexcept
+{
+	FViewportCameraController& Camera = Implementation->ViewportCamera;
+	const FVector3 Forward = Camera.MakePickingRay({0.5f, 0.5f}, 1.f).Direction;
+	Camera.SetView(Camera.GetPosition() + Forward * Distance, Camera.GetYaw(), Camera.GetPitch());
 }
 
 void FEditorFramework::SetViewportResolution(const std::optional<FExtent2D> Resolution) noexcept

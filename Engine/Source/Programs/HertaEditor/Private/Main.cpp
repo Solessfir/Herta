@@ -221,7 +221,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const bool bManualExposure, const bool bShimmer)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const std::string_view ExposureArgument, const bool bShimmer, const bool bWalk)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -823,9 +823,17 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		EditorFramework->SetPathTracing(true);
 	}
 
-	if (bManualExposure)
+	if (!ExposureArgument.empty())
 	{
-		EditorFramework->SetAutoExposure(false);
+		float ExposureValue = 0.f;
+		const auto [End, Error] = std::from_chars(ExposureArgument.data(), ExposureArgument.data() + ExposureArgument.size(), ExposureValue);
+		if (Error != std::errc{} || End != ExposureArgument.data() + ExposureArgument.size() || ExposureValue < -6.f || ExposureValue > 24.f)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Invalid --exposure={}; expected an EV100 from -6 to 24, such as 15 for sunlight", ExposureArgument);
+			return 1;
+		}
+
+		EditorFramework->SetManualExposure(ExposureValue);
 	}
 
 	if (!ResolutionArgument.empty())
@@ -1174,6 +1182,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 	// With --shimmer, each bookmark's last frames are read back to measure how much a still view changes from frame to frame.
 	constexpr std::size_t VisualShimmerFrames = 16;
+	// With --walk, each bookmark is followed by a walk forward, one step a frame like flying the camera, captured as it ends and again once the same
+	// view has settled, so the two show what motion leaves behind.
+	constexpr std::size_t VisualWalkSteps = 48;
+	constexpr float VisualWalkStep = 0.05f;
+	std::size_t VisualWalkFrames = 0;
+	int VisualWalkPhase = 0;
 	std::vector<std::byte> ShimmerPrevious;
 	std::vector<std::uint16_t> ShimmerSums;
 	const auto SampleShimmer = [&]
@@ -1435,6 +1449,31 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 					CompleteVisualCapture();
 				}
 			}
+			else if (bPresented && VisualFrames == 600 && !bVisualCompleted && VisualWalkPhase != 0)
+			{
+				// Each frame shows the steps taken before it, so the walk's last frame comes one frame after its last step.
+				const std::string Base = MakeVisualCaptureName(VisualSlot, VisualSlotName);
+				++VisualWalkFrames;
+				if (VisualWalkPhase == 1 && VisualWalkFrames <= VisualWalkSteps)
+				{
+					EditorFramework->MoveViewportCamera(VisualWalkStep);
+				}
+				else if (VisualWalkPhase == 1)
+				{
+					CaptureVisualView(Base.substr(0, Base.size() - 4) + "-moving.png");
+					VisualWalkPhase = 2;
+					VisualWalkFrames = 0;
+				}
+				else if (VisualWalkFrames >= VisualBookmarkSettleFrames)
+				{
+					CaptureVisualView(Base.substr(0, Base.size() - 4) + "-stopped.png");
+					VisualWalkPhase = 0;
+					if (!ShowNextVisualBookmark())
+					{
+						CompleteVisualCapture();
+					}
+				}
+			}
 			else if (bPresented && VisualFrames == 600 && !bVisualCompleted && ++VisualSettleFrames >= VisualBookmarkSettleFrames && (!bPathTracing || MeshRenderer->GetPathTracingSamples() >= VisualPathTracingSamples))
 			{
 				// Each bookmark settles for 120 frames so shadows and global illumination reflect its view, then averages the last 30.
@@ -1456,7 +1495,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				const std::string Shimmer = FinishShimmer(CaptureName.substr(0, CaptureName.size() - 4) + "-shimmer.png");
 				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={} gi_probes_traced={} gi_probes_read={} gi_probes_inside={} gi_overflow={}{}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Probes.Traced, Probes.Read, Probes.Inside, Probes.Overflow, Shimmer, Passes);
 				CaptureVisualView(CaptureName);
-				if (!ShowNextVisualBookmark())
+				if (bWalk)
+				{
+					VisualWalkPhase = 1;
+					VisualWalkFrames = 0;
+				}
+				else if (!ShowNextVisualBookmark())
 				{
 					CompleteVisualCapture();
 				}
@@ -1724,8 +1768,9 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::string_view Quality = Herta::FindArgumentValue(ArgumentCount, Arguments, "--quality=");
 		const std::string_view Resolution = Herta::FindArgumentValue(ArgumentCount, Arguments, "--resolution=");
 		const bool bPathTracing = Herta::HasArgument(ArgumentCount, Arguments, "--path-tracing");
-		const bool bManualExposure = Herta::HasArgument(ArgumentCount, Arguments, "--manual-exposure");
+		const std::string_view Exposure = Herta::FindArgumentValue(ArgumentCount, Arguments, "--exposure=");
 		const bool bShimmer = Herta::HasArgument(ArgumentCount, Arguments, "--shimmer");
+		const bool bWalk = Herta::HasArgument(ArgumentCount, Arguments, "--walk");
 		// Explorer passes a file dropped on the executable as a plain argument.
 		std::filesystem::path OpenPath;
 		for (const std::filesystem::path& Argument : Herta::GetProcessArgumentPaths(ArgumentCount, Arguments))
@@ -1737,7 +1782,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, bManualExposure, bShimmer);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, Exposure, bShimmer, bWalk);
 	}
 	catch (const std::exception& Exception)
 	{

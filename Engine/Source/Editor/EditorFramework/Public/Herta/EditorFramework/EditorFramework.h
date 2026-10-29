@@ -113,8 +113,10 @@ public:
 	void SetPlayPaused(bool bPaused) noexcept;
 	void SetRenderQuality(ERenderQuality Quality) noexcept;
 	void SetPathTracing(bool bEnabled) noexcept;
-	// Off uses the physical camera's manual exposure, so captures compare without metering differences.
-	void SetAutoExposure(bool bEnabled) noexcept;
+	// Replaces auto exposure with a fixed EV100, set through the physical camera's shutter, so captures compare without metering differences.
+	void SetManualExposure(float ExposureValue) noexcept;
+	// Moves the viewport camera along its view direction, as flying forward does.
+	void MoveViewportCamera(float Distance) noexcept;
 	// Renders the viewport at a fixed size, shown scaled to the panel, so GPU timings compare across displays. Unset follows the panel.
 	void SetViewportResolution(std::optional<FExtent2D> Resolution) noexcept;
 	// Moves the viewport camera to a level camera bookmark and returns its name, or nothing when the slot is empty.
