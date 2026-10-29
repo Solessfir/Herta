@@ -1,7 +1,7 @@
 #include "../VisualLights.slangh"
 [[vk::binding(0, 0)]] Texture2D<float4> DepthTexture;
 [[vk::binding(1, 0)]] Texture2D<float4> ShadowAtlas;
-[[vk::binding(2, 0)]] Texture2D<float4> DiffuseEnvironment;
+[[vk::binding(2, 0)]] Texture2D<float4> SpecularEnvironment;
 [[vk::binding(3, 0)]] Texture2D<float4> LocalShadowAtlas;
 [[vk::binding(384, 0)]] [format("rgba16f")] RWTexture2D<float4> Scattering;
 // The scene depth at each texel centre, which the denoise and the full-resolution composite compare against.
@@ -18,12 +18,38 @@ float3 FogLight(uint Index, float3 Position, float3 Direction)
     return Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * FogPhase(-Direction, L) * LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, float3(0.0, 0.0, 0.0), false);
 }
 
+groupshared float3 AmbientShare[64];
+
+// Sky light scattered toward the camera: the environment weighted by the phase function over a spherical Fibonacci set of 64 directions, from a mip
+// blurred to about their spacing. It varies slowly with the view, so each thread of a group adds one direction for the group's central ray. Halving
+// the zenith and nadir irradiance instead weighted the sky by |cos| and ignored anisotropy, which left fogged sky 7% brighter than the path tracer.
+float3 GroupAmbient(uint Thread, uint2 Group, uint2 Size)
+{
+    float Y = 1.0 - (2.0 * Thread + 1.0) / 64.0;
+    float Ring = sqrt(saturate(1.0 - Y * Y));
+    float Phi = Thread * 2.39996323;
+    float3 L = float3(Ring * cos(Phi), Y, Ring * sin(Phi));
+    float3 Center = CameraRay((float2(Group * 8u) + 4.0) / float2(Size));
+    AmbientShare[Thread] = Visual.Sky.x > 0.0 ? SpecularEnvironment.SampleLevel(LinearSampler, DirectionUV(L), 0.6 * Visual.Sky.z).rgb * FogPhase(-Center, L) : 0.0;
+    for (uint Stride = 32; Stride > 0; Stride /= 2)
+    {
+        GroupMemoryBarrierWithGroupSync();
+        if (Thread < Stride)
+            AmbientShare[Thread] += AmbientShare[Thread + Stride];
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+    return AmbientShare[0] * (4.0 * PI / 64.0) * Visual.Sky.x * Visual.SkyColor.rgb;
+}
+
 [shader("compute")]
 [numthreads(8, 8, 1)]
-void computeMain(uint3 Id : SV_DispatchThreadID)
+void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex)
 {
     uint Width, Height;
     Scattering.GetDimensions(Width, Height);
+    // Every thread joins the group's sum before any leaves.
+    float3 Ambient = GroupAmbient(Thread, Group.xy, uint2(Width, Height));
     if (any(Id.xy >= uint2(Width, Height)))
         return;
 
@@ -38,9 +64,6 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     float StepLength = Distance / max(1, Steps);
     float Transmittance = 1.0;
     float3 InScattering = 0.0;
-    // Isotropic in-scattering needs the sky's mean radiance; the zenith and nadir irradiance pair recovers it for a smooth sky.
-    float3 SkyIrradiance = DiffuseEnvironment.SampleLevel(LinearSampler, DirectionUV(float3(0.0, 1.0, 0.0)), 0).rgb + DiffuseEnvironment.SampleLevel(LinearSampler, DirectionUV(float3(0.0, -1.0, 0.0)), 0).rgb;
-    float3 Ambient = SkyIrradiance * Visual.Sky.x * Visual.SkyColor.rgb / (2.0 * PI);
     // With a few metres between samples, every pixel would test shadows at the same depths and shafts would show as slabs.
     // Interleaved gradient noise (Jimenez 2014) staggers the samples per pixel; the 3x3 denoise averages the dither out.
     float Jitter = frac(52.9829189 * frac(dot(Pixel, float2(0.06711056, 0.00583715))));

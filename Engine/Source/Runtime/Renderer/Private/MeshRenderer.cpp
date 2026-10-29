@@ -2961,7 +2961,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				const FExtent2D FogExtent = State.FogColor->GetDescriptor().Extent;
 				const std::array<std::uint32_t, 3> Groups{(FogExtent.Width + 7) / 8, (FogExtent.Height + 7) / 8, 1};
 				const auto Uniforms = GetVisualUniformBytes(State.Uniforms);
-				const std::array MarchSources{State.Depth, State.ShadowAtlas, State.EnvironmentDiffuse, State.LocalShadowAtlas};
+				const std::array MarchSources{State.Depth, State.ShadowAtlas, State.EnvironmentSpecular, State.LocalShadowAtlas};
 				const std::array MarchTargets{FStorageTextureBinding{.Texture = State.FogScattering}, FStorageTextureBinding{.Texture = State.FogDepth}};
 				auto Result = Device.Dispatch({.Pipeline = State.FogPipelines[0], .Textures = MarchSources, .StorageTextures = MarchTargets, .Uniforms = Uniforms, .GroupCount = Groups, .Buffers = LightBuffers});
 				if (Result)
