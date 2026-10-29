@@ -41,6 +41,8 @@ static const uint CounterOverflow = 5;
 [[vk::binding(GiBufferBase + 4, 0)]] RWStructuredBuffer<uint> RecordCounts;
 // Merged radiance, one RGB9E5 word per record: cascade 0's per direction, higher cascades' already averaged into the next lower cascade's directions.
 [[vk::binding(GiBufferBase + 5, 0)]] RWStructuredBuffer<uint> Merged;
+// The hit cache's slots: a key and the frame it was last read, two words each. Its sums and averages follow the history counts in Deposits.
+[[vk::binding(GiBufferBase + 6, 0)]] RWStructuredBuffer<uint> CacheKeys;
 
 uint DirectionRows(uint Cascade)
 {
@@ -296,6 +298,18 @@ static const uint UnknownRadiance = 0xFFFFFFFFu;
 
 // After the deposits, two alternating arrays hold how many frames each cascade 0 probe's irradiance has averaged.
 static const uint HistoryBase = RecordTotal * 3u;
+
+// Rays whose hits last frame's probes did not cover, such as surfaces off screen, read their bounce light from a world-space hash of irradiance
+// at hits instead. Cells are four cascade 0 probes wide and split by the normal's dominant axis, so a slab's two faces stay apart. Each cell keeps
+// eight floats after the history counts: this frame's irradiance sum and sample count, then its running average and how many frames that holds.
+static const uint CacheCapacity = 131072u;
+static const uint CacheBase = HistoryBase + 65536u * 2u;
+static const uint CacheFloats = 8u;
+// Cells unread this many frames are freed.
+static const uint CacheLifetime = 120u;
+// Each frame adds up to CacheSamples rays per cell, and its average keeps about 20 frames of them.
+static const float CacheSamples = 4.0;
+static const float CacheBlend = 0.05;
 
 uint MeanBin(float3 Direction)
 {

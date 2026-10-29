@@ -15,8 +15,9 @@ constexpr std::uint32_t TotalRecords = 10485760;
 constexpr std::uint32_t MergedRecords = 4194304;
 constexpr std::uint32_t TotalSlots = 212992;
 constexpr std::uint32_t TotalProbes = 106496;
-// After the deposits, two alternating frame counts per cascade 0 probe.
-constexpr std::uint32_t HistoryWords = 2 * 65536;
+// After the deposits, two alternating frame counts per cascade 0 probe, then eight floats per hit cache cell.
+constexpr std::uint32_t CacheCapacity = 131072;
+constexpr std::uint32_t HistoryWords = 2 * 65536 + CacheCapacity * 8;
 constexpr FExtent2D AtlasExtent{2048, 2048};
 
 enum class EStage : std::uint32_t
@@ -28,6 +29,7 @@ enum class EStage : std::uint32_t
 	Links,
 	Merge,
 	ResetRecords,
+	ResolveCache,
 };
 
 [[nodiscard]] constexpr std::uint32_t Groups(const std::uint32_t Threads, const std::uint32_t Size) noexcept
@@ -43,10 +45,10 @@ std::expected<std::unique_ptr<FRadianceCascades>, FPresentationError> FRadianceC
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Radiance cascades need ray queries and all six of their shaders"});
 	}
 
-	auto Probes = Device.CreateComputePipeline({.Name = "Radiance cascade probes", .Shader = std::move(Shaders.Probes), .TextureCount = 1, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
-	auto Trace = Device.CreateComputePipeline({.Name = "Radiance cascade rays", .Shader = std::move(Shaders.Trace), .TextureCount = 5, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 4, .bRayQuery = true, .bResourceTable = true});
-	auto Irradiance = Device.CreateComputePipeline({.Name = "Radiance cascade irradiance", .Shader = std::move(Shaders.Irradiance), .TextureCount = 1, .StorageTextureCount = 1, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .BufferCount = 1});
-	auto Shade = Device.CreateComputePipeline({.Name = "Radiance cascade gather", .Shader = std::move(Shaders.Shade), .TextureCount = 2, .StorageTextureCount = 1, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
+	auto Probes = Device.CreateComputePipeline({.Name = "Radiance cascade probes", .Shader = std::move(Shaders.Probes), .TextureCount = 1, .StorageBufferCount = 7, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
+	auto Trace = Device.CreateComputePipeline({.Name = "Radiance cascade rays", .Shader = std::move(Shaders.Trace), .TextureCount = 5, .StorageBufferCount = 7, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 4, .bRayQuery = true, .bResourceTable = true});
+	auto Irradiance = Device.CreateComputePipeline({.Name = "Radiance cascade irradiance", .Shader = std::move(Shaders.Irradiance), .TextureCount = 1, .StorageTextureCount = 1, .StorageBufferCount = 7, .UniformBufferSize = VisualUniformBytes, .BufferCount = 1});
+	auto Shade = Device.CreateComputePipeline({.Name = "Radiance cascade gather", .Shader = std::move(Shaders.Shade), .TextureCount = 2, .StorageTextureCount = 1, .StorageBufferCount = 7, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
 	auto Arguments = Device.CreateComputePipeline({.Name = "Radiance cascade arguments", .Shader = std::move(Shaders.Arguments), .StorageBufferCount = 1, .BufferCount = 1});
 	for (const auto* const Pipeline : {&Probes, &Trace, &Irradiance, &Shade, &Arguments})
 	{
@@ -78,7 +80,7 @@ FGlobalIlluminationStatistics FRadianceCascades::GetStatistics() const noexcept
 std::size_t FRadianceCascades::GetMemoryBytes() const noexcept
 {
 	std::size_t Bytes = 0;
-	for (const FBufferHandle* const Buffer : {&Slots[0], &Slots[1], &Probes, &Counters, &Deposits, &RecordCounts, &Merged, &Arguments})
+	for (const FBufferHandle* const Buffer : {&Slots[0], &Slots[1], &Probes, &Counters, &Deposits, &RecordCounts, &Merged, &CacheKeys, &Arguments})
 	{
 		Bytes += *Buffer ? (*Buffer)->GetDescriptor().Size : 0;
 	}
@@ -100,6 +102,7 @@ void FRadianceCascades::Release() noexcept
 	Deposits.reset();
 	RecordCounts.reset();
 	Merged.reset();
+	CacheKeys.reset();
 	Arguments.reset();
 	Atlas = {};
 	CounterReadback = {};
@@ -175,6 +178,11 @@ std::expected<void, FPresentationError> FRadianceCascades::Allocate(const FExten
 
 	if (Result)
 	{
+		Result = Buffer(CacheKeys, "Radiance cascade hit cache keys", std::size_t{CacheCapacity} * 2);
+	}
+
+	if (Result)
+	{
 		Result = Buffer(Arguments, "Radiance cascade arguments", 36);
 	}
 
@@ -222,7 +230,7 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 	const std::size_t Current = Frame & 1u;
 	const std::size_t Previous = Current ^ 1u;
 	const std::array ProbeSources{Inputs.Depth};
-	const std::array Buffers{Slots[Current], Probes, Counters, Deposits, RecordCounts, Merged};
+	const std::array Buffers{Slots[Current], Probes, Counters, Deposits, RecordCounts, Merged, CacheKeys};
 	const auto Stage = [&](const EStage Kind, const std::uint32_t Cascade, const std::array<std::uint32_t, 3> GroupCount) -> std::expected<void, FPresentationError>
 	{
 		Uniforms.Material.BaseColor = {static_cast<float>(Kind), static_cast<float>(Cascade), static_cast<float>(Frame), 0.f};
@@ -300,6 +308,11 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 		const std::array Sources{Inputs.Environment, Inputs.SkyView, Inputs.SpecularAlbedo, Inputs.Depth, bPrevious ? Atlas[Previous] : Inputs.Environment};
 		const std::array SceneBuffers{Inputs.Lights, Inputs.Scene->GetSections(), Inputs.Scene->GetMaterials(), Slots[Previous]};
 		Result = Device.Dispatch({.Pipeline = Pipelines[1], .Textures = Sources, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups((Inputs.Extent.Width + 1) / 2, 8), Groups((Inputs.Extent.Height + 1) / 2, 8), 1}, .Buffers = SceneBuffers, .Scene = Inputs.Scene->GetTopLevel(), .ResourceTable = Inputs.Scene->GetTable()});
+	}
+
+	if (Result)
+	{
+		Result = Stage(EStage::ResolveCache, 0, {Groups(CacheCapacity, 64), 1, 1});
 	}
 
 	Time("GI merge");

@@ -11,6 +11,7 @@ static const uint StageInsertParents = 3;
 static const uint StageLinks = 4;
 static const uint StageMerge = 5;
 static const uint StageResetRecords = 6;
+static const uint StageResolveCache = 7;
 
 // Radiance with alpha 1 where known.
 groupshared float4 MergedShared[64];
@@ -102,8 +103,41 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
             RecordCounts[Record] = 0u;
         }
 
-        if (Thread < ProbeCapacity[0] * 2u)
+        if (Thread < ProbeCapacity[0] * 2u + CacheCapacity * CacheFloats)
             Deposits[HistoryBase + Thread] = 0.0;
+        if (Thread < CacheCapacity * 2u)
+            CacheKeys[Thread] = 0u;
+        return;
+    }
+
+    // Folds each hit cache cell's samples from this frame into its average, which new cells take evenly over their first frames.
+    if (Stage == StageResolveCache)
+    {
+        if (Thread >= CacheCapacity || CacheKeys[Thread * 2u] == 0u)
+            return;
+
+        uint Base = CacheBase + Thread * CacheFloats;
+        if (uint(Visual.Material.BaseColor.z) - CacheKeys[Thread * 2u + 1u] > CacheLifetime)
+        {
+            CacheKeys[Thread * 2u] = 0u;
+            for (uint Word = 0; Word < CacheFloats; ++Word)
+                Deposits[Base + Word] = 0.0;
+            return;
+        }
+
+        float Count = Deposits[Base + 3u];
+        if (Count <= 0.0)
+            return;
+
+        float3 Mean = float3(Deposits[Base], Deposits[Base + 1u], Deposits[Base + 2u]) / Count;
+        float History = Deposits[Base + 7u];
+        float Blend = max(1.0 / (History + 1.0), CacheBlend);
+        Deposits[Base + 4u] = lerp(Deposits[Base + 4u], Mean.r, Blend);
+        Deposits[Base + 5u] = lerp(Deposits[Base + 5u], Mean.g, Blend);
+        Deposits[Base + 6u] = lerp(Deposits[Base + 6u], Mean.b, Blend);
+        Deposits[Base + 7u] = min(History + 1.0, 1.0 / CacheBlend);
+        for (uint Word = 0; Word < 4u; ++Word)
+            Deposits[Base + Word] = 0.0;
         return;
     }
 

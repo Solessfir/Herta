@@ -61,6 +61,7 @@ private:
 	FBufferHandle Deposits;
 	FBufferHandle RecordCounts;
 	FBufferHandle Merged;
+	FBufferHandle CacheKeys;
 	// Group counts sized to the probes that exist, so stages skip the unused capacity.
 	FBufferHandle Arguments;
 	std::array<FTextureHandle, 2> Atlas;
