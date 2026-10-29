@@ -11,8 +11,8 @@
 // probes they read.
 
 static const uint FieldLevels = 4;
-static const int3 FieldGrid = int3(32, 16, 32);
-static const uint FieldProbesPerLevel = 16384;
+static const int3 FieldGrid = int3(32, 32, 32);
+static const uint FieldProbesPerLevel = 32768;
 static const uint FieldProbeCount = FieldProbesPerLevel * FieldLevels;
 static const float FieldBaseSpacing = 1.0;
 static const uint FieldRays = 128;
@@ -263,7 +263,7 @@ float4 FieldLevelIrradiance(float3 Position, float3 Normal, uint Level)
 }
 
 // Each level fades into the next over this many cells.
-static const float FieldBlendCells = 3.0;
+static const float FieldBlendCells = 4.0;
 
 // Irradiance at P from the finest level that holds it, faded into the next level towards its reach; alpha is 0 outside the field. A level's
 // reach is measured from the camera itself, within the cells its grid holds wherever it has snapped: two fewer than half the grid on each side,

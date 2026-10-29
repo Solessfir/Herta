@@ -12,8 +12,8 @@ namespace
 {
 // Keep in sync with IrradianceField.slangh.
 constexpr std::uint32_t FieldLevels = 4;
-constexpr std::array<std::int32_t, 3> FieldGrid{32, 16, 32};
-constexpr std::uint32_t FieldProbeCount = 16384 * FieldLevels;
+constexpr std::array<std::int32_t, 3> FieldGrid{32, 32, 32};
+constexpr std::uint32_t FieldProbeCount = 32768 * FieldLevels;
 constexpr float FieldBaseSpacing = 1.f;
 constexpr std::uint32_t FieldRays = 128;
 constexpr std::uint32_t FieldMaxTraced = 8192;
