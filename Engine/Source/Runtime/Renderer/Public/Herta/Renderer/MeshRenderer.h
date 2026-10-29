@@ -78,6 +78,7 @@ private:
 	std::array<FTextureHandle, MaterialTextureSlotCount> Textures{};
 	std::string ShaderKey;
 	friend class FMeshRenderer;
+	friend class FPathTracer;
 };
 
 // GPU copy of a cooked model. Recorded frames share its buffers and textures, so dropping a mesh never waits on the GPU.
@@ -119,6 +120,7 @@ private:
 	mutable FVector3 BoundsMaximum{};
 
 	friend class FMeshRenderer;
+	friend class FPathTracer;
 };
 
 // A 1 m cube centered on the origin with the whole texture on every face, unmirrored when viewed from outside.
@@ -137,6 +139,9 @@ public:
 	// Screen-space motion with FVisualSettings::bMotionVectors: this frame's UV minus the previous frame's, in Rg16Float. Empty otherwise.
 	[[nodiscard]] const FTextureHandle& GetMotionVectors() const noexcept;
 	std::size_t GetLastDrawCount() const noexcept;
+	// Samples per pixel the path tracer has accumulated for the current view, or zero while it is off.
+	std::uint32_t GetPathTracingSamples() const noexcept;
+	bool SupportsPathTracing() const noexcept;
 	std::vector<FGpuPassTiming> GetGpuTimings() const;
 	std::size_t GetRenderTargetBytes() const noexcept;
 	[[nodiscard]] std::expected<void, FPresentationError> SetEnvironmentLighting(const FEnvironmentLighting& Lighting);

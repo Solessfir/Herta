@@ -3,6 +3,8 @@
 #include "Herta/Math/Matrix.h"
 #include "Herta/RenderGraph/RenderGraph.h"
 #include "Herta/Renderer/EnvironmentLighting.h"
+#include "MaterialUniform.h"
+#include "PathTracer.h"
 
 #include <AreaTex.h>
 // The vendored header converts int to float implicitly; it stays unmodified.
@@ -323,8 +325,9 @@ std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> FRenderMes
 	}
 
 	auto Mesh = std::make_shared<FRenderMesh>();
-	auto Vertices = Device.CreateBuffer({.Name = std::format("{} vertices", Name), .Size = Model.Vertices.size() * sizeof(FMeshVertex), .Usage = EBufferUsage::Vertex});
-	auto Indices = Device.CreateBuffer({.Name = std::format("{} indices", Name), .Size = Model.Indices.size() * sizeof(std::uint32_t), .Usage = EBufferUsage::Index});
+	// Ray tracing reads mesh buffers in place, so they are created for it whenever the device can.
+	auto Vertices = Device.CreateBuffer({.Name = std::format("{} vertices", Name), .Size = Model.Vertices.size() * sizeof(FMeshVertex), .Usage = EBufferUsage::Vertex, .bRayTracing = Device.SupportsRayQueries()});
+	auto Indices = Device.CreateBuffer({.Name = std::format("{} indices", Name), .Size = Model.Indices.size() * sizeof(std::uint32_t), .Usage = EBufferUsage::Index, .bRayTracing = Device.SupportsRayQueries()});
 	if (!Vertices || !Indices)
 	{
 		return std::unexpected(!Vertices ? Vertices.error() : Indices.error());
@@ -725,6 +728,8 @@ struct FMeshRenderer::FImplementation
 	std::array<FBufferHandle, 3> DepthBoundsReadback;
 	// Screen-space shadows toward the sun from the depth prepass.
 	FComputePipelineHandle ContactShadowPipeline;
+	// Null without ray queries or its shader.
+	std::unique_ptr<FPathTracer> PathTracer;
 	FTextureHandle ContactShadows;
 	std::size_t DepthBoundsFrame = 0;
 	float VisibleNear = 0.f;
@@ -880,6 +885,17 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 			State->ContactShadowPipeline = std::move(*Contact);
 		}
+	}
+
+	if (!VisualShaders.PathTraceCompute.Bytecode.empty() && Device.SupportsRayQueries())
+	{
+		auto PathTracer = FPathTracer::Create(Device, std::move(VisualShaders.PathTraceCompute));
+		if (!PathTracer)
+		{
+			return std::unexpected(PathTracer.error());
+		}
+
+		State->PathTracer = std::move(*PathTracer);
 	}
 
 	if (!InstancedVertexShader.Bytecode.empty())
@@ -1303,6 +1319,16 @@ std::size_t FMeshRenderer::GetLastDrawCount() const noexcept
 	return Implementation->LastDrawCount;
 }
 
+std::uint32_t FMeshRenderer::GetPathTracingSamples() const noexcept
+{
+	return Implementation->PathTracer ? Implementation->PathTracer->GetSampleCount() : 0;
+}
+
+bool FMeshRenderer::SupportsPathTracing() const noexcept
+{
+	return static_cast<bool>(Implementation->PathTracer);
+}
+
 std::vector<FGpuPassTiming> FMeshRenderer::GetGpuTimings() const
 {
 	return Implementation->Device->GetGpuTimings();
@@ -1512,6 +1538,17 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	State.Uniforms = *VisualUniforms;
+	// The path tracer replaces shading, shadow maps, and screen-space effects, and does not handle participating media yet.
+	const bool bPathTracing = View.Visuals.bPathTracing && State.PathTracer && State.VisualPipelines[0];
+	if (State.PathTracer && !bPathTracing)
+	{
+		State.PathTracer->Release();
+	}
+
+	if (bPathTracing)
+	{
+		State.Uniforms.Fog = {};
+	}
 	// A new extent restarts motion, as there is no previous frame at that size to compare with.
 	const FMatrix4 PreviousWorldToClip = State.PreviousExtent == Extent ? State.PreviousWorldToClip : WorldToClip;
 	State.PreviousWorldToClip = WorldToClip;
@@ -1575,7 +1612,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		}
 	}
 
-	State.Shadows = State.ShadowPipeline && View.Visuals.ShadowQuality != EShadowQuality::Off ? BuildShadowViews(State.Uniforms, View.Lights, View.Projection, View.Visuals.ShadowResolution, State.VisibleNear, State.VisibleFar) : std::vector<FShadowView>{};
+	State.Shadows = State.ShadowPipeline && View.Visuals.ShadowQuality != EShadowQuality::Off && !bPathTracing ? BuildShadowViews(State.Uniforms, View.Lights, View.Projection, View.Visuals.ShadowResolution, State.VisibleNear, State.VisibleFar) : std::vector<FShadowView>{};
 	if (const FExtent2D CascadeExtent = GetCascadeAtlasExtent(View.Visuals.ShadowResolution); !State.Shadows.empty() && State.ShadowAtlas->GetDescriptor().Extent != CascadeExtent)
 	{
 		auto ShadowAtlas = Device.CreateTexture({.Name = "Cascade shadow atlas", .Extent = CascadeExtent, .Format = ETextureFormat::Depth16, .bRenderTarget = true});
@@ -1941,7 +1978,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				return {};
 			};
 
-			std::expected<void, FPresentationError> Created = Target("HDR scene", Extent, ETextureFormat::Rgba16Float, State.HdrColor);
+			// The path tracer writes the HDR scene from compute.
+			std::expected<void, FPresentationError> Created = Target("HDR scene", Extent, ETextureFormat::Rgba16Float, State.HdrColor, static_cast<bool>(State.PathTracer));
 			if (Created)
 			{
 				Created = Target("Tone-mapped scene", Extent, DisplayFormat, State.ToneColor);
@@ -2001,7 +2039,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	// The depth chain needs every one of its mips, so tiny targets skip occlusion.
-	const bool bScreenOcclusion = State.GtaoPipelines[0] && View.Visuals.AmbientOcclusion != EAmbientOcclusion::Off && GetMipLevelCount(Extent) >= GtaoDepthMips;
+	const bool bScreenOcclusion = State.GtaoPipelines[0] && View.Visuals.AmbientOcclusion != EAmbientOcclusion::Off && GetMipLevelCount(Extent) >= GtaoDepthMips && !bPathTracing;
 	if (bScreenOcclusion && (!State.GtaoOcclusion || State.GtaoOcclusion->GetDescriptor().Extent != Extent))
 	{
 		auto ViewDepth = Device.CreateTexture({.Name = "GTAO view depth", .Extent = Extent, .Format = ETextureFormat::R32Float, .MipLevels = GtaoDepthMips, .bStorage = true});
@@ -2021,7 +2059,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	State.Uniforms.Occlusion[0] = bScreenOcclusion ? 1.f : 0.f;
 	// The sun that casts the cascades also gets screen-space contact shadows, marched toward it through the depth prepass.
 	std::optional<Bend::DispatchList> ContactDispatches;
-	if (State.ContactShadowPipeline && State.DepthPrepassPipeline && View.Visuals.bContactShadows && View.Visuals.ShadowQuality != EShadowQuality::Off)
+	if (State.ContactShadowPipeline && State.DepthPrepassPipeline && View.Visuals.bContactShadows && View.Visuals.ShadowQuality != EShadowQuality::Off && !bPathTracing)
 	{
 		const auto LightCount = static_cast<std::size_t>(State.Uniforms.Controls[0]);
 		const auto Sun = std::ranges::find_if(std::span(State.Uniforms.Lights).first(LightCount), [](const FVisualLightUniform& Light)
@@ -2084,19 +2122,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		const FRenderMaterial* Override = Section.Material < Overrides.size() ? Overrides[Section.Material] : nullptr;
 		const FCookedMaterial& Imported = Mesh.Materials[Section.Material];
 		const FMaterialParameters& Material = Override ? Override->Parameters : Imported.Parameters;
-		State.Uniforms.Material = {.BaseColor = Material.BaseColor, .Surface = {Material.Metallic, Material.Roughness, Material.NormalStrength, Material.OcclusionStrength}, .Emissive = {Material.Emissive[0], Material.Emissive[1], Material.Emissive[2], Material.EmissiveIntensity}, .UV = {Material.UVScale[0], Material.UVScale[1], Material.UVOffset[0], Material.UVOffset[1]}, .Channels1 = {0, 0, static_cast<float>(Material.BlendMode), Material.AlphaCutoff}, .Specular = {Material.SpecularColor[0], Material.SpecularColor[1], Material.SpecularColor[2], Material.DiffuseRoughness}};
+		State.Uniforms.Material = MakeMaterialUniform(Material, Override ? Override->Channels : Imported.Channels);
 		for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
 		{
-			const EMaterialChannel Channel = Override ? Override->Channels[Slot] : Imported.Channels[Slot];
-			if (Slot < 4)
-			{
-				State.Uniforms.Material.Channels0[Slot] = static_cast<float>(Channel);
-			}
-			else
-			{
-				State.Uniforms.Material.Channels1[Slot - 4] = static_cast<float>(Channel);
-			}
-
 			const FTextureHandle Texture = Override ? Override->Textures[Slot] : Imported.Textures[Slot] != NoCookedTexture ? Mesh.Textures[Imported.Textures[Slot]]
 			                                                                                                                : FTextureHandle{};
 			if (Texture)
@@ -2392,7 +2420,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		});
 	}
 
-	if (State.LightClusterPipeline)
+	if (State.LightClusterPipeline && !bPathTracing)
 	{
 		Graph.AddPass("Light clusters", {{.Resource = LightGrid, .Access = ERenderGraphAccess::ReadWrite}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
@@ -2423,7 +2451,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			Result = Fullscreen(5, State.SkyView, SkySources);
 		}
 
-		if (Result && State.VisualPipelines[0])
+		// The path tracer writes every pixel itself and keeps its last image once converged.
+		if (Result && State.VisualPipelines[0] && !bPathTracing)
 		{
 			const std::array Sources{State.EnvironmentSpecular, State.SkyView};
 			Result = Fullscreen(0, MeshColor, Sources);
@@ -2684,11 +2713,22 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		});
 	}
 
-	Graph.AddPass("PBR meshes", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = Shadow, .Access = ERenderGraphAccess::Read}, {.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+	if (bPathTracing)
 	{
-		const auto Timer = TimedPass("PBR meshes");
-		return DrawScene(false, EOcclusionList::Final);
-	});
+		Graph.AddPass("Path tracing", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+		{
+			const auto Timer = TimedPass("Path tracing");
+			return GraphResult(State.PathTracer->Render({.Extent = Extent, .View = &View, .Uniforms = &State.Uniforms, .Environment = State.EnvironmentSpecular, .SkyView = State.SkyView, .SpecularAlbedo = State.SpecularAlbedo, .Lights = State.Lights, .Output = State.HdrColor, .EnvironmentIdentity = State.EnvironmentSpecular.get()}));
+		});
+	}
+	else
+	{
+		Graph.AddPass("PBR meshes", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = Shadow, .Access = ERenderGraphAccess::Read}, {.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+		{
+			const auto Timer = TimedPass("PBR meshes");
+			return DrawScene(false, EOcclusionList::Final);
+		});
+	}
 
 	// After shading, so the depth of custom-material surfaces counts too. Only the sun's cascades use the result.
 	if (State.DepthBoundsPipeline && std::ranges::any_of(State.Shadows, [](const FShadowView& Shadow)
@@ -2780,7 +2820,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				ExposureSource = State.ExposureStates[Next];
 			}
 
-			const bool bSmaa = View.Visuals.AntiAliasing != EAntiAliasing::Off;
+			// Path tracing jitters every sample within its pixel, which already antialiases.
+			const bool bSmaa = View.Visuals.AntiAliasing != EAntiAliasing::Off && !bPathTracing;
 			// The curve depends only on the display's paper white and peak.
 			if (UpdateKey(State.ToneMapLutKey, {KeyBytes(State.Uniforms.Display)}))
 			{

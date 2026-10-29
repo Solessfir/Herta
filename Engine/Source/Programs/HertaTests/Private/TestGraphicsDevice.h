@@ -244,5 +244,51 @@ public:
 	{
 		return std::nullopt;
 	}
+
+	bool SupportsRayQueries() const noexcept override
+	{
+		return false;
+	}
+
+	std::expected<Herta::FAccelerationStructureHandle, Herta::FPresentationError> CreateBottomLevel(const Herta::FBottomLevelDescriptor&) override
+	{
+		return Unsupported();
+	}
+
+	std::expected<Herta::FAccelerationStructureHandle, Herta::FPresentationError> CreateTopLevel(std::string_view, std::uint32_t) override
+	{
+		return Unsupported();
+	}
+
+	std::expected<void, Herta::FPresentationError> BuildBottomLevel(const Herta::FAccelerationStructureHandle&) override
+	{
+		return Unsupported();
+	}
+
+	std::expected<void, Herta::FPresentationError> BuildTopLevel(const Herta::FAccelerationStructureHandle&, std::span<const Herta::FRayTracingInstance>) override
+	{
+		return Unsupported();
+	}
+
+	std::expected<Herta::FResourceTableHandle, Herta::FPresentationError> CreateResourceTable(std::uint32_t) override
+	{
+		return Unsupported();
+	}
+
+	std::expected<void, Herta::FPresentationError> WriteResourceTable(const Herta::FResourceTableHandle&, std::uint32_t, const Herta::FTextureHandle&) override
+	{
+		return Unsupported();
+	}
+
+	std::expected<void, Herta::FPresentationError> WriteResourceTable(const Herta::FResourceTableHandle&, std::uint32_t, const Herta::FBufferHandle&) override
+	{
+		return Unsupported();
+	}
+
+private:
+	static std::unexpected<Herta::FPresentationError> Unsupported()
+	{
+		return std::unexpected(Herta::FPresentationError{.Code = Herta::EPresentationErrorCode::InvalidDescriptor, .Message = "The test device has no ray queries"});
+	}
 };
 }

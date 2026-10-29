@@ -132,6 +132,37 @@ struct FComputePipeline final : IRhiComputePipeline
 	std::uint32_t StorageBufferCount = 0;
 	std::uint32_t BufferCount = 0;
 	std::uint32_t UniformBufferSize = 0;
+	bool bRayQuery = false;
+	bool bResourceTable = false;
+};
+
+struct FAccelerationStructure final : IRhiAccelerationStructure
+{
+	std::shared_ptr<const std::uint8_t> Owner;
+	nvrhi::rt::AccelStructHandle Handle;
+	std::size_t ByteSize = 0;
+	bool bTopLevel = false;
+	std::uint32_t MaximumInstances = 0;
+	// Bottom levels keep their inputs alive and rebuild from the same geometry when they refit.
+	std::shared_ptr<FBuffer> Vertices;
+	std::shared_ptr<FBuffer> Indices;
+	std::vector<nvrhi::rt::GeometryDesc> Geometries;
+	bool bDeforming = false;
+	bool bBuilt = false;
+
+	[[nodiscard]] std::size_t GetByteSize() const noexcept override
+	{
+		return ByteSize;
+	}
+};
+
+struct FResourceTable final : IRhiResourceTable
+{
+	std::shared_ptr<const std::uint8_t> Owner;
+	nvrhi::DescriptorTableHandle Handle;
+	// Dispatches copy these so a rewritten slot's old resource outlives the recordings that read it.
+	std::vector<std::shared_ptr<FTexture>> Textures;
+	std::vector<std::shared_ptr<FBuffer>> Buffers;
 };
 
 struct FPassTiming
@@ -160,10 +191,12 @@ struct FFrame
 	std::unordered_map<FBuffer*, std::uint32_t> UploadedBuffers;
 	std::vector<FBuffer*> CopiedBuffers;
 	std::unordered_map<FTexture*, std::uint32_t> WrittenTextures;
+	std::vector<FAccelerationStructure*> BuiltStructures;
 
 	void Reset()
 	{
 		Operations.clear();
+		BuiltStructures.clear();
 		UploadedBuffers.clear();
 		CopiedBuffers.clear();
 		WrittenTextures.clear();
@@ -215,6 +248,17 @@ public:
 		VkPhysicalDeviceProperties Properties{};
 		vkGetPhysicalDeviceProperties(PhysicalDevice, &Properties);
 		TextureDimensionLimit = std::min(MaximumTextureDimension, Properties.limits.maxImageDimension2D);
+		if (Device->queryFeatureSupport(nvrhi::Feature::RayQuery) && Device->queryFeatureSupport(nvrhi::Feature::RayTracingAccelStruct))
+		{
+			nvrhi::BindlessLayoutDesc Table;
+			Table.setVisibility(nvrhi::ShaderType::Compute).setMaxCapacity(MaximumResourceTableSlots).addRegisterSpace(nvrhi::BindingLayoutItem::Texture_SRV(0)).addRegisterSpace(nvrhi::BindingLayoutItem::RawBuffer_SRV(1));
+			ResourceTableLayout = Device->createBindlessLayout(Table);
+			if (!ResourceTableLayout)
+			{
+				return Failed("Could not create the resource table layout");
+			}
+		}
+
 		for (FFrame& Frame : Frames)
 		{
 			Frame.Commands = Device->createCommandList(nvrhi::CommandListParameters().setUploadChunkSize(std::size_t{1024} * 1024));
@@ -271,6 +315,11 @@ public:
 		}
 
 		const bool bVertex = Descriptor.Usage == EBufferUsage::Vertex;
+		if (Descriptor.bRayTracing && (!ResourceTableLayout || (bVertex && Descriptor.VertexFormat != EGraphicsVertexFormat::Mesh)))
+		{
+			return Invalid("Ray tracing buffers need ray query support and hold mesh vertices or indices");
+		}
+
 		const std::size_t VertexStride = Descriptor.VertexFormat == EGraphicsVertexFormat::Mesh ? sizeof(FMeshVertex) : Descriptor.VertexFormat == EGraphicsVertexFormat::MeshInstance ? sizeof(FMeshInstance)
 		                                                                                                                                                                               : sizeof(FColoredClipVertex);
 		const std::size_t Stride = bVertex ? VertexStride : sizeof(std::uint32_t);
@@ -282,7 +331,7 @@ public:
 		auto Buffer = std::make_shared<FBuffer>();
 		Buffer->Descriptor = Descriptor;
 		Buffer->Owner = Owner;
-		Buffer->Handle = Device->createBuffer(nvrhi::BufferDesc().setByteSize(Descriptor.Size).setDebugName(Descriptor.Name).setIsVertexBuffer(bVertex).setIsIndexBuffer(!bVertex).enableAutomaticStateTracking(bVertex ? nvrhi::ResourceStates::VertexBuffer : nvrhi::ResourceStates::IndexBuffer));
+		Buffer->Handle = Device->createBuffer(nvrhi::BufferDesc().setByteSize(Descriptor.Size).setDebugName(Descriptor.Name).setIsVertexBuffer(bVertex).setIsIndexBuffer(!bVertex).setIsAccelStructBuildInput(Descriptor.bRayTracing).setCanHaveRawViews(Descriptor.bRayTracing).enableAutomaticStateTracking(bVertex ? nvrhi::ResourceStates::VertexBuffer : nvrhi::ResourceStates::IndexBuffer));
 		if (!Buffer->Handle)
 		{
 			return Failed("Could not create mesh buffer '" + Descriptor.Name + "'");
@@ -505,10 +554,20 @@ public:
 					return Binding.Binding >= StorageBinding + Descriptor.StorageTextureCount && Binding.Binding < StorageBinding + Descriptor.StorageTextureCount + Descriptor.StorageBufferCount;
 				case EShaderBindingType::Buffer:
 					return Binding.Binding >= ReadBufferBinding && Binding.Binding < ReadBufferBinding + Descriptor.BufferCount;
+				case EShaderBindingType::AccelerationStructure:
+					return Descriptor.bRayQuery && Binding.Binding == AccelerationStructureBinding;
+				case EShaderBindingType::TableTextures:
+				case EShaderBindingType::TableBuffers:
+					return Descriptor.bResourceTable;
 			}
 
 			return false;
 		});
+
+		if ((Descriptor.bRayQuery || Descriptor.bResourceTable) && !ResourceTableLayout)
+		{
+			return Invalid("Compute pipeline '" + Descriptor.Name + "' needs ray query support");
+		}
 
 		if (Shader.Stage != EShaderStage::Compute || !SerializeCookedShader(Shader) || Shader.PushConstantSize != 0 || !bValidBindings || Descriptor.TextureCount > MaximumGraphicsTextures || Descriptor.BufferCount > MaximumReadBuffers || Descriptor.StorageTextureCount + Descriptor.StorageBufferCount > MaximumStorageBindings || Descriptor.UniformBufferSize > MaximumGraphicsUniformBytes || Descriptor.UniformBufferSize % 16 != 0)
 		{
@@ -523,6 +582,8 @@ public:
 		Pipeline->StorageBufferCount = Descriptor.StorageBufferCount;
 		Pipeline->BufferCount = Descriptor.BufferCount;
 		Pipeline->UniformBufferSize = Descriptor.UniformBufferSize;
+		Pipeline->bRayQuery = Descriptor.bRayQuery;
+		Pipeline->bResourceTable = Descriptor.bResourceTable;
 		const auto Module = Device->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Compute).setEntryName(Shader.EntryPoint).setDebugName(Descriptor.Name), Shader.Bytecode.data(), Shader.Bytecode.size() * sizeof(std::uint32_t));
 		nvrhi::BindingLayoutDesc Layout;
 		Layout.setVisibility(nvrhi::ShaderType::Compute).setBindingOffsets(nvrhi::VulkanBindingOffsets().setConstantBufferOffset(64).setUnorderedAccessViewOffset(StorageBinding));
@@ -545,7 +606,7 @@ public:
 		if (bSampler)
 		{
 			Layout.addItem(nvrhi::BindingLayoutItem::Sampler(0));
-			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(Descriptor.bLinearSampler).setAllAddressModes(Descriptor.bBorderSampler ? nvrhi::SamplerAddressMode::Border : nvrhi::SamplerAddressMode::Clamp).setBorderColor(nvrhi::Color(0.f)));
+			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(Descriptor.bLinearSampler).setAllAddressModes(Descriptor.bBorderSampler ? nvrhi::SamplerAddressMode::Border : Descriptor.bRepeatSampler ? nvrhi::SamplerAddressMode::Wrap : nvrhi::SamplerAddressMode::Clamp).setBorderColor(nvrhi::Color(0.f)));
 		}
 
 		if (Descriptor.UniformBufferSize != 0)
@@ -563,6 +624,17 @@ public:
 			Layout.addItem(nvrhi::BindingLayoutItem::StructuredBuffer_UAV(Descriptor.StorageTextureCount + Slot));
 		}
 
+		if (Descriptor.bRayQuery)
+		{
+			Layout.addItem(nvrhi::BindingLayoutItem::RayTracingAccelStruct(AccelerationStructureBinding));
+		}
+
+		// NVRHI numbers descriptor sets by layout order, so the table only lands in set 1 behind a non-empty set 0.
+		if (Descriptor.bResourceTable && Layout.bindings.empty())
+		{
+			return Invalid("Compute pipeline '" + Descriptor.Name + "' reads a resource table, so it needs at least one other binding");
+		}
+
 		if (!Layout.bindings.empty())
 		{
 			Pipeline->Layout = Device->createBindingLayout(Layout);
@@ -578,6 +650,11 @@ public:
 		if (Pipeline->Layout)
 		{
 			NativeDescriptor.addBindingLayout(Pipeline->Layout);
+		}
+
+		if (Descriptor.bResourceTable)
+		{
+			NativeDescriptor.addBindingLayout(ResourceTableLayout);
 		}
 
 		Pipeline->Handle = Device->createComputePipeline(NativeDescriptor);
@@ -1036,6 +1113,13 @@ public:
 			return Invalid(std::format("Dispatch '{}' needs initialized sampled textures and storage textures with valid mip levels, owned by this device and not both read and written", Pipeline->Name));
 		}
 
+		const auto Scene = std::dynamic_pointer_cast<FAccelerationStructure>(Dispatch.Scene);
+		const auto Table = std::dynamic_pointer_cast<FResourceTable>(Dispatch.ResourceTable);
+		if (Pipeline->bRayQuery != static_cast<bool>(Dispatch.Scene) || (Scene && (!Owns(Scene) || !Scene->bTopLevel || !IsBuilt(*Scene))) || Pipeline->bResourceTable != static_cast<bool>(Dispatch.ResourceTable) || (Table && !Owns(Table)))
+		{
+			return Invalid(std::format("Dispatch '{}' needs a built top-level structure and a resource table exactly when its pipeline reads them", Pipeline->Name));
+		}
+
 		const std::size_t UniformAllocation = (Dispatch.Uniforms.size() + 255) & ~std::size_t{255};
 		const auto UniformBuffer = AllocateUniforms(UniformAllocation, Dispatch.Uniforms.size());
 		if (!UniformBuffer)
@@ -1078,6 +1162,11 @@ public:
 				BindingDescriptor.addItem(nvrhi::BindingSetItem::StructuredBuffer_SRV(ReadBufferBinding + Slot, ReadBuffers[Slot]->Handle));
 			}
 
+			if (Scene)
+			{
+				BindingDescriptor.addItem(nvrhi::BindingSetItem::RayTracingAccelStruct(AccelerationStructureBinding, Scene->Handle));
+			}
+
 			Bindings = CachedBindingSet(Frame, BindingDescriptor, Pipeline->Layout);
 			if (!Bindings)
 			{
@@ -1085,9 +1174,26 @@ public:
 			}
 		}
 
-		Frame.Operations.emplace_back([Pipeline, Bindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount, bOverlap = Dispatch.bOverlapsPrevious](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Pipeline, Bindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount, bOverlap = Dispatch.bOverlapsPrevious, Scene, Table, TableTextures = Table ? Table->Textures : decltype(FResourceTable::Textures){}, TableBuffers = Table ? Table->Buffers : decltype(FResourceTable::Buffers){}](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(Pipeline->Name.c_str());
+			// Descriptor tables bypass NVRHI's binding state tracking, so their resources are made readable here; setComputeState commits the barriers.
+			for (const auto& Texture : TableTextures)
+			{
+				if (Texture)
+				{
+					Commands->setTextureState(Texture->Handle, nvrhi::AllSubresources, nvrhi::ResourceStates::ShaderResource);
+				}
+			}
+
+			for (const auto& Buffer : TableBuffers)
+			{
+				if (Buffer)
+				{
+					Commands->setBufferState(Buffer->Handle, nvrhi::ResourceStates::ShaderResource);
+				}
+			}
+
 			// NVRHI otherwise separates consecutive writes to one storage texture with a barrier. It applies when the bindings are set.
 			for (const auto& Texture : bOverlap ? Storage : decltype(Storage){})
 			{
@@ -1104,6 +1210,11 @@ public:
 			if (Bindings)
 			{
 				State.addBindingSet(Bindings);
+			}
+
+			if (Table)
+			{
+				State.addBindingSet(Table->Handle);
 			}
 
 			if (Indirect)
@@ -1186,6 +1297,11 @@ public:
 		for (FBuffer* const Buffer : Frame.CopiedBuffers)
 		{
 			Buffer->ReadySerial = Frame.Serial;
+		}
+
+		for (FAccelerationStructure* const Structure : Frame.BuiltStructures)
+		{
+			Structure->bBuilt = true;
 		}
 
 		LastSubmittedSerial = Frame.Serial;
@@ -1399,7 +1515,230 @@ public:
 		return GpuTimings;
 	}
 
+	[[nodiscard]] bool SupportsRayQueries() const noexcept override
+	{
+		return static_cast<bool>(ResourceTableLayout);
+	}
+
+	[[nodiscard]] std::expected<FAccelerationStructureHandle, FPresentationError> CreateBottomLevel(const FBottomLevelDescriptor& Descriptor) override
+	{
+		const auto Vertices = std::dynamic_pointer_cast<FBuffer>(Descriptor.Vertices);
+		const auto Indices = std::dynamic_pointer_cast<FBuffer>(Descriptor.Indices);
+		if (!ResourceTableLayout || !Owns(Vertices) || !Owns(Indices) || !Vertices->Descriptor.bRayTracing || !Indices->Descriptor.bRayTracing || Vertices->Descriptor.Usage != EBufferUsage::Vertex || Indices->Descriptor.Usage != EBufferUsage::Index || Descriptor.Sections.empty())
+		{
+			return Invalid("Bottom level '" + Descriptor.Name + "' needs ray query support and ray tracing vertex and index buffers with at least one section");
+		}
+
+		const std::size_t IndexCount = Indices->Descriptor.Size / sizeof(std::uint32_t);
+		auto Structure = std::make_shared<FAccelerationStructure>();
+		Structure->Owner = Owner;
+		Structure->Vertices = Vertices;
+		Structure->Indices = Indices;
+		Structure->bDeforming = Descriptor.bDeforming;
+		for (const FBottomLevelSection& Section : Descriptor.Sections)
+		{
+			if (Section.IndexCount == 0 || Section.IndexCount % 3 != 0 || Section.FirstIndex > IndexCount || Section.IndexCount > IndexCount - Section.FirstIndex)
+			{
+				return Invalid("Bottom level '" + Descriptor.Name + "' sections must cover whole triangles inside the index buffer");
+			}
+
+			nvrhi::rt::GeometryTriangles Triangles;
+			Triangles.setVertexBuffer(Vertices->Handle).setVertexFormat(nvrhi::Format::RGB32_FLOAT).setVertexStride(sizeof(FMeshVertex)).setVertexCount(static_cast<std::uint32_t>(Vertices->Descriptor.Size / sizeof(FMeshVertex))).setIndexBuffer(Indices->Handle).setIndexFormat(nvrhi::Format::R32_UINT).setIndexOffset(std::uint64_t{Section.FirstIndex} * sizeof(std::uint32_t)).setIndexCount(Section.IndexCount);
+			Structure->Geometries.push_back(nvrhi::rt::GeometryDesc().setTriangles(Triangles).setFlags(nvrhi::rt::GeometryFlags::Opaque));
+		}
+
+		nvrhi::rt::AccelStructDesc Native;
+		Native.setDebugName(Descriptor.Name).setBuildFlags(BottomLevelFlags(*Structure));
+		Native.bottomLevelGeometries = Structure->Geometries;
+		Structure->Handle = Device->createAccelStruct(Native);
+		if (!Structure->Handle)
+		{
+			return Failed("Could not create bottom level '" + Descriptor.Name + "'");
+		}
+
+		Structure->ByteSize = AccelerationStructureBytes(*Structure);
+		return Structure;
+	}
+
+	[[nodiscard]] std::expected<FAccelerationStructureHandle, FPresentationError> CreateTopLevel(const std::string_view Name, const std::uint32_t MaximumInstances) override
+	{
+		if (!ResourceTableLayout || MaximumInstances == 0 || MaximumInstances > MaximumTopLevelInstances)
+		{
+			return Invalid(std::format("Top level '{}' needs ray query support and room for 1 to {} instances", Name, MaximumTopLevelInstances));
+		}
+
+		auto Structure = std::make_shared<FAccelerationStructure>();
+		Structure->Owner = Owner;
+		Structure->bTopLevel = true;
+		Structure->MaximumInstances = MaximumInstances;
+		Structure->Handle = Device->createAccelStruct(nvrhi::rt::AccelStructDesc().setDebugName(std::string(Name)).setIsTopLevel(true).setTopLevelMaxInstances(MaximumInstances).setBuildFlags(nvrhi::rt::AccelStructBuildFlags::PreferFastTrace));
+		if (!Structure->Handle)
+		{
+			return Failed(std::format("Could not create top level '{}'", Name));
+		}
+
+		Structure->ByteSize = AccelerationStructureBytes(*Structure);
+		return Structure;
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> BuildBottomLevel(const FAccelerationStructureHandle& BottomLevel) override
+	{
+		const auto Structure = std::dynamic_pointer_cast<FAccelerationStructure>(BottomLevel);
+		if (!Owns(Structure) || Structure->bTopLevel)
+		{
+			return Invalid("Bottom level builds need a bottom level belonging to this device");
+		}
+
+		if (const auto Ready = CanRecord(); !Ready)
+		{
+			return Ready;
+		}
+
+		const bool bBuilt = IsBuilt(*Structure);
+		if (bBuilt && !Structure->bDeforming)
+		{
+			return {};
+		}
+
+		FFrame& Frame = Frames[FrameIndex];
+		const nvrhi::rt::AccelStructBuildFlags Flags = BottomLevelFlags(*Structure) | (bBuilt ? nvrhi::rt::AccelStructBuildFlags::PerformUpdate : nvrhi::rt::AccelStructBuildFlags::None);
+		Frame.Operations.emplace_back([Structure, Flags](nvrhi::ICommandList* const Commands)
+		{
+			Commands->buildBottomLevelAccelStruct(Structure->Handle, Structure->Geometries.data(), Structure->Geometries.size(), Flags);
+		});
+
+		Frame.BuiltStructures.push_back(Structure.get());
+		return {};
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> BuildTopLevel(const FAccelerationStructureHandle& TopLevel, const std::span<const FRayTracingInstance> Instances) override
+	{
+		const auto Structure = std::dynamic_pointer_cast<FAccelerationStructure>(TopLevel);
+		if (!Owns(Structure) || !Structure->bTopLevel || Instances.size() > Structure->MaximumInstances)
+		{
+			return Invalid("Top level builds need a top level belonging to this device with room for every instance");
+		}
+
+		if (const auto Ready = CanRecord(Instances.size_bytes()); !Ready)
+		{
+			return Ready;
+		}
+
+		std::vector<nvrhi::rt::InstanceDesc> Native;
+		std::vector<std::shared_ptr<FAccelerationStructure>> BottomLevels;
+		Native.reserve(Instances.size());
+		BottomLevels.reserve(Instances.size());
+		for (const FRayTracingInstance& Instance : Instances)
+		{
+			auto BottomLevel = std::dynamic_pointer_cast<FAccelerationStructure>(Instance.BottomLevel);
+			if (!Owns(BottomLevel) || BottomLevel->bTopLevel || !IsBuilt(*BottomLevel) || Instance.CustomIndex >= (1u << 24) || !std::ranges::all_of(Instance.ObjectToWorld, [](const float Value)
+			{
+				return std::isfinite(Value);
+			}))
+			{
+				return Invalid("Top level instances need built bottom levels of this device, finite transforms, and 24-bit custom indices");
+			}
+
+			nvrhi::rt::AffineTransform Transform;
+			std::ranges::copy(Instance.ObjectToWorld, Transform);
+			Native.push_back(nvrhi::rt::InstanceDesc().setTransform(Transform).setInstanceID(Instance.CustomIndex).setInstanceMask(Instance.Mask).setFlags(Instance.bAlphaTested ? nvrhi::rt::InstanceFlags::ForceNonOpaque : nvrhi::rt::InstanceFlags::None).setBLAS(BottomLevel->Handle));
+			BottomLevels.push_back(std::move(BottomLevel));
+		}
+
+		FFrame& Frame = Frames[FrameIndex];
+		Frame.Operations.emplace_back([Structure, Native = std::move(Native), BottomLevels = std::move(BottomLevels)](nvrhi::ICommandList* const Commands)
+		{
+			Commands->beginMarker("Build scene top level");
+			Commands->buildTopLevelAccelStruct(Structure->Handle, Native.data(), Native.size(), nvrhi::rt::AccelStructBuildFlags::PreferFastTrace);
+			Commands->endMarker();
+		});
+
+		Frame.BuiltStructures.push_back(Structure.get());
+		Frame.UploadBytes += Instances.size() * sizeof(nvrhi::rt::InstanceDesc);
+		return {};
+	}
+
+	[[nodiscard]] std::expected<FResourceTableHandle, FPresentationError> CreateResourceTable(const std::uint32_t Slots) override
+	{
+		if (!ResourceTableLayout || Slots == 0 || Slots > MaximumResourceTableSlots)
+		{
+			return Invalid(std::format("Resource tables need ray query support and 1 to {} slots", MaximumResourceTableSlots));
+		}
+
+		auto Table = std::make_shared<FResourceTable>();
+		Table->Owner = Owner;
+		Table->Handle = Device->createDescriptorTable(ResourceTableLayout);
+		if (!Table->Handle)
+		{
+			return Failed("Could not create a resource table");
+		}
+
+		Device->resizeDescriptorTable(Table->Handle, Slots, false);
+		Table->Textures.resize(Slots);
+		Table->Buffers.resize(Slots);
+		return Table;
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> WriteResourceTable(const FResourceTableHandle& Table, const std::uint32_t Slot, const FTextureHandle& Texture) override
+	{
+		const auto Native = std::dynamic_pointer_cast<FResourceTable>(Table);
+		const auto NativeTexture = std::dynamic_pointer_cast<FTexture>(Texture);
+		if (!Owns(Native) || Slot >= Native->Textures.size() || !Owns(NativeTexture) || !NativeTexture->bInitialized || IsDepthFormat(NativeTexture->Descriptor.Format))
+		{
+			return Invalid("Resource table textures need a slot inside a table of this device and a fully written color texture");
+		}
+
+		if (!Device->writeDescriptorTable(Native->Handle, nvrhi::BindingSetItem::Texture_SRV(Slot, NativeTexture->Handle)))
+		{
+			return Failed("Could not write a resource table texture");
+		}
+
+		Native->Textures[Slot] = NativeTexture;
+		return {};
+	}
+
+	[[nodiscard]] std::expected<void, FPresentationError> WriteResourceTable(const FResourceTableHandle& Table, const std::uint32_t Slot, const FBufferHandle& Buffer) override
+	{
+		const auto Native = std::dynamic_pointer_cast<FResourceTable>(Table);
+		const auto NativeBuffer = std::dynamic_pointer_cast<FBuffer>(Buffer);
+		if (!Owns(Native) || Slot >= Native->Buffers.size() || !Owns(NativeBuffer) || !NativeBuffer->Descriptor.bRayTracing)
+		{
+			return Invalid("Resource table buffers need a slot inside a table of this device and a ray tracing buffer");
+		}
+
+		if (!Device->writeDescriptorTable(Native->Handle, nvrhi::BindingSetItem::RawBuffer_SRV(Slot, NativeBuffer->Handle)))
+		{
+			return Failed("Could not write a resource table buffer");
+		}
+
+		Native->Buffers[Slot] = NativeBuffer;
+		return {};
+	}
+
 private:
+	[[nodiscard]] static nvrhi::rt::AccelStructBuildFlags BottomLevelFlags(const FAccelerationStructure& Structure) noexcept
+	{
+		return Structure.bDeforming ? nvrhi::rt::AccelStructBuildFlags::AllowUpdate | nvrhi::rt::AccelStructBuildFlags::PreferFastBuild : nvrhi::rt::AccelStructBuildFlags::PreferFastTrace;
+	}
+
+	[[nodiscard]] std::size_t AccelerationStructureBytes(const FAccelerationStructure& Structure) const
+	{
+		const auto Buffer = static_cast<VkBuffer>(Structure.Handle->getNativeObject(nvrhi::ObjectTypes::VK_Buffer));
+		if (Buffer == VK_NULL_HANDLE)
+		{
+			return 0;
+		}
+
+		VkMemoryRequirements Requirements{};
+		vkGetBufferMemoryRequirements(NativeDevice, Buffer, &Requirements);
+		return static_cast<std::size_t>(Requirements.size);
+	}
+
+	[[nodiscard]] bool IsBuilt(const FAccelerationStructure& Structure) const
+	{
+		return Structure.bBuilt || std::ranges::contains(Frames[FrameIndex].BuiltStructures, &Structure);
+	}
+
 	// Volatile buffers suballocate each write from NVRHI's upload ring. Ordinary buffers would end the render pass and add a barrier before every draw.
 	[[nodiscard]] std::expected<nvrhi::BufferHandle, FPresentationError> AllocateUniforms(const std::size_t Allocation, const std::size_t Bytes)
 	{
@@ -1576,6 +1915,8 @@ private:
 	std::uint64_t LastSubmittedSerial = 0;
 	mutable std::uint64_t LastCompletedSerial = 0;
 	std::uint32_t TextureDimensionLimit = 0;
+	// Set only when the device has ray queries, so it doubles as the capability flag.
+	nvrhi::BindingLayoutHandle ResourceTableLayout;
 	bool bRecording = false;
 	std::vector<FGpuPassTiming> GpuTimings;
 	std::uint64_t LastGpuTimingSerial = 0;

@@ -27,6 +27,11 @@ inline constexpr std::uint32_t MaximumStorageBindings = 8;
 inline constexpr std::uint32_t ReadBufferBinding = 16;
 inline constexpr std::uint32_t MaximumReadBuffers = 8;
 inline constexpr std::size_t MaximumStorageBufferBytes = std::size_t{256} * 1024 * 1024;
+// Ray queries read the scene's top-level acceleration structure at t24.
+inline constexpr std::uint32_t AccelerationStructureBinding = 24;
+// Slots in a resource table, shared by its Texture2D and ByteAddressBuffer arrays.
+inline constexpr std::uint32_t MaximumResourceTableSlots = 16'384;
+inline constexpr std::uint32_t MaximumTopLevelInstances = 1u << 20;
 
 enum class EBufferUsage : std::uint8_t
 {
@@ -108,6 +113,8 @@ struct FBufferDescriptor
 	std::size_t Size = 0;
 	EBufferUsage Usage = EBufferUsage::Vertex;
 	EGraphicsVertexFormat VertexFormat = EGraphicsVertexFormat::Mesh;
+	// Mesh vertex and index buffers that also build acceleration structures and that ray queries read through a resource table. Needs SupportsRayQueries.
+	bool bRayTracing = false;
 };
 
 struct FTextureDescriptor
@@ -171,11 +178,58 @@ public:
 	virtual ~IRhiComputePipeline() = default;
 };
 
+class IRhiAccelerationStructure
+{
+public:
+	virtual ~IRhiAccelerationStructure() = default;
+	// Device memory of the structure itself, excluding build scratch.
+	[[nodiscard]] virtual std::size_t GetByteSize() const noexcept = 0;
+};
+
+// Bindless slots that ray queries index from hit data. Writes take effect for recordings submitted afterwards.
+class IRhiResourceTable
+{
+public:
+	virtual ~IRhiResourceTable() = default;
+};
+
 // Handles share ownership with recorded frames until their GPU submission completes.
 using FBufferHandle = std::shared_ptr<IRhiBuffer>;
 using FTextureHandle = std::shared_ptr<IRhiTexture>;
 using FGraphicsPipelineHandle = std::shared_ptr<IRhiGraphicsPipeline>;
 using FComputePipelineHandle = std::shared_ptr<IRhiComputePipeline>;
+using FAccelerationStructureHandle = std::shared_ptr<IRhiAccelerationStructure>;
+using FResourceTableHandle = std::shared_ptr<IRhiResourceTable>;
+
+// One index range of a mesh, which ray queries report as the geometry index of a hit.
+struct FBottomLevelSection
+{
+	std::uint32_t FirstIndex = 0;
+	std::uint32_t IndexCount = 0;
+};
+
+struct FBottomLevelDescriptor
+{
+	std::string Name;
+	// Mesh-format vertices and uint indices created with bRayTracing.
+	FBufferHandle Vertices{};
+	FBufferHandle Indices{};
+	std::span<const FBottomLevelSection> Sections{};
+	// Deforming meshes refit after their vertices change instead of rebuilding.
+	bool bDeforming = false;
+};
+
+struct FRayTracingInstance
+{
+	// The first three rows of the object-to-world matrix.
+	std::array<float, 12> ObjectToWorld{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
+	// 24 bits that ray queries read back, such as the first record of the instance's sections.
+	std::uint32_t CustomIndex = 0;
+	std::uint8_t Mask = 0xFF;
+	FAccelerationStructureHandle BottomLevel{};
+	// Every triangle reaches ray queries as a candidate to accept or reject, for cutout materials. Others are opaque.
+	bool bAlphaTested = false;
+};
 
 struct FGraphicsPipelineDescriptor
 {
@@ -215,8 +269,14 @@ struct FComputePipelineDescriptor
 	bool bLinearSampler = false;
 	// Reads outside a texture return zero instead of clamping to its edge.
 	bool bBorderSampler = false;
+	// Reads outside a texture wrap around, as material maps do.
+	bool bRepeatSampler = false;
 	// Storage buffers read as StructuredBuffer from ReadBufferBinding.
 	std::uint32_t BufferCount = 0;
+	// Reads FComputeDispatch::Scene at AccelerationStructureBinding.
+	bool bRayQuery = false;
+	// Reads FComputeDispatch::ResourceTable in descriptor set 1.
+	bool bResourceTable = false;
 };
 
 struct FStorageTextureBinding
@@ -239,6 +299,9 @@ struct FComputeDispatch
 	std::span<const FBufferHandle> Buffers{};
 	// The previous dispatch wrote other texels of the same storage textures, so this one may run alongside it without a barrier between them.
 	bool bOverlapsPrevious = false;
+	// A built top-level structure for pipelines with bRayQuery.
+	FAccelerationStructureHandle Scene{};
+	FResourceTableHandle ResourceTable{};
 };
 
 struct FMeshVertex
@@ -354,6 +417,19 @@ public:
 	// so callers keep a few readback buffers in flight and use results a few frames old instead of waiting.
 	[[nodiscard]] virtual std::expected<void, FPresentationError> CopyBuffer(const FBufferHandle& Source, const FBufferHandle& Destination) = 0;
 	[[nodiscard]] virtual std::optional<std::vector<std::byte>> TryReadBuffer(const FBufferHandle& Buffer) = 0;
+
+	// Acceleration structures, ray queries, and resource tables. Without them every call below fails.
+	[[nodiscard]] virtual bool SupportsRayQueries() const noexcept = 0;
+	[[nodiscard]] virtual std::expected<FAccelerationStructureHandle, FPresentationError> CreateBottomLevel(const FBottomLevelDescriptor& Descriptor) = 0;
+	[[nodiscard]] virtual std::expected<FAccelerationStructureHandle, FPresentationError> CreateTopLevel(std::string_view Name, std::uint32_t MaximumInstances) = 0;
+	// Records the first build, or a refit of a deforming mesh once its vertices change. Builds read the vertices as uploaded earlier in the recording.
+	[[nodiscard]] virtual std::expected<void, FPresentationError> BuildBottomLevel(const FAccelerationStructureHandle& BottomLevel) = 0;
+	// Records a full build over instances whose bottom levels are built in this or an earlier recording.
+	[[nodiscard]] virtual std::expected<void, FPresentationError> BuildTopLevel(const FAccelerationStructureHandle& TopLevel, std::span<const FRayTracingInstance> Instances) = 0;
+	[[nodiscard]] virtual std::expected<FResourceTableHandle, FPresentationError> CreateResourceTable(std::uint32_t Slots) = 0;
+	// A texture must be fully written; a buffer must have been created with bRayTracing.
+	[[nodiscard]] virtual std::expected<void, FPresentationError> WriteResourceTable(const FResourceTableHandle& Table, std::uint32_t Slot, const FTextureHandle& Texture) = 0;
+	[[nodiscard]] virtual std::expected<void, FPresentationError> WriteResourceTable(const FResourceTableHandle& Table, std::uint32_t Slot, const FBufferHandle& Buffer) = 0;
 	virtual void BeginGpuTiming(std::string_view Name);
 	virtual void EndGpuTiming();
 	virtual std::vector<FGpuPassTiming> GetGpuTimings() const;

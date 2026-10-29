@@ -221,12 +221,30 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 				{
 					BindingType = EShaderBindingType::Buffer;
 				}
+				else if (Type->getType()->getResourceShape() == SLANG_ACCELERATION_STRUCTURE && Request.Stage == EShaderStage::Compute)
+				{
+					BindingType = EShaderBindingType::AccelerationStructure;
+				}
 				else
 				{
-					return std::unexpected(FShaderError{"Only Texture2D, StructuredBuffer, and RWTexture2D or RWStructuredBuffer<uint> in compute shaders, are currently supported: " + std::string(Parameter->getName())});
+					return std::unexpected(FShaderError{"Only Texture2D, StructuredBuffer, and RWTexture2D, RWStructuredBuffer<uint>, or RaytracingAccelerationStructure in compute shaders, are currently supported: " + std::string(Parameter->getName())});
 				}
 
 				break;
+			case slang::TypeReflection::Kind::Array:
+			{
+				// Only the unbounded arrays of the scene resource table.
+				auto* const Element = Type->getElementTypeLayout();
+				const SlangResourceShape Shape = Element->getKind() == slang::TypeReflection::Kind::Resource ? Element->getType()->getResourceShape() : SLANG_RESOURCE_NONE;
+				const bool bUnbounded = Type->getElementCount() == 0 || Type->getElementCount() == SLANG_UNBOUNDED_SIZE;
+				if (!bUnbounded || Request.Stage != EShaderStage::Compute || Element->getType()->getResourceAccess() != SLANG_RESOURCE_ACCESS_READ || (Shape != SLANG_TEXTURE_2D && Shape != SLANG_BYTE_ADDRESS_BUFFER))
+				{
+					return std::unexpected(FShaderError{"Only unbounded Texture2D and ByteAddressBuffer arrays in compute shaders are supported: " + std::string(Parameter->getName())});
+				}
+
+				BindingType = Shape == SLANG_TEXTURE_2D ? EShaderBindingType::TableTextures : EShaderBindingType::TableBuffers;
+				break;
+			}
 			case slang::TypeReflection::Kind::SamplerState:
 				BindingType = EShaderBindingType::Sampler;
 				break;
@@ -243,17 +261,21 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 		}
 
 		const std::uint32_t Binding = Parameter->getBindingIndex();
-		const bool bValidBinding = BindingType == EShaderBindingType::Texture ? Binding < MaximumGraphicsTextures : BindingType == EShaderBindingType::Buffer                                                           ? Binding >= ReadBufferBinding && Binding < ReadBufferBinding + MaximumReadBuffers
+		const std::uint32_t Space = BindingType == EShaderBindingType::TableTextures || BindingType == EShaderBindingType::TableBuffers ? 1u : 0u;
+		const bool bValidBinding = BindingType == EShaderBindingType::TableTextures ? Binding == 0
+		                         : BindingType == EShaderBindingType::TableBuffers           ? Binding == 1
+		                         : BindingType == EShaderBindingType::AccelerationStructure  ? Binding == AccelerationStructureBinding
+		                         : BindingType == EShaderBindingType::Texture ? Binding < MaximumGraphicsTextures : BindingType == EShaderBindingType::Buffer                                                           ? Binding >= ReadBufferBinding && Binding < ReadBufferBinding + MaximumReadBuffers
 		                                                                                                        : BindingType == EShaderBindingType::StorageTexture || BindingType == EShaderBindingType::StorageBuffer ? Binding >= StorageBinding && Binding < StorageBinding + MaximumStorageBindings
 		                                                                                                        : BindingType == EShaderBindingType::Sampler                                                            ? Binding == 128
 		                                                                                                                                                                                                                : Binding == 64;
-		if (Parameter->getBindingSpace() != 0 || !bValidBinding
-		    || std::ranges::any_of(Shader.Bindings, [Binding](const FShaderBinding& Existing)
+		if (Parameter->getBindingSpace() != Space || !bValidBinding
+		    || std::ranges::any_of(Shader.Bindings, [Binding, Space](const FShaderBinding& Existing)
 		{
-			return Existing.Binding == Binding;
+			return Existing.Binding == Binding && Existing.Space == Space;
 		}))
 		{
-			return std::unexpected(FShaderError{"Shader resources must use unique bindings t0..t15, buffers at t16..t23, b0 at 64, s0 at 128, and storage images and buffers at 384..391 in space 0"});
+			return std::unexpected(FShaderError{"Shader resources must use unique bindings t0..t15, buffers at t16..t23, the scene at t24, b0 at 64, s0 at 128, and storage images and buffers at 384..391 in space 0, and the resource table at bindings 0 and 1 of space 1"});
 		}
 
 		Shader.Bindings.push_back({.Name = Parameter->getName(), .Type = BindingType, .Binding = Binding, .Space = Parameter->getBindingSpace(), .ByteSize = BindingType == EShaderBindingType::ConstantBuffer ? static_cast<std::uint32_t>(Type->getElementTypeLayout()->getSize()) : 0u});

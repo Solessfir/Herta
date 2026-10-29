@@ -1155,6 +1155,7 @@ namespace
 // White furnace: under light of the same radiance from every direction, a white surface that conserves energy reflects exactly that radiance, whatever its roughness or metalness.
 // Lambert, rough EON diffuse, and a rough white metal therefore match, first under 240 directional lights spread over the sphere and then under a uniform environment. Single-scattering GGX alone leaves the metal about a fifth darker.
 // Grey Lambert and grey rough EON match too, because EON inverts the authored color into the albedo that reflects as much on average.
+// With ray queries the path tracer must pass the environment furnace as well, and match raster shading under a single sun, where no surface the cubes' front faces can see bounces light back.
 [[nodiscard]] std::expected<void, FPresentationError> CheckWhiteFurnace(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
 {
 	const auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, Shaders);
@@ -1206,13 +1207,17 @@ namespace
 	    .Visuals = {.ExposureEV100 = ExposureEV100, .AntiAliasing = EAntiAliasing::Off, .ShadowQuality = EShadowQuality::Off, .AmbientOcclusion = EAmbientOcclusion::Off, .bStudioPreview = false},
 	};
 
-	// Grey rounds compare only the two diffuse cubes; the metal stays white.
-	const auto Measure = [&](const std::string_view Lighting, const bool bGrey = false) -> std::expected<void, FPresentationError>
+	// The path tracer converges over frames, so it renders until this many samples per pixel.
+	constexpr std::uint32_t PathTracedSamples = 256;
+	const auto MeasureLevels = [&](const bool bGrey) -> std::expected<std::array<float, 3>, FPresentationError>
 	{
 		View.Materials = bGrey ? GreyOverrides : Overrides;
-		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+		for (std::uint32_t Sample = 0; Sample < (View.Visuals.bPathTracing ? PathTracedSamples : 1u); ++Sample)
 		{
-			return Rendered;
+			if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+			{
+				return std::unexpected(Rendered.error());
+			}
 		}
 
 		const auto Image = Device.ReadbackTexture((*Renderer)->GetColorTarget());
@@ -1238,6 +1243,19 @@ namespace
 			}
 		}
 
+		return Levels;
+	};
+
+	// Grey rounds compare only the two diffuse cubes; the metal stays white.
+	const auto Measure = [&](const std::string_view Lighting, const bool bGrey = false) -> std::expected<void, FPresentationError>
+	{
+		const auto Measured = MeasureLevels(bGrey);
+		if (!Measured)
+		{
+			return std::unexpected(Measured.error());
+		}
+
+		const std::array<float, 3>& Levels = *Measured;
 		std::println("{} furnace, {}: Lambert {:.1f}, rough EON {:.1f}, rough metal {:.1f}", bGrey ? "Grey" : "White", Lighting, Levels[0], Levels[1], Levels[2]);
 		for (std::size_t Index = 0; Index < (bGrey ? 2u : Levels.size()); ++Index)
 		{
@@ -1303,7 +1321,43 @@ namespace
 		return Environmental;
 	}
 
-	return Measure("environment", true);
+	if (const auto Environmental = Measure("environment", true); !Environmental || !(*Renderer)->SupportsPathTracing())
+	{
+		return Environmental;
+	}
+
+	View.Visuals.bPathTracing = true;
+	if (const auto Traced = Measure("path traced environment"); !Traced)
+	{
+		return Traced;
+	}
+
+	// One sun from above the camera's left, without shadow maps on either side, so raster and path traced direct light compare exactly.
+	FMatrix4 SunTransform;
+	const FVector3 Toward = FVector3{0.4f, 0.5f, -1.f}.Normalized();
+	SunTransform(0, 2) = -Toward.X;
+	SunTransform(1, 2) = -Toward.Y;
+	SunTransform(2, 2) = -Toward.Z;
+	const std::array Sun{FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 2.f, .bCastShadows = false}, .Transform = SunTransform}};
+	View.Lights = Sun;
+	const auto Traced = MeasureLevels(false);
+	View.Visuals.bPathTracing = false;
+	const auto Raster = MeasureLevels(false);
+	if (!Traced || !Raster)
+	{
+		return std::unexpected(!Traced ? Traced.error() : Raster.error());
+	}
+
+	std::println("Direct sun, raster against path traced: Lambert {:.1f}/{:.1f}, rough EON {:.1f}/{:.1f}, rough metal {:.1f}/{:.1f}", (*Raster)[0], (*Traced)[0], (*Raster)[1], (*Traced)[1], (*Raster)[2], (*Traced)[2]);
+	for (std::size_t Index = 0; Index < Names.size(); ++Index)
+	{
+		if ((*Raster)[Index] < 20.f || std::abs((*Raster)[Index] - (*Traced)[Index]) > 3.f)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Under one sun, the path traced {} surface read {:.1f} against raster's {:.1f}", Names[Index], (*Traced)[Index], (*Raster)[Index])});
+		}
+	}
+
+	return {};
 }
 
 [[nodiscard]] float DecodeHalf(const std::uint16_t Bits)

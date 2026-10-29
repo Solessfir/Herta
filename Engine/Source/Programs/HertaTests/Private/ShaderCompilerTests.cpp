@@ -107,7 +107,7 @@ TEST_CASE("Slang worker rejects unsupported resource kinds instead of treating t
 		Fixture.Write("Unsupported.slang", "[[vk::binding(0,0)]] " + std::string(Type) + " Resource;\n[shader(\"fragment\")] float4 fragmentMain() : SV_Target { return float4(1,0,0,1); }\n");
 		const auto Shader = CompileShader({.Source = Fixture.Directory / "Unsupported.slang", .EntryPoint = "fragmentMain", .Stage = EShaderStage::Fragment, .bDebugInformation = false});
 		REQUIRE_FALSE(Shader);
-		CHECK(Shader.error().Message.find("Only Texture2D, StructuredBuffer, and RWTexture2D or RWStructuredBuffer<uint> in compute shaders") != std::string::npos);
+		CHECK(Shader.error().Message.find("Only Texture2D, StructuredBuffer, and RWTexture2D, RWStructuredBuffer<uint>, or RaytracingAccelerationStructure in compute shaders") != std::string::npos);
 	}
 }
 
@@ -148,6 +148,40 @@ TEST_CASE("Slang worker reflects compute storage images at the storage bindings"
 	// Storage images outside 384..391, and storage metadata on a fragment shader, are rejected.
 	Fixture.Write("Misplaced.slang", "[[vk::binding(400,0)]] [format(\"r32f\")] RWTexture2D<float> Target;\n[shader(\"compute\")] [numthreads(8,8,1)] void computeMain(uint3 Id : SV_DispatchThreadID) { Target[Id.xy] = 1; }\n");
 	CHECK_FALSE(CompileShader({.Source = Fixture.Directory / "Misplaced.slang", .EntryPoint = "computeMain", .Stage = EShaderStage::Compute}));
+	FShaderAsset Fragment = *Shader;
+	Fragment.Stage = EShaderStage::Fragment;
+	CHECK_FALSE(SerializeCookedShader(Fragment));
+}
+
+TEST_CASE("Slang worker reflects ray query scenes and resource tables")
+{
+	const FShaderFixture Fixture;
+	Fixture.Write("Trace.slang", "[[vk::binding(24,0)]] RaytracingAccelerationStructure Scene;\n[[vk::binding(0,1)]] Texture2D<float4> Textures[];\n[[vk::binding(1,1)]] ByteAddressBuffer Buffers[];\n[[vk::binding(128,0)]] SamplerState Sampler;\n[[vk::binding(384,0)]] [format(\"rgba32f\")] RWTexture2D<float4> Target;\n"
+	              "[shader(\"compute\")] [numthreads(8,8,1)] void computeMain(uint3 Id : SV_DispatchThreadID) {\n"
+	              "  RayDesc Ray; Ray.Origin = 0; Ray.Direction = float3(0,0,1); Ray.TMin = 0; Ray.TMax = 10;\n"
+	              "  RayQuery<RAY_FLAG_NONE> Query; Query.TraceRayInline(Scene, RAY_FLAG_NONE, 0xFF, Ray); while (Query.Proceed()) {}\n"
+	              "  uint Slot = Query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? Query.CommittedInstanceID() : 0;\n"
+	              "  Target[Id.xy] = Textures[NonUniformResourceIndex(Slot)].SampleLevel(Sampler, float2(0,0), 0) + asfloat(Buffers[NonUniformResourceIndex(Slot)].Load(0)); }\n");
+	const auto Shader = CompileShader({.Source = Fixture.Directory / "Trace.slang", .EntryPoint = "computeMain", .Stage = EShaderStage::Compute});
+	REQUIRE_MESSAGE(Shader.has_value(), (Shader ? "" : Shader.error().Message));
+	const auto Find = [&](const EShaderBindingType Type)
+	{
+		return std::ranges::find(Shader->Bindings, Type, &FShaderBinding::Type);
+	};
+
+	REQUIRE(Find(EShaderBindingType::AccelerationStructure) != Shader->Bindings.end());
+	CHECK(Find(EShaderBindingType::AccelerationStructure)->Binding == 24);
+	REQUIRE(Find(EShaderBindingType::TableTextures) != Shader->Bindings.end());
+	CHECK(Find(EShaderBindingType::TableTextures)->Space == 1);
+	REQUIRE(Find(EShaderBindingType::TableBuffers) != Shader->Bindings.end());
+	CHECK(Find(EShaderBindingType::TableBuffers)->Binding == 1);
+	const auto Bytes = SerializeCookedShader(*Shader);
+	REQUIRE(Bytes);
+	CHECK(DeserializeCookedShader(*Bytes));
+
+	// The table lives in set 1 at fixed bindings, and scenes and tables are compute-only.
+	Fixture.Write("Moved.slang", "[[vk::binding(2,1)]] Texture2D<float4> Textures[];\n[[vk::binding(384,0)]] [format(\"rgba32f\")] RWTexture2D<float4> Target;\n[shader(\"compute\")] [numthreads(8,8,1)] void computeMain(uint3 Id : SV_DispatchThreadID) { Target[Id.xy] = Textures[0].Load(int3(0,0,0)); }\n");
+	CHECK_FALSE(CompileShader({.Source = Fixture.Directory / "Moved.slang", .EntryPoint = "computeMain", .Stage = EShaderStage::Compute}));
 	FShaderAsset Fragment = *Shader;
 	Fragment.Stage = EShaderStage::Fragment;
 	CHECK_FALSE(SerializeCookedShader(Fragment));

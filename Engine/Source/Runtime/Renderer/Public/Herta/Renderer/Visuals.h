@@ -22,6 +22,8 @@ inline constexpr std::size_t MaximumRenderShadows = 16;
 // because their perspective depth needs the precision.
 inline constexpr std::uint32_t ShadowCascadeResolution = 4096;
 inline constexpr std::uint32_t ShadowTileResolution = 512;
+// The path tracer stops adding samples here and keeps showing the converged image.
+inline constexpr std::uint32_t PathTracingSampleLimit = 4096;
 
 enum class EAntiAliasing : std::uint8_t
 {
@@ -97,6 +99,8 @@ struct FVisualSettings
 	float PenumbraSaturation = 1.f;
 	// Writes per-pixel screen motion for temporal techniques; see FMeshRenderer::GetMotionVectors. Off while nothing reads it.
 	bool bMotionVectors = false;
+	// Replaces raster shading with the reference path tracer, which accumulates while nothing changes. Needs ray queries; fog, shadow maps, and screen-space effects do not apply.
+	bool bPathTracing = false;
 	bool bStudioPreview = true;
 	// Meters the HDR scene on the GPU and eases towards it instead of using ExposureEV100.
 	bool bAutoExposure = false;
@@ -146,6 +150,8 @@ struct FVisualShaderSet
 	FShaderAsset DepthBoundsCompute;
 	// Screen-space shadows toward the sun for contact detail the cascades miss.
 	FShaderAsset ContactShadowsCompute;
+	// The reference path tracer behind FVisualSettings::bPathTracing.
+	FShaderAsset PathTraceCompute;
 };
 
 struct FShadowView

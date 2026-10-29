@@ -287,9 +287,36 @@ struct FPhysicalDeviceSelection
 	std::uint32_t QueueFamilyIndex = 0;
 	std::uint32_t Score = 0;
 	bool bHdrMetadata = false;
-	// Milestone 6.5 ray tracing needs both; reported so a capture names the hardware it ran on.
+	// Acceleration structures, ray queries, buffer device addresses, and the descriptor indexing that resource tables need.
 	bool bRayQuery = false;
 };
+
+[[nodiscard]] bool SupportsRayQueryFeatures(const VkPhysicalDevice Device, const std::span<const VkExtensionProperties> Extensions)
+{
+	// NVRHI gives its upload buffers shader binding table usage whenever acceleration structures exist, which is only valid with the ray tracing pipeline extension and feature.
+	if (!ContainsExtension(Extensions, VK_KHR_RAY_QUERY_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) || !ContainsExtension(Extensions, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME))
+	{
+		return false;
+	}
+
+	VkPhysicalDeviceRayTracingPipelineFeaturesKHR Pipeline{};
+	Pipeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+	VkPhysicalDeviceRayQueryFeaturesKHR RayQuery{};
+	RayQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+	RayQuery.pNext = &Pipeline;
+	VkPhysicalDeviceAccelerationStructureFeaturesKHR AccelerationStructure{};
+	AccelerationStructure.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+	AccelerationStructure.pNext = &RayQuery;
+	VkPhysicalDeviceVulkan12Features Features12{};
+	Features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+	Features12.pNext = &AccelerationStructure;
+	VkPhysicalDeviceFeatures2 Features{};
+	Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+	Features.pNext = &Features12;
+	vkGetPhysicalDeviceFeatures2(Device, &Features);
+	return RayQuery.rayQuery == VK_TRUE && Pipeline.rayTracingPipeline == VK_TRUE && AccelerationStructure.accelerationStructure == VK_TRUE && Features12.bufferDeviceAddress == VK_TRUE && Features12.runtimeDescriptorArray == VK_TRUE && Features12.descriptorBindingPartiallyBound == VK_TRUE && Features12.descriptorBindingSampledImageUpdateAfterBind == VK_TRUE
+	       && Features12.descriptorBindingStorageBufferUpdateAfterBind == VK_TRUE && Features12.descriptorBindingUpdateUnusedWhilePending == VK_TRUE && Features12.shaderSampledImageArrayNonUniformIndexing == VK_TRUE && Features12.shaderStorageBufferArrayNonUniformIndexing == VK_TRUE;
+}
 
 [[nodiscard]] std::optional<FPhysicalDeviceSelection> EvaluatePhysicalDevice(const VkPhysicalDevice Device, const VkSurfaceKHR Surface)
 {
@@ -342,7 +369,7 @@ struct FPhysicalDeviceSelection
 		Score += 500'000;
 	}
 
-	return FPhysicalDeviceSelection{.Device = Device, .QueueFamilyIndex = Queue->FamilyIndex, .Score = Score, .bHdrMetadata = ContainsExtension(Extensions, VK_EXT_HDR_METADATA_EXTENSION_NAME), .bRayQuery = ContainsExtension(Extensions, VK_KHR_RAY_QUERY_EXTENSION_NAME) && ContainsExtension(Extensions, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)};
+	return FPhysicalDeviceSelection{.Device = Device, .QueueFamilyIndex = Queue->FamilyIndex, .Score = Score, .bHdrMetadata = ContainsExtension(Extensions, VK_EXT_HDR_METADATA_EXTENSION_NAME), .bRayQuery = SupportsRayQueryFeatures(Device, Extensions)};
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT Severity, VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT* const CallbackData, void* const UserData)
@@ -690,9 +717,33 @@ public:
 		QueueInfo.queueFamilyIndex = QueueFamilyIndex;
 		QueueInfo.queueCount = 1;
 		QueueInfo.pQueuePriorities = &QueuePriority;
+		VkPhysicalDeviceRayTracingPipelineFeaturesKHR EnabledRayTracingPipeline{};
+		EnabledRayTracingPipeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+		EnabledRayTracingPipeline.rayTracingPipeline = VK_TRUE;
+		VkPhysicalDeviceRayQueryFeaturesKHR EnabledRayQuery{};
+		EnabledRayQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+		EnabledRayQuery.pNext = &EnabledRayTracingPipeline;
+		EnabledRayQuery.rayQuery = VK_TRUE;
+		VkPhysicalDeviceAccelerationStructureFeaturesKHR EnabledAccelerationStructure{};
+		EnabledAccelerationStructure.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+		EnabledAccelerationStructure.pNext = &EnabledRayQuery;
+		EnabledAccelerationStructure.accelerationStructure = VK_TRUE;
 		VkPhysicalDeviceVulkan12Features EnabledFeatures12{};
 		EnabledFeatures12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
 		EnabledFeatures12.timelineSemaphore = VK_TRUE;
+		if (Selection->bRayQuery)
+		{
+			EnabledFeatures12.pNext = &EnabledAccelerationStructure;
+			EnabledFeatures12.bufferDeviceAddress = VK_TRUE;
+			EnabledFeatures12.runtimeDescriptorArray = VK_TRUE;
+			EnabledFeatures12.descriptorBindingPartiallyBound = VK_TRUE;
+			EnabledFeatures12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+			EnabledFeatures12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+			EnabledFeatures12.descriptorBindingUpdateUnusedWhilePending = VK_TRUE;
+			EnabledFeatures12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+			EnabledFeatures12.shaderStorageBufferArrayNonUniformIndexing = VK_TRUE;
+		}
+
 		VkPhysicalDeviceVulkan13Features EnabledFeatures13{};
 		EnabledFeatures13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
 		EnabledFeatures13.pNext = &EnabledFeatures12;
@@ -705,6 +756,11 @@ public:
 		if (Selection->bHdrMetadata)
 		{
 			DeviceExtensions.push_back(VK_EXT_HDR_METADATA_EXTENSION_NAME);
+		}
+
+		if (Selection->bRayQuery)
+		{
+			DeviceExtensions.insert(DeviceExtensions.end(), {VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, VK_KHR_RAY_QUERY_EXTENSION_NAME, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME});
 		}
 
 		VkDeviceCreateInfo DeviceInfo{};
@@ -739,6 +795,7 @@ public:
 		NvrhiDescriptor.numInstanceExtensions = InstanceExtensions.size();
 		NvrhiDescriptor.deviceExtensions = const_cast<const char**>(DeviceExtensions.data());
 		NvrhiDescriptor.numDeviceExtensions = DeviceExtensions.size();
+		NvrhiDescriptor.bufferDeviceAddressSupported = Selection->bRayQuery;
 		VulkanNvrhiDevice = nvrhi::vulkan::createDevice(NvrhiDescriptor);
 		if (!VulkanNvrhiDevice)
 		{

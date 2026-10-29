@@ -26,7 +26,12 @@ enum class EShaderBindingType : std::uint32_t
 	StorageTexture,
 	StorageBuffer,
 	// Read-only StructuredBuffer at Vulkan bindings 16..23.
-	Buffer
+	Buffer,
+	// Compute-only ray query scene at t24.
+	AccelerationStructure,
+	// Compute-only unbounded Texture2D and ByteAddressBuffer arrays at bindings 0 and 1 of descriptor set 1, the scene resource table.
+	TableTextures,
+	TableBuffers
 };
 
 struct FShaderBinding

@@ -112,6 +112,7 @@ public:
 	// Opens or closes the game's pause menu during play, as Shift+Esc does.
 	void SetPlayPaused(bool bPaused) noexcept;
 	void SetRenderQuality(ERenderQuality Quality) noexcept;
+	void SetPathTracing(bool bEnabled) noexcept;
 	// Renders the viewport at a fixed size, shown scaled to the panel, so GPU timings compare across displays. Unset follows the panel.
 	void SetViewportResolution(std::optional<FExtent2D> Resolution) noexcept;
 	// Moves the viewport camera to a level camera bookmark and returns its name, or nothing when the slot is empty.

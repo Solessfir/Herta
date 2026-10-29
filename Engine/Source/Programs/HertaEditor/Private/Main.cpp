@@ -221,7 +221,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -393,6 +393,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"MotionVectors.comp.hshader", &VisualShaders.MotionVectorsCompute},
 	    std::pair{"DepthBounds.comp.hshader", &VisualShaders.DepthBoundsCompute},
 	    std::pair{"ContactShadows.comp.hshader", &VisualShaders.ContactShadowsCompute},
+	    std::pair{"PathTrace.comp.hshader", &VisualShaders.PathTraceCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)
@@ -804,6 +805,17 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		EditorFramework->SetRenderQuality(static_cast<ERenderQuality>(Tier - Tiers.begin()));
 	}
 
+	if (bPathTracing)
+	{
+		if (!MeshRenderer->SupportsPathTracing())
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "--path-tracing needs a GPU with ray queries");
+			return 1;
+		}
+
+		EditorFramework->SetPathTracing(true);
+	}
+
 	if (!ResolutionArgument.empty())
 	{
 		const std::size_t Separator = ResolutionArgument.find('x');
@@ -1114,7 +1126,9 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::size_t VisualSettleFrames = 0;
 	std::size_t VisualCaptures = 0;
 	bool bVisualCompleted = false;
-	const std::filesystem::path VisualCaptureDirectory = RepositoryRoot / "Saved/VisualTest";
+	const std::filesystem::path VisualCaptureDirectory = RepositoryRoot / (bPathTracing ? "Saved/VisualTest/PathTraced" : "Saved/VisualTest");
+	// Path traced bookmarks settle until this many samples, enough for comparisons with raster shading.
+	constexpr std::uint32_t VisualPathTracingSamples = 1024;
 	constexpr std::size_t VisualBookmarkSettleFrames = 60;
 	constexpr std::size_t VisualBookmarkSampleFrames = 30;
 	const auto AccumulateVisualPasses = [&](std::vector<std::pair<std::string, double>>& Sums)
@@ -1295,7 +1309,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				break;
 			}
 
-			if (bPresented && VisualFrames == 600 && !bVisualCompleted && VisualSettleFrames >= VisualBookmarkSettleFrames - VisualBookmarkSampleFrames)
+			if (bPresented && VisualFrames == 600 && !bVisualCompleted && VisualSettleFrames >= VisualBookmarkSettleFrames - VisualBookmarkSampleFrames && VisualSettleFrames < VisualBookmarkSettleFrames)
 			{
 				AccumulateVisualPasses(VisualBookmarkPassSums);
 			}
@@ -1337,7 +1351,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 					CompleteVisualCapture();
 				}
 			}
-			else if (bPresented && VisualFrames == 600 && !bVisualCompleted && ++VisualSettleFrames == VisualBookmarkSettleFrames)
+			else if (bPresented && VisualFrames == 600 && !bVisualCompleted && ++VisualSettleFrames >= VisualBookmarkSettleFrames && (!bPathTracing || MeshRenderer->GetPathTracingSamples() >= VisualPathTracingSamples))
 			{
 				// Each bookmark settles for a second of frames so shadows reflect its view, then averages the last half.
 				std::ranges::sort(VisualBookmarkPassSums, std::greater{}, &std::pair<std::string, double>::second);
@@ -1622,6 +1636,7 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::string_view ProjectPath = Herta::FindArgumentValue(ArgumentCount, Arguments, "--project=");
 		const std::string_view Quality = Herta::FindArgumentValue(ArgumentCount, Arguments, "--quality=");
 		const std::string_view Resolution = Herta::FindArgumentValue(ArgumentCount, Arguments, "--resolution=");
+		const bool bPathTracing = Herta::HasArgument(ArgumentCount, Arguments, "--path-tracing");
 		// Explorer passes a file dropped on the executable as a plain argument.
 		std::filesystem::path OpenPath;
 		for (const std::filesystem::path& Argument : Herta::GetProcessArgumentPaths(ArgumentCount, Arguments))
@@ -1633,7 +1648,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing);
 	}
 	catch (const std::exception& Exception)
 	{

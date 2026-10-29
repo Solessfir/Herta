@@ -1016,6 +1016,11 @@ void FEditorFramework::SetRenderQuality(const ERenderQuality Quality) noexcept
 	ApplyRenderQuality(Implementation->VisualSettings, Quality);
 }
 
+void FEditorFramework::SetPathTracing(const bool bEnabled) noexcept
+{
+	Implementation->VisualSettings.bPathTracing = bEnabled;
+}
+
 void FEditorFramework::SetViewportResolution(const std::optional<FExtent2D> Resolution) noexcept
 {
 	Implementation->ViewportResolution = Resolution;
@@ -3289,6 +3294,10 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 				DrawFieldLabel("Penumbra saturation", ValueWidth);
 				DrawNumericSliderFloat("##PenumbraSaturation", &VisualSettings.PenumbraSaturation, 1.f, 4.f, VisualSettings.PenumbraSaturation > 1.f ? "%.2fx" : "Off", ImGuiSliderFlags_AlwaysClamp);
 				Toggle("Occlusion culling", VisualSettings.bOcclusionCulling);
+				if (MeshRenderer->SupportsPathTracing())
+				{
+					Toggle("Path tracing", VisualSettings.bPathTracing);
+				}
 			}
 		}
 
@@ -4206,6 +4215,26 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				const float TextY = Center.y - ImGui::GetFontSize() * 0.5f;
 				Draw->AddText({Position.x + 32.f * UiScale, TextY}, Muted, "Speed");
 				Draw->AddText({Position.x + 40.f * UiScale + LabelWidth, TextY}, PackColor(ToolUITheme::TextPrimary), Speed.c_str());
+			}
+
+			// Convergence of the reference path tracer, with a thin bar along the pill's lower edge.
+			if (!bGameView && !PlaySession && VisualSettings.bPathTracing && MeshRenderer && MeshRenderer->SupportsPathTracing())
+			{
+				const float UiScale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
+				const std::uint32_t Samples = MeshRenderer->GetPathTracingSamples();
+				const std::string Progress = Samples >= PathTracingSampleLimit ? std::format("{} spp, converged", Samples) : std::format("{} / {} spp", Samples, PathTracingSampleLimit);
+				const float LabelWidth = ImGui::CalcTextSize("Path tracing").x;
+				const float Width = LabelWidth + ImGui::CalcTextSize(Progress.c_str()).x + 36.f * UiScale;
+				const float Height = 32.f * UiScale;
+				const ImVec2 Position{ImageMinimum.x + std::round((Size.x - Width) * 0.5f), ImageMinimum.y + Size.y - Height - 14.f * UiScale};
+				ToolUI->DrawGlassSurface(Position.x, Position.y, Width, Height, Height * 0.5f);
+				ImDrawList* const Draw = ImGui::GetWindowDrawList();
+				const float TextY = Position.y + (Height - ImGui::GetFontSize()) * 0.5f;
+				Draw->AddText({Position.x + 14.f * UiScale, TextY}, PackColor(ToolUITheme::TextSecondary), "Path tracing");
+				Draw->AddText({Position.x + 22.f * UiScale + LabelWidth, TextY}, PackColor(ToolUITheme::TextPrimary), Progress.c_str());
+				const float Inset = Height * 0.5f;
+				const float Fraction = std::min(1.f, static_cast<float>(Samples) / static_cast<float>(PathTracingSampleLimit));
+				Draw->AddLine({Position.x + Inset, Position.y + Height - 3.f * UiScale}, {Position.x + Inset + (Width - 2.f * Inset) * Fraction, Position.y + Height - 3.f * UiScale}, IM_COL32(156, 211, 174, 255), 2.f * UiScale);
 			}
 
 			// Play shows only the game HUD.
