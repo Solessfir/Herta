@@ -9,7 +9,6 @@ namespace
 {
 // Keep in sync with RadianceCascades.slangh.
 constexpr std::uint32_t CascadeCount = 3;
-constexpr std::array<std::uint32_t, CascadeCount> ProbeCapacity{65536, 16384, 4096};
 constexpr std::array<std::uint32_t, CascadeCount> SlotCapacity{131072, 32768, 8192};
 constexpr std::uint32_t TotalRecords = 6291456;
 constexpr std::uint32_t MergedRecords = 3145728;
@@ -27,11 +26,6 @@ enum class EStage : std::uint32_t
 	Merge,
 	ResetRecords,
 };
-
-[[nodiscard]] constexpr std::uint32_t DirectionCount(const std::uint32_t Cascade) noexcept
-{
-	return 32u << (2u * Cascade);
-}
 
 [[nodiscard]] constexpr std::uint32_t Groups(const std::uint32_t Threads, const std::uint32_t Size) noexcept
 {
