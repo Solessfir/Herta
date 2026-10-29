@@ -15,10 +15,7 @@ float3 FogLight(uint Index, float3 Position, float3 Direction)
     float3 L;
     float Attenuation = LightAttenuation(Light, Position, L);
     if (Attenuation <= 0.0) return 0.0;
-    float G = Visual.Fog.z;
-    float Mu = dot(-Direction, L);
-    float Phase = (1.0 - G * G) / (4.0 * PI * pow(max(0.002, 1.0 + G * G - 2.0 * G * Mu), 1.5));
-    return Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Phase * LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, float3(0.0, 0.0, 0.0), false);
+    return Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * FogPhase(-Direction, L) * LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, float3(0.0, 0.0, 0.0), false);
 }
 
 [shader("compute")]
@@ -50,8 +47,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     for (int S = 0; S < Steps; ++S)
     {
         float3 Position = Eye + Direction * (float(S) + Jitter) * StepLength;
-        // Constant below the fog height and exponential above it, so an open void beneath the level is not filled with opaque fog.
-        float Density = Visual.Fog.x * exp(clamp(-Visual.Fog.y * (Position.y - Visual.FogColor.w), -8.0, 0.0));
+        float Density = FogDensity(Position);
         float SegmentT = exp(-Density * StepLength);
         float3 Incoming = Ambient;
         if (Visual.Controls.w > 0.0)

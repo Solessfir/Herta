@@ -390,6 +390,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"OcclusionCull.comp.hshader", &VisualShaders.OcclusionCullCompute},
 	    std::pair{"TexturedMesh.velocity.frag.hshader", &VisualShaders.DepthVelocityFragment},
 	    std::pair{"TexturedMesh.instanced.velocity.vert.hshader", &VisualShaders.DepthVelocityVertex},
+	    std::pair{"TexturedMesh.surface.frag.hshader", &VisualShaders.DepthSurfaceFragment},
+	    std::pair{"TexturedMesh.velocity.surface.frag.hshader", &VisualShaders.DepthVelocitySurfaceFragment},
 	    std::pair{"MotionVectors.comp.hshader", &VisualShaders.MotionVectorsCompute},
 	    std::pair{"DepthBounds.comp.hshader", &VisualShaders.DepthBoundsCompute},
 	    std::pair{"ContactShadows.comp.hshader", &VisualShaders.ContactShadowsCompute},

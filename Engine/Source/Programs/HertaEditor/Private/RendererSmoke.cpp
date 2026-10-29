@@ -1432,8 +1432,9 @@ namespace
 	return (Bits & 0x8000) != 0 ? -Magnitude : Magnitude;
 }
 
-// A moving cube reports its own screen motion while the static sky reports none, and a turning camera moves the cube and the sky alike.
-[[nodiscard]] std::expected<void, FPresentationError> CheckMotionVectors(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders)
+// A moving cube reports its own screen motion while the static sky reports none, and a turning camera moves the cube and the sky alike. With global
+// illumination the prepass writes its surface target beside the motion, which must stay the same.
+[[nodiscard]] std::expected<void, FPresentationError> CheckMotionVectors(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& Shaders, const bool bGlobalIllumination)
 {
 	if (Shaders.MotionVectorsCompute.Bytecode.empty())
 	{
@@ -1459,6 +1460,8 @@ namespace
 	    .Meshes = Meshes,
 	    .Visuals = {.AntiAliasing = EAntiAliasing::Off, .bMotionVectors = true, .bStudioPreview = false},
 	};
+
+	View.Visuals.bGlobalIllumination = bGlobalIllumination;
 
 	const auto Capture = [&]() -> std::expected<std::vector<std::array<float, 2>>, FPresentationError>
 	{
@@ -2144,10 +2147,13 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return Result;
 	}
 
-	Result = CheckMotionVectors(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);
-	if (!Result)
+	for (const bool bGlobalIllumination : {false, true})
 	{
-		return Result;
+		Result = CheckMotionVectors(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders, bGlobalIllumination);
+		if (!Result)
+		{
+			return Result;
+		}
 	}
 
 	Result = CheckWhiteFurnace(Device, VertexShader, FragmentShader, InstancedVertexShader, VisualShaders);

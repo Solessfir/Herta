@@ -1,9 +1,45 @@
 #include "RayTracing.slangh"
 
 // The reference path tracer: one sample per pixel per dispatch, accumulated until the view, scene, or settings change.
-// It shares Brdf.slangh, light units, and Rect light shapes with raster shading, so converged images measure what raster approximates.
+// It shares Brdf.slangh, light units, and Rect light shapes with raster shading, so converged images measure what raster approximates. Fog follows
+// the raster model, scattering only along camera rays within its maximum distance, but every scattered path goes on to light and sky.
 [[vk::binding(384, 0)]] [format("rgba32f")] RWTexture2D<float4> Accumulation;
 [[vk::binding(385, 0)]] [format("rgba16f")] RWTexture2D<float4> Output;
+
+// Fog scattering toward V. Albedo applies when the path scatters, so lights see only the phase function.
+struct FFogReceiver : ILightReceiver
+{
+    float3 V;
+
+    float3 Evaluate(float3 L)
+    {
+        return FogPhase(V, L);
+    }
+
+    float Pdf(float3 L)
+    {
+        return FogPhase(V, L);
+    }
+}
+
+// Where the camera ray first scatters in the fog within Length, by delta tracking (Woodcock) against the larger of the end densities, which bound
+// a density that varies only with height.
+bool SampleFog(float3 Origin, float3 Direction, float Length, inout FRandom Random, out float Distance)
+{
+    float Majorant = max(FogDensity(Origin), FogDensity(Origin + Direction * Length));
+    Distance = 0.0;
+    for (uint Step = 0; Step < 256u && Majorant > 0.0; ++Step)
+    {
+        Distance -= log(1.0 - Random.Next()) / Majorant;
+        if (Distance >= Length)
+            return false;
+
+        if (Random.Next() * Majorant < FogDensity(Origin + Direction * Distance))
+            return true;
+    }
+
+    return false;
+}
 
 // Visual.Material carries the dispatch: x is the sample index, y the bounce limit, and z the angle one pixel subtends.
 [shader("compute")]
@@ -39,9 +75,45 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
         if (Bounce > 0)
             Radiance += Throughput * HitLights(PreviousPosition, Origin, PreviousNormal, Direction, Limit, PreviousPdf, PreviousWeightSum);
 
+        if (!bHit && Bounce > 0)
+        {
+            Radiance += Throughput * EnvironmentRadiance(Direction);
+            break;
+        }
+
+        float Scatter;
+        if (Bounce == 0 && Visual.Fog.x > 0.0 && SampleFog(Origin, Direction, min(Limit, Visual.Fog.w), Random, Scatter))
+        {
+            float3 Position = Origin + Direction * Scatter;
+            FFogReceiver Fog;
+            Fog.V = -Direction;
+            Throughput *= Visual.FogColor.rgb;
+            float WeightSum;
+            Radiance += Throughput * SampleLightsAt(Fog, Position, Position, 0.0, true, Random, WeightSum);
+            if (Bounce == MaximumBounces)
+                break;
+
+            // Henyey-Greenstein sampling of the angle between the light's travel and V.
+            float G = Visual.Fog.z;
+            float U = Random.Next();
+            float Cosine = abs(G) < 1e-3 ? 1.0 - 2.0 * U : (1.0 + G * G - pow((1.0 - G * G) / (1.0 - G + 2.0 * G * U), 2.0)) / (2.0 * G);
+            float Sine = sqrt(saturate(1.0 - Cosine * Cosine));
+            float Phi = 2.0 * PI * Random.Next();
+            float3 L = -TangentToWorld(float3(Sine * cos(Phi), Sine * sin(Phi), Cosine), Fog.V);
+            ConeWidth += ConeSpread * Scatter;
+            ConeSpread += 1.0;
+            PreviousPosition = Position;
+            PreviousNormal = 0.0;
+            PreviousPdf = FogPhase(Fog.V, L);
+            PreviousWeightSum = WeightSum;
+            Origin = Position;
+            Direction = L;
+            continue;
+        }
+
         if (!bHit)
         {
-            Radiance += Throughput * (Bounce == 0 ? BackgroundRadiance(Direction) : EnvironmentRadiance(Direction));
+            Radiance += Throughput * BackgroundRadiance(Direction);
             break;
         }
 

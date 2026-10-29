@@ -94,9 +94,8 @@ FVertexOutput instancedVelocityVertexMain(float3 Position : POSITION, float2 UV 
     return Output;
 }
 
-// The instanced depth prepass with motion vectors: the same cutout test as Shadow.slang, then this pixel's screen motion.
-[shader("fragment")]
-float2 velocityFragmentMain(FVertexOutput Input) : SV_Target
+// The depth prepass's cutout test, the same as Shadow.slang's.
+void ClipCutout(FVertexOutput Input)
 {
     if (Visual.Material.Channels1.z > 0.5)
     {
@@ -106,12 +105,75 @@ float2 velocityFragmentMain(FVertexOutput Input) : SV_Target
 
         clip(Alpha - Visual.Material.Channels1.w);
     }
+}
 
+float2 ScreenMotion(FVertexOutput Input)
+{
     if (Input.PreviousClip.w <= 0.0)
         return MotionVectorUnknown;
 
     float2 Previous = Input.PreviousClip.xy / Input.PreviousClip.w * float2(0.5, -0.5) + 0.5;
     return Input.Position.xy * Visual.Viewport.xy - Previous;
+}
+
+float MaterialRoughness(FVertexOutput Input, uint Flags)
+{
+    float Roughness = Visual.Material.Surface.y;
+    if ((Flags & 4u) != 0u) Roughness *= Channel(RoughnessTexture.Sample(LinearSampler, Input.UV), Visual.Material.Channels0.z);
+    return clamp(Roughness, 0.045, 1.0);
+}
+
+// The normal-mapped shading normal in world space.
+float3 ShadingNormal(FVertexOutput Input, uint Flags)
+{
+    float3 N = normalize(Input.Normal);
+    if ((Flags & 8u) == 0u)
+        return N;
+
+    float3 T = normalize(Input.Tangent.xyz - N * dot(N, Input.Tangent.xyz));
+    float3 B = cross(N, T) * Input.Tangent.w;
+    float3 Map = NormalTexture.Sample(LinearSampler, Input.UV).xyz * 2.0 - 1.0;
+    Map.xy *= Visual.Material.Surface.z;
+    float3 MappedNormal = T * Map.x + B * Map.y + N * Map.z;
+    return dot(MappedNormal, MappedNormal) > 0.000001 ? normalize(MappedNormal) : N;
+}
+
+float4 PrepassSurface(FVertexOutput Input)
+{
+    uint Flags = uint(Visual.Material.TextureFlags.x);
+    return EncodeSurface(ShadingNormal(Input, Flags), MaterialRoughness(Input, Flags));
+}
+
+// The instanced depth prepass with motion vectors.
+[shader("fragment")]
+float2 velocityFragmentMain(FVertexOutput Input) : SV_Target
+{
+    ClipCutout(Input);
+    return ScreenMotion(Input);
+}
+
+// The depth prepass with global illumination, which reads each pixel's surface instead of tracing camera rays to find it.
+[shader("fragment")]
+float4 surfaceFragmentMain(FVertexOutput Input) : SV_Target
+{
+    ClipCutout(Input);
+    return PrepassSurface(Input);
+}
+
+struct FVelocitySurface
+{
+    float2 Motion : SV_Target0;
+    float4 Surface : SV_Target1;
+}
+
+[shader("fragment")]
+FVelocitySurface velocitySurfaceFragmentMain(FVertexOutput Input)
+{
+    ClipCutout(Input);
+    FVelocitySurface Output;
+    Output.Motion = ScreenMotion(Input);
+    Output.Surface = PrepassSurface(Input);
+    return Output;
 }
 
 // Linearly transformed cosines (Heitz et al. 2016), following three.js: the edge integral uses a rational fit of theta / sin(theta) / 2pi.
@@ -196,7 +258,7 @@ void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, floa
 }
 
 // Keep in sync with ReflectionRoughness in Compute/RadianceCascades.slangh.
-static const float SceneReflectionRoughness = 0.4;
+static const float SceneReflectionRoughness = 0.6;
 
 // The bilinear blend of one global illumination image's four nearest samples that lie on this pixel's surface plane, so light does not bleed across
 // depth edges or creases; thin features that no sample shares fall back to the nearest one. Alpha is 1 where any sample covered the pixel.
@@ -254,20 +316,9 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     if ((Flags & 1u) != 0u) Base *= BaseColorTexture.Sample(LinearSampler, Input.UV);
     if (Visual.Material.Channels1.z > 0.5) clip(Base.a - Visual.Material.Channels1.w);
     float Metallic = Visual.Material.Surface.x;
-    float Roughness = Visual.Material.Surface.y;
     if ((Flags & 2u) != 0u) Metallic *= Channel(MetallicTexture.Sample(LinearSampler, Input.UV), Visual.Material.Channels0.y);
-    if ((Flags & 4u) != 0u) Roughness *= Channel(RoughnessTexture.Sample(LinearSampler, Input.UV), Visual.Material.Channels0.z);
-    Roughness = clamp(Roughness, 0.045, 1.0);
-    float3 N = normalize(Input.Normal);
-    float3 T = normalize(Input.Tangent.xyz - N * dot(N, Input.Tangent.xyz));
-    float3 B = cross(N, T) * Input.Tangent.w;
-    if ((Flags & 8u) != 0u)
-    {
-        float3 Map = NormalTexture.Sample(LinearSampler, Input.UV).xyz * 2.0 - 1.0;
-        Map.xy *= Visual.Material.Surface.z;
-        float3 MappedNormal = T * Map.x + B * Map.y + N * Map.z;
-        N = dot(MappedNormal, MappedNormal) > 0.000001 ? normalize(MappedNormal) : N;
-    }
+    float Roughness = MaterialRoughness(Input, Flags);
+    float3 N = ShadingNormal(Input, Flags);
     float AO = 1.0;
     if ((Flags & 16u) != 0u) AO = lerp(1.0, Channel(OcclusionTexture.Sample(LinearSampler, Input.UV), Visual.Material.Channels1.x), Visual.Material.Surface.w);
     float3 DiffuseNormal = N;
@@ -348,12 +399,12 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
         float AOSpecular = saturate(pow(NoV + AO, exp2(-16.0 * Roughness - 1.0)) - 1.0 + AO);
         Specular *= AOSpecular * SkyVisibility * Visual.Sky.x * Visual.SkyColor.rgb;
         // Glossy surfaces reflect the scene that rays found, fading to the environment's filtered reflection as roughness approaches the limit
-        // they trace to; the rays already see what occludes them, so only occlusion finer than the blocks applies.
+        // they trace to. The rays already see what occludes them, so specular occlusion would darken them twice.
         if (Indirect.a > 0.5 && Roughness < SceneReflectionRoughness)
         {
             float4 Scene = BlendGathers(int2(Input.Position.xy), Input.WorldPosition, PlaneNormal, 1u);
             if (Scene.a > 0.5)
-                Specular = lerp(Specular, Scene.rgb * 16.0 * AOSpecular, saturate((SceneReflectionRoughness - Roughness) / 0.25));
+                Specular = lerp(Specular, Scene.rgb * 16.0, saturate((SceneReflectionRoughness - Roughness) / 0.25));
         }
 
         Result += Surface.DiffuseReflectance * Diffuse / PI * DiffuseOcclusion + Specular * Surface.SpecularReflectance;

@@ -149,6 +149,7 @@ struct FPipeline final : IRhiGraphicsPipeline
 	nvrhi::BindingLayoutHandle Layout;
 	nvrhi::SamplerHandle Sampler;
 	ETextureFormat ColorFormat;
+	std::optional<ETextureFormat> SecondColorFormat;
 	EGraphicsVertexFormat VertexFormat;
 	bool bInstanced = false;
 	bool bInstanceMotion = false;
@@ -219,7 +220,7 @@ struct FFrame
 	std::size_t UploadBytes = 0;
 	std::size_t UniformBytes = 0;
 	// Draws in a recording mostly share targets and material textures, so their framebuffers and descriptor sets are created once per recording.
-	std::map<std::array<nvrhi::ITexture*, 2>, nvrhi::FramebufferHandle> Framebuffers;
+	std::map<std::array<nvrhi::ITexture*, 3>, nvrhi::FramebufferHandle> Framebuffers;
 	// Keys hold the layout, each bound resource, and the mip level of each storage binding.
 	std::map<std::vector<std::uintptr_t>, nvrhi::BindingSetHandle> BindingSets;
 	std::array<FPassTiming, MaximumGpuPassTimings> Timings;
@@ -499,7 +500,7 @@ public:
 		const bool bColored = Descriptor.VertexFormat == EGraphicsVertexFormat::ColoredClipPosition;
 		const bool bShadow = Descriptor.VertexFormat == EGraphicsVertexFormat::ShadowMesh;
 		const bool bFragment = !Descriptor.FragmentShader.Bytecode.empty();
-		if ((!bColored && !bShadow && Descriptor.VertexFormat != EGraphicsVertexFormat::Mesh) || (bShadow && !Descriptor.bDepthOnly) || (bColored && Descriptor.bInstanced) || (Descriptor.bDepthOnly && !Descriptor.bDepthTest && !Descriptor.bDepthWrite) || Descriptor.VertexShader.Stage != EShaderStage::Vertex || !SerializeCookedShader(Descriptor.VertexShader) || (!Descriptor.bDepthOnly && !bFragment) || (bFragment && (Descriptor.FragmentShader.Stage != EShaderStage::Fragment || !SerializeCookedShader(Descriptor.FragmentShader))) || (!Descriptor.bDepthOnly && (ToFormat(Descriptor.ColorFormat) == nvrhi::Format::UNKNOWN || IsDepthFormat(Descriptor.ColorFormat))) || !IsDepthFormat(Descriptor.DepthFormat) || Descriptor.TextureCount > MaximumGraphicsTextures || Descriptor.BufferCount > MaximumReadBuffers || Descriptor.UniformBufferSize > MaximumGraphicsUniformBytes || Descriptor.UniformBufferSize % 16 != 0 || (Descriptor.CullMode != EGraphicsCullMode::None && Descriptor.CullMode != EGraphicsCullMode::Back && Descriptor.CullMode != EGraphicsCullMode::Front))
+		if ((!bColored && !bShadow && Descriptor.VertexFormat != EGraphicsVertexFormat::Mesh) || (bShadow && !Descriptor.bDepthOnly) || (bColored && Descriptor.bInstanced) || (Descriptor.bDepthOnly && !Descriptor.bDepthTest && !Descriptor.bDepthWrite) || Descriptor.VertexShader.Stage != EShaderStage::Vertex || !SerializeCookedShader(Descriptor.VertexShader) || (!Descriptor.bDepthOnly && !bFragment) || (bFragment && (Descriptor.FragmentShader.Stage != EShaderStage::Fragment || !SerializeCookedShader(Descriptor.FragmentShader))) || (!Descriptor.bDepthOnly && (ToFormat(Descriptor.ColorFormat) == nvrhi::Format::UNKNOWN || IsDepthFormat(Descriptor.ColorFormat))) || (Descriptor.SecondColorFormat && (Descriptor.bDepthOnly || ToFormat(*Descriptor.SecondColorFormat) == nvrhi::Format::UNKNOWN || IsDepthFormat(*Descriptor.SecondColorFormat))) || !IsDepthFormat(Descriptor.DepthFormat) || Descriptor.TextureCount > MaximumGraphicsTextures || Descriptor.BufferCount > MaximumReadBuffers || Descriptor.UniformBufferSize > MaximumGraphicsUniformBytes || Descriptor.UniformBufferSize % 16 != 0 || (Descriptor.CullMode != EGraphicsCullMode::None && Descriptor.CullMode != EGraphicsCullMode::Back && Descriptor.CullMode != EGraphicsCullMode::Front))
 		{
 			return Invalid("Graphics pipeline requires supported shaders, color format, binding counts, and aligned uniforms");
 		}
@@ -565,6 +566,7 @@ public:
 		Pipeline->Name = Descriptor.Name;
 		Pipeline->Owner = Owner;
 		Pipeline->ColorFormat = Descriptor.ColorFormat;
+		Pipeline->SecondColorFormat = Descriptor.SecondColorFormat;
 		Pipeline->VertexFormat = Descriptor.VertexFormat;
 		Pipeline->bInstanced = Descriptor.bInstanced;
 		Pipeline->bInstanceMotion = Descriptor.bInstanced && Descriptor.bInstanceMotion;
@@ -638,6 +640,11 @@ public:
 		if (!Descriptor.bDepthOnly)
 		{
 			FramebufferInfo.addColorFormat(ToFormat(Descriptor.ColorFormat));
+		}
+
+		if (Descriptor.SecondColorFormat)
+		{
+			FramebufferInfo.addColorFormat(ToFormat(*Descriptor.SecondColorFormat));
 		}
 
 		Pipeline->Handle = Device->createGraphicsPipeline(NativeDescriptor, FramebufferInfo);
@@ -950,6 +957,7 @@ public:
 		const auto Instances = std::dynamic_pointer_cast<FBuffer>(Draw.Instances);
 		const auto PreviousInstances = std::dynamic_pointer_cast<FBuffer>(Draw.PreviousInstances);
 		const auto Color = std::dynamic_pointer_cast<FTexture>(Draw.ColorTarget);
+		const auto SecondColor = std::dynamic_pointer_cast<FTexture>(Draw.SecondColorTarget);
 		const auto Depth = std::dynamic_pointer_cast<FTexture>(Draw.DepthTarget);
 		const bool bColored = Pipeline && Pipeline->VertexFormat == EGraphicsVertexFormat::ColoredClipPosition;
 
@@ -971,6 +979,11 @@ public:
 		if (Pipeline->bInstanceMotion ? !Owns(PreviousInstances) || PreviousInstances->Descriptor.VertexFormat != EGraphicsVertexFormat::MeshInstanceMotion || Draw.FirstInstance + std::size_t{Draw.InstanceCount} > PreviousInstances->Descriptor.Size / sizeof(FMeshInstanceMotion) || (!PreviousInstances->bInitialized && !Frames[FrameIndex].UploadedBuffers.contains(PreviousInstances.get())) : static_cast<bool>(Draw.PreviousInstances))
 		{
 			return Invalid("Previous-frame instances belong only to motion pipelines and must cover the drawn instances");
+		}
+
+		if (Pipeline->SecondColorFormat ? !Owns(SecondColor) || !SecondColor->Descriptor.bRenderTarget || SecondColor->Descriptor.Format != *Pipeline->SecondColorFormat || SecondColor->Descriptor.Extent != Color->Descriptor.Extent || SecondColor == Color || !IsInitialized(SecondColor) : static_cast<bool>(Draw.SecondColorTarget))
+		{
+			return Invalid(std::format("Indexed draw '{}' needs an initialized second color target exactly when its pipeline has one, matching its format and extent", Pipeline->Name));
 		}
 
 		const auto Indirect = std::dynamic_pointer_cast<FBuffer>(Draw.IndirectArguments);
@@ -1013,7 +1026,7 @@ public:
 
 		if (Textures.size() != Pipeline->TextureCount || !std::ranges::all_of(Textures, [&](const auto& Texture)
 		{
-			return Owns(Texture) && Texture != Color && Texture != Depth && IsInitialized(Texture);
+			return Owns(Texture) && Texture != Color && Texture != SecondColor && Texture != Depth && IsInitialized(Texture);
 		}))
 		{
 			return Invalid("Draw textures must match the pipeline and contain initialized non-target resources owned by this device");
@@ -1054,12 +1067,17 @@ public:
 			FramebufferDescriptor.addColorAttachment(Color->Handle);
 		}
 
+		if (SecondColor)
+		{
+			FramebufferDescriptor.addColorAttachment(SecondColor->Handle);
+		}
+
 		if (Depth)
 		{
 			FramebufferDescriptor.setDepthAttachment(Depth->Handle);
 		}
 
-		nvrhi::FramebufferHandle& Framebuffer = Frame.Framebuffers[{Color ? Color->Handle.Get() : nullptr, Depth ? Depth->Handle.Get() : nullptr}];
+		nvrhi::FramebufferHandle& Framebuffer = Frame.Framebuffers[{Color ? Color->Handle.Get() : nullptr, SecondColor ? SecondColor->Handle.Get() : nullptr, Depth ? Depth->Handle.Get() : nullptr}];
 		if (!Framebuffer)
 		{
 			Framebuffer = Device->createFramebuffer(FramebufferDescriptor);
@@ -1102,7 +1120,7 @@ public:
 			return Failed("Could not create draw framebuffer or bindings");
 		}
 
-		const std::vector Targets{Color};
+		const std::vector Targets{Color, SecondColor};
 		auto Discarded = FirstAliasUses(Frame, {&Targets, &Textures});
 		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, PreviousInstances, Indirect, Framebuffer, Bindings, Viewport, Discarded = std::move(Discarded), Textures = std::move(Textures), Buffers = std::move(Buffers), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
 		{

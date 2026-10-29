@@ -69,6 +69,8 @@ std::expected<void, FPresentationError> FPathTracer::Render(const FPathTraceInpu
 	AppendKey(NextKey, Uniforms.SunIlluminance);
 	AppendKey(NextKey, Uniforms.SunDirection);
 	AppendKey(NextKey, Uniforms.SunRadiance);
+	AppendKey(NextKey, Uniforms.Fog);
+	AppendKey(NextKey, Uniforms.FogColor);
 	AppendKey(NextKey, Inputs.EnvironmentIdentity);
 	const std::size_t LightCount = std::min<std::size_t>(static_cast<std::size_t>(Uniforms.Controls[0]), MaximumRenderLights);
 	const auto LightBytes = std::as_bytes(std::span{Uniforms.Lights}.first(LightCount));

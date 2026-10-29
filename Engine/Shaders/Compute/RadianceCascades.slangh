@@ -312,7 +312,7 @@ static const float CacheSamples = 4.0;
 static const float CacheBlend = 0.05;
 
 // Surfaces up to this roughness trace scene reflections; the mesh pass fades from them to the environment's filtered reflection approaching it.
-static const float ReflectionRoughness = 0.4;
+static const float ReflectionRoughness = 0.6;
 
 uint MeanBin(float3 Direction)
 {

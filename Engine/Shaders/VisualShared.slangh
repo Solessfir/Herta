@@ -83,6 +83,40 @@ float3 WorldPosition(float2 UV, float Depth)
     return mul(Visual.ViewToWorld, float4(View.xyz / View.w, 1.0)).xyz;
 }
 
+// The depth prepass's surface target for global illumination, in Rgba8: the shading normal octahedrally encoded to 12 bits per axis across rgb, and
+// roughness in a. Cleared to roughness 1 where no prepass draw wrote it.
+float4 EncodeSurface(float3 Normal, float Roughness)
+{
+    Normal /= abs(Normal.x) + abs(Normal.y) + abs(Normal.z);
+    float2 Octahedral = Normal.y >= 0.0 ? Normal.xz : (1.0 - abs(Normal.zx)) * select(Normal.xz >= 0.0, 1.0, -1.0);
+    uint2 Bits = uint2(round(saturate(Octahedral * 0.5 + 0.5) * 4095.0));
+    return float4(float3(Bits >> 4u, (Bits.x & 15u) | ((Bits.y & 15u) << 4u)) / 255.0, Roughness);
+}
+
+float3 DecodeSurfaceNormal(float4 Surface)
+{
+    uint3 Bytes = uint3(round(Surface.rgb * 255.0));
+    float2 Octahedral = float2((Bytes.xy << 4u) | uint2(Bytes.z & 15u, Bytes.z >> 4u)) / 4095.0 * 2.0 - 1.0;
+    float3 Normal = float3(Octahedral.x, 1.0 - abs(Octahedral.x) - abs(Octahedral.y), Octahedral.y);
+    float Fold = saturate(-Normal.y);
+    Normal.xz += select(Normal.xz >= 0.0, -Fold, Fold);
+    return normalize(Normal);
+}
+
+// Height fog's extinction per metre: constant below the fog height and exponential above it, so an open void beneath the level is not filled with
+// opaque fog.
+float FogDensity(float3 Position)
+{
+    return Visual.Fog.x * exp(clamp(-Visual.Fog.y * (Position.y - Visual.FogColor.w), -8.0, 0.0));
+}
+
+// Henyey-Greenstein scattering of light travelling along -L toward V, peaking forward for positive anisotropy.
+float FogPhase(float3 V, float3 L)
+{
+    float G = Visual.Fog.z;
+    return (1.0 - G * G) / (4.0 * PI * pow(max(0.002, 1.0 + G * G + 2.0 * G * dot(V, L)), 1.5));
+}
+
 // Keep in sync with ProceduralSky in EnvironmentLighting.cpp, which bakes the same sky for image-based lighting.
 // Distances are kilometres; scale heights and the ozone layer follow the authored atmosphere height.
 float3 SkyExtinction(float3 Position, float PlanetRadius, float HeightScale, out float Rayleigh, out float Mie)

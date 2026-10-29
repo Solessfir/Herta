@@ -237,6 +237,8 @@ struct FGraphicsPipelineDescriptor
 	FShaderAsset VertexShader{};
 	FShaderAsset FragmentShader{};
 	ETextureFormat ColorFormat = ETextureFormat::Rgba8Srgb;
+	// Fragment output 1, written to FIndexedDraw::SecondColorTarget without blending.
+	std::optional<ETextureFormat> SecondColorFormat{};
 	EGraphicsVertexFormat VertexFormat = EGraphicsVertexFormat::Mesh;
 	bool bDepthTest = true;
 	bool bInstanced = false;
@@ -349,6 +351,8 @@ struct FIndexedDraw
 	FBufferHandle Indices{};
 	FTextureHandle Texture{};
 	FTextureHandle ColorTarget{};
+	// For pipelines with a SecondColorFormat; it must be initialized like a color target that the draw does not cover.
+	FTextureHandle SecondColorTarget{};
 	FTextureHandle DepthTarget{};
 	std::array<float, 16> WorldToClip{};
 	std::uint32_t IndexCount = 0;

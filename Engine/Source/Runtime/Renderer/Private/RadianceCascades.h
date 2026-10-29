@@ -16,6 +16,8 @@ struct FGlobalIlluminationInputs
 	const FRayTracingScene* Scene = nullptr;
 	// Reversed-Z depth from the depth prepass; probes and rays start from the surfaces it holds.
 	FTextureHandle Depth;
+	// The prepass's shading normals and roughness; see EncodeSurface in VisualShared.slangh.
+	FTextureHandle Surface;
 	FTextureHandle Environment;
 	FTextureHandle SkyView;
 	FTextureHandle SpecularAlbedo;
@@ -67,12 +69,15 @@ private:
 	// Group counts sized to the probes that exist, so stages skip the unused capacity.
 	FBufferHandle Arguments;
 	std::array<FTextureHandle, 2> Atlas;
-	FTextureHandle Gathered;
+	// Alternating, so reflections can average last frame's.
+	std::array<FTextureHandle, 2> Gathered;
 	// Counters copy into these in turn and are read once their frame completes, so nothing waits.
 	std::array<FBufferHandle, 3> CounterReadback;
 	FGlobalIlluminationStatistics Statistics;
 	std::array<float, 3> PreviousEye{};
 	bool bPrevious = false;
+	// Last frame wrote reflections into the other gathers at the current size.
+	bool bReflectionHistory = false;
 	// New record storage holds garbage until one reset dispatch; after that every merge clears what it read.
 	bool bRecordsReset = false;
 	std::uint32_t Frame = 0;

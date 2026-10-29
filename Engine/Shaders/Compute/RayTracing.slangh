@@ -175,32 +175,6 @@ bool TraceScene(float3 Origin, float3 Direction, float MaximumDistance, out FHit
     return true;
 }
 
-// The surface a ray meets between two distances with every triangle taken as opaque, for finding what a depth buffer already shows: a short
-// segment around it skips nearly all traversal, and alpha cutouts need no test where depth says a surface is.
-bool TraceSurface(float3 Origin, float3 Direction, float MinimumDistance, float MaximumDistance, out FHit Hit)
-{
-    RayDesc Ray;
-    Ray.Origin = Origin;
-    Ray.Direction = Direction;
-    Ray.TMin = MinimumDistance;
-    Ray.TMax = MaximumDistance;
-    RayQuery<RAY_FLAG_FORCE_OPAQUE> Query;
-    Query.TraceRayInline(Scene, RAY_FLAG_FORCE_OPAQUE, 0xFF, Ray);
-    Query.Proceed();
-    Hit = (FHit)0;
-    if (Query.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
-        return false;
-
-    Hit.Distance = Query.CommittedRayT();
-    Hit.InstanceRecord = Query.CommittedInstanceID();
-    Hit.Geometry = Query.CommittedGeometryIndex();
-    Hit.Primitive = Query.CommittedPrimitiveIndex();
-    Hit.Barycentrics = Query.CommittedTriangleBarycentrics();
-    Hit.ObjectToWorld = Query.CommittedObjectToWorld3x4();
-    Hit.WorldToObject = Query.CommittedWorldToObject3x4();
-    return true;
-}
-
 bool Occluded(float3 Origin, float3 Direction, float MaximumDistance)
 {
     RayDesc Ray;
@@ -417,7 +391,7 @@ float3 RectRadiance(FVisualLight Light)
     return Light.ColorIntensity.rgb * Light.ColorIntensity.w / (PI * max(1e-4, Light.RightWidth.w * Light.UpHeight.w));
 }
 
-// Unshadowed estimates that choose one local light per vertex in proportion to what it could add.
+// Unshadowed estimates that choose one local light per vertex in proportion to what it could add. A zero Normal, as in fog, receives from everywhere.
 float LightWeight(FVisualLight Light, float3 Position, float3 Normal)
 {
     int Type = int(Light.PositionType.w);
@@ -433,14 +407,14 @@ float LightWeight(FVisualLight Light, float3 Position, float3 Normal)
         float3 Right = Light.RightWidth.xyz * (0.5 * Light.RightWidth.w);
         float3 Up = Light.UpHeight.xyz * (0.5 * Light.UpHeight.w);
         float3 Center = Light.PositionType.xyz - Position;
-        bool bAbove = dot(Normal, Center + Right + Up) > 0.0 || dot(Normal, Center + Right - Up) > 0.0 || dot(Normal, Center - Right + Up) > 0.0 || dot(Normal, Center - Right - Up) > 0.0;
+        bool bAbove = dot(Normal, Center + Right + Up) >= 0.0 || dot(Normal, Center + Right - Up) >= 0.0 || dot(Normal, Center - Right + Up) >= 0.0 || dot(Normal, Center - Right - Up) >= 0.0;
         float Area = Light.RightWidth.w * Light.UpHeight.w;
         return bAbove ? Luminance(RectRadiance(Light)) * Area * Fade / max(dot(Center, Center), 0.01) + 1e-12 : 0.0;
     }
 
     float3 L;
     float Attenuation = LightAttenuation(Light, Position, L);
-    return Attenuation > 0.0 && dot(Normal, L) > 0.0 ? Luminance(Light.ColorIntensity.rgb) * Light.ColorIntensity.w * Attenuation + 1e-12 : 0.0;
+    return Attenuation > 0.0 && dot(Normal, L) >= 0.0 ? Luminance(Light.ColorIntensity.rgb) * Light.ColorIntensity.w * Attenuation + 1e-12 : 0.0;
 }
 
 // Where a ray meets a Rect light's front face, if before MaximumDistance.
@@ -459,19 +433,43 @@ bool HitRect(FVisualLight Light, float3 Origin, float3 Direction, float MaximumD
     return abs(dot(Local, Light.RightWidth.xyz)) <= 0.5 * Light.RightWidth.w && abs(dot(Local, Light.UpHeight.xyz)) <= 0.5 * Light.UpHeight.w;
 }
 
-// Next-event estimation: every directional light, plus one local light chosen by LightWeight.
-// Paths that go on to sample the BRDF weight both against HitLights; one-bounce gathers that never do pass bMultipleImportance false.
-float3 SampleLights(FSurfacePoint Point, FSurface Surface, float3 V, float SpecularChance, bool bMultipleImportance, inout FRandom Random, out float WeightSum)
+// A path vertex that receives light: what it returns toward the viewer from light arriving along L, zero where none can arrive, and the density it
+// samples its next direction with, which multiple importance sampling weighs lights against.
+interface ILightReceiver
 {
-    float3 N = Point.Material.Normal;
-    float3 Origin = Point.Position + Point.GeometricNormal * RayOffset;
-    float Alpha = GgxAlpha(Point.Material.Roughness);
+    float3 Evaluate(float3 L);
+    float Pdf(float3 L);
+}
+
+struct FSurfaceReceiver : ILightReceiver
+{
+    FSurface Surface;
+    FHitMaterial Material;
+    float3 GeometricNormal;
+    float3 V;
+    float SpecularChance;
+
+    float3 Evaluate(float3 L)
+    {
+        return dot(Material.Normal, L) > 0.0 && dot(GeometricNormal, L) > 0.0 ? EvaluateBrdf(Surface, Material, Material.Normal, V, L) : 0.0;
+    }
+
+    float Pdf(float3 L)
+    {
+        return BrdfPdf(V, Material.Normal, L, GgxAlpha(Material.Roughness), SpecularChance);
+    }
+}
+
+// Next-event estimation from Position, with shadow rays leaving Origin: every directional light, plus one local light chosen by LightWeight.
+// Paths that go on to sample the receiver weight both against HitLights; one-bounce gathers that never do pass bMultipleImportance false.
+float3 SampleLightsAt<T : ILightReceiver>(T Receiver, float3 Position, float3 Origin, float3 Normal, bool bMultipleImportance, inout FRandom Random, out float WeightSum)
+{
     float3 Result = 0.0;
     WeightSum = 0.0;
     for (uint Index = 0; Index < LightCount(); ++Index)
     {
         FVisualLight Light = Lights[Index];
-        WeightSum += LightWeight(Light, Point.Position, N);
+        WeightSum += LightWeight(Light, Position, Normal);
         if (int(Light.PositionType.w) != 0)
             continue;
 
@@ -482,12 +480,13 @@ float3 SampleLights(FSurfacePoint Point, FSurface Surface, float3 V, float Specu
         float Phi = 2.0 * PI * Random.Next();
         float SinTheta = sqrt(saturate(1.0 - Z * Z));
         L = normalize(TangentToWorld(float3(SinTheta * cos(Phi), SinTheta * sin(Phi), Z), L));
-        if (dot(N, L) <= 0.0 || dot(Point.GeometricNormal, L) <= 0.0 || Occluded(Origin, L, 1e30))
+        float3 Value = Receiver.Evaluate(L);
+        if (all(Value <= 0.0) || Occluded(Origin, L, 1e30))
             continue;
 
         float SolidAngle = 2.0 * PI * (1.0 - CosMax);
-        float Mis = SolidAngle > 1e-9 && bMultipleImportance ? PowerHeuristic(1.0 / SolidAngle, BrdfPdf(V, N, L, Alpha, SpecularChance)) : 1.0;
-        Result += Light.ColorIntensity.rgb * Light.ColorIntensity.w * EvaluateBrdf(Surface, Point.Material, N, V, L) * Mis;
+        float Mis = SolidAngle > 1e-9 && bMultipleImportance ? PowerHeuristic(1.0 / SolidAngle, Receiver.Pdf(L)) : 1.0;
+        Result += Light.ColorIntensity.rgb * Light.ColorIntensity.w * Value * Mis;
     }
 
     if (WeightSum <= 0.0)
@@ -499,7 +498,7 @@ float3 SampleLights(FSurfacePoint Point, FSurface Surface, float3 V, float Specu
     float ChosenWeight = 0.0;
     for (uint Index = 0; Index < LightCount(); ++Index)
     {
-        float Weight = LightWeight(Lights[Index], Point.Position, N);
+        float Weight = LightWeight(Lights[Index], Position, Normal);
         if (Weight <= 0.0)
             continue;
 
@@ -523,21 +522,37 @@ float3 SampleLights(FSurfacePoint Point, FSurface Surface, float3 V, float Specu
         float Distance = length(Delta);
         float3 L = Delta / max(Distance, 1e-6);
         float Cosine = -dot(L, Light.DirectionRange.xyz);
-        if (Cosine <= 0.0 || dot(N, L) <= 0.0 || dot(Point.GeometricNormal, L) <= 0.0 || Occluded(Origin, L, Distance - RayOffset))
+        if (Cosine <= 0.0)
+            return Result;
+
+        float3 Value = Receiver.Evaluate(L);
+        if (all(Value <= 0.0) || Occluded(Origin, L, Distance - RayOffset))
             return Result;
 
         float Pdf = Selection * Distance * Distance / (Cosine * max(1e-6, Light.RightWidth.w * Light.UpHeight.w));
-        float Mis = bMultipleImportance ? PowerHeuristic(Pdf, BrdfPdf(V, N, L, Alpha, SpecularChance)) : 1.0;
-        return Result + RectRadiance(Light) * RectFade(Light, Point.Position) * EvaluateBrdf(Surface, Point.Material, N, V, L) * (Mis / Pdf);
+        float Mis = bMultipleImportance ? PowerHeuristic(Pdf, Receiver.Pdf(L)) : 1.0;
+        return Result + RectRadiance(Light) * RectFade(Light, Position) * Value * (Mis / Pdf);
     }
 
     float3 L;
-    float Attenuation = LightAttenuation(Light, Point.Position, L);
+    float Attenuation = LightAttenuation(Light, Position, L);
     float Distance = length(Light.PositionType.xyz - Origin);
-    if (dot(Point.GeometricNormal, L) <= 0.0 || Occluded(Origin, L, Distance - RayOffset))
+    float3 Value = Receiver.Evaluate(L);
+    if (all(Value <= 0.0) || Occluded(Origin, L, Distance - RayOffset))
         return Result;
 
-    return Result + Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * EvaluateBrdf(Surface, Point.Material, N, V, L) / Selection;
+    return Result + Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Value / Selection;
+}
+
+float3 SampleLights(FSurfacePoint Point, FSurface Surface, float3 V, float SpecularChance, bool bMultipleImportance, inout FRandom Random, out float WeightSum)
+{
+    FSurfaceReceiver Receiver;
+    Receiver.Surface = Surface;
+    Receiver.Material = Point.Material;
+    Receiver.GeometricNormal = Point.GeometricNormal;
+    Receiver.V = V;
+    Receiver.SpecularChance = SpecularChance;
+    return SampleLightsAt(Receiver, Point.Position, Point.Position + Point.GeometricNormal * RayOffset, Point.Material.Normal, bMultipleImportance, Random, WeightSum);
 }
 
 // Light a BRDF-sampled ray from Position finds on its own: the directional light discs and Rect lights it reaches before Limit, weighted against SampleLights.

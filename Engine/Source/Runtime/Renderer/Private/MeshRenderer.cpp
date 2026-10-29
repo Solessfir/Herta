@@ -681,6 +681,11 @@ struct FMeshRenderer::FImplementation
 	FComputePipelineHandle MotionVectorPipeline;
 	FTextureHandle MotionVectors;
 	bool bMotionVectors = false;
+	// With global illumination the prepass also writes each pixel's shading normal and roughness, which reflections read instead of tracing camera rays.
+	FGraphicsPipelineHandle SurfacePrepassPipeline;
+	FGraphicsPipelineHandle InstancedSurfacePrepassPipeline;
+	FGraphicsPipelineHandle InstancedVelocitySurfacePrepassPipeline;
+	FTextureHandle Surface;
 	// The camera last frame, valid while the extent stays the same.
 	FMatrix4 PreviousWorldToClip;
 	FExtent2D PreviousExtent{};
@@ -842,7 +847,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 			State->InstancedDepthPrepassPipeline = std::move(*InstancedDepthPrepass);
 			if (!VisualShaders.DepthVelocityFragment.Bytecode.empty() && !VisualShaders.DepthVelocityVertex.Bytecode.empty() && !VisualShaders.MotionVectorsCompute.Bytecode.empty())
 			{
-				auto VelocityPrepass = Device.CreateGraphicsPipeline({.Name = "Instanced velocity prepass", .VertexShader = std::move(VisualShaders.DepthVelocityVertex), .FragmentShader = std::move(VisualShaders.DepthVelocityFragment), .ColorFormat = ETextureFormat::Rg16Float, .bInstanced = true, .bInstanceMotion = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+				auto VelocityPrepass = Device.CreateGraphicsPipeline({.Name = "Instanced velocity prepass", .VertexShader = VisualShaders.DepthVelocityVertex, .FragmentShader = std::move(VisualShaders.DepthVelocityFragment), .ColorFormat = ETextureFormat::Rg16Float, .bInstanced = true, .bInstanceMotion = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
 				auto MotionVectors = Device.CreateComputePipeline({.Name = "Motion vectors", .Shader = std::move(VisualShaders.MotionVectorsCompute), .TextureCount = 1, .StorageTextureCount = 1, .UniformBufferSize = VisualUniformBytes});
 				if (!VelocityPrepass || !MotionVectors)
 				{
@@ -901,8 +906,37 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		State->PathTracer = std::move(*PathTracer);
 	}
 
-	if (!VisualShaders.RadianceCascadeProbesCompute.Bytecode.empty() && Device.SupportsRayQueries() && State->DepthPrepassPipeline)
+	if (!VisualShaders.RadianceCascadeProbesCompute.Bytecode.empty() && !VisualShaders.DepthSurfaceFragment.Bytecode.empty() && Device.SupportsRayQueries() && State->DepthPrepassPipeline)
 	{
+		auto SurfacePrepass = Device.CreateGraphicsPipeline({.Name = "Surface prepass", .VertexShader = VertexShader, .FragmentShader = VisualShaders.DepthSurfaceFragment, .ColorFormat = ETextureFormat::Rgba8, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+		if (!SurfacePrepass)
+		{
+			return std::unexpected(SurfacePrepass.error());
+		}
+
+		State->SurfacePrepassPipeline = std::move(*SurfacePrepass);
+		if (State->InstancedDepthPrepassPipeline)
+		{
+			auto InstancedSurfacePrepass = Device.CreateGraphicsPipeline({.Name = "Instanced surface prepass", .VertexShader = InstancedVertexShader, .FragmentShader = VisualShaders.DepthSurfaceFragment, .ColorFormat = ETextureFormat::Rgba8, .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+			if (!InstancedSurfacePrepass)
+			{
+				return std::unexpected(InstancedSurfacePrepass.error());
+			}
+
+			State->InstancedSurfacePrepassPipeline = std::move(*InstancedSurfacePrepass);
+		}
+
+		if (State->InstancedVelocityPrepassPipeline)
+		{
+			auto VelocitySurfacePrepass = Device.CreateGraphicsPipeline({.Name = "Instanced velocity surface prepass", .VertexShader = std::move(VisualShaders.DepthVelocityVertex), .FragmentShader = std::move(VisualShaders.DepthVelocitySurfaceFragment), .ColorFormat = ETextureFormat::Rg16Float, .SecondColorFormat = ETextureFormat::Rgba8, .bInstanced = true, .bInstanceMotion = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+			if (!VelocitySurfacePrepass)
+			{
+				return std::unexpected(VelocitySurfacePrepass.error());
+			}
+
+			State->InstancedVelocitySurfacePrepassPipeline = std::move(*VelocitySurfacePrepass);
+		}
+
 		auto Cascades = FRadianceCascades::Create(Device, {.Probes = std::move(VisualShaders.RadianceCascadeProbesCompute), .Trace = std::move(VisualShaders.RadianceCascadeTraceCompute), .Irradiance = std::move(VisualShaders.RadianceCascadeIrradianceCompute), .Shade = std::move(VisualShaders.RadianceCascadeShadeCompute), .Arguments = std::move(VisualShaders.RadianceCascadeArgumentsCompute), .Reflect = std::move(VisualShaders.RadianceCascadeReflectCompute)});
 		if (!Cascades)
 		{
@@ -1386,7 +1420,7 @@ std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 	};
 
 	// The occlusion targets and the tone-mapping and SMAA targets alias one allocation, which holds the larger of the two.
-	return Sum({&State.Color, &State.Depth, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.LocalShadowAtlas}) + std::max(Sum({&State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion, &State.ContactShadows}), Sum({&State.ToneColor, &State.Edges, &State.Weights}));
+	return Sum({&State.Color, &State.Depth, &State.Surface, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.LocalShadowAtlas}) + std::max(Sum({&State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion, &State.ContactShadows}), Sum({&State.ToneColor, &State.Edges, &State.Weights}));
 }
 
 std::expected<void, FPresentationError> FMeshRenderer::SetEnvironmentLighting(const FEnvironmentLighting& Lighting)
@@ -1573,7 +1607,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	State.Uniforms = *VisualUniforms;
-	// The path tracer replaces shading, shadow maps, and screen-space effects, and does not handle participating media yet.
+	// The path tracer replaces shading, shadow maps, screen-space effects, and fog.
 	const bool bPathTracing = View.Visuals.bPathTracing && State.PathTracer && State.VisualPipelines[0];
 	// Global illumination needs the depth prepass, which the path tracer keeps for overlays, and gives way to the path tracer.
 	const bool bGlobalIllumination = View.Visuals.bGlobalIllumination && State.RadianceCascades && State.VisualPipelines[0] && !bPathTracing;
@@ -1594,6 +1628,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	State.Uniforms.Occlusion[3] = bGlobalIllumination ? 1.f : 0.f;
 
+	// Raster fog stays off over the traced image, which scatters in the fog itself.
 	if (bPathTracing)
 	{
 		State.Uniforms.Fog = {};
@@ -1916,6 +1951,21 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 			State.PreviousInstances = std::move(*Previous);
 		}
+	}
+
+	if (!bGlobalIllumination)
+	{
+		State.Surface.reset();
+	}
+	else if (!State.Surface || State.Surface->GetDescriptor().Extent != Extent)
+	{
+		auto Surface = Device.CreateTexture({.Name = "Prepass surfaces", .Extent = Extent, .Format = ETextureFormat::Rgba8, .bRenderTarget = true});
+		if (!Surface)
+		{
+			return std::unexpected(Surface.error());
+		}
+
+		State.Surface = std::move(*Surface);
 	}
 
 	if (State.bMotionVectors && (!State.MotionVectors || State.MotionVectors->GetDescriptor().Extent != Extent))
@@ -2554,7 +2604,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		if (State.InstancedPipeline)
 		{
 			const bool bVelocity = bDepthPrepass && State.bMotionVectors;
-			const FGraphicsPipelineHandle& Prepass = bVelocity ? State.InstancedVelocityPrepassPipeline : State.InstancedDepthPrepassPipeline;
+			const bool bSurface = bDepthPrepass && bGlobalIllumination;
+			const FGraphicsPipelineHandle& Prepass = bVelocity ? (bSurface ? State.InstancedVelocitySurfacePrepassPipeline : State.InstancedVelocityPrepassPipeline) : (bSurface ? State.InstancedSurfacePrepassPipeline : State.InstancedDepthPrepassPipeline);
+			const FTextureHandle PrepassTarget = bVelocity ? State.MotionVectors : (bSurface ? State.Surface : FTextureHandle{});
 			const auto CandidateCount = static_cast<std::uint32_t>(State.CandidateData.size());
 			std::uint32_t DrawIndex = 0;
 			for (const FImplementation::FInstanceDraw& Instances : State.ViewDraws[0])
@@ -2587,7 +2639,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 						Textures[15] = State.RadianceCascades->GetIrradiance();
 					}
 
-					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? Prepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bVelocity ? State.MotionVectors : ColorTarget, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .PreviousInstances = bVelocity ? State.PreviousInstances : FBufferHandle{}, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers};
+					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? Prepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bDepthPrepass ? PrepassTarget : ColorTarget, .SecondColorTarget = bVelocity && bSurface ? State.Surface : FTextureHandle{}, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .PreviousInstances = bVelocity ? State.PreviousInstances : FBufferHandle{}, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers};
 					if (State.bOcclusionCulling)
 					{
 						Draw.Instances = State.CulledInstances;
@@ -2644,7 +2696,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 					Textures[15] = State.RadianceCascades->GetIrradiance();
 				}
 
-				const auto Result = Device.DrawIndexed({.Pipeline = bDepthPrepass ? State.DepthPrepassPipeline : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = ColorTarget, .DepthTarget = FrameDepth, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .ObjectToView = ObjectToView, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers});
+				const bool bSurface = bDepthPrepass && bGlobalIllumination;
+				const auto Result = Device.DrawIndexed({.Pipeline = bDepthPrepass ? (bSurface ? State.SurfacePrepassPipeline : State.DepthPrepassPipeline) : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bSurface ? State.Surface : ColorTarget, .DepthTarget = FrameDepth, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .ObjectToView = ObjectToView, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers});
 				if (!Result)
 				{
 					return GraphResult(Result);
@@ -2672,6 +2725,15 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	{
 		Graph.AddPass("Depth prepass", {{.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
+			// Roughness 1 where no prepass draw writes, such as custom-material surfaces, keeps reflections off them.
+			if (bGlobalIllumination)
+			{
+				if (const auto Cleared = Device.ClearTargets(State.Surface, {}, {0.f, 0.f, 0.f, 1.f}); !Cleared)
+				{
+					return GraphResult(Cleared);
+				}
+			}
+
 			if (State.bMotionVectors)
 			{
 				constexpr std::array<float, 4> Unknown{65504.f, 0.f, 0.f, 0.f};
@@ -2747,7 +2809,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				return GraphResult(Updated);
 			}
 
-			return GraphResult(State.RadianceCascades->Render({.Extent = Extent, .Uniforms = &State.Uniforms, .Scene = State.RayTracingScene.get(), .Depth = FrameDepth, .Environment = State.EnvironmentSpecular, .SkyView = State.SkyView, .SpecularAlbedo = State.SpecularAlbedo, .Lights = State.Lights}));
+			return GraphResult(State.RadianceCascades->Render({.Extent = Extent, .Uniforms = &State.Uniforms, .Scene = State.RayTracingScene.get(), .Depth = FrameDepth, .Surface = State.Surface, .Environment = State.EnvironmentSpecular, .SkyView = State.SkyView, .SpecularAlbedo = State.SpecularAlbedo, .Lights = State.Lights}));
 		});
 	}
 
@@ -2832,7 +2894,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				return GraphResult(Updated);
 			}
 
-			return GraphResult(State.PathTracer->Render({.Extent = Extent, .View = &View, .Uniforms = &State.Uniforms, .Scene = State.RayTracingScene.get(), .Environment = State.EnvironmentSpecular, .SkyView = State.SkyView, .SpecularAlbedo = State.SpecularAlbedo, .Lights = State.Lights, .Output = State.HdrColor, .EnvironmentIdentity = State.EnvironmentSpecular.get()}));
+			FVisualUniforms Traced = State.Uniforms;
+			Traced.Fog = VisualUniforms->Fog;
+			return GraphResult(State.PathTracer->Render({.Extent = Extent, .View = &View, .Uniforms = &Traced, .Scene = State.RayTracingScene.get(), .Environment = State.EnvironmentSpecular, .SkyView = State.SkyView, .SpecularAlbedo = State.SpecularAlbedo, .Lights = State.Lights, .Output = State.HdrColor, .EnvironmentIdentity = State.EnvironmentSpecular.get()}));
 		});
 	}
 	else

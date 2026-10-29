@@ -155,13 +155,16 @@ struct FVisualShaderSet
 	FShaderAsset ContactShadowsCompute;
 	// The reference path tracer behind FVisualSettings::bPathTracing.
 	FShaderAsset PathTraceCompute;
-	// Split Radiance Cascades and scene reflections behind FVisualSettings::bGlobalIllumination; it needs all six.
+	// Split Radiance Cascades and scene reflections behind FVisualSettings::bGlobalIllumination; it needs all eight.
 	FShaderAsset RadianceCascadeProbesCompute;
 	FShaderAsset RadianceCascadeTraceCompute;
 	FShaderAsset RadianceCascadeIrradianceCompute;
 	FShaderAsset RadianceCascadeShadeCompute;
 	FShaderAsset RadianceCascadeArgumentsCompute;
 	FShaderAsset RadianceCascadeReflectCompute;
+	// Depth prepass fragments that also write each pixel's shading normal and roughness, alone and beside motion.
+	FShaderAsset DepthSurfaceFragment;
+	FShaderAsset DepthVelocitySurfaceFragment;
 };
 
 struct FShadowView
