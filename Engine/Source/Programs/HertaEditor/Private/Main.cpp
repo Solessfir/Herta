@@ -395,12 +395,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"MotionVectors.comp.hshader", &VisualShaders.MotionVectorsCompute},
 	    std::pair{"DepthBounds.comp.hshader", &VisualShaders.DepthBoundsCompute},
 	    std::pair{"ContactShadows.comp.hshader", &VisualShaders.ContactShadowsCompute},
-	    std::pair{"RadianceCascadesProbes.comp.hshader", &VisualShaders.RadianceCascadeProbesCompute},
-	    std::pair{"RadianceCascadesTrace.comp.hshader", &VisualShaders.RadianceCascadeTraceCompute},
-	    std::pair{"RadianceCascadesIrradiance.comp.hshader", &VisualShaders.RadianceCascadeIrradianceCompute},
-	    std::pair{"RadianceCascadesShade.comp.hshader", &VisualShaders.RadianceCascadeShadeCompute},
-	    std::pair{"RadianceCascadesArguments.comp.hshader", &VisualShaders.RadianceCascadeArgumentsCompute},
-	    std::pair{"RadianceCascadesReflect.comp.hshader", &VisualShaders.RadianceCascadeReflectCompute},
+	    std::pair{"IrradianceFieldUpdate.comp.hshader", &VisualShaders.IrradianceFieldUpdateCompute},
+	    std::pair{"IrradianceFieldTrace.comp.hshader", &VisualShaders.IrradianceFieldTraceCompute},
+	    std::pair{"IrradianceFieldBlend.comp.hshader", &VisualShaders.IrradianceFieldBlendCompute},
+	    std::pair{"IrradianceFieldGather.comp.hshader", &VisualShaders.IrradianceFieldGatherCompute},
+	    std::pair{"IrradianceFieldReflect.comp.hshader", &VisualShaders.IrradianceFieldReflectCompute},
 	    std::pair{"PathTrace.comp.hshader", &VisualShaders.PathTraceCompute},
 	};
 
@@ -1455,7 +1454,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				const FGlobalIlluminationStatistics Probes = MeshRenderer->GetGlobalIlluminationStatistics();
 				const std::string CaptureName = MakeVisualCaptureName(VisualSlot, VisualSlotName);
 				const std::string Shimmer = FinishShimmer(CaptureName.substr(0, CaptureName.size() - 4) + "-shimmer.png");
-				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={} gi_probes={}/{}/{}/{} gi_overflow={}{}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Probes.Probes[0], Probes.Probes[1], Probes.Probes[2], Probes.Probes[3], Probes.Overflow, Shimmer, Passes);
+				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={} gi_probes_traced={} gi_probes_read={} gi_probes_inside={} gi_overflow={}{}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Probes.Traced, Probes.Read, Probes.Inside, Probes.Overflow, Shimmer, Passes);
 				CaptureVisualView(CaptureName);
 				if (!ShowNextVisualBookmark())
 				{

@@ -1,0 +1,12 @@
+#pragma once
+// Light leaving a ray's hit, shared by the field's probe rays and reflections. Includers bring RayTracing.slangh and a sampling IrradianceField.slangh.
+
+// Emission, sampled direct light, and diffuse bounce light from the field itself, last frame's, so every frame adds a bounce.
+float3 FieldHitRadiance(FSurfacePoint Point, float3 V, inout FRandom Random)
+{
+    FSurface Surface = MakeSurface(SpecularAlbedo, Point.Material.Base.rgb, Point.Material.Metallic, Point.Material.Roughness, Point.Material.DiffuseRoughness, Point.Material.EdgeColor, saturate(dot(Point.Material.Normal, V)));
+    float WeightSum;
+    float3 Radiance = Point.Material.Emissive + SampleLights(Point, Surface, V, SpecularProbability(Surface), false, Random, WeightSum);
+    float4 Bounce = FieldIrradiance(Point.Position, Point.GeometricNormal, V);
+    return Radiance + Surface.DiffuseReflectance / PI * Bounce.rgb;
+}

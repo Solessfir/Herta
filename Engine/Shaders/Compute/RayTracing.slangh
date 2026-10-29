@@ -199,6 +199,9 @@ struct FSurfacePoint
     // Faces the incoming ray, so both sides of thin geometry shade.
     float3 GeometricNormal;
     FHitMaterial Material;
+    // The ray met the side its vertex normals face away from, which for closed geometry means it started inside. Cutout materials, such as
+    // foliage, count as two-sided.
+    bool bBackFace;
 };
 
 FSurfacePoint ShadeHit(FHit Hit, float3 Direction, float ConeWidth)
@@ -231,6 +234,7 @@ FSurfacePoint ShadeHit(FHit Hit, float3 Direction, float ConeWidth)
     float UVArea = abs(UVEdge0.x * UVEdge1.y - UVEdge0.y * UVEdge1.x);
     float LodBias = 0.5 * log2(max(UVArea, 1e-20) / WorldArea) + log2(max(ConeWidth, 1e-8) / max(abs(dot(Ng, Direction)), 1e-3));
 
+    bool bBackFace = dot(N, Direction) > 0.0 && Material.Channels1.z < 0.5;
     if (dot(Ng, Direction) > 0.0)
         Ng = -Ng;
     if (dot(N, Ng) < 0.0)
@@ -265,6 +269,7 @@ FSurfacePoint ShadeHit(FHit Hit, float3 Direction, float ConeWidth)
     Point.Position = mul(Hit.ObjectToWorld, float4(A.Position * Weights.x + B.Position * Weights.y + C.Position * Weights.z, 1.0));
     Point.GeometricNormal = Ng;
     Point.Material = Result;
+    Point.bBackFace = bBackFace;
     return Point;
 }
 

@@ -1,0 +1,289 @@
+#pragma once
+#include "../VisualShared.slangh"
+
+// A ray-traced irradiance field after DDGI (Majercik et al. 2019) and its production scaling (Majercik et al. 2021): probes on four clipmap levels
+// that follow the camera, each tracing its own rays and keeping octahedral irradiance and distance moments, so lighting lives in world space and
+// moving the camera never shows sampling noise. Keep the constants in sync with IrradianceField.cpp.
+//
+// Visual.Material carries the field's frame: BaseColor holds the update stage and the frame number, and UV, Channels0, Channels1, and
+// TextureFlags each level's first probe cell. Includers that sample the field define
+// FIELD_IRRADIANCE_BINDING, FIELD_DISTANCE_BINDING, and FIELD_PROBES_BINDING first, and FIELD_USED_BINDING with FIELD_USED_BY to record which
+// probes they read.
+
+static const uint FieldLevels = 4;
+static const int3 FieldGrid = int3(32, 16, 32);
+static const uint FieldProbesPerLevel = 16384;
+static const uint FieldProbeCount = FieldProbesPerLevel * FieldLevels;
+static const float FieldBaseSpacing = 1.0;
+static const uint FieldRays = 128;
+// The first rays share the same directions in every probe, so relocation and classification read a regular pattern.
+static const uint FieldFixedRays = 32;
+static const uint FieldIrradianceTexels = 6;
+static const uint FieldIrradianceTile = FieldIrradianceTexels + 2;
+static const uint FieldDistanceTexels = 14;
+static const uint FieldDistanceTile = FieldDistanceTexels + 2;
+static const uint FieldTilesPerRow = 256;
+static const uint FieldMaxTraced = 8192;
+// Probe states, in the w of each probe's offset.
+static const float FieldProbeNew = 0.0;
+static const float FieldProbeActive = 1.0;
+static const float FieldProbeInside = 2.0;
+// Irradiance is stored at 1/16 scale in half floats, because sunlit irradiance passes their range.
+static const float StoredScale = 1.0 / 16.0;
+
+float3 CameraPosition()
+{
+    return mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+}
+
+// Surfaces up to this roughness trace a mirror ray; the mesh pass fades from it to the environment's filtered reflection approaching it.
+static const float ReflectionRoughness = 0.3;
+
+// The world position and depth-derived normal under a pixel, or false for the sky.
+bool SurfaceAt(Texture2D<float> Depth, int2 Pixel, out float3 Position, out float3 Normal)
+{
+    int2 Size = int2(Visual.Viewport.zw);
+    float D = Depth.Load(int3(Pixel, 0));
+    Position = 0.0;
+    Normal = 0.0;
+    if (D <= 0.0)
+        return false;
+
+    float2 UV = (float2(Pixel) + 0.5) * Visual.Viewport.xy;
+    Position = WorldPosition(UV, D);
+    // The neighbour on each axis with the closer depth gives the tangent least likely to span an edge.
+    int2 Left = max(Pixel - int2(1, 0), 0);
+    int2 Right = min(Pixel + int2(1, 0), Size - 1);
+    int2 Up = max(Pixel - int2(0, 1), 0);
+    int2 Down = min(Pixel + int2(0, 1), Size - 1);
+    float DL = Depth.Load(int3(Left, 0));
+    float DR = Depth.Load(int3(Right, 0));
+    float DU = Depth.Load(int3(Up, 0));
+    float DD = Depth.Load(int3(Down, 0));
+    float3 X = abs(DR - D) < abs(DL - D) ? WorldPosition((float2(Right) + 0.5) * Visual.Viewport.xy, DR) - Position : Position - WorldPosition((float2(Left) + 0.5) * Visual.Viewport.xy, DL);
+    float3 Y = abs(DD - D) < abs(DU - D) ? WorldPosition((float2(Down) + 0.5) * Visual.Viewport.xy, DD) - Position : Position - WorldPosition((float2(Up) + 0.5) * Visual.Viewport.xy, DU);
+    Normal = cross(Y, X);
+    float Length = length(Normal);
+    if (Length <= 0.0)
+        return false;
+
+    Normal /= Length;
+    float3 Eye = mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    if (dot(Normal, Eye - Position) < 0.0)
+        Normal = -Normal;
+    return true;
+}
+
+uint FieldFrame()
+{
+    return uint(Visual.Material.BaseColor.z);
+}
+
+float FieldSpacing(uint Level)
+{
+    return FieldBaseSpacing * float(1u << Level);
+}
+
+int3 FieldOrigin(uint Level)
+{
+    float4 Origins[FieldLevels] = { Visual.Material.UV, Visual.Material.Channels0, Visual.Material.Channels1, Visual.Material.TextureFlags };
+    return int3(Origins[Level].xyz);
+}
+
+// Probes wrap around their level's grid as the camera moves, so a probe keeps its slot, and its history, while it stays inside the clipmap.
+uint FieldSlot(uint Level, int3 Cell)
+{
+    int3 Wrapped = ((Cell % FieldGrid) + FieldGrid) % FieldGrid;
+    return Level * FieldProbesPerLevel + uint((Wrapped.y * FieldGrid.z + Wrapped.z) * FieldGrid.x + Wrapped.x);
+}
+
+// The cell a slot holds for the current clipmap origin.
+int3 FieldSlotCell(uint Slot, out uint Level)
+{
+    Level = Slot / FieldProbesPerLevel;
+    uint Local = Slot % FieldProbesPerLevel;
+    int3 Wrapped = int3(Local % uint(FieldGrid.x), Local / uint(FieldGrid.x * FieldGrid.z), (Local / uint(FieldGrid.x)) % uint(FieldGrid.z));
+    int3 Origin = FieldOrigin(Level);
+    return Origin + (((Wrapped - Origin) % FieldGrid) + FieldGrid) % FieldGrid;
+}
+
+float2 FieldOctahedralEncode(float3 N)
+{
+    N /= abs(N.x) + abs(N.y) + abs(N.z);
+    float2 Result = N.y >= 0.0 ? N.xz : (1.0 - abs(N.zx)) * float2(N.x >= 0.0 ? 1.0 : -1.0, N.z >= 0.0 ? 1.0 : -1.0);
+    return Result * 0.5 + 0.5;
+}
+
+float3 FieldOctahedralDecode(float2 UV)
+{
+    float2 F = UV * 2.0 - 1.0;
+    float3 N = float3(F.x, 1.0 - abs(F.x) - abs(F.y), F.y);
+    float T = saturate(-N.y);
+    N.x += N.x >= 0.0 ? -T : T;
+    N.z += N.z >= 0.0 ? -T : T;
+    return normalize(N);
+}
+
+uint2 FieldTileOrigin(uint Slot, uint Tile)
+{
+    return uint2(Slot % FieldTilesPerRow, Slot / FieldTilesPerRow) * Tile;
+}
+
+// The interior texel a tile's texel copies, for Texel from -1 to Texels: border rows mirror horizontally, border columns vertically, and corners
+// take the opposite corner, so bilinear reads across a tile's edge continue the octahedral map instead of mixing in a neighbouring tile.
+int2 FieldBorderSource(int2 Texel, uint Texels)
+{
+    int Last = int(Texels) - 1;
+    bool2 Outside = Texel < 0 || Texel > Last;
+    if (all(Outside))
+        return int2(Texel.x < 0 ? Last : 0, Texel.y < 0 ? Last : 0);
+
+    if (Outside.y)
+        return int2(Last - Texel.x, clamp(Texel.y, 0, Last));
+
+    if (Outside.x)
+        return int2(clamp(Texel.x, 0, Last), Last - Texel.y);
+
+    return Texel;
+}
+
+uint FieldHash(uint Value)
+{
+    uint State = Value * 747796405u + 2891336453u;
+    uint Word = ((State >> ((State >> 28u) + 4u)) ^ State) * 277803737u;
+    return (Word >> 22u) ^ Word;
+}
+
+// A probe's fixed seed from its level and world cell, which stays with the place as the clipmap scrolls.
+uint FieldProbeSeed(uint Level, int3 Cell)
+{
+    return FieldHash(uint(Cell.x) ^ FieldHash(uint(Cell.y) ^ FieldHash(uint(Cell.z) ^ FieldHash(Level))));
+}
+
+// Spherical Fibonacci directions: the shared rays, then the rest turned by a rotation of the probe's own (Shoemake 1992). Every probe traces the
+// same directions every frame, so a still scene gives every probe the same light every frame and nothing flickers; neighbours still sample
+// different directions, which their interpolation averages.
+float3 FieldRayDirection(uint Ray, uint Seed)
+{
+    bool bFixed = Ray < FieldFixedRays;
+    uint Index = bFixed ? Ray : Ray - FieldFixedRays;
+    float Count = float(bFixed ? FieldFixedRays : FieldRays - FieldFixedRays);
+    float Phi = 2.0 * PI * frac(float(Index) * 0.6180339887);
+    float CosTheta = 1.0 - (2.0 * float(Index) + 1.0) / Count;
+    float SinTheta = sqrt(saturate(1.0 - CosTheta * CosTheta));
+    float3 Direction = float3(cos(Phi) * SinTheta, CosTheta, sin(Phi) * SinTheta);
+    if (bFixed)
+        return Direction;
+
+    float3 U = float3(FieldHash(Seed), FieldHash(Seed + 1u), FieldHash(Seed + 2u)) / 4294967296.0;
+    float4 Q = float4(sqrt(1.0 - U.x) * sin(2.0 * PI * U.y), sqrt(1.0 - U.x) * cos(2.0 * PI * U.y), sqrt(U.x) * sin(2.0 * PI * U.z), sqrt(U.x) * cos(2.0 * PI * U.z));
+    return Direction + 2.0 * cross(Q.xyz, cross(Q.xyz, Direction) + Q.w * Direction);
+}
+
+#ifdef FIELD_IRRADIANCE_BINDING
+[[vk::binding(FIELD_IRRADIANCE_BINDING, 0)]] Texture2D<float4> FieldIrradianceAtlas;
+[[vk::binding(FIELD_DISTANCE_BINDING, 0)]] Texture2D<float2> FieldDistanceAtlas;
+// Each probe's relocation offset from its cell corner in xyz and its state in w.
+[[vk::binding(FIELD_PROBES_BINDING, 0)]] StructuredBuffer<float4> FieldProbes;
+#ifdef FIELD_USED_BINDING
+// The frame each probe was last read by the camera's pixels (even entries) and by rays (odd entries), which decides what traces next frame.
+[[vk::binding(FIELD_USED_BINDING, 0)]] RWStructuredBuffer<uint> FieldUsed;
+#endif
+
+float2 FieldIrradianceUV(uint Slot, float3 Direction)
+{
+    uint Width, Height;
+    FieldIrradianceAtlas.GetDimensions(Width, Height);
+    float2 Texel = float2(FieldTileOrigin(Slot, FieldIrradianceTile)) + 1.0 + FieldOctahedralEncode(Direction) * float(FieldIrradianceTexels);
+    return Texel / float2(Width, Height);
+}
+
+float2 FieldDistanceUV(uint Slot, float3 Direction)
+{
+    uint Width, Height;
+    FieldDistanceAtlas.GetDimensions(Width, Height);
+    float2 Texel = float2(FieldTileOrigin(Slot, FieldDistanceTile)) + 1.0 + FieldOctahedralEncode(Direction) * float(FieldDistanceTexels);
+    return Texel / float2(Width, Height);
+}
+
+// Irradiance from one level's eight probes around P for normal N, seen from V, weighted as DDGI does: trilinear, a wrapped cosine towards each probe,
+// and the probe's distance moments, so probes behind walls drop out instead of leaking. Alpha is 0 where no probe was usable.
+float4 FieldLevelIrradiance(float3 Position, float3 Normal, float3 View, uint Level)
+{
+    float Spacing = FieldSpacing(Level);
+    int3 Origin = FieldOrigin(Level);
+    // Offsetting off the surface and towards the viewer keeps the moments from occluding the very surface being shaded.
+    float3 Biased = Position + (Normal * 0.2 + View * 0.8) * (0.3 * Spacing);
+    float3 Grid = Biased / Spacing;
+    int3 Base = clamp(int3(floor(Grid)), Origin, Origin + FieldGrid - 2);
+    float3 Alpha = saturate(Grid - float3(Base));
+    float3 Sum = 0.0;
+    float Weights = 0.0;
+    for (uint Corner = 0; Corner < 8; ++Corner)
+    {
+        int3 Offset = int3(Corner & 1u, (Corner >> 1) & 1u, Corner >> 2);
+        int3 Cell = Base + Offset;
+        uint Slot = FieldSlot(Level, Cell);
+#ifdef FIELD_USED_BINDING
+        FieldUsed[Slot * 2 + FIELD_USED_BY] = FieldFrame();
+#endif
+        float4 Probe = FieldProbes[Slot];
+        if (Probe.w != FieldProbeActive)
+            continue;
+
+        float3 ProbePosition = float3(Cell) * Spacing + Probe.xyz;
+        float3 ToProbe = ProbePosition - Position;
+        float3 BiasedToProbe = ProbePosition - Biased;
+        float Distance = max(length(BiasedToProbe), 1e-4);
+        float Wrap = (dot(ToProbe / max(length(ToProbe), 1e-4), Normal) + 1.0) * 0.5;
+        float Weight = Wrap * Wrap + 0.2;
+
+        float2 Moments = FieldDistanceAtlas.SampleLevel(LinearSampler, FieldDistanceUV(Slot, -BiasedToProbe / Distance), 0);
+        if (Distance > Moments.x)
+        {
+            float Variance = abs(Moments.x * Moments.x - Moments.y);
+            float Excess = Distance - Moments.x;
+            float Chebyshev = Variance / (Variance + Excess * Excess);
+            Weight *= max(0.05, Chebyshev * Chebyshev * Chebyshev);
+        }
+
+        // Tiny weights are crushed so light from barely visible probes does not read as a glow.
+        Weight = max(Weight, 1e-6);
+        if (Weight < 0.2)
+            Weight *= Weight * Weight / 0.04;
+
+        float3 Trilinear = max(lerp(1.0 - Alpha, Alpha, float3(Offset)), 0.001);
+        Weight *= Trilinear.x * Trilinear.y * Trilinear.z;
+        Sum += FieldIrradianceAtlas.SampleLevel(LinearSampler, FieldIrradianceUV(Slot, Normal), 0).rgb * Weight;
+        Weights += Weight;
+    }
+
+    return Weights > 0.0 ? float4(Sum / Weights / StoredScale, 1.0) : 0.0;
+}
+
+// Irradiance at P from the finest level that holds it, blended into the next level over the last two cells before its edge; alpha is 0 outside
+// the field.
+float4 FieldIrradiance(float3 Position, float3 Normal, float3 View)
+{
+    for (uint Level = 0; Level < FieldLevels; ++Level)
+    {
+        float3 Cells = Position / FieldSpacing(Level) - float3(FieldOrigin(Level));
+        float Edge = min(min(min(Cells.x, Cells.y), Cells.z), min(min(FieldGrid.x - 1 - Cells.x, FieldGrid.y - 1 - Cells.y), FieldGrid.z - 1 - Cells.z));
+        if (Edge < 0.5)
+            continue;
+
+        float4 Fine = FieldLevelIrradiance(Position, Normal, View, Level);
+        if (Fine.a <= 0.0)
+            continue;
+
+        float Blend = saturate((Edge - 0.5) / 2.0);
+        if (Blend >= 1.0 || Level + 1 == FieldLevels)
+            return Fine;
+
+        float4 Coarse = FieldLevelIrradiance(Position, Normal, View, Level + 1);
+        return Coarse.a > 0.0 ? lerp(Coarse, Fine, Blend) : Fine;
+    }
+
+    return 0.0;
+}
+#endif

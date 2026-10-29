@@ -353,12 +353,11 @@ int RunGame(const FGameOptions& Options)
 	    std::pair{"MotionVectors.comp.hshader", &VisualShaders.MotionVectorsCompute},
 	    std::pair{"DepthBounds.comp.hshader", &VisualShaders.DepthBoundsCompute},
 	    std::pair{"ContactShadows.comp.hshader", &VisualShaders.ContactShadowsCompute},
-	    std::pair{"RadianceCascadesProbes.comp.hshader", &VisualShaders.RadianceCascadeProbesCompute},
-	    std::pair{"RadianceCascadesTrace.comp.hshader", &VisualShaders.RadianceCascadeTraceCompute},
-	    std::pair{"RadianceCascadesIrradiance.comp.hshader", &VisualShaders.RadianceCascadeIrradianceCompute},
-	    std::pair{"RadianceCascadesShade.comp.hshader", &VisualShaders.RadianceCascadeShadeCompute},
-	    std::pair{"RadianceCascadesArguments.comp.hshader", &VisualShaders.RadianceCascadeArgumentsCompute},
-	    std::pair{"RadianceCascadesReflect.comp.hshader", &VisualShaders.RadianceCascadeReflectCompute},
+	    std::pair{"IrradianceFieldUpdate.comp.hshader", &VisualShaders.IrradianceFieldUpdateCompute},
+	    std::pair{"IrradianceFieldTrace.comp.hshader", &VisualShaders.IrradianceFieldTraceCompute},
+	    std::pair{"IrradianceFieldBlend.comp.hshader", &VisualShaders.IrradianceFieldBlendCompute},
+	    std::pair{"IrradianceFieldGather.comp.hshader", &VisualShaders.IrradianceFieldGatherCompute},
+	    std::pair{"IrradianceFieldReflect.comp.hshader", &VisualShaders.IrradianceFieldReflectCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)

@@ -14,7 +14,7 @@ struct FGlobalIlluminationInputs
 	FExtent2D Extent;
 	const FVisualUniforms* Uniforms = nullptr;
 	const FRayTracingScene* Scene = nullptr;
-	// Reversed-Z depth from the depth prepass; probes and rays start from the surfaces it holds.
+	// Reversed-Z depth from the depth prepass; the field is gathered at the surfaces it holds.
 	FTextureHandle Depth;
 	// The prepass's shading normals and roughness; see EncodeSurface in VisualShared.slangh.
 	FTextureHandle Surface;
@@ -24,22 +24,22 @@ struct FGlobalIlluminationInputs
 	FBufferHandle Lights;
 };
 
-struct FRadianceCascadeShaders
+struct FIrradianceFieldShaders
 {
-	FShaderAsset Probes;
+	FShaderAsset Update;
 	FShaderAsset Trace;
-	FShaderAsset Irradiance;
-	FShaderAsset Shade;
-	FShaderAsset Arguments;
+	FShaderAsset Blend;
+	FShaderAsset Gather;
 	FShaderAsset Reflect;
 };
 
-// Split Radiance Cascades (Freeman and Sannikov 2026) as the High tier's dynamic diffuse global illumination: sparse world-space probes near
-// visible surfaces, filled each frame by one ray per 2x2 pixels, averaged over frames, and gathered once per 2x2 block.
-class FRadianceCascades final
+// The High tier's dynamic diffuse global illumination: a ray-traced irradiance field after DDGI (Majercik et al. 2019 and 2021). Probes on four clipmap
+// levels follow the camera; those its pixels read trace their own rays every frame and keep octahedral irradiance and distance moments, so lighting
+// is averaged in world space and moving the camera shows no noise. See IrradianceField.slangh.
+class FIrradianceField final
 {
 public:
-	[[nodiscard]] static std::expected<std::unique_ptr<FRadianceCascades>, FPresentationError> Create(IGraphicsDevice& Device, FRadianceCascadeShaders Shaders);
+	[[nodiscard]] static std::expected<std::unique_ptr<FIrradianceField>, FPresentationError> Create(IGraphicsDevice& Device, FIrradianceFieldShaders Shaders);
 	// Records every pass inside the caller's recording, after the depth prepass and the scene's update.
 	[[nodiscard]] std::expected<void, FPresentationError> Render(const FGlobalIlluminationInputs& Inputs);
 	// Two half-resolution images side by side, each sampled at every 2x2 block's first pixel with that pixel's reversed depth in alpha, or 0 where
@@ -51,35 +51,29 @@ public:
 	void Release() noexcept;
 
 private:
-	FRadianceCascades(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 6> InPipelines);
+	FIrradianceField(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 5> InPipelines);
 	[[nodiscard]] std::expected<void, FPresentationError> Allocate(FExtent2D Extent);
 
 	IGraphicsDevice& Device;
-	// Probes, trace, irradiance, gather, indirect arguments, and reflections.
-	std::array<FComputePipelineHandle, 6> Pipelines;
+	// Update, trace, blend, gather, and reflections.
+	std::array<FComputePipelineHandle, 5> Pipelines;
 
-	// The hash slots and irradiance tiles alternate between frames, so rays can read the light that last frame's probes received.
-	std::array<FBufferHandle, 2> Slots;
+	FTextureHandle IrradianceAtlas;
+	FTextureHandle DistanceAtlas;
+	FBufferHandle Cells;
 	FBufferHandle Probes;
+	FBufferHandle Used;
+	FBufferHandle TraceList;
 	FBufferHandle Counters;
-	FBufferHandle Deposits;
-	FBufferHandle RecordCounts;
-	FBufferHandle Merged;
-	FBufferHandle CacheKeys;
-	// Group counts sized to the probes that exist, so stages skip the unused capacity.
 	FBufferHandle Arguments;
-	std::array<FTextureHandle, 2> Atlas;
-	// Alternating, so reflections can average last frame's.
-	std::array<FTextureHandle, 2> Gathered;
+	FBufferHandle RayData;
+	FTextureHandle Gathered;
 	// Counters copy into these in turn and are read once their frame completes, so nothing waits.
 	std::array<FBufferHandle, 3> CounterReadback;
 	FGlobalIlluminationStatistics Statistics;
-	std::array<float, 3> PreviousEye{};
-	bool bPrevious = false;
-	// Last frame wrote reflections into the other gathers at the current size.
-	bool bReflectionHistory = false;
-	// New record storage holds garbage until one reset dispatch; after that every merge clears what it read.
-	bool bRecordsReset = false;
+
+	// New storage holds garbage until one reset dispatch.
+	bool bReset = false;
 	std::uint32_t Frame = 0;
 };
 }

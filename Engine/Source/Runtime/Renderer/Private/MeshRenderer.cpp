@@ -5,7 +5,7 @@
 #include "Herta/Renderer/EnvironmentLighting.h"
 #include "MaterialUniform.h"
 #include "PathTracer.h"
-#include "RadianceCascades.h"
+#include "IrradianceField.h"
 
 #include <AreaTex.h>
 // The vendored header converts int to float implicitly; it stays unmodified.
@@ -737,7 +737,7 @@ struct FMeshRenderer::FImplementation
 	// Null without ray queries or its shader. The scene they trace is shared, and released while nothing traces.
 	std::unique_ptr<FRayTracingScene> RayTracingScene;
 	std::unique_ptr<FPathTracer> PathTracer;
-	std::unique_ptr<FRadianceCascades> RadianceCascades;
+	std::unique_ptr<FIrradianceField> IrradianceField;
 	FTextureHandle ContactShadows;
 	std::size_t DepthBoundsFrame = 0;
 	float VisibleNear = 0.f;
@@ -906,7 +906,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		State->PathTracer = std::move(*PathTracer);
 	}
 
-	if (!VisualShaders.RadianceCascadeProbesCompute.Bytecode.empty() && !VisualShaders.DepthSurfaceFragment.Bytecode.empty() && Device.SupportsRayQueries() && State->DepthPrepassPipeline)
+	if (!VisualShaders.IrradianceFieldUpdateCompute.Bytecode.empty() && !VisualShaders.DepthSurfaceFragment.Bytecode.empty() && Device.SupportsRayQueries() && State->DepthPrepassPipeline)
 	{
 		auto SurfacePrepass = Device.CreateGraphicsPipeline({.Name = "Surface prepass", .VertexShader = VertexShader, .FragmentShader = VisualShaders.DepthSurfaceFragment, .ColorFormat = ETextureFormat::Rgba8, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
 		if (!SurfacePrepass)
@@ -937,16 +937,16 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 			State->InstancedVelocitySurfacePrepassPipeline = std::move(*VelocitySurfacePrepass);
 		}
 
-		auto Cascades = FRadianceCascades::Create(Device, {.Probes = std::move(VisualShaders.RadianceCascadeProbesCompute), .Trace = std::move(VisualShaders.RadianceCascadeTraceCompute), .Irradiance = std::move(VisualShaders.RadianceCascadeIrradianceCompute), .Shade = std::move(VisualShaders.RadianceCascadeShadeCompute), .Arguments = std::move(VisualShaders.RadianceCascadeArgumentsCompute), .Reflect = std::move(VisualShaders.RadianceCascadeReflectCompute)});
-		if (!Cascades)
+		auto Field = FIrradianceField::Create(Device, {.Update = std::move(VisualShaders.IrradianceFieldUpdateCompute), .Trace = std::move(VisualShaders.IrradianceFieldTraceCompute), .Blend = std::move(VisualShaders.IrradianceFieldBlendCompute), .Gather = std::move(VisualShaders.IrradianceFieldGatherCompute), .Reflect = std::move(VisualShaders.IrradianceFieldReflectCompute)});
+		if (!Field)
 		{
-			return std::unexpected(Cascades.error());
+			return std::unexpected(Field.error());
 		}
 
-		State->RadianceCascades = std::move(*Cascades);
+		State->IrradianceField = std::move(*Field);
 	}
 
-	if (State->PathTracer || State->RadianceCascades)
+	if (State->PathTracer || State->IrradianceField)
 	{
 		State->RayTracingScene = std::make_unique<FRayTracingScene>(Device);
 	}
@@ -1379,7 +1379,7 @@ std::uint32_t FMeshRenderer::GetPathTracingSamples() const noexcept
 
 FGlobalIlluminationStatistics FMeshRenderer::GetGlobalIlluminationStatistics() const noexcept
 {
-	return Implementation->RadianceCascades ? Implementation->RadianceCascades->GetStatistics() : FGlobalIlluminationStatistics{};
+	return Implementation->IrradianceField ? Implementation->IrradianceField->GetStatistics() : FGlobalIlluminationStatistics{};
 }
 
 void FMeshRenderer::ResetExposureAdaptation() noexcept
@@ -1610,15 +1610,15 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	// The path tracer replaces shading, shadow maps, screen-space effects, and fog.
 	const bool bPathTracing = View.Visuals.bPathTracing && State.PathTracer && State.VisualPipelines[0];
 	// Global illumination needs the depth prepass, which the path tracer keeps for overlays, and gives way to the path tracer.
-	const bool bGlobalIllumination = View.Visuals.bGlobalIllumination && State.RadianceCascades && State.VisualPipelines[0] && !bPathTracing;
+	const bool bGlobalIllumination = View.Visuals.bGlobalIllumination && State.IrradianceField && State.VisualPipelines[0] && !bPathTracing;
 	if (State.PathTracer && !bPathTracing)
 	{
 		State.PathTracer->Release();
 	}
 
-	if (State.RadianceCascades && !bGlobalIllumination)
+	if (State.IrradianceField && !bGlobalIllumination)
 	{
-		State.RadianceCascades->Release();
+		State.IrradianceField->Release();
 	}
 
 	if (State.RayTracingScene && !bPathTracing && !bGlobalIllumination)
@@ -2636,7 +2636,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 					if (bGlobalIllumination && !bDepthPrepass)
 					{
-						Textures[15] = State.RadianceCascades->GetIrradiance();
+						Textures[15] = State.IrradianceField->GetIrradiance();
 					}
 
 					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? Prepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bDepthPrepass ? PrepassTarget : ColorTarget, .SecondColorTarget = bVelocity && bSurface ? State.Surface : FTextureHandle{}, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .PreviousInstances = bVelocity ? State.PreviousInstances : FBufferHandle{}, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers};
@@ -2693,7 +2693,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 				if (bGlobalIllumination && !bDepthPrepass)
 				{
-					Textures[15] = State.RadianceCascades->GetIrradiance();
+					Textures[15] = State.IrradianceField->GetIrradiance();
 				}
 
 				const bool bSurface = bDepthPrepass && bGlobalIllumination;
@@ -2809,7 +2809,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				return GraphResult(Updated);
 			}
 
-			return GraphResult(State.RadianceCascades->Render({.Extent = Extent, .Uniforms = &State.Uniforms, .Scene = State.RayTracingScene.get(), .Depth = FrameDepth, .Surface = State.Surface, .Environment = State.EnvironmentSpecular, .SkyView = State.SkyView, .SpecularAlbedo = State.SpecularAlbedo, .Lights = State.Lights}));
+			return GraphResult(State.IrradianceField->Render({.Extent = Extent, .Uniforms = &State.Uniforms, .Scene = State.RayTracingScene.get(), .Depth = FrameDepth, .Surface = State.Surface, .Environment = State.EnvironmentSpecular, .SkyView = State.SkyView, .SpecularAlbedo = State.SpecularAlbedo, .Lights = State.Lights}));
 		});
 	}
 

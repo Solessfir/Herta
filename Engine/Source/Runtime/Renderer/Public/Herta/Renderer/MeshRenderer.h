@@ -37,10 +37,13 @@ struct FDebugDrawList
 class FRenderMesh;
 class FRenderMaterial;
 
-// Probes global illumination allocated a few frames ago, read back without waiting, and those that did not fit its fixed capacity.
+// The irradiance field's probes a few frames ago, read back without waiting: those that traced, those the camera's pixels read, those of them
+// classified inside geometry, and those that asked to trace past the field's per-frame capacity.
 struct FGlobalIlluminationStatistics
 {
-	std::array<std::uint32_t, 4> Probes{};
+	std::uint32_t Traced = 0;
+	std::uint32_t Read = 0;
+	std::uint32_t Inside = 0;
 	std::uint32_t Overflow = 0;
 };
 struct FEnvironmentLighting;

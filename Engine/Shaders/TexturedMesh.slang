@@ -257,8 +257,8 @@ void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, floa
     if (Visual.Occlusion.z > 1.0) Sum.Penumbra += (Sum.Diffuse - DiffuseBefore) * 4.0 * Visibility * (1.0 - Visibility);
 }
 
-// Keep in sync with ReflectionRoughness in Compute/RadianceCascades.slangh.
-static const float SceneReflectionRoughness = 0.6;
+// Keep in sync with ReflectionRoughness in Compute/IrradianceField.slangh.
+static const float SceneReflectionRoughness = 0.3;
 
 // The bilinear blend of one global illumination image's four nearest samples that lie on this pixel's surface plane, so light does not bleed across
 // depth edges or creases; thin features that no sample shares fall back to the nearest one. Alpha is 1 where any sample covered the pixel.
@@ -404,7 +404,7 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
         {
             float4 Scene = BlendGathers(int2(Input.Position.xy), Input.WorldPosition, PlaneNormal, 1u);
             if (Scene.a > 0.5)
-                Specular = lerp(Specular, Scene.rgb * 16.0, saturate((SceneReflectionRoughness - Roughness) / 0.25));
+                Specular = lerp(Specular, Scene.rgb * 16.0, saturate((SceneReflectionRoughness - Roughness) / 0.2));
         }
 
         Result += Surface.DiffuseReflectance * Diffuse / PI * DiffuseOcclusion + Specular * Surface.SpecularReflectance;
