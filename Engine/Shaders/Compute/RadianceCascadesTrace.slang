@@ -29,10 +29,9 @@ uint PreviousProbe(uint Key)
     return MissingProbe;
 }
 
-// Irradiance at a hit from last frame's probes; zero where none was visible. The probe whose cell holds the hit usually exists and serves alone,
-// as bounced light is smooth and the probes average it again; sparse probes often leave that cell empty, so the eight around the hit are the fallback.
-// The fallback mostly serves hidden surfaces next to visible ones and costs 0.1 to 0.45 ms of rays at 3200x1809, but brings the hierarchy workshop's
-// bias against the path tracer from -9.4% to -7.8%; gating it on the coarser cascade 1 cell saved the time and lost that gain.
+// Irradiance at a hit from last frame's probe whose cell holds it; zero where there is none, such as surfaces off screen.
+// Bounced light is smooth and the probes average it again, so one probe serves; searching the eight around an empty cell cost 0.1 to 0.45 ms of rays
+// at 3200x1809 and moved the error against the path tracer by 0.2%.
 float3 BouncedIrradiance(float3 Position, float3 Normal)
 {
     if (Visual.Material.Emissive.w < 0.5)
@@ -40,35 +39,14 @@ float3 BouncedIrradiance(float3 Position, float3 Normal)
 
     float3 Eye = Visual.Material.Emissive.xyz;
     uint Level = LevelOfDetailFrom(Eye, Position);
-    float Spacing = BaseSpacing(Level);
-    int3 Camera = CameraCellFrom(Eye, Level);
+    uint Probe = PreviousProbe(MakeKeyFrom(CameraCellFrom(Eye, Level), Level, 0, int3(floor(Position / BaseSpacing(Level)))));
+    if (Probe == MissingProbe)
+        return 0.0;
+
     uint AtlasWidth, AtlasHeight;
     PreviousIrradiance.GetDimensions(AtlasWidth, AtlasHeight);
-    float2 Octahedral = OctahedralEncode(Normal) * float(IrradianceTexels) + 1.0;
-    uint Probe = PreviousProbe(MakeKeyFrom(Camera, Level, 0, int3(floor(Position / Spacing))));
-    if (Probe != MissingProbe)
-        return PreviousIrradiance.SampleLevel(LinearSampler, (float2(IrradianceTileOrigin(Probe)) + Octahedral) / float2(AtlasWidth, AtlasHeight), 0).rgb / StoredScale;
-
-    float3 Grid = Position / Spacing - 0.5;
-    int3 Base = int3(floor(Grid));
-    float3 Fraction = Grid - float3(Base);
-    float3 Sum = 0.0;
-    float Weight = 0.0;
-    for (uint Corner = 0; Corner < 8; ++Corner)
-    {
-        int3 Offset = int3(Corner & 1u, (Corner >> 1) & 1u, Corner >> 2);
-        int3 Cell = Base + Offset;
-        uint Neighbour = PreviousProbe(MakeKeyFrom(Camera, Level, 0, Cell));
-        if (Neighbour == MissingProbe || dot((float3(Cell) + 0.5) * Spacing - Position, Normal) < -0.5 * Spacing)
-            continue;
-
-        float3 Axis = lerp(1.0 - Fraction, Fraction, float3(Offset));
-        float W = Axis.x * Axis.y * Axis.z;
-        Sum += PreviousIrradiance.SampleLevel(LinearSampler, (float2(IrradianceTileOrigin(Neighbour)) + Octahedral) / float2(AtlasWidth, AtlasHeight), 0).rgb * W;
-        Weight += W;
-    }
-
-    return Weight > 1e-4 ? Sum / (Weight * StoredScale) : 0.0;
+    float2 UV = (float2(IrradianceTileOrigin(Probe)) + OctahedralEncode(Normal) * float(IrradianceTexels) + 1.0) / float2(AtlasWidth, AtlasHeight);
+    return PreviousIrradiance.SampleLevel(LinearSampler, UV, 0).rgb / StoredScale;
 }
 
 // R2 (Roberts 2018) in 32-bit fixed point, so ray indices in the millions keep their spacing.

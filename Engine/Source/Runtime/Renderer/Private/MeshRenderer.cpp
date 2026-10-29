@@ -903,7 +903,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 	if (!VisualShaders.RadianceCascadeProbesCompute.Bytecode.empty() && Device.SupportsRayQueries() && State->DepthPrepassPipeline)
 	{
-		auto Cascades = FRadianceCascades::Create(Device, {.Probes = std::move(VisualShaders.RadianceCascadeProbesCompute), .Trace = std::move(VisualShaders.RadianceCascadeTraceCompute), .Irradiance = std::move(VisualShaders.RadianceCascadeIrradianceCompute), .Shade = std::move(VisualShaders.RadianceCascadeShadeCompute), .Arguments = std::move(VisualShaders.RadianceCascadeArgumentsCompute)});
+		auto Cascades = FRadianceCascades::Create(Device, {.Probes = std::move(VisualShaders.RadianceCascadeProbesCompute), .Trace = std::move(VisualShaders.RadianceCascadeTraceCompute), .Irradiance = std::move(VisualShaders.RadianceCascadeIrradianceCompute), .Shade = std::move(VisualShaders.RadianceCascadeShadeCompute), .Arguments = std::move(VisualShaders.RadianceCascadeArgumentsCompute), .Upsample = std::move(VisualShaders.RadianceCascadeUpsampleCompute)});
 		if (!Cascades)
 		{
 			return std::unexpected(Cascades.error());

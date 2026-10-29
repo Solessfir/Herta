@@ -1,8 +1,9 @@
 #define GiBufferBase 385
 #include "RadianceCascades.slangh"
 
-// Diffuse irradiance at every pixel from the eight cascade 0 probes around its surface, sparse trilinear over those that exist.
-// Alpha is 1 where probes covered the pixel; elsewhere the mesh pass keeps its environment lighting.
+// Diffuse irradiance from the eight cascade 0 probes around a surface, sparse trilinear over those that exist, once per 2x2 block at the pixel that
+// traced its ray; RadianceCascadesUpsample.slang spreads it to every pixel. Alpha is 1 where probes covered the pixel; elsewhere the mesh pass keeps
+// its environment lighting.
 [[vk::binding(0, 0)]] Texture2D<float> SceneDepth;
 [[vk::binding(1, 0)]] Texture2D<float4> IrradianceAtlas;
 [[vk::binding(384, 0)]] [format("rgba16f")] RWTexture2D<float4> Output;
@@ -43,14 +44,16 @@ float4 GatherLevel(float3 Position, float3 Normal, uint Level)
 [numthreads(8, 8, 1)]
 void computeMain(uint3 Id : SV_DispatchThreadID)
 {
-    int2 Pixel = int2(Id.xy);
-    float3 Position, Normal;
-    if (any(Pixel >= int2(Visual.Viewport.zw)))
+    uint Width, Height;
+    Output.GetDimensions(Width, Height);
+    if (any(Id.xy >= uint2(Width, Height)))
         return;
 
+    int2 Pixel = min(int2(Id.xy) * 2, int2(Visual.Viewport.zw) - 1);
+    float3 Position, Normal;
     if (!SurfaceAt(SceneDepth, Pixel, Position, Normal))
     {
-        Output[Pixel] = 0.0;
+        Output[Id.xy] = 0.0;
         return;
     }
 
@@ -60,5 +63,5 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     float4 Fine = Blend < 1.0 ? GatherLevel(Position, Normal, Level - 1u) : 0.0;
     // Where one level found no probes, the other covers the pixel alone.
     float CoarseWeight = Fine.a > 0.0 ? (Coarse.a > 0.0 ? Blend : 0.0) : 1.0;
-    Output[Pixel] = Coarse.a > 0.0 || Fine.a > 0.0 ? float4(Coarse.rgb * CoarseWeight + Fine.rgb * (1.0 - CoarseWeight), 1.0) : 0.0;
+    Output[Id.xy] = Coarse.a > 0.0 || Fine.a > 0.0 ? float4(Coarse.rgb * CoarseWeight + Fine.rgb * (1.0 - CoarseWeight), 1.0) : 0.0;
 }

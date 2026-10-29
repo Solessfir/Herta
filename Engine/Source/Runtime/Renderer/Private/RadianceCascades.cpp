@@ -41,9 +41,9 @@ enum class EStage : std::uint32_t
 
 std::expected<std::unique_ptr<FRadianceCascades>, FPresentationError> FRadianceCascades::Create(IGraphicsDevice& Device, FRadianceCascadeShaders Shaders)
 {
-	if (!Device.SupportsRayQueries() || Shaders.Probes.Bytecode.empty() || Shaders.Trace.Bytecode.empty() || Shaders.Irradiance.Bytecode.empty() || Shaders.Shade.Bytecode.empty() || Shaders.Arguments.Bytecode.empty())
+	if (!Device.SupportsRayQueries() || Shaders.Probes.Bytecode.empty() || Shaders.Trace.Bytecode.empty() || Shaders.Irradiance.Bytecode.empty() || Shaders.Shade.Bytecode.empty() || Shaders.Arguments.Bytecode.empty() || Shaders.Upsample.Bytecode.empty())
 	{
-		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Radiance cascades need ray queries and all five of their shaders"});
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Radiance cascades need ray queries and all six of their shaders"});
 	}
 
 	auto Probes = Device.CreateComputePipeline({.Name = "Radiance cascade probes", .Shader = std::move(Shaders.Probes), .TextureCount = 2, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
@@ -51,7 +51,8 @@ std::expected<std::unique_ptr<FRadianceCascades>, FPresentationError> FRadianceC
 	auto Irradiance = Device.CreateComputePipeline({.Name = "Radiance cascade irradiance", .Shader = std::move(Shaders.Irradiance), .StorageTextureCount = 1, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes});
 	auto Shade = Device.CreateComputePipeline({.Name = "Radiance cascade gather", .Shader = std::move(Shaders.Shade), .TextureCount = 2, .StorageTextureCount = 1, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
 	auto Arguments = Device.CreateComputePipeline({.Name = "Radiance cascade arguments", .Shader = std::move(Shaders.Arguments), .StorageBufferCount = 1, .BufferCount = 1});
-	for (const auto* const Pipeline : {&Probes, &Trace, &Irradiance, &Shade, &Arguments})
+	auto Upsample = Device.CreateComputePipeline({.Name = "Radiance cascade upsample", .Shader = std::move(Shaders.Upsample), .TextureCount = 2, .StorageTextureCount = 1, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes});
+	for (const auto* const Pipeline : {&Probes, &Trace, &Irradiance, &Shade, &Arguments, &Upsample})
 	{
 		if (!*Pipeline)
 		{
@@ -59,10 +60,10 @@ std::expected<std::unique_ptr<FRadianceCascades>, FPresentationError> FRadianceC
 		}
 	}
 
-	return std::unique_ptr<FRadianceCascades>(new FRadianceCascades(Device, {std::move(*Probes), std::move(*Trace), std::move(*Irradiance), std::move(*Shade), std::move(*Arguments)}));
+	return std::unique_ptr<FRadianceCascades>(new FRadianceCascades(Device, {std::move(*Probes), std::move(*Trace), std::move(*Irradiance), std::move(*Shade), std::move(*Arguments), std::move(*Upsample)}));
 }
 
-FRadianceCascades::FRadianceCascades(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 5> InPipelines)
+FRadianceCascades::FRadianceCascades(IGraphicsDevice& InDevice, std::array<FComputePipelineHandle, 6> InPipelines)
     : Device(InDevice)
     , Pipelines(std::move(InPipelines))
 {
@@ -86,7 +87,7 @@ std::size_t FRadianceCascades::GetMemoryBytes() const noexcept
 		Bytes += *Buffer ? (*Buffer)->GetDescriptor().Size : 0;
 	}
 
-	for (const FTextureHandle* const Texture : {&Atlas[0], &Atlas[1], &Irradiance})
+	for (const FTextureHandle* const Texture : {&Atlas[0], &Atlas[1], &Gathered, &Irradiance})
 	{
 		Bytes += *Texture ? std::size_t{(*Texture)->GetDescriptor().Extent.Width} * (*Texture)->GetDescriptor().Extent.Height * GetTextureTexelBytes((*Texture)->GetDescriptor().Format) : 0;
 	}
@@ -107,6 +108,7 @@ void FRadianceCascades::Release() noexcept
 	Atlas = {};
 	CounterReadback = {};
 	Statistics = {};
+	Gathered.reset();
 	Irradiance.reset();
 	bRecordsReset = false;
 	bPrevious = false;
@@ -193,6 +195,18 @@ std::expected<void, FPresentationError> FRadianceCascades::Allocate(const FExten
 
 			Texture = std::move(*Created);
 		}
+	}
+
+	const FExtent2D Half{(Extent.Width + 1) / 2, (Extent.Height + 1) / 2};
+	if (Result && (!Gathered || Gathered->GetDescriptor().Extent != Half))
+	{
+		auto Created = Device.CreateTexture({.Name = "Global illumination gathers", .Extent = Half, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
+		if (!Created)
+		{
+			return std::unexpected(Created.error());
+		}
+
+		Gathered = std::move(*Created);
 	}
 
 	if (Result && (!Irradiance || Irradiance->GetDescriptor().Extent != Extent))
@@ -320,8 +334,15 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 	if (Result)
 	{
 		const std::array Sources{Inputs.Depth, Atlas[Current]};
+		const std::array Targets{FStorageTextureBinding{.Texture = Gathered}};
+		Result = Device.Dispatch({.Pipeline = Pipelines[3], .Textures = Sources, .StorageTextures = Targets, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups(Gathered->GetDescriptor().Extent.Width, 8), Groups(Gathered->GetDescriptor().Extent.Height, 8), 1}});
+	}
+
+	if (Result)
+	{
+		const std::array Sources{Inputs.Depth, Gathered};
 		const std::array Targets{FStorageTextureBinding{.Texture = Irradiance}};
-		Result = Device.Dispatch({.Pipeline = Pipelines[3], .Textures = Sources, .StorageTextures = Targets, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups(Inputs.Extent.Width, 8), Groups(Inputs.Extent.Height, 8), 1}});
+		Result = Device.Dispatch({.Pipeline = Pipelines[5], .Textures = Sources, .StorageTextures = Targets, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups(Inputs.Extent.Width, 8), Groups(Inputs.Extent.Height, 8), 1}});
 	}
 
 	Device.EndGpuTiming();
