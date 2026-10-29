@@ -262,22 +262,28 @@ float4 FieldLevelIrradiance(float3 Position, float3 Normal, uint Level)
     return Weights > 0.0 ? float4(Sum / Weights / StoredScale, 1.0) : 0.0;
 }
 
-// Irradiance at P from the finest level that holds it, blended into the next level over the last four cells before its edge, so the switch to
-// coarser probes as the camera moves away is gradual; alpha is 0 outside the field.
+// Each level fades into the next over this many cells.
+static const float FieldBlendCells = 3.0;
+
+// Irradiance at P from the finest level that holds it, faded into the next level towards its reach; alpha is 0 outside the field. A level's
+// reach is measured from the camera itself, within the cells its grid holds wherever it has snapped: two fewer than half the grid on each side,
+// one for the snap and one for the trilinear neighbour. Measuring from the snapped grid made the fade jump a step each time the camera crossed
+// a cell, which showed as indirect shadows popping on distant walls while flying.
 float4 FieldIrradiance(float3 Position, float3 Normal)
 {
+    float3 Offset = abs(Position - CameraPosition());
     for (uint Level = 0; Level < FieldLevels; ++Level)
     {
-        float3 Cells = Position / FieldSpacing(Level) - float3(FieldOrigin(Level));
-        float Edge = min(min(min(Cells.x, Cells.y), Cells.z), min(min(FieldGrid.x - 1 - Cells.x, FieldGrid.y - 1 - Cells.y), FieldGrid.z - 1 - Cells.z));
-        if (Edge < 0.5)
+        float3 Reach = (float3(FieldGrid) * 0.5 - 2.0) - Offset / FieldSpacing(Level);
+        float Edge = min(min(Reach.x, Reach.y), Reach.z);
+        if (Edge <= 0.0)
             continue;
 
         float4 Fine = FieldLevelIrradiance(Position, Normal, Level);
         if (Fine.a <= 0.0)
             continue;
 
-        float Blend = saturate((Edge - 0.5) / 4.0);
+        float Blend = saturate(Edge / FieldBlendCells);
         if (Blend >= 1.0 || Level + 1 == FieldLevels)
             return Fine;
 
