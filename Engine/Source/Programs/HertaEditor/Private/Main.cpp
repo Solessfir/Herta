@@ -221,7 +221,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const bool bManualExposure)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const bool bManualExposure, const bool bShimmer)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -1173,6 +1173,68 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		++VisualCaptures;
 	};
 
+	// With --shimmer, each bookmark's last frames are read back to measure how much a still view changes from frame to frame.
+	constexpr std::size_t VisualShimmerFrames = 16;
+	std::vector<std::byte> ShimmerPrevious;
+	std::vector<std::uint16_t> ShimmerSums;
+	const auto SampleShimmer = [&]
+	{
+		auto Pixels = Presentation->GetGraphicsDevice().ReadbackTexture(MeshRenderer->GetColorTarget());
+		if (!Pixels)
+		{
+			return;
+		}
+
+		if (ShimmerPrevious.size() == Pixels->size())
+		{
+			ShimmerSums.resize(Pixels->size() / 4);
+			for (std::size_t Pixel = 0; Pixel < ShimmerSums.size(); ++Pixel)
+			{
+				int Change = 0;
+				for (std::size_t Channel = 0; Channel < 3; ++Channel)
+				{
+					Change = std::max(Change, std::abs(std::to_integer<int>((*Pixels)[Pixel * 4 + Channel]) - std::to_integer<int>(ShimmerPrevious[Pixel * 4 + Channel])));
+				}
+
+				ShimmerSums[Pixel] = static_cast<std::uint16_t>(ShimmerSums[Pixel] + Change);
+			}
+		}
+
+		ShimmerPrevious = std::move(*Pixels);
+	};
+
+	// The mean change per frame in 8-bit levels of the brightest-changing channel, and the share of pixels whose change averages over one level.
+	// The heatmap shows 32 grey levels per level of change.
+	const auto FinishShimmer = [&](const std::string& FileName) -> std::string
+	{
+		if (ShimmerSums.empty())
+		{
+			return {};
+		}
+
+		constexpr double Pairs = VisualShimmerFrames - 1;
+		double Total = 0.;
+		std::size_t Visible = 0;
+		std::vector<std::byte> Heat(ShimmerSums.size() * 4);
+		for (std::size_t Pixel = 0; Pixel < ShimmerSums.size(); ++Pixel)
+		{
+			Total += ShimmerSums[Pixel];
+			Visible += ShimmerSums[Pixel] > Pairs ? 1 : 0;
+			const auto Level = static_cast<std::uint8_t>(std::min(255., ShimmerSums[Pixel] * 32. / Pairs));
+			Heat[Pixel * 4] = Heat[Pixel * 4 + 1] = Heat[Pixel * 4 + 2] = std::byte{Level};
+		}
+
+		if (!WriteVisualCapture(VisualCaptureDirectory / FileName, std::move(Heat), EditorFramework->GetViewportExtent()))
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not save shimmer map {}", FileName);
+		}
+
+		const std::string Result = std::format(" shimmer={:.3f} shimmer_visible={:.2f}%", Total / Pairs / static_cast<double>(ShimmerSums.size()), 100. * static_cast<double>(Visible) / static_cast<double>(ShimmerSums.size()));
+		ShimmerSums.clear();
+		ShimmerPrevious.clear();
+		return Result;
+	};
+
 	const auto ShowNextVisualBookmark = [&]
 	{
 		while (++VisualSlot <= 9)
@@ -1331,6 +1393,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				}
 
 				AccumulateVisualPasses(VisualBookmarkPassSums);
+				if (bShimmer && VisualSettleFrames >= VisualBookmarkSettleFrames - VisualShimmerFrames)
+				{
+					SampleShimmer();
+				}
 			}
 
 			if (bPresented && EditorFramework->GetFrameMetrics().bAssetsReady && VisualFrames < 600)
@@ -1387,8 +1453,10 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 				VisualBookmarkPassSums.clear();
 				const FGlobalIlluminationStatistics Probes = MeshRenderer->GetGlobalIlluminationStatistics();
-				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={} gi_probes={}/{}/{}/{} gi_overflow={}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Probes.Probes[0], Probes.Probes[1], Probes.Probes[2], Probes.Probes[3], Probes.Overflow, Passes);
-				CaptureVisualView(MakeVisualCaptureName(VisualSlot, VisualSlotName));
+				const std::string CaptureName = MakeVisualCaptureName(VisualSlot, VisualSlotName);
+				const std::string Shimmer = FinishShimmer(CaptureName.substr(0, CaptureName.size() - 4) + "-shimmer.png");
+				HERTA_LOG_INFO(*Log, EditorLog, "Visual bookmark slot={} name=\"{}\" gpu_ms={:.3f} draws={} gi_probes={}/{}/{}/{} gi_overflow={}{}{}", VisualSlot, VisualSlotName, GpuMilliseconds, MeshRenderer->GetLastDrawCount(), Probes.Probes[0], Probes.Probes[1], Probes.Probes[2], Probes.Probes[3], Probes.Overflow, Shimmer, Passes);
+				CaptureVisualView(CaptureName);
 				if (!ShowNextVisualBookmark())
 				{
 					CompleteVisualCapture();
@@ -1658,6 +1726,7 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::string_view Resolution = Herta::FindArgumentValue(ArgumentCount, Arguments, "--resolution=");
 		const bool bPathTracing = Herta::HasArgument(ArgumentCount, Arguments, "--path-tracing");
 		const bool bManualExposure = Herta::HasArgument(ArgumentCount, Arguments, "--manual-exposure");
+		const bool bShimmer = Herta::HasArgument(ArgumentCount, Arguments, "--shimmer");
 		// Explorer passes a file dropped on the executable as a plain argument.
 		std::filesystem::path OpenPath;
 		for (const std::filesystem::path& Argument : Herta::GetProcessArgumentPaths(ArgumentCount, Arguments))
@@ -1669,7 +1738,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, bManualExposure);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, bManualExposure, bShimmer);
 	}
 	catch (const std::exception& Exception)
 	{
