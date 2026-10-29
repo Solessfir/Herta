@@ -3,7 +3,7 @@
 
 // Split Radiance Cascades (Freeman and Sannikov 2026): sparse world-space probes near visible surfaces, one hashmap per cascade,
 // filled by rays from on-screen surfaces that deposit into every cascade interval they cross. Keep the constants in sync with RadianceCascades.cpp.
-static const uint CascadeCount = 4;
+static const uint CascadeCount = 3;
 // Cascade n probes are spaced 2^n times cascade 0's, see 4^n times as many directions, and cover intervals 4^n times as long.
 static const uint BaseDirectionRows = 4;
 // Cascade 0's spacing is this fraction of the distance at which its level of detail starts, so probes keep a similar size on screen.
@@ -13,12 +13,12 @@ static const float LevelDistance = 1.0;
 static const uint LevelCount = 16;
 static const float BaseInterval = 1.6;
 // Thin geometry keeps higher cascades fuller than the 4:1 a flat surface gives, so the top one has twice the share; the Sandbox's busiest view fills 791 of its probes.
-static const uint ProbeCapacity[CascadeCount] = { 65536u, 16384u, 4096u, 2048u };
-static const uint ProbeBase[CascadeCount] = { 0u, 65536u, 81920u, 86016u };
-static const uint SlotCapacity[CascadeCount] = { 131072u, 32768u, 8192u, 4096u };
-static const uint SlotBase[CascadeCount] = { 0u, 131072u, 163840u, 172032u };
-static const uint RecordBase[CascadeCount] = { 0u, 2097152u, 4194304u, 6291456u };
-static const uint RecordTotal = 10485760u;
+static const uint ProbeCapacity[CascadeCount] = { 65536u, 16384u, 4096u };
+static const uint ProbeBase[CascadeCount] = { 0u, 65536u, 81920u };
+static const uint SlotCapacity[CascadeCount] = { 131072u, 32768u, 8192u };
+static const uint SlotBase[CascadeCount] = { 0u, 131072u, 163840u };
+static const uint RecordBase[CascadeCount] = { 0u, 2097152u, 4194304u };
+static const uint RecordTotal = 6291456u;
 // Octahedral irradiance tiles: 6x6 texels inside a one-texel border, 256 tiles to a row of the atlas.
 static const uint IrradianceTexels = 6;
 static const uint IrradianceTile = 8;

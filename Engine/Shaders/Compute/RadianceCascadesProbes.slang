@@ -24,7 +24,7 @@ uint MergedDirections(uint Cascade)
     return Cascade == 0 ? DirectionCount(0) : DirectionCount(Cascade) / 4u;
 }
 
-static const uint MergedBase[CascadeCount] = { 0u, 2097152u, 2621440u, 3145728u };
+static const uint MergedBase[CascadeCount] = { 0u, 2097152u, 2621440u };
 
 uint MergedIndex(uint Cascade, uint Probe, uint Direction)
 {
