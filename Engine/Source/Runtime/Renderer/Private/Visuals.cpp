@@ -612,8 +612,12 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 			float Texel = 0.f;
 			if (Light.Type == ELightType::Directional)
 			{
+				// The visible range comes from depth read back two frames late, so after a turn towards distant surfaces they lie past it. The last
+				// cascade therefore always reaches the full shadow distance, coarse but never letting sunlight through, and the others split the fit.
 				constexpr std::array<float, 4> Splits{0.04f, 0.14f, 0.4f, 1.f};
-				Split = std::max(PreviousSplit + 0.1f, Near + (Far - Near) * Splits[Face]);
+				constexpr std::array<float, 4> FittedSplits{0.05f, 0.2f, 1.f, 1.f};
+				const bool bBeyondFit = Far < Light.Range;
+				Split = Face == 3 && bBeyondFit ? Light.Range : std::max(PreviousSplit + 0.1f, Near + (Far - Near) * (bBeyondFit ? FittedSplits : Splits)[Face]);
 				const float CenterDepth = (PreviousSplit + Split) * 0.5f;
 				const FVector4 Center4 = CameraToWorld * FVector4{-Projection(0, 2) * CenterDepth / Projection(0, 0), -Projection(1, 2) * CenterDepth / Projection(1, 1), CenterDepth, 1};
 				const FVector3 Center{Center4.X, Center4.Y, Center4.Z};

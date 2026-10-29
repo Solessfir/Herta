@@ -220,7 +220,7 @@ TEST_CASE("Directional shadows allocate stable cascade tiles with increasing spl
 	}
 }
 
-TEST_CASE("Cascades fit the visible depth inside the light's range")
+TEST_CASE("Cascades fit the visible depth inside the light's range, and the last still reaches it")
 {
 	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Directional, .Range = 100.f}, .Transform = FMatrix4{}}};
 	const auto Built = BuildVisualUniforms({}, TestProjection(), {1280, 720}, Lights, {});
@@ -232,11 +232,13 @@ TEST_CASE("Cascades fit the visible depth inside the light's range")
 	const auto CloseShadows = BuildShadowViews(Close, Lights, TestProjection(), 1.f, 4.f, 20.f);
 	BuildShadowViews(Beyond, Lights, TestProjection(), 1.f, 0.f, 500.f);
 	REQUIRE(CloseShadows.size() == 4);
-	CHECK(Close.Shadows[3].Parameters[1] == 20.f);
+	CHECK(Close.Shadows[2].Parameters[1] == 20.f);
+	// The visible range is read back late, so surfaces past it after a turn must still find a cascade instead of losing their shadows.
+	CHECK(Close.Shadows[3].Parameters[1] == 100.f);
 	CHECK(Beyond.Shadows[3].Parameters[1] == 100.f);
 	CHECK(Close.Shadows[0].Parameters[1] > 4.f);
-	// A shorter range concentrates the same texels on less of the view. The first cascade starts farther out, so only the later ones must get finer.
-	for (std::size_t Index = 1; Index < CloseShadows.size(); ++Index)
+	// A shorter range concentrates the same texels on less of the view. The first cascade starts farther out, so only the next fitted ones must get finer.
+	for (std::size_t Index = 1; Index < 3; ++Index)
 	{
 		CHECK(Close.Shadows[Index].Parameters[3] < Full.Shadows[Index].Parameters[3]);
 	}
