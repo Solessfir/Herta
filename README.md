@@ -53,7 +53,6 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Next milestone](Docs/EngineDesign.md#milestone-6---raster-renderer-scaling) - raster renderer scaling, then hardware ray tracing and dynamic GI in Milestone 6.5.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
 - [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.
-- [Linux todo](Docs/LinuxTodo.md) - checks waiting for a native Linux machine.
 
 ## License
 

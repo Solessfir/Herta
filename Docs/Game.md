@@ -59,4 +59,4 @@ The package holds the renamed game executable (`<Project>.exe` on Windows, `<Pro
 - `HertaEditor --play-test [--validation]` runs two editor Play/Stop cycles with scripted input, saves `Saved/PlayTest/Play-N.png` from the player's view, and requires every authored model back after each stop.
 - `HertaTests` cover the session (spawn, timing, restart, jump limits, respawn, sliding under a low ceiling, wall jumps, the chimney climb, invalid input), staged content loading, trigger roles, GameUI layout and menu focus, and the shared simulation builder.
 
-The 600-frame Sandbox smoke run averaged 3.4 ms per frame at the default window size on an RTX 4090 Laptop GPU, Development and Shipping alike. Linux runs are listed in [LinuxTodo.md](LinuxTodo.md).
+The 600-frame Sandbox smoke run averaged 3.4 ms per frame at the default window size on an RTX 4090 Laptop GPU, Development and Shipping alike. Native Linux runs on X11 and Wayland pass the same checks.
