@@ -33,8 +33,10 @@ float4 GatherLevel(float3 Position, float3 Normal, uint Level)
         float3 Axis = lerp(1.0 - Fraction, Fraction, float3(Offset));
         float W = Axis.x * Axis.y * Axis.z;
         float2 UV = (float2(IrradianceTileOrigin(Probe)) + Octahedral) / float2(AtlasWidth, AtlasHeight);
-        Sum += IrradianceAtlas.SampleLevel(LinearSampler, UV, 0).rgb * W;
-        Weight += W;
+        // Tiles hold irradiance times the share of directions their probe knew.
+        float4 Sample = IrradianceAtlas.SampleLevel(LinearSampler, UV, 0);
+        Sum += Sample.rgb * W;
+        Weight += Sample.a * W;
     }
 
     return Weight > 1e-4 ? float4(Sum / Weight, 1.0) : 0.0;

@@ -9,26 +9,6 @@
 [[vk::binding(4, 0)]] Texture2D<float4> PreviousIrradiance;
 [[vk::binding(19, 0)]] StructuredBuffer<uint> PreviousSlots;
 
-uint PreviousProbe(uint Key)
-{
-    if (Key == 0u)
-        return MissingProbe;
-
-    uint Mask = SlotCapacity[0] - 1u;
-    uint Slot = HashKey(Key) & Mask;
-    for (uint Step = 0; Step < ProbeSteps; ++Step)
-    {
-        uint Existing = PreviousSlots[(SlotBase[0] + Slot) * 2u];
-        if (Existing == Key)
-            return PreviousSlots[(SlotBase[0] + Slot) * 2u + 1u];
-        if (Existing == 0u)
-            return MissingProbe;
-        Slot = (Slot + 1u) & Mask;
-    }
-
-    return MissingProbe;
-}
-
 // Irradiance at a hit from last frame's probe whose cell holds it; zero where there is none, such as surfaces off screen.
 // Bounced light is smooth and the probes average it again, so one probe serves; searching the eight around an empty cell cost 0.1 to 0.45 ms of rays
 // at 3200x1809 and moved the error against the path tracer by 0.2%.
@@ -39,14 +19,16 @@ float3 BouncedIrradiance(float3 Position, float3 Normal)
 
     float3 Eye = Visual.Material.Emissive.xyz;
     uint Level = LevelOfDetailFrom(Eye, Position);
-    uint Probe = PreviousProbe(MakeKeyFrom(CameraCellFrom(Eye, Level), Level, 0, int3(floor(Position / BaseSpacing(Level)))));
+    uint Probe = FindPreviousProbe(PreviousSlots, Eye, Level, int3(floor(Position / BaseSpacing(Level))));
     if (Probe == MissingProbe)
         return 0.0;
 
     uint AtlasWidth, AtlasHeight;
     PreviousIrradiance.GetDimensions(AtlasWidth, AtlasHeight);
     float2 UV = (float2(IrradianceTileOrigin(Probe)) + OctahedralEncode(Normal) * float(IrradianceTexels) + 1.0) / float2(AtlasWidth, AtlasHeight);
-    return PreviousIrradiance.SampleLevel(LinearSampler, UV, 0).rgb / StoredScale;
+    // Tiles hold irradiance times the share of directions their probe knew.
+    float4 Sample = PreviousIrradiance.SampleLevel(LinearSampler, UV, 0);
+    return Sample.a > 1e-3 ? Sample.rgb / (Sample.a * StoredScale) : 0.0;
 }
 
 // R2 (Roberts 2018) in 32-bit fixed point, so ray indices in the millions keep their spacing.
@@ -99,8 +81,9 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     if (Slot == MissingProbe || SlotProbe(0, Slot) == MissingProbe)
         return;
 
-    // The direction depends only on where the surface lies: its probe picks a stretch of the sequence, and its place among 8x8x8 cells inside the probe the point in it.
-    // Order-dependent schemes, such as counting rays with atomics, hand a surface new directions every frame, which flickers without accumulation.
+    // The direction depends on where the surface lies: its probe picks a stretch of the sequence, and its place among 8x8x8 cells inside the probe the point in it.
+    // Order-dependent schemes, such as counting rays with atomics, would reshuffle directions between neighbours every frame. The whole sequence then
+    // rotates by a per-frame offset, which irradiance accumulates over frames.
     uint3 Inside = min(uint3(frac(Position / BaseSpacing(Level)) * 8.0), 7u);
     uint Sequence = HashKey(MakeKey(Level, 0, Cell)) * 512u + Inside.x + Inside.y * 8u + Inside.z * 64u;
     float3 Direction = DecodeDirection(frac(R2(Sequence) + Visual.Material.Surface.xy));

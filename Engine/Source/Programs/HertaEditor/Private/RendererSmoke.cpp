@@ -1377,8 +1377,8 @@ namespace
 		}
 	}
 
-	// Without accumulation, a still view must give the same image every frame once its bounces settle; per-frame ray choices would flicker.
-	// The cubes stand on a sunlit floor under the sky, so the light a ray brings back depends on its direction.
+	// Rays change direction every frame and probes average them, so a still view must settle once that average and its bounces have; an average
+	// too short, or one that resets, flickers. The cubes stand on a sunlit floor under the sky, so the light a ray brings back depends on its direction.
 	const std::array FloorModels{Models[0], Models[1], Models[2], FMatrix4::Translation({0, -0.6f, 0}) * FMatrix4::Scale({12, 0.2f, 12})};
 	const std::array<const FRenderMesh*, 4> FloorMeshes{Cube->get(), Cube->get(), Cube->get(), Cube->get()};
 	const std::array<std::span<const FRenderMaterial* const>, 4> FloorOverrides{Lambert, Rough, Metal, GreyLambert};
@@ -1389,14 +1389,15 @@ namespace
 	View.Lights = SunAndSky;
 	View.Visuals.bGlobalIllumination = true;
 	std::array<std::vector<std::byte>, 2> Frames;
-	for (std::size_t Frame = 0; Frame < 22; ++Frame)
+	constexpr std::size_t SettledFrame = 60;
+	for (std::size_t Frame = 0; Frame < SettledFrame + 2; ++Frame)
 	{
 		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
 		{
 			return Rendered;
 		}
 
-		if (Frame >= 20)
+		if (Frame >= SettledFrame)
 		{
 			auto Image = Device.ReadbackTexture((*Renderer)->GetColorTarget());
 			if (!Image)
@@ -1404,7 +1405,7 @@ namespace
 				return std::unexpected(Image.error());
 			}
 
-			Frames[Frame - 20] = std::move(*Image);
+			Frames[Frame - SettledFrame] = std::move(*Image);
 		}
 	}
 

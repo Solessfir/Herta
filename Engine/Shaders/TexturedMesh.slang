@@ -261,16 +261,20 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     float4 Indirect = Visual.Occlusion.w > 0.5 ? GlobalIllumination.Load(int3(int2(Input.Position.xy), 0)) : 0.0;
     if (Visual.Sky.x > 0.0 || Indirect.a > 0.5)
     {
-        // Global illumination already carries the sky's intensity, occluded by the scene, and light bounced off it.
-        float3 Diffuse = Indirect.rgb * 16.0;
-        if (Indirect.a <= 0.5)
+        uint DiffuseWidth, DiffuseHeight;
+        DiffuseEnvironment.GetDimensions(DiffuseWidth, DiffuseHeight);
+        float2 DiffuseUV = DirectionUV(DiffuseNormal);
+        // Material maps repeat, but environment latitude must not blend the opposite poles.
+        DiffuseUV.y = clamp(DiffuseUV.y, 0.5 / DiffuseHeight, 1.0 - 0.5 / DiffuseHeight);
+        float3 Diffuse = DiffuseEnvironment.SampleLevel(LinearSampler, DiffuseUV, 0).rgb * Visual.Sky.x * Visual.SkyColor.rgb;
+        // Global illumination already carries the sky's intensity, occluded by the scene, and light bounced off it. Its share of the open sky's
+        // irradiance also stands in for how much sky reflections can see, which screen-space occlusion only finds in creases.
+        float SkyVisibility = 1.0;
+        if (Indirect.a > 0.5)
         {
-            uint DiffuseWidth, DiffuseHeight;
-            DiffuseEnvironment.GetDimensions(DiffuseWidth, DiffuseHeight);
-            float2 DiffuseUV = DirectionUV(DiffuseNormal);
-            // Material maps repeat, but environment latitude must not blend the opposite poles.
-            DiffuseUV.y = clamp(DiffuseUV.y, 0.5 / DiffuseHeight, 1.0 - 0.5 / DiffuseHeight);
-            Diffuse = DiffuseEnvironment.SampleLevel(LinearSampler, DiffuseUV, 0).rgb * Visual.Sky.x * Visual.SkyColor.rgb;
+            float Open = dot(Diffuse, float3(0.2126, 0.7152, 0.0722));
+            Diffuse = Indirect.rgb * 16.0;
+            SkyVisibility = Open > 0.0 ? saturate(dot(Diffuse, float3(0.2126, 0.7152, 0.0722)) / Open) : 1.0;
         }
 
         float3 R = reflect(-V, N);
@@ -287,7 +291,7 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
         float3 BounceC = 2.7552 * Albedo + 0.6903;
         float3 DiffuseOcclusion = max(AO, ((AO * BounceA + BounceB) * AO + BounceC) * AO);
         // Lagarde's specular occlusion: grazing and rough reflections see more of the occluded hemisphere.
-        float SpecularOcclusion = saturate(pow(NoV + AO, exp2(-16.0 * Roughness - 1.0)) - 1.0 + AO);
+        float SpecularOcclusion = saturate(pow(NoV + AO, exp2(-16.0 * Roughness - 1.0)) - 1.0 + AO) * SkyVisibility;
         Result += Surface.DiffuseReflectance * Diffuse / PI * DiffuseOcclusion + Specular * Surface.SpecularReflectance * SpecularOcclusion * Visual.Sky.x * Visual.SkyColor.rgb;
     }
     if (Visual.Sky.w < 0.5) return float4(Result / (1.0 + Result), 1.0);

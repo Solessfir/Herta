@@ -3,7 +3,6 @@
 
 // The probe stages of Split Radiance Cascades, one per dispatch: Visual.Material.BaseColor.x selects the stage and y the cascade.
 [[vk::binding(0, 0)]] Texture2D<float> SceneDepth;
-[[vk::binding(1, 0)]] Texture2D<float4> Environment;
 
 static const uint StageClear = 0;
 static const uint StageInsertPixels = 1;
@@ -13,7 +12,8 @@ static const uint StageLinks = 4;
 static const uint StageMerge = 5;
 static const uint StageResetRecords = 6;
 
-groupshared float3 MergedShared[64];
+// Radiance with alpha 1 where known.
+groupshared float4 MergedShared[64];
 // The upper cascade's neighbours of the group's probes, found once per group instead of once per direction. Cascade 0 fits two probes in a group.
 groupshared uint NeighbourProbes[2][8];
 groupshared float NeighbourWeights[2][8];
@@ -49,8 +49,8 @@ void FindNeighbour(uint Cascade, uint Key, uint Corner, out uint Probe, out floa
     Weight = Probe == MissingProbe ? 0.0 : Axis.x * Axis.y * Axis.z;
 }
 
-// The higher cascade's merged radiance in Direction around a probe, sparse trilinear over the neighbours that exist.
-float3 InterpolateUpper(uint Cascade, uint GroupProbe, uint Direction)
+// The higher cascade's merged radiance in Direction around a probe, sparse trilinear over the neighbours that exist and know it; alpha 0 when none do.
+float4 InterpolateUpper(uint Cascade, uint GroupProbe, uint Direction)
 {
     uint Upper = Cascade + 1u;
     float3 Sum = 0.0;
@@ -61,24 +61,16 @@ float3 InterpolateUpper(uint Cascade, uint GroupProbe, uint Direction)
         if (Probe == MissingProbe)
             continue;
 
+        uint Word = Merged[MergedIndex(Upper, Probe, Direction)];
+        if (Word == UnknownRadiance)
+            continue;
+
         float W = NeighbourWeights[GroupProbe][Corner];
-        Sum += LoadRadiance(Merged[MergedIndex(Upper, Probe, Direction)]) * W;
+        Sum += LoadRadiance(Word) * W;
         Weight += W;
     }
 
-    return Weight > 0.0 ? Sum / Weight : 0.0;
-}
-
-float3 SkyRadiance(float3 Direction)
-{
-    if (Visual.Sky.x <= 0.0)
-        return 0.0;
-
-    uint Width, Height;
-    Environment.GetDimensions(Width, Height);
-    float2 UV = DirectionUV(Direction);
-    UV.y = clamp(UV.y, 0.5 / Height, 1.0 - 0.5 / Height);
-    return Environment.SampleLevel(LinearSampler, UV, 0).rgb * Visual.Sky.x * Visual.SkyColor.rgb;
+    return Weight > 0.0 ? float4(Sum / Weight, 1.0) : 0.0;
 }
 
 [shader("compute")]
@@ -109,6 +101,9 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
             Deposits[Record * 3u + 2u] = 0.0;
             RecordCounts[Record] = 0u;
         }
+
+        if (Thread < ProbeCapacity[0] * 2u)
+            Deposits[HistoryBase + Thread] = 0.0;
         return;
     }
 
@@ -200,7 +195,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
         }
 
         GroupMemoryBarrierWithGroupSync();
-        float3 Radiance = 0.0;
+        float4 Radiance = 0.0;
         if (bActive)
         {
             uint Record = RecordIndex(Cascade, Probe, Direction);
@@ -217,15 +212,21 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
                 RecordCounts[Record] = 0u;
             }
 
+            uint Transparent = Counts >> 16;
             if (Total == 0u)
             {
-                // No ray sampled this direction: the top cascade assumes open sky, lower ones pass the cascade above through.
-                Radiance = bTop ? SkyRadiance(DecodeDirection(DirectionCenter(Cascade, Direction))) : InterpolateUpper(Cascade, GroupProbe, Direction);
+                // No ray sampled this direction here: the cascade above may know it, and otherwise it stays unknown.
+                Radiance = bTop ? 0.0 : InterpolateUpper(Cascade, GroupProbe, Direction);
+            }
+            else if (bTop || Transparent == 0u)
+            {
+                Radiance = float4(Interval / float(Total), 1.0);
             }
             else
             {
-                float Transmittance = float(Counts >> 16) / float(Total);
-                Radiance = Interval / float(Total) + (bTop || Transmittance <= 0.0 ? 0.0 : Transmittance * InterpolateUpper(Cascade, GroupProbe, Direction));
+                float4 Upper = InterpolateUpper(Cascade, GroupProbe, Direction);
+                // Without the cascade above, the rays that ended here are the best estimate of the direction.
+                Radiance = Upper.a > 0.0 ? float4(Interval / float(Total) + Upper.rgb * (float(Transparent) / float(Total)), 1.0) : (Transparent < Total ? float4(Interval / float(Total - Transparent), 1.0) : 0.0);
             }
         }
 
@@ -233,18 +234,19 @@ void computeMain(uint3 Id : SV_DispatchThreadID, uint3 Local : SV_GroupThreadID)
         {
             if (bActive)
             {
-                Merged[MergedIndex(0, Probe, Direction)] = StoreRadiance(Radiance);
+                Merged[MergedIndex(0, Probe, Direction)] = Radiance.a > 0.0 ? StoreRadiance(Radiance.rgb) : UnknownRadiance;
             }
             return;
         }
 
-        // Higher cascades only ever feed the cascade below, so they store each group of four directions' average.
+        // Higher cascades only ever feed the cascade below, so they store the average of each group of four directions that are known.
         MergedShared[Local.x] = Radiance;
         GroupMemoryBarrierWithGroupSync();
+
         if (bActive && (Direction & 3u) == 0u)
         {
-            float3 Average = (MergedShared[Local.x] + MergedShared[Local.x + 1u] + MergedShared[Local.x + 2u] + MergedShared[Local.x + 3u]) * 0.25;
-            Merged[MergedIndex(Cascade, Probe, Direction / 4u)] = StoreRadiance(Average);
+            float4 Sum = MergedShared[Local.x] + MergedShared[Local.x + 1u] + MergedShared[Local.x + 2u] + MergedShared[Local.x + 3u];
+            Merged[MergedIndex(Cascade, Probe, Direction / 4u)] = Sum.a > 0.0 ? StoreRadiance(Sum.rgb / Sum.a) : UnknownRadiance;
         }
     }
 }

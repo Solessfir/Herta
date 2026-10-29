@@ -546,6 +546,7 @@ struct FEditorFramework::FImplementation
 	}
 
 	void JumpToCameraBookmark(std::uint32_t Slot);
+	void StartAtFirstCameraBookmark();
 	void SaveCameraBookmark(std::uint32_t Slot);
 	void DrawCameraBookmarks(float Scale);
 	void UpdateSimulation(float DeltaSeconds);
@@ -834,6 +835,8 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 			{
 				return std::unexpected(FEditorFrameworkError{Loaded.error().Message});
 			}
+
+			Implementation->StartAtFirstCameraBookmark();
 
 			HERTA_LOG_INFO(*Descriptor.Log, EditorLog, "Opened level {} in project {}", InitialLevelPath.string(), Implementation->ProjectPath.string());
 		}
@@ -1994,6 +1997,7 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 			OutlinerPanelState = {};
 			bCloseProjectPopup = true;
 			RefreshLevel();
+			StartAtFirstCameraBookmark();
 			HERTA_LOG_INFO(*Log, EditorLog, "Opened project '{}'", Result->Project->Descriptor.Name);
 		}
 
@@ -2805,6 +2809,10 @@ void FEditorFramework::FImplementation::OpenLevelWithDialog()
 		if (auto Loaded = Level->Load(Chosen->front()); !Loaded)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not load level: {}", Loaded.error().Message);
+		}
+		else
+		{
+			StartAtFirstCameraBookmark();
 		}
 	}
 }
@@ -4351,6 +4359,16 @@ void FEditorFramework::FImplementation::RequestPreviewRename()
 	bOutlinerOpen = true;
 	OutlinerPanelState.bRenameRequested = true;
 	ImGui::SetWindowFocus("Outliner");
+}
+
+// A level opens at its first camera bookmark, which frames it as its author intended; the default camera often lands inside large levels' walls.
+void FEditorFramework::FImplementation::StartAtFirstCameraBookmark()
+{
+	const auto Bookmarks = Level->GetCameraBookmarks();
+	if (const auto First = std::ranges::min_element(Bookmarks, {}, &FLevelCameraBookmark::Slot); First != Bookmarks.end())
+	{
+		JumpToCameraBookmark(First->Slot);
+	}
 }
 
 void FEditorFramework::FImplementation::JumpToCameraBookmark(const std::uint32_t Slot)
