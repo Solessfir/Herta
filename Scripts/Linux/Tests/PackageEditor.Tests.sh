@@ -106,13 +106,18 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
     chmod 755 -- "${repository_root}/${binary_directory}/${program}"
 done
 
-# The package requires both stages of every Engine/Shaders/*.slang; shared .slangh headers cook nothing.
-shader_files=(TexturedMesh.instanced.vert Shadow.instanced.vert)
-for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow VolumetricFog; do
+# The package requires the cooked stages of every Engine/Shaders and Compute source; shared .slangh headers cook nothing.
+shader_files=(TexturedMesh.instanced.vert TexturedMesh.velocity.frag TexturedMesh.instanced.velocity.vert Shadow.instanced.vert)
+for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow; do
     write_fixture_file "Engine/Shaders/${shader}.slang"
     shader_files+=("${shader}.vert" "${shader}.frag")
 done
+for shader in VolumetricFog Gtao; do
+    write_fixture_file "Engine/Shaders/Compute/${shader}.slang"
+    shader_files+=("${shader}.comp")
+done
 write_fixture_file Engine/Shaders/Shared.slangh
+write_fixture_file Engine/Shaders/Compute/Shared.slangh
 for shader in "${shader_files[@]}"; do
     write_fixture_file "${binary_directory}/Shaders/${shader}.hshader"
 done

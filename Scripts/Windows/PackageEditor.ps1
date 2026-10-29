@@ -37,7 +37,7 @@ $RequiredFiles = @(
     'Engine/Content/Shapes/Sphere.gltf',
     'Engine/Content/Shapes/Sphere.gltf.hmeta'
 )
-# Every Engine/Shaders/*.slang cooks a vertex and fragment stage.
+# Mirrors the HertaShaders cook rules: each Engine/Shaders/*.slang cooks a vertex and fragment stage, each Compute/*.slang a compute stage.
 $ShaderSources = @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'Engine/Shaders') -Filter '*.slang' -File -ErrorAction SilentlyContinue | Sort-Object Name)
 if ($ShaderSources.Count -eq 0) {
     throw 'Required engine shader sources are missing: Engine/Shaders/*.slang'
@@ -47,8 +47,12 @@ foreach ($ShaderSource in $ShaderSources) {
         $RequiredFiles += "$BinaryDirectory/Shaders/$($ShaderSource.BaseName).$Stage.hshader"
     }
 }
-$RequiredFiles += "$BinaryDirectory/Shaders/TexturedMesh.instanced.vert.hshader"
-$RequiredFiles += "$BinaryDirectory/Shaders/Shadow.instanced.vert.hshader"
+foreach ($ShaderSource in @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'Engine/Shaders/Compute') -Filter '*.slang' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    $RequiredFiles += "$BinaryDirectory/Shaders/$($ShaderSource.BaseName).comp.hshader"
+}
+foreach ($Variant in @('TexturedMesh.instanced.vert', 'TexturedMesh.velocity.frag', 'TexturedMesh.instanced.velocity.vert', 'Shadow.instanced.vert')) {
+    $RequiredFiles += "$BinaryDirectory/Shaders/$Variant.hshader"
+}
 
 foreach ($RelativePath in $RequiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $RepositoryRoot $RelativePath) -PathType Leaf)) {

@@ -98,11 +98,12 @@ try {
         'External/freetype/src/autofit/hb-script-list.h'
     )
     $WindowsPayload = @('HertaEditor.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe') | ForEach-Object { "Binaries/windows/x86_64/Shipping/$_" }
-    # The package requires both stages of every Engine/Shaders/*.slang; shared .slangh headers cook nothing.
-    $ShaderSources = @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow', 'VolumetricFog') | ForEach-Object { "Engine/Shaders/$_.slang" }
-    $ShaderSources += 'Engine/Shaders/Shared.slangh'
-    $ShaderFiles = @('TexturedMesh.instanced.vert', 'Shadow.instanced.vert')
-    foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow', 'VolumetricFog')) {
+    # The package requires the cooked stages of every Engine/Shaders and Compute source; shared .slangh headers cook nothing.
+    $ShaderSources = @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow') | ForEach-Object { "Engine/Shaders/$_.slang" }
+    $ShaderSources += @('VolumetricFog', 'Gtao') | ForEach-Object { "Engine/Shaders/Compute/$_.slang" }
+    $ShaderSources += 'Engine/Shaders/Shared.slangh', 'Engine/Shaders/Compute/Shared.slangh'
+    $ShaderFiles = @('TexturedMesh.instanced.vert', 'TexturedMesh.velocity.frag', 'TexturedMesh.instanced.velocity.vert', 'Shadow.instanced.vert', 'VolumetricFog.comp', 'Gtao.comp')
+    foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow')) {
         $ShaderFiles += "$Shader.vert", "$Shader.frag"
     }
     $ShaderFiles = $ShaderFiles | ForEach-Object { "Binaries/windows/x86_64/Shipping/Shaders/$_.hshader" }

@@ -66,7 +66,7 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
     fi
 done
 
-# Every Engine/Shaders/*.slang cooks a vertex and fragment stage.
+# Mirrors the HertaShaders cook rules: each Engine/Shaders/*.slang cooks a vertex and fragment stage, each Compute/*.slang a compute stage.
 shader_sources=("${repository_root}"/Engine/Shaders/*.slang)
 if [[ ! -f "${shader_sources[0]}" ]]; then
     echo "Required engine shader sources are missing: Engine/Shaders/*.slang" >&2
@@ -78,8 +78,13 @@ for shader_source in "${shader_sources[@]}"; do
         package_files+=("${binary_directory}/Shaders/${shader}.${stage}.hshader")
     done
 done
-package_files+=("${binary_directory}/Shaders/TexturedMesh.instanced.vert.hshader")
-package_files+=("${binary_directory}/Shaders/Shadow.instanced.vert.hshader")
+for shader_source in "${repository_root}"/Engine/Shaders/Compute/*.slang; do
+    [[ -f "${shader_source}" ]] || continue
+    package_files+=("${binary_directory}/Shaders/$(basename "${shader_source}" .slang).comp.hshader")
+done
+for variant in TexturedMesh.instanced.vert TexturedMesh.velocity.frag TexturedMesh.instanced.velocity.vert Shadow.instanced.vert; do
+    package_files+=("${binary_directory}/Shaders/${variant}.hshader")
+done
 
 # These dependencies embed their notices in source files rather than separate license files.
 license_files=(
