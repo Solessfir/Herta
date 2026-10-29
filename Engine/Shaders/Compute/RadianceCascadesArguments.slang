@@ -4,7 +4,7 @@
 [[vk::binding(384, 0)]] RWStructuredBuffer<uint> Arguments;
 
 static const uint CascadeCount = 3;
-static const uint ProbeCapacity[CascadeCount] = { 65536u, 16384u, 4096u };
+static const uint ProbeCapacity[CascadeCount] = { 65536u, 32768u, 8192u };
 
 void Write(uint Slot, uint3 Groups)
 {

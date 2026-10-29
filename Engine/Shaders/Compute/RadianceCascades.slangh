@@ -12,13 +12,14 @@ static const float SpacingRatio = 1.0 / 48.0;
 static const float LevelDistance = 1.0;
 static const uint LevelCount = 16;
 static const float BaseInterval = 1.6;
-// Thin geometry keeps higher cascades fuller than the 4:1 a flat surface gives, so the top one has twice the share; the Sandbox's busiest view fills 791 of its probes.
-static const uint ProbeCapacity[CascadeCount] = { 65536u, 16384u, 4096u };
-static const uint ProbeBase[CascadeCount] = { 0u, 65536u, 81920u };
-static const uint SlotCapacity[CascadeCount] = { 131072u, 32768u, 8192u };
-static const uint SlotBase[CascadeCount] = { 0u, 131072u, 163840u };
-static const uint RecordBase[CascadeCount] = { 0u, 2097152u, 4194304u };
-static const uint RecordTotal = 6291456u;
+// Columns, arches, and other thin geometry keep higher cascades fuller than the 4:1 a flat surface gives: Sponza's nave fills 38,082, 12,063, and
+// 3,682 probes, so the higher cascades get twice a flat surface's share. Overflow would drop different probes every frame.
+static const uint ProbeCapacity[CascadeCount] = { 65536u, 32768u, 8192u };
+static const uint ProbeBase[CascadeCount] = { 0u, 65536u, 98304u };
+static const uint SlotCapacity[CascadeCount] = { 131072u, 65536u, 16384u };
+static const uint SlotBase[CascadeCount] = { 0u, 131072u, 196608u };
+static const uint RecordBase[CascadeCount] = { 0u, 2097152u, 6291456u };
+static const uint RecordTotal = 10485760u;
 // Octahedral irradiance tiles: 6x6 texels inside a one-texel border, 256 tiles to a row of the atlas.
 static const uint IrradianceTexels = 6;
 static const uint IrradianceTile = 8;

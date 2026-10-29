@@ -9,11 +9,11 @@ namespace
 {
 // Keep in sync with RadianceCascades.slangh.
 constexpr std::uint32_t CascadeCount = 3;
-constexpr std::array<std::uint32_t, CascadeCount> SlotCapacity{131072, 32768, 8192};
-constexpr std::uint32_t TotalRecords = 6291456;
-constexpr std::uint32_t MergedRecords = 3145728;
-constexpr std::uint32_t TotalSlots = 172032;
-constexpr std::uint32_t TotalProbes = 86016;
+constexpr std::array<std::uint32_t, CascadeCount> SlotCapacity{131072, 65536, 16384};
+constexpr std::uint32_t TotalRecords = 10485760;
+constexpr std::uint32_t MergedRecords = 4194304;
+constexpr std::uint32_t TotalSlots = 212992;
+constexpr std::uint32_t TotalProbes = 106496;
 constexpr FExtent2D AtlasExtent{2048, 2048};
 
 enum class EStage : std::uint32_t
