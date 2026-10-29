@@ -2,8 +2,8 @@
 #include "RadianceCascades.slangh"
 
 // Diffuse irradiance from the eight cascade 0 probes around a surface, sparse trilinear over those that exist, once per 2x2 block at the pixel that
-// traced its ray; RadianceCascadesUpsample.slang spreads it to every pixel. Alpha is 1 where probes covered the pixel; elsewhere the mesh pass keeps
-// its environment lighting.
+// traced its ray. Alpha holds that pixel's reversed depth where probes covered it, so the mesh pass can find which gathers share each pixel's surface,
+// and 0 elsewhere, where it keeps its environment lighting.
 [[vk::binding(0, 0)]] Texture2D<float> SceneDepth;
 [[vk::binding(1, 0)]] Texture2D<float4> IrradianceAtlas;
 [[vk::binding(384, 0)]] [format("rgba16f")] RWTexture2D<float4> Output;
@@ -65,5 +65,5 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     float4 Fine = Blend < 1.0 ? GatherLevel(Position, Normal, Level - 1u) : 0.0;
     // Where one level found no probes, the other covers the pixel alone.
     float CoarseWeight = Fine.a > 0.0 ? (Coarse.a > 0.0 ? Blend : 0.0) : 1.0;
-    Output[Id.xy] = Coarse.a > 0.0 || Fine.a > 0.0 ? float4(Coarse.rgb * CoarseWeight + Fine.rgb * (1.0 - CoarseWeight), 1.0) : 0.0;
+    Output[Id.xy] = Coarse.a > 0.0 || Fine.a > 0.0 ? float4(Coarse.rgb * CoarseWeight + Fine.rgb * (1.0 - CoarseWeight), SceneDepth.Load(int3(Pixel, 0))) : 0.0;
 }

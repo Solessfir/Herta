@@ -356,7 +356,6 @@ int RunGame(const FGameOptions& Options)
 	    std::pair{"RadianceCascadesIrradiance.comp.hshader", &VisualShaders.RadianceCascadeIrradianceCompute},
 	    std::pair{"RadianceCascadesShade.comp.hshader", &VisualShaders.RadianceCascadeShadeCompute},
 	    std::pair{"RadianceCascadesArguments.comp.hshader", &VisualShaders.RadianceCascadeArgumentsCompute},
-	    std::pair{"RadianceCascadesUpsample.comp.hshader", &VisualShaders.RadianceCascadeUpsampleCompute},
 	};
 
 	for (const auto& [File, Destination] : VisualShaderFiles)
