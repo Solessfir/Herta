@@ -46,7 +46,7 @@ std::expected<std::unique_ptr<FRadianceCascades>, FPresentationError> FRadianceC
 	}
 
 	auto Probes = Device.CreateComputePipeline({.Name = "Radiance cascade probes", .Shader = std::move(Shaders.Probes), .TextureCount = 2, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
-	auto Trace = Device.CreateComputePipeline({.Name = "Radiance cascade rays", .Shader = std::move(Shaders.Trace), .TextureCount = 4, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 3, .bRayQuery = true, .bResourceTable = true});
+	auto Trace = Device.CreateComputePipeline({.Name = "Radiance cascade rays", .Shader = std::move(Shaders.Trace), .TextureCount = 5, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true, .bRepeatSampler = true, .BufferCount = 4, .bRayQuery = true, .bResourceTable = true});
 	auto Irradiance = Device.CreateComputePipeline({.Name = "Radiance cascade irradiance", .Shader = std::move(Shaders.Irradiance), .StorageTextureCount = 1, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes});
 	auto Shade = Device.CreateComputePipeline({.Name = "Radiance cascade gather", .Shader = std::move(Shaders.Shade), .TextureCount = 2, .StorageTextureCount = 1, .StorageBufferCount = 6, .UniformBufferSize = VisualUniformBytes, .bLinearSampler = true});
 	for (const auto* const Pipeline : {&Probes, &Trace, &Irradiance, &Shade})
@@ -74,12 +74,12 @@ const FTextureHandle& FRadianceCascades::GetIrradiance() const noexcept
 std::size_t FRadianceCascades::GetMemoryBytes() const noexcept
 {
 	std::size_t Bytes = 0;
-	for (const FBufferHandle* const Buffer : {&Slots, &Probes, &Counters, &Deposits, &RecordCounts, &Merged})
+	for (const FBufferHandle* const Buffer : {&Slots[0], &Slots[1], &Probes, &Counters, &Deposits, &RecordCounts, &Merged})
 	{
 		Bytes += *Buffer ? (*Buffer)->GetDescriptor().Size : 0;
 	}
 
-	for (const FTextureHandle* const Texture : {&Atlas, &Irradiance})
+	for (const FTextureHandle* const Texture : {&Atlas[0], &Atlas[1], &Irradiance})
 	{
 		Bytes += *Texture ? std::size_t{(*Texture)->GetDescriptor().Extent.Width} * (*Texture)->GetDescriptor().Extent.Height * GetTextureTexelBytes((*Texture)->GetDescriptor().Format) : 0;
 	}
@@ -90,15 +90,16 @@ std::size_t FRadianceCascades::GetMemoryBytes() const noexcept
 void FRadianceCascades::Release() noexcept
 {
 	// Recordings in flight hold their own references, so nothing here waits on the GPU.
-	Slots.reset();
+	Slots = {};
 	Probes.reset();
 	Counters.reset();
 	Deposits.reset();
 	RecordCounts.reset();
 	Merged.reset();
-	Atlas.reset();
+	Atlas = {};
 	Irradiance.reset();
 	bRecordsReset = false;
+	bPrevious = false;
 }
 
 std::expected<void, FPresentationError> FRadianceCascades::Allocate(const FExtent2D Extent)
@@ -120,7 +121,12 @@ std::expected<void, FPresentationError> FRadianceCascades::Allocate(const FExten
 		return {};
 	};
 
-	auto Result = Buffer(Slots, "Radiance cascade slots", std::size_t{TotalSlots} * 4);
+	auto Result = Buffer(Slots[0], "Radiance cascade slots", std::size_t{TotalSlots} * 4);
+	if (Result)
+	{
+		Result = Buffer(Slots[1], "Radiance cascade previous slots", std::size_t{TotalSlots} * 4);
+	}
+
 	if (Result)
 	{
 		Result = Buffer(Probes, "Radiance cascade probes", std::size_t{TotalProbes} * 3);
@@ -146,15 +152,18 @@ std::expected<void, FPresentationError> FRadianceCascades::Allocate(const FExten
 		Result = Buffer(Merged, "Radiance cascade merged radiance", std::size_t{MergedRecords} * 2);
 	}
 
-	if (Result && !Atlas)
+	for (FTextureHandle& Texture : Atlas)
 	{
-		auto Created = Device.CreateTexture({.Name = "Radiance cascade irradiance probes", .Extent = AtlasExtent, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
-		if (!Created)
+		if (Result && !Texture)
 		{
-			return std::unexpected(Created.error());
-		}
+			auto Created = Device.CreateTexture({.Name = "Radiance cascade irradiance probes", .Extent = AtlasExtent, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
+			if (!Created)
+			{
+				return std::unexpected(Created.error());
+			}
 
-		Atlas = std::move(*Created);
+			Texture = std::move(*Created);
+		}
 	}
 
 	if (Result && (!Irradiance || Irradiance->GetDescriptor().Extent != Extent))
@@ -182,8 +191,10 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 	++Frame;
 	// The ray pixel and direction jitter stay fixed, so a still view gets the same probes and rays every frame instead of flickering without accumulation.
 	Uniforms.Material.Surface = {0.f, 0.f, 0.f, 0.f};
+	const std::size_t Current = Frame & 1u;
+	const std::size_t Previous = Current ^ 1u;
 	const std::array ProbeSources{Inputs.Depth, Inputs.Environment};
-	const std::array Buffers{Slots, Probes, Counters, Deposits, RecordCounts, Merged};
+	const std::array Buffers{Slots[Current], Probes, Counters, Deposits, RecordCounts, Merged};
 	const auto Stage = [&](const EStage Kind, const std::uint32_t Cascade, const std::array<std::uint32_t, 3> GroupCount) -> std::expected<void, FPresentationError>
 	{
 		Uniforms.Material.BaseColor = {static_cast<float>(Kind), static_cast<float>(Cascade), static_cast<float>(Frame), 0.f};
@@ -238,8 +249,10 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 	if (Result)
 	{
 		Uniforms.Material.BaseColor = {0.f, 0.f, static_cast<float>(Frame), 0.f};
-		const std::array Sources{Inputs.Environment, Inputs.SkyView, Inputs.SpecularAlbedo, Inputs.Depth};
-		const std::array SceneBuffers{Inputs.Lights, Inputs.Scene->GetSections(), Inputs.Scene->GetMaterials()};
+		Uniforms.Material.Emissive = {PreviousEye[0], PreviousEye[1], PreviousEye[2], bPrevious ? 1.f : 0.f};
+		// Without a previous frame the shader reads neither; the environment stands in for the unwritten tiles.
+		const std::array Sources{Inputs.Environment, Inputs.SkyView, Inputs.SpecularAlbedo, Inputs.Depth, bPrevious ? Atlas[Previous] : Inputs.Environment};
+		const std::array SceneBuffers{Inputs.Lights, Inputs.Scene->GetSections(), Inputs.Scene->GetMaterials(), Slots[Previous]};
 		Result = Device.Dispatch({.Pipeline = Pipelines[1], .Textures = Sources, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups((Inputs.Extent.Width + 1) / 2, 8), Groups((Inputs.Extent.Height + 1) / 2, 8), 1}, .Buffers = SceneBuffers, .Scene = Inputs.Scene->GetTopLevel(), .ResourceTable = Inputs.Scene->GetTable()});
 	}
 
@@ -252,19 +265,22 @@ std::expected<void, FPresentationError> FRadianceCascades::Render(const FGlobalI
 	Time("GI irradiance");
 	if (Result)
 	{
-		const std::array Targets{FStorageTextureBinding{.Texture = Atlas}};
+		const std::array Targets{FStorageTextureBinding{.Texture = Atlas[Current]}};
 		Result = Device.Dispatch({.Pipeline = Pipelines[2], .StorageTextures = Targets, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {1024, ProbeCapacity[0] / 1024, 1}});
 	}
 
 	Time("GI gather");
 	if (Result)
 	{
-		const std::array Sources{Inputs.Depth, Atlas};
+		const std::array Sources{Inputs.Depth, Atlas[Current]};
 		const std::array Targets{FStorageTextureBinding{.Texture = Irradiance}};
 		Result = Device.Dispatch({.Pipeline = Pipelines[3], .Textures = Sources, .StorageTextures = Targets, .StorageBuffers = Buffers, .Uniforms = GetVisualUniformBytes(Uniforms), .GroupCount = {Groups(Inputs.Extent.Width, 8), Groups(Inputs.Extent.Height, 8), 1}});
 	}
 
 	Device.EndGpuTiming();
+	const FMatrix4 ViewToWorld(Inputs.Uniforms->ViewToWorld);
+	PreviousEye = {ViewToWorld.Data()[12], ViewToWorld.Data()[13], ViewToWorld.Data()[14]};
+	bPrevious = static_cast<bool>(Result);
 	return Result;
 }
 }

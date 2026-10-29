@@ -51,14 +51,17 @@ private:
 	// Probes, trace, irradiance, and shade.
 	std::array<FComputePipelineHandle, 4> Pipelines;
 
-	FBufferHandle Slots;
+	// The hash slots and irradiance tiles alternate between frames, so rays can read the light that last frame's probes received.
+	std::array<FBufferHandle, 2> Slots;
 	FBufferHandle Probes;
 	FBufferHandle Counters;
 	FBufferHandle Deposits;
 	FBufferHandle RecordCounts;
 	FBufferHandle Merged;
-	FTextureHandle Atlas;
+	std::array<FTextureHandle, 2> Atlas;
 	FTextureHandle Irradiance;
+	std::array<float, 3> PreviousEye{};
+	bool bPrevious = false;
 	// New record storage holds garbage until one reset dispatch; after that every merge clears what it read.
 	bool bRecordsReset = false;
 	std::uint32_t Frame = 0;

@@ -56,16 +56,21 @@ int3 FloorShift(int3 Cell, uint Shift)
     return Cell >> int(Shift);
 }
 
-float CameraLevelDistance(float3 Position)
+float3 CameraPosition()
 {
-    float3 Eye = mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+    return mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
+}
+
+uint LevelOfDetailFrom(float3 Eye, float3 Position)
+{
     float3 Delta = abs(Position - Eye);
-    return max(Delta.x, max(Delta.y, Delta.z));
+    float Distance = max(Delta.x, max(Delta.y, Delta.z));
+    return min(uint(max(0.0, floor(log2(max(Distance, 1e-4) / LevelDistance)))), LevelCount - 1);
 }
 
 uint LevelOfDetail(float3 Position)
 {
-    return min(uint(max(0.0, floor(log2(max(CameraLevelDistance(Position), 1e-4) / LevelDistance)))), LevelCount - 1);
+    return LevelOfDetailFrom(CameraPosition(), Position);
 }
 
 float BaseSpacing(uint Level)
@@ -74,21 +79,30 @@ float BaseSpacing(uint Level)
 }
 
 // Cells are world-space; keys store them relative to the camera's cell, snapped so every cascade's cells nest.
-int3 CameraCell(uint Level)
+int3 CameraCellFrom(float3 Eye, uint Level)
 {
-    float3 Eye = mul(Visual.ViewToWorld, float4(0.0, 0.0, 0.0, 1.0)).xyz;
     return int3(floor(Eye / BaseSpacing(Level))) & ~int(7);
 }
 
-// Bit 31 marks a used slot, bits 27-30 hold the level, and three 9-bit fields the cascade cell relative to the camera's.
-uint MakeKey(uint Level, uint Cascade, int3 Cell)
+int3 CameraCell(uint Level)
 {
-    int3 Relative = Cell - FloorShift(CameraCell(Level), Cascade);
+    return CameraCellFrom(CameraPosition(), Level);
+}
+
+// Bit 31 marks a used slot, bits 27-30 hold the level, and three 9-bit fields the cascade cell relative to the camera's.
+uint MakeKeyFrom(int3 Camera, uint Level, uint Cascade, int3 Cell)
+{
+    int3 Relative = Cell - FloorShift(Camera, Cascade);
     if (any(Relative < -256) || any(Relative > 255))
         return 0u;
 
     uint3 Bits = uint3(Relative) & 511u;
     return 0x80000000u | (Level << 27) | (Bits.x << 18) | (Bits.y << 9) | Bits.z;
+}
+
+uint MakeKey(uint Level, uint Cascade, int3 Cell)
+{
+    return MakeKeyFrom(CameraCell(Level), Level, Cascade, Cell);
 }
 
 uint KeyLevel(uint Key)

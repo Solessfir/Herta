@@ -4,6 +4,67 @@
 
 // Ray splitting: one ray per 2x2 pixels from the surface under it, deposited into every cascade interval it crosses at that pixel's nearest probes.
 [[vk::binding(3, 0)]] Texture2D<float> SceneDepth;
+// The previous frame's cascade 0 probes, which give hits the light they received last frame: each frame adds a bounce, so light keeps bouncing.
+// Visual.Material.Emissive holds that frame's camera, with w 0 when there is none.
+[[vk::binding(4, 0)]] Texture2D<float4> PreviousIrradiance;
+[[vk::binding(19, 0)]] StructuredBuffer<uint> PreviousSlots;
+
+uint PreviousProbe(uint Key)
+{
+    if (Key == 0u)
+        return MissingProbe;
+
+    uint Mask = SlotCapacity[0] - 1u;
+    uint Slot = HashKey(Key) & Mask;
+    for (uint Step = 0; Step < ProbeSteps; ++Step)
+    {
+        uint Existing = PreviousSlots[(SlotBase[0] + Slot) * 4u];
+        if (Existing == Key)
+            return PreviousSlots[(SlotBase[0] + Slot) * 4u + 1u];
+        if (Existing == 0u)
+            return MissingProbe;
+        Slot = (Slot + 1u) & Mask;
+    }
+
+    return MissingProbe;
+}
+
+// Irradiance at a hit from last frame's probes around it, as the gather computes it on screen; zero where none were visible.
+float3 BouncedIrradiance(float3 Position, float3 Normal)
+{
+    if (Visual.Material.Emissive.w < 0.5)
+        return 0.0;
+
+    float3 Eye = Visual.Material.Emissive.xyz;
+    uint Level = LevelOfDetailFrom(Eye, Position);
+    float Spacing = BaseSpacing(Level);
+    int3 Camera = CameraCellFrom(Eye, Level);
+    float3 Grid = Position / Spacing - 0.5;
+    int3 Base = int3(floor(Grid));
+    float3 Fraction = Grid - float3(Base);
+    uint AtlasWidth, AtlasHeight;
+    PreviousIrradiance.GetDimensions(AtlasWidth, AtlasHeight);
+    float2 Octahedral = OctahedralEncode(Normal) * float(IrradianceTexels) + 1.0;
+    float3 Sum = 0.0;
+    float Weight = 0.0;
+    for (uint Corner = 0; Corner < 8; ++Corner)
+    {
+        int3 Offset = int3(Corner & 1u, (Corner >> 1) & 1u, Corner >> 2);
+        int3 Cell = Base + Offset;
+        uint Probe = PreviousProbe(MakeKeyFrom(Camera, Level, 0, Cell));
+        float3 Center = (float3(Cell) + 0.5) * Spacing;
+        if (Probe == MissingProbe || dot(Center - Position, Normal) < -0.5 * Spacing)
+            continue;
+
+        float3 Axis = lerp(1.0 - Fraction, Fraction, float3(Offset));
+        float W = Axis.x * Axis.y * Axis.z;
+        float2 UV = (float2(IrradianceTileOrigin(Probe)) + Octahedral) / float2(AtlasWidth, AtlasHeight);
+        Sum += PreviousIrradiance.SampleLevel(LinearSampler, UV, 0).rgb * W;
+        Weight += W;
+    }
+
+    return Weight > 1e-4 ? Sum / (Weight * StoredScale) : 0.0;
+}
 
 // R2 (Roberts 2018) in 32-bit fixed point, so ray indices in the millions keep their spacing.
 float2 R2(uint Index)
@@ -46,7 +107,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
         float3 V = -Direction;
         FSurface Surface = MakeSurface(SpecularAlbedo, Point.Material.Base.rgb, Point.Material.Metallic, Point.Material.Roughness, Point.Material.DiffuseRoughness, Point.Material.EdgeColor, saturate(dot(Point.Material.Normal, V)));
         float WeightSum;
-        Radiance = Point.Material.Emissive + SampleLights(Point, Surface, V, SpecularProbability(Surface), false, Random, WeightSum);
+        Radiance = Point.Material.Emissive + SampleLights(Point, Surface, V, SpecularProbability(Surface), false, Random, WeightSum) + Surface.DiffuseReflectance / PI * BouncedIrradiance(Point.Position, Point.GeometricNormal);
     }
     else
     {
