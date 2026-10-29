@@ -395,6 +395,10 @@ public:
 	virtual ~IGraphicsDevice() = default;
 	[[nodiscard]] virtual std::expected<FBufferHandle, FPresentationError> CreateBuffer(const FBufferDescriptor& Descriptor) = 0;
 	[[nodiscard]] virtual std::expected<FTextureHandle, FPresentationError> CreateTexture(const FTextureDescriptor& Descriptor) = 0;
+	// Textures that share one allocation: each phase's textures sit side by side, and the phases overlap the same memory. Within a recording, a phase's
+	// textures may only be used once no other phase's will be again, and every texture's first use in a recording must overwrite all of it, such as a
+	// full-screen draw, a clear, or a dispatch that writes every texel; that first use discards what the memory held. Returned in phase order.
+	[[nodiscard]] virtual std::expected<std::vector<FTextureHandle>, FPresentationError> CreateAliasedTextures(std::span<const std::span<const FTextureDescriptor>> Phases) = 0;
 	[[nodiscard]] virtual std::expected<FGraphicsPipelineHandle, FPresentationError> CreateGraphicsPipeline(const FGraphicsPipelineDescriptor& Descriptor) = 0;
 	[[nodiscard]] virtual std::expected<FComputePipelineHandle, FPresentationError> CreateComputePipeline(const FComputePipelineDescriptor& Descriptor) = 0;
 	[[nodiscard]] virtual std::expected<void, FPresentationError> BeginCommands() = 0;

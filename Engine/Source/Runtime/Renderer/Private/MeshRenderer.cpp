@@ -1361,21 +1361,27 @@ std::vector<FGpuPassTiming> FMeshRenderer::GetGpuTimings() const
 std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 {
 	const FImplementation& State = *Implementation;
-	std::size_t Bytes = 0;
-	for (const FTextureHandle* Target : {&State.Color, &State.Depth, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.ToneColor, &State.Edges, &State.Weights, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.LocalShadowAtlas, &State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion, &State.ContactShadows})
+	const auto Sum = [](const std::initializer_list<const FTextureHandle*> Targets)
 	{
-		if (*Target)
+		std::size_t Bytes = 0;
+		for (const FTextureHandle* Target : Targets)
 		{
-			const auto& Descriptor = (*Target)->GetDescriptor();
-			for (std::uint32_t Mip = 0; Mip < Descriptor.MipLevels; ++Mip)
+			if (*Target)
 			{
-				const FExtent2D MipExtent = GetMipExtent(Descriptor.Extent, Mip);
-				Bytes += std::size_t{MipExtent.Width} * MipExtent.Height * GetTextureTexelBytes(Descriptor.Format);
+				const auto& Descriptor = (*Target)->GetDescriptor();
+				for (std::uint32_t Mip = 0; Mip < Descriptor.MipLevels; ++Mip)
+				{
+					const FExtent2D MipExtent = GetMipExtent(Descriptor.Extent, Mip);
+					Bytes += std::size_t{MipExtent.Width} * MipExtent.Height * GetTextureTexelBytes(Descriptor.Format);
+				}
 			}
 		}
-	}
 
-	return Bytes;
+		return Bytes;
+	};
+
+	// The occlusion targets and the tone-mapping and SMAA targets alias one allocation, which holds the larger of the two.
+	return Sum({&State.Color, &State.Depth, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.LocalShadowAtlas}) + std::max(Sum({&State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion, &State.ContactShadows}), Sum({&State.ToneColor, &State.Edges, &State.Weights}));
 }
 
 std::expected<void, FPresentationError> FMeshRenderer::SetEnvironmentLighting(const FEnvironmentLighting& Lighting)
@@ -2018,19 +2024,53 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 			// The path tracer writes the HDR scene from compute.
 			std::expected<void, FPresentationError> Created = Target("HDR scene", Extent, ETextureFormat::Rgba16Float, State.HdrColor, static_cast<bool>(State.PathTracer));
+			// Ambient occlusion and contact shadows live only until the mesh pass reads them, and the tone-mapped copy and SMAA's targets only from tone
+			// mapping on, so they share memory. Every one is overwritten by its first use each frame, as aliasing requires.
 			if (Created)
 			{
-				Created = Target("Tone-mapped scene", Extent, DisplayFormat, State.ToneColor);
-			}
+				const bool bOcclusion = State.GtaoPipelines[0] && GetMipLevelCount(Extent) >= GtaoDepthMips;
+				std::vector<FTextureDescriptor> Shading;
+				if (bOcclusion)
+				{
+					Shading.push_back({.Name = "GTAO view depth", .Extent = Extent, .Format = ETextureFormat::R32Float, .MipLevels = GtaoDepthMips, .bStorage = true});
+					Shading.push_back({.Name = "GTAO noisy occlusion", .Extent = GetMipExtent(Extent, 1), .Format = ETextureFormat::Rgba8, .bStorage = true});
+					Shading.push_back({.Name = "GTAO occlusion", .Extent = Extent, .Format = ETextureFormat::Rgba8, .bStorage = true});
+				}
 
-			if (Created)
-			{
-				Created = Target("SMAA edges", Extent, ETextureFormat::Rgba8, State.Edges, static_cast<bool>(State.SmaaPipelines[0]));
-			}
+				if (State.ContactShadowPipeline)
+				{
+					Shading.push_back({.Name = "Contact shadows", .Extent = Extent, .Format = ETextureFormat::R8, .bStorage = true});
+				}
 
-			if (Created)
-			{
-				Created = Target("SMAA weights", Extent, ETextureFormat::Rgba8, State.Weights, static_cast<bool>(State.SmaaPipelines[0]));
+				const std::array<FTextureDescriptor, 3> Finishing{
+				    FTextureDescriptor{.Name = "Tone-mapped scene", .Extent = Extent, .Format = DisplayFormat, .bRenderTarget = true},
+				    FTextureDescriptor{.Name = "SMAA edges", .Extent = Extent, .Format = ETextureFormat::Rgba8, .bRenderTarget = true, .bStorage = static_cast<bool>(State.SmaaPipelines[0])},
+				    FTextureDescriptor{.Name = "SMAA weights", .Extent = Extent, .Format = ETextureFormat::Rgba8, .bRenderTarget = true, .bStorage = static_cast<bool>(State.SmaaPipelines[0])},
+				};
+
+				const std::array<std::span<const FTextureDescriptor>, 2> Phases{Shading, Finishing};
+				auto Aliased = Device.CreateAliasedTextures(Phases);
+				if (!Aliased)
+				{
+					return std::unexpected(Aliased.error());
+				}
+
+				std::size_t Next = 0;
+				if (bOcclusion)
+				{
+					State.GtaoViewDepth = (*Aliased)[Next++];
+					State.GtaoNoisy = (*Aliased)[Next++];
+					State.GtaoOcclusion = (*Aliased)[Next++];
+				}
+
+				if (State.ContactShadowPipeline)
+				{
+					State.ContactShadows = (*Aliased)[Next++];
+				}
+
+				State.ToneColor = (*Aliased)[Next++];
+				State.Edges = (*Aliased)[Next++];
+				State.Weights = (*Aliased)[Next++];
 			}
 
 			// Every pixel can be an edge pixel.

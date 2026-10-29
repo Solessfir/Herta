@@ -11,6 +11,7 @@
 #include <map>
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace Herta
@@ -89,6 +90,8 @@ struct FTexture final : IRhiTexture
 	bool bInitialized = false;
 	// One bit per mip level. Sampling waits until every level has been written.
 	std::uint32_t WrittenMips = 0;
+	// Aliased textures share this with textures of other phases, and discard their contents on their first use in each recording.
+	nvrhi::HeapHandle Heap;
 
 	[[nodiscard]] const FTextureDescriptor& GetDescriptor() const noexcept override
 	{
@@ -99,6 +102,43 @@ struct FTexture final : IRhiTexture
 [[nodiscard]] std::uint32_t AllMips(const FTexture& Texture) noexcept
 {
 	return Texture.Descriptor.MipLevels >= 32 ? ~0u : (1u << Texture.Descriptor.MipLevels) - 1;
+}
+
+// Aliased textures start each recording undefined, after whatever other phase last wrote their memory. NVRHI cannot track an undefined prior state,
+// so this transitions them from undefined to the read-only layout NVRHI believes they hold, which discards stale contents and compression metadata.
+// Barriers are illegal inside a render pass, so any open one ends first; the next draw or dispatch rebinds its state.
+void DiscardAliases(nvrhi::ICommandList* const Commands, const std::vector<std::shared_ptr<FTexture>>& Textures)
+{
+	if (Textures.empty())
+	{
+		return;
+	}
+
+	Commands->clearState();
+	Commands->commitBarriers();
+	std::vector<VkImageMemoryBarrier2> Barriers;
+	for (const auto& Texture : Textures)
+	{
+		VkImageMemoryBarrier2 Barrier{};
+		Barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+		Barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		Barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+		Barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+		Barrier.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+		Barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		Barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		Barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		Barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		Barrier.image = static_cast<VkImage>(Texture->Handle->getNativeObject(nvrhi::ObjectTypes::VK_Image));
+		Barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+		Barriers.push_back(Barrier);
+	}
+
+	VkDependencyInfo Dependency{};
+	Dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+	Dependency.imageMemoryBarrierCount = static_cast<std::uint32_t>(Barriers.size());
+	Dependency.pImageMemoryBarriers = Barriers.data();
+	vkCmdPipelineBarrier2(static_cast<VkCommandBuffer>(Commands->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer)), &Dependency);
 }
 
 struct FPipeline final : IRhiGraphicsPipeline
@@ -194,10 +234,13 @@ struct FFrame
 	std::vector<FAccelerationStructure*> BuiltStructures;
 	// NVRHI only revisits resource states when a dispatch's bindings differ from the previous one, so a repeat needs its UAV barriers placed explicitly.
 	nvrhi::IBindingSet* PreviousComputeBindings = nullptr;
+	// Aliased textures this recording has used, so only the first use discards.
+	std::unordered_set<FTexture*> UsedAliases;
 
 	void Reset()
 	{
 		Operations.clear();
+		UsedAliases.clear();
 		BuiltStructures.clear();
 		PreviousComputeBindings = nullptr;
 		UploadedBuffers.clear();
@@ -345,6 +388,73 @@ public:
 
 	[[nodiscard]] std::expected<FTextureHandle, FPresentationError> CreateTexture(const FTextureDescriptor& Descriptor) override
 	{
+		auto Texture = MakeTexture(Descriptor, false);
+		if (!Texture)
+		{
+			return std::unexpected(Texture.error());
+		}
+
+		return *Texture;
+	}
+
+	[[nodiscard]] std::expected<std::vector<FTextureHandle>, FPresentationError> CreateAliasedTextures(const std::span<const std::span<const FTextureDescriptor>> Phases) override
+	{
+		std::vector<std::pair<std::shared_ptr<FTexture>, std::uint64_t>> Placed;
+		std::uint64_t Capacity = 0;
+		for (const std::span<const FTextureDescriptor> Phase : Phases)
+		{
+			std::uint64_t Offset = 0;
+			for (const FTextureDescriptor& Descriptor : Phase)
+			{
+				if (IsDepthFormat(Descriptor.Format))
+				{
+					return Invalid("Aliased textures are color textures");
+				}
+
+				auto Texture = MakeTexture(Descriptor, true);
+				if (!Texture)
+				{
+					return std::unexpected(Texture.error());
+				}
+
+				const nvrhi::MemoryRequirements Requirements = Device->getTextureMemoryRequirements((*Texture)->Handle);
+				const std::uint64_t Alignment = std::max<std::uint64_t>(Requirements.alignment, 1);
+				Offset = (Offset + Alignment - 1) / Alignment * Alignment;
+				Placed.emplace_back(*Texture, Offset);
+				Offset += Requirements.size;
+			}
+
+			Capacity = std::max(Capacity, Offset);
+		}
+
+		if (Placed.empty())
+		{
+			return Invalid("Aliased textures need at least one texture");
+		}
+
+		const nvrhi::HeapHandle Heap = Device->createHeap(nvrhi::HeapDesc().setCapacity(Capacity).setType(nvrhi::HeapType::DeviceLocal).setDebugName("Aliased textures"));
+		if (!Heap)
+		{
+			return Failed("Could not allocate aliased texture memory");
+		}
+
+		std::vector<FTextureHandle> Textures;
+		for (auto& [Texture, Offset] : Placed)
+		{
+			if (!Device->bindTextureMemory(Texture->Handle, Heap, Offset))
+			{
+				return Failed("Could not place aliased texture '" + Texture->Descriptor.Name + "'");
+			}
+
+			Texture->Heap = Heap;
+			Textures.push_back(std::move(Texture));
+		}
+
+		return Textures;
+	}
+
+	[[nodiscard]] std::expected<std::shared_ptr<FTexture>, FPresentationError> MakeTexture(const FTextureDescriptor& Descriptor, const bool bVirtual)
+	{
 		const nvrhi::Format Format = ToFormat(Descriptor.Format);
 		const bool bDepth = IsDepthFormat(Descriptor.Format);
 		if (Descriptor.Extent.IsEmpty() || Descriptor.Extent.Width > TextureDimensionLimit || Descriptor.Extent.Height > TextureDimensionLimit || Format == nvrhi::Format::UNKNOWN || (bDepth && (!Descriptor.bRenderTarget || Descriptor.bStorage)))
@@ -374,6 +484,7 @@ public:
 		Native.setWidth(Descriptor.Extent.Width).setHeight(Descriptor.Extent.Height).setMipLevels(Descriptor.MipLevels).setFormat(Format).setDebugName(Descriptor.Name).setIsRenderTarget(Descriptor.bRenderTarget).setIsTypeless(Descriptor.Format == ETextureFormat::Rgba8Srgb && Descriptor.bRenderTarget).enableAutomaticStateTracking(bDepth ? nvrhi::ResourceStates::DepthWrite : nvrhi::ResourceStates::ShaderResource);
 		Native.isShaderResource = true;
 		Native.isUAV = Descriptor.bStorage;
+		Native.isVirtual = bVirtual;
 		Texture->Handle = Device->createTexture(Native);
 		if (!Texture->Handle)
 		{
@@ -795,8 +906,10 @@ public:
 		}
 
 		FFrame& Frame = Frames[FrameIndex];
-		Frame.Operations.emplace_back([NativeColor, NativeDepth, LinearColor](nvrhi::ICommandList* const Commands)
+		const std::vector Cleared{NativeColor};
+		Frame.Operations.emplace_back([NativeColor, NativeDepth, LinearColor, Discarded = FirstAliasUses(Frame, {&Cleared})](nvrhi::ICommandList* const Commands)
 		{
+			DiscardAliases(Commands, Discarded);
 			Commands->beginMarker("Clear scene targets");
 			if (NativeColor)
 			{
@@ -989,9 +1102,12 @@ public:
 			return Failed("Could not create draw framebuffer or bindings");
 		}
 
-		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, PreviousInstances, Indirect, Framebuffer, Bindings, Viewport, Textures = std::move(Textures), Buffers = std::move(Buffers), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
+		const std::vector Targets{Color};
+		auto Discarded = FirstAliasUses(Frame, {&Targets, &Textures});
+		Frame.Operations.emplace_back([Draw, Pipeline, Vertices, Indices, Instances, PreviousInstances, Indirect, Framebuffer, Bindings, Viewport, Discarded = std::move(Discarded), Textures = std::move(Textures), Buffers = std::move(Buffers), UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Draw.Uniforms.begin(), Draw.Uniforms.end())](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(Pipeline->Name.c_str());
+			DiscardAliases(Commands, Discarded);
 			if (UniformBuffer)
 			{
 				Commands->writeBuffer(UniformBuffer, Uniforms.data(), Uniforms.size());
@@ -1177,11 +1293,13 @@ public:
 			}
 		}
 
+		auto Discarded = FirstAliasUses(Frame, {&Storage, &Textures});
 		const bool bRepeatedBindings = Bindings && Bindings.Get() == Frame.PreviousComputeBindings && !Dispatch.bOverlapsPrevious;
 		Frame.PreviousComputeBindings = Bindings.Get();
-		Frame.Operations.emplace_back([Pipeline, Bindings, bRepeatedBindings, Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount, IndirectOffset = Dispatch.IndirectOffset, bOverlap = Dispatch.bOverlapsPrevious, Scene, Table, TableTextures = Table ? Table->Textures : decltype(FResourceTable::Textures){}, TableBuffers = Table ? Table->Buffers : decltype(FResourceTable::Buffers){}](nvrhi::ICommandList* const Commands)
+		Frame.Operations.emplace_back([Pipeline, Bindings, bRepeatedBindings, Discarded = std::move(Discarded), Textures = std::move(Textures), Storage, Buffers = std::move(Buffers), ReadBuffers = std::move(ReadBuffers), Indirect, UniformBuffer = *UniformBuffer, Uniforms = std::vector<std::byte>(Dispatch.Uniforms.begin(), Dispatch.Uniforms.end()), GroupCount = Dispatch.GroupCount, IndirectOffset = Dispatch.IndirectOffset, bOverlap = Dispatch.bOverlapsPrevious, Scene, Table, TableTextures = Table ? Table->Textures : decltype(FResourceTable::Textures){}, TableBuffers = Table ? Table->Buffers : decltype(FResourceTable::Buffers){}](nvrhi::ICommandList* const Commands)
 		{
 			Commands->beginMarker(Pipeline->Name.c_str());
+			DiscardAliases(Commands, Discarded);
 			if (bRepeatedBindings)
 			{
 				for (const auto& Texture : Storage)
@@ -1750,6 +1868,24 @@ private:
 		VkMemoryRequirements Requirements{};
 		vkGetBufferMemoryRequirements(NativeDevice, Buffer, &Requirements);
 		return static_cast<std::size_t>(Requirements.size);
+	}
+
+	// The aliased textures among Used that this recording has not used yet, which their operation discards first.
+	[[nodiscard]] static std::vector<std::shared_ptr<FTexture>> FirstAliasUses(FFrame& Frame, const std::initializer_list<const std::vector<std::shared_ptr<FTexture>>*> Used)
+	{
+		std::vector<std::shared_ptr<FTexture>> First;
+		for (const auto* const List : Used)
+		{
+			for (const auto& Texture : *List)
+			{
+				if (Texture && Texture->Heap && Frame.UsedAliases.insert(Texture.get()).second)
+				{
+					First.push_back(Texture);
+				}
+			}
+		}
+
+		return First;
 	}
 
 	[[nodiscard]] bool IsBuilt(const FAccelerationStructure& Structure) const

@@ -90,6 +90,27 @@ public:
 		return std::make_shared<FTestBuffer>(Descriptor);
 	}
 
+	// Memory is not modeled, so aliased textures are separate ones.
+	std::expected<std::vector<Herta::FTextureHandle>, Herta::FPresentationError> CreateAliasedTextures(std::span<const std::span<const Herta::FTextureDescriptor>> Phases) override
+	{
+		std::vector<Herta::FTextureHandle> Textures;
+		for (const auto Phase : Phases)
+		{
+			for (const Herta::FTextureDescriptor& Descriptor : Phase)
+			{
+				auto Texture = CreateTexture(Descriptor);
+				if (!Texture)
+				{
+					return std::unexpected(Texture.error());
+				}
+
+				Textures.push_back(std::move(*Texture));
+			}
+		}
+
+		return Textures;
+	}
+
 	std::expected<Herta::FTextureHandle, Herta::FPresentationError> CreateTexture(const Herta::FTextureDescriptor& Descriptor) override
 	{
 		if (bFailDepth && Descriptor.Format == Herta::ETextureFormat::Depth32)
