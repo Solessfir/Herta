@@ -29,7 +29,8 @@ uint PreviousProbe(uint Key)
     return MissingProbe;
 }
 
-// Irradiance at a hit from last frame's probes around it, as the gather computes it on screen; zero where none were visible.
+// Irradiance at a hit from last frame's probe nearest to it; zero where none was visible.
+// Bounced light is smooth and the probes average it again, so one probe serves instead of the gather's eight.
 float3 BouncedIrradiance(float3 Position, float3 Normal)
 {
     if (Visual.Material.Emissive.w < 0.5)
@@ -37,33 +38,14 @@ float3 BouncedIrradiance(float3 Position, float3 Normal)
 
     float3 Eye = Visual.Material.Emissive.xyz;
     uint Level = LevelOfDetailFrom(Eye, Position);
-    float Spacing = BaseSpacing(Level);
-    int3 Camera = CameraCellFrom(Eye, Level);
-    float3 Grid = Position / Spacing - 0.5;
-    int3 Base = int3(floor(Grid));
-    float3 Fraction = Grid - float3(Base);
+    uint Probe = PreviousProbe(MakeKeyFrom(CameraCellFrom(Eye, Level), Level, 0, int3(floor(Position / BaseSpacing(Level)))));
+    if (Probe == MissingProbe)
+        return 0.0;
+
     uint AtlasWidth, AtlasHeight;
     PreviousIrradiance.GetDimensions(AtlasWidth, AtlasHeight);
-    float2 Octahedral = OctahedralEncode(Normal) * float(IrradianceTexels) + 1.0;
-    float3 Sum = 0.0;
-    float Weight = 0.0;
-    for (uint Corner = 0; Corner < 8; ++Corner)
-    {
-        int3 Offset = int3(Corner & 1u, (Corner >> 1) & 1u, Corner >> 2);
-        int3 Cell = Base + Offset;
-        uint Probe = PreviousProbe(MakeKeyFrom(Camera, Level, 0, Cell));
-        float3 Center = (float3(Cell) + 0.5) * Spacing;
-        if (Probe == MissingProbe || dot(Center - Position, Normal) < -0.5 * Spacing)
-            continue;
-
-        float3 Axis = lerp(1.0 - Fraction, Fraction, float3(Offset));
-        float W = Axis.x * Axis.y * Axis.z;
-        float2 UV = (float2(IrradianceTileOrigin(Probe)) + Octahedral) / float2(AtlasWidth, AtlasHeight);
-        Sum += PreviousIrradiance.SampleLevel(LinearSampler, UV, 0).rgb * W;
-        Weight += W;
-    }
-
-    return Weight > 1e-4 ? Sum / (Weight * StoredScale) : 0.0;
+    float2 UV = (float2(IrradianceTileOrigin(Probe)) + OctahedralEncode(Normal) * float(IrradianceTexels) + 1.0) / float2(AtlasWidth, AtlasHeight);
+    return PreviousIrradiance.SampleLevel(LinearSampler, UV, 0).rgb / StoredScale;
 }
 
 // R2 (Roberts 2018) in 32-bit fixed point, so ray indices in the millions keep their spacing.
