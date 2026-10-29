@@ -221,7 +221,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const bool bManualExposure)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -822,6 +822,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		}
 
 		EditorFramework->SetPathTracing(true);
+	}
+
+	if (bManualExposure)
+	{
+		EditorFramework->SetAutoExposure(false);
 	}
 
 	if (!ResolutionArgument.empty())
@@ -1652,6 +1657,7 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::string_view Quality = Herta::FindArgumentValue(ArgumentCount, Arguments, "--quality=");
 		const std::string_view Resolution = Herta::FindArgumentValue(ArgumentCount, Arguments, "--resolution=");
 		const bool bPathTracing = Herta::HasArgument(ArgumentCount, Arguments, "--path-tracing");
+		const bool bManualExposure = Herta::HasArgument(ArgumentCount, Arguments, "--manual-exposure");
 		// Explorer passes a file dropped on the executable as a plain argument.
 		std::filesystem::path OpenPath;
 		for (const std::filesystem::path& Argument : Herta::GetProcessArgumentPaths(ArgumentCount, Arguments))
@@ -1663,7 +1669,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, bManualExposure);
 	}
 	catch (const std::exception& Exception)
 	{

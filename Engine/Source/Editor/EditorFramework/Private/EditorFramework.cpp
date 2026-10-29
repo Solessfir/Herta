@@ -1029,6 +1029,11 @@ void FEditorFramework::SetPathTracing(const bool bEnabled) noexcept
 	Implementation->VisualSettings.bPathTracing = bEnabled;
 }
 
+void FEditorFramework::SetAutoExposure(const bool bEnabled) noexcept
+{
+	Implementation->bAutoExposure = bEnabled;
+}
+
 void FEditorFramework::SetViewportResolution(const std::optional<FExtent2D> Resolution) noexcept
 {
 	Implementation->ViewportResolution = Resolution;
