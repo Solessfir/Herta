@@ -235,3 +235,76 @@ TEST_CASE("Game players climb a 2.5 m chimney by wall jumping between its walls"
 	CHECK(Highest > 3.6f);
 }
 }
+
+namespace Herta
+{
+TEST_CASE("Gamepad controls ignore stick drift, curve look, and act once per press")
+{
+	FGameGamepadControls Controls;
+	FGameInput Input;
+	Controls.Apply(Input, {.Move = {0.1f, -0.1f}, .Look = {0.1f, 0.f}, .bJump = true}, 0.5f);
+	CHECK(Input.Move.X == 0.f);
+	CHECK(Input.Move.Y == 0.f);
+	CHECK(Input.YawDelta == 0.f);
+	// A press held from before play started does not jump.
+	CHECK_FALSE(Input.bJump);
+
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}, .Look = {1.f, 0.f}}, 0.5f);
+	CHECK(Input.Move.Y == doctest::Approx(1.f));
+	CHECK(Input.YawDelta < 0.f);
+	const float FullTurn = Input.YawDelta;
+
+	Input = {};
+	Controls.Apply(Input, {.Look = {0.575f, 0.f}}, 0.5f);
+	// Halfway past the dead zone turns a quarter as fast.
+	CHECK(Input.YawDelta == doctest::Approx(FullTurn * 0.25f));
+
+	Input = {};
+	Controls.Apply(Input, {.Look = {0.f, 1.f}, .bJump = true}, 0.5f);
+	CHECK(Input.PitchDelta > 0.f);
+	CHECK(Input.bJump);
+	Input = {};
+	Controls.Apply(Input, {.bJump = true}, 0.5f);
+	CHECK_FALSE(Input.bJump);
+}
+
+TEST_CASE("Gamepad sprint toggles on each click and ends when the move stick rests, and adds to keys")
+{
+	FGameGamepadControls Controls;
+	FGameInput Input;
+	Controls.Apply(Input, {.Move = {0.f, 1.f}}, 0.1f);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}, .bSprint = true}, 0.1f);
+	CHECK(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}}, 0.1f);
+	CHECK(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}, .bSprint = true}, 0.1f);
+	CHECK_FALSE(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}}, 0.1f);
+	CHECK_FALSE(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}, .bSprint = true}, 0.1f);
+	CHECK(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {}, 0.1f);
+	CHECK_FALSE(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}}, 0.1f);
+	CHECK_FALSE(Input.bSprint);
+
+	Input = {.Move = {1.f, 1.f}, .bCrouch = false};
+	Controls.Apply(Input, {.Move = {1.f, 0.f}, .bCrouch = true}, 0.1f);
+	CHECK(Input.Move.X == 1.f);
+	CHECK(Input.Move.Y == 1.f);
+	CHECK(Input.bCrouch);
+
+	Controls.Reset();
+	Input = {};
+	Controls.Apply(Input, {.bJump = true}, 0.1f);
+	CHECK_FALSE(Input.bJump);
+}
+}

@@ -21,6 +21,8 @@ A Trigger's **Role** places the course: the player spawns at the bottom of the *
 
 WASD moves, the mouse looks, Space jumps and wall jumps, Shift sprints, C or Ctrl crouches and slides, R restarts, Esc opens the pause menu, and F11 or Alt+Enter toggles borderless fullscreen on the monitor under the window. The pause menu resumes, restarts the course, toggles fullscreen, toggles HDR10 when the display offers it, and cycles the Low, Medium, and High rendering quality tiers. Losing focus pauses the game and releases the pointer.
 
+Gamepads in the standard layout work alongside them, in the game and in editor Play: XInput pads on Windows, and pads in GLFW's built-in SDL mapping database elsewhere, the first one connected. The left stick moves at its own speed, the right stick looks at up to about 200 degrees a second across and 140 up and down, A or cross jumps, clicking the left stick toggles sprinting, which also ends when the stick returns to rest, B, circle, or clicking the right stick crouches, Back restarts, and Start opens the pause menu, where the D-pad moves, A chooses, and B resumes. Sticks ignore 15% of drift around centre, and look grows with the square of the push past it, so small corrections stay fine. `FGameGamepadControls` in GameFramework maps them, and `FApplication::GetGamepadState` reads the pad.
+
 Settings live per user in `%LOCALAPPDATA%\Herta\<Project>\Settings.ini` on Windows and `$XDG_CONFIG_HOME/Herta/<Project>/Settings.ini` (or `~/.config`) on Linux: `fullscreen`, `hdr`, `paperWhite` and `peakLuminance` in nits (0 follows the operating system, as in the editor), `mouseSensitivity` in radians per pixel, and `quality` (0 Low, 1 Medium, 2 High, the default). Logs are written beside them in `Logs/Game.log`.
 
 ## Editor Play

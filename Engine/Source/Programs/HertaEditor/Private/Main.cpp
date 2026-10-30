@@ -785,7 +785,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		return RenderThumbnail(Mesh, &Material);
 	};
 
-	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .LevelPath = LevelPath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail, .RenderMaterialThumbnail = RenderMaterialThumbnail, .MeshRenderer = MeshRenderer.get(), .RegisterUITexture = [&Presentation](const FTextureHandle& Texture)
+	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Application = Application.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .LevelPath = LevelPath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail, .RenderMaterialThumbnail = RenderMaterialThumbnail, .MeshRenderer = MeshRenderer.get(), .RegisterUITexture = [&Presentation](const FTextureHandle& Texture)
 	{
 		return Presentation->RegisterToolUITexture(Texture);
 	},

@@ -191,6 +191,18 @@ void SaveSettings(const std::filesystem::path& Path, const FGameSettings& Settin
 	};
 }
 
+// Left stick moves and right stick looks; A jumps, clicking the left stick toggles sprinting, and B or clicking the right stick crouches.
+FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
+{
+	return {
+	    .Move = {Gamepad.LeftX, -Gamepad.LeftY},
+	    .Look = {Gamepad.RightX, -Gamepad.RightY},
+	    .bJump = Gamepad.IsDown(EGamepadButton::South),
+	    .bSprint = Gamepad.IsDown(EGamepadButton::LeftThumb),
+	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
+	};
+}
+
 // Input gathered from window callbacks between frames.
 struct FPendingInput
 {
@@ -483,6 +495,8 @@ int RunGame(const FGameOptions& Options)
 	std::uint64_t SceneTextureId = 0;
 	bool bPaused = false;
 	std::size_t MenuFocus = 0;
+	std::optional<FGamepadState> PreviousGamepad;
+	FGameGamepadControls GamepadControls;
 	std::optional<FDisplayLuminance> SystemLuminance;
 	auto SystemLuminanceQuery = std::chrono::steady_clock::time_point{};
 	auto LastFrame = std::chrono::steady_clock::now();
@@ -507,6 +521,19 @@ int RunGame(const FGameOptions& Options)
 		FrameMillisecondsSum += std::chrono::duration<double, std::milli>(Now - LastFrame).count();
 		LastFrame = Now;
 		FPendingInput Input = std::exchange(Pending, FPendingInput{.LastCursor = Pending.LastCursor, .Pointer = Pending.Pointer});
+		const std::optional<FGamepadState> Gamepad = bSmokeTest ? std::nullopt : Application->GetGamepadState();
+		const auto GamepadPressed = [&Gamepad, &PreviousGamepad](const EGamepadButton Button)
+		{
+			return Gamepad && Gamepad->IsDown(Button) && !(PreviousGamepad && PreviousGamepad->IsDown(Button));
+		};
+
+		// Start pauses like Escape and B backs out of the menu; Back restarts the course like R.
+		Input.bEscape |= GamepadPressed(EGamepadButton::Start) || (bPaused && GamepadPressed(EGamepadButton::East));
+		Input.bRestart |= GamepadPressed(EGamepadButton::Back);
+		Input.bMenuUp |= GamepadPressed(EGamepadButton::DpadUp);
+		Input.bMenuDown |= GamepadPressed(EGamepadButton::DpadDown);
+		Input.bMenuActivate |= GamepadPressed(EGamepadButton::South);
+		PreviousGamepad = Gamepad;
 
 		// A scripted run walks the course, jumps, pauses, and restarts to exercise the same paths a player does.
 		FGameInput GameInput;
@@ -557,6 +584,15 @@ int RunGame(const FGameOptions& Options)
 			    .bSprint = Window.IsKeyDown(EKey::LeftShift) || Window.IsKeyDown(EKey::RightShift),
 			    .bCrouch = Window.IsKeyDown(EKey::C) || Window.IsKeyDown(EKey::LeftControl),
 			};
+
+			if (Gamepad)
+			{
+				GamepadControls.Apply(GameInput, GetGameGamepad(*Gamepad), DeltaSeconds);
+			}
+		}
+		else
+		{
+			GamepadControls.Reset();
 		}
 
 		if (bPlaying && Input.bRestart)

@@ -39,6 +39,32 @@ struct FGameInput
 	bool bCrouch = false;
 };
 
+// A gamepad's player controls as it reports them this frame: sticks from -1 to 1 with +X right and +Y up, and whether each button is down.
+struct FGameGamepad
+{
+	FVector2 Move{};
+	FVector2 Look{};
+	bool bJump = false;
+	bool bSprint = false;
+	bool bCrouch = false;
+};
+
+// Adds a gamepad to keyboard and mouse input. Sticks ignore their resting drift, look turns faster the further the stick is pushed, a jump
+// registers once per press, and clicking the sprint button toggles sprinting, which also ends when the move stick returns to rest, since holding
+// a stick in is awkward.
+class FGameGamepadControls
+{
+public:
+	void Apply(FGameInput& Input, const FGameGamepad& Gamepad, float DeltaSeconds);
+	// Forgets held buttons, so a press made while paused does not act on resuming.
+	void Reset() noexcept;
+
+private:
+	bool bJumpDown = true;
+	bool bSprintDown = true;
+	bool bSprinting = false;
+};
+
 // The Sandbox controller limits: walk up 0.18 m steps, step up 0.35 m, jump 0.5 m steps, the 0.6 m hurdle, and a 2 m gap, but not the 1.3 m hurdle.
 struct FGamePlayerSettings
 {

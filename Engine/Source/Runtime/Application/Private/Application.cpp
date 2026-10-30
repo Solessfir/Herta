@@ -1244,6 +1244,38 @@ bool FApplication::ShouldWaitForEvents() const noexcept
 	return !bHasVisibleWindow || !Implementation->Windows.empty();
 }
 
+std::optional<FGamepadState> FApplication::GetGamepadState() const
+{
+	Implementation->VerifyMainThread();
+	static_assert(static_cast<int>(EGamepadButton::Last) == GLFW_GAMEPAD_BUTTON_LAST);
+	for (int Joystick = GLFW_JOYSTICK_1; Joystick <= GLFW_JOYSTICK_LAST; ++Joystick)
+	{
+		GLFWgamepadstate Raw;
+		if (!glfwJoystickIsGamepad(Joystick) || !glfwGetGamepadState(Joystick, &Raw))
+		{
+			continue;
+		}
+
+		FGamepadState State{
+		    .LeftX = Raw.axes[GLFW_GAMEPAD_AXIS_LEFT_X],
+		    .LeftY = Raw.axes[GLFW_GAMEPAD_AXIS_LEFT_Y],
+		    .RightX = Raw.axes[GLFW_GAMEPAD_AXIS_RIGHT_X],
+		    .RightY = Raw.axes[GLFW_GAMEPAD_AXIS_RIGHT_Y],
+		    .LeftTrigger = (Raw.axes[GLFW_GAMEPAD_AXIS_LEFT_TRIGGER] + 1.f) * 0.5f,
+		    .RightTrigger = (Raw.axes[GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER] + 1.f) * 0.5f,
+		};
+
+		for (std::size_t Button = 0; Button < State.Buttons.size(); ++Button)
+		{
+			State.Buttons[Button] = Raw.buttons[Button] == GLFW_PRESS;
+		}
+
+		return State;
+	}
+
+	return std::nullopt;
+}
+
 const FApplicationCapabilities& FApplication::GetCapabilities() const noexcept
 {
 	Implementation->VerifyMainThread();

@@ -2,6 +2,7 @@
 
 #include "Herta/Application/TitleBar.h"
 
+#include <array>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -186,6 +187,47 @@ enum class EKey : int
 	Menu = 348,
 	Last = Menu
 };
+
+// A gamepad's buttons in the standard layout, in GLFW's order. The face buttons are named by position: A, B, X, and Y on Xbox pads, and cross,
+// circle, square, and triangle on PlayStation ones.
+enum class EGamepadButton : std::uint8_t
+{
+	South,
+	East,
+	West,
+	North,
+	LeftShoulder,
+	RightShoulder,
+	Back,
+	Start,
+	Guide,
+	LeftThumb,
+	RightThumb,
+	DpadUp,
+	DpadRight,
+	DpadDown,
+	DpadLeft,
+	Last = DpadLeft
+};
+
+// Sticks run from -1 to 1 with +Y down, as pads report them, and triggers from 0 when released to 1.
+struct FGamepadState
+{
+	[[nodiscard]] bool IsDown(EGamepadButton Button) const noexcept;
+
+	std::array<bool, static_cast<std::size_t>(EGamepadButton::Last) + 1> Buttons{};
+	float LeftX = 0.f;
+	float LeftY = 0.f;
+	float RightX = 0.f;
+	float RightY = 0.f;
+	float LeftTrigger = 0.f;
+	float RightTrigger = 0.f;
+};
+
+inline bool FGamepadState::IsDown(const EGamepadButton Button) const noexcept
+{
+	return Buttons[static_cast<std::size_t>(Button)];
+}
 
 enum class EMouseButton : std::uint8_t
 {
@@ -395,6 +437,9 @@ public:
 	[[nodiscard]] bool ShouldWaitForEvents() const noexcept;
 	[[nodiscard]] const FApplicationCapabilities& GetCapabilities() const noexcept;
 	[[nodiscard]] std::span<const std::unique_ptr<FWindow>> GetWindows() const noexcept;
+	// The first connected gamepad the platform maps to the standard layout, read when called; XInput pads on Windows and pads in GLFW's mapping
+	// database elsewhere.
+	std::optional<FGamepadState> GetGamepadState() const;
 	[[nodiscard]] std::expected<std::vector<std::string>, FApplicationError> GetRequiredVulkanInstanceExtensions() const;
 
 private:

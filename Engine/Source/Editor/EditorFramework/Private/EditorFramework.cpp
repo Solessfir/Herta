@@ -4,6 +4,7 @@
 #include "ContentBrowser.h"
 #include "DetailsPanel.h"
 #include "EditorLevel.h"
+#include "Herta/Application/Application.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Log.h"
@@ -75,6 +76,18 @@ namespace Herta
 namespace
 {
 inline constexpr FLogCategory EditorLog{.Name = "Editor"};
+
+// Left stick moves and right stick looks; A jumps, clicking the left stick toggles sprinting, and B or clicking the right stick crouches, as in the game.
+FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
+{
+	return {
+	    .Move = {Gamepad.LeftX, -Gamepad.LeftY},
+	    .Look = {Gamepad.RightX, -Gamepad.RightY},
+	    .bJump = Gamepad.IsDown(EGamepadButton::South),
+	    .bSprint = Gamepad.IsDown(EGamepadButton::LeftThumb),
+	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
+	};
+}
 inline constexpr FLogCategory ShellLog{.Name = "Shell"};
 
 std::string MaterialShaderKey(const std::string_view Path, const std::string_view MaterialPath)
@@ -538,6 +551,7 @@ struct FEditorFramework::FImplementation
 	// Play runs the level through the same game session as HertaGame, on a copy that leaves authored state untouched.
 	void TogglePlay();
 	void UpdatePlay(float DeltaSeconds);
+	bool IsPlayGamepadPressed(EGamepadButton Button) const;
 	void DrawPlayHud(ImVec2 Minimum, ImVec2 Size);
 
 	[[nodiscard]] bool IsSimulating() const noexcept
@@ -554,6 +568,7 @@ struct FEditorFramework::FImplementation
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> SubmitCommand();
 
 	FToolUIContext* ToolUI = nullptr;
+	FApplication* Application = nullptr;
 	FLogService* Log = nullptr;
 
 	bool bOutlinerOpen = true;
@@ -653,6 +668,10 @@ struct FEditorFramework::FImplementation
 	bool bScriptedPlay = false;
 	// Shift+Space starts play, so Space must come up once before it can jump.
 	bool bPlayJumpArmed = false;
+	// This frame's gamepad and the previous one's, so buttons act once per press.
+	std::optional<FGamepadState> PlayGamepad;
+	std::optional<FGamepadState> PreviousPlayGamepad;
+	FGameGamepadControls PlayGamepadControls;
 	std::uint32_t ScriptedPlayFrame = 0;
 
 	std::uint64_t ViewportTexture = 0;
@@ -786,6 +805,7 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 
 	auto Implementation = std::make_unique<FImplementation>();
 	Implementation->ToolUI = Descriptor.ToolUI;
+	Implementation->Application = Descriptor.Application;
 	Implementation->OutputLog = std::move(*OutputLog);
 	Implementation->Log = Descriptor.Log;
 	Implementation->Tasks = Descriptor.Tasks;
@@ -4668,6 +4688,7 @@ void FEditorFramework::FImplementation::TogglePlay()
 	PlayMenuFocus = 0;
 	PlayMenuChoice.reset();
 	bPlayJumpArmed = false;
+	PlayGamepadControls.Reset();
 	Level->SetSimulationRunning(true);
 	PreviewDragStart.reset();
 	ViewportGizmos.resetId();
@@ -4677,12 +4698,19 @@ void FEditorFramework::FImplementation::TogglePlay()
 	HERTA_LOG_INFO(*Log, EditorLog, "Playing; press Esc to stop");
 }
 
+bool FEditorFramework::FImplementation::IsPlayGamepadPressed(const EGamepadButton Button) const
+{
+	return PlayGamepad && PlayGamepad->IsDown(Button) && !(PreviousPlayGamepad && PreviousPlayGamepad->IsDown(Button));
+}
+
 void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 {
 	if (!PlaySession)
 	{
 		return;
 	}
+
+	PreviousPlayGamepad = std::exchange(PlayGamepad, Application && !bScriptedPlay ? Application->GetGamepadState() : std::nullopt);
 
 	// The pause menu's choice from the previous frame's HUD.
 	if (const std::optional<std::size_t> Choice = std::exchange(PlayMenuChoice, std::nullopt))
@@ -4707,7 +4735,9 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 
 	// Leaving the editor window pauses play like the game losing focus; leaving only the viewport freezes it until clicked again.
 	const ImGuiIO& IO = ImGui::GetIO();
-	if (!bScriptedPlay && (IO.AppFocusLost || (IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape, false))))
+	// Start pauses like Shift+Esc, and B backs out of the menu.
+	const bool bGamepadPause = IsPlayGamepadPressed(EGamepadButton::Start) || (bPlayPaused && IsPlayGamepadPressed(EGamepadButton::East));
+	if (!bScriptedPlay && (IO.AppFocusLost || bGamepadPause || (IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape, false))))
 	{
 		bPlayPaused = IO.AppFocusLost || !bPlayPaused;
 		PlayMenuFocus = 0;
@@ -4739,7 +4769,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		    .bCrouch = ImGui::IsKeyDown(ImGuiKey_C) || IO.KeyCtrl,
 		};
 
-		if (ImGui::IsKeyPressed(ImGuiKey_R, false))
+		if (ImGui::IsKeyPressed(ImGuiKey_R, false) || IsPlayGamepadPressed(EGamepadButton::Back))
 		{
 			if (auto Restarted = PlaySession->Restart(); !Restarted)
 			{
@@ -4748,6 +4778,15 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 				return;
 			}
 		}
+	}
+
+	if (bFocused && PlayGamepad)
+	{
+		PlayGamepadControls.Apply(Input, GetGameGamepad(*PlayGamepad), DeltaSeconds);
+	}
+	else
+	{
+		PlayGamepadControls.Reset();
 	}
 
 	if (auto Updated = PlaySession->Update(bFocused ? DeltaSeconds : 0.f, Input); !Updated)
@@ -4802,9 +4841,9 @@ void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const 
 	const FGameUIInput MenuInput{
 	    .Pointer = bPlayPaused && bHovered ? std::optional{FVector2{IO.MousePos.x - Minimum.x, IO.MousePos.y - Minimum.y}} : std::nullopt,
 	    .bClicked = bPlayPaused && bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left),
-	    .bUp = bPlayPaused && (Pressed(ImGuiKey_UpArrow) || Pressed(ImGuiKey_W)),
-	    .bDown = bPlayPaused && (Pressed(ImGuiKey_DownArrow) || Pressed(ImGuiKey_S)),
-	    .bActivate = bPlayPaused && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false)),
+	    .bUp = bPlayPaused && (Pressed(ImGuiKey_UpArrow) || Pressed(ImGuiKey_W) || IsPlayGamepadPressed(EGamepadButton::DpadUp)),
+	    .bDown = bPlayPaused && (Pressed(ImGuiKey_DownArrow) || Pressed(ImGuiKey_S) || IsPlayGamepadPressed(EGamepadButton::DpadDown)),
+	    .bActivate = bPlayPaused && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false) || IsPlayGamepadPressed(EGamepadButton::South)),
 	};
 
 	constexpr std::array<std::string_view, 3> Items{"Resume", "Restart course", "Exit"};

@@ -14,6 +14,7 @@
 
 namespace Herta
 {
+class FApplication;
 class FEditorCommandRegistry;
 class FLogService;
 class FTaskSystem;
@@ -42,6 +43,8 @@ struct FEditorFrameworkDescriptor
 	FLogService* Log = nullptr;
 	FEditorCommandRegistry* Commands = nullptr;
 	FToolUIContext* ToolUI = nullptr;
+	// Play reads gamepads through it; without one, Play takes keyboard and mouse only.
+	FApplication* Application = nullptr;
 	// Asset previews are disabled unless all of these are provided. The task system and device must outlive the framework.
 	FTaskSystem* Tasks = nullptr;
 	IGraphicsDevice* GraphicsDevice = nullptr;
