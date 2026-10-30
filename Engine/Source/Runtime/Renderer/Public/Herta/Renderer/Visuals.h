@@ -153,6 +153,8 @@ struct FVisualShaderSet
 	FShaderAsset DepthBoundsCompute;
 	// Screen-space shadows toward the sun for contact detail the cascades miss.
 	FShaderAsset ContactShadowsCompute;
+	// Filters the cascaded sun's shadows once per pixel ahead of the mesh pass; without it the mesh pass filters them itself.
+	FShaderAsset SunShadowsCompute;
 	// The reference path tracer behind FVisualSettings::bPathTracing.
 	FShaderAsset PathTraceCompute;
 	// The irradiance field and scene reflections behind FVisualSettings::bGlobalIllumination; it needs all seven.

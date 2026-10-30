@@ -20,8 +20,9 @@ struct FTransform { column_major float4x4 MVP; column_major float4x4 ObjectToVie
 // GGX directional albedo terms A, B, and C by view cosine and roughness; see SpecularAlbedoTableSize in Visuals.h.
 [[vk::binding(12, 0)]] Texture2D<float4> SpecularAlbedo;
 [[vk::binding(13, 0)]] Texture2D<float4> LocalShadowAtlas;
-// Screen-space shadows toward the sun that casts the cascades, written when Visual.Occlusion.y is set.
-[[vk::binding(14, 0)]] Texture2D<float4> ContactShadow;
+// The sun that casts the cascades, per pixel of the depth prepass: its contact shadows when Visual.Occlusion.y is 1, and its whole visibility
+// when it is 2.
+[[vk::binding(14, 0)]] Texture2D<float4> SunShadow;
 // Global illumination at 1/16 scale, read when Visual.Occlusion.w is set: two half-resolution images side by side, sampled at each 2x2 block's
 // first pixel, with diffuse irradiance on the left and glossy surfaces' scene reflections on the right. Alpha holds the sampled pixel's reversed
 // depth, or 0 where that image has nothing.
@@ -233,7 +234,7 @@ void RectLighting(inout FLightSum Sum, FVisualLight Light, float3 Position, floa
     Sum.Specular90 += Specular * Amplitude.y;
 }
 
-void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, float3 V, float Roughness, float DiffuseRoughness, float Contact)
+void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, float3 V, float Roughness, float DiffuseRoughness, float Sun)
 {
     FVisualLight Light = Lights[Index];
     int Type = int(Light.PositionType.w);
@@ -248,9 +249,11 @@ void ShadeLight(inout FLightSum Sum, uint Index, float3 Position, float3 N, floa
     float Attenuation = LightAttenuation(Light, Position, L);
     // Shadow filtering costs more than the lighting, so pixels out of range, outside the cone, or facing away skip it.
     if (Attenuation <= 0.0 || dot(N, L) <= 0.0) return;
-    float Visibility = LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, N);
-    // Only the cascaded sun has contact shadows.
-    if (Type == 0 && Light.ConeShadow.w == 4.0) Visibility *= Contact;
+    // With global illumination, the cascaded sun's soft shadows are filtered per pixel ahead of this pass; filtering them here cost more.
+    bool bCascadedSun = Type == 0 && Light.ConeShadow.w == 4.0;
+    float Visibility = 1.0;
+    if (!bCascadedSun || Visual.Occlusion.y < 1.5) Visibility = LightVisibility(ShadowAtlas, LocalShadowAtlas, Light, Position, N);
+    if (bCascadedSun) Visibility *= Sun;
     float3 DiffuseBefore = Sum.Diffuse;
     AddLight(Sum, Light.ColorIntensity.rgb * Light.ColorIntensity.w * Attenuation * Visibility, N, V, L, Roughness, DiffuseRoughness);
     // 4 V (1 - V) peaks halfway through the penumbra and vanishes in full light and full shadow.
@@ -341,15 +344,15 @@ float4 fragmentMain(FVertexOutput Input) : SV_Target
     float DiffuseRoughness = Visual.Material.Specular.w;
     FLightSum Sum = (FLightSum)0;
     uint ClusterBase = LightClusterBase(Input.Position.xy, Input.WorldPosition);
-    float Contact = Visual.Occlusion.y > 0.5 ? ContactShadow.Load(int3(int2(Input.Position.xy), 0)).r : 1.0;
+    float Sun = Visual.Occlusion.y > 0.5 ? SunShadow.Load(int3(int2(Input.Position.xy), 0)).r : 1.0;
     // The first 32 lights get their own loop, so scenes within one mask word never step through words.
     uint WordCount = LightWordCount();
     for (uint Mask = WordCount != 0 ? LightMaskWord(ClusterBase, 0) : 0; Mask != 0; Mask &= Mask - 1)
-        ShadeLight(Sum, firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness, Contact);
+        ShadeLight(Sum, firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness, Sun);
     for (uint Word = 1; Word < WordCount; ++Word)
     {
         for (uint Mask = LightMaskWord(ClusterBase, Word); Mask != 0; Mask &= Mask - 1)
-            ShadeLight(Sum, Word * 32 + firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness, Contact);
+            ShadeLight(Sum, Word * 32 + firstbitlow(Mask), Input.WorldPosition, N, V, Roughness, DiffuseRoughness, Sun);
     }
 
     float NoV = saturate(dot(N, V));

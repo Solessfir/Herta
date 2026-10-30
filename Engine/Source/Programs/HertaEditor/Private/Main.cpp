@@ -395,6 +395,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"MotionVectors.comp.hshader", &VisualShaders.MotionVectorsCompute},
 	    std::pair{"DepthBounds.comp.hshader", &VisualShaders.DepthBoundsCompute},
 	    std::pair{"ContactShadows.comp.hshader", &VisualShaders.ContactShadowsCompute},
+	    std::pair{"SunShadows.comp.hshader", &VisualShaders.SunShadowsCompute},
 	    std::pair{"IrradianceFieldUpdate.comp.hshader", &VisualShaders.IrradianceFieldUpdateCompute},
 	    std::pair{"IrradianceFieldTrace.comp.hshader", &VisualShaders.IrradianceFieldTraceCompute},
 	    std::pair{"IrradianceFieldBlend.comp.hshader", &VisualShaders.IrradianceFieldBlendCompute},
