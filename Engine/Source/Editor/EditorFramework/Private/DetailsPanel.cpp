@@ -651,9 +651,10 @@ bool IsVisualPropertyVisible(const FLevelEntity& Entity, const ELevelComponentTy
 			return Light.Type != ELightType::Sky;
 		}
 
+		// Directional cascades bias by their own texel size instead.
 		if (Key == "shadowBias" || Key == "shadowNormalBias")
 		{
-			return Light.Type != ELightType::Sky && Light.bCastShadows;
+			return Light.Type != ELightType::Sky && Light.Type != ELightType::Directional && Light.bCastShadows;
 		}
 
 		if (Key == "sourceAngle")

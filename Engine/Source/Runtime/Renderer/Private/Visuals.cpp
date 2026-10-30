@@ -538,6 +538,9 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 	return Result;
 }
 
+// The depth a cascade's lookups give way to, in its texels; its normal offset adds a texel per filter step on top.
+constexpr float CascadeDepthBiasTexels = 1.f;
+
 std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::span<const FRenderLight> Lights, const FMatrix4& Projection, const float Resolution, const float VisibleNear, const float VisibleFar)
 {
 	const FShadowSizes Sizes = GetShadowSizes(Resolution);
@@ -610,6 +613,8 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 			FMatrix4 Matrix;
 			float Split = Light.Range;
 			float Texel = 0.f;
+			float DepthBias = Light.ShadowBias;
+			float NormalBias = Light.ShadowNormalBias;
 			if (Light.Type == ELightType::Directional)
 			{
 				// The visible range comes from depth read back two frames late, so after a turn towards distant surfaces they lie past it. The last
@@ -646,6 +651,11 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 				Ortho(2, 3) = 1.f;
 				Ortho(3, 3) = 1.f;
 				Matrix = Ortho * LightView;
+				// Cascades bias by their own texel, which the shader's normal offset also scales with, so the bias stays a few millimetres near the
+				// camera and objects a centimetre tall still cast. The light's authored depth bias is in depth units, which over the 128 m of padding
+				// behind each cascade came to about 13 cm, and its 2 cm normal bias hid the same thin objects.
+				DepthBias = CascadeDepthBiasTexels * Texel * -Ortho(2, 2);
+				NormalBias = 0.f;
 				PreviousSplit = Split;
 			}
 			else if (Light.Type == ELightType::Point)
@@ -666,7 +676,7 @@ std::vector<FShadowView> BuildShadowViews(FVisualUniforms& Uniforms, const std::
 			                                           : LocalViewports[LocalTiles++];
 			const auto Width = static_cast<float>(bCascaded ? 2 * Sizes.Cascade : 8 * Sizes.Tile);
 			const auto Height = static_cast<float>(bCascaded ? 2 * Sizes.Cascade : 2 * Sizes.Tile);
-			Uniforms.Shadows[Result.size()] = {.WorldToClip = Matrix.Data(), .Atlas = {static_cast<float>(Viewport.Width) / Width, static_cast<float>(Viewport.Height) / Height, static_cast<float>(Viewport.X) / Width, static_cast<float>(Viewport.Y) / Height}, .Parameters = {Light.ShadowBias, Split, Light.ShadowNormalBias, Texel}};
+			Uniforms.Shadows[Result.size()] = {.WorldToClip = Matrix.Data(), .Atlas = {static_cast<float>(Viewport.Width) / Width, static_cast<float>(Viewport.Height) / Height, static_cast<float>(Viewport.X) / Width, static_cast<float>(Viewport.Y) / Height}, .Parameters = {DepthBias, Split, NormalBias, Texel}};
 			Result.push_back({.WorldToClip = Matrix, .Viewport = Viewport, .LightPosition = Position, .LightRange = bCascaded ? 0.f : Light.Range});
 		}
 	}
