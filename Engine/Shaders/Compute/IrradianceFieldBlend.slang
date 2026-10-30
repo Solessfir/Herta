@@ -22,10 +22,6 @@ groupshared float3 SharedDirections[FieldRays];
 groupshared float3 SharedIrradiance[FieldIrradianceTexels * FieldIrradianceTexels];
 groupshared float2 SharedDistance[FieldDistanceTexels * FieldDistanceTexels];
 
-// Probes move only over their first updates. Moving on afterwards nudged probes back and forth between pushing away from a surface and returning
-// towards their corner, and every move changed their light, which showed as flickering patches.
-static const float RelocationUpdates = 8.0;
-
 // The probe's new offset and state from its fixed rays: a probe that sees mostly back faces is inside geometry and moves through the nearest one,
 // one too close to a surface moves away from it, and one with room to spare drifts back towards its cell corner. Offsets stay within 0.45 of the
 // spacing, and probes still inside are left out of shading. Settled probes keep their offset, and with their fixed rays, their classification.
@@ -70,7 +66,7 @@ float4 Relocate(float4 Probe, float Spacing, float Updates)
     float MinimumFront = 0.2 * Spacing;
     bool bInside = Backfaces * 4 > FieldFixedRays;
     float3 Offset = Probe.xyz;
-    if (Updates < RelocationUpdates)
+    if (Updates < float(FieldRelocationUpdates))
     {
         if (bInside)
         {
@@ -123,9 +119,11 @@ void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex, uint3 Id
 
     GroupMemoryBarrierWithGroupSync();
     float4 Probe = float4(Probes[Index * 4], Probes[Index * 4 + 1], Probes[Index * 4 + 2], Probes[Index * 4 + 3]);
+    // Updates count blends while the probe is active and relocation tries while it is inside geometry.
+    float Updates = float(FieldProbeUpdates(Packed));
     // Probes that were new or inside geometry last frame have nothing worth keeping, and their tiles may hold another probe's light or garbage.
-    float Updates = Probe.w == FieldProbeActive ? float(FieldProbeUpdates(Packed)) : 0.0;
-    float Keep = min(Hysteresis, Updates / (Updates + 1.0));
+    float Kept = Probe.w == FieldProbeActive ? Updates : 0.0;
+    float Keep = min(Hysteresis, Kept / (Kept + 1.0));
     float Spacing = FieldSpacing(Level);
     uint2 IrradianceOrigin = FieldTileOrigin(Index, FieldIrradianceTile);
     uint2 DistanceOrigin = FieldTileOrigin(Index, FieldDistanceTile);
@@ -196,6 +194,8 @@ void computeMain(uint3 Group : SV_GroupID, uint Thread : SV_GroupIndex, uint3 Id
         float4 Moved = Relocate(Probe, Spacing, Updates);
         for (uint Word = 0; Word < 4; ++Word)
             Probes[Index * 4 + Word] = Moved[Word];
-        ProbeCells[Index * 4 + 3] = FieldPackProbe(Level, Moved.w == FieldProbeActive ? uint(Updates) + 1 : 0);
+        // A probe that comes out of geometry starts counting its blends, and relocating, afresh.
+        bool bRestart = Moved.w == FieldProbeActive && Probe.w != FieldProbeActive;
+        ProbeCells[Index * 4 + 3] = FieldPackProbe(Level, bRestart ? 1u : uint(Updates) + 1);
     }
 }

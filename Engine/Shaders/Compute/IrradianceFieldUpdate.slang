@@ -19,7 +19,7 @@ static const uint StageReset = 0;
 static const uint StageClear = 1;
 static const uint StageSelect = 2;
 static const uint StageAllocate = 3;
-static const uint StageSettle = 4;
+static const uint StageRays = 4;
 static const uint StageFinish = 5;
 
 // Keep in sync with IrradianceField.cpp.
@@ -35,9 +35,8 @@ static const uint CounterWords = 12;
 // Probes the camera read within this many frames trace every frame; probes only rays read trace every fourth frame while they stay in use.
 static const uint CameraFrames = 2;
 static const uint RayFrames = 8;
-// Probes still settling after they appear, relocating and averaging their first bounces, trace every fourth frame in the room the others leave,
-// so places the camera walks into are already lit instead of changing as it arrives.
-static const uint SettledUpdates = 16;
+// Probes left inside geometry once relocation gives up only look again this rarely, in case what they are inside moves.
+static const uint InsideFrames = 64;
 // Once fewer than an eighth of the probes are free, probes nothing has read for this many frames give up their cells.
 static const uint EvictFrames = 30;
 
@@ -154,7 +153,7 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
         for (uint Word = 0; Word < 4; ++Word)
             Probes[Probe * 4 + Word] = FieldProbeNew;
 
-        // Counting as read by the camera keeps settling from adding it to the list twice, and traces it again next frame, the first its
+        // Counting as read by the camera keeps the rays stage from adding it to the list twice, and traces it again next frame, the first its
         // readers find it.
         Used[Probe * 2] = Frame;
         Used[Probe * 2 + 1] = 0;
@@ -175,14 +174,16 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     uint CameraFrame = Used[Probe * 2];
     uint RayFrame = Used[Probe * 2 + 1];
     bool bCamera = Frame - CameraFrame <= CameraFrames;
-    bool bRays = Frame - RayFrame <= RayFrames;
-    bool bSelected = bCamera || (bRays && ((Probe + Frame) & 3u) == 0u);
-    if (Stage == StageSettle)
+    bool bInside = Probes[Probe * 4 + 3] == FieldProbeInside;
+    bool bGivenUp = bInside && FieldProbeUpdates(Packed) >= FieldRelocationUpdates;
+    if (Stage == StageRays)
     {
-        // Runs after every selected and new probe has its place, so settling never takes one from a probe in use, and settling past the
-        // list's end does not count as overflow.
-        bool bSettling = Probes[Probe * 4 + 3] != FieldProbeInside && FieldProbeUpdates(Packed) < SettledUpdates;
-        if (!bSelected && bSettling && ((Probe + Frame) & 3u) == 0u && !AddToTraceList(Probe))
+        // Runs after every probe the camera reads and every new probe has its place, so probes only rays read, which can reach far past what
+        // the camera sees, never take one from them, and dropping them past the list's end does not count as overflow. These also light the
+        // places the camera walks into before it arrives.
+        bool bRays = Frame - RayFrame <= RayFrames;
+        bool bTurn = ((Probe + Frame) & (bGivenUp ? InsideFrames - 1 : 3u)) == 0u;
+        if (!bCamera && bRays && bTurn && !AddToTraceList(Probe))
             InterlockedAdd(Counters[CounterTraced], 0xFFFFFFFFu);
 
         return;
@@ -203,10 +204,10 @@ void computeMain(uint3 Id : SV_DispatchThreadID)
     if (bCamera)
     {
         InterlockedAdd(Counters[CounterRead], 1u);
-        if (Probes[Probe * 4 + 3] == FieldProbeInside)
+        if (bInside)
             InterlockedAdd(Counters[CounterInside], 1u);
     }
 
-    if (bSelected)
+    if (bCamera && (!bGivenUp || ((Probe + Frame) & (InsideFrames - 1)) == 0u))
         AddToTraceList(Probe);
 }

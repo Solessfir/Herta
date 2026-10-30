@@ -37,6 +37,10 @@ static const uint FieldMaxTraced = 8192;
 static const float FieldProbeNew = 0.0;
 static const float FieldProbeActive = 1.0;
 static const float FieldProbeInside = 2.0;
+// Probes move only over their first updates. Moving on afterwards nudged probes back and forth between pushing away from a surface and returning
+// towards their corner, and every move changed their light, which showed as flickering patches. Probes still inside geometry after this many
+// tries give up.
+static const uint FieldRelocationUpdates = 8;
 // Irradiance is stored at 1/16 scale in half floats, because sunlit irradiance passes their range.
 static const float StoredScale = 1.0 / 16.0;
 

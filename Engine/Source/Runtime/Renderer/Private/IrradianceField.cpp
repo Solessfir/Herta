@@ -33,7 +33,7 @@ enum class EStage : std::uint32_t
 	Clear,
 	Select,
 	Allocate,
-	Settle,
+	Rays,
 	Finish,
 };
 
@@ -252,8 +252,8 @@ std::expected<void, FPresentationError> FIrradianceField::Render(const FGlobalIl
 		bReset = static_cast<bool>(Result);
 	}
 
-	// Allocation follows selection so it can reuse the probes selection freed, and settling follows both so it only takes what room they leave.
-	for (const auto& [Kind, Threads] : {std::pair{EStage::Clear, 1u}, std::pair{EStage::Select, FieldProbeCount}, std::pair{EStage::Allocate, FieldMaxRequests}, std::pair{EStage::Settle, FieldProbeCount}, std::pair{EStage::Finish, 1u}})
+	// Allocation follows selection so it can reuse the probes selection freed, and probes only rays read follow both so they only take what room the camera's leave.
+	for (const auto& [Kind, Threads] : {std::pair{EStage::Clear, 1u}, std::pair{EStage::Select, FieldProbeCount}, std::pair{EStage::Allocate, FieldMaxRequests}, std::pair{EStage::Rays, FieldProbeCount}, std::pair{EStage::Finish, 1u}})
 	{
 		if (Result)
 		{
