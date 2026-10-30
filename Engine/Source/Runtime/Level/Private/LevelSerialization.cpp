@@ -1095,6 +1095,11 @@ std::expected<void, FLevelError> ValidateLevelDocument(const FLevelDocument& Doc
 		return Folders;
 	}
 
+	if (!(std::abs(Document.ExposureCompensation) <= MaximumLevelExposureCompensation))
+	{
+		return LevelError("Level exposure compensation must be finite and within 5 stops");
+	}
+
 	return ValidateLevelCameraBookmarks(Document.CameraBookmarks);
 }
 
@@ -1122,10 +1127,12 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 8,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 9,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
+	Output += ",\n  \"exposureCompensation\": ";
+	AppendNumber(Output, Document.ExposureCompensation);
 	Output += ",\n  \"entities\": [";
 
 	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
@@ -1426,7 +1433,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		return LevelError("Malformed level JSON or invalid UTF-8");
 	}
 
-	const auto Fields = ReadFields(Root, std::array<std::string_view, 8>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders", "cameraBookmarks"}, 0x3f);
+	const auto Fields = ReadFields(Root, std::array<std::string_view, 9>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders", "cameraBookmarks", "exposureCompensation"}, 0x3f);
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -1441,9 +1448,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 8 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 9 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 7 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 9 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
@@ -1455,6 +1462,11 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	if ((SchemaVersion >= 5) != (Root["cameraBookmarks"].error() == simdjson::SUCCESS))
 	{
 		return LevelError("Camera bookmarks are required in engine schema 5 and later");
+	}
+
+	if ((SchemaVersion >= 9) != (Root["exposureCompensation"].error() == simdjson::SUCCESS))
+	{
+		return LevelError("Exposure compensation is required in engine schema 9 and later");
 	}
 
 	const auto Id = ReadId<FObjectId>((*Fields)[3]);
@@ -1471,6 +1483,16 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	FLevelDocument Document{.Id = *Id, .Name = std::string(*Name)};
+	if (SchemaVersion >= 9)
+	{
+		const auto Compensation = ReadNumber<float>((*Fields)[8]);
+		if (!Compensation)
+		{
+			return std::unexpected(Compensation.error());
+		}
+
+		Document.ExposureCompensation = *Compensation;
+	}
 	Document.Entities.reserve(Entities.size());
 
 	std::vector<std::pair<FObjectId, FObjectId>> LegacyAttachments;

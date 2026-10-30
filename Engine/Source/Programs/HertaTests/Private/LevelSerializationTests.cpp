@@ -81,6 +81,15 @@ std::string ReplaceLevelText(std::string Text, const std::string_view From, cons
 	return Text;
 }
 
+// Schema 9 always writes exposure compensation; older schemas must not contain it.
+std::string WithSchema(std::string Text, const int Version)
+{
+	Text = ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 9", "\"engineSchemaVersion\": " + std::to_string(Version));
+	const std::size_t Field = Text.find(",\n  \"exposureCompensation\": ");
+	REQUIRE(Field != std::string::npos);
+	return Text.erase(Field, Text.find(',', Field + 1) - Field);
+}
+
 // Schema 5 always writes camera bookmarks; older schemas must not contain them.
 std::string WithoutCameraBookmarks(std::string Text)
 {
@@ -103,7 +112,7 @@ std::string WithoutSchemaFiveFields(std::string Text)
 
 std::string MakeSchemaTwoText(std::string Text)
 {
-	Text = ReplaceLevelText(WithoutSchemaFiveFields(std::move(Text)), "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 2");
+	Text = WithSchema(WithoutSchemaFiveFields(std::move(Text)), 2);
 
 	while (Text.contains(", \"materials\": []"))
 	{
@@ -147,7 +156,7 @@ TEST_CASE("Levels round-trip in canonical sorted UTF-8 JSON")
 	CHECK(Serialized->find('\r') == std::string::npos);
 	CHECK(Serialized->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Serialized->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Serialized->find("\"engineSchemaVersion\": 8") != std::string::npos);
+	CHECK(Serialized->find("\"engineSchemaVersion\": 9") != std::string::npos);
 	CHECK(Serialized->find("\"folders\": []") != std::string::npos);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"format\":", "\"magic\":")));
 	CHECK(Serialized->find("\"rotation\": [") != std::string::npos);
@@ -220,7 +229,7 @@ TEST_CASE("Schema 1 body types migrate to canonical schema 3 settings and empty 
 	REQUIRE(Canonical);
 	CHECK(Canonical->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Canonical->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Canonical->find("\"engineSchemaVersion\": 8") != std::string::npos);
+	CHECK(Canonical->find("\"engineSchemaVersion\": 9") != std::string::npos);
 	CHECK(Canonical->find("\"folders\": []") != std::string::npos);
 	CHECK(Canonical->find("\"massKg\": 1") != std::string::npos);
 	CHECK(Canonical->find("\"gravityScale\": 1") != std::string::npos);
@@ -322,7 +331,7 @@ TEST_CASE("Levels reject unsupported versions, malformed input, and unknown data
 	    ReplaceLevelText(*Serialized, "\"HertaLevel\"", "\"OtherLevel\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 0"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 3"),
-	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 9"),
+	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 9", "\"engineSchemaVersion\": 10"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 1.5"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": \"2\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": true"),
@@ -487,8 +496,8 @@ TEST_CASE("Schemas 3 and 4 accept folders and require the folders array")
 	REQUIRE(Serialized);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, ",\n  \"folders\": []", "")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"folders\": []", "\"folders\": null")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 1")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 2")));
+	CHECK_FALSE(ParseLevel(WithSchema(*Serialized, 1)));
+	CHECK_FALSE(ParseLevel(WithSchema(*Serialized, 2)));
 	const auto SchemaTwo = ParseLevel(MakeSchemaTwoText(*Serialized));
 	REQUIRE(SchemaTwo);
 	CHECK(SchemaTwo->Folders.empty());
@@ -693,7 +702,7 @@ TEST_CASE("Visual level components and material slots have deterministic schema 
 	Document.Entities[1].HeightFog = FHeightFogComponent{.Density = 0.04f, .Albedo = {0.5f, 0.8f, 1.f}, .Quality = EFogQuality::High};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
-	CHECK(Text->find("\"engineSchemaVersion\": 8") != std::string::npos);
+	CHECK(Text->find("\"engineSchemaVersion\": 9") != std::string::npos);
 	CHECK(Text->find("\"materials\": [\"" + FAssetId{8, 1}.ToString() + "\", null,") != std::string::npos);
 	const auto Restored = ParseLevel(*Text);
 	REQUIRE(Restored);
@@ -706,7 +715,7 @@ TEST_CASE("Visual level components and material slots have deterministic schema 
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"type\": \"rect\"", "\"type\": \"unknown\"")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"volumetric\": true", "\"volumetric\": 1")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"enabled\": true", "\"enabled\": true, \"enabled\": true")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(WithoutSchemaFiveFields(*Text), "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 3")));
+	CHECK_FALSE(ParseLevel(WithSchema(WithoutSchemaFiveFields(*Text), 3)));
 }
 
 TEST_CASE("Light source angles persist in schema eight and default to the sun's for older levels")
@@ -734,12 +743,37 @@ TEST_CASE("Light source angles persist in schema eight and default to the sun's 
 	const std::size_t Comma = Text->rfind(',', Key);
 	std::string Older = *Text;
 	Older.erase(Comma, Text->find('\n', Key) - Comma);
-	Older = ReplaceLevelText(Older, "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 7");
+	Older = WithSchema(Older, 7);
 	const auto Legacy = ParseLevel(Older);
 	REQUIRE(Legacy);
 	REQUIRE(FindLight(*Legacy) != Legacy->Entities.end());
 	CHECK(FindLight(*Legacy)->Light->SourceAngle == FLightComponent{}.SourceAngle);
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 7")));
+	CHECK_FALSE(ParseLevel(WithSchema(*Text, 7)));
+}
+
+TEST_CASE("Exposure compensation persists from schema nine and defaults to zero before it")
+{
+	FLevelDocument Document = MakeLevelDocument();
+	Document.ExposureCompensation = -2.f;
+	const auto Text = SerializeLevel(Document);
+	REQUIRE(Text);
+	CHECK(Text->find("\"exposureCompensation\": -2") != std::string::npos);
+	const auto Restored = ParseLevel(*Text);
+	REQUIRE(Restored);
+	CHECK(Restored->ExposureCompensation == -2.f);
+
+	const auto Older = ParseLevel(WithSchema(*Text, 8));
+	REQUIRE(Older);
+	CHECK(Older->ExposureCompensation == 0.f);
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 9", "\"engineSchemaVersion\": 8")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, ",\n  \"exposureCompensation\": -2", "")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"exposureCompensation\": -2", "\"exposureCompensation\": -6")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"exposureCompensation\": -2", "\"exposureCompensation\": \"-2\"")));
+
+	Document.ExposureCompensation = std::numeric_limits<float>::quiet_NaN();
+	CHECK_FALSE(SerializeLevel(Document));
+	Document.ExposureCompensation = 5.5f;
+	CHECK_FALSE(SerializeLevel(Document));
 }
 
 TEST_CASE("Soft body components persist in schema five and are unknown to schema four")
@@ -761,7 +795,7 @@ TEST_CASE("Soft body components persist in schema five and are unknown to schema
 	CHECK(*Canonical == *Text);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"shape\": \"cloth\"", "\"shape\": \"jelly\"")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"stiffness\": 0.6", "\"stiffness\": 2")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(WithoutSchemaFiveFields(*Text), "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 4")));
+	CHECK_FALSE(ParseLevel(WithSchema(WithoutSchemaFiveFields(*Text), 4)));
 }
 
 TEST_CASE("Rigid body collision shapes persist in schema five and older bodies load as boxes")
@@ -801,7 +835,7 @@ TEST_CASE("Constraint components persist in schema six and replace schema five r
 	REQUIRE(Restored);
 	std::ranges::sort(Document.Entities, {}, &FLevelEntity::Id);
 	CHECK(Restored->Entities == Document.Entities);
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 5")));
+	CHECK_FALSE(ParseLevel(WithSchema(*Text, 5)));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"anchor\": [0, 1, 0]", "\"anchor\": [0, 2000, 0]")));
 
 	// Schema 5 named the hung body on the rope; loading moves it onto the body as a Constraint targeting the rope.
@@ -810,7 +844,7 @@ TEST_CASE("Constraint components persist in schema six and replace schema five r
 	const auto LegacyText = SerializeLevel(Legacy);
 	REQUIRE(LegacyText);
 	const std::string Hung = Legacy.Entities[0].Id.ToString();
-	const auto Migrated = ParseLevel(ReplaceLevelText(ReplaceLevelText(*LegacyText, "\"material\": null", "\"material\": null, \"attachment\": \"" + Hung + "\""), "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 5"));
+	const auto Migrated = ParseLevel(WithSchema(ReplaceLevelText(*LegacyText, "\"material\": null", "\"material\": null, \"attachment\": \"" + Hung + "\""), 5));
 	REQUIRE(Migrated);
 	const auto Body = std::ranges::find(Migrated->Entities, Legacy.Entities[0].Id, &FLevelEntity::Id);
 	REQUIRE(Body != Migrated->Entities.end());
@@ -834,7 +868,7 @@ TEST_CASE("Trigger roles persist in schema seven and older triggers have none")
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"role\": \"start\"", "\"role\": \"middle\"")));
 
 	// Schema 6 had no role field; such triggers load as plain triggers, and a role field there is rejected.
-	const std::string Older = ReplaceLevelText(*Text, "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 6");
+	const std::string Older = WithSchema(*Text, 6);
 	CHECK_FALSE(ParseLevel(Older));
 	const auto Legacy = ParseLevel(ReplaceLevelText(ReplaceLevelText(Older, ",\n          \"role\": \"start\"", ""), ",\n          \"role\": \"finish\"", ""));
 	REQUIRE(Legacy);
@@ -858,7 +892,7 @@ TEST_CASE("Mover and trigger components persist in schema five")
 	std::ranges::sort(Document.Entities, {}, &FLevelEntity::Id);
 	CHECK(Restored->Entities == Document.Entities);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"periodSeconds\": 8", "\"periodSeconds\": 0")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(WithoutSchemaFiveFields(*Text), "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 4")));
+	CHECK_FALSE(ParseLevel(WithSchema(WithoutSchemaFiveFields(*Text), 4)));
 }
 
 TEST_CASE("Camera bookmarks persist sorted by slot in schema five and are rejected when invalid")
@@ -885,7 +919,7 @@ TEST_CASE("Camera bookmarks persist sorted by slot in schema five and are reject
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"name\": \"Overview\"", "\"name\": \"\"")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"pitch\": -0.5", "\"pitch\": -1.6")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"pitch\": -0.5", "\"pitch\": -0.5, \"roll\": 0")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 4")));
+	CHECK_FALSE(ParseLevel(WithSchema(*Text, 4)));
 
 	const auto Empty = SerializeLevel(MakeLevelFolderDocument());
 	REQUIRE(Empty);
@@ -898,7 +932,7 @@ TEST_CASE("Schema three folder metadata migrates without introducing visual comp
 {
 	const auto Text = SerializeLevel(MakeLevelFolderDocument());
 	REQUIRE(Text);
-	std::string Legacy = ReplaceLevelText(WithoutSchemaFiveFields(*Text), "\"engineSchemaVersion\": 8", "\"engineSchemaVersion\": 3");
+	std::string Legacy = WithSchema(WithoutSchemaFiveFields(*Text), 3);
 	Legacy = ReplaceLevelText(std::move(Legacy), ", \"materials\": []", "");
 	const auto Restored = ParseLevel(Legacy);
 	REQUIRE(Restored);

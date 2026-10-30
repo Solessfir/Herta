@@ -113,6 +113,31 @@ TEST_CASE("Editor camera bookmarks replace by slot, undo, and save with the leve
 	CHECK(Reloaded.GetCameraBookmarks()[0] == FLevelCameraBookmark{.Slot = 2, .Name = "Renamed", .Position = FWorldPosition{1., 2., 3.}, .Yaw = 0.5f});
 }
 
+TEST_CASE("Editor exposure compensation is undoable level metadata saved with the level")
+{
+	Tests::FScratchDirectory Directory("HertaEditorExposure");
+	const auto Path = Directory.GetPath() / "Exposure.hlevel";
+	FEditorLevel Level;
+	REQUIRE(Level.LoadDocument(FolderLevelDocument(), Path));
+	CHECK(Level.GetExposureCompensation() == 0.f);
+	REQUIRE(Level.SetExposureCompensation(-2.f));
+	CHECK(Level.GetExposureCompensation() == -2.f);
+	CHECK(Level.IsDirty());
+	CHECK(Level.GetUndoLabel() == "Change exposure compensation");
+	REQUIRE(Level.Undo());
+	CHECK(Level.GetExposureCompensation() == 0.f);
+	REQUIRE(Level.Redo());
+	CHECK(Level.GetExposureCompensation() == -2.f);
+	CHECK_FALSE(Level.SetExposureCompensation(6.f));
+	CHECK_FALSE(Level.SetExposureCompensation(std::numeric_limits<float>::infinity()));
+	CHECK(Level.GetExposureCompensation() == -2.f);
+
+	REQUIRE(Level.Save());
+	FEditorLevel Reloaded;
+	REQUIRE(Reloaded.Load(Path));
+	CHECK(Reloaded.GetExposureCompensation() == -2.f);
+}
+
 TEST_CASE("Editor folder admission rejects missing objects cycles invalid names and blocked authoring atomically")
 {
 	FEditorLevel Level;

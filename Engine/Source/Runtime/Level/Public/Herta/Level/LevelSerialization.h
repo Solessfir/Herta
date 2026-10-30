@@ -23,6 +23,8 @@ struct FLevelFolder
 };
 
 inline constexpr std::uint32_t MaximumLevelCameraBookmarks = 9;
+// Stops either way, matching the viewport's compensation slider.
+inline constexpr float MaximumLevelExposureCompensation = 5.f;
 
 // Editor viewpoint saved with the level and recalled by its number key.
 struct FLevelCameraBookmark
@@ -45,6 +47,8 @@ struct FLevelDocument
 	std::vector<FLevelEntity> Entities{};
 	std::vector<FLevelFolder> Folders{};
 	std::vector<FLevelCameraBookmark> CameraBookmarks{};
+	// Stops added to auto exposure wherever the level is shown, for scenes whose metering does not suit them.
+	float ExposureCompensation = 0.f;
 };
 
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelCameraBookmarks(std::span<const FLevelCameraBookmark> Bookmarks);

@@ -495,6 +495,7 @@ std::expected<void, FLevelError> FEditorLevel::LoadDocument(FLevelDocument Docum
 	Name = std::move(Document.Name);
 	Folders = std::move(Document.Folders);
 	CameraBookmarks = std::move(Document.CameraBookmarks);
+	ExposureCompensation = Document.ExposureCompensation;
 	CurrentPath = Path;
 	RebuildObjects();
 	Selection.clear();
@@ -681,7 +682,7 @@ std::expected<void, FLevelError> FEditorLevel::Save(const std::filesystem::path&
 		return std::unexpected(FLevelError{"No level path is set; use level.save <path>"});
 	}
 
-	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks}); !Result)
+	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation}); !Result)
 	{
 		return Result;
 	}
@@ -1120,6 +1121,46 @@ std::expected<void, FLevelError> FEditorLevel::RemoveCameraBookmark(const std::u
 	}
 
 	return ApplyCameraBookmarks("Delete camera bookmark", std::move(After));
+}
+
+float FEditorLevel::GetExposureCompensation() const
+{
+	return ExposureCompensation;
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetExposureCompensation(const float Stops)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	if (!(std::abs(Stops) <= MaximumLevelExposureCompensation))
+	{
+		return std::unexpected(FLevelError{"Exposure compensation must be finite and within 5 stops"});
+	}
+
+	if (Stops == ExposureCompensation)
+	{
+		return {};
+	}
+
+	const auto Executed = History.Execute({
+	    .Label = "Change exposure compensation",
+	    .Apply = [this, Before = ExposureCompensation, Stops](const bool bUndo) -> std::expected<void, FEditorCommandError>
+	{
+		ExposureCompensation = bUndo ? Before : Stops;
+		return {};
+	},
+	    .MemoryCost = sizeof(float) * 2,
+	});
+
+	if (!Executed)
+	{
+		return std::unexpected(FLevelError{Executed.error().Message});
+	}
+
+	return {};
 }
 
 std::expected<void, FLevelError> FEditorLevel::ApplyCameraBookmarks(const std::string_view Label, std::vector<FLevelCameraBookmark> After)

@@ -44,6 +44,8 @@ public:
 	// Adds the bookmark or replaces the one in its slot.
 	[[nodiscard]] std::expected<void, FLevelError> SetCameraBookmark(FLevelCameraBookmark Bookmark);
 	[[nodiscard]] std::expected<void, FLevelError> RemoveCameraBookmark(std::uint32_t Slot);
+	float GetExposureCompensation() const;
+	[[nodiscard]] std::expected<void, FLevelError> SetExposureCompensation(float Stops);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateMeshEntity(FAssetId Asset, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEmptyEntity(const FWorldPosition& Position = {});
@@ -121,6 +123,7 @@ private:
 	std::filesystem::path CurrentPath;
 	std::vector<FLevelFolder> Folders;
 	std::vector<FLevelCameraBookmark> CameraBookmarks;
+	float ExposureCompensation = 0.f;
 	std::vector<FPreviewObject> Objects;
 	std::vector<FPreviewObject> AuthoredObjects;
 	std::uint64_t Generation = 1;

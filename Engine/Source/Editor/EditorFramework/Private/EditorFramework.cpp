@@ -682,7 +682,9 @@ struct FEditorFramework::FImplementation
 	FPhysicalCamera PhysicalCamera;
 	// Like a camera's program mode: the renderer meters the scene, and the manual aperture, shutter, and ISO wait until it is off.
 	bool bAutoExposure = true;
+	// The level's compensation, previewed here while its slider is dragged.
 	float ExposureCompensation = 0.f;
+	bool bExposureCompensationActive = false;
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
 
@@ -2249,6 +2251,11 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 {
 	VisualSettings.ExposureEV100 = GetPhysicalCameraExposureEV100(PhysicalCamera);
 	VisualSettings.bAutoExposure = bAutoExposure;
+	if (!bExposureCompensationActive)
+	{
+		ExposureCompensation = Level->GetExposureCompensation();
+	}
+
 	VisualSettings.ExposureCompensation = ExposureCompensation;
 	VisualSettings.DeltaSeconds = ImGui::GetIO().DeltaTime;
 	ViewportCamera.SetVerticalFieldOfView(GetPhysicalCameraVerticalFieldOfView(PhysicalCamera.FocalLengthMillimeters));
@@ -3157,7 +3164,17 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			if (bAutoExposure)
 			{
 				DrawFieldLabel("Compensation", ValueWidth);
-				DrawNumericSliderFloat("##ExposureCompensation", &ExposureCompensation, -5.f, 5.f, "%+.1f EV", ImGuiSliderFlags_AlwaysClamp);
+				DrawNumericSliderFloat("##ExposureCompensation", &ExposureCompensation, -MaximumLevelExposureCompensation, MaximumLevelExposureCompensation, "%+.1f EV", ImGuiSliderFlags_AlwaysClamp);
+				ImGui::SetItemTooltip("Saved with the level, and applied in Play and the game");
+				if (ImGui::IsItemDeactivatedAfterEdit())
+				{
+					if (const auto Changed = Level->SetExposureCompensation(ExposureCompensation); !Changed)
+					{
+						HERTA_LOG_ERROR(*Log, EditorLog, "Could not change exposure compensation: {}", Changed.error().Message);
+					}
+				}
+
+				bExposureCompensationActive = ImGui::IsItemActive();
 			}
 
 			ImGui::BeginDisabled(bAutoExposure);
@@ -4758,6 +4775,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	PlayVisuals.bContactShadows = VisualSettings.bContactShadows;
 	PlayVisuals.bGlobalIllumination = VisualSettings.bGlobalIllumination;
 	PlayVisuals.PenumbraSaturation = VisualSettings.PenumbraSaturation;
+	PlayVisuals.ExposureCompensation = VisualSettings.ExposureCompensation;
 }
 
 void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const ImVec2 Size)

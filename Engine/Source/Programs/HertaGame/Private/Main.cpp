@@ -624,6 +624,7 @@ int RunGame(const FGameOptions& Options)
 
 		FMeshRenderView View = Session->GetRenderView(Extent);
 		ApplyRenderQuality(View.Visuals, Settings.Quality);
+		View.Visuals.ExposureCompensation = Level->ExposureCompensation;
 		if (Presentation->IsHdrOutputActive())
 		{
 			View.Visuals.HdrDisplay = FHdrDisplaySettings{.PaperWhite = PaperWhite, .PeakLuminance = PeakLuminance};
