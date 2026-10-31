@@ -326,6 +326,25 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 				MoveOffset = {};
 			}
 		}
+		else if (Hit.Kind == EGraphCanvasHit::Link && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		{
+			// Double-clicking a link drops a reroute knot into it under the cursor.
+			const auto Reroute = std::ranges::find_if(Schema.Nodes, &FGraphNodeDescriptor::bReroute);
+			if (Reroute != Schema.Nodes.end())
+			{
+				if (auto Knot = MakeGraphNode(Schema, Reroute->Type, NextGraphNodeId(Graph), {Mouse[0] - Metrics.RerouteWidth * 0.5f, Mouse[1] - Metrics.RerouteHeight * 0.5f}))
+				{
+					FGraph After = Graph;
+					const FGraphNodeId Knotted = Knot->Id;
+					After.Nodes.push_back(std::move(*Knot));
+					if (auto Spliced = SpliceGraphNode(After, Schema, Knotted, Graph.Links[Hit.Link]))
+					{
+						Selection = {Knotted};
+						Edit = FGraphCanvasEdit{.Label = "Add reroute", .Graph = std::move(*Spliced)};
+					}
+				}
+			}
+		}
 		else if (Hit.Kind == EGraphCanvasHit::Link && IO.KeyAlt)
 		{
 			FGraph After = Graph;
@@ -750,6 +769,29 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		const FGraphNodeDescriptor& Descriptor = *Schema.FindNode(Node.Type);
 		const ImVec2 Min = ToImVec2(View.ToScreen({Layout.Rect[0], Layout.Rect[1]}));
 		const ImVec2 Max = ToImVec2(View.ToScreen({Layout.Rect[2], Layout.Rect[3]}));
+		if (Descriptor.bReroute)
+		{
+			// A knot takes the color of what flows through it.
+			const auto Feed = std::ranges::find_if(Graph.Links, [&Node](const FGraphLink& Link)
+			{
+				return Link.To.Node == Node.Id;
+			});
+
+			const auto Source = Feed != Graph.Links.end() ? PinOf(Feed->From, true) : std::nullopt;
+			const ImU32 Color = ToImU32(Source ? PinColor(Source->second) : ToolUITheme::TextMuted);
+			const ImVec2 Center((Min.x + Max.x) * 0.5f, (Min.y + Max.y) * 0.5f);
+			const float Radius = Metrics.PinRadius * View.Zoom * 1.2f;
+			DrawList->AddLine(ImVec2(Min.x, Center.y), ImVec2(Max.x, Center.y), Color, Thickness);
+			if (Contains(Selection, Node.Id))
+			{
+				DrawList->AddCircle(Center, Radius * 2.f, ToImU32(ToolUITheme::NeutralAccentHover), 0, std::max(1.5f, 2.f * View.Zoom));
+			}
+
+			const bool bHot = Hit.Kind != EGraphCanvasHit::None && Hit.Node == Node.Id;
+			DrawList->AddCircleFilled(Center, bHot ? Radius * 1.3f : Radius, Color);
+			continue;
+		}
+
 		const float TitleBottom = Min.y + Metrics.TitleHeight * View.Zoom;
 		const FToolUIColor Category = Domain.CategoryColor ? Domain.CategoryColor(Descriptor.Category) : ToolUITheme::Surface2;
 		DrawList->AddRectFilled(ImVec2(Min.x + 2.f, Min.y + 3.f), ImVec2(Max.x + 2.f, Max.y + 3.f), IM_COL32(0, 0, 0, 70), Rounding);

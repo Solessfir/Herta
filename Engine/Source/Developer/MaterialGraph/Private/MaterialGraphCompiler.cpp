@@ -339,6 +339,11 @@ std::optional<FExpression> FCompiler::EvaluateOutput(const FGraphNode& Node, con
 		return Swizzle(Sample, Channels(Key));
 	}
 
+	if (Type == "Reroute")
+	{
+		return Input(Node, "In");
+	}
+
 	if (Type == "Split")
 	{
 		const auto In = Input(Node, "In");

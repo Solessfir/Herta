@@ -89,6 +89,40 @@ TEST_CASE("Material graphs compile connected outputs and leave the rest to the m
 	CHECK(Compiled->Source.find("Material.Roughness") == std::string::npos);
 }
 
+TEST_CASE("Material graph reroutes pass their input through unchanged")
+{
+	FMaterialGraphBuilder Direct;
+	const FGraphNodeId DirectTexture = Direct.Add("TextureSample");
+	const FGraphNodeId DirectOutput = Direct.Add("MaterialOutput");
+	Direct.Link(DirectTexture, "RGB", DirectOutput, "BaseColor");
+
+	FMaterialGraphBuilder Routed;
+	const FGraphNodeId Texture = Routed.Add("TextureSample");
+	const FGraphNodeId Output = Routed.Add("MaterialOutput");
+	const FGraphNodeId First = Routed.Add("Reroute");
+	const FGraphNodeId Second = Routed.Add("Reroute");
+	Routed.Link(Texture, "RGB", First, "In");
+	Routed.Link(First, "Out", Second, "In");
+	Routed.Link(Second, "Out", Output, "BaseColor");
+
+	const auto Expected = CompileMaterialGraph(Direct.Graph);
+	const auto Compiled = CompileMaterialGraph(Routed.Graph);
+	REQUIRE(Expected);
+	REQUIRE(Compiled);
+	CHECK(Compiled->Diagnostics.empty());
+	CHECK(Compiled->Source == Expected->Source);
+	CHECK(GetMaterialGraphSchema().FindNode("Reroute")->bReroute);
+
+	// An open reroute is an error on the reroute itself.
+	FMaterialGraphBuilder Open;
+	const FGraphNodeId Loose = Open.Add("Reroute");
+	const FGraphNodeId OpenOutput = Open.Add("MaterialOutput");
+	Open.Link(Loose, "Out", OpenOutput, "Roughness");
+	const auto Failed = CompileMaterialGraph(Open.Graph);
+	REQUIRE_FALSE(Failed);
+	CHECK(HasDiagnostic(Failed.error(), Loose, "'In' needs a connection"));
+}
+
 TEST_CASE("Material graphs fold constants and widen scalars")
 {
 	FMaterialGraphBuilder Builder;

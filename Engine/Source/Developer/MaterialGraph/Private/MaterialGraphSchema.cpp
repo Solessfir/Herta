@@ -58,6 +58,9 @@ constexpr std::array ClampInputs{
     FGraphPinDescriptor{.Key = "Max", .Name = "Max", .Type = Dynamic},
 };
 
+constexpr std::array RerouteInputs{FGraphPinDescriptor{.Key = "In", .Name = "In", .Type = Dynamic}};
+constexpr std::array RerouteOutputs{FGraphPinDescriptor{.Key = "Out", .Name = "Out", .Type = Dynamic}};
+
 constexpr std::array SplitOutputs{
     FGraphPinDescriptor{.Key = "R", .Name = "R", .Type = Float},
     FGraphPinDescriptor{.Key = "G", .Name = "G", .Type = Float},
@@ -129,6 +132,7 @@ const std::array MaterialNodes{
     FGraphNodeDescriptor{.Type = "Length", .Name = "Length", .Category = "Math", .Inputs = UnaryInputs, .Outputs = ScalarResultOutput},
     FGraphNodeDescriptor{.Type = "Split", .Name = "Split", .Category = "Channels", .Inputs = UnaryInputs, .Outputs = SplitOutputs},
     FGraphNodeDescriptor{.Type = "Combine", .Name = "Combine", .Category = "Channels", .Inputs = CombineInputs, .Outputs = CombineOutputs},
+    FGraphNodeDescriptor{.Type = "Reroute", .Name = "Reroute", .Category = "Utility", .Inputs = RerouteInputs, .Outputs = RerouteOutputs, .bReroute = true},
     FGraphNodeDescriptor{.Type = MaterialGraphOutputType, .Name = "Material Output", .Category = "Output", .Inputs = OutputInputs, .MaximumCount = 1},
 };
 

@@ -65,6 +65,17 @@ void FGraphCanvasView::ZoomAbout(const FCanvasPoint Screen, const float Factor)
 FGraphNodeLayout LayoutGraphNode(const FGraphNode& Node, const FGraphNodeDescriptor& Descriptor, const FCanvasPoint Offset, const FGraphCanvasMetrics& Metrics, const std::function<float(std::string_view)>& MeasureText)
 {
 	FGraphNodeLayout Layout{.Id = Node.Id, .PropertyRows = Descriptor.Properties.size()};
+	if (Descriptor.bReroute)
+	{
+		const float Left = Node.Position[0] + Offset[0];
+		const float Top = Node.Position[1] + Offset[1];
+		const float Middle = Top + Metrics.RerouteHeight * 0.5f;
+		Layout.Rect = {Left, Top, Left + Metrics.RerouteWidth, Top + Metrics.RerouteHeight};
+		Layout.Inputs.assign(Descriptor.Inputs.size(), {Left, Middle});
+		Layout.Outputs.assign(Descriptor.Outputs.size(), {Left + Metrics.RerouteWidth, Middle});
+		return Layout;
+	}
+
 	float Width = std::max(Metrics.MinimumWidth, MeasureText(Descriptor.Name) + 2.f * Metrics.Padding);
 	const std::size_t PinRows = std::max(Descriptor.Inputs.size(), Descriptor.Outputs.size());
 	for (std::size_t Row = 0; Row < PinRows; ++Row)

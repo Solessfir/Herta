@@ -100,6 +100,8 @@ struct FGraphNodeDescriptor
 	std::span<const FGraphPropertyDescriptor> Properties{};
 	// Output nodes allow one per graph.
 	std::uint32_t MaximumCount = UINT32_MAX;
+	// Only routes one input to one output, so editors draw it as a small knot on the wire.
+	bool bReroute = false;
 };
 
 // A domain's node types and connection rules. Schemas are static data owned by the domain, so descriptors refer to them by view.

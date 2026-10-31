@@ -25,6 +25,9 @@ struct FGraphCanvasMetrics
 	float MinimumWidth = 120.f;
 	float Rounding = 6.f;
 	float GridSpacing = 32.f;
+	// A reroute knot's box, with its input on the left edge and its output on the right.
+	float RerouteWidth = 32.f;
+	float RerouteHeight = 16.f;
 };
 
 inline constexpr float MinimumGraphCanvasZoom = 0.2f;
