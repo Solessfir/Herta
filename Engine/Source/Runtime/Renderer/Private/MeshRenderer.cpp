@@ -1558,7 +1558,11 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 	if (Key.empty())
 	{
 		State.Pipeline = std::move(*Pipeline);
-		State.InstancedPipeline = std::move(*Instanced);
+		// Only renderers built for instancing have its prepass; see ShareMaterialShaders.
+		if (State.InstancedPipeline)
+		{
+			State.InstancedPipeline = std::move(*Instanced);
+		}
 	}
 	else
 	{
@@ -1581,7 +1585,13 @@ std::expected<void, FPresentationError> FMeshRenderer::ShareMaterialShaders(cons
 	auto Pipelines = Shared.MaterialPipelines;
 	State.MaterialPipelines.swap(Pipelines);
 	State.Pipeline = Shared.Pipeline;
-	State.InstancedPipeline = Shared.InstancedPipeline;
+	// A renderer built without instancing, such as a thumbnail's, has no instanced prepass, so gaining an instanced shading pipeline would send it down
+	// a path it cannot draw.
+	if (State.InstancedPipeline)
+	{
+		State.InstancedPipeline = Shared.InstancedPipeline;
+	}
+
 	return {};
 }
 

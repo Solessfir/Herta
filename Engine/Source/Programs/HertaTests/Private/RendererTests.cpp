@@ -945,6 +945,47 @@ TEST_CASE("Material shader sharing reuses compatible pipelines and counts only s
 	CHECK((*Preview)->GetMaterialShaderGeneration() == 0);
 }
 
+TEST_CASE("Material shader sharing keeps a renderer without instancing off the instanced path")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	// The masked shadow fragment shader turns on the depth prepass, as it does for editor thumbnails.
+	FVisualShaderSet Visuals;
+	Visuals.FullscreenVertex.Bytecode = {1};
+	Visuals.ShadowFragment.Bytecode = {1};
+	FShaderAsset InstancedVertex;
+	InstancedVertex.Stage = EShaderStage::Vertex;
+	InstancedVertex.EntryPoint = "instancedVertexMain";
+	InstancedVertex.Bytecode = {1};
+	const auto Editor = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex, Visuals);
+	const auto Thumbnail = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	REQUIRE(Editor);
+	REQUIRE(Thumbnail);
+
+	FShaderAsset Vertex;
+	Vertex.Stage = EShaderStage::Vertex;
+	Vertex.EntryPoint = "vertexMain";
+	Vertex.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = VisualUniformBytes}};
+	Vertex.Bytecode = {1};
+	FShaderAsset Instanced = Vertex;
+	Instanced.EntryPoint = "instancedVertexMain";
+	FShaderAsset Fragment = Vertex;
+	Fragment.Stage = EShaderStage::Fragment;
+	Fragment.EntryPoint = "fragmentMain";
+	REQUIRE((*Thumbnail)->PublishMaterialShader("", Vertex, Instanced, Fragment));
+	REQUIRE((*Editor)->PublishMaterialShader("", Vertex, Instanced, Fragment));
+	REQUIRE((*Thumbnail)->ShareMaterialShaders(**Editor));
+
+	// Before the fix the thumbnail took the editor's instanced pipeline and drew its prepass with an instanced prepass pipeline it never built.
+	Device.Draws.clear();
+	REQUIRE((*Thumbnail)->Render({64, 64}, Scene.View));
+	CHECK(std::ranges::none_of(Device.Draws, [](const FIndexedDraw& Draw)
+	{
+		return !Draw.Pipeline || std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor.bInstanced;
+	}));
+}
+
 TEST_CASE("Mesh vertex updates upload inside the frame's recording and must replace every vertex")
 {
 	FTestGraphicsDevice Device;
