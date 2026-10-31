@@ -131,6 +131,17 @@ std::optional<FGraphCanvasEdit> MoveNodes(const FGraph& Graph, const FGraphNodeP
 	return FGraphCanvasEdit{.Label = std::move(Label), .Graph = std::move(After)};
 }
 
+FGraph BreakLinks(const FGraph& Graph, const std::vector<FGraphLink>& Links)
+{
+	FGraph Result = Graph;
+	std::erase_if(Result.Links, [&Links](const FGraphLink& Link)
+	{
+		return std::ranges::find(Links, Link) != Links.end();
+	});
+
+	return Result;
+}
+
 FGraph RemoveNodes(const FGraph& Graph, const std::vector<FGraphNodeId>& Nodes)
 {
 	FGraph Result = Graph;
@@ -338,16 +349,43 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		const bool bAdditive = IO.KeyCtrl || IO.KeyShift;
 		if (Hit.Kind == EGraphCanvasHit::Pin)
 		{
-			Mode = EMode::Linking;
-			LinkStart = {.Node = Hit.Node, .Key = Hit.Pin};
-			bLinkFromOutput = Hit.bOutput;
-			DetachedLink.reset();
-			const auto Existing = std::ranges::find(Graph.Links, LinkStart, &FGraphLink::To);
-			if (!Hit.bOutput && Existing != Graph.Links.end())
+			const FGraphPin Pin{.Node = Hit.Node, .Key = Hit.Pin};
+			if (IO.KeyAlt)
 			{
-				DetachedLink = *Existing;
-				LinkStart = Existing->From;
-				bLinkFromOutput = true;
+				if (FGraph After = BreakGraphPinLinks(Graph, Pin, Hit.bOutput); After != Graph)
+				{
+					Edit = FGraphCanvasEdit{.Label = "Break pin links", .Graph = std::move(After)};
+				}
+			}
+			else
+			{
+				Mode = EMode::Linking;
+				LinkAnchors = {Pin};
+				bAnchorsAreOutputs = Hit.bOutput;
+				DetachedLinks.clear();
+
+				// Ctrl lifts the pin's links instead of starting a new one, as in Unreal: an input's link comes away by this end, and an output's links all move together.
+				if (IO.KeyCtrl)
+				{
+					for (const FGraphLink& Link : Graph.Links)
+					{
+						if ((Hit.bOutput ? Link.From : Link.To) == Pin)
+						{
+							DetachedLinks.push_back(Link);
+						}
+					}
+
+					if (!DetachedLinks.empty())
+					{
+						LinkAnchors.clear();
+						for (const FGraphLink& Link : DetachedLinks)
+						{
+							LinkAnchors.push_back(Hit.bOutput ? Link.To : Link.From);
+						}
+
+						bAnchorsAreOutputs = !Hit.bOutput;
+					}
+				}
 			}
 		}
 		else if (Hit.Kind == EGraphCanvasHit::Node)
@@ -522,54 +560,48 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 	}
 
 	std::optional<std::string> LinkProblem;
-	std::optional<FGraphLink> Candidate;
-	if (Mode == EMode::Linking && Hit.Kind == EGraphCanvasHit::Pin && Hit.bOutput != bLinkFromOutput)
+	std::optional<FGraph> Relinked;
+	std::optional<FGraphPin> LinkTarget;
+	if (Mode == EMode::Linking && Hit.Kind == EGraphCanvasHit::Pin && Hit.bOutput != bAnchorsAreOutputs)
 	{
-		const FGraphPin Target{.Node = Hit.Node, .Key = Hit.Pin};
-		FGraphLink Link = bLinkFromOutput ? FGraphLink{.From = LinkStart, .To = Target} : FGraphLink{.From = Target, .To = LinkStart};
-		FGraph Without = Graph;
-		if (DetachedLink)
+		LinkTarget = FGraphPin{.Node = Hit.Node, .Key = Hit.Pin};
+		if (auto Result = RelinkGraphPins(Graph, Schema, LinkAnchors, bAnchorsAreOutputs, *LinkTarget, DetachedLinks))
 		{
-			std::erase(Without.Links, *DetachedLink);
-		}
-
-		if (const auto Allowed = CanLinkGraphPins(Without, Schema, Link); Allowed)
-		{
-			Candidate = std::move(Link);
+			Relinked = std::move(*Result);
 		}
 		else
 		{
-			LinkProblem = Allowed.error().Message;
+			LinkProblem = Result.error().Message;
 		}
 	}
 
+	const bool bOverEmptyCanvas = Mode == EMode::Linking && bHovered && Hit.Kind == EGraphCanvasHit::None;
 	if (Mode == EMode::Linking && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
 	{
-		if (Candidate)
+		if (Relinked)
 		{
-			FGraph After = Graph;
-			if (DetachedLink)
-			{
-				std::erase(After.Links, *DetachedLink);
-			}
-
-			std::erase_if(After.Links, [&Candidate](const FGraphLink& Link)
-			{
-				return Link.To == Candidate->To;
-			});
-
-			After.Links.push_back(*Candidate);
-			Edit = FGraphCanvasEdit{.Label = "Connect pins", .Graph = std::move(After)};
+			Edit = FGraphCanvasEdit{.Label = DetachedLinks.empty() ? "Connect pins" : "Move links", .Graph = std::move(*Relinked)};
 		}
-		else if (DetachedLink && Hit.Kind != EGraphCanvasHit::Pin)
+		else if (bOverEmptyCanvas)
 		{
-			FGraph After = Graph;
-			std::erase(After.Links, *DetachedLink);
-			Edit = FGraphCanvasEdit{.Label = "Disconnect pins", .Graph = std::move(After)};
+			// A wire dropped on empty canvas places a new node there and connects it, as in Unreal.
+			MenuPosition = Mouse;
+			Search.fill('\0');
+			bFocusSearch = true;
+			bPendingWire = true;
+			ImGui::OpenPopup("AddNode");
+		}
+		else if (!DetachedLinks.empty() && Hit.Kind != EGraphCanvasHit::Pin)
+		{
+			Edit = FGraphCanvasEdit{.Label = "Disconnect pins", .Graph = BreakLinks(Graph, DetachedLinks)};
 		}
 
 		Mode = EMode::Idle;
-		DetachedLink.reset();
+		if (!bPendingWire)
+		{
+			LinkAnchors.clear();
+			DetachedLinks.clear();
+		}
 	}
 
 	if (Mode == EMode::BoxSelecting && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
@@ -900,7 +932,7 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 	for (std::size_t Index = 0; Index < Graph.Links.size(); ++Index)
 	{
 		const FGraphLink& Link = Graph.Links[Index];
-		if (Mode == EMode::Linking && DetachedLink && Link == *DetachedLink)
+		if ((Mode == EMode::Linking || bPendingWire) && std::ranges::find(DetachedLinks, Link) != DetachedLinks.end())
 		{
 			continue;
 		}
@@ -1052,26 +1084,33 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		}
 	}
 
-	if (Mode == EMode::Linking)
+	if (Mode == EMode::Linking || bPendingWire)
 	{
-		const auto Start = PinOf(LinkStart, bLinkFromOutput);
-		if (Start)
+		const auto Target = LinkTarget ? PinOf(*LinkTarget, !bAnchorsAreOutputs) : std::nullopt;
+		const FCanvasPoint End = bPendingWire ? MenuPosition : Target && !LinkProblem ? Target->first : Mouse;
+		for (const FGraphPin& Anchor : LinkAnchors)
 		{
-			const FCanvasPoint End = Candidate ? (PinOf(bLinkFromOutput ? Candidate->To : Candidate->From, !bLinkFromOutput))->first : Mouse;
-			const ImU32 Color = LinkProblem ? ToImU32(ToolUITheme::Error) : ToImU32(PinColor(Start->second));
-			if (bLinkFromOutput)
+			if (const auto Start = PinOf(Anchor, bAnchorsAreOutputs))
 			{
-				DrawCurve(Start->first, End, Color, Thickness);
-			}
-			else
-			{
-				DrawCurve(End, Start->first, Color, Thickness);
+				const ImU32 Color = LinkProblem ? ToImU32(ToolUITheme::Error) : ToImU32(PinColor(Start->second));
+				if (bAnchorsAreOutputs)
+				{
+					DrawCurve(Start->first, End, Color, Thickness);
+				}
+				else
+				{
+					DrawCurve(End, Start->first, Color, Thickness);
+				}
 			}
 		}
 
 		if (LinkProblem)
 		{
 			ImGui::SetTooltip("%s", LinkProblem->c_str());
+		}
+		else if (bOverEmptyCanvas)
+		{
+			ImGui::SetTooltip("Place a new node.");
 		}
 	}
 
@@ -1242,14 +1281,36 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 				if (Node)
 				{
 					FGraph After = Graph;
-					Selection = {Node->Id};
+					const FGraphNodeId Placed = Node->Id;
+					Selection = {Placed};
 					After.Nodes.push_back(std::move(*Node));
+					if (auto Connected = bPendingWire ? ConnectGraphPinsToNode(After, Schema, LinkAnchors, bAnchorsAreOutputs, Placed, DetachedLinks) : std::unexpected(FGraphError{}))
+					{
+						After = std::move(*Connected);
+					}
+
 					Edit = FGraphCanvasEdit{.Label = std::format("Add {}", Descriptor.Name), .Graph = std::move(After)};
+					bPendingWire = false;
+					LinkAnchors.clear();
+					DetachedLinks.clear();
 				}
 			}
 		}
 
 		ImGui::EndPopup();
+	}
+
+	// Closing the menu without placing a node lets go of the wire; links Ctrl lifted stay removed.
+	if (bPendingWire && !ImGui::IsPopupOpen("AddNode"))
+	{
+		if (!DetachedLinks.empty() && !Edit)
+		{
+			Edit = FGraphCanvasEdit{.Label = "Disconnect pins", .Graph = BreakLinks(Graph, DetachedLinks)};
+		}
+
+		bPendingWire = false;
+		LinkAnchors.clear();
+		DetachedLinks.clear();
 	}
 
 	ImGui::PopID();

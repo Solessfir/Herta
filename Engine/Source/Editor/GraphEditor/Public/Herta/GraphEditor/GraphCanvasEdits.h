@@ -35,6 +35,14 @@ enum class EGraphDirection : std::uint8_t
 // Inserts a node into a link: the link's source feeds the node's first free input that accepts it, and the node's first output the target accepts feeds the target.
 [[nodiscard]] std::expected<FGraph, FGraphError> SpliceGraphNode(const FGraph& Graph, const FGraphSchema& Schema, FGraphNodeId Node, const FGraphLink& Link);
 
+// Removes Detached, then links every anchor pin to Target: anchor outputs feed an input Target, or an output Target feeds each anchor input.
+// An input that is linked again loses its old link. Fails when any of the new links would be invalid.
+[[nodiscard]] std::expected<FGraph, FGraphError> RelinkGraphPins(const FGraph& Graph, const FGraphSchema& Schema, std::span<const FGraphPin> Anchors, bool bAnchorsAreOutputs, const FGraphPin& Target, std::span<const FGraphLink> Detached);
+// Like RelinkGraphPins, but each anchor takes the first pin of Node on the opposite side that accepts it.
+[[nodiscard]] std::expected<FGraph, FGraphError> ConnectGraphPinsToNode(const FGraph& Graph, const FGraphSchema& Schema, std::span<const FGraphPin> Anchors, bool bAnchorsAreOutputs, FGraphNodeId Node, std::span<const FGraphLink> Detached);
+// Removes every link into or out of a pin.
+[[nodiscard]] FGraph BreakGraphPinLinks(const FGraph& Graph, const FGraphPin& Pin, bool bOutput);
+
 // The nodes and the links among them as canonical graph text, for the clipboard.
 [[nodiscard]] std::expected<std::string, FGraphError> CopyGraphNodes(const FGraph& Graph, const FGraphSchema& Schema, std::span<const FGraphNodeId> Nodes);
 // Adds copied nodes under new identities with their top-left corner at Position, skipping types already at their per-graph limit, and reports the new identities.

@@ -73,10 +73,12 @@ private:
 	EMode Mode = EMode::Idle;
 	FCanvasPoint DragStart{};
 	FCanvasPoint MoveOffset{};
-	FGraphPin LinkStart{};
-	bool bLinkFromOutput = false;
-	// Dragging away from a connected input picks up its link; dropping it on nothing removes it.
-	std::optional<FGraphLink> DetachedLink{};
+	// A wire in hand: the pins it stays attached to, which side they are on, and the links Ctrl lifted, which a drop elsewhere replaces.
+	std::vector<FGraphPin> LinkAnchors{};
+	bool bAnchorsAreOutputs = false;
+	std::vector<FGraphLink> DetachedLinks{};
+	// A wire dropped on empty canvas waits for the add-node menu to connect the node it places; closing the menu drops the lifted links.
+	bool bPendingWire = false;
 	// The link a lone, unlinked node being moved would be inserted into if dropped now.
 	std::optional<FGraphLink> SpliceTarget{};
 	// What a move carries: the selection plus the nodes inside selected comments, fixed when the drag starts.

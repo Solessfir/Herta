@@ -164,6 +164,51 @@ TEST_CASE("Graph canvas edits copy and paste nodes under new identities")
 	CHECK_FALSE(PasteGraphNodes(Fixture.Graph, GetMaterialGraphSchema(), "not a graph", {}, Pasted));
 }
 
+TEST_CASE("Graph canvas edits move lifted links to new pins and new nodes")
+{
+	FEditsFixture Fixture;
+	const FGraphNodeId Output = Fixture.Add("MaterialOutput", {600.f, 0.f});
+	const FGraphNodeId Value = Fixture.Add("Constant", {0.f, 0.f});
+	const FGraphNodeId Other = Fixture.Add("Constant", {0.f, 200.f});
+	Fixture.Link(Value, "Value", Output, "Roughness");
+	Fixture.Link(Value, "Value", Output, "Metallic");
+	const auto Lifted = Fixture.Graph.Links;
+
+	// Ctrl-dragging the output lifts both links; dropping on another output moves them together.
+	const std::vector<FGraphPin> Inputs{{.Node = Output, .Key = "Roughness"}, {.Node = Output, .Key = "Metallic"}};
+	const auto Moved = RelinkGraphPins(Fixture.Graph, GetMaterialGraphSchema(), Inputs, false, {.Node = Other, .Key = "Value"}, Lifted);
+	REQUIRE(Moved);
+	CHECK(Moved->Links.size() == 2);
+	CHECK(HasLink(*Moved, Other, "Value", Output, "Roughness"));
+	CHECK(HasLink(*Moved, Other, "Value", Output, "Metallic"));
+
+	// A plain drag from an output to an input that already has a link replaces it.
+	const auto Replaced = RelinkGraphPins(Fixture.Graph, GetMaterialGraphSchema(), std::array{FGraphPin{.Node = Other, .Key = "Value"}}, true, {.Node = Output, .Key = "Roughness"}, {});
+	REQUIRE(Replaced);
+	CHECK(HasLink(*Replaced, Other, "Value", Output, "Roughness"));
+	CHECK_FALSE(HasLink(*Replaced, Value, "Value", Output, "Roughness"));
+	CHECK(Replaced->Links.size() == 2);
+
+	// Dropping both lifted links on a new node connects each to a pin that accepts it.
+	FGraph WithNode = Fixture.Graph;
+	const FGraphNodeId Add = NextGraphNodeId(WithNode);
+	WithNode.Nodes.push_back(*MakeGraphNode(GetMaterialGraphSchema(), "Add", Add, {300.f, 0.f}));
+	const auto Connected = ConnectGraphPinsToNode(WithNode, GetMaterialGraphSchema(), Inputs, false, Add, Lifted);
+	REQUIRE(Connected);
+	CHECK(HasLink(*Connected, Add, "Result", Output, "Roughness"));
+	CHECK(HasLink(*Connected, Add, "Result", Output, "Metallic"));
+
+	// A new node's free inputs take several held outputs one each.
+	const std::vector<FGraphPin> Outputs{{.Node = Value, .Key = "Value"}, {.Node = Other, .Key = "Value"}};
+	const auto Fed = ConnectGraphPinsToNode(WithNode, GetMaterialGraphSchema(), Outputs, true, Add, {});
+	REQUIRE(Fed);
+	CHECK(HasLink(*Fed, Value, "Value", Add, "A"));
+	CHECK(HasLink(*Fed, Other, "Value", Add, "B"));
+
+	const FGraph Broken = BreakGraphPinLinks(Fixture.Graph, {.Node = Value, .Key = "Value"}, true);
+	CHECK(Broken.Links.empty());
+}
+
 TEST_CASE("Graph comments carry the nodes inside them and travel through the clipboard")
 {
 	FEditsFixture Fixture;

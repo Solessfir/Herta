@@ -260,6 +260,97 @@ std::expected<FGraph, FGraphError> SpliceGraphNode(const FGraph& Graph, const FG
 	return std::unexpected(FGraphError{"The node has no output the link's target accepts"});
 }
 
+namespace
+{
+// Adds From -> To after dropping any link already feeding the input, checking it against the graph built so far.
+std::expected<void, FGraphError> AddLink(FGraph& Graph, const FGraphSchema& Schema, const FGraphLink& Link)
+{
+	std::erase_if(Graph.Links, [&Link](const FGraphLink& Existing)
+	{
+		return Existing.To == Link.To;
+	});
+
+	if (auto Allowed = CanLinkGraphPins(Graph, Schema, Link); !Allowed)
+	{
+		return Allowed;
+	}
+
+	Graph.Links.push_back(Link);
+	return {};
+}
+
+FGraph WithoutLinks(const FGraph& Graph, const std::span<const FGraphLink> Detached)
+{
+	FGraph After = Graph;
+	std::erase_if(After.Links, [Detached](const FGraphLink& Link)
+	{
+		return std::ranges::find(Detached, Link) != Detached.end();
+	});
+
+	return After;
+}
+}
+
+std::expected<FGraph, FGraphError> RelinkGraphPins(const FGraph& Graph, const FGraphSchema& Schema, const std::span<const FGraphPin> Anchors, const bool bAnchorsAreOutputs, const FGraphPin& Target, const std::span<const FGraphLink> Detached)
+{
+	FGraph After = WithoutLinks(Graph, Detached);
+	for (const FGraphPin& Anchor : Anchors)
+	{
+		const FGraphLink Link = bAnchorsAreOutputs ? FGraphLink{.From = Anchor, .To = Target} : FGraphLink{.From = Target, .To = Anchor};
+		if (auto Added = AddLink(After, Schema, Link); !Added)
+		{
+			return std::unexpected(Added.error());
+		}
+	}
+
+	return After;
+}
+
+std::expected<FGraph, FGraphError> ConnectGraphPinsToNode(const FGraph& Graph, const FGraphSchema& Schema, const std::span<const FGraphPin> Anchors, const bool bAnchorsAreOutputs, const FGraphNodeId Node, const std::span<const FGraphLink> Detached)
+{
+	const FGraphNodeDescriptor* const Descriptor = FindDescriptor(Graph, Schema, Node);
+	if (!Descriptor)
+	{
+		return std::unexpected(FGraphError{"The node to connect is missing"});
+	}
+
+	FGraph After = WithoutLinks(Graph, Detached);
+	for (const FGraphPin& Anchor : Anchors)
+	{
+		bool bConnected = false;
+		for (const FGraphPinDescriptor& Pin : bAnchorsAreOutputs ? Descriptor->Inputs : Descriptor->Outputs)
+		{
+			const FGraphPin Target{.Node = Node, .Key = std::string(Pin.Key)};
+			const FGraphLink Link = bAnchorsAreOutputs ? FGraphLink{.From = Anchor, .To = Target} : FGraphLink{.From = Target, .To = Anchor};
+			// Prefer an input nothing feeds yet, so several anchors spread over the node instead of replacing each other.
+			if ((!bAnchorsAreOutputs || !FindInputLink(After, Target)) && CanLinkGraphPins(After, Schema, Link))
+			{
+				After.Links.push_back(Link);
+				bConnected = true;
+				break;
+			}
+		}
+
+		if (!bConnected)
+		{
+			return std::unexpected(FGraphError{"The new node has no pin that accepts the link"});
+		}
+	}
+
+	return After;
+}
+
+FGraph BreakGraphPinLinks(const FGraph& Graph, const FGraphPin& Pin, const bool bOutput)
+{
+	FGraph After = Graph;
+	std::erase_if(After.Links, [&Pin, bOutput](const FGraphLink& Link)
+	{
+		return (bOutput ? Link.From : Link.To) == Pin;
+	});
+
+	return After;
+}
+
 std::expected<std::string, FGraphError> CopyGraphNodes(const FGraph& Graph, const FGraphSchema& Schema, const std::span<const FGraphNodeId> Nodes)
 {
 	FGraph Copied{.Domain = Graph.Domain, .DomainVersion = Graph.DomainVersion};
