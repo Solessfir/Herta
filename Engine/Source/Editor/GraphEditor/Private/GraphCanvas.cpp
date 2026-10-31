@@ -1,8 +1,10 @@
 #include "Herta/GraphEditor/GraphCanvas.h"
 
+#include "Herta/GraphEditor/GraphCanvasEdits.h"
 #include "Herta/GraphEditor/GraphCanvasFormat.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <cctype>
@@ -204,6 +206,20 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		}
 	}
 
+	const auto FrameBounds = [this, Size](const std::array<float, 4>& Bounds)
+	{
+		const float Margin = 48.f;
+		View.Zoom = std::clamp(std::min((Size.x - 2.f * Margin) / std::max(Bounds[2] - Bounds[0], 1.f), (Size.y - 2.f * Margin) / std::max(Bounds[3] - Bounds[1], 1.f)), MinimumGraphCanvasZoom, 1.f);
+		View.Pan = {Size.x * 0.5f - (Bounds[0] + Bounds[2]) * 0.5f * View.Zoom, Size.y * 0.5f - (Bounds[1] + Bounds[3]) * 0.5f * View.Zoom};
+	};
+
+	std::vector<FGraphNodeId> AllNodes;
+	AllNodes.reserve(Layouts.size());
+	for (const FGraphNodeLayout& Layout : Layouts)
+	{
+		AllNodes.push_back(Layout.Id);
+	}
+
 	if (bFrameRequested)
 	{
 		// A new document tab can begin floating and dock a frame later, so keep framing until the canvas size settles.
@@ -211,18 +227,16 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		FramedSize = {Size.x, Size.y};
 		View.Zoom = 1.f;
 		View.Pan = {Size.x * 0.5f, Size.y * 0.5f};
-		if (!Layouts.empty())
+		if (const auto Bounds = GraphNodeBounds(Layouts, AllNodes))
 		{
-			std::array<float, 4> Bounds{INFINITY, INFINITY, -INFINITY, -INFINITY};
-			for (const FGraphNodeLayout& Layout : Layouts)
-			{
-				Bounds = {std::min(Bounds[0], Layout.Rect[0]), std::min(Bounds[1], Layout.Rect[1]), std::max(Bounds[2], Layout.Rect[2]), std::max(Bounds[3], Layout.Rect[3])};
-			}
-
-			const float Margin = 48.f;
-			View.Zoom = std::clamp(std::min((Size.x - 2.f * Margin) / (Bounds[2] - Bounds[0]), (Size.y - 2.f * Margin) / (Bounds[3] - Bounds[1])), MinimumGraphCanvasZoom, 1.f);
-			View.Pan = {Size.x * 0.5f - (Bounds[0] + Bounds[2]) * 0.5f * View.Zoom, Size.y * 0.5f - (Bounds[1] + Bounds[3]) * 0.5f * View.Zoom};
+			FrameBounds(*Bounds);
 		}
+	}
+
+	// The cursor pin belongs to the one selected node and goes away with it.
+	if (Selection.size() != 1)
+	{
+		CursorPin.clear();
 	}
 
 	const ImGuiIO& IO = ImGui::GetIO();
@@ -334,6 +348,28 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 	{
 		const float Grid = FormatSettings.Grid > 0.f ? FormatSettings.Grid : 1.f;
 		MoveOffset = {std::round((Mouse[0] - DragStart[0]) / Grid) * Grid, std::round((Mouse[1] - DragStart[1]) / Grid) * Grid};
+
+		// A lone node without links that is dragged over a link drops into it, as in Unreal.
+		SpliceTarget.reset();
+		const bool bLoose = Selection.size() == 1 && std::ranges::none_of(Graph.Links, [this](const FGraphLink& Link)
+		{
+			return Link.From.Node == Selection.front() || Link.To.Node == Selection.front();
+		});
+
+		if (bLoose && (MoveOffset[0] != 0.f || MoveOffset[1] != 0.f))
+		{
+			for (const FGraphLink& Link : Graph.Links)
+			{
+				const FCanvasPoint* const From = FindGraphPinPosition(Graph, Schema, Layouts, Link.From, true);
+				const FCanvasPoint* const To = FindGraphPinPosition(Graph, Schema, Layouts, Link.To, false);
+				if (From && To && DistanceToGraphLink(Mouse, *From, *To) <= Tolerance * 2.f && SpliceGraphNode(Graph, Schema, Selection.front(), Link))
+				{
+					SpliceTarget = Link;
+					break;
+				}
+			}
+		}
+
 		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
 			if (MoveOffset[0] != 0.f || MoveOffset[1] != 0.f)
@@ -347,11 +383,19 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 					}
 				}
 
-				Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Move node" : "Move nodes", .Graph = std::move(After)};
+				if (auto Spliced = SpliceTarget ? SpliceGraphNode(After, Schema, Selection.front(), *SpliceTarget) : std::unexpected(FGraphError{}))
+				{
+					Edit = FGraphCanvasEdit{.Label = "Insert node into link", .Graph = std::move(*Spliced)};
+				}
+				else
+				{
+					Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Move node" : "Move nodes", .Graph = std::move(After)};
+				}
 			}
 
 			Mode = EMode::Idle;
 			MoveOffset = {};
+			SpliceTarget.reset();
 		}
 	}
 
@@ -419,10 +463,152 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		Mode = EMode::Idle;
 	}
 
+	// The canvas takes the arrows and Tab from ImGui's keyboard navigation while it has focus, so they move through the graph instead of the panel.
+	const ImGuiID CanvasId = ImGui::GetID("Canvas");
+	const bool bKeyboard = bFocused && !IO.WantTextInput && Mode == EMode::Idle && !bPopupOpen;
+	if (bKeyboard)
+	{
+		for (const ImGuiKey Key : {ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_UpArrow, ImGuiKey_DownArrow, ImGuiKey_Tab, ImGuiKey_Enter})
+		{
+			ImGui::SetKeyOwner(Key, CanvasId);
+		}
+	}
+
+	const auto Pressed = [CanvasId](const ImGuiKey Key)
+	{
+		return ImGui::IsKeyPressed(Key, ImGuiInputFlags_Repeat, CanvasId);
+	};
+
+	if (bKeyboard && !Edit)
+	{
+		constexpr std::array Arrows{std::pair{ImGuiKey_LeftArrow, EGraphDirection::Left}, std::pair{ImGuiKey_RightArrow, EGraphDirection::Right}, std::pair{ImGuiKey_UpArrow, EGraphDirection::Up}, std::pair{ImGuiKey_DownArrow, EGraphDirection::Down}};
+		const FGraphNode* const Single = Selection.size() == 1 ? FindGraphNode(Graph, Selection.front()) : nullptr;
+		const FGraphNodeDescriptor* const SingleDescriptor = Single ? Schema.FindNode(Single->Type) : nullptr;
+		for (const auto& [Key, Direction] : Arrows)
+		{
+			if (!Pressed(Key) || !Single)
+			{
+				continue;
+			}
+
+			const bool bVertical = Direction == EGraphDirection::Up || Direction == EGraphDirection::Down;
+			if (IO.KeyAlt && bVertical && !CursorPin.empty() && !bCursorOutput && SingleDescriptor)
+			{
+				// Alt+Up or Down swaps the cursor input's link with the input above or below it, and the cursor follows.
+				const auto Current = std::ranges::find(SingleDescriptor->Inputs, CursorPin, &FGraphPinDescriptor::Key);
+				const auto Index = Current - SingleDescriptor->Inputs.begin();
+				const auto Other = Index + (Direction == EGraphDirection::Down ? 1 : -1);
+				if (Current != SingleDescriptor->Inputs.end() && Other >= 0 && Other < static_cast<std::ptrdiff_t>(SingleDescriptor->Inputs.size()))
+				{
+					if (auto Swapped = SwapGraphInputs(Graph, Schema, Single->Id, CursorPin, SingleDescriptor->Inputs[static_cast<std::size_t>(Other)].Key))
+					{
+						Edit = FGraphCanvasEdit{.Label = "Swap pins", .Graph = std::move(*Swapped)};
+						CursorPin = SingleDescriptor->Inputs[static_cast<std::size_t>(Other)].Key;
+					}
+				}
+			}
+			else if (const auto Neighbour = FindGraphNeighbour(Layouts, Single->Id, Direction))
+			{
+				if (IO.KeyAlt)
+				{
+					Edit = MoveNodes(Graph, SwapGraphNodes(Layouts, Single->Id, *Neighbour), "Swap nodes");
+				}
+				else
+				{
+					Selection = {*Neighbour};
+					CursorPin.clear();
+				}
+			}
+		}
+
+		// Tab walks the selected node's pins, inputs first; Enter follows the cursor pin's link to the node at its other end.
+		if (SingleDescriptor && Pressed(ImGuiKey_Tab))
+		{
+			std::vector<std::pair<bool, std::string_view>> Pins;
+			for (const FGraphPinDescriptor& Input : SingleDescriptor->Inputs)
+			{
+				Pins.emplace_back(false, Input.Key);
+			}
+
+			for (const FGraphPinDescriptor& Output : SingleDescriptor->Outputs)
+			{
+				Pins.emplace_back(true, Output.Key);
+			}
+
+			if (!Pins.empty())
+			{
+				const auto Current = std::ranges::find(Pins, std::pair<bool, std::string_view>{bCursorOutput, CursorPin});
+				const std::ptrdiff_t Count = static_cast<std::ptrdiff_t>(Pins.size());
+				const std::ptrdiff_t Index = Current == Pins.end() ? (IO.KeyShift ? Count - 1 : 0) : ((Current - Pins.begin()) + (IO.KeyShift ? Count - 1 : 1)) % Count;
+				bCursorOutput = Pins[static_cast<std::size_t>(Index)].first;
+				CursorPin = Pins[static_cast<std::size_t>(Index)].second;
+			}
+		}
+
+		if (Single && !CursorPin.empty() && Pressed(ImGuiKey_Enter))
+		{
+			const FGraphPin Pin{.Node = Single->Id, .Key = CursorPin};
+			const auto Link = std::ranges::find_if(Graph.Links, [&Pin, this](const FGraphLink& Candidate)
+			{
+				return (bCursorOutput ? Candidate.From : Candidate.To) == Pin;
+			});
+
+			if (Link != Graph.Links.end())
+			{
+				Selection = {bCursorOutput ? Link->To.Node : Link->From.Node};
+				bCursorOutput = !bCursorOutput;
+				CursorPin = bCursorOutput ? Link->From.Key : Link->To.Key;
+			}
+		}
+	}
+
+	// The clipboard holds canonical graph text, so nodes copy between graphs of one domain and paste where the cursor is.
+	if (bKeyboard && !Edit && IO.KeyCtrl && !IO.KeyAlt)
+	{
+		const FCanvasPoint PastePosition = bHovered ? Mouse : View.ToCanvas({Origin.x + Size.x * 0.5f, Origin.y + Size.y * 0.5f});
+		if (ImGui::IsKeyPressed(ImGuiKey_V, false))
+		{
+			std::vector<FGraphNodeId> Pasted;
+			const char* const Clipboard = ImGui::GetClipboardText();
+			if (auto After = Clipboard ? PasteGraphNodes(Graph, Schema, Clipboard, PastePosition, Pasted) : std::unexpected(FGraphError{}))
+			{
+				Selection = std::move(Pasted);
+				Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Paste node" : "Paste nodes", .Graph = std::move(*After)};
+			}
+		}
+		else if (!Selection.empty() && (ImGui::IsKeyPressed(ImGuiKey_C, false) || ImGui::IsKeyPressed(ImGuiKey_X, false)))
+		{
+			if (const auto Text = CopyGraphNodes(Graph, Schema, Selection))
+			{
+				ImGui::SetClipboardText(Text->c_str());
+				if (ImGui::IsKeyPressed(ImGuiKey_X, false))
+				{
+					// Ctrl+Shift+X cuts like Shift+Delete deletes: the gap the nodes leave is bridged.
+					Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Cut node" : "Cut nodes", .Graph = IO.KeyShift ? RemoveGraphNodesKeepingLinks(Graph, Schema, Selection) : RemoveNodes(Graph, Selection)};
+					Selection.clear();
+				}
+			}
+		}
+	}
+
+	// Z frames the trees the selection belongs to, or the whole graph with nothing selected.
+	if (bKeyboard && !Edit && !IO.KeyCtrl && !IO.KeyShift && !IO.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_Z, false))
+	{
+		if (const auto Bounds = GraphNodeBounds(Layouts, Selection.empty() ? AllNodes : GraphConnectedNodes(Graph, Selection)))
+		{
+			FrameBounds(*Bounds);
+		}
+	}
+
 	// Keyboard edits apply to the selection while the canvas has focus and no text field does.
 	if (bFocused && !IO.WantTextInput && Mode == EMode::Idle && !Selection.empty() && !Edit)
 	{
-		if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
+		if (IO.KeyShift && !IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Delete, false))
+		{
+			Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Delete node keeping links" : "Delete nodes keeping links", .Graph = RemoveGraphNodesKeepingLinks(Graph, Schema, Selection)};
+			Selection.clear();
+		}
+		else if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
 		{
 			Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Delete node" : "Delete nodes", .Graph = RemoveNodes(Graph, Selection)};
 			Selection.clear();
@@ -538,8 +724,9 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		const auto To = PinOf(Link.To, false);
 		if (From && To)
 		{
-			const bool bHighlight = (Hit.Kind == EGraphCanvasHit::Link && Hit.Link == Index) || Contains(Selection, Link.From.Node) || Contains(Selection, Link.To.Node);
-			DrawCurve(From->first, To->first, WithAlpha(PinColor(From->second), bHighlight ? 255 : 170), bHighlight ? Thickness * 1.5f : Thickness);
+			const bool bSplice = SpliceTarget && *SpliceTarget == Link;
+			const bool bHighlight = bSplice || (Hit.Kind == EGraphCanvasHit::Link && Hit.Link == Index) || Contains(Selection, Link.From.Node) || Contains(Selection, Link.To.Node);
+			DrawCurve(From->first, To->first, bSplice ? ToImU32(ToolUITheme::NeutralAccentHover) : WithAlpha(PinColor(From->second), bHighlight ? 255 : 170), bHighlight ? Thickness * (bSplice ? 2.5f : 1.5f) : Thickness);
 		}
 	}
 
@@ -597,6 +784,11 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 
 				const float Radius = Metrics.PinRadius * View.Zoom;
 				const bool bPinHot = Hit.Kind == EGraphCanvasHit::Pin && Hit.Node == Node.Id && Hit.Pin == Pins[Index].Key && Hit.bOutput == bOutput;
+				if (bSelected && Selection.size() == 1 && CursorPin == Pins[Index].Key && bCursorOutput == bOutput)
+				{
+					DrawList->AddCircle(Center, Radius * 2.f, ToImU32(ToolUITheme::NeutralAccentHover), 0, std::max(1.5f, 2.f * View.Zoom));
+				}
+
 				const ImU32 Color = ToImU32(PinColor(Pins[Index].Type));
 				if (bConnected || bPinHot)
 				{
@@ -737,10 +929,37 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 			ImGui::EndMenu();
 		}
 
+		if (ImGui::MenuItem("Swap nodes", nullptr, false, Selection.size() == 2))
+		{
+			Edit = MoveNodes(Graph, SwapGraphNodes(Layouts, Selection[0], Selection[1]), "Swap nodes");
+		}
+
+		if (ImGui::MenuItem("Zoom to tree", "Z"))
+		{
+			if (const auto Bounds = GraphNodeBounds(Layouts, GraphConnectedNodes(Graph, Selection)))
+			{
+				FrameBounds(*Bounds);
+			}
+		}
+
 		ImGui::Separator();
+		if (ImGui::MenuItem("Copy", "Ctrl+C") && !Selection.empty())
+		{
+			if (const auto Text = CopyGraphNodes(Graph, Schema, Selection))
+			{
+				ImGui::SetClipboardText(Text->c_str());
+			}
+		}
+
 		if (ImGui::MenuItem("Delete", "Del") && !Selection.empty())
 		{
 			Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Delete node" : "Delete nodes", .Graph = RemoveNodes(Graph, Selection)};
+			Selection.clear();
+		}
+
+		if (ImGui::MenuItem("Delete keeping links", "Shift+Del") && !Selection.empty())
+		{
+			Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Delete node keeping links" : "Delete nodes keeping links", .Graph = RemoveGraphNodesKeepingLinks(Graph, Schema, Selection)};
 			Selection.clear();
 		}
 

@@ -64,6 +64,10 @@ private:
 	bool bFrameRequested = true;
 	std::array<float, 2> FramedSize{};
 
+	// A pin of the single selected node that Tab walks through, for following and swapping links from the keyboard. Empty when none.
+	std::string CursorPin{};
+	bool bCursorOutput = false;
+
 	// The gesture in progress.
 	EMode Mode = EMode::Idle;
 	FCanvasPoint DragStart{};
@@ -72,6 +76,8 @@ private:
 	bool bLinkFromOutput = false;
 	// Dragging away from a connected input picks up its link; dropping it on nothing removes it.
 	std::optional<FGraphLink> DetachedLink{};
+	// The link a lone, unlinked node being moved would be inserted into if dropped now.
+	std::optional<FGraphLink> SpliceTarget{};
 
 	// The add-node menu.
 	FCanvasPoint MenuPosition{};

@@ -57,6 +57,9 @@ struct FGraphNodeLayout
 // Lays out a node at its position plus Offset, which carries a drag in progress. MeasureText returns a label's width in canvas units.
 [[nodiscard]] FGraphNodeLayout LayoutGraphNode(const FGraphNode& Node, const FGraphNodeDescriptor& Descriptor, FCanvasPoint Offset, const FGraphCanvasMetrics& Metrics, const std::function<float(std::string_view)>& MeasureText);
 
+// Where a pin sits, or nothing when its node, its type, or its layout is missing.
+[[nodiscard]] const FCanvasPoint* FindGraphPinPosition(const FGraph& Graph, const FGraphSchema& Schema, std::span<const FGraphNodeLayout> Layouts, const FGraphPin& Pin, bool bOutput);
+
 // The cubic curve from an output pin to an input pin: control points pull horizontally so links leave and enter their pins level.
 [[nodiscard]] std::array<FCanvasPoint, 4> GraphLinkCurve(FCanvasPoint Output, FCanvasPoint Input);
 [[nodiscard]] float DistanceToGraphLink(FCanvasPoint Point, FCanvasPoint Output, FCanvasPoint Input);

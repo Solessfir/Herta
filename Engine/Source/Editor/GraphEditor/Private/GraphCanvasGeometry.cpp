@@ -26,9 +26,9 @@ const FGraphNodeLayout* FindLayout(const std::span<const FGraphNodeLayout> Layou
 	const auto Found = std::ranges::find(Layouts, Id, &FGraphNodeLayout::Id);
 	return Found == Layouts.end() ? nullptr : &*Found;
 }
+}
 
-// Where a pin sits, from its node's layout and its index among the node's pins.
-const FCanvasPoint* PinPosition(const FGraph& Graph, const FGraphSchema& Schema, const std::span<const FGraphNodeLayout> Layouts, const FGraphPin& Pin, const bool bOutput)
+const FCanvasPoint* FindGraphPinPosition(const FGraph& Graph, const FGraphSchema& Schema, const std::span<const FGraphNodeLayout> Layouts, const FGraphPin& Pin, const bool bOutput)
 {
 	const FGraphNode* const Node = FindGraphNode(Graph, Pin.Node);
 	const FGraphNodeDescriptor* const Descriptor = Node ? Schema.FindNode(Node->Type) : nullptr;
@@ -43,7 +43,6 @@ const FCanvasPoint* PinPosition(const FGraph& Graph, const FGraphSchema& Schema,
 	const auto& Positions = bOutput ? Layout->Outputs : Layout->Inputs;
 	const auto Index = static_cast<std::size_t>(Found - Pins.begin());
 	return Found == Pins.end() || Index >= Positions.size() ? nullptr : &Positions[Index];
-}
 }
 
 FCanvasPoint FGraphCanvasView::ToScreen(const FCanvasPoint Canvas) const
@@ -159,8 +158,8 @@ FGraphCanvasHitResult HitTestGraphCanvas(const FGraph& Graph, const FGraphSchema
 	for (std::size_t Index = 0; Index < Graph.Links.size(); ++Index)
 	{
 		const FGraphLink& Link = Graph.Links[Index];
-		const FCanvasPoint* const Output = PinPosition(Graph, Schema, Layouts, Link.From, true);
-		const FCanvasPoint* const Input = PinPosition(Graph, Schema, Layouts, Link.To, false);
+		const FCanvasPoint* const Output = FindGraphPinPosition(Graph, Schema, Layouts, Link.From, true);
+		const FCanvasPoint* const Input = FindGraphPinPosition(Graph, Schema, Layouts, Link.To, false);
 		if (Output && Input && DistanceToGraphLink(Point, *Output, *Input) <= Tolerance)
 		{
 			return {.Kind = EGraphCanvasHit::Link, .Link = Index};
