@@ -534,6 +534,7 @@ struct FEditorFramework::FImplementation
 	std::expected<std::string, FAssetError> CreateMaterialGraph(FAssetId Id);
 	void OpenMaterialGraph(FAssetId Id, std::string_view ShaderPath);
 	void OpenMaterialGraphKey(const std::string& Key);
+	void ResolveGraphPreview();
 	void DrawPerformancePanel();
 	[[nodiscard]] int FindTimeOfDaySun() const;
 	void DrawTimeOfDay(float X, float Top, float Width, float ButtonSize, float Scale);
@@ -586,6 +587,12 @@ struct FEditorFramework::FImplementation
 	// Startup restores like a reopened panel; otherwise the last tab to appear, the Output Log, is selected.
 	bool bRestoreBottomPanelFocus = true;
 	bool bContentBrowserOpen = true;
+	// The material previewed beside the open Material Graph, and the shader generation its preview shows.
+	FAssetId GraphPreviewAsset{};
+	std::optional<FMaterialAsset> GraphPreviewMaterial;
+	std::uint64_t GraphPreviewGeneration = UINT64_MAX;
+	bool bGraphPreviewPending = false;
+
 	// The bottom panel belongs to the level tab; an asset editor tab in front summons the browser or log as a drawer instead.
 	bool bContentDrawerOpen = false;
 	bool bOutputLogDrawerOpen = false;
@@ -2771,7 +2778,24 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 		}
 	}
 
-	MaterialGraphPanel.Draw(*ToolUI, {.ShaderStatus = GraphStatus});
+	ResolveGraphPreview();
+	const auto* const GraphShader = MaterialShaders && MaterialGraphPanel.IsOpen() ? MaterialShaders->GetStatus(MaterialGraphPanel.GetPath()) : nullptr;
+	const bool bGraphPreviewShown = GraphPreviewMaterial && Assets->GetMaterialPreviewAsset() == GraphPreviewAsset;
+	MaterialGraphPanel.Draw(*ToolUI, {
+	    .ShaderStatus = GraphStatus,
+	    .PreviewTexture = bGraphPreviewShown && Assets->GetMaterialPreviewThumbnail() ? *Assets->GetMaterialPreviewThumbnail() : 0,
+	    .PreviewStatus = bGraphPreviewPending ? "" : !GraphPreviewMaterial ? "No material beside this graph uses it, so there is nothing to preview." : bGraphPreviewShown && Assets->IsMaterialPreviewLoading() ? "Updating preview..." : bGraphPreviewShown ? Assets->GetMaterialPreviewError() : "",
+	    .RequestPreview = [&]
+	{
+		// The preview slot is shared with the Material panel, so take it back when it shows something else, and refresh once a recompiled graph has published.
+		const std::uint64_t Generation = GraphShader && GraphShader->bReady && !GraphShader->bCompiling ? GraphShader->Generation : GraphPreviewGeneration;
+		if (GraphPreviewMaterial && (Assets->GetMaterialPreviewAsset() != GraphPreviewAsset || Generation != GraphPreviewGeneration))
+		{
+			Assets->RequestMaterialPreview(GraphPreviewAsset, *GraphPreviewMaterial);
+			GraphPreviewGeneration = Generation;
+		}
+	},
+	});
 }
 
 // A material's graph lives beside it as <material>.hmatgraph; an existing file is reused rather than replaced.
@@ -2844,6 +2868,38 @@ void FEditorFramework::FImplementation::OpenMaterialGraphKey(const std::string& 
 	}
 
 	MaterialGraphPanel.Open(Key, File, std::move(*Graph), bEngine);
+	GraphPreviewAsset = {};
+	GraphPreviewMaterial.reset();
+	GraphPreviewGeneration = UINT64_MAX;
+	bGraphPreviewPending = true;
+}
+
+// A graph is created beside its material as <material>.hmatgraph, so that material is the one to preview, provided it still uses the graph.
+// Assets may still be scanning when a graph opens from the command line, so this waits for the scan.
+void FEditorFramework::FImplementation::ResolveGraphPreview()
+{
+	if (!bGraphPreviewPending || !Assets || Assets->IsScanning())
+	{
+		return;
+	}
+
+	bGraphPreviewPending = false;
+	const std::string& Key = MaterialGraphPanel.GetPath();
+	constexpr std::string_view GraphExtension = ".hmatgraph";
+	if (!Key.ends_with(GraphExtension))
+	{
+		return;
+	}
+
+	const std::string MaterialKey = Key.substr(0, Key.size() - GraphExtension.size()) + ".hmat";
+	const auto Options = Assets->GetOptions();
+	const auto Option = std::ranges::find(Options, MaterialKey, &FPreviewAssetOption::Label);
+	const auto MaterialFile = Option != Options.end() ? Assets->GetMaterialPath(Option->Id) : std::unexpected(FAssetError{});
+	if (auto Material = MaterialFile ? LoadMaterialAsset(*MaterialFile) : std::unexpected(FAssetError{}); Material && MaterialShaderKey(Material->ShaderPath, MaterialKey) == Key)
+	{
+		GraphPreviewAsset = Option->Id;
+		GraphPreviewMaterial = std::move(*Material);
+	}
 }
 
 void FEditorFramework::FImplementation::RefreshSelectionFromLevel()

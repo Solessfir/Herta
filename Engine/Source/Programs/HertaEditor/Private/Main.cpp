@@ -696,7 +696,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 	const std::array MaterialStudioLights{
 	    FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 45000.f, .bCastShadows = false}, .Transform = FMatrix4::Rotation(FQuaternion::FromAxisAngle(FVector3::Up(), -0.6f) * FQuaternion::FromAxisAngle(FVector3::Left(), 0.7f))},
-	    FRenderLight{.Settings = {.Type = ELightType::Sky, .Intensity = 1.f, .bCastShadows = false, .bEnvironmentVisible = false}},
+	    FRenderLight{.Settings = {.Type = ELightType::Sky, .Intensity = 1.f, .bCastShadows = false, .bEnvironmentVisible = true}},
 	};
 
 	const FVisualSettings MaterialStudioSettings{.Atmosphere = FSkyAtmosphereComponent{}, .ShadowQuality = EShadowQuality::Off, .bStudioPreview = false};

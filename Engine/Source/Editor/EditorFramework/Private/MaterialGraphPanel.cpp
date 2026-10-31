@@ -387,6 +387,11 @@ void FMaterialGraphPanel::Draw(FToolUIContext& ToolUI, const FMaterialGraphPanel
 	bool bKeepOpen = true;
 	const bool bVisible = ToolUI.BeginPanel(TabLabel, &bKeepOpen, EToolUIPanelKind::Document);
 	bFocused = bVisible && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+	if (bVisible && Context.RequestPreview)
+	{
+		Context.RequestPreview();
+	}
+
 	if (bVisible)
 	{
 		ImGui::TextUnformatted((Path + (IsDirty() ? " *" : "")).c_str());
@@ -443,21 +448,42 @@ void FMaterialGraphPanel::Draw(FToolUIContext& ToolUI, const FMaterialGraphPanel
 			ImGui::TextColored(ImVec4(1.f, 0.49f, 0.49f, 1.f), "%s", Error.c_str());
 		}
 
+		// The preview and details sit left of the canvas, as in Unreal's material editor.
 		const float Sidebar = 280.f * Scale;
 		const float Height = ImGui::GetContentRegionAvail().y;
-		if (ImGui::BeginChild("Canvas", {std::max(1.f, ImGui::GetContentRegionAvail().x - Sidebar - ImGui::GetStyle().ItemSpacing.x), Height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
+		if (ImGui::BeginChild("Details", {Sidebar, Height}, ImGuiChildFlags_None))
+		{
+			if (Context.PreviewTexture != 0)
+			{
+				const float Width = ImGui::GetContentRegionAvail().x;
+				const ImVec2 Position = ImGui::GetCursorScreenPos();
+				ImGui::GetWindowDrawList()->AddImageRounded(ImTextureRef(static_cast<ImTextureID>(Context.PreviewTexture)), Position, {Position.x + Width, Position.y + Width}, {0, 0}, {1, 1}, IM_COL32_WHITE, ImGui::GetStyle().FrameRounding);
+				ImGui::Dummy({Width, Width});
+			}
+
+			if (!Context.PreviewStatus.empty())
+			{
+				ImGui::PushTextWrapPos();
+				ImGui::TextDisabled("%.*s", static_cast<int>(Context.PreviewStatus.size()), Context.PreviewStatus.data());
+				ImGui::PopTextWrapPos();
+			}
+
+			if (Context.PreviewTexture != 0 || !Context.PreviewStatus.empty())
+			{
+				ImGui::Spacing();
+			}
+
+			DrawDetails();
+		}
+
+		ImGui::EndChild();
+		ImGui::SameLine();
+		if (ImGui::BeginChild("Canvas", {std::max(1.f, ImGui::GetContentRegionAvail().x), Height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
 			if (auto Edit = Canvas.Draw("MaterialGraph", Draft, MaterialDomain, Diagnostics); Edit && !bReadOnly)
 			{
 				Apply(std::move(Edit->Graph), std::move(Edit->Label));
 			}
-		}
-
-		ImGui::EndChild();
-		ImGui::SameLine();
-		if (ImGui::BeginChild("Details", {Sidebar, Height}, ImGuiChildFlags_None))
-		{
-			DrawDetails();
 		}
 
 		ImGui::EndChild();

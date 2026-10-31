@@ -4,7 +4,9 @@
 #include "Herta/GraphCore/Graph.h"
 #include "Herta/GraphEditor/GraphCanvas.h"
 
+#include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -18,6 +20,11 @@ struct FMaterialGraphPanelContext
 {
 	// The pipeline's state from the material shader watcher, which recompiles a graph once it is saved.
 	std::string_view ShaderStatus{};
+	// The graph's material on a studio-lit sphere, or zero while there is none.
+	std::uint64_t PreviewTexture = 0;
+	std::string_view PreviewStatus{};
+	// Called each frame the graph is in front, so the owner can keep the preview current.
+	std::function<void()> RequestPreview{};
 };
 
 // Edits one Material Graph file with its own undo history; saving publishes it to the material shader watcher.
