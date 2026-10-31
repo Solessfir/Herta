@@ -95,7 +95,8 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 	Options[0].name = slang::CompilerOptionName::VulkanUseEntryPointName;
 	Options[0].value.intValue0 = 1;
 	Options[1].name = slang::CompilerOptionName::DebugInformation;
-	Options[1].value.intValue0 = Request.bDebugInformation ? SLANG_DEBUG_INFO_LEVEL_MINIMAL : SLANG_DEBUG_INFO_LEVEL_NONE;
+	// Standard embeds the source text (NonSemantic.Shader.DebugInfo), which profilers need to map samples to source lines; Minimal keeps only file names.
+	Options[1].value.intValue0 = Request.bDebugInformation ? SLANG_DEBUG_INFO_LEVEL_STANDARD : SLANG_DEBUG_INFO_LEVEL_NONE;
 	Options[2].name = slang::CompilerOptionName::Optimization;
 	Options[2].value.intValue0 = SLANG_OPTIMIZATION_LEVEL_HIGH;
 	slang::TargetDesc Target;
@@ -183,7 +184,7 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 	Shader.Stage = Request.Stage;
 	Shader.EntryPoint = Request.EntryPoint;
 	Shader.CompilerVersion = spGetBuildTagString();
-	Shader.PermutationKey = "spirv_1_5;column-major;optimization=high;debug=" + std::to_string(Request.bDebugInformation);
+	Shader.PermutationKey = std::string("spirv_1_5;column-major;optimization=high;debug=") + (Request.bDebugInformation ? "standard" : "none");
 	Shader.bDebugInformation = Request.bDebugInformation;
 	for (unsigned Index = 0; Index < Layout->getParameterCount(); ++Index)
 	{

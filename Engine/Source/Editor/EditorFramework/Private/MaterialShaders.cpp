@@ -159,7 +159,8 @@ std::expected<FCompiledMaterialShader, FShaderError> CompileSnapshot(const std::
 	for (std::size_t Index = 0; Index < EntryPoints.size(); ++Index)
 	{
 		const auto Output = Scratch.GetPath() / std::format("Stage{}.hshader", Index);
-		std::vector<std::string> Arguments{Utf8Path(Source), Index == 2 ? "fragment" : "vertex", std::string(EntryPoints[Index]), Utf8Path(Output)};
+		// The editor's live material pipelines replace the cooked ones, so they carry source for profilers too.
+		std::vector<std::string> Arguments{Utf8Path(Source), Index == 2 ? "fragment" : "vertex", std::string(EntryPoints[Index]), Utf8Path(Output), "--debug"};
 
 		for (const auto& Root : Copies)
 		{

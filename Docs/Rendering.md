@@ -84,7 +84,7 @@ Compute shaders live in `Engine/Shaders/Compute` and cook their `computeMain` en
 
 The pinned Vulkan SDK supplies Slang. Setup validates its headers and compiler libraries on Windows and Linux. `ShaderCompiler` is a Developer module; runtime rendering depends only on RHI's cooked reader.
 
-Building `HertaEditor` first builds `HertaShaderWorker` and runs the `HertaShaders` target. It cooks the mesh, shadow, sky, fog, tone-map, SMAA, grid, and debug shaders into `Shaders/*.hshader` beside the executable, including instanced mesh and shadow variants. Builds do not download anything. Shipping strips shader debug information; the runtime renderer consumes cooked shaders without depending on Slang.
+Building `HertaEditor` first builds `HertaShaderWorker` and runs the `HertaShaders` target. It cooks the mesh, shadow, sky, fog, tone-map, SMAA, grid, and debug shaders into `Shaders/*.hshader` beside the executable, including instanced mesh and shadow variants. Builds do not download anything. Debug and Development cooks embed the shader source as SPIR-V debug information (Slang's standard level, about 3.5x the size), so Nsight GPU Trace can attribute shader samples to source lines; profiling showed no frame-time cost. Shipping strips shader debug information; the runtime renderer consumes cooked shaders without depending on Slang.
 
 Cooked files contain explicit little-endian versioned fields, stage and entry point, SPIR-V, reflected bindings and push-constant size, compiler version, permutation settings, source dependency hashes, and a content checksum. The reader bounds sizes and rejects corrupt or incompatible files. A successful cook atomically replaces the output; failure preserves the previous file.
 
