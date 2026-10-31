@@ -91,4 +91,6 @@ struct FGraphCanvasHitResult
 
 // Nodes whose rectangle overlaps the box spanned by two corners in any order.
 [[nodiscard]] std::vector<FGraphNodeId> GraphNodesInBox(std::span<const FGraphNodeLayout> Layouts, FCanvasPoint First, FCanvasPoint Second);
+// Nodes that lie entirely inside a comment, which move with it.
+[[nodiscard]] std::vector<FGraphNodeId> GraphNodesInComment(std::span<const FGraphNodeLayout> Layouts, const FGraphComment& Comment);
 }

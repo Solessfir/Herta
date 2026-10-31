@@ -53,6 +53,7 @@ private:
 		Idle,
 		Panning,
 		Moving,
+		Resizing,
 		BoxSelecting,
 		Linking,
 	};
@@ -78,6 +79,14 @@ private:
 	std::optional<FGraphLink> DetachedLink{};
 	// The link a lone, unlinked node being moved would be inserted into if dropped now.
 	std::optional<FGraphLink> SpliceTarget{};
+	// What a move carries: the selection plus the nodes inside selected comments, fixed when the drag starts.
+	std::vector<FGraphNodeId> MovingNodes{};
+	FGraphNodeId ResizingComment{};
+
+	// The comment whose title is being edited.
+	FGraphNodeId RenamingComment{};
+	std::array<char, 256> CommentText{};
+	bool bFocusCommentText = false;
 
 	// The add-node menu.
 	FCanvasPoint MenuPosition{};

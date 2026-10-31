@@ -65,6 +65,18 @@ struct FGraphLink
 	FGraphPin To{};
 };
 
+// A titled box behind nodes for notes and grouping; layout only, never semantics.
+struct FGraphComment
+{
+	bool operator==(const FGraphComment&) const = default;
+
+	// Shares the node identity space, so one selection can hold nodes and comments.
+	FGraphNodeId Id{};
+	std::string Text{};
+	// Canvas units: min x, min y, max x, max y.
+	std::array<float, 4> Rect{};
+};
+
 struct FGraph
 {
 	bool operator==(const FGraph&) const = default;
@@ -73,6 +85,7 @@ struct FGraph
 	std::uint32_t DomainVersion = 0;
 	std::vector<FGraphNode> Nodes{};
 	std::vector<FGraphLink> Links{};
+	std::vector<FGraphComment> Comments{};
 };
 
 struct FGraphPinDescriptor
@@ -135,15 +148,19 @@ struct FGraphDiagnostic
 	std::string Message{};
 };
 
-inline constexpr std::uint32_t GraphFormatVersion = 1;
+// Version 2 added comments; version 1 files load without them.
+inline constexpr std::uint32_t GraphFormatVersion = 2;
 inline constexpr std::size_t MaximumGraphNodes = 65536;
 inline constexpr std::size_t MaximumGraphLinks = 262144;
+inline constexpr std::size_t MaximumGraphComments = 4096;
+inline constexpr std::size_t MaximumGraphCommentBytes = 4096;
 
 // A node of Type with the schema's default properties; fails when the schema has no such type.
 [[nodiscard]] std::expected<FGraphNode, FGraphError> MakeGraphNode(const FGraphSchema& Schema, std::string_view Type, FGraphNodeId Id, std::array<float, 2> Position);
-// One above the largest identity in use.
+// One above the largest identity in use by a node or a comment.
 [[nodiscard]] FGraphNodeId NextGraphNodeId(const FGraph& Graph);
 [[nodiscard]] const FGraphNode* FindGraphNode(const FGraph& Graph, FGraphNodeId Id);
+[[nodiscard]] const FGraphComment* FindGraphComment(const FGraph& Graph, FGraphNodeId Id);
 [[nodiscard]] const FGraphPinDescriptor* FindGraphPin(const FGraphNodeDescriptor& Node, std::string_view Key, bool bOutput);
 // Structural problems, such as unknown types, mistyped properties, dangling or mistyped links, a second link into one input, or cycles in an acyclic domain.
 // Domains add their own semantic checks on top.

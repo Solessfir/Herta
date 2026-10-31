@@ -139,6 +139,11 @@ FGraph RemoveNodes(const FGraph& Graph, const std::vector<FGraphNodeId>& Nodes)
 		return Contains(Nodes, Node.Id);
 	});
 
+	std::erase_if(Result.Comments, [&Nodes](const FGraphComment& Comment)
+	{
+		return Contains(Nodes, Comment.Id);
+	});
+
 	std::erase_if(Result.Links, [&Nodes](const FGraphLink& Link)
 	{
 		return Contains(Nodes, Link.From.Node) || Contains(Nodes, Link.To.Node);
@@ -193,7 +198,7 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 
 	const auto Offset = [this](const FGraphNodeId Node)
 	{
-		return Mode == EMode::Moving && Contains(Selection, Node) ? MoveOffset : FCanvasPoint{};
+		return Mode == EMode::Moving && Contains(MovingNodes, Node) ? MoveOffset : FCanvasPoint{};
 	};
 
 	std::vector<FGraphNodeLayout> Layouts;
@@ -244,6 +249,48 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 	const float Tolerance = 8.f / View.Zoom;
 	const FGraphCanvasHitResult Hit = bHovered ? HitTestGraphCanvas(Graph, Schema, Layouts, Mouse, Tolerance) : FGraphCanvasHitResult{};
 	const bool bPopupOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+
+	// Comments sit behind everything, so only their title bar and resize grip take clicks, and only where nothing else does.
+	const float CommentTitle = Metrics.TitleHeight;
+	const float Grip = 14.f / View.Zoom;
+	FGraphNodeId CommentHit{};
+	bool bGripHit = false;
+	if (Hit.Kind == EGraphCanvasHit::None)
+	{
+		for (auto Comment = Graph.Comments.rbegin(); Comment != Graph.Comments.rend(); ++Comment)
+		{
+			const auto& Rect = Comment->Rect;
+			const bool bInside = Mouse[0] >= Rect[0] && Mouse[0] <= Rect[2] && Mouse[1] >= Rect[1] && Mouse[1] <= Rect[3];
+			if (bInside && (Mouse[1] <= Rect[1] + CommentTitle || (Mouse[0] >= Rect[2] - Grip && Mouse[1] >= Rect[3] - Grip)))
+			{
+				CommentHit = Comment->Id;
+				bGripHit = Mouse[1] > Rect[1] + CommentTitle;
+				break;
+			}
+		}
+	}
+
+	const auto StartMoving = [&]
+	{
+		MovingNodes = Selection;
+		for (const FGraphComment& Comment : Graph.Comments)
+		{
+			if (Contains(Selection, Comment.Id))
+			{
+				for (const FGraphNodeId Inside : GraphNodesInComment(Layouts, Comment))
+				{
+					if (!Contains(MovingNodes, Inside))
+					{
+						MovingNodes.push_back(Inside);
+					}
+				}
+			}
+		}
+
+		Mode = EMode::Moving;
+		DragStart = Mouse;
+		MoveOffset = {};
+	};
 
 	// Navigation: the wheel zooms about the cursor, and the middle or right button drags the view.
 	if (bHovered && IO.MouseWheel != 0.f && !bPopupOpen)
@@ -321,9 +368,7 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 					Selection.push_back(Hit.Node);
 				}
 
-				Mode = EMode::Moving;
-				DragStart = Mouse;
-				MoveOffset = {};
+				StartMoving();
 			}
 		}
 		else if (Hit.Kind == EGraphCanvasHit::Link && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
@@ -351,6 +396,38 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 			After.Links.erase(After.Links.begin() + static_cast<std::ptrdiff_t>(Hit.Link));
 			Edit = FGraphCanvasEdit{.Label = "Disconnect pins", .Graph = std::move(After)};
 		}
+		else if (CommentHit.Value != 0 && bGripHit)
+		{
+			Selection = {CommentHit};
+			ResizingComment = CommentHit;
+			Mode = EMode::Resizing;
+		}
+		else if (CommentHit.Value != 0)
+		{
+			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+			{
+				const FGraphComment& Comment = *FindGraphComment(Graph, CommentHit);
+				RenamingComment = CommentHit;
+				CommentText.fill('\0');
+				Comment.Text.copy(CommentText.data(), CommentText.size() - 1);
+				bFocusCommentText = true;
+				ImGui::OpenPopup("RenameComment");
+			}
+			else
+			{
+				if (!bAdditive && !Contains(Selection, CommentHit))
+				{
+					Selection.clear();
+				}
+
+				if (!Contains(Selection, CommentHit))
+				{
+					Selection.push_back(CommentHit);
+				}
+
+				StartMoving();
+			}
+		}
 		else
 		{
 			if (!bAdditive)
@@ -363,6 +440,23 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		}
 	}
 
+	if (Mode == EMode::Resizing && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+	{
+		if (const FGraphComment* const Comment = FindGraphComment(Graph, ResizingComment))
+		{
+			FGraph After = Graph;
+			auto& Rect = std::ranges::find(After.Comments, ResizingComment, &FGraphComment::Id)->Rect;
+			Rect[2] = std::max(Rect[0] + 96.f, Mouse[0]);
+			Rect[3] = std::max(Rect[1] + CommentTitle + 32.f, Mouse[1]);
+			if (After.Comments != Graph.Comments)
+			{
+				Edit = FGraphCanvasEdit{.Label = "Resize comment", .Graph = std::move(After)};
+			}
+		}
+
+		Mode = EMode::Idle;
+	}
+
 	if (Mode == EMode::Moving)
 	{
 		const float Grid = FormatSettings.Grid > 0.f ? FormatSettings.Grid : 1.f;
@@ -370,7 +464,7 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 
 		// A lone node without links that is dragged over a link drops into it, as in Unreal.
 		SpliceTarget.reset();
-		const bool bLoose = Selection.size() == 1 && std::ranges::none_of(Graph.Links, [this](const FGraphLink& Link)
+		const bool bLoose = Selection.size() == 1 && MovingNodes.size() == 1 && FindGraphNode(Graph, Selection.front()) && std::ranges::none_of(Graph.Links, [this](const FGraphLink& Link)
 		{
 			return Link.From.Node == Selection.front() || Link.To.Node == Selection.front();
 		});
@@ -396,9 +490,17 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 				FGraph After = Graph;
 				for (FGraphNode& Node : After.Nodes)
 				{
-					if (Contains(Selection, Node.Id))
+					if (Contains(MovingNodes, Node.Id))
 					{
 						Node.Position = {Node.Position[0] + MoveOffset[0], Node.Position[1] + MoveOffset[1]};
+					}
+				}
+
+				for (FGraphComment& Comment : After.Comments)
+				{
+					if (Contains(MovingNodes, Comment.Id))
+					{
+						Comment.Rect = {Comment.Rect[0] + MoveOffset[0], Comment.Rect[1] + MoveOffset[1], Comment.Rect[2] + MoveOffset[0], Comment.Rect[3] + MoveOffset[1]};
 					}
 				}
 
@@ -408,13 +510,14 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 				}
 				else
 				{
-					Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Move node" : "Move nodes", .Graph = std::move(After)};
+					Edit = FGraphCanvasEdit{.Label = MovingNodes.size() == 1 ? "Move node" : "Move nodes", .Graph = std::move(After)};
 				}
 			}
 
 			Mode = EMode::Idle;
 			MoveOffset = {};
 			SpliceTarget.reset();
+			MovingNodes.clear();
 		}
 	}
 
@@ -476,6 +579,15 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 			if (!Contains(Selection, Node))
 			{
 				Selection.push_back(Node);
+			}
+		}
+
+		for (const FGraphComment& Comment : Graph.Comments)
+		{
+			const bool bInside = std::min(DragStart[0], Mouse[0]) <= Comment.Rect[0] && std::max(DragStart[0], Mouse[0]) >= Comment.Rect[2] && std::min(DragStart[1], Mouse[1]) <= Comment.Rect[1] && std::max(DragStart[1], Mouse[1]) >= Comment.Rect[3];
+			if (bInside && !Contains(Selection, Comment.Id))
+			{
+				Selection.push_back(Comment.Id);
 			}
 		}
 
@@ -610,6 +722,20 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		}
 	}
 
+	// C wraps the selected nodes in a comment, or drops one at the cursor.
+	if (bKeyboard && !Edit && !IO.KeyCtrl && !IO.KeyShift && !IO.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_C, false))
+	{
+		const float Margin = 24.f;
+		const auto Bounds = GraphNodeBounds(Layouts, Selection);
+		const FCanvasPoint At = bHovered ? Mouse : View.ToCanvas({Origin.x + Size.x * 0.5f, Origin.y + Size.y * 0.5f});
+		const std::array<float, 4> Rect = Bounds ? std::array{(*Bounds)[0] - Margin, (*Bounds)[1] - Margin - CommentTitle, (*Bounds)[2] + Margin, (*Bounds)[3] + Margin} : std::array{At[0], At[1], At[0] + 320.f, At[1] + 200.f};
+		FGraph After = Graph;
+		const FGraphNodeId CommentId = NextGraphNodeId(Graph);
+		After.Comments.push_back({.Id = CommentId, .Text = "Comment", .Rect = Rect});
+		Selection = {CommentId};
+		Edit = FGraphCanvasEdit{.Label = "Add comment", .Graph = std::move(After)};
+	}
+
 	// Z frames the trees the selection belongs to, or the whole graph with nothing selected.
 	if (bKeyboard && !Edit && !IO.KeyCtrl && !IO.KeyShift && !IO.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_Z, false))
 	{
@@ -692,6 +818,46 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 	{
 		return Domain.PinColor ? Domain.PinColor(Type) : ToolUITheme::NeutralAccent;
 	};
+
+	for (const FGraphComment& Comment : Graph.Comments)
+	{
+		std::array<float, 4> Rect = Comment.Rect;
+		if (Mode == EMode::Moving && Contains(MovingNodes, Comment.Id))
+		{
+			Rect = {Rect[0] + MoveOffset[0], Rect[1] + MoveOffset[1], Rect[2] + MoveOffset[0], Rect[3] + MoveOffset[1]};
+		}
+		else if (Mode == EMode::Resizing && ResizingComment == Comment.Id)
+		{
+			Rect[2] = std::max(Rect[0] + 96.f, Mouse[0]);
+			Rect[3] = std::max(Rect[1] + CommentTitle + 32.f, Mouse[1]);
+		}
+
+		if (!Visible(Rect))
+		{
+			continue;
+		}
+
+		const ImVec2 Min = ToImVec2(View.ToScreen({Rect[0], Rect[1]}));
+		const ImVec2 Max = ToImVec2(View.ToScreen({Rect[2], Rect[3]}));
+		const float TitleBottom = Min.y + CommentTitle * View.Zoom;
+		const float CommentRounding = Metrics.Rounding * View.Zoom;
+		const bool bSelected = Contains(Selection, Comment.Id);
+		DrawList->AddRectFilled(Min, Max, WithAlpha(ToolUITheme::NeutralAccent, 14), CommentRounding);
+		DrawList->AddRectFilled(Min, ImVec2(Max.x, TitleBottom), WithAlpha(ToolUITheme::NeutralAccent, 38), CommentRounding, ImDrawFlags_RoundCornersTop);
+		DrawList->AddRect(Min, Max, bSelected ? ToImU32(ToolUITheme::NeutralAccentHover) : WithAlpha(ToolUITheme::NeutralAccent, CommentHit == Comment.Id ? 120 : 60), CommentRounding, 0, bSelected ? 2.f : 1.f);
+		if (bLabels)
+		{
+			const ImVec4 Clip(Min.x, Min.y, Max.x - Metrics.Padding * View.Zoom, TitleBottom);
+			DrawList->AddText(Font, FontSize * 1.15f, ImVec2(Min.x + Metrics.Padding * View.Zoom, Min.y + (CommentTitle * View.Zoom - FontSize * 1.15f) * 0.5f), ToImU32(ToolUITheme::TextPrimary), Comment.Text.c_str(), nullptr, 0.f, &Clip);
+		}
+
+		// The resize grip: two short diagonals in the bottom-right corner.
+		const float Step = 4.f * View.Zoom;
+		for (const float Inset : {Step, Step * 2.f})
+		{
+			DrawList->AddLine(ImVec2(Max.x - Inset - Step, Max.y - Step), ImVec2(Max.x - Step, Max.y - Inset - Step), WithAlpha(ToolUITheme::TextMuted, 160), std::max(1.f, View.Zoom));
+		}
+	}
 
 	const auto LayoutOf = [&Layouts](const FGraphNodeId Node) -> const FGraphNodeLayout*
 	{
@@ -921,6 +1087,30 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 
 	DrawList->PopClipRect();
 
+	if (ImGui::BeginPopup("RenameComment"))
+	{
+		if (bFocusCommentText)
+		{
+			ImGui::SetKeyboardFocusHere();
+			bFocusCommentText = false;
+		}
+
+		ImGui::SetNextItemWidth(280.f);
+		if (ImGui::InputText("##CommentText", CommentText.data(), CommentText.size(), ImGuiInputTextFlags_EnterReturnsTrue))
+		{
+			FGraph After = Graph;
+			if (const auto Comment = std::ranges::find(After.Comments, RenamingComment, &FGraphComment::Id); Comment != After.Comments.end() && Comment->Text != CommentText.data())
+			{
+				Comment->Text = CommentText.data();
+				Edit = FGraphCanvasEdit{.Label = "Rename comment", .Graph = std::move(After)};
+			}
+
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+	}
+
 	if (ImGui::BeginPopup("NodeMenu"))
 	{
 		if (ImGui::MenuItem("Duplicate", "Ctrl+D") && !Selection.empty())
@@ -969,6 +1159,18 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 			}
 
 			ImGui::EndMenu();
+		}
+
+		if (ImGui::MenuItem("Comment selection", "C"))
+		{
+			if (const auto Bounds = GraphNodeBounds(Layouts, Selection))
+			{
+				FGraph After = Graph;
+				const FGraphNodeId CommentId = NextGraphNodeId(Graph);
+				After.Comments.push_back({.Id = CommentId, .Text = "Comment", .Rect = {(*Bounds)[0] - 24.f, (*Bounds)[1] - 24.f - CommentTitle, (*Bounds)[2] + 24.f, (*Bounds)[3] + 24.f}});
+				Selection = {CommentId};
+				Edit = FGraphCanvasEdit{.Label = "Add comment", .Graph = std::move(After)};
+			}
 		}
 
 		if (ImGui::MenuItem("Swap nodes", nullptr, false, Selection.size() == 2))

@@ -245,7 +245,36 @@ std::expected<std::string, FGraphError> SerializeGraph(const FGraph& Graph, cons
 		Text += "]}";
 	}
 
-	Text += Links.empty() ? "]\n}\n" : "\n  ]\n}\n";
+	std::vector<const FGraphComment*> Comments;
+	for (const FGraphComment& Comment : Graph.Comments)
+	{
+		Comments.push_back(&Comment);
+	}
+
+	std::ranges::sort(Comments, {}, [](const FGraphComment* const Comment)
+	{
+		return Comment->Id;
+	});
+
+	Text += Links.empty() ? "],\n  \"comments\": [" : "\n  ],\n  \"comments\": [";
+	for (std::size_t Index = 0; Index < Comments.size(); ++Index)
+	{
+		const FGraphComment& Comment = *Comments[Index];
+		Text += Index == 0 ? "\n    {\"id\": " : ",\n    {\"id\": ";
+		Text += std::to_string(Comment.Id.Value);
+		Text += ", \"text\": ";
+		AppendString(Text, Comment.Text);
+		Text += ", \"rect\": [";
+		for (std::size_t Corner = 0; Corner < Comment.Rect.size(); ++Corner)
+		{
+			Text += Corner == 0 ? "" : ", ";
+			AppendFloat(Text, Comment.Rect[Corner]);
+		}
+
+		Text += "]}";
+	}
+
+	Text += Comments.empty() ? "]\n}\n" : "\n  ]\n}\n";
 	return Text;
 }
 
@@ -266,9 +295,10 @@ std::expected<FGraph, FGraphError> DeserializeGraph(const std::string_view Text,
 
 	std::string_view Format, Domain;
 	std::uint64_t Version = 0, DomainVersion = 0;
-	simdjson::dom::array NodeArray, LinkArray;
-	if (Object.size() != 6 || Object["format"].get_string().get(Format) || Format != "HertaGraph" || Object["version"].get_uint64().get(Version) || Version != GraphFormatVersion || Object["domain"].get_string().get(Domain)
-	    || Object["domainVersion"].get_uint64().get(DomainVersion) || DomainVersion > UINT32_MAX || Object["nodes"].get_array().get(NodeArray) || Object["links"].get_array().get(LinkArray))
+	simdjson::dom::array NodeArray, LinkArray, CommentArray;
+	if (Object["format"].get_string().get(Format) || Format != "HertaGraph" || Object["version"].get_uint64().get(Version) || Version < 1 || Version > GraphFormatVersion || Object.size() != (Version == 1 ? 6u : 7u)
+	    || Object["domain"].get_string().get(Domain) || Object["domainVersion"].get_uint64().get(DomainVersion) || DomainVersion > UINT32_MAX || Object["nodes"].get_array().get(NodeArray) || Object["links"].get_array().get(LinkArray)
+	    || (Version >= 2 && Object["comments"].get_array().get(CommentArray)))
 	{
 		return Failed("Invalid graph header or unsupported version");
 	}
@@ -331,6 +361,38 @@ std::expected<FGraph, FGraphError> DeserializeGraph(const std::string_view Text,
 		}
 
 		Graph.Links.push_back(std::move(Parsed));
+	}
+
+	if (Version >= 2)
+	{
+		if (CommentArray.size() > MaximumGraphComments)
+		{
+			return Failed("The graph exceeds the comment limit");
+		}
+
+		for (const simdjson::dom::element Element : CommentArray)
+		{
+			simdjson::dom::object Comment;
+			std::uint64_t Id = 0;
+			std::string_view CommentText;
+			simdjson::dom::array Rect;
+			if (Element.get_object().get(Comment) || Comment.size() != 3 || Comment["id"].get_uint64().get(Id) || Id == 0 || Id > UINT32_MAX || Comment["text"].get_string().get(CommentText) || Comment["rect"].get_array().get(Rect) || Rect.size() != 4)
+			{
+				return Failed("Invalid graph comment");
+			}
+
+			FGraphComment Parsed{.Id = {static_cast<std::uint32_t>(Id)}, .Text = std::string(CommentText)};
+			std::size_t Corner = 0;
+			for (const simdjson::dom::element Value : Rect)
+			{
+				if (!ReadFloat(Value, Parsed.Rect[Corner++]))
+				{
+					return Failed("Invalid graph comment box");
+				}
+			}
+
+			Graph.Comments.push_back(std::move(Parsed));
+		}
 	}
 
 	const auto Diagnostics = ValidateGraph(Graph, Schema);

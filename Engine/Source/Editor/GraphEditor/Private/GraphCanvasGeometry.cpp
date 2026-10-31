@@ -180,6 +180,20 @@ FGraphCanvasHitResult HitTestGraphCanvas(const FGraph& Graph, const FGraphSchema
 	return {};
 }
 
+std::vector<FGraphNodeId> GraphNodesInComment(const std::span<const FGraphNodeLayout> Layouts, const FGraphComment& Comment)
+{
+	std::vector<FGraphNodeId> Inside;
+	for (const FGraphNodeLayout& Layout : Layouts)
+	{
+		if (Layout.Rect[0] >= Comment.Rect[0] && Layout.Rect[1] >= Comment.Rect[1] && Layout.Rect[2] <= Comment.Rect[2] && Layout.Rect[3] <= Comment.Rect[3])
+		{
+			Inside.push_back(Layout.Id);
+		}
+	}
+
+	return Inside;
+}
+
 std::vector<FGraphNodeId> GraphNodesInBox(const std::span<const FGraphNodeLayout> Layouts, const FCanvasPoint First, const FCanvasPoint Second)
 {
 	const float Left = std::min(First[0], Second[0]), Right = std::max(First[0], Second[0]);

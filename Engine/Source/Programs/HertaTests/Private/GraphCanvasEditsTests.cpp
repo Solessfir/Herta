@@ -163,4 +163,32 @@ TEST_CASE("Graph canvas edits copy and paste nodes under new identities")
 	CHECK_FALSE(CopyGraphNodes(Fixture.Graph, GetMaterialGraphSchema(), std::span<const FGraphNodeId>{}));
 	CHECK_FALSE(PasteGraphNodes(Fixture.Graph, GetMaterialGraphSchema(), "not a graph", {}, Pasted));
 }
+
+TEST_CASE("Graph comments carry the nodes inside them and travel through the clipboard")
+{
+	FEditsFixture Fixture;
+	const FGraphNodeId Inside = Fixture.Add("Constant", {40.f, 60.f});
+	const FGraphNodeId Outside = Fixture.Add("Constant", {600.f, 60.f});
+	const FGraphNodeId Comment = NextGraphNodeId(Fixture.Graph);
+	Fixture.Graph.Comments.push_back({.Id = Comment, .Text = "Inputs", .Rect = {0.f, 0.f, 400.f, 300.f}});
+
+	const auto Layouts = Fixture.Layouts();
+	CHECK(GraphNodesInComment(Layouts, Fixture.Graph.Comments.front()) == std::vector{Inside});
+
+	const auto Text = CopyGraphNodes(Fixture.Graph, GetMaterialGraphSchema(), std::array{Comment, Inside});
+	REQUIRE(Text);
+	std::vector<FGraphNodeId> Pasted;
+	const auto After = PasteGraphNodes(Fixture.Graph, GetMaterialGraphSchema(), *Text, {1000.f, 2000.f}, Pasted);
+	REQUIRE(After);
+	REQUIRE(Pasted.size() == 2);
+	REQUIRE(After->Comments.size() == 2);
+	CHECK(After->Comments.back().Rect == std::array{1000.f, 2000.f, 1400.f, 2300.f});
+	CHECK(FindGraphNode(*After, Pasted[0])->Position == FCanvasPoint{1040.f, 2060.f});
+	CHECK(ValidateGraph(*After, GetMaterialGraphSchema()).empty());
+
+	const FGraph Removed = RemoveGraphNodesKeepingLinks(Fixture.Graph, GetMaterialGraphSchema(), std::array{Comment});
+	CHECK(Removed.Comments.empty());
+	CHECK(Removed.Nodes.size() == 2);
+	CHECK(FindGraphNode(Removed, Outside));
+}
 }

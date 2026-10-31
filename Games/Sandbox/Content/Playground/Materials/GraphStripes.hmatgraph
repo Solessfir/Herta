@@ -1,6 +1,6 @@
 {
   "format": "HertaGraph",
-  "version": 1,
+  "version": 2,
   "domain": "material",
   "domainVersion": 1,
   "nodes": [
@@ -121,7 +121,7 @@
       "type": "Vector",
       "position": [
         340,
-        120
+        200
       ],
       "properties": {
         "value": [
@@ -178,6 +178,15 @@
       "position": [
         1080,
         -100
+      ],
+      "properties": {}
+    },
+    {
+      "id": 18,
+      "type": "Reroute",
+      "position": [
+        720,
+        152
       ],
       "properties": {}
     }
@@ -329,6 +338,16 @@
         "Result"
       ],
       "to": [
+        18,
+        "In"
+      ]
+    },
+    {
+      "from": [
+        18,
+        "Out"
+      ],
+      "to": [
         16,
         "Alpha"
       ]
@@ -351,6 +370,18 @@
       "to": [
         17,
         "Roughness"
+      ]
+    }
+  ],
+  "comments": [
+    {
+      "id": 19,
+      "text": "Stripe pattern",
+      "rect": [
+        -940,
+        -120,
+        480,
+        150
       ]
     }
   ]

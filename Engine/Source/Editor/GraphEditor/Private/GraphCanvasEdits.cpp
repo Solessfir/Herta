@@ -191,6 +191,11 @@ FGraph RemoveGraphNodesKeepingLinks(const FGraph& Graph, const FGraphSchema& Sch
 		return Contains(Nodes, Link.From.Node) || Contains(Nodes, Link.To.Node);
 	});
 
+	std::erase_if(After.Comments, [Nodes](const FGraphComment& Comment)
+	{
+		return Contains(Nodes, Comment.Id);
+	});
+
 	for (const FGraphLink& Link : Graph.Links)
 	{
 		if (!Contains(Nodes, Link.From.Node) || Contains(Nodes, Link.To.Node))
@@ -274,7 +279,15 @@ std::expected<std::string, FGraphError> CopyGraphNodes(const FGraph& Graph, cons
 		}
 	}
 
-	if (Copied.Nodes.empty())
+	for (const FGraphComment& Comment : Graph.Comments)
+	{
+		if (Contains(Nodes, Comment.Id))
+		{
+			Copied.Comments.push_back(Comment);
+		}
+	}
+
+	if (Copied.Nodes.empty() && Copied.Comments.empty())
 	{
 		return std::unexpected(FGraphError{"Nothing is selected to copy"});
 	}
@@ -308,6 +321,11 @@ std::expected<FGraph, FGraphError> PasteGraphNodes(const FGraph& Graph, const FG
 		Corner = {std::min(Corner[0], Node.Position[0]), std::min(Corner[1], Node.Position[1])};
 	}
 
+	for (const FGraphComment& Comment : Copied->Comments)
+	{
+		Corner = {std::min(Corner[0], Comment.Rect[0]), std::min(Corner[1], Comment.Rect[1])};
+	}
+
 	std::map<std::uint32_t, FGraphNodeId> Identities;
 	FGraphNodeId Next = NextGraphNodeId(Graph);
 	Pasted.clear();
@@ -329,6 +347,17 @@ std::expected<FGraph, FGraphError> PasteGraphNodes(const FGraph& Graph, const FG
 		{
 			After.Links.push_back({.From = {.Node = From->second, .Key = Link.From.Key}, .To = {.Node = To->second, .Key = Link.To.Key}});
 		}
+	}
+
+	for (FGraphComment Comment : Copied->Comments)
+	{
+		const float DeltaX = Position[0] - Corner[0];
+		const float DeltaY = Position[1] - Corner[1];
+		Comment.Id = Next;
+		Comment.Rect = {Comment.Rect[0] + DeltaX, Comment.Rect[1] + DeltaY, Comment.Rect[2] + DeltaX, Comment.Rect[3] + DeltaY};
+		Pasted.push_back(Next);
+		After.Comments.push_back(std::move(Comment));
+		Next.Value += 1;
 	}
 
 	if (Pasted.empty())

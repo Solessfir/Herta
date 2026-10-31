@@ -210,6 +210,39 @@ TEST_CASE("Graph text reads values by schema type and keeps defaults for missing
 	CHECK_FALSE(Parse(R"({"id": 1, "type": "Constant", "position": [0], "properties": {}})"));
 	CHECK_FALSE(Parse(R"({"id": 1, "type": "Constant", "position": [0, 0], "properties": {}, "extra": 1})"));
 	CHECK_FALSE(DeserializeGraph(R"({"format": "HertaGraph", "version": 2, "domain": "test", "domainVersion": 2, "nodes": [], "links": []})", TestSchema));
+	CHECK_FALSE(DeserializeGraph(R"({"format": "HertaGraph", "version": 3, "domain": "test", "domainVersion": 2, "nodes": [], "links": [], "comments": []})", TestSchema));
 	CHECK_FALSE(DeserializeGraph("not json", TestSchema));
+}
+
+TEST_CASE("Graph comments round-trip, share node identities, and validate their boxes")
+{
+	FGraph Graph = SampleGraph();
+	const FGraphNodeId CommentId = NextGraphNodeId(Graph);
+	Graph.Comments.push_back({.Id = CommentId, .Text = "Note \"quoted\"", .Rect = {-10.f, -20.f, 300.f, 200.f}});
+	CHECK(NextGraphNodeId(Graph).Value == CommentId.Value + 1);
+	CHECK(FindGraphComment(Graph, CommentId));
+	CHECK_FALSE(FindGraphNode(Graph, CommentId));
+	CHECK(ValidateGraph(Graph, TestSchema).empty());
+
+	const auto Text = SerializeGraph(Graph, TestSchema);
+	REQUIRE(Text);
+	CHECK(Text->find("\"version\": 2") != std::string::npos);
+	const auto Loaded = DeserializeGraph(*Text, TestSchema);
+	REQUIRE(Loaded);
+	CHECK(*Loaded == Graph);
+
+	// Version 1 files predate comments and load without them.
+	const auto Old = DeserializeGraph(R"({"format": "HertaGraph", "version": 1, "domain": "test", "domainVersion": 2, "nodes": [], "links": []})", TestSchema);
+	REQUIRE(Old);
+	CHECK(Old->Comments.empty());
+
+	FGraph Clash = Graph;
+	Clash.Comments[0].Id = Graph.Nodes.front().Id;
+	CHECK_FALSE(ValidateGraph(Clash, TestSchema).empty());
+
+	FGraph Empty = Graph;
+	Empty.Comments[0].Rect = {10.f, 10.f, 10.f, 40.f};
+	CHECK_FALSE(ValidateGraph(Empty, TestSchema).empty());
+	CHECK_FALSE(SerializeGraph(Empty, TestSchema));
 }
 }

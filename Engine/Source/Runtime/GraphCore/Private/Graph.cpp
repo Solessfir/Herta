@@ -4,6 +4,7 @@
 #include <cmath>
 #include <format>
 #include <map>
+#include <set>
 #include <unordered_map>
 
 namespace Herta
@@ -93,6 +94,11 @@ FGraphNodeId NextGraphNodeId(const FGraph& Graph)
 		Largest = std::max(Largest, Node.Id.Value);
 	}
 
+	for (const FGraphComment& Comment : Graph.Comments)
+	{
+		Largest = std::max(Largest, Comment.Id.Value);
+	}
+
 	return {Largest + 1};
 }
 
@@ -100,6 +106,12 @@ const FGraphNode* FindGraphNode(const FGraph& Graph, const FGraphNodeId Id)
 {
 	const auto Found = std::ranges::find(Graph.Nodes, Id, &FGraphNode::Id);
 	return Found == Graph.Nodes.end() ? nullptr : &*Found;
+}
+
+const FGraphComment* FindGraphComment(const FGraph& Graph, const FGraphNodeId Id)
+{
+	const auto Found = std::ranges::find(Graph.Comments, Id, &FGraphComment::Id);
+	return Found == Graph.Comments.end() ? nullptr : &*Found;
 }
 
 const FGraphPinDescriptor* FindGraphPin(const FGraphNodeDescriptor& Node, const std::string_view Key, const bool bOutput)
@@ -129,10 +141,28 @@ std::vector<FGraphDiagnostic> ValidateGraph(const FGraph& Graph, const FGraphSch
 		return Diagnostics;
 	}
 
-	if (Graph.Nodes.size() > MaximumGraphNodes || Graph.Links.size() > MaximumGraphLinks)
+	if (Graph.Nodes.size() > MaximumGraphNodes || Graph.Links.size() > MaximumGraphLinks || Graph.Comments.size() > MaximumGraphComments)
 	{
-		Error({}, {}, "The graph exceeds the node or link limit");
+		Error({}, {}, "The graph exceeds the node, link, or comment limit");
 		return Diagnostics;
+	}
+
+	std::set<std::uint32_t> CommentIds;
+	for (const FGraphComment& Comment : Graph.Comments)
+	{
+		if (Comment.Id.Value == 0 || !CommentIds.insert(Comment.Id.Value).second || FindGraphNode(Graph, Comment.Id))
+		{
+			Error(Comment.Id, {}, "Comment identities must be nonzero and unique among nodes and comments");
+		}
+
+		if (!std::ranges::all_of(Comment.Rect, [](const float Value)
+		    {
+			    return std::isfinite(Value);
+		    })
+		    || Comment.Rect[0] >= Comment.Rect[2] || Comment.Rect[1] >= Comment.Rect[3] || Comment.Text.size() > MaximumGraphCommentBytes)
+		{
+			Error(Comment.Id, {}, "Comments need a finite, nonempty box and at most 4 KiB of text");
+		}
 	}
 
 	std::unordered_map<std::uint32_t, const FGraphNodeDescriptor*> Types;
