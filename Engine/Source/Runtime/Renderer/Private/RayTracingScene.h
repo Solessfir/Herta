@@ -34,6 +34,8 @@ private:
 		FBufferHandle Vertices;
 		FBufferHandle Indices;
 		FAccelerationStructureHandle BottomLevel;
+		// Which sections the bottom level traces as alpha tested, from the mesh's imported materials when it was built.
+		std::vector<bool> AlphaTested;
 		std::uint32_t VertexSlot = 0;
 		std::uint32_t IndexSlot = 0;
 		bool bDeforming = false;

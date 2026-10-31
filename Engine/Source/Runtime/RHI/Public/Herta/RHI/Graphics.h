@@ -206,6 +206,16 @@ struct FBottomLevelSection
 {
 	std::uint32_t FirstIndex = 0;
 	std::uint32_t IndexCount = 0;
+	// Its triangles reach ray queries as candidates to accept or reject, for cutout materials. Other sections are opaque.
+	bool bAlphaTested = false;
+};
+
+enum class ERayTracingOpacity : std::uint8_t
+{
+	// Each section is opaque or alpha tested as its bottom level was built.
+	Sections,
+	Opaque,
+	AlphaTested,
 };
 
 struct FBottomLevelDescriptor
@@ -227,8 +237,8 @@ struct FRayTracingInstance
 	std::uint32_t CustomIndex = 0;
 	std::uint8_t Mask = 0xFF;
 	FAccelerationStructureHandle BottomLevel{};
-	// Every triangle reaches ray queries as a candidate to accept or reject, for cutout materials. Others are opaque.
-	bool bAlphaTested = false;
+	// Instances whose materials differ from the ones their bottom level was built for override every section, since alpha-test candidates are slow to trace.
+	ERayTracingOpacity Opacity = ERayTracingOpacity::Sections;
 };
 
 struct FGraphicsPipelineDescriptor

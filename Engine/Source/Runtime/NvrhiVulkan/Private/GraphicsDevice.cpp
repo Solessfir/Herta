@@ -1702,7 +1702,7 @@ public:
 
 			nvrhi::rt::GeometryTriangles Triangles;
 			Triangles.setVertexBuffer(Vertices->Handle).setVertexFormat(nvrhi::Format::RGB32_FLOAT).setVertexStride(sizeof(FMeshVertex)).setVertexCount(static_cast<std::uint32_t>(Vertices->Descriptor.Size / sizeof(FMeshVertex))).setIndexBuffer(Indices->Handle).setIndexFormat(nvrhi::Format::R32_UINT).setIndexOffset(std::uint64_t{Section.FirstIndex} * sizeof(std::uint32_t)).setIndexCount(Section.IndexCount);
-			Structure->Geometries.push_back(nvrhi::rt::GeometryDesc().setTriangles(Triangles).setFlags(nvrhi::rt::GeometryFlags::Opaque));
+			Structure->Geometries.push_back(nvrhi::rt::GeometryDesc().setTriangles(Triangles).setFlags(Section.bAlphaTested ? nvrhi::rt::GeometryFlags::None : nvrhi::rt::GeometryFlags::Opaque));
 		}
 
 		nvrhi::rt::AccelStructDesc Native;
@@ -1799,7 +1799,7 @@ public:
 
 			nvrhi::rt::AffineTransform Transform;
 			std::ranges::copy(Instance.ObjectToWorld, Transform);
-			Native.push_back(nvrhi::rt::InstanceDesc().setTransform(Transform).setInstanceID(Instance.CustomIndex).setInstanceMask(Instance.Mask).setFlags(Instance.bAlphaTested ? nvrhi::rt::InstanceFlags::ForceNonOpaque : nvrhi::rt::InstanceFlags::None).setBLAS(BottomLevel->Handle));
+			Native.push_back(nvrhi::rt::InstanceDesc().setTransform(Transform).setInstanceID(Instance.CustomIndex).setInstanceMask(Instance.Mask).setFlags(Instance.Opacity == ERayTracingOpacity::Opaque ? nvrhi::rt::InstanceFlags::ForceOpaque : Instance.Opacity == ERayTracingOpacity::AlphaTested ? nvrhi::rt::InstanceFlags::ForceNonOpaque : nvrhi::rt::InstanceFlags::None).setBLAS(BottomLevel->Handle));
 			BottomLevels.push_back(std::move(BottomLevel));
 		}
 

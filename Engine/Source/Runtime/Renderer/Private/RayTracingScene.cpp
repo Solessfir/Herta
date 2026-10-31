@@ -35,6 +35,12 @@ void AppendKey(std::vector<std::byte>& Key, const T& Value)
 	Key.insert(Key.end(), Bytes.begin(), Bytes.end());
 }
 
+// MakeMaterialUniform stores the alpha-test switch in Channels1.z, which RayTracing.slangh reads too.
+[[nodiscard]] bool IsAlphaTested(const FMaterialUniform& Material)
+{
+	return Material.Channels1[2] > 0.5f;
+}
+
 // Grows Buffer to hold Bytes, in powers of two so a slowly growing scene reallocates rarely.
 [[nodiscard]] std::expected<void, FPresentationError> Reserve(IGraphicsDevice& Device, FBufferHandle& Buffer, const std::size_t Bytes, const char* const Name)
 {
@@ -190,9 +196,13 @@ std::expected<FRayTracingScene::FMeshEntry*, FPresentationError> FRayTracingScen
 	if (!Entry.BottomLevel || (bDeforming && !Entry.bDeforming))
 	{
 		std::vector<FBottomLevelSection> Ranges;
+		Entry.AlphaTested.clear();
 		for (const FRenderMesh::FSection& Section : Mesh.Sections)
 		{
-			Ranges.push_back({.FirstIndex = Section.FirstIndex, .IndexCount = Section.IndexCount});
+			const FCookedMaterial& Imported = Mesh.Materials[Section.Material];
+			const bool bAlphaTested = IsAlphaTested(MakeMaterialUniform(Imported.Parameters, Imported.Channels));
+			Entry.AlphaTested.push_back(bAlphaTested);
+			Ranges.push_back({.FirstIndex = Section.FirstIndex, .IndexCount = Section.IndexCount, .bAlphaTested = bAlphaTested});
 		}
 
 		auto BottomLevel = Device.CreateBottomLevel({.Name = "Mesh bottom level", .Vertices = Entry.Vertices, .Indices = Entry.Indices, .Sections = Ranges, .bDeforming = bDeforming});
@@ -291,8 +301,11 @@ std::expected<void, FPresentationError> FRayTracingScene::Update(const FMeshRend
 
 		const std::span<const FRenderMaterial* const> Overrides = View.Materials.empty() ? std::span<const FRenderMaterial* const>{} : View.Materials[Model];
 		FRayTracingInstance Instance{.CustomIndex = static_cast<std::uint32_t>(SectionRecords.size()), .BottomLevel = (*Entry)->BottomLevel};
-		for (const FRenderMesh::FSection& Section : Mesh->Sections)
+		bool bMatchesSections = true;
+		bool bAnyAlphaTested = false;
+		for (std::size_t SectionIndex = 0; SectionIndex < Mesh->Sections.size(); ++SectionIndex)
 		{
+			const FRenderMesh::FSection& Section = Mesh->Sections[SectionIndex];
 			const FRenderMaterial* const Override = Section.Material < Overrides.size() ? Overrides[Section.Material] : nullptr;
 			const FCookedMaterial& Imported = Mesh->Materials[Section.Material];
 			const void* const MaterialKey = Override ? static_cast<const void*>(Override) : static_cast<const void*>(&Imported);
@@ -323,11 +336,14 @@ std::expected<void, FPresentationError> FRayTracingScene::Update(const FMeshRend
 				AppendKey(NextKey, Record);
 			}
 
-			Instance.bAlphaTested = Instance.bAlphaTested || MaterialRecords[Found->second].Material.Channels1[2] > 0.5f;
+			const bool bAlphaTested = IsAlphaTested(MaterialRecords[Found->second].Material);
+			bMatchesSections = bMatchesSections && bAlphaTested == (*Entry)->AlphaTested[SectionIndex];
+			bAnyAlphaTested = bAnyAlphaTested || bAlphaTested;
 			SectionRecords.push_back({.VertexSlot = (*Entry)->VertexSlot, .IndexSlot = (*Entry)->IndexSlot, .FirstIndex = Section.FirstIndex, .Material = Found->second});
 			AppendKey(NextKey, Found->second);
 		}
 
+		Instance.Opacity = bMatchesSections ? ERayTracingOpacity::Sections : bAnyAlphaTested ? ERayTracingOpacity::AlphaTested : ERayTracingOpacity::Opaque;
 		const std::array<float, 16>& Matrix = View.Models[Model].Data();
 		for (std::size_t Row = 0; Row < 3; ++Row)
 		{
@@ -339,6 +355,7 @@ std::expected<void, FPresentationError> FRayTracingScene::Update(const FMeshRend
 
 		AppendKey(NextKey, Mesh->Vertices.get());
 		AppendKey(NextKey, Instance.ObjectToWorld);
+		AppendKey(NextKey, Instance.Opacity);
 		Instances.push_back(std::move(Instance));
 	}
 
