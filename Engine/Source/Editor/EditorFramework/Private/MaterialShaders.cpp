@@ -133,7 +133,7 @@ public:
 	FShaderScratch(FShaderScratch&&) = delete;
 	FShaderScratch& operator=(FShaderScratch&&) = delete;
 
-	[[nodiscard]] std::expected<void, FShaderError> Initialize();
+	[[nodiscard]] std::expected<void, FShaderError> Initialize(const FHash128& Key);
 	const std::filesystem::path& GetPath() const noexcept;
 
 private:
@@ -149,7 +149,7 @@ FShaderScratch::~FShaderScratch()
 	}
 }
 
-std::expected<void, FShaderError> FShaderScratch::Initialize()
+std::expected<void, FShaderError> FShaderScratch::Initialize(const FHash128& Key)
 {
 	std::error_code Error;
 	const auto Parent = std::filesystem::temp_directory_path(Error);
@@ -158,15 +158,22 @@ std::expected<void, FShaderError> FShaderScratch::Initialize()
 		return std::unexpected(FShaderError{"Cannot resolve the shader snapshot directory"});
 	}
 
-	const auto Candidate = Parent / ("HertaMaterialShader-" + FAssetId::Generate().ToString());
-	if (!std::filesystem::create_directory(Candidate, Error) || Error)
+	// Debug info embeds the snapshot's paths, so naming it by the source key keeps the SPIR-V identical across runs and lets the driver's pipeline cache hit.
+	// Directories left by a crash or held by a concurrent compile take the next numbered name, which stays stable from run to run; a unique name is the last resort.
+	constexpr int NumberedNames = 8;
+	for (int Attempt = 0; Attempt <= NumberedNames; ++Attempt)
 	{
-		return std::unexpected(FShaderError{"Cannot create an exclusive shader snapshot directory"});
+		const std::string Suffix = Attempt == 0 ? ToString(Key) : Attempt < NumberedNames ? std::format("{}-{}", ToString(Key), Attempt) : FAssetId::Generate().ToString();
+		const auto Candidate = Parent / ("HertaMaterialShader-" + Suffix);
+		if (std::filesystem::create_directory(Candidate, Error) && !Error)
+		{
+			// Only an exclusively created child of the system temp directory is owned for recursive cleanup.
+			Path = Candidate;
+			return {};
+		}
 	}
 
-	// Only an exclusively created, UUID-named child of the system temp directory is owned for recursive cleanup.
-	Path = Candidate;
-	return {};
+	return std::unexpected(FShaderError{"Cannot create an exclusive shader snapshot directory"});
 }
 
 const std::filesystem::path& FShaderScratch::GetPath() const noexcept
@@ -181,10 +188,10 @@ struct FCompiledMaterialShader
 	FShaderAsset Fragment;
 };
 
-std::expected<FCompiledMaterialShader, FShaderError> CompileSnapshot(const std::filesystem::path& Worker, const std::vector<FShaderSourceFile>& Files, const std::size_t RootIndex, const std::string& RelativeSource, const std::size_t RootCount, const std::stop_token StopToken, const FCancellationToken ScopeToken)
+std::expected<FCompiledMaterialShader, FShaderError> CompileSnapshot(const std::filesystem::path& Worker, const std::vector<FShaderSourceFile>& Files, const std::size_t RootIndex, const std::string& RelativeSource, const std::size_t RootCount, const FHash128& Key, const std::stop_token StopToken, const FCancellationToken ScopeToken)
 {
 	FShaderScratch Scratch;
-	if (auto Created = Scratch.Initialize(); !Created)
+	if (auto Created = Scratch.Initialize(Key); !Created)
 	{
 		return std::unexpected(Created.error());
 	}
@@ -524,7 +531,7 @@ void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 	const auto Snapshot = Entry.Desired;
 	const auto Work = Tasks.Submit(*Scope, {.Name = "Compile material shader", .Lane = ETaskLane::BlockingIo}, [Result, Snapshot, Worker = WorkerPath, RootCount = Roots.size(), Token](FTaskContext& Context)
 	{
-		*Result = CompileSnapshot(Worker, Snapshot->Files, Snapshot->Root, Snapshot->Source, RootCount, Token, Context.GetCancellationToken());
+		*Result = CompileSnapshot(Worker, Snapshot->Files, Snapshot->Root, Snapshot->Source, RootCount, Snapshot->Key, Token, Context.GetCancellationToken());
 	});
 
 	const auto Published = Work ? Tasks.ContinueOnMainThread(*Scope, *Work, "Publish material shader pipeline", [this, Path, Result, Key = Snapshot->Key, Generation = Entry.Status.Generation](FTaskContext& Context)
