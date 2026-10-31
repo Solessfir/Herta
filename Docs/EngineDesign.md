@@ -244,7 +244,6 @@ Herta/
 |   |-- fastgltf/
 |   |-- glfw/
 |   |-- imgui/
-|   |-- imgui-node-editor/
 |   |-- icu/
 |   |-- harfbuzz/
 |   |-- freetype/
@@ -727,27 +726,29 @@ The command input queries an `EditorCore` command registry shared by interactive
 
 Global ImGui metrics are shared behavior, not isolated widget decoration. In particular, checkbox size follows frame height. ToolUI must not shrink global `FramePadding` to resize checkboxes because that also changes buttons and inputs. A genuinely compact control uses a Herta helper or locally scoped style. Primary white pill buttons suppress the normal frame border to avoid a dark aliased outline.
 
-Herta does not adopt Stack Layout PR 846. Docking, tables, groups, child regions, `SameLine`, and explicit sizing cover the initial editor. `imgui-node-editor` itself works with standard ImGui. If repeated editor code later proves a missing layout abstraction, add small Herta-owned helpers using public ImGui APIs before considering an internal ImGui patch.
+Herta does not adopt Stack Layout PR 846. Docking, tables, groups, child regions, `SameLine`, and explicit sizing cover the initial editor. If repeated editor code later proves a missing layout abstraction, add small Herta-owned helpers using public ImGui APIs before considering an internal ImGui patch.
 
-When the first domain requires a free-form node canvas, Herta uses the maintained [Solessfir imgui-node-editor fork](https://github.com/Solessfir/imgui-node-editor) as a pinned submodule. It remains attributed third-party code. Upstream history is preserved, Herta-specific changes are documented separately, and upstream synchronization remains possible. Themes, node contents, icons, menus, and domain behavior stay in `GraphEditor`; the fork changes only when its public API or rendering internals prevent required interaction, DPI, navigation, hit-testing, or draw-order behavior.
+The node canvas is first-party code in `GraphEditor`, not `imgui-node-editor` or a fork of it. That library zooms by rewriting ImGui draw vertices through ImGui internals, predating ImGui 1.92's dynamic font sizes, and Herta would have patched it for DPI, hit-testing, draw order, keyboard navigation, and its rounded theme anyway. The canvas lays out node contents in canvas space and pushes a scaled font size, so text stays sharp at every zoom without vertex rewriting. It owns pan and zoom, grid, culling of off-screen nodes and links, pins and typed links with domain-supplied connection rules, selection and box selection, moving and snapping, hit-test priority between pins, links, and nodes, hover and keyboard focus, and later comments, reroutes, a minimap, and node search. It reuses ToolUI widgets and theme radii and records edits through EditorCore transactions. Upstream `imgui-node-editor` may be read as a reference only.
 
-`imgui-node-editor` provides node drawing and interaction only. It is not Blueprints. `GraphCore` owns schema-neutral graph identities, versioning, validation contracts, compile diagnostics, and headless compiler interfaces. Each graph domain owns its semantics, compiler, IR, migration, and executor. The system separates:
+The canvas draws and edits graphs; it is not Blueprints. `GraphCore` owns schema-neutral graph identities, versioning, validation contracts, compile diagnostics, and headless compiler interfaces. Each graph domain owns its semantics, compiler, IR, migration, and executor. The system separates:
 
 ```text
 Graph asset data
     -> schema and typed-pin validation
-    -> compiler to Herta graph IR
-    -> bytecode or specialized output
-    -> runtime executor
+    -> compiler to the domain's typed IR
+    -> specialized output (Slang source, a native call list, generated C++)
+    -> runtime consumer
 
 GraphEditor
-    -> transient mapping from stable graph IDs to node-editor IDs
+    -> canvas state keyed by stable graph IDs
     -> selection, layout, transactions, diagnostics, and debugging views
 ```
 
-The first graph domain is Herta StateTree for NPC decision-making. Its hierarchy may use a nested state-oriented editor and does not force the node-canvas dependency into that milestone. Shader Graph, animation graphs, Audio Graph, and a general gameplay Blueprint VM are separate domain compilers built on the same editing and diagnostic foundations. They must not share one weakly typed universal executor.
+The first node-canvas domain is the Material Graph. It has a consumer today: `.hmat` materials, the Slang worker, and atomic pipeline publication with last-valid fallback. A material graph compiles to a typed expression DAG with constant folding, dead-node removal, common-subexpression elimination, and per-node type diagnostics, then to one generated Slang function that fills the material outputs within the existing material shader contract. Scalars, colors, and textures become parameter and texture slots, so material instances change them without recompiling; static switches become permutations compiled only for combinations in use. The worker compiles generated Slang exactly like hand-written material shaders, which remain supported, and game targets load cooked SPIR-V without a compiler. Ray-traced global illumination and the path tracer shade hits from a material record rather than the full pixel shader, so the compiler also emits a reduced hit evaluation from the same IR instead of letting traced lighting diverge from the graph.
 
-Source graph validation and compilation run in `HertaEditorCmd`, compiler modules, workers, and tests without ImGui or imgui-node-editor linked. Game and server targets do not ship authoring compilers; they load and execute immutable cooked domain programs. StateTree compilation belongs to `StateTreeCompiler`, while AI owns the cooked StateTree format and executor.
+Gameplay graphs (Blueprints) have no interpreter-style VM in shipping. Unreal's Blueprint cost comes from reflection lookups, boxed values on a script stack, and indirect property access per node; Herta compiles one typed IR to two backends instead. The editor backend is a flat native call list: each node is a direct C++ function pointer whose inputs and outputs sit at fixed offsets in a typed frame, and control flow is jumps, so a node costs one indirect call, compiles in milliseconds, swaps live during Play, and supports per-node breakpoints and watches. The shipping backend generates C++ from the same IR and compiles it into the game module, so packaged games run native code. Tests execute both backends on the same graphs and require identical results. Graphs run inside the system scheduler's phases with declared component access like C++ systems, every instance of one graph type runs as a batch, and heavy work lives in C++ nodes registered through typed descriptors. StateTree, animation graphs, Audio Graph, and gameplay graphs are separate domain compilers on the same editing and diagnostic foundations; they must not share one weakly typed universal executor.
+
+Source graph validation and compilation run in `HertaEditorCmd`, compiler modules, workers, and tests without ImGui or the canvas linked. Game and server targets do not ship authoring compilers; they load and execute immutable cooked domain programs. StateTree compilation belongs to `StateTreeCompiler`, while AI owns the cooked StateTree format and executor.
 
 Undo/redo uses transaction objects with stable object/property paths. Inspector edits, graph edits, asset renames, and level changes must enter the same transaction system.
 
@@ -782,7 +783,7 @@ Audio is a Herta-owned runtime module with miniaudio private behind it. miniaudi
 - Headless programs use no device or the null backend without changing gameplay logic.
 - Source WAV and FLAC are sufficient initially. Add Opus when measured dialogue or music streaming requirements justify it.
 - Static, streaming, and already compressed audio payloads carry explicit cook policy and are not blindly compressed again with zstd.
-- Audio Graph later compiles to immutable runtime data and has no runtime dependency on ImGui or imgui-node-editor.
+- Audio Graph later compiles to immutable runtime data and has no runtime dependency on ImGui or the graph canvas.
 
 Spatial audio consumes Herta transforms in meters. Backend coordinate conversion occurs in one tested adapter. Advanced HRTF or acoustic simulation remains an optional extension selected after the basic mixer and spatial path are measured.
 
@@ -1050,7 +1051,6 @@ Source dependencies live under `External`. Single-header and amalgamated librari
 | [Dear ImGui](https://github.com/ocornut/imgui) | Adopted at MS1 | ToolUI | Docking and multi-viewport editor and tool UI. GUI programs may compose ToolUI without the game or editor runtime. Apply the centralized EditorStyle baseline rather than feature-local styling. |
 | [LunaSVG](https://github.com/sammycage/lunasvg) | Adopt with first SVG-backed editor tool | EditorFramework | Private CPU rasterizer for static SVG editor assets. Cache RGBA results as ImGui textures; LunaSVG types never enter Herta APIs. |
 | [Stack Layout PR 846](https://github.com/ocornut/imgui/pull/846) | Do not adopt | None | The initial editor does not justify an unmerged patch to ImGui internals. |
-| [Herta imgui-node-editor fork](https://github.com/Solessfir/imgui-node-editor) | Adopt with first node-canvas graph | GraphEditor | Maintained third-party fork for graph visualization and interaction, not graph semantics or execution. Preserve upstream history and document Herta patches. |
 | [doctest](https://github.com/doctest/doctest) | Adopt with Core | HertaTests | Unit tests beside modules, one test runner. |
 | [spdlog](https://github.com/gabime/spdlog) | Adopted at MS1 | Core | Compiled private backend for console, debugger, rotating-file, and editor-buffer sinks. Herta owns the public logging contract and record schema. |
 | [enkiTS](https://github.com/dougbinks/enkiTS) | Adopted at MS1 | Tasks | Private worker scheduling implementation. Herta owns task scopes, cancellation, reload quiescence, IO lanes, diagnostics, and public APIs. |
@@ -1656,6 +1656,18 @@ Progress: the RHI enables acceleration structures, ray queries, and descriptor i
 
 Exit condition: the path tracer converges on every Sandbox station and matches raster direct lighting within recorded tolerances, the irradiance field passes the acceptance gates within a measured High-tier budget, and GPUs without ray queries render exactly as in Milestone 6.
 
+### Milestone 6.8 - Graph canvas and Material Graph
+
+Brought ahead of the later graph domains because materials already have a complete consumer: the Slang worker, cooked shaders, and atomic pipeline publication.
+
+- Add a minimal `GraphCore` without ImGui: stable node, pin, and link identities, versioned graph assets, typed pins, validation, and per-node diagnostics, all usable headless.
+- Add `GraphEditor` with the first-party node canvas described in section 4: pan and zoom with sharp text through scaled fonts, culling, typed links, selection and box selection, moving and snapping, hit-test priority, keyboard focus, DPI and theme compliance, and EditorCore transactions for every edit.
+- Add the Material Graph domain: texture sample, constants and parameters, UV, math, and PBR output nodes; a typed expression DAG with folding, dead-node removal, and shared subexpressions; generated Slang within the material shader contract plus a reduced ray-traced hit evaluation from the same IR; parameter and texture slots for material instances; and static-switch permutations.
+- Compile graphs headless in `HertaEditorCmd` and tests, cook generated shaders through the existing worker, and preview edits live in the editor with the last valid pipeline kept on failure.
+- Extend the Sandbox material station with a graph-authored material checked against a hand-written equivalent.
+
+Exit condition: a Material Graph authored in the editor previews live, saves and reloads, undoes and redoes, compiles headless to the same pixels as an equivalent hand-written material, lights ray-traced global illumination consistently, and ships in a packaged game as cooked SPIR-V without a compiler or the canvas linked.
+
 ### Milestone 7 - Physics
 
 - Expand the existing Jolt adapters with runtime collision layers, shapes, bodies, fixed-step simulation, and debug draw needed beyond the first playable slice.
@@ -1741,13 +1753,14 @@ Exit condition: the actual game and representative editor UI switch between Engl
 
 ### Milestone 15 - Graph domains
 
-- Add the pinned Herta imgui-node-editor fork behind GraphEditor for the first domain that requires a free-form node canvas.
+Builds on the Milestone 6.8 canvas and GraphCore.
+
 - Promote the animation state machine into a typed animation-graph domain and compiler.
-- Extract only the graph authoring, typed-pin, transaction, validation, diagnostic, and migration infrastructure proven by StateTree and the animation graph.
-- Keep Shader Graph, Audio Graph, and gameplay Blueprints as later distinct compiler targets rather than one universal executor.
+- Extend GraphCore only with the authoring, typed-pin, transaction, validation, diagnostic, and migration infrastructure that the Material Graph, StateTree, and the animation graph prove.
+- Keep Audio Graph and gameplay graphs as later distinct compiler targets rather than one universal executor; gameplay graphs compile to a native call list in the editor and generated C++ in shipping, as section 4 describes.
 - Extend debugging and cooked-format migration without linking editor UI into runtime executors.
 
-Exit condition: StateTree and the animation graph compile headless and execute from cooked data without ImGui or imgui-node-editor linked, while sharing only proven GraphCore infrastructure.
+Exit condition: StateTree and the animation graph compile headless and execute from cooked data without ImGui or the graph canvas linked, while sharing only proven GraphCore infrastructure.
 
 ### Milestone 16 - Scripting
 
