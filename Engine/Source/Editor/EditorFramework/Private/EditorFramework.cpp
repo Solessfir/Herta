@@ -512,7 +512,7 @@ struct FEditorFramework::FImplementation
 
 	void SetBottomPanelOpen(bool bOpen);
 	void ToggleContentDrawer();
-	void ShowOutputLog();
+	void ToggleOutputLogDrawer();
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> DrawOutputLog();
 	void DrawDetailsPanel();
 	void DrawOutlinerPanel();
@@ -586,8 +586,9 @@ struct FEditorFramework::FImplementation
 	// Startup restores like a reopened panel; otherwise the last tab to appear, the Output Log, is selected.
 	bool bRestoreBottomPanelFocus = true;
 	bool bContentBrowserOpen = true;
-	// The bottom panel belongs to the viewport; a document tab in front summons the browser as a drawer instead.
+	// The bottom panel belongs to the level tab; an asset editor tab in front summons the browser or log as a drawer instead.
 	bool bContentDrawerOpen = false;
+	bool bOutputLogDrawerOpen = false;
 	FContentBrowserState ContentBrowserState;
 	FDetailsPanelState DetailsPanelState;
 	FMaterialPanel MaterialPanel;
@@ -1127,7 +1128,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyMods == 0 && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{
-		if (ImGui::IsKeyPressed(ImGuiKey_F11, false))
+		if (!Implementation->ToolUI->IsDocumentInFront() && ImGui::IsKeyPressed(ImGuiKey_F11, false))
 		{
 			Implementation->ToolUI->SetViewportImmersive(!Implementation->ToolUI->IsViewportImmersive());
 		}
@@ -1224,7 +1225,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	bool bOpenLevelRequested = false;
 	bool bPlaceObjectsRequested = std::exchange(Implementation->bPlaceObjectsRequested, false);
 	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->IsSimulating() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
-	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->MaterialPanel.IsFocused() && !Implementation->MaterialGraphPanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
+	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->ToolUI->IsDocumentInFront() && !Implementation->MaterialPanel.IsFocused() && !Implementation->MaterialGraphPanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
 	const bool bControlShortcutsAvailable = bShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl;
 	const bool bProjectChangeAvailable = bAuthoringAvailable && !Implementation->EngineRoot.empty() && !(Implementation->Assets && Implementation->Assets->IsImporting());
 	bool bNewProjectRequested = bControlShortcutsAvailable && bProjectChangeAvailable && ImGui::IsKeyPressed(ImGuiKey_N, false);
@@ -1280,6 +1281,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 
 	const std::string LevelTitle = std::format("{}{} - Herta Editor", Implementation->Level->GetName(), Implementation->Level->IsDirty() ? "*" : "");
+	Implementation->ToolUI->SetLevelTabLabel(std::format("{}{}", Implementation->Level->GetName(), Implementation->Level->IsDirty() ? "*" : ""));
 	Implementation->ToolUI->DrawWorkspace(LevelTitle, [&]
 	{
 		ToolUIMenuItem("Outliner", EToolUIMenuIcon::Outliner, &Implementation->bOutlinerOpen);
@@ -1309,12 +1311,12 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 
 		ImGui::Separator();
-		bool bLogVisible = !bDocumentInFront && Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen;
+		bool bLogVisible = bDocumentInFront ? Implementation->bOutputLogDrawerOpen : Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen;
 		if (ToolUIMenuItem("Output Log", EToolUIMenuIcon::Log, &bLogVisible))
 		{
 			if (bDocumentInFront)
 			{
-				Implementation->ShowOutputLog();
+				Implementation->ToggleOutputLogDrawer();
 			}
 			else
 			{
@@ -1378,12 +1380,13 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::PopStyleColor();
 		ImGui::SetItemTooltip(bDocumentInFront ? "Show or hide the content drawer (Ctrl+Space)." : "Show or hide Content Browser. Ctrl+Space toggles the entire bottom panel.");
 		ImGui::SameLine();
-		ImGui::PushStyleColor(ImGuiCol_Button, !bDocumentInFront && Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
+		const bool bLogShown = bDocumentInFront ? Implementation->bOutputLogDrawerOpen : Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen;
+		ImGui::PushStyleColor(ImGuiCol_Button, bLogShown ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
 		if (ToolUIButton("Output Log", EToolUIMenuIcon::Log, 26.f * Scale))
 		{
 			if (bDocumentInFront)
 			{
-				Implementation->ShowOutputLog();
+				Implementation->ToggleOutputLogDrawer();
 			}
 			else
 			{
@@ -4724,6 +4727,11 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 		return;
 	}
 
+	if (!Simulation.IsRunning())
+	{
+		ToolUI->FocusViewport();
+	}
+
 	if (Simulation.IsRunning())
 	{
 		Simulation.Stop();
@@ -4794,6 +4802,9 @@ void FEditorFramework::FImplementation::TogglePlay()
 	{
 		return;
 	}
+
+	// Play runs in the level viewport, so starting it from an asset editor brings the level back in front.
+	ToolUI->FocusViewport();
 
 	if (Level->HasActiveEdit())
 	{
@@ -5710,25 +5721,28 @@ void FEditorFramework::FImplementation::SetBottomPanelOpen(const bool bOpen)
 	}
 }
 
+// The two drawers share the bottom of the workspace, so opening one closes the other.
 void FEditorFramework::FImplementation::ToggleContentDrawer()
 {
 	bContentDrawerOpen = !bContentDrawerOpen;
+	bOutputLogDrawerOpen &= !bContentDrawerOpen;
 	ContentBrowserState.bFocusRequested = bContentDrawerOpen;
 }
 
-// The log lives in the viewport's bottom panel, so showing it brings the viewport back in front.
-void FEditorFramework::FImplementation::ShowOutputLog()
+void FEditorFramework::FImplementation::ToggleOutputLogDrawer()
 {
-	ToolUI->FocusViewport();
-	bOutputLogOpen = true;
-	bBottomPanelOpen = true;
+	bOutputLogDrawerOpen = !bOutputLogDrawerOpen;
+	bContentDrawerOpen &= !bOutputLogDrawerOpen;
+	bFocusOutputLogRequested = bOutputLogDrawerOpen;
 }
 
 std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::DrawOutputLog()
 {
 	const bool bReceivedRecords = OutputLog->Synchronize();
 
-	if (!bBottomPanelOpen || !bOutputLogOpen || ToolUI->IsDocumentInFront())
+	const bool bDrawer = ToolUI->IsDocumentInFront();
+	bOutputLogDrawerOpen &= bDrawer;
+	if (bDrawer ? !bOutputLogDrawerOpen : !bBottomPanelOpen || !bOutputLogOpen)
 	{
 		return {};
 	}
@@ -5739,7 +5753,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		ImGui::SetNextWindowCollapsed(false);
 	}
 
-	const bool bPanelVisible = ToolUI->BeginPanel(">_  Output Log###Output Log", &bOutputLogOpen);
+	const bool bPanelVisible = bDrawer ? ToolUI->BeginPanel(">_  Output Log###Output Log Drawer", &bOutputLogDrawerOpen, EToolUIPanelKind::Drawer) : ToolUI->BeginPanel(">_  Output Log###Output Log", &bOutputLogOpen);
 	bFocusOutputLogRequested = false;
 
 	if (!bPanelVisible)

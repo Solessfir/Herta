@@ -378,6 +378,13 @@ void SaveEditorAppearance(const std::filesystem::path& Path, const FEditorAppear
 	Stream << "Display " << (Appearance.Display.bHdrOutput ? 1 : 0) << ' ' << Appearance.Display.PaperWhite << ' ' << Appearance.Display.PeakLuminance << '\n';
 }
 
+struct FToolUIDocument
+{
+	ImGuiID Id = 0;
+	std::string Label;
+	int LastFrame = 0;
+};
+
 struct FToolUIContext::FImplementation
 {
 	FApplication* Application = nullptr;
@@ -394,10 +401,15 @@ struct FToolUIContext::FImplementation
 	std::filesystem::path AppearancePath;
 	std::unordered_map<ImGuiID, bool> PreviousDockState;
 	std::unordered_map<ImGuiID, bool> PresentedPanels;
-	// The frame each document panel last began, so one that reopens comes to the front as a new tab would.
-	std::unordered_map<ImGuiID, int> DocumentFrames;
-	// Frames left to keep focusing a reopened document: ImGui docks it a frame after it begins, and the dock selects its tab only once it is there.
-	std::unordered_map<ImGuiID, int> DocumentFocusFrames;
+	// Open asset editors in tab order. A document that skips a frame has closed.
+	std::vector<FToolUIDocument> Documents;
+	// The document in front of the level workspace, or 0 while the level is in front.
+	ImGuiID ActiveDocument = 0;
+	ImGuiID CloseRequestedDocument = 0;
+	ImGuiID FocusRequestedDocument = 0;
+	std::string LevelTabLabel = "Level";
+	// Whether each open BeginPanel began an ImGui window, so EndPanel ends only those.
+	std::vector<bool> PanelBegun;
 	std::optional<FToolUIError> PendingError;
 	ImGuiContext* Context = nullptr;
 	ImFont* RegularFont = nullptr;
@@ -671,6 +683,102 @@ void DrawToolUIIcon(ImDrawList* const Draw, const ImVec2 Center, const float Sca
 		Line(-1, 0, 6, 0);
 		Line(3, -3, 6, 0);
 		Line(3, 3, 6, 0);
+	}
+}
+
+void ActivateDocument(FToolUIContext::FImplementation& Owner, const ImGuiID Id)
+{
+	Owner.ActiveDocument = Id;
+	Owner.FocusRequestedDocument = Id;
+	Owner.bFocusViewportRequested = Id == 0;
+}
+
+// Asset editors open as major tabs beside the level in a row under the title bar, as in Unreal.
+void DrawDocumentTabs(FToolUIContext::FImplementation& Owner, ImDrawList& DrawList, const float Left, const float Top, const float RowHeight, const float Scale)
+{
+	const int Frame = ImGui::GetFrameCount();
+	for (std::size_t Index = Owner.Documents.size(); Index-- > 0;)
+	{
+		if (Owner.Documents[Index].LastFrame >= Frame - 1)
+		{
+			continue;
+		}
+
+		// Closing the tab in front shows its left neighbour, or the level.
+		if (Owner.Documents[Index].Id == Owner.ActiveDocument)
+		{
+			ActivateDocument(Owner, Index > 0 ? Owner.Documents[Index - 1].Id : 0);
+		}
+
+		Owner.Documents.erase(Owner.Documents.begin() + static_cast<std::ptrdiff_t>(Index));
+	}
+
+	const float Height = RowHeight - 6.f * Scale;
+	const float Y = Top + (RowHeight - Height) * 0.5f;
+	const float Padding = 12.f * Scale;
+	const float CloseSize = 16.f * Scale;
+	const float Rounding = Owner.Metrics.TitleBarControlRounding * Scale;
+	float X = Left + 6.f * Scale;
+	const auto DrawTab = [&](const ImGuiID Id, const std::string& Label, const bool bClosable)
+	{
+		const ImVec2 TextSize = ImGui::CalcTextSize(Label.c_str());
+		const float Width = Padding * 2.f + TextSize.x + (bClosable ? CloseSize + 4.f * Scale : 0.f);
+		const ImVec2 Minimum{X, Y};
+		const ImVec2 Maximum{X + Width, Y + Height};
+		ImGui::SetCursorScreenPos(Minimum);
+		ImGui::PushID(static_cast<int>(Id));
+		ImGui::InvisibleButton("##DocumentTab", {Width, Height});
+		ImGui::PopID();
+
+		const bool bActive = Owner.ActiveDocument == Id;
+		const bool bHovered = ImGui::IsItemHovered();
+		const ImVec2 CloseMinimum{Maximum.x - Padding * 0.5f - CloseSize, Y + (Height - CloseSize) * 0.5f};
+		const ImVec2 CloseMaximum{CloseMinimum.x + CloseSize, CloseMinimum.y + CloseSize};
+		const bool bCloseHovered = bClosable && bHovered && ImGui::IsMouseHoveringRect(CloseMinimum, CloseMaximum);
+		if (bClosable && (ImGui::IsItemClicked(ImGuiMouseButton_Middle) || (bCloseHovered && ImGui::IsItemClicked(ImGuiMouseButton_Left))))
+		{
+			ActivateDocument(Owner, Id);
+			Owner.CloseRequestedDocument = Id;
+		}
+		else if (!bActive && ImGui::IsItemClicked(ImGuiMouseButton_Left))
+		{
+			ActivateDocument(Owner, Id);
+		}
+
+		if (bActive || bHovered)
+		{
+			DrawList.AddRectFilled(Minimum, Maximum, bActive ? IM_COL32(255, 255, 255, 16) : IM_COL32(255, 255, 255, 24), Rounding);
+		}
+
+		const ImU32 TextColor = ToImGuiPackedColor(bActive || bHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
+		DrawList.AddText({X + Padding, Y + (Height - TextSize.y) * 0.5f}, TextColor, Label.c_str());
+		if (bActive)
+		{
+			const float Thickness = 2.f * Scale;
+			DrawList.AddRectFilled({X + Padding, Maximum.y - Thickness}, {X + Padding + TextSize.x, Maximum.y}, ToImGuiPackedColor(ToolUITheme::NeutralAccent), Thickness * 0.5f);
+		}
+
+		if (bClosable && (bActive || bHovered))
+		{
+			if (bCloseHovered)
+			{
+				DrawList.AddRectFilled(CloseMinimum, CloseMaximum, IM_COL32(255, 255, 255, 32), Rounding);
+			}
+
+			const ImVec2 Center{(CloseMinimum.x + CloseMaximum.x) * 0.5f, (CloseMinimum.y + CloseMaximum.y) * 0.5f};
+			const float Arm = 3.5f * Scale;
+			const ImU32 CrossColor = ToImGuiPackedColor(bCloseHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
+			DrawList.AddLine({Center.x - Arm, Center.y - Arm}, {Center.x + Arm, Center.y + Arm}, CrossColor, 1.25f * Scale);
+			DrawList.AddLine({Center.x - Arm, Center.y + Arm}, {Center.x + Arm, Center.y - Arm}, CrossColor, 1.25f * Scale);
+		}
+
+		X = Maximum.x + 2.f * Scale;
+	};
+
+	DrawTab(0, Owner.LevelTabLabel, false);
+	for (const FToolUIDocument& Document : Owner.Documents)
+	{
+		DrawTab(Document.Id, Document.Label, true);
 	}
 }
 
@@ -2185,13 +2293,18 @@ bool FToolUIContext::IsPanelHovered(const std::string_view Name) const noexcept
 
 bool FToolUIContext::IsDocumentInFront() const noexcept
 {
-	const ImGuiDockNode* const CenterNode = Implementation->bViewportImmersive ? nullptr : ImGui::DockBuilderGetCentralNode(Implementation->DockspaceId);
-	return CenterNode != nullptr && CenterNode->VisibleWindow != nullptr && CenterNode->VisibleWindow->ID != ImHashStr("Viewport");
+	return Implementation->ActiveDocument != 0;
 }
 
 void FToolUIContext::FocusViewport() noexcept
 {
+	Implementation->ActiveDocument = 0;
 	Implementation->bFocusViewportRequested = true;
+}
+
+void FToolUIContext::SetLevelTabLabel(const std::string_view Label)
+{
+	Implementation->LevelTabLabel = Label;
 }
 
 bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bool* const bSelected, const char* const Shortcut)
@@ -2270,7 +2383,10 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	const float ChromeScale = TitleBarHeight / static_cast<float>(DefaultTitleBarHeight);
 	const float TitleBarBottom = ViewportMinimum.y + TitleBarHeight;
 	const float StatusBarHeight = Implementation->Metrics.StatusBarHeight * ChromeScale;
-	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, ViewportMinimum, {ViewportMaximum.x, TitleBarBottom}, 0.f);
+	const float TabRowHeight = 34.f * ChromeScale;
+	const float TabRowBottom = TitleBarBottom + TabRowHeight;
+	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, ViewportMinimum, {ViewportMaximum.x, TabRowBottom}, 0.f);
+	DrawList->AddLine({ViewportMinimum.x, TabRowBottom - 1.f}, {ViewportMaximum.x, TabRowBottom - 1.f}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
 
 	const ImVec2 SystemMinimum = ViewportMinimum;
 	const ImVec2 SystemMaximum{ViewportMinimum.x + TitleBarHeight, TitleBarBottom};
@@ -2408,7 +2524,8 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		}
 	}
 
-	Implementation->WorkspaceCanvas = ResolveToolUIWorkspaceCanvas({.X = ViewportMinimum.x, .Y = ViewportMinimum.y, .Width = Viewport->Size.x, .Height = Viewport->Size.y}, TitleBarHeight, StatusBarHeight);
+	DrawDocumentTabs(*Implementation, *DrawList, ViewportMinimum.x, TitleBarBottom, TabRowHeight, ChromeScale);
+	Implementation->WorkspaceCanvas = ResolveToolUIWorkspaceCanvas({.X = ViewportMinimum.x, .Y = ViewportMinimum.y, .Width = Viewport->Size.x, .Height = Viewport->Size.y}, TabRowBottom - ViewportMinimum.y, StatusBarHeight);
 	ImGui::SetCursorScreenPos({Implementation->WorkspaceCanvas.X, Implementation->WorkspaceCanvas.Y});
 	const ImVec2 DockSize{std::max(1.f, Implementation->WorkspaceCanvas.Width), std::max(1.f, Implementation->WorkspaceCanvas.Height)};
 	// Changing the ID migrates pre-Viewport layouts once while preserving user layouts from this version onward.
@@ -2419,7 +2536,8 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	DockspaceBackground.w = 0.f;
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, DockspaceBackground);
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * ChromeScale, ImGui::GetStyle().FramePadding.y});
-	ImGui::DockSpace(Implementation->DockspaceId, DockSize, Implementation->bViewportImmersive ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_PassthruCentralNode);
+	// A document in front keeps the level layout alive without drawing it, as the immersive viewport does.
+	ImGui::DockSpace(Implementation->DockspaceId, DockSize, Implementation->bViewportImmersive || Implementation->ActiveDocument != 0 ? ImGuiDockNodeFlags_KeepAliveOnly : ImGuiDockNodeFlags_PassthruCentralNode);
 	ImGui::PopStyleVar();
 	ImGui::PopStyleColor();
 	if (Implementation->bBuildDefaultLayout || bDockspaceMissing)
@@ -2494,8 +2612,51 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	const bool bViewport = Kind == EToolUIPanelKind::Viewport;
 	const bool bImmersive = bViewport && Implementation->bViewportImmersive;
 	const ImGuiID WindowId = bImmersive ? ImHashStr(ImmersiveViewportName) : ImHashStr(Name.data(), Name.size());
+	const bool bDocument = Kind == EToolUIPanelKind::Document;
+	if (bDocument)
+	{
+		const std::string_view TabLabel = Name.substr(0, Name.find("###"));
+		const auto Existing = std::ranges::find(Implementation->Documents, WindowId, &FToolUIDocument::Id);
+		if (Existing == Implementation->Documents.end())
+		{
+			// As in Unreal, a newly opened asset editor comes to the front.
+			Implementation->Documents.push_back({.Id = WindowId, .Label = std::string(TabLabel), .LastFrame = ImGui::GetFrameCount()});
+			Implementation->ActiveDocument = WindowId;
+			Implementation->FocusRequestedDocument = WindowId;
+		}
+		else
+		{
+			Existing->Label = TabLabel;
+			Existing->LastFrame = ImGui::GetFrameCount();
+		}
+
+		// A panel that asks for focus is reopening an asset that is already open.
+		if ((GImGui->NextWindowData.HasFlags & ImGuiNextWindowDataFlags_HasFocus) != 0)
+		{
+			Implementation->ActiveDocument = WindowId;
+		}
+
+		if (Implementation->CloseRequestedDocument == WindowId)
+		{
+			Implementation->CloseRequestedDocument = 0;
+			if (bOpen)
+			{
+				*bOpen = false;
+			}
+		}
+	}
+
+	// Only the tab in front draws: one document, or the level panels.
+	const bool bBehindTab = bDocument ? WindowId != Implementation->ActiveDocument : Implementation->ActiveDocument != 0 && Kind != EToolUIPanelKind::Drawer;
+	if (bBehindTab)
+	{
+		GImGui->NextWindowData.ClearFlags();
+		Implementation->PanelBegun.push_back(false);
+		return false;
+	}
+
 	const auto Previous = Implementation->PreviousDockState.find(WindowId);
-	const bool bPreviouslyDocked = Previous != Implementation->PreviousDockState.end() && Previous->second;
+	const bool bPreviouslyDocked = bDocument || (Previous != Implementation->PreviousDockState.end() && Previous->second);
 	if (Name == "Content Browser" && ImGui::FindWindowSettingsByID(WindowId) == nullptr)
 	{
 		// Add the new browser beside the log without resetting an existing workspace.
@@ -2534,37 +2695,26 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 
 	ImGui::SetNextWindowClass(&Class);
 
-	// Documents join the viewport's node as tabs whenever they open again, even if they floated the last time, and open in front.
-	if (Kind == EToolUIPanelKind::Document && !Implementation->bViewportImmersive)
+	// Documents and drawers fill the workspace below the title bar instead of docking.
+	const FToolUICanvasBounds& Canvas = Implementation->WorkspaceCanvas;
+	if (bDocument)
 	{
-		const int Frame = ImGui::GetFrameCount();
-		const auto [LastFrame, bFirst] = Implementation->DocumentFrames.try_emplace(WindowId, Frame);
-		const bool bOpening = bFirst || LastFrame->second != Frame - 1;
-		LastFrame->second = Frame;
-		if (const ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetCentralNode(Implementation->DockspaceId); CenterNode && bOpening)
+		ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
+		ImGui::SetNextWindowPos({Canvas.X, Canvas.Y}, ImGuiCond_Always);
+		ImGui::SetNextWindowSize({Canvas.Width, Canvas.Height}, ImGuiCond_Always);
+		if (Implementation->FocusRequestedDocument == WindowId)
 		{
-			ImGui::SetNextWindowDockID(CenterNode->ID, ImGuiCond_Always);
-			Implementation->DocumentFocusFrames[WindowId] = 3;
-		}
-
-		if (const auto Focus = Implementation->DocumentFocusFrames.find(WindowId); Focus != Implementation->DocumentFocusFrames.end())
-		{
+			Implementation->FocusRequestedDocument = 0;
 			ImGui::SetNextWindowFocus();
-			if (--Focus->second == 0)
-			{
-				Implementation->DocumentFocusFrames.erase(Focus);
-			}
 		}
 	}
 
 	if (Kind == EToolUIPanelKind::Drawer)
 	{
-		if (const ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetCentralNode(Implementation->DockspaceId))
-		{
-			const float Height = std::round(CenterNode->Size.y * 0.4f);
-			ImGui::SetNextWindowPos({CenterNode->Pos.x, CenterNode->Pos.y + CenterNode->Size.y - Height}, ImGuiCond_Always);
-			ImGui::SetNextWindowSize({CenterNode->Size.x, Height}, ImGuiCond_Always);
-		}
+		const float Height = std::round(Canvas.Height * 0.4f);
+		ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
+		ImGui::SetNextWindowPos({Canvas.X, Canvas.Y + Canvas.Height - Height}, ImGuiCond_Always);
+		ImGui::SetNextWindowSize({Canvas.Width, Height}, ImGuiCond_Always);
 	}
 
 	if (Name == "Performance" && ImGui::FindWindowSettingsByID(WindowId) == nullptr)
@@ -2578,8 +2728,11 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	}
 
 	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" || Name == "Performance" ? std::format("      {}###{}", Name, Name) : std::string(Name);
-	const ImGuiWindowFlags DrawerFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
-	const ImGuiWindowFlags Flags = (bViewport ? ImGuiWindowFlags_NoMove : ImGuiWindowFlags_None) | (Kind == EToolUIPanelKind::Drawer ? DrawerFlags : ImGuiWindowFlags_None) | (Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
+	constexpr ImGuiWindowFlags DrawerFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
+	// A document is the workspace itself, so it stays behind drawers and popups even when clicked.
+	constexpr ImGuiWindowFlags DocumentFlags = DrawerFlags | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoBringToFrontOnFocus;
+	const ImGuiWindowFlags KindFlags = Kind == EToolUIPanelKind::Drawer ? DrawerFlags : bDocument ? DocumentFlags : ImGuiWindowFlags_None;
+	const ImGuiWindowFlags Flags = (bViewport ? ImGuiWindowFlags_NoMove : ImGuiWindowFlags_None) | KindFlags | (Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
 
 	if (bImmersive)
 	{
@@ -2594,6 +2747,17 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	}
 
 	const bool bVisible = bImmersive ? BeginImmersiveViewport(Implementation->WorkspaceCanvas, Implementation->bFocusViewportRequested) : ImGui::Begin(Label.c_str(), bOpen, Flags);
+	Implementation->PanelBegun.push_back(true);
+
+	// A drawer is a quick pick: it closes when focus leaves it or on Escape. Dragging an asset out must not close it before the drop lands, and a click elsewhere closes it on release so the button that toggles it does not reopen it.
+	if (Kind == EToolUIPanelKind::Drawer && bOpen && *bOpen)
+	{
+		const bool bKeep = ImGui::IsWindowAppearing() || ImGui::IsAnyMouseDown() || ImGui::GetDragDropPayload() != nullptr || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+		if (!bKeep && (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false))))
+		{
+			*bOpen = false;
+		}
+	}
 	if (bViewport)
 	{
 		Implementation->bFocusViewportRequested = false;
@@ -2636,7 +2800,12 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 
 void FToolUIContext::EndPanel()
 {
-	ImGui::End();
+	const bool bBegun = Implementation->PanelBegun.back();
+	Implementation->PanelBegun.pop_back();
+	if (bBegun)
+	{
+		ImGui::End();
+	}
 }
 
 void FToolUIContext::MigrateContentDockHeight(const std::uint32_t DockspaceId)

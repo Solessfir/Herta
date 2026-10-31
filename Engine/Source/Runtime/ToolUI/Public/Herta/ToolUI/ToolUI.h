@@ -114,9 +114,9 @@ enum class EToolUIPanelKind : std::uint8_t
 	Tool,
 	// The level viewport: always the central node's first tab, with no close button.
 	Viewport,
-	// An asset editor: opens as a tab beside the viewport each time it appears, as Unreal's asset editors open in the main window.
+	// An asset editor: a title-bar tab beside the level that fills the workspace while in front, as Unreal's major tabs do. "Label###Id" names the tab.
 	Document,
-	// A transient overlay across the bottom of the document in front, such as the content drawer; it never docks or saves a layout.
+	// A transient overlay across the bottom of the workspace, such as the content drawer. It closes when focus leaves it and never docks or saves a layout.
 	Drawer,
 };
 
@@ -195,10 +195,11 @@ public:
 	void SetCursorCaptured(bool bCaptured);
 	bool IsPanelFocused(std::string_view Name) const noexcept;
 	bool IsPanelHovered(std::string_view Name) const noexcept;
-	// True while a document tab covers the viewport in the central node.
+	// True while an asset editor tab is in front, hiding the level panels.
 	bool IsDocumentInFront() const noexcept;
-	// Brings the viewport's tab to the front and focuses it.
+	// Brings the level tab to the front and focuses its viewport.
 	void FocusViewport() noexcept;
+	void SetLevelTabLabel(std::string_view Label);
 	// Files dropped onto any editor window since the last call, in drop order.
 	[[nodiscard]] std::vector<std::filesystem::path> TakeDroppedFiles();
 	void PushLogFont();

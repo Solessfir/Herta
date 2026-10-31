@@ -382,13 +382,11 @@ void FMaterialGraphPanel::Draw(FToolUIContext& ToolUI, const FMaterialGraphPanel
 	}
 
 	const float Scale = ImGui::GetFontSize() / ToolUI.GetMetrics().BaseFontSize;
-	const ImGuiViewport* const Viewport = ImGui::GetMainViewport();
-	ImGui::SetNextWindowSize({std::min(1100.f * Scale, Viewport->WorkSize.x - 32.f * Scale), std::min(700.f * Scale, Viewport->WorkSize.y - 32.f * Scale)}, ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowPos({Viewport->WorkPos.x + Viewport->WorkSize.x * 0.5f, Viewport->WorkPos.y + Viewport->WorkSize.y * 0.5f}, ImGuiCond_FirstUseEver, {0.5f, 0.5f});
-
+	const std::string_view FileName = std::string_view(Path).substr(Path.find_last_of('/') + 1);
+	const std::string TabLabel = std::format("{}{}###Material Graph", FileName.substr(0, FileName.rfind('.')), IsDirty() ? "*" : "");
 	bool bKeepOpen = true;
-	const bool bVisible = ToolUI.BeginPanel("Material Graph", &bKeepOpen, EToolUIPanelKind::Document);
-	bFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+	const bool bVisible = ToolUI.BeginPanel(TabLabel, &bKeepOpen, EToolUIPanelKind::Document);
+	bFocused = bVisible && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 	if (bVisible)
 	{
 		ImGui::TextUnformatted((Path + (IsDirty() ? " *" : "")).c_str());

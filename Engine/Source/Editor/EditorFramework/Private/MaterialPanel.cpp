@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <format>
 #include <utility>
 
 namespace Herta
@@ -378,16 +379,15 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 	}
 
 	const float Scale = ImGui::GetFontSize() / ToolUI.GetMetrics().BaseFontSize;
-	const ImGuiViewport* const Viewport = ImGui::GetMainViewport();
-	const ImVec2 Available{std::max(1.f, Viewport->WorkSize.x - 32.f * Scale), std::max(1.f, Viewport->WorkSize.y - 32.f * Scale)};
-	ImGui::SetNextWindowSize({std::min(520.f * Scale, Available.x), std::min(760.f * Scale, Available.y)}, ImGuiCond_FirstUseEver);
-	ImGui::SetNextWindowPos({Viewport->WorkPos.x + Viewport->WorkSize.x * 0.5f, Viewport->WorkPos.y + Viewport->WorkSize.y * 0.5f}, ImGuiCond_FirstUseEver, {0.5f, 0.5f});
-	ImGui::SetNextWindowSizeConstraints({std::min(360.f * Scale, Available.x), std::min(300.f * Scale, Available.y)}, Available);
-
-	const bool bVisible = ToolUI.BeginPanel("Material", &bOpen, EToolUIPanelKind::Document);
-	bFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
+	const std::string TabLabel = std::format("{}{}###Material", Draft.Name, IsDirty() ? "*" : "");
+	const bool bVisible = ToolUI.BeginPanel(TabLabel, &bOpen, EToolUIPanelKind::Document);
+	bFocused = bVisible && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 	if (bVisible)
 	{
+		// A material is a short form, so it reads as a centered column instead of stretching across the workspace.
+		const float ColumnWidth = std::min(ImGui::GetContentRegionAvail().x, 640.f * Scale);
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ImGui::GetContentRegionAvail().x - ColumnWidth) * 0.5f);
+		ImGui::BeginChild("##MaterialColumn", {ColumnWidth, 0.f});
 		ImGui::PushTextWrapPos();
 		ImGui::TextUnformatted((Draft.Name + (IsDirty() ? " *" : "")).c_str());
 		ImGui::TextDisabled("%s", Source.c_str());
@@ -965,6 +965,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 
 		ImGui::PopStyleVar(2);
 		ImGui::EndDisabled();
+		ImGui::EndChild();
 	}
 
 	ToolUI.EndPanel();
