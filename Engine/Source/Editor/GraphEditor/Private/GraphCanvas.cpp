@@ -1,5 +1,7 @@
 #include "Herta/GraphEditor/GraphCanvas.h"
 
+#include "Herta/GraphEditor/GraphCanvasFormat.h"
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -7,6 +9,7 @@
 #include <cmath>
 #include <format>
 #include <map>
+#include <tuple>
 
 namespace Herta
 {
@@ -106,6 +109,26 @@ std::optional<FGraphCanvasEdit> Duplicate(const FGraph& Graph, const FGraphSchem
 	return FGraphCanvasEdit{.Label = Copies.size() == 1 ? "Duplicate node" : "Duplicate nodes", .Graph = std::move(After)};
 }
 
+// An edit that moves nodes to new positions, or nothing when none of them actually moves.
+std::optional<FGraphCanvasEdit> MoveNodes(const FGraph& Graph, const FGraphNodePositions& Positions, std::string Label)
+{
+	FGraph After = Graph;
+	for (FGraphNode& Node : After.Nodes)
+	{
+		if (const auto Found = Positions.find(Node.Id.Value); Found != Positions.end())
+		{
+			Node.Position = Found->second;
+		}
+	}
+
+	if (After == Graph)
+	{
+		return std::nullopt;
+	}
+
+	return FGraphCanvasEdit{.Label = std::move(Label), .Graph = std::move(After)};
+}
+
 FGraph RemoveNodes(const FGraph& Graph, const std::vector<FGraphNodeId>& Nodes)
 {
 	FGraph Result = Graph;
@@ -136,6 +159,11 @@ void FGraphCanvas::SetSelection(std::vector<FGraphNodeId> Nodes)
 void FGraphCanvas::RequestFrame()
 {
 	bFrameRequested = true;
+}
+
+void FGraphCanvas::SetFormatSettings(const FGraphFormatSettings& Settings)
+{
+	FormatSettings = Settings;
 }
 
 std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const FGraph& Graph, const FGraphCanvasDomain& Domain, const std::span<const FGraphDiagnostic> Diagnostics)
@@ -302,7 +330,8 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 
 	if (Mode == EMode::Moving)
 	{
-		MoveOffset = {Mouse[0] - DragStart[0], Mouse[1] - DragStart[1]};
+		const float Grid = FormatSettings.Grid > 0.f ? FormatSettings.Grid : 1.f;
+		MoveOffset = {std::round((Mouse[0] - DragStart[0]) / Grid) * Grid, std::round((Mouse[1] - DragStart[1]) / Grid) * Grid};
 		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
 		{
 			if (MoveOffset[0] != 0.f || MoveOffset[1] != 0.f)
@@ -400,6 +429,28 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		{
 			Edit = Duplicate(Graph, Schema, Selection);
 		}
+		else if (!IO.KeyCtrl && !IO.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_Q, false))
+		{
+			Edit = MoveNodes(Graph, StraightenGraphLinks(Graph, Schema, Layouts, Selection), "Straighten links");
+		}
+		else if (IO.KeyShift && !IO.KeyCtrl && !IO.KeyAlt)
+		{
+			// Unreal's alignment keys: Shift with W, S, A, or D aligns the selection's top, bottom, left, or right edges.
+			constexpr std::array Keys{std::pair{ImGuiKey_W, EGraphAlignment::Top}, std::pair{ImGuiKey_S, EGraphAlignment::Bottom}, std::pair{ImGuiKey_A, EGraphAlignment::Left}, std::pair{ImGuiKey_D, EGraphAlignment::Right}};
+			for (const auto& [Key, Alignment] : Keys)
+			{
+				if (ImGui::IsKeyPressed(Key, false))
+				{
+					Edit = MoveNodes(Graph, AlignGraphNodes(Layouts, Selection, Alignment), "Align nodes");
+				}
+			}
+		}
+	}
+
+	// Format works on the selection's trees, or on the whole graph when nothing is selected.
+	if (bFocused && !IO.WantTextInput && Mode == EMode::Idle && !Edit && !IO.KeyCtrl && !IO.KeyShift && !IO.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_F, false))
+	{
+		Edit = MoveNodes(Graph, FormatGraph(Graph, Schema, Layouts, GraphFormatRoots(Graph, Selection), FormatSettings), "Format nodes");
 	}
 
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
@@ -641,6 +692,50 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 			Edit = Duplicate(Graph, Schema, Selection);
 		}
 
+		if (ImGui::MenuItem("Format", "F"))
+		{
+			Edit = MoveNodes(Graph, FormatGraph(Graph, Schema, Layouts, GraphFormatRoots(Graph, Selection), FormatSettings), "Format nodes");
+		}
+
+		if (ImGui::MenuItem("Straighten links", "Q"))
+		{
+			Edit = MoveNodes(Graph, StraightenGraphLinks(Graph, Schema, Layouts, Selection), "Straighten links");
+		}
+
+		if (ImGui::BeginMenu("Align", Selection.size() >= 2))
+		{
+			constexpr std::array Items{
+			    std::tuple{"Top", "Shift+W", EGraphAlignment::Top},
+			    std::tuple{"Middle", "", EGraphAlignment::Middle},
+			    std::tuple{"Bottom", "Shift+S", EGraphAlignment::Bottom},
+			    std::tuple{"Left", "Shift+A", EGraphAlignment::Left},
+			    std::tuple{"Center", "", EGraphAlignment::Center},
+			    std::tuple{"Right", "Shift+D", EGraphAlignment::Right},
+			};
+
+			for (const auto& [Name, Shortcut, Alignment] : Items)
+			{
+				if (ImGui::MenuItem(Name, Shortcut))
+				{
+					Edit = MoveNodes(Graph, AlignGraphNodes(Layouts, Selection, Alignment), "Align nodes");
+				}
+			}
+
+			ImGui::Separator();
+			if (ImGui::MenuItem("Distribute horizontally", nullptr, false, Selection.size() >= 3))
+			{
+				Edit = MoveNodes(Graph, DistributeGraphNodes(Layouts, Selection, true), "Distribute nodes");
+			}
+
+			if (ImGui::MenuItem("Distribute vertically", nullptr, false, Selection.size() >= 3))
+			{
+				Edit = MoveNodes(Graph, DistributeGraphNodes(Layouts, Selection, false), "Distribute nodes");
+			}
+
+			ImGui::EndMenu();
+		}
+
+		ImGui::Separator();
 		if (ImGui::MenuItem("Delete", "Del") && !Selection.empty())
 		{
 			Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Delete node" : "Delete nodes", .Graph = RemoveNodes(Graph, Selection)};

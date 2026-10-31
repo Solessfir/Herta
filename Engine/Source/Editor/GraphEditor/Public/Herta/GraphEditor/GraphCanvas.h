@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/GraphEditor/GraphCanvasFormat.h"
 #include "Herta/GraphEditor/GraphCanvasGeometry.h"
 #include "Herta/ToolUI/Theme.h"
 
@@ -42,6 +43,8 @@ public:
 	void SetSelection(std::vector<FGraphNodeId> Nodes);
 	// Fits the whole graph in view on the next draw.
 	void RequestFrame();
+	// Spacing and grid for Format and for snapping moved nodes.
+	void SetFormatSettings(const FGraphFormatSettings& Settings);
 
 private:
 	enum class EMode : std::uint8_t
@@ -55,6 +58,7 @@ private:
 
 	FGraphCanvasView View{};
 	FGraphCanvasMetrics Metrics{};
+	FGraphFormatSettings FormatSettings{};
 	std::vector<FGraphNodeId> Selection{};
 	bool bFrameRequested = true;
 
