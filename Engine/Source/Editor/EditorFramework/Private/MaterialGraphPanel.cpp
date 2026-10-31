@@ -387,7 +387,7 @@ void FMaterialGraphPanel::Draw(FToolUIContext& ToolUI, const FMaterialGraphPanel
 	ImGui::SetNextWindowPos({Viewport->WorkPos.x + Viewport->WorkSize.x * 0.5f, Viewport->WorkPos.y + Viewport->WorkSize.y * 0.5f}, ImGuiCond_FirstUseEver, {0.5f, 0.5f});
 
 	bool bKeepOpen = true;
-	const bool bVisible = ToolUI.BeginPanel("Material Graph", &bKeepOpen);
+	const bool bVisible = ToolUI.BeginPanel("Material Graph", &bKeepOpen, EToolUIPanelKind::Document);
 	bFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 	if (bVisible)
 	{

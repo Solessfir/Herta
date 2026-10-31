@@ -4,6 +4,7 @@
 #include "Herta/GraphEditor/GraphCanvasGeometry.h"
 #include "Herta/ToolUI/Theme.h"
 
+#include <array>
 #include <optional>
 #include <span>
 #include <string>
@@ -61,6 +62,7 @@ private:
 	FGraphFormatSettings FormatSettings{};
 	std::vector<FGraphNodeId> Selection{};
 	bool bFrameRequested = true;
+	std::array<float, 2> FramedSize{};
 
 	// The gesture in progress.
 	EMode Mode = EMode::Idle;

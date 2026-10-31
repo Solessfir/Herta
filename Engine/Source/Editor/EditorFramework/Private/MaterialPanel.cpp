@@ -382,7 +382,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 	ImGui::SetNextWindowPos({Viewport->WorkPos.x + Viewport->WorkSize.x * 0.5f, Viewport->WorkPos.y + Viewport->WorkSize.y * 0.5f}, ImGuiCond_FirstUseEver, {0.5f, 0.5f});
 	ImGui::SetNextWindowSizeConstraints({std::min(360.f * Scale, Available.x), std::min(300.f * Scale, Available.y)}, Available);
 
-	const bool bVisible = ToolUI.BeginPanel("Material", &bOpen);
+	const bool bVisible = ToolUI.BeginPanel("Material", &bOpen, EToolUIPanelKind::Document);
 	bFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
 	if (bVisible)
 	{

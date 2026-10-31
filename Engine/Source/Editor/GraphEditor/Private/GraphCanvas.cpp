@@ -206,7 +206,9 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 
 	if (bFrameRequested)
 	{
-		bFrameRequested = false;
+		// A new document tab can begin floating and dock a frame later, so keep framing until the canvas size settles.
+		bFrameRequested = Size.x != FramedSize[0] || Size.y != FramedSize[1];
+		FramedSize = {Size.x, Size.y};
 		View.Zoom = 1.f;
 		View.Pan = {Size.x * 0.5f, Size.y * 0.5f};
 		if (!Layouts.empty())

@@ -4103,7 +4103,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 {
 	ImGui::SetNextWindowSize({960, 540}, ImGuiCond_FirstUseEver);
 
-	if (ToolUI->BeginPanel("Viewport", nullptr, true))
+	if (ToolUI->BeginPanel("Viewport", nullptr, EToolUIPanelKind::Viewport))
 	{
 		const ImVec2 Size = ImGui::GetContentRegionAvail();
 		const ImVec2 ImageMinimum = ImGui::GetCursorScreenPos();

@@ -394,6 +394,10 @@ struct FToolUIContext::FImplementation
 	std::filesystem::path AppearancePath;
 	std::unordered_map<ImGuiID, bool> PreviousDockState;
 	std::unordered_map<ImGuiID, bool> PresentedPanels;
+	// The frame each document panel last began, so one that reopens comes to the front as a new tab would.
+	std::unordered_map<ImGuiID, int> DocumentFrames;
+	// Frames left to keep focusing a reopened document: ImGui docks it a frame after it begins, and the dock selects its tab only once it is there.
+	std::unordered_map<ImGuiID, int> DocumentFocusFrames;
 	std::optional<FToolUIError> PendingError;
 	ImGuiContext* Context = nullptr;
 	ImFont* RegularFont = nullptr;
@@ -2474,8 +2478,9 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	ImGui::End();
 }
 
-bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, const bool bViewport)
+bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, const EToolUIPanelKind Kind)
 {
+	const bool bViewport = Kind == EToolUIPanelKind::Viewport;
 	const bool bImmersive = bViewport && Implementation->bViewportImmersive;
 	const ImGuiID WindowId = bImmersive ? ImHashStr(ImmersiveViewportName) : ImHashStr(Name.data(), Name.size());
 	const auto Previous = Implementation->PreviousDockState.find(WindowId);
@@ -2517,6 +2522,29 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	}
 
 	ImGui::SetNextWindowClass(&Class);
+
+	// Documents join the viewport's node as tabs whenever they open again, even if they floated the last time, and open in front.
+	if (Kind == EToolUIPanelKind::Document && !Implementation->bViewportImmersive)
+	{
+		const int Frame = ImGui::GetFrameCount();
+		const auto [LastFrame, bFirst] = Implementation->DocumentFrames.try_emplace(WindowId, Frame);
+		const bool bOpening = bFirst || LastFrame->second != Frame - 1;
+		LastFrame->second = Frame;
+		if (const ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetCentralNode(Implementation->DockspaceId); CenterNode && bOpening)
+		{
+			ImGui::SetNextWindowDockID(CenterNode->ID, ImGuiCond_Always);
+			Implementation->DocumentFocusFrames[WindowId] = 3;
+		}
+
+		if (const auto Focus = Implementation->DocumentFocusFrames.find(WindowId); Focus != Implementation->DocumentFocusFrames.end())
+		{
+			ImGui::SetNextWindowFocus();
+			if (--Focus->second == 0)
+			{
+				Implementation->DocumentFocusFrames.erase(Focus);
+			}
+		}
+	}
 
 	if (Name == "Performance" && ImGui::FindWindowSettingsByID(WindowId) == nullptr)
 	{
@@ -2565,11 +2593,19 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		Implementation->PresentedPanels[WindowId] = bViewport;
 	}
 
+	// The viewport alone needs no tab; once documents share its node, the tab bar switches between them.
 	if (bViewport)
 	{
 		if (ImGuiDockNode* const Node = ImGui::GetCurrentWindow()->DockNode)
 		{
-			Node->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
+			if (Node->Windows.Size > 1)
+			{
+				Node->LocalFlags &= ~ImGuiDockNodeFlags_NoTabBar;
+			}
+			else
+			{
+				Node->LocalFlags |= ImGuiDockNodeFlags_NoTabBar;
+			}
 		}
 	}
 

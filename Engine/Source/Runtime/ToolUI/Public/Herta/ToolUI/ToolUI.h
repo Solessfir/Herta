@@ -108,6 +108,16 @@ struct FToolUIDescriptor
 	std::function<void()> RefreshRequested;
 };
 
+enum class EToolUIPanelKind : std::uint8_t
+{
+	// Docks wherever the user or the default layout put it.
+	Tool,
+	// The level viewport: always the central node's first tab, with no close button.
+	Viewport,
+	// An asset editor: opens as a tab beside the viewport each time it appears, as Unreal's asset editors open in the main window.
+	Document,
+};
+
 enum class EToolUIMenuIcon : std::uint8_t
 {
 	Panel,
@@ -167,7 +177,7 @@ public:
 	[[nodiscard]] std::expected<void, FToolUIError> RenderPlatformWindows();
 	// DrawFileMenuItems adds items at the top of the File menu, above the workspace section.
 	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems = {}, const std::function<void()>& DrawStatusItems = {}, const std::function<void()>& DrawFileMenuItems = {}, const std::function<void()>& DrawEditMenuItems = {});
-	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, bool bViewport = false);
+	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, EToolUIPanelKind Kind = EToolUIPanelKind::Tool);
 	void EndPanel();
 	void SetViewportImmersive(bool bImmersive) noexcept;
 	[[nodiscard]] bool IsViewportImmersive() const noexcept;
