@@ -18,7 +18,7 @@ Missing or failed textures and shader updates retain the last valid preview and 
 
 ## Shader iteration
 
-An empty shader path uses `Engine/Shaders/TexturedMesh.slang`. A nonempty portable `.slang` path is relative to the material's own content mount. Prefix it with `Game/` or `Engine/` to select that content mount explicitly, including cross-mount references. These prefixes select content roots, not `Engine/Shaders`; include `VisualShared.slangh` from the separate engine shader include root, and `VisualLights.slangh` to read lights and their cluster masks; the uniform block no longer carries lights. Headless cooks provide explicit Engine/Game roots to resolve mounted paths, and use the requested content root as Game when no separate Game root is configured.
+An empty shader path uses `Engine/Shaders/TexturedMesh.slang`. A nonempty portable `.slang` or `.hmatgraph` path is relative to the material's own content mount. Prefix it with `Game/` or `Engine/` to select that content mount explicitly, including cross-mount references. These prefixes select content roots, not `Engine/Shaders`; include `VisualShared.slangh` from the separate engine shader include root, and `VisualLights.slangh` to read lights and their cluster masks; the uniform block no longer carries lights. Headless cooks provide explicit Engine/Game roots to resolve mounted paths, and use the requested content root as Game when no separate Game root is configured.
 
 - Entry points: `vertexMain`, `instancedVertexMain`, and `fragmentMain`.
 - Vertex data: position, UV, normal, and tangent with handedness; instancing carries object-to-clip and object-to-view matrices. Custom shaders skip the depth prepass, so they never read the previous object-to-clip matrix, which only the engine's velocity prepass binds as a second instance stream.
@@ -26,4 +26,14 @@ An empty shader path uses `Engine/Shaders/TexturedMesh.slang`. A nonempty portab
 
 The editor watches source and literal includes/imports on background tasks. All three stages compile from the same immutable source snapshot through `HertaShaderWorker`. Compatible pipelines publish together; errors retain the last valid pipeline and appear beside the shader path and in the Output Log. Shader compilation is developer-only, not a runtime or Shipping dependency. The experimental Shipping editor disables shader iteration and uses engine PBR for custom-shader materials; portable custom-shader deployment belongs to the standalone runtime's cooking/deployment slice.
 
-Changing the uniform ABI requires updating both the C++ and Slang definitions and recooking every affected shader. A node-based material graph is not implemented.
+Changing the uniform ABI requires updating both the C++ and Slang definitions and recooking every affected shader.
+
+## Material Graphs
+
+A material whose shader path names a `.hmatgraph` file is shaded by a Material Graph. **Create graph** in the material's Shader section writes `<material>.hmatgraph` beside a Game material, starting from the base color texture feeding the output, and opens it; **Edit graph** opens an existing one, as does passing the file to the editor on its command line.
+
+The graph editor pans with the middle or right mouse button and zooms with the wheel about the cursor. A right click on empty canvas opens a searchable node menu; dragging between pins connects them, dragging from a connected input picks its link up, and dropping it on nothing removes it; Alt+click also removes a link. Click, Ctrl or Shift+click, and box selection select nodes, which move by dragging, duplicate with Ctrl+D, and delete with Delete. The side panel edits the selected node's properties and lists compile errors and warnings; clicking one selects its node. Edits undo and redo with Ctrl+Z and Ctrl+Y and save with Ctrl+S. Closing the editor or switching projects with unsaved graph edits asks to save first.
+
+Graphs are typed by vector width. Values, inputs (texture coordinate, world position, vertex normal), texture samples of the material's six slots, math, channel split and combine, and the Material Output make up the first node set; math nodes take any width and widen scalars, and mismatched widths are errors on the node that combines them. The compiler walks back from the output, so unconnected nodes are warnings rather than code; it folds constants and merges identical expressions, then generates one `EvaluateMaterial` function that includes `GraphMaterial.slangh`. Outputs the graph leaves unconnected keep the material asset's own parameters and textures, so a graph only replaces what it connects; a graph normal is tangent space, like a normal map.
+
+Saved graphs compile through the material shader watcher like hand-written shaders and keep the last valid pipeline on failure. Like other custom shaders, graph materials skip the depth prepass and are not yet staged into packaged games.

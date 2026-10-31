@@ -1,0 +1,357 @@
+{
+  "format": "HertaGraph",
+  "version": 1,
+  "domain": "material",
+  "domainVersion": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "TexCoord",
+      "position": [
+        -900,
+        -40
+      ],
+      "properties": {}
+    },
+    {
+      "id": 2,
+      "type": "Constant",
+      "position": [
+        -900,
+        60
+      ],
+      "properties": {
+        "value": 8
+      }
+    },
+    {
+      "id": 3,
+      "type": "Multiply",
+      "position": [
+        -680,
+        -20
+      ],
+      "properties": {}
+    },
+    {
+      "id": 4,
+      "type": "Split",
+      "position": [
+        -470,
+        -20
+      ],
+      "properties": {}
+    },
+    {
+      "id": 5,
+      "type": "Frac",
+      "position": [
+        -260,
+        -60
+      ],
+      "properties": {}
+    },
+    {
+      "id": 6,
+      "type": "Constant",
+      "position": [
+        -260,
+        40
+      ],
+      "properties": {
+        "value": 0.5
+      }
+    },
+    {
+      "id": 7,
+      "type": "Subtract",
+      "position": [
+        -60,
+        -40
+      ],
+      "properties": {}
+    },
+    {
+      "id": 8,
+      "type": "Constant",
+      "position": [
+        -60,
+        60
+      ],
+      "properties": {
+        "value": 12
+      }
+    },
+    {
+      "id": 9,
+      "type": "Multiply",
+      "position": [
+        140,
+        -20
+      ],
+      "properties": {}
+    },
+    {
+      "id": 10,
+      "type": "Saturate",
+      "position": [
+        340,
+        -20
+      ],
+      "properties": {}
+    },
+    {
+      "id": 11,
+      "type": "Vector",
+      "position": [
+        340,
+        -260
+      ],
+      "properties": {
+        "value": [
+          0.85,
+          0.42,
+          0.18,
+          1
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "type": "Vector",
+      "position": [
+        340,
+        120
+      ],
+      "properties": {
+        "value": [
+          0.08,
+          0.22,
+          0.65,
+          1
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "type": "Lerp",
+      "position": [
+        600,
+        -120
+      ],
+      "properties": {}
+    },
+    {
+      "id": 14,
+      "type": "Constant",
+      "position": [
+        600,
+        60
+      ],
+      "properties": {
+        "value": 0.2
+      }
+    },
+    {
+      "id": 15,
+      "type": "Constant",
+      "position": [
+        600,
+        160
+      ],
+      "properties": {
+        "value": 0.75
+      }
+    },
+    {
+      "id": 16,
+      "type": "Lerp",
+      "position": [
+        820,
+        80
+      ],
+      "properties": {}
+    },
+    {
+      "id": 17,
+      "type": "MaterialOutput",
+      "position": [
+        1080,
+        -100
+      ],
+      "properties": {}
+    }
+  ],
+  "links": [
+    {
+      "from": [
+        1,
+        "UV"
+      ],
+      "to": [
+        3,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        2,
+        "Value"
+      ],
+      "to": [
+        3,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        3,
+        "Result"
+      ],
+      "to": [
+        4,
+        "In"
+      ]
+    },
+    {
+      "from": [
+        4,
+        "R"
+      ],
+      "to": [
+        5,
+        "In"
+      ]
+    },
+    {
+      "from": [
+        5,
+        "Result"
+      ],
+      "to": [
+        7,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        6,
+        "Value"
+      ],
+      "to": [
+        7,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        7,
+        "Result"
+      ],
+      "to": [
+        9,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        8,
+        "Value"
+      ],
+      "to": [
+        9,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        9,
+        "Result"
+      ],
+      "to": [
+        10,
+        "In"
+      ]
+    },
+    {
+      "from": [
+        11,
+        "RGB"
+      ],
+      "to": [
+        13,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        12,
+        "RGB"
+      ],
+      "to": [
+        13,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        10,
+        "Result"
+      ],
+      "to": [
+        13,
+        "Alpha"
+      ]
+    },
+    {
+      "from": [
+        14,
+        "Value"
+      ],
+      "to": [
+        16,
+        "A"
+      ]
+    },
+    {
+      "from": [
+        15,
+        "Value"
+      ],
+      "to": [
+        16,
+        "B"
+      ]
+    },
+    {
+      "from": [
+        10,
+        "Result"
+      ],
+      "to": [
+        16,
+        "Alpha"
+      ]
+    },
+    {
+      "from": [
+        13,
+        "Result"
+      ],
+      "to": [
+        17,
+        "BaseColor"
+      ]
+    },
+    {
+      "from": [
+        16,
+        "Result"
+      ],
+      "to": [
+        17,
+        "Roughness"
+      ]
+    }
+  ]
+}

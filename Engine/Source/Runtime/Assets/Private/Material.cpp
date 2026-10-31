@@ -180,9 +180,10 @@ std::expected<void, FAssetError> ValidateMaterial(const FMaterialAsset& Material
 		return Invalid("Material name must be valid UTF-8 without control characters and at most 256 bytes");
 	}
 
-	if (!Material.ShaderPath.empty() && (!IsValidAssetPath(Material.ShaderPath) || !Material.ShaderPath.ends_with(".slang")))
+	// A Material Graph compiles to the same custom shader contract as hand-written Slang.
+	if (!Material.ShaderPath.empty() && (!IsValidAssetPath(Material.ShaderPath) || !(Material.ShaderPath.ends_with(".slang") || Material.ShaderPath.ends_with(".hmatgraph"))))
 	{
-		return Invalid("Material shader must be a portable content-relative .slang path");
+		return Invalid("Material shader must be a portable content-relative .slang or .hmatgraph path");
 	}
 
 	if (auto Valid = ValidateMaterialParameters(Material.Parameters); !Valid)

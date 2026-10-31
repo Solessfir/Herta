@@ -85,6 +85,7 @@ FMaterialShadersFixture::FMaterialShadersFixture()
 	REQUIRE_FALSE(ShaderRoot.empty());
 	Source = "#include \"Tint.slangh\"\n" + ReadShaderText(ShaderRoot / "TexturedMesh.slang");
 	Tests::WriteText(Scratch.GetPath() / "Shaders/TexturedMesh.slang", ReadShaderText(ShaderRoot / "TexturedMesh.slang"));
+	Tests::WriteText(Scratch.GetPath() / "Shaders/MeshShading.slangh", ReadShaderText(ShaderRoot / "MeshShading.slangh"));
 	Tests::WriteText(Scratch.GetPath() / "Shaders/VisualShared.slangh", ReadShaderText(ShaderRoot / "VisualShared.slangh"));
 	Tests::WriteText(Scratch.GetPath() / "Shaders/VisualLights.slangh", ReadShaderText(ShaderRoot / "VisualLights.slangh"));
 	Tests::WriteText(Scratch.GetPath() / "Shaders/Brdf.slangh", ReadShaderText(ShaderRoot / "Brdf.slangh"));

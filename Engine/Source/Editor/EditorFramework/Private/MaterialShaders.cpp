@@ -5,6 +5,7 @@
 #include "Herta/Assets/AssetRegistry.h"
 #include "Herta/Core/BinaryStream.h"
 #include "Herta/Core/Log.h"
+#include "Herta/MaterialGraph/MaterialGraph.h"
 #include "Herta/Platform/Process.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Tasks/TaskSystem.h"
@@ -37,6 +38,79 @@ std::filesystem::path SourcePath(const std::string_view Text)
 std::string MountedPath(const std::string_view Path)
 {
 	return Path.empty() || Path.starts_with("Engine/") || Path.starts_with("Game/") ? std::string(Path) : "Game/" + std::string(Path);
+}
+
+bool IsMaterialShaderPath(const std::string_view Path)
+{
+	return Path.ends_with(".slang") || Path.ends_with(".hmatgraph");
+}
+
+struct FCollectedSources
+{
+	std::vector<FShaderSourceFile> Files;
+	// What the worker compiles: the shader itself, or the Slang generated from a Material Graph.
+	std::string Source;
+};
+
+// Hand-written shaders are read with their includes. A Material Graph compiles here to its generated Slang, which sits beside the graph,
+// plus the engine includes that Slang uses, so the worker builds it exactly like a hand-written shader.
+std::expected<FCollectedSources, FAssetError> CollectMaterialSources(const std::vector<std::filesystem::path>& Roots, const std::size_t Root, const std::string& Relative)
+{
+	if (!Relative.ends_with(".hmatgraph"))
+	{
+		auto Files = CollectShaderSources(Roots, Root, Relative);
+		if (!Files)
+		{
+			return std::unexpected(Files.error());
+		}
+
+		return FCollectedSources{.Files = std::move(*Files), .Source = Relative};
+	}
+
+	constexpr std::uintmax_t MaximumGraphBytes = 64 * 1024 * 1024;
+	std::error_code Error;
+	const auto Path = Roots[Root] / std::filesystem::path(std::u8string(Relative.begin(), Relative.end()));
+	const auto Size = std::filesystem::file_size(Path, Error);
+	if (Error || Size > MaximumGraphBytes)
+	{
+		return std::unexpected(FAssetError{"Cannot read the Material Graph"});
+	}
+
+	std::string Text(static_cast<std::size_t>(Size), '\0');
+	std::ifstream Stream(Path, std::ios::binary);
+	if (!Stream.read(Text.data(), static_cast<std::streamsize>(Text.size())))
+	{
+		return std::unexpected(FAssetError{"Cannot read the Material Graph"});
+	}
+
+	const auto Graph = DeserializeGraph(Text, GetMaterialGraphSchema());
+	if (!Graph)
+	{
+		return std::unexpected(FAssetError{"Material Graph: " + Graph.error().Message});
+	}
+
+	const auto Compiled = CompileMaterialGraph(*Graph);
+	if (!Compiled)
+	{
+		std::string Message = "Material Graph:";
+		for (const FGraphDiagnostic& Diagnostic : Compiled.error())
+		{
+			Message += " " + Diagnostic.Message + ".";
+		}
+
+		return std::unexpected(FAssetError{std::move(Message)});
+	}
+
+	auto Includes = CollectShaderSources(Roots, 0, "GraphMaterial.slangh");
+	if (!Includes)
+	{
+		return std::unexpected(Includes.error());
+	}
+
+	FCollectedSources Result{.Files = std::move(*Includes), .Source = Relative + ".slang"};
+	const auto Bytes = std::as_bytes(std::span(Compiled->Source));
+	Result.Files.push_back({.Root = Root, .Path = Result.Source, .Bytes = {Bytes.begin(), Bytes.end()}});
+	return Result;
 }
 
 std::pair<std::size_t, std::string> ResolveSource(const std::string_view Path)
@@ -276,7 +350,7 @@ void FMaterialShaders::Tick(const std::span<const std::string> MountedShaderPath
 	for (const auto& Input : MountedShaderPaths)
 	{
 		const std::string Path = MountedPath(Input);
-		if ((Path.empty() || (IsValidAssetPath(Path) && Path.ends_with(".slang"))) && Desired.size() < MaximumWatchedShaders)
+		if ((Path.empty() || (IsValidAssetPath(Path) && IsMaterialShaderPath(Path))) && Desired.size() < MaximumWatchedShaders)
 		{
 			Desired.insert(Path);
 		}
@@ -356,12 +430,14 @@ void FMaterialShaders::Poll()
 			}
 
 			const auto [Root, Relative] = ResolveSource(Path);
-			auto Files = Directories[Root].empty() ? std::expected<std::vector<FShaderSourceFile>, FAssetError>(std::unexpected(FAssetError{"Shader content mount is unavailable"})) : CollectShaderSources(Directories, Root, Relative);
-			if (!Files)
+			auto Collected = Directories[Root].empty() ? std::expected<FCollectedSources, FAssetError>(std::unexpected(FAssetError{"Shader content mount is unavailable"})) : CollectMaterialSources(Directories, Root, Relative);
+			if (!Collected)
 			{
-				Results->emplace(Path, std::unexpected(FShaderError{Files.error().Message}));
+				Results->emplace(Path, std::unexpected(FShaderError{Collected.error().Message}));
 				continue;
 			}
+
+			auto* const Files = &Collected->Files;
 
 			std::vector<FShaderSourceDependency> Dependencies;
 			Dependencies.reserve(Files->size());
@@ -382,7 +458,7 @@ void FMaterialShaders::Poll()
 			CapturedBytes += SourceBytes;
 			auto Snapshot = std::make_shared<FSourceSnapshot>();
 			Snapshot->Root = Root;
-			Snapshot->Source = Relative;
+			Snapshot->Source = std::move(Collected->Source);
 			Snapshot->Files = std::move(*Files);
 			Snapshot->Key = ComputeMaterialShaderSourceKey(Dependencies);
 			Results->emplace(Path, std::move(Snapshot));

@@ -1,0 +1,698 @@
+#include "Herta/GraphEditor/GraphCanvas.h"
+
+#include <imgui.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <format>
+#include <map>
+
+namespace Herta
+{
+namespace
+{
+ImU32 ToImU32(const FToolUIColor Color)
+{
+	return IM_COL32(Color.Red, Color.Green, Color.Blue, Color.Alpha);
+}
+
+ImU32 WithAlpha(const FToolUIColor Color, const std::uint8_t Alpha)
+{
+	return IM_COL32(Color.Red, Color.Green, Color.Blue, Alpha);
+}
+
+ImVec2 ToImVec2(const FCanvasPoint Point)
+{
+	return {Point[0], Point[1]};
+}
+
+bool Contains(const std::vector<FGraphNodeId>& Nodes, const FGraphNodeId Id)
+{
+	return std::ranges::find(Nodes, Id) != Nodes.end();
+}
+
+bool MatchesSearch(const std::string_view Text, const std::string_view Search)
+{
+	return std::ranges::search(Text, Search, [](const char Left, const char Right)
+	{
+		return std::tolower(static_cast<unsigned char>(Left)) == std::tolower(static_cast<unsigned char>(Right));
+	}).begin() != Text.end() || Search.empty();
+}
+
+std::string FormatValue(const FGraphValue& Value)
+{
+	if (const bool* const Flag = std::get_if<bool>(&Value))
+	{
+		return *Flag ? "On" : "Off";
+	}
+
+	if (const std::int32_t* const Integer = std::get_if<std::int32_t>(&Value))
+	{
+		return std::to_string(*Integer);
+	}
+
+	if (const float* const Scalar = std::get_if<float>(&Value))
+	{
+		return std::format("{:.3g}", *Scalar);
+	}
+
+	const std::string* const Text = std::get_if<std::string>(&Value);
+	return Text ? *Text : std::string();
+}
+
+// Copies the selected nodes beside themselves with the links among them, skipping types at their per-graph limit, and selects the copies.
+std::optional<FGraphCanvasEdit> Duplicate(const FGraph& Graph, const FGraphSchema& Schema, std::vector<FGraphNodeId>& Selection)
+{
+	FGraph After = Graph;
+	std::map<std::uint32_t, FGraphNodeId> Copies;
+	FGraphNodeId Next = NextGraphNodeId(Graph);
+	for (const FGraphNode& Node : Graph.Nodes)
+	{
+		const FGraphNodeDescriptor* const Descriptor = Schema.FindNode(Node.Type);
+		const auto Count = std::ranges::count(After.Nodes, Node.Type, &FGraphNode::Type);
+		if (Contains(Selection, Node.Id) && Descriptor && static_cast<std::uint32_t>(Count) < Descriptor->MaximumCount)
+		{
+			FGraphNode Copy = Node;
+			Copy.Id = Next;
+			Copy.Position = {Node.Position[0] + 24.f, Node.Position[1] + 24.f};
+			Copies.emplace(Node.Id.Value, Next);
+			After.Nodes.push_back(std::move(Copy));
+			Next.Value += 1;
+		}
+	}
+
+	for (const FGraphLink& Link : Graph.Links)
+	{
+		const auto From = Copies.find(Link.From.Node.Value);
+		const auto To = Copies.find(Link.To.Node.Value);
+		if (From != Copies.end() && To != Copies.end())
+		{
+			After.Links.push_back({.From = {.Node = From->second, .Key = Link.From.Key}, .To = {.Node = To->second, .Key = Link.To.Key}});
+		}
+	}
+
+	if (Copies.empty())
+	{
+		return std::nullopt;
+	}
+
+	Selection.clear();
+	for (const auto& [Original, Copy] : Copies)
+	{
+		Selection.push_back(Copy);
+	}
+
+	return FGraphCanvasEdit{.Label = Copies.size() == 1 ? "Duplicate node" : "Duplicate nodes", .Graph = std::move(After)};
+}
+
+FGraph RemoveNodes(const FGraph& Graph, const std::vector<FGraphNodeId>& Nodes)
+{
+	FGraph Result = Graph;
+	std::erase_if(Result.Nodes, [&Nodes](const FGraphNode& Node)
+	{
+		return Contains(Nodes, Node.Id);
+	});
+
+	std::erase_if(Result.Links, [&Nodes](const FGraphLink& Link)
+	{
+		return Contains(Nodes, Link.From.Node) || Contains(Nodes, Link.To.Node);
+	});
+
+	return Result;
+}
+}
+
+const std::vector<FGraphNodeId>& FGraphCanvas::GetSelection() const
+{
+	return Selection;
+}
+
+void FGraphCanvas::SetSelection(std::vector<FGraphNodeId> Nodes)
+{
+	Selection = std::move(Nodes);
+}
+
+void FGraphCanvas::RequestFrame()
+{
+	bFrameRequested = true;
+}
+
+std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const FGraph& Graph, const FGraphCanvasDomain& Domain, const std::span<const FGraphDiagnostic> Diagnostics)
+{
+	const FGraphSchema& Schema = *Domain.Schema;
+	std::optional<FGraphCanvasEdit> Edit;
+	ImGui::PushID(Id);
+
+	const ImVec2 Origin = ImGui::GetCursorScreenPos();
+	const ImVec2 Size = ImVec2(std::max(ImGui::GetContentRegionAvail().x, 1.f), std::max(ImGui::GetContentRegionAvail().y, 1.f));
+	ImGui::InvisibleButton("Canvas", Size, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight | ImGuiButtonFlags_MouseButtonMiddle);
+	const bool bHovered = ImGui::IsItemHovered();
+	const bool bFocused = ImGui::IsItemFocused() || ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
+	View.Origin = {Origin.x, Origin.y};
+
+	// Labels scale with zoom through the font size itself, so text stays sharp instead of stretching a rasterized size.
+	ImFont* const Font = ImGui::GetFont();
+	const float BaseFontSize = ImGui::GetStyle().FontSizeBase;
+	const float FontSize = BaseFontSize * View.Zoom;
+	const bool bLabels = FontSize >= 6.f;
+	const auto MeasureText = [Font, BaseFontSize](const std::string_view Text)
+	{
+		return Font->CalcTextSizeA(BaseFontSize, FLT_MAX, 0.f, Text.data(), Text.data() + Text.size()).x;
+	};
+
+	const auto Offset = [this](const FGraphNodeId Node)
+	{
+		return Mode == EMode::Moving && Contains(Selection, Node) ? MoveOffset : FCanvasPoint{};
+	};
+
+	std::vector<FGraphNodeLayout> Layouts;
+	Layouts.reserve(Graph.Nodes.size());
+	for (const FGraphNode& Node : Graph.Nodes)
+	{
+		if (const FGraphNodeDescriptor* const Descriptor = Schema.FindNode(Node.Type))
+		{
+			Layouts.push_back(LayoutGraphNode(Node, *Descriptor, Offset(Node.Id), Metrics, MeasureText));
+		}
+	}
+
+	if (bFrameRequested)
+	{
+		bFrameRequested = false;
+		View.Zoom = 1.f;
+		View.Pan = {Size.x * 0.5f, Size.y * 0.5f};
+		if (!Layouts.empty())
+		{
+			std::array<float, 4> Bounds{INFINITY, INFINITY, -INFINITY, -INFINITY};
+			for (const FGraphNodeLayout& Layout : Layouts)
+			{
+				Bounds = {std::min(Bounds[0], Layout.Rect[0]), std::min(Bounds[1], Layout.Rect[1]), std::max(Bounds[2], Layout.Rect[2]), std::max(Bounds[3], Layout.Rect[3])};
+			}
+
+			const float Margin = 48.f;
+			View.Zoom = std::clamp(std::min((Size.x - 2.f * Margin) / (Bounds[2] - Bounds[0]), (Size.y - 2.f * Margin) / (Bounds[3] - Bounds[1])), MinimumGraphCanvasZoom, 1.f);
+			View.Pan = {Size.x * 0.5f - (Bounds[0] + Bounds[2]) * 0.5f * View.Zoom, Size.y * 0.5f - (Bounds[1] + Bounds[3]) * 0.5f * View.Zoom};
+		}
+	}
+
+	const ImGuiIO& IO = ImGui::GetIO();
+	const FCanvasPoint Mouse = View.ToCanvas({IO.MousePos.x, IO.MousePos.y});
+	const float Tolerance = 8.f / View.Zoom;
+	const FGraphCanvasHitResult Hit = bHovered ? HitTestGraphCanvas(Graph, Schema, Layouts, Mouse, Tolerance) : FGraphCanvasHitResult{};
+	const bool bPopupOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId);
+
+	// Navigation: the wheel zooms about the cursor, and the middle or right button drags the view.
+	if (bHovered && IO.MouseWheel != 0.f && !bPopupOpen)
+	{
+		View.ZoomAbout({IO.MousePos.x, IO.MousePos.y}, std::pow(1.15f, IO.MouseWheel));
+	}
+
+	if (Mode == EMode::Idle && bHovered && (ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 1.f) || ImGui::IsMouseDragging(ImGuiMouseButton_Right, 4.f)))
+	{
+		Mode = EMode::Panning;
+	}
+
+	if (Mode == EMode::Panning)
+	{
+		View.Pan = {View.Pan[0] + IO.MouseDelta.x, View.Pan[1] + IO.MouseDelta.y};
+		if (!ImGui::IsMouseDown(ImGuiMouseButton_Middle) && !ImGui::IsMouseDown(ImGuiMouseButton_Right))
+		{
+			Mode = EMode::Idle;
+		}
+	}
+
+	// A right click that never dragged opens a menu for whatever is under the cursor.
+	if (Mode == EMode::Idle && bHovered && ImGui::IsMouseReleased(ImGuiMouseButton_Right) && ImGui::GetMouseDragDelta(ImGuiMouseButton_Right).x == 0.f && ImGui::GetMouseDragDelta(ImGuiMouseButton_Right).y == 0.f)
+	{
+		if (Hit.Kind == EGraphCanvasHit::Node)
+		{
+			if (!Contains(Selection, Hit.Node))
+			{
+				Selection = {Hit.Node};
+			}
+
+			ImGui::OpenPopup("NodeMenu");
+		}
+		else
+		{
+			MenuPosition = Mouse;
+			Search.fill('\0');
+			bFocusSearch = true;
+			ImGui::OpenPopup("AddNode");
+		}
+	}
+
+	if (Mode == EMode::Idle && bHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+	{
+		const bool bAdditive = IO.KeyCtrl || IO.KeyShift;
+		if (Hit.Kind == EGraphCanvasHit::Pin)
+		{
+			Mode = EMode::Linking;
+			LinkStart = {.Node = Hit.Node, .Key = Hit.Pin};
+			bLinkFromOutput = Hit.bOutput;
+			DetachedLink.reset();
+			const auto Existing = std::ranges::find(Graph.Links, LinkStart, &FGraphLink::To);
+			if (!Hit.bOutput && Existing != Graph.Links.end())
+			{
+				DetachedLink = *Existing;
+				LinkStart = Existing->From;
+				bLinkFromOutput = true;
+			}
+		}
+		else if (Hit.Kind == EGraphCanvasHit::Node)
+		{
+			if (IO.KeyCtrl && Contains(Selection, Hit.Node))
+			{
+				std::erase(Selection, Hit.Node);
+			}
+			else
+			{
+				if (!bAdditive && !Contains(Selection, Hit.Node))
+				{
+					Selection.clear();
+				}
+
+				if (!Contains(Selection, Hit.Node))
+				{
+					Selection.push_back(Hit.Node);
+				}
+
+				Mode = EMode::Moving;
+				DragStart = Mouse;
+				MoveOffset = {};
+			}
+		}
+		else if (Hit.Kind == EGraphCanvasHit::Link && IO.KeyAlt)
+		{
+			FGraph After = Graph;
+			After.Links.erase(After.Links.begin() + static_cast<std::ptrdiff_t>(Hit.Link));
+			Edit = FGraphCanvasEdit{.Label = "Disconnect pins", .Graph = std::move(After)};
+		}
+		else
+		{
+			if (!bAdditive)
+			{
+				Selection.clear();
+			}
+
+			Mode = EMode::BoxSelecting;
+			DragStart = Mouse;
+		}
+	}
+
+	if (Mode == EMode::Moving)
+	{
+		MoveOffset = {Mouse[0] - DragStart[0], Mouse[1] - DragStart[1]};
+		if (!ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			if (MoveOffset[0] != 0.f || MoveOffset[1] != 0.f)
+			{
+				FGraph After = Graph;
+				for (FGraphNode& Node : After.Nodes)
+				{
+					if (Contains(Selection, Node.Id))
+					{
+						Node.Position = {Node.Position[0] + MoveOffset[0], Node.Position[1] + MoveOffset[1]};
+					}
+				}
+
+				Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Move node" : "Move nodes", .Graph = std::move(After)};
+			}
+
+			Mode = EMode::Idle;
+			MoveOffset = {};
+		}
+	}
+
+	std::optional<std::string> LinkProblem;
+	std::optional<FGraphLink> Candidate;
+	if (Mode == EMode::Linking && Hit.Kind == EGraphCanvasHit::Pin && Hit.bOutput != bLinkFromOutput)
+	{
+		const FGraphPin Target{.Node = Hit.Node, .Key = Hit.Pin};
+		FGraphLink Link = bLinkFromOutput ? FGraphLink{.From = LinkStart, .To = Target} : FGraphLink{.From = Target, .To = LinkStart};
+		FGraph Without = Graph;
+		if (DetachedLink)
+		{
+			std::erase(Without.Links, *DetachedLink);
+		}
+
+		if (const auto Allowed = CanLinkGraphPins(Without, Schema, Link); Allowed)
+		{
+			Candidate = std::move(Link);
+		}
+		else
+		{
+			LinkProblem = Allowed.error().Message;
+		}
+	}
+
+	if (Mode == EMode::Linking && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+	{
+		if (Candidate)
+		{
+			FGraph After = Graph;
+			if (DetachedLink)
+			{
+				std::erase(After.Links, *DetachedLink);
+			}
+
+			std::erase_if(After.Links, [&Candidate](const FGraphLink& Link)
+			{
+				return Link.To == Candidate->To;
+			});
+
+			After.Links.push_back(*Candidate);
+			Edit = FGraphCanvasEdit{.Label = "Connect pins", .Graph = std::move(After)};
+		}
+		else if (DetachedLink && Hit.Kind != EGraphCanvasHit::Pin)
+		{
+			FGraph After = Graph;
+			std::erase(After.Links, *DetachedLink);
+			Edit = FGraphCanvasEdit{.Label = "Disconnect pins", .Graph = std::move(After)};
+		}
+
+		Mode = EMode::Idle;
+		DetachedLink.reset();
+	}
+
+	if (Mode == EMode::BoxSelecting && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
+	{
+		for (const FGraphNodeId Node : GraphNodesInBox(Layouts, DragStart, Mouse))
+		{
+			if (!Contains(Selection, Node))
+			{
+				Selection.push_back(Node);
+			}
+		}
+
+		Mode = EMode::Idle;
+	}
+
+	// Keyboard edits apply to the selection while the canvas has focus and no text field does.
+	if (bFocused && !IO.WantTextInput && Mode == EMode::Idle && !Selection.empty() && !Edit)
+	{
+		if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false))
+		{
+			Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Delete node" : "Delete nodes", .Graph = RemoveNodes(Graph, Selection)};
+			Selection.clear();
+		}
+		else if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D, false))
+		{
+			Edit = Duplicate(Graph, Schema, Selection);
+		}
+	}
+
+	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+	DrawList->PushClipRect(Origin, ImVec2(Origin.x + Size.x, Origin.y + Size.y), true);
+	DrawList->AddRectFilled(Origin, ImVec2(Origin.x + Size.x, Origin.y + Size.y), ToImU32(ToolUITheme::Canvas));
+
+	// The grid thins out instead of crowding when zoomed far out.
+	const float Spacing = Metrics.GridSpacing * View.Zoom;
+	if (Spacing >= 8.f)
+	{
+		const float StartX = std::fmod(View.Pan[0], Spacing);
+		const float StartY = std::fmod(View.Pan[1], Spacing);
+		for (float X = StartX; X < Size.x; X += Spacing)
+		{
+			DrawList->AddLine(ImVec2(Origin.x + X, Origin.y), ImVec2(Origin.x + X, Origin.y + Size.y), ToImU32(ToolUITheme::BorderSoft));
+		}
+
+		for (float Y = StartY; Y < Size.y; Y += Spacing)
+		{
+			DrawList->AddLine(ImVec2(Origin.x, Origin.y + Y), ImVec2(Origin.x + Size.x, Origin.y + Y), ToImU32(ToolUITheme::BorderSoft));
+		}
+	}
+
+	const FCanvasPoint VisibleMin = View.ToCanvas({Origin.x, Origin.y});
+	const FCanvasPoint VisibleMax = View.ToCanvas({Origin.x + Size.x, Origin.y + Size.y});
+	const auto Visible = [&VisibleMin, &VisibleMax](const std::array<float, 4>& Rect)
+	{
+		return Rect[2] >= VisibleMin[0] && Rect[0] <= VisibleMax[0] && Rect[3] >= VisibleMin[1] && Rect[1] <= VisibleMax[1];
+	};
+
+	const auto PinColor = [&Domain](const std::uint32_t Type)
+	{
+		return Domain.PinColor ? Domain.PinColor(Type) : ToolUITheme::NeutralAccent;
+	};
+
+	const auto LayoutOf = [&Layouts](const FGraphNodeId Node) -> const FGraphNodeLayout*
+	{
+		const auto Found = std::ranges::find(Layouts, Node, &FGraphNodeLayout::Id);
+		return Found == Layouts.end() ? nullptr : &*Found;
+	};
+
+	const auto PinOf = [&](const FGraphPin& Pin, const bool bOutput) -> std::optional<std::pair<FCanvasPoint, std::uint32_t>>
+	{
+		const FGraphNode* const Node = FindGraphNode(Graph, Pin.Node);
+		const FGraphNodeDescriptor* const Descriptor = Node ? Schema.FindNode(Node->Type) : nullptr;
+		const FGraphNodeLayout* const Layout = LayoutOf(Pin.Node);
+		if (!Descriptor || !Layout)
+		{
+			return std::nullopt;
+		}
+
+		const auto Pins = bOutput ? Descriptor->Outputs : Descriptor->Inputs;
+		const auto Found = std::ranges::find(Pins, Pin.Key, &FGraphPinDescriptor::Key);
+		if (Found == Pins.end())
+		{
+			return std::nullopt;
+		}
+
+		const auto Index = static_cast<std::size_t>(Found - Pins.begin());
+		return std::pair{(bOutput ? Layout->Outputs : Layout->Inputs)[Index], Found->Type};
+	};
+
+	const float Thickness = std::max(1.f, 2.f * View.Zoom);
+	const auto DrawCurve = [&](const FCanvasPoint From, const FCanvasPoint To, const ImU32 Color, const float Width)
+	{
+		const auto Curve = GraphLinkCurve(From, To);
+		const std::array<float, 4> Bounds{std::min({Curve[0][0], Curve[1][0], Curve[2][0], Curve[3][0]}), std::min(From[1], To[1]), std::max({Curve[0][0], Curve[1][0], Curve[2][0], Curve[3][0]}), std::max(From[1], To[1])};
+		if (Visible(Bounds))
+		{
+			DrawList->AddBezierCubic(ToImVec2(View.ToScreen(Curve[0])), ToImVec2(View.ToScreen(Curve[1])), ToImVec2(View.ToScreen(Curve[2])), ToImVec2(View.ToScreen(Curve[3])), Color, Width);
+		}
+	};
+
+	for (std::size_t Index = 0; Index < Graph.Links.size(); ++Index)
+	{
+		const FGraphLink& Link = Graph.Links[Index];
+		if (Mode == EMode::Linking && DetachedLink && Link == *DetachedLink)
+		{
+			continue;
+		}
+
+		const auto From = PinOf(Link.From, true);
+		const auto To = PinOf(Link.To, false);
+		if (From && To)
+		{
+			const bool bHighlight = (Hit.Kind == EGraphCanvasHit::Link && Hit.Link == Index) || Contains(Selection, Link.From.Node) || Contains(Selection, Link.To.Node);
+			DrawCurve(From->first, To->first, WithAlpha(PinColor(From->second), bHighlight ? 255 : 170), bHighlight ? Thickness * 1.5f : Thickness);
+		}
+	}
+
+	std::map<std::uint32_t, std::pair<EGraphSeverity, std::string>> Problems;
+	for (const FGraphDiagnostic& Diagnostic : Diagnostics)
+	{
+		auto& [Severity, Message] = Problems.try_emplace(Diagnostic.Node.Value, Diagnostic.Severity, std::string()).first->second;
+		Severity = std::min(Severity, Diagnostic.Severity);
+		Message += (Message.empty() ? "" : "\n") + Diagnostic.Message;
+	}
+
+	const float Rounding = Metrics.Rounding * View.Zoom;
+	for (const FGraphNodeLayout& Layout : Layouts)
+	{
+		if (!Visible(Layout.Rect))
+		{
+			continue;
+		}
+
+		const FGraphNode& Node = *FindGraphNode(Graph, Layout.Id);
+		const FGraphNodeDescriptor& Descriptor = *Schema.FindNode(Node.Type);
+		const ImVec2 Min = ToImVec2(View.ToScreen({Layout.Rect[0], Layout.Rect[1]}));
+		const ImVec2 Max = ToImVec2(View.ToScreen({Layout.Rect[2], Layout.Rect[3]}));
+		const float TitleBottom = Min.y + Metrics.TitleHeight * View.Zoom;
+		const FToolUIColor Category = Domain.CategoryColor ? Domain.CategoryColor(Descriptor.Category) : ToolUITheme::Surface2;
+		DrawList->AddRectFilled(ImVec2(Min.x + 2.f, Min.y + 3.f), ImVec2(Max.x + 2.f, Max.y + 3.f), IM_COL32(0, 0, 0, 70), Rounding);
+		DrawList->AddRectFilled(Min, Max, ToImU32(ToolUITheme::Surface1), Rounding);
+		DrawList->AddRectFilled(Min, ImVec2(Max.x, TitleBottom), ToImU32(MixToolUIColor(ToolUITheme::Surface2, Category, 0.35f)), Rounding, ImDrawFlags_RoundCornersTop);
+
+		const auto Problem = Problems.find(Node.Id.Value);
+		const bool bSelected = Contains(Selection, Node.Id);
+		const bool bHot = Hit.Kind != EGraphCanvasHit::None && Hit.Node == Node.Id;
+		const FToolUIColor Outline = Problem != Problems.end() ? (Problem->second.first == EGraphSeverity::Error ? ToolUITheme::Error : ToolUITheme::Warning) : bSelected ? ToolUITheme::NeutralAccentHover
+		                                                                                                                                            : bHot ? ToolUITheme::Border
+		                                                                                                                                                   : ToolUITheme::BorderSoft;
+		DrawList->AddRect(Min, Max, ToImU32(Outline), Rounding, 0, bSelected || Problem != Problems.end() ? 2.f : 1.f);
+
+		if (bLabels)
+		{
+			DrawList->AddText(Font, FontSize, ImVec2(Min.x + Metrics.Padding * View.Zoom, Min.y + (Metrics.TitleHeight * View.Zoom - FontSize) * 0.5f), ToImU32(ToolUITheme::TextPrimary), Descriptor.Name.data(), Descriptor.Name.data() + Descriptor.Name.size());
+		}
+
+		for (const bool bOutput : {false, true})
+		{
+			const auto Pins = bOutput ? Descriptor.Outputs : Descriptor.Inputs;
+			const auto& Positions = bOutput ? Layout.Outputs : Layout.Inputs;
+			for (std::size_t Index = 0; Index < Pins.size(); ++Index)
+			{
+				const ImVec2 Center = ToImVec2(View.ToScreen(Positions[Index]));
+				const FGraphPin Pin{.Node = Node.Id, .Key = std::string(Pins[Index].Key)};
+				const bool bConnected = std::ranges::any_of(Graph.Links, [&Pin, bOutput](const FGraphLink& Link)
+				{
+					return (bOutput ? Link.From : Link.To) == Pin;
+				});
+
+				const float Radius = Metrics.PinRadius * View.Zoom;
+				const bool bPinHot = Hit.Kind == EGraphCanvasHit::Pin && Hit.Node == Node.Id && Hit.Pin == Pins[Index].Key && Hit.bOutput == bOutput;
+				const ImU32 Color = ToImU32(PinColor(Pins[Index].Type));
+				if (bConnected || bPinHot)
+				{
+					DrawList->AddCircleFilled(Center, bPinHot ? Radius * 1.3f : Radius, Color);
+				}
+				else
+				{
+					DrawList->AddCircleFilled(Center, Radius, ToImU32(ToolUITheme::Surface0));
+					DrawList->AddCircle(Center, Radius, Color, 0, std::max(1.f, 1.5f * View.Zoom));
+				}
+
+				if (bLabels)
+				{
+					const std::string_view Name = Pins[Index].Name;
+					const float Width = Font->CalcTextSizeA(FontSize, FLT_MAX, 0.f, Name.data(), Name.data() + Name.size()).x;
+					const float X = bOutput ? Center.x - (Metrics.PinRadius + 6.f) * View.Zoom - Width : Center.x + (Metrics.PinRadius + 6.f) * View.Zoom;
+					DrawList->AddText(Font, FontSize, ImVec2(X, Center.y - FontSize * 0.5f), ToImU32(ToolUITheme::TextSecondary), Name.data(), Name.data() + Name.size());
+				}
+			}
+		}
+
+		if (bLabels)
+		{
+			const std::size_t PinRows = std::max(Descriptor.Inputs.size(), Descriptor.Outputs.size());
+			for (std::size_t Index = 0; Index < Node.Properties.size(); ++Index)
+			{
+				const float RowTop = TitleBottom + Metrics.RowHeight * View.Zoom * static_cast<float>(PinRows + Index);
+				const float Y = RowTop + (Metrics.RowHeight * View.Zoom - FontSize) * 0.5f;
+				const std::string_view Name = Descriptor.Properties[Index].Name;
+				DrawList->AddText(Font, FontSize, ImVec2(Min.x + Metrics.Padding * View.Zoom, Y), ToImU32(ToolUITheme::TextMuted), Name.data(), Name.data() + Name.size());
+				const float Right = Max.x - Metrics.Padding * View.Zoom;
+				// Vectors read as colors; their four numbers do not fit a node and are edited in the details panel instead.
+				if (const auto* const Vector = std::get_if<std::array<float, 4>>(&Node.Properties[Index].Value))
+				{
+					const auto Channel = [](const float Component)
+					{
+						return static_cast<std::uint8_t>(std::clamp(Component, 0.f, 1.f) * 255.f + 0.5f);
+					};
+
+					DrawList->AddRectFilled(ImVec2(Right - FontSize * 3.f, Y), ImVec2(Right, Y + FontSize), IM_COL32(Channel((*Vector)[0]), Channel((*Vector)[1]), Channel((*Vector)[2]), 255), 3.f * View.Zoom);
+					continue;
+				}
+
+				const std::string Value = FormatValue(Node.Properties[Index].Value);
+				const float Width = Font->CalcTextSizeA(FontSize, FLT_MAX, 0.f, Value.data(), Value.data() + Value.size()).x;
+				DrawList->AddText(Font, FontSize, ImVec2(Right - Width, Y), ToImU32(ToolUITheme::TextSecondary), Value.data(), Value.data() + Value.size());
+			}
+		}
+
+		if (bHovered && Problem != Problems.end() && Hit.Kind == EGraphCanvasHit::Node && Hit.Node == Node.Id && Mode == EMode::Idle)
+		{
+			ImGui::SetTooltip("%s", Problem->second.second.c_str());
+		}
+	}
+
+	if (Mode == EMode::Linking)
+	{
+		const auto Start = PinOf(LinkStart, bLinkFromOutput);
+		if (Start)
+		{
+			const FCanvasPoint End = Candidate ? (PinOf(bLinkFromOutput ? Candidate->To : Candidate->From, !bLinkFromOutput))->first : Mouse;
+			const ImU32 Color = LinkProblem ? ToImU32(ToolUITheme::Error) : ToImU32(PinColor(Start->second));
+			if (bLinkFromOutput)
+			{
+				DrawCurve(Start->first, End, Color, Thickness);
+			}
+			else
+			{
+				DrawCurve(End, Start->first, Color, Thickness);
+			}
+		}
+
+		if (LinkProblem)
+		{
+			ImGui::SetTooltip("%s", LinkProblem->c_str());
+		}
+	}
+
+	if (Mode == EMode::BoxSelecting)
+	{
+		const ImVec2 First = ToImVec2(View.ToScreen(DragStart));
+		const ImVec2 Second = IO.MousePos;
+		const ImVec2 Min(std::min(First.x, Second.x), std::min(First.y, Second.y));
+		const ImVec2 Max(std::max(First.x, Second.x), std::max(First.y, Second.y));
+		DrawList->AddRectFilled(Min, Max, WithAlpha(ToolUITheme::NeutralAccent, 24), 3.f);
+		DrawList->AddRect(Min, Max, WithAlpha(ToolUITheme::NeutralAccent, 140), 3.f);
+	}
+
+	DrawList->PopClipRect();
+
+	if (ImGui::BeginPopup("NodeMenu"))
+	{
+		if (ImGui::MenuItem("Duplicate", "Ctrl+D") && !Selection.empty())
+		{
+			Edit = Duplicate(Graph, Schema, Selection);
+		}
+
+		if (ImGui::MenuItem("Delete", "Del") && !Selection.empty())
+		{
+			Edit = FGraphCanvasEdit{.Label = Selection.size() == 1 ? "Delete node" : "Delete nodes", .Graph = RemoveNodes(Graph, Selection)};
+			Selection.clear();
+		}
+
+		ImGui::EndPopup();
+	}
+
+	if (ImGui::BeginPopup("AddNode"))
+	{
+		if (bFocusSearch)
+		{
+			ImGui::SetKeyboardFocusHere();
+			bFocusSearch = false;
+		}
+
+		ImGui::SetNextItemWidth(220.f);
+		ImGui::InputTextWithHint("##Search", "Search nodes", Search.data(), Search.size());
+		const std::string_view Query(Search.data());
+		std::string_view Category;
+		for (const FGraphNodeDescriptor& Descriptor : Schema.Nodes)
+		{
+			if (!MatchesSearch(Descriptor.Name, Query) && !MatchesSearch(Descriptor.Category, Query))
+			{
+				continue;
+			}
+
+			if (Descriptor.Category != Category)
+			{
+				Category = Descriptor.Category;
+				ImGui::SeparatorText(std::string(Category).c_str());
+			}
+
+			const auto Count = std::ranges::count(Graph.Nodes, Descriptor.Type, &FGraphNode::Type);
+			if (ImGui::Selectable(std::string(Descriptor.Name).c_str(), false, static_cast<std::uint32_t>(Count) < Descriptor.MaximumCount ? 0 : ImGuiSelectableFlags_Disabled))
+			{
+				auto Node = MakeGraphNode(Schema, Descriptor.Type, NextGraphNodeId(Graph), MenuPosition);
+				if (Node)
+				{
+					FGraph After = Graph;
+					Selection = {Node->Id};
+					After.Nodes.push_back(std::move(*Node));
+					Edit = FGraphCanvasEdit{.Label = std::format("Add {}", Descriptor.Name), .Graph = std::move(After)};
+				}
+			}
+		}
+
+		ImGui::EndPopup();
+	}
+
+	ImGui::PopID();
+	return Edit;
+}
+}

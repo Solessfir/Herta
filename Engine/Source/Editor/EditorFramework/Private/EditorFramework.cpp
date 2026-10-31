@@ -22,12 +22,14 @@
 #include "Herta/GameFramework/LevelSimulationSetup.h"
 #include "Herta/GameFramework/SoftBodyGeometry.h"
 #include "Herta/GameFramework/VisualEnvironment.h"
+#include "Herta/MaterialGraph/MaterialGraph.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/Platform/Process.h"
 #include "Herta/Project/Project.h"
 #include "Herta/Tasks/TaskSystem.h"
 #include "Herta/ToolUI/Theme.h"
 #include "Herta/ToolUI/ToolUI.h"
+#include "MaterialGraphPanel.h"
 #include "MaterialPanel.h"
 #include "MaterialShaders.h"
 #include "NumericField.h"
@@ -58,6 +60,7 @@
 #include <cstdint>
 #include <cstring>
 #include <format>
+#include <fstream>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -526,6 +529,9 @@ struct FEditorFramework::FImplementation
 	void DrawHdrDisplaySettings(FEditorDisplay& Display, float ValueWidth);
 	void RefreshSelectedVisualEntities();
 	void DrawMaterialPanel();
+	std::expected<std::string, FAssetError> CreateMaterialGraph(FAssetId Id);
+	void OpenMaterialGraph(FAssetId Id, std::string_view ShaderPath);
+	void OpenMaterialGraphKey(const std::string& Key);
 	void DrawPerformancePanel();
 	[[nodiscard]] int FindTimeOfDaySun() const;
 	void DrawTimeOfDay(float X, float Top, float Width, float ButtonSize, float Scale);
@@ -581,6 +587,7 @@ struct FEditorFramework::FImplementation
 	FContentBrowserState ContentBrowserState;
 	FDetailsPanelState DetailsPanelState;
 	FMaterialPanel MaterialPanel;
+	FMaterialGraphPanel MaterialGraphPanel;
 	FAssetId PendingMaterialOpen;
 	FEditorAssetThumbnail DraftMaterialThumbnail;
 	std::vector<FMaterialTextureOption> MaterialTextureOptions;
@@ -972,6 +979,24 @@ FEditorFrameMetrics FEditorFramework::GetFrameMetrics() const noexcept
 	return Metrics;
 }
 
+void FEditorFramework::OpenMaterialGraph(const std::filesystem::path& File)
+{
+	std::error_code Error;
+	const auto Absolute = std::filesystem::weakly_canonical(File, Error);
+	for (const auto& [Mount, Root] : {std::pair{"Game/", Implementation->AssetPaths.ContentRoot}, std::pair{"Engine/", Implementation->AssetPaths.EngineContentRoot}})
+	{
+		const auto Relative = Absolute.lexically_relative(std::filesystem::weakly_canonical(Root, Error));
+		const std::u8string Text = Relative.generic_u8string();
+		if (!Root.empty() && !Relative.empty() && !Text.starts_with(u8".."))
+		{
+			Implementation->OpenMaterialGraphKey(Mount + std::string(Text.begin(), Text.end()));
+			return;
+		}
+	}
+
+	HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "Material Graph {} is outside the project's and the engine's content", File.string());
+}
+
 std::optional<std::string> FEditorFramework::ShowCameraBookmark(const std::uint32_t Slot)
 {
 	const auto Bookmarks = Implementation->Level->GetCameraBookmarks();
@@ -1188,7 +1213,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	bool bOpenLevelRequested = false;
 	bool bPlaceObjectsRequested = std::exchange(Implementation->bPlaceObjectsRequested, false);
 	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->IsSimulating() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
-	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->MaterialPanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
+	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->MaterialPanel.IsFocused() && !Implementation->MaterialGraphPanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
 	const bool bControlShortcutsAvailable = bShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl;
 	const bool bProjectChangeAvailable = bAuthoringAvailable && !Implementation->EngineRoot.empty() && !(Implementation->Assets && Implementation->Assets->IsImporting());
 	bool bNewProjectRequested = bControlShortcutsAvailable && bProjectChangeAvailable && ImGui::IsKeyPressed(ImGuiKey_N, false);
@@ -1813,6 +1838,12 @@ bool FEditorFramework::RequestClose()
 		return false;
 	}
 
+	// Unsaved graph edits stop the close with a save prompt; closing again after answering it proceeds.
+	if (!Implementation->MaterialGraphPanel.RequestClose())
+	{
+		return false;
+	}
+
 	Implementation->bWaitingForMaterialClose = false;
 	Implementation->PendingMaterialOpen = {};
 	Implementation->bCloseRequested = !Implementation->MaterialPanel.RequestClose();
@@ -1930,6 +1961,12 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 	if (MaterialPanel.IsOpen() && MaterialPanel.IsDirty())
 	{
 		ProjectError = "Save or discard material edits before changing projects.";
+		return;
+	}
+
+	if (!MaterialGraphPanel.RequestClose())
+	{
+		ProjectError = "Save or discard Material Graph edits before changing projects.";
 		return;
 	}
 
@@ -2457,6 +2494,11 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 			ShaderPaths.push_back(MaterialShaderKey(MaterialPanel.GetDraft().ShaderPath, Option != Options.end() ? Option->Label : "Game/"));
 		}
 
+		if (MaterialGraphPanel.IsOpen())
+		{
+			ShaderPaths.push_back(MaterialGraphPanel.GetPath());
+		}
+
 		if (MaterialShaders)
 		{
 			MaterialShaders->Tick(ShaderPaths);
@@ -2659,8 +2701,101 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 	{
 		Assets->RequestMaterialPreview(Id, Material);
 	},
+	    .CreateGraph = [&](const FAssetId Id) -> std::expected<std::string, FAssetError>
+	{
+		return CreateMaterialGraph(Id);
+	},
+	    .OpenGraph = [&](const FAssetId Id, const std::string_view ShaderPath)
+	{
+		OpenMaterialGraph(Id, ShaderPath);
+	},
 	};
 	MaterialPanel.Draw(*ToolUI, Context);
+
+	std::string GraphStatus;
+	if (MaterialShaders && MaterialGraphPanel.IsOpen())
+	{
+		if (const auto* Status = MaterialShaders->GetStatus(MaterialGraphPanel.GetPath()))
+		{
+			GraphStatus = Status->bCompiling ? "Compiling shader..." : !Status->Diagnostics.empty() ? Status->Diagnostics
+			                                                       : Status->bReady                 ? "Shader ready"
+			                                                                                        : "Saved graphs compile in the background";
+		}
+	}
+
+	MaterialGraphPanel.Draw(*ToolUI, {.ShaderStatus = GraphStatus});
+}
+
+// A material's graph lives beside it as <material>.hmatgraph; an existing file is reused rather than replaced.
+std::expected<std::string, FAssetError> FEditorFramework::FImplementation::CreateMaterialGraph(const FAssetId Id)
+{
+	const auto MaterialFile = Assets->GetMaterialPath(Id);
+	if (!MaterialFile)
+	{
+		return std::unexpected(MaterialFile.error());
+	}
+
+	std::error_code Error;
+	const auto Root = std::filesystem::weakly_canonical(AssetPaths.ContentRoot, Error);
+	std::filesystem::path GraphFile = *MaterialFile;
+	GraphFile.replace_extension(".hmatgraph");
+	const auto Relative = std::filesystem::weakly_canonical(GraphFile, Error).lexically_relative(Root);
+	const std::u8string RelativeText = Relative.generic_u8string();
+	if (Error || Relative.empty() || RelativeText.starts_with(u8".."))
+	{
+		return std::unexpected(FAssetError{"Material graphs can only be created for Game materials"});
+	}
+
+	if (!std::filesystem::exists(GraphFile, Error))
+	{
+		const auto Text = SerializeGraph(MakeDefaultMaterialGraph(), GetMaterialGraphSchema());
+		if (!Text)
+		{
+			return std::unexpected(FAssetError{Text.error().Message});
+		}
+
+		std::ofstream Stream(GraphFile, std::ios::binary | std::ios::trunc);
+		Stream.write(Text->data(), static_cast<std::streamsize>(Text->size()));
+		Stream.close();
+		if (!Stream)
+		{
+			return std::unexpected(FAssetError{"Cannot write the new Material Graph"});
+		}
+	}
+
+	return "Game/" + std::string(RelativeText.begin(), RelativeText.end());
+}
+
+void FEditorFramework::FImplementation::OpenMaterialGraph(const FAssetId Id, const std::string_view ShaderPath)
+{
+	const auto Options = Assets->GetOptions();
+	const auto Option = std::ranges::find(Options, Id, &FPreviewAssetOption::Id);
+	OpenMaterialGraphKey(MaterialShaderKey(ShaderPath, Option != Options.end() ? Option->Label : "Game/"));
+}
+
+// Key is a mounted shader path such as Game/Materials/Rock.hmatgraph.
+void FEditorFramework::FImplementation::OpenMaterialGraphKey(const std::string& Key)
+{
+	const bool bEngine = Key.starts_with("Engine/");
+	const std::string_view Relative = std::string_view(Key).substr(Key.find('/') + 1);
+	const std::filesystem::path File = (bEngine ? AssetPaths.EngineContentRoot : AssetPaths.ContentRoot) / std::filesystem::path(std::u8string(Relative.begin(), Relative.end()));
+
+	std::ifstream Stream(File, std::ios::binary);
+	const std::string Text{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
+	auto Graph = DeserializeGraph(Text, GetMaterialGraphSchema());
+	if (!Graph)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Cannot open Material Graph {}: {}", Key, Graph.error().Message);
+		return;
+	}
+
+	if (MaterialGraphPanel.IsOpen() && MaterialGraphPanel.GetPath() != Key && MaterialGraphPanel.IsDirty())
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Save or close {} before opening another Material Graph", MaterialGraphPanel.GetPath());
+		return;
+	}
+
+	MaterialGraphPanel.Open(Key, File, std::move(*Graph), bEngine);
 }
 
 void FEditorFramework::FImplementation::RefreshSelectionFromLevel()

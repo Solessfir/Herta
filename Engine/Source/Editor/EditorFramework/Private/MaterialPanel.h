@@ -34,6 +34,9 @@ struct FMaterialPanelContext
 	std::function<std::expected<void, FAssetError>(FAssetId, const FMaterialAsset&)> Save{};
 	std::function<std::expected<FMaterialAsset, FAssetError>(FAssetId)> Reload{};
 	std::function<void(FAssetId, const FMaterialAsset&)> Preview{};
+	// Writes a new Material Graph beside the material and returns the shader path that selects it.
+	std::function<std::expected<std::string, FAssetError>(FAssetId)> CreateGraph{};
+	std::function<void(FAssetId, std::string_view ShaderPath)> OpenGraph{};
 };
 
 class FMaterialPanel final

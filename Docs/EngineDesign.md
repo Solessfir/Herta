@@ -329,7 +329,7 @@ Core
 |-- Assets -> Core + Reflection
 |-- Application -> Core + Math + Platform
 |-- Level -> Core + Math + Reflection + Assets
-|-- GraphCore -> Core + Reflection + Assets
+|-- GraphCore -> Core, then Reflection + Assets when a domain needs them
 |-- Scripting -> Core + Reflection + Assets
 |-- Localization -> Core + Assets
 |-- TextLayout -> Core + Math + Assets
@@ -356,7 +356,8 @@ EditorCore -> Core + Platform, then adds Reflection + Assets + Level as those mi
 EditorFramework -> EditorCore + ToolUI
 AssetEditor -> EditorFramework + AssetPipeline
 LocalizationEditor -> EditorFramework + LocalizationPipeline
-GraphEditor -> EditorFramework + GraphCore
+GraphEditor -> GraphCore + ToolUI, used by EditorFramework's domain panels
+MaterialGraph (Developer) -> GraphCore
 LocalizationPipeline -> Core + Assets + Localization
 NavigationBuilder -> Core + Math + Assets + AssetPipeline
 PackageBuilder -> Core + Assets
@@ -1659,6 +1660,8 @@ Exit condition: the path tracer converges on every Sandbox station and matches r
 ### Milestone 6.8 - Graph canvas and Material Graph
 
 Brought ahead of the later graph domains because materials already have a complete consumer: the Slang worker, cooked shaders, and atomic pipeline publication.
+
+Progress: `GraphCore` holds graphs, validation, canonical text, and link checks; `MaterialGraph` holds the schema and the compiler to Slang; `GraphEditor` holds the canvas; and the editor's Material Graph panel edits `.hmatgraph` files with undo, saving them for the material shader watcher to compile. Mesh shading moved into `MeshShading.slangh`, which calls each shader's `EvaluateMaterial`: the engine material evaluates its texture slots there, and graphs generate theirs. The Sandbox material gallery shows a graph material. Parameters for material instances, static switches, the reduced ray-traced hit evaluation, headless `HertaEditorCmd` compilation, and staging graph materials into packaged games remain.
 
 - Add a minimal `GraphCore` without ImGui: stable node, pin, and link identities, versioned graph assets, typed pins, validation, and per-node diagnostics, all usable headless.
 - Add `GraphEditor` with the first-party node canvas described in section 4: pan and zoom with sharp text through scaled fonts, culling, typed links, selection and box selection, moving and snapping, hit-test priority, keyboard focus, DPI and theme compliance, and EditorCore transactions for every edit.

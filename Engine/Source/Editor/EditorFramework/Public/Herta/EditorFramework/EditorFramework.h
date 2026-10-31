@@ -122,6 +122,8 @@ public:
 	void MoveViewportCamera(float Distance) noexcept;
 	// Renders the viewport at a fixed size, shown scaled to the panel, so GPU timings compare across displays. Unset follows the panel.
 	void SetViewportResolution(std::optional<FExtent2D> Resolution) noexcept;
+	// Opens a Material Graph from the project's or the engine's content in the graph editor, as passing its file to the editor does.
+	void OpenMaterialGraph(const std::filesystem::path& File);
 	// Moves the viewport camera to a level camera bookmark and returns its name, or nothing when the slot is empty.
 	std::optional<std::string> ShowCameraBookmark(std::uint32_t Slot);
 	[[nodiscard]] bool IsUnitStatsVisible() const noexcept;

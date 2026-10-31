@@ -330,9 +330,17 @@ HertaRuntimeModule("MaterialGraph", {
     PublicDependencies = { "GraphCore" }
 })
 
+-- The first-party node canvas: drawing and editing any schema's graph, with storage, undo, and semantics left to each domain's panel.
+HertaEditorModule("GraphEditor", {
+    PublicDependencies = { "GraphCore", "ToolUI" },
+    PrivateThirdPartyDependencies = { "ImGui" }
+})
+
+    externalincludedirs { path.join(RepositoryRoot, "External/imgui") }
+
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
-    PrivateDependencies = { "Application", "GameFramework", "GameUI", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
+    PrivateDependencies = { "Application", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
 })
 
@@ -495,7 +503,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "GraphCore", "MaterialGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "GraphCore", "GraphEditor", "MaterialGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }

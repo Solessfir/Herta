@@ -885,7 +885,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 
 		if (MatchesMaterialSearch("Shader", Query) && BeginMaterialSection("Shader", Scale))
 		{
-			ImGui::TextDisabled("Compatible Slang shader");
+			ImGui::TextDisabled("Compatible Slang shader or Material Graph");
 			ImGui::SetNextItemWidth(-FLT_MIN);
 			const bool bEnter = ImGui::InputTextWithHint("##ShaderPath", "Engine PBR (default)", ShaderPath.data(), ShaderPath.size(), ImGuiInputTextFlags_EnterReturnsTrue);
 			if (bEnter || ImGui::IsItemDeactivatedAfterEdit())
@@ -902,13 +902,43 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 				ImGui::TextWrapped("%.*s", static_cast<int>(Context.ShaderStatus.size()), Context.ShaderStatus.data());
 			}
 
-			if (!Draft.ShaderPath.empty() && ToolUIButton("Use engine PBR", EToolUIMenuIcon::Undo))
+			if (Draft.ShaderPath.ends_with(".hmatgraph") && Context.OpenGraph && ToolUIButton("Edit graph", EToolUIMenuIcon::Material))
+			{
+				Context.OpenGraph(Asset, Draft.ShaderPath);
+			}
+			else if (Draft.ShaderPath.empty() && !bReadOnly && Context.CreateGraph && ToolUIButton("Create graph", EToolUIMenuIcon::Add))
 			{
 				Report(EndEdit());
-				FMaterialAsset Candidate = Draft;
-				Candidate.ShaderPath.clear();
-				Apply(std::move(Candidate), "Reset material shader");
-				ShaderPath.fill('\0');
+				if (const auto Created = Context.CreateGraph(Asset); Created)
+				{
+					FMaterialAsset Candidate = Draft;
+					Candidate.ShaderPath = *Created;
+					Apply(std::move(Candidate), "Create material graph");
+					ShaderPath.fill('\0');
+					std::ranges::copy(Draft.ShaderPath.substr(0, ShaderPath.size() - 1), ShaderPath.begin());
+					Context.OpenGraph(Asset, Draft.ShaderPath);
+				}
+				else
+				{
+					ShowError(Created.error().Message);
+				}
+			}
+
+			if (!Draft.ShaderPath.empty())
+			{
+				if (Draft.ShaderPath.ends_with(".hmatgraph"))
+				{
+					ImGui::SameLine();
+				}
+
+				if (ToolUIButton("Use engine PBR", EToolUIMenuIcon::Undo))
+				{
+					Report(EndEdit());
+					FMaterialAsset Candidate = Draft;
+					Candidate.ShaderPath.clear();
+					Apply(std::move(Candidate), "Reset material shader");
+					ShaderPath.fill('\0');
+				}
 			}
 		}
 

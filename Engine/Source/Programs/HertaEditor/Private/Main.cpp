@@ -648,6 +648,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	// A level opens inside the nearest project that owns it, falling back to Sandbox for loose files.
 	std::filesystem::path OpenedLevel;
 	std::filesystem::path OpenedProject;
+	std::filesystem::path OpenedGraph;
 	if (!OpenPath.empty() && !bScalingTest)
 	{
 		std::error_code Error;
@@ -667,9 +668,14 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			OpenedProject = Absolute;
 		}
+		else if (Extension == ".hmatgraph")
+		{
+			OpenedGraph = Absolute;
+			OpenedProject = FindOwningProject(Absolute).value_or(std::filesystem::path{});
+		}
 		else
 		{
-			HERTA_LOG_WARNING(*Log, EditorLog, "Ignoring {}: the editor opens .hlevel and .hertaproject files", OpenPath.string());
+			HERTA_LOG_WARNING(*Log, EditorLog, "Ignoring {}: the editor opens .hlevel, .hertaproject, and .hmatgraph files", OpenPath.string());
 		}
 	}
 
@@ -865,6 +871,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		}
 
 		EditorFramework->SetViewportResolution(Resolution);
+	}
+
+	if (!OpenedGraph.empty())
+	{
+		EditorFramework->OpenMaterialGraph(OpenedGraph);
 	}
 
 	if (bSmokeTest)
