@@ -1,5 +1,6 @@
 #include "MaterialPanel.h"
 
+#include "ContentBrowser.h"
 #include "DetailsPanel.h"
 #include "Herta/Assets/AssetSearch.h"
 #include "Herta/ToolUI/ToolUI.h"
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstring>
 #include <utility>
 
 namespace Herta
@@ -812,6 +814,25 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 					}
 
 					ImGui::EndCombo();
+				}
+
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* const Payload = ImGui::AcceptDragDropPayload(ContentAssetPayload); Payload && Payload->DataSize == sizeof(FAssetId))
+					{
+						FAssetId Texture;
+						std::memcpy(&Texture, Payload->Data, sizeof(Texture));
+						if (std::ranges::any_of(Context.Textures, [Texture](const auto& Option)
+						{
+							return Option.Id == Texture;
+						}))
+						{
+							Binding.Texture = Texture;
+							bChanged = true;
+						}
+					}
+
+					ImGui::EndDragDropTarget();
 				}
 
 				ImGui::SameLine();

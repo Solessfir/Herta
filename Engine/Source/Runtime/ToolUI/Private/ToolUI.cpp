@@ -2183,6 +2183,17 @@ bool FToolUIContext::IsPanelHovered(const std::string_view Name) const noexcept
 	return IsToolUIPanelHovered(Name, Implementation->bViewportImmersive);
 }
 
+bool FToolUIContext::IsDocumentInFront() const noexcept
+{
+	const ImGuiDockNode* const CenterNode = Implementation->bViewportImmersive ? nullptr : ImGui::DockBuilderGetCentralNode(Implementation->DockspaceId);
+	return CenterNode != nullptr && CenterNode->VisibleWindow != nullptr && CenterNode->VisibleWindow->ID != ImHashStr("Viewport");
+}
+
+void FToolUIContext::FocusViewport() noexcept
+{
+	Implementation->bFocusViewportRequested = true;
+}
+
 bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bool* const bSelected, const char* const Shortcut)
 {
 	const float Scale = ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
@@ -2546,6 +2557,16 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		}
 	}
 
+	if (Kind == EToolUIPanelKind::Drawer)
+	{
+		if (const ImGuiDockNode* const CenterNode = ImGui::DockBuilderGetCentralNode(Implementation->DockspaceId))
+		{
+			const float Height = std::round(CenterNode->Size.y * 0.4f);
+			ImGui::SetNextWindowPos({CenterNode->Pos.x, CenterNode->Pos.y + CenterNode->Size.y - Height}, ImGuiCond_Always);
+			ImGui::SetNextWindowSize({CenterNode->Size.x, Height}, ImGuiCond_Always);
+		}
+	}
+
 	if (Name == "Performance" && ImGui::FindWindowSettingsByID(WindowId) == nullptr)
 	{
 		// Add the panel as a tab beside Details without resetting an existing workspace.
@@ -2557,7 +2578,8 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	}
 
 	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" || Name == "Performance" ? std::format("      {}###{}", Name, Name) : std::string(Name);
-	const ImGuiWindowFlags Flags = (bViewport ? ImGuiWindowFlags_NoMove : ImGuiWindowFlags_None) | (Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
+	const ImGuiWindowFlags DrawerFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
+	const ImGuiWindowFlags Flags = (bViewport ? ImGuiWindowFlags_NoMove : ImGuiWindowFlags_None) | (Kind == EToolUIPanelKind::Drawer ? DrawerFlags : ImGuiWindowFlags_None) | (Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
 
 	if (bImmersive)
 	{

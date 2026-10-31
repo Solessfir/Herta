@@ -511,6 +511,8 @@ struct FEditorFramework::FImplementation
 	FImplementation& operator=(FImplementation&&) = delete;
 
 	void SetBottomPanelOpen(bool bOpen);
+	void ToggleContentDrawer();
+	void ShowOutputLog();
 	[[nodiscard]] std::expected<void, FEditorFrameworkError> DrawOutputLog();
 	void DrawDetailsPanel();
 	void DrawOutlinerPanel();
@@ -584,6 +586,8 @@ struct FEditorFramework::FImplementation
 	// Startup restores like a reopened panel; otherwise the last tab to appear, the Output Log, is selected.
 	bool bRestoreBottomPanelFocus = true;
 	bool bContentBrowserOpen = true;
+	// The bottom panel belongs to the viewport; a document tab in front summons the browser as a drawer instead.
+	bool bContentDrawerOpen = false;
 	FContentBrowserState ContentBrowserState;
 	FDetailsPanelState DetailsPanelState;
 	FMaterialPanel MaterialPanel;
@@ -1111,7 +1115,14 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->RefreshLevel();
 	if (!IO.AppFocusLost && IO.KeyMods == ImGuiMod_Ctrl && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_Space, false))
 	{
-		Implementation->SetBottomPanelOpen(!(Implementation->bBottomPanelOpen && (Implementation->bContentBrowserOpen || Implementation->bOutputLogOpen)));
+		if (Implementation->ToolUI->IsDocumentInFront())
+		{
+			Implementation->ToggleContentDrawer();
+		}
+		else
+		{
+			Implementation->SetBottomPanelOpen(!(Implementation->bBottomPanelOpen && (Implementation->bContentBrowserOpen || Implementation->bOutputLogOpen)));
+		}
 	}
 
 	if (!IO.AppFocusLost && !IO.WantTextInput && IO.KeyMods == 0 && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
@@ -1153,7 +1164,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 	if (Implementation->Assets)
 	{
-		const auto Destination = Implementation->ToolUI->IsPanelHovered("Content Browser") ? Implementation->ContentBrowserState.GetImportDestination() : std::string{};
+		const auto Destination = Implementation->ToolUI->IsPanelHovered("Content Browser") || Implementation->ToolUI->IsPanelHovered("Content Drawer") ? Implementation->ContentBrowserState.GetImportDestination() : std::string{};
 		auto DroppedFiles = Implementation->ToolUI->TakeDroppedFiles();
 		if (!Implementation->bProjectBusy)
 		{
@@ -1278,23 +1289,38 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		{
 			Implementation->SetBottomPanelOpen(bBottomVisible);
 		}
-		bool bBrowserVisible = Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen;
+		const bool bDocumentInFront = Implementation->ToolUI->IsDocumentInFront();
+		bool bBrowserVisible = bDocumentInFront ? Implementation->bContentDrawerOpen : Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen;
 		if (ToolUIMenuItem("Content Browser", EToolUIMenuIcon::ContentBrowser, &bBrowserVisible))
 		{
-			Implementation->bContentBrowserOpen = bBrowserVisible;
-			if (bBrowserVisible)
+			if (bDocumentInFront)
 			{
-				Implementation->bBottomPanelOpen = true;
-				Implementation->ContentBrowserState.bFocusRequested = true;
+				Implementation->ToggleContentDrawer();
+			}
+			else
+			{
+				Implementation->bContentBrowserOpen = bBrowserVisible;
+				if (bBrowserVisible)
+				{
+					Implementation->bBottomPanelOpen = true;
+					Implementation->ContentBrowserState.bFocusRequested = true;
+				}
 			}
 		}
 
 		ImGui::Separator();
-		bool bLogVisible = Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen;
+		bool bLogVisible = !bDocumentInFront && Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen;
 		if (ToolUIMenuItem("Output Log", EToolUIMenuIcon::Log, &bLogVisible))
 		{
-			Implementation->bOutputLogOpen = bLogVisible;
-			Implementation->bBottomPanelOpen |= bLogVisible;
+			if (bDocumentInFront)
+			{
+				Implementation->ShowOutputLog();
+			}
+			else
+			{
+				Implementation->bOutputLogOpen = bLogVisible;
+				Implementation->bBottomPanelOpen |= bLogVisible;
+			}
 		}
 
 		ToolUIMenuItem("Performance", EToolUIMenuIcon::Performance, &Implementation->bPerformanceOpen);
@@ -1333,21 +1359,37 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			return bPressed;
 		};
 
-		ImGui::PushStyleColor(ImGuiCol_Button, Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
+		const bool bDocumentInFront = Implementation->ToolUI->IsDocumentInFront();
+		const bool bBrowserShown = bDocumentInFront ? Implementation->bContentDrawerOpen : Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen;
+		ImGui::PushStyleColor(ImGuiCol_Button, bBrowserShown ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
 		if (ToolUIButton("Content Browser", EToolUIMenuIcon::ContentBrowser, 26.f * Scale))
 		{
-			ToggleContentBrowser(Implementation->bContentBrowserOpen, Implementation->ContentBrowserState);
-			Implementation->bBottomPanelOpen = true;
+			if (bDocumentInFront)
+			{
+				Implementation->ToggleContentDrawer();
+			}
+			else
+			{
+				ToggleContentBrowser(Implementation->bContentBrowserOpen, Implementation->ContentBrowserState);
+				Implementation->bBottomPanelOpen = true;
+			}
 		}
 
 		ImGui::PopStyleColor();
-		ImGui::SetItemTooltip("Show or hide Content Browser. Ctrl+Space toggles the entire bottom panel.");
+		ImGui::SetItemTooltip(bDocumentInFront ? "Show or hide the content drawer (Ctrl+Space)." : "Show or hide Content Browser. Ctrl+Space toggles the entire bottom panel.");
 		ImGui::SameLine();
-		ImGui::PushStyleColor(ImGuiCol_Button, Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
+		ImGui::PushStyleColor(ImGuiCol_Button, !bDocumentInFront && Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
 		if (ToolUIButton("Output Log", EToolUIMenuIcon::Log, 26.f * Scale))
 		{
-			Implementation->bOutputLogOpen = !(Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen);
-			Implementation->bBottomPanelOpen = true;
+			if (bDocumentInFront)
+			{
+				Implementation->ShowOutputLog();
+			}
+			else
+			{
+				Implementation->bOutputLogOpen = !(Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen);
+				Implementation->bBottomPanelOpen = true;
+			}
 		}
 
 		ImGui::PopStyleColor();
@@ -1759,16 +1801,19 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 
 	Implementation->FrameMetrics.InspectorMilliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - InspectorStart).count();
-	if ((!Implementation->bBottomPanelOpen || !Implementation->bContentBrowserOpen) && Implementation->Assets)
+	const bool bDocumentInFront = Implementation->ToolUI->IsDocumentInFront();
+	Implementation->bContentDrawerOpen &= bDocumentInFront;
+	const bool bBrowserShown = bDocumentInFront ? Implementation->bContentDrawerOpen : Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen;
+	if (!bBrowserShown && Implementation->Assets)
 	{
 		Implementation->Assets->SetThumbnailAssets({});
 	}
 
-	if (Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen)
+	if (bBrowserShown)
 	{
 		auto* const Assets = Implementation->Assets.get();
 		ImGui::BeginDisabled(Implementation->bProjectBusy);
-		if (DrawContentBrowser(*Implementation->ToolUI, Implementation->bContentBrowserOpen, Implementation->ContentBrowserState, Assets) && Assets)
+		if (DrawContentBrowser(*Implementation->ToolUI, bDocumentInFront ? Implementation->bContentDrawerOpen : Implementation->bContentBrowserOpen, Implementation->ContentBrowserState, Assets, bDocumentInFront) && Assets)
 		{
 			Implementation->ImportWithDialog();
 		}
@@ -5665,11 +5710,25 @@ void FEditorFramework::FImplementation::SetBottomPanelOpen(const bool bOpen)
 	}
 }
 
+void FEditorFramework::FImplementation::ToggleContentDrawer()
+{
+	bContentDrawerOpen = !bContentDrawerOpen;
+	ContentBrowserState.bFocusRequested = bContentDrawerOpen;
+}
+
+// The log lives in the viewport's bottom panel, so showing it brings the viewport back in front.
+void FEditorFramework::FImplementation::ShowOutputLog()
+{
+	ToolUI->FocusViewport();
+	bOutputLogOpen = true;
+	bBottomPanelOpen = true;
+}
+
 std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::DrawOutputLog()
 {
 	const bool bReceivedRecords = OutputLog->Synchronize();
 
-	if (!bBottomPanelOpen || !bOutputLogOpen)
+	if (!bBottomPanelOpen || !bOutputLogOpen || ToolUI->IsDocumentInFront())
 	{
 		return {};
 	}

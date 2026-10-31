@@ -116,6 +116,8 @@ enum class EToolUIPanelKind : std::uint8_t
 	Viewport,
 	// An asset editor: opens as a tab beside the viewport each time it appears, as Unreal's asset editors open in the main window.
 	Document,
+	// A transient overlay across the bottom of the document in front, such as the content drawer; it never docks or saves a layout.
+	Drawer,
 };
 
 enum class EToolUIMenuIcon : std::uint8_t
@@ -193,6 +195,10 @@ public:
 	void SetCursorCaptured(bool bCaptured);
 	bool IsPanelFocused(std::string_view Name) const noexcept;
 	bool IsPanelHovered(std::string_view Name) const noexcept;
+	// True while a document tab covers the viewport in the central node.
+	bool IsDocumentInFront() const noexcept;
+	// Brings the viewport's tab to the front and focuses it.
+	void FocusViewport() noexcept;
 	// Files dropped onto any editor window since the last call, in drop order.
 	[[nodiscard]] std::vector<std::filesystem::path> TakeDroppedFiles();
 	void PushLogFont();

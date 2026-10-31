@@ -477,7 +477,7 @@ void ToggleContentBrowser(bool& bOpen, FContentBrowserState& State)
 	}
 }
 
-bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserState& State, FPreviewAssets* const Assets)
+bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserState& State, FPreviewAssets* const Assets, const bool bDrawer)
 {
 	State.Refresh(Assets ? Assets->GetOptions() : std::span<const FPreviewAssetOption>{}, Assets ? Assets->GetOptionsGeneration() : 0, Assets ? Assets->GetFolders() : std::span<const std::string>{});
 	const bool bBusy = Assets && (Assets->IsScanning() || Assets->IsImporting());
@@ -490,9 +490,18 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		ImGui::SetNextWindowFocus();
 	}
 
-	if (ToolUI.BeginPanel("Content Browser", &bOpen))
+	if (ToolUI.BeginPanel(bDrawer ? "Content Drawer" : "Content Browser", &bOpen, bDrawer ? EToolUIPanelKind::Drawer : EToolUIPanelKind::Tool))
 	{
 		State.bFocusRequested = false;
+
+		// Dragging an asset out of the drawer must not close it before the drop lands, and a click elsewhere closes it on release so the button that toggles it does not reopen it.
+		const ImGuiIO& IO = ImGui::GetIO();
+		const bool bKeepDrawer = ImGui::IsWindowAppearing() || ImGui::IsAnyMouseDown() || ImGui::GetDragDropPayload() != nullptr || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+		if (bDrawer && !bKeepDrawer && (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) || (!IO.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Escape, false))))
+		{
+			bOpen = false;
+		}
+
 		const float Scale = ImGui::GetFontSize() / ToolUI.GetMetrics().BaseFontSize;
 		const bool bCanCreateFolder = Assets && !bBusy && State.RenamingFolder.empty() && !(GImGui->CurrentItemFlags & ImGuiItemFlags_Disabled) && (State.Folder == "Game" || State.Folder.starts_with("Game/"));
 		const bool bFolderShortcutsAvailable = !ImGui::GetIO().AppFocusLost && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && ImGui::GetIO().KeyMods == (ImGuiMod_Ctrl | ImGuiMod_Shift) && !(GImGui->CurrentItemFlags & ImGuiItemFlags_Disabled) && State.RenamingFolder.empty() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
