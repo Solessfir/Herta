@@ -435,6 +435,8 @@ public:
 	// Copies the start of a storage buffer into a readback buffer. TryReadBuffer returns the bytes once the frame that copied them has completed and is empty until then,
 	// so callers keep a few readback buffers in flight and use results a few frames old instead of waiting.
 	[[nodiscard]] virtual std::expected<void, FPresentationError> CopyBuffer(const FBufferHandle& Source, const FBufferHandle& Destination) = 0;
+	// Copies a written single-level color texture into another of the same extent and format, which becomes readable once the frame is submitted.
+	[[nodiscard]] virtual std::expected<void, FPresentationError> CopyTexture(const FTextureHandle& Source, const FTextureHandle& Destination) = 0;
 	[[nodiscard]] virtual std::optional<std::vector<std::byte>> TryReadBuffer(const FBufferHandle& Buffer) = 0;
 
 	// Acceleration structures, ray queries, and resource tables. Without them every call below fails.

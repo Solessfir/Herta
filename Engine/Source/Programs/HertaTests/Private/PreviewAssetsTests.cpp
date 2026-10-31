@@ -10,7 +10,9 @@
 #include <doctest/doctest.h>
 
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <thread>
 
 namespace Herta
 {
@@ -650,6 +652,29 @@ TEST_CASE("Preview thumbnails do not schedule work without a renderer and releas
 	CHECK_FALSE(Released.expired());
 	Assets.reset();
 	CHECK(Released.expired());
+}
+
+TEST_CASE("Preview thumbnails spread over frames once a frame's rendering budget is spent")
+{
+	FPreviewAssetsFixture Fixture;
+	std::uint64_t RenderCount = 0;
+	auto Assets = Fixture.CreateAssets([&RenderCount](const FRenderMesh&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	{
+		std::this_thread::sleep_for(std::chrono::milliseconds{5});
+		return std::make_shared<const std::uint64_t>(++RenderCount);
+	});
+
+	REQUIRE(Assets);
+	Assets->SetThumbnailAssets(std::array{WoodId, StoneId});
+	Assets->Tick();
+	Fixture.Tasks->RunUntilIdle();
+
+	// Both loads finish in one frame, but the first render spends its budget and the second waits for the next tick.
+	CHECK(RenderCount == 1);
+	Assets->Tick();
+	CHECK(RenderCount == 2);
+	CHECK(Assets->GetThumbnail(WoodId));
+	CHECK(Assets->GetThumbnail(StoneId));
 }
 
 TEST_CASE("Preview assets scan Engine and Game content and publish cooked meshes between frames")

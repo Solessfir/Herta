@@ -220,6 +220,9 @@ private:
 	std::vector<FPreviewMeshSlot> Slots;
 	std::map<FAssetId, FCachedMesh> MeshCache;
 	std::set<FAssetId> ThumbnailAssets;
+	// Thumbnails left over once a frame's rendering budget is spent render on later ticks.
+	static constexpr std::chrono::milliseconds ThumbnailFrameBudget{4};
+	std::chrono::steady_clock::duration ThumbnailTimeSpent{};
 	std::set<FAssetId> MaterialAssets;
 	std::set<FAssetId> TextureAssets;
 	FEditorAssetThumbnailRenderer RenderThumbnail;

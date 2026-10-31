@@ -715,6 +715,9 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		return 1;
 	}
 
+	// One renderer per thumbnail kind, reused: a fresh renderer cost ~70 ms in creation and first-use pipelines, which froze the editor when a folder of materials appeared.
+	std::unique_ptr<FMeshRenderer> MeshThumbnailRenderer;
+	std::unique_ptr<FMeshRenderer> MaterialThumbnailRenderer;
 	const auto RenderThumbnail = [&](const FRenderMesh& Mesh, const FRenderMaterial* Material) -> std::expected<FEditorAssetThumbnail, FPresentationError>
 	{
 		const FVector3 Center = Mesh.GetBoundsMinimum() * 0.5f + Mesh.GetBoundsMaximum() * 0.5f;
@@ -737,11 +740,24 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		Camera.Focus({}, HalfExtent * (Scale * (Material ? 0.65f : 1.f)), 1.f, {0.9f, 0.9f});
 		const FViewportCameraSnapshot View = Camera.GetSnapshot(1.f);
 
-		// ponytail: one pipeline per cached thumbnail; reuse pipelines when RHI supports copying render targets.
-		auto Renderer = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), ThumbnailVertexShader, ThumbnailFragmentShader, {}, {}, {}, {}, {}, Material ? ThumbnailVisualShaders : FVisualShaderSet{});
+		std::unique_ptr<FMeshRenderer>& Renderer = Material ? MaterialThumbnailRenderer : MeshThumbnailRenderer;
 		if (!Renderer)
 		{
-			return std::unexpected(Renderer.error());
+			auto Created = FMeshRenderer::Create(Presentation->GetGraphicsDevice(), ThumbnailVertexShader, ThumbnailFragmentShader, {}, {}, {}, {}, {}, Material ? ThumbnailVisualShaders : FVisualShaderSet{});
+			if (!Created)
+			{
+				return std::unexpected(Created.error());
+			}
+
+			if (Material)
+			{
+				if (const auto Environment = (*Created)->SetEnvironmentLighting(*StudioEnvironment); !Environment)
+				{
+					return std::unexpected(Environment.error());
+				}
+			}
+
+			Renderer = std::move(*Created);
 		}
 
 		const std::array StudioLights{
@@ -749,27 +765,47 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		    FRenderLight{.Settings = {.Type = ELightType::Sky, .Intensity = 0.4f, .bCastShadows = false}},
 		};
 
+		// Custom material shaders publish over time, so share the level renderer's current set each time.
 		if (Material)
 		{
-			if (const auto SharedShaders = (*Renderer)->ShareMaterialShaders(*MeshRenderer); !SharedShaders)
+			if (const auto SharedShaders = Renderer->ShareMaterialShaders(*MeshRenderer); !SharedShaders)
 			{
 				return std::unexpected(SharedShaders.error());
-			}
-
-			if (const auto Environment = (*Renderer)->SetEnvironmentLighting(*StudioEnvironment); !Environment)
-			{
-				return std::unexpected(Environment.error());
 			}
 		}
 
 		const std::span<const FRenderLight> Lights = Material ? std::span<const FRenderLight>(MaterialStudioLights) : std::span<const FRenderLight>(StudioLights);
 		const FExtent2D Extent = Material ? FExtent2D{512, 512} : FExtent2D{192, 192};
-		if (auto Result = (*Renderer)->Render(Extent, {.View = View.View, .Projection = View.Projection, .Models = Models, .Meshes = Meshes, .Materials = Materials, .Lights = Lights, .Visuals = Material ? MaterialStudioSettings : FVisualSettings{}}); !Result)
+		if (auto Result = Renderer->Render(Extent, {.View = View.View, .Projection = View.Projection, .Models = Models, .Meshes = Meshes, .Materials = Materials, .Lights = Lights, .Visuals = Material ? MaterialStudioSettings : FVisualSettings{}}); !Result)
 		{
 			return std::unexpected(Result.error());
 		}
 
-		auto TextureId = Presentation->RegisterToolUITexture((*Renderer)->GetColorTarget());
+		IGraphicsDevice& Device = Presentation->GetGraphicsDevice();
+		const FTextureHandle& Color = Renderer->GetColorTarget();
+		auto Image = Device.CreateTexture({.Name = "Asset thumbnail", .Extent = Extent, .Format = Color->GetDescriptor().Format});
+		if (!Image)
+		{
+			return std::unexpected(Image.error());
+		}
+
+		if (auto Begun = Device.BeginCommands(); !Begun)
+		{
+			return std::unexpected(Begun.error());
+		}
+
+		if (auto Copied = Device.CopyTexture(Color, *Image); !Copied)
+		{
+			Device.CancelCommands();
+			return std::unexpected(Copied.error());
+		}
+
+		if (auto Submitted = Device.SubmitCommands(); !Submitted)
+		{
+			return std::unexpected(Submitted.error());
+		}
+
+		auto TextureId = Presentation->RegisterToolUITexture(*Image);
 		if (!TextureId)
 		{
 			return std::unexpected(TextureId.error());

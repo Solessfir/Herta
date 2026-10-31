@@ -455,6 +455,8 @@ void FPreviewAssets::Tick()
 		PruneCache();
 	}
 
+	// A folder of new tiles fills in over a few frames instead of rendering every thumbnail in one.
+	ThumbnailTimeSpent = {};
 	for (const FAssetId& Asset : ThumbnailAssets)
 	{
 		GetOrLoadMesh(Asset, true);
@@ -1914,10 +1916,12 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 void FPreviewAssets::UpdateThumbnail(FCachedMesh& Cached)
 {
 	FPreviewMeshSlot& Slot = Cached.Slot;
-	if (!ThumbnailAssets.contains(Slot.Asset) || Cached.ThumbnailKey == Slot.Key || (Slot.Material ? !RenderMaterialThumbnail : !RenderThumbnail || !Slot.Mesh))
+	if (!ThumbnailAssets.contains(Slot.Asset) || Cached.ThumbnailKey == Slot.Key || (Slot.Material ? !RenderMaterialThumbnail : !RenderThumbnail || !Slot.Mesh) || ThumbnailTimeSpent >= ThumbnailFrameBudget)
 	{
 		return;
 	}
+
+	const auto Start = std::chrono::steady_clock::now();
 
 	std::expected<FEditorAssetThumbnail, FPresentationError> Thumbnail;
 	if (Slot.Material)
@@ -1943,6 +1947,8 @@ void FPreviewAssets::UpdateThumbnail(FCachedMesh& Cached)
 		Cached.ThumbnailKey = Slot.Key;
 		Thumbnail = RenderThumbnail(*Slot.Mesh);
 	}
+
+	ThumbnailTimeSpent += std::chrono::steady_clock::now() - Start;
 	if (!Thumbnail)
 	{
 		HERTA_LOG_WARNING(Log, AssetLog, "Could not render thumbnail for {}: {}", Slot.Label, Thumbnail.error().Message);

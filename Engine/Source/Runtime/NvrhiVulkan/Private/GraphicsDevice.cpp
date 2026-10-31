@@ -1565,6 +1565,30 @@ public:
 		return {};
 	}
 
+	[[nodiscard]] std::expected<void, FPresentationError> CopyTexture(const FTextureHandle& Source, const FTextureHandle& Destination) override
+	{
+		const auto NativeSource = std::dynamic_pointer_cast<FTexture>(Source);
+		const auto NativeDestination = std::dynamic_pointer_cast<FTexture>(Destination);
+		if (!Owns(NativeSource) || !Owns(NativeDestination) || NativeSource == NativeDestination || IsDepthFormat(NativeSource->Descriptor.Format) || NativeSource->Descriptor.Format != NativeDestination->Descriptor.Format || NativeSource->Descriptor.Extent != NativeDestination->Descriptor.Extent || NativeSource->Descriptor.MipLevels != 1 || NativeDestination->Descriptor.MipLevels != 1 || NativeDestination->Heap || !IsInitialized(NativeSource))
+		{
+			return Invalid("Texture copies read a written single-level color texture into an unaliased one of the same extent and format on this device");
+		}
+
+		if (const auto Ready = CanRecord(); !Ready)
+		{
+			return Ready;
+		}
+
+		FFrame& Frame = Frames[FrameIndex];
+		Frame.Operations.emplace_back([NativeSource, NativeDestination](nvrhi::ICommandList* const Commands)
+		{
+			Commands->copyTexture(NativeDestination->Handle, nvrhi::TextureSlice(), NativeSource->Handle, nvrhi::TextureSlice());
+		});
+
+		Frame.WrittenTextures[NativeDestination.get()] |= 1u;
+		return {};
+	}
+
 	[[nodiscard]] std::optional<std::vector<std::byte>> TryReadBuffer(const FBufferHandle& Buffer) override
 	{
 		const auto Native = std::dynamic_pointer_cast<FBuffer>(Buffer);

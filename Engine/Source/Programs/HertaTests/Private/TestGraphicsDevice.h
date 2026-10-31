@@ -261,6 +261,11 @@ public:
 		return {};
 	}
 
+	std::expected<void, Herta::FPresentationError> CopyTexture(const Herta::FTextureHandle&, const Herta::FTextureHandle&) override
+	{
+		return {};
+	}
+
 	std::optional<std::vector<std::byte>> TryReadBuffer(const Herta::FBufferHandle&) override
 	{
 		return std::nullopt;
