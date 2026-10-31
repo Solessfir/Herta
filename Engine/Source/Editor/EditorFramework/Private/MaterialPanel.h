@@ -30,6 +30,8 @@ struct FMaterialPanelContext
 	std::span<const FMaterialTextureOption> Textures{};
 	std::uint64_t PreviewTexture = 0;
 	std::string_view PreviewStatus{};
+	// The mouse wheel over the preview, in wheel notches.
+	std::function<void(float)> ZoomPreview{};
 	std::string_view ShaderStatus{};
 	std::function<std::expected<void, FAssetError>(FAssetId, const FMaterialAsset&)> Save{};
 	std::function<std::expected<FMaterialAsset, FAssetError>(FAssetId)> Reload{};

@@ -36,7 +36,8 @@ struct FEditorAssetPaths
 
 using FEditorAssetThumbnail = std::shared_ptr<const std::uint64_t>;
 using FEditorAssetThumbnailRenderer = std::function<std::expected<FEditorAssetThumbnail, FPresentationError>(const FRenderMesh&)>;
-using FEditorMaterialThumbnailRenderer = std::function<std::expected<FEditorAssetThumbnail, FPresentationError>(const FRenderMesh&, const FRenderMaterial&)>;
+// Zoom 1 frames the preview mesh; larger values move the camera closer.
+using FEditorMaterialThumbnailRenderer = std::function<std::expected<FEditorAssetThumbnail, FPresentationError>(const FRenderMesh&, const FRenderMaterial&, float Zoom)>;
 
 struct FEditorFrameworkDescriptor
 {

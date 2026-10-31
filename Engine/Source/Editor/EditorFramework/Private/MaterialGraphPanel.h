@@ -25,6 +25,8 @@ struct FMaterialGraphPanelContext
 	std::string_view PreviewStatus{};
 	// Called each frame the graph is in front, so the owner can keep the preview current.
 	std::function<void()> RequestPreview{};
+	// The mouse wheel over the preview, in wheel notches.
+	std::function<void(float)> ZoomPreview{};
 };
 
 // Edits one Material Graph file with its own undo history; saving publishes it to the material shader watcher.

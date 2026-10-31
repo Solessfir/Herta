@@ -482,6 +482,15 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 			const ImVec2 Position = ImGui::GetCursorScreenPos();
 			ImGui::GetWindowDrawList()->AddImageRounded(ImTextureRef(static_cast<ImTextureID>(Context.PreviewTexture)), Position, {Position.x + Width, Position.y + Width}, {0, 0}, {1, 1}, IM_COL32_WHITE, ImGui::GetStyle().FrameRounding);
 			ImGui::Dummy({Width, Width});
+			if (ImGui::IsItemHovered() && Context.ZoomPreview)
+			{
+				// The wheel zooms the preview instead of scrolling the panel.
+				ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
+				if (const float Wheel = ImGui::GetIO().MouseWheel; Wheel != 0.f)
+				{
+					Context.ZoomPreview(Wheel);
+				}
+			}
 		}
 
 		if (!Context.PreviewStatus.empty())

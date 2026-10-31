@@ -1153,6 +1153,15 @@ FTextureHandle FPreviewAssets::GetTexture(const FAssetId& Asset) const noexcept
 	return Cached ? Cached->Texture : nullptr;
 }
 
+void FPreviewAssets::SetMaterialPreviewZoom(const float Zoom)
+{
+	if (Zoom != PreviewZoom)
+	{
+		PreviewZoom = Zoom;
+		bPreviewThumbnailDirty = true;
+	}
+}
+
 void FPreviewAssets::SetMaterialThumbnailRenderer(FEditorMaterialThumbnailRenderer Renderer)
 {
 	RenderMaterialThumbnail = std::move(Renderer);
@@ -1207,7 +1216,7 @@ void FPreviewAssets::UpdateMaterialPreviewThumbnail()
 		return;
 	}
 
-	const auto Thumbnail = RenderMaterialThumbnail(**Mesh, *PreviewMaterial);
+	const auto Thumbnail = RenderMaterialThumbnail(**Mesh, *PreviewMaterial, PreviewZoom);
 	bPreviewThumbnailDirty = false;
 	if (!Thumbnail)
 	{
@@ -1504,7 +1513,7 @@ void FPreviewAssets::StartMaterialPreview()
 		FEditorAssetThumbnail Thumbnail;
 		if (RenderMaterialThumbnail)
 		{
-			const auto Rendered = RenderMaterialThumbnail(*PreviewMesh, *Material);
+			const auto Rendered = RenderMaterialThumbnail(*PreviewMesh, *Material, PreviewZoom);
 			if (!Rendered)
 			{
 				PreviewError = Rendered.error().Message;
@@ -1940,7 +1949,7 @@ void FPreviewAssets::UpdateThumbnail(FCachedMesh& Cached)
 		}
 
 		Cached.ThumbnailKey = Slot.Key;
-		Thumbnail = RenderMaterialThumbnail(**Mesh, *Slot.Material);
+		Thumbnail = RenderMaterialThumbnail(**Mesh, *Slot.Material, 1.f);
 	}
 	else
 	{

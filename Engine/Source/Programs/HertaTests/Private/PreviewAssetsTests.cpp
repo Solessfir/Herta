@@ -279,7 +279,7 @@ TEST_CASE("Material drafts coalesce without saving or uploading unchanged textur
 	REQUIRE(Path);
 	const auto ModifiedBefore = std::filesystem::last_write_time(*Path);
 	std::uint64_t RenderCount = 0;
-	Assets->SetMaterialThumbnailRenderer([&RenderCount, &Assets](const FRenderMesh& Mesh, const FRenderMaterial&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	Assets->SetMaterialThumbnailRenderer([&RenderCount, &Assets](const FRenderMesh& Mesh, const FRenderMaterial&, float) -> std::expected<FEditorAssetThumbnail, FPresentationError>
 	{
 		REQUIRE(Assets->GetCachedAsset(PreviewSphereId));
 		CHECK(Assets->GetCachedAsset(PreviewSphereId)->Mesh.get() == &Mesh);
@@ -361,7 +361,7 @@ TEST_CASE("Material draft failures keep the last valid preview and cancel withou
 	Fixture.Tasks->RunUntilIdle();
 	REQUIRE(Assets->GetMaterialSource(*Created));
 	FMaterialAsset Draft = *Assets->GetMaterialSource(*Created);
-	Assets->SetMaterialThumbnailRenderer([](const FRenderMesh&, const FRenderMaterial&) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	Assets->SetMaterialThumbnailRenderer([](const FRenderMesh&, const FRenderMaterial&, float) -> std::expected<FEditorAssetThumbnail, FPresentationError>
 	{
 		return std::make_shared<const std::uint64_t>(7);
 	});

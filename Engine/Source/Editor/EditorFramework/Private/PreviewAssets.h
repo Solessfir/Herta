@@ -133,6 +133,8 @@ public:
 	std::shared_ptr<const FCookedTexture> GetCookedTexture(const FAssetId& Asset) const noexcept;
 	FTextureHandle GetTexture(const FAssetId& Asset) const noexcept;
 	void SetMaterialThumbnailRenderer(FEditorMaterialThumbnailRenderer Renderer);
+	// Re-renders the material preview with the camera Zoom times closer than the framed view.
+	void SetMaterialPreviewZoom(float Zoom);
 	void SetMaterialShaderGeneration(std::uint64_t Generation);
 	bool AreMaterialThumbnailsReady() const noexcept;
 	void RequestMaterialPreview(const FAssetId& Asset, const FMaterialAsset& Draft);
@@ -245,6 +247,7 @@ private:
 	bool bPreviewTask = false;
 	bool bPreviewPending = false;
 	bool bPreviewThumbnailDirty = false;
+	float PreviewZoom = 1.f;
 	std::string PreviewError;
 
 	bool bScanning = false;

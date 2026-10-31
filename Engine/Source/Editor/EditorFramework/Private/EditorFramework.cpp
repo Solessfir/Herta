@@ -592,6 +592,8 @@ struct FEditorFramework::FImplementation
 	std::optional<FMaterialAsset> GraphPreviewMaterial;
 	std::uint64_t GraphPreviewGeneration = UINT64_MAX;
 	bool bGraphPreviewPending = false;
+	// The preview camera's zoom, shared by the Material and Material Graph editors since they share one preview.
+	float MaterialPreviewZoom = 1.f;
 
 	// The bottom panel belongs to the level tab; an asset editor tab in front summons the browser or log as a drawer instead.
 	bool bContentDrawerOpen = false;
@@ -2732,11 +2734,18 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 		}
 	}
 
+	const auto ZoomMaterialPreview = [this](const float Wheel)
+	{
+		MaterialPreviewZoom = std::clamp(MaterialPreviewZoom * std::pow(1.15f, Wheel), 0.5f, 4.f);
+		Assets->SetMaterialPreviewZoom(MaterialPreviewZoom);
+	};
+
 	const FMaterialPanelContext Context{
 	    .Textures = MaterialTextureOptions,
 	    .PreviewTexture = Assets->GetMaterialPreviewAsset() == MaterialPanel.GetAsset() && Assets->GetMaterialPreviewThumbnail() ? *Assets->GetMaterialPreviewThumbnail() : DraftMaterialThumbnail ? *DraftMaterialThumbnail
 	                                                                                                                                                                                               : 0,
 	    .PreviewStatus = Assets->IsMaterialPreviewLoading() ? "Updating preview..." : Assets->GetMaterialPreviewError(),
+	    .ZoomPreview = ZoomMaterialPreview,
 	    .ShaderStatus = ShaderStatus,
 	    .Save = [&](const FAssetId Id, const FMaterialAsset& Material)
 	{
@@ -2795,6 +2804,7 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 			GraphPreviewGeneration = Generation;
 		}
 	},
+	    .ZoomPreview = ZoomMaterialPreview,
 	});
 }
 

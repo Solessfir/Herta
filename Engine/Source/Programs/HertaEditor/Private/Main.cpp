@@ -718,7 +718,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	// One renderer per thumbnail kind, reused: a fresh renderer cost ~70 ms in creation and first-use pipelines, which froze the editor when a folder of materials appeared.
 	std::unique_ptr<FMeshRenderer> MeshThumbnailRenderer;
 	std::unique_ptr<FMeshRenderer> MaterialThumbnailRenderer;
-	const auto RenderThumbnail = [&](const FRenderMesh& Mesh, const FRenderMaterial* Material) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	const auto RenderThumbnail = [&](const FRenderMesh& Mesh, const FRenderMaterial* Material, const float Zoom) -> std::expected<FEditorAssetThumbnail, FPresentationError>
 	{
 		const FVector3 Center = Mesh.GetBoundsMinimum() * 0.5f + Mesh.GetBoundsMaximum() * 0.5f;
 		const FVector3 HalfExtent = Mesh.GetBoundsMaximum() * 0.5f - Mesh.GetBoundsMinimum() * 0.5f;
@@ -739,6 +739,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		Camera.Update({.Mode = EViewportCameraMode::Orbit, .MouseDeltaPixels = {-std::numbers::pi_v<float> / (4.f * Sensitivity), (Camera.GetPitch() + std::numbers::pi_v<float> / 6.f) / Sensitivity}, .Movement = {}}, 0.f, {192.f, 192.f});
 		Camera.Focus({}, HalfExtent * (Scale * (Material ? 0.65f : 1.f)), 1.f, {0.9f, 0.9f});
 		const FViewportCameraSnapshot View = Camera.GetSnapshot(1.f);
+		// Zoom narrows the view like a longer lens instead of moving in, so the camera never enters the mesh.
+		const FMatrix4 Projection = FMatrix4::Scale({Zoom, Zoom, 1.f}) * View.Projection;
 
 		std::unique_ptr<FMeshRenderer>& Renderer = Material ? MaterialThumbnailRenderer : MeshThumbnailRenderer;
 		if (!Renderer)
@@ -776,7 +778,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 		const std::span<const FRenderLight> Lights = Material ? std::span<const FRenderLight>(MaterialStudioLights) : std::span<const FRenderLight>(StudioLights);
 		const FExtent2D Extent = Material ? FExtent2D{512, 512} : FExtent2D{192, 192};
-		if (auto Result = Renderer->Render(Extent, {.View = View.View, .Projection = View.Projection, .Models = Models, .Meshes = Meshes, .Materials = Materials, .Lights = Lights, .Visuals = Material ? MaterialStudioSettings : FVisualSettings{}}); !Result)
+		if (auto Result = Renderer->Render(Extent, {.View = View.View, .Projection = Projection, .Models = Models, .Meshes = Meshes, .Materials = Materials, .Lights = Lights, .Visuals = Material ? MaterialStudioSettings : FVisualSettings{}}); !Result)
 		{
 			return std::unexpected(Result.error());
 		}
@@ -819,12 +821,12 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	};
 	const auto RenderAssetThumbnail = [&](const FRenderMesh& Mesh)
 	{
-		return RenderThumbnail(Mesh, nullptr);
+		return RenderThumbnail(Mesh, nullptr, 1.f);
 	};
 
-	const auto RenderMaterialThumbnail = [&](const FRenderMesh& Mesh, const FRenderMaterial& Material) -> std::expected<FEditorAssetThumbnail, FPresentationError>
+	const auto RenderMaterialThumbnail = [&](const FRenderMesh& Mesh, const FRenderMaterial& Material, const float Zoom) -> std::expected<FEditorAssetThumbnail, FPresentationError>
 	{
-		return RenderThumbnail(Mesh, &Material);
+		return RenderThumbnail(Mesh, &Material, Zoom);
 	};
 
 	std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> EditorFrameworkResult = FEditorFramework::Create({.Log = Log.get(), .Commands = &Commands, .ToolUI = ToolUI.get(), .Application = Application.get(), .Tasks = TaskSystem.get(), .GraphicsDevice = &Presentation->GetGraphicsDevice(), .Assets = AssetPaths, .LevelPath = LevelPath, .EngineRoot = RepositoryRoot, .ProjectPath = ProjectPath, .RenderAssetThumbnail = RenderAssetThumbnail, .RenderMaterialThumbnail = RenderMaterialThumbnail, .MeshRenderer = MeshRenderer.get(), .RegisterUITexture = [&Presentation](const FTextureHandle& Texture)
