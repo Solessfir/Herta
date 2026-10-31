@@ -221,7 +221,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const std::string_view ExposureArgument, const bool bShimmer, const bool bWalk)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const std::string_view ExposureArgument, const bool bShimmer, const bool bWalk, const std::string_view HoldBookmarkArgument)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -837,6 +837,18 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		EditorFramework->SetManualExposure(ExposureValue);
 	}
 
+	// Holding one bookmark gives profilers such as Nsight the same view every run.
+	std::uint32_t HoldBookmark = 0;
+	if (!HoldBookmarkArgument.empty())
+	{
+		const auto [End, Error] = std::from_chars(HoldBookmarkArgument.data(), HoldBookmarkArgument.data() + HoldBookmarkArgument.size(), HoldBookmark);
+		if (!bVisualTest || Error != std::errc{} || End != HoldBookmarkArgument.data() + HoldBookmarkArgument.size() || HoldBookmark < 1 || HoldBookmark > 9)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Invalid --hold-bookmark={}; expected a camera bookmark slot from 1 to 9 with --visual-test", HoldBookmarkArgument);
+			return 1;
+		}
+	}
+
 	if (!ResolutionArgument.empty())
 	{
 		const std::size_t Separator = ResolutionArgument.find('x');
@@ -1391,7 +1403,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 
 		if (bVisualTest)
 		{
-			if (std::chrono::steady_clock::now() >= ScalingDeadline)
+			if (HoldBookmark == 0 && std::chrono::steady_clock::now() >= ScalingDeadline)
 			{
 				HERTA_LOG_ERROR(*Log, EditorLog, "Visual capture exceeded its five minute asset loading and presentation budget");
 				bRenderFailed = true;
@@ -1445,7 +1457,20 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				}
 
 				CaptureVisualView("00-Start.png");
-				if (!ShowNextVisualBookmark())
+				if (HoldBookmark != 0)
+				{
+					auto Name = EditorFramework->ShowCameraBookmark(HoldBookmark);
+					if (!Name)
+					{
+						HERTA_LOG_ERROR(*Log, EditorLog, "The level has no camera bookmark {} to hold", HoldBookmark);
+						bRenderFailed = true;
+						break;
+					}
+
+					VisualSlot = HoldBookmark;
+					HERTA_LOG_INFO(*Log, EditorLog, "Visual test holding bookmark {} \"{}\" until the window closes", HoldBookmark, *Name);
+				}
+				else if (!ShowNextVisualBookmark())
 				{
 					CompleteVisualCapture();
 				}
@@ -1475,7 +1500,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 					}
 				}
 			}
-			else if (bPresented && VisualFrames == 600 && !bVisualCompleted && ++VisualSettleFrames >= VisualBookmarkSettleFrames && (!bPathTracing || MeshRenderer->GetPathTracingSamples() >= VisualPathTracingSamples))
+			else if (HoldBookmark == 0 && bPresented && VisualFrames == 600 && !bVisualCompleted && ++VisualSettleFrames >= VisualBookmarkSettleFrames && (!bPathTracing || MeshRenderer->GetPathTracingSamples() >= VisualPathTracingSamples))
 			{
 				// Each bookmark settles for 120 frames so shadows and global illumination reflect its view, then averages the last 30.
 				std::ranges::sort(VisualBookmarkPassSums, std::greater{}, &std::pair<std::string, double>::second);
@@ -1772,6 +1797,7 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::string_view Exposure = Herta::FindArgumentValue(ArgumentCount, Arguments, "--exposure=");
 		const bool bShimmer = Herta::HasArgument(ArgumentCount, Arguments, "--shimmer");
 		const bool bWalk = Herta::HasArgument(ArgumentCount, Arguments, "--walk");
+		const std::string_view HoldBookmark = Herta::FindArgumentValue(ArgumentCount, Arguments, "--hold-bookmark=");
 		// Explorer passes a file dropped on the executable as a plain argument.
 		std::filesystem::path OpenPath;
 		for (const std::filesystem::path& Argument : Herta::GetProcessArgumentPaths(ArgumentCount, Arguments))
@@ -1783,7 +1809,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, Exposure, bShimmer, bWalk);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, Exposure, bShimmer, bWalk, HoldBookmark);
 	}
 	catch (const std::exception& Exception)
 	{
