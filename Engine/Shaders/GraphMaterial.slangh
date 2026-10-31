@@ -1,0 +1,12 @@
+// What generated Material Graph shaders include: the shared mesh shading plus the helpers their generated EvaluateMaterial calls.
+#include "MeshShading.slangh"
+
+// A graph's tangent-space normal in world space, applied the way the engine material applies its normal map.
+float3 GraphNormal(FVertexOutput Input, float3 Map)
+{
+    float3 N = normalize(Input.Normal);
+    float3 T = normalize(Input.Tangent.xyz - N * dot(N, Input.Tangent.xyz));
+    float3 B = cross(N, T) * Input.Tangent.w;
+    float3 Mapped = T * Map.x + B * Map.y + N * Map.z;
+    return dot(Mapped, Mapped) > 0.000001 ? normalize(Mapped) : N;
+}

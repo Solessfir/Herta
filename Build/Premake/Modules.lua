@@ -324,6 +324,12 @@ HertaRuntimeModule("AssetPipeline", {
         path.join(RepositoryRoot, "External/stb")
     }
 
+-- The Material Graph schema and its compiler to Slang, run by the editor, headless commands, and tests; game targets load cooked shaders instead.
+HertaRuntimeModule("MaterialGraph", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/MaterialGraph"),
+    PublicDependencies = { "GraphCore" }
+})
+
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
     PrivateDependencies = { "Application", "GameFramework", "GameUI", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
@@ -489,7 +495,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "GraphCore", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "GraphCore", "MaterialGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
