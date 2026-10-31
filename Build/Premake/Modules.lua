@@ -208,6 +208,13 @@ HertaRuntimeModule("Assets", {
 })
     externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
 
+-- Schema-neutral graph data, validation, and canonical text; no ImGui, so compilers and tests run headless.
+HertaRuntimeModule("GraphCore", {
+    PublicDependencies = { "Core" },
+    PrivateThirdPartyDependencies = { "SimdJson" }
+})
+    externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
+
 HertaRuntimeModule("Project", {
     PublicDependencies = { "Core" },
     PrivateDependencies = { "Assets", "Math", "Level", "Platform" },
@@ -482,7 +489,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "GraphCore", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
