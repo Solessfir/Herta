@@ -707,7 +707,11 @@ public:
 		Pipeline->bResourceTable = Descriptor.bResourceTable;
 		const auto Module = Device->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Compute).setEntryName(Shader.EntryPoint).setDebugName(Descriptor.Name), Shader.Bytecode.data(), Shader.Bytecode.size() * sizeof(std::uint32_t));
 		nvrhi::BindingLayoutDesc Layout;
-		Layout.setVisibility(nvrhi::ShaderType::Compute).setBindingOffsets(nvrhi::VulkanBindingOffsets().setConstantBufferOffset(64).setUnorderedAccessViewOffset(StorageBinding));
+		// NVRHI derives the read state from the layout's visibility: compute alone means NonPixelShaderResource, which differs from
+		// the graphics passes' ShaderResource and costs a barrier for every texture and buffer read on both sides of each switch.
+		// Pixel visibility keeps one read state; it only widens the descriptor stage flags. Revisit for an async compute queue,
+		// which cannot use the pixel shader resource state.
+		Layout.setVisibility(nvrhi::ShaderType::Compute | nvrhi::ShaderType::Pixel).setBindingOffsets(nvrhi::VulkanBindingOffsets().setConstantBufferOffset(64).setUnorderedAccessViewOffset(StorageBinding));
 		for (std::uint32_t Slot = 0; Slot < Descriptor.TextureCount; ++Slot)
 		{
 			Layout.addItem(nvrhi::BindingLayoutItem::Texture_SRV(Slot));
