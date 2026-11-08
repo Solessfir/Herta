@@ -127,7 +127,9 @@ void FMaterialShaders::Tick(const std::span<const std::string> MountedShaderPath
 	for (const auto& Input : MountedShaderPaths)
 	{
 		const std::string Path = MountedPath(Input);
-		if ((Path.empty() || (IsValidAssetPath(Path) && IsMaterialShaderPath(Path))) && Desired.size() < MaximumWatchedShaders)
+		// Static switch permutations share their graph's file, so validation looks at the path without the switch suffix.
+		const auto Key = ParseMaterialShaderKey(Path);
+		if ((Path.empty() || (Key && IsValidAssetPath(Key->first) && IsMaterialShaderPath(Key->first))) && Desired.size() < MaximumWatchedShaders)
 		{
 			Desired.insert(Path);
 		}
@@ -206,7 +208,7 @@ void FMaterialShaders::Poll()
 				return;
 			}
 
-			const auto Override = Overrides.find(Path);
+			const auto Override = Overrides.find(Path.substr(0, Path.find('#')));
 			auto Collected = CollectMaterialShaderSources(Directories, Path, Override != Overrides.end() ? std::optional<std::string_view>(Override->second) : std::nullopt);
 			if (!Collected)
 			{
@@ -366,6 +368,7 @@ void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 		Current.FailedKey.reset();
 		Current.Status.bReady = true;
 		Current.Status.Parameters = Current.Desired->Sources.Parameters;
+		Current.Status.Switches = Current.Desired->Sources.Switches;
 		Current.Status.Diagnostics = "Material shader ready";
 	})
 	                            : std::expected<FTaskHandle, FTaskError>(std::unexpected(Work.error()));

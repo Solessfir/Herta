@@ -34,9 +34,11 @@ struct FMaterialGraphCompilation
 	std::vector<FGraphDiagnostic> Diagnostics{};
 	// Every parameter node, connected or not, in slot order, which is name order, so a material's values keep their meaning as the graph changes.
 	std::vector<FMaterialShaderParameter> Parameters{};
+	// Every static switch, by name, with its default in Default[0] as 0 or 1. Switches take no slot: they choose the code that compiles.
+	std::vector<FMaterialShaderParameter> Switches{};
 };
 
 // Compiles the part of the graph that reaches the output node. Unconnected output inputs keep the material asset's own parameters and textures,
-// so a graph only replaces what it connects.
-[[nodiscard]] std::expected<FMaterialGraphCompilation, std::vector<FGraphDiagnostic>> CompileMaterialGraph(const FGraph& Graph);
+// so a graph only replaces what it connects. Switches, sorted by name, override static switch defaults; names the graph lacks are ignored.
+[[nodiscard]] std::expected<FMaterialGraphCompilation, std::vector<FGraphDiagnostic>> CompileMaterialGraph(const FGraph& Graph, std::span<const FMaterialSwitchValue> Switches = {});
 }

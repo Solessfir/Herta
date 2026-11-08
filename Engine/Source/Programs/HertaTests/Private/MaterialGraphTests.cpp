@@ -124,6 +124,43 @@ TEST_CASE("Material graph parameters take slots in name order and read the visua
 	CHECK(HasDiagnostic(Invalid.error(), Unused, "letters, digits"));
 }
 
+TEST_CASE("Material graph static switches compile the chosen branch alone")
+{
+	FMaterialGraphBuilder Builder;
+	const FGraphNodeId Switch = Builder.Add("StaticSwitch");
+	const FGraphNodeId Red = Builder.Add("Vector");
+	const FGraphNodeId Blue = Builder.Add("Vector");
+	const FGraphNodeId Output = Builder.Add("MaterialOutput");
+	Builder.Set(Switch, "name", std::string("Warm"));
+	Builder.Set(Red, "value", std::array<float, 4>{0.9f, 0.1f, 0.1f, 1.f});
+	Builder.Set(Blue, "value", std::array<float, 4>{0.1f, 0.1f, 0.9f, 1.f});
+	Builder.Link(Red, "RGB", Switch, "True");
+	Builder.Link(Blue, "RGB", Switch, "False");
+	Builder.Link(Switch, "Result", Output, "BaseColor");
+
+	const auto Default = CompileMaterialGraph(Builder.Graph);
+	REQUIRE(Default);
+	CHECK(Default->Source.find("float3(0.1, 0.1, 0.9)") != std::string::npos);
+	CHECK(Default->Source.find("float3(0.9, 0.1, 0.1)") == std::string::npos);
+	// The branch left out is still linked to the output, so it compiles away without a warning.
+	CHECK(Default->Diagnostics.empty());
+	REQUIRE(Default->Switches.size() == 1);
+	CHECK(Default->Switches[0] == FMaterialShaderParameter{.Name = "Warm", .Default = {0.f, 0.f, 0.f, 0.f}});
+	CHECK(Default->Parameters.empty());
+
+	const std::array Enabled{FMaterialSwitchValue{.Name = "Warm", .bEnabled = true}};
+	const auto Warm = CompileMaterialGraph(Builder.Graph, Enabled);
+	REQUIRE(Warm);
+	CHECK(Warm->Source.find("float3(0.9, 0.1, 0.1)") != std::string::npos);
+	CHECK(Warm->Source.find("float3(0.1, 0.1, 0.9)") == std::string::npos);
+
+	const FGraphNodeId Twin = Builder.Add("StaticSwitch");
+	Builder.Set(Twin, "name", std::string("Warm"));
+	const auto Duplicate = CompileMaterialGraph(Builder.Graph);
+	REQUIRE_FALSE(Duplicate);
+	CHECK(HasDiagnostic(Duplicate.error(), Twin, "already named"));
+}
+
 TEST_CASE("Material graph reroutes pass their input through unchanged")
 {
 	FMaterialGraphBuilder Direct;

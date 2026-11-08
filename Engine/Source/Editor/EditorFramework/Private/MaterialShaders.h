@@ -32,6 +32,8 @@ struct FMaterialShaderStatus
 	std::string Diagnostics;
 	// The published shader's Material Graph parameters, in slot order.
 	std::vector<FMaterialShaderParameter> Parameters;
+	// Its static switches by name, with defaults in Default[0].
+	std::vector<FMaterialShaderParameter> Switches;
 };
 
 FHash128 ComputeMaterialShaderSourceKey(std::span<const FShaderSourceDependency> Dependencies);

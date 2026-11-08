@@ -106,5 +106,8 @@
       0,
       0
     ]
+  },
+  "staticSwitches": {
+    "Horizontal": true
   }
 }

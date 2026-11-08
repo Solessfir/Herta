@@ -99,6 +99,14 @@ const std::array VectorParameterProperties{
     FGraphPropertyDescriptor{.Key = "name", .Name = "Name", .Default = std::string("Color")},
     FGraphPropertyDescriptor{.Key = "value", .Name = "Default", .Default = std::array<float, 4>{1.f, 1.f, 1.f, 1.f}},
 };
+const std::array SwitchProperties{
+    FGraphPropertyDescriptor{.Key = "name", .Name = "Name", .Default = std::string("Switch")},
+    FGraphPropertyDescriptor{.Key = "value", .Name = "Default", .Default = false},
+};
+constexpr std::array SwitchInputs{
+    FGraphPinDescriptor{.Key = "True", .Name = "True", .Type = Pin(EMaterialPinType::Dynamic)},
+    FGraphPinDescriptor{.Key = "False", .Name = "False", .Type = Pin(EMaterialPinType::Dynamic)},
+};
 const std::array TextureProperties{FGraphPropertyDescriptor{.Key = "slot", .Name = "Texture Slot", .Default = std::string("baseColor")}};
 
 constexpr FGraphNodeDescriptor Unary(const std::string_view Type, const std::string_view Name)
@@ -116,6 +124,7 @@ const std::array MaterialNodes{
     FGraphNodeDescriptor{.Type = "Vector", .Name = "Vector", .Category = "Values", .Outputs = VectorOutputs, .Properties = VectorProperties},
     FGraphNodeDescriptor{.Type = "ScalarParameter", .Name = "Scalar Parameter", .Category = "Parameters", .Outputs = ValueOutput, .Properties = ScalarParameterProperties},
     FGraphNodeDescriptor{.Type = "VectorParameter", .Name = "Vector Parameter", .Category = "Parameters", .Outputs = VectorOutputs, .Properties = VectorParameterProperties},
+    FGraphNodeDescriptor{.Type = "StaticSwitch", .Name = "Static Switch", .Category = "Parameters", .Inputs = SwitchInputs, .Outputs = ResultOutput, .Properties = SwitchProperties},
     FGraphNodeDescriptor{.Type = "TexCoord", .Name = "Texture Coordinate", .Category = "Inputs", .Outputs = UVOutput},
     FGraphNodeDescriptor{.Type = "WorldPosition", .Name = "World Position", .Category = "Inputs", .Outputs = PositionOutput},
     FGraphNodeDescriptor{.Type = "VertexNormal", .Name = "Vertex Normal", .Category = "Inputs", .Outputs = NormalOutput},

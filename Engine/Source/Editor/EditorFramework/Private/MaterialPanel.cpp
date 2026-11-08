@@ -727,13 +727,70 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 			ImGui::PopID();
 		};
 
-		ImGui::PushID("GraphParameters");
-		if (std::ranges::any_of(Context.GraphParameters, [&Query](const FMaterialShaderParameter& Parameter)
-		    {
-			    return MatchesMaterialSearch(Parameter.Name, Query);
-		    })
-		    && BeginMaterialSection("Graph parameters", Scale) && BeginTable())
+		// Switches choose code, so flipping one compiles that combination once; the previous shader stays on screen until it is ready.
+		const auto SwitchRow = [&](const FMaterialShaderParameter& Switch)
 		{
+			if (!MatchesMaterialSearch(Switch.Name, Query))
+			{
+				return;
+			}
+
+			ImGui::PushID(Switch.Name.c_str());
+			Row(Switch.Name.c_str());
+			const auto Current = std::ranges::find(Draft.StaticSwitches, Switch.Name, &FMaterialSwitchValue::Name);
+			const bool bOverridden = Current != Draft.StaticSwitches.end();
+			bool bEnabled = bOverridden ? Current->bEnabled : Switch.Default[0] != 0.f;
+			const auto WithSwitch = [&](const std::optional<bool> Value)
+			{
+				FMaterialAsset Candidate = Draft;
+				auto& Switches = Candidate.StaticSwitches;
+				const auto At = std::ranges::lower_bound(Switches, Switch.Name, {}, &FMaterialSwitchValue::Name);
+				const bool bFound = At != Switches.end() && At->Name == Switch.Name;
+				if (bFound && Value)
+				{
+					At->bEnabled = *Value;
+				}
+				else if (bFound)
+				{
+					Switches.erase(At);
+				}
+				else if (Value)
+				{
+					Switches.insert(At, {.Name = Switch.Name, .bEnabled = *Value});
+				}
+
+				return Candidate;
+			};
+
+			if (ImGui::Checkbox("##Switch", &bEnabled))
+			{
+				Report(EndEdit());
+				Apply(WithSwitch(bEnabled), std::format("Set {}", Switch.Name));
+			}
+
+			ImGui::TableSetColumnIndex(2);
+			if (bOverridden && DrawDetailsResetButton(Switch.Name.c_str()))
+			{
+				Report(EndEdit());
+				Apply(WithSwitch(std::nullopt), std::format("Reset {}", Switch.Name));
+			}
+
+			ImGui::PopID();
+		};
+
+		const auto MatchesParameter = [&Query](const FMaterialShaderParameter& Parameter)
+		{
+			return MatchesMaterialSearch(Parameter.Name, Query);
+		};
+
+		ImGui::PushID("GraphParameters");
+		if ((std::ranges::any_of(Context.GraphSwitches, MatchesParameter) || std::ranges::any_of(Context.GraphParameters, MatchesParameter)) && BeginMaterialSection("Graph parameters", Scale) && BeginTable())
+		{
+			for (const FMaterialShaderParameter& Switch : Context.GraphSwitches)
+			{
+				SwitchRow(Switch);
+			}
+
 			for (const FMaterialShaderParameter& Parameter : Context.GraphParameters)
 			{
 				ParameterRow(Parameter);

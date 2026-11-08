@@ -2462,7 +2462,7 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 				{
 					const auto Options = Assets->GetOptions();
 					const auto Option = std::ranges::find(Options, Material, &FPreviewAssetOption::Id);
-					ShaderPaths.push_back(MaterialShaderKey(Source->ShaderPath, Option != Options.end() ? Option->Label : "Game/"));
+					ShaderPaths.push_back(MaterialShaderKey(Source->ShaderPath, Option != Options.end() ? Option->Label : "Game/") + GetMaterialSwitchSuffix(*Source));
 				}
 			}
 		}
@@ -2576,7 +2576,7 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 		{
 			const auto Options = Assets->GetOptions();
 			const auto Option = std::ranges::find(Options, MaterialPanel.GetAsset(), &FPreviewAssetOption::Id);
-			ShaderPaths.push_back(MaterialShaderKey(MaterialPanel.GetDraft().ShaderPath, Option != Options.end() ? Option->Label : "Game/"));
+			ShaderPaths.push_back(MaterialShaderKey(MaterialPanel.GetDraft().ShaderPath, Option != Options.end() ? Option->Label : "Game/") + GetMaterialSwitchSuffix(MaterialPanel.GetDraft()));
 		}
 
 		if (MaterialGraphPanel.IsOpen())
@@ -2775,6 +2775,7 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 
 	std::string ShaderStatus;
 	std::span<const FMaterialShaderParameter> GraphParameters;
+	std::span<const FMaterialShaderParameter> GraphSwitches;
 	if (GetBuildConfiguration() == EBuildConfiguration::Shipping)
 	{
 		ShaderStatus = MaterialPanel.GetDraft().ShaderPath.empty() ? "Shader iteration is unavailable in Shipping." : "Custom shaders are unavailable in Shipping. Using engine PBR.";
@@ -2783,13 +2784,14 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 	{
 		const auto Options = Assets->GetOptions();
 		const auto Option = std::ranges::find(Options, MaterialPanel.GetAsset(), &FPreviewAssetOption::Id);
-		const std::string Key = MaterialShaderKey(MaterialPanel.GetDraft().ShaderPath, Option != Options.end() ? Option->Label : "Game/");
+		const std::string Key = MaterialShaderKey(MaterialPanel.GetDraft().ShaderPath, Option != Options.end() ? Option->Label : "Game/") + GetMaterialSwitchSuffix(MaterialPanel.GetDraft());
 		if (const auto* Status = MaterialShaders->GetStatus(Key))
 		{
 			ShaderStatus = Status->bCompiling ? "Compiling shader..." : !Status->Diagnostics.empty() ? Status->Diagnostics
 			                                                        : Status->bReady                 ? "Shader ready"
 			                                                                                         : "Waiting for shader";
 			GraphParameters = Status->Parameters;
+			GraphSwitches = Status->Switches;
 		}
 	}
 
@@ -2807,6 +2809,7 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 	    .ZoomPreview = ZoomMaterialPreview,
 	    .ShaderStatus = ShaderStatus,
 	    .GraphParameters = GraphParameters,
+	    .GraphSwitches = GraphSwitches,
 	    .Save = [&](const FAssetId Id, const FMaterialAsset& Material)
 	{
 		return Assets->SaveMaterial(Id, Material);

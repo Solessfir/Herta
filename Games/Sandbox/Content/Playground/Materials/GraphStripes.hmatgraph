@@ -206,6 +206,18 @@
         "name": "Metallic",
         "value": 0
       }
+    },
+    {
+      "id": 21,
+      "type": "StaticSwitch",
+      "position": [
+        -470,
+        140
+      ],
+      "properties": {
+        "name": "Horizontal",
+        "value": false
+      }
     }
   ],
   "links": [
@@ -236,16 +248,6 @@
       ],
       "to": [
         4,
-        "In"
-      ]
-    },
-    {
-      "from": [
-        4,
-        "R"
-      ],
-      "to": [
-        5,
         "In"
       ]
     },
@@ -398,6 +400,36 @@
         17,
         "Metallic"
       ]
+    },
+    {
+      "from": [
+        4,
+        "R"
+      ],
+      "to": [
+        21,
+        "False"
+      ]
+    },
+    {
+      "from": [
+        4,
+        "G"
+      ],
+      "to": [
+        21,
+        "True"
+      ]
+    },
+    {
+      "from": [
+        21,
+        "Result"
+      ],
+      "to": [
+        5,
+        "In"
+      ]
     }
   ],
   "comments": [
@@ -408,7 +440,7 @@
         -940,
         -120,
         480,
-        150
+        250
       ]
     }
   ]

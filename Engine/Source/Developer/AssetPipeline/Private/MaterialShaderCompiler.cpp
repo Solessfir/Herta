@@ -103,8 +103,20 @@ const std::filesystem::path& FShaderScratch::GetPath() const noexcept
 }
 }
 
-std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(const std::span<const std::filesystem::path> Roots, const std::string_view MountedPath, const std::optional<std::string_view> GraphText)
+std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(const std::span<const std::filesystem::path> Roots, const std::string_view Key, const std::optional<std::string_view> GraphText)
 {
+	const auto Parsed = ParseMaterialShaderKey(Key);
+	if (!Parsed)
+	{
+		return std::unexpected(Parsed.error());
+	}
+
+	const std::string_view MountedPath = Parsed->first;
+	if (!Parsed->second.empty() && !MountedPath.ends_with(".hmatgraph"))
+	{
+		return std::unexpected(FAssetError{"Static switches need a Material Graph"});
+	}
+
 	if (MountedPath.empty())
 	{
 		auto Files = CollectShaderSources(Roots, 0, "TexturedMesh.slang");
@@ -157,7 +169,7 @@ std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(
 		return std::unexpected(FAssetError{"Material Graph: " + Graph.error().Message});
 	}
 
-	const auto Compiled = CompileMaterialGraph(*Graph);
+	const auto Compiled = CompileMaterialGraph(*Graph, Parsed->second);
 	if (!Compiled)
 	{
 		std::string Message = "Material Graph:";
@@ -175,9 +187,16 @@ std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(
 		return std::unexpected(Includes.error());
 	}
 
-	FMaterialShaderSources Result{.Root = Root, .Source = Relative + ".slang", .Files = std::move(*Includes), .Parameters = Compiled->Parameters};
-	const auto Generated = std::as_bytes(std::span(Compiled->Source));
-	Result.Files.push_back({.Root = Root, .Path = Result.Source, .Bytes = {Generated.begin(), Generated.end()}});
+	// Permutations of one graph compile side by side, so each generated file is named by its switches.
+	std::string Generated = Relative;
+	for (const FMaterialSwitchValue& Switch : Parsed->second)
+	{
+		Generated += std::format(".{}{}", Switch.Name, Switch.bEnabled ? 1 : 0);
+	}
+
+	FMaterialShaderSources Result{.Root = Root, .Source = Generated + ".slang", .Files = std::move(*Includes), .Parameters = Compiled->Parameters, .Switches = Compiled->Switches};
+	const auto SourceBytes = std::as_bytes(std::span(Compiled->Source));
+	Result.Files.push_back({.Root = Root, .Path = Result.Source, .Bytes = {SourceBytes.begin(), SourceBytes.end()}});
 	return Result;
 }
 

@@ -35,6 +35,8 @@ struct FMaterialPanelContext
 	std::string_view ShaderStatus{};
 	// The draft's Material Graph parameters, once its shader has compiled.
 	std::span<const FMaterialShaderParameter> GraphParameters{};
+	// Its static switches, each a separately compiled shader per combination a material uses.
+	std::span<const FMaterialShaderParameter> GraphSwitches{};
 	std::function<std::expected<void, FAssetError>(FAssetId, const FMaterialAsset&)> Save{};
 	std::function<std::expected<FMaterialAsset, FAssetError>(FAssetId)> Reload{};
 	std::function<void(FAssetId, const FMaterialAsset&)> Preview{};

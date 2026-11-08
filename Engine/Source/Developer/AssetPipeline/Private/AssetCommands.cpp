@@ -275,14 +275,14 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 				return std::unexpected(std::move(Parsed.error()));
 			}
 
-			const auto Usage = "material.compile <Game/... or Engine/... shader> <output-directory> [--content-root <path>]";
+			const auto Usage = "material.compile <Game/... or Engine/... shader[#Switch=1,...]> <output-directory> [--content-root <path>]";
 			if (Parsed->Positional.size() != 2 || !(Parsed->Positional[0].starts_with("Game/") || Parsed->Positional[0].starts_with("Engine/")))
 			{
 				return UsageError(Usage);
 			}
 
 			const std::string Shader(Parsed->Positional[0]);
-			if (!IsValidAssetPath(Shader))
+			if (const auto Key = ParseMaterialShaderKey(Shader); !Key || !IsValidAssetPath(Key->first))
 			{
 				return UsageError(Usage);
 			}

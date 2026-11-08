@@ -25,11 +25,13 @@ struct FMaterialShaderSources
 	// What the worker compiles: the shader itself, or the Slang generated from a Material Graph.
 	std::string Source;
 	std::vector<FShaderSourceFile> Files;
-	// A Material Graph's parameters in slot order; hand-written shaders have none.
+	// A Material Graph's parameters in slot order and its static switches by name; hand-written shaders have neither.
 	std::vector<FMaterialShaderParameter> Parameters;
+	std::vector<FMaterialShaderParameter> Switches;
 };
 
-// Reads a mounted material shader ("Engine/..." or "Game/...", empty for the engine default) with its includes. A Material Graph compiles to Slang here,
+// Reads a mounted material shader ("Engine/..." or "Game/...", empty for the engine default) with its includes. A key may end in a static switch
+// suffix (see GetMountedMaterialShaderPath), which compiles that permutation of a Material Graph. A Material Graph compiles to Slang here,
 // beside the graph, so the worker builds it exactly like a hand-written shader. Roots are the engine shaders, Engine content, and Game content.
 // GraphText replaces a Material Graph's file, such as an unsaved draft in the editor.
 [[nodiscard]] std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(std::span<const std::filesystem::path> Roots, std::string_view MountedPath, std::optional<std::string_view> GraphText = std::nullopt);

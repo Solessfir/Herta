@@ -230,14 +230,59 @@ void ResolveMaterialParameters(const std::span<const FMaterialShaderParameter> P
 	}
 }
 
+std::string GetMaterialSwitchSuffix(const FMaterialAsset& Material)
+{
+	if (Material.StaticSwitches.empty() || !Material.ShaderPath.ends_with(".hmatgraph"))
+	{
+		return {};
+	}
+
+	std::string Suffix;
+	for (const FMaterialSwitchValue& Switch : Material.StaticSwitches)
+	{
+		Suffix += std::format("{}{}={}", Suffix.empty() ? "#" : ",", Switch.Name, Switch.bEnabled ? 1 : 0);
+	}
+
+	return Suffix;
+}
+
 std::string GetMountedMaterialShaderPath(const FMaterialAsset& Material, const std::string_view Name)
 {
 	if (Material.ShaderPath.empty() || Material.ShaderPath.starts_with("Engine/") || Material.ShaderPath.starts_with("Game/"))
 	{
-		return Material.ShaderPath;
+		return Material.ShaderPath + GetMaterialSwitchSuffix(Material);
 	}
 
-	return std::string(Name.starts_with("Engine/") ? "Engine/" : "Game/") + Material.ShaderPath;
+	return std::string(Name.starts_with("Engine/") ? "Engine/" : "Game/") + Material.ShaderPath + GetMaterialSwitchSuffix(Material);
+}
+
+std::expected<std::pair<std::string_view, std::vector<FMaterialSwitchValue>>, FAssetError> ParseMaterialShaderKey(const std::string_view Key)
+{
+	const std::size_t Hash = Key.find('#');
+	std::pair<std::string_view, std::vector<FMaterialSwitchValue>> Result{Key.substr(0, Hash), {}};
+	if (Hash == std::string_view::npos)
+	{
+		return Result;
+	}
+
+	std::string_view Rest = Key.substr(Hash + 1);
+	while (!Rest.empty() || Result.second.empty())
+	{
+		const std::size_t Comma = Rest.find(',');
+		const std::string_view Entry = Rest.substr(0, Comma);
+		Rest = Comma == std::string_view::npos ? std::string_view{} : Rest.substr(Comma + 1);
+		const std::size_t Equals = Entry.find('=');
+		const std::string_view Name = Entry.substr(0, Equals);
+		const std::string_view Value = Equals == std::string_view::npos ? std::string_view{} : Entry.substr(Equals + 1);
+		if (!IsValidMaterialParameterName(Name) || (Value != "0" && Value != "1") || (!Result.second.empty() && Result.second.back().Name >= Name) || Result.second.size() == MaximumMaterialSwitches)
+		{
+			return Invalid("Invalid static switch suffix in a material shader key");
+		}
+
+		Result.second.push_back({.Name = std::string(Name), .bEnabled = Value == "1"});
+	}
+
+	return Result;
 }
 
 std::expected<void, FAssetError> ValidateMaterialParameters(const FMaterialParameters& Parameters)
@@ -294,6 +339,19 @@ std::expected<void, FAssetError> ValidateMaterial(const FMaterialAsset& Material
 	if (Material.ParameterValues.size() > MaximumMaterialParameterValues)
 	{
 		return Invalid("Material has more than 32 graph parameter values");
+	}
+
+	if (Material.StaticSwitches.size() > MaximumMaterialSwitches)
+	{
+		return Invalid("Material sets more than 8 static switches");
+	}
+
+	for (std::size_t Index = 0; Index < Material.StaticSwitches.size(); ++Index)
+	{
+		if (!IsValidMaterialParameterName(Material.StaticSwitches[Index].Name) || (Index > 0 && Material.StaticSwitches[Index - 1].Name >= Material.StaticSwitches[Index].Name))
+		{
+			return Invalid("Material static switches need valid unique names in sorted order");
+		}
 	}
 
 	for (std::size_t Index = 0; Index < Material.ParameterValues.size(); ++Index)
@@ -390,7 +448,16 @@ std::expected<std::string, FAssetError> SerializeMaterial(const FMaterialAsset& 
 		AppendFloats(Text, Material.ParameterValues[Index].Value);
 	}
 
-	Text += Material.ParameterValues.empty() ? "}\n}\n" : "\n  }\n}\n";
+	Text += Material.ParameterValues.empty() ? "}" : "\n  }";
+	Text += ",\n  \"staticSwitches\": {";
+	for (std::size_t Index = 0; Index < Material.StaticSwitches.size(); ++Index)
+	{
+		Text += Index == 0 ? "\n    " : ",\n    ";
+		AppendString(Text, Material.StaticSwitches[Index].Name);
+		Text += Material.StaticSwitches[Index].bEnabled ? ": true" : ": false";
+	}
+
+	Text += Material.StaticSwitches.empty() ? "}\n}\n" : "\n  }\n}\n";
 	return Text;
 }
 
@@ -408,9 +475,9 @@ std::expected<FMaterialAsset, FAssetError> DeserializeMaterial(const std::string
 		return Invalid("Invalid material JSON");
 	}
 
-	// Version 3 adds the graph parameter values; earlier versions have exactly the first six fields.
-	std::array<simdjson::dom::element, 7> HeaderFields;
-	constexpr std::array<std::string_view, 7> HeaderNames{"format", "version", "name", "parameters", "textures", "shader", "graphParameters"};
+	// Version 3 adds the graph parameter values and static switches; earlier versions have exactly the first six fields.
+	std::array<simdjson::dom::element, 8> HeaderFields;
+	constexpr std::array<std::string_view, 8> HeaderNames{"format", "version", "name", "parameters", "textures", "shader", "graphParameters", "staticSwitches"};
 	bool bGraphParameters = false;
 	if (const auto Current = Fields(Root, HeaderNames))
 	{
@@ -532,6 +599,23 @@ std::expected<FMaterialAsset, FAssetError> DeserializeMaterial(const std::string
 			}
 
 			Material.ParameterValues.push_back(std::move(Value));
+		}
+
+		simdjson::dom::object Switches;
+		if ((*Header)[7].get_object().get(Switches) || Switches.size() > MaximumMaterialSwitches)
+		{
+			return Invalid("Invalid material static switches");
+		}
+
+		for (const auto Field : Switches)
+		{
+			FMaterialSwitchValue Switch{.Name = std::string(Field.key)};
+			if (Field.value.get_bool().get(Switch.bEnabled))
+			{
+				return Invalid("Invalid material static switch value");
+			}
+
+			Material.StaticSwitches.push_back(std::move(Switch));
 		}
 	}
 

@@ -63,7 +63,7 @@ FExpression MakeConstant(const std::array<float, 4>& Value, const std::uint32_t 
 class FCompiler
 {
 public:
-	explicit FCompiler(const FGraph& Graph);
+	FCompiler(const FGraph& Graph, std::span<const FMaterialSwitchValue> Switches);
 
 	std::optional<FMaterialGraphCompilation> Compile();
 
@@ -86,13 +86,16 @@ private:
 	std::map<std::string, std::string> SharedValues;
 	std::map<std::uint32_t, std::size_t> ParameterSlots;
 	std::vector<FMaterialShaderParameter> Parameters;
+	std::span<const FMaterialSwitchValue> SwitchValues;
+	std::vector<FMaterialShaderParameter> Switches;
 	std::string Body;
 	std::uint32_t NextValue = 1;
 };
 
-FCompiler::FCompiler(const FGraph& InGraph)
+FCompiler::FCompiler(const FGraph& InGraph, const std::span<const FMaterialSwitchValue> InSwitches)
     : Graph(InGraph)
     , Schema(GetMaterialGraphSchema())
+    , SwitchValues(InSwitches)
 {
 	for (const FGraphLink& Link : Graph.Links)
 	{
@@ -304,6 +307,14 @@ std::optional<FExpression> FCompiler::EvaluateOutput(const FGraphNode& Node, con
 		return Swizzle(Value, Channels(Key));
 	}
 
+	if (Type == "StaticSwitch")
+	{
+		const std::string& Name = std::get<std::string>(Property("name"));
+		const auto Set = std::ranges::find(SwitchValues, Name, &FMaterialSwitchValue::Name);
+		const bool bEnabled = Set != SwitchValues.end() ? Set->bEnabled : std::get<bool>(Property("value"));
+		return Input(Node, bEnabled ? "True" : "False");
+	}
+
 	if (Type == "ScalarParameter" || Type == "VectorParameter")
 	{
 		// A parameter whose name was rejected has no slot; its error is already reported.
@@ -510,6 +521,30 @@ std::optional<FMaterialGraphCompilation> FCompiler::Compile()
 	std::vector<std::pair<std::string, const FGraphNode*>> Named;
 	for (const FGraphNode& Node : Graph.Nodes)
 	{
+		if (Node.Type == "StaticSwitch")
+		{
+			const std::string& Name = std::get<std::string>(std::ranges::find(Node.Properties, "name", &FGraphProperty::Key)->Value);
+			const bool bDefault = std::get<bool>(std::ranges::find(Node.Properties, "value", &FGraphProperty::Key)->Value);
+			if (!IsValidMaterialParameterName(Name))
+			{
+				Error(Node.Id, {}, "Switch names use letters, digits, and underscores, start with a letter, and are at most 32 long");
+			}
+			else if (std::ranges::contains(Switches, Name, &FMaterialShaderParameter::Name))
+			{
+				Error(Node.Id, {}, std::format("Another switch is already named '{}'", Name));
+			}
+			else if (Switches.size() == MaximumMaterialSwitches)
+			{
+				Error(Node.Id, {}, std::format("A graph has at most {} static switches", MaximumMaterialSwitches));
+			}
+			else
+			{
+				Switches.push_back({.Name = Name, .Default = {bDefault ? 1.f : 0.f, 0.f, 0.f, 0.f}});
+			}
+
+			continue;
+		}
+
 		if (Node.Type != "ScalarParameter" && Node.Type != "VectorParameter")
 		{
 			continue;
@@ -586,9 +621,25 @@ std::optional<FMaterialGraphCompilation> FCompiler::Compile()
 		}
 	}
 
+	// Linked through any branch counts as connected, so the branch a switch leaves out compiles away without a warning.
+	std::set<std::uint32_t> Linked{OutputNode->Id.Value};
+	std::vector<FGraphNodeId> Pending{OutputNode->Id};
+	while (!Pending.empty())
+	{
+		const FGraphNodeId Current = Pending.back();
+		Pending.pop_back();
+		for (const FGraphLink& Link : Graph.Links)
+		{
+			if (Link.To.Node == Current && Linked.insert(Link.From.Node.Value).second)
+			{
+				Pending.push_back(Link.From.Node);
+			}
+		}
+	}
+
 	for (const FGraphNode& Node : Graph.Nodes)
 	{
-		if (!Reached.contains(Node.Id.Value))
+		if (!Linked.contains(Node.Id.Value))
 		{
 			Diagnostics.push_back({.Severity = EGraphSeverity::Warning, .Node = Node.Id, .Message = "Not connected to the Material Output"});
 		}
@@ -608,13 +659,15 @@ std::optional<FMaterialGraphCompilation> FCompiler::Compile()
 	Result.Source += Body + Assignments + "    return Material;\n}\n";
 	Result.Diagnostics = std::move(Diagnostics);
 	Result.Parameters = std::move(Parameters);
+	std::ranges::sort(Switches, {}, &FMaterialShaderParameter::Name);
+	Result.Switches = std::move(Switches);
 	return Result;
 }
 }
 
-std::expected<FMaterialGraphCompilation, std::vector<FGraphDiagnostic>> CompileMaterialGraph(const FGraph& Graph)
+std::expected<FMaterialGraphCompilation, std::vector<FGraphDiagnostic>> CompileMaterialGraph(const FGraph& Graph, const std::span<const FMaterialSwitchValue> Switches)
 {
-	FCompiler Compiler(Graph);
+	FCompiler Compiler(Graph, Switches);
 	auto Result = Compiler.Compile();
 	if (!Result)
 	{

@@ -190,7 +190,7 @@ TEST_CASE("Version 1 materials load with Lambert diffuse and an untinted edge")
 	};
 
 	Replace("\"version\": 3", "\"version\": 1");
-	Replace(",\n  \"graphParameters\": {}", "");
+	Replace(",\n  \"graphParameters\": {},\n  \"staticSwitches\": {}", "");
 	Replace(",\n    \"diffuseRoughness\": 0", "");
 	Replace(",\n    \"specularColor\": [1, 1, 1]", "");
 	const auto Loaded = DeserializeMaterial(VersionOne);
@@ -224,7 +224,7 @@ TEST_CASE("Material graph parameter values round-trip by name and resolve agains
 	// Version 2 files have no parameter values and load without them; version 3 requires the field.
 	std::string VersionTwo = *SerializeMaterial(FMaterialAsset{});
 	VersionTwo.replace(VersionTwo.find("\"version\": 3"), 12, "\"version\": 2");
-	VersionTwo.erase(VersionTwo.find(",\n  \"graphParameters\": {}"), std::string_view(",\n  \"graphParameters\": {}").size());
+	VersionTwo.erase(VersionTwo.find(",\n  \"graphParameters\": {},\n  \"staticSwitches\": {}"), std::string_view(",\n  \"graphParameters\": {},\n  \"staticSwitches\": {}").size());
 	const auto Old = DeserializeMaterial(VersionTwo);
 	REQUIRE(Old);
 	CHECK(Old->ParameterValues.empty());
@@ -269,6 +269,37 @@ TEST_CASE("Material graph parameter values round-trip by name and resolve agains
 	CHECK_FALSE(IsValidMaterialParameterName("_Tint"));
 	CHECK_FALSE(IsValidMaterialParameterName("Base Tint"));
 	CHECK_FALSE(IsValidMaterialParameterName(std::string(33, 'A')));
+}
+
+TEST_CASE("Material static switches round-trip and name their shader permutation")
+{
+	FMaterialAsset Material{.Name = "Switched", .ShaderPath = "Master.hmatgraph"};
+	Material.StaticSwitches = {{.Name = "Detail", .bEnabled = true}, {.Name = "Glow", .bEnabled = false}};
+	const auto Text = SerializeMaterial(Material);
+	REQUIRE(Text);
+	CHECK(Text->find("\"staticSwitches\": {\n    \"Detail\": true,\n    \"Glow\": false\n  }") != std::string::npos);
+	const auto Loaded = DeserializeMaterial(*Text);
+	REQUIRE(Loaded);
+	CHECK(*Loaded == Material);
+
+	CHECK(GetMountedMaterialShaderPath(Material, "Game/Switched.hmat") == "Game/Master.hmatgraph#Detail=1,Glow=0");
+	const auto Parsed = ParseMaterialShaderKey("Game/Master.hmatgraph#Detail=1,Glow=0");
+	REQUIRE(Parsed);
+	CHECK(Parsed->first == "Game/Master.hmatgraph");
+	CHECK(Parsed->second == Material.StaticSwitches);
+	CHECK(ParseMaterialShaderKey("Game/Master.hmatgraph")->second.empty());
+	CHECK_FALSE(ParseMaterialShaderKey("Game/Master.hmatgraph#"));
+	CHECK_FALSE(ParseMaterialShaderKey("Game/Master.hmatgraph#Glow=0,Detail=1"));
+	CHECK_FALSE(ParseMaterialShaderKey("Game/Master.hmatgraph#Detail=2"));
+	CHECK_FALSE(ParseMaterialShaderKey("Game/Master.hmatgraph#Detail"));
+
+	// Hand-written shaders have no switches, so values left on such a material never split its shader.
+	FMaterialAsset Slang = Material;
+	Slang.ShaderPath = "Game/Custom.slang";
+	CHECK(GetMountedMaterialShaderPath(Slang, "Game/Switched.hmat") == "Game/Custom.slang");
+	FMaterialAsset Unsorted = Material;
+	std::ranges::reverse(Unsorted.StaticSwitches);
+	CHECK_FALSE(SerializeMaterial(Unsorted));
 }
 
 TEST_CASE("Material assets reject invalid fields channels and unsafe shader paths")
