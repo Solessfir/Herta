@@ -97,6 +97,8 @@ struct FMaterialAsset
 	std::string ShaderPath{};
 };
 
+// The material's shader as a mounted path ("Engine/..." or "Game/..."); a bare path resolves in Game content unless the material is named under Engine/.
+[[nodiscard]] std::string GetMountedMaterialShaderPath(const FMaterialAsset& Material, std::string_view Name);
 [[nodiscard]] std::expected<void, FAssetError> ValidateMaterialParameters(const FMaterialParameters& Parameters);
 [[nodiscard]] std::expected<void, FAssetError> ValidateMaterial(const FMaterialAsset& Material);
 [[nodiscard]] std::expected<std::string, FAssetError> SerializeMaterial(const FMaterialAsset& Material);

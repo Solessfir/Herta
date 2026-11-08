@@ -403,6 +403,30 @@ int RunGame(const FGameOptions& Options)
 	}
 
 	std::unique_ptr<FStagedGameAssets> Assets = std::move(*AssetsResult);
+	for (const std::string& Shader : Assets->GetMaterialShaders())
+	{
+		const std::filesystem::path& Mount = Shader.starts_with("Engine/") ? EngineContent : Project->ContentRoot;
+		const std::string_view Relative = std::string_view(Shader).substr(Shader.find('/') + 1);
+		std::array<FShaderAsset, MaterialShaderStageNames.size()> Stages;
+		for (std::size_t Stage = 0; Stage < Stages.size(); ++Stage)
+		{
+			auto Loaded = LoadCookedShader(GetStagedMaterialShaderPath(Mount, Relative, MaterialShaderStageNames[Stage]));
+			if (!Loaded)
+			{
+				HERTA_LOG_ERROR(*Log, GameLog, "Could not load the material shader {}: {}", Shader, Loaded.error().Message);
+				return 1;
+			}
+
+			Stages[Stage] = std::move(*Loaded);
+		}
+
+		if (auto Published = Renderer->PublishMaterialShader(Shader, std::move(Stages[0]), std::move(Stages[1]), std::move(Stages[2])); !Published)
+		{
+			HERTA_LOG_ERROR(*Log, GameLog, "Could not create the material shader {}: {}", Shader, Published.error().Message);
+			return 1;
+		}
+	}
+
 	auto SessionResult = FGameSession::Create(Level->Entities, *Assets, &Device);
 	if (!SessionResult)
 	{

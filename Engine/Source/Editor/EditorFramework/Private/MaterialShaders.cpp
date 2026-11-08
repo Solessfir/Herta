@@ -1,19 +1,16 @@
 #include "MaterialShaders.h"
 
-#include "Herta/AssetPipeline/ShaderSources.h"
+#include "Herta/AssetPipeline/MaterialShaderCompiler.h"
 #include "Herta/Assets/AssetId.h"
 #include "Herta/Assets/AssetRegistry.h"
 #include "Herta/Core/BinaryStream.h"
 #include "Herta/Core/Log.h"
-#include "Herta/MaterialGraph/MaterialGraph.h"
-#include "Herta/Platform/Process.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Tasks/TaskSystem.h"
 
 #include <algorithm>
 #include <array>
 #include <format>
-#include <fstream>
 #include <utility>
 
 namespace Herta
@@ -23,17 +20,6 @@ namespace
 constexpr FLogCategory ShaderLog{.Name = "Shaders"};
 constexpr std::chrono::milliseconds PollInterval{500};
 constexpr std::size_t MaximumWatchedShaders = 64;
-
-std::string Utf8Path(const std::filesystem::path& Path)
-{
-	const auto Text = Path.generic_u8string();
-	return {Text.begin(), Text.end()};
-}
-
-std::filesystem::path SourcePath(const std::string_view Text)
-{
-	return std::filesystem::path(std::u8string(Text.begin(), Text.end()));
-}
 
 std::string MountedPath(const std::string_view Path)
 {
@@ -45,249 +31,17 @@ bool IsMaterialShaderPath(const std::string_view Path)
 	return Path.ends_with(".slang") || Path.ends_with(".hmatgraph");
 }
 
-struct FCollectedSources
-{
-	std::vector<FShaderSourceFile> Files;
-	// What the worker compiles: the shader itself, or the Slang generated from a Material Graph.
-	std::string Source;
-};
-
-// Hand-written shaders are read with their includes. A Material Graph compiles here to its generated Slang, which sits beside the graph,
-// plus the engine includes that Slang uses, so the worker builds it exactly like a hand-written shader.
-std::expected<FCollectedSources, FAssetError> CollectMaterialSources(const std::vector<std::filesystem::path>& Roots, const std::size_t Root, const std::string& Relative)
-{
-	if (!Relative.ends_with(".hmatgraph"))
-	{
-		auto Files = CollectShaderSources(Roots, Root, Relative);
-		if (!Files)
-		{
-			return std::unexpected(Files.error());
-		}
-
-		return FCollectedSources{.Files = std::move(*Files), .Source = Relative};
-	}
-
-	constexpr std::uintmax_t MaximumGraphBytes = 64 * 1024 * 1024;
-	std::error_code Error;
-	const auto Path = Roots[Root] / std::filesystem::path(std::u8string(Relative.begin(), Relative.end()));
-	const auto Size = std::filesystem::file_size(Path, Error);
-	if (Error || Size > MaximumGraphBytes)
-	{
-		return std::unexpected(FAssetError{"Cannot read the Material Graph"});
-	}
-
-	std::string Text(static_cast<std::size_t>(Size), '\0');
-	std::ifstream Stream(Path, std::ios::binary);
-	if (!Stream.read(Text.data(), static_cast<std::streamsize>(Text.size())))
-	{
-		return std::unexpected(FAssetError{"Cannot read the Material Graph"});
-	}
-
-	const auto Graph = DeserializeGraph(Text, GetMaterialGraphSchema());
-	if (!Graph)
-	{
-		return std::unexpected(FAssetError{"Material Graph: " + Graph.error().Message});
-	}
-
-	const auto Compiled = CompileMaterialGraph(*Graph);
-	if (!Compiled)
-	{
-		std::string Message = "Material Graph:";
-		for (const FGraphDiagnostic& Diagnostic : Compiled.error())
-		{
-			Message += " " + Diagnostic.Message + ".";
-		}
-
-		return std::unexpected(FAssetError{std::move(Message)});
-	}
-
-	auto Includes = CollectShaderSources(Roots, 0, "GraphMaterial.slangh");
-	if (!Includes)
-	{
-		return std::unexpected(Includes.error());
-	}
-
-	FCollectedSources Result{.Files = std::move(*Includes), .Source = Relative + ".slang"};
-	const auto Bytes = std::as_bytes(std::span(Compiled->Source));
-	Result.Files.push_back({.Root = Root, .Path = Result.Source, .Bytes = {Bytes.begin(), Bytes.end()}});
-	return Result;
-}
-
-std::pair<std::size_t, std::string> ResolveSource(const std::string_view Path)
-{
-	if (Path.empty())
-	{
-		return {0, "TexturedMesh.slang"};
-	}
-
-	return {Path.starts_with("Engine/") ? 1 : 2, std::string(Path.substr(Path.find('/') + 1))};
-}
-
-class FShaderScratch final
-{
-public:
-	~FShaderScratch();
-	FShaderScratch() = default;
-	FShaderScratch(const FShaderScratch&) = delete;
-	FShaderScratch& operator=(const FShaderScratch&) = delete;
-	FShaderScratch(FShaderScratch&&) = delete;
-	FShaderScratch& operator=(FShaderScratch&&) = delete;
-
-	[[nodiscard]] std::expected<void, FShaderError> Initialize(const FHash128& Key);
-	const std::filesystem::path& GetPath() const noexcept;
-
-private:
-	std::filesystem::path Path;
-};
-
-FShaderScratch::~FShaderScratch()
-{
-	if (!Path.empty())
-	{
-		std::error_code Error;
-		std::filesystem::remove_all(Path, Error);
-	}
-}
-
-std::expected<void, FShaderError> FShaderScratch::Initialize(const FHash128& Key)
-{
-	std::error_code Error;
-	const auto Parent = std::filesystem::temp_directory_path(Error);
-	if (Error)
-	{
-		return std::unexpected(FShaderError{"Cannot resolve the shader snapshot directory"});
-	}
-
-	// Debug info embeds the snapshot's paths, so naming it by the source key keeps the SPIR-V identical across runs and lets the driver's pipeline cache hit.
-	// Directories left by a crash or held by a concurrent compile take the next numbered name, which stays stable from run to run; a unique name is the last resort.
-	constexpr int NumberedNames = 8;
-	for (int Attempt = 0; Attempt <= NumberedNames; ++Attempt)
-	{
-		const std::string Suffix = Attempt == 0 ? ToString(Key) : Attempt < NumberedNames ? std::format("{}-{}", ToString(Key), Attempt) : FAssetId::Generate().ToString();
-		const auto Candidate = Parent / ("HertaMaterialShader-" + Suffix);
-		if (std::filesystem::create_directory(Candidate, Error) && !Error)
-		{
-			// Only an exclusively created child of the system temp directory is owned for recursive cleanup.
-			Path = Candidate;
-			return {};
-		}
-	}
-
-	return std::unexpected(FShaderError{"Cannot create an exclusive shader snapshot directory"});
-}
-
-const std::filesystem::path& FShaderScratch::GetPath() const noexcept
-{
-	return Path;
-}
-
 struct FCompiledMaterialShader
 {
 	FShaderAsset Vertex;
 	FShaderAsset Instanced;
 	FShaderAsset Fragment;
 };
-
-std::expected<FCompiledMaterialShader, FShaderError> CompileSnapshot(const std::filesystem::path& Worker, const std::vector<FShaderSourceFile>& Files, const std::size_t RootIndex, const std::string& RelativeSource, const std::size_t RootCount, const FHash128& Key, const std::stop_token StopToken, const FCancellationToken ScopeToken)
-{
-	FShaderScratch Scratch;
-	if (auto Created = Scratch.Initialize(Key); !Created)
-	{
-		return std::unexpected(Created.error());
-	}
-
-	std::vector<std::filesystem::path> Copies;
-	std::error_code Error;
-
-	for (std::size_t Index = 0; Index < RootCount; ++Index)
-	{
-		Copies.push_back(Scratch.GetPath() / std::format("Root{}", Index));
-		std::filesystem::create_directory(Copies.back(), Error);
-		if (Error)
-		{
-			return std::unexpected(FShaderError{"Cannot create shader include snapshot roots"});
-		}
-	}
-
-	for (const auto& File : Files)
-	{
-		if (StopToken.stop_requested() || ScopeToken.IsCancellationRequested())
-		{
-			return std::unexpected(FShaderError{"Shader compilation cancelled"});
-		}
-
-		const auto Output = Copies[File.Root] / SourcePath(File.Path);
-		std::filesystem::create_directories(Output.parent_path(), Error);
-		if (Error)
-		{
-			return std::unexpected(FShaderError{"Cannot create shader snapshot subdirectories"});
-		}
-
-		std::ofstream Stream(Output, std::ios::binary | std::ios::trunc);
-		Stream.write(reinterpret_cast<const char*>(File.Bytes.data()), static_cast<std::streamsize>(File.Bytes.size()));
-		Stream.close();
-		if (!Stream)
-		{
-			return std::unexpected(FShaderError{"Cannot write an immutable shader source snapshot"});
-		}
-	}
-
-	const auto Source = Copies[RootIndex] / SourcePath(RelativeSource);
-	FCompiledMaterialShader Result;
-	constexpr std::array<std::string_view, 3> EntryPoints{"vertexMain", "instancedVertexMain", "fragmentMain"};
-	const std::array<FShaderAsset*, 3> Stages{&Result.Vertex, &Result.Instanced, &Result.Fragment};
-
-	for (std::size_t Index = 0; Index < EntryPoints.size(); ++Index)
-	{
-		const auto Output = Scratch.GetPath() / std::format("Stage{}.hshader", Index);
-		// The editor's live material pipelines replace the cooked ones, so they carry source for profilers too.
-		std::vector<std::string> Arguments{Utf8Path(Source), Index == 2 ? "fragment" : "vertex", std::string(EntryPoints[Index]), Utf8Path(Output), "--debug"};
-
-		for (const auto& Root : Copies)
-		{
-			Arguments.emplace_back("--include-root");
-			Arguments.push_back(Utf8Path(Root));
-		}
-
-		const auto Process = RunProcess({
-		    .Executable = Worker,
-		    .Arguments = std::move(Arguments),
-		    .Timeout = std::chrono::seconds(60),
-		    .ShouldCancel = [StopToken, ScopeToken]()
-		{
-			return StopToken.stop_requested() || ScopeToken.IsCancellationRequested();
-		},
-		    .MaximumOutputBytes = 64 * 1024,
-		});
-
-		if (!Process)
-		{
-			return std::unexpected(FShaderError{Process.error().Message});
-		}
-
-		if (Process->ExitCode != 0)
-		{
-			return std::unexpected(FShaderError{std::format("{} failed: {}{}", EntryPoints[Index], Process->StandardError, Process->StandardOutput)});
-		}
-
-		auto Shader = LoadCookedShader(Output);
-		if (!Shader)
-		{
-			return std::unexpected(Shader.error());
-		}
-
-		*Stages[Index] = std::move(*Shader);
-	}
-
-	return Result;
-}
 }
 
 struct FMaterialShaders::FSourceSnapshot
 {
-	std::size_t Root = 0;
-	std::string Source;
-	std::vector<FShaderSourceFile> Files;
+	FMaterialShaderSources Sources;
 	FHash128 Key;
 };
 
@@ -436,8 +190,7 @@ void FMaterialShaders::Poll()
 				return;
 			}
 
-			const auto [Root, Relative] = ResolveSource(Path);
-			auto Collected = Directories[Root].empty() ? std::expected<FCollectedSources, FAssetError>(std::unexpected(FAssetError{"Shader content mount is unavailable"})) : CollectMaterialSources(Directories, Root, Relative);
+			auto Collected = CollectMaterialShaderSources(Directories, Path);
 			if (!Collected)
 			{
 				Results->emplace(Path, std::unexpected(FShaderError{Collected.error().Message}));
@@ -464,9 +217,7 @@ void FMaterialShaders::Poll()
 
 			CapturedBytes += SourceBytes;
 			auto Snapshot = std::make_shared<FSourceSnapshot>();
-			Snapshot->Root = Root;
-			Snapshot->Source = std::move(Collected->Source);
-			Snapshot->Files = std::move(*Files);
+			Snapshot->Sources = std::move(*Collected);
 			Snapshot->Key = ComputeMaterialShaderSourceKey(Dependencies);
 			Results->emplace(Path, std::move(Snapshot));
 		}
@@ -529,9 +280,36 @@ void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 	Entry.Status.Diagnostics = "Compiling material shader";
 	const auto Token = Entry.ActiveStop.get_token();
 	const auto Snapshot = Entry.Desired;
-	const auto Work = Tasks.Submit(*Scope, {.Name = "Compile material shader", .Lane = ETaskLane::BlockingIo}, [Result, Snapshot, Worker = WorkerPath, RootCount = Roots.size(), Token](FTaskContext& Context)
+	const auto Work = Tasks.Submit(*Scope, {.Name = "Compile material shader", .Lane = ETaskLane::BlockingIo}, [Result, Snapshot, Worker = WorkerPath, Token](FTaskContext& Context)
 	{
-		*Result = CompileSnapshot(Worker, Snapshot->Files, Snapshot->Root, Snapshot->Source, RootCount, Snapshot->Key, Token, Context.GetCancellationToken());
+		const FCancellationToken ScopeToken = Context.GetCancellationToken();
+		// The editor's live material pipelines replace the cooked ones, so they carry source for profilers too.
+		auto Stages = CompileMaterialShader(Worker, Snapshot->Sources, Snapshot->Key, true, [Token, ScopeToken]()
+		{
+			return Token.stop_requested() || ScopeToken.IsCancellationRequested();
+		});
+
+		if (!Stages)
+		{
+			*Result = std::unexpected(FShaderError{Stages.error().Message});
+			return;
+		}
+
+		FCompiledMaterialShader Compiled;
+		const std::array<FShaderAsset*, 3> Outputs{&Compiled.Vertex, &Compiled.Instanced, &Compiled.Fragment};
+		for (std::size_t Index = 0; Index < Outputs.size(); ++Index)
+		{
+			auto Shader = DeserializeCookedShader((*Stages)[Index]);
+			if (!Shader)
+			{
+				*Result = std::unexpected(Shader.error());
+				return;
+			}
+
+			*Outputs[Index] = std::move(*Shader);
+		}
+
+		*Result = std::move(Compiled);
 	});
 
 	const auto Published = Work ? Tasks.ContinueOnMainThread(*Scope, *Work, "Publish material shader pipeline", [this, Path, Result, Key = Snapshot->Key, Generation = Entry.Status.Generation](FTaskContext& Context)

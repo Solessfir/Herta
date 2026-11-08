@@ -140,6 +140,16 @@ bool InRange(const float Value, const float Minimum, const float Maximum)
 }
 }
 
+std::string GetMountedMaterialShaderPath(const FMaterialAsset& Material, const std::string_view Name)
+{
+	if (Material.ShaderPath.empty() || Material.ShaderPath.starts_with("Engine/") || Material.ShaderPath.starts_with("Game/"))
+	{
+		return Material.ShaderPath;
+	}
+
+	return std::string(Name.starts_with("Engine/") ? "Engine/" : "Game/") + Material.ShaderPath;
+}
+
 std::expected<void, FAssetError> ValidateMaterialParameters(const FMaterialParameters& Parameters)
 {
 	if (!std::ranges::all_of(Parameters.BaseColor, [](const float Value)

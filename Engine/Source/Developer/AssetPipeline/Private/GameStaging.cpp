@@ -3,6 +3,7 @@
 #include "FileUtilities.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
+#include "Herta/AssetPipeline/MaterialShaderCompiler.h"
 #include "Herta/Assets/CookedContent.h"
 #include "Herta/Level/LevelSerialization.h"
 #include "Herta/Project/Project.h"
@@ -66,6 +67,48 @@ using FStagedKey = std::pair<FAssetId, std::optional<ETextureColorSpace>>;
 	}
 
 	return WriteFileAtomically(OutputRoot / StageMarker, {});
+}
+
+// Custom material shaders ship precompiled, so the game needs neither the shader compiler nor the Material Graph. Release builds drop debug info.
+[[nodiscard]] std::expected<std::uint64_t, FAssetError> StageMaterialShader(const FGameStageRequest& Request, const std::array<FMount, 2>& Mounts, const std::string& MountedPath)
+{
+	const std::array Roots{Request.EngineShaderRoot, Mounts[0].SourceRoot, Mounts[1].SourceRoot};
+	const auto Sources = CollectMaterialShaderSources(Roots, MountedPath);
+	if (!Sources)
+	{
+		return std::unexpected(Sources.error());
+	}
+
+	std::vector<std::byte> Identity;
+	for (const FShaderSourceFile& File : Sources->Files)
+	{
+		const auto Path = std::as_bytes(std::span(File.Path));
+		Identity.insert(Identity.end(), Path.begin(), Path.end());
+		Identity.insert(Identity.end(), File.Bytes.begin(), File.Bytes.end());
+	}
+
+	std::filesystem::path Worker = Request.WorkerPath;
+	Worker.replace_filename(Request.WorkerPath.has_extension() ? "HertaShaderWorker" + PathToUtf8(Request.WorkerPath.extension()) : "HertaShaderWorker");
+	const auto Stages = CompileMaterialShader(Worker, *Sources, HashBytes(Identity), false, {});
+	if (!Stages)
+	{
+		return std::unexpected(Stages.error());
+	}
+
+	const FMount& Mount = MountedPath.starts_with("Engine/") ? Mounts[0] : Mounts[1];
+	const std::string_view Relative = std::string_view(MountedPath).substr(MountedPath.find('/') + 1);
+	std::uint64_t Bytes = 0;
+	for (std::size_t Stage = 0; Stage < Stages->size(); ++Stage)
+	{
+		if (auto Written = WriteFileAtomically(GetStagedMaterialShaderPath(Mount.StagedRoot, Relative, MaterialShaderStageNames[Stage]), (*Stages)[Stage]); !Written)
+		{
+			return std::unexpected(Written.error());
+		}
+
+		Bytes += (*Stages)[Stage].size();
+	}
+
+	return Bytes;
 }
 
 [[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> ReadSource(const std::filesystem::path& Path)
@@ -175,6 +218,7 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 
 	FGameStageResult Result{.ProjectPath = StagedProjectPath};
 	std::set<FStagedKey> Staged;
+	std::set<std::string> StagedShaders;
 	while (!Pending.empty())
 	{
 		const FStagedKey Key = Pending.extract(Pending.begin()).value();
@@ -215,10 +259,16 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 
 		if (const auto* const Material = std::get_if<FMaterialAsset>(&*Asset))
 		{
-			// ponytail: custom material shaders are compiled by the editor only; stage their cooked shaders when a shipped project uses one.
-			if (!Material->ShaderPath.empty())
+			if (std::string Shader = GetMountedMaterialShaderPath(*Material, Material->Name); !Shader.empty() && !StagedShaders.contains(Shader))
 			{
-				return StageError(std::format("Material {} uses a custom shader, which staged builds do not support yet", Location->second.Record.SourcePath));
+				const auto Bytes = StageMaterialShader(Request, Mounts, Shader);
+				if (!Bytes)
+				{
+					return StageError(std::format("Cannot compile the shader of {}: {}", Location->second.Record.SourcePath, Bytes.error().Message));
+				}
+
+				Result.Bytes += *Bytes;
+				StagedShaders.insert(std::move(Shader));
 			}
 
 			for (const FMaterialTextureBinding& Binding : Material->Textures)

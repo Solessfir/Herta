@@ -311,10 +311,16 @@ HertaRuntimeModule("GameFramework", {
     PrivateDependencies = { "Tasks" }
 })
 
+-- The Material Graph schema and its compiler to Slang, run by the editor, headless commands, and tests; game targets load cooked shaders instead.
+HertaRuntimeModule("MaterialGraph", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/MaterialGraph"),
+    PublicDependencies = { "GraphCore" }
+})
+
 HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
     PublicDependencies = { "Core", "Assets", "EditorCore" },
-    PrivateDependencies = { "Platform", "Level", "Project", "Math" },
+    PrivateDependencies = { "Platform", "Level", "Project", "Math", "GraphCore", "MaterialGraph" },
     PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer" }
 })
     externalincludedirs {
@@ -323,12 +329,6 @@ HertaRuntimeModule("AssetPipeline", {
         path.join(RepositoryRoot, "External/meshoptimizer/src"),
         path.join(RepositoryRoot, "External/stb")
     }
-
--- The Material Graph schema and its compiler to Slang, run by the editor, headless commands, and tests; game targets load cooked shaders instead.
-HertaRuntimeModule("MaterialGraph", {
-    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/MaterialGraph"),
-    PublicDependencies = { "GraphCore" }
-})
 
 -- The first-party node canvas: drawing and editing any schema's graph, with storage, undo, and semantics left to each domain's panel.
 HertaEditorModule("GraphEditor", {
@@ -514,7 +514,7 @@ project "HertaEditorCmd"
     location(path.join(ProjectFilesRoot, "HertaEditorCmd"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditorCmd"))
     ApplyRuntimeDependencies { "EditorCore", "Level", "Project", "AssetPipeline", "Platform" }
-    dependson { "HertaAssetWorker" }
+    dependson { "HertaAssetWorker", "HertaShaderWorker" }
 
 project "HertaGame"
     kind "ConsoleApp"

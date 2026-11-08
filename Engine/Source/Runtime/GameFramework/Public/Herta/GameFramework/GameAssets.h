@@ -8,7 +8,9 @@
 #include <expected>
 #include <map>
 #include <memory>
+#include <set>
 #include <span>
+#include <string>
 
 namespace Herta
 {
@@ -43,6 +45,8 @@ public:
 	[[nodiscard]] const FRenderMesh* FindMesh(const FAssetId& Asset) const override;
 	[[nodiscard]] const FRenderMaterial* FindMaterial(const FAssetId& Asset) const override;
 	[[nodiscard]] std::shared_ptr<const FCookedTexture> FindEnvironment(const FAssetId& Asset) const override;
+	// Mounted paths of the custom shaders the loaded materials draw with.
+	std::set<std::string> GetMaterialShaders() const;
 
 private:
 	FStagedGameAssets() = default;

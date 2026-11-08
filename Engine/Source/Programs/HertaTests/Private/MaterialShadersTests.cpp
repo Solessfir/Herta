@@ -1,3 +1,5 @@
+#include "Herta/AssetPipeline/MaterialShaderCompiler.h"
+#include "Herta/Assets/CookedContent.h"
 #include "Herta/Core/Log.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Tasks/TaskSystem.h"
@@ -256,5 +258,28 @@ TEST_CASE("Material shader publication rejects mismatched visual uniforms before
 	Fragment.Bindings.clear();
 	CHECK_FALSE(Fixture.Renderer->PublishMaterialShader(Fixture.Paths[0], Vertex, Instanced, Fragment));
 	CHECK(Fixture.Draw() == GoodPipeline);
+}
+
+TEST_CASE("Material Graphs compile headless to the shaders a staged game loads")
+{
+	const auto ShaderRoot = FindShaderRoot();
+	REQUIRE_FALSE(ShaderRoot.empty());
+	const std::filesystem::path Repository = ShaderRoot.parent_path().parent_path();
+	const std::array<std::filesystem::path, 3> Roots{ShaderRoot, Repository / "Engine/Content", Repository / "Games/Sandbox/Content"};
+
+	const auto Sources = CollectMaterialShaderSources(Roots, "Game/Playground/Materials/GraphStripes.hmatgraph");
+	REQUIRE(Sources);
+	CHECK(Sources->Root == 2);
+	CHECK(Sources->Source == "Playground/Materials/GraphStripes.hmatgraph.slang");
+
+	const auto Stages = CompileMaterialShader(Tests::GetSiblingExecutable("HertaShaderWorker"), *Sources, HashBytes({}), false, {});
+	REQUIRE(Stages);
+	for (const std::vector<std::byte>& Stage : *Stages)
+	{
+		CHECK(DeserializeCookedShader(Stage));
+	}
+
+	CHECK(GetStagedMaterialShaderPath("Content", "Playground/Materials/GraphStripes.hmatgraph", MaterialShaderStageNames[2]) == std::filesystem::path("Content/Shaders/Playground/Materials/GraphStripes.hmatgraph.frag.hshader"));
+	CHECK_FALSE(CollectMaterialShaderSources(Roots, "Game/Playground/Materials/Missing.hmatgraph"));
 }
 }

@@ -13,10 +13,7 @@ std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> FRende
 
 	auto Result = std::make_shared<FRenderMaterial>();
 	Result->Parameters = Material.Parameters;
-	if (!Material.ShaderPath.empty())
-	{
-		Result->ShaderKey = Material.ShaderPath.starts_with("Engine/") || Material.ShaderPath.starts_with("Game/") ? Material.ShaderPath : std::format("{}/{}", Name.starts_with("Engine/") ? "Engine" : "Game", Material.ShaderPath);
-	}
+	Result->ShaderKey = GetMountedMaterialShaderPath(Material, Name);
 
 	for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
 	{

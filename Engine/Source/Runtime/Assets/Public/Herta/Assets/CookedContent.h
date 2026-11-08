@@ -4,16 +4,23 @@
 #include "Herta/Assets/AssetRegistry.h"
 #include "Herta/Assets/CookedAsset.h"
 
+#include <array>
 #include <expected>
 #include <filesystem>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace Herta
 {
 // A staged build keeps one cooked asset per file, named by asset ID. Textures are staged once per color space they are sampled in, because their mips are filtered in that space.
 [[nodiscard]] std::filesystem::path GetStagedAssetPath(const std::filesystem::path& MountRoot, const FAssetId& Asset, std::optional<ETextureColorSpace> ColorSpace = std::nullopt);
+
+// The vertex, instanced vertex, and fragment stages every material shader provides, in that order.
+inline constexpr std::array<std::string_view, 3> MaterialShaderStageNames{"vert", "instanced.vert", "frag"};
+// A custom material shader is staged precompiled under its mount, by its mount-relative path, so the game never needs the compiler or the graph.
+[[nodiscard]] std::filesystem::path GetStagedMaterialShaderPath(const std::filesystem::path& MountRoot, std::string_view RelativePath, std::string_view Stage);
 
 // Directory-backed mounts searched in order. Loading only reads staged files; it never imports or cooks.
 class FCookedContent final

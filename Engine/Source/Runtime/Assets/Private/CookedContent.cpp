@@ -20,6 +20,14 @@ std::filesystem::path GetStagedAssetPath(const std::filesystem::path& MountRoot,
 	return MountRoot / (Asset.ToString() + std::string(Suffix));
 }
 
+std::filesystem::path GetStagedMaterialShaderPath(const std::filesystem::path& MountRoot, const std::string_view RelativePath, const std::string_view Stage)
+{
+	const std::u8string Relative(RelativePath.begin(), RelativePath.end());
+	std::filesystem::path Path = MountRoot / "Shaders" / std::filesystem::path(Relative);
+	Path += std::format(".{}.hshader", Stage);
+	return Path;
+}
+
 FCookedContent::FCookedContent(std::vector<std::filesystem::path> InMountRoots)
     : MountRoots(std::move(InMountRoots))
 {

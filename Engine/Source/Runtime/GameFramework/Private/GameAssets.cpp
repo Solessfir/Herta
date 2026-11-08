@@ -114,6 +114,20 @@ const FRenderMaterial* FStagedGameAssets::FindMaterial(const FAssetId& Asset) co
 	return Found != Materials.end() ? Found->second.get() : nullptr;
 }
 
+std::set<std::string> FStagedGameAssets::GetMaterialShaders() const
+{
+	std::set<std::string> Result;
+	for (const auto& [Asset, Material] : Materials)
+	{
+		if (!Material->GetShaderKey().empty())
+		{
+			Result.emplace(Material->GetShaderKey());
+		}
+	}
+
+	return Result;
+}
+
 std::shared_ptr<const FCookedTexture> FStagedGameAssets::FindEnvironment(const FAssetId& Asset) const
 {
 	const auto Found = Environments.find(Asset);
