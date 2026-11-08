@@ -151,6 +151,21 @@ std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(
 	return Result;
 }
 
+FHash128 HashMaterialShaderSources(const FMaterialShaderSources& Sources)
+{
+	std::vector<std::byte> Identity;
+	for (const FShaderSourceFile& File : Sources.Files)
+	{
+		const auto Path = std::as_bytes(std::span(File.Path));
+		Identity.push_back(static_cast<std::byte>(File.Root));
+		Identity.insert(Identity.end(), Path.begin(), Path.end());
+		Identity.push_back(std::byte{0});
+		Identity.insert(Identity.end(), File.Bytes.begin(), File.Bytes.end());
+	}
+
+	return HashBytes(Identity);
+}
+
 std::expected<std::array<std::vector<std::byte>, 3>, FAssetError> CompileMaterialShader(const std::filesystem::path& Worker, const FMaterialShaderSources& Sources, const FHash128& Key, const bool bDebug, const std::function<bool()>& ShouldCancel)
 {
 	FShaderScratch Scratch;

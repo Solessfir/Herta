@@ -456,7 +456,17 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			return 1;
 		}
 
-		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, visual authoring, resize, and frame retirement checks passed");
+		const std::filesystem::path Repository = FindRepositoryRoot(ExecutablePath);
+		std::filesystem::path ShaderWorker = ExecutablePath;
+		ShaderWorker.replace_filename(ExecutablePath.has_extension() ? "HertaShaderWorker.exe" : "HertaShaderWorker");
+		Test = CheckMaterialGraphParity(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *InstancedVertexShader, VisualShaders, ShaderWorker, Repository / "Engine/Shaders", Repository / "TestResults/RendererSmoke/Game");
+		if (!Test || Presentation->HasValidationErrors())
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Material Graph parity regression failed: {}", Test ? "Validation reported an error" : Test.error().Message);
+			return 1;
+		}
+
+		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, visual authoring, Material Graph parity, resize, and frame retirement checks passed");
 	}
 
 	const FVisualShaderSet ThumbnailVisualShaders = VisualShaders;

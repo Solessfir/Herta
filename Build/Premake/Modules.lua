@@ -552,8 +552,8 @@ project "HertaEditor"
     location(path.join(ProjectFilesRoot, "HertaEditor"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditor"))
     debugdir(RepositoryRoot)
-    ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project" }
-    dependson { "HertaShaders", "HertaAssetWorker" }
+    ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "AssetPipeline", "GraphCore", "MaterialGraph" }
+    dependson { "HertaShaders", "HertaAssetWorker", "HertaShaderWorker" }
     externalincludedirs { path.join(RepositoryRoot, "External/stb") }
 
     files {

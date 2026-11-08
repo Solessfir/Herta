@@ -1,5 +1,7 @@
 #include "RendererSmoke.h"
 
+#include "Herta/AssetPipeline/MaterialShaderCompiler.h"
+#include "Herta/MaterialGraph/MaterialGraph.h"
 #include "Herta/Math/Matrix.h"
 #include "Herta/Renderer/EnvironmentLighting.h"
 #include "Herta/Renderer/Visuals.h"
@@ -10,6 +12,7 @@
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <fstream>
 #include <limits>
 #include <memory>
 #include <numbers>
@@ -1769,6 +1772,182 @@ namespace
 
 	return {};
 }
+}
+
+std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& VisualShaders, const std::filesystem::path& ShaderWorker, const std::filesystem::path& EngineShaderRoot, const std::filesystem::path& ScratchRoot)
+{
+	constexpr std::array<float, 4> Tint{0.8f, 0.45f, 0.2f, 1.f};
+	constexpr float Metallic = 0.3f;
+	constexpr float Roughness = 0.4f;
+
+	// Base color texture times a tint, with constant metallic and roughness: what the engine material computes from its parameters.
+	FGraph Graph{.Domain = std::string(MaterialGraphDomain), .DomainVersion = MaterialGraphVersion};
+	const auto Add = [&Graph](const std::string_view Type, std::optional<FGraphValue> Value = {})
+	{
+		auto Node = MakeGraphNode(GetMaterialGraphSchema(), Type, NextGraphNodeId(Graph), {});
+		if (Node && Value)
+		{
+			Node->Properties.front().Value = std::move(*Value);
+		}
+
+		const FGraphNodeId Id = Node ? Node->Id : FGraphNodeId{};
+		if (Node)
+		{
+			Graph.Nodes.push_back(std::move(*Node));
+		}
+
+		return Id;
+	};
+
+	const auto Link = [&Graph](const FGraphNodeId From, const std::string_view FromPin, const FGraphNodeId To, const std::string_view ToPin)
+	{
+		Graph.Links.push_back({.From = {.Node = From, .Key = std::string(FromPin)}, .To = {.Node = To, .Key = std::string(ToPin)}});
+	};
+
+	const FGraphNodeId Texture = Add("TextureSample");
+	const FGraphNodeId Color = Add("Vector", Tint);
+	const FGraphNodeId Tinted = Add("Multiply");
+	const FGraphNodeId MetallicValue = Add("Constant", Metallic);
+	const FGraphNodeId RoughnessValue = Add("Constant", Roughness);
+	const FGraphNodeId Output = Add("MaterialOutput");
+	Link(Texture, "RGB", Tinted, "A");
+	Link(Color, "RGB", Tinted, "B");
+	Link(Tinted, "Result", Output, "BaseColor");
+	Link(MetallicValue, "Value", Output, "Metallic");
+	Link(RoughnessValue, "Value", Output, "Roughness");
+
+	const auto Text = SerializeGraph(Graph, GetMaterialGraphSchema());
+	if (!Text)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Material Graph parity graph is invalid: " + Text.error().Message});
+	}
+
+	std::error_code Error;
+	std::filesystem::create_directories(ScratchRoot, Error);
+	{
+		std::ofstream Stream(ScratchRoot / "Parity.hmatgraph", std::ios::binary | std::ios::trunc);
+		Stream << *Text;
+		if (!Stream)
+		{
+			return Failure("Cannot write the Material Graph parity graph");
+		}
+	}
+
+	const std::array<std::filesystem::path, 3> Roots{EngineShaderRoot, {}, ScratchRoot};
+	const auto Sources = CollectMaterialShaderSources(Roots, "Game/Parity.hmatgraph");
+	const auto Stages = Sources ? CompileMaterialShader(ShaderWorker, *Sources, HashMaterialShaderSources(*Sources), false, {}) : std::unexpected(Sources.error());
+	if (!Stages)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Material Graph parity shader did not compile: " + Stages.error().Message});
+	}
+
+	std::array<FShaderAsset, 3> Shaders;
+	for (std::size_t Stage = 0; Stage < Shaders.size(); ++Stage)
+	{
+		auto Shader = DeserializeCookedShader((*Stages)[Stage]);
+		if (!Shader)
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = Shader.error().Message});
+		}
+
+		Shaders[Stage] = std::move(*Shader);
+	}
+
+	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, VisualShaders);
+	const auto Cube = CreateSmokeCube(Device);
+	if (!Renderer || !Cube)
+	{
+		return std::unexpected(!Renderer ? Renderer.error() : Cube.error());
+	}
+
+	if (auto Published = (*Renderer)->PublishMaterialShader("Game/Parity.hmatgraph", std::move(Shaders[0]), std::move(Shaders[1]), std::move(Shaders[2])); !Published)
+	{
+		return Published;
+	}
+
+	// A 2x2 texture, so a wrong UV or channel shows as well as a wrong tint.
+	constexpr std::array<std::uint8_t, 16> Texels{255, 255, 255, 255, 40, 200, 90, 255, 200, 60, 220, 255, 120, 120, 30, 255};
+	std::vector<std::byte> Pixels;
+	for (const std::uint8_t Value : Texels)
+	{
+		Pixels.push_back(std::byte{Value});
+	}
+
+	FMaterialAsset Hand{.Name = "Parity hand-written"};
+	Hand.Parameters.BaseColor = Tint;
+	Hand.Parameters.Metallic = Metallic;
+	Hand.Parameters.Roughness = Roughness;
+	Hand.Textures[0].Texture = FAssetId::Generate();
+	FMaterialAsset Graphed = Hand;
+	Graphed.Name = "Parity graph";
+	// Default parameters, so a graph material drawn by the engine shader instead of its own would not match.
+	Graphed.Parameters = {};
+	Graphed.ShaderPath = "Game/Parity.hmatgraph";
+
+	std::array<std::optional<FCookedTexture>, MaterialTextureSlotCount> Textures;
+	// The 1x1 level only has to exist: the cube's texture coordinates never minify this far.
+	Textures[0] = FCookedTexture{.ColorSpace = ETextureColorSpace::Srgb, .Mips = {{.Width = 2, .Height = 2, .Pixels = Pixels}, {.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(4, std::byte{128})}}};
+	const auto HandMaterial = FRenderMaterial::Create(Device, Hand, Textures, Hand.Name);
+	const auto GraphMaterial = FRenderMaterial::Create(Device, Graphed, Textures, Graphed.Name);
+	if (!HandMaterial || !GraphMaterial)
+	{
+		return std::unexpected(!HandMaterial ? HandMaterial.error() : GraphMaterial.error());
+	}
+
+	// Custom shaders skip the depth prepass for now, so the screen-space effects it feeds stay off on both sides.
+	constexpr FExtent2D Extent{96, 96};
+	const FMatrix4 Model = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, 0.5f)) * FMatrix4::Rotation(FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, 0.7f));
+	const FRenderMesh* const Mesh = Cube->get();
+	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 3000.f, .bCastShadows = false, .Range = 40.f}, .Transform = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, 0.7f))}};
+	const auto Capture = [&](const FRenderMaterial* const Material) -> std::expected<std::vector<std::byte>, FPresentationError>
+	{
+		const std::array<const FRenderMaterial*, 1> Slots{Material};
+		const std::array<std::span<const FRenderMaterial* const>, 1> Overrides{Slots};
+		FMeshRenderView View{
+		    .View = FMatrix4::Translation({0.f, 0.f, 2.2f}),
+		    .Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.f, 1.f, 0.1f),
+		    .Models = std::span{&Model, 1},
+		    .Meshes = std::span{&Mesh, 1},
+		    .Materials = Overrides,
+		    .Lights = Lights,
+		    .Visuals = {.ExposureEV100 = 9.f, .AntiAliasing = EAntiAliasing::Off, .AmbientOcclusion = EAmbientOcclusion::Off, .bContactShadows = false},
+		};
+		View.Visuals.bStudioPreview = false;
+		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+		{
+			return std::unexpected(Rendered.error());
+		}
+
+		return Device.ReadbackTexture((*Renderer)->GetColorTarget());
+	};
+
+	const auto Reference = Capture(HandMaterial->get());
+	const auto Generated = Capture(GraphMaterial->get());
+	if (!Reference || !Generated)
+	{
+		return std::unexpected(!Reference ? Reference.error() : Generated.error());
+	}
+
+	if (Reference->size() != Generated->size() || Reference->size() != std::size_t{Extent.Width} * Extent.Height * 4)
+	{
+		return Failure("Material Graph parity readback has an incorrect byte count");
+	}
+
+	int Largest = 0;
+	std::size_t Lit = 0;
+	for (std::size_t Index = 0; Index < Reference->size(); ++Index)
+	{
+		Largest = std::max(Largest, std::abs(std::to_integer<int>((*Reference)[Index]) - std::to_integer<int>((*Generated)[Index])));
+		Lit += Index % 4 != 3 && std::to_integer<int>((*Reference)[Index]) > 8 ? 1 : 0;
+	}
+
+	std::println("Material Graph parity: largest channel difference {} over {} lit channels", Largest, Lit);
+	if (Lit < Reference->size() / 8)
+	{
+		return Failure("Material Graph parity rendered too little of the cube to compare");
+	}
+
+	return Largest <= 1 ? std::expected<void, FPresentationError>{} : Failure("A Material Graph rebuilding the engine material rendered different pixels");
 }
 
 std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& VisualShaders)

@@ -79,17 +79,9 @@ using FStagedKey = std::pair<FAssetId, std::optional<ETextureColorSpace>>;
 		return std::unexpected(Sources.error());
 	}
 
-	std::vector<std::byte> Identity;
-	for (const FShaderSourceFile& File : Sources->Files)
-	{
-		const auto Path = std::as_bytes(std::span(File.Path));
-		Identity.insert(Identity.end(), Path.begin(), Path.end());
-		Identity.insert(Identity.end(), File.Bytes.begin(), File.Bytes.end());
-	}
-
 	std::filesystem::path Worker = Request.WorkerPath;
 	Worker.replace_filename(Request.WorkerPath.has_extension() ? "HertaShaderWorker" + PathToUtf8(Request.WorkerPath.extension()) : "HertaShaderWorker");
-	const auto Stages = CompileMaterialShader(Worker, *Sources, HashBytes(Identity), false, {});
+	const auto Stages = CompileMaterialShader(Worker, *Sources, HashMaterialShaderSources(*Sources), false, {});
 	if (!Stages)
 	{
 		return std::unexpected(Stages.error());

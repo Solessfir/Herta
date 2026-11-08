@@ -29,6 +29,9 @@ struct FMaterialShaderSources
 // beside the graph, so the worker builds it exactly like a hand-written shader. Roots are the engine shaders, Engine content, and Game content.
 [[nodiscard]] std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(std::span<const std::filesystem::path> Roots, std::string_view MountedPath);
 
+// Identifies the sources by every file's path and bytes.
+[[nodiscard]] FHash128 HashMaterialShaderSources(const FMaterialShaderSources& Sources);
+
 // Compiles the vertex, instanced vertex, and fragment stages in HertaShaderWorker from a private snapshot of the sources, returning each cooked shader file
 // in MaterialShaderStageNames order. Key names the snapshot so debug info, and with it the driver's pipeline cache, stays stable across runs.
 [[nodiscard]] std::expected<std::array<std::vector<std::byte>, 3>, FAssetError> CompileMaterialShader(const std::filesystem::path& Worker, const FMaterialShaderSources& Sources, const FHash128& Key, bool bDebug, const std::function<bool()>& ShouldCancel);

@@ -4,6 +4,8 @@
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/AssetPipeline/GameStaging.h"
+#include "Herta/AssetPipeline/MaterialShaderCompiler.h"
+#include "Herta/Assets/CookedContent.h"
 
 #include <format>
 #include <optional>
@@ -257,6 +259,64 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			}
 
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::move(*Cooked)};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "material.compile",
+		    .Description = "Compile a material shader or Material Graph to the cooked shader stages a staged game loads",
+		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			std::expected<FParsedArguments, FEditorCommandError> Parsed = ParseArguments(Arguments, Options, false);
+			if (!Parsed)
+			{
+				return std::unexpected(std::move(Parsed.error()));
+			}
+
+			const auto Usage = "material.compile <Game/... or Engine/... shader> <output-directory> [--content-root <path>]";
+			if (Parsed->Positional.size() != 2 || !(Parsed->Positional[0].starts_with("Game/") || Parsed->Positional[0].starts_with("Engine/")))
+			{
+				return UsageError(Usage);
+			}
+
+			const std::string Shader(Parsed->Positional[0]);
+			if (!IsValidAssetPath(Shader))
+			{
+				return UsageError(Usage);
+			}
+
+			const std::array Roots{Options.EngineContentRoot.parent_path() / "Shaders", Options.EngineContentRoot, Parsed->ContentRoot};
+			const auto Sources = CollectMaterialShaderSources(Roots, Shader);
+			if (!Sources)
+			{
+				return ExecutionError(Sources.error());
+			}
+
+			std::filesystem::path Worker = Options.WorkerPath;
+			Worker.replace_filename(Options.WorkerPath.has_extension() ? "HertaShaderWorker" + PathToUtf8(Options.WorkerPath.extension()) : "HertaShaderWorker");
+			const auto Stages = CompileMaterialShader(Worker, *Sources, HashMaterialShaderSources(*Sources), false, {});
+			if (!Stages)
+			{
+				return ExecutionError(Stages.error());
+			}
+
+			const std::filesystem::path Output = Utf8ToPath(Parsed->Positional[1]);
+			const std::string_view Relative = std::string_view(Shader).substr(Shader.find('/') + 1);
+			std::string Message = std::format("Compiled {}", Shader);
+			for (std::size_t Stage = 0; Stage < Stages->size(); ++Stage)
+			{
+				const std::filesystem::path Path = GetStagedMaterialShaderPath(Output, Relative, MaterialShaderStageNames[Stage]);
+				if (auto Written = WriteFileAtomically(Path, (*Stages)[Stage]); !Written)
+				{
+					return ExecutionError(Written.error());
+				}
+
+				Message += std::format("\n{} ({} bytes)", GenericPathToUtf8(Path), (*Stages)[Stage].size());
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::move(Message)};
 		}});
 	}
 
