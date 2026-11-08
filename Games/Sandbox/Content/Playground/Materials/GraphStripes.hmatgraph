@@ -15,12 +15,13 @@
     },
     {
       "id": 2,
-      "type": "Constant",
+      "type": "ScalarParameter",
       "position": [
         -900,
         60
       ],
       "properties": {
+        "name": "Frequency",
         "value": 8
       }
     },
@@ -102,12 +103,13 @@
     },
     {
       "id": 11,
-      "type": "Vector",
+      "type": "VectorParameter",
       "position": [
         340,
         -260
       ],
       "properties": {
+        "name": "ColorA",
         "value": [
           0.85,
           0.42,
@@ -118,12 +120,13 @@
     },
     {
       "id": 12,
-      "type": "Vector",
+      "type": "VectorParameter",
       "position": [
         340,
         200
       ],
       "properties": {
+        "name": "ColorB",
         "value": [
           0.08,
           0.22,
@@ -143,23 +146,25 @@
     },
     {
       "id": 14,
-      "type": "Constant",
+      "type": "ScalarParameter",
       "position": [
         600,
         60
       ],
       "properties": {
+        "name": "RoughnessA",
         "value": 0.2
       }
     },
     {
       "id": 15,
-      "type": "Constant",
+      "type": "ScalarParameter",
       "position": [
         600,
         160
       ],
       "properties": {
+        "name": "RoughnessB",
         "value": 0.75
       }
     },
@@ -189,6 +194,18 @@
         152
       ],
       "properties": {}
+    },
+    {
+      "id": 20,
+      "type": "ScalarParameter",
+      "position": [
+        780,
+        140
+      ],
+      "properties": {
+        "name": "Metallic",
+        "value": 0
+      }
     }
   ],
   "links": [
@@ -370,6 +387,16 @@
       "to": [
         17,
         "Roughness"
+      ]
+    },
+    {
+      "from": [
+        20,
+        "Value"
+      ],
+      "to": [
+        17,
+        "Metallic"
       ]
     }
   ],

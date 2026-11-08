@@ -1,0 +1,110 @@
+{
+  "format": "HertaMaterial",
+  "version": 3,
+  "name": "GraphStripesGilded",
+  "parameters": {
+    "baseColor": [
+      0.76,
+      0.8,
+      0.84,
+      1
+    ],
+    "metallic": 0,
+    "roughness": 0.3,
+    "normalStrength": 1,
+    "occlusionStrength": 1,
+    "emissive": [
+      0,
+      0,
+      0
+    ],
+    "emissiveIntensity": 1,
+    "uvScale": [
+      1,
+      1
+    ],
+    "uvOffset": [
+      0,
+      0
+    ],
+    "blendMode": "opaque",
+    "alphaCutoff": 0.5,
+    "diffuseRoughness": 0,
+    "specularColor": [
+      1,
+      1,
+      1
+    ]
+  },
+  "textures": {
+    "baseColor": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    },
+    "metallic": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "roughness": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "normal": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "linear"
+    },
+    "occlusion": {
+      "asset": "",
+      "channel": "r",
+      "colorSpace": "linear"
+    },
+    "emissive": {
+      "asset": "",
+      "channel": "rgb",
+      "colorSpace": "srgb"
+    }
+  },
+  "shader": "Game/Playground/Materials/GraphStripes.hmatgraph",
+  "graphParameters": {
+    "ColorA": [
+      1,
+      0.77,
+      0.34,
+      1
+    ],
+    "ColorB": [
+      0.16,
+      0.13,
+      0.11,
+      1
+    ],
+    "Frequency": [
+      4,
+      0,
+      0,
+      0
+    ],
+    "Metallic": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "RoughnessA": [
+      0.22,
+      0,
+      0,
+      0
+    ],
+    "RoughnessB": [
+      0.5,
+      0,
+      0,
+      0
+    ]
+  }
+}
