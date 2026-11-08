@@ -100,10 +100,11 @@ public:
 	[[nodiscard]] static std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> Create(IGraphicsDevice& Device, const FMaterialAsset& Material, const std::array<std::optional<FCookedTexture>, MaterialTextureSlotCount>& Textures, std::string_view Name);
 	const FMaterialParameters& GetParameters() const noexcept;
 	std::string_view GetShaderKey() const noexcept;
-	[[nodiscard]] std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> WithParameters(const FMaterialParameters& Parameters) const;
+	[[nodiscard]] std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> WithParameters(const FMaterialParameters& Parameters, std::span<const FMaterialParameterValue> ParameterValues) const;
 
 private:
 	FMaterialParameters Parameters;
+	std::vector<FMaterialParameterValue> ParameterValues;
 	std::array<EMaterialChannel, MaterialTextureSlotCount> Channels{};
 	std::array<FTextureHandle, MaterialTextureSlotCount> Textures{};
 	std::string ShaderKey;
@@ -178,8 +179,8 @@ public:
 	std::vector<FGpuPassTiming> GetGpuTimings() const;
 	std::size_t GetRenderTargetBytes() const noexcept;
 	[[nodiscard]] std::expected<void, FPresentationError> SetEnvironmentLighting(const FEnvironmentLighting& Lighting);
-	// An empty key replaces the engine material's shading pipelines and keeps its cooked prepass.
-	[[nodiscard]] std::expected<void, FPresentationError> PublishMaterialShader(std::string Key, FMaterialShaderStages Stages);
+	// An empty key replaces the engine material's shading pipelines and keeps its cooked prepass. Parameters are a Material Graph's, in slot order.
+	[[nodiscard]] std::expected<void, FPresentationError> PublishMaterialShader(std::string Key, FMaterialShaderStages Stages, std::vector<FMaterialShaderParameter> Parameters = {});
 	[[nodiscard]] std::expected<void, FPresentationError> ShareMaterialShaders(const FMeshRenderer& Source);
 	std::uint64_t GetMaterialShaderGeneration() const noexcept;
 

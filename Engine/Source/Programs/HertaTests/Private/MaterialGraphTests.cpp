@@ -89,6 +89,41 @@ TEST_CASE("Material graphs compile connected outputs and leave the rest to the m
 	CHECK(Compiled->Source.find("Material.Roughness") == std::string::npos);
 }
 
+TEST_CASE("Material graph parameters take slots in name order and read the visual uniforms")
+{
+	FMaterialGraphBuilder Builder;
+	const FGraphNodeId Tint = Builder.Add("VectorParameter");
+	const FGraphNodeId Rough = Builder.Add("ScalarParameter");
+	const FGraphNodeId Unused = Builder.Add("ScalarParameter");
+	const FGraphNodeId Output = Builder.Add("MaterialOutput");
+	Builder.Set(Tint, "name", std::string("Tint"));
+	Builder.Set(Tint, "value", std::array<float, 4>{0.5f, 0.25f, 1.f, 1.f});
+	Builder.Set(Rough, "name", std::string("Roughness"));
+	Builder.Set(Rough, "value", 0.3f);
+	Builder.Set(Unused, "name", std::string("Glow"));
+	Builder.Link(Tint, "RGB", Output, "BaseColor");
+	Builder.Link(Rough, "Value", Output, "Roughness");
+
+	const auto Compiled = CompileMaterialGraph(Builder.Graph);
+	REQUIRE(Compiled);
+	REQUIRE(Compiled->Parameters.size() == 3);
+	CHECK(Compiled->Parameters[0] == FMaterialShaderParameter{.Name = "Glow", .Default = {0.5f, 0.f, 0.f, 0.f}});
+	CHECK(Compiled->Parameters[1] == FMaterialShaderParameter{.Name = "Roughness", .Default = {0.3f, 0.f, 0.f, 0.f}});
+	CHECK(Compiled->Parameters[2] == FMaterialShaderParameter{.Name = "Tint", .Default = {0.5f, 0.25f, 1.f, 1.f}, .bVector = true});
+	CHECK(Compiled->Source.find("Visual.MaterialParameters[2].xyz") != std::string::npos);
+	CHECK(Compiled->Source.find("Visual.MaterialParameters[1].x") != std::string::npos);
+	CHECK(Compiled->Source.find("MaterialParameters[0]") == std::string::npos);
+
+	Builder.Set(Unused, "name", std::string("Tint"));
+	const auto Duplicate = CompileMaterialGraph(Builder.Graph);
+	REQUIRE_FALSE(Duplicate);
+	CHECK(HasDiagnostic(Duplicate.error(), Unused, "already named"));
+	Builder.Set(Unused, "name", std::string("Not valid"));
+	const auto Invalid = CompileMaterialGraph(Builder.Graph);
+	REQUIRE_FALSE(Invalid);
+	CHECK(HasDiagnostic(Invalid.error(), Unused, "letters, digits"));
+}
+
 TEST_CASE("Material graph reroutes pass their input through unchanged")
 {
 	FMaterialGraphBuilder Direct;

@@ -53,6 +53,8 @@ struct FVisualUniforms
     column_major float4x4 ClipToPreviousClip;
     FShadow Shadows[16];
     FMaterial Material;
+    // Material Graph parameters by slot; see MaterialParameterSlotCount in Material.h.
+    float4 MaterialParameters[8];
 };
 
 [[vk::binding(64, 0)]] ConstantBuffer<FVisualUniforms> Visual;

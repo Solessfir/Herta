@@ -27,6 +27,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <ostream>
@@ -420,7 +421,22 @@ int RunGame(const FGameOptions& Options)
 			Stages[Stage] = std::move(*Loaded);
 		}
 
-		if (auto Published = Renderer->PublishMaterialShader(Shader, std::move(Stages)); !Published)
+		// Hand-written shaders stage an empty table.
+		std::vector<FMaterialShaderParameter> Parameters;
+		if (std::ifstream Table(GetStagedMaterialShaderParametersPath(Mount, Relative), std::ios::binary); Table)
+		{
+			const std::string Text{std::istreambuf_iterator<char>(Table), std::istreambuf_iterator<char>()};
+			auto Parsed = DeserializeMaterialShaderParameters(Text);
+			if (!Parsed)
+			{
+				HERTA_LOG_ERROR(*Log, GameLog, "Could not load the parameters of {}: {}", Shader, Parsed.error().Message);
+				return 1;
+			}
+
+			Parameters = std::move(*Parsed);
+		}
+
+		if (auto Published = Renderer->PublishMaterialShader(Shader, std::move(Stages), std::move(Parameters)); !Published)
 		{
 			HERTA_LOG_ERROR(*Log, GameLog, "Could not create the material shader {}: {}", Shader, Published.error().Message);
 			return 1;

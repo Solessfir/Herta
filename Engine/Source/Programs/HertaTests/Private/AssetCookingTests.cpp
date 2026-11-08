@@ -189,7 +189,8 @@ TEST_CASE("Version 1 materials load with Lambert diffuse and an untinted edge")
 		VersionOne.replace(Position, From.size(), To);
 	};
 
-	Replace("\"version\": 2", "\"version\": 1");
+	Replace("\"version\": 3", "\"version\": 1");
+	Replace(",\n  \"graphParameters\": {}", "");
 	Replace(",\n    \"diffuseRoughness\": 0", "");
 	Replace(",\n    \"specularColor\": [1, 1, 1]", "");
 	const auto Loaded = DeserializeMaterial(VersionOne);
@@ -201,12 +202,73 @@ TEST_CASE("Version 1 materials load with Lambert diffuse and an untinted edge")
 	Missing.erase(Missing.find(",\n    \"diffuseRoughness\": 0"), std::string_view(",\n    \"diffuseRoughness\": 0").size());
 	CHECK_FALSE(DeserializeMaterial(Missing));
 	std::string Mixed = *Current;
-	Mixed.replace(Mixed.find("\"version\": 2"), 12, "\"version\": 1");
+	Mixed.replace(Mixed.find("\"version\": 3"), 12, "\"version\": 1");
 	CHECK_FALSE(DeserializeMaterial(Mixed));
 
 	FMaterialAsset Tinted;
 	Tinted.Parameters.SpecularColor[1] = 1.5f;
 	CHECK_FALSE(SerializeMaterial(Tinted));
+}
+
+TEST_CASE("Material graph parameter values round-trip by name and resolve against a shader's parameters")
+{
+	FMaterialAsset Material{.ShaderPath = "Game/Master.hmatgraph"};
+	Material.ParameterValues = {{.Name = "Roughness", .Value = {0.25f, 0.f, 0.f, 0.f}}, {.Name = "Tint", .Value = {0.2f, 0.4f, 0.6f, 1.f}}};
+	const auto Text = SerializeMaterial(Material);
+	REQUIRE(Text);
+	CHECK(Text->find("\"graphParameters\": {\n    \"Roughness\": [0.25, 0, 0, 0],\n    \"Tint\": [0.2, 0.4, 0.6, 1]\n  }") != std::string::npos);
+	const auto Loaded = DeserializeMaterial(*Text);
+	REQUIRE(Loaded);
+	CHECK(*Loaded == Material);
+
+	// Version 2 files have no parameter values and load without them; version 3 requires the field.
+	std::string VersionTwo = *SerializeMaterial(FMaterialAsset{});
+	VersionTwo.replace(VersionTwo.find("\"version\": 3"), 12, "\"version\": 2");
+	VersionTwo.erase(VersionTwo.find(",\n  \"graphParameters\": {}"), std::string_view(",\n  \"graphParameters\": {}").size());
+	const auto Old = DeserializeMaterial(VersionTwo);
+	REQUIRE(Old);
+	CHECK(Old->ParameterValues.empty());
+	std::string Missing = VersionTwo;
+	Missing.replace(Missing.find("\"version\": 2"), 12, "\"version\": 3");
+	CHECK_FALSE(DeserializeMaterial(Missing));
+
+	FMaterialAsset Unsorted = Material;
+	std::ranges::reverse(Unsorted.ParameterValues);
+	CHECK_FALSE(SerializeMaterial(Unsorted));
+	FMaterialAsset Unnamed = Material;
+	Unnamed.ParameterValues[0].Name = "2Fast";
+	CHECK_FALSE(SerializeMaterial(Unnamed));
+
+	// Slots follow the shader's name order; values for names the shader lacks are ignored, and missing values take the default.
+	const std::array<FMaterialShaderParameter, 3> Parameters{
+	    FMaterialShaderParameter{.Name = "Glow", .Default = {3.f, 0.f, 0.f, 0.f}},
+	    FMaterialShaderParameter{.Name = "Roughness", .Default = {0.5f, 0.f, 0.f, 0.f}},
+	    FMaterialShaderParameter{.Name = "Tint", .Default = {1.f, 1.f, 1.f, 1.f}, .bVector = true},
+	};
+
+	std::vector<FMaterialParameterValue> Values = Material.ParameterValues;
+	Values.insert(Values.begin() + 1, {.Name = "Removed", .Value = {9.f, 9.f, 9.f, 9.f}});
+	FMaterialParameterSlots Slots{};
+	ResolveMaterialParameters(Parameters, Values, Slots);
+	CHECK(Slots[0] == std::array{3.f, 0.f, 0.f, 0.f});
+	CHECK(Slots[1] == std::array{0.25f, 0.f, 0.f, 0.f});
+	CHECK(Slots[2] == std::array{0.2f, 0.4f, 0.6f, 1.f});
+	CHECK(Slots[3] == std::array{0.f, 0.f, 0.f, 0.f});
+	const std::string Table = SerializeMaterialShaderParameters(Parameters);
+	CHECK(Table == "Glow scalar 3 0 0 0\nRoughness scalar 0.5 0 0 0\nTint vector 1 1 1 1\n");
+	const auto Reloaded = DeserializeMaterialShaderParameters(Table);
+	REQUIRE(Reloaded);
+	CHECK(std::ranges::equal(*Reloaded, Parameters));
+	CHECK(DeserializeMaterialShaderParameters("")->empty());
+	CHECK_FALSE(DeserializeMaterialShaderParameters("Tint vector 1 1 1\n"));
+	CHECK_FALSE(DeserializeMaterialShaderParameters("Tint vector 1 1 1 1 1\n"));
+	CHECK_FALSE(DeserializeMaterialShaderParameters("Tint color 1 1 1 1\n"));
+	CHECK_FALSE(DeserializeMaterialShaderParameters("Tint vector 1 1 1 1\nGlow scalar 1 0 0 0\n"));
+	CHECK_FALSE(DeserializeMaterialShaderParameters("Tint vector 1 1 nan 1\n"));
+	CHECK(IsValidMaterialParameterName("Base_Tint2"));
+	CHECK_FALSE(IsValidMaterialParameterName("_Tint"));
+	CHECK_FALSE(IsValidMaterialParameterName("Base Tint"));
+	CHECK_FALSE(IsValidMaterialParameterName(std::string(33, 'A')));
 }
 
 TEST_CASE("Material assets reject invalid fields channels and unsafe shader paths")

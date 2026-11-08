@@ -534,6 +534,8 @@ struct FEditorFramework::FImplementation
 	std::expected<std::string, FAssetError> CreateMaterialGraph(FAssetId Id);
 	void OpenMaterialGraph(FAssetId Id, std::string_view ShaderPath);
 	void OpenMaterialGraphKey(const std::string& Key);
+	// A content file as its mounted path, "Game/..." or "Engine/...", or nothing outside both content roots.
+	std::optional<std::string> MountedContentPath(const std::filesystem::path& File) const;
 	void ResolveGraphPreview();
 	void DrawPerformancePanel();
 	[[nodiscard]] int FindTimeOfDaySun() const;
@@ -603,6 +605,8 @@ struct FEditorFramework::FImplementation
 	FMaterialPanel MaterialPanel;
 	FMaterialGraphPanel MaterialGraphPanel;
 	FAssetId PendingMaterialOpen;
+	// A material asset opened from the command line, by mounted path, until the content scan registers it.
+	std::string PendingMaterialPath;
 	FEditorAssetThumbnail DraftMaterialThumbnail;
 	std::vector<FMaterialTextureOption> MaterialTextureOptions;
 	FOutlinerPanelState OutlinerPanelState;
@@ -993,22 +997,43 @@ FEditorFrameMetrics FEditorFramework::GetFrameMetrics() const noexcept
 	return Metrics;
 }
 
-void FEditorFramework::OpenMaterialGraph(const std::filesystem::path& File)
+std::optional<std::string> FEditorFramework::FImplementation::MountedContentPath(const std::filesystem::path& File) const
 {
 	std::error_code Error;
 	const auto Absolute = std::filesystem::weakly_canonical(File, Error);
-	for (const auto& [Mount, Root] : {std::pair{"Game/", Implementation->AssetPaths.ContentRoot}, std::pair{"Engine/", Implementation->AssetPaths.EngineContentRoot}})
+	for (const auto& [Mount, Root] : {std::pair{"Game/", AssetPaths.ContentRoot}, std::pair{"Engine/", AssetPaths.EngineContentRoot}})
 	{
 		const auto Relative = Absolute.lexically_relative(std::filesystem::weakly_canonical(Root, Error));
 		const std::u8string Text = Relative.generic_u8string();
 		if (!Root.empty() && !Relative.empty() && !Text.starts_with(u8".."))
 		{
-			Implementation->OpenMaterialGraphKey(Mount + std::string(Text.begin(), Text.end()));
-			return;
+			return Mount + std::string(Text.begin(), Text.end());
 		}
 	}
 
+	return std::nullopt;
+}
+
+void FEditorFramework::OpenMaterialGraph(const std::filesystem::path& File)
+{
+	if (const auto Key = Implementation->MountedContentPath(File))
+	{
+		Implementation->OpenMaterialGraphKey(*Key);
+		return;
+	}
+
 	HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "Material Graph {} is outside the project's and the engine's content", File.string());
+}
+
+void FEditorFramework::OpenMaterial(const std::filesystem::path& File)
+{
+	if (auto Label = Implementation->MountedContentPath(File))
+	{
+		Implementation->PendingMaterialPath = std::move(*Label);
+		return;
+	}
+
+	HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "Material {} is outside the project's and the engine's content", File.string());
 }
 
 std::optional<std::string> FEditorFramework::ShowCameraBookmark(const std::uint32_t Slot)
@@ -2688,6 +2713,17 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 		return;
 	}
 
+	// A material named on the command line opens once the content scan lists it.
+	if (!PendingMaterialPath.empty())
+	{
+		const auto Options = Assets->GetOptions();
+		if (const auto Found = std::ranges::find(Options, PendingMaterialPath, &FPreviewAssetOption::Label); Found != Options.end())
+		{
+			ContentBrowserState.OpenMaterialRequested = Found->Id;
+			PendingMaterialPath.clear();
+		}
+	}
+
 	if (const auto Requested = std::exchange(ContentBrowserState.OpenMaterialRequested, FAssetId{}); Requested.IsValid() && !bProjectBusy && !bWaitingForMaterialClose && !bCloseRequested)
 	{
 		PendingMaterialOpen = Requested;
@@ -2717,6 +2753,7 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 	}
 
 	std::string ShaderStatus;
+	std::span<const FMaterialShaderParameter> GraphParameters;
 	if (GetBuildConfiguration() == EBuildConfiguration::Shipping)
 	{
 		ShaderStatus = MaterialPanel.GetDraft().ShaderPath.empty() ? "Shader iteration is unavailable in Shipping." : "Custom shaders are unavailable in Shipping. Using engine PBR.";
@@ -2731,6 +2768,7 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 			ShaderStatus = Status->bCompiling ? "Compiling shader..." : !Status->Diagnostics.empty() ? Status->Diagnostics
 			                                                        : Status->bReady                 ? "Shader ready"
 			                                                                                         : "Waiting for shader";
+			GraphParameters = Status->Parameters;
 		}
 	}
 
@@ -2747,6 +2785,7 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 	    .PreviewStatus = Assets->IsMaterialPreviewLoading() ? "Updating preview..." : Assets->GetMaterialPreviewError(),
 	    .ZoomPreview = ZoomMaterialPreview,
 	    .ShaderStatus = ShaderStatus,
+	    .GraphParameters = GraphParameters,
 	    .Save = [&](const FAssetId Id, const FMaterialAsset& Material)
 	{
 		return Assets->SaveMaterial(Id, Material);

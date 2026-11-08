@@ -757,6 +757,7 @@ struct FMeshRenderer::FImplementation
 		std::array<FGraphicsPipelineHandle, 2> SurfacePrepass;
 		FGraphicsPipelineHandle VelocityPrepass;
 		FGraphicsPipelineHandle VelocitySurfacePrepass;
+		std::vector<FMaterialShaderParameter> Parameters;
 	};
 
 	std::unordered_map<std::string, FMaterialPipelineSet> MaterialPipelines;
@@ -1495,8 +1496,16 @@ std::expected<void, FPresentationError> FMeshRenderer::SetEnvironmentLighting(co
 	return {};
 }
 
-std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std::string Key, FMaterialShaderStages Stages)
+std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std::string Key, FMaterialShaderStages Stages, std::vector<FMaterialShaderParameter> Parameters)
 {
+	for (std::size_t Index = 0; Index < Parameters.size(); ++Index)
+	{
+		if (Parameters.size() > MaterialParameterSlotCount || !IsValidMaterialParameterName(Parameters[Index].Name) || (Index > 0 && Parameters[Index - 1].Name >= Parameters[Index].Name))
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Material shader parameters must be at most eight valid names in sorted order"});
+		}
+	}
+
 	const auto Compatible = [](const FShaderAsset& Shader, const EShaderStage Stage, const std::string_view EntryPoint)
 	{
 		bool bVisualUniforms = false;
@@ -1581,7 +1590,7 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 	const ETextureFormat Format = State.VisualPipelines[0] ? ETextureFormat::Rgba16Float : ETextureFormat::Rgba8Srgb;
 	const bool bDepthPrepass = static_cast<bool>(State.DepthPrepassPipeline);
 	const bool bCustom = !Key.empty();
-	FImplementation::FMaterialPipelineSet Set;
+	FImplementation::FMaterialPipelineSet Set{.Parameters = std::move(Parameters)};
 	std::optional<FPresentationError> Failed;
 	const auto Create = [&](FGraphicsPipelineHandle& Target, const bool bWanted, const FGraphicsPipelineDescriptor& Descriptor)
 	{
@@ -2337,6 +2346,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		const FCookedMaterial& Imported = Mesh.Materials[Section.Material];
 		const FMaterialParameters& Material = Override ? Override->Parameters : Imported.Parameters;
 		State.Uniforms.Material = MakeMaterialUniform(Material, Override ? Override->Channels : Imported.Channels);
+		// Only Material Graph shaders read parameters, so the engine material skips the lookup.
+		if (Override && !Override->ShaderKey.empty())
+		{
+			if (const auto Custom = State.MaterialPipelines.find(Override->ShaderKey); Custom != State.MaterialPipelines.end() && !Custom->second.Parameters.empty())
+			{
+				ResolveMaterialParameters(Custom->second.Parameters, Override->ParameterValues, State.Uniforms.MaterialParameters);
+			}
+		}
 		for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
 		{
 			const FTextureHandle Texture = Override ? Override->Textures[Slot] : Imported.Textures[Slot] != NoCookedTexture ? Mesh.Textures[Imported.Textures[Slot]]

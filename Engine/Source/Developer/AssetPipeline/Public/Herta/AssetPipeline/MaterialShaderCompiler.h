@@ -24,6 +24,8 @@ struct FMaterialShaderSources
 	// What the worker compiles: the shader itself, or the Slang generated from a Material Graph.
 	std::string Source;
 	std::vector<FShaderSourceFile> Files;
+	// A Material Graph's parameters in slot order; hand-written shaders have none.
+	std::vector<FMaterialShaderParameter> Parameters;
 };
 
 // Reads a mounted material shader ("Engine/..." or "Game/...", empty for the engine default) with its includes. A Material Graph compiles to Slang here,

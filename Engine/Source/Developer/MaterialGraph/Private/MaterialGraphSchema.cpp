@@ -91,6 +91,14 @@ constexpr std::array OutputInputs{
 
 const std::array ConstantProperties{FGraphPropertyDescriptor{.Key = "value", .Name = "Value", .Default = 1.f}};
 const std::array VectorProperties{FGraphPropertyDescriptor{.Key = "value", .Name = "Value", .Default = std::array<float, 4>{1.f, 1.f, 1.f, 1.f}}};
+const std::array ScalarParameterProperties{
+    FGraphPropertyDescriptor{.Key = "name", .Name = "Name", .Default = std::string("Scalar")},
+    FGraphPropertyDescriptor{.Key = "value", .Name = "Default", .Default = 0.5f},
+};
+const std::array VectorParameterProperties{
+    FGraphPropertyDescriptor{.Key = "name", .Name = "Name", .Default = std::string("Color")},
+    FGraphPropertyDescriptor{.Key = "value", .Name = "Default", .Default = std::array<float, 4>{1.f, 1.f, 1.f, 1.f}},
+};
 const std::array TextureProperties{FGraphPropertyDescriptor{.Key = "slot", .Name = "Texture Slot", .Default = std::string("baseColor")}};
 
 constexpr FGraphNodeDescriptor Unary(const std::string_view Type, const std::string_view Name)
@@ -106,6 +114,8 @@ constexpr FGraphNodeDescriptor Binary(const std::string_view Type, const std::st
 const std::array MaterialNodes{
     FGraphNodeDescriptor{.Type = "Constant", .Name = "Constant", .Category = "Values", .Outputs = ValueOutput, .Properties = ConstantProperties},
     FGraphNodeDescriptor{.Type = "Vector", .Name = "Vector", .Category = "Values", .Outputs = VectorOutputs, .Properties = VectorProperties},
+    FGraphNodeDescriptor{.Type = "ScalarParameter", .Name = "Scalar Parameter", .Category = "Parameters", .Outputs = ValueOutput, .Properties = ScalarParameterProperties},
+    FGraphNodeDescriptor{.Type = "VectorParameter", .Name = "Vector Parameter", .Category = "Parameters", .Outputs = VectorOutputs, .Properties = VectorParameterProperties},
     FGraphNodeDescriptor{.Type = "TexCoord", .Name = "Texture Coordinate", .Category = "Inputs", .Outputs = UVOutput},
     FGraphNodeDescriptor{.Type = "WorldPosition", .Name = "World Position", .Category = "Inputs", .Outputs = PositionOutput},
     FGraphNodeDescriptor{.Type = "VertexNormal", .Name = "Vertex Normal", .Category = "Inputs", .Outputs = NormalOutput},

@@ -22,6 +22,8 @@ inline constexpr std::array<std::string_view, 8> MaterialShaderStageNames{"vert"
 inline constexpr std::size_t MaterialShaderStageCount = MaterialShaderStageNames.size();
 // A custom material shader is staged precompiled under its mount, by its mount-relative path, so the game never needs the compiler or the graph.
 [[nodiscard]] std::filesystem::path GetStagedMaterialShaderPath(const std::filesystem::path& MountRoot, std::string_view RelativePath, std::string_view Stage);
+// The Material Graph parameter table staged beside those stages; see SerializeMaterialShaderParameters.
+[[nodiscard]] std::filesystem::path GetStagedMaterialShaderParametersPath(const std::filesystem::path& MountRoot, std::string_view RelativePath);
 
 // Directory-backed mounts searched in order. Loading only reads staged files; it never imports or cooks.
 class FCookedContent final

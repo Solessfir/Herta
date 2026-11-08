@@ -329,7 +329,7 @@ void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 			return;
 		}
 
-		const auto Installed = Renderer.PublishMaterialShader(Path, std::move(**Result));
+		const auto Installed = Renderer.PublishMaterialShader(Path, std::move(**Result), Current.Desired->Sources.Parameters);
 		if (!Installed)
 		{
 			Current.FailedKey = Key;
@@ -342,6 +342,7 @@ void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 		Current.PublishedKey = Key;
 		Current.FailedKey.reset();
 		Current.Status.bReady = true;
+		Current.Status.Parameters = Current.Desired->Sources.Parameters;
 		Current.Status.Diagnostics = "Material shader ready";
 	})
 	                            : std::expected<FTaskHandle, FTaskError>(std::unexpected(Work.error()));

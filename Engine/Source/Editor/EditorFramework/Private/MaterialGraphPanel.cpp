@@ -268,6 +268,22 @@ void FMaterialGraphPanel::DrawDetails()
 
 				ImGui::SetItemTooltip("Samples this slot's texture from the material asset");
 			}
+			else if (Text)
+			{
+				// Typing edits a copy and lands as one change when the field lets go, so a half-typed name never reaches history.
+				std::array<char, 64> Buffer{};
+				Text->copy(Buffer.data(), std::min(Text->size(), Buffer.size() - 1));
+				if (ImGui::InputText("##Value", Buffer.data(), Buffer.size()) && ImGui::IsItemActive())
+				{
+					*Text = Buffer.data();
+					bChanged = true;
+				}
+
+				if (Property.Key == "name")
+				{
+					ImGui::SetItemTooltip("Materials using this graph set the parameter by this name");
+				}
+			}
 
 			// Drags and typing preview live and enter history once, when the widget lets go; one-shot widgets such as combos record at once.
 			const std::string Label = std::format("Edit {}", Property.Name);

@@ -165,7 +165,7 @@ std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(
 		return std::unexpected(Includes.error());
 	}
 
-	FMaterialShaderSources Result{.Root = Root, .Source = Relative + ".slang", .Files = std::move(*Includes)};
+	FMaterialShaderSources Result{.Root = Root, .Source = Relative + ".slang", .Files = std::move(*Includes), .Parameters = Compiled->Parameters};
 	const auto Generated = std::as_bytes(std::span(Compiled->Source));
 	Result.Files.push_back({.Root = Root, .Path = Result.Source, .Bytes = {Generated.begin(), Generated.end()}});
 	return Result;

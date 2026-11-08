@@ -84,6 +84,8 @@ private:
 	std::map<FGraphPin, std::optional<FExpression>> Evaluated;
 	std::set<std::uint32_t> Reached;
 	std::map<std::string, std::string> SharedValues;
+	std::map<std::uint32_t, std::size_t> ParameterSlots;
+	std::vector<FMaterialShaderParameter> Parameters;
 	std::string Body;
 	std::uint32_t NextValue = 1;
 };
@@ -302,6 +304,19 @@ std::optional<FExpression> FCompiler::EvaluateOutput(const FGraphNode& Node, con
 		return Swizzle(Value, Channels(Key));
 	}
 
+	if (Type == "ScalarParameter" || Type == "VectorParameter")
+	{
+		// A parameter whose name was rejected has no slot; its error is already reported.
+		const auto Slot = ParameterSlots.find(Node.Id.Value);
+		if (Slot == ParameterSlots.end())
+		{
+			return std::nullopt;
+		}
+
+		const FExpression Value{.Code = std::format("Visual.MaterialParameters[{}]", Slot->second), .Width = 4};
+		return Type == "ScalarParameter" ? FExpression{.Code = Value.Code + ".x", .Width = 1} : Swizzle(Value, Channels(Key));
+	}
+
 	if (Type == "TexCoord")
 	{
 		return FExpression{.Code = "Input.UV", .Width = 2};
@@ -492,6 +507,50 @@ std::optional<FMaterialGraphCompilation> FCompiler::Compile()
 	}
 
 	Reached.insert(OutputNode->Id.Value);
+	std::vector<std::pair<std::string, const FGraphNode*>> Named;
+	for (const FGraphNode& Node : Graph.Nodes)
+	{
+		if (Node.Type != "ScalarParameter" && Node.Type != "VectorParameter")
+		{
+			continue;
+		}
+
+		const std::string& Name = std::get<std::string>(std::ranges::find(Node.Properties, "name", &FGraphProperty::Key)->Value);
+		if (!IsValidMaterialParameterName(Name))
+		{
+			Error(Node.Id, {}, "Parameter names use letters, digits, and underscores, start with a letter, and are at most 32 long");
+			continue;
+		}
+
+		Named.emplace_back(Name, &Node);
+	}
+
+	std::ranges::sort(Named, {}, [](const auto& Entry)
+	{
+		return std::pair{std::string_view(Entry.first), Entry.second->Id.Value};
+	});
+
+	for (std::size_t Index = 0; Index < Named.size(); ++Index)
+	{
+		const auto& [Name, Node] = Named[Index];
+		if (Index > 0 && Named[Index - 1].first == Name)
+		{
+			Error(Node->Id, {}, std::format("Another parameter is already named '{}'", Name));
+		}
+		else if (Parameters.size() == MaterialParameterSlotCount)
+		{
+			Error(Node->Id, {}, std::format("A graph has at most {} parameters", MaterialParameterSlotCount));
+		}
+		else
+		{
+			const FGraphValue& Default = std::ranges::find(Node->Properties, "value", &FGraphProperty::Key)->Value;
+			const bool bVector = Node->Type == "VectorParameter";
+			const float* const Scalar = std::get_if<float>(&Default);
+			ParameterSlots.emplace(Node->Id.Value, Parameters.size());
+			Parameters.push_back({.Name = Name, .Default = bVector ? std::get<std::array<float, 4>>(Default) : std::array{*Scalar, 0.f, 0.f, 0.f}, .bVector = bVector});
+		}
+	}
+
 	struct FTarget
 	{
 		std::string_view Pin{};
@@ -548,6 +607,7 @@ std::optional<FMaterialGraphCompilation> FCompiler::Compile()
 	                "    FMaterialSample Material = DefaultMaterial(Input);\n";
 	Result.Source += Body + Assignments + "    return Material;\n}\n";
 	Result.Diagnostics = std::move(Diagnostics);
+	Result.Parameters = std::move(Parameters);
 	return Result;
 }
 }

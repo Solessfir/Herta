@@ -33,6 +33,8 @@ struct FMaterialPanelContext
 	// The mouse wheel over the preview, in wheel notches.
 	std::function<void(float)> ZoomPreview{};
 	std::string_view ShaderStatus{};
+	// The draft's Material Graph parameters, once its shader has compiled.
+	std::span<const FMaterialShaderParameter> GraphParameters{};
 	std::function<std::expected<void, FAssetError>(FAssetId, const FMaterialAsset&)> Save{};
 	std::function<std::expected<FMaterialAsset, FAssetError>(FAssetId)> Reload{};
 	std::function<void(FAssetId, const FMaterialAsset&)> Preview{};

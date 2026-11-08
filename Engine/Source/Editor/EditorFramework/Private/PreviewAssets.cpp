@@ -1489,7 +1489,7 @@ void FPreviewAssets::StartMaterialPreview()
 		std::shared_ptr<const FRenderMaterial> Material;
 		if (Reuse)
 		{
-			const auto Updated = Reuse->WithParameters(Draft.Parameters);
+			const auto Updated = Reuse->WithParameters(Draft.Parameters, Draft.ParameterValues);
 			if (!Updated)
 			{
 				PreviewError = Updated.error().Message;

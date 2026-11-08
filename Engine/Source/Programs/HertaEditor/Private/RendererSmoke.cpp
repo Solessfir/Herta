@@ -1787,7 +1787,7 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 		auto Node = MakeGraphNode(GetMaterialGraphSchema(), Type, NextGraphNodeId(Graph), {});
 		if (Node && Value)
 		{
-			Node->Properties.front().Value = std::move(*Value);
+			std::ranges::find(Node->Properties, "value", &FGraphProperty::Key)->Value = std::move(*Value);
 		}
 
 		const FGraphNodeId Id = Node ? Node->Id : FGraphNodeId{};
@@ -1805,7 +1805,9 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 	};
 
 	const FGraphNodeId Texture = Add("TextureSample");
-	const FGraphNodeId Color = Add("Vector", Tint);
+	// The tint is an instance parameter whose default is wrong, so only the material's value matches the engine material.
+	const FGraphNodeId Color = Add("VectorParameter", std::array{0.1f, 0.9f, 0.1f, 1.f});
+	std::ranges::find(std::ranges::find(Graph.Nodes, Color, &FGraphNode::Id)->Properties, "name", &FGraphProperty::Key)->Value = std::string("Tint");
 	const FGraphNodeId Tinted = Add("Multiply");
 	const FGraphNodeId MetallicValue = Add("Constant", Metallic);
 	const FGraphNodeId RoughnessValue = Add("Constant", Roughness);
@@ -1877,6 +1879,7 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 	// Default parameters, so a graph material drawn by the engine shader instead of its own would not match.
 	Graphed.Parameters = {};
 	Graphed.ShaderPath = "Game/Parity.hmatgraph";
+	Graphed.ParameterValues = {{.Name = "Tint", .Value = Tint}};
 
 	std::array<std::optional<FCookedTexture>, MaterialTextureSlotCount> Textures;
 	// The 1x1 level only has to exist: the cube's texture coordinates never minify this far.
@@ -1908,7 +1911,7 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 		}
 
 		const auto PublishStart = std::chrono::steady_clock::now();
-		if (auto Published = (*Renderer)->PublishMaterialShader("Game/Parity.hmatgraph", Shaders); !Published)
+		if (auto Published = (*Renderer)->PublishMaterialShader("Game/Parity.hmatgraph", Shaders, Sources->Parameters); !Published)
 		{
 			return std::unexpected(Published.error());
 		}

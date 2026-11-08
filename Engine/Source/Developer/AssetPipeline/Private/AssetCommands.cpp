@@ -316,6 +316,14 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 				Message += std::format("\n{} ({} bytes)", GenericPathToUtf8(Path), (*Stages)[Stage].size());
 			}
 
+			const std::string Table = SerializeMaterialShaderParameters(Sources->Parameters);
+			if (auto Written = WriteFileAtomically(GetStagedMaterialShaderParametersPath(Output, Relative), std::as_bytes(std::span(Table))); !Written)
+			{
+				return ExecutionError(Written.error());
+			}
+
+			Message += std::format("\n{} parameters", Sources->Parameters.size());
+
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::move(Message)};
 		}});
 	}

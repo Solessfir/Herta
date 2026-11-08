@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/Assets/Material.h"
 #include "Herta/Core/Hash.h"
 #include "Herta/RHI/CookedShader.h"
 
@@ -29,6 +30,8 @@ struct FMaterialShaderStatus
 	bool bReady = false;
 	std::uint64_t Generation = 0;
 	std::string Diagnostics;
+	// The published shader's Material Graph parameters, in slot order.
+	std::vector<FMaterialShaderParameter> Parameters;
 };
 
 FHash128 ComputeMaterialShaderSourceKey(std::span<const FShaderSourceDependency> Dependencies);

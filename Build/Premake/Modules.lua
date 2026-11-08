@@ -314,7 +314,7 @@ HertaRuntimeModule("GameFramework", {
 -- The Material Graph schema and its compiler to Slang, run by the editor, headless commands, and tests; game targets load cooked shaders instead.
 HertaRuntimeModule("MaterialGraph", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/MaterialGraph"),
-    PublicDependencies = { "GraphCore" }
+    PublicDependencies = { "GraphCore", "Assets" }
 })
 
 HertaRuntimeModule("AssetPipeline", {

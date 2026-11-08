@@ -659,6 +659,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::filesystem::path OpenedLevel;
 	std::filesystem::path OpenedProject;
 	std::filesystem::path OpenedGraph;
+	std::filesystem::path OpenedMaterial;
 	if (!OpenPath.empty() && !bScalingTest)
 	{
 		std::error_code Error;
@@ -683,9 +684,14 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			OpenedGraph = Absolute;
 			OpenedProject = FindOwningProject(Absolute).value_or(std::filesystem::path{});
 		}
+		else if (Extension == ".hmat")
+		{
+			OpenedMaterial = Absolute;
+			OpenedProject = FindOwningProject(Absolute).value_or(std::filesystem::path{});
+		}
 		else
 		{
-			HERTA_LOG_WARNING(*Log, EditorLog, "Ignoring {}: the editor opens .hlevel, .hertaproject, and .hmatgraph files", OpenPath.string());
+			HERTA_LOG_WARNING(*Log, EditorLog, "Ignoring {}: the editor opens .hlevel, .hertaproject, .hmat, and .hmatgraph files", OpenPath.string());
 		}
 	}
 
@@ -924,6 +930,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	if (!OpenedGraph.empty())
 	{
 		EditorFramework->OpenMaterialGraph(OpenedGraph);
+	}
+
+	if (!OpenedMaterial.empty())
+	{
+		EditorFramework->OpenMaterial(OpenedMaterial);
 	}
 
 	if (bSmokeTest)

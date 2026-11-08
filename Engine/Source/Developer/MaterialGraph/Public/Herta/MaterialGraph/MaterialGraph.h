@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/Assets/Material.h"
 #include "Herta/GraphCore/Graph.h"
 
 #include <cstdint>
@@ -31,6 +32,8 @@ struct FMaterialGraphCompilation
 	std::string Source{};
 	// Warnings when the graph compiled; errors, keyed to the node that caused them, when it did not.
 	std::vector<FGraphDiagnostic> Diagnostics{};
+	// Every parameter node, connected or not, in slot order, which is name order, so a material's values keep their meaning as the graph changes.
+	std::vector<FMaterialShaderParameter> Parameters{};
 };
 
 // Compiles the part of the graph that reaches the output node. Unconnected output inputs keep the material asset's own parameters and textures,

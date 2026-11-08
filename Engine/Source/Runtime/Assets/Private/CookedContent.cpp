@@ -28,6 +28,14 @@ std::filesystem::path GetStagedMaterialShaderPath(const std::filesystem::path& M
 	return Path;
 }
 
+std::filesystem::path GetStagedMaterialShaderParametersPath(const std::filesystem::path& MountRoot, const std::string_view RelativePath)
+{
+	const std::u8string Relative(RelativePath.begin(), RelativePath.end());
+	std::filesystem::path Path = MountRoot / "Shaders" / std::filesystem::path(Relative);
+	Path += ".parameters";
+	return Path;
+}
+
 FCookedContent::FCookedContent(std::vector<std::filesystem::path> InMountRoots)
     : MountRoots(std::move(InMountRoots))
 {

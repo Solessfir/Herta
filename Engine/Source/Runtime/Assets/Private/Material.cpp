@@ -140,6 +140,96 @@ bool InRange(const float Value, const float Minimum, const float Maximum)
 }
 }
 
+bool IsValidMaterialParameterName(const std::string_view Name)
+{
+	const auto IsLetter = [](const char Character)
+	{
+		return (Character >= 'A' && Character <= 'Z') || (Character >= 'a' && Character <= 'z');
+	};
+
+	return !Name.empty() && Name.size() <= 32 && IsLetter(Name.front()) && std::ranges::all_of(Name, [&IsLetter](const char Character)
+	{
+		return IsLetter(Character) || (Character >= '0' && Character <= '9') || Character == '_';
+	});
+}
+
+std::string SerializeMaterialShaderParameters(const std::span<const FMaterialShaderParameter> Parameters)
+{
+	std::string Text;
+	for (const FMaterialShaderParameter& Parameter : Parameters)
+	{
+		Text += std::format("{} {}", Parameter.Name, Parameter.bVector ? "vector" : "scalar");
+		for (const float Component : Parameter.Default)
+		{
+			Text += ' ';
+			AppendFloat(Text, Component);
+		}
+
+		Text += '\n';
+	}
+
+	return Text;
+}
+
+std::expected<std::vector<FMaterialShaderParameter>, FAssetError> DeserializeMaterialShaderParameters(std::string_view Text)
+{
+	std::vector<FMaterialShaderParameter> Parameters;
+	while (!Text.empty())
+	{
+		const std::size_t End = Text.find('\n');
+		const std::string_view Line = Text.substr(0, End);
+		Text = End == std::string_view::npos ? std::string_view{} : Text.substr(End + 1);
+		std::array<std::string_view, 6> Fields{};
+		std::size_t Count = 0;
+		for (std::size_t Start = 0; Start <= Line.size() && Count < Fields.size() + 1;)
+		{
+			const std::size_t Space = std::min(Line.find(' ', Start), Line.size());
+			if (Count == Fields.size())
+			{
+				++Count;
+				break;
+			}
+
+			Fields[Count++] = Line.substr(Start, Space - Start);
+			Start = Space + 1;
+		}
+
+		FMaterialShaderParameter Parameter{.Name = std::string(Fields[0]), .bVector = Fields[1] == "vector"};
+		bool bValid = Count == Fields.size() && (Fields[1] == "vector" || Fields[1] == "scalar") && IsValidMaterialParameterName(Parameter.Name)
+		              && (Parameters.empty() || Parameters.back().Name < Parameter.Name) && Parameters.size() < MaterialParameterSlotCount;
+		for (std::size_t Component = 0; bValid && Component < 4; ++Component)
+		{
+			const std::string_view Number = Fields[2 + Component];
+			const auto [Next, Error] = std::from_chars(Number.data(), Number.data() + Number.size(), Parameter.Default[Component]);
+			bValid = Error == std::errc{} && Next == Number.data() + Number.size() && std::isfinite(Parameter.Default[Component]);
+		}
+
+		if (!bValid)
+		{
+			return Invalid("Invalid material shader parameter table");
+		}
+
+		Parameters.push_back(std::move(Parameter));
+	}
+
+	return Parameters;
+}
+
+void ResolveMaterialParameters(const std::span<const FMaterialShaderParameter> Parameters, const std::span<const FMaterialParameterValue> Values, FMaterialParameterSlots& Slots)
+{
+	auto Value = Values.begin();
+	for (std::size_t Slot = 0; Slot < Parameters.size() && Slot < Slots.size(); ++Slot)
+	{
+		const std::string& Name = Parameters[Slot].Name;
+		while (Value != Values.end() && Value->Name < Name)
+		{
+			++Value;
+		}
+
+		Slots[Slot] = Value != Values.end() && Value->Name == Name ? Value->Value : Parameters[Slot].Default;
+	}
+}
+
 std::string GetMountedMaterialShaderPath(const FMaterialAsset& Material, const std::string_view Name)
 {
 	if (Material.ShaderPath.empty() || Material.ShaderPath.starts_with("Engine/") || Material.ShaderPath.starts_with("Game/"))
@@ -199,6 +289,23 @@ std::expected<void, FAssetError> ValidateMaterial(const FMaterialAsset& Material
 	if (auto Valid = ValidateMaterialParameters(Material.Parameters); !Valid)
 	{
 		return Valid;
+	}
+
+	if (Material.ParameterValues.size() > MaximumMaterialParameterValues)
+	{
+		return Invalid("Material has more than 32 graph parameter values");
+	}
+
+	for (std::size_t Index = 0; Index < Material.ParameterValues.size(); ++Index)
+	{
+		const FMaterialParameterValue& Value = Material.ParameterValues[Index];
+		if (!IsValidMaterialParameterName(Value.Name) || (Index > 0 && Material.ParameterValues[Index - 1].Name >= Value.Name) || !std::ranges::all_of(Value.Value, [](const float Component)
+		    {
+			    return std::isfinite(Component);
+		    }))
+		{
+			return Invalid("Material graph parameter values need valid unique names in sorted order and finite values");
+		}
 	}
 
 	for (std::size_t Slot = 0; Slot < Material.Textures.size(); ++Slot)
@@ -274,7 +381,16 @@ std::expected<std::string, FAssetError> SerializeMaterial(const FMaterialAsset& 
 
 	Text += "  },\n  \"shader\": ";
 	AppendString(Text, Material.ShaderPath);
-	Text += "\n}\n";
+	Text += ",\n  \"graphParameters\": {";
+	for (std::size_t Index = 0; Index < Material.ParameterValues.size(); ++Index)
+	{
+		Text += Index == 0 ? "\n    " : ",\n    ";
+		AppendString(Text, Material.ParameterValues[Index].Name);
+		Text += ": ";
+		AppendFloats(Text, Material.ParameterValues[Index].Value);
+	}
+
+	Text += Material.ParameterValues.empty() ? "}\n}\n" : "\n  }\n}\n";
 	return Text;
 }
 
@@ -292,16 +408,30 @@ std::expected<FMaterialAsset, FAssetError> DeserializeMaterial(const std::string
 		return Invalid("Invalid material JSON");
 	}
 
-	const auto Header = Fields(Root, std::array<std::string_view, 6>{"format", "version", "name", "parameters", "textures", "shader"});
-	if (!Header)
+	// Version 3 adds the graph parameter values; earlier versions have exactly the first six fields.
+	std::array<simdjson::dom::element, 7> HeaderFields;
+	constexpr std::array<std::string_view, 7> HeaderNames{"format", "version", "name", "parameters", "textures", "shader", "graphParameters"};
+	bool bGraphParameters = false;
+	if (const auto Current = Fields(Root, HeaderNames))
 	{
-		return std::unexpected(Header.error());
+		HeaderFields = *Current;
+		bGraphParameters = true;
 	}
+	else if (const auto Earlier = Fields(Root, std::array<std::string_view, 6>{"format", "version", "name", "parameters", "textures", "shader"}))
+	{
+		std::ranges::copy(*Earlier, HeaderFields.begin());
+	}
+	else
+	{
+		return std::unexpected(Earlier.error());
+	}
+
+	const auto* const Header = &HeaderFields;
 
 	std::string_view Format, Name, Shader;
 	std::uint64_t Version = 0;
-	if ((*Header)[0].get_string().get(Format) || Format != "HertaMaterial" || (*Header)[1].get_uint64().get(Version) || (Version != 1 && Version != MaterialAssetVersion)
-	    || (*Header)[2].get_string().get(Name) || (*Header)[5].get_string().get(Shader))
+	if ((*Header)[0].get_string().get(Format) || Format != "HertaMaterial" || (*Header)[1].get_uint64().get(Version) || Version < 1 || Version > MaterialAssetVersion
+	    || (*Header)[2].get_string().get(Name) || (*Header)[5].get_string().get(Shader) || (Version >= 3) != bGraphParameters)
 	{
 		return Invalid("Invalid material header or unsupported version");
 	}
@@ -383,6 +513,26 @@ std::expected<FMaterialAsset, FAssetError> DeserializeMaterial(const std::string
 
 		Target.Channel = static_cast<EMaterialChannel>(ChannelIndex - ChannelNames.begin());
 		Target.ColorSpace = ColorSpace == "srgb" ? ETextureColorSpace::Srgb : ETextureColorSpace::Linear;
+	}
+
+	if (Version >= 3)
+	{
+		simdjson::dom::object GraphValues;
+		if ((*Header)[6].get_object().get(GraphValues) || GraphValues.size() > MaximumMaterialParameterValues)
+		{
+			return Invalid("Invalid material graph parameter values");
+		}
+
+		for (const auto Field : GraphValues)
+		{
+			FMaterialParameterValue Value{.Name = std::string(Field.key)};
+			if (!ReadFloats(Field.value, Value.Value))
+			{
+				return Invalid("Invalid material graph parameter value");
+			}
+
+			Material.ParameterValues.push_back(std::move(Value));
+		}
 	}
 
 	if (auto Valid = ValidateMaterial(Material); !Valid)

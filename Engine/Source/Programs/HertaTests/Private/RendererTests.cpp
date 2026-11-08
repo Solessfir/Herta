@@ -463,14 +463,14 @@ TEST_CASE("Render material packed maps share uploads while parameter edits keep 
 	CHECK(Device.TextureWrites.size() == 1);
 	CHECK(Device.Submissions == 1);
 	Material.Parameters.Roughness = 0.75f;
-	const auto Updated = (*Created)->WithParameters(Material.Parameters);
+	const auto Updated = (*Created)->WithParameters(Material.Parameters, {});
 	REQUIRE(Updated);
 	CHECK((*Updated)->GetParameters() == Material.Parameters);
 	CHECK((*Created)->GetParameters().Roughness == 0.5f);
 	CHECK(Device.TextureDescriptors.size() == 1);
 	CHECK(Device.Submissions == 1);
 	Material.Parameters.Roughness = -1.f;
-	CHECK_FALSE((*Created)->WithParameters(Material.Parameters));
+	CHECK_FALSE((*Created)->WithParameters(Material.Parameters, {}));
 	Material.Parameters.Roughness = 0.5f;
 	Material.Textures[0].Texture = PackedId;
 	Sources[0] = Sources[1];

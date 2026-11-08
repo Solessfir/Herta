@@ -125,6 +125,8 @@ public:
 	void SetViewportResolution(std::optional<FExtent2D> Resolution) noexcept;
 	// Opens a Material Graph from the project's or the engine's content in the graph editor, as passing its file to the editor does.
 	void OpenMaterialGraph(const std::filesystem::path& File);
+	// Opens a material asset from the project's or the engine's content in the material editor once the content scan has registered it.
+	void OpenMaterial(const std::filesystem::path& File);
 	// Moves the viewport camera to a level camera bookmark and returns its name, or nothing when the slot is empty.
 	std::optional<std::string> ShowCameraBookmark(std::uint32_t Slot);
 	[[nodiscard]] bool IsUnitStatsVisible() const noexcept;

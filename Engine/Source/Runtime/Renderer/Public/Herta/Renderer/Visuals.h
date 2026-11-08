@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/Assets/Material.h"
 #include "Herta/Level/World.h"
 #include "Herta/RHI/Graphics.h"
 
@@ -246,6 +247,8 @@ struct alignas(16) FVisualUniforms
 	std::array<float, 16> ClipToPreviousClip{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};
 	FMaterialUniform Material{};
+	// The drawn material's Material Graph parameters, by slot. Kept out of FMaterialUniform, which ray-traced scene records embed.
+	FMaterialParameterSlots MaterialParameters{};
 	// Not part of the uniform block: draws read lights from a storage buffer, so only VisualUniformBytes are uploaded as uniforms.
 	std::array<FVisualLightUniform, MaximumRenderLights> Lights{};
 };

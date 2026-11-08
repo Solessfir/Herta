@@ -100,7 +100,13 @@ using FStagedKey = std::pair<FAssetId, std::optional<ETextureColorSpace>>;
 		Bytes += (*Stages)[Stage].size();
 	}
 
-	return Bytes;
+	const std::string Table = SerializeMaterialShaderParameters(Sources->Parameters);
+	if (auto Written = WriteFileAtomically(GetStagedMaterialShaderParametersPath(Mount.StagedRoot, Relative), std::as_bytes(std::span(Table))); !Written)
+	{
+		return std::unexpected(Written.error());
+	}
+
+	return Bytes + Table.size();
 }
 
 [[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> ReadSource(const std::filesystem::path& Path)

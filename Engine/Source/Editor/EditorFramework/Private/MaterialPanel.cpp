@@ -626,6 +626,124 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 			ImGui::PopID();
 		};
 
+		// A Material Graph's own parameters come first: they are what an instance of the graph is for. Values follow parameter names, and the reset
+		// button removes the value so the graph's default applies again.
+		const auto ParameterRow = [&](const FMaterialShaderParameter& Parameter)
+		{
+			if (!MatchesMaterialSearch(Parameter.Name, Query))
+			{
+				return;
+			}
+
+			const std::string EditLabel = std::format("Edit {}", Parameter.Name);
+			const auto WithValue = [&](const std::optional<std::array<float, 4>>& NewValue)
+			{
+				FMaterialAsset Candidate = Draft;
+				auto& Values = Candidate.ParameterValues;
+				const auto At = std::ranges::lower_bound(Values, Parameter.Name, {}, &FMaterialParameterValue::Name);
+				if (At != Values.end() && At->Name == Parameter.Name)
+				{
+					if (NewValue)
+					{
+						At->Value = *NewValue;
+					}
+					else
+					{
+						Values.erase(At);
+					}
+				}
+				else if (NewValue)
+				{
+					Values.insert(At, {.Name = Parameter.Name, .Value = *NewValue});
+				}
+
+				return Candidate;
+			};
+
+			ImGui::PushID(Parameter.Name.c_str());
+			Row(Parameter.Name.c_str());
+			const auto Current = std::ranges::find(Draft.ParameterValues, Parameter.Name, &FMaterialParameterValue::Name);
+			const bool bOverridden = Current != Draft.ParameterValues.end();
+			std::array<float, 4> Value = bOverridden ? Current->Value : Parameter.Default;
+			if (Parameter.bVector)
+			{
+				const bool bChanged = DrawLinearColorField("##Color", std::span<float>{Value});
+				if (ImGui::IsItemActivated() || bChanged)
+				{
+					BeginEdit(EditLabel);
+				}
+
+				if (bChanged)
+				{
+					Apply(WithValue(Value), EditLabel);
+				}
+
+				if (ImGui::IsItemDeactivatedAfterEdit())
+				{
+					Report(EndEdit());
+				}
+			}
+			else
+			{
+				FNumericEditLifecycle Edit{
+				    .Begin = [&]
+				{
+					BeginEdit(EditLabel);
+				},
+				    .Flush = [&](const bool bCanceled)
+				{
+					if (bCanceled)
+					{
+						CancelEdit();
+					}
+					else
+					{
+						Report(EndEdit());
+					}
+				},
+				};
+				if (DrawNumericDragFloat("##Value", &Value[0], 0.01f, -1'000'000.f, 1'000'000.f, "%.3f", ImGuiSliderFlags_AlwaysClamp, &Edit, true) && !Edit.bCanceled)
+				{
+					Apply(WithValue(Value), EditLabel);
+				}
+
+				if (Edit.bCanceled)
+				{
+					CancelEdit();
+				}
+				else if (Edit.bFinished)
+				{
+					Report(EndEdit());
+				}
+			}
+
+			ImGui::TableSetColumnIndex(2);
+			if (bOverridden && DrawDetailsResetButton(Parameter.Name.c_str()))
+			{
+				Report(EndEdit());
+				Apply(WithValue(std::nullopt), std::format("Reset {}", Parameter.Name));
+			}
+
+			ImGui::PopID();
+		};
+
+		ImGui::PushID("GraphParameters");
+		if (std::ranges::any_of(Context.GraphParameters, [&Query](const FMaterialShaderParameter& Parameter)
+		    {
+			    return MatchesMaterialSearch(Parameter.Name, Query);
+		    })
+		    && BeginMaterialSection("Graph parameters", Scale) && BeginTable())
+		{
+			for (const FMaterialShaderParameter& Parameter : Context.GraphParameters)
+			{
+				ParameterRow(Parameter);
+			}
+
+			ImGui::EndTable();
+		}
+
+		ImGui::PopID();
+
 		if (MatchesMaterialSearch("Base color Metallic Roughness Diffuse roughness Edge color Normal strength Occlusion Blend mode Alpha cutoff", Query) && BeginMaterialSection("Surface", Scale) && BeginTable())
 		{
 			ColorRow("Base color", &FMaterialParameters::BaseColor);

@@ -13,6 +13,7 @@ std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> FRende
 
 	auto Result = std::make_shared<FRenderMaterial>();
 	Result->Parameters = Material.Parameters;
+	Result->ParameterValues = Material.ParameterValues;
 	Result->ShaderKey = GetMountedMaterialShaderPath(Material, Name);
 
 	for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
@@ -115,15 +116,17 @@ std::string_view FRenderMaterial::GetShaderKey() const noexcept
 	return ShaderKey;
 }
 
-std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> FRenderMaterial::WithParameters(const FMaterialParameters& NewParameters) const
+std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> FRenderMaterial::WithParameters(const FMaterialParameters& NewParameters, const std::span<const FMaterialParameterValue> NewValues) const
 {
-	if (const auto Valid = ValidateMaterialParameters(NewParameters); !Valid)
+	FMaterialAsset Check{.Parameters = NewParameters, .ParameterValues = {NewValues.begin(), NewValues.end()}};
+	if (const auto Valid = ValidateMaterial(Check); !Valid)
 	{
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = Valid.error().Message});
 	}
 
 	auto Copy = std::make_shared<FRenderMaterial>(*this);
 	Copy->Parameters = NewParameters;
+	Copy->ParameterValues = std::move(Check.ParameterValues);
 	return Copy;
 }
 }
