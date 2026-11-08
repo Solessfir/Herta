@@ -6,6 +6,7 @@
 #include "MaterialShaders.h"
 #include "TestFiles.h"
 #include "TestGraphicsDevice.h"
+#include "TestMaterialShaders.h"
 
 #include <doctest/doctest.h>
 
@@ -251,12 +252,12 @@ TEST_CASE("Material shader publication rejects mismatched visual uniforms before
 		}
 	}
 
-	CHECK_FALSE(Fixture.Renderer->PublishMaterialShader(Fixture.Paths[0], Vertex, Instanced, Fragment));
+	CHECK_FALSE(Fixture.Renderer->PublishMaterialShader(Fixture.Paths[0], Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
 	CHECK_FALSE(bCreatedPipeline);
 	CHECK(Fixture.Draw() == GoodPipeline);
 	Fragment = Pipeline->Descriptor.FragmentShader;
 	Fragment.Bindings.clear();
-	CHECK_FALSE(Fixture.Renderer->PublishMaterialShader(Fixture.Paths[0], Vertex, Instanced, Fragment));
+	CHECK_FALSE(Fixture.Renderer->PublishMaterialShader(Fixture.Paths[0], Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
 	CHECK(Fixture.Draw() == GoodPipeline);
 }
 

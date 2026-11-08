@@ -97,19 +97,6 @@ FVertexOutput instancedVelocityVertexMain(float3 Position : POSITION, float2 UV 
     return Output;
 }
 
-// The depth prepass's cutout test, the same as Shadow.slang's.
-void ClipCutout(FVertexOutput Input)
-{
-    if (Visual.Material.Channels1.z > 0.5)
-    {
-        float Alpha = Visual.Material.BaseColor.a;
-        if ((uint(Visual.Material.TextureFlags.x) & 1u) != 0u)
-            Alpha *= BaseColorTexture.Sample(LinearSampler, Input.UV).a;
-
-        clip(Alpha - Visual.Material.Channels1.w);
-    }
-}
-
 float2 ScreenMotion(FVertexOutput Input)
 {
     if (Input.PreviousClip.w <= 0.0)
@@ -139,44 +126,6 @@ float3 ShadingNormal(FVertexOutput Input, uint Flags)
     Map.xy *= Visual.Material.Surface.z;
     float3 MappedNormal = T * Map.x + B * Map.y + N * Map.z;
     return dot(MappedNormal, MappedNormal) > 0.000001 ? normalize(MappedNormal) : N;
-}
-
-float4 PrepassSurface(FVertexOutput Input)
-{
-    uint Flags = uint(Visual.Material.TextureFlags.x);
-    return EncodeSurface(ShadingNormal(Input, Flags), MaterialRoughness(Input, Flags));
-}
-
-// The instanced depth prepass with motion vectors.
-[shader("fragment")]
-float2 velocityFragmentMain(FVertexOutput Input) : SV_Target
-{
-    ClipCutout(Input);
-    return ScreenMotion(Input);
-}
-
-// The depth prepass with global illumination, which reads each pixel's surface instead of tracing camera rays to find it.
-[shader("fragment")]
-float4 surfaceFragmentMain(FVertexOutput Input) : SV_Target
-{
-    ClipCutout(Input);
-    return PrepassSurface(Input);
-}
-
-struct FVelocitySurface
-{
-    float2 Motion : SV_Target0;
-    float4 Surface : SV_Target1;
-}
-
-[shader("fragment")]
-FVelocitySurface velocitySurfaceFragmentMain(FVertexOutput Input)
-{
-    ClipCutout(Input);
-    FVelocitySurface Output;
-    Output.Motion = ScreenMotion(Input);
-    Output.Surface = PrepassSurface(Input);
-    return Output;
 }
 
 // Linearly transformed cosines (Heitz et al. 2016), following three.js: the edge integral uses a rational fit of theta / sin(theta) / 2pi.
@@ -349,6 +298,74 @@ FMaterialSample DefaultMaterial(FVertexOutput Input)
 
 // Each shader that includes this file defines it: the engine material returns DefaultMaterial, and Material Graph shaders generate it.
 FMaterialSample EvaluateMaterial(FVertexOutput Input);
+
+// Custom shaders' depth prepass evaluates their material, so a graph's alpha cuts out and its normal and roughness reach global illumination exactly
+// as they shade. The engine material reads only the textures each pass needs instead, because the compiler keeps the unused samples of a whole
+// DefaultMaterial: its velocity prepass would double in size.
+void ClipCutout(FVertexOutput Input)
+{
+    if (Visual.Material.Channels1.z > 0.5)
+    {
+#ifdef HERTA_ENGINE_MATERIAL
+        float Alpha = Visual.Material.BaseColor.a;
+        if ((uint(Visual.Material.TextureFlags.x) & 1u) != 0u)
+            Alpha *= BaseColorTexture.Sample(LinearSampler, Input.UV).a;
+#else
+        float Alpha = EvaluateMaterial(Input).Alpha;
+#endif
+        clip(Alpha - Visual.Material.Channels1.w);
+    }
+}
+
+float4 PrepassSurface(FVertexOutput Input)
+{
+#ifdef HERTA_ENGINE_MATERIAL
+    uint Flags = uint(Visual.Material.TextureFlags.x);
+    return EncodeSurface(ShadingNormal(Input, Flags), MaterialRoughness(Input, Flags));
+#else
+    FMaterialSample Material = EvaluateMaterial(Input);
+    return EncodeSurface(Material.Normal, clamp(Material.Roughness, 0.045, 1.0));
+#endif
+}
+
+// The depth prepass of custom material shaders; the engine material uses Shadow.slang's, which interpolates only UVs.
+[shader("fragment")]
+void depthFragmentMain(FVertexOutput Input)
+{
+    ClipCutout(Input);
+}
+
+// The instanced depth prepass with motion vectors.
+[shader("fragment")]
+float2 velocityFragmentMain(FVertexOutput Input) : SV_Target
+{
+    ClipCutout(Input);
+    return ScreenMotion(Input);
+}
+
+// The depth prepass with global illumination, which reads each pixel's surface instead of tracing camera rays to find it.
+[shader("fragment")]
+float4 surfaceFragmentMain(FVertexOutput Input) : SV_Target
+{
+    ClipCutout(Input);
+    return PrepassSurface(Input);
+}
+
+struct FVelocitySurface
+{
+    float2 Motion : SV_Target0;
+    float4 Surface : SV_Target1;
+}
+
+[shader("fragment")]
+FVelocitySurface velocitySurfaceFragmentMain(FVertexOutput Input)
+{
+    ClipCutout(Input);
+    FVelocitySurface Output;
+    Output.Motion = ScreenMotion(Input);
+    Output.Surface = PrepassSurface(Input);
+    return Output;
+}
 
 // Lights, global illumination, and the environment for one pixel of a material.
 float4 ShadeMesh(FVertexOutput Input, FMaterialSample Material)

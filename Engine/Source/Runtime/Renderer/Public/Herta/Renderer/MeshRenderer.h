@@ -5,6 +5,7 @@
 #include "Herta/RHI/Graphics.h"
 #include "Herta/Renderer/Visuals.h"
 
+#include <array>
 #include <expected>
 #include <memory>
 #include <string_view>
@@ -36,6 +37,22 @@ struct FDebugDrawList
 
 class FRenderMesh;
 class FRenderMaterial;
+
+// A material shader's stages, in MaterialShaderStageNames order: shading, then the depth prepass variants that draw it into the prepass as it shades.
+enum class EMaterialShaderStage : std::uint8_t
+{
+	Vertex,
+	InstancedVertex,
+	Fragment,
+	DepthFragment,
+	VelocityFragment,
+	InstancedVelocityVertex,
+	SurfaceFragment,
+	VelocitySurfaceFragment,
+	Count,
+};
+
+using FMaterialShaderStages = std::array<FShaderAsset, static_cast<std::size_t>(EMaterialShaderStage::Count)>;
 
 // The irradiance field's probes a few frames ago, read back without waiting: those that traced, those the camera's pixels read, those of them
 // classified inside geometry, those that asked to trace past the field's per-frame capacity, those holding a cell, and the cells that asked for
@@ -161,7 +178,8 @@ public:
 	std::vector<FGpuPassTiming> GetGpuTimings() const;
 	std::size_t GetRenderTargetBytes() const noexcept;
 	[[nodiscard]] std::expected<void, FPresentationError> SetEnvironmentLighting(const FEnvironmentLighting& Lighting);
-	[[nodiscard]] std::expected<void, FPresentationError> PublishMaterialShader(std::string Key, FShaderAsset Vertex, FShaderAsset InstancedVertex, FShaderAsset Fragment);
+	// An empty key replaces the engine material's shading pipelines and keeps its cooked prepass.
+	[[nodiscard]] std::expected<void, FPresentationError> PublishMaterialShader(std::string Key, FMaterialShaderStages Stages);
 	[[nodiscard]] std::expected<void, FPresentationError> ShareMaterialShaders(const FMeshRenderer& Source);
 	std::uint64_t GetMaterialShaderGeneration() const noexcept;
 

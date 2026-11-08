@@ -17,8 +17,9 @@ namespace Herta
 // A staged build keeps one cooked asset per file, named by asset ID. Textures are staged once per color space they are sampled in, because their mips are filtered in that space.
 [[nodiscard]] std::filesystem::path GetStagedAssetPath(const std::filesystem::path& MountRoot, const FAssetId& Asset, std::optional<ETextureColorSpace> ColorSpace = std::nullopt);
 
-// The vertex, instanced vertex, and fragment stages every material shader provides, in that order.
-inline constexpr std::array<std::string_view, 3> MaterialShaderStageNames{"vert", "instanced.vert", "frag"};
+// The stages every material shader provides: shading, then the depth prepass variants, matching FMaterialShaderStages.
+inline constexpr std::array<std::string_view, 8> MaterialShaderStageNames{"vert", "instanced.vert", "frag", "depth.frag", "velocity.frag", "instanced.velocity.vert", "surface.frag", "velocity.surface.frag"};
+inline constexpr std::size_t MaterialShaderStageCount = MaterialShaderStageNames.size();
 // A custom material shader is staged precompiled under its mount, by its mount-relative path, so the game never needs the compiler or the graph.
 [[nodiscard]] std::filesystem::path GetStagedMaterialShaderPath(const std::filesystem::path& MountRoot, std::string_view RelativePath, std::string_view Stage);
 

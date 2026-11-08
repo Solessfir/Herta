@@ -1841,7 +1841,7 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Material Graph parity shader did not compile: " + Stages.error().Message});
 	}
 
-	std::array<FShaderAsset, 3> Shaders;
+	FMaterialShaderStages Shaders;
 	for (std::size_t Stage = 0; Stage < Shaders.size(); ++Stage)
 	{
 		auto Shader = DeserializeCookedShader((*Stages)[Stage]);
@@ -1853,16 +1853,10 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 		Shaders[Stage] = std::move(*Shader);
 	}
 
-	auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, VisualShaders);
 	const auto Cube = CreateSmokeCube(Device);
-	if (!Renderer || !Cube)
+	if (!Cube)
 	{
-		return std::unexpected(!Renderer ? Renderer.error() : Cube.error());
-	}
-
-	if (auto Published = (*Renderer)->PublishMaterialShader("Game/Parity.hmatgraph", std::move(Shaders[0]), std::move(Shaders[1]), std::move(Shaders[2])); !Published)
-	{
-		return Published;
+		return std::unexpected(Cube.error());
 	}
 
 	// A 2x2 texture, so a wrong UV or channel shows as well as a wrong tint.
@@ -1894,28 +1888,51 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 		return std::unexpected(!HandMaterial ? HandMaterial.error() : GraphMaterial.error());
 	}
 
-	// Custom shaders skip the depth prepass for now, so the screen-space effects it feeds stay off on both sides.
+	// Ambient occlusion reads the depth prepass, so it checks that the graph draws into it like the engine material. The sun casts no shadow maps:
+	// their cascades fit depth bounds read back a few frames late, so they change with GPU timing.
 	constexpr FExtent2D Extent{96, 96};
-	const FMatrix4 Model = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, 0.5f)) * FMatrix4::Rotation(FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, 0.7f));
-	const FRenderMesh* const Mesh = Cube->get();
+	// A tilted cube resting near a floor, so ambient occlusion and contact shadows darken the pixels between them.
+	const std::array Models{
+	    FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, 0.5f)) * FMatrix4::Rotation(FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, 0.7f)),
+	    FMatrix4::Translation({0.f, -0.85f, 0.f}) * FMatrix4::Scale({6.f, 0.1f, 6.f}),
+	};
+	const std::array<const FRenderMesh*, 2> Meshes{Cube->get(), Cube->get()};
 	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 3000.f, .bCastShadows = false, .Range = 40.f}, .Transform = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, 0.7f))}};
+	// Each material gets a fresh renderer, so neither inherits the other's cached shadows or history.
 	const auto Capture = [&](const FRenderMaterial* const Material) -> std::expected<std::vector<std::byte>, FPresentationError>
 	{
+		auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, VisualShaders);
+		if (!Renderer)
+		{
+			return std::unexpected(Renderer.error());
+		}
+
+		const auto PublishStart = std::chrono::steady_clock::now();
+		if (auto Published = (*Renderer)->PublishMaterialShader("Game/Parity.hmatgraph", Shaders); !Published)
+		{
+			return std::unexpected(Published.error());
+		}
+
+		std::println("Material Graph parity: publishing its pipelines took {:.1f} ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - PublishStart).count());
+
 		const std::array<const FRenderMaterial*, 1> Slots{Material};
-		const std::array<std::span<const FRenderMaterial* const>, 1> Overrides{Slots};
+		const std::array<std::span<const FRenderMaterial* const>, 2> Overrides{Slots, Slots};
 		FMeshRenderView View{
-		    .View = FMatrix4::Translation({0.f, 0.f, 2.2f}),
+		    .View = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, -0.35f)) * FMatrix4::Translation({0.f, -0.6f, 2.4f}),
 		    .Projection = FMatrix4::PerspectiveReversedInfinite(std::numbers::pi_v<float> / 3.f, 1.f, 0.1f),
-		    .Models = std::span{&Model, 1},
-		    .Meshes = std::span{&Mesh, 1},
+		    .Models = Models,
+		    .Meshes = Meshes,
 		    .Materials = Overrides,
 		    .Lights = Lights,
-		    .Visuals = {.ExposureEV100 = 9.f, .AntiAliasing = EAntiAliasing::Off, .AmbientOcclusion = EAmbientOcclusion::Off, .bContactShadows = false},
+		    .Visuals = {.ExposureEV100 = 9.f, .AntiAliasing = EAntiAliasing::Off},
 		};
 		View.Visuals.bStudioPreview = false;
-		if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+		for (int Frame = 0; Frame < 2; ++Frame)
 		{
-			return std::unexpected(Rendered.error());
+			if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
+			{
+				return std::unexpected(Rendered.error());
+			}
 		}
 
 		return Device.ReadbackTexture((*Renderer)->GetColorTarget());

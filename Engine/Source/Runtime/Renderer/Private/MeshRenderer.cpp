@@ -749,7 +749,17 @@ struct FMeshRenderer::FImplementation
 	FGraphicsPipelineHandle InstancedPipeline;
 	FGraphicsPipelineHandle DepthPrepassPipeline;
 	FGraphicsPipelineHandle InstancedDepthPrepassPipeline;
-	std::unordered_map<std::string, std::array<FGraphicsPipelineHandle, 2>> MaterialPipelines;
+	// A custom material shader's pipelines. The arrays index by instancing; prepass pipelines exist only where the renderer has the engine's equivalent.
+	struct FMaterialPipelineSet
+	{
+		std::array<FGraphicsPipelineHandle, 2> Shading;
+		std::array<FGraphicsPipelineHandle, 2> DepthPrepass;
+		std::array<FGraphicsPipelineHandle, 2> SurfacePrepass;
+		FGraphicsPipelineHandle VelocityPrepass;
+		FGraphicsPipelineHandle VelocitySurfacePrepass;
+	};
+
+	std::unordered_map<std::string, FMaterialPipelineSet> MaterialPipelines;
 	std::uint64_t MaterialShaderGeneration = 0;
 	FBufferHandle Instances;
 	std::vector<FMeshInstance> InstanceData;
@@ -1485,7 +1495,7 @@ std::expected<void, FPresentationError> FMeshRenderer::SetEnvironmentLighting(co
 	return {};
 }
 
-std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std::string Key, FShaderAsset Vertex, FShaderAsset InstancedVertex, FShaderAsset Fragment)
+std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std::string Key, FMaterialShaderStages Stages)
 {
 	const auto Compatible = [](const FShaderAsset& Shader, const EShaderStage Stage, const std::string_view EntryPoint)
 	{
@@ -1541,32 +1551,78 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 		return bVisualUniforms;
 	};
 
-	if (!Compatible(Vertex, EShaderStage::Vertex, "vertexMain") || !Compatible(InstancedVertex, EShaderStage::Vertex, "instancedVertexMain") || !Compatible(Fragment, EShaderStage::Fragment, "fragmentMain"))
+	using enum EMaterialShaderStage;
+	constexpr std::array<std::pair<EShaderStage, std::string_view>, std::tuple_size_v<FMaterialShaderStages>> EntryPoints{{
+	    {EShaderStage::Vertex, "vertexMain"},
+	    {EShaderStage::Vertex, "instancedVertexMain"},
+	    {EShaderStage::Fragment, "fragmentMain"},
+	    {EShaderStage::Fragment, "depthFragmentMain"},
+	    {EShaderStage::Fragment, "velocityFragmentMain"},
+	    {EShaderStage::Vertex, "instancedVelocityVertexMain"},
+	    {EShaderStage::Fragment, "surfaceFragmentMain"},
+	    {EShaderStage::Fragment, "velocitySurfaceFragmentMain"},
+	}};
+
+	for (std::size_t Index = 0; Index < Stages.size(); ++Index)
 	{
-		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Material shader must use the current VisualShared ABI, entry points, and exact visual uniform layout"});
+		if (!Compatible(Stages[Index], EntryPoints[Index].first, EntryPoints[Index].second))
+		{
+			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = std::format("Material shader stage {} must use the current VisualShared ABI, entry points, and exact visual uniform layout", EntryPoints[Index].second)});
+		}
 	}
 
 	FImplementation& State = *Implementation;
-	const ETextureFormat Format = State.VisualPipelines[0] ? ETextureFormat::Rgba16Float : ETextureFormat::Rgba8Srgb;
-	auto Pipeline = State.Device->CreateGraphicsPipeline({.Name = std::format("Material {}", Key), .VertexShader = std::move(Vertex), .FragmentShader = Fragment, .ColorFormat = Format, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
-	auto Instanced = State.Device->CreateGraphicsPipeline({.Name = std::format("Instanced material {}", Key), .VertexShader = std::move(InstancedVertex), .FragmentShader = std::move(Fragment), .ColorFormat = Format, .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
-	if (!Pipeline || !Instanced)
+	const auto Stage = [&Stages](const EMaterialShaderStage Which) -> const FShaderAsset&
 	{
-		return std::unexpected(!Pipeline ? Pipeline.error() : Instanced.error());
+		return Stages[std::to_underlying(Which)];
+	};
+
+	// The pipelines mirror the engine's: shading tests against the prepass depth without writing it, and each prepass variant matches its engine twin.
+	const ETextureFormat Format = State.VisualPipelines[0] ? ETextureFormat::Rgba16Float : ETextureFormat::Rgba8Srgb;
+	const bool bDepthPrepass = static_cast<bool>(State.DepthPrepassPipeline);
+	const bool bCustom = !Key.empty();
+	FImplementation::FMaterialPipelineSet Set;
+	std::optional<FPresentationError> Failed;
+	const auto Create = [&](FGraphicsPipelineHandle& Target, const bool bWanted, const FGraphicsPipelineDescriptor& Descriptor)
+	{
+		if (bWanted && !Failed)
+		{
+			if (auto Created = State.Device->CreateGraphicsPipeline(Descriptor))
+			{
+				Target = std::move(*Created);
+			}
+			else
+			{
+				Failed = std::move(Created.error());
+			}
+		}
+	};
+
+	Create(Set.Shading[0], true, {.Name = std::format("Material {}", Key), .VertexShader = Stage(Vertex), .FragmentShader = Stage(Fragment), .ColorFormat = Format, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = !bDepthPrepass, .BufferCount = MeshBufferCount});
+	Create(Set.Shading[1], true, {.Name = std::format("Instanced material {}", Key), .VertexShader = Stage(InstancedVertex), .FragmentShader = Stage(Fragment), .ColorFormat = Format, .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = !bDepthPrepass, .BufferCount = MeshBufferCount});
+	Create(Set.DepthPrepass[0], bCustom && State.DepthPrepassPipeline, {.Name = std::format("Depth prepass {}", Key), .VertexShader = Stage(Vertex), .FragmentShader = Stage(DepthFragment), .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = MeshBufferCount});
+	Create(Set.DepthPrepass[1], bCustom && State.InstancedDepthPrepassPipeline, {.Name = std::format("Instanced depth prepass {}", Key), .VertexShader = Stage(InstancedVertex), .FragmentShader = Stage(DepthFragment), .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = MeshBufferCount});
+	Create(Set.VelocityPrepass, bCustom && State.InstancedVelocityPrepassPipeline, {.Name = std::format("Instanced velocity prepass {}", Key), .VertexShader = Stage(InstancedVelocityVertex), .FragmentShader = Stage(VelocityFragment), .ColorFormat = ETextureFormat::Rg16Float, .bInstanced = true, .bInstanceMotion = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+	Create(Set.SurfacePrepass[0], bCustom && State.SurfacePrepassPipeline, {.Name = std::format("Surface prepass {}", Key), .VertexShader = Stage(Vertex), .FragmentShader = Stage(SurfaceFragment), .ColorFormat = ETextureFormat::Rgba8, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+	Create(Set.SurfacePrepass[1], bCustom && State.InstancedSurfacePrepassPipeline, {.Name = std::format("Instanced surface prepass {}", Key), .VertexShader = Stage(InstancedVertex), .FragmentShader = Stage(SurfaceFragment), .ColorFormat = ETextureFormat::Rgba8, .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+	Create(Set.VelocitySurfacePrepass, bCustom && State.InstancedVelocitySurfacePrepassPipeline, {.Name = std::format("Instanced velocity surface prepass {}", Key), .VertexShader = Stage(InstancedVelocityVertex), .FragmentShader = Stage(VelocitySurfaceFragment), .ColorFormat = ETextureFormat::Rg16Float, .SecondColorFormat = ETextureFormat::Rgba8, .bInstanced = true, .bInstanceMotion = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+	if (Failed)
+	{
+		return std::unexpected(std::move(*Failed));
 	}
 
-	if (Key.empty())
+	if (!bCustom)
 	{
-		State.Pipeline = std::move(*Pipeline);
+		State.Pipeline = std::move(Set.Shading[0]);
 		// Only renderers built for instancing have its prepass; see ShareMaterialShaders.
 		if (State.InstancedPipeline)
 		{
-			State.InstancedPipeline = std::move(*Instanced);
+			State.InstancedPipeline = std::move(Set.Shading[1]);
 		}
 	}
 	else
 	{
-		State.MaterialPipelines.insert_or_assign(std::move(Key), std::array{std::move(*Pipeline), std::move(*Instanced)});
+		State.MaterialPipelines.insert_or_assign(std::move(Key), std::move(Set));
 	}
 
 	++State.MaterialShaderGeneration;
@@ -1577,9 +1633,10 @@ std::expected<void, FPresentationError> FMeshRenderer::ShareMaterialShaders(cons
 {
 	FImplementation& State = *Implementation;
 	const FImplementation& Shared = *Source.Implementation;
-	if (State.Device != Shared.Device || static_cast<bool>(State.VisualPipelines[0]) != static_cast<bool>(Shared.VisualPipelines[0]))
+	// Shading pipelines write depth only without a prepass, so both renderers must agree on having one.
+	if (State.Device != Shared.Device || static_cast<bool>(State.VisualPipelines[0]) != static_cast<bool>(Shared.VisualPipelines[0]) || static_cast<bool>(State.DepthPrepassPipeline) != static_cast<bool>(Shared.DepthPrepassPipeline))
 	{
-		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Material shader sharing requires the same graphics device and mesh color format"});
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Material shader sharing requires the same graphics device, mesh color format, and depth prepass"});
 	}
 
 	auto Pipelines = Shared.MaterialPipelines;
@@ -2328,7 +2385,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		return Device.DrawIndexed({.Pipeline = Selected, .Vertices = State.FullscreenVertices, .Indices = State.FullscreenIndices, .ColorTarget = Destination, .IndexCount = 6, .Textures = Sources, .Uniforms = GetVisualUniformBytes(State.Uniforms), .bCoversColorTarget = true});
 	};
 
-	const auto MaterialPipeline = [&](const FRenderMesh::FSection& Section, const std::span<const FRenderMaterial* const> Overrides, const bool bInstanced)
+	// Null draws with the engine material, including custom-shader materials whose shader has not published yet.
+	const auto CustomPipelines = [&](const FRenderMesh::FSection& Section, const std::span<const FRenderMaterial* const> Overrides) -> const FImplementation::FMaterialPipelineSet*
 	{
 		const FRenderMaterial* Material = Section.Material < Overrides.size() ? Overrides[Section.Material] : nullptr;
 		if (Material && !Material->ShaderKey.empty())
@@ -2336,11 +2394,17 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			const auto Custom = State.MaterialPipelines.find(Material->ShaderKey);
 			if (Custom != State.MaterialPipelines.end())
 			{
-				return Custom->second[bInstanced ? 1 : 0];
+				return &Custom->second;
 			}
 		}
 
-		return bInstanced ? State.InstancedPipeline : State.Pipeline;
+		return nullptr;
+	};
+
+	// A custom set lacks a prepass variant only when the engine lacks it too, so the fallback never draws.
+	const auto CustomOr = [](const FGraphicsPipelineHandle& Custom, const FGraphicsPipelineHandle& Engine) -> const FGraphicsPipelineHandle&
+	{
+		return Custom ? Custom : Engine;
 	};
 
 	FRenderGraph Graph;
@@ -2639,12 +2703,10 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				for (const FRenderMesh::FSection& Section : Mesh.Sections)
 				{
 					const std::uint32_t IndirectOffset = ((static_cast<std::uint32_t>(List) * State.OcclusionDrawCount) + DrawIndex++) * IndirectDrawWords * sizeof(std::uint32_t);
-					const FGraphicsPipelineHandle Shading = MaterialPipeline(Section, Batch.Materials, true);
-					// Custom material shaders may move vertices, so they skip the prepass and write their own depth.
-					if (bDepthPrepass && Shading != State.InstancedPipeline)
-					{
-						continue;
-					}
+					const FImplementation::FMaterialPipelineSet* const Custom = CustomPipelines(Section, Batch.Materials);
+					const FGraphicsPipelineHandle& Shading = Custom ? Custom->Shading[1] : State.InstancedPipeline;
+					// Custom material shaders run their own prepass, since they may move vertices or cut out by their own alpha.
+					const FGraphicsPipelineHandle& SectionPrepass = !Custom ? Prepass : CustomOr(bVelocity ? (bSurface ? Custom->VelocitySurfacePrepass : Custom->VelocityPrepass) : (bSurface ? Custom->SurfacePrepass[1] : Custom->DepthPrepass[1]), Prepass);
 
 					auto Textures = MaterialTextures(Mesh, Section, Batch.Materials);
 					if (bScreenOcclusion && !bDepthPrepass)
@@ -2662,7 +2724,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 						Textures[15] = State.IrradianceField->GetIrradiance();
 					}
 
-					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? Prepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bDepthPrepass ? PrepassTarget : ColorTarget, .SecondColorTarget = bVelocity && bSurface ? State.Surface : FTextureHandle{}, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .PreviousInstances = bVelocity ? State.PreviousInstances : FBufferHandle{}, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers};
+					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? SectionPrepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bDepthPrepass ? PrepassTarget : ColorTarget, .SecondColorTarget = bVelocity && bSurface ? State.Surface : FTextureHandle{}, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .PreviousInstances = bVelocity ? State.PreviousInstances : FBufferHandle{}, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers};
 					if (State.bOcclusionCulling)
 					{
 						Draw.Instances = State.CulledInstances;
@@ -2697,11 +2759,8 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			const auto ObjectToView = (View.View * View.Models[Index]).Data();
 			for (const FRenderMesh::FSection& Section : Mesh.Sections)
 			{
-				const FGraphicsPipelineHandle Shading = MaterialPipeline(Section, Overrides, false);
-				if (bDepthPrepass && Shading != State.Pipeline)
-				{
-					continue;
-				}
+				const FImplementation::FMaterialPipelineSet* const Custom = CustomPipelines(Section, Overrides);
+				const FGraphicsPipelineHandle& Shading = Custom ? Custom->Shading[0] : State.Pipeline;
 
 				auto Textures = MaterialTextures(Mesh, Section, Overrides);
 				if (bScreenOcclusion && !bDepthPrepass)
@@ -2720,7 +2779,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				}
 
 				const bool bSurface = bDepthPrepass && bGlobalIllumination;
-				const auto Result = Device.DrawIndexed({.Pipeline = bDepthPrepass ? (bSurface ? State.SurfacePrepassPipeline : State.DepthPrepassPipeline) : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bSurface ? State.Surface : ColorTarget, .DepthTarget = FrameDepth, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .ObjectToView = ObjectToView, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers});
+				const FGraphicsPipelineHandle& EnginePrepass = bSurface ? State.SurfacePrepassPipeline : State.DepthPrepassPipeline;
+				const FGraphicsPipelineHandle& SectionPrepass = Custom ? CustomOr(bSurface ? Custom->SurfacePrepass[0] : Custom->DepthPrepass[0], EnginePrepass) : EnginePrepass;
+				const auto Result = Device.DrawIndexed({.Pipeline = bDepthPrepass ? SectionPrepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bSurface ? State.Surface : ColorTarget, .DepthTarget = FrameDepth, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .ObjectToView = ObjectToView, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers});
 				if (!Result)
 				{
 					return GraphResult(Result);
@@ -2748,7 +2809,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	{
 		Graph.AddPass("Depth prepass", {{.Resource = Depth, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
-			// Roughness 1 where no prepass draw writes, such as custom-material surfaces, keeps reflections off them.
+			// Roughness 1 where no prepass draw writes, such as the sky, keeps reflections off it.
 			if (bGlobalIllumination)
 			{
 				if (const auto Cleared = Device.ClearTargets(State.Surface, {}, {0.f, 0.f, 0.f, 1.f}); !Cleared)

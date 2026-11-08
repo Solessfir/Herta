@@ -1,6 +1,7 @@
 #include "Herta/Math/Matrix.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "TestGraphicsDevice.h"
+#include "TestMaterialShaders.h"
 
 #include <doctest/doctest.h>
 
@@ -890,7 +891,7 @@ TEST_CASE("Material shader sharing reuses compatible pipelines and counts only s
 	};
 
 	const auto Original = Draw(**Preview);
-	REQUIRE((*Source)->PublishMaterialShader("Game/Shared.slang", Vertex, Instanced, Fragment));
+	REQUIRE((*Source)->PublishMaterialShader("Game/Shared.slang", Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
 	CHECK((*Source)->GetMaterialShaderGeneration() == 1);
 	const auto Published = Draw(**Source);
 	REQUIRE(Published != Original);
@@ -919,16 +920,16 @@ TEST_CASE("Material shader sharing reuses compatible pipelines and counts only s
 		return {};
 	};
 
-	CHECK_FALSE((*Source)->PublishMaterialShader("Game/Shared.slang", Vertex, Instanced, Fragment));
+	CHECK_FALSE((*Source)->PublishMaterialShader("Game/Shared.slang", Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
 	CHECK((*Source)->GetMaterialShaderGeneration() == 1);
 	REQUIRE((*Preview)->ShareMaterialShaders(**Source));
 	CHECK(Draw(**Preview) == Published);
 	FShaderAsset Invalid = Fragment;
 	Invalid.Bindings.clear();
-	CHECK_FALSE((*Source)->PublishMaterialShader("Game/Shared.slang", Vertex, Instanced, Invalid));
+	CHECK_FALSE((*Source)->PublishMaterialShader("Game/Shared.slang", Tests::MakeMaterialShaderStages(Vertex, Instanced, Invalid)));
 	CHECK((*Source)->GetMaterialShaderGeneration() == 1);
 	Device.ValidatePipeline = {};
-	REQUIRE((*Source)->PublishMaterialShader("Game/Shared.slang", Vertex, Instanced, Fragment));
+	REQUIRE((*Source)->PublishMaterialShader("Game/Shared.slang", Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
 	CHECK((*Source)->GetMaterialShaderGeneration() == 2);
 	const auto Updated = Draw(**Source);
 	CHECK(Updated != Published);
@@ -937,7 +938,7 @@ TEST_CASE("Material shader sharing reuses compatible pipelines and counts only s
 	CHECK(Draw(**Preview) == Updated);
 
 	Scene.View.Materials = {};
-	REQUIRE((*Source)->PublishMaterialShader("", Vertex, Instanced, Fragment));
+	REQUIRE((*Source)->PublishMaterialShader("", Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
 	CHECK((*Source)->GetMaterialShaderGeneration() == 3);
 	const auto Default = Draw(**Source);
 	REQUIRE((*Preview)->ShareMaterialShaders(**Source));
@@ -973,8 +974,8 @@ TEST_CASE("Material shader sharing keeps a renderer without instancing off the i
 	FShaderAsset Fragment = Vertex;
 	Fragment.Stage = EShaderStage::Fragment;
 	Fragment.EntryPoint = "fragmentMain";
-	REQUIRE((*Thumbnail)->PublishMaterialShader("", Vertex, Instanced, Fragment));
-	REQUIRE((*Editor)->PublishMaterialShader("", Vertex, Instanced, Fragment));
+	REQUIRE((*Thumbnail)->PublishMaterialShader("", Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
+	REQUIRE((*Editor)->PublishMaterialShader("", Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
 	REQUIRE((*Thumbnail)->ShareMaterialShaders(**Editor));
 
 	// Before the fix the thumbnail took the editor's instanced pipeline and drew its prepass with an instanced prepass pipeline it never built.
@@ -984,6 +985,54 @@ TEST_CASE("Material shader sharing keeps a renderer without instancing off the i
 	{
 		return !Draw.Pipeline || std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor.bInstanced;
 	}));
+}
+
+TEST_CASE("Custom material shaders draw their own depth prepass and shade against it")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	Visuals.FullscreenVertex.Bytecode = {1};
+	Visuals.ShadowFragment.Bytecode = {1};
+	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	REQUIRE(Renderer);
+
+	FShaderAsset Vertex;
+	Vertex.Stage = EShaderStage::Vertex;
+	Vertex.EntryPoint = "vertexMain";
+	Vertex.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = VisualUniformBytes}};
+	Vertex.Bytecode = {1};
+	FShaderAsset Instanced = Vertex;
+	Instanced.EntryPoint = "instancedVertexMain";
+	FShaderAsset Fragment = Vertex;
+	Fragment.Stage = EShaderStage::Fragment;
+	Fragment.EntryPoint = "fragmentMain";
+	REQUIRE((*Renderer)->PublishMaterialShader("Game/Custom.slang", Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
+
+	const auto Material = FRenderMaterial::Create(Device, FMaterialAsset{.ShaderPath = "Game/Custom.slang"}, {}, "Custom");
+	REQUIRE(Material);
+	const FRenderMaterial* const MaterialPointer = Material->get();
+	const std::span<const FRenderMaterial* const> Slots{&MaterialPointer, 1};
+	Scene.View.Materials = {&Slots, 1};
+	Device.Draws.clear();
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+
+	std::vector<const FGraphicsPipelineDescriptor*> MeshDraws;
+	for (const FIndexedDraw& Draw : Device.Draws)
+	{
+		const FGraphicsPipelineDescriptor& Descriptor = std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor;
+		if (Descriptor.VertexFormat == EGraphicsVertexFormat::Mesh)
+		{
+			MeshDraws.push_back(&Descriptor);
+		}
+	}
+
+	REQUIRE(MeshDraws.size() == 2);
+	CHECK(MeshDraws[0]->bDepthOnly);
+	CHECK(MeshDraws[0]->FragmentShader.EntryPoint == "depthFragmentMain");
+	CHECK(MeshDraws[1]->FragmentShader.EntryPoint == "fragmentMain");
+	CHECK_FALSE(MeshDraws[1]->bDepthWrite);
 }
 
 TEST_CASE("Mesh vertex updates upload inside the frame's recording and must replace every vertex")

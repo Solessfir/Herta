@@ -31,12 +31,6 @@ bool IsMaterialShaderPath(const std::string_view Path)
 	return Path.ends_with(".slang") || Path.ends_with(".hmatgraph");
 }
 
-struct FCompiledMaterialShader
-{
-	FShaderAsset Vertex;
-	FShaderAsset Instanced;
-	FShaderAsset Fragment;
-};
 }
 
 struct FMaterialShaders::FSourceSnapshot
@@ -272,7 +266,7 @@ void FMaterialShaders::Poll()
 
 void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 {
-	using FCompileResult = std::expected<FCompiledMaterialShader, FShaderError>;
+	using FCompileResult = std::expected<FMaterialShaderStages, FShaderError>;
 	auto Result = std::make_shared<FCompileResult>(std::unexpected(FShaderError{"Shader compilation cancelled"}));
 	Entry.ActiveStop = std::stop_source{};
 	Entry.bInFlight = true;
@@ -295,9 +289,8 @@ void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 			return;
 		}
 
-		FCompiledMaterialShader Compiled;
-		const std::array<FShaderAsset*, 3> Outputs{&Compiled.Vertex, &Compiled.Instanced, &Compiled.Fragment};
-		for (std::size_t Index = 0; Index < Outputs.size(); ++Index)
+		FMaterialShaderStages Compiled;
+		for (std::size_t Index = 0; Index < Compiled.size(); ++Index)
 		{
 			auto Shader = DeserializeCookedShader((*Stages)[Index]);
 			if (!Shader)
@@ -306,7 +299,7 @@ void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 				return;
 			}
 
-			*Outputs[Index] = std::move(*Shader);
+			Compiled[Index] = std::move(*Shader);
 		}
 
 		*Result = std::move(Compiled);
@@ -336,7 +329,7 @@ void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 			return;
 		}
 
-		const auto Installed = Renderer.PublishMaterialShader(Path, std::move((*Result)->Vertex), std::move((*Result)->Instanced), std::move((*Result)->Fragment));
+		const auto Installed = Renderer.PublishMaterialShader(Path, std::move(**Result));
 		if (!Installed)
 		{
 			Current.FailedKey = Key;

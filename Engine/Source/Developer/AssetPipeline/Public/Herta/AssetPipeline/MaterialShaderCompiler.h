@@ -2,6 +2,7 @@
 
 #include "Herta/AssetPipeline/ShaderSources.h"
 #include "Herta/Assets/AssetRegistry.h"
+#include "Herta/Assets/CookedContent.h"
 #include "Herta/Core/Hash.h"
 
 #include <array>
@@ -32,7 +33,10 @@ struct FMaterialShaderSources
 // Identifies the sources by every file's path and bytes.
 [[nodiscard]] FHash128 HashMaterialShaderSources(const FMaterialShaderSources& Sources);
 
-// Compiles the vertex, instanced vertex, and fragment stages in HertaShaderWorker from a private snapshot of the sources, returning each cooked shader file
-// in MaterialShaderStageNames order. Key names the snapshot so debug info, and with it the driver's pipeline cache, stays stable across runs.
-[[nodiscard]] std::expected<std::array<std::vector<std::byte>, 3>, FAssetError> CompileMaterialShader(const std::filesystem::path& Worker, const FMaterialShaderSources& Sources, const FHash128& Key, bool bDebug, const std::function<bool()>& ShouldCancel);
+// One cooked shader file per stage, in MaterialShaderStageNames order.
+using FMaterialShaderBytes = std::array<std::vector<std::byte>, MaterialShaderStageCount>;
+
+// Compiles every stage, shading and depth prepass, in HertaShaderWorker from a private snapshot of the sources. Key names the snapshot so debug
+// info, and with it the driver's pipeline cache, stays stable across runs.
+[[nodiscard]] std::expected<FMaterialShaderBytes, FAssetError> CompileMaterialShader(const std::filesystem::path& Worker, const FMaterialShaderSources& Sources, const FHash128& Key, bool bDebug, const std::function<bool()>& ShouldCancel);
 }

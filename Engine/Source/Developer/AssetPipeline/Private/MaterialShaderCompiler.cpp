@@ -2,17 +2,37 @@
 
 #include "FileUtilities.h"
 #include "Herta/Assets/AssetId.h"
+#include "Herta/Assets/CookedContent.h"
 #include "Herta/MaterialGraph/MaterialGraph.h"
 #include "Herta/Platform/Process.h"
 
 #include <format>
 #include <fstream>
+#include <thread>
 #include <utility>
 
 namespace Herta
 {
 namespace
 {
+struct FStageEntry
+{
+	std::string_view EntryPoint;
+	bool bFragment = false;
+};
+
+// In MaterialShaderStageNames order.
+constexpr std::array<FStageEntry, MaterialShaderStageCount> StageEntries{
+    FStageEntry{.EntryPoint = "vertexMain"},
+    FStageEntry{.EntryPoint = "instancedVertexMain"},
+    FStageEntry{.EntryPoint = "fragmentMain", .bFragment = true},
+    FStageEntry{.EntryPoint = "depthFragmentMain", .bFragment = true},
+    FStageEntry{.EntryPoint = "velocityFragmentMain", .bFragment = true},
+    FStageEntry{.EntryPoint = "instancedVelocityVertexMain"},
+    FStageEntry{.EntryPoint = "surfaceFragmentMain", .bFragment = true},
+    FStageEntry{.EntryPoint = "velocitySurfaceFragmentMain", .bFragment = true},
+};
+
 std::string Utf8Path(const std::filesystem::path& Path)
 {
 	const auto Text = Path.generic_u8string();
@@ -166,7 +186,7 @@ FHash128 HashMaterialShaderSources(const FMaterialShaderSources& Sources)
 	return HashBytes(Identity);
 }
 
-std::expected<std::array<std::vector<std::byte>, 3>, FAssetError> CompileMaterialShader(const std::filesystem::path& Worker, const FMaterialShaderSources& Sources, const FHash128& Key, const bool bDebug, const std::function<bool()>& ShouldCancel)
+std::expected<FMaterialShaderBytes, FAssetError> CompileMaterialShader(const std::filesystem::path& Worker, const FMaterialShaderSources& Sources, const FHash128& Key, const bool bDebug, const std::function<bool()>& ShouldCancel)
 {
 	FShaderScratch Scratch;
 	if (auto Created = Scratch.Initialize(Key); !Created)
@@ -217,13 +237,11 @@ std::expected<std::array<std::vector<std::byte>, 3>, FAssetError> CompileMateria
 	}
 
 	const auto Source = Copies[Sources.Root] / SourcePath(Sources.Source);
-	std::array<std::vector<std::byte>, 3> Result;
-	constexpr std::array<std::string_view, 3> EntryPoints{"vertexMain", "instancedVertexMain", "fragmentMain"};
-
-	for (std::size_t Index = 0; Index < EntryPoints.size(); ++Index)
+	const auto CompileStage = [&](const std::size_t Index) -> std::expected<std::vector<std::byte>, FAssetError>
 	{
+		const FStageEntry& Entry = StageEntries[Index];
 		const auto Output = Scratch.GetPath() / std::format("Stage{}.hshader", Index);
-		std::vector<std::string> Arguments{Utf8Path(Source), Index == 2 ? "fragment" : "vertex", std::string(EntryPoints[Index]), Utf8Path(Output)};
+		std::vector<std::string> Arguments{Utf8Path(Source), Entry.bFragment ? "fragment" : "vertex", std::string(Entry.EntryPoint), Utf8Path(Output)};
 		if (bDebug)
 		{
 			Arguments.emplace_back("--debug");
@@ -250,16 +268,43 @@ std::expected<std::array<std::vector<std::byte>, 3>, FAssetError> CompileMateria
 
 		if (Process->ExitCode != 0)
 		{
-			return std::unexpected(FAssetError{std::format("{} failed: {}{}", EntryPoints[Index], Process->StandardError, Process->StandardOutput)});
+			return std::unexpected(FAssetError{std::format("{} failed: {}{}", Entry.EntryPoint, Process->StandardError, Process->StandardOutput)});
 		}
 
 		auto Bytes = ReadWholeFile(Output, std::uint64_t{256} * 1024 * 1024);
 		if (!Bytes || !*Bytes)
 		{
-			return std::unexpected(FAssetError{std::format("{} produced no cooked shader", EntryPoints[Index])});
+			return std::unexpected(FAssetError{std::format("{} produced no cooked shader", Entry.EntryPoint)});
 		}
 
-		Result[Index] = std::move(**Bytes);
+		return std::move(**Bytes);
+	};
+
+	// Each stage is a separate worker process that parses the whole shader, so they run side by side; the slowest stage sets the latency.
+	std::array<std::expected<std::vector<std::byte>, FAssetError>, MaterialShaderStageCount> Compiled;
+	{
+		std::vector<std::jthread> Workers;
+		Workers.reserve(MaterialShaderStageCount - 1);
+		for (std::size_t Index = 1; Index < MaterialShaderStageCount; ++Index)
+		{
+			Workers.emplace_back([&Compiled, &CompileStage, Index]()
+			{
+				Compiled[Index] = CompileStage(Index);
+			});
+		}
+
+		Compiled[0] = CompileStage(0);
+	}
+
+	FMaterialShaderBytes Result;
+	for (std::size_t Index = 0; Index < MaterialShaderStageCount; ++Index)
+	{
+		if (!Compiled[Index])
+		{
+			return std::unexpected(Compiled[Index].error());
+		}
+
+		Result[Index] = std::move(*Compiled[Index]);
 	}
 
 	return Result;
