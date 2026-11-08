@@ -146,8 +146,19 @@ const std::string& FMaterialGraphPanel::GetPath() const
 	return Path;
 }
 
+const FGraph& FMaterialGraphPanel::GetDraft() const
+{
+	return Draft;
+}
+
+std::uint64_t FMaterialGraphPanel::GetDraftRevision() const
+{
+	return DraftRevision;
+}
+
 void FMaterialGraphPanel::Compile()
 {
+	++DraftRevision;
 	const auto Compiled = CompileMaterialGraph(Draft);
 	Diagnostics = Compiled ? Compiled->Diagnostics : Compiled.error();
 }

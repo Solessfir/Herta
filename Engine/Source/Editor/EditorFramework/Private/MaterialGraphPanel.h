@@ -50,6 +50,9 @@ public:
 	[[nodiscard]] bool IsFocused() const;
 	[[nodiscard]] bool IsDirty() const;
 	[[nodiscard]] const std::string& GetPath() const;
+	[[nodiscard]] const FGraph& GetDraft() const;
+	// Changes whenever the draft does, including during a property drag.
+	[[nodiscard]] std::uint64_t GetDraftRevision() const;
 
 private:
 	void Apply(FGraph After, std::string Label);
@@ -70,6 +73,7 @@ private:
 	bool bFocused = false;
 	bool bReadOnly = false;
 	bool bClosePrompt = false;
+	std::uint64_t DraftRevision = 0;
 
 	// History callbacks refer to the draft, so history is destroyed first.
 	FEditorTransactionHistory History{256, 16 * 1024 * 1024};

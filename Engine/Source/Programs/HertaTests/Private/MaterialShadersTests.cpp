@@ -1,8 +1,10 @@
 #include "Herta/AssetPipeline/MaterialShaderCompiler.h"
 #include "Herta/Assets/CookedContent.h"
 #include "Herta/Core/Log.h"
+#include "Herta/MaterialGraph/MaterialGraph.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Tasks/TaskSystem.h"
+#include "MaterialGraphPanel.h"
 #include "MaterialShaders.h"
 #include "TestFiles.h"
 #include "TestGraphicsDevice.h"
@@ -282,5 +284,68 @@ TEST_CASE("Material Graphs compile headless to the shaders a staged game loads")
 
 	CHECK(GetStagedMaterialShaderPath("Content", "Playground/Materials/GraphStripes.hmatgraph", MaterialShaderStageNames[2]) == std::filesystem::path("Content/Shaders/Playground/Materials/GraphStripes.hmatgraph.frag.hshader"));
 	CHECK_FALSE(CollectMaterialShaderSources(Roots, "Game/Playground/Materials/Missing.hmatgraph"));
+}
+
+TEST_CASE("Material Graph drafts compile from an override without touching the file")
+{
+	const auto ShaderRoot = FindShaderRoot();
+	REQUIRE_FALSE(ShaderRoot.empty());
+	Tests::FScratchDirectory Scratch{"HertaMaterialGraphDraft"};
+	const auto Saved = SerializeGraph(MakeDefaultMaterialGraph(), GetMaterialGraphSchema());
+	REQUIRE(Saved);
+	Tests::WriteText(Scratch.GetPath() / "Game/Graph.hmatgraph", *Saved);
+	std::filesystem::create_directories(Scratch.GetPath() / "Engine");
+
+	auto LogResult = FLogService::Create({.bConsoleOutput = false, .bDebuggerOutput = false, .bFileOutput = false});
+	REQUIRE(LogResult);
+	auto Tasks = FTaskSystem::Create({.bDeterministic = true, .Log = LogResult->get()});
+	REQUIRE(Tasks);
+	Tests::FTestGraphicsDevice Device;
+	auto Renderer = FMeshRenderer::Create(Device, {}, {});
+	REQUIRE(Renderer);
+	auto Watcher = FMaterialShaders::Create(**Tasks, **Renderer, **LogResult, ShaderRoot, Tests::GetSiblingExecutable("HertaShaderWorker"), Scratch.GetPath() / "Engine", Scratch.GetPath() / "Game");
+	REQUIRE(Watcher);
+	const std::array<std::string, 1> Paths{"Game/Graph.hmatgraph"};
+	const auto Settle = [&]
+	{
+		for (int Pass = 0; Pass < 3; ++Pass)
+		{
+			Watcher->Tick(Paths);
+			(*Tasks)->RunUntilIdle();
+		}
+
+		const FMaterialShaderStatus* const Status = Watcher->GetStatus(Paths[0]);
+		REQUIRE(Status);
+		REQUIRE_MESSAGE(Status->bReady, Status->Diagnostics);
+		CHECK_FALSE(Status->bCompiling);
+		return Status->Generation;
+	};
+
+	const std::uint64_t SavedGeneration = Settle();
+
+	// A draft that adds a roughness parameter compiles and publishes its table, and the file stays as saved.
+	FGraph Draft = MakeDefaultMaterialGraph();
+	auto Parameter = MakeGraphNode(GetMaterialGraphSchema(), "ScalarParameter", NextGraphNodeId(Draft), {});
+	REQUIRE(Parameter);
+	const FGraphNodeId ParameterId = Parameter->Id;
+	Draft.Nodes.push_back(std::move(*Parameter));
+	const auto Output = std::ranges::find(Draft.Nodes, MaterialGraphOutputType, &FGraphNode::Type);
+	Draft.Links.push_back({.From = {.Node = ParameterId, .Key = "Value"}, .To = {.Node = Output->Id, .Key = "Roughness"}});
+	const auto DraftText = SerializeGraph(Draft, GetMaterialGraphSchema());
+	REQUIRE(DraftText);
+	Watcher->SetGraphOverride(Paths[0], *DraftText);
+	const std::uint64_t DraftGeneration = Settle();
+	CHECK(DraftGeneration > SavedGeneration);
+	REQUIRE(Watcher->GetStatus(Paths[0])->Parameters.size() == 1);
+	CHECK(Watcher->GetStatus(Paths[0])->Parameters[0].Name == "Scalar");
+	CHECK(ReadShaderText(Scratch.GetPath() / "Game/Graph.hmatgraph") == *Saved);
+
+	// Discarding the draft compiles the file again.
+	Watcher->SetGraphOverride(Paths[0], std::nullopt);
+	CHECK(Settle() > DraftGeneration);
+	CHECK(Watcher->GetStatus(Paths[0])->Parameters.empty());
+
+	Watcher.reset();
+	(*Tasks)->Shutdown();
 }
 }

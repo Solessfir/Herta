@@ -98,6 +98,28 @@ const FMaterialShaderStatus* FMaterialShaders::GetStatus(const std::string_view 
 	return Found == Entries.end() ? nullptr : &Found->second.Status;
 }
 
+void FMaterialShaders::SetGraphOverride(const std::string_view Path, std::optional<std::string> GraphText)
+{
+	const std::string Key = MountedPath(Path);
+	const auto Found = GraphOverrides.find(Key);
+	if (GraphText ? Found != GraphOverrides.end() && Found->second == *GraphText : Found == GraphOverrides.end())
+	{
+		return;
+	}
+
+	if (GraphText)
+	{
+		GraphOverrides.insert_or_assign(Key, std::move(*GraphText));
+	}
+	else
+	{
+		GraphOverrides.erase(Found);
+	}
+
+	// Edits should reach the preview at once rather than at the next file poll.
+	NextPoll = {};
+}
+
 void FMaterialShaders::Tick(const std::span<const std::string> MountedShaderPaths)
 {
 	std::set<std::string> Desired{""};
@@ -173,7 +195,7 @@ void FMaterialShaders::Poll()
 	using FSnapshotResult = std::expected<std::shared_ptr<const FSourceSnapshot>, FShaderError>;
 	auto Results = std::make_shared<std::map<std::string, FSnapshotResult>>();
 	bPolling = true;
-	const auto Work = Tasks.Submit(*Scope, {.Name = "Watch material shader sources", .Lane = ETaskLane::BlockingIo}, [Results, Paths = Wanted, Directories = Roots](FTaskContext& Context)
+	const auto Work = Tasks.Submit(*Scope, {.Name = "Watch material shader sources", .Lane = ETaskLane::BlockingIo}, [Results, Paths = Wanted, Directories = Roots, Overrides = GraphOverrides](FTaskContext& Context)
 	{
 		std::size_t CapturedBytes = 0;
 
@@ -184,7 +206,8 @@ void FMaterialShaders::Poll()
 				return;
 			}
 
-			auto Collected = CollectMaterialShaderSources(Directories, Path);
+			const auto Override = Overrides.find(Path);
+			auto Collected = CollectMaterialShaderSources(Directories, Path, Override != Overrides.end() ? std::optional<std::string_view>(Override->second) : std::nullopt);
 			if (!Collected)
 			{
 				Results->emplace(Path, std::unexpected(FShaderError{Collected.error().Message}));

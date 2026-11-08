@@ -590,6 +590,9 @@ struct FEditorFramework::FImplementation
 	bool bRestoreBottomPanelFocus = true;
 	bool bContentBrowserOpen = true;
 	// The material previewed beside the open Material Graph, and the shader generation its preview shows.
+	// The graph whose unsaved draft the shader watcher compiles, and the draft revision it last received.
+	std::string LiveGraphPath;
+	std::uint64_t LiveGraphRevision = 0;
 	FAssetId GraphPreviewAsset{};
 	std::optional<FMaterialAsset> GraphPreviewMaterial;
 	std::uint64_t GraphPreviewGeneration = UINT64_MAX;
@@ -2579,6 +2582,24 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 		if (MaterialGraphPanel.IsOpen())
 		{
 			ShaderPaths.push_back(MaterialGraphPanel.GetPath());
+		}
+
+		// An unsaved graph compiles from the editor's draft, so every material using it previews the edit; saving or discarding returns to the file.
+		const bool bLiveGraph = MaterialShaders && MaterialGraphPanel.IsOpen() && MaterialGraphPanel.IsDirty();
+		if (MaterialShaders && !LiveGraphPath.empty() && (!bLiveGraph || LiveGraphPath != MaterialGraphPanel.GetPath()))
+		{
+			MaterialShaders->SetGraphOverride(LiveGraphPath, std::nullopt);
+			LiveGraphPath.clear();
+		}
+
+		if (bLiveGraph && (LiveGraphPath.empty() || LiveGraphRevision != MaterialGraphPanel.GetDraftRevision()))
+		{
+			LiveGraphPath = MaterialGraphPanel.GetPath();
+			LiveGraphRevision = MaterialGraphPanel.GetDraftRevision();
+			if (auto Text = SerializeGraph(MaterialGraphPanel.GetDraft(), GetMaterialGraphSchema()))
+			{
+				MaterialShaders->SetGraphOverride(LiveGraphPath, std::move(*Text));
+			}
 		}
 
 		if (MaterialShaders)

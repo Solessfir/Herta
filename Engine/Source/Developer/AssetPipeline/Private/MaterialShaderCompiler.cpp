@@ -103,7 +103,7 @@ const std::filesystem::path& FShaderScratch::GetPath() const noexcept
 }
 }
 
-std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(const std::span<const std::filesystem::path> Roots, const std::string_view MountedPath)
+std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(const std::span<const std::filesystem::path> Roots, const std::string_view MountedPath, const std::optional<std::string_view> GraphText)
 {
 	if (MountedPath.empty())
 	{
@@ -134,13 +134,23 @@ std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(
 		return FMaterialShaderSources{.Root = Root, .Source = Relative, .Files = std::move(*Files)};
 	}
 
-	const auto Bytes = ReadWholeFile(Roots[Root] / SourcePath(Relative), std::uint64_t{64} * 1024 * 1024);
-	if (!Bytes || !*Bytes)
+	std::string_view Text;
+	std::expected<std::optional<std::vector<std::byte>>, FAssetError> Bytes;
+	if (GraphText)
 	{
-		return std::unexpected(FAssetError{"Cannot read the Material Graph"});
+		Text = *GraphText;
+	}
+	else
+	{
+		Bytes = ReadWholeFile(Roots[Root] / SourcePath(Relative), std::uint64_t{64} * 1024 * 1024);
+		if (!Bytes || !*Bytes)
+		{
+			return std::unexpected(FAssetError{"Cannot read the Material Graph"});
+		}
+
+		Text = std::string_view(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size());
 	}
 
-	const std::string_view Text(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size());
 	const auto Graph = DeserializeGraph(Text, GetMaterialGraphSchema());
 	if (!Graph)
 	{

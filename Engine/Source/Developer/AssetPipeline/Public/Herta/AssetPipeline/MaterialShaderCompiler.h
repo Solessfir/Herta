@@ -10,6 +10,7 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -30,7 +31,8 @@ struct FMaterialShaderSources
 
 // Reads a mounted material shader ("Engine/..." or "Game/...", empty for the engine default) with its includes. A Material Graph compiles to Slang here,
 // beside the graph, so the worker builds it exactly like a hand-written shader. Roots are the engine shaders, Engine content, and Game content.
-[[nodiscard]] std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(std::span<const std::filesystem::path> Roots, std::string_view MountedPath);
+// GraphText replaces a Material Graph's file, such as an unsaved draft in the editor.
+[[nodiscard]] std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(std::span<const std::filesystem::path> Roots, std::string_view MountedPath, std::optional<std::string_view> GraphText = std::nullopt);
 
 // Identifies the sources by every file's path and bytes.
 [[nodiscard]] FHash128 HashMaterialShaderSources(const FMaterialShaderSources& Sources);

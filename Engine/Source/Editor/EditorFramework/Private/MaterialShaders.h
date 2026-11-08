@@ -48,6 +48,8 @@ public:
 
 	void Tick(std::span<const std::string> MountedShaderPaths);
 	const FMaterialShaderStatus* GetStatus(std::string_view Path) const;
+	// Compiles a Material Graph from this text instead of its file, so unsaved edits preview live; nothing returns to the file.
+	void SetGraphOverride(std::string_view Path, std::optional<std::string> GraphText);
 
 private:
 	friend struct FMaterialShadersTestAccess;
@@ -78,6 +80,7 @@ private:
 	std::unique_ptr<FTaskScope> Scope;
 
 	std::map<std::string, FEntry, std::less<>> Entries;
+	std::map<std::string, std::string, std::less<>> GraphOverrides;
 	std::set<std::string> Wanted;
 	std::chrono::steady_clock::time_point NextPoll{};
 	bool bPolling = false;
