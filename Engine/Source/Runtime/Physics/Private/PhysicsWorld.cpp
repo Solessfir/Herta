@@ -1273,16 +1273,22 @@ public:
 
 float FPhysicsWorld::CastSphere(const FWorldPosition& Start, const FWorldPosition& End, const float Radius) const
 {
+	const std::optional<FPhysicsCastHit> Hit = CastSphereHit(Start, End, Radius);
+	return Hit ? Hit->Fraction : 1.f;
+}
+
+std::optional<FPhysicsCastHit> FPhysicsWorld::CastSphereHit(const FWorldPosition& Start, const FWorldPosition& End, const float Radius) const
+{
 	if (!std::isfinite(Radius) || Radius <= 0.f)
 	{
-		return 1.f;
+		return std::nullopt;
 	}
 
 	const FVector3 From = ToPhysics(Start);
 	const FVector3 Direction = ToPhysics(End) - From;
 	if (!IsFinite(From) || !IsFinite(Direction) || Direction.LengthSquared() < 1.e-12f)
 	{
-		return 1.f;
+		return std::nullopt;
 	}
 
 	JPH::SphereShape Sphere(Radius);
@@ -1295,7 +1301,15 @@ float FPhysicsWorld::CastSphere(const FWorldPosition& Start, const FWorldPositio
 	const FSolidBodyFilter BodyFilter;
 	const JPH::PhysicsSystem& Physics = Implementation->Physics;
 	Physics.GetNarrowPhaseQuery().CastShape(Cast, Settings, JPH::RVec3::sZero(), Collector, Physics.GetDefaultBroadPhaseLayerFilter(CharacterLayer), Physics.GetDefaultLayerFilter(CharacterLayer), BodyFilter);
-	return Collector.HadHit() ? std::clamp(Collector.mHit.mFraction, 0.f, 1.f) : 1.f;
+	if (!Collector.HadHit())
+	{
+		return std::nullopt;
+	}
+
+	// The penetration axis points from the sphere into what it hit, so the surface faces the other way.
+	const JPH::Vec3 Axis = Collector.mHit.mPenetrationAxis;
+	const FVector3 Normal = Axis.LengthSq() > 1.e-12f ? -ToHerta(Axis.Normalized()) : -Direction.Normalized();
+	return FPhysicsCastHit{.Fraction = std::clamp(Collector.mHit.mFraction, 0.f, 1.f), .Normal = Normal};
 }
 
 FVector3 FPhysicsWorld::ToPhysics(const FWorldPosition& Position) const

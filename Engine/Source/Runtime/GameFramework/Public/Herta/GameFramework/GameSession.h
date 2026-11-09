@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/GameFramework/CharacterMover.h"
 #include "Herta/GameFramework/LevelSimulation.h"
 #include "Herta/Level/World.h"
 #include "Herta/Math/Vector.h"
@@ -32,10 +33,10 @@ struct FGameInput
 	// Look change since the previous update, in radians. Positive yaw turns left and positive pitch looks up.
 	float YawDelta = 0.f;
 	float PitchDelta = 0.f;
-	// Pressed since the previous update. A jump is remembered briefly, so pressing just before landing still jumps.
+	// Pressed since the previous update. A jump is remembered briefly, so pressing just before landing still jumps. There is no sprint:
+	// holding forward builds speed, as in Mirror's Edge.
 	bool bJump = false;
-	bool bSprint = false;
-	// Held. Crouches, and slides when moving fast enough.
+	// Held. Crouches, and pressing it at a run slides.
 	bool bCrouch = false;
 	// Pressed since the previous update. Throws a ball where the player looks.
 	bool bThrow = false;
@@ -49,15 +50,13 @@ struct FGameGamepad
 	FVector2 Move{};
 	FVector2 Look{};
 	bool bJump = false;
-	bool bSprint = false;
 	bool bCrouch = false;
 	bool bThrow = false;
 	bool bToggleCamera = false;
 };
 
-// Adds a gamepad to keyboard and mouse input. Sticks ignore their resting drift, look turns faster the further the stick is pushed, a jump
-// registers once per press, and clicking the sprint button toggles sprinting, which also ends when the move stick returns to rest, since holding
-// a stick in is awkward.
+// Adds a gamepad to keyboard and mouse input. Sticks ignore their resting drift, look turns faster the further the stick is pushed, and a jump
+// registers once per press.
 class FGameGamepadControls
 {
 public:
@@ -69,53 +68,21 @@ private:
 	bool bJumpDown = true;
 	bool bThrowDown = true;
 	bool bToggleCameraDown = true;
-	bool bSprintDown = true;
-	bool bSprinting = false;
 };
 
-// The Sandbox controller limits: walk up 0.18 m steps, step up 0.35 m, jump 0.5 m steps, the 0.6 m hurdle, and a 2 m gap; the 1.3 m hurdle
-// takes a mantle.
+// The player: Mirror's Edge movement through a character mover, its camera, and where falls return it to the start. Under that tuning the
+// Sandbox gauges read: walk up 0.18 m steps, step up 0.35 m, jump 0.5 m steps, the 0.6 m hurdle, and a 2 m gap; the 1.3 m hurdle takes a
+// mantle.
 struct FGamePlayerSettings
 {
-	float Height = 1.8f;
-	float Radius = 0.3f;
-	float EyeHeight = 1.65f;
-	float StepHeight = 0.35f;
-	float WalkSpeed = 4.5f;
-	float SprintSpeed = 7.f;
-	// Lifts the feet about 0.75 m.
-	float JumpSpeed = 3.85f;
-	float GroundAcceleration = 40.f;
-	float AirAcceleration = 12.f;
+	FMovementTuning Movement{};
+	FMovementModeSet Modes{};
+	// Extra movement modes, asked before the built-in ones.
+	std::vector<FMovementModeFactory> CustomModes{};
+	// TdPawn.BaseEyeHeight puts the eyes 0.14 m under the top of the capsule, standing or crouched.
+	float EyeHeight = 1.66f;
+	float CrouchEyeHeight = 1.08f;
 	float VerticalFieldOfView = 1.2f;
-	// Crouching and sliding fit under a 1.1 m bar.
-	float CrouchHeight = 1.f;
-	float CrouchEyeHeight = 0.85f;
-	float CrouchSpeed = 2.2f;
-	// Crouching at this speed starts a slide, which ends once it slows to the crouch speed.
-	float SlideMinimumSpeed = 4.f;
-	// Entering a slide adds this much speed, at most once per cooldown, up to the boost limit.
-	float SlideBoost = 4.f;
-	float SlideBoostLimit = 11.5f;
-	float SlideBoostCooldownSeconds = 0.75f;
-	// Downhill pull on a slide per unit of floor tilt, and the fraction of speed it loses per second.
-	float SlideSlopeAcceleration = 40.f;
-	float SlideFriction = 0.8f;
-	float SlideSteerAcceleration = 6.f;
-	// A wall jump kicks this fast away from the wall while rising like a normal jump.
-	float WallJumpSpeed = 5.5f;
-	float WallJumpCooldownSeconds = 0.2f;
-	// Moving forward into a wall in the air climbs onto its top when the top is this high above the feet and the player fits up there.
-	float MantleMinimumHeight = 0.5f;
-	float MantleMaximumHeight = 1.9f;
-	// Sprinting forward along a wall in the air at the minimum speed or faster runs on it: a small lift, a fraction of gravity, and at most
-	// WallRunSeconds. Sprint is required because air control pressing into a wall inflates the speed along it past a walk.
-	float WallRunMinimumSpeed = 5.f;
-	float WallRunSeconds = 1.2f;
-	float WallRunLift = 1.5f;
-	float WallRunGravityScale = 0.25f;
-	// How far past the capsule the probe looks for the top, which is where the climb puts the feet; 0.3 m still lands on the 0.45 m hurdle.
-	float MantleReach = 0.3f;
 	// Falling below this height returns the player to the start.
 	float RespawnHeight = -30.f;
 	// The third-person camera sits this far behind the shoulders, centered on the player; a positive offset moves it right for an over-the-shoulder view.

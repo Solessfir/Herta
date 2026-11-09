@@ -458,8 +458,8 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 
 	// A mantle plays the climb while its root rise is drawn away, so the body never floats above the capsule; a wall jump plays its own clip.
 	std::vector<FLevelEntity> Course = Floor;
-	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Ledge", .Transform = {.Translation = {0., 0.65, 4.}, .Scale = {4.f, 1.3f, 3.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static});
-	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Wall", .Transform = {.Translation = {-3., 3., 0.}, .Scale = {0.5f, 6.f, 6.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static});
+	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Ledge", .Transform = {.Translation = {0., 0.85, 4.}, .Scale = {4.f, 1.7f, 3.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static});
+	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Wall", .Transform = {.Translation = {-1.2, 3., 0.}, .Scale = {0.5f, 6.f, 6.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static});
 	Session = FGameSession::Create(Course, Assets, nullptr, {}, nullptr, std::make_shared<const FCookedModel>(Mannequin()));
 	REQUIRE(Session);
 	Step({}, 90);
@@ -480,7 +480,7 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 	CHECK(EyeAboveFoot > 0.8f);
 	Step({}, 60);
 	CHECK_FALSE((*Session)->IsPlayerMantling());
-	CHECK((*Session)->GetPlayerFootPosition().Y == doctest::Approx(1.3f).epsilon(0.03));
+	CHECK((*Session)->GetPlayerFootPosition().Y == doctest::Approx(1.7f).epsilon(0.03));
 	CHECK(State() == "Locomotion");
 
 	REQUIRE((*Session)->Restart());
@@ -495,24 +495,25 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 
 	CHECK(bWallJumped);
 
-	// Sprinting along a long wall and jumping toward it runs on it with the sprint cycle.
+	// Running at a long wall and jumping toward it runs on it with the sprint cycle.
 	std::vector<FLevelEntity> Lane = Floor;
 	Lane.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Long wall", .Transform = {.Translation = {-2.7, 2.5, 12.}, .Scale = {0.4f, 5.f, 20.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static});
 	Session = FGameSession::Create(Lane, Assets, nullptr, {}, nullptr, std::make_shared<const FCookedModel>(Mannequin()));
 	REQUIRE(Session);
 	Step({}, 90);
-	Step({.Move = {0.5f, 1.f}, .bSprint = true}, 30);
-	Step({.Move = {0.5f, 1.f}, .bJump = true, .bSprint = true}, 1);
+	Step({.YawDelta = -0.5236f}, 1);
+	Step({.Move = {0.f, 1.f}}, 50);
+	Step({.Move = {0.f, 1.f}, .bJump = true}, 1);
 	bool bWallRan = false;
 	for (int Frame = 0; Frame < 60 && !bWallRan; ++Frame)
 	{
-		Step({.Move = {0.5f, 1.f}, .bSprint = true}, 1);
+		Step({.Move = {0.f, 1.f}}, 1);
 		bWallRan = (*Session)->IsPlayerWallRunning() && State() == "Wall run";
 	}
 
 	REQUIRE(bWallRan);
 	// The wall is on the right, at -X, so the view's up axis tilts toward +X, away from it, as the body's lean does.
-	Step({.Move = {0.5f, 1.f}, .bSprint = true}, 12);
+	Step({.Move = {0.f, 1.f}}, 12);
 	REQUIRE((*Session)->IsPlayerWallRunning());
 	CHECK((*Session)->GetRenderView({1280, 720}).View(1, 0) > 0.05f);
 

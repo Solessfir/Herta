@@ -20,7 +20,7 @@ Coding agents, and any other local MCP client, can drive a running editor throug
 | `gpu_timings` | GPU milliseconds per render pass in the latest measured frame. |
 | `play_start`, `play_stop` | Start Play, waiting up to 20 s for meshes and the character to load, or stop it. |
 | `play_state` | Player position, velocity, look yaw, grounded, crouched, sliding, mantling, and wall-running flags, camera mode, animation state, and objective. |
-| `play_input` | Drives the player for a number of frames: `move` [strafe right, forward], `look` total [yaw left, pitch up] radians, `face` a world [x, z] point to turn toward on the first frame, `jump`, `throw`, and `toggle_camera` on the first frame, `sprint` and `crouch` held. Returns the Play state afterwards. |
+| `play_input` | Drives the player for a number of frames: `move` [strafe right, forward], `look` total [yaw left, pitch up] radians, `face` a world [x, z] point to turn toward on the first frame, `jump`, `throw`, and `toggle_camera` on the first frame, `crouch` held; holding `move` forward builds speed, as there is no sprint. Returns the Play state afterwards. |
 
 Scripted Play advances a fixed 1/60 s per frame, so the same input gives the same result however fast the editor is drawing. Play started by `play_start` belongs to the client until `play_stop`: the mouse, keyboard, and gamepads cannot move the player, and the world holds still between calls, so only `play_input` frames advance it and runs repeat exactly. Play started by hand stays interactive.
 

@@ -36,15 +36,12 @@ void FGameGamepadControls::Apply(FGameInput& Input, const FGameGamepad& Gamepad,
 	Input.YawDelta -= Look.X * LookYawSpeed * DeltaSeconds;
 	Input.PitchDelta += Look.Y * LookPitchSpeed * DeltaSeconds;
 	Input.bJump |= Gamepad.bJump && !bJumpDown;
-	bSprinting = (bSprinting != (Gamepad.bSprint && !bSprintDown)) && (Move.X != 0.f || Move.Y != 0.f);
-	Input.bSprint |= bSprinting;
 	Input.bCrouch |= Gamepad.bCrouch;
 	Input.bThrow |= Gamepad.bThrow && !bThrowDown;
 	bThrowDown = Gamepad.bThrow;
 	Input.bToggleCamera |= Gamepad.bToggleCamera && !bToggleCameraDown;
 	bToggleCameraDown = Gamepad.bToggleCamera;
 	bJumpDown = Gamepad.bJump;
-	bSprintDown = Gamepad.bSprint;
 }
 
 void FGameGamepadControls::Reset() noexcept
@@ -52,7 +49,5 @@ void FGameGamepadControls::Reset() noexcept
 	bJumpDown = true;
 	bThrowDown = true;
 	bToggleCameraDown = true;
-	bSprintDown = true;
-	bSprinting = false;
 }
 }

@@ -118,6 +118,27 @@ TEST_CASE("Dynamic box settles on a static floor")
 	CHECK((*World)->GetBodyTransform(*FloorId)->Position == Floor.Position);
 }
 
+TEST_CASE("Sphere casts report where and which face they touch")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World.has_value());
+
+	// A wall whose near face is at X = 2.5.
+	FPhysicsBodySettings Wall;
+	Wall.HalfExtents = {0.2f, 2.5f, 10.f};
+	Wall.Position = {2.7f, 2.5f, 0.f};
+	REQUIRE((*World)->CreateBody(Wall).has_value());
+	REQUIRE((*World)->Step(1.f / 60.f).has_value());
+
+	// A 0.1 m sphere from X = 1.95 touches the face after 0.45 m of its 2 m sweep.
+	const auto Hit = (*World)->CastSphereHit((*World)->ToWorld({1.95f, 1.f, 0.f}), (*World)->ToWorld({3.95f, 1.f, 0.f}), 0.1f);
+	REQUIRE(Hit);
+	CHECK(Hit->Fraction == doctest::Approx(0.225f).epsilon(0.02));
+	CHECK(Hit->Normal.X == doctest::Approx(-1.f).epsilon(0.01));
+	CHECK((*World)->CastSphere((*World)->ToWorld({1.95f, 1.f, 0.f}), (*World)->ToWorld({3.95f, 1.f, 0.f}), 0.1f) == doctest::Approx(Hit->Fraction));
+	CHECK_FALSE((*World)->CastSphereHit((*World)->ToWorld({1.95f, 1.f, 0.f}), (*World)->ToWorld({1.95f, 1.f, 3.f}), 0.1f));
+}
+
 TEST_CASE("Physics rejects invalid input")
 {
 	auto World = FPhysicsWorld::Create();

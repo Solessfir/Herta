@@ -108,6 +108,15 @@ enum class EPhysicsContactPhase : std::uint8_t
 	Ended,
 };
 
+// Where a swept sphere first touched something.
+struct FPhysicsCastHit
+{
+	// The fraction of the way from start to end the sphere travelled before touching.
+	float Fraction = 1.f;
+	// Points away from the touched surface, back toward the sphere.
+	FVector3 Normal = FVector3::Up();
+};
+
 // A contact between two rigid bodies, at least one of which reports contacts. First has the lower ID.
 struct FPhysicsContactEvent
 {
@@ -288,6 +297,8 @@ public:
 	std::span<const FPhysicsSensorEvent> GetSensorEvents() const;
 	// Sweeps a sphere from Start to End against everything a character collides with, ignoring sensors and characters, and returns the fraction of the way it travels before touching something: 1 when nothing is in the way. A follow camera uses it to stay out of walls.
 	[[nodiscard]] float CastSphere(const FWorldPosition& Start, const FWorldPosition& End, float Radius) const;
+	// The same sweep with the touched surface's normal, or empty when nothing is in the way. A sphere that starts inside something touches it at fraction 0.
+	[[nodiscard]] std::optional<FPhysicsCastHit> CastSphereHit(const FWorldPosition& Start, const FWorldPosition& End, float Radius) const;
 	// Every body, constraint, and contact cache, for rollback. Only the world that saved a state, holding the same bodies, can restore it.
 	[[nodiscard]] std::vector<std::byte> SaveState() const;
 	[[nodiscard]] std::expected<void, FPhysicsError> RestoreState(std::span<const std::byte> State);

@@ -192,14 +192,13 @@ void SaveSettings(const std::filesystem::path& Path, const FGameSettings& Settin
 	};
 }
 
-// Left stick moves and right stick looks; A jumps, clicking the left stick toggles sprinting, B or clicking the right stick crouches, and X throws.
+// Left stick moves and right stick looks; A jumps, B or clicking the right stick crouches, and X throws.
 FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 {
 	return {
 	    .Move = {Gamepad.LeftX, -Gamepad.LeftY},
 	    .Look = {Gamepad.RightX, -Gamepad.RightY},
 	    .bJump = Gamepad.IsDown(EGamepadButton::South),
-	    .bSprint = Gamepad.IsDown(EGamepadButton::LeftThumb),
 	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
 	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
 	    .bToggleCamera = Gamepad.IsDown(EGamepadButton::North),
@@ -604,7 +603,6 @@ int RunGame(const FGameOptions& Options)
 			GameInput = {.Move = {0.f, 1.f}, .YawDelta = Frames % 240 < 120 ? 0.004f : -0.004f, .PitchDelta = Frames >= 100 && Frames < 160 ? -0.015f : Frames >= 280 && Frames < 340 ? 0.015f
 			                                                                                                                                                                          : 0.f,
 			    .bJump = Frames % 90 == 45,
-			    .bSprint = Frames % 300 > 150,
 			    .bCrouch = Frames % 300 > 240,
 			    .bThrow = Frames % 40 == 20,
 			    .bToggleCamera = Frames == Options.SmokeFrames / 2 + 40};
@@ -649,7 +647,6 @@ int RunGame(const FGameOptions& Options)
 			    .YawDelta = -Input.MouseDelta.X * Settings.MouseSensitivity,
 			    .PitchDelta = -Input.MouseDelta.Y * Settings.MouseSensitivity,
 			    .bJump = Input.bJump,
-			    .bSprint = Window.IsKeyDown(EKey::LeftShift) || Window.IsKeyDown(EKey::RightShift),
 			    .bCrouch = Window.IsKeyDown(EKey::C) || Window.IsKeyDown(EKey::LeftControl),
 			    .bThrow = Input.bThrow,
 			    .bToggleCamera = Input.bToggleCamera,
