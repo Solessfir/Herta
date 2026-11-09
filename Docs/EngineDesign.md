@@ -1703,10 +1703,16 @@ Exit condition: a controllable character in the Sandbox blends and plays cooked 
 - Mark severable joints, such as the neck, shoulders, elbows, hips, and knees, in a skinned model's `.hmeta`.
 - At cook time, split the mesh where vertex weights pass from a severable joint's subtree to its parent, so cuts follow the real weight boundary. Close both sides with generated cap geometry in a wound material slot, and duplicate the seam vertices with full weight on one side so neither the body nor the limb tears or stretches. Store each limb as a piece of the same skinned model.
 - At runtime, severing hides the joint's subtree on the body, shows the stump cap, and spawns the limb piece with its own pose as a ragdoll segment. Damage from sorted contact events chooses the joint, so severing replicates through the deterministic simulation.
-- Add a Sandbox station where thrown balls sever the Mannequin's limbs.
-- Defer arbitrary plane cuts through the posed mesh at runtime until gameplay needs cuts that predefined joints cannot give.
+- Add blade-plane slicing at runtime, so a cut follows the exact plane of a sword swing anywhere on the body, such as a diagonal slice through the torso. Mainstream engines do not ship this for skeletal meshes.
+  - Classify the triangles of the posed, skinned mesh against the blade plane, which CPU skinning already provides. Split crossing triangles, interpolating bind-space position, normal, tangent, UV, and skin weights for each new vertex, keeping the four strongest influences renormalized, so both halves keep animating from the same skeleton.
+  - Close each half with a cap: trace the cut outline into loops, triangulate them, including holes and concave outlines, give cap vertices the weights of the outline they close, and assign the wound material and planar UVs.
+  - Split the skeleton at the cut: joints wholly on one side go with that half, and joints the plane crosses are duplicated into both. The severed half becomes a ragdoll built from the joints it carries, with convex hull collision from its own vertices.
+  - Run slicing on a task worker within a measured budget, about 2 ms for a 10k-vertex character, cap the number of live pieces per character, and merge small slivers into their neighbour so no piece is too thin to simulate.
+  - Slicing is deterministic for the same pose and plane, so cuts replicate from the hit rather than streaming meshes.
+- Joint severing and blade-plane slicing share caps, the wound material, ragdoll pieces, and effects. Joint severing remains the cheap path for crowds and non-blade damage.
+- Add a Sandbox station where thrown balls sever the Mannequin's limbs and a scripted blade slices it at several angles, including through the torso and through a joint.
 
-Exit condition: a cooked skinned model severs at every marked joint without holes, gaps, or stretched seams, cook tests prove the caps close the mesh, severed limbs fall as ragdolls in Play and the game, and restarting the session restores the intact body.
+Exit condition: a cooked skinned model severs at every marked joint, and blade-plane slices at any angle split it into watertight halves without holes, cracks, stretched seams, or lost skin weights. Cook and runtime tests prove the caps close every cut. Both halves animate or fall as ragdolls in Play and the game, slicing stays within its measured budget, and restarting the session restores the intact body.
 
 ### Milestone 9 - Audio
 
