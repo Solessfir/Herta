@@ -28,7 +28,7 @@ if ((Test-Path -LiteralPath $PackageRoot) -or (Test-Path -LiteralPath $ArchivePa
     throw "Package output already exists. Choose an empty output directory: $OutputDirectory"
 }
 
-foreach ($Program in @('HertaGame.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe')) {
+foreach ($Program in @('HertaGame.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe', 'HertaShaderWorker.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $BinaryDirectory $Program) -PathType Leaf)) {
         throw "Build $Configuration before packaging; missing $Program in $BinaryDirectory"
     }

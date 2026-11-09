@@ -50,7 +50,7 @@ if [[ -e "${package_root}" || -L "${package_root}" || -e "${archive_path}" || -L
     exit 1
 fi
 
-for program in HertaGame HertaEditorCmd HertaAssetWorker; do
+for program in HertaGame HertaEditorCmd HertaAssetWorker HertaShaderWorker; do
     if [[ ! -x "${binary_directory}/${program}" ]]; then
         echo "Build ${configuration} before packaging; missing ${program} in ${binary_directory}" >&2
         exit 1
