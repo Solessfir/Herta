@@ -160,12 +160,18 @@ std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(
 	else
 	{
 		Bytes = ReadWholeFile(Roots[Root] / SourcePath(Relative), std::uint64_t{64} * 1024 * 1024);
-		if (!Bytes || !*Bytes)
+		if (!Bytes)
 		{
 			return std::unexpected(FAssetError{"Cannot read the Material Graph"});
 		}
 
-		Text = std::string_view(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size());
+		const std::optional<std::vector<std::byte>>& GraphBytes = *Bytes;
+		if (!GraphBytes)
+		{
+			return std::unexpected(FAssetError{"Cannot read the Material Graph"});
+		}
+
+		Text = std::string_view(reinterpret_cast<const char*>(GraphBytes->data()), GraphBytes->size());
 	}
 
 	const auto Graph = DeserializeGraph(Text, GetMaterialGraphSchema());
@@ -292,7 +298,7 @@ std::expected<FMaterialShaderBytes, FAssetError> CompileMaterialShader(const std
 		    .Arguments = std::move(Arguments),
 		    .Timeout = std::chrono::seconds(60),
 		    .ShouldCancel = ShouldCancel,
-		    .MaximumOutputBytes = 64 * 1024,
+		    .MaximumOutputBytes = std::size_t{64} * 1024,
 		});
 
 		if (!Process)

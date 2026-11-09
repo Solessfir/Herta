@@ -484,7 +484,7 @@ static_assert(sizeof(FOcclusionCandidate) == 9 * sizeof(std::uint32_t));
 static_assert(sizeof(FMeshInstance) == 32 * sizeof(std::uint32_t));
 
 // Indirect argument lists, in buffer order: drawn before the depth hierarchy, drawn after it, and everything visible for shading.
-enum class EOcclusionList : std::uint32_t
+enum class EOcclusionList : std::uint8_t
 {
 	Early,
 	Late,
@@ -2470,7 +2470,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	// A custom set lacks a prepass variant only when the engine lacks it too, so the fallback never draws.
 	const auto CustomOr = [](const FGraphicsPipelineHandle& Custom, const FGraphicsPipelineHandle& Engine) -> const FGraphicsPipelineHandle&
 	{
-		return Custom ? Custom : Engine;
+		return Custom ? Custom : Engine; // NOLINT(bugprone-return-const-ref-from-parameter): both arguments are always long-lived pipeline handles, never temporaries
 	};
 
 	FRenderGraph Graph;
@@ -2791,7 +2791,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				const FRenderMesh& Mesh = *Batch.Mesh;
 				for (const FRenderMesh::FSection& Section : Mesh.Sections)
 				{
-					const std::uint32_t IndirectOffset = ((static_cast<std::uint32_t>(List) * State.OcclusionDrawCount) + DrawIndex++) * IndirectDrawWords * sizeof(std::uint32_t);
+					const std::uint32_t IndirectOffset = ((static_cast<std::uint32_t>(List) * State.OcclusionDrawCount) + DrawIndex++) * IndirectDrawWords * static_cast<std::uint32_t>(sizeof(std::uint32_t));
 					const FImplementation::FMaterialPipelineSet* const Custom = CustomPipelines(Section, Batch.Materials);
 					const FGraphicsPipelineHandle& Shading = Custom ? Custom->Shading[1] : State.InstancedPipeline;
 					// Custom material shaders run their own prepass, since they may move vertices or cut out by their own alpha.

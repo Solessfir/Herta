@@ -888,15 +888,15 @@ std::expected<void, FLevelError> FWorld::ApplyEntityChanges(const std::span<cons
 		{
 			Candidate.push_back(Implementation->Snapshot(Entity));
 		}
-		else if (Changes[Changed->second].After)
+		else if (const auto& After = Changes[Changed->second].After)
 		{
-			Candidate.push_back(*Changes[Changed->second].After);
+			Candidate.push_back(*After);
 		}
 	}
 
 	for (const FLevelEntityChange& Change : Changes)
 	{
-		if (!Change.Before)
+		if (!Change.Before && Change.After)
 		{
 			Candidate.push_back(*Change.After);
 		}
@@ -911,7 +911,7 @@ std::expected<void, FLevelError> FWorld::ApplyEntityChanges(const std::span<cons
 	// Retire removals first so a full-capacity patch can reuse storage for its insertions.
 	for (const FLevelEntityChange& Change : Changes)
 	{
-		if (!Change.After)
+		if (!Change.After && Change.Before)
 		{
 			const auto Existing = Implementation->Objects.find(Change.Before->Id);
 			Implementation->Registry.destroy(Existing->second);

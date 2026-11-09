@@ -157,7 +157,7 @@ std::expected<void, FGameUIError> FGameUI::FImplementation::BuildAtlas(const flo
 			Bitmap.Coverage.resize(std::size_t{Bitmap.Width} * Bitmap.Height);
 			for (std::uint32_t Row = 0; Row < Bitmap.Height; ++Row)
 			{
-				std::copy_n(Slot->bitmap.buffer + static_cast<std::ptrdiff_t>(Row) * Slot->bitmap.pitch, Bitmap.Width, Bitmap.Coverage.begin() + static_cast<std::ptrdiff_t>(Row * Bitmap.Width));
+				std::copy_n(Slot->bitmap.buffer + static_cast<std::ptrdiff_t>(Row) * Slot->bitmap.pitch, Bitmap.Width, Bitmap.Coverage.begin() + static_cast<std::ptrdiff_t>(Row) * Bitmap.Width);
 			}
 
 			FGlyph& Glyph = Faces[Size].Glyphs[Index];
@@ -342,7 +342,7 @@ std::expected<std::unique_ptr<FGameUI>, FGameUIError> FGameUI::Create(FGameUIDes
 	std::error_code Error;
 	const std::uintmax_t Size = std::filesystem::file_size(Implementation->Descriptor.FontPath, Error);
 	// Font data is untrusted; anything past a few megabytes is not a HUD font.
-	if (Error || Size == 0 || Size > 32 * 1024 * 1024)
+	if (Error || Size == 0 || Size > std::uintmax_t{32} * 1024 * 1024)
 	{
 		return UIError(std::format("Cannot read the HUD font '{}'", Implementation->Descriptor.FontPath.generic_string()));
 	}

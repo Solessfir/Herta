@@ -371,7 +371,7 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 	const auto Tag = Reader.Read<std::uint8_t>();
 	if (Tag == MaterialTag)
 	{
-		const std::string Text = Reader.ReadString(1024 * 1024);
+		const std::string Text = Reader.ReadString(std::size_t{1024} * 1024);
 		if (!Reader.IsValid() || !Reader.IsAtEnd())
 		{
 			return Invalid("Truncated or oversized cooked material");
@@ -463,7 +463,7 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 
 		for (FCookedMaterial& Material : Model.Materials)
 		{
-			const auto Parsed = DeserializeMaterial(Reader.ReadString(1024 * 1024));
+			const auto Parsed = DeserializeMaterial(Reader.ReadString(std::size_t{1024} * 1024));
 			if (!Parsed)
 			{
 				return std::unexpected(Parsed.error());

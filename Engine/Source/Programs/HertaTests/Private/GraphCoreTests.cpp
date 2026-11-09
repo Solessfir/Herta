@@ -11,7 +11,7 @@ namespace Herta
 {
 namespace
 {
-enum ETestPinType : std::uint32_t
+enum ETestPinType : std::uint8_t
 {
 	Scalar,
 	Vector,

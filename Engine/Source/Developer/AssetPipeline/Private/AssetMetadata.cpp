@@ -225,11 +225,12 @@ std::expected<FAssetMetadata, FAssetError> LoadAssetMetadata(const std::filesyst
 		return std::unexpected(std::move(Bytes.error()));
 	}
 
-	if (!*Bytes)
+	const std::optional<std::vector<std::byte>>& MetadataBytes = *Bytes;
+	if (!MetadataBytes)
 	{
 		return std::unexpected(FAssetError{std::format("'{}' has no metadata", PathToUtf8(SourcePath))});
 	}
 
-	return ParseAssetMetadata(std::string_view(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size()));
+	return ParseAssetMetadata(std::string_view(reinterpret_cast<const char*>(MetadataBytes->data()), MetadataBytes->size()));
 }
 }

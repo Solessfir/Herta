@@ -491,9 +491,11 @@ TEST_CASE("Mesh renderer submits ten thousand shared cubes as one indexed instan
 	const auto Renderer = Herta::FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex);
 	REQUIRE(Renderer);
 	std::vector<Herta::FMatrix4> Models;
+	Models.reserve(10'000);
 	for (std::size_t Index = 0; Index < 10'000; ++Index)
 	{
-		Models.push_back(Herta::FMatrix4::Translation({static_cast<float>(Index % 100), 0, static_cast<float>(Index / 100)}));
+		const std::size_t Row = Index / 100;
+		Models.push_back(Herta::FMatrix4::Translation({static_cast<float>(Index % 100), 0, static_cast<float>(Row)}));
 	}
 
 	const std::vector<const Herta::FRenderMesh*> Meshes(Models.size(), Cube.get());

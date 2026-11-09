@@ -797,7 +797,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			{
 				for (int Column = 0; Column < Columns; ++Column)
 				{
-					const std::size_t Match = static_cast<std::size_t>(Row * Columns + Column);
+					const std::size_t Match = static_cast<std::size_t>(Row) * static_cast<std::size_t>(Columns) + static_cast<std::size_t>(Column);
 					if (Match >= TileCount)
 					{
 						break;

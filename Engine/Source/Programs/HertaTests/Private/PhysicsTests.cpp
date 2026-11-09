@@ -32,7 +32,7 @@ TEST_CASE("Physics capacity validation and exhaustion are explicit")
 	REQUIRE_FALSE(InsufficientMemory);
 	CHECK(InsufficientMemory.error().Message.find("temporary-memory capacity") != std::string::npos);
 
-	auto World = FPhysicsWorld::Create({.MaxBodies = 1, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024});
+	auto World = FPhysicsWorld::Create({.MaxBodies = 1, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = std::size_t{1024} * 1024});
 	REQUIRE(World);
 	const auto Body = (*World)->CreateBody({});
 	REQUIRE(Body);
@@ -47,7 +47,7 @@ TEST_CASE("Physics capacity validation and exhaustion are explicit")
 
 TEST_CASE("Physics reports contact overflow and refuses to continue a truncated step")
 {
-	auto World = FPhysicsWorld::Create({.MaxBodies = 32, .MaxBodyPairs = 1024, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024});
+	auto World = FPhysicsWorld::Create({.MaxBodies = 32, .MaxBodyPairs = 1024, .MaxContactConstraints = 4, .TempMemoryBytes = std::size_t{1024} * 1024});
 	REQUIRE(World);
 
 	for (int Index = 0; Index < 32; ++Index)
@@ -65,7 +65,7 @@ TEST_CASE("Physics reports contact overflow and refuses to continue a truncated 
 
 TEST_CASE("Physics reports body-pair cache overflow independently of contacts")
 {
-	auto World = FPhysicsWorld::Create({.MaxBodies = 64, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024});
+	auto World = FPhysicsWorld::Create({.MaxBodies = 64, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = std::size_t{1024} * 1024});
 	REQUIRE(World);
 	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, std::numbers::pi_v<float> * 0.25f);
 
@@ -586,9 +586,10 @@ std::unique_ptr<FPhysicsWorld> CreateDeterminismScene(FTaskSystem* const Tasks, 
 	REQUIRE((*World)->CreateBody({.HalfExtents = {20.f, 0.5f, 20.f}, .Position = {0.f, -0.5f, 0.f}}));
 	for (int Index = 0; Index < 48; ++Index)
 	{
-		const float X = static_cast<float>(Index % 4) * 1.1f - 1.65f + static_cast<float>(Index / 16) * 0.13f;
+		const int Layer = Index / 16;
+		const float X = static_cast<float>(Index % 4) * 1.1f - 1.65f + static_cast<float>(Layer) * 0.13f;
 		const float Z = static_cast<float>((Index / 4) % 4) * 1.1f - 1.65f;
-		const float Y = 1.f + static_cast<float>(Index / 16) * 1.3f;
+		const float Y = 1.f + static_cast<float>(Layer) * 1.3f;
 		FPhysicsBodySettings Body{
 		    .Shape = static_cast<EPhysicsShape>(Index % 3),
 		    .HalfExtents = {0.4f, 0.3f, 0.45f},

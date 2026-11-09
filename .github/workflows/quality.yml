@@ -216,16 +216,19 @@ jobs:
               config=development \
               HertaTests \
               HertaEditorCmd \
-              HertaEditor
+              HertaEditor \
+              HertaGame \
+              HertaAssetWorker \
+              HertaShaderWorker
           test -s compile_commands.json
           mapfile -d '' Sources < <(git ls-files -z -- \
             ':(glob)Engine/**/*.cpp' \
             ':(glob)Games/**/*.cpp')
           test "${#Sources[@]}" -gt 0
           # One clang-tidy process per core; xargs still fails the step when any file reports a finding.
+          # Each file uses its nearest .clang-tidy, so HertaTests can relax checks that cannot see doctest assertions.
           printf '%s\0' "${Sources[@]}" | xargs -0 -n 4 -P "$(nproc)" \
             clang-tidy-19 \
-            --config-file=.clang-tidy \
             -p=.
 
       - name: Save project-local tools and SDKs

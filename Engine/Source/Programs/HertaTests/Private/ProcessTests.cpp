@@ -310,7 +310,7 @@ TEST_CASE("Exiting the spawning thread kills its process and nested launches")
 
 	std::thread Thread([&Request]
 	{
-		(void)RunProcess(Request);
+		[[maybe_unused]] const auto Result = RunProcess(Request);
 	});
 
 	Thread.join();

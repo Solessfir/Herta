@@ -27,7 +27,7 @@ constexpr FExtent2D DistanceExtent{FieldTilesPerRow * 16, FieldProbeCount / Fiel
 constexpr std::uint32_t FirstFrame = 64;
 
 // Keep in sync with IrradianceFieldUpdate.slang.
-enum class EStage : std::uint32_t
+enum class EStage : std::uint8_t
 {
 	Reset,
 	Clear,
@@ -214,7 +214,8 @@ std::expected<void, FPresentationError> FIrradianceField::Render(const FGlobalIl
 		const float Spacing = FieldBaseSpacing * static_cast<float>(1u << Level);
 		for (std::size_t Axis = 0; Axis < 3; ++Axis)
 		{
-			(*Origins[Level])[Axis] = std::floor(Eye[Axis] / Spacing) - static_cast<float>(FieldGrid[Axis] / 2);
+			const std::int32_t HalfGrid = FieldGrid[Axis] / 2;
+			(*Origins[Level])[Axis] = std::floor(Eye[Axis] / Spacing) - static_cast<float>(HalfGrid);
 		}
 
 		(*Origins[Level])[3] = 0.f;

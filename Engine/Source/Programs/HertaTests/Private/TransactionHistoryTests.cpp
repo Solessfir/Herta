@@ -197,7 +197,7 @@ TEST_CASE("Editor history enforces its default command and memory ceilings")
 {
 	FEditorTransactionHistory History(1000, std::numeric_limits<std::size_t>::max());
 	int Value = 0;
-	CHECK_FALSE(History.Execute(MakeValueTransaction("Above absolute memory ceiling", Value, 0, 9, 64 * 1024 * 1024)).has_value());
+	CHECK_FALSE(History.Execute(MakeValueTransaction("Above absolute memory ceiling", Value, 0, 9, std::size_t{64} * 1024 * 1024)).has_value());
 	CHECK(Value == 0);
 
 	for (int Index = 0; Index < 260; ++Index)

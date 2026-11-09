@@ -447,7 +447,7 @@ namespace
 			return std::unexpected(WithGrid.error());
 		}
 
-		if (WithoutGrid->size() != Extent.Width * Extent.Height * 4 || WithGrid->size() != WithoutGrid->size())
+		if (WithoutGrid->size() != std::size_t{Extent.Width} * Extent.Height * 4 || WithGrid->size() != WithoutGrid->size())
 		{
 			return Failure("World grid readback has an incorrect byte count");
 		}
@@ -537,7 +537,7 @@ namespace
 		return std::unexpected(Combined.error());
 	}
 
-	if (Combined->size() != Extent.Width * Extent.Height * 4 || Background->size() != Combined->size() || Isolated[0].size() != Combined->size() || Isolated[1].size() != Combined->size())
+	if (Combined->size() != std::size_t{Extent.Width} * Extent.Height * 4 || Background->size() != Combined->size() || Isolated[0].size() != Combined->size() || Isolated[1].size() != Combined->size())
 	{
 		return Failure("Multiple-model readback has an incorrect byte count");
 	}
@@ -1864,6 +1864,7 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 	// A 2x2 texture, so a wrong UV or channel shows as well as a wrong tint.
 	constexpr std::array<std::uint8_t, 16> Texels{255, 255, 255, 255, 40, 200, 90, 255, 200, 60, 220, 255, 120, 120, 30, 255};
 	std::vector<std::byte> Pixels;
+	Pixels.reserve(Texels.size());
 	for (const std::uint8_t Value : Texels)
 	{
 		Pixels.push_back(std::byte{Value});
@@ -2052,7 +2053,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(Pixels.error());
 	}
 
-	if (Pixels->size() != 128 * 128 * 4)
+	if (Pixels->size() != std::size_t{128} * 128 * 4)
 	{
 		return Failure("Textured mesh readback has an incorrect byte count");
 	}
@@ -2347,12 +2348,12 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(DepthPixels.error());
 	}
 
-	if (DepthPixels->size() != 64 * 64 * 4)
+	if (DepthPixels->size() != std::size_t{64} * 64 * 4)
 	{
 		return Failure("Depth regression readback has an incorrect byte count");
 	}
 
-	constexpr std::size_t Center = (32 * 64 + 32) * 4;
+	constexpr std::size_t Center = (std::size_t{32} * 64 + 32) * 4;
 	// The studio light shades even camera-facing quads slightly below full brightness.
 	if (std::to_integer<unsigned>((*DepthPixels)[Center]) < 200 || std::to_integer<unsigned>((*DepthPixels)[Center + 1]) > 5)
 	{

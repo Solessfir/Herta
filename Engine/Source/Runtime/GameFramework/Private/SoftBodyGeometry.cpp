@@ -299,12 +299,17 @@ FCookedModel BuildSoftBodyModel(const FSoftBodyComponent& SoftBody, const FSoftB
 	else
 	{
 		const std::vector<FVector3> Normals = GetVertexNormals(Topology, Positions);
-		const auto [Columns, Rows] = GetClothResolution(SoftBody);
+		// Plain locals rather than structured bindings: the static analyzer mis-models bindings captured by a lambda.
+		const auto Resolution = GetClothResolution(SoftBody);
+		const std::uint32_t Columns = Resolution.first;
+		const std::uint32_t Rows = Resolution.second;
 		const auto UV = [&](const std::size_t Index) -> std::pair<float, float>
 		{
 			if (SoftBody.Shape == ESoftBodyShape::Cloth)
 			{
-				return {static_cast<float>(Index % (Columns + 1)) / static_cast<float>(Columns), static_cast<float>(Index / (Columns + 1)) / static_cast<float>(Rows)};
+				const std::size_t Column = Index % (Columns + 1);
+				const std::size_t Row = Index / (Columns + 1);
+				return {static_cast<float>(Column) / static_cast<float>(Columns), static_cast<float>(Row) / static_cast<float>(Rows)};
 			}
 
 			const FVector3 Rest = SafeNormalized(Topology.Vertices[Index], FVector3::Up());

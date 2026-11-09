@@ -16,7 +16,7 @@ namespace Herta
 {
 namespace
 {
-constexpr std::size_t MaximumFileBytes = 1024 * 1024;
+constexpr std::size_t MaximumFileBytes = std::size_t{1024} * 1024;
 
 std::unexpected<FProjectError> ProjectError(const std::string_view Message)
 {
@@ -279,7 +279,7 @@ std::expected<std::filesystem::path, FProjectError> Resolve(const std::filesyste
 	}
 
 	std::error_code Error;
-	const auto Resolved = std::filesystem::canonical(Root / Utf8Path(Relative), Error);
+	auto Resolved = std::filesystem::canonical(Root / Utf8Path(Relative), Error);
 	const auto Local = Resolved.lexically_relative(Root);
 	if (Error || Local.empty() || Local.is_absolute() || *Local.begin() == "..")
 	{

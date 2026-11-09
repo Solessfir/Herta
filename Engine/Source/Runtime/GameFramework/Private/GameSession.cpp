@@ -227,7 +227,13 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 	for (std::size_t Index = 0; Index < Count; ++Index)
 	{
 		const FLevelEntity& Entity = Session.Entities[Index];
-		const auto Matrix = World.GetWorldMatrix(*World.FindEntity(Entity.Id));
+		const auto Handle = World.FindEntity(Entity.Id);
+		if (!Handle)
+		{
+			return std::unexpected(FGameError{"Level entity is missing from its world"});
+		}
+
+		const auto Matrix = World.GetWorldMatrix(*Handle);
 		if (!Matrix)
 		{
 			return std::unexpected(FGameError{Matrix.error().Message});
@@ -248,14 +254,15 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 	{
 		for (std::size_t Index = 0; Index < Count; ++Index)
 		{
-			if (Placed[Index] || (Session.Parents[Index] && !Placed[*Session.Parents[Index]]))
+			const std::optional<std::size_t>& ParentIndex = Session.Parents[Index];
+			if (Placed[Index] || (ParentIndex && !Placed[*ParentIndex]))
 			{
 				continue;
 			}
 
 			Placed[Index] = true;
 			Session.Order.push_back(Index);
-			const auto ParentInverse = Session.Parents[Index] ? TryInverseAffine(Session.AuthoredWorld[*Session.Parents[Index]]) : std::optional{FMatrix4{}};
+			const auto ParentInverse = ParentIndex ? TryInverseAffine(Session.AuthoredWorld[*ParentIndex]) : std::optional{FMatrix4{}};
 			Session.ParentRelative[Index] = ParentInverse ? *ParentInverse * Session.AuthoredWorld[Index] : Session.AuthoredWorld[Index];
 		}
 	}
@@ -692,7 +699,13 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::Throw()
 		return std::unexpected(Ball.error());
 	}
 
-	if (auto Launched = Simulation.GetPhysicsWorld()->SetVelocity(*Simulation.FindSpawnedBody(*Ball), Direction * ProjectileSpeed + HorizontalVelocity); !Launched)
+	const auto Body = Simulation.FindSpawnedBody(*Ball);
+	if (!Body)
+	{
+		return std::unexpected(FPhysicsError{"Spawned projectile has no physics body"});
+	}
+
+	if (auto Launched = Simulation.GetPhysicsWorld()->SetVelocity(*Body, Direction * ProjectileSpeed + HorizontalVelocity); !Launched)
 	{
 		return Launched;
 	}
@@ -736,8 +749,10 @@ void FGameSession::FImplementation::BuildModels()
 	Models.resize(Count);
 	for (const std::size_t Index : Order)
 	{
-		Models[Index] = Simulated[Index] ? *Simulated[Index] : Parents[Index] ? Models[*Parents[Index]] * ParentRelative[Index]
-		                                                                      : AuthoredWorld[Index];
+		const std::optional<FMatrix4>& Pose = Simulated[Index];
+		const std::optional<std::size_t>& Parent = Parents[Index];
+		Models[Index] = Pose ? *Pose : Parent ? Models[*Parent] * ParentRelative[Index]
+		                                      : AuthoredWorld[Index];
 	}
 }
 
@@ -748,7 +763,8 @@ void FGameSession::FImplementation::BuildSoftBodies()
 	for (FSoftBodyMesh& SoftBody : SoftBodies)
 	{
 		const std::span<const FVector3> Simulated = Simulation.GetSoftBodyPositions(SoftBody.Entity);
-		if (!SoftBody.Mesh || Simulated.size() != SoftBody.Topology.Vertices.size() || SoftBody.Revision == Revision)
+		const std::optional<FSoftBodyComponent>& Component = Entities[SoftBody.Entity].SoftBody;
+		if (!Component || !SoftBody.Mesh || Simulated.size() != SoftBody.Topology.Vertices.size() || SoftBody.Revision == Revision)
 		{
 			continue;
 		}
@@ -766,7 +782,7 @@ void FGameSession::FImplementation::BuildSoftBodies()
 			return TransformPoint(*WorldToLocal, Position);
 		});
 
-		SoftBody.Vertices = BuildSoftBodyModel(*Entities[SoftBody.Entity].SoftBody, SoftBody.Topology, Local).Vertices;
+		SoftBody.Vertices = BuildSoftBodyModel(*Component, SoftBody.Topology, Local).Vertices;
 		SoftBody.Revision = Revision;
 		VertexUpdates.push_back({.Mesh = SoftBody.Mesh.get(), .Vertices = SoftBody.Vertices});
 	}

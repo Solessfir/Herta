@@ -49,7 +49,7 @@ std::expected<std::vector<std::byte>, FShaderError> ReadSource(const std::filesy
 	}
 
 	const auto Size = Input.tellg();
-	if (Size < 0 || Size > 16 * 1024 * 1024)
+	if (Size < 0 || Size > std::streamoff{16} * 1024 * 1024)
 	{
 		return std::unexpected(FShaderError{"Shader dependency exceeds the 16 MiB limit: " + Utf8Path(Path)});
 	}

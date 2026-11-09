@@ -194,6 +194,7 @@ TEST_CASE("Directional shadows allocate stable cascade tiles with increasing spl
 	for (std::size_t Index = 0; Index < Shadows.size(); ++Index)
 	{
 		const auto& Shadow = Shadows[Index];
+		const std::size_t Row = Index / 2;
 		CheckFinite(Shadow.WorldToClip);
 		CHECK(Shadow.Viewport.X == Index % 2 * ShadowCascadeResolution);
 		CHECK(Shadow.Viewport.Y == Index / 2 * ShadowCascadeResolution);
@@ -203,7 +204,7 @@ TEST_CASE("Directional shadows allocate stable cascade tiles with increasing spl
 		CHECK(Uniforms.Shadows[Index].Atlas[0] == 0.5f);
 		CHECK(Uniforms.Shadows[Index].Atlas[1] == 0.5f);
 		CHECK(Uniforms.Shadows[Index].Atlas[2] == static_cast<float>(Index % 2) * 0.5f);
-		CHECK(Uniforms.Shadows[Index].Atlas[3] == static_cast<float>(Index / 2) * 0.5f);
+		CHECK(Uniforms.Shadows[Index].Atlas[3] == static_cast<float>(Row) * 0.5f);
 		CHECK(Uniforms.Shadows[Index].Parameters[3] > 0.f);
 		CHECK(Uniforms.Shadows[Index].Parameters[1] > Previous);
 		CHECK(Shadow.WorldToClip(2, 2) < 0.f);
@@ -535,7 +536,7 @@ TEST_CASE("Local shadow tiles follow how large each light's reach looks on scree
 	REQUIRE(Shadows.size() == 2);
 	CHECK(Shadows[0].Viewport.Width == 2 * ShadowTileResolution);
 	CHECK(Shadows[1].Viewport.Width == ShadowTileResolution / 4);
-	CHECK(Uniforms.Shadows[1].Atlas[0] == doctest::Approx(static_cast<float>(ShadowTileResolution / 4) / static_cast<float>(GetLocalShadowAtlasExtent(1.f).Width)));
+	CHECK(Uniforms.Shadows[1].Atlas[0] == doctest::Approx(static_cast<float>(ShadowTileResolution) / 4.f / static_cast<float>(GetLocalShadowAtlasExtent(1.f).Width)));
 }
 
 TEST_CASE("Only the first shadowed directional light receives cascades")

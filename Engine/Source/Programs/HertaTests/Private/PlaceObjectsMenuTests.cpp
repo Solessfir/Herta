@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace Herta
@@ -306,14 +307,14 @@ TEST_CASE("Place objects Enter creates an Empty Entity by default and closes the
 
 TEST_CASE("Place objects Enter confirms from search but never adds a filtered-out shape")
 {
-	for (const std::string_view Query : {"cb", "zzzz"})
+	for (const std::string Query : {"cb", "zzzz"})
 	{
 		FPlaceObjectsMenuTestContext Test;
 		Test.Frame(true);
 		Test.Frame();
 		Test.Frame();
 		ImGuiIO& IO = ImGui::GetIO();
-		IO.AddInputCharactersUTF8(Query.data());
+		IO.AddInputCharactersUTF8(Query.c_str());
 		Test.Frame();
 		IO.AddKeyEvent(ImGuiKey_Enter, true);
 		if (Query == "cb")

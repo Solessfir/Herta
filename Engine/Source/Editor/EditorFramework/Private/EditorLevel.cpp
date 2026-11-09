@@ -429,6 +429,12 @@ std::expected<void, FLevelError> OrganizeEntities(const std::span<const FLevelEn
 
 	return {};
 }
+
+std::optional<FLevelEntity> FindLevelEntity(const FWorld& World, const FObjectId Object)
+{
+	const auto Entity = World.FindEntity(Object);
+	return Entity ? World.GetEntity(*Entity) : std::nullopt;
+}
 }
 
 FEditorLevel::FEditorLevel(const std::size_t MaximumTransactions, const std::size_t MaximumMemoryCost)
@@ -1326,8 +1332,8 @@ std::expected<void, FLevelError> FEditorLevel::ApplyStructuralChanges(const std:
 
 		while (true)
 		{
-			const auto Entity = World.GetEntity(*World.FindEntity(Root));
-			if (!Entity->Parent.IsValid())
+			const auto Entity = FindLevelEntity(World, Root);
+			if (!Entity || !Entity->Parent.IsValid())
 			{
 				break;
 			}
@@ -1464,7 +1470,7 @@ std::expected<void, FLevelError> FEditorLevel::RemoveStaticMeshFromSelected()
 	return ApplySelectedMesh(std::nullopt);
 }
 
-std::expected<void, FLevelError> FEditorLevel::ApplySelectedMesh(const std::optional<FStaticMeshComponent> Mesh)
+std::expected<void, FLevelError> FEditorLevel::ApplySelectedMesh(const std::optional<FStaticMeshComponent>& Mesh)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
 	{
@@ -1480,7 +1486,13 @@ std::expected<void, FLevelError> FEditorLevel::ApplySelectedMesh(const std::opti
 
 	for (const FObjectId Object : Selection)
 	{
-		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		const auto Found = FindLevelEntity(World, Object);
+		if (!Found)
+		{
+			return std::unexpected(FLevelError{"A selected entity no longer exists"});
+		}
+
+		const FLevelEntity& Before = *Found;
 		if (Before.Mesh.has_value() == Mesh.has_value())
 		{
 			continue;
@@ -1530,7 +1542,13 @@ std::expected<void, FLevelError> FEditorLevel::ApplySelectedBodyType(const ELeve
 
 	for (const FObjectId Object : Selection)
 	{
-		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		const auto Found = FindLevelEntity(World, Object);
+		if (!Found)
+		{
+			return std::unexpected(FLevelError{"A selected entity no longer exists"});
+		}
+
+		const FLevelEntity& Before = *Found;
 		if (Before.BodyType == Type || (bOnlyAbsent && Before.BodyType != ELevelBodyType::None) || (!bOnlyAbsent && Before.BodyType == ELevelBodyType::None))
 		{
 			continue;
@@ -1571,7 +1589,13 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedBodyProperty(float FLe
 
 	for (const FObjectId Object : Selection)
 	{
-		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		const auto Found = FindLevelEntity(World, Object);
+		if (!Found)
+		{
+			return std::unexpected(FLevelError{"A selected entity no longer exists"});
+		}
+
+		const FLevelEntity& Before = *Found;
 		if (Before.BodyType == ELevelBodyType::None || Before.BodySettings.*Property == Value)
 		{
 			continue;
@@ -1606,7 +1630,13 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedCollisionShape(const E
 	std::vector<FLevelEntityChange> Changes;
 	for (const FObjectId Object : Selection)
 	{
-		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		const auto Found = FindLevelEntity(World, Object);
+		if (!Found)
+		{
+			return std::unexpected(FLevelError{"A selected entity no longer exists"});
+		}
+
+		const FLevelEntity& Before = *Found;
 		if (Before.BodyType == ELevelBodyType::None || Before.BodySettings.Collision == Shape)
 		{
 			continue;
@@ -1641,7 +1671,13 @@ template <typename T> std::expected<void, FLevelError> FEditorLevel::ApplySelect
 
 	for (const FObjectId Object : Selection)
 	{
-		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		const auto Found = FindLevelEntity(World, Object);
+		if (!Found)
+		{
+			return std::unexpected(FLevelError{"A selected entity no longer exists"});
+		}
+
+		const FLevelEntity& Before = *Found;
 		if (Before.*Member == Value || (bOnlyAbsent && (Before.*Member).has_value()) || (!bOnlyAbsent && Value && !(Before.*Member)))
 		{
 			continue;
@@ -1681,7 +1717,13 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedMaterial(const std::si
 
 	for (const FObjectId Object : Selection)
 	{
-		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		const auto Found = FindLevelEntity(World, Object);
+		if (!Found)
+		{
+			return std::unexpected(FLevelError{"A selected entity no longer exists"});
+		}
+
+		const FLevelEntity& Before = *Found;
 		if (!Before.Mesh || (Slot < Before.Mesh->Materials.size() ? Before.Mesh->Materials[Slot] : FAssetId{}) == Asset)
 		{
 			continue;
@@ -1726,7 +1768,13 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedVisualProperty(const E
 
 	for (const FObjectId Object : Selection)
 	{
-		const FLevelEntity Before = *World.GetEntity(*World.FindEntity(Object));
+		const auto Found = FindLevelEntity(World, Object);
+		if (!Found)
+		{
+			return std::unexpected(FLevelError{"A selected entity no longer exists"});
+		}
+
+		const FLevelEntity& Before = *Found;
 		const auto Previous = GetLevelVisualProperty(Before, Type, Key);
 		if (!Previous || *Previous == Value)
 		{
@@ -2065,7 +2113,7 @@ std::expected<void, FLevelError> FEditorLevel::DeleteSelected()
 		}
 	}
 
-	return ApplyStructuralChanges("Delete objects", std::move(Changes), {});
+	return ApplyStructuralChanges("Delete objects", Changes, {});
 }
 
 std::expected<void, FLevelError> FEditorLevel::ReparentEntities(const std::span<const FObjectId> Requested, const std::optional<FObjectId> Parent)
@@ -2271,7 +2319,7 @@ std::expected<void, FLevelError> FEditorLevel::PasteEntities(const std::string_v
 		Changes.push_back({.After = std::move(Entity)});
 	}
 
-	return ApplyStructuralChanges("Paste objects", std::move(Changes), std::move(Pasted));
+	return ApplyStructuralChanges("Paste objects", Changes, Pasted);
 }
 
 void FEditorLevel::SetPath(std::filesystem::path Path)

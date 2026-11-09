@@ -106,6 +106,14 @@ int wmain(const int ArgumentCount, wchar_t** const Arguments)
 #else
 int main(const int ArgumentCount, char** const Arguments)
 {
-	return Run(ArgumentCount, Arguments);
+	try
+	{
+		return Run(ArgumentCount, Arguments);
+	}
+	catch (const std::exception& Error)
+	{
+		std::println(stderr, "Shader worker failed: {}", Error.what());
+		return 1;
+	}
 }
 #endif

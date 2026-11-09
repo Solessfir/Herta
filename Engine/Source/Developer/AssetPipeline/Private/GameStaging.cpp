@@ -117,12 +117,13 @@ using FStagedKey = std::pair<FAssetId, std::optional<ETextureColorSpace>>;
 		return std::unexpected(Bytes.error());
 	}
 
-	if (!*Bytes)
+	std::optional<std::vector<std::byte>>& FileBytes = *Bytes;
+	if (!FileBytes)
 	{
 		return StageError(std::format("'{}' does not exist", PathToUtf8(Path)));
 	}
 
-	return std::move(**Bytes);
+	return std::move(*FileBytes);
 }
 }
 

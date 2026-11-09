@@ -108,6 +108,7 @@ static std::expected<std::vector<std::filesystem::path>, FFileDialogError> OpenF
 	}
 
 	std::vector<COMDLG_FILTERSPEC> Specs;
+	Specs.reserve(Names.size());
 	for (std::size_t Index = 0; Index < Names.size(); ++Index)
 	{
 		Specs.push_back({Names[Index].c_str(), Patterns[Index].c_str()});
@@ -160,7 +161,7 @@ namespace
 	std::error_code Error;
 	for (const auto Part : std::views::split(std::string_view(Path), ':'))
 	{
-		const std::filesystem::path Candidate = std::filesystem::path(std::string_view(Part.begin(), Part.end())) / Name;
+		std::filesystem::path Candidate = std::filesystem::path(std::string_view(Part.begin(), Part.end())) / Name;
 		if (!Candidate.parent_path().empty() && std::filesystem::is_regular_file(Candidate, Error))
 		{
 			return Candidate;

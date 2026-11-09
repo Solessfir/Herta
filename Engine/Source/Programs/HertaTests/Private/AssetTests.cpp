@@ -442,7 +442,7 @@ TEST_CASE("Concurrent imports never replace a winning source or sidecar")
 
 	for (std::size_t Index = 0; Index < Count; ++Index)
 	{
-		Payloads[Index] = std::string(1024 * 1024, static_cast<char>('a' + Index));
+		Payloads[Index] = std::string(std::size_t{1024} * 1024, static_cast<char>('a' + Index));
 		WriteText(Scratch.Path / std::to_string(Index) / "Shared.png", Payloads[Index]);
 
 		Threads[Index] = std::jthread([&, Index]

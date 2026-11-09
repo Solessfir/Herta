@@ -18,6 +18,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <numbers>
 #include <optional>
@@ -69,7 +70,7 @@ const FLevelPropertyDescriptor& GetBodyPropertyDescriptor(const FBodyPropertyDis
 	return *FindLevelPropertyDescriptor(GetLevelComponentDescriptor(ELevelComponentType::RigidBody), Property.Key);
 }
 
-enum class ETransformClipboardFormat
+enum class ETransformClipboardFormat : std::uint8_t
 {
 	XYZ,
 	Rotation
@@ -312,7 +313,7 @@ void DrawCheckerThumbnail(const ImVec2 Position, const float Size)
 	Draw->AddRect(Position, {Position.x + Size, Position.y + Size}, ImGui::GetColorU32(ImGuiCol_Border));
 }
 
-std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, const float Width, EDetailsTransformSpace& Space, const Im3d::Vec3& Value, const ETransformClipboardFormat ClipboardFormat)
+std::optional<Im3d::Vec3> DrawSpaceSelector(const std::string_view Label, const float Width, EDetailsTransformSpace& Space, const Im3d::Vec3& Value, const ETransformClipboardFormat ClipboardFormat)
 {
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	const ImVec2 Size{Width, ImGui::GetFrameHeight()};
@@ -363,7 +364,7 @@ std::optional<Im3d::Vec3> DrawSpaceSelector(const char* const Label, const float
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 4.f * Scale);
 	}
 
-	DrawList->AddText({Position.x, Position.y + (Size.y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(GetPropertyLabelColor()), Label);
+	DrawList->AddText({Position.x, Position.y + (Size.y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(GetPropertyLabelColor()), Label.data(), Label.data() + Label.size());
 	const float ArrowX = Position.x + Size.x - 11.f * Scale;
 	const float ArrowY = Position.y + Size.y * 0.5f;
 	const ImU32 ArrowColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
@@ -425,7 +426,7 @@ void DrawLockButton(bool& bLocked)
 	ImGui::SetItemTooltip(bLocked ? "Unlock scale proportions" : "Lock scale proportions");
 }
 
-[[nodiscard]] bool DrawResetButton(const char* const Label)
+[[nodiscard]] bool DrawResetButton(const std::string_view Label)
 {
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	const ImVec2 Size{18.f * Scale, ImGui::GetFrameHeight()};
@@ -452,7 +453,7 @@ void DrawLockButton(bool& bLocked)
 
 	if (ImGui::IsItemHovered())
 	{
-		ImGui::SetTooltip("Reset %s to default", Label);
+		ImGui::SetTooltip("Reset %.*s to default", static_cast<int>(Label.size()), Label.data());
 	}
 
 	return bReset;
@@ -527,16 +528,19 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 
 				const std::vector<std::string_view> Names(Components.MaterialOptionLabels.begin(), Components.MaterialOptionLabels.begin() + static_cast<std::ptrdiff_t>(OptionCount));
 				const auto Matches = SearchAssets(Names, State.MaterialSearch.data());
-				ImGuiListClipper Clipper;
-				Clipper.Begin(Matches ? static_cast<int>(Matches->size()) : 0);
-				while (Clipper.Step())
+				if (Matches)
 				{
-					for (int MatchIndex = Clipper.DisplayStart; MatchIndex < Clipper.DisplayEnd; ++MatchIndex)
+					ImGuiListClipper Clipper;
+					Clipper.Begin(static_cast<int>(Matches->size()));
+					while (Clipper.Step())
 					{
-						const std::size_t Index = (*Matches)[static_cast<std::size_t>(MatchIndex)].Index;
-						if (ImGui::Selectable(Components.MaterialOptionLabels[Index].c_str(), !Slot.bMixed && Components.MaterialOptionIds[Index] == Slot.Selected))
+						for (int MatchIndex = Clipper.DisplayStart; MatchIndex < Clipper.DisplayEnd; ++MatchIndex)
 						{
-							Result.MaterialChosen = {{SlotIndex, Components.MaterialOptionIds[Index]}};
+							const std::size_t Index = (*Matches)[static_cast<std::size_t>(MatchIndex)].Index;
+							if (ImGui::Selectable(Components.MaterialOptionLabels[Index].c_str(), !Slot.bMixed && Components.MaterialOptionIds[Index] == Slot.Selected))
+							{
+								Result.MaterialChosen = {{SlotIndex, Components.MaterialOptionIds[Index]}};
+							}
 						}
 					}
 				}
@@ -619,7 +623,7 @@ bool MatchesVisualSection(const ELevelComponentType Type, const std::string_view
 
 bool IsVisualPropertyVisible(const FLevelEntity& Entity, const ELevelComponentType Type, const std::string_view Key)
 {
-	if (Type == ELevelComponentType::Light)
+	if (Type == ELevelComponentType::Light && Entity.Light)
 	{
 		const auto& Light = *Entity.Light;
 		if (Key == "range")
@@ -664,12 +668,12 @@ bool IsVisualPropertyVisible(const FLevelEntity& Entity, const ELevelComponentTy
 		}
 	}
 
-	if (Type == ELevelComponentType::HeightFog && (Key == "quality" || Key == "anisotropy"))
+	if (Type == ELevelComponentType::HeightFog && Entity.HeightFog && (Key == "quality" || Key == "anisotropy"))
 	{
 		return Entity.HeightFog->bVolumetric;
 	}
 
-	if (Type == ELevelComponentType::SoftBody)
+	if (Type == ELevelComponentType::SoftBody && Entity.SoftBody)
 	{
 		const ESoftBodyShape Shape = Entity.SoftBody->Shape;
 		if (Key == "height")
@@ -700,7 +704,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 {
 	const auto& Descriptor = GetLevelComponentDescriptor(Type);
 	const float Scale = ImGui::GetFontSize() / 15.f;
-	ImGui::PushID(Descriptor.TypeId.data());
+	ImGui::PushID(Descriptor.TypeId.data(), Descriptor.TypeId.data() + Descriptor.TypeId.size());
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 4.f * Scale});
 	ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {0.f, 2.f * Scale});
 	ImGui::BeginDisabled(bDragging);
@@ -884,23 +888,23 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			}
 			else if (Property.Type == ELevelPropertyType::LightType || Property.Type == ELevelPropertyType::FogQuality || Property.Type == ELevelPropertyType::SoftBodyShape || Property.Type == ELevelPropertyType::TriggerRole)
 			{
-				constexpr std::array<std::string_view, 5> Lights{"Directional", "Sky", "Point", "Spot", "Rect"};
-				constexpr std::array<std::string_view, 3> Qualities{"Low", "Medium", "High"};
-				constexpr std::array<std::string_view, 3> Shapes{"Rope", "Cloth", "Ball"};
-				constexpr std::array<std::string_view, 3> Roles{"None", "Start", "Finish"};
-				const std::span<const std::string_view> Labels = Property.Type == ELevelPropertyType::LightType     ? std::span<const std::string_view>{Lights}
-				                                                 : Property.Type == ELevelPropertyType::FogQuality  ? std::span<const std::string_view>{Qualities}
-				                                                 : Property.Type == ELevelPropertyType::TriggerRole ? std::span<const std::string_view>{Roles}
-				                                                                                                    : std::span<const std::string_view>{Shapes};
+				constexpr std::array<const char*, 5> Lights{"Directional", "Sky", "Point", "Spot", "Rect"};
+				constexpr std::array<const char*, 3> Qualities{"Low", "Medium", "High"};
+				constexpr std::array<const char*, 3> Shapes{"Rope", "Cloth", "Ball"};
+				constexpr std::array<const char*, 3> Roles{"None", "Start", "Finish"};
+				const std::span<const char* const> Labels = Property.Type == ELevelPropertyType::LightType     ? std::span<const char* const>{Lights}
+				                                            : Property.Type == ELevelPropertyType::FogQuality  ? std::span<const char* const>{Qualities}
+				                                            : Property.Type == ELevelPropertyType::TriggerRole ? std::span<const char* const>{Roles}
+				                                                                                               : std::span<const char* const>{Shapes};
 				const auto Current = Property.Type == ELevelPropertyType::LightType     ? static_cast<std::size_t>(std::get<ELightType>(Candidate))
 				                     : Property.Type == ELevelPropertyType::FogQuality  ? static_cast<std::size_t>(std::get<EFogQuality>(Candidate))
 				                     : Property.Type == ELevelPropertyType::TriggerRole ? static_cast<std::size_t>(std::get<ETriggerRole>(Candidate))
 				                                                                        : static_cast<std::size_t>(std::get<ESoftBodyShape>(Candidate));
-				if (ImGui::BeginCombo("##Value", Mixed[Index] ? "Multiple values" : Labels[Current].data()))
+				if (ImGui::BeginCombo("##Value", Mixed[Index] ? "Multiple values" : Labels[Current]))
 				{
 					for (std::size_t Option = 0; Option < Labels.size(); ++Option)
 					{
-						if (ImGui::Selectable(Labels[Option].data(), !Mixed[Index] && Option == Current))
+						if (ImGui::Selectable(Labels[Option], !Mixed[Index] && Option == Current))
 						{
 							Candidate = Property.Type == ELevelPropertyType::LightType     ? FLevelPropertyValue{static_cast<ELightType>(Option)}
 							            : Property.Type == ELevelPropertyType::FogQuality  ? FLevelPropertyValue{static_cast<EFogQuality>(Option)}
@@ -1012,7 +1016,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			if (Mixed[Index] || *GetLevelVisualProperty(Entity, Type, Property.Key) != Default)
 			{
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * Scale);
-				if (DrawResetButton(Property.Label.data()))
+				if (DrawResetButton(Property.Label))
 				{
 					BeginDetailsEdit(Edits, Result);
 					if (Edits && Edits->ApplyVisualProperty)
@@ -1041,7 +1045,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 }
 
 template <typename Change, typename ChangeRow>
-bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Speed, const float Minimum, const float Maximum, const float Reset, EDetailsTransformSpace& Space, const ETransformClipboardFormat ClipboardFormat, const char* const Format, Change&& OnChange, ChangeRow&& OnRowChange, const FDetailsEditCallbacks* const Edits, FDetailsMeshResult& Result, bool* const bLocked = nullptr, const std::function<void()>& RefreshValue = {})
+bool DrawTransformRow(const std::string_view Label, Im3d::Vec3& Value, const float Speed, const float Minimum, const float Maximum, const float Reset, EDetailsTransformSpace& Space, const ETransformClipboardFormat ClipboardFormat, const char* const Format, Change&& OnChange, ChangeRow&& OnRowChange, const FDetailsEditCallbacks* const Edits, FDetailsMeshResult& Result, bool* const bLocked = nullptr, const std::function<void()>& RefreshValue = {})
 {
 	const auto BeginEdit = [&]
 	{
@@ -1052,7 +1056,7 @@ bool DrawTransformRow(const char* const Label, Im3d::Vec3& Value, const float Sp
 		}
 	};
 
-	ImGui::PushID(Label);
+	ImGui::PushID(Label.data(), Label.data() + Label.size());
 	const float Scale = ImGui::GetFontSize() / 15.f;
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f * Scale, ImGui::GetStyle().ItemSpacing.y});
 	ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 4.f * Scale});
@@ -1362,7 +1366,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bLocation)
 		{
-			DrawTransformRow(LocationProperty.Label.data(), Translation, 0.01f, -1.e7f, 1.e7f, static_cast<float>(std::get<FWorldPosition>(LocationProperty.Default).Meters.X), State.Spaces[0], ETransformClipboardFormat::XYZ, "%.2f m", [&](const int Axis, const float Candidate)
+			DrawTransformRow(LocationProperty.Label, Translation, 0.01f, -1.e7f, 1.e7f, static_cast<float>(std::get<FWorldPosition>(LocationProperty.Default).Meters.X), State.Spaces[0], ETransformClipboardFormat::XYZ, "%.2f m", [&](const int Axis, const float Candidate)
 			{
 				if (std::isfinite(Candidate) && std::abs(Candidate) <= 1.e7f)
 				{
@@ -1381,7 +1385,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		}
 
 		Im3d::Vec3 RotationDegrees = Im3d::ToEulerXYZ(Rotation) * (180.f / std::numbers::pi_v<float>);
-		const bool bRotationReset = bRotation && DrawTransformRow(RotationProperty.Label.data(), RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, "%.1f°", [&](const int Axis, const float Candidate)
+		const bool bRotationReset = bRotation && DrawTransformRow(RotationProperty.Label, RotationDegrees, 0.1f, -360.f, 360.f, 0.f, State.Spaces[1], ETransformClipboardFormat::Rotation, "%.1f°", [&](const int Axis, const float Candidate)
 		{
 			if (std::isfinite(Candidate))
 			{
@@ -1413,7 +1417,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 		if (bScale)
 		{
-			DrawTransformRow(ScaleProperty.Label.data(), Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, std::get<FVector3>(ScaleProperty.Default).X, State.Spaces[2], ETransformClipboardFormat::XYZ, "%.3f", [&](const int Axis, const float Candidate)
+			DrawTransformRow(ScaleProperty.Label, Scale, 0.01f, MinimumPreviewScale, MaximumPreviewScale, std::get<FVector3>(ScaleProperty.Default).X, State.Spaces[2], ETransformClipboardFormat::XYZ, "%.3f", [&](const int Axis, const float Candidate)
 			{
 				if (!std::isfinite(Candidate) || Candidate < MinimumPreviewScale || Candidate > MaximumPreviewScale)
 				{
@@ -1555,7 +1559,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
 			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
-			ImGui::TextUnformatted(BodyTypeProperty.Label.data());
+			ImGui::TextUnformatted(BodyTypeProperty.Label.data(), BodyTypeProperty.Label.data() + BodyTypeProperty.Label.size());
 			ImGui::PopStyleColor();
 			ImGui::TableSetColumnIndex(1);
 			ImGui::SetNextItemWidth(-FLT_MIN);
@@ -1580,7 +1584,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			if (Components->BodyType != DefaultBodyType)
 			{
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * UiScale);
-				if (DrawResetButton(BodyTypeProperty.Label.data()))
+				if (DrawResetButton(BodyTypeProperty.Label))
 				{
 					MeshResult.BodyTypeChosen = DefaultBodyType;
 				}
@@ -1594,7 +1598,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
 			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
-			ImGui::TextUnformatted(CollisionProperty.Label.data());
+			ImGui::TextUnformatted(CollisionProperty.Label.data(), CollisionProperty.Label.data() + CollisionProperty.Label.size());
 			ImGui::PopStyleColor();
 			ImGui::SetItemTooltip("Shape fitted to the mesh bounds. A sphere encloses the largest extent; a capsule stands along the object's local Y axis.");
 			ImGui::TableSetColumnIndex(1);
@@ -1618,7 +1622,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			if (Components->bMixedCollision || Collision != DefaultCollision)
 			{
 				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * UiScale);
-				if (DrawResetButton(CollisionProperty.Label.data()))
+				if (DrawResetButton(CollisionProperty.Label))
 				{
 					MeshResult.CollisionChosen = DefaultCollision;
 				}
@@ -1694,7 +1698,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				if (Components->MixedBodySettings[Index] || Components->BodySettings.*Property.Member != Default)
 				{
 					ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.f * UiScale);
-					if (DrawResetButton(Descriptor.Label.data()))
+					if (DrawResetButton(Descriptor.Label))
 					{
 						BeginDetailsEdit(Edits, MeshResult);
 

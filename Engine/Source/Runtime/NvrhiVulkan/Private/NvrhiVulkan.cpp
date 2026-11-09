@@ -709,7 +709,7 @@ public:
 			    VK_API_VERSION_MINOR(SelectedDeviceProperties.apiVersion),
 			    VK_API_VERSION_PATCH(SelectedDeviceProperties.apiVersion),
 			    SelectedDeviceProperties.driverVersion,
-			    DeviceLocalBytes / (1024 * 1024),
+			    DeviceLocalBytes / (VkDeviceSize{1024} * 1024),
 			    QueueFamilyIndex,
 			    Selection->bRayQuery ? "supported" : "unavailable",
 			    Selection->bHdrMetadata ? "supported" : "unavailable",
@@ -1335,7 +1335,7 @@ public:
 		const FGlassBlurPlan BlurPlan = PlanGlassBlur(BlurRadiusPixels);
 		if (bNeedsBackdrop)
 		{
-			const auto Red = static_cast<unsigned int>(BlurPlan.Offset * 0.5f * 255.f + 0.5f);
+			const auto Red = static_cast<unsigned int>(std::lround(BlurPlan.Offset * 0.5f * 255.f));
 			const ImU32 DownsampleTint = IM_COL32(Red, 0, 0, 255);
 			const ImU32 UpsampleTint = IM_COL32(Red, 255, 0, 255);
 			const ImVec2 Minimum = DrawData.DisplayPos;

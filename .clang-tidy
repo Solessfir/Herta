@@ -1,8 +1,10 @@
 ---
+# optin.performance.Padding is off: it flags pimpl structs, whose members are grouped by concern and destruction order rather than size.
 Checks: >
   -*,
   clang-analyzer-*,
   -clang-analyzer-optin.core.EnumCastOutOfRange,
+  -clang-analyzer-optin.performance.Padding,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   cppcoreguidelines-special-member-functions,

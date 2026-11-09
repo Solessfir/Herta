@@ -66,7 +66,7 @@ constexpr float HullConvexRadius = 0.01f;
 {
 	// Jolt 5.6: one discrete step, at most three constraints per body (a rope joint, its length limit, and an attached load), and no parallel island splitting.
 	// Cover contact buffers, island and constraint arrays, CCD-index mapping, soft-body update contexts, and alignment padding before Jolt can abort.
-	return sizeof(JPH::PhysicsUpdateContext::Step) + 320 * 1024
+	return sizeof(JPH::PhysicsUpdateContext::Step) + std::size_t{320} * 1024
 	       + static_cast<std::size_t>(Settings.MaxBodies) * (192 + 3 * 64)
 	       + static_cast<std::size_t>(Settings.MaxBodyPairs) * sizeof(JPH::BodyPair)
 	       + static_cast<std::size_t>(Settings.MaxContactConstraints) * (JPH::ContactConstraintManager::cMaxConstraintSize + 32);
@@ -911,7 +911,7 @@ void FPhysicsWorld::GetDebugLines(std::vector<FPhysicsDebugLine>& OutLines, cons
 {
 	OutLines.clear();
 	const JPH::BodyLockInterfaceNoLock& Locks = Implementation->Physics.GetBodyLockInterfaceNoLock();
-	std::array<JPH::Float3, 3 * JPH::Shape::cGetTrianglesMinTrianglesRequested> Triangles;
+	std::array<JPH::Float3, std::size_t{3} * JPH::Shape::cGetTrianglesMinTrianglesRequested> Triangles;
 	JPH::AllHitCollisionCollector<JPH::TransformedShapeCollector> Leaves;
 	for (const JPH::BodyID Id : Implementation->BodyIds)
 	{
@@ -940,15 +940,15 @@ void FPhysicsWorld::GetDebugLines(std::vector<FPhysicsDebugLine>& OutLines, cons
 			{
 				for (int Triangle = 0; Triangle < Count; ++Triangle)
 				{
-					for (int Edge = 0; Edge < 3; ++Edge)
+					for (std::size_t Edge = 0; Edge < 3; ++Edge)
 					{
 						if (OutLines.size() >= MaxLines)
 						{
 							return;
 						}
 
-						const JPH::Float3& A = Triangles[static_cast<std::size_t>(Triangle * 3 + Edge)];
-						const JPH::Float3& B = Triangles[static_cast<std::size_t>(Triangle * 3 + (Edge + 1) % 3)];
+						const JPH::Float3& A = Triangles[(static_cast<std::size_t>(Triangle) * 3) + Edge];
+						const JPH::Float3& B = Triangles[(static_cast<std::size_t>(Triangle) * 3) + ((Edge + 1) % 3)];
 						OutLines.push_back({.Start = {A.x, A.y, A.z}, .End = {B.x, B.y, B.z}, .MotionType = MotionType, .bSensor = Body.IsSensor(), .bSleeping = !Body.IsActive()});
 					}
 				}

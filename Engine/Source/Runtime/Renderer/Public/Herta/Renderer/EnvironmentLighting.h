@@ -29,5 +29,5 @@ inline constexpr std::uint32_t SkyMultipleScatteringSize = 32;
 [[nodiscard]] FVector3 GetSkyTransmittance(const FVisualUniforms& Snapshot, const FVector3& Direction);
 
 // Pure CPU work on copied inputs; publication and GPU upload remain on the renderer's owning thread.
-[[nodiscard]] std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const FCookedTexture* Environment, const FVisualUniforms& Snapshot, std::stop_token StopToken = {});
+[[nodiscard]] std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const FCookedTexture* Environment, const FVisualUniforms& Snapshot, const std::stop_token& StopToken = {});
 }

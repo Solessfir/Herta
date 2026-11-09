@@ -228,7 +228,7 @@ void FMaterialShaders::Poll()
 				Dependencies.push_back({.Path = std::format("{}/{}", File.Root, File.Path), .ContentHash = HashShaderContent(File.Bytes)});
 			}
 
-			if (CapturedBytes + SourceBytes > 64 * 1024 * 1024)
+			if (CapturedBytes + SourceBytes > std::size_t{64} * 1024 * 1024)
 			{
 				Results->emplace(Path, std::unexpected(FShaderError{"Watched material shader snapshots exceed the 64 MiB budget"}));
 				continue;
@@ -301,7 +301,7 @@ void FMaterialShaders::Start(const std::string& Path, FEntry& Entry)
 	const auto Snapshot = Entry.Desired;
 	const auto Work = Tasks.Submit(*Scope, {.Name = "Compile material shader", .Lane = ETaskLane::BlockingIo}, [Result, Snapshot, Worker = WorkerPath, Token](FTaskContext& Context)
 	{
-		const FCancellationToken ScopeToken = Context.GetCancellationToken();
+		const FCancellationToken& ScopeToken = Context.GetCancellationToken();
 		// The editor's live material pipelines replace the cooked ones, so they carry source for profilers too.
 		auto Stages = CompileMaterialShader(Worker, Snapshot->Sources, Snapshot->Key, true, [Token, ScopeToken]()
 		{

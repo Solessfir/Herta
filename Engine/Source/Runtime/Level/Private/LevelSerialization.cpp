@@ -33,7 +33,7 @@ namespace Herta
 {
 namespace
 {
-constexpr std::size_t MaximumLevelBytes = 64 * 1024 * 1024;
+constexpr std::size_t MaximumLevelBytes = std::size_t{64} * 1024 * 1024;
 constexpr std::size_t MaximumLevelEntities = 1'000'000;
 constexpr std::size_t MaximumNameBytes = 1024;
 

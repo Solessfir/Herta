@@ -9,7 +9,7 @@ namespace Herta
 namespace
 {
 constexpr std::size_t MaximumTransactionCount = 256;
-constexpr std::size_t MaximumHistoryBytes = 64 * 1024 * 1024;
+constexpr std::size_t MaximumHistoryBytes = std::size_t{64} * 1024 * 1024;
 
 std::expected<void, FEditorCommandError> ApplyTransaction(const FEditorTransaction& Transaction, const bool bUndo)
 {

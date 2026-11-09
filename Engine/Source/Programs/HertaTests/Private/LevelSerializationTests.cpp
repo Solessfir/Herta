@@ -979,7 +979,7 @@ TEST_CASE("Level loads reject oversized files before allocating or parsing")
 	Tests::FScratchDirectory Directory("HertaLevelLimits");
 	const auto Path = Directory.GetPath() / "Oversized.hlevel";
 	std::ofstream Stream(Path, std::ios::binary);
-	Stream.seekp(64 * 1024 * 1024);
+	Stream.seekp(std::streamoff{64} * 1024 * 1024);
 	Stream.put('\0');
 	Stream.close();
 	REQUIRE(Stream);

@@ -469,14 +469,24 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 		return std::unexpected(FLevelError{"Visual property is unknown, absent, or has the wrong value type"});
 	}
 
-	const auto Valid = Type == ELevelComponentType::Light           ? ValidateLightComponent(*Candidate.Light)
-	                   : Type == ELevelComponentType::SkyAtmosphere ? ValidateSkyAtmosphereComponent(*Candidate.SkyAtmosphere)
-	                   : Type == ELevelComponentType::SoftBody      ? ValidateSoftBodyComponent(*Candidate.SoftBody)
-	                   : Type == ELevelComponentType::Mover         ? ValidateMoverComponent(*Candidate.Mover)
-	                   : Type == ELevelComponentType::Trigger       ? ValidateTriggerComponent(*Candidate.Trigger)
-	                   : Type == ELevelComponentType::Constraint    ? ValidateConstraintComponent(*Candidate.Constraint)
-	                   : Type == ELevelComponentType::Destructible  ? ValidateDestructibleComponent(*Candidate.Destructible)
-	                                                                : ValidateHeightFogComponent(*Candidate.HeightFog);
+	const auto Validate = [](const auto& Component, const auto& Validator) -> std::expected<void, FLevelError>
+	{
+		if (!Component)
+		{
+			return std::unexpected(FLevelError{"Visual property component is absent"});
+		}
+
+		return Validator(*Component);
+	};
+
+	const auto Valid = Type == ELevelComponentType::Light           ? Validate(Candidate.Light, ValidateLightComponent)
+	                   : Type == ELevelComponentType::SkyAtmosphere ? Validate(Candidate.SkyAtmosphere, ValidateSkyAtmosphereComponent)
+	                   : Type == ELevelComponentType::SoftBody      ? Validate(Candidate.SoftBody, ValidateSoftBodyComponent)
+	                   : Type == ELevelComponentType::Mover         ? Validate(Candidate.Mover, ValidateMoverComponent)
+	                   : Type == ELevelComponentType::Trigger       ? Validate(Candidate.Trigger, ValidateTriggerComponent)
+	                   : Type == ELevelComponentType::Constraint    ? Validate(Candidate.Constraint, ValidateConstraintComponent)
+	                   : Type == ELevelComponentType::Destructible  ? Validate(Candidate.Destructible, ValidateDestructibleComponent)
+	                                                                : Validate(Candidate.HeightFog, ValidateHeightFogComponent);
 	if (!Valid)
 	{
 		return Valid;

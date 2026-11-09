@@ -105,7 +105,7 @@ std::string MaterialShaderKey(const std::string_view Path, const std::string_vie
 	return std::format("{}/{}", MaterialPath.starts_with("Engine/") ? "Engine" : "Game", Path);
 }
 
-enum class EAuthoringAction
+enum class EAuthoringAction : std::uint8_t
 {
 	None,
 	Undo,
@@ -1879,11 +1879,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		{
 			Implementation->ReportLevelResult(Implementation->Level->CancelEdit());
 		}
-		else if (Implementation->bViewportEditFinished && Implementation->Level->HasActiveEdit())
-		{
-			Implementation->ReportLevelResult(Implementation->Level->EndEdit());
-		}
-		else if (Implementation->Level->HasActiveEdit() && !Implementation->PreviewDragStart && !ImGui::IsAnyItemActive() && !IO.WantTextInput && !Implementation->OutlinerPanelState.bRenaming)
+		else if (Implementation->Level->HasActiveEdit() && (Implementation->bViewportEditFinished || (!Implementation->PreviewDragStart && !ImGui::IsAnyItemActive() && !IO.WantTextInput && !Implementation->OutlinerPanelState.bRenaming)))
 		{
 			Implementation->ReportLevelResult(Implementation->Level->EndEdit());
 		}
@@ -2299,6 +2295,11 @@ void FEditorFramework::FImplementation::DrawNewProject()
 
 const FRenderMesh* FEditorFramework::FImplementation::RefreshSoftBodyPreview(const std::size_t Index, const FLevelEntity& Entity)
 {
+	if (!Entity.SoftBody)
+	{
+		return nullptr;
+	}
+
 	FSoftBodyPreview& Preview = SoftBodyPreviews[Entity.Id];
 	const bool bRebuildTopology = !Preview.Mesh || Preview.Settings != *Entity.SoftBody;
 	if (bRebuildTopology)
@@ -3259,7 +3260,7 @@ void FEditorFramework::FImplementation::DrawViewportStats(const ImVec2 Minimum, 
 	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
 	const float Width = 190.f * Scale;
 	const float RowHeight = ImGui::GetTextLineHeight() + 4.f * Scale;
-	const float Height = RowHeight * ((Stats->bUnitVisible ? 3 : 0) + (Stats->bFpsVisible ? 1 : 0)) + 16.f * Scale;
+	const float Height = RowHeight * static_cast<float>((Stats->bUnitVisible ? 3 : 0) + (Stats->bFpsVisible ? 1 : 0)) + 16.f * Scale;
 	const float Top = ToolbarBottom + 8.f * Scale;
 
 	if (Size.x < Width + 16.f * Scale || Top + Height > Minimum.y + Size.y - 60.f * Scale)
@@ -4210,13 +4211,14 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	{
 		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewObjects.size(); ++Index)
 		{
-			if (!VisualEntities[Index].Trigger)
+			const auto& Trigger = VisualEntities[Index].Trigger;
+			if (!Trigger)
 			{
 				continue;
 			}
 
 			// Occupied triggers turn green while simulating so enter and exit are visible without the log.
-			const FVector3 Half = VisualEntities[Index].Trigger->Size * 0.5f;
+			const FVector3 Half = Trigger->Size * 0.5f;
 			const bool bOccupied = Simulation.IsRunning() && Simulation.IsTriggerOccupied(Index);
 			const Im3d::Color Color(bOccupied ? 0x6fd38aff : PreviewSelection.Contains(static_cast<int>(Index)) ? 0xc2b584ff
 			                                                                                                    : 0x5fb3d9cc);
@@ -4756,6 +4758,7 @@ void FEditorFramework::FImplementation::SetPreviewSelection(FPreviewSelection Se
 
 	PreviewSelection = std::move(Selection);
 	std::vector<FObjectId> SelectedIds;
+	SelectedIds.reserve(PreviewSelection.Indices.size());
 	for (const int Index : PreviewSelection.Indices)
 	{
 		SelectedIds.push_back(PreviewObjects[static_cast<std::size_t>(Index)].Id);

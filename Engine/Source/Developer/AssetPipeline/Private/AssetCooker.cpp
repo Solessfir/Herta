@@ -38,12 +38,13 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 		return std::unexpected(std::move(Bytes.error()));
 	}
 
-	if (!*Bytes)
+	std::optional<std::vector<std::byte>>& FileBytes = *Bytes;
+	if (!FileBytes)
 	{
 		return std::unexpected(FAssetError{std::format("'{}' disappeared while cooking", PathToUtf8(Path))});
 	}
 
-	return std::move(**Bytes);
+	return std::move(*FileBytes);
 }
 
 [[nodiscard]] std::expected<ETextureColorSpace, FAssetError> GetTextureColorSpace(const FAssetImportSettings& Settings)
@@ -111,7 +112,8 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 		return std::unexpected(std::move(Bytes.error()));
 	}
 
-	return *Bytes ? HashBytes(**Bytes) : FHash128{};
+	const std::optional<std::vector<std::byte>>& FileBytes = *Bytes;
+	return FileBytes ? HashBytes(*FileBytes) : FHash128{};
 }
 
 [[nodiscard]] std::expected<void, FAssetError> AppendDependencyHashes(const std::filesystem::path& ContentRoot, const std::vector<std::string>& Paths, std::vector<FAssetBuildDependency>& Dependencies)
@@ -207,7 +209,7 @@ std::expected<void, FAssetError> AppendShaderDependencies(const std::vector<std:
 		}
 	}
 
-	const auto Bytes = ReadWholeFile(Roots[RootIndex] / Utf8ToPath(Path), 16 * 1024 * 1024);
+	const auto Bytes = ReadWholeFile(Roots[RootIndex] / Utf8ToPath(Path), std::uint64_t{16} * 1024 * 1024);
 	if (!Bytes || !*Bytes)
 	{
 		return std::unexpected(Bytes ? FAssetError{std::format("Shader dependency '{}' is missing", Path)} : Bytes.error());
@@ -223,7 +225,7 @@ std::expected<void, FAssetError> AppendShaderDependencies(const std::vector<std:
 			TotalBytes += File.Bytes.size();
 		}
 
-		if (TotalBytes > 64 * 1024 * 1024)
+		if (TotalBytes > std::size_t{64} * 1024 * 1024)
 		{
 			return std::unexpected(FAssetError{"Shader source graph exceeds the 64 MiB limit"});
 		}
@@ -641,9 +643,12 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 		if (!Request.bForce)
 		{
 			std::expected<std::optional<std::vector<std::byte>>, FAssetError> Record = Cache.Get(BlenderRecordKey);
-			if (Record && *Record)
+			if (Record)
 			{
-				Dependencies = ParseDependencyRecord(**Record);
+				if (const std::optional<std::vector<std::byte>>& RecordBytes = *Record)
+				{
+					Dependencies = ParseDependencyRecord(*RecordBytes);
+				}
 			}
 		}
 
@@ -701,6 +706,11 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	}
 	else if (Metadata->Importer == "Material")
 	{
+		if (!Material)
+		{
+			return std::unexpected(FAssetError{"The Material importer produced no material"});
+		}
+
 		Cooked = std::move(*Material);
 	}
 	else if (Metadata->Importer == "Gltf")
@@ -710,6 +720,11 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	}
 	else
 	{
+		if (!Blender)
+		{
+			return std::unexpected(FAssetError{"The Blender importer found no Blender installation"});
+		}
+
 		if (!BlenderExport)
 		{
 			std::expected<FBlenderExport, FAssetError> Exported = ExportBlend(*Blender, Request.ContentRoot, Request.SourcePath);
@@ -775,11 +790,12 @@ std::expected<FCookedAsset, FAssetError> LoadCookedAsset(const std::filesystem::
 		return std::unexpected(std::move(Bytes.error()));
 	}
 
-	if (!*Bytes)
+	const std::optional<std::vector<std::byte>>& CachedBytes = *Bytes;
+	if (!CachedBytes)
 	{
 		return std::unexpected(FAssetError{std::format("Derived data {} is missing", ToString(Key))});
 	}
 
-	return DeserializeCookedAsset(**Bytes);
+	return DeserializeCookedAsset(*CachedBytes);
 }
 }

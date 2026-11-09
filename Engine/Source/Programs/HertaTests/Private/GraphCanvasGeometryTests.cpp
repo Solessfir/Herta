@@ -25,6 +25,7 @@ FGraphNode MaterialNode(const std::string_view Type, const std::uint32_t Id, con
 std::vector<FGraphNodeLayout> Layout(const FGraph& Graph)
 {
 	std::vector<FGraphNodeLayout> Layouts;
+	Layouts.reserve(Graph.Nodes.size());
 	for (const FGraphNode& Node : Graph.Nodes)
 	{
 		Layouts.push_back(LayoutGraphNode(Node, *GetMaterialGraphSchema().FindNode(Node.Type), {}, FGraphCanvasMetrics{}, FixedWidth));

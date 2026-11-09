@@ -30,6 +30,7 @@ struct FFormatFixture
 	std::vector<FGraphNodeLayout> Layouts() const
 	{
 		std::vector<FGraphNodeLayout> Result;
+		Result.reserve(Graph.Nodes.size());
 		for (const FGraphNode& Node : Graph.Nodes)
 		{
 			Result.push_back(LayoutGraphNode(Node, *GetMaterialGraphSchema().FindNode(Node.Type), {}, FGraphCanvasMetrics{}, [](const std::string_view Text)

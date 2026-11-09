@@ -127,7 +127,7 @@ std::expected<std::filesystem::path, FAssetError> ResolveContentFolder(const std
 	}
 
 	const auto Requested = Relative.empty() ? Root : Root / Utf8Path(Relative);
-	const auto Folder = std::filesystem::canonical(Requested, Error);
+	auto Folder = std::filesystem::canonical(Requested, Error);
 	const auto Local = Folder.lexically_relative(Root);
 	if (Error || Local.empty() || !Local.is_relative() || *Local.begin() == ".." || Folder != Requested.lexically_normal() || !std::filesystem::is_directory(Folder, Error) || Error)
 	{
@@ -246,8 +246,8 @@ std::expected<FMaterialTextureData, FAssetError> CookMaterialTextures(const FMat
 			return std::unexpected(TextureAsset ? FAssetError{"Material dependency is not a cooked texture"} : TextureAsset.error());
 		}
 
-		Textures[Slot] = std::move(std::get<FCookedTexture>(*TextureAsset));
-		if (Textures[Slot]->PixelFormat == ETexturePixelFormat::Rgba32Float && Binding.ColorSpace != ETextureColorSpace::Linear)
+		const FCookedTexture& Texture = Textures[Slot].emplace(std::move(std::get<FCookedTexture>(*TextureAsset)));
+		if (Texture.PixelFormat == ETexturePixelFormat::Rgba32Float && Binding.ColorSpace != ETextureColorSpace::Linear)
 		{
 			return std::unexpected(FAssetError{"HDR textures require Linear color space"});
 		}
@@ -394,6 +394,7 @@ void FPreviewAssets::RequestScan()
 	auto Results = std::make_shared<std::vector<std::expected<FContentScanResult, FAssetError>>>();
 	auto ScannedFolders = std::make_shared<std::vector<std::string>>();
 	std::vector<std::string> MountNames;
+	MountNames.reserve(Mounts.size());
 
 	for (const auto& Mount : Mounts)
 	{
@@ -491,6 +492,7 @@ void FPreviewAssets::CheckForChanges()
 	auto Taken = std::make_shared<std::vector<FContentSnapshot>>();
 	auto TakenFolders = std::make_shared<std::vector<std::string>>();
 	std::vector<std::string> MountNames;
+	MountNames.reserve(Mounts.size());
 
 	for (const auto& Mount : Mounts)
 	{
@@ -615,7 +617,7 @@ std::expected<std::string, FAssetError> FPreviewAssets::CreateFolder(const std::
 		return std::unexpected(FAssetError{std::format("Cannot create folder: {}", Error ? Error.message() : "destination already exists")});
 	}
 
-	const auto Created = std::format("{}/{}", MountedParent, UniqueName);
+	auto Created = std::format("{}/{}", MountedParent, UniqueName);
 	auto Updated = Folders;
 	Updated.push_back(Created);
 	PublishFolders(std::move(Updated));
@@ -670,7 +672,7 @@ std::expected<std::string, FAssetError> FPreviewAssets::RenameFolder(const std::
 		return std::unexpected(FAssetError{"Cannot rename folder without replacing an existing destination"});
 	}
 
-	const auto Renamed = std::format("{}/{}", MountedFolder.substr(0, Separator), NewName);
+	auto Renamed = std::format("{}/{}", MountedFolder.substr(0, Separator), NewName);
 	auto Updated = Folders;
 	std::erase(Updated, MountedFolder);
 	Updated.push_back(Renamed);
@@ -1092,7 +1094,7 @@ std::expected<std::filesystem::path, FAssetError> FPreviewAssets::GetMaterialPat
 		return std::unexpected(Parent.error());
 	}
 
-	const auto Path = *Parent / Relative.filename();
+	auto Path = *Parent / Relative.filename();
 	std::error_code Error;
 	if (std::filesystem::is_symlink(Path, Error) || Error)
 	{
@@ -1778,7 +1780,8 @@ void FPreviewAssets::PruneCache()
 
 	std::erase_if(MeshCache, [this](const auto& Entry)
 	{
-		const auto& [Asset, Cached] = Entry;
+		const FAssetId& Asset = Entry.first;
+		const FCachedMesh& Cached = Entry.second;
 		return Asset != MaterialPreviewMeshAsset && !ThumbnailAssets.contains(Asset) && !MaterialAssets.contains(Asset) && !TextureAssets.contains(Asset) && (Cached.bThumbnailOnly || !Cached.Slot.bLoading || Cached.Slot.Generation == 0 || Cached.RequestContentGeneration != ContentGeneration) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
 		{
 			return Slot.Asset == Asset;

@@ -47,12 +47,18 @@ std::expected<std::optional<std::vector<std::byte>>, FAssetError> FDerivedDataCa
 {
 	const std::filesystem::path Path = GetEntryPath(Key);
 	std::expected<std::optional<std::vector<std::byte>>, FAssetError> File = ReadWholeFile(Path, HeaderSize + MaximumPayloadSize + ChecksumSize);
-	if (!File || !*File)
+	if (!File)
 	{
 		return File;
 	}
 
-	const std::span<const std::byte> Bytes = **File;
+	const std::optional<std::vector<std::byte>>& FileBytes = *File;
+	if (!FileBytes)
+	{
+		return File;
+	}
+
+	const std::span<const std::byte> Bytes = *FileBytes;
 
 	const auto Corrupt = [&Path](const std::string_view Reason)
 	{
@@ -113,9 +119,12 @@ std::expected<void, FAssetError> FDerivedDataCache::Put(const FHash128& Key, con
 	{
 		// Windows refuses to replace a file another process is reading. The key fixes the content, so a valid existing entry is a success.
 		std::expected<std::optional<std::vector<std::byte>>, FAssetError> Existing = Get(Key);
-		if (Existing && *Existing && std::ranges::equal(**Existing, Payload))
+		if (Existing)
 		{
-			return {};
+			if (const std::optional<std::vector<std::byte>>& ExistingBytes = *Existing; ExistingBytes && std::ranges::equal(*ExistingBytes, Payload))
+			{
+				return {};
+			}
 		}
 	}
 

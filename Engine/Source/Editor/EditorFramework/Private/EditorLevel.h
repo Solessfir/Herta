@@ -113,7 +113,7 @@ private:
 	[[nodiscard]] std::expected<void, FLevelError> ApplyStructuralChanges(std::string_view Label, const std::vector<FLevelEntityChange>& Changes, const std::vector<FObjectId>& AfterSelection, std::optional<FObjectId> AfterActive = std::nullopt, std::optional<std::vector<FLevelFolder>> AfterFolders = {});
 	[[nodiscard]] std::expected<void, FLevelError> ApplyAuthoringChanges(std::span<const FLevelEntityChange> Changes, const std::optional<std::vector<FLevelFolder>>& AfterFolders);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> InsertEntity(FLevelEntity Entity);
-	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedMesh(std::optional<FStaticMeshComponent> Mesh);
+	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedMesh(const std::optional<FStaticMeshComponent>& Mesh);
 	[[nodiscard]] std::expected<void, FLevelError> ApplySelectedBodyType(ELevelBodyType Type, bool bOnlyAbsent);
 	template <typename T> [[nodiscard]] std::expected<void, FLevelError> ApplySelectedComponent(std::optional<T> FLevelEntity::*Member, std::optional<T> Value, std::string_view Label, bool bOnlyAbsent = false);
 	[[nodiscard]] std::expected<void, FLevelError> CheckAuthoringAllowed(bool bAllowActiveEdit = false) const;

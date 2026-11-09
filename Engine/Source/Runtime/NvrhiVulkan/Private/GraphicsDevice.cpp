@@ -23,7 +23,7 @@ constexpr std::size_t MaximumUploadBytes = MaximumUploadBytesPerRecording;
 constexpr std::size_t MaximumCommands = 16'384;
 constexpr std::uint32_t MaximumTextureDimension = 8192;
 constexpr std::uint32_t MeshPushConstantSize = sizeof(FIndexedDraw::WorldToClip) + sizeof(FIndexedDraw::ObjectToView);
-constexpr std::size_t MaximumUniformBytesPerFrame = 4 * 1024 * 1024;
+constexpr std::size_t MaximumUniformBytesPerFrame = std::size_t{4} * 1024 * 1024;
 constexpr std::size_t MaximumGpuPassTimings = 32;
 
 [[nodiscard]] std::unexpected<FPresentationError> Invalid(const std::string& Message)
@@ -987,7 +987,7 @@ public:
 			return Invalid("Previous-frame instances belong only to motion pipelines and must cover the drawn instances");
 		}
 
-		if (Pipeline->SecondColorFormat ? !Owns(SecondColor) || !SecondColor->Descriptor.bRenderTarget || SecondColor->Descriptor.Format != *Pipeline->SecondColorFormat || SecondColor->Descriptor.Extent != Color->Descriptor.Extent || SecondColor == Color || !IsInitialized(SecondColor) : static_cast<bool>(Draw.SecondColorTarget))
+		if (Pipeline->SecondColorFormat ? !Owns(SecondColor) || !SecondColor->Descriptor.bRenderTarget || SecondColor->Descriptor.Format != Pipeline->SecondColorFormat || SecondColor->Descriptor.Extent != Color->Descriptor.Extent || SecondColor == Color || !IsInitialized(SecondColor) : static_cast<bool>(Draw.SecondColorTarget))
 		{
 			return Invalid(std::format("Indexed draw '{}' needs an initialized second color target exactly when its pipeline has one, matching its format and extent", Pipeline->Name));
 		}

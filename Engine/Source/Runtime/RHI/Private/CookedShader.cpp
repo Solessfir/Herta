@@ -9,7 +9,7 @@ namespace
 {
 constexpr std::uint32_t Magic = 0x48534848;
 constexpr std::uint32_t Version = 2;
-constexpr std::size_t MaximumAssetSize = 16 * 1024 * 1024;
+constexpr std::size_t MaximumAssetSize = std::size_t{16} * 1024 * 1024;
 constexpr std::uint32_t MaximumRecords = 4096;
 
 void AppendInteger(std::vector<std::byte>& Bytes, const std::uint64_t Value, const std::size_t Size)

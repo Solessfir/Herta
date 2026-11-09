@@ -85,6 +85,7 @@ TEST_CASE("Preview simulation steps soft bodies and reports their world vertices
 	const FSoftBodyTopology Topology = BuildSoftBodyTopology(Rope);
 	// Lay the rope horizontally so gravity swings it down from its pin.
 	std::vector<FVector3> World;
+	World.reserve(Topology.Vertices.size());
 	for (const FVector3& Vertex : Topology.Vertices)
 	{
 		World.push_back({-Vertex.Y, 2.f, 0.f});
@@ -114,6 +115,7 @@ TEST_CASE("Preview simulation hangs a constrained box from the end of a pinned r
 	const FSoftBodyComponent Rope{.Shape = ESoftBodyShape::Rope, .Length = 1.f, .MassKg = 0.2f};
 	const FSoftBodyTopology Topology = BuildSoftBodyTopology(Rope);
 	std::vector<FVector3> World;
+	World.reserve(Topology.Vertices.size());
 	for (const FVector3& Vertex : Topology.Vertices)
 	{
 		World.push_back(Vertex + FVector3{0.f, 3.f, 0.f});

@@ -335,6 +335,11 @@ struct FWideImage
 	FWideImage Target{.Width = std::max(1u, Source.Width / 2), .Height = std::max(1u, Source.Height / 2), .Texels = {}};
 	Target.Texels.resize(std::size_t{Target.Width} * Target.Height * 4);
 	const std::uint64_t TotalWeight = std::uint64_t{Source.Width} * Source.Height;
+	if (TotalWeight == 0)
+	{
+		// CookTexture rejects empty sources, so this only keeps the weighted average defined.
+		return Target;
+	}
 
 	for (std::uint32_t Y = 0; Y < Target.Height; ++Y)
 	{
@@ -523,7 +528,7 @@ std::expected<FCookedTexture, FAssetError> CookHdrTexture(const std::uint32_t Wi
 						}
 					}
 
-					Next[(std::size_t{Y} * NextWidth + X) * 4 + Channel] = static_cast<float>(Sum / (std::uint64_t{CurrentWidth} * CurrentHeight));
+					Next[(std::size_t{Y} * NextWidth + X) * 4 + Channel] = static_cast<float>(Sum / (static_cast<double>(CurrentWidth) * CurrentHeight));
 				}
 			}
 		}

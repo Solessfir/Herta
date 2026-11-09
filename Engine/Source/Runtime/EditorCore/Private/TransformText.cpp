@@ -137,11 +137,12 @@ private:
 			auto Value = ParseExpression();
 			SkipWhitespace();
 			--Nesting;
-			if (!Value || Position >= Expression.size() || Expression[Position++] != ')')
+			if (!Value || Position >= Expression.size() || Expression[Position] != ')')
 			{
 				return std::nullopt;
 			}
 
+			++Position;
 			return Value;
 		}
 

@@ -332,7 +332,8 @@ TEST_CASE("Preview scaling checkpoint repeats simulation and restores all author
 		for (std::size_t Index = 0; Index < DynamicCount; ++Index)
 		{
 			const std::size_t Column = Index / 2;
-			const FVector3 Position{static_cast<float>(Column % 100) * 3.f, Index % 2 == 0 ? 0.5f : 1.49f, static_cast<float>(Column / 100) * 3.f};
+			const std::size_t Row = Column / 100;
+			const FVector3 Position{static_cast<float>(Column % 100) * 3.f, Index % 2 == 0 ? 0.5f : 1.49f, static_cast<float>(Row) * 3.f};
 			Bodies.push_back({.ObjectIndex = Index + 1, .Transform = {Position, FQuaternion::Identity(), {0.5f, 0.5f, 0.5f}}, .MotionType = EPhysicsMotionType::Dynamic});
 		}
 
@@ -365,13 +366,14 @@ TEST_CASE("Preview scaling checkpoint repeats simulation and restores all author
 TEST_CASE("Preview collision-capacity failure does not publish partial poses and stop restores authoring")
 {
 	std::vector<FLevelSimulationBody> Bodies;
+	Bodies.reserve(32);
 	for (std::size_t Index = 0; Index < 32; ++Index)
 	{
 		Bodies.push_back({.ObjectIndex = Index, .Transform = {{0.f, 4.f, 0.f}, FQuaternion::Identity(), FVector3::One()}, .MotionType = EPhysicsMotionType::Dynamic});
 	}
 
 	FLevelSimulation Simulation;
-	REQUIRE(Simulation.Start(Bodies, {}, {}, {.MaxBodies = 32, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = 1024 * 1024}));
+	REQUIRE(Simulation.Start(Bodies, {}, {}, {.MaxBodies = 32, .MaxBodyPairs = 4, .MaxContactConstraints = 4, .TempMemoryBytes = std::size_t{1024} * 1024}));
 	const auto Result = Simulation.Update(1.f / 30.f);
 	REQUIRE_FALSE(Result);
 	CHECK(Result.error().Message.find("capacity exceeded") != std::string::npos);
@@ -493,7 +495,8 @@ TEST_CASE("Spawned bodies move, despawn, and never answer to an old handle")
 	std::vector<FLevelSimulationHandle> Handles;
 	for (int Index = 0; Index < 100; ++Index)
 	{
-		const auto Handle = Simulation.Spawn({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = {static_cast<float>(Index % 10) - 4.5f, 1.f + static_cast<float>(Index / 10) * 0.5f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+		const int Row = Index / 10;
+		const auto Handle = Simulation.Spawn({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = {static_cast<float>(Index % 10) - 4.5f, 1.f + static_cast<float>(Row) * 0.5f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
 		REQUIRE(Handle);
 		Handles.push_back(*Handle);
 	}
@@ -650,7 +653,8 @@ TEST_CASE("Spawn and despawn churn returns the world to its baseline")
 	{
 		for (int Index = 0; Index < 1000; ++Index)
 		{
-			const auto Handle = Simulation.Spawn({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = {static_cast<float>(Index % 32) - 16.f, 1.f + static_cast<float>(Index / 32) * 0.5f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+			const int Row = Index / 32;
+			const auto Handle = Simulation.Spawn({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = {static_cast<float>(Index % 32) - 16.f, 1.f + static_cast<float>(Row) * 0.5f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
 			REQUIRE(Handle);
 			HighestSlot = std::max(HighestSlot, Handle->Index);
 			Handles.push_back(*Handle);
@@ -686,11 +690,13 @@ TEST_CASE("Many destructibles break within the level body budget")
 	REQUIRE(Fracture->Chunks.size() == Cells);
 
 	std::vector<FLevelSimulationDestructible> Walls;
+	Walls.reserve(static_cast<std::size_t>(Columns) * 2);
 	for (int Index = 0; Index < Columns * 2; ++Index)
 	{
+		const int Row = Index / Columns;
 		Walls.push_back({
 		    .ObjectIndex = static_cast<std::size_t>(Index + 1),
-		    .Position = {static_cast<float>(Index % Columns) * 3.f - 10.5f, 1.5f, static_cast<float>(Index / Columns) * -4.f},
+		    .Position = {static_cast<float>(Index % Columns) * 3.f - 10.5f, 1.5f, static_cast<float>(Row) * -4.f},
 		    .Fracture = Fracture,
 		    .Strength = 30.f,
 		    .Properties = {.MassKg = 400.f, .Friction = 0.6f},

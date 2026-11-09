@@ -219,9 +219,10 @@ std::optional<FExpression> FCompiler::Elementwise(const FGraphNode& Node, const 
 		for (std::uint32_t Component = 0; Component < Width; ++Component)
 		{
 			std::vector<float> Arguments;
+			Arguments.reserve(Fitted.size());
 			for (const FExpression& Value : Fitted)
 			{
-				Arguments.push_back((*Value.Constant)[Component]);
+				Arguments.push_back(Value.Constant.value_or(std::array<float, 4>{})[Component]);
 			}
 
 			Result[Component] = Fold(Arguments);
@@ -391,7 +392,13 @@ std::optional<FExpression> FCompiler::EvaluateOutput(const FGraphNode& Node, con
 		{
 			const std::string_view Pin = Pins[Index];
 			auto Part = Input(Node, Pin, 0.f);
-			if (!Part || !(Part = Fit(Node, Pin, *Part, 1)))
+			if (!Part)
+			{
+				return std::nullopt;
+			}
+
+			Part = Fit(Node, Pin, *Part, 1);
+			if (!Part)
 			{
 				return std::nullopt;
 			}
@@ -408,7 +415,7 @@ std::optional<FExpression> FCompiler::EvaluateOutput(const FGraphNode& Node, con
 			std::array<float, 4> Value{};
 			for (std::size_t Index = 0; Index < Parts.size(); ++Index)
 			{
-				Value[Index] = (*Parts[Index].Constant)[0];
+				Value[Index] = Parts[Index].Constant.value_or(std::array<float, 4>{})[0];
 			}
 
 			return MakeConstant(Value, Width);

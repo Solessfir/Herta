@@ -305,13 +305,14 @@ std::vector<FRenderViewport> PackLocalShadowTiles(const std::span<const FRenderL
 	}
 
 	std::vector<FLocalTile*> Order;
+	Order.reserve(Tiles.size());
 	for (FLocalTile& Tile : Tiles)
 	{
 		Order.push_back(&Tile);
 	}
 
 	std::ranges::stable_sort(Order, std::ranges::greater{}, &FLocalTile::Cells);
-	std::array<bool, GridWidth * GridHeight> Used{};
+	std::array<bool, std::size_t{GridWidth} * GridHeight> Used{};
 	for (FLocalTile* const Tile : Order)
 	{
 		bool bPlaced = false;
@@ -326,7 +327,7 @@ std::vector<FRenderViewport> PackLocalShadowTiles(const std::span<const FRenderL
 
 				for (std::uint32_t Row = Y; Row < Y + Tile->Cells; ++Row)
 				{
-					std::fill_n(Used.begin() + Row * GridWidth + X, Tile->Cells, true);
+					std::fill_n(Used.begin() + (static_cast<std::ptrdiff_t>(Row) * GridWidth) + X, Tile->Cells, true);
 				}
 
 				Tile->Viewport = {.X = X * Cell, .Y = Y * Cell, .Width = Tile->Cells * Cell, .Height = Tile->Cells * Cell};
@@ -336,6 +337,7 @@ std::vector<FRenderViewport> PackLocalShadowTiles(const std::span<const FRenderL
 	}
 
 	std::vector<FRenderViewport> Viewports;
+	Viewports.reserve(Tiles.size());
 	for (const FLocalTile& Tile : Tiles)
 	{
 		Viewports.push_back(Tile.Viewport);

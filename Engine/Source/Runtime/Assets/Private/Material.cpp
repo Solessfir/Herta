@@ -13,7 +13,7 @@ namespace Herta
 {
 namespace
 {
-constexpr std::size_t MaximumMaterialBytes = 1024 * 1024;
+constexpr std::size_t MaximumMaterialBytes = std::size_t{1024} * 1024;
 constexpr std::array<std::string_view, MaterialTextureSlotCount> SlotNames{"baseColor", "metallic", "roughness", "normal", "occlusion", "emissive"};
 constexpr std::array<std::string_view, 5> ChannelNames{"r", "g", "b", "a", "rgb"};
 

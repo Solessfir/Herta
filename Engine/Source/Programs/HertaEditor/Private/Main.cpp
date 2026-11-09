@@ -1519,7 +1519,13 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				}
 			}
 
-			if (bPresented && EditorFramework->GetFrameMetrics().bAssetsReady && VisualFrames < 600 && ++VisualFrames == 600)
+			const bool bCountVisualFrame = bPresented && EditorFramework->GetFrameMetrics().bAssetsReady && VisualFrames < 600;
+			if (bCountVisualFrame)
+			{
+				++VisualFrames;
+			}
+
+			if (bCountVisualFrame && VisualFrames == 600)
 			{
 				const FExtent2D Extent = EditorFramework->GetViewportExtent();
 				HERTA_LOG_INFO(*Log, EditorLog, "Visual capture completed: frames={} viewport={}x{} target_bytes={}", VisualFrames, Extent.Width, Extent.Height, MeshRenderer->GetRenderTargetBytes());

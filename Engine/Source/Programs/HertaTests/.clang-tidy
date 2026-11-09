@@ -1,0 +1,6 @@
+---
+InheritParentConfig: true
+# The optional-access dataflow cannot see that a doctest REQUIRE stops the test, so every REQUIRE(Value) followed by *Value is reported.
+Checks: >
+  -bugprone-unchecked-optional-access
+...

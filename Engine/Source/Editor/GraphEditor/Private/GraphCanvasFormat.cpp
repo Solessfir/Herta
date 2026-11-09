@@ -141,6 +141,7 @@ std::vector<FGraphNodeId> GraphFormatRoots(const FGraph& Graph, const std::span<
 	});
 
 	std::vector<FGraphNodeId> Result;
+	Result.reserve(Roots.size());
 	for (const FGraphNode* const Node : Roots)
 	{
 		Result.push_back(Node->Id);

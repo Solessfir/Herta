@@ -12,7 +12,7 @@ namespace Herta
 {
 namespace
 {
-constexpr std::size_t MaximumGraphBytes = 64 * 1024 * 1024;
+constexpr std::size_t MaximumGraphBytes = std::size_t{64} * 1024 * 1024;
 
 std::unexpected<FGraphError> Failed(std::string Message)
 {
@@ -188,6 +188,7 @@ std::expected<std::string, FGraphError> SerializeGraph(const FGraph& Graph, cons
 	}
 
 	std::vector<const FGraphNode*> Nodes;
+	Nodes.reserve(Graph.Nodes.size());
 	for (const FGraphNode& Node : Graph.Nodes)
 	{
 		Nodes.push_back(&Node);
@@ -246,6 +247,7 @@ std::expected<std::string, FGraphError> SerializeGraph(const FGraph& Graph, cons
 	}
 
 	std::vector<const FGraphComment*> Comments;
+	Comments.reserve(Graph.Comments.size());
 	for (const FGraphComment& Comment : Graph.Comments)
 	{
 		Comments.push_back(&Comment);

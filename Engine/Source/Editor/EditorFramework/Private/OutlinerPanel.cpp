@@ -85,7 +85,8 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 		State.ParentIndices.assign(NodeCount, -1);
 		for (std::size_t Index = 0; Index < Objects.size(); ++Index)
 		{
-			const auto Parent = Objects[Index].Parent ? Indices.find(*Objects[Index].Parent) : Indices.end();
+			const auto& ParentId = Objects[Index].Parent;
+			const auto Parent = ParentId ? Indices.find(*ParentId) : Indices.end();
 			const int ParentIndex = Parent != Indices.end() && static_cast<std::size_t>(Parent->second) < Objects.size() && Parent->second != static_cast<int>(Index) ? Parent->second : FolderAssignments[Index];
 			if (ParentIndex >= 0)
 			{

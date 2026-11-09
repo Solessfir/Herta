@@ -55,6 +55,7 @@ inline constexpr std::array ImporterExtensions{
 std::vector<std::string_view> GetImportableExtensions()
 {
 	std::vector<std::string_view> Extensions;
+	Extensions.reserve(ImporterExtensions.size());
 
 	for (const FImporterExtension& Entry : ImporterExtensions)
 	{
@@ -330,12 +331,18 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 		}
 
 		std::expected<std::optional<std::vector<std::byte>>, FAssetError> Bytes = ReadWholeFile(Source, MaximumSourceFileSize);
-		if (!Bytes || !*Bytes)
+		if (!Bytes)
 		{
-			return std::unexpected(Bytes ? FAssetError{std::format("'{}' disappeared during import", PathToUtf8(Source))} : std::move(Bytes.error()));
+			return std::unexpected(std::move(Bytes.error()));
 		}
 
-		if (std::expected<void, FAssetError> Copied = WriteFileAtomically(Destination, **Bytes, false); !Copied)
+		const std::optional<std::vector<std::byte>>& SourceBytes = *Bytes;
+		if (!SourceBytes)
+		{
+			return std::unexpected(FAssetError{std::format("'{}' disappeared during import", PathToUtf8(Source))});
+		}
+
+		if (std::expected<void, FAssetError> Copied = WriteFileAtomically(Destination, *SourceBytes, false); !Copied)
 		{
 			return std::unexpected(std::move(Copied.error()));
 		}
@@ -352,19 +359,19 @@ std::expected<FImportedSource, FAssetError> ImportSource(const std::filesystem::
 
 std::expected<FMaterialAsset, FAssetError> LoadMaterialAsset(const std::filesystem::path& Path)
 {
-	const auto Bytes = ReadWholeFile(Path, 1024 * 1024);
+	const auto Bytes = ReadWholeFile(Path, std::uint64_t{1024} * 1024);
 	if (!Bytes)
 	{
 		return std::unexpected(Bytes.error());
 	}
 
-	if (!*Bytes)
+	const std::optional<std::vector<std::byte>>& Data = *Bytes;
+	if (!Data)
 	{
 		return std::unexpected(FAssetError{"Material file does not exist"});
 	}
 
-	const auto& Data = **Bytes;
-	return DeserializeMaterial(std::string_view(reinterpret_cast<const char*>(Data.data()), Data.size()));
+	return DeserializeMaterial(std::string_view(reinterpret_cast<const char*>(Data->data()), Data->size()));
 }
 
 std::expected<void, FAssetError> WriteMaterialAsset(const std::filesystem::path& Path, const FMaterialAsset& Material, const bool bReplaceExisting)

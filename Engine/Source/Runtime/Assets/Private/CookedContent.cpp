@@ -79,7 +79,7 @@ std::expected<FCookedAsset, FAssetError> FCookedContent::Load(const FAssetId& As
 		}
 
 		const auto* const Texture = std::get_if<FCookedTexture>(&*Cooked);
-		if (ColorSpace.has_value() != (Texture != nullptr) || (Texture && Texture->ColorSpace != *ColorSpace))
+		if (ColorSpace.has_value() != (Texture != nullptr) || (Texture && Texture->ColorSpace != ColorSpace))
 		{
 			return std::unexpected(FAssetError{std::format("Staged asset {} does not match the requested asset kind or color space", Asset.ToString())});
 		}

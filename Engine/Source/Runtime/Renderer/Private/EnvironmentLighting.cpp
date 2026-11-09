@@ -512,7 +512,7 @@ FCookedTextureMip BuildSkyMultipleScattering(const FVisualUniforms& Snapshot)
 	return Mip;
 }
 
-std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const FCookedTexture* Environment, const FVisualUniforms& Snapshot, const std::stop_token StopToken)
+std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const FCookedTexture* Environment, const FVisualUniforms& Snapshot, const std::stop_token& StopToken)
 {
 	if (Environment)
 	{
@@ -552,8 +552,13 @@ std::expected<FEnvironmentLighting, FAssetError> BuildEnvironmentLighting(const 
 		}
 	}
 
-	const std::optional<FCookedTexture> Baked = Environment ? std::nullopt : std::optional{BakeProceduralSky(Snapshot)};
-	const FCookedTexture* const Source = Environment ? Environment : &*Baked;
+	std::optional<FCookedTexture> Baked;
+	const FCookedTexture* Source = Environment;
+	if (Source == nullptr)
+	{
+		Source = &Baked.emplace(BakeProceduralSky(Snapshot));
+	}
+
 	FEnvironmentLighting Result{
 	    .Diffuse = {.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {}},
 	    .Specular = {.ColorSpace = ETextureColorSpace::Linear, .PixelFormat = ETexturePixelFormat::Rgba32Float, .Mips = {}},

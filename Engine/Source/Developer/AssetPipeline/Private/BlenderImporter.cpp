@@ -257,17 +257,29 @@ std::expected<FBlenderExport, FAssetError> ExportBlend(const FBlenderInstallatio
 
 	FBlenderExport Export;
 	std::expected<std::optional<std::vector<std::byte>>, FAssetError> Bytes = ReadWholeFile(Glb, MaximumGlbSize);
-	if (!Bytes || !*Bytes)
+	if (!Bytes)
 	{
-		return std::unexpected(Bytes ? FAssetError{std::format("Blender {} wrote no GLB for '{}'", Blender.Version, SourcePath)} : std::move(Bytes.error()));
+		return std::unexpected(std::move(Bytes.error()));
 	}
 
-	Export.Glb = std::move(**Bytes);
+	std::optional<std::vector<std::byte>>& GlbBytes = *Bytes;
+	if (!GlbBytes)
+	{
+		return std::unexpected(FAssetError{std::format("Blender {} wrote no GLB for '{}'", Blender.Version, SourcePath)});
+	}
+
+	Export.Glb = std::move(*GlbBytes);
 
 	std::expected<std::optional<std::vector<std::byte>>, FAssetError> ManifestBytes = ReadWholeFile(Manifest, MaximumGlbSize);
-	if (!ManifestBytes || !*ManifestBytes)
+	if (!ManifestBytes)
 	{
-		return std::unexpected(ManifestBytes ? FAssetError{std::format("Blender {} wrote no dependency list for '{}'", Blender.Version, SourcePath)} : std::move(ManifestBytes.error()));
+		return std::unexpected(std::move(ManifestBytes.error()));
+	}
+
+	const std::optional<std::vector<std::byte>>& ManifestData = *ManifestBytes;
+	if (!ManifestData)
+	{
+		return std::unexpected(FAssetError{std::format("Blender {} wrote no dependency list for '{}'", Blender.Version, SourcePath)});
 	}
 
 	std::error_code Error;
@@ -277,7 +289,7 @@ std::expected<FBlenderExport, FAssetError> ExportBlend(const FBlenderInstallatio
 		return std::unexpected(FAssetError{std::format("Cannot resolve content root '{}': {}", PathToUtf8(ContentRoot), Error.message())});
 	}
 
-	const std::string_view Lines(reinterpret_cast<const char*>((*ManifestBytes)->data()), (*ManifestBytes)->size());
+	const std::string_view Lines(reinterpret_cast<const char*>(ManifestData->data()), ManifestData->size());
 	for (const auto Line : std::views::split(Lines, '\n'))
 	{
 		const std::string_view Text(Line.begin(), Line.end());

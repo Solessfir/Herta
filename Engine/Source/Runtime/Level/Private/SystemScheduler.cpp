@@ -241,7 +241,10 @@ std::expected<std::vector<FLevelQueryEntity>, FLevelError> FLevelSystemContext::
 		const ELevelComponent Present = PresentComponents(Entity);
 		if (HasLevelComponents(Present, Query.Require) && (Present & Query.Exclude) == ELevelComponent::None)
 		{
-			Results.push_back(ProjectEntity(*Implementation.World.FindEntity(Entity.Id), Entity, Components));
+			if (const auto Handle = Implementation.World.FindEntity(Entity.Id))
+			{
+				Results.push_back(ProjectEntity(*Handle, Entity, Components));
+			}
 		}
 	}
 
@@ -293,12 +296,19 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	}
 
 	const auto Pending = Implementation.Changes.find(Live->Id);
-	if (Pending != Implementation.Changes.end() && !Pending->second.After)
+	const FLevelEntity* Base = &*Live;
+	if (Pending != Implementation.Changes.end())
 	{
-		return Fail("Entity is already queued for destruction");
+		const auto& After = Pending->second.After;
+		if (!After)
+		{
+			return Fail("Entity is already queued for destruction");
+		}
+
+		Base = &*After;
 	}
 
-	FLevelEntity Candidate = Pending == Implementation.Changes.end() ? *Live : *Pending->second.After;
+	FLevelEntity Candidate = *Base;
 	const bool bStructural = Update.Parent.has_value()
 	                         || (Update.Mesh && Update.Mesh->has_value() != Candidate.Mesh.has_value())
 	                         || (Update.RigidBody && (Update.RigidBody->Type != ELevelBodyType::None) != (Candidate.BodyType != ELevelBodyType::None))
@@ -383,7 +393,7 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 
 	if (bStructural || Pending != Implementation.Changes.end())
 	{
-		Implementation.Changes[Live->Id] = {.Before = *Live, .After = std::move(Candidate)};
+		Implementation.Changes[Live->Id] = {.Before = Live, .After = std::move(Candidate)};
 		return {};
 	}
 
@@ -456,7 +466,7 @@ std::expected<void, FLevelError> FLevelSystemContext::QueueDestroyEntity(const F
 		return Fail("Entity is already queued for destruction");
 	}
 
-	Implementation.Changes[Live->Id] = {.Before = *Live};
+	Implementation.Changes[Live->Id] = {.Before = Live};
 	return {};
 }
 

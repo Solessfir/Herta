@@ -623,6 +623,7 @@ TEST_CASE("Rejected structural history admission preserves entities handles and 
 	const auto Generation = Level.GetGeneration();
 	FPreviewObject* const Object = &Level.GetObjects()[0];
 	std::vector<FEntityId> Handles;
+	Handles.reserve(Before.size());
 
 	for (const FLevelEntity& Entity : Before)
 	{
@@ -730,6 +731,7 @@ TEST_CASE("Invalid duplication offsets preserve authored objects selection and e
 			Level.SetSelection(Selected, Selected.front());
 			const auto Generation = Level.GetGeneration();
 			std::vector<FEntityId> Handles;
+			Handles.reserve(Before.size());
 
 			for (const FLevelEntity& Entity : Before)
 			{
@@ -785,6 +787,7 @@ TEST_CASE("Gesture duplication and transforms form one undo step for single and 
 
 		Level.SetSelection(Originals, Originals.front());
 		std::vector<FEntityId> OriginalHandles;
+		OriginalHandles.reserve(Before.size());
 
 		for (const FLevelEntity& Entity : Before)
 		{
@@ -891,6 +894,7 @@ TEST_CASE("Rejected gesture duplication history removes copies without invalidat
 	const auto Selection = SelectedEditorObjects(Level);
 	const auto Active = Level.GetActiveObject();
 	std::vector<FEntityId> Handles;
+	Handles.reserve(Before.size());
 
 	for (const FLevelEntity& Entity : Before)
 	{

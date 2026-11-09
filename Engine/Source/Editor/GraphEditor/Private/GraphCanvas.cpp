@@ -829,13 +829,15 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 	{
 		const float StartX = std::fmod(View.Pan[0], Spacing);
 		const float StartY = std::fmod(View.Pan[1], Spacing);
-		for (float X = StartX; X < Size.x; X += Spacing)
+		for (int Line = 0; StartX + static_cast<float>(Line) * Spacing < Size.x; ++Line)
 		{
+			const float X = StartX + static_cast<float>(Line) * Spacing;
 			DrawList->AddLine(ImVec2(Origin.x + X, Origin.y), ImVec2(Origin.x + X, Origin.y + Size.y), ToImU32(ToolUITheme::BorderSoft));
 		}
 
-		for (float Y = StartY; Y < Size.y; Y += Spacing)
+		for (int Line = 0; StartY + static_cast<float>(Line) * Spacing < Size.y; ++Line)
 		{
+			const float Y = StartY + static_cast<float>(Line) * Spacing;
 			DrawList->AddLine(ImVec2(Origin.x, Origin.y + Y), ImVec2(Origin.x + Size.x, Origin.y + Y), ToImU32(ToolUITheme::BorderSoft));
 		}
 	}
@@ -1066,7 +1068,7 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 				{
 					const auto Channel = [](const float Component)
 					{
-						return static_cast<std::uint8_t>(std::clamp(Component, 0.f, 1.f) * 255.f + 0.5f);
+						return static_cast<std::uint8_t>(std::lround(std::clamp(Component, 0.f, 1.f) * 255.f));
 					};
 
 					DrawList->AddRectFilled(ImVec2(Right - FontSize * 3.f, Y), ImVec2(Right, Y + FontSize), IM_COL32(Channel((*Vector)[0]), Channel((*Vector)[1]), Channel((*Vector)[2]), 255), 3.f * View.Zoom);
