@@ -112,9 +112,9 @@ struct FGamePlayerSettings
 	float MantleReach = 0.3f;
 	// Falling below this height returns the player to the start.
 	float RespawnHeight = -30.f;
-	// The third-person camera sits this far behind the shoulders, and this far to the right of them.
+	// The third-person camera sits this far behind the shoulders, centered on the player; a positive offset moves it right for an over-the-shoulder view.
 	float ThirdPersonDistance = 3.f;
-	float ThirdPersonShoulderOffset = 0.35f;
+	float ThirdPersonShoulderOffset = 0.f;
 };
 
 enum class EGameObjectiveState : std::uint8_t
