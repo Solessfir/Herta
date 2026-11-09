@@ -108,6 +108,12 @@ struct FGamePlayerSettings
 	// Moving forward into a wall in the air climbs onto its top when the top is this high above the feet and the player fits up there.
 	float MantleMinimumHeight = 0.5f;
 	float MantleMaximumHeight = 1.9f;
+	// Sprinting forward along a wall in the air at the minimum speed or faster runs on it: a small lift, a fraction of gravity, and at most
+	// WallRunSeconds. Sprint is required because air control pressing into a wall inflates the speed along it past a walk.
+	float WallRunMinimumSpeed = 5.f;
+	float WallRunSeconds = 1.2f;
+	float WallRunLift = 1.5f;
+	float WallRunGravityScale = 0.25f;
 	// How far past the capsule the probe looks for the top, which is where the climb puts the feet; 0.3 m still lands on the 0.45 m hurdle.
 	float MantleReach = 0.3f;
 	// Falling below this height returns the player to the start.
@@ -171,6 +177,7 @@ public:
 	[[nodiscard]] bool IsPlayerCrouched() const noexcept;
 	[[nodiscard]] bool IsPlayerSliding() const noexcept;
 	[[nodiscard]] bool IsPlayerMantling() const noexcept;
+	[[nodiscard]] bool IsPlayerWallRunning() const noexcept;
 	[[nodiscard]] FVector3 GetPlayerVelocity() const noexcept;
 	// The look direction around the vertical axis; 0 faces +Z.
 	[[nodiscard]] float GetPlayerYaw() const noexcept;

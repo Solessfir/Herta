@@ -16,6 +16,7 @@ enum ELocomotionParameter : std::size_t
 	Jump,
 	WallJump,
 	Mantle,
+	WallRunning,
 };
 
 enum ELocomotionState : std::size_t
@@ -30,6 +31,7 @@ enum ELocomotionState : std::size_t
 	Air,
 	Land,
 	Climb,
+	WallRunState,
 };
 
 [[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
@@ -55,6 +57,7 @@ FAnimationStateMachineDesc MakeDefaultLocomotion()
 	        {.Name = "Jump", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "WallJump", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "Mantle", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "WallRunning", .Type = EAnimationParameterType::Bool},
 	    },
 	    .States = {
 	        {.Name = "Locomotion", .Samples = {{.Clip = "Idle_Loop", .Position = 0.f}, {.Clip = "Walk_Loop", .Position = 1.8f}, {.Clip = "Jog_Fwd_Loop", .Position = 4.5f}, {.Clip = "Sprint_Loop", .Position = 7.f}}, .BlendParameter = Speed},
@@ -68,12 +71,17 @@ FAnimationStateMachineDesc MakeDefaultLocomotion()
 	        {.Name = "Land", .Samples = {{.Clip = "Jump_Land"}}, .bLoop = false, .Speed = 1.5f},
 	        // Its root rises the 1 m it climbs, which the session cancels so the capsule carries the body up the actual ledge height.
 	        {.Name = "Mantle", .Samples = {{.Clip = "ClimbUp_1m_RM"}}, .bLoop = false},
+	        // The clips have no wall run, so the sprint plays while the session leans the body away from the wall.
+	        {.Name = "Wall run", .Samples = {{.Clip = "Sprint_Loop"}}},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
 	        // Mantles and wall jumps can start from any state, and win over everything else in the step they start.
 	        {.From = AnyAnimationState, .To = Climb, .DurationSeconds = 0.1f, .Conditions = {Triggered(Mantle)}},
 	        {.From = AnyAnimationState, .To = WallJumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(WallJump)}},
+	        {.From = AnyAnimationState, .To = WallRunState, .DurationSeconds = 0.15f, .Conditions = {Is(WallRunning, true)}},
+	        {.From = WallRunState, .To = Land, .DurationSeconds = 0.1f, .Conditions = {Is(Grounded, true)}},
+	        {.From = WallRunState, .To = Air, .DurationSeconds = 0.2f, .Conditions = {Is(WallRunning, false)}},
 	        {.From = Climb, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
 	        {.From = Locomotion, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
 	        {.From = Crouching, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
@@ -168,6 +176,7 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 	Character->JumpParameter = Locomotion.FindParameter("Jump");
 	Character->WallJumpParameter = Locomotion.FindParameter("WallJump");
 	Character->MantleParameter = Locomotion.FindParameter("Mantle");
+	Character->WallRunningParameter = Locomotion.FindParameter("WallRunning");
 
 	if (Device)
 	{
@@ -213,6 +222,7 @@ void FPlayerCharacter::Update(const float DeltaSeconds, const FPlayerMotion& Mot
 	Set(GroundedParameter, Motion.bGrounded);
 	Set(CrouchedParameter, Motion.bCrouched);
 	Set(SlidingParameter, Motion.bSliding);
+	Set(WallRunningParameter, Motion.bWallRunning);
 	const auto Trigger = [this](const std::optional<std::size_t>& Parameter, const bool bFired)
 	{
 		if (bFired && Parameter)

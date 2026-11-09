@@ -308,6 +308,50 @@ TEST_CASE("Gamepad sprint toggles on each click and ends when the move stick res
 	CHECK_FALSE(Input.bJump);
 }
 
+TEST_CASE("Game players wall run along a long wall at sprint speed, but not at walking speed")
+{
+	const FNoGameAssets Assets;
+	std::vector<FLevelEntity> Course = MakeCourse();
+	Course.erase(Course.begin() + 2);
+	// A 20 m wall whose face runs along +Z 2.5 m to the player's left.
+	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Long wall", .Transform = {.Translation = {2.7, 2.5, 12.}, .Scale = {0.4f, 5.f, 20.f}}, .Mesh = FStaticMeshComponent{.Asset = CubeAsset}, .BodyType = ELevelBodyType::Static});
+
+	const auto Run = [&Assets, &Course](const bool bSprint, int& AirFrames)
+	{
+		const auto Session = FGameSession::Create(Course, Assets, nullptr);
+		REQUIRE(Session);
+		FGameSession& Game = **Session;
+		Advance(Game, {}, 20);
+		// Run in at an angle and jump toward the wall, as a player would, then hold forward along it.
+		Advance(Game, {.Move = {-0.5f, 1.f}, .bSprint = bSprint}, 30);
+		bool bWallRan = false;
+		AirFrames = 0;
+		REQUIRE(Game.Update(1.f / 60.f, {.Move = {-0.5f, 1.f}, .bJump = true, .bSprint = bSprint}));
+		for (int Frame = 0; Frame < 240; ++Frame)
+		{
+			REQUIRE(Game.Update(1.f / 60.f, {.Move = {-0.5f, 1.f}, .bSprint = bSprint}));
+			bWallRan = bWallRan || Game.IsPlayerWallRunning();
+			if (Game.IsPlayerGrounded())
+			{
+				break;
+			}
+
+			++AirFrames;
+		}
+
+		CHECK(Game.IsPlayerGrounded());
+		CHECK_FALSE(Game.IsPlayerWallRunning());
+		return bWallRan;
+	};
+
+	// A plain jump stays up about 0.8 s; the run adds most of its 1.2 s.
+	int AirFrames = 0;
+	CHECK(Run(true, AirFrames));
+	CHECK(AirFrames > 90);
+	CHECK_FALSE(Run(false, AirFrames));
+	CHECK(AirFrames < 60);
+}
+
 TEST_CASE("Game players mantle onto a ledge they jump at, but not one without room on top")
 {
 	const FNoGameAssets Assets;

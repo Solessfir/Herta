@@ -580,8 +580,8 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 	std::string Output = std::format("{{\"playing\": {}", PlaySession ? "true" : "false");
 	if (PlaySession)
 	{
-		Output += std::format(", \"paused\": {}, \"grounded\": {}, \"crouched\": {}, \"sliding\": {}, \"mantling\": {}, \"thirdPerson\": {}", bPlayPaused ? "true" : "false", PlaySession->IsPlayerGrounded() ? "true" : "false",
-		    PlaySession->IsPlayerCrouched() ? "true" : "false", PlaySession->IsPlayerSliding() ? "true" : "false", PlaySession->IsPlayerMantling() ? "true" : "false", PlaySession->IsThirdPerson() ? "true" : "false");
+		Output += std::format(", \"paused\": {}, \"grounded\": {}, \"crouched\": {}, \"sliding\": {}, \"mantling\": {}, \"wallRunning\": {}, \"thirdPerson\": {}", bPlayPaused ? "true" : "false", PlaySession->IsPlayerGrounded() ? "true" : "false",
+		    PlaySession->IsPlayerCrouched() ? "true" : "false", PlaySession->IsPlayerSliding() ? "true" : "false", PlaySession->IsPlayerMantling() ? "true" : "false", PlaySession->IsPlayerWallRunning() ? "true" : "false", PlaySession->IsThirdPerson() ? "true" : "false");
 		Output += ", \"foot\": ";
 		AppendVector(Output, PlaySession->GetPlayerFootPosition());
 		Output += ", \"velocity\": ";

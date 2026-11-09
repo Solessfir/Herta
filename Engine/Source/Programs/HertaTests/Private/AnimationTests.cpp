@@ -495,6 +495,27 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 
 	CHECK(bWallJumped);
 
+	// Sprinting along a long wall and jumping toward it runs on it with the sprint cycle.
+	std::vector<FLevelEntity> Lane = Floor;
+	Lane.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Long wall", .Transform = {.Translation = {-2.7, 2.5, 12.}, .Scale = {0.4f, 5.f, 20.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static});
+	Session = FGameSession::Create(Lane, Assets, nullptr, {}, nullptr, std::make_shared<const FCookedModel>(Mannequin()));
+	REQUIRE(Session);
+	Step({}, 90);
+	Step({.Move = {0.5f, 1.f}, .bSprint = true}, 30);
+	Step({.Move = {0.5f, 1.f}, .bJump = true, .bSprint = true}, 1);
+	bool bWallRan = false;
+	for (int Frame = 0; Frame < 60 && !bWallRan; ++Frame)
+	{
+		Step({.Move = {0.5f, 1.f}, .bSprint = true}, 1);
+		bWallRan = (*Session)->IsPlayerWallRunning() && State() == "Wall run";
+	}
+
+	REQUIRE(bWallRan);
+	// The wall is on the right, at -X, so the view's up axis tilts toward +X, away from it, as the body's lean does.
+	Step({.Move = {0.5f, 1.f}, .bSprint = true}, 12);
+	REQUIRE((*Session)->IsPlayerWallRunning());
+	CHECK((*Session)->GetRenderView({1280, 720}).View(1, 0) > 0.05f);
+
 	// A model that is not skinned leaves the capsule playable with a warning.
 	FCookedModel Static = Mannequin();
 	Static.Skeleton.reset();

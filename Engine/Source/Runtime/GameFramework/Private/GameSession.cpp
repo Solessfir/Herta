@@ -113,6 +113,14 @@ struct FTriggerZone
 	FVector3 HalfExtents{};
 };
 
+// A run along a wall, which keeps the normal it started on so a contact that flickers for a step does not end it.
+struct FWallRun
+{
+	FVector3 Normal{};
+	float ElapsedSeconds = 0.f;
+	float LostSeconds = 0.f;
+};
+
 // A climb onto a ledge: the capsule travels a straight line from Start to Target, matching the climb clip's root, and ignores input.
 struct FMantle
 {
@@ -133,8 +141,11 @@ struct FGameSession::FImplementation
 	void BuildSoftBodies();
 	[[nodiscard]] std::expected<void, FPhysicsError> Throw();
 	[[nodiscard]] std::expected<void, FPhysicsError> AgeProjectiles(float DeltaSeconds);
+	[[nodiscard]] FQuaternion GetBodyRotation() const;
+	[[nodiscard]] FQuaternion GetViewOrientation() const;
 	[[nodiscard]] std::optional<FMantle> FindLedge(const FPhysicsWorld& World, const FVector3& Forward) const;
 	[[nodiscard]] std::expected<void, FPhysicsError> StepMantle(FPhysicsWorld& World, float StepSeconds);
+	void UpdateWallRun(const FPhysicsCharacterState& Ground, const FVector2& Move, float StepSeconds);
 	void UpdateBody(float DeltaSeconds);
 	// Foot is the capsule's; BodyFoot is where the body is drawn, which differs while a climb clip lifts its own root.
 	[[nodiscard]] FVector3 GetCameraPosition(const FVector3& Foot, const FVector3& BodyFoot);
@@ -187,6 +198,12 @@ struct FGameSession::FImplementation
 	float SlideBoostCooldown = 0.f;
 	float WallJumpCooldown = 0.f;
 	std::optional<FMantle> Mantle{};
+	std::optional<FWallRun> WallRun{};
+	// The wall the last run ended on, which cannot be run again before landing, so wall jumps chain runs between different walls.
+	std::optional<FVector3> WallRunBlockedNormal{};
+	// Eases the body's lean away from a wall it runs on, and remembers which wall, so the lean fades out after the run.
+	float WallLean = 0.f;
+	FVector3 WallLeanNormal{};
 	// Eases between standing and crouched so the view does not snap.
 	float EyeHeight = 0.f;
 	FGameInput Input{};
@@ -440,6 +457,9 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	SlideBoostCooldown = 0.f;
 	WallJumpCooldown = 0.f;
 	Mantle.reset();
+	WallRun.reset();
+	WallRunBlockedNormal.reset();
+	WallLean = 0.f;
 	EyeHeight = Player.EyeHeight;
 	Yaw = SpawnYaw;
 	Pitch = 0.f;
@@ -578,6 +598,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		}
 	}
 
+	UpdateWallRun(*Ground, Move, StepSeconds);
 	if (JumpBufferRemaining > 0.f && bCanJump)
 	{
 		VerticalVelocity = Player.JumpSpeed;
@@ -597,10 +618,15 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		JumpBufferRemaining = 0.f;
 		bWallJumpedThisUpdate = true;
 		WallJumpCooldown = Player.WallJumpCooldownSeconds;
+		if (WallRun)
+		{
+			WallRunBlockedNormal = WallRun->Normal;
+			WallRun.reset();
+		}
 	}
 	else if (!Ground->bGrounded)
 	{
-		VerticalVelocity -= Gravity * StepSeconds;
+		VerticalVelocity -= Gravity * (WallRun ? Player.WallRunGravityScale : 1.f) * StepSeconds;
 	}
 
 	const auto Moved = World.MoveCharacter(Character, HorizontalVelocity + FVector3::Up() * VerticalVelocity + Carried, StepSeconds);
@@ -700,6 +726,44 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepMantle(FPh
 	}
 
 	return {};
+}
+
+void FGameSession::FImplementation::UpdateWallRun(const FPhysicsCharacterState& Ground, const FVector2& Move, const float StepSeconds)
+{
+	if (Ground.bGrounded)
+	{
+		WallRunBlockedNormal.reset();
+	}
+
+	if (WallRun)
+	{
+		WallRun->ElapsedSeconds += StepSeconds;
+		const bool bOnWall = Ground.bTouchingWall && Ground.WallNormal.Dot(WallRun->Normal) > 0.7f;
+		WallRun->LostSeconds = bOnWall ? 0.f : WallRun->LostSeconds + StepSeconds;
+		const float Speed = std::hypot(HorizontalVelocity.X, HorizontalVelocity.Z);
+		if (Ground.bGrounded || bCrouched || Move.Y <= 0.3f || WallRun->ElapsedSeconds >= Player.WallRunSeconds || WallRun->LostSeconds > 0.1f || Speed < Player.WallRunMinimumSpeed * 0.6f)
+		{
+			WallRunBlockedNormal = WallRun->Normal;
+			WallRun.reset();
+		}
+	}
+	else if (!Ground.bGrounded && !bCrouched && Input.bSprint && Move.Y > 0.5f && Ground.bTouchingWall && VerticalVelocity > -Player.JumpSpeed && (!WallRunBlockedNormal || WallRunBlockedNormal->Dot(Ground.WallNormal) < 0.7f))
+	{
+		const FVector3 Along = HorizontalVelocity - Ground.WallNormal * HorizontalVelocity.Dot(Ground.WallNormal);
+		if (Along.Length() >= Player.WallRunMinimumSpeed)
+		{
+			WallRun = FWallRun{.Normal = Ground.WallNormal};
+			VerticalVelocity = std::max(VerticalVelocity, Player.WallRunLift);
+		}
+	}
+
+	if (WallRun)
+	{
+		// Speed along the wall carries on, and a slight push into it keeps the capsule touching; the move absorbs the push.
+		constexpr float Grip = 0.5f;
+		HorizontalVelocity -= WallRun->Normal * (HorizontalVelocity.Dot(WallRun->Normal) + Grip);
+		WallLeanNormal = WallRun->Normal;
+	}
 }
 
 bool FGameSession::FImplementation::IsInside(const std::optional<FTriggerZone>& Zone, const FVector3& Point) const
@@ -823,7 +887,9 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	const float MaximumTurn = (bThirdPerson ? 10.f : 30.f) * DeltaSeconds;
 	BodyYaw = std::remainder(BodyYaw + std::clamp(Turn, -MaximumTurn, MaximumTurn), 2.f * std::numbers::pi_v<float>);
 
-	Body->Update(DeltaSeconds, {.GroundSpeed = Speed, .bGrounded = bGrounded || Mantle.has_value(), .bCrouched = bCrouched, .bSliding = bSliding, .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate});
+	constexpr float LeanRate = 6.f;
+	WallLean = std::clamp(WallLean + (WallRun ? LeanRate : -LeanRate) * DeltaSeconds, 0.f, 1.f);
+	Body->Update(DeltaSeconds, {.GroundSpeed = Speed, .bGrounded = bGrounded || Mantle.has_value(), .bCrouched = bCrouched, .bSliding = bSliding, .bWallRunning = WallRun.has_value(), .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate});
 	bJumpedThisUpdate = false;
 	bWallJumpedThisUpdate = false;
 	bMantledThisUpdate = false;
@@ -1055,7 +1121,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 
 		if (Skinned && Session.Body->GetMesh())
 		{
-			const FMatrix4 BodyModel = FMatrix4::Translation(BodyFoot) * FMatrix4::Rotation(FQuaternion::FromAxisAngle(FVector3::Up(), Session.BodyYaw));
+			const FMatrix4 BodyModel = FMatrix4::Translation(BodyFoot) * FMatrix4::Rotation(Session.GetBodyRotation());
 			Session.VertexUpdates.push_back({.Mesh = Session.Body->GetMesh(), .Vertices = Session.Body->GetVertices()});
 			Session.Models.push_back(BodyModel);
 			Session.Meshes.push_back(Session.Body->GetMesh());
@@ -1086,7 +1152,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	const FVector3 Eye = Session.GetCameraPosition(Foot, BodyFoot);
 	const float Aspect = Extent.Height > 0 ? static_cast<float>(Extent.Width) / static_cast<float>(Extent.Height) : 1.f;
 	Session.View = {
-	    .View = FMatrix4::Rotation(GetLookOrientation(Session.Yaw, Session.Pitch).Conjugated()) * FMatrix4::Translation(-Eye),
+	    .View = FMatrix4::Rotation(Session.GetViewOrientation().Conjugated()) * FMatrix4::Translation(-Eye),
 	    .Projection = FMatrix4::PerspectiveReversedInfinite(Session.Player.VerticalFieldOfView, std::max(Aspect, 0.01f), CameraNear),
 	    .Models = Session.Models,
 	    .PreviousModels = Session.PreviousModels,
@@ -1101,6 +1167,34 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	return Session.View;
 }
 
+FQuaternion FGameSession::FImplementation::GetBodyRotation() const
+{
+	// A wall run tilts the body's head away from the wall around its feet, which stay beside the wall.
+	constexpr float MaximumLean = 0.35f;
+	const FQuaternion Facing = FQuaternion::FromAxisAngle(FVector3::Up(), BodyYaw);
+	const FVector3 Axis = FVector3::Up().Cross(WallLeanNormal);
+	if (WallLean <= 0.f || Axis.LengthSquared() < 1.e-6f)
+	{
+		return Facing;
+	}
+
+	return FQuaternion::FromAxisAngle(Axis.Normalized(), WallLean * MaximumLean) * Facing;
+}
+
+FQuaternion FGameSession::FImplementation::GetViewOrientation() const
+{
+	// The view tilts a little with the body's lean, which sells a wall run more than the lean alone in first person.
+	constexpr float MaximumTilt = 0.12f;
+	const FQuaternion Look = GetLookOrientation(Yaw, Pitch);
+	const FVector3 Axis = FVector3::Up().Cross(WallLeanNormal);
+	if (WallLean <= 0.f || Axis.LengthSquared() < 1.e-6f)
+	{
+		return Look;
+	}
+
+	return FQuaternion::FromAxisAngle(Axis.Normalized(), WallLean * MaximumTilt) * Look;
+}
+
 FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot, const FVector3& BodyFoot)
 {
 	FVector3 Eye = Foot + FVector3::Up() * EyeHeight;
@@ -1111,7 +1205,7 @@ FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot, 
 		constexpr float EyeAbove = 0.07f;
 		constexpr float EyeAhead = 0.24f;
 		const FQuaternion Facing = FQuaternion::FromAxisAngle(FVector3::Up(), BodyYaw);
-		const FVector3 Target = BodyFoot + Facing.RotateVector(*Head) + FVector3::Up() * EyeAbove + Facing.RotateVector(FVector3::Forward()) * EyeAhead;
+		const FVector3 Target = BodyFoot + GetBodyRotation().RotateVector(*Head) + FVector3::Up() * EyeAbove + Facing.RotateVector(FVector3::Forward()) * EyeAhead;
 		const float Follow = 1.f - std::exp(-LastDeltaSeconds / 0.05f);
 		SmoothedEye = SmoothedEye ? *SmoothedEye + (Target - *SmoothedEye) * Follow : Target;
 		return *SmoothedEye;
@@ -1198,6 +1292,11 @@ bool FGameSession::IsPlayerSliding() const noexcept
 bool FGameSession::IsPlayerMantling() const noexcept
 {
 	return Implementation->Mantle.has_value();
+}
+
+bool FGameSession::IsPlayerWallRunning() const noexcept
+{
+	return Implementation->WallRun.has_value();
 }
 
 float FGameSession::GetPlayerYaw() const noexcept

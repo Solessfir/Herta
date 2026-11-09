@@ -21,6 +21,7 @@ struct FPlayerMotion
 	bool bGrounded = true;
 	bool bCrouched = false;
 	bool bSliding = false;
+	bool bWallRunning = false;
 	bool bJumped = false;
 	bool bWallJumped = false;
 	bool bMantled = false;
@@ -75,9 +76,10 @@ private:
 	std::optional<std::size_t> JumpParameter;
 	std::optional<std::size_t> WallJumpParameter;
 	std::optional<std::size_t> MantleParameter;
+	std::optional<std::size_t> WallRunningParameter;
 };
 
 // The locomotion the Sandbox Mannequin plays until levels author their own graph: an idle to sprint blend, crouching, slides, jumps, wall
-// jumps, and mantles.
+// runs, wall jumps, and mantles.
 [[nodiscard]] FAnimationStateMachineDesc MakeDefaultLocomotion();
 }
