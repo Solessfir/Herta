@@ -6,13 +6,14 @@ namespace Herta
 {
 namespace
 {
-// Left stick moves and right stick looks; A jumps, and B or clicking the right stick crouches, as in the game.
+// Left stick moves and right stick looks; A jumps, clicking the left stick toggles sprinting, and B or clicking the right stick crouches, as in the game.
 FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 {
 	return {
 	    .Move = {Gamepad.LeftX, -Gamepad.LeftY},
 	    .Look = {Gamepad.RightX, -Gamepad.RightY},
 	    .bJump = Gamepad.IsDown(EGamepadButton::South),
+	    .bSprint = Gamepad.IsDown(EGamepadButton::LeftThumb),
 	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
 	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
 	    .bToggleCamera = Gamepad.IsDown(EGamepadButton::North),
@@ -342,6 +343,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		    .YawDelta = -IO.MouseDelta.x * Sensitivity,
 		    .PitchDelta = -IO.MouseDelta.y * Sensitivity,
 		    .bJump = bPlayJumpArmed && ImGui::IsKeyPressed(ImGuiKey_Space, false),
+		    .bSprint = IO.KeyShift,
 		    .bCrouch = ImGui::IsKeyDown(ImGuiKey_C) || IO.KeyCtrl,
 		    .bThrow = ImGui::IsKeyPressed(ImGuiKey_F, false),
 		    .bToggleCamera = ImGui::IsKeyPressed(ImGuiKey_V, false),
@@ -889,6 +891,7 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 			    .YawDelta = static_cast<float>(Look[0] / static_cast<double>(Frames)) + (Frame == 0 ? FaceDelta : 0.f),
 			    .PitchDelta = static_cast<float>(Look[1] / static_cast<double>(Frames)),
 			    .bJump = Frame == 0 && Arguments.Flag("jump"),
+			    .bSprint = Arguments.Flag("sprint"),
 			    .bCrouch = Arguments.Flag("crouch"),
 			    .bThrow = Frame == 0 && Arguments.Flag("throw"),
 			    .bToggleCamera = Frame == 0 && Arguments.Flag("toggle_camera"),

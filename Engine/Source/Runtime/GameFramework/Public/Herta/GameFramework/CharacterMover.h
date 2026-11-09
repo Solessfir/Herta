@@ -41,7 +41,8 @@ struct FMovementTuning
 	float TurnDeceleration = 10.f;
 	float EnergyDecelerationSeconds = 3.f;
 	float EnergyDecelerationExponent = 0.5f;
-	// InputMaxSprintHeightLimit and RaduisLimit: how hard forward, and in all, the stick must push for sprint acceleration.
+	// InputMaxSprintHeightLimit and RaduisLimit: how hard forward, and in all, the stick must push for sprint acceleration, which also needs the
+	// sprint input held. Mirror's Edge sprints whenever forward is held; Herta keeps a sprint button, so running stays at the base speed.
 	float SprintInputForward = 0.7f;
 	float SprintInputSize = 0.7f;
 	// TdMove_Crouch.SpeedModifier, of GroundSpeed.
@@ -111,6 +112,7 @@ struct FMoverInput
 	float Yaw = 0.f;
 	// How far the view turned during this step, which sheds sprint speed.
 	float TurnRadians = 0.f;
+	bool bSprint = false;
 	bool bCrouch = false;
 };
 

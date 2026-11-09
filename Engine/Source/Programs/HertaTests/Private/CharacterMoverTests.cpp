@@ -68,7 +68,7 @@ public:
 };
 }
 
-TEST_CASE("Holding forward follows Mirror's Edge's sprint speed curve")
+TEST_CASE("Sprinting follows Mirror's Edge's speed curve, and running without it stays at the base speed")
 {
 	const auto World = MakeFloor();
 	FCharacterMover Mover = MakeMover(*World);
@@ -79,7 +79,7 @@ TEST_CASE("Holding forward follows Mirror's Edge's sprint speed curve")
 	for (const auto [At, Speed] : {std::pair{0.4f, 4.f}, std::pair{1.f, 5.2f}, std::pair{3.5f, 6.5f}, std::pair{7.f, 7.2f}})
 	{
 		const int Steps = static_cast<int>(std::lround((At - Seconds) / StepSeconds));
-		Run(*World, Mover, {.Move = {0.f, 1.f}}, Steps);
+		Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, Steps);
 		Seconds += static_cast<float>(Steps) * StepSeconds;
 		CHECK(HorizontalSpeed(Mover) == doctest::Approx(Speed).epsilon(0.06));
 	}
@@ -87,6 +87,9 @@ TEST_CASE("Holding forward follows Mirror's Edge's sprint speed curve")
 	// Letting go brakes to a stop well inside half a second.
 	Run(*World, Mover, {}, 30);
 	CHECK(HorizontalSpeed(Mover) < 0.01f);
+
+	Run(*World, Mover, {.Move = {0.f, 1.f}}, 300);
+	CHECK(HorizontalSpeed(Mover) == doctest::Approx(4.f).epsilon(0.05));
 }
 
 TEST_CASE("Mirror's Edge jumps hand their forward boost back on landing, and slides halve the speed they end with")
@@ -94,7 +97,7 @@ TEST_CASE("Mirror's Edge jumps hand their forward boost back on landing, and sli
 	const auto World = MakeFloor();
 	FCharacterMover Mover = MakeMover(*World);
 	Run(*World, Mover, {}, 20);
-	Run(*World, Mover, {.Move = {0.f, 1.f}}, 120);
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, 120);
 	const float Running = HorizontalSpeed(Mover);
 	REQUIRE(Running > 5.5f);
 
@@ -112,8 +115,8 @@ TEST_CASE("Mirror's Edge jumps hand their forward boost back on landing, and sli
 	CHECK(Landed <= Running - 0.65f + 0.15f);
 
 	// Pressing crouch at a run slides; it only brakes, ends below 2.5 m/s, and halves the speed it ends with.
-	Run(*World, Mover, {.Move = {0.f, 1.f}}, 60);
-	Run(*World, Mover, {.Move = {0.f, 1.f}, .bCrouch = true}, 1);
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, 60);
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true, .bCrouch = true}, 1);
 	REQUIRE(std::string(Mover.GetActiveMode()) == "Slide");
 	float Last = HorizontalSpeed(Mover);
 	while (Mover.GetActiveMode() == "Slide")

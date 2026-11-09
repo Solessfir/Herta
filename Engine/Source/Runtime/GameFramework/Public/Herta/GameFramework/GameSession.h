@@ -33,9 +33,10 @@ struct FGameInput
 	// Look change since the previous update, in radians. Positive yaw turns left and positive pitch looks up.
 	float YawDelta = 0.f;
 	float PitchDelta = 0.f;
-	// Pressed since the previous update. A jump is remembered briefly, so pressing just before landing still jumps. There is no sprint:
-	// holding forward builds speed, as in Mirror's Edge.
+	// Pressed since the previous update. A jump is remembered briefly, so pressing just before landing still jumps.
 	bool bJump = false;
+	// Held. With forward, builds speed along Mirror's Edge's sprint curve; without it the player runs at the base speed.
+	bool bSprint = false;
 	// Held. Crouches, and pressing it at a run slides.
 	bool bCrouch = false;
 	// Pressed since the previous update. Throws a ball where the player looks.
@@ -50,13 +51,15 @@ struct FGameGamepad
 	FVector2 Move{};
 	FVector2 Look{};
 	bool bJump = false;
+	bool bSprint = false;
 	bool bCrouch = false;
 	bool bThrow = false;
 	bool bToggleCamera = false;
 };
 
-// Adds a gamepad to keyboard and mouse input. Sticks ignore their resting drift, look turns faster the further the stick is pushed, and a jump
-// registers once per press.
+// Adds a gamepad to keyboard and mouse input. Sticks ignore their resting drift, look turns faster the further the stick is pushed, a jump
+// registers once per press, and clicking the sprint button toggles sprinting, which also ends when the move stick returns to rest, since holding
+// a stick in is awkward.
 class FGameGamepadControls
 {
 public:
@@ -68,6 +71,8 @@ private:
 	bool bJumpDown = true;
 	bool bThrowDown = true;
 	bool bToggleCameraDown = true;
+	bool bSprintDown = true;
+	bool bSprinting = false;
 };
 
 // The player: Mirror's Edge movement through a character mover, its camera, and where falls return it to the start. Under that tuning the

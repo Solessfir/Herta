@@ -1707,7 +1707,7 @@ Exit condition: a coding agent connected through `HertaEditorMcp` can start Play
 
 - Add skeleton and clip import through ozz offline tools.
 - Use a CC0 rigged humanoid with idle, walk, run, jump, crouch, and slide clips, such as Quaternius's animated characters, vendored under `Games/Sandbox/Content` with its license and source recorded. Avoid assets whose terms restrict redistribution in packaged games.
-- Add a third-person camera toggle to the player, in the game and editor Play, with a spring arm that collides with the level, so the animated character is visible. First person stays the default and hides the body's head.
+- Add a third-person camera toggle to the player, in the game and editor Play, with a spring arm that collides with the level, so the animated character is visible. Play starts in third person; first person hides the body's head.
 - Extend model cooking for skeletal glTF assets and connect runtime skinning and skinned motion vectors to Renderer through narrow bridge data.
 - Add sampling, blending, skinning, root motion, and animation events.
 - Add an initial Herta-owned animation state machine that runs from explicit cooked data. It is not the NPC StateTree runtime.

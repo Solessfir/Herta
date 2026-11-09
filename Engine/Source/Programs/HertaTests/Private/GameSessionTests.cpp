@@ -163,12 +163,12 @@ TEST_CASE("Game players slide under a low ceiling and stand once there is room")
 	Advance(Game, {}, 20);
 	for (int Frame = 0; Frame < 300 && Game.GetPlayerFootPosition().Z < 10.5f; ++Frame)
 	{
-		REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, 1.f}}));
+		REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bSprint = true}));
 	}
 
 	CHECK_FALSE(Game.IsPlayerSliding());
 	const FVector3 Before = Game.GetPlayerVelocity();
-	REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bCrouch = true}));
+	REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bSprint = true, .bCrouch = true}));
 	CHECK(Game.IsPlayerCrouched());
 	CHECK(Game.IsPlayerSliding());
 	// A slide keeps the run's speed and only brakes; it adds none.
@@ -297,10 +297,34 @@ TEST_CASE("Gamepad controls ignore stick drift, curve look, and act once per pre
 	CHECK_FALSE(Input.bJump);
 }
 
-TEST_CASE("Gamepad controls add to keys and forget held buttons on reset")
+TEST_CASE("Gamepad sprint toggles on each click and ends when the move stick rests, and adds to keys")
 {
 	FGameGamepadControls Controls;
-	FGameInput Input = {.Move = {1.f, 1.f}, .bCrouch = false};
+	FGameInput Input;
+	Controls.Apply(Input, {.Move = {0.f, 1.f}}, 0.1f);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}, .bSprint = true}, 0.1f);
+	CHECK(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}}, 0.1f);
+	CHECK(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}, .bSprint = true}, 0.1f);
+	CHECK_FALSE(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}}, 0.1f);
+	CHECK_FALSE(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}, .bSprint = true}, 0.1f);
+	CHECK(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {}, 0.1f);
+	CHECK_FALSE(Input.bSprint);
+	Input = {};
+	Controls.Apply(Input, {.Move = {0.f, 1.f}}, 0.1f);
+	CHECK_FALSE(Input.bSprint);
+
+	Input = {.Move = {1.f, 1.f}, .bCrouch = false};
 	Controls.Apply(Input, {.Move = {1.f, 0.f}, .bCrouch = true}, 0.1f);
 	CHECK(Input.Move.X == 1.f);
 	CHECK(Input.Move.Y == 1.f);

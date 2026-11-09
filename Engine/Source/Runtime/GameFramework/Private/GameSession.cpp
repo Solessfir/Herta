@@ -178,7 +178,7 @@ struct FGameSession::FImplementation
 
 	// The animated body, its facing, and the third-person camera.
 	std::unique_ptr<FPlayerCharacter> Body{};
-	bool bThirdPerson = false;
+	bool bThirdPerson = true;
 	bool bJumpedThisUpdate = false;
 	bool bWallJumpedThisUpdate = false;
 	bool bMantledThisUpdate = false;
@@ -445,7 +445,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 {
 	// The frame's view turn, spread over its fixed steps, brakes the sprint as the game does.
 	const float TurnRadians = LastDeltaSeconds > 0.f ? std::abs(Input.YawDelta) * std::min(StepSeconds / LastDeltaSeconds, 1.f) : 0.f;
-	const FMoverInput MoverInput{.Move = {std::clamp(Input.Move.X, -1.f, 1.f), std::clamp(Input.Move.Y, -1.f, 1.f)}, .Yaw = Yaw, .TurnRadians = TurnRadians, .bCrouch = Input.bCrouch};
+	const FMoverInput MoverInput{.Move = {std::clamp(Input.Move.X, -1.f, 1.f), std::clamp(Input.Move.Y, -1.f, 1.f)}, .Yaw = Yaw, .TurnRadians = TurnRadians, .bSprint = Input.bSprint, .bCrouch = Input.bCrouch};
 	if (auto Stepped = Mover->Step(World, MoverInput, StepSeconds); !Stepped)
 	{
 		return Stepped;

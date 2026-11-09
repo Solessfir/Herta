@@ -418,11 +418,11 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 	Step({.Move = {0.f, 1.f}, .bJump = true}, 1);
 	Step({.Move = {0.f, 1.f}}, 5);
 	CHECK(State() == "Jump");
-	Step({.Move = {0.f, 1.f}}, 120);
+	Step({.Move = {0.f, 1.f}, .bSprint = true}, 120);
 	CHECK(State() == "Locomotion");
 
 	// Crouching at walking speed slides: the start plays, then the loop, then the exit once it slows down.
-	Step({.Move = {0.f, 1.f}, .bCrouch = true}, 2);
+	Step({.Move = {0.f, 1.f}, .bSprint = true, .bCrouch = true}, 2);
 	CHECK(State() == "Slide start");
 	CHECK((*Session)->IsPlayerSliding());
 	Step({.bCrouch = true}, 40);
@@ -439,12 +439,13 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 	Step({}, 30);
 	CHECK(State() == "Locomotion");
 
-	// The third-person camera sits behind and above the first-person eye.
+	// Play starts in third person, whose camera sits behind and above the first-person eye.
 	Step({}, 60);
-	const FMatrix4 FirstPerson = (*Session)->GetRenderView({1280, 720}).View;
-	Step({.bToggleCamera = true}, 1);
 	CHECK((*Session)->IsThirdPerson());
 	const FMatrix4 ThirdPerson = (*Session)->GetRenderView({1280, 720}).View;
+	Step({.bToggleCamera = true}, 1);
+	CHECK_FALSE((*Session)->IsThirdPerson());
+	const FMatrix4 FirstPerson = (*Session)->GetRenderView({1280, 720}).View;
 	const auto EyeOf = [](const FMatrix4& View)
 	{
 		// The view is a rotation followed by a translation, so the eye is minus the transposed rotation applied to its translation.
@@ -462,7 +463,9 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Wall", .Transform = {.Translation = {-1.2, 3., 0.}, .Scale = {0.5f, 6.f, 6.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static});
 	Session = FGameSession::Create(Course, Assets, nullptr, {}, nullptr, std::make_shared<const FCookedModel>(Mannequin()));
 	REQUIRE(Session);
-	Step({}, 90);
+	// The eye check below reads the first-person camera.
+	Step({.bToggleCamera = true}, 1);
+	Step({}, 89);
 	Step({.Move = {0.f, 1.f}}, 20);
 	Step({.Move = {0.f, 1.f}, .bJump = true}, 1);
 	bool bClimbed = false;

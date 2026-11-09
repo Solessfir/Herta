@@ -172,7 +172,7 @@ FVector3 FLocomotion::ControllerAcceleration(const FMovementTuning& Tuning, FMov
 	if (Direction.LengthSquared() > 0.f)
 	{
 		State.AccelerationSeconds += StepSeconds;
-		const bool bSprint = Input.Move.Y > Tuning.SprintInputForward && Input.Move.Length() > Tuning.SprintInputSize && Velocity.Dot(Direction) > 0.f;
+		const bool bSprint = Input.bSprint && Input.Move.Y > Tuning.SprintInputForward && Input.Move.Length() > Tuning.SprintInputSize && Velocity.Dot(Direction) > 0.f;
 		return bSprint ? SprintAcceleration(Tuning, State, Input, Velocity, StepSeconds, false) : WalkAcceleration(Tuning, State, Input, Velocity, StepSeconds);
 	}
 
