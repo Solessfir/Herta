@@ -784,7 +784,7 @@ Audio is a Herta-owned runtime module with miniaudio private behind it. miniaudi
 - Headless programs use no device or the null backend without changing gameplay logic.
 - Source WAV and FLAC are sufficient initially. Add Opus when measured dialogue or music streaming requirements justify it.
 - Static, streaming, and already compressed audio payloads carry explicit cook policy and are not blindly compressed again with zstd.
-- Audio Graph later compiles to immutable runtime data and has no runtime dependency on ImGui or the graph canvas.
+- Audio Graph compiles to immutable runtime data and has no runtime dependency on ImGui or the graph canvas. The audio thread runs a compiled graph as a flat list of preallocated DSP nodes over fixed-size blocks, so instancing a sound allocates nothing in the callback.
 
 Spatial audio consumes Herta transforms in meters. Backend coordinate conversion occurs in one tested adapter. Advanced HRTF or acoustic simulation remains an optional extension selected after the basic mixer and spatial path are measured.
 
@@ -1699,10 +1699,11 @@ Exit condition: a controllable character in the Sandbox blends and plays cooked 
 - Add miniaudio behind Herta Audio with real and null device paths.
 - Add cooked sound assets, voices, buses, streaming, spatial playback, concurrency policy, and real-time-safe command queues.
 - Add sound import/cooking and level emitter/listener components with the authoring controls needed by the sample.
+- Add a basic Audio Graph as a GraphCore domain on the Milestone 6.8 canvas, similar in spirit to MetaSounds: a sound asset's graph combines wave players (one-shot, looping, or random from a set), mixers, gain, pitch, and filters, with float, bool, and trigger inputs that gameplay sets through the command queue, and a single output. A headless compiler cooks it, the editor auditions it while it is edited, and packaged games play the cooked graph without the compiler or the canvas. Procedural synthesis, envelopes, and sample-accurate scheduling wait for Milestone 15.
 - Add audio diagnostics and deterministic headless tests without requiring an audio device.
 - Add movement, interaction, impact, and ambient sounds to the Sandbox. Keep basic spatial playback usable without Steam Audio; evaluate advanced acoustics only when a real scene demonstrates the need.
 
-Exit condition: the playable game uses static and streaming spatial sounds on Windows and Linux, the callback remains real-time safe under stress, and headless gameplay produces the same audio commands through the null path. Advanced acoustics and audio graph tooling do not block this milestone.
+Exit condition: the playable game uses static and streaming spatial sounds on Windows and Linux, the callback remains real-time safe under stress, and headless gameplay produces the same audio commands through the null path. At least one Sandbox sound, such as impacts that pick a random wave and scale gain and pitch by impulse, plays through a cooked Audio Graph edited on the canvas. Advanced acoustics and graph features beyond the basic set do not block this milestone.
 
 ### Milestone 10 - Game systems and world scaling
 
@@ -1763,7 +1764,7 @@ Builds on the Milestone 6.8 canvas and GraphCore.
 
 - Grow the Milestone 8 animation state machine graph into a full typed animation-graph domain: blend trees, layered and additive blends, nested state machines, and pose-processing nodes.
 - Extend GraphCore only with the authoring, typed-pin, transaction, validation, diagnostic, and migration infrastructure that the Material Graph, StateTree, and the animation graph prove.
-- Keep Audio Graph and gameplay graphs as later distinct compiler targets rather than one universal executor; gameplay graphs compile to a native call list in the editor and generated C++ in shipping, as section 4 describes.
+- Grow the Milestone 9 Audio Graph with envelopes, oscillators, sample-accurate scheduling, and subgraphs, and keep it and gameplay graphs as distinct compiler targets rather than one universal executor; gameplay graphs compile to a native call list in the editor and generated C++ in shipping, as section 4 describes.
 - Extend debugging and cooked-format migration without linking editor UI into runtime executors.
 
 Exit condition: StateTree and the animation graph compile headless and execute from cooked data without ImGui or the graph canvas linked, while sharing only proven GraphCore infrastructure.
