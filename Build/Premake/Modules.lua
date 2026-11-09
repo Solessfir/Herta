@@ -288,8 +288,10 @@ HertaRuntimeModule("Animation", {
 
 HertaRuntimeModule("EditorCore", {
     PublicDependencies = { "Math" },
-    PrivateDependencies = { "Level", "Assets", "Project" }
+    PrivateDependencies = { "Core", "Level", "Assets", "Project", "Platform" },
+    PrivateThirdPartyDependencies = { "SimdJson" }
 })
+    externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
 
 HertaRuntimeModule("Application", {
     PrivateDependencies = { "Core" },
