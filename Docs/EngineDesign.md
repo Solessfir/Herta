@@ -1687,10 +1687,13 @@ Exit condition: the playable Sandbox exercises collisions, dynamic props, runtim
 ### Milestone 8 - Animation
 
 - Add skeleton and clip import through ozz offline tools.
+- Use a CC0 rigged humanoid with idle, walk, run, jump, crouch, and slide clips, such as Quaternius's animated characters, vendored under `Games/Sandbox/Content` with its license and source recorded. Avoid assets whose terms restrict redistribution in packaged games.
+- Add a third-person camera toggle to the player, in the game and editor Play, with a spring arm that collides with the level, so the animated character is visible. First person stays the default and hides the body's head.
 - Extend model cooking for skeletal glTF assets and connect runtime skinning and skinned motion vectors to Renderer through narrow bridge data.
 - Add sampling, blending, skinning, root motion, and animation events.
 - Add an initial Herta-owned animation state machine that runs from explicit cooked data. It is not the NPC StateTree runtime.
 - Author it as a basic GraphCore domain on the Milestone 6.8 canvas: states that play a clip or a 1D blend, transitions with a duration and a condition on a typed parameter (float, bool, or trigger), an entry state, and live highlighting of the active state and transition during Play. A headless compiler cooks it, so runtime animation links neither the graph nor the canvas. Blend trees, layers, and state machine nesting wait for Milestone 15.
+- Add bloom from the dual-filter Kawase pyramid that the editor's backdrop blur already uses, applied to HDR scene color before tone mapping, energy-conserving and exposure-relative, with a per-tier toggle and a GPU Trace check that it costs nothing when off.
 
 Exit condition: a controllable character in the Sandbox blends and plays cooked animations driven by a state machine graph edited on the canvas, a cooked skinned asset animates identically after reload, and the runtime has no dependency on offline ozz tools.
 
@@ -1709,7 +1712,7 @@ Exit condition: the playable game uses static and streaming spatial sounds on Wi
 
 - Add save-game persistence for actual sample progress and mutable world state, with stable references, explicit versions, atomic writes, and invalid-save recovery. Save data is separate from authored levels.
 - Expand GameUI only for the sample's pause, settings, HUD, and interaction screens. Add keyboard and gamepad input rebinding on top of Milestone 5's gamepad support, and tested UI/gameplay focus routing.
-- Add bounded particle/VFX runtime and authored assets for the sample's impacts, trails, or ambient effects. Validate resource retirement, transparency, and temporal history without requiring a node editor or a general Niagara-like framework.
+- Add bounded particle/VFX runtime and authored assets for the sample's impacts, trails, or ambient effects. Validate resource retirement, transparency, and temporal history. Author emitters as a basic GraphCore domain on the canvas: spawn rate or burst, initial velocity, lifetime, size and color over life, gravity and drag, and collision against the physics world, compiled headless to fixed GPU or CPU update kernels rather than an interpreted per-particle program. Spawning from gameplay events, such as destruction breaks and impacts, goes through sorted events. Module stacks, custom simulation stages, and ribbons wait for Milestone 15.
 - Add asynchronous world-region loading and unloading through existing task, asset, and world contracts. Keep stable references, origin-relative transforms, cancellation, and bounded memory correct while the player crosses regions.
 - Extend editor authoring only as needed to build and inspect that streamed sample, including reusable object/prefab authoring when repeated content makes it necessary.
 
@@ -1730,7 +1733,7 @@ Exit condition: NPCs in the playable Sandbox navigate, avoid obstacles, react, a
 
 - Add Networking and Replication with the selected GameNetworkingSockets transport revision behind Herta APIs.
 - Add `HertaServer`, direct-IP dedicated servers, and player-hosted listen servers using the same authoritative simulation and replication path.
-- Replicate the sample's actual player input, interactions, physics state, and gameplay outcomes rather than introducing networking before gameplay exists. Deterministic physics lets destruction and dense physics replicate from inputs, with rollback from physics snapshots, where snapshot bandwidth would not fit; choose per system by measured bandwidth.
+- Replicate the sample's actual player input, interactions, physics state, and gameplay outcomes rather than introducing networking before gameplay exists. Deterministic physics lets destruction and dense physics replicate from inputs, with rollback from physics snapshots, where snapshot bandwidth would not fit; choose per system by measured bandwidth. Rollback first extends `SaveState` with the player characters' Jolt `CharacterVirtual` state and the session's own gameplay state (course timers, spawned projectiles, destruction islands), and tests that restoring a snapshot and replaying inputs reproduces the world hash.
 - Add versioned handshakes and wire schemas, stable network entity IDs, input commands, snapshots and deltas, relevancy, bandwidth budgets, interpolation, prediction, and reconciliation.
 - Add loopback and multi-process tests with simulated loss, latency, jitter, reordering, duplication, bandwidth limits, reconnects, incompatibility, and hostile input.
 
@@ -1765,9 +1768,11 @@ Builds on the Milestone 6.8 canvas and GraphCore.
 - Grow the Milestone 8 animation state machine graph into a full typed animation-graph domain: blend trees, layered and additive blends, nested state machines, and pose-processing nodes.
 - Extend GraphCore only with the authoring, typed-pin, transaction, validation, diagnostic, and migration infrastructure that the Material Graph, StateTree, the animation graph, and the Audio Graph prove.
 - Grow the Milestone 9 Audio Graph with envelopes, oscillators, sample-accurate scheduling, and subgraphs, and keep it and gameplay graphs as distinct compiler targets rather than one universal executor; gameplay graphs compile to a native call list in the editor and generated C++ in shipping, as section 4 describes.
+- Add gameplay graphs (Blueprint-style event graphs) as the typed IR and two backends that section 4 describes, after StateTree, with one real sample behavior authored as a graph while the C++ game stays fully usable.
+- Grow the Milestone 10 VFX graph with module stacks, custom simulation stages, events between emitters, and ribbons.
 - Extend debugging and cooked-format migration without linking editor UI into runtime executors.
 
-Exit condition: StateTree, the animation graph, and the Audio Graph compile headless and execute from cooked data without ImGui or the graph canvas linked, while sharing only proven GraphCore infrastructure.
+Exit condition: StateTree, the animation graph, the Audio Graph, the VFX graph, and gameplay graphs compile headless and execute from cooked data without ImGui or the graph canvas linked, while sharing only proven GraphCore infrastructure.
 
 ### Milestone 16 - Scripting
 
