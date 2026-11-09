@@ -125,7 +125,8 @@ class FGameSession final
 {
 public:
 	// Device builds soft body meshes; without one they simulate but do not render.
-	[[nodiscard]] static std::expected<std::unique_ptr<FGameSession>, FGameError> Create(std::span<const FLevelEntity> Entities, const IGameAssets& Assets, IGraphicsDevice* Device, const FGamePlayerSettings& Player = {});
+	// Tasks, when given, runs physics jobs on its workers; the result is the same either way.
+	[[nodiscard]] static std::expected<std::unique_ptr<FGameSession>, FGameError> Create(std::span<const FLevelEntity> Entities, const IGameAssets& Assets, IGraphicsDevice* Device, const FGamePlayerSettings& Player = {}, FTaskSystem* Tasks = nullptr);
 
 	~FGameSession();
 

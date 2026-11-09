@@ -1,8 +1,13 @@
 #include "Herta/Physics/PhysicsWorld.h"
 
+#include "Herta/Core/Hash.h"
+#include "Herta/Tasks/TaskSystem.h"
+
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Factory.h>
+#include <Jolt/Core/FixedSizeFreeList.h>
 #include <Jolt/Core/JobSystemSingleThreaded.h>
+#include <Jolt/Core/JobSystemWithBarrier.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyFilter.h>
@@ -25,6 +30,7 @@
 #include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
 #include <Jolt/Physics/SoftBody/SoftBodyMotionProperties.h>
 #include <Jolt/Physics/SoftBody/SoftBodySharedSettings.h>
+#include <Jolt/Physics/StateRecorderImpl.h>
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
@@ -34,6 +40,8 @@
 #include <format>
 #include <mutex>
 #include <string_view>
+#include <thread>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -164,14 +172,17 @@ void ReleaseRuntime()
 	return Id;
 }
 
-// The single-threaded job system calls this on the stepping thread, so it needs no locking.
+// Jolt calls listeners from its job threads, in no fixed order, so they only buffer under a lock; Step sorts what they gathered. Nothing here may
+// touch the world: Jolt holds body locks while it calls back.
 class FSensorListener final : public JPH::ContactListener
 {
 public:
 	void OnContactAdded(const JPH::Body& Body1, const JPH::Body& Body2, const JPH::ContactManifold& Manifold, JPH::ContactSettings& Settings) override;
 	void OnContactRemoved(const JPH::SubShapeIDPair& Pair) override;
 
+	// Written only between steps.
 	std::unordered_set<std::uint32_t> Sensors;
+	std::mutex EventMutex;
 	std::vector<FPhysicsSensorEvent> Events;
 };
 
@@ -181,6 +192,7 @@ void FSensorListener::OnContactAdded(const JPH::Body& Body1, const JPH::Body& Bo
 	{
 		const JPH::Body& Sensor = Body1.IsSensor() ? Body1 : Body2;
 		const JPH::Body& Other = Body1.IsSensor() ? Body2 : Body1;
+		std::scoped_lock Lock(EventMutex);
 		Events.push_back({.Sensor = FPhysicsBodyId{Sensor.GetID().GetIndexAndSequenceNumber()}, .Body = FPhysicsBodyId{Other.GetID().GetIndexAndSequenceNumber()}, .bEntered = true});
 	}
 }
@@ -193,7 +205,125 @@ void FSensorListener::OnContactRemoved(const JPH::SubShapeIDPair& Pair)
 	const bool bSensor1 = Sensors.contains(Body1);
 	if (bSensor1 != Sensors.contains(Body2))
 	{
+		std::scoped_lock Lock(EventMutex);
 		Events.push_back({.Sensor = FPhysicsBodyId{bSensor1 ? Body1 : Body2}, .Body = FPhysicsBodyId{bSensor1 ? Body2 : Body1}, .bEntered = false});
+	}
+}
+
+// Runs Jolt's jobs as Herta tasks. Every job Jolt waits for sits in a barrier that runs ready jobs on the waiting thread too, so a step finishes
+// even when the task queue is full or every worker is busy; a job runs once whichever thread reaches it first.
+class FTaskJobSystem final : public JPH::JobSystemWithBarrier
+{
+public:
+	FTaskJobSystem(FTaskSystem& InTasks, std::unique_ptr<FTaskScope> InScope, std::uint32_t MaxJobs, std::uint32_t InMaxConcurrency);
+	~FTaskJobSystem() override;
+	FTaskJobSystem(const FTaskJobSystem&) = delete;
+	FTaskJobSystem& operator=(const FTaskJobSystem&) = delete;
+	FTaskJobSystem(FTaskJobSystem&&) = delete;
+	FTaskJobSystem& operator=(FTaskJobSystem&&) = delete;
+
+	int GetMaxConcurrency() const override;
+	JPH::JobHandle CreateJob(const char* Name, JPH::ColorArg Color, const JobFunction& Function, JPH::uint32 Dependencies = 0) override;
+	// Waits for the tasks a step submitted, so none outlives the step that queued it.
+	void DrainSubmitted();
+
+protected:
+	void QueueJob(Job* InJob) override;
+	void QueueJobs(Job** Jobs, JPH::uint Count) override;
+	void FreeJob(Job* InJob) override;
+
+private:
+	FTaskSystem& Tasks;
+	std::unique_ptr<FTaskScope> Scope;
+	std::uint32_t MaxConcurrency = 1;
+	JPH::FixedSizeFreeList<Job> Jobs;
+	std::mutex SubmittedMutex;
+	std::vector<FTaskHandle> Submitted;
+};
+
+FTaskJobSystem::FTaskJobSystem(FTaskSystem& InTasks, std::unique_ptr<FTaskScope> InScope, const std::uint32_t MaxJobs, const std::uint32_t InMaxConcurrency)
+    : JobSystemWithBarrier(8)
+    , Tasks(InTasks)
+    , Scope(std::move(InScope))
+    , MaxConcurrency(InMaxConcurrency)
+{
+	Jobs.Init(MaxJobs, MaxJobs);
+}
+
+FTaskJobSystem::~FTaskJobSystem()
+{
+	DrainSubmitted();
+}
+
+int FTaskJobSystem::GetMaxConcurrency() const
+{
+	return static_cast<int>(MaxConcurrency);
+}
+
+JPH::JobHandle FTaskJobSystem::CreateJob(const char* const Name, const JPH::ColorArg Color, const JobFunction& Function, const JPH::uint32 Dependencies)
+{
+	JPH::uint32 Index = Jobs.ConstructObject(Name, Color, this, Function, Dependencies);
+	while (Index == decltype(Jobs)::cInvalidObjectIndex)
+	{
+		// MaxJobs bounds what Jolt queues per step; running out means a job is about to finish elsewhere.
+		std::this_thread::yield();
+		Index = Jobs.ConstructObject(Name, Color, this, Function, Dependencies);
+	}
+
+	Job* const Created = &Jobs.Get(Index);
+	JPH::JobHandle Handle(Created);
+	if (Dependencies == 0)
+	{
+		QueueJob(Created);
+	}
+
+	return Handle;
+}
+
+void FTaskJobSystem::QueueJob(Job* const InJob)
+{
+	InJob->AddRef();
+	auto Task = Tasks.Submit(*Scope, {.Name = "Physics job", .Priority = ETaskPriority::High}, [InJob](FTaskContext&)
+	{
+		InJob->Execute();
+		InJob->Release();
+	});
+
+	if (!Task)
+	{
+		// A full queue or an unregistered thread leaves the job to the barrier that waits for it.
+		InJob->Release();
+		return;
+	}
+
+	std::scoped_lock Lock(SubmittedMutex);
+	Submitted.push_back(std::move(*Task));
+}
+
+void FTaskJobSystem::QueueJobs(Job** const Queued, const JPH::uint Count)
+{
+	for (JPH::uint Index = 0; Index < Count; ++Index)
+	{
+		QueueJob(Queued[Index]);
+	}
+}
+
+void FTaskJobSystem::FreeJob(Job* const InJob)
+{
+	Jobs.DestructObject(InJob);
+}
+
+void FTaskJobSystem::DrainSubmitted()
+{
+	std::vector<FTaskHandle> Pending;
+	{
+		std::scoped_lock Lock(SubmittedMutex);
+		Pending.swap(Submitted);
+	}
+
+	for (const FTaskHandle& Task : Pending)
+	{
+		(void)Task.Wait();
 	}
 }
 
@@ -265,7 +395,9 @@ struct FPhysicsWorld::FImplementation
 	FSensorListener SensorListener;
 	JPH::PhysicsSystem Physics;
 	JPH::TempAllocatorImpl TempAllocator;
-	JPH::JobSystemSingleThreaded JobSystem{2048};
+	// Exactly one is set: steps run on Herta tasks when the world has a task system.
+	std::unique_ptr<JPH::JobSystemSingleThreaded> SingleThreaded;
+	std::unique_ptr<FTaskJobSystem> TaskJobs;
 	std::vector<JPH::BodyID> BodyIds;
 	std::vector<JPH::Ref<JPH::Constraint>> Constraints;
 	std::vector<FRopeState> Ropes;
@@ -284,10 +416,20 @@ struct FPhysicsWorld::FImplementation
 	std::string StepFailure;
 	std::size_t BodyCount = 0;
 
-	explicit FImplementation(const FPhysicsWorldSettings& InSettings)
+	FImplementation(const FPhysicsWorldSettings& InSettings, std::unique_ptr<FTaskScope> Scope)
 	    : TempAllocator(InSettings.TempMemoryBytes)
 	    , Settings(InSettings)
 	{
+		if (Scope)
+		{
+			const auto Concurrency = InSettings.MaxConcurrency != 0 ? InSettings.MaxConcurrency : static_cast<std::uint32_t>(InSettings.Tasks->GetCpuWorkerCount() + 1);
+			TaskJobs = std::make_unique<FTaskJobSystem>(*InSettings.Tasks, std::move(Scope), InSettings.MaxJobs, std::max(Concurrency, 1u));
+		}
+		else
+		{
+			SingleThreaded = std::make_unique<JPH::JobSystemSingleThreaded>(InSettings.MaxJobs);
+		}
+
 		BroadPhaseLayers.MapObjectToBroadPhaseLayer(StaticLayer, JPH::BroadPhaseLayer(0));
 		BroadPhaseLayers.MapObjectToBroadPhaseLayer(DynamicLayer, JPH::BroadPhaseLayer(1));
 		CollisionLayers.EnableCollision(StaticLayer, DynamicLayer);
@@ -433,12 +575,29 @@ std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> FPhysicsWorld::Crea
 		return std::unexpected(FPhysicsError{std::format("Physics temporary-memory capacity is {} bytes; configured body, pair, and contact limits require at least {} bytes", Settings.TempMemoryBytes, RequiredBytes)});
 	}
 
+	if (Settings.MaxJobs < 64 || Settings.MaxJobs > 65536)
+	{
+		return std::unexpected(FPhysicsError{"Physics job capacity must be between 64 and 65536"});
+	}
+
+	std::unique_ptr<FTaskScope> Scope;
+	if (Settings.Tasks)
+	{
+		auto Created = Settings.Tasks->CreateScope("Physics");
+		if (!Created)
+		{
+			return std::unexpected(FPhysicsError{"Cannot create the physics task scope: " + Created.error().Message});
+		}
+
+		Scope = std::move(*Created);
+	}
+
 	if (!AcquireRuntime())
 	{
 		return std::unexpected(FPhysicsError{"Jolt is already registered outside Herta Physics"});
 	}
 
-	return std::unique_ptr<FPhysicsWorld>(new FPhysicsWorld(std::make_unique<FImplementation>(Settings)));
+	return std::unique_ptr<FPhysicsWorld>(new FPhysicsWorld(std::make_unique<FImplementation>(Settings, std::move(Scope))));
 }
 
 std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPhysicsBodySettings& Settings)
@@ -781,7 +940,18 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 	}
 
 	Implementation->SensorListener.Events.clear();
-	const JPH::EPhysicsUpdateError Error = Implementation->Physics.Update(FixedDeltaSeconds, 1, &Implementation->TempAllocator, &Implementation->JobSystem);
+	JPH::JobSystem& Jobs = Implementation->TaskJobs ? static_cast<JPH::JobSystem&>(*Implementation->TaskJobs) : *Implementation->SingleThreaded;
+	const JPH::EPhysicsUpdateError Error = Implementation->Physics.Update(FixedDeltaSeconds, 1, &Implementation->TempAllocator, &Jobs);
+	if (Implementation->TaskJobs)
+	{
+		Implementation->TaskJobs->DrainSubmitted();
+	}
+
+	std::ranges::sort(Implementation->SensorListener.Events, [](const FPhysicsSensorEvent& A, const FPhysicsSensorEvent& B)
+	{
+		return std::tuple(A.Sensor.Value, A.Body.Value, A.bEntered) < std::tuple(B.Sensor.Value, B.Body.Value, B.bEntered);
+	});
+
 	if (Error != JPH::EPhysicsUpdateError::None)
 	{
 		if ((Error & JPH::EPhysicsUpdateError::BodyPairCacheFull) != JPH::EPhysicsUpdateError::None)
@@ -799,6 +969,35 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 	}
 
 	return {};
+}
+
+std::vector<std::byte> FPhysicsWorld::SaveState() const
+{
+	JPH::StateRecorderImpl Recorder;
+	Implementation->Physics.SaveState(Recorder);
+	const std::string Data = Recorder.GetData();
+	const auto Bytes = std::as_bytes(std::span(Data));
+	return {Bytes.begin(), Bytes.end()};
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::RestoreState(const std::span<const std::byte> State)
+{
+	JPH::StateRecorderImpl Recorder;
+	Recorder.WriteBytes(State.data(), State.size());
+	if (!Implementation->Physics.RestoreState(Recorder) || Recorder.IsFailed())
+	{
+		return std::unexpected(FPhysicsError{"The physics state does not match this world's bodies and constraints"});
+	}
+
+	// A restored state carries no events of its own.
+	Implementation->SensorListener.Events.clear();
+	return {};
+}
+
+std::uint64_t FPhysicsWorld::ComputeStateHash() const
+{
+	const FHash128 Hash = HashBytes(SaveState());
+	return Hash.Low ^ Hash.High;
 }
 
 std::expected<FPhysicsBodyTransform, FPhysicsError> FPhysicsWorld::GetBodyTransform(const FPhysicsBodyId BodyId) const

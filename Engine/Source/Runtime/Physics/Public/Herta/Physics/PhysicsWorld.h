@@ -14,6 +14,8 @@
 
 namespace Herta
 {
+class FTaskSystem;
+
 struct FPhysicsError
 {
 	std::string Message;
@@ -185,6 +187,12 @@ struct FPhysicsWorldSettings
 	std::uint32_t MaxContactConstraints = 1024;
 	// Create rejects budgets below the scratch bound for the configured capacities.
 	std::size_t TempMemoryBytes = 4 * 1024 * 1024;
+	// Runs Jolt's jobs as Herta tasks; null steps on the calling thread. The task system must outlive the world. Results do not depend on either.
+	FTaskSystem* Tasks = nullptr;
+	// Jobs Jolt may have queued at once.
+	std::uint32_t MaxJobs = 2048;
+	// Jobs Jolt plans to run side by side; zero uses the task system's CPU workers plus the stepping thread.
+	std::uint32_t MaxConcurrency = 0;
 };
 
 class FPhysicsWorld final
@@ -206,8 +214,13 @@ public:
 	// Sets velocities that carry a kinematic body to Target over the next step, so bodies resting on it ride along.
 	[[nodiscard]] std::expected<void, FPhysicsError> MoveKinematicBody(FPhysicsBodyId BodyId, const FPhysicsBodyTransform& Target, float DeltaSeconds);
 	[[nodiscard]] std::expected<void, FPhysicsError> Step(float FixedDeltaSeconds);
-	// Sensor overlap changes from the latest Step, in the order Jolt reported them.
+	// Sensor overlap changes from the latest Step, sorted by sensor, body, and exits before entries, so the order never depends on Jolt's threads.
 	std::span<const FPhysicsSensorEvent> GetSensorEvents() const;
+	// Every body, constraint, and contact cache, for rollback. Only the world that saved a state, holding the same bodies, can restore it.
+	[[nodiscard]] std::vector<std::byte> SaveState() const;
+	[[nodiscard]] std::expected<void, FPhysicsError> RestoreState(std::span<const std::byte> State);
+	// A hash of SaveState, equal on every platform and thread count for the same calls in the same order.
+	[[nodiscard]] std::uint64_t ComputeStateHash() const;
 	[[nodiscard]] std::expected<FPhysicsBodyTransform, FPhysicsError> GetBodyTransform(FPhysicsBodyId BodyId) const;
 	// World-space vertex positions in creation order.
 	[[nodiscard]] std::expected<void, FPhysicsError> GetSoftBodyVertices(FPhysicsBodyId BodyId, std::vector<FVector3>& OutPositions) const;

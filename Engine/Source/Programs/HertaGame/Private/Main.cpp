@@ -443,7 +443,7 @@ int RunGame(const FGameOptions& Options)
 		}
 	}
 
-	auto SessionResult = FGameSession::Create(Level->Entities, *Assets, &Device);
+	auto SessionResult = FGameSession::Create(Level->Entities, *Assets, &Device, {}, Tasks.get());
 	if (!SessionResult)
 	{
 		HERTA_LOG_ERROR(*Log, GameLog, "Could not start the game: {}", SessionResult.error().Message);

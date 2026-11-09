@@ -1,4 +1,6 @@
+#include "Herta/Core/Log.h"
 #include "Herta/Physics/PhysicsWorld.h"
+#include "Herta/Tasks/TaskSystem.h"
 
 #include <doctest/doctest.h>
 
@@ -571,5 +573,86 @@ TEST_CASE("Soft body creation rejects invalid topology and parameters")
 	REQUIRE(Box);
 	std::vector<FVector3> Positions;
 	CHECK_FALSE((*World)->GetSoftBodyVertices(*Box, Positions));
+}
+
+namespace
+{
+// A floor and a pile of mixed shapes that collide while they settle, which exercises contacts, islands, and sleeping.
+std::unique_ptr<FPhysicsWorld> CreateDeterminismScene(FTaskSystem* const Tasks)
+{
+	auto World = FPhysicsWorld::Create({.Tasks = Tasks});
+	REQUIRE(World);
+	REQUIRE((*World)->CreateBody({.HalfExtents = {20.f, 0.5f, 20.f}, .Position = {0.f, -0.5f, 0.f}}));
+	for (int Index = 0; Index < 48; ++Index)
+	{
+		const float X = static_cast<float>(Index % 4) * 1.1f - 1.65f + static_cast<float>(Index / 16) * 0.13f;
+		const float Z = static_cast<float>((Index / 4) % 4) * 1.1f - 1.65f;
+		const float Y = 1.f + static_cast<float>(Index / 16) * 1.3f;
+		FPhysicsBodySettings Body{
+		    .Shape = static_cast<EPhysicsShape>(Index % 3),
+		    .HalfExtents = {0.4f, 0.3f, 0.45f},
+		    .Radius = 0.35f,
+		    .HalfHeight = 0.25f,
+		    .Position = {X, Y, Z},
+		    .Rotation = FQuaternion::FromAxisAngle(FVector3{1.f, static_cast<float>(Index % 5), 0.5f}.Normalized(), static_cast<float>(Index) * 0.37f),
+		    .MotionType = EPhysicsMotionType::Dynamic,
+		    .Properties = {.MassKg = 1.f + static_cast<float>(Index % 7), .Friction = 0.5f, .Restitution = 0.2f},
+		};
+		REQUIRE((*World)->CreateBody(Body));
+	}
+
+	return std::move(*World);
+}
+
+void StepScene(FPhysicsWorld& World, const int Steps)
+{
+	for (int Step = 0; Step < Steps; ++Step)
+	{
+		REQUIRE(World.Step(1.f / 60.f));
+	}
+}
+}
+
+TEST_CASE("Physics hashes the same after equal steps on every run, thread count, and snapshot restore")
+{
+	const auto First = CreateDeterminismScene(nullptr);
+	const std::uint64_t Initial = First->ComputeStateHash();
+	StepScene(*First, 180);
+	const std::uint64_t Settled = First->ComputeStateHash();
+	CHECK(Settled != Initial);
+
+	const auto Second = CreateDeterminismScene(nullptr);
+	StepScene(*Second, 180);
+	CHECK(Second->ComputeStateHash() == Settled);
+
+	// Jolt's jobs on four Herta workers give the same world as stepping on one thread.
+	auto Log = FLogService::Create({.bConsoleOutput = false, .bDebuggerOutput = false, .bFileOutput = false});
+	REQUIRE(Log);
+	auto Tasks = FTaskSystem::Create({.CpuWorkerCount = 4, .Log = Log->get()});
+	REQUIRE(Tasks);
+	{
+		const auto Threaded = CreateDeterminismScene(Tasks->get());
+		StepScene(*Threaded, 180);
+		CHECK(Threaded->ComputeStateHash() == Settled);
+	}
+
+	(*Tasks)->Shutdown();
+
+	// Rollback: restoring a snapshot and replaying the same steps reaches the same world.
+	const auto Rolled = CreateDeterminismScene(nullptr);
+	StepScene(*Rolled, 90);
+	const std::vector<std::byte> Snapshot = Rolled->SaveState();
+	StepScene(*Rolled, 90);
+	CHECK(Rolled->ComputeStateHash() == Settled);
+	REQUIRE(Rolled->RestoreState(Snapshot));
+	const bool bRestoredExactly = Rolled->SaveState() == Snapshot;
+	CHECK(bRestoredExactly);
+	StepScene(*Rolled, 90);
+	CHECK(Rolled->ComputeStateHash() == Settled);
+	CHECK_FALSE(Rolled->RestoreState(std::span(Snapshot).first(Snapshot.size() / 2)));
+
+	// Jolt's cross-platform build makes this the same value on Windows and Linux, so CI on both checks it. It changes only with the scene, Jolt, or
+	// its settings; update it deliberately then.
+	CHECK(Settled == 913175411509097514ull);
 }
 }

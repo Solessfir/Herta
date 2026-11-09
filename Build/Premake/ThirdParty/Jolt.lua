@@ -25,6 +25,14 @@ function HertaJolt()
         }
 
         externalincludedirs { path.join(RepositoryRoot, "External/Jolt") }
+        -- Identical results across compilers, operating systems, and thread counts, which replication and the world-hash tests rely on.
+        -- Jolt measures it at about 8% slower. Herta targets baseline x86-64 without FMA, and contraction is off where compilers could introduce it.
+        defines { "JPH_CROSS_PLATFORM_DETERMINISTIC" }
+
+        filter "system:linux"
+            buildoptions { "-ffp-contract=off" }
+
+        filter {}
 
         filter "configurations:Debug or Debug-ASan"
             defines { "JPH_ENABLE_ASSERTS" }

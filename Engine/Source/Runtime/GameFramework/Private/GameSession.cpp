@@ -83,6 +83,7 @@ struct FGameSession::FImplementation
 	const IGameAssets& Assets;
 	IGraphicsDevice* Device = nullptr;
 	FGamePlayerSettings Player{};
+	FTaskSystem* Tasks = nullptr;
 
 	// Authored state, fixed for the session.
 	std::vector<FLevelEntity> Entities{};
@@ -143,10 +144,10 @@ FGameSession::FGameSession(std::unique_ptr<FImplementation> InImplementation) no
 
 FGameSession::~FGameSession() = default;
 
-std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(const std::span<const FLevelEntity> Entities, const IGameAssets& Assets, IGraphicsDevice* const Device, const FGamePlayerSettings& Player)
+std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(const std::span<const FLevelEntity> Entities, const IGameAssets& Assets, IGraphicsDevice* const Device, const FGamePlayerSettings& Player, FTaskSystem* const Tasks)
 {
 	// Built in place: the session holds references and a running simulation that must not move.
-	std::unique_ptr<FImplementation> Implementation(new FImplementation{.Assets = Assets, .Device = Device, .Player = Player});
+	std::unique_ptr<FImplementation> Implementation(new FImplementation{.Assets = Assets, .Device = Device, .Player = Player, .Tasks = Tasks});
 	FImplementation& Session = *Implementation;
 	Session.Entities.assign(Entities.begin(), Entities.end());
 
@@ -276,7 +277,9 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	// A character needs a physics world even when the level has nothing else to simulate.
 	const std::array Ground{FLevelSimulationBody{.ObjectIndex = Entities.size(), .Transform = {{0.f, -1000.f, 0.f}, {}, {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {0.5f, 0.5f, 0.5f}}}};
 	const std::span<const FLevelSimulationBody> Bodies = Setup.Bodies.empty() && Setup.SoftBodies.empty() ? std::span<const FLevelSimulationBody>(Ground) : std::span<const FLevelSimulationBody>(Setup.Bodies);
-	if (auto Started = Simulation.Start(Bodies, Setup.SoftBodies, Setup.Constraints); !Started)
+	FPhysicsWorldSettings Settings = LevelPhysicsSettings;
+	Settings.Tasks = Tasks;
+	if (auto Started = Simulation.Start(Bodies, Setup.SoftBodies, Setup.Constraints, Settings); !Started)
 	{
 		return std::unexpected(FGameError{std::format("Cannot start physics: {}", Started.error().Message)});
 	}

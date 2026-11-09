@@ -232,20 +232,6 @@ HertaRuntimeModule("Level", {
         path.join(RepositoryRoot, "External/simdjson")
     }
 
-HertaRuntimeModule("Physics", {
-    PublicDependencies = { "Math" },
-    PrivateThirdPartyDependencies = { "Jolt" }
-})
-    externalincludedirs { path.join(RepositoryRoot, "External/Jolt") }
-
-    filter "configurations:Debug or Debug-ASan"
-        defines { "JPH_ENABLE_ASSERTS" }
-
-    filter "configurations:Development or Shipping"
-        defines { "JPH_NO_DEBUG" }
-
-    filter {}
-
 HertaRuntimeModule("Platform", {
     PublicDependencies = { "Core" },
     PrivateWindowsSystemDependencies = { "ole32", "shell32" }
@@ -271,6 +257,26 @@ HertaRuntimeModule("Tasks", {
     externalincludedirs {
         path.join(RepositoryRoot, "External/enkiTS/src")
     }
+
+HertaRuntimeModule("Physics", {
+    PublicDependencies = { "Math" },
+    PrivateDependencies = { "Core", "Tasks" },
+    PrivateThirdPartyDependencies = { "Jolt" }
+})
+    externalincludedirs { path.join(RepositoryRoot, "External/Jolt") }
+    -- Must match the Jolt library: Jolt's own headers change layout with it. See Docs/Physics.md.
+    defines { "JPH_CROSS_PLATFORM_DETERMINISTIC" }
+
+    filter "system:linux"
+        buildoptions { "-ffp-contract=off" }
+
+    filter "configurations:Debug or Debug-ASan"
+        defines { "JPH_ENABLE_ASSERTS" }
+
+    filter "configurations:Development or Shipping"
+        defines { "JPH_NO_DEBUG" }
+
+    filter {}
 
 HertaRuntimeModule("EditorCore", {
     PublicDependencies = { "Math" },
@@ -310,6 +316,12 @@ HertaRuntimeModule("GameFramework", {
     PublicDependencies = { "Core", "Math", "Assets", "Level", "Physics", "RHI", "Renderer", "GameUI" },
     PrivateDependencies = { "Tasks" }
 })
+
+    -- The fixed-step simulation feeds Jolt, so it must not contract floating point either.
+    filter "system:linux"
+        buildoptions { "-ffp-contract=off" }
+
+    filter {}
 
 -- The Material Graph schema and its compiler to Slang, run by the editor, headless commands, and tests; game targets load cooked shaders instead.
 HertaRuntimeModule("MaterialGraph", {

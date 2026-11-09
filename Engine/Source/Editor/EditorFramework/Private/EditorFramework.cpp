@@ -4898,7 +4898,9 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 		}
 
 		std::vector<FPreviewObject> OriginalObjects = PreviewObjects;
-		if (const auto Result = Simulation.Start(Setup.Bodies, Setup.SoftBodies, Setup.Constraints); !Result)
+		FPhysicsWorldSettings PhysicsSettings = LevelPhysicsSettings;
+		PhysicsSettings.Tasks = Tasks;
+		if (const auto Result = Simulation.Start(Setup.Bodies, Setup.SoftBodies, Setup.Constraints, PhysicsSettings); !Result)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not start simulation: {}", Result.error().Message);
 			return;
@@ -4962,7 +4964,7 @@ void FEditorFramework::FImplementation::TogglePlay()
 		return;
 	}
 
-	auto Session = FGameSession::Create(VisualEntities, *GameAssets, GraphicsDevice);
+	auto Session = FGameSession::Create(VisualEntities, *GameAssets, GraphicsDevice, {}, Tasks);
 	if (!Session)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not start play: {}", Session.error().Message);
