@@ -159,14 +159,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 3
         run: |
-          $TestResults = 'TestResults/${{ matrix.platform }}-${{ matrix.compiler }}-${{ matrix.configuration }}.xml'
-          New-Item -ItemType Directory -Force -Path (Split-Path -Parent $TestResults) | Out-Null
           & .\Binaries\windows\x86_64\${{ matrix.configuration }}\HertaTests.exe --duration=true
-          $ConsoleExitCode = $LASTEXITCODE
-          & .\Binaries\windows\x86_64\${{ matrix.configuration }}\HertaTests.exe --reporters=junit --out=$TestResults
-          if ($ConsoleExitCode -ne 0) {
-            exit $ConsoleExitCode
-          }
           exit $LASTEXITCODE
 
       - name: Run headless editor command on Windows
@@ -221,18 +214,7 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
-        run: |
-          set +e
-          TestResults="TestResults/${{ matrix.platform }}-${{ matrix.compiler }}-${{ matrix.configuration }}.xml"
-          mkdir -p -- "$(dirname -- "$TestResults")"
-          ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaTests
-          ConsoleExitCode=$?
-          ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaTests --reporters=junit --out="$TestResults"
-          JunitExitCode=$?
-          if [[ $ConsoleExitCode -ne 0 ]]; then
-            exit "$ConsoleExitCode"
-          fi
-          exit "$JunitExitCode"
+        run: ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaTests --duration=true
 
       - name: Run headless editor command on Linux
         if: matrix.platform == 'linux'

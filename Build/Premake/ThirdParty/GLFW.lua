@@ -2,15 +2,15 @@ function HertaGLFW()
     local RepositoryRoot = path.getabsolute(_MAIN_SCRIPT_DIR)
     local GlfwRoot = path.join(RepositoryRoot, "External/glfw")
     local GeneratedRoot = path.join(RepositoryRoot, "Intermediate/Generated/GLFW")
-    local ProjectFilesRoot = path.join(RepositoryRoot, "Intermediate/ProjectFiles", _ACTION or "NoAction")
+    local ProjectFilesRoot = path.join(RepositoryRoot, "Intermediate/ProjectFiles", (_ACTION or "NoAction") .. HertaToolsetSuffix)
 
     project "GLFW"
         kind "StaticLib"
         language "C"
         cdialect "C99"
         location(path.join(ProjectFilesRoot, "GLFW"))
-        targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}"))
-        objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/%{prj.name}"))
+        targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
+        objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
         warnings "Off"
 
         files {

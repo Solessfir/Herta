@@ -830,7 +830,7 @@ TEST_CASE("glTF supplied tangent frames preserve mirrored handedness")
 	}
 }
 
-TEST_CASE("Asset cooking reuses derived data until any input changes")
+TEST_CASE("Asset cooking reuses derived data until any input changes" * doctest::test_suite("Slow"))
 {
 	const Tests::FScratchDirectory Scratch("HertaCookTests");
 	const std::filesystem::path Root = Scratch.GetPath() / "Content";

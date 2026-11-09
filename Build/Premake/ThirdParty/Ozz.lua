@@ -2,14 +2,14 @@
 function HertaOzz()
     local RepositoryRoot = path.getabsolute(_MAIN_SCRIPT_DIR)
     local OzzRoot = path.join(RepositoryRoot, "External/ozz-animation")
-    local ProjectFilesRoot = path.join(RepositoryRoot, "Intermediate/ProjectFiles", _ACTION or "NoAction")
+    local ProjectFilesRoot = path.join(RepositoryRoot, "Intermediate/ProjectFiles", (_ACTION or "NoAction") .. HertaToolsetSuffix)
 
     local function OzzProject(Name, Sources)
         project(Name)
             kind "StaticLib"
             location(path.join(ProjectFilesRoot, Name))
-            targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}"))
-            objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/%{prj.name}"))
+            targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
+            objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
             warnings "Off"
             files(Sources)
             includedirs { path.join(OzzRoot, "include"), path.join(OzzRoot, "src") }

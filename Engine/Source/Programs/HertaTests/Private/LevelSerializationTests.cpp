@@ -657,7 +657,7 @@ TEST_CASE("Levels bound names and reject invalid UTF-8 and non-finite state")
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"name\": \"Child\"", std::string("\"name\": \"Bad\xc0\xaf\""))));
 }
 
-TEST_CASE("Failed level saves preserve existing files and clean sibling temporary files")
+TEST_CASE("Failed level saves preserve existing files and clean sibling temporary files" * doctest::test_suite("Slow"))
 {
 	Tests::FScratchDirectory Directory("HertaLevelAtomic");
 	const auto Path = Directory.GetPath() / "Level.hlevel";

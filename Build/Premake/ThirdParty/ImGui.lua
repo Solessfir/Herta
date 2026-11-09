@@ -1,15 +1,15 @@
 function HertaImGui()
     local RepositoryRoot = path.getabsolute(_MAIN_SCRIPT_DIR)
     local ImGuiRoot = path.join(RepositoryRoot, "External/imgui")
-    local ProjectFilesRoot = path.join(RepositoryRoot, "Intermediate/ProjectFiles", _ACTION or "NoAction")
+    local ProjectFilesRoot = path.join(RepositoryRoot, "Intermediate/ProjectFiles", (_ACTION or "NoAction") .. HertaToolsetSuffix)
 
     project "ImGui"
         kind "StaticLib"
         language "C++"
         cppdialect "C++23"
         location(path.join(ProjectFilesRoot, "ImGui"))
-        targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}"))
-        objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/%{prj.name}"))
+        targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
+        objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
         warnings "Off"
 
         dependson { "FreeType", "GLFW" }

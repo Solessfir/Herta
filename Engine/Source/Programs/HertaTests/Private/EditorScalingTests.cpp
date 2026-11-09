@@ -23,7 +23,7 @@ TEST_CASE("Scaling capture summarizes nearest-rank tails and a conventional medi
 	CHECK(SummarizeScalingSamples(Single).P99 == 0.5);
 }
 
-TEST_CASE("Scaling editor authoring preserves batch history selection and canonical files")
+TEST_CASE("Scaling editor authoring preserves batch history selection and canonical files" * doctest::test_suite("Slow"))
 {
 	for (const std::size_t Count : std::array<std::size_t, 3>{1000, 5000, 10000})
 	{

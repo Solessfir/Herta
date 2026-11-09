@@ -320,7 +320,7 @@ TEST_CASE("Preview capacity admission preserves authored outputs and permits res
 	Simulation.Stop();
 }
 
-TEST_CASE("Preview scaling checkpoint repeats simulation and restores all authored transforms")
+TEST_CASE("Preview scaling checkpoint repeats simulation and restores all authored transforms" * doctest::test_suite("Slow"))
 {
 	for (const std::size_t DynamicCount : {1000u, 5000u, 10000u})
 	{

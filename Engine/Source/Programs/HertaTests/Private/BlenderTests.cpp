@@ -95,7 +95,7 @@ void SetBlenderOverride(const std::optional<std::string>& Value)
 }
 }
 
-TEST_CASE("Blender import cooks a .blend through Herta's preset, tracks external images, and is deterministic")
+TEST_CASE("Blender import cooks a .blend through Herta's preset, tracks external images, and is deterministic" * doctest::test_suite("Slow"))
 {
 	const std::optional<FBlenderInstallation> Blender = FindBlenderForTests();
 	if (!Blender)
@@ -154,7 +154,7 @@ TEST_CASE("Blender import cooks a .blend through Herta's preset, tracks external
 	CHECK(AfterEdit->Key != First->Key);
 }
 
-TEST_CASE("Blender dependency records follow changes inside linked libraries")
+TEST_CASE("Blender dependency records follow changes inside linked libraries" * doctest::test_suite("Slow"))
 {
 	const std::optional<FBlenderInstallation> Blender = FindBlenderForTests();
 	if (!Blender)
@@ -223,7 +223,7 @@ bpy.ops.wm.save_as_mainfile(filepath=root, relative_remap=True)
 	CHECK(RemovedImageChanged->Key == NewImageChanged->Key);
 }
 
-TEST_CASE("Blender import rejects images outside the content root")
+TEST_CASE("Blender import rejects images outside the content root" * doctest::test_suite("Slow"))
 {
 	const std::optional<FBlenderInstallation> Blender = FindBlenderForTests();
 	if (!Blender)

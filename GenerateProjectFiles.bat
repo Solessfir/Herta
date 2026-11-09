@@ -36,12 +36,13 @@ if not defined HERTA_VULKAN_SDK (
     goto :error
 )
 
-"%HERTA_PREMAKE%" --file="%HERTA_ROOT%premake5.lua" %HERTA_ACTION%
+"%HERTA_PREMAKE%" --file="%HERTA_ROOT%premake5.lua" %~2 %HERTA_ACTION%
 set "HERTA_EXIT_CODE=%ERRORLEVEL%"
 if not "%HERTA_EXIT_CODE%"=="0" goto :error
 
 if /I "%HERTA_ACTION%"=="vs2026" set "HERTA_SOLUTION=%HERTA_ROOT%Herta.slnx"
 if /I "%HERTA_ACTION%"=="vs2022" set "HERTA_SOLUTION=%HERTA_ROOT%Herta.sln"
+if /I "%~2"=="--clangcl" for %%S in ("%HERTA_SOLUTION%") do set "HERTA_SOLUTION=%HERTA_ROOT%Intermediate\ProjectFiles\%HERTA_ACTION%-ClangCL\%%~nxS"
 
 if not exist "%HERTA_SOLUTION%" (
     echo Premake completed without generating the expected solution: "%HERTA_SOLUTION%" 1>&2

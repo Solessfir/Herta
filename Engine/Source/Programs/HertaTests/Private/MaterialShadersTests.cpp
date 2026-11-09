@@ -161,7 +161,7 @@ FGraphicsPipelineHandle FMaterialShadersFixture::Draw()
 }
 }
 
-TEST_CASE("Material shader iteration uses immutable includes and retains the last valid pipeline")
+TEST_CASE("Material shader iteration uses immutable includes and retains the last valid pipeline" * doctest::test_suite("Slow"))
 {
 	FMaterialShadersFixture Fixture;
 	Fixture.WriteInclude("not valid Slang;\n");
@@ -190,7 +190,7 @@ TEST_CASE("Material shader iteration uses immutable includes and retains the las
 	CHECK(Fixture.Draw() != GoodPipeline);
 }
 
-TEST_CASE("Material shader publication is atomic when the instanced pipeline is rejected")
+TEST_CASE("Material shader publication is atomic when the instanced pipeline is rejected" * doctest::test_suite("Slow"))
 {
 	FMaterialShadersFixture Fixture;
 	Fixture.Compile();
@@ -212,7 +212,7 @@ TEST_CASE("Material shader publication is atomic when the instanced pipeline is 
 	CHECK(Fixture.Draw() == GoodPipeline);
 }
 
-TEST_CASE("Material shader changes coalesce and stale snapshots never publish")
+TEST_CASE("Material shader changes coalesce and stale snapshots never publish" * doctest::test_suite("Slow"))
 {
 	FMaterialShadersFixture Fixture;
 	Fixture.Compile();
@@ -228,7 +228,7 @@ TEST_CASE("Material shader changes coalesce and stale snapshots never publish")
 	CHECK(Fixture.Draw() != GoodPipeline);
 }
 
-TEST_CASE("Material shader publication rejects mismatched visual uniforms before replacing pipelines")
+TEST_CASE("Material shader publication rejects mismatched visual uniforms before replacing pipelines" * doctest::test_suite("Slow"))
 {
 	FMaterialShadersFixture Fixture;
 	Fixture.Compile();
@@ -290,7 +290,7 @@ TEST_CASE("Material Graphs compile headless to the shaders a staged game loads")
 	CHECK_FALSE(CollectMaterialShaderSources(Roots, "Game/Playground/Materials/Missing.hmatgraph"));
 }
 
-TEST_CASE("Material Graph drafts compile from an override without touching the file")
+TEST_CASE("Material Graph drafts compile from an override without touching the file" * doctest::test_suite("Slow"))
 {
 	const auto ShaderRoot = FindShaderRoot();
 	REQUIRE_FALSE(ShaderRoot.empty());

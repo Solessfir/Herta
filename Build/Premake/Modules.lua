@@ -3,7 +3,7 @@ local SourceRoot = path.join(RepositoryRoot, "Engine/Source")
 local RuntimeRoot = path.join(SourceRoot, "Runtime")
 local EditorRoot = path.join(SourceRoot, "Editor")
 local ProgramsRoot = path.join(SourceRoot, "Programs")
-local ProjectFilesRoot = path.join(HertaProjectRoot or RepositoryRoot, "Intermediate/ProjectFiles", _ACTION or "NoAction")
+local ProjectFilesRoot = path.join(HertaProjectRoot or RepositoryRoot, "Intermediate/ProjectFiles", (_ACTION or "NoAction") .. HertaToolsetSuffix)
 local RuntimeModules = {}
 
 local function GetBuildRevision(FullRevision)
@@ -15,8 +15,8 @@ local function GetBuildRevision(FullRevision)
 end
 
 local function ApplyCommonProjectSettings(ProjectSourceRoot)
-    targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}"))
-    objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/%{prj.name}"))
+    targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
+    objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
     warnings "Extra"
     fatalwarnings "All"
 
@@ -168,7 +168,10 @@ local function ApplyRuntimeDependencies(Dependencies)
     links(ThirdPartyDependencies)
     libdirs(LibraryDirectories)
 
-    for ModuleName in pairs(VisibleModules) do
+    -- pairs() order changes between runs; a reordered include path makes MSBuild and make recompile every file of the project.
+    local VisibleModuleNames = table.keys(VisibleModules)
+    table.sort(VisibleModuleNames)
+    for _, ModuleName in ipairs(VisibleModuleNames) do
         includedirs {
             PublicIncludeDirectory(ModuleName)
         }
@@ -443,7 +446,7 @@ project "HertaShaderWorker"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
     filter {}
 
-local ShaderOutput = path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/Shaders")
+local ShaderOutput = path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/Shaders")
 local ShaderWorker = path.join(ShaderOutput, "../HertaShaderWorker") .. (os.host() == "windows" and ".exe" or "")
 local ShaderInputs = os.matchfiles(path.join(RepositoryRoot, "Engine/Shaders/**"))
 table.insert(ShaderInputs, path.join(RepositoryRoot, "External/smaa/SMAA.hlsl"))
@@ -540,6 +543,16 @@ project "HertaEditorMcp"
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditorMcp"))
     externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
     ApplyRuntimeDependencies { "Core", "EditorCore", "Platform" }
+
+    -- MCP clients keep the server running for a whole session, which locks the exe on Windows. A running exe can still be renamed, so move it
+    -- aside before linking; the old copy is deleted once nothing runs it.
+    filter "system:windows"
+        prelinkcommands {
+            'del /q "$(TargetPath).old-*" >nul 2>nul || cd .',
+            'move "$(TargetPath)" "$(TargetPath).old-%RANDOM%%RANDOM%" >nul 2>nul || cd .',
+        }
+
+    filter {}
 
 project "HertaEditorCmd"
     kind "ConsoleApp"
@@ -647,7 +660,7 @@ if HertaProjectDescriptor then
             PublicDependencies = Module.dependencies
         })
         ApplyRuntimeDependencies(Module.dependencies)
-        targetdir(path.join(HertaProjectRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}"))
-        objdir(path.join(HertaProjectRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}/%{prj.name}"))
+        targetdir(path.join(HertaProjectRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
+        objdir(path.join(HertaProjectRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
     end
 end

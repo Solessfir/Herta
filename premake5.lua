@@ -51,16 +51,24 @@ if _OPTIONS["project"] then
         end
     end
 end
-local Action = _ACTION or "NoAction"
-local WorkspaceLocation = path.join(RepositoryRoot, "Intermediate/ProjectFiles", Action)
+newoption {
+    trigger = "clangcl",
+    description = "Generate a separate Windows workspace that builds with ClangCL into its own project and output folders"
+}
 
-if Action == "vs2022" or Action == "vs2026" then
+-- Separate folders let compiler verification switch between MSVC and ClangCL without rebuilding either one from scratch.
+HertaToolsetSuffix = (os.target() == "windows" and _OPTIONS["clangcl"]) and "-ClangCL" or ""
+
+local Action = _ACTION or "NoAction"
+local WorkspaceLocation = path.join(RepositoryRoot, "Intermediate/ProjectFiles", Action .. HertaToolsetSuffix)
+
+if (Action == "vs2022" or Action == "vs2026") and HertaToolsetSuffix == "" then
     WorkspaceLocation = RepositoryRoot
 end
 
 if HertaProjectRoot then
-    WorkspaceLocation = path.join(HertaProjectRoot, "Intermediate/ProjectFiles", Action)
-    if Action == "vs2022" or Action == "vs2026" then
+    WorkspaceLocation = path.join(HertaProjectRoot, "Intermediate/ProjectFiles", Action .. HertaToolsetSuffix)
+    if (Action == "vs2022" or Action == "vs2026") and HertaToolsetSuffix == "" then
         WorkspaceLocation = HertaProjectRoot
     end
 end
@@ -100,6 +108,10 @@ workspace "Herta"
     staticruntime "Off"
 
     multiprocessorcompile "On"
+
+    if HertaToolsetSuffix ~= "" then
+        toolset "clang"
+    end
 
     HertaApplyToolchainSettings()
 

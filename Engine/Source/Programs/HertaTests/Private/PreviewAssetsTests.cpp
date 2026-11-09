@@ -680,7 +680,7 @@ TEST_CASE("Preview thumbnails spread over frames once a frame's rendering budget
 	CHECK(Assets->GetThumbnail(StoneId));
 }
 
-TEST_CASE("Preview assets scan Engine and Game content and publish cooked meshes between frames")
+TEST_CASE("Preview assets scan Engine and Game content and publish cooked meshes between frames" * doctest::test_suite("Slow"))
 {
 	FPreviewAssetsFixture Fixture;
 	auto Assets = Fixture.CreateAssets();
@@ -1144,7 +1144,7 @@ TEST_CASE("Copies retain visible meshes and share reimport results while level b
 	CHECK(Assets->GetSlot(0).Error.empty());
 }
 
-TEST_CASE("Rebinding pending mesh replacements preserves visible fallbacks until success or failure")
+TEST_CASE("Rebinding pending mesh replacements preserves visible fallbacks until success or failure" * doctest::test_suite("Slow"))
 {
 	for (const bool bFailure : {false, true})
 	{
