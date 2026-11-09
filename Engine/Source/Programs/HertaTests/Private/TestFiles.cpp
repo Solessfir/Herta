@@ -4,7 +4,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <format>
 #include <fstream>
+#include <random>
 
 #define STBI_WRITE_NO_STDIO
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -12,10 +14,17 @@
 
 namespace Herta::Tests
 {
-FScratchDirectory::FScratchDirectory(const std::string_view Prefix)
+std::filesystem::path MakeScratchPath(const std::string_view Prefix)
 {
+	// The counter separates paths within one process; the random part separates processes that start at the same tick.
 	static std::atomic<std::uint64_t> Counter{0};
-	Path = std::filesystem::temp_directory_path() / (std::string(Prefix) + "-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "-" + std::to_string(Counter.fetch_add(1)));
+	static const std::uint64_t ProcessSalt = (static_cast<std::uint64_t>(std::random_device{}()) << 32) | std::random_device{}();
+	return std::filesystem::temp_directory_path() / std::format("{}-{:016x}-{}-{}", Prefix, ProcessSalt, std::chrono::steady_clock::now().time_since_epoch().count(), Counter.fetch_add(1));
+}
+
+FScratchDirectory::FScratchDirectory(const std::string_view Prefix)
+    : Path(MakeScratchPath(Prefix))
+{
 	std::filesystem::create_directories(Path);
 }
 

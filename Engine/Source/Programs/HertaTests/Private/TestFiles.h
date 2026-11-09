@@ -10,6 +10,9 @@
 
 namespace Herta::Tests
 {
+// A temporary path no other test, in this or a concurrently running test process, will pick.
+[[nodiscard]] std::filesystem::path MakeScratchPath(std::string_view Prefix);
+
 // A unique temporary directory removed with everything inside it.
 class FScratchDirectory final
 {

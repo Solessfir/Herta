@@ -75,7 +75,7 @@ To verify both Windows compilers locally, add **C++ Clang tools for Windows** an
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/VerifyWindowsCompilers.ps1
 ```
 
-The script regenerates projects, builds the solution with ClangCL and MSVC, and runs `HertaTests` after each successful build: the fast suite for ClangCL and every test for MSVC. ClangCL uses its own workspace from `GenerateProjectFiles.bat vs2026 --clangcl` under `Intermediate/ProjectFiles/vs2026-ClangCL`, with `-ClangCL` output folders such as `Binaries/windows/x86_64/Development-ClangCL`, so both compilers build incrementally. Pass `-Rebuild` for clean builds. Build and test logs are saved under `Intermediate/CompilerVerification`. It uses Setup's detected Visual Studio toolchain without downloading anything. Pass `-Configuration Debug` or `-Configuration Shipping` to check another configuration; the default is `Development`.
+The script regenerates projects, builds the solution with ClangCL and MSVC at the same time, and runs `HertaTests` after each successful build: the fast suite for ClangCL, and the fast and Slow suites for MSVC as separate concurrent processes. ClangCL uses its own workspace from `GenerateProjectFiles.bat vs2026 --clangcl` under `Intermediate/ProjectFiles/vs2026-ClangCL`, with `-ClangCL` output folders such as `Binaries/windows/x86_64/Development-ClangCL`, so both compilers build incrementally. Pass `-Rebuild` for clean builds. Build and test logs are saved under `Intermediate/CompilerVerification`. It uses Setup's detected Visual Studio toolchain without downloading anything. Pass `-Configuration Debug` or `-Configuration Shipping` to check another configuration; the default is `Development`.
 
 ## Linux
 

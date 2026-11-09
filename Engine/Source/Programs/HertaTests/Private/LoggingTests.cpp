@@ -1,5 +1,7 @@
 #include "Herta/Core/Log.h"
 
+#include "TestFiles.h"
+
 #include <doctest/doctest.h>
 
 #include <filesystem>
@@ -216,7 +218,7 @@ TEST_CASE("Logger rejects invalid rotating file settings")
 
 TEST_CASE("Rotating file logging supports Unicode paths")
 {
-	const std::filesystem::path TestDirectory = std::filesystem::temp_directory_path() / std::filesystem::path(u8"Herta-Logging-Żółć");
+	const std::filesystem::path TestDirectory = Tests::MakeScratchPath("HertaLogging") / std::filesystem::path(u8"Żółć");
 	const std::filesystem::path LogPath = TestDirectory / "Herta.log";
 	std::error_code CleanupError;
 	std::filesystem::remove_all(TestDirectory, CleanupError);
@@ -236,6 +238,6 @@ TEST_CASE("Rotating file logging supports Unicode paths")
 	const std::string Contents((std::istreambuf_iterator<char>(Stream)), std::istreambuf_iterator<char>());
 	CHECK(Contents.find("Unicode path probe") != std::string::npos);
 
-	std::filesystem::remove_all(TestDirectory, CleanupError);
+	std::filesystem::remove_all(TestDirectory.parent_path(), CleanupError);
 }
 }

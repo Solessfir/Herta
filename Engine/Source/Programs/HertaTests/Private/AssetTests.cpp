@@ -22,7 +22,7 @@ namespace
 struct FScratchDirectory
 {
 	FScratchDirectory()
-	    : Path(std::filesystem::temp_directory_path() / ("HertaAssetTests-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())))
+	    : Path(Tests::MakeScratchPath("HertaAssetTests"))
 	{
 		std::filesystem::create_directories(Path);
 	}

@@ -198,7 +198,7 @@ TEST_CASE("Owning project lookup walks up from a level to the nearest project de
 	CHECK(std::filesystem::equivalent(*Sandbox, Root / "Games/Sandbox/Sandbox.hertaproject"));
 
 	std::error_code Error;
-	const std::filesystem::path Scratch = std::filesystem::temp_directory_path(Error) / std::format("HertaOwningProject{}", std::chrono::steady_clock::now().time_since_epoch().count());
+	const std::filesystem::path Scratch = Tests::MakeScratchPath("HertaOwningProject");
 	std::filesystem::create_directories(Scratch / "Content/Levels", Error);
 	REQUIRE_FALSE(Error);
 	CHECK_FALSE(FindOwningProject(Scratch / "Content/Levels/Loose.hlevel"));

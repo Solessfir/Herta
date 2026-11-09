@@ -9,13 +9,26 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-function Invoke-LoggedProcess {
+function Start-LoggedProcess {
     param([string] $FilePath, [string[]] $Arguments, [string] $LogPath)
 
-    # Windows PowerShell turns native stderr into error records; retain diagnostics without aborting the other compiler.
-    $ErrorActionPreference = 'Continue'
-    & $FilePath @Arguments 2>&1 | Tee-Object -FilePath $LogPath -ErrorAction Stop
-    $script:NativeExitCode = $LASTEXITCODE
+    $Process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -NoNewWindow -PassThru -RedirectStandardOutput $LogPath -RedirectStandardError "$LogPath.stderr"
+    # Windows PowerShell only reports ExitCode for a process whose handle was opened before it exited.
+    $null = $Process.Handle
+    return @{ Process = $Process; LogPath = $LogPath }
+}
+
+function Wait-LoggedProcess {
+    param($Started)
+
+    $Started.Process.WaitForExit()
+    $Errors = Get-Content -LiteralPath "$($Started.LogPath).stderr" -Raw -ErrorAction SilentlyContinue
+    if ($Errors) {
+        Add-Content -LiteralPath $Started.LogPath -Value $Errors
+    }
+
+    Remove-Item -LiteralPath "$($Started.LogPath).stderr" -ErrorAction SilentlyContinue
+    return $Started.Process.ExitCode
 }
 
 trap {
@@ -47,16 +60,19 @@ if (-not (Test-Path -LiteralPath $ClangExecutable -PathType Leaf) -or -not (Test
     throw "ClangCL is missing from '$VisualStudioRoot'. In Visual Studio Installer, add C++ Clang tools for Windows and MSBuild support for LLVM (clang-cl) to this installation."
 }
 
-$PreviousNoPause = $env:HERTA_NO_PAUSE
+$PremakePath = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $SetupPath -PrintPremakePath
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$env:HERTA_VULKAN_SDK = & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $SetupPath -PrintVulkanSdkPath
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 $VerificationExitCode = 0
 Push-Location $RepositoryRoot
 try {
-    $env:HERTA_NO_PAUSE = '1'
-    & (Join-Path $RepositoryRoot 'GenerateProjectFiles.bat') $VisualStudioAction
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-    & (Join-Path $RepositoryRoot 'GenerateProjectFiles.bat') $VisualStudioAction --clangcl
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    # Premake runs directly because GenerateProjectFiles.bat repeats the toolchain checks done above, which take seconds each.
+    foreach ($Options in @(@(), @('--clangcl'))) {
+        & $PremakePath --file=premake5.lua @Options $VisualStudioAction | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Premake failed to generate $VisualStudioAction $Options project files." }
+    }
 
     $SolutionName = if ($VisualStudioVersion -eq '2026') { 'Herta.slnx' } else { 'Herta.sln' }
     $LogDirectory = Join-Path $RepositoryRoot 'Intermediate/CompilerVerification'
@@ -67,25 +83,42 @@ try {
     $Target = if ($Rebuild) { '/t:Rebuild' } else { '/t:Build' }
     $Builds = @(
         # The Slow suite mostly waits on Blender and shader compiles, which do not depend on the engine's compiler, so it runs once.
-        @{ Toolset = 'ClangCL'; Solution = "Intermediate/ProjectFiles/$VisualStudioAction-ClangCL/$SolutionName"; Binaries = "Binaries/windows/x86_64/$Configuration-ClangCL"; TestArguments = @('--test-suite-exclude=Slow') },
-        @{ Toolset = $MSVCToolset; Solution = $SolutionName; Binaries = "Binaries/windows/x86_64/$Configuration"; TestArguments = @() }
+        @{ Toolset = 'ClangCL'; Solution = "Intermediate/ProjectFiles/$VisualStudioAction-ClangCL/$SolutionName"; Binaries = "Binaries/windows/x86_64/$Configuration-ClangCL"; TestSuites = @(@{ Name = 'Fast'; Arguments = @('--test-suite-exclude=Slow') }) },
+        @{ Toolset = $MSVCToolset; Solution = $SolutionName; Binaries = "Binaries/windows/x86_64/$Configuration"; TestSuites = @(@{ Name = 'Fast'; Arguments = @('--test-suite-exclude=Slow') }, @{ Name = 'Slow'; Arguments = @('--test-suite=Slow') }) }
     )
+
+    # The compilers share no outputs, so both build at once; the slower link-bound tail of one overlaps the other's compiles.
+    Write-Host "Building all projects with ClangCL and $MSVCToolset ($Configuration)..."
     foreach ($Build in $Builds) {
-        $Toolset = $Build.Toolset
-        Write-Host "Building all projects with $Toolset ($Configuration)..."
-        Invoke-LoggedProcess -FilePath $MSBuildPath -Arguments @($Build.Solution, '/nologo', '/m', $Target, '/warnaserror', "/p:Configuration=$Configuration", '/p:Platform=x64') -LogPath (Join-Path $LogDirectory "$Toolset-$Configuration.build.log")
-        if ($NativeExitCode -ne 0) {
-            if ($VerificationExitCode -eq 0) { $VerificationExitCode = $NativeExitCode }
+        $Build.Started = Start-LoggedProcess -FilePath $MSBuildPath -Arguments @($Build.Solution, '/nologo', '/m', $Target, '/warnaserror', "/p:Configuration=$Configuration", '/p:Platform=x64') -LogPath (Join-Path $LogDirectory "$($Build.Toolset)-$Configuration.build.log")
+    }
+
+    $Tests = @()
+    foreach ($Build in $Builds) {
+        $ExitCode = Wait-LoggedProcess $Build.Started
+        if ($ExitCode -ne 0) {
+            Write-Host "$($Build.Toolset) build failed; see $($Build.Started.LogPath)"
+            if ($VerificationExitCode -eq 0) { $VerificationExitCode = $ExitCode }
             continue
         }
 
+        # Each test process uses its own scratch directories, and the slow suite mostly waits on other processes, so the suites run side by side.
         $TestsPath = Join-Path $RepositoryRoot "$($Build.Binaries)/HertaTests.exe"
-        Invoke-LoggedProcess -FilePath $TestsPath -Arguments $Build.TestArguments -LogPath (Join-Path $LogDirectory "$Toolset-$Configuration.tests.log")
-        if ($NativeExitCode -ne 0 -and $VerificationExitCode -eq 0) { $VerificationExitCode = $NativeExitCode }
+        foreach ($Suite in $Build.TestSuites) {
+            $Tests += Start-LoggedProcess -FilePath $TestsPath -Arguments $Suite.Arguments -LogPath (Join-Path $LogDirectory "$($Build.Toolset)-$Configuration.$($Suite.Name).tests.log")
+        }
+    }
+
+    foreach ($Test in $Tests) {
+        $ExitCode = Wait-LoggedProcess $Test
+        if ($ExitCode -ne 0) {
+            Write-Host "Tests failed; see $($Test.LogPath)"
+            Select-String -LiteralPath $Test.LogPath -Pattern 'ERROR:' -Context 6, 3 | Select-Object -First 3 | Out-String | Write-Host
+            if ($VerificationExitCode -eq 0) { $VerificationExitCode = $ExitCode }
+        }
     }
 }
 finally {
-    $env:HERTA_NO_PAUSE = $PreviousNoPause
     Pop-Location
 }
 
