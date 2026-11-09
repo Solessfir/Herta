@@ -1693,9 +1693,20 @@ Exit condition: the playable Sandbox exercises collisions, dynamic props, runtim
 - Add sampling, blending, skinning, root motion, and animation events.
 - Add an initial Herta-owned animation state machine that runs from explicit cooked data. It is not the NPC StateTree runtime.
 - Author it as a basic GraphCore domain on the Milestone 6.8 canvas: states that play a clip or a 1D blend, transitions with a duration and a condition on a typed parameter (float, bool, or trigger), an entry state, and live highlighting of the active state and transition during Play. A headless compiler cooks it, so runtime animation links neither the graph nor the canvas. Blend trees, layers, and state machine nesting wait for Milestone 15.
+- Add ragdolls through a Herta adapter over Jolt's `Ragdoll`: a cooked mapping from skeleton joints to capsule bodies and swing-twist constraints, blending between animated and simulated poses, driven by the same deterministic physics step, for deaths, hit reactions, and later severed limbs.
 - Add bloom from the dual-filter Kawase pyramid that the editor's backdrop blur already uses, applied to HDR scene color before tone mapping, energy-conserving and exposure-relative, with a per-tier toggle and a GPU Trace check that it costs nothing when off.
 
 Exit condition: a controllable character in the Sandbox blends and plays cooked animations driven by a state machine graph edited on the canvas, a cooked skinned asset animates identically after reload, and the runtime has no dependency on offline ozz tools.
+
+### Milestone 8.5 - Skeletal dismemberment
+
+- Mark severable joints, such as the neck, shoulders, elbows, hips, and knees, in a skinned model's `.hmeta`.
+- At cook time, split the mesh where vertex weights pass from a severable joint's subtree to its parent, so cuts follow the real weight boundary. Close both sides with generated cap geometry in a wound material slot, and duplicate the seam vertices with full weight on one side so neither the body nor the limb tears or stretches. Store each limb as a piece of the same skinned model.
+- At runtime, severing hides the joint's subtree on the body, shows the stump cap, and spawns the limb piece with its own pose as a ragdoll segment. Damage from sorted contact events chooses the joint, so severing replicates through the deterministic simulation.
+- Add a Sandbox station where thrown balls sever the Mannequin's limbs.
+- Defer arbitrary plane cuts through the posed mesh at runtime until gameplay needs cuts that predefined joints cannot give.
+
+Exit condition: a cooked skinned model severs at every marked joint without holes, gaps, or stretched seams, cook tests prove the caps close the mesh, severed limbs fall as ragdolls in Play and the game, and restarting the session restores the intact body.
 
 ### Milestone 9 - Audio
 
@@ -1712,7 +1723,7 @@ Exit condition: the playable game uses static and streaming spatial sounds on Wi
 
 - Add save-game persistence for actual sample progress and mutable world state, with stable references, explicit versions, atomic writes, and invalid-save recovery. Save data is separate from authored levels.
 - Expand GameUI only for the sample's pause, settings, HUD, and interaction screens. Add keyboard and gamepad input rebinding on top of Milestone 5's gamepad support, and tested UI/gameplay focus routing.
-- Add bounded particle/VFX runtime and authored assets for the sample's impacts, trails, or ambient effects. Validate resource retirement, transparency, and temporal history. Author emitters as a basic GraphCore domain on the canvas: spawn rate or burst, initial velocity, lifetime, size and color over life, gravity and drag, and collision against the physics world, compiled headless to fixed GPU or CPU update kernels rather than an interpreted per-particle program. Spawning from gameplay events, such as destruction breaks and impacts, goes through sorted events. Module stacks, custom simulation stages, and ribbons wait for Milestone 15.
+- Add bounded particle/VFX runtime and authored assets for the sample's impacts, trails, or ambient effects. Validate resource retirement, transparency, and temporal history. Author emitters as a basic GraphCore domain on the canvas: spawn rate or burst, initial velocity, lifetime, size and color over life, gravity and drag, and collision against the physics world, compiled headless to fixed GPU or CPU update kernels rather than an interpreted per-particle program. Spawning from gameplay events, such as destruction breaks, impacts, and Milestone 8.5's severed limbs with their blood and wound effects, goes through sorted events. Module stacks, custom simulation stages, and ribbons wait for Milestone 15.
 - Add asynchronous world-region loading and unloading through existing task, asset, and world contracts. Keep stable references, origin-relative transforms, cancellation, and bounded memory correct while the player crosses regions.
 - Extend editor authoring only as needed to build and inspect that streamed sample, including reusable object/prefab authoring when repeated content makes it necessary.
 
