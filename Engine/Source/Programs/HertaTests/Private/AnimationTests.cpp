@@ -336,6 +336,26 @@ TEST_CASE("Animation state machines blend along a parameter and take transitions
 	FAnimationPose Pose(*Library);
 	CHECK(Pose.Evaluate(Machine->GetLayers()));
 
+	// Order is priority: a trigger from any state listed first beats the active state's own transition that holds in the same update.
+	FAnimationStateMachineDesc Ordered = Desc;
+	std::ranges::rotate(Ordered.Transitions, Ordered.Transitions.begin() + 2);
+	auto Prioritized = FAnimationStateMachine::Create(Ordered, **Library);
+	REQUIRE(Prioritized);
+	Prioritized->SetBool(Grounded, false);
+	Prioritized->SetTrigger(Jump);
+	Prioritized->Update(1.f / 60.f);
+	REQUIRE(Prioritized->GetActiveState() == 1);
+	for (int Frame = 0; Frame < 120 && Prioritized->GetActiveState() == 1; ++Frame)
+	{
+		Prioritized->Update(1.f / 60.f);
+	}
+
+	REQUIRE(Prioritized->GetActiveState() == 2);
+	Prioritized->SetBool(Grounded, true);
+	Prioritized->SetTrigger(Jump);
+	Prioritized->Update(1.f / 60.f);
+	CHECK(Prioritized->GetActiveState() == 1);
+
 	FAnimationStateMachineDesc Broken = Desc;
 	Broken.States[2].Samples[0].Clip = "Missing";
 	CHECK_FALSE(FAnimationStateMachine::Create(Broken, **Library));
@@ -386,17 +406,38 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 
 	// Settling and walking stay in the locomotion blend; a jump leaves it and landing returns to it.
 	// The player spawns just above the floor, so it lands first.
+	const auto State = [&Session]
+	{
+		return std::string((*Session)->GetCharacterStateName());
+	};
+
 	Step({}, 90);
-	CHECK(*(*Session)->GetCharacterState() == 0);
+	CHECK(State() == "Locomotion");
 	Step({.Move = {0.f, 1.f}}, 30);
-	CHECK(*(*Session)->GetCharacterState() == 0);
+	CHECK(State() == "Locomotion");
 	Step({.Move = {0.f, 1.f}, .bJump = true}, 1);
 	Step({.Move = {0.f, 1.f}}, 5);
-	CHECK(*(*Session)->GetCharacterState() == 3);
+	CHECK(State() == "Jump");
 	Step({.Move = {0.f, 1.f}}, 120);
-	CHECK(*(*Session)->GetCharacterState() == 0);
-	Step({.Move = {0.f, 1.f}, .bCrouch = true}, 20);
-	CHECK(((*Session)->GetCharacterState() == 1u || (*Session)->GetCharacterState() == 2u));
+	CHECK(State() == "Locomotion");
+
+	// Crouching at walking speed slides: the start plays, then the loop, then the exit once it slows down.
+	Step({.Move = {0.f, 1.f}, .bCrouch = true}, 2);
+	CHECK(State() == "Slide start");
+	CHECK((*Session)->IsPlayerSliding());
+	Step({.bCrouch = true}, 40);
+	CHECK(State() == "Slide");
+	for (int Frame = 0; Frame < 300 && (*Session)->IsPlayerSliding(); ++Frame)
+	{
+		Step({.bCrouch = true}, 1);
+	}
+
+	Step({.bCrouch = true}, 2);
+	CHECK(State() == "Slide exit");
+	Step({.bCrouch = true}, 60);
+	CHECK(State() == "Crouch");
+	Step({}, 30);
+	CHECK(State() == "Locomotion");
 
 	// The third-person camera sits behind and above the first-person eye.
 	Step({}, 60);
@@ -413,7 +454,46 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 
 	CHECK((EyeOf(ThirdPerson) - EyeOf(FirstPerson)).Length() > 2.f);
 	REQUIRE((*Session)->Restart());
-	CHECK(*(*Session)->GetCharacterState() == 0);
+	CHECK(State() == "Locomotion");
+
+	// A mantle plays the climb while its root rise is drawn away, so the body never floats above the capsule; a wall jump plays its own clip.
+	std::vector<FLevelEntity> Course = Floor;
+	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Ledge", .Transform = {.Translation = {0., 0.65, 4.}, .Scale = {4.f, 1.3f, 3.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static});
+	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Wall", .Transform = {.Translation = {-3., 3., 0.}, .Scale = {0.5f, 6.f, 6.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static});
+	Session = FGameSession::Create(Course, Assets, nullptr, {}, nullptr, std::make_shared<const FCookedModel>(Mannequin()));
+	REQUIRE(Session);
+	Step({}, 90);
+	Step({.Move = {0.f, 1.f}}, 20);
+	Step({.Move = {0.f, 1.f}, .bJump = true}, 1);
+	bool bClimbed = false;
+	for (int Frame = 0; Frame < 60 && !bClimbed; ++Frame)
+	{
+		Step({.Move = {0.f, 1.f}}, 1);
+		bClimbed = (*Session)->IsPlayerMantling() && State() == "Mantle";
+	}
+
+	REQUIRE(bClimbed);
+	// Midway the clip's root has risen about 0.6 m; without cancelling it the first-person eye would ride that far above the head.
+	Step({}, 25);
+	const float EyeAboveFoot = EyeOf((*Session)->GetRenderView({1280, 720}).View).Y - (*Session)->GetPlayerFootPosition().Y;
+	CHECK(EyeAboveFoot < 1.9f);
+	CHECK(EyeAboveFoot > 0.8f);
+	Step({}, 60);
+	CHECK_FALSE((*Session)->IsPlayerMantling());
+	CHECK((*Session)->GetPlayerFootPosition().Y == doctest::Approx(1.3f).epsilon(0.03));
+	CHECK(State() == "Locomotion");
+
+	REQUIRE((*Session)->Restart());
+	Step({}, 90);
+	Step({.Move = {1.f, 0.f}, .bJump = true}, 1);
+	bool bWallJumped = false;
+	for (int Frame = 0; Frame < 90 && !bWallJumped; ++Frame)
+	{
+		Step({.Move = {1.f, 0.f}, .bJump = !(*Session)->IsPlayerGrounded()}, 1);
+		bWallJumped = State() == "Wall jump";
+	}
+
+	CHECK(bWallJumped);
 
 	// A model that is not skinned leaves the capsule playable with a warning.
 	FCookedModel Static = Mannequin();

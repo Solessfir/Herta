@@ -22,6 +22,8 @@ struct FPlayerMotion
 	bool bCrouched = false;
 	bool bSliding = false;
 	bool bJumped = false;
+	bool bWallJumped = false;
+	bool bMantled = false;
 };
 
 // The animated body the player plays as: its pose, state machine, and own copies of the mesh, skinned on the CPU every frame.
@@ -44,6 +46,11 @@ public:
 	[[nodiscard]] const FAnimationStateMachine& GetStateMachine() const noexcept;
 	// Model-space position of the head joint, which a first-person camera sits at.
 	[[nodiscard]] std::optional<FVector3> GetHeadPosition() const noexcept;
+	// How high the current pose lifts its root, which only climbing clips do; the session draws the body that much lower because the capsule
+	// already carries it up.
+	[[nodiscard]] float GetRootHeight() const noexcept;
+	// How long the named state's clip plays, or empty when the state machine has no such state.
+	[[nodiscard]] std::optional<float> GetStateSeconds(std::string_view Name) const noexcept;
 
 private:
 	FPlayerCharacter(std::shared_ptr<const FCookedModel> InModel, std::shared_ptr<const FAnimationLibrary> InLibrary, FAnimationStateMachine InMachine);
@@ -66,8 +73,11 @@ private:
 	std::optional<std::size_t> CrouchedParameter;
 	std::optional<std::size_t> SlidingParameter;
 	std::optional<std::size_t> JumpParameter;
+	std::optional<std::size_t> WallJumpParameter;
+	std::optional<std::size_t> MantleParameter;
 };
 
-// The locomotion the Sandbox Mannequin plays until levels author their own graph: an idle to sprint blend, crouching, sliding, and jumps.
+// The locomotion the Sandbox Mannequin plays until levels author their own graph: an idle to sprint blend, crouching, slides, jumps, wall
+// jumps, and mantles.
 [[nodiscard]] FAnimationStateMachineDesc MakeDefaultLocomotion();
 }

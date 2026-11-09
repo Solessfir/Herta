@@ -132,6 +132,7 @@ void FEditorFramework::FImplementation::TogglePlay()
 		PlaySession.reset();
 		PlayAssets.reset();
 		PlayRenderView = {};
+		bAutomationOwnsPlay = false;
 		ToolUI->SetCursorCaptured(false);
 		Level->SetSimulationRunning(false);
 		bSimulationStoppedThisFrame = true;
@@ -283,6 +284,20 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	// Start pauses like Shift+Esc, and B backs out of the menu.
 	const bool bGamepadPause = IsPlayGamepadPressed(EGamepadButton::Start) || (bPlayPaused && IsPlayGamepadPressed(EGamepadButton::East));
 	const bool bAutomationDriven = !AutomationInput.empty();
+	if (bAutomationOwnsPlay && !bAutomationDriven)
+	{
+		bPlayPaused = false;
+		ToolUI->SetCursorCaptured(false);
+		PlayGamepadControls.Reset();
+		if (auto Updated = PlaySession->Update(0.f, {}); !Updated)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Play stopped: {}", Updated.error().Message);
+			TogglePlay();
+		}
+
+		return;
+	}
+
 	if (!bScriptedPlay && !bAutomationDriven && (IO.AppFocusLost || bGamepadPause || (IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape, false))))
 	{
 		bPlayPaused = IO.AppFocusLost || !bPlayPaused;
@@ -512,6 +527,11 @@ public:
 		return std::isfinite(Value) ? Value : Default;
 	}
 
+	[[nodiscard]] bool Has(const std::string_view Key) const
+	{
+		return bValid && !Object[Key].error();
+	}
+
 	[[nodiscard]] bool Flag(const std::string_view Key) const
 	{
 		bool bValue = false;
@@ -560,12 +580,13 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 	std::string Output = std::format("{{\"playing\": {}", PlaySession ? "true" : "false");
 	if (PlaySession)
 	{
-		Output += std::format(", \"paused\": {}, \"grounded\": {}, \"crouched\": {}, \"sliding\": {}, \"thirdPerson\": {}", bPlayPaused ? "true" : "false", PlaySession->IsPlayerGrounded() ? "true" : "false",
-		    PlaySession->IsPlayerCrouched() ? "true" : "false", PlaySession->IsPlayerSliding() ? "true" : "false", PlaySession->IsThirdPerson() ? "true" : "false");
+		Output += std::format(", \"paused\": {}, \"grounded\": {}, \"crouched\": {}, \"sliding\": {}, \"mantling\": {}, \"thirdPerson\": {}", bPlayPaused ? "true" : "false", PlaySession->IsPlayerGrounded() ? "true" : "false",
+		    PlaySession->IsPlayerCrouched() ? "true" : "false", PlaySession->IsPlayerSliding() ? "true" : "false", PlaySession->IsPlayerMantling() ? "true" : "false", PlaySession->IsThirdPerson() ? "true" : "false");
 		Output += ", \"foot\": ";
 		AppendVector(Output, PlaySession->GetPlayerFootPosition());
 		Output += ", \"velocity\": ";
 		AppendVector(Output, PlaySession->GetPlayerVelocity());
+		Output += std::format(", \"yaw\": {:.4f}", PlaySession->GetPlayerYaw());
 		Output += ", \"animationState\": ";
 		AppendJsonString(Output, PlaySession->GetCharacterStateName());
 		const FGameObjective& Objective = PlaySession->GetObjective();
@@ -640,7 +661,9 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 			AppendJsonString(Output, Entity.Id.ToString());
 			Output += ", \"name\": ";
 			AppendJsonString(Output, Entity.Name);
-			Output += std::format(", \"translation\": [{:.3f}, {:.3f}, {:.3f}], \"components\": [", Entity.Transform.Translation.Meters.X, Entity.Transform.Translation.Meters.Y, Entity.Transform.Translation.Meters.Z);
+			const FLevelTransform& Transform = Entity.Transform;
+			Output += std::format(", \"parent\": {}, \"translation\": [{:.3f}, {:.3f}, {:.3f}], \"rotation\": [{:.4f}, {:.4f}, {:.4f}, {:.4f}], \"scale\": [{:.3f}, {:.3f}, {:.3f}], \"components\": [", Entity.Parent.IsValid() ? "true" : "false",
+			    Transform.Translation.Meters.X, Transform.Translation.Meters.Y, Transform.Translation.Meters.Z, Transform.Rotation.X, Transform.Rotation.Y, Transform.Rotation.Z, Transform.Rotation.W, Transform.Scale.X, Transform.Scale.Y, Transform.Scale.Z);
 			const std::array<std::pair<std::string_view, bool>, 10> Present{{
 			    {"staticMesh", Entity.Mesh.has_value()},
 			    {"rigidBody", Entity.BodyType != ELevelBodyType::None},
@@ -725,11 +748,21 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 		const auto Frames = static_cast<std::size_t>(std::clamp(Arguments.Number("frames", 60.), 1., 3600.));
 		const auto Move = Arguments.Pair("move");
 		const auto Look = Arguments.Pair("look");
+		// Facing a point turns all the way on the first frame, measured from where the player stands now, before any look spread.
+		float FaceDelta = 0.f;
+		if (Arguments.Has("face"))
+		{
+			const auto Face = Arguments.Pair("face");
+			const FVector3 Foot = Editor.PlaySession->GetPlayerFootPosition();
+			const float Target = std::atan2(static_cast<float>(Face[0]) - Foot.X, static_cast<float>(Face[1]) - Foot.Z);
+			FaceDelta = std::remainder(Target - Editor.PlaySession->GetPlayerYaw(), 2.f * std::numbers::pi_v<float>);
+		}
+
 		for (std::size_t Frame = 0; Frame < Frames; ++Frame)
 		{
 			Editor.AutomationInput.push_back({
 			    .Move = {static_cast<float>(std::clamp(Move[0], -1., 1.)), static_cast<float>(std::clamp(Move[1], -1., 1.))},
-			    .YawDelta = static_cast<float>(Look[0] / static_cast<double>(Frames)),
+			    .YawDelta = static_cast<float>(Look[0] / static_cast<double>(Frames)) + (Frame == 0 ? FaceDelta : 0.f),
 			    .PitchDelta = static_cast<float>(Look[1] / static_cast<double>(Frames)),
 			    .bJump = Frame == 0 && Arguments.Flag("jump"),
 			    .bSprint = Arguments.Flag("sprint"),
@@ -754,6 +787,7 @@ void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
 		const auto Now = std::chrono::steady_clock::now();
 		if (Editor.PlaySession)
 		{
+			Editor.bAutomationOwnsPlay = true;
 			Server.Respond(*std::exchange(Editor.AutomationPlayRequest, std::nullopt), Editor.DescribePlay());
 		}
 		else if (Now >= Editor.AutomationPlayDeadline)

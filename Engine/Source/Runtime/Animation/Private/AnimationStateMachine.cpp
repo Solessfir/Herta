@@ -225,25 +225,23 @@ void FAnimationStateMachine::AppendLayers(const FPlayback& Playback, const float
 	}
 }
 
-// Transitions out of the active state, in authored order, win over ones from any state. An active fade may be interrupted.
+// The first transition in authored order that can fire wins, whether it leaves the active state or any state, so the order is the priority.
+// An active fade may be interrupted.
 std::optional<std::size_t> FAnimationStateMachine::FindTransition() const noexcept
 {
-	for (const bool bAny : {false, true})
+	for (std::size_t Index = 0; Index < Desc.Transitions.size(); ++Index)
 	{
-		for (std::size_t Index = 0; Index < Desc.Transitions.size(); ++Index)
+		const FAnimationTransitionDesc& Candidate = Desc.Transitions[Index];
+		const bool bFrom = Candidate.From == AnyAnimationState ? Candidate.To != Current.State : Candidate.From == Current.State;
+		const bool bReady = !Candidate.bAtEnd || Current.bFinished;
+		const bool bHolds = std::ranges::all_of(Candidate.Conditions, [this](const FAnimationConditionDesc& Condition)
 		{
-			const FAnimationTransitionDesc& Candidate = Desc.Transitions[Index];
-			const bool bFrom = bAny ? Candidate.From == AnyAnimationState && Candidate.To != Current.State : Candidate.From == Current.State;
-			const bool bReady = !Candidate.bAtEnd || Current.bFinished;
-			const bool bHolds = std::ranges::all_of(Candidate.Conditions, [this](const FAnimationConditionDesc& Condition)
-			{
-				return Holds(Condition);
-			});
+			return Holds(Condition);
+		});
 
-			if (bFrom && bReady && bHolds)
-			{
-				return Index;
-			}
+		if (bFrom && bReady && bHolds)
+		{
+			return Index;
 		}
 	}
 

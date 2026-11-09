@@ -945,7 +945,7 @@
     },
     {
       "id": "4c060001-2738-4e25-9b9e-00000000002f",
-      "name": "High hurdle - 1.3 m, blocks",
+      "name": "High hurdle - 1.3 m, mantle",
       "parent": null,
       "transform": {
         "translation": [-3.4000000000000004, 0.65, 9.9],

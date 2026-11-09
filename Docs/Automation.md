@@ -15,14 +15,14 @@ Coding agents, and any other local MCP client, can drive a running editor throug
 |---|---|
 | `editor_status` | The open level, entity count, viewport size, whether writes are allowed, and Play state. |
 | `editor_log` | Log lines after a cursor; pass the returned `since` and `generation` back to read only newer lines. |
-| `level_entities` | Entities with IDs, names, translations, and components, filtered by `name_contains`. |
+| `level_entities` | Entities with IDs, names, components, and parent-relative translation, rotation, and scale, filtered by `name_contains`. |
 | `viewport_capture` | Renders `frames_ahead` more frames, then returns the viewport as a PNG read back from the GPU, scaled to at most `max_width`. |
 | `gpu_timings` | GPU milliseconds per render pass in the latest measured frame. |
 | `play_start`, `play_stop` | Start Play, waiting up to 20 s for meshes and the character to load, or stop it. |
-| `play_state` | Player position, velocity, grounded, crouched, sliding, camera mode, animation state, and objective. |
-| `play_input` | Drives the player for a number of frames: `move` [strafe right, forward], `look` total [yaw left, pitch up] radians, `jump`, `throw`, and `toggle_camera` on the first frame, `sprint` and `crouch` held. Returns the Play state afterwards. |
+| `play_state` | Player position, velocity, look yaw, grounded, crouched, sliding, and mantling flags, camera mode, animation state, and objective. |
+| `play_input` | Drives the player for a number of frames: `move` [strafe right, forward], `look` total [yaw left, pitch up] radians, `face` a world [x, z] point to turn toward on the first frame, `jump`, `throw`, and `toggle_camera` on the first frame, `sprint` and `crouch` held. Returns the Play state afterwards. |
 
-Scripted Play advances a fixed 1/60 s per frame, so the same input gives the same result however fast the editor is drawing, and real gamepads are ignored while it runs. Play keeps running with the editor in the background.
+Scripted Play advances a fixed 1/60 s per frame, so the same input gives the same result however fast the editor is drawing. Play started by `play_start` belongs to the client until `play_stop`: the mouse, keyboard, and gamepads cannot move the player, and the world holds still between calls, so only `play_input` frames advance it and runs repeat exactly. Play started by hand stays interactive.
 
 ## Design
 

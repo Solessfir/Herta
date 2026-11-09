@@ -537,6 +537,18 @@ project "HertaTests"
     filter {}
 
 -- The MCP stdio server coding agents launch; it reaches a running editor through EditorCore automation and never links the editor itself.
+-- A running exe is locked on Windows but can still be renamed, so the build moves it aside when it is locked and links a new one; old copies
+-- are deleted once nothing runs them. An unlocked exe stays in place, so incremental linking can patch it.
+local function AllowRelinkWhileRunning()
+    filter "system:windows"
+        prelinkcommands {
+            'del /q "$(TargetPath).old-*" >nul 2>nul || cd .',
+            'if exist "$(TargetPath)" ((call ) 2>nul >>"$(TargetPath)" || move "$(TargetPath)" "$(TargetPath).old-%RANDOM%%RANDOM%" >nul 2>nul || cd .)',
+        }
+
+    filter {}
+end
+
 project "HertaEditorMcp"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaEditorMcp"))
@@ -544,15 +556,8 @@ project "HertaEditorMcp"
     externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
     ApplyRuntimeDependencies { "Core", "EditorCore", "Platform" }
 
-    -- MCP clients keep the server running for a whole session, which locks the exe on Windows. A running exe can still be renamed, so move it
-    -- aside before linking; the old copy is deleted once nothing runs it.
-    filter "system:windows"
-        prelinkcommands {
-            'del /q "$(TargetPath).old-*" >nul 2>nul || cd .',
-            'move "$(TargetPath)" "$(TargetPath).old-%RANDOM%%RANDOM%" >nul 2>nul || cd .',
-        }
-
-    filter {}
+    -- MCP clients keep the server running for a whole session.
+    AllowRelinkWhileRunning()
 
 project "HertaEditorCmd"
     kind "ConsoleApp"
@@ -600,6 +605,8 @@ project "HertaEditor"
     ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "AssetPipeline", "GraphCore", "MaterialGraph" }
     dependson { "HertaShaders", "HertaAssetWorker", "HertaShaderWorker" }
     externalincludedirs { path.join(RepositoryRoot, "External/stb") }
+    -- Agents keep an automation editor open while they rebuild.
+    AllowRelinkWhileRunning()
 
     files {
         path.join(RepositoryRoot, "Engine/Content/Editor/Icons/Herta.svg")

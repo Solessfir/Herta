@@ -14,17 +14,28 @@ enum ELocomotionParameter : std::size_t
 	Crouched,
 	Sliding,
 	Jump,
+	WallJump,
+	Mantle,
 };
 
 enum ELocomotionState : std::size_t
 {
 	Locomotion,
 	Crouching,
+	SlideStart,
 	Slide,
+	SlideExit,
 	JumpStart,
+	WallJumpStart,
 	Air,
 	Land,
+	Climb,
 };
+
+[[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
+{
+	return {.Parameter = Parameter, .Test = EAnimationCondition::Triggered};
+}
 
 [[nodiscard]] FAnimationConditionDesc Is(const ELocomotionParameter Parameter, const bool bValue)
 {
@@ -42,32 +53,52 @@ FAnimationStateMachineDesc MakeDefaultLocomotion()
 	        {.Name = "Crouched", .Type = EAnimationParameterType::Bool},
 	        {.Name = "Sliding", .Type = EAnimationParameterType::Bool},
 	        {.Name = "Jump", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "WallJump", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "Mantle", .Type = EAnimationParameterType::Trigger},
 	    },
 	    .States = {
 	        {.Name = "Locomotion", .Samples = {{.Clip = "Idle_Loop", .Position = 0.f}, {.Clip = "Walk_Loop", .Position = 1.8f}, {.Clip = "Jog_Fwd_Loop", .Position = 4.5f}, {.Clip = "Sprint_Loop", .Position = 7.f}}, .BlendParameter = Speed},
 	        {.Name = "Crouch", .Samples = {{.Clip = "Crouch_Idle_Loop", .Position = 0.f}, {.Clip = "Crouch_Fwd_Loop", .Position = 2.2f}}, .BlendParameter = Speed},
-	        {.Name = "Slide", .Samples = {{.Clip = "Crouch_Idle_Loop"}}},
+	        {.Name = "Slide start", .Samples = {{.Clip = "Slide_Start"}}, .bLoop = false, .Speed = 1.5f},
+	        {.Name = "Slide", .Samples = {{.Clip = "Slide_Loop"}}},
+	        {.Name = "Slide exit", .Samples = {{.Clip = "Slide_Exit"}}, .bLoop = false},
 	        {.Name = "Jump", .Samples = {{.Clip = "Jump_Start"}}, .bLoop = false},
+	        {.Name = "Wall jump", .Samples = {{.Clip = "NinjaJump_Start"}}, .bLoop = false, .Speed = 1.4f},
 	        {.Name = "Air", .Samples = {{.Clip = "Jump_Loop"}}},
 	        {.Name = "Land", .Samples = {{.Clip = "Jump_Land"}}, .bLoop = false, .Speed = 1.5f},
+	        // Its root rises the 1 m it climbs, which the session cancels so the capsule carries the body up the actual ledge height.
+	        {.Name = "Mantle", .Samples = {{.Clip = "ClimbUp_1m_RM"}}, .bLoop = false},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
-	        {.From = Locomotion, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {{.Parameter = Jump, .Test = EAnimationCondition::Triggered}}},
-	        {.From = Crouching, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {{.Parameter = Jump, .Test = EAnimationCondition::Triggered}}},
-	        {.From = Slide, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {{.Parameter = Jump, .Test = EAnimationCondition::Triggered}}},
-	        {.From = Land, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {{.Parameter = Jump, .Test = EAnimationCondition::Triggered}}},
-	        // Wall jumps start from the air.
-	        {.From = Air, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {{.Parameter = Jump, .Test = EAnimationCondition::Triggered}}},
-	        {.From = Locomotion, .To = Slide, .DurationSeconds = 0.15f, .Conditions = {Is(Sliding, true)}},
+	        // Mantles and wall jumps can start from any state, and win over everything else in the step they start.
+	        {.From = AnyAnimationState, .To = Climb, .DurationSeconds = 0.1f, .Conditions = {Triggered(Mantle)}},
+	        {.From = AnyAnimationState, .To = WallJumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(WallJump)}},
+	        {.From = Climb, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
+	        {.From = Locomotion, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = Crouching, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = SlideStart, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = Slide, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = SlideExit, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = Land, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = Locomotion, .To = SlideStart, .DurationSeconds = 0.12f, .Conditions = {Is(Sliding, true)}},
 	        {.From = Locomotion, .To = Crouching, .DurationSeconds = 0.2f, .Conditions = {Is(Crouched, true)}},
 	        {.From = Locomotion, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
-	        {.From = Crouching, .To = Slide, .DurationSeconds = 0.15f, .Conditions = {Is(Sliding, true)}},
+	        {.From = Crouching, .To = SlideStart, .DurationSeconds = 0.12f, .Conditions = {Is(Sliding, true)}},
 	        {.From = Crouching, .To = Locomotion, .DurationSeconds = 0.2f, .Conditions = {Is(Crouched, false)}},
 	        {.From = Crouching, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
-	        {.From = Slide, .To = Crouching, .DurationSeconds = 0.2f, .Conditions = {Is(Sliding, false), Is(Crouched, true)}},
-	        {.From = Slide, .To = Locomotion, .DurationSeconds = 0.2f, .Conditions = {Is(Sliding, false)}},
+	        // A slide that ends before its start finishes still plays the exit, so the body never pops out of the slide pose.
+	        {.From = SlideStart, .To = SlideExit, .DurationSeconds = 0.15f, .Conditions = {Is(Sliding, false)}},
+	        {.From = SlideStart, .To = Slide, .DurationSeconds = 0.15f, .bAtEnd = true},
+	        {.From = SlideStart, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        {.From = Slide, .To = SlideExit, .DurationSeconds = 0.15f, .Conditions = {Is(Sliding, false)}},
+	        {.From = Slide, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        {.From = SlideExit, .To = SlideStart, .DurationSeconds = 0.12f, .Conditions = {Is(Sliding, true)}},
+	        {.From = SlideExit, .To = Crouching, .DurationSeconds = 0.2f, .Conditions = {Is(Crouched, true)}, .bAtEnd = true},
+	        {.From = SlideExit, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
 	        {.From = JumpStart, .To = Air, .DurationSeconds = 0.15f, .bAtEnd = true},
+	        {.From = WallJumpStart, .To = Air, .DurationSeconds = 0.2f, .bAtEnd = true},
+	        {.From = WallJumpStart, .To = Land, .DurationSeconds = 0.1f, .Conditions = {Is(Grounded, true)}},
 	        {.From = JumpStart, .To = Land, .DurationSeconds = 0.1f, .Conditions = {Is(Grounded, true)}},
 	        {.From = Air, .To = Land, .DurationSeconds = 0.08f, .Conditions = {Is(Grounded, true)}},
 	        {.From = Land, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
@@ -135,6 +166,8 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 	Character->CrouchedParameter = Locomotion.FindParameter("Crouched");
 	Character->SlidingParameter = Locomotion.FindParameter("Sliding");
 	Character->JumpParameter = Locomotion.FindParameter("Jump");
+	Character->WallJumpParameter = Locomotion.FindParameter("WallJump");
+	Character->MantleParameter = Locomotion.FindParameter("Mantle");
 
 	if (Device)
 	{
@@ -180,10 +213,17 @@ void FPlayerCharacter::Update(const float DeltaSeconds, const FPlayerMotion& Mot
 	Set(GroundedParameter, Motion.bGrounded);
 	Set(CrouchedParameter, Motion.bCrouched);
 	Set(SlidingParameter, Motion.bSliding);
-	if (Motion.bJumped && JumpParameter)
+	const auto Trigger = [this](const std::optional<std::size_t>& Parameter, const bool bFired)
 	{
-		Machine.SetTrigger(*JumpParameter);
-	}
+		if (bFired && Parameter)
+		{
+			Machine.SetTrigger(*Parameter);
+		}
+	};
+
+	Trigger(JumpParameter, Motion.bJumped);
+	Trigger(WallJumpParameter, Motion.bWallJumped);
+	Trigger(MantleParameter, Motion.bMantled);
 
 	Machine.Update(DeltaSeconds);
 }
@@ -239,5 +279,25 @@ std::optional<FVector3> FPlayerCharacter::GetHeadPosition() const noexcept
 	}
 
 	return Pose.GetModelTransforms()[*HeadJoint].TransformPosition({});
+}
+
+float FPlayerCharacter::GetRootHeight() const noexcept
+{
+	// Parents precede children, so the first joint is the root.
+	const auto Transforms = Pose.GetModelTransforms();
+	return Transforms.empty() ? 0.f : Transforms.front().TransformPosition({}).Y;
+}
+
+std::optional<float> FPlayerCharacter::GetStateSeconds(const std::string_view Name) const noexcept
+{
+	const FAnimationStateMachineDesc& Desc = Machine.GetDesc();
+	const auto State = std::ranges::find(Desc.States, Name, &FAnimationStateDesc::Name);
+	if (State == Desc.States.end() || State->Samples.empty() || State->Speed <= 0.f)
+	{
+		return std::nullopt;
+	}
+
+	const auto Clip = Library->FindClip(State->Samples.front().Clip);
+	return Clip ? std::optional(Library->GetClipDuration(*Clip) / State->Speed) : std::nullopt;
 }
 }

@@ -73,7 +73,8 @@ private:
 	bool bSprinting = false;
 };
 
-// The Sandbox controller limits: walk up 0.18 m steps, step up 0.35 m, jump 0.5 m steps, the 0.6 m hurdle, and a 2 m gap, but not the 1.3 m hurdle.
+// The Sandbox controller limits: walk up 0.18 m steps, step up 0.35 m, jump 0.5 m steps, the 0.6 m hurdle, and a 2 m gap; the 1.3 m hurdle
+// takes a mantle.
 struct FGamePlayerSettings
 {
 	float Height = 1.8f;
@@ -104,6 +105,11 @@ struct FGamePlayerSettings
 	// A wall jump kicks this fast away from the wall while rising like a normal jump.
 	float WallJumpSpeed = 5.5f;
 	float WallJumpCooldownSeconds = 0.2f;
+	// Moving forward into a wall in the air climbs onto its top when the top is this high above the feet and the player fits up there.
+	float MantleMinimumHeight = 0.5f;
+	float MantleMaximumHeight = 1.9f;
+	// How far past the capsule the probe looks for the top, which is where the climb puts the feet; 0.3 m still lands on the 0.45 m hurdle.
+	float MantleReach = 0.3f;
 	// Falling below this height returns the player to the start.
 	float RespawnHeight = -30.f;
 	// The third-person camera sits this far behind the shoulders, and this far to the right of them.
@@ -164,7 +170,10 @@ public:
 	[[nodiscard]] bool IsPlayerGrounded() const noexcept;
 	[[nodiscard]] bool IsPlayerCrouched() const noexcept;
 	[[nodiscard]] bool IsPlayerSliding() const noexcept;
+	[[nodiscard]] bool IsPlayerMantling() const noexcept;
 	[[nodiscard]] FVector3 GetPlayerVelocity() const noexcept;
+	// The look direction around the vertical axis; 0 faces +Z.
+	[[nodiscard]] float GetPlayerYaw() const noexcept;
 	[[nodiscard]] bool IsThirdPerson() const noexcept;
 	// The animated body's active state machine state, or empty without a body.
 	[[nodiscard]] std::optional<std::size_t> GetCharacterState() const noexcept;

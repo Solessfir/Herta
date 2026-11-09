@@ -452,7 +452,9 @@ struct FEditorFramework::FImplementation
 	std::size_t PlayMenuFocus = 0;
 	std::optional<std::size_t> PlayMenuChoice;
 	bool bScriptedPlay = false;
-	// Automation drives Play with queued per-frame input and answers some calls on a later frame.
+	// Automation drives Play with queued per-frame input and answers some calls on a later frame. Play it started belongs to it until it
+	// stops: people and gamepads cannot move the player, and the world holds still between calls, so only queued frames advance it.
+	bool bAutomationOwnsPlay = false;
 	std::deque<FGameInput> AutomationInput;
 	std::optional<std::uint64_t> AutomationInputRequest;
 	std::optional<std::uint64_t> AutomationPlayRequest;

@@ -112,6 +112,15 @@ struct FTriggerZone
 	FMatrix4 WorldToLocal{};
 	FVector3 HalfExtents{};
 };
+
+// A climb onto a ledge: the capsule travels a straight line from Start to Target, matching the climb clip's root, and ignores input.
+struct FMantle
+{
+	FVector3 Start{};
+	FVector3 Target{};
+	float ElapsedSeconds = 0.f;
+	float DurationSeconds = 0.f;
+};
 }
 
 struct FGameSession::FImplementation
@@ -124,8 +133,11 @@ struct FGameSession::FImplementation
 	void BuildSoftBodies();
 	[[nodiscard]] std::expected<void, FPhysicsError> Throw();
 	[[nodiscard]] std::expected<void, FPhysicsError> AgeProjectiles(float DeltaSeconds);
+	[[nodiscard]] std::optional<FMantle> FindLedge(const FPhysicsWorld& World, const FVector3& Forward) const;
+	[[nodiscard]] std::expected<void, FPhysicsError> StepMantle(FPhysicsWorld& World, float StepSeconds);
 	void UpdateBody(float DeltaSeconds);
-	[[nodiscard]] FVector3 GetCameraPosition(const FVector3& Foot);
+	// Foot is the capsule's; BodyFoot is where the body is drawn, which differs while a climb clip lifts its own root.
+	[[nodiscard]] FVector3 GetCameraPosition(const FVector3& Foot, const FVector3& BodyFoot);
 
 	// cppcheck-suppress uninitMemberVarNoCtor ; set by aggregate initialization in Create
 	const IGameAssets& Assets;
@@ -174,6 +186,7 @@ struct FGameSession::FImplementation
 	bool bSliding = false;
 	float SlideBoostCooldown = 0.f;
 	float WallJumpCooldown = 0.f;
+	std::optional<FMantle> Mantle{};
 	// Eases between standing and crouched so the view does not snap.
 	float EyeHeight = 0.f;
 	FGameInput Input{};
@@ -188,6 +201,8 @@ struct FGameSession::FImplementation
 	std::unique_ptr<FPlayerCharacter> Body{};
 	bool bThirdPerson = false;
 	bool bJumpedThisUpdate = false;
+	bool bWallJumpedThisUpdate = false;
+	bool bMantledThisUpdate = false;
 	float BodyYaw = 0.f;
 	float BoomLength = 0.f;
 	// The first-person eye eases after the head, so the camera follows the body's lean without every bob of the walk.
@@ -424,6 +439,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	bSliding = false;
 	SlideBoostCooldown = 0.f;
 	WallJumpCooldown = 0.f;
+	Mantle.reset();
 	EyeHeight = Player.EyeHeight;
 	Yaw = SpawnYaw;
 	Pitch = 0.f;
@@ -431,6 +447,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	BoomLength = Player.ThirdPersonDistance;
 	SmoothedEye.reset();
 	bJumpedThisUpdate = false;
+	bWallJumpedThisUpdate = false;
+	bMantledThisUpdate = false;
 	if (Body)
 	{
 		Body->Restart();
@@ -462,6 +480,10 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 
 	SlideBoostCooldown = std::max(0.f, SlideBoostCooldown - StepSeconds);
 	WallJumpCooldown = std::max(0.f, WallJumpCooldown - StepSeconds);
+	if (Mantle)
+	{
+		return StepMantle(World, StepSeconds);
+	}
 
 	// Crouching and sliding share the short capsule; standing back up waits until there is room above.
 	if (Input.bCrouch != bCrouched)
@@ -542,6 +564,20 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 
 	FVector3 Carried = Ground->bGrounded ? Ground->GroundVelocity : FVector3{};
 	const bool bCanJump = AirborneSeconds <= CoyoteSeconds && VerticalVelocity <= 0.f;
+	// Jumping at a ledge leaves the ground first and mantles in a later step, once the capsule meets the wall.
+	const bool bIntoWall = Ground->bTouchingWall && Ground->WallNormal.Dot(Forward) < -0.5f;
+	if (!Ground->bGrounded && !bCrouched && Move.Y > 0.5f && bIntoWall)
+	{
+		if (std::optional<FMantle> Ledge = FindLedge(World, Forward))
+		{
+			Mantle = *Ledge;
+			bMantledThisUpdate = true;
+			bSliding = false;
+			JumpBufferRemaining = 0.f;
+			return StepMantle(World, StepSeconds);
+		}
+	}
+
 	if (JumpBufferRemaining > 0.f && bCanJump)
 	{
 		VerticalVelocity = Player.JumpSpeed;
@@ -559,7 +595,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		HorizontalVelocity += Ground->WallNormal * (Player.WallJumpSpeed - std::min(Into, 0.f));
 		VerticalVelocity = Player.JumpSpeed;
 		JumpBufferRemaining = 0.f;
-		bJumpedThisUpdate = true;
+		bWallJumpedThisUpdate = true;
 		WallJumpCooldown = Player.WallJumpCooldownSeconds;
 	}
 	else if (!Ground->bGrounded)
@@ -603,6 +639,64 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		PreviousFoot = CurrentFoot = SpawnPosition;
 		Yaw = SpawnYaw;
 		return World.TeleportCharacter(Character, SpawnPosition);
+	}
+
+	return {};
+}
+
+std::optional<FMantle> FGameSession::FImplementation::FindLedge(const FPhysicsWorld& World, const FVector3& Forward) const
+{
+	// A small sphere swept down just past the wall finds the top; a sweep that starts inside the wall means it is too tall to climb.
+	constexpr float ProbeRadius = 0.1f;
+	const FVector3 Ahead = CurrentFoot + Forward * (Player.Radius + Player.MantleReach);
+	const FVector3 Above = Ahead + FVector3::Up() * (Player.MantleMaximumHeight + ProbeRadius);
+	const FVector3 Below = Ahead + FVector3::Up() * (Player.MantleMinimumHeight + ProbeRadius);
+	const float Hit = World.CastSphere(World.ToWorld(Above), World.ToWorld(Below), ProbeRadius);
+	if (Hit <= 0.f || Hit >= 1.f)
+	{
+		return std::nullopt;
+	}
+
+	const FVector3 Target = Above + (Below - Above) * Hit - FVector3::Up() * (ProbeRadius - 0.01f);
+	const float Rise = Target.Y - CurrentFoot.Y;
+
+	// The standing capsule must fit on top, and nothing may hang over the player on the way up.
+	const float Inset = Player.Radius - 0.02f;
+	const auto IsClear = [&World, Inset](const FVector3& From, const FVector3& To)
+	{
+		return World.CastSphere(World.ToWorld(From), World.ToWorld(To), Inset) >= 1.f;
+	};
+
+	if (!IsClear(Target + FVector3::Up() * (Player.Radius + 0.05f), Target + FVector3::Up() * (Player.Height - Player.Radius)) || !IsClear(CurrentFoot + FVector3::Up() * (Player.Height - Player.Radius), CurrentFoot + FVector3::Up() * (Player.Height - Player.Radius + Rise)))
+	{
+		return std::nullopt;
+	}
+
+	constexpr float MantleSecondsWithoutBody = 0.65f;
+	const float Seconds = Body ? Body->GetStateSeconds("Mantle").value_or(MantleSecondsWithoutBody) : MantleSecondsWithoutBody;
+	return FMantle{.Start = CurrentFoot, .Target = Target, .DurationSeconds = std::max(Seconds, 0.1f)};
+}
+
+std::expected<void, FPhysicsError> FGameSession::FImplementation::StepMantle(FPhysicsWorld& World, const float StepSeconds)
+{
+	// The path passes through the ledge's corner, which a swept move would stop at, so the capsule is placed; both ends were checked clear.
+	Mantle->ElapsedSeconds += StepSeconds;
+	const float Progress = std::min(Mantle->ElapsedSeconds / Mantle->DurationSeconds, 1.f);
+	const FVector3 Foot = Mantle->Start + (Mantle->Target - Mantle->Start) * Progress;
+	if (auto Placed = World.TeleportCharacter(Character, Foot); !Placed)
+	{
+		return Placed;
+	}
+
+	PreviousFoot = CurrentFoot;
+	CurrentFoot = Foot;
+	HorizontalVelocity = {};
+	VerticalVelocity = 0.f;
+	if (Progress >= 1.f)
+	{
+		// The target sits on the top, so the climb ends standing rather than passing through a fall the animation would show.
+		Mantle.reset();
+		bGrounded = true;
 	}
 
 	return {};
@@ -729,8 +823,10 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	const float MaximumTurn = (bThirdPerson ? 10.f : 30.f) * DeltaSeconds;
 	BodyYaw = std::remainder(BodyYaw + std::clamp(Turn, -MaximumTurn, MaximumTurn), 2.f * std::numbers::pi_v<float>);
 
-	Body->Update(DeltaSeconds, {.GroundSpeed = Speed, .bGrounded = bGrounded, .bCrouched = bCrouched, .bSliding = bSliding, .bJumped = bJumpedThisUpdate});
+	Body->Update(DeltaSeconds, {.GroundSpeed = Speed, .bGrounded = bGrounded || Mantle.has_value(), .bCrouched = bCrouched, .bSliding = bSliding, .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate});
 	bJumpedThisUpdate = false;
+	bWallJumpedThisUpdate = false;
+	bMantledThisUpdate = false;
 }
 
 std::expected<void, FPhysicsError> FGameSession::FImplementation::Throw()
@@ -945,13 +1041,21 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 
 	const float Alpha = Session.Simulation.GetInterpolationAlpha();
 	const FVector3 Foot = Session.PreviousFoot * (1.f - Alpha) + Session.CurrentFoot * Alpha;
+	FVector3 BodyFoot = Foot;
 	Session.Visibility.assign(Session.Models.size(), EMeshVisibility::Everywhere);
-	if (Session.Body && Session.Body->GetMesh())
+	if (Session.Body)
 	{
+		// Headless sessions still pose the body, because the first-person camera follows its head.
 		const bool bFirstPerson = !Session.bThirdPerson && Session.Body->GetCameraMesh();
-		if (const auto Skinned = Session.Body->Skin(bFirstPerson); Skinned)
+		const auto Skinned = Session.Body->Skin(bFirstPerson);
+		if (Skinned)
 		{
-			const FMatrix4 BodyModel = FMatrix4::Translation(Foot) * FMatrix4::Rotation(FQuaternion::FromAxisAngle(FVector3::Up(), Session.BodyYaw));
+			BodyFoot = Foot - FVector3::Up() * Session.Body->GetRootHeight();
+		}
+
+		if (Skinned && Session.Body->GetMesh())
+		{
+			const FMatrix4 BodyModel = FMatrix4::Translation(BodyFoot) * FMatrix4::Rotation(FQuaternion::FromAxisAngle(FVector3::Up(), Session.BodyYaw));
 			Session.VertexUpdates.push_back({.Mesh = Session.Body->GetMesh(), .Vertices = Session.Body->GetVertices()});
 			Session.Models.push_back(BodyModel);
 			Session.Meshes.push_back(Session.Body->GetMesh());
@@ -979,7 +1083,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		return Entity.Light.has_value();
 	});
 
-	const FVector3 Eye = Session.GetCameraPosition(Foot);
+	const FVector3 Eye = Session.GetCameraPosition(Foot, BodyFoot);
 	const float Aspect = Extent.Height > 0 ? static_cast<float>(Extent.Width) / static_cast<float>(Extent.Height) : 1.f;
 	Session.View = {
 	    .View = FMatrix4::Rotation(GetLookOrientation(Session.Yaw, Session.Pitch).Conjugated()) * FMatrix4::Translation(-Eye),
@@ -997,7 +1101,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	return Session.View;
 }
 
-FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot)
+FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot, const FVector3& BodyFoot)
 {
 	FVector3 Eye = Foot + FVector3::Up() * EyeHeight;
 	const auto Head = Body ? Body->GetHeadPosition() : std::nullopt;
@@ -1007,7 +1111,7 @@ FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot)
 		constexpr float EyeAbove = 0.07f;
 		constexpr float EyeAhead = 0.24f;
 		const FQuaternion Facing = FQuaternion::FromAxisAngle(FVector3::Up(), BodyYaw);
-		const FVector3 Target = Foot + Facing.RotateVector(*Head) + FVector3::Up() * EyeAbove + Facing.RotateVector(FVector3::Forward()) * EyeAhead;
+		const FVector3 Target = BodyFoot + Facing.RotateVector(*Head) + FVector3::Up() * EyeAbove + Facing.RotateVector(FVector3::Forward()) * EyeAhead;
 		const float Follow = 1.f - std::exp(-LastDeltaSeconds / 0.05f);
 		SmoothedEye = SmoothedEye ? *SmoothedEye + (Target - *SmoothedEye) * Follow : Target;
 		return *SmoothedEye;
@@ -1089,6 +1193,16 @@ bool FGameSession::IsPlayerCrouched() const noexcept
 bool FGameSession::IsPlayerSliding() const noexcept
 {
 	return Implementation->bSliding;
+}
+
+bool FGameSession::IsPlayerMantling() const noexcept
+{
+	return Implementation->Mantle.has_value();
+}
+
+float FGameSession::GetPlayerYaw() const noexcept
+{
+	return Implementation->Yaw;
 }
 
 FVector3 FGameSession::GetPlayerVelocity() const noexcept

@@ -99,7 +99,7 @@ TEST_CASE("Game players jump the Sandbox hurdle limits and respawn after falling
 		Highest = std::max(Highest, (*Session)->GetPlayerFootPosition().Y);
 	}
 
-	// Clears the 0.6 m hurdle but not the 1.3 m one.
+	// A jump alone clears the 0.6 m hurdle but not the 1.3 m one, which takes a mantle.
 	CHECK(Highest > 0.65f);
 	CHECK(Highest < 1.f);
 	CHECK((*Session)->IsPlayerGrounded());
@@ -306,5 +306,54 @@ TEST_CASE("Gamepad sprint toggles on each click and ends when the move stick res
 	Input = {};
 	Controls.Apply(Input, {.bJump = true}, 0.1f);
 	CHECK_FALSE(Input.bJump);
+}
+
+TEST_CASE("Game players mantle onto a ledge they jump at, but not one without room on top")
+{
+	const FNoGameAssets Assets;
+	// The 1.3 m Sandbox hurdle as a 3 m deep block whose face is 1.5 m ahead of the spawn.
+	const auto MakeLedgeCourse = [](const bool bCovered)
+	{
+		std::vector<FLevelEntity> Course = MakeCourse();
+		Course.erase(Course.begin() + 2);
+		Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Ledge", .Transform = {.Translation = {0., 0.65, 3.}, .Scale = {4.f, 1.3f, 3.f}}, .Mesh = FStaticMeshComponent{.Asset = CubeAsset}, .BodyType = ELevelBodyType::Static});
+		if (bCovered)
+		{
+			// A slab 1 m above the top leaves no room to stand there.
+			Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Cover", .Transform = {.Translation = {0., 2.55, 3.}, .Scale = {4.f, 0.5f, 3.f}}, .Mesh = FStaticMeshComponent{.Asset = CubeAsset}, .BodyType = ELevelBodyType::Static});
+		}
+
+		return Course;
+	};
+
+	const auto Climb = [&Assets](const std::vector<FLevelEntity>& Course, bool& bMantled)
+	{
+		const auto Session = FGameSession::Create(Course, Assets, nullptr);
+		REQUIRE(Session);
+		FGameSession& Game = **Session;
+		Advance(Game, {}, 20);
+		Advance(Game, {.Move = {0.f, 1.f}}, 10);
+		REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bJump = true}));
+		// Letting go once the climb starts leaves the player standing near the edge instead of walking off the far side.
+		bMantled = false;
+		for (int Frame = 0; Frame < 120; ++Frame)
+		{
+			bMantled = bMantled || Game.IsPlayerMantling();
+			REQUIRE(Game.Update(1.f / 60.f, {.Move = {0.f, bMantled ? 0.f : 1.f}}));
+		}
+
+		return Game.GetPlayerFootPosition();
+	};
+
+	bool bMantled = false;
+	const FVector3 OnTop = Climb(MakeLedgeCourse(false), bMantled);
+	CHECK(bMantled);
+	CHECK(OnTop.Y == doctest::Approx(1.3f).epsilon(0.03));
+	CHECK(OnTop.Z > 1.6f);
+
+	const FVector3 Blocked = Climb(MakeLedgeCourse(true), bMantled);
+	CHECK_FALSE(bMantled);
+	CHECK(Blocked.Y < 0.1f);
+	CHECK(Blocked.Z < 1.5f);
 }
 }
