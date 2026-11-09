@@ -182,12 +182,56 @@ public:
 
 	// Written only between steps.
 	std::unordered_set<std::uint32_t> Sensors;
+	std::unordered_set<std::uint32_t> Reporters;
 	std::mutex EventMutex;
 	std::vector<FPhysicsSensorEvent> Events;
+	std::vector<FPhysicsContactEvent> Contacts;
 };
 
-void FSensorListener::OnContactAdded(const JPH::Body& Body1, const JPH::Body& Body2, const JPH::ContactManifold&, JPH::ContactSettings&)
+constexpr JPH::uint64 ReportContactsFlag = 1;
+
+[[nodiscard]] FVector3 ToHerta(const JPH::Vec3 Value)
 {
+	return {Value.GetX(), Value.GetY(), Value.GetZ()};
+}
+
+[[nodiscard]] float InverseMass(const JPH::Body& Body)
+{
+	return Body.IsDynamic() ? Body.GetMotionPropertiesUnchecked()->GetInverseMassUnchecked() : 0.f;
+}
+
+void FSensorListener::OnContactAdded(const JPH::Body& Body1, const JPH::Body& Body2, const JPH::ContactManifold& Manifold, JPH::ContactSettings& Settings)
+{
+	if (!Body1.IsSensor() && !Body2.IsSensor() && ((Body1.GetUserData() | Body2.GetUserData()) & ReportContactsFlag) != 0 && Manifold.mRelativeContactPointsOn1.size() != 0)
+	{
+		JPH::Vec3 Center = JPH::Vec3::sZero();
+		for (JPH::uint Index = 0; Index < Manifold.mRelativeContactPointsOn1.size(); ++Index)
+		{
+			Center += Manifold.mRelativeContactPointsOn1[Index];
+		}
+
+		const JPH::RVec3 Point = Manifold.mBaseOffset + Center / static_cast<float>(Manifold.mRelativeContactPointsOn1.size());
+		const JPH::Vec3 Velocity1 = Body1.GetPointVelocityCOM(JPH::Vec3(Point - Body1.GetCenterOfMassPosition()));
+		const JPH::Vec3 Velocity2 = Body2.GetPointVelocityCOM(JPH::Vec3(Point - Body2.GetCenterOfMassPosition()));
+		// Jolt's normal points from Body1 into Body2, so closing bodies have a positive approach speed along it.
+		const float Approach = std::max((Velocity1 - Velocity2).Dot(Manifold.mWorldSpaceNormal), 0.f);
+		const float InverseMasses = InverseMass(Body1) + InverseMass(Body2);
+		const float Impulse = InverseMasses > 0.f ? Approach * (1.f + Settings.mCombinedRestitution) / InverseMasses : 0.f;
+		const bool bSwap = Body2.GetID().GetIndexAndSequenceNumber() < Body1.GetID().GetIndexAndSequenceNumber();
+		const FPhysicsContactEvent Event{
+		    .First = FPhysicsBodyId{(bSwap ? Body2 : Body1).GetID().GetIndexAndSequenceNumber()},
+		    .Second = FPhysicsBodyId{(bSwap ? Body1 : Body2).GetID().GetIndexAndSequenceNumber()},
+		    .Phase = EPhysicsContactPhase::Began,
+		    .Point = ToHerta(JPH::Vec3(Point)),
+		    .Normal = ToHerta(bSwap ? -Manifold.mWorldSpaceNormal : Manifold.mWorldSpaceNormal),
+		    .ApproachSpeed = Approach,
+		    .Impulse = Impulse,
+		};
+
+		std::scoped_lock Lock(EventMutex);
+		Contacts.push_back(Event);
+	}
+
 	if (Body1.IsSensor() != Body2.IsSensor())
 	{
 		const JPH::Body& Sensor = Body1.IsSensor() ? Body1 : Body2;
@@ -199,9 +243,16 @@ void FSensorListener::OnContactAdded(const JPH::Body& Body1, const JPH::Body& Bo
 
 void FSensorListener::OnContactRemoved(const JPH::SubShapeIDPair& Pair)
 {
-	// Removal only names the bodies, which may already be gone, so sensors are remembered by ID.
+	// Removal only names the bodies, which may already be gone, so sensors and reporters are remembered by ID.
 	const std::uint32_t Body1 = Pair.GetBody1ID().GetIndexAndSequenceNumber();
 	const std::uint32_t Body2 = Pair.GetBody2ID().GetIndexAndSequenceNumber();
+	const bool bAnySensor = Sensors.contains(Body1) || Sensors.contains(Body2);
+	if (!bAnySensor && (Reporters.contains(Body1) || Reporters.contains(Body2)))
+	{
+		std::scoped_lock Lock(EventMutex);
+		Contacts.push_back({.First = FPhysicsBodyId{std::min(Body1, Body2)}, .Second = FPhysicsBodyId{std::max(Body1, Body2)}, .Phase = EPhysicsContactPhase::Ended});
+	}
+
 	const bool bSensor1 = Sensors.contains(Body1);
 	if (bSensor1 != Sensors.contains(Body2))
 	{
@@ -413,6 +464,7 @@ struct FPhysicsWorld::FImplementation
 	std::vector<FCharacterShape> CharacterShapes;
 	JPH::Ref<FJoinedBodiesFilter> JoinedBodies = new FJoinedBodiesFilter;
 	const FPhysicsWorldSettings Settings;
+	FWorldPosition Origin{};
 	std::string StepFailure;
 	std::size_t BodyCount = 0;
 
@@ -667,6 +719,7 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 	BodySettings.mFriction = Properties.Friction;
 	BodySettings.mRestitution = Properties.Restitution;
 	BodySettings.mIsSensor = Settings.bSensor;
+	BodySettings.mUserData = Settings.bReportContacts ? ReportContactsFlag : 0;
 	// A sleeping sensor stops reporting, and a resting body inside it would never be seen leaving.
 	BodySettings.mAllowSleeping = !Settings.bSensor;
 
@@ -692,6 +745,11 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 	if (Settings.bSensor)
 	{
 		Implementation->SensorListener.Sensors.insert(Id.GetIndexAndSequenceNumber());
+	}
+
+	if (Settings.bReportContacts)
+	{
+		Implementation->SensorListener.Reporters.insert(Id.GetIndexAndSequenceNumber());
 	}
 
 	return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
@@ -940,6 +998,7 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 	}
 
 	Implementation->SensorListener.Events.clear();
+	Implementation->SensorListener.Contacts.clear();
 	JPH::JobSystem& Jobs = Implementation->TaskJobs ? static_cast<JPH::JobSystem&>(*Implementation->TaskJobs) : *Implementation->SingleThreaded;
 	const JPH::EPhysicsUpdateError Error = Implementation->Physics.Update(FixedDeltaSeconds, 1, &Implementation->TempAllocator, &Jobs);
 	if (Implementation->TaskJobs)
@@ -951,6 +1010,21 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 	{
 		return std::tuple(A.Sensor.Value, A.Body.Value, A.bEntered) < std::tuple(B.Sensor.Value, B.Body.Value, B.bEntered);
 	});
+
+	// Jolt reports each touching pair of sub-shapes, so the strongest report stands for its body pair; the tie-break on every field keeps the order
+	// independent of which job thread reported first.
+	std::vector<FPhysicsContactEvent>& Contacts = Implementation->SensorListener.Contacts;
+	std::ranges::sort(Contacts, [](const FPhysicsContactEvent& A, const FPhysicsContactEvent& B)
+	{
+		return std::tuple(A.First.Value, A.Second.Value, A.Phase, -A.Impulse, -A.ApproachSpeed, A.Point.X, A.Point.Y, A.Point.Z) < std::tuple(B.First.Value, B.Second.Value, B.Phase, -B.Impulse, -B.ApproachSpeed, B.Point.X, B.Point.Y, B.Point.Z);
+	});
+
+	const auto Duplicates = std::ranges::unique(Contacts, [](const FPhysicsContactEvent& A, const FPhysicsContactEvent& B)
+	{
+		return A.First == B.First && A.Second == B.Second && A.Phase == B.Phase;
+	});
+
+	Contacts.erase(Duplicates.begin(), Duplicates.end());
 
 	if (Error != JPH::EPhysicsUpdateError::None)
 	{
@@ -968,6 +1042,55 @@ std::expected<void, FPhysicsError> FPhysicsWorld::Step(const float FixedDeltaSec
 		return std::unexpected(FPhysicsError{Implementation->StepFailure});
 	}
 
+	return {};
+}
+
+std::span<const FPhysicsContactEvent> FPhysicsWorld::GetContactEvents() const
+{
+	return Implementation->SensorListener.Contacts;
+}
+
+const FWorldPosition& FPhysicsWorld::GetOrigin() const noexcept
+{
+	return Implementation->Origin;
+}
+
+FVector3 FPhysicsWorld::ToPhysics(const FWorldPosition& Position) const
+{
+	return WorldToOriginRelative(Position, Implementation->Origin);
+}
+
+FWorldPosition FPhysicsWorld::ToWorld(const FVector3& Position) const
+{
+	return OriginRelativeToWorld(Position, Implementation->Origin);
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::ShiftOrigin(const FWorldPosition& NewOrigin)
+{
+	const FVector3d Delta = Implementation->Origin.Meters - NewOrigin.Meters;
+	if (!std::isfinite(Delta.X) || !std::isfinite(Delta.Y) || !std::isfinite(Delta.Z))
+	{
+		return std::unexpected(FPhysicsError{"The physics origin must be finite"});
+	}
+
+	const JPH::Vec3 Offset(static_cast<float>(Delta.X), static_cast<float>(Delta.Y), static_cast<float>(Delta.Z));
+	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	for (const JPH::BodyID Id : Implementation->BodyIds)
+	{
+		if (!Id.IsInvalid())
+		{
+			Bodies.SetPosition(Id, Bodies.GetPosition(Id) + Offset, JPH::EActivation::DontActivate);
+		}
+	}
+
+	for (const JPH::Ref<JPH::CharacterVirtual>& Character : Implementation->Characters)
+	{
+		Character->SetPosition(Character->GetPosition() + Offset);
+	}
+
+	// Every body moved at once, so the broad phase rebuilds its trees rather than patching them body by body during the next step.
+	Implementation->Physics.OptimizeBroadPhase();
+	Implementation->Origin = NewOrigin;
 	return {};
 }
 
@@ -991,6 +1114,7 @@ std::expected<void, FPhysicsError> FPhysicsWorld::RestoreState(const std::span<c
 
 	// A restored state carries no events of its own.
 	Implementation->SensorListener.Events.clear();
+	Implementation->SensorListener.Contacts.clear();
 	return {};
 }
 

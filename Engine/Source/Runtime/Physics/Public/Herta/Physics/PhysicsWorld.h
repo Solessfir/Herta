@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Herta/Math/Quaternion.h"
+#include "Herta/Math/WorldPosition.h"
 
 #include <array>
 #include <cstddef>
@@ -68,6 +69,29 @@ struct FPhysicsBodySettings
 	FPhysicsBodyProperties Properties{};
 	// Sensors report overlaps with dynamic and kinematic bodies through GetSensorEvents instead of colliding.
 	bool bSensor = false;
+	// Contacts that start or end with this body appear in GetContactEvents.
+	bool bReportContacts = false;
+};
+
+enum class EPhysicsContactPhase : std::uint8_t
+{
+	Began,
+	Ended,
+};
+
+// A contact between two rigid bodies, at least one of which reports contacts. First has the lower ID.
+struct FPhysicsContactEvent
+{
+	FPhysicsBodyId First{};
+	FPhysicsBodyId Second{};
+	EPhysicsContactPhase Phase = EPhysicsContactPhase::Began;
+	// The rest describe a beginning contact: its center, the normal from First into Second, how fast the bodies closed along it in m/s, and the
+	// impulse that stopping that closing takes, in N*s, from the bodies' reduced mass and restitution. Static and kinematic bodies count as
+	// infinitely heavy.
+	FVector3 Point = FVector3::Zero();
+	FVector3 Normal = FVector3::Zero();
+	float ApproachSpeed = 0.f;
+	float Impulse = 0.f;
 };
 
 struct FPhysicsSensorEvent
@@ -221,6 +245,15 @@ public:
 	[[nodiscard]] std::expected<void, FPhysicsError> RestoreState(std::span<const std::byte> State);
 	// A hash of SaveState, equal on every platform and thread count for the same calls in the same order.
 	[[nodiscard]] std::uint64_t ComputeStateHash() const;
+	// Contacts that began or ended during the latest Step, one per body pair and phase, sorted by First, Second, and phase.
+	std::span<const FPhysicsContactEvent> GetContactEvents() const;
+	// Physics positions are float meters relative to this world position, so precision follows the area of interest rather than the world origin.
+	const FWorldPosition& GetOrigin() const noexcept;
+	// Moves the origin between steps: every body and character shifts the opposite way in physics space, so nothing moves in the world. Callers
+	// convert their own physics-space values, such as kinematic targets, with ToPhysics afterwards.
+	[[nodiscard]] std::expected<void, FPhysicsError> ShiftOrigin(const FWorldPosition& NewOrigin);
+	FVector3 ToPhysics(const FWorldPosition& Position) const;
+	FWorldPosition ToWorld(const FVector3& Position) const;
 	[[nodiscard]] std::expected<FPhysicsBodyTransform, FPhysicsError> GetBodyTransform(FPhysicsBodyId BodyId) const;
 	// World-space vertex positions in creation order.
 	[[nodiscard]] std::expected<void, FPhysicsError> GetSoftBodyVertices(FPhysicsBodyId BodyId, std::vector<FVector3>& OutPositions) const;

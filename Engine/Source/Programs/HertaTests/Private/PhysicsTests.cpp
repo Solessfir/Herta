@@ -10,6 +10,7 @@
 #include <iterator>
 #include <limits>
 #include <numbers>
+#include <tuple>
 #include <vector>
 
 namespace Herta
@@ -578,7 +579,7 @@ TEST_CASE("Soft body creation rejects invalid topology and parameters")
 namespace
 {
 // A floor and a pile of mixed shapes that collide while they settle, which exercises contacts, islands, and sleeping.
-std::unique_ptr<FPhysicsWorld> CreateDeterminismScene(FTaskSystem* const Tasks)
+std::unique_ptr<FPhysicsWorld> CreateDeterminismScene(FTaskSystem* const Tasks, const bool bReportContacts = false)
 {
 	auto World = FPhysicsWorld::Create({.Tasks = Tasks});
 	REQUIRE(World);
@@ -597,6 +598,7 @@ std::unique_ptr<FPhysicsWorld> CreateDeterminismScene(FTaskSystem* const Tasks)
 		    .Rotation = FQuaternion::FromAxisAngle(FVector3{1.f, static_cast<float>(Index % 5), 0.5f}.Normalized(), static_cast<float>(Index) * 0.37f),
 		    .MotionType = EPhysicsMotionType::Dynamic,
 		    .Properties = {.MassKg = 1.f + static_cast<float>(Index % 7), .Friction = 0.5f, .Restitution = 0.2f},
+		    .bReportContacts = bReportContacts,
 		};
 		REQUIRE((*World)->CreateBody(Body));
 	}
@@ -654,5 +656,106 @@ TEST_CASE("Physics hashes the same after equal steps on every run, thread count,
 	// Jolt's cross-platform build makes this the same value on Windows and Linux, so CI on both checks it. It changes only with the scene, Jolt, or
 	// its settings; update it deliberately then.
 	CHECK(Settled == 913175411509097514ull);
+}
+
+TEST_CASE("Contact events merge per body pair, carry the impact, and keep one order on any thread count")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	const auto Floor = (*World)->CreateBody({.HalfExtents = {5.f, 0.5f, 5.f}, .Position = {0.f, -0.5f, 0.f}});
+	const auto Ball = (*World)->CreateBody({.Shape = EPhysicsShape::Sphere, .Radius = 0.5f, .Position = {0.f, 3.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 2.f, .Restitution = 0.9f, .LinearDamping = 0.f}, .bReportContacts = true});
+	const auto Quiet = (*World)->CreateBody({.Position = {3.f, 2.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.Restitution = 0.f}});
+	REQUIRE(Floor);
+	REQUIRE(Ball);
+	REQUIRE(Quiet);
+
+	std::vector<FPhysicsContactEvent> Events;
+	for (int Step = 0; Step < 90; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+		const auto Stepped = (*World)->GetContactEvents();
+		Events.insert(Events.end(), Stepped.begin(), Stepped.end());
+	}
+
+	// The ball bounces, so its contact begins and ends; the quiet box reports nothing.
+	REQUIRE(Events.size() >= 2);
+	const FPhysicsContactEvent& Impact = Events[0];
+	CHECK(Impact.Phase == EPhysicsContactPhase::Began);
+	CHECK(Impact.First == *Floor);
+	CHECK(Impact.Second == *Ball);
+	CHECK(Impact.Normal.Y > 0.99f);
+	// A 2.5 m fall closes at about 7 m/s, and stopping and returning 2 kg at restitution 0.9 takes about 1.9 times that momentum.
+	CHECK(Impact.ApproachSpeed == doctest::Approx(std::sqrt(2.f * 9.80665f * 2.5f)).epsilon(0.08));
+	CHECK(Impact.Impulse == doctest::Approx(2.f * Impact.ApproachSpeed * 1.9f).epsilon(0.05));
+	CHECK(Events[1].Phase == EPhysicsContactPhase::Ended);
+	CHECK(std::ranges::none_of(Events, [&](const FPhysicsContactEvent& Event)
+	{
+		return Event.First == *Quiet || Event.Second == *Quiet;
+	}));
+
+	// Every body reports in the pile; the event stream must not depend on which job threads found the contacts.
+	const auto Record = [](FPhysicsWorld& Scene)
+	{
+		std::vector<std::tuple<std::uint32_t, std::uint32_t, EPhysicsContactPhase, float>> Stream;
+		for (int Step = 0; Step < 120; ++Step)
+		{
+			REQUIRE(Scene.Step(1.f / 60.f));
+			for (const FPhysicsContactEvent& Event : Scene.GetContactEvents())
+			{
+				Stream.emplace_back(Event.First.Value, Event.Second.Value, Event.Phase, Event.Impulse);
+			}
+		}
+
+		return Stream;
+	};
+
+	auto Log = FLogService::Create({.bConsoleOutput = false, .bDebuggerOutput = false, .bFileOutput = false});
+	REQUIRE(Log);
+	auto Tasks = FTaskSystem::Create({.CpuWorkerCount = 4, .Log = Log->get()});
+	REQUIRE(Tasks);
+	{
+		const auto Single = Record(*CreateDeterminismScene(nullptr, true));
+		const auto Threaded = Record(*CreateDeterminismScene(Tasks->get(), true));
+		CHECK(Single.size() > 48);
+		const bool bSameStream = Single == Threaded;
+		CHECK(bSameStream);
+	}
+
+	(*Tasks)->Shutdown();
+}
+
+TEST_CASE("Shifting the physics origin keeps every body where it is in the world")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	const FWorldPosition Far{250000.0, 12.0, -90000.0};
+	REQUIRE((*World)->ShiftOrigin(Far));
+	CHECK((*World)->GetOrigin() == Far);
+	CHECK((*World)->ToPhysics(Far) == FVector3::Zero());
+
+	const auto Floor = (*World)->CreateBody({.HalfExtents = {5.f, 0.5f, 5.f}, .Position = (*World)->ToPhysics(Far.TranslatedBy({0.0, -0.5, 0.0}))});
+	const auto Box = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = (*World)->ToPhysics(Far.TranslatedBy({0.0, 2.0, 0.0})), .MotionType = EPhysicsMotionType::Dynamic});
+	REQUIRE(Floor);
+	REQUIRE(Box);
+	for (int Step = 0; Step < 120; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	const FWorldPosition Rest = (*World)->ToWorld((*World)->GetBodyTransform(*Box)->Position);
+	CHECK(Rest.Meters.Y == doctest::Approx(12.5).epsilon(0.001));
+
+	// Moving the origin 1 km leaves the resting box in place in the world, and it keeps resting.
+	REQUIRE((*World)->ShiftOrigin(Far.TranslatedBy({1000.0, 0.0, 0.0})));
+	const FWorldPosition Shifted = (*World)->ToWorld((*World)->GetBodyTransform(*Box)->Position);
+	CHECK(Shifted.Meters.X == doctest::Approx(Rest.Meters.X).epsilon(1e-9));
+	CHECK(Shifted.Meters.Y == doctest::Approx(Rest.Meters.Y).epsilon(1e-6));
+	for (int Step = 0; Step < 60; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	CHECK((*World)->ToWorld((*World)->GetBodyTransform(*Box)->Position).Meters.Y == doctest::Approx(12.5).epsilon(0.001));
+	CHECK_FALSE((*World)->ShiftOrigin(FWorldPosition{std::numeric_limits<double>::infinity(), 0.0, 0.0}));
 }
 }
