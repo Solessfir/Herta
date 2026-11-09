@@ -459,14 +459,20 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		const std::filesystem::path Repository = FindRepositoryRoot(ExecutablePath);
 		std::filesystem::path ShaderWorker = ExecutablePath;
 		ShaderWorker.replace_filename(ExecutablePath.has_extension() ? "HertaShaderWorker.exe" : "HertaShaderWorker");
-		Test = CheckMaterialGraphParity(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *InstancedVertexShader, VisualShaders, ShaderWorker, Repository / "Engine/Shaders", Repository / "TestResults/RendererSmoke/Game");
-		if (!Test || Presentation->HasValidationErrors())
+		// Packaged editors ship cooked shaders without the shader worker or engine shader sources, so they cannot compile a graph to compare.
+		std::error_code WorkerError;
+		const bool bHasShaderCompiler = std::filesystem::is_regular_file(ShaderWorker, WorkerError) && std::filesystem::is_regular_file(Repository / "Engine/Shaders/GraphMaterial.slangh", WorkerError);
+		if (bHasShaderCompiler)
 		{
-			HERTA_LOG_ERROR(*Log, EditorLog, "Material Graph parity regression failed: {}", Test ? "Validation reported an error" : Test.error().Message);
-			return 1;
+			Test = CheckMaterialGraphParity(Presentation->GetGraphicsDevice(), *VertexShader, *FragmentShader, *InstancedVertexShader, VisualShaders, ShaderWorker, Repository / "Engine/Shaders", Repository / "TestResults/RendererSmoke/Game");
+			if (!Test || Presentation->HasValidationErrors())
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Material Graph parity regression failed: {}", Test ? "Validation reported an error" : Test.error().Message);
+				return 1;
+			}
 		}
 
-		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, visual authoring, Material Graph parity, resize, and frame retirement checks passed");
+		HERTA_LOG_INFO(*Log, EditorLog, "Renderer readback, visual authoring, {}resize, and frame retirement checks passed", bHasShaderCompiler ? "Material Graph parity, " : "");
 	}
 
 	const FVisualShaderSet ThumbnailVisualShaders = VisualShaders;
