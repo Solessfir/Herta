@@ -1693,6 +1693,7 @@ Exit condition: the playable Sandbox exercises collisions, dynamic props, runtim
 - Add sampling, blending, skinning, root motion, and animation events.
 - Add an initial Herta-owned animation state machine that runs from explicit cooked data. It is not the NPC StateTree runtime.
 - Author it as a basic GraphCore domain on the Milestone 6.8 canvas: states that play a clip or a 1D blend, transitions with a duration and a condition on a typed parameter (float, bool, or trigger), an entry state, and live highlighting of the active state and transition during Play. A headless compiler cooks it, so runtime animation links neither the graph nor the canvas. Blend trees, layers, and state machine nesting wait for Milestone 15.
+- Add parkour to the Sandbox player with the CC0 clips: slide start, loop, and exit around the existing slide; wall-jump take-off and air poses; and a ledge mantle, a new controller move that detects a ledge within reach in front of the player while jumping or against a wall and climbs onto it, driven by the clip's root motion so the hands stay on the edge. The third-person camera follows these moves.
 - Add ragdolls through a Herta adapter over Jolt's `Ragdoll`: a cooked mapping from skeleton joints to capsule bodies and swing-twist constraints, blending between animated and simulated poses, driven by the same deterministic physics step, for deaths, hit reactions, and later severed limbs.
 - Add bloom from the dual-filter Kawase pyramid that the editor's backdrop blur already uses, applied to HDR scene color before tone mapping, energy-conserving and exposure-relative, with a per-tier toggle and a GPU Trace check that it costs nothing when off.
 
@@ -1710,7 +1711,9 @@ Exit condition: a controllable character in the Sandbox blends and plays cooked 
   - Run slicing on a task worker within a measured budget, about 2 ms for a 10k-vertex character, cap the number of live pieces per character, and merge small slivers into their neighbour so no piece is too thin to simulate.
   - Slicing is deterministic for the same pose and plane, so cuts replicate from the hit rather than streaming meshes.
 - Joint severing and blade-plane slicing share caps, the wound material, ragdoll pieces, and effects. Joint severing remains the cheap path for crowds and non-blade damage.
-- Add a Sandbox station where thrown balls sever the Mannequin's limbs and a scripted blade slices it at several angles, including through the torso and through a joint.
+- Give the player a sword: a prop attached to the hand joint through a skeleton socket, attack and block inputs on the keyboard, mouse, and gamepad, the CC0 sword combo, block, and dash clips in the locomotion graph, and a blade sweep that traces the edge between frames to find the hit point and cut plane.
+- Add a training dummy: a Character level component that places a skinned model with its own animation graph, hit reactions, and ragdoll, which the sword slices along the blade plane and thrown balls sever at joints. Restarting restores every dummy.
+- Add a Sandbox station with dummies to slice, plus a scripted blade test that slices one at several angles, including through the torso and through a joint.
 
 Exit condition: a cooked skinned model severs at every marked joint, and blade-plane slices at any angle split it into watertight halves without holes, cracks, stretched seams, or lost skin weights. Cook and runtime tests prove the caps close every cut. Both halves animate or fall as ragdolls in Play and the game, slicing stays within its measured budget, and restarting the session restores the intact body.
 
