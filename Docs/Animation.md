@@ -35,4 +35,4 @@ A level's `playerCharacter` (schema 11) names the skinned model the player plays
 
 Deferred: GPU skinning, until character or vertex counts make CPU skinning measurable in a frame (the Mannequin evaluates in about 0.013 ms and skins its 7,538 vertices in about 0.16 ms on one core in Development, plus a 362 KB upload); per-vertex motion vectors for skinned and soft-body meshes, until temporal AA or another consumer reads them.
 
-The Sandbox character is Quaternius's CC0 Mannequin from the Universal Animation Library; see `Games/Sandbox/Content/Characters/Mannequin/Source.md` for the exact source and the clips kept.
+The Sandbox character is Quaternius's CC0 Mannequin from the Universal Animation Libraries 1 and 2, merged onto one 65-joint rig; see `Games/Sandbox/Content/Characters/Mannequin/Source.md` for the exact source and the clips kept.

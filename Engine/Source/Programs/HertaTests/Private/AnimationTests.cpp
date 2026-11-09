@@ -83,11 +83,11 @@ TEST_CASE("A skinned glTF cooks its skeleton, weights, and clips")
 {
 	const FCookedModel& Model = Mannequin();
 	REQUIRE(Model.Skeleton);
-	CHECK(Model.Skeleton->JointNames.size() == 53);
+	CHECK(Model.Skeleton->JointNames.size() == 65);
 	CHECK(Model.Skeleton->JointNames.front() == "root");
 	CHECK(Model.Skeleton->JointParents.front() == -1);
 	CHECK(Model.Influences.size() == Model.Vertices.size());
-	CHECK(Model.Clips.size() == 11);
+	CHECK(Model.Clips.size() == 33);
 
 	const auto Clip = [&](const std::string_view Name)
 	{
@@ -120,8 +120,8 @@ TEST_CASE("The bind pose skins every vertex back onto itself")
 	REQUIRE(Model.Skeleton);
 	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
 	REQUIRE_MESSAGE(Library, (Library ? std::string() : Library.error().Message));
-	CHECK((*Library)->GetJointCount() == 53);
-	CHECK((*Library)->GetClipCount() == 11);
+	CHECK((*Library)->GetJointCount() == 65);
+	CHECK((*Library)->GetClipCount() == 33);
 
 	// The rest pose of this rig is its bind pose, so every skinning matrix is identity.
 	FAnimationPose Pose(*Library);
@@ -153,7 +153,7 @@ TEST_CASE("Clips sample, blend, and report root motion")
 	const auto Hands = [&]
 	{
 		const auto& Names = (*Library)->GetJointNames();
-		const auto Hand = std::ranges::find(Names, "DEF-hand.L");
+		const auto Hand = std::ranges::find(Names, "hand_l");
 		REQUIRE(Hand != Names.end());
 		return Pose.GetModelTransforms()[static_cast<std::size_t>(Hand - Names.begin())].TransformPosition({});
 	};
@@ -252,7 +252,7 @@ TEST_CASE("Skinning reproduces the bind pose, moves with a clip, and collapses h
 
 	// Collapsing the head pulls every vertex it fully owns onto the head joint.
 	const auto Names = (*Library)->GetJointNames();
-	const auto Head = static_cast<std::size_t>(std::ranges::find(Names, "DEF-head") - Names.begin());
+	const auto Head = static_cast<std::size_t>(std::ranges::find(Names, "Head") - Names.begin());
 	REQUIRE(Head < Names.size());
 	Pose.CollapseJoint(Head);
 	SkinVertices(Pose.GetSkinningMatrices(), Model.Vertices, Model.Influences, Skinned);

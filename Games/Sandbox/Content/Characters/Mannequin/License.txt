@@ -1,3 +1,6 @@
+Explore all the animations in the Animation Viewer!
+https://quaternius.com/animviewer.html
+
 -------------------------------------------------------
 License:
 CC0 1.0 Universal (CC0 1.0) 
