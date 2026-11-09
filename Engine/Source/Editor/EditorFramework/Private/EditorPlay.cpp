@@ -314,8 +314,15 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	FGameInput Input;
 	if (bAutomationDriven)
 	{
-		Input = AutomationInput.front();
+		const FAutomationFrame Frame = AutomationInput.front();
 		AutomationInput.pop_front();
+		Input = Frame.Input;
+		if (Frame.SteerTo)
+		{
+			const FVector3 Foot = PlaySession->GetPlayerFootPosition();
+			const float Target = std::atan2(Frame.SteerTo->X - Foot.X, Frame.SteerTo->Y - Foot.Z);
+			Input.YawDelta += std::remainder(Target - PlaySession->GetPlayerYaw(), 2.f * std::numbers::pi_v<float>);
+		}
 	}
 	else if (bScriptedPlay)
 	{
@@ -373,6 +380,11 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	for (const std::string& Event : PlaySession->TakeEvents())
 	{
 		HERTA_LOG_INFO(*Log, EditorLog, "{}", Event);
+	}
+
+	if (bAutomationDriven)
+	{
+		FinishAutomationFrame();
 	}
 
 	PlayRenderView = PlaySession->GetRenderView(ViewportExtent);
@@ -542,6 +554,31 @@ public:
 		return bValid && !Object[Key].get_string().get(Value) ? Value : std::string_view{};
 	}
 
+	// A JSON array of Count numbers, or empty when the key is missing, not such an array, or not finite.
+	[[nodiscard]] std::optional<std::array<double, 3>> Numbers(const std::string_view Key, const std::size_t Count) const
+	{
+		simdjson::dom::array Array;
+		if (!bValid || Count > 3 || Object[Key].get_array().get(Array) || Array.size() != Count)
+		{
+			return std::nullopt;
+		}
+
+		std::array<double, 3> Values{};
+		std::size_t Index = 0;
+		for (const auto Element : Array)
+		{
+			double Value = 0.;
+			if (Element.get_double().get(Value) || !std::isfinite(Value))
+			{
+				return std::nullopt;
+			}
+
+			Values[Index++] = Value;
+		}
+
+		return Values;
+	}
+
 	[[nodiscard]] std::array<double, 2> Pair(const std::string_view Key) const
 	{
 		std::array<double, 2> Values{};
@@ -573,6 +610,52 @@ void AppendVector(std::string& Output, const FVector3& Value)
 }
 }
 
+void FEditorFramework::FImplementation::FinishAutomationFrame()
+{
+	FAutomationRun& Run = AutomationRun;
+	const FCharacterMover& Mover = PlaySession->GetMover();
+	const FMoverState& State = Mover.GetState();
+	const std::string Mode(Mover.GetActiveMode());
+	++Run.Frames;
+	Run.bWasAirborne |= !State.bGrounded;
+	if (Run.TraceEvery > 0 && (Run.Frames % Run.TraceEvery == 0 || Mode != Run.LastMode))
+	{
+		Run.Trace += Run.Trace.empty() ? "" : ", ";
+		Run.Trace += std::format("{{\"frame\": {}, \"mode\": ", Run.Frames);
+		AppendJsonString(Run.Trace, Mode);
+		Run.Trace += ", \"foot\": ";
+		AppendVector(Run.Trace, State.Foot);
+		Run.Trace += ", \"velocity\": ";
+		AppendVector(Run.Trace, State.Velocity);
+		Run.Trace += std::format(", \"grounded\": {}, \"wall\": {}}}", State.bGrounded ? "true" : "false", State.Ground.bTouchingWall ? "true" : "false");
+	}
+
+	Run.LastMode = Mode;
+
+	// A steered run ends on arriving, and every run can end on its condition.
+	if (!AutomationInput.empty() && AutomationInput.front().SteerTo)
+	{
+		const FVector2 Target = *AutomationInput.front().SteerTo;
+		if (std::hypot(Target.X - State.Foot.X, Target.Y - State.Foot.Z) < 0.3f)
+		{
+			Run.StoppedBy = "arrived";
+		}
+	}
+
+	const std::string_view Until = Run.Until;
+	const bool bMet = (Until == "grounded" && State.bGrounded) || (Until == "airborne" && !State.bGrounded) || (Until == "landed" && Run.bWasAirborne && State.bGrounded)
+	                  || (Until == "mode_changed" && Mode != Run.StartMode) || (Until.starts_with("mode:") && Mode == Until.substr(5));
+	if (bMet)
+	{
+		Run.StoppedBy = "until";
+	}
+
+	if (!Run.StoppedBy.empty())
+	{
+		AutomationInput.clear();
+	}
+}
+
 std::string FEditorFramework::FImplementation::DescribePlay() const
 {
 	std::string Output = std::format("{{\"playing\": {}", PlaySession ? "true" : "false");
@@ -585,6 +668,14 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 		Output += ", \"velocity\": ";
 		AppendVector(Output, PlaySession->GetPlayerVelocity());
 		Output += std::format(", \"yaw\": {:.4f}", PlaySession->GetPlayerYaw());
+		const FCharacterMover& Mover = PlaySession->GetMover();
+		const FMoverState& State = Mover.GetState();
+		Output += ", \"mode\": ";
+		AppendJsonString(Output, Mover.GetActiveMode());
+		Output += std::format(", \"speed\": {:.3f}, \"sprintEnergy\": {:.3f}, \"touchingWall\": {}, \"wallNormal\": ", std::hypot(State.Velocity.X, State.Velocity.Z), State.SprintEnergy, State.Ground.bTouchingWall ? "true" : "false");
+		AppendVector(Output, State.Ground.WallNormal);
+		Output += ", \"groundNormal\": ";
+		AppendVector(Output, State.Ground.GroundNormal);
 		Output += ", \"animationState\": ";
 		AppendJsonString(Output, PlaySession->GetCharacterStateName());
 		const FGameObjective& Objective = PlaySession->GetObjective();
@@ -702,9 +793,33 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 		return true;
 	}
 
+	if (Tool == "play_teleport")
+	{
+		const auto Position = Arguments.Numbers("position", 3);
+		if (!Editor.PlaySession || !Position)
+		{
+			Server.Fail(Request.Id, "invalid", Editor.PlaySession ? "position must be [x, y, z] in meters" : "Start Play with play_start first");
+			return true;
+		}
+
+		const float Yaw = Arguments.Has("yaw") ? static_cast<float>(Arguments.Number("yaw", 0.)) : Editor.PlaySession->GetPlayerYaw();
+		if (auto Placed = Editor.PlaySession->TeleportPlayer({static_cast<float>((*Position)[0]), static_cast<float>((*Position)[1]), static_cast<float>((*Position)[2])}, Yaw); !Placed)
+		{
+			Server.Fail(Request.Id, "teleport_failed", Placed.error().Message);
+			return true;
+		}
+
+		Server.Respond(Request.Id, Editor.DescribePlay());
+		return true;
+	}
+
 	if (Tool == "play_start")
 	{
-		if (Editor.PlaySession)
+		// Starting elsewhere places the player once Play is up; a running Play only moves when asked to.
+		const auto At = Arguments.Numbers("at", 3);
+		Editor.AutomationPlayAt = At ? std::optional(FVector3{static_cast<float>((*At)[0]), static_cast<float>((*At)[1]), static_cast<float>((*At)[2])}) : std::nullopt;
+		Editor.AutomationPlayYaw = static_cast<float>(Arguments.Number("yaw", 0.));
+		if (Editor.PlaySession && !At)
 		{
 			Server.Respond(Request.Id, Editor.DescribePlay());
 			return true;
@@ -744,6 +859,17 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 		}
 
 		const auto Frames = static_cast<std::size_t>(std::clamp(Arguments.Number("frames", 60.), 1., 3600.));
+		const auto Steer = Arguments.Numbers("steer_to", 2);
+		const std::optional<FVector2> SteerTo = Steer ? std::optional(FVector2{static_cast<float>((*Steer)[0]), static_cast<float>((*Steer)[1])}) : std::nullopt;
+		const std::string Until(Arguments.Text("until"));
+		if (!Until.empty() && Until != "grounded" && Until != "airborne" && Until != "landed" && Until != "mode_changed" && !Until.starts_with("mode:"))
+		{
+			Server.Fail(Request.Id, "invalid", "until must be grounded, airborne, landed, mode_changed, or mode:<Name>");
+			return true;
+		}
+
+		Editor.AutomationRun = {.Until = Until, .TraceEvery = static_cast<std::size_t>(std::clamp(Arguments.Number("trace", 0.), 0., 3600.)), .StartMode = std::string(Editor.PlaySession->GetMover().GetActiveMode())};
+		Editor.AutomationRun.LastMode = Editor.AutomationRun.StartMode;
 		const auto Move = Arguments.Pair("move");
 		const auto Look = Arguments.Pair("look");
 		// Facing a point turns all the way on the first frame, measured from where the player stands now, before any look spread.
@@ -758,7 +884,7 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 
 		for (std::size_t Frame = 0; Frame < Frames; ++Frame)
 		{
-			Editor.AutomationInput.push_back({
+			const FGameInput Input{
 			    .Move = {static_cast<float>(std::clamp(Move[0], -1., 1.)), static_cast<float>(std::clamp(Move[1], -1., 1.))},
 			    .YawDelta = static_cast<float>(Look[0] / static_cast<double>(Frames)) + (Frame == 0 ? FaceDelta : 0.f),
 			    .PitchDelta = static_cast<float>(Look[1] / static_cast<double>(Frames)),
@@ -766,7 +892,9 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 			    .bCrouch = Arguments.Flag("crouch"),
 			    .bThrow = Frame == 0 && Arguments.Flag("throw"),
 			    .bToggleCamera = Frame == 0 && Arguments.Flag("toggle_camera"),
-			});
+			};
+
+			Editor.AutomationInput.push_back({.Input = Input, .SteerTo = SteerTo});
 		}
 
 		Editor.AutomationInputRequest = Request.Id;
@@ -785,6 +913,15 @@ void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
 		if (Editor.PlaySession)
 		{
 			Editor.bAutomationOwnsPlay = true;
+			if (const auto At = std::exchange(Editor.AutomationPlayAt, std::nullopt))
+			{
+				if (auto Placed = Editor.PlaySession->TeleportPlayer(*At, Editor.AutomationPlayYaw); !Placed)
+				{
+					Server.Fail(*std::exchange(Editor.AutomationPlayRequest, std::nullopt), "teleport_failed", Placed.error().Message);
+					return;
+				}
+			}
+
 			Server.Respond(*std::exchange(Editor.AutomationPlayRequest, std::nullopt), Editor.DescribePlay());
 		}
 		else if (Now >= Editor.AutomationPlayDeadline)
@@ -801,7 +938,13 @@ void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
 	if (Editor.AutomationInputRequest && (Editor.AutomationInput.empty() || !Editor.PlaySession))
 	{
 		Editor.AutomationInput.clear();
-		Server.Respond(*std::exchange(Editor.AutomationInputRequest, std::nullopt), Editor.DescribePlay());
+		std::string Reply = Editor.DescribePlay();
+		const FImplementation::FAutomationRun& Run = Editor.AutomationRun;
+		Reply.pop_back();
+		Reply += std::format(", \"framesPlayed\": {}, \"stoppedBy\": ", Run.Frames);
+		AppendJsonString(Reply, Run.StoppedBy.empty() ? std::string_view("frames") : std::string_view(Run.StoppedBy));
+		Reply += Run.TraceEvery > 0 ? ", \"trace\": [" + Run.Trace + "]}" : "}";
+		Server.Respond(*std::exchange(Editor.AutomationInputRequest, std::nullopt), Reply);
 	}
 }
 }

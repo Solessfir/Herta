@@ -1023,6 +1023,31 @@ float FGameSession::GetPlayerYaw() const noexcept
 	return Implementation->Yaw;
 }
 
+std::expected<void, FGameError> FGameSession::TeleportPlayer(const FVector3& Foot, const float Yaw)
+{
+	FImplementation& Session = *Implementation;
+	FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld();
+	if (!World || !std::isfinite(Foot.X) || !std::isfinite(Foot.Y) || !std::isfinite(Foot.Z) || !std::isfinite(Yaw))
+	{
+		return std::unexpected(FGameError{"Teleporting the player needs a running session and a finite position and yaw"});
+	}
+
+	if (auto Placed = Session.Mover->Teleport(*World, Foot); !Placed)
+	{
+		return std::unexpected(FGameError{std::format("Cannot teleport the player: {}", Placed.error().Message)});
+	}
+
+	Session.Yaw = std::remainder(Yaw, 2.f * std::numbers::pi_v<float>);
+	Session.BodyYaw = Session.Yaw;
+	Session.SmoothedEye.reset();
+	return {};
+}
+
+const FCharacterMover& FGameSession::GetMover() const noexcept
+{
+	return *Implementation->Mover;
+}
+
 FVector3 FGameSession::GetPlayerVelocity() const noexcept
 {
 	return Implementation->Mover->GetState().Velocity;

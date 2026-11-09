@@ -280,6 +280,8 @@ struct FEditorFramework::FImplementation
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void BuildCollisionDebugDraw();
 	[[nodiscard]] std::string DescribePlay() const;
+	// Steers, traces, and checks the stop condition of the automation input that just played one frame.
+	void FinishAutomationFrame();
 	// The level's player character, chosen from the models in content.
 	void DrawPlayerCharacterPicker(float ValueWidth);
 	void FocusPreview();
@@ -455,7 +457,31 @@ struct FEditorFramework::FImplementation
 	// Automation drives Play with queued per-frame input and answers some calls on a later frame. Play it started belongs to it until it
 	// stops: people and gamepads cannot move the player, and the world holds still between calls, so only queued frames advance it.
 	bool bAutomationOwnsPlay = false;
-	std::deque<FGameInput> AutomationInput;
+
+	struct FAutomationFrame
+	{
+		FGameInput Input{};
+		// Turns toward this world [x, z] point before the frame plays.
+		std::optional<FVector2> SteerTo{};
+	};
+
+	// What one play_input call asked for beyond its frames, and what happened, for its reply.
+	struct FAutomationRun
+	{
+		std::string Until{};
+		std::size_t TraceEvery = 0;
+		std::size_t Frames = 0;
+		bool bWasAirborne = false;
+		std::string StartMode{};
+		std::string LastMode{};
+		std::string Trace{};
+		std::string StoppedBy{};
+	};
+
+	std::deque<FAutomationFrame> AutomationInput;
+	FAutomationRun AutomationRun{};
+	std::optional<FVector3> AutomationPlayAt{};
+	float AutomationPlayYaw = 0.f;
 	std::optional<std::uint64_t> AutomationInputRequest;
 	std::optional<std::uint64_t> AutomationPlayRequest;
 	std::chrono::steady_clock::time_point AutomationPlayDeadline;

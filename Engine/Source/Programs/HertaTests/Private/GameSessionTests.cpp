@@ -115,6 +115,26 @@ TEST_CASE("Game players jump the Sandbox hurdle limits and respawn after falling
 	CHECK((*Session)->GetObjective().State == EGameObjectiveState::Ready);
 }
 
+TEST_CASE("Game players teleport standing and still, keeping the run, and refuse non-finite places")
+{
+	const FNoGameAssets Assets;
+	const auto Session = FGameSession::Create(MakeCourse(), Assets, nullptr);
+	REQUIRE(Session);
+	FGameSession& Game = **Session;
+	Advance(Game, {.Move = {0.f, 1.f}}, 60);
+	REQUIRE(Game.GetObjective().State == EGameObjectiveState::Running);
+	REQUIRE(Game.TeleportPlayer({3.f, 0.5f, -4.f}, 1.f));
+	CHECK(Game.GetPlayerFootPosition().X == doctest::Approx(3.f));
+	CHECK(Game.GetPlayerFootPosition().Z == doctest::Approx(-4.f));
+	CHECK(Game.GetPlayerVelocity().Length() == 0.f);
+	CHECK(Game.GetPlayerYaw() == doctest::Approx(1.f));
+	CHECK(Game.GetObjective().State == EGameObjectiveState::Running);
+	Advance(Game, {}, 30);
+	CHECK(Game.IsPlayerGrounded());
+	CHECK(Game.GetPlayerFootPosition().Y == doctest::Approx(0.f).epsilon(0.05));
+	CHECK_FALSE(Game.TeleportPlayer({std::nanf(""), 0.f, 0.f}, 0.f));
+}
+
 TEST_CASE("Game sessions reject invalid frame input and levels without a start still play")
 {
 	const FNoGameAssets Assets;

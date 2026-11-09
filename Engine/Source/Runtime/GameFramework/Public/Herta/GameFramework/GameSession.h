@@ -148,6 +148,9 @@ public:
 	[[nodiscard]] FVector3 GetPlayerVelocity() const noexcept;
 	// The look direction around the vertical axis; 0 faces +Z.
 	[[nodiscard]] float GetPlayerYaw() const noexcept;
+	// Places the player standing at Foot and facing Yaw, as a respawn does; the run and its clock carry on.
+	[[nodiscard]] std::expected<void, FGameError> TeleportPlayer(const FVector3& Foot, float Yaw);
+	[[nodiscard]] const FCharacterMover& GetMover() const noexcept;
 	[[nodiscard]] bool IsThirdPerson() const noexcept;
 	// The animated body's active state machine state, or empty without a body.
 	[[nodiscard]] std::optional<std::size_t> GetCharacterState() const noexcept;
