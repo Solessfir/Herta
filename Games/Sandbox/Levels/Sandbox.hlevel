@@ -224,7 +224,17 @@
         "scale": [22, 0.012, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -237,7 +247,17 @@
         "scale": [22, 0.012, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -250,7 +270,17 @@
         "scale": [22, 0.012, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1183,7 +1213,17 @@
         "scale": [0.7, 0.8, 0.7]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1196,7 +1236,17 @@
         "scale": [0.7, 0.8, 0.7]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1209,7 +1259,17 @@
         "scale": [0.7, 0.8, 0.7]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1222,7 +1282,17 @@
         "scale": [0.7, 1.6, 0.7]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": []}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": []},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1235,7 +1305,17 @@
         "scale": [0.7, 1.6, 0.7]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": []}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": []},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1248,7 +1328,17 @@
         "scale": [0.7, 1.6, 0.7]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": []}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": []},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1261,7 +1351,17 @@
         "scale": [0.7, 2.4, 0.7]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1274,7 +1374,17 @@
         "scale": [0.7, 2.4, 0.7]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1287,7 +1397,17 @@
         "scale": [0.7, 2.4, 0.7]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1585,7 +1705,17 @@
         "scale": [24, 0.5, 6.5]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1598,7 +1728,17 @@
         "scale": [23.4, 0.06, 0.075]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1611,7 +1751,17 @@
         "scale": [23.4, 0.04, 0.055]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1624,7 +1774,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1637,7 +1797,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000007"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000007"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1650,7 +1820,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1663,7 +1843,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000008"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000008"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1676,7 +1866,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1689,7 +1889,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000009"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000009"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1702,7 +1912,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1715,7 +1935,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000000a"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000000a"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1728,7 +1958,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1741,7 +1981,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000000b"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000000b"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1754,7 +2004,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1767,7 +2027,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000000c"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000000c"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1780,7 +2050,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1793,7 +2073,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000001"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1806,7 +2096,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1819,7 +2119,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000002"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000002"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1832,7 +2142,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1845,7 +2165,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000003"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000003"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1858,7 +2188,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1871,7 +2211,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000004"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000004"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1884,7 +2234,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1897,7 +2257,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000005"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000005"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1910,7 +2280,17 @@
         "scale": [1.65, 0.2, 1.65]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1923,7 +2303,17 @@
         "scale": [1.4, 1.4, 1.4]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000006"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000006"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -1936,7 +2326,17 @@
         "scale": [8, 0.5, 18]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1949,7 +2349,17 @@
         "scale": [5, 3.4, 0.15]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000011"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000011"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1962,7 +2372,17 @@
         "scale": [4, 2.7, 0.09]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000012"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000012"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1975,7 +2395,17 @@
         "scale": [1.6, 1.6, 1.6]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000011"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000011"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -1988,7 +2418,17 @@
         "scale": [1.8, 1.8, 1.8]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000011"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000011"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2001,7 +2441,17 @@
         "scale": [5, 0.12, 0.18]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000010"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000010"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2014,7 +2464,17 @@
         "scale": [5, 0.12, 0.18]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2027,7 +2487,17 @@
         "scale": [6, 0.04, 5]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2040,7 +2510,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2053,7 +2533,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2066,7 +2556,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2079,7 +2579,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2092,7 +2602,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2105,7 +2625,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2118,7 +2648,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2131,7 +2671,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2144,7 +2694,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2157,7 +2717,17 @@
         "scale": [0.035, 0.55, 4]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2277,7 +2847,17 @@
         "scale": [23, 0.5, 6.5]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2290,7 +2870,17 @@
         "scale": [6.5, 0.06, 6]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2303,7 +2893,17 @@
         "scale": [6.8, 4, 0.25]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2316,7 +2916,17 @@
         "scale": [6.8, 0.3, 6.2]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2329,7 +2939,17 @@
         "scale": [0.2, 4, 6.2]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2342,7 +2962,17 @@
         "scale": [0.2, 4, 6.2]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2355,7 +2985,17 @@
         "scale": [6.2, 0.08, 0.075]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000010"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000010"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2368,7 +3008,17 @@
         "scale": [0.55, 2.2, 0.55]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2381,7 +3031,17 @@
         "scale": [1.6, 1.6, 1.6]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000002"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000002"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2394,7 +3054,17 @@
         "scale": [4.5, 0.025, 3.8]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2407,7 +3077,17 @@
         "scale": [6.5, 0.06, 6]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2420,7 +3100,17 @@
         "scale": [6.8, 4, 0.25]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2433,7 +3123,17 @@
         "scale": [6.8, 0.3, 6.2]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2446,7 +3146,17 @@
         "scale": [0.2, 4, 6.2]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2459,7 +3169,17 @@
         "scale": [0.2, 4, 6.2]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2472,7 +3192,17 @@
         "scale": [6.2, 0.08, 0.075]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2485,7 +3215,17 @@
         "scale": [0.55, 2.2, 0.55]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2498,7 +3238,17 @@
         "scale": [1.6, 1.6, 1.6]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000002"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000002"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2511,7 +3261,17 @@
         "scale": [4.5, 0.025, 3.8]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2524,7 +3284,17 @@
         "scale": [6.5, 0.06, 6]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2537,7 +3307,17 @@
         "scale": [6.8, 4, 0.25]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2550,7 +3330,17 @@
         "scale": [6.8, 0.3, 6.2]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2563,7 +3353,17 @@
         "scale": [0.2, 4, 6.2]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2576,7 +3376,17 @@
         "scale": [0.2, 4, 6.2]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2589,7 +3399,17 @@
         "scale": [6.2, 0.08, 0.075]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2602,7 +3422,17 @@
         "scale": [0.55, 2.2, 0.55]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2615,7 +3445,17 @@
         "scale": [1.6, 1.6, 1.6]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000002"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000002"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2628,7 +3468,17 @@
         "scale": [4.5, 0.025, 3.8]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000d"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2673,7 +3523,17 @@
         "scale": [0.22, 0.22, 0.22]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000010"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000010"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2718,7 +3578,17 @@
         "scale": [0.3, 0.3, 0.15]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000f"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2763,7 +3633,17 @@
         "scale": [2, 0.6, 0.03]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000010"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000010"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2776,7 +3656,17 @@
         "scale": [1.3, 0.2, 1.3]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2789,7 +3679,17 @@
         "scale": [1.1, 1.1, 1.1]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000013"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000013"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2802,7 +3702,17 @@
         "scale": [1.3, 0.2, 1.3]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2815,7 +3725,17 @@
         "scale": [1.1, 1.1, 1.1]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000014"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000014"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2828,7 +3748,17 @@
         "scale": [1.3, 0.2, 1.3]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2841,7 +3771,17 @@
         "scale": [1.1, 1.1, 1.1]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000015"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000015"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2854,7 +3794,17 @@
         "scale": [1.3, 0.2, 1.3]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2867,7 +3817,17 @@
         "scale": [1.1, 1.1, 1.1]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000016"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000016"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2880,7 +3840,17 @@
         "scale": [1.3, 0.2, 1.3]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2893,7 +3863,17 @@
         "scale": [1.1, 1.1, 1.1]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000017"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000017"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2906,7 +3886,17 @@
         "scale": [1.3, 0.2, 1.3]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2919,7 +3909,17 @@
         "scale": [1.1, 1.1, 1.1]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000018"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000018"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2932,7 +3932,17 @@
         "scale": [1.3, 0.2, 1.3]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2945,7 +3955,17 @@
         "scale": [1.1, 1.1, 1.1]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000019"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-000000000019"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2958,7 +3978,17 @@
         "scale": [1.3, 0.2, 1.3]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2971,7 +4001,17 @@
         "scale": [1.1, 1.1, 1.1]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000001a"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000001a"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -2984,7 +4024,17 @@
         "scale": [1.3, 0.2, 1.3]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-00000000000e"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -2997,7 +4047,17 @@
         "scale": [1.1, 1.1, 1.1]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000001b"]}
+        "staticMesh": {"asset": "a4c06010-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06100-2738-4e25-9b9e-00000000001b"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "sphere"
+        }
       }
     },
     {
@@ -3626,7 +4686,17 @@
         "scale": [3, 0.01, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -3639,7 +4709,17 @@
         "scale": [3, 0.01, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -3652,7 +4732,17 @@
         "scale": [3, 0.01, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -3665,7 +4755,17 @@
         "scale": [3, 0.01, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -3678,7 +4778,17 @@
         "scale": [3, 0.01, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -3691,7 +4801,17 @@
         "scale": [3, 0.01, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -3704,7 +4824,17 @@
         "scale": [3, 0.01, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -3717,7 +4847,17 @@
         "scale": [3, 0.01, 0.08]
       },
       "components": {
-        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
       }
     },
     {
@@ -3822,7 +4962,17 @@
         "scale": [0.6, 0.9, 0.6]
       },
       "components": {
-        "staticMesh": {"asset": "a4c06011-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06002-2738-4e25-9b9e-816ae7c00001"]}
+        "staticMesh": {"asset": "a4c06011-2738-4e25-9b9e-816ae7c00001", "materials": ["a4c06002-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "capsule"
+        }
       }
     },
     {
