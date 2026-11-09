@@ -1725,6 +1725,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Mesh render view requires one mesh entry per model"});
 	}
 
+	if (!View.Visibility.empty() && View.Visibility.size() != View.Models.size())
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Mesh visibility needs one entry per model"});
+	}
+
 	if (!View.Materials.empty() && View.Materials.size() != View.Models.size())
 	{
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Material overrides require one slot list per model"});
@@ -1957,8 +1962,15 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		}
 	}
 
+	// View 0 is the camera; every other view renders shadows.
 	const auto IsVisible = [&](const std::size_t ViewIndex, const std::size_t Model)
 	{
+		const EMeshVisibility Visibility = View.Visibility.empty() ? EMeshVisibility::Everywhere : View.Visibility[Model];
+		if (Visibility == (ViewIndex == 0 ? EMeshVisibility::HiddenFromCamera : EMeshVisibility::CameraOnly))
+		{
+			return false;
+		}
+
 		const FImplementation::FModelBounds& Bounds = State.ModelBounds[Model];
 		return IsBoxInFrustum(State.ViewFrustums[ViewIndex], Bounds.Center, Bounds.Extent);
 	};

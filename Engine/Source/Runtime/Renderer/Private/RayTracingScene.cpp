@@ -287,8 +287,10 @@ std::expected<void, FPresentationError> FRayTracingScene::Update(const FMeshRend
 	std::vector<FRayTracingInstance> Instances;
 	for (std::size_t Model = 0; Model < View.Models.size(); ++Model)
 	{
+		// Rays see the world as lights do, so camera-only models stay out and models hidden from the camera stay in.
 		const FRenderMesh* const Mesh = View.Meshes[Model];
-		if (!Mesh || Mesh->Sections.empty())
+		const bool bCameraOnly = !View.Visibility.empty() && View.Visibility[Model] == EMeshVisibility::CameraOnly;
+		if (!Mesh || Mesh->Sections.empty() || bCameraOnly)
 		{
 			continue;
 		}

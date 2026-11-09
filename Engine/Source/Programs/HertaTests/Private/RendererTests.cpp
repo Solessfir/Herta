@@ -1103,6 +1103,61 @@ TEST_CASE("Masked custom materials cut out their own shadows while opaque ones k
 	}));
 }
 
+// A first-person body draws a headless copy for the camera and the intact one into shadows, so each pass must honour a model's visibility.
+TEST_CASE("Camera-only models skip shadows and models hidden from the camera only cast them")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	Visuals.FullscreenVertex.Bytecode = {1};
+	Visuals.ShadowFragment.Bytecode = {1};
+	Visuals.ShadowVertex.Bytecode = {1};
+	Visuals.ShadowInstancedVertex.Bytecode = {1};
+	FShaderAsset Vertex;
+	Vertex.Bytecode = {1};
+	const auto Renderer = FMeshRenderer::Create(Device, Vertex, Vertex, {}, {}, {}, {}, {}, Visuals);
+	REQUIRE(Renderer);
+
+	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Spot, .Intensity = 800.f, .bCastShadows = true, .Range = 20.f}, .Transform = FMatrix4::Translation({0.f, 0.f, -6.f})}};
+	Scene.View.Lights = Lights;
+	const auto Count = [&](const EMeshVisibility Visibility)
+	{
+		const std::array Flags{Visibility};
+		Scene.View.Visibility = Flags;
+		Device.Draws.clear();
+		REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+		std::pair<int, int> CameraAndShadow{};
+		for (const FIndexedDraw& Draw : Device.Draws)
+		{
+			const FGraphicsPipelineDescriptor& Descriptor = std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor;
+			// The cube is the only mesh in the scene: 12 triangles.
+			if (!Draw.Vertices || Draw.IndexCount != 36)
+			{
+				continue;
+			}
+
+			++(Descriptor.VertexFormat == EGraphicsVertexFormat::ShadowMesh ? CameraAndShadow.second : CameraAndShadow.first);
+		}
+
+		return CameraAndShadow;
+	};
+
+	const auto Everywhere = Count(EMeshVisibility::Everywhere);
+	CHECK(Everywhere.first > 0);
+	CHECK(Everywhere.second > 0);
+	const auto CameraOnly = Count(EMeshVisibility::CameraOnly);
+	CHECK(CameraOnly.first == Everywhere.first);
+	CHECK(CameraOnly.second == 0);
+	const auto Hidden = Count(EMeshVisibility::HiddenFromCamera);
+	CHECK(Hidden.first == 0);
+	CHECK(Hidden.second == Everywhere.second);
+
+	const std::array<EMeshVisibility, 2> Mismatched{};
+	Scene.View.Visibility = Mismatched;
+	CHECK_FALSE((*Renderer)->Render({64, 64}, Scene.View));
+}
+
 TEST_CASE("Mesh vertex updates upload inside the frame's recording and must replace every vertex")
 {
 	FTestGraphicsDevice Device;

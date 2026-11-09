@@ -84,6 +84,7 @@ FPlayerCharacter::FPlayerCharacter(std::shared_ptr<const FCookedModel> InModel, 
     , StartMachine(std::move(InMachine))
     , Pose(Library)
     , Vertices(Model->Vertices)
+    , CameraVertices(Model->Vertices)
 {
 }
 
@@ -108,14 +109,24 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 
 	std::unique_ptr<FPlayerCharacter> Character(new FPlayerCharacter(std::move(Model), std::move(*Library), std::move(*Machine)));
 	const auto Names = Character->Library->GetJointNames();
-	const auto Head = std::ranges::find_if(Names, [](const std::string& Name)
+	const auto FindJoint = [&Names](const std::initializer_list<std::string_view> Candidates) -> std::optional<std::size_t>
 	{
-		return Name == "DEF-head" || Name == "head" || Name == "Head";
-	});
+		for (const std::string_view Candidate : Candidates)
+		{
+			if (const auto Found = std::ranges::find(Names, Candidate); Found != Names.end())
+			{
+				return static_cast<std::size_t>(Found - Names.begin());
+			}
+		}
 
-	if (Head != Names.end())
+		return std::nullopt;
+	};
+
+	Character->HeadJoint = FindJoint({"Head", "head", "DEF-head"});
+	Character->HiddenJoint = FindJoint({"neck_01", "neck", "DEF-neck"});
+	if (!Character->HiddenJoint)
 	{
-		Character->HeadJoint = static_cast<std::size_t>(Head - Names.begin());
+		Character->HiddenJoint = Character->HeadJoint;
 	}
 
 	const FAnimationStateMachine& Locomotion = Character->Machine;
@@ -133,7 +144,14 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 			return std::unexpected(FGameError{std::format("Cannot upload the player character: {}", Mesh.error().Message)});
 		}
 
+		auto CameraMesh = FRenderMesh::Create(*Device, *Character->Model, "Player character, first person");
+		if (!CameraMesh)
+		{
+			return std::unexpected(FGameError{std::format("Cannot upload the player character: {}", CameraMesh.error().Message)});
+		}
+
 		Character->Mesh = std::move(*Mesh);
+		Character->CameraMesh = std::move(*CameraMesh);
 	}
 
 	return Character;
@@ -170,20 +188,32 @@ void FPlayerCharacter::Update(const float DeltaSeconds, const FPlayerMotion& Mot
 	Machine.Update(DeltaSeconds);
 }
 
-std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bHideHead)
+std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bFirstPerson)
 {
 	if (const auto Evaluated = Pose.Evaluate(Machine.GetLayers()); !Evaluated)
 	{
 		return std::unexpected(FGameError{Evaluated.error().Message});
 	}
 
-	if (bHideHead && HeadJoint)
+	// ponytail: skins the whole body twice in first person, about 0.16 ms each for the Mannequin; skin only the hidden joints' vertices again if characters multiply.
+	SkinVertices(Pose.GetSkinningMatrices(), Model->Vertices, Model->Influences, Vertices);
+	if (bFirstPerson && HiddenJoint)
 	{
-		Pose.CollapseJoint(*HeadJoint);
+		Pose.CollapseJoint(*HiddenJoint);
+		SkinVertices(Pose.GetSkinningMatrices(), Model->Vertices, Model->Influences, CameraVertices);
 	}
 
-	SkinVertices(Pose.GetSkinningMatrices(), Model->Vertices, Model->Influences, Vertices);
 	return {};
+}
+
+const FRenderMesh* FPlayerCharacter::GetCameraMesh() const noexcept
+{
+	return CameraMesh.get();
+}
+
+std::span<const FCookedVertex> FPlayerCharacter::GetCameraVertices() const noexcept
+{
+	return CameraVertices;
 }
 
 const FRenderMesh* FPlayerCharacter::GetMesh() const noexcept

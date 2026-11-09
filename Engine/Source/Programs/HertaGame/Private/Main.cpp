@@ -601,7 +601,13 @@ int RunGame(const FGameOptions& Options)
 		FGameInput GameInput;
 		if (bSmokeTest)
 		{
-			GameInput = {.Move = {0.f, 1.f}, .YawDelta = Frames % 240 < 120 ? 0.004f : -0.004f, .bJump = Frames % 90 == 45, .bSprint = Frames % 300 > 150, .bCrouch = Frames % 300 > 240, .bThrow = Frames % 40 == 20, .bToggleCamera = Frames == 60};
+			GameInput = {.Move = {0.f, 1.f}, .YawDelta = Frames % 240 < 120 ? 0.004f : -0.004f, .PitchDelta = Frames >= 100 && Frames < 160 ? -0.015f : Frames >= 280 && Frames < 340 ? 0.015f
+			                                                                                                                                                                          : 0.f,
+			    .bJump = Frames % 90 == 45,
+			    .bSprint = Frames % 300 > 150,
+			    .bCrouch = Frames % 300 > 240,
+			    .bThrow = Frames % 40 == 20,
+			    .bToggleCamera = Frames == Options.SmokeFrames / 2 + 40};
 			Input.bEscape = Frames == Options.SmokeFrames / 4 + 30 || Frames == Options.SmokeFrames / 2 || Frames == Options.SmokeFrames / 2 + 20;
 			Input.bRestart = Frames == Options.SmokeFrames * 3 / 4;
 			Input.bFocusLost = Frames == Options.SmokeFrames / 4;

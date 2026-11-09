@@ -79,6 +79,16 @@ struct FRenderMeshVertexUpdate
 	std::span<const FCookedVertex> Vertices{};
 };
 
+// Where a model draws. A first-person body draws a headless copy for the camera and the intact one for shadows and ray-traced lighting, so the camera never sees inside the head while the player still casts a whole shadow.
+enum class EMeshVisibility : std::uint8_t
+{
+	Everywhere,
+	// The camera's view only: no shadows, reflections, or global illumination.
+	CameraOnly,
+	// Shadows, reflections, and global illumination, but never the camera's view.
+	HiddenFromCamera,
+};
+
 struct FMeshRenderView
 {
 	FMatrix4 View;
@@ -96,6 +106,8 @@ struct FMeshRenderView
 	// Model indices outlined as the editor selection.
 	std::span<const std::size_t> Selected{};
 	std::span<const FRenderMeshVertexUpdate> VertexUpdates{};
+	// One entry per model, or empty to draw every model everywhere.
+	std::span<const EMeshVisibility> Visibility{};
 };
 
 class FRenderMaterial final

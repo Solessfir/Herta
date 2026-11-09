@@ -25,7 +25,7 @@ enum class EAnimationParameterType : std::uint8_t
 
 struct FAnimationParameterDesc
 {
-	std::string Name;
+	std::string Name{};
 	EAnimationParameterType Type = EAnimationParameterType::Float;
 	float Default = 0.f;
 };
@@ -33,16 +33,16 @@ struct FAnimationParameterDesc
 // One point of a state's 1D blend: the clip plays alone at Position and fades towards its neighbours between points.
 struct FAnimationBlendSample
 {
-	std::string Clip;
+	std::string Clip{};
 	float Position = 0.f;
 };
 
 struct FAnimationStateDesc
 {
-	std::string Name;
+	std::string Name{};
 	// One sample plays a single clip. Several are a 1D blend along BlendParameter, sorted by position.
-	std::vector<FAnimationBlendSample> Samples;
-	std::optional<std::size_t> BlendParameter;
+	std::vector<FAnimationBlendSample> Samples{};
+	std::optional<std::size_t> BlendParameter{};
 	bool bLoop = true;
 	float Speed = 1.f;
 };
@@ -71,16 +71,16 @@ struct FAnimationTransitionDesc
 	std::size_t From = AnyAnimationState;
 	std::size_t To = 0;
 	float DurationSeconds = 0.2f;
-	std::vector<FAnimationConditionDesc> Conditions;
+	std::vector<FAnimationConditionDesc> Conditions{};
 	bool bAtEnd = false;
 };
 
 // Compiled state machine data, indexed by position. The Animation graph compiles to this; code can also build it directly.
 struct FAnimationStateMachineDesc
 {
-	std::vector<FAnimationParameterDesc> Parameters;
-	std::vector<FAnimationStateDesc> States;
-	std::vector<FAnimationTransitionDesc> Transitions;
+	std::vector<FAnimationParameterDesc> Parameters{};
+	std::vector<FAnimationStateDesc> States{};
+	std::vector<FAnimationTransitionDesc> Transitions{};
 	std::size_t Entry = 0;
 };
 
@@ -135,14 +135,14 @@ private:
 	void AppendLayers(const FPlayback& Playback, float Weight);
 
 	FAnimationStateMachineDesc Desc;
-	std::vector<FResolvedState> Resolved;
-	std::vector<float> Values;
-	std::vector<bool> Triggers;
+	std::vector<FResolvedState> Resolved{};
+	std::vector<float> Values{};
+	std::vector<bool> Triggers{};
 
 	FPlayback Current;
 	std::optional<FPlayback> Previous;
-	std::optional<std::size_t> Transition;
+	std::optional<std::size_t> Transition{};
 	float TransitionElapsed = 0.f;
-	std::vector<FAnimationLayer> Layers;
+	std::vector<FAnimationLayer> Layers{};
 };
 }

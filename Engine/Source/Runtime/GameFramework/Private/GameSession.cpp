@@ -190,6 +190,8 @@ struct FGameSession::FImplementation
 	bool bJumpedThisUpdate = false;
 	float BodyYaw = 0.f;
 	float BoomLength = 0.f;
+	// The first-person eye eases after the head, so the camera follows the body's lean without every bob of the walk.
+	std::optional<FVector3> SmoothedEye{};
 
 	// Render view storage referenced by View.
 	std::vector<FMatrix4> Models{};
@@ -200,6 +202,7 @@ struct FGameSession::FImplementation
 	std::vector<std::span<const FRenderMaterial* const>> MaterialSpans{};
 	std::vector<FRenderLight> Lights{};
 	std::vector<FRenderMeshVertexUpdate> VertexUpdates{};
+	std::vector<EMeshVisibility> Visibility{};
 	FMeshRenderView View{};
 };
 
@@ -426,6 +429,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	Pitch = 0.f;
 	BodyYaw = SpawnYaw;
 	BoomLength = Player.ThirdPersonDistance;
+	SmoothedEye.reset();
 	bJumpedThisUpdate = false;
 	if (Body)
 	{
@@ -941,14 +945,26 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 
 	const float Alpha = Session.Simulation.GetInterpolationAlpha();
 	const FVector3 Foot = Session.PreviousFoot * (1.f - Alpha) + Session.CurrentFoot * Alpha;
+	Session.Visibility.assign(Session.Models.size(), EMeshVisibility::Everywhere);
 	if (Session.Body && Session.Body->GetMesh())
 	{
-		if (const auto Skinned = Session.Body->Skin(!Session.bThirdPerson); Skinned)
+		const bool bFirstPerson = !Session.bThirdPerson && Session.Body->GetCameraMesh();
+		if (const auto Skinned = Session.Body->Skin(bFirstPerson); Skinned)
 		{
+			const FMatrix4 BodyModel = FMatrix4::Translation(Foot) * FMatrix4::Rotation(FQuaternion::FromAxisAngle(FVector3::Up(), Session.BodyYaw));
 			Session.VertexUpdates.push_back({.Mesh = Session.Body->GetMesh(), .Vertices = Session.Body->GetVertices()});
-			Session.Models.push_back(FMatrix4::Translation(Foot) * FMatrix4::Rotation(FQuaternion::FromAxisAngle(FVector3::Up(), Session.BodyYaw)));
+			Session.Models.push_back(BodyModel);
 			Session.Meshes.push_back(Session.Body->GetMesh());
 			Session.MaterialSpans.emplace_back();
+			Session.Visibility.push_back(bFirstPerson ? EMeshVisibility::HiddenFromCamera : EMeshVisibility::Everywhere);
+			if (bFirstPerson)
+			{
+				Session.VertexUpdates.push_back({.Mesh = Session.Body->GetCameraMesh(), .Vertices = Session.Body->GetCameraVertices()});
+				Session.Models.push_back(BodyModel);
+				Session.Meshes.push_back(Session.Body->GetCameraMesh());
+				Session.MaterialSpans.emplace_back();
+				Session.Visibility.push_back(EMeshVisibility::CameraOnly);
+			}
 		}
 	}
 
@@ -975,6 +991,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	    .Lights = Session.Lights,
 	    .Visuals = Visuals,
 	    .VertexUpdates = Session.VertexUpdates,
+	    .Visibility = Session.Visibility,
 	};
 
 	return Session.View;
@@ -982,7 +999,21 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 
 FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot)
 {
-	const FVector3 Eye = Foot + FVector3::Up() * EyeHeight;
+	FVector3 Eye = Foot + FVector3::Up() * EyeHeight;
+	const auto Head = Body ? Body->GetHeadPosition() : std::nullopt;
+	if (!bThirdPerson && Head)
+	{
+		// Eyes sit in front of and above the head joint, in the body's facing, so the camera stays clear of the neck when the body leans.
+		constexpr float EyeAbove = 0.07f;
+		constexpr float EyeAhead = 0.24f;
+		const FQuaternion Facing = FQuaternion::FromAxisAngle(FVector3::Up(), BodyYaw);
+		const FVector3 Target = Foot + Facing.RotateVector(*Head) + FVector3::Up() * EyeAbove + Facing.RotateVector(FVector3::Forward()) * EyeAhead;
+		const float Follow = 1.f - std::exp(-LastDeltaSeconds / 0.05f);
+		SmoothedEye = SmoothedEye ? *SmoothedEye + (Target - *SmoothedEye) * Follow : Target;
+		return *SmoothedEye;
+	}
+
+	SmoothedEye.reset();
 	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
 	if (!bThirdPerson || !World)
 	{
