@@ -87,6 +87,15 @@ struct FEditorDisplayState
 	float SystemPeakLuminance = 0.f;
 };
 
+// The part of the viewport render target the viewport panel shows. The render target also covers the editor's glass panels, which only
+// decorate, so this is where the viewport's perceived center and size come from.
+struct FViewportVisibleRegion
+{
+	std::uint32_t X = 0;
+	std::uint32_t Y = 0;
+	FExtent2D Extent{};
+};
+
 class FEditorFramework final
 {
 public:
@@ -132,6 +141,7 @@ public:
 	std::optional<std::string> ShowCameraBookmark(std::uint32_t Slot);
 	[[nodiscard]] bool IsUnitStatsVisible() const noexcept;
 	[[nodiscard]] FExtent2D GetViewportExtent() const noexcept;
+	[[nodiscard]] FViewportVisibleRegion GetViewportVisibleRegion() const noexcept;
 	[[nodiscard]] FMeshRenderView GetViewportRenderView() const noexcept;
 	[[nodiscard]] std::span<const FDebugDrawList> GetViewportDebugDrawLists() const noexcept;
 	[[nodiscard]] FOutputLogModel& GetOutputLog() noexcept;

@@ -389,7 +389,19 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		FinishAutomationFrame();
 	}
 
-	PlayRenderView = PlaySession->GetRenderView(ViewportExtent);
+	// The editor renders the whole workspace canvas behind its glass panels and shows only the viewport panel's part of it. The game frames
+	// its camera for the panel, so its projection is built for the panel's shape, then widened to the canvas and centered on the panel, as
+	// the editor camera's is; otherwise the character would sit off center and too large.
+	const FExtent2D PanelExtent{
+	    .Width = std::max(static_cast<std::uint32_t>(static_cast<float>(ViewportExtent.Width) * ViewportVisibleSize.X), 1u),
+	    .Height = std::max(static_cast<std::uint32_t>(static_cast<float>(ViewportExtent.Height) * ViewportVisibleSize.Y), 1u),
+	};
+
+	PlayRenderView = PlaySession->GetRenderView(PanelExtent);
+	PlayRenderView.Projection(0, 0) *= ViewportVisibleSize.X;
+	PlayRenderView.Projection(1, 1) *= ViewportVisibleSize.Y;
+	PlayRenderView.Projection(0, 2) = 2.f * ViewportProjectionCenter.X - 1.f;
+	PlayRenderView.Projection(1, 2) = 1.f - 2.f * ViewportProjectionCenter.Y;
 	BuildCollisionDebugDraw();
 
 	// Play keeps the viewport's quality settings, so a tier can be judged in motion.

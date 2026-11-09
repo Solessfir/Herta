@@ -110,6 +110,24 @@ void ReportFailure(const std::string_view Message) noexcept
 }
 
 // Averages whole blocks of pixels down to at most MaximumWidth, so automation captures stay small enough to hand to a client.
+// Keeps the part of an RGBA8 capture the viewport panel shows.
+[[nodiscard]] std::pair<std::vector<std::byte>, FExtent2D> CropCapture(std::vector<std::byte> Pixels, const FExtent2D Extent, const FViewportVisibleRegion& Region)
+{
+	if (Pixels.size() != std::size_t{Extent.Width} * Extent.Height * 4 || Region.X + Region.Extent.Width > Extent.Width || Region.Y + Region.Extent.Height > Extent.Height)
+	{
+		return {std::move(Pixels), Extent};
+	}
+
+	std::vector<std::byte> Output(std::size_t{Region.Extent.Width} * Region.Extent.Height * 4);
+	for (std::uint32_t Row = 0; Row < Region.Extent.Height; ++Row)
+	{
+		const std::size_t Source = (std::size_t{Region.Y + Row} * Extent.Width + Region.X) * 4;
+		std::ranges::copy(std::span(Pixels).subspan(Source, std::size_t{Region.Extent.Width} * 4), Output.begin() + static_cast<std::ptrdiff_t>(std::size_t{Row} * Region.Extent.Width * 4));
+	}
+
+	return {std::move(Output), Region.Extent};
+}
+
 [[nodiscard]] std::pair<std::vector<std::byte>, FExtent2D> ShrinkCapture(std::vector<std::byte> Pixels, const FExtent2D Extent, const std::uint32_t MaximumWidth)
 {
 	const std::uint32_t Factor = std::max(1u, (Extent.Width + MaximumWidth - 1) / std::max(MaximumWidth, 1u));
@@ -1507,7 +1525,9 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 			else
 			{
-				auto [Small, Extent] = ShrinkCapture(std::move(*Pixels), EditorFramework->GetViewportExtent(), Capture->MaximumWidth);
+				// The render target extends behind the editor's glass panels, so the capture keeps only what the viewport panel shows.
+				auto [Visible, VisibleExtent] = CropCapture(std::move(*Pixels), EditorFramework->GetViewportExtent(), EditorFramework->GetViewportVisibleRegion());
+				auto [Small, Extent] = ShrinkCapture(std::move(Visible), VisibleExtent, Capture->MaximumWidth);
 				const std::filesystem::path Path = RepositoryRoot / "Saved/Automation/Captures" / std::format("capture-{}.png", Capture->Id);
 				if (WriteVisualCapture(Path, std::move(Small), Extent))
 				{

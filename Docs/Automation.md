@@ -16,7 +16,7 @@ Coding agents, and any other local MCP client, can drive a running editor throug
 | `editor_status` | The open level, entity count, viewport size, whether writes are allowed, and Play state. |
 | `editor_log` | Log lines after a cursor; pass the returned `since` and `generation` back to read only newer lines. |
 | `level_entities` | Entities with IDs, names, components, and parent-relative translation, rotation, and scale, filtered by `name_contains`. |
-| `viewport_capture` | Renders `frames_ahead` more frames, then returns the viewport as a PNG read back from the GPU, scaled to at most `max_width`. |
+| `viewport_capture` | Renders `frames_ahead` more frames, then returns what the viewport panel shows as a PNG read back from the GPU, scaled to at most `max_width`. The render target extends behind the editor's glass panels; the capture crops to the panel. |
 | `gpu_timings` | GPU milliseconds per render pass in the latest measured frame. |
 | `play_start`, `play_stop` | Start Play, waiting up to 20 s for meshes and the character to load, or stop it. `at` [x, y, z] and `yaw` place the player there once Play runs. |
 | `play_teleport` | Places the player's feet at `position` [x, y, z], facing `yaw` or keeping the current facing, standing and still, as a respawn does. The run and its clock carry on. |

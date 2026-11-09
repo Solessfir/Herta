@@ -1171,6 +1171,21 @@ FExtent2D FEditorFramework::GetViewportExtent() const noexcept
 	return Implementation->ViewportExtent;
 }
 
+FViewportVisibleRegion FEditorFramework::GetViewportVisibleRegion() const noexcept
+{
+	const FImplementation& Editor = *Implementation;
+	const FExtent2D Full = Editor.ViewportExtent;
+	const auto Width = std::clamp(static_cast<std::uint32_t>(static_cast<float>(Full.Width) * Editor.ViewportVisibleSize.X), 1u, std::max(Full.Width, 1u));
+	const auto Height = std::clamp(static_cast<std::uint32_t>(static_cast<float>(Full.Height) * Editor.ViewportVisibleSize.Y), 1u, std::max(Full.Height, 1u));
+	const float Left = Editor.ViewportProjectionCenter.X * static_cast<float>(Full.Width) - static_cast<float>(Width) * 0.5f;
+	const float Top = Editor.ViewportProjectionCenter.Y * static_cast<float>(Full.Height) - static_cast<float>(Height) * 0.5f;
+	return {
+	    .X = std::min(static_cast<std::uint32_t>(std::max(Left, 0.f)), Full.Width - std::min(Width, Full.Width)),
+	    .Y = std::min(static_cast<std::uint32_t>(std::max(Top, 0.f)), Full.Height - std::min(Height, Full.Height)),
+	    .Extent = {.Width = Width, .Height = Height},
+	};
+}
+
 FMeshRenderView FEditorFramework::GetViewportRenderView() const noexcept
 {
 	// The renderer follows the swapchain that will present this frame, not the preference, which may be waiting for an HDR display.
