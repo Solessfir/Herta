@@ -102,7 +102,7 @@ try {
     $ShaderSources = @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow') | ForEach-Object { "Engine/Shaders/$_.slang" }
     $ShaderSources += @('VolumetricFog', 'Gtao') | ForEach-Object { "Engine/Shaders/Compute/$_.slang" }
     $ShaderSources += 'Engine/Shaders/Shared.slangh', 'Engine/Shaders/Compute/Shared.slangh'
-    $ShaderFiles = @('TexturedMesh.instanced.vert', 'TexturedMesh.velocity.frag', 'TexturedMesh.instanced.velocity.vert', 'Shadow.instanced.vert', 'VolumetricFog.comp', 'Gtao.comp')
+    $ShaderFiles = @('TexturedMesh.instanced.vert', 'TexturedMesh.velocity.frag', 'TexturedMesh.instanced.velocity.vert', 'TexturedMesh.surface.frag', 'TexturedMesh.velocity.surface.frag', 'Shadow.instanced.vert', 'VolumetricFog.comp', 'Gtao.comp')
     foreach ($Shader in @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow')) {
         $ShaderFiles += "$Shader.vert", "$Shader.frag"
     }

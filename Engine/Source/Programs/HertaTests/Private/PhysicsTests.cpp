@@ -651,7 +651,16 @@ TEST_CASE("Physics hashes the same after equal steps on every run, thread count,
 	CHECK(bRestoredExactly);
 	StepScene(*Rolled, 90);
 	CHECK(Rolled->ComputeStateHash() == Settled);
+
+	// Damaged or foreign snapshots are rejected before Jolt reads them, leaving the world as it was.
 	CHECK_FALSE(Rolled->RestoreState(std::span(Snapshot).first(Snapshot.size() / 2)));
+	std::vector<std::byte> Damaged = Snapshot;
+	Damaged[Damaged.size() / 2] ^= std::byte{1};
+	CHECK_FALSE(Rolled->RestoreState(Damaged));
+	auto Empty = FPhysicsWorld::Create();
+	REQUIRE(Empty);
+	CHECK_FALSE((*Empty)->RestoreState(Snapshot));
+	CHECK(Rolled->ComputeStateHash() == Settled);
 
 	// Jolt's cross-platform build makes this the same value on Windows and Linux, so CI on both checks it. It changes only with the scene, Jolt, or
 	// its settings; update it deliberately then.
@@ -816,7 +825,13 @@ TEST_CASE("Convex hull and compound bodies settle, and destroyed bodies free the
 
 	std::vector<FPhysicsDebugLine> Lines;
 	(*World)->GetDebugLines(Lines);
-	CHECK(Lines.size() >= 3 * 12);
+	// Both of the compound's boxes draw, each as 12 triangles; only the compound sits above the floor on that side.
+	const auto CompoundLines = std::ranges::count_if(Lines, [](const FPhysicsDebugLine& Line)
+	{
+		return Line.Start.X > 2.5f && Line.Start.Y > 0.5f && Line.End.Y > 0.5f;
+	});
+
+	CHECK(CompoundLines >= 2 * 12 * 3);
 	for (int Step = 0; Step < 120; ++Step)
 	{
 		REQUIRE((*World)->Step(1.f / 60.f));

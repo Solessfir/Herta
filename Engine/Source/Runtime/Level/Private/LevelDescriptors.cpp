@@ -325,7 +325,8 @@ constexpr std::array TransformProperties{
     FLevelPropertyDescriptor{.Key = "scale", .Label = "Scale", .Type = ELevelPropertyType::Vector3, .Default = TransformDefaults.Scale},
 };
 
-constexpr std::array MeshProperties{
+// Not constexpr: MSVC debug builds give std::vector a heap-allocated iterator proxy, which a constant expression cannot keep.
+const std::array MeshProperties{
     FLevelPropertyDescriptor{.Key = "asset", .Label = "Static Mesh", .Type = ELevelPropertyType::AssetReference, .Default = FStaticMeshComponent{}.Asset},
     FLevelPropertyDescriptor{.Key = "materials", .Label = "Materials", .Type = ELevelPropertyType::AssetReferences, .Default = std::vector<FAssetId>{}},
 };

@@ -82,7 +82,7 @@ for shader_source in "${repository_root}"/Engine/Shaders/Compute/*.slang; do
     [[ -f "${shader_source}" ]] || continue
     package_files+=("${binary_directory}/Shaders/$(basename "${shader_source}" .slang).comp.hshader")
 done
-for variant in TexturedMesh.instanced.vert TexturedMesh.velocity.frag TexturedMesh.instanced.velocity.vert Shadow.instanced.vert; do
+for variant in TexturedMesh.instanced.vert TexturedMesh.velocity.frag TexturedMesh.instanced.velocity.vert TexturedMesh.surface.frag TexturedMesh.velocity.surface.frag Shadow.instanced.vert; do
     package_files+=("${binary_directory}/Shaders/${variant}.hshader")
 done
 

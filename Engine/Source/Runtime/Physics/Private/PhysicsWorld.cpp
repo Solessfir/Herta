@@ -16,6 +16,7 @@
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/GroupFilter.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
@@ -36,14 +37,17 @@
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <format>
 #include <mutex>
 #include <string_view>
 #include <thread>
 #include <tuple>
+#include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -908,6 +912,7 @@ void FPhysicsWorld::GetDebugLines(std::vector<FPhysicsDebugLine>& OutLines, cons
 	OutLines.clear();
 	const JPH::BodyLockInterfaceNoLock& Locks = Implementation->Physics.GetBodyLockInterfaceNoLock();
 	std::array<JPH::Float3, 3 * JPH::Shape::cGetTrianglesMinTrianglesRequested> Triangles;
+	JPH::AllHitCollisionCollector<JPH::TransformedShapeCollector> Leaves;
 	for (const JPH::BodyID Id : Implementation->BodyIds)
 	{
 		if (Id.IsInvalid())
@@ -924,22 +929,28 @@ void FPhysicsWorld::GetDebugLines(std::vector<FPhysicsDebugLine>& OutLines, cons
 		const JPH::Body& Body = Lock.GetBody();
 		const EPhysicsMotionType MotionType = Body.IsStatic() ? EPhysicsMotionType::Static : Body.IsKinematic() ? EPhysicsMotionType::Kinematic
 		                                                                                                        : EPhysicsMotionType::Dynamic;
-		JPH::Shape::GetTrianglesContext Context;
-		Body.GetShape()->GetTrianglesStart(Context, JPH::AABox::sBiggest(), JPH::Vec3(Body.GetCenterOfMassPosition()), Body.GetRotation(), JPH::Vec3::sOne());
-		for (int Count = Body.GetShape()->GetTrianglesNext(Context, JPH::Shape::cGetTrianglesMinTrianglesRequested, Triangles.data()); Count > 0; Count = Body.GetShape()->GetTrianglesNext(Context, JPH::Shape::cGetTrianglesMinTrianglesRequested, Triangles.data()))
+		// Compound shapes cannot list triangles themselves, so walk their leaf shapes.
+		Leaves.Reset();
+		Body.GetTransformedShape().CollectTransformedShapes(JPH::AABox::sBiggest(), Leaves);
+		for (const JPH::TransformedShape& Leaf : Leaves.mHits)
 		{
-			for (int Triangle = 0; Triangle < Count; ++Triangle)
+			JPH::Shape::GetTrianglesContext Context;
+			Leaf.GetTrianglesStart(Context, JPH::AABox::sBiggest(), JPH::RVec3::sZero());
+			for (int Count = Leaf.GetTrianglesNext(Context, JPH::Shape::cGetTrianglesMinTrianglesRequested, Triangles.data()); Count > 0; Count = Leaf.GetTrianglesNext(Context, JPH::Shape::cGetTrianglesMinTrianglesRequested, Triangles.data()))
 			{
-				for (int Edge = 0; Edge < 3; ++Edge)
+				for (int Triangle = 0; Triangle < Count; ++Triangle)
 				{
-					if (OutLines.size() >= MaxLines)
+					for (int Edge = 0; Edge < 3; ++Edge)
 					{
-						return;
-					}
+						if (OutLines.size() >= MaxLines)
+						{
+							return;
+						}
 
-					const JPH::Float3& A = Triangles[static_cast<std::size_t>(Triangle * 3 + Edge)];
-					const JPH::Float3& B = Triangles[static_cast<std::size_t>(Triangle * 3 + (Edge + 1) % 3)];
-					OutLines.push_back({.Start = {A.x, A.y, A.z}, .End = {B.x, B.y, B.z}, .MotionType = MotionType, .bSensor = Body.IsSensor(), .bSleeping = !Body.IsActive()});
+						const JPH::Float3& A = Triangles[static_cast<std::size_t>(Triangle * 3 + Edge)];
+						const JPH::Float3& B = Triangles[static_cast<std::size_t>(Triangle * 3 + (Edge + 1) % 3)];
+						OutLines.push_back({.Start = {A.x, A.y, A.z}, .End = {B.x, B.y, B.z}, .MotionType = MotionType, .bSensor = Body.IsSensor(), .bSleeping = !Body.IsActive()});
+					}
 				}
 			}
 		}
@@ -1285,19 +1296,63 @@ std::expected<void, FPhysicsError> FPhysicsWorld::ShiftOrigin(const FWorldPositi
 	return {};
 }
 
-std::vector<std::byte> FPhysicsWorld::SaveState() const
+namespace
+{
+// Jolt trusts its state stream: a truncated or foreign one reads past its end and corrupts the contact cache. Herta frames the stream so damaged data never reaches Jolt.
+struct FStateHeader
+{
+	std::array<char, 4> Magic{'H', 'P', 'S', '1'};
+	std::uint32_t BodyCount = 0;
+	std::uint64_t PayloadBytes = 0;
+	std::uint64_t PayloadHashLow = 0;
+	std::uint64_t PayloadHashHigh = 0;
+};
+
+static_assert(std::is_trivially_copyable_v<FStateHeader> && sizeof(FStateHeader) == 32);
+
+std::string SaveJoltState(const JPH::PhysicsSystem& Physics)
 {
 	JPH::StateRecorderImpl Recorder;
-	Implementation->Physics.SaveState(Recorder);
-	const std::string Data = Recorder.GetData();
-	const auto Bytes = std::as_bytes(std::span(Data));
-	return {Bytes.begin(), Bytes.end()};
+	Physics.SaveState(Recorder);
+	return Recorder.GetData();
+}
+}
+
+std::vector<std::byte> FPhysicsWorld::SaveState() const
+{
+	const std::string Data = SaveJoltState(Implementation->Physics);
+	const auto Payload = std::as_bytes(std::span(Data));
+	const FHash128 Hash = HashBytes(Payload);
+	const FStateHeader Header{.BodyCount = Implementation->Physics.GetNumBodies(), .PayloadBytes = Payload.size(), .PayloadHashLow = Hash.Low, .PayloadHashHigh = Hash.High};
+	std::vector<std::byte> State(sizeof(Header) + Payload.size());
+	std::memcpy(State.data(), &Header, sizeof(Header));
+	std::ranges::copy(Payload, State.begin() + sizeof(Header));
+	return State;
 }
 
 std::expected<void, FPhysicsError> FPhysicsWorld::RestoreState(const std::span<const std::byte> State)
 {
+	FStateHeader Header;
+	if (State.size() < sizeof(Header))
+	{
+		return std::unexpected(FPhysicsError{"The physics state is truncated"});
+	}
+
+	std::memcpy(&Header, State.data(), sizeof(Header));
+	const std::span<const std::byte> Payload = State.subspan(sizeof(Header));
+	const FHash128 Hash = HashBytes(Payload);
+	if (Header.Magic != FStateHeader{}.Magic || Header.PayloadBytes != Payload.size() || Header.PayloadHashLow != Hash.Low || Header.PayloadHashHigh != Hash.High)
+	{
+		return std::unexpected(FPhysicsError{"The physics state is truncated or damaged"});
+	}
+
+	if (Header.BodyCount != Implementation->Physics.GetNumBodies())
+	{
+		return std::unexpected(FPhysicsError{std::format("The physics state holds {} bodies but this world has {}", Header.BodyCount, Implementation->Physics.GetNumBodies())});
+	}
+
 	JPH::StateRecorderImpl Recorder;
-	Recorder.WriteBytes(State.data(), State.size());
+	Recorder.WriteBytes(Payload.data(), Payload.size());
 	if (!Implementation->Physics.RestoreState(Recorder) || Recorder.IsFailed())
 	{
 		return std::unexpected(FPhysicsError{"The physics state does not match this world's bodies and constraints"});
@@ -1311,7 +1366,9 @@ std::expected<void, FPhysicsError> FPhysicsWorld::RestoreState(const std::span<c
 
 std::uint64_t FPhysicsWorld::ComputeStateHash() const
 {
-	const FHash128 Hash = HashBytes(SaveState());
+	// Hashes Jolt's stream alone, so the value matches across platforms whatever framing SaveState adds.
+	const std::string Data = SaveJoltState(Implementation->Physics);
+	const FHash128 Hash = HashBytes(std::as_bytes(std::span(Data)));
 	return Hash.Low ^ Hash.High;
 }
 

@@ -107,7 +107,7 @@ for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
 done
 
 # The package requires the cooked stages of every Engine/Shaders and Compute source; shared .slangh headers cook nothing.
-shader_files=(TexturedMesh.instanced.vert TexturedMesh.velocity.frag TexturedMesh.instanced.velocity.vert Shadow.instanced.vert)
+shader_files=(TexturedMesh.instanced.vert TexturedMesh.velocity.frag TexturedMesh.instanced.velocity.vert TexturedMesh.surface.frag TexturedMesh.velocity.surface.frag Shadow.instanced.vert)
 for shader in TexturedMesh DebugDraw WorldGrid Sky Shadow; do
     write_fixture_file "Engine/Shaders/${shader}.slang"
     shader_files+=("${shader}.vert" "${shader}.frag")

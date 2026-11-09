@@ -50,7 +50,7 @@ foreach ($ShaderSource in $ShaderSources) {
 foreach ($ShaderSource in @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'Engine/Shaders/Compute') -Filter '*.slang' -File -ErrorAction SilentlyContinue | Sort-Object Name)) {
     $RequiredFiles += "$BinaryDirectory/Shaders/$($ShaderSource.BaseName).comp.hshader"
 }
-foreach ($Variant in @('TexturedMesh.instanced.vert', 'TexturedMesh.velocity.frag', 'TexturedMesh.instanced.velocity.vert', 'Shadow.instanced.vert')) {
+foreach ($Variant in @('TexturedMesh.instanced.vert', 'TexturedMesh.velocity.frag', 'TexturedMesh.instanced.velocity.vert', 'TexturedMesh.surface.frag', 'TexturedMesh.velocity.surface.frag', 'Shadow.instanced.vert')) {
     $RequiredFiles += "$BinaryDirectory/Shaders/$Variant.hshader"
 }
 
