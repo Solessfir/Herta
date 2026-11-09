@@ -41,6 +41,12 @@ function HertaApplyToolchainSettings()
         symbols "On"
         optimize "Speed"
 
+    -- Incremental linking patches only the changed functions into the exe, so a one-file edit relinks the editor, game, and tests in about
+    -- a fifth of the time. It requires keeping unreferenced and duplicate functions; Shipping still strips and folds them.
+    filter { "system:windows", "configurations:Development", "kind:ConsoleApp or WindowedApp" }
+        incrementallink "On"
+        linkoptions { "/OPT:NOREF", "/OPT:NOICF" }
+
     filter "configurations:Shipping"
         defines { "HERTA_SHIPPING=1" }
         runtime "Release"
