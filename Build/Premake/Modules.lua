@@ -364,10 +364,11 @@ HertaEditorModule("GraphEditor", {
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
     PrivateDependencies = { "Application", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
-    PrivateThirdPartyDependencies = { "ImGui", "Im3d" }
+    PrivateThirdPartyDependencies = { "ImGui", "Im3d", "SimdJson" }
 })
 
     externalincludedirs {
+        path.join(RepositoryRoot, "External/simdjson"),
         path.join(RepositoryRoot, "External/imgui"),
         path.join(RepositoryRoot, "External/im3d")
     }
@@ -531,6 +532,14 @@ project "HertaTests"
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
     filter {}
+
+-- The MCP stdio server coding agents launch; it reaches a running editor through EditorCore automation and never links the editor itself.
+project "HertaEditorMcp"
+    kind "ConsoleApp"
+    location(path.join(ProjectFilesRoot, "HertaEditorMcp"))
+    ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditorMcp"))
+    externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
+    ApplyRuntimeDependencies { "Core", "EditorCore", "Platform" }
 
 project "HertaEditorCmd"
     kind "ConsoleApp"

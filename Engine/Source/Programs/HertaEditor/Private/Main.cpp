@@ -1,6 +1,8 @@
 #include "Herta/Application/Application.h"
 #include "Herta/Core/Build.h"
+#include "Herta/Core/Json.h"
 #include "Herta/Core/Log.h"
+#include "Herta/EditorCore/Automation.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/ViewportCamera.h"
 #include "Herta/EditorFramework/EditorFramework.h"
@@ -105,6 +107,45 @@ void ReportFailure(const std::string_view Message) noexcept
 	std::ofstream File(Path, std::ios::binary | std::ios::trunc);
 	File.write(Encoded.data(), static_cast<std::streamsize>(Encoded.size()));
 	return !Error && static_cast<bool>(File);
+}
+
+// Averages whole blocks of pixels down to at most MaximumWidth, so automation captures stay small enough to hand to a client.
+[[nodiscard]] std::pair<std::vector<std::byte>, FExtent2D> ShrinkCapture(std::vector<std::byte> Pixels, const FExtent2D Extent, const std::uint32_t MaximumWidth)
+{
+	const std::uint32_t Factor = std::max(1u, (Extent.Width + MaximumWidth - 1) / std::max(MaximumWidth, 1u));
+	if (Factor == 1 || Pixels.size() != std::size_t{Extent.Width} * Extent.Height * 4)
+	{
+		return {std::move(Pixels), Extent};
+	}
+
+	const FExtent2D Small{.Width = Extent.Width / Factor, .Height = Extent.Height / Factor};
+	std::vector<std::byte> Output(std::size_t{Small.Width} * Small.Height * 4);
+	for (std::uint32_t Y = 0; Y < Small.Height; ++Y)
+	{
+		for (std::uint32_t X = 0; X < Small.Width; ++X)
+		{
+			std::array<std::uint32_t, 4> Sum{};
+			for (std::uint32_t BlockY = 0; BlockY < Factor; ++BlockY)
+			{
+				for (std::uint32_t BlockX = 0; BlockX < Factor; ++BlockX)
+				{
+					const std::size_t Source = (std::size_t{Y * Factor + BlockY} * Extent.Width + X * Factor + BlockX) * 4;
+					for (std::size_t Channel = 0; Channel < 4; ++Channel)
+					{
+						Sum[Channel] += std::to_integer<std::uint32_t>(Pixels[Source + Channel]);
+					}
+				}
+			}
+
+			const std::size_t Target = (std::size_t{Y} * Small.Width + X) * 4;
+			for (std::size_t Channel = 0; Channel < 4; ++Channel)
+			{
+				Output[Target + Channel] = static_cast<std::byte>(Sum[Channel] / (Factor * Factor));
+			}
+		}
+	}
+
+	return {std::move(Output), Small};
 }
 
 [[nodiscard]] std::filesystem::path FindRepositoryRoot(const std::filesystem::path& ExecutablePath)
@@ -221,7 +262,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const std::string_view ExposureArgument, const bool bShimmer, const bool bWalk, const std::string_view HoldBookmarkArgument)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const std::string_view ExposureArgument, const bool bShimmer, const bool bWalk, const std::string_view HoldBookmarkArgument, const std::string_view AutomationArgument)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -1374,6 +1415,116 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	constexpr std::size_t ScalingSampleFrames = 240;
 	constexpr std::array<std::string_view, 4> ScalingPhaseNames{"rendering", "selected", "simulation", "restored"};
 	constexpr std::array<std::string_view, 5> ScalingMetricNames{"cpu_frame", "inspectors", "extraction", "simulation_and_sync", "render_submission"};
+	// --automation lets a local client such as HertaEditorMcp drive this editor; --automation=write also allows tools that change content.
+	std::unique_ptr<FAutomationServer> Automation;
+	if (!AutomationArgument.empty())
+	{
+		auto Created = FAutomationServer::Create({.SessionDirectory = RepositoryRoot / "Saved/Automation", .bAllowWrites = AutomationArgument == "write"});
+		if (Created)
+		{
+			Automation = std::move(*Created);
+			HERTA_LOG_INFO(*Log, EditorLog, "Automation is listening{}; clients find it through {}", Automation->AllowsWrites() ? " with writes allowed" : "", Automation->GetSessionFile().string());
+		}
+		else
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not start automation: {}", Created.error().Message);
+		}
+	}
+
+	struct FAutomationCapture
+	{
+		std::uint64_t Id = 0;
+		int FramesLeft = 0;
+		std::uint32_t MaximumWidth = 1280;
+	};
+
+	std::vector<FAutomationCapture> AutomationCaptures;
+	const auto PumpAutomation = [&](const bool bPresented)
+	{
+		if (!Automation)
+		{
+			return;
+		}
+
+		for (FAutomationRequest& Request : Automation->TakeRequests())
+		{
+			if (Request.Tool == "viewport_capture")
+			{
+				// Arguments are parsed loosely here; a missing or odd value keeps the default.
+				const auto Read = [&Request](const std::string_view Key, const int Default)
+				{
+					const std::string Pattern = std::format("\"{}\":", Key);
+					const std::size_t At = Request.Arguments.find(Pattern);
+					int Value = Default;
+					if (At != std::string::npos)
+					{
+						const char* const Start = Request.Arguments.data() + At + Pattern.size();
+						std::from_chars(Start, Request.Arguments.data() + Request.Arguments.size(), Value);
+					}
+
+					return Value;
+				};
+
+				AutomationCaptures.push_back({.Id = Request.Id, .FramesLeft = std::clamp(Read("frames_ahead", 1), 1, 600), .MaximumWidth = static_cast<std::uint32_t>(std::clamp(Read("max_width", 1280), 64, 7680))});
+			}
+			else if (Request.Tool == "gpu_timings")
+			{
+				std::string Output = "{\"passes\": [";
+				const auto Timings = MeshRenderer->GetGpuTimings();
+				for (std::size_t Index = 0; Index < Timings.size(); ++Index)
+				{
+					Output += Index == 0 ? "{\"name\": " : ", {\"name\": ";
+					AppendJsonString(Output, Timings[Index].Name);
+					Output += std::format(", \"ms\": {:.4f}}}", Timings[Index].Milliseconds);
+				}
+
+				Automation->Respond(Request.Id, Output + "]}");
+			}
+			else if (!EditorFramework->HandleAutomation(*Automation, Request))
+			{
+				Automation->Fail(Request.Id, "unknown_tool", std::format("The editor has no tool named '{}'", Request.Tool));
+			}
+		}
+
+		EditorFramework->UpdateAutomation(*Automation);
+		for (auto Capture = AutomationCaptures.begin(); Capture != AutomationCaptures.end();)
+		{
+			if (bPresented)
+			{
+				--Capture->FramesLeft;
+			}
+
+			if (Capture->FramesLeft > 0)
+			{
+				++Capture;
+				continue;
+			}
+
+			auto Pixels = Presentation->GetGraphicsDevice().ReadbackTexture(MeshRenderer->GetColorTarget());
+			if (!Pixels)
+			{
+				Automation->Fail(Capture->Id, "capture_failed", Pixels.error().Message);
+			}
+			else
+			{
+				auto [Small, Extent] = ShrinkCapture(std::move(*Pixels), EditorFramework->GetViewportExtent(), Capture->MaximumWidth);
+				const std::filesystem::path Path = RepositoryRoot / "Saved/Automation/Captures" / std::format("capture-{}.png", Capture->Id);
+				if (WriteVisualCapture(Path, std::move(Small), Extent))
+				{
+					std::string Output = "{\"image\": ";
+					AppendJsonString(Output, Path.string());
+					Automation->Respond(Capture->Id, Output + std::format(", \"width\": {}, \"height\": {}}}", Extent.Width, Extent.Height));
+				}
+				else
+				{
+					Automation->Fail(Capture->Id, "capture_failed", "Could not write the capture");
+				}
+			}
+
+			Capture = AutomationCaptures.erase(Capture);
+		}
+	};
+
 	while (!bRenderFailed)
 	{
 		if (Window.ShouldClose())
@@ -1471,6 +1622,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		{
 			break;
 		}
+
+		PumpAutomation(bPresented);
 
 		if (bPresented)
 		{
@@ -1878,6 +2031,9 @@ int main(const int ArgumentCount, char** const Arguments)
 		const bool bPathTracing = Herta::HasArgument(ArgumentCount, Arguments, "--path-tracing");
 		const std::string_view Exposure = Herta::FindArgumentValue(ArgumentCount, Arguments, "--exposure=");
 		const bool bShimmer = Herta::HasArgument(ArgumentCount, Arguments, "--shimmer");
+		const std::string_view AutomationValue = Herta::FindArgumentValue(ArgumentCount, Arguments, "--automation=");
+		const std::string_view Automation = !AutomationValue.empty() ? AutomationValue : Herta::HasArgument(ArgumentCount, Arguments, "--automation") ? std::string_view("read")
+		                                                                                                                                              : std::string_view();
 		const bool bWalk = Herta::HasArgument(ArgumentCount, Arguments, "--walk");
 		const std::string_view HoldBookmark = Herta::FindArgumentValue(ArgumentCount, Arguments, "--hold-bookmark=");
 		// Explorer passes a file dropped on the executable as a plain argument.
@@ -1891,7 +2047,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, Exposure, bShimmer, bWalk, HoldBookmark);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, Exposure, bShimmer, bWalk, HoldBookmark, Automation);
 	}
 	catch (const std::exception& Exception)
 	{

@@ -2,7 +2,7 @@
 
 A C++23 game engine for Windows and Linux, built around Vulkan. Inspired by Unreal Engine, with a modular architecture.
 
-Herta is a learning project in active development, not a production-ready engine. Author levels with undo/redo, editable PBR materials, lights and shadows, sky/atmosphere, volumetric fog, and SMAA. The editor includes asset import, live reimport, and Jolt Physics simulation. The standalone game runtime is next.
+Herta is a learning project in active development, not a production-ready engine. Author levels with undo/redo, editable PBR materials, lights and shadows, sky/atmosphere, volumetric fog, and SMAA. The editor includes asset import, live reimport, deterministic Jolt Physics with destruction, Material Graphs, and Play with an animated first-person or third-person character; the standalone game packages the same session. Coding agents can drive a running editor over MCP.
 
 ![Herta Editor](.github/Herta.png)
 
@@ -50,7 +50,9 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Materials](Docs/Materials.md) - PBR assets, texture maps, live editing, and custom shaders.
 - [Engine design](Docs/EngineDesign.md) - architecture and roadmap.
 - [Game runtime](Docs/Game.md) - HertaGame, editor Play, staging, and packaging.
-- [Next milestone](Docs/EngineDesign.md#milestone-6---raster-renderer-scaling) - raster renderer scaling, then hardware ray tracing and dynamic GI in Milestone 6.5.
+- [Physics](Docs/Physics.md) and [Animation](Docs/Animation.md) - determinism, collision, destruction, skinned characters, and state machines.
+- [Editor automation](Docs/Automation.md) - driving a running editor from MCP clients such as coding agents.
+- [Next milestone](Docs/EngineDesign.md#milestone-75---editor-automation-over-mcp-in-progress) - editor automation over MCP, then the rest of Milestone 8 - Animation.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
 - [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.
 

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "herta-editor": {
+      "type": "stdio",
+      "command": "Binaries/windows/x86_64/Development/HertaEditorMcp.exe",
+      "args": []
+    }
+  }
+}

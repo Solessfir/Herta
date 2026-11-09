@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -33,4 +35,7 @@ enum class EPlatform : std::uint8_t
 
 // Process arguments after the executable, as paths. Windows rereads the wide command line so non-ANSI paths, such as files dropped on the executable, survive.
 [[nodiscard]] std::vector<std::filesystem::path> GetProcessArgumentPaths(int ArgumentCount, char** Arguments);
+
+// An environment variable's value, or empty when it is unset or empty.
+[[nodiscard]] std::optional<std::string> ReadEnvironment(const char* Name);
 }

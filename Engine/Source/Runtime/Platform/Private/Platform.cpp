@@ -79,4 +79,23 @@ std::vector<std::filesystem::path> GetProcessArgumentPaths(const int ArgumentCou
 
 	return Result;
 }
+
+std::optional<std::string> ReadEnvironment(const char* const Name)
+{
+#ifdef HERTA_PLATFORM_WINDOWS
+	char* Value = nullptr;
+	std::size_t Length = 0;
+	std::optional<std::string> Result;
+	if (_dupenv_s(&Value, &Length, Name) == 0 && Value != nullptr && *Value != '\0')
+	{
+		Result = Value;
+	}
+
+	std::free(Value);
+	return Result;
+#else
+	const char* const Value = std::getenv(Name);
+	return Value != nullptr && *Value != '\0' ? std::optional<std::string>(Value) : std::nullopt;
+#endif
+}
 }

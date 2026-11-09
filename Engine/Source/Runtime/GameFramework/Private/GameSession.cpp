@@ -1040,6 +1040,17 @@ std::optional<std::size_t> FGameSession::GetCharacterState() const noexcept
 	return Implementation->Body ? std::optional(Implementation->Body->GetStateMachine().GetActiveState()) : std::nullopt;
 }
 
+std::string_view FGameSession::GetCharacterStateName() const noexcept
+{
+	if (!Implementation->Body)
+	{
+		return {};
+	}
+
+	const FAnimationStateMachine& Machine = Implementation->Body->GetStateMachine();
+	return Machine.GetDesc().States[Machine.GetActiveState()].Name;
+}
+
 const FPhysicsWorld* FGameSession::GetPhysicsWorld() const noexcept
 {
 	return const_cast<FLevelSimulation&>(Implementation->Simulation).GetPhysicsWorld();

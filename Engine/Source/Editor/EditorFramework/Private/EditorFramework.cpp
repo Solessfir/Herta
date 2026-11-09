@@ -7,6 +7,7 @@
 #include "Herta/Application/Application.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Core/Build.h"
+#include "Herta/Core/Json.h"
 #include "Herta/Core/Log.h"
 #include "Herta/EditorCore/CommandRegistry.h"
 #include "Herta/EditorCore/LevelCommands.h"
@@ -52,6 +53,7 @@
 #include <im3d_math.h>
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <simdjson.h>
 
 #include <algorithm>
 #include <array>
@@ -59,6 +61,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <deque>
 #include <format>
 #include <fstream>
 #include <iterator>
@@ -528,6 +531,7 @@ struct FEditorFramework::FImplementation
 	void DrawPreviewGizmo(FPreviewObject& Object);
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void BuildCollisionDebugDraw();
+	[[nodiscard]] std::string DescribePlay() const;
 	// The level's player character, chosen from the models in content.
 	void DrawPlayerCharacterPicker(float ValueWidth);
 	void FocusPreview();
@@ -700,6 +704,12 @@ struct FEditorFramework::FImplementation
 	std::size_t PlayMenuFocus = 0;
 	std::optional<std::size_t> PlayMenuChoice;
 	bool bScriptedPlay = false;
+	// Automation drives Play with queued per-frame input and answers some calls on a later frame.
+	std::deque<FGameInput> AutomationInput;
+	std::optional<std::uint64_t> AutomationInputRequest;
+	std::optional<std::uint64_t> AutomationPlayRequest;
+	std::chrono::steady_clock::time_point AutomationPlayDeadline;
+	std::chrono::steady_clock::time_point AutomationPlayRetry;
 	// Shift+Space starts play, so Space must come up once before it can jump.
 	bool bPlayJumpArmed = false;
 	// This frame's gamepad and the previous one's, so buttons act once per press.
@@ -5205,17 +5215,28 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	const ImGuiIO& IO = ImGui::GetIO();
 	// Start pauses like Shift+Esc, and B backs out of the menu.
 	const bool bGamepadPause = IsPlayGamepadPressed(EGamepadButton::Start) || (bPlayPaused && IsPlayGamepadPressed(EGamepadButton::East));
-	if (!bScriptedPlay && (IO.AppFocusLost || bGamepadPause || (IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape, false))))
+	const bool bAutomationDriven = !AutomationInput.empty();
+	if (!bScriptedPlay && !bAutomationDriven && (IO.AppFocusLost || bGamepadPause || (IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape, false))))
 	{
 		bPlayPaused = IO.AppFocusLost || !bPlayPaused;
 		PlayMenuFocus = 0;
 	}
 
-	const bool bFocused = !bPlayPaused && (bScriptedPlay || (!IO.AppFocusLost && ToolUI->IsPanelFocused("Viewport")));
-	ToolUI->SetCursorCaptured(bFocused && !bScriptedPlay);
+	if (bAutomationDriven)
+	{
+		bPlayPaused = false;
+	}
+
+	const bool bFocused = !bPlayPaused && (bScriptedPlay || bAutomationDriven || (!IO.AppFocusLost && ToolUI->IsPanelFocused("Viewport")));
+	ToolUI->SetCursorCaptured(bFocused && !bScriptedPlay && !bAutomationDriven);
 	bPlayJumpArmed |= !ImGui::IsKeyDown(ImGuiKey_Space);
 	FGameInput Input;
-	if (bScriptedPlay)
+	if (bAutomationDriven)
+	{
+		Input = AutomationInput.front();
+		AutomationInput.pop_front();
+	}
+	else if (bScriptedPlay)
 	{
 		const std::uint32_t Frame = ScriptedPlayFrame++;
 		Input = {.Move = {0.f, 1.f}, .YawDelta = Frame % 240 < 120 ? 0.004f : -0.004f, .bJump = Frame % 90 == 45};
@@ -5250,7 +5271,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		}
 	}
 
-	if (bFocused && PlayGamepad)
+	if (bFocused && PlayGamepad && !bAutomationDriven)
 	{
 		PlayGamepadControls.Apply(Input, GetGameGamepad(*PlayGamepad), DeltaSeconds);
 	}
@@ -5259,7 +5280,10 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		PlayGamepadControls.Reset();
 	}
 
-	if (auto Updated = PlaySession->Update(bFocused ? DeltaSeconds : 0.f, Input); !Updated)
+	// Automation steps a fixed 1/60 s per frame, so N frames of scripted input play the same however fast the editor is drawing.
+	const float StepSeconds = bAutomationDriven ? 1.f / 60.f : bFocused ? DeltaSeconds
+	                                                                    : 0.f;
+	if (auto Updated = PlaySession->Update(StepSeconds, Input); !Updated)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Play stopped: {}", Updated.error().Message);
 		TogglePlay();
@@ -6532,5 +6556,291 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 
 	ToolUI->EndPanel();
 	return {};
+}
+
+namespace
+{
+// Reads a tool call's arguments; a malformed object reads as empty, so every argument falls back to its default.
+class FAutomationArguments
+{
+public:
+	explicit FAutomationArguments(const std::string& Text)
+	{
+		simdjson::dom::element Root;
+		bValid = !Parser.parse(Text).get(Root) && !Root.get_object().get(Object);
+	}
+
+	[[nodiscard]] double Number(const std::string_view Key, const double Default) const
+	{
+		double Value = Default;
+		if (bValid && Object[Key].get_double().get(Value))
+		{
+			std::int64_t Integer = 0;
+			return Object[Key].get_int64().get(Integer) ? Default : static_cast<double>(Integer);
+		}
+
+		return std::isfinite(Value) ? Value : Default;
+	}
+
+	[[nodiscard]] bool Flag(const std::string_view Key) const
+	{
+		bool bValue = false;
+		return bValid && !Object[Key].get_bool().get(bValue) && bValue;
+	}
+
+	[[nodiscard]] std::string_view Text(const std::string_view Key) const
+	{
+		std::string_view Value;
+		return bValid && !Object[Key].get_string().get(Value) ? Value : std::string_view{};
+	}
+
+	[[nodiscard]] std::array<double, 2> Pair(const std::string_view Key) const
+	{
+		std::array<double, 2> Values{};
+		simdjson::dom::array Array;
+		if (!bValid || Object[Key].get_array().get(Array) || Array.size() != 2)
+		{
+			return Values;
+		}
+
+		std::size_t Index = 0;
+		for (const auto Element : Array)
+		{
+			double Value = 0.;
+			Values[Index++] = !Element.get_double().get(Value) && std::isfinite(Value) ? Value : 0.;
+		}
+
+		return Values;
+	}
+
+private:
+	simdjson::dom::parser Parser;
+	simdjson::dom::object Object;
+	bool bValid = false;
+};
+
+void AppendVector(std::string& Output, const FVector3& Value)
+{
+	Output += std::format("[{:.4f}, {:.4f}, {:.4f}]", Value.X, Value.Y, Value.Z);
+}
+}
+
+std::string FEditorFramework::FImplementation::DescribePlay() const
+{
+	std::string Output = std::format("{{\"playing\": {}", PlaySession ? "true" : "false");
+	if (PlaySession)
+	{
+		Output += std::format(", \"paused\": {}, \"grounded\": {}, \"crouched\": {}, \"sliding\": {}, \"thirdPerson\": {}", bPlayPaused ? "true" : "false", PlaySession->IsPlayerGrounded() ? "true" : "false",
+		    PlaySession->IsPlayerCrouched() ? "true" : "false", PlaySession->IsPlayerSliding() ? "true" : "false", PlaySession->IsThirdPerson() ? "true" : "false");
+		Output += ", \"foot\": ";
+		AppendVector(Output, PlaySession->GetPlayerFootPosition());
+		Output += ", \"velocity\": ";
+		AppendVector(Output, PlaySession->GetPlayerVelocity());
+		Output += ", \"animationState\": ";
+		AppendJsonString(Output, PlaySession->GetCharacterStateName());
+		const FGameObjective& Objective = PlaySession->GetObjective();
+		Output += std::format(", \"objective\": {{\"state\": {}, \"seconds\": {:.3f}}}", static_cast<int>(Objective.State), Objective.ElapsedSeconds);
+	}
+
+	return Output + "}";
+}
+
+bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutomationRequest& Request)
+{
+	FImplementation& Editor = *Implementation;
+	const FAutomationArguments Arguments(Request.Arguments);
+	const std::string_view Tool = Request.Tool;
+	if (Tool == "editor_status")
+	{
+		std::string Output = "{\"level\": ";
+		const std::u8string LevelPath = Editor.Level ? Editor.Level->GetPath().generic_u8string() : std::u8string();
+		AppendJsonString(Output, std::string_view(reinterpret_cast<const char*>(LevelPath.data()), LevelPath.size()));
+		const FExtent2D Extent = Editor.ViewportExtent;
+		Output += std::format(", \"entities\": {}, \"viewport\": [{}, {}], \"writes\": {}, \"play\": ", Editor.Level ? Editor.Level->GetWorld().SnapshotEntities().size() : 0, Extent.Width, Extent.Height, Server.AllowsWrites() ? "true" : "false");
+		Output += Editor.DescribePlay();
+		Server.Respond(Request.Id, Output + "}");
+		return true;
+	}
+
+	if (Tool == "editor_log")
+	{
+		const auto Since = static_cast<std::uint64_t>(std::max(0., Arguments.Number("since", 0.)));
+		const auto Limit = static_cast<std::size_t>(std::clamp(Arguments.Number("limit", 200.), 1., 2000.));
+		const FLogReadResult Read = Editor.Log->ReadEditorBuffer({.NextSequence = Since, .Generation = static_cast<std::uint64_t>(std::max(0., Arguments.Number("generation", 0.)))}, Limit);
+		std::string Output = "{\"lines\": [";
+		for (std::size_t Index = 0; Index < Read.Records.size(); ++Index)
+		{
+			const FLogRecord& Record = Read.Records[Index];
+			Output += Index == 0 ? "" : ", ";
+			AppendJsonString(Output, std::format("[{}] [{}] {}", GetLogLevelName(Record.Level), Record.Category, Record.Message));
+		}
+
+		Output += std::format("], \"since\": {}, \"generation\": {}, \"truncated\": {}}}", Read.NextCursor.NextSequence, Read.NextCursor.Generation, Read.bHistoryTruncated ? "true" : "false");
+		Server.Respond(Request.Id, Output);
+		return true;
+	}
+
+	if (Tool == "level_entities")
+	{
+		if (!Editor.Level)
+		{
+			Server.Fail(Request.Id, "no_level", "No level is open");
+			return true;
+		}
+
+		const std::string_view Filter = Arguments.Text("name_contains");
+		const auto Limit = static_cast<std::size_t>(std::clamp(Arguments.Number("limit", 100.), 1., 5000.));
+		std::string Output = "{\"entities\": [";
+		std::size_t Count = 0;
+		std::size_t Matched = 0;
+		for (const FLevelEntity& Entity : Editor.Level->GetWorld().SnapshotEntities())
+		{
+			if (!Filter.empty() && Entity.Name.find(Filter) == std::string::npos)
+			{
+				continue;
+			}
+
+			++Matched;
+			if (Count == Limit)
+			{
+				continue;
+			}
+
+			Output += Count++ == 0 ? "{\"id\": " : ", {\"id\": ";
+			AppendJsonString(Output, Entity.Id.ToString());
+			Output += ", \"name\": ";
+			AppendJsonString(Output, Entity.Name);
+			Output += std::format(", \"translation\": [{:.3f}, {:.3f}, {:.3f}], \"components\": [", Entity.Transform.Translation.Meters.X, Entity.Transform.Translation.Meters.Y, Entity.Transform.Translation.Meters.Z);
+			const std::array<std::pair<std::string_view, bool>, 10> Present{{
+			    {"staticMesh", Entity.Mesh.has_value()},
+			    {"rigidBody", Entity.BodyType != ELevelBodyType::None},
+			    {"light", Entity.Light.has_value()},
+			    {"skyAtmosphere", Entity.SkyAtmosphere.has_value()},
+			    {"heightFog", Entity.HeightFog.has_value()},
+			    {"softBody", Entity.SoftBody.has_value()},
+			    {"mover", Entity.Mover.has_value()},
+			    {"trigger", Entity.Trigger.has_value()},
+			    {"constraint", Entity.Constraint.has_value()},
+			    {"destructible", Entity.Destructible.has_value()},
+			}};
+			std::vector<std::string_view> Components;
+			for (const auto& [Key, bPresent] : Present)
+			{
+				if (bPresent)
+				{
+					Components.push_back(Key);
+				}
+			}
+
+			for (std::size_t Index = 0; Index < Components.size(); ++Index)
+			{
+				Output += Index == 0 ? "" : ", ";
+				AppendJsonString(Output, Components[Index]);
+			}
+
+			Output += "]}";
+		}
+
+		Server.Respond(Request.Id, Output + std::format("], \"matched\": {}}}", Matched));
+		return true;
+	}
+
+	if (Tool == "play_state")
+	{
+		Server.Respond(Request.Id, Editor.DescribePlay());
+		return true;
+	}
+
+	if (Tool == "play_start")
+	{
+		if (Editor.PlaySession)
+		{
+			Server.Respond(Request.Id, Editor.DescribePlay());
+			return true;
+		}
+
+		// Play may wait for meshes or the character to load, so keep trying for a while before giving up.
+		Editor.AutomationPlayRequest = Request.Id;
+		Editor.AutomationPlayDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+		Editor.AutomationPlayRetry = {};
+		return true;
+	}
+
+	if (Tool == "play_stop")
+	{
+		Editor.AutomationInput.clear();
+		if (Editor.PlaySession)
+		{
+			Editor.TogglePlay();
+		}
+
+		Server.Respond(Request.Id, Editor.DescribePlay());
+		return true;
+	}
+
+	if (Tool == "play_input")
+	{
+		if (!Editor.PlaySession)
+		{
+			Server.Fail(Request.Id, "not_playing", "Start Play with play_start first");
+			return true;
+		}
+
+		if (Editor.AutomationInputRequest)
+		{
+			Server.Fail(Request.Id, "busy", "Earlier play_input is still running");
+			return true;
+		}
+
+		const auto Frames = static_cast<std::size_t>(std::clamp(Arguments.Number("frames", 60.), 1., 3600.));
+		const auto Move = Arguments.Pair("move");
+		const auto Look = Arguments.Pair("look");
+		for (std::size_t Frame = 0; Frame < Frames; ++Frame)
+		{
+			Editor.AutomationInput.push_back({
+			    .Move = {static_cast<float>(std::clamp(Move[0], -1., 1.)), static_cast<float>(std::clamp(Move[1], -1., 1.))},
+			    .YawDelta = static_cast<float>(Look[0] / static_cast<double>(Frames)),
+			    .PitchDelta = static_cast<float>(Look[1] / static_cast<double>(Frames)),
+			    .bJump = Frame == 0 && Arguments.Flag("jump"),
+			    .bSprint = Arguments.Flag("sprint"),
+			    .bCrouch = Arguments.Flag("crouch"),
+			    .bThrow = Frame == 0 && Arguments.Flag("throw"),
+			    .bToggleCamera = Frame == 0 && Arguments.Flag("toggle_camera"),
+			});
+		}
+
+		Editor.AutomationInputRequest = Request.Id;
+		return true;
+	}
+
+	return false;
+}
+
+void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
+{
+	FImplementation& Editor = *Implementation;
+	if (Editor.AutomationPlayRequest)
+	{
+		const auto Now = std::chrono::steady_clock::now();
+		if (Editor.PlaySession)
+		{
+			Server.Respond(*std::exchange(Editor.AutomationPlayRequest, std::nullopt), Editor.DescribePlay());
+		}
+		else if (Now >= Editor.AutomationPlayDeadline)
+		{
+			Server.Fail(*std::exchange(Editor.AutomationPlayRequest, std::nullopt), "play_not_started", "Play did not start within 20 seconds; read editor_log for the reason");
+		}
+		else if (Now >= Editor.AutomationPlayRetry)
+		{
+			Editor.AutomationPlayRetry = Now + std::chrono::milliseconds(250);
+			Editor.TogglePlay();
+		}
+	}
+
+	if (Editor.AutomationInputRequest && (Editor.AutomationInput.empty() || !Editor.PlaySession))
+	{
+		Editor.AutomationInput.clear();
+		Server.Respond(*std::exchange(Editor.AutomationInputRequest, std::nullopt), Editor.DescribePlay());
+	}
 }
 }

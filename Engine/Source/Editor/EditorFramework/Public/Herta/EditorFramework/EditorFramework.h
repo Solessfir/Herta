@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/EditorCore/Automation.h"
 #include "Herta/EditorFramework/OutputLog.h"
 #include "Herta/RHI/Presentation.h"
 #include "Herta/Renderer/MeshRenderer.h"
@@ -135,6 +136,10 @@ public:
 	[[nodiscard]] std::span<const FDebugDrawList> GetViewportDebugDrawLists() const noexcept;
 	[[nodiscard]] FOutputLogModel& GetOutputLog() noexcept;
 	[[nodiscard]] const FOutputLogModel& GetOutputLog() const noexcept;
+	// Answers automation calls about the editor, the level, Play, and the log. Returns false for tools it does not know, so the host can answer them.
+	bool HandleAutomation(FAutomationServer& Server, const FAutomationRequest& Request);
+	// Finishes calls that take several frames, such as starting Play or scripted Play input. Call once a frame.
+	void UpdateAutomation(FAutomationServer& Server);
 
 private:
 	explicit FEditorFramework(std::unique_ptr<FImplementation> Implementation) noexcept;

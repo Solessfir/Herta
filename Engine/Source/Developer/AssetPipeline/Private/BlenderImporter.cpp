@@ -1,6 +1,7 @@
 #include "BlenderImporter.h"
 
 #include "FileUtilities.h"
+#include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
 
 #include <algorithm>
@@ -40,25 +41,6 @@ bpy.ops.export_scene.gltf(filepath=output, export_format="GLB", export_apply=Tru
 // A wedged Blender inside the worker must not outlive it on Linux, where it runs in its own process group.
 constexpr std::chrono::minutes ExportTimeout{5};
 constexpr std::uint64_t MaximumGlbSize = std::uint64_t{1} << 30;
-
-[[nodiscard]] std::optional<std::string> ReadEnvironment(const char* const Name)
-{
-#ifdef HERTA_PLATFORM_WINDOWS
-	char* Value = nullptr;
-	std::size_t Length = 0;
-	std::optional<std::string> Result;
-	if (_dupenv_s(&Value, &Length, Name) == 0 && Value != nullptr && *Value != '\0')
-	{
-		Result = Value;
-	}
-
-	std::free(Value);
-	return Result;
-#else
-	const char* const Value = std::getenv(Name);
-	return Value != nullptr && *Value != '\0' ? std::optional<std::string>(Value) : std::nullopt;
-#endif
-}
 
 // "5.2.2" becomes {5, 2, 2}; text that is not a dotted number yields an empty list.
 [[nodiscard]] std::vector<int> ParseVersion(const std::string_view Text)
