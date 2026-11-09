@@ -1,10 +1,12 @@
 ---
 # optin.performance.Padding is off: it flags pimpl structs, whose members are grouped by concern and destruction order rather than size.
+# optin.portability.UnixAPI is off: its only findings are zero-byte mallocs inside vendored single-header implementations, which Herta never edits.
 Checks: >
   -*,
   clang-analyzer-*,
   -clang-analyzer-optin.core.EnumCastOutOfRange,
   -clang-analyzer-optin.performance.Padding,
+  -clang-analyzer-optin.portability.UnixAPI,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
   cppcoreguidelines-special-member-functions,

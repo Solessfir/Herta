@@ -165,7 +165,8 @@ jobs:
       - schedule-guard
     if: ${{ always() && (github.event_name != 'schedule' || needs.schedule-guard.outputs.should-run == 'true') }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Building every program for the compilation database and analyzing every source takes over 30 minutes.
+    timeout-minutes: 60
     steps:
       - name: Check out Herta
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -212,7 +213,7 @@ jobs:
           clang-tidy-19 --version
           bear --output compile_commands.json -- \
             make --directory=Intermediate/ProjectFiles/gmake \
-              --jobs=2 \
+              --jobs="$(nproc)" \
               config=development \
               HertaTests \
               HertaEditorCmd \

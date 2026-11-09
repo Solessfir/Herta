@@ -1,5 +1,6 @@
 #include "Herta/ShaderCompiler/ShaderCompiler.h"
 
+#include <cstdio>
 #include <exception>
 #include <print>
 #include <string_view>
@@ -7,6 +8,14 @@
 
 namespace
 {
+// fputs cannot throw, so reporting never replaces the failure that reached the entry point.
+void ReportFailure(const char* const Message) noexcept
+{
+	std::fputs("Shader worker failed: ", stderr);
+	std::fputs(Message, stderr);
+	std::fputc('\n', stderr);
+}
+
 int Run(const int ArgumentCount, const char* const* Arguments)
 {
 	if (ArgumentCount < 5)
@@ -99,7 +108,12 @@ int wmain(const int ArgumentCount, wchar_t** const Arguments)
 	}
 	catch (const std::exception& Error)
 	{
-		std::println(stderr, "Shader worker failed: {}", Error.what());
+		ReportFailure(Error.what());
+		return 1;
+	}
+	catch (...)
+	{
+		ReportFailure("unknown error");
 		return 1;
 	}
 }
@@ -112,7 +126,12 @@ int main(const int ArgumentCount, char** const Arguments)
 	}
 	catch (const std::exception& Error)
 	{
-		std::println(stderr, "Shader worker failed: {}", Error.what());
+		ReportFailure(Error.what());
+		return 1;
+	}
+	catch (...)
+	{
+		ReportFailure("unknown error");
 		return 1;
 	}
 }
