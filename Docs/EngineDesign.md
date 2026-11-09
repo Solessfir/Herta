@@ -1689,9 +1689,10 @@ Exit condition: the playable Sandbox exercises collisions, dynamic props, runtim
 - Add skeleton and clip import through ozz offline tools.
 - Extend model cooking for skeletal glTF assets and connect runtime skinning and skinned motion vectors to Renderer through narrow bridge data.
 - Add sampling, blending, skinning, root motion, and animation events.
-- Add an initial Herta-owned animation state machine using explicit cooked data. It is not the NPC StateTree runtime and does not become a GraphCore authoring domain yet.
+- Add an initial Herta-owned animation state machine that runs from explicit cooked data. It is not the NPC StateTree runtime.
+- Author it as a basic GraphCore domain on the Milestone 6.8 canvas: states that play a clip or a 1D blend, transitions with a duration and a condition on a typed parameter (float, bool, or trigger), an entry state, and live highlighting of the active state and transition during Play. A headless compiler cooks it, so runtime animation links neither the graph nor the canvas. Blend trees, layers, and state machine nesting wait for Milestone 15.
 
-Exit condition: a controllable character in the Sandbox blends and plays cooked animations, a cooked skinned asset animates identically after reload, and the runtime has no dependency on offline ozz tools.
+Exit condition: a controllable character in the Sandbox blends and plays cooked animations driven by a state machine graph edited on the canvas, a cooked skinned asset animates identically after reload, and the runtime has no dependency on offline ozz tools.
 
 ### Milestone 9 - Audio
 
@@ -1760,7 +1761,7 @@ Exit condition: the actual game and representative editor UI switch between Engl
 
 Builds on the Milestone 6.8 canvas and GraphCore.
 
-- Promote the animation state machine into a typed animation-graph domain and compiler.
+- Grow the Milestone 8 animation state machine graph into a full typed animation-graph domain: blend trees, layered and additive blends, nested state machines, and pose-processing nodes.
 - Extend GraphCore only with the authoring, typed-pin, transaction, validation, diagnostic, and migration infrastructure that the Material Graph, StateTree, and the animation graph prove.
 - Keep Audio Graph and gameplay graphs as later distinct compiler targets rather than one universal executor; gameplay graphs compile to a native call list in the editor and generated C++ in shipping, as section 4 describes.
 - Extend debugging and cooked-format migration without linking editor UI into runtime executors.
