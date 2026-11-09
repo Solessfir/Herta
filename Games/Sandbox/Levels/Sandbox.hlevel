@@ -1,9 +1,10 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 8,
+  "engineSchemaVersion": 10,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
+  "exposureCompensation": 0,
   "entities": [
     {
       "id": "21935c1f-4f59-4b12-9a13-9dca302101e1",
@@ -4000,6 +4001,86 @@
           "role": "none"
         }
       }
+    },
+    {
+      "id": "4c06004b-2738-4e25-9b9e-000000000001",
+      "name": "Destructible wall - 16 cells",
+      "parent": null,
+      "transform": {
+        "translation": [16, 1.5, -11],
+        "rotation": [0, 0, 0, 1],
+        "scale": [2, 1.5, 0.2]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000016"]},
+        "destructible": {
+          "cells": 16,
+          "seed": 3,
+          "strength": 40,
+          "mass": 900,
+          "anchored": true
+        }
+      }
+    },
+    {
+      "id": "4c06004b-2738-4e25-9b9e-000000000002",
+      "name": "Destructible wall - hard, 24 cells",
+      "parent": null,
+      "transform": {
+        "translation": [21, 1.25, -11.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1.6, 1.25, 0.25]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000011"]},
+        "destructible": {
+          "cells": 24,
+          "seed": 9,
+          "strength": 90,
+          "mass": 900,
+          "anchored": true
+        }
+      }
+    },
+    {
+      "id": "4c06004b-2738-4e25-9b9e-000000000003",
+      "name": "Destructible pillar",
+      "parent": null,
+      "transform": {
+        "translation": [23, 2, -8],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.5, 2, 0.5]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000016"]},
+        "destructible": {
+          "cells": 10,
+          "seed": 5,
+          "strength": 35,
+          "mass": 600,
+          "anchored": true
+        }
+      }
+    },
+    {
+      "id": "4c06004b-2738-4e25-9b9e-000000000004",
+      "name": "Destructible crate - loose",
+      "parent": null,
+      "transform": {
+        "translation": [18.5, 0.5, -8.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.5, 0.5, 0.5]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06100-2738-4e25-9b9e-000000000014"]},
+        "destructible": {
+          "cells": 8,
+          "seed": 2,
+          "strength": 15,
+          "mass": 60,
+          "anchored": false
+        }
+      }
     }
   ],
   "folders": [
@@ -4110,6 +4191,12 @@
       "name": "16 - Moving platforms and triggers",
       "parent": null,
       "entities": ["4c06004a-2738-4e25-9b9e-000000000001", "4c06004a-2738-4e25-9b9e-000000000002", "4c06004a-2738-4e25-9b9e-000000000003", "4c06004a-2738-4e25-9b9e-000000000004", "4c06004a-2738-4e25-9b9e-000000000005", "4c06004a-2738-4e25-9b9e-000000000006"]
+    },
+    {
+      "id": "4c060046-2738-4e25-9b9e-00000000000a",
+      "name": "18 - Destruction yard",
+      "parent": null,
+      "entities": ["4c06004b-2738-4e25-9b9e-000000000001", "4c06004b-2738-4e25-9b9e-000000000002", "4c06004b-2738-4e25-9b9e-000000000003", "4c06004b-2738-4e25-9b9e-000000000004"]
     }
   ],
   "cameraBookmarks": [

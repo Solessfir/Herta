@@ -22,6 +22,49 @@ constexpr float CoyoteSeconds = 0.1f;
 constexpr float JumpBufferSeconds = 0.12f;
 constexpr float MaximumPitch = 1.53f;
 constexpr float CameraNear = 0.05f;
+// A thrown ball: a 3 kg, 24 cm ball at 24 m/s carries about 86 N*s into a wall, enough to break the playground's walls but not its footings.
+constexpr float ProjectileRadius = 0.12f;
+constexpr float ProjectileMassKg = 3.f;
+constexpr float ProjectileSpeed = 24.f;
+constexpr float ProjectileLifetimeSeconds = 10.f;
+constexpr std::size_t MaximumProjectiles = 24;
+
+// A UV sphere for thrown balls, so they need no content.
+FCookedModel BuildProjectileModel()
+{
+	constexpr std::uint32_t Columns = 16;
+	constexpr std::uint32_t Rows = 10;
+	FCookedModel Model;
+	for (std::uint32_t Row = 0; Row <= Rows; ++Row)
+	{
+		const float Polar = std::numbers::pi_v<float> * static_cast<float>(Row) / static_cast<float>(Rows);
+		for (std::uint32_t Column = 0; Column <= Columns; ++Column)
+		{
+			const float Azimuth = 2.f * std::numbers::pi_v<float> * static_cast<float>(Column) / static_cast<float>(Columns);
+			const FVector3 Normal{std::sin(Polar) * std::cos(Azimuth), std::cos(Polar), std::sin(Polar) * std::sin(Azimuth)};
+			const FVector3 Tangent{-std::sin(Azimuth), 0.f, std::cos(Azimuth)};
+			const FVector3 Position = Normal * ProjectileRadius;
+			Model.Vertices.push_back({.Position = {Position.X, Position.Y, Position.Z}, .UV = {static_cast<float>(Column) / Columns, static_cast<float>(Row) / Rows}, .Normal = {Normal.X, Normal.Y, Normal.Z}, .Tangent = {Tangent.X, Tangent.Y, Tangent.Z, 1.f}});
+		}
+	}
+
+	for (std::uint32_t Row = 0; Row < Rows; ++Row)
+	{
+		for (std::uint32_t Column = 0; Column < Columns; ++Column)
+		{
+			const std::uint32_t A = Row * (Columns + 1) + Column;
+			const std::uint32_t B = A + Columns + 1;
+			Model.Indices.insert(Model.Indices.end(), {A, A + 1, B, A + 1, B + 1, B});
+		}
+	}
+
+	Model.Sections.push_back({.FirstIndex = 0, .IndexCount = static_cast<std::uint32_t>(Model.Indices.size()), .Material = 0});
+	FCookedMaterial Material{.Name = "Thrown ball"};
+	Material.Parameters.BaseColor = {0.95f, 0.38f, 0.08f, 1.f};
+	Material.Parameters.Roughness = 0.35f;
+	Model.Materials.push_back(Material);
+	return Model;
+}
 
 [[nodiscard]] FMatrix4 ToFloatMatrix(const TMatrix4<double>& Matrix)
 {
@@ -78,6 +121,8 @@ struct FGameSession::FImplementation
 	[[nodiscard]] bool IsInside(const std::optional<FTriggerZone>& Zone, const FVector3& Point) const;
 	void BuildModels();
 	void BuildSoftBodies();
+	[[nodiscard]] std::expected<void, FPhysicsError> Throw();
+	[[nodiscard]] std::expected<void, FPhysicsError> AgeProjectiles(float DeltaSeconds);
 
 	// cppcheck-suppress uninitMemberVarNoCtor ; set by aggregate initialization in Create
 	const IGameAssets& Assets;
@@ -102,6 +147,17 @@ struct FGameSession::FImplementation
 	std::vector<std::string> Warnings{};
 
 	FLevelSimulation Simulation{};
+	// Chunk meshes per destructible, built once: fractures are deterministic, so every restart produces the same chunks.
+	std::map<std::size_t, std::vector<std::shared_ptr<const FRenderMesh>>> ChunkMeshes{};
+	std::shared_ptr<const FRenderMesh> ProjectileMesh{};
+
+	struct FProjectile
+	{
+		FLevelSimulationHandle Handle{};
+		float AgeSeconds = 0.f;
+	};
+
+	std::vector<FProjectile> Projectiles{};
 	FPhysicsCharacterId Character{};
 	FVector3 PreviousFoot{};
 	FVector3 CurrentFoot{};
@@ -276,12 +332,44 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 
 	// A character needs a physics world even when the level has nothing else to simulate.
 	const std::array Ground{FLevelSimulationBody{.ObjectIndex = Entities.size(), .Transform = {{0.f, -1000.f, 0.f}, {}, {1.f, 1.f, 1.f}}, .Shape = {.HalfExtents = {0.5f, 0.5f, 0.5f}}}};
-	const std::span<const FLevelSimulationBody> Bodies = Setup.Bodies.empty() && Setup.SoftBodies.empty() ? std::span<const FLevelSimulationBody>(Ground) : std::span<const FLevelSimulationBody>(Setup.Bodies);
+	const std::span<const FLevelSimulationBody> Bodies = Setup.Bodies.empty() && Setup.SoftBodies.empty() && Setup.Destructibles.empty() ? std::span<const FLevelSimulationBody>(Ground) : std::span<const FLevelSimulationBody>(Setup.Bodies);
 	FPhysicsWorldSettings Settings = LevelPhysicsSettings;
 	Settings.Tasks = Tasks;
-	if (auto Started = Simulation.Start(Bodies, Setup.SoftBodies, Setup.Constraints, Settings); !Started)
+	Projectiles.clear();
+	if (auto Started = Simulation.Start(Bodies, Setup.SoftBodies, Setup.Constraints, Settings, Setup.Destructibles); !Started)
 	{
 		return std::unexpected(FGameError{std::format("Cannot start physics: {}", Started.error().Message)});
+	}
+
+	for (const FLevelSimulationDestructible& Destructible : Setup.Destructibles)
+	{
+		if (!Device || ChunkMeshes.contains(Destructible.ObjectIndex))
+		{
+			continue;
+		}
+
+		std::vector<std::shared_ptr<const FRenderMesh>>& Chunks = ChunkMeshes[Destructible.ObjectIndex];
+		for (std::size_t Chunk = 0; Chunk < Destructible.Fracture->Chunks.size(); ++Chunk)
+		{
+			auto Mesh = FRenderMesh::Create(*Device, BuildFractureChunkModel(*Destructible.Fracture, Chunk), std::format("{} chunk {}", Entities[Destructible.ObjectIndex].Name, Chunk));
+			if (!Mesh)
+			{
+				return std::unexpected(FGameError{std::format("Cannot upload a chunk of {}: {}", Entities[Destructible.ObjectIndex].Name, Mesh.error().Message)});
+			}
+
+			Chunks.push_back(std::move(*Mesh));
+		}
+	}
+
+	if (Device && !ProjectileMesh)
+	{
+		auto Mesh = FRenderMesh::Create(*Device, BuildProjectileModel(), "Thrown ball");
+		if (!Mesh)
+		{
+			return std::unexpected(FGameError{std::format("Cannot upload the thrown ball: {}", Mesh.error().Message)});
+		}
+
+		ProjectileMesh = std::move(*Mesh);
 	}
 
 	const auto Created = Simulation.GetPhysicsWorld()->CreateCharacter({.FootPosition = SpawnPosition, .Height = Player.Height, .Radius = Player.Radius, .StepHeight = Player.StepHeight});
@@ -538,6 +626,14 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 		Session.JumpBufferRemaining = JumpBufferSeconds;
 	}
 
+	if (Input.bThrow)
+	{
+		if (auto Thrown = Session.Throw(); !Thrown)
+		{
+			return std::unexpected(FGameError{std::format("Cannot throw: {}", Thrown.error().Message)});
+		}
+	}
+
 	const auto Updated = Session.Simulation.Update(DeltaSeconds, [&Session](FPhysicsWorld& World, const float StepSeconds)
 	{
 		return Session.StepPlayer(World, StepSeconds);
@@ -548,12 +644,80 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 		return std::unexpected(FGameError{std::format("Physics failed: {}", Updated.error().Message)});
 	}
 
+	if (auto Aged = Session.AgeProjectiles(DeltaSeconds); !Aged)
+	{
+		return std::unexpected(FGameError{std::format("Physics failed: {}", Aged.error().Message)});
+	}
+
+	for (const FLevelBreakEvent& Break : Session.Simulation.TakeBreakEvents())
+	{
+		Session.Events.push_back(std::format("{} broke ({} bonds)", Session.Entities[Break.ObjectIndex].Name, Break.BrokenBonds));
+	}
+
 	for (const FLevelTriggerEvent& Event : Session.Simulation.TakeTriggerEvents())
 	{
 		Session.Events.push_back(std::format("{} {} {}", Session.Entities[Event.ObjectIndex].Name, Event.bEntered ? "entered" : "left", Session.Entities[Event.TriggerObjectIndex].Name));
 	}
 
 	Session.UpdateObjective(DeltaSeconds);
+	return {};
+}
+
+std::expected<void, FPhysicsError> FGameSession::FImplementation::Throw()
+{
+	// Old balls make room for new ones, so throwing never runs out.
+	if (Projectiles.size() >= MaximumProjectiles)
+	{
+		if (auto Despawned = Simulation.Despawn(Projectiles.front().Handle); !Despawned)
+		{
+			return Despawned;
+		}
+
+		Projectiles.erase(Projectiles.begin());
+	}
+
+	const FVector3 Direction = GetLookOrientation(Yaw, Pitch).RotateVector(FVector3::Forward());
+	const FVector3 Eye = CurrentFoot + FVector3::Up() * EyeHeight;
+	const auto Ball = Simulation.Spawn({
+	    .Shape = EPhysicsShape::Sphere,
+	    .Radius = ProjectileRadius,
+	    .Position = Eye + Direction * (Player.Radius + ProjectileRadius + 0.1f),
+	    .MotionType = EPhysicsMotionType::Dynamic,
+	    .Properties = {.MassKg = ProjectileMassKg, .Friction = 0.5f, .Restitution = 0.35f, .LinearDamping = 0.01f, .AngularDamping = 0.2f},
+	    .bContinuousCollision = true,
+	});
+
+	if (!Ball)
+	{
+		return std::unexpected(Ball.error());
+	}
+
+	if (auto Launched = Simulation.GetPhysicsWorld()->SetVelocity(*Simulation.FindSpawnedBody(*Ball), Direction * ProjectileSpeed + HorizontalVelocity); !Launched)
+	{
+		return Launched;
+	}
+
+	Projectiles.push_back({.Handle = *Ball});
+	return {};
+}
+
+std::expected<void, FPhysicsError> FGameSession::FImplementation::AgeProjectiles(const float DeltaSeconds)
+{
+	for (FProjectile& Projectile : Projectiles)
+	{
+		Projectile.AgeSeconds += DeltaSeconds;
+	}
+
+	while (!Projectiles.empty() && Projectiles.front().AgeSeconds > ProjectileLifetimeSeconds)
+	{
+		if (auto Despawned = Simulation.Despawn(Projectiles.front().Handle); !Despawned)
+		{
+			return Despawned;
+		}
+
+		Projectiles.erase(Projectiles.begin());
+	}
+
 	return {};
 }
 
@@ -644,6 +808,12 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 			Session.MaterialSlots[Index].push_back(Entity.SoftBody->Material.IsValid() ? Session.Assets.FindMaterial(Entity.SoftBody->Material) : nullptr);
 		}
 
+		// A broken destructible draws its pieces instead.
+		if (!Session.Simulation.IsIntact(Index))
+		{
+			Session.Meshes[Index] = nullptr;
+		}
+
 		Session.MaterialSpans[Index] = Session.MaterialSlots[Index];
 		if (Entity.Light && Entity.Light->bEnabled)
 		{
@@ -672,6 +842,33 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		}
 	}
 
+	// Pieces and thrown balls follow the level's own objects; pieces wear their destructible's material.
+	for (const FLevelSimulationPiece& Piece : Session.Simulation.GetPieces())
+	{
+		const auto Chunks = Session.ChunkMeshes.find(Piece.ObjectIndex);
+		if (Chunks != Session.ChunkMeshes.end() && Piece.Chunk < Chunks->second.size())
+		{
+			Session.Models.push_back(FTransform{Piece.Transform.Position, Piece.Transform.Rotation, FVector3::One()}.ToMatrix());
+			Session.Meshes.push_back(Chunks->second[Piece.Chunk].get());
+			Session.MaterialSpans.push_back(Session.MaterialSpans[Piece.ObjectIndex]);
+		}
+	}
+
+	for (const FLevelSimulationSpawn& Spawn : Session.Simulation.GetSpawned())
+	{
+		if (Session.ProjectileMesh)
+		{
+			Session.Models.push_back(FTransform{Spawn.Transform.Position, Spawn.Transform.Rotation, FVector3::One()}.ToMatrix());
+			Session.Meshes.push_back(Session.ProjectileMesh.get());
+			Session.MaterialSpans.emplace_back();
+		}
+	}
+
+	if (Session.PreviousModels.size() != Session.Models.size())
+	{
+		Session.PreviousModels = Session.Models;
+	}
+
 	Session.Lights.resize(std::min(Session.Lights.size(), MaximumRenderLights));
 	Visuals.bStudioPreview = std::ranges::none_of(Session.Entities, [](const FLevelEntity& Entity)
 	{
@@ -694,6 +891,11 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	};
 
 	return Session.View;
+}
+
+const FPhysicsWorld* FGameSession::GetPhysicsWorld() const noexcept
+{
+	return const_cast<FLevelSimulation&>(Implementation->Simulation).GetPhysicsWorld();
 }
 
 const FGameObjective& FGameSession::GetObjective() const noexcept

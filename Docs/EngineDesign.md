@@ -1680,6 +1680,8 @@ Exit condition: a Material Graph authored in the editor previews live, saves and
 - Add pre-fractured destruction: offline Voronoi fracture with a cooked support graph, runtime bond breaking from damage and sorted contact impulses, a stress pass for unsupported islands, and budgeted debris, exercised by a Sandbox destruction station.
 - Add the collision shapes, level authoring, and player collision behavior needed by the sample instead of keeping runtime physics limited to preview boxes.
 
+Status: determinism, the Tasks job adapter, sorted events, the physics origin, layers, hull and compound shapes, debug draw, destruction, and the Sandbox destruction yard are implemented; see `Docs/Physics.md`. Fracture runs at simulation start from the component's cells and seed instead of being cooked.
+
 Exit condition: the playable Sandbox exercises collisions, dynamic props, runtime spawn/despawn, collision events, destruction, and repeated reset, physics tests are repeatable for the supported configuration, world hashes match across Windows, Linux, and thread counts, and world mutation never occurs inside callbacks.
 
 ### Milestone 8 - Animation

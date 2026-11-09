@@ -210,6 +210,15 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		}
 	}
 
+	if (Entity.Destructible)
+	{
+		const auto Valid = ValidateDestructibleComponent(*Entity.Destructible);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
 	if (Entity.Trigger)
 	{
 		const auto Valid = ValidateTriggerComponent(*Entity.Trigger);
@@ -362,6 +371,22 @@ std::expected<void, FLevelError> ValidateSoftBodyComponent(const FSoftBodyCompon
 	    || !InRange(SoftBody.MassKg, 0.001f, 10'000.f) || !InRange(SoftBody.Stiffness, 0.f, 1.f) || !InRange(SoftBody.Pressure, 0.f, 1'000'000.f) || !InRange(SoftBody.Friction, 0.f, 1.f))
 	{
 		return std::unexpected(FLevelError{"Soft body settings contain a nonfinite value, unknown shape, or out-of-range property"});
+	}
+
+	return {};
+}
+
+std::expected<void, FLevelError> ValidateDestructibleComponent(const FDestructibleComponent& Destructible)
+{
+	const auto IsWhole = [](const float Value, const float Minimum, const float Maximum)
+	{
+		return std::isfinite(Value) && Value >= Minimum && Value <= Maximum && std::floor(Value) == Value;
+	};
+
+	if (!IsWhole(Destructible.Cells, 2.f, 64.f) || !IsWhole(Destructible.Seed, 0.f, 100000.f) || !std::isfinite(Destructible.Strength) || Destructible.Strength < 1.f || Destructible.Strength > 1000000.f
+	    || !std::isfinite(Destructible.MassKg) || Destructible.MassKg < 0.1f || Destructible.MassKg > 1000000.f)
+	{
+		return std::unexpected(FLevelError{"Destructibles need 2 to 64 whole cells, a whole seed up to 100000, strength from 1 to 1000000 N*s, and mass from 0.1 to 1000000 kg"});
 	}
 
 	return {};
@@ -525,6 +550,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FMoverComponent* Mover = Registry.try_get<FMoverComponent>(Entity);
 	const FTriggerComponent* Trigger = Registry.try_get<FTriggerComponent>(Entity);
 	const FConstraintComponent* Constraint = Registry.try_get<FConstraintComponent>(Entity);
+	const FDestructibleComponent* Destructible = Registry.try_get<FDestructibleComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -540,6 +566,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .Mover = Mover ? std::optional{*Mover} : std::nullopt,
 	    .Trigger = Trigger ? std::optional{*Trigger} : std::nullopt,
 	    .Constraint = Constraint ? std::optional{*Constraint} : std::nullopt,
+	    .Destructible = Destructible ? std::optional{*Destructible} : std::nullopt,
 	};
 }
 
@@ -604,6 +631,15 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FMoverComponent>(Entity);
+	}
+
+	if (Snapshot.Destructible)
+	{
+		Registry.emplace_or_replace<FDestructibleComponent>(Entity, *Snapshot.Destructible);
+	}
+	else
+	{
+		Registry.remove<FDestructibleComponent>(Entity);
 	}
 
 	if (Snapshot.Trigger)

@@ -192,7 +192,7 @@ void SaveSettings(const std::filesystem::path& Path, const FGameSettings& Settin
 	};
 }
 
-// Left stick moves and right stick looks; A jumps, clicking the left stick toggles sprinting, and B or clicking the right stick crouches.
+// Left stick moves and right stick looks; A jumps, clicking the left stick toggles sprinting, B or clicking the right stick crouches, and X throws.
 FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 {
 	return {
@@ -201,6 +201,7 @@ FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 	    .bJump = Gamepad.IsDown(EGamepadButton::South),
 	    .bSprint = Gamepad.IsDown(EGamepadButton::LeftThumb),
 	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
+	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
 	};
 }
 
@@ -211,6 +212,7 @@ struct FPendingInput
 	std::optional<FVector2> LastCursor{};
 	std::optional<FVector2> Pointer{};
 	bool bJump = false;
+	bool bThrow = false;
 	bool bClicked = false;
 	bool bEscape = false;
 	bool bRestart = false;
@@ -499,6 +501,7 @@ int RunGame(const FGameOptions& Options)
 
 		const bool bPressed = Action == EInputAction::Pressed;
 		Pending.bJump |= bPressed && Key == EKey::Space;
+		Pending.bThrow |= bPressed && Key == EKey::F;
 		Pending.bEscape |= bPressed && Key == EKey::Escape;
 		Pending.bRestart |= bPressed && Key == EKey::R;
 		Pending.bToggleFullscreen |= bPressed && (Key == EKey::F11 || (Key == EKey::Enter && HasModifier(Modifiers, EModifierFlags::Alt)));
@@ -510,6 +513,7 @@ int RunGame(const FGameOptions& Options)
 	Callbacks.MouseButtonChanged = [&Pending](FWindow&, const EMouseButton Button, const EInputAction Action, EModifierFlags)
 	{
 		Pending.bClicked |= Button == EMouseButton::Left && Action == EInputAction::Pressed;
+		Pending.bThrow |= Button == EMouseButton::Left && Action == EInputAction::Pressed;
 	};
 
 	Callbacks.CursorMoved = [&Pending](FWindow& Source, const double X, const double Y)
@@ -579,7 +583,7 @@ int RunGame(const FGameOptions& Options)
 		FGameInput GameInput;
 		if (bSmokeTest)
 		{
-			GameInput = {.Move = {0.f, 1.f}, .YawDelta = Frames % 240 < 120 ? 0.004f : -0.004f, .bJump = Frames % 90 == 45, .bSprint = Frames % 300 > 150, .bCrouch = Frames % 300 > 240};
+			GameInput = {.Move = {0.f, 1.f}, .YawDelta = Frames % 240 < 120 ? 0.004f : -0.004f, .bJump = Frames % 90 == 45, .bSprint = Frames % 300 > 150, .bCrouch = Frames % 300 > 240, .bThrow = Frames % 40 == 20};
 			Input.bEscape = Frames == Options.SmokeFrames / 4 + 30 || Frames == Options.SmokeFrames / 2 || Frames == Options.SmokeFrames / 2 + 20;
 			Input.bRestart = Frames == Options.SmokeFrames * 3 / 4;
 			Input.bFocusLost = Frames == Options.SmokeFrames / 4;
@@ -623,6 +627,7 @@ int RunGame(const FGameOptions& Options)
 			    .bJump = Input.bJump,
 			    .bSprint = Window.IsKeyDown(EKey::LeftShift) || Window.IsKeyDown(EKey::RightShift),
 			    .bCrouch = Window.IsKeyDown(EKey::C) || Window.IsKeyDown(EKey::LeftControl),
+			    .bThrow = Input.bThrow,
 			};
 
 			if (Gamepad)

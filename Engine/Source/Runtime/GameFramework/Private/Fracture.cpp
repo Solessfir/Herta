@@ -120,7 +120,7 @@ void Clip(FPolyhedron& Shape, const FPoint& Normal, const double Distance, const
 	std::vector<FFace> Kept;
 	for (const FFace& Face : Shape.Faces)
 	{
-		FFace Result{.Neighbor = Face.Neighbor};
+		FFace Result{.Loop = {}, .Neighbor = Face.Neighbor};
 		for (std::size_t Index = 0; Index < Face.Loop.size(); ++Index)
 		{
 			const std::uint32_t Current = Face.Loop[Index];
@@ -238,7 +238,7 @@ FFracture FractureBox(const FVector3& HalfExtents, std::uint32_t Cells, const st
 		Site = {(Random.Unit() * 1.8 - 0.9) * Half.X, (Random.Unit() * 1.8 - 0.9) * Half.Y, (Random.Unit() * 1.8 - 0.9) * Half.Z};
 	}
 
-	FFracture Fracture{.HalfExtents = HalfExtents};
+	FFracture Fracture{.HalfExtents = HalfExtents, .Chunks = {}, .Bonds = {}};
 	std::vector<FPolyhedron> Shapes(Cells, MakeBox(Half));
 	for (std::uint32_t Cell = 0; Cell < Cells; ++Cell)
 	{

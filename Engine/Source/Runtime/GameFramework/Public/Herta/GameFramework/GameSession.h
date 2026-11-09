@@ -37,6 +37,8 @@ struct FGameInput
 	bool bSprint = false;
 	// Held. Crouches, and slides when moving fast enough.
 	bool bCrouch = false;
+	// Pressed since the previous update. Throws a ball where the player looks.
+	bool bThrow = false;
 };
 
 // A gamepad's player controls as it reports them this frame: sticks from -1 to 1 with +X right and +Y up, and whether each button is down.
@@ -47,6 +49,7 @@ struct FGameGamepad
 	bool bJump = false;
 	bool bSprint = false;
 	bool bCrouch = false;
+	bool bThrow = false;
 };
 
 // Adds a gamepad to keyboard and mouse input. Sticks ignore their resting drift, look turns faster the further the stick is pushed, a jump
@@ -61,6 +64,7 @@ public:
 
 private:
 	bool bJumpDown = true;
+	bool bThrowDown = true;
 	bool bSprintDown = true;
 	bool bSprinting = false;
 };
@@ -142,6 +146,8 @@ public:
 	// The view from the player's eyes. The spans stay valid until the next Update, Restart, or GetRenderView.
 	[[nodiscard]] const FMeshRenderView& GetRenderView(FExtent2D Extent);
 	[[nodiscard]] const FGameObjective& GetObjective() const noexcept;
+	// For debug views such as collision wireframes.
+	const FPhysicsWorld* GetPhysicsWorld() const noexcept;
 	// Entities the simulation left out, and why.
 	[[nodiscard]] std::span<const std::string> GetWarnings() const noexcept;
 	// Trigger and objective events since the previous call, as log lines.

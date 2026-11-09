@@ -176,6 +176,19 @@ TEST_CASE("Project headless commands share descriptor validation and creation")
 	CHECK_FALSE(Registry.Execute("project.validate missing.hertaproject"));
 }
 
+// Hand edits to the playground must match what the editor writes, so the next save in the editor shows no unrelated changes.
+TEST_CASE("The Sandbox level is stored in canonical form")
+{
+	const std::filesystem::path Path = EngineRoot() / "Games/Sandbox/Levels/Sandbox.hlevel";
+	std::ifstream Stream(Path, std::ios::binary);
+	const std::string Text{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
+	const auto Parsed = ParseLevel(Text);
+	REQUIRE_MESSAGE(Parsed, (Parsed ? std::string() : Parsed.error().Message));
+	const auto Written = SerializeLevel(*Parsed);
+	REQUIRE(Written);
+	CHECK(*Written == Text);
+}
+
 TEST_CASE("Owning project lookup walks up from a level to the nearest project descriptor")
 {
 	const std::filesystem::path Root = EngineRoot();

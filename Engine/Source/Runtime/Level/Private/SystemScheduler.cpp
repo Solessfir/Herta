@@ -47,7 +47,8 @@ ELevelComponent PresentComponents(const FLevelEntity& Entity)
 	       | (Entity.SoftBody ? ELevelComponent::SoftBody : ELevelComponent::None)
 	       | (Entity.Mover ? ELevelComponent::Mover : ELevelComponent::None)
 	       | (Entity.Trigger ? ELevelComponent::Trigger : ELevelComponent::None)
-	       | (Entity.Constraint ? ELevelComponent::Constraint : ELevelComponent::None);
+	       | (Entity.Constraint ? ELevelComponent::Constraint : ELevelComponent::None)
+	       | (Entity.Destructible ? ELevelComponent::Destructible : ELevelComponent::None);
 }
 
 FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Entity, const ELevelComponent Components)
@@ -102,6 +103,11 @@ FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Enti
 	if (HasLevelComponents(Components, ELevelComponent::Mover))
 	{
 		Result.Mover = Entity.Mover;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::Destructible))
+	{
+		Result.Destructible = Entity.Destructible;
 	}
 
 	if (HasLevelComponents(Components, ELevelComponent::Trigger))
@@ -272,7 +278,8 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	                               | (Update.SoftBody ? ELevelComponent::SoftBody : ELevelComponent::None)
 	                               | (Update.Mover ? ELevelComponent::Mover : ELevelComponent::None)
 	                               | (Update.Trigger ? ELevelComponent::Trigger : ELevelComponent::None)
-	                               | (Update.Constraint ? ELevelComponent::Constraint : ELevelComponent::None);
+	                               | (Update.Constraint ? ELevelComponent::Constraint : ELevelComponent::None)
+	                               | (Update.Destructible ? ELevelComponent::Destructible : ELevelComponent::None);
 	const auto Allowed = CheckAccess({.Write = Writes});
 	if (!Allowed)
 	{
@@ -301,7 +308,8 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	                         || (Update.SoftBody && Update.SoftBody->has_value() != Candidate.SoftBody.has_value())
 	                         || (Update.Mover && Update.Mover->has_value() != Candidate.Mover.has_value())
 	                         || (Update.Trigger && Update.Trigger->has_value() != Candidate.Trigger.has_value())
-	                         || (Update.Constraint && Update.Constraint->has_value() != Candidate.Constraint.has_value());
+	                         || (Update.Constraint && Update.Constraint->has_value() != Candidate.Constraint.has_value())
+	                         || (Update.Destructible && Update.Destructible->has_value() != Candidate.Destructible.has_value());
 	if (bStructural && !Implementation.Descriptor.bStructuralChanges)
 	{
 		return Fail("System attempted undeclared structural mutation");
@@ -356,6 +364,11 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	if (Update.Mover)
 	{
 		Candidate.Mover = *Update.Mover;
+	}
+
+	if (Update.Destructible)
+	{
+		Candidate.Destructible = *Update.Destructible;
 	}
 
 	if (Update.Trigger)

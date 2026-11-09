@@ -1838,6 +1838,16 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedMover(const std::optio
 	return ApplySelectedComponent(&FLevelEntity::Mover, Mover, Mover ? "Edit mover" : "Remove mover");
 }
 
+std::expected<void, FLevelError> FEditorLevel::AddDestructibleToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::Destructible, std::optional{FDestructibleComponent{}}, "Add destructible", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedDestructible(const std::optional<FDestructibleComponent> Destructible)
+{
+	return ApplySelectedComponent(&FLevelEntity::Destructible, Destructible, Destructible ? "Edit destructible" : "Remove destructible");
+}
+
 std::expected<void, FLevelError> FEditorLevel::AddTriggerToSelected()
 {
 	return ApplySelectedComponent(&FLevelEntity::Trigger, std::optional{FTriggerComponent{}}, "Add trigger", true);

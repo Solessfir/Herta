@@ -238,6 +238,34 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		}
 	}
 
+	if (Type == ELevelComponentType::Destructible && Entity.Destructible)
+	{
+		if (Key == "cells")
+		{
+			return Visitor(Entity.Destructible->Cells);
+		}
+
+		if (Key == "seed")
+		{
+			return Visitor(Entity.Destructible->Seed);
+		}
+
+		if (Key == "strength")
+		{
+			return Visitor(Entity.Destructible->Strength);
+		}
+
+		if (Key == "mass")
+		{
+			return Visitor(Entity.Destructible->MassKg);
+		}
+
+		if (Key == "anchored")
+		{
+			return Visitor(Entity.Destructible->bAnchored);
+		}
+	}
+
 	if (Type == ELevelComponentType::Mover && Entity.Mover)
 	{
 		if (Key == "offset")
@@ -287,6 +315,7 @@ constexpr FSkyAtmosphereComponent AtmosphereDefaults{};
 constexpr FHeightFogComponent FogDefaults{};
 constexpr FSoftBodyComponent SoftBodyDefaults{};
 constexpr FMoverComponent MoverDefaults{};
+constexpr FDestructibleComponent DestructibleDefaults{};
 constexpr FTriggerComponent TriggerDefaults{};
 constexpr FConstraintComponent ConstraintDefaults{};
 
@@ -373,6 +402,14 @@ constexpr std::array MoverProperties{
     FLevelPropertyDescriptor{.Key = "periodSeconds", .Label = "Period", .Unit = ELevelPropertyUnit::Seconds, .Default = MoverDefaults.PeriodSeconds, .Range = FLevelPropertyRange{.Minimum = 0.5, .Maximum = 600.}},
 };
 
+constexpr std::array DestructibleProperties{
+    FLevelPropertyDescriptor{.Key = "cells", .Label = "Cells", .Default = DestructibleDefaults.Cells, .Range = FLevelPropertyRange{.Minimum = 2., .Maximum = 64.}},
+    FLevelPropertyDescriptor{.Key = "seed", .Label = "Seed", .Default = DestructibleDefaults.Seed, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 100000.}},
+    FLevelPropertyDescriptor{.Key = "strength", .Label = "Strength", .Default = DestructibleDefaults.Strength, .Range = FLevelPropertyRange{.Minimum = 1., .Maximum = 1000000.}},
+    FLevelPropertyDescriptor{.Key = "mass", .Label = "Mass", .Unit = ELevelPropertyUnit::Kilograms, .Default = DestructibleDefaults.MassKg, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 1000000.}},
+    FLevelPropertyDescriptor{.Key = "anchored", .Label = "Anchored", .Type = ELevelPropertyType::Boolean, .Default = DestructibleDefaults.bAnchored},
+};
+
 constexpr std::array TriggerProperties{
     FLevelPropertyDescriptor{.Key = "size", .Label = "Size", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = TriggerDefaults.Size, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 1000.}},
     FLevelPropertyDescriptor{.Key = "role", .Label = "Role", .Type = ELevelPropertyType::TriggerRole, .Default = TriggerDefaults.Role},
@@ -394,6 +431,7 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Mover, .TypeId = "Herta.Level.Mover", .SerializationKey = "mover", .Label = "Mover", .Properties = MoverProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::Trigger, .TypeId = "Herta.Level.Trigger", .SerializationKey = "trigger", .Label = "Trigger", .Properties = TriggerProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::Constraint, .TypeId = "Herta.Level.Constraint", .SerializationKey = "constraint", .Label = "Constraint", .Properties = ConstraintProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::Destructible, .TypeId = "Herta.Level.Destructible", .SerializationKey = "destructible", .Label = "Destructible", .Properties = DestructibleProperties},
 };
 }
 
@@ -436,6 +474,7 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 	                   : Type == ELevelComponentType::Mover         ? ValidateMoverComponent(*Candidate.Mover)
 	                   : Type == ELevelComponentType::Trigger       ? ValidateTriggerComponent(*Candidate.Trigger)
 	                   : Type == ELevelComponentType::Constraint    ? ValidateConstraintComponent(*Candidate.Constraint)
+	                   : Type == ELevelComponentType::Destructible  ? ValidateDestructibleComponent(*Candidate.Destructible)
 	                                                                : ValidateHeightFogComponent(*Candidate.HeightFog);
 	if (!Valid)
 	{

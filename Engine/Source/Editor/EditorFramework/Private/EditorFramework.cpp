@@ -89,6 +89,7 @@ FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 	    .bJump = Gamepad.IsDown(EGamepadButton::South),
 	    .bSprint = Gamepad.IsDown(EGamepadButton::LeftThumb),
 	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
+	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
 	};
 }
 inline constexpr FLogCategory ShellLog{.Name = "Shell"};
@@ -524,6 +525,7 @@ struct FEditorFramework::FImplementation
 	void PrepareViewportGizmos(FVector2 NormalizedMouse, bool bGizmoInput, bool bSelect);
 	void DrawPreviewGizmo(FPreviewObject& Object);
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
+	void BuildCollisionDebugDraw();
 	void FocusPreview();
 	void RefreshPreviewMeshes();
 	[[nodiscard]] const FRenderMesh* RefreshSoftBodyPreview(std::size_t Index, const FLevelEntity& Entity);
@@ -717,6 +719,8 @@ struct FEditorFramework::FImplementation
 
 	bool bGameView = false;
 	bool bGridVisible = true;
+	// Physics wireframes while Simulate or Play runs.
+	bool bCollisionVisible = false;
 	bool bAxesVisible = false;
 	bool bOrientationIndicatorVisible = true;
 	bool bBoundsVisible = false;
@@ -733,6 +737,10 @@ struct FEditorFramework::FImplementation
 	float ExposureCompensation = 0.f;
 	bool bExposureCompensationActive = false;
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
+	std::vector<FPhysicsDebugLine> CollisionLines;
+	std::vector<FDebugDrawVertex> CollisionVertices;
+	// The viewport's lists plus collision, or collision alone during Play, which otherwise shows no editor overlays.
+	std::vector<FDebugDrawList> CombinedDebugDrawLists;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
 
 	Im3d::Context ViewportGizmos;
@@ -1971,8 +1979,51 @@ FMeshRenderView FEditorFramework::GetViewportRenderView() const noexcept
 
 std::span<const FDebugDrawList> FEditorFramework::GetViewportDebugDrawLists() const noexcept
 {
-	// Play shows the game as a player sees it, without editor overlays.
+	// Play shows the game as a player sees it, without editor overlays other than an explicitly enabled collision view.
+	if (!Implementation->CombinedDebugDrawLists.empty())
+	{
+		return Implementation->CombinedDebugDrawLists;
+	}
+
 	return Implementation->PlaySession ? std::span<const FDebugDrawList>{} : std::span<const FDebugDrawList>(Implementation->ViewportDebugDrawLists);
+}
+
+void FEditorFramework::FImplementation::BuildCollisionDebugDraw()
+{
+	CombinedDebugDrawLists.clear();
+	const FPhysicsWorld* const Physics = !bCollisionVisible ? nullptr : PlaySession ? PlaySession->GetPhysicsWorld() : const_cast<FLevelSimulation&>(Simulation).GetPhysicsWorld();
+	if (!Physics)
+	{
+		return;
+	}
+
+	Physics->GetDebugLines(CollisionLines);
+	CollisionVertices.clear();
+	CollisionVertices.reserve(CollisionLines.size() * 2);
+	for (const FPhysicsDebugLine& Line : CollisionLines)
+	{
+		// Static grey, kinematic blue, dynamic green, sensors amber; sleeping bodies dim.
+		std::array<float, 4> Color = Line.bSensor ? std::array{1.f, 0.7f, 0.2f, 1.f} : Line.MotionType == EPhysicsMotionType::Static ? std::array{0.55f, 0.58f, 0.62f, 0.6f}
+		                                                                            : Line.MotionType == EPhysicsMotionType::Kinematic ? std::array{0.35f, 0.6f, 1.f, 1.f}
+		                                                                                                                               : std::array{0.35f, 1.f, 0.45f, 1.f};
+		if (Line.bSleeping && Line.MotionType != EPhysicsMotionType::Static)
+		{
+			Color = {Color[0] * 0.5f, Color[1] * 0.5f, Color[2] * 0.5f, Color[3]};
+		}
+
+		// The editor's float view space is world space while the physics origin stays at zero.
+		const FVector3 Start{Physics->ToWorld(Line.Start).Meters};
+		const FVector3 End{Physics->ToWorld(Line.End).Meters};
+		CollisionVertices.push_back({.Position = Start, .Size = 1.5f, .Color = Color});
+		CollisionVertices.push_back({.Position = End, .Size = 1.5f, .Color = Color});
+	}
+
+	if (!PlaySession)
+	{
+		CombinedDebugDrawLists = ViewportDebugDrawLists;
+	}
+
+	CombinedDebugDrawLists.push_back({.Primitive = EDebugPrimitive::Lines, .Vertices = CollisionVertices, .bDepthTest = true});
 }
 
 void FEditorFramework::FImplementation::FocusPreview()
@@ -3463,6 +3514,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			}
 
 			Toggle("Grid", bGridVisible);
+			Toggle("Collision", bCollisionVisible);
 			Toggle("World axes", bAxesVisible);
 			Toggle("Corner axis indicator", bOrientationIndicatorVisible);
 			Toggle("Preview bounds", bBoundsVisible);
@@ -3945,6 +3997,7 @@ void FEditorFramework::FImplementation::UpdateViewport(const ImVec2 RenderMinimu
 
 	const bool bGizmoInput = !bProjectBusy && ImGui::GetDragDropPayload() == nullptr && ViewportInteraction.CanUseGizmo(InteractionInput) && !bBoxGesture;
 	BuildViewportDebugDraw(bGizmoInput, NormalizedMouse);
+	BuildCollisionDebugDraw();
 }
 
 void FEditorFramework::FImplementation::PrepareViewportGizmos(const FVector2 NormalizedMouse, const bool bGizmoInput, const bool bSelect)
@@ -4900,7 +4953,10 @@ void FEditorFramework::FImplementation::ToggleSimulation()
 		std::vector<FPreviewObject> OriginalObjects = PreviewObjects;
 		FPhysicsWorldSettings PhysicsSettings = LevelPhysicsSettings;
 		PhysicsSettings.Tasks = Tasks;
-		if (const auto Result = Simulation.Start(Setup.Bodies, Setup.SoftBodies, Setup.Constraints, PhysicsSettings); !Result)
+		// Simulate shows the authored objects only, so destructibles stay whole there; Play breaks them.
+		std::vector<FLevelSimulationBody> Bodies = Setup.Bodies;
+		Bodies.insert(Bodies.end(), Setup.IntactDestructibles.begin(), Setup.IntactDestructibles.end());
+		if (const auto Result = Simulation.Start(Bodies, Setup.SoftBodies, Setup.Constraints, PhysicsSettings); !Result)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Could not start simulation: {}", Result.error().Message);
 			return;
@@ -5089,6 +5145,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		    .bJump = bPlayJumpArmed && ImGui::IsKeyPressed(ImGuiKey_Space, false),
 		    .bSprint = IO.KeyShift,
 		    .bCrouch = ImGui::IsKeyDown(ImGuiKey_C) || IO.KeyCtrl,
+		    .bThrow = ImGui::IsKeyPressed(ImGuiKey_F, false),
 		};
 
 		if (ImGui::IsKeyPressed(ImGuiKey_R, false) || IsPlayGamepadPressed(EGamepadButton::Back))
@@ -5124,6 +5181,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	}
 
 	PlayRenderView = PlaySession->GetRenderView(ViewportExtent);
+	BuildCollisionDebugDraw();
 
 	// Play keeps the viewport's quality settings, so a tier can be judged in motion.
 	FVisualSettings& PlayVisuals = PlayRenderView.Visuals;
@@ -5261,7 +5319,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 7> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 8> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -5329,6 +5387,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(4, ELevelComponentType::Mover, Entity->Mover.has_value(), Components.bAnyMover, Components.bAllMover, Components.MixedMover);
 			Aggregate(5, ELevelComponentType::Trigger, Entity->Trigger.has_value(), Components.bAnyTrigger, Components.bAllTrigger, Components.MixedTrigger);
 			Aggregate(6, ELevelComponentType::Constraint, Entity->Constraint.has_value(), Components.bAnyConstraint, Components.bAllConstraint, Components.MixedConstraint);
+			Aggregate(7, ELevelComponentType::Destructible, Entity->Destructible.has_value(), Components.bAnyDestructible, Components.bAllDestructible, Components.MixedDestructible);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -5423,6 +5482,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[4])
 	{
 		Components.Mover = *VisualBaselines[4]->Mover;
+	}
+
+	if (VisualBaselines[7])
+	{
+		Components.Destructible = *VisualBaselines[7]->Destructible;
 	}
 
 	if (VisualBaselines[5])
@@ -5677,6 +5741,12 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveConstraint:
 				ReportLevelResult(Level->SetSelectedConstraint(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddDestructible:
+				ReportLevelResult(Level->AddDestructibleToSelected());
+				break;
+			case EDetailsComponentAction::RemoveDestructible:
+				ReportLevelResult(Level->SetSelectedDestructible(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;

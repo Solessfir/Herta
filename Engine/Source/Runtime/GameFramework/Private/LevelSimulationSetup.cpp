@@ -63,8 +63,8 @@ FLevelSimulationSetup BuildLevelSimulation(const std::span<const FLevelEntity> E
 		for (std::size_t Index = 0; Index < Count; ++Index)
 		{
 			const FLevelEntity& Entity = Entities[Index];
-			// A soft body owns its own deformable collision; a Rigid Body on the same entity would fight it.
-			if (!Entity.Mesh || Entity.BodyType != Type || Entity.SoftBody)
+			// A soft body owns its own deformable collision, and a destructible is its own body; a Rigid Body on the same entity would fight either.
+			if (!Entity.Mesh || Entity.BodyType != Type || Entity.SoftBody || Entity.Destructible)
 			{
 				continue;
 			}
@@ -93,6 +93,42 @@ FLevelSimulationSetup BuildLevelSimulation(const std::span<const FLevelEntity> E
 			    .Mover = Entity.Mover ? std::optional{FLevelSimulationMover{.Offset = Entity.Mover->Offset, .PeriodSeconds = Entity.Mover->PeriodSeconds}} : std::nullopt,
 			});
 		}
+	}
+
+	// Destructibles fracture their mesh bounds in world units, so chunks need no scale when drawn or simulated.
+	for (std::size_t Index = 0; Index < Count; ++Index)
+	{
+		const FLevelEntity& Entity = Entities[Index];
+		if (!Entity.Destructible || !Entity.Mesh || Entity.SoftBody)
+		{
+			continue;
+		}
+
+		if (!Transforms[Index])
+		{
+			Setup.Warnings.push_back(std::format("{} is skipped: its world transform is sheared", Entity.Name));
+			continue;
+		}
+
+		const FDestructibleComponent& Destructible = *Entity.Destructible;
+		const FTransform& Transform = *Transforms[Index];
+		const FLevelBodyShape Shape = GetLevelBodyShape(Entity, Meshes[Index]);
+		const FVector3 Scaled = Transform.Scale3D.ComponentMultiply(Shape.HalfExtents);
+		const FVector3 Half{std::abs(Scaled.X), std::abs(Scaled.Y), std::abs(Scaled.Z)};
+		const FVector3 Center = Transform.Scale3D.ComponentMultiply(Shape.Center);
+		const FPhysicsBodyProperties Properties{.MassKg = Destructible.MassKg, .Friction = 0.6f, .Restitution = 0.05f};
+		Setup.Destructibles.push_back({
+		    .ObjectIndex = Index,
+		    .Position = Transform.Translation + Transform.Rotation.RotateVector(Center),
+		    .Rotation = Transform.Rotation,
+		    .Offset = -Center,
+		    .Scale = Transform.Scale3D,
+		    .Fracture = std::make_shared<const FFracture>(FractureBox(Half, static_cast<std::uint32_t>(Destructible.Cells), static_cast<std::uint32_t>(Destructible.Seed))),
+		    .Strength = Destructible.Strength,
+		    .bAnchored = Destructible.bAnchored,
+		    .Properties = Properties,
+		});
+		Setup.IntactDestructibles.push_back({.ObjectIndex = Index, .Transform = Transform, .Shape = Shape, .MotionType = Destructible.bAnchored ? EPhysicsMotionType::Static : EPhysicsMotionType::Dynamic, .Properties = Properties});
 	}
 
 	// Movers without a Rigid Body still collide, as kinematic boxes; triggers become sensors unless the entity already simulates.

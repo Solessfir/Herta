@@ -4,7 +4,11 @@
 
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <array>
+#include <chrono>
+#include <format>
+#include <optional>
 #include <cmath>
 #include <limits>
 #include <numbers>
@@ -599,5 +603,126 @@ TEST_CASE("Destruction hashes the same with and without worker threads")
 	CHECK(Hash(Tasks->get()) == Single);
 	CHECK(Hash(nullptr) == Single);
 	(*Tasks)->Shutdown();
+}
+
+TEST_CASE("Restarting a destruction scene repeats its world hash and body count")
+{
+	FWallScene Scene;
+	const std::size_t Baseline = Scene.Simulation.GetPhysicsWorld()->GetBodyCount();
+	const std::array Floor{FLevelSimulationBody{.ObjectIndex = 0, .Transform = {{0.f, -0.25f, 0.f}, FQuaternion::Identity(), {20.f, 0.25f, 20.f}}}};
+	const std::array Walls{FLevelSimulationDestructible{
+	    .ObjectIndex = 1,
+	    .Position = {0.f, 1.5f, 0.f},
+	    .Fracture = std::make_shared<const FFracture>(FractureBox({2.f, 1.5f, 0.2f}, 16, 3)),
+	    .Strength = 30.f,
+	    .Properties = {.MassKg = 800.f, .Friction = 0.6f},
+	}};
+
+	std::optional<std::uint64_t> First;
+	for (int Run = 0; Run < 5; ++Run)
+	{
+		Scene.Throw();
+		Scene.Run(90);
+		CHECK_FALSE(Scene.Simulation.IsIntact(1));
+		const std::uint64_t Hash = Scene.Simulation.GetPhysicsWorld()->ComputeStateHash();
+		CHECK(Hash == First.value_or(Hash));
+		First = Hash;
+
+		Scene.Simulation.Stop();
+		REQUIRE(Scene.Simulation.Start(Floor, {}, {}, LevelPhysicsSettings, Walls));
+		CHECK(Scene.Simulation.IsIntact(1));
+		CHECK(Scene.Simulation.GetPhysicsWorld()->GetBodyCount() == Baseline);
+		CHECK(Scene.Simulation.GetSpawned().empty());
+		CHECK(Scene.Simulation.TakeBreakEvents().empty());
+	}
+}
+
+TEST_CASE("Spawn and despawn churn returns the world to its baseline")
+{
+	FLevelSimulation Simulation;
+	const std::array Floor{FLevelSimulationBody{.ObjectIndex = 0, .Transform = {{0.f, -0.25f, 0.f}, FQuaternion::Identity(), {40.f, 0.25f, 40.f}}}};
+	REQUIRE(Simulation.Start(Floor));
+
+	// Ten waves of 1000 boxes; every wave must reuse the previous wave's slots instead of growing.
+	std::vector<FLevelSimulationHandle> Handles;
+	std::uint32_t HighestSlot = 0;
+	for (int Wave = 0; Wave < 10; ++Wave)
+	{
+		for (int Index = 0; Index < 1000; ++Index)
+		{
+			const auto Handle = Simulation.Spawn({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = {static_cast<float>(Index % 32) - 16.f, 1.f + static_cast<float>(Index / 32) * 0.5f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+			REQUIRE(Handle);
+			HighestSlot = std::max(HighestSlot, Handle->Index);
+			Handles.push_back(*Handle);
+		}
+
+		for (int Frame = 0; Frame < 5; ++Frame)
+		{
+			REQUIRE(Simulation.Update(1.f / 60.f));
+		}
+
+		CHECK(Simulation.GetPhysicsWorld()->GetBodyCount() == 1001);
+		for (const FLevelSimulationHandle& Handle : Handles)
+		{
+			REQUIRE(Simulation.Despawn(Handle));
+		}
+
+		Handles.clear();
+		REQUIRE(Simulation.Update(1.f / 60.f));
+		CHECK(Simulation.GetPhysicsWorld()->GetBodyCount() == 1);
+		CHECK(Simulation.GetSpawned().empty());
+	}
+
+	CHECK(HighestSlot < 1000);
+}
+
+TEST_CASE("Many destructibles break within the level body budget")
+{
+	constexpr int Columns = 8;
+	constexpr std::uint32_t Cells = 64;
+	const auto FractureStart = std::chrono::steady_clock::now();
+	const auto Fracture = std::make_shared<const FFracture>(FractureBox({1.f, 1.5f, 0.2f}, Cells, 11));
+	const double FractureMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - FractureStart).count();
+	REQUIRE(Fracture->Chunks.size() == Cells);
+
+	std::vector<FLevelSimulationDestructible> Walls;
+	for (int Index = 0; Index < Columns * 2; ++Index)
+	{
+		Walls.push_back({
+		    .ObjectIndex = static_cast<std::size_t>(Index + 1),
+		    .Position = {static_cast<float>(Index % Columns) * 3.f - 10.5f, 1.5f, static_cast<float>(Index / Columns) * -4.f},
+		    .Fracture = Fracture,
+		    .Strength = 30.f,
+		    .Properties = {.MassKg = 400.f, .Friction = 0.6f},
+		});
+	}
+
+	FLevelSimulation Simulation;
+	const std::array Floor{FLevelSimulationBody{.ObjectIndex = 0, .Transform = {{0.f, -0.25f, 0.f}, FQuaternion::Identity(), {40.f, 0.25f, 40.f}}}};
+	REQUIRE(Simulation.Start(Floor, {}, {}, LevelPhysicsSettings, Walls, {.MaxDebris = 256}));
+
+	// One ball at every front wall; the second row stays intact behind them unless debris knocks it hard enough.
+	for (int Index = 0; Index < Columns; ++Index)
+	{
+		const auto Ball = Simulation.Spawn({.Shape = EPhysicsShape::Sphere, .Radius = 0.15f, .Position = {static_cast<float>(Index) * 3.f - 10.5f, 1.4f, 3.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 5.f, .GravityScale = 0.f}, .bContinuousCollision = true});
+		REQUIRE(Ball);
+		REQUIRE(Simulation.GetPhysicsWorld()->SetVelocity(*Simulation.FindSpawnedBody(*Ball), {0.f, 0.f, -30.f}));
+	}
+
+	const auto StepStart = std::chrono::steady_clock::now();
+	for (int Frame = 0; Frame < 120; ++Frame)
+	{
+		REQUIRE(Simulation.Update(1.f / 60.f));
+	}
+
+	const double StepMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - StepStart).count() / 120.;
+	for (int Index = 0; Index < Columns; ++Index)
+	{
+		CHECK_FALSE(Simulation.IsIntact(static_cast<std::size_t>(Index + 1)));
+	}
+
+	CHECK(Simulation.GetDebrisCount() <= 256);
+	CHECK(Simulation.GetPieces().size() >= Columns * Cells);
+	MESSAGE(std::format("64-cell fracture {:.2f} ms, 16 walls step {:.2f} ms, {} bodies, {} debris", FractureMs, StepMs, Simulation.GetPhysicsWorld()->GetBodyCount(), Simulation.GetDebrisCount()));
 }
 }

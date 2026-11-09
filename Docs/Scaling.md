@@ -46,7 +46,9 @@ Logs report configuration, viewport resolution, entity/selection count, scene dr
 
 Startup validates the whole configured scratch budget against the pinned Jolt box-body path before allocation and stages bodies locally. Failed admission leaves existing preview state untouched. Jolt reports pair-cache/contact exhaustion during stepping; the error latches, no partial preview transforms publish, and the editor stops and restores authored poses. Pair capacity sizes Jolt's cache, not a promise of a strict observed pair-count cutoff. Dense overlapping levels can exceed contact budgets even below the body limit.
 
-The scratch bound accounts for discrete rigid boxes, one single-threaded update step, island/body arrays, pair queue, and contact constraints with alignment margin. It must be revisited when adding CCD, joints, soft bodies, or a parallel job adapter. Large-island splitting is disabled under the existing single-threaded preview job system.
+The scratch bound accounts for one update step, island/body arrays, CCD bodies, up to three constraints per body, soft-body contexts, the pair queue, and contact constraints with alignment margin. Jolt's per-step scratch does not grow with worker count, so the Tasks job adapter shares it. Large-island splitting stays disabled: it needs more scratch, and no Sandbox or fixture island is big enough to leave workers idle. Enable it when a profile of a single large stack shows the solver serialized on one worker.
+
+Runtime lifecycle tests repeat a broken destruction scene five times with an identical world hash and body count after each restart, and spawn and despawn ten waves of 1,000 boxes, reusing slots so the world returns to one body each time. Sixteen 64-cell destructible walls with eight broken step in 0.42 ms per 60 Hz frame (Development, 145 bodies, 120 debris), and fracturing one 64-cell wall takes about 7 ms.
 
 ## Reference measurements
 

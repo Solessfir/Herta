@@ -18,6 +18,9 @@ struct FLevelSimulationSetup
 	std::vector<FLevelSimulationBody> Bodies;
 	std::vector<FLevelSimulationSoftBody> SoftBodies;
 	std::vector<FLevelSimulationConstraint> Constraints;
+	std::vector<FLevelSimulationDestructible> Destructibles;
+	// The same destructibles as plain bodies that never break, for previews that cannot draw pieces.
+	std::vector<FLevelSimulationBody> IntactDestructibles;
 	// Entities left out and why; the rest of the level still simulates.
 	std::vector<std::string> Warnings;
 	// Soft body settings point into these, so they live with the setup until Start copies them.

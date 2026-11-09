@@ -70,6 +70,8 @@ public:
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateTriggerEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<void, FLevelError> AddMoverToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedMover(std::optional<FMoverComponent> Mover);
+	[[nodiscard]] std::expected<void, FLevelError> AddDestructibleToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedDestructible(std::optional<FDestructibleComponent> Destructible);
 	[[nodiscard]] std::expected<void, FLevelError> AddTriggerToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedTrigger(std::optional<FTriggerComponent> Trigger);
 	[[nodiscard]] std::expected<void, FLevelError> AddConstraintToSelected();

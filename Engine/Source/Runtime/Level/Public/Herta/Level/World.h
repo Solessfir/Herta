@@ -204,6 +204,22 @@ struct FMoverComponent
 	float PeriodSeconds = 6.f;
 };
 
+// Pre-fractured into Voronoi chunks of the mesh's bounds when play starts. Hits stronger than Strength break the bonds between chunks near the
+// impact, and chunks no longer connected to the footing fall. Replaces a Rigid Body: the destructible is its own body.
+struct FDestructibleComponent
+{
+	constexpr bool operator==(const FDestructibleComponent&) const = default;
+
+	// Whole numbers; the property system edits them as floats.
+	float Cells = 12.f;
+	float Seed = 1.f;
+	// The impulse, in N*s, an impact needs to break bonds.
+	float Strength = 60.f;
+	float MassKg = 300.f;
+	// Chunks on the bottom face stay fixed; otherwise the whole object is a Dynamic body until it breaks.
+	bool bAnchored = true;
+};
+
 // What a trigger means to gameplay. The player spawns in the Start zone, and the course runs from leaving it to entering a Finish zone.
 enum class ETriggerRole : std::uint8_t
 {
@@ -272,6 +288,7 @@ struct FLevelEntity
 	std::optional<FMoverComponent> Mover{};
 	std::optional<FTriggerComponent> Trigger{};
 	std::optional<FConstraintComponent> Constraint{};
+	std::optional<FDestructibleComponent> Destructible{};
 };
 
 struct FLevelEntityChange
@@ -294,6 +311,7 @@ struct FLevelError
 [[nodiscard]] std::expected<void, FLevelError> ValidateMoverComponent(const FMoverComponent& Mover);
 [[nodiscard]] std::expected<void, FLevelError> ValidateTriggerComponent(const FTriggerComponent& Trigger);
 [[nodiscard]] std::expected<void, FLevelError> ValidateConstraintComponent(const FConstraintComponent& Constraint);
+[[nodiscard]] std::expected<void, FLevelError> ValidateDestructibleComponent(const FDestructibleComponent& Destructible);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final

@@ -12,9 +12,9 @@ namespace Herta
 TEST_CASE("Level descriptors register stable built-in component and property identities")
 {
 	const auto Components = GetLevelComponentDescriptors();
-	REQUIRE(Components.size() == 10);
-	const std::array<std::string_view, 10> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody", "Herta.Level.Light", "Herta.Level.SkyAtmosphere", "Herta.Level.HeightFog", "Herta.Level.SoftBody", "Herta.Level.Mover", "Herta.Level.Trigger", "Herta.Level.Constraint"};
-	const std::array<std::string_view, 10> Keys{"transform", "staticMesh", "body", "light", "skyAtmosphere", "heightFog", "softBody", "mover", "trigger", "constraint"};
+	REQUIRE(Components.size() == 11);
+	const std::array<std::string_view, 11> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody", "Herta.Level.Light", "Herta.Level.SkyAtmosphere", "Herta.Level.HeightFog", "Herta.Level.SoftBody", "Herta.Level.Mover", "Herta.Level.Trigger", "Herta.Level.Constraint", "Herta.Level.Destructible"};
+	const std::array<std::string_view, 11> Keys{"transform", "staticMesh", "body", "light", "skyAtmosphere", "heightFog", "softBody", "mover", "trigger", "constraint", "destructible"};
 
 	for (std::size_t Index = 0; Index < Components.size(); ++Index)
 	{
@@ -120,11 +120,12 @@ TEST_CASE("Level serialization consumes every registered built-in property key")
 	const FLevelDocument Document{
 	    .Id = FObjectId{1, 1},
 	    .Name = "Descriptors",
-	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}, .Constraint = FConstraintComponent{}}},
+	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}, .Constraint = FConstraintComponent{}, .Destructible = FDestructibleComponent{}}},
 	};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
-	CHECK(Text->find("\"engineSchemaVersion\": 9") != std::string::npos);
+	CHECK(Text->find("\"engineSchemaVersion\": 10") != std::string::npos);
+	CHECK_FALSE(ParseLevel(std::string(*Text).replace(Text->find("\"engineSchemaVersion\": 10"), 25, "\"engineSchemaVersion\": 9")));
 
 	for (const auto& Component : GetLevelComponentDescriptors())
 	{
