@@ -1708,7 +1708,7 @@ Exit condition: the playable game uses static and streaming spatial sounds on Wi
 ### Milestone 10 - Game systems and world scaling
 
 - Add save-game persistence for actual sample progress and mutable world state, with stable references, explicit versions, atomic writes, and invalid-save recovery. Save data is separate from authored levels.
-- Expand GameUI only for the sample's pause, settings, HUD, and interaction screens. Add gamepad support, input rebinding, and tested UI/gameplay focus routing.
+- Expand GameUI only for the sample's pause, settings, HUD, and interaction screens. Add keyboard and gamepad input rebinding on top of Milestone 5's gamepad support, and tested UI/gameplay focus routing.
 - Add bounded particle/VFX runtime and authored assets for the sample's impacts, trails, or ambient effects. Validate resource retirement, transparency, and temporal history without requiring a node editor or a general Niagara-like framework.
 - Add asynchronous world-region loading and unloading through existing task, asset, and world contracts. Keep stable references, origin-relative transforms, cancellation, and bounded memory correct while the player crosses regions.
 - Extend editor authoring only as needed to build and inspect that streamed sample, including reusable object/prefab authoring when repeated content makes it necessary.
@@ -1721,7 +1721,7 @@ Exit condition: the same playable game can save/load progress, use keyboard/mous
 - Add asynchronous path requests, cancellation, dynamic-obstacle handling, debug draw, and deterministic fixtures.
 - Add navmesh source geometry, agent/obstacle level components, and the authoring/cooking path needed to place NPCs in the reference game.
 - Add AI perception, working memory, scheduling, gameplay-task contracts, and ECS integration.
-- Add GraphCore, StateTreeCompiler, and a nested StateTree authoring view for the first narrow graph domain without requiring a free-form node canvas.
+- Add StateTreeCompiler and a StateTree authoring view as a GraphCore domain beside the Material, animation, and Audio Graphs. StateTree is a nested tree rather than a free-form graph, so its view may be a tree editor instead of the canvas, sharing GraphCore's identities, validation, and diagnostics either way.
 - Add the first-party contiguous StateTree runtime program with direct index jumps, pooled instance data, utility selection, tracing, and bounded transitions.
 
 Exit condition: NPCs in the playable Sandbox navigate, avoid obstacles, react, and animate through authored StateTrees. Navigation works in a streamed test level, avoidance behaves consistently, and authored StateTrees compile and produce matching headless execution traces after reload.
@@ -1763,11 +1763,11 @@ Exit condition: the actual game and representative editor UI switch between Engl
 Builds on the Milestone 6.8 canvas and GraphCore.
 
 - Grow the Milestone 8 animation state machine graph into a full typed animation-graph domain: blend trees, layered and additive blends, nested state machines, and pose-processing nodes.
-- Extend GraphCore only with the authoring, typed-pin, transaction, validation, diagnostic, and migration infrastructure that the Material Graph, StateTree, and the animation graph prove.
+- Extend GraphCore only with the authoring, typed-pin, transaction, validation, diagnostic, and migration infrastructure that the Material Graph, StateTree, the animation graph, and the Audio Graph prove.
 - Grow the Milestone 9 Audio Graph with envelopes, oscillators, sample-accurate scheduling, and subgraphs, and keep it and gameplay graphs as distinct compiler targets rather than one universal executor; gameplay graphs compile to a native call list in the editor and generated C++ in shipping, as section 4 describes.
 - Extend debugging and cooked-format migration without linking editor UI into runtime executors.
 
-Exit condition: StateTree and the animation graph compile headless and execute from cooked data without ImGui or the graph canvas linked, while sharing only proven GraphCore infrastructure.
+Exit condition: StateTree, the animation graph, and the Audio Graph compile headless and execute from cooked data without ImGui or the graph canvas linked, while sharing only proven GraphCore infrastructure.
 
 ### Milestone 16 - Scripting
 
@@ -1790,7 +1790,7 @@ Exit condition: the same cooked script fixtures produce matching logical results
 - Add the first-party Git source-control plugin when the authoring workflow needs it, using asynchronous Git CLI operations and credential helpers.
 - Add an optional first-party terminal plugin through ConPTY and Linux PTYs when in-editor terminal use is justified, without replacing structured build, cook, test, or source-control APIs.
 - Add `HertaEditorMcp` only for a real automation consumer, over authenticated local IPC and semantic EditorCore automation with read-only defaults, explicit capabilities, transactions, progress, cancellation, and audit records.
-- Add optional final translucent-panel backdrop blur, per-user appearance settings, performance scaling, and detached-viewport fallbacks when visual and performance evidence justifies them.
+- Add per-user appearance settings for the existing translucent-panel backdrop blur, performance scaling, and detached-viewport fallbacks when visual and performance evidence justifies them.
 
 Exit condition: compatible sample gameplay-system changes reload without losing engine-owned state, incompatible native state produces an actionable restart requirement, and an external source plugin extends the editor without private headers. Enabled Git and terminal integrations cannot stall the editor, implemented automation operations match interactive and headless behavior, MCP mutation requires explicit authority and remains undoable where applicable, and plugin startup failure can be recovered through safe mode. Optional terminal, MCP, and appearance features do not block the milestone.
 
