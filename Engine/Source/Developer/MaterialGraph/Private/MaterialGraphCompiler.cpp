@@ -423,7 +423,13 @@ std::optional<FExpression> FCompiler::EvaluateOutput(const FGraphNode& Node, con
 	std::vector<FExpression> Operands;
 	for (const FGraphPinDescriptor& Pin : Descriptor->Inputs)
 	{
-		const std::optional<float> Default = Type == "Clamp" && Pin.Key == "Min" ? std::optional(0.f) : Type == "Clamp" && Pin.Key == "Max" ? std::optional(1.f) : std::nullopt;
+		// Built without nested optional ternaries, which GCC 14 misreports as maybe-uninitialized.
+		std::optional<float> Default;
+		if (Type == "Clamp" && (Pin.Key == "Min" || Pin.Key == "Max"))
+		{
+			Default = Pin.Key == "Min" ? 0.f : 1.f;
+		}
+
 		auto Operand = Input(Node, Pin.Key, Default);
 		if (!Operand)
 		{

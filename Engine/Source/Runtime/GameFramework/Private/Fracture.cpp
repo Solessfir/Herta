@@ -151,7 +151,8 @@ void Clip(FPolyhedron& Shape, const FPoint& Normal, const double Distance, const
 	}
 
 	std::ranges::sort(CapPoints);
-	CapPoints.erase(std::ranges::unique(CapPoints).begin(), CapPoints.end());
+	const auto Duplicates = std::ranges::unique(CapPoints);
+	CapPoints.erase(Duplicates.begin(), Duplicates.end());
 	if (CapPoints.size() >= 3)
 	{
 		FPoint Center{};
