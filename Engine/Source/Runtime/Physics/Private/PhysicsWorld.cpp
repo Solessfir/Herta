@@ -21,6 +21,8 @@
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
@@ -50,8 +52,11 @@ namespace Herta
 {
 namespace
 {
-constexpr JPH::ObjectLayer StaticLayer = 0;
-constexpr JPH::ObjectLayer DynamicLayer = 1;
+constexpr JPH::ObjectLayer StaticLayer = PhysicsLayerStatic;
+constexpr JPH::ObjectLayer DynamicLayer = PhysicsLayerDynamic;
+constexpr JPH::ObjectLayer CharacterLayer = PhysicsLayerCharacter;
+// Hull points sit on the surface, so a small convex radius keeps thin fracture pieces valid while still rounding contacts.
+constexpr float HullConvexRadius = 0.01f;
 
 [[nodiscard]] constexpr std::size_t RequiredTempMemory(const FPhysicsWorldSettings& Settings)
 {
@@ -439,8 +444,8 @@ template <std::size_t Count>
 
 struct FPhysicsWorld::FImplementation
 {
-	JPH::BroadPhaseLayerInterfaceTable BroadPhaseLayers{2, 2};
-	JPH::ObjectLayerPairFilterTable CollisionLayers{2};
+	JPH::BroadPhaseLayerInterfaceTable BroadPhaseLayers{PhysicsLayerCount, 2};
+	JPH::ObjectLayerPairFilterTable CollisionLayers{PhysicsLayerCount};
 	std::unique_ptr<JPH::ObjectVsBroadPhaseLayerFilterTable> BroadPhaseFilter;
 	// Declared before Physics so it outlives the system that holds a pointer to it.
 	FSensorListener SensorListener;
@@ -451,6 +456,8 @@ struct FPhysicsWorld::FImplementation
 	std::unique_ptr<FTaskJobSystem> TaskJobs;
 	std::vector<JPH::BodyID> BodyIds;
 	std::vector<JPH::Ref<JPH::Constraint>> Constraints;
+	// Bodies a constraint references, which DestroyBody refuses so no constraint points at a missing body.
+	std::unordered_set<std::uint32_t> ConstrainedBodies;
 	std::vector<FRopeState> Ropes;
 	// Each character owns an inner body in Physics, so characters are released before the bodies.
 	std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
@@ -482,11 +489,20 @@ struct FPhysicsWorld::FImplementation
 			SingleThreaded = std::make_unique<JPH::JobSystemSingleThreaded>(InSettings.MaxJobs);
 		}
 
-		BroadPhaseLayers.MapObjectToBroadPhaseLayer(StaticLayer, JPH::BroadPhaseLayer(0));
-		BroadPhaseLayers.MapObjectToBroadPhaseLayer(DynamicLayer, JPH::BroadPhaseLayer(1));
-		CollisionLayers.EnableCollision(StaticLayer, DynamicLayer);
-		CollisionLayers.EnableCollision(DynamicLayer, DynamicLayer);
-		BroadPhaseFilter = std::make_unique<JPH::ObjectVsBroadPhaseLayerFilterTable>(BroadPhaseLayers, 2, CollisionLayers, 2);
+		// Two broad-phase trees, one for bodies that never move and one for everything else, which is what Jolt's broad phase is tuned for.
+		for (JPH::ObjectLayer Layer = 0; Layer < PhysicsLayerCount; ++Layer)
+		{
+			BroadPhaseLayers.MapObjectToBroadPhaseLayer(Layer, JPH::BroadPhaseLayer(Layer == StaticLayer ? 0 : 1));
+			for (JPH::ObjectLayer Other = Layer; Other < PhysicsLayerCount; ++Other)
+			{
+				if ((InSettings.LayerCollisions[Layer] >> Other & 1u) != 0)
+				{
+					CollisionLayers.EnableCollision(Layer, Other);
+				}
+			}
+		}
+
+		BroadPhaseFilter = std::make_unique<JPH::ObjectVsBroadPhaseLayerFilterTable>(BroadPhaseLayers, 2, CollisionLayers, PhysicsLayerCount);
 		Physics.Init(Settings.MaxBodies, 0, Settings.MaxBodyPairs, Settings.MaxContactConstraints, BroadPhaseLayers, *BroadPhaseFilter, CollisionLayers);
 		JPH::PhysicsSettings PhysicsSettings = Physics.GetPhysicsSettings();
 		PhysicsSettings.mMaxInFlightBodyPairs = static_cast<int>(Settings.MaxBodyPairs);
@@ -587,6 +603,12 @@ void FPhysicsWorld::FImplementation::AddJoint(const JPH::TwoBodyConstraintSettin
 	Constraint->SetNumPositionStepsOverride(JointPositionSteps);
 	Physics.AddConstraint(Constraint);
 	Constraints.push_back(Constraint);
+	ConstrainedBodies.insert(Body2.GetIndexAndSequenceNumber());
+	if (!Body1.IsInvalid())
+	{
+		ConstrainedBodies.insert(Body1.GetIndexAndSequenceNumber());
+	}
+
 	if (!Body1.IsInvalid())
 	{
 		for (const JPH::BodyID Id : {Body1, Body2})
@@ -632,6 +654,17 @@ std::expected<std::unique_ptr<FPhysicsWorld>, FPhysicsError> FPhysicsWorld::Crea
 		return std::unexpected(FPhysicsError{"Physics job capacity must be between 64 and 65536"});
 	}
 
+	for (std::uint8_t Layer = 0; Layer < PhysicsLayerCount; ++Layer)
+	{
+		for (std::uint8_t Other = 0; Other < PhysicsLayerCount; ++Other)
+		{
+			if ((Settings.LayerCollisions[Layer] >> Other & 1u) != (Settings.LayerCollisions[Other] >> Layer & 1u))
+			{
+				return std::unexpected(FPhysicsError{std::format("Physics layer collisions must be symmetric: layer {} and layer {} disagree", Layer, Other)});
+			}
+		}
+	}
+
 	std::unique_ptr<FTaskScope> Scope;
 	if (Settings.Tasks)
 	{
@@ -659,9 +692,27 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 		return std::unexpected(FPhysicsError{std::format("Physics world body capacity reached (MaxBodies={})", Implementation->Settings.MaxBodies)});
 	}
 
-	if (Settings.Shape != EPhysicsShape::Box && Settings.Shape != EPhysicsShape::Sphere && Settings.Shape != EPhysicsShape::Capsule)
+	if (Settings.Shape > EPhysicsShape::Compound)
 	{
 		return std::unexpected(FPhysicsError{"Unsupported body shape"});
+	}
+
+	if (Settings.MotionType != EPhysicsMotionType::Static && (Settings.Layer == StaticLayer || Settings.Layer >= PhysicsLayerCount))
+	{
+		return std::unexpected(FPhysicsError{"Moving bodies need a moving collision layer below PhysicsLayerCount"});
+	}
+
+	const auto IsValidHull = [](const std::span<const FVector3> Points)
+	{
+		return Points.size() >= 4 && Points.size() <= 256 && std::ranges::all_of(Points, [](const FVector3& Point)
+		{
+			return IsFinite(Point);
+		});
+	};
+
+	if ((Settings.Shape == EPhysicsShape::ConvexHull && !IsValidHull(Settings.HullPoints)) || (Settings.Shape == EPhysicsShape::Compound && (Settings.CompoundHulls.empty() || Settings.CompoundHulls.size() > 1024 || !std::ranges::all_of(Settings.CompoundHulls, IsValidHull))))
+	{
+		return std::unexpected(FPhysicsError{"Convex hulls need 4 to 256 finite points, and compounds 1 to 1024 such hulls"});
 	}
 
 	if (Settings.Shape == EPhysicsShape::Box && (!IsFinite(Settings.HalfExtents) || Settings.HalfExtents.X <= 0.f || Settings.HalfExtents.Y <= 0.f || Settings.HalfExtents.Z <= 0.f))
@@ -669,7 +720,7 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 		return std::unexpected(FPhysicsError{"Box half extents must be finite and positive"});
 	}
 
-	if (Settings.Shape != EPhysicsShape::Box && (!IsInRange(Settings.Radius, 0.001f, 100000.f) || (Settings.Shape == EPhysicsShape::Capsule && !IsInRange(Settings.HalfHeight, 0.f, 100000.f))))
+	if ((Settings.Shape == EPhysicsShape::Sphere || Settings.Shape == EPhysicsShape::Capsule) && (!IsInRange(Settings.Radius, 0.001f, 100000.f) || (Settings.Shape == EPhysicsShape::Capsule && !IsInRange(Settings.HalfHeight, 0.f, 100000.f))))
 	{
 		return std::unexpected(FPhysicsError{"Sphere and capsule radii must be between 1 mm and 100 km, with a finite, non-negative capsule half height"});
 	}
@@ -701,10 +752,41 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 		return std::unexpected(FPhysicsError{"Body gravity scale must be finite and between 0 and 10"});
 	}
 
-	// A capsule without a cylinder is a sphere; Jolt rejects a zero half height.
-	const JPH::ShapeSettings::ShapeResult Shape = Settings.Shape == EPhysicsShape::Box                                    ? JPH::BoxShapeSettings(ToJolt(Settings.HalfExtents)).Create()
-	                                              : Settings.Shape == EPhysicsShape::Sphere || Settings.HalfHeight <= 0.f ? JPH::SphereShapeSettings(Settings.Radius).Create()
-	                                                                                                                      : JPH::CapsuleShapeSettings(Settings.HalfHeight, Settings.Radius).Create();
+	const auto HullSettings = [](const std::span<const FVector3> Points)
+	{
+		JPH::Array<JPH::Vec3> Converted;
+		Converted.reserve(Points.size());
+		for (const FVector3& Point : Points)
+		{
+			Converted.push_back(ToJolt(Point));
+		}
+
+		return JPH::Ref<JPH::ConvexHullShapeSettings>(new JPH::ConvexHullShapeSettings(Converted, HullConvexRadius));
+	};
+
+	JPH::ShapeSettings::ShapeResult Shape;
+	if (Settings.Shape == EPhysicsShape::ConvexHull)
+	{
+		Shape = HullSettings(Settings.HullPoints)->Create();
+	}
+	else if (Settings.Shape == EPhysicsShape::Compound)
+	{
+		JPH::StaticCompoundShapeSettings Compound;
+		for (const std::span<const FVector3> Hull : Settings.CompoundHulls)
+		{
+			Compound.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), HullSettings(Hull));
+		}
+
+		Shape = Compound.Create();
+	}
+	else
+	{
+		// A capsule without a cylinder is a sphere; Jolt rejects a zero half height.
+		Shape = Settings.Shape == EPhysicsShape::Box                                    ? JPH::BoxShapeSettings(ToJolt(Settings.HalfExtents)).Create()
+		        : Settings.Shape == EPhysicsShape::Sphere || Settings.HalfHeight <= 0.f ? JPH::SphereShapeSettings(Settings.Radius).Create()
+		                                                                                : JPH::CapsuleShapeSettings(Settings.HalfHeight, Settings.Radius).Create();
+	}
+
 	if (Shape.HasError())
 	{
 		return std::unexpected(FPhysicsError{Shape.GetError().c_str()});
@@ -715,7 +797,7 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 	const JPH::EMotionType MotionType = bDynamic ? JPH::EMotionType::Dynamic : bMoving ? JPH::EMotionType::Kinematic
 	                                                                                   : JPH::EMotionType::Static;
 	const FQuaternion Rotation = Settings.Rotation.NormalizedOrIdentity();
-	JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), MotionType, bMoving ? DynamicLayer : StaticLayer);
+	JPH::BodyCreationSettings BodySettings(Shape.Get().GetPtr(), ToJolt(Settings.Position), ToJolt(Rotation), MotionType, bMoving ? JPH::ObjectLayer{Settings.Layer} : StaticLayer);
 	BodySettings.mFriction = Properties.Friction;
 	BodySettings.mRestitution = Properties.Restitution;
 	BodySettings.mIsSensor = Settings.bSensor;
@@ -753,6 +835,114 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 	}
 
 	return FPhysicsBodyId{Id.GetIndexAndSequenceNumber()};
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::DestroyBody(const FPhysicsBodyId BodyId)
+{
+	const JPH::BodyID Id = FindBody(Implementation->BodyIds, BodyId);
+	if (Id.IsInvalid())
+	{
+		return std::unexpected(FPhysicsError{"Unknown physics body"});
+	}
+
+	if (Implementation->ConstrainedBodies.contains(BodyId.Value))
+	{
+		return std::unexpected(FPhysicsError{"Bodies held by constraints or ropes stay for the world's lifetime"});
+	}
+
+	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	Bodies.RemoveBody(Id);
+	Bodies.DestroyBody(Id);
+	Implementation->BodyIds[Id.GetIndex()] = {};
+	Implementation->SensorListener.Sensors.erase(BodyId.Value);
+	Implementation->SensorListener.Reporters.erase(BodyId.Value);
+	--Implementation->BodyCount;
+	return {};
+}
+
+std::size_t FPhysicsWorld::GetBodyCount() const noexcept
+{
+	return Implementation->BodyCount;
+}
+
+std::expected<FVector3, FPhysicsError> FPhysicsWorld::GetLinearVelocity(const FPhysicsBodyId BodyId) const
+{
+	const JPH::BodyID Id = FindBody(Implementation->BodyIds, BodyId);
+	if (Id.IsInvalid())
+	{
+		return std::unexpected(FPhysicsError{"Unknown physics body"});
+	}
+
+	return ToHerta(Implementation->Physics.GetBodyInterface().GetLinearVelocity(Id));
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::SetVelocity(const FPhysicsBodyId BodyId, const FVector3& Linear, const FVector3& Angular)
+{
+	const JPH::BodyID Id = FindBody(Implementation->BodyIds, BodyId);
+	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	if (Id.IsInvalid() || Bodies.GetMotionType(Id) != JPH::EMotionType::Dynamic || !IsFinite(Linear) || !IsFinite(Angular))
+	{
+		return std::unexpected(FPhysicsError{"Only dynamic bodies take finite velocities"});
+	}
+
+	Bodies.SetLinearAndAngularVelocity(Id, ToJolt(Linear), ToJolt(Angular));
+	return {};
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::AddImpulse(const FPhysicsBodyId BodyId, const FVector3& Impulse, const FVector3& Point)
+{
+	const JPH::BodyID Id = FindBody(Implementation->BodyIds, BodyId);
+	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	if (Id.IsInvalid() || Bodies.GetMotionType(Id) != JPH::EMotionType::Dynamic || !IsFinite(Impulse) || !IsFinite(Point))
+	{
+		return std::unexpected(FPhysicsError{"Only dynamic bodies take finite impulses"});
+	}
+
+	Bodies.AddImpulse(Id, ToJolt(Impulse), JPH::RVec3(ToJolt(Point)));
+	return {};
+}
+
+void FPhysicsWorld::GetDebugLines(std::vector<FPhysicsDebugLine>& OutLines, const std::size_t MaxLines) const
+{
+	OutLines.clear();
+	const JPH::BodyLockInterfaceNoLock& Locks = Implementation->Physics.GetBodyLockInterfaceNoLock();
+	std::array<JPH::Float3, 3 * JPH::Shape::cGetTrianglesMinTrianglesRequested> Triangles;
+	for (const JPH::BodyID Id : Implementation->BodyIds)
+	{
+		if (Id.IsInvalid())
+		{
+			continue;
+		}
+
+		JPH::BodyLockRead Lock(Locks, Id);
+		if (!Lock.Succeeded() || Lock.GetBody().GetBodyType() != JPH::EBodyType::RigidBody)
+		{
+			continue;
+		}
+
+		const JPH::Body& Body = Lock.GetBody();
+		const EPhysicsMotionType MotionType = Body.IsStatic() ? EPhysicsMotionType::Static : Body.IsKinematic() ? EPhysicsMotionType::Kinematic
+		                                                                                                        : EPhysicsMotionType::Dynamic;
+		JPH::Shape::GetTrianglesContext Context;
+		Body.GetShape()->GetTrianglesStart(Context, JPH::AABox::sBiggest(), JPH::Vec3(Body.GetCenterOfMassPosition()), Body.GetRotation(), JPH::Vec3::sOne());
+		for (int Count = Body.GetShape()->GetTrianglesNext(Context, JPH::Shape::cGetTrianglesMinTrianglesRequested, Triangles.data()); Count > 0; Count = Body.GetShape()->GetTrianglesNext(Context, JPH::Shape::cGetTrianglesMinTrianglesRequested, Triangles.data()))
+		{
+			for (int Triangle = 0; Triangle < Count; ++Triangle)
+			{
+				for (int Edge = 0; Edge < 3; ++Edge)
+				{
+					if (OutLines.size() >= MaxLines)
+					{
+						return;
+					}
+
+					const JPH::Float3& A = Triangles[static_cast<std::size_t>(Triangle * 3 + Edge)];
+					const JPH::Float3& B = Triangles[static_cast<std::size_t>(Triangle * 3 + (Edge + 1) % 3)];
+					OutLines.push_back({.Start = {A.x, A.y, A.z}, .End = {B.x, B.y, B.z}, .MotionType = MotionType, .bSensor = Body.IsSensor(), .bSleeping = !Body.IsActive()});
+				}
+			}
+		}
+	}
 }
 
 std::expected<void, FPhysicsError> FPhysicsWorld::MoveKinematicBody(const FPhysicsBodyId BodyId, const FPhysicsBodyTransform& Target, const float DeltaSeconds)
@@ -1228,7 +1418,7 @@ std::expected<FPhysicsCharacterId, FPhysicsError> FPhysicsWorld::CreateCharacter
 	CharacterSettings->mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -Settings.Radius);
 	// The inner body lets dynamic bodies collide with the character, which the virtual shape alone cannot.
 	CharacterSettings->mInnerBodyShape = Shape.Get();
-	CharacterSettings->mInnerBodyLayer = DynamicLayer;
+	CharacterSettings->mInnerBodyLayer = CharacterLayer;
 	Implementation->Characters.emplace_back(new JPH::CharacterVirtual(CharacterSettings, ToJolt(Settings.FootPosition), JPH::Quat::sIdentity(), 0, &Implementation->Physics));
 	Implementation->CharacterShapes.push_back({.Radius = Settings.Radius, .StepHeight = Settings.StepHeight});
 	++Implementation->BodyCount;
@@ -1265,7 +1455,7 @@ std::expected<FPhysicsCharacterState, FPhysicsError> FPhysicsWorld::MoveCharacte
 	Update.mWalkStairsStepUp = JPH::Vec3(0.f, Implementation->CharacterShapes[CharacterId.Value - 1].StepHeight, 0.f);
 	Character->SetLinearVelocity(ToJolt(Velocity));
 	const FCharacterBodyFilter BodyFilter;
-	Character->ExtendedUpdate(DeltaSeconds, Physics.GetGravity(), Update, Physics.GetDefaultBroadPhaseLayerFilter(DynamicLayer), Physics.GetDefaultLayerFilter(DynamicLayer), BodyFilter, {}, Implementation->TempAllocator);
+	Character->ExtendedUpdate(DeltaSeconds, Physics.GetGravity(), Update, Physics.GetDefaultBroadPhaseLayerFilter(CharacterLayer), Physics.GetDefaultLayerFilter(CharacterLayer), BodyFilter, {}, Implementation->TempAllocator);
 	return Implementation->GetCharacterState(*Character);
 }
 
@@ -1305,7 +1495,7 @@ std::expected<bool, FPhysicsError> FPhysicsWorld::SetCharacterHeight(const FPhys
 	// SetShape refuses a size that would sink deeper than the character padding into the world.
 	JPH::PhysicsSystem& Physics = Implementation->Physics;
 	const FCharacterBodyFilter BodyFilter;
-	if (!Character->SetShape(Shape.Get(), 0.02f, Physics.GetDefaultBroadPhaseLayerFilter(DynamicLayer), Physics.GetDefaultLayerFilter(DynamicLayer), BodyFilter, {}, Implementation->TempAllocator))
+	if (!Character->SetShape(Shape.Get(), 0.02f, Physics.GetDefaultBroadPhaseLayerFilter(CharacterLayer), Physics.GetDefaultLayerFilter(CharacterLayer), BodyFilter, {}, Implementation->TempAllocator))
 	{
 		return false;
 	}

@@ -758,4 +758,93 @@ TEST_CASE("Shifting the physics origin keeps every body where it is in the world
 	CHECK((*World)->ToWorld((*World)->GetBodyTransform(*Box)->Position).Meters.Y == doctest::Approx(12.5).epsilon(0.001));
 	CHECK_FALSE((*World)->ShiftOrigin(FWorldPosition{std::numeric_limits<double>::infinity(), 0.0, 0.0}));
 }
+
+TEST_CASE("Collision layers keep debris off other debris and characters while it still lands on the world")
+{
+	FPhysicsWorldSettings Asymmetric;
+	Asymmetric.LayerCollisions[PhysicsLayerDebris] = 0b1011;
+	CHECK_FALSE(FPhysicsWorld::Create(Asymmetric));
+
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	REQUIRE((*World)->CreateBody({.HalfExtents = {5.f, 0.5f, 5.f}, .Position = {0.f, -0.5f, 0.f}}));
+	const auto Lower = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {0.f, 0.5f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Layer = PhysicsLayerDebris});
+	const auto Upper = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {0.f, 2.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Layer = PhysicsLayerDebris});
+	const auto Crate = (*World)->CreateBody({.HalfExtents = {0.5f, 0.5f, 0.5f}, .Position = {3.f, 0.5f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+	REQUIRE(Lower);
+	REQUIRE(Upper);
+	REQUIRE(Crate);
+	CHECK_FALSE((*World)->CreateBody({.Position = {0.f, 5.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .Layer = PhysicsLayerStatic}));
+	const auto Character = (*World)->CreateCharacter({.FootPosition = {-2.f, 0.f, 0.f}});
+	REQUIRE(Character);
+	for (int Step = 0; Step < 90; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+		// Walking right at 2 m/s passes the debris but stops at the crate.
+		REQUIRE((*World)->MoveCharacter(*Character, {2.f, 0.f, 0.f}, 1.f / 60.f));
+	}
+
+	// The upper debris falls through the lower one onto the floor, and both rest on the world.
+	CHECK((*World)->GetBodyTransform(*Lower)->Position.Y == doctest::Approx(0.5f).epsilon(0.02));
+	CHECK((*World)->GetBodyTransform(*Upper)->Position.Y == doctest::Approx(0.5f).epsilon(0.05));
+	const float CharacterX = (*World)->UpdateCharacterGround(*Character)->FootPosition.X;
+	CHECK(CharacterX > 0.5f);
+	CHECK(CharacterX < 2.75f);
+}
+
+TEST_CASE("Convex hull and compound bodies settle, and destroyed bodies free their slot")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	REQUIRE((*World)->CreateBody({.HalfExtents = {10.f, 0.5f, 10.f}, .Position = {0.f, -0.5f, 0.f}}));
+	// A wedge whose lowest face is 0.2 m below its origin.
+	const std::array<FVector3, 6> Wedge{FVector3{-0.5f, -0.2f, -0.5f}, {0.5f, -0.2f, -0.5f}, {-0.5f, -0.2f, 0.5f}, {0.5f, -0.2f, 0.5f}, {-0.5f, 0.6f, 0.f}, {0.5f, 0.6f, 0.f}};
+	const auto Hull = (*World)->CreateBody({.Shape = EPhysicsShape::ConvexHull, .Position = {0.f, 1.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .HullPoints = Wedge});
+	const std::array<FVector3, 8> Left{FVector3{-1.f, -0.25f, -0.25f}, {0.f, -0.25f, -0.25f}, {-1.f, 0.25f, -0.25f}, {0.f, 0.25f, -0.25f}, {-1.f, -0.25f, 0.25f}, {0.f, -0.25f, 0.25f}, {-1.f, 0.25f, 0.25f}, {0.f, 0.25f, 0.25f}};
+	std::array<FVector3, 8> Right = Left;
+	for (FVector3& Point : Right)
+	{
+		Point.X += 1.f;
+	}
+
+	const std::array<std::span<const FVector3>, 2> Halves{std::span<const FVector3>(Left), std::span<const FVector3>(Right)};
+	const auto Compound = (*World)->CreateBody({.Shape = EPhysicsShape::Compound, .Position = {4.f, 1.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic, .CompoundHulls = Halves});
+	REQUIRE(Hull);
+	REQUIRE(Compound);
+	CHECK_FALSE((*World)->CreateBody({.Shape = EPhysicsShape::ConvexHull, .MotionType = EPhysicsMotionType::Dynamic, .HullPoints = std::span(Wedge).first(3)}));
+	CHECK((*World)->GetBodyCount() == 3);
+
+	std::vector<FPhysicsDebugLine> Lines;
+	(*World)->GetDebugLines(Lines);
+	CHECK(Lines.size() >= 3 * 12);
+	for (int Step = 0; Step < 120; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	CHECK((*World)->GetBodyTransform(*Hull)->Position.Y == doctest::Approx(0.2f).epsilon(0.05));
+	CHECK((*World)->GetBodyTransform(*Compound)->Position.Y == doctest::Approx(0.25f).epsilon(0.05));
+
+	// An impulse wakes and moves a resting body.
+	REQUIRE((*World)->AddImpulse(*Compound, {0.f, 0.f, 20.f}, (*World)->GetBodyTransform(*Compound)->Position));
+	REQUIRE((*World)->Step(1.f / 60.f));
+	CHECK((*World)->GetLinearVelocity(*Compound)->Z > 1.f);
+	REQUIRE((*World)->SetVelocity(*Hull, {0.f, 3.f, 0.f}));
+	CHECK((*World)->GetLinearVelocity(*Hull)->Y == doctest::Approx(3.f));
+
+	REQUIRE((*World)->DestroyBody(*Hull));
+	CHECK((*World)->GetBodyCount() == 2);
+	CHECK_FALSE((*World)->GetBodyTransform(*Hull));
+	CHECK_FALSE((*World)->DestroyBody(*Hull));
+	for (int Step = 0; Step < 10; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	// A new body reuses the slot under a new identity, so the old ID stays dead.
+	const auto Replacement = (*World)->CreateBody({.Position = {0.f, 2.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+	REQUIRE(Replacement);
+	CHECK_FALSE(*Replacement == *Hull);
+	CHECK_FALSE((*World)->GetBodyTransform(*Hull));
+}
 }

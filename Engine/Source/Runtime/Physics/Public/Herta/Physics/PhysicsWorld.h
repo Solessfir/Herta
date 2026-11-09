@@ -53,7 +53,20 @@ enum class EPhysicsShape : std::uint8_t
 	Sphere,
 	// Upright along the body's local +Y axis.
 	Capsule,
+	// The convex hull of HullPoints, in body space.
+	ConvexHull,
+	// One body made of the convex hulls in CompoundHulls, in body space, such as a fractured island.
+	Compound,
 };
+
+// Collision layers. Static bodies are always on the static layer; moving bodies pick theirs, and FPhysicsWorldSettings::LayerCollisions says which
+// layers touch. Characters collide through the character layer.
+inline constexpr std::uint8_t PhysicsLayerStatic = 0;
+inline constexpr std::uint8_t PhysicsLayerDynamic = 1;
+// Small loose pieces, such as destruction debris: they hit the world and dynamic bodies but not each other or characters.
+inline constexpr std::uint8_t PhysicsLayerDebris = 2;
+inline constexpr std::uint8_t PhysicsLayerCharacter = 3;
+inline constexpr std::uint8_t PhysicsLayerCount = 8;
 
 struct FPhysicsBodySettings
 {
@@ -71,6 +84,20 @@ struct FPhysicsBodySettings
 	bool bSensor = false;
 	// Contacts that start or end with this body appear in GetContactEvents.
 	bool bReportContacts = false;
+	// For moving bodies; static bodies use PhysicsLayerStatic.
+	std::uint8_t Layer = PhysicsLayerDynamic;
+	// Only need to stay valid until CreateBody returns.
+	std::span<const FVector3> HullPoints{};
+	std::span<const std::span<const FVector3>> CompoundHulls{};
+};
+
+struct FPhysicsDebugLine
+{
+	FVector3 Start;
+	FVector3 End;
+	EPhysicsMotionType MotionType = EPhysicsMotionType::Static;
+	bool bSensor = false;
+	bool bSleeping = false;
 };
 
 enum class EPhysicsContactPhase : std::uint8_t
@@ -217,6 +244,13 @@ struct FPhysicsWorldSettings
 	std::uint32_t MaxJobs = 2048;
 	// Jobs Jolt plans to run side by side; zero uses the task system's CPU workers plus the stepping thread.
 	std::uint32_t MaxConcurrency = 0;
+	// Bit N of entry M lets layer M touch layer N; Create rejects tables that are not symmetric. Unused layers touch nothing.
+	std::array<std::uint8_t, PhysicsLayerCount> LayerCollisions{
+	    0b1110,
+	    0b1111,
+	    0b0011,
+	    0b0011,
+	};
 };
 
 class FPhysicsWorld final
@@ -232,6 +266,16 @@ public:
 	FPhysicsWorld& operator=(FPhysicsWorld&&) = delete;
 
 	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateBody(const FPhysicsBodySettings& Settings);
+	// Removes a rigid or soft body that no constraint holds. Its contacts end with the next Step, without contact events.
+	[[nodiscard]] std::expected<void, FPhysicsError> DestroyBody(FPhysicsBodyId BodyId);
+	std::size_t GetBodyCount() const noexcept;
+	[[nodiscard]] std::expected<FVector3, FPhysicsError> GetLinearVelocity(FPhysicsBodyId BodyId) const;
+	// Wakes a dynamic body and sets its velocities.
+	[[nodiscard]] std::expected<void, FPhysicsError> SetVelocity(FPhysicsBodyId BodyId, const FVector3& Linear, const FVector3& Angular = FVector3::Zero());
+	// Wakes a dynamic body and applies an impulse in N*s at a physics-space point.
+	[[nodiscard]] std::expected<void, FPhysicsError> AddImpulse(FPhysicsBodyId BodyId, const FVector3& Impulse, const FVector3& Point);
+	// Wireframes of every rigid body's collision shape in physics space, at most MaxLines, for debug drawing.
+	void GetDebugLines(std::vector<FPhysicsDebugLine>& OutLines, std::size_t MaxLines = 200000) const;
 	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateSoftBody(const FPhysicsSoftBodySettings& Settings);
 	[[nodiscard]] std::expected<FPhysicsRope, FPhysicsError> CreateRope(const FPhysicsRopeSettings& Settings);
 	[[nodiscard]] std::expected<void, FPhysicsError> CreatePointConstraint(const FPhysicsPointConstraintSettings& Settings);
