@@ -69,7 +69,8 @@ std::vector<FGraphNodeId> GraphConnectedNodes(const FGraph& Graph, const std::sp
 		const FGraphNodeId Current = Found[Index];
 		for (const FGraphLink& Link : Graph.Links)
 		{
-			const FGraphNodeId Other = Link.From.Node == Current ? Link.To.Node : Link.To.Node == Current ? Link.From.Node : FGraphNodeId{};
+			const FGraphNodeId Other = Link.From.Node == Current ? Link.To.Node : Link.To.Node == Current ? Link.From.Node
+			                                                                                              : FGraphNodeId{};
 			if (Other.Value != 0 && !Contains(Found, Other))
 			{
 				Found.push_back(Other);

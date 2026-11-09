@@ -263,13 +263,14 @@ std::expected<FShaderAsset, FShaderError> CompileShader(const FShaderCompileRequ
 
 		const std::uint32_t Binding = Parameter->getBindingIndex();
 		const std::uint32_t Space = BindingType == EShaderBindingType::TableTextures || BindingType == EShaderBindingType::TableBuffers ? 1u : 0u;
-		const bool bValidBinding = BindingType == EShaderBindingType::TableTextures ? Binding == 0
-		                         : BindingType == EShaderBindingType::TableBuffers           ? Binding == 1
-		                         : BindingType == EShaderBindingType::AccelerationStructure  ? Binding == AccelerationStructureBinding
-		                         : BindingType == EShaderBindingType::Texture ? Binding < MaximumGraphicsTextures : BindingType == EShaderBindingType::Buffer                                                           ? Binding >= ReadBufferBinding && Binding < ReadBufferBinding + MaximumReadBuffers
-		                                                                                                        : BindingType == EShaderBindingType::StorageTexture || BindingType == EShaderBindingType::StorageBuffer ? Binding >= StorageBinding && Binding < StorageBinding + MaximumStorageBindings
-		                                                                                                        : BindingType == EShaderBindingType::Sampler                                                            ? Binding == 128
-		                                                                                                                                                                                                                : Binding == 64;
+		const bool bValidBinding = BindingType == EShaderBindingType::TableTextures                                                        ? Binding == 0
+		                           : BindingType == EShaderBindingType::TableBuffers                                                       ? Binding == 1
+		                           : BindingType == EShaderBindingType::AccelerationStructure                                              ? Binding == AccelerationStructureBinding
+		                           : BindingType == EShaderBindingType::Texture                                                            ? Binding < MaximumGraphicsTextures
+		                           : BindingType == EShaderBindingType::Buffer                                                             ? Binding >= ReadBufferBinding && Binding < ReadBufferBinding + MaximumReadBuffers
+		                           : BindingType == EShaderBindingType::StorageTexture || BindingType == EShaderBindingType::StorageBuffer ? Binding >= StorageBinding && Binding < StorageBinding + MaximumStorageBindings
+		                           : BindingType == EShaderBindingType::Sampler                                                            ? Binding == 128
+		                                                                                                                                   : Binding == 64;
 		if (Parameter->getBindingSpace() != Space || !bValidBinding
 		    || std::ranges::any_of(Shader.Bindings, [Binding, Space](const FShaderBinding& Existing)
 		{

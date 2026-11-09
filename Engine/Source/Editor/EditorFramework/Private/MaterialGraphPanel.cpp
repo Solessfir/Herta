@@ -178,7 +178,7 @@ void FMaterialGraphPanel::Apply(FGraph After, std::string Label)
 		Compile();
 		return {};
 	},
-	                                      .MemoryCost = Cost});
+	    .MemoryCost = Cost});
 	if (!Applied)
 	{
 		Error = Applied.error().Message;

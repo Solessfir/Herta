@@ -7,11 +7,11 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <format>
-#include <optional>
 #include <cmath>
+#include <format>
 #include <limits>
 #include <numbers>
+#include <optional>
 
 namespace Herta
 {

@@ -358,9 +358,9 @@ std::expected<void, FAssetError> ValidateMaterial(const FMaterialAsset& Material
 	{
 		const FMaterialParameterValue& Value = Material.ParameterValues[Index];
 		if (!IsValidMaterialParameterName(Value.Name) || (Index > 0 && Material.ParameterValues[Index - 1].Name >= Value.Name) || !std::ranges::all_of(Value.Value, [](const float Component)
-		    {
-			    return std::isfinite(Component);
-		    }))
+		{
+			return std::isfinite(Component);
+		}))
 		{
 			return Invalid("Material graph parameter values need valid unique names in sorted order and finite values");
 		}

@@ -157,11 +157,11 @@ TEST_CASE("Slang worker reflects ray query scenes and resource tables")
 {
 	const FShaderFixture Fixture;
 	Fixture.Write("Trace.slang", "[[vk::binding(24,0)]] RaytracingAccelerationStructure Scene;\n[[vk::binding(0,1)]] Texture2D<float4> Textures[];\n[[vk::binding(1,1)]] ByteAddressBuffer Buffers[];\n[[vk::binding(128,0)]] SamplerState Sampler;\n[[vk::binding(384,0)]] [format(\"rgba32f\")] RWTexture2D<float4> Target;\n"
-	              "[shader(\"compute\")] [numthreads(8,8,1)] void computeMain(uint3 Id : SV_DispatchThreadID) {\n"
-	              "  RayDesc Ray; Ray.Origin = 0; Ray.Direction = float3(0,0,1); Ray.TMin = 0; Ray.TMax = 10;\n"
-	              "  RayQuery<RAY_FLAG_NONE> Query; Query.TraceRayInline(Scene, RAY_FLAG_NONE, 0xFF, Ray); while (Query.Proceed()) {}\n"
-	              "  uint Slot = Query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? Query.CommittedInstanceID() : 0;\n"
-	              "  Target[Id.xy] = Textures[NonUniformResourceIndex(Slot)].SampleLevel(Sampler, float2(0,0), 0) + asfloat(Buffers[NonUniformResourceIndex(Slot)].Load(0)); }\n");
+	                             "[shader(\"compute\")] [numthreads(8,8,1)] void computeMain(uint3 Id : SV_DispatchThreadID) {\n"
+	                             "  RayDesc Ray; Ray.Origin = 0; Ray.Direction = float3(0,0,1); Ray.TMin = 0; Ray.TMax = 10;\n"
+	                             "  RayQuery<RAY_FLAG_NONE> Query; Query.TraceRayInline(Scene, RAY_FLAG_NONE, 0xFF, Ray); while (Query.Proceed()) {}\n"
+	                             "  uint Slot = Query.CommittedStatus() == COMMITTED_TRIANGLE_HIT ? Query.CommittedInstanceID() : 0;\n"
+	                             "  Target[Id.xy] = Textures[NonUniformResourceIndex(Slot)].SampleLevel(Sampler, float2(0,0), 0) + asfloat(Buffers[NonUniformResourceIndex(Slot)].Load(0)); }\n");
 	const auto Shader = CompileShader({.Source = Fixture.Directory / "Trace.slang", .EntryPoint = "computeMain", .Stage = EShaderStage::Compute});
 	REQUIRE_MESSAGE(Shader.has_value(), (Shader ? "" : Shader.error().Message));
 	const auto Find = [&](const EShaderBindingType Type)

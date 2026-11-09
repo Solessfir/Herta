@@ -2,8 +2,8 @@
 
 #include "Herta/Renderer/MeshRenderer.h"
 
-#include <cstdint>
 #include <array>
+#include <cstdint>
 #include <expected>
 #include <functional>
 #include <memory>

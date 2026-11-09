@@ -2731,7 +2731,8 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	constexpr ImGuiWindowFlags DrawerFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 	// A document must rise above the full-window workspace host to receive the mouse, so it comes to the front when focused; drawers open focused above it.
 	constexpr ImGuiWindowFlags DocumentFlags = DrawerFlags | ImGuiWindowFlags_NoTitleBar;
-	const ImGuiWindowFlags KindFlags = Kind == EToolUIPanelKind::Drawer ? DrawerFlags : bDocument ? DocumentFlags : ImGuiWindowFlags_None;
+	const ImGuiWindowFlags KindFlags = Kind == EToolUIPanelKind::Drawer ? DrawerFlags : bDocument ? DocumentFlags
+	                                                                                              : ImGuiWindowFlags_None;
 	const ImGuiWindowFlags Flags = (bViewport ? ImGuiWindowFlags_NoMove : ImGuiWindowFlags_None) | KindFlags | (Implementation->bViewportImmersive ? ImGuiWindowFlags_NoInputs : ImGuiWindowFlags_None);
 
 	if (bImmersive)

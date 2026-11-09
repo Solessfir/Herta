@@ -2,10 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
-#include <numeric>
-#include <tuple>
 #include <format>
 #include <numbers>
+#include <numeric>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 

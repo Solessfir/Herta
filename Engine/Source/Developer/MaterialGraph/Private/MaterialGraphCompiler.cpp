@@ -211,9 +211,9 @@ std::optional<FExpression> FCompiler::Elementwise(const FGraphNode& Node, const 
 	}
 
 	if (std::ranges::all_of(Fitted, [](const FExpression& Value)
-	    {
-		    return Value.Constant.has_value();
-	    }))
+	{
+		return Value.Constant.has_value();
+	}))
 	{
 		std::array<float, 4> Result{};
 		for (std::uint32_t Component = 0; Component < Width; ++Component)
@@ -229,9 +229,9 @@ std::optional<FExpression> FCompiler::Elementwise(const FGraphNode& Node, const 
 
 		// A fold that overflows or divides by zero stays in the shader, where the GPU defines the result.
 		if (std::ranges::all_of(Result, [](const float Value)
-		    {
-			    return std::isfinite(Value);
-		    }))
+		{
+			return std::isfinite(Value);
+		}))
 		{
 			return MakeConstant(Result, Width);
 		}
@@ -292,7 +292,12 @@ std::optional<FExpression> FCompiler::EvaluateOutput(const FGraphNode& Node, con
 
 	const auto Channels = [](const std::string_view Pin) -> std::string_view
 	{
-		return Pin == "R" ? "x" : Pin == "G" ? "y" : Pin == "B" ? "z" : Pin == "A" ? "w" : Pin == "RG" ? "xy" : Pin == "RGB" ? "xyz" : "xyzw";
+		return Pin == "R" ? "x" : Pin == "G" ? "y"
+		                      : Pin == "B"   ? "z"
+		                      : Pin == "A"   ? "w"
+		                      : Pin == "RG"  ? "xy"
+		                      : Pin == "RGB" ? "xyz"
+		                                     : "xyzw";
 	};
 
 	if (Type == "Constant")
@@ -396,9 +401,9 @@ std::optional<FExpression> FCompiler::EvaluateOutput(const FGraphNode& Node, con
 
 		const auto Width = static_cast<std::uint32_t>(Parts.size());
 		if (std::ranges::all_of(Parts, [](const FExpression& Part)
-		    {
-			    return Part.Constant.has_value();
-		    }))
+		{
+			return Part.Constant.has_value();
+		}))
 		{
 			std::array<float, 4> Value{};
 			for (std::size_t Index = 0; Index < Parts.size(); ++Index)
@@ -441,22 +446,70 @@ std::optional<FExpression> FCompiler::EvaluateOutput(const FGraphNode& Node, con
 
 	using FFold = std::function<float(std::span<const float>)>;
 	static const std::map<std::string_view, std::pair<std::string_view, FFold>> Operations{
-	    {"Add", {"+", [](const std::span<const float> A) { return A[0] + A[1]; }}},
-	    {"Subtract", {"-", [](const std::span<const float> A) { return A[0] - A[1]; }}},
-	    {"Multiply", {"*", [](const std::span<const float> A) { return A[0] * A[1]; }}},
-	    {"Divide", {"/", [](const std::span<const float> A) { return A[0] / A[1]; }}},
-	    {"Min", {"min", [](const std::span<const float> A) { return std::min(A[0], A[1]); }}},
-	    {"Max", {"max", [](const std::span<const float> A) { return std::max(A[0], A[1]); }}},
-	    {"Power", {"pow", [](const std::span<const float> A) { return std::pow(A[0], A[1]); }}},
-	    {"Lerp", {"lerp", [](const std::span<const float> A) { return A[0] + (A[1] - A[0]) * A[2]; }}},
-	    {"Clamp", {"clamp", [](const std::span<const float> A) { return std::clamp(A[0], A[1], std::max(A[1], A[2])); }}},
-	    {"Saturate", {"saturate", [](const std::span<const float> A) { return std::clamp(A[0], 0.f, 1.f); }}},
-	    {"Abs", {"abs", [](const std::span<const float> A) { return std::abs(A[0]); }}},
-	    {"Sqrt", {"sqrt", [](const std::span<const float> A) { return std::sqrt(A[0]); }}},
-	    {"Frac", {"frac", [](const std::span<const float> A) { return A[0] - std::floor(A[0]); }}},
-	    {"Floor", {"floor", [](const std::span<const float> A) { return std::floor(A[0]); }}},
-	    {"Sin", {"sin", [](const std::span<const float> A) { return std::sin(A[0]); }}},
-	    {"Cos", {"cos", [](const std::span<const float> A) { return std::cos(A[0]); }}},
+	    {"Add", {"+", [](const std::span<const float> A)
+	{
+		return A[0] + A[1];
+	}}},
+	    {"Subtract", {"-", [](const std::span<const float> A)
+	{
+		return A[0] - A[1];
+	}}},
+	    {"Multiply", {"*", [](const std::span<const float> A)
+	{
+		return A[0] * A[1];
+	}}},
+	    {"Divide", {"/", [](const std::span<const float> A)
+	{
+		return A[0] / A[1];
+	}}},
+	    {"Min", {"min", [](const std::span<const float> A)
+	{
+		return std::min(A[0], A[1]);
+	}}},
+	    {"Max", {"max", [](const std::span<const float> A)
+	{
+		return std::max(A[0], A[1]);
+	}}},
+	    {"Power", {"pow", [](const std::span<const float> A)
+	{
+		return std::pow(A[0], A[1]);
+	}}},
+	    {"Lerp", {"lerp", [](const std::span<const float> A)
+	{
+		return A[0] + (A[1] - A[0]) * A[2];
+	}}},
+	    {"Clamp", {"clamp", [](const std::span<const float> A)
+	{
+		return std::clamp(A[0], A[1], std::max(A[1], A[2]));
+	}}},
+	    {"Saturate", {"saturate", [](const std::span<const float> A)
+	{
+		return std::clamp(A[0], 0.f, 1.f);
+	}}},
+	    {"Abs", {"abs", [](const std::span<const float> A)
+	{
+		return std::abs(A[0]);
+	}}},
+	    {"Sqrt", {"sqrt", [](const std::span<const float> A)
+	{
+		return std::sqrt(A[0]);
+	}}},
+	    {"Frac", {"frac", [](const std::span<const float> A)
+	{
+		return A[0] - std::floor(A[0]);
+	}}},
+	    {"Floor", {"floor", [](const std::span<const float> A)
+	{
+		return std::floor(A[0]);
+	}}},
+	    {"Sin", {"sin", [](const std::span<const float> A)
+	{
+		return std::sin(A[0]);
+	}}},
+	    {"Cos", {"cos", [](const std::span<const float> A)
+	{
+		return std::cos(A[0]);
+	}}},
 	};
 
 	if (const auto Found = Operations.find(Type); Found != Operations.end())
@@ -509,9 +562,9 @@ std::optional<FMaterialGraphCompilation> FCompiler::Compile()
 {
 	Diagnostics = ValidateGraph(Graph, Schema);
 	if (std::ranges::any_of(Diagnostics, [](const FGraphDiagnostic& Diagnostic)
-	    {
-		    return Diagnostic.Severity == EGraphSeverity::Error;
-	    }))
+	{
+		return Diagnostic.Severity == EGraphSeverity::Error;
+	}))
 	{
 		return std::nullopt;
 	}
@@ -652,9 +705,9 @@ std::optional<FMaterialGraphCompilation> FCompiler::Compile()
 	}
 
 	if (std::ranges::any_of(Diagnostics, [](const FGraphDiagnostic& Diagnostic)
-	    {
-		    return Diagnostic.Severity == EGraphSeverity::Error;
-	    }))
+	{
+		return Diagnostic.Severity == EGraphSeverity::Error;
+	}))
 	{
 		return std::nullopt;
 	}

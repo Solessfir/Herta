@@ -88,7 +88,8 @@ std::expected<void, FAssetError> FShaderScratch::Initialize(const FHash128& Key)
 	constexpr int NumberedNames = 8;
 	for (int Attempt = 0; Attempt <= NumberedNames; ++Attempt)
 	{
-		const std::string Suffix = Attempt == 0 ? ToString(Key) : Attempt < NumberedNames ? std::format("{}-{}", ToString(Key), Attempt) : FAssetId::Generate().ToString();
+		const std::string Suffix = Attempt == 0 ? ToString(Key) : Attempt < NumberedNames ? std::format("{}-{}", ToString(Key), Attempt)
+		                                                                                  : FAssetId::Generate().ToString();
 		const auto Candidate = Parent / ("HertaMaterialShader-" + Suffix);
 		if (std::filesystem::create_directory(Candidate, Error) && !Error)
 		{

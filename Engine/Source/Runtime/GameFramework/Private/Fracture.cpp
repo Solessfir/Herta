@@ -343,7 +343,7 @@ FCookedModel BuildFractureChunkModel(const FFracture& Fracture, const std::size_
 		const FVector3 Normal = Sum * (1.f / Length);
 		const FVector3 Magnitude{std::abs(Normal.X), std::abs(Normal.Y), std::abs(Normal.Z)};
 		const int Axis = Magnitude.X >= Magnitude.Y && Magnitude.X >= Magnitude.Z ? 0 : Magnitude.Y >= Magnitude.Z ? 1
-		                                                                                                            : 2;
+		                                                                                                           : 2;
 		// The projection's U axis, made perpendicular to the face as normal mapping needs.
 		const FVector3 Projected = Axis == 0 ? FVector3{0.f, 0.f, 1.f} : FVector3{1.f, 0.f, 0.f};
 		const FVector3 Tangent = (Projected - Normal * Normal.Dot(Projected)).Normalized();

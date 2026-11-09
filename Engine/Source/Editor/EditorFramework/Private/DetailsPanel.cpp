@@ -49,7 +49,7 @@ struct FBodyPropertyDisplay
 	std::string_view Key;
 	std::string_view SearchAlias;
 	std::string_view Tooltip;
-	float FLevelRigidBodySettings::* Member = nullptr;
+	float FLevelRigidBodySettings::*Member = nullptr;
 	float Speed = 0.01f;
 	const char* Format = "%.3f";
 	bool bDynamicOnly = false;

@@ -156,10 +156,10 @@ std::vector<FGraphDiagnostic> ValidateGraph(const FGraph& Graph, const FGraphSch
 		}
 
 		if (!std::ranges::all_of(Comment.Rect, [](const float Value)
-		    {
-			    return std::isfinite(Value);
-		    })
-		    || Comment.Rect[0] >= Comment.Rect[2] || Comment.Rect[1] >= Comment.Rect[3] || Comment.Text.size() > MaximumGraphCommentBytes)
+		{
+			return std::isfinite(Value);
+		}) || Comment.Rect[0] >= Comment.Rect[2]
+		    || Comment.Rect[1] >= Comment.Rect[3] || Comment.Text.size() > MaximumGraphCommentBytes)
 		{
 			Error(Comment.Id, {}, "Comments need a finite, nonempty box and at most 4 KiB of text");
 		}

@@ -731,7 +731,9 @@ public:
 		if (bSampler)
 		{
 			Layout.addItem(nvrhi::BindingLayoutItem::Sampler(0));
-			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(Descriptor.bLinearSampler).setAllAddressModes(Descriptor.bBorderSampler ? nvrhi::SamplerAddressMode::Border : Descriptor.bRepeatSampler ? nvrhi::SamplerAddressMode::Wrap : nvrhi::SamplerAddressMode::Clamp).setBorderColor(nvrhi::Color(0.f)));
+			Pipeline->Sampler = Device->createSampler(nvrhi::SamplerDesc().setAllFilters(Descriptor.bLinearSampler).setAllAddressModes(Descriptor.bBorderSampler ? nvrhi::SamplerAddressMode::Border : Descriptor.bRepeatSampler ? nvrhi::SamplerAddressMode::Wrap
+			                                                                                                                                                                                                                     : nvrhi::SamplerAddressMode::Clamp)
+			                                              .setBorderColor(nvrhi::Color(0.f)));
 		}
 
 		if (Descriptor.UniformBufferSize != 0)
@@ -1823,7 +1825,9 @@ public:
 
 			nvrhi::rt::AffineTransform Transform;
 			std::ranges::copy(Instance.ObjectToWorld, Transform);
-			Native.push_back(nvrhi::rt::InstanceDesc().setTransform(Transform).setInstanceID(Instance.CustomIndex).setInstanceMask(Instance.Mask).setFlags(Instance.Opacity == ERayTracingOpacity::Opaque ? nvrhi::rt::InstanceFlags::ForceOpaque : Instance.Opacity == ERayTracingOpacity::AlphaTested ? nvrhi::rt::InstanceFlags::ForceNonOpaque : nvrhi::rt::InstanceFlags::None).setBLAS(BottomLevel->Handle));
+			Native.push_back(nvrhi::rt::InstanceDesc().setTransform(Transform).setInstanceID(Instance.CustomIndex).setInstanceMask(Instance.Mask).setFlags(Instance.Opacity == ERayTracingOpacity::Opaque ? nvrhi::rt::InstanceFlags::ForceOpaque : Instance.Opacity == ERayTracingOpacity::AlphaTested ? nvrhi::rt::InstanceFlags::ForceNonOpaque
+			                                                                                                                                                                                                                                                                                            : nvrhi::rt::InstanceFlags::None)
+			                     .setBLAS(BottomLevel->Handle));
 			BottomLevels.push_back(std::move(BottomLevel));
 		}
 

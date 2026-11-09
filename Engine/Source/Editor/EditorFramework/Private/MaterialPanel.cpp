@@ -531,7 +531,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 		{
 			Report(SetDraft(std::move(Candidate), Label));
 		};
-		const auto FloatRow = [&](const char* Label, float FMaterialParameters::* const Member, const float Minimum, const float Maximum, const float Speed = 0.01f, const char* Format = "%.3f")
+		const auto FloatRow = [&](const char* Label, float FMaterialParameters::*const Member, const float Minimum, const float Maximum, const float Speed = 0.01f, const char* Format = "%.3f")
 		{
 			if (!MatchesMaterialSearch(Label, Query))
 			{
@@ -588,7 +588,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 
 			ImGui::PopID();
 		};
-		const auto ColorRow = [&](const char* Label, auto FMaterialParameters::* const Member)
+		const auto ColorRow = [&](const char* Label, auto FMaterialParameters::*const Member)
 		{
 			if (!MatchesMaterialSearch(Label, Query))
 			{

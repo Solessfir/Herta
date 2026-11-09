@@ -92,6 +92,7 @@ FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
 	};
 }
+
 inline constexpr FLogCategory ShellLog{.Name = "Shell"};
 
 std::string MaterialShaderKey(const std::string_view Path, const std::string_view MaterialPath)
@@ -1991,7 +1992,8 @@ std::span<const FDebugDrawList> FEditorFramework::GetViewportDebugDrawLists() co
 void FEditorFramework::FImplementation::BuildCollisionDebugDraw()
 {
 	CombinedDebugDrawLists.clear();
-	const FPhysicsWorld* const Physics = !bCollisionVisible ? nullptr : PlaySession ? PlaySession->GetPhysicsWorld() : const_cast<FLevelSimulation&>(Simulation).GetPhysicsWorld();
+	const FPhysicsWorld* const Physics = !bCollisionVisible ? nullptr : PlaySession ? PlaySession->GetPhysicsWorld()
+	                                                                                : const_cast<FLevelSimulation&>(Simulation).GetPhysicsWorld();
 	if (!Physics)
 	{
 		return;
@@ -2003,9 +2005,9 @@ void FEditorFramework::FImplementation::BuildCollisionDebugDraw()
 	for (const FPhysicsDebugLine& Line : CollisionLines)
 	{
 		// Static grey, kinematic blue, dynamic green, sensors amber; sleeping bodies dim.
-		std::array<float, 4> Color = Line.bSensor ? std::array{1.f, 0.7f, 0.2f, 1.f} : Line.MotionType == EPhysicsMotionType::Static ? std::array{0.55f, 0.58f, 0.62f, 0.6f}
-		                                                                            : Line.MotionType == EPhysicsMotionType::Kinematic ? std::array{0.35f, 0.6f, 1.f, 1.f}
-		                                                                                                                               : std::array{0.35f, 1.f, 0.45f, 1.f};
+		std::array<float, 4> Color = Line.bSensor ? std::array{1.f, 0.7f, 0.2f, 1.f} : Line.MotionType == EPhysicsMotionType::Static  ? std::array{0.55f, 0.58f, 0.62f, 0.6f}
+		                                                                           : Line.MotionType == EPhysicsMotionType::Kinematic ? std::array{0.35f, 0.6f, 1.f, 1.f}
+		                                                                                                                              : std::array{0.35f, 1.f, 0.45f, 1.f};
 		if (Line.bSleeping && Line.MotionType != EPhysicsMotionType::Static)
 		{
 			Color = {Color[0] * 0.5f, Color[1] * 0.5f, Color[2] * 0.5f, Color[3]};
@@ -2905,10 +2907,13 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 	const auto* const GraphShader = MaterialShaders && MaterialGraphPanel.IsOpen() ? MaterialShaders->GetStatus(MaterialGraphPanel.GetPath()) : nullptr;
 	const bool bGraphPreviewShown = GraphPreviewMaterial && Assets->GetMaterialPreviewAsset() == GraphPreviewAsset;
 	MaterialGraphPanel.Draw(*ToolUI, {
-	    .ShaderStatus = GraphStatus,
-	    .PreviewTexture = bGraphPreviewShown && Assets->GetMaterialPreviewThumbnail() ? *Assets->GetMaterialPreviewThumbnail() : 0,
-	    .PreviewStatus = bGraphPreviewPending ? "" : !GraphPreviewMaterial ? "No material beside this graph uses it, so there is nothing to preview." : bGraphPreviewShown && Assets->IsMaterialPreviewLoading() ? "Updating preview..." : bGraphPreviewShown ? Assets->GetMaterialPreviewError() : "",
-	    .RequestPreview = [&]
+	                                     .ShaderStatus = GraphStatus,
+	                                     .PreviewTexture = bGraphPreviewShown && Assets->GetMaterialPreviewThumbnail() ? *Assets->GetMaterialPreviewThumbnail() : 0,
+	                                     .PreviewStatus = bGraphPreviewPending ? "" : !GraphPreviewMaterial                                  ? "No material beside this graph uses it, so there is nothing to preview."
+	                                                                              : bGraphPreviewShown && Assets->IsMaterialPreviewLoading() ? "Updating preview..."
+	                                                                              : bGraphPreviewShown                                       ? Assets->GetMaterialPreviewError()
+	                                                                                                                                         : "",
+	                                     .RequestPreview = [&]
 	{
 		// The preview slot is shared with the Material panel, so take it back when it shows something else, and refresh once a recompiled graph has published.
 		const std::uint64_t Generation = GraphShader && GraphShader->bReady && !GraphShader->bCompiling ? GraphShader->Generation : GraphPreviewGeneration;
@@ -2918,8 +2923,8 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 			GraphPreviewGeneration = Generation;
 		}
 	},
-	    .ZoomPreview = ZoomMaterialPreview,
-	});
+	                                     .ZoomPreview = ZoomMaterialPreview,
+	                                 });
 }
 
 // A material's graph lives beside it as <material>.hmatgraph; an existing file is reused rather than replaced.
@@ -5570,11 +5575,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 
 		PreviousObject = GetActivePreviewObject();
 	},
-	    .ApplyBodyProperty = [&](float FLevelRigidBodySettings::* const Property, const float Value)
+	    .ApplyBodyProperty = [&](float FLevelRigidBodySettings::*const Property, const float Value)
 	{
 		ReportLevelResult(Level->SetSelectedBodyProperty(Property, Value));
 	},
-	    .ReadBodyProperty = [&](float FLevelRigidBodySettings::* const Property)
+	    .ReadBodyProperty = [&](float FLevelRigidBodySettings::*const Property)
 	{
 		for (const FObjectId Selected : Level->GetSelection())
 		{

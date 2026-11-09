@@ -3,19 +3,19 @@
 #include "Herta/Math/Matrix.h"
 #include "Herta/RenderGraph/RenderGraph.h"
 #include "Herta/Renderer/EnvironmentLighting.h"
+#include "IrradianceField.h"
 #include "MaterialUniform.h"
 #include "PathTracer.h"
-#include "IrradianceField.h"
 
 #include <AreaTex.h>
 // The vendored header converts int to float implicitly; it stays unmodified.
 #ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable : 4244)
+	#pragma warning(push)
+	#pragma warning(disable : 4244)
 #endif
 #include <BendScreenSpaceShadows/bend_sss_cpu.h>
 #ifdef _MSC_VER
-#pragma warning(pop)
+	#pragma warning(pop)
 #endif
 #include <LtcTables.h>
 #include <SearchTex.h>
@@ -754,6 +754,7 @@ struct FMeshRenderer::FImplementation
 	FGraphicsPipelineHandle InstancedPipeline;
 	FGraphicsPipelineHandle DepthPrepassPipeline;
 	FGraphicsPipelineHandle InstancedDepthPrepassPipeline;
+
 	// A custom material shader's pipelines. The arrays index by instancing; prepass pipelines exist only where the renderer has the engine's equivalent.
 	struct FMaterialPipelineSet
 	{
@@ -2292,7 +2293,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		if (!Scattering || !FogDepth || !Fog)
 		{
 			return std::unexpected(!Scattering ? Scattering.error() : !FogDepth ? FogDepth.error()
-			                                                                  : Fog.error());
+			                                                                    : Fog.error());
 		}
 
 		State.FogScattering = std::move(*Scattering);

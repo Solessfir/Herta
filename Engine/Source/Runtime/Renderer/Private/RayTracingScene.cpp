@@ -327,9 +327,10 @@ std::expected<void, FPresentationError> FRayTracingScene::Update(const FMeshRend
 				for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
 				{
 					constexpr std::array<int, MaterialTextureSlotCount> BakeTextures{0, 1, 1, 3, -1, 2};
-					const FTextureHandle Texture = Bake ? (BakeTextures[Slot] < 0 ? FTextureHandle{} : Bake->Textures[static_cast<std::size_t>(BakeTextures[Slot])])
-					                               : Override ? Override->Textures[Slot] : Imported.Textures[Slot] != NoCookedTexture ? Mesh->Textures[Imported.Textures[Slot]]
-					                                                                                                                  : FTextureHandle{};
+					const FTextureHandle Texture = Bake                                         ? (BakeTextures[Slot] < 0 ? FTextureHandle{} : Bake->Textures[static_cast<std::size_t>(BakeTextures[Slot])])
+					                               : Override                                   ? Override->Textures[Slot]
+					                               : Imported.Textures[Slot] != NoCookedTexture ? Mesh->Textures[Imported.Textures[Slot]]
+					                                                                            : FTextureHandle{};
 					if (!Texture)
 					{
 						continue;
@@ -356,7 +357,8 @@ std::expected<void, FPresentationError> FRayTracingScene::Update(const FMeshRend
 			AppendKey(NextKey, Found->second);
 		}
 
-		Instance.Opacity = bMatchesSections ? ERayTracingOpacity::Sections : bAnyAlphaTested ? ERayTracingOpacity::AlphaTested : ERayTracingOpacity::Opaque;
+		Instance.Opacity = bMatchesSections ? ERayTracingOpacity::Sections : bAnyAlphaTested ? ERayTracingOpacity::AlphaTested
+		                                                                                     : ERayTracingOpacity::Opaque;
 		const std::array<float, 16>& Matrix = View.Models[Model].Data();
 		for (std::size_t Row = 0; Row < 3; ++Row)
 		{

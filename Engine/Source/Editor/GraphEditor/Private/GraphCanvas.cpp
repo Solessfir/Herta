@@ -42,7 +42,8 @@ bool MatchesSearch(const std::string_view Text, const std::string_view Search)
 	return std::ranges::search(Text, Search, [](const char Left, const char Right)
 	{
 		return std::tolower(static_cast<unsigned char>(Left)) == std::tolower(static_cast<unsigned char>(Right));
-	}).begin() != Text.end() || Search.empty();
+	}).begin() != Text.end()
+	       || Search.empty();
 }
 
 std::string FormatValue(const FGraphValue& Value)
@@ -1000,8 +1001,8 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		const bool bSelected = Contains(Selection, Node.Id);
 		const bool bHot = Hit.Kind != EGraphCanvasHit::None && Hit.Node == Node.Id;
 		const FToolUIColor Outline = Problem != Problems.end() ? (Problem->second.first == EGraphSeverity::Error ? ToolUITheme::Error : ToolUITheme::Warning) : bSelected ? ToolUITheme::NeutralAccentHover
-		                                                                                                                                            : bHot ? ToolUITheme::Border
-		                                                                                                                                                   : ToolUITheme::BorderSoft;
+		                                                                                                                                                    : bHot        ? ToolUITheme::Border
+		                                                                                                                                                                  : ToolUITheme::BorderSoft;
 		DrawList->AddRect(Min, Max, ToImU32(Outline), Rounding, 0, bSelected || Problem != Problems.end() ? 2.f : 1.f);
 
 		if (bLabels)
@@ -1087,7 +1088,8 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 	if (Mode == EMode::Linking || bPendingWire)
 	{
 		const auto Target = LinkTarget ? PinOf(*LinkTarget, !bAnchorsAreOutputs) : std::nullopt;
-		const FCanvasPoint End = bPendingWire ? MenuPosition : Target && !LinkProblem ? Target->first : Mouse;
+		const FCanvasPoint End = bPendingWire ? MenuPosition : Target && !LinkProblem ? Target->first
+		                                                                              : Mouse;
 		for (const FGraphPin& Anchor : LinkAnchors)
 		{
 			if (const auto Start = PinOf(Anchor, bAnchorsAreOutputs))
