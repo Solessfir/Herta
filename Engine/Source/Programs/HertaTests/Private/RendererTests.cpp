@@ -1035,6 +1035,72 @@ TEST_CASE("Custom material shaders draw their own depth prepass and shade agains
 	CHECK_FALSE(MeshDraws[1]->bDepthWrite);
 }
 
+TEST_CASE("Masked custom materials cut out their own shadows while opaque ones keep the engine shadow shader")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	Visuals.FullscreenVertex.Bytecode = {1};
+	Visuals.ShadowFragment.Bytecode = {1};
+	Visuals.ShadowVertex.Bytecode = {1};
+	Visuals.ShadowInstancedVertex.Bytecode = {1};
+	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	REQUIRE(Renderer);
+
+	FShaderAsset Vertex;
+	Vertex.Stage = EShaderStage::Vertex;
+	Vertex.EntryPoint = "vertexMain";
+	Vertex.Bindings = {{.Name = "Visual", .Type = EShaderBindingType::ConstantBuffer, .Binding = 64, .ByteSize = VisualUniformBytes}};
+	Vertex.Bytecode = {1};
+	FShaderAsset Instanced = Vertex;
+	Instanced.EntryPoint = "instancedVertexMain";
+	FShaderAsset Fragment = Vertex;
+	Fragment.Stage = EShaderStage::Fragment;
+	Fragment.EntryPoint = "fragmentMain";
+	REQUIRE((*Renderer)->PublishMaterialShader("Game/Custom.hmatgraph", Tests::MakeMaterialShaderStages(Vertex, Instanced, Fragment)));
+
+	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Spot, .Intensity = 800.f, .bCastShadows = true, .Range = 20.f}, .Transform = FMatrix4::Translation({0.f, 0.f, -6.f})}};
+	Scene.View.Lights = Lights;
+	const auto ShadowEntryPoints = [&](const EMaterialBlendMode BlendMode)
+	{
+		FMaterialAsset Asset{.ShaderPath = "Game/Custom.hmatgraph"};
+		Asset.Parameters.BlendMode = BlendMode;
+		const auto Material = FRenderMaterial::Create(Device, Asset, {}, "Custom");
+		REQUIRE(Material);
+		const FRenderMaterial* const MaterialPointer = Material->get();
+		const std::span<const FRenderMaterial* const> Slots{&MaterialPointer, 1};
+		Scene.View.Materials = {&Slots, 1};
+		Device.Draws.clear();
+		REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+		std::vector<std::string> EntryPoints;
+		for (const FIndexedDraw& Draw : Device.Draws)
+		{
+			const FGraphicsPipelineDescriptor& Descriptor = std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor;
+			if (Descriptor.VertexFormat == EGraphicsVertexFormat::ShadowMesh && !Descriptor.bDepthOverwrite)
+			{
+				EntryPoints.push_back(Descriptor.FragmentShader.EntryPoint);
+			}
+		}
+
+		return EntryPoints;
+	};
+
+	const auto Masked = ShadowEntryPoints(EMaterialBlendMode::Masked);
+	REQUIRE_FALSE(Masked.empty());
+	CHECK(std::ranges::all_of(Masked, [](const std::string& EntryPoint)
+	{
+		return EntryPoint == "shadowFragmentMain";
+	}));
+
+	const auto Opaque = ShadowEntryPoints(EMaterialBlendMode::Opaque);
+	REQUIRE_FALSE(Opaque.empty());
+	CHECK(std::ranges::none_of(Opaque, [](const std::string& EntryPoint)
+	{
+		return EntryPoint == "shadowFragmentMain";
+	}));
+}
+
 TEST_CASE("Mesh vertex updates upload inside the frame's recording and must replace every vertex")
 {
 	FTestGraphicsDevice Device;

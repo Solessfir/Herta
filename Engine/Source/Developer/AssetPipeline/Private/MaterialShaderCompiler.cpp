@@ -34,6 +34,7 @@ constexpr std::array<FStageEntry, MaterialShaderStageCount> StageEntries{
     FStageEntry{.EntryPoint = "bakeVertexMain"},
     FStageEntry{.EntryPoint = "bakeSurfaceFragmentMain", .bFragment = true},
     FStageEntry{.EntryPoint = "bakeLightFragmentMain", .bFragment = true},
+    FStageEntry{.EntryPoint = "shadowFragmentMain", .bFragment = true},
 };
 
 std::string Utf8Path(const std::filesystem::path& Path)

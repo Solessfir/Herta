@@ -728,6 +728,9 @@ struct FMeshRenderer::FImplementation
 	// Cascade atlas, then local atlas.
 	std::array<FGraphicsPipelineHandle, 2> ShadowClearPipelines;
 	FBufferHandle ShadowClearVertices;
+	// Shadow.slang's vertex stages, kept for custom materials' masked shadow pipelines.
+	FShaderAsset ShadowVertexShader;
+	FShaderAsset ShadowInstancedVertexShader;
 	// A clip-space quad carrying the UV square, which Material Graph bakes draw.
 	FBufferHandle BakeQuadVertices;
 	// Visible view depth reduced on the GPU and read back a few frames later without stalling, so sun cascades cover only the depth the camera sees.
@@ -761,6 +764,8 @@ struct FMeshRenderer::FImplementation
 		FGraphicsPipelineHandle VelocitySurfacePrepass;
 		// The surface and light halves of the bake ray-traced hits read; only renderers that trace rays build them.
 		std::array<FGraphicsPipelineHandle, 2> Bake;
+		// Masked shadow casting into the cascade and local atlases, each plain and instanced.
+		std::array<FGraphicsPipelineHandle, 4> Shadow;
 		std::vector<FMaterialShaderParameter> Parameters;
 	};
 
@@ -1137,6 +1142,8 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		State->CascadeShadowPipeline = std::move(*CascadeShadow);
 		State->InstancedCascadeShadowPipeline = std::move(*InstancedCascadeShadow);
 		State->ShadowClearVertices = std::move(*ShadowClearVertices);
+		State->ShadowVertexShader = VisualShaders.ShadowVertex;
+		State->ShadowInstancedVertexShader = VisualShaders.ShadowInstancedVertex;
 		auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Masked shadow atlas", .VertexShader = std::move(VisualShaders.ShadowVertex), .FragmentShader = VisualShaders.ShadowFragment, .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true});
 		auto InstancedShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Instanced masked shadow atlas", .VertexShader = std::move(VisualShaders.ShadowInstancedVertex), .FragmentShader = std::move(VisualShaders.ShadowFragment), .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .bInstanced = true, .TextureCount = 1, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true});
 		auto FullscreenVertices = Device.CreateBuffer({.Name = "Fullscreen quad", .Size = 4 * sizeof(FColoredClipVertex), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition});
@@ -1588,6 +1595,7 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 	    {EShaderStage::Vertex, "bakeVertexMain"},
 	    {EShaderStage::Fragment, "bakeSurfaceFragmentMain"},
 	    {EShaderStage::Fragment, "bakeLightFragmentMain"},
+	    {EShaderStage::Fragment, "shadowFragmentMain"},
 	}};
 
 	for (std::size_t Index = 0; Index < Stages.size(); ++Index)
@@ -1634,6 +1642,14 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 	Create(Set.SurfacePrepass[0], bCustom && State.SurfacePrepassPipeline, {.Name = std::format("Surface prepass {}", Key), .VertexShader = Stage(Vertex), .FragmentShader = Stage(SurfaceFragment), .ColorFormat = ETextureFormat::Rgba8, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
 	Create(Set.SurfacePrepass[1], bCustom && State.InstancedSurfacePrepassPipeline, {.Name = std::format("Instanced surface prepass {}", Key), .VertexShader = Stage(InstancedVertex), .FragmentShader = Stage(SurfaceFragment), .ColorFormat = ETextureFormat::Rgba8, .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
 	Create(Set.VelocitySurfacePrepass, bCustom && State.InstancedVelocitySurfacePrepassPipeline, {.Name = std::format("Instanced velocity surface prepass {}", Key), .VertexShader = Stage(InstancedVelocityVertex), .FragmentShader = Stage(VelocitySurfaceFragment), .ColorFormat = ETextureFormat::Rg16Float, .SecondColorFormat = ETextureFormat::Rgba8, .bInstanced = true, .bInstanceMotion = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+	for (std::size_t Index = 0; Index < Set.Shadow.size(); ++Index)
+	{
+		const bool bCascade = Index < 2;
+		const bool bInstancedShadow = Index % 2 == 1;
+		const FShaderAsset& Vertex = bInstancedShadow ? State.ShadowInstancedVertexShader : State.ShadowVertexShader;
+		Create(Set.Shadow[Index], bCustom && State.ShadowPipeline && !Vertex.Bytecode.empty() && (!bInstancedShadow || State.InstancedShadowPipeline), {.Name = std::format("{}{} shadow {}", bInstancedShadow ? "Instanced " : "", bCascade ? "cascade" : "local", Key), .VertexShader = Vertex, .FragmentShader = Stage(ShadowFragment), .VertexFormat = EGraphicsVertexFormat::ShadowMesh, .bInstanced = bInstancedShadow, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .DepthFormat = bCascade ? ETextureFormat::Depth16 : ETextureFormat::Depth32, .BufferCount = MeshBufferCount});
+	}
+
 	for (std::size_t Half = 0; Half < Set.Bake.size(); ++Half)
 	{
 		Create(Set.Bake[Half], bCustom && State.RayTracingScene, {.Name = std::format("{} bake {}", Half == 0 ? "Surface" : "Light", Key), .VertexShader = Stage(BakeVertex), .FragmentShader = Stage(Half == 0 ? BakeSurfaceFragment : BakeLightFragment), .ColorFormat = ETextureFormat::Rgba16Float, .SecondColorFormat = ETextureFormat::Rgba16Float, .bDepthTest = false, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .BufferCount = MeshBufferCount});
@@ -2442,6 +2458,13 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		return nullptr;
 	};
 
+	// Masked custom materials cut their shadows out by their own alpha; MaterialTextures has already loaded the section's uniforms.
+	const auto MaskedShadow = [&](const FRenderMesh::FSection& Section, const std::span<const FRenderMaterial* const> Overrides, const std::size_t Index) -> const FGraphicsPipelineHandle*
+	{
+		const FImplementation::FMaterialPipelineSet* const Custom = State.Uniforms.Material.Channels1[2] > 0.5f ? CustomPipelines(Section, Overrides) : nullptr;
+		return Custom && Custom->Shadow[Index] ? &Custom->Shadow[Index] : nullptr;
+	};
+
 	// A custom set lacks a prepass variant only when the engine lacks it too, so the fallback never draws.
 	const auto CustomOr = [](const FGraphicsPipelineHandle& Custom, const FGraphicsPipelineHandle& Engine) -> const FGraphicsPipelineHandle&
 	{
@@ -2558,6 +2581,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 						Append(KeyBytes(Material.UVScale));
 						Append(KeyBytes(Material.UVOffset));
 						Append(KeyBytes(MaterialTextures(*Mesh, Section, Overrides)[0].get()));
+						if (Override && !Override->ShaderKey.empty())
+						{
+							Append(KeyBytes(Override->Serial));
+							Append(KeyBytes(State.MaterialShaderGeneration));
+						}
 					}
 				}
 
@@ -2629,10 +2657,19 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 					for (const FRenderMesh::FSection& Section : Mesh.Sections)
 					{
 						const auto Textures = MaterialTextures(Mesh, Section, Batch.Materials);
-						const auto Draw = Device.DrawIndexed({.Pipeline = InstancedPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = Atlas, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport});
-						if (!Draw)
+						const FGraphicsPipelineHandle* const Custom = MaskedShadow(Section, Batch.Materials, bCascade ? 1 : 3);
+						FIndexedDraw Draw{.Pipeline = Custom ? *Custom : InstancedPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = Atlas, .WorldToClip = Transform, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport};
+						if (Custom)
 						{
-							return GraphResult(Draw);
+							Draw.Texture = {};
+							Draw.Textures = Textures;
+							Draw.Buffers = LightBuffers;
+						}
+
+						const auto Drawn = Device.DrawIndexed(Draw);
+						if (!Drawn)
+						{
+							return GraphResult(Drawn);
 						}
 
 						++State.LastDrawCount;
@@ -2653,10 +2690,19 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 					for (const FRenderMesh::FSection& Section : Mesh.Sections)
 					{
 						const auto Textures = MaterialTextures(Mesh, Section, Overrides);
-						const auto Draw = Device.DrawIndexed({.Pipeline = Pipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = Atlas, .WorldToClip = (ShadowView.WorldToClip * View.Models[Model]).Data(), .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport});
-						if (!Draw)
+						const FGraphicsPipelineHandle* const Custom = MaskedShadow(Section, Overrides, bCascade ? 0 : 2);
+						FIndexedDraw Draw{.Pipeline = Custom ? *Custom : Pipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .Texture = Textures[0], .DepthTarget = Atlas, .WorldToClip = (ShadowView.WorldToClip * View.Models[Model]).Data(), .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Viewport = ShadowView.Viewport};
+						if (Custom)
 						{
-							return GraphResult(Draw);
+							Draw.Texture = {};
+							Draw.Textures = Textures;
+							Draw.Buffers = LightBuffers;
+						}
+
+						const auto Drawn = Device.DrawIndexed(Draw);
+						if (!Drawn)
+						{
+							return GraphResult(Drawn);
 						}
 
 						++State.LastDrawCount;

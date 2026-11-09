@@ -52,6 +52,7 @@ enum class EMaterialShaderStage : std::uint8_t
 	BakeVertex,
 	BakeSurfaceFragment,
 	BakeLightFragment,
+	ShadowFragment,
 	Count,
 };
 

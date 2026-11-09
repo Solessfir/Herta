@@ -341,7 +341,8 @@ struct FBakeVertex
 FBakeVertex bakeVertexMain(float3 Position : POSITION, float2 UV : TEXCOORD0, float3 Normal : NORMAL, float4 Tangent : TANGENT)
 {
     FBakeVertex Output;
-    Output.Position = float4(Position.xy, 0.0, 1.0);
+    // Reading the normal and tangent keeps every mesh attribute consumed, as Vulkan expects; the bake quad's normal z and tangent w make this 0.
+    Output.Position = float4(Position.xy, saturate(abs(Normal.z) + 1.0 - Tangent.w), 1.0);
     Output.UV = UV;
     return Output;
 }
@@ -384,6 +385,15 @@ FBakeTargets bakeLightFragmentMain(FBakeVertex Input)
     Output.First = float4(Material.Emissive, 1.0);
     Output.Second = float4(Material.Normal * 0.5 + 0.5, 1.0);
     return Output;
+}
+
+// Shadow maps of masked custom materials cut out by the material's own alpha, evaluated like the bake: Shadow.slang's vertex stages interpolate only
+// the position and the material UV, which is all a bake vertex carries. Opaque custom materials keep the engine's shadow shader.
+[shader("fragment")]
+void shadowFragmentMain(FBakeVertex Input)
+{
+    if (Visual.Material.Channels1.z > 0.5)
+        clip(BakeMaterial(Input).Alpha - Visual.Material.Channels1.w);
 }
 
 // The depth prepass of custom material shaders; the engine material uses Shadow.slang's, which interpolates only UVs.
