@@ -89,6 +89,8 @@ struct FPhysicsBodySettings
 	// Only need to stay valid until CreateBody returns.
 	std::span<const FVector3> HullPoints{};
 	std::span<const std::span<const FVector3>> CompoundHulls{};
+	// Sweeps the body along its motion each step, so fast small bodies such as projectiles cannot pass through thin walls between steps.
+	bool bContinuousCollision = false;
 };
 
 struct FPhysicsDebugLine

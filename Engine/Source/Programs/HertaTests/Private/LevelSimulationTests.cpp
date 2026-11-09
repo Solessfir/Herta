@@ -1,4 +1,6 @@
+#include "Herta/Core/Log.h"
 #include "Herta/GameFramework/LevelSimulation.h"
+#include "Herta/Tasks/TaskSystem.h"
 
 #include <doctest/doctest.h>
 
@@ -432,4 +434,170 @@ TEST_CASE("Level simulation collides with offset mesh bounds and restores the ob
 	CHECK(Simulation.GetTransforms()[0].Transform.Translation.Y == doctest::Approx(0.f).epsilon(0.02));
 	Simulation.Stop();
 	CHECK(Simulation.GetTransforms()[0].Transform.Translation.Y == doctest::Approx(4.f));
+}
+
+namespace Herta
+{
+namespace
+{
+// A 4 x 3 x 0.4 m wall on its footing at the origin, facing +Z, beside a floor.
+struct FWallScene
+{
+	explicit FWallScene(const FLevelDestructionSettings& Destruction = {}, FTaskSystem* const Tasks = nullptr)
+	{
+		const std::array Floor{FLevelSimulationBody{.ObjectIndex = 0, .Transform = {{0.f, -0.25f, 0.f}, FQuaternion::Identity(), {20.f, 0.25f, 20.f}}}};
+		const std::array Walls{FLevelSimulationDestructible{
+		    .ObjectIndex = 1,
+		    .Position = {0.f, 1.5f, 0.f},
+		    .Fracture = std::make_shared<const FFracture>(FractureBox({2.f, 1.5f, 0.2f}, 16, 3)),
+		    .Strength = 30.f,
+		    .Properties = {.MassKg = 800.f, .Friction = 0.6f},
+		}};
+		FPhysicsWorldSettings Settings = LevelPhysicsSettings;
+		Settings.Tasks = Tasks;
+		REQUIRE(Simulation.Start(Floor, {}, {}, Settings, Walls, Destruction));
+	}
+
+	// A 5 kg ball thrown at the wall's middle at 30 m/s.
+	FLevelSimulationHandle Throw()
+	{
+		const auto Ball = Simulation.Spawn({.Shape = EPhysicsShape::Sphere, .Radius = 0.15f, .Position = {0.3f, 1.4f, 3.f}, .MotionType = EPhysicsMotionType::Dynamic, .Properties = {.MassKg = 5.f, .Restitution = 0.2f, .LinearDamping = 0.f, .GravityScale = 0.f}, .bContinuousCollision = true});
+		REQUIRE(Ball);
+		REQUIRE(Simulation.GetPhysicsWorld()->SetVelocity(*Simulation.FindSpawnedBody(*Ball), {0.f, 0.f, -30.f}));
+		return *Ball;
+	}
+
+	void Run(const int Frames)
+	{
+		for (int Frame = 0; Frame < Frames; ++Frame)
+		{
+			REQUIRE(Simulation.Update(1.f / 60.f));
+		}
+	}
+
+	FLevelSimulation Simulation;
+};
+}
+
+TEST_CASE("Spawned bodies move, despawn, and never answer to an old handle")
+{
+	FLevelSimulation Simulation;
+	const std::array Floor{FLevelSimulationBody{.ObjectIndex = 0, .Transform = {{0.f, -0.25f, 0.f}, FQuaternion::Identity(), {20.f, 0.25f, 20.f}}}};
+	REQUIRE(Simulation.Start(Floor));
+	CHECK_FALSE(Simulation.Spawn({.Position = {0.f, 3.f, 0.f}}));
+
+	std::vector<FLevelSimulationHandle> Handles;
+	for (int Index = 0; Index < 100; ++Index)
+	{
+		const auto Handle = Simulation.Spawn({.HalfExtents = {0.2f, 0.2f, 0.2f}, .Position = {static_cast<float>(Index % 10) - 4.5f, 1.f + static_cast<float>(Index / 10) * 0.5f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+		REQUIRE(Handle);
+		Handles.push_back(*Handle);
+	}
+
+	for (int Frame = 0; Frame < 30; ++Frame)
+	{
+		REQUIRE(Simulation.Update(1.f / 60.f));
+	}
+
+	REQUIRE(Simulation.GetSpawned().size() == 100);
+	CHECK(Simulation.GetSpawned()[0].Transform.Position.Y < 1.f);
+	CHECK(Simulation.GetPhysicsWorld()->GetBodyCount() == 101);
+
+	for (std::size_t Index = 0; Index < Handles.size(); Index += 2)
+	{
+		REQUIRE(Simulation.Despawn(Handles[Index]));
+	}
+
+	CHECK(Simulation.GetSpawned().size() == 50);
+	CHECK(Simulation.GetPhysicsWorld()->GetBodyCount() == 51);
+	CHECK_FALSE(Simulation.Despawn(Handles[0]));
+	CHECK_FALSE(Simulation.FindSpawnedBody(Handles[0]));
+
+	// A reused slot gets a new generation, so the handle it replaced stays dead.
+	const auto Reused = Simulation.Spawn({.Position = {0.f, 5.f, 0.f}, .MotionType = EPhysicsMotionType::Dynamic});
+	REQUIRE(Reused);
+	CHECK(Reused->Index == Handles[98].Index);
+	CHECK_FALSE(*Reused == Handles[98]);
+	CHECK(Simulation.FindSpawnedBody(*Reused));
+
+	Simulation.Stop();
+	CHECK(Simulation.GetSpawned().empty());
+	REQUIRE(Simulation.Start(Floor));
+	CHECK_FALSE(Simulation.FindSpawnedBody(*Reused));
+}
+
+TEST_CASE("A thrown ball breaks a destructible wall into islands, leaving the footing standing")
+{
+	FWallScene Scene;
+	CHECK(Scene.Simulation.IsIntact(1));
+	CHECK(Scene.Simulation.GetPieces().empty());
+	Scene.Run(10);
+	CHECK(Scene.Simulation.IsIntact(1));
+
+	Scene.Throw();
+	Scene.Run(60);
+	CHECK_FALSE(Scene.Simulation.IsIntact(1));
+	const auto Breaks = Scene.Simulation.TakeBreakEvents();
+	REQUIRE_FALSE(Breaks.empty());
+	CHECK(Breaks.front().ObjectIndex == 1);
+	CHECK(Breaks.front().BrokenBonds > 0);
+	CHECK(Breaks.front().Point.Z == doctest::Approx(0.2f).epsilon(0.1));
+
+	// Every chunk is drawn exactly once, some fell, and the chunks on the footing stayed where they were.
+	const auto Pieces = Scene.Simulation.GetPieces();
+	CHECK(Pieces.size() == 16);
+	CHECK(Scene.Simulation.GetDebrisCount() > 0);
+	CHECK(std::ranges::any_of(Pieces, [](const FLevelSimulationPiece& Piece)
+	{
+		return Piece.Transform.Position == FVector3{0.f, 1.5f, 0.f};
+	}));
+
+	CHECK(std::ranges::any_of(Pieces, [](const FLevelSimulationPiece& Piece)
+	{
+		return Piece.Transform.Position.Y < 1.4f;
+	}));
+
+	// A weak tap below the strength breaks nothing more.
+	const std::size_t Islands = Scene.Simulation.GetPhysicsWorld()->GetBodyCount();
+	Scene.Run(120);
+	CHECK(Scene.Simulation.TakeBreakEvents().empty());
+	CHECK(Scene.Simulation.GetPhysicsWorld()->GetBodyCount() <= Islands);
+
+	Scene.Simulation.Stop();
+	CHECK(Scene.Simulation.IsIntact(1));
+	CHECK(Scene.Simulation.GetPieces().empty());
+}
+
+TEST_CASE("Debris despawns under its budget and lifetime")
+{
+	FWallScene Scene({.MaxDebris = 2, .DebrisLifetimeSeconds = 1.f});
+	Scene.Throw();
+	Scene.Run(20);
+	CHECK_FALSE(Scene.Simulation.IsIntact(1));
+	CHECK(Scene.Simulation.GetDebrisCount() <= 2);
+	Scene.Run(90);
+	CHECK(Scene.Simulation.GetDebrisCount() == 0);
+	CHECK(Scene.Simulation.GetPieces().size() < 16);
+}
+
+TEST_CASE("Destruction hashes the same with and without worker threads")
+{
+	const auto Hash = [](FTaskSystem* const Tasks)
+	{
+		FWallScene Scene({}, Tasks);
+		Scene.Throw();
+		Scene.Run(90);
+		CHECK_FALSE(Scene.Simulation.IsIntact(1));
+		return Scene.Simulation.GetPhysicsWorld()->ComputeStateHash();
+	};
+
+	auto Log = FLogService::Create({.bConsoleOutput = false, .bDebuggerOutput = false, .bFileOutput = false});
+	REQUIRE(Log);
+	auto Tasks = FTaskSystem::Create({.CpuWorkerCount = 4, .Log = Log->get()});
+	REQUIRE(Tasks);
+	const std::uint64_t Single = Hash(nullptr);
+	CHECK(Hash(Tasks->get()) == Single);
+	CHECK(Hash(nullptr) == Single);
+	(*Tasks)->Shutdown();
+}
 }

@@ -802,6 +802,7 @@ std::expected<FPhysicsBodyId, FPhysicsError> FPhysicsWorld::CreateBody(const FPh
 	BodySettings.mRestitution = Properties.Restitution;
 	BodySettings.mIsSensor = Settings.bSensor;
 	BodySettings.mUserData = Settings.bReportContacts ? ReportContactsFlag : 0;
+	BodySettings.mMotionQuality = Settings.bContinuousCollision ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
 	// A sleeping sensor stops reporting, and a resting body inside it would never be seen leaving.
 	BodySettings.mAllowSleeping = !Settings.bSensor;
 

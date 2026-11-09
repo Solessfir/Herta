@@ -1,10 +1,12 @@
 #pragma once
 
+#include "Herta/GameFramework/Fracture.h"
 #include "Herta/Math/Transform.h"
 #include "Herta/Physics/PhysicsWorld.h"
 
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <unordered_map>
@@ -75,10 +77,67 @@ struct FLevelSimulationTransform
 	FTransform Transform{};
 };
 
+// A pre-fractured object. It starts as one body; impacts break bonds between chunks, and the chunks still bonded together move as one body.
+struct FLevelSimulationDestructible
+{
+	std::size_t ObjectIndex = 0;
+	// The fractured box's center and rotation in the world; the fracture is in world units around it.
+	FVector3 Position = FVector3::Zero();
+	FQuaternion Rotation = FQuaternion::Identity();
+	// The object's origin relative to the box center in the box's frame, and its scale, so the intact object draws where its body is.
+	FVector3 Offset = FVector3::Zero();
+	FVector3 Scale = FVector3::One();
+	// Shared with the renderer, which draws each chunk.
+	std::shared_ptr<const FFracture> Fracture{};
+	// The impulse in N*s a contact must carry to break bonds. Stronger hits break bonds further from the impact.
+	float Strength = 20.f;
+	// Chunks on the bottom face stay fixed, like a wall on its footing; otherwise the object is one Dynamic body until it breaks.
+	bool bAnchored = true;
+	// MassKg is the whole object's, shared among chunks by volume.
+	FPhysicsBodyProperties Properties{};
+};
+
+// Debris is every single loose chunk. It despawns after a while or, oldest first, when there is too much of it.
+struct FLevelDestructionSettings
+{
+	std::uint32_t MaxDebris = 256;
+	float DebrisLifetimeSeconds = 12.f;
+};
+
+// A body added after Start. Handles of despawned bodies stay invalid even when their slot is reused.
+struct FLevelSimulationHandle
+{
+	std::uint32_t Index = 0;
+	std::uint32_t Generation = 0;
+
+	[[nodiscard]] constexpr bool operator==(const FLevelSimulationHandle&) const = default;
+};
+
+struct FLevelSimulationSpawn
+{
+	FLevelSimulationHandle Handle{};
+	FPhysicsBodyTransform Transform{};
+};
+
+// One chunk of a broken destructible, drawn with its island's transform.
+struct FLevelSimulationPiece
+{
+	std::size_t ObjectIndex = 0;
+	std::uint32_t Chunk = 0;
+	FPhysicsBodyTransform Transform{};
+};
+
+struct FLevelBreakEvent
+{
+	std::size_t ObjectIndex = 0;
+	FVector3 Point = FVector3::Zero();
+	std::uint32_t BrokenBonds = 0;
+};
+
 class FLevelSimulation final
 {
 public:
-	[[nodiscard]] std::expected<void, FPhysicsError> Start(std::span<const FLevelSimulationBody> Bodies, std::span<const FLevelSimulationSoftBody> SoftBodies = {}, std::span<const FLevelSimulationConstraint> Constraints = {}, const FPhysicsWorldSettings& Settings = LevelPhysicsSettings);
+	[[nodiscard]] std::expected<void, FPhysicsError> Start(std::span<const FLevelSimulationBody> Bodies, std::span<const FLevelSimulationSoftBody> SoftBodies = {}, std::span<const FLevelSimulationConstraint> Constraints = {}, const FPhysicsWorldSettings& Settings = LevelPhysicsSettings, std::span<const FLevelSimulationDestructible> Destructibles = {}, const FLevelDestructionSettings& Destruction = {});
 	void Stop() noexcept;
 	// Runs once per fixed step after movers receive their motion and before bodies move, such as a player controller riding a platform.
 	using FFixedStepCallback = std::function<std::expected<void, FPhysicsError>(FPhysicsWorld& World, float StepSeconds)>;
@@ -97,6 +156,20 @@ public:
 	bool IsTriggerOccupied(std::size_t ObjectIndex) const noexcept;
 	// Enter and exit events since the previous call, in step order.
 	std::vector<FLevelTriggerEvent> TakeTriggerEvents();
+
+	// Adds a moving body, in physics space, that despawns with the simulation if not before.
+	[[nodiscard]] std::expected<FLevelSimulationHandle, FPhysicsError> Spawn(const FPhysicsBodySettings& Body);
+	[[nodiscard]] std::expected<void, FPhysicsError> Despawn(FLevelSimulationHandle Handle);
+	[[nodiscard]] std::optional<FPhysicsBodyId> FindSpawnedBody(FLevelSimulationHandle Handle) const noexcept;
+	// Interpolated transforms of every spawned body, in spawn order.
+	std::span<const FLevelSimulationSpawn> GetSpawned() const noexcept;
+	// Whether a destructible is still in one piece; broken ones draw their pieces instead.
+	bool IsIntact(std::size_t ObjectIndex) const noexcept;
+	// Interpolated chunks of every broken destructible that have not despawned.
+	std::span<const FLevelSimulationPiece> GetPieces() const noexcept;
+	std::size_t GetDebrisCount() const noexcept;
+	// Breaks since the previous call, in step order.
+	std::vector<FLevelBreakEvent> TakeBreakEvents();
 
 private:
 	struct FBodyState
@@ -123,6 +196,47 @@ private:
 
 	[[nodiscard]] std::expected<void, FPhysicsError> ReadSoftBodies();
 
+	struct FSpawnState
+	{
+		FPhysicsBodyId Id{};
+		std::uint32_t Generation = 1;
+		bool bAlive = false;
+		FPhysicsBodyTransform Previous{};
+		FPhysicsBodyTransform Current{};
+	};
+
+	// Chunks bonded together, moving as one body.
+	struct FIslandState
+	{
+		FPhysicsBodyId Id{};
+		std::vector<std::uint32_t> Chunks{};
+		EPhysicsMotionType MotionType = EPhysicsMotionType::Static;
+		FPhysicsBodyTransform Previous{};
+		FPhysicsBodyTransform Current{};
+		// When it became a single loose chunk; debris despawns from here.
+		std::optional<double> DebrisSince{};
+		bool bAlive = true;
+	};
+
+	struct FDestructibleState
+	{
+		FLevelSimulationDestructible Settings{};
+		std::size_t TransformIndex = 0;
+		std::vector<bool> BondIntact{};
+		std::vector<FIslandState> Islands{};
+		float Density = 0.f;
+		float ChunkSize = 0.f;
+		// The latest breaking impact, which freed pieces fly away from.
+		FVector3 Impact = FVector3::Zero();
+		bool bIntact = true;
+		bool bDirty = false;
+	};
+
+	[[nodiscard]] std::expected<void, FPhysicsError> Damage(std::size_t Destructible, std::size_t Island, const FVector3& Point, float Impulse);
+	[[nodiscard]] std::expected<void, FPhysicsError> SplitIslands(std::size_t Destructible, const FVector3& Impact, float Impulse);
+	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateIsland(const FDestructibleState& State, const std::vector<std::uint32_t>& Chunks, EPhysicsMotionType MotionType, const FPhysicsBodyTransform& Transform);
+	[[nodiscard]] std::expected<void, FPhysicsError> ExpireDebris();
+
 	std::unique_ptr<FPhysicsWorld> World;
 	std::vector<FBodyState> BodyStates;
 	std::vector<FLevelSimulationTransform> Transforms;
@@ -135,6 +249,17 @@ private:
 	std::unordered_map<std::uint32_t, std::size_t> BodyIndices;
 	std::unordered_map<std::size_t, std::size_t> TriggerOccupancy;
 	std::vector<FLevelTriggerEvent> TriggerEvents;
+
+	std::vector<FSpawnState> SpawnStates;
+	std::vector<std::uint32_t> FreeSpawnSlots;
+	std::vector<FLevelSimulationSpawn> Spawned;
+	std::vector<FDestructibleState> Destructibles;
+	// Island bodies back to their destructible and island, for contact events.
+	std::unordered_map<std::uint32_t, std::pair<std::size_t, std::size_t>> IslandBodies;
+	std::vector<FLevelSimulationPiece> Pieces;
+	std::vector<FLevelBreakEvent> BreakEvents;
+	FLevelDestructionSettings DestructionSettings{};
+	std::size_t DebrisCount = 0;
 
 	double Accumulator = 0.0;
 	double Time = 0.0;
