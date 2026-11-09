@@ -480,7 +480,7 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 
 	if (Mode == EMode::Resizing && !ImGui::IsMouseDown(ImGuiMouseButton_Left))
 	{
-		if (const FGraphComment* const Comment = FindGraphComment(Graph, ResizingComment))
+		if (FindGraphComment(Graph, ResizingComment))
 		{
 			FGraph After = Graph;
 			auto& Rect = std::ranges::find(After.Comments, ResizingComment, &FGraphComment::Id)->Rect;

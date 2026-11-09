@@ -129,7 +129,7 @@ std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(
 			return std::unexpected(Files.error());
 		}
 
-		return FMaterialShaderSources{.Root = 0, .Source = "TexturedMesh.slang", .Files = std::move(*Files)};
+		return FMaterialShaderSources{.Root = 0, .Source = "TexturedMesh.slang", .Files = std::move(*Files), .Parameters = {}, .Switches = {}};
 	}
 
 	const std::size_t Root = MountedPath.starts_with("Engine/") ? 1 : 2;
@@ -147,7 +147,7 @@ std::expected<FMaterialShaderSources, FAssetError> CollectMaterialShaderSources(
 			return std::unexpected(Files.error());
 		}
 
-		return FMaterialShaderSources{.Root = Root, .Source = Relative, .Files = std::move(*Files)};
+		return FMaterialShaderSources{.Root = Root, .Source = Relative, .Files = std::move(*Files), .Parameters = {}, .Switches = {}};
 	}
 
 	std::string_view Text;

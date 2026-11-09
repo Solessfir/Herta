@@ -1617,7 +1617,8 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 	const ETextureFormat Format = State.VisualPipelines[0] ? ETextureFormat::Rgba16Float : ETextureFormat::Rgba8Srgb;
 	const bool bDepthPrepass = static_cast<bool>(State.DepthPrepassPipeline);
 	const bool bCustom = !Key.empty();
-	FImplementation::FMaterialPipelineSet Set{.Parameters = std::move(Parameters)};
+	FImplementation::FMaterialPipelineSet Set;
+	Set.Parameters = std::move(Parameters);
 	std::optional<FPresentationError> Failed;
 	const auto Create = [&](FGraphicsPipelineHandle& Target, const bool bWanted, const FGraphicsPipelineDescriptor& Descriptor)
 	{
