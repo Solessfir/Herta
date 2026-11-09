@@ -282,7 +282,11 @@ TEST_CASE("Material Graphs compile headless to the shaders a staged game loads")
 		CHECK(DeserializeCookedShader(Stage));
 	}
 
-	CHECK(GetStagedMaterialShaderPath("Content", "Playground/Materials/GraphStripes.hmatgraph", MaterialShaderStageNames[2]) == std::filesystem::path("Content/Shaders/Playground/Materials/GraphStripes.hmatgraph.frag.hshader"));
+	const auto Staged = GetStagedMaterialShaderPath("Content", "Playground/Materials/GraphStripes.hmatgraph#Horizontal=1", MaterialShaderStageNames[2]);
+	CHECK(Staged.parent_path() == std::filesystem::path("Content/Shaders"));
+	CHECK(Staged.filename().string().ends_with(".frag.hshader"));
+	CHECK(Staged.filename().string().find_first_of("#=,/") == std::string::npos);
+	CHECK(Staged != GetStagedMaterialShaderPath("Content", "Playground/Materials/GraphStripes.hmatgraph", MaterialShaderStageNames[2]));
 	CHECK_FALSE(CollectMaterialShaderSources(Roots, "Game/Playground/Materials/Missing.hmatgraph"));
 }
 

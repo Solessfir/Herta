@@ -21,7 +21,7 @@ namespace Herta
 // matching FMaterialShaderStages.
 inline constexpr std::array<std::string_view, 12> MaterialShaderStageNames{"vert", "instanced.vert", "frag", "depth.frag", "velocity.frag", "instanced.velocity.vert", "surface.frag", "velocity.surface.frag", "bake.vert", "bake.surface.frag", "bake.light.frag", "shadow.frag"};
 inline constexpr std::size_t MaterialShaderStageCount = MaterialShaderStageNames.size();
-// A custom material shader is staged precompiled under its mount, by its mount-relative path, so the game never needs the compiler or the graph.
+// A custom material shader is staged precompiled under its mount, named by a hash of its mount-relative key, so the game never needs the compiler or the graph.
 [[nodiscard]] std::filesystem::path GetStagedMaterialShaderPath(const std::filesystem::path& MountRoot, std::string_view RelativePath, std::string_view Stage);
 // The Material Graph parameter table staged beside those stages; see SerializeMaterialShaderParameters.
 [[nodiscard]] std::filesystem::path GetStagedMaterialShaderParametersPath(const std::filesystem::path& MountRoot, std::string_view RelativePath);

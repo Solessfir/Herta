@@ -1,7 +1,10 @@
 #include "Herta/Assets/CookedContent.h"
 
+#include "Herta/Core/Hash.h"
+
 #include <format>
 #include <fstream>
+#include <span>
 #include <system_error>
 #include <utility>
 
@@ -20,20 +23,24 @@ std::filesystem::path GetStagedAssetPath(const std::filesystem::path& MountRoot,
 	return MountRoot / (Asset.ToString() + std::string(Suffix));
 }
 
+namespace
+{
+// Staged shaders sit flat under Shaders, named by a hash of their mount-relative key: mirroring source folders and switch suffixes made paths that
+// passed the Windows path limit in deep output directories, and a key's '#', '=', and ',' have no business in file names.
+std::filesystem::path StagedMaterialShaderFile(const std::filesystem::path& MountRoot, const std::string_view RelativePath, const std::string_view Suffix)
+{
+	return MountRoot / "Shaders" / std::format("{}{}", ToString(HashBytes(std::as_bytes(std::span(RelativePath)))), Suffix);
+}
+}
+
 std::filesystem::path GetStagedMaterialShaderPath(const std::filesystem::path& MountRoot, const std::string_view RelativePath, const std::string_view Stage)
 {
-	const std::u8string Relative(RelativePath.begin(), RelativePath.end());
-	std::filesystem::path Path = MountRoot / "Shaders" / std::filesystem::path(Relative);
-	Path += std::format(".{}.hshader", Stage);
-	return Path;
+	return StagedMaterialShaderFile(MountRoot, RelativePath, std::format(".{}.hshader", Stage));
 }
 
 std::filesystem::path GetStagedMaterialShaderParametersPath(const std::filesystem::path& MountRoot, const std::string_view RelativePath)
 {
-	const std::u8string Relative(RelativePath.begin(), RelativePath.end());
-	std::filesystem::path Path = MountRoot / "Shaders" / std::filesystem::path(Relative);
-	Path += ".parameters";
-	return Path;
+	return StagedMaterialShaderFile(MountRoot, RelativePath, ".parameters");
 }
 
 FCookedContent::FCookedContent(std::vector<std::filesystem::path> InMountRoots)
