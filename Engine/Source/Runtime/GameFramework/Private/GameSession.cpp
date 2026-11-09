@@ -939,7 +939,8 @@ FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot, 
 	// The boom snaps in when something comes between the camera and the shoulders, and eases back out so it does not pop.
 	constexpr float CameraRadius = 0.2f;
 	const FQuaternion Look = GetLookOrientation(Yaw, Pitch);
-	const FVector3 Pivot = Foot + FVector3::Up() * (EyeHeight * 0.92f) + Look.RotateVector(-FVector3::Left()) * Player.ThirdPersonShoulderOffset;
+	// The boom pivots at the middle of the body, standing or crouched, so the whole character sits in the middle of the screen.
+	const FVector3 Pivot = Foot + FVector3::Up() * (EyeHeight * 0.57f) + Look.RotateVector(-FVector3::Left()) * Player.ThirdPersonShoulderOffset;
 	const FVector3 Back = Look.RotateVector(-FVector3::Forward());
 	const float Free = World->CastSphere(World->ToWorld(Pivot), World->ToWorld(Pivot + Back * Player.ThirdPersonDistance), CameraRadius) * Player.ThirdPersonDistance;
 	BoomLength = Free < BoomLength ? Free : BoomLength + (Free - BoomLength) * std::min(1.f, LastDeltaSeconds * 6.f);

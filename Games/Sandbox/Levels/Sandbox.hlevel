@@ -1295,9 +1295,9 @@
       "name": "Wall run lane - near floor",
       "parent": null,
       "transform": {
-        "translation": [-20.5, -0.9, 1],
+        "translation": [-29, -0.9, 1],
         "rotation": [0, 0, 0, 1],
-        "scale": [17, 1.8, 10]
+        "scale": [18, 1.8, 10]
       },
       "components": {
         "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06001-2738-4e25-9b9e-816ae7c00001"]},
@@ -1318,9 +1318,9 @@
       "name": "Wall run lane - far floor",
       "parent": null,
       "transform": {
-        "translation": [-20.5, -0.9, 19],
+        "translation": [-29, -0.9, 19],
         "rotation": [0, 0, 0, 1],
-        "scale": [17, 1.8, 10]
+        "scale": [18, 1.8, 10]
       },
       "components": {
         "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06001-2738-4e25-9b9e-816ae7c00001"]},
@@ -1341,9 +1341,9 @@
       "name": "Wall run lane - pit floor, 1.8 m, mantle out",
       "parent": null,
       "transform": {
-        "translation": [-20.5, -2.3, 10],
+        "translation": [-29, -2.3, 10],
         "rotation": [0, 0, 0, 1],
-        "scale": [17, 1, 8]
+        "scale": [18, 1, 8]
       },
       "components": {
         "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06001-2738-4e25-9b9e-816ae7c00001"]},
@@ -1364,7 +1364,7 @@
       "name": "Wall run lane - left wall, 22 m",
       "parent": null,
       "transform": {
-        "translation": [-17, 1.6, 10],
+        "translation": [-26, 1.6, 10],
         "rotation": [0, 0, 0, 1],
         "scale": [0.4, 6.8, 22]
       },
@@ -1387,7 +1387,7 @@
       "name": "Wall run lane - right wall, 22 m",
       "parent": null,
       "transform": {
-        "translation": [-23, 1.6, 10],
+        "translation": [-32, 1.6, 10],
         "rotation": [0, 0, 0, 1],
         "scale": [0.4, 6.8, 22]
       },
