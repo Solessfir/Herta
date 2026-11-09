@@ -22,6 +22,9 @@ inline FMaterialShaderStages MakeMaterialShaderStages(const FShaderAsset& Vertex
 	    Renamed(Instanced, "instancedVelocityVertexMain"),
 	    Renamed(Fragment, "surfaceFragmentMain"),
 	    Renamed(Fragment, "velocitySurfaceFragmentMain"),
+	    Renamed(Vertex, "bakeVertexMain"),
+	    Renamed(Fragment, "bakeSurfaceFragmentMain"),
+	    Renamed(Fragment, "bakeLightFragmentMain"),
 	};
 }
 }

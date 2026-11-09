@@ -328,6 +328,64 @@ float4 PrepassSurface(FVertexOutput Input)
 #endif
 }
 
+// Ray-traced hits cannot run a custom shader, so global illumination reads its material baked over the UV square: these entry points draw a
+// clip-space quad mesh whose UV is the material UV, with an identity tangent frame so the baked normal stays in tangent space. Graphs that read
+// world position see the UV at z 0, the "reduced" part of the hit evaluation.
+struct FBakeVertex
+{
+    float4 Position : SV_Position;
+    float2 UV : TEXCOORD0;
+};
+
+[shader("vertex")]
+FBakeVertex bakeVertexMain(float3 Position : POSITION, float2 UV : TEXCOORD0, float3 Normal : NORMAL, float4 Tangent : TANGENT)
+{
+    FBakeVertex Output;
+    Output.Position = float4(Position.xy, 0.0, 1.0);
+    Output.UV = UV;
+    return Output;
+}
+
+FMaterialSample BakeMaterial(FBakeVertex Input)
+{
+    FVertexOutput Surface;
+    Surface.Position = Input.Position;
+    Surface.UV = Input.UV;
+    Surface.WorldPosition = float3(Input.UV, 0.0);
+    Surface.Normal = float3(0.0, 0.0, 1.0);
+    Surface.Tangent = float4(1.0, 0.0, 0.0, 1.0);
+    Surface.PreviousClip = 0.0;
+    return EvaluateMaterial(Surface);
+}
+
+struct FBakeTargets
+{
+    float4 First : SV_Target0;
+    float4 Second : SV_Target1;
+}
+
+// Base color with alpha, then metallic, roughness, and occlusion.
+[shader("fragment")]
+FBakeTargets bakeSurfaceFragmentMain(FBakeVertex Input)
+{
+    FMaterialSample Material = BakeMaterial(Input);
+    FBakeTargets Output;
+    Output.First = float4(Material.BaseColor, Material.Alpha);
+    Output.Second = float4(Material.Metallic, Material.Roughness, Material.Occlusion, 1.0);
+    return Output;
+}
+
+// Emissive radiance, then the tangent-space normal encoded as a normal map.
+[shader("fragment")]
+FBakeTargets bakeLightFragmentMain(FBakeVertex Input)
+{
+    FMaterialSample Material = BakeMaterial(Input);
+    FBakeTargets Output;
+    Output.First = float4(Material.Emissive, 1.0);
+    Output.Second = float4(Material.Normal * 0.5 + 0.5, 1.0);
+    return Output;
+}
+
 // The depth prepass of custom material shaders; the engine material uses Shadow.slang's, which interpolates only UVs.
 [shader("fragment")]
 void depthFragmentMain(FVertexOutput Input)

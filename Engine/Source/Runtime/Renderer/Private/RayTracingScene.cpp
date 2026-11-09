@@ -254,7 +254,7 @@ std::expected<std::uint32_t, FPresentationError> FRayTracingScene::FindTexture(c
 	return Entry.Slot;
 }
 
-std::expected<void, FPresentationError> FRayTracingScene::Update(const FMeshRenderView& View)
+std::expected<void, FPresentationError> FRayTracingScene::Update(const FMeshRenderView& View, const FBakedMaterialLookup& Baked)
 {
 	++Frame;
 	if (!Table)
@@ -313,10 +313,23 @@ std::expected<void, FPresentationError> FRayTracingScene::Update(const FMeshRend
 			if (bInserted)
 			{
 				FSceneMaterial Record{.Material = MakeMaterialUniform(Override ? Override->Parameters : Imported.Parameters, Override ? Override->Channels : Imported.Channels)};
+				const FBakedMaterial* const Bake = Override && Baked ? Baked(*Override) : nullptr;
+				if (Bake)
+				{
+					// The bake already holds every factor, so the record multiplies by one and picks metallic and roughness from the same texture.
+					Record.Material.BaseColor = {1.f, 1.f, 1.f, 1.f};
+					Record.Material.Surface = {1.f, 1.f, 1.f, Record.Material.Surface[3]};
+					Record.Material.Emissive = {1.f, 1.f, 1.f, 1.f};
+					Record.Material.Channels0[1] = static_cast<float>(EMaterialChannel::Red);
+					Record.Material.Channels0[2] = static_cast<float>(EMaterialChannel::Green);
+				}
+
 				for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
 				{
-					const FTextureHandle Texture = Override ? Override->Textures[Slot] : Imported.Textures[Slot] != NoCookedTexture ? Mesh->Textures[Imported.Textures[Slot]]
-					                                                                                                                : FTextureHandle{};
+					constexpr std::array<int, MaterialTextureSlotCount> BakeTextures{0, 1, 1, 3, -1, 2};
+					const FTextureHandle Texture = Bake ? (BakeTextures[Slot] < 0 ? FTextureHandle{} : Bake->Textures[static_cast<std::size_t>(BakeTextures[Slot])])
+					                               : Override ? Override->Textures[Slot] : Imported.Textures[Slot] != NoCookedTexture ? Mesh->Textures[Imported.Textures[Slot]]
+					                                                                                                                  : FTextureHandle{};
 					if (!Texture)
 					{
 						continue;

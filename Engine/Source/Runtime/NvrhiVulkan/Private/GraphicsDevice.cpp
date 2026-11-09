@@ -1865,7 +1865,8 @@ public:
 	{
 		const auto Native = std::dynamic_pointer_cast<FResourceTable>(Table);
 		const auto NativeTexture = std::dynamic_pointer_cast<FTexture>(Texture);
-		if (!Owns(Native) || Slot >= Native->Textures.size() || !Owns(NativeTexture) || !NativeTexture->bInitialized || IsDepthFormat(NativeTexture->Descriptor.Format))
+		// A texture rendered earlier in the open recording counts as written: dispatches that read the table come after it and make it readable.
+		if (!Owns(Native) || Slot >= Native->Textures.size() || !Owns(NativeTexture) || !(NativeTexture->bInitialized || (bRecording && IsInitialized(NativeTexture))) || IsDepthFormat(NativeTexture->Descriptor.Format))
 		{
 			return Invalid("Resource table textures need a slot inside a table of this device and a fully written color texture");
 		}

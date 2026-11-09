@@ -41,7 +41,7 @@ Click **Play** in the viewport toolbar or press **Alt+P** or **Shift+Space**. Pl
 <output>/<Project>/<content root>/<asset-id>.hasset
 ```
 
-Staging replaces only a directory that is empty or was staged before. A material with a custom shader or Material Graph has its eight shading and depth prepass stages compiled through `HertaShaderWorker` without debug info to `Shaders/<path>.<stage>.hshader` under the shader's mount, with its parameter table beside them as `<path>.parameters`. The game publishes them before play, so it links neither the shader compiler nor MaterialGraph.
+Staging replaces only a directory that is empty or was staged before. A material with a custom shader or Material Graph has its eleven shading, depth prepass, and bake stages compiled through `HertaShaderWorker` without debug info to `Shaders/<path>.<stage>.hshader` under the shader's mount, with its parameter table beside them as `<path>.parameters`. The game publishes them before play, so it links neither the shader compiler nor MaterialGraph.
 
 `HertaGame --project=<path>` runs a staged project; without it, the game opens the one project folder next to its executable. Package a relocatable build after building Shipping:
 

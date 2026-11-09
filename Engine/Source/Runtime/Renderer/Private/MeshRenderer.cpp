@@ -728,6 +728,8 @@ struct FMeshRenderer::FImplementation
 	// Cascade atlas, then local atlas.
 	std::array<FGraphicsPipelineHandle, 2> ShadowClearPipelines;
 	FBufferHandle ShadowClearVertices;
+	// A clip-space quad carrying the UV square, which Material Graph bakes draw.
+	FBufferHandle BakeQuadVertices;
 	// Visible view depth reduced on the GPU and read back a few frames later without stalling, so sun cascades cover only the depth the camera sees.
 	FComputePipelineHandle DepthBoundsPipeline;
 	FBufferHandle DepthBounds;
@@ -757,11 +759,24 @@ struct FMeshRenderer::FImplementation
 		std::array<FGraphicsPipelineHandle, 2> SurfacePrepass;
 		FGraphicsPipelineHandle VelocityPrepass;
 		FGraphicsPipelineHandle VelocitySurfacePrepass;
+		// The surface and light halves of the bake ray-traced hits read; only renderers that trace rays build them.
+		std::array<FGraphicsPipelineHandle, 2> Bake;
 		std::vector<FMaterialShaderParameter> Parameters;
+	};
+
+	// A custom-shader material's bake, redone when the material or any published shader changes.
+	struct FBakedGraphMaterial
+	{
+		std::uint64_t Serial = 0;
+		std::uint64_t Generation = 0;
+		std::uint64_t LastUsed = 0;
+		FBakedMaterial Bake;
 	};
 
 	std::unordered_map<std::string, FMaterialPipelineSet> MaterialPipelines;
 	std::uint64_t MaterialShaderGeneration = 0;
+	std::unordered_map<const FRenderMaterial*, FBakedGraphMaterial> BakedMaterials;
+	std::uint64_t BakeFrame = 0;
 	FBufferHandle Instances;
 	std::vector<FMeshInstance> InstanceData;
 	// Parallel to InstanceData, filled and uploaded only while motion vectors are on.
@@ -1506,7 +1521,7 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 		}
 	}
 
-	const auto Compatible = [](const FShaderAsset& Shader, const EShaderStage Stage, const std::string_view EntryPoint)
+	const auto Compatible = [](const FShaderAsset& Shader, const EShaderStage Stage, const std::string_view EntryPoint, const bool bReadsUniforms)
 	{
 		bool bVisualUniforms = false;
 		if (Shader.Stage != Stage || Shader.EntryPoint != EntryPoint || (Shader.PushConstantSize != 0 && Shader.PushConstantSize != 128))
@@ -1557,7 +1572,7 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 			}
 		}
 
-		return bVisualUniforms;
+		return bVisualUniforms || !bReadsUniforms;
 	};
 
 	using enum EMaterialShaderStage;
@@ -1570,11 +1585,15 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 	    {EShaderStage::Vertex, "instancedVelocityVertexMain"},
 	    {EShaderStage::Fragment, "surfaceFragmentMain"},
 	    {EShaderStage::Fragment, "velocitySurfaceFragmentMain"},
+	    {EShaderStage::Vertex, "bakeVertexMain"},
+	    {EShaderStage::Fragment, "bakeSurfaceFragmentMain"},
+	    {EShaderStage::Fragment, "bakeLightFragmentMain"},
 	}};
 
 	for (std::size_t Index = 0; Index < Stages.size(); ++Index)
 	{
-		if (!Compatible(Stages[Index], EntryPoints[Index].first, EntryPoints[Index].second))
+		// The bake's vertex stage only passes its quad through.
+		if (!Compatible(Stages[Index], EntryPoints[Index].first, EntryPoints[Index].second, Index != std::to_underlying(BakeVertex)))
 		{
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = std::format("Material shader stage {} must use the current VisualShared ABI, entry points, and exact visual uniform layout", EntryPoints[Index].second)});
 		}
@@ -1615,6 +1634,11 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 	Create(Set.SurfacePrepass[0], bCustom && State.SurfacePrepassPipeline, {.Name = std::format("Surface prepass {}", Key), .VertexShader = Stage(Vertex), .FragmentShader = Stage(SurfaceFragment), .ColorFormat = ETextureFormat::Rgba8, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
 	Create(Set.SurfacePrepass[1], bCustom && State.InstancedSurfacePrepassPipeline, {.Name = std::format("Instanced surface prepass {}", Key), .VertexShader = Stage(InstancedVertex), .FragmentShader = Stage(SurfaceFragment), .ColorFormat = ETextureFormat::Rgba8, .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
 	Create(Set.VelocitySurfacePrepass, bCustom && State.InstancedVelocitySurfacePrepassPipeline, {.Name = std::format("Instanced velocity surface prepass {}", Key), .VertexShader = Stage(InstancedVelocityVertex), .FragmentShader = Stage(VelocitySurfaceFragment), .ColorFormat = ETextureFormat::Rg16Float, .SecondColorFormat = ETextureFormat::Rgba8, .bInstanced = true, .bInstanceMotion = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+	for (std::size_t Half = 0; Half < Set.Bake.size(); ++Half)
+	{
+		Create(Set.Bake[Half], bCustom && State.RayTracingScene, {.Name = std::format("{} bake {}", Half == 0 ? "Surface" : "Light", Key), .VertexShader = Stage(BakeVertex), .FragmentShader = Stage(Half == 0 ? BakeSurfaceFragment : BakeLightFragment), .ColorFormat = ETextureFormat::Rgba16Float, .SecondColorFormat = ETextureFormat::Rgba16Float, .bDepthTest = false, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .BufferCount = MeshBufferCount});
+	}
+
 	if (Failed)
 	{
 		return std::unexpected(std::move(*Failed));
@@ -2899,13 +2923,116 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		});
 	}
 
+	// Ray-traced hits read custom-shader materials from bakes made here, once per material and published shader generation.
+	const auto BakeGraphMaterials = [&]() -> std::expected<void, FPresentationError>
+	{
+		constexpr FExtent2D BakeExtent{128, 128};
+		++State.BakeFrame;
+		if (!State.BakeQuadVertices && !State.MaterialPipelines.empty())
+		{
+			auto Quad = Device.CreateBuffer({.Name = "Material bake quad", .Size = 4 * sizeof(FMeshVertex), .Usage = EBufferUsage::Vertex});
+			constexpr std::array<FMeshVertex, 4> Corners{{{.Position = {-1, 1, 0}, .UV = {0, 0}}, {.Position = {-1, -1, 0}, .UV = {0, 1}}, {.Position = {1, -1, 0}, .UV = {1, 1}}, {.Position = {1, 1, 0}, .UV = {1, 0}}}};
+			auto Written = Quad ? Device.WriteBuffer(*Quad, std::as_bytes(std::span{Corners})) : std::expected<void, FPresentationError>(std::unexpected(Quad.error()));
+			if (!Written)
+			{
+				return Written;
+			}
+
+			State.BakeQuadVertices = std::move(*Quad);
+		}
+
+		const FMaterialUniform SavedMaterial = State.Uniforms.Material;
+		const FMaterialParameterSlots SavedParameters = State.Uniforms.MaterialParameters;
+		std::expected<void, FPresentationError> Result;
+		for (const std::span<const FRenderMaterial* const> Slots : View.Materials)
+		{
+			for (const FRenderMaterial* const Material : Slots)
+			{
+				const auto Custom = Material && !Material->ShaderKey.empty() ? State.MaterialPipelines.find(Material->ShaderKey) : State.MaterialPipelines.end();
+				if (!Result || Custom == State.MaterialPipelines.end() || !Custom->second.Bake[0])
+				{
+					continue;
+				}
+
+				FImplementation::FBakedGraphMaterial& Entry = State.BakedMaterials[Material];
+				Entry.LastUsed = State.BakeFrame;
+				if (Entry.Serial == Material->Serial && Entry.Generation == State.MaterialShaderGeneration && Entry.Bake.Textures[0])
+				{
+					continue;
+				}
+
+				// New textures each time, so the ray-traced scene sees a changed record and paths restart.
+				FBakedMaterial Bake;
+				for (std::size_t Index = 0; Index < Bake.Textures.size() && Result; ++Index)
+				{
+					constexpr std::array Names{"Baked base color", "Baked surface", "Baked emissive", "Baked normal"};
+					auto Created = Device.CreateTexture({.Name = Names[Index], .Extent = BakeExtent, .Format = ETextureFormat::Rgba16Float, .bRenderTarget = true});
+					if (!Created)
+					{
+						Result = std::unexpected(Created.error());
+						break;
+					}
+
+					Bake.Textures[Index] = std::move(*Created);
+				}
+
+				std::array<FTextureHandle, MeshTextureCount> Textures;
+				std::ranges::fill(Textures, State.White);
+				State.Uniforms.Material = MakeMaterialUniform(Material->Parameters, Material->Channels);
+				ResolveMaterialParameters(Custom->second.Parameters, Material->ParameterValues, State.Uniforms.MaterialParameters);
+				for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
+				{
+					if (Material->Textures[Slot])
+					{
+						Textures[Slot] = Material->Textures[Slot];
+						State.Uniforms.Material.TextureFlags[0] += static_cast<float>(1u << Slot);
+					}
+				}
+
+				for (std::size_t Half = 0; Half < 2 && Result; ++Half)
+				{
+					Result = Device.ClearTargets(Bake.Textures[Half * 2 + 1], {}, {0.f, 0.f, 0.f, 0.f});
+					if (Result)
+					{
+						Result = Device.DrawIndexed({.Pipeline = Custom->second.Bake[Half], .Vertices = State.BakeQuadVertices, .Indices = State.FullscreenIndices, .ColorTarget = Bake.Textures[Half * 2], .SecondColorTarget = Bake.Textures[Half * 2 + 1], .IndexCount = 6, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers, .bCoversColorTarget = true});
+					}
+				}
+
+				if (Result)
+				{
+					Entry = {.Serial = Material->Serial, .Generation = State.MaterialShaderGeneration, .LastUsed = State.BakeFrame, .Bake = std::move(Bake)};
+				}
+			}
+		}
+
+		State.Uniforms.Material = SavedMaterial;
+		State.Uniforms.MaterialParameters = SavedParameters;
+		std::erase_if(State.BakedMaterials, [&State](const auto& Pair)
+		{
+			return Pair.second.LastUsed != State.BakeFrame;
+		});
+
+		return Result;
+	};
+
+	const FBakedMaterialLookup FindBake = [&State](const FRenderMaterial& Material) -> const FBakedMaterial*
+	{
+		const auto Found = State.BakedMaterials.find(&Material);
+		return Found != State.BakedMaterials.end() && Found->second.Serial == Material.Serial && Found->second.Bake.Textures[0] ? &Found->second.Bake : nullptr;
+	};
+
 	const auto ScreenOcclusion = Graph.ImportResource("Screen occlusion");
 	if (bGlobalIllumination)
 	{
 		Graph.AddPass("Global illumination", {{.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
 			// The field times its own stages.
-			if (const auto Updated = State.RayTracingScene->Update(View); !Updated)
+			if (const auto Baked = BakeGraphMaterials(); !Baked)
+			{
+				return GraphResult(Baked);
+			}
+
+			if (const auto Updated = State.RayTracingScene->Update(View, FindBake); !Updated)
 			{
 				return GraphResult(Updated);
 			}
@@ -3004,7 +3131,12 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		Graph.AddPass("Path tracing", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
 		{
 			const auto Timer = TimedPass("Path tracing");
-			if (const auto Updated = State.RayTracingScene->Update(View); !Updated)
+			if (const auto Baked = BakeGraphMaterials(); !Baked)
+			{
+				return GraphResult(Baked);
+			}
+
+			if (const auto Updated = State.RayTracingScene->Update(View, FindBake); !Updated)
 			{
 				return GraphResult(Updated);
 			}

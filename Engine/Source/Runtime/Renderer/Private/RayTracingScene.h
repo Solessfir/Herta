@@ -3,7 +3,9 @@
 #include "Herta/Renderer/MeshRenderer.h"
 
 #include <cstdint>
+#include <array>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -13,13 +15,22 @@ namespace Herta
 // The scene as ray queries see it: a top level over the render extraction, bottom levels per shared mesh, a resource table of mesh buffers and textures,
 // and the section and material records that RayTracing.slangh reads from hits. The path tracer and global illumination share one per renderer.
 // Everything it holds is rebuilt on demand, so Release can drop it whenever nothing traces rays.
+// A custom-shader material evaluated over its UV square: base color and alpha, metallic-roughness-occlusion, emissive, and a tangent-space normal map.
+struct FBakedMaterial
+{
+	std::array<FTextureHandle, 4> Textures;
+};
+
+// The bake that stands in for a material's shader at ray-traced hits, or null to read its parameters and texture slots directly.
+using FBakedMaterialLookup = std::function<const FBakedMaterial*(const FRenderMaterial&)>;
+
 class FRayTracingScene final
 {
 public:
 	explicit FRayTracingScene(IGraphicsDevice& InDevice);
 	// Records bottom level builds and refits, and rebuilds the top level and records when any instance's mesh, transform, or material changed.
 	// Call once per frame inside the recording, after the frame's vertex updates.
-	[[nodiscard]] std::expected<void, FPresentationError> Update(const FMeshRenderView& View);
+	[[nodiscard]] std::expected<void, FPresentationError> Update(const FMeshRenderView& View, const FBakedMaterialLookup& Baked = {});
 	// Advances whenever Update rebuilds, so results that depend on the scene know to restart.
 	std::uint64_t GetGeneration() const noexcept;
 	const FAccelerationStructureHandle& GetTopLevel() const noexcept;

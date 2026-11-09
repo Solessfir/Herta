@@ -49,6 +49,9 @@ enum class EMaterialShaderStage : std::uint8_t
 	InstancedVelocityVertex,
 	SurfaceFragment,
 	VelocitySurfaceFragment,
+	BakeVertex,
+	BakeSurfaceFragment,
+	BakeLightFragment,
 	Count,
 };
 
@@ -108,6 +111,8 @@ private:
 	std::array<EMaterialChannel, MaterialTextureSlotCount> Channels{};
 	std::array<FTextureHandle, MaterialTextureSlotCount> Textures{};
 	std::string ShaderKey;
+	// Unique per created material, so caches keyed by address notice a new material at a reused address.
+	std::uint64_t Serial = 0;
 	friend class FMeshRenderer;
 	friend class FRayTracingScene;
 };

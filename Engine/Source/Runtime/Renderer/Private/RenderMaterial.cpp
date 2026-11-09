@@ -1,9 +1,15 @@
 #include "Herta/Renderer/MeshRenderer.h"
 
+#include <atomic>
 #include <format>
 
 namespace Herta
 {
+namespace
+{
+std::atomic<std::uint64_t> NextMaterialSerial{1};
+}
+
 std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> FRenderMaterial::Create(IGraphicsDevice& Device, const FMaterialAsset& Material, const std::array<std::optional<FCookedTexture>, MaterialTextureSlotCount>& Sources, const std::string_view Name)
 {
 	if (const auto Valid = ValidateMaterial(Material); !Valid)
@@ -14,6 +20,7 @@ std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> FRende
 	auto Result = std::make_shared<FRenderMaterial>();
 	Result->Parameters = Material.Parameters;
 	Result->ParameterValues = Material.ParameterValues;
+	Result->Serial = NextMaterialSerial.fetch_add(1, std::memory_order_relaxed);
 	Result->ShaderKey = GetMountedMaterialShaderPath(Material, Name);
 
 	for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
@@ -127,6 +134,7 @@ std::expected<std::shared_ptr<const FRenderMaterial>, FPresentationError> FRende
 	auto Copy = std::make_shared<FRenderMaterial>(*this);
 	Copy->Parameters = NewParameters;
 	Copy->ParameterValues = std::move(Check.ParameterValues);
+	Copy->Serial = NextMaterialSerial.fetch_add(1, std::memory_order_relaxed);
 	return Copy;
 }
 }

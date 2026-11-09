@@ -1902,7 +1902,7 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 	const std::array<const FRenderMesh*, 2> Meshes{Cube->get(), Cube->get()};
 	const std::array Lights{FRenderLight{.Settings = {.Type = ELightType::Directional, .Intensity = 3000.f, .bCastShadows = false, .Range = 40.f}, .Transform = FMatrix4::Rotation(FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, 0.7f))}};
 	// Each material gets a fresh renderer, so neither inherits the other's cached shadows or history.
-	const auto Capture = [&](const FRenderMaterial* const Material) -> std::expected<std::vector<std::byte>, FPresentationError>
+	const auto Capture = [&](const FRenderMaterial* const Material, const bool bPathTraced = false) -> std::expected<std::vector<std::byte>, FPresentationError>
 	{
 		auto Renderer = FMeshRenderer::Create(Device, VertexShader, FragmentShader, {}, {}, {}, {}, InstancedVertexShader, VisualShaders);
 		if (!Renderer)
@@ -1930,7 +1930,8 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 		    .Visuals = {.ExposureEV100 = 9.f, .AntiAliasing = EAntiAliasing::Off},
 		};
 		View.Visuals.bStudioPreview = false;
-		for (int Frame = 0; Frame < 2; ++Frame)
+		View.Visuals.bPathTracing = bPathTraced;
+		for (int Frame = 0; Frame < (bPathTraced ? 16 : 2); ++Frame)
 		{
 			if (const auto Rendered = (*Renderer)->Render(Extent, View); !Rendered)
 			{
@@ -1967,7 +1968,37 @@ std::expected<void, FPresentationError> CheckMaterialGraphParity(IGraphicsDevice
 		return Failure("Material Graph parity rendered too little of the cube to compare");
 	}
 
-	return Largest <= 1 ? std::expected<void, FPresentationError>{} : Failure("A Material Graph rebuilding the engine material rendered different pixels");
+	if (Largest > 1)
+	{
+		return Failure("A Material Graph rebuilding the engine material rendered different pixels");
+	}
+
+	// The path tracer sees the graph only through its bake, so this checks that ray-traced lighting reads the material as raster shading does.
+	// The bake resamples the 2x2 texture at 128 px and both images carry the same noise, so they agree closely but not exactly.
+	if (!Device.SupportsRayQueries())
+	{
+		return {};
+	}
+
+	const auto TracedReference = Capture(HandMaterial->get(), true);
+	const auto TracedGenerated = Capture(GraphMaterial->get(), true);
+	if (!TracedReference || !TracedGenerated)
+	{
+		return std::unexpected(!TracedReference ? TracedReference.error() : TracedGenerated.error());
+	}
+
+	double Total = 0.;
+	int TracedLargest = 0;
+	for (std::size_t Index = 0; Index < TracedReference->size(); ++Index)
+	{
+		const int Difference = std::abs(std::to_integer<int>((*TracedReference)[Index]) - std::to_integer<int>((*TracedGenerated)[Index]));
+		Total += Difference;
+		TracedLargest = std::max(TracedLargest, Difference);
+	}
+
+	const double Mean = Total / static_cast<double>(TracedReference->size());
+	std::println("Material Graph parity: path traced mean channel difference {:.3f}, largest {}", Mean, TracedLargest);
+	return Mean <= 1. ? std::expected<void, FPresentationError>{} : Failure("Ray-traced lighting read a Material Graph differently from the engine material");
 }
 
 std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device, const FShaderAsset& VertexShader, const FShaderAsset& FragmentShader, const FShaderAsset& DebugVertexShader, const FShaderAsset& DebugFragmentShader, const FShaderAsset& GridVertexShader, const FShaderAsset& GridFragmentShader, const FShaderAsset& InstancedVertexShader, const FVisualShaderSet& VisualShaders)
