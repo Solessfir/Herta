@@ -678,6 +678,13 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 		AppendVector(Output, State.Ground.WallNormal);
 		Output += ", \"groundNormal\": ";
 		AppendVector(Output, State.Ground.GroundNormal);
+		// The view is a rotation followed by a translation, so the eye is the transposed rotation applied to minus the translation.
+		const FMatrix4& View = PlayRenderView.View;
+		const FVector3 Translation{View(0, 3), View(1, 3), View(2, 3)};
+		const FVector3 Eye = -FVector3{View(0, 0) * Translation.X + View(1, 0) * Translation.Y + View(2, 0) * Translation.Z, View(0, 1) * Translation.X + View(1, 1) * Translation.Y + View(2, 1) * Translation.Z, View(0, 2) * Translation.X + View(1, 2) * Translation.Y + View(2, 2) * Translation.Z};
+		Output += ", \"camera\": ";
+		AppendVector(Output, Eye);
+		Output += std::format(", \"cameraDistance\": {:.3f}", (Eye - (State.Foot + FVector3::Up() * 0.95f)).Length());
 		Output += ", \"animationState\": ";
 		AppendJsonString(Output, PlaySession->GetCharacterStateName());
 		const FGameObjective& Objective = PlaySession->GetObjective();
