@@ -1684,6 +1684,25 @@ Status: complete as of 2026-11-09. Determinism, the Tasks job adapter, sorted ev
 
 Exit condition: the playable Sandbox exercises collisions, dynamic props, runtime spawn/despawn, collision events, destruction, and repeated reset, physics tests are repeatable for the supported configuration, world hashes match across Windows, Linux, and thread counts, and world mutation never occurs inside callbacks.
 
+### Milestone 7.5 - Editor automation over MCP (in progress)
+
+Moved forward from Milestone 17: coding agents developing Herta are the real automation consumer. Without it they verify visuals by timing window captures against scripted runs, cannot give the game input, and cannot read live state without temporary logging.
+
+- Add bounded local IPC to Platform: named pipes on Windows and Unix domain sockets on Linux, carrying length-prefixed UTF-8 JSON messages, with a per-session random token checked on connect.
+- Add an automation server to the editor, enabled with `--automation`. It writes a session file with the endpoint and token to `Saved/Automation`, readable only by the user, and serves requests on the main thread at a safe point each frame so handlers never race the editor. Sessions are read-only unless the editor starts with `--automation=write`.
+- Add `HertaEditorMcp`, an MCP stdio server that a coding agent launches. It finds the running editor through the session file and forwards tool calls, and with no editor running it reports that instead of hanging. A repository `.mcp.json` registers it.
+- First tools, each added because current work needs it:
+  - editor status and the log tail since a cursor;
+  - viewport capture through GPU readback to a PNG at an exact frame;
+  - starting and stopping Play, scripted Play input over a number of frames, and Play state: player position, velocity, camera mode, and animation state;
+  - listing levels' entities and components;
+  - listing and running EditorCore commands, mutating ones only in write sessions and always as undo transactions;
+  - GPU pass timings.
+- Every request has a timeout and size limit, is recorded in an audit log beside the session file, and fails with a structured error. No tool clicks ImGui or runs a shell.
+- Test the IPC framing, token rejection, request limits, the tool schemas, and a headless round trip through `HertaEditorMcp`.
+
+Exit condition: a coding agent connected through `HertaEditorMcp` can start Play in the running editor, drive the player with scripted input, read its state, and capture the exact frame it asked for, all without window focus or keystrokes; read-only sessions refuse mutation; and the editor never stalls on a slow or broken client.
+
 ### Milestone 8 - Animation
 
 - Add skeleton and clip import through ozz offline tools.
@@ -1814,7 +1833,7 @@ Exit condition: the same cooked script fixtures produce matching logical results
 - Complete project and engine plugin discovery, dependency diagnostics, restart-required enable and disable, first-party extension registries, and startup safe mode.
 - Add the first-party Git source-control plugin when the authoring workflow needs it, using asynchronous Git CLI operations and credential helpers.
 - Add an optional first-party terminal plugin through ConPTY and Linux PTYs when in-editor terminal use is justified, without replacing structured build, cook, test, or source-control APIs.
-- Add `HertaEditorMcp` only for a real automation consumer, over authenticated local IPC and semantic EditorCore automation with read-only defaults, explicit capabilities, transactions, progress, cancellation, and audit records.
+- Extend Milestone 7.5's `HertaEditorMcp` beyond its first tools as automation consumers need them, over authenticated local IPC and semantic EditorCore automation with read-only defaults, explicit capabilities, transactions, progress, cancellation, and audit records.
 - Add per-user appearance settings for the existing translucent-panel backdrop blur, performance scaling, and detached-viewport fallbacks when visual and performance evidence justifies them.
 
 Exit condition: compatible sample gameplay-system changes reload without losing engine-owned state, incompatible native state produces an actionable restart requirement, and an external source plugin extends the editor without private headers. Enabled Git and terminal integrations cannot stall the editor, implemented automation operations match interactive and headless behavior, MCP mutation requires explicit authority and remains undoable where applicable, and plugin startup failure can be recovered through safe mode. Optional terminal, MCP, and appearance features do not block the milestone.
