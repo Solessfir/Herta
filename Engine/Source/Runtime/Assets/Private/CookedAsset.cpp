@@ -92,6 +92,150 @@ void WriteTexture(FBinaryWriter& Writer, const FCookedTexture& Texture)
 		return std::isfinite(Value);
 	});
 }
+
+void WriteBlob(FBinaryWriter& Writer, const std::span<const std::byte> Bytes)
+{
+	Writer.Write(static_cast<std::uint32_t>(Bytes.size()));
+	Writer.WriteBytes(Bytes);
+}
+
+[[nodiscard]] std::vector<std::byte> ReadBlob(FBinaryReader& Reader, std::size_t& Budget)
+{
+	const auto Size = Reader.Read<std::uint32_t>();
+	if (Size > Budget || !Reader.CanRead(Size, 1))
+	{
+		Reader.Invalidate();
+		return {};
+	}
+
+	Budget -= Size;
+	const std::span<const std::byte> Bytes = Reader.ReadBytes(Size);
+	return {Bytes.begin(), Bytes.end()};
+}
+
+void WriteSkeletalData(FBinaryWriter& Writer, const FCookedModel& Model)
+{
+	Writer.Write(static_cast<std::uint8_t>(Model.Skeleton ? 1 : 0));
+	if (!Model.Skeleton)
+	{
+		return;
+	}
+
+	const FCookedSkeleton& Skeleton = *Model.Skeleton;
+	Writer.Write(static_cast<std::uint32_t>(Skeleton.JointNames.size()));
+
+	for (std::size_t Joint = 0; Joint < Skeleton.JointNames.size(); ++Joint)
+	{
+		Writer.WriteString(Skeleton.JointNames[Joint]);
+		Writer.Write(static_cast<std::uint16_t>(Skeleton.JointParents[Joint]));
+
+		for (const float Value : Skeleton.InverseBindMatrices[Joint])
+		{
+			Writer.WriteFloat(Value);
+		}
+	}
+
+	WriteBlob(Writer, Skeleton.Runtime);
+	Writer.Write(static_cast<std::uint32_t>(Model.Influences.size()));
+
+	for (const FCookedSkinInfluence& Influence : Model.Influences)
+	{
+		for (const std::uint16_t Joint : Influence.Joints)
+		{
+			Writer.Write(Joint);
+		}
+
+		for (const std::uint16_t Weight : Influence.Weights)
+		{
+			Writer.Write(Weight);
+		}
+	}
+
+	Writer.Write(static_cast<std::uint32_t>(Model.Clips.size()));
+
+	for (const FCookedAnimationClip& Clip : Model.Clips)
+	{
+		Writer.WriteString(Clip.Name);
+		Writer.WriteFloat(Clip.DurationSeconds);
+		WriteBlob(Writer, Clip.Animation);
+		WriteBlob(Writer, Clip.RootMotion);
+	}
+}
+
+void ReadSkeletalData(FBinaryReader& Reader, FCookedModel& Model)
+{
+	if (Reader.Read<std::uint8_t>() == 0)
+	{
+		return;
+	}
+
+	FCookedSkeleton& Skeleton = Model.Skeleton.emplace();
+	const auto JointCount = Reader.Read<std::uint32_t>();
+	if (JointCount > MaximumCookedJoints || !Reader.CanRead(JointCount, sizeof(std::uint32_t) + sizeof(std::int16_t) + sizeof(float) * 16))
+	{
+		Reader.Invalidate();
+		return;
+	}
+
+	Skeleton.JointNames.resize(JointCount);
+	Skeleton.JointParents.resize(JointCount);
+	Skeleton.InverseBindMatrices.resize(JointCount);
+
+	for (std::uint32_t Joint = 0; Joint < JointCount && Reader.IsValid(); ++Joint)
+	{
+		Skeleton.JointNames[Joint] = Reader.ReadString(MaximumNameLength);
+		Skeleton.JointParents[Joint] = static_cast<std::int16_t>(Reader.Read<std::uint16_t>());
+
+		for (float& Value : Skeleton.InverseBindMatrices[Joint])
+		{
+			Value = Reader.ReadFloat();
+		}
+	}
+
+	std::size_t Budget = MaximumCookedBufferBytes;
+	Skeleton.Runtime = ReadBlob(Reader, Budget);
+
+	const auto InfluenceCount = Reader.Read<std::uint32_t>();
+	if (InfluenceCount > MaximumVertices || !Reader.CanRead(InfluenceCount, sizeof(std::uint16_t) * 8))
+	{
+		Reader.Invalidate();
+		return;
+	}
+
+	Model.Influences.resize(InfluenceCount);
+
+	for (FCookedSkinInfluence& Influence : Model.Influences)
+	{
+		for (std::uint16_t& Joint : Influence.Joints)
+		{
+			Joint = Reader.Read<std::uint16_t>();
+		}
+
+		for (std::uint16_t& Weight : Influence.Weights)
+		{
+			Weight = Reader.Read<std::uint16_t>();
+		}
+	}
+
+	const auto ClipCount = Reader.Read<std::uint32_t>();
+	if (ClipCount > MaximumCookedClips)
+	{
+		Reader.Invalidate();
+		return;
+	}
+
+	Model.Clips.reserve(ClipCount);
+	Budget = MaximumCookedBufferBytes;
+
+	for (std::uint32_t Index = 0; Index < ClipCount && Reader.IsValid(); ++Index)
+	{
+		FCookedAnimationClip& Clip = Model.Clips.emplace_back();
+		Clip.Name = Reader.ReadString(MaximumNameLength);
+		Clip.DurationSeconds = Reader.ReadFloat();
+		Clip.Animation = ReadBlob(Reader, Budget);
+		Clip.RootMotion = ReadBlob(Reader, Budget);
+	}
+}
 }
 
 std::expected<void, FAssetError> ValidateCookedTexture(const FCookedTexture& Texture)
@@ -247,6 +391,84 @@ std::expected<void, FAssetError> ValidateCookedModel(const FCookedModel& Model)
 		}
 	}
 
+	return ValidateCookedSkeletalData(Model);
+}
+
+std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& Model)
+{
+	if (!Model.Skeleton)
+	{
+		if (!Model.Influences.empty() || !Model.Clips.empty())
+		{
+			return Invalid("Cooked skin influences and clips require a skeleton");
+		}
+
+		return {};
+	}
+
+	const FCookedSkeleton& Skeleton = *Model.Skeleton;
+	const std::size_t JointCount = Skeleton.JointNames.size();
+	if (JointCount == 0 || JointCount > MaximumCookedJoints || Skeleton.JointParents.size() != JointCount || Skeleton.InverseBindMatrices.size() != JointCount || Skeleton.Runtime.empty()
+	    || Skeleton.Runtime.size() > MaximumCookedBufferBytes)
+	{
+		return Invalid(std::format("Cooked skeleton requires between 1 and {} joints with parents, bind matrices, and runtime data", MaximumCookedJoints));
+	}
+
+	for (std::size_t Joint = 0; Joint < JointCount; ++Joint)
+	{
+		const std::string& Name = Skeleton.JointNames[Joint];
+		const std::int16_t Parent = Skeleton.JointParents[Joint];
+		if (Name.empty() || Name.size() > MaximumNameLength || (Parent != -1 && (Parent < 0 || static_cast<std::size_t>(Parent) >= Joint)) || !IsFinite(Skeleton.InverseBindMatrices[Joint]))
+		{
+			return Invalid(std::format("Cooked skeleton joint {} has an invalid name, parent, or bind matrix", Joint));
+		}
+	}
+
+	if (!Model.Influences.empty() && Model.Influences.size() != Model.Vertices.size())
+	{
+		return Invalid("Cooked skin requires one influence per vertex");
+	}
+
+	for (const FCookedSkinInfluence& Influence : Model.Influences)
+	{
+		std::uint32_t Total = 0;
+
+		for (std::size_t Slot = 0; Slot < 4; ++Slot)
+		{
+			Total += Influence.Weights[Slot];
+			if (Influence.Joints[Slot] >= JointCount)
+			{
+				return Invalid("Cooked skin influence references a missing joint");
+			}
+		}
+
+		if (Total != CookedSkinWeightTotal)
+		{
+			return Invalid("Cooked skin influence weights must sum to one");
+		}
+	}
+
+	if (Model.Clips.size() > MaximumCookedClips)
+	{
+		return Invalid(std::format("Cooked models hold at most {} animation clips", MaximumCookedClips));
+	}
+
+	std::size_t ClipBytes = 0;
+
+	for (const FCookedAnimationClip& Clip : Model.Clips)
+	{
+		ClipBytes += Clip.Animation.size() + Clip.RootMotion.size();
+		if (Clip.Name.empty() || Clip.Name.size() > MaximumNameLength || !std::isfinite(Clip.DurationSeconds) || Clip.DurationSeconds <= 0.f || Clip.Animation.empty() || ClipBytes > MaximumCookedBufferBytes)
+		{
+			return Invalid("Cooked animation clip has an invalid name, duration, or data size");
+		}
+
+		if (std::ranges::count(Model.Clips, Clip.Name, &FCookedAnimationClip::Name) != 1)
+		{
+			return Invalid(std::format("Cooked animation clip name '{}' is not unique", Clip.Name));
+		}
+	}
+
 	return {};
 }
 
@@ -356,6 +578,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 		WriteTexture(Writer, Texture);
 	}
 
+	WriteSkeletalData(Writer, Model);
 	return Writer.TakeBytes();
 }
 
@@ -487,6 +710,11 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 		{
 			Model.Textures.push_back(ReadTexture(Reader));
 		}
+	}
+
+	if (Reader.IsValid())
+	{
+		ReadSkeletalData(Reader, Model);
 	}
 
 	if (!Reader.IsValid() || !Reader.IsAtEnd() || VertexCount > MaximumVertices || IndexCount > MaximumIndices || SectionCount > MaximumSections || MaterialCount > MaximumMaterials || TextureCount > MaximumTextures)

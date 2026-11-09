@@ -103,9 +103,9 @@ On success the worker exits with 0 and prints `HertaAssetCook/1`, `Key <hex>`, `
 | Importer | Version | Settings | Output |
 |---|---|---|---|
 | `Texture` | 3 | `ColorSpace = Srgb` (default) or `Linear` | Cooked texture |
-| `Gltf` | 3 | None | Cooked PBR model |
+| `Gltf` | 4 | None | Cooked PBR model, with its skeleton and clips when skinned |
 | `Material` | 1 | None | Cooked material document |
-| `Blender` | 3 | None | Cooked PBR model, through a GLB export |
+| `Blender` | 4 | None | Cooked PBR model, through a GLB export |
 
 Unknown settings are errors, so a typo never silently cooks with defaults. Bump an importer's version whenever its output changes for the same input, and bump `CookedAssetFormatVersion` when any cooked layout changes. Both are part of the build key.
 
@@ -135,6 +135,8 @@ glTF 2.0 `.gltf` and `.glb` sources are parsed with fastgltf and validated befor
 - Vertices are deduplicated and reordered for the GPU vertex cache with meshoptimizer.
 - Positions, one UV set, normals, and tangent XYZ plus handedness are cooked. Supplied normals use the inverse-transpose transform; supplied tangents preserve mirrored handedness. Missing directions are generated from geometry and UVs with deterministic degenerate fallbacks. A material using different UV sets for its maps fails instead of silently sampling the wrong coordinates.
 - Non-triangle primitives are skipped with a warning. A referenced image that cannot be loaded or decoded fails the cook rather than silently changing the material.
+- A skinned mesh keeps its vertices in bind space, as glTF requires, with up to four joints per vertex as unorm16 weights that sum to one; deduplication compares the skin together with the vertex. The first skin a mesh node uses becomes the model's skeleton. Static nodes above its roots, such as an armature, fold into the root joints, and other skins and unskinned meshes in the same file are skipped with a warning.
+- Every animation that moves the skeleton becomes a clip, cooked in the worker by ozz-animation's offline builders: missing tracks hold the rest pose, step keys become key pairs, cubic splines keep only their vertices, and the optimizer removes keys within 1 mm. The root joint's horizontal travel is extracted into a separate root-motion track so clips play in place. Each ozz archive is sealed with its size and XXH3 hash, which the runtime checks before ozz reads it. See [Animation](Animation.md).
 - `KHR_mesh_quantization` is supported. Any other required extension, such as Draco compression, fails the cook instead of producing wrong data.
 
 ### Blender
@@ -154,7 +156,7 @@ External buffer and image URIs must be relative and stay inside the content root
 Cooked assets start with the magic `HCAS`, `CookedAssetFormatVersion`, and a type tag, followed by little-endian fields:
 
 - A texture stores its color space, RGBA8 or RGBA32F pixel format, and mips from largest to 1x1.
-- A model stores position/UV/normal/tangent vertices, uint32 triangle indices, sections, PBR materials, channels, and the textures they reference.
+- A model stores position/UV/normal/tangent vertices, uint32 triangle indices, sections, PBR materials, channels, and the textures they reference. Cooked format 3 adds an optional skeleton (joint names, parents, inverse bind matrices, and a runtime archive), per-vertex skin influences, and named clips with optional root motion.
 - A material stores its validated material document. Mesh-slot overrides in a level reference these material assets by UUID; an empty override uses the imported material.
 
 `DeserializeCookedAsset` validates every count, index, range, and mip dimension before allocating. Valid models stay within 64 MiB per vertex or index buffer.

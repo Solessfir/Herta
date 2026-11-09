@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
 #include <variant>
@@ -14,7 +15,7 @@
 namespace Herta
 {
 // Bump when any cooked layout or cooking rule changes; build keys include it, so stale derived data is never reused.
-inline constexpr std::uint32_t CookedAssetFormatVersion = 2;
+inline constexpr std::uint32_t CookedAssetFormatVersion = 3;
 
 inline constexpr std::uint32_t MaximumCookedTextureDimension = 4096;
 // Matches the per-recording GPU upload budget.
@@ -67,7 +68,37 @@ struct FCookedMaterial
 	std::array<EMaterialChannel, MaterialTextureSlotCount> Channels{EMaterialChannel::Rgb, EMaterialChannel::Red, EMaterialChannel::Red, EMaterialChannel::Rgb, EMaterialChannel::Red, EMaterialChannel::Rgb};
 };
 
-// A static mesh in model space with counter-clockwise front faces and uint32 triangle lists.
+inline constexpr std::size_t MaximumCookedJoints = 1024;
+inline constexpr std::size_t MaximumCookedClips = 256;
+inline constexpr std::uint16_t CookedSkinWeightTotal = 65535;
+
+// Up to four joints per vertex, indexed in skeleton joint order. Weights are unorm16 and sum to CookedSkinWeightTotal; unused slots have zero weight.
+struct FCookedSkinInfluence
+{
+	std::array<std::uint16_t, 4> Joints{};
+	std::array<std::uint16_t, 4> Weights{CookedSkinWeightTotal, 0, 0, 0};
+};
+
+// Joints are ordered so every parent precedes its children. Runtime is the Animation module's own archive of the same skeleton; Herta code outside Animation never reads it.
+struct FCookedSkeleton
+{
+	std::vector<std::string> JointNames;
+	std::vector<std::int16_t> JointParents;
+	// Column-major model-to-joint transforms of the bind pose, one per joint.
+	std::vector<std::array<float, 16>> InverseBindMatrices;
+	std::vector<std::byte> Runtime;
+};
+
+// Animation and RootMotion are Animation module archives. RootMotion holds the root joint's horizontal travel, removed from Animation so clips play in place.
+struct FCookedAnimationClip
+{
+	std::string Name;
+	float DurationSeconds = 0.f;
+	std::vector<std::byte> Animation;
+	std::vector<std::byte> RootMotion;
+};
+
+// A mesh in model space with counter-clockwise front faces and uint32 triangle lists. A skinned mesh is in its bind pose and carries one influence per vertex.
 struct FCookedModel
 {
 	std::vector<FCookedVertex> Vertices;
@@ -75,12 +106,18 @@ struct FCookedModel
 	std::vector<FCookedMeshSection> Sections;
 	std::vector<FCookedMaterial> Materials;
 	std::vector<FCookedTexture> Textures;
+
+	std::vector<FCookedSkinInfluence> Influences;
+	std::optional<FCookedSkeleton> Skeleton;
+	std::vector<FCookedAnimationClip> Clips;
 };
 
 using FCookedAsset = std::variant<FCookedTexture, FCookedModel, FMaterialAsset>;
 
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedTexture(const FCookedTexture& Texture);
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedModel(const FCookedModel& Model);
+// The skin, skeleton, and clip part of ValidateCookedModel. It checks Herta's own fields; the Animation module validates its runtime archives when it loads them.
+[[nodiscard]] std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& Model);
 
 [[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FCookedAsset& Asset);
 

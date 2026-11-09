@@ -38,3 +38,6 @@
 [submodule "External/smaa"]
 	path = External/smaa
 	url = https://github.com/iryoku/smaa.git
+[submodule "External/ozz-animation"]
+	path = External/ozz-animation
+	url = https://github.com/guillaumeblanc/ozz-animation.git

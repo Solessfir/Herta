@@ -1,6 +1,7 @@
 #include "GltfCooker.h"
 
 #include "FileUtilities.h"
+#include "GltfAnimation.h"
 #include "Herta/AssetPipeline/TextureCooker.h"
 
 #include <fastgltf/core.hpp>
@@ -129,7 +130,53 @@ struct FMaterialBucket
 {
 	std::vector<FCookedVertex> Vertices;
 	std::vector<std::uint32_t> Indices;
+	// Parallel to Vertices in a skinned model, empty otherwise.
+	std::vector<FCookedSkinInfluence> Influences;
 };
+
+// Deduplication must keep vertices that differ only in their skin apart, so skinned models compare both together.
+struct FSkinnedVertex
+{
+	FCookedVertex Vertex;
+	FCookedSkinInfluence Influence;
+};
+
+static_assert(sizeof(FSkinnedVertex) == sizeof(FCookedVertex) + sizeof(FCookedSkinInfluence), "Skinned vertex deduplication compares raw bytes");
+
+// Quantizes four weights to unorm16 that sum exactly to one, giving the rounding remainder to the largest weight.
+[[nodiscard]] std::optional<std::array<std::uint16_t, 4>> QuantizeWeights(const std::array<float, 4>& Weights)
+{
+	float Total = 0.f;
+
+	for (const float Weight : Weights)
+	{
+		if (!std::isfinite(Weight) || Weight < 0.f)
+		{
+			return std::nullopt;
+		}
+
+		Total += Weight;
+	}
+
+	if (Total <= 0.f)
+	{
+		return std::nullopt;
+	}
+
+	std::array<std::uint16_t, 4> Result{};
+	std::int32_t Sum = 0;
+	std::size_t Largest = 0;
+
+	for (std::size_t Slot = 0; Slot < 4; ++Slot)
+	{
+		Result[Slot] = static_cast<std::uint16_t>(std::lround(Weights[Slot] / Total * static_cast<float>(CookedSkinWeightTotal)));
+		Sum += Result[Slot];
+		Largest = Weights[Slot] > Weights[Largest] ? Slot : Largest;
+	}
+
+	Result[Largest] = static_cast<std::uint16_t>(Result[Largest] + std::int32_t{CookedSkinWeightTotal} - Sum);
+	return Result;
+}
 
 using FDirection = std::array<float, 3>;
 
@@ -174,14 +221,20 @@ public:
 	{
 	}
 
-	void AddMesh(const std::size_t MeshIndex, const fastgltf::math::fmat4x4& World)
+	// SkinJoints maps the skin's joint slots to skeleton joints for a skinned mesh, whose vertices stay in bind space as glTF requires.
+	void AddMesh(const std::size_t MeshIndex, const fastgltf::math::fmat4x4& World, const std::vector<std::uint16_t>* SkinJoints = nullptr)
 	{
 		const fastgltf::Mesh& Mesh = Asset.meshes[MeshIndex];
 
 		for (std::size_t PrimitiveIndex = 0; PrimitiveIndex < Mesh.primitives.size() && !Error; ++PrimitiveIndex)
 		{
-			AddPrimitive(Mesh, PrimitiveIndex, World);
+			AddPrimitive(Mesh, PrimitiveIndex, SkinJoints ? fastgltf::math::fmat4x4() : World, SkinJoints);
 		}
+	}
+
+	void SetSkeleton(FGltfSkeleton InSkeleton)
+	{
+		Skeleton = std::move(InSkeleton);
 	}
 
 	[[nodiscard]] std::expected<FCookedModel, FAssetError> Build()
@@ -284,6 +337,15 @@ public:
 			const auto VertexBase = static_cast<std::uint32_t>(Model.Vertices.size());
 			Model.Sections.push_back({.FirstIndex = static_cast<std::uint32_t>(Model.Indices.size()), .IndexCount = static_cast<std::uint32_t>(Bucket.Indices.size()), .Material = static_cast<std::uint32_t>(Model.Materials.size() - 1)});
 			Model.Vertices.insert(Model.Vertices.end(), Bucket.Vertices.begin(), Bucket.Vertices.end());
+			if (Skeleton)
+			{
+				if (Bucket.Influences.size() != Bucket.Vertices.size())
+				{
+					return std::unexpected(FAssetError{"Every mesh in a skinned glTF model must be skinned by the same skin"});
+				}
+
+				Model.Influences.insert(Model.Influences.end(), Bucket.Influences.begin(), Bucket.Influences.end());
+			}
 
 			for (const std::uint32_t Index : Bucket.Indices)
 			{
@@ -291,7 +353,16 @@ public:
 			}
 		}
 
-		Optimize(Model);
+		if (Skeleton)
+		{
+			Model.Skeleton = std::move(Skeleton->Skeleton);
+			Model.Clips = std::move(Skeleton->Clips);
+			OptimizeSkinned(Model);
+		}
+		else
+		{
+			OptimizeVertices(Model.Vertices, Model);
+		}
 
 		if (std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)
 		{
@@ -319,7 +390,7 @@ private:
 		}
 	}
 
-	void AddPrimitive(const fastgltf::Mesh& Mesh, const std::size_t PrimitiveIndex, const fastgltf::math::fmat4x4& World)
+	void AddPrimitive(const fastgltf::Mesh& Mesh, const std::size_t PrimitiveIndex, const fastgltf::math::fmat4x4& World, const std::vector<std::uint16_t>* SkinJoints)
 	{
 		const fastgltf::Primitive& Primitive = Mesh.primitives[PrimitiveIndex];
 		const std::string MeshName(Mesh.name.begin(), Mesh.name.end());
@@ -419,6 +490,11 @@ private:
 			});
 		}
 
+		if (SkinJoints && !AddInfluences(Primitive, *SkinJoints, Bucket, VertexBase, VertexCount, MeshName, PrimitiveIndex))
+		{
+			return;
+		}
+
 		const std::size_t IndexBase = Bucket.Indices.size();
 
 		if (Primitive.indicesAccessor)
@@ -469,6 +545,50 @@ private:
 		}
 
 		GenerateFrame(Primitive, World, Bucket, VertexBase, VertexCount, IndexBase, Determinant);
+	}
+
+	[[nodiscard]] bool AddInfluences(const fastgltf::Primitive& Primitive, const std::vector<std::uint16_t>& SkinJoints, FMaterialBucket& Bucket, const std::size_t VertexBase, const std::size_t VertexCount, const std::string& MeshName, const std::size_t PrimitiveIndex)
+	{
+		const auto* Joints = Primitive.findAttribute("JOINTS_0");
+		const auto* Weights = Primitive.findAttribute("WEIGHTS_0");
+		if (Joints == Primitive.attributes.end() || Weights == Primitive.attributes.end() || Asset.accessors[Joints->accessorIndex].count != VertexCount || Asset.accessors[Weights->accessorIndex].count != VertexCount)
+		{
+			Fail(std::format("Skinned mesh '{}' primitive {} needs JOINTS_0 and WEIGHTS_0 for every vertex", MeshName, PrimitiveIndex));
+			return false;
+		}
+
+		if (Primitive.findAttribute("JOINTS_1") != Primitive.attributes.end())
+		{
+			Warn(std::format("Skinned mesh '{}' uses more than four joints per vertex; only the first four are kept", MeshName));
+		}
+
+		Bucket.Influences.resize(VertexBase + VertexCount);
+		bool bValid = true;
+		fastgltf::iterateAccessorWithIndex<fastgltf::math::u16vec4>(Asset, Asset.accessors[Joints->accessorIndex], [&](const fastgltf::math::u16vec4& Slots, const std::size_t Index)
+		{
+			for (std::size_t Slot = 0; Slot < 4; ++Slot)
+			{
+				bValid &= Slots[Slot] < SkinJoints.size();
+				Bucket.Influences[VertexBase + Index].Joints[Slot] = Slots[Slot] < SkinJoints.size() ? SkinJoints[Slots[Slot]] : 0;
+			}
+		});
+
+		fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec4>(Asset, Asset.accessors[Weights->accessorIndex], [&](const fastgltf::math::fvec4& Values, const std::size_t Index)
+		{
+			const auto Quantized = QuantizeWeights({Values[0], Values[1], Values[2], Values[3]});
+			bValid &= Quantized.has_value();
+			if (Quantized)
+			{
+				Bucket.Influences[VertexBase + Index].Weights = *Quantized;
+			}
+		});
+
+		if (!bValid)
+		{
+			Fail(std::format("Skinned mesh '{}' primitive {} has a missing joint or weights that do not add up", MeshName, PrimitiveIndex));
+		}
+
+		return bValid;
 	}
 
 	void GenerateFrame(const fastgltf::Primitive& Primitive, const fastgltf::math::fmat4x4& World, FMaterialBucket& Bucket, const std::size_t VertexBase, const std::size_t VertexCount, const std::size_t IndexBase, const float Determinant)
@@ -601,12 +721,12 @@ private:
 		}
 	}
 
-	static void Optimize(FCookedModel& Model)
+	template <typename TVertex> static void OptimizeVertices(std::vector<TVertex>& InOut, FCookedModel& Model)
 	{
-		std::vector<unsigned int> Remap(Model.Vertices.size());
-		const std::size_t UniqueVertices = meshopt_generateVertexRemap(Remap.data(), Model.Indices.data(), Model.Indices.size(), Model.Vertices.data(), Model.Vertices.size(), sizeof(FCookedVertex));
-		std::vector<FCookedVertex> Vertices(UniqueVertices);
-		meshopt_remapVertexBuffer(Vertices.data(), Model.Vertices.data(), Model.Vertices.size(), sizeof(FCookedVertex), Remap.data());
+		std::vector<unsigned int> Remap(InOut.size());
+		const std::size_t UniqueVertices = meshopt_generateVertexRemap(Remap.data(), Model.Indices.data(), Model.Indices.size(), InOut.data(), InOut.size(), sizeof(TVertex));
+		std::vector<TVertex> Vertices(UniqueVertices);
+		meshopt_remapVertexBuffer(Vertices.data(), InOut.data(), InOut.size(), sizeof(TVertex), Remap.data());
 		meshopt_remapIndexBuffer(Model.Indices.data(), Model.Indices.data(), Model.Indices.size(), Remap.data());
 
 		std::vector<std::uint32_t> Optimized(Model.Indices.size());
@@ -618,8 +738,28 @@ private:
 
 		Model.Indices = std::move(Optimized);
 
-		Model.Vertices.resize(Vertices.size());
-		Model.Vertices.resize(meshopt_optimizeVertexFetch(Model.Vertices.data(), Model.Indices.data(), Model.Indices.size(), Vertices.data(), Vertices.size(), sizeof(FCookedVertex)));
+		InOut.resize(Vertices.size());
+		InOut.resize(meshopt_optimizeVertexFetch(InOut.data(), Model.Indices.data(), Model.Indices.size(), Vertices.data(), Vertices.size(), sizeof(TVertex)));
+	}
+
+	static void OptimizeSkinned(FCookedModel& Model)
+	{
+		std::vector<FSkinnedVertex> Combined(Model.Vertices.size());
+
+		for (std::size_t Index = 0; Index < Combined.size(); ++Index)
+		{
+			Combined[Index] = {.Vertex = Model.Vertices[Index], .Influence = Model.Influences[Index]};
+		}
+
+		OptimizeVertices(Combined, Model);
+		Model.Vertices.resize(Combined.size());
+		Model.Influences.resize(Combined.size());
+
+		for (std::size_t Index = 0; Index < Combined.size(); ++Index)
+		{
+			Model.Vertices[Index] = Combined[Index].Vertex;
+			Model.Influences[Index] = Combined[Index].Influence;
+		}
 	}
 
 	const fastgltf::Asset& Asset;
@@ -627,6 +767,7 @@ private:
 
 	// Material index plus one, so the default material sorts first and the output order is deterministic.
 	std::map<std::size_t, FMaterialBucket> Buckets;
+	std::optional<FGltfSkeleton> Skeleton;
 	std::size_t TotalVertices = 0;
 	std::size_t TotalIndices = 0;
 	std::optional<FAssetError> Error;
@@ -703,6 +844,47 @@ std::expected<FCookedModel, FAssetError> CookGltf(const std::filesystem::path& C
 
 	FGltfModelBuilder Builder(Asset, Warnings);
 
+	// The first skinned mesh node picks the model's skin. A model holds one skeleton, so other skins and unskinned meshes beside it are left out with a warning.
+	std::optional<std::size_t> SkinIndex;
+	std::vector<std::uint16_t> SkinJoints;
+
+	for (const fastgltf::Node& Node : Asset.nodes)
+	{
+		if (Node.meshIndex && Node.skinIndex)
+		{
+			SkinIndex = *Node.skinIndex;
+			break;
+		}
+	}
+
+	if (SkinIndex)
+	{
+		auto Skeleton = CookGltfSkeleton(Asset, *SkinIndex, Warnings);
+		if (!Skeleton)
+		{
+			return std::unexpected(std::move(Skeleton.error()));
+		}
+
+		SkinJoints = Skeleton->SkinJointToSkeleton;
+		Builder.SetSkeleton(std::move(*Skeleton));
+	}
+
+	const auto AddNodeMesh = [&](const fastgltf::Node& Node, const fastgltf::math::fmat4x4& World)
+	{
+		if (!SkinIndex)
+		{
+			Builder.AddMesh(*Node.meshIndex, World);
+		}
+		else if (Node.skinIndex && *Node.skinIndex == *SkinIndex)
+		{
+			Builder.AddMesh(*Node.meshIndex, World, &SkinJoints);
+		}
+		else if (Warnings.size() < MaximumWarnings)
+		{
+			Warnings.push_back(std::format("Mesh node '{}' is not skinned by the model's skin and was skipped", std::string(Node.name.begin(), Node.name.end())));
+		}
+	};
+
 	if (Asset.scenes.empty())
 	{
 		for (std::size_t MeshIndex = 0; MeshIndex < Asset.meshes.size(); ++MeshIndex)
@@ -717,7 +899,7 @@ std::expected<FCookedModel, FAssetError> CookGltf(const std::filesystem::path& C
 		{
 			if (Node.meshIndex)
 			{
-				Builder.AddMesh(*Node.meshIndex, World);
+				AddNodeMesh(Node, World);
 			}
 		});
 	}

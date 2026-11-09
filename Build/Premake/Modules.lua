@@ -278,6 +278,14 @@ HertaRuntimeModule("Physics", {
 
     filter {}
 
+HertaRuntimeModule("Animation", {
+    PublicDependencies = { "Math", "Assets" },
+    PrivateDependencies = { "Core" },
+    -- Linkers that resolve static libraries in order need the runtime jobs before the base library they use.
+    PrivateThirdPartyDependencies = { "OzzAnimation", "OzzBase" }
+})
+    externalincludedirs { path.join(RepositoryRoot, "External/ozz-animation/include") }
+
 HertaRuntimeModule("EditorCore", {
     PublicDependencies = { "Math" },
     PrivateDependencies = { "Level", "Assets", "Project" }
@@ -332,10 +340,11 @@ HertaRuntimeModule("MaterialGraph", {
 HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
     PublicDependencies = { "Core", "Assets", "EditorCore" },
-    PrivateDependencies = { "Platform", "Level", "Project", "Math", "GraphCore", "MaterialGraph" },
-    PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer" }
+    PrivateDependencies = { "Platform", "Level", "Project", "Math", "GraphCore", "MaterialGraph", "Animation" },
+    PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer", "OzzAnimationOffline", "OzzAnimation", "OzzBase" }
 })
     externalincludedirs {
+        path.join(RepositoryRoot, "External/ozz-animation/include"),
         path.join(RepositoryRoot, "External/fastgltf/include"),
         path.join(RepositoryRoot, "External/simdjson"),
         path.join(RepositoryRoot, "External/meshoptimizer/src"),
@@ -515,7 +524,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "GraphCore", "GraphEditor", "MaterialGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Animation", "GraphCore", "GraphEditor", "MaterialGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }

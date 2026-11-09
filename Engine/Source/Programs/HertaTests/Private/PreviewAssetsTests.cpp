@@ -152,6 +152,9 @@ TEST_CASE("Preview metadata describes cooked assets rather than their preview ge
 	    .Sections = {},
 	    .Materials = {{.Name = "First"}, {.Name = "Second"}},
 	    .Textures = {},
+	    .Influences = {},
+	    .Skeleton = {},
+	    .Clips = {},
 	};
 
 	const auto ModelMetadata = GetPreviewAssetMetadata(Model);
