@@ -207,6 +207,7 @@ private:
 	void ReimportShownAssets();
 	void PublishSlots(const FPreviewMeshSlot& Slot);
 	void PruneCache();
+	[[nodiscard]] bool IsRequested(const FAssetId& Asset) const;
 	void UpdateThumbnail(FCachedMesh& Cached);
 	void StartMaterialPreview();
 	void UpdateMaterialPreviewThumbnail();

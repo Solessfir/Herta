@@ -1686,4 +1686,54 @@ TEST_CASE("Engine content provides the 1 m preview cube with outward faces and u
 		CHECK(UVArea < 0.f);
 	}
 }
+
+// The editor asks for the level's character every frame from startup, before the first content scan finishes; that early request must still load it.
+TEST_CASE("The player character loads when requested before the first content scan")
+{
+	FPreviewAssetsFixture Fixture;
+	std::error_code Error;
+
+	for (auto Path = std::filesystem::current_path(Error); !Path.empty(); Path = Path.parent_path())
+	{
+		const auto Source = Path / "Games/Sandbox/Content/Characters/Mannequin/Mannequin.glb";
+		if (std::filesystem::is_regular_file(Source, Error))
+		{
+			std::filesystem::create_directories(Fixture.Scratch.GetPath() / "Game/Characters", Error);
+			std::filesystem::copy_file(Source, Fixture.Scratch.GetPath() / "Game/Characters/Mannequin.glb", Error);
+			break;
+		}
+
+		if (Path == Path.parent_path())
+		{
+			break;
+		}
+	}
+
+	REQUIRE(std::filesystem::is_regular_file(Fixture.Scratch.GetPath() / "Game/Characters/Mannequin.glb", Error));
+	constexpr FAssetId CharacterId{0x00000000000040a0, 0x80000000000000c1};
+	Tests::WriteText(Fixture.Scratch.GetPath() / "Game/Characters/Mannequin.glb.hmeta", "Format = HertaAssetMetadata\nVersion = 1\nId = " + CharacterId.ToString() + "\nImporter = Gltf\n");
+
+	auto Assets = Fixture.CreateAssets();
+	REQUIRE(Assets);
+	Assets->RequestPlayerCharacter(CharacterId);
+	// Cooking runs in the worker process, so wait on time rather than a frame count.
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+	while (!Assets->GetPlayerCharacter() && std::chrono::steady_clock::now() < Deadline)
+	{
+		Fixture.Tasks->RunUntilIdle();
+		Assets->RequestPlayerCharacter(CharacterId);
+		Assets->Tick();
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+
+	const auto Character = Assets->GetPlayerCharacter();
+	const FPreviewMeshSlot* const Slot = Assets->GetCachedAsset(CharacterId);
+	REQUIRE_MESSAGE(Character, (Slot ? std::format("label {}, generation {}, loading {}, mesh {}, error '{}'", Slot->Label, Slot->Generation, Slot->bLoading, Slot->Mesh != nullptr, Slot->Error) : std::string("not cached")));
+	CHECK(Character->Skeleton.has_value());
+	CHECK(Character->Influences.size() == Character->Vertices.size());
+
+	// Clearing the request releases it.
+	Assets->RequestPlayerCharacter({});
+	CHECK_FALSE(Assets->GetPlayerCharacter());
+}
 }

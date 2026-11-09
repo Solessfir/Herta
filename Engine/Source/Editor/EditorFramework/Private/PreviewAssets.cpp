@@ -973,18 +973,19 @@ void FPreviewAssets::RequestMaterial(const FAssetId& Asset)
 
 void FPreviewAssets::RequestPlayerCharacter(const FAssetId& Asset)
 {
-	if (Asset == PlayerCharacterAsset)
-	{
-		return;
-	}
-
+	const bool bChanged = Asset != PlayerCharacterAsset;
 	PlayerCharacterAsset = Asset;
+
+	// Called every frame: a request made before the first scan, or before a content change, only starts loading on a later call.
 	if (Asset.IsValid())
 	{
 		GetOrLoadMesh(Asset);
 	}
 
-	PruneCache();
+	if (bChanged)
+	{
+		PruneCache();
+	}
 }
 
 std::shared_ptr<const FCookedModel> FPreviewAssets::GetPlayerCharacter() const noexcept
@@ -1754,6 +1755,10 @@ void FPreviewAssets::ReimportShownAssets()
 	}
 	Shown.insert(MaterialAssets.begin(), MaterialAssets.end());
 	Shown.insert(TextureAssets.begin(), TextureAssets.end());
+	if (PlayerCharacterAsset.IsValid())
+	{
+		Shown.insert(PlayerCharacterAsset);
+	}
 
 	for (const FPreviewMeshSlot& Slot : Slots)
 	{
@@ -1806,10 +1811,16 @@ void FPreviewAssets::PruneCache()
 	{
 		const FAssetId& Asset = Entry.first;
 		const FCachedMesh& Cached = Entry.second;
-		return Asset != MaterialPreviewMeshAsset && Asset != PlayerCharacterAsset && !ThumbnailAssets.contains(Asset) && !MaterialAssets.contains(Asset) && !TextureAssets.contains(Asset) && (Cached.bThumbnailOnly || !Cached.Slot.bLoading || Cached.Slot.Generation == 0 || Cached.RequestContentGeneration != ContentGeneration) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
-		{
-			return Slot.Asset == Asset;
-		});
+		return !IsRequested(Asset) && (Cached.bThumbnailOnly || !Cached.Slot.bLoading || Cached.Slot.Generation == 0 || Cached.RequestContentGeneration != ContentGeneration);
+	});
+}
+
+// Pruning and publishing must agree on who still wants an asset, or a finished load is thrown away and requested again forever.
+bool FPreviewAssets::IsRequested(const FAssetId& Asset) const
+{
+	return Asset == MaterialPreviewMeshAsset || Asset == PlayerCharacterAsset || ThumbnailAssets.contains(Asset) || MaterialAssets.contains(Asset) || TextureAssets.contains(Asset) || std::ranges::any_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
+	{
+		return Slot.Asset == Asset;
 	});
 }
 
@@ -1821,10 +1832,7 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 		return;
 	}
 
-	if (Asset != MaterialPreviewMeshAsset && !ThumbnailAssets.contains(Asset) && !MaterialAssets.contains(Asset) && !TextureAssets.contains(Asset) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
-	{
-		return Slot.Asset == Asset;
-	}))
+	if (!IsRequested(Asset))
 	{
 		MeshCache.erase(Entry);
 		return;
