@@ -183,6 +183,11 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 
 	// Every reference must resolve: a staged build has no importer to fall back on.
 	std::set<FStagedKey> Pending;
+	if (Level->PlayerCharacter.IsValid())
+	{
+		Pending.emplace(Level->PlayerCharacter, std::nullopt);
+	}
+
 	for (const FLevelEntity& Entity : Level->Entities)
 	{
 		if (Entity.Mesh)

@@ -286,6 +286,8 @@ public:
 	[[nodiscard]] std::expected<void, FPhysicsError> Step(float FixedDeltaSeconds);
 	// Sensor overlap changes from the latest Step, sorted by sensor, body, and exits before entries, so the order never depends on Jolt's threads.
 	std::span<const FPhysicsSensorEvent> GetSensorEvents() const;
+	// Sweeps a sphere from Start to End against everything a character collides with, ignoring sensors and characters, and returns the fraction of the way it travels before touching something: 1 when nothing is in the way. A follow camera uses it to stay out of walls.
+	[[nodiscard]] float CastSphere(const FWorldPosition& Start, const FWorldPosition& End, float Radius) const;
 	// Every body, constraint, and contact cache, for rollback. Only the world that saved a state, holding the same bodies, can restore it.
 	[[nodiscard]] std::vector<std::byte> SaveState() const;
 	[[nodiscard]] std::expected<void, FPhysicsError> RestoreState(std::span<const std::byte> State);

@@ -202,6 +202,7 @@ FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 	    .bSprint = Gamepad.IsDown(EGamepadButton::LeftThumb),
 	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
 	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
+	    .bToggleCamera = Gamepad.IsDown(EGamepadButton::North),
 	};
 }
 
@@ -213,6 +214,7 @@ struct FPendingInput
 	std::optional<FVector2> Pointer{};
 	bool bJump = false;
 	bool bThrow = false;
+	bool bToggleCamera = false;
 	bool bClicked = false;
 	bool bEscape = false;
 	bool bRestart = false;
@@ -445,7 +447,22 @@ int RunGame(const FGameOptions& Options)
 		}
 	}
 
-	auto SessionResult = FGameSession::Create(Level->Entities, *Assets, &Device, {}, Tasks.get());
+	// The level's character is optional: without one, or if it fails to load, the player is the bare capsule.
+	std::shared_ptr<const FCookedModel> Character;
+	if (Level->PlayerCharacter.IsValid())
+	{
+		auto Cooked = Content.Load(Level->PlayerCharacter);
+		if (Cooked && std::holds_alternative<FCookedModel>(*Cooked))
+		{
+			Character = std::make_shared<const FCookedModel>(std::move(std::get<FCookedModel>(*Cooked)));
+		}
+		else
+		{
+			HERTA_LOG_WARNING(*Log, GameLog, "Could not load the player character: {}", Cooked ? "the asset is not a model" : Cooked.error().Message);
+		}
+	}
+
+	auto SessionResult = FGameSession::Create(Level->Entities, *Assets, &Device, {}, Tasks.get(), std::move(Character));
 	if (!SessionResult)
 	{
 		HERTA_LOG_ERROR(*Log, GameLog, "Could not start the game: {}", SessionResult.error().Message);
@@ -502,6 +519,7 @@ int RunGame(const FGameOptions& Options)
 		const bool bPressed = Action == EInputAction::Pressed;
 		Pending.bJump |= bPressed && Key == EKey::Space;
 		Pending.bThrow |= bPressed && Key == EKey::F;
+		Pending.bToggleCamera |= bPressed && Key == EKey::V;
 		Pending.bEscape |= bPressed && Key == EKey::Escape;
 		Pending.bRestart |= bPressed && Key == EKey::R;
 		Pending.bToggleFullscreen |= bPressed && (Key == EKey::F11 || (Key == EKey::Enter && HasModifier(Modifiers, EModifierFlags::Alt)));
@@ -583,7 +601,7 @@ int RunGame(const FGameOptions& Options)
 		FGameInput GameInput;
 		if (bSmokeTest)
 		{
-			GameInput = {.Move = {0.f, 1.f}, .YawDelta = Frames % 240 < 120 ? 0.004f : -0.004f, .bJump = Frames % 90 == 45, .bSprint = Frames % 300 > 150, .bCrouch = Frames % 300 > 240, .bThrow = Frames % 40 == 20};
+			GameInput = {.Move = {0.f, 1.f}, .YawDelta = Frames % 240 < 120 ? 0.004f : -0.004f, .bJump = Frames % 90 == 45, .bSprint = Frames % 300 > 150, .bCrouch = Frames % 300 > 240, .bThrow = Frames % 40 == 20, .bToggleCamera = Frames == 60};
 			Input.bEscape = Frames == Options.SmokeFrames / 4 + 30 || Frames == Options.SmokeFrames / 2 || Frames == Options.SmokeFrames / 2 + 20;
 			Input.bRestart = Frames == Options.SmokeFrames * 3 / 4;
 			Input.bFocusLost = Frames == Options.SmokeFrames / 4;
@@ -628,6 +646,7 @@ int RunGame(const FGameOptions& Options)
 			    .bSprint = Window.IsKeyDown(EKey::LeftShift) || Window.IsKeyDown(EKey::RightShift),
 			    .bCrouch = Window.IsKeyDown(EKey::C) || Window.IsKeyDown(EKey::LeftControl),
 			    .bThrow = Input.bThrow,
+			    .bToggleCamera = Input.bToggleCamera,
 			};
 
 			if (Gamepad)

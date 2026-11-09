@@ -90,6 +90,7 @@ FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 	    .bSprint = Gamepad.IsDown(EGamepadButton::LeftThumb),
 	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
 	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
+	    .bToggleCamera = Gamepad.IsDown(EGamepadButton::North),
 	};
 }
 
@@ -527,6 +528,8 @@ struct FEditorFramework::FImplementation
 	void DrawPreviewGizmo(FPreviewObject& Object);
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void BuildCollisionDebugDraw();
+	// The level's player character, chosen from the models in content.
+	void DrawPlayerCharacterPicker(float ValueWidth);
 	void FocusPreview();
 	void RefreshPreviewMeshes();
 	[[nodiscard]] const FRenderMesh* RefreshSoftBodyPreview(std::size_t Index, const FLevelEntity& Entity);
@@ -1221,6 +1224,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		{
 			HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "Wait for the project to finish loading before importing files");
 		}
+		Implementation->Assets->RequestPlayerCharacter(Implementation->Level ? Implementation->Level->GetPlayerCharacter() : FAssetId{});
 		Implementation->Assets->Tick();
 	}
 
@@ -1983,6 +1987,66 @@ std::span<const FDebugDrawList> FEditorFramework::GetViewportDebugDrawLists() co
 	}
 
 	return Implementation->PlaySession ? std::span<const FDebugDrawList>{} : std::span<const FDebugDrawList>(Implementation->ViewportDebugDrawLists);
+}
+
+void FEditorFramework::FImplementation::DrawPlayerCharacterPicker(const float ValueWidth)
+{
+	if (!Level || !Assets)
+	{
+		return;
+	}
+
+	const FAssetId Current = Level->GetPlayerCharacter();
+	std::string CurrentLabel = Current.IsValid() ? Current.ToString() : "None (capsule)";
+	for (const FPreviewAssetOption& Option : Assets->GetOptions())
+	{
+		if (Option.Id == Current)
+		{
+			CurrentLabel = Option.Label;
+		}
+	}
+
+	DrawFieldLabel("Character", ValueWidth);
+	ImGui::SetNextItemWidth(-FLT_MIN);
+	std::optional<FAssetId> Chosen;
+	if (ImGui::BeginCombo("##PlayerCharacter", CurrentLabel.c_str()))
+	{
+		if (ImGui::Selectable("None (capsule)", !Current.IsValid()) && Current.IsValid())
+		{
+			Chosen = FAssetId{};
+		}
+
+		for (const FPreviewAssetOption& Option : Assets->GetOptions())
+		{
+			if ((Option.Importer == "Gltf" || Option.Importer == "Blender") && ImGui::Selectable(Option.Label.c_str(), Option.Id == Current) && Option.Id != Current)
+			{
+				Chosen = Option.Id;
+			}
+		}
+
+		ImGui::EndCombo();
+	}
+
+	ImGui::SetItemTooltip("Saved with the level. Play and the game play as this skinned model; V switches to the third-person camera");
+	if (Chosen)
+	{
+		if (const auto Changed = Level->SetPlayerCharacter(*Chosen); !Changed)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not change the player character: {}", Changed.error().Message);
+		}
+	}
+
+	if (Current.IsValid())
+	{
+		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(Current);
+		const char* const Status = !Cached || Cached->bLoading ? "Loading..." : Assets->GetPlayerCharacter() ? nullptr
+		                                                                                                     : "Not a skinned model; Play uses the capsule";
+		if (Status)
+		{
+			DrawFieldLabel("", ValueWidth);
+			ImGui::TextDisabled("%s", Status);
+		}
+	}
 }
 
 void FEditorFramework::FImplementation::BuildCollisionDebugDraw()
@@ -3584,6 +3648,11 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			ImGui::EndDisabled();
 		}
 
+		if (Section("Play"))
+		{
+			DrawPlayerCharacterPicker(ValueWidth);
+		}
+
 		if (Section("Bookmarks"))
 		{
 			DrawCameraBookmarks(Scale);
@@ -5028,7 +5097,20 @@ void FEditorFramework::FImplementation::TogglePlay()
 		return;
 	}
 
-	auto Session = FGameSession::Create(VisualEntities, *GameAssets, GraphicsDevice, {}, Tasks);
+	std::shared_ptr<const FCookedModel> Character = Assets->GetPlayerCharacter();
+	if (Level->GetPlayerCharacter().IsValid() && !Character)
+	{
+		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(Level->GetPlayerCharacter());
+		if (!Cached || Cached->bLoading)
+		{
+			HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for the player character to load");
+			return;
+		}
+
+		HERTA_LOG_WARNING(*Log, EditorLog, "The player character is not a skinned model; playing as the capsule");
+	}
+
+	auto Session = FGameSession::Create(VisualEntities, *GameAssets, GraphicsDevice, {}, Tasks, std::move(Character));
 	if (!Session)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not start play: {}", Session.error().Message);
@@ -5154,6 +5236,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		    .bSprint = IO.KeyShift,
 		    .bCrouch = ImGui::IsKeyDown(ImGuiKey_C) || IO.KeyCtrl,
 		    .bThrow = ImGui::IsKeyPressed(ImGuiKey_F, false),
+		    .bToggleCamera = ImGui::IsKeyPressed(ImGuiKey_V, false),
 		};
 
 		if (ImGui::IsKeyPressed(ImGuiKey_R, false) || IsPlayGamepadPressed(EGamepadButton::Back))

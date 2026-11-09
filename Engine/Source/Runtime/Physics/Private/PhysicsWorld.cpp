@@ -16,6 +16,7 @@
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/GroupFilter.h>
@@ -26,6 +27,7 @@
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -1255,6 +1257,45 @@ std::span<const FPhysicsContactEvent> FPhysicsWorld::GetContactEvents() const
 const FWorldPosition& FPhysicsWorld::GetOrigin() const noexcept
 {
 	return Implementation->Origin;
+}
+
+namespace
+{
+class FSolidBodyFilter final : public JPH::BodyFilter
+{
+public:
+	bool ShouldCollideLocked(const JPH::Body& Body) const override
+	{
+		return !Body.IsSensor();
+	}
+};
+}
+
+float FPhysicsWorld::CastSphere(const FWorldPosition& Start, const FWorldPosition& End, const float Radius) const
+{
+	if (!std::isfinite(Radius) || Radius <= 0.f)
+	{
+		return 1.f;
+	}
+
+	const FVector3 From = ToPhysics(Start);
+	const FVector3 Direction = ToPhysics(End) - From;
+	if (!IsFinite(From) || !IsFinite(Direction) || Direction.LengthSquared() < 1.e-12f)
+	{
+		return 1.f;
+	}
+
+	JPH::SphereShape Sphere(Radius);
+	// A stack shape must not be released by the reference count Jolt takes on it.
+	Sphere.SetEmbedded();
+	const JPH::RShapeCast Cast(&Sphere, JPH::Vec3::sOne(), JPH::RMat44::sTranslation(JPH::RVec3(ToJolt(From))), ToJolt(Direction));
+	JPH::ShapeCastSettings Settings;
+	Settings.mBackFaceModeTriangles = JPH::EBackFaceMode::IgnoreBackFaces;
+	JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> Collector;
+	const FSolidBodyFilter BodyFilter;
+	const JPH::PhysicsSystem& Physics = Implementation->Physics;
+	Physics.GetNarrowPhaseQuery().CastShape(Cast, Settings, JPH::RVec3::sZero(), Collector, Physics.GetDefaultBroadPhaseLayerFilter(CharacterLayer), Physics.GetDefaultLayerFilter(CharacterLayer), BodyFilter);
+	return Collector.HadHit() ? std::clamp(Collector.mHit.mFraction, 0.f, 1.f) : 1.f;
 }
 
 FVector3 FPhysicsWorld::ToPhysics(const FWorldPosition& Position) const

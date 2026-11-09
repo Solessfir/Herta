@@ -4,6 +4,7 @@
 #include "Herta/GameFramework/LevelSimulationSetup.h"
 #include "Herta/GameFramework/SoftBodyGeometry.h"
 #include "Herta/Math/AffineTransform.h"
+#include "PlayerCharacter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -123,6 +124,8 @@ struct FGameSession::FImplementation
 	void BuildSoftBodies();
 	[[nodiscard]] std::expected<void, FPhysicsError> Throw();
 	[[nodiscard]] std::expected<void, FPhysicsError> AgeProjectiles(float DeltaSeconds);
+	void UpdateBody(float DeltaSeconds);
+	[[nodiscard]] FVector3 GetCameraPosition(const FVector3& Foot);
 
 	// cppcheck-suppress uninitMemberVarNoCtor ; set by aggregate initialization in Create
 	const IGameAssets& Assets;
@@ -181,6 +184,13 @@ struct FGameSession::FImplementation
 	FGameObjective Objective{};
 	std::vector<std::string> Events{};
 
+	// The animated body, its facing, and the third-person camera.
+	std::unique_ptr<FPlayerCharacter> Body{};
+	bool bThirdPerson = false;
+	bool bJumpedThisUpdate = false;
+	float BodyYaw = 0.f;
+	float BoomLength = 0.f;
+
 	// Render view storage referenced by View.
 	std::vector<FMatrix4> Models{};
 	// The models the previous view rendered, for motion vectors.
@@ -200,7 +210,7 @@ FGameSession::FGameSession(std::unique_ptr<FImplementation> InImplementation) no
 
 FGameSession::~FGameSession() = default;
 
-std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(const std::span<const FLevelEntity> Entities, const IGameAssets& Assets, IGraphicsDevice* const Device, const FGamePlayerSettings& Player, FTaskSystem* const Tasks)
+std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(const std::span<const FLevelEntity> Entities, const IGameAssets& Assets, IGraphicsDevice* const Device, const FGamePlayerSettings& Player, FTaskSystem* const Tasks, std::shared_ptr<const FCookedModel> Character)
 {
 	// Built in place: the session holds references and a running simulation that must not move.
 	std::unique_ptr<FImplementation> Implementation(new FImplementation{.Assets = Assets, .Device = Device, .Player = Player, .Tasks = Tasks});
@@ -317,6 +327,20 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 		Session.Warnings.emplace_back("The course objective needs a Start and a Finish trigger");
 	}
 
+	// A character that cannot animate leaves the capsule playable rather than failing the level.
+	if (Character)
+	{
+		auto Created = FPlayerCharacter::Create(std::move(Character), Device);
+		if (Created)
+		{
+			Session.Body = std::move(*Created);
+		}
+		else
+		{
+			Session.Warnings.push_back(Created.error().Message);
+		}
+	}
+
 	if (auto Started = Session.Start(); !Started)
 	{
 		return std::unexpected(Started.error());
@@ -400,6 +424,14 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	EyeHeight = Player.EyeHeight;
 	Yaw = SpawnYaw;
 	Pitch = 0.f;
+	BodyYaw = SpawnYaw;
+	BoomLength = Player.ThirdPersonDistance;
+	bJumpedThisUpdate = false;
+	if (Body)
+	{
+		Body->Restart();
+	}
+
 	Objective.State = StartZone && FinishZone ? EGameObjectiveState::Ready : EGameObjectiveState::Exploring;
 	Objective.ElapsedSeconds = 0.;
 	for (FSoftBodyMesh& SoftBody : SoftBodies)
@@ -510,6 +542,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 	{
 		VerticalVelocity = Player.JumpSpeed;
 		JumpBufferRemaining = 0.f;
+		bJumpedThisUpdate = true;
 		AirborneSeconds = CoyoteSeconds + StepSeconds;
 		HorizontalVelocity += FVector3{Carried.X, 0.f, Carried.Z};
 		VerticalVelocity += Carried.Y;
@@ -522,6 +555,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		HorizontalVelocity += Ground->WallNormal * (Player.WallJumpSpeed - std::min(Into, 0.f));
 		VerticalVelocity = Player.JumpSpeed;
 		JumpBufferRemaining = 0.f;
+		bJumpedThisUpdate = true;
 		WallJumpCooldown = Player.WallJumpCooldownSeconds;
 	}
 	else if (!Ground->bGrounded)
@@ -633,6 +667,11 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 		Session.JumpBufferRemaining = JumpBufferSeconds;
 	}
 
+	if (Input.bToggleCamera)
+	{
+		Session.bThirdPerson = !Session.bThirdPerson;
+	}
+
 	if (Input.bThrow)
 	{
 		if (auto Thrown = Session.Throw(); !Thrown)
@@ -667,7 +706,27 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 	}
 
 	Session.UpdateObjective(DeltaSeconds);
+	Session.UpdateBody(DeltaSeconds);
 	return {};
+}
+
+void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
+{
+	if (!Body)
+	{
+		return;
+	}
+
+	// In first person the body follows the view; in third person it turns to face where it moves and holds that facing when it stops.
+	const float Speed = std::hypot(HorizontalVelocity.X, HorizontalVelocity.Z);
+	const float TargetYaw = !bThirdPerson ? Yaw : Speed > 0.5f ? std::atan2(HorizontalVelocity.X, HorizontalVelocity.Z)
+	                                                           : BodyYaw;
+	const float Turn = std::remainder(TargetYaw - BodyYaw, 2.f * std::numbers::pi_v<float>);
+	const float MaximumTurn = (bThirdPerson ? 10.f : 30.f) * DeltaSeconds;
+	BodyYaw = std::remainder(BodyYaw + std::clamp(Turn, -MaximumTurn, MaximumTurn), 2.f * std::numbers::pi_v<float>);
+
+	Body->Update(DeltaSeconds, {.GroundSpeed = Speed, .bGrounded = bGrounded, .bCrouched = bCrouched, .bSliding = bSliding, .bJumped = bJumpedThisUpdate});
+	bJumpedThisUpdate = false;
 }
 
 std::expected<void, FPhysicsError> FGameSession::FImplementation::Throw()
@@ -699,13 +758,13 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::Throw()
 		return std::unexpected(Ball.error());
 	}
 
-	const auto Body = Simulation.FindSpawnedBody(*Ball);
-	if (!Body)
+	const auto BallBody = Simulation.FindSpawnedBody(*Ball);
+	if (!BallBody)
 	{
 		return std::unexpected(FPhysicsError{"Spawned projectile has no physics body"});
 	}
 
-	if (auto Launched = Simulation.GetPhysicsWorld()->SetVelocity(*Body, Direction * ProjectileSpeed + HorizontalVelocity); !Launched)
+	if (auto Launched = Simulation.GetPhysicsWorld()->SetVelocity(*BallBody, Direction * ProjectileSpeed + HorizontalVelocity); !Launched)
 	{
 		return Launched;
 	}
@@ -880,6 +939,19 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		}
 	}
 
+	const float Alpha = Session.Simulation.GetInterpolationAlpha();
+	const FVector3 Foot = Session.PreviousFoot * (1.f - Alpha) + Session.CurrentFoot * Alpha;
+	if (Session.Body && Session.Body->GetMesh())
+	{
+		if (const auto Skinned = Session.Body->Skin(!Session.bThirdPerson); Skinned)
+		{
+			Session.VertexUpdates.push_back({.Mesh = Session.Body->GetMesh(), .Vertices = Session.Body->GetVertices()});
+			Session.Models.push_back(FMatrix4::Translation(Foot) * FMatrix4::Rotation(FQuaternion::FromAxisAngle(FVector3::Up(), Session.BodyYaw)));
+			Session.Meshes.push_back(Session.Body->GetMesh());
+			Session.MaterialSpans.emplace_back();
+		}
+	}
+
 	if (Session.PreviousModels.size() != Session.Models.size())
 	{
 		Session.PreviousModels = Session.Models;
@@ -891,8 +963,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		return Entity.Light.has_value();
 	});
 
-	const float Alpha = Session.Simulation.GetInterpolationAlpha();
-	const FVector3 Eye = Session.PreviousFoot * (1.f - Alpha) + Session.CurrentFoot * Alpha + FVector3::Up() * Session.EyeHeight;
+	const FVector3 Eye = Session.GetCameraPosition(Foot);
 	const float Aspect = Extent.Height > 0 ? static_cast<float>(Extent.Width) / static_cast<float>(Extent.Height) : 1.f;
 	Session.View = {
 	    .View = FMatrix4::Rotation(GetLookOrientation(Session.Yaw, Session.Pitch).Conjugated()) * FMatrix4::Translation(-Eye),
@@ -907,6 +978,35 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	};
 
 	return Session.View;
+}
+
+FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot)
+{
+	const FVector3 Eye = Foot + FVector3::Up() * EyeHeight;
+	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
+	if (!bThirdPerson || !World)
+	{
+		return Eye;
+	}
+
+	// The boom snaps in when something comes between the camera and the shoulders, and eases back out so it does not pop.
+	constexpr float CameraRadius = 0.2f;
+	const FQuaternion Look = GetLookOrientation(Yaw, Pitch);
+	const FVector3 Pivot = Foot + FVector3::Up() * (EyeHeight * 0.92f) + Look.RotateVector(-FVector3::Left()) * Player.ThirdPersonShoulderOffset;
+	const FVector3 Back = Look.RotateVector(-FVector3::Forward());
+	const float Free = World->CastSphere(World->ToWorld(Pivot), World->ToWorld(Pivot + Back * Player.ThirdPersonDistance), CameraRadius) * Player.ThirdPersonDistance;
+	BoomLength = Free < BoomLength ? Free : BoomLength + (Free - BoomLength) * std::min(1.f, LastDeltaSeconds * 6.f);
+	return Pivot + Back * BoomLength;
+}
+
+bool FGameSession::IsThirdPerson() const noexcept
+{
+	return Implementation->bThirdPerson;
+}
+
+std::optional<std::size_t> FGameSession::GetCharacterState() const noexcept
+{
+	return Implementation->Body ? std::optional(Implementation->Body->GetStateMachine().GetActiveState()) : std::nullopt;
 }
 
 const FPhysicsWorld* FGameSession::GetPhysicsWorld() const noexcept

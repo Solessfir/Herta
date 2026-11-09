@@ -39,6 +39,8 @@ struct FGameInput
 	bool bCrouch = false;
 	// Pressed since the previous update. Throws a ball where the player looks.
 	bool bThrow = false;
+	// Pressed since the previous update. Switches between the first-person and the third-person camera.
+	bool bToggleCamera = false;
 };
 
 // A gamepad's player controls as it reports them this frame: sticks from -1 to 1 with +X right and +Y up, and whether each button is down.
@@ -50,6 +52,7 @@ struct FGameGamepad
 	bool bSprint = false;
 	bool bCrouch = false;
 	bool bThrow = false;
+	bool bToggleCamera = false;
 };
 
 // Adds a gamepad to keyboard and mouse input. Sticks ignore their resting drift, look turns faster the further the stick is pushed, a jump
@@ -65,6 +68,7 @@ public:
 private:
 	bool bJumpDown = true;
 	bool bThrowDown = true;
+	bool bToggleCameraDown = true;
 	bool bSprintDown = true;
 	bool bSprinting = false;
 };
@@ -102,6 +106,9 @@ struct FGamePlayerSettings
 	float WallJumpCooldownSeconds = 0.2f;
 	// Falling below this height returns the player to the start.
 	float RespawnHeight = -30.f;
+	// The third-person camera sits this far behind the shoulders, and this far to the right of them.
+	float ThirdPersonDistance = 3.f;
+	float ThirdPersonShoulderOffset = 0.35f;
 };
 
 enum class EGameObjectiveState : std::uint8_t
@@ -130,7 +137,8 @@ class FGameSession final
 public:
 	// Device builds soft body meshes; without one they simulate but do not render.
 	// Tasks, when given, runs physics jobs on its workers; the result is the same either way.
-	[[nodiscard]] static std::expected<std::unique_ptr<FGameSession>, FGameError> Create(std::span<const FLevelEntity> Entities, const IGameAssets& Assets, IGraphicsDevice* Device, const FGamePlayerSettings& Player = {}, FTaskSystem* Tasks = nullptr);
+	// Character, a skinned model, is the body the player plays as; without one the player is an invisible capsule.
+	[[nodiscard]] static std::expected<std::unique_ptr<FGameSession>, FGameError> Create(std::span<const FLevelEntity> Entities, const IGameAssets& Assets, IGraphicsDevice* Device, const FGamePlayerSettings& Player = {}, FTaskSystem* Tasks = nullptr, std::shared_ptr<const FCookedModel> Character = nullptr);
 
 	~FGameSession();
 
@@ -157,6 +165,9 @@ public:
 	[[nodiscard]] bool IsPlayerCrouched() const noexcept;
 	[[nodiscard]] bool IsPlayerSliding() const noexcept;
 	[[nodiscard]] FVector3 GetPlayerVelocity() const noexcept;
+	[[nodiscard]] bool IsThirdPerson() const noexcept;
+	// The animated body's active state machine state, or empty without a body.
+	[[nodiscard]] std::optional<std::size_t> GetCharacterState() const noexcept;
 	// The first enabled Sky light's environment, for the host's environment filtering.
 	[[nodiscard]] std::shared_ptr<const FCookedTexture> GetEnvironment() const;
 

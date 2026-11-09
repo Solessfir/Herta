@@ -502,6 +502,7 @@ std::expected<void, FLevelError> FEditorLevel::LoadDocument(FLevelDocument Docum
 	Folders = std::move(Document.Folders);
 	CameraBookmarks = std::move(Document.CameraBookmarks);
 	ExposureCompensation = Document.ExposureCompensation;
+	PlayerCharacter = Document.PlayerCharacter;
 	CurrentPath = Path;
 	RebuildObjects();
 	Selection.clear();
@@ -688,7 +689,7 @@ std::expected<void, FLevelError> FEditorLevel::Save(const std::filesystem::path&
 		return std::unexpected(FLevelError{"No level path is set; use level.save <path>"});
 	}
 
-	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation}); !Result)
+	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation, .PlayerCharacter = PlayerCharacter}); !Result)
 	{
 		return Result;
 	}
@@ -1159,6 +1160,41 @@ std::expected<void, FLevelError> FEditorLevel::SetExposureCompensation(const flo
 		return {};
 	},
 	    .MemoryCost = sizeof(float) * 2,
+	});
+
+	if (!Executed)
+	{
+		return std::unexpected(FLevelError{Executed.error().Message});
+	}
+
+	return {};
+}
+
+const FAssetId& FEditorLevel::GetPlayerCharacter() const
+{
+	return PlayerCharacter;
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetPlayerCharacter(const FAssetId& Character)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	if (Character == PlayerCharacter)
+	{
+		return {};
+	}
+
+	const auto Executed = History.Execute({
+	    .Label = "Change player character",
+	    .Apply = [this, Before = PlayerCharacter, Character](const bool bUndo) -> std::expected<void, FEditorCommandError>
+	{
+		PlayerCharacter = bUndo ? Before : Character;
+		return {};
+	},
+	    .MemoryCost = sizeof(FAssetId) * 2,
 	});
 
 	if (!Executed)

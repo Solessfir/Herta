@@ -1,14 +1,19 @@
 #include "Herta/Animation/Animation.h"
+#include "Herta/Animation/AnimationStateMachine.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/Assets/CookedContent.h"
+#include "Herta/GameFramework/GameAssets.h"
+#include "Herta/GameFramework/GameSession.h"
 #include "TestFiles.h"
 
 #include <doctest/doctest.h>
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <format>
 #include <string_view>
 
 namespace Herta
@@ -206,5 +211,218 @@ TEST_CASE("Animation libraries reject archives that do not match their skeleton"
 	std::vector<FCookedAnimationClip> Clips = Model.Clips;
 	Clips.front().Animation = Model.Skeleton->Runtime;
 	CHECK_FALSE(FAnimationLibrary::Create(*Model.Skeleton, Clips));
+}
+
+TEST_CASE("Skinning reproduces the bind pose, moves with a clip, and collapses hidden joints")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	FAnimationPose Pose(*Library);
+	REQUIRE(Pose.Evaluate({}));
+	std::vector<FCookedVertex> Skinned(Model.Vertices.size());
+	SkinVertices(Pose.GetSkinningMatrices(), Model.Vertices, Model.Influences, Skinned);
+	float Worst = 0.f;
+
+	for (std::size_t Index = 0; Index < Skinned.size(); ++Index)
+	{
+		for (std::size_t Axis = 0; Axis < 3; ++Axis)
+		{
+			Worst = std::max(Worst, std::abs(Skinned[Index].Position[Axis] - Model.Vertices[Index].Position[Axis]));
+		}
+	}
+
+	CHECK(Worst < 1.e-3f);
+
+	const std::array Walking{FAnimationLayer{.Clip = *(*Library)->FindClip("Walk_Loop"), .TimeSeconds = 0.4f}};
+	const auto Start = std::chrono::steady_clock::now();
+	REQUIRE(Pose.Evaluate(Walking));
+	const auto Evaluated = std::chrono::steady_clock::now();
+	SkinVertices(Pose.GetSkinningMatrices(), Model.Vertices, Model.Influences, Skinned);
+	const auto SkinnedAt = std::chrono::steady_clock::now();
+	MESSAGE(std::format("{} vertices: evaluate {:.3f} ms, skin {:.3f} ms", Skinned.size(), std::chrono::duration<double, std::milli>(Evaluated - Start).count(), std::chrono::duration<double, std::milli>(SkinnedAt - Evaluated).count()));
+	float Moved = 0.f;
+
+	for (std::size_t Index = 0; Index < Skinned.size(); ++Index)
+	{
+		Moved = std::max(Moved, std::abs(Skinned[Index].Position[2] - Model.Vertices[Index].Position[2]));
+	}
+
+	CHECK(Moved > 0.1f);
+
+	// Collapsing the head pulls every vertex it fully owns onto the head joint.
+	const auto Names = (*Library)->GetJointNames();
+	const auto Head = static_cast<std::size_t>(std::ranges::find(Names, "DEF-head") - Names.begin());
+	REQUIRE(Head < Names.size());
+	Pose.CollapseJoint(Head);
+	SkinVertices(Pose.GetSkinningMatrices(), Model.Vertices, Model.Influences, Skinned);
+	const FVector3 HeadPoint = Pose.GetModelTransforms()[Head].TransformPosition({});
+	std::size_t Collapsed = 0;
+
+	for (std::size_t Index = 0; Index < Skinned.size(); ++Index)
+	{
+		const FCookedSkinInfluence& Influence = Model.Influences[Index];
+		if (Influence.Joints[0] == Head && Influence.Weights[0] == CookedSkinWeightTotal)
+		{
+			CHECK((FVector3{Skinned[Index].Position[0], Skinned[Index].Position[1], Skinned[Index].Position[2]} - HeadPoint).Length() < 1.e-4f);
+			++Collapsed;
+		}
+	}
+
+	CHECK(Collapsed > 10);
+}
+
+TEST_CASE("Animation state machines blend along a parameter and take transitions")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+
+	FAnimationStateMachineDesc Desc{
+	    .Parameters = {{.Name = "Speed", .Type = EAnimationParameterType::Float}, {.Name = "Jump", .Type = EAnimationParameterType::Trigger}, {.Name = "Grounded", .Type = EAnimationParameterType::Bool, .Default = 1.f}},
+	    .States = {
+	        {.Name = "Locomotion", .Samples = {{.Clip = "Walk_Loop", .Position = 2.f}, {.Clip = "Idle_Loop", .Position = 0.f}}, .BlendParameter = 0},
+	        {.Name = "Jump", .Samples = {{.Clip = "Jump_Start"}}, .bLoop = false},
+	        {.Name = "Air", .Samples = {{.Clip = "Jump_Loop"}}},
+	    },
+	    .Transitions = {
+	        {.From = 1, .To = 2, .DurationSeconds = 0.1f, .bAtEnd = true},
+	        {.From = 2, .To = 0, .DurationSeconds = 0.2f, .Conditions = {{.Parameter = 2, .Test = EAnimationCondition::IsTrue}}},
+	        {.From = AnyAnimationState, .To = 1, .DurationSeconds = 0.25f, .Conditions = {{.Parameter = 1, .Test = EAnimationCondition::Triggered}}},
+	    },
+	    .Entry = 0,
+	};
+
+	auto Machine = FAnimationStateMachine::Create(Desc, **Library);
+	REQUIRE_MESSAGE(Machine, (Machine ? std::string() : Machine.error().Message));
+	const std::size_t Speed = *Machine->FindParameter("Speed");
+	const std::size_t Jump = *Machine->FindParameter("Jump");
+	const std::size_t Grounded = *Machine->FindParameter("Grounded");
+	const std::size_t Idle = *(*Library)->FindClip("Idle_Loop");
+	const std::size_t Walk = *(*Library)->FindClip("Walk_Loop");
+
+	// Samples sort by position, so speed 0.5 is a quarter of the way from idle to walk.
+	Machine->SetFloat(Speed, 0.5f);
+	Machine->Update(0.1f);
+	REQUIRE(Machine->GetLayers().size() == 2);
+	CHECK(Machine->GetLayers()[0].Clip == Idle);
+	CHECK(Machine->GetLayers()[0].Weight == doctest::Approx(0.75f));
+	CHECK(Machine->GetLayers()[1].Clip == Walk);
+	CHECK(Machine->GetLayers()[1].Weight == doctest::Approx(0.25f));
+
+	// A trigger fades into the jump, and the jump hands over to the air loop when it ends.
+	Machine->SetTrigger(Jump);
+	Machine->SetBool(Grounded, false);
+	Machine->Update(0.05f);
+	CHECK(Machine->GetActiveState() == 1);
+	CHECK(Machine->GetActiveTransition() == 2u);
+	// The fade starts at zero, so only the outgoing blend contributes on the first frame.
+	CHECK(Machine->GetLayers().size() == 2);
+	Machine->Update(0.05f);
+	CHECK(Machine->GetActiveState() == 1);
+	CHECK(Machine->GetLayers().front().Weight == doctest::Approx(0.2f));
+
+	for (int Frame = 0; Frame < 120 && Machine->GetActiveState() == 1; ++Frame)
+	{
+		Machine->Update(1.f / 60.f);
+	}
+
+	CHECK(Machine->GetActiveState() == 2);
+	// Unconsumed triggers clear, so landing does not jump again.
+	Machine->SetBool(Grounded, true);
+	Machine->Update(1.f / 60.f);
+	CHECK(Machine->GetActiveState() == 0);
+
+	FAnimationPose Pose(*Library);
+	CHECK(Pose.Evaluate(Machine->GetLayers()));
+
+	FAnimationStateMachineDesc Broken = Desc;
+	Broken.States[2].Samples[0].Clip = "Missing";
+	CHECK_FALSE(FAnimationStateMachine::Create(Broken, **Library));
+	Broken = Desc;
+	Broken.Transitions[1].Conditions[0].Test = EAnimationCondition::Greater;
+	CHECK_FALSE(FAnimationStateMachine::Create(Broken, **Library));
+	Broken = Desc;
+	Broken.States[0].BlendParameter.reset();
+	CHECK_FALSE(FAnimationStateMachine::Create(Broken, **Library));
+}
+
+namespace
+{
+class FNoAnimationGameAssets final : public IGameAssets
+{
+public:
+	[[nodiscard]] const FRenderMesh* FindMesh(const FAssetId&) const override
+	{
+		return nullptr;
+	}
+
+	[[nodiscard]] const FRenderMaterial* FindMaterial(const FAssetId&) const override
+	{
+		return nullptr;
+	}
+
+	[[nodiscard]] std::shared_ptr<const FCookedTexture> FindEnvironment(const FAssetId&) const override
+	{
+		return nullptr;
+	}
+};
+}
+
+TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
+{
+	const FNoAnimationGameAssets Assets;
+	const std::vector<FLevelEntity> Floor{FLevelEntity{.Id = FObjectId::Generate(), .Name = "Floor", .Transform = {.Translation = {0., -0.5, 0.}, .Scale = {60.f, 1.f, 60.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static}};
+	auto Session = FGameSession::Create(Floor, Assets, nullptr, {}, nullptr, std::make_shared<const FCookedModel>(Mannequin()));
+	REQUIRE_MESSAGE(Session, (Session ? std::string() : Session.error().Message));
+	REQUIRE((*Session)->GetCharacterState());
+	const auto Step = [&](const FGameInput& Input, const int Frames)
+	{
+		for (int Frame = 0; Frame < Frames; ++Frame)
+		{
+			REQUIRE((*Session)->Update(1.f / 60.f, Input));
+		}
+	};
+
+	// Settling and walking stay in the locomotion blend; a jump leaves it and landing returns to it.
+	// The player spawns just above the floor, so it lands first.
+	Step({}, 90);
+	CHECK(*(*Session)->GetCharacterState() == 0);
+	Step({.Move = {0.f, 1.f}}, 30);
+	CHECK(*(*Session)->GetCharacterState() == 0);
+	Step({.Move = {0.f, 1.f}, .bJump = true}, 1);
+	Step({.Move = {0.f, 1.f}}, 5);
+	CHECK(*(*Session)->GetCharacterState() == 3);
+	Step({.Move = {0.f, 1.f}}, 120);
+	CHECK(*(*Session)->GetCharacterState() == 0);
+	Step({.Move = {0.f, 1.f}, .bCrouch = true}, 20);
+	CHECK(((*Session)->GetCharacterState() == 1u || (*Session)->GetCharacterState() == 2u));
+
+	// The third-person camera sits behind and above the first-person eye.
+	Step({}, 60);
+	const FMatrix4 FirstPerson = (*Session)->GetRenderView({1280, 720}).View;
+	Step({.bToggleCamera = true}, 1);
+	CHECK((*Session)->IsThirdPerson());
+	const FMatrix4 ThirdPerson = (*Session)->GetRenderView({1280, 720}).View;
+	const auto EyeOf = [](const FMatrix4& View)
+	{
+		// The view is a rotation followed by a translation, so the eye is minus the transposed rotation applied to its translation.
+		const FVector3 Translation{View(0, 3), View(1, 3), View(2, 3)};
+		return -FVector3{View(0, 0) * Translation.X + View(1, 0) * Translation.Y + View(2, 0) * Translation.Z, View(0, 1) * Translation.X + View(1, 1) * Translation.Y + View(2, 1) * Translation.Z, View(0, 2) * Translation.X + View(1, 2) * Translation.Y + View(2, 2) * Translation.Z};
+	};
+
+	CHECK((EyeOf(ThirdPerson) - EyeOf(FirstPerson)).Length() > 2.f);
+	REQUIRE((*Session)->Restart());
+	CHECK(*(*Session)->GetCharacterState() == 0);
+
+	// A model that is not skinned leaves the capsule playable with a warning.
+	FCookedModel Static = Mannequin();
+	Static.Skeleton.reset();
+	Static.Influences.clear();
+	Static.Clips.clear();
+	auto Capsule = FGameSession::Create(Floor, Assets, nullptr, {}, nullptr, std::make_shared<const FCookedModel>(Static));
+	REQUIRE(Capsule);
+	CHECK_FALSE((*Capsule)->GetCharacterState());
+	CHECK_FALSE((*Capsule)->GetWarnings().empty());
 }
 }

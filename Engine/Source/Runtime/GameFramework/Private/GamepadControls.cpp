@@ -41,6 +41,8 @@ void FGameGamepadControls::Apply(FGameInput& Input, const FGameGamepad& Gamepad,
 	Input.bCrouch |= Gamepad.bCrouch;
 	Input.bThrow |= Gamepad.bThrow && !bThrowDown;
 	bThrowDown = Gamepad.bThrow;
+	Input.bToggleCamera |= Gamepad.bToggleCamera && !bToggleCameraDown;
+	bToggleCameraDown = Gamepad.bToggleCamera;
 	bJumpDown = Gamepad.bJump;
 	bSprintDown = Gamepad.bSprint;
 }
@@ -49,6 +51,7 @@ void FGameGamepadControls::Reset() noexcept
 {
 	bJumpDown = true;
 	bThrowDown = true;
+	bToggleCameraDown = true;
 	bSprintDown = true;
 	bSprinting = false;
 }

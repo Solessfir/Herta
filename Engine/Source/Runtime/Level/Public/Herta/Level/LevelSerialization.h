@@ -49,6 +49,8 @@ struct FLevelDocument
 	std::vector<FLevelCameraBookmark> CameraBookmarks{};
 	// Stops added to auto exposure wherever the level is shown, for scenes whose metering does not suit them.
 	float ExposureCompensation = 0.f;
+	// The skinned model the player plays as; invalid plays the bare capsule.
+	FAssetId PlayerCharacter{};
 };
 
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelCameraBookmarks(std::span<const FLevelCameraBookmark> Bookmarks);

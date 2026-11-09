@@ -1,6 +1,6 @@
 # Animation
 
-Status: Milestone 8 in progress. Skinned glTF models cook with their skeleton and clips, and the runtime Animation module samples, blends, and skins them. Rendering, the player character, the state machine graph, and the Sandbox station follow.
+Status: Milestone 8 in progress. Skinned glTF models cook with their skeleton and clips, the runtime Animation module samples, blends, and skins them, and the player plays as an animated character in Play and the game with a first-person or third-person camera. The state machine graph, bloom, and the Sandbox station follow.
 
 ## Modules
 
@@ -26,5 +26,13 @@ The root joint's horizontal travel is extracted at cook time, so clips play in p
 ## Runtime
 
 `FAnimationPose::Evaluate` samples up to eight weighted layers, blends them, and computes joint model transforms and skinning matrices (model transform times inverse bind matrix). Each layer slot keeps its own ozz sampling context, because a context caches the keyframes of the last clip it sampled. With no layers, or no positive weight, the pose is the bind pose. Evaluation allocates only the first time a new layer slot is used.
+
+`FAnimationStateMachine` runs compiled state machine data: float, bool, and trigger parameters; states that play one clip or a 1D blend along a float parameter; and transitions with a duration, conditions that must all hold, and an optional wait for a non-looping state to finish. Transitions out of the active state are tested in authored order before transitions from any state. A blend advances at the weighted duration of the clips it mixes, so their phases stay in step. Interrupting a fade restarts it from the current state, so an interrupted fade can pop; blending from a frozen pose waits until a clip needs it. The Animation graph will compile to the same data.
+
+## Player character
+
+A level's `playerCharacter` (schema 11) names the skinned model the player plays as. `FGameSession` builds an `FPlayerCharacter` from the cooked model: the library, a pose, the default locomotion machine (an idle, walk, jog, and sprint blend by ground speed, crouching, sliding, and jump start, air, and landing states), and its own copy of the mesh. Every frame the pose is evaluated and skinned on the CPU (`SkinVertices`) into the mesh's vertex update, which shares the soft-body path for bounds, shadows, and ray-tracing refits. In first person the head joint collapses so the camera does not sit inside it; the body follows the view yaw. In third person (V or the gamepad's North button) the body turns towards its movement, and a camera boom behind the shoulders sweeps a 0.2 m sphere with `FPhysicsWorld::CastSphere`, snapping in when something is in the way and easing back out. A model that cannot animate logs a warning and leaves the capsule playable.
+
+Deferred: GPU skinning, until character or vertex counts make CPU skinning measurable in a frame (the Mannequin evaluates in about 0.013 ms and skins its 7,538 vertices in about 0.16 ms on one core in Development, plus a 362 KB upload); per-vertex motion vectors for skinned and soft-body meshes, until temporal AA or another consumer reads them.
 
 The Sandbox character is Quaternius's CC0 Mannequin from the Universal Animation Library; see `Games/Sandbox/Content/Characters/Mannequin/Source.md` for the exact source and the clips kept.

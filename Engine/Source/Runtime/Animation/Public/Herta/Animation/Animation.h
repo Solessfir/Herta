@@ -88,10 +88,15 @@ public:
 	[[nodiscard]] std::span<const FMatrix4> GetModelTransforms() const noexcept;
 	// Model transform times inverse bind matrix, per joint: what a skinned vertex multiplies by.
 	[[nodiscard]] std::span<const FMatrix4> GetSkinningMatrices() const noexcept;
+	// Shrinks a joint and everything below it to the joint's position until the next Evaluate, such as the head a first-person camera sits inside.
+	void CollapseJoint(std::size_t Joint) noexcept;
 
 private:
 	struct FImplementation;
 
 	std::unique_ptr<FImplementation> Implementation;
 };
+
+// Blends each bind-pose vertex by its four skinning matrices. Normals and tangents use the same matrices, which is exact for rigid and uniformly scaled joints.
+void SkinVertices(std::span<const FMatrix4> SkinningMatrices, std::span<const FCookedVertex> Bind, std::span<const FCookedSkinInfluence> Influences, std::span<FCookedVertex> Output) noexcept;
 }

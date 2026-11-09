@@ -63,6 +63,8 @@ struct FPreviewMeshSlot
 	FAssetId Asset;
 	std::string Label;
 	std::shared_ptr<const FRenderMesh> Mesh;
+	// Skinned models keep their cooked data on the CPU, where Play skins them.
+	std::shared_ptr<const FCookedModel> SkinnedModel;
 	std::shared_ptr<const FRenderMaterial> Material;
 	std::optional<FMaterialAsset> MaterialSource;
 	std::shared_ptr<const FCookedTexture> CookedTexture;
@@ -122,6 +124,10 @@ public:
 	// Requests made before the first scan finishes wait for it. An invalid asset clears the mesh component.
 	void RequestMesh(std::size_t Object, const FAssetId& Asset);
 	void RequestMaterial(const FAssetId& Asset);
+	// Keeps the level's player character loaded so Play can start without waiting for it. An invalid asset releases it.
+	void RequestPlayerCharacter(const FAssetId& Asset);
+	// Null until the character has loaded, or when the asset is not a skinned model.
+	std::shared_ptr<const FCookedModel> GetPlayerCharacter() const noexcept;
 	void SetMaterialAssets(std::span<const FAssetId> Assets);
 	std::shared_ptr<const FRenderMaterial> GetMaterial(const FAssetId& Asset) const noexcept;
 	const FMaterialAsset* GetMaterialSource(const FAssetId& Asset) const noexcept;
@@ -230,6 +236,7 @@ private:
 	FEditorAssetThumbnailRenderer RenderThumbnail;
 	FEditorMaterialThumbnailRenderer RenderMaterialThumbnail;
 	FAssetId MaterialPreviewMeshAsset{};
+	FAssetId PlayerCharacterAsset{};
 	std::uint64_t MaterialShaderGeneration = 0;
 	bool bThumbnailRequestsChanged = false;
 	std::uint64_t RequestGeneration = 0;

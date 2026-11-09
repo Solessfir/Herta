@@ -322,7 +322,7 @@ HertaRuntimeModule("GameUI", {
 
 HertaRuntimeModule("GameFramework", {
     PublicDependencies = { "Core", "Math", "Assets", "Level", "Physics", "RHI", "Renderer", "GameUI" },
-    PrivateDependencies = { "Tasks" }
+    PrivateDependencies = { "Tasks", "Animation" }
 })
 
     -- The fixed-step simulation feeds Jolt, so it must not contract floating point either.

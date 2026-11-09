@@ -107,9 +107,9 @@ struct FCookedModel
 	std::vector<FCookedMaterial> Materials;
 	std::vector<FCookedTexture> Textures;
 
-	std::vector<FCookedSkinInfluence> Influences;
-	std::optional<FCookedSkeleton> Skeleton;
-	std::vector<FCookedAnimationClip> Clips;
+	std::vector<FCookedSkinInfluence> Influences{};
+	std::optional<FCookedSkeleton> Skeleton{};
+	std::vector<FCookedAnimationClip> Clips{};
 };
 
 using FCookedAsset = std::variant<FCookedTexture, FCookedModel, FMaterialAsset>;

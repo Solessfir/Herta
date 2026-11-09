@@ -876,6 +876,7 @@ void FPreviewAssets::RequestMesh(const std::size_t Object, const FAssetId& Asset
 	if (Previous.Asset != Asset && Cached.bLoading && (!Cached.Mesh || Cached.ContentGeneration != ContentGeneration))
 	{
 		Slot.Mesh = Previous.Mesh;
+		Slot.SkinnedModel = Previous.SkinnedModel;
 		Slot.Key = Previous.Key;
 	}
 
@@ -906,6 +907,7 @@ void FPreviewAssets::RebindObjects(const std::span<const FAssetId> Assets)
 			if (Previous != Slots.end())
 			{
 				Slot.Mesh = Previous->Mesh;
+				Slot.SkinnedModel = Previous->SkinnedModel;
 				Slot.Key = Previous->Key;
 			}
 		}
@@ -967,6 +969,28 @@ void FPreviewAssets::RequestMaterial(const FAssetId& Asset)
 
 	MaterialAssets.insert(Asset);
 	GetOrLoadMesh(Asset);
+}
+
+void FPreviewAssets::RequestPlayerCharacter(const FAssetId& Asset)
+{
+	if (Asset == PlayerCharacterAsset)
+	{
+		return;
+	}
+
+	PlayerCharacterAsset = Asset;
+	if (Asset.IsValid())
+	{
+		GetOrLoadMesh(Asset);
+	}
+
+	PruneCache();
+}
+
+std::shared_ptr<const FCookedModel> FPreviewAssets::GetPlayerCharacter() const noexcept
+{
+	const FPreviewMeshSlot* const Slot = PlayerCharacterAsset.IsValid() ? GetCachedAsset(PlayerCharacterAsset) : nullptr;
+	return Slot ? Slot->SkinnedModel : nullptr;
 }
 
 void FPreviewAssets::SetMaterialAssets(const std::span<const FAssetId> Assets)
@@ -1782,7 +1806,7 @@ void FPreviewAssets::PruneCache()
 	{
 		const FAssetId& Asset = Entry.first;
 		const FCachedMesh& Cached = Entry.second;
-		return Asset != MaterialPreviewMeshAsset && !ThumbnailAssets.contains(Asset) && !MaterialAssets.contains(Asset) && !TextureAssets.contains(Asset) && (Cached.bThumbnailOnly || !Cached.Slot.bLoading || Cached.Slot.Generation == 0 || Cached.RequestContentGeneration != ContentGeneration) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
+		return Asset != MaterialPreviewMeshAsset && Asset != PlayerCharacterAsset && !ThumbnailAssets.contains(Asset) && !MaterialAssets.contains(Asset) && !TextureAssets.contains(Asset) && (Cached.bThumbnailOnly || !Cached.Slot.bLoading || Cached.Slot.Generation == 0 || Cached.RequestContentGeneration != ContentGeneration) && std::ranges::none_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
 		{
 			return Slot.Asset == Asset;
 		});
@@ -1901,6 +1925,7 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 		}
 
 		Slot.Mesh = *Mesh;
+		Slot.SkinnedModel = Load.Model->Skeleton ? std::make_shared<const FCookedModel>(std::move(*Load.Model)) : nullptr;
 		if (Asset == MaterialPreviewMeshAsset)
 		{
 			for (auto& [Id, Cached] : MeshCache)

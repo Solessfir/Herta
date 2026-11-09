@@ -364,4 +364,80 @@ std::span<const FMatrix4> FAnimationPose::GetSkinningMatrices() const noexcept
 {
 	return Implementation->SkinningMatrices;
 }
+
+void FAnimationPose::CollapseJoint(const std::size_t Joint) noexcept
+{
+	const std::span<const std::int16_t> Parents = Implementation->Library->GetJointParents();
+	if (Joint >= Parents.size())
+	{
+		return;
+	}
+
+	// Parents precede children, so one forward pass finds every descendant.
+	const FVector3 Point = Implementation->ModelTransforms[Joint].TransformPosition({});
+	const FMatrix4 Collapsed = FMatrix4::Translation(Point) * FMatrix4::Scale(FVector3{});
+	std::vector<bool> Inside(Parents.size(), false);
+	Inside[Joint] = true;
+
+	for (std::size_t Index = Joint; Index < Parents.size(); ++Index)
+	{
+		Inside[Index] = Inside[Index] || (Parents[Index] >= 0 && Inside[static_cast<std::size_t>(Parents[Index])]);
+		if (Inside[Index])
+		{
+			Implementation->SkinningMatrices[Index] = Collapsed;
+		}
+	}
+}
+
+void SkinVertices(const std::span<const FMatrix4> SkinningMatrices, const std::span<const FCookedVertex> Bind, const std::span<const FCookedSkinInfluence> Influences, const std::span<FCookedVertex> Output) noexcept
+{
+	const std::size_t Count = std::min({Bind.size(), Influences.size(), Output.size()});
+	constexpr float WeightScale = 1.f / static_cast<float>(CookedSkinWeightTotal);
+
+	for (std::size_t Vertex = 0; Vertex < Count; ++Vertex)
+	{
+		const FCookedSkinInfluence& Influence = Influences[Vertex];
+		std::array<float, 16> Blend{};
+
+		for (std::size_t Slot = 0; Slot < 4; ++Slot)
+		{
+			if (Influence.Weights[Slot] == 0 || Influence.Joints[Slot] >= SkinningMatrices.size())
+			{
+				continue;
+			}
+
+			const float Weight = static_cast<float>(Influence.Weights[Slot]) * WeightScale;
+			const std::array<float, 16>& Matrix = SkinningMatrices[Influence.Joints[Slot]].Data();
+
+			for (std::size_t Element = 0; Element < 16; ++Element)
+			{
+				Blend[Element] += Matrix[Element] * Weight;
+			}
+		}
+
+		// Column-major: element (Row, Column) is at Column * 4 + Row.
+		const auto Transform = [&Blend](const std::array<float, 3>& Value, const float W)
+		{
+			return std::array<float, 3>{
+			    Blend[0] * Value[0] + Blend[4] * Value[1] + Blend[8] * Value[2] + Blend[12] * W,
+			    Blend[1] * Value[0] + Blend[5] * Value[1] + Blend[9] * Value[2] + Blend[13] * W,
+			    Blend[2] * Value[0] + Blend[6] * Value[1] + Blend[10] * Value[2] + Blend[14] * W,
+			};
+		};
+
+		const FCookedVertex& Source = Bind[Vertex];
+		FCookedVertex& Target = Output[Vertex];
+		Target.Position = Transform(Source.Position, 1.f);
+		Target.UV = Source.UV;
+
+		// Normalized() returns zero for a collapsed joint; those vertices keep their bind directions.
+		const auto Skinned = Transform(Source.Normal, 0.f);
+		const FVector3 Normal = FVector3{Skinned[0], Skinned[1], Skinned[2]}.Normalized();
+		const auto Tangent = Transform({Source.Tangent[0], Source.Tangent[1], Source.Tangent[2]}, 0.f);
+		const FVector3 Along = (FVector3{Tangent[0], Tangent[1], Tangent[2]} - Normal * Normal.Dot(FVector3{Tangent[0], Tangent[1], Tangent[2]})).Normalized();
+		const bool bDegenerate = Normal == FVector3{} || Along == FVector3{};
+		Target.Normal = bDegenerate ? Source.Normal : std::array<float, 3>{Normal.X, Normal.Y, Normal.Z};
+		Target.Tangent = bDegenerate ? Source.Tangent : std::array<float, 4>{Along.X, Along.Y, Along.Z, Source.Tangent[3]};
+	}
+}
 }
