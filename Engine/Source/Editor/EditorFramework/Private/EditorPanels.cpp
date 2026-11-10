@@ -324,7 +324,8 @@ void FEditorFramework::FImplementation::DrawAnimationGraphPanel()
 	const std::optional<std::size_t> State = PlaySession ? PlaySession->GetCharacterState() : std::nullopt;
 	if (State && !AnimationGraphPanel.IsDirty())
 	{
-		Status = std::format("Playing: {}", PlaySession->GetCharacterStateName());
+		// Play pauses while this tab is in front, so the highlight holds the state the character was in; automation keeps stepping it.
+		Status = std::format("Play paused in {}", PlaySession->GetCharacterStateName());
 		if (*State < AnimationStateNodes.size())
 		{
 			Active.push_back(AnimationStateNodes[*State]);

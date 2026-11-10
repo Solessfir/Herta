@@ -50,6 +50,8 @@ Setting.ColorSpace = Linear
 
 Importers are selected by extension: `.gltf` and `.glb` use `Gltf`; `.png`, `.jpg`, `.jpeg`, and `.hdr` use `Texture`; `.hmat` uses `Material`; `.blend` uses `Blender`.
 
+The `Gltf` and `Blender` importers take one optional setting, `AnimationGraph`, a `.hanimgraph` path relative to the model that stays inside the content root. Cooking compiles that [animation graph](Animation.md#animation-graph) into the skinned model's state machine, and the graph's bytes are part of the model's build key, so saving the graph recooks the character. A graph that does not compile fails the model's cook with the graph's diagnostics. Cooked asset format 4 added the state machine.
+
 ## Registry
 
 `FAssetRegistry` is an immutable value sorted by source path, with ID lookup through a secondary index. Publishers replace the whole snapshot instead of mutating it. `ScanContentRoot` builds one from the sidecars and reports per-asset errors without failing the whole scan:

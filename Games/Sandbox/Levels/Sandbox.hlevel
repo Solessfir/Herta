@@ -652,6 +652,75 @@
       }
     },
     {
+      "id": "4c060001-2738-4e25-9b9e-00000000005e",
+      "name": "Animation station - mantle step 1.4 m",
+      "parent": null,
+      "transform": {
+        "translation": [9, 0.7, 12.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [2, 1.4, 2]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-00000000005f",
+      "name": "Animation station - mantle step 2.8 m",
+      "parent": null,
+      "transform": {
+        "translation": [7, 1.4, 12.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [2, 2.8, 2]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-000000000060",
+      "name": "Animation station - drop tower 4.2 m, jump off and press Z",
+      "parent": null,
+      "transform": {
+        "translation": [5, 2.1, 12.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [2, 4.2, 2]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
       "id": "4c060005-2738-4e25-9b9e-000000000001",
       "name": "Course start",
       "parent": null,
@@ -1247,6 +1316,12 @@
       "entities": ["4c060001-2738-4e25-9b9e-00000000002e", "4c060001-2738-4e25-9b9e-00000000002f", "4c060001-2738-4e25-9b9e-000000000046", "4c060001-2738-4e25-9b9e-000000000047", "4c060001-2738-4e25-9b9e-000000000048", "4c060001-2738-4e25-9b9e-000000000049", "4c060001-2738-4e25-9b9e-00000000004a", "4c060001-2738-4e25-9b9e-00000000005d", "4c060005-2738-4e25-9b9e-000000000001", "4c060005-2738-4e25-9b9e-000000000002", "4c060006-2738-4e25-9b9e-000000000001", "4c060006-2738-4e25-9b9e-000000000002", "4c060006-2738-4e25-9b9e-000000000003", "4c060006-2738-4e25-9b9e-000000000004", "4c060006-2738-4e25-9b9e-000000000005", "4c060006-2738-4e25-9b9e-000000000006"]
     },
     {
+      "id": "4c060001-2738-4e25-9b9e-000000000061",
+      "name": "06 - Animation station",
+      "parent": null,
+      "entities": ["4c060001-2738-4e25-9b9e-00000000005e", "4c060001-2738-4e25-9b9e-00000000005f", "4c060001-2738-4e25-9b9e-000000000060"]
+    },
+    {
       "id": "4c060046-2738-4e25-9b9e-000000000003",
       "name": "01 - Sun, sky, and fog",
       "parent": null,
@@ -1320,6 +1395,13 @@
       "position": [8, 6, -6],
       "yaw": 0,
       "pitch": -0.35
+    },
+    {
+      "slot": 8,
+      "name": "Animation station",
+      "position": [2, 5, 4],
+      "yaw": 0.75,
+      "pitch": -0.3
     }
   ]
 }

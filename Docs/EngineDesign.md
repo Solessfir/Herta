@@ -1705,6 +1705,8 @@ Exit condition: a coding agent connected through `HertaEditorMcp` can start Play
 
 ### Milestone 8 - Animation
 
+Status: complete as of 2026-11-10. See [Animation](Animation.md).
+
 - Add skeleton and clip import through ozz offline tools.
 - Use a CC0 rigged humanoid with idle, walk, run, jump, crouch, and slide clips, such as Quaternius's animated characters, vendored under `Games/Sandbox/Content` with its license and source recorded. Avoid assets whose terms restrict redistribution in packaged games.
 - Add a third-person camera toggle to the player, in the game and editor Play, with a spring arm that collides with the level, so the animated character is visible. Play starts in third person; first person hides the body's head.
