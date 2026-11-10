@@ -218,6 +218,13 @@ HertaRuntimeModule("GraphCore", {
 })
     externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
 
+-- CLDR-backed cultures, ICU-style messages, and text catalogs with fallback and pseudolocalization.
+HertaRuntimeModule("Localization", {
+    PublicDependencies = { "Core" },
+    PrivateThirdPartyDependencies = { "SimdJson" }
+})
+    externalincludedirs { path.join(RepositoryRoot, "External/simdjson"), path.join(RepositoryRoot, "External/cldr") }
+
 HertaRuntimeModule("Project", {
     PublicDependencies = { "Core" },
     PrivateDependencies = { "Assets", "Math", "Level", "Platform" },
@@ -642,7 +649,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "PackageBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Localization", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "PackageBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd", "HertaServer" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
