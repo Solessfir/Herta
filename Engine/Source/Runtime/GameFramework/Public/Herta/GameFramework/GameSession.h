@@ -350,6 +350,8 @@ public:
 	// Characters the level places with Character components, in level order. A thrown ball that hits one hard enough severs the limb it
 	// strikes; restarting restores them.
 	[[nodiscard]] std::size_t GetCharacterCount() const noexcept;
+	// Whether a character lies alive on the ground, such as after losing a leg.
+	[[nodiscard]] bool IsCharacterDowned(std::size_t Character) const noexcept;
 	// Cuts a placed character along a world-space plane through its pose as last drawn. The part with the pelvis stays and keeps animating; the
 	// other falls as a rigid piece. Returns whether the plane cut it.
 	[[nodiscard]] std::expected<bool, FGameError> SliceCharacter(std::size_t Character, const FVector3& Point, const FVector3& Normal);

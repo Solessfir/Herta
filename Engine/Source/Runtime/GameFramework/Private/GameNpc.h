@@ -31,6 +31,9 @@ public:
 	void Step(float Seconds, std::span<const std::string> BodyEvents);
 	// Loses health to a cut, or all of it when it dies, which also takes it off the navigation.
 	void Wound(float Amount);
+	// Leaves it alive on the ground, such as without a leg to stand on: off the navigation, it can still see and remember but no longer walks or
+	// swings.
+	void Down();
 	// On a client, where the server's agent moves it: places it as the server last had it, and starts swings it has not started yet.
 	void SetPuppet(const FVector3& InFoot, float InYaw, float InGroundSpeed, float InHealth, std::uint32_t InAttacks);
 	[[nodiscard]] std::uint32_t GetAttackCount() const noexcept;
@@ -38,6 +41,7 @@ public:
 	[[nodiscard]] FMatrix4 GetModel(float Alpha) const;
 	[[nodiscard]] float GetGroundSpeed() const noexcept;
 	[[nodiscard]] bool IsDead() const noexcept;
+	[[nodiscard]] bool IsDowned() const noexcept;
 	[[nodiscard]] bool IsOnNavigation() const;
 	// True on the step a swing's blade starts moving, when the game checks what it hits.
 	[[nodiscard]] bool IsSwingStarting() const noexcept;
@@ -72,6 +76,7 @@ private:
 	float GroundSpeed = 0.f;
 	bool bMoving = false;
 	float Health = 1.f;
+	bool bDowned = false;
 
 	bool bAttacking = false;
 	std::uint32_t Attacks = 0;

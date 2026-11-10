@@ -653,19 +653,28 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 
 	Step({}, 30);
 	// Severing the left arm at the shoulder and the left leg at the knee: each limb falls on its own, and a limb already gone cannot be severed
-	// again. The arm carries the upper and lower arm, so it falls as a two-part ragdoll; the shin falls as a hull.
+	// again. The arm carries the upper and lower arm, so it falls as a two-part ragdoll; the shin falls as a hull. Without the leg the dummy
+	// falls as its own ragdoll but lives on the ground, where its other leg can still be cut off.
 	auto Severed = (*Session)->SeverCharacter(0, "upperarm_l");
 	REQUIRE_MESSAGE(Severed, (Severed ? std::string() : Severed.error().Message));
 	CHECK(*Severed);
 	Step({}, 5);
+	CHECK_FALSE((*Session)->IsCharacterDowned(0));
 	Severed = (*Session)->SeverCharacter(0, "calf_l");
 	REQUIRE(Severed);
 	CHECK(*Severed);
 	CHECK((*Session)->GetCutPieceCount() == 2);
+	CHECK((*Session)->IsCharacterDowned(0));
 	Step({}, 5);
 	Severed = (*Session)->SeverCharacter(0, "calf_l");
 	REQUIRE(Severed);
 	CHECK_FALSE(*Severed);
+	Step({}, 60);
+	Severed = (*Session)->SeverCharacter(0, "calf_r");
+	REQUIRE_MESSAGE(Severed, (Severed ? std::string() : Severed.error().Message));
+	CHECK(*Severed);
+	CHECK((*Session)->GetCutPieceCount() == 3);
+	Step({}, 5);
 
 	// Every severable joint cuts off its limb on a whole body.
 	for (const std::string_view Joint : {"neck_01", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "thigh_l", "thigh_r", "calf_l", "calf_r"})
@@ -680,7 +689,7 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 	REQUIRE((*Session)->Restart());
 	Step({}, 5);
 	REQUIRE((*Session)->SeverCharacter(0, "upperarm_l"));
-	REQUIRE((*Session)->SeverCharacter(0, "calf_l"));
+	REQUIRE((*Session)->SeverCharacter(0, "lowerarm_r"));
 	// A cut through the waist takes the chest, which kills the dummy: the cut-off half falls, and what is left collapses as a ragdoll, so nothing
 	// stands to cut again.
 	auto Cut = (*Session)->SliceCharacter(0, {0.f, 0.95f, 3.f}, FVector3{0.f, 1.f, 0.f});
@@ -1083,11 +1092,11 @@ TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee 
 
 	CHECK(bStoodUp);
 
-	// Two severed arms leave it at half health, and the next blow sends it running.
+	// An arm and a forearm leave it at half health, and the next blow sends it running.
 	REQUIRE((*Session)->SeverCharacter(0, "upperarm_l"));
-	REQUIRE((*Session)->SeverCharacter(0, "upperarm_r"));
+	REQUIRE((*Session)->SeverCharacter(0, "lowerarm_r"));
 	CHECK(Guard().Health == doctest::Approx(0.5f));
-	REQUIRE((*Session)->SeverCharacter(0, "calf_l"));
+	REQUIRE((*Session)->SeverCharacter(0, "upperarm_r"));
 	Step(30);
 	CHECK((Guard().State == "Run" || Guard().State == "Cower"));
 
@@ -1097,5 +1106,15 @@ TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee 
 	CHECK(Guard().Foot.IsNearlyEqual({0.f, 0.f, 8.f}, 1.e-4f));
 	Step(10);
 	CHECK(!Guard().bRemembersPlayer);
+
+	// Without a leg it falls but lives: it stays where it fell, still remembering who cut it, and swings at no one.
+	REQUIRE((*Session)->SeverCharacter(0, "calf_l"));
+	CHECK((*Session)->IsCharacterDowned(0));
+	CHECK(Guard().Health == doctest::Approx(0.75f));
+	const FVector3 Fell = Guard().Foot;
+	Step(60);
+	CHECK(Guard().Foot.IsNearlyEqual(Fell, 1.e-4f));
+	CHECK_FALSE(Guard().bAttacking);
+	CHECK(Guard().bRemembersPlayer);
 }
 }

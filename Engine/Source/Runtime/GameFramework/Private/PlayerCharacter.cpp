@@ -306,6 +306,8 @@ void FPlayerCharacter::Restart()
 {
 	Machine = StartMachine;
 	Remaining.reset();
+	RagdollWeight = 0.f;
+	RagdollPose.clear();
 	Mesh = WholeMesh;
 	Vertices = Model->Vertices;
 }
@@ -365,6 +367,12 @@ std::expected<void, FGameError> FPlayerCharacter::EvaluatePose()
 		return std::unexpected(FGameError{Evaluated.error().Message});
 	}
 
+	// Cuts read this pose, so a ragdolled body is cut where it lies.
+	if (RagdollWeight > 0.f && RagdollPose.size() == RagdollJoints.size())
+	{
+		Pose.OverrideJoints(RagdollJoints, RagdollPose, RagdollWeight);
+	}
+
 	return {};
 }
 
@@ -396,14 +404,9 @@ std::optional<FMatrix4> FPlayerCharacter::GetGripFrame() const
 
 std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bFirstPerson)
 {
-	if (const auto Evaluated = Pose.Evaluate(Machine.GetLayers()); !Evaluated)
+	if (auto Evaluated = EvaluatePose(); !Evaluated)
 	{
-		return std::unexpected(FGameError{Evaluated.error().Message});
-	}
-
-	if (RagdollWeight > 0.f && RagdollPose.size() == RagdollJoints.size())
-	{
-		Pose.OverrideJoints(RagdollJoints, RagdollPose, RagdollWeight);
+		return Evaluated;
 	}
 
 	// ponytail: skins the whole body twice in first person, about 0.16 ms each for the Mannequin; skin only the hidden joints' vertices again if characters multiply.
@@ -552,7 +555,17 @@ std::vector<bool> FindCarriedJoints(const FSkinnedMeshPiece& Piece, const std::s
 
 std::vector<FPhysicsRagdollPart> FPlayerCharacter::BuildRagdoll(const FMatrix4& BodyToPhysics)
 {
-	FRagdollFit Fit = FitRagdoll(*Library, Pose.GetModelTransforms(), BodyToPhysics);
+	// A cut body only gets parts for the joints it still carries.
+	std::function<bool(std::size_t)> Keep;
+	if (Remaining)
+	{
+		Keep = [Carried = FindCarriedJoints(*Remaining, Library->GetJointCount())](const std::size_t Joint)
+		{
+			return Joint < Carried.size() && Carried[Joint];
+		};
+	}
+
+	FRagdollFit Fit = FitRagdoll(*Library, Pose.GetModelTransforms(), BodyToPhysics, Keep);
 	RagdollJoints = std::move(Fit.Joints);
 	RagdollOffsets = std::move(Fit.Offsets);
 	return std::move(Fit.Parts);

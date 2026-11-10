@@ -63,7 +63,7 @@ public:
 	// already carries it up.
 	[[nodiscard]] float GetRootHeight() const noexcept;
 	// Ragdoll parts posed like the current pose, where BodyToPhysics maps the body's model space to physics space: a capsule from each driven joint to
-	// the next, hinged on its parent part. Empty when the skeleton lacks one of the joints.
+	// the next, hinged on its parent part. A cut body gets parts only for the joints it still carries. Empty when the skeleton lacks one of the joints.
 	[[nodiscard]] std::vector<FPhysicsRagdollPart> BuildRagdoll(const FMatrix4& BodyToPhysics);
 	// From the next Skin on, the joints BuildRagdoll drives follow Parts, in its order, blended over the animation by Weight, where ModelInverse
 	// maps physics space back to the body's model space. Empty Parts or zero Weight returns the body to animation.

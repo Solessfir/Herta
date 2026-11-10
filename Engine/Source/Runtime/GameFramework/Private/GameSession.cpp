@@ -20,6 +20,7 @@
 #include <functional>
 #include <map>
 #include <numbers>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -325,6 +326,8 @@ struct FGameSession::FImplementation : FPlayerSlot
 	[[nodiscard]] std::expected<void, FPhysicsError> StepCharacters(FPhysicsWorld& World, float StepSeconds);
 	// Adds a piece to the world, pushing out the oldest of its character's pieces past the character's budget.
 	[[nodiscard]] std::expected<void, FGameError> AddPiece(std::size_t Character, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library, std::span<const FMatrix4> Pose, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity);
+	// Drops what is left of a character as its ragdoll in its current pose, replacing the one it had, and removes its capsule.
+	[[nodiscard]] std::expected<void, FGameError> RagdollCharacter(FCharacterActor& Actor, const FVector3& Velocity);
 	[[nodiscard]] std::expected<bool, FGameError> CutCharacter(std::size_t Character, const std::function<std::expected<std::optional<FSkinnedMeshPiece>, FGameError>(FPlayerCharacter&)>& Cut, const FVector3& Away);
 	// Cuts a piece along a world plane into two pieces; false when the plane misses it or would leave a sliver.
 	[[nodiscard]] std::expected<bool, FGameError> CutPiece(std::size_t Piece, const FVector3& Point, const FVector3& Normal);
@@ -445,6 +448,10 @@ struct FGameSession::FImplementation : FPlayerSlot
 		FMatrix4 Model{};
 		std::unique_ptr<FGameNpc> Npc{};
 		std::optional<FAiAgentId> Agent{};
+		// A character without a leg to stand on lies alive as its own ragdoll, posed in Model's space, and its capsule is gone.
+		bool bDowned = false;
+		std::optional<FPhysicsRagdoll> Ragdoll{};
+		std::vector<FPhysicsBodyTransform> RagdollParts{};
 	};
 
 	std::vector<FCharacterActor> Characters{};
@@ -2235,6 +2242,9 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StartCharacter
 	{
 		Actor.Body->Restart();
 		Actor.Model = AuthoredWorld[Actor.Entity];
+		Actor.bDowned = false;
+		Actor.Ragdoll.reset();
+		Actor.RagdollParts.clear();
 		// A standing capsule the player and thrown balls bump into; cuts and hits are found against the body itself.
 		auto Collider = World.CreateBody({
 		    .Shape = EPhysicsShape::Capsule,
@@ -2259,6 +2269,23 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 	// Characters animate in the fixed step, so the pose a ball severs against is the same on every run.
 	for (FCharacterActor& Actor : Characters)
 	{
+		if (Actor.Ragdoll)
+		{
+			Actor.RagdollParts.clear();
+			for (const FPhysicsBodyId Part : Actor.Ragdoll->Parts)
+			{
+				auto Transform = World.GetBodyTransform(Part);
+				if (!Transform)
+				{
+					return std::unexpected(Transform.error());
+				}
+
+				Actor.RagdollParts.push_back(*Transform);
+			}
+
+			Actor.Body->SetRagdollPose(Actor.RagdollParts, TryInverseAffine(Actor.Model).value_or(FMatrix4{}), 1.f);
+		}
+
 		Actor.Body->Update(StepSeconds, {.GroundSpeed = Actor.Npc ? Actor.Npc->GetGroundSpeed() : 0.f, .bGrounded = true});
 		if (auto Posed = Actor.Body->EvaluatePose(); !Posed)
 		{
@@ -2282,8 +2309,12 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 			const FMatrix4& Model = Actor.Model;
 			const FVector3 Foot = GetTranslation(Model);
 			const FVector3 Offset = Transform->Position - Foot;
-			// Touching the capsule: within its radius plus the ball's, between the feet and the top of the head.
-			if (std::hypot(Offset.X, Offset.Z) > 0.3f + ProjectileRadius + 0.05f || Offset.Y < 0.f || Offset.Y > 1.9f)
+			// Touching the capsule: within its radius plus the ball's, between the feet and the top of the head. A downed body lies within about
+			// its height of its pelvis.
+			const bool bTouching = Actor.RagdollParts.empty()
+			    ? std::hypot(Offset.X, Offset.Z) <= 0.3f + ProjectileRadius + 0.05f && Offset.Y >= 0.f && Offset.Y <= 1.9f
+			    : (Transform->Position - Actor.RagdollParts.front().Position).Length() <= 0.9f + ProjectileRadius;
+			if (!bTouching)
 			{
 				continue;
 			}
@@ -2372,10 +2403,14 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 		return std::unexpected(Added.error());
 	}
 
-	// Without its head or its chest a character dies: what is left of it collapses as a ragdoll, and its capsule goes with it.
-	const auto Head = Victim.FindJoint("Head");
-	const auto Chest = Victim.FindJoint("spine_02");
-	if ((Head && !Victim.Carries(*Head)) || (Chest && !Victim.Carries(*Chest)))
+	const auto Lost = [&Victim](const std::string_view Name)
+	{
+		const auto Joint = Victim.FindJoint(Name);
+		return Joint && !Victim.Carries(*Joint);
+	};
+
+	// Without its head or its chest a character dies: what is left of it collapses as a ragdoll piece, and its capsule goes with it.
+	if (Lost("Head") || Lost("spine_02"))
 	{
 		Victim.SetBool("Dead", true);
 		if (Actor.Npc)
@@ -2397,14 +2432,94 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 				return std::unexpected(Added.error());
 			}
 
-			if (auto Destroyed = World->DestroyBody(std::exchange(Actor.Collider, FPhysicsBodyId{})); !Destroyed)
+			if (Actor.Ragdoll)
 			{
-				return std::unexpected(FGameError{Destroyed.error().Message});
+				auto Destroyed = World->DestroyRagdoll(*Actor.Ragdoll);
+				Actor.Ragdoll.reset();
+				Actor.RagdollParts.clear();
+				if (!Destroyed)
+				{
+					return std::unexpected(FGameError{Destroyed.error().Message});
+				}
 			}
+
+			if (Actor.Collider != FPhysicsBodyId{})
+			{
+				if (auto Destroyed = World->DestroyBody(std::exchange(Actor.Collider, FPhysicsBodyId{})); !Destroyed)
+				{
+					return std::unexpected(FGameError{Destroyed.error().Message});
+				}
+			}
+		}
+
+		return true;
+	}
+
+	// Without a leg to stand on it falls and lives on the ground, where it can still be cut; a cut while down drops it again without what was
+	// cut off. A thigh cut takes the calf with it, so the calves cover both.
+	if (Actor.bDowned || Lost("calf_l") || Lost("calf_r"))
+	{
+		if (!Actor.bDowned)
+		{
+			Actor.bDowned = true;
+			Events.push_back(std::format("{} went down", Entities[Actor.Entity].Name));
+			if (Actor.Npc)
+			{
+				Actor.Npc->Down();
+			}
+		}
+
+		if (auto Fallen = RagdollCharacter(Actor, Away * 0.5f); !Fallen)
+		{
+			return std::unexpected(Fallen.error());
 		}
 	}
 
 	return true;
+}
+
+std::expected<void, FGameError> FGameSession::FImplementation::RagdollCharacter(FCharacterActor& Actor, const FVector3& Velocity)
+{
+	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
+	if (!World)
+	{
+		return {};
+	}
+
+	if (Actor.Ragdoll)
+	{
+		auto Destroyed = World->DestroyRagdoll(*Actor.Ragdoll);
+		Actor.Ragdoll.reset();
+		if (!Destroyed)
+		{
+			return std::unexpected(FGameError{Destroyed.error().Message});
+		}
+	}
+
+	if (Actor.Collider != FPhysicsBodyId{})
+	{
+		if (auto Destroyed = World->DestroyBody(std::exchange(Actor.Collider, FPhysicsBodyId{})); !Destroyed)
+		{
+			return std::unexpected(FGameError{Destroyed.error().Message});
+		}
+	}
+
+	Actor.RagdollParts.clear();
+	const std::vector<FPhysicsRagdollPart> Parts = Actor.Body->BuildRagdoll(Actor.Model);
+	if (Parts.size() < 2)
+	{
+		Actor.Body->SetRagdollPose({}, FMatrix4{}, 0.f);
+		return {};
+	}
+
+	auto Created = World->CreateRagdoll({.Parts = Parts, .LinearVelocity = Velocity});
+	if (!Created)
+	{
+		return std::unexpected(FGameError{Created.error().Message});
+	}
+
+	Actor.Ragdoll = std::move(*Created);
+	return {};
 }
 
 std::expected<void, FGameError> FGameSession::FImplementation::AddPiece(const std::size_t Character, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library, const std::span<const FMatrix4> Pose, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity)
@@ -2673,7 +2788,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		if (Actor.Body->Skin(false) && Actor.Body->GetMesh())
 		{
 			Session.VertexUpdates.push_back({.Mesh = Actor.Body->GetMesh(), .Vertices = Actor.Body->GetVertices()});
-			const FMatrix4 ActorModel = Actor.Npc && !Actor.Npc->IsDead() ? Actor.Npc->GetModel(Alpha) : Actor.Model;
+			const FMatrix4 ActorModel = Actor.Npc && !Actor.Npc->IsDead() && !Actor.bDowned ? Actor.Npc->GetModel(Alpha) : Actor.Model;
 			Session.Models.push_back(ActorModel);
 			Session.Meshes.push_back(Actor.Body->GetMesh());
 			Session.MaterialSpans.emplace_back();
@@ -3287,10 +3402,10 @@ void FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float
 	{
 		for (FCharacterActor& Actor : Characters)
 		{
-			if (Actor.Npc && !Actor.Npc->IsDead())
+			if (Actor.Npc && !Actor.Npc->IsDead() && !Actor.bDowned)
 			{
 				Actor.Model = Actor.Npc->GetModel(1.f);
-				if (Actor.Collider.Value != 0)
+				if (Actor.Collider != FPhysicsBodyId{})
 				{
 					(void)World.MoveKinematicBody(Actor.Collider, {.Position = Actor.Npc->GetFootPosition() + FVector3::Up() * 0.9f, .Rotation = FQuaternion::Identity()}, StepSeconds);
 				}
@@ -3318,13 +3433,13 @@ void FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float
 		}
 
 		Actor.Npc->Step(StepSeconds, Actor.Body->GetEvents());
-		if (Actor.Npc->IsDead())
+		if (Actor.Npc->IsDead() || Actor.bDowned)
 		{
 			continue;
 		}
 
 		Actor.Model = Actor.Npc->GetModel(1.f);
-		if (Actor.Collider.Value != 0)
+		if (Actor.Collider != FPhysicsBodyId{})
 		{
 			(void)World.MoveKinematicBody(Actor.Collider, {.Position = Actor.Npc->GetFootPosition() + FVector3::Up() * 0.9f, .Rotation = FQuaternion::Identity()}, StepSeconds);
 		}
@@ -3559,6 +3674,11 @@ std::optional<std::size_t> FGameSession::GetCharacterTransition() const noexcept
 std::size_t FGameSession::GetCharacterCount() const noexcept
 {
 	return Implementation->Characters.size();
+}
+
+bool FGameSession::IsCharacterDowned(const std::size_t Character) const noexcept
+{
+	return Character < Implementation->Characters.size() && Implementation->Characters[Character].bDowned;
 }
 
 std::size_t FGameSession::GetCutPieceCount() const noexcept

@@ -44,6 +44,7 @@ void FGameNpc::Start(FNavigationWorld* const InNavigation, const FMatrix4& InAut
 	GroundSpeed = 0.f;
 	bMoving = false;
 	Health = 1.f;
+	bDowned = false;
 	bAttacking = false;
 	bSwingStarting = false;
 	Agent = {};
@@ -112,6 +113,18 @@ void FGameNpc::Wound(const float Amount)
 	}
 }
 
+void FGameNpc::Down()
+{
+	Stop();
+	bDowned = true;
+	bAttacking = false;
+	if (Navigation && Agent.Value != 0)
+	{
+		Navigation->RemoveAgent(Agent);
+		Agent = {};
+	}
+}
+
 FMatrix4 FGameNpc::GetModel(const float Alpha) const
 {
 	const FVector3 Position = PreviousFoot * (1.f - Alpha) + Foot * Alpha;
@@ -127,6 +140,11 @@ float FGameNpc::GetGroundSpeed() const noexcept
 bool FGameNpc::IsDead() const noexcept
 {
 	return Health <= 0.f;
+}
+
+bool FGameNpc::IsDowned() const noexcept
+{
+	return bDowned;
 }
 
 bool FGameNpc::IsOnNavigation() const
@@ -152,7 +170,7 @@ FVector3 FGameNpc::GetFootPosition() const
 
 FVector3 FGameNpc::GetEyePosition() const
 {
-	return Foot + FVector3::Up() * EyeHeight;
+	return Foot + FVector3::Up() * (bDowned ? 0.3f : EyeHeight);
 }
 
 float FGameNpc::GetYaw() const
@@ -213,7 +231,7 @@ void FGameNpc::Animate(const std::string_view Trigger)
 
 bool FGameNpc::StartAttack(const FVector3& Target)
 {
-	if (bAttacking || IsDead())
+	if (bAttacking || bDowned || IsDead())
 	{
 		return false;
 	}
