@@ -2403,6 +2403,21 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 		return std::unexpected(Added.error());
 	}
 
+	// A slice can leave a part on the pelvis's side of its plane while taking what joined it to the body, such as a hand without its forearm.
+	auto Stranded = Victim.DetachStranded();
+	if (!Stranded)
+	{
+		return std::unexpected(Stranded.error());
+	}
+
+	if (*Stranded)
+	{
+		if (auto Added = AddPiece(Character, Victim.GetCookedModel(), Victim.GetLibrary(), Victim.GetModelTransforms(), std::move(**Stranded), Model, Away * 1.5f); !Added)
+		{
+			return std::unexpected(Added.error());
+		}
+	}
+
 	const auto Lost = [&Victim](const std::string_view Name)
 	{
 		const auto Joint = Victim.FindJoint(Name);

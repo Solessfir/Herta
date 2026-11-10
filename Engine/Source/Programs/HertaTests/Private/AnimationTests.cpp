@@ -720,6 +720,16 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 
 	REQUIRE((*Session)->Restart());
 	Step({}, 5);
+	// A slant through the upper arm leaves the forearm and hand on the body's side of the plane but joined to it by nothing, so they fall as
+	// a piece of their own instead of floating where the animation holds them.
+	const auto Strand = (*Session)->SliceCharacter(0, {-0.2372f, 1.1749f, 2.9353f}, FVector3{0.5162f, -0.6098f, 0.6014f}.Normalized());
+	REQUIRE_MESSAGE(Strand, (Strand ? std::string() : Strand.error().Message));
+	CHECK(*Strand);
+	CHECK((*Session)->GetCutPieceCount() == 2);
+	CHECK_FALSE((*Session)->IsCharacterDowned(0));
+
+	REQUIRE((*Session)->Restart());
+	Step({}, 5);
 	// A cut 3 cm above the soles would only peel them off, so it does not cut.
 	const auto Skim = (*Session)->SliceCharacter(0, {0.f, 0.03f, 3.f}, FVector3{0.f, 1.f, 0.f});
 	REQUIRE(Skim);

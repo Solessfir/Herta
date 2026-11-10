@@ -75,6 +75,9 @@ public:
 	// Cuts off the limb below Joint where its skin weights pass to the rest of the body, and binds the stump wholly to the joint's parent so it
 	// does not stretch as the missing limb's joints keep animating.
 	[[nodiscard]] std::expected<std::optional<FSkinnedMeshPiece>, FGameError> Sever(std::size_t Joint);
+	// After a cut, takes the parts of the body no longer joined to the pelvis, such as a hand left behind when a slice took its forearm: their
+	// joints hang below a bone that skins none of what is left. Their skin would otherwise float where the animation holds them.
+	[[nodiscard]] std::expected<std::optional<FSkinnedMeshPiece>, FGameError> DetachStranded();
 	// Takes everything left of the body, such as when a dead character collapses as a ragdoll, leaving nothing to draw until Restart.
 	[[nodiscard]] std::optional<FSkinnedMeshPiece> DetachAll();
 	[[nodiscard]] bool IsEmpty() const;
@@ -101,6 +104,8 @@ private:
 	[[nodiscard]] const FSkinnedMeshPiece& GetPiece() const;
 	// Keeps one half of a cut on the body and returns the other, in bind space. Cuts that would leave a sliver on either side do not happen.
 	[[nodiscard]] std::expected<std::optional<FSkinnedMeshPiece>, FGameError> Keep(FMeshSliceResult Sliced, bool bKeepFront);
+	// Makes Kept what is left of the body after Off leaves it, checking both draw.
+	[[nodiscard]] std::expected<void, FGameError> Replace(FSkinnedMeshPiece Kept, const FSkinnedMeshPiece& Off);
 	// Skins the current piece with the pose last evaluated, so a cut sees exactly the pose it is made in.
 	void SkinForCut();
 
