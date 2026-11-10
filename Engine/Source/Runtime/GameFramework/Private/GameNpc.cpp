@@ -236,10 +236,10 @@ bool FGameNpc::StartAttack(const FVector3& Target)
 		return false;
 	}
 
-	// A swing plants the feet; the tree moves again once it is over.
+	// A swing plants the feet; the tree moves again once it is over. Guards strike overhead, raising the sword first so the player can react.
 	Stop();
 	Face(Target);
-	Body.FireTrigger("Attack");
+	Body.FireTrigger("HeavyAttack");
 	bAttacking = true;
 	AttackSeconds = 0.f;
 	++Attacks;
@@ -256,7 +256,7 @@ void FGameNpc::SetPuppet(const FVector3& InFoot, const float InYaw, const float 
 	Health = InHealth;
 	if (InAttacks > Attacks)
 	{
-		Body.FireTrigger("Attack");
+		Body.FireTrigger("HeavyAttack");
 		Attacks = InAttacks;
 	}
 }

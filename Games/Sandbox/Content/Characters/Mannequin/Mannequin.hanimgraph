@@ -16,6 +16,7 @@
     {"id": 10, "type": "Parameter", "position": [-640, 990], "properties": {"name": "Dead", "type": "Bool", "default": 0}},
     {"id": 11, "type": "Parameter", "position": [-640, 1100], "properties": {"name": "Attack", "type": "Trigger", "default": 0}},
     {"id": 12, "type": "Parameter", "position": [-640, 1210], "properties": {"name": "Blocking", "type": "Bool", "default": 0}},
+    {"id": 93, "type": "Parameter", "position": [-640, 1320], "properties": {"name": "HeavyAttack", "type": "Trigger", "default": 0}},
     {"id": 13, "type": "Entry", "position": [0, -260], "properties": {}},
     {"id": 14, "type": "State", "position": [400, 0], "properties": {"name": "Locomotion", "clips": "Idle_Loop@0, Walk_Loop@1.8, Jog_Fwd_Loop@4.5, Sprint_Loop@7", "blend": "Speed", "loop": true, "speed": 1, "events": "Footstep@0, Footstep@0.5"}},
     {"id": 15, "type": "State", "position": [1220, 0], "properties": {"name": "Crouch", "clips": "Crouch_Idle_Loop@0, Crouch_Fwd_Loop@2.2", "blend": "Speed", "loop": true, "speed": 1, "events": ""}},
@@ -95,7 +96,10 @@
     {"id": 89, "type": "Transition", "position": [2340, 1660], "properties": {"priority": 55, "duration": 0.08, "atEnd": false, "conditions": "Attack"}},
     {"id": 90, "type": "Transition", "position": [700, 2560], "properties": {"priority": 56, "duration": 0.08, "atEnd": false, "conditions": "Attack"}},
     {"id": 91, "type": "Transition", "position": [1520, 5400], "properties": {"priority": 57, "duration": 0.2, "atEnd": true, "conditions": "Grounded"}},
-    {"id": 92, "type": "Transition", "position": [1520, 5590], "properties": {"priority": 58, "duration": 0.2, "atEnd": true, "conditions": ""}}
+    {"id": 92, "type": "Transition", "position": [1520, 5590], "properties": {"priority": 58, "duration": 0.2, "atEnd": true, "conditions": ""}},
+    {"id": 94, "type": "State", "position": [2040, 5210], "properties": {"name": "Heavy attack", "clips": "Sword_Attack", "blend": "", "loop": false, "speed": 0.75, "events": "SwingStart@0.2, SwingEnd@0.36"}},
+    {"id": 95, "type": "Transition", "position": [2340, 5400], "properties": {"priority": 59, "duration": 0.1, "atEnd": false, "conditions": "HeavyAttack"}},
+    {"id": 96, "type": "Transition", "position": [2340, 5590], "properties": {"priority": 60, "duration": 0.2, "atEnd": true, "conditions": ""}}
   ],
   "links": [
     {"from": [14, "State"], "to": [13, "State"]},
@@ -211,7 +215,11 @@
     {"from": [87, "State"], "to": [91, "From"]},
     {"from": [14, "State"], "to": [91, "To"]},
     {"from": [87, "State"], "to": [92, "From"]},
-    {"from": [21, "State"], "to": [92, "To"]}
+    {"from": [21, "State"], "to": [92, "To"]},
+    {"from": [14, "State"], "to": [95, "From"]},
+    {"from": [94, "State"], "to": [95, "To"]},
+    {"from": [94, "State"], "to": [96, "From"]},
+    {"from": [14, "State"], "to": [96, "To"]}
   ],
   "comments": []
 }

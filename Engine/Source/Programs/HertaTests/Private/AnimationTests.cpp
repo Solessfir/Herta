@@ -1170,11 +1170,11 @@ TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee 
 	REQUIRE((*Session)->GetNavigation());
 	CHECK((*Session)->GetNavigation()->GetStats().Agents == 2);
 
-	const auto Step = [&](const int Frames)
+	const auto Step = [&](const int Frames, const FGameInput& Input = {})
 	{
 		for (int Frame = 0; Frame < Frames; ++Frame)
 		{
-			REQUIRE((*Session)->Update(1.f / 60.f, {}));
+			REQUIRE((*Session)->Update(1.f / 60.f, Input));
 			(void)(*Session)->GetRenderView({320, 180});
 		}
 	};
@@ -1197,8 +1197,23 @@ TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee 
 	REQUIRE((*Session)->GetAgentDebug(0));
 	CHECK((*Session)->GetAgentDebug(0)->Program->States[(*Session)->GetAgentDebug(0)->Active.front()].Name == "Root");
 
-	// In front of it, the player is spotted, chased down, and struck to the ground, and gets back up a while later.
+	// A player facing it with the sword raised takes its strikes on the blade: the guard swings, and no blow lands.
 	const FVector3 Home = Guard().Foot;
+	REQUIRE((*Session)->TeleportPlayer({Home.X, 0.f, Home.Z + 7.f}, std::numbers::pi_v<float>));
+	bool bSwung = false;
+	for (int Second = 0; Second < 8; ++Second)
+	{
+		for (int Frame = 0; Frame < 60; ++Frame)
+		{
+			Step(1, {.bBlock = true});
+			bSwung = bSwung || Guard().bAttacking;
+		}
+	}
+
+	CHECK(bSwung);
+	CHECK_FALSE((*Session)->IsPlayerRagdolled());
+
+	// Without the guard up, the player is spotted, chased down, and struck to the ground, and gets back up a while later.
 	REQUIRE((*Session)->TeleportPlayer({Home.X, 0.f, Home.Z + 7.f}, std::numbers::pi_v<float>));
 	Step(30);
 	(void)(*Session)->GetAgentStates();

@@ -27,6 +27,7 @@ enum ELocomotionParameter : std::size_t
 	Dead,
 	Attack,
 	Blocking,
+	HeavyAttack,
 };
 
 enum ELocomotionState : std::size_t
@@ -51,6 +52,7 @@ enum ELocomotionState : std::size_t
 	Block,
 	DashAttack,
 	AirAttack,
+	HeavyAttackState,
 };
 
 [[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
@@ -123,6 +125,7 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Dead", .Type = EAnimationParameterType::Bool},
 	        {.Name = "Attack", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "Blocking", .Type = EAnimationParameterType::Bool},
+	        {.Name = "HeavyAttack", .Type = EAnimationParameterType::Trigger},
 	    },
 	    .States = {
 	        // The walk, jog, and sprint cycles each take two steps, planting a foot at their start and halfway.
@@ -151,6 +154,8 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Dash attack", .Samples = {{.Clip = "Sword_Dash_RM"}}, .bLoop = false, .Speed = 1.3f, .Events = {{.Name = "SwingStart", .Phase = 0.25f}, {.Name = "SwingEnd", .Phase = 0.7f}}},
 	        // Attacking in the air brings the sword down overhead; it plays out even past landing, so the swing always ends.
 	        {.Name = "Air attack", .Samples = {{.Clip = "Sword_Attack"}}, .bLoop = false, .Speed = 1.6f, .Events = {{.Name = "SwingStart", .Phase = 0.15f}, {.Name = "SwingEnd", .Phase = 0.42f}}},
+	        // The guards' overhead strike: the sword rises for about 0.35 s before it comes down, long enough to see it coming and block.
+	        {.Name = "Heavy attack", .Samples = {{.Clip = "Sword_Attack"}}, .bLoop = false, .Speed = 0.75f, .Events = {{.Name = "SwingStart", .Phase = 0.2f}, {.Name = "SwingEnd", .Phase = 0.36f}}},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
@@ -216,6 +221,8 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = WallJumpStart, .To = AirAttack, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
 	        {.From = AirAttack, .To = Locomotion, .DurationSeconds = 0.2f, .Conditions = {Is(Grounded, true)}, .bAtEnd = true},
 	        {.From = AirAttack, .To = Air, .DurationSeconds = 0.2f, .bAtEnd = true},
+	        {.From = Locomotion, .To = HeavyAttackState, .DurationSeconds = 0.1f, .Conditions = {Triggered(HeavyAttack)}},
+	        {.From = HeavyAttackState, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
 	    },
 	    .Entry = Locomotion,
 	};

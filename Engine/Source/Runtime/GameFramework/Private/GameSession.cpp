@@ -3442,6 +3442,15 @@ void FGameSession::FImplementation::StrikePlayer(const FCharacterActor& Actor)
 		return;
 	}
 
+	// A raised guard facing the attacker, within about 70 degrees, takes the blow on the sword.
+	const FVector3 PlayerFacing{std::sin(BodyYaw), 0.f, std::cos(BodyYaw)};
+	if (Input.bBlock && Body && (Distance <= 0.3f || -Offset.Dot(PlayerFacing) >= 0.35f * Distance))
+	{
+		Events.push_back(std::format("The player blocked {}", Entities[Actor.Entity].Name));
+		Audio.Play(ELevelSound::Impact, Target + FVector3::Up() * 1.2f, {{.Name = "Impulse", .Value = 15.f}});
+		return;
+	}
+
 	PendingKnockdown = Facing * 90.f + FVector3::Up() * 30.f;
 	Events.push_back(std::format("{} struck the player", Entities[Actor.Entity].Name));
 	Audio.Play(ELevelSound::Impact, Target + FVector3::Up(), {{.Name = "Impulse", .Value = 40.f}});
