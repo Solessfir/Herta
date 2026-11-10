@@ -44,3 +44,9 @@
 [submodule "External/recastnavigation"]
 	path = External/recastnavigation
 	url = https://github.com/recastnavigation/recastnavigation.git
+[submodule "External/GameNetworkingSockets"]
+	path = External/GameNetworkingSockets
+	url = https://github.com/ValveSoftware/GameNetworkingSockets.git
+[submodule "External/protobuf"]
+	path = External/protobuf
+	url = https://github.com/protocolbuffers/protobuf.git
