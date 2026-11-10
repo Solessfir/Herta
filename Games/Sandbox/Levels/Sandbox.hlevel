@@ -1425,6 +1425,21 @@
           "anchored": false
         }
       }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000001",
+      "name": "Navigation bounds - arena and wall run lane",
+      "parent": null,
+      "transform": {
+        "translation": [0, 2, 23],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "navigationBounds": {
+          "size": [26, 12, 56]
+        }
+      }
     }
   ],
   "folders": [

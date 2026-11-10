@@ -273,6 +273,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 			Toggle("Grid", bGridVisible);
 			Toggle("Collision", bCollisionVisible);
+			Toggle("Navigation", bNavigationVisible);
 			Toggle("World axes", bAxesVisible);
 			Toggle("Corner axis indicator", bOrientationIndicatorVisible);
 			Toggle("Preview bounds", bBoundsVisible);

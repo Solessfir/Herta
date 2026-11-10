@@ -217,6 +217,21 @@
           "sourceAngle": 0.00925
         }
       }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000002",
+      "name": "Navigation bounds - deck",
+      "parent": null,
+      "transform": {
+        "translation": [0, 1, 0],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "navigationBounds": {
+          "size": [24, 6, 4.4]
+        }
+      }
     }
   ],
   "folders": [],

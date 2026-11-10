@@ -6,6 +6,7 @@
 #include "ContentBrowser.h"
 #include "DetailsPanel.h"
 #include "EditorLevel.h"
+#include "EditorNavigation.h"
 #include "Herta/Application/Application.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Audio/AudioEngine.h"
@@ -287,6 +288,8 @@ struct FEditorFramework::FImplementation
 	void DrawPreviewGizmo(FPreviewObject& Object);
 	void BuildViewportDebugDraw(bool bGizmoInput, const FVector2 NormalizedMouse);
 	void BuildCollisionDebugDraw();
+	// Rebuilds the level's navigation shortly after it changes while the viewport shows it or Play needs it, and gives Play each new build.
+	void UpdateNavigation();
 	[[nodiscard]] std::string DescribePlay() const;
 	// Steers, traces, and checks the stop condition of the automation input that just played one frame.
 	void FinishAutomationFrame();
@@ -604,6 +607,8 @@ struct FEditorFramework::FImplementation
 	bool bGridVisible = true;
 	// Physics wireframes while Simulate or Play runs.
 	bool bCollisionVisible = false;
+	// The walkable navigation, built from the level, or Play's own with its obstacles cut.
+	bool bNavigationVisible = false;
 	bool bAxesVisible = false;
 	bool bOrientationIndicatorVisible = true;
 	bool bBoundsVisible = false;
@@ -622,6 +627,8 @@ struct FEditorFramework::FImplementation
 	std::vector<FDebugDrawVertex> ViewportDebugVertices;
 	std::vector<FPhysicsDebugLine> CollisionLines;
 	std::vector<FDebugDrawVertex> CollisionVertices;
+	std::vector<FDebugDrawVertex> NavigationVertices;
+	std::vector<FVector3> NavigationTriangles;
 	// The viewport's lists plus collision, or collision alone during Play, which otherwise shows no editor overlays.
 	std::vector<FDebugDrawList> CombinedDebugDrawLists;
 	std::vector<FDebugDrawList> ViewportDebugDrawLists;
@@ -657,6 +664,11 @@ struct FEditorFramework::FImplementation
 	std::function<void(std::uint64_t)> UnregisterUITexture;
 	std::unique_ptr<FVisualEnvironment> VisualEnvironment;
 	std::unique_ptr<FMaterialShaders> MaterialShaders;
+	std::unique_ptr<FEditorNavigation> Navigation;
+	// The level state the latest navigation request was made for, and when it last changed, so a drag builds once it settles.
+	std::optional<std::uint64_t> NavigationSettlingKey;
+	std::chrono::steady_clock::time_point NavigationChangedAt{};
+	std::uint64_t PlayNavigationKey = 0;
 	std::filesystem::path WatchedShaderContentRoot;
 	FTaskSystem* Tasks = nullptr;
 	IGraphicsDevice* GraphicsDevice = nullptr;

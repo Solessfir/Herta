@@ -39,7 +39,7 @@ using FNavigationMeshBounds = std::function<std::optional<FNavigationBox>(const 
 [[nodiscard]] FHash128 GetRegionNavigationKey(const FObjectId& Region) noexcept;
 
 // A level's navigation file, built in one piece from the level's static bodies and its regions' scenery at their offsets, within every
-// Navigation Bounds of either. Tiles whose center lies in a region's bounds become that region's patch and stream with it; the rest stay
-// with the level. Regions is parallel to Level.Regions; a region whose level could not load adds nothing. Empty without any bounds.
+// Navigation Bounds of either. A tile becomes the patch of the region whose bounds cover most of it and streams with it, unless the
+// level's own bounds cover as much. Regions is parallel to Level.Regions; a region whose level could not load adds nothing. Empty without any bounds.
 [[nodiscard]] std::expected<std::optional<FNavigationFile>, FNavigationError> BuildLevelNavigation(const FLevelDocument& Level, std::span<const std::optional<FLevelDocument>> Regions, const FNavigationMeshBounds& Bounds, const FNavigationSettings& Settings = {}, FTaskSystem* Tasks = nullptr);
 }

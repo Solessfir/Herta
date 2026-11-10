@@ -254,20 +254,37 @@ std::expected<std::optional<FNavigationFile>, FNavigationError> BuildLevelNaviga
 		File.Patches.push_back({.Key = GetRegionNavigationKey(Level.Regions[Index].Id), .Data = {.Settings = Settings, .Source = Built->Source, .Boxes = Owned}});
 	}
 
+	// A tile goes with whichever bounds cover most of it, the level's winning ties, so narrow regions such as a causeway still own their tiles.
 	const float TileSize = Settings.GetTileSize();
 	for (FNavigationLayer& Layer : Built->Layers)
 	{
-		const float X = (static_cast<float>(Layer.TileX) + 0.5f) * TileSize;
-		const float Z = (static_cast<float>(Layer.TileZ) + 0.5f) * TileSize;
-		const auto Owner = std::ranges::find_if(File.Patches, [X, Z](const FNavigationPatch& Patch)
+		const float MinimumX = static_cast<float>(Layer.TileX) * TileSize;
+		const float MinimumZ = static_cast<float>(Layer.TileZ) * TileSize;
+		const auto Covered = [&](const std::span<const FNavigationBox> Owned)
 		{
-			return std::ranges::any_of(Patch.Data.Boxes, [X, Z](const FNavigationBox& Box)
+			float Area = 0.f;
+			for (const FNavigationBox& Box : Owned)
 			{
-				return X >= Box.Minimum.X && X <= Box.Maximum.X && Z >= Box.Minimum.Z && Z <= Box.Maximum.Z;
-			});
-		});
+				const float Width = std::min(Box.Maximum.X, MinimumX + TileSize) - std::max(Box.Minimum.X, MinimumX);
+				const float Depth = std::min(Box.Maximum.Z, MinimumZ + TileSize) - std::max(Box.Minimum.Z, MinimumZ);
+				Area = std::max(Area, std::max(Width, 0.f) * std::max(Depth, 0.f));
+			}
 
-		(Owner != File.Patches.end() ? Owner->Data : File.Base).Layers.push_back(std::move(Layer));
+			return Area;
+		};
+
+		FNavigationData* Owner = &File.Base;
+		float Best = Covered(File.Base.Boxes);
+		for (FNavigationPatch& Patch : File.Patches)
+		{
+			if (const float Area = Covered(Patch.Data.Boxes); Area > Best)
+			{
+				Best = Area;
+				Owner = &Patch.Data;
+			}
+		}
+
+		Owner->Layers.push_back(std::move(Layer));
 	}
 
 	return File;

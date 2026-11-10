@@ -933,6 +933,36 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 		return true;
 	}
 
+	if (Tool == "viewport_view")
+	{
+		if (Arguments.Has("navigation"))
+		{
+			Editor.bNavigationVisible = Arguments.Flag("navigation");
+		}
+
+		if (Arguments.Has("collision"))
+		{
+			Editor.bCollisionVisible = Arguments.Flag("collision");
+		}
+
+		const auto Position = Arguments.Numbers("position", 3);
+		const auto Target = Arguments.Numbers("target", 3);
+		if (Position && Target)
+		{
+			const FVector3 From{static_cast<float>((*Position)[0]), static_cast<float>((*Position)[1]), static_cast<float>((*Position)[2])};
+			const FVector3 Direction = FVector3{static_cast<float>((*Target)[0]), static_cast<float>((*Target)[1]), static_cast<float>((*Target)[2])} - From;
+			Editor.ViewportCamera.SetView(From, std::atan2(Direction.X, Direction.Z), std::atan2(Direction.Y, std::hypot(Direction.X, Direction.Z)));
+		}
+
+		const FVector3& Camera = Editor.ViewportCamera.GetPosition();
+		std::string Output = std::format(R"({{"navigation": {}, "collision": {}, "camera": {{"position": [{:.3f}, {:.3f}, {:.3f}], "yaw": {:.4f}, "pitch": {:.4f}}}, "navigationBuild": {{"building": {}, "built": {}, "triangles": {}, "milliseconds": {:.1f}, "error": )",
+		    Editor.bNavigationVisible ? "true" : "false", Editor.bCollisionVisible ? "true" : "false", Camera.X, Camera.Y, Camera.Z, Editor.ViewportCamera.GetYaw(), Editor.ViewportCamera.GetPitch(), Editor.Navigation && Editor.Navigation->IsBuilding() ? "true" : "false",
+		    Editor.Navigation && Editor.Navigation->GetFile() ? "true" : "false", Editor.Navigation ? Editor.Navigation->GetDebugTriangles().size() / 3 : 0, Editor.Navigation ? Editor.Navigation->GetBuildMilliseconds() : 0.);
+		AppendJsonString(Output, Editor.Navigation ? Editor.Navigation->GetError() : std::string{});
+		Server.Respond(Request.Id, Output + "}}");
+		return true;
+	}
+
 	if (Tool == "play_state")
 	{
 		Server.Respond(Request.Id, Editor.DescribePlay());

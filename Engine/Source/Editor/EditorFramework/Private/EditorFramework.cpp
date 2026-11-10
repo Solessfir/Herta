@@ -469,6 +469,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 
 	Implementation->RefreshPreviewMeshes();
+	Implementation->UpdateNavigation();
 
 	// Esc stops play like in other editors; Shift+Esc is the game's own Esc and opens its pause menu.
 	if (!IO.AppFocusLost && Implementation->PlaySession && !IO.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape, false))

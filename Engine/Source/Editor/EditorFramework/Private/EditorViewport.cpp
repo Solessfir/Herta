@@ -1,4 +1,5 @@
 #include "EditorFrameworkPrivate.h"
+#include "Herta/Navigation/NavigationWorld.h"
 
 namespace Herta
 {
@@ -119,30 +120,25 @@ void FEditorFramework::FImplementation::BuildCollisionDebugDraw()
 	CombinedDebugDrawLists.clear();
 	const FPhysicsWorld* const Physics = !bCollisionVisible ? nullptr : PlaySession ? PlaySession->GetPhysicsWorld()
 	                                                                                : const_cast<FLevelSimulation&>(Simulation).GetPhysicsWorld();
-	if (!Physics)
+	// Play shows its own navigation, cut by obstacles as they move; otherwise the latest build of the level.
+	std::span<const FVector3> Navigated;
+	if (bNavigationVisible)
 	{
-		return;
+		if (const FNavigationWorld* const PlayNavigation = PlaySession ? PlaySession->GetNavigation() : nullptr)
+		{
+			NavigationTriangles.clear();
+			PlayNavigation->GetDebugTriangles(NavigationTriangles);
+			Navigated = NavigationTriangles;
+		}
+		else if (Navigation && !PlaySession)
+		{
+			Navigated = Navigation->GetDebugTriangles();
+		}
 	}
 
-	Physics->GetDebugLines(CollisionLines);
-	CollisionVertices.clear();
-	CollisionVertices.reserve(CollisionLines.size() * 2);
-	for (const FPhysicsDebugLine& Line : CollisionLines)
+	if (!Physics && Navigated.empty())
 	{
-		// Static grey, kinematic blue, dynamic green, sensors amber; sleeping bodies dim.
-		std::array<float, 4> Color = Line.bSensor ? std::array{1.f, 0.7f, 0.2f, 1.f} : Line.MotionType == EPhysicsMotionType::Static  ? std::array{0.55f, 0.58f, 0.62f, 0.6f}
-		                                                                           : Line.MotionType == EPhysicsMotionType::Kinematic ? std::array{0.35f, 0.6f, 1.f, 1.f}
-		                                                                                                                              : std::array{0.35f, 1.f, 0.45f, 1.f};
-		if (Line.bSleeping && Line.MotionType != EPhysicsMotionType::Static)
-		{
-			Color = {Color[0] * 0.5f, Color[1] * 0.5f, Color[2] * 0.5f, Color[3]};
-		}
-
-		// The editor's float view space is world space while the physics origin stays at zero.
-		const FVector3 Start{Physics->ToWorld(Line.Start).Meters};
-		const FVector3 End{Physics->ToWorld(Line.End).Meters};
-		CollisionVertices.push_back({.Position = Start, .Size = 1.5f, .Color = Color});
-		CollisionVertices.push_back({.Position = End, .Size = 1.5f, .Color = Color});
+		return;
 	}
 
 	if (!PlaySession)
@@ -150,7 +146,44 @@ void FEditorFramework::FImplementation::BuildCollisionDebugDraw()
 		CombinedDebugDrawLists = ViewportDebugDrawLists;
 	}
 
-	CombinedDebugDrawLists.push_back({.Primitive = EDebugPrimitive::Lines, .Vertices = CollisionVertices, .bDepthTest = true});
+	if (Physics)
+	{
+		Physics->GetDebugLines(CollisionLines);
+		CollisionVertices.clear();
+		CollisionVertices.reserve(CollisionLines.size() * 2);
+		for (const FPhysicsDebugLine& Line : CollisionLines)
+		{
+			// Static grey, kinematic blue, dynamic green, sensors amber; sleeping bodies dim.
+			std::array<float, 4> Color = Line.bSensor ? std::array{1.f, 0.7f, 0.2f, 1.f} : Line.MotionType == EPhysicsMotionType::Static  ? std::array{0.55f, 0.58f, 0.62f, 0.6f}
+			                                                                           : Line.MotionType == EPhysicsMotionType::Kinematic ? std::array{0.35f, 0.6f, 1.f, 1.f}
+			                                                                                                                              : std::array{0.35f, 1.f, 0.45f, 1.f};
+			if (Line.bSleeping && Line.MotionType != EPhysicsMotionType::Static)
+			{
+				Color = {Color[0] * 0.5f, Color[1] * 0.5f, Color[2] * 0.5f, Color[3]};
+			}
+
+			// The editor's float view space is world space while the physics origin stays at zero.
+			const FVector3 Start{Physics->ToWorld(Line.Start).Meters};
+			const FVector3 End{Physics->ToWorld(Line.End).Meters};
+			CollisionVertices.push_back({.Position = Start, .Size = 1.5f, .Color = Color});
+			CollisionVertices.push_back({.Position = End, .Size = 1.5f, .Color = Color});
+		}
+
+		CombinedDebugDrawLists.push_back({.Primitive = EDebugPrimitive::Lines, .Vertices = CollisionVertices, .bDepthTest = true});
+	}
+
+	if (!Navigated.empty())
+	{
+		// Lifted a little off the ground it lies on, so the depth test keeps it visible without showing it through walls.
+		NavigationVertices.clear();
+		NavigationVertices.reserve(Navigated.size());
+		for (const FVector3& Point : Navigated)
+		{
+			NavigationVertices.push_back({.Position = Point + FVector3{0.f, 0.04f, 0.f}, .Size = 1.f, .Color = {0.2f, 0.85f, 0.45f, 0.35f}});
+		}
+
+		CombinedDebugDrawLists.push_back({.Primitive = EDebugPrimitive::Triangles, .Vertices = NavigationVertices, .bDepthTest = true});
+	}
 }
 
 void FEditorFramework::FImplementation::FocusPreview()
