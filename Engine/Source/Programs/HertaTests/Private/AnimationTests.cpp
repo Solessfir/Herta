@@ -575,6 +575,46 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 	CHECK_FALSE((*Capsule)->GetWarnings().empty());
 }
 
+TEST_CASE("Z collapses the player into a ragdoll that lies on the floor, and pressing it again gets back up where it lies")
+{
+	const FNoAnimationGameAssets Assets;
+	const std::vector<FLevelEntity> Floor{FLevelEntity{.Id = FObjectId::Generate(), .Name = "Floor", .Transform = {.Translation = {0., -0.5, 0.}, .Scale = {60.f, 1.f, 60.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static}};
+	auto Session = FGameSession::Create(Floor, Assets, nullptr, {}, nullptr, std::make_shared<const FCookedModel>(Mannequin()));
+	REQUIRE(Session);
+	std::size_t Footsteps = 0;
+	const auto Step = [&](const FGameInput& Input, const int Frames)
+	{
+		for (int Frame = 0; Frame < Frames; ++Frame)
+		{
+			REQUIRE((*Session)->Update(1.f / 60.f, Frame == 0 ? Input : FGameInput{.Move = Input.Move, .bSprint = Input.bSprint}));
+			Footsteps += static_cast<std::size_t>(std::ranges::count((*Session)->GetCharacterEvents(), std::string("Footstep")));
+			(void)(*Session)->GetRenderView({320, 180});
+		}
+	};
+
+	Step({}, 30);
+	Step({.Move = {0.f, 1.f}, .bSprint = true}, 60);
+	const FVector3 Collapsed = (*Session)->GetPlayerFootPosition();
+	Step({.Move = {0.f, 1.f}, .bToggleRagdoll = true}, 1);
+	REQUIRE((*Session)->IsPlayerRagdolled());
+
+	// The body tumbles on with the run's speed, and input no longer moves the player or steps its feet.
+	Footsteps = 0;
+	Step({.Move = {0.f, 1.f}}, 180);
+	CHECK((*Session)->IsPlayerRagdolled());
+	CHECK(Footsteps == 0);
+	CHECK((*Session)->GetPlayerFootPosition() == Collapsed);
+
+	Step({.bToggleRagdoll = true}, 1);
+	CHECK_FALSE((*Session)->IsPlayerRagdolled());
+	const FVector3 Standing = (*Session)->GetPlayerFootPosition();
+	CHECK(Standing.Z > Collapsed.Z + 0.5f);
+	CHECK(std::abs(Standing.Y) < 0.2f);
+	Step({.Move = {0.f, 1.f}}, 60);
+	CHECK((*Session)->GetPlayerFootPosition().Z > Standing.Z + 1.f);
+	CHECK((*Session)->IsPlayerGrounded());
+}
+
 TEST_CASE("A paused animation update fires no events and keeps the state's start for the next update")
 {
 	const FCookedModel& Model = Mannequin();

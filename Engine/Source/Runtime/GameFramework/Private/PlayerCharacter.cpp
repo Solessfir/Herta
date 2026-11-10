@@ -1,7 +1,12 @@
 #include "PlayerCharacter.h"
 
+#include "Herta/Math/AffineTransform.h"
+
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <format>
+#include <numbers>
 
 namespace Herta
 {
@@ -43,6 +48,48 @@ enum ELocomotionState : std::size_t
 {
 	return {.Parameter = Parameter, .Test = bValue ? EAnimationCondition::IsTrue : EAnimationCondition::IsFalse};
 }
+}
+
+// A ragdoll part runs from Joint towards End, lengthened by Extend where End stops short of the limb's tip, such as the neck to the head joint.
+struct FRagdollProfilePart
+{
+	std::string_view Joint;
+	std::string_view End;
+	int Parent = -1;
+	float Radius = 0.1f;
+	float Extend = 1.f;
+	float MassKg = 1.f;
+	float SwingRadians = 0.f;
+	float TwistRadians = 0.f;
+};
+
+// Eleven capsules for the Unreal-style skeleton the Sandbox Mannequin uses, weighing 80 kg together. Joints between parts, such as the clavicles,
+// and below them, such as the hands' fingers, follow their parent part with their animated pose.
+constexpr std::array<FRagdollProfilePart, 11> RagdollProfile{{
+    {.Joint = "pelvis", .End = "spine_02", .Radius = 0.13f, .MassKg = 14.f},
+    {.Joint = "spine_02", .End = "neck_01", .Parent = 0, .Radius = 0.14f, .MassKg = 18.f, .SwingRadians = 0.35f, .TwistRadians = 0.3f},
+    {.Joint = "neck_01", .End = "Head", .Parent = 1, .Radius = 0.1f, .Extend = 2.4f, .MassKg = 5.f, .SwingRadians = 0.6f, .TwistRadians = 0.6f},
+    {.Joint = "upperarm_l", .End = "lowerarm_l", .Parent = 1, .Radius = 0.055f, .MassKg = 2.5f, .SwingRadians = 1.3f, .TwistRadians = 0.7f},
+    {.Joint = "lowerarm_l", .End = "hand_l", .Parent = 3, .Radius = 0.045f, .Extend = 1.35f, .MassKg = 1.8f, .SwingRadians = 1.2f, .TwistRadians = 0.3f},
+    {.Joint = "upperarm_r", .End = "lowerarm_r", .Parent = 1, .Radius = 0.055f, .MassKg = 2.5f, .SwingRadians = 1.3f, .TwistRadians = 0.7f},
+    {.Joint = "lowerarm_r", .End = "hand_r", .Parent = 5, .Radius = 0.045f, .Extend = 1.35f, .MassKg = 1.8f, .SwingRadians = 1.2f, .TwistRadians = 0.3f},
+    {.Joint = "thigh_l", .End = "calf_l", .Parent = 0, .Radius = 0.075f, .MassKg = 9.f, .SwingRadians = 0.9f, .TwistRadians = 0.3f},
+    {.Joint = "calf_l", .End = "foot_l", .Parent = 7, .Radius = 0.055f, .MassKg = 4.f, .SwingRadians = 1.1f, .TwistRadians = 0.15f},
+    {.Joint = "thigh_r", .End = "calf_r", .Parent = 0, .Radius = 0.075f, .MassKg = 9.f, .SwingRadians = 0.9f, .TwistRadians = 0.3f},
+    {.Joint = "calf_r", .End = "foot_r", .Parent = 9, .Radius = 0.055f, .MassKg = 4.f, .SwingRadians = 1.1f, .TwistRadians = 0.15f},
+}};
+
+// The rotation that turns +Y onto Direction, the axis ragdoll capsules lie along.
+[[nodiscard]] FQuaternion RotationFromUp(const FVector3& Direction)
+{
+	const FVector3 Axis = FVector3::Up().Cross(Direction);
+	const float Cosine = std::clamp(FVector3::Up().Dot(Direction), -1.f, 1.f);
+	if (Axis.LengthSquared() < 1.e-10f)
+	{
+		return Cosine > 0.f ? FQuaternion::Identity() : FQuaternion::FromAxisAngle(FVector3::Forward(), std::numbers::pi_v<float>);
+	}
+
+	return FQuaternion::FromAxisAngle(Axis.Normalized(), std::acos(Cosine));
 }
 
 FAnimationStateMachineDesc MakeDefaultLocomotion()
@@ -260,6 +307,11 @@ std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bFirstPerson)
 		return std::unexpected(FGameError{Evaluated.error().Message});
 	}
 
+	if (RagdollWeight > 0.f && RagdollPose.size() == RagdollJoints.size())
+	{
+		Pose.OverrideJoints(RagdollJoints, RagdollPose, RagdollWeight);
+	}
+
 	// ponytail: skins the whole body twice in first person, about 0.16 ms each for the Mannequin; skin only the hidden joints' vertices again if characters multiply.
 	SkinVertices(Pose.GetSkinningMatrices(), Model->Vertices, Model->Influences, Vertices);
 	if (bFirstPerson && HiddenJoint)
@@ -294,6 +346,65 @@ std::span<const FCookedVertex> FPlayerCharacter::GetVertices() const noexcept
 const FAnimationStateMachine& FPlayerCharacter::GetStateMachine() const noexcept
 {
 	return Machine;
+}
+
+std::vector<FPhysicsRagdollPart> FPlayerCharacter::BuildRagdoll(const FMatrix4& BodyToPhysics)
+{
+	const auto Names = Library->GetJointNames();
+	const auto Transforms = Pose.GetModelTransforms();
+	const auto Find = [&Names](const std::string_view Name) -> std::optional<std::size_t>
+	{
+		const auto Found = std::ranges::find(Names, Name);
+		return Found == Names.end() ? std::nullopt : std::optional(static_cast<std::size_t>(Found - Names.begin()));
+	};
+
+	std::vector<FPhysicsRagdollPart> Parts;
+	RagdollJoints.clear();
+	RagdollOffsets.clear();
+	for (const FRagdollProfilePart& Profile : RagdollProfile)
+	{
+		const auto Joint = Find(Profile.Joint);
+		const auto End = Find(Profile.End);
+		if (!Joint || !End)
+		{
+			RagdollJoints.clear();
+			RagdollOffsets.clear();
+			return {};
+		}
+
+		const FMatrix4 JointWorld = BodyToPhysics * Transforms[*Joint];
+		const FVector3 Start = JointWorld.TransformPosition({});
+		const FVector3 Tip = Start + ((BodyToPhysics * Transforms[*End]).TransformPosition({}) - Start) * Profile.Extend;
+		const float Length = (Tip - Start).Length();
+		const FVector3 Axis = Length > 1.e-4f ? (Tip - Start) * (1.f / Length) : FVector3::Up();
+		const FPhysicsBodyTransform Capsule{.Position = (Start + Tip) * 0.5f, .Rotation = RotationFromUp(Axis)};
+		const std::optional<FMatrix4> CapsuleInverse = TryInverseAffine(FMatrix4::Translation(Capsule.Position) * FMatrix4::Rotation(Capsule.Rotation));
+		Parts.push_back({
+		    .Parent = Profile.Parent >= 0 ? std::optional(static_cast<std::size_t>(Profile.Parent)) : std::nullopt,
+		    .Transform = Capsule,
+		    .Radius = Profile.Radius,
+		    .HalfHeight = std::max(Length * 0.5f - Profile.Radius, 0.01f),
+		    .MassKg = Profile.MassKg,
+		    .Joint = Start,
+		    .TwistAxis = Axis,
+		    .SwingRadians = Profile.SwingRadians,
+		    .TwistRadians = Profile.TwistRadians,
+		});
+		RagdollJoints.push_back(*Joint);
+		RagdollOffsets.push_back(CapsuleInverse ? *CapsuleInverse * JointWorld : FMatrix4{});
+	}
+
+	return Parts;
+}
+
+void FPlayerCharacter::SetRagdollPose(const std::span<const FPhysicsBodyTransform> Parts, const FMatrix4& ModelInverse, const float Weight)
+{
+	RagdollWeight = Parts.size() == RagdollJoints.size() ? Weight : 0.f;
+	RagdollPose.clear();
+	for (std::size_t Index = 0; Index < Parts.size() && Index < RagdollOffsets.size(); ++Index)
+	{
+		RagdollPose.push_back(ModelInverse * FMatrix4::Translation(Parts[Index].Position) * FMatrix4::Rotation(Parts[Index].Rotation) * RagdollOffsets[Index]);
+	}
 }
 
 std::optional<FVector3> FPlayerCharacter::GetHeadPosition() const noexcept

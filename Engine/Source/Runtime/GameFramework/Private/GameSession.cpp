@@ -124,6 +124,10 @@ struct FGameSession::FImplementation
 	[[nodiscard]] FQuaternion GetBodyRotation() const;
 	[[nodiscard]] FQuaternion GetViewOrientation() const;
 	void UpdateBody(float DeltaSeconds);
+	[[nodiscard]] std::expected<void, FPhysicsError> StartRagdoll();
+	[[nodiscard]] std::expected<void, FPhysicsError> EndRagdoll();
+	[[nodiscard]] std::expected<void, FPhysicsError> ReadRagdoll(const FPhysicsWorld& World);
+	[[nodiscard]] std::expected<void, FPhysicsError> Respawn(FPhysicsWorld& World);
 	// Foot is the capsule's; BodyFoot is where the body is drawn, which differs while a climb clip lifts its own root.
 	[[nodiscard]] FVector3 GetCameraPosition(const FVector3& Foot, const FVector3& BodyFoot);
 
@@ -186,6 +190,13 @@ struct FGameSession::FImplementation
 	float BoomLength = 0.f;
 	// The first-person eye eases after the head, so the camera follows the body's lean without every bob of the walk.
 	std::optional<FVector3> SmoothedEye{};
+
+	// While ragdolled, the body draws where it collapsed and its driven joints follow the parts; the mover waits where it was. Getting up
+	// eases the body from the parts' last pose back to the animation.
+	std::optional<FPhysicsRagdoll> Ragdoll{};
+	FMatrix4 RagdollModel{};
+	std::vector<FPhysicsBodyTransform> RagdollParts{};
+	float GetUpBlend = 0.f;
 
 	// Render view storage referenced by View.
 	std::vector<FMatrix4> Models{};
@@ -410,6 +421,9 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	}
 
 	Mover = std::move(*Created);
+	// The new physics world has none of the old one's ragdoll bodies.
+	Ragdoll.reset();
+	GetUpBlend = 0.f;
 	WallLean = 0.f;
 	EyeHeight = Player.EyeHeight;
 	Yaw = SpawnYaw;
@@ -441,8 +455,101 @@ std::expected<void, FGameError> FGameSession::Restart()
 	return Implementation->Start();
 }
 
+std::expected<void, FPhysicsError> FGameSession::FImplementation::StartRagdoll()
+{
+	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
+	if (!Body || !World)
+	{
+		return {};
+	}
+
+	const FMoverState& State = Mover->GetState();
+	RagdollModel = FMatrix4::Translation(State.Foot - FVector3::Up() * Body->GetRootHeight()) * FMatrix4::Rotation(GetBodyRotation());
+	const std::vector<FPhysicsRagdollPart> Parts = Body->BuildRagdoll(RagdollModel);
+	if (Parts.empty())
+	{
+		Events.push_back("The player character's skeleton has no ragdoll");
+		return {};
+	}
+
+	auto Created = World->CreateRagdoll({.Parts = Parts, .LinearVelocity = State.Velocity});
+	if (!Created)
+	{
+		return std::unexpected(Created.error());
+	}
+
+	Ragdoll = std::move(*Created);
+	GetUpBlend = 0.f;
+	return ReadRagdoll(*World);
+}
+
+std::expected<void, FPhysicsError> FGameSession::FImplementation::ReadRagdoll(const FPhysicsWorld& World)
+{
+	RagdollParts.clear();
+	for (const FPhysicsBodyId Part : Ragdoll->Parts)
+	{
+		auto Transform = World.GetBodyTransform(Part);
+		if (!Transform)
+		{
+			return std::unexpected(Transform.error());
+		}
+
+		RagdollParts.push_back(*Transform);
+	}
+
+	return {};
+}
+
+std::expected<void, FPhysicsError> FGameSession::FImplementation::EndRagdoll()
+{
+	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
+	if (!Ragdoll || !World)
+	{
+		return {};
+	}
+
+	if (auto Read = ReadRagdoll(*World); !Read)
+	{
+		return Read;
+	}
+
+	// The player stands up over the pelvis, whose capsule lies about its radius above whatever it rests on.
+	const FVector3 Pelvis = RagdollParts.front().Position;
+	auto Destroyed = World->DestroyRagdoll(*Ragdoll);
+	Ragdoll.reset();
+	if (!Destroyed)
+	{
+		return Destroyed;
+	}
+
+	GetUpBlend = 1.f;
+	return Mover->Teleport(*World, Pelvis - FVector3::Up() * 0.1f);
+}
+
 std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPhysicsWorld& World, const float StepSeconds)
 {
+	if (Ragdoll)
+	{
+		if (auto Read = ReadRagdoll(World); !Read)
+		{
+			return Read;
+		}
+
+		if (RagdollParts.front().Position.Y >= Player.RespawnHeight)
+		{
+			return {};
+		}
+
+		auto Destroyed = World.DestroyRagdoll(*Ragdoll);
+		Ragdoll.reset();
+		if (!Destroyed)
+		{
+			return Destroyed;
+		}
+
+		return Respawn(World);
+	}
+
 	// The frame's view turn, spread over its fixed steps, brakes the sprint as the game does.
 	const float TurnRadians = LastDeltaSeconds > 0.f ? std::abs(Input.YawDelta) * std::min(StepSeconds / LastDeltaSeconds, 1.f) : 0.f;
 	const FMoverInput MoverInput{.Move = {std::clamp(Input.Move.X, -1.f, 1.f), std::clamp(Input.Move.Y, -1.f, 1.f)}, .Yaw = Yaw, .TurnRadians = TurnRadians, .bSprint = Input.bSprint, .bCrouch = Input.bCrouch};
@@ -467,6 +574,11 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 		return {};
 	}
 
+	return Respawn(World);
+}
+
+std::expected<void, FPhysicsError> FGameSession::FImplementation::Respawn(FPhysicsWorld& World)
+{
 	++Objective.Respawns;
 	Events.push_back("The player fell and returned to the start");
 	if (Objective.State != EGameObjectiveState::Exploring)
@@ -537,7 +649,7 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 	Session.LastDeltaSeconds = DeltaSeconds;
 	Session.Yaw = std::remainder(Session.Yaw + Input.YawDelta, 2.f * std::numbers::pi_v<float>);
 	Session.Pitch = std::clamp(Session.Pitch + Input.PitchDelta, -MaximumPitch, MaximumPitch);
-	if (Input.bJump)
+	if (Input.bJump && !Session.Ragdoll)
 	{
 		Session.Mover->PressJump();
 	}
@@ -545,6 +657,14 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 	if (Input.bToggleCamera)
 	{
 		Session.bThirdPerson = !Session.bThirdPerson;
+	}
+
+	if (Input.bToggleRagdoll)
+	{
+		if (auto Toggled = Session.Ragdoll ? Session.EndRagdoll() : Session.StartRagdoll(); !Toggled)
+		{
+			return std::unexpected(FGameError{std::format("Cannot ragdoll: {}", Toggled.error().Message)});
+		}
 	}
 
 	if (Input.bThrow)
@@ -587,6 +707,8 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 
 void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 {
+	GetUpBlend = std::max(GetUpBlend - DeltaSeconds / 0.4f, 0.f);
+
 	// The lean tilts the view too, so it eases even without a body.
 	const FMoverState& State = Mover->GetState();
 	constexpr float LeanRate = 6.f;
@@ -599,7 +721,8 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 
 	// In first person the body follows the view; in third person it turns to face where it moves and holds that facing when it stops.
 	const std::string_view Mode = Mover->GetActiveMode();
-	const float Speed = std::hypot(State.Velocity.X, State.Velocity.Z);
+	// A ragdoll leaves the mover where it collapsed, still holding the run's speed, which must not step the animation's feet.
+	const float Speed = Ragdoll ? 0.f : std::hypot(State.Velocity.X, State.Velocity.Z);
 	const float TargetYaw = !bThirdPerson ? Yaw : Speed > 0.5f ? std::atan2(State.Velocity.X, State.Velocity.Z)
 	                                                           : BodyYaw;
 	const float Turn = std::remainder(TargetYaw - BodyYaw, 2.f * std::numbers::pi_v<float>);
@@ -824,13 +947,24 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 
 	const float Alpha = Session.Simulation.GetInterpolationAlpha();
 	const FMoverState& PlayerState = Session.Mover->GetState();
-	const FVector3 Foot = PlayerState.PreviousFoot * (1.f - Alpha) + PlayerState.Foot * Alpha;
+	// A ragdoll's camera follows the pelvis as it would the capsule, from where the capsule's feet would be.
+	const FVector3 Foot = Session.Ragdoll ? Session.RagdollParts.front().Position - FVector3::Up() * 0.6f : PlayerState.PreviousFoot * (1.f - Alpha) + PlayerState.Foot * Alpha;
 	FVector3 BodyFoot = Foot;
 	Session.Visibility.assign(Session.Models.size(), EMeshVisibility::Everywhere);
 	if (Session.Body)
 	{
 		// Headless sessions still pose the body, because the first-person camera follows its head.
-		const bool bFirstPerson = !Session.bThirdPerson && Session.Body->GetCameraMesh();
+		const bool bFirstPerson = !Session.bThirdPerson && !Session.Ragdoll && Session.Body->GetCameraMesh();
+		if (Session.Ragdoll)
+		{
+			Session.Body->SetRagdollPose(Session.RagdollParts, TryInverseAffine(Session.RagdollModel).value_or(FMatrix4{}), 1.f);
+		}
+		else
+		{
+			const FMatrix4 Standing = FMatrix4::Translation(Foot - FVector3::Up() * Session.Body->GetRootHeight()) * FMatrix4::Rotation(Session.GetBodyRotation());
+			Session.Body->SetRagdollPose(Session.RagdollParts, TryInverseAffine(Standing).value_or(FMatrix4{}), Session.GetUpBlend);
+		}
+
 		const auto Skinned = Session.Body->Skin(bFirstPerson);
 		if (Skinned)
 		{
@@ -839,7 +973,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 
 		if (Skinned && Session.Body->GetMesh())
 		{
-			const FMatrix4 BodyModel = FMatrix4::Translation(BodyFoot) * FMatrix4::Rotation(Session.GetBodyRotation());
+			const FMatrix4 BodyModel = Session.Ragdoll ? Session.RagdollModel : FMatrix4::Translation(BodyFoot) * FMatrix4::Rotation(Session.GetBodyRotation());
 			Session.VertexUpdates.push_back({.Mesh = Session.Body->GetMesh(), .Vertices = Session.Body->GetVertices()});
 			Session.Models.push_back(BodyModel);
 			Session.Meshes.push_back(Session.Body->GetMesh());
@@ -917,7 +1051,7 @@ FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot, 
 {
 	FVector3 Eye = Foot + FVector3::Up() * EyeHeight;
 	const auto Head = Body ? Body->GetHeadPosition() : std::nullopt;
-	if (!bThirdPerson && Head)
+	if (!bThirdPerson && !Ragdoll && Head)
 	{
 		// Eyes sit in front of and above the head joint, in the body's facing, so the camera stays clear of the neck when the body leans.
 		constexpr float EyeAbove = 0.07f;
@@ -931,7 +1065,7 @@ FVector3 FGameSession::FImplementation::GetCameraPosition(const FVector3& Foot, 
 
 	SmoothedEye.reset();
 	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
-	if (!bThirdPerson || !World)
+	if ((!bThirdPerson && !Ragdoll) || !World)
 	{
 		return Eye;
 	}
@@ -1018,6 +1152,11 @@ bool FGameSession::IsPlayerSliding() const noexcept
 bool FGameSession::IsPlayerMantling() const noexcept
 {
 	return Implementation->Mover->GetActiveMode() == "Mantle";
+}
+
+bool FGameSession::IsPlayerRagdolled() const noexcept
+{
+	return Implementation->Ragdoll.has_value();
 }
 
 bool FGameSession::IsPlayerWallRunning() const noexcept

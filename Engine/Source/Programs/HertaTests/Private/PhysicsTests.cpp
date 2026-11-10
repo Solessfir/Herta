@@ -884,4 +884,59 @@ TEST_CASE("Convex hull and compound bodies settle, and destroyed bodies free the
 	CHECK_FALSE(*Replacement == *Hull);
 	CHECK_FALSE((*World)->GetBodyTransform(*Hull));
 }
+
+TEST_CASE("Ragdolls fall as one jointed body, keep their joints, and free every body when destroyed")
+{
+	auto World = FPhysicsWorld::Create();
+	REQUIRE(World);
+	REQUIRE((*World)->CreateBody({.HalfExtents = {10.f, 0.25f, 10.f}, .Position = {0.f, -0.25f, 0.f}}));
+	const std::size_t Bodies = (*World)->GetBodyCount();
+
+	// A torso with a leg hanging below it, and an arm out to the side, hinged at the hip and shoulder.
+	const FQuaternion Sideways = FQuaternion::FromAxisAngle({0.f, 0.f, 1.f}, 1.5707963f);
+	const std::array<FPhysicsRagdollPart, 3> Parts{{
+	    {.Transform = {.Position = {0.f, 2.f, 0.f}, .Rotation = FQuaternion::Identity()}, .Radius = 0.15f, .HalfHeight = 0.25f, .MassKg = 30.f},
+	    {.Parent = 0, .Transform = {.Position = {0.f, 1.2f, 0.f}, .Rotation = FQuaternion::Identity()}, .Radius = 0.08f, .HalfHeight = 0.3f, .MassKg = 10.f, .Joint = {0.f, 1.6f, 0.f}, .TwistAxis = {0.f, -1.f, 0.f}},
+	    {.Parent = 0, .Transform = {.Position = {0.5f, 2.3f, 0.f}, .Rotation = Sideways}, .Radius = 0.06f, .HalfHeight = 0.2f, .MassKg = 4.f, .Joint = {0.2f, 2.3f, 0.f}, .TwistAxis = {1.f, 0.f, 0.f}},
+	}};
+
+	const auto Ragdoll = (*World)->CreateRagdoll({.Parts = Parts, .LinearVelocity = {1.f, 0.f, 0.f}});
+	REQUIRE_MESSAGE(Ragdoll, (Ragdoll ? "" : Ragdoll.error().Message));
+	REQUIRE(Ragdoll->Parts.size() == 3);
+	CHECK((*World)->GetBodyCount() == Bodies + 3);
+	for (int Step = 0; Step < 240; ++Step)
+	{
+		REQUIRE((*World)->Step(1.f / 60.f));
+	}
+
+	// The joint points each part carried stay together, so the hip and shoulder still meet the torso after the fall.
+	const auto Torso = (*World)->GetBodyTransform(Ragdoll->Parts[0]);
+	const auto Leg = (*World)->GetBodyTransform(Ragdoll->Parts[1]);
+	const auto Arm = (*World)->GetBodyTransform(Ragdoll->Parts[2]);
+	REQUIRE(Torso);
+	REQUIRE(Leg);
+	REQUIRE(Arm);
+	const auto Hinge = [](const FPhysicsBodyTransform& Body, const FVector3& Created, const FVector3& Joint)
+	{
+		return Body.Position + Body.Rotation.RotateVector(Joint - Created);
+	};
+
+	CHECK((Hinge(*Torso, {0.f, 2.f, 0.f}, {0.f, 1.6f, 0.f}) - Hinge(*Leg, {0.f, 1.2f, 0.f}, {0.f, 1.6f, 0.f})).Length() < 0.03f);
+	CHECK((Hinge(*Torso, {0.f, 2.f, 0.f}, {0.2f, 2.3f, 0.f}) - Arm->Position - Arm->Rotation.RotateVector(Sideways.Conjugated().RotateVector({-0.3f, 0.f, 0.f}))).Length() < 0.03f);
+	// It lies on the floor, carried along by its starting velocity.
+	CHECK(Torso->Position.Y < 0.5f);
+	CHECK(Torso->Position.Y > 0.05f);
+	CHECK(Torso->Position.X > 0.2f);
+
+	REQUIRE((*World)->DestroyRagdoll(*Ragdoll));
+	CHECK((*World)->GetBodyCount() == Bodies);
+	CHECK_FALSE((*World)->GetBodyTransform(Ragdoll->Parts[0]));
+	CHECK_FALSE((*World)->DestroyRagdoll(*Ragdoll));
+	REQUIRE((*World)->Step(1.f / 60.f));
+
+	std::array<FPhysicsRagdollPart, 2> Orphan{Parts[0], Parts[1]};
+	Orphan[1].Parent = 1;
+	CHECK_FALSE((*World)->CreateRagdoll({.Parts = Orphan}));
+	CHECK_FALSE((*World)->CreateRagdoll({}));
+}
 }

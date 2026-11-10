@@ -66,6 +66,8 @@ inline constexpr std::uint8_t PhysicsLayerDynamic = 1;
 // Small loose pieces, such as destruction debris: they hit the world and dynamic bodies but not each other or characters.
 inline constexpr std::uint8_t PhysicsLayerDebris = 2;
 inline constexpr std::uint8_t PhysicsLayerCharacter = 3;
+// Ragdoll parts: they hit the world, dynamic bodies, and each other, but not characters, so a ragdoll and the capsule it replaces never push apart.
+inline constexpr std::uint8_t PhysicsLayerRagdoll = 4;
 inline constexpr std::uint8_t PhysicsLayerCount = 8;
 
 struct FPhysicsBodySettings
@@ -205,6 +207,37 @@ struct FPhysicsBodyTransform
 	FQuaternion Rotation;
 };
 
+// One body of a ragdoll: a dynamic capsule along its local +Y, hinged on its parent part by a swing-twist joint.
+struct FPhysicsRagdollPart
+{
+	// The part this one hangs from, which must come earlier; empty for the root.
+	std::optional<std::size_t> Parent{};
+	FPhysicsBodyTransform Transform{.Position = FVector3::Zero(), .Rotation = FQuaternion::Identity()};
+	float Radius = 0.1f;
+	float HalfHeight = 0.1f;
+	float MassKg = 5.f;
+	// The joint to the parent in physics space: where it hinges, the axis it twists about, the cone it swings within, and how far it twists each way.
+	FVector3 Joint = FVector3::Zero();
+	FVector3 TwistAxis = FVector3{0.f, 1.f, 0.f};
+	float SwingRadians = 0.5f;
+	float TwistRadians = 0.3f;
+};
+
+struct FPhysicsRagdollSettings
+{
+	// Only need to stay valid until CreateRagdoll returns.
+	std::span<const FPhysicsRagdollPart> Parts{};
+	// Every part starts moving at this velocity, such as the character's when it collapses.
+	FVector3 LinearVelocity = FVector3::Zero();
+};
+
+struct FPhysicsRagdoll
+{
+	std::uint32_t Index = 0;
+	// One body per part, in the order the settings listed them.
+	std::vector<FPhysicsBodyId> Parts{};
+};
+
 struct FPhysicsCharacterId
 {
 	std::uint32_t Value = 0;
@@ -257,10 +290,11 @@ struct FPhysicsWorldSettings
 	std::uint32_t MaxConcurrency = 0;
 	// Bit N of entry M lets layer M touch layer N; Create rejects tables that are not symmetric. Unused layers touch nothing.
 	std::array<std::uint8_t, PhysicsLayerCount> LayerCollisions{
-	    0b1110,
-	    0b1111,
-	    0b0011,
-	    0b0011,
+	    0b11110,
+	    0b11111,
+	    0b00011,
+	    0b00011,
+	    0b10011,
 	};
 };
 
@@ -290,6 +324,10 @@ public:
 	[[nodiscard]] std::expected<FPhysicsBodyId, FPhysicsError> CreateSoftBody(const FPhysicsSoftBodySettings& Settings);
 	[[nodiscard]] std::expected<FPhysicsRope, FPhysicsError> CreateRope(const FPhysicsRopeSettings& Settings);
 	[[nodiscard]] std::expected<void, FPhysicsError> CreatePointConstraint(const FPhysicsPointConstraintSettings& Settings);
+	// Parts collide with everything on the ragdoll layer except the parts they hinge on. Read their poses with GetBodyTransform.
+	[[nodiscard]] std::expected<FPhysicsRagdoll, FPhysicsError> CreateRagdoll(const FPhysicsRagdollSettings& Settings);
+	// Removes the joints and bodies of a ragdoll, such as when the character gets back up.
+	[[nodiscard]] std::expected<void, FPhysicsError> DestroyRagdoll(const FPhysicsRagdoll& Ragdoll);
 	// Sets velocities that carry a kinematic body to Target over the next step, so bodies resting on it ride along.
 	[[nodiscard]] std::expected<void, FPhysicsError> MoveKinematicBody(FPhysicsBodyId BodyId, const FPhysicsBodyTransform& Target, float DeltaSeconds);
 	[[nodiscard]] std::expected<void, FPhysicsError> Step(float FixedDeltaSeconds);

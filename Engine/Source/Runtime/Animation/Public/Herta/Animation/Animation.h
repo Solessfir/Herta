@@ -90,6 +90,9 @@ public:
 	[[nodiscard]] std::span<const FMatrix4> GetSkinningMatrices() const noexcept;
 	// Shrinks a joint and everything below it to the joint's position until the next Evaluate, such as the head a first-person camera sits inside.
 	void CollapseJoint(std::size_t Joint) noexcept;
+	// Moves Joints to model-space Transforms, such as the ragdoll bodies that drive them, blended over the evaluated pose by Weight from 0 to 1,
+	// until the next Evaluate. Joints below them that are not given keep their evaluated transforms relative to their parent.
+	void OverrideJoints(std::span<const std::size_t> Joints, std::span<const FMatrix4> Transforms, float Weight);
 
 private:
 	struct FImplementation;

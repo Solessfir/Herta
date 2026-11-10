@@ -20,7 +20,11 @@ Positions cross the API as double-precision `FWorldPosition`. `ShiftOrigin` move
 
 ## Collision
 
-Layers are Static, Dynamic, Debris, and Character, of eight. `LayerCollisions` is a symmetric bitmask table: debris collides with static and dynamic bodies, but not with other debris or the player. Shapes are box, sphere, capsule, convex hull, and static compounds of hulls. `bContinuousCollision` uses linear casts for fast bodies such as thrown balls. `DestroyBody` refuses bodies a constraint still uses. The viewport's **Collision** toggle draws every shape as wireframe during Simulate and Play: static grey, kinematic blue, dynamic green, sensors amber, and sleeping bodies dimmed.
+Layers are Static, Dynamic, Debris, Character, and Ragdoll, of eight. `LayerCollisions` is a symmetric bitmask table: debris collides with static and dynamic bodies, but not with other debris or the player, and ragdoll parts collide with static and dynamic bodies and each other, but not characters, so a ragdoll never fights the capsule it replaced. Shapes are box, sphere, capsule, convex hull, and static compounds of hulls. `bContinuousCollision` uses linear casts for fast bodies such as thrown balls. `DestroyBody` refuses bodies a constraint still uses. The viewport's **Collision** toggle draws every shape as wireframe during Simulate and Play: static grey, kinematic blue, dynamic green, sensors amber, and sleeping bodies dimmed.
+
+## Ragdolls
+
+`CreateRagdoll` builds a ragdoll from capsule parts, each hinged on an earlier part by a Jolt swing-twist joint with a swing cone and a twist range, and starts every part at one velocity. Hinged parts do not collide with each other; the rest do. The parts are ordinary dynamic bodies in the world's body table, as rope segments are, so origin shifts, `GetBodyTransform`, snapshots, the body budget, and collision wireframes cover them, and they step deterministically with everything else. Jolt's own `Ragdoll` keeps its bodies outside that table, which would leave them out of all of those. `DestroyRagdoll` removes the joints and bodies. Driving parts to an animated pose with motors, mass-ratio stabilization, and powered get-up animations wait until hit reactions need them.
 
 ## Destruction
 

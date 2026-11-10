@@ -215,6 +215,7 @@ struct FPendingInput
 	bool bJump = false;
 	bool bThrow = false;
 	bool bToggleCamera = false;
+	bool bToggleRagdoll = false;
 	bool bClicked = false;
 	bool bEscape = false;
 	bool bRestart = false;
@@ -521,6 +522,7 @@ int RunGame(const FGameOptions& Options)
 		Pending.bJump |= bPressed && Key == EKey::Space;
 		Pending.bThrow |= bPressed && Key == EKey::F;
 		Pending.bToggleCamera |= bPressed && Key == EKey::V;
+		Pending.bToggleRagdoll |= bPressed && Key == EKey::Z;
 		Pending.bEscape |= bPressed && Key == EKey::Escape;
 		Pending.bRestart |= bPressed && Key == EKey::R;
 		Pending.bToggleFullscreen |= bPressed && (Key == EKey::F11 || (Key == EKey::Enter && HasModifier(Modifiers, EModifierFlags::Alt)));
@@ -654,6 +656,7 @@ int RunGame(const FGameOptions& Options)
 			    .bCrouch = Window.IsKeyDown(EKey::C) || Window.IsKeyDown(EKey::LeftControl),
 			    .bThrow = Input.bThrow,
 			    .bToggleCamera = Input.bToggleCamera,
+			    .bToggleRagdoll = Input.bToggleRagdoll,
 			};
 
 			if (Gamepad)

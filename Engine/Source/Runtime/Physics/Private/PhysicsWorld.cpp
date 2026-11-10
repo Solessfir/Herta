@@ -30,6 +30,7 @@
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Constraints/DistanceConstraint.h>
 #include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/SwingTwistConstraint.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/Physics/PhysicsUpdateContext.h>
 #include <Jolt/Physics/SoftBody/SoftBodyCreationSettings.h>
@@ -61,6 +62,7 @@ namespace
 constexpr JPH::ObjectLayer StaticLayer = PhysicsLayerStatic;
 constexpr JPH::ObjectLayer DynamicLayer = PhysicsLayerDynamic;
 constexpr JPH::ObjectLayer CharacterLayer = PhysicsLayerCharacter;
+constexpr std::size_t MaximumRagdollParts = 64;
 // Hull points sit on the surface, so a small convex radius keeps thin fracture pieces valid while still rounding contacts.
 constexpr float HullConvexRadius = 0.01f;
 
@@ -465,6 +467,15 @@ struct FPhysicsWorld::FImplementation
 	// Bodies a constraint references, which DestroyBody refuses so no constraint points at a missing body.
 	std::unordered_set<std::uint32_t> ConstrainedBodies;
 	std::vector<FRopeState> Ropes;
+
+	struct FRagdollState
+	{
+		std::vector<JPH::BodyID> Parts;
+		std::vector<JPH::Ref<JPH::Constraint>> Joints;
+	};
+
+	// Destroyed ragdolls leave an empty slot, so indices stay stable.
+	std::vector<FRagdollState> Ragdolls;
 	// Each character owns an inner body in Physics, so characters are released before the bodies.
 	std::vector<JPH::Ref<JPH::CharacterVirtual>> Characters;
 
@@ -1161,6 +1172,111 @@ std::expected<FPhysicsRope, FPhysicsError> FPhysicsWorld::CreateRope(const FPhys
 	const FPhysicsRope Result{.Index = static_cast<std::uint32_t>(Implementation->Ropes.size()), .First = FPhysicsBodyId{Rope.Segments.front().GetIndexAndSequenceNumber()}, .Last = FPhysicsBodyId{Rope.Segments.back().GetIndexAndSequenceNumber()}};
 	Implementation->Ropes.push_back(std::move(Rope));
 	return Result;
+}
+
+std::expected<FPhysicsRagdoll, FPhysicsError> FPhysicsWorld::CreateRagdoll(const FPhysicsRagdollSettings& Settings)
+{
+	const std::span<const FPhysicsRagdollPart> Parts = Settings.Parts;
+	if (Parts.empty() || Parts.size() > MaximumRagdollParts || !IsFinite(Settings.LinearVelocity))
+	{
+		return std::unexpected(FPhysicsError{std::format("Ragdolls need 1 to {} parts and a finite velocity", MaximumRagdollParts)});
+	}
+
+	for (std::size_t Index = 0; Index < Parts.size(); ++Index)
+	{
+		const FPhysicsRagdollPart& Part = Parts[Index];
+		const bool bParent = Part.Parent ? *Part.Parent < Index : Index == 0;
+		const bool bJoint = !Part.Parent || (IsFinite(Part.Joint) && IsFinite(Part.TwistAxis) && Part.TwistAxis.LengthSquared() > 1.e-6f && IsInRange(Part.SwingRadians, 0.f, 3.1416f) && IsInRange(Part.TwistRadians, 0.f, 3.1416f));
+		if (!bParent || !bJoint || !IsFinite(Part.Transform.Position) || !IsFinite(Part.Transform.Rotation) || !IsInRange(Part.Radius, 0.001f, 10.f) || !IsInRange(Part.HalfHeight, 0.f, 10.f) || !IsInRange(Part.MassKg, 0.001f, 100000.f))
+		{
+			return std::unexpected(FPhysicsError{"Ragdoll parts need finite capsules and masses, joints within half a turn, and only the first part without a parent, which must come earlier"});
+		}
+	}
+
+	if (Implementation->BodyCount + Parts.size() > Implementation->Settings.MaxBodies)
+	{
+		return std::unexpected(FPhysicsError{std::format("Physics world body capacity reached (MaxBodies={})", Implementation->Settings.MaxBodies)});
+	}
+
+	FImplementation::FRagdollState Ragdoll;
+	FPhysicsRagdoll Result{.Index = static_cast<std::uint32_t>(Implementation->Ragdolls.size())};
+	for (const FPhysicsRagdollPart& Part : Parts)
+	{
+		const auto Body = CreateBody({
+		    .Shape = EPhysicsShape::Capsule,
+		    .Radius = Part.Radius,
+		    .HalfHeight = Part.HalfHeight,
+		    .Position = Part.Transform.Position,
+		    .Rotation = Part.Transform.Rotation.NormalizedOrIdentity(),
+		    .MotionType = EPhysicsMotionType::Dynamic,
+		    .Properties = {.MassKg = Part.MassKg, .Friction = 0.6f, .LinearDamping = 0.05f, .AngularDamping = 0.3f},
+		    .Layer = PhysicsLayerRagdoll,
+		});
+		if (!Body)
+		{
+			return std::unexpected(Body.error());
+		}
+
+		Result.Parts.push_back(*Body);
+		Ragdoll.Parts.push_back(FindBody(Implementation->BodyIds, *Body));
+		if (const auto Moved = SetVelocity(*Body, Settings.LinearVelocity); !Moved)
+		{
+			return std::unexpected(Moved.error());
+		}
+	}
+
+	for (std::size_t Index = 1; Index < Parts.size(); ++Index)
+	{
+		const FPhysicsRagdollPart& Part = Parts[Index];
+		const JPH::Vec3 Twist = ToJolt(Part.TwistAxis).Normalized();
+		JPH::SwingTwistConstraintSettings Joint;
+		Joint.mPosition1 = Joint.mPosition2 = JPH::RVec3(ToJolt(Part.Joint));
+		Joint.mTwistAxis1 = Joint.mTwistAxis2 = Twist;
+		Joint.mPlaneAxis1 = Joint.mPlaneAxis2 = Twist.GetNormalizedPerpendicular();
+		Joint.mNormalHalfConeAngle = Joint.mPlaneHalfConeAngle = Part.SwingRadians;
+		Joint.mTwistMinAngle = -Part.TwistRadians;
+		Joint.mTwistMaxAngle = Part.TwistRadians;
+		Implementation->AddJoint(Joint, Ragdoll.Parts[*Part.Parent], Ragdoll.Parts[Index]);
+		Ragdoll.Joints.push_back(Implementation->Constraints.back());
+	}
+
+	Implementation->Ragdolls.push_back(std::move(Ragdoll));
+	return Result;
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::DestroyRagdoll(const FPhysicsRagdoll& Ragdoll)
+{
+	if (Ragdoll.Index >= Implementation->Ragdolls.size() || Implementation->Ragdolls[Ragdoll.Index].Parts.empty())
+	{
+		return std::unexpected(FPhysicsError{"Unknown ragdoll"});
+	}
+
+	FImplementation::FRagdollState State = std::exchange(Implementation->Ragdolls[Ragdoll.Index], {});
+	for (const JPH::Ref<JPH::Constraint>& Joint : State.Joints)
+	{
+		Implementation->Physics.RemoveConstraint(Joint);
+		std::erase(Implementation->Constraints, Joint);
+	}
+
+	// A later body may reuse a part's index, so its joined pairs go with it.
+	for (const JPH::BodyID Part : State.Parts)
+	{
+		Implementation->ConstrainedBodies.erase(Part.GetIndexAndSequenceNumber());
+		std::erase_if(Implementation->JoinedBodies->JoinedPairs, [Part](const std::uint64_t Pair)
+		{
+			return static_cast<std::uint32_t>(Pair >> 32) == Part.GetIndex() || static_cast<std::uint32_t>(Pair) == Part.GetIndex();
+		});
+	}
+
+	for (const JPH::BodyID Part : State.Parts)
+	{
+		if (const auto Destroyed = DestroyBody(FPhysicsBodyId{Part.GetIndexAndSequenceNumber()}); !Destroyed)
+		{
+			return Destroyed;
+		}
+	}
+
+	return {};
 }
 
 std::expected<void, FPhysicsError> FPhysicsWorld::CreatePointConstraint(const FPhysicsPointConstraintSettings& Settings)

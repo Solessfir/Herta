@@ -43,6 +43,8 @@ struct FGameInput
 	bool bThrow = false;
 	// Pressed since the previous update. Switches between the first-person and the third-person camera.
 	bool bToggleCamera = false;
+	// Pressed since the previous update. Collapses the player into a ragdoll, or gets back up where it lies.
+	bool bToggleRagdoll = false;
 };
 
 // A gamepad's player controls as it reports them this frame: sticks from -1 to 1 with +X right and +Y up, and whether each button is down.
@@ -150,6 +152,7 @@ public:
 	[[nodiscard]] bool IsPlayerSliding() const noexcept;
 	[[nodiscard]] bool IsPlayerMantling() const noexcept;
 	[[nodiscard]] bool IsPlayerWallRunning() const noexcept;
+	[[nodiscard]] bool IsPlayerRagdolled() const noexcept;
 	[[nodiscard]] FVector3 GetPlayerVelocity() const noexcept;
 	// The look direction around the vertical axis; 0 faces +Z.
 	[[nodiscard]] float GetPlayerYaw() const noexcept;

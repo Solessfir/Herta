@@ -38,7 +38,7 @@ std::optional<std::size_t> DrawGameHud(FGameUI& UI, const FGameObjective& Object
 	if (!bPaused)
 	{
 		UI.DrawCircle({.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 0.5f}}, 8.f, MakeGameUIColor(255, 255, 255, 220));
-		const std::string Hint = std::format("WASD move    Space jump    Shift sprint    C slide    R restart    {} menu", MenuKey);
+		const std::string Hint = std::format("WASD move    Space jump    Shift sprint    C slide    Z ragdoll    R restart    {} menu", MenuKey);
 		const FVector2 HintSize = UI.MeasureText(Hint, EGameUIFont::Body);
 		UI.DrawRect({.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -Margin}}, {HintSize.X + Padding.X * 2.f, HintSize.Y + Padding.Y * 2.f}, Panel, Radius);
 		UI.DrawText(Hint, {.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -Margin - Padding.Y}}, EGameUIFont::Body, MakeGameUIColor(220, 224, 232));

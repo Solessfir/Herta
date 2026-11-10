@@ -347,6 +347,7 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		    .bCrouch = ImGui::IsKeyDown(ImGuiKey_C) || IO.KeyCtrl,
 		    .bThrow = ImGui::IsKeyPressed(ImGuiKey_F, false),
 		    .bToggleCamera = ImGui::IsKeyPressed(ImGuiKey_V, false),
+		    .bToggleRagdoll = ImGui::IsKeyPressed(ImGuiKey_Z, false),
 		};
 
 		if (ImGui::IsKeyPressed(ImGuiKey_R, false) || IsPlayGamepadPressed(EGamepadButton::Back))
@@ -697,8 +698,8 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 	std::string Output = std::format("{{\"playing\": {}", PlaySession ? "true" : "false");
 	if (PlaySession)
 	{
-		Output += std::format(", \"paused\": {}, \"grounded\": {}, \"crouched\": {}, \"sliding\": {}, \"mantling\": {}, \"wallRunning\": {}, \"thirdPerson\": {}", bPlayPaused ? "true" : "false", PlaySession->IsPlayerGrounded() ? "true" : "false",
-		    PlaySession->IsPlayerCrouched() ? "true" : "false", PlaySession->IsPlayerSliding() ? "true" : "false", PlaySession->IsPlayerMantling() ? "true" : "false", PlaySession->IsPlayerWallRunning() ? "true" : "false", PlaySession->IsThirdPerson() ? "true" : "false");
+		Output += std::format(", \"paused\": {}, \"grounded\": {}, \"crouched\": {}, \"sliding\": {}, \"mantling\": {}, \"wallRunning\": {}, \"ragdoll\": {}, \"thirdPerson\": {}", bPlayPaused ? "true" : "false", PlaySession->IsPlayerGrounded() ? "true" : "false",
+		    PlaySession->IsPlayerCrouched() ? "true" : "false", PlaySession->IsPlayerSliding() ? "true" : "false", PlaySession->IsPlayerMantling() ? "true" : "false", PlaySession->IsPlayerWallRunning() ? "true" : "false", PlaySession->IsPlayerRagdolled() ? "true" : "false", PlaySession->IsThirdPerson() ? "true" : "false");
 		Output += ", \"foot\": ";
 		AppendVector(Output, PlaySession->GetPlayerFootPosition());
 		Output += ", \"velocity\": ";
@@ -936,6 +937,7 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 			    .bCrouch = Arguments.Flag("crouch"),
 			    .bThrow = Frame == 0 && Arguments.Flag("throw"),
 			    .bToggleCamera = Frame == 0 && Arguments.Flag("toggle_camera"),
+			    .bToggleRagdoll = Frame == 0 && Arguments.Flag("ragdoll"),
 			};
 
 			Editor.AutomationInput.push_back({.Input = Input, .SteerTo = SteerTo});

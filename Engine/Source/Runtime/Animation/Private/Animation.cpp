@@ -1,6 +1,7 @@
 #include "Herta/Animation/Animation.h"
 
 #include "Herta/Core/Hash.h"
+#include "Herta/Math/AffineTransform.h"
 
 #include <ozz/animation/runtime/animation.h>
 #include <ozz/animation/runtime/blending_job.h>
@@ -257,6 +258,9 @@ struct FAnimationPose::FImplementation
 	std::vector<ozz::math::Float4x4> Models;
 	std::vector<FMatrix4> ModelTransforms;
 	std::vector<FMatrix4> SkinningMatrices;
+	// OverrideJoints' scratch: the evaluated transforms and which joints moved.
+	std::vector<FMatrix4> Evaluated;
+	std::vector<bool> Moved;
 };
 
 FAnimationPose::FAnimationPose(std::shared_ptr<const FAnimationLibrary> Library)
@@ -385,6 +389,66 @@ void FAnimationPose::CollapseJoint(const std::size_t Joint) noexcept
 		if (Inside[Index])
 		{
 			Implementation->SkinningMatrices[Index] = Collapsed;
+		}
+	}
+}
+
+namespace
+{
+// Translation and scale blend linearly and rotation by normalized lerp, which is close to slerp at the small angles a ragdoll blend covers.
+[[nodiscard]] FMatrix4 BlendTransforms(const FMatrix4& From, const FMatrix4& To, const float Weight)
+{
+	const std::optional<FTransform> A = TryDecomposeTransform(From, 1.e-3f);
+	const std::optional<FTransform> B = TryDecomposeTransform(To, 1.e-3f);
+	if (!A || !B)
+	{
+		return Weight < 0.5f ? From : To;
+	}
+
+	const auto RotationA = A->Rotation.ToXYZW();
+	auto RotationB = B->Rotation.ToXYZW();
+	const float Dot = RotationA[0] * RotationB[0] + RotationA[1] * RotationB[1] + RotationA[2] * RotationB[2] + RotationA[3] * RotationB[3];
+	std::array<float, 4> Rotation{};
+	for (std::size_t Index = 0; Index < 4; ++Index)
+	{
+		Rotation[Index] = RotationA[Index] + ((Dot < 0.f ? -RotationB[Index] : RotationB[Index]) - RotationA[Index]) * Weight;
+	}
+
+	return FMatrix4::Transform(A->Translation + (B->Translation - A->Translation) * Weight, FQuaternion::FromXYZW(Rotation).NormalizedOrIdentity(), A->Scale3D + (B->Scale3D - A->Scale3D) * Weight);
+}
+}
+
+void FAnimationPose::OverrideJoints(const std::span<const std::size_t> Joints, const std::span<const FMatrix4> Transforms, const float Weight)
+{
+	const float Blend = std::isfinite(Weight) ? std::clamp(Weight, 0.f, 1.f) : 0.f;
+	FImplementation& Pose = *Implementation;
+	const std::span<const std::int16_t> Parents = Pose.Library->GetJointParents();
+	const std::span<const FMatrix4> InverseBinds = Pose.Library->GetInverseBindMatrices();
+	Pose.Evaluated = Pose.ModelTransforms;
+	Pose.Moved.assign(Parents.size(), false);
+	for (std::size_t Index = 0; Index < std::min(Joints.size(), Transforms.size()); ++Index)
+	{
+		if (Joints[Index] < Parents.size())
+		{
+			Pose.ModelTransforms[Joints[Index]] = Blend >= 1.f ? Transforms[Index] : BlendTransforms(Pose.Evaluated[Joints[Index]], Transforms[Index], Blend);
+			Pose.Moved[Joints[Index]] = true;
+		}
+	}
+
+	// Parents precede children, so one forward pass carries each moved joint's subtree along.
+	for (std::size_t Joint = 0; Joint < Parents.size(); ++Joint)
+	{
+		const auto Parent = static_cast<std::size_t>(Parents[Joint]);
+		if (!Pose.Moved[Joint] && Parents[Joint] >= 0 && Pose.Moved[Parent])
+		{
+			const std::optional<FMatrix4> ParentInverse = TryInverseAffine(Pose.Evaluated[Parent]);
+			Pose.ModelTransforms[Joint] = ParentInverse ? Pose.ModelTransforms[Parent] * *ParentInverse * Pose.Evaluated[Joint] : Pose.ModelTransforms[Parent];
+			Pose.Moved[Joint] = true;
+		}
+
+		if (Pose.Moved[Joint])
+		{
+			Pose.SkinningMatrices[Joint] = Pose.ModelTransforms[Joint] * InverseBinds[Joint];
 		}
 	}
 }
