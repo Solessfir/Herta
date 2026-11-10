@@ -126,17 +126,17 @@ print_prerequisite_command() {
     case "${ID:-}:${ID_LIKE:-}" in
         *ubuntu*)
             if [[ "${CXX:-}" == *clang* ]]; then
-                echo 'Install them with: sudo apt-get update && sudo apt-get install -y clang-19 gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
+                echo 'Install them with: sudo apt-get update && sudo apt-get install -y clang-19 gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libssl-dev' >&2
                 echo 'Then select Clang 19 with: export CC=clang-19 CXX=clang++-19' >&2
             else
-                echo 'Install them with: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev' >&2
+                echo 'Install them with: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14 git make coreutils tar curl pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libssl-dev' >&2
                 echo 'Then select GCC 14 with: export CC=gcc-14 CXX=g++-14' >&2
             fi
             ;;
-        *debian*) echo 'Install GCC 14 or newer, Git, Make, coreutils, tar, curl, pkg-config, X11 development packages, Wayland development tools, and libxkbcommon development headers.' >&2 ;;
-        *fedora*|*rhel*) echo 'Install them with: sudo dnf install -y git make gcc-c++ coreutils tar curl pkgconf-pkg-config libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel wayland-devel libxkbcommon-devel' >&2 ;;
-        *arch*) echo 'Install them with: sudo pacman -S --needed git make gcc coreutils tar curl pkgconf libx11 libxrandr libxinerama libxcursor libxi wayland libxkbcommon' >&2 ;;
-        *) echo 'Install Git, Make, a C++ compiler, coreutils, tar, curl, pkg-config, X11 development packages, Wayland development tools, and libxkbcommon development headers.' >&2 ;;
+        *debian*) echo 'Install GCC 14 or newer, Git, Make, coreutils, tar, curl, pkg-config, X11 development packages, Wayland development tools, libxkbcommon development headers, and OpenSSL development headers.' >&2 ;;
+        *fedora*|*rhel*) echo 'Install them with: sudo dnf install -y git make gcc-c++ coreutils tar curl pkgconf-pkg-config libXcursor-devel libXi-devel libXinerama-devel libXrandr-devel wayland-devel libxkbcommon-devel openssl-devel' >&2 ;;
+        *arch*) echo 'Install them with: sudo pacman -S --needed git make gcc coreutils tar curl pkgconf libx11 libxrandr libxinerama libxcursor libxi wayland libxkbcommon openssl' >&2 ;;
+        *) echo 'Install Git, Make, a C++ compiler, coreutils, tar, curl, pkg-config, X11 development packages, Wayland development tools, libxkbcommon development headers, and OpenSSL development headers.' >&2 ;;
     esac
 }
 
@@ -170,7 +170,8 @@ if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
     missing_tools+=("curl or wget")
 fi
 
-required_packages=(x11 xrandr xinerama xcursor xi wayland-client wayland-cursor xkbcommon)
+# GameNetworkingSockets signs and encrypts with the system OpenSSL libcrypto on Linux.
+required_packages=(x11 xrandr xinerama xcursor xi wayland-client wayland-cursor xkbcommon libcrypto)
 missing_packages=()
 if command -v pkg-config >/dev/null 2>&1; then
     for required_package in "${required_packages[@]}"; do
@@ -180,7 +181,7 @@ if command -v pkg-config >/dev/null 2>&1; then
     done
 fi
 if [[ ${#missing_packages[@]} -gt 0 ]]; then
-    echo "Setup is missing Linux window-system development packages: ${missing_packages[*]}" >&2
+    echo "Setup is missing Linux development packages: ${missing_packages[*]}" >&2
     print_prerequisite_command
     exit 1
 fi
@@ -237,6 +238,16 @@ git -C "${repository_root}" submodule sync --recursive || {
     echo "Failed to synchronize Git submodule URLs." >&2
     exit 1
 }
+# GameNetworkingSockets' P2P support and Protobuf's own tests need nested submodules Herta never builds, and WebRTC alone is gigabytes, so
+# they stay unfetched.
+git -C "${repository_root}" submodule update --init External/GameNetworkingSockets External/protobuf || {
+    echo "Failed to initialize Git submodules. Check network access and repository credentials." >&2
+    exit 1
+}
+for skipped_submodule in External/GameNetworkingSockets:src/external/abseil External/GameNetworkingSockets:src/external/webrtc External/GameNetworkingSockets:src/external/vjson External/protobuf:third_party/benchmark External/protobuf:third_party/googletest; do
+    git -C "${repository_root}/${skipped_submodule%%:*}" config "submodule.${skipped_submodule#*:}.update" none
+done
+
 git -C "${repository_root}" submodule update --init --recursive || {
     echo "Failed to initialize Git submodules. Check network access and repository credentials." >&2
     exit 1

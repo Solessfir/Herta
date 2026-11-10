@@ -114,6 +114,8 @@ function HertaGameNetworkingSockets()
             buildoptions { "/bigobj" }
 
         filter "system:linux"
+            -- Its assertion macros drop a trailing comma with GNU's ", ## __VA_ARGS__", which strict C++17 keeps.
+            cppdialect "gnu++17"
             defines { "LINUX", "VALVE_CRYPTO_OPENSSL", "VALVE_CRYPTO_25519_OPENSSLEVP" }
             files {
                 path.join(Root, "common/crypto_openssl.cpp"),

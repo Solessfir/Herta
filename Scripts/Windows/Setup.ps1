@@ -289,6 +289,23 @@ function Initialize-GitSubmodules {
         throw 'Failed to synchronize Git submodule URLs.'
     }
 
+    # GameNetworkingSockets' P2P support and Protobuf's own tests need nested submodules Herta never builds, and WebRTC alone is gigabytes,
+    # so they stay unfetched.
+    & $Git.Source -C $RepositoryRoot submodule update --init External/GameNetworkingSockets External/protobuf
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Failed to initialize Git submodules. Check network access and repository credentials.'
+    }
+
+    $SkippedSubmodules = @{
+        'External/GameNetworkingSockets' = @('src/external/abseil', 'src/external/webrtc', 'src/external/vjson')
+        'External/protobuf' = @('third_party/benchmark', 'third_party/googletest')
+    }
+    foreach ($Parent in $SkippedSubmodules.Keys) {
+        foreach ($Nested in $SkippedSubmodules[$Parent]) {
+            & $Git.Source -C (Join-Path $RepositoryRoot $Parent) config "submodule.$Nested.update" none
+        }
+    }
+
     & $Git.Source -C $RepositoryRoot submodule update --init --recursive
     if ($LASTEXITCODE -ne 0) {
         throw 'Failed to initialize Git submodules. Check network access and repository credentials.'

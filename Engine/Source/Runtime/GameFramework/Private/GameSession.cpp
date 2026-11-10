@@ -297,6 +297,8 @@ struct FGameSession::FImplementation : FPlayerSlot
 {
 	struct FCharacterActor;
 
+	FImplementation(const IGameAssets& InAssets, IGraphicsDevice* InDevice, const FGamePlayerSettings& InPlayer, FTaskSystem* InTasks);
+
 	[[nodiscard]] std::expected<void, FGameError> Start();
 	// Before the physics step: the active player's view, camera, ragdoll, knockdown, and throws.
 	[[nodiscard]] std::expected<void, FGameError> BeginPlayerUpdate(FGameInput InInput, float DeltaSeconds);
@@ -377,7 +379,6 @@ struct FGameSession::FImplementation : FPlayerSlot
 	void ResetPlayerState();
 	[[nodiscard]] std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> CreateBody() const;
 
-	// cppcheck-suppress uninitMemberVarNoCtor ; set by aggregate initialization in Create
 	const IGameAssets& Assets;
 	IGraphicsDevice* Device = nullptr;
 	FGamePlayerSettings Player{};
@@ -505,6 +506,14 @@ struct FGameSession::FImplementation : FPlayerSlot
 	FMeshRenderView View{};
 };
 
+FGameSession::FImplementation::FImplementation(const IGameAssets& InAssets, IGraphicsDevice* const InDevice, const FGamePlayerSettings& InPlayer, FTaskSystem* const InTasks)
+    : Assets(InAssets)
+    , Device(InDevice)
+    , Player(InPlayer)
+    , Tasks(InTasks)
+{
+}
+
 void FGameSession::FImplementation::Activate(const std::size_t InPlayer) noexcept
 {
 	if (InPlayer == ActivePlayer)
@@ -512,8 +521,10 @@ void FGameSession::FImplementation::Activate(const std::size_t InPlayer) noexcep
 		return;
 	}
 
-	std::swap(static_cast<FPlayerSlot&>(*this), Players[ActivePlayer]);
-	std::swap(static_cast<FPlayerSlot&>(*this), Players[InPlayer]);
+	// The active player goes back to its entry and the new one moves in, which leaves the new one's entry as the placeholder. Moving through
+	// std::exchange rather than std::swap avoids a GCC false positive about the swap temporary's ragdoll.
+	FPlayerSlot& Base = *this;
+	Players[ActivePlayer] = std::exchange(Base, std::move(Players[InPlayer]));
 	ActivePlayer = InPlayer;
 }
 
@@ -614,7 +625,7 @@ FGameSession::~FGameSession() = default;
 std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(const std::span<const FLevelEntity> Entities, const IGameAssets& Assets, IGraphicsDevice* const Device, const FGamePlayerSettings& Player, FTaskSystem* const Tasks, std::shared_ptr<const FCookedModel> Character)
 {
 	// Built in place: the session holds references and a running simulation that must not move.
-	std::unique_ptr<FImplementation> Implementation(new FImplementation{.Assets = Assets, .Device = Device, .Player = Player, .Tasks = Tasks});
+	auto Implementation = std::make_unique<FImplementation>(Assets, Device, Player, Tasks);
 	FImplementation& Session = *Implementation;
 	Session.Entities.assign(Entities.begin(), Entities.end());
 

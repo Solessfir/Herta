@@ -173,7 +173,7 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-          submodules: recursive
+          submodules: true
 
       - name: Restore project-local tools and SDKs
         id: bootstrap-cache
@@ -188,7 +188,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update
-          sudo apt-get install --yes bear clang-19 clang-tidy-19 gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev
+          sudo apt-get install --yes bear clang-19 clang-tidy-19 gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libssl-dev
 
       - name: Set up Herta
         shell: bash
