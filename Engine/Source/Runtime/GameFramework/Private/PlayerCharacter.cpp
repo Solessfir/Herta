@@ -22,6 +22,10 @@ enum ELocomotionParameter : std::size_t
 	WallJump,
 	Mantle,
 	WallRunning,
+	Hit,
+	Dead,
+	Attack,
+	Blocking,
 };
 
 enum ELocomotionState : std::size_t
@@ -37,6 +41,13 @@ enum ELocomotionState : std::size_t
 	Land,
 	Climb,
 	WallRunState,
+	HitReaction,
+	Death,
+	AttackA,
+	AttackARecover,
+	AttackB,
+	AttackBRecover,
+	Block,
 };
 
 [[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
@@ -105,6 +116,10 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "WallJump", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "Mantle", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "WallRunning", .Type = EAnimationParameterType::Bool},
+	        {.Name = "Hit", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "Dead", .Type = EAnimationParameterType::Bool},
+	        {.Name = "Attack", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "Blocking", .Type = EAnimationParameterType::Bool},
 	    },
 	    .States = {
 	        // The walk, jog, and sprint cycles each take two steps, planting a foot at their start and halfway.
@@ -121,9 +136,21 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Mantle", .Samples = {{.Clip = "ClimbUp_1m_RM"}}, .bLoop = false},
 	        // The clips have no wall run, so the sprint plays while the session leans the body away from the wall.
 	        {.Name = "Wall run", .Samples = {{.Clip = "Sprint_Loop"}}},
+	        {.Name = "Hit", .Samples = {{.Clip = "Hit_Chest"}}, .bLoop = false},
+	        {.Name = "Dead", .Samples = {{.Clip = "Death01"}}, .bLoop = false},
+	        // The blade cuts between SwingStart and SwingEnd; the recoveries return the sword to guard, and an attack during one chains the other swing.
+	        {.Name = "Attack A", .Samples = {{.Clip = "Sword_Regular_A"}}, .bLoop = false, .Events = {{.Name = "SwingStart", .Phase = 0.05f}, {.Name = "SwingEnd", .Phase = 0.95f}}},
+	        {.Name = "Attack A recover", .Samples = {{.Clip = "Sword_Regular_A_Rec"}}, .bLoop = false},
+	        {.Name = "Attack B", .Samples = {{.Clip = "Sword_Regular_B"}}, .bLoop = false, .Events = {{.Name = "SwingStart", .Phase = 0.05f}, {.Name = "SwingEnd", .Phase = 0.95f}}},
+	        {.Name = "Attack B recover", .Samples = {{.Clip = "Sword_Regular_B_Rec"}}, .bLoop = false},
+	        {.Name = "Block", .Samples = {{.Clip = "Sword_Block"}}, .bLoop = false},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
+	        // Death wins over everything and has no way out; a hit flinches anything but the dead.
+	        {.From = AnyAnimationState, .To = Death, .DurationSeconds = 0.2f, .Conditions = {Is(Dead, true)}},
+	        {.From = AnyAnimationState, .To = HitReaction, .DurationSeconds = 0.06f, .Conditions = {Triggered(Hit), Is(Dead, false)}},
+	        {.From = HitReaction, .To = Locomotion, .DurationSeconds = 0.15f, .bAtEnd = true},
 	        // Mantles and wall jumps can start from any state, and win over everything else in the step they start.
 	        {.From = AnyAnimationState, .To = Climb, .DurationSeconds = 0.1f, .Conditions = {Triggered(Mantle)}},
 	        {.From = AnyAnimationState, .To = WallJumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(WallJump)}},
@@ -159,6 +186,21 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = Air, .To = Land, .DurationSeconds = 0.08f, .Conditions = {Is(Grounded, true)}},
 	        {.From = Land, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
 	        {.From = Land, .To = Locomotion, .DurationSeconds = 0.25f, .Conditions = {{.Parameter = Speed, .Test = EAnimationCondition::Greater, .Value = 2.f}}},
+	        {.From = Locomotion, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = Land, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = Locomotion, .To = Block, .DurationSeconds = 0.1f, .Conditions = {Is(Blocking, true)}},
+	        {.From = Block, .To = Locomotion, .DurationSeconds = 0.15f, .Conditions = {Is(Blocking, false)}},
+	        {.From = AttackA, .To = AttackARecover, .DurationSeconds = 0.05f, .bAtEnd = true},
+	        {.From = AttackARecover, .To = AttackB, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = AttackARecover, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
+	        {.From = AttackB, .To = AttackBRecover, .DurationSeconds = 0.05f, .bAtEnd = true},
+	        {.From = AttackBRecover, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = AttackBRecover, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
+	        {.From = AttackA, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        {.From = AttackARecover, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        {.From = AttackB, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        {.From = AttackBRecover, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        {.From = Block, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
 	    },
 	    .Entry = Locomotion,
 	};
@@ -214,6 +256,7 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 
 	Character->Device = Device;
 	Character->PelvisJoint = FindJoint({"pelvis", "hips", "DEF-hips"});
+	Character->GripJoints = {FindJoint({"hand_r"}), FindJoint({"middle_01_r"}), FindJoint({"index_01_r"}), FindJoint({"pinky_01_r"})};
 	Character->HeadJoint = FindJoint({"Head", "head", "DEF-head"});
 	Character->HiddenJoint = FindJoint({"neck_01", "neck", "DEF-neck"});
 	if (!Character->HiddenJoint)
@@ -307,6 +350,42 @@ void FPlayerCharacter::Update(const float DeltaSeconds, const FPlayerMotion& Mot
 std::span<const std::string> FPlayerCharacter::GetEvents() const noexcept
 {
 	return Events;
+}
+
+std::expected<void, FGameError> FPlayerCharacter::EvaluatePose()
+{
+	if (const auto Evaluated = Pose.Evaluate(Machine.GetLayers()); !Evaluated)
+	{
+		return std::unexpected(FGameError{Evaluated.error().Message});
+	}
+
+	return {};
+}
+
+std::optional<FMatrix4> FPlayerCharacter::GetGripFrame() const
+{
+	if (!std::ranges::all_of(GripJoints, [](const std::optional<std::size_t>& Joint)
+	{
+		return Joint.has_value();
+	}))
+	{
+		return std::nullopt;
+	}
+
+	const auto At = [this](const std::optional<std::size_t>& Joint)
+	{
+		return Pose.GetModelTransforms()[*Joint].TransformPosition({});
+	};
+
+	const FVector3 Wrist = At(GripJoints[0]);
+	const FVector3 Knuckle = At(GripJoints[1]);
+	const FVector3 Grip = (At(GripJoints[2]) - At(GripJoints[3])).Normalized();
+	FVector3 Fingers = Knuckle - Wrist;
+	Fingers = (Fingers - Grip * Fingers.Dot(Grip)).Normalized();
+	const FVector3 Back = Fingers.Cross(Grip);
+	const FVector3 Palm = (Wrist + Knuckle) * 0.5f;
+	// Column-major: the three axes, then the palm as the origin.
+	return FMatrix4(std::array{Fingers.X, Fingers.Y, Fingers.Z, 0.f, Grip.X, Grip.Y, Grip.Z, 0.f, Back.X, Back.Y, Back.Z, 0.f, Palm.X, Palm.Y, Palm.Z, 1.f});
 }
 
 std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bFirstPerson)

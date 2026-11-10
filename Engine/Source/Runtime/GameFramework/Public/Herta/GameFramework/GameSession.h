@@ -50,6 +50,10 @@ struct FGameInput
 	bool bToggleCamera = false;
 	// Pressed since the previous update. Collapses the player into a ragdoll, or gets back up where it lies.
 	bool bToggleRagdoll = false;
+	// Pressed since the previous update. Swings the sword; pressing again during the recovery chains the next swing.
+	bool bAttack = false;
+	// Held. Raises the sword to block.
+	bool bBlock = false;
 };
 
 // A gamepad's player controls as it reports them this frame: sticks from -1 to 1 with +X right and +Y up, and whether each button is down.
@@ -62,6 +66,8 @@ struct FGameGamepad
 	bool bCrouch = false;
 	bool bThrow = false;
 	bool bToggleCamera = false;
+	bool bAttack = false;
+	bool bBlock = false;
 };
 
 // Adds a gamepad to keyboard and mouse input. Sticks ignore their resting drift, look turns faster the further the stick is pushed, a jump
@@ -77,6 +83,7 @@ public:
 private:
 	bool bJumpDown = true;
 	bool bThrowDown = true;
+	bool bAttackDown = true;
 	bool bToggleCameraDown = true;
 	bool bSprintDown = true;
 	bool bSprinting = false;

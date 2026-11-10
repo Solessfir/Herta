@@ -8,6 +8,7 @@
 #include "Herta/Physics/PhysicsWorld.h"
 #include "Herta/Renderer/MeshRenderer.h"
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -39,6 +40,12 @@ public:
 
 	void Restart();
 	void Update(float DeltaSeconds, const FPlayerMotion& Motion);
+	// Evaluates the state machine's pose without skinning, so gameplay can read joints, such as the sword hand, in the same update.
+	[[nodiscard]] std::expected<void, FGameError> EvaluatePose();
+	// The right hand's grip in model space: the origin in the palm, +Y along the closed fist from the little finger to the index, which is
+	// where a held blade points, +X along the fingers, where its edge leads, and +Z out of the hand. Built from the finger joints, so it does
+	// not depend on how the rig orients its hand bone. Empty without them.
+	[[nodiscard]] std::optional<FMatrix4> GetGripFrame() const;
 	// Skins the current pose into the intact body, and in first person also into the headless camera body.
 	[[nodiscard]] std::expected<void, FGameError> Skin(bool bFirstPerson);
 
@@ -94,6 +101,8 @@ private:
 	std::optional<FSkinnedMeshPiece> Remaining;
 	std::shared_ptr<const FRenderMesh> WholeMesh;
 	std::optional<std::size_t> PelvisJoint;
+	// The right hand's wrist, middle, index, and little finger roots, which the grip frame is built from.
+	std::array<std::optional<std::size_t>, 4> GripJoints{};
 	FAnimationStateMachine Machine;
 	FAnimationStateMachine StartMachine;
 	std::vector<std::string> Events;

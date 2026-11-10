@@ -17,6 +17,8 @@ FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
 	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
 	    .bToggleCamera = Gamepad.IsDown(EGamepadButton::North),
+	    .bAttack = Gamepad.IsDown(EGamepadButton::RightShoulder),
+	    .bBlock = Gamepad.IsDown(EGamepadButton::LeftShoulder),
 	};
 }
 
@@ -355,6 +357,8 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		    .bThrow = ImGui::IsKeyPressed(ImGuiKey_F, false),
 		    .bToggleCamera = ImGui::IsKeyPressed(ImGuiKey_V, false),
 		    .bToggleRagdoll = ImGui::IsKeyPressed(ImGuiKey_Z, false),
+		    .bAttack = ImGui::IsMouseClicked(ImGuiMouseButton_Left),
+		    .bBlock = ImGui::IsMouseDown(ImGuiMouseButton_Right),
 		};
 
 		if (ImGui::IsKeyPressed(ImGuiKey_R, false) || IsPlayGamepadPressed(EGamepadButton::Back))
@@ -946,6 +950,8 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 			    .bThrow = Frame == 0 && Arguments.Flag("throw"),
 			    .bToggleCamera = Frame == 0 && Arguments.Flag("toggle_camera"),
 			    .bToggleRagdoll = Frame == 0 && Arguments.Flag("ragdoll"),
+			    .bAttack = Frame == 0 && Arguments.Flag("attack"),
+			    .bBlock = Arguments.Flag("block"),
 			};
 
 			Editor.AutomationInput.push_back({.Input = Input, .SteerTo = SteerTo});

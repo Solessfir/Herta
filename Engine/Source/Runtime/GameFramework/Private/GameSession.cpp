@@ -22,6 +22,61 @@ namespace
 constexpr float MaximumPitch = 1.53f;
 constexpr float CameraNear = 0.05f;
 // A thrown ball: a 3 kg, 24 cm ball at 24 m/s carries about 86 N*s into a wall, enough to break the playground's walls but not its footings.
+// The sword in grip space: the blade runs along +Y from the guard to the tip, its edge leading along +X.
+constexpr float SwordBladeStart = 0.1f;
+constexpr float SwordBladeEnd = 1.f;
+
+// Boxes for a plain arming sword: a dark grip through the fist, a steel guard, and a steel blade, in grip space.
+[[nodiscard]] FCookedModel BuildSwordModel()
+{
+	FCookedModel Model;
+	Model.Materials.push_back({.Name = "Steel"});
+	Model.Materials.back().Parameters.BaseColor = {0.78f, 0.78f, 0.8f, 1.f};
+	Model.Materials.back().Parameters.Metallic = 1.f;
+	Model.Materials.back().Parameters.Roughness = 0.28f;
+	Model.Materials.push_back({.Name = "Grip"});
+	Model.Materials.back().Parameters.BaseColor = {0.12f, 0.07f, 0.04f, 1.f};
+	Model.Materials.back().Parameters.Roughness = 0.7f;
+	const auto Box = [&Model](const FVector3& Minimum, const FVector3& Maximum, const std::uint32_t Material)
+	{
+		const auto First = static_cast<std::uint32_t>(Model.Indices.size());
+		for (std::size_t Axis = 0; Axis < 3; ++Axis)
+		{
+			for (const float Sign : {-1.f, 1.f})
+			{
+				// A face across the axis, wound counter-clockwise seen from outside.
+				const std::size_t U = (Axis + 1) % 3;
+				const std::size_t V = (Axis + 2) % 3;
+				const auto Base = static_cast<std::uint32_t>(Model.Vertices.size());
+				for (const auto [CornerU, CornerV] : {std::pair{0, 0}, std::pair{1, 0}, std::pair{1, 1}, std::pair{0, 1}})
+				{
+					std::array<float, 3> Position{};
+					Position[Axis] = Sign > 0.f ? std::array{Maximum.X, Maximum.Y, Maximum.Z}[Axis] : std::array{Minimum.X, Minimum.Y, Minimum.Z}[Axis];
+					Position[U] = (CornerU != 0 ? std::array{Maximum.X, Maximum.Y, Maximum.Z} : std::array{Minimum.X, Minimum.Y, Minimum.Z})[U];
+					Position[V] = (CornerV != 0 ? std::array{Maximum.X, Maximum.Y, Maximum.Z} : std::array{Minimum.X, Minimum.Y, Minimum.Z})[V];
+					std::array<float, 3> Normal{};
+					Normal[Axis] = Sign;
+					std::array<float, 4> Tangent{0.f, 0.f, 0.f, 1.f};
+					Tangent[U] = 1.f;
+					Model.Vertices.push_back({.Position = Position, .UV = {static_cast<float>(CornerU), static_cast<float>(CornerV)}, .Normal = Normal, .Tangent = Tangent});
+				}
+
+				const std::array<std::uint32_t, 6> Front{Base, Base + 1, Base + 2, Base, Base + 2, Base + 3};
+				const std::array<std::uint32_t, 6> Backward{Base, Base + 2, Base + 1, Base, Base + 3, Base + 2};
+				const auto& Corners = Sign > 0.f ? Front : Backward;
+				Model.Indices.insert(Model.Indices.end(), Corners.begin(), Corners.end());
+			}
+		}
+
+		Model.Sections.push_back({.FirstIndex = First, .IndexCount = static_cast<std::uint32_t>(Model.Indices.size()) - First, .Material = Material});
+	};
+
+	Box({-0.016f, -0.1f, -0.016f}, {0.016f, 0.06f, 0.016f}, 1);
+	Box({-0.022f, 0.06f, -0.11f}, {0.022f, SwordBladeStart, 0.11f}, 0);
+	Box({-0.026f, SwordBladeStart, -0.006f}, {0.026f, SwordBladeEnd, 0.006f}, 0);
+	return Model;
+}
+
 constexpr float ProjectileRadius = 0.12f;
 constexpr float ProjectileMassKg = 3.f;
 constexpr float ProjectileSpeed = 24.f;
@@ -127,6 +182,10 @@ struct FGameSession::FImplementation
 	[[nodiscard]] FQuaternion GetViewOrientation() const;
 	void UpdateBody(float DeltaSeconds);
 	[[nodiscard]] std::expected<void, FPhysicsError> StartCharacters(FPhysicsWorld& World);
+	// The body's model matrix at the mover's current feet, as drawn.
+	[[nodiscard]] FMatrix4 GetBodyModel() const;
+	// Traces the blade between updates during a swing and slices characters it passes through along its plane.
+	[[nodiscard]] std::expected<void, FGameError> SweepBlade();
 	[[nodiscard]] std::expected<void, FPhysicsError> StepCharacters(FPhysicsWorld& World);
 	// Spawns a cut piece, baked in its character's model space, as a rigid hull moving away from the cut.
 	[[nodiscard]] std::expected<void, FPhysicsError> SpawnCutPiece(std::size_t Character, const FCookedModel& Baked, const FVector3& Away);
@@ -191,6 +250,12 @@ struct FGameSession::FImplementation
 	};
 
 	std::vector<FCharacterActor> Characters{};
+	// The sword the player's body holds, and its blade last update, from guard to tip in world space, while a swing is cutting.
+	std::shared_ptr<const FRenderMesh> SwordMesh{};
+	std::optional<std::array<FVector3, 2>> LastBlade{};
+	bool bSwinging = false;
+	// Characters the current swing has already cut, so one swing cuts each once.
+	std::vector<std::size_t> SwingCuts{};
 	std::vector<FCutPiece> CutPieces{};
 	std::size_t CutCount = 0;
 
@@ -388,6 +453,17 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 		}
 
 		Session.Characters.push_back({.Entity = Index, .Body = std::move(*Body), .Settings = *Entity.Character});
+	}
+
+	if (Device && Character)
+	{
+		auto Sword = FRenderMesh::Create(*Device, BuildSwordModel(), "Sword");
+		if (!Sword)
+		{
+			return std::unexpected(FGameError{std::format("Cannot upload the sword: {}", Sword.error().Message)});
+		}
+
+		Session.SwordMesh = std::move(*Sword);
 	}
 
 	// A character that cannot animate leaves the capsule playable rather than failing the level.
@@ -767,7 +843,25 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 	}
 
 	Session.UpdateObjective(DeltaSeconds);
+	if (Session.Body && !Session.Ragdoll)
+	{
+		if (Input.bAttack)
+		{
+			Session.Body->FireTrigger("Attack");
+		}
+
+		Session.Body->SetBool("Blocking", Input.bBlock);
+	}
+
 	Session.UpdateBody(DeltaSeconds);
+	if (Session.Body && !Session.Ragdoll)
+	{
+		if (auto Swept = Session.SweepBlade(); !Swept)
+		{
+			return std::unexpected(Swept.error());
+		}
+	}
+
 	for (FImplementation::FCharacterActor& Actor : Session.Characters)
 	{
 		Actor.Body->Update(DeltaSeconds, {.GroundSpeed = 0.f, .bGrounded = true});
@@ -870,10 +964,112 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::AgeProjectiles
 	return {};
 }
 
+FMatrix4 FGameSession::FImplementation::GetBodyModel() const
+{
+	return FMatrix4::Translation(Mover->GetState().Foot - FVector3::Up() * Body->GetRootHeight()) * FMatrix4::Rotation(GetBodyRotation());
+}
+
+std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade()
+{
+	for (const std::string& Event : Body->GetEvents())
+	{
+		if (Event == "SwingStart")
+		{
+			bSwinging = true;
+			SwingCuts.clear();
+		}
+		else if (Event == "SwingEnd")
+		{
+			bSwinging = false;
+		}
+	}
+
+	const std::optional<FMatrix4> Grip = Body->EvaluatePose() ? Body->GetGripFrame() : std::nullopt;
+	if (!bSwinging || !Grip)
+	{
+		LastBlade.reset();
+		return {};
+	}
+
+	const FMatrix4 Hand = GetBodyModel() * *Grip;
+	const std::array Blade{TransformPoint(Hand, {0.f, SwordBladeStart, 0.f}), TransformPoint(Hand, {0.f, SwordBladeEnd, 0.f})};
+	const std::optional<std::array<FVector3, 2>> Previous = std::exchange(LastBlade, Blade);
+	if (!Previous)
+	{
+		return {};
+	}
+
+	// The blade swept a quad from its last position; its plane is the cut. A blade that barely moved has no plane to cut along.
+	const FVector3 Along = Blade[1] - Blade[0];
+	const FVector3 Swept = Blade[1] - (*Previous)[1];
+	const FVector3 Normal = Along.Cross(Swept);
+	if (Normal.LengthSquared() < 1.e-6f)
+	{
+		return {};
+	}
+
+	const FVector3 Unit = Normal.Normalized();
+	const std::array Quad{(*Previous)[0], (*Previous)[1], Blade[1], Blade[0]};
+	const auto InsideQuad = [&](const FVector3& Point)
+	{
+		// The point, already on the plane, is inside when it is on the inner side of all four edges.
+		for (std::size_t Edge = 0; Edge < 4; ++Edge)
+		{
+			const FVector3 From = Quad[Edge];
+			const FVector3 To = Quad[(Edge + 1) % 4];
+			if ((To - From).Cross(Point - From).Dot(Unit) < 0.f)
+			{
+				return false;
+			}
+		}
+
+		return true;
+	};
+
+	for (std::size_t Index = 0; Index < Characters.size(); ++Index)
+	{
+		if (std::ranges::contains(SwingCuts, Index))
+		{
+			continue;
+		}
+
+		// The body is about 0.4 m thick around its center line; the blade cuts it if the swept quad crosses that line within reach of it.
+		const FVector3 Foot = GetTranslation(AuthoredWorld[Characters[Index].Entity]);
+		for (float Height = 0.1f; Height < 1.85f; Height += 0.05f)
+		{
+			const FVector3 Point = Foot + FVector3::Up() * Height;
+			const float Distance = Unit.Dot(Point - Blade[0]);
+			if (std::abs(Distance) > 0.2f || !InsideQuad(Point - Unit * Distance))
+			{
+				continue;
+			}
+
+			SwingCuts.push_back(Index);
+			if (auto Cut = CutCharacter(Index, [&](FPlayerCharacter& Character)
+			{
+				const auto Inverse = TryInverseAffine(AuthoredWorld[Characters[Index].Entity]);
+				const FVector3 LocalPoint = Inverse ? TransformPoint(*Inverse, Blade[0]) : Blade[0];
+				const FVector3 LocalNormal = Inverse ? Inverse->TransformVector(Unit).Normalized() : Unit;
+				return Character.Slice({.Normal = LocalNormal, .Distance = LocalNormal.Dot(LocalPoint)});
+			}, Swept.Normalized()); !Cut)
+			{
+				return std::unexpected(Cut.error());
+			}
+
+			break;
+		}
+	}
+
+	return {};
+}
+
 std::expected<void, FPhysicsError> FGameSession::FImplementation::StartCharacters(FPhysicsWorld& World)
 {
 	CutPieces.clear();
 	CutCount = 0;
+	LastBlade.reset();
+	bSwinging = false;
+	SwingCuts.clear();
 	for (FCharacterActor& Actor : Characters)
 	{
 		Actor.Body->Restart();
@@ -969,6 +1165,7 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 	}
 
 	++CutCount;
+	Actor.Body->FireTrigger("Hit");
 	Events.push_back(std::format("{} was cut", Entities[Actor.Entity].Name));
 	// Losing the head kills a character; graphs without a Dead parameter keep playing.
 	if (const auto Head = Actor.Body->FindJoint("Head"); Head && !Actor.Body->Carries(*Head))
@@ -1281,6 +1478,14 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 				Session.Meshes.push_back(Session.Body->GetCameraMesh());
 				Session.MaterialSpans.emplace_back();
 				Session.Visibility.push_back(EMeshVisibility::CameraOnly);
+			}
+
+			if (const auto Grip = Session.SwordMesh ? Session.Body->GetGripFrame() : std::nullopt)
+			{
+				Session.Models.push_back(BodyModel * *Grip);
+				Session.Meshes.push_back(Session.SwordMesh.get());
+				Session.MaterialSpans.emplace_back();
+				Session.Visibility.push_back(EMeshVisibility::Everywhere);
 			}
 		}
 	}

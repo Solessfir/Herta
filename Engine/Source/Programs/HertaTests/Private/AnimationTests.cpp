@@ -15,6 +15,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <numbers>
 #include <map>
 #include <fstream>
 #include <string_view>
@@ -617,6 +618,18 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 	Step({}, 120);
 	CHECK((*Session)->GetCutPieceCount() == 2);
 
+	// Each restart restores the whole body, which then cuts again at another angle: flat through the waist, steeply through the chest, and
+	// upright through a shoulder.
+	for (const auto& [Point, Normal] : {std::pair{FVector3{0.f, 0.95f, 3.f}, FVector3{0.f, 1.f, 0.f}}, std::pair{FVector3{0.f, 1.3f, 3.f}, FVector3{1.f, 0.6f, 0.2f}}, std::pair{FVector3{0.15f, 1.3f, 3.f}, FVector3{1.f, 0.f, 0.f}}})
+	{
+		REQUIRE((*Session)->Restart());
+		Step({}, 10);
+		const auto Angled = (*Session)->SliceCharacter(0, Point, Normal.Normalized());
+		REQUIRE_MESSAGE(Angled, (Angled ? std::string() : Angled.error().Message));
+		CHECK(*Angled);
+		CHECK((*Session)->GetCutPieceCount() == 1);
+	}
+
 	// Restarting restores the whole body, and a ball thrown at it from the start severs whatever limb it strikes.
 	REQUIRE((*Session)->Restart());
 	CHECK((*Session)->GetCutPieceCount() == 0);
@@ -625,6 +638,47 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 	Step({.bThrow = true}, 60);
 	CHECK((*Session)->GetCutCount() == Before + 1);
 	CHECK((*Session)->GetCutPieceCount() == 1);
+}
+
+TEST_CASE("The player's sword swings slice a training dummy along the blade's plane")
+{
+	const FDummyGameAssets Assets;
+	const std::vector<FLevelEntity> Level{
+	    FLevelEntity{.Id = FObjectId::Generate(), .Name = "Floor", .Transform = {.Translation = {0., -0.5, 0.}, .Scale = {60.f, 1.f, 60.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    FLevelEntity{.Id = FObjectId::Generate(), .Name = "Dummy", .Transform = {.Translation = {0., 0., 1.6}, .Rotation = FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, std::numbers::pi_v<float>)}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{7, 7}}, .Character = FCharacterComponent{}},
+	};
+	auto Session = FGameSession::Create(Level, Assets, nullptr, {}, nullptr, Assets.Model);
+	REQUIRE_MESSAGE(Session, (Session ? std::string() : Session.error().Message));
+	std::vector<std::string> States;
+	const auto Step = [&](const FGameInput& Input, const int Frames)
+	{
+		for (int Frame = 0; Frame < Frames; ++Frame)
+		{
+			REQUIRE((*Session)->Update(1.f / 60.f, Frame == 0 ? Input : FGameInput{}));
+			(void)(*Session)->GetRenderView({320, 180});
+			if (States.empty() || States.back() != (*Session)->GetCharacterStateName())
+			{
+				States.emplace_back((*Session)->GetCharacterStateName());
+			}
+		}
+	};
+
+	Step({}, 90);
+	// The first swing starts the combo; pressing again during its recovery chains the second, from the other side.
+	Step({.bAttack = true}, 30);
+	CHECK(std::ranges::contains(States, std::string("Attack A")));
+	const std::size_t AfterFirst = (*Session)->GetCutCount();
+	Step({.bAttack = true}, 60);
+	CHECK(std::ranges::contains(States, std::string("Attack B")));
+	std::string Visited;
+	for (const std::string& State : States)
+	{
+		Visited += State + "; ";
+	}
+
+	MESSAGE(std::format("states {}cuts after the first swing {}, after the second {}", Visited, AfterFirst, (*Session)->GetCutCount()));
+	CHECK((*Session)->GetCutCount() >= 1);
+	CHECK((*Session)->GetCutPieceCount() >= 1);
 }
 
 TEST_CASE("A game session drives its character's locomotion, jumps, and camera")

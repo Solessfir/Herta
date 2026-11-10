@@ -203,6 +203,8 @@ FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
 	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
 	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
 	    .bToggleCamera = Gamepad.IsDown(EGamepadButton::North),
+	    .bAttack = Gamepad.IsDown(EGamepadButton::RightShoulder),
+	    .bBlock = Gamepad.IsDown(EGamepadButton::LeftShoulder),
 	};
 }
 
@@ -214,6 +216,7 @@ struct FPendingInput
 	std::optional<FVector2> Pointer{};
 	bool bJump = false;
 	bool bThrow = false;
+	bool bAttack = false;
 	bool bToggleCamera = false;
 	bool bToggleRagdoll = false;
 	bool bClicked = false;
@@ -534,7 +537,7 @@ int RunGame(const FGameOptions& Options)
 	Callbacks.MouseButtonChanged = [&Pending](FWindow&, const EMouseButton Button, const EInputAction Action, EModifierFlags)
 	{
 		Pending.bClicked |= Button == EMouseButton::Left && Action == EInputAction::Pressed;
-		Pending.bThrow |= Button == EMouseButton::Left && Action == EInputAction::Pressed;
+		Pending.bAttack |= Button == EMouseButton::Left && Action == EInputAction::Pressed;
 	};
 
 	Callbacks.CursorMoved = [&Pending](FWindow& Source, const double X, const double Y)
@@ -657,6 +660,8 @@ int RunGame(const FGameOptions& Options)
 			    .bThrow = Input.bThrow,
 			    .bToggleCamera = Input.bToggleCamera,
 			    .bToggleRagdoll = Input.bToggleRagdoll,
+			    .bAttack = Input.bAttack,
+			    .bBlock = Window.IsMouseButtonDown(EMouseButton::Right),
 			};
 
 			if (Gamepad)

@@ -1722,6 +1722,8 @@ Exit condition: a controllable character in the Sandbox blends and plays cooked 
 
 ### Milestone 8.5 - Skeletal dismemberment
 
+Status: in progress as of 2026-11-10. Blade-plane slicing, weight-boundary severing at runtime, the sword, Character training dummies, and their Sandbox station are in; see [Animation](Animation.md#slicing-and-severing). Severing splits at runtime rather than cook time, and cut halves fall as rigid hulls rather than ragdolls.
+
 - Mark severable joints, such as the neck, shoulders, elbows, hips, and knees, in a skinned model's `.hmeta`.
 - At cook time, split the mesh where vertex weights pass from a severable joint's subtree to its parent, so cuts follow the real weight boundary. Close both sides with generated cap geometry in a wound material slot, and duplicate the seam vertices with full weight on one side so neither the body nor the limb tears or stretches. Store each limb as a piece of the same skinned model.
 - At runtime, severing hides the joint's subtree on the body, shows the stump cap, and spawns the limb piece with its own pose as a ragdoll segment. Damage from sorted contact events chooses the joint, so severing replicates through the deterministic simulation.
