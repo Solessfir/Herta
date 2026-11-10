@@ -2428,9 +2428,13 @@ std::vector<FAssetId> FGameSession::GetStateTrees() const
 	std::vector<FAssetId> Trees;
 	for (const FImplementation::FCharacterActor& Actor : Implementation->Characters)
 	{
-		if (Actor.Npc && Actor.Npc->GetSettings().StateTree.IsValid() && !std::ranges::contains(Trees, Actor.Npc->GetSettings().StateTree))
+		const FAssetId Tree = Actor.Npc ? Actor.Npc->GetSettings().StateTree : FAssetId{};
+		if (Tree.IsValid() && std::ranges::none_of(Trees, [&Tree](const FAssetId& Known)
 		{
-			Trees.push_back(Actor.Npc->GetSettings().StateTree);
+			return Known == Tree;
+		}))
+		{
+			Trees.push_back(Tree);
 		}
 	}
 

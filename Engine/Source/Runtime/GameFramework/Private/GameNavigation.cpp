@@ -126,7 +126,13 @@ std::expected<void, FGameError> FGameNavigation::Start(const std::span<const FLe
 
 void FGameNavigation::ActivateRegion(const FObjectId& Region)
 {
-	if (std::ranges::contains(ActiveRegions, Region))
+	// ClangCL rejects the vectorized find on 16-byte IDs, so the region is compared by hand.
+	const auto IsRegion = [&Region](const FObjectId& Active)
+	{
+		return Active == Region;
+	};
+
+	if (std::ranges::any_of(ActiveRegions, IsRegion))
 	{
 		return;
 	}
@@ -152,7 +158,11 @@ void FGameNavigation::ActivateRegion(const FObjectId& Region)
 
 void FGameNavigation::UnloadRegion(const FObjectId& Region)
 {
-	std::erase(ActiveRegions, Region);
+	std::erase_if(ActiveRegions, [&Region](const FObjectId& Active)
+	{
+		return Active == Region;
+	});
+
 	const auto Patch = std::ranges::find(Patches, Region, &FPatch::Region);
 	if (Patch != Patches.end())
 	{
