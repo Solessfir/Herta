@@ -98,8 +98,10 @@ struct FNavigationAgentParameters
 
 struct FNavigationAgentState
 {
+	// Where the crowd moved the agent, or where its owner last reported it.
 	FVector3 Position{};
-	// Where the crowd steers the agent this update, avoiding others; its owner moves it, then reports where it ended up.
+	// The agent's velocity this update, steering around others; an owner that moves the agent itself, such as a physics character, moves it
+	// by this and reports where it ended up.
 	FVector3 DesiredVelocity{};
 	// Off the loaded navigation, such as on a region that streamed out; the agent rejoins once navigation under it loads.
 	bool bOnNavigation = false;

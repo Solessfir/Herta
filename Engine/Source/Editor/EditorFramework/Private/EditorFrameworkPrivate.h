@@ -669,6 +669,8 @@ struct FEditorFramework::FImplementation
 	std::optional<std::uint64_t> NavigationSettlingKey;
 	std::chrono::steady_clock::time_point NavigationChangedAt{};
 	std::uint64_t PlayNavigationKey = 0;
+	// StateTrees given to the running Play session.
+	std::set<FAssetId> PlayStateTrees;
 	std::filesystem::path WatchedShaderContentRoot;
 	FTaskSystem* Tasks = nullptr;
 	IGraphicsDevice* GraphicsDevice = nullptr;

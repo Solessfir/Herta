@@ -47,6 +47,7 @@ FNavigationObstacle FGameNavigation::Place(const FObstacle& Obstacle, const FMat
 std::expected<void, FGameError> FGameNavigation::Start(const std::span<const FLevelEntity> Entities, const std::span<const FMatrix4> InAuthoredWorld, const FLevelSimulationSetup& Setup)
 {
 	World.reset();
+	++Generation;
 	Obstacles.clear();
 	Patches.clear();
 	AuthoredWorld.assign(InAuthoredWorld.begin(), InAuthoredWorld.end());
@@ -211,5 +212,10 @@ FNavigationWorld* FGameNavigation::GetWorld() noexcept
 const FNavigationWorld* FGameNavigation::GetWorld() const noexcept
 {
 	return World.get();
+}
+
+std::uint64_t FGameNavigation::GetGeneration() const noexcept
+{
+	return Generation;
 }
 }

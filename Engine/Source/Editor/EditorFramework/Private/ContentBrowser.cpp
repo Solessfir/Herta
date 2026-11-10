@@ -215,6 +215,12 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 					Row("Emitters", std::format("{}", Particles->Emitters));
 					Row("Particles", std::format("Up to {}{}", Particles->MaximumParticles, Particles->bLooping ? ", looping" : ""));
 				}
+				else if (const auto* Tree = std::get_if<FPreviewStateTreeMetadata>(&*Cached->Metadata))
+				{
+					Row("States", std::format("{}", Tree->States));
+					Row("Tasks", std::format("{}", Tree->Tasks));
+					Row("Transitions", std::format("{}", Tree->Transitions));
+				}
 				else if (const auto* Material = std::get_if<FPreviewMaterialMetadata>(&*Cached->Metadata))
 				{
 					Row("Name", Material->Name);

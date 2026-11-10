@@ -53,6 +53,12 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 		{
 			Wanted.push_back(Entity.ParticleEmitter->System);
 		}
+
+		// So do StateTrees, so agents start with Play.
+		if (Entity.AiAgent)
+		{
+			Wanted.push_back(Entity.AiAgent->StateTree);
+		}
 	}
 
 	if (Level)
@@ -105,6 +111,16 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 				(void)PlaySession->AddParticleSystem(Sound, Slot->ParticleSystem);
 			}
 
+			// Adding a tree restarts every agent, so each tree goes to a session once.
+			if (Slot && Slot->StateTree && PlaySession && !PlayStateTrees.contains(Sound))
+			{
+				PlayStateTrees.insert(Sound);
+				if (auto Added = PlaySession->AddStateTree(Sound, Slot->StateTree); !Added)
+				{
+					HERTA_LOG_WARNING(*Log, EditorLog, "{} will not run: {}", Slot->Label, Added.error().Message);
+				}
+			}
+
 			continue;
 		}
 
@@ -149,7 +165,7 @@ bool FEditorFramework::FImplementation::AreLevelSoundsLoading() const
 
 	return std::ranges::any_of(Level->GetSounds(), Loading) || std::ranges::any_of(Level->GetEffects(), Loading) || std::ranges::any_of(VisualEntities, [&Loading](const FLevelEntity& Entity)
 	{
-		return (Entity.AudioEmitter && Loading(Entity.AudioEmitter->Sound)) || (Entity.ParticleEmitter && Loading(Entity.ParticleEmitter->System));
+		return (Entity.AudioEmitter && Loading(Entity.AudioEmitter->Sound)) || (Entity.ParticleEmitter && Loading(Entity.ParticleEmitter->System)) || (Entity.AiAgent && Loading(Entity.AiAgent->StateTree));
 	});
 }
 

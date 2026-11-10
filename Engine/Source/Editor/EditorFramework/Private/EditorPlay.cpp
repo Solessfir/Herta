@@ -1,4 +1,5 @@
 #include "EditorFrameworkPrivate.h"
+#include "Herta/Navigation/NavigationWorld.h"
 
 #include <simdjson.h>
 
@@ -260,6 +261,9 @@ void FEditorFramework::FImplementation::TogglePlay()
 	}
 
 	PlaySession = std::move(*Session);
+	// A new session gets the latest navigation and its agents' trees again.
+	PlayNavigationKey = 0;
+	PlayStateTrees.clear();
 	PlaySession->SetRegions(Level->GetRegions(), MakeRegionLoader());
 	PlayAssets = std::move(GameAssets);
 	bPlayPaused = false;
@@ -800,6 +804,26 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 		Output += std::format(", \"characters\": {}, \"cuts\": {}, \"cutPieces\": {}", PlaySession->GetCharacterCount(), PlaySession->GetCutCount(), PlaySession->GetCutPieceCount());
 		const FParticleStats Particles = PlaySession->GetParticleStats();
 		Output += std::format(", \"particles\": {{\"effects\": {}, \"live\": {}, \"spawned\": {}, \"dropped\": {}, \"retired\": {}, \"collisions\": {}}}", Particles.Effects, Particles.Particles, Particles.Spawned, Particles.Dropped, Particles.EffectsRetired, Particles.Collisions);
+		Output += ", \"agents\": [";
+		const std::vector<FGameAgentState> Agents = PlaySession->GetAgentStates();
+		for (std::size_t Index = 0; Index < Agents.size(); ++Index)
+		{
+			const FGameAgentState& Agent = Agents[Index];
+			Output += Index == 0 ? "{\"name\": " : ", {\"name\": ";
+			AppendJsonString(Output, Agent.Name);
+			Output += ", \"state\": ";
+			AppendJsonString(Output, Agent.State);
+			Output += std::format(", \"foot\": [{:.3f}, {:.3f}, {:.3f}], \"yaw\": {:.3f}, \"health\": {:.2f}, \"sees\": {}, \"remembers\": {}, \"onNavigation\": {}, \"attacking\": {}}}", Agent.Foot.X, Agent.Foot.Y, Agent.Foot.Z, Agent.Yaw, Agent.Health, Agent.bSeesPlayer ? "true" : "false",
+			    Agent.bRemembersPlayer ? "true" : "false", Agent.bOnNavigation ? "true" : "false", Agent.bAttacking ? "true" : "false");
+		}
+
+		Output += "]";
+		if (const FNavigationWorld* const PlayNavigation = PlaySession->GetNavigation())
+		{
+			const FNavigationStats Loaded = PlayNavigation->GetStats();
+			Output += std::format(", \"navigation\": {{\"sources\": {}, \"tiles\": {}, \"polygons\": {}, \"obstacles\": {}, \"pendingObstacles\": {}, \"agents\": {}}}", Loaded.Sources, Loaded.Tiles, Loaded.Polygons, Loaded.Obstacles, Loaded.PendingObstacles, Loaded.Agents);
+		}
+
 		const FRegionStats Regions = PlaySession->GetRegionStats();
 		Output += std::format(", \"regions\": {{\"loaded\": {}, \"loading\": {}, \"preparing\": {}, \"loads\": {}, \"unloads\": {}, \"cancelled\": {}, \"failed\": {}, \"deferred\": {}, \"lastError\": ", Regions.Loaded, Regions.Loading, Regions.Preparing, Regions.Loads, Regions.Unloads, Regions.Cancelled, Regions.Failed, Regions.Deferred);
 		AppendJsonString(Output, Regions.LastError);

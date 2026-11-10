@@ -269,22 +269,12 @@ TEST_CASE("Navigation crowds steer agents past each other and rejoin streamed na
 	const auto Data = BuildNavigationData(Geometry, FloorBox);
 	REQUIRE(Data);
 
-	// Moves agents by the crowd's velocity, as a physics character would, and reports where they end up.
-	const auto Run = [](FNavigationWorld& World, const std::span<const FNavigationAgentId> Agents, const int Steps)
+	// The crowd moves its agents itself; Agents is only for symmetry with owners that would report positions.
+	const auto Run = [](FNavigationWorld& World, const std::span<const FNavigationAgentId>, const int Steps)
 	{
-		constexpr float Step = 1.f / 60.f;
 		for (int Index = 0; Index < Steps; ++Index)
 		{
-			for (const FNavigationAgentId Agent : Agents)
-			{
-				const auto State = World.GetAgent(Agent);
-				if (State && State->bOnNavigation)
-				{
-					World.SetAgentPosition(Agent, State->Position + State->DesiredVelocity * Step, State->DesiredVelocity);
-				}
-			}
-
-			World.Update(Step);
+			World.Update(1.f / 60.f);
 		}
 	};
 

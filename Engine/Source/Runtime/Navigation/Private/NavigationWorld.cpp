@@ -773,9 +773,11 @@ void FNavigationWorld::Update(const float DeltaSeconds)
 
 	for (FImplementation::FAgent& Agent : World.Agents)
 	{
+		// The crowd moves its own agents; external ones are wherever their owner last put them.
 		const dtCrowdAgent* const Crowded = Agent.CrowdIndex >= 0 ? World.Crowd->getAgent(Agent.CrowdIndex) : nullptr;
-		if (Crowded && Crowded->active && !Agent.Parameters.bExternal)
+		if (Crowded && Crowded->active && Crowded->state != DT_CROWDAGENT_STATE_INVALID && !Agent.Parameters.bExternal)
 		{
+			Agent.Position = ToVector(Crowded->npos);
 			Agent.Velocity = ToVector(Crowded->vel);
 		}
 	}

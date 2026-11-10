@@ -8,6 +8,8 @@
 #include "CharacterPiece.h"
 #include "GameAudio.h"
 #include "GameNavigation.h"
+#include "GameNpc.h"
+#include "Herta/AI/AiWorld.h"
 #include "PlayerCharacter.h"
 #include "WorldStreamer.h"
 
@@ -168,6 +170,66 @@ struct FSoftBodyMesh
 	std::uint64_t Revision = 0;
 };
 
+// Line of sight through physics and reachable points from navigation, the world as agents sense it.
+class FSessionAiEnvironment final : public IAiEnvironment
+{
+public:
+	FSessionAiEnvironment(const FPhysicsWorld* const InPhysics, const FNavigationWorld* const InNavigation)
+	    : Physics(InPhysics)
+	    , Navigation(InNavigation)
+	{
+	}
+
+	bool HasLineOfSight(const FVector3& From, const FVector3& To) const override
+	{
+		const FVector3 Offset = To - From;
+		const float Length = Offset.Length();
+		// The ray starts outside the looker's own capsule, which would otherwise hide everything.
+		constexpr float CapsuleClearance = 0.45f;
+		if (!Physics || Length <= CapsuleClearance + 0.1f)
+		{
+			return true;
+		}
+
+		const FVector3 Start = From + Offset * (CapsuleClearance / Length);
+		return !Physics->CastSphereHit(Physics->ToWorld(Start), Physics->ToWorld(To), 0.05f).has_value();
+	}
+
+	std::optional<FVector3> FindReachablePoint(const FVector3& Center, const float Radius, std::uint64_t& Random) const override
+	{
+		if (!Navigation)
+		{
+			return std::nullopt;
+		}
+
+		for (int Attempt = 0; Attempt < 6; ++Attempt)
+		{
+			const auto Unit = [&Random]
+			{
+				Random += 0x9e3779b97f4a7c15ull;
+				std::uint64_t Value = Random;
+				Value = (Value ^ (Value >> 30)) * 0xbf58476d1ce4e5b9ull;
+				Value = (Value ^ (Value >> 27)) * 0x94d049bb133111ebull;
+				return static_cast<float>((Value ^ (Value >> 31)) >> 40) / static_cast<float>(1ull << 24);
+			};
+
+			const float Angle = Unit() * 2.f * std::numbers::pi_v<float>;
+			const float Distance = Radius * std::sqrt(Unit());
+			const FVector3 Point = Center + FVector3{std::sin(Angle), 0.f, std::cos(Angle)} * Distance;
+			if (const auto Nearest = Navigation->FindNearestPoint(Point, {1.f, 3.f, 1.f}))
+			{
+				return Nearest;
+			}
+		}
+
+		return std::nullopt;
+	}
+
+private:
+	const FPhysicsWorld* Physics = nullptr;
+	const FNavigationWorld* Navigation = nullptr;
+};
+
 struct FTriggerZone
 {
 	std::size_t Entity = 0;
@@ -179,6 +241,8 @@ struct FTriggerZone
 
 struct FGameSession::FImplementation
 {
+	struct FCharacterActor;
+
 	[[nodiscard]] std::expected<void, FGameError> Start();
 	[[nodiscard]] std::expected<void, FPhysicsError> StepPlayer(FPhysicsWorld& World, float StepSeconds);
 	void UpdateObjective(float DeltaSeconds);
@@ -217,6 +281,12 @@ struct FGameSession::FImplementation
 	[[nodiscard]] std::expected<void, FGameError> UpdateRegions();
 	[[nodiscard]] std::expected<void, FGameError> ActivateRegion(std::size_t Streamed);
 	void UnloadRegion(std::size_t Region);
+	// Gives every agent a fresh mind and a crowd agent in the current navigation, and the player a crowd agent others steer around.
+	void StartAgents();
+	// After the player and the characters stepped: the crowd, then the agents' bodies, then what they sense and decide.
+	void StepAgents(FPhysicsWorld& World, float StepSeconds);
+	// A swing whose blade starts moving with the player in reach and in front knocks the player down.
+	void StrikePlayer(const FCharacterActor& Actor);
 
 	// cppcheck-suppress uninitMemberVarNoCtor ; set by aggregate initialization in Create
 	const IGameAssets& Assets;
@@ -244,6 +314,15 @@ struct FGameSession::FImplementation
 	// The setup the simulation last started from, which navigation rebuilds its obstacles from.
 	FLevelSimulationSetup Setup{};
 	FGameNavigation Navigation{};
+	// Recreated with every start, so agents begin each run with nothing remembered.
+	std::unique_ptr<FAiWorld> Ai{};
+	std::map<FAssetId, std::shared_ptr<const FCookedStateTree>> StateTrees{};
+	std::optional<FNavigationAgentId> PlayerAgent{};
+	std::uint64_t AgentsGeneration = 0;
+	float SprintNoiseSeconds = 0.f;
+	// A strike that knocks the player down waits for the step to finish, and the player gets back up on their own after a while.
+	std::optional<FVector3> PendingKnockdown{};
+	std::optional<float> KnockdownSeconds{};
 	// Chunk meshes per destructible, built once: fractures are deterministic, so every restart produces the same chunks.
 	std::map<std::size_t, std::vector<std::shared_ptr<const FRenderMesh>>> ChunkMeshes{};
 	std::shared_ptr<const FRenderMesh> ProjectileMesh{};
@@ -263,6 +342,10 @@ struct FGameSession::FImplementation
 		std::unique_ptr<FPlayerCharacter> Body{};
 		FCharacterComponent Settings{};
 		FPhysicsBodyId Collider{};
+		// Where it stands now, which an AI agent walks away from where it was authored.
+		FMatrix4 Model{};
+		std::unique_ptr<FGameNpc> Npc{};
+		std::optional<FAiAgentId> Agent{};
 	};
 
 	std::vector<FCharacterActor> Characters{};
@@ -507,10 +590,18 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 			continue;
 		}
 
-		Session.Characters.push_back({.Entity = Index, .Body = std::move(*Body), .Settings = *Entity.Character});
+		FImplementation::FCharacterActor& Actor = Session.Characters.emplace_back(FImplementation::FCharacterActor{.Entity = Index, .Body = std::move(*Body), .Settings = *Entity.Character, .Model = Session.AuthoredWorld[Index]});
+		if (Entity.AiAgent)
+		{
+			Actor.Npc = std::make_unique<FGameNpc>(*Actor.Body, *Entity.AiAgent);
+		}
 	}
 
-	if (Device && Character)
+	// The player and every guard carry the same sword.
+	if (Device && (Character || std::ranges::any_of(Session.Characters, [](const FImplementation::FCharacterActor& Actor)
+	{
+		return Actor.Npc != nullptr;
+	})))
 	{
 		auto Sword = FRenderMesh::Create(*Device, BuildSwordModel(), "Sword");
 		if (!Sword)
@@ -650,6 +741,10 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	{
 		return Navigated;
 	}
+
+	PendingKnockdown.reset();
+	KnockdownSeconds.reset();
+	StartAgents();
 
 	Objective.State = StartZone && FinishZone ? EGameObjectiveState::Ready : EGameObjectiveState::Exploring;
 	Objective.ElapsedSeconds = 0.;
@@ -882,9 +977,36 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 
 	if (Input.bToggleRagdoll)
 	{
+		Session.KnockdownSeconds.reset();
 		if (auto Toggled = Session.Ragdoll ? Session.EndRagdoll() : Session.StartRagdoll(); !Toggled)
 		{
 			return std::unexpected(FGameError{std::format("Cannot ragdoll: {}", Toggled.error().Message)});
+		}
+	}
+
+	if (const auto Push = std::exchange(Session.PendingKnockdown, std::nullopt); Push && !Session.Ragdoll && Session.Body)
+	{
+		if (auto Fallen = Session.StartRagdoll(); !Fallen)
+		{
+			return std::unexpected(FGameError{std::format("Cannot knock the player down: {}", Fallen.error().Message)});
+		}
+
+		FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld();
+		for (std::size_t Part = 0; World && Session.Ragdoll && Part < std::min<std::size_t>(Session.Ragdoll->Parts.size(), 3); ++Part)
+		{
+			(void)World->AddImpulse(Session.Ragdoll->Parts[Part], *Push, Session.RagdollParts[Part].Position);
+		}
+
+		Session.KnockdownSeconds = 0.f;
+	}
+
+	constexpr float KnockdownGetUpSeconds = 2.5f;
+	if (Session.KnockdownSeconds && (*Session.KnockdownSeconds += DeltaSeconds) >= KnockdownGetUpSeconds)
+	{
+		Session.KnockdownSeconds.reset();
+		if (auto Risen = Session.EndRagdoll(); !Risen)
+		{
+			return std::unexpected(FGameError{std::format("Cannot get up: {}", Risen.error().Message)});
 		}
 	}
 
@@ -908,7 +1030,7 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 			return Stepped;
 		}
 
-		Session.Navigation.Step(Session.Simulation, StepSeconds);
+		Session.StepAgents(World, StepSeconds);
 		return std::expected<void, FPhysicsError>{};
 	});
 
@@ -927,6 +1049,10 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 		Session.Events.push_back(std::format("{} broke ({} bonds)", Session.Entities[Break.ObjectIndex].Name, Break.BrokenBonds));
 		Session.Audio.Play(ELevelSound::Impact, Break.Point, {{.Name = "Impulse", .Value = MaximumImpactImpulse}});
 		Session.RequestEffect(ELevelEffect::Break, Break.Point);
+		if (Session.Ai)
+		{
+			Session.Ai->PostNoise(Break.Point, 30.f);
+		}
 	}
 
 	// The hardest few impacts of the frame sound; the rest would be masked by them anyway.
@@ -944,6 +1070,11 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 		// Harder hits throw a bigger cloud, up to twice the authored size.
 		const FVector3 Up = Impact.Normal.Y < 0.f ? -Impact.Normal : Impact.Normal;
 		Session.RequestEffect(ELevelEffect::Impact, Impact.Point, Up, std::clamp(Impact.Impulse / 20.f, 0.5f, 2.f));
+		// Harder impacts carry further: a thrown ball's thud is heard about fifteen meters away.
+		if (Session.Ai)
+		{
+			Session.Ai->PostNoise(Impact.Point, std::clamp(Impact.Impulse * 0.6f, 4.f, 25.f));
+		}
 	}
 
 	for (const FLevelTriggerEvent& Event : Session.Simulation.TakeTriggerEvents())
@@ -1171,13 +1302,13 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade()
 	for (std::size_t Index = 0; Index < Characters.size(); ++Index)
 	{
 		FPlayerCharacter& Character = *Characters[Index].Body;
-		if (std::ranges::contains(SwingCuts, Index) || Character.IsEmpty() || !Crossed(Character.GetVertices(), AuthoredWorld[Characters[Index].Entity]))
+		if (std::ranges::contains(SwingCuts, Index) || Character.IsEmpty() || !Crossed(Character.GetVertices(), Characters[Index].Model))
 		{
 			continue;
 		}
 
 		SwingCuts.push_back(Index);
-		const auto Inverse = TryInverseAffine(AuthoredWorld[Characters[Index].Entity]);
+		const auto Inverse = TryInverseAffine(Characters[Index].Model);
 		const FVector3 LocalPoint = Inverse ? TransformPoint(*Inverse, Blade[0]) : Blade[0];
 		const FVector3 LocalNormal = Inverse ? Inverse->TransformVector(Unit).Normalized() : Unit;
 		auto Cut = CutCharacter(Index, [&](FPlayerCharacter& Body)
@@ -1243,12 +1374,13 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StartCharacter
 	for (FCharacterActor& Actor : Characters)
 	{
 		Actor.Body->Restart();
+		Actor.Model = AuthoredWorld[Actor.Entity];
 		// A standing capsule the player and thrown balls bump into; cuts and hits are found against the body itself.
 		auto Collider = World.CreateBody({
 		    .Shape = EPhysicsShape::Capsule,
 		    .Radius = 0.3f,
 		    .HalfHeight = 0.6f,
-		    .Position = GetTranslation(AuthoredWorld[Actor.Entity]) + FVector3::Up() * 0.9f,
+		    .Position = GetTranslation(Actor.Model) + FVector3::Up() * 0.9f,
 		    .MotionType = EPhysicsMotionType::Kinematic,
 		});
 		if (!Collider)
@@ -1267,7 +1399,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 	// Characters animate in the fixed step, so the pose a ball severs against is the same on every run.
 	for (FCharacterActor& Actor : Characters)
 	{
-		Actor.Body->Update(StepSeconds, {.GroundSpeed = 0.f, .bGrounded = true});
+		Actor.Body->Update(StepSeconds, {.GroundSpeed = Actor.Npc ? Actor.Npc->GetGroundSpeed() : 0.f, .bGrounded = true});
 		if (auto Posed = Actor.Body->EvaluatePose(); !Posed)
 		{
 			return std::unexpected(FPhysicsError{Posed.error().Message});
@@ -1287,7 +1419,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 		for (std::size_t Index = 0; Index < Characters.size(); ++Index)
 		{
 			FCharacterActor& Actor = Characters[Index];
-			const FMatrix4& Model = AuthoredWorld[Actor.Entity];
+			const FMatrix4& Model = Actor.Model;
 			const FVector3 Foot = GetTranslation(Model);
 			const FVector3 Offset = Transform->Position - Foot;
 			// Touching the capsule: within its radius plus the ball's, between the feet and the top of the head.
@@ -1303,6 +1435,10 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 
 			Projectile.bSpent = true;
 			Actor.Body->FireTrigger("Hit");
+			if (Ai && Actor.Agent)
+			{
+				Ai->ReportHit(*Actor.Agent, Mover->GetState().Foot);
+			}
 			const float Impulse = Velocity->Length() * ProjectileMassKg;
 			const auto Inverse = TryInverseAffine(Model);
 			if (Impulse < Actor.Settings.SeverImpulse || !Inverse)
@@ -1358,8 +1494,18 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 	++CutCount;
 	Actor.Body->FireTrigger("Hit");
 	Events.push_back(std::format("{} was cut", Entities[Actor.Entity].Name));
+	// Every cut costs an agent a quarter of its health and tells it who did it.
+	if (Actor.Npc)
+	{
+		Actor.Npc->Wound(0.25f);
+		if (Ai && Actor.Agent)
+		{
+			Ai->ReportHit(*Actor.Agent, Mover->GetState().Foot);
+		}
+	}
+
 	FPlayerCharacter& Victim = *Actor.Body;
-	const FMatrix4& Model = AuthoredWorld[Actor.Entity];
+	const FMatrix4 Model = Actor.Model;
 	if (auto Added = AddPiece(Character, Victim.GetCookedModel(), Victim.GetLibrary(), Victim.GetModelTransforms(), std::move(**Severed), Model, Away * 1.5f + FVector3::Up() * 0.5f); !Added)
 	{
 		return std::unexpected(Added.error());
@@ -1371,6 +1517,17 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 	if ((Head && !Victim.Carries(*Head)) || (Chest && !Victim.Carries(*Chest)))
 	{
 		Victim.SetBool("Dead", true);
+		if (Actor.Npc)
+		{
+			Actor.Npc->Wound(1.f);
+			if (Ai && Actor.Agent)
+			{
+				Ai->RemoveAgent(*Actor.Agent);
+			}
+
+			Actor.Agent.reset();
+		}
+
 		FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
 		if (auto Rest = Victim.DetachAll(); Rest && World)
 		{
@@ -1659,9 +1816,16 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		if (Actor.Body->Skin(false) && Actor.Body->GetMesh())
 		{
 			Session.VertexUpdates.push_back({.Mesh = Actor.Body->GetMesh(), .Vertices = Actor.Body->GetVertices()});
-			Session.Models.push_back(Session.AuthoredWorld[Actor.Entity]);
+			const FMatrix4 ActorModel = Actor.Npc && !Actor.Npc->IsDead() ? Actor.Npc->GetModel(Alpha) : Actor.Model;
+			Session.Models.push_back(ActorModel);
 			Session.Meshes.push_back(Actor.Body->GetMesh());
 			Session.MaterialSpans.emplace_back();
+			if (const auto Grip = Actor.Npc && !Actor.Npc->IsDead() && Session.SwordMesh ? Actor.Body->GetGripFrame() : std::nullopt)
+			{
+				Session.Models.push_back(ActorModel * *Grip);
+				Session.Meshes.push_back(Session.SwordMesh.get());
+				Session.MaterialSpans.emplace_back();
+			}
 		}
 	}
 
@@ -2090,7 +2254,258 @@ std::expected<void, FGameError> FGameSession::SetNavigation(std::shared_ptr<cons
 {
 	FImplementation& Session = *Implementation;
 	Session.Navigation.SetData(std::move(Navigation));
-	return Session.Navigation.Start(Session.Entities, Session.AuthoredWorld, Session.Setup);
+	if (auto Started = Session.Navigation.Start(Session.Entities, Session.AuthoredWorld, Session.Setup); !Started)
+	{
+		return Started;
+	}
+
+	Session.StartAgents();
+	return {};
+}
+
+void FGameSession::FImplementation::StartAgents()
+{
+	// Agents that joined this same navigation leave it before joining again; a navigation that restarted took them with it, so their old
+	// agents are forgotten before stopping their tasks could reach for them.
+	FNavigationWorld* const World = Navigation.GetWorld();
+	const bool bSameNavigation = World && AgentsGeneration == Navigation.GetGeneration();
+	if (!bSameNavigation)
+	{
+		PlayerAgent.reset();
+		for (FCharacterActor& Actor : Characters)
+		{
+			if (Actor.Npc)
+			{
+				Actor.Npc->Abandon();
+			}
+		}
+	}
+
+	if (Ai)
+	{
+		Ai->Stop();
+	}
+
+	Ai = std::make_unique<FAiWorld>();
+	if (bSameNavigation)
+	{
+		if (PlayerAgent)
+		{
+			World->RemoveAgent(*PlayerAgent);
+		}
+
+		for (FCharacterActor& Actor : Characters)
+		{
+			if (Actor.Npc)
+			{
+				Actor.Npc->Leave();
+			}
+		}
+	}
+
+	AgentsGeneration = Navigation.GetGeneration();
+	PlayerAgent.reset();
+	if (World && Mover)
+	{
+		if (auto Added = World->AddAgent(Mover->GetState().Foot, {.Radius = 0.3f, .Height = 1.8f, .MaximumSpeed = 10.f, .MaximumAcceleration = 40.f, .bExternal = true}))
+		{
+			PlayerAgent = *Added;
+		}
+	}
+
+	for (FCharacterActor& Actor : Characters)
+	{
+		Actor.Agent.reset();
+		if (!Actor.Npc)
+		{
+			continue;
+		}
+
+		Actor.Npc->Start(World, AuthoredWorld[Actor.Entity]);
+		Actor.Model = AuthoredWorld[Actor.Entity];
+		if (Actor.Body->IsEmpty())
+		{
+			Actor.Npc->Wound(1.f);
+			continue;
+		}
+
+		const FAiAgentComponent& Settings = Actor.Npc->GetSettings();
+		const auto Tree = StateTrees.find(Settings.StateTree);
+		if (Tree == StateTrees.end())
+		{
+			continue;
+		}
+
+		const FLevelEntity& Entity = Entities[Actor.Entity];
+		Actor.Agent = Ai->AddAgent({
+		    .Name = Entity.Name,
+		    .Body = Actor.Npc.get(),
+		    .Tree = Tree->second,
+		    .Perception = {.SightRange = Settings.SightRange, .SightHalfAngle = Settings.SightHalfAngle, .HearingRange = Settings.HearingRange},
+		    .WalkSpeed = Settings.WalkSpeed,
+		    .RunSpeed = Settings.RunSpeed,
+		    .Home = Actor.Npc->GetFootPosition(),
+		    .Seed = Entity.Id.GetHigh() ^ Entity.Id.GetLow(),
+		});
+	}
+}
+
+void FGameSession::FImplementation::StrikePlayer(const FCharacterActor& Actor)
+{
+	constexpr float Reach = 1.9f;
+	const FVector3 Target = Mover->GetState().Foot;
+	const FVector3 Foot = Actor.Npc->GetFootPosition();
+	const FVector3 Offset{Target.X - Foot.X, 0.f, Target.Z - Foot.Z};
+	const float Distance = Offset.Length();
+	const FVector3 Facing{std::sin(Actor.Npc->GetYaw()), 0.f, std::cos(Actor.Npc->GetYaw())};
+	if (Ragdoll || Distance > Reach || std::abs(Target.Y - Foot.Y) > 1.5f || (Distance > 0.3f && Offset.Dot(Facing) < 0.3f * Distance))
+	{
+		return;
+	}
+
+	PendingKnockdown = Facing * 90.f + FVector3::Up() * 30.f;
+	Events.push_back(std::format("{} struck the player", Entities[Actor.Entity].Name));
+	Audio.Play(ELevelSound::Impact, Target + FVector3::Up(), {{.Name = "Impulse", .Value = 40.f}});
+}
+
+void FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float StepSeconds)
+{
+	FNavigationWorld* const Crowd = Navigation.GetWorld();
+	const FMoverState& PlayerState = Mover->GetState();
+	if (Crowd && PlayerAgent)
+	{
+		Crowd->SetAgentPosition(*PlayerAgent, PlayerState.Foot, PlayerState.Velocity);
+	}
+
+	Navigation.Step(Simulation, StepSeconds);
+	for (FCharacterActor& Actor : Characters)
+	{
+		if (!Actor.Npc)
+		{
+			continue;
+		}
+
+		Actor.Npc->Step(StepSeconds, Actor.Body->GetEvents());
+		if (Actor.Npc->IsDead())
+		{
+			continue;
+		}
+
+		Actor.Model = Actor.Npc->GetModel(1.f);
+		if (Actor.Collider.Value != 0)
+		{
+			(void)World.MoveKinematicBody(Actor.Collider, {.Position = Actor.Npc->GetFootPosition() + FVector3::Up() * 0.9f, .Rotation = FQuaternion::Identity()}, StepSeconds);
+		}
+
+		if (Actor.Npc->IsSwingStarting())
+		{
+			StrikePlayer(Actor);
+		}
+	}
+
+	if (!Ai)
+	{
+		return;
+	}
+
+	// Sprinting footfalls carry; walking is quiet.
+	const float Speed = std::hypot(PlayerState.Velocity.X, PlayerState.Velocity.Z);
+	SprintNoiseSeconds = PlayerState.bGrounded && Speed > 5.5f ? SprintNoiseSeconds + StepSeconds : 0.f;
+	if (SprintNoiseSeconds >= 0.4f)
+	{
+		SprintNoiseSeconds = 0.f;
+		Ai->PostNoise(PlayerState.Foot, 9.f);
+	}
+
+	const FVector3 Foot = Ragdoll ? RagdollParts.front().Position - FVector3::Up() * 0.6f : PlayerState.Foot;
+	Ai->SetTarget(FAiTarget{.Foot = Foot, .Head = Foot + FVector3::Up() * 1.6f});
+	const FSessionAiEnvironment Environment(&World, Crowd);
+	Ai->Step(StepSeconds, Environment);
+}
+
+std::vector<FAssetId> FGameSession::GetStateTrees() const
+{
+	std::vector<FAssetId> Trees;
+	for (const FImplementation::FCharacterActor& Actor : Implementation->Characters)
+	{
+		if (Actor.Npc && Actor.Npc->GetSettings().StateTree.IsValid() && !std::ranges::contains(Trees, Actor.Npc->GetSettings().StateTree))
+		{
+			Trees.push_back(Actor.Npc->GetSettings().StateTree);
+		}
+	}
+
+	return Trees;
+}
+
+std::expected<void, FGameError> FGameSession::AddStateTree(const FAssetId& Id, std::shared_ptr<const FCookedStateTree> Tree)
+{
+	if (!Tree)
+	{
+		return std::unexpected(FGameError{"A StateTree is needed"});
+	}
+
+	Implementation->StateTrees[Id] = std::move(Tree);
+	Implementation->StartAgents();
+	return {};
+}
+
+std::vector<FGameAgentState> FGameSession::GetAgentStates() const
+{
+	const FImplementation& Session = *Implementation;
+	std::vector<FGameAgentState> States;
+	for (const FImplementation::FCharacterActor& Actor : Session.Characters)
+	{
+		if (!Actor.Npc)
+		{
+			continue;
+		}
+
+		FGameAgentState& State = States.emplace_back(FGameAgentState{
+		    .Name = Session.Entities[Actor.Entity].Name,
+		    .Foot = Actor.Npc->GetFootPosition(),
+		    .Yaw = Actor.Npc->GetYaw(),
+		    .Health = Actor.Npc->GetHealth(),
+		    .bOnNavigation = Actor.Npc->IsOnNavigation(),
+		    .bAttacking = Actor.Npc->IsAttacking(),
+		});
+
+		if (Session.Ai && Actor.Agent)
+		{
+			State.State = std::string(Session.Ai->GetStateName(*Actor.Agent));
+			if (const FAiMemory* const Memory = Session.Ai->GetMemory(*Actor.Agent))
+			{
+				State.bSeesPlayer = Memory->bSeesTarget;
+				State.bRemembersPlayer = Memory->LastSeen.has_value();
+			}
+		}
+	}
+
+	return States;
+}
+
+std::optional<FGameAgentDebug> FGameSession::GetAgentDebug(const std::size_t Agent) const
+{
+	const FImplementation& Session = *Implementation;
+	std::size_t Index = 0;
+	for (const FImplementation::FCharacterActor& Actor : Session.Characters)
+	{
+		if (!Actor.Npc)
+		{
+			continue;
+		}
+
+		if (Index++ == Agent)
+		{
+			if (!Session.Ai || !Actor.Agent)
+			{
+				return std::nullopt;
+			}
+
+			return FGameAgentDebug{.Tree = Actor.Npc->GetSettings().StateTree, .Program = Session.Ai->GetTree(*Actor.Agent), .Active = Session.Ai->GetActiveStates(*Actor.Agent)};
+		}
+	}
+
+	return std::nullopt;
 }
 
 const FNavigationWorld* FGameSession::GetNavigation() const noexcept
@@ -2219,7 +2634,7 @@ std::expected<bool, FGameError> FGameSession::SliceCharacter(const std::size_t C
 	}
 
 	// The plane moves into the character's model space, which has no scale for a placed character.
-	const FMatrix4& Model = Session.AuthoredWorld[Session.Characters[Character].Entity];
+	const FMatrix4& Model = Session.Characters[Character].Model;
 	const auto Inverse = TryInverseAffine(Model);
 	if (!Inverse)
 	{

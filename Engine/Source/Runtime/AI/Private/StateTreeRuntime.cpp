@@ -316,10 +316,11 @@ void FStateTreeExecution::Tick(const float DeltaSeconds, IStateTreeContext& Cont
 			for (std::uint16_t Index = State.FirstTransition; Index < State.FirstTransition + State.TransitionCount; ++Index)
 			{
 				const FStateTreeTransitionDesc& Transition = Program->Transitions[Index];
-				// After the first transition only finishing states chain on, so a tick or event transition cannot bounce straight back.
+				// Tick transitions only start a tick, so they cannot bounce straight back; an event waits through finishing transitions until one
+				// takes it, and each event is taken once.
 				const bool bTriggered = (Transition.Trigger == EStateTreeTrigger::OnCompleted && Status != EStateTreeStatus::Running) || (Transition.Trigger == EStateTreeTrigger::OnSucceeded && Status == EStateTreeStatus::Succeeded)
 				                        || (Transition.Trigger == EStateTreeTrigger::OnFailed && Status == EStateTreeStatus::Failed) || (Taken == 0 && Transition.Trigger == EStateTreeTrigger::OnTick)
-				                        || (Taken == 0 && Transition.Trigger == EStateTreeTrigger::OnEvent && std::ranges::contains(Events, Transition.Event));
+				                        || (Transition.Trigger == EStateTreeTrigger::OnEvent && std::ranges::contains(Events, Transition.Event));
 				// A tick or event transition into a state that is already running would restart it every time, so it waits until that state ends.
 				const bool bRestartsActive = (Transition.Trigger == EStateTreeTrigger::OnTick) && Transition.Kind == EStateTreeTransitionKind::GotoState && std::ranges::contains(GetActiveStates(), Transition.Target);
 				if (bTriggered && !bRestartsActive && TestConditions(Transition.FirstCondition, Transition.ConditionCount, Depth, Context))
@@ -362,6 +363,11 @@ void FStateTreeExecution::Tick(const float DeltaSeconds, IStateTreeContext& Cont
 		const auto [Depth, Index] = *Chosen;
 		const FStateTreeTransitionDesc& Transition = Program->Transitions[Index];
 		Record(EStateTreeTraceType::Transition, Active[Depth], Index);
+		if (Transition.Trigger == EStateTreeTrigger::OnEvent)
+		{
+			std::erase(Events, Transition.Event);
+		}
+
 		if (Transition.Kind == EStateTreeTransitionKind::GotoState)
 		{
 			if (!Goto(Transition.Target, Context))

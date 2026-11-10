@@ -539,6 +539,18 @@ int RunGame(const FGameOptions& Options)
 			HERTA_LOG_WARNING(*Log, GameLog, "Agents have no navigation: {}", Loaded.error().Message);
 		}
 	}
+
+	// Agents start once their StateTree arrives; one that fails to load leaves its character standing.
+	for (const FAssetId& TreeId : Session->GetStateTrees())
+	{
+		auto Cooked = Content.Load(TreeId);
+		auto* const Tree = Cooked ? std::get_if<FCookedStateTree>(&*Cooked) : nullptr;
+		const auto Added = Tree ? Session->AddStateTree(TreeId, std::make_shared<const FCookedStateTree>(std::move(*Tree))) : std::unexpected(FGameError{Cooked ? "the asset is not a StateTree" : Cooked.error().Message});
+		if (!Added)
+		{
+			HERTA_LOG_WARNING(*Log, GameLog, "StateTree {} will not run: {}", TreeId.ToString(), Added.error().Message);
+		}
+	}
 	std::unique_ptr<FAudioEngine> Audio;
 	if (auto AudioResult = FAudioEngine::Create({.Device = bSmokeTest ? EAudioDevice::Null : EAudioDevice::Default}); AudioResult)
 	{

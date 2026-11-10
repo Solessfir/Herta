@@ -74,7 +74,14 @@ struct FPreviewParticleMetadata
 	bool bLooping = false;
 };
 
-using FPreviewAssetMetadata = std::variant<FPreviewModelMetadata, FPreviewTextureMetadata, FPreviewMaterialMetadata, FPreviewSoundMetadata, FPreviewParticleMetadata>;
+struct FPreviewStateTreeMetadata
+{
+	std::size_t States = 0;
+	std::size_t Tasks = 0;
+	std::size_t Transitions = 0;
+};
+
+using FPreviewAssetMetadata = std::variant<FPreviewModelMetadata, FPreviewTextureMetadata, FPreviewMaterialMetadata, FPreviewSoundMetadata, FPreviewParticleMetadata, FPreviewStateTreeMetadata>;
 
 FPreviewAssetMetadata GetPreviewAssetMetadata(const FCookedAsset& Asset);
 
@@ -94,6 +101,7 @@ struct FPreviewMeshSlot
 	std::optional<FCookedSoundStream> SoundStream;
 	std::shared_ptr<const FCookedSoundGraph> SoundGraph;
 	std::shared_ptr<const FCookedParticleSystem> ParticleSystem;
+	std::shared_ptr<const FCookedStateTree> StateTree;
 	FEditorAssetThumbnail Thumbnail;
 	std::optional<FPreviewAssetMetadata> Metadata;
 

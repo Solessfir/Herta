@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/Assets/StateTree.h"
 #include "Herta/Audio/AudioCommands.h"
 #include "Herta/GameFramework/CharacterMover.h"
 #include "Herta/GameFramework/GameSave.h"
@@ -137,6 +138,29 @@ struct FGameObjective
 	std::uint32_t Respawns = 0;
 };
 
+// An AI agent as automation and debuggers see it.
+struct FGameAgentState
+{
+	std::string Name{};
+	// The active leaf state of its StateTree, or empty while the tree is still loading or after the agent died.
+	std::string State{};
+	FVector3 Foot{};
+	float Yaw = 0.f;
+	float Health = 1.f;
+	bool bSeesPlayer = false;
+	bool bRemembersPlayer = false;
+	bool bOnNavigation = false;
+	bool bAttacking = false;
+};
+
+// The StateTree an agent runs and its active states from the root, for highlighting in an editor.
+struct FGameAgentDebug
+{
+	FAssetId Tree{};
+	const FCookedStateTree* Program = nullptr;
+	std::span<const std::uint16_t> Active{};
+};
+
 // A region's level as a worker read it, with the host's hooks for the assets its entities draw with.
 struct FLoadedRegion
 {
@@ -258,6 +282,14 @@ public:
 	[[nodiscard]] std::expected<void, FGameError> SetNavigation(std::shared_ptr<const FNavigationFile> Navigation);
 	// Loaded navigation, for debug drawing and queries; null without any.
 	[[nodiscard]] const FNavigationWorld* GetNavigation() const noexcept;
+	// The StateTrees the level's AI agents run, for the host to load before play. An agent stands still until its tree is added.
+	[[nodiscard]] std::vector<FAssetId> GetStateTrees() const;
+	// Starts the agents that run Tree, restarting every agent's mind and placing it back where it was authored.
+	[[nodiscard]] std::expected<void, FGameError> AddStateTree(const FAssetId& Id, std::shared_ptr<const FCookedStateTree> Tree);
+	// Characters placed with an AI Agent component, in level order.
+	[[nodiscard]] std::vector<FGameAgentState> GetAgentStates() const;
+	// The Agent-th agent of GetAgentStates, while its StateTree runs.
+	[[nodiscard]] std::optional<FGameAgentDebug> GetAgentDebug(std::size_t Agent) const;
 	// What the session asked audio to do since the previous call. A host with a device submits them; a headless session records the same
 	// commands, so tests compare them without one.
 	[[nodiscard]] std::vector<FAudioCommand> TakeAudioCommands();

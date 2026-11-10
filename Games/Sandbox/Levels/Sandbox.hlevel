@@ -1440,6 +1440,56 @@
           "size": [26, 12, 56]
         }
       }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000011",
+      "name": "Guard - causeway, patrols the streamed causeway",
+      "parent": null,
+      "transform": {
+        "translation": [-20, 0, 9],
+        "rotation": [0, 0.7071068, 0, 0.7071068],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        },
+        "aiAgent": {
+          "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
+          "sightRange": 15,
+          "sightHalfAngle": 1.0471976,
+          "hearingRange": 12,
+          "walkSpeed": 1.5,
+          "runSpeed": 4
+        }
+      }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000012",
+      "name": "Guard - destruction yard, behind the walls",
+      "parent": null,
+      "transform": {
+        "translation": [9.5, 0, 17.5],
+        "rotation": [0, 1, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        },
+        "aiAgent": {
+          "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
+          "sightRange": 15,
+          "sightHalfAngle": 1.0471976,
+          "hearingRange": 12,
+          "walkSpeed": 1.5,
+          "runSpeed": 4
+        }
+      }
     }
   ],
   "folders": [
@@ -1484,6 +1534,12 @@
       "name": "05 - Destruction yard",
       "parent": null,
       "entities": ["4c06004b-2738-4e25-9b9e-000000000001", "4c06004b-2738-4e25-9b9e-000000000002", "4c06004b-2738-4e25-9b9e-000000000003", "4c06004b-2738-4e25-9b9e-000000000004"]
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000100",
+      "name": "07 - Guards and navigation",
+      "parent": null,
+      "entities": ["4c071100-2738-4e25-9b9e-000000000001", "4c071100-2738-4e25-9b9e-000000000011", "4c071100-2738-4e25-9b9e-000000000012"]
     }
   ],
   "cameraBookmarks": [

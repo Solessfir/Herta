@@ -5,6 +5,9 @@
 #include "Herta/Assets/CookedContent.h"
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/GameSession.h"
+#include "Herta/Navigation/NavigationWorld.h"
+#include "Herta/NavigationBuilder/NavigationBuilder.h"
+#include "Herta/StateTreeCompiler/StateTreeCompiler.h"
 #include "TestFiles.h"
 
 #include <doctest/doctest.h>
@@ -972,5 +975,127 @@ TEST_CASE("A paused animation update fires no events and keeps the state's start
 	Machine->Update(1.f / 60.f);
 	REQUIRE(Machine->GetEvents().size() == 1);
 	CHECK(Machine->GetEvents().front() == "Land");
+}
+
+namespace
+{
+[[nodiscard]] std::shared_ptr<const FCookedStateTree> CompileSandboxGuard()
+{
+	for (std::filesystem::path Path = std::filesystem::current_path(); !Path.empty(); Path = Path.parent_path())
+	{
+		const auto Candidate = Path / "Games/Sandbox/Content/AI/Guard.hstatetree";
+		if (std::filesystem::exists(Candidate))
+		{
+			std::ifstream File(Candidate, std::ios::binary);
+			const std::string Text{std::istreambuf_iterator<char>(File), std::istreambuf_iterator<char>()};
+			const auto Graph = DeserializeGraph(Text, GetStateTreeSchema());
+			REQUIRE(Graph);
+			const auto Compiled = CompileStateTree(*Graph);
+			REQUIRE(Compiled);
+			return std::make_shared<const FCookedStateTree>(Compiled->Tree);
+		}
+
+		if (Path == Path.parent_path())
+		{
+			break;
+		}
+	}
+
+	FAIL("The Sandbox guard tree is missing");
+	return nullptr;
+}
+}
+
+TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee when wounded, and start over on restart")
+{
+	const FDummyGameAssets Assets;
+	constexpr FAssetId GuardTree{9, 9};
+	FLevelDocument Level{.Id = FObjectId{1, 1}, .Name = "Arena"};
+	Level.Entities = {
+	    FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Floor", .Transform = {.Translation = FWorldPosition{{0., -0.5, 0.}}, .Scale = {40.f, 1.f, 40.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    FLevelEntity{.Id = FObjectId{1, 3}, .Name = "Bounds", .NavigationBounds = FNavigationBoundsComponent{.Size = {40.f, 6.f, 40.f}}},
+	    FLevelEntity{.Id = FObjectId{1, 4}, .Name = "Guard", .Transform = {.Translation = FWorldPosition{{0., 0., 8.}}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{7, 7}}, .Character = FCharacterComponent{}, .AiAgent = FAiAgentComponent{.StateTree = GuardTree, .SightRange = 20.f}},
+	};
+
+	const auto Navigation = BuildLevelNavigation(Level, {}, [](const FAssetId&)
+	{
+		return std::optional<FNavigationBox>{};
+	});
+
+	REQUIRE(Navigation);
+	REQUIRE(*Navigation);
+	// The player plays as the Mannequin too, so a strike can knock its body down.
+	auto Session = FGameSession::Create(Level.Entities, Assets, nullptr, {}, nullptr, Assets.Model);
+	REQUIRE_MESSAGE(Session, (Session ? std::string() : Session.error().Message));
+	CHECK((*Session)->GetStateTrees() == std::vector{GuardTree});
+	REQUIRE((*Session)->SetNavigation(std::make_shared<const FNavigationFile>(std::move(**Navigation))));
+	REQUIRE((*Session)->AddStateTree(GuardTree, CompileSandboxGuard()));
+	REQUIRE((*Session)->GetNavigation());
+	CHECK((*Session)->GetNavigation()->GetStats().Agents == 2);
+
+	const auto Step = [&](const int Frames)
+	{
+		for (int Frame = 0; Frame < Frames; ++Frame)
+		{
+			REQUIRE((*Session)->Update(1.f / 60.f, {}));
+			(void)(*Session)->GetRenderView({320, 180});
+		}
+	};
+
+	const auto Guard = [&]
+	{
+		const std::vector<FGameAgentState> States = (*Session)->GetAgentStates();
+		REQUIRE(States.size() == 1);
+		return States.front();
+	};
+
+	// With the player out of sight range, the guard starts patrolling around where it stands.
+	REQUIRE((*Session)->TeleportPlayer({0.f, 0.f, -16.f}, 0.f));
+	Step(30);
+	CHECK(Guard().bOnNavigation);
+	CHECK(!Guard().bSeesPlayer);
+	CHECK(Guard().State == "Stroll");
+	Step(60);
+	CHECK(!Guard().Foot.IsNearlyEqual({0.f, 0.f, 8.f}, 0.2f));
+	REQUIRE((*Session)->GetAgentDebug(0));
+	CHECK((*Session)->GetAgentDebug(0)->Program->States[(*Session)->GetAgentDebug(0)->Active.front()].Name == "Root");
+
+	// In front of it, the player is spotted, chased down, and struck to the ground, and gets back up a while later.
+	const FVector3 Home = Guard().Foot;
+	REQUIRE((*Session)->TeleportPlayer({Home.X, 0.f, Home.Z + 7.f}, std::numbers::pi_v<float>));
+	Step(30);
+	(void)(*Session)->GetAgentStates();
+	bool bKnocked = false;
+	for (int Second = 0; Second < 10 && !bKnocked; ++Second)
+	{
+		Step(60);
+		bKnocked = (*Session)->IsPlayerRagdolled();
+	}
+
+	CHECK(bKnocked);
+	CHECK(Guard().bRemembersPlayer);
+	bool bStoodUp = false;
+	for (int Frame = 0; Frame < 200 && !bStoodUp; ++Frame)
+	{
+		Step(1);
+		bStoodUp = !(*Session)->IsPlayerRagdolled();
+	}
+
+	CHECK(bStoodUp);
+
+	// Two severed arms leave it at half health, and the next blow sends it running.
+	REQUIRE((*Session)->SeverCharacter(0, "upperarm_l"));
+	REQUIRE((*Session)->SeverCharacter(0, "upperarm_r"));
+	CHECK(Guard().Health == doctest::Approx(0.5f));
+	REQUIRE((*Session)->SeverCharacter(0, "calf_l"));
+	Step(30);
+	CHECK((Guard().State == "Run" || Guard().State == "Cower"));
+
+	// A restart puts it back whole where it was placed, with nothing remembered.
+	REQUIRE((*Session)->Restart());
+	CHECK(Guard().Health == 1.f);
+	CHECK(Guard().Foot.IsNearlyEqual({0.f, 0.f, 8.f}, 1.e-4f));
+	Step(10);
+	CHECK(!Guard().bRemembersPlayer);
 }
 }

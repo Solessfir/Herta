@@ -27,6 +27,8 @@ public:
 
 	[[nodiscard]] FNavigationWorld* GetWorld() noexcept;
 	[[nodiscard]] const FNavigationWorld* GetWorld() const noexcept;
+	// Counts starts, so agents can tell whether the world they joined is still the current one.
+	[[nodiscard]] std::uint64_t GetGeneration() const noexcept;
 
 private:
 	struct FObstacle
@@ -55,5 +57,6 @@ private:
 	// Regions loaded now, kept across restarts like their static bodies.
 	std::vector<FObjectId> ActiveRegions{};
 	std::vector<FPatch> Patches{};
+	std::uint64_t Generation = 0;
 };
 }
