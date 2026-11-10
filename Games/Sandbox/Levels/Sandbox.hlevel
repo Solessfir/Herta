@@ -721,6 +721,57 @@
       }
     },
     {
+      "id": "4c060001-2738-4e25-9b9e-000000000062",
+      "name": "Training dummy 1",
+      "parent": null,
+      "transform": {
+        "translation": [4, 0, 9.3],
+        "rotation": [0, 1, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        }
+      }
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-000000000063",
+      "name": "Training dummy 2",
+      "parent": null,
+      "transform": {
+        "translation": [6, 0, 9.3],
+        "rotation": [0, 1, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        }
+      }
+    },
+    {
+      "id": "4c060001-2738-4e25-9b9e-000000000064",
+      "name": "Training dummy 3",
+      "parent": null,
+      "transform": {
+        "translation": [8, 0, 9.3],
+        "rotation": [0, 1, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        }
+      }
+    },
+    {
       "id": "4c060005-2738-4e25-9b9e-000000000001",
       "name": "Course start",
       "parent": null,
@@ -1317,9 +1368,9 @@
     },
     {
       "id": "4c060001-2738-4e25-9b9e-000000000061",
-      "name": "06 - Animation station",
+      "name": "06 - Animation station and training dummies",
       "parent": null,
-      "entities": ["4c060001-2738-4e25-9b9e-00000000005e", "4c060001-2738-4e25-9b9e-00000000005f", "4c060001-2738-4e25-9b9e-000000000060"]
+      "entities": ["4c060001-2738-4e25-9b9e-00000000005e", "4c060001-2738-4e25-9b9e-00000000005f", "4c060001-2738-4e25-9b9e-000000000060", "4c060001-2738-4e25-9b9e-000000000062", "4c060001-2738-4e25-9b9e-000000000063", "4c060001-2738-4e25-9b9e-000000000064"]
     },
     {
       "id": "4c060046-2738-4e25-9b9e-000000000003",

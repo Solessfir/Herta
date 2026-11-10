@@ -162,6 +162,13 @@ void CheckClosedHalves(const FSkinnedMeshPiece& Mesh, const std::span<const FMat
 		}));
 
 		CHECK(CountOpenEdges(*Half, HalfPosed) == 0);
+		// Cooked models need unit normals and tangents perpendicular to them, which interpolation alone would only approximate.
+		CHECK(std::ranges::all_of(Half->Vertices, [](const FCookedVertex& Vertex)
+		{
+			const FVector3 Normal{Vertex.Normal[0], Vertex.Normal[1], Vertex.Normal[2]};
+			const FVector3 Tangent{Vertex.Tangent[0], Vertex.Tangent[1], Vertex.Tangent[2]};
+			return std::abs(Normal.Length() - 1.f) < 1.e-3f && std::abs(Tangent.Length() - 1.f) < 1.e-3f && std::abs(Normal.Dot(Tangent)) < 1.e-3f;
+		}));
 		const float HalfVolume = Volume(*Half, HalfPosed);
 		CHECK(HalfVolume > 0.f);
 		Halves += HalfVolume;

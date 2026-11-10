@@ -172,6 +172,17 @@ public:
 	[[nodiscard]] std::optional<std::size_t> GetCharacterTransition() const noexcept;
 	// The animated body's events from the last update, such as Footstep and Land, for sounds and effects.
 	[[nodiscard]] std::span<const std::string> GetCharacterEvents() const noexcept;
+	// Characters the level places with Character components, in level order. A thrown ball that hits one hard enough severs the limb it
+	// strikes; restarting restores them.
+	[[nodiscard]] std::size_t GetCharacterCount() const noexcept;
+	// Cuts a placed character along a world-space plane through its pose as last drawn. The part with the pelvis stays and keeps animating; the
+	// other falls as a rigid piece. Returns whether the plane cut it.
+	[[nodiscard]] std::expected<bool, FGameError> SliceCharacter(std::size_t Character, const FVector3& Point, const FVector3& Normal);
+	// Cuts off a placed character's limb below the named joint, such as lowerarm_l, where its skin weights pass to the body.
+	[[nodiscard]] std::expected<bool, FGameError> SeverCharacter(std::size_t Character, std::string_view Joint);
+	// Pieces cut off characters still in the world, and cuts since the session started.
+	[[nodiscard]] std::size_t GetCutPieceCount() const noexcept;
+	[[nodiscard]] std::size_t GetCutCount() const noexcept;
 	// The first enabled Sky light's environment, for the host's environment filtering.
 	[[nodiscard]] std::shared_ptr<const FCookedTexture> GetEnvironment() const;
 

@@ -2,6 +2,7 @@
 
 #include "Herta/Animation/Animation.h"
 #include "Herta/Animation/AnimationStateMachine.h"
+#include "Herta/Animation/MeshSlice.h"
 #include "Herta/Assets/CookedAsset.h"
 #include "Herta/GameFramework/GameSession.h"
 #include "Herta/Physics/PhysicsWorld.h"
@@ -59,14 +60,40 @@ public:
 	// From the next Skin on, the joints BuildRagdoll drives follow Parts, in its order, blended over the animation by Weight, where ModelInverse
 	// maps physics space back to the body's model space. Empty Parts or zero Weight returns the body to animation.
 	void SetRagdollPose(std::span<const FPhysicsBodyTransform> Parts, const FMatrix4& ModelInverse, float Weight);
+	// Cuts the body along a plane in its model space, through the pose of the last Skin. The part holding the pelvis stays on the body and keeps
+	// animating; the other comes back baked in that pose, in model space, closed with a wound cap. Empty when the plane misses the body or would
+	// take the pelvis side's whole mesh.
+	[[nodiscard]] std::expected<std::optional<FCookedModel>, FGameError> Slice(const FMeshSlicePlane& Plane);
+	// Cuts off the limb below Joint where its skin weights pass to the rest of the body, and binds the stump wholly to the joint's parent so it
+	// does not stretch as the missing limb's joints keep animating.
+	[[nodiscard]] std::expected<std::optional<FCookedModel>, FGameError> Sever(std::size_t Joint);
+	// The severable joint, such as an elbow or knee, whose cut lies nearest a model-space point within Reach meters, among those still on the body.
+	[[nodiscard]] std::optional<std::size_t> FindSeverableJoint(const FVector3& Point, float Reach) const;
+	// Whether any of the body's geometry still follows Joint, such as the head after a cut through the neck.
+	[[nodiscard]] bool Carries(std::size_t Joint) const;
+	[[nodiscard]] std::optional<std::size_t> FindJoint(std::string_view Name) const;
+	// Drives a parameter the session does not otherwise set, such as a hit reaction; unknown names are ignored.
+	void FireTrigger(std::string_view Parameter);
+	void SetBool(std::string_view Parameter, bool bValue);
 	// How long the named state's clip plays, or empty when the state machine has no such state.
 	[[nodiscard]] std::optional<float> GetStateSeconds(std::string_view Name) const noexcept;
 
 private:
 	FPlayerCharacter(std::shared_ptr<const FCookedModel> InModel, std::shared_ptr<const FAnimationLibrary> InLibrary, FAnimationStateMachine InMachine);
 
+	[[nodiscard]] const FSkinnedMeshPiece& GetPiece() const;
+	// Keeps one half of a cut on the body and returns the other baked.
+	[[nodiscard]] std::expected<std::optional<FCookedModel>, FGameError> Keep(FMeshSliceResult Sliced, bool bKeepFront);
+	[[nodiscard]] FCookedModel MakeModel(const FSkinnedMeshPiece& Piece) const;
+
 	std::shared_ptr<const FCookedModel> Model;
 	std::shared_ptr<const FAnimationLibrary> Library;
+	IGraphicsDevice* Device = nullptr;
+	// The whole mesh as a piece, and what is left of it once cut; empty while the body is whole.
+	FSkinnedMeshPiece Whole;
+	std::optional<FSkinnedMeshPiece> Remaining;
+	std::shared_ptr<const FRenderMesh> WholeMesh;
+	std::optional<std::size_t> PelvisJoint;
 	FAnimationStateMachine Machine;
 	FAnimationStateMachine StartMachine;
 	std::vector<std::string> Events;

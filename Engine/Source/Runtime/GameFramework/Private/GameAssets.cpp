@@ -69,6 +69,10 @@ std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets
 			}
 
 			Assets->Meshes.emplace(Entity.Mesh->Asset, std::move(*Mesh));
+			if (Entity.Character && std::get<FCookedModel>(*Cooked).Skeleton)
+			{
+				Assets->SkinnedModels.emplace(Entity.Mesh->Asset, std::make_shared<const FCookedModel>(std::move(std::get<FCookedModel>(*Cooked))));
+			}
 		}
 
 		for (const FAssetId& Material : Entity.Mesh ? std::span<const FAssetId>(Entity.Mesh->Materials) : std::span<const FAssetId>{})
@@ -106,6 +110,12 @@ const FRenderMesh* FStagedGameAssets::FindMesh(const FAssetId& Asset) const
 {
 	const auto Found = Meshes.find(Asset);
 	return Found != Meshes.end() ? Found->second.get() : nullptr;
+}
+
+std::shared_ptr<const FCookedModel> FStagedGameAssets::FindSkinnedModel(const FAssetId& Asset) const
+{
+	const auto Found = SkinnedModels.find(Asset);
+	return Found != SkinnedModels.end() ? Found->second : nullptr;
 }
 
 const FRenderMaterial* FStagedGameAssets::FindMaterial(const FAssetId& Asset) const

@@ -41,4 +41,11 @@ struct FMeshSliceResult
 // closed with a cap in WoundMaterial facing out of it, with planar UVs in meters on the cut. Slicing the same pose with the same plane gives the
 // same halves, so cuts can replicate from the hit.
 [[nodiscard]] std::expected<FMeshSliceResult, FAnimationError> SliceSkinnedMesh(const FSkinnedMeshPiece& Mesh, std::span<const FCookedVertex> Posed, std::span<const FMatrix4> SkinningMatrices, const FMeshSlicePlane& Plane, std::uint32_t WoundMaterial);
+// Splits where Sides, one per vertex, changes sign rather than at a plane, such as where skin weights pass from a limb to its parent, so a cut
+// follows the weight boundary. Vertices with a side of zero or more are in front. Plane only orients the caps and gives them UVs, so the cut's
+// outlines should lie roughly flat across it.
+[[nodiscard]] std::expected<FMeshSliceResult, FAnimationError> SplitSkinnedMesh(const FSkinnedMeshPiece& Mesh, std::span<const FCookedVertex> Posed, std::span<const FMatrix4> SkinningMatrices, std::span<const float> Sides, const FMeshSlicePlane& Plane, std::uint32_t WoundMaterial);
+// Makes the normal unit length and the tangent unit length and perpendicular to it, as cooked models require of vertices that blending, such as
+// interpolation or skinning with several joints, has pulled slightly off.
+void OrthonormalizeTangent(FCookedVertex& Vertex);
 }

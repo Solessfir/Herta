@@ -549,6 +549,84 @@ public:
 };
 }
 
+namespace
+{
+// Serves the Mannequin as the skinned model behind one asset, so Character entities animate headless.
+class FDummyGameAssets final : public IGameAssets
+{
+public:
+	[[nodiscard]] const FRenderMesh* FindMesh(const FAssetId&) const override
+	{
+		return nullptr;
+	}
+
+	[[nodiscard]] const FRenderMaterial* FindMaterial(const FAssetId&) const override
+	{
+		return nullptr;
+	}
+
+	[[nodiscard]] std::shared_ptr<const FCookedTexture> FindEnvironment(const FAssetId&) const override
+	{
+		return nullptr;
+	}
+
+	[[nodiscard]] std::shared_ptr<const FCookedModel> FindSkinnedModel(const FAssetId& Asset) const override
+	{
+		return Asset == FAssetId{7, 7} ? Model : nullptr;
+	}
+
+	std::shared_ptr<const FCookedModel> Model = std::make_shared<const FCookedModel>(Mannequin());
+};
+}
+
+TEST_CASE("Character entities stand animated, and slices, severs, and thrown balls cut them until a restart restores them")
+{
+	const FDummyGameAssets Assets;
+	const std::vector<FLevelEntity> Level{
+	    FLevelEntity{.Id = FObjectId::Generate(), .Name = "Floor", .Transform = {.Translation = {0., -0.5, 0.}, .Scale = {60.f, 1.f, 60.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    FLevelEntity{.Id = FObjectId::Generate(), .Name = "Dummy", .Transform = {.Translation = {0., 0., 3.}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{7, 7}}, .Character = FCharacterComponent{}},
+	};
+	auto Session = FGameSession::Create(Level, Assets, nullptr, {}, nullptr, nullptr);
+	REQUIRE_MESSAGE(Session, (Session ? std::string() : Session.error().Message));
+	REQUIRE((*Session)->GetCharacterCount() == 1);
+	const auto Step = [&](const FGameInput& Input, const int Frames)
+	{
+		for (int Frame = 0; Frame < Frames; ++Frame)
+		{
+			REQUIRE((*Session)->Update(1.f / 60.f, Frame == 0 ? Input : FGameInput{}));
+			(void)(*Session)->GetRenderView({320, 180});
+		}
+	};
+
+	Step({}, 30);
+	// A diagonal through the torso, then the left forearm at its weight boundary; a limb already gone cannot be severed again.
+	auto Cut = (*Session)->SliceCharacter(0, {0.f, 1.2f, 3.f}, FVector3{0.3f, 1.f, 0.1f}.Normalized());
+	REQUIRE_MESSAGE(Cut, (Cut ? std::string() : Cut.error().Message));
+	CHECK(*Cut);
+	CHECK((*Session)->GetCutPieceCount() == 1);
+	Step({}, 5);
+	auto Severed = (*Session)->SeverCharacter(0, "calf_l");
+	REQUIRE(Severed);
+	CHECK(*Severed);
+	CHECK((*Session)->GetCutPieceCount() == 2);
+	Step({}, 5);
+	Severed = (*Session)->SeverCharacter(0, "calf_l");
+	REQUIRE(Severed);
+	CHECK_FALSE(*Severed);
+	// Pieces fall onto the floor as rigid hulls.
+	Step({}, 120);
+	CHECK((*Session)->GetCutPieceCount() == 2);
+
+	// Restarting restores the whole body, and a ball thrown at it from the start severs whatever limb it strikes.
+	REQUIRE((*Session)->Restart());
+	CHECK((*Session)->GetCutPieceCount() == 0);
+	const std::size_t Before = (*Session)->GetCutCount();
+	Step({}, 30);
+	Step({.bThrow = true}, 60);
+	CHECK((*Session)->GetCutCount() == Before + 1);
+	CHECK((*Session)->GetCutPieceCount() == 1);
+}
+
 TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 {
 	const FNoAnimationGameAssets Assets;

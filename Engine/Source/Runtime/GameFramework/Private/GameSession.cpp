@@ -3,12 +3,14 @@
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/LevelSimulationSetup.h"
 #include "Herta/GameFramework/SoftBodyGeometry.h"
+#include "Herta/Animation/MeshSlice.h"
 #include "Herta/Math/AffineTransform.h"
 #include "PlayerCharacter.h"
 
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <functional>
 #include <map>
 #include <numbers>
 #include <utility>
@@ -124,6 +126,11 @@ struct FGameSession::FImplementation
 	[[nodiscard]] FQuaternion GetBodyRotation() const;
 	[[nodiscard]] FQuaternion GetViewOrientation() const;
 	void UpdateBody(float DeltaSeconds);
+	[[nodiscard]] std::expected<void, FPhysicsError> StartCharacters(FPhysicsWorld& World);
+	[[nodiscard]] std::expected<void, FPhysicsError> StepCharacters(FPhysicsWorld& World);
+	// Spawns a cut piece, baked in its character's model space, as a rigid hull moving away from the cut.
+	[[nodiscard]] std::expected<void, FPhysicsError> SpawnCutPiece(std::size_t Character, const FCookedModel& Baked, const FVector3& Away);
+	[[nodiscard]] std::expected<bool, FGameError> CutCharacter(std::size_t Character, const std::function<std::expected<std::optional<FCookedModel>, FGameError>(FPlayerCharacter&)>& Cut, const FVector3& Away);
 	[[nodiscard]] std::expected<void, FPhysicsError> StartRagdoll();
 	[[nodiscard]] std::expected<void, FPhysicsError> EndRagdoll();
 	[[nodiscard]] std::expected<void, FPhysicsError> ReadRagdoll(const FPhysicsWorld& World);
@@ -162,7 +169,30 @@ struct FGameSession::FImplementation
 	{
 		FLevelSimulationHandle Handle{};
 		float AgeSeconds = 0.f;
+		// A ball hits a character once, so bouncing on it does not sever a second limb.
+		bool bSpent = false;
 	};
+
+	// A Character entity: its animated body, which stays across restarts and restores itself, and its collider in the current physics world.
+	struct FCharacterActor
+	{
+		std::size_t Entity = 0;
+		std::unique_ptr<FPlayerCharacter> Body{};
+		FCharacterComponent Settings{};
+		FPhysicsBodyId Collider{};
+	};
+
+	// A piece cut off a character, a rigid hull falling in the physics world until restart or newer pieces push it out.
+	struct FCutPiece
+	{
+		std::size_t Character = 0;
+		FPhysicsBodyId Body{};
+		std::shared_ptr<const FRenderMesh> Mesh{};
+	};
+
+	std::vector<FCharacterActor> Characters{};
+	std::vector<FCutPiece> CutPieces{};
+	std::size_t CutCount = 0;
 
 	std::vector<FProjectile> Projectiles{};
 	// Rebuilt on every start, because the physics world and its character are.
@@ -335,6 +365,31 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 		Session.Warnings.emplace_back("The course objective needs a Start and a Finish trigger");
 	}
 
+	// Characters whose model cannot animate stay as their static mesh.
+	for (std::size_t Index = 0; Index < Count; ++Index)
+	{
+		const FLevelEntity& Entity = Session.Entities[Index];
+		std::shared_ptr<const FCookedModel> Model = Entity.Character && Entity.Mesh ? Assets.FindSkinnedModel(Entity.Mesh->Asset) : nullptr;
+		if (!Model)
+		{
+			if (Entity.Character)
+			{
+				Session.Warnings.push_back(std::format("{} is a Character without a skinned model; it stays a static mesh", Entity.Name));
+			}
+
+			continue;
+		}
+
+		auto Body = FPlayerCharacter::Create(std::move(Model), Device);
+		if (!Body)
+		{
+			Session.Warnings.push_back(std::format("{} cannot animate: {}", Entity.Name, Body.error().Message));
+			continue;
+		}
+
+		Session.Characters.push_back({.Entity = Index, .Body = std::move(*Body), .Settings = *Entity.Character});
+	}
+
 	// A character that cannot animate leaves the capsule playable rather than failing the level.
 	if (Character)
 	{
@@ -421,6 +476,12 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	}
 
 	Mover = std::move(*Created);
+	if (auto Started = StartCharacters(*Simulation.GetPhysicsWorld()); !Started)
+	{
+		Simulation.Stop();
+		return std::unexpected(FGameError{std::format("Cannot place the characters: {}", Started.error().Message)});
+	}
+
 	// The new physics world has none of the old one's ragdoll bodies.
 	Ragdoll.reset();
 	GetUpBlend = 0.f;
@@ -677,7 +738,12 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 
 	const auto Updated = Session.Simulation.Update(DeltaSeconds, [&Session](FPhysicsWorld& World, const float StepSeconds)
 	{
-		return Session.StepPlayer(World, StepSeconds);
+		if (auto Stepped = Session.StepPlayer(World, StepSeconds); !Stepped)
+		{
+			return Stepped;
+		}
+
+		return Session.StepCharacters(World);
 	});
 
 	if (!Updated)
@@ -702,6 +768,11 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 
 	Session.UpdateObjective(DeltaSeconds);
 	Session.UpdateBody(DeltaSeconds);
+	for (FImplementation::FCharacterActor& Actor : Session.Characters)
+	{
+		Actor.Body->Update(DeltaSeconds, {.GroundSpeed = 0.f, .bGrounded = true});
+	}
+
 	return {};
 }
 
@@ -799,6 +870,207 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::AgeProjectiles
 	return {};
 }
 
+std::expected<void, FPhysicsError> FGameSession::FImplementation::StartCharacters(FPhysicsWorld& World)
+{
+	CutPieces.clear();
+	CutCount = 0;
+	for (FCharacterActor& Actor : Characters)
+	{
+		Actor.Body->Restart();
+		// A standing capsule the player and thrown balls bump into; cuts and hits are found against the body itself.
+		auto Collider = World.CreateBody({
+		    .Shape = EPhysicsShape::Capsule,
+		    .Radius = 0.3f,
+		    .HalfHeight = 0.6f,
+		    .Position = GetTranslation(AuthoredWorld[Actor.Entity]) + FVector3::Up() * 0.9f,
+		    .MotionType = EPhysicsMotionType::Kinematic,
+		});
+		if (!Collider)
+		{
+			return std::unexpected(Collider.error());
+		}
+
+		Actor.Collider = *Collider;
+	}
+
+	return {};
+}
+
+std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters(FPhysicsWorld& World)
+{
+	for (FProjectile& Projectile : Projectiles)
+	{
+		const auto Ball = Simulation.FindSpawnedBody(Projectile.Handle);
+		const auto Transform = Ball ? World.GetBodyTransform(*Ball) : std::unexpected(FPhysicsError{});
+		const auto Velocity = Ball ? World.GetLinearVelocity(*Ball) : std::unexpected(FPhysicsError{});
+		if (Projectile.bSpent || !Transform || !Velocity)
+		{
+			continue;
+		}
+
+		for (std::size_t Index = 0; Index < Characters.size(); ++Index)
+		{
+			FCharacterActor& Actor = Characters[Index];
+			const FMatrix4& Model = AuthoredWorld[Actor.Entity];
+			const FVector3 Foot = GetTranslation(Model);
+			const FVector3 Offset = Transform->Position - Foot;
+			// Touching the capsule: within its radius plus the ball's, between the feet and the top of the head.
+			if (std::hypot(Offset.X, Offset.Z) > 0.3f + ProjectileRadius + 0.05f || Offset.Y < 0.f || Offset.Y > 1.9f)
+			{
+				continue;
+			}
+
+			Projectile.bSpent = true;
+			Actor.Body->FireTrigger("Hit");
+			const float Impulse = Velocity->Length() * ProjectileMassKg;
+			const auto Inverse = TryInverseAffine(Model);
+			if (Impulse < Actor.Settings.SeverImpulse || !Inverse)
+			{
+				break;
+			}
+
+			const auto Joint = Actor.Body->FindSeverableJoint(TransformPoint(*Inverse, Transform->Position), 0.45f);
+			if (Joint)
+			{
+				auto Severed = CutCharacter(Index, [Joint = *Joint](FPlayerCharacter& Body)
+				{
+					return Body.Sever(Joint);
+				}, Velocity->Normalized());
+				if (!Severed)
+				{
+					return std::unexpected(FPhysicsError{Severed.error().Message});
+				}
+			}
+
+			break;
+		}
+	}
+
+	return {};
+}
+
+std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(const std::size_t Character, const std::function<std::expected<std::optional<FCookedModel>, FGameError>(FPlayerCharacter&)>& Cut, const FVector3& Away)
+{
+	if (Character >= Characters.size())
+	{
+		return false;
+	}
+
+	FCharacterActor& Actor = Characters[Character];
+	auto Baked = Cut(*Actor.Body);
+	if (!Baked)
+	{
+		return std::unexpected(Baked.error());
+	}
+
+	if (!*Baked)
+	{
+		return false;
+	}
+
+	++CutCount;
+	Events.push_back(std::format("{} was cut", Entities[Actor.Entity].Name));
+	// Losing the head kills a character; graphs without a Dead parameter keep playing.
+	if (const auto Head = Actor.Body->FindJoint("Head"); Head && !Actor.Body->Carries(*Head))
+	{
+		Actor.Body->SetBool("Dead", true);
+	}
+
+	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
+	if (!World || Actor.Settings.MaximumPieces < 1.f)
+	{
+		return true;
+	}
+
+	if (auto Spawned = SpawnCutPiece(Character, **Baked, Away); !Spawned)
+	{
+		return std::unexpected(FGameError{Spawned.error().Message});
+	}
+
+	return true;
+}
+
+std::expected<void, FPhysicsError> FGameSession::FImplementation::SpawnCutPiece(const std::size_t Character, const FCookedModel& Baked, const FVector3& Away)
+{
+	FPhysicsWorld& World = *Simulation.GetPhysicsWorld();
+	const FCharacterActor& Actor = Characters[Character];
+	// The oldest of this character's pieces makes room for the new one.
+	const auto Owned = static_cast<std::size_t>(std::ranges::count(CutPieces, Character, &FCutPiece::Character));
+	if (Owned >= static_cast<std::size_t>(Actor.Settings.MaximumPieces))
+	{
+		const auto Oldest = std::ranges::find(CutPieces, Character, &FCutPiece::Character);
+		if (auto Destroyed = World.DestroyBody(Oldest->Body); !Destroyed)
+		{
+			return Destroyed;
+		}
+
+		CutPieces.erase(Oldest);
+	}
+
+	// Baked in model space, the piece moves to world space around its centroid, which becomes its body's origin.
+	const FMatrix4& Model = AuthoredWorld[Actor.Entity];
+	FCookedModel Piece = Baked;
+	FVector3 Centroid{};
+	for (FCookedVertex& Vertex : Piece.Vertices)
+	{
+		const FVector3 Position = TransformPoint(Model, {Vertex.Position[0], Vertex.Position[1], Vertex.Position[2]});
+		const FVector3 Normal = Model.TransformVector({Vertex.Normal[0], Vertex.Normal[1], Vertex.Normal[2]});
+		const FVector3 Tangent = Model.TransformVector({Vertex.Tangent[0], Vertex.Tangent[1], Vertex.Tangent[2]});
+		Vertex.Position = {Position.X, Position.Y, Position.Z};
+		Vertex.Normal = {Normal.X, Normal.Y, Normal.Z};
+		Vertex.Tangent = {Tangent.X, Tangent.Y, Tangent.Z, Vertex.Tangent[3]};
+		OrthonormalizeTangent(Vertex);
+		Centroid = Centroid + Position;
+	}
+
+	Centroid = Centroid * (1.f / static_cast<float>(std::max<std::size_t>(Piece.Vertices.size(), 1)));
+	// ponytail: a hull of at most 128 evenly picked vertices; build it from the extreme points if thin pieces lose their shape.
+	std::vector<FVector3> Hull;
+	const std::size_t Stride = std::max<std::size_t>(Piece.Vertices.size() / 128, 1);
+	for (std::size_t Index = 0; Index < Piece.Vertices.size(); Index += Stride)
+	{
+		const auto& Position = Piece.Vertices[Index].Position;
+		Hull.push_back(FVector3{Position[0], Position[1], Position[2]} - Centroid);
+	}
+
+	for (FCookedVertex& Vertex : Piece.Vertices)
+	{
+		Vertex.Position = {Vertex.Position[0] - Centroid.X, Vertex.Position[1] - Centroid.Y, Vertex.Position[2] - Centroid.Z};
+	}
+
+	auto PieceBody = World.CreateBody({
+	    .Shape = EPhysicsShape::ConvexHull,
+	    .Position = Centroid,
+	    .MotionType = EPhysicsMotionType::Dynamic,
+	    .Properties = {.MassKg = 4.f, .Friction = 0.7f, .Restitution = 0.05f, .LinearDamping = 0.1f, .AngularDamping = 0.3f},
+	    .HullPoints = Hull,
+	});
+	if (!PieceBody)
+	{
+		return std::unexpected(PieceBody.error());
+	}
+
+	if (auto Pushed = World.SetVelocity(*PieceBody, Away * 1.5f + FVector3::Up() * 0.5f); !Pushed)
+	{
+		return Pushed;
+	}
+
+	std::shared_ptr<const FRenderMesh> Mesh;
+	if (Device)
+	{
+		auto Created = FRenderMesh::Create(*Device, Piece, std::format("{} piece", Entities[Actor.Entity].Name));
+		if (!Created)
+		{
+			return std::unexpected(FPhysicsError{std::format("Cannot upload a cut piece: {}", Created.error().Message)});
+		}
+
+		Mesh = std::move(*Created);
+	}
+
+	CutPieces.push_back({.Character = Character, .Body = *PieceBody, .Mesh = std::move(Mesh)});
+	return {};
+}
+
 void FGameSession::FImplementation::BuildModels()
 {
 	const std::size_t Count = Entities.size();
@@ -889,8 +1161,8 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 			Session.MaterialSlots[Index].push_back(Entity.SoftBody->Material.IsValid() ? Session.Assets.FindMaterial(Entity.SoftBody->Material) : nullptr);
 		}
 
-		// A broken destructible draws its pieces instead.
-		if (!Session.Simulation.IsIntact(Index))
+		// A broken destructible draws its pieces instead, and a character its animated body.
+		if (!Session.Simulation.IsIntact(Index) || std::ranges::contains(Session.Characters, Index, &FImplementation::FCharacterActor::Entity))
 		{
 			Session.Meshes[Index] = nullptr;
 		}
@@ -950,6 +1222,29 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	// A ragdoll's camera follows the pelvis as it would the capsule, from where the capsule's feet would be.
 	const FVector3 Foot = Session.Ragdoll ? Session.RagdollParts.front().Position - FVector3::Up() * 0.6f : PlayerState.PreviousFoot * (1.f - Alpha) + PlayerState.Foot * Alpha;
 	FVector3 BodyFoot = Foot;
+	for (FImplementation::FCharacterActor& Actor : Session.Characters)
+	{
+		if (Actor.Body->Skin(false) && Actor.Body->GetMesh())
+		{
+			Session.VertexUpdates.push_back({.Mesh = Actor.Body->GetMesh(), .Vertices = Actor.Body->GetVertices()});
+			Session.Models.push_back(Session.AuthoredWorld[Actor.Entity]);
+			Session.Meshes.push_back(Actor.Body->GetMesh());
+			Session.MaterialSpans.emplace_back();
+		}
+	}
+
+	const FPhysicsWorld* const PieceWorld = Session.Simulation.GetPhysicsWorld();
+	for (const FImplementation::FCutPiece& Piece : Session.CutPieces)
+	{
+		const auto Transform = PieceWorld ? PieceWorld->GetBodyTransform(Piece.Body) : std::unexpected(FPhysicsError{});
+		if (Transform && Piece.Mesh)
+		{
+			Session.Models.push_back(FTransform{Transform->Position, Transform->Rotation, FVector3::One()}.ToMatrix());
+			Session.Meshes.push_back(Piece.Mesh.get());
+			Session.MaterialSpans.emplace_back();
+		}
+	}
+
 	Session.Visibility.assign(Session.Models.size(), EMeshVisibility::Everywhere);
 	if (Session.Body)
 	{
@@ -1107,6 +1402,60 @@ std::string_view FGameSession::GetCharacterStateName() const noexcept
 std::optional<std::size_t> FGameSession::GetCharacterTransition() const noexcept
 {
 	return Implementation->Body ? Implementation->Body->GetStateMachine().GetActiveTransition() : std::nullopt;
+}
+
+std::size_t FGameSession::GetCharacterCount() const noexcept
+{
+	return Implementation->Characters.size();
+}
+
+std::size_t FGameSession::GetCutPieceCount() const noexcept
+{
+	return Implementation->CutPieces.size();
+}
+
+std::size_t FGameSession::GetCutCount() const noexcept
+{
+	return Implementation->CutCount;
+}
+
+std::expected<bool, FGameError> FGameSession::SliceCharacter(const std::size_t Character, const FVector3& Point, const FVector3& Normal)
+{
+	FImplementation& Session = *Implementation;
+	if (Character >= Session.Characters.size() || Normal.LengthSquared() < 1.e-8f)
+	{
+		return false;
+	}
+
+	// The plane moves into the character's model space, which has no scale for a placed character.
+	const FMatrix4& Model = Session.AuthoredWorld[Session.Characters[Character].Entity];
+	const auto Inverse = TryInverseAffine(Model);
+	if (!Inverse)
+	{
+		return false;
+	}
+
+	const FVector3 LocalPoint = TransformPoint(*Inverse, Point);
+	const FVector3 LocalNormal = Inverse->TransformVector(Normal).Normalized();
+	return Session.CutCharacter(Character, [&](FPlayerCharacter& Body)
+	{
+		return Body.Slice({.Normal = LocalNormal, .Distance = LocalNormal.Dot(LocalPoint)});
+	}, Normal.Normalized());
+}
+
+std::expected<bool, FGameError> FGameSession::SeverCharacter(const std::size_t Character, const std::string_view Joint)
+{
+	FImplementation& Session = *Implementation;
+	const auto Found = Character < Session.Characters.size() ? Session.Characters[Character].Body->FindJoint(Joint) : std::nullopt;
+	if (!Found)
+	{
+		return false;
+	}
+
+	return Session.CutCharacter(Character, [Index = *Found](FPlayerCharacter& Body)
+	{
+		return Body.Sever(Index);
+	}, FVector3::Up());
 }
 
 std::span<const std::string> FGameSession::GetCharacterEvents() const noexcept

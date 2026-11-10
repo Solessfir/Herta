@@ -102,6 +102,17 @@ using FPositionKey = std::array<std::uint32_t, 3>;
 	return Result;
 }
 
+void OrthonormalizeTangentImpl(FCookedVertex& Vertex)
+{
+	const FVector3 Normal = NormalizedOr(ToVector(Vertex.Normal), FVector3{0.f, 1.f, 0.f});
+	FVector3 Tangent{Vertex.Tangent[0], Vertex.Tangent[1], Vertex.Tangent[2]};
+	Tangent = Tangent - Normal * Normal.Dot(Tangent);
+	// A tangent along the normal has no direction left; any perpendicular serves a surface that has no texture detail to orient.
+	Tangent = NormalizedOr(Tangent, NormalizedOr(Normal.Cross(std::abs(Normal.Y) < 0.9f ? FVector3{0.f, 1.f, 0.f} : FVector3{1.f, 0.f, 0.f}), FVector3{1.f, 0.f, 0.f}));
+	Vertex.Normal = ToArray(Normal);
+	Vertex.Tangent = {Tangent.X, Tangent.Y, Tangent.Z, Vertex.Tangent[3] < 0.f ? -1.f : 1.f};
+}
+
 [[nodiscard]] FCookedVertex BlendVertices(const FCookedVertex& A, const FCookedVertex& B, const float T)
 {
 	FCookedVertex Result;
@@ -114,6 +125,7 @@ using FPositionKey = std::array<std::uint32_t, 3>;
 	Result.Normal = ToArray(NormalizedOr(ToVector(A.Normal) * (1.f - T) + ToVector(B.Normal) * T, ToVector(A.Normal)));
 	const FVector3 Tangent = NormalizedOr(FVector3{A.Tangent[0], A.Tangent[1], A.Tangent[2]} * (1.f - T) + FVector3{B.Tangent[0], B.Tangent[1], B.Tangent[2]} * T, FVector3{A.Tangent[0], A.Tangent[1], A.Tangent[2]});
 	Result.Tangent = {Tangent.X, Tangent.Y, Tangent.Z, A.Tangent[3]};
+	OrthonormalizeTangentImpl(Result);
 	return Result;
 }
 
@@ -189,22 +201,32 @@ struct FCutPoint
 
 std::expected<FMeshSliceResult, FAnimationError> SliceSkinnedMesh(const FSkinnedMeshPiece& Mesh, const std::span<const FCookedVertex> Posed, const std::span<const FMatrix4> SkinningMatrices, const FMeshSlicePlane& Plane, const std::uint32_t WoundMaterial)
 {
+	std::vector<float> Sides(Posed.size());
+	for (std::size_t Vertex = 0; Vertex < Posed.size(); ++Vertex)
+	{
+		Sides[Vertex] = Plane.Normal.Dot(ToVector(Posed[Vertex].Position)) - Plane.Distance;
+	}
+
+	return SplitSkinnedMesh(Mesh, Posed, SkinningMatrices, Sides, Plane, WoundMaterial);
+}
+
+std::expected<FMeshSliceResult, FAnimationError> SplitSkinnedMesh(const FSkinnedMeshPiece& Mesh, const std::span<const FCookedVertex> Posed, const std::span<const FMatrix4> SkinningMatrices, const std::span<const float> Sides, const FMeshSlicePlane& Plane, const std::uint32_t WoundMaterial)
+{
 	const std::size_t VertexCount = Mesh.Vertices.size();
-	if (Posed.size() != VertexCount || Mesh.Influences.size() != VertexCount || std::abs(Plane.Normal.Length() - 1.f) > 1.e-3f || !std::isfinite(Plane.Distance)
+	if (Posed.size() != VertexCount || Mesh.Influences.size() != VertexCount || Sides.size() != VertexCount || std::abs(Plane.Normal.Length() - 1.f) > 1.e-3f || !std::isfinite(Plane.Distance)
 	    || std::ranges::any_of(Mesh.Indices, [VertexCount](const std::uint32_t Index)
 	{
 		return Index >= VertexCount;
+	}) || !std::ranges::all_of(Sides, [](const float Value)
+	{
+		return std::isfinite(Value);
 	}))
 	{
-		return std::unexpected(FAnimationError{"Slicing needs one posed vertex and influence per bind vertex, in-range indices, and a unit plane normal"});
+		return std::unexpected(FAnimationError{"Slicing needs one posed vertex, influence, and finite side per bind vertex, in-range indices, and a unit plane normal"});
 	}
 
-	// Vertices exactly on the plane count as in front, so every crossing edge has a strict sign change and a cut point strictly inside it.
-	std::vector<float> Side(VertexCount);
-	for (std::size_t Vertex = 0; Vertex < VertexCount; ++Vertex)
-	{
-		Side[Vertex] = Plane.Normal.Dot(ToVector(Posed[Vertex].Position)) - Plane.Distance;
-	}
+	// Zero counts as in front, so every crossing edge has a strict sign change and a cut point strictly inside it.
+	const std::span<const float> Side = Sides;
 
 	const auto Front = [&Side](const std::uint32_t Vertex)
 	{
@@ -416,6 +438,7 @@ std::expected<FMeshSliceResult, FAnimationError> SliceSkinnedMesh(const FSkinned
 						const FVector3 Tangent = ToBindDirection(CutPoint.Influence, SkinningMatrices, U);
 						Vertex.Tangent = {Tangent.X, Tangent.Y, Tangent.Z, 1.f};
 						Vertex.UV = {CutPoint.Posed.Dot(U), CutPoint.Posed.Dot(V)};
+						OrthonormalizeTangentImpl(Vertex);
 						CapVertices.push_back(Half->Add(Vertex, CutPoint.Influence));
 					}
 				}
@@ -466,5 +489,10 @@ std::expected<FMeshSliceResult, FAnimationError> SliceSkinnedMesh(const FSkinned
 	Result.Back = std::move(Back.Piece);
 	Result.Front = std::move(Forth.Piece);
 	return Result;
+}
+
+void OrthonormalizeTangent(FCookedVertex& Vertex)
+{
+	OrthonormalizeTangentImpl(Vertex);
 }
 }

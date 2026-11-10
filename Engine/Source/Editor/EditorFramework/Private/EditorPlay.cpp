@@ -29,6 +29,7 @@ public:
 	[[nodiscard]] const FRenderMesh* FindMesh(const FAssetId& Asset) const override;
 	[[nodiscard]] const FRenderMaterial* FindMaterial(const FAssetId& Asset) const override;
 	[[nodiscard]] std::shared_ptr<const FCookedTexture> FindEnvironment(const FAssetId& Asset) const override;
+	[[nodiscard]] std::shared_ptr<const FCookedModel> FindSkinnedModel(const FAssetId& Asset) const override;
 
 private:
 	const FPreviewAssets& Assets;
@@ -53,6 +54,12 @@ const FRenderMaterial* FEditorGameAssets::FindMaterial(const FAssetId& Asset) co
 std::shared_ptr<const FCookedTexture> FEditorGameAssets::FindEnvironment(const FAssetId& Asset) const
 {
 	return Assets.GetCookedTexture(Asset);
+}
+
+std::shared_ptr<const FCookedModel> FEditorGameAssets::FindSkinnedModel(const FAssetId& Asset) const
+{
+	const FPreviewMeshSlot* const Slot = Assets.GetCachedAsset(Asset);
+	return Slot ? Slot->SkinnedModel : nullptr;
 }
 }
 
@@ -724,6 +731,7 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 		AppendJsonString(Output, PlaySession->GetCharacterStateName());
 		const FGameObjective& Objective = PlaySession->GetObjective();
 		Output += std::format(", \"objective\": {{\"state\": {}, \"seconds\": {:.3f}}}", static_cast<int>(Objective.State), Objective.ElapsedSeconds);
+		Output += std::format(", \"characters\": {}, \"cuts\": {}, \"cutPieces\": {}", PlaySession->GetCharacterCount(), PlaySession->GetCutCount(), PlaySession->GetCutPieceCount());
 	}
 
 	return Output + "}";
