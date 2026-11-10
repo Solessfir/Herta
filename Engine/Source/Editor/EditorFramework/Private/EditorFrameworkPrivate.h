@@ -8,6 +8,7 @@
 #include "EditorLevel.h"
 #include "Herta/Application/Application.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
+#include "Herta/Audio/AudioEngine.h"
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Json.h"
 #include "Herta/Core/Log.h"
@@ -71,6 +72,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <set>
 #include <numbers>
 #include <numeric>
 #include <optional>
@@ -329,6 +331,11 @@ struct FEditorFramework::FImplementation
 	// Play runs the level through the same game session as HertaGame, on a copy that leaves authored state untouched.
 	void TogglePlay();
 	void UpdatePlay(float DeltaSeconds);
+	// Keeps the level's sounds loaded into the editor's audio engine, and mutes it while Play is paused.
+	void UpdateAudio(float DeltaSeconds);
+	[[nodiscard]] bool AreLevelSoundsLoading() const;
+	void SubmitPlayAudio();
+	void StopPlayAudio();
 	bool IsPlayGamepadPressed(EGamepadButton Button) const;
 	void DrawPlayHud(ImVec2 Minimum, ImVec2 Size);
 
@@ -461,6 +468,14 @@ struct FEditorFramework::FImplementation
 	// The session reads meshes and materials through PlayAssets, so it is released first.
 	std::unique_ptr<IGameAssets> PlayAssets;
 	std::unique_ptr<FGameSession> PlaySession;
+
+	// The editor's audio engine plays Play's sounds and Audio Graph auditions, keyed by the build key of each loaded sound.
+	std::unique_ptr<FAudioEngine> Audio;
+	bool bAudioUnavailable = false;
+	bool bAudioMuted = false;
+	std::map<FAssetId, FHash128> AudioKeys;
+	std::map<FAssetId, std::shared_ptr<const FCookedSoundGraph>> AuditionGraphs;
+	std::set<FAssetId> AuditionKeys;
 	FMeshRenderView PlayRenderView;
 	// Play draws the game's own HUD and pause menu with GameUI, so it matches the standalone game.
 	std::unique_ptr<FGameUI> PlayUI;

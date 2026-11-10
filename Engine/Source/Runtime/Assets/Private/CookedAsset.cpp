@@ -1053,6 +1053,6 @@ std::expected<FCookedSoundStream, FAssetError> ReadCookedSoundStream(const std::
 		return Invalid("The cooked sound's file ends before its samples do");
 	}
 
-	return FCookedSoundStream{.Playback = std::move(Sound.Playback), .SampleRate = Sound.SampleRate, .Channels = Sound.Channels, .bLoop = Sound.bLoop, .Frames = Samples / Sound.Channels, .File = File, .Offset = DataOffset};
+	return FCookedSoundStream{.Playback = std::move(Sound.Playback), .SampleRate = Sound.SampleRate, .Channels = Sound.Channels, .bLoop = Sound.bLoop, .bStream = Sound.bStream, .Frames = Samples / Sound.Channels, .File = File, .Offset = DataOffset};
 }
 }

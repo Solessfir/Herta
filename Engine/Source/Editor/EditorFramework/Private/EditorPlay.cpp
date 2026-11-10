@@ -138,6 +138,7 @@ void FEditorFramework::FImplementation::TogglePlay()
 {
 	if (PlaySession)
 	{
+		StopPlayAudio();
 		PlaySession.reset();
 		PlayAssets.reset();
 		PlayRenderView = {};
@@ -197,12 +198,20 @@ void FEditorFramework::FImplementation::TogglePlay()
 		HERTA_LOG_WARNING(*Log, EditorLog, "The player character is not a skinned model; playing as the capsule");
 	}
 
+	if (AreLevelSoundsLoading())
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for the level's sounds to load");
+		return;
+	}
+
 	auto Session = FGameSession::Create(VisualEntities, *GameAssets, GraphicsDevice, {}, Tasks, std::move(Character));
 	if (!Session)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not start play: {}", Session.error().Message);
 		return;
 	}
+
+	(*Session)->SetLevelSounds(Level->GetSounds());
 
 	for (const std::string& Warning : (*Session)->GetWarnings())
 	{
@@ -302,8 +311,10 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		{
 			HERTA_LOG_ERROR(*Log, EditorLog, "Play stopped: {}", Updated.error().Message);
 			TogglePlay();
+			return;
 		}
 
+		SubmitPlayAudio();
 		return;
 	}
 
@@ -395,6 +406,8 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 	{
 		HERTA_LOG_INFO(*Log, EditorLog, "{}", Event);
 	}
+
+	SubmitPlayAudio();
 
 	if (bAutomationDriven)
 	{

@@ -54,7 +54,20 @@ struct FPreviewMaterialMetadata
 	EMaterialBlendMode BlendMode = EMaterialBlendMode::Opaque;
 };
 
-using FPreviewAssetMetadata = std::variant<FPreviewModelMetadata, FPreviewTextureMetadata, FPreviewMaterialMetadata>;
+struct FPreviewSoundMetadata
+{
+	bool bGraph = false;
+	std::uint32_t SampleRate = 0;
+	std::uint32_t Channels = 0;
+	double Seconds = 0.;
+	bool bLoop = false;
+	bool bStream = false;
+	std::size_t Parameters = 0;
+	std::size_t Waves = 0;
+	std::string Bus;
+};
+
+using FPreviewAssetMetadata = std::variant<FPreviewModelMetadata, FPreviewTextureMetadata, FPreviewMaterialMetadata, FPreviewSoundMetadata>;
 
 FPreviewAssetMetadata GetPreviewAssetMetadata(const FCookedAsset& Asset);
 
@@ -69,6 +82,10 @@ struct FPreviewMeshSlot
 	std::optional<FMaterialAsset> MaterialSource;
 	std::shared_ptr<const FCookedTexture> CookedTexture;
 	FTextureHandle Texture;
+	// Sounds stay on the CPU for the editor's audio engine; a streamed one is played from its cache entry instead of memory.
+	std::shared_ptr<const FCookedSound> Sound;
+	std::optional<FCookedSoundStream> SoundStream;
+	std::shared_ptr<const FCookedSoundGraph> SoundGraph;
 	FEditorAssetThumbnail Thumbnail;
 	std::optional<FPreviewAssetMetadata> Metadata;
 
@@ -136,6 +153,8 @@ public:
 	[[nodiscard]] std::expected<void, FAssetError> SaveMaterial(const FAssetId& Asset, const FMaterialAsset& Material);
 	void RequestTexture(const FAssetId& Asset);
 	void SetTextureAssets(std::span<const FAssetId> Assets);
+	// Keeps these sounds and sound graphs loaded for Play and auditions.
+	void SetSoundAssets(std::span<const FAssetId> Assets);
 	std::shared_ptr<const FCookedTexture> GetCookedTexture(const FAssetId& Asset) const noexcept;
 	FTextureHandle GetTexture(const FAssetId& Asset) const noexcept;
 	void SetMaterialThumbnailRenderer(FEditorMaterialThumbnailRenderer Renderer);
@@ -251,6 +270,7 @@ private:
 	std::uint64_t PublishedPreviewContentGeneration = 0;
 	std::shared_ptr<const FRenderMaterial> PreviewMaterial;
 	FEditorAssetThumbnail PreviewThumbnail;
+	std::set<FAssetId> SoundAssets;
 	std::shared_ptr<std::atomic<std::uint64_t>> PreviewGeneration = std::make_shared<std::atomic<std::uint64_t>>(0);
 	bool bPreviewTask = false;
 	bool bPreviewPending = false;

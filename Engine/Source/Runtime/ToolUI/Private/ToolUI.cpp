@@ -544,6 +544,21 @@ void DrawToolUIIcon(ImDrawList* const Draw, const ImVec2 Center, const float Sca
 			Line(Row == 0 ? -6.f : -4.f, Y, Row == 0 ? 6.f : 4.f, Y);
 		}
 	}
+	else if (Icon == EToolUIMenuIcon::Sound)
+	{
+		// A speaker with two sound waves.
+		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y - 2.f * Scale});
+		Draw->PathLineTo({Center.x - 3.f * Scale, Center.y - 2.f * Scale});
+		Draw->PathLineTo({Center.x + 1.f * Scale, Center.y - 6.f * Scale});
+		Draw->PathLineTo({Center.x + 1.f * Scale, Center.y + 6.f * Scale});
+		Draw->PathLineTo({Center.x - 3.f * Scale, Center.y + 2.f * Scale});
+		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y + 2.f * Scale});
+		Draw->PathStroke(Color, ImDrawFlags_Closed, Scale);
+		Draw->PathArcTo({Center.x + 1.f * Scale, Center.y}, 3.f * Scale, -0.9f, 0.9f, 8);
+		Draw->PathStroke(Color, ImDrawFlags_None, Scale);
+		Draw->PathArcTo({Center.x + 1.f * Scale, Center.y}, 6.f * Scale, -0.9f, 0.9f, 10);
+		Draw->PathStroke(Color, ImDrawFlags_None, Scale);
+	}
 	else if (Icon == EToolUIMenuIcon::Material)
 	{
 		Draw->AddCircle(Center, 6.f * Scale, Color, 24, Scale);

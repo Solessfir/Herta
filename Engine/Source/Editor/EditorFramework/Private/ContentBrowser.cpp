@@ -151,6 +151,8 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 		ImGui::TextUnformatted(Name.data(), Name.data() + Name.size());
 		ImGui::TextDisabled("%s", IsPlaceableContentAsset(Asset) ? "Static Mesh" : Asset.Importer == "Material" ? "Material"
 		                                                                       : Asset.Importer == "Texture"    ? "Texture"
+		                                                                       : Asset.Importer == "Sound"      ? "Sound"
+		                                                                       : Asset.Importer == "AudioGraph" ? "Audio Graph"
 		                                                                                                        : "Asset");
 		ImGui::Separator();
 		const FPreviewMeshSlot* const Cached = Assets ? Assets->GetCachedAsset(Asset.Id) : nullptr;
@@ -189,6 +191,21 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 					Row("Format", Texture->PixelFormat == ETexturePixelFormat::Rgba32Float ? "RGBA32F (HDR)" : "RGBA8");
 					Row("Color space", Texture->ColorSpace == ETextureColorSpace::Srgb ? "sRGB" : "Linear");
 					Row("Mip levels", std::format("{}", Texture->Mips));
+				}
+				else if (const auto* Sound = std::get_if<FPreviewSoundMetadata>(&*Cached->Metadata))
+				{
+					if (Sound->bGraph)
+					{
+						Row("Inputs", std::format("{}", Sound->Parameters));
+						Row("Waves", std::format("{}", Sound->Waves));
+					}
+					else
+					{
+						Row("Length", std::format("{:.2f} s{}", Sound->Seconds, Sound->bLoop ? ", looping" : ""));
+						Row("Format", std::format("{} at {} Hz{}", Sound->Channels == 1 ? "Mono" : "Stereo", Sound->SampleRate, Sound->bStream ? ", streamed" : ""));
+					}
+
+					Row("Bus", Sound->Bus);
 				}
 				else if (const auto* Material = std::get_if<FPreviewMaterialMetadata>(&*Cached->Metadata))
 				{
@@ -270,7 +287,8 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 	if (bList)
 	{
 		ToolUIIcon(IsPlaceableContentAsset(Asset) ? EToolUIMenuIcon::Cube : Asset.Importer == "Material" ? EToolUIMenuIcon::Material
-		                                                                                                 : EToolUIMenuIcon::Panel,
+		                                                    : IsSoundContentAsset(Asset)    ? EToolUIMenuIcon::Sound
+		                                                                                    : EToolUIMenuIcon::Panel,
 		    Start.x + Font * 0.5f + 6.f * Scale, Start.y + Size.y * 0.5f, Scale);
 		const auto Name = Leaf(Asset.Label);
 		ImGui::RenderTextClipped({Start.x + Font + 16.f * Scale, Start.y + (Size.y - Font) * 0.5f}, {Start.x + Size.x - 4.f * Scale, Start.y + Size.y}, Name.data(), Name.data() + Name.size(), nullptr);
@@ -290,7 +308,8 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 	else
 	{
 		ToolUIIcon(IsPlaceableContentAsset(Asset) ? EToolUIMenuIcon::Cube : Asset.Importer == "Material" ? EToolUIMenuIcon::Material
-		                                                                                                 : EToolUIMenuIcon::Panel,
+		                                                    : IsSoundContentAsset(Asset)    ? EToolUIMenuIcon::Sound
+		                                                                                    : EToolUIMenuIcon::Panel,
 		    (Minimum.x + Maximum.x) * 0.5f, (Minimum.y + Maximum.y) * 0.5f, std::max(Scale, IconSize / 32.f));
 	}
 
@@ -303,6 +322,11 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 bool IsPlaceableContentAsset(const FPreviewAssetOption& Asset) noexcept
 {
 	return Asset.Id.IsValid() && (Asset.Importer == "Gltf" || Asset.Importer == "Blender");
+}
+
+bool IsSoundContentAsset(const FPreviewAssetOption& Asset) noexcept
+{
+	return Asset.Id.IsValid() && (Asset.Importer == "Sound" || Asset.Importer == "AudioGraph");
 }
 
 void FContentBrowserState::Refresh(const std::span<const FPreviewAssetOption> Options, const std::uint64_t NewGeneration, const std::span<const std::string> Directories)

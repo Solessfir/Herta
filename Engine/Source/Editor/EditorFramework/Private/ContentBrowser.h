@@ -51,6 +51,7 @@ struct FContentBrowserState
 };
 
 bool IsPlaceableContentAsset(const FPreviewAssetOption& Asset) noexcept;
+bool IsSoundContentAsset(const FPreviewAssetOption& Asset) noexcept;
 void ToggleContentBrowser(bool& bOpen, FContentBrowserState& State);
 // The drawer variant floats over a document tab and closes once focus leaves it.
 bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserState& State, FPreviewAssets* Assets, bool bDrawer = false);

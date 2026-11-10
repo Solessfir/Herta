@@ -25,6 +25,9 @@ public:
 
 	[[nodiscard]] std::filesystem::path GetEntryPath(const FHash128& Key) const;
 
+	// Where an entry's payload starts in its file, for readers such as sound streams that read part of it in place.
+	static constexpr std::uint64_t PayloadOffset = 32;
+
 	[[nodiscard]] const std::filesystem::path& GetRoot() const noexcept
 	{
 		return Root;

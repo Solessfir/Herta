@@ -3,6 +3,7 @@
 #include "Herta/AssetPipeline/AssetCommands.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
+#include "Herta/AssetPipeline/DerivedDataCache.h"
 #include "Herta/Core/Log.h"
 #include "Herta/Platform/FileSystem.h"
 #include "Herta/Tasks/TaskSystem.h"
@@ -263,6 +264,9 @@ struct FPreviewAssets::FMeshLoad
 	std::optional<FMaterialAsset> Material;
 	std::array<std::optional<FCookedTexture>, MaterialTextureSlotCount> MaterialTextures;
 	std::shared_ptr<const FCookedTexture> Texture;
+	std::shared_ptr<const FCookedSound> Sound;
+	std::optional<FCookedSoundStream> SoundStream;
+	std::shared_ptr<const FCookedSoundGraph> SoundGraph;
 	bool bSucceeded = false;
 	std::optional<FPreviewAssetMetadata> Metadata;
 	std::vector<std::string> Warnings;
@@ -284,6 +288,23 @@ FPreviewAssetMetadata GetPreviewAssetMetadata(const FCookedAsset& Asset)
 			return Binding.Texture.IsValid();
 		})),
 		    .BlendMode = Material->Parameters.BlendMode};
+	}
+
+	if (const auto* Sound = std::get_if<FCookedSound>(&Asset))
+	{
+		return FPreviewSoundMetadata{
+		    .SampleRate = Sound->SampleRate,
+		    .Channels = Sound->Channels,
+		    .Seconds = static_cast<double>(Sound->Samples.size() / Sound->Channels) / Sound->SampleRate,
+		    .bLoop = Sound->bLoop,
+		    .bStream = Sound->bStream,
+		    .Bus = Sound->Playback.Bus,
+		};
+	}
+
+	if (const auto* Graph = std::get_if<FCookedSoundGraph>(&Asset))
+	{
+		return FPreviewSoundMetadata{.bGraph = true, .Parameters = Graph->Graph.Parameters.size(), .Waves = GetSoundGraphWaves(Graph->Graph).size(), .Bus = Graph->Playback.Bus};
 	}
 
 	const auto& Model = std::get<FCookedModel>(Asset);
@@ -1168,6 +1189,31 @@ void FPreviewAssets::SetTextureAssets(const std::span<const FAssetId> Assets)
 	PruneCache();
 }
 
+void FPreviewAssets::SetSoundAssets(const std::span<const FAssetId> Assets)
+{
+	std::set<FAssetId> Requested;
+	for (const FAssetId& Asset : Assets)
+	{
+		if (Asset.IsValid())
+		{
+			Requested.insert(Asset);
+		}
+	}
+
+	if (Requested == SoundAssets)
+	{
+		return;
+	}
+
+	SoundAssets = std::move(Requested);
+	for (const FAssetId& Asset : SoundAssets)
+	{
+		(void)GetOrLoadMesh(Asset);
+	}
+
+	PruneCache();
+}
+
 std::shared_ptr<const FCookedTexture> FPreviewAssets::GetCookedTexture(const FAssetId& Asset) const noexcept
 {
 	const auto* Cached = GetCachedAsset(Asset);
@@ -1725,6 +1771,27 @@ bool FPreviewAssets::SubmitCook(const FLocation& Location, const std::string& La
 
 			Load->MaterialTextures = std::move(*Textures);
 		}
+		else if (auto* const Sound = std::get_if<FCookedSound>(&*Asset))
+		{
+			// A streamed sound plays from the cache entry, so the editor does not hold its samples.
+			if (Sound->bStream)
+			{
+				auto Stream = ReadCookedSoundStream(FDerivedDataCache(Request.DerivedDataRoot).GetEntryPath(Cooked->Key), FDerivedDataCache::PayloadOffset);
+				if (Stream)
+				{
+					Load->SoundStream = std::move(*Stream);
+				}
+			}
+
+			if (!Load->SoundStream)
+			{
+				Load->Sound = std::make_shared<const FCookedSound>(std::move(*Sound));
+			}
+		}
+		else if (auto* const Graph = std::get_if<FCookedSoundGraph>(&*Asset))
+		{
+			Load->SoundGraph = std::make_shared<const FCookedSoundGraph>(std::move(*Graph));
+		}
 		else
 		{
 			Load->Model = std::move(std::get<FCookedModel>(*Asset));
@@ -1755,6 +1822,7 @@ void FPreviewAssets::ReimportShownAssets()
 	}
 	Shown.insert(MaterialAssets.begin(), MaterialAssets.end());
 	Shown.insert(TextureAssets.begin(), TextureAssets.end());
+	Shown.insert(SoundAssets.begin(), SoundAssets.end());
 	if (PlayerCharacterAsset.IsValid())
 	{
 		Shown.insert(PlayerCharacterAsset);
@@ -1818,7 +1886,7 @@ void FPreviewAssets::PruneCache()
 // Pruning and publishing must agree on who still wants an asset, or a finished load is thrown away and requested again forever.
 bool FPreviewAssets::IsRequested(const FAssetId& Asset) const
 {
-	return Asset == MaterialPreviewMeshAsset || Asset == PlayerCharacterAsset || ThumbnailAssets.contains(Asset) || MaterialAssets.contains(Asset) || TextureAssets.contains(Asset) || std::ranges::any_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
+	return Asset == MaterialPreviewMeshAsset || Asset == PlayerCharacterAsset || ThumbnailAssets.contains(Asset) || MaterialAssets.contains(Asset) || TextureAssets.contains(Asset) || SoundAssets.contains(Asset) || std::ranges::any_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
 	{
 		return Slot.Asset == Asset;
 	});
@@ -1855,12 +1923,28 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 		return;
 	}
 
-	if ((Slot.Mesh || Slot.Material) && Slot.Key == Load.Key && (!TextureAssets.contains(Asset) || Slot.Texture))
+	if ((Slot.Mesh || Slot.Material || Slot.Sound || Slot.SoundStream || Slot.SoundGraph) && Slot.Key == Load.Key && (!TextureAssets.contains(Asset) || Slot.Texture))
 	{
 		Slot.Metadata = Load.Metadata;
 		Slot.ContentGeneration = ContentGeneration;
 		UpdateThumbnail(Entry->second);
 		PublishSlots(Slot);
+		return;
+	}
+
+	if (Load.Sound || Load.SoundStream || Load.SoundGraph)
+	{
+		Slot.Sound = std::move(Load.Sound);
+		Slot.SoundStream = std::move(Load.SoundStream);
+		Slot.SoundGraph = std::move(Load.SoundGraph);
+		Slot.Mesh.reset();
+		Slot.Material.reset();
+		Slot.MaterialSource.reset();
+		Slot.Metadata = Load.Metadata;
+		Slot.Key = Load.Key;
+		Slot.ContentGeneration = ContentGeneration;
+		PublishSlots(Slot);
+		HERTA_LOG_INFO(Log, AssetLog, "Loaded {} ({})", Slot.Label, Load.bCacheHit ? "cached" : "cooked");
 		return;
 	}
 

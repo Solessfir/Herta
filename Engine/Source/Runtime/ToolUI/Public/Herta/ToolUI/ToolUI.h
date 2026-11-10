@@ -149,6 +149,7 @@ enum class EToolUIMenuIcon : std::uint8_t
 	SelectAll,
 	ContentBrowser,
 	Performance,
+	Sound,
 };
 
 bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);

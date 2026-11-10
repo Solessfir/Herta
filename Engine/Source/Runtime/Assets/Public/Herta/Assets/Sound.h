@@ -65,6 +65,8 @@ struct FCookedSoundStream
 	std::uint32_t SampleRate = 48000;
 	std::uint32_t Channels = 1;
 	bool bLoop = false;
+	// Whether the sound was cooked to stream; the header reads the same either way.
+	bool bStream = false;
 	std::uint64_t Frames = 0;
 	std::filesystem::path File{};
 	// Bytes from the start of the file to the first sample.

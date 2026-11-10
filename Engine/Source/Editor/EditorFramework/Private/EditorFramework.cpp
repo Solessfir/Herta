@@ -465,6 +465,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 
 	Implementation->UpdatePlay(IO.DeltaTime);
+	Implementation->UpdateAudio(IO.DeltaTime);
 
 	if (!Implementation->bProjectBusy && !IO.AppFocusLost && !IO.WantTextInput && IO.KeyAlt && !IO.KeyCtrl && !IO.KeyShift && !IO.KeySuper && ImGui::IsKeyPressed(ImGuiKey_S, false) && !Implementation->IsSimulating() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
 	{

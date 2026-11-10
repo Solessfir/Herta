@@ -188,8 +188,21 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 		Pending.emplace(Level->PlayerCharacter, std::nullopt);
 	}
 
+	for (const FAssetId& Sound : Level->Sounds)
+	{
+		if (Sound.IsValid())
+		{
+			Pending.emplace(Sound, std::nullopt);
+		}
+	}
+
 	for (const FLevelEntity& Entity : Level->Entities)
 	{
+		if (Entity.AudioEmitter && Entity.AudioEmitter->Sound.IsValid())
+		{
+			Pending.emplace(Entity.AudioEmitter->Sound, std::nullopt);
+		}
+
 		if (Entity.Mesh)
 		{
 			Pending.emplace(Entity.Mesh->Asset, std::nullopt);
@@ -281,6 +294,14 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 				{
 					Pending.emplace(Binding.Texture, Binding.ColorSpace);
 				}
+			}
+		}
+
+		if (const auto* const Graph = std::get_if<FCookedSoundGraph>(&*Asset))
+		{
+			for (const FAssetId& Wave : GetSoundGraphWaves(Graph->Graph))
+			{
+				Pending.emplace(Wave, std::nullopt);
 			}
 		}
 

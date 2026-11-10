@@ -592,7 +592,7 @@ project "HertaGame"
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaGame"))
     debugdir(RepositoryRoot)
     debugargs { "--project=Saved/StagedBuilds/Sandbox/Sandbox/Sandbox.hertaproject" }
-    ApplyRuntimeDependencies { "Application", "Tasks", "GameFramework", "GameUI", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
+    ApplyRuntimeDependencies { "Application", "Tasks", "Audio", "GameFramework", "GameUI", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
     dependson { "HertaShaders" }
 
     -- Shipping players should not see a console; development builds keep it for logs.

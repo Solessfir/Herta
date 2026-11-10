@@ -15,6 +15,7 @@ namespace
 inline constexpr std::uint32_t EntryMagic = 0x43444448; // "HDDC"
 inline constexpr std::uint32_t EntryVersion = 1;
 inline constexpr std::size_t HeaderSize = 4 + 4 + 16 + 8;
+static_assert(HeaderSize == FDerivedDataCache::PayloadOffset);
 inline constexpr std::size_t ChecksumSize = 16;
 inline constexpr std::uint64_t MaximumPayloadSize = 4ull * 1024 * 1024 * 1024;
 

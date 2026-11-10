@@ -1,5 +1,7 @@
 #include "Herta/Application/Application.h"
 #include "Herta/Assets/CookedContent.h"
+#include "Herta/Audio/AudioEngine.h"
+#include "Herta/Audio/StagedSounds.h"
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Log.h"
 #include "Herta/GameFramework/GameAssets.h"
@@ -480,6 +482,30 @@ int RunGame(const FGameOptions& Options)
 		HERTA_LOG_WARNING(*Log, GameLog, "{}", Warning);
 	}
 
+	// Without a device the game still plays, with the same commands going to the null path.
+	Session->SetLevelSounds(Level->Sounds);
+	std::unique_ptr<FAudioEngine> Audio;
+	if (auto AudioResult = FAudioEngine::Create({.Device = bSmokeTest ? EAudioDevice::Null : EAudioDevice::Default}); AudioResult)
+	{
+		Audio = std::move(*AudioResult);
+		const FAudioStats AudioDevice = Audio->GetStats();
+		if (AudioDevice.bNullDevice && !AudioDevice.DeviceError.empty())
+		{
+			HERTA_LOG_WARNING(*Log, GameLog, "Audio plays through the null path: {}", AudioDevice.DeviceError);
+		}
+
+		if (auto Added = AddStagedSounds(*Audio, Content, Session->GetSounds()); !Added)
+		{
+			HERTA_LOG_WARNING(*Log, GameLog, "Some sounds will not play: {}", Added.error().Message);
+		}
+	}
+	else
+	{
+		HERTA_LOG_ERROR(*Log, GameLog, "Audio is unavailable: {}", AudioResult.error().Message);
+	}
+
+	bool bAudioMuted = false;
+
 	std::unique_ptr<FVisualEnvironment> Environment = FVisualEnvironment::Create(*Tasks, *Renderer, *Log);
 	auto UIResult = FGameUI::Create({
 	    .Device = &Device,
@@ -696,6 +722,20 @@ int RunGame(const FGameOptions& Options)
 		for (const std::string& Event : Session->TakeEvents())
 		{
 			HERTA_LOG_INFO(*Log, GameLog, "{}", Event);
+		}
+
+		const std::vector<FAudioCommand> AudioCommands = Session->TakeAudioCommands();
+		if (Audio)
+		{
+			// The pause menu mutes rather than stops, so loops resume where they were.
+			if (bPaused != bAudioMuted)
+			{
+				bAudioMuted = bPaused;
+				Audio->Submit(FAudioBusVolumeCommand{.Bus = "Master", .Volume = bPaused ? 0.f : 1.f});
+			}
+
+			Audio->Submit(AudioCommands);
+			Audio->Update(DeltaSeconds);
 		}
 
 		const FExtent2D Extent = Window.IsMinimized() ? FExtent2D{} : GetFramebufferExtent(Window);
