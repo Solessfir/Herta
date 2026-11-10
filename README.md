@@ -2,7 +2,7 @@
 
 A C++23 game engine for Windows and Linux, built around Vulkan. Inspired by Unreal Engine, with a modular architecture.
 
-Herta is a learning project in active development, not a production-ready engine. Author levels with undo/redo, editable PBR materials, lights and shadows, sky/atmosphere, volumetric fog, and SMAA. The editor includes asset import, live reimport, deterministic Jolt Physics with destruction, Material Graphs, and Play with an animated first-person or third-person character; the standalone game packages the same session. Coding agents can drive a running editor over MCP.
+Herta is a learning project in active development, not a production-ready engine. Author levels with undo/redo, editable PBR materials, lights and shadows, sky/atmosphere, volumetric fog, and SMAA. The editor includes asset import, live reimport, deterministic Jolt Physics with destruction, Material Graphs, and Play with an animated first-person or third-person character; the standalone game packages the same session and plays it alone, hosted, or against a dedicated server. Coding agents can drive a running editor over MCP.
 
 ![Herta Editor](.github/Herta.png)
 
@@ -31,7 +31,7 @@ Open the generated `Herta.slnx` or `Herta.sln` in Visual Studio or Rider, select
 
 ### Linux
 
-Install a C++23 toolchain and X11/Wayland development packages. See [Getting started](Docs/GettingStarted.md#linux) for prerequisites.
+Install a C++23 toolchain, X11/Wayland development packages, and OpenSSL development headers. See [Getting started](Docs/GettingStarted.md#linux) for prerequisites.
 
 ```sh
 ./Setup.sh
@@ -54,8 +54,9 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Audio](Docs/Audio.md) - the mixer, streaming, Audio Graphs, and level sounds.
 - [Particles](Docs/Particles.md) and [World streaming](Docs/WorldStreaming.md) - VFX Graphs, the particle runtime, and streamed level regions.
 - [Navigation](Docs/Navigation.md) and [AI](Docs/AI.md) - tiled navmesh with streamed patches and obstacles, the crowd, StateTrees, perception, and agents.
+- [Multiplayer](Docs/Multiplayer.md) - dedicated and listen servers, snapshots, prediction, and rollback over GameNetworkingSockets.
 - [Editor automation](Docs/Automation.md) - driving a running editor from MCP clients such as coding agents.
-- [Next milestone](Docs/EngineDesign.md#milestone-12---multiplayer) - multiplayer, while editor automation over MCP keeps growing.
+- [Next milestone](Docs/EngineDesign.md#milestone-13---cooking-and-distribution) - cooking and distribution, while editor automation over MCP keeps growing.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
 - [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.
 

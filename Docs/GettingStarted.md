@@ -79,13 +79,13 @@ The script regenerates projects, builds the solution with ClangCL and MSVC at th
 
 ## Linux
 
-Setup validates Git, Make, `sha256sum`, `tar`, curl or wget, Linux X11 and Wayland development packages, and a C++23 compiler and standard library providing `<expected>` and `<print>`. GCC 14 or newer is required when using libstdc++.
+Setup validates Git, Make, `sha256sum`, `tar`, curl or wget, Linux X11 and Wayland development packages, OpenSSL's `libcrypto` development package, and a C++23 compiler and standard library providing `<expected>` and `<print>`. GCC 14 or newer is required when using libstdc++.
 
 On Ubuntu 24.04, install the required compiler and window-system packages with:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y git make coreutils tar curl gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libvulkan1 mesa-vulkan-drivers vulkan-validationlayers
+sudo apt-get install -y git make coreutils tar curl gcc-14 g++-14 pkg-config xorg-dev libwayland-dev libwayland-bin libxkbcommon-dev libssl-dev libvulkan1 mesa-vulkan-drivers vulkan-validationlayers
 ```
 
 On Ubuntu 24.04, select GCC 14 before running Setup and generating projects:

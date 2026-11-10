@@ -28,7 +28,7 @@ if ((Test-Path -LiteralPath $PackageRoot) -or (Test-Path -LiteralPath $ArchivePa
     throw "Package output already exists. Choose an empty output directory: $OutputDirectory"
 }
 
-foreach ($Program in @('HertaGame.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe', 'HertaShaderWorker.exe')) {
+foreach ($Program in @('HertaGame.exe', 'HertaServer.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe', 'HertaShaderWorker.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $BinaryDirectory $Program) -PathType Leaf)) {
         throw "Build $Configuration before packaging; missing $Program in $BinaryDirectory"
     }
@@ -46,6 +46,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaGame.exe') -Destination (Join-Path $PackageRoot "$ProjectName.exe")
+Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaServer.exe') -Destination (Join-Path $PackageRoot "$ProjectName-Server.exe")
 New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot 'Shaders') | Out-Null
 foreach ($Shader in $Shaders) {
     Copy-Item -LiteralPath $Shader.FullName -Destination (Join-Path $PackageRoot "Shaders/$($Shader.Name)")
@@ -82,6 +83,9 @@ A Vulkan-capable GPU, driver, and system Vulkan loader are required.
 
 WASD moves, Space jumps and wall jumps, Shift sprints, C or Ctrl crouches and slides, R restarts the course, Esc opens the menu, and F11 or Alt+Enter toggles fullscreen.
 
+Multiplayer: $ProjectName.exe --host[=port] hosts a game and plays it; others join with $ProjectName.exe --connect=address:port and an optional --name=Name.
+$ProjectName-Server.exe runs a dedicated server without a window, GPU, or audio device; it takes --port=, which defaults to 27015, and --max-players=.
+
 Herta is licensed under MIT. See LICENSE and ThirdPartyLicenses; the HUD font license is in Engine/Content/Fonts.
 This software is based in part on the work of the FreeType Team (https://freetype.org).
 "@ | Set-Content -LiteralPath (Join-Path $PackageRoot 'README.txt') -Encoding UTF8
@@ -96,6 +100,19 @@ if ($Verify) {
         }
 
         Write-Output "Relocated game passed its scripted run from $Relocated"
+
+        # The dedicated server must start from the package alone, and a hosted game must play through its own loopback client.
+        $Server = Start-Process -FilePath (Join-Path $Relocated "$ProjectName-Server.exe") -ArgumentList '--port=0', '--ticks=120' -WorkingDirectory $Relocated -PassThru -Wait -NoNewWindow
+        if ($Server.ExitCode -ne 0) {
+            throw "The relocated dedicated server failed with exit code $($Server.ExitCode); see $Relocated\Saved\Logs\Server.log."
+        }
+
+        $Hosted = Start-Process -FilePath (Join-Path $Relocated "$ProjectName.exe") -ArgumentList '--smoke-test=300', '--host=27315' -WorkingDirectory $Relocated -PassThru -Wait -NoNewWindow
+        if ($Hosted.ExitCode -ne 0) {
+            throw "The relocated game failed its hosted run with exit code $($Hosted.ExitCode); see %LOCALAPPDATA%\Herta\$ProjectName\Logs."
+        }
+
+        Write-Output "Relocated dedicated server started and a hosted game played from $Relocated"
     }
     finally {
         Remove-Item -LiteralPath $Relocated -Recurse -Force -ErrorAction SilentlyContinue

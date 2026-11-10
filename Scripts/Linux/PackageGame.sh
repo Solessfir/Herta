@@ -50,7 +50,7 @@ if [[ -e "${package_root}" || -L "${package_root}" || -e "${archive_path}" || -L
     exit 1
 fi
 
-for program in HertaGame HertaEditorCmd HertaAssetWorker HertaShaderWorker; do
+for program in HertaGame HertaServer HertaEditorCmd HertaAssetWorker HertaShaderWorker; do
     if [[ ! -x "${binary_directory}/${program}" ]]; then
         echo "Build ${configuration} before packaging; missing ${program} in ${binary_directory}" >&2
         exit 1
@@ -67,6 +67,7 @@ fi
 # Staging cooks the starting level's dependency closure through the asset worker and copies the project and level verbatim.
 "${binary_directory}/HertaEditorCmd" game.stage "${project_path}" "${package_root}"
 cp -- "${binary_directory}/HertaGame" "${package_root}/${executable_name}"
+cp -- "${binary_directory}/HertaServer" "${package_root}/${executable_name}-server"
 mkdir -p -- "${package_root}/Shaders"
 cp -- "${shaders[@]}" "${package_root}/Shaders/"
 
@@ -95,6 +96,9 @@ A Vulkan-capable GPU, driver, and system Vulkan loader are required, with X11 or
 
 WASD moves, Space jumps and wall jumps, Shift sprints, C or Ctrl crouches and slides, R restarts the course, Esc opens the menu, and F11 or Alt+Enter toggles fullscreen.
 
+Multiplayer: ./${executable_name} --host[=port] hosts a game and plays it; others join with ./${executable_name} --connect=address:port and an optional --name=Name.
+./${executable_name}-server runs a dedicated server without a window, GPU, or audio device; it needs only OpenSSL's libcrypto and takes --port=, which defaults to 27015, and --max-players=.
+
 Herta is licensed under MIT. See LICENSE and ThirdPartyLicenses; the HUD font license is in Engine/Content/Fonts.
 This software is based in part on the work of the FreeType Team (https://freetype.org).
 README
@@ -110,6 +114,19 @@ if [[ ${verify} -eq 1 ]]; then
     fi
 
     echo "Relocated game passed its scripted run from ${relocated}"
+
+    # The dedicated server must start from the package alone, and a hosted game must play through its own loopback client.
+    if ! (cd -- "${relocated}" && "./${executable_name}-server" --port=0 --ticks=120); then
+        echo "The relocated dedicated server failed; see ${relocated}/Saved/Logs/Server.log." >&2
+        exit 1
+    fi
+
+    if ! (cd -- "${relocated}" && "./${executable_name}" --smoke-test=300 --host=27315); then
+        echo "The relocated game failed its hosted run." >&2
+        exit 1
+    fi
+
+    echo "Relocated dedicated server started and a hosted game played from ${relocated}"
 fi
 
 tar -C "${output_directory}" -czf "${archive_path}" "${package_name}"

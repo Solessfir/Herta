@@ -83,11 +83,15 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/PackageG
 ./Scripts/Linux/PackageGame.sh --verify
 ```
 
-The package holds the renamed game executable (`<Project>.exe` on Windows, `<Project>.x86_64` on Linux beside the `<Project>` content folder), the cooked engine shaders, the staged content, `LICENSE`, `ThirdPartyLicenses`, and a README, under `Intermediate/Packages/<Project>-<platform>-x86_64-<Configuration>`. Shipping Windows builds have no console. `-Verify` copies the package outside the checkout and plays a scripted run there.
+The package holds the renamed game executable (`<Project>.exe` on Windows, `<Project>.x86_64` on Linux beside the `<Project>` content folder), the dedicated server (`<Project>-Server.exe` or `<Project>.x86_64-server`), the cooked engine shaders, the staged content, `LICENSE`, `ThirdPartyLicenses`, and a README, under `Intermediate/Packages/<Project>-<platform>-x86_64-<Configuration>`. Shipping Windows builds have no console. `-Verify` copies the package outside the checkout and plays a scripted run there, then starts the dedicated server and plays a hosted scripted run.
+
+## Multiplayer
+
+`HertaGame --host[=port]` hosts a game on port 27015 or the given one and plays it through a loopback client, `--connect=host:port` joins a host or a `HertaServer`, and `--name=` names the player. See [Multiplayer](Multiplayer.md).
 
 ## Checks
 
-- `HertaGame --smoke-test=<frames> [--validation]` plays a scripted run: it walks and jumps, loses focus, pauses and resumes, saves and loads, restarts the course, crosses the level's regions and back, checks that the level's agents run their StateTrees on the navigation, and exits with failure on any error or validation message. Smoke saves go to the temporary directory.
+- `HertaGame --smoke-test=<frames> [--validation]` plays a scripted run: it walks and jumps, loses focus, pauses and resumes, saves and loads, restarts the course, crosses the level's regions and back, checks that the level's agents run their StateTrees on the navigation, and exits with failure on any error or validation message. Smoke saves go to the temporary directory. With `--host` or `--connect` it plays over the network instead of saving, loading, restarting, and crossing regions, checks the agents on the host's server, and fails if no snapshot arrived.
 - `HertaEditor --play-test [--validation]` runs two editor Play/Stop cycles with scripted input, saves `Saved/PlayTest/Play-N.png` from the player's view, and requires every authored model back after each stop.
 - `HertaTests` cover the mover (the sprint speed curve, landing speed loss, slide braking and exit, disabled and custom modes, sphere casts) and the session (spawn, timing, restart, jump limits, respawn, sliding under a low ceiling, wall kicks, the chimney climb, mantles and their room check, wall runs from a run but not a standing jump, invalid input), staged content loading, trigger roles, GameUI layout, the menus' focus routing, rebinding, and settings, saves and their recovery, and the shared simulation builder.
 

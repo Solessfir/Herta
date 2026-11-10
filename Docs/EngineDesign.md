@@ -252,6 +252,7 @@ Herta/
 |   |-- miniaudio/
 |   |-- nvrhi/
 |   |-- ozz-animation/
+|   |-- protobuf/
 |   |-- recastnavigation/
 |   |-- spdlog/
 |   |-- steam-audio/
@@ -941,7 +942,7 @@ Transport
 
 The connection handshake includes protocol, schema, content, and required plugin identities. Every packet, argument, count, offset, compressed payload, and client request is untrusted input with size, rate, authority, and lifetime limits. Disconnect and timeout paths release world and task ownership deterministically.
 
-[GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) is the preferred transport candidate after a focused Windows and Linux spike. It may provide reliable and unreliable messages, fragmentation, encryption, statistics, lanes, and network-condition simulation, but it does not own Herta replication or serialization. Initial scope is direct-IP dedicated and listen servers. P2P discovery, ICE/NAT traversal, matchmaking, host migration, rollback netcode, voice chat, accounts, and online services are later capabilities with separate product requirements.
+[GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) is the transport, adopted at Milestone 12; see [Multiplayer](Multiplayer.md). It may provide reliable and unreliable messages, fragmentation, encryption, statistics, lanes, and network-condition simulation, but it does not own Herta replication or serialization. Initial scope is direct-IP dedicated and listen servers. P2P discovery, ICE/NAT traversal, matchmaking, host migration, rollback netcode, voice chat, accounts, and online services are later capabilities with separate product requirements.
 
 Headless integration tests run multiple clients and servers as isolated processes or loopback compositions under simulated latency, jitter, loss, reordering, duplication, bandwidth limits, reconnects, incompatible schemas, and hostile input. A deterministic simulation harness verifies logical results without claiming that internet delivery or cross-platform floating-point physics is deterministic.
 
@@ -1068,7 +1069,8 @@ Source dependencies live under `External`. Single-header and amalgamated librari
 | [miniaudio](https://github.com/mackron/miniaudio) | Adopt at audio milestone | Audio | Private device, decoder, mixer, resampler, spatialization, and null-backend implementation behind Herta Audio. |
 | [Steam Audio](https://github.com/ValveSoftware/steam-audio) | Optional MS18 candidate after a measured acoustic use case | SteamAudio | Private HRTF and environmental-acoustics backend behind Herta Audio. Start with the built-in CPU ray tracer; do not make OpenCL, Radeon Rays, TrueAudio Next, or acoustic baking mandatory. Preserve Apache-2.0 notices and Valve trademark boundaries. |
 | [Recast Navigation](https://github.com/recastnavigation/recastnavigation) | Adopted at MS11 (main 9f4ce64) | Navigation subsystem | NavigationBuilder owns offline Recast use; runtime Navigation owns Detour queries, streaming, tile-cache updates, and DetourCrowd behind Herta APIs. |
-| [GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) | Preferred transport candidate after spike | Networking | Message transport, encryption, lanes, statistics, and network simulation behind Herta sessions. It does not own replication or serialization. Defer optional P2P and ICE dependencies. |
+| [GameNetworkingSockets](https://github.com/ValveSoftware/GameNetworkingSockets) | Adopted at MS12 (master d534c19) | Networking | Message transport, encryption, statistics, and network simulation behind `FNetworkTransport`. It does not own replication or serialization. P2P, ICE, and WebRTC stay off, and Setup leaves its nested Abseil and WebRTC submodules unfetched. Linux uses the system OpenSSL `libcrypto`. |
+| [Protobuf](https://github.com/protocolbuffers/protobuf) | Adopted at MS12 (v21.12) | Networking, private | GameNetworkingSockets' wire messages only. 21.12 is the last release without Abseil; `protoc` builds from the same submodule. |
 | [ICU4C](https://github.com/unicode-org/icu) | Adopt at localization milestone | Localization | Private Unicode, BCP 47 locale, MessageFormat, plural, formatting, collation, BiDi, and boundary services with pinned CLDR data. |
 | [HarfBuzz](https://github.com/harfbuzz/harfbuzz) | Adopt at localization milestone | TextLayout | Private shaping backend. Herta owns font fallback, layout, hit testing, caches, and public text types. |
 | [FreeType](https://gitlab.freedesktop.org/freetype/freetype) | Adopted at MS1; game HUD at MS5, expanded text at MS14 | ToolUI, GameUI, TextLayout | Private hinted rasterization for editor and project fonts. Font data is untrusted and worker lifetime and face concurrency are explicit. |
@@ -1788,6 +1790,8 @@ Status: complete as of 2026-11-11. Recast cooks tiled navmesh offline in `Naviga
 - Add loopback and multi-process tests with simulated loss, latency, jitter, reordering, duplication, bandwidth limits, reconnects, incompatibility, and hostile input.
 
 Exit condition: multiple players can complete the sample's gameplay loop through dedicated and player-hosted sessions with the same authoritative behavior. Local listen-server clients do not bypass replication or permission checks, prediction reconciles under simulated adverse networks, and headless servers run without window, renderer, ImGui, or audio-device dependencies.
+
+Status: complete as of 2026-11-10. `Networking` wraps GameNetworkingSockets, with Protobuf 21.12 built from source for its messages. `FGameSession` plays up to 16 players through per-player slots, with authority, puppets, replicas, and outcomes for breaks and cuts. Physics state includes the `CharacterVirtual`s and a body fingerprint, and session snapshots replay inputs to the same world hash. `Replication` has a versioned handshake with a content hash, stable entity ids, redundant input commands, XOR-delta snapshots against acknowledged baselines, 80 m relevancy, a per-snapshot byte budget with priorities, interpolation, prediction with replayed reconciliation, reconnect tokens, and validated decoding. `HertaServer` is the headless dedicated server and `HertaGame --host` a listen server whose own player joins through loopback; `--connect` joins either. Destruction and dense physics replicate from server state and outcomes rather than lockstep: the Sandbox's bandwidth fits, so rollback serves tests and replays only. See [Multiplayer](Multiplayer.md). Verified on Windows with MSVC and the relocated Development package's dedicated and hosted runs, and on Arch Linux under WSL with GCC 16, including the adverse-network and multi-process tests. Correction smoothing and lag-compensated hit checks wait for a game whose feel needs them.
 
 ### Milestone 13 - Cooking and distribution
 
