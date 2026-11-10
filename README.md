@@ -56,7 +56,8 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Navigation](Docs/Navigation.md) and [AI](Docs/AI.md) - tiled navmesh with streamed patches and obstacles, the crowd, StateTrees, perception, and agents.
 - [Multiplayer](Docs/Multiplayer.md) - dedicated and listen servers, snapshots, prediction, and rollback over GameNetworkingSockets.
 - [Editor automation](Docs/Automation.md) - driving a running editor from MCP clients such as coding agents.
-- [Next milestone](Docs/EngineDesign.md#milestone-13---cooking-and-distribution) - cooking and distribution, while editor automation over MCP keeps growing.
+- [Distribution](Docs/Distribution.md) - signed zstd content packages, embedded executables, HertaCooker, and data mods.
+- [Next milestone](Docs/EngineDesign.md#milestone-14---localization-and-text) - localization and text, while editor automation over MCP keeps growing.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
 - [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.
 

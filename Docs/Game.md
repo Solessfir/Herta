@@ -73,7 +73,7 @@ Click **Play** in the viewport toolbar or press **Alt+P** or **Shift+Space**. Pl
 
 Staging replaces only a directory that is empty or was staged before. A material with a custom shader or Material Graph has its twelve shading, depth prepass, bake, and shadow stages compiled through `HertaShaderWorker` without debug info to `Shaders/<hash>.<stage>.hshader` under the shader's mount, named by a hash of the shader key so deep output directories stay within path limits, with its parameter table beside them as `<hash>.parameters`. The game publishes them before play, so it links neither the shader compiler nor MaterialGraph.
 
-`HertaGame --project=<path>` runs a staged project; without it, the game opens the one project folder next to its executable. Package a relocatable build after building Shipping:
+`HertaGame --project=<path>` runs a staged project; without it, the game opens the content beside its executable: a package embedded in it, `.hpak` packages beside it, or the one loose project folder there, with any data mods in `Mods` over it. See [Distribution](Distribution.md). Package a relocatable build after building Shipping:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/PackageGame.ps1 -Verify
@@ -83,7 +83,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/PackageG
 ./Scripts/Linux/PackageGame.sh --verify
 ```
 
-The package holds the renamed game executable (`<Project>.exe` on Windows, `<Project>.x86_64` on Linux beside the `<Project>` content folder), the dedicated server (`<Project>-Server.exe` or `<Project>.x86_64-server`), the cooked engine shaders, the staged content, `LICENSE`, `ThirdPartyLicenses`, and a README, under `Intermediate/Packages/<Project>-<platform>-x86_64-<Configuration>`. Shipping Windows builds have no console. `-Verify` copies the package outside the checkout and plays a scripted run there, then starts the dedicated server and plays a hosted scripted run.
+The package holds the renamed game executable (`<Project>.exe` on Windows, `<Project>.x86_64` on Linux, named apart from a loose `<Project>` content folder), the dedicated server (`<Project>-Server.exe` or `<Project>.x86_64-server`), the content, `LICENSE`, `ThirdPartyLicenses`, and a README, under `Intermediate/Packages/<Project>-<platform>-x86_64-<Configuration>`. `-ContentMode`/`--content-mode` chooses the content: `Package`, the default, writes `<Project>.hpak` holding the staged files and engine shaders; `Embedded` builds that package into both executables, which then stand alone; `Loose` copies the staged files and `Shaders` folder. `-SigningKey`/`--signing-key` signs the package. Shipping Windows builds have no console. `-Verify` copies the package outside the checkout and plays a scripted run there, then starts the dedicated server and plays a hosted scripted run, and in package mode cooks the content again and requires identical package bytes.
+
+## Crash reports
+
+The game and the dedicated server write a report when they fault: the build revision, configuration, and platform, and the exception code or signal, as `Crash-<time>.txt` in the game's `Crashes` folder beside its logs, or `Saved/Crashes` for the server; on Windows a minidump goes beside it. Match a report to its build's symbols: the PDB on Windows, and the GNU build id on Linux.
 
 ## Multiplayer
 

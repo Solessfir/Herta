@@ -56,5 +56,21 @@ function HertaApplyToolchainSettings()
     filter { "system:windows", "configurations:Shipping" }
         staticruntime "On"
 
+    -- Shipping builds are reproducible: no timestamps in the binaries, and source paths relative to the checkout instead of where it sits.
+    -- Symbols are generated beside the binaries, never packaged, so crash reports can be read.
+    filter { "system:windows", "configurations:Shipping", "toolset:msc*" }
+        symbols "On"
+        buildoptions { "/Brepro", "/experimental:deterministic", "/pathmap:" .. path.getabsolute(_MAIN_SCRIPT_DIR) .. "=." }
+
+    filter { "system:windows", "configurations:Shipping", "toolset:msc*", "kind:ConsoleApp or WindowedApp or SharedLib" }
+        linkoptions { "/Brepro", "/PDBALTPATH:%_PDB%" }
+
+    filter { "system:linux", "configurations:Shipping" }
+        buildoptions { "-ffile-prefix-map=" .. path.getabsolute(_MAIN_SCRIPT_DIR) .. "=." }
+
+    -- A GNU build id names each Linux binary, so a crash report or core finds its symbols.
+    filter "system:linux"
+        linkoptions { "-Wl,--build-id=sha1" }
+
     filter {}
 end

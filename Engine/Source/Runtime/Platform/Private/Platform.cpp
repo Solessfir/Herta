@@ -4,18 +4,27 @@
 	#include <windows.h>
 
 	#include <bcrypt.h>
+	#include <dbghelp.h>
 	#include <shellapi.h>
 	#include <shlobj.h>
 #else
 	#include <cerrno>
+	#include <csignal>
+	#include <ctime>
 	#include <elf.h>
+	#include <execinfo.h>
+	#include <fcntl.h>
 	#include <fstream>
+	#include <unistd.h>
 
 	#include <sys/random.h>
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cstdlib>
+#include <cstring>
+#include <format>
 #include <string>
 
 namespace Herta
@@ -195,6 +204,144 @@ std::optional<FEmbeddedData> FindEmbeddedData(const std::string_view Name)
 	}
 
 	return std::nullopt;
+#endif
+}
+
+namespace
+{
+// Prepared when the reporter is installed, since a crashing process must not allocate or format.
+struct FCrashReporter
+{
+	std::array<char, 512> Header{};
+	std::size_t HeaderSize = 0;
+#ifdef HERTA_PLATFORM_WINDOWS
+	std::wstring Directory;
+#else
+	std::array<char, 1024> Directory{};
+#endif
+};
+
+FCrashReporter CrashReporter;
+
+// Writes Value in decimal or hex into Buffer without allocating, returning the characters written.
+std::size_t AppendNumber(char* const Buffer, std::uint64_t Value, const unsigned Base)
+{
+	char Digits[32];
+	std::size_t Count = 0;
+	do
+	{
+		const unsigned Digit = static_cast<unsigned>(Value % Base);
+		Digits[Count++] = static_cast<char>(Digit < 10 ? '0' + Digit : 'a' + Digit - 10);
+		Value /= Base;
+	} while (Value != 0 && Count < sizeof(Digits));
+
+	for (std::size_t Index = 0; Index < Count; ++Index)
+	{
+		Buffer[Index] = Digits[Count - 1 - Index];
+	}
+
+	return Count;
+}
+
+#ifdef HERTA_PLATFORM_WINDOWS
+LONG WINAPI WriteCrashReport(EXCEPTION_POINTERS* const Exception)
+{
+	SYSTEMTIME Time{};
+	GetSystemTime(&Time);
+	wchar_t Stem[64];
+	swprintf(Stem, 64, L"Crash-%04u%02u%02u-%02u%02u%02u-%lu", Time.wYear, Time.wMonth, Time.wDay, Time.wHour, Time.wMinute, Time.wSecond, GetCurrentProcessId());
+	std::array<wchar_t, 1024> Path{};
+	swprintf(Path.data(), Path.size(), L"%s\\%s.txt", CrashReporter.Directory.c_str(), Stem);
+	if (const HANDLE Report = CreateFileW(Path.data(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr); Report != INVALID_HANDLE_VALUE)
+	{
+		char Line[128] = "exception 0x";
+		std::size_t Size = 12;
+		Size += AppendNumber(Line + Size, Exception->ExceptionRecord->ExceptionCode, 16);
+		const char At[] = " at 0x";
+		std::memcpy(Line + Size, At, sizeof(At) - 1);
+		Size += sizeof(At) - 1;
+		Size += AppendNumber(Line + Size, reinterpret_cast<std::uintptr_t>(Exception->ExceptionRecord->ExceptionAddress), 16);
+		Line[Size++] = '\n';
+		DWORD Written = 0;
+		WriteFile(Report, CrashReporter.Header.data(), static_cast<DWORD>(CrashReporter.HeaderSize), &Written, nullptr);
+		WriteFile(Report, Line, static_cast<DWORD>(Size), &Written, nullptr);
+		CloseHandle(Report);
+	}
+
+	swprintf(Path.data(), Path.size(), L"%s\\%s.dmp", CrashReporter.Directory.c_str(), Stem);
+	if (const HANDLE Dump = CreateFileW(Path.data(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr); Dump != INVALID_HANDLE_VALUE)
+	{
+		MINIDUMP_EXCEPTION_INFORMATION Information{.ThreadId = GetCurrentThreadId(), .ExceptionPointers = Exception, .ClientPointers = FALSE};
+		MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), Dump, MiniDumpNormal, &Information, nullptr, nullptr);
+		CloseHandle(Dump);
+	}
+
+	return EXCEPTION_CONTINUE_SEARCH;
+}
+#else
+extern "C" void WriteCrashReport(const int Signal)
+{
+	char Path[1200];
+	std::size_t Size = 0;
+	for (const char* Character = CrashReporter.Directory.data(); *Character != '\0' && Size < 1024; ++Character)
+	{
+		Path[Size++] = *Character;
+	}
+
+	const char Prefix[] = "/Crash-";
+	std::memcpy(Path + Size, Prefix, sizeof(Prefix) - 1);
+	Size += sizeof(Prefix) - 1;
+	Size += AppendNumber(Path + Size, static_cast<std::uint64_t>(std::time(nullptr)), 10);
+	Path[Size++] = '-';
+	Size += AppendNumber(Path + Size, static_cast<std::uint64_t>(getpid()), 10);
+	const char Suffix[] = ".txt";
+	std::memcpy(Path + Size, Suffix, sizeof(Suffix));
+	if (const int Report = open(Path, O_WRONLY | O_CREAT | O_TRUNC, 0644); Report >= 0)
+	{
+		char Line[64] = "signal ";
+		std::size_t LineSize = 7;
+		LineSize += AppendNumber(Line + LineSize, static_cast<std::uint64_t>(Signal), 10);
+		Line[LineSize++] = '\n';
+		(void)write(Report, CrashReporter.Header.data(), CrashReporter.HeaderSize);
+		(void)write(Report, Line, LineSize);
+		// glibc's backtrace is not strictly async-signal-safe, but it is what a crash leaves to go on; the report is written first.
+		void* Frames[64];
+		backtrace_symbols_fd(Frames, backtrace(Frames, 64), Report);
+		close(Report);
+	}
+
+	// The handler was installed to reset itself, so raising again dies as the signal would have.
+	raise(Signal);
+}
+#endif
+}
+
+void InstallCrashReporter(const std::string_view BuildId, const std::filesystem::path& Directory)
+{
+	std::error_code Error;
+	std::filesystem::create_directories(Directory, Error);
+	const std::string Header = std::format("build {}\n", BuildId);
+	CrashReporter.HeaderSize = std::min(Header.size(), CrashReporter.Header.size());
+	std::memcpy(CrashReporter.Header.data(), Header.data(), CrashReporter.HeaderSize);
+#ifdef HERTA_PLATFORM_WINDOWS
+	CrashReporter.Directory = std::filesystem::absolute(Directory, Error).wstring();
+	SetUnhandledExceptionFilter(&WriteCrashReport);
+#else
+	const std::string Path = std::filesystem::absolute(Directory, Error).string();
+	if (Path.size() >= 1024)
+	{
+		return;
+	}
+
+	std::memcpy(CrashReporter.Directory.data(), Path.c_str(), Path.size() + 1);
+	struct sigaction Action{};
+	Action.sa_handler = &WriteCrashReport;
+	Action.sa_flags = SA_RESETHAND;
+	sigemptyset(&Action.sa_mask);
+	for (const int Signal : {SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT})
+	{
+		sigaction(Signal, &Action, nullptr);
+	}
 #endif
 }
 }

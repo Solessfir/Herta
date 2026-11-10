@@ -1,9 +1,11 @@
 #include "Herta/Assets/CookedContent.h"
-#include "Herta/Core/Log.h"
 #include "Herta/Assets/VirtualFileSystem.h"
+#include "Herta/Core/Build.h"
+#include "Herta/Core/Log.h"
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/GameContent.h"
 #include "Herta/Level/LevelSerialization.h"
+#include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
 #include "Herta/Project/Project.h"
 #include "Herta/Replication/GameServer.h"
@@ -115,6 +117,7 @@ int RunServer(const FServerOptions& Options)
 	}
 
 	std::unique_ptr<FLogService> Log = std::move(*LogResult);
+	InstallCrashReporter(std::format("{} {} {}", GetBuildRevision(), GetBuildConfigurationName(GetBuildConfiguration()), GetPlatformName(GetCurrentPlatform())), std::filesystem::path("Saved") / "Crashes");
 	auto TaskResult = FTaskSystem::Create({.Log = Log.get()});
 	if (!TaskResult)
 	{

@@ -257,7 +257,7 @@ Herta/
 |   |-- spdlog/
 |   |-- steam-audio/
 |   |-- GameNetworkingSockets/
-|   |-- libsodium/
+|   |-- monocypher/
 |   |-- umka-lang/
 |   `-- zstd/
 |-- Games/
@@ -1074,8 +1074,8 @@ Source dependencies live under `External`. Single-header and amalgamated librari
 | [ICU4C](https://github.com/unicode-org/icu) | Adopt at localization milestone | Localization | Private Unicode, BCP 47 locale, MessageFormat, plural, formatting, collation, BiDi, and boundary services with pinned CLDR data. |
 | [HarfBuzz](https://github.com/harfbuzz/harfbuzz) | Adopt at localization milestone | TextLayout | Private shaping backend. Herta owns font fallback, layout, hit testing, caches, and public text types. |
 | [FreeType](https://gitlab.freedesktop.org/freetype/freetype) | Adopted at MS1; game HUD at MS5, expanded text at MS14 | ToolUI, GameUI, TextLayout | Private hinted rasterization for editor and project fonts. Font data is untrusted and worker lifetime and face concurrency are explicit. |
-| [Zstandard](https://github.com/facebook/zstd) | Adopt at package milestone | Assets | Default general-purpose package chunk compression behind Herta stream and package APIs. Use the BSD license option. |
-| [libsodium](https://github.com/jedisct1/libsodium) | Adopt when package signing is implemented | PackageBuilder | Private Ed25519 signing and verification; optional authenticated encryption only after a reviewed threat and reproducibility policy. |
+| [Zstandard](https://github.com/facebook/zstd) | Adopted at MS13 (v1.5.7) | Assets, PackageBuilder | Package chunk compression behind the Herta package reader and builder; built without assembly, threads, or legacy formats. Use the BSD license option. |
+| [Monocypher](https://github.com/LoupVaillant/Monocypher) | Adopted at MS13 (4.0.2, vendored) | Assets, PackageBuilder | Private Ed25519 signing and verification and BLAKE2b chunk hashes. Chosen over libsodium: two audited files and the optional Ed25519 module, nothing else to build. Authenticated encryption, if a project ever needs it, is reconsidered then. |
 | [Slang](https://github.com/shader-slang/slang) | Adopt at shader milestone | ShaderCompiler | HLSL-like source to SPIR-V plus reflection. |
 | [AMD FidelityFX FSR](https://gpuopen.com/fidelityfx-super-resolution-3/) | Adopt after native TAA and upscaler contracts | Renderer adapter | First optional Vulkan temporal-upscaling integration. Vendor types and lifecycle remain private. Frame generation is later. |
 | [NVIDIA Streamline/DLSS](https://github.com/NVIDIA-RTX/Streamline) | Optional later plugin | Renderer plugin | Vulkan DLSS integration without making NVIDIA binaries or device capabilities a renderer foundation. Validate Windows and Linux deployment independently. |
@@ -1796,13 +1796,15 @@ Status: complete as of 2026-11-10. `Networking` wraps GameNetworkingSockets, wit
 ### Milestone 13 - Cooking and distribution
 
 - Extend the Milestone 5 loose deployment path with HertaCooker, versioned package indexes, dependency closure, zstd chunk compression, and platform deployment.
-- Add Ed25519 package-index signing and verification through libsodium with keys kept outside source and player builds.
+- Add Ed25519 package-index signing and verification through Monocypher with keys kept outside source and player builds.
 - Add loose, external-package, and executable-embedded output modes through the same VFS and package reader.
 - Add deterministic data-mod discovery, manifests, dependency resolution, namespaces, override policy, and compatibility diagnostics when exercising a sample data mod. Keep script behavior mods disabled until Milestone 16 sandbox gates pass; native binary mods remain disabled.
 - Add third-party notices, crash build IDs, and reproducible Shipping configuration.
 - For published releases, add protected tags, clean double-build verification, SBOM generation, artifact attestations, and immutable GitHub releases where available. These release-process gates do not block local package development.
 
 Exit condition: the reference game and server run from relocated external or embedded cooked data without editor or developer modules, unsigned package output reproduces byte-for-byte, and signed packages reject index or chunk tampering. Supported data mods mount deterministically without changing the base package. Language packs and script behavior mods are added by their later owning milestones, not required in advance.
+
+Status: complete as of 2026-11-10. Content packages (`.hpak`) are zstd chunks under a BLAKE2b-hashed index and an Ed25519 signature over the header, read through `FVirtualFileSystem` with directories, external packages, and packages embedded as a Windows resource or Linux ELF section; `HertaCooker` cooks loose, packaged, and embedded output, and the packaging scripts use it. Shipping builds with keys in `Config/PackagePublicKeys.txt` play only signed packages. Data mods resolve deterministically from `Mod.hmod` manifests with declared overrides; `Games/Sandbox/Mods/NeonCoral` is the sample. Crash reports name the build, and Shipping builds compile deterministically. See [Distribution](Distribution.md). The relocated Development game and server play from external and embedded packages on Windows and Linux, as does the Windows Shipping package, the package rebuilds byte for byte, and tampered packages are refused; verified on Windows with MSVC and on Arch Linux under WSL with GCC 16. Protected tags, double-build binary verification, SBOMs, attestations, and immutable releases wait for the first published release.
 
 ### Milestone 14 - Localization and text
 

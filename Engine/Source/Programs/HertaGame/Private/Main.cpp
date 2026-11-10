@@ -273,6 +273,7 @@ int RunGame(const FGameOptions& Options)
 	}
 
 	std::unique_ptr<FLogService> Log = std::move(*LogResult);
+	InstallCrashReporter(std::format("{} {} {}", GetBuildRevision(), GetBuildConfigurationName(GetBuildConfiguration()), GetPlatformName(GetCurrentPlatform())), UserDirectory / "Crashes");
 	auto TaskResult = FTaskSystem::Create({.Log = Log.get()});
 	if (!TaskResult)
 	{

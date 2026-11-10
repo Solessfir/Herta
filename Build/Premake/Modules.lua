@@ -237,7 +237,7 @@ HertaRuntimeModule("Level", {
 
 HertaRuntimeModule("Platform", {
     PublicDependencies = { "Core" },
-    PrivateWindowsSystemDependencies = { "ole32", "shell32", "bcrypt" }
+    PrivateWindowsSystemDependencies = { "ole32", "shell32", "bcrypt", "dbghelp" }
 })
     filter "system:windows"
         removefiles {

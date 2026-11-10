@@ -103,7 +103,7 @@ cp -- "${repository_root}/LICENSE" "${package_root}/LICENSE"
 license_files=(External/spdlog/include/spdlog/fmt/bundled/format.h External/freetype/src/gzip/zlib.h)
 while IFS= read -r tracked_file; do
     name="$(basename -- "${tracked_file}")"
-    if [[ "${tracked_file}" == External/* && "${name,,}" =~ (license|copying|notice|^ofl\.|^ftl\.) ]]; then
+    if [[ "${tracked_file}" == External/* && "${name,,}" =~ (license|licence|copying|notice|^ofl\.|^ftl\.) ]]; then
         license_files+=("${tracked_file}")
     fi
 done < <(git -c core.quotepath=false -C "${repository_root}" ls-files --recurse-submodules)

@@ -56,4 +56,8 @@ struct FEmbeddedData
 
 // The data embedded under Name: the resource named Name, or the section named "." followed by Name in lower case.
 [[nodiscard]] std::optional<FEmbeddedData> FindEmbeddedData(std::string_view Name);
+
+// From now on, a fault in this process, such as an access violation or a fatal signal, writes Crash-<time>.txt into Directory naming
+// BuildId and the fault, and on Windows a minidump beside it, then lets the process die as it would have. Call it once, early.
+void InstallCrashReporter(std::string_view BuildId, const std::filesystem::path& Directory);
 }

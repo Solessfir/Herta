@@ -97,7 +97,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $LicenseFiles = @($TrackedFiles | Where-Object {
-    $_ -like 'External/*' -and [IO.Path]::GetFileName($_) -match '(?i)(license|copying|notice|^ofl\.|^ftl\.)'
+    $_ -like 'External/*' -and [IO.Path]::GetFileName($_) -match '(?i)(license|licence|copying|notice|^ofl\.|^ftl\.)'
 })
 # These dependencies embed their notices in source files rather than separate license files.
 $LicenseFiles += @(

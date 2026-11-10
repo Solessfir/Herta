@@ -1,0 +1,3 @@
+# Publisher keys the game trusts its content packages to be signed with, one "<id>:<64 hex digits>" per line.
+# HertaCooker keygen prints a new key's public half; the private key it writes never belongs in this checkout.
+# Project generation compiles these into GameFramework, and a Shipping build that lists any key plays only packages signed by one of them.
