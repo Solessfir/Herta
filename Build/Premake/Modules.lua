@@ -302,6 +302,11 @@ HertaRuntimeModule("Navigation", {
         path.join(RepositoryRoot, "External/recastnavigation/DetourTileCache/Include")
     }
 
+-- StateTree execution, perception, working memory, and scheduling for agents; games give it bodies and an environment.
+HertaRuntimeModule("AI", {
+    PublicDependencies = { "Math", "Assets" }
+})
+
 -- miniaudio opens devices and decodes sources; Herta mixes. Its Linux backends load at runtime, so only the loader and threads link.
 HertaRuntimeModule("Audio", {
     PublicDependencies = { "Math", "Assets" },
@@ -589,7 +594,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Animation", "Audio", "Navigation", "NavigationBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "AI", "Animation", "Audio", "Navigation", "NavigationBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }

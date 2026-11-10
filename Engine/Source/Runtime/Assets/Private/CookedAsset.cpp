@@ -3,6 +3,7 @@
 #include "Herta/Core/BinaryStream.h"
 
 #include "ParticleSerialization.h"
+#include "StateTreeSerialization.h"
 #include "SoundSerialization.h"
 
 #include <algorithm>
@@ -22,6 +23,7 @@ inline constexpr std::uint8_t MaterialTag = 3;
 inline constexpr std::uint8_t SoundTag = 4;
 inline constexpr std::uint8_t SoundGraphTag = 5;
 inline constexpr std::uint8_t ParticleSystemTag = 6;
+inline constexpr std::uint8_t StateTreeTag = 7;
 
 inline constexpr std::size_t MaximumVertices = MaximumCookedBufferBytes / sizeof(FCookedVertex);
 inline constexpr std::size_t MaximumIndices = MaximumCookedBufferBytes / sizeof(std::uint32_t);
@@ -762,6 +764,18 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 		return Writer.TakeBytes();
 	}
 
+	if (const auto* Tree = std::get_if<FCookedStateTree>(&Asset))
+	{
+		if (auto Valid = ValidateStateTree(*Tree); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		Writer.Write(StateTreeTag);
+		WriteStateTree(Writer, *Tree);
+		return Writer.TakeBytes();
+	}
+
 	const FCookedModel& Model = std::get<FCookedModel>(Asset);
 
 	if (std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)
@@ -930,6 +944,22 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 		}
 
 		return Particles;
+	}
+
+	if (Tag == StateTreeTag)
+	{
+		FCookedStateTree Tree = ReadStateTree(Reader);
+		if (!Reader.IsValid() || !Reader.IsAtEnd())
+		{
+			return Invalid("Truncated or oversized cooked StateTree");
+		}
+
+		if (auto Valid = ValidateStateTree(Tree); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		return Tree;
 	}
 
 	if (Tag != ModelTag)

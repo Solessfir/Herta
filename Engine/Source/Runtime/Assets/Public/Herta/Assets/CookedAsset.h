@@ -4,6 +4,7 @@
 #include "Herta/Assets/Material.h"
 #include "Herta/Assets/ParticleSystem.h"
 #include "Herta/Assets/Sound.h"
+#include "Herta/Assets/StateTree.h"
 
 #include <array>
 #include <cstddef>
@@ -119,7 +120,7 @@ struct FCookedModel
 	std::vector<std::string> SeverableJoints{};
 };
 
-using FCookedAsset = std::variant<FCookedTexture, FCookedModel, FMaterialAsset, FCookedSound, FCookedSoundGraph, FCookedParticleSystem>;
+using FCookedAsset = std::variant<FCookedTexture, FCookedModel, FMaterialAsset, FCookedSound, FCookedSoundGraph, FCookedParticleSystem, FCookedStateTree>;
 
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedTexture(const FCookedTexture& Texture);
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedModel(const FCookedModel& Model);
