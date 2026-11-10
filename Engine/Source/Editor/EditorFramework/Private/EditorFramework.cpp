@@ -142,7 +142,8 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	Implementation->RefreshLevel();
 	if (InitialLevelPath.lexically_normal() == (Descriptor.EngineRoot / "Games/Sandbox/Levels/Sandbox.hlevel").lexically_normal())
 	{
-		Implementation->ViewportCamera.Focus({0.f, 1.f, 6.f}, {10.f, 3.f, 12.f}, 16.f / 9.f);
+		// The parkour course runs from the arena's front edge to the chimney 50 m up the middle.
+		Implementation->ViewportCamera.Focus({0.f, 1.f, 22.f}, {12.f, 3.f, 26.f}, 16.f / 9.f);
 	}
 
 	if (auto Result = RegisterLevelFileCommands(*Descriptor.Commands); !Result)

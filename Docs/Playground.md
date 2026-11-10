@@ -1,16 +1,47 @@
 # Sandbox playground
 
-The default project opens `Games/Sandbox/Levels/Sandbox.hlevel`: 234 editable entities in 20 Outliner folders. The original physics course and hierarchy examples remain intact. Cubes share the Engine mesh; editable `.hmat` assets provide their colors. A single shared sphere makes PBR reflections easier to compare.
+The Sandbox project has two levels. `Games/Sandbox/Levels/Sandbox.hlevel`, the starting level, is gameplay: a parkour course up the middle of the arena for the player, with calibration gauges and interactive physics beside it. `Games/Sandbox/Levels/Visuals.hlevel` is the rendering and physics test bench: the material, texture, lighting, sky, fog, shadow, and antialiasing stations, the physics comparisons, and the authoring examples, which the visual test measures. Open it from the Content Browser or pass it on the editor's command line. Cubes share the Engine mesh; editable `.hmat` assets provide their colors.
 
-Press **F** to frame a selection, **G** for game view, and **F11** for an immersive viewport. **Alt+S** simulates the physics stations and **Alt+P** plays the course as the player; **Escape** stops either and restores authored poses. **Ctrl+S** saves the level, not simulation poses. **Ctrl+Space** reveals the bottom panel.
+Press **F** to frame a selection, **G** for game view, and **F11** for an immersive viewport. **Alt+S** simulates the physics stations and **Alt+P** plays as the player; **Escape** stops either and restores authored poses. **Ctrl+S** saves the level, not simulation poses. **Ctrl+Space** reveals the bottom panel. Number keys in the focused viewport jump to the level's camera bookmarks, **Viewport settings > Bookmarks** lists them, and **Ctrl+number** saves the current view into a slot. Bookmarks are saved with the level, so update them when a station moves.
 
-Number keys in the focused viewport jump to the level's camera bookmarks; **Viewport settings > Bookmarks** lists them:
+## Gameplay level
+
+54 entities in 6 Outliner folders.
+
+| Key | Bookmark |
+| --- | --- |
+| 1 | Course overview |
+| 2 | Start, slide, and hurdles |
+| 3 | Mantle block |
+| 4 | Wall run lane |
+| 5 | Chimney finish |
+| 6 | Movement gauges |
+| 7 | Moving platforms and destruction |
+
+**Parkour course.** **Course start** and **Course finish** triggers carry the Start and Finish roles; the timer starts on leaving the start zone at the arena's front edge and stops on the chimney ledge. The course runs up the middle along +Z, each section sized to the Mirror's Edge movement numbers in [Game runtime](Game.md):
+
+- **Run-up and slide:** 7 m of open floor, then a coral bar 1.3 m above the floor that only a sliding or crouching player passes. Sprint and press crouch just before it.
+- **Hurdles:** a 0.6 m and a 1.3 m hurdle 2.5 m apart across the course. The 1.2 m jump clears both, or lands on the higher one.
+- **Mantle block:** a 1.7 m block, too high for a jump and its step-up and too far from the hurdles to jump onto, so jumping at it mantles onto its top. It drops onto the wall run lane's run-up.
+- **Wall run lane:** two 22 m walls 6 m apart line a lane crossed by an 8 m pit, 1.8 m deep. Run alongside a wall and jump while strafing toward it, or run at it at an angle, to wall run across the pit; a good run lands just past the far edge, and jumping off to the other wall chains a second run. A fall into the pit mantles out.
+- **Chimney finish:** at the lane's end, a 4.5 m chimney with 2.5 m between its walls leads to a mint ledge 3.5 m up, which wall kicks reach. The finish trigger sits on the ledge.
+
+Play it with **Alt+P** in the editor or as the standalone game.
+
+- **Movement gauges:** to the left of the course, stairs, a descent ramp, and gap platforms with 1 m and 2 m gaps; a 1.8 m coral capsule for scale; and mint step-up blocks of 0.18, 0.35, and 0.5 m. They encode the controller limits: walk up 0.18 m, step up 0.35 m, jump the 0.5 m steps, the hurdles, and the 2 m gap, as the jump lifts the feet about 1.2 m.
+- **Moving platforms and triggers:** to the right of the start, a cyan shuttle travels 6 m and back every 6 s carrying a coral cube through a trigger at its far end, and a gold elevator lifts a mint cube 2.5 m every 5 s into a trigger at the top. Triggers draw as boxes that turn green while occupied and log each enter and exit; the platforms themselves do not set them off.
+- **Destruction yard:** to the right of the mantle block, two anchored walls (16 cells at strength 40, and a harder 24 cells at 90), an anchored pillar, and a loose crate fracture when hit hard enough. During Play, throw balls with **F**, the left mouse button, or the gamepad's West button. Hits break the bonds around the impact; pieces still standing on the footing stay put, loose pieces fall, and single chunks become debris that fades after 12 s. Turn on **Collision** in the viewport settings to see the chunk hulls. Simulate keeps them intact. See [Physics](Physics.md).
+
+Every meshed object is a static body the player can stand on, except the destructibles, which build their own fracture collision.
+
+## Visuals level
+
+195 entities in 14 Outliner folders. It keeps its own copy of the arena floor and the sun, sky, and fog, with their own object IDs.
 
 | Key | Bookmark |
 | --- | --- |
 | 1 | Overview |
 | 2 | Physics comparisons |
-| 3 | Traversal and player scale |
 | 4 | Hierarchy workshop |
 | 5 | East terrace physics |
 | 6 | Shadow distance lane |
@@ -18,9 +49,7 @@ Number keys in the focused viewport jump to the level's camera bookmarks; **View
 | 8 | Textures and antialiasing |
 | 9 | Local lighting bays |
 
-**Ctrl+number** saves the current view into that slot. Bookmarks are saved with the level, so update them when a station moves.
-
-## Visual authoring checks
+### Visual authoring checks
 
 - **PBR material gallery:** the front terrace compares metallic 0 and 1 across roughness 0.06, 0.18, 0.35, 0.55, 0.75, and 0.95. The two roughest ceramics also set diffuse roughness to their roughness, so EON flattens their shading towards the silhouette; compare them with Lambert by resetting diffuse roughness in the material editor. A front row isolates the newer BRDF terms, ordered from left to right on screen: felt and concrete each as a Lambert and EON pair (diffuse roughness 0 and 1), a rough cast iron sphere that multiple-scattering compensation keeps from darkening, and copper whose tinted edge color uses F82-tint Fresnel. Beyond the copper, a striped sphere is shaded by `GraphStripes.hmatgraph`, a Material Graph whose stripe mask drives both base color and roughness; open it with **Edit graph** in its material's Shader section. A comment frames the stripe pattern and a reroute knot carries the mask into roughness. The graph is a master: its two colors, two roughnesses, stripe frequency, and metallic are parameters. The two spheres beyond it are instances, `GraphStripesFine` (fine green stripes) and `GraphStripesGilded` (wide metallic gold bands), which set those parameters under Graph parameters in their material editors. The graph's `Horizontal` static switch masks by V instead of U; the gilded instance turns it on, so its bands run horizontally and it compiles to its own shader permutation, while the other two share the default one. Editing the graph updates all three, live while it is unsaved. Double-click a material in the Content Browser to edit it, or use a mesh's material-slot editor. Changes preview before saving; material history is independent of level history.
 - **Textures and alpha cutout:** the right terrace, viewed from the starting camera, combines sRGB base color, a linear normal map, and a packed linear ORM map (R: occlusion, G: roughness, B: metallic). The masked grille reveals the tiled wall through its openings. Adjust normal strength, UV scale, channels, and alpha cutoff to check their effects.
@@ -33,34 +62,23 @@ Number keys in the focused viewport jump to the level's camera bookmarks; **View
 
 All five light types are authored entities. Atmosphere references the sun's stable object ID; a missing sun uses the renderer's directional-light fallback. The four shadow-casting lights use 12 of the 16 shadow views: four directional cascades, six point faces, one spot, and one rect projection. Sky does not cast a shadow.
 
-## Physics and authoring checks
+### Physics and authoring checks
 
 - **Bounce:** three gold cubes with restitution 0, 0.45, and 0.9 drop from the same height.
 - **Gravity:** coral cubes compare gravity scales 0, 0.35, and 1.
 - **Friction and damping:** paired ramps compare friction 0 and 0.8; tilted tumblers compare damping 0 and 1.
 - **Stack and mass:** five dynamic blocks use a 10 kg base and 1 kg upper blocks. Mass affects contact response, not gravitational acceleration.
-- **Traversal:** stairs, a descent ramp, hurdles, and spaced platforms are static collision geometry for the upcoming player controller.
-- **Player scale gauges:** a 1.8 m coral capsule stands at the foot of the stairs for scale. Mint step-up blocks of 0.18, 0.35, and 0.5 m sit beside the gap platforms, and the platforms leave 1 m and 2 m gaps. They encode the player controller limits: walk up 0.18 m, step up to 0.35 m, jump 0.5 m steps, both the 0.6 m low and the 1.3 m high hurdle, and a 2 m gap, as Mirror's Edge's jump lifts the feet about 1.2 m.
 - **Hierarchy workshop:** a rotated arch, nested shelf, mesh-only child, and empty entity exercise parenting, duplication, component editing, and undo/redo.
 - **Shared mesh gallery:** repeated checker and colored cubes exercise instancing and material overrides without duplicated geometry.
 - **Soft bodies:** the east bay's cyan gantry carries a gold rope with a 2 kg slate box joined to its free end by a Constraint on the box, which starts 50 degrees off vertical and swings, and a cloth with the normal-mapped panel material, pinned at its top corners and released flat. The cloth checks UVs, tangents, and normal mapping on deforming geometry. A mint pressurized ball drops onto a 20 degree ramp and rolls off it. The rope, box, and cloth follow the gantry when its parent moves.
 - **Collision shapes:** on the east terrace, a 15 degree ramp with friction 0.8 holds a box-collision cube in place while a sphere and a capsule lying on its side roll down to the arena rail. All three use the Engine meshes with matching collision.
-- **Destruction yard:** north-east of the arena, two anchored walls (16 cells at strength 40, and a harder 24 cells at 90), an anchored pillar, and a loose crate fracture when hit hard enough. During Play, throw balls with **F**, the left mouse button, or the gamepad's West button. Hits break the bonds around the impact; pieces still standing on the footing stay put, loose pieces fall, and single chunks become debris that fades after 12 s. Turn on **Collision** in the viewport settings to see the chunk hulls. Simulate keeps them intact. See [Physics](Physics.md).
-- **Moving platforms and triggers:** at the east end of the terrace, a cyan shuttle travels 6 m and back every 6 s carrying a coral cube through a trigger at its far end, and a gold elevator lifts a mint cube 2.5 m every 5 s into a trigger at the top. Triggers draw as boxes that turn green while occupied and log each enter and exit; the platforms themselves do not set them off.
 
-Rigid collision is a box, sphere, or capsule fitted to mesh bounds, not arbitrary mesh collision. Soft bodies collide with those shapes through their own vertex radius. Every meshed object is a static body the player can stand on, except the destructibles, which build their own fracture collision, and the hierarchy example's child mesh, which shows a mesh without one. The rope box, the three collision-shape bodies, and the two platform riders are the only dynamic bodies outside the 16 physics comparisons. Use [scaling fixtures](Scaling.md) for 1k/5k/10k stress tests.
+Rigid collision is a box, sphere, or capsule fitted to mesh bounds, not arbitrary mesh collision. Soft bodies collide with those shapes through their own vertex radius. Every meshed object is a static body, except the hierarchy example's child mesh, which shows a mesh without one. The rope box and the three collision-shape bodies are the only dynamic bodies outside the 16 physics comparisons. Use [scaling fixtures](Scaling.md) for 1k/5k/10k stress tests.
 
 ## Content and validation
 
 Project-owned materials and textures live in `Games/Sandbox/Content/Playground`. The four 128x128 PNG maps are original, procedurally generated test data: beveled panel color/normal/ORM patterns and an RGBA cutout grille. They require no external art tools or third-party license. The Engine sphere is a unit-diameter, 48-segment/24-ring glTF primitive with explicit normals and UVs. The Engine capsule has a 1 m diameter and 2 m height along +Y, with 48 segments and 12 rings per cap.
 
-From the repository root, run `HertaEditorCmd level.validate Games/Sandbox/Levels/Sandbox.hlevel` and `HertaEditorCmd asset.validate --content-root Games/Sandbox/Content`. `HertaEditor --visual-test --validation` renders 600 ready frames from the starting camera, logs GPU pass timings and render-target memory, then saves one image per camera bookmark to `Saved/VisualTest` without saving editor settings. Add `--quality=low`, `medium`, or `high` to capture and time one rendering quality tier at every bookmark, and `--resolution=1920x1080` or `3840x2160` to render at a fixed size regardless of the display. On GPUs with ray queries, `--path-tracing` renders every bookmark with the reference path tracer until 1024 samples per pixel and saves them to `Saved/VisualTest/PathTraced` for side-by-side comparison with the raster captures. `--exposure=<EV100>`, such as 15 for sunlight or 10 for Sponza's arcades, replaces auto exposure with a fixed exposure, so captures compare region by region without each image metering itself differently. `--shimmer` reads back each bookmark's last 16 frames, logs how much the still view changes from frame to frame (the mean change in 8-bit levels and the share of pixels averaging over one level), and saves a `-shimmer.png` heatmap beside each capture at 32 grey levels per level of change. `--walk` then flies 2.4 m forward from each bookmark, one 5 cm step a frame, and saves `-moving.png` as it stops and `-stopped.png` once the same view has settled. `--hold-bookmark=N` instead stays on bookmark N after the 600 frames until the window closes, so a profiler such as Nsight traces the same view every run. The High tier's captures include global illumination, so comparing them against those references checks it at every station; the lighting bays and the hierarchy workshop show its bounce light most clearly. `HertaEditor --scaling-test=Games/Sandbox/Levels/Sandbox.hlevel --scaling-simulate --validation` also checks selection, simulation startup, and pose restoration. Inspect the viewport to verify visual quality.
+From the repository root, run `HertaEditorCmd level.validate Games/Sandbox/Levels/Sandbox.hlevel`, the same for `Visuals.hlevel`, and `HertaEditorCmd asset.validate --content-root Games/Sandbox/Content`. `HertaEditor --visual-test --validation` opens the Visuals level, renders 600 ready frames from its starting camera, logs GPU pass timings and render-target memory, then saves one image per camera bookmark to `Saved/VisualTest` without saving editor settings. Add `--quality=low`, `medium`, or `high` to capture and time one rendering quality tier at every bookmark, and `--resolution=1920x1080` or `3840x2160` to render at a fixed size regardless of the display. On GPUs with ray queries, `--path-tracing` renders every bookmark with the reference path tracer until 1024 samples per pixel and saves them to `Saved/VisualTest/PathTraced` for side-by-side comparison with the raster captures. `--exposure=<EV100>`, such as 15 for sunlight or 10 for Sponza's arcades, replaces auto exposure with a fixed exposure, so captures compare region by region without each image metering itself differently. `--shimmer` reads back each bookmark's last 16 frames, logs how much the still view changes from frame to frame (the mean change in 8-bit levels and the share of pixels averaging over one level), and saves a `-shimmer.png` heatmap beside each capture at 32 grey levels per level of change. `--walk` then flies 2.4 m forward from each bookmark, one 5 cm step a frame, and saves `-moving.png` as it stops and `-stopped.png` once the same view has settled. `--hold-bookmark=N` instead stays on bookmark N after the 600 frames until the window closes, so a profiler such as Nsight traces the same view every run. The High tier's captures include global illumination, so comparing them against those references checks it at every station; the lighting bays and the hierarchy workshop show its bounce light most clearly. `HertaEditor --scaling-test=Games/Sandbox/Levels/Visuals.hlevel --scaling-simulate --validation` also checks selection, simulation startup, and pose restoration. Inspect the viewport to verify visual quality.
 
-- **Slide and wall jump:** beside the arch, a coral bar 1.3 m above the floor only lets a sliding or crouching player through, and a 4.5 m chimney with 2.5 m between its walls leads to a mint ledge 3.5 m up that only wall jumps reach.
-- **Wall run lane:** beyond the Texture terrace, off the arena's right side, two 22 m walls 6 m apart line a lane crossed by a 1.8 m deep pit. Run and jump at a wall at an angle to run across the pit, jump off to the other wall to chain a second run, or fall in and mantle out.
-
-## Course
-
-**Course start** and **Course finish** triggers in the traversal folder carry the Start and Finish roles. The player spawns in front of the stairs; the timer starts on leaving the start zone and stops on reaching the last gap platform. Any route counts: the stairs, hurdles, and gaps are there to test the controller limits above. Play it with **Alt+P** in the editor or as the standalone game; see [Game runtime](Game.md).
-
-Later engine features should add concrete checks here rather than create separate demo frameworks.
+Later engine features should add concrete checks to the level they exercise rather than create separate demo frameworks.

@@ -725,11 +725,13 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::filesystem::path OpenedProject;
 	std::filesystem::path OpenedGraph;
 	std::filesystem::path OpenedMaterial;
-	if (!OpenPath.empty() && !bScalingTest)
+	// The visual test measures the rendering stations, which live in their own level so the gameplay course can change freely.
+	const std::filesystem::path RequestedPath = OpenPath.empty() && bVisualTest ? RepositoryRoot / "Games/Sandbox/Levels/Visuals.hlevel" : OpenPath;
+	if (!RequestedPath.empty() && !bScalingTest)
 	{
 		std::error_code Error;
-		const std::filesystem::path Absolute = std::filesystem::absolute(OpenPath, Error);
-		std::string Extension = OpenPath.extension().string();
+		const std::filesystem::path Absolute = std::filesystem::absolute(RequestedPath, Error);
+		std::string Extension = RequestedPath.extension().string();
 		std::ranges::transform(Extension, Extension.begin(), [](const unsigned char Character)
 		{
 			return static_cast<char>(std::tolower(Character));
@@ -756,7 +758,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		}
 		else
 		{
-			HERTA_LOG_WARNING(*Log, EditorLog, "Ignoring {}: the editor opens .hlevel, .hertaproject, .hmat, and .hmatgraph files", OpenPath.string());
+			HERTA_LOG_WARNING(*Log, EditorLog, "Ignoring {}: the editor opens .hlevel, .hertaproject, .hmat, and .hmatgraph files", RequestedPath.string());
 		}
 	}
 
