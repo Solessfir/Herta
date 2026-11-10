@@ -305,6 +305,38 @@ TEST_CASE("The bind pose skins every vertex back onto itself")
 	CHECK(Worst < 1.e-3f);
 }
 
+TEST_CASE("Overridden joints carry their children and the joints above them, but not the root")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	const auto& Names = (*Library)->GetJointNames();
+	const auto Find = [&Names](const std::string_view Name)
+	{
+		const auto Found = std::ranges::find(Names, Name);
+		REQUIRE(Found != Names.end());
+		return static_cast<std::size_t>(Found - Names.begin());
+	};
+
+	FAnimationPose Pose(*Library);
+	REQUIRE(Pose.Evaluate({}));
+	const std::vector<FMatrix4> Before(Pose.GetModelTransforms().begin(), Pose.GetModelTransforms().end());
+	// Moving only the chest, as a cut piece's ragdoll does, takes the head above it and the spine and pelvis below it the same way, so skin
+	// weighted between them never stretches; the root keeps its root motion.
+	const FMatrix4 Shift = FMatrix4::Translation({0.f, -1.f, 2.f});
+	const std::size_t Chest = Find("spine_02");
+	const std::array Joints{Chest};
+	const std::array Transforms{Shift * Before[Chest]};
+	Pose.OverrideJoints(Joints, Transforms, 1.f);
+	for (const std::string_view Name : {"spine_02", "neck_01", "spine_01", "pelvis"})
+	{
+		const std::size_t Joint = Find(Name);
+		CHECK_MESSAGE(MaximumDifference(Pose.GetModelTransforms()[Joint], Shift * Before[Joint]) < 1.e-4f, Name);
+	}
+
+	CHECK(MaximumDifference(Pose.GetModelTransforms().front(), Before.front()) < 1.e-6f);
+}
+
 TEST_CASE("Clips sample, blend, and report root motion")
 {
 	const FCookedModel& Model = Mannequin();

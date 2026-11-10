@@ -435,6 +435,20 @@ void FAnimationPose::OverrideJoints(const std::span<const std::size_t> Joints, c
 		}
 	}
 
+	// A joint above the moved ones, such as the spine below a cut piece's chest, follows its moved child; left where it was, the skin it
+	// carries would stretch between the two poses. Children follow their parents, so a backward pass carries the follow up the chain. The
+	// skeleton root stays, since it carries no skin and callers read the clip's root motion from it.
+	for (std::size_t Joint = Parents.size(); Joint-- > 0;)
+	{
+		const auto Parent = static_cast<std::size_t>(Parents[Joint]);
+		if (Parents[Joint] >= 0 && Parents[Parent] >= 0 && Pose.Moved[Joint] && !Pose.Moved[Parent])
+		{
+			const std::optional<FMatrix4> ChildInverse = TryInverseAffine(Pose.Evaluated[Joint]);
+			Pose.ModelTransforms[Parent] = ChildInverse ? Pose.ModelTransforms[Joint] * *ChildInverse * Pose.Evaluated[Parent] : Pose.ModelTransforms[Joint];
+			Pose.Moved[Parent] = true;
+		}
+	}
+
 	// Parents precede children, so one forward pass carries each moved joint's subtree along.
 	for (std::size_t Joint = 0; Joint < Parents.size(); ++Joint)
 	{

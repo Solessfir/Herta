@@ -2519,6 +2519,19 @@ std::expected<void, FGameError> FGameSession::FImplementation::RagdollCharacter(
 	}
 
 	Actor.Ragdoll = std::move(*Created);
+	// Posed from the new parts at once, so the body never draws a frame in its animation between the old ragdoll and the next step.
+	for (const FPhysicsBodyId Part : Actor.Ragdoll->Parts)
+	{
+		auto Transform = World->GetBodyTransform(Part);
+		if (!Transform)
+		{
+			return std::unexpected(FGameError{Transform.error().Message});
+		}
+
+		Actor.RagdollParts.push_back(*Transform);
+	}
+
+	Actor.Body->SetRagdollPose(Actor.RagdollParts, TryInverseAffine(Actor.Model).value_or(FMatrix4{}), 1.f);
 	return {};
 }
 
