@@ -170,7 +170,7 @@ TEST_CASE("Mesh renderer draws particles as lit, back-to-front discs into HDR co
 
 	const auto Upload = std::ranges::find_if(Device.DebugUploads, [](const std::vector<Herta::FColoredClipVertex>& Candidate)
 	{
-		return Candidate.size() == 21;
+		return Candidate.size() == 32;
 	});
 
 	REQUIRE(Upload != Device.DebugUploads.end());

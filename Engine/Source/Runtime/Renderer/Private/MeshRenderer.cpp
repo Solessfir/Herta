@@ -919,6 +919,7 @@ struct FMeshRenderer::FImplementation
 	std::vector<FColoredClipVertex> ParticleVertices;
 	std::vector<std::uint32_t> ParticleIndices;
 	std::vector<std::uint32_t> ParticleOrder;
+	std::uint32_t ParticleIndexCount = 0;
 	std::size_t LastDrawCount = 0;
 
 	// The inputs each cached result was last rendered from. A pass whose inputs match skips its work and keeps the result.
@@ -2129,6 +2130,11 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 			State.ParticleIndexBuffer = std::move(*Indices);
 		}
+
+		// Uploads fill the whole buffer, so the unused tail is padded; the draw's index count leaves it alone.
+		State.ParticleIndexCount = static_cast<std::uint32_t>(State.ParticleIndices.size());
+		State.ParticleVertices.resize(State.ParticleVertexBuffer->GetDescriptor().Size / sizeof(FColoredClipVertex));
+		State.ParticleIndices.resize(State.ParticleIndexBuffer->GetDescriptor().Size / sizeof(std::uint32_t));
 	}
 
 	for (std::size_t Index = 0; Index < State.DebugBatches.size(); ++Index)
@@ -3523,7 +3529,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 			if (Result)
 			{
-				Result = Device.DrawIndexed({.Pipeline = State.ParticlePipeline, .Vertices = State.ParticleVertexBuffer, .Indices = State.ParticleIndexBuffer, .Texture = {}, .ColorTarget = MeshColor, .DepthTarget = FrameDepth, .WorldToClip = FMatrix4::Identity().Data(), .IndexCount = static_cast<std::uint32_t>(State.ParticleIndices.size())});
+				Result = Device.DrawIndexed({.Pipeline = State.ParticlePipeline, .Vertices = State.ParticleVertexBuffer, .Indices = State.ParticleIndexBuffer, .Texture = {}, .ColorTarget = MeshColor, .DepthTarget = FrameDepth, .WorldToClip = FMatrix4::Identity().Data(), .IndexCount = State.ParticleIndexCount});
 			}
 
 			++State.LastDrawCount;

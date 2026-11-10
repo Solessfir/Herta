@@ -1,0 +1,26 @@
+{
+  "format": "HertaGraph",
+  "version": 2,
+  "domain": "vfx",
+  "domainVersion": 1,
+  "nodes": [
+    {"id": 1, "type": "System", "position": [400, 0], "properties": {}},
+    {"id": 2, "type": "Emitter", "position": [0, 0], "properties": {"name": "Ring", "maxParticles": 48, "duration": 0, "spawnRadius": 0.15}},
+    {"id": 3, "type": "Spawn", "position": [-340, -300], "properties": {"rate": 0, "burst": 12}},
+    {"id": 4, "type": "ConeVelocity", "position": [-340, -150], "properties": {"direction": [0, 1, 0, 0], "angle": 85, "speedMin": 0.8, "speedMax": 1.6}},
+    {"id": 5, "type": "Lifetime", "position": [-340, 0], "properties": {"min": 0.4, "max": 0.8}},
+    {"id": 6, "type": "SizeOverLife", "position": [-340, 150], "properties": {"start": 0.1, "end": 0.35}},
+    {"id": 7, "type": "ColorOverLife", "position": [-340, 300], "properties": {"start": [0.42, 0.39, 0.35, 0.5], "end": [0.42, 0.39, 0.35, 0], "emissive": 0}},
+    {"id": 8, "type": "Forces", "position": [-340, 450], "properties": {"gravity": 0.1, "drag": 3}}
+  ],
+  "links": [
+    {"from": [2, "Emitter"], "to": [1, "Emitter1"]},
+    {"from": [3, "Spawn"], "to": [2, "Spawn"]},
+    {"from": [4, "Velocity"], "to": [2, "Velocity"]},
+    {"from": [5, "Lifetime"], "to": [2, "Lifetime"]},
+    {"from": [6, "Size"], "to": [2, "Size"]},
+    {"from": [7, "Color"], "to": [2, "Color"]},
+    {"from": [8, "Forces"], "to": [2, "Forces"]}
+  ],
+  "comments": []
+}

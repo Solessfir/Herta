@@ -1,0 +1,42 @@
+{
+  "format": "HertaGraph",
+  "version": 2,
+  "domain": "vfx",
+  "domainVersion": 1,
+  "nodes": [
+    {"id": 1, "type": "System", "position": [400, 0], "properties": {}},
+    {"id": 2, "type": "Emitter", "position": [0, 0], "properties": {"name": "Dust cloud", "maxParticles": 96, "duration": 0, "spawnRadius": 0.4}},
+    {"id": 3, "type": "Spawn", "position": [-340, -300], "properties": {"rate": 0, "burst": 36}},
+    {"id": 4, "type": "ConeVelocity", "position": [-340, -150], "properties": {"direction": [0, 1, 0, 0], "angle": 80, "speedMin": 0.6, "speedMax": 2.2}},
+    {"id": 5, "type": "Lifetime", "position": [-340, 0], "properties": {"min": 1.2, "max": 2.2}},
+    {"id": 6, "type": "SizeOverLife", "position": [-340, 150], "properties": {"start": 0.2, "end": 0.9}},
+    {"id": 7, "type": "ColorOverLife", "position": [-340, 300], "properties": {"start": [0.42, 0.39, 0.35, 0.6], "end": [0.42, 0.39, 0.35, 0], "emissive": 0}},
+    {"id": 8, "type": "Forces", "position": [-340, 450], "properties": {"gravity": 0.05, "drag": 1.8}},
+    {"id": 9, "type": "Emitter", "position": [0, 900], "properties": {"name": "Chips", "maxParticles": 64, "duration": 0, "spawnRadius": 0.3}},
+    {"id": 10, "type": "Spawn", "position": [-340, 600], "properties": {"rate": 0, "burst": 28}},
+    {"id": 11, "type": "ConeVelocity", "position": [-340, 750], "properties": {"direction": [0, 1, 0, 0], "angle": 70, "speedMin": 2, "speedMax": 5}},
+    {"id": 12, "type": "Lifetime", "position": [-340, 900], "properties": {"min": 2, "max": 3}},
+    {"id": 13, "type": "SizeOverLife", "position": [-340, 1050], "properties": {"start": 0.05, "end": 0.04}},
+    {"id": 14, "type": "ColorOverLife", "position": [-340, 1200], "properties": {"start": [0.3, 0.29, 0.27, 1], "end": [0.3, 0.29, 0.27, 0], "emissive": 0}},
+    {"id": 15, "type": "Forces", "position": [-340, 1350], "properties": {"gravity": 1, "drag": 0}},
+    {"id": 16, "type": "Collision", "position": [-340, 1500], "properties": {"restitution": 0.35, "friction": 0.4, "stick": false}}
+  ],
+  "links": [
+    {"from": [2, "Emitter"], "to": [1, "Emitter1"]},
+    {"from": [3, "Spawn"], "to": [2, "Spawn"]},
+    {"from": [4, "Velocity"], "to": [2, "Velocity"]},
+    {"from": [5, "Lifetime"], "to": [2, "Lifetime"]},
+    {"from": [6, "Size"], "to": [2, "Size"]},
+    {"from": [7, "Color"], "to": [2, "Color"]},
+    {"from": [8, "Forces"], "to": [2, "Forces"]},
+    {"from": [9, "Emitter"], "to": [1, "Emitter2"]},
+    {"from": [10, "Spawn"], "to": [9, "Spawn"]},
+    {"from": [11, "Velocity"], "to": [9, "Velocity"]},
+    {"from": [12, "Lifetime"], "to": [9, "Lifetime"]},
+    {"from": [13, "Size"], "to": [9, "Size"]},
+    {"from": [14, "Color"], "to": [9, "Color"]},
+    {"from": [15, "Forces"], "to": [9, "Forces"]},
+    {"from": [16, "Collision"], "to": [9, "Collision"]}
+  ],
+  "comments": []
+}

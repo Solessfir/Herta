@@ -177,6 +177,11 @@ void FParticleWorld::SpawnParticles(FEffect& Effect, FEmitterState& Emitter, std
 void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& Collide)
 {
 	const float Step = std::isfinite(DeltaSeconds) ? std::clamp(DeltaSeconds, 0.f, 0.25f) : 0.f;
+	// A paused frame changes nothing, so it sweeps nothing and keeps the last render list.
+	if (Step == 0.f)
+	{
+		return;
+	}
 	std::uint32_t CollisionBudget = MaximumParticleCollisionsPerUpdate;
 	for (FEffect& Effect : Effects)
 	{

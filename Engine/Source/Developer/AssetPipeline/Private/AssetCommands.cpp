@@ -2,6 +2,7 @@
 #include "Herta/AnimationGraph/AnimationGraph.h"
 #include "Herta/AssetPipeline/AssetMetadata.h"
 #include "Herta/AudioGraph/AudioGraph.h"
+#include "Herta/VfxGraph/VfxGraph.h"
 
 #include "FileUtilities.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
@@ -435,6 +436,54 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			}
 
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Compiled {}: {} nodes, {} waves, inputs: {}", Arguments[0], Compiled->Graph.Nodes.size(), GetSoundGraphWaves(Compiled->Graph).size(), Inputs.empty() ? "none" : Inputs)};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "vfx.compile",
+		    .Description = "Compile a VFX Graph to check it, listing its emitters or what stops it compiling",
+		    .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			if (Arguments.size() != 1 || !Arguments[0].ends_with(VfxGraphExtension))
+			{
+				return UsageError("vfx.compile <graph.hvfxgraph>");
+			}
+
+			const auto Bytes = ReadWholeFile(Utf8ToPath(Arguments[0]), 64 * 1024 * 1024);
+			if (!Bytes || !*Bytes)
+			{
+				return ExecutionError(Bytes ? FAssetError{std::format("{} does not exist", Arguments[0])} : Bytes.error());
+			}
+
+			const auto Graph = DeserializeGraph(std::string_view(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size()), GetVfxGraphSchema());
+			if (!Graph)
+			{
+				return ExecutionError(FAssetError{Graph.error().Message});
+			}
+
+			const auto Compiled = CompileVfxGraph(*Graph);
+			if (!Compiled)
+			{
+				std::string Message = std::format("{} does not compile", Arguments[0]);
+				for (const FGraphDiagnostic& Diagnostic : Compiled.error())
+				{
+					Message += std::format(" (node {}: {})", Diagnostic.Node.Value, Diagnostic.Message);
+				}
+
+				return ExecutionError(FAssetError{std::move(Message)});
+			}
+
+			std::string Emitters;
+			std::uint32_t Particles = 0;
+			for (const FParticleEmitterDesc& Emitter : Compiled->System.Emitters)
+			{
+				Emitters += (Emitters.empty() ? "" : ", ") + Emitter.Name;
+				Particles += Emitter.MaximumParticles;
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Compiled {}: emitters {}, up to {} particles", Arguments[0], Emitters, Particles)};
 		}});
 	}
 
