@@ -229,7 +229,11 @@ std::vector<FAssetId> GetSoundGraphWaves(const FSoundGraphDesc& Graph)
 	{
 		for (const FAssetId& Wave : Node.Waves)
 		{
-			if (!std::ranges::contains(Waves, Wave))
+			// A plain comparison; MSVC's vectorized find rejects 16-byte elements under Clang.
+			if (std::ranges::none_of(Waves, [&Wave](const FAssetId& Known)
+			    {
+				    return Known == Wave;
+			    }))
 			{
 				Waves.push_back(Wave);
 			}

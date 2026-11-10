@@ -64,7 +64,10 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 		{
 			for (const FAssetId& Wave : GetSoundGraphWaves(Slot->SoundGraph->Graph))
 			{
-				if (!std::ranges::contains(Wanted, Wave))
+				if (std::ranges::none_of(Wanted, [&Wave](const FAssetId& Known)
+				    {
+					    return Known == Wave;
+				    }))
 				{
 					Wanted.push_back(Wave);
 				}
