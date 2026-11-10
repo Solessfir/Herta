@@ -187,6 +187,8 @@ enum class EGameOutcome : std::uint8_t
 	Slice,
 	// A ball severed a character at Joint.
 	Sever,
+	// Another character's blows killed the character Object.
+	Kill,
 };
 
 // Something only the server decides, which every client applies once and in order.
@@ -210,10 +212,15 @@ struct FGameAgentState
 	FVector3 Foot{};
 	float Yaw = 0.f;
 	float Health = 1.f;
+	// Whether its enemy is a player it sees now, or one it remembers.
 	bool bSeesPlayer = false;
 	bool bRemembersPlayer = false;
 	bool bOnNavigation = false;
 	bool bAttacking = false;
+	// Holding one of its enemy's attack turns while surrounding it with others.
+	bool bHasAttackTurn = false;
+	// The character it fights, when its enemy is another agent.
+	std::optional<std::size_t> EnemyCharacter{};
 };
 
 // The StateTree an agent runs and its active states from the root, for highlighting in an editor.

@@ -21,7 +21,7 @@ struct FReplicationError
 
 inline constexpr std::uint32_t ReplicationMagic = 0x41545248;
 // Peers with another version refuse each other at the handshake, so a wire change only needs this bumped.
-inline constexpr std::uint16_t ReplicationProtocolVersion = 1;
+inline constexpr std::uint16_t ReplicationProtocolVersion = 2;
 inline constexpr std::uint32_t ReplicationTicksPerSecond = 60;
 // Snapshots go out every third tick, 20 a second.
 inline constexpr std::uint32_t SnapshotIntervalTicks = 3;

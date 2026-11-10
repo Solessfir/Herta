@@ -57,6 +57,8 @@ public:
 	// Starts a swing at Target; false while one is already under way.
 	virtual bool StartAttack(const FVector3& Target) = 0;
 	[[nodiscard]] virtual bool IsAttacking() const = 0;
+	// False while the body cannot walk at all, such as when it lies downed; it then cannot surround anyone.
+	[[nodiscard]] virtual bool CanMove() const;
 };
 
 // The world agents sense and walk, which the game answers from physics and navigation.

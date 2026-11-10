@@ -22,7 +22,7 @@ Physics `SaveState` now includes every Jolt `CharacterVirtual` and a fingerprint
 
 ## Protocol
 
-Version 1, checked at the handshake together with a content hash of the staged starting level. Messages:
+Version 2, checked at the handshake together with a content hash of the staged starting level. Messages:
 
 | Message | Delivery | Contents |
 | --- | --- | --- |
@@ -31,7 +31,7 @@ Version 1, checked at the handshake together with a content hash of the staged s
 | Reject | Reliable | Reason, also given as the connection's close reason |
 | Input | Unreliable | Snapshot acknowledgement with a 32-bit mask, and the newest 8 inputs |
 | Snapshot | Unreliable | Sequence, tick, the receiver's applied input tick, changed entities, removals |
-| Outcome | Reliable | A break or cut with its tick |
+| Outcome | Reliable | A break, cut, or kill by blows with its tick |
 
 The server ticks at 60 Hz and snapshots every third tick. Entities have stable ids: players count up from 1, and bodies, balls, and characters add their level index or server id to fixed bases. Each entity's state is sent as the XOR against the state the client last acknowledged, run-length coded, so a resting body costs nothing and a running player a few dozen bytes; one the client never acknowledged goes whole. Entities beyond 80 m of the client's player are left out and removed on the client. Changed entities are sent in priority order, which grows with kind and nearness each snapshot they wait, until the 1100-byte budget is used; the client's own player always goes.
 

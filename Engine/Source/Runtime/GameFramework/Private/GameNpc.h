@@ -58,6 +58,7 @@ public:
 	void Animate(std::string_view Trigger) override;
 	bool StartAttack(const FVector3& Target) override;
 	[[nodiscard]] bool IsAttacking() const override;
+	[[nodiscard]] bool CanMove() const override;
 
 private:
 	FPlayerCharacter& Body;

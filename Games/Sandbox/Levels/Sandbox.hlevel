@@ -1492,6 +1492,162 @@
           "attitude": "hostile"
         }
       }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000013",
+      "name": "Guard squad 1 - surrounds the player with the others",
+      "parent": null,
+      "transform": {
+        "translation": [5, 0, 24],
+        "rotation": [0, 1, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        },
+        "aiAgent": {
+          "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
+          "sightRange": 15,
+          "sightHalfAngle": 1.0471976,
+          "hearingRange": 12,
+          "walkSpeed": 1.5,
+          "runSpeed": 4,
+          "attitude": "hostile"
+        }
+      }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000014",
+      "name": "Guard squad 2 - surrounds the player with the others",
+      "parent": null,
+      "transform": {
+        "translation": [7.5, 0, 24.5],
+        "rotation": [0, 1, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        },
+        "aiAgent": {
+          "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
+          "sightRange": 15,
+          "sightHalfAngle": 1.0471976,
+          "hearingRange": 12,
+          "walkSpeed": 1.5,
+          "runSpeed": 4,
+          "attitude": "hostile"
+        }
+      }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000015",
+      "name": "Guard squad 3 - surrounds the player with the others",
+      "parent": null,
+      "transform": {
+        "translation": [5.5, 0, 28],
+        "rotation": [0, 1, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        },
+        "aiAgent": {
+          "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
+          "sightRange": 15,
+          "sightHalfAngle": 1.0471976,
+          "hearingRange": 12,
+          "walkSpeed": 1.5,
+          "runSpeed": 4,
+          "attitude": "hostile"
+        }
+      }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000016",
+      "name": "Guard squad 4 - surrounds the player with the others",
+      "parent": null,
+      "transform": {
+        "translation": [8, 0, 28.5],
+        "rotation": [0, 1, 0, 0],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        },
+        "aiAgent": {
+          "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
+          "sightRange": 15,
+          "sightHalfAngle": 1.0471976,
+          "hearingRange": 12,
+          "walkSpeed": 1.5,
+          "runSpeed": 4,
+          "attitude": "hostile"
+        }
+      }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000017",
+      "name": "Ally - friendly, fights the guards beside the player",
+      "parent": null,
+      "transform": {
+        "translation": [-5, 0, 16],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        },
+        "aiAgent": {
+          "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
+          "sightRange": 15,
+          "sightHalfAngle": 1.0471976,
+          "hearingRange": 12,
+          "walkSpeed": 1.5,
+          "runSpeed": 4,
+          "attitude": "friendly"
+        }
+      }
+    },
+    {
+      "id": "4c071100-2738-4e25-9b9e-000000000018",
+      "name": "Villager - neutral, fights back when struck",
+      "parent": null,
+      "transform": {
+        "translation": [-8.5, 0, 1],
+        "rotation": [0, 0.7071068, 0, 0.7071068],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25
+        },
+        "aiAgent": {
+          "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
+          "sightRange": 15,
+          "sightHalfAngle": 1.0471976,
+          "hearingRange": 12,
+          "walkSpeed": 1.5,
+          "runSpeed": 4,
+          "attitude": "neutral"
+        }
+      }
     }
   ],
   "folders": [
@@ -1541,7 +1697,7 @@
       "id": "4c071100-2738-4e25-9b9e-000000000100",
       "name": "07 - Guards and navigation",
       "parent": null,
-      "entities": ["4c071100-2738-4e25-9b9e-000000000001", "4c071100-2738-4e25-9b9e-000000000011", "4c071100-2738-4e25-9b9e-000000000012"]
+      "entities": ["4c071100-2738-4e25-9b9e-000000000001", "4c071100-2738-4e25-9b9e-000000000011", "4c071100-2738-4e25-9b9e-000000000012", "4c071100-2738-4e25-9b9e-000000000013", "4c071100-2738-4e25-9b9e-000000000014", "4c071100-2738-4e25-9b9e-000000000015", "4c071100-2738-4e25-9b9e-000000000016", "4c071100-2738-4e25-9b9e-000000000017", "4c071100-2738-4e25-9b9e-000000000018"]
     }
   ],
   "cameraBookmarks": [

@@ -41,6 +41,11 @@ constexpr float SlotAcceptance = 0.6f;
 constexpr float SlotRunDistance = 4.f;
 }
 
+bool IAiBody::CanMove() const
+{
+	return true;
+}
+
 struct FAiWorld::FAgent final : IStateTreeContext
 {
 	FAgent(const FAiAgentId InId, FAiAgentDesc InDesc, FStateTreeInstancePool& Pool, FAiWorld& InWorld)
@@ -160,7 +165,7 @@ struct FAiWorld::FAgent final : IStateTreeContext
 
 				return EStateTreeStatus::Succeeded;
 			case EStateTreeTaskType::Surround:
-				if (!Memory.Enemy || !Resolve(EStateTreeTarget::Enemy))
+				if (!Memory.Enemy || !Resolve(EStateTreeTarget::Enemy) || !Body.CanMove())
 				{
 					return EStateTreeStatus::Failed;
 				}

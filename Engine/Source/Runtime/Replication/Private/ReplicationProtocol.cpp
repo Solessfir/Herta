@@ -673,7 +673,7 @@ std::expected<FReplicationOutcome, FReplicationError> DecodeOutcome(const std::s
 	const auto Kind = Reader->Read<std::uint8_t>();
 	Outcome.Outcome.Object = Reader->Read<std::uint32_t>();
 	const std::uint32_t Bonds = ReadVarint(*Reader);
-	if (Kind > static_cast<std::uint8_t>(EGameOutcome::Sever) || Bonds > MaximumBonds || !Reader->CanRead((Bonds + 7) / 8, 1))
+	if (Kind > static_cast<std::uint8_t>(EGameOutcome::Kill) || Bonds > MaximumBonds || !Reader->CanRead((Bonds + 7) / 8, 1))
 	{
 		return Malformed("outcome");
 	}

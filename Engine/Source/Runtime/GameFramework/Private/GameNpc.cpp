@@ -270,4 +270,9 @@ bool FGameNpc::IsAttacking() const
 {
 	return bAttacking;
 }
+
+bool FGameNpc::CanMove() const
+{
+	return !bDowned && !IsDead();
+}
 }

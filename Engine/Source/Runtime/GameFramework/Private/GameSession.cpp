@@ -28,6 +28,36 @@ namespace Herta
 {
 namespace
 {
+// AI factions: players, then one per agent attitude. Agents of one attitude stand together; hostile agents fight players and friendly
+// agents, which fight them back, and neutral agents keep to themselves.
+constexpr std::uint8_t PlayerFaction = 0;
+constexpr std::array AiFactionRelations{
+    EAiRelation::Friendly, EAiRelation::Hostile, EAiRelation::Neutral, EAiRelation::Friendly,
+    EAiRelation::Hostile, EAiRelation::Friendly, EAiRelation::Neutral, EAiRelation::Hostile,
+    EAiRelation::Neutral, EAiRelation::Neutral, EAiRelation::Friendly, EAiRelation::Neutral,
+    EAiRelation::Friendly, EAiRelation::Hostile, EAiRelation::Neutral, EAiRelation::Friendly,
+};
+constexpr std::size_t AiFactionCount = 4;
+static_assert(AiFactionRelations.size() == AiFactionCount * AiFactionCount);
+
+[[nodiscard]] constexpr std::uint8_t GetAiFaction(const EAiAttitude Attitude)
+{
+	return static_cast<std::uint8_t>(1 + static_cast<std::uint8_t>(Attitude));
+}
+
+// AI target keys: players count up from 1, and characters' bodies from CharacterTargetKeys.
+constexpr std::uint32_t CharacterTargetKeys = 0x1000;
+
+[[nodiscard]] constexpr std::uint32_t GetPlayerTargetKey(const std::size_t Player)
+{
+	return static_cast<std::uint32_t>(Player + 1);
+}
+
+[[nodiscard]] constexpr std::uint32_t GetCharacterTargetKey(const std::size_t Character)
+{
+	return CharacterTargetKeys + static_cast<std::uint32_t>(Character);
+}
+
 constexpr float MaximumPitch = 1.53f;
 constexpr float CameraNear = 0.05f;
 // Impacts softer than this make no sound, and impulses are capped where the impact graph is already at its loudest.
@@ -186,15 +216,16 @@ public:
 	{
 		const FVector3 Offset = To - From;
 		const float Length = Offset.Length();
-		// The ray starts outside the looker's own capsule, which would otherwise hide everything.
+		// The ray runs between the looker's capsule and the target's, either of which would otherwise hide everything.
 		constexpr float CapsuleClearance = 0.45f;
-		if (!Physics || Length <= CapsuleClearance + 0.1f)
+		if (!Physics || Length <= 2.f * CapsuleClearance + 0.1f)
 		{
 			return true;
 		}
 
 		const FVector3 Start = From + Offset * (CapsuleClearance / Length);
-		return !Physics->CastSphereHit(Physics->ToWorld(Start), Physics->ToWorld(To), 0.05f).has_value();
+		const FVector3 End = To - Offset * (CapsuleClearance / Length);
+		return !Physics->CastSphereHit(Physics->ToWorld(Start), Physics->ToWorld(End), 0.05f).has_value();
 	}
 
 	std::optional<FVector3> FindReachablePoint(const FVector3& Center, const float Radius, std::uint64_t& Random) const override
@@ -352,10 +383,18 @@ struct FGameSession::FImplementation : FPlayerSlot
 	void UnloadRegion(std::size_t Region);
 	// Gives every agent a fresh mind and a crowd agent in the current navigation, and the player a crowd agent others steer around.
 	void StartAgents();
-	// After the player and the characters stepped: the crowd, then the agents' bodies, then what they sense and decide.
-	void StepAgents(FPhysicsWorld& World, float StepSeconds);
-	// A swing whose blade starts moving with the player in reach and in front knocks the player down.
+	// After the player and the characters stepped: the crowd, then the agents' bodies and their blows, then what they sense and decide.
+	[[nodiscard]] std::expected<void, FGameError> StepAgents(FPhysicsWorld& World, float StepSeconds);
+	// A swing coming down lands on the agent's enemy, a player or another character, when it is in reach and in front.
+	[[nodiscard]] std::expected<void, FGameError> StrikeEnemy(std::size_t Attacker);
+	// Knocks the active player down unless it blocks facing the attacker.
 	void StrikePlayer(const FCharacterActor& Actor);
+	// Wounds a character a third of its health and flinches it; the third blow kills it.
+	[[nodiscard]] std::expected<void, FGameError> StrikeCharacter(std::size_t Attacker, std::size_t Victim);
+	// Tells the agents that a character was struck, so it turns on its attacker and its friends come to help.
+	void ReportCharacterHit(std::size_t Victim, std::optional<std::uint32_t> Attacker, const FVector3& AttackerFoot, std::uint8_t AttackerFaction);
+	// A dead character collapses: what is left of it detaches as a ragdoll piece, and its capsule and mind go.
+	[[nodiscard]] std::expected<void, FGameError> KillCharacter(std::size_t Character, const FVector3& Away);
 	void AddPlayerAgent(FNavigationWorld* World);
 	// Where the active player's feet are drawn between the last two fixed steps.
 	[[nodiscard]] FVector3 GetViewFoot(float Alpha) const;
@@ -1530,6 +1569,13 @@ std::expected<void, FGameError> FGameSession::ApplyOutcome(const FGameOutcome& O
 
 			return {};
 		}
+		case EGameOutcome::Kill:
+			if (Outcome.Object >= Session.Characters.size())
+			{
+				return std::unexpected(FGameError{"A kill names no character"});
+			}
+
+			return Session.Characters[Outcome.Object].Body->IsEmpty() ? std::expected<void, FGameError>{} : Session.KillCharacter(Outcome.Object, {});
 	}
 
 	return std::unexpected(FGameError{"Unknown outcome"});
@@ -1789,7 +1835,11 @@ std::expected<void, FGameError> FGameSession::UpdatePlayers(const float DeltaSec
 			return Stepped;
 		}
 
-		Session.StepAgents(World, StepSeconds);
+		if (auto Stepped = Session.StepAgents(World, StepSeconds); !Stepped)
+		{
+			return std::expected<void, FPhysicsError>(std::unexpected(FPhysicsError{Stepped.error().Message}));
+		}
+
 		return std::expected<void, FPhysicsError>{};
 	});
 
@@ -2335,7 +2385,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 			Actor.Body->FireTrigger("Hit");
 			if (Ai && Actor.Agent)
 			{
-				Ai->ReportHit(*Actor.Agent, GetSlot(Projectile.Thrower).Mover->GetState().Foot);
+				ReportCharacterHit(Index, GetPlayerTargetKey(Projectile.Thrower), GetSlot(Projectile.Thrower).Mover->GetState().Foot, PlayerFaction);
 			}
 			const float Impulse = Velocity->Length() * ProjectileMassKg;
 			const auto Inverse = TryInverseAffine(Model);
@@ -2399,7 +2449,7 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 		Actor.Npc->Wound(0.25f);
 		if (Ai && Actor.Agent)
 		{
-			Ai->ReportHit(*Actor.Agent, Mover->GetState().Foot);
+			ReportCharacterHit(Character, GetPlayerTargetKey(ActivePlayer), Mover->GetState().Foot, PlayerFaction);
 		}
 	}
 
@@ -2431,47 +2481,12 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 		return Joint && !Victim.Carries(*Joint);
 	};
 
-	// Without its head or its chest a character dies: what is left of it collapses as a ragdoll piece, and its capsule goes with it.
-	if (Lost("Head") || Lost("spine_02"))
+	// Without its head or its chest, or with its health worn away by cuts, a character dies.
+	if (Lost("Head") || Lost("spine_02") || (Actor.Npc && Actor.Npc->IsDead()))
 	{
-		Victim.SetBool("Dead", true);
-		if (Actor.Npc)
+		if (auto Killed = KillCharacter(Character, Away); !Killed)
 		{
-			Actor.Npc->Wound(1.f);
-			if (Ai && Actor.Agent)
-			{
-				Ai->RemoveAgent(*Actor.Agent);
-			}
-
-			Actor.Agent.reset();
-		}
-
-		FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
-		if (auto Rest = Victim.DetachAll(); Rest && World)
-		{
-			if (auto Added = AddPiece(Character, Victim.GetCookedModel(), Victim.GetLibrary(), Victim.GetModelTransforms(), std::move(*Rest), Model, Away * 0.3f); !Added)
-			{
-				return std::unexpected(Added.error());
-			}
-
-			if (Actor.Ragdoll)
-			{
-				auto Destroyed = World->DestroyRagdoll(*Actor.Ragdoll);
-				Actor.Ragdoll.reset();
-				Actor.RagdollParts.clear();
-				if (!Destroyed)
-				{
-					return std::unexpected(FGameError{Destroyed.error().Message});
-				}
-			}
-
-			if (Actor.Collider != FPhysicsBodyId{})
-			{
-				if (auto Destroyed = World->DestroyBody(std::exchange(Actor.Collider, FPhysicsBodyId{})); !Destroyed)
-				{
-					return std::unexpected(FGameError{Destroyed.error().Message});
-				}
-			}
+			return std::unexpected(Killed.error());
 		}
 
 		return true;
@@ -2498,6 +2513,54 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 	}
 
 	return true;
+}
+
+std::expected<void, FGameError> FGameSession::FImplementation::KillCharacter(const std::size_t Character, const FVector3& Away)
+{
+	FCharacterActor& Actor = Characters[Character];
+	FPlayerCharacter& Victim = *Actor.Body;
+	const FMatrix4 Model = Actor.Model;
+	Victim.SetBool("Dead", true);
+	if (Actor.Npc)
+	{
+		Actor.Npc->Wound(1.f);
+		if (Ai && Actor.Agent)
+		{
+			Ai->RemoveAgent(*Actor.Agent);
+		}
+
+		Actor.Agent.reset();
+	}
+
+	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
+	if (auto Rest = Victim.DetachAll(); Rest && World)
+	{
+		if (auto Added = AddPiece(Character, Victim.GetCookedModel(), Victim.GetLibrary(), Victim.GetModelTransforms(), std::move(*Rest), Model, Away * 0.3f); !Added)
+		{
+			return std::unexpected(Added.error());
+		}
+
+		if (Actor.Ragdoll)
+		{
+			auto Destroyed = World->DestroyRagdoll(*Actor.Ragdoll);
+			Actor.Ragdoll.reset();
+			Actor.RagdollParts.clear();
+			if (!Destroyed)
+			{
+				return std::unexpected(FGameError{Destroyed.error().Message});
+			}
+		}
+
+		if (Actor.Collider != FPhysicsBodyId{})
+		{
+			if (auto Destroyed = World->DestroyBody(std::exchange(Actor.Collider, FPhysicsBodyId{})); !Destroyed)
+			{
+				return std::unexpected(FGameError{Destroyed.error().Message});
+			}
+		}
+	}
+
+	return {};
 }
 
 std::expected<void, FGameError> FGameSession::FImplementation::RagdollCharacter(FCharacterActor& Actor, const FVector3& Velocity)
@@ -3355,6 +3418,7 @@ void FGameSession::FImplementation::StartAgents()
 	}
 
 	Ai = std::make_unique<FAiWorld>();
+	Ai->SetRelations(AiFactionCount, AiFactionRelations);
 	if (bSameNavigation)
 	{
 		ForEachPlayer([this, World]
@@ -3380,8 +3444,9 @@ void FGameSession::FImplementation::StartAgents()
 		AddPlayerAgent(World);
 	});
 
-	for (FCharacterActor& Actor : Characters)
+	for (std::size_t Index = 0; Index < Characters.size(); ++Index)
 	{
+		FCharacterActor& Actor = Characters[Index];
 		Actor.Agent.reset();
 		if (!Actor.Npc)
 		{
@@ -3413,6 +3478,8 @@ void FGameSession::FImplementation::StartAgents()
 		    .RunSpeed = Settings.RunSpeed,
 		    .Home = Actor.Npc->GetFootPosition(),
 		    .Seed = Entity.Id.GetHigh() ^ Entity.Id.GetLow(),
+		    .Faction = GetAiFaction(Settings.Attitude),
+		    .Key = GetCharacterTargetKey(Index),
 		});
 	}
 }
@@ -3453,10 +3520,23 @@ void FGameSession::FImplementation::StrikePlayer(const FCharacterActor& Actor)
 
 	PendingKnockdown = Facing * 90.f + FVector3::Up() * 30.f;
 	Events.push_back(std::format("{} struck the player", Entities[Actor.Entity].Name));
+	if (Ai)
+	{
+		const auto Attacker = static_cast<std::size_t>(&Actor - Characters.data());
+		Ai->ReportAttack({
+		    .Victim = GetPlayerTargetKey(ActivePlayer),
+		    .VictimFoot = Target,
+		    .VictimFaction = PlayerFaction,
+		    .Attacker = GetCharacterTargetKey(Attacker),
+		    .AttackerFoot = Foot,
+		    .AttackerFaction = GetAiFaction(Actor.Npc->GetSettings().Attitude),
+		});
+	}
+
 	Audio.Play(ELevelSound::Impact, Target + FVector3::Up(), {{.Name = "Impulse", .Value = 40.f}});
 }
 
-void FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float StepSeconds)
+std::expected<void, FGameError> FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float StepSeconds)
 {
 	// A client's characters stand where the server's agents put them.
 	if (!bAuthority)
@@ -3473,7 +3553,7 @@ void FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float
 			}
 		}
 
-		return;
+		return {};
 	}
 
 	FNavigationWorld* const Crowd = Navigation.GetWorld();
@@ -3486,6 +3566,7 @@ void FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float
 	});
 
 	Navigation.Step(Simulation, StepSeconds);
+	std::vector<std::size_t> Swings;
 	for (FCharacterActor& Actor : Characters)
 	{
 		if (!Actor.Npc)
@@ -3507,16 +3588,22 @@ void FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float
 
 		if (Actor.Npc->IsSwingStarting())
 		{
-			ForEachPlayer([this, &Actor]
-			{
-				StrikePlayer(Actor);
-			});
+			Swings.push_back(static_cast<std::size_t>(&Actor - Characters.data()));
+		}
+	}
+
+	// Blows land once every body has moved, so a kill does not change the characters while they step.
+	for (const std::size_t Attacker : Swings)
+	{
+		if (auto Struck = StrikeEnemy(Attacker); !Struck)
+		{
+			return Struck;
 		}
 	}
 
 	if (!Ai)
 	{
-		return;
+		return {};
 	}
 
 	std::vector<FAiTarget> Targets;
@@ -3533,12 +3620,106 @@ void FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float
 		}
 
 		const FVector3 Foot = Ragdoll ? RagdollParts.front().Position - FVector3::Up() * 0.6f : PlayerState.Foot;
-		Targets.push_back(FAiTarget{.Foot = Foot, .Head = Foot + FVector3::Up() * 1.6f});
+		Targets.push_back(FAiTarget{.Foot = Foot, .Head = Foot + FVector3::Up() * 1.6f, .Faction = PlayerFaction, .Key = GetPlayerTargetKey(ActivePlayer)});
 	});
+
+	// Living agents' bodies are targets too, for agents of other factions to fight.
+	for (std::size_t Index = 0; Index < Characters.size(); ++Index)
+	{
+		const FCharacterActor& Actor = Characters[Index];
+		if (Actor.Npc && Actor.Agent && !Actor.Npc->IsDead())
+		{
+			const FVector3 Foot = Actor.Npc->GetFootPosition();
+			Targets.push_back(FAiTarget{.Foot = Foot, .Head = Actor.Npc->GetEyePosition(), .Faction = GetAiFaction(Actor.Npc->GetSettings().Attitude), .Key = GetCharacterTargetKey(Index), .Agent = Actor.Agent});
+		}
+	}
 
 	Ai->SetTargets(Targets);
 	const FSessionAiEnvironment Environment(&World, Crowd);
 	Ai->Step(StepSeconds, Environment);
+	return {};
+}
+
+std::expected<void, FGameError> FGameSession::FImplementation::StrikeEnemy(const std::size_t Attacker)
+{
+	const FCharacterActor& Actor = Characters[Attacker];
+	const FAiMemory* const Memory = Ai && Actor.Agent ? Ai->GetMemory(*Actor.Agent) : nullptr;
+	if (!Memory || !Memory->Enemy)
+	{
+		return {};
+	}
+
+	if (*Memory->Enemy >= CharacterTargetKeys)
+	{
+		return StrikeCharacter(Attacker, *Memory->Enemy - CharacterTargetKeys);
+	}
+
+	const std::size_t EnemyPlayer = *Memory->Enemy - 1;
+	if (EnemyPlayer < Players.size())
+	{
+		VisitPlayer(EnemyPlayer, [this, &Actor]
+		{
+			StrikePlayer(Actor);
+		});
+	}
+
+	return {};
+}
+
+std::expected<void, FGameError> FGameSession::FImplementation::StrikeCharacter(const std::size_t Attacker, const std::size_t Victim)
+{
+	if (Victim >= Characters.size() || Victim == Attacker)
+	{
+		return {};
+	}
+
+	const FCharacterActor& Actor = Characters[Attacker];
+	FCharacterActor& Target = Characters[Victim];
+	if (!Target.Npc || Target.Npc->IsDead() || Target.Body->IsEmpty())
+	{
+		return {};
+	}
+
+	constexpr float Reach = 1.9f;
+	const FVector3 Foot = Actor.Npc->GetFootPosition();
+	const FVector3 Struck = Target.RagdollParts.empty() ? Target.Npc->GetFootPosition() : Target.RagdollParts.front().Position - FVector3::Up() * 0.3f;
+	const FVector3 Offset{Struck.X - Foot.X, 0.f, Struck.Z - Foot.Z};
+	const float Distance = Offset.Length();
+	const FVector3 Facing{std::sin(Actor.Npc->GetYaw()), 0.f, std::cos(Actor.Npc->GetYaw())};
+	if (Distance > Reach || std::abs(Struck.Y - Foot.Y) > 1.5f || (Distance > 0.3f && Offset.Dot(Facing) < 0.3f * Distance))
+	{
+		return {};
+	}
+
+	Target.Body->FireTrigger("Hit");
+	Target.Npc->Wound(0.34f);
+	Events.push_back(std::format("{} struck {}", Entities[Actor.Entity].Name, Entities[Target.Entity].Name));
+	Audio.Play(ELevelSound::Impact, Struck + FVector3::Up(), {{.Name = "Impulse", .Value = 40.f}});
+	ReportCharacterHit(Victim, GetCharacterTargetKey(Attacker), Foot, GetAiFaction(Actor.Npc->GetSettings().Attitude));
+	if (!Target.Npc->IsDead())
+	{
+		return {};
+	}
+
+	Outcomes.push_back({.Kind = EGameOutcome::Kill, .Object = static_cast<std::uint32_t>(Victim)});
+	return KillCharacter(Victim, Facing);
+}
+
+void FGameSession::FImplementation::ReportCharacterHit(const std::size_t Victim, const std::optional<std::uint32_t> Attacker, const FVector3& AttackerFoot, const std::uint8_t AttackerFaction)
+{
+	const FCharacterActor& Actor = Characters[Victim];
+	if (Ai && Actor.Agent && Actor.Npc)
+	{
+		Ai->ReportAttack({
+		    .Victim = GetCharacterTargetKey(Victim),
+		    .VictimAgent = Actor.Agent,
+		    .VictimFoot = Actor.Npc->GetFootPosition(),
+		    .VictimFaction = GetAiFaction(Actor.Npc->GetSettings().Attitude),
+		    .Attacker = Attacker,
+		    .AttackerFoot = AttackerFoot,
+		    .AttackerFaction = AttackerFaction,
+		});
+	}
 }
 
 std::vector<FAssetId> FGameSession::GetStateTrees() const
@@ -3594,10 +3775,16 @@ std::vector<FGameAgentState> FGameSession::GetAgentStates() const
 		if (Session.Ai && Actor.Agent)
 		{
 			State.State = std::string(Session.Ai->GetStateName(*Actor.Agent));
+			State.bHasAttackTurn = Session.Ai->HasAttackToken(*Actor.Agent);
 			if (const FAiMemory* const Memory = Session.Ai->GetMemory(*Actor.Agent))
 			{
-				State.bSeesPlayer = Memory->bSeesTarget;
-				State.bRemembersPlayer = Memory->LastSeen.has_value();
+				const bool bPlayerEnemy = Memory->Enemy && *Memory->Enemy < CharacterTargetKeys;
+				State.bSeesPlayer = Memory->bSeesTarget && bPlayerEnemy;
+				State.bRemembersPlayer = Memory->LastSeen.has_value() && bPlayerEnemy;
+				if (Memory->Enemy && *Memory->Enemy >= CharacterTargetKeys)
+				{
+					State.EnemyCharacter = *Memory->Enemy - CharacterTargetKeys;
+				}
 			}
 		}
 	}

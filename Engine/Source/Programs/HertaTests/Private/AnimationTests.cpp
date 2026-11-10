@@ -1143,6 +1143,106 @@ namespace
 }
 }
 
+TEST_CASE("Characters of opposing attitudes fight each other, a neutral one only when struck, and guards surround the player taking turns")
+{
+	const FDummyGameAssets Assets;
+	constexpr FAssetId GuardTree{9, 9};
+	FLevelDocument Level{.Id = FObjectId{1, 1}, .Name = "Arena"};
+	const auto Agent = [&](const std::uint64_t Id, const std::string& Name, const FVector3& Foot, const float Yaw, const EAiAttitude Attitude)
+	{
+		return FLevelEntity{
+		    .Id = FObjectId{1, Id},
+		    .Name = Name,
+		    .Transform = {.Translation = FWorldPosition{{Foot.X, Foot.Y, Foot.Z}}, .Rotation = FQuaternion::FromAxisAngle(FVector3::Up(), Yaw)},
+		    .Mesh = FStaticMeshComponent{.Asset = FAssetId{7, 7}},
+		    .Character = FCharacterComponent{},
+		    .AiAgent = FAiAgentComponent{.StateTree = GuardTree, .Attitude = Attitude},
+		};
+	};
+
+	Level.Entities = {
+	    FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Floor", .Transform = {.Translation = FWorldPosition{{0., -0.5, 0.}}, .Scale = {60.f, 1.f, 60.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    FLevelEntity{.Id = FObjectId{1, 3}, .Name = "Bounds", .NavigationBounds = FNavigationBoundsComponent{.Size = {60.f, 6.f, 60.f}}},
+	    // A guard and an ally face each other 5 m apart; a villager watches from the side.
+	    Agent(4, "Guard", {0.f, 0.f, 8.f}, std::numbers::pi_v<float>, EAiAttitude::Hostile),
+	    Agent(5, "Ally", {0.f, 0.f, 3.f}, 0.f, EAiAttitude::Friendly),
+	    Agent(6, "Villager", {-5.f, 0.f, 5.f}, std::numbers::pi_v<float> * 0.5f, EAiAttitude::Neutral),
+	    // A squad waits far off for the player.
+	    Agent(7, "Squad 1", {20.f, 0.f, -18.f}, 0.f, EAiAttitude::Hostile),
+	    Agent(8, "Squad 2", {22.f, 0.f, -18.f}, 0.f, EAiAttitude::Hostile),
+	    Agent(9, "Squad 3", {24.f, 0.f, -18.f}, 0.f, EAiAttitude::Hostile),
+	    Agent(10, "Squad 4", {26.f, 0.f, -18.f}, 0.f, EAiAttitude::Hostile),
+	};
+
+	const auto Navigation = BuildLevelNavigation(Level, {}, [](const FAssetId&)
+	{
+		return std::optional<FNavigationBox>{};
+	});
+
+	REQUIRE(Navigation);
+	REQUIRE(*Navigation);
+	auto Session = FGameSession::Create(Level.Entities, Assets, nullptr, {}, nullptr, Assets.Model);
+	REQUIRE_MESSAGE(Session, (Session ? std::string() : Session.error().Message));
+	REQUIRE((*Session)->SetNavigation(std::make_shared<const FNavigationFile>(std::move(**Navigation))));
+	REQUIRE((*Session)->AddStateTree(GuardTree, CompileSandboxGuard()));
+	// The player stands out of everyone's way.
+	REQUIRE((*Session)->TeleportPlayer({-25.f, 0.f, 25.f}, 0.f));
+	std::size_t MostTurns = 0;
+	const auto Step = [&](const int Frames)
+	{
+		for (int Frame = 0; Frame < Frames; ++Frame)
+		{
+			REQUIRE((*Session)->Update(1.f / 60.f, {}));
+			(void)(*Session)->GetRenderView({320, 180});
+			const std::vector<FGameAgentState> States = (*Session)->GetAgentStates();
+			MostTurns = std::max(MostTurns, static_cast<std::size_t>(std::ranges::count_if(States.begin() + 3, States.end(), &FGameAgentState::bHasAttackTurn)));
+		}
+	};
+
+	const auto States = [&]
+	{
+		return (*Session)->GetAgentStates();
+	};
+
+	// The guard and the ally go for each other, not for the villager, who stays out of it.
+	Step(60);
+	REQUIRE(States().size() == 7);
+	CHECK(States()[0].EnemyCharacter == std::optional<std::size_t>{1});
+	CHECK(States()[1].EnemyCharacter == std::optional<std::size_t>{0});
+	CHECK_FALSE(States()[2].EnemyCharacter);
+	bool bWounded = false;
+	for (int Second = 0; Second < 20 && !bWounded; ++Second)
+	{
+		Step(60);
+		bWounded = States()[0].Health < 1.f || States()[1].Health < 1.f;
+	}
+
+	CHECK(bWounded);
+	CHECK(States()[2].Health == 1.f);
+	CHECK_FALSE(States()[2].EnemyCharacter);
+
+	// Struck by the player, the villager turns on it.
+	REQUIRE((*Session)->SeverCharacter(2, "lowerarm_l"));
+	Step(10);
+	CHECK(States()[2].bRemembersPlayer);
+
+	// The player walks up to the squad: they surround it, at most two attacking at once.
+	REQUIRE((*Session)->TeleportPlayer({23.f, 0.f, -12.f}, std::numbers::pi_v<float>));
+	bool bSurrounded = false;
+	for (int Second = 0; Second < 10 && !bSurrounded; ++Second)
+	{
+		Step(60);
+		const std::vector<FGameAgentState> Now = States();
+		bSurrounded = std::count_if(Now.begin() + 3, Now.end(), [](const FGameAgentState& Squad)
+		{
+			return Squad.State == "Surround";
+		}) >= 2;
+	}
+
+	CHECK(bSurrounded);
+	CHECK(MostTurns <= 2);
+}
+
 TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee when wounded, and start over on restart")
 {
 	const FDummyGameAssets Assets;
