@@ -50,7 +50,7 @@ struct FAiWorld::FAgent final : IStateTreeContext
 		switch (Target)
 		{
 			case EStateTreeTarget::Player:
-				return Memory.bSeesTarget && World.Target ? std::optional{World.Target->Foot} : Memory.LastSeen;
+				return Memory.bSeesTarget && Memory.SeenTarget < World.Targets.size() ? std::optional{World.Targets[Memory.SeenTarget].Foot} : Memory.LastSeen;
 			case EStateTreeTarget::LastSeen:
 				return Memory.LastSeen;
 			case EStateTreeTarget::Noise:
@@ -324,7 +324,16 @@ void FAiWorld::RemoveAgent(const FAiAgentId Agent)
 
 void FAiWorld::SetTarget(const std::optional<FAiTarget>& InTarget)
 {
-	Target = InTarget;
+	Targets.clear();
+	if (InTarget)
+	{
+		Targets.push_back(*InTarget);
+	}
+}
+
+void FAiWorld::SetTargets(const std::span<const FAiTarget> InTargets)
+{
+	Targets.assign(InTargets.begin(), InTargets.end());
 }
 
 void FAiWorld::PostNoise(const FVector3& Position, const float Radius)
@@ -356,13 +365,20 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 	const FAiPerception& Perception = Agent.Desc.Perception;
 	const IAiBody& Body = *Agent.Desc.Body;
 	bool bSees = false;
-	if (Target)
+	float Nearest = 1.e9f;
+	const FVector3 Eye = Body.GetEyePosition();
+	for (std::size_t Index = 0; Index < Targets.size(); ++Index)
 	{
-		const FVector3 Eye = Body.GetEyePosition();
-		const float Distance = HorizontalDistance(Body.GetFootPosition(), Target->Foot);
-		const float Bearing = std::atan2(Target->Foot.X - Eye.X, Target->Foot.Z - Eye.Z);
+		const FAiTarget& Target = Targets[Index];
+		const float Distance = HorizontalDistance(Body.GetFootPosition(), Target.Foot);
+		const float Bearing = std::atan2(Target.Foot.X - Eye.X, Target.Foot.Z - Eye.Z);
 		const bool bInView = Distance <= Perception.SightRange && std::abs(std::remainder(Bearing - Body.GetYaw(), 2.f * std::numbers::pi_v<float>)) <= Perception.SightHalfAngle;
-		bSees = (Distance <= Perception.TouchRange || bInView) && Environment.HasLineOfSight(Eye, Target->Head);
+		if (Distance < Nearest && (Distance <= Perception.TouchRange || bInView) && Environment.HasLineOfSight(Eye, Target.Head))
+		{
+			Nearest = Distance;
+			bSees = true;
+			Agent.Memory.SeenTarget = Index;
+		}
 	}
 
 	if (bSees)
@@ -373,7 +389,7 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 			++Stats.Spotted;
 		}
 
-		Agent.Memory.LastSeen = Target->Foot;
+		Agent.Memory.LastSeen = Targets[Agent.Memory.SeenTarget].Foot;
 		Agent.Memory.SecondsSinceSeen = 0.f;
 	}
 	else if (Agent.Memory.bSeesTarget)
@@ -422,7 +438,11 @@ void FAiWorld::Step(const float Seconds, const IAiEnvironment& Environment)
 			Memory.Noise.reset();
 		}
 
-		const bool bFar = !Target || HorizontalDistance(Agent.Desc.Body->GetFootPosition(), Target->Foot) > Schedule.FarDistance;
+		const bool bFar = std::ranges::none_of(Targets, [&](const FAiTarget& Target)
+		{
+			return HorizontalDistance(Agent.Desc.Body->GetFootPosition(), Target.Foot) <= Schedule.FarDistance;
+		});
+
 		const float Interval = bFar ? Schedule.FarThinkSeconds : Schedule.ThinkSeconds;
 		// An event, such as a noise or a sighting, wakes the agent on this step whatever its schedule.
 		Agent.ThinkClock += Seconds;

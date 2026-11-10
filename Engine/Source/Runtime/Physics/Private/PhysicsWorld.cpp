@@ -1458,7 +1458,10 @@ std::expected<void, FPhysicsError> FPhysicsWorld::ShiftOrigin(const FWorldPositi
 
 	for (const JPH::Ref<JPH::CharacterVirtual>& Character : Implementation->Characters)
 	{
-		Character->SetPosition(Character->GetPosition() + Offset);
+		if (Character)
+		{
+			Character->SetPosition(Character->GetPosition() + Offset);
+		}
 	}
 
 	// Every body moved at once, so the broad phase rebuilds its trees rather than patching them body by body during the next step.
@@ -1652,6 +1655,19 @@ std::expected<FPhysicsCharacterId, FPhysicsError> FPhysicsWorld::CreateCharacter
 	Implementation->CharacterShapes.push_back({.Radius = Settings.Radius, .StepHeight = Settings.StepHeight});
 	++Implementation->BodyCount;
 	return FPhysicsCharacterId{static_cast<std::uint32_t>(Implementation->Characters.size())};
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::DestroyCharacter(const FPhysicsCharacterId CharacterId)
+{
+	if (!Implementation->FindCharacter(CharacterId))
+	{
+		return std::unexpected(FPhysicsError{"Unknown character"});
+	}
+
+	// The slot stays empty, so later characters keep their ids; releasing the character removes its inner body.
+	Implementation->Characters[CharacterId.Value - 1] = nullptr;
+	--Implementation->BodyCount;
+	return {};
 }
 
 std::expected<FPhysicsCharacterState, FPhysicsError> FPhysicsWorld::UpdateCharacterGround(const FPhysicsCharacterId CharacterId)

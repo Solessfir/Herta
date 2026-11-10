@@ -31,7 +31,8 @@ public:
 	void Configure(std::vector<FLevelRegion> InRegions, FRegionLoader InLoader, FTaskSystem* InTasks);
 	// Forgets every load, cancelling those in flight, as a session restart does; the caller unloads what was loaded.
 	void Reset();
-	void Update(const FVector3& Player, const std::function<void(std::size_t Region, FLoadedRegion&& Loaded)>& OnLoaded, const std::function<void(std::size_t Region)>& OnUnload);
+	// Players are everyone the regions stream around.
+	void Update(std::span<const FVector3> InPlayers, const std::function<void(std::size_t Region, FLoadedRegion&& Loaded)>& OnLoaded, const std::function<void(std::size_t Region)>& OnUnload);
 
 	[[nodiscard]] std::span<const FLevelRegion> GetRegions() const noexcept;
 	[[nodiscard]] FRegionStats GetStats() const;
@@ -60,9 +61,11 @@ private:
 		std::shared_ptr<FLoad> Load{};
 	};
 
-	[[nodiscard]] float Distance(std::size_t Region, const FVector3& Player) const;
+	// To the nearest player.
+	[[nodiscard]] float Distance(std::size_t Region) const;
 
 	std::vector<FLevelRegion> Regions{};
+	std::vector<FVector3> Players{};
 	std::vector<FSlot> Slots{};
 	FRegionLoader Loader{};
 	FTaskSystem* Tasks = nullptr;

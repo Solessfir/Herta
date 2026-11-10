@@ -349,6 +349,8 @@ std::expected<EMovementStep, FPhysicsError> FFallingMode::Step(FMoverContext& Co
 class FSlideMode final : public IMovementMode
 {
 public:
+	[[nodiscard]] std::vector<float> SaveState() const override;
+	void LoadState(std::span<const float> Saved) override;
 	[[nodiscard]] std::string_view GetName() const override;
 	[[nodiscard]] std::expected<bool, FPhysicsError> TryStart(FMoverContext& Context, std::string_view Active) override;
 	[[nodiscard]] std::expected<EMovementStep, FPhysicsError> Step(FMoverContext& Context) override;
@@ -358,6 +360,20 @@ private:
 	float SlideYaw = 0.f;
 	float ElapsedSeconds = 0.f;
 };
+
+std::vector<float> FSlideMode::SaveState() const
+{
+	return {SlideYaw, ElapsedSeconds};
+}
+
+void FSlideMode::LoadState(const std::span<const float> Saved)
+{
+	if (Saved.size() == 2)
+	{
+		SlideYaw = Saved[0];
+		ElapsedSeconds = Saved[1];
+	}
+}
 
 std::string_view FSlideMode::GetName() const
 {
@@ -446,6 +462,8 @@ struct FWallHit
 class FWallRunMode final : public IMovementMode
 {
 public:
+	[[nodiscard]] std::vector<float> SaveState() const override;
+	void LoadState(std::span<const float> Saved) override;
 	[[nodiscard]] std::string_view GetName() const override;
 	[[nodiscard]] std::expected<bool, FPhysicsError> TryStart(FMoverContext& Context, std::string_view Active) override;
 	[[nodiscard]] std::expected<EMovementStep, FPhysicsError> Step(FMoverContext& Context) override;
@@ -457,6 +475,20 @@ private:
 	FVector3 Normal{};
 	float ElapsedSeconds = 0.f;
 };
+
+std::vector<float> FWallRunMode::SaveState() const
+{
+	return {Normal.X, Normal.Y, Normal.Z, ElapsedSeconds};
+}
+
+void FWallRunMode::LoadState(const std::span<const float> Saved)
+{
+	if (Saved.size() == 2)
+	{
+		Normal = {Saved[0], Saved[1], Saved[2]};
+		ElapsedSeconds = Saved[3];
+	}
+}
 
 std::string_view FWallRunMode::GetName() const
 {
@@ -658,6 +690,8 @@ std::expected<EMovementStep, FPhysicsError> FWallRunMode::Step(FMoverContext& Co
 class FWallKickMode final : public IMovementMode
 {
 public:
+	[[nodiscard]] std::vector<float> SaveState() const override;
+	void LoadState(std::span<const float> Saved) override;
 	[[nodiscard]] std::string_view GetName() const override;
 	[[nodiscard]] std::expected<bool, FPhysicsError> TryStart(FMoverContext& Context, std::string_view Active) override;
 	[[nodiscard]] std::expected<EMovementStep, FPhysicsError> Step(FMoverContext& Context) override;
@@ -666,6 +700,19 @@ public:
 private:
 	float SecondsSinceKick = 1.f;
 };
+
+std::vector<float> FWallKickMode::SaveState() const
+{
+	return {SecondsSinceKick};
+}
+
+void FWallKickMode::LoadState(const std::span<const float> Saved)
+{
+	if (Saved.size() == 1)
+	{
+		SecondsSinceKick = Saved[0];
+	}
+}
 
 std::string_view FWallKickMode::GetName() const
 {
@@ -708,6 +755,8 @@ void FWallKickMode::Reset()
 class FMantleMode final : public IMovementMode
 {
 public:
+	[[nodiscard]] std::vector<float> SaveState() const override;
+	void LoadState(std::span<const float> Saved) override;
 	explicit FMantleMode(float InDurationSeconds);
 
 	[[nodiscard]] std::string_view GetName() const override;
@@ -724,6 +773,22 @@ private:
 FMantleMode::FMantleMode(const float InDurationSeconds)
     : DurationSeconds(std::max(InDurationSeconds, 0.1f))
 {
+}
+
+std::vector<float> FMantleMode::SaveState() const
+{
+	return {DurationSeconds, Start.X, Start.Y, Start.Z, Target.X, Target.Y, Target.Z, ElapsedSeconds};
+}
+
+void FMantleMode::LoadState(const std::span<const float> Saved)
+{
+	if (Saved.size() == 4)
+	{
+		DurationSeconds = Saved[0];
+		Start = {Saved[1], Saved[2], Saved[3]};
+		Target = {Saved[4], Saved[5], Saved[6]};
+		ElapsedSeconds = Saved[7];
+	}
 }
 
 std::string_view FMantleMode::GetName() const
@@ -805,6 +870,15 @@ std::expected<EMovementStep, FPhysicsError> FMantleMode::Step(FMoverContext& Con
 }
 
 void IMovementMode::Reset()
+{
+}
+
+std::vector<float> IMovementMode::SaveState() const
+{
+	return {};
+}
+
+void IMovementMode::LoadState(std::span<const float>)
 {
 }
 
@@ -1089,6 +1163,46 @@ std::expected<void, FPhysicsError> FCharacterMover::Teleport(FPhysicsWorld& Worl
 	return {};
 }
 
+FMoverSnapshot FCharacterMover::SaveSnapshot() const
+{
+	FMoverSnapshot Snapshot{.State = State, .Active = Active, .bCrouchWasHeld = bCrouchWasHeld};
+	for (const std::unique_ptr<IMovementMode>& Mode : Modes)
+	{
+		Snapshot.Modes.push_back(Mode->SaveState());
+	}
+
+	return Snapshot;
+}
+
+std::expected<void, FPhysicsError> FCharacterMover::RestoreSnapshot(FPhysicsWorld& World, const FMoverSnapshot& Snapshot)
+{
+	if (Snapshot.Active >= Modes.size() || Snapshot.Modes.size() != Modes.size())
+	{
+		return std::unexpected(FPhysicsError{"The mover snapshot was taken from a mover with other modes"});
+	}
+
+	// Height first, so the capsule fits where it is put back.
+	if (auto Resized = World.SetCharacterHeight(Character, Snapshot.State.bCrouched ? Tuning.CrouchHeight : Tuning.Height); !Resized)
+	{
+		return std::unexpected(Resized.error());
+	}
+
+	if (auto Placed = World.TeleportCharacter(Character, Snapshot.State.Foot); !Placed)
+	{
+		return Placed;
+	}
+
+	State = Snapshot.State;
+	Active = Snapshot.Active;
+	bCrouchWasHeld = Snapshot.bCrouchWasHeld;
+	for (std::size_t Index = 0; Index < Modes.size(); ++Index)
+	{
+		Modes[Index]->LoadState(Snapshot.Modes[Index]);
+	}
+
+	return {};
+}
+
 const FMoverState& FCharacterMover::GetState() const noexcept
 {
 	return State;
@@ -1107,5 +1221,10 @@ std::vector<EMoverEvent> FCharacterMover::TakeEvents()
 const FMovementTuning& FCharacterMover::GetTuning() const noexcept
 {
 	return Tuning;
+}
+
+FPhysicsCharacterId FCharacterMover::GetCharacter() const noexcept
+{
+	return Character;
 }
 }

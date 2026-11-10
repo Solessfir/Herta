@@ -357,6 +357,7 @@ public:
 	// World-space joints from Start to End, one more than the segment count.
 	[[nodiscard]] std::expected<void, FPhysicsError> GetRopePoints(const FPhysicsRope& Rope, std::vector<FVector3>& OutPoints) const;
 	[[nodiscard]] std::expected<FPhysicsCharacterId, FPhysicsError> CreateCharacter(const FPhysicsCharacterSettings& Settings);
+	[[nodiscard]] std::expected<void, FPhysicsError> DestroyCharacter(FPhysicsCharacterId Character);
 	// Refreshes ground contact and its velocity after kinematic bodies received this step's motion, before the character decides how to move.
 	[[nodiscard]] std::expected<FPhysicsCharacterState, FPhysicsError> UpdateCharacterGround(FPhysicsCharacterId Character);
 	// Moves the character by Velocity over one step, then keeps it on ground it was standing on.

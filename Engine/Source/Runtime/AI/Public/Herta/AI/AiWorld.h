@@ -103,6 +103,8 @@ struct FAiAgentId
 struct FAiMemory
 {
 	bool bSeesTarget = false;
+	// Which of the targets it sees, the nearest in view, while it sees one.
+	std::size_t SeenTarget = 0;
 	std::optional<FVector3> LastSeen{};
 	float SecondsSinceSeen = 1.e9f;
 	std::optional<FVector3> Noise{};
@@ -153,6 +155,8 @@ public:
 	// Stops the agent's tasks and forgets it, such as when its character dies.
 	void RemoveAgent(FAiAgentId Agent);
 	void SetTarget(const std::optional<FAiTarget>& Target);
+	// Every player agents watch for; each agent follows the nearest one it sees.
+	void SetTargets(std::span<const FAiTarget> InTargets);
 	// Agents within both Radius and their hearing range hear it at their next step.
 	void PostNoise(const FVector3& Position, float Radius);
 	// Such as Hit; the agent's tree sees it the next time it thinks.
@@ -182,7 +186,7 @@ private:
 	FAiSchedule Schedule{};
 	FStateTreeInstancePool Pool{};
 	std::vector<std::unique_ptr<FAgent>> Agents{};
-	std::optional<FAiTarget> Target{};
+	std::vector<FAiTarget> Targets{};
 	std::vector<std::pair<FVector3, float>> Noises{};
 	std::uint32_t NextId = 1;
 	FAiStats Stats{};

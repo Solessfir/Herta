@@ -3,6 +3,7 @@
 #include "Herta/Tasks/TaskSystem.h"
 
 #include <algorithm>
+#include <limits>
 #include <cmath>
 
 namespace Herta
@@ -56,18 +57,26 @@ void FWorldStreamer::Reset()
 	}
 }
 
-float FWorldStreamer::Distance(const std::size_t Region, const FVector3& Player) const
+float FWorldStreamer::Distance(const std::size_t Region) const
 {
+	// Regions stream around whichever player is nearest, so every player stands on loaded ground.
 	const FVector3d& Center = Regions[Region].Offset.Meters;
-	return static_cast<float>(std::hypot(static_cast<double>(Player.X) - Center.X, static_cast<double>(Player.Z) - Center.Z));
+	float Nearest = std::numeric_limits<float>::infinity();
+	for (const FVector3& Player : Players)
+	{
+		Nearest = std::min(Nearest, static_cast<float>(std::hypot(static_cast<double>(Player.X) - Center.X, static_cast<double>(Player.Z) - Center.Z)));
+	}
+
+	return Nearest;
 }
 
-void FWorldStreamer::Update(const FVector3& Player, const std::function<void(std::size_t, FLoadedRegion&&)>& OnLoaded, const std::function<void(std::size_t)>& OnUnload)
+void FWorldStreamer::Update(const std::span<const FVector3> InPlayers, const std::function<void(std::size_t, FLoadedRegion&&)>& OnLoaded, const std::function<void(std::size_t)>& OnUnload)
 {
+	Players.assign(InPlayers.begin(), InPlayers.end());
 	for (std::size_t Region = 0; Region < Regions.size(); ++Region)
 	{
 		FSlot& Slot = Slots[Region];
-		const float Away = Distance(Region, Player);
+		const float Away = Distance(Region);
 		const bool bOutside = Away > Regions[Region].UnloadRadius;
 		if (Slot.State == EState::Loading)
 		{
@@ -119,7 +128,7 @@ void FWorldStreamer::Update(const FVector3& Player, const std::function<void(std
 	std::vector<std::size_t> Wanted;
 	for (std::size_t Region = 0; Region < Regions.size(); ++Region)
 	{
-		if (Slots[Region].State == EState::Unloaded && Distance(Region, Player) <= Regions[Region].LoadRadius)
+		if (Slots[Region].State == EState::Unloaded && Distance(Region) <= Regions[Region].LoadRadius)
 		{
 			Wanted.push_back(Region);
 		}
@@ -127,7 +136,7 @@ void FWorldStreamer::Update(const FVector3& Player, const std::function<void(std
 
 	std::ranges::sort(Wanted, {}, [&](const std::size_t Region)
 	{
-		return Distance(Region, Player);
+		return Distance(Region);
 	});
 
 	for (const std::size_t Region : Wanted)
@@ -148,7 +157,7 @@ void FWorldStreamer::Update(const FVector3& Player, const std::function<void(std
 			std::optional<std::size_t> Farthest;
 			for (std::size_t Other = 0; Other < Regions.size(); ++Other)
 			{
-				if (Slots[Other].State == EState::Loaded && Distance(Other, Player) > Regions[Other].LoadRadius && (!Farthest || Distance(Other, Player) > Distance(*Farthest, Player)))
+				if (Slots[Other].State == EState::Loaded && Distance(Other) > Regions[Other].LoadRadius && (!Farthest || Distance(Other) > Distance(*Farthest)))
 				{
 					Farthest = Other;
 				}

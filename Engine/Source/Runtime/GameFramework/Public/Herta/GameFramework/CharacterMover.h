@@ -196,6 +196,9 @@ public:
 	[[nodiscard]] virtual std::expected<EMovementStep, FPhysicsError> Step(FMoverContext& Context) = 0;
 	// Forgets per-run state on a restart.
 	virtual void Reset();
+	// The mode's own state, for snapshots that rewind and replay movement, such as client prediction. Modes without state keep none.
+	[[nodiscard]] virtual std::vector<float> SaveState() const;
+	virtual void LoadState(std::span<const float> Saved);
 };
 
 // The built-in modes a character uses; turn one off to play without it.
@@ -205,6 +208,15 @@ struct FMovementModeSet
 	bool bWallRun = true;
 	bool bWallKick = true;
 	bool bMantle = true;
+};
+
+// Everything that decides how the mover moves next, so restoring one and replaying the same input moves it the same way again.
+struct FMoverSnapshot
+{
+	FMoverState State{};
+	std::size_t Active = 0;
+	bool bCrouchWasHeld = false;
+	std::vector<std::vector<float>> Modes{};
 };
 
 using FMovementModeFactory = std::function<std::unique_ptr<IMovementMode>(const FMovementTuning& Tuning)>;
@@ -220,11 +232,15 @@ public:
 	void PressJump();
 	[[nodiscard]] std::expected<void, FPhysicsError> Step(FPhysicsWorld& World, const FMoverInput& Input, float StepSeconds);
 	[[nodiscard]] std::expected<void, FPhysicsError> Teleport(FPhysicsWorld& World, const FVector3& Foot);
+	[[nodiscard]] FMoverSnapshot SaveSnapshot() const;
+	// Puts the capsule back where the snapshot stood, at its height, with its modes as they were.
+	[[nodiscard]] std::expected<void, FPhysicsError> RestoreSnapshot(FPhysicsWorld& World, const FMoverSnapshot& Snapshot);
 
 	[[nodiscard]] const FMoverState& GetState() const noexcept;
 	[[nodiscard]] std::string_view GetActiveMode() const noexcept;
 	[[nodiscard]] std::vector<EMoverEvent> TakeEvents();
 	[[nodiscard]] const FMovementTuning& GetTuning() const noexcept;
+	[[nodiscard]] FPhysicsCharacterId GetCharacter() const noexcept;
 
 private:
 	FCharacterMover(FPhysicsCharacterId InCharacter, const FMovementTuning& InTuning, std::vector<std::unique_ptr<IMovementMode>> InModes);

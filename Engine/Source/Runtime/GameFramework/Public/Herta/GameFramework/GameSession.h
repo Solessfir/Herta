@@ -211,7 +211,20 @@ public:
 
 	// Resets physics, the player, and the current run to the authored start. The best time survives.
 	[[nodiscard]] std::expected<void, FGameError> Restart();
+	// For a session with one player.
 	[[nodiscard]] std::expected<void, FGameError> Update(float DeltaSeconds, const FGameInput& Input);
+	// One input per player, in player order.
+	[[nodiscard]] std::expected<void, FGameError> UpdatePlayers(float DeltaSeconds, std::span<const FGameInput> Inputs);
+
+	static constexpr std::size_t MaximumPlayers = 16;
+	// Adds a player at the spawn, beside the others, and returns its index. Every session starts with one.
+	[[nodiscard]] std::expected<std::size_t, FGameError> AddPlayer();
+	// Later players' indices move down by one. The last player cannot leave.
+	[[nodiscard]] std::expected<void, FGameError> RemovePlayer(std::size_t Player);
+	[[nodiscard]] std::size_t GetPlayerCount() const noexcept;
+	// The player the view, the listener, and the player accessors below follow.
+	[[nodiscard]] std::expected<void, FGameError> SetViewPlayer(std::size_t Player);
+	[[nodiscard]] std::size_t GetViewPlayer() const noexcept;
 
 	// The view from the player's eyes. The spans stay valid until the next Update, Restart, or GetRenderView.
 	[[nodiscard]] const FMeshRenderView& GetRenderView(FExtent2D Extent);

@@ -3,6 +3,7 @@
 
 #include <doctest/doctest.h>
 
+#include <array>
 #include <cmath>
 #include <string>
 
@@ -428,5 +429,57 @@ TEST_CASE("Game players mantle onto a ledge they jump at, but not one without ro
 	CHECK_FALSE(bMantled);
 	CHECK(Blocked.Y < 0.1f);
 	CHECK(Blocked.Z < 1.5f);
+}
+
+TEST_CASE("Game sessions play several players, each with their own input, run, and view")
+{
+	const FNoGameAssets Assets;
+	const auto Session = FGameSession::Create(MakeCourse(), Assets, nullptr);
+	REQUIRE(Session);
+	FGameSession& Game = **Session;
+	const auto Second = Game.AddPlayer();
+	REQUIRE(Second);
+	CHECK(*Second == 1);
+	CHECK(Game.GetPlayerCount() == 2);
+	// A single input is ambiguous once there are several players.
+	CHECK(!Game.Update(1.f / 60.f, FGameInput{}));
+
+	const std::array<FGameInput, 2> Idle{};
+	for (int Frame = 0; Frame < 30; ++Frame)
+	{
+		REQUIRE(Game.UpdatePlayers(1.f / 60.f, Idle));
+	}
+
+	REQUIRE(Game.SetViewPlayer(1));
+	const FVector3 SecondSpawn = Game.GetPlayerFootPosition();
+	REQUIRE(Game.SetViewPlayer(0));
+	// The second player stands beside the first rather than inside it.
+	CHECK(std::abs(SecondSpawn.X - Game.GetPlayerFootPosition().X) > 0.7f);
+
+	// Only the first player runs; an overlong stick counts as full deflection.
+	const std::array<FGameInput, 2> FirstRuns{FGameInput{.Move = {0.f, 5.f}}, FGameInput{}};
+	for (int Frame = 0; Frame < 240; ++Frame)
+	{
+		REQUIRE(Game.UpdatePlayers(1.f / 60.f, FirstRuns));
+	}
+
+	CHECK(Game.GetObjective().State == EGameObjectiveState::Finished);
+	CHECK(Game.GetPlayerFootPosition().Z > 9.f);
+	REQUIRE(Game.SetViewPlayer(1));
+	CHECK(Game.GetObjective().State == EGameObjectiveState::Ready);
+	CHECK(Game.GetPlayerFootPosition().Z == doctest::Approx(SecondSpawn.Z).epsilon(0.01));
+	CHECK(Game.GetRenderView({640, 360}).Models.size() == Game.GetRenderView({640, 360}).Meshes.size());
+
+	// Removing the viewed player hands the view to the one left, whose run carried on.
+	REQUIRE(Game.RemovePlayer(1));
+	CHECK(Game.GetPlayerCount() == 1);
+	CHECK(Game.GetViewPlayer() == 0);
+	CHECK(Game.GetObjective().State == EGameObjectiveState::Finished);
+	CHECK(!Game.RemovePlayer(0));
+	REQUIRE(Game.Update(1.f / 60.f, FGameInput{}));
+	REQUIRE(Game.AddPlayer());
+	REQUIRE(Game.Restart());
+	CHECK(Game.GetPlayerCount() == 2);
+	CHECK(Game.GetObjective().State == EGameObjectiveState::Ready);
 }
 }
