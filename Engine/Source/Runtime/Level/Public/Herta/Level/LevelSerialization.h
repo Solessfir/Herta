@@ -132,6 +132,16 @@ struct FLevelDocument
 };
 
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelRegions(std::span<const FLevelRegion> Regions);
+// Whether a region streams an entity: static meshes and bodies and local lights do; anything that moves, simulates, or sets the level's sun,
+// sky, fog, or sound does not.
+[[nodiscard]] bool IsLevelRegionScenery(const FLevelEntity& Entity) noexcept;
+// A region's entities placed at its offset, composed in double precision before rounding, in entity order.
+[[nodiscard]] std::expected<std::vector<FMatrix4>, FLevelError> ComposeLevelRegionMatrices(const FLevelRegion& Region, std::span<const FLevelEntity> Entities);
+// Placing a region more than once repeats its entities, so each placement mixes its own identity into theirs.
+[[nodiscard]] constexpr FObjectId GetLevelRegionInstanceId(const FLevelRegion& Region, const FObjectId& Entity) noexcept
+{
+	return {Entity.GetHigh() ^ Region.Id.GetHigh(), Entity.GetLow() ^ Region.Id.GetLow()};
+}
 
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelCameraBookmarks(std::span<const FLevelCameraBookmark> Bookmarks);
 
@@ -139,5 +149,7 @@ struct FLevelDocument
 [[nodiscard]] std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Document);
 [[nodiscard]] std::expected<FLevelDocument, FLevelError> ParseLevel(std::string_view Text);
 [[nodiscard]] std::expected<FLevelDocument, FLevelError> LoadLevel(const std::filesystem::path& Path);
+// Where a region's level lives, from the path of the level that places it.
+[[nodiscard]] std::filesystem::path ResolveLevelRegionPath(const std::filesystem::path& LevelPath, const FLevelRegion& Region);
 [[nodiscard]] std::expected<void, FLevelError> SaveLevel(const std::filesystem::path& Path, const FLevelDocument& Document);
 }

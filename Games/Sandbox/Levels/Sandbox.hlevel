@@ -1529,5 +1529,30 @@
       "pitch": -0.3
     }
   ],
-  "regions": []
+  "regions": [
+    {
+      "id": "4c070002-2738-4e25-9b9e-000000000001",
+      "name": "Causeway 1",
+      "level": "Regions/Causeway.hlevel",
+      "offset": [-24, 0, 9],
+      "loadRadius": 40,
+      "unloadRadius": 50
+    },
+    {
+      "id": "4c070002-2738-4e25-9b9e-000000000002",
+      "name": "Causeway 2",
+      "level": "Regions/Causeway.hlevel",
+      "offset": [-48, 0, 9],
+      "loadRadius": 40,
+      "unloadRadius": 50
+    },
+    {
+      "id": "4c070002-2738-4e25-9b9e-000000000003",
+      "name": "Causeway 3",
+      "level": "Regions/Causeway.hlevel",
+      "offset": [-72, 0, 9],
+      "loadRadius": 40,
+      "unloadRadius": 50
+    }
+  ]
 }

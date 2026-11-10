@@ -163,6 +163,8 @@ public:
 	void SetTextureAssets(std::span<const FAssetId> Assets);
 	// Keeps these sounds and sound graphs loaded for Play and auditions.
 	void SetSoundAssets(std::span<const FAssetId> Assets);
+	// Keeps the meshes and materials of Play's streamed regions loaded.
+	void SetRegionAssets(std::span<const FAssetId> Assets);
 	// Writes a new text source, such as an Audio Graph, into a Game folder under a unique name and registers it.
 	[[nodiscard]] std::expected<FAssetId, FAssetError> CreateTextAsset(std::string_view MountedParent, std::string_view Name, std::string_view Extension, std::string_view Text);
 	std::shared_ptr<const FCookedTexture> GetCookedTexture(const FAssetId& Asset) const noexcept;
@@ -281,6 +283,7 @@ private:
 	std::shared_ptr<const FRenderMaterial> PreviewMaterial;
 	FEditorAssetThumbnail PreviewThumbnail;
 	std::set<FAssetId> SoundAssets;
+	std::set<FAssetId> RegionAssets;
 	std::shared_ptr<std::atomic<std::uint64_t>> PreviewGeneration = std::make_shared<std::atomic<std::uint64_t>>(0);
 	bool bPreviewTask = false;
 	bool bPreviewPending = false;

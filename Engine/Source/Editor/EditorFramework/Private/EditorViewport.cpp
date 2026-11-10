@@ -627,6 +627,25 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 	DrawPreviewVisuals(Level->GetWorld(), PreviewObjects, PreviewSelection, bGameView);
 
+	// Each region's load ring, and its fainter unload ring, on the ground around where it is placed.
+	if (!bGameView)
+	{
+		for (const FLevelRegion& Region : GetShownRegions())
+		{
+			const FVector3d& Offset = Region.Offset.Meters;
+			const Im3d::Vec3 Center{static_cast<float>(Offset.X), static_cast<float>(Offset.Y), static_cast<float>(Offset.Z)};
+			Im3d::PushColor(Im3d::Color(0x7cc4efdd));
+			Im3d::PushSize(2.f);
+			Im3d::DrawCircle(Center, {0.f, 1.f, 0.f}, Region.LoadRadius, 64);
+			Im3d::PopSize();
+			Im3d::PushAlpha(0.4f);
+			Im3d::DrawCircle(Center, {0.f, 1.f, 0.f}, Region.UnloadRadius, 64);
+			Im3d::PopAlpha();
+			Im3d::PopColor();
+			Im3d::DrawLine(Center, Center + Im3d::Vec3{0.f, 2.f, 0.f}, 2.f, Im3d::Color(0x7cc4efdd));
+		}
+	}
+
 	if (!bGameView)
 	{
 		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewObjects.size(); ++Index)

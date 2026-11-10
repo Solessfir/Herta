@@ -1,0 +1,225 @@
+{
+  "format": "HertaLevel",
+  "formatVersion": 2,
+  "engineSchemaVersion": 15,
+  "id": "4c070000-2738-4e25-9b9e-000000000001",
+  "name": "Causeway",
+  "exposureCompensation": 0,
+  "playerCharacter": null,
+  "sounds": {
+    "footstep": null,
+    "land": null,
+    "jump": null,
+    "slide": null,
+    "impact": null,
+    "swing": null,
+    "slice": null,
+    "sever": null,
+    "objective": null
+  },
+  "effects": {
+    "impact": null,
+    "break": null,
+    "land": null,
+    "slice": null,
+    "sever": null
+  },
+  "entities": [
+    {
+      "id": "4c070001-2738-4e25-9b9e-000000000001",
+      "name": "Causeway deck",
+      "parent": null,
+      "transform": {
+        "translation": [0, -0.25, 0],
+        "rotation": [0, 0, 0, 1],
+        "scale": [24, 0.5, 4]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06001-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c070001-2738-4e25-9b9e-000000000002",
+      "name": "Causeway curb",
+      "parent": null,
+      "transform": {
+        "translation": [0, 0.15, 1.85],
+        "rotation": [0, 0, 0, 1],
+        "scale": [24, 0.3, 0.3]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c070001-2738-4e25-9b9e-000000000003",
+      "name": "Causeway curb",
+      "parent": null,
+      "transform": {
+        "translation": [0, 0.15, -1.85],
+        "rotation": [0, 0, 0, 1],
+        "scale": [24, 0.3, 0.3]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c070001-2738-4e25-9b9e-000000000004",
+      "name": "Gate pillar",
+      "parent": null,
+      "transform": {
+        "translation": [-11.6, 1.5, 1.8],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.4, 3, 0.4]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c070001-2738-4e25-9b9e-000000000005",
+      "name": "Gate pillar",
+      "parent": null,
+      "transform": {
+        "translation": [-11.6, 1.5, -1.8],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.4, 3, 0.4]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c070001-2738-4e25-9b9e-000000000006",
+      "name": "Gate lintel",
+      "parent": null,
+      "transform": {
+        "translation": [-11.6, 3.2, 0],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.4, 0.4, 4]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c070001-2738-4e25-9b9e-000000000007",
+      "name": "Lamp post",
+      "parent": null,
+      "transform": {
+        "translation": [0, 1.4, 1.85],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.15, 2.8, 0.15]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06005-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.6,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
+      "id": "4c070001-2738-4e25-9b9e-000000000008",
+      "name": "Lamp - warm 1200 lm",
+      "parent": null,
+      "transform": {
+        "translation": [0, 3, 1.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "light": {
+          "type": "point",
+          "color": [1, 1, 1],
+          "intensity": 1200,
+          "useTemperature": true,
+          "temperatureKelvin": 3000,
+          "castShadows": false,
+          "shadowBias": 0.001,
+          "shadowNormalBias": 0.02,
+          "range": 9,
+          "innerConeAngle": 0.34906584,
+          "outerConeAngle": 0.61086524,
+          "width": 1,
+          "height": 1,
+          "environment": null,
+          "ambientStrength": 0.3,
+          "environmentVisible": true,
+          "enabled": true,
+          "sourceAngle": 0.00925
+        }
+      }
+    }
+  ],
+  "folders": [],
+  "cameraBookmarks": [],
+  "regions": []
+}

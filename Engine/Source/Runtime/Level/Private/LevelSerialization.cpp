@@ -2036,6 +2036,54 @@ std::expected<FLevelDocument, FLevelError> LoadLevel(const std::filesystem::path
 	return ParseLevel(Text);
 }
 
+bool IsLevelRegionScenery(const FLevelEntity& Entity) noexcept
+{
+	const bool bGlobalLight = Entity.Light && (Entity.Light->Type == ELightType::Sky || Entity.Light->Type == ELightType::Directional);
+	return Entity.BodyType != ELevelBodyType::Dynamic && !bGlobalLight && !Entity.Mover && !Entity.Trigger && !Entity.SoftBody && !Entity.Destructible && !Entity.Character && !Entity.Constraint && !Entity.AudioEmitter && !Entity.AudioListener && !Entity.ParticleEmitter && !Entity.SkyAtmosphere && !Entity.HeightFog;
+}
+
+std::expected<std::vector<FMatrix4>, FLevelError> ComposeLevelRegionMatrices(const FLevelRegion& Region, const std::span<const FLevelEntity> Entities)
+{
+	FWorld World;
+	if (auto Replaced = World.ReplaceEntities(Entities); !Replaced)
+	{
+		return std::unexpected(Replaced.error());
+	}
+
+	const TMatrix4<double> Offset = TMatrix4<double>::Translation(Region.Offset.Meters);
+	std::vector<FMatrix4> Result(Entities.size());
+	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
+	{
+		const auto Handle = World.FindEntity(Entities[Index].Id);
+		if (!Handle)
+		{
+			return LevelError("A region entity is missing from its world");
+		}
+
+		const auto Matrix = World.GetWorldMatrix(*Handle);
+		if (!Matrix)
+		{
+			return std::unexpected(Matrix.error());
+		}
+
+		const TMatrix4<double> Placed = Offset * *Matrix;
+		for (std::size_t Row = 0; Row < 4; ++Row)
+		{
+			for (std::size_t Column = 0; Column < 4; ++Column)
+			{
+				Result[Index](Row, Column) = static_cast<float>(Placed(Row, Column));
+			}
+		}
+	}
+
+	return Result;
+}
+
+std::filesystem::path ResolveLevelRegionPath(const std::filesystem::path& LevelPath, const FLevelRegion& Region)
+{
+	return (LevelPath.parent_path() / std::filesystem::path(std::u8string(Region.Level.begin(), Region.Level.end()))).lexically_normal();
+}
+
 std::expected<void, FLevelError> SaveLevel(const std::filesystem::path& Path, const FLevelDocument& Document)
 {
 	const auto Text = SerializeLevel(Document);

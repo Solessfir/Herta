@@ -12,8 +12,10 @@
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Renderer/Visuals.h"
 
+#include <atomic>
 #include <cstdint>
 #include <expected>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <span>
@@ -133,6 +135,38 @@ struct FGameObjective
 	std::uint32_t Respawns = 0;
 };
 
+// A region's level as a worker read it, with the host's hooks for the assets its entities draw with.
+struct FLoadedRegion
+{
+	FLevelDocument Document{};
+	// Called on the game thread every update until it returns true, so the host can upload or request the region's assets and say when they
+	// are ready. Without it the assets are assumed to be loaded already.
+	std::function<std::expected<bool, FGameError>()> Prepare{};
+	// Called on the game thread when the region unloads, after the session stops drawing it.
+	std::function<void()> Release{};
+};
+
+// Runs on a blocking-IO worker. Cancel turns true when the player leaves before the load finishes; the result is then dropped.
+using FRegionLoader = std::function<std::expected<FLoadedRegion, FGameError>(const FLevelRegion& Region, const std::atomic<bool>& Cancel)>;
+
+inline constexpr std::size_t MaximumRegionLoads = 2;
+inline constexpr std::size_t MaximumLoadedRegions = 8;
+
+struct FRegionStats
+{
+	std::uint32_t Loaded = 0;
+	std::uint32_t Loading = 0;
+	// Regions whose assets are still being prepared, counted in Loaded.
+	std::uint32_t Preparing = 0;
+	std::uint64_t Loads = 0;
+	std::uint64_t Unloads = 0;
+	std::uint64_t Cancelled = 0;
+	std::uint64_t Failed = 0;
+	// Times a wanted region waited because every loaded region was still near the player.
+	std::uint64_t Deferred = 0;
+	std::string LastError{};
+};
+
 // One playthrough of a level: the authored entities stay untouched while physics, the player, and the objective run on top of them.
 class FGameSession final
 {
@@ -213,6 +247,10 @@ public:
 	[[nodiscard]] FGameSave CaptureSave(const FObjectId& Level) const;
 	// Restarts and puts back what the save recorded. Objects the level no longer has are skipped and listed in the result.
 	[[nodiscard]] std::expected<std::vector<std::string>, FGameError> ApplySave(const FGameSave& Save);
+	// Regions the level places, streamed in and out around the player from the next update. A region adds its static meshes, lights, and
+	// static bodies; it keeps them across restarts while the player stays near.
+	void SetRegions(std::span<const FLevelRegion> Regions, FRegionLoader Loader);
+	[[nodiscard]] FRegionStats GetRegionStats() const;
 	// What the session asked audio to do since the previous call. A host with a device submits them; a headless session records the same
 	// commands, so tests compare them without one.
 	[[nodiscard]] std::vector<FAudioCommand> TakeAudioCommands();

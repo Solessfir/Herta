@@ -8,6 +8,7 @@
 #include "CharacterPiece.h"
 #include "GameAudio.h"
 #include "PlayerCharacter.h"
+#include "WorldStreamer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -211,6 +212,10 @@ struct FGameSession::FImplementation
 	void StartEmitters();
 	// The player's sounds, moving emitters, and the listener, after everything else in the update.
 	void UpdateAudio(bool bJumped);
+	// Takes finished region loads, unloads regions the player left, and activates regions whose assets are ready.
+	[[nodiscard]] std::expected<void, FGameError> UpdateRegions();
+	[[nodiscard]] std::expected<void, FGameError> ActivateRegion(std::size_t Streamed);
+	void UnloadRegion(std::size_t Region);
 
 	// cppcheck-suppress uninitMemberVarNoCtor ; set by aggregate initialization in Create
 	const IGameAssets& Assets;
@@ -320,6 +325,24 @@ struct FGameSession::FImplementation
 	FMatrix4 RagdollModel{};
 	std::vector<FPhysicsBodyTransform> RagdollParts{};
 	float GetUpBlend = 0.f;
+
+	// A loaded region's scenery, placed at its offset. It draws and collides once active, after its assets are ready.
+	struct FStreamedRegion
+	{
+		std::size_t Region = 0;
+		FLoadedRegion Loaded{};
+		bool bActive = false;
+		std::vector<FMatrix4> World{};
+		std::vector<const FRenderMesh*> Meshes{};
+		std::vector<std::vector<const FRenderMaterial*>> Materials{};
+		std::vector<FRenderLight> Lights{};
+		std::vector<FLevelSimulationBody> Bodies{};
+		std::optional<FLevelStaticGroup> Group{};
+	};
+
+	// Destroyed before the regions it fills, so no finished load arrives into a region list that is going away.
+	std::vector<FStreamedRegion> StreamedRegions{};
+	FWorldStreamer Streamer{};
 
 	// Render view storage referenced by View.
 	std::vector<FMatrix4> Models{};
@@ -604,6 +627,21 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 		Body->Restart();
 	}
 
+	for (FStreamedRegion& Region : StreamedRegions)
+	{
+		Region.Group.reset();
+		if (Region.bActive && !Region.Bodies.empty())
+		{
+			auto Group = Simulation.AddStaticBodies(Region.Bodies);
+			if (!Group)
+			{
+				return std::unexpected(FGameError{std::format("Cannot restore region bodies: {}", Group.error().Message)});
+			}
+
+			Region.Group = *Group;
+		}
+	}
+
 	Objective.State = StartZone && FinishZone ? EGameObjectiveState::Ready : EGameObjectiveState::Exploring;
 	Objective.ElapsedSeconds = 0.;
 	Audio.Start(Entities, AuthoredWorld);
@@ -826,6 +864,11 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 	if (Input.bToggleCamera)
 	{
 		Session.bThirdPerson = !Session.bThirdPerson;
+	}
+
+	if (auto Streamed = Session.UpdateRegions(); !Streamed)
+	{
+		return Streamed;
 	}
 
 	if (Input.bToggleRagdoll)
@@ -1549,6 +1592,26 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		}
 	}
 
+	for (const FImplementation::FStreamedRegion& Region : Session.StreamedRegions)
+	{
+		if (!Region.bActive)
+		{
+			continue;
+		}
+
+		for (std::size_t Index = 0; Index < Region.Meshes.size(); ++Index)
+		{
+			if (Region.Meshes[Index])
+			{
+				Session.Models.push_back(Region.World[Index]);
+				Session.Meshes.push_back(Region.Meshes[Index]);
+				Session.MaterialSpans.emplace_back(Region.Materials[Index]);
+			}
+		}
+
+		Session.Lights.insert(Session.Lights.end(), Region.Lights.begin(), Region.Lights.end());
+	}
+
 	// Pieces and thrown balls follow the level's own objects; pieces wear their destructible's material.
 	for (const FLevelSimulationPiece& Piece : Session.Simulation.GetPieces())
 	{
@@ -1837,6 +1900,178 @@ void FGameSession::FImplementation::UpdateAudio(const bool bJumped)
 		const FQuaternion Look = GetViewOrientation();
 		Audio.SetListener({.Position = Foot + FVector3::Up() * EyeHeight, .Forward = Look.RotateVector(FVector3::Forward()), .Up = Look.RotateVector(FVector3::Up())});
 	}
+}
+
+std::expected<void, FGameError> FGameSession::FImplementation::UpdateRegions()
+{
+	if (Streamer.GetRegions().empty())
+	{
+		return {};
+	}
+
+	Streamer.Update(
+	    Mover->GetState().Foot,
+	    [this](const std::size_t Region, FLoadedRegion&& Loaded)
+	{
+		StreamedRegions.push_back({.Region = Region, .Loaded = std::move(Loaded)});
+	},
+	    [this](const std::size_t Region)
+	{
+		UnloadRegion(Region);
+	});
+
+	for (std::size_t Index = 0; Index < StreamedRegions.size(); ++Index)
+	{
+		FStreamedRegion& Region = StreamedRegions[Index];
+		if (Region.bActive)
+		{
+			continue;
+		}
+
+		if (Region.Loaded.Prepare)
+		{
+			auto Ready = Region.Loaded.Prepare();
+			if (!Ready)
+			{
+				Warnings.push_back(std::format("Region '{}' cannot load its assets: {}", Streamer.GetRegions()[Region.Region].Name, Ready.error().Message));
+				Region.Loaded.Prepare = {};
+				continue;
+			}
+
+			if (!*Ready)
+			{
+				continue;
+			}
+		}
+
+		if (auto Activated = ActivateRegion(Index); !Activated)
+		{
+			return Activated;
+		}
+	}
+
+	return {};
+}
+
+std::expected<void, FGameError> FGameSession::FImplementation::ActivateRegion(const std::size_t Streamed)
+{
+	FStreamedRegion& Region = StreamedRegions[Streamed];
+	const FLevelRegion& Placement = Streamer.GetRegions()[Region.Region];
+	const std::vector<FLevelEntity>& RegionEntities = Region.Loaded.Document.Entities;
+
+	auto Matrices = ComposeLevelRegionMatrices(Placement, RegionEntities);
+	if (!Matrices)
+	{
+		return std::unexpected(FGameError{std::format("Region '{}' is invalid: {}", Placement.Name, Matrices.error().Message)});
+	}
+
+	const std::size_t Count = RegionEntities.size();
+	Region.World = std::move(*Matrices);
+	Region.Meshes.assign(Count, nullptr);
+	Region.Materials.assign(Count, {});
+	std::size_t Skipped = 0;
+	for (std::size_t Index = 0; Index < Count; ++Index)
+	{
+		const FLevelEntity& Entity = RegionEntities[Index];
+		if (!IsLevelRegionScenery(Entity))
+		{
+			++Skipped;
+			continue;
+		}
+
+		if (Entity.Mesh)
+		{
+			Region.Meshes[Index] = Assets.FindMesh(Entity.Mesh->Asset);
+			for (const FAssetId& Material : Entity.Mesh->Materials)
+			{
+				Region.Materials[Index].push_back(Material.IsValid() ? Assets.FindMaterial(Material) : nullptr);
+			}
+		}
+
+		if (Entity.Light && Entity.Light->bEnabled)
+		{
+			Region.Lights.push_back({.Settings = *Entity.Light, .Transform = Region.World[Index], .Id = GetLevelRegionInstanceId(Placement, Entity.Id)});
+		}
+	}
+
+	if (Skipped > 0)
+	{
+		Warnings.push_back(std::format("Region '{}' streams only static meshes, local lights, and static bodies; {} entities left out", Placement.Name, Skipped));
+	}
+
+	const FLevelSimulationSetup Setup = BuildLevelSimulation(RegionEntities, Region.World, Region.Meshes);
+	Region.Bodies.clear();
+	for (const FLevelSimulationBody& RegionBody : Setup.Bodies)
+	{
+		if (RegionBody.ObjectIndex < Count && IsLevelRegionScenery(RegionEntities[RegionBody.ObjectIndex]) && RegionBody.MotionType == EPhysicsMotionType::Static && !RegionBody.Mover && !RegionBody.bTrigger)
+		{
+			Region.Bodies.push_back(RegionBody);
+		}
+	}
+
+	if (!Region.Bodies.empty() && Simulation.IsRunning())
+	{
+		auto Group = Simulation.AddStaticBodies(Region.Bodies);
+		if (!Group)
+		{
+			return std::unexpected(FGameError{std::format("Region '{}' cannot add its bodies: {}", Placement.Name, Group.error().Message)});
+		}
+
+		Region.Group = *Group;
+	}
+
+	Region.bActive = true;
+	Events.push_back(std::format("Region '{}' streamed in", Placement.Name));
+	return {};
+}
+
+void FGameSession::FImplementation::UnloadRegion(const std::size_t Region)
+{
+	const auto Found = std::ranges::find(StreamedRegions, Region, &FStreamedRegion::Region);
+	if (Found == StreamedRegions.end())
+	{
+		return;
+	}
+
+	if (Found->Group)
+	{
+		(void)Simulation.RemoveStaticBodies(*Found->Group);
+	}
+
+	if (Found->Loaded.Release)
+	{
+		Found->Loaded.Release();
+	}
+
+	Events.push_back(std::format("Region '{}' streamed out", Streamer.GetRegions()[Region].Name));
+	StreamedRegions.erase(Found);
+}
+
+void FGameSession::SetRegions(const std::span<const FLevelRegion> Regions, FRegionLoader Loader)
+{
+	FImplementation& Session = *Implementation;
+	for (FImplementation::FStreamedRegion& Region : Session.StreamedRegions)
+	{
+		if (Region.Group)
+		{
+			(void)Session.Simulation.RemoveStaticBodies(*Region.Group);
+		}
+
+		if (Region.Loaded.Release)
+		{
+			Region.Loaded.Release();
+		}
+	}
+
+	Session.StreamedRegions.clear();
+	Session.Streamer.Configure({Regions.begin(), Regions.end()}, std::move(Loader), Session.Tasks);
+}
+
+FRegionStats FGameSession::GetRegionStats() const
+{
+	FRegionStats Stats = Implementation->Streamer.GetStats();
+	Stats.Preparing = static_cast<std::uint32_t>(std::ranges::count(Implementation->StreamedRegions, false, &FImplementation::FStreamedRegion::bActive));
+	return Stats;
 }
 
 FQuaternion FGameSession::FImplementation::GetBodyRotation() const

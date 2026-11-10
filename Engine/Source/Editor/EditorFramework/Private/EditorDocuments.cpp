@@ -359,6 +359,109 @@ void FEditorFramework::FImplementation::RefreshSelectedVisualEntities()
 	}
 }
 
+void FEditorFramework::FImplementation::AppendRegionPreviews(std::vector<FAssetId>& Materials)
+{
+	// Opening another level, such as a region to edit it, rereads every region when the level that places them opens again.
+	if (RegionPreviewLevelPath != Level->GetPath())
+	{
+		RegionPreviewLevelPath = Level->GetPath();
+		RegionPreviewLevels.clear();
+		SelectedRegion.reset();
+		RegionDraft.reset();
+	}
+
+	RegionPreviewModels.clear();
+	RegionPreviewMeshes.clear();
+	RegionPreviewMaterials.clear();
+	RegionAssets.clear();
+	for (const FLevelRegion& Region : GetShownRegions())
+	{
+		const std::filesystem::path Path = ResolveLevelRegionPath(Level->GetPath(), Region);
+		auto [Found, bInserted] = RegionPreviewLevels.try_emplace(Path);
+		if (bInserted)
+		{
+			auto Document = LoadLevel(Path);
+			if (Document)
+			{
+				Found->second.Entities = std::move(Document->Entities);
+			}
+			else
+			{
+				HERTA_LOG_WARNING(*Log, EditorLog, "Region '{}' cannot preview {}: {}", Region.Name, Region.Level, Document.error().Message);
+			}
+		}
+
+		const std::vector<FLevelEntity>& Entities = Found->second.Entities;
+		const auto Matrices = ComposeLevelRegionMatrices(Region, Entities);
+		if (!Matrices)
+		{
+			continue;
+		}
+
+		for (std::size_t Index = 0; Index < Entities.size(); ++Index)
+		{
+			const FLevelEntity& Entity = Entities[Index];
+			if (!IsLevelRegionScenery(Entity))
+			{
+				continue;
+			}
+
+			if (Entity.Light && Entity.Light->bEnabled)
+			{
+				RenderLights.push_back({.Settings = *Entity.Light, .Transform = (*Matrices)[Index], .Id = GetLevelRegionInstanceId(Region, Entity.Id)});
+			}
+
+			if (!Entity.Mesh)
+			{
+				continue;
+			}
+
+			RegionAssets.push_back(Entity.Mesh->Asset);
+			std::ranges::copy_if(Entity.Mesh->Materials, std::back_inserter(RegionAssets), &FAssetId::IsValid);
+			std::ranges::copy_if(Entity.Mesh->Materials, std::back_inserter(Materials), &FAssetId::IsValid);
+			const FPreviewMeshSlot* const Slot = Assets ? Assets->GetCachedAsset(Entity.Mesh->Asset) : nullptr;
+			if (!Slot || !Slot->Mesh)
+			{
+				continue;
+			}
+
+			RegionPreviewModels.push_back((*Matrices)[Index]);
+			RegionPreviewMeshes.push_back(Slot->Mesh.get());
+			std::vector<const FRenderMaterial*>& Slots = RegionPreviewMaterials.emplace_back();
+			for (const FAssetId& Material : Entity.Mesh->Materials)
+			{
+				Slots.push_back(Material.IsValid() ? Assets->GetMaterial(Material).get() : nullptr);
+			}
+		}
+	}
+
+	if (Assets)
+	{
+		Assets->SetRegionAssets(RegionAssets);
+	}
+}
+
+void FEditorFramework::FImplementation::PublishViewportGeometry()
+{
+	if (RegionPreviewMeshes.empty())
+	{
+		ViewportRenderView.Models = PreviewModels;
+		ViewportRenderView.Meshes = PreviewMeshes;
+		ViewportRenderView.Materials = PreviewMaterialSpans;
+		return;
+	}
+
+	ViewportModels.assign(PreviewModels.begin(), PreviewModels.end());
+	ViewportModels.insert(ViewportModels.end(), RegionPreviewModels.begin(), RegionPreviewModels.end());
+	ViewportMeshes.assign(PreviewMeshes.begin(), PreviewMeshes.end());
+	ViewportMeshes.insert(ViewportMeshes.end(), RegionPreviewMeshes.begin(), RegionPreviewMeshes.end());
+	ViewportMaterialSpans.assign(PreviewMaterialSpans.begin(), PreviewMaterialSpans.end());
+	ViewportMaterialSpans.insert(ViewportMaterialSpans.end(), RegionPreviewMaterials.begin(), RegionPreviewMaterials.end());
+	ViewportRenderView.Models = ViewportModels;
+	ViewportRenderView.Meshes = ViewportMeshes;
+	ViewportRenderView.Materials = ViewportMaterialSpans;
+}
+
 void FEditorFramework::FImplementation::RefreshVisuals()
 {
 	VisualSettings.ExposureEV100 = GetPhysicalCameraExposureEV100(PhysicalCamera);
@@ -490,6 +593,8 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 		}
 	}
 
+	AppendRegionPreviews(Materials);
+
 	if (VisualSettings.Atmosphere && VisualSettings.Atmosphere->Sun.IsValid())
 	{
 		const FObjectId Sun = VisualSettings.Atmosphere->Sun;
@@ -543,7 +648,7 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	}
 
 	ViewportRenderView.Lights = RenderLights;
-	ViewportRenderView.Materials = PreviewMaterialSpans;
+	PublishViewportGeometry();
 	ViewportRenderView.Visuals = VisualSettings;
 	ViewportRenderView.VertexUpdates = SoftBodyVertexUpdates;
 	if (GetBuildConfiguration() != EBuildConfiguration::Shipping && Tasks && MeshRenderer && !EngineRoot.empty())
@@ -690,9 +795,7 @@ void FEditorFramework::FImplementation::RefreshLevel(const bool bPreserveGizmoDr
 		RefreshPreviewMeshes();
 	}
 
-	ViewportRenderView.Models = PreviewModels;
-	ViewportRenderView.Meshes = PreviewMeshes;
-	ViewportRenderView.Materials = PreviewMaterialSpans;
+	PublishViewportGeometry();
 	RefreshVisuals();
 }
 

@@ -351,6 +351,11 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			DrawLevelEffectPickers(ValueWidth);
 		}
 
+		if (Section("Regions"))
+		{
+			DrawLevelRegions(ValueWidth, Scale);
+		}
+
 		if (Section("Bookmarks"))
 		{
 			DrawCameraBookmarks(Scale);

@@ -520,6 +520,7 @@ int RunGame(const FGameOptions& Options)
 
 	// Without a device the game still plays, with the same commands going to the null path.
 	Session->SetLevelSounds(Level->Sounds);
+	Session->SetRegions(Level->Regions, MakeStagedRegionLoader(Project->StartingLevel, Content, *Assets, Device));
 	std::unique_ptr<FAudioEngine> Audio;
 	if (auto AudioResult = FAudioEngine::Create({.Device = bSmokeTest ? EAudioDevice::Null : EAudioDevice::Default}); AudioResult)
 	{
@@ -635,6 +636,7 @@ int RunGame(const FGameOptions& Options)
 	bool bPaused = false;
 	FGameMenu Menu;
 	// Unattended runs save beside other temporary files, never over a player's save.
+	std::optional<std::pair<FVector3, std::size_t>> StreamBaseline;
 	const std::filesystem::path SaveDirectory = bSmokeTest ? std::filesystem::temp_directory_path() / "HertaSmokeSaves" : UserDirectory / "Saves";
 	const std::filesystem::path SavePath = SaveDirectory / (Level->Id.ToString() + std::string(GameSaveExtension));
 	EGameObjectiveState PreviousObjective = Session->GetObjective().State;
@@ -749,6 +751,27 @@ int RunGame(const FGameOptions& Options)
 				{
 					(void)Session->ApplySave(Loaded->Save);
 				}
+			}
+		}
+
+		// With regions, the run also crosses to the farthest one and back, and must end holding the assets it held before leaving.
+		if (bSmokeTest && !Level->Regions.empty() && Options.SmokeFrames >= 160)
+		{
+			if (Frames == Options.SmokeFrames * 13 / 16)
+			{
+				StreamBaseline = {Session->GetPlayerFootPosition(), Assets->GetLoadedAssetCount()};
+				const auto Farthest = std::ranges::max_element(Level->Regions, {}, [](const FLevelRegion& Region)
+				{
+					return Region.Offset.Meters.X * Region.Offset.Meters.X + Region.Offset.Meters.Z * Region.Offset.Meters.Z;
+				});
+
+				const FVector3d& Far = Farthest->Offset.Meters;
+				(void)Session->TeleportPlayer({static_cast<float>(Far.X), static_cast<float>(Far.Y) + 0.05f, static_cast<float>(Far.Z)}, 0.f);
+			}
+
+			if (Frames == Options.SmokeFrames * 14 / 16 && StreamBaseline)
+			{
+				(void)Session->TeleportPlayer(StreamBaseline->first, 0.f);
 			}
 		}
 
@@ -1089,6 +1112,17 @@ int RunGame(const FGameOptions& Options)
 		if (bSmokeTest && Frames >= Options.SmokeFrames)
 		{
 			HERTA_LOG_INFO(*Log, GameLog, "Smoke run presented {} frames, average {:.3f} ms, objective state {}, player at ({:.2f}, {:.2f}, {:.2f})", Frames, FrameMillisecondsSum / Frames, static_cast<int>(Session->GetObjective().State), Session->GetPlayerFootPosition().X, Session->GetPlayerFootPosition().Y, Session->GetPlayerFootPosition().Z);
+			if (StreamBaseline)
+			{
+				const FRegionStats Regions = Session->GetRegionStats();
+				HERTA_LOG_INFO(*Log, GameLog, "Smoke run streamed {} region loads and {} unloads, {} failed; {} assets loaded, {} before leaving", Regions.Loads, Regions.Unloads, Regions.Failed, Assets->GetLoadedAssetCount(), StreamBaseline->second);
+				if (Regions.Failed > 0 || Regions.Unloads == 0 || Assets->GetLoadedAssetCount() != StreamBaseline->second)
+				{
+					HERTA_LOG_ERROR(*Log, GameLog, "Streaming left the run with failed regions, no unloads, or a different set of loaded assets");
+					bFailed = true;
+				}
+			}
+
 			Window.RequestClose();
 		}
 	}

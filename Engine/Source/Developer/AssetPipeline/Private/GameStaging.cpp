@@ -204,7 +204,34 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 		}
 	}
 
-	for (const FLevelEntity& Entity : Level->Entities)
+	// Region levels stage beside the starting level at the same relative paths. Regions do not nest, so only the starting level's count.
+	std::vector<std::pair<std::filesystem::path, std::filesystem::path>> RegionCopies;
+	std::vector<FLevelEntity> Entities = Level->Entities;
+	for (const FLevelRegion& Region : Level->Regions)
+	{
+		const std::filesystem::path Source = ResolveLevelRegionPath(Project->StartingLevel, Region);
+		const std::filesystem::path Destination = ResolveLevelRegionPath(StagedLevelPath, Region);
+		if (!IsInsideProject(Destination))
+		{
+			return StageError(std::format("Region '{}' places a level outside the project", Region.Name));
+		}
+
+		if (std::ranges::contains(RegionCopies, Source, &std::pair<std::filesystem::path, std::filesystem::path>::first))
+		{
+			continue;
+		}
+
+		const auto Placed = LoadLevel(Source);
+		if (!Placed)
+		{
+			return StageError(std::format("Cannot load the level of region '{}': {}", Region.Name, Placed.error().Message));
+		}
+
+		Entities.insert(Entities.end(), Placed->Entities.begin(), Placed->Entities.end());
+		RegionCopies.emplace_back(Source, Destination);
+	}
+
+	for (const FLevelEntity& Entity : Entities)
 	{
 		if (Entity.AudioEmitter && Entity.AudioEmitter->Sound.IsValid())
 		{
@@ -342,12 +369,14 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 	// The descriptor and level are copied verbatim so the staged build loads exactly what was authored. The HUD font ships with its license.
 	const std::filesystem::path FontSource = Request.EngineContentRoot / "Editor" / "Fonts" / "Roboto";
 	const std::filesystem::path FontDestination = GetStagedEngineContentRoot(Request.OutputRoot) / "Fonts";
-	const std::array Copies{
+	std::vector Copies{
 	    std::pair{Project->DescriptorPath, StagedProjectPath},
 	    std::pair{Project->StartingLevel, StagedLevelPath},
 	    std::pair{FontSource / "Roboto-Medium.ttf", FontDestination / "Roboto-Medium.ttf"},
 	    std::pair{FontSource / "OFL.txt", FontDestination / "OFL.txt"},
 	};
+
+	Copies.insert(Copies.end(), RegionCopies.begin(), RegionCopies.end());
 
 	for (const auto& [Source, Destination] : Copies)
 	{

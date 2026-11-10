@@ -141,6 +141,7 @@ void FEditorFramework::FImplementation::TogglePlay()
 		StopPlayAudio();
 		PlaySession.reset();
 		PlayAssets.reset();
+
 		PlayRenderView = {};
 		bAutomationOwnsPlay = false;
 		ToolUI->SetCursorCaptured(false);
@@ -258,8 +259,9 @@ void FEditorFramework::FImplementation::TogglePlay()
 		}
 	}
 
-	PlayAssets = std::move(GameAssets);
 	PlaySession = std::move(*Session);
+	PlaySession->SetRegions(Level->GetRegions(), MakeRegionLoader());
+	PlayAssets = std::move(GameAssets);
 	bPlayPaused = false;
 	PlayMenuFocus = 0;
 	PlayMenuChoice.reset();
@@ -272,6 +274,41 @@ void FEditorFramework::FImplementation::TogglePlay()
 	ImGui::SetWindowFocus("Viewport");
 	ToolUI->SetCursorCaptured(true);
 	HERTA_LOG_INFO(*Log, EditorLog, "Playing; press Esc to stop");
+}
+
+// Regions read their level on a worker. The viewport preview already keeps every region's assets loaded, so Play only waits for them.
+FRegionLoader FEditorFramework::FImplementation::MakeRegionLoader()
+{
+	return [this, LevelPath = Level->GetPath()](const FLevelRegion& Region, const std::atomic<bool>&) -> std::expected<FLoadedRegion, FGameError>
+	{
+		auto Document = LoadLevel(ResolveLevelRegionPath(LevelPath, Region));
+		if (!Document)
+		{
+			return std::unexpected(FGameError{std::format("Cannot load the level of region '{}': {}", Region.Name, Document.error().Message)});
+		}
+
+		auto Wanted = std::make_shared<std::vector<FAssetId>>();
+		for (const FLevelEntity& Entity : Document->Entities)
+		{
+			if (Entity.Mesh && IsLevelRegionScenery(Entity))
+			{
+				Wanted->push_back(Entity.Mesh->Asset);
+				std::ranges::copy_if(Entity.Mesh->Materials, std::back_inserter(*Wanted), &FAssetId::IsValid);
+			}
+		}
+
+		return FLoadedRegion{
+		    .Document = std::move(*Document),
+		    .Prepare = [this, Wanted]() -> std::expected<bool, FGameError>
+		{
+			return std::ranges::all_of(*Wanted, [this](const FAssetId& Asset)
+			{
+				const FPreviewMeshSlot* const Slot = Assets->GetCachedAsset(Asset);
+				return Slot && !Slot->bLoading;
+			});
+		},
+		};
+	};
 }
 
 bool FEditorFramework::FImplementation::IsPlayGamepadPressed(const EGamepadButton Button) const
@@ -763,6 +800,10 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 		Output += std::format(", \"characters\": {}, \"cuts\": {}, \"cutPieces\": {}", PlaySession->GetCharacterCount(), PlaySession->GetCutCount(), PlaySession->GetCutPieceCount());
 		const FParticleStats Particles = PlaySession->GetParticleStats();
 		Output += std::format(", \"particles\": {{\"effects\": {}, \"live\": {}, \"spawned\": {}, \"dropped\": {}, \"retired\": {}, \"collisions\": {}}}", Particles.Effects, Particles.Particles, Particles.Spawned, Particles.Dropped, Particles.EffectsRetired, Particles.Collisions);
+		const FRegionStats Regions = PlaySession->GetRegionStats();
+		Output += std::format(", \"regions\": {{\"loaded\": {}, \"loading\": {}, \"preparing\": {}, \"loads\": {}, \"unloads\": {}, \"cancelled\": {}, \"failed\": {}, \"deferred\": {}, \"lastError\": ", Regions.Loaded, Regions.Loading, Regions.Preparing, Regions.Loads, Regions.Unloads, Regions.Cancelled, Regions.Failed, Regions.Deferred);
+		AppendJsonString(Output, Regions.LastError);
+		Output += "}";
 	}
 
 	if (Audio)

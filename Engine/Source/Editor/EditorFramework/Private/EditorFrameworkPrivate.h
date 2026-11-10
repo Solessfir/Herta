@@ -294,6 +294,9 @@ struct FEditorFramework::FImplementation
 	void DrawPlayerCharacterPicker(float ValueWidth);
 	void DrawLevelSoundPickers(float ValueWidth);
 	void DrawLevelEffectPickers(float ValueWidth);
+	void DrawLevelRegions(float ValueWidth, float Scale);
+	// The level's regions with the region being dragged in the Regions section shown at its draft values.
+	[[nodiscard]] std::vector<FLevelRegion> GetShownRegions() const;
 	void FocusPreview();
 	void RefreshPreviewMeshes();
 	[[nodiscard]] const FRenderMesh* RefreshSoftBodyPreview(std::size_t Index, const FLevelEntity& Entity);
@@ -351,6 +354,9 @@ struct FEditorFramework::FImplementation
 	void SubmitPlayAudio();
 	void StopPlayAudio();
 	bool IsPlayGamepadPressed(EGamepadButton Button) const;
+	[[nodiscard]] FRegionLoader MakeRegionLoader();
+	void AppendRegionPreviews(std::vector<FAssetId>& Materials);
+	void PublishViewportGeometry();
 	void DrawPlayHud(ImVec2 Minimum, ImVec2 Size);
 
 	[[nodiscard]] bool IsSimulating() const noexcept
@@ -497,6 +503,29 @@ struct FEditorFramework::FImplementation
 	// The session reads meshes and materials through PlayAssets, so it is released first.
 	std::unique_ptr<IGameAssets> PlayAssets;
 	std::unique_ptr<FGameSession> PlaySession;
+	// Region levels the viewport previews, by resolved path, read once; empty after a failed read, which logs once.
+	struct FRegionPreviewLevel
+	{
+		std::vector<FLevelEntity> Entities{};
+	};
+
+	std::map<std::filesystem::path, FRegionPreviewLevel> RegionPreviewLevels;
+	std::filesystem::path RegionPreviewLevelPath;
+	std::optional<FObjectId> SelectedRegion;
+	// The selected region while one of its fields is dragged, committed as one undoable change on release.
+	std::optional<FLevelRegion> RegionDraft;
+	std::array<char, 128> RegionName{};
+	// Levels that can be placed as regions, listed when the Add menu opens.
+	std::vector<std::string> RegionLevelChoices;
+	// Region scenery drawn after the level's objects, so object indices, picking, and selection stay the level's own.
+	std::vector<FMatrix4> RegionPreviewModels;
+	std::vector<const FRenderMesh*> RegionPreviewMeshes;
+	std::vector<std::vector<const FRenderMaterial*>> RegionPreviewMaterials;
+	std::vector<FMatrix4> ViewportModels;
+	std::vector<const FRenderMesh*> ViewportMeshes;
+	std::vector<std::span<const FRenderMaterial* const>> ViewportMaterialSpans;
+	// Every asset the current level's regions draw with, kept loaded for the preview and for Play.
+	std::vector<FAssetId> RegionAssets;
 
 	// The editor's audio engine plays Play's sounds and Audio Graph auditions, keyed by the build key of each loaded sound.
 	std::unique_ptr<FAudioEngine> Audio;

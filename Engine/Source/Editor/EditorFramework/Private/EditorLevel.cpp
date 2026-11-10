@@ -1259,6 +1259,42 @@ std::span<const FLevelRegion> FEditorLevel::GetRegions() const
 	return Regions;
 }
 
+std::expected<void, FLevelError> FEditorLevel::SetRegions(const std::string_view Label, std::vector<FLevelRegion> After)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	if (auto Valid = ValidateLevelRegions(After); !Valid)
+	{
+		return Valid;
+	}
+
+	if (After == Regions)
+	{
+		return {};
+	}
+
+	const std::size_t MemoryCost = (Regions.size() + After.size()) * sizeof(FLevelRegion);
+	const auto Executed = History.Execute({
+	    .Label = std::string(Label),
+	    .Apply = [this, Before = Regions, After = std::move(After)](const bool bUndo) -> std::expected<void, FEditorCommandError>
+	{
+		Regions = bUndo ? Before : After;
+		return {};
+	},
+	    .MemoryCost = MemoryCost,
+	});
+
+	if (!Executed)
+	{
+		return std::unexpected(FLevelError{Executed.error().Message});
+	}
+
+	return {};
+}
+
 std::expected<void, FLevelError> FEditorLevel::SetEffect(const ELevelEffect Cue, const FAssetId& System)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)

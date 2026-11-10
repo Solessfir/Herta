@@ -125,6 +125,204 @@ void FEditorFramework::FImplementation::DrawLevelSoundPickers(const float ValueW
 	}
 }
 
+std::vector<FLevelRegion> FEditorFramework::FImplementation::GetShownRegions() const
+{
+	std::vector<FLevelRegion> Regions(Level->GetRegions().begin(), Level->GetRegions().end());
+	if (RegionDraft)
+	{
+		const auto Found = std::ranges::find(Regions, RegionDraft->Id, &FLevelRegion::Id);
+		if (Found != Regions.end())
+		{
+			*Found = *RegionDraft;
+		}
+	}
+
+	return Regions;
+}
+
+void FEditorFramework::FImplementation::DrawLevelRegions(const float ValueWidth, const float Scale)
+{
+	const std::span<const FLevelRegion> Regions = Level->GetRegions();
+	std::optional<std::vector<FLevelRegion>> Changed;
+	std::string Label;
+	std::optional<FObjectId> Frame;
+	for (std::size_t Index = 0; Index < Regions.size(); ++Index)
+	{
+		const FLevelRegion& Region = Regions[Index];
+		const bool bSelected = SelectedRegion == Region.Id;
+		ImGui::PushID(static_cast<int>(Index));
+		if (ImGui::Selectable(Region.Name.c_str(), bSelected))
+		{
+			SelectedRegion = bSelected ? std::nullopt : std::optional{Region.Id};
+			RegionDraft.reset();
+		}
+
+		if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		{
+			Frame = Region.Id;
+		}
+
+		ImGui::SetItemTooltip("%s\nDouble-click to frame. Right-click to rename or delete.", Region.Level.c_str());
+		const std::string Radii = std::format("{:.0f} / {:.0f} m", Region.LoadRadius, Region.UnloadRadius);
+		const ImVec2 RowMaximum = ImGui::GetItemRectMax();
+		const ImVec2 RadiiSize = ImGui::CalcTextSize(Radii.c_str());
+		ImGui::GetWindowDrawList()->AddText({RowMaximum.x - RadiiSize.x - 4.f * Scale, RowMaximum.y - RadiiSize.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Radii.c_str());
+		if (ImGui::BeginPopupContextItem("RegionActions"))
+		{
+			if (ImGui::IsWindowAppearing())
+			{
+				RegionName.fill('\0');
+				Region.Name.copy(RegionName.data(), std::min(Region.Name.size(), RegionName.size() - 1));
+				ImGui::SetKeyboardFocusHere();
+			}
+
+			ImGui::SetNextItemWidth(180.f * Scale);
+			if (ImGui::InputText("##Name", RegionName.data(), RegionName.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll) && RegionName[0] != '\0')
+			{
+				Changed.emplace(Regions.begin(), Regions.end());
+				(*Changed)[Index].Name = RegionName.data();
+				Label = "Rename region";
+				ImGui::CloseCurrentPopup();
+			}
+
+			if (ImGui::MenuItem("Frame"))
+			{
+				Frame = Region.Id;
+			}
+
+			if (ImGui::MenuItem("Delete"))
+			{
+				Changed.emplace(Regions.begin(), Regions.end());
+				Changed->erase(Changed->begin() + static_cast<std::ptrdiff_t>(Index));
+				Label = "Delete region";
+			}
+
+			ImGui::EndPopup();
+		}
+
+		if (bSelected)
+		{
+			FLevelRegion Draft = RegionDraft && RegionDraft->Id == Region.Id ? *RegionDraft : Region;
+			std::array Offset{static_cast<float>(Draft.Offset.Meters.X), static_cast<float>(Draft.Offset.Meters.Y), static_cast<float>(Draft.Offset.Meters.Z)};
+			bool bEdited = false;
+			bool bReleased = false;
+			ImGui::Indent(8.f * Scale);
+			DrawFieldLabel("Offset", ValueWidth);
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::DragFloat3("##Offset", Offset.data(), 0.1f, -100000.f, 100000.f, "%.1f m"))
+			{
+				Draft.Offset = FWorldPosition{Offset[0], Offset[1], Offset[2]};
+				bEdited = true;
+			}
+
+			bReleased |= ImGui::IsItemDeactivatedAfterEdit();
+			DrawFieldLabel("Load radius", ValueWidth);
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::DragFloat("##Load", &Draft.LoadRadius, 0.5f, 1.f, 10000.f, "%.0f m", ImGuiSliderFlags_AlwaysClamp))
+			{
+				Draft.UnloadRadius = std::max(Draft.UnloadRadius, Draft.LoadRadius + 1.f);
+				bEdited = true;
+			}
+
+			bReleased |= ImGui::IsItemDeactivatedAfterEdit();
+			DrawFieldLabel("Unload radius", ValueWidth);
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			if (ImGui::DragFloat("##Unload", &Draft.UnloadRadius, 0.5f, Draft.LoadRadius + 1.f, 10001.f, "%.0f m", ImGuiSliderFlags_AlwaysClamp))
+			{
+				bEdited = true;
+			}
+
+			bReleased |= ImGui::IsItemDeactivatedAfterEdit();
+			ImGui::Unindent(8.f * Scale);
+			if (bEdited)
+			{
+				RegionDraft = Draft;
+			}
+
+			if (bReleased && RegionDraft)
+			{
+				Changed.emplace(Regions.begin(), Regions.end());
+				(*Changed)[Index] = *RegionDraft;
+				Label = "Edit region";
+				RegionDraft.reset();
+			}
+		}
+
+		ImGui::PopID();
+	}
+
+	if (Regions.empty())
+	{
+		ImGui::TextDisabled("Place other levels to stream in around the player");
+	}
+
+	ImGui::SetNextItemWidth(-FLT_MIN);
+	if (ImGui::BeginCombo("##AddRegion", "Add region...", ImGuiComboFlags_HeightLarge))
+	{
+		if (ImGui::IsWindowAppearing())
+		{
+			RegionLevelChoices.clear();
+			const std::filesystem::path Folder = Level->GetPath().parent_path();
+			std::error_code Error;
+			for (auto Entry = std::filesystem::recursive_directory_iterator(Folder, Error); !Error && Entry != std::filesystem::recursive_directory_iterator(); Entry.increment(Error))
+			{
+				if (Entry->is_regular_file(Error) && Entry->path().extension() == ".hlevel" && Entry->path() != Level->GetPath())
+				{
+					const std::u8string Relative = Entry->path().lexically_relative(Folder).generic_u8string();
+					RegionLevelChoices.emplace_back(Relative.begin(), Relative.end());
+				}
+			}
+
+			std::ranges::sort(RegionLevelChoices);
+		}
+
+		if (RegionLevelChoices.empty())
+		{
+			ImGui::TextDisabled("No other levels beside this one");
+		}
+
+		for (const std::string& Choice : RegionLevelChoices)
+		{
+			if (ImGui::Selectable(Choice.c_str()))
+			{
+				// New regions are placed in front of the camera on the ground, where the viewer is looking.
+				const FVector3& Camera = ViewportCamera.GetPosition();
+				const float Yaw = ViewportCamera.GetYaw();
+				const FVector3 Ahead{Camera.X + std::sin(Yaw) * 30.f, 0.f, Camera.Z + std::cos(Yaw) * 30.f};
+				const std::string Stem = std::filesystem::path(Choice).stem().string();
+				const auto Uses = std::ranges::count_if(Regions, [&Choice](const FLevelRegion& Existing)
+				{
+					return Existing.Level == Choice;
+				});
+
+				Changed.emplace(Regions.begin(), Regions.end());
+				Changed->push_back({.Id = FObjectId::Generate(), .Name = std::format("{} {}", Stem, Uses + 1), .Level = Choice, .Offset = FWorldPosition{Ahead.X, Ahead.Y, Ahead.Z}});
+				SelectedRegion = Changed->back().Id;
+				Label = "Add region";
+			}
+		}
+
+		ImGui::EndCombo();
+	}
+
+	// Applied after the loop, which reads from the level's own storage.
+	if (Changed)
+	{
+		ReportLevelResult(Level->SetRegions(Label, std::move(*Changed)));
+	}
+
+	if (Frame)
+	{
+		const auto Found = std::ranges::find(Level->GetRegions(), *Frame, &FLevelRegion::Id);
+		if (Found != Level->GetRegions().end())
+		{
+			const FVector3d& Center = Found->Offset.Meters;
+			const float Distance = std::max(Found->LoadRadius * 0.6f, 10.f);
+			ViewportCamera.SetView({static_cast<float>(Center.X), static_cast<float>(Center.Y) + Distance, static_cast<float>(Center.Z) - Distance}, 0.f, -std::numbers::pi_v<float> * 0.25f);
+		}
+	}
+}
+
 void FEditorFramework::FImplementation::DrawLevelEffectPickers(const float ValueWidth)
 {
 	if (!Level || !Assets)

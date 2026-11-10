@@ -2,17 +2,19 @@
 
 #include "Herta/Renderer/MeshRenderer.h"
 
+#include <algorithm>
 #include <format>
+#include <iterator>
 #include <utility>
 
 namespace Herta
 {
-std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets::Create(IGraphicsDevice& Device, const FCookedContent& Content, const std::span<const FLevelEntity> Entities)
+std::expected<FDecodedGameAssets, FAssetError> DecodeGameAssets(const FCookedContent& Content, const std::span<const FLevelEntity> Entities)
 {
-	std::unique_ptr<FStagedGameAssets> Assets(new FStagedGameAssets);
-	const auto LoadMaterial = [&](const FAssetId& Asset) -> std::expected<void, FAssetError>
+	FDecodedGameAssets Decoded;
+	const auto DecodeMaterial = [&](const FAssetId& Asset) -> std::expected<void, FAssetError>
 	{
-		if (!Asset.IsValid() || Assets->Materials.contains(Asset))
+		if (!Asset.IsValid() || Decoded.Materials.contains(Asset))
 		{
 			return {};
 		}
@@ -23,11 +25,10 @@ std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets
 			return std::unexpected(Cooked ? FAssetError{std::format("Asset {} is not a material", Asset.ToString())} : Cooked.error());
 		}
 
-		const FMaterialAsset& Material = std::get<FMaterialAsset>(*Cooked);
-		std::array<std::optional<FCookedTexture>, MaterialTextureSlotCount> Textures;
+		FDecodedGameAssets::FMaterial Material{.Material = std::move(std::get<FMaterialAsset>(*Cooked))};
 		for (std::size_t Slot = 0; Slot < MaterialTextureSlotCount; ++Slot)
 		{
-			const FMaterialTextureBinding& Binding = Material.Textures[Slot];
+			const FMaterialTextureBinding& Binding = Material.Material.Textures[Slot];
 			if (!Binding.Texture.IsValid())
 			{
 				continue;
@@ -39,22 +40,16 @@ std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets
 				return std::unexpected(Texture.error());
 			}
 
-			Textures[Slot] = std::move(std::get<FCookedTexture>(*Texture));
+			Material.Textures[Slot] = std::move(std::get<FCookedTexture>(*Texture));
 		}
 
-		auto Created = FRenderMaterial::Create(Device, Material, Textures, Material.Name);
-		if (!Created)
-		{
-			return std::unexpected(FAssetError{std::format("Cannot upload material {}: {}", Material.Name, Created.error().Message)});
-		}
-
-		Assets->Materials.emplace(Asset, std::move(*Created));
+		Decoded.Materials.emplace(Asset, std::move(Material));
 		return {};
 	};
 
 	for (const FLevelEntity& Entity : Entities)
 	{
-		if (Entity.Mesh && !Assets->Meshes.contains(Entity.Mesh->Asset))
+		if (Entity.Mesh && !Decoded.Models.contains(Entity.Mesh->Asset))
 		{
 			auto Cooked = Content.Load(Entity.Mesh->Asset);
 			if (!Cooked || !std::holds_alternative<FCookedModel>(*Cooked))
@@ -62,22 +57,14 @@ std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets
 				return std::unexpected(Cooked ? FAssetError{std::format("Asset {} on {} is not a model", Entity.Mesh->Asset.ToString(), Entity.Name)} : Cooked.error());
 			}
 
-			auto Mesh = FRenderMesh::Create(Device, std::get<FCookedModel>(*Cooked), Entity.Name);
-			if (!Mesh)
-			{
-				return std::unexpected(FAssetError{std::format("Cannot upload the mesh of {}: {}", Entity.Name, Mesh.error().Message)});
-			}
-
-			Assets->Meshes.emplace(Entity.Mesh->Asset, std::move(*Mesh));
-			if (Entity.Character && std::get<FCookedModel>(*Cooked).Skeleton)
-			{
-				Assets->SkinnedModels.emplace(Entity.Mesh->Asset, std::make_shared<const FCookedModel>(std::move(std::get<FCookedModel>(*Cooked))));
-			}
+			FCookedModel& Model = std::get<FCookedModel>(*Cooked);
+			const bool bSkinned = Entity.Character && Model.Skeleton;
+			Decoded.Models.emplace(Entity.Mesh->Asset, FDecodedGameAssets::FModel{.Model = std::move(Model), .Label = Entity.Name, .bSkinned = bSkinned});
 		}
 
 		for (const FAssetId& Material : Entity.Mesh ? std::span<const FAssetId>(Entity.Mesh->Materials) : std::span<const FAssetId>{})
 		{
-			if (auto Loaded = LoadMaterial(Material); !Loaded)
+			if (auto Loaded = DecodeMaterial(Material); !Loaded)
 			{
 				return std::unexpected(Loaded.error());
 			}
@@ -85,13 +72,13 @@ std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets
 
 		if (Entity.SoftBody)
 		{
-			if (auto Loaded = LoadMaterial(Entity.SoftBody->Material); !Loaded)
+			if (auto Loaded = DecodeMaterial(Entity.SoftBody->Material); !Loaded)
 			{
 				return std::unexpected(Loaded.error());
 			}
 		}
 
-		if (Entity.Light && Entity.Light->Type == ELightType::Sky && Entity.Light->Environment.IsValid() && !Assets->Environments.contains(Entity.Light->Environment))
+		if (Entity.Light && Entity.Light->Type == ELightType::Sky && Entity.Light->Environment.IsValid() && !Decoded.Environments.contains(Entity.Light->Environment))
 		{
 			auto Texture = Content.Load(Entity.Light->Environment, ETextureColorSpace::Linear);
 			if (!Texture)
@@ -99,11 +86,110 @@ std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets
 				return std::unexpected(Texture.error());
 			}
 
-			Assets->Environments.emplace(Entity.Light->Environment, std::make_shared<const FCookedTexture>(std::move(std::get<FCookedTexture>(*Texture))));
+			Decoded.Environments.emplace(Entity.Light->Environment, std::move(std::get<FCookedTexture>(*Texture)));
 		}
 	}
 
+	return Decoded;
+}
+
+std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets::Create(IGraphicsDevice& Device, const FCookedContent& Content, const std::span<const FLevelEntity> Entities)
+{
+	auto Decoded = DecodeGameAssets(Content, Entities);
+	if (!Decoded)
+	{
+		return std::unexpected(Decoded.error());
+	}
+
+	std::unique_ptr<FStagedGameAssets> Assets(new FStagedGameAssets);
+	auto Added = Assets->Add(Device, std::move(*Decoded));
+	if (!Added)
+	{
+		return std::unexpected(Added.error());
+	}
+
+	Assets->References.clear();
+	Assets->Permanent.insert(Added->begin(), Added->end());
 	return Assets;
+}
+
+std::expected<std::vector<FAssetId>, FAssetError> FStagedGameAssets::Add(IGraphicsDevice& Device, FDecodedGameAssets&& Decoded)
+{
+	std::vector<FAssetId> Referenced;
+	for (auto& [Asset, Model] : Decoded.Models)
+	{
+		if (!Meshes.contains(Asset))
+		{
+			auto Mesh = FRenderMesh::Create(Device, Model.Model, Model.Label);
+			if (!Mesh)
+			{
+				return std::unexpected(FAssetError{std::format("Cannot upload the mesh of {}: {}", Model.Label, Mesh.error().Message)});
+			}
+
+			Meshes.emplace(Asset, std::move(*Mesh));
+			if (Model.bSkinned)
+			{
+				SkinnedModels.emplace(Asset, std::make_shared<const FCookedModel>(std::move(Model.Model)));
+			}
+		}
+
+		Referenced.push_back(Asset);
+	}
+
+	for (auto& [Asset, Material] : Decoded.Materials)
+	{
+		if (!Materials.contains(Asset))
+		{
+			auto Created = FRenderMaterial::Create(Device, Material.Material, Material.Textures, Material.Material.Name);
+			if (!Created)
+			{
+				return std::unexpected(FAssetError{std::format("Cannot upload material {}: {}", Material.Material.Name, Created.error().Message)});
+			}
+
+			Materials.emplace(Asset, std::move(*Created));
+		}
+
+		Referenced.push_back(Asset);
+	}
+
+	for (auto& [Asset, Texture] : Decoded.Environments)
+	{
+		Environments.try_emplace(Asset, std::make_shared<const FCookedTexture>(std::move(Texture)));
+		Referenced.push_back(Asset);
+	}
+
+	for (const FAssetId& Asset : Referenced)
+	{
+		++References[Asset];
+	}
+
+	return Referenced;
+}
+
+void FStagedGameAssets::Release(const std::span<const FAssetId> Assets)
+{
+	for (const FAssetId& Asset : Assets)
+	{
+		const auto Found = References.find(Asset);
+		if (Found == References.end() || --Found->second > 0)
+		{
+			continue;
+		}
+
+		References.erase(Found);
+		if (!Permanent.contains(Asset))
+		{
+			Meshes.erase(Asset);
+			SkinnedModels.erase(Asset);
+			Materials.erase(Asset);
+			Environments.erase(Asset);
+		}
+	}
+}
+
+std::size_t FStagedGameAssets::GetLoadedAssetCount() const noexcept
+{
+	return Meshes.size() + Materials.size() + Environments.size();
 }
 
 const FRenderMesh* FStagedGameAssets::FindMesh(const FAssetId& Asset) const
@@ -142,5 +228,53 @@ std::shared_ptr<const FCookedTexture> FStagedGameAssets::FindEnvironment(const F
 {
 	const auto Found = Environments.find(Asset);
 	return Found != Environments.end() ? Found->second : nullptr;
+}
+
+// ponytail: a region uploads in one frame; spread uploads over frames if a large region hitches.
+FRegionLoader MakeStagedRegionLoader(std::filesystem::path LevelPath, const FCookedContent& Content, FStagedGameAssets& Assets, IGraphicsDevice& Device)
+{
+	return [LevelPath = std::move(LevelPath), &Content, &Assets, &Device](const FLevelRegion& Region, const std::atomic<bool>& Cancel) -> std::expected<FLoadedRegion, FGameError>
+	{
+		auto Document = LoadLevel(ResolveLevelRegionPath(LevelPath, Region));
+		if (!Document)
+		{
+			return std::unexpected(FGameError{std::format("Cannot load the level of region '{}': {}", Region.Name, Document.error().Message)});
+		}
+
+		if (Cancel)
+		{
+			return std::unexpected(FGameError{"Cancelled"});
+		}
+
+		// Only the scenery a region streams needs its assets.
+		std::vector<FLevelEntity> Scenery;
+		std::ranges::copy_if(Document->Entities, std::back_inserter(Scenery), &IsLevelRegionScenery);
+		auto Decoded = DecodeGameAssets(Content, Scenery);
+		if (!Decoded)
+		{
+			return std::unexpected(FGameError{std::format("Cannot load the assets of region '{}': {}", Region.Name, Decoded.error().Message)});
+		}
+
+		auto Pending = std::make_shared<FDecodedGameAssets>(std::move(*Decoded));
+		auto Referenced = std::make_shared<std::vector<FAssetId>>();
+		return FLoadedRegion{
+		    .Document = std::move(*Document),
+		    .Prepare = [Pending, Referenced, &Assets, &Device]() -> std::expected<bool, FGameError>
+		{
+			auto Added = Assets.Add(Device, std::move(*Pending));
+			if (!Added)
+			{
+				return std::unexpected(FGameError{std::move(Added.error().Message)});
+			}
+
+			*Referenced = std::move(*Added);
+			return true;
+		},
+		    .Release = [Referenced, &Assets]
+		{
+			Assets.Release(*Referenced);
+		},
+		};
+	};
 }
 }
