@@ -60,7 +60,8 @@ FAnimationStateMachineDesc MakeDefaultLocomotion()
 	        {.Name = "WallRunning", .Type = EAnimationParameterType::Bool},
 	    },
 	    .States = {
-	        {.Name = "Locomotion", .Samples = {{.Clip = "Idle_Loop", .Position = 0.f}, {.Clip = "Walk_Loop", .Position = 1.8f}, {.Clip = "Jog_Fwd_Loop", .Position = 4.5f}, {.Clip = "Sprint_Loop", .Position = 7.f}}, .BlendParameter = Speed},
+	        // The walk, jog, and sprint cycles each take two steps, planting a foot at their start and halfway.
+	        {.Name = "Locomotion", .Samples = {{.Clip = "Idle_Loop", .Position = 0.f}, {.Clip = "Walk_Loop", .Position = 1.8f}, {.Clip = "Jog_Fwd_Loop", .Position = 4.5f}, {.Clip = "Sprint_Loop", .Position = 7.f}}, .BlendParameter = Speed, .Events = {{.Name = "Footstep", .Phase = 0.f}, {.Name = "Footstep", .Phase = 0.5f}}},
 	        {.Name = "Crouch", .Samples = {{.Clip = "Crouch_Idle_Loop", .Position = 0.f}, {.Clip = "Crouch_Fwd_Loop", .Position = 2.2f}}, .BlendParameter = Speed},
 	        {.Name = "Slide start", .Samples = {{.Clip = "Slide_Start"}}, .bLoop = false, .Speed = 1.5f},
 	        {.Name = "Slide", .Samples = {{.Clip = "Slide_Loop"}}},
@@ -68,7 +69,7 @@ FAnimationStateMachineDesc MakeDefaultLocomotion()
 	        {.Name = "Jump", .Samples = {{.Clip = "Jump_Start"}}, .bLoop = false},
 	        {.Name = "Wall jump", .Samples = {{.Clip = "NinjaJump_Start"}}, .bLoop = false, .Speed = 1.4f},
 	        {.Name = "Air", .Samples = {{.Clip = "Jump_Loop"}}},
-	        {.Name = "Land", .Samples = {{.Clip = "Jump_Land"}}, .bLoop = false, .Speed = 1.5f},
+	        {.Name = "Land", .Samples = {{.Clip = "Jump_Land"}}, .bLoop = false, .Speed = 1.5f, .Events = {{.Name = "Land", .Phase = 0.f}}},
 	        // Its root rises the 1 m it climbs, which the session cancels so the capsule carries the body up the actual ledge height.
 	        {.Name = "Mantle", .Samples = {{.Clip = "ClimbUp_1m_RM"}}, .bLoop = false},
 	        // The clips have no wall run, so the sprint plays while the session leans the body away from the wall.
@@ -236,6 +237,20 @@ void FPlayerCharacter::Update(const float DeltaSeconds, const FPlayerMotion& Mot
 	Trigger(MantleParameter, Motion.bMantled);
 
 	Machine.Update(DeltaSeconds);
+	// The locomotion blend shares one phase, so standing still would step in place with the idle clip.
+	Events.clear();
+	for (const std::string& Event : Machine.GetEvents())
+	{
+		if (Event != "Footstep" || Motion.GroundSpeed > 0.5f)
+		{
+			Events.push_back(Event);
+		}
+	}
+}
+
+std::span<const std::string> FPlayerCharacter::GetEvents() const noexcept
+{
+	return Events;
 }
 
 std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bFirstPerson)

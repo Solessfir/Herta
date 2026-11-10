@@ -476,6 +476,8 @@ struct FEditorFramework::FImplementation
 		std::string LastMode{};
 		std::string Trace{};
 		std::string StoppedBy{};
+		// Animation events in the order they first fired, with how often each did.
+		std::vector<std::pair<std::string, std::size_t>> AnimationEvents{};
 	};
 
 	std::deque<FAutomationFrame> AutomationInput;

@@ -970,6 +970,11 @@ std::string_view FGameSession::GetCharacterStateName() const noexcept
 	return Machine.GetDesc().States[Machine.GetActiveState()].Name;
 }
 
+std::span<const std::string> FGameSession::GetCharacterEvents() const noexcept
+{
+	return Implementation->Body ? Implementation->Body->GetEvents() : std::span<const std::string>{};
+}
+
 const FPhysicsWorld* FGameSession::GetPhysicsWorld() const noexcept
 {
 	return const_cast<FLevelSimulation&>(Implementation->Simulation).GetPhysicsWorld();

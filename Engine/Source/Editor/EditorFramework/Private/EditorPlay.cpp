@@ -632,6 +632,19 @@ void FEditorFramework::FImplementation::FinishAutomationFrame()
 	const std::string Mode(Mover.GetActiveMode());
 	++Run.Frames;
 	Run.bWasAirborne |= !State.bGrounded;
+	for (const std::string& Event : PlaySession->GetCharacterEvents())
+	{
+		const auto Found = std::ranges::find(Run.AnimationEvents, Event, &std::pair<std::string, std::size_t>::first);
+		if (Found == Run.AnimationEvents.end())
+		{
+			Run.AnimationEvents.emplace_back(Event, 1);
+		}
+		else
+		{
+			++Found->second;
+		}
+	}
+
 	if (Run.TraceEvery > 0 && (Run.Frames % Run.TraceEvery == 0 || Mode != Run.LastMode))
 	{
 		Run.Trace += Run.Trace.empty() ? "" : ", ";
@@ -641,7 +654,16 @@ void FEditorFramework::FImplementation::FinishAutomationFrame()
 		AppendVector(Run.Trace, State.Foot);
 		Run.Trace += ", \"velocity\": ";
 		AppendVector(Run.Trace, State.Velocity);
-		Run.Trace += std::format(", \"grounded\": {}, \"wall\": {}}}", State.bGrounded ? "true" : "false", State.Ground.bTouchingWall ? "true" : "false");
+		Run.Trace += std::format(", \"grounded\": {}, \"wall\": {}, \"animationState\": ", State.bGrounded ? "true" : "false", State.Ground.bTouchingWall ? "true" : "false");
+		AppendJsonString(Run.Trace, PlaySession->GetCharacterStateName());
+		Run.Trace += ", \"animationEvents\": [";
+		for (const std::string& Event : PlaySession->GetCharacterEvents())
+		{
+			Run.Trace += Run.Trace.ends_with('[') ? "" : ", ";
+			AppendJsonString(Run.Trace, Event);
+		}
+
+		Run.Trace += "]}";
 	}
 
 	Run.LastMode = Mode;
@@ -965,6 +987,15 @@ void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
 		Reply.pop_back();
 		Reply += std::format(", \"framesPlayed\": {}, \"stoppedBy\": ", Run.Frames);
 		AppendJsonString(Reply, Run.StoppedBy.empty() ? std::string_view("frames") : std::string_view(Run.StoppedBy));
+		Reply += ", \"animationEvents\": {";
+		for (const auto& [Name, Count] : Run.AnimationEvents)
+		{
+			Reply += Name == Run.AnimationEvents.front().first ? "" : ", ";
+			AppendJsonString(Reply, Name);
+			Reply += std::format(": {}", Count);
+		}
+
+		Reply += "}";
 		Reply += Run.TraceEvery > 0 ? ", \"trace\": [" + Run.Trace + "]}" : "}";
 		Server.Respond(*std::exchange(Editor.AutomationInputRequest, std::nullopt), Reply);
 	}

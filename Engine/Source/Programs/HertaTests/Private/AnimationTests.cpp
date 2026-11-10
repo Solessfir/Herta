@@ -365,6 +365,50 @@ TEST_CASE("Animation state machines blend along a parameter and take transitions
 	Broken = Desc;
 	Broken.States[0].BlendParameter.reset();
 	CHECK_FALSE(FAnimationStateMachine::Create(Broken, **Library));
+	Broken = Desc;
+	Broken.States[0].Events = {{.Name = "Footstep", .Phase = 1.5f}};
+	CHECK_FALSE(FAnimationStateMachine::Create(Broken, **Library));
+}
+
+TEST_CASE("Animation events fire once each time a state's playback reaches them")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	const float Walk = (*Library)->GetClipDuration(*(*Library)->FindClip("Walk_Loop"));
+	const float Jump = (*Library)->GetClipDuration(*(*Library)->FindClip("Jump_Start"));
+
+	FAnimationStateMachineDesc Desc{
+	    .Parameters = {{.Name = "Jump", .Type = EAnimationParameterType::Trigger}},
+	    .States = {
+	        {.Name = "Walk", .Samples = {{.Clip = "Walk_Loop"}}, .Events = {{.Name = "Left", .Phase = 0.f}, {.Name = "Right", .Phase = 0.5f}}},
+	        {.Name = "Jump", .Samples = {{.Clip = "Jump_Start"}}, .bLoop = false, .Events = {{.Name = "TakeOff", .Phase = 0.f}, {.Name = "Apex", .Phase = 1.f}}},
+	    },
+	    .Transitions = {{.From = AnyAnimationState, .To = 1, .DurationSeconds = 0.f, .Conditions = {{.Parameter = 0, .Test = EAnimationCondition::Triggered}}}},
+	};
+
+	auto Machine = FAnimationStateMachine::Create(Desc, **Library);
+	REQUIRE(Machine);
+	const auto Fired = [&](const float Seconds)
+	{
+		Machine->Update(Seconds);
+		return std::vector<std::string>(Machine->GetEvents().begin(), Machine->GetEvents().end());
+	};
+
+	// The start fires on the first update, the halfway point when the playback crosses it, and the start again once the loop wraps.
+	CHECK(Fired(Walk * 0.1f) == std::vector<std::string>{"Left"});
+	CHECK(Fired(Walk * 0.3f).empty());
+	CHECK(Fired(Walk * 0.2f) == std::vector<std::string>{"Right"});
+	CHECK(Fired(Walk * 0.45f) == std::vector<std::string>{"Left"});
+	// A step longer than a whole cycle fires each event once.
+	CHECK(Fired(Walk * 2.5f) == std::vector<std::string>{"Left", "Right"});
+
+	// A one-shot fires its start after the transition and its end once, then holds without firing again.
+	Machine->SetTrigger(0);
+	CHECK(Fired(0.01f).empty());
+	CHECK(Fired(Jump * 0.5f) == std::vector<std::string>{"TakeOff"});
+	CHECK(Fired(Jump) == std::vector<std::string>{"Apex"});
+	CHECK(Fired(Jump).empty());
 }
 
 namespace
@@ -529,5 +573,19 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 	REQUIRE(Capsule);
 	CHECK_FALSE((*Capsule)->GetCharacterState());
 	CHECK_FALSE((*Capsule)->GetWarnings().empty());
+}
+
+TEST_CASE("A paused animation update fires no events and keeps the state's start for the next update")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	auto Machine = FAnimationStateMachine::Create({.States = {{.Name = "Land", .Samples = {{.Clip = "Jump_Land"}}, .bLoop = false, .Events = {{.Name = "Land", .Phase = 0.f}}}}}, **Library);
+	REQUIRE(Machine);
+	Machine->Update(0.f);
+	CHECK(Machine->GetEvents().empty());
+	Machine->Update(1.f / 60.f);
+	REQUIRE(Machine->GetEvents().size() == 1);
+	CHECK(Machine->GetEvents().front() == "Land");
 }
 }

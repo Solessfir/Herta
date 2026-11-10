@@ -160,6 +160,8 @@ public:
 	// The animated body's active state machine state, or empty without a body.
 	[[nodiscard]] std::optional<std::size_t> GetCharacterState() const noexcept;
 	[[nodiscard]] std::string_view GetCharacterStateName() const noexcept;
+	// The animated body's events from the last update, such as Footstep and Land, for sounds and effects.
+	[[nodiscard]] std::span<const std::string> GetCharacterEvents() const noexcept;
 	// The first enabled Sky light's environment, for the host's environment filtering.
 	[[nodiscard]] std::shared_ptr<const FCookedTexture> GetEnvironment() const;
 

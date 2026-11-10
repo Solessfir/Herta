@@ -45,6 +45,8 @@ public:
 	[[nodiscard]] const FRenderMesh* GetCameraMesh() const noexcept;
 	[[nodiscard]] std::span<const FCookedVertex> GetCameraVertices() const noexcept;
 	[[nodiscard]] const FAnimationStateMachine& GetStateMachine() const noexcept;
+	// Animation events from the last update, such as Footstep and Land.
+	[[nodiscard]] std::span<const std::string> GetEvents() const noexcept;
 	// Model-space position of the head joint, which a first-person camera sits at.
 	[[nodiscard]] std::optional<FVector3> GetHeadPosition() const noexcept;
 	// How high the current pose lifts its root, which only climbing clips do; the session draws the body that much lower because the capsule
@@ -60,6 +62,7 @@ private:
 	std::shared_ptr<const FAnimationLibrary> Library;
 	FAnimationStateMachine Machine;
 	FAnimationStateMachine StartMachine;
+	std::vector<std::string> Events;
 	FAnimationPose Pose;
 	std::shared_ptr<const FRenderMesh> Mesh;
 	std::vector<FCookedVertex> Vertices;

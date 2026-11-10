@@ -73,6 +73,14 @@ std::expected<FAnimationStateMachine, FAnimationError> FAnimationStateMachine::C
 			return Fail(std::format("Blend state '{}' needs a float parameter to blend along", State.Name));
 		}
 
+		if (!std::ranges::all_of(State.Events, [](const FAnimationEventDesc& Event)
+		{
+			return !Event.Name.empty() && Event.Phase >= 0.f && Event.Phase <= 1.f;
+		}))
+		{
+			return Fail(std::format("State '{}' has an event without a name or outside its playback", State.Name));
+		}
+
 		std::ranges::stable_sort(State.Samples, {}, &FAnimationBlendSample::Position);
 		FResolvedState& Resolved = Machine.Resolved.emplace_back();
 
@@ -186,7 +194,7 @@ bool FAnimationStateMachine::Holds(const FAnimationConditionDesc& Condition) con
 	return false;
 }
 
-void FAnimationStateMachine::Advance(FPlayback& Playback, const float DeltaSeconds) const noexcept
+float FAnimationStateMachine::Advance(FPlayback& Playback, const float DeltaSeconds) const noexcept
 {
 	const FAnimationStateDesc& State = Desc.States[Playback.State];
 	const FResolvedState& Clips = Resolved[Playback.State];
@@ -203,6 +211,8 @@ void FAnimationStateMachine::Advance(FPlayback& Playback, const float DeltaSecon
 		Playback.Phase = std::min(Phase, 1.f);
 		Playback.bFinished = Phase >= 1.f;
 	}
+
+	return Phase;
 }
 
 void FAnimationStateMachine::AppendLayers(const FPlayback& Playback, const float Weight)
@@ -248,10 +258,27 @@ std::optional<std::size_t> FAnimationStateMachine::FindTransition() const noexce
 	return std::nullopt;
 }
 
-void FAnimationStateMachine::Update(const float DeltaSeconds) noexcept
+void FAnimationStateMachine::Update(const float DeltaSeconds)
 {
 	const float Step = std::isfinite(DeltaSeconds) ? std::max(DeltaSeconds, 0.f) : 0.f;
-	Advance(Current, Step);
+	const float Start = Current.Phase;
+	const bool bFirst = !Current.bStarted;
+	const float End = Advance(Current, Step);
+	Events.clear();
+	// A paused update plays nothing, so it leaves the state's start for the first update that does.
+	const FAnimationStateDesc& Playing = Desc.States[Current.State];
+	for (const FAnimationEventDesc& Event : Step > 0.f ? std::span<const FAnimationEventDesc>(Playing.Events) : std::span<const FAnimationEventDesc>{})
+	{
+		// A loop reaches the event at Phase plus a whole number of cycles; the last such point this update decides, so a long step fires it once.
+		const float Reached = Playing.bLoop ? Event.Phase + std::floor(End - Event.Phase) : Event.Phase;
+		if (Reached <= End && (bFirst ? Reached >= Start : Reached > Start))
+		{
+			Events.push_back(Event.Name);
+		}
+	}
+
+	Current.bStarted |= Step > 0.f;
+
 	if (Previous)
 	{
 		Advance(*Previous, Step);
@@ -281,6 +308,11 @@ void FAnimationStateMachine::Update(const float DeltaSeconds) noexcept
 	{
 		AppendLayers(*Previous, 1.f - Alpha);
 	}
+}
+
+std::span<const std::string> FAnimationStateMachine::GetEvents() const noexcept
+{
+	return Events;
 }
 
 std::span<const FAnimationLayer> FAnimationStateMachine::GetLayers() const noexcept

@@ -37,6 +37,13 @@ struct FAnimationBlendSample
 	float Position = 0.f;
 };
 
+// Fires once each time the state's playback reaches Phase, from 0 at its start to 1 at its end, such as a footstep.
+struct FAnimationEventDesc
+{
+	std::string Name{};
+	float Phase = 0.f;
+};
+
 struct FAnimationStateDesc
 {
 	std::string Name{};
@@ -45,6 +52,7 @@ struct FAnimationStateDesc
 	std::optional<std::size_t> BlendParameter{};
 	bool bLoop = true;
 	float Speed = 1.f;
+	std::vector<FAnimationEventDesc> Events{};
 };
 
 enum class EAnimationCondition : std::uint8_t
@@ -103,7 +111,9 @@ public:
 	void SetTrigger(std::size_t Parameter) noexcept;
 
 	// Advances time, takes at most one transition, and clears triggers nothing consumed.
-	void Update(float DeltaSeconds) noexcept;
+	void Update(float DeltaSeconds);
+	// Events the active state reached during the last update, in authored order. A state fading out fires none.
+	[[nodiscard]] std::span<const std::string> GetEvents() const noexcept;
 	// Layers to evaluate this frame: the active state's samples, plus the previous state's while a transition fades it out.
 	[[nodiscard]] std::span<const FAnimationLayer> GetLayers() const noexcept;
 
@@ -125,13 +135,16 @@ private:
 		// Normalized phase in [0, 1], shared by a blend's samples so their strides stay in step.
 		float Phase = 0.f;
 		bool bFinished = false;
+		// Until its first update, events at the very start of the state fire too.
+		bool bStarted = false;
 	};
 
 	FAnimationStateMachine() = default;
 
 	[[nodiscard]] bool Holds(const FAnimationConditionDesc& Condition) const noexcept;
 	[[nodiscard]] std::optional<std::size_t> FindTransition() const noexcept;
-	void Advance(FPlayback& Playback, float DeltaSeconds) const noexcept;
+	// Returns the phase before wrapping or clamping, which may pass 1.
+	float Advance(FPlayback& Playback, float DeltaSeconds) const noexcept;
 	void AppendLayers(const FPlayback& Playback, float Weight);
 
 	FAnimationStateMachineDesc Desc;
@@ -144,5 +157,6 @@ private:
 	std::optional<std::size_t> Transition{};
 	float TransitionElapsed = 0.f;
 	std::vector<FAnimationLayer> Layers{};
+	std::vector<std::string> Events{};
 };
 }
