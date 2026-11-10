@@ -1,8 +1,13 @@
+#include "Herta/Assets/CookedContent.h"
 #include "Herta/GameFramework/GameAssets.h"
+#include "Herta/Level/LevelSerialization.h"
 #include "Herta/Networking/NetworkTransport.h"
+#include "Herta/Platform/Process.h"
+#include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Replication/GameClient.h"
 #include "Herta/Replication/GameServer.h"
 #include "Herta/Replication/ReplicationProtocol.h"
+#include "TestFiles.h"
 
 #include <doctest/doctest.h>
 
@@ -460,5 +465,84 @@ TEST_CASE("Replicated prediction stays with the server through loss, latency, ji
 	// The watcher sees the runner from interpolated snapshots, a little behind.
 	CHECK(((*Watcher)->GetSession().CapturePlayer(1).Mover.State.Foot - Authoritative).Length() < 0.5f);
 	MESSAGE(std::format("{} corrections, {} snapshots, {} late, {} deferred entities, {} missing inputs", (*Client)->GetStats().Corrections, (*Client)->GetStats().Snapshots, (*Client)->GetStats().LateSnapshots, (*Server)->GetStats().DeferredEntities, (*Server)->GetStats().MissingInputs));
+}
+
+TEST_CASE("Dedicated servers in their own process host several players who finish the course" * doctest::test_suite("Slow"))
+{
+	// A staged project as game.stage writes one: the level, its descriptor, and the cube it uses.
+	const Tests::FScratchDirectory Scratch("HertaDedicatedServer");
+	const std::filesystem::path Root = Scratch.GetPath() / "Course";
+	FCookedTexture White{.ColorSpace = ETextureColorSpace::Srgb, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(4, std::byte{255})}}};
+	const auto Cube = SerializeCookedAsset(FCookedAsset{CreateTexturedCubeModel(std::move(White))});
+	REQUIRE(Cube);
+	Tests::WriteBytes(GetStagedAssetPath(Root / "Content", CourseCube), *Cube);
+	const FLevelDocument Level{.Id = FObjectId{9, 9}, .Name = "Course", .Entities = MakeNetworkCourse()};
+	std::filesystem::create_directories(Root / "Levels");
+	REQUIRE(SaveLevel(Root / "Levels" / "Course.hlevel", Level));
+	Tests::WriteText(Root / "Course.hertaproject", R"({"format": "HertaProject", "formatVersion": 1, "schemaVersion": 2, "id": "0b6f2a52-4f0e-4c55-9a43-1c2f3e4d5a6b", "name": "Course", "engineAssociation": "Herta", "modules": [], "targets": [], "contentRoots": [{"name": "Game", "path": "Content"}], "features": [], "startingLevel": "Levels/Course.hlevel"})");
+
+	std::mt19937 Random(std::random_device{}());
+	const auto Port = static_cast<std::uint16_t>(30000 + Random() % 10000);
+#ifdef HERTA_PLATFORM_WINDOWS
+	const std::filesystem::path Executable = GetExecutablePath().parent_path() / "HertaServer.exe";
+#else
+	const std::filesystem::path Executable = GetExecutablePath().parent_path() / "HertaServer";
+#endif
+	std::expected<FProcessResult, FProcessError> Served = std::unexpected(FProcessError{});
+	std::thread Process([&]
+	{
+		Served = RunProcess({.Executable = Executable, .Arguments = {std::format("--project={}", (Root / "Course.hertaproject").string()), std::format("--port={}", Port), "--ticks=720"}, .Timeout = std::chrono::seconds(60)});
+	});
+
+	const auto ContentHash = HashLevelFile(Root / "Levels" / "Course.hlevel");
+	REQUIRE(ContentHash);
+	const FCookedContent Content({Root / "Content"});
+	std::vector<FStagedSession> Staged;
+	std::vector<std::unique_ptr<FGameClient>> Players;
+	for (int Player = 0; Player < 2; ++Player)
+	{
+		auto Session = CreateStagedSession(Root / "Levels" / "Course.hlevel", Level, Content, nullptr, nullptr);
+		REQUIRE_MESSAGE(Session, (Session ? std::string{} : Session.error().Message));
+		auto Client = FGameClient::Connect(std::move(Session->Session), std::format("127.0.0.1:{}", Port), {.Name = std::format("Player {}", Player), .ContentHash = *ContentHash});
+		REQUIRE(Client);
+		Players.push_back(std::move(*Client));
+		Staged.push_back(std::move(*Session));
+	}
+
+	// The server process may still be starting; a client keeps trying until its connection comes up or times out, so retry until both play.
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	bool bFinished = false;
+	for (int Tick = 0; std::chrono::steady_clock::now() < Deadline || Tick < 600; ++Tick)
+	{
+		for (std::unique_ptr<FGameClient>& Client : Players)
+		{
+			if (Client->GetState() == EGameClientState::Disconnected && std::chrono::steady_clock::now() < Deadline)
+			{
+				REQUIRE(Client->Reconnect());
+			}
+
+			REQUIRE(Client->Tick({.Move = {0.f, 1.f}}));
+		}
+
+		bFinished = std::ranges::all_of(Players, [](const std::unique_ptr<FGameClient>& Client)
+		{
+			return Client->GetState() == EGameClientState::Playing && Client->GetSession().GetObjective().State == EGameObjectiveState::Finished && Client->GetSession().GetPlayerCount() == 2;
+		});
+
+		if (bFinished || Tick > 900)
+		{
+			break;
+		}
+
+		std::this_thread::sleep_for(std::chrono::microseconds(16667));
+	}
+
+	Players.clear();
+	Process.join();
+	CHECK(bFinished);
+	REQUIRE_MESSAGE(Served, (Served ? std::string{} : Served.error().Message));
+	CHECK(Served->ExitCode == 0);
+	const std::string Output = Served->StandardOutput + Served->StandardError;
+	CHECK_MESSAGE(Output.find("Stopped after 720 ticks") != std::string::npos, Output);
 }
 }

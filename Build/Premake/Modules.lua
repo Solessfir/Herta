@@ -616,7 +616,7 @@ project "HertaTests"
     }
 
     ApplyRuntimeDependencies { "Core", "Math", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
-    dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
+    dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd", "HertaServer" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
     filter {}
