@@ -49,6 +49,7 @@ struct FVisualUniforms
     float4 LightGrid;
     float4 SunDirection;
     float4 SunRadiance;
+    float4 Bloom;
     // Maps this frame's clip space to the previous frame's, for camera motion.
     column_major float4x4 ClipToPreviousClip;
     FShadow Shadows[16];

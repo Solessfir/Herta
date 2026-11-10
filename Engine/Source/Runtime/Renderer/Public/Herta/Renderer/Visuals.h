@@ -108,6 +108,8 @@ struct FVisualSettings
 	bool bStudioPreview = true;
 	// Meters the HDR scene on the GPU and eases towards it instead of using ExposureEV100.
 	bool bAutoExposure = false;
+	// The fraction of scene light the bloom pyramid spreads around bright pixels, from 0 to 1. Zero skips its passes.
+	float BloomIntensity = 0.04f;
 	// Positive values brighten the automatic exposure, in stops.
 	float ExposureCompensation = 0.f;
 	// Frame time that paces automatic adaptation.
@@ -135,6 +137,8 @@ struct FVisualShaderSet
 	FShaderAsset SkyViewFragment;
 	// Meters, histograms, and adapts automatic exposure in one dispatch.
 	FShaderAsset ExposureCompute;
+	// Downsamples and upsamples the bloom pyramid, one level per dispatch.
+	FShaderAsset BloomCompute;
 	FShaderAsset GtaoDepthCompute;
 	FShaderAsset GtaoCompute;
 	FShaderAsset GtaoDenoiseCompute;
@@ -243,6 +247,8 @@ struct alignas(16) FVisualUniforms
 	// The first directional light: the direction towards it, with w 1 when there is one, and its color times intensity.
 	std::array<float, 4> SunDirection{};
 	std::array<float, 4> SunRadiance{};
+	// x is the bloom intensity over the pyramid's level count and y the intensity, both zero when bloom is off.
+	std::array<float, 4> Bloom{};
 	// Maps this frame's clip space to the previous frame's, for camera motion.
 	std::array<float, 16> ClipToPreviousClip{};
 	std::array<FShadowUniform, MaximumRenderShadows> Shadows{};

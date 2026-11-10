@@ -1182,3 +1182,30 @@ TEST_CASE("Mesh vertex updates upload inside the frame's recording and must repl
 	Scene.View.VertexUpdates = Partial;
 	CHECK_FALSE((*Renderer)->Render({64, 64}, Scene.View));
 }
+
+TEST_CASE("Bloom downsamples and upsamples its pyramid before tone mapping and skips it when off")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.BloomCompute})
+	{
+		Shader->Bytecode = {1};
+	}
+
+	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, {}, Visuals);
+	REQUIRE(Renderer);
+
+	// 64 px halves to 32, 16, 8, and 4 px levels: four downsamples, then three upsamples back to the largest.
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+	CHECK(Device.Dispatches == std::vector<std::string>(7, "Bloom"));
+
+	Device.Dispatches.clear();
+	Scene.View.Visuals.BloomIntensity = 0.f;
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+	CHECK(Device.Dispatches.empty());
+
+	Scene.View.Visuals.BloomIntensity = 2.f;
+	CHECK_FALSE((*Renderer)->Render({64, 64}, Scene.View));
+}

@@ -458,6 +458,15 @@ struct alignas(16) FDepthHierarchyUniforms
 	std::array<std::uint32_t, 4> Settings{};
 };
 
+// Matches FBloomUniforms in Compute/Bloom.slang.
+struct alignas(16) FBloomUniforms
+{
+	std::array<std::uint32_t, 4> Settings{};
+};
+
+// Half resolution and five more halvings spread bloom about a sixteenth of the view, the reach of a camera lens's glare.
+constexpr std::size_t MaximumBloomLevels = 6;
+
 // One depth hierarchy dispatch writes this many consecutive levels.
 constexpr std::uint32_t DepthHierarchyLevelsPerDispatch = 5;
 
@@ -530,7 +539,7 @@ struct FDisplayPipelines
 		return FGraphicsPipelineDescriptor{.Name = std::move(Name), .VertexShader = Shaders.FullscreenVertex, .FragmentShader = Fragment, .ColorFormat = Format, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = false, .TextureCount = TextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bAlphaBlend = bAlphaBlend, .bClampSampler = !bAlphaBlend};
 	};
 
-	std::expected<void, FPresentationError> Result = Create(Pipelines.ToneMap, Fullscreen("Fog, exposure and tone mapping", Shaders.ToneMap, false, 6));
+	std::expected<void, FPresentationError> Result = Create(Pipelines.ToneMap, Fullscreen("Fog, bloom, exposure and tone mapping", Shaders.ToneMap, false, 7));
 	if (Result)
 	{
 		Result = Create(Pipelines.SmaaNeighborhood, Fullscreen("SMAA neighborhood", Shaders.SmaaNeighborhood, false));
@@ -698,6 +707,11 @@ struct FMeshRenderer::FImplementation
 	std::array<FTextureHandle, 2> ExposureStates;
 	FComputePipelineHandle ExposurePipeline;
 	std::size_t ExposureStateIndex = 0;
+	// Each downsampled level, from half resolution, and the upsampled sums of every level below it. The tone mapping composite reads the largest sum.
+	FComputePipelineHandle BloomPipeline;
+	std::array<FTextureHandle, MaximumBloomLevels> BloomDown;
+	std::array<FTextureHandle, MaximumBloomLevels - 1> BloomUp;
+	std::size_t BloomLevels = 0;
 	bool bExposureAdapted = false;
 	// Rayleigh and Mie scales, planet radius, and atmosphere height the table was built from.
 	std::array<float, 4> SkyMultipleScatteringKey{};
@@ -1259,6 +1273,17 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 			State->ExposurePipeline = std::move(*Exposure);
 		}
 
+		if (!VisualShaders.BloomCompute.Bytecode.empty())
+		{
+			auto Bloom = Device.CreateComputePipeline({.Name = "Bloom", .Shader = std::move(VisualShaders.BloomCompute), .TextureCount = 2, .StorageTextureCount = 1, .UniformBufferSize = sizeof(FBloomUniforms), .bLinearSampler = true});
+			if (!Bloom)
+			{
+				return std::unexpected(Bloom.error());
+			}
+
+			State->BloomPipeline = std::move(*Bloom);
+		}
+
 		// Matches ToneMapLutSize in VisualShared.slangh.
 		auto ToneMapLut = Device.CreateTexture({.Name = "Tone map LUT", .Extent = {64 * 64, 64}, .Format = ETextureFormat::Rgba16Float, .bRenderTarget = true});
 		if (!ToneMapLut)
@@ -1465,8 +1490,19 @@ std::size_t FMeshRenderer::GetRenderTargetBytes() const noexcept
 		return Bytes;
 	};
 
+	std::size_t Bloom = 0;
+	for (const FTextureHandle& Level : State.BloomDown)
+	{
+		Bloom += Sum({&Level});
+	}
+
+	for (const FTextureHandle& Level : State.BloomUp)
+	{
+		Bloom += Sum({&Level});
+	}
+
 	// The occlusion targets and the tone-mapping and SMAA targets alias one allocation, which holds the larger of the two.
-	return Sum({&State.Color, &State.Depth, &State.Surface, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.LocalShadowAtlas}) + std::max(Sum({&State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion, &State.SunShadows}), Sum({&State.ToneColor, &State.Edges, &State.Weights}));
+	return Bloom + Sum({&State.Color, &State.Depth, &State.Surface, &State.HdrColor, &State.FogScattering, &State.FogDepth, &State.FogColor, &State.SelectionDepth, &State.SkyView, &State.ShadowAtlas, &State.LocalShadowAtlas}) + std::max(Sum({&State.GtaoViewDepth, &State.GtaoNoisy, &State.GtaoOcclusion, &State.SunShadows}), Sum({&State.ToneColor, &State.Edges, &State.Weights}));
 }
 
 std::expected<void, FPresentationError> FMeshRenderer::SetEnvironmentLighting(const FEnvironmentLighting& Lighting)
@@ -2312,6 +2348,55 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		State.FogDepth = std::move(*FogDepth);
 		State.FogColor = std::move(*Fog);
 	}
+
+	// Levels stop before either side drops under four pixels, where the next halving would only smear the edge.
+	std::size_t BloomLevels = 0;
+	if (State.BloomPipeline && State.Uniforms.Bloom[0] > 0.f)
+	{
+		while (BloomLevels < MaximumBloomLevels && std::min(GetMipExtent(Extent, static_cast<std::uint32_t>(BloomLevels) + 1).Width, GetMipExtent(Extent, static_cast<std::uint32_t>(BloomLevels) + 1).Height) >= 4)
+		{
+			++BloomLevels;
+		}
+	}
+
+	State.Uniforms.Bloom = {BloomLevels > 0 ? State.Uniforms.Bloom[0] / static_cast<float>(BloomLevels) : 0.f, BloomLevels > 0 ? State.Uniforms.Bloom[0] : 0.f, 0.f, 0.f};
+	if (BloomLevels > 0 && (BloomLevels != State.BloomLevels || State.BloomDown[0]->GetDescriptor().Extent != GetMipExtent(Extent, 1)))
+	{
+		for (std::size_t Level = 0; Level < MaximumBloomLevels; ++Level)
+		{
+			State.BloomDown[Level] = {};
+			if (Level + 1 < MaximumBloomLevels)
+			{
+				State.BloomUp[Level] = {};
+			}
+
+			if (Level >= BloomLevels)
+			{
+				continue;
+			}
+
+			const FExtent2D LevelExtent = GetMipExtent(Extent, static_cast<std::uint32_t>(Level) + 1);
+			auto Down = Device.CreateTexture({.Name = "Bloom downsample", .Extent = LevelExtent, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
+			if (!Down)
+			{
+				return std::unexpected(Down.error());
+			}
+
+			State.BloomDown[Level] = std::move(*Down);
+			if (Level + 1 < BloomLevels)
+			{
+				auto Up = Device.CreateTexture({.Name = "Bloom upsample", .Extent = LevelExtent, .Format = ETextureFormat::Rgba16Float, .bStorage = true});
+				if (!Up)
+				{
+					return std::unexpected(Up.error());
+				}
+
+				State.BloomUp[Level] = std::move(*Up);
+			}
+		}
+	}
+
+	State.BloomLevels = BloomLevels;
 
 	// The depth chain needs every one of its mips, so tiny targets skip occlusion.
 	const bool bScreenOcclusion = State.GtaoPipelines[0] && View.Visuals.AmbientOcclusion != EAmbientOcclusion::Off && GetMipLevelCount(Extent) >= GtaoDepthMips && !bPathTracing;
@@ -3317,7 +3402,39 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 				}
 			}
 
-			const std::array ToneSources{State.HdrColor, ExposureSource, State.ToneMapLut, FogSource, State.Depth, FogDepthSource};
+			FTextureHandle BloomSource = State.White;
+			if (State.BloomLevels > 0)
+			{
+				const auto Timer = TimedPass("Bloom");
+				const auto Dispatch = [&](const std::uint32_t Mode, const FTextureHandle& Source, const FTextureHandle& Detail, const FTextureHandle& Target)
+				{
+					const FBloomUniforms Uniforms{.Settings = {Mode, 0, 0, 0}};
+					const std::array Sources{Source, Detail};
+					const std::array Targets{FStorageTextureBinding{.Texture = Target}};
+					const FExtent2D TargetExtent = Target->GetDescriptor().Extent;
+					return Device.Dispatch({.Pipeline = State.BloomPipeline, .Textures = Sources, .StorageTextures = Targets, .Uniforms = std::as_bytes(std::span{&Uniforms, 1}), .GroupCount = {(TargetExtent.Width + 7) / 8, (TargetExtent.Height + 7) / 8, 1}});
+				};
+
+				std::expected<void, FPresentationError> Result;
+				for (std::size_t Level = 0; Result && Level < State.BloomLevels; ++Level)
+				{
+					Result = Dispatch(Level == 0 ? 0 : 1, Level == 0 ? State.HdrColor : State.BloomDown[Level - 1], State.White, State.BloomDown[Level]);
+				}
+
+				for (std::size_t Level = State.BloomLevels - 1; Result && Level-- > 0;)
+				{
+					Result = Dispatch(2, Level + 2 < State.BloomLevels ? State.BloomUp[Level + 1] : State.BloomDown[Level + 1], State.BloomDown[Level], State.BloomUp[Level]);
+				}
+
+				if (!Result)
+				{
+					return GraphResult(Result);
+				}
+
+				BloomSource = State.BloomLevels > 1 ? State.BloomUp[0] : State.BloomDown[0];
+			}
+
+			const std::array ToneSources{State.HdrColor, ExposureSource, State.ToneMapLut, FogSource, State.Depth, FogDepthSource, BloomSource};
 			if (const auto Result = Fullscreen(1, bSmaa ? State.ToneColor : State.Color, ToneSources); !Result)
 			{
 				return GraphResult(Result);

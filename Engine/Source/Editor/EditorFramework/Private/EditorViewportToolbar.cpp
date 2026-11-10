@@ -485,6 +485,13 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 				Toggle("Contact shadows", VisualSettings.bContactShadows);
 				DrawFieldLabel("Penumbra saturation", ValueWidth);
 				DrawNumericSliderFloat("##PenumbraSaturation", &VisualSettings.PenumbraSaturation, 1.f, 4.f, VisualSettings.PenumbraSaturation > 1.f ? "%.2fx" : "Off", ImGuiSliderFlags_AlwaysClamp);
+				DrawFieldLabel("Bloom", ValueWidth);
+				float BloomPercent = VisualSettings.BloomIntensity * 100.f;
+				if (DrawNumericSliderFloat("##Bloom", &BloomPercent, 0.f, 20.f, BloomPercent > 0.f ? "%.1f%%" : "Off", ImGuiSliderFlags_AlwaysClamp))
+				{
+					VisualSettings.BloomIntensity = BloomPercent / 100.f;
+				}
+
 				Toggle("Occlusion culling", VisualSettings.bOcclusionCulling);
 				if (MeshRenderer->SupportsPathTracing())
 				{

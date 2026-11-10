@@ -123,6 +123,7 @@ void ApplyRenderQuality(FVisualSettings& Settings, const ERenderQuality Quality)
 			Settings.ShadowResolution = 0.5f;
 			Settings.AmbientOcclusion = EAmbientOcclusion::Off;
 			Settings.FogResolution = 0.125f;
+			Settings.BloomIntensity = 0.f;
 			Settings.bContactShadows = false;
 			Settings.bGlobalIllumination = false;
 			break;
@@ -132,6 +133,7 @@ void ApplyRenderQuality(FVisualSettings& Settings, const ERenderQuality Quality)
 			Settings.ShadowResolution = 0.5f;
 			Settings.AmbientOcclusion = EAmbientOcclusion::Low;
 			Settings.FogResolution = 0.25f;
+			Settings.BloomIntensity = 0.04f;
 			Settings.bContactShadows = false;
 			Settings.bGlobalIllumination = false;
 			break;
@@ -141,6 +143,7 @@ void ApplyRenderQuality(FVisualSettings& Settings, const ERenderQuality Quality)
 			Settings.ShadowResolution = 1.f;
 			Settings.AmbientOcclusion = EAmbientOcclusion::High;
 			Settings.FogResolution = 0.25f;
+			Settings.BloomIntensity = 0.04f;
 			Settings.bContactShadows = true;
 			Settings.bGlobalIllumination = true;
 			break;
@@ -152,7 +155,7 @@ std::optional<ERenderQuality> FindRenderQuality(const FVisualSettings& Settings)
 	for (const ERenderQuality Quality : {ERenderQuality::Low, ERenderQuality::Medium, ERenderQuality::High})
 	{
 		const FVisualSettings Preset = MakeQualityPreset(Quality);
-		if (Settings.AntiAliasing == Preset.AntiAliasing && Settings.ShadowQuality == Preset.ShadowQuality && Settings.ShadowResolution == Preset.ShadowResolution && Settings.AmbientOcclusion == Preset.AmbientOcclusion && Settings.FogResolution == Preset.FogResolution && Settings.bContactShadows == Preset.bContactShadows && Settings.bGlobalIllumination == Preset.bGlobalIllumination)
+		if (Settings.AntiAliasing == Preset.AntiAliasing && Settings.ShadowQuality == Preset.ShadowQuality && Settings.ShadowResolution == Preset.ShadowResolution && Settings.AmbientOcclusion == Preset.AmbientOcclusion && Settings.FogResolution == Preset.FogResolution && Settings.BloomIntensity == Preset.BloomIntensity && Settings.bContactShadows == Preset.bContactShadows && Settings.bGlobalIllumination == Preset.bGlobalIllumination)
 		{
 			return Quality;
 		}
@@ -406,6 +409,13 @@ std::expected<FVisualUniforms, FPresentationError> BuildVisualUniforms(const FMa
 
 	// A stalled frame should not jump the adaptation, so the step is capped like the physics catch-up.
 	Result.Exposure = {Settings.bAutoExposure ? 1.f : 0.f, Settings.ExposureCompensation, std::min(Settings.DeltaSeconds, 0.25f), 0.f};
+	if (!std::isfinite(Settings.BloomIntensity) || Settings.BloomIntensity < 0.f || Settings.BloomIntensity > 1.f)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = "Bloom intensity must be from 0 to 1"});
+	}
+
+	// The renderer divides by its level count once it knows the view size.
+	Result.Bloom[0] = Settings.BloomIntensity;
 	if (const std::optional<FHdrDisplaySettings>& Hdr = Settings.HdrDisplay)
 	{
 		if (!std::isfinite(Hdr->PaperWhite) || Hdr->PaperWhite < 80.f || Hdr->PaperWhite > 500.f || !std::isfinite(Hdr->PeakLuminance) || Hdr->PeakLuminance < 250.f || Hdr->PeakLuminance > 10000.f || Hdr->PeakLuminance < Hdr->PaperWhite)

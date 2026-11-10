@@ -1,6 +1,6 @@
 # Animation
 
-Status: Milestone 8 in progress. Skinned glTF models cook with their skeleton and clips, the runtime Animation module samples, blends, and skins them, and the player plays as an animated character in Play and the game with a first-person or third-person camera. The state machine graph, bloom, and the Sandbox station follow.
+Status: Milestone 8 in progress. Skinned glTF models cook with their skeleton and clips, the runtime Animation module samples, blends, and skins them, and the player plays as an animated character in Play and the game with a first-person or third-person camera. The state machine graph and the Sandbox station follow.
 
 ## Modules
 

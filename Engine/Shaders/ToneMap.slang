@@ -6,6 +6,7 @@
 [[vk::binding(3, 0)]] Texture2D<float4> FogVolume;
 [[vk::binding(4, 0)]] Texture2D<float4> DepthTexture;
 [[vk::binding(5, 0)]] Texture2D<float> FogDepth;
+[[vk::binding(6, 0)]] Texture2D<float4> BloomPyramid;
 
 // An outer square at the configured peak around an inner square far above any display. Raising the peak until the inner square disappears finds where the display clips.
 float3 CalibrationPattern(float2 UV)
@@ -32,6 +33,14 @@ float4 fragmentMain(FFullscreenOutput Input) : SV_Target
     {
         float4 Fog = UpsampleFog(FogVolume, FogDepth, Input.UV, DepthTexture.Load(int3(Input.Position.xy, 0)).r);
         Color = Color * Fog.a + Fog.rgb;
+    }
+
+    // ponytail: the pyramid blurs the scene before fog, so a lamp deep in fog blooms as if the air were clear; downsample the fogged color if that shows.
+    if (Visual.Bloom.x > 0.0)
+    {
+        // The pyramid sums its levels, each a blur that keeps the scene's average, so mixing it in moves light rather than adding it.
+        float3 Bloom = BloomPyramid.SampleLevel(LinearSampler, Input.UV, 0).rgb;
+        Color = Color * (1.0 - Visual.Bloom.y) + Bloom * Visual.Bloom.x;
     }
 
     float3 Exposed = max(0.0, Color * Scale);

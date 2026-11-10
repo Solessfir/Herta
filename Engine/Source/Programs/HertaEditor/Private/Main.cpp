@@ -439,6 +439,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    std::pair{"SelectionOutline.frag.hshader", &VisualShaders.SelectionOutline},
 	    std::pair{"SkyView.frag.hshader", &VisualShaders.SkyViewFragment},
 	    std::pair{"Exposure.comp.hshader", &VisualShaders.ExposureCompute},
+	    std::pair{"Bloom.comp.hshader", &VisualShaders.BloomCompute},
 	    std::pair{"GtaoDepth.comp.hshader", &VisualShaders.GtaoDepthCompute},
 	    std::pair{"Gtao.comp.hshader", &VisualShaders.GtaoCompute},
 	    std::pair{"GtaoDenoise.comp.hshader", &VisualShaders.GtaoDenoiseCompute},
