@@ -1,6 +1,5 @@
-#include "MaterialGraphPanel.h"
+#include "GraphDocumentPanel.h"
 
-#include "Herta/MaterialGraph/MaterialGraph.h"
 #include "Herta/Platform/FileSystem.h"
 #include "Herta/ToolUI/ToolUI.h"
 
@@ -17,87 +16,18 @@ namespace Herta
 {
 namespace
 {
-constexpr std::array<std::string_view, 6> TextureSlots{"baseColor", "metallic", "roughness", "normal", "occlusion", "emissive"};
-constexpr std::array<const char*, 6> TextureSlotNames{"Base color", "Metallic", "Roughness", "Normal", "Occlusion", "Emissive"};
-
-// Pins are colored by width, so a mismatch is visible before the compiler reports it.
-FToolUIColor MaterialPinColor(const std::uint32_t Type)
-{
-	switch (static_cast<EMaterialPinType>(Type))
-	{
-		case EMaterialPinType::Float:
-			return {150, 200, 120, 255};
-		case EMaterialPinType::Float2:
-			return {90, 190, 190, 255};
-		case EMaterialPinType::Float3:
-			return {230, 200, 90, 255};
-		case EMaterialPinType::Float4:
-			return {220, 120, 170, 255};
-		default:
-			return ToolUITheme::NeutralAccent;
-	}
-}
-
-FToolUIColor MaterialCategoryColor(const std::string_view Category)
-{
-	if (Category == "Values")
-	{
-		return {80, 130, 220, 255};
-	}
-
-	if (Category == "Inputs")
-	{
-		return {80, 180, 120, 255};
-	}
-
-	if (Category == "Textures")
-	{
-		return {210, 110, 80, 255};
-	}
-
-	if (Category == "Channels")
-	{
-		return {150, 100, 210, 255};
-	}
-
-	if (Category == "Output")
-	{
-		return {220, 220, 225, 255};
-	}
-
-	return ToolUITheme::Surface2;
-}
-
-const FGraphCanvasDomain MaterialDomain{.Schema = &GetMaterialGraphSchema(), .PinColor = MaterialPinColor, .CategoryColor = MaterialCategoryColor};
-
 std::size_t GraphBytes(const FGraph& Graph)
 {
 	return sizeof(FGraph) + Graph.Nodes.size() * (sizeof(FGraphNode) + 4 * sizeof(FGraphProperty)) + Graph.Links.size() * sizeof(FGraphLink);
 }
 }
 
-FGraph MakeDefaultMaterialGraph()
+FGraphDocumentPanel::FGraphDocumentPanel(const FGraphDocumentDomain& InDomain)
+    : Domain(InDomain)
 {
-	const FGraphSchema& Schema = GetMaterialGraphSchema();
-	FGraph Graph{.Domain = std::string(MaterialGraphDomain), .DomainVersion = MaterialGraphVersion};
-	if (auto Texture = MakeGraphNode(Schema, "TextureSample", {1}, {-260.f, -40.f}))
-	{
-		Graph.Nodes.push_back(std::move(*Texture));
-	}
-
-	if (auto Output = MakeGraphNode(Schema, MaterialGraphOutputType, {2}, {60.f, -80.f}))
-	{
-		Graph.Nodes.push_back(std::move(*Output));
-	}
-
-	Graph.Links = {
-	    {.From = {.Node = {1}, .Key = "RGB"}, .To = {.Node = {2}, .Key = "BaseColor"}},
-	    {.From = {.Node = {1}, .Key = "A"}, .To = {.Node = {2}, .Key = "Alpha"}},
-	};
-	return Graph;
 }
 
-void FMaterialGraphPanel::Open(std::string InPath, std::filesystem::path InFile, FGraph Graph, const bool bInReadOnly)
+void FGraphDocumentPanel::Open(std::string InPath, std::filesystem::path InFile, FGraph Graph, const bool bInReadOnly)
 {
 	Path = std::move(InPath);
 	File = std::move(InFile);
@@ -114,7 +44,7 @@ void FMaterialGraphPanel::Open(std::string InPath, std::filesystem::path InFile,
 	Compile();
 }
 
-bool FMaterialGraphPanel::RequestClose()
+bool FGraphDocumentPanel::RequestClose()
 {
 	if (bOpen && IsDirty() && !bReadOnly)
 	{
@@ -126,44 +56,48 @@ bool FMaterialGraphPanel::RequestClose()
 	return true;
 }
 
-bool FMaterialGraphPanel::IsOpen() const
+bool FGraphDocumentPanel::IsOpen() const
 {
 	return bOpen;
 }
 
-bool FMaterialGraphPanel::IsFocused() const
+bool FGraphDocumentPanel::IsFocused() const
 {
 	return bFocused;
 }
 
-bool FMaterialGraphPanel::IsDirty() const
+bool FGraphDocumentPanel::IsDirty() const
 {
 	return Draft != Saved;
 }
 
-const std::string& FMaterialGraphPanel::GetPath() const
+const std::string& FGraphDocumentPanel::GetPath() const
 {
 	return Path;
 }
 
-const FGraph& FMaterialGraphPanel::GetDraft() const
+const std::filesystem::path& FGraphDocumentPanel::GetFile() const
+{
+	return File;
+}
+
+const FGraph& FGraphDocumentPanel::GetDraft() const
 {
 	return Draft;
 }
 
-std::uint64_t FMaterialGraphPanel::GetDraftRevision() const
+std::uint64_t FGraphDocumentPanel::GetDraftRevision() const
 {
 	return DraftRevision;
 }
 
-void FMaterialGraphPanel::Compile()
+void FGraphDocumentPanel::Compile()
 {
 	++DraftRevision;
-	const auto Compiled = CompileMaterialGraph(Draft);
-	Diagnostics = Compiled ? Compiled->Diagnostics : Compiled.error();
+	Diagnostics = Domain.Compile(Draft);
 }
 
-void FMaterialGraphPanel::Apply(FGraph After, std::string Label)
+void FGraphDocumentPanel::Apply(FGraph After, std::string Label)
 {
 	if (bReadOnly || After == Draft)
 	{
@@ -185,15 +119,15 @@ void FMaterialGraphPanel::Apply(FGraph After, std::string Label)
 	}
 }
 
-std::expected<void, FGraphError> FMaterialGraphPanel::Save()
+std::expected<void, FGraphError> FGraphDocumentPanel::Save()
 {
-	auto Text = SerializeGraph(Draft, GetMaterialGraphSchema());
+	auto Text = SerializeGraph(Draft, *Domain.Canvas->Schema);
 	if (!Text)
 	{
 		return std::unexpected(Text.error());
 	}
 
-	// Written beside the target and renamed over it, so the shader watcher never reads half a file.
+	// Written beside the target and renamed over it, so watchers never read half a file.
 	std::random_device Device;
 	std::filesystem::path Temporary = File;
 	Temporary += std::format(".{:08x}.tmp", Device());
@@ -205,7 +139,7 @@ std::expected<void, FGraphError> FMaterialGraphPanel::Save()
 		{
 			std::error_code Ignored;
 			std::filesystem::remove(Temporary, Ignored);
-			return std::unexpected(FGraphError{"Cannot write the Material Graph"});
+			return std::unexpected(FGraphError{std::format("Cannot write the {}", Domain.Title)});
 		}
 	}
 
@@ -213,7 +147,7 @@ std::expected<void, FGraphError> FMaterialGraphPanel::Save()
 	{
 		std::error_code Ignored;
 		std::filesystem::remove(Temporary, Ignored);
-		return std::unexpected(FGraphError{"Cannot save the Material Graph: " + Moved.error().message()});
+		return std::unexpected(FGraphError{std::format("Cannot save the {}: {}", Domain.Title, Moved.error().message())});
 	}
 
 	Saved = Draft;
@@ -221,11 +155,11 @@ std::expected<void, FGraphError> FMaterialGraphPanel::Save()
 	return {};
 }
 
-void FMaterialGraphPanel::DrawDetails()
+void FGraphDocumentPanel::DrawDetails()
 {
 	const std::vector<FGraphNodeId>& Selection = Canvas.GetSelection();
 	const FGraphNode* const Node = Selection.size() == 1 ? FindGraphNode(Draft, Selection.front()) : nullptr;
-	const FGraphNodeDescriptor* const Descriptor = Node ? GetMaterialGraphSchema().FindNode(Node->Type) : nullptr;
+	const FGraphNodeDescriptor* const Descriptor = Node ? Domain.Canvas->Schema->FindNode(Node->Type) : nullptr;
 	if (!Descriptor)
 	{
 		ImGui::TextDisabled(Selection.empty() ? "Select a node to edit it." : "Select one node to edit it.");
@@ -251,7 +185,10 @@ void FMaterialGraphPanel::DrawDetails()
 			ImGui::SetNextItemWidth(-FLT_MIN);
 			FGraphValue Value = Draft.Nodes[NodeIndex].Properties[Index].Value;
 			bool bChanged = false;
-			if (float* const Scalar = std::get_if<float>(&Value))
+			if (Domain.DrawProperty && Domain.DrawProperty(NodeType, Property, Value, bChanged))
+			{
+			}
+			else if (float* const Scalar = std::get_if<float>(&Value))
 			{
 				bChanged = ImGui::DragFloat("##Value", Scalar, 0.01f, 0.f, 0.f, "%.4g");
 			}
@@ -267,33 +204,21 @@ void FMaterialGraphPanel::DrawDetails()
 			{
 				bChanged = ImGui::DragInt("##Value", Integer);
 			}
-			else if (auto* const Text = std::get_if<std::string>(&Value); Text && NodeType == "TextureSample" && Property.Key == "slot")
-			{
-				const auto Found = std::ranges::find(TextureSlots, *Text);
-				int Slot = Found == TextureSlots.end() ? 0 : static_cast<int>(Found - TextureSlots.begin());
-				if (ImGui::Combo("##Value", &Slot, TextureSlotNames.data(), static_cast<int>(TextureSlotNames.size())))
-				{
-					*Text = TextureSlots[static_cast<std::size_t>(Slot)];
-					bChanged = true;
-				}
-
-				ImGui::SetItemTooltip("Samples this slot's texture from the material asset");
-			}
-			else if (Text)
+			else if (auto* const Text = std::get_if<std::string>(&Value))
 			{
 				// Typing edits a copy and lands as one change when the field lets go, so a half-typed name never reaches history.
-				std::array<char, 64> Buffer{};
+				std::array<char, 512> Buffer{};
 				Text->copy(Buffer.data(), std::min(Text->size(), Buffer.size() - 1));
 				if (ImGui::InputText("##Value", Buffer.data(), Buffer.size()) && ImGui::IsItemActive())
 				{
 					*Text = Buffer.data();
 					bChanged = true;
 				}
+			}
 
-				if (Property.Key == "name")
-				{
-					ImGui::SetItemTooltip("Materials using this graph set the parameter by this name");
-				}
+			if (const std::string_view Tooltip = Domain.PropertyTooltip ? Domain.PropertyTooltip(NodeType, Property.Key) : std::string_view(); !Tooltip.empty())
+			{
+				ImGui::SetItemTooltip("%.*s", static_cast<int>(Tooltip.size()), Tooltip.data());
 			}
 
 			// Drags and typing preview live and enter history once, when the widget lets go; one-shot widgets such as combos record at once.
@@ -354,15 +279,15 @@ void FMaterialGraphPanel::DrawDetails()
 	}
 }
 
-void FMaterialGraphPanel::DrawClosePrompt()
+void FGraphDocumentPanel::DrawClosePrompt()
 {
 	if (bClosePrompt)
 	{
-		ImGui::OpenPopup("Unsaved material graph");
+		ImGui::OpenPopup("Unsaved graph");
 		bClosePrompt = false;
 	}
 
-	if (!ImGui::BeginPopupModal("Unsaved material graph", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	if (!ImGui::BeginPopupModal("Unsaved graph", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
 	{
 		return;
 	}
@@ -402,7 +327,7 @@ void FMaterialGraphPanel::DrawClosePrompt()
 	ImGui::EndPopup();
 }
 
-void FMaterialGraphPanel::Draw(FToolUIContext& ToolUI, const FMaterialGraphPanelContext& Context)
+void FGraphDocumentPanel::Draw(FToolUIContext& ToolUI, const FGraphDocumentPanelContext& Context)
 {
 	if (!bOpen)
 	{
@@ -411,7 +336,7 @@ void FMaterialGraphPanel::Draw(FToolUIContext& ToolUI, const FMaterialGraphPanel
 
 	const float Scale = ImGui::GetFontSize() / ToolUI.GetMetrics().BaseFontSize;
 	const std::string_view FileName = std::string_view(Path).substr(Path.find_last_of('/') + 1);
-	const std::string TabLabel = std::format("{}{}###Material Graph", FileName.substr(0, FileName.rfind('.')), IsDirty() ? "*" : "");
+	const std::string TabLabel = std::format("{}{}###{}", FileName.substr(0, FileName.rfind('.')), IsDirty() ? "*" : "", Domain.Title);
 	bool bKeepOpen = true;
 	const bool bVisible = ToolUI.BeginPanel(TabLabel, &bKeepOpen, EToolUIPanelKind::Document);
 	bFocused = bVisible && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
@@ -429,9 +354,9 @@ void FMaterialGraphPanel::Draw(FToolUIContext& ToolUI, const FMaterialGraphPanel
 		{
 			ImGui::TextColored(ImVec4(1.f, 0.49f, 0.49f, 1.f), "%zu error%s", Errors, Errors == 1 ? "" : "s");
 		}
-		else if (!Context.ShaderStatus.empty())
+		else if (!Context.Status.empty())
 		{
-			ImGui::TextDisabled("%.*s", static_cast<int>(Context.ShaderStatus.size()), Context.ShaderStatus.data());
+			ImGui::TextDisabled("%.*s", static_cast<int>(Context.Status.size()), Context.Status.data());
 		}
 
 		if (bReadOnly)
@@ -476,7 +401,7 @@ void FMaterialGraphPanel::Draw(FToolUIContext& ToolUI, const FMaterialGraphPanel
 			ImGui::TextColored(ImVec4(1.f, 0.49f, 0.49f, 1.f), "%s", Error.c_str());
 		}
 
-		// The preview and details sit left of the canvas, as in Unreal's material editor.
+		// The preview and details sit left of the canvas, as in Unreal's graph editors.
 		const float Sidebar = 280.f * Scale;
 		const float Height = ImGui::GetContentRegionAvail().y;
 		if (ImGui::BeginChild("Details", {Sidebar, Height}, ImGuiChildFlags_None))
@@ -517,7 +442,7 @@ void FMaterialGraphPanel::Draw(FToolUIContext& ToolUI, const FMaterialGraphPanel
 		ImGui::SameLine();
 		if (ImGui::BeginChild("Canvas", {std::max(1.f, ImGui::GetContentRegionAvail().x), Height}, ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 		{
-			if (auto Edit = Canvas.Draw("MaterialGraph", Draft, MaterialDomain, Diagnostics); Edit && !bReadOnly)
+			if (auto Edit = Canvas.Draw("Graph", Draft, *Domain.Canvas, Diagnostics, Context.Active); Edit && !bReadOnly)
 			{
 				Apply(std::move(Edit->Graph), std::move(Edit->Label));
 			}

@@ -59,6 +59,16 @@ void FEditorFramework::FImplementation::DrawPlayerCharacterPicker(const float Va
 			DrawFieldLabel("", ValueWidth);
 			ImGui::TextDisabled("%s", Status);
 		}
+		else
+		{
+			DrawFieldLabel("", ValueWidth);
+			if (ToolUIButton("Edit animation graph", EToolUIMenuIcon::Open))
+			{
+				OpenPlayerAnimationGraph();
+			}
+
+			ImGui::SetItemTooltip("Opens the state machine the character plays, cooked with its model; one is created from the built-in locomotion if the model has none");
+		}
 	}
 }
 

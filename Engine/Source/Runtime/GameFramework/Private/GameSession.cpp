@@ -1104,6 +1104,11 @@ std::string_view FGameSession::GetCharacterStateName() const noexcept
 	return Machine.GetDesc().States[Machine.GetActiveState()].Name;
 }
 
+std::optional<std::size_t> FGameSession::GetCharacterTransition() const noexcept
+{
+	return Implementation->Body ? Implementation->Body->GetStateMachine().GetActiveTransition() : std::nullopt;
+}
+
 std::span<const std::string> FGameSession::GetCharacterEvents() const noexcept
 {
 	return Implementation->Body ? Implementation->Body->GetEvents() : std::span<const std::string>{};

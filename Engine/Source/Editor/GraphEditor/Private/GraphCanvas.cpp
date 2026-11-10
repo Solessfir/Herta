@@ -32,7 +32,7 @@ ImVec2 ToImVec2(const FCanvasPoint Point)
 	return {Point[0], Point[1]};
 }
 
-bool Contains(const std::vector<FGraphNodeId>& Nodes, const FGraphNodeId Id)
+bool Contains(const std::span<const FGraphNodeId> Nodes, const FGraphNodeId Id)
 {
 	return std::ranges::find(Nodes, Id) != Nodes.end();
 }
@@ -45,6 +45,9 @@ bool MatchesSearch(const std::string_view Text, const std::string_view Search)
 	}).begin() != Text.end()
 	       || Search.empty();
 }
+
+// The outline of a node that is live, such as the state a running state machine is in: the editor's Play green.
+constexpr FToolUIColor LiveColor{77, 177, 122, 255};
 
 std::string FormatValue(const FGraphValue& Value)
 {
@@ -185,7 +188,7 @@ void FGraphCanvas::SetFormatSettings(const FGraphFormatSettings& Settings)
 	FormatSettings = Settings;
 }
 
-std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const FGraph& Graph, const FGraphCanvasDomain& Domain, const std::span<const FGraphDiagnostic> Diagnostics)
+std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const FGraph& Graph, const FGraphCanvasDomain& Domain, const std::span<const FGraphDiagnostic> Diagnostics, const std::span<const FGraphNodeId> Active)
 {
 	const FGraphSchema& Schema = *Domain.Schema;
 	std::optional<FGraphCanvasEdit> Edit;
@@ -1006,6 +1009,12 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 		                                                                                                                                                    : bHot        ? ToolUITheme::Border
 		                                                                                                                                                                  : ToolUITheme::BorderSoft;
 		DrawList->AddRect(Min, Max, ToImU32(Outline), Rounding, 0, bSelected || Problem != Problems.end() ? 2.f : 1.f);
+		if (Contains(Active, Node.Id))
+		{
+			// Outside the selection and problem outline, so a live node still shows both.
+			const float Inset = -3.f * View.Zoom;
+			DrawList->AddRect(ImVec2(Min.x + Inset, Min.y + Inset), ImVec2(Max.x - Inset, Max.y - Inset), ToImU32(LiveColor), Rounding - Inset, 0, std::max(2.f, 2.5f * View.Zoom));
+		}
 
 		if (bLabels)
 		{
@@ -1075,8 +1084,26 @@ std::optional<FGraphCanvasEdit> FGraphCanvas::Draw(const char* const Id, const F
 					continue;
 				}
 
-				const std::string Value = FormatValue(Node.Properties[Index].Value);
-				const float Width = Font->CalcTextSizeA(FontSize, FLT_MAX, 0.f, Value.data(), Value.data() + Value.size()).x;
+				// Long text, such as a list of clips, is cut short with an ellipsis to the room right of its name; the details panel shows it all.
+				std::string Value = FormatValue(Node.Properties[Index].Value);
+				const float NameWidth = Font->CalcTextSizeA(FontSize, FLT_MAX, 0.f, Name.data(), Name.data() + Name.size()).x;
+				const float Room = Right - (Min.x + Metrics.Padding * View.Zoom + NameWidth + Metrics.LabelGap * 0.5f * View.Zoom);
+				const auto Measure = [&](const std::string& Text)
+				{
+					return Font->CalcTextSizeA(FontSize, FLT_MAX, 0.f, Text.data(), Text.data() + Text.size()).x;
+				};
+
+				if (Measure(Value) > Room)
+				{
+					while (!Value.empty() && Measure(Value + "...") > Room)
+					{
+						Value.pop_back();
+					}
+
+					Value += "...";
+				}
+
+				const float Width = Measure(Value);
 				DrawList->AddText(Font, FontSize, ImVec2(Right - Width, Y), ToImU32(ToolUITheme::TextSecondary), Value.data(), Value.data() + Value.size());
 			}
 		}

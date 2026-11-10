@@ -65,9 +65,9 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 		return;
 	}
 
-	if (!MaterialGraphPanel.RequestClose())
+	if (!MaterialGraphPanel.RequestClose() || !AnimationGraphPanel.RequestClose())
 	{
-		ProjectError = "Save or discard Material Graph edits before changing projects.";
+		ProjectError = "Save or discard graph edits before changing projects.";
 		return;
 	}
 

@@ -6,7 +6,6 @@
 #include <cmath>
 #include <format>
 #include <map>
-#include <set>
 #include <optional>
 #include <string>
 
@@ -404,22 +403,49 @@ FGraph MakeAnimationGraph(const FAnimationStateMachineDesc& StateMachine)
 	for (std::size_t Index = 0; Index < StateMachine.Parameters.size(); ++Index)
 	{
 		const FAnimationParameterDesc& Parameter = StateMachine.Parameters[Index];
-		FGraphNode& Node = *Add("Parameter", {-640.f, 120.f * static_cast<float>(Index)});
+		FGraphNode& Node = *Add("Parameter", {-640.f, 110.f * static_cast<float>(Index)});
 		Set(Node, "name", Parameter.Name);
 		Set(Node, "type", ParameterTypeName(Parameter.Type));
 		Set(Node, "default", Parameter.Default);
 	}
 
-	const FGraphNodeId Entry = Add("Entry", {-320.f, -200.f})->Id;
-	// States sit on a grid four wide; their nodes keep their order, which is the compiled order.
-	constexpr float ColumnWidth = 560.f;
-	constexpr float RowHeight = 400.f;
+	// States sit on a grid three wide with the transitions that leave each stacked beside it, and any-state transitions in a column of their
+	// own, so no node covers another; rows grow to fit their tallest stack. Spacing allows for the canvas's node sizes: a state is about 180
+	// units tall and a transition 160.
+	constexpr std::size_t Columns = 3;
+	constexpr float StateX = 400.f;
+	constexpr float ColumnWidth = 820.f;
+	constexpr float TransitionOffset = 300.f;
+	constexpr float TransitionPitch = 190.f;
+	constexpr float RowGap = 140.f;
+	const FGraphNodeId Entry = Add("Entry", {0.f, -260.f})->Id;
+	std::vector<std::size_t> Outgoing(StateMachine.States.size(), 0);
+	for (const FAnimationTransitionDesc& Transition : StateMachine.Transitions)
+	{
+		if (Transition.From < Outgoing.size())
+		{
+			++Outgoing[Transition.From];
+		}
+	}
+
 	std::vector<FGraphNodeId> States;
 	std::vector<std::array<float, 2>> Positions;
+	float RowTop = 0.f;
 	for (std::size_t Index = 0; Index < StateMachine.States.size(); ++Index)
 	{
 		const FAnimationStateDesc& State = StateMachine.States[Index];
-		Positions.push_back({ColumnWidth * static_cast<float>(Index % 4), RowHeight * static_cast<float>(Index / 4)});
+		Positions.push_back({StateX + ColumnWidth * static_cast<float>(Index % Columns), RowTop});
+		if (Index % Columns == Columns - 1 || Index + 1 == StateMachine.States.size())
+		{
+			std::size_t Tallest = 1;
+			for (std::size_t Other = Index - Index % Columns; Other <= Index; ++Other)
+			{
+				Tallest = std::max(Tallest, Outgoing[Other]);
+			}
+
+			RowTop += TransitionPitch * static_cast<float>(Tallest) + RowGap;
+		}
+
 		FGraphNode& Node = *Add("State", Positions.back());
 		std::string Clips;
 		for (const FAnimationBlendSample& Sample : State.Samples)
@@ -447,21 +473,8 @@ FGraph MakeAnimationGraph(const FAnimationStateMachineDesc& StateMachine)
 		Graph.Links.push_back({.From = {.Node = States[StateMachine.Entry], .Key = "State"}, .To = {.Node = Entry, .Key = "State"}});
 	}
 
-	// Transitions sit between their states, any-state ones above and left of their target, each moved down into the first free cell so none
-	// covers another node.
-	constexpr float CellWidth = 240.f;
-	constexpr float CellHeight = 100.f;
-	std::set<std::pair<int, int>> Occupied;
-	const auto Cell = [&](const std::array<float, 2> Position)
-	{
-		return std::pair{static_cast<int>(std::floor(Position[0] / CellWidth)), static_cast<int>(std::floor(Position[1] / CellHeight))};
-	};
-
-	for (const std::array<float, 2>& Position : Positions)
-	{
-		Occupied.insert(Cell(Position));
-	}
-
+	std::vector<std::size_t> Stacked(StateMachine.States.size(), 0);
+	std::size_t AnyStacked = 0;
 	for (std::size_t Index = 0; Index < StateMachine.Transitions.size(); ++Index)
 	{
 		const FAnimationTransitionDesc& Transition = StateMachine.Transitions[Index];
@@ -471,15 +484,8 @@ FGraph MakeAnimationGraph(const FAnimationStateMachineDesc& StateMachine)
 			continue;
 		}
 
-		const std::array<float, 2> To = Positions[Transition.To];
-		const std::array<float, 2> From = bAny ? std::array{To[0] - 280.f, To[1] - 220.f} : Positions[Transition.From];
-		std::array<float, 2> Position{std::round((From[0] + To[0]) * 0.5f / CellWidth) * CellWidth + 20.f, std::round((From[1] + To[1]) * 0.5f / CellHeight) * CellHeight + 20.f};
-		while (Occupied.contains(Cell(Position)))
-		{
-			Position[1] += CellHeight;
-		}
-
-		Occupied.insert(Cell(Position));
+		const std::array<float, 2> Position = bAny ? std::array{0.f, TransitionPitch * static_cast<float>(AnyStacked++)}
+		                                           : std::array{Positions[Transition.From][0] + TransitionOffset, Positions[Transition.From][1] + TransitionPitch * static_cast<float>(Stacked[Transition.From]++)};
 		FGraphNode& Node = *Add("Transition", Position);
 		std::string Conditions;
 		for (const FAnimationConditionDesc& Condition : Transition.Conditions)

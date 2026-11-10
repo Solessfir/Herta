@@ -283,7 +283,7 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 	const auto* const GraphShader = MaterialShaders && MaterialGraphPanel.IsOpen() ? MaterialShaders->GetStatus(MaterialGraphPanel.GetPath()) : nullptr;
 	const bool bGraphPreviewShown = GraphPreviewMaterial && Assets->GetMaterialPreviewAsset() == GraphPreviewAsset;
 	MaterialGraphPanel.Draw(*ToolUI, {
-	                                     .ShaderStatus = GraphStatus,
+	                                     .Status = GraphStatus,
 	                                     .PreviewTexture = bGraphPreviewShown && Assets->GetMaterialPreviewThumbnail() ? *Assets->GetMaterialPreviewThumbnail() : 0,
 	                                     .PreviewStatus = bGraphPreviewPending ? "" : !GraphPreviewMaterial                                  ? "No material beside this graph uses it, so there is nothing to preview."
 	                                                                              : bGraphPreviewShown && Assets->IsMaterialPreviewLoading() ? "Updating preview..."
@@ -301,6 +301,132 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 	},
 	                                     .ZoomPreview = ZoomMaterialPreview,
 	                                 });
+}
+
+void FEditorFramework::FImplementation::DrawAnimationGraphPanel()
+{
+	if (!AnimationGraphPanel.IsOpen())
+	{
+		return;
+	}
+
+	if (AnimationGraphRevision != AnimationGraphPanel.GetDraftRevision())
+	{
+		AnimationGraphRevision = AnimationGraphPanel.GetDraftRevision();
+		const auto Compiled = CompileAnimationGraph(AnimationGraphPanel.GetDraft());
+		AnimationStateNodes = Compiled ? Compiled->StateNodes : std::vector<FGraphNodeId>{};
+		AnimationTransitionNodes = Compiled ? Compiled->TransitionNodes : std::vector<FGraphNodeId>{};
+	}
+
+	// Play runs the machine cooked from the saved graph, so only a saved draft's nodes match the states it reports.
+	std::vector<FGraphNodeId> Active;
+	std::string Status = AnimationGraphPanel.IsDirty() ? "Saving recooks the character for the next Play" : "Play highlights the character's active state";
+	const std::optional<std::size_t> State = PlaySession ? PlaySession->GetCharacterState() : std::nullopt;
+	if (State && !AnimationGraphPanel.IsDirty())
+	{
+		Status = std::format("Playing: {}", PlaySession->GetCharacterStateName());
+		if (*State < AnimationStateNodes.size())
+		{
+			Active.push_back(AnimationStateNodes[*State]);
+		}
+
+		if (const auto Transition = PlaySession->GetCharacterTransition(); Transition && *Transition < AnimationTransitionNodes.size())
+		{
+			Active.push_back(AnimationTransitionNodes[*Transition]);
+		}
+	}
+
+	AnimationGraphPanel.Draw(*ToolUI, {.Status = Status, .Active = Active});
+}
+
+void FEditorFramework::FImplementation::OpenPlayerAnimationGraph()
+{
+	const FAssetId Character = Level ? Level->GetPlayerCharacter() : FAssetId{};
+	const auto Option = std::ranges::find(Assets->GetOptions(), Character, &FPreviewAssetOption::Id);
+	if (!Character.IsValid() || Option == Assets->GetOptions().end())
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Choose a player character before editing its animation graph");
+		return;
+	}
+
+	const std::string_view Label = Option->Label;
+	const bool bEngine = Label.starts_with("Engine/");
+	const std::string_view Mount = Label.substr(0, Label.find('/') + 1);
+	const std::string_view Relative = Label.substr(Mount.size());
+	const std::filesystem::path ModelFile = (bEngine ? AssetPaths.EngineContentRoot : AssetPaths.ContentRoot) / std::filesystem::path(std::u8string(Relative.begin(), Relative.end()));
+	auto Metadata = LoadAssetMetadata(ModelFile);
+	if (!Metadata)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Cannot read {}'s metadata: {}", Label, Metadata.error().Message);
+		return;
+	}
+
+	const auto Named = Metadata->Settings.find("AnimationGraph");
+	const std::string GraphName = Named != Metadata->Settings.end() ? Named->second : ModelFile.stem().generic_string() + std::string(AnimationGraphExtension);
+	const std::filesystem::path GraphFile = (ModelFile.parent_path() / std::filesystem::path(GraphName)).lexically_normal();
+	if (Named == Metadata->Settings.end())
+	{
+		if (bEngine)
+		{
+			HERTA_LOG_WARNING(*Log, EditorLog, "Engine content is read-only, so {} cannot get an animation graph", Label);
+			return;
+		}
+
+		// A new graph starts from the built-in locomotion, so the character plays the same until it is edited.
+		std::error_code Error;
+		if (!std::filesystem::exists(GraphFile, Error))
+		{
+			const auto Text = SerializeGraph(MakeAnimationGraph(MakeDefaultPlayerStateMachine()), GetAnimationGraphSchema());
+			std::ofstream Stream(GraphFile, std::ios::binary | std::ios::trunc);
+			Stream.write(Text ? Text->data() : "", Text ? static_cast<std::streamsize>(Text->size()) : 0);
+			if (!Text || !Stream)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Cannot create the animation graph {}", GraphName);
+				return;
+			}
+		}
+
+		Metadata->Settings["AnimationGraph"] = GraphName;
+		const auto Serialized = SerializeAssetMetadata(*Metadata);
+		std::ofstream Stream(GetAssetMetadataPath(ModelFile), std::ios::binary | std::ios::trunc);
+		Stream.write(Serialized ? Serialized->data() : "", Serialized ? static_cast<std::streamsize>(Serialized->size()) : 0);
+		if (!Serialized || !Stream)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Cannot name the animation graph in {}'s metadata", Label);
+			return;
+		}
+
+		HERTA_LOG_INFO(*Log, EditorLog, "Created {} for {} from the built-in locomotion", GraphName, Label);
+	}
+
+	const std::string Folder = std::string(Relative.substr(0, Relative.rfind('/') + 1));
+	const std::u8string Key = (std::filesystem::path(Folder) / std::filesystem::path(GraphName)).lexically_normal().generic_u8string();
+	OpenAnimationGraphKey(std::string(Mount) + std::string(Key.begin(), Key.end()));
+}
+
+// Key is a mounted path such as Game/Characters/Mannequin/Mannequin.hanimgraph.
+void FEditorFramework::FImplementation::OpenAnimationGraphKey(const std::string& Key)
+{
+	const bool bEngine = Key.starts_with("Engine/");
+	const std::string_view Relative = std::string_view(Key).substr(Key.find('/') + 1);
+	const std::filesystem::path File = (bEngine ? AssetPaths.EngineContentRoot : AssetPaths.ContentRoot) / std::filesystem::path(std::u8string(Relative.begin(), Relative.end()));
+	std::ifstream Stream(File, std::ios::binary);
+	const std::string Text{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
+	auto Graph = DeserializeGraph(Text, GetAnimationGraphSchema());
+	if (!Graph)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Cannot open the animation graph {}: {}", Key, Graph.error().Message);
+		return;
+	}
+
+	if (AnimationGraphPanel.IsOpen() && AnimationGraphPanel.GetPath() != Key && AnimationGraphPanel.IsDirty())
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Save or close {} before opening another animation graph", AnimationGraphPanel.GetPath());
+		return;
+	}
+
+	AnimationGraphPanel.Open(Key, File, std::move(*Graph), bEngine);
+	AnimationGraphRevision = UINT64_MAX;
 }
 
 // A material's graph lives beside it as <material>.hmatgraph; an existing file is reused rather than replaced.

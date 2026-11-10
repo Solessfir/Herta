@@ -39,7 +39,8 @@ public:
 	~FGraphCanvas() = default;
 
 	// Fills the remaining content region and handles input. Returns the edit the user finished this frame; drags preview without one until released.
-	[[nodiscard]] std::optional<FGraphCanvasEdit> Draw(const char* Id, const FGraph& Graph, const FGraphCanvasDomain& Domain, std::span<const FGraphDiagnostic> Diagnostics);
+	// Active nodes draw a live outline, such as the state a running state machine is in.
+	[[nodiscard]] std::optional<FGraphCanvasEdit> Draw(const char* Id, const FGraph& Graph, const FGraphCanvasDomain& Domain, std::span<const FGraphDiagnostic> Diagnostics, std::span<const FGraphNodeId> Active = {});
 	[[nodiscard]] const std::vector<FGraphNodeId>& GetSelection() const;
 	void SetSelection(std::vector<FGraphNodeId> Nodes);
 	// Fits the whole graph in view on the next draw.

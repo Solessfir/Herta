@@ -4,7 +4,7 @@
 #include "Herta/MaterialGraph/MaterialGraph.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Tasks/TaskSystem.h"
-#include "MaterialGraphPanel.h"
+#include "GraphDocumentPanel.h"
 #include "MaterialShaders.h"
 #include "TestFiles.h"
 #include "TestGraphicsDevice.h"

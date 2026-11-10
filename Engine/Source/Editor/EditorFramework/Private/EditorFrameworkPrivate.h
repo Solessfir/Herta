@@ -26,6 +26,8 @@
 #include "Herta/GameFramework/LevelSimulationSetup.h"
 #include "Herta/GameFramework/SoftBodyGeometry.h"
 #include "Herta/GameFramework/VisualEnvironment.h"
+#include "Herta/AnimationGraph/AnimationGraph.h"
+#include "Herta/AssetPipeline/AssetMetadata.h"
 #include "Herta/MaterialGraph/MaterialGraph.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/Platform/Process.h"
@@ -33,7 +35,7 @@
 #include "Herta/Tasks/TaskSystem.h"
 #include "Herta/ToolUI/Theme.h"
 #include "Herta/ToolUI/ToolUI.h"
-#include "MaterialGraphPanel.h"
+#include "GraphDocumentPanel.h"
 #include "MaterialPanel.h"
 #include "MaterialShaders.h"
 #include "NumericField.h"
@@ -294,6 +296,10 @@ struct FEditorFramework::FImplementation
 	std::expected<std::string, FAssetError> CreateMaterialGraph(FAssetId Id);
 	void OpenMaterialGraph(FAssetId Id, std::string_view ShaderPath);
 	void OpenMaterialGraphKey(const std::string& Key);
+	// Opens the player character model's animation graph, first creating one beside the model from the built-in locomotion when its metadata names none.
+	void OpenPlayerAnimationGraph();
+	void OpenAnimationGraphKey(const std::string& Key);
+	void DrawAnimationGraphPanel();
 	// A content file as its mounted path, "Game/..." or "Engine/...", or nothing outside both content roots.
 	std::optional<std::string> MountedContentPath(const std::filesystem::path& File) const;
 	void ResolveGraphPreview();
@@ -366,7 +372,12 @@ struct FEditorFramework::FImplementation
 	FContentBrowserState ContentBrowserState;
 	FDetailsPanelState DetailsPanelState;
 	FMaterialPanel MaterialPanel;
-	FMaterialGraphPanel MaterialGraphPanel;
+	FGraphDocumentPanel MaterialGraphPanel{GetMaterialGraphDocumentDomain()};
+	// The player character's animation graph, and its compiled state and transition nodes for highlighting Play, rebuilt when the draft changes.
+	FGraphDocumentPanel AnimationGraphPanel{GetAnimationGraphDocumentDomain()};
+	std::vector<FGraphNodeId> AnimationStateNodes;
+	std::vector<FGraphNodeId> AnimationTransitionNodes;
+	std::uint64_t AnimationGraphRevision = UINT64_MAX;
 	FAssetId PendingMaterialOpen;
 	// A material asset opened from the command line, by mounted path, until the content scan registers it.
 	std::string PendingMaterialPath;
