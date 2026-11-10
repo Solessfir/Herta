@@ -516,7 +516,7 @@ public:
 		// Slang reflects the module-global transform block even when the instanced entry point does not read it.
 		if (!HasSupportedBindings(Descriptor.VertexShader) || (bFragment && !HasSupportedBindings(Descriptor.FragmentShader)) || (bColored && (Descriptor.VertexShader.PushConstantSize != 0 || Descriptor.FragmentShader.PushConstantSize != 0)))
 		{
-			return Invalid("Graphics shaders do not match the selected vertex format and binding ABI");
+			return Invalid(std::format("Graphics shaders of '{}' do not match the selected vertex format and binding ABI", Descriptor.Name));
 		}
 
 		const auto Vertex = Device->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex).setEntryName(Descriptor.VertexShader.EntryPoint).setDebugName(Descriptor.Name + ".Vertex"), Descriptor.VertexShader.Bytecode.data(), Descriptor.VertexShader.Bytecode.size() * sizeof(std::uint32_t));

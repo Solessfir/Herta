@@ -58,7 +58,8 @@ constexpr float GridHalfExtent = 216.f;
 // Material maps, environment, shadow atlas, and the two Rect light LTC tables, matching TexturedMesh.slang.
 constexpr std::uint32_t MeshTextureCount = 16;
 // Lights, then their cluster masks, as in VisualLights.slangh.
-constexpr std::uint32_t MeshBufferCount = 2;
+// Lights, light clusters, and the previous positions the velocity prepass reads. Slang reflects the mesh module's globals into every entry point, so every mesh pipeline binds all three.
+constexpr std::uint32_t MeshBufferCount = 3;
 
 static_assert(sizeof(FCookedVertex) == sizeof(FMeshVertex) && offsetof(FCookedVertex, Position) == offsetof(FMeshVertex, Position) && offsetof(FCookedVertex, UV) == offsetof(FMeshVertex, UV), "Cooked vertices upload directly as RHI mesh vertices");
 
@@ -827,6 +828,17 @@ struct FMeshRenderer::FImplementation
 	std::vector<std::vector<std::byte>> ShadowKeys;
 	std::vector<std::byte> ShadowKeyScratch;
 	std::uint64_t FrameIndex = 0;
+	// Deforming meshes' previous positions for motion vectors: the GPU buffer the velocity prepass reads, what to upload to it this frame, and this frame's positions for the next.
+	struct FDeformingMesh
+	{
+		FBufferHandle PreviousPositions;
+		std::vector<float> Upload;
+		std::vector<float> Positions;
+	};
+
+	std::unordered_map<const FRenderMesh*, FDeformingMesh> DeformingMeshes;
+	// One element, which no vertex index reaches, for meshes that keep their vertices.
+	FBufferHandle NoPreviousPositions;
 };
 
 std::span<const FCookedMaterial> FRenderMesh::GetMaterials() const noexcept
@@ -1069,6 +1081,13 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 
 	State->Lights = std::move(*Lights);
 	State->AllLights = std::move(*AllLights);
+	auto NoPreviousPositions = Device.CreateBuffer({.Name = "No previous positions", .Size = sizeof(std::uint32_t), .Usage = EBufferUsage::Storage});
+	if (!NoPreviousPositions)
+	{
+		return std::unexpected(NoPreviousPositions.error());
+	}
+
+	State->NoPreviousPositions = std::move(*NoPreviousPositions);
 	auto ShadowAtlas = Device.CreateTexture({.Name = "Cascade shadow atlas", .Extent = GetCascadeAtlasExtent(1.f), .Format = ETextureFormat::Depth16, .bRenderTarget = true});
 	auto LocalShadowAtlas = Device.CreateTexture({.Name = "Local shadow atlas", .Extent = GetLocalShadowAtlasExtent(1.f), .Format = ETextureFormat::Depth32, .bRenderTarget = true});
 	if (!LocalShadowAtlas)
@@ -1178,7 +1197,7 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		State->InstancedShadowPipeline = std::move(*InstancedShadowPipeline);
 		if (!VisualShaders.LightClustersCompute.Bytecode.empty())
 		{
-			auto Clusters = Device.CreateComputePipeline({.Name = "Light clusters", .Shader = std::move(VisualShaders.LightClustersCompute), .StorageBufferCount = 1, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
+			auto Clusters = Device.CreateComputePipeline({.Name = "Light clusters", .Shader = std::move(VisualShaders.LightClustersCompute), .StorageBufferCount = 1, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
 			if (!Clusters)
 			{
 				return std::unexpected(Clusters.error());
@@ -1933,6 +1952,43 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		Update.Mesh->UpdateBounds(Update.Vertices);
 	}
 
+	// A mesh that stopped deforming, or a frame without motion vectors, forgets its previous positions; its first deforming frame then has no motion of its own.
+	std::erase_if(State.DeformingMeshes, [&](const auto& Entry)
+	{
+		return !View.Visuals.bMotionVectors || std::ranges::none_of(View.VertexUpdates, [&](const FRenderMeshVertexUpdate& Update)
+		{
+			return Update.Mesh == Entry.first;
+		});
+	});
+
+	if (View.Visuals.bMotionVectors)
+	{
+		for (const FRenderMeshVertexUpdate& Update : View.VertexUpdates)
+		{
+			FImplementation::FDeformingMesh& Deforming = State.DeformingMeshes[Update.Mesh];
+			std::vector<float> Positions;
+			Positions.reserve(Update.Vertices.size() * 3);
+			for (const FCookedVertex& Vertex : Update.Vertices)
+			{
+				Positions.insert(Positions.end(), {Vertex.Position[0], Vertex.Position[1], Vertex.Position[2]});
+			}
+
+			if (!Deforming.PreviousPositions || Deforming.Positions.size() != Positions.size())
+			{
+				auto Buffer = Device.CreateBuffer({.Name = "Previous positions", .Size = Positions.size() * sizeof(float), .Usage = EBufferUsage::Storage});
+				if (!Buffer)
+				{
+					return std::unexpected(Buffer.error());
+				}
+
+				Deforming.PreviousPositions = std::move(*Buffer);
+				Deforming.Positions = Positions;
+			}
+
+			Deforming.Upload = std::exchange(Deforming.Positions, std::move(Positions));
+		}
+	}
+
 	if (View.bDrawGrid && !Display.Grid)
 	{
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "World grid requires grid vertex and fragment shaders"});
@@ -2467,7 +2523,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		State.LightClusters = std::move(*Clusters);
 	}
 
-	const std::array LightBuffers{State.Lights, State.LightClusterPipeline ? State.LightClusters : State.AllLights};
+	const std::array LightBuffers{State.Lights, State.LightClusterPipeline ? State.LightClusters : State.AllLights, State.NoPreviousPositions};
 	if (State.LightClusterPipeline)
 	{
 		constexpr float NearSlice = 0.1f;
@@ -2592,6 +2648,14 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 			for (const FRenderMeshVertexUpdate& Update : View.VertexUpdates)
 			{
 				if (const auto Written = Device.WriteBuffer(Update.Mesh->Vertices, std::as_bytes(Update.Vertices)); !Written)
+				{
+					return GraphResult(Written);
+				}
+			}
+
+			for (const auto& [Mesh, Deforming] : State.DeformingMeshes)
+			{
+				if (const auto Written = Device.WriteBuffer(Deforming.PreviousPositions, std::as_bytes(std::span{Deforming.Upload})); !Written)
 				{
 					return GraphResult(Written);
 				}
@@ -2910,7 +2974,9 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 						Textures[15] = State.IrradianceField->GetIrradiance();
 					}
 
-					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? SectionPrepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bDepthPrepass ? PrepassTarget : ColorTarget, .SecondColorTarget = bVelocity && bSurface ? State.Surface : FTextureHandle{}, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .PreviousInstances = bVelocity ? State.PreviousInstances : FBufferHandle{}, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers};
+					const auto Deforming = State.DeformingMeshes.find(&Mesh);
+					const std::array VelocityBuffers{LightBuffers[0], LightBuffers[1], Deforming != State.DeformingMeshes.end() ? Deforming->second.PreviousPositions : State.NoPreviousPositions};
+					FIndexedDraw Draw{.Pipeline = bDepthPrepass ? SectionPrepass : Shading, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = bDepthPrepass ? PrepassTarget : ColorTarget, .SecondColorTarget = bVelocity && bSurface ? State.Surface : FTextureHandle{}, .DepthTarget = FrameDepth, .IndexCount = Section.IndexCount, .FirstIndex = Section.FirstIndex, .Instances = State.Instances, .PreviousInstances = bVelocity ? State.PreviousInstances : FBufferHandle{}, .InstanceCount = Instances.InstanceCount, .FirstInstance = Instances.FirstInstance, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = bVelocity && bDepthPrepass ? VelocityBuffers : LightBuffers};
 					if (State.bOcclusionCulling)
 					{
 						Draw.Instances = State.CulledInstances;

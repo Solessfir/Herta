@@ -1548,6 +1548,36 @@ namespace
 		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("Turning the camera must move the cube and the sky alike (cube {}, sky {})", TurnedCube[0], TurnedSky[0])});
 	}
 
+	// Moving the vertices instead of the model, as skinning does, must report the same motion.
+	View.View = FMatrix4::Translation({0, 0, 5});
+	Models[0] = FMatrix4{};
+	PreviousModels = Models;
+	std::vector<FCookedVertex> Vertices = CreateTexturedCubeModel({}).Vertices;
+	const std::array Updates{FRenderMeshVertexUpdate{.Mesh = Cube->get(), .Vertices = Vertices}};
+	View.VertexUpdates = Updates;
+	if (const auto Rest = Capture(); !Rest)
+	{
+		return std::unexpected(Rest.error());
+	}
+
+	for (FCookedVertex& Vertex : Vertices)
+	{
+		Vertex.Position[0] += 0.2f;
+		Vertex.Position[1] += 0.1f;
+	}
+
+	const auto Deformed = Capture();
+	if (!Deformed)
+	{
+		return std::unexpected(Deformed.error());
+	}
+
+	const auto DeformedMotion = At(*Deformed, Current);
+	if (std::abs(DeformedMotion[0] - (Current[0] - Previous[0])) > 2e-3f || std::abs(DeformedMotion[1] - (Current[1] - Previous[1])) > 2e-3f)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = std::format("A deforming cube must report its vertices' screen motion (cube {} {}, expected {} {})", DeformedMotion[0], DeformedMotion[1], Current[0] - Previous[0], Current[1] - Previous[1])});
+	}
+
 	return {};
 }
 
@@ -2100,10 +2130,10 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 	auto Texture = Device.CreateTexture({.Name = "Depth test colors", .Extent = {.Width = 2, .Height = 1}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = false});
 	auto Color = Device.CreateTexture({.Name = "Depth test color", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Rgba8Srgb, .bRenderTarget = true});
 	auto Depth = Device.CreateTexture({.Name = "Depth test depth", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 16, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
-	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 16, .UniformBufferSize = VisualUniformBytes, .BufferCount = 2});
+	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Depth regression", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .TextureCount = 16, .UniformBufferSize = VisualUniformBytes, .BufferCount = 3});
+	auto InstancedPipeline = Device.CreateGraphicsPipeline({.Name = "Instance validation regression", .VertexShader = InstancedVertexShader, .FragmentShader = FragmentShader, .ColorFormat = ETextureFormat::Rgba8Srgb, .bInstanced = true, .TextureCount = 16, .UniformBufferSize = VisualUniformBytes, .BufferCount = 3});
 	const auto ShadowDepth = Device.CreateTexture({.Name = "Depth-only sampled atlas regression", .Extent = {.Width = 64, .Height = 64}, .Format = ETextureFormat::Depth32, .bRenderTarget = true});
-	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 16, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = 2});
+	const auto ShadowPipeline = Device.CreateGraphicsPipeline({.Name = "Depth-only viewport regression", .VertexShader = VertexShader, .TextureCount = 16, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = 3});
 	auto Instances = Device.CreateBuffer({.Name = "Instance validation transforms", .Size = 2 * sizeof(FMeshInstance), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::MeshInstance});
 	if (!Near)
 	{
@@ -2150,7 +2180,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(!ShadowDepth ? ShadowDepth.error() : ShadowPipeline.error());
 	}
 
-	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 16, .UniformBufferSize = 16, .BufferCount = 2}))
+	if (Device.CreateGraphicsPipeline({.Name = "Undersized reflected uniforms", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .TextureCount = 16, .UniformBufferSize = 16, .BufferCount = 3}))
 	{
 		return Failure("Pipeline accepted a uniform block smaller than its shader reflection");
 	}
@@ -2177,7 +2207,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		Result = Device.WriteTexture(*Texture, 0, std::as_bytes(std::span(Texels)));
 	}
 
-	// The mesh shaders bind lights and light cluster masks; with no lights neither is read.
+	// The mesh shaders bind lights, light cluster masks, and previous positions; with no lights and no motion none is read.
 	auto Lights = Device.CreateBuffer({.Name = "Depth test lights", .Size = sizeof(FVisualLightUniform), .Usage = EBufferUsage::Storage});
 	auto LightMasks = Device.CreateBuffer({.Name = "Depth test light masks", .Size = LightMaskWords * sizeof(std::uint32_t), .Usage = EBufferUsage::Storage});
 	if (!Lights || !LightMasks)
@@ -2186,7 +2216,7 @@ std::expected<void, FPresentationError> RunRendererSmoke(IGraphicsDevice& Device
 		return std::unexpected(!Lights ? Lights.error() : LightMasks.error());
 	}
 
-	const std::array Buffers{*Lights, *LightMasks};
+	const std::array Buffers{*Lights, *LightMasks, *LightMasks};
 	if (Result)
 	{
 		Result = Device.ClearTargets(*Color, *Depth, {0, 0, 0, 1});

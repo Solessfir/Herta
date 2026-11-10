@@ -733,7 +733,7 @@ TEST_CASE("Light clusters are built before any mesh pass binds them")
 	};
 
 	const FIndexedDraw Shaded = ShadedDraw();
-	REQUIRE(Shaded.Buffers.size() == 2);
+	REQUIRE(Shaded.Buffers.size() == 3);
 	CHECK(Shaded.Buffers[0]->GetDescriptor().Name == "Lights");
 	// 16 by 10 tiles of 64 pixels, each with every depth slice and one bit per light.
 	CHECK(Shaded.Buffers[1]->GetDescriptor().Name == "Light clusters");
@@ -1208,4 +1208,52 @@ TEST_CASE("Bloom downsamples and upsamples its pyramid before tone mapping and s
 
 	Scene.View.Visuals.BloomIntensity = 2.f;
 	CHECK_FALSE((*Renderer)->Render({64, 64}, Scene.View));
+}
+
+TEST_CASE("Deforming meshes give the velocity prepass their previous positions")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	FVisualShaderSet Visuals;
+	for (FShaderAsset* Shader : {&Visuals.FullscreenVertex, &Visuals.ShadowFragment, &Visuals.DepthVelocityFragment, &Visuals.DepthVelocityVertex, &Visuals.MotionVectorsCompute})
+	{
+		Shader->Bytecode = {1};
+	}
+
+	// The cube's own vertices, before the renderer uploads anything else.
+	std::vector<FCookedVertex> Moved(Device.Vertices.size());
+	FShaderAsset InstancedVertex;
+	InstancedVertex.Bytecode = {1};
+	const auto Renderer = FMeshRenderer::Create(Device, {}, {}, {}, {}, {}, {}, InstancedVertex, Visuals);
+	REQUIRE(Renderer);
+	const auto VelocityBuffer = [&]
+	{
+		const auto Draw = std::ranges::find_if(Device.Draws, [](const FIndexedDraw& Candidate)
+		{
+			return std::static_pointer_cast<FTestPipeline>(Candidate.Pipeline)->Descriptor.Name == "Instanced velocity prepass";
+		});
+
+		REQUIRE(Draw != Device.Draws.end());
+		REQUIRE(Draw->Buffers.size() == 3);
+		return Draw->Buffers[2]->GetDescriptor().Name;
+	};
+
+	Scene.View.Visuals.bMotionVectors = true;
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+	CHECK(VelocityBuffer() == "No previous positions");
+
+	const std::array Updates{FRenderMeshVertexUpdate{.Mesh = Scene.Mesh, .Vertices = Moved}};
+	Scene.View.VertexUpdates = Updates;
+	Device.Draws.clear();
+	Device.StorageWrites.clear();
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+	CHECK(VelocityBuffer() == "Previous positions");
+	CHECK(std::ranges::count(Device.StorageWrites, "Previous positions") == 1);
+
+	// Without an update the mesh holds still, so its current positions are also its previous ones.
+	Scene.View.VertexUpdates = {};
+	Device.Draws.clear();
+	REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+	CHECK(VelocityBuffer() == "No previous positions");
 }

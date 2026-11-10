@@ -89,11 +89,17 @@ FVertexOutput instancedVertexMain(float3 Position : POSITION, float2 UV : TEXCOO
     return TransformInstance(Position, UV, Normal, Tangent, Instance);
 }
 
+// A deforming mesh's object-space positions in the previous frame, three floats per vertex, indexed by the raw vertex index, which needs no draw parameters because mesh draws use no vertex offset. Other meshes bind a single element, which no vertex reaches, so they reuse their current positions.
+[[vk::binding(18, 0)]] StructuredBuffer<uint> PreviousPositions;
+
 [shader("vertex")]
-FVertexOutput instancedVelocityVertexMain(float3 Position : POSITION, float2 UV : TEXCOORD0, float3 Normal : NORMAL, float4 Tangent : TANGENT, FInstanceInput Instance, FInstanceMotionInput Motion)
+FVertexOutput instancedVelocityVertexMain(float3 Position : POSITION, float2 UV : TEXCOORD0, float3 Normal : NORMAL, float4 Tangent : TANGENT, FInstanceInput Instance, FInstanceMotionInput Motion, uint VertexId : SV_VulkanVertexID)
 {
     FVertexOutput Output = TransformInstance(Position, UV, Normal, Tangent, Instance);
-    Output.PreviousClip = mul(transpose(float4x4(Motion.Previous0, Motion.Previous1, Motion.Previous2, Motion.Previous3)), float4(Position, 1.0));
+    uint Count, Stride;
+    PreviousPositions.GetDimensions(Count, Stride);
+    float3 Previous = VertexId * 3 + 2 < Count ? asfloat(uint3(PreviousPositions[VertexId * 3], PreviousPositions[VertexId * 3 + 1], PreviousPositions[VertexId * 3 + 2])) : Position;
+    Output.PreviousClip = mul(transpose(float4x4(Motion.Previous0, Motion.Previous1, Motion.Previous2, Motion.Previous3)), float4(Previous, 1.0));
     return Output;
 }
 
