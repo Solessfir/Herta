@@ -88,6 +88,7 @@ public:
 	// Whether any of the body's geometry still follows Joint, such as the head after a cut through the neck.
 	[[nodiscard]] bool Carries(std::size_t Joint) const;
 	[[nodiscard]] std::optional<std::size_t> FindJoint(std::string_view Name) const;
+	[[nodiscard]] std::string_view GetJointName(std::size_t Joint) const;
 	// Drives a parameter the session does not otherwise set, such as a hit reaction; unknown names are ignored.
 	void FireTrigger(std::string_view Parameter);
 	void SetBool(std::string_view Parameter, bool bValue);

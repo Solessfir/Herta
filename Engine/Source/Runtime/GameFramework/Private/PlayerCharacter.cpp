@@ -794,6 +794,12 @@ std::optional<std::size_t> FPlayerCharacter::FindJoint(const std::string_view Na
 	return Found == Names.end() ? std::nullopt : std::optional(static_cast<std::size_t>(Found - Names.begin()));
 }
 
+std::string_view FPlayerCharacter::GetJointName(const std::size_t Joint) const
+{
+	const auto Names = Library->GetJointNames();
+	return Joint < Names.size() ? std::string_view(Names[Joint]) : std::string_view{};
+}
+
 void FPlayerCharacter::FireTrigger(const std::string_view Parameter)
 {
 	if (const auto Index = Machine.FindParameter(Parameter))

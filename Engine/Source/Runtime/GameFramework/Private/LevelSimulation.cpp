@@ -509,7 +509,7 @@ std::expected<void, FPhysicsError> FLevelSimulation::Update(const float DeltaSec
 
 			for (const FPhysicsBodyId Body : {Event.First, Event.Second})
 			{
-				const auto Island = Event.Phase == EPhysicsContactPhase::Began ? IslandBodies.find(Body.Value) : IslandBodies.end();
+				const auto Island = bBreakable && Event.Phase == EPhysicsContactPhase::Began ? IslandBodies.find(Body.Value) : IslandBodies.end();
 				if (Island != IslandBodies.end())
 				{
 					if (const auto Result = Damage(Island->second.first, Island->second.second, Event.Point, Event.Impulse); !Result)
@@ -1065,6 +1065,50 @@ std::expected<void, FPhysicsError> FLevelSimulation::RestoreBonds(const std::siz
 std::vector<FLevelImpactEvent> FLevelSimulation::TakeImpactEvents()
 {
 	return std::exchange(ImpactEvents, {});
+}
+
+void FLevelSimulation::SetBreakable(const bool bInBreakable) noexcept
+{
+	bBreakable = bInBreakable;
+}
+
+std::vector<FLevelBodyReplica> FLevelSimulation::CaptureDynamicBodies() const
+{
+	std::vector<FLevelBodyReplica> Bodies;
+	for (std::size_t Index = 0; World && Index < BodyStates.size(); ++Index)
+	{
+		const FBodyState& Body = BodyStates[Index];
+		if (Body.MotionType != EPhysicsMotionType::Dynamic || Body.Mover || Body.bTrigger)
+		{
+			continue;
+		}
+
+		const auto Linear = World->GetLinearVelocity(Body.Id);
+		const auto Angular = World->GetAngularVelocity(Body.Id);
+		if (Linear && Angular)
+		{
+			Bodies.push_back({.Body = static_cast<std::uint32_t>(Index), .Transform = Body.Current, .LinearVelocity = *Linear, .AngularVelocity = *Angular});
+		}
+	}
+
+	return Bodies;
+}
+
+std::expected<void, FPhysicsError> FLevelSimulation::ApplyDynamicBody(const FLevelBodyReplica& Replica)
+{
+	if (!World || Replica.Body >= BodyStates.size() || BodyStates[Replica.Body].MotionType != EPhysicsMotionType::Dynamic)
+	{
+		return std::unexpected(FPhysicsError{"No such dynamic level body"});
+	}
+
+	FBodyState& Body = BodyStates[Replica.Body];
+	if (auto Placed = World->SetBodyState(Body.Id, Replica.Transform, Replica.LinearVelocity, Replica.AngularVelocity); !Placed)
+	{
+		return Placed;
+	}
+
+	Body.Current = Replica.Transform;
+	return {};
 }
 
 struct FLevelSimulationSnapshotState

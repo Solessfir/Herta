@@ -71,13 +71,13 @@ TEST_CASE("Network transports connect over UDP and loopback and exchange reliabl
 	ServerEvents.clear();
 	REQUIRE(PollUntil(**Server, ServerEvents, ServerMessages, [&] { return std::ranges::any_of(ServerEvents, [](const auto& Event) { return Event.State == ENetworkConnectionState::Closed; }); }));
 
-	// A loopback pair goes through the same messages within one transport.
-	const auto Pair = (*Server)->ConnectLoopback();
+	// A loopback pair joins two transports in this process, and each sees only its own end.
+	const auto Pair = (*Server)->ConnectLoopback(**Client);
 	REQUIRE(Pair);
 	REQUIRE((*Server)->Send(Pair->first, Bytes("loop"), ENetworkDelivery::Reliable));
-	ServerMessages.clear();
-	REQUIRE(PollUntil(**Server, ServerEvents, ServerMessages, [&] { return !ServerMessages.empty(); }));
-	CHECK(ServerMessages.front().Connection == Pair->second);
-	CHECK(ServerMessages.front().Data == Bytes("loop"));
+	ClientMessages.clear();
+	REQUIRE(PollUntil(**Client, ClientEvents, ClientMessages, [&] { return !ClientMessages.empty(); }));
+	CHECK(ClientMessages.front().Connection == Pair->second);
+	CHECK(ClientMessages.front().Data == Bytes("loop"));
 }
 }

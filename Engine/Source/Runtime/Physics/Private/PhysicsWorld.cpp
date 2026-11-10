@@ -894,6 +894,31 @@ std::expected<FVector3, FPhysicsError> FPhysicsWorld::GetLinearVelocity(const FP
 	return ToHerta(Implementation->Physics.GetBodyInterface().GetLinearVelocity(Id));
 }
 
+std::expected<FVector3, FPhysicsError> FPhysicsWorld::GetAngularVelocity(const FPhysicsBodyId BodyId) const
+{
+	const JPH::BodyID Id = FindBody(Implementation->BodyIds, BodyId);
+	if (Id.IsInvalid())
+	{
+		return std::unexpected(FPhysicsError{"Unknown physics body"});
+	}
+
+	return ToHerta(Implementation->Physics.GetBodyInterface().GetAngularVelocity(Id));
+}
+
+std::expected<void, FPhysicsError> FPhysicsWorld::SetBodyState(const FPhysicsBodyId BodyId, const FPhysicsBodyTransform& Transform, const FVector3& Linear, const FVector3& Angular)
+{
+	const JPH::BodyID Id = FindBody(Implementation->BodyIds, BodyId);
+	JPH::BodyInterface& Bodies = Implementation->Physics.GetBodyInterface();
+	if (Id.IsInvalid() || Bodies.GetMotionType(Id) != JPH::EMotionType::Dynamic || !IsFinite(Transform.Position) || !IsFinite(Linear) || !IsFinite(Angular))
+	{
+		return std::unexpected(FPhysicsError{"Only dynamic bodies take a finite state"});
+	}
+
+	Bodies.SetPositionAndRotation(Id, JPH::RVec3(ToJolt(Transform.Position)), ToJolt(Transform.Rotation.NormalizedOrIdentity()), JPH::EActivation::Activate);
+	Bodies.SetLinearAndAngularVelocity(Id, ToJolt(Linear), ToJolt(Angular));
+	return {};
+}
+
 std::expected<void, FPhysicsError> FPhysicsWorld::SetVelocity(const FPhysicsBodyId BodyId, const FVector3& Linear, const FVector3& Angular)
 {
 	const JPH::BodyID Id = FindBody(Implementation->BodyIds, BodyId);

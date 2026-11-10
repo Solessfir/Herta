@@ -224,7 +224,28 @@ bool FGameNpc::StartAttack(const FVector3& Target)
 	Body.FireTrigger("Attack");
 	bAttacking = true;
 	AttackSeconds = 0.f;
+	++Attacks;
 	return true;
+}
+
+void FGameNpc::SetPuppet(const FVector3& InFoot, const float InYaw, const float InGroundSpeed, const float InHealth, const std::uint32_t InAttacks)
+{
+	PreviousFoot = Foot;
+	PreviousYaw = Yaw;
+	Foot = InFoot;
+	Yaw = InYaw;
+	GroundSpeed = InGroundSpeed;
+	Health = InHealth;
+	if (InAttacks > Attacks)
+	{
+		Body.FireTrigger("Attack");
+		Attacks = InAttacks;
+	}
+}
+
+std::uint32_t FGameNpc::GetAttackCount() const noexcept
+{
+	return Attacks;
 }
 
 bool FGameNpc::IsAttacking() const

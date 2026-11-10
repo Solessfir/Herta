@@ -315,6 +315,9 @@ public:
 	[[nodiscard]] std::expected<void, FPhysicsError> DestroyBody(FPhysicsBodyId BodyId);
 	std::size_t GetBodyCount() const noexcept;
 	[[nodiscard]] std::expected<FVector3, FPhysicsError> GetLinearVelocity(FPhysicsBodyId BodyId) const;
+	[[nodiscard]] std::expected<FVector3, FPhysicsError> GetAngularVelocity(FPhysicsBodyId BodyId) const;
+	// Wakes a dynamic body and places it with these velocities, such as a correction from a server.
+	[[nodiscard]] std::expected<void, FPhysicsError> SetBodyState(FPhysicsBodyId BodyId, const FPhysicsBodyTransform& Transform, const FVector3& Linear, const FVector3& Angular);
 	// Wakes a dynamic body and sets its velocities.
 	[[nodiscard]] std::expected<void, FPhysicsError> SetVelocity(FPhysicsBodyId BodyId, const FVector3& Linear, const FVector3& Angular = FVector3::Zero());
 	// Wakes a dynamic body and applies an impulse in N*s at a physics-space point.

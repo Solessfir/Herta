@@ -5,6 +5,7 @@
 #include "Herta/Math/Matrix.h"
 #include "Herta/Navigation/NavigationWorld.h"
 
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
@@ -30,6 +31,9 @@ public:
 	void Step(float Seconds, std::span<const std::string> BodyEvents);
 	// Loses health to a cut, or all of it when it dies, which also takes it off the navigation.
 	void Wound(float Amount);
+	// On a client, where the server's agent moves it: places it as the server last had it, and starts swings it has not started yet.
+	void SetPuppet(const FVector3& InFoot, float InYaw, float InGroundSpeed, float InHealth, std::uint32_t InAttacks);
+	[[nodiscard]] std::uint32_t GetAttackCount() const noexcept;
 
 	[[nodiscard]] FMatrix4 GetModel(float Alpha) const;
 	[[nodiscard]] float GetGroundSpeed() const noexcept;
@@ -70,6 +74,7 @@ private:
 	float Health = 1.f;
 
 	bool bAttacking = false;
+	std::uint32_t Attacks = 0;
 	bool bSwingStarting = false;
 	float AttackSeconds = 0.f;
 };

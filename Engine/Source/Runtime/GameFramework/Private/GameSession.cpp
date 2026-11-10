@@ -242,7 +242,10 @@ struct FTriggerZone
 // that moves, animates, and fights a player reads the same members whichever player it serves.
 struct FPlayerSlot
 {
+	// A remote player on a client is not simulated: replicas place it instead.
+	bool bSimulated = true;
 	FGameInput Input{};
+	std::uint32_t Attacks = 0;
 	// Rebuilt on every start, because the physics world and its character are.
 	std::optional<FCharacterMover> Mover{};
 	std::optional<FNavigationAgentId> PlayerAgent{};
@@ -307,6 +310,7 @@ struct FGameSession::FImplementation : FPlayerSlot
 	void BuildModels();
 	void BuildSoftBodies();
 	[[nodiscard]] std::expected<void, FPhysicsError> Throw();
+	[[nodiscard]] std::expected<FLevelSimulationHandle, FPhysicsError> SpawnBall(const FPhysicsBodyTransform& Transform, const FVector3& Velocity);
 	[[nodiscard]] std::expected<void, FPhysicsError> AgeProjectiles(float DeltaSeconds);
 	[[nodiscard]] FQuaternion GetBodyRotation() const;
 	[[nodiscard]] FQuaternion GetViewOrientation() const;
@@ -354,6 +358,12 @@ struct FGameSession::FImplementation : FPlayerSlot
 	// Swaps Player's slot into the base, putting the active one back first.
 	void Activate(std::size_t Player) noexcept;
 	[[nodiscard]] const FPlayerSlot& GetSlot(std::size_t Player) const noexcept;
+	[[nodiscard]] FPlayerSlot& GetSlot(std::size_t Player) noexcept;
+	// Runs Visit with Player active, then makes the view player active again.
+	template <typename FVisit>
+	auto VisitPlayer(std::size_t Player, FVisit&& Visit);
+	// The movement half of an update for the active player, without camera, ragdoll, or throw presses, which a replay must not repeat.
+	[[nodiscard]] std::expected<void, FPhysicsError> ReplayInput(FGameInput InInput, FPhysicsWorld& World);
 	// Runs Visit with each player active in turn, then makes the view player active again, even when Visit stops early by throwing.
 	template <typename FVisit>
 	void ForEachPlayer(FVisit&& Visit);
@@ -362,6 +372,9 @@ struct FGameSession::FImplementation : FPlayerSlot
 	[[nodiscard]] std::expected<void, FError> ForEachPlayerUntilError(FVisit&& Visit);
 	// Places the active player at the spawn in the current physics world, as a start does.
 	[[nodiscard]] std::expected<void, FGameError> StartPlayer();
+	[[nodiscard]] FVector3 GetPlayerSpawn() const;
+	// Everything but the mover and the ragdoll back to how a start leaves it.
+	void ResetPlayerState();
 	[[nodiscard]] std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> CreateBody() const;
 
 	// cppcheck-suppress uninitMemberVarNoCtor ; set by aggregate initialization in Create
@@ -375,6 +388,10 @@ struct FGameSession::FImplementation : FPlayerSlot
 	// Whose camera the view and the listener follow. Outside per-player loops the view player is the active one.
 	std::size_t ViewPlayer = 0;
 	std::shared_ptr<const FCookedModel> CharacterModel{};
+	// A client leaves agents, destruction, cuts, and throws to the server.
+	bool bAuthority = true;
+	std::vector<FGameOutcome> Outcomes{};
+	std::uint32_t NextProjectileId = 1;
 
 	// Authored state, fixed for the session.
 	std::vector<FLevelEntity> Entities{};
@@ -409,6 +426,8 @@ struct FGameSession::FImplementation : FPlayerSlot
 		FLevelSimulationHandle Handle{};
 		// Which player threw it, so the character it hits knows where the throw came from.
 		std::size_t Thrower = 0;
+		// The server's id for it, which clients know it by.
+		std::uint32_t Id = 0;
 		float AgeSeconds = 0.f;
 		// A ball hits a character once, so bouncing on it does not sever a second limb.
 		bool bSpent = false;
@@ -503,35 +522,55 @@ const FPlayerSlot& FGameSession::FImplementation::GetSlot(const std::size_t InPl
 	return InPlayer == ActivePlayer ? static_cast<const FPlayerSlot&>(*this) : Players[InPlayer];
 }
 
+FPlayerSlot& FGameSession::FImplementation::GetSlot(const std::size_t InPlayer) noexcept
+{
+	return InPlayer == ActivePlayer ? static_cast<FPlayerSlot&>(*this) : Players[InPlayer];
+}
+
+namespace
+{
+// Makes the view player active again however the scope ends.
+template <typename FSession>
+class FViewRestore final
+{
+public:
+	explicit FViewRestore(FSession& InSession) noexcept
+	    : Session(InSession)
+	{
+	}
+
+	~FViewRestore()
+	{
+		Session.Activate(Session.ViewPlayer);
+	}
+
+	FViewRestore(const FViewRestore&) = delete;
+	FViewRestore& operator=(const FViewRestore&) = delete;
+	FViewRestore(FViewRestore&&) = delete;
+	FViewRestore& operator=(FViewRestore&&) = delete;
+
+private:
+	FSession& Session;
+};
+}
+
 template <typename FVisit>
 void FGameSession::FImplementation::ForEachPlayer(FVisit&& Visit)
 {
-	struct FRestore
-	{
-		explicit FRestore(FImplementation& InSession) noexcept
-		    : Session(InSession)
-		{
-		}
-
-		FRestore(const FRestore&) = delete;
-		FRestore& operator=(const FRestore&) = delete;
-		FRestore(FRestore&&) = delete;
-		FRestore& operator=(FRestore&&) = delete;
-
-		~FRestore()
-		{
-			Session.Activate(Session.ViewPlayer);
-		}
-
-		FImplementation& Session;
-	};
-
-	const FRestore Restore(*this);
+	const FViewRestore Restore(*this);
 	for (std::size_t Index = 0; Index < Players.size(); ++Index)
 	{
 		Activate(Index);
 		Visit();
 	}
+}
+
+template <typename FVisit>
+auto FGameSession::FImplementation::VisitPlayer(const std::size_t InPlayer, FVisit&& Visit)
+{
+	const FViewRestore Restore(*this);
+	Activate(InPlayer);
+	return Visit();
 }
 
 template <typename FError, typename FVisit>
@@ -776,6 +815,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 		return std::unexpected(FGameError{std::format("Cannot start physics: {}", Started.error().Message)});
 	}
 
+	Simulation.SetBreakable(bAuthority);
+
 	for (const FLevelSimulationDestructible& Destructible : Setup.Destructibles)
 	{
 		if (!Device || ChunkMeshes.contains(Destructible.ObjectIndex))
@@ -857,11 +898,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::StartPlayer()
 {
 	constexpr float MantleSecondsWithoutBody = 0.65f;
 	const float MantleSeconds = Body ? Body->GetStateSeconds("Mantle").value_or(MantleSecondsWithoutBody) : MantleSecondsWithoutBody;
-	// Later players line up beside the first, alternating sides, so nobody spawns inside anyone else.
-	constexpr float Spacing = 0.8f;
-	const float Side = static_cast<float>((ActivePlayer + 1) / 2) * (ActivePlayer % 2 == 1 ? 1.f : -1.f);
-	const FVector3 Spawn = SpawnPosition + Movement::Right(SpawnYaw) * (Side * Spacing);
-	auto Created = FCharacterMover::Create(*Simulation.GetPhysicsWorld(), Spawn, Player.Movement, Player.Modes, Player.CustomModes, MantleSeconds);
+	auto Created = FCharacterMover::Create(*Simulation.GetPhysicsWorld(), GetPlayerSpawn(), Player.Movement, Player.Modes, Player.CustomModes, MantleSeconds);
 	if (!Created)
 	{
 		return std::unexpected(FGameError{std::format("Cannot create the player: {}", Created.error().Message)});
@@ -871,6 +908,20 @@ std::expected<void, FGameError> FGameSession::FImplementation::StartPlayer()
 
 	// The new physics world has none of the old one's ragdoll bodies.
 	Ragdoll.reset();
+	ResetPlayerState();
+	return {};
+}
+
+FVector3 FGameSession::FImplementation::GetPlayerSpawn() const
+{
+	// Later players line up beside the first, alternating sides, so nobody spawns inside anyone else.
+	constexpr float Spacing = 0.8f;
+	const float Side = static_cast<float>((ActivePlayer + 1) / 2) * (ActivePlayer % 2 == 1 ? 1.f : -1.f);
+	return SpawnPosition + Movement::Right(SpawnYaw) * (Side * Spacing);
+}
+
+void FGameSession::FImplementation::ResetPlayerState()
+{
 	GetUpBlend = 0.f;
 	WallLean = 0.f;
 	EyeHeight = Player.EyeHeight;
@@ -896,7 +947,6 @@ std::expected<void, FGameError> FGameSession::FImplementation::StartPlayer()
 
 	Objective.State = StartZone && FinishZone ? EGameObjectiveState::Ready : EGameObjectiveState::Exploring;
 	Objective.ElapsedSeconds = 0.;
-	return {};
 }
 
 std::expected<std::size_t, FGameError> FGameSession::AddPlayer()
@@ -973,6 +1023,57 @@ std::expected<void, FGameError> FGameSession::RemovePlayer(const std::size_t InP
 	}
 
 	return {};
+}
+
+std::expected<void, FGameError> FGameSession::ResetPlayer(const std::size_t InPlayer)
+{
+	FImplementation& Session = *Implementation;
+	FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld();
+	if (InPlayer >= Session.Players.size() || !World)
+	{
+		return std::unexpected(FGameError{"No such player"});
+	}
+
+	return Session.VisitPlayer(InPlayer, [&Session, World]() -> std::expected<void, FGameError>
+	{
+		if (Session.Ragdoll)
+		{
+			if (auto Risen = Session.EndRagdoll(); !Risen)
+			{
+				return std::unexpected(FGameError{Risen.error().Message});
+			}
+		}
+
+		if (auto Placed = Session.Mover->Teleport(*World, Session.GetPlayerSpawn()); !Placed)
+		{
+			return std::unexpected(FGameError{Placed.error().Message});
+		}
+
+		const std::optional<double> Best = Session.Objective.BestSeconds;
+		Session.ResetPlayerState();
+		Session.Objective = {.State = Session.Objective.State, .BestSeconds = Best};
+		return {};
+	});
+}
+
+std::expected<void, FGameError> FGameSession::PlacePlayer(const std::size_t InPlayer, const FVector3& Foot)
+{
+	FImplementation& Session = *Implementation;
+	FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld();
+	if (InPlayer >= Session.Players.size() || !World || !std::isfinite(Foot.X) || !std::isfinite(Foot.Y) || !std::isfinite(Foot.Z))
+	{
+		return std::unexpected(FGameError{"Placing a player needs an existing player and a finite position"});
+	}
+
+	return Session.VisitPlayer(InPlayer, [&Session, World, &Foot]() -> std::expected<void, FGameError>
+	{
+		if (auto Placed = Session.Mover->Teleport(*World, Foot); !Placed)
+		{
+			return std::unexpected(FGameError{Placed.error().Message});
+		}
+
+		return {};
+	});
 }
 
 std::size_t FGameSession::GetPlayerCount() const noexcept
@@ -1110,6 +1211,309 @@ std::uint64_t FGameSession::ComputeStateHash() const
 
 	const FHash128 Players = HashBytes(std::as_bytes(std::span(Values)));
 	return (World ? World->ComputeStateHash() : 0) ^ Players.Low ^ (Players.High << 1);
+}
+
+void FGameSession::SetAuthority(const bool bInAuthority)
+{
+	Implementation->bAuthority = bInAuthority;
+	Implementation->Simulation.SetBreakable(bInAuthority);
+}
+
+std::expected<void, FGameError> FGameSession::SetPlayerSimulated(const std::size_t InPlayer, const bool bSimulated)
+{
+	if (InPlayer >= Implementation->Players.size())
+	{
+		return std::unexpected(FGameError{"No such player"});
+	}
+
+	Implementation->GetSlot(InPlayer).bSimulated = bSimulated;
+	return {};
+}
+
+FGamePlayerReplica FGameSession::CapturePlayer(const std::size_t InPlayer) const
+{
+	const FImplementation& Session = *Implementation;
+	if (InPlayer >= Session.Players.size())
+	{
+		return {};
+	}
+
+	const FPlayerSlot& Slot = Session.GetSlot(InPlayer);
+	return {
+	    .Mover = Slot.Mover->SaveSnapshot(),
+	    .Yaw = Slot.Yaw,
+	    .Pitch = Slot.Pitch,
+	    .Objective = Slot.Objective,
+	    .bRagdolled = Slot.Ragdoll.has_value(),
+	    .bBlocking = Slot.Input.bBlock,
+	    .Attacks = Slot.Attacks,
+	};
+}
+
+std::expected<void, FGameError> FGameSession::ApplyPlayer(const std::size_t InPlayer, const FGamePlayerReplica& Replica)
+{
+	FImplementation& Session = *Implementation;
+	FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld();
+	if (InPlayer >= Session.Players.size() || !World || !std::isfinite(Replica.Yaw) || !std::isfinite(Replica.Pitch))
+	{
+		return std::unexpected(FGameError{"A player replica needs an existing player, a running session, and a finite view"});
+	}
+
+	return Session.VisitPlayer(InPlayer, [&Session, World, &Replica]() -> std::expected<void, FGameError>
+	{
+		if (Replica.bRagdolled != Session.Ragdoll.has_value())
+		{
+			Session.KnockdownSeconds.reset();
+			if (auto Toggled = Replica.bRagdolled ? Session.StartRagdoll() : Session.EndRagdoll(); !Toggled)
+			{
+				return std::unexpected(FGameError{std::format("Cannot ragdoll a replicated player: {}", Toggled.error().Message)});
+			}
+		}
+
+		if (auto Moved = Session.Mover->RestoreSnapshot(*World, Replica.Mover); !Moved)
+		{
+			return std::unexpected(FGameError{std::format("Cannot place a replicated player: {}", Moved.error().Message)});
+		}
+
+		Session.Yaw = Replica.Yaw;
+		Session.Pitch = std::clamp(Replica.Pitch, -MaximumPitch, MaximumPitch);
+		Session.Objective = Replica.Objective;
+		if (Session.Body && Replica.Attacks > Session.Attacks && !Session.Ragdoll)
+		{
+			Session.Body->FireTrigger("Attack");
+		}
+
+		Session.Attacks = std::max(Session.Attacks, Replica.Attacks);
+		if (Session.Body && !Session.bSimulated)
+		{
+			Session.Body->SetBool("Blocking", Replica.bBlocking);
+		}
+
+		return {};
+	});
+}
+
+std::expected<void, FPhysicsError> FGameSession::FImplementation::ReplayInput(FGameInput InInput, FPhysicsWorld& World)
+{
+	const float Deflection = std::hypot(InInput.Move.X, InInput.Move.Y);
+	if (Deflection > 1.f)
+	{
+		InInput.Move = {InInput.Move.X / Deflection, InInput.Move.Y / Deflection};
+	}
+
+	Input = InInput;
+	Yaw = std::remainder(Yaw + Input.YawDelta, 2.f * std::numbers::pi_v<float>);
+	Pitch = std::clamp(Pitch + Input.PitchDelta, -MaximumPitch, MaximumPitch);
+	if (Input.bJump && !Ragdoll)
+	{
+		Mover->PressJump();
+	}
+
+	return StepPlayer(World, static_cast<float>(LevelFixedStep));
+}
+
+std::expected<void, FGameError> FGameSession::ReplayPlayer(const std::size_t InPlayer, const std::span<const FGameInput> Inputs)
+{
+	FImplementation& Session = *Implementation;
+	FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld();
+	if (InPlayer >= Session.Players.size() || !World)
+	{
+		return std::unexpected(FGameError{"Replaying needs an existing player and a running session"});
+	}
+
+	return Session.VisitPlayer(InPlayer, [&Session, World, Inputs]() -> std::expected<void, FGameError>
+	{
+		// The replayed steps already played their sounds and animation the first time.
+		const std::array Flags{Session.bJumpedThisUpdate, Session.bWallJumpedThisUpdate, Session.bMantledThisUpdate};
+		for (const FGameInput& Replayed : Inputs)
+		{
+			if (auto Stepped = Session.ReplayInput(Replayed, *World); !Stepped)
+			{
+				return std::unexpected(FGameError{std::format("Cannot replay the player: {}", Stepped.error().Message)});
+			}
+		}
+
+		Session.bJumpedThisUpdate = Flags[0];
+		Session.bWallJumpedThisUpdate = Flags[1];
+		Session.bMantledThisUpdate = Flags[2];
+		return {};
+	});
+}
+
+std::vector<FLevelBodyReplica> FGameSession::CaptureBodies() const
+{
+	return Implementation->Simulation.CaptureDynamicBodies();
+}
+
+std::expected<void, FGameError> FGameSession::ApplyBodies(const std::span<const FLevelBodyReplica> Bodies)
+{
+	for (const FLevelBodyReplica& Body : Bodies)
+	{
+		if (auto Applied = Implementation->Simulation.ApplyDynamicBody(Body); !Applied)
+		{
+			return std::unexpected(FGameError{std::format("Cannot place a replicated body: {}", Applied.error().Message)});
+		}
+	}
+
+	return {};
+}
+
+std::vector<FGameProjectileReplica> FGameSession::CaptureProjectiles() const
+{
+	const FImplementation& Session = *Implementation;
+	const FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld();
+	std::vector<FGameProjectileReplica> Replicas;
+	for (const FImplementation::FProjectile& Projectile : Session.Projectiles)
+	{
+		const auto Ball = Session.Simulation.FindSpawnedBody(Projectile.Handle);
+		const auto Transform = Ball && World ? World->GetBodyTransform(*Ball) : std::unexpected(FPhysicsError{});
+		const auto Velocity = Ball && World ? World->GetLinearVelocity(*Ball) : std::unexpected(FPhysicsError{});
+		if (Transform && Velocity)
+		{
+			Replicas.push_back({.Id = Projectile.Id, .Transform = *Transform, .LinearVelocity = *Velocity});
+		}
+	}
+
+	return Replicas;
+}
+
+std::expected<void, FGameError> FGameSession::ApplyProjectiles(const std::span<const FGameProjectileReplica> Replicas)
+{
+	FImplementation& Session = *Implementation;
+	FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld();
+	if (!World)
+	{
+		return std::unexpected(FGameError{"Replicated balls need a running session"});
+	}
+
+	for (std::size_t Index = 0; Index < Session.Projectiles.size();)
+	{
+		const std::uint32_t Id = Session.Projectiles[Index].Id;
+		if (std::ranges::any_of(Replicas, [Id](const FGameProjectileReplica& Replica)
+		{
+			return Replica.Id == Id;
+		}))
+		{
+			++Index;
+			continue;
+		}
+
+		if (auto Despawned = Session.Simulation.Despawn(Session.Projectiles[Index].Handle); !Despawned)
+		{
+			return std::unexpected(FGameError{Despawned.error().Message});
+		}
+
+		Session.Projectiles.erase(Session.Projectiles.begin() + static_cast<std::ptrdiff_t>(Index));
+	}
+
+	for (const FGameProjectileReplica& Replica : Replicas)
+	{
+		const auto Known = std::ranges::find(Session.Projectiles, Replica.Id, &FImplementation::FProjectile::Id);
+		if (Known == Session.Projectiles.end())
+		{
+			auto Ball = Session.SpawnBall(Replica.Transform, Replica.LinearVelocity);
+			if (!Ball)
+			{
+				return std::unexpected(FGameError{std::format("Cannot spawn a replicated ball: {}", Ball.error().Message)});
+			}
+
+			Session.Projectiles.push_back({.Handle = *Ball, .Thrower = Session.ViewPlayer, .Id = Replica.Id});
+			continue;
+		}
+
+		const auto Ball = Session.Simulation.FindSpawnedBody(Known->Handle);
+		if (Ball)
+		{
+			if (auto Placed = World->SetBodyState(*Ball, Replica.Transform, Replica.LinearVelocity, FVector3::Zero()); !Placed)
+			{
+				return std::unexpected(FGameError{Placed.error().Message});
+			}
+		}
+	}
+
+	return {};
+}
+
+std::vector<FGameNpcReplica> FGameSession::CaptureNpcs() const
+{
+	std::vector<FGameNpcReplica> Replicas;
+	const auto& Characters = Implementation->Characters;
+	for (std::size_t Index = 0; Index < Characters.size(); ++Index)
+	{
+		if (const FGameNpc* const Npc = Characters[Index].Npc.get())
+		{
+			Replicas.push_back({
+			    .Character = static_cast<std::uint32_t>(Index),
+			    .Foot = Npc->GetFootPosition(),
+			    .Yaw = Npc->GetYaw(),
+			    .GroundSpeed = Npc->GetGroundSpeed(),
+			    .Health = Npc->GetHealth(),
+			    .Attacks = Npc->GetAttackCount(),
+			});
+		}
+	}
+
+	return Replicas;
+}
+
+void FGameSession::ApplyNpcs(const std::span<const FGameNpcReplica> Replicas)
+{
+	auto& Characters = Implementation->Characters;
+	for (const FGameNpcReplica& Replica : Replicas)
+	{
+		const bool bFinite = std::isfinite(Replica.Foot.X) && std::isfinite(Replica.Foot.Y) && std::isfinite(Replica.Foot.Z) && std::isfinite(Replica.Yaw) && std::isfinite(Replica.GroundSpeed) && std::isfinite(Replica.Health);
+		if (Replica.Character < Characters.size() && Characters[Replica.Character].Npc && bFinite)
+		{
+			Characters[Replica.Character].Npc->SetPuppet(Replica.Foot, Replica.Yaw, Replica.GroundSpeed, std::clamp(Replica.Health, 0.f, 1.f), Replica.Attacks);
+		}
+	}
+}
+
+std::vector<FGameOutcome> FGameSession::TakeOutcomes()
+{
+	return std::exchange(Implementation->Outcomes, {});
+}
+
+std::expected<void, FGameError> FGameSession::ApplyOutcome(const FGameOutcome& Outcome)
+{
+	FImplementation& Session = *Implementation;
+	switch (Outcome.Kind)
+	{
+		case EGameOutcome::Break:
+		{
+			if (Outcome.Object >= Session.Entities.size())
+			{
+				return std::unexpected(FGameError{"A break names no level object"});
+			}
+
+			if (auto Broken = Session.Simulation.RestoreBonds(Outcome.Object, Outcome.IntactBonds); !Broken)
+			{
+				return std::unexpected(FGameError{std::format("Cannot break a replicated destructible: {}", Broken.error().Message)});
+			}
+
+			return {};
+		}
+		case EGameOutcome::Slice:
+		{
+			if (auto Cut = SliceCharacter(Outcome.Object, Outcome.Point, Outcome.Normal); !Cut)
+			{
+				return std::unexpected(Cut.error());
+			}
+
+			return {};
+		}
+		case EGameOutcome::Sever:
+		{
+			if (auto Cut = SeverCharacter(Outcome.Object, Outcome.Joint); !Cut)
+			{
+				return std::unexpected(Cut.error());
+			}
+
+			return {};
+		}
+	}
+
+	return std::unexpected(FGameError{"Unknown outcome"});
 }
 
 std::expected<void, FGameError> FGameSession::Restart()
@@ -1355,7 +1759,7 @@ std::expected<void, FGameError> FGameSession::UpdatePlayers(const float DeltaSec
 	{
 		if (auto Stepped = Session.ForEachPlayerUntilError<FPhysicsError>([&Session, &World, StepSeconds]
 		{
-			return Session.StepPlayer(World, StepSeconds);
+			return Session.bSimulated ? Session.StepPlayer(World, StepSeconds) : std::expected<void, FPhysicsError>{};
 		}); !Stepped)
 		{
 			return Stepped;
@@ -1380,6 +1784,12 @@ std::expected<void, FGameError> FGameSession::UpdatePlayers(const float DeltaSec
 
 std::expected<void, FGameError> FGameSession::FImplementation::BeginPlayerUpdate(FGameInput InInput, const float DeltaSeconds)
 {
+	if (!bSimulated)
+	{
+		Input = {};
+		return {};
+	}
+
 	// Network input is untrusted, so a stick past full deflection counts as full deflection.
 	const float Deflection = std::hypot(InInput.Move.X, InInput.Move.Y);
 	if (Deflection > 1.f)
@@ -1435,7 +1845,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::BeginPlayerUpdate
 		}
 	}
 
-	if (Input.bThrow)
+	if (Input.bThrow && bAuthority)
 	{
 		if (auto Thrown = Throw(); !Thrown)
 		{
@@ -1448,13 +1858,14 @@ std::expected<void, FGameError> FGameSession::FImplementation::BeginPlayerUpdate
 
 std::expected<void, FGameError> FGameSession::FImplementation::FinishUpdate(const float DeltaSeconds)
 {
-	if (auto Aged = AgeProjectiles(DeltaSeconds); !Aged)
+	if (auto Aged = bAuthority ? AgeProjectiles(DeltaSeconds) : std::expected<void, FPhysicsError>{}; !Aged)
 	{
 		return std::unexpected(FGameError{std::format("Physics failed: {}", Aged.error().Message)});
 	}
 
 	for (const FLevelBreakEvent& Break : Simulation.TakeBreakEvents())
 	{
+		Outcomes.push_back({.Kind = EGameOutcome::Break, .Object = static_cast<std::uint32_t>(Break.ObjectIndex), .IntactBonds = Simulation.GetIntactBonds(Break.ObjectIndex)});
 		Events.push_back(std::format("{} broke ({} bonds)", Entities[Break.ObjectIndex].Name, Break.BrokenBonds));
 		Audio.Play(ELevelSound::Impact, Break.Point, {{.Name = "Impulse", .Value = MaximumImpactImpulse}});
 		RequestEffect(ELevelEffect::Break, Break.Point);
@@ -1518,12 +1929,17 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishUpdate(cons
 
 std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdate(const float DeltaSeconds)
 {
-	UpdateObjective(DeltaSeconds);
+	if (bSimulated)
+	{
+		UpdateObjective(DeltaSeconds);
+	}
+
 	if (Body && !Ragdoll)
 	{
 		if (Input.bAttack)
 		{
 			Body->FireTrigger("Attack");
+			++Attacks;
 		}
 
 		Body->SetBool("Blocking", Input.bBlock);
@@ -1531,7 +1947,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 
 	const bool bJumped = bJumpedThisUpdate || bWallJumpedThisUpdate;
 	UpdateBody(DeltaSeconds);
-	if (Body && !Ragdoll)
+	if (Body && !Ragdoll && bAuthority)
 	{
 		if (auto Swept = SweepBlade(); !Swept)
 		{
@@ -1588,10 +2004,24 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::Throw()
 
 	const FVector3 Direction = GetLookOrientation(Yaw, Pitch).RotateVector(FVector3::Forward());
 	const FVector3 Eye = Mover->GetState().Foot + FVector3::Up() * EyeHeight;
+	const FVector3 Velocity = Direction * ProjectileSpeed + FVector3{Mover->GetState().Velocity.X, 0.f, Mover->GetState().Velocity.Z};
+	const auto Ball = SpawnBall({.Position = Eye + Direction * (Player.Movement.Radius + ProjectileRadius + 0.1f), .Rotation = FQuaternion::Identity()}, Velocity);
+	if (!Ball)
+	{
+		return std::unexpected(Ball.error());
+	}
+
+	Projectiles.push_back({.Handle = *Ball, .Thrower = ActivePlayer, .Id = NextProjectileId++});
+	return {};
+}
+
+std::expected<FLevelSimulationHandle, FPhysicsError> FGameSession::FImplementation::SpawnBall(const FPhysicsBodyTransform& Transform, const FVector3& Velocity)
+{
 	const auto Ball = Simulation.Spawn({
 	    .Shape = EPhysicsShape::Sphere,
 	    .Radius = ProjectileRadius,
-	    .Position = Eye + Direction * (Player.Movement.Radius + ProjectileRadius + 0.1f),
+	    .Position = Transform.Position,
+	    .Rotation = Transform.Rotation,
 	    .MotionType = EPhysicsMotionType::Dynamic,
 	    .Properties = {.MassKg = ProjectileMassKg, .Friction = 0.5f, .Restitution = 0.35f, .LinearDamping = 0.01f, .AngularDamping = 0.2f},
 	    .bReportContacts = true,
@@ -1600,7 +2030,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::Throw()
 
 	if (!Ball)
 	{
-		return std::unexpected(Ball.error());
+		return Ball;
 	}
 
 	const auto BallBody = Simulation.FindSpawnedBody(*Ball);
@@ -1609,13 +2039,12 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::Throw()
 		return std::unexpected(FPhysicsError{"Spawned projectile has no physics body"});
 	}
 
-	if (auto Launched = Simulation.GetPhysicsWorld()->SetVelocity(*BallBody, Direction * ProjectileSpeed + FVector3{Mover->GetState().Velocity.X, 0.f, Mover->GetState().Velocity.Z}); !Launched)
+	if (auto Launched = Simulation.GetPhysicsWorld()->SetVelocity(*BallBody, Velocity); !Launched)
 	{
-		return Launched;
+		return std::unexpected(Launched.error());
 	}
 
-	Projectiles.push_back({.Handle = *Ball, .Thrower = ActivePlayer});
-	return {};
+	return Ball;
 }
 
 std::expected<void, FPhysicsError> FGameSession::FImplementation::AgeProjectiles(const float DeltaSeconds)
@@ -1746,6 +2175,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade()
 
 		if (*Cut)
 		{
+			Outcomes.push_back({.Kind = EGameOutcome::Slice, .Object = static_cast<std::uint32_t>(Index), .Point = Blade[0], .Normal = Unit});
 			Audio.Play(ELevelSound::Slice, (Blade[0] + Blade[1]) * 0.5f);
 			RequestEffect(ELevelEffect::Slice, (Blade[0] + Blade[1]) * 0.5f, Unit);
 		}
@@ -1830,7 +2260,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 		const auto Ball = Simulation.FindSpawnedBody(Projectile.Handle);
 		const auto Transform = Ball ? World.GetBodyTransform(*Ball) : std::unexpected(FPhysicsError{});
 		const auto Velocity = Ball ? World.GetLinearVelocity(*Ball) : std::unexpected(FPhysicsError{});
-		if (Projectile.bSpent || !Transform || !Velocity)
+		if (!bAuthority || Projectile.bSpent || !Transform || !Velocity)
 		{
 			continue;
 		}
@@ -1879,6 +2309,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 
 				if (*Severed)
 				{
+					Outcomes.push_back({.Kind = EGameOutcome::Sever, .Object = static_cast<std::uint32_t>(Index), .Joint = std::string(Actor.Body->GetJointName(*Joint))});
 					Audio.Play(ELevelSound::Sever, Transform->Position);
 					RequestEffect(ELevelEffect::Sever, Transform->Position, -Velocity->Normalized());
 				}
@@ -2840,6 +3271,24 @@ void FGameSession::FImplementation::StrikePlayer(const FCharacterActor& Actor)
 
 void FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float StepSeconds)
 {
+	// A client's characters stand where the server's agents put them.
+	if (!bAuthority)
+	{
+		for (FCharacterActor& Actor : Characters)
+		{
+			if (Actor.Npc && !Actor.Npc->IsDead())
+			{
+				Actor.Model = Actor.Npc->GetModel(1.f);
+				if (Actor.Collider.Value != 0)
+				{
+					(void)World.MoveKinematicBody(Actor.Collider, {.Position = Actor.Npc->GetFootPosition() + FVector3::Up() * 0.9f, .Rotation = FQuaternion::Identity()}, StepSeconds);
+				}
+			}
+		}
+
+		return;
+	}
+
 	FNavigationWorld* const Crowd = Navigation.GetWorld();
 	ForEachPlayer([this, Crowd]
 	{

@@ -138,7 +138,6 @@ struct FGameObjective
 	std::uint32_t Respawns = 0;
 };
 
-// An AI agent as automation and debuggers see it.
 struct FGameSessionSnapshotState;
 
 // The session between two updates, for rollback: physics, every player's movement and run, and thrown balls. AI, animation, sound, and
@@ -148,6 +147,61 @@ struct FGameSessionSnapshot
 	std::shared_ptr<const FGameSessionSnapshotState> State{};
 };
 
+// One player as a server sends it: a client shows remote players from it and corrects its own prediction with it.
+struct FGamePlayerReplica
+{
+	FMoverSnapshot Mover{};
+	float Yaw = 0.f;
+	float Pitch = 0.f;
+	FGameObjective Objective{};
+	bool bRagdolled = false;
+	bool bBlocking = false;
+	// Counts swings started, so a client starts each one it learns of.
+	std::uint32_t Attacks = 0;
+};
+
+// A thrown ball, under an id the server gives it.
+struct FGameProjectileReplica
+{
+	std::uint32_t Id = 0;
+	FPhysicsBodyTransform Transform{};
+	FVector3 LinearVelocity = FVector3::Zero();
+};
+
+// An AI-driven character, by its index among the session's characters.
+struct FGameNpcReplica
+{
+	std::uint32_t Character = 0;
+	FVector3 Foot = FVector3::Zero();
+	float Yaw = 0.f;
+	float GroundSpeed = 0.f;
+	float Health = 1.f;
+	std::uint32_t Attacks = 0;
+};
+
+enum class EGameOutcome : std::uint8_t
+{
+	// A destructible lost bonds; IntactBonds holds the ones left.
+	Break,
+	// A blade cut a character along the plane through Point with Normal.
+	Slice,
+	// A ball severed a character at Joint.
+	Sever,
+};
+
+// Something only the server decides, which every client applies once and in order.
+struct FGameOutcome
+{
+	EGameOutcome Kind = EGameOutcome::Break;
+	// The entity index of a destructible, or a character's index.
+	std::uint32_t Object = 0;
+	std::vector<bool> IntactBonds{};
+	FVector3 Point = FVector3::Zero();
+	FVector3 Normal = FVector3::Up();
+	std::string Joint{};
+};
+
+// An AI agent as automation and debuggers see it.
 struct FGameAgentState
 {
 	std::string Name{};
@@ -231,6 +285,10 @@ public:
 	// Later players' indices move down by one. The last player cannot leave.
 	[[nodiscard]] std::expected<void, FGameError> RemovePlayer(std::size_t Player);
 	[[nodiscard]] std::size_t GetPlayerCount() const noexcept;
+	// Back at its place beside the spawn with a fresh run, keeping its best time, such as for a new owner.
+	[[nodiscard]] std::expected<void, FGameError> ResetPlayer(std::size_t Player);
+	// Moves a player's capsule without changing anything else, such as parking a player nobody owns out of the way.
+	[[nodiscard]] std::expected<void, FGameError> PlacePlayer(std::size_t Player, const FVector3& Foot);
 	// The player the view, the listener, and the player accessors below follow.
 	[[nodiscard]] std::expected<void, FGameError> SetViewPlayer(std::size_t Player);
 	[[nodiscard]] std::size_t GetViewPlayer() const noexcept;
@@ -239,6 +297,25 @@ public:
 	[[nodiscard]] std::expected<void, FGameError> RestoreSnapshot(const FGameSessionSnapshot& Snapshot);
 	// Physics and every player's movement, run, and view, equal for the same inputs from the same snapshot.
 	[[nodiscard]] std::uint64_t ComputeStateHash() const;
+
+	// Off on a client: agents, destruction, cuts, and thrown balls come from the server instead of the local simulation.
+	void SetAuthority(bool bInAuthority);
+	// A remote player on a client follows replicas instead of input.
+	[[nodiscard]] std::expected<void, FGameError> SetPlayerSimulated(std::size_t Player, bool bSimulated);
+	[[nodiscard]] FGamePlayerReplica CapturePlayer(std::size_t Player) const;
+	[[nodiscard]] std::expected<void, FGameError> ApplyPlayer(std::size_t Player, const FGamePlayerReplica& Replica);
+	// Steps only that player's movement, one fixed step per input, against the world as it stands, as reconciliation does after a correction.
+	[[nodiscard]] std::expected<void, FGameError> ReplayPlayer(std::size_t Player, std::span<const FGameInput> Inputs);
+	[[nodiscard]] std::vector<FLevelBodyReplica> CaptureBodies() const;
+	[[nodiscard]] std::expected<void, FGameError> ApplyBodies(std::span<const FLevelBodyReplica> Bodies);
+	[[nodiscard]] std::vector<FGameProjectileReplica> CaptureProjectiles() const;
+	// Every ball the server has: missing ones spawn, gone ones despawn, and the rest move to their replicas.
+	[[nodiscard]] std::expected<void, FGameError> ApplyProjectiles(std::span<const FGameProjectileReplica> Projectiles);
+	[[nodiscard]] std::vector<FGameNpcReplica> CaptureNpcs() const;
+	void ApplyNpcs(std::span<const FGameNpcReplica> Npcs);
+	// Breaks and cuts since the previous call, in the order they happened.
+	[[nodiscard]] std::vector<FGameOutcome> TakeOutcomes();
+	[[nodiscard]] std::expected<void, FGameError> ApplyOutcome(const FGameOutcome& Outcome);
 
 	// The view from the player's eyes. The spans stay valid until the next Update, Restart, or GetRenderView.
 	[[nodiscard]] const FMeshRenderView& GetRenderView(FExtent2D Extent);

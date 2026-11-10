@@ -5,6 +5,7 @@
 #include "Herta/Physics/PhysicsWorld.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -154,6 +155,16 @@ struct FLevelBreakEvent
 
 struct FLevelSimulationSnapshotState;
 
+// A moving level body as a server sends it. Body counts the simulation's bodies in level order, which every peer that loaded the same level
+// shares.
+struct FLevelBodyReplica
+{
+	std::uint32_t Body = 0;
+	FPhysicsBodyTransform Transform{};
+	FVector3 LinearVelocity = FVector3::Zero();
+	FVector3 AngularVelocity = FVector3::Zero();
+};
+
 // The whole simulation between two fixed steps, for rollback. It restores only into the simulation that saved it, while that holds the same
 // bodies: a spawn, a despawn, or a break in between makes it stale.
 struct FLevelSimulationSnapshot
@@ -209,6 +220,11 @@ public:
 	[[nodiscard]] std::expected<void, FPhysicsError> RestoreBonds(std::size_t ObjectIndex, const std::vector<bool>& Intact);
 	// Impacts since the previous call, in step order; contacts report for Dynamic level bodies, spawned bodies that ask, and destructibles.
 	std::vector<FLevelImpactEvent> TakeImpactEvents();
+	// Off on a client, whose destructibles break only when the server says so.
+	void SetBreakable(bool bInBreakable) noexcept;
+	// Every Dynamic level body, without movers, triggers, spawns, or destructible islands.
+	[[nodiscard]] std::vector<FLevelBodyReplica> CaptureDynamicBodies() const;
+	[[nodiscard]] std::expected<void, FPhysicsError> ApplyDynamicBody(const FLevelBodyReplica& Replica);
 	[[nodiscard]] FLevelSimulationSnapshot SaveSnapshot() const;
 	// Pending events are dropped, since the steps that produced them are undone.
 	[[nodiscard]] std::expected<void, FPhysicsError> RestoreSnapshot(const FLevelSimulationSnapshot& Snapshot);
@@ -310,5 +326,6 @@ private:
 
 	double Accumulator = 0.0;
 	double Time = 0.0;
+	bool bBreakable = true;
 };
 }

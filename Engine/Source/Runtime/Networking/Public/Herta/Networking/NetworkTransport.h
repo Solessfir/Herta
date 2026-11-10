@@ -99,8 +99,9 @@ public:
 	[[nodiscard]] std::uint16_t GetListenPort() const;
 	// Connects to "host:port", such as "127.0.0.1:27015" or "[::1]:27015".
 	[[nodiscard]] std::expected<FNetworkConnectionId, FNetworkError> Connect(std::string_view Address);
-	// Two connected ends in this process that pass through the same messages, encryption, and simulated conditions as a real connection.
-	[[nodiscard]] std::expected<std::pair<FNetworkConnectionId, FNetworkConnectionId>, FNetworkError> ConnectLoopback();
+	// Two connected ends in this process, this transport's first and Peer's second, that pass through the same messages, encryption, and
+	// simulated conditions as a real connection. Peer may be this transport.
+	[[nodiscard]] std::expected<std::pair<FNetworkConnectionId, FNetworkConnectionId>, FNetworkError> ConnectLoopback(FNetworkTransport& Peer);
 	[[nodiscard]] std::expected<void, FNetworkError> Accept(FNetworkConnectionId Connection);
 	void Close(FNetworkConnectionId Connection, std::string_view Reason);
 

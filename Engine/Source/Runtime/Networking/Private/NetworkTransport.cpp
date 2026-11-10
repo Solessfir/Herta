@@ -221,7 +221,7 @@ std::expected<FNetworkConnectionId, FNetworkError> FNetworkTransport::Connect(co
 	return FNetworkConnectionId{Connection};
 }
 
-std::expected<std::pair<FNetworkConnectionId, FNetworkConnectionId>, FNetworkError> FNetworkTransport::ConnectLoopback()
+std::expected<std::pair<FNetworkConnectionId, FNetworkConnectionId>, FNetworkError> FNetworkTransport::ConnectLoopback(FNetworkTransport& Peer)
 {
 	FImplementation& Transport = *Implementation;
 	HSteamNetConnection First = k_HSteamNetConnection_Invalid;
@@ -231,15 +231,16 @@ std::expected<std::pair<FNetworkConnectionId, FNetworkConnectionId>, FNetworkErr
 		return std::unexpected(MakeError("Cannot create a loopback connection"));
 	}
 
-	for (const HSteamNetConnection Connection : {First, Second})
+	// Each end belongs to its own transport, so each one's Poll sees only its own end, as across a real network.
+	for (const auto& [Connection, Owner] : {std::pair{First, &Transport}, std::pair{Second, Peer.Implementation.get()}})
 	{
-		Transport.Sockets->SetConnectionPollGroup(Connection, Transport.PollGroup);
-		Transport.Connections.push_back(Connection);
+		Owner->Sockets->SetConnectionPollGroup(Connection, Owner->PollGroup);
+		Owner->Sockets->SetConnectionUserData(Connection, static_cast<std::int64_t>(reinterpret_cast<std::intptr_t>(Owner)));
+		Owner->Connections.push_back(Connection);
+		// A socket pair starts connected, so its connections are announced here rather than by status changes.
+		Owner->Events.push_back({.Connection = {Connection}, .State = ENetworkConnectionState::Connected});
 	}
 
-	// A socket pair starts connected, so its connections are announced here rather than by status changes.
-	Transport.Events.push_back({.Connection = {First}, .State = ENetworkConnectionState::Connected});
-	Transport.Events.push_back({.Connection = {Second}, .State = ENetworkConnectionState::Connected});
 	return std::pair{FNetworkConnectionId{First}, FNetworkConnectionId{Second}};
 }
 
