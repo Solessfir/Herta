@@ -356,10 +356,16 @@ HertaRuntimeModule("AnimationGraph", {
     PublicDependencies = { "GraphCore", "Assets" }
 })
 
+-- The Audio Graph schema and its compiler to sound graph data, run by the editor, the asset cooker, and tests; games play the cooked data.
+HertaRuntimeModule("AudioGraph", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AudioGraph"),
+    PublicDependencies = { "GraphCore", "Assets" }
+})
+
 HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
     PublicDependencies = { "Core", "Assets", "EditorCore" },
-    PrivateDependencies = { "Platform", "Level", "Project", "Math", "GraphCore", "MaterialGraph", "AnimationGraph", "Animation" },
+    PrivateDependencies = { "Platform", "Level", "Project", "Math", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "Audio", "Animation" },
     PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer", "OzzAnimationOffline", "OzzAnimation", "OzzBase" }
 })
     externalincludedirs {
@@ -544,7 +550,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Animation", "Audio", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Animation", "Audio", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }

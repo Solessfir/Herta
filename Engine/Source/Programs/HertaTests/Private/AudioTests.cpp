@@ -484,42 +484,15 @@ TEST_CASE("The mixer stays consistent while another thread renders under command
 TEST_CASE("Sound decoding reads WAV files and rejects garbage")
 {
 	// A 16-bit stereo WAV with a known ramp.
-	std::vector<std::byte> Wav;
-	const auto Put = [&Wav](const auto Value, const std::size_t Size)
-	{
-		for (std::size_t Byte = 0; Byte < Size; ++Byte)
-		{
-			Wav.push_back(static_cast<std::byte>((static_cast<std::uint64_t>(Value) >> (Byte * 8)) & 0xff));
-		}
-	};
-
-	const auto Tag = [&Wav](const std::string_view Text)
-	{
-		for (const char Character : Text)
-		{
-			Wav.push_back(static_cast<std::byte>(Character));
-		}
-	};
-
 	constexpr std::uint32_t Frames = 1000;
-	Tag("RIFF");
-	Put(36 + Frames * 4, 4);
-	Tag("WAVEfmt ");
-	Put(16, 4);
-	Put(1, 2);
-	Put(2, 2);
-	Put(22050, 4);
-	Put(22050 * 4, 4);
-	Put(4, 2);
-	Put(16, 2);
-	Tag("data");
-	Put(Frames * 4, 4);
+	std::vector<std::int16_t> Ramp;
 	for (std::uint32_t Frame = 0; Frame < Frames; ++Frame)
 	{
-		Put(static_cast<std::uint16_t>(static_cast<std::int16_t>(Frame * 10)), 2);
-		Put(static_cast<std::uint16_t>(static_cast<std::int16_t>(-static_cast<std::int32_t>(Frame) * 10)), 2);
+		Ramp.push_back(static_cast<std::int16_t>(Frame * 10));
+		Ramp.push_back(static_cast<std::int16_t>(-static_cast<std::int32_t>(Frame) * 10));
 	}
 
+	const std::vector<std::byte> Wav = Tests::EncodeWav(22050, 2, Ramp);
 	const auto Decoded = DecodeSound(Wav);
 	REQUIRE(Decoded);
 	CHECK(Decoded->SampleRate == 22050);

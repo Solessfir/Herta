@@ -3,6 +3,7 @@
 #include "BlenderImporter.h"
 #include "FileUtilities.h"
 #include "GltfCooker.h"
+#include "SoundCooker.h"
 #include "Herta/AssetPipeline/AssetMetadata.h"
 #include "Herta/AssetPipeline/BuildKey.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
@@ -604,6 +605,8 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	std::optional<FBlenderInstallation> Blender;
 	std::optional<FBlenderExport> BlenderExport;
 	std::optional<FMaterialAsset> Material;
+	std::optional<FSoundSettings> SoundSettings;
+	std::optional<FCookedSoundGraph> SoundGraph;
 	FHash128 BlenderRecordKey;
 	std::expected<ETextureColorSpace, FAssetError> ColorSpace = ETextureColorSpace::Srgb;
 
@@ -656,6 +659,28 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 		if (auto Added = AppendMaterialDependencies(Request, *Material, KeyInput.Dependencies); !Added)
 		{
 			return std::unexpected(Added.error());
+		}
+	}
+	else if (Metadata->Importer == "Sound" || Metadata->Importer == "AudioGraph")
+	{
+		const bool bWave = Metadata->Importer == "Sound";
+		KeyInput.ImporterVersion = bWave ? SoundImporterVersion : AudioGraphImporterVersion;
+		auto Parsed = ParseSoundSettings(Metadata->Settings, bWave);
+		if (!Parsed)
+		{
+			return std::unexpected(std::move(Parsed.error()));
+		}
+
+		SoundSettings = std::move(*Parsed);
+		if (!bWave)
+		{
+			auto Graph = CookSoundGraph(Request.ContentRoot, Request.SourcePath, *Source, *SoundSettings, KeyInput.Dependencies);
+			if (!Graph)
+			{
+				return std::unexpected(std::move(Graph.error()));
+			}
+
+			SoundGraph = std::move(*Graph);
 		}
 	}
 	else if (Metadata->Importer == "Gltf")
@@ -791,6 +816,15 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 		}
 
 		Cooked = std::move(*Material);
+	}
+	else if (Metadata->Importer == "Sound")
+	{
+		std::expected<FCookedSound, FAssetError> Sound = CookSound(*Source, *SoundSettings);
+		Cooked = Sound ? std::expected<FCookedAsset, FAssetError>(std::move(*Sound)) : std::unexpected(std::move(Sound.error()));
+	}
+	else if (Metadata->Importer == "AudioGraph")
+	{
+		Cooked = std::move(*SoundGraph);
 	}
 	else if (Metadata->Importer == "Gltf")
 	{

@@ -36,5 +36,7 @@ void WriteText(const std::filesystem::path& Path, std::string_view Text);
 // Encodes tightly packed RGBA8 rows as a PNG file.
 void WritePng(const std::filesystem::path& Path, std::uint32_t Width, std::uint32_t Height, std::span<const std::uint8_t> RgbaPixels);
 [[nodiscard]] std::vector<std::byte> EncodePng(std::uint32_t Width, std::uint32_t Height, std::span<const std::uint8_t> RgbaPixels);
+// A 16-bit PCM WAV file of interleaved samples.
+[[nodiscard]] std::vector<std::byte> EncodeWav(std::uint32_t SampleRate, std::uint32_t Channels, std::span<const std::int16_t> Samples);
 [[nodiscard]] std::filesystem::path GetSiblingExecutable(std::string_view Name);
 }

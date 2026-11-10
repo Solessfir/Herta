@@ -20,6 +20,8 @@ namespace Herta
 inline constexpr std::uint32_t TextureImporterVersion = 3;
 inline constexpr std::uint32_t GltfImporterVersion = 4;
 inline constexpr std::uint32_t MaterialImporterVersion = 1;
+inline constexpr std::uint32_t SoundImporterVersion = 1;
+inline constexpr std::uint32_t AudioGraphImporterVersion = 1;
 
 // Also covers the Herta export preset script run inside Blender.
 inline constexpr std::uint32_t BlenderImporterVersion = 4;

@@ -46,6 +46,46 @@ void WriteText(const std::filesystem::path& Path, const std::string_view Text)
 	WriteBytes(Path, std::as_bytes(std::span(Text.data(), Text.size())));
 }
 
+std::vector<std::byte> EncodeWav(const std::uint32_t SampleRate, const std::uint32_t Channels, const std::span<const std::int16_t> Samples)
+{
+	std::vector<std::byte> Wav;
+	const auto Put = [&Wav](const std::uint64_t Value, const std::size_t Size)
+	{
+		for (std::size_t Byte = 0; Byte < Size; ++Byte)
+		{
+			Wav.push_back(static_cast<std::byte>((Value >> (Byte * 8)) & 0xff));
+		}
+	};
+
+	const auto Tag = [&Wav](const std::string_view Text)
+	{
+		for (const char Character : Text)
+		{
+			Wav.push_back(static_cast<std::byte>(Character));
+		}
+	};
+
+	const auto Bytes = static_cast<std::uint32_t>(Samples.size() * 2);
+	Tag("RIFF");
+	Put(36 + Bytes, 4);
+	Tag("WAVEfmt ");
+	Put(16, 4);
+	Put(1, 2);
+	Put(Channels, 2);
+	Put(SampleRate, 4);
+	Put(std::uint64_t{SampleRate} * Channels * 2, 4);
+	Put(Channels * 2, 2);
+	Put(16, 2);
+	Tag("data");
+	Put(Bytes, 4);
+	for (const std::int16_t Sample : Samples)
+	{
+		Put(static_cast<std::uint16_t>(Sample), 2);
+	}
+
+	return Wav;
+}
+
 std::vector<std::byte> EncodePng(const std::uint32_t Width, const std::uint32_t Height, const std::span<const std::uint8_t> RgbaPixels)
 {
 	std::vector<std::byte> Bytes;

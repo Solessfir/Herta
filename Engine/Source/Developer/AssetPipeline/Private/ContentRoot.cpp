@@ -24,13 +24,17 @@ struct FImporterExtension
 
 inline constexpr std::array ImporterExtensions{
     FImporterExtension{.Extension = ".blend", .Importer = "Blender"},
+    FImporterExtension{.Extension = ".flac", .Importer = "Sound"},
     FImporterExtension{.Extension = ".glb", .Importer = "Gltf"},
     FImporterExtension{.Extension = ".gltf", .Importer = "Gltf"},
+    FImporterExtension{.Extension = ".haudiograph", .Importer = "AudioGraph"},
     FImporterExtension{.Extension = ".hmat", .Importer = "Material"},
     FImporterExtension{.Extension = ".hdr", .Importer = "Texture"},
     FImporterExtension{.Extension = ".jpeg", .Importer = "Texture"},
     FImporterExtension{.Extension = ".jpg", .Importer = "Texture"},
+    FImporterExtension{.Extension = ".mp3", .Importer = "Sound"},
     FImporterExtension{.Extension = ".png", .Importer = "Texture"},
+    FImporterExtension{.Extension = ".wav", .Importer = "Sound"},
 };
 
 [[nodiscard]] std::string ToLowerAscii(std::string Text)
