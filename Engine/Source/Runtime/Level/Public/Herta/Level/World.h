@@ -259,6 +259,39 @@ struct FParticleEmitterComponent
 	float Scale = 1.f;
 };
 
+// Builds navigation inside this box, centered on the entity and turned and scaled with it. The level's static bodies in any of its boxes become
+// the ground agents walk; a level without one has no navigation.
+struct FNavigationBoundsComponent
+{
+	constexpr bool operator==(const FNavigationBoundsComponent&) const = default;
+
+	FVector3 Size{20.f, 10.f, 20.f};
+};
+
+// Cuts this box, centered on the entity, out of the navigation under it during Play, and follows the entity as it moves. Dynamic bodies and
+// destructibles cut their own; this is for anything else agents should walk around.
+struct FNavigationObstacleComponent
+{
+	constexpr bool operator==(const FNavigationObstacleComponent&) const = default;
+
+	FVector3 Size{1.f, 1.f, 1.f};
+};
+
+// Gives a Character a mind during Play: it sees the player within its range and view, hears noise within its hearing, remembers where it
+// last sensed them, walks the navigation, and acts out its StateTree.
+struct FAiAgentComponent
+{
+	constexpr bool operator==(const FAiAgentComponent&) const = default;
+
+	FAssetId StateTree{};
+	float SightRange = 15.f;
+	// Half the field of view about where it faces.
+	float SightHalfAngle = 1.0471976f;
+	float HearingRange = 12.f;
+	float WalkSpeed = 1.5f;
+	float RunSpeed = 4.f;
+};
+
 // Hears the level from the entity instead of the camera during Play, such as for a fixed camera. The active listener with the lowest ID wins.
 struct FAudioListenerComponent
 {
@@ -340,6 +373,9 @@ struct FLevelEntity
 	std::optional<FAudioEmitterComponent> AudioEmitter{};
 	std::optional<FAudioListenerComponent> AudioListener{};
 	std::optional<FParticleEmitterComponent> ParticleEmitter{};
+	std::optional<FNavigationBoundsComponent> NavigationBounds{};
+	std::optional<FNavigationObstacleComponent> NavigationObstacle{};
+	std::optional<FAiAgentComponent> AiAgent{};
 };
 
 struct FLevelEntityChange
@@ -366,6 +402,9 @@ struct FLevelError
 [[nodiscard]] std::expected<void, FLevelError> ValidateCharacterComponent(const FCharacterComponent& Character);
 [[nodiscard]] std::expected<void, FLevelError> ValidateAudioEmitterComponent(const FAudioEmitterComponent& Emitter);
 [[nodiscard]] std::expected<void, FLevelError> ValidateParticleEmitterComponent(const FParticleEmitterComponent& Emitter);
+[[nodiscard]] std::expected<void, FLevelError> ValidateNavigationBoundsComponent(const FNavigationBoundsComponent& Bounds);
+[[nodiscard]] std::expected<void, FLevelError> ValidateNavigationObstacleComponent(const FNavigationObstacleComponent& Obstacle);
+[[nodiscard]] std::expected<void, FLevelError> ValidateAiAgentComponent(const FAiAgentComponent& Agent);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final

@@ -383,13 +383,13 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();
-	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels, .SoundIds = SoundIds, .SoundLabels = SoundLabels, .EffectIds = EffectIds, .EffectLabels = EffectLabels};
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels, .SoundIds = SoundIds, .SoundLabels = SoundLabels, .EffectIds = EffectIds, .EffectLabels = EffectLabels, .StateTreeIds = StateTreeIds, .StateTreeLabels = StateTreeLabels};
 	std::vector<FDetailsMaterialSlot> MaterialSlots;
 	std::vector<FAssetId> MaterialIds;
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 12> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 15> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -462,6 +462,9 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(9, ELevelComponentType::AudioEmitter, Entity->AudioEmitter.has_value(), Components.bAnyAudioEmitter, Components.bAllAudioEmitter, Components.MixedAudioEmitter);
 			Aggregate(10, ELevelComponentType::AudioListener, Entity->AudioListener.has_value(), Components.bAnyAudioListener, Components.bAllAudioListener, Components.MixedAudioListener);
 			Aggregate(11, ELevelComponentType::ParticleEmitter, Entity->ParticleEmitter.has_value(), Components.bAnyParticleEmitter, Components.bAllParticleEmitter, Components.MixedParticleEmitter);
+			Aggregate(12, ELevelComponentType::NavigationBounds, Entity->NavigationBounds.has_value(), Components.bAnyNavigationBounds, Components.bAllNavigationBounds, Components.MixedNavigationBounds);
+			Aggregate(13, ELevelComponentType::NavigationObstacle, Entity->NavigationObstacle.has_value(), Components.bAnyNavigationObstacle, Components.bAllNavigationObstacle, Components.MixedNavigationObstacle);
+			Aggregate(14, ELevelComponentType::AiAgent, Entity->AiAgent.has_value(), Components.bAnyAiAgent, Components.bAllAiAgent, Components.MixedAiAgent);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -581,6 +584,21 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[11])
 	{
 		Components.ParticleEmitter = *VisualBaselines[11]->ParticleEmitter;
+	}
+
+	if (VisualBaselines[12])
+	{
+		Components.NavigationBounds = *VisualBaselines[12]->NavigationBounds;
+	}
+
+	if (VisualBaselines[13])
+	{
+		Components.NavigationObstacle = *VisualBaselines[13]->NavigationObstacle;
+	}
+
+	if (VisualBaselines[14])
+	{
+		Components.AiAgent = *VisualBaselines[14]->AiAgent;
 	}
 
 	if (VisualBaselines[5])
@@ -865,6 +883,24 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveParticleEmitter:
 				ReportLevelResult(Level->SetSelectedParticleEmitter(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddNavigationBounds:
+				ReportLevelResult(Level->AddNavigationBoundsToSelected());
+				break;
+			case EDetailsComponentAction::RemoveNavigationBounds:
+				ReportLevelResult(Level->SetSelectedNavigationBounds(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddNavigationObstacle:
+				ReportLevelResult(Level->AddNavigationObstacleToSelected());
+				break;
+			case EDetailsComponentAction::RemoveNavigationObstacle:
+				ReportLevelResult(Level->SetSelectedNavigationObstacle(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddAiAgent:
+				ReportLevelResult(Level->AddAiAgentToSelected());
+				break;
+			case EDetailsComponentAction::RemoveAiAgent:
+				ReportLevelResult(Level->SetSelectedAiAgent(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;

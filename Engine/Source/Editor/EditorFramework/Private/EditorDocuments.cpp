@@ -498,6 +498,8 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	SoundLabels.clear();
 	EffectIds.clear();
 	EffectLabels.clear();
+	StateTreeIds.clear();
+	StateTreeLabels.clear();
 	VisualSettings.Atmosphere.reset();
 	VisualSettings.Fog.reset();
 	std::vector<FAssetId> Materials;
@@ -652,6 +654,11 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 			{
 				EffectIds.push_back(Option.Id);
 				EffectLabels.push_back(Option.Label);
+			}
+			else if (Option.Importer == "StateTree")
+			{
+				StateTreeIds.push_back(Option.Id);
+				StateTreeLabels.push_back(Option.Label);
 			}
 		}
 	}

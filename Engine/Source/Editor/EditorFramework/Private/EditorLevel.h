@@ -95,6 +95,12 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedAudioListener(std::optional<FAudioListenerComponent> Listener);
 	[[nodiscard]] std::expected<void, FLevelError> AddParticleEmitterToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedParticleEmitter(std::optional<FParticleEmitterComponent> Emitter);
+	[[nodiscard]] std::expected<void, FLevelError> AddNavigationBoundsToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedNavigationBounds(std::optional<FNavigationBoundsComponent> Bounds);
+	[[nodiscard]] std::expected<void, FLevelError> AddNavigationObstacleToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedNavigationObstacle(std::optional<FNavigationObstacleComponent> Obstacle);
+	[[nodiscard]] std::expected<void, FLevelError> AddAiAgentToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedAiAgent(std::optional<FAiAgentComponent> Agent);
 	[[nodiscard]] std::expected<void, FLevelError> AddTriggerToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedTrigger(std::optional<FTriggerComponent> Trigger);
 	[[nodiscard]] std::expected<void, FLevelError> AddConstraintToSelected();

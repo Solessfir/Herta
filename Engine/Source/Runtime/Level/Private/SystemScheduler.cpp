@@ -52,7 +52,10 @@ ELevelComponent PresentComponents(const FLevelEntity& Entity)
 	       | (Entity.Character ? ELevelComponent::Character : ELevelComponent::None)
 	       | (Entity.AudioEmitter ? ELevelComponent::AudioEmitter : ELevelComponent::None)
 	       | (Entity.AudioListener ? ELevelComponent::AudioListener : ELevelComponent::None)
-	       | (Entity.ParticleEmitter ? ELevelComponent::ParticleEmitter : ELevelComponent::None);
+	       | (Entity.ParticleEmitter ? ELevelComponent::ParticleEmitter : ELevelComponent::None)
+	       | (Entity.NavigationBounds ? ELevelComponent::NavigationBounds : ELevelComponent::None)
+	       | (Entity.NavigationObstacle ? ELevelComponent::NavigationObstacle : ELevelComponent::None)
+	       | (Entity.AiAgent ? ELevelComponent::AiAgent : ELevelComponent::None);
 }
 
 FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Entity, const ELevelComponent Components)
@@ -127,6 +130,21 @@ FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Enti
 	if (HasLevelComponents(Components, ELevelComponent::ParticleEmitter))
 	{
 		Result.ParticleEmitter = Entity.ParticleEmitter;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::NavigationBounds))
+	{
+		Result.NavigationBounds = Entity.NavigationBounds;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::NavigationObstacle))
+	{
+		Result.NavigationObstacle = Entity.NavigationObstacle;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::AiAgent))
+	{
+		Result.AiAgent = Entity.AiAgent;
 	}
 
 	if (HasLevelComponents(Components, ELevelComponent::Character))
@@ -310,7 +328,10 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	                               | (Update.Character ? ELevelComponent::Character : ELevelComponent::None)
 	                               | (Update.AudioEmitter ? ELevelComponent::AudioEmitter : ELevelComponent::None)
 	                               | (Update.AudioListener ? ELevelComponent::AudioListener : ELevelComponent::None)
-	                               | (Update.ParticleEmitter ? ELevelComponent::ParticleEmitter : ELevelComponent::None);
+	                               | (Update.ParticleEmitter ? ELevelComponent::ParticleEmitter : ELevelComponent::None)
+	                               | (Update.NavigationBounds ? ELevelComponent::NavigationBounds : ELevelComponent::None)
+	                               | (Update.NavigationObstacle ? ELevelComponent::NavigationObstacle : ELevelComponent::None)
+	                               | (Update.AiAgent ? ELevelComponent::AiAgent : ELevelComponent::None);
 	const auto Allowed = CheckAccess({.Write = Writes});
 	if (!Allowed)
 	{
@@ -351,7 +372,10 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	                         || (Update.Character && Update.Character->has_value() != Candidate.Character.has_value())
 	                         || (Update.AudioEmitter && Update.AudioEmitter->has_value() != Candidate.AudioEmitter.has_value())
 	                         || (Update.AudioListener && Update.AudioListener->has_value() != Candidate.AudioListener.has_value())
-	                         || (Update.ParticleEmitter && Update.ParticleEmitter->has_value() != Candidate.ParticleEmitter.has_value());
+	                         || (Update.ParticleEmitter && Update.ParticleEmitter->has_value() != Candidate.ParticleEmitter.has_value())
+	                         || (Update.NavigationBounds && Update.NavigationBounds->has_value() != Candidate.NavigationBounds.has_value())
+	                         || (Update.NavigationObstacle && Update.NavigationObstacle->has_value() != Candidate.NavigationObstacle.has_value())
+	                         || (Update.AiAgent && Update.AiAgent->has_value() != Candidate.AiAgent.has_value());
 	if (bStructural && !Implementation.Descriptor.bStructuralChanges)
 	{
 		return Fail("System attempted undeclared structural mutation");
@@ -431,6 +455,21 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	if (Update.ParticleEmitter)
 	{
 		Candidate.ParticleEmitter = *Update.ParticleEmitter;
+	}
+
+	if (Update.NavigationBounds)
+	{
+		Candidate.NavigationBounds = *Update.NavigationBounds;
+	}
+
+	if (Update.NavigationObstacle)
+	{
+		Candidate.NavigationObstacle = *Update.NavigationObstacle;
+	}
+
+	if (Update.AiAgent)
+	{
+		Candidate.AiAgent = *Update.AiAgent;
 	}
 
 	if (Update.Trigger)

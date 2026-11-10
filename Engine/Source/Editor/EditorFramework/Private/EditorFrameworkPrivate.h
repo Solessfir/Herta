@@ -490,6 +490,8 @@ struct FEditorFramework::FImplementation
 	std::vector<std::string> SoundLabels;
 	std::vector<FAssetId> EffectIds;
 	std::vector<std::string> EffectLabels;
+	std::vector<FAssetId> StateTreeIds;
+	std::vector<std::string> StateTreeLabels;
 	FPreviewSelection PreviewSelection;
 	std::optional<Im3d::Mat4> PreviewDragStart;
 	bool bDuplicateOnDrag = false;

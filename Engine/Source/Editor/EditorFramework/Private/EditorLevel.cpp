@@ -2118,6 +2118,36 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedParticleEmitter(const 
 	return ApplySelectedComponent(&FLevelEntity::ParticleEmitter, Emitter, Emitter ? "Edit particle emitter" : "Remove particle emitter");
 }
 
+std::expected<void, FLevelError> FEditorLevel::AddNavigationBoundsToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::NavigationBounds, std::optional{FNavigationBoundsComponent{}}, "Add navigation bounds", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedNavigationBounds(const std::optional<FNavigationBoundsComponent> Bounds)
+{
+	return ApplySelectedComponent(&FLevelEntity::NavigationBounds, Bounds, Bounds ? "Edit navigation bounds" : "Remove navigation bounds");
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddNavigationObstacleToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::NavigationObstacle, std::optional{FNavigationObstacleComponent{}}, "Add navigation obstacle", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedNavigationObstacle(const std::optional<FNavigationObstacleComponent> Obstacle)
+{
+	return ApplySelectedComponent(&FLevelEntity::NavigationObstacle, Obstacle, Obstacle ? "Edit navigation obstacle" : "Remove navigation obstacle");
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddAiAgentToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::AiAgent, std::optional{FAiAgentComponent{}}, "Add AI agent", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedAiAgent(const std::optional<FAiAgentComponent> Agent)
+{
+	return ApplySelectedComponent(&FLevelEntity::AiAgent, Agent, Agent ? "Edit AI agent" : "Remove AI agent");
+}
+
 std::expected<void, FLevelError> FEditorLevel::AddTriggerToSelected()
 {
 	return ApplySelectedComponent(&FLevelEntity::Trigger, std::optional{FTriggerComponent{}}, "Add trigger", true);

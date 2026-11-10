@@ -650,7 +650,52 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 	{
 		for (std::size_t Index = 0; Index < VisualEntities.size() && Index < PreviewObjects.size(); ++Index)
 		{
-			const auto& Trigger = VisualEntities[Index].Trigger;
+			const FLevelEntity& Visual = VisualEntities[Index];
+			const bool bSelected = PreviewSelection.Contains(static_cast<int>(Index));
+			const Im3d::Mat4 EntityMatrix(PreviewObjects[Index].Translation, PreviewObjects[Index].Rotation, PreviewObjects[Index].Scale);
+			// Navigation bounds stay faintly visible so the built area reads at a glance; obstacles show what they cut.
+			for (const auto& [Size, Color] : {std::pair{Visual.NavigationBounds ? std::optional{Visual.NavigationBounds->Size} : std::nullopt, bSelected ? 0x8fe39cffu : 0x6fd38a66u}, std::pair{Visual.NavigationObstacle ? std::optional{Visual.NavigationObstacle->Size} : std::nullopt, bSelected ? 0xf0a35effu : 0xe08a3c99u}})
+			{
+				if (Size)
+				{
+					Im3d::PushMatrix(EntityMatrix);
+					Im3d::PushColor(Im3d::Color(Color));
+					Im3d::PushSize(2.f);
+					Im3d::DrawAlignedBox(ToIm3dVector(*Size * -0.5f), ToIm3dVector(*Size * 0.5f));
+					Im3d::PopSize();
+					Im3d::PopColor();
+					Im3d::PopMatrix();
+				}
+			}
+
+			// A selected agent's field of view, on the ground at its sight range.
+			if (Visual.AiAgent && bSelected)
+			{
+				const FAiAgentComponent& Agent = *Visual.AiAgent;
+				const Im3d::Vec3 Center = PreviewObjects[Index].Translation + Im3d::Vec3{0.f, 0.05f, 0.f};
+				const Im3d::Vec3 Forward = PreviewObjects[Index].Rotation * Im3d::Vec3{0.f, 0.f, 1.f};
+				const float Facing = std::atan2(Forward.x, Forward.z);
+				constexpr int Segments = 24;
+				Im3d::PushColor(Im3d::Color(0xe9d36cff));
+				Im3d::PushSize(2.f);
+				Im3d::BeginLineStrip();
+				Im3d::Vertex(Center);
+				for (int Segment = 0; Segment <= Segments; ++Segment)
+				{
+					const float Angle = Facing - Agent.SightHalfAngle + 2.f * Agent.SightHalfAngle * static_cast<float>(Segment) / static_cast<float>(Segments);
+					Im3d::Vertex(Center + Im3d::Vec3{std::sin(Angle), 0.f, std::cos(Angle)} * Agent.SightRange);
+				}
+
+				Im3d::Vertex(Center);
+				Im3d::End();
+				Im3d::PushAlpha(0.5f);
+				Im3d::DrawCircle(Center, {0.f, 1.f, 0.f}, Agent.HearingRange, 48);
+				Im3d::PopAlpha();
+				Im3d::PopSize();
+				Im3d::PopColor();
+			}
+
+			const auto& Trigger = Visual.Trigger;
 			if (!Trigger)
 			{
 				continue;
@@ -659,9 +704,9 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 			// Occupied triggers turn green while simulating so enter and exit are visible without the log.
 			const FVector3 Half = Trigger->Size * 0.5f;
 			const bool bOccupied = Simulation.IsRunning() && Simulation.IsTriggerOccupied(Index);
-			const Im3d::Color Color(bOccupied ? 0x6fd38aff : PreviewSelection.Contains(static_cast<int>(Index)) ? 0xc2b584ff
-			                                                                                                    : 0x5fb3d9cc);
-			Im3d::PushMatrix(Im3d::Mat4(PreviewObjects[Index].Translation, PreviewObjects[Index].Rotation, PreviewObjects[Index].Scale));
+			const Im3d::Color Color(bOccupied ? 0x6fd38aff : bSelected ? 0xc2b584ff
+			                                                           : 0x5fb3d9cc);
+			Im3d::PushMatrix(EntityMatrix);
 			Im3d::PushColor(Color);
 			Im3d::PushSize(2.f);
 			Im3d::DrawAlignedBox(ToIm3dVector(-Half), ToIm3dVector(Half));

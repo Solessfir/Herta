@@ -317,6 +317,49 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		}
 	}
 
+	if (Type == ELevelComponentType::NavigationBounds && Entity.NavigationBounds && Key == "size")
+	{
+		return Visitor(Entity.NavigationBounds->Size);
+	}
+
+	if (Type == ELevelComponentType::NavigationObstacle && Entity.NavigationObstacle && Key == "size")
+	{
+		return Visitor(Entity.NavigationObstacle->Size);
+	}
+
+	if (Type == ELevelComponentType::AiAgent && Entity.AiAgent)
+	{
+		if (Key == "stateTree")
+		{
+			return Visitor(Entity.AiAgent->StateTree);
+		}
+
+		if (Key == "sightRange")
+		{
+			return Visitor(Entity.AiAgent->SightRange);
+		}
+
+		if (Key == "sightHalfAngle")
+		{
+			return Visitor(Entity.AiAgent->SightHalfAngle);
+		}
+
+		if (Key == "hearingRange")
+		{
+			return Visitor(Entity.AiAgent->HearingRange);
+		}
+
+		if (Key == "walkSpeed")
+		{
+			return Visitor(Entity.AiAgent->WalkSpeed);
+		}
+
+		if (Key == "runSpeed")
+		{
+			return Visitor(Entity.AiAgent->RunSpeed);
+		}
+	}
+
 	if (Type == ELevelComponentType::ParticleEmitter && Entity.ParticleEmitter)
 	{
 		if (Key == "system")
@@ -397,6 +440,9 @@ constexpr FCharacterComponent CharacterDefaults{};
 constexpr FAudioEmitterComponent EmitterDefaults{};
 constexpr FAudioListenerComponent ListenerDefaults{};
 constexpr FParticleEmitterComponent ParticleDefaults{};
+constexpr FNavigationBoundsComponent NavigationBoundsDefaults{};
+constexpr FNavigationObstacleComponent NavigationObstacleDefaults{};
+constexpr FAiAgentComponent AiAgentDefaults{};
 constexpr FTriggerComponent TriggerDefaults{};
 constexpr FConstraintComponent ConstraintDefaults{};
 
@@ -527,6 +573,23 @@ constexpr std::array ParticleEmitterProperties{
     FLevelPropertyDescriptor{.Key = "scale", .Label = "Scale", .Default = ParticleDefaults.Scale, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 100.}},
 };
 
+constexpr std::array NavigationBoundsProperties{
+    FLevelPropertyDescriptor{.Key = "size", .Label = "Size", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = NavigationBoundsDefaults.Size, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 10000.}},
+};
+
+constexpr std::array NavigationObstacleProperties{
+    FLevelPropertyDescriptor{.Key = "size", .Label = "Size", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = NavigationObstacleDefaults.Size, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 1000.}},
+};
+
+constexpr std::array AiAgentProperties{
+    FLevelPropertyDescriptor{.Key = "stateTree", .Label = "State Tree", .Type = ELevelPropertyType::AssetReference, .Default = AiAgentDefaults.StateTree},
+    FLevelPropertyDescriptor{.Key = "sightRange", .Label = "Sight Range", .Unit = ELevelPropertyUnit::Meters, .Default = AiAgentDefaults.SightRange, .Range = FLevelPropertyRange{.Minimum = 0.5, .Maximum = 200.}},
+    FLevelPropertyDescriptor{.Key = "sightHalfAngle", .Label = "Sight Half Angle", .Unit = ELevelPropertyUnit::Radians, .Default = AiAgentDefaults.SightHalfAngle, .Range = FLevelPropertyRange{.Minimum = 0.05, .Maximum = 3.1415927}},
+    FLevelPropertyDescriptor{.Key = "hearingRange", .Label = "Hearing Range", .Unit = ELevelPropertyUnit::Meters, .Default = AiAgentDefaults.HearingRange, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 200.}},
+    FLevelPropertyDescriptor{.Key = "walkSpeed", .Label = "Walk Speed", .Default = AiAgentDefaults.WalkSpeed, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 10.}},
+    FLevelPropertyDescriptor{.Key = "runSpeed", .Label = "Run Speed", .Default = AiAgentDefaults.RunSpeed, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 15.}},
+};
+
 constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Transform, .TypeId = "Herta.Level.Transform", .SerializationKey = "transform", .Label = "Transform", .Properties = TransformProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::StaticMesh, .TypeId = "Herta.Level.StaticMesh", .SerializationKey = "staticMesh", .Label = "Static Mesh", .Properties = MeshProperties},
@@ -543,6 +606,9 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::AudioEmitter, .TypeId = "Herta.Level.AudioEmitter", .SerializationKey = "audioEmitter", .Label = "Audio Emitter", .Properties = AudioEmitterProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::AudioListener, .TypeId = "Herta.Level.AudioListener", .SerializationKey = "audioListener", .Label = "Audio Listener", .Properties = AudioListenerProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::ParticleEmitter, .TypeId = "Herta.Level.ParticleEmitter", .SerializationKey = "particleEmitter", .Label = "Particle Emitter", .Properties = ParticleEmitterProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::NavigationBounds, .TypeId = "Herta.Level.NavigationBounds", .SerializationKey = "navigationBounds", .Label = "Navigation Bounds", .Properties = NavigationBoundsProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::NavigationObstacle, .TypeId = "Herta.Level.NavigationObstacle", .SerializationKey = "navigationObstacle", .Label = "Navigation Obstacle", .Properties = NavigationObstacleProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::AiAgent, .TypeId = "Herta.Level.AiAgent", .SerializationKey = "aiAgent", .Label = "AI Agent", .Properties = AiAgentProperties},
 };
 }
 
@@ -599,6 +665,9 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 	                   : Type == ELevelComponentType::Character     ? Validate(Candidate.Character, ValidateCharacterComponent)
 	                   : Type == ELevelComponentType::AudioEmitter  ? Validate(Candidate.AudioEmitter, ValidateAudioEmitterComponent)
 	                   : Type == ELevelComponentType::ParticleEmitter ? Validate(Candidate.ParticleEmitter, ValidateParticleEmitterComponent)
+	                   : Type == ELevelComponentType::NavigationBounds ? Validate(Candidate.NavigationBounds, ValidateNavigationBoundsComponent)
+	                   : Type == ELevelComponentType::NavigationObstacle ? Validate(Candidate.NavigationObstacle, ValidateNavigationObstacleComponent)
+	                   : Type == ELevelComponentType::AiAgent ? Validate(Candidate.AiAgent, ValidateAiAgentComponent)
 	                   : Type == ELevelComponentType::AudioListener ? Validate(Candidate.AudioListener, [](const FAudioListenerComponent&) -> std::expected<void, FLevelError>
 	                                                                  {
 		                                                                  return {};

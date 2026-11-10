@@ -246,6 +246,33 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		}
 	}
 
+	if (Entity.NavigationBounds)
+	{
+		const auto Valid = ValidateNavigationBoundsComponent(*Entity.NavigationBounds);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
+	if (Entity.NavigationObstacle)
+	{
+		const auto Valid = ValidateNavigationObstacleComponent(*Entity.NavigationObstacle);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
+	if (Entity.AiAgent)
+	{
+		const auto Valid = ValidateAiAgentComponent(*Entity.AiAgent);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
 	if (Entity.Trigger)
 	{
 		const auto Valid = ValidateTriggerComponent(*Entity.Trigger);
@@ -441,6 +468,51 @@ std::expected<void, FLevelError> ValidateParticleEmitterComponent(const FParticl
 	return {};
 }
 
+std::expected<void, FLevelError> ValidateNavigationBoundsComponent(const FNavigationBoundsComponent& Bounds)
+{
+	const auto InRange = [](const float Value)
+	{
+		return std::isfinite(Value) && Value >= 0.01f && Value <= 10000.f;
+	};
+
+	if (!InRange(Bounds.Size.X) || !InRange(Bounds.Size.Y) || !InRange(Bounds.Size.Z))
+	{
+		return std::unexpected(FLevelError{"Navigation bounds measure 0.01 to 10000 m on each axis"});
+	}
+
+	return {};
+}
+
+std::expected<void, FLevelError> ValidateNavigationObstacleComponent(const FNavigationObstacleComponent& Obstacle)
+{
+	const auto InRange = [](const float Value)
+	{
+		return std::isfinite(Value) && Value >= 0.01f && Value <= 1000.f;
+	};
+
+	if (!InRange(Obstacle.Size.X) || !InRange(Obstacle.Size.Y) || !InRange(Obstacle.Size.Z))
+	{
+		return std::unexpected(FLevelError{"Navigation obstacles measure 0.01 to 1000 m on each axis"});
+	}
+
+	return {};
+}
+
+std::expected<void, FLevelError> ValidateAiAgentComponent(const FAiAgentComponent& Agent)
+{
+	const auto InRange = [](const float Value, const float Minimum, const float Maximum)
+	{
+		return std::isfinite(Value) && Value >= Minimum && Value <= Maximum;
+	};
+
+	if (!InRange(Agent.SightRange, 0.5f, 200.f) || !InRange(Agent.SightHalfAngle, 0.05f, 3.1415927f) || !InRange(Agent.HearingRange, 0.f, 200.f) || !InRange(Agent.WalkSpeed, 0.1f, 10.f) || !InRange(Agent.RunSpeed, 0.1f, 15.f))
+	{
+		return std::unexpected(FLevelError{"AI agents see 0.5 to 200 m within a half angle of 0.05 to pi, hear up to 200 m, walk at 0.1 to 10 m/s, and run at 0.1 to 15 m/s"});
+	}
+
+	return {};
+}
+
 std::expected<void, FLevelError> ValidateCharacterComponent(const FCharacterComponent& Character)
 {
 	if (!std::isfinite(Character.MaximumPieces) || Character.MaximumPieces < 0.f || Character.MaximumPieces > 64.f || std::floor(Character.MaximumPieces) != Character.MaximumPieces || !std::isfinite(Character.SeverImpulse) || Character.SeverImpulse < 0.1f
@@ -615,6 +687,9 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FAudioEmitterComponent* AudioEmitter = Registry.try_get<FAudioEmitterComponent>(Entity);
 	const FAudioListenerComponent* AudioListener = Registry.try_get<FAudioListenerComponent>(Entity);
 	const FParticleEmitterComponent* ParticleEmitter = Registry.try_get<FParticleEmitterComponent>(Entity);
+	const FNavigationBoundsComponent* NavigationBounds = Registry.try_get<FNavigationBoundsComponent>(Entity);
+	const FNavigationObstacleComponent* NavigationObstacle = Registry.try_get<FNavigationObstacleComponent>(Entity);
+	const FAiAgentComponent* AiAgent = Registry.try_get<FAiAgentComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -635,6 +710,9 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .AudioEmitter = AudioEmitter ? std::optional{*AudioEmitter} : std::nullopt,
 	    .AudioListener = AudioListener ? std::optional{*AudioListener} : std::nullopt,
 	    .ParticleEmitter = ParticleEmitter ? std::optional{*ParticleEmitter} : std::nullopt,
+	    .NavigationBounds = NavigationBounds ? std::optional{*NavigationBounds} : std::nullopt,
+	    .NavigationObstacle = NavigationObstacle ? std::optional{*NavigationObstacle} : std::nullopt,
+	    .AiAgent = AiAgent ? std::optional{*AiAgent} : std::nullopt,
 	};
 }
 
@@ -744,6 +822,33 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FParticleEmitterComponent>(Entity);
+	}
+
+	if (Snapshot.NavigationBounds)
+	{
+		Registry.emplace_or_replace<FNavigationBoundsComponent>(Entity, *Snapshot.NavigationBounds);
+	}
+	else
+	{
+		Registry.remove<FNavigationBoundsComponent>(Entity);
+	}
+
+	if (Snapshot.NavigationObstacle)
+	{
+		Registry.emplace_or_replace<FNavigationObstacleComponent>(Entity, *Snapshot.NavigationObstacle);
+	}
+	else
+	{
+		Registry.remove<FNavigationObstacleComponent>(Entity);
+	}
+
+	if (Snapshot.AiAgent)
+	{
+		Registry.emplace_or_replace<FAiAgentComponent>(Entity, *Snapshot.AiAgent);
+	}
+	else
+	{
+		Registry.remove<FAiAgentComponent>(Entity);
 	}
 
 	if (Snapshot.Trigger)

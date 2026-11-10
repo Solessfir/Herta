@@ -40,7 +40,7 @@ struct FDetailsPanelState
 	std::array<char, 96> VisualReferenceSearch{};
 	std::array<char, 96> MaterialSearch{};
 	std::array<bool, 6> BodyPropertyWasMixed{};
-	std::array<bool, 66> VisualPropertyWasMixed{};
+	std::array<bool, 74> VisualPropertyWasMixed{};
 	int ComponentResult = 0;
 	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;
@@ -90,6 +90,12 @@ enum class EDetailsComponentAction
 	RemoveAudioListener,
 	AddParticleEmitter,
 	RemoveParticleEmitter,
+	AddNavigationBounds,
+	RemoveNavigationBounds,
+	AddNavigationObstacle,
+	RemoveNavigationObstacle,
+	AddAiAgent,
+	RemoveAiAgent,
 };
 
 struct FDetailsMaterialSlot
@@ -159,6 +165,18 @@ struct FDetailsComponentField
 	bool bAllParticleEmitter = false;
 	FParticleEmitterComponent ParticleEmitter{};
 	std::array<bool, 3> MixedParticleEmitter{};
+	bool bAnyNavigationBounds = false;
+	bool bAllNavigationBounds = false;
+	FNavigationBoundsComponent NavigationBounds{};
+	std::array<bool, 1> MixedNavigationBounds{};
+	bool bAnyNavigationObstacle = false;
+	bool bAllNavigationObstacle = false;
+	FNavigationObstacleComponent NavigationObstacle{};
+	std::array<bool, 1> MixedNavigationObstacle{};
+	bool bAnyAiAgent = false;
+	bool bAllAiAgent = false;
+	FAiAgentComponent AiAgent{};
+	std::array<bool, 6> MixedAiAgent{};
 	std::span<const FObjectId> SunIds{};
 	std::span<const std::string> SunLabels{};
 	// Meshed rigid bodies and ropes a constraint can join.
@@ -170,6 +188,8 @@ struct FDetailsComponentField
 	std::span<const std::string> SoundLabels{};
 	std::span<const FAssetId> EffectIds{};
 	std::span<const std::string> EffectLabels{};
+	std::span<const FAssetId> StateTreeIds{};
+	std::span<const std::string> StateTreeLabels{};
 	std::span<const FDetailsMaterialSlot> MaterialSlots{};
 	std::span<const FAssetId> MaterialOptionIds{};
 	std::span<const std::string> MaterialOptionLabels{};

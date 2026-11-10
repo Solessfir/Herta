@@ -27,7 +27,10 @@ enum class ELevelComponent : std::uint32_t
 	AudioEmitter = 1 << 14,
 	AudioListener = 1 << 15,
 	ParticleEmitter = 1 << 16,
-	All = (1 << 17) - 1,
+	NavigationBounds = 1 << 17,
+	NavigationObstacle = 1 << 18,
+	AiAgent = 1 << 19,
+	All = (1 << 20) - 1,
 };
 
 constexpr ELevelComponent operator|(const ELevelComponent Left, const ELevelComponent Right)
@@ -93,6 +96,9 @@ struct FLevelQueryEntity
 	std::optional<FAudioEmitterComponent> AudioEmitter{};
 	std::optional<FAudioListenerComponent> AudioListener{};
 	std::optional<FParticleEmitterComponent> ParticleEmitter{};
+	std::optional<FNavigationBoundsComponent> NavigationBounds{};
+	std::optional<FNavigationObstacleComponent> NavigationObstacle{};
+	std::optional<FAiAgentComponent> AiAgent{};
 };
 
 struct FLevelComponentUpdate
@@ -115,6 +121,9 @@ struct FLevelComponentUpdate
 	std::optional<std::optional<FAudioEmitterComponent>> AudioEmitter{};
 	std::optional<std::optional<FAudioListenerComponent>> AudioListener{};
 	std::optional<std::optional<FParticleEmitterComponent>> ParticleEmitter{};
+	std::optional<std::optional<FNavigationBoundsComponent>> NavigationBounds{};
+	std::optional<std::optional<FNavigationObstacleComponent>> NavigationObstacle{};
+	std::optional<std::optional<FAiAgentComponent>> AiAgent{};
 };
 
 struct FLevelEvent

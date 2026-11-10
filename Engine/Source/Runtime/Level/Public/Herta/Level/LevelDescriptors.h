@@ -27,6 +27,9 @@ enum class ELevelComponentType : std::uint8_t
 	AudioEmitter,
 	AudioListener,
 	ParticleEmitter,
+	NavigationBounds,
+	NavigationObstacle,
+	AiAgent,
 };
 
 enum class ELevelPropertyType : std::uint8_t

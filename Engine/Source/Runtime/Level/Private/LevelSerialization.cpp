@@ -470,6 +470,45 @@ std::expected<FParticleEmitterComponent, FLevelError> ReadParticleEmitter(const 
 	return FParticleEmitterComponent{.System = *System, .bAutoPlay = *AutoPlay, .Scale = *Scale};
 }
 
+template <typename TComponent> std::expected<TComponent, FLevelError> ReadSizeComponent(const simdjson::dom::element Element, const ELevelComponentType Type)
+{
+	const auto Fields = ReadComponentFields<1>(Element, GetLevelComponentDescriptor(Type));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Size = ReadNumbers<float, 3>((*Fields)[0]);
+	if (!Size)
+	{
+		return LevelError("Invalid navigation component size");
+	}
+
+	return TComponent{.Size = {(*Size)[0], (*Size)[1], (*Size)[2]}};
+}
+
+std::expected<FAiAgentComponent, FLevelError> ReadAiAgent(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<6>(Element, GetLevelComponentDescriptor(ELevelComponentType::AiAgent));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto StateTree = ReadOptionalId<FAssetId>((*Fields)[0]);
+	const auto Sight = ReadNumber<float>((*Fields)[1]);
+	const auto Angle = ReadNumber<float>((*Fields)[2]);
+	const auto Hearing = ReadNumber<float>((*Fields)[3]);
+	const auto Walk = ReadNumber<float>((*Fields)[4]);
+	const auto Run = ReadNumber<float>((*Fields)[5]);
+	if (!StateTree || !Sight || !Angle || !Hearing || !Walk || !Run)
+	{
+		return LevelError("Invalid AI agent component field");
+	}
+
+	return FAiAgentComponent{.StateTree = *StateTree, .SightRange = *Sight, .SightHalfAngle = *Angle, .HearingRange = *Hearing, .WalkSpeed = *Walk, .RunSpeed = *Run};
+}
+
 std::expected<FAudioListenerComponent, FLevelError> ReadAudioListener(const simdjson::dom::element Element)
 {
 	const auto Fields = ReadComponentFields<1>(Element, GetLevelComponentDescriptor(ELevelComponentType::AudioListener));
@@ -832,6 +871,54 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			Entity.AudioListener = *Listener;
+		}
+		else if (SchemaVersion >= 16 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::NavigationBounds).SerializationKey)
+		{
+			if ((SeenComponents & 32768) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 32768;
+			const auto Bounds = ReadSizeComponent<FNavigationBoundsComponent>(Component.value, ELevelComponentType::NavigationBounds);
+			if (!Bounds)
+			{
+				return std::unexpected(Bounds.error());
+			}
+
+			Entity.NavigationBounds = *Bounds;
+		}
+		else if (SchemaVersion >= 16 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::NavigationObstacle).SerializationKey)
+		{
+			if ((SeenComponents & 65536) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 65536;
+			const auto Obstacle = ReadSizeComponent<FNavigationObstacleComponent>(Component.value, ELevelComponentType::NavigationObstacle);
+			if (!Obstacle)
+			{
+				return std::unexpected(Obstacle.error());
+			}
+
+			Entity.NavigationObstacle = *Obstacle;
+		}
+		else if (SchemaVersion >= 16 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::AiAgent).SerializationKey)
+		{
+			if ((SeenComponents & 131072) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 131072;
+			const auto Agent = ReadAiAgent(Component.value);
+			if (!Agent)
+			{
+				return std::unexpected(Agent.error());
+			}
+
+			Entity.AiAgent = *Agent;
 		}
 		else if (SchemaVersion >= 14 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::ParticleEmitter).SerializationKey)
 		{
@@ -1364,7 +1451,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 15,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 16,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1615,6 +1702,24 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			AppendVisualComponent(Output, ELevelComponentType::ParticleEmitter, Values, bHasComponent);
 		}
 
+		if (Entity.NavigationBounds)
+		{
+			const std::array<FVisualValue, 1> Values{Entity.NavigationBounds->Size};
+			AppendVisualComponent(Output, ELevelComponentType::NavigationBounds, Values, bHasComponent);
+		}
+
+		if (Entity.NavigationObstacle)
+		{
+			const std::array<FVisualValue, 1> Values{Entity.NavigationObstacle->Size};
+			AppendVisualComponent(Output, ELevelComponentType::NavigationObstacle, Values, bHasComponent);
+		}
+
+		if (Entity.AiAgent)
+		{
+			const std::array<FVisualValue, 6> Values{Entity.AiAgent->StateTree, Entity.AiAgent->SightRange, Entity.AiAgent->SightHalfAngle, Entity.AiAgent->HearingRange, Entity.AiAgent->WalkSpeed, Entity.AiAgent->RunSpeed};
+			AppendVisualComponent(Output, ELevelComponentType::AiAgent, Values, bHasComponent);
+		}
+
 		if (Entity.Trigger)
 		{
 			const std::array<FVisualValue, 2> Values{Entity.Trigger->Size, TriggerRoles[static_cast<std::size_t>(Entity.Trigger->Role)]};
@@ -1791,9 +1896,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 15 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 16 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 15 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 16 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
@@ -2042,7 +2147,7 @@ std::expected<FLevelDocument, FLevelError> LoadLevel(const std::filesystem::path
 bool IsLevelRegionScenery(const FLevelEntity& Entity) noexcept
 {
 	const bool bGlobalLight = Entity.Light && (Entity.Light->Type == ELightType::Sky || Entity.Light->Type == ELightType::Directional);
-	return Entity.BodyType != ELevelBodyType::Dynamic && !bGlobalLight && !Entity.Mover && !Entity.Trigger && !Entity.SoftBody && !Entity.Destructible && !Entity.Character && !Entity.Constraint && !Entity.AudioEmitter && !Entity.AudioListener && !Entity.ParticleEmitter && !Entity.SkyAtmosphere && !Entity.HeightFog;
+	return Entity.BodyType != ELevelBodyType::Dynamic && !bGlobalLight && !Entity.Mover && !Entity.Trigger && !Entity.SoftBody && !Entity.Destructible && !Entity.Character && !Entity.Constraint && !Entity.AudioEmitter && !Entity.AudioListener && !Entity.ParticleEmitter && !Entity.NavigationObstacle && !Entity.AiAgent && !Entity.SkyAtmosphere && !Entity.HeightFog;
 }
 
 std::expected<std::vector<FMatrix4>, FLevelError> ComposeLevelRegionMatrices(const FLevelRegion& Region, const std::span<const FLevelEntity> Entities)
