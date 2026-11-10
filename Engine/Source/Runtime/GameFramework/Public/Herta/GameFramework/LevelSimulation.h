@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <span>
@@ -44,6 +45,14 @@ struct FLevelSimulationBody
 	std::optional<FLevelSimulationMover> Mover{};
 	// Triggers are box sensors from Shape that report Dynamic bodies instead of colliding.
 	bool bTrigger = false;
+};
+
+// Static bodies added after Start, such as a streamed region's scenery, removed together.
+struct FLevelStaticGroup
+{
+	auto operator<=>(const FLevelStaticGroup&) const = default;
+
+	std::uint32_t Value = 0;
 };
 
 struct FLevelTriggerEvent
@@ -179,6 +188,10 @@ public:
 	std::size_t GetDebrisCount() const noexcept;
 	// Breaks since the previous call, in step order.
 	std::vector<FLevelBreakEvent> TakeBreakEvents();
+	// Adds static scenery to the running world. Only static bodies belong in a group; movers, triggers, and moving bodies are refused.
+	[[nodiscard]] std::expected<FLevelStaticGroup, FPhysicsError> AddStaticBodies(std::span<const FLevelSimulationBody> Bodies);
+	[[nodiscard]] std::expected<void, FPhysicsError> RemoveStaticBodies(FLevelStaticGroup Group);
+	[[nodiscard]] std::size_t GetStaticGroupBodyCount() const noexcept;
 	// The bonds still holding a destructible together, for saving; empty for an object that is not a running destructible.
 	std::vector<bool> GetIntactBonds(std::size_t ObjectIndex) const;
 	// Breaks the bonds a save recorded as broken, so the destructible splits as it was saved; freed pieces fall from where they stood.
@@ -274,6 +287,8 @@ private:
 	std::vector<FLevelSimulationPiece> Pieces;
 	std::vector<FLevelBreakEvent> BreakEvents;
 	std::vector<FLevelImpactEvent> ImpactEvents;
+	std::map<std::uint32_t, std::vector<FPhysicsBodyId>> StaticGroups;
+	std::uint32_t NextStaticGroup = 0;
 	FLevelDestructionSettings DestructionSettings{};
 	std::size_t DebrisCount = 0;
 

@@ -282,6 +282,7 @@ std::expected<void, FPhysicsError> FLevelSimulation::Start(const std::span<const
 	Pieces.clear();
 	BreakEvents.clear();
 	ImpactEvents.clear();
+	StaticGroups.clear();
 	DebrisCount = 0;
 	Accumulator = 0.0;
 	Time = 0.0;
@@ -376,6 +377,7 @@ void FLevelSimulation::Stop() noexcept
 	Pieces.clear();
 	BreakEvents.clear();
 	ImpactEvents.clear();
+	StaticGroups.clear();
 	DebrisCount = 0;
 
 	Accumulator = 0.0;
@@ -940,6 +942,79 @@ std::size_t FLevelSimulation::GetDebrisCount() const noexcept
 std::vector<FLevelBreakEvent> FLevelSimulation::TakeBreakEvents()
 {
 	return std::exchange(BreakEvents, {});
+}
+
+std::expected<FLevelStaticGroup, FPhysicsError> FLevelSimulation::AddStaticBodies(const std::span<const FLevelSimulationBody> Bodies)
+{
+	if (!IsRunning())
+	{
+		return std::unexpected(FPhysicsError{"Adding static bodies needs a running simulation"});
+	}
+
+	std::vector<FPhysicsBodyId> Created;
+	const auto Undo = [this, &Created]
+	{
+		for (const FPhysicsBodyId Body : Created)
+		{
+			(void)World->DestroyBody(Body);
+		}
+	};
+
+	for (const FLevelSimulationBody& Body : Bodies)
+	{
+		if (Body.MotionType != EPhysicsMotionType::Static || Body.Mover || Body.bTrigger || Body.Shape.HalfExtents.X <= 0.f || Body.Shape.HalfExtents.Y <= 0.f || Body.Shape.HalfExtents.Z <= 0.f)
+		{
+			Undo();
+			return std::unexpected(FPhysicsError{"Static groups hold only static bodies with positive extents"});
+		}
+
+		const FVector3 HalfExtents = Absolute(Body.Transform.Scale3D.ComponentMultiply(Body.Shape.HalfExtents));
+		const FVector3 Offset = Body.Transform.Scale3D.ComponentMultiply(Body.Shape.Center);
+		const float Radius = Body.Collision == EPhysicsShape::Capsule ? std::max(HalfExtents.X, HalfExtents.Z) : std::max({HalfExtents.X, HalfExtents.Y, HalfExtents.Z});
+		const auto Id = World->CreateBody({.Shape = Body.Collision, .HalfExtents = HalfExtents, .Radius = Radius, .HalfHeight = std::max(HalfExtents.Y - Radius, 0.f), .Position = Body.Transform.Translation + Body.Transform.Rotation.RotateVector(Offset), .Rotation = Body.Transform.Rotation, .MotionType = EPhysicsMotionType::Static, .Properties = Body.Properties});
+		if (!Id)
+		{
+			Undo();
+			return std::unexpected(Id.error());
+		}
+
+		Created.push_back(*Id);
+	}
+
+	const FLevelStaticGroup Group{++NextStaticGroup};
+	StaticGroups.emplace(Group.Value, std::move(Created));
+	return Group;
+}
+
+std::expected<void, FPhysicsError> FLevelSimulation::RemoveStaticBodies(const FLevelStaticGroup Group)
+{
+	const auto Found = StaticGroups.find(Group.Value);
+	if (Found == StaticGroups.end() || !World)
+	{
+		return std::unexpected(FPhysicsError{"Unknown static group"});
+	}
+
+	for (const FPhysicsBodyId Body : Found->second)
+	{
+		if (auto Destroyed = World->DestroyBody(Body); !Destroyed)
+		{
+			return Destroyed;
+		}
+	}
+
+	StaticGroups.erase(Found);
+	return {};
+}
+
+std::size_t FLevelSimulation::GetStaticGroupBodyCount() const noexcept
+{
+	std::size_t Count = 0;
+	for (const auto& [Group, Bodies] : StaticGroups)
+	{
+		Count += Bodies.size();
+	}
+
+	return Count;
 }
 
 std::vector<bool> FLevelSimulation::GetIntactBonds(const std::size_t ObjectIndex) const

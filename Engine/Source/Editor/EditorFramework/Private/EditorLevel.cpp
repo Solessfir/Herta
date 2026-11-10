@@ -505,6 +505,7 @@ std::expected<void, FLevelError> FEditorLevel::LoadDocument(FLevelDocument Docum
 	PlayerCharacter = Document.PlayerCharacter;
 	Sounds = Document.Sounds;
 	Effects = Document.Effects;
+	Regions = Document.Regions;
 	CurrentPath = Path;
 	RebuildObjects();
 	Selection.clear();
@@ -691,7 +692,7 @@ std::expected<void, FLevelError> FEditorLevel::Save(const std::filesystem::path&
 		return std::unexpected(FLevelError{"No level path is set; use level.save <path>"});
 	}
 
-	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation, .PlayerCharacter = PlayerCharacter, .Sounds = Sounds, .Effects = Effects}); !Result)
+	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation, .PlayerCharacter = PlayerCharacter, .Sounds = Sounds, .Effects = Effects, .Regions = Regions}); !Result)
 	{
 		return Result;
 	}
@@ -1251,6 +1252,11 @@ std::expected<void, FLevelError> FEditorLevel::SetSound(const ELevelSound Cue, c
 const FLevelEffects& FEditorLevel::GetEffects() const
 {
 	return Effects;
+}
+
+std::span<const FLevelRegion> FEditorLevel::GetRegions() const
+{
+	return Regions;
 }
 
 std::expected<void, FLevelError> FEditorLevel::SetEffect(const ELevelEffect Cue, const FAssetId& System)

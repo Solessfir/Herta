@@ -97,6 +97,24 @@ inline constexpr std::array LevelEffectCues{
 // Invalid entries show nothing.
 using FLevelEffects = std::array<FAssetId, LevelEffectCues.size()>;
 
+// Another level placed into this one at Offset and streamed in while the player is near: it loads within LoadRadius of the player and unloads
+// beyond UnloadRadius, measured horizontally from Offset. The same level may be placed several times, so a region doubles as a reusable
+// piece of scenery. Streamed regions hold static scenery: meshes, static bodies, and lights.
+struct FLevelRegion
+{
+	bool operator==(const FLevelRegion&) const = default;
+
+	FObjectId Id{};
+	std::string Name{};
+	// Relative to this level's file, with '/' separators.
+	std::string Level{};
+	FWorldPosition Offset{};
+	float LoadRadius = 40.f;
+	float UnloadRadius = 50.f;
+};
+
+inline constexpr std::size_t MaximumLevelRegions = 256;
+
 struct FLevelDocument
 {
 	FObjectId Id;
@@ -110,7 +128,10 @@ struct FLevelDocument
 	FAssetId PlayerCharacter{};
 	FLevelSounds Sounds{};
 	FLevelEffects Effects{};
+	std::vector<FLevelRegion> Regions{};
 };
+
+[[nodiscard]] std::expected<void, FLevelError> ValidateLevelRegions(std::span<const FLevelRegion> Regions);
 
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelCameraBookmarks(std::span<const FLevelCameraBookmark> Bookmarks);
 

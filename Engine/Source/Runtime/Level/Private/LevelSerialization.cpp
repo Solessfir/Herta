@@ -906,6 +906,28 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 	return Entity;
 }
 
+std::expected<FLevelRegion, FLevelError> ReadRegion(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadFields(Element, std::array<std::string_view, 6>{"id", "name", "level", "offset", "loadRadius", "unloadRadius"}, 0x3f);
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Id = ReadId<FObjectId>((*Fields)[0]);
+	const auto Name = ReadString((*Fields)[1]);
+	const auto Level = ReadString((*Fields)[2]);
+	const auto Offset = ReadNumbers<double, 3>((*Fields)[3]);
+	const auto Load = ReadNumber<float>((*Fields)[4]);
+	const auto Unload = ReadNumber<float>((*Fields)[5]);
+	if (!Id || !Name || !Level || !Offset || !Load || !Unload)
+	{
+		return LevelError("Invalid level region field");
+	}
+
+	return FLevelRegion{.Id = *Id, .Name = std::string(*Name), .Level = std::string(*Level), .Offset = FWorldPosition{(*Offset)[0], (*Offset)[1], (*Offset)[2]}, .LoadRadius = *Load, .UnloadRadius = *Unload};
+}
+
 std::expected<FLevelCameraBookmark, FLevelError> ReadCameraBookmark(const simdjson::dom::element Element)
 {
 	const auto Fields = ReadFields(Element, std::array<std::string_view, 5>{"slot", "name", "position", "yaw", "pitch"}, 0x1f);
@@ -1278,7 +1300,41 @@ std::expected<void, FLevelError> ValidateLevelDocument(const FLevelDocument& Doc
 		return LevelError("Level exposure compensation must be finite and within 5 stops");
 	}
 
+	if (auto Regions = ValidateLevelRegions(Document.Regions); !Regions)
+	{
+		return Regions;
+	}
+
 	return ValidateLevelCameraBookmarks(Document.CameraBookmarks);
+}
+
+std::expected<void, FLevelError> ValidateLevelRegions(const std::span<const FLevelRegion> Regions)
+{
+	if (Regions.size() > MaximumLevelRegions)
+	{
+		return LevelError("A level places at most 256 regions");
+	}
+
+	std::vector<FObjectId> Seen;
+	for (const FLevelRegion& Region : Regions)
+	{
+		const bool bRelative = !Region.Level.empty() && Region.Level.ends_with(".hlevel") && !Region.Level.starts_with('/') && Region.Level.find('\\') == std::string::npos && Region.Level.find(':') == std::string::npos;
+		const FVector3d& Offset = Region.Offset.Meters;
+		const bool bOffset = std::isfinite(Offset.X) && std::isfinite(Offset.Y) && std::isfinite(Offset.Z);
+		if (!Region.Id.IsValid() || std::ranges::contains(Seen, Region.Id) || !IsValidName(Region.Name) || !bRelative || !bOffset)
+		{
+			return LevelError(std::format("Region '{}' needs a unique ID, a name, a finite offset, and a relative .hlevel path", Region.Name));
+		}
+
+		if (!(Region.LoadRadius > 0.f && Region.LoadRadius <= 100000.f && Region.UnloadRadius > Region.LoadRadius && Region.UnloadRadius <= 100000.f))
+		{
+			return LevelError(std::format("Region '{}' unloads beyond a positive load radius", Region.Name));
+		}
+
+		Seen.push_back(Region.Id);
+	}
+
+	return {};
 }
 
 std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Document)
@@ -1305,7 +1361,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 14,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 15,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1657,7 +1713,38 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		Output += "\n    }";
 	}
 
-	Output += Bookmarks.empty() ? "]\n}\n" : "\n  ]\n}\n";
+	Output += Bookmarks.empty() ? "],\n  \"regions\": [" : "\n  ],\n  \"regions\": [";
+	std::vector<const FLevelRegion*> Regions;
+	for (const FLevelRegion& Region : Document.Regions)
+	{
+		Regions.push_back(&Region);
+	}
+
+	std::ranges::sort(Regions, [](const FLevelRegion* Left, const FLevelRegion* Right)
+	{
+		return Left->Id < Right->Id;
+	});
+
+	for (std::size_t Index = 0; Index < Regions.size(); ++Index)
+	{
+		const FLevelRegion& Region = *Regions[Index];
+		const FVector3d& Offset = Region.Offset.Meters;
+		Output += Index == 0 ? "\n    {\n      \"id\": " : ",\n    {\n      \"id\": ";
+		AppendString(Output, Region.Id.ToString());
+		Output += ",\n      \"name\": ";
+		AppendString(Output, Region.Name);
+		Output += ",\n      \"level\": ";
+		AppendString(Output, Region.Level);
+		Output += ",\n      \"offset\": ";
+		AppendNumbers(Output, std::array{Offset.X, Offset.Y, Offset.Z});
+		Output += ",\n      \"loadRadius\": ";
+		AppendNumber(Output, Region.LoadRadius);
+		Output += ",\n      \"unloadRadius\": ";
+		AppendNumber(Output, Region.UnloadRadius);
+		Output += "\n    }";
+	}
+
+	Output += Regions.empty() ? "]\n}\n" : "\n  ]\n}\n";
 	if (Output.size() > MaximumLevelBytes)
 	{
 		return LevelError("Level exceeds the 64 MiB limit");
@@ -1686,7 +1773,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		return LevelError("Malformed level JSON or invalid UTF-8");
 	}
 
-	const auto Fields = ReadFields(Root, std::array<std::string_view, 12>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders", "cameraBookmarks", "exposureCompensation", "playerCharacter", "sounds", "effects"}, 0x3f);
+	const auto Fields = ReadFields(Root, std::array<std::string_view, 13>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders", "cameraBookmarks", "exposureCompensation", "playerCharacter", "sounds", "effects", "regions"}, 0x3f);
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -1701,9 +1788,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 14 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 15 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 14 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 15 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
@@ -1887,6 +1974,31 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 			}
 
 			Document.CameraBookmarks.push_back(std::move(*Bookmark));
+		}
+	}
+
+	if ((SchemaVersion >= 15) != (Root["regions"].error() == simdjson::SUCCESS))
+	{
+		return LevelError("Level regions are required in engine schema 15 and later");
+	}
+
+	if (SchemaVersion >= 15)
+	{
+		simdjson::dom::array Regions;
+		if ((*Fields)[12].get_array().get(Regions) || Regions.size() > MaximumLevelRegions)
+		{
+			return LevelError("Invalid level regions array or region count");
+		}
+
+		for (const auto Element : Regions)
+		{
+			auto Region = ReadRegion(Element);
+			if (!Region)
+			{
+				return std::unexpected(Region.error());
+			}
+
+			Document.Regions.push_back(std::move(*Region));
 		}
 	}
 

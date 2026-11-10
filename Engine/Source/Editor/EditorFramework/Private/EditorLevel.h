@@ -53,6 +53,7 @@ public:
 	// The sounds gameplay plays for its events, saved with the level and undoable like the player character.
 	[[nodiscard]] std::expected<void, FLevelError> SetSound(ELevelSound Cue, const FAssetId& Sound);
 	const FLevelEffects& GetEffects() const;
+	std::span<const FLevelRegion> GetRegions() const;
 	[[nodiscard]] std::expected<void, FLevelError> SetEffect(ELevelEffect Cue, const FAssetId& System);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateMeshEntity(FAssetId Asset, std::string_view Label, const FWorldPosition& Position = {});
@@ -149,6 +150,8 @@ private:
 	FAssetId PlayerCharacter;
 	FLevelSounds Sounds{};
 	FLevelEffects Effects{};
+	// Regions are kept as loaded and saved back unchanged; the editor shows them but edits them in their own levels.
+	std::vector<FLevelRegion> Regions;
 	std::vector<FPreviewObject> Objects;
 	std::vector<FPreviewObject> AuthoredObjects;
 	std::uint64_t Generation = 1;

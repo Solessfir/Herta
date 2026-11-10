@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 14,
+  "engineSchemaVersion": 15,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101f0",
   "name": "Sandbox Visuals",
   "exposureCompensation": 0,
@@ -4645,5 +4645,6 @@
       "yaw": 0,
       "pitch": -0.3514
     }
-  ]
+  ],
+  "regions": []
 }
