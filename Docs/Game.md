@@ -7,6 +7,8 @@
 - **GameFramework** (runtime): `FGameSession` owns one playthrough on top of copied authored entities. It builds physics through `BuildLevelSimulation`, the same builder the editor's Simulate uses, adds a Jolt `CharacterVirtual` player inside the 60 Hz fixed step, tracks the course objective, and extracts an `FMeshRenderView` with interpolated simulation poses, soft body vertices, lights, atmosphere, and fog. `IGameAssets` supplies render resources: `FStagedGameAssets` loads them from staged content, and the editor shares its loaded assets. `FLevelSimulation`, soft body geometry, and environment filtering moved here from EditorFramework.
 - **GameHud** (GameFramework): `DrawGameHud` draws the objective, crosshair, controls hint, and pause menu with GameUI. The host supplies its menu items and acts on the chosen one, so the standalone game and editor Play share one HUD.
 - **GameUI** (runtime): immediate-mode screen UI with a FreeType glyph atlas, anchored text, rectangles, images, and a menu whose focus is shared by keys and the pointer. It is independent of ImGui and ToolUI. Layout units are pixels on a 1440-pixel-tall screen, and the atlas is rebuilt at the screen's size when it changes by more than 5 percent, so text stays sharp. The presenter draws its screen lists through the ToolUI pipeline, which also encodes them for HDR10 targets.
+- **GameMenu and GameControls** (GameFramework): `FGameMenu` draws the pause, settings, and controls screens and routes focus; `FGameBindings` maps rebindable actions to keys, mouse buttons, and gamepad buttons. See [Menus, settings, and rebinding](#menus-settings-and-rebinding).
+- **GameSave** (GameFramework): versioned save files with atomic writes and backup recovery; see [Saves](#saves).
 - **Assets**: `FCookedContent` mounts staged directories in order and loads one cooked file per asset ID. Textures are staged once per color space they are sampled in, because their mips are filtered in that space. Loading never imports or cooks.
 
 ## Player and objective
@@ -27,11 +29,27 @@ A Trigger's **Role** places the course: the player spawns at the bottom of the *
 
 ## Controls
 
-WASD moves, Shift sprints, the mouse looks, Space jumps, jumps off wall runs, and kicks off walls, C or Ctrl crouches and slides, F throws a ball, the left mouse button swings the sword and the right mouse button blocks, V switches between the third-person camera, where Play starts, and the first-person one, Z collapses the player into a ragdoll and pressing it again gets back up where it lies, R restarts, Esc opens the pause menu, and F11 or Alt+Enter toggles borderless fullscreen on the monitor under the window. The pause menu resumes, restarts the course, toggles fullscreen, toggles HDR10 when the display offers it, and cycles the Low, Medium, and High rendering quality tiers. Losing focus pauses the game and releases the pointer.
+WASD moves, Shift sprints, the mouse looks, Space jumps, jumps off wall runs, and kicks off walls, C or Ctrl crouches and slides, F throws a ball, the left mouse button swings the sword and the right mouse button blocks, V switches between the third-person camera, where Play starts, and the first-person one, Z collapses the player into a ragdoll and pressing it again gets back up where it lies, R restarts, Esc opens the pause menu, and F11 or Alt+Enter toggles borderless fullscreen on the monitor under the window. These are the default bindings; every action except moving on the gamepad's stick and pausing can be rebound. Losing focus pauses the game and releases the pointer.
 
 Gamepads in the standard layout work alongside them, in the game and in editor Play: XInput pads on Windows, and pads in GLFW's built-in SDL mapping database elsewhere, the first one connected. The left stick moves at its own speed, the right stick looks at up to about 200 degrees a second across and 140 up and down, A or cross jumps, clicking the left stick toggles sprinting, which also ends when the stick returns to rest, B, circle, or clicking the right stick crouches, X or square throws, the right shoulder swings the sword and the left shoulder blocks, Y or triangle switches the camera, Back restarts, and Start opens the pause menu, where the D-pad moves, A chooses, and B resumes. Sticks ignore 15% of drift around centre, and look grows with the square of the push past it, so small corrections stay fine. `FGameGamepadControls` in GameFramework maps them, and `FApplication::GetGamepadState` reads the pad.
 
-Settings live per user in `%LOCALAPPDATA%\Herta\<Project>\Settings.ini` on Windows and `$XDG_CONFIG_HOME/Herta/<Project>/Settings.ini` (or `~/.config`) on Linux: `fullscreen`, `hdr`, `paperWhite` and `peakLuminance` in nits (0 follows the operating system, as in the editor), `mouseSensitivity` in radians per pixel, and `quality` (0 Low, 1 Medium, 2 High, the default). Logs are written beside them in `Logs/Game.log`.
+## Menus, settings, and rebinding
+
+Esc or Start opens the pause menu: **Resume**, **Save game**, **Load game** (disabled without a save), **Restart course**, **Settings**, and **Quit**. **Settings** holds fullscreen, HDR10 when the display offers it, the Low, Medium, and High quality tiers, Master, Effects, and Ambient volumes, mouse sensitivity as a multiple of the default 0.0022 radians per pixel, and **Controls**. **Controls** lists every rebindable action with its key or mouse button and its gamepad button; choosing one waits for the next key, mouse button, or gamepad button, and Esc cancels. A key taken by another action moves to the new one, so one key never does two things, and **Reset to defaults** restores them. The HUD's controls line names the keys bound now.
+
+Keys, the pointer, and the gamepad share one focus: the arrows, WASD, or the D-pad move it and change a setting, Enter, Space, or A chooses, and Esc or B backs out one screen. While the menu is open or waiting for a binding it owns all input, so a key pressed to rebind never also jumps. Short notices such as "Game saved" show over the HUD.
+
+Settings live per user in `%LOCALAPPDATA%\Herta\<Project>\Settings.ini` on Windows and `$XDG_CONFIG_HOME/Herta/<Project>/Settings.ini` (or `~/.config`) on Linux: `fullscreen`, `hdr`, `paperWhite` and `peakLuminance` in nits (0 follows the operating system, as in the editor), `sensitivity`, `quality` (0 Low, 1 Medium, 2 High, the default), `volumeMaster`, `volumeEffects`, and `volumeAmbient` from 0 to 1, and one `bind.<Action>` line per action for its key (`key:<code>` or `mouse:<button>`) and one `bind.<Action>.pad` line for its gamepad button. Unknown or out-of-range lines keep their defaults, and the file is written beside itself and renamed over. Logs are written beside it in `Logs/Game.log`.
+
+## Saves
+
+A save records the run's progress and the world state it changed, apart from the authored level: the objective state, elapsed and best times, respawns, the player's feet and facing, which destructible bonds are broken, and which characters died, all by stable object IDs. `FGameSession::CaptureSave` takes one and `ApplySave` restarts and puts it back; objects the level no longer has are skipped and listed. The game saves from the menu and automatically on finishing the course, to `Saves/<level id>.hsave` beside the settings.
+
+Saves are versioned text ending in a checksum, so a truncated or damaged file is detected rather than half loaded. `WriteGameSave` keeps the previous save as `<file>.previous`, writes beside the file, and renames over it, so a crash mid-write never loses both. `LoadGameSave` falls back to the backup when the save is missing or damaged and says so; a save from another level is refused.
+
+## Effects and streaming
+
+Gameplay events spawn the level's particle effects through sorted requests; see [Particles](Particles.md). Levels that place regions stream them in and out around the player on worker tasks; see [World streaming](WorldStreaming.md).
 
 ## Editor Play
 
@@ -39,7 +57,7 @@ Click **Play** in the viewport toolbar or press **Alt+P** or **Shift+Space**. Pl
 
 ## Staging and packaging
 
-`HertaEditorCmd game.stage <project.hertaproject> <output>` cooks the starting level's dependency closure through HertaAssetWorker: meshes, material assets and their textures in each sampled color space, Sky environments, and the level's sounds and emitter sounds with every graph's waves. The game opens the default audio device, or plays through the null path without one and during `--smoke-test`, and streams streamed sounds from their staged files. It writes them as loose files, copies the project descriptor and starting level verbatim, and copies the HUD font with its license:
+`HertaEditorCmd game.stage <project.hertaproject> <output>` cooks the starting level's dependency closure through HertaAssetWorker: meshes, material assets and their textures in each sampled color space, Sky environments, the level's sounds and emitter sounds with every graph's waves, its particle systems, and its region levels with their scenery's assets. The game opens the default audio device, or plays through the null path without one and during `--smoke-test`, and streams streamed sounds from their staged files. It writes them as loose files, copies the project descriptor, starting level, and region levels verbatim, and copies the HUD font with its license:
 
 ```text
 <output>/Engine/Content/<asset-id>.hasset         engine assets
@@ -65,8 +83,8 @@ The package holds the renamed game executable (`<Project>.exe` on Windows, `<Pro
 
 ## Checks
 
-- `HertaGame --smoke-test=<frames> [--validation]` plays a scripted run: it walks and jumps, loses focus, pauses and resumes, restarts the course, and exits with failure on any error or validation message.
+- `HertaGame --smoke-test=<frames> [--validation]` plays a scripted run: it walks and jumps, loses focus, pauses and resumes, saves and loads, restarts the course, crosses the level's regions and back, and exits with failure on any error or validation message. Smoke saves go to the temporary directory.
 - `HertaEditor --play-test [--validation]` runs two editor Play/Stop cycles with scripted input, saves `Saved/PlayTest/Play-N.png` from the player's view, and requires every authored model back after each stop.
-- `HertaTests` cover the mover (the sprint speed curve, landing speed loss, slide braking and exit, disabled and custom modes, sphere casts) and the session (spawn, timing, restart, jump limits, respawn, sliding under a low ceiling, wall kicks, the chimney climb, mantles and their room check, wall runs from a run but not a standing jump, invalid input), staged content loading, trigger roles, GameUI layout and menu focus, and the shared simulation builder.
+- `HertaTests` cover the mover (the sprint speed curve, landing speed loss, slide braking and exit, disabled and custom modes, sphere casts) and the session (spawn, timing, restart, jump limits, respawn, sliding under a low ceiling, wall kicks, the chimney climb, mantles and their room check, wall runs from a run but not a standing jump, invalid input), staged content loading, trigger roles, GameUI layout, the menus' focus routing, rebinding, and settings, saves and their recovery, and the shared simulation builder.
 
 The 600-frame Sandbox smoke run averaged 3.4 ms per frame at the default window size on an RTX 4090 Laptop GPU, Development and Shipping alike. Native Linux runs on X11 and Wayland pass the same checks.
