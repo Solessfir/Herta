@@ -5,7 +5,10 @@
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Log.h"
 #include "Herta/GameFramework/GameAssets.h"
+#include "Herta/GameFramework/GameControls.h"
 #include "Herta/GameFramework/GameHud.h"
+#include "Herta/GameFramework/GameMenu.h"
+#include "Herta/GameFramework/GameSave.h"
 #include "Herta/GameFramework/GameSession.h"
 #include "Herta/GameFramework/VisualEnvironment.h"
 #include "Herta/GameUI/GameUI.h"
@@ -110,9 +113,17 @@ struct FGameSettings
 	// Zero follows what the operating system reports for the display.
 	float PaperWhite = 0.f;
 	float PeakLuminance = 0.f;
-	float MouseSensitivity = 0.0022f;
+	// A multiple of the default sensitivity, which is 0.0022 radians per pixel.
+	float Sensitivity = 1.f;
 	ERenderQuality Quality = ERenderQuality::High;
+	// Linear gains for the Master, Effects, and Ambient buses.
+	std::array<float, 3> Volumes{1.f, 1.f, 1.f};
+	FGameBindings Bindings = GetDefaultGameBindings();
 };
+
+constexpr float BaseMouseSensitivity = 0.0022f;
+constexpr std::array<std::string_view, 3> VolumeKeys{"volumeMaster", "volumeEffects", "volumeAmbient"};
+constexpr std::array<std::string_view, 3> VolumeBuses{"Master", "Effects", "Ambient"};
 
 [[nodiscard]] FGameSettings LoadSettings(const std::filesystem::path& Path)
 {
@@ -128,6 +139,12 @@ struct FGameSettings
 
 		const std::string_view Key = std::string_view(Line).substr(0, Separator);
 		const std::string_view Value = std::string_view(Line).substr(Separator + 1);
+		if (Key.starts_with("bind."))
+		{
+			(void)ApplyGameBindingSetting(Settings.Bindings, Key, Value);
+			continue;
+		}
+
 		float Number = 0.f;
 		const auto [End, Error] = std::from_chars(Value.data(), Value.data() + Value.size(), Number);
 		if (Error != std::errc{} || End != Value.data() + Value.size() || !std::isfinite(Number))
@@ -151,9 +168,13 @@ struct FGameSettings
 		{
 			Settings.PeakLuminance = Number;
 		}
-		else if (Key == "mouseSensitivity" && Number >= 0.0001f && Number <= 0.02f)
+		else if (Key == "sensitivity" && Number >= 0.2f && Number <= 5.f)
 		{
-			Settings.MouseSensitivity = Number;
+			Settings.Sensitivity = Number;
+		}
+		else if (const auto Volume = std::ranges::find(VolumeKeys, Key); Volume != VolumeKeys.end() && Number >= 0.f && Number <= 1.f)
+		{
+			Settings.Volumes[static_cast<std::size_t>(Volume - VolumeKeys.begin())] = Number;
 		}
 		else if (Key == "quality" && (Number == 0.f || Number == 1.f || Number == 2.f))
 		{
@@ -172,7 +193,13 @@ void SaveSettings(const std::filesystem::path& Path, const FGameSettings& Settin
 	Temporary += ".tmp";
 	{
 		std::ofstream File(Temporary, std::ios::trunc);
-		std::println(File, "fullscreen={}\nhdr={}\npaperWhite={}\npeakLuminance={}\nmouseSensitivity={}\nquality={}", Settings.bFullscreen ? 1 : 0, Settings.bHdr ? 1 : 0, Settings.PaperWhite, Settings.PeakLuminance, Settings.MouseSensitivity, static_cast<int>(Settings.Quality));
+		std::println(File, "fullscreen={}\nhdr={}\npaperWhite={}\npeakLuminance={}\nsensitivity={}\nquality={}", Settings.bFullscreen ? 1 : 0, Settings.bHdr ? 1 : 0, Settings.PaperWhite, Settings.PeakLuminance, Settings.Sensitivity, static_cast<int>(Settings.Quality));
+		for (std::size_t Bus = 0; Bus < VolumeKeys.size(); ++Bus)
+		{
+			std::println(File, "{}={}", VolumeKeys[Bus], Settings.Volumes[Bus]);
+		}
+
+		File << SerializeGameBindings(Settings.Bindings);
 		if (!File)
 		{
 			HERTA_LOG_WARNING(Log, GameLog, "Could not save settings to {}", Path.generic_string());
@@ -194,39 +221,22 @@ void SaveSettings(const std::filesystem::path& Path, const FGameSettings& Settin
 	};
 }
 
-// Left stick moves and right stick looks; A jumps, clicking the left stick toggles sprinting, B or clicking the right stick crouches, and X throws.
-FGameGamepad GetGameGamepad(const FGamepadState& Gamepad)
-{
-	return {
-	    .Move = {Gamepad.LeftX, -Gamepad.LeftY},
-	    .Look = {Gamepad.RightX, -Gamepad.RightY},
-	    .bJump = Gamepad.IsDown(EGamepadButton::South),
-	    .bSprint = Gamepad.IsDown(EGamepadButton::LeftThumb),
-	    .bCrouch = Gamepad.IsDown(EGamepadButton::East) || Gamepad.IsDown(EGamepadButton::RightThumb),
-	    .bThrow = Gamepad.IsDown(EGamepadButton::West),
-	    .bToggleCamera = Gamepad.IsDown(EGamepadButton::North),
-	    .bAttack = Gamepad.IsDown(EGamepadButton::RightShoulder),
-	    .bBlock = Gamepad.IsDown(EGamepadButton::LeftShoulder),
-	};
-}
-
 // Input gathered from window callbacks between frames.
 struct FPendingInput
 {
 	FVector2 MouseDelta{};
 	std::optional<FVector2> LastCursor{};
 	std::optional<FVector2> Pointer{};
-	bool bJump = false;
-	bool bThrow = false;
-	bool bAttack = false;
-	bool bToggleCamera = false;
-	bool bToggleRagdoll = false;
+	// Pressed since the last frame, in order, for gameplay through the bindings and for the menu to bind.
+	std::vector<EKey> PressedKeys{};
+	std::vector<EMouseButton> PressedMouse{};
 	bool bClicked = false;
 	bool bEscape = false;
-	bool bRestart = false;
 	bool bToggleFullscreen = false;
 	bool bMenuUp = false;
 	bool bMenuDown = false;
+	bool bMenuLeft = false;
+	bool bMenuRight = false;
 	bool bMenuActivate = false;
 	bool bFocusLost = false;
 };
@@ -552,22 +562,27 @@ int RunGame(const FGameOptions& Options)
 		}
 
 		const bool bPressed = Action == EInputAction::Pressed;
-		Pending.bJump |= bPressed && Key == EKey::Space;
-		Pending.bThrow |= bPressed && Key == EKey::F;
-		Pending.bToggleCamera |= bPressed && Key == EKey::V;
-		Pending.bToggleRagdoll |= bPressed && Key == EKey::Z;
+		if (bPressed && Key != EKey::Unknown)
+		{
+			Pending.PressedKeys.push_back(Key);
+		}
+
 		Pending.bEscape |= bPressed && Key == EKey::Escape;
-		Pending.bRestart |= bPressed && Key == EKey::R;
 		Pending.bToggleFullscreen |= bPressed && (Key == EKey::F11 || (Key == EKey::Enter && HasModifier(Modifiers, EModifierFlags::Alt)));
 		Pending.bMenuUp |= Key == EKey::Up || Key == EKey::W;
 		Pending.bMenuDown |= Key == EKey::Down || Key == EKey::S;
+		Pending.bMenuLeft |= Key == EKey::Left || Key == EKey::A;
+		Pending.bMenuRight |= Key == EKey::Right || Key == EKey::D;
 		Pending.bMenuActivate |= bPressed && (Key == EKey::Enter || Key == EKey::KeypadEnter || Key == EKey::Space) && !HasModifier(Modifiers, EModifierFlags::Alt);
 	};
 
 	Callbacks.MouseButtonChanged = [&Pending](FWindow&, const EMouseButton Button, const EInputAction Action, EModifierFlags)
 	{
 		Pending.bClicked |= Button == EMouseButton::Left && Action == EInputAction::Pressed;
-		Pending.bAttack |= Button == EMouseButton::Left && Action == EInputAction::Pressed;
+		if (Action == EInputAction::Pressed)
+		{
+			Pending.PressedMouse.push_back(Button);
+		}
 	};
 
 	Callbacks.CursorMoved = [&Pending](FWindow& Source, const double X, const double Y)
@@ -592,7 +607,35 @@ int RunGame(const FGameOptions& Options)
 	FTextureHandle RegisteredScene;
 	std::uint64_t SceneTextureId = 0;
 	bool bPaused = false;
-	std::size_t MenuFocus = 0;
+	FGameMenu Menu;
+	// Unattended runs save beside other temporary files, never over a player's save.
+	const std::filesystem::path SaveDirectory = bSmokeTest ? std::filesystem::temp_directory_path() / "HertaSmokeSaves" : UserDirectory / "Saves";
+	const std::filesystem::path SavePath = SaveDirectory / (Level->Id.ToString() + std::string(GameSaveExtension));
+	EGameObjectiveState PreviousObjective = Session->GetObjective().State;
+	const auto ApplyVolumes = [&Audio, &Settings](const bool bMuted)
+	{
+		for (std::size_t Bus = 0; Bus < VolumeBuses.size() && Audio; ++Bus)
+		{
+			Audio->Submit(FAudioBusVolumeCommand{.Bus = std::string(VolumeBuses[Bus]), .Volume = Bus == 0 && bMuted ? 0.f : Settings.Volumes[Bus]});
+		}
+	};
+
+	ApplyVolumes(false);
+	const auto SaveGame = [&](const bool bQuiet)
+	{
+		if (auto Written = WriteGameSave(SavePath, Session->CaptureSave(Level->Id)); !Written)
+		{
+			HERTA_LOG_WARNING(*Log, GameLog, "Could not save the game: {}", Written.error().Message);
+			Menu.ShowNotice("The game could not be saved");
+			return;
+		}
+
+		HERTA_LOG_INFO(*Log, GameLog, "Saved the game to {}", SavePath.generic_string());
+		if (!bQuiet)
+		{
+			Menu.ShowNotice("Game saved");
+		}
+	};
 	std::optional<FGamepadState> PreviousGamepad;
 	FGameGamepadControls GamepadControls;
 	std::optional<FDisplayLuminance> SystemLuminance;
@@ -609,7 +652,10 @@ int RunGame(const FGameOptions& Options)
 		{
 			// A minimized game draws nothing, so it waits instead of spinning.
 			Window.SetCursorCaptured(false);
-			bPaused = true;
+			if (!Menu.IsOpen())
+			{
+				Menu.Open();
+			}
 		}
 
 		Application->PumpEvents();
@@ -626,11 +672,31 @@ int RunGame(const FGameOptions& Options)
 		};
 
 		// Start pauses like Escape and B backs out of the menu; Back restarts the course like R.
-		Input.bEscape |= GamepadPressed(EGamepadButton::Start) || (bPaused && GamepadPressed(EGamepadButton::East));
-		Input.bRestart |= GamepadPressed(EGamepadButton::Back);
-		Input.bMenuUp |= GamepadPressed(EGamepadButton::DpadUp);
-		Input.bMenuDown |= GamepadPressed(EGamepadButton::DpadDown);
-		Input.bMenuActivate |= GamepadPressed(EGamepadButton::South);
+		std::optional<EGamepadButton> PadPressed;
+		for (std::size_t Button = 0; Button <= static_cast<std::size_t>(EGamepadButton::Last) && !PadPressed; ++Button)
+		{
+			PadPressed = GamepadPressed(static_cast<EGamepadButton>(Button)) ? std::optional(static_cast<EGamepadButton>(Button)) : std::nullopt;
+		}
+
+		const bool bPadRestart = Settings.Bindings.Get(EGameAction::Restart).Pad && GamepadPressed(*Settings.Bindings.Get(EGameAction::Restart).Pad);
+		FGameMenuInput MenuInput{
+		    .Pointer = Input.Pointer,
+		    .bClicked = Input.bClicked,
+		    .bUp = Input.bMenuUp || GamepadPressed(EGamepadButton::DpadUp),
+		    .bDown = Input.bMenuDown || GamepadPressed(EGamepadButton::DpadDown),
+		    .bLeft = Input.bMenuLeft || GamepadPressed(EGamepadButton::DpadLeft),
+		    .bRight = Input.bMenuRight || GamepadPressed(EGamepadButton::DpadRight),
+		    .bActivate = Input.bMenuActivate || GamepadPressed(EGamepadButton::South),
+		    .bBack = GamepadPressed(EGamepadButton::East),
+		    .bPause = Input.bEscape || GamepadPressed(EGamepadButton::Start),
+		    .bFocusLost = Input.bFocusLost,
+		    .Key = Input.PressedKeys.empty() ? std::nullopt : std::optional(Input.PressedKeys.back()),
+		    .Mouse = Input.PressedMouse.empty() ? std::nullopt : std::optional(Input.PressedMouse.back()),
+		    .Pad = PadPressed,
+		};
+
+		// The gamepad's B also crouches, so it backs out of the menu only while the menu is open.
+		MenuInput.bBack = MenuInput.bBack && Menu.IsOpen();
 		PreviousGamepad = Gamepad;
 
 		// A scripted run walks the course, jumps, pauses, and restarts to exercise the same paths a player does.
@@ -644,10 +710,23 @@ int RunGame(const FGameOptions& Options)
 			    .bCrouch = Frames % 300 > 240,
 			    .bThrow = Frames % 40 == 20,
 			    .bToggleCamera = Frames == Options.SmokeFrames / 2 + 40};
-			Input.bEscape = Frames == Options.SmokeFrames / 4 + 30 || Frames == Options.SmokeFrames / 2 || Frames == Options.SmokeFrames / 2 + 20;
-			Input.bRestart = Frames == Options.SmokeFrames * 3 / 4;
-			Input.bFocusLost = Frames == Options.SmokeFrames / 4;
+			MenuInput = {.bPause = Frames == Options.SmokeFrames / 4 + 30 || Frames == Options.SmokeFrames / 2 || Frames == Options.SmokeFrames / 2 + 20, .bFocusLost = Frames == Options.SmokeFrames / 4};
+			// The run also saves and loads through the menu's commands.
+			if (Frames == Options.SmokeFrames / 3)
+			{
+				SaveGame(false);
+			}
+
+			if (Frames == Options.SmokeFrames / 3 + 10)
+			{
+				if (const auto Loaded = LoadGameSave(SavePath); Loaded)
+				{
+					(void)Session->ApplySave(Loaded->Save);
+				}
+			}
 		}
+
+		const bool bRestartPressed = Frames == Options.SmokeFrames * 3 / 4 && bSmokeTest;
 
 		if (Input.bToggleFullscreen)
 		{
@@ -656,16 +735,23 @@ int RunGame(const FGameOptions& Options)
 			SaveSettings(SettingsPath, Settings, *Log);
 		}
 
-		// Losing focus pauses, so alt-tabbing never leaves the player running or the pointer trapped.
-		if (Input.bFocusLost && !bPaused)
-		{
-			bPaused = true;
-		}
-		else if (Input.bEscape)
-		{
-			bPaused = !bPaused;
-			MenuFocus = 0;
-		}
+		// Losing focus opens the menu, so alt-tabbing never leaves the player running or the pointer trapped. While the menu is open it owns
+		// every key, so a key pressed to rebind never also reaches gameplay.
+		FGameMenuSettings MenuSettings{
+		    .bFullscreen = Window.IsFullscreen(),
+		    .bHdrAvailable = Presentation->IsHdrOutputSupported(),
+		    .bHdr = Settings.bHdr,
+		    .Quality = static_cast<std::uint32_t>(Settings.Quality),
+		    .Volumes = Settings.Volumes,
+		    .Sensitivity = Settings.Sensitivity,
+		    .Bindings = Settings.Bindings,
+		    .bCanLoad = std::filesystem::exists(SavePath) || std::filesystem::exists(GetGameSaveBackupPath(SavePath)),
+		};
+
+		const bool bMenuOwnedInput = Menu.OwnsInput();
+		std::vector<EGameMenuCommand> MenuCommands = Menu.Update(MenuInput, MenuSettings);
+		Menu.Tick(DeltaSeconds);
+		bPaused = Menu.IsOpen();
 
 		const bool bPlaying = !bPaused && (Window.IsFocused() || bSmokeTest);
 		if (!bSmokeTest)
@@ -673,30 +759,30 @@ int RunGame(const FGameOptions& Options)
 			Window.SetCursorCaptured(bPlaying);
 		}
 
-		if (bPlaying && !bSmokeTest)
+		// The frame that closes the menu still belongs to it, so the Escape or click that resumed does not also act in the game.
+		FGameKeyboardState Keyboard;
+		std::vector<EKey> HeldKeys;
+		std::vector<EMouseButton> HeldMouse;
+		if (bPlaying && !bSmokeTest && !bMenuOwnedInput)
 		{
-			const auto Axis = [&Window](const EKey Positive, const EKey Negative)
+			for (const FGameBinding& Binding : Settings.Bindings.Actions)
 			{
-				return (Window.IsKeyDown(Positive) ? 1.f : 0.f) - (Window.IsKeyDown(Negative) ? 1.f : 0.f);
-			};
+				if (Binding.Key && Window.IsKeyDown(*Binding.Key))
+				{
+					HeldKeys.push_back(*Binding.Key);
+				}
 
-			GameInput = {
-			    .Move = {Axis(EKey::D, EKey::A), Axis(EKey::W, EKey::S)},
-			    .YawDelta = -Input.MouseDelta.X * Settings.MouseSensitivity,
-			    .PitchDelta = -Input.MouseDelta.Y * Settings.MouseSensitivity,
-			    .bJump = Input.bJump,
-			    .bSprint = Window.IsKeyDown(EKey::LeftShift) || Window.IsKeyDown(EKey::RightShift),
-			    .bCrouch = Window.IsKeyDown(EKey::C) || Window.IsKeyDown(EKey::LeftControl),
-			    .bThrow = Input.bThrow,
-			    .bToggleCamera = Input.bToggleCamera,
-			    .bToggleRagdoll = Input.bToggleRagdoll,
-			    .bAttack = Input.bAttack,
-			    .bBlock = Window.IsMouseButtonDown(EMouseButton::Right),
-			};
+				if (Binding.Mouse && Window.IsMouseButtonDown(*Binding.Mouse))
+				{
+					HeldMouse.push_back(*Binding.Mouse);
+				}
+			}
 
+			Keyboard = {.HeldKeys = HeldKeys, .PressedKeys = Input.PressedKeys, .HeldMouse = HeldMouse, .PressedMouse = Input.PressedMouse, .MouseDelta = Input.MouseDelta, .Sensitivity = BaseMouseSensitivity * Settings.Sensitivity};
+			GameInput = BuildKeyboardGameInput(Settings.Bindings, Keyboard);
 			if (Gamepad)
 			{
-				GamepadControls.Apply(GameInput, GetGameGamepad(*Gamepad), DeltaSeconds);
+				GamepadControls.Apply(GameInput, GetBoundGamepad(Settings.Bindings, *Gamepad), DeltaSeconds);
 			}
 		}
 		else
@@ -704,7 +790,7 @@ int RunGame(const FGameOptions& Options)
 			GamepadControls.Reset();
 		}
 
-		if (bPlaying && Input.bRestart)
+		if (bRestartPressed || (bPlaying && !bMenuOwnedInput && (WasGameActionPressed(Settings.Bindings, EGameAction::Restart, Keyboard) || bPadRestart)))
 		{
 			if (auto Restarted = Session->Restart(); !Restarted)
 			{
@@ -735,7 +821,7 @@ int RunGame(const FGameOptions& Options)
 			if (bPaused != bAudioMuted)
 			{
 				bAudioMuted = bPaused;
-				Audio->Submit(FAudioBusVolumeCommand{.Bus = "Master", .Volume = bPaused ? 0.f : 1.f});
+				ApplyVolumes(bPaused);
 			}
 
 			Audio->Submit(AudioCommands);
@@ -826,49 +912,88 @@ int RunGame(const FGameOptions& Options)
 		const auto Width = static_cast<float>(Extent.Width);
 		const auto Height = static_cast<float>(Extent.Height);
 		UI->DrawImage(SceneTextureId, {0.f, 0.f}, {Width, Height});
-		const bool bHdrSupported = Presentation->IsHdrOutputSupported();
-		const std::string FullscreenLabel = std::format("Fullscreen: {}", Window.IsFullscreen() ? "On" : "Off");
-		const std::string HdrLabel = bHdrSupported ? std::format("HDR: {}", Settings.bHdr ? "On" : "Off") : std::string("HDR: not available on this display");
-		constexpr std::array QualityNames{"Low", "Medium", "High"};
-		const std::string QualityLabel = std::format("Quality: {}", QualityNames[static_cast<std::size_t>(Settings.Quality)]);
-		const std::array<std::string_view, 6> Items{"Resume", "Restart course", FullscreenLabel, HdrLabel, QualityLabel, "Quit"};
-		const FGameUIInput MenuInput{.Pointer = Input.Pointer, .bClicked = Input.bClicked, .bUp = Input.bMenuUp, .bDown = Input.bMenuDown, .bActivate = Input.bMenuActivate};
-		if (const auto Chosen = DrawGameHud(*UI, Session->GetObjective(), bPaused, Items, MenuFocus, MenuInput))
+		std::size_t NoMenuFocus = 0;
+		(void)DrawGameHud(*UI, Session->GetObjective(), bPaused, {}, NoMenuFocus, {}, "Esc", FormatGameControlsHint(Settings.Bindings, "Esc"));
+		std::ranges::move(Menu.Draw(*UI, MenuInput, MenuSettings), std::back_inserter(MenuCommands));
+		for (const EGameMenuCommand Command : MenuCommands)
 		{
-			if (*Chosen == 0)
+			switch (Command)
 			{
-				bPaused = false;
-			}
-			else if (*Chosen == 1)
-			{
-				bPaused = false;
-				if (auto Restarted = Session->Restart(); !Restarted)
-				{
-					HERTA_LOG_ERROR(*Log, GameLog, "{}", Restarted.error().Message);
-					bFailed = true;
-				}
-			}
-			else if (*Chosen == 2)
-			{
-				Settings.bFullscreen = !Window.IsFullscreen();
-				Window.SetFullscreen(Settings.bFullscreen);
-				SaveSettings(SettingsPath, Settings, *Log);
-			}
-			else if (*Chosen == 3 && bHdrSupported)
-			{
-				Settings.bHdr = !Settings.bHdr;
-				SaveSettings(SettingsPath, Settings, *Log);
-			}
-			else if (*Chosen == 4)
-			{
-				Settings.Quality = static_cast<ERenderQuality>((static_cast<int>(Settings.Quality) + 1) % 3);
-				SaveSettings(SettingsPath, Settings, *Log);
-			}
-			else if (*Chosen == 5)
-			{
-				Window.RequestClose();
+				case EGameMenuCommand::Resume:
+					break;
+				case EGameMenuCommand::Save:
+					SaveGame(false);
+					break;
+				case EGameMenuCommand::Load:
+					if (const auto Loaded = LoadGameSave(SavePath); !Loaded)
+					{
+						HERTA_LOG_WARNING(*Log, GameLog, "Could not load the save: {}", Loaded.error().Message);
+						Menu.ShowNotice("The save could not be loaded");
+					}
+					else if (const auto Applied = Session->ApplySave(Loaded->Save); !Applied)
+					{
+						HERTA_LOG_ERROR(*Log, GameLog, "Could not apply the save: {}", Applied.error().Message);
+						Menu.ShowNotice("The save could not be loaded");
+					}
+					else
+					{
+						for (const std::string& Skipped : *Applied)
+						{
+							HERTA_LOG_WARNING(*Log, GameLog, "{}", Skipped);
+						}
+
+						if (Loaded->bRecovered)
+						{
+							HERTA_LOG_WARNING(*Log, GameLog, "The save was damaged ({}); loaded the one before it", Loaded->Problem);
+						}
+
+						Menu.ShowNotice(Loaded->bRecovered ? "The save was damaged; loaded the one before it" : "Game loaded");
+						PreviousObjective = Session->GetObjective().State;
+					}
+
+					break;
+				case EGameMenuCommand::Restart:
+					if (auto Restarted = Session->Restart(); !Restarted)
+					{
+						HERTA_LOG_ERROR(*Log, GameLog, "{}", Restarted.error().Message);
+						bFailed = true;
+					}
+
+					break;
+				case EGameMenuCommand::Quit:
+					Window.RequestClose();
+					break;
+				case EGameMenuCommand::SettingsChanged:
+					if (MenuSettings.bFullscreen != Window.IsFullscreen())
+					{
+						Window.SetFullscreen(MenuSettings.bFullscreen);
+					}
+
+					Settings.bFullscreen = MenuSettings.bFullscreen;
+					Settings.bHdr = MenuSettings.bHdr;
+					Settings.Quality = static_cast<ERenderQuality>(std::min<std::uint32_t>(MenuSettings.Quality, 2));
+					Settings.Volumes = MenuSettings.Volumes;
+					Settings.Sensitivity = MenuSettings.Sensitivity;
+					Settings.Bindings = MenuSettings.Bindings;
+					ApplyVolumes(bPaused);
+					if (!bSmokeTest)
+					{
+						SaveSettings(SettingsPath, Settings, *Log);
+					}
+
+					break;
 			}
 		}
+
+		// Finishing the course saves, so a best time is never lost.
+		const EGameObjectiveState Objective = Session->GetObjective().State;
+		if (Objective == EGameObjectiveState::Finished && PreviousObjective != EGameObjectiveState::Finished && !bSmokeTest)
+		{
+			SaveGame(true);
+			Menu.ShowNotice("Course finished; game saved");
+		}
+
+		PreviousObjective = Objective;
 
 		auto Begin = Presentation->BeginFrame();
 		if (!Begin)

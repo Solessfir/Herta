@@ -11,7 +11,7 @@ std::string FormatGameSeconds(const double Seconds)
 	return Minutes > 0 ? std::format("{}:{:05.2f}", Minutes, Seconds - Minutes * 60.) : std::format("{:.2f}", Seconds);
 }
 
-std::optional<std::size_t> DrawGameHud(FGameUI& UI, const FGameObjective& Objective, const bool bPaused, const std::span<const std::string_view> MenuItems, std::size_t& MenuFocus, const FGameUIInput& MenuInput, const std::string_view MenuKey)
+std::optional<std::size_t> DrawGameHud(FGameUI& UI, const FGameObjective& Objective, const bool bPaused, const std::span<const std::string_view> MenuItems, std::size_t& MenuFocus, const FGameUIInput& MenuInput, const std::string_view MenuKey, const std::string_view ControlsHint)
 {
 	const std::uint32_t Panel = MakeGameUIColor(12, 14, 20, 170);
 	const std::uint32_t Text = MakeGameUIColor(238, 240, 246);
@@ -38,10 +38,15 @@ std::optional<std::size_t> DrawGameHud(FGameUI& UI, const FGameObjective& Object
 	if (!bPaused)
 	{
 		UI.DrawCircle({.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 0.5f}}, 8.f, MakeGameUIColor(255, 255, 255, 220));
-		const std::string Hint = std::format("WASD move    Space jump    Shift sprint    C slide    LMB attack    RMB block    Z ragdoll    R restart    {} menu", MenuKey);
+		const std::string Hint = ControlsHint.empty() ? std::format("WASD move    Space jump    Shift sprint    C slide    LMB attack    RMB block    Z ragdoll    R restart    {} menu", MenuKey) : std::string(ControlsHint);
 		const FVector2 HintSize = UI.MeasureText(Hint, EGameUIFont::Body);
 		UI.DrawRect({.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -Margin}}, {HintSize.X + Padding.X * 2.f, HintSize.Y + Padding.Y * 2.f}, Panel, Radius);
 		UI.DrawText(Hint, {.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -Margin - Padding.Y}}, EGameUIFont::Body, MakeGameUIColor(220, 224, 232));
+		return std::nullopt;
+	}
+
+	if (MenuItems.empty())
+	{
 		return std::nullopt;
 	}
 
