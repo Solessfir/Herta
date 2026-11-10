@@ -720,6 +720,10 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 
 	REQUIRE((*Session)->Restart());
 	Step({}, 5);
+	// A cut 3 cm above the soles would only peel them off, so it does not cut.
+	const auto Skim = (*Session)->SliceCharacter(0, {0.f, 0.03f, 3.f}, FVector3{0.f, 1.f, 0.f});
+	REQUIRE(Skim);
+	CHECK_FALSE(*Skim);
 	REQUIRE((*Session)->SeverCharacter(0, "upperarm_l"));
 	REQUIRE((*Session)->SeverCharacter(0, "lowerarm_r"));
 	// A cut through the waist takes the chest, which kills the dummy: the cut-off half falls, and what is left collapses as a ragdoll, so nothing

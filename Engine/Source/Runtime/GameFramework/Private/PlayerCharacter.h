@@ -159,6 +159,9 @@ struct FRagdollFit
 // Too small to simulate or see: fewer than 40 triangles, or under 4 cm across in its bind pose. Cuts that would make one keep the sliver on its
 // neighbour instead.
 [[nodiscard]] bool IsSliver(const FSkinnedMeshPiece& Piece);
+// Whether a plane through posed vertices would leave either side less than 8 cm deep, such as a skim along the surface or a cut down the
+// length of a limb, which look like peeled skin rather than a cut.
+[[nodiscard]] bool IsThinCut(std::span<const FCookedVertex> Posed, const FMeshSlicePlane& Plane);
 // The joints a piece mostly follows: those that weigh more than half on at least eight of its vertices.
 [[nodiscard]] std::vector<bool> FindCarriedJoints(const FSkinnedMeshPiece& Piece, std::size_t JointCount);
 

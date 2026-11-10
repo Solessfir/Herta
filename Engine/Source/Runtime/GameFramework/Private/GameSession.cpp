@@ -2593,7 +2593,13 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutPiece(const st
 
 	const FVector3 LocalNormal = Inverse->TransformVector(Normal).Normalized();
 	const FVector3 LocalPoint = TransformPoint(*Inverse, Point);
-	auto Sliced = SliceSkinnedMesh(Piece.GetBind(), Piece.GetVertices(), Piece.GetSkinningMatrices(), {.Normal = LocalNormal, .Distance = LocalNormal.Dot(LocalPoint)}, static_cast<std::uint32_t>(Piece.GetCookedModel()->Materials.size()));
+	const FMeshSlicePlane Plane{.Normal = LocalNormal, .Distance = LocalNormal.Dot(LocalPoint)};
+	if (IsThinCut(Piece.GetVertices(), Plane))
+	{
+		return false;
+	}
+
+	auto Sliced = SliceSkinnedMesh(Piece.GetBind(), Piece.GetVertices(), Piece.GetSkinningMatrices(), Plane, static_cast<std::uint32_t>(Piece.GetCookedModel()->Materials.size()));
 	if (!Sliced)
 	{
 		return std::unexpected(FGameError{Sliced.error().Message});

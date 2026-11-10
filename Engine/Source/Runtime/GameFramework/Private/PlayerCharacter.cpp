@@ -530,6 +530,21 @@ bool IsSliver(const FSkinnedMeshPiece& Piece)
 	return (Maximum - Minimum).Length() < 0.04f;
 }
 
+bool IsThinCut(const std::span<const FCookedVertex> Posed, const FMeshSlicePlane& Plane)
+{
+	constexpr float MinimumDepth = 0.08f;
+	float Front = 0.f;
+	float Back = 0.f;
+	for (const FCookedVertex& Vertex : Posed)
+	{
+		const float Distance = Plane.Normal.Dot({Vertex.Position[0], Vertex.Position[1], Vertex.Position[2]}) - Plane.Distance;
+		Front = std::max(Front, Distance);
+		Back = std::max(Back, -Distance);
+	}
+
+	return std::min(Front, Back) < MinimumDepth;
+}
+
 std::vector<bool> FindCarriedJoints(const FSkinnedMeshPiece& Piece, const std::size_t JointCount)
 {
 	std::vector<std::uint32_t> Counts(JointCount, 0);
@@ -675,6 +690,11 @@ std::expected<std::optional<FSkinnedMeshPiece>, FGameError> FPlayerCharacter::Sl
 	}
 
 	SkinForCut();
+	if (IsThinCut(Vertices, Plane))
+	{
+		return std::nullopt;
+	}
+
 	const FSkinnedMeshPiece& Piece = GetPiece();
 	auto Sliced = SliceSkinnedMesh(Piece, Vertices, Pose.GetSkinningMatrices(), Plane, static_cast<std::uint32_t>(Model->Materials.size()));
 	if (!Sliced)
