@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <numbers>
 #include <cmath>
 #include <cstddef>
 #include <cstring>
@@ -190,6 +191,99 @@ void AppendQuad(std::vector<FColoredClipVertex>& Vertices, const FProjectedDebug
 	const FColoredClipVertex BLeft = RasterVertex(B, OffsetB);
 	const FColoredClipVertex BRight = RasterVertex(B, -OffsetB);
 	Vertices.insert(Vertices.end(), {ALeft, ARight, BLeft, BLeft, ARight, BRight});
+}
+
+// Discs of six rim vertices around a center, transparent at the rim, built in clip space from the camera's axes, sorted back to front so
+// alpha blending composes them in order.
+constexpr std::size_t ParticleRimVertices = 6;
+constexpr std::size_t MaximumDrawnParticles = 16384;
+
+void ExpandParticles(const FMatrix4& View, const FMatrix4& WorldToClip, const std::span<const FRenderParticle> Particles, const std::span<const FRenderLight> Lights, std::vector<FColoredClipVertex>& Vertices, std::vector<std::uint32_t>& Indices, std::vector<std::uint32_t>& Order)
+{
+	Vertices.clear();
+	Indices.clear();
+	Order.clear();
+	if (Particles.empty())
+	{
+		return;
+	}
+
+	// Particles have no normals, so they take the directional lights at a half-lit average plus the sky as a quarter of the sun.
+	FVector3 Illuminance{};
+	float Brightest = 0.f;
+	bool bSky = false;
+	for (const FRenderLight& Light : Lights)
+	{
+		if (!Light.Settings.bEnabled)
+		{
+			continue;
+		}
+
+		if (Light.Settings.Type == ELightType::Directional)
+		{
+			Illuminance += Light.Settings.Color * (Light.Settings.Intensity * 0.6f);
+			Brightest = std::max(Brightest, Light.Settings.Intensity);
+		}
+
+		bSky = bSky || Light.Settings.Type == ELightType::Sky;
+	}
+
+	Illuminance += FVector3{1.f, 1.f, 1.f} * (bSky ? Brightest * 0.25f : 0.f);
+	const FVector3 Radiance = Illuminance * (1.f / std::numbers::pi_v<float>);
+
+	const FVector3 Right{View(0, 0), View(0, 1), View(0, 2)};
+	const FVector3 Up{View(1, 0), View(1, 1), View(1, 2)};
+	const FVector3 Translation{View(0, 3), View(1, 3), View(2, 3)};
+	const FVector3 Eye = -(Right * Translation.X + Up * Translation.Y + FVector3{View(2, 0), View(2, 1), View(2, 2)} * Translation.Z);
+	const auto ClipDirection = [&WorldToClip](const FVector3& Direction)
+	{
+		return std::array{WorldToClip(0, 0) * Direction.X + WorldToClip(0, 1) * Direction.Y + WorldToClip(0, 2) * Direction.Z, WorldToClip(1, 0) * Direction.X + WorldToClip(1, 1) * Direction.Y + WorldToClip(1, 2) * Direction.Z,
+		    WorldToClip(2, 0) * Direction.X + WorldToClip(2, 1) * Direction.Y + WorldToClip(2, 2) * Direction.Z, WorldToClip(3, 0) * Direction.X + WorldToClip(3, 1) * Direction.Y + WorldToClip(3, 2) * Direction.Z};
+	};
+
+	const auto ClipRight = ClipDirection(Right);
+	const auto ClipUp = ClipDirection(Up);
+	const std::size_t Count = std::min(Particles.size(), MaximumDrawnParticles);
+	Order.resize(Count);
+	std::ranges::iota(Order, 0u);
+	std::ranges::sort(Order, std::ranges::greater{}, [&](const std::uint32_t Index)
+	{
+		return (Particles[Index].Position - Eye).LengthSquared();
+	});
+
+	Vertices.reserve(Count * (ParticleRimVertices + 1));
+	Indices.reserve(Count * ParticleRimVertices * 3);
+	for (const std::uint32_t Index : Order)
+	{
+		const FRenderParticle& Particle = Particles[Index];
+		const FVector3 Albedo{Particle.Color[0], Particle.Color[1], Particle.Color[2]};
+		const FVector3 Lit{Albedo.X * (Radiance.X + Particle.Emissive), Albedo.Y * (Radiance.Y + Particle.Emissive), Albedo.Z * (Radiance.Z + Particle.Emissive)};
+		const float Radius = Particle.Size * 0.5f;
+		const FVector3& P = Particle.Position;
+		const std::array Center{WorldToClip(0, 0) * P.X + WorldToClip(0, 1) * P.Y + WorldToClip(0, 2) * P.Z + WorldToClip(0, 3), WorldToClip(1, 0) * P.X + WorldToClip(1, 1) * P.Y + WorldToClip(1, 2) * P.Z + WorldToClip(1, 3),
+		    WorldToClip(2, 0) * P.X + WorldToClip(2, 1) * P.Y + WorldToClip(2, 2) * P.Z + WorldToClip(2, 3), WorldToClip(3, 0) * P.X + WorldToClip(3, 1) * P.Y + WorldToClip(3, 2) * P.Z + WorldToClip(3, 3)};
+		if (Center[3] <= 0.01f)
+		{
+			continue;
+		}
+
+		const auto First = static_cast<std::uint32_t>(Vertices.size());
+		Vertices.push_back({.Position = Center, .Color = {Lit.X, Lit.Y, Lit.Z, Particle.Color[3]}});
+		for (std::size_t Rim = 0; Rim < ParticleRimVertices; ++Rim)
+		{
+			const float Angle = static_cast<float>(Rim) * (2.f * std::numbers::pi_v<float> / static_cast<float>(ParticleRimVertices));
+			const float Cosine = std::cos(Angle) * Radius;
+			const float Sine = std::sin(Angle) * Radius;
+			std::array<float, 4> Position{};
+			for (std::size_t Axis = 0; Axis < 4; ++Axis)
+			{
+				Position[Axis] = Center[Axis] + ClipRight[Axis] * Cosine + ClipUp[Axis] * Sine;
+			}
+
+			Vertices.push_back({.Position = Position, .Color = {Lit.X, Lit.Y, Lit.Z, 0.f}});
+			Indices.insert(Indices.end(), {First, First + 1 + static_cast<std::uint32_t>(Rim), First + 1 + static_cast<std::uint32_t>((Rim + 1) % ParticleRimVertices)});
+		}
+	}
 }
 
 [[nodiscard]] std::expected<void, FPresentationError> ExpandDebugDraw(const FExtent2D Extent, const FMatrix4& WorldToClip, const std::span<const FDebugDrawList> Lists, std::array<std::vector<FColoredClipVertex>, 2>& Batches)
@@ -817,6 +911,14 @@ struct FMeshRenderer::FImplementation
 	std::array<FBufferHandle, 2> DebugVertices;
 	std::array<FBufferHandle, 2> DebugIndices;
 	std::array<std::vector<FColoredClipVertex>, 2> DebugBatches;
+	// Particles draw into HDR scene color, so they have their own pipeline in its format; buffers grow and never shrink.
+	FGraphicsPipelineHandle ParticlePipeline;
+	ETextureFormat ParticleFormat = ETextureFormat::Rgba16Float;
+	FBufferHandle ParticleVertexBuffer;
+	FBufferHandle ParticleIndexBuffer;
+	std::vector<FColoredClipVertex> ParticleVertices;
+	std::vector<std::uint32_t> ParticleIndices;
+	std::vector<std::uint32_t> ParticleOrder;
 	std::size_t LastDrawCount = 0;
 
 	// The inputs each cached result was last rendered from. A pass whose inputs match skips its work and keeps the result.
@@ -1999,6 +2101,36 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		return Expanded;
 	}
 
+	// Renderers without the pass-through shaders, such as thumbnail renderers, draw no particles.
+	const bool bParticleShaders = !State.DisplayShaders.DebugVertex.Bytecode.empty() && !State.DisplayShaders.DebugFragment.Bytecode.empty();
+	ExpandParticles(View.View, WorldToClip, bParticleShaders ? View.Particles : std::span<const FRenderParticle>{}, View.Lights, State.ParticleVertices, State.ParticleIndices, State.ParticleOrder);
+	if (!State.ParticleIndices.empty())
+	{
+		const std::size_t VertexBytes = State.ParticleVertices.size() * sizeof(FColoredClipVertex);
+		const std::size_t IndexBytes = State.ParticleIndices.size() * sizeof(std::uint32_t);
+		if (!State.ParticleVertexBuffer || State.ParticleVertexBuffer->GetDescriptor().Size < VertexBytes)
+		{
+			auto Vertices = Device.CreateBuffer({.Name = "Particle vertices", .Size = std::bit_ceil(VertexBytes), .Usage = EBufferUsage::Vertex, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition});
+			if (!Vertices)
+			{
+				return std::unexpected(Vertices.error());
+			}
+
+			State.ParticleVertexBuffer = std::move(*Vertices);
+		}
+
+		if (!State.ParticleIndexBuffer || State.ParticleIndexBuffer->GetDescriptor().Size < IndexBytes)
+		{
+			auto Indices = Device.CreateBuffer({.Name = "Particle indices", .Size = std::bit_ceil(IndexBytes), .Usage = EBufferUsage::Index});
+			if (!Indices)
+			{
+				return std::unexpected(Indices.error());
+			}
+
+			State.ParticleIndexBuffer = std::move(*Indices);
+		}
+	}
+
 	for (std::size_t Index = 0; Index < State.DebugBatches.size(); ++Index)
 	{
 		const auto& Batch = State.DebugBatches[Index];
@@ -2533,6 +2665,17 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 	}
 
 	const FTextureHandle MeshColor = State.HdrColor ? State.HdrColor : State.Color;
+	if (!State.ParticleIndices.empty() && (!State.ParticlePipeline || State.ParticleFormat != MeshColor->GetDescriptor().Format))
+	{
+		State.ParticleFormat = MeshColor->GetDescriptor().Format;
+		auto Pipeline = Device.CreateGraphicsPipeline({.Name = "Particles", .VertexShader = State.DisplayShaders.DebugVertex, .FragmentShader = State.DisplayShaders.DebugFragment, .ColorFormat = State.ParticleFormat, .VertexFormat = EGraphicsVertexFormat::ColoredClipPosition, .bDepthTest = true, .bDepthWrite = false, .CullMode = EGraphicsCullMode::None, .bAlphaBlend = true});
+		if (!Pipeline)
+		{
+			return std::unexpected(Pipeline.error());
+		}
+
+		State.ParticlePipeline = std::move(*Pipeline);
+	}
 	const auto MaterialTextures = [&](const FRenderMesh& Mesh, const FRenderMesh::FSection& Section, const std::span<const FRenderMaterial* const> Overrides)
 	{
 		std::array<FTextureHandle, MeshTextureCount> Textures;
@@ -3363,6 +3506,28 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		{
 			const auto Timer = TimedPass("PBR meshes");
 			return DrawScene(false, EOcclusionList::Final);
+		});
+	}
+
+	// Particles composite over everything opaque, against its depth without writing it, before fog and tone mapping read the scene.
+	if (!State.ParticleIndices.empty())
+	{
+		Graph.AddPass("Particles", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+		{
+			const auto Timer = TimedPass("Particles");
+			auto Result = Device.WriteBuffer(State.ParticleVertexBuffer, std::as_bytes(std::span{State.ParticleVertices}));
+			if (Result)
+			{
+				Result = Device.WriteBuffer(State.ParticleIndexBuffer, std::as_bytes(std::span{State.ParticleIndices}));
+			}
+
+			if (Result)
+			{
+				Result = Device.DrawIndexed({.Pipeline = State.ParticlePipeline, .Vertices = State.ParticleVertexBuffer, .Indices = State.ParticleIndexBuffer, .Texture = {}, .ColorTarget = MeshColor, .DepthTarget = FrameDepth, .WorldToClip = FMatrix4::Identity().Data(), .IndexCount = static_cast<std::uint32_t>(State.ParticleIndices.size())});
+			}
+
+			++State.LastDrawCount;
+			return GraphResult(Result);
 		});
 	}
 

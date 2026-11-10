@@ -143,6 +143,59 @@ TEST_CASE("Mesh renderer records clear before indexed reversed-Z geometry")
 	CHECK(Near.Z / Near.W < 1.f);
 }
 
+TEST_CASE("Mesh renderer draws particles as lit, back-to-front discs into HDR color against scene depth")
+{
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	const auto Renderer = CreateDebugRenderer(Device);
+	REQUIRE(Renderer);
+	const std::array Particles{
+	    Herta::FRenderParticle{.Position = {0.f, 0.f, 1.f}, .Size = 0.5f, .Color = {1.f, 0.f, 0.f, 1.f}, .Emissive = 100.f},
+	    Herta::FRenderParticle{.Position = {0.f, 0.f, -2.f}, .Size = 0.5f, .Color = {0.f, 1.f, 0.f, 0.5f}},
+	    Herta::FRenderParticle{.Position = {0.5f, 0.f, -3.f}, .Size = 0.2f, .Color = {0.f, 0.f, 1.f, 0.25f}},
+	};
+	Scene.View.Particles = Particles;
+	Device.Draws.clear();
+	Device.DebugUploads.clear();
+	REQUIRE((*Renderer)->Render({640, 480}, Scene.View));
+	const auto Draw = std::ranges::find_if(Device.Draws, [](const Herta::FIndexedDraw& Candidate)
+	{
+		return Candidate.IndexCount == 3 * 6 * 3;
+	});
+
+	REQUIRE(Draw != Device.Draws.end());
+	REQUIRE(Draw->DepthTarget);
+	CHECK(Draw->DepthTarget->GetDescriptor().Format == Herta::ETextureFormat::Depth32);
+	REQUIRE(Draw->ColorTarget);
+
+	const auto Upload = std::ranges::find_if(Device.DebugUploads, [](const std::vector<Herta::FColoredClipVertex>& Candidate)
+	{
+		return Candidate.size() == 21;
+	});
+
+	REQUIRE(Upload != Device.DebugUploads.end());
+	const std::vector<Herta::FColoredClipVertex>& Discs = *Upload;
+	// The camera stands at z = -5 looking along +Z, so the red disc is farthest and draws first. Without lights only emissive light shows.
+	CHECK(Discs[0].Color[0] == doctest::Approx(100.f));
+	CHECK(Discs[0].Color[3] == doctest::Approx(1.f));
+	CHECK(Discs[1].Color[3] == 0.f);
+	CHECK(Discs[7].Color[1] == 0.f);
+	CHECK(Discs[7].Color[3] == doctest::Approx(0.5f));
+	CHECK(Discs[14].Color[3] == doctest::Approx(0.25f));
+	CHECK(Discs[0].Position[3] > Discs[7].Position[3]);
+	CHECK(Discs[7].Position[3] > Discs[14].Position[3]);
+
+	// Thumbnail renderers have no particle shaders and skip them.
+	const auto Plain = Herta::FMeshRenderer::Create(Device, {}, {});
+	REQUIRE(Plain);
+	Device.Draws.clear();
+	REQUIRE((*Plain)->Render({640, 480}, Scene.View));
+	CHECK(std::ranges::none_of(Device.Draws, [](const Herta::FIndexedDraw& Candidate)
+	{
+		return Candidate.IndexCount == 3 * 6 * 3;
+	}));
+}
+
 TEST_CASE("Textured cube models are 1 m with outward counter-clockwise faces and unmirrored UVs")
 {
 	const Herta::FCookedModel Cube = Herta::CreateTexturedCubeModel({.ColorSpace = Herta::ETextureColorSpace::Srgb, .Mips = {{.Width = 1, .Height = 1, .Pixels = std::vector<std::byte>(4)}}});

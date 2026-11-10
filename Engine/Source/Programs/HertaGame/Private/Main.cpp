@@ -407,7 +407,16 @@ int RunGame(const FGameOptions& Options)
 		*Destination = std::move(*Shader);
 	}
 
-	auto RendererResult = FMeshRenderer::Create(Device, std::move(*VertexShader), std::move(*FragmentShader), {}, {}, {}, {}, std::move(*InstancedVertexShader), std::move(VisualShaders));
+	// Particles draw with the debug primitives' pass-through shaders.
+	auto ParticleVertexShader = LoadCookedShader(ShaderDirectory / "DebugDraw.vert.hshader");
+	auto ParticleFragmentShader = LoadCookedShader(ShaderDirectory / "DebugDraw.frag.hshader");
+	if (!ParticleVertexShader || !ParticleFragmentShader)
+	{
+		HERTA_LOG_ERROR(*Log, GameLog, "Could not load the particle shaders: {}", !ParticleVertexShader ? ParticleVertexShader.error().Message : ParticleFragmentShader.error().Message);
+		return 1;
+	}
+
+	auto RendererResult = FMeshRenderer::Create(Device, std::move(*VertexShader), std::move(*FragmentShader), std::move(*ParticleVertexShader), std::move(*ParticleFragmentShader), {}, {}, std::move(*InstancedVertexShader), std::move(VisualShaders));
 	if (!RendererResult)
 	{
 		HERTA_LOG_ERROR(*Log, GameLog, "Could not start the renderer: {}", RendererResult.error().Message);

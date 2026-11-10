@@ -334,7 +334,7 @@ HertaRuntimeModule("GameUI", {
     externalincludedirs { path.join(RepositoryRoot, "External/freetype/include") }
 
 HertaRuntimeModule("GameFramework", {
-    PublicDependencies = { "Core", "Math", "Application", "Assets", "Audio", "Level", "Physics", "RHI", "Renderer", "GameUI" },
+    PublicDependencies = { "Core", "Math", "Application", "Assets", "Audio", "Level", "Particles", "Physics", "RHI", "Renderer", "GameUI" },
     PrivateDependencies = { "Tasks", "Animation", "Platform" }
 })
 
@@ -343,6 +343,11 @@ HertaRuntimeModule("GameFramework", {
         buildoptions { "-ffp-contract=off" }
 
     filter {}
+
+-- Particle effects simulated within fixed budgets; their renderer view entries come from Renderer.
+HertaRuntimeModule("Particles", {
+    PublicDependencies = { "Math", "Assets", "Level", "RHI", "Renderer" }
+})
 
 -- The Material Graph schema and its compiler to Slang, run by the editor, headless commands, and tests; game targets load cooked shaders instead.
 HertaRuntimeModule("MaterialGraph", {
@@ -550,7 +555,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Animation", "Audio", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Animation", "Audio", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }

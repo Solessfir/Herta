@@ -2,6 +2,7 @@
 
 #include "Herta/Core/BinaryStream.h"
 
+#include "ParticleSerialization.h"
 #include "SoundSerialization.h"
 
 #include <algorithm>
@@ -20,6 +21,7 @@ inline constexpr std::uint8_t ModelTag = 2;
 inline constexpr std::uint8_t MaterialTag = 3;
 inline constexpr std::uint8_t SoundTag = 4;
 inline constexpr std::uint8_t SoundGraphTag = 5;
+inline constexpr std::uint8_t ParticleSystemTag = 6;
 
 inline constexpr std::size_t MaximumVertices = MaximumCookedBufferBytes / sizeof(FCookedVertex);
 inline constexpr std::size_t MaximumIndices = MaximumCookedBufferBytes / sizeof(std::uint32_t);
@@ -748,6 +750,18 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 		return Writer.TakeBytes();
 	}
 
+	if (const auto* Particles = std::get_if<FCookedParticleSystem>(&Asset))
+	{
+		if (auto Valid = ValidateParticleSystem(*Particles); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		Writer.Write(ParticleSystemTag);
+		WriteParticleSystem(Writer, *Particles);
+		return Writer.TakeBytes();
+	}
+
 	const FCookedModel& Model = std::get<FCookedModel>(Asset);
 
 	if (std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)
@@ -900,6 +914,22 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 		}
 
 		return Graph;
+	}
+
+	if (Tag == ParticleSystemTag)
+	{
+		FCookedParticleSystem Particles = ReadParticleSystem(Reader);
+		if (!Reader.IsValid() || !Reader.IsAtEnd())
+		{
+			return Invalid("Truncated or oversized cooked particle system");
+		}
+
+		if (auto Valid = ValidateParticleSystem(Particles); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		return Particles;
 	}
 
 	if (Tag != ModelTag)

@@ -89,6 +89,19 @@ enum class EMeshVisibility : std::uint8_t
 	HiddenFromCamera,
 };
 
+// A camera-facing particle. It draws as a soft disc that fades to its rim, lit on the CPU by the view's directional and sky lights, after
+// opaque shading and before fog and tone mapping, so it takes the scene's exposure.
+struct FRenderParticle
+{
+	FVector3 Position{};
+	// Diameter in meters.
+	float Size = 0.1f;
+	// Linear albedo and opacity.
+	std::array<float, 4> Color{1.f, 1.f, 1.f, 1.f};
+	// Luminance in nits added on top of the lit albedo, scaled by the color.
+	float Emissive = 0.f;
+};
+
 struct FMeshRenderView
 {
 	FMatrix4 View;
@@ -108,6 +121,7 @@ struct FMeshRenderView
 	std::span<const FRenderMeshVertexUpdate> VertexUpdates{};
 	// One entry per model, or empty to draw every model everywhere.
 	std::span<const EMeshVisibility> Visibility{};
+	std::span<const FRenderParticle> Particles{};
 };
 
 class FRenderMaterial final
