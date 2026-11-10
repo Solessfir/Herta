@@ -580,6 +580,15 @@ std::expected<std::optional<FIpcConnection>, FIpcError> FIpcListener::Accept(con
 
 	auto Connection = std::make_unique<FIpcConnection::FImplementation>();
 	Connection->Pipe = FHandle(Accepted);
+
+	// Another Listen on this endpoint probes for a live listener by connecting and closing at once; that probe is not a client.
+	pollfd Peer{.fd = Accepted, .events = POLLIN | POLLRDHUP, .revents = 0};
+	char Byte = 0;
+	if (poll(&Peer, 1, 0) > 0 && (Peer.revents & (POLLHUP | POLLRDHUP)) != 0 && recv(Accepted, &Byte, 1, MSG_PEEK | MSG_DONTWAIT) == 0)
+	{
+		return std::nullopt;
+	}
+
 	return std::optional(FIpcConnection(std::move(Connection)));
 #endif
 }
