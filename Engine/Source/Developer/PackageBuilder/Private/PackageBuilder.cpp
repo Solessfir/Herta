@@ -1,10 +1,15 @@
 #include "Herta/PackageBuilder/PackageBuilder.h"
 
 #include "Herta/Platform/Platform.h"
+#include "Herta/Platform/Process.h"
 
 #include <monocypher-ed25519.h>
 #include <monocypher.h>
 #include <zstd.h>
+
+#ifdef HERTA_PLATFORM_WINDOWS
+	#include <windows.h>
+#endif
 
 #include <algorithm>
 #include <charconv>
@@ -213,6 +218,57 @@ std::expected<FPackageBuildStats, FPackageBuildError> WritePackage(const std::fi
 
 	Stats.PackageBytes = Package->size();
 	return Stats;
+}
+
+std::expected<void, FPackageBuildError> EmbedPackage(const std::filesystem::path& Executable, const std::span<const std::byte> Package)
+{
+	if (Package.size() > MaximumContentPackageEntrySize * 2)
+	{
+		return BuildError("A package that large belongs beside the executable, not in it");
+	}
+
+#ifdef HERTA_PLATFORM_WINDOWS
+	HANDLE Update = BeginUpdateResourceW(Executable.c_str(), FALSE);
+	if (!Update)
+	{
+		return BuildError(std::format("Cannot open {} to embed a package", Executable.generic_string()));
+	}
+
+	std::wstring Name(EmbeddedPackageName.begin(), EmbeddedPackageName.end());
+	const BOOL bUpdated = UpdateResourceW(Update, MAKEINTRESOURCEW(10), Name.c_str(), MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL), const_cast<std::byte*>(Package.data()), static_cast<DWORD>(Package.size()));
+	if (!EndUpdateResourceW(Update, bUpdated ? FALSE : TRUE) || !bUpdated)
+	{
+		return BuildError(std::format("Cannot embed the package in {}", Executable.generic_string()));
+	}
+
+	return {};
+#else
+	std::filesystem::path Section = Executable;
+	Section += ".hertapak";
+	{
+		std::ofstream File(Section, std::ios::binary | std::ios::trunc);
+		if (!File || !File.write(reinterpret_cast<const char*>(Package.data()), static_cast<std::streamsize>(Package.size())))
+		{
+			return BuildError(std::format("Cannot write {}", Section.generic_string()));
+		}
+	}
+
+	std::string SectionName = ".";
+	for (const char Character : EmbeddedPackageName)
+	{
+		SectionName.push_back(static_cast<char>(Character - 'A' + 'a'));
+	}
+
+	const auto Ran = RunProcess({.Executable = "objcopy", .Arguments = {"--remove-section=" + SectionName, "--add-section", SectionName + "=" + Section.string(), "--set-section-flags", SectionName + "=noload,readonly", Executable.string()}});
+	std::error_code Error;
+	std::filesystem::remove(Section, Error);
+	if (!Ran || Ran->ExitCode != 0)
+	{
+		return BuildError(std::format("objcopy could not embed the package in {}: {}", Executable.generic_string(), Ran ? Ran->StandardError : Ran.error().Message));
+	}
+
+	return {};
+#endif
 }
 
 std::expected<FPackageSigningKey, FPackageBuildError> GeneratePackageSigningKey(const std::uint32_t Id)

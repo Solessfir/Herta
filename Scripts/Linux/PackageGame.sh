@@ -6,12 +6,14 @@ repository_root="$(cd -- "${script_dir}/../.." && pwd)"
 project=Games/Sandbox/Sandbox.hertaproject
 configuration=Shipping
 output_directory=""
+content_mode=package
+signing_key=""
 verify=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --verify) verify=1; shift ;;
-        --project|--configuration|--repository-root|--output-directory)
+        --project|--configuration|--repository-root|--output-directory|--content-mode|--signing-key)
             if [[ $# -lt 2 || -z "$2" ]]; then
                 echo "Missing value for $1." >&2
                 exit 2
@@ -22,6 +24,8 @@ while [[ $# -gt 0 ]]; do
                 --configuration) configuration="$2" ;;
                 --repository-root) repository_root="$2" ;;
                 --output-directory) output_directory="$2" ;;
+                --content-mode) content_mode="$2" ;;
+                --signing-key) signing_key="$(realpath -- "$2")" ;;
             esac
             shift 2
             ;;
@@ -32,6 +36,12 @@ done
 case "${configuration}" in
     Shipping|Development) ;;
     *) echo 'Configuration must be Shipping or Development.' >&2; exit 2 ;;
+esac
+
+# Loose stages the content as files, package puts it in <Project>.hpak beside the executables, and embedded builds that package into them.
+case "${content_mode}" in
+    loose|package|embedded) ;;
+    *) echo 'Content mode must be loose, package, or embedded.' >&2; exit 2 ;;
 esac
 
 repository_root="$(cd -- "${repository_root}" && pwd -P)"
@@ -50,7 +60,7 @@ if [[ -e "${package_root}" || -L "${package_root}" || -e "${archive_path}" || -L
     exit 1
 fi
 
-for program in HertaGame HertaServer HertaEditorCmd HertaAssetWorker HertaShaderWorker; do
+for program in HertaGame HertaServer HertaCooker HertaAssetWorker HertaShaderWorker; do
     if [[ ! -x "${binary_directory}/${program}" ]]; then
         echo "Build ${configuration} before packaging; missing ${program} in ${binary_directory}" >&2
         exit 1
@@ -64,12 +74,29 @@ if [[ ${#shaders[@]} -eq 0 ]]; then
     exit 1
 fi
 
-# Staging cooks the starting level's dependency closure through the asset worker and copies the project and level verbatim.
-"${binary_directory}/HertaEditorCmd" game.stage "${project_path}" "${package_root}"
+signing_arguments=()
+if [[ -n "${signing_key}" ]]; then
+    signing_arguments=("--signing-key=${signing_key}")
+fi
+
+# Cooking stages the starting level's dependency closure through the asset worker, then writes it loose, as a package with the engine
+# shaders, or as that package embedded in both executables.
+cook() {
+    "${binary_directory}/HertaCooker" cook "--project=${project_path}" "--output=$1" "--mode=$2" "--name=${project_name}" "--shaders=${binary_directory}/Shaders" "${@:3}" "${signing_arguments[@]}"
+}
+
+mkdir -p -- "${package_root}"
 cp -- "${binary_directory}/HertaGame" "${package_root}/${executable_name}"
 cp -- "${binary_directory}/HertaServer" "${package_root}/${executable_name}-server"
-mkdir -p -- "${package_root}/Shaders"
-cp -- "${shaders[@]}" "${package_root}/Shaders/"
+case "${content_mode}" in
+    loose)
+        cook "${package_root}" loose
+        mkdir -p -- "${package_root}/Shaders"
+        cp -- "${shaders[@]}" "${package_root}/Shaders/"
+        ;;
+    package) cook "${package_root}" package ;;
+    embedded) cook "${package_root}" embedded "--embed-into=${package_root}/${executable_name},${package_root}/${executable_name}-server" ;;
+esac
 
 cp -- "${repository_root}/LICENSE" "${package_root}/LICENSE"
 # These dependencies embed their notices in source files rather than separate license files.
@@ -127,6 +154,19 @@ if [[ ${verify} -eq 1 ]]; then
     fi
 
     echo "Relocated dedicated server started and a hosted game played from ${relocated}"
+
+    # The same sources must package to the same bytes, which signed packages keep too: Ed25519 signatures are deterministic.
+    if [[ "${content_mode}" == package ]]; then
+        cook "${relocated}/Rebuild" package
+        first="$(sha256sum -- "${package_root}/${project_name}.hpak" | cut -d' ' -f1)"
+        second="$(sha256sum -- "${relocated}/Rebuild/${project_name}.hpak" | cut -d' ' -f1)"
+        if [[ "${first}" != "${second}" ]]; then
+            echo "Packaging the same content twice gave different bytes: ${first} and ${second}" >&2
+            exit 1
+        fi
+
+        echo "The package rebuilt byte for byte: ${first}"
+    fi
 fi
 
 tar -C "${output_directory}" -czf "${archive_path}" "${package_name}"

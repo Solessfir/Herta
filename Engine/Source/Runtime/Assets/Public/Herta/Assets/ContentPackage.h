@@ -103,8 +103,8 @@ public:
 	[[nodiscard]] static std::expected<std::unique_ptr<FContentPackage>, FAssetError> Open(const std::filesystem::path& File, const FPackageOpenOptions& Options = {});
 	// A package stored inside a larger file, such as a section of an executable.
 	[[nodiscard]] static std::expected<std::unique_ptr<FContentPackage>, FAssetError> OpenRange(const std::filesystem::path& File, std::uint64_t Offset, std::uint64_t Size, const FPackageOpenOptions& Options = {});
-	// A package in memory that outlives it, such as a resource mapped with the executable.
-	[[nodiscard]] static std::expected<std::unique_ptr<FContentPackage>, FAssetError> OpenMemory(std::span<const std::byte> Bytes, const FPackageOpenOptions& Options = {});
+	// A package in memory that outlives it, such as a resource mapped with the executable. Name says where it came from, for diagnostics.
+	[[nodiscard]] static std::expected<std::unique_ptr<FContentPackage>, FAssetError> OpenMemory(std::span<const std::byte> Bytes, const FPackageOpenOptions& Options = {}, std::string Name = "in memory");
 
 	~FContentPackage();
 

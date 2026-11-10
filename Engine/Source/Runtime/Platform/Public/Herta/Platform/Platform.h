@@ -43,4 +43,17 @@ enum class EPlatform : std::uint8_t
 
 // Fills Bytes from the operating system's cryptographically secure generator, such as for signing keys. False when it fails.
 [[nodiscard]] bool FillSecureRandom(std::span<std::byte> Bytes) noexcept;
+
+// Data a packager embedded in the running executable: on Windows an RCDATA resource mapped with the image, in Memory; on Linux an ELF
+// section, as Size bytes at Offset in File.
+struct FEmbeddedData
+{
+	std::span<const std::byte> Memory{};
+	std::filesystem::path File{};
+	std::uint64_t Offset = 0;
+	std::uint64_t Size = 0;
+};
+
+// The data embedded under Name: the resource named Name, or the section named "." followed by Name in lower case.
+[[nodiscard]] std::optional<FEmbeddedData> FindEmbeddedData(std::string_view Name);
 }

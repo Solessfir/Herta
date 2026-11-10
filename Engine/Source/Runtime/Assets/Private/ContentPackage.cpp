@@ -469,10 +469,10 @@ std::expected<std::unique_ptr<FContentPackage>, FAssetError> FContentPackage::Op
 	});
 }
 
-std::expected<std::unique_ptr<FContentPackage>, FAssetError> FContentPackage::OpenMemory(const std::span<const std::byte> Bytes, const FPackageOpenOptions& Options)
+std::expected<std::unique_ptr<FContentPackage>, FAssetError> FContentPackage::OpenMemory(const std::span<const std::byte> Bytes, const FPackageOpenOptions& Options, std::string Name)
 {
 	auto Package = std::make_unique<FImplementation>();
-	Package->Name = "in memory";
+	Package->Name = std::move(Name);
 	Package->Memory = Bytes;
 	Package->Length = Bytes.size();
 	return Verify(std::move(Package), Options).transform([](auto Verified)

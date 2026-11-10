@@ -4,6 +4,11 @@ param(
     [ValidateSet('Development', 'Shipping')]
     [string]$Configuration = 'Shipping',
     [string]$OutputDirectory = '',
+    # Loose stages the content as files, Package puts it in <Project>.hpak beside the executables, and Embedded builds that package into them.
+    [ValidateSet('Loose', 'Package', 'Embedded')]
+    [string]$ContentMode = 'Package',
+    # A private package signing key from HertaCooker keygen, kept outside the checkout; its public half belongs in Config/PackagePublicKeys.txt.
+    [string]$SigningKey = '',
     # Copies the package outside the checkout and plays a scripted run there, proving it needs nothing from the source tree.
     [switch]$Verify
 )
@@ -28,7 +33,7 @@ if ((Test-Path -LiteralPath $PackageRoot) -or (Test-Path -LiteralPath $ArchivePa
     throw "Package output already exists. Choose an empty output directory: $OutputDirectory"
 }
 
-foreach ($Program in @('HertaGame.exe', 'HertaServer.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe', 'HertaShaderWorker.exe')) {
+foreach ($Program in @('HertaGame.exe', 'HertaServer.exe', 'HertaCooker.exe', 'HertaAssetWorker.exe', 'HertaShaderWorker.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $BinaryDirectory $Program) -PathType Leaf)) {
         throw "Build $Configuration before packaging; missing $Program in $BinaryDirectory"
     }
@@ -39,17 +44,51 @@ if ($Shaders.Count -eq 0) {
     throw "Cooked shaders are missing from $BinaryDirectory/Shaders"
 }
 
-# Staging cooks the starting level's dependency closure through the asset worker and copies the project and level verbatim.
-& (Join-Path $BinaryDirectory 'HertaEditorCmd.exe') game.stage $ProjectPath $PackageRoot
-if ($LASTEXITCODE -ne 0) {
-    throw 'Staging the game content failed.'
+$GameExecutable = Join-Path $PackageRoot "$ProjectName.exe"
+$ServerExecutable = Join-Path $PackageRoot "$ProjectName-Server.exe"
+$Cooker = Join-Path $BinaryDirectory 'HertaCooker.exe'
+$SigningArguments = @()
+if (-not [string]::IsNullOrWhiteSpace($SigningKey)) {
+    $SigningArguments = @("--signing-key=$((Resolve-Path -LiteralPath $SigningKey).Path)")
 }
 
-Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaGame.exe') -Destination (Join-Path $PackageRoot "$ProjectName.exe")
-Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaServer.exe') -Destination (Join-Path $PackageRoot "$ProjectName-Server.exe")
-New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot 'Shaders') | Out-Null
-foreach ($Shader in $Shaders) {
-    Copy-Item -LiteralPath $Shader.FullName -Destination (Join-Path $PackageRoot "Shaders/$($Shader.Name)")
+# Cooking stages the starting level's dependency closure through the asset worker, then writes it loose, as a package with the engine
+# shaders, or as that package embedded in both executables.
+function Invoke-Cook {
+    param([string]$Output, [string]$Mode, [string[]]$Extra)
+    & $Cooker cook "--project=$ProjectPath" "--output=$Output" "--mode=$Mode" "--name=$ProjectName" "--shaders=$(Join-Path $BinaryDirectory 'Shaders')" @Extra @SigningArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Cooking the game content failed.'
+    }
+}
+
+# Get-FileHash is missing from some PowerShell sessions, so hash through .NET as Setup does.
+function Get-Sha256 {
+    param([string]$Path)
+    $Stream = [System.IO.File]::OpenRead($Path)
+    $Hasher = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        return [BitConverter]::ToString($Hasher.ComputeHash($Stream)).Replace('-', '')
+    }
+    finally {
+        $Hasher.Dispose()
+        $Stream.Dispose()
+    }
+}
+
+New-Item -ItemType Directory -Force -Path $PackageRoot | Out-Null
+Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaGame.exe') -Destination $GameExecutable
+Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaServer.exe') -Destination $ServerExecutable
+switch ($ContentMode) {
+    'Loose' {
+        Invoke-Cook -Output $PackageRoot -Mode 'loose' -Extra @()
+        New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot 'Shaders') | Out-Null
+        foreach ($Shader in $Shaders) {
+            Copy-Item -LiteralPath $Shader.FullName -Destination (Join-Path $PackageRoot "Shaders/$($Shader.Name)")
+        }
+    }
+    'Package' { Invoke-Cook -Output $PackageRoot -Mode 'package' -Extra @() }
+    'Embedded' { Invoke-Cook -Output $PackageRoot -Mode 'embedded' -Extra @("--embed-into=$GameExecutable,$ServerExecutable") }
 }
 
 $TrackedFiles = & git -c core.quotepath=false -C $RepositoryRoot ls-files --recurse-submodules
@@ -113,6 +152,19 @@ if ($Verify) {
         }
 
         Write-Output "Relocated dedicated server started and a hosted game played from $Relocated"
+
+        # The same sources must package to the same bytes, which signed packages keep too: Ed25519 signatures are deterministic.
+        if ($ContentMode -eq 'Package') {
+            $Rebuild = Join-Path $Relocated 'Rebuild'
+            Invoke-Cook -Output $Rebuild -Mode 'package' -Extra @()
+            $First = Get-Sha256 (Join-Path $PackageRoot "$ProjectName.hpak")
+            $Second = Get-Sha256 (Join-Path $Rebuild "$ProjectName.hpak")
+            if ($First -ne $Second) {
+                throw "Packaging the same content twice gave different bytes: $First and $Second"
+            }
+
+            Write-Output "The package rebuilt byte for byte: $First"
+        }
     }
     finally {
         Remove-Item -LiteralPath $Relocated -Recurse -Force -ErrorAction SilentlyContinue

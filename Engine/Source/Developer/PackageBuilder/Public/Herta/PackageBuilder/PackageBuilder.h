@@ -56,6 +56,14 @@ struct FPackageBuildStats
 // Builds the package and replaces Output with it atomically.
 [[nodiscard]] std::expected<FPackageBuildStats, FPackageBuildError> WritePackage(const std::filesystem::path& Output, std::vector<FPackageInput> Inputs, const FPackageBuildOptions& Options = {});
 
+// The name an executable's embedded base package is found under; see FindEmbeddedData.
+inline constexpr std::string_view EmbeddedPackageName = "HERTAPAK";
+
+// Embeds Package into Executable, replacing any package embedded before: as an RCDATA resource on Windows, which must happen before the
+// executable is code-signed, or as a non-loaded ELF section added with objcopy on Linux. The game reads it through the same package reader
+// as an external file.
+[[nodiscard]] std::expected<void, FPackageBuildError> EmbedPackage(const std::filesystem::path& Executable, std::span<const std::byte> Package);
+
 [[nodiscard]] std::expected<FPackageSigningKey, FPackageBuildError> GeneratePackageSigningKey(std::uint32_t Id);
 [[nodiscard]] FPackagePublicKey GetPackagePublicKey(const FPackageSigningKey& Key) noexcept;
 // A private key file is one line of text: "HertaPackageSigningKey <id> <128 hex digits>". Public keys use FormatPackagePublicKey.

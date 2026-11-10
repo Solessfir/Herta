@@ -678,6 +678,14 @@ project "HertaEditorCmd"
     ApplyRuntimeDependencies { "EditorCore", "Level", "Project", "AssetPipeline", "Platform" }
     dependson { "HertaAssetWorker", "HertaShaderWorker" }
 
+-- Cooks a game's content for distribution: staged loose files, external packages, or packages embedded in the executables.
+project "HertaCooker"
+    kind "ConsoleApp"
+    location(path.join(ProjectFilesRoot, "HertaCooker"))
+    ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaCooker"))
+    ApplyRuntimeDependencies { "AssetPipeline", "PackageBuilder", "Assets", "Platform" }
+    dependson { "HertaAssetWorker" }
+
 project "HertaGame"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaGame"))

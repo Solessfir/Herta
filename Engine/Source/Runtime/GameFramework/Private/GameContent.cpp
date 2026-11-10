@@ -1,6 +1,7 @@
 #include "Herta/GameFramework/GameContent.h"
 
 #include "Herta/Core/Build.h"
+#include "Herta/Platform/Platform.h"
 
 #include <algorithm>
 #include <format>
@@ -48,6 +49,18 @@ std::expected<FGameContent, FGameError> MountGameContent(const FGameContentOptio
 	std::ranges::copy(GetPublisherPackageKeys(), std::back_inserter(Trusted));
 	const bool bRequireSignature = Options.bRequireSignature || (GetBuildConfiguration() == EBuildConfiguration::Shipping && !GetPublisherPackageKeys().empty());
 	const FPackageOpenOptions OpenOptions{.TrustedKeys = Trusted, .bRequireSignature = bRequireSignature};
+	// The base package a monolithic executable carries comes first, then the packages beside it.
+	if (const std::optional<FEmbeddedData> Embedded = FindEmbeddedData("HERTAPAK"))
+	{
+		auto Package = !Embedded->Memory.empty() ? FContentPackage::OpenMemory(Embedded->Memory, OpenOptions, "embedded in the executable") : FContentPackage::OpenRange(Embedded->File, Embedded->Offset, Embedded->Size, OpenOptions);
+		if (!Package)
+		{
+			return std::unexpected(FGameError{std::format("The executable's embedded content: {}", Package.error().Message)});
+		}
+
+		FileSystem->MountPackage(std::move(*Package));
+	}
+
 	for (const std::filesystem::path& Path : Packages)
 	{
 		auto Package = FContentPackage::Open(Path, OpenOptions);
