@@ -60,6 +60,8 @@ struct FGameUIDescriptor
 	IGraphicsDevice* Device = nullptr;
 	// The HUD font file's bytes, read by the caller from wherever its content is mounted.
 	std::vector<std::byte> FontBytes;
+	// Fonts for characters the HUD font lacks, such as emoji, tried in order.
+	std::vector<std::vector<std::byte>> FallbackFontBytes{};
 	// Makes a texture drawable by the presenter and returns its screen draw ID.
 	std::function<std::expected<std::uint64_t, FGameUIError>(const FTextureHandle& Texture)> RegisterTexture;
 	std::function<void(std::uint64_t TextureId)> UnregisterTexture;
@@ -78,7 +80,8 @@ public:
 	FGameUI(FGameUI&&) = delete;
 	FGameUI& operator=(FGameUI&&) = delete;
 
-	// Clears the previous frame. A new screen height rebuilds the glyph atlas at the matching size.
+	// Clears the previous frame and publishes the glyphs it first drew, which show from this frame on. A new screen height rebuilds the
+	// glyph atlas at the matching size.
 	[[nodiscard]] std::expected<void, FGameUIError> BeginFrame(FExtent2D Extent);
 	// Covers a pixel rectangle with a registered texture, such as the rendered scene.
 	void DrawImage(std::uint64_t TextureId, FVector2 Minimum, FVector2 Maximum, std::uint32_t Color = MakeGameUIColor(255, 255, 255));

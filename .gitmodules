@@ -53,3 +53,6 @@
 [submodule "External/zstd"]
 	path = External/zstd
 	url = https://github.com/facebook/zstd.git
+[submodule "External/harfbuzz"]
+	path = External/harfbuzz
+	url = https://github.com/harfbuzz/harfbuzz.git

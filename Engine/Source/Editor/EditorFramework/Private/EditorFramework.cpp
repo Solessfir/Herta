@@ -1,9 +1,13 @@
 #include "EditorFrameworkPrivate.h"
 
+#include "Herta/ToolUI/EditorText.h"
+
 namespace Herta
 {
 namespace
 {
+namespace Editor = Text::Editor;
+
 [[nodiscard]] constexpr const char* GetPanelTransparencyLabel(const EPanelTransparency Mode) noexcept
 {
 	switch (Mode)
@@ -82,6 +86,9 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		Implementation->VisualEnvironment = FVisualEnvironment::Create(*Descriptor.Tasks, *Descriptor.MeshRenderer, *Descriptor.Log);
 	}
 	Implementation->EngineRoot = Descriptor.EngineRoot;
+	Implementation->PollTextCatalogs(true);
+	Implementation->Localization.SetCulture(Descriptor.ToolUI->GetAppearance().Culture);
+	Descriptor.ToolUI->SetText(&Implementation->Localization);
 	Implementation->RegisterUITexture = Descriptor.RegisterUITexture;
 	Implementation->UnregisterUITexture = Descriptor.UnregisterUITexture;
 	Implementation->ProjectPath = Descriptor.ProjectPath;
@@ -414,6 +421,13 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->ViewportRenderView.VertexUpdates = {};
 	ImGuiIO& IO = ImGui::GetIO();
 	Implementation->RefreshLevel();
+	Implementation->PollTextCatalogs(false);
+	if (const std::string& Culture = Implementation->ToolUI->GetAppearance().Culture; Culture != Implementation->Localization.GetCultureName())
+	{
+		// A culture with no data leaves the text as it is; the menu only offers loaded ones.
+		Implementation->Localization.SetCulture(Culture);
+	}
+
 	if (!IO.AppFocusLost && IO.KeyMods == ImGuiMod_Ctrl && Implementation->ViewportInteraction.DragButton < 0 && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && ImGui::IsKeyPressed(ImGuiKey_Space, false))
 	{
 		if (Implementation->ToolUI->IsDocumentInFront())
@@ -584,6 +598,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 	}
 
+	const FLocalization& Localization = Implementation->Localization;
 	const std::string LevelTitle = std::format("{}{} - Herta Editor", Implementation->Level->GetName(), Implementation->Level->IsDirty() ? "*" : "");
 	Implementation->ToolUI->SetLevelTabLabel(std::format("{}{}", Implementation->Level->GetName(), Implementation->Level->IsDirty() ? "*" : ""));
 	Implementation->ToolUI->DrawWorkspace(LevelTitle, [&]
@@ -591,7 +606,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ToolUIMenuItem("Outliner", EToolUIMenuIcon::Outliner, &Implementation->bOutlinerOpen);
 		ToolUIMenuItem("Details", EToolUIMenuIcon::Details, &Implementation->bDetailsOpen);
 		bool bBottomVisible = Implementation->bBottomPanelOpen && (Implementation->bContentBrowserOpen || Implementation->bOutputLogOpen);
-		if (ToolUIMenuItem("Bottom panel", EToolUIMenuIcon::Panel, &bBottomVisible, "Ctrl+Space"))
+		if (ToolUIMenuItem(Localization.Format(Editor::Menu_BottomPanel), EToolUIMenuIcon::Panel, &bBottomVisible, "Ctrl+Space"))
 		{
 			Implementation->SetBottomPanelOpen(bBottomVisible);
 		}
@@ -630,6 +645,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 
 		ToolUIMenuItem("Performance", EToolUIMenuIcon::Performance, &Implementation->bPerformanceOpen);
+		ToolUIMenuItem("Localization", EToolUIMenuIcon::Details, &Implementation->bLocalizationOpen);
 	}, [&]
 	{
 		const float Scale = ImGui::GetFontSize() / Implementation->ToolUI->GetMetrics().BaseFontSize;
@@ -869,30 +885,30 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 	}, [&]
 	{
-		ImGui::TextUnformatted("Project");
+		ImGui::TextUnformatted(Localization.Format(Editor::Menu_Project).c_str());
 		ImGui::Separator();
 		ImGui::BeginDisabled(!bProjectChangeAvailable);
-		bNewProjectRequested |= ToolUIMenuItem("New project...", EToolUIMenuIcon::Add, nullptr, "Ctrl+N");
-		bOpenProjectRequested |= ToolUIMenuItem("Open project...", EToolUIMenuIcon::Open, nullptr, "Ctrl+O");
+		bNewProjectRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_NewProject), EToolUIMenuIcon::Add, nullptr, "Ctrl+N");
+		bOpenProjectRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_OpenProject), EToolUIMenuIcon::Open, nullptr, "Ctrl+O");
 		ImGui::EndDisabled();
 		ImGui::Spacing();
-		ImGui::TextUnformatted("Level");
+		ImGui::TextUnformatted(Localization.Format(Editor::Menu_Level).c_str());
 		ImGui::Separator();
 		ImGui::BeginDisabled(!bAuthoringAvailable);
-		bOpenLevelRequested = ToolUIMenuItem("Open level...", EToolUIMenuIcon::Open);
-		bSaveLevelRequested |= ToolUIMenuItem("Save level", EToolUIMenuIcon::Save, nullptr, "Ctrl+S");
+		bOpenLevelRequested = ToolUIMenuItem(Localization.Format(Editor::Menu_OpenLevel), EToolUIMenuIcon::Open);
+		bSaveLevelRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_SaveLevel), EToolUIMenuIcon::Save, nullptr, "Ctrl+S");
 		ImGui::EndDisabled();
 		ImGui::Spacing();
-		ImGui::TextUnformatted("Content");
+		ImGui::TextUnformatted(Localization.Format(Editor::Menu_Content).c_str());
 		ImGui::Separator();
 		ImGui::BeginDisabled(!Implementation->Assets || Implementation->bProjectBusy);
-		bImportRequested |= ToolUIMenuItem("Import...", EToolUIMenuIcon::Import, nullptr, "Ctrl+I");
+		bImportRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_Import), EToolUIMenuIcon::Import, nullptr, "Ctrl+I");
 		ImGui::EndDisabled();
 	}, [&]
 	{
 		ImGui::BeginDisabled(!bAuthoringAvailable);
 		ImGui::BeginDisabled(!Implementation->Level->CanUndo());
-		const std::string UndoLabel = Implementation->Level->CanUndo() ? std::format("Undo {}", Implementation->Level->GetUndoLabel()) : "Undo";
+		const std::string UndoLabel = Implementation->Level->CanUndo() ? Localization.Format(Editor::Menu_UndoAction, std::array{FMessageArgument{"action", std::string(Implementation->Level->GetUndoLabel())}}) : Localization.Format(Editor::Menu_Undo);
 		if (ToolUIMenuItem(UndoLabel, EToolUIMenuIcon::Undo, nullptr, "Ctrl+Z"))
 		{
 			AuthoringAction = EAuthoringAction::Undo;
@@ -900,7 +916,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 		ImGui::EndDisabled();
 		ImGui::BeginDisabled(!Implementation->Level->CanRedo());
-		const std::string RedoLabel = Implementation->Level->CanRedo() ? std::format("Redo {}", Implementation->Level->GetRedoLabel()) : "Redo";
+		const std::string RedoLabel = Implementation->Level->CanRedo() ? Localization.Format(Editor::Menu_RedoAction, std::array{FMessageArgument{"action", std::string(Implementation->Level->GetRedoLabel())}}) : Localization.Format(Editor::Menu_Redo);
 		if (ToolUIMenuItem(RedoLabel, EToolUIMenuIcon::Redo, nullptr, "Ctrl+Y"))
 		{
 			AuthoringAction = EAuthoringAction::Redo;
@@ -910,19 +926,19 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::Separator();
 		ImGui::BeginDisabled(Implementation->PreviewSelection.Indices.empty());
 		for (const auto& [Label, Icon, Shortcut, Action] : std::array{
-		         std::tuple{"Duplicate", EToolUIMenuIcon::Duplicate, "Ctrl+D", EAuthoringAction::Duplicate},
-		         std::tuple{"Copy", EToolUIMenuIcon::Copy, "Ctrl+C", EAuthoringAction::Copy},
-		         std::tuple{"Delete", EToolUIMenuIcon::Delete, "Delete", EAuthoringAction::Delete},
+		         std::tuple{Editor::Menu_Duplicate, EToolUIMenuIcon::Duplicate, "Ctrl+D", EAuthoringAction::Duplicate},
+		         std::tuple{Editor::Menu_Copy, EToolUIMenuIcon::Copy, "Ctrl+C", EAuthoringAction::Copy},
+		         std::tuple{Editor::Menu_Delete, EToolUIMenuIcon::Delete, "Delete", EAuthoringAction::Delete},
 		     })
 		{
-			if (ToolUIMenuItem(Label, Icon, nullptr, Shortcut))
+			if (ToolUIMenuItem(Localization.Format(Label), Icon, nullptr, Shortcut))
 			{
 				AuthoringAction = Action;
 			}
 		}
 
 		ImGui::EndDisabled();
-		if (ToolUIMenuItem("Paste", EToolUIMenuIcon::Paste, nullptr, "Ctrl+V"))
+		if (ToolUIMenuItem(Localization.Format(Editor::Menu_Paste), EToolUIMenuIcon::Paste, nullptr, "Ctrl+V"))
 		{
 			AuthoringAction = EAuthoringAction::Paste;
 		}
@@ -1142,6 +1158,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::SetWindowFocus(("###" + Focus).c_str());
 	}
 	Implementation->DrawPerformancePanel();
+	Implementation->DrawLocalizationPanel();
 	if (!Implementation->IsSimulating())
 	{
 		if (Implementation->bViewportEditCanceled && Implementation->Level->HasActiveEdit())

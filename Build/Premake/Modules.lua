@@ -220,7 +220,7 @@ HertaRuntimeModule("GraphCore", {
 
 -- CLDR-backed cultures, ICU-style messages, and text catalogs with fallback and pseudolocalization.
 HertaRuntimeModule("Localization", {
-    PublicDependencies = { "Core" },
+    PublicDependencies = { "Core", "Assets" },
     PrivateThirdPartyDependencies = { "SimdJson" }
 })
     externalincludedirs { path.join(RepositoryRoot, "External/simdjson"), path.join(RepositoryRoot, "External/cldr") }
@@ -356,7 +356,8 @@ HertaRuntimeModule("Application", {
     }
 
 HertaRuntimeModule("ToolUI", {
-    PrivateDependencies = { "Core", "Application" },
+    PublicDependencies = { "Localization" },
+    PrivateDependencies = { "Core", "Application", "TextLayout" },
     PrivateThirdPartyDependencies = { "ImGui", "FreeType", "GLFW" }
 })
 
@@ -366,15 +367,21 @@ HertaRuntimeModule("ToolUI", {
         path.join(RepositoryRoot, "External/glfw/include")
     }
 
-HertaRuntimeModule("GameUI", {
-    PublicDependencies = { "Core", "Math", "RHI" },
-    PrivateThirdPartyDependencies = { "FreeType" }
+-- Unicode text: grapheme segmentation and editing, HarfBuzz shaping with font fallback, and FreeType rasterization.
+HertaRuntimeModule("TextLayout", {
+    PublicDependencies = { "Core" },
+    PrivateThirdPartyDependencies = { "FreeType", "HarfBuzz" }
 })
 
-    externalincludedirs { path.join(RepositoryRoot, "External/freetype/include") }
+    externalincludedirs { path.join(RepositoryRoot, "External/freetype/include"), path.join(RepositoryRoot, "External/harfbuzz/src"), path.join(RepositoryRoot, "External/unicode") }
+
+HertaRuntimeModule("GameUI", {
+    PublicDependencies = { "Core", "Math", "RHI" },
+    PrivateDependencies = { "TextLayout" }
+})
 
 HertaRuntimeModule("GameFramework", {
-    PublicDependencies = { "Core", "Math", "Application", "Assets", "Audio", "Level", "Navigation", "Particles", "Physics", "RHI", "Renderer", "GameUI" },
+    PublicDependencies = { "Core", "Math", "Application", "Assets", "Audio", "Level", "Localization", "Navigation", "Particles", "Physics", "RHI", "Renderer", "GameUI" },
     PrivateDependencies = { "Tasks", "Animation", "Platform", "AI" }
 })
     -- Publisher keys the game trusts its packages to be signed with: one "<id>:<64 hex digits>" per line. Only public keys belong here; a
@@ -461,10 +468,17 @@ HertaRuntimeModule("VfxGraph", {
     PublicDependencies = { "GraphCore", "Assets" }
 })
 
+-- Validates catalogs and generates text ID headers, without ToolUI or a GPU.
+HertaRuntimeModule("LocalizationPipeline", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/LocalizationPipeline"),
+    PublicDependencies = { "Localization" },
+    PrivateDependencies = { "Assets" }
+})
+
 HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
     PublicDependencies = { "Core", "Assets", "EditorCore", "Level", "Math", "Navigation", "NavigationBuilder" },
-    PrivateDependencies = { "Platform", "Project", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Audio", "Animation" },
+    PrivateDependencies = { "Platform", "Project", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Audio", "Animation", "Localization", "LocalizationPipeline" },
     PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer", "OzzAnimationOffline", "OzzAnimation", "OzzBase" }
 })
     externalincludedirs {
@@ -485,7 +499,7 @@ HertaEditorModule("GraphEditor", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
-    PrivateDependencies = { "Application", "Audio", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Navigation", "NavigationBuilder", "Particles", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
+    PrivateDependencies = { "Application", "Audio", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Navigation", "NavigationBuilder", "Particles", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level", "Localization", "LocalizationPipeline", "TextLayout" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d", "SimdJson" }
 })
 
@@ -649,7 +663,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Localization", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "PackageBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Localization", "LocalizationPipeline", "TextLayout", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "PackageBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd", "HertaServer" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
@@ -690,7 +704,7 @@ project "HertaCooker"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaCooker"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaCooker"))
-    ApplyRuntimeDependencies { "AssetPipeline", "PackageBuilder", "Assets", "Platform" }
+    ApplyRuntimeDependencies { "AssetPipeline", "PackageBuilder", "Assets", "Localization", "Platform" }
     dependson { "HertaAssetWorker" }
 
 project "HertaGame"

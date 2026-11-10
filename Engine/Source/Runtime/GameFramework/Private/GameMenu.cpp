@@ -1,5 +1,8 @@
 #include "Herta/GameFramework/GameMenu.h"
 
+#include "Herta/Core/Build.h"
+#include "Herta/GameFramework/GameText.h"
+
 #include <algorithm>
 #include <cmath>
 #include <format>
@@ -8,11 +11,19 @@ namespace Herta
 {
 namespace
 {
-constexpr std::array<const char*, 3> QualityNames{"Low", "Medium", "High"};
+namespace Game = Text::Game;
+constexpr std::array<std::string_view, 3> QualityKeys{"low", "medium", "high"};
 
-[[nodiscard]] std::string FormatPercent(const float Value)
+// The cultures the language setting cycles through: every loaded one, and pseudolocalization outside Shipping builds for checking layouts.
+[[nodiscard]] std::vector<std::string> GetMenuCultures(const FLocalization& Text)
 {
-	return std::format("{}%", static_cast<int>(std::lround(Value * 100.f)));
+	std::vector<std::string> Cultures = Text.GetAvailableCultures();
+	if (GetBuildConfiguration() != EBuildConfiguration::Shipping)
+	{
+		Cultures.emplace_back(PseudoCulture);
+	}
+
+	return Cultures;
 }
 
 [[nodiscard]] float Step(const float Value, const int Direction, const float Increment, const float Minimum, const float Maximum)
@@ -29,7 +40,7 @@ std::vector<FGameMenu::FItem> FGameMenu::GetScreenItems(const FGameMenuSettings&
 		case EGameMenuScreen::Pause:
 			return {{EItem::Resume}, {EItem::Save}, {.Kind = EItem::Load, .bEnabled = Settings.bCanLoad}, {EItem::Restart}, {EItem::Settings}, {EItem::Quit}};
 		case EGameMenuScreen::Settings:
-			return {{EItem::Fullscreen}, {.Kind = EItem::Hdr, .bEnabled = Settings.bHdrAvailable}, {EItem::Quality}, {EItem::MasterVolume}, {EItem::EffectsVolume}, {EItem::AmbientVolume}, {EItem::Sensitivity}, {EItem::Controls}, {EItem::Back}};
+			return {{EItem::Fullscreen}, {.Kind = EItem::Hdr, .bEnabled = Settings.bHdrAvailable}, {EItem::Quality}, {EItem::MasterVolume}, {EItem::EffectsVolume}, {EItem::AmbientVolume}, {EItem::Sensitivity}, {EItem::Language}, {EItem::Controls}, {EItem::Back}};
 		case EGameMenuScreen::Controls:
 		{
 			std::vector<FItem> Items;
@@ -49,67 +60,108 @@ std::vector<FGameMenu::FItem> FGameMenu::GetScreenItems(const FGameMenuSettings&
 	return {};
 }
 
+FGameMenu::FGameMenu(const FLocalization& InText)
+    : TextSource(&InText)
+{
+}
+
 std::vector<std::string> FGameMenu::GetItems(const FGameMenuSettings& Settings) const
 {
+	const FLocalization& Localization = *TextSource;
+	const auto Enabled = [](const bool bEnabled)
+	{
+		return std::array{FMessageArgument{"enabled", std::string(bEnabled ? "true" : "false")}};
+	};
+
+	const auto Volume = [&Localization](const FTextId Id, const float Value)
+	{
+		return Localization.Format(Id, std::array{FMessageArgument{"volume", static_cast<double>(Value)}});
+	};
+
 	std::vector<std::string> Labels;
 	for (const FItem& Item : GetScreenItems(Settings))
 	{
 		switch (Item.Kind)
 		{
 			case EItem::Resume:
-				Labels.emplace_back("Resume");
+				Labels.push_back(Localization.Format(Game::Menu_Resume));
 				break;
 			case EItem::Save:
-				Labels.emplace_back("Save game");
+				Labels.push_back(Localization.Format(Game::Menu_Save));
 				break;
 			case EItem::Load:
-				Labels.emplace_back(Settings.bCanLoad ? "Load game" : "Load game (no save yet)");
+				if (Settings.bCanLoad && Settings.SaveTime)
+				{
+					Labels.push_back(Localization.Format(Game::Menu_Load, std::array{FMessageArgument{"when", *Settings.SaveTime}}));
+				}
+				else
+				{
+					Labels.push_back(Localization.Format(Settings.bCanLoad ? Game::Menu_Load : Game::Menu_LoadUnavailable));
+				}
+
 				break;
 			case EItem::Restart:
-				Labels.emplace_back("Restart course");
+				Labels.push_back(Localization.Format(Game::Menu_Restart));
 				break;
 			case EItem::Settings:
-				Labels.emplace_back("Settings");
+				Labels.push_back(Localization.Format(Game::Menu_Settings));
 				break;
 			case EItem::Quit:
-				Labels.emplace_back("Quit");
+				Labels.push_back(Localization.Format(Game::Menu_Quit));
 				break;
 			case EItem::Fullscreen:
-				Labels.push_back(std::format("Fullscreen   < {} >", Settings.bFullscreen ? "On" : "Off"));
+				Labels.push_back(Localization.Format(Game::Settings_Fullscreen, Enabled(Settings.bFullscreen)));
 				break;
 			case EItem::Hdr:
-				Labels.push_back(Settings.bHdrAvailable ? std::format("HDR   < {} >", Settings.bHdr ? "On" : "Off") : std::string("HDR: not available on this display"));
+				Labels.push_back(Settings.bHdrAvailable ? Localization.Format(Game::Settings_Hdr, Enabled(Settings.bHdr)) : Localization.Format(Game::Settings_HdrUnavailable));
 				break;
 			case EItem::Quality:
-				Labels.push_back(std::format("Quality   < {} >", QualityNames[std::min<std::size_t>(Settings.Quality, 2)]));
+				Labels.push_back(Localization.Format(Game::Settings_Quality, std::array{FMessageArgument{"quality", std::string(QualityKeys[std::min<std::size_t>(Settings.Quality, 2)])}}));
 				break;
 			case EItem::MasterVolume:
-				Labels.push_back(std::format("Master volume   < {} >", FormatPercent(Settings.Volumes[0])));
+				Labels.push_back(Volume(Game::Settings_MasterVolume, Settings.Volumes[0]));
 				break;
 			case EItem::EffectsVolume:
-				Labels.push_back(std::format("Effects volume   < {} >", FormatPercent(Settings.Volumes[1])));
+				Labels.push_back(Volume(Game::Settings_EffectsVolume, Settings.Volumes[1]));
 				break;
 			case EItem::AmbientVolume:
-				Labels.push_back(std::format("Ambient volume   < {} >", FormatPercent(Settings.Volumes[2])));
+				Labels.push_back(Volume(Game::Settings_AmbientVolume, Settings.Volumes[2]));
 				break;
 			case EItem::Sensitivity:
-				Labels.push_back(std::format("Mouse sensitivity   < {:.1f}x >", Settings.Sensitivity));
+				Labels.push_back(Localization.Format(Game::Settings_Sensitivity, std::array{FMessageArgument{"value", FFixedNumber{.Value = Settings.Sensitivity, .FractionDigits = 1}}}));
+				break;
+			case EItem::Language:
+				Labels.push_back(Localization.Format(Game::Settings_Language, std::array{FMessageArgument{"language", Localization.FormatIn(Settings.Culture, Game::Language_Name)}}));
 				break;
 			case EItem::Controls:
-				Labels.emplace_back("Controls");
+				Labels.push_back(Localization.Format(Game::Menu_Controls));
 				break;
 			case EItem::Binding:
 			{
 				const auto Action = static_cast<EGameAction>(Item.Action);
 				const FGameBinding& Binding = Settings.Bindings.Get(Action);
-				Labels.push_back(Capture == Action ? std::format("{}   press a key or button...", GetGameActionName(Action)) : std::format("{}   {}  |  {}", GetGameActionName(Action), FormatKeyboardBinding(Binding), FormatGamepadBinding(Binding)));
+				const std::string Name = GetGameActionName(Localization, Action);
+				if (Capture == Action)
+				{
+					Labels.push_back(Localization.Format(Game::Controls_Capture, std::array{FMessageArgument{"action", Name}}));
+					break;
+				}
+
+				const std::string Unbound = Localization.Format(Game::Controls_Unbound);
+				const std::array Arguments{
+				    FMessageArgument{"action", Name},
+				    FMessageArgument{"keyboard", FormatKeyboardBinding(Binding, Unbound)},
+				    FMessageArgument{"gamepad", FormatGamepadBinding(Binding, Unbound)},
+				};
+
+				Labels.push_back(Localization.Format(Game::Controls_Binding, Arguments));
 				break;
 			}
 			case EItem::ResetBindings:
-				Labels.emplace_back("Reset to defaults");
+				Labels.push_back(Localization.Format(Game::Menu_ResetBindings));
 				break;
 			case EItem::Back:
-				Labels.emplace_back("Back");
+				Labels.push_back(Localization.Format(Game::Menu_Back));
 				break;
 		}
 	}
@@ -236,6 +288,15 @@ void FGameMenu::Adjust(const FItem& Item, const int Direction, FGameMenuSettings
 		case EItem::Sensitivity:
 			Settings.Sensitivity = Step(Settings.Sensitivity, Direction, 0.1f, 0.2f, 5.f);
 			break;
+		case EItem::Language:
+		{
+			const std::vector<std::string> Cultures = GetMenuCultures(*TextSource);
+			const auto Current = std::ranges::find(Cultures, Settings.Culture);
+			const std::ptrdiff_t Index = Current != Cultures.end() ? Current - Cultures.begin() : 0;
+			const auto Count = static_cast<std::ptrdiff_t>(Cultures.size());
+			Settings.Culture = Cultures[static_cast<std::size_t>((Index + Direction + Count) % Count)];
+			break;
+		}
 		default:
 			return;
 	}
@@ -386,8 +447,7 @@ std::vector<EGameMenuCommand> FGameMenu::Draw(FGameUI& UI, const FGameMenuInput&
 
 	// Oversized so the dimming covers the screen at any aspect ratio.
 	UI.DrawRect({.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 0.5f}}, {100000.f, 100000.f}, MakeGameUIColor(0, 0, 0, 140));
-	const char* const Title = Screen == EGameMenuScreen::Pause ? "Paused" : Screen == EGameMenuScreen::Settings ? "Settings"
-	                                                                                                           : "Controls";
+	const std::string Title = TextSource->Format(Screen == EGameMenuScreen::Pause ? Game::Menu_Title_Paused : Screen == EGameMenuScreen::Settings ? Game::Menu_Title_Settings : Game::Menu_Title_Controls);
 	const std::vector<std::string> Labels = GetItems(Settings);
 	const float Height = static_cast<float>(Labels.size()) * 62.f;
 	UI.DrawText(Title, {.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -Height * 0.5f - 60.f}}, EGameUIFont::Title, Text);
@@ -404,8 +464,7 @@ std::vector<EGameMenuCommand> FGameMenu::Draw(FGameUI& UI, const FGameMenuInput&
 		}
 	}
 
-	const char* const Hint = Capture ? "Press a key, mouse button, or gamepad button to bind it    Esc cancels" : Screen == EGameMenuScreen::Pause ? "Up and Down choose    Enter selects    Esc resumes"
-	                                                                                                                                                  : "Left and Right change    Enter selects    Esc goes back";
+	const std::string Hint = TextSource->Format(Capture ? Game::Hint_Capture : Screen == EGameMenuScreen::Pause ? Game::Hint_Pause : Game::Hint_Settings);
 	const FVector2 Size = UI.MeasureText(Hint, EGameUIFont::Body);
 	UI.DrawRect({.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -24.f}}, {Size.X + 40.f, Size.Y + 28.f}, Panel, 12.f);
 	UI.DrawText(Hint, {.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 1.f}, .Offset = {0.f, -38.f}}, EGameUIFont::Body, MakeGameUIColor(220, 224, 232));

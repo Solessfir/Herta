@@ -2,6 +2,7 @@
 #include "Herta/AssetPipeline/ModStaging.h"
 #include "Herta/Assets/ContentPackage.h"
 #include "Herta/Assets/VirtualFileSystem.h"
+#include "Herta/Localization/Localization.h"
 #include "Herta/PackageBuilder/PackageBuilder.h"
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <map>
 #include <print>
 #include <span>
 #include <string>
@@ -27,9 +29,11 @@ namespace
 constexpr std::string_view Usage = R"(HertaCooker cooks a game's content for distribution.
 
   cook --project=<p.hertaproject> --output=<directory> --mode=loose|package|embedded [--name=<package>] [--shaders=<directory>]
-       [--embed-into=<executable>,...] [--signing-key=<file>]
+       [--embed-into=<executable>,...] [--signing-key=<file>] [--language-packs]
       Stages the project's starting level and every asset it reaches. Loose writes the staged files into the output; package writes
       <name>.hpak there, with the engine shaders from --shaders; embedded builds the same package into each --embed-into executable.
+      --language-packs leaves every translation out of the base package and writes each culture as <name>-<culture>.hpak in the output,
+      which the game mounts when present; the source language always ships in the base.
   mod --source=<mod folder> --project=<p.hertaproject> --output=<installed mod folder> [--package] [--signing-key=<file>]
       Cooks a data mod's Content folder for the game into a folder for its Mods directory, its files loose under Files or, with --package,
       in <namespace>.hpak.
@@ -258,6 +262,38 @@ int Cook(const std::span<char* const> Arguments)
 	}
 
 	const std::string Name = Find(Arguments, "--name=").empty() ? PathOf(Project).stem().string() : std::string(Find(Arguments, "--name="));
+	if (HasFlag(Arguments, "--language-packs"))
+	{
+		constexpr std::string_view Prefix = "Engine/Content/Localization/";
+		std::map<std::string, std::vector<FPackageInput>> Packs;
+		std::erase_if(*Inputs, [&](FPackageInput& Input)
+		{
+			const std::string_view Path = Input.Path;
+			const std::size_t Slash = Path.starts_with(Prefix) ? Path.find('/', Prefix.size()) : std::string_view::npos;
+			const std::string_view Culture = Slash == std::string_view::npos ? std::string_view{} : Path.substr(Prefix.size(), Slash - Prefix.size());
+			if (Culture.empty() || Culture == SourceCulture)
+			{
+				return false;
+			}
+
+			Packs[std::string(Culture)].push_back(std::move(Input));
+			return true;
+		});
+
+		for (auto& [Culture, Files] : Packs)
+		{
+			const std::filesystem::path PackPath = OutputRoot / std::format("{}-{}.hpak", Name, Culture);
+			const auto Pack = WritePackage(PackPath, std::move(Files), *Options);
+			if (!Pack)
+			{
+				Report(Pack.error().Message);
+				return 1;
+			}
+
+			std::println("Packaged the {} language pack into {}", Culture, PackPath.filename().generic_string());
+		}
+	}
+
 	const std::filesystem::path PackagePath = (Mode == "package" ? OutputRoot : StageRoot) / (Name + ".hpak");
 	const auto Written = WritePackage(PackagePath, std::move(*Inputs), *Options);
 	if (!Written)

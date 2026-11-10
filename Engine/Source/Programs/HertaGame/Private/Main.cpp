@@ -12,6 +12,7 @@
 #include "Herta/GameFramework/GameMenu.h"
 #include "Herta/GameFramework/GameSave.h"
 #include "Herta/GameFramework/GameSession.h"
+#include "Herta/GameFramework/GameText.h"
 #include "Herta/GameFramework/VisualEnvironment.h"
 #include "Herta/GameUI/GameUI.h"
 #include "Herta/Level/LevelSerialization.h"
@@ -101,7 +102,10 @@ struct FGameSettings
 	// Linear gains for the Master, Effects, and Ambient buses.
 	std::array<float, 3> Volumes{1.f, 1.f, 1.f};
 	FGameBindings Bindings = GetDefaultGameBindings();
+	std::string Culture{SourceCulture};
 };
+
+namespace Game = Text::Game;
 
 constexpr float BaseMouseSensitivity = 0.0022f;
 constexpr std::array<std::string_view, 3> VolumeKeys{"volumeMaster", "volumeEffects", "volumeAmbient"};
@@ -124,6 +128,13 @@ constexpr std::array<std::string_view, 3> VolumeBuses{"Master", "Effects", "Ambi
 		if (Key.starts_with("bind."))
 		{
 			(void)ApplyGameBindingSetting(Settings.Bindings, Key, Value);
+			continue;
+		}
+
+		// Checked against the loaded catalogs once they are known.
+		if (Key == "culture")
+		{
+			Settings.Culture = Value;
 			continue;
 		}
 
@@ -181,6 +192,7 @@ void SaveSettings(const std::filesystem::path& Path, const FGameSettings& Settin
 			std::println(File, "{}={}", VolumeKeys[Bus], Settings.Volumes[Bus]);
 		}
 
+		std::println(File, "culture={}", Settings.Culture);
 		File << SerializeGameBindings(Settings.Bindings);
 		if (!File)
 		{
@@ -192,6 +204,28 @@ void SaveSettings(const std::filesystem::path& Path, const FGameSettings& Settin
 	if (!MoveAtomically(Temporary, Path, EMoveMode::ReplaceExisting))
 	{
 		HERTA_LOG_WARNING(Log, GameLog, "Could not save settings to {}", Path.generic_string());
+	}
+}
+
+// When a file was last written, as local wall-clock time.
+[[nodiscard]] std::optional<FCivilTime> GetLocalWriteTime(const std::filesystem::path& Path)
+{
+	std::error_code Error;
+	const auto Written = std::filesystem::last_write_time(Path, Error);
+	if (Error)
+	{
+		return std::nullopt;
+	}
+
+	// The time zone database is the standard library's; without one, as on a system with no tzdata, the time is left out.
+	try
+	{
+		const auto System = std::chrono::floor<std::chrono::seconds>(std::chrono::clock_cast<std::chrono::system_clock>(Written));
+		return ToCivilTime(std::chrono::current_zone()->to_local(System).time_since_epoch().count());
+	}
+	catch (const std::exception&)
+	{
+		return std::nullopt;
 	}
 }
 
@@ -235,6 +269,8 @@ struct FGameOptions
 	// Joins a server at "host:port" instead of playing alone.
 	std::string ConnectAddress{};
 	std::string PlayerName = "Player";
+	// A culture tag that overrides the saved language for this run, such as qps-ploc.
+	std::string Culture{};
 };
 
 int RunGame(const FGameOptions& Options)
@@ -307,6 +343,33 @@ int RunGame(const FGameOptions& Options)
 
 	const std::filesystem::path SettingsPath = UserDirectory / "Settings.ini";
 	FGameSettings Settings = bSmokeTest ? FGameSettings{} : LoadSettings(SettingsPath);
+	FLocalization Text;
+	if (const auto Catalogs = LoadTextCatalogs(Files, CatalogDirectory); !Catalogs)
+	{
+		HERTA_LOG_WARNING(*Log, GameLog, "Game text shows untranslated: {}", Catalogs.error().Message);
+	}
+	else if (auto Loaded = Text.SetCatalogs(*Catalogs); !Loaded)
+	{
+		HERTA_LOG_WARNING(*Log, GameLog, "Game text shows untranslated: {}", Loaded.error().Message);
+	}
+
+	const std::string Culture = Options.Culture.empty() ? Settings.Culture : Options.Culture;
+	if (!Text.SetCulture(Culture))
+	{
+		HERTA_LOG_WARNING(*Log, GameLog, "No culture '{}'; the game shows {}", Culture, Text.GetCultureName());
+	}
+
+	Settings.Culture = Options.Culture.empty() ? std::string(Text.GetCultureName()) : Settings.Culture;
+	HERTA_LOG_INFO(*Log, GameLog, "Text: {} with {}", Text.GetCultureName(), [&Text]
+	{
+		std::string Names;
+		for (const std::string& Name : Text.GetAvailableCultures())
+		{
+			Names += Names.empty() ? Name : ", " + Name;
+		}
+
+		return Names;
+	}());
 	auto ApplicationResult = FApplication::Create(Log.get());
 	if (!ApplicationResult)
 	{
@@ -579,6 +642,7 @@ int RunGame(const FGameOptions& Options)
 	auto UIResult = FGameUI::Create({
 	    .Device = &Device,
 	    .FontBytes = Files.Read(EngineContent / "Fonts" / "Roboto-Medium.ttf").value_or(std::vector<std::byte>{}),
+	    .FallbackFontBytes = {Files.Read(EngineContent / "Fonts" / "NotoEmoji.ttf").value_or(std::vector<std::byte>{})},
 	    .RegisterTexture = [&Presentation](const FTextureHandle& Texture) -> std::expected<std::uint64_t, FGameUIError>
 	{
 		auto Registered = Presentation->RegisterToolUITexture(Texture);
@@ -662,7 +726,7 @@ int RunGame(const FGameOptions& Options)
 	FTextureHandle RegisteredScene;
 	std::uint64_t SceneTextureId = 0;
 	bool bPaused = false;
-	FGameMenu Menu;
+	FGameMenu Menu(Text);
 	// Unattended runs save beside other temporary files, never over a player's save.
 	std::optional<std::pair<FVector3, std::size_t>> StreamBaseline;
 	const std::filesystem::path SaveDirectory = bSmokeTest ? std::filesystem::temp_directory_path() / "HertaSmokeSaves" : UserDirectory / "Saves";
@@ -682,14 +746,14 @@ int RunGame(const FGameOptions& Options)
 		if (auto Written = WriteGameSave(SavePath, Session->CaptureSave(Level->Id)); !Written)
 		{
 			HERTA_LOG_WARNING(*Log, GameLog, "Could not save the game: {}", Written.error().Message);
-			Menu.ShowNotice("The game could not be saved");
+			Menu.ShowNotice(Text.Format(Game::Notice_SaveFailed));
 			return;
 		}
 
 		HERTA_LOG_INFO(*Log, GameLog, "Saved the game to {}", SavePath.generic_string());
 		if (!bQuiet)
 		{
-			Menu.ShowNotice("Game saved");
+			Menu.ShowNotice(Text.Format(Game::Notice_Saved));
 		}
 	};
 	std::optional<FGamepadState> PreviousGamepad;
@@ -822,8 +886,15 @@ int RunGame(const FGameOptions& Options)
 		    .Volumes = Settings.Volumes,
 		    .Sensitivity = Settings.Sensitivity,
 		    .Bindings = Settings.Bindings,
-		    .bCanLoad = std::filesystem::exists(SavePath) || std::filesystem::exists(GetGameSaveBackupPath(SavePath)),
+		    .Culture = std::string(Text.GetCultureName()),
 		};
+
+		// The save's state only shows in the menu, so the files are checked only while it is open or opening.
+		if (Menu.IsOpen() || MenuInput.bPause || MenuInput.bFocusLost)
+		{
+			MenuSettings.bCanLoad = std::filesystem::exists(SavePath) || std::filesystem::exists(GetGameSaveBackupPath(SavePath));
+			MenuSettings.SaveTime = GetLocalWriteTime(std::filesystem::exists(SavePath) ? SavePath : GetGameSaveBackupPath(SavePath));
+		}
 
 		const bool bMenuOwnedInput = Menu.OwnsInput();
 		std::vector<EGameMenuCommand> MenuCommands = Menu.Update(MenuInput, MenuSettings);
@@ -908,11 +979,11 @@ int RunGame(const FGameOptions& Options)
 				if (ClientState == EGameClientState::Rejected)
 				{
 					bFailed = bSmokeTest;
-					Menu.ShowNotice("The server refused to join");
+					Menu.ShowNotice(Text.Format(Game::Notice_JoinRefused));
 				}
 				else if (ClientState == EGameClientState::Disconnected)
 				{
-					Menu.ShowNotice("Lost the connection to the server");
+					Menu.ShowNotice(Text.Format(Game::Notice_ConnectionLost));
 				}
 			}
 		}
@@ -1027,7 +1098,7 @@ int RunGame(const FGameOptions& Options)
 		const auto Height = static_cast<float>(Extent.Height);
 		UI->DrawImage(SceneTextureId, {0.f, 0.f}, {Width, Height});
 		std::size_t NoMenuFocus = 0;
-		(void)DrawGameHud(*UI, Session->GetObjective(), bPaused, {}, NoMenuFocus, {}, "Esc", FormatGameControlsHint(Settings.Bindings, "Esc"));
+		(void)DrawGameHud(*UI, Text, Session->GetObjective(), bPaused, {}, NoMenuFocus, {}, "Esc", FormatGameControlsHint(Text, Settings.Bindings, "Esc"));
 		std::ranges::move(Menu.Draw(*UI, MenuInput, MenuSettings), std::back_inserter(MenuCommands));
 		for (const EGameMenuCommand Command : MenuCommands)
 		{
@@ -1038,7 +1109,7 @@ int RunGame(const FGameOptions& Options)
 				case EGameMenuCommand::Save:
 					if (bNetwork)
 					{
-						Menu.ShowNotice("A network game is the server's to save");
+						Menu.ShowNotice(Text.Format(Game::Notice_ServerSaves));
 						break;
 					}
 
@@ -1047,17 +1118,17 @@ int RunGame(const FGameOptions& Options)
 				case EGameMenuCommand::Load:
 					if (bNetwork)
 					{
-						Menu.ShowNotice("A network game is the server's to load");
+						Menu.ShowNotice(Text.Format(Game::Notice_ServerLoads));
 					}
 					else if (const auto Loaded = LoadGameSave(SavePath); !Loaded)
 					{
 						HERTA_LOG_WARNING(*Log, GameLog, "Could not load the save: {}", Loaded.error().Message);
-						Menu.ShowNotice("The save could not be loaded");
+						Menu.ShowNotice(Text.Format(Game::Notice_LoadFailed));
 					}
 					else if (const auto Applied = Session->ApplySave(Loaded->Save); !Applied)
 					{
 						HERTA_LOG_ERROR(*Log, GameLog, "Could not apply the save: {}", Applied.error().Message);
-						Menu.ShowNotice("The save could not be loaded");
+						Menu.ShowNotice(Text.Format(Game::Notice_LoadFailed));
 					}
 					else
 					{
@@ -1071,7 +1142,7 @@ int RunGame(const FGameOptions& Options)
 							HERTA_LOG_WARNING(*Log, GameLog, "The save was damaged ({}); loaded the one before it", Loaded->Problem);
 						}
 
-						Menu.ShowNotice(Loaded->bRecovered ? "The save was damaged; loaded the one before it" : "Game loaded");
+						Menu.ShowNotice(Text.Format(Loaded->bRecovered ? Game::Notice_LoadedBackup : Game::Notice_Loaded));
 						PreviousObjective = Session->GetObjective().State;
 					}
 
@@ -1099,6 +1170,11 @@ int RunGame(const FGameOptions& Options)
 					Settings.Volumes = MenuSettings.Volumes;
 					Settings.Sensitivity = MenuSettings.Sensitivity;
 					Settings.Bindings = MenuSettings.Bindings;
+					if (MenuSettings.Culture != Text.GetCultureName() && Text.SetCulture(MenuSettings.Culture))
+					{
+						Settings.Culture = MenuSettings.Culture;
+					}
+
 					ApplyVolumes(bPaused);
 					if (!bSmokeTest)
 					{
@@ -1114,7 +1190,7 @@ int RunGame(const FGameOptions& Options)
 		if (Objective == EGameObjectiveState::Finished && PreviousObjective != EGameObjectiveState::Finished && !bSmokeTest && !bNetwork)
 		{
 			SaveGame(true);
-			Menu.ShowNotice("Course finished; game saved");
+			Menu.ShowNotice(Text.Format(Game::Notice_CourseSaved));
 		}
 
 		PreviousObjective = Objective;
@@ -1272,6 +1348,7 @@ int main(const int ArgumentCount, char** const Arguments)
 
 		Options.bValidation = Herta::HasArgument(Rest, "--validation");
 		Options.ConnectAddress = Herta::FindArgumentValue(Rest, "--connect=");
+		Options.Culture = Herta::FindArgumentValue(Rest, "--culture=");
 		if (const std::string_view Name = Herta::FindArgumentValue(Rest, "--name="); !Name.empty())
 		{
 			Options.PlayerName = Name;

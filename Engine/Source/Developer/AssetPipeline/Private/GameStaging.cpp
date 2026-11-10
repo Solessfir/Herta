@@ -6,7 +6,9 @@
 #include "Herta/AssetPipeline/MaterialShaderCompiler.h"
 #include "Herta/AssetPipeline/NavigationCook.h"
 #include "Herta/Assets/CookedContent.h"
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/Level/LevelSerialization.h"
+#include "Herta/LocalizationPipeline/LocalizationPipeline.h"
 #include "Herta/Project/Project.h"
 
 #include <algorithm>
@@ -380,14 +382,16 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 		Result.Bytes += Bytes->size();
 	}
 
-	// The descriptor and level are copied verbatim so the staged build loads exactly what was authored. The HUD font ships with its license.
-	const std::filesystem::path FontSource = Request.EngineContentRoot / "Editor" / "Fonts" / "Roboto";
+	// The descriptor and level are copied verbatim so the staged build loads exactly what was authored. The HUD fonts ship with their licenses.
+	const std::filesystem::path FontSource = Request.EngineContentRoot / "Editor" / "Fonts";
 	const std::filesystem::path FontDestination = GetStagedEngineContentRoot(Request.OutputRoot) / "Fonts";
 	std::vector Copies{
 	    std::pair{Project->DescriptorPath, StagedProjectPath},
 	    std::pair{Project->StartingLevel, StagedLevelPath},
-	    std::pair{FontSource / "Roboto-Medium.ttf", FontDestination / "Roboto-Medium.ttf"},
-	    std::pair{FontSource / "OFL.txt", FontDestination / "OFL.txt"},
+	    std::pair{FontSource / "Roboto" / "Roboto-Medium.ttf", FontDestination / "Roboto-Medium.ttf"},
+	    std::pair{FontSource / "Roboto" / "OFL.txt", FontDestination / "OFL.txt"},
+	    std::pair{FontSource / "NotoEmoji" / "NotoEmoji.ttf", FontDestination / "NotoEmoji.ttf"},
+	    std::pair{FontSource / "NotoEmoji" / "OFL.txt", FontDestination / "NotoEmoji-OFL.txt"},
 	};
 
 	Copies.insert(Copies.end(), RegionCopies.begin(), RegionCopies.end());
@@ -406,6 +410,32 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 		}
 
 		Result.Bytes += Bytes->size();
+	}
+
+	// Catalogs stage canonically and only once they load, so a broken translation fails the cook instead of the game.
+	FVirtualFileSystem Catalogs(Request.EngineContentRoot / "Localization");
+	Catalogs.MountDirectory(Catalogs.GetRoot());
+	const auto TextCatalogs = LoadTextCatalogs(Catalogs, {});
+	if (!TextCatalogs)
+	{
+		return StageError(std::format("Cannot load the text catalogs: {}", TextCatalogs.error().Message));
+	}
+
+	if (const FLocalizationReport Report = ValidateCatalogs(*TextCatalogs); !Report.Errors.empty())
+	{
+		return StageError(std::format("The text catalogs do not load: {}", Report.Errors.front()));
+	}
+
+	for (const FTextCatalog& Catalog : *TextCatalogs)
+	{
+		const std::string Json = SerializeTextCatalog(Catalog);
+		const std::filesystem::path Destination = GetStagedEngineContentRoot(Request.OutputRoot) / "Localization" / Utf8ToPath(Catalog.Culture) / Utf8ToPath(Catalog.Namespace + ".hloc");
+		if (auto Written = WriteFileAtomically(Destination, std::as_bytes(std::span(Json))); !Written)
+		{
+			return std::unexpected(Written.error());
+		}
+
+		Result.Bytes += Json.size();
 	}
 
 	// Navigation is cooked here rather than kept in source, so a staged game always walks the level as it was staged.

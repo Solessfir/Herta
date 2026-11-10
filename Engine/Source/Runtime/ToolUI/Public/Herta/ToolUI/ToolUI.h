@@ -17,6 +17,7 @@
 namespace Herta
 {
 class FApplication;
+class FLocalization;
 class FWindow;
 
 struct FToolUIError
@@ -99,6 +100,8 @@ struct FToolUIDescriptor
 	std::filesystem::path RegularFontPath = "Engine/Content/Editor/Fonts/Roboto/Roboto-Regular.ttf";
 	std::filesystem::path MediumFontPath = "Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf";
 	std::filesystem::path LogFontPath = "Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf";
+	// Merged into every editor font for the emoji they lack; optional.
+	std::filesystem::path EmojiFontPath = "Engine/Content/Editor/Fonts/NotoEmoji/NotoEmoji.ttf";
 	std::filesystem::path LayoutPath = "Saved/Editor/ImGui.ini";
 	std::filesystem::path AppearancePath = "Saved/Editor/Appearance.ini";
 	FEditorAppearance Appearance;
@@ -160,6 +163,9 @@ void ToolUIIcon(EToolUIMenuIcon Icon, float CenterX, float CenterY, float Scale 
 void SaveEditorAppearance(const std::filesystem::path& Path, const FEditorAppearance& Appearance) noexcept;
 // Switch for boolean settings, right-aligned within the next item width.
 bool ToolUIToggle(const char* Id, bool* bValue);
+// A single-line text field that edits whole grapheme clusters, so Backspace removes an emoji with its skin tone and the cursor never lands
+// inside a flag. Width zero fills the available width. Returns true when the text changed.
+bool ToolUIInputText(const char* Id, std::string& Text, const char* Hint = nullptr, float Width = 0.f);
 
 class FToolUIContext final
 {
@@ -212,6 +218,8 @@ public:
 	void DrawGlassSurface(float X, float Y, float Width, float Height, float Radius) const;
 	bool DrawSearchField(const char* Label, const char* Hint, char* Buffer, std::size_t BufferSize) const;
 
+	// The editor's text, which outlives the context; without it the workspace shows English.
+	void SetText(const FLocalization* Text) noexcept;
 	void SetAppearance(FEditorAppearance Appearance) noexcept;
 	[[nodiscard]] const FEditorAppearance& GetAppearance() const noexcept;
 	[[nodiscard]] const FToolUIThemeMetrics& GetMetrics() const noexcept;

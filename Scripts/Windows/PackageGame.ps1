@@ -9,6 +9,8 @@ param(
     [string]$ContentMode = 'Package',
     # A private package signing key from HertaCooker keygen, kept outside the checkout; its public half belongs in Config/PackagePublicKeys.txt.
     [string]$SigningKey = '',
+    # Ships each translation as its own <Project>-<culture>.hpak beside the base package instead of inside it.
+    [switch]$LanguagePacks,
     # Copies the package outside the checkout and plays a scripted run there, proving it needs nothing from the source tree.
     [switch]$Verify
 )
@@ -79,6 +81,7 @@ function Get-Sha256 {
 New-Item -ItemType Directory -Force -Path $PackageRoot | Out-Null
 Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaGame.exe') -Destination $GameExecutable
 Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaServer.exe') -Destination $ServerExecutable
+$PackExtra = @(if ($LanguagePacks) { '--language-packs' })
 switch ($ContentMode) {
     'Loose' {
         Invoke-Cook -Output $PackageRoot -Mode 'loose' -Extra @()
@@ -87,8 +90,8 @@ switch ($ContentMode) {
             Copy-Item -LiteralPath $Shader.FullName -Destination (Join-Path $PackageRoot "Shaders/$($Shader.Name)")
         }
     }
-    'Package' { Invoke-Cook -Output $PackageRoot -Mode 'package' -Extra @() }
-    'Embedded' { Invoke-Cook -Output $PackageRoot -Mode 'embedded' -Extra @("--embed-into=$GameExecutable,$ServerExecutable") }
+    'Package' { Invoke-Cook -Output $PackageRoot -Mode 'package' -Extra $PackExtra }
+    'Embedded' { Invoke-Cook -Output $PackageRoot -Mode 'embedded' -Extra (@("--embed-into=$GameExecutable,$ServerExecutable") + $PackExtra) }
 }
 
 $TrackedFiles = & git -c core.quotepath=false -C $RepositoryRoot ls-files --recurse-submodules
@@ -125,7 +128,7 @@ WASD moves, Space jumps and wall jumps, Shift sprints, C or Ctrl crouches and sl
 Multiplayer: $ProjectName.exe --host[=port] hosts a game and plays it; others join with $ProjectName.exe --connect=address:port and an optional --name=Name.
 $ProjectName-Server.exe runs a dedicated server without a window, GPU, or audio device; it takes --port=, which defaults to 27015, and --max-players=.
 
-Herta is licensed under MIT. See LICENSE and ThirdPartyLicenses; the HUD font license is in Engine/Content/Fonts.
+Herta is licensed under MIT. See LICENSE and ThirdPartyLicenses; the HUD font licenses are in Engine/Content/Fonts.
 This software is based in part on the work of the FreeType Team (https://freetype.org).
 "@ | Set-Content -LiteralPath (Join-Path $PackageRoot 'README.txt') -Encoding UTF8
 
@@ -156,7 +159,7 @@ if ($Verify) {
         # The same sources must package to the same bytes, which signed packages keep too: Ed25519 signatures are deterministic.
         if ($ContentMode -eq 'Package') {
             $Rebuild = Join-Path $Relocated 'Rebuild'
-            Invoke-Cook -Output $Rebuild -Mode 'package' -Extra @()
+            Invoke-Cook -Output $Rebuild -Mode 'package' -Extra $PackExtra
             $First = Get-Sha256 (Join-Path $PackageRoot "$ProjectName.hpak")
             $Second = Get-Sha256 (Join-Path $Rebuild "$ProjectName.hpak")
             if ($First -ne $Second) {

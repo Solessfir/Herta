@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
@@ -12,6 +13,8 @@
 
 namespace Herta
 {
+class FVirtualFileSystem;
+
 // The source culture every catalog falls back to.
 inline constexpr std::string_view SourceCulture = "en";
 // Shows source text with accents and longer words, to find unlocalized and clipped text without a translation.
@@ -58,18 +61,18 @@ constexpr FTextId FTextId::FromKey(const std::string_view InKey) noexcept
 
 struct FCatalogMessage
 {
-	std::string Key;
-	std::string Text;
+	std::string Key{};
+	std::string Text{};
 	// Context for translators; only source catalogs carry it.
-	std::string Comment;
+	std::string Comment{};
 };
 
 // One culture's messages for one namespace, stored as canonical UTF-8 JSON (.hloc).
 struct FTextCatalog
 {
-	std::string Culture;
-	std::string Namespace;
-	std::vector<FCatalogMessage> Messages;
+	std::string Culture{};
+	std::string Namespace{};
+	std::vector<FCatalogMessage> Messages{};
 };
 
 [[nodiscard]] std::expected<FTextCatalog, FLocalizationError> ParseTextCatalog(std::string_view Json);
@@ -78,6 +81,11 @@ struct FTextCatalog
 // Problems that make Translation unusable against Source: messages that do not compile, keys the source lacks, or arguments that differ.
 // Keys the translation lacks are not problems; they fall back to the source.
 [[nodiscard]] std::vector<std::string> ValidateTranslation(const FTextCatalog& Source, const FTextCatalog& Translation);
+// Where catalogs live, relative to the engine or staged root: <culture>/<namespace>.hloc below it.
+inline constexpr std::string_view CatalogDirectory = "Engine/Content/Localization";
+
+// Every catalog below Directory, by path; a catalog whose culture differs from its folder's name is an error.
+[[nodiscard]] std::expected<std::vector<FTextCatalog>, FLocalizationError> LoadTextCatalogs(const FVirtualFileSystem& Files, const std::filesystem::path& Directory);
 // Literal text with letters accented and vowels doubled; the pseudo culture applies it to each literal run of a message.
 [[nodiscard]] std::string Pseudolocalize(std::string_view Text);
 
@@ -105,10 +113,12 @@ public:
 	// Increases whenever the catalogs or the culture change, so cached text knows to refresh.
 	[[nodiscard]] std::uint64_t GetGeneration() const noexcept;
 	[[nodiscard]] std::string Format(FTextId Id, std::span<const FMessageArgument> Arguments = {}) const;
+	// The message in another culture than the current one, such as each language's own name in a language list.
+	[[nodiscard]] std::string FormatIn(std::string_view CultureTag, FTextId Id, std::span<const FMessageArgument> Arguments = {}) const;
 
 private:
 	struct FState;
 
-	std::unique_ptr<FState> State;
+	std::unique_ptr<FState> State{};
 };
 }

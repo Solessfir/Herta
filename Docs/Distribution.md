@@ -26,13 +26,13 @@ Packages are not encrypted. Encryption cannot keep data from whoever runs the ga
 
 `HertaCooker` cooks content for distribution:
 
-- `cook --project=<p.hertaproject> --output=<directory> --mode=loose|package|embedded` stages the starting level and every asset it reaches. `loose` writes the staged files; `package` writes `<name>.hpak` with the engine shaders from `--shaders=<directory>` under `Shaders/`; `embedded` builds the same package into each `--embed-into=<executable>,...`. `--signing-key=<file>` signs the package.
+- `cook --project=<p.hertaproject> --output=<directory> --mode=loose|package|embedded` stages the starting level and every asset it reaches. `loose` writes the staged files; `package` writes `<name>.hpak` with the engine shaders from `--shaders=<directory>` under `Shaders/`; `embedded` builds the same package into each `--embed-into=<executable>,...`. `--signing-key=<file>` signs the package. `--language-packs` writes each translation as `<name>-<culture>.hpak` beside the base package instead; see [Localization](Localization.md#language-packs).
 - `package`, `embed`, `keygen`, and `verify` are the pieces on their own; `verify --package=<file> --public-keys=<file>` checks every chunk and the signature.
 - `mod` cooks a data mod.
 
 Embedding adds the package as an `RCDATA` resource named `HERTAPAK` on Windows, which must happen before the executable is code-signed, and as a non-loaded `.hertapak` ELF section with `objcopy` on Linux. The game finds it with `FindEmbeddedData`: the resource is mapped with the image, and the section is read from the executable's own file. It is the same package reader either way.
 
-`Scripts/Windows/PackageGame.ps1 -ContentMode Loose|Package|Embedded` and `Scripts/Linux/PackageGame.sh --content-mode loose|package|embedded` package the game and server with each; `Package` is the default. `-SigningKey`/`--signing-key` signs the content. Verification runs the relocated game, server, and a hosted game, and in package mode cooks the content again and requires the same package bytes.
+`Scripts/Windows/PackageGame.ps1 -ContentMode Loose|Package|Embedded` and `Scripts/Linux/PackageGame.sh --content-mode loose|package|embedded` package the game and server with each; `Package` is the default. `-SigningKey`/`--signing-key` signs the content, and `-LanguagePacks`/`--language-packs` splits out the translations. Verification runs the relocated game, server, and a hosted game, and in package mode cooks the content again and requires the same package bytes.
 
 Measured on the Sandbox: 122 files, 14.0 MiB staged with the engine shaders, package 7.6 MiB, embedded executables grow by the same.
 

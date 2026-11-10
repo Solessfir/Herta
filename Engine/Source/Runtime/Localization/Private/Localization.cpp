@@ -1,5 +1,6 @@
 #include "Herta/Localization/Localization.h"
 
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/Core/Json.h"
 
 #include <simdjson.h>
@@ -7,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <format>
+#include <iterator>
 #include <unordered_map>
 #include <utility>
 
@@ -38,15 +40,15 @@ constexpr std::size_t MaximumCatalogBytes = std::size_t{16} * 1024 * 1024;
 
 struct FCompiledCulture
 {
-	std::string Name;
-	std::unordered_map<std::uint64_t, FMessage> Messages;
+	std::string Name{};
+	std::unordered_map<std::uint64_t, FMessage> Messages{};
 };
 }
 
 struct FLocalization::FState
 {
 	// The source culture first; the pseudo culture is derived from it and never loaded.
-	std::vector<FCompiledCulture> Cultures;
+	std::vector<FCompiledCulture> Cultures{};
 	FCompiledCulture Pseudo;
 	std::string CultureName = std::string(SourceCulture);
 	const FCulture* Culture = FCulture::Find(SourceCulture);
@@ -99,6 +101,41 @@ std::expected<FTextCatalog, FLocalizationError> ParseTextCatalog(const std::stri
 	}
 
 	return Catalog;
+}
+
+std::expected<std::vector<FTextCatalog>, FLocalizationError> LoadTextCatalogs(const FVirtualFileSystem& Files, const std::filesystem::path& Directory)
+{
+	std::vector<FTextCatalog> Catalogs;
+	const std::filesystem::path Base = (Files.GetRoot() / Directory).lexically_normal();
+	for (const std::filesystem::path& Path : Files.FindFiles(".hloc", 5))
+	{
+		const std::filesystem::path Relative = Path.lexically_normal().lexically_relative(Base);
+		if (Relative.empty() || *Relative.begin() == ".." || std::distance(Relative.begin(), Relative.end()) != 2)
+		{
+			continue;
+		}
+
+		const auto Bytes = Files.Read(Path);
+		if (!Bytes)
+		{
+			return Failed(Bytes.error().Message);
+		}
+
+		auto Catalog = ParseTextCatalog({reinterpret_cast<const char*>(Bytes->data()), Bytes->size()});
+		if (!Catalog)
+		{
+			return Failed(std::format("{}: {}", Path.generic_string(), Catalog.error().Message));
+		}
+
+		if (Catalog->Culture != Relative.begin()->generic_string() || Catalog->Namespace != Relative.stem().generic_string())
+		{
+			return Failed(std::format("{} names culture {} and namespace {}, unlike its path", Path.generic_string(), Catalog->Culture, Catalog->Namespace));
+		}
+
+		Catalogs.push_back(std::move(*Catalog));
+	}
+
+	return Catalogs;
 }
 
 std::string SerializeTextCatalog(const FTextCatalog& Catalog)
@@ -334,21 +371,23 @@ std::uint64_t FLocalization::GetGeneration() const noexcept
 
 std::string FLocalization::Format(const FTextId Id, const std::span<const FMessageArgument> Arguments) const
 {
+	return FormatIn(State->CultureName, Id, Arguments);
+}
+
+std::string FLocalization::FormatIn(const std::string_view CultureTag, const FTextId Id, const std::span<const FMessageArgument> Arguments) const
+{
 	const auto FindIn = [&Id](const FCompiledCulture& Culture) -> const FMessage*
 	{
 		const auto Found = Culture.Messages.find(Id.Hash);
 		return Found != Culture.Messages.end() ? &Found->second : nullptr;
 	};
 
-	const FMessage* Message = nullptr;
-	if (State->CultureName == PseudoCulture)
+	const bool bPseudo = CultureTag == PseudoCulture;
+	const FCulture* const Culture = FCulture::Find(bPseudo ? SourceCulture : CultureTag);
+	const FMessage* Message = bPseudo ? FindIn(State->Pseudo) : nullptr;
+	for (const FCulture* Parent = Culture; !Message && Parent; Parent = Parent->GetParent())
 	{
-		Message = FindIn(State->Pseudo);
-	}
-
-	for (const FCulture* Culture = State->Culture; !Message && Culture; Culture = Culture->GetParent())
-	{
-		const auto Compiled = std::ranges::find(State->Cultures, Culture->GetName(), &FCompiledCulture::Name);
+		const auto Compiled = std::ranges::find(State->Cultures, Parent->GetName(), &FCompiledCulture::Name);
 		Message = Compiled != State->Cultures.end() ? FindIn(*Compiled) : nullptr;
 	}
 
@@ -362,7 +401,7 @@ std::string FLocalization::Format(const FTextId Id, const std::span<const FMessa
 		return std::string(Id.Key);
 	}
 
-	std::string Text = Message->Format(*State->Culture, Arguments);
-	return State->CultureName == PseudoCulture ? "[" + Text + "]" : Text;
+	std::string Text = Message->Format(Culture ? *Culture : *State->Culture, Arguments);
+	return bPseudo ? "[" + Text + "]" : Text;
 }
 }

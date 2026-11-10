@@ -24,6 +24,7 @@
 #include "Herta/EditorFramework/ViewportInteraction.h"
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/GameHud.h"
+#include "Herta/Localization/Localization.h"
 #include "Herta/GameFramework/GameSession.h"
 #include "Herta/GameFramework/LevelSimulation.h"
 #include "Herta/GameFramework/LevelSimulationSetup.h"
@@ -264,6 +265,17 @@ inline void DrawFieldLabel(const char* const Label, const float ValueWidth, cons
 	return Result;
 }
 
+struct FLocalizationPanelState
+{
+	// The translation being edited.
+	std::string Culture{};
+	std::string Search{};
+	bool bMissingOnly = false;
+	// Edited catalogs of that culture, by namespace, until saved or reverted.
+	std::vector<FTextCatalog> Drafts{};
+	std::string Status{};
+};
+
 struct FEditorFramework::FImplementation
 {
 	FImplementation();
@@ -330,6 +342,10 @@ struct FEditorFramework::FImplementation
 	std::optional<std::string> MountedContentPath(const std::filesystem::path& File) const;
 	void ResolveGraphPreview();
 	void DrawPerformancePanel();
+	[[nodiscard]] std::filesystem::path GetCatalogRoot(std::string_view Namespace) const;
+	// Reloads the game and editor catalogs when their files change, or now when forced.
+	void PollTextCatalogs(bool bForce);
+	void DrawLocalizationPanel();
 	[[nodiscard]] int FindTimeOfDaySun() const;
 	void DrawTimeOfDay(float X, float Top, float Width, float ButtonSize, float Scale);
 	void ImportWithDialog();
@@ -687,6 +703,15 @@ struct FEditorFramework::FImplementation
 	IGraphicsDevice* GraphicsDevice = nullptr;
 
 	std::filesystem::path EngineRoot;
+
+	// The editor's and editor Play's text. ToolUI points at it, so it lives as long as the framework.
+	FLocalization Localization;
+	std::vector<FTextCatalog> TextCatalogs;
+	std::filesystem::file_time_type CatalogStamp{};
+	std::size_t CatalogCount = 0;
+	std::chrono::steady_clock::time_point NextCatalogPoll{};
+	FLocalizationPanelState LocalizationState;
+	bool bLocalizationOpen = false;
 	std::filesystem::path ProjectPath;
 	std::array<char, 128> ProjectName{};
 	std::array<char, 128> ProjectModule{};

@@ -1,4 +1,7 @@
 function HertaApplyToolchainSettings()
+    -- Every translation unit that includes imgui.h must agree on ImWchar's size; 32 bits lets editor text hold emoji past the BMP.
+    defines { "IMGUI_USE_WCHAR32" }
+
     filter "system:windows"
         systemversion "latest"
         characterset "Unicode"

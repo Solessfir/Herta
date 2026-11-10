@@ -2,6 +2,7 @@
 
 #include "Herta/Application/Application.h"
 #include "Herta/GameFramework/GameSession.h"
+#include "Herta/Localization/Localization.h"
 
 #include <array>
 #include <cstddef>
@@ -56,13 +57,13 @@ struct FGameBindings
 
 // WASD, Space, Shift, C, the mouse buttons, F, V, Z, and R, with the gamepad's A, B, X, Y, shoulders, left stick click, and Back.
 [[nodiscard]] FGameBindings GetDefaultGameBindings();
-[[nodiscard]] std::string_view GetGameActionName(EGameAction Action);
+[[nodiscard]] std::string GetGameActionName(const FLocalization& Text, EGameAction Action);
 [[nodiscard]] std::string GetKeyName(EKey Key);
 [[nodiscard]] std::string_view GetMouseButtonName(EMouseButton Button);
 [[nodiscard]] std::string_view GetGamepadButtonName(EGamepadButton Button);
-// "Space" or "Left mouse", or "Unbound".
-[[nodiscard]] std::string FormatKeyboardBinding(const FGameBinding& Binding);
-[[nodiscard]] std::string FormatGamepadBinding(const FGameBinding& Binding);
+// "Space" or "Left mouse", or Unbound. Key and button names are their labels and stay untranslated.
+[[nodiscard]] std::string FormatKeyboardBinding(const FGameBinding& Binding, std::string_view Unbound = "Unbound");
+[[nodiscard]] std::string FormatGamepadBinding(const FGameBinding& Binding, std::string_view Unbound = "Unbound");
 
 // Binds Key or Mouse to Action's keyboard slot, taking it from any other action that had it, so one key never does two things.
 void BindKeyboard(FGameBindings& Bindings, EGameAction Action, std::optional<EKey> Key, std::optional<EMouseButton> Mouse);
@@ -90,5 +91,5 @@ struct FGameKeyboardState
 // A gamepad's buttons through the bindings, with movement and looking on the sticks.
 [[nodiscard]] FGameGamepad GetBoundGamepad(const FGameBindings& Bindings, const FGamepadState& Gamepad);
 // The HUD's controls line, naming the keys bound now.
-[[nodiscard]] std::string FormatGameControlsHint(const FGameBindings& Bindings, std::string_view MenuKey);
+[[nodiscard]] std::string FormatGameControlsHint(const FLocalization& Text, const FGameBindings& Bindings, std::string_view MenuKey);
 }

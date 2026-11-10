@@ -349,11 +349,21 @@ private:
 		return *Real;
 	}
 
+	if (const auto* const Fixed = Value ? std::get_if<FFixedNumber>(Value) : nullptr)
+	{
+		return Fixed->Value;
+	}
+
 	return std::nullopt;
 }
 
 [[nodiscard]] FNumberFormat NumberFormatFor(const std::string_view Style, const FMessageValue* const Value)
 {
+	if (const auto* const Fixed = Value ? std::get_if<FFixedNumber>(Value) : nullptr; Fixed && Style.empty())
+	{
+		return {.MinimumFractionDigits = Fixed->FractionDigits, .MaximumFractionDigits = Fixed->FractionDigits};
+	}
+
 	if (Style == "integer")
 	{
 		return {.MaximumFractionDigits = 0};

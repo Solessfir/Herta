@@ -1,5 +1,7 @@
 #include "Herta/GameFramework/GameControls.h"
 
+#include "Herta/GameFramework/GameText.h"
+
 #include <algorithm>
 #include <charconv>
 #include <format>
@@ -8,7 +10,23 @@ namespace Herta
 {
 namespace
 {
-constexpr std::array<std::string_view, GameActionCount> ActionNames{"Move forward", "Move back", "Move left", "Move right", "Jump", "Sprint", "Crouch and slide", "Attack", "Block", "Throw", "Switch camera", "Ragdoll", "Restart course"};
+namespace Game = Text::Game;
+constexpr std::array<FTextId, GameActionCount> ActionNames{
+    Game::Action_MoveForward,
+    Game::Action_MoveBack,
+    Game::Action_MoveLeft,
+    Game::Action_MoveRight,
+    Game::Action_Jump,
+    Game::Action_Sprint,
+    Game::Action_Crouch,
+    Game::Action_Attack,
+    Game::Action_Block,
+    Game::Action_Throw,
+    Game::Action_ToggleCamera,
+    Game::Action_Ragdoll,
+    Game::Action_Restart,
+};
+
 // Settings keys stay stable even if the shown names change.
 constexpr std::array<std::string_view, GameActionCount> ActionKeys{"MoveForward", "MoveBack", "MoveLeft", "MoveRight", "Jump", "Sprint", "Crouch", "Attack", "Block", "Throw", "ToggleCamera", "Ragdoll", "Restart"};
 
@@ -61,9 +79,9 @@ FGameBindings GetDefaultGameBindings()
 	return Bindings;
 }
 
-std::string_view GetGameActionName(const EGameAction Action)
+std::string GetGameActionName(const FLocalization& Text, const EGameAction Action)
 {
-	return ActionNames[static_cast<std::size_t>(Action)];
+	return Text.Format(ActionNames[static_cast<std::size_t>(Action)]);
 }
 
 std::string GetKeyName(const EKey Key)
@@ -177,15 +195,15 @@ std::string_view GetGamepadButtonName(const EGamepadButton Button)
 	return Names[static_cast<std::size_t>(Button)];
 }
 
-std::string FormatKeyboardBinding(const FGameBinding& Binding)
+std::string FormatKeyboardBinding(const FGameBinding& Binding, const std::string_view Unbound)
 {
 	return Binding.Key ? GetKeyName(*Binding.Key) : Binding.Mouse ? std::string(GetMouseButtonName(*Binding.Mouse))
-	                                                              : std::string("Unbound");
+	                                                              : std::string(Unbound);
 }
 
-std::string FormatGamepadBinding(const FGameBinding& Binding)
+std::string FormatGamepadBinding(const FGameBinding& Binding, const std::string_view Unbound)
 {
-	return Binding.Pad ? std::string(GetGamepadButtonName(*Binding.Pad)) : std::string("Unbound");
+	return Binding.Pad ? std::string(GetGamepadButtonName(*Binding.Pad)) : std::string(Unbound);
 }
 
 void BindKeyboard(FGameBindings& Bindings, const EGameAction Action, const std::optional<EKey> Key, const std::optional<EMouseButton> Mouse)
@@ -363,13 +381,29 @@ FGameGamepad GetBoundGamepad(const FGameBindings& Bindings, const FGamepadState&
 	};
 }
 
-std::string FormatGameControlsHint(const FGameBindings& Bindings, const std::string_view MenuKey)
+std::string FormatGameControlsHint(const FLocalization& Text, const FGameBindings& Bindings, const std::string_view MenuKey)
 {
-	const auto Name = [&](const EGameAction Action)
+	const std::string Unbound = Text.Format(Game::Controls_Unbound);
+	const auto Name = [&](const EGameAction Action) -> FMessageValue
 	{
-		return FormatKeyboardBinding(Bindings.Get(Action));
+		return FormatKeyboardBinding(Bindings.Get(Action), Unbound);
 	};
 
-	return std::format("{}{}{}{} move    {} jump    {} sprint    {} slide    {} attack    {} block    {} ragdoll    {} restart    {} menu", Name(EGameAction::MoveForward), Name(EGameAction::MoveLeft), Name(EGameAction::MoveBack), Name(EGameAction::MoveRight), Name(EGameAction::Jump), Name(EGameAction::Sprint), Name(EGameAction::Crouch), Name(EGameAction::Attack), Name(EGameAction::Block), Name(EGameAction::Ragdoll), Name(EGameAction::Restart), MenuKey);
+	const std::array Arguments{
+	    FMessageArgument{"forward", Name(EGameAction::MoveForward)},
+	    FMessageArgument{"left", Name(EGameAction::MoveLeft)},
+	    FMessageArgument{"back", Name(EGameAction::MoveBack)},
+	    FMessageArgument{"right", Name(EGameAction::MoveRight)},
+	    FMessageArgument{"jump", Name(EGameAction::Jump)},
+	    FMessageArgument{"sprint", Name(EGameAction::Sprint)},
+	    FMessageArgument{"slide", Name(EGameAction::Crouch)},
+	    FMessageArgument{"attack", Name(EGameAction::Attack)},
+	    FMessageArgument{"block", Name(EGameAction::Block)},
+	    FMessageArgument{"ragdoll", Name(EGameAction::Ragdoll)},
+	    FMessageArgument{"restart", Name(EGameAction::Restart)},
+	    FMessageArgument{"menu", std::string(MenuKey)},
+	};
+
+	return Text.Format(Game::Hud_Controls, Arguments);
 }
 }

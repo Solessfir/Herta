@@ -1,5 +1,6 @@
 #include "EditorFrameworkPrivate.h"
 #include "Herta/Assets/VirtualFileSystem.h"
+#include "Herta/GameFramework/GameText.h"
 #include "Herta/Navigation/NavigationWorld.h"
 
 #include <simdjson.h>
@@ -238,6 +239,7 @@ void FEditorFramework::FImplementation::TogglePlay()
 		auto UI = FGameUI::Create({
 		    .Device = GraphicsDevice,
 		    .FontBytes = ReadDiskFile(EngineRoot / "Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf").value_or(std::vector<std::byte>{}),
+		    .FallbackFontBytes = {ReadDiskFile(EngineRoot / "Engine/Content/Editor/Fonts/NotoEmoji/NotoEmoji.ttf").value_or(std::vector<std::byte>{})},
 		    .RegisterTexture = [this](const FTextureHandle& Texture) -> std::expected<std::uint64_t, FGameUIError>
 		{
 			auto Registered = RegisterUITexture(Texture);
@@ -527,8 +529,9 @@ void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const 
 	    .bActivate = bPlayPaused && (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_Space, false) || IsPlayGamepadPressed(EGamepadButton::South)),
 	};
 
-	constexpr std::array<std::string_view, 3> Items{"Resume", "Restart course", "Exit"};
-	PlayMenuChoice = DrawGameHud(*PlayUI, PlaySession->GetObjective(), bPlayPaused, Items, PlayMenuFocus, MenuInput, "Shift+Esc");
+	const std::array Labels{Localization.Format(Text::Game::Menu_Resume), Localization.Format(Text::Game::Menu_Restart), Localization.Format(Text::Game::Menu_Exit)};
+	const std::array<std::string_view, 3> Items{Labels[0], Labels[1], Labels[2]};
+	PlayMenuChoice = DrawGameHud(*PlayUI, Localization, PlaySession->GetObjective(), bPlayPaused, Items, PlayMenuFocus, MenuInput, "Shift+Esc");
 
 	// GameUI emits textured quads in screen pixels; ImGui draws them over the viewport with the same registered textures.
 	const FScreenDrawList Draws = PlayUI->GetDrawList();

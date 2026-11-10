@@ -32,8 +32,11 @@ struct FGameMenuSettings
 	// A multiple of the default mouse sensitivity.
 	float Sensitivity = 1.f;
 	FGameBindings Bindings = GetDefaultGameBindings();
-	// Whether there is a save to load.
+	// The culture the game shows text in; the host applies it to its FLocalization.
+	std::string Culture{SourceCulture};
+	// Whether there is a save to load, and when it was written in local time.
 	bool bCanLoad = false;
+	std::optional<FCivilTime> SaveTime{};
 };
 
 enum class EGameMenuCommand : std::uint8_t
@@ -72,6 +75,9 @@ struct FGameMenuInput
 class FGameMenu final
 {
 public:
+	// Text outlives the menu; the menu shows it in whatever culture it currently has.
+	explicit FGameMenu(const FLocalization& InText);
+
 	// Handles focus, navigation, and choices from the keyboard and gamepad; pointer clicks arrive through Draw.
 	[[nodiscard]] std::vector<EGameMenuCommand> Update(const FGameMenuInput& Input, FGameMenuSettings& Settings);
 	// Draws the open screen and any notice, and activates the item the pointer clicks.
@@ -108,6 +114,7 @@ private:
 		EffectsVolume,
 		AmbientVolume,
 		Sensitivity,
+		Language,
 		Controls,
 		Binding,
 		ResetBindings,
@@ -126,6 +133,8 @@ private:
 	void Adjust(const FItem& Item, int Direction, FGameMenuSettings& Settings, std::vector<EGameMenuCommand>& Commands);
 	void Back(std::vector<EGameMenuCommand>& Commands);
 	void MoveFocus(int Direction, const std::vector<FItem>& Items);
+
+	const FLocalization* TextSource = nullptr;
 
 	EGameMenuScreen Screen = EGameMenuScreen::Closed;
 	std::size_t Focus = 0;

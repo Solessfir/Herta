@@ -1,46 +1,62 @@
 #include "Herta/GameUI/GameUI.h"
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
+#include "Herta/TextLayout/TextLayout.h"
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <cmath>
 #include <format>
-#include <fstream>
-#include <system_error>
+#include <iterator>
+#include <string>
+#include <unordered_map>
 #include <utility>
 
 namespace Herta
 {
 namespace
 {
-constexpr char FirstGlyph = ' ';
-constexpr char LastGlyph = '~';
-constexpr std::size_t GlyphCount = LastGlyph - FirstGlyph + 1;
 constexpr std::array<float, 2> FontSizes{30.f, 76.f};
 constexpr float LayoutHeight = 1440.f;
-constexpr std::uint32_t AtlasWidth = 1024;
-// An anti-aliased disc in the atlas corner draws dots and rounded corners; its solid middle fills rectangles, so everything batches with text.
+constexpr std::uint32_t PageSize = 1024;
+// Glyphs past this many pages are not drawn; that is thousands of glyphs at title size.
+constexpr std::size_t MaximumPages = 8;
+// An anti-aliased disc in the first page's corner draws dots and rounded corners; its solid middle fills rectangles, so everything batches with text.
 constexpr std::uint32_t DiscSize = 32;
 // Small dots would shrink the big disc several times over, which bilinear sampling aliases, so each whole-pixel diameter up to this gets its own exact disc.
 constexpr std::uint32_t SmallDiscCount = 16;
+// Rasterized with the atlas, so menus and the HUD show from the first frame instead of one frame later.
+constexpr std::string_view WarmText = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 
 struct FGlyph
 {
+	std::uint32_t Page = 0;
 	FVector2 UvMinimum{};
 	FVector2 UvMaximum{};
 	FVector2 Size{};
 	// From the pen position on the top of the line to the bitmap's top-left corner.
 	FVector2 Offset{};
-	float Advance = 0.f;
+	// Rasterized into a page that has not been uploaded yet.
+	bool bPending = true;
 };
 
 struct FFontFace
 {
-	std::array<FGlyph, GlyphCount> Glyphs{};
+	std::uint32_t PixelSize = 0;
+	float Ascender = 0.f;
 	float LineHeight = 0.f;
+};
+
+// A fixed-size atlas texture with shelf packing. Glyphs keep their page and UVs for the atlas's life, and a page with new glyphs uploads
+// as a fresh texture at the next frame boundary, so nothing rewrites a texture a frame in flight still samples.
+struct FPage
+{
+	std::vector<std::byte> Pixels = std::vector<std::byte>(std::size_t{PageSize} * PageSize * 4);
+	FTextureHandle Texture;
+	std::uint64_t TextureId = 0;
+	std::uint32_t X = 0;
+	std::uint32_t Y = 0;
+	std::uint32_t RowHeight = 0;
+	bool bDirty = true;
 };
 
 [[nodiscard]] std::unexpected<FGameUIError> UIError(std::string Message)
@@ -48,10 +64,41 @@ struct FFontFace
 	return std::unexpected(FGameUIError{std::move(Message)});
 }
 
-[[nodiscard]] const FGlyph& FindGlyph(const FFontFace& Face, const char Character)
+[[nodiscard]] constexpr std::uint64_t GlyphKey(const std::size_t Size, const FShapedGlyph& Glyph) noexcept
 {
-	const char Shown = Character >= FirstGlyph && Character <= LastGlyph ? Character : '?';
-	return Face.Glyphs[static_cast<std::size_t>(Shown - FirstGlyph)];
+	return static_cast<std::uint64_t>(Glyph.Font) << 40 | static_cast<std::uint64_t>(Size) << 32 | Glyph.Glyph;
+}
+
+void WriteTexel(FPage& Page, const std::uint32_t PixelX, const std::uint32_t PixelY, const std::uint8_t Alpha)
+{
+	std::byte* const Texel = Page.Pixels.data() + (std::size_t{PixelY} * PageSize + PixelX) * 4;
+	Texel[0] = Texel[1] = Texel[2] = std::byte{255};
+	Texel[3] = std::byte{Alpha};
+}
+
+// Coverage is each texel's area inside the circle, sampled on an 8x8 grid.
+void WriteDisc(FPage& Page, const std::uint32_t Left, const std::uint32_t Diameter)
+{
+	constexpr int Samples = 8;
+	const float Radius = static_cast<float>(Diameter) * 0.5f;
+	for (std::uint32_t Row = 0; Row < Diameter; ++Row)
+	{
+		for (std::uint32_t Column = 0; Column < Diameter; ++Column)
+		{
+			int Inside = 0;
+			for (int SampleY = 0; SampleY < Samples; ++SampleY)
+			{
+				for (int SampleX = 0; SampleX < Samples; ++SampleX)
+				{
+					const float PointX = static_cast<float>(Column) + (static_cast<float>(SampleX) + 0.5f) / Samples - Radius;
+					const float PointY = static_cast<float>(Row) + (static_cast<float>(SampleY) + 0.5f) / Samples - Radius;
+					Inside += PointX * PointX + PointY * PointY <= Radius * Radius ? 1 : 0;
+				}
+			}
+
+			WriteTexel(Page, Left + Column, Row, static_cast<std::uint8_t>((Inside * 255 + Samples * Samples / 2) / (Samples * Samples)));
+		}
+	}
 }
 
 [[nodiscard]] bool Contains(const FVector2 Minimum, const FVector2 Maximum, const FVector2 Point)
@@ -71,20 +118,33 @@ struct FGameUI::FImplementation
 	FImplementation& operator=(FImplementation&&) = delete;
 
 	[[nodiscard]] std::expected<void, FGameUIError> BuildAtlas(float NewScale);
+	[[nodiscard]] std::expected<void, FGameUIError> PublishPages();
+	// The glyph's atlas entry, rasterizing it into a page on first use; null when the atlas is full.
+	const FGlyph* FindGlyph(std::size_t Size, const FShapedGlyph& Shaped);
 	void AddQuad(std::uint64_t TextureId, FVector2 Minimum, FVector2 Maximum, FVector2 UvMinimum, FVector2 UvMaximum, std::uint32_t Color);
 	// Corners in drawing order. Every primitive is a quad, so screen draw lists convert quad by quad.
 	void AddQuad(std::uint64_t TextureId, const std::array<FVector2, 4>& Corners, const std::array<FVector2, 4>& Uvs, std::uint32_t Color);
 	[[nodiscard]] FVector2 Place(const FGameUIPlacement& Placement, FVector2 SizePixels) const;
+	[[nodiscard]] std::uint64_t GetShapesTextureId() const noexcept;
+	// Shaped text by font size and string. A HUD measures and draws the same strings every frame, so shaping repeats only when one changes.
+	[[nodiscard]] const FShapedText& Shape(std::string_view Text, std::size_t Size) const;
 
 	FGameUIDescriptor Descriptor;
-	FT_Library Library = nullptr;
-	FT_Face Face = nullptr;
-	// FreeType reads the face from this memory for as long as the face lives.
-	std::vector<FT_Byte> FontBytes;
+	std::unique_ptr<FFontCollection> Fonts;
 
 	std::array<FFontFace, FontSizes.size()> Faces{};
-	FTextureHandle Atlas;
-	std::uint64_t AtlasId = 0;
+	std::vector<FPage> Pages;
+	std::unordered_map<std::uint64_t, FGlyph> Glyphs;
+	// Rasterized since the last publication.
+	std::vector<std::uint64_t> PendingGlyphs;
+	struct FShapeEntry
+	{
+		FShapedText Shaped;
+		bool bUsed = true;
+	};
+
+	// Entries unused for a whole frame are dropped at the next frame's start.
+	mutable std::unordered_map<std::string, FShapeEntry> ShapedTexts;
 	FVector2 SolidUv{};
 	FVector2 DiscUv{};
 	// UV minimum of the disc with diameter Index + 1 pixels.
@@ -101,185 +161,197 @@ struct FGameUI::FImplementation
 
 FGameUI::FImplementation::~FImplementation()
 {
-	if (AtlasId != 0 && Descriptor.UnregisterTexture)
+	for (const FPage& Page : Pages)
 	{
-		Descriptor.UnregisterTexture(AtlasId);
+		if (Page.TextureId != 0 && Descriptor.UnregisterTexture)
+		{
+			Descriptor.UnregisterTexture(Page.TextureId);
+		}
+	}
+}
+
+const FShapedText& FGameUI::FImplementation::Shape(const std::string_view Text, const std::size_t Size) const
+{
+	std::string Key(1, static_cast<char>('0' + Size));
+	Key += Text;
+	auto [Found, bInserted] = ShapedTexts.try_emplace(std::move(Key));
+	if (bInserted)
+	{
+		Found->second.Shaped = Fonts->Shape(Text, Faces[Size].PixelSize);
 	}
 
-	if (Face)
-	{
-		FT_Done_Face(Face);
-	}
+	Found->second.bUsed = true;
+	return Found->second.Shaped;
+}
 
-	if (Library)
-	{
-		FT_Done_FreeType(Library);
-	}
+std::uint64_t FGameUI::FImplementation::GetShapesTextureId() const noexcept
+{
+	return Pages.empty() ? 0 : Pages.front().TextureId;
 }
 
 std::expected<void, FGameUIError> FGameUI::FImplementation::BuildAtlas(const float NewScale)
 {
-	struct FBitmap
+	for (const FPage& Page : Pages)
 	{
-		std::uint32_t Width = 0;
-		std::uint32_t Height = 0;
-		std::vector<std::uint8_t> Coverage;
-	};
-
-	std::array<std::array<FBitmap, GlyphCount>, FontSizes.size()> Bitmaps;
-	std::array<std::array<std::pair<std::uint32_t, std::uint32_t>, GlyphCount>, FontSizes.size()> Positions{};
-	// The small discs share the first row with the big one, each with a pixel of padding.
-	std::uint32_t X = DiscSize + 1 + SmallDiscCount * (SmallDiscCount + 3) / 2;
-	std::uint32_t Y = 0;
-	std::uint32_t RowHeight = DiscSize;
-	for (std::size_t Size = 0; Size < FontSizes.size(); ++Size)
-	{
-		const auto Pixels = static_cast<FT_UInt>(std::max(6.f, std::round(FontSizes[Size] * NewScale)));
-		if (FT_Set_Pixel_Sizes(Face, 0, Pixels) != 0)
+		if (Page.TextureId != 0)
 		{
-			return UIError("The HUD font cannot be sized");
-		}
-
-		// The line box spans ascender to descender without the font's extra line gap, so text sits centered in a box of its measured height.
-		const float Ascender = static_cast<float>(Face->size->metrics.ascender) / 64.f;
-		Faces[Size].LineHeight = Ascender - static_cast<float>(Face->size->metrics.descender) / 64.f;
-		for (std::size_t Index = 0; Index < GlyphCount; ++Index)
-		{
-			if (FT_Load_Char(Face, static_cast<FT_ULong>(FirstGlyph + static_cast<char>(Index)), FT_LOAD_RENDER) != 0)
-			{
-				return UIError(std::format("The HUD font has no glyph for '{}'", static_cast<char>(FirstGlyph + static_cast<char>(Index))));
-			}
-
-			const FT_GlyphSlot Slot = Face->glyph;
-			FBitmap& Bitmap = Bitmaps[Size][Index];
-			Bitmap.Width = Slot->bitmap.width;
-			Bitmap.Height = Slot->bitmap.rows;
-			Bitmap.Coverage.resize(std::size_t{Bitmap.Width} * Bitmap.Height);
-			for (std::uint32_t Row = 0; Row < Bitmap.Height; ++Row)
-			{
-				std::copy_n(Slot->bitmap.buffer + static_cast<std::ptrdiff_t>(Row) * Slot->bitmap.pitch, Bitmap.Width, Bitmap.Coverage.begin() + static_cast<std::ptrdiff_t>(Row) * Bitmap.Width);
-			}
-
-			FGlyph& Glyph = Faces[Size].Glyphs[Index];
-			Glyph.Size = {static_cast<float>(Bitmap.Width), static_cast<float>(Bitmap.Height)};
-			Glyph.Offset = {static_cast<float>(Slot->bitmap_left), Ascender - static_cast<float>(Slot->bitmap_top)};
-			Glyph.Advance = static_cast<float>(Slot->advance.x) / 64.f;
-
-			// Shelf packing with a pixel of padding keeps neighbors out of bilinear samples.
-			if (X + Bitmap.Width + 1 > AtlasWidth)
-			{
-				X = 0;
-				Y += RowHeight + 1;
-				RowHeight = 0;
-			}
-
-			Positions[Size][Index] = {X, Y};
-			X += Bitmap.Width + 1;
-			RowHeight = std::max(RowHeight, Bitmap.Height);
+			Descriptor.UnregisterTexture(Page.TextureId);
 		}
 	}
 
-	const std::uint32_t AtlasHeight = std::bit_ceil(Y + RowHeight + 1);
-	std::vector<std::byte> Pixels(std::size_t{AtlasWidth} * AtlasHeight * 4);
-	const auto Write = [&Pixels](const std::uint32_t PixelX, const std::uint32_t PixelY, const std::uint8_t Alpha)
-	{
-		std::byte* const Texel = Pixels.data() + (std::size_t{PixelY} * AtlasWidth + PixelX) * 4;
-		Texel[0] = Texel[1] = Texel[2] = std::byte{255};
-		Texel[3] = std::byte{Alpha};
-	};
-
-	// Coverage is each texel's area inside the circle, sampled on an 8x8 grid.
-	const auto WriteDisc = [&Write](const std::uint32_t Left, const std::uint32_t Diameter)
-	{
-		constexpr int Samples = 8;
-		const float Radius = static_cast<float>(Diameter) * 0.5f;
-		for (std::uint32_t Row = 0; Row < Diameter; ++Row)
-		{
-			for (std::uint32_t Column = 0; Column < Diameter; ++Column)
-			{
-				int Inside = 0;
-				for (int SampleY = 0; SampleY < Samples; ++SampleY)
-				{
-					for (int SampleX = 0; SampleX < Samples; ++SampleX)
-					{
-						const float PointX = static_cast<float>(Column) + (static_cast<float>(SampleX) + 0.5f) / Samples - Radius;
-						const float PointY = static_cast<float>(Row) + (static_cast<float>(SampleY) + 0.5f) / Samples - Radius;
-						Inside += PointX * PointX + PointY * PointY <= Radius * Radius ? 1 : 0;
-					}
-				}
-
-				Write(Left + Column, Row, static_cast<std::uint8_t>((Inside * 255 + Samples * Samples / 2) / (Samples * Samples)));
-			}
-		}
-	};
-
-	const FVector2 Texel{1.f / static_cast<float>(AtlasWidth), 1.f / static_cast<float>(AtlasHeight)};
-	WriteDisc(0, DiscSize);
-	TexelUv = Texel;
-	SolidUv = {DiscSize * 0.5f * Texel.X, DiscSize * 0.5f * Texel.Y};
-	DiscUv = {DiscSize * Texel.X, DiscSize * Texel.Y};
+	Pages.clear();
+	Glyphs.clear();
+	PendingGlyphs.clear();
+	ShapedTexts.clear();
+	FPage& Shapes = Pages.emplace_back();
+	TexelUv = {1.f / static_cast<float>(PageSize), 1.f / static_cast<float>(PageSize)};
+	WriteDisc(Shapes, 0, DiscSize);
+	SolidUv = {DiscSize * 0.5f * TexelUv.X, DiscSize * 0.5f * TexelUv.Y};
+	DiscUv = {DiscSize * TexelUv.X, DiscSize * TexelUv.Y};
 	std::uint32_t DiscLeft = DiscSize + 1;
 	for (std::uint32_t Diameter = 1; Diameter <= SmallDiscCount; ++Diameter)
 	{
-		WriteDisc(DiscLeft, Diameter);
-		SmallDiscUvs[Diameter - 1] = {static_cast<float>(DiscLeft) * Texel.X, 0.f};
+		WriteDisc(Shapes, DiscLeft, Diameter);
+		SmallDiscUvs[Diameter - 1] = {static_cast<float>(DiscLeft) * TexelUv.X, 0.f};
 		DiscLeft += Diameter + 1;
 	}
 
+	// The small discs share the first row with the big one, each with a pixel of padding.
+	Shapes.X = DiscLeft;
+	Shapes.RowHeight = DiscSize;
 	for (std::size_t Size = 0; Size < FontSizes.size(); ++Size)
 	{
-		for (std::size_t Index = 0; Index < GlyphCount; ++Index)
+		FFontFace& Face = Faces[Size];
+		Face.PixelSize = static_cast<std::uint32_t>(std::max(6.f, std::round(FontSizes[Size] * NewScale)));
+		// The line box spans ascender to descender without the font's extra line gap, so text sits centered in a box of its measured height.
+		const FFontMetrics Metrics = Fonts->GetMetrics(Face.PixelSize);
+		Face.Ascender = Metrics.Ascender;
+		Face.LineHeight = Metrics.Ascender - Metrics.Descender;
+		for (const FShapedGlyph& Glyph : Fonts->Shape(WarmText, Face.PixelSize).Glyphs)
 		{
-			const FBitmap& Bitmap = Bitmaps[Size][Index];
-			const auto [Left, Top] = Positions[Size][Index];
-			for (std::uint32_t Row = 0; Row < Bitmap.Height; ++Row)
-			{
-				for (std::uint32_t Column = 0; Column < Bitmap.Width; ++Column)
-				{
-					Write(Left + Column, Top + Row, Bitmap.Coverage[std::size_t{Row} * Bitmap.Width + Column]);
-				}
-			}
-
-			FGlyph& Glyph = Faces[Size].Glyphs[Index];
-			Glyph.UvMinimum = {static_cast<float>(Left) * Texel.X, static_cast<float>(Top) * Texel.Y};
-			Glyph.UvMaximum = {static_cast<float>(Left + Bitmap.Width) * Texel.X, static_cast<float>(Top + Bitmap.Height) * Texel.Y};
+			FindGlyph(Size, Glyph);
 		}
 	}
 
-	IGraphicsDevice& Device = *Descriptor.Device;
-	const auto Texture = Device.CreateTexture({.Name = "Game UI glyphs", .Extent = {.Width = AtlasWidth, .Height = AtlasHeight}, .Format = ETextureFormat::Rgba8});
-	if (!Texture)
-	{
-		return UIError(Texture.error().Message);
-	}
-
-	auto Uploaded = Device.BeginCommands();
-	if (Uploaded)
-	{
-		Uploaded = Device.WriteTexture(*Texture, 0, Pixels);
-	}
-
-	if (!Uploaded || !Device.SubmitCommands())
-	{
-		Device.CancelCommands();
-		return UIError(Uploaded ? "Cannot submit the HUD glyph upload" : Uploaded.error().Message);
-	}
-
-	const auto Registered = Descriptor.RegisterTexture(*Texture);
-	if (!Registered)
-	{
-		return std::unexpected(Registered.error());
-	}
-
-	if (AtlasId != 0)
-	{
-		Descriptor.UnregisterTexture(AtlasId);
-	}
-
-	Atlas = *Texture;
-	AtlasId = *Registered;
 	AtlasScale = NewScale;
+	return PublishPages();
+}
+
+std::expected<void, FGameUIError> FGameUI::FImplementation::PublishPages()
+{
+	IGraphicsDevice& Device = *Descriptor.Device;
+	for (FPage& Page : Pages)
+	{
+		if (!Page.bDirty)
+		{
+			continue;
+		}
+
+		const auto Texture = Device.CreateTexture({.Name = "Game UI glyphs", .Extent = {.Width = PageSize, .Height = PageSize}, .Format = ETextureFormat::Rgba8});
+		if (!Texture)
+		{
+			return UIError(Texture.error().Message);
+		}
+
+		auto Uploaded = Device.BeginCommands();
+		if (Uploaded)
+		{
+			Uploaded = Device.WriteTexture(*Texture, 0, Page.Pixels);
+		}
+
+		if (!Uploaded || !Device.SubmitCommands())
+		{
+			Device.CancelCommands();
+			return UIError(Uploaded ? "Cannot submit the HUD glyph upload" : Uploaded.error().Message);
+		}
+
+		const auto Registered = Descriptor.RegisterTexture(*Texture);
+		if (!Registered)
+		{
+			return std::unexpected(Registered.error());
+		}
+
+		if (Page.TextureId != 0)
+		{
+			Descriptor.UnregisterTexture(Page.TextureId);
+		}
+
+		Page.Texture = *Texture;
+		Page.TextureId = *Registered;
+		Page.bDirty = false;
+	}
+
+	for (const std::uint64_t Key : PendingGlyphs)
+	{
+		Glyphs.at(Key).bPending = false;
+	}
+
+	PendingGlyphs.clear();
 	return {};
+}
+
+const FGlyph* FGameUI::FImplementation::FindGlyph(const std::size_t Size, const FShapedGlyph& Shaped)
+{
+	const std::uint64_t Key = GlyphKey(Size, Shaped);
+	if (const auto Found = Glyphs.find(Key); Found != Glyphs.end())
+	{
+		return &Found->second;
+	}
+
+	const FFontFace& Face = Faces[Size];
+	const FGlyphBitmap Bitmap = Fonts->Rasterize(Shaped.Font, Shaped.Glyph, Face.PixelSize);
+	FGlyph Glyph{
+	    .Size = {static_cast<float>(Bitmap.Width), static_cast<float>(Bitmap.Height)},
+	    .Offset = {Bitmap.Left, Face.Ascender + Bitmap.Top},
+	    .bPending = false,
+	};
+
+	if (Bitmap.Width == 0 || Bitmap.Height == 0)
+	{
+		return &Glyphs.emplace(Key, Glyph).first->second;
+	}
+
+	if (Bitmap.Width + 1 > PageSize || Bitmap.Height + 1 > PageSize)
+	{
+		return nullptr;
+	}
+
+	// Shelf packing with a pixel of padding keeps neighbors out of bilinear samples.
+	FPage* Page = &Pages.back();
+	if (Page->X + Bitmap.Width + 1 > PageSize)
+	{
+		Page->X = 0;
+		Page->Y += Page->RowHeight + 1;
+		Page->RowHeight = 0;
+	}
+
+	if (Page->Y + Bitmap.Height + 1 > PageSize)
+	{
+		if (Pages.size() == MaximumPages)
+		{
+			return nullptr;
+		}
+
+		Page = &Pages.emplace_back();
+	}
+
+	for (std::uint32_t Row = 0; Row < Bitmap.Height; ++Row)
+	{
+		for (std::uint32_t Column = 0; Column < Bitmap.Width; ++Column)
+		{
+			WriteTexel(*Page, Page->X + Column, Page->Y + Row, Bitmap.Coverage[std::size_t{Row} * Bitmap.Width + Column]);
+		}
+	}
+
+	Glyph.Page = static_cast<std::uint32_t>(Pages.size() - 1);
+	Glyph.UvMinimum = {static_cast<float>(Page->X) * TexelUv.X, static_cast<float>(Page->Y) * TexelUv.Y};
+	Glyph.UvMaximum = {static_cast<float>(Page->X + Bitmap.Width) * TexelUv.X, static_cast<float>(Page->Y + Bitmap.Height) * TexelUv.Y};
+	Glyph.bPending = true;
+	Page->X += Bitmap.Width + 1;
+	Page->RowHeight = std::max(Page->RowHeight, Bitmap.Height);
+	Page->bDirty = true;
+	PendingGlyphs.push_back(Key);
+	return &Glyphs.emplace(Key, Glyph).first->second;
 }
 
 void FGameUI::FImplementation::AddQuad(const std::uint64_t TextureId, const FVector2 Minimum, const FVector2 Maximum, const FVector2 UvMinimum, const FVector2 UvMaximum, const std::uint32_t Color)
@@ -337,28 +409,19 @@ std::expected<std::unique_ptr<FGameUI>, FGameUIError> FGameUI::Create(FGameUIDes
 		return UIError("Game UI needs a graphics device and texture registration");
 	}
 
-	// Font data is untrusted; anything past a few megabytes is not a HUD font.
-	const std::size_t Size = Descriptor.FontBytes.size();
-	if (Size == 0 || Size > std::size_t{32} * 1024 * 1024)
+	std::vector<std::vector<std::byte>> FontFiles;
+	FontFiles.push_back(std::move(Descriptor.FontBytes));
+	std::ranges::move(Descriptor.FallbackFontBytes, std::back_inserter(FontFiles));
+	Descriptor.FallbackFontBytes.clear();
+	auto Fonts = FFontCollection::Create(std::move(FontFiles));
+	if (!Fonts)
 	{
-		return UIError("The HUD font is missing or too large");
+		return UIError(std::format("The HUD fonts cannot load: {}", Fonts.error().Message));
 	}
 
 	auto Implementation = std::make_unique<FImplementation>();
-	Implementation->FontBytes.resize(Size);
-	std::ranges::transform(Descriptor.FontBytes, Implementation->FontBytes.begin(), [](const std::byte Byte)
-	{
-		return static_cast<FT_Byte>(Byte);
-	});
-
 	Implementation->Descriptor = std::move(Descriptor);
-	Implementation->Descriptor.FontBytes.clear();
-
-	if (FT_Init_FreeType(&Implementation->Library) != 0 || FT_New_Memory_Face(Implementation->Library, Implementation->FontBytes.data(), static_cast<FT_Long>(Size), 0, &Implementation->Face) != 0)
-	{
-		return UIError("The HUD font is not a font FreeType can load");
-	}
-
+	Implementation->Fonts = std::move(*Fonts);
 	return std::unique_ptr<FGameUI>(new FGameUI(std::move(Implementation)));
 }
 
@@ -368,16 +431,21 @@ std::expected<void, FGameUIError> FGameUI::BeginFrame(const FExtent2D Extent)
 	UI.Extent = Extent;
 	UI.Scale = std::max(static_cast<float>(Extent.Height), 1.f) / LayoutHeight;
 	UI.Vertices.clear();
+	std::erase_if(UI.ShapedTexts, [](auto& Entry)
+	{
+		return !std::exchange(Entry.second.bUsed, false);
+	});
+
 	UI.Indices.clear();
 	UI.Commands.clear();
 
 	// Glyphs rasterize at their final pixel size; a resize past a few percent rebuilds them so text stays sharp.
-	if (UI.AtlasId == 0 || std::abs(UI.Scale - UI.AtlasScale) > UI.AtlasScale * 0.05f)
+	if (UI.GetShapesTextureId() == 0 || std::abs(UI.Scale - UI.AtlasScale) > UI.AtlasScale * 0.05f)
 	{
 		return UI.BuildAtlas(UI.Scale);
 	}
 
-	return {};
+	return UI.PublishPages();
 }
 
 void FGameUI::DrawImage(const std::uint64_t TextureId, const FVector2 Minimum, const FVector2 Maximum, const std::uint32_t Color)
@@ -395,19 +463,19 @@ void FGameUI::DrawRect(const FGameUIPlacement& Placement, const FVector2 Size, c
 	const FVector2 Uv = UI.SolidUv;
 	if (Round < 0.5f)
 	{
-		UI.AddQuad(UI.AtlasId, Minimum, Maximum, Uv, Uv, Color);
+		UI.AddQuad(UI.GetShapesTextureId(), Minimum, Maximum, Uv, Uv, Color);
 		return;
 	}
 
 	// A cross of three solid bands, with each corner a quarter of the anti-aliased disc.
-	UI.AddQuad(UI.AtlasId, {Minimum.X, Minimum.Y + Round}, {Maximum.X, Maximum.Y - Round}, Uv, Uv, Color);
-	UI.AddQuad(UI.AtlasId, {Minimum.X + Round, Minimum.Y}, {Maximum.X - Round, Minimum.Y + Round}, Uv, Uv, Color);
-	UI.AddQuad(UI.AtlasId, {Minimum.X + Round, Maximum.Y - Round}, {Maximum.X - Round, Maximum.Y}, Uv, Uv, Color);
+	UI.AddQuad(UI.GetShapesTextureId(), {Minimum.X, Minimum.Y + Round}, {Maximum.X, Maximum.Y - Round}, Uv, Uv, Color);
+	UI.AddQuad(UI.GetShapesTextureId(), {Minimum.X + Round, Minimum.Y}, {Maximum.X - Round, Minimum.Y + Round}, Uv, Uv, Color);
+	UI.AddQuad(UI.GetShapesTextureId(), {Minimum.X + Round, Maximum.Y - Round}, {Maximum.X - Round, Maximum.Y}, Uv, Uv, Color);
 	const FVector2 Disc = UI.DiscUv;
-	UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Round, Minimum.Y + Round}, {0.f, 0.f}, Uv, Color);
-	UI.AddQuad(UI.AtlasId, {Maximum.X - Round, Minimum.Y}, {Maximum.X, Minimum.Y + Round}, {Uv.X, 0.f}, {Disc.X, Uv.Y}, Color);
-	UI.AddQuad(UI.AtlasId, {Maximum.X - Round, Maximum.Y - Round}, Maximum, Uv, Disc, Color);
-	UI.AddQuad(UI.AtlasId, {Minimum.X, Maximum.Y - Round}, {Minimum.X + Round, Maximum.Y}, {0.f, Uv.Y}, {Uv.X, Disc.Y}, Color);
+	UI.AddQuad(UI.GetShapesTextureId(), Minimum, {Minimum.X + Round, Minimum.Y + Round}, {0.f, 0.f}, Uv, Color);
+	UI.AddQuad(UI.GetShapesTextureId(), {Maximum.X - Round, Minimum.Y}, {Maximum.X, Minimum.Y + Round}, {Uv.X, 0.f}, {Disc.X, Uv.Y}, Color);
+	UI.AddQuad(UI.GetShapesTextureId(), {Maximum.X - Round, Maximum.Y - Round}, Maximum, Uv, Disc, Color);
+	UI.AddQuad(UI.GetShapesTextureId(), {Minimum.X, Maximum.Y - Round}, {Minimum.X + Round, Maximum.Y}, {0.f, Uv.Y}, {Uv.X, Disc.Y}, Color);
 }
 
 void FGameUI::DrawCircle(const FGameUIPlacement& Placement, const float Diameter, const std::uint32_t Color)
@@ -417,7 +485,7 @@ void FGameUI::DrawCircle(const FGameUIPlacement& Placement, const float Diameter
 	if (Pixels > static_cast<float>(SmallDiscCount))
 	{
 		const FVector2 Minimum = UI.Place(Placement, {Pixels, Pixels});
-		UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Pixels, Minimum.Y + Pixels}, {0.f, 0.f}, UI.DiscUv, Color);
+		UI.AddQuad(UI.GetShapesTextureId(), Minimum, {Minimum.X + Pixels, Minimum.Y + Pixels}, {0.f, 0.f}, UI.DiscUv, Color);
 		return;
 	}
 
@@ -426,40 +494,34 @@ void FGameUI::DrawCircle(const FGameUIPlacement& Placement, const float Diameter
 	const FVector2 Placed = UI.Place(Placement, {Snapped, Snapped});
 	const FVector2 Minimum{std::round(Placed.X), std::round(Placed.Y)};
 	const FVector2 Uv = UI.SmallDiscUvs[static_cast<std::size_t>(Snapped) - 1];
-	UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Snapped, Minimum.Y + Snapped}, Uv, {Uv.X + Snapped * UI.TexelUv.X, Snapped * UI.TexelUv.Y}, Color);
+	UI.AddQuad(UI.GetShapesTextureId(), Minimum, {Minimum.X + Snapped, Minimum.Y + Snapped}, Uv, {Uv.X + Snapped * UI.TexelUv.X, Snapped * UI.TexelUv.Y}, Color);
 }
 
 FVector2 FGameUI::MeasureText(const std::string_view Text, const EGameUIFont Font) const
 {
 	const FImplementation& UI = *Implementation;
 	const FFontFace& Face = UI.Faces[static_cast<std::size_t>(Font)];
-	float Width = 0.f;
-	for (const char Character : Text)
-	{
-		Width += FindGlyph(Face, Character).Advance;
-	}
-
 	const float AtlasScale = std::max(UI.AtlasScale, 0.001f);
-	return {Width / AtlasScale, Face.LineHeight / AtlasScale};
+	return {UI.Shape(Text, static_cast<std::size_t>(Font)).Width / AtlasScale, Face.LineHeight / AtlasScale};
 }
 
 void FGameUI::DrawText(const std::string_view Text, const FGameUIPlacement& Placement, const EGameUIFont Font, const std::uint32_t Color)
 {
 	FImplementation& UI = *Implementation;
-	const FFontFace& Face = UI.Faces[static_cast<std::size_t>(Font)];
-	const FVector2 Size = MeasureText(Text, Font);
-	FVector2 Pen = UI.Place(Placement, {Size.X * UI.AtlasScale, Size.Y * UI.AtlasScale});
+	const auto Size = static_cast<std::size_t>(Font);
+	const FFontFace& Face = UI.Faces[Size];
+	const FShapedText& Shaped = UI.Shape(Text, Size);
+	FVector2 Pen = UI.Place(Placement, {Shaped.Width, Face.LineHeight});
 	Pen = {std::round(Pen.X), std::round(Pen.Y)};
-	for (const char Character : Text)
+	for (const FShapedGlyph& Shape : Shaped.Glyphs)
 	{
-		const FGlyph& Glyph = FindGlyph(Face, Character);
-		if (Glyph.Size.X > 0.f && Glyph.Size.Y > 0.f)
+		// A glyph first drawn this frame publishes at the next frame boundary and shows from then on.
+		const FGlyph* const Glyph = UI.FindGlyph(Size, Shape);
+		if (Glyph && !Glyph->bPending && Glyph->Size.X > 0.f && Glyph->Size.Y > 0.f)
 		{
-			const FVector2 Minimum{Pen.X + Glyph.Offset.X, Pen.Y + Glyph.Offset.Y};
-			UI.AddQuad(UI.AtlasId, Minimum, {Minimum.X + Glyph.Size.X, Minimum.Y + Glyph.Size.Y}, Glyph.UvMinimum, Glyph.UvMaximum, Color);
+			const FVector2 Minimum{std::round(Pen.X + Shape.X + Glyph->Offset.X), std::round(Pen.Y + Shape.Y + Glyph->Offset.Y)};
+			UI.AddQuad(UI.Pages[Glyph->Page].TextureId, Minimum, {Minimum.X + Glyph->Size.X, Minimum.Y + Glyph->Size.Y}, Glyph->UvMinimum, Glyph->UvMaximum, Color);
 		}
-
-		Pen.X += Glyph.Advance;
 	}
 }
 

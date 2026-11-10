@@ -12,7 +12,9 @@
 #include "Herta/AssetPipeline/MaterialShaderCompiler.h"
 #include "Herta/AssetPipeline/NavigationCook.h"
 #include "Herta/Assets/CookedContent.h"
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/Level/LevelSerialization.h"
+#include "Herta/LocalizationPipeline/LocalizationPipeline.h"
 #include "Herta/Project/Project.h"
 
 #include <format>
@@ -629,6 +631,89 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			}
 
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Staged {} assets ({:.1f} MiB) for {}", Staged->Assets, static_cast<double>(Staged->Bytes) / (1024. * 1024.), GenericPathToUtf8(Staged->ProjectPath))};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "localization.validate",
+		    .Description = "Check the engine's game and editor text catalogs and list untranslated messages",
+		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			if (!Arguments.empty())
+			{
+				return UsageError("localization.validate");
+			}
+
+			std::string Message;
+			std::uint8_t ExitCode = 0;
+			for (const std::filesystem::path& Directory : {Options.EngineContentRoot / "Localization", Options.EngineContentRoot / "Editor" / "Localization"})
+			{
+				FVirtualFileSystem Files(Directory);
+				Files.MountDirectory(Directory);
+				std::vector<std::string> Texts;
+				const auto Catalogs = LoadTextCatalogs(Files, {});
+				if (!Catalogs)
+				{
+					return ExecutionError(FAssetError{Catalogs.error().Message});
+				}
+
+				for (const FTextCatalog& Catalog : *Catalogs)
+				{
+					const auto Bytes = Files.Read(Directory / Utf8ToPath(Catalog.Culture) / Utf8ToPath(Catalog.Namespace + ".hloc"));
+					Texts.emplace_back(Bytes ? std::string(reinterpret_cast<const char*>(Bytes->data()), Bytes->size()) : std::string{});
+				}
+
+				const FLocalizationReport Report = ValidateCatalogs(*Catalogs, Texts);
+				Message += std::format("{}: {} catalogs, {} errors, {} untranslated, {} not canonical\n", GenericPathToUtf8(Directory), Catalogs->size(), Report.Errors.size(), Report.Missing.size(), Report.NonCanonical.size());
+				for (const auto& [Label, Lines] : {std::pair{"error", &Report.Errors}, std::pair{"untranslated", &Report.Missing}, std::pair{"not canonical", &Report.NonCanonical}})
+				{
+					for (const std::string& Line : *Lines)
+					{
+						Message += std::format("  {}: {}\n", Label, Line);
+					}
+				}
+
+				ExitCode = Report.Errors.empty() && Report.NonCanonical.empty() ? ExitCode : std::uint8_t{1};
+			}
+
+			return FEditorCommandResult{.ExitCode = ExitCode, .Message = std::move(Message)};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "localization.generate",
+		    .Description = "Write the constexpr text ID header for a source catalog",
+		    .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			if (Arguments.size() != 2)
+			{
+				return UsageError("localization.generate <source.hloc> <header.h>");
+			}
+
+			const std::filesystem::path CatalogPath = Utf8ToPath(Arguments[0]);
+			const auto Bytes = ReadDiskFile(CatalogPath);
+			if (!Bytes)
+			{
+				return ExecutionError(Bytes.error());
+			}
+
+			const auto Catalog = ParseTextCatalog({reinterpret_cast<const char*>(Bytes->data()), Bytes->size()});
+			if (!Catalog || Catalog->Culture != SourceCulture)
+			{
+				return ExecutionError(FAssetError{Catalog ? std::format("{} is not a source catalog", Arguments[0]) : Catalog.error().Message});
+			}
+
+			const std::string Header = GenerateTextIdHeader(*Catalog, GenericPathToUtf8(CatalogPath));
+			if (auto Written = WriteFileAtomically(Utf8ToPath(Arguments[1]), std::as_bytes(std::span(Header))); !Written)
+			{
+				return ExecutionError(Written.error());
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Wrote {} text IDs to {}", Catalog->Messages.size(), Arguments[1])};
 		}});
 	}
 

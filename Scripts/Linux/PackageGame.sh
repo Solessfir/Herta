@@ -9,10 +9,12 @@ output_directory=""
 content_mode=package
 signing_key=""
 verify=0
+pack_arguments=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --verify) verify=1; shift ;;
+        --language-packs) pack_arguments=(--language-packs); shift ;;
         --project|--configuration|--repository-root|--output-directory|--content-mode|--signing-key)
             if [[ $# -lt 2 || -z "$2" ]]; then
                 echo "Missing value for $1." >&2
@@ -94,8 +96,8 @@ case "${content_mode}" in
         mkdir -p -- "${package_root}/Shaders"
         cp -- "${shaders[@]}" "${package_root}/Shaders/"
         ;;
-    package) cook "${package_root}" package ;;
-    embedded) cook "${package_root}" embedded "--embed-into=${package_root}/${executable_name},${package_root}/${executable_name}-server" ;;
+    package) cook "${package_root}" package "${pack_arguments[@]}" ;;
+    embedded) cook "${package_root}" embedded "--embed-into=${package_root}/${executable_name},${package_root}/${executable_name}-server" "${pack_arguments[@]}" ;;
 esac
 
 cp -- "${repository_root}/LICENSE" "${package_root}/LICENSE"
@@ -126,7 +128,7 @@ WASD moves, Space jumps and wall jumps, Shift sprints, C or Ctrl crouches and sl
 Multiplayer: ./${executable_name} --host[=port] hosts a game and plays it; others join with ./${executable_name} --connect=address:port and an optional --name=Name.
 ./${executable_name}-server runs a dedicated server without a window, GPU, or audio device; it needs only OpenSSL's libcrypto and takes --port=, which defaults to 27015, and --max-players=.
 
-Herta is licensed under MIT. See LICENSE and ThirdPartyLicenses; the HUD font license is in Engine/Content/Fonts.
+Herta is licensed under MIT. See LICENSE and ThirdPartyLicenses; the HUD font licenses are in Engine/Content/Fonts.
 This software is based in part on the work of the FreeType Team (https://freetype.org).
 README
 
@@ -157,7 +159,7 @@ if [[ ${verify} -eq 1 ]]; then
 
     # The same sources must package to the same bytes, which signed packages keep too: Ed25519 signatures are deterministic.
     if [[ "${content_mode}" == package ]]; then
-        cook "${relocated}/Rebuild" package
+        cook "${relocated}/Rebuild" package "${pack_arguments[@]}"
         first="$(sha256sum -- "${package_root}/${project_name}.hpak" | cut -d' ' -f1)"
         second="$(sha256sum -- "${relocated}/Rebuild/${project_name}.hpak" | cut -d' ' -f1)"
         if [[ "${first}" != "${second}" ]]; then

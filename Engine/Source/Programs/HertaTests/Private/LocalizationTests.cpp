@@ -1,4 +1,6 @@
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/Localization/Localization.h"
+#include "Herta/LocalizationPipeline/LocalizationPipeline.h"
 
 #include <doctest/doctest.h>
 
@@ -220,3 +222,55 @@ TEST_CASE("Localization falls back, pseudolocalizes, and keeps the last valid ge
 	REQUIRE(Localization.SetCulture("pl"));
 	CHECK(Localization.Format(Resume) == "Wznów");
 }
+
+TEST_CASE("Engine catalogs load, are canonical and fully translated, and match their generated text ID headers")
+{
+	const std::array<std::pair<std::filesystem::path, std::filesystem::path>, 2> Sets{{
+	    {"Engine/Content/Localization", "Engine/Source/Runtime/GameFramework/Public/Herta/GameFramework/GameText.h"},
+	    {"Engine/Content/Editor/Localization", "Engine/Source/Runtime/ToolUI/Public/Herta/ToolUI/EditorText.h"},
+	}};
+
+	for (const auto& [Directory, Header] : Sets)
+	{
+		CAPTURE(Directory.generic_string());
+		FVirtualFileSystem Files(Directory);
+		Files.MountDirectory(Directory);
+		const auto Catalogs = LoadTextCatalogs(Files, {});
+		REQUIRE(Catalogs);
+		REQUIRE(Catalogs->size() == 3);
+		std::vector<std::string> Texts;
+		for (const FTextCatalog& Catalog : *Catalogs)
+		{
+			const auto Bytes = ReadDiskFile(Directory / Catalog.Culture / (Catalog.Namespace + ".hloc"));
+			REQUIRE(Bytes);
+			Texts.emplace_back(reinterpret_cast<const char*>(Bytes->data()), Bytes->size());
+		}
+
+		const FLocalizationReport Report = ValidateCatalogs(*Catalogs, Texts);
+		CHECK(Report.Errors.empty());
+		CHECK(Report.Missing.empty());
+		CHECK(Report.NonCanonical.empty());
+
+		// Regenerate with HertaEditorCmd localization.generate when this fails.
+		const auto Source = std::ranges::find(*Catalogs, std::string(SourceCulture), &FTextCatalog::Culture);
+		REQUIRE(Source != Catalogs->end());
+		const auto HeaderBytes = ReadDiskFile(Header);
+		REQUIRE(HeaderBytes);
+		const std::string CatalogPath = (Directory / "en" / (Source->Namespace + ".hloc")).generic_string();
+		CHECK(GenerateTextIdHeader(*Source, CatalogPath) == std::string(reinterpret_cast<const char*>(HeaderBytes->data()), HeaderBytes->size()));
+	}
+}
+
+TEST_CASE("Catalog validation reports broken translations, unknown keys, and untranslated messages")
+{
+	const std::array Catalogs{
+	    FTextCatalog{.Culture = "en", .Namespace = "Game", .Messages = {{.Key = "A", .Text = "{count} a"}, {.Key = "B", .Text = "b"}}},
+	    FTextCatalog{.Culture = "pl", .Namespace = "Game", .Messages = {{.Key = "A", .Text = "{other} a"}, {.Key = "C", .Text = "c"}}},
+	};
+
+	const FLocalizationReport Report = ValidateCatalogs(Catalogs);
+	CHECK(Report.Errors.size() == 2);
+	CHECK(Report.Missing == std::vector<std::string>{"pl/Game.B"});
+	CHECK(GenerateTextIdHeader(Catalogs[0], "Game.hloc").contains("inline constexpr FTextId A{\"Game.A\"};"));
+}
+

@@ -15,15 +15,22 @@ namespace Herta
 {
 struct FLocalizationError
 {
-	std::string Message;
+	std::string Message{};
 };
 
-using FMessageValue = std::variant<std::int64_t, double, std::string, FCivilTime>;
+// A number shown with exactly FractionDigits digits, which plural selection sees too, so "1.00" picks the same form it shows.
+struct FFixedNumber
+{
+	double Value = 0.;
+	std::uint32_t FractionDigits = 0;
+};
+
+using FMessageValue = std::variant<std::int64_t, double, FFixedNumber, std::string, FCivilTime>;
 
 struct FMessageArgument
 {
-	std::string_view Name;
-	FMessageValue Value;
+	std::string_view Name{};
+	FMessageValue Value{};
 };
 
 // A compiled message in a subset of ICU MessageFormat:

@@ -57,7 +57,8 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Multiplayer](Docs/Multiplayer.md) - dedicated and listen servers, snapshots, prediction, and rollback over GameNetworkingSockets.
 - [Editor automation](Docs/Automation.md) - driving a running editor from MCP clients such as coding agents.
 - [Distribution](Docs/Distribution.md) - signed zstd content packages, embedded executables, HertaCooker, and data mods.
-- [Next milestone](Docs/EngineDesign.md#milestone-14---localization-and-text) - localization and text, while editor automation over MCP keeps growing.
+- [Localization](Docs/Localization.md) - CLDR cultures, messages with plurals, catalogs, language packs, HarfBuzz text, and the translation editor.
+- [Next milestone](Docs/EngineDesign.md#milestone-15---graph-domains) - graph domains, while editor automation over MCP keeps growing.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
 - [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.
 

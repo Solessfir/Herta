@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace Herta
@@ -79,8 +80,10 @@ struct FEditorAppearance
 	float BlurRadius = 24.f;
 	EPanelTransparency PanelTransparency = EPanelTransparency::AllPanels;
 	FEditorDisplay Display{};
+	// The editor's language as a culture tag; English when no catalog has it.
+	std::string Culture{"en"};
 
-	[[nodiscard]] constexpr bool operator==(const FEditorAppearance&) const noexcept = default;
+	[[nodiscard]] bool operator==(const FEditorAppearance&) const noexcept = default;
 };
 
 struct FToolUIThemeMetrics

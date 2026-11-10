@@ -1,11 +1,36 @@
+#include "Herta/Assets/VirtualFileSystem.h"
+#include "Herta/Core/Build.h"
+#include "Herta/GameFramework/GameHud.h"
 #include "Herta/GameFramework/GameMenu.h"
+#include "Herta/GameFramework/GameText.h"
 
 #include <doctest/doctest.h>
 
 #include <algorithm>
+#include <format>
+#include <ostream>
 
 namespace Herta
 {
+namespace
+{
+const FLocalization& GetEngineText()
+{
+	static const FLocalization Text = []
+	{
+		FLocalization Loaded;
+		FVirtualFileSystem Files(std::filesystem::current_path() / CatalogDirectory);
+		Files.MountDirectory(Files.GetRoot());
+		const auto Catalogs = LoadTextCatalogs(Files, {});
+		REQUIRE(Catalogs);
+		REQUIRE(Loaded.SetCatalogs(*Catalogs));
+		return Loaded;
+	}();
+
+	return Text;
+}
+}
+
 TEST_CASE("Game bindings drive gameplay input, move keys between actions, and round-trip through settings")
 {
 	FGameBindings Bindings = GetDefaultGameBindings();
@@ -55,12 +80,12 @@ TEST_CASE("Game bindings drive gameplay input, move keys between actions, and ro
 	CHECK_FALSE(ApplyGameBindingSetting(Loaded, "bind.Jump.pad", "7"));
 	CHECK_FALSE(ApplyGameBindingSetting(Loaded, "bind.Fly", "key:70"));
 	CHECK_FALSE(ApplyGameBindingSetting(Loaded, "fullscreen", "1"));
-	CHECK(FormatGameControlsHint(GetDefaultGameBindings(), "Esc").starts_with("WASD move    Space jump"));
+	CHECK(FormatGameControlsHint(GetEngineText(), GetDefaultGameBindings(), "Esc").starts_with("WASD move    Space jump"));
 }
 
 TEST_CASE("The game menu owns input while open, routes back out screen by screen, and rebinds without leaking keys to gameplay")
 {
-	FGameMenu Menu;
+	FGameMenu Menu(GetEngineText());
 	FGameMenuSettings Settings;
 	CHECK_FALSE(Menu.OwnsInput());
 	CHECK(Menu.Update({.bActivate = true}, Settings).empty());
@@ -104,7 +129,7 @@ TEST_CASE("The game menu owns input while open, routes back out screen by screen
 	CHECK(Settings.Volumes[0] == 1.f);
 
 	// Controls: activating Jump waits for a key; the next key binds and gameplay never sees it, Escape cancels instead.
-	for (int Press = 0; Press < 4; ++Press)
+	for (int Press = 0; Press < 5; ++Press)
 	{
 		(void)Menu.Update({.bDown = true}, Settings);
 	}
@@ -145,5 +170,67 @@ TEST_CASE("The game menu owns input while open, routes back out screen by screen
 	CHECK(Menu.GetNotice() == "Game saved");
 	Menu.Tick(0.6f);
 	CHECK(Menu.GetNotice().empty());
+}
+
+TEST_CASE("The game menu and HUD text follow the culture, with plurals, number formats, and each language named in itself")
+{
+	FLocalization Text;
+	FVirtualFileSystem Files(std::filesystem::current_path() / CatalogDirectory);
+	Files.MountDirectory(Files.GetRoot());
+	const auto Catalogs = LoadTextCatalogs(Files, {});
+	REQUIRE(Catalogs);
+	REQUIRE(Text.SetCatalogs(*Catalogs));
+	CHECK(Text.GetAvailableCultures() == std::vector<std::string>{"en", "pl", "ru"});
+
+	FGameMenu Menu(Text);
+	FGameMenuSettings Settings{.Volumes = {0.8f, 1.f, 1.f}, .bCanLoad = true, .SaveTime = FCivilTime{.Year = 2026, .Month = 11, .Day = 10, .Hour = 21, .Minute = 5}};
+	(void)Menu.Update({.bPause = true}, Settings);
+	REQUIRE(Text.SetCulture("pl"));
+	CHECK(Menu.GetItems(Settings)[0] == "Wznów");
+	CHECK(Menu.GetItems(Settings)[2] == "Wczytaj grę   10.11.2026, 21:05");
+	REQUIRE(Text.SetCulture("ru"));
+	CHECK(Menu.GetItems(Settings)[0] == "Продолжить");
+
+	// The language setting cycles through the loaded cultures, then pseudolocalization outside Shipping.
+	(void)Menu.Update({.bDown = true}, Settings);
+	(void)Menu.Update({.bDown = true}, Settings);
+	(void)Menu.Update({.bDown = true}, Settings);
+	(void)Menu.Update({.bDown = true}, Settings);
+	(void)Menu.Update({.bActivate = true}, Settings);
+	REQUIRE(Menu.GetScreen() == EGameMenuScreen::Settings);
+	CHECK(Menu.GetItems(Settings)[3] == "Общая громкость   < 80\u00a0% >");
+	CHECK(Menu.GetItems(Settings)[7] == "Язык   < English >");
+	for (int Press = 0; Press < 6; ++Press)
+	{
+		(void)Menu.Update({.bDown = true}, Settings);
+	}
+
+	CHECK(Menu.GetFocus() == 7);
+	CHECK(Menu.Update({.bRight = true}, Settings) == std::vector{EGameMenuCommand::SettingsChanged});
+	CHECK(Settings.Culture == "pl");
+	CHECK(Menu.GetItems(Settings)[7] == "Язык   < Polski >");
+	(void)Menu.Update({.bLeft = true}, Settings);
+	(void)Menu.Update({.bLeft = true}, Settings);
+	CHECK(Settings.Culture == (GetBuildConfiguration() == EBuildConfiguration::Shipping ? "ru" : std::string(PseudoCulture)));
+
+	// Course times use the culture's decimal separator, and a finish under a minute picks the plural form of the shown number.
+	CHECK(FormatGameSeconds(*FCulture::Find("en"), 65.204) == "1:05.20");
+	CHECK(FormatGameSeconds(*FCulture::Find("pl"), 12.345) == "12,35");
+	CHECK(FormatGameSeconds(*FCulture::Find("ru"), 59.999) == "1:00,00");
+	const auto Finished = [&Text](const double Seconds, const std::uint32_t Digits)
+	{
+		return Text.Format(Text::Game::Hud_FinishedSeconds, std::array{FMessageArgument{"seconds", FFixedNumber{.Value = Seconds, .FractionDigits = Digits}}});
+	};
+
+	REQUIRE(Text.SetCulture("ru"));
+	CHECK(Finished(21., 0) == "Финиш за 21 секунду");
+	CHECK(Finished(5., 0) == "Финиш за 5 секунд");
+	CHECK(Finished(21., 2) == "Финиш за 21,00 секунды");
+	REQUIRE(Text.SetCulture("pl"));
+	CHECK(Finished(3., 0) == "Ukończono w 3 sekundy");
+	CHECK(Finished(1., 2) == "Ukończono w 1,00 sekundy");
+	REQUIRE(Text.SetCulture("en"));
+	CHECK(Finished(1., 0) == "Finished in 1 second");
+	CHECK(Finished(1., 2) == "Finished in 1.00 seconds");
 }
 }

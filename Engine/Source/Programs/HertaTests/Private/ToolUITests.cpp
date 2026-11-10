@@ -608,10 +608,10 @@ TEST_CASE("HDR display luminance follows the system unless overridden")
 
 TEST_CASE("ToolUI theme defaults preserve the editor visual contract")
 {
-	constexpr FEditorAppearance Appearance;
+	const FEditorAppearance Appearance;
 	constexpr FToolUIThemeMetrics Metrics;
-	constexpr FToolUIGradient FocusedGradient = ResolveToolUIGradient(Appearance, true);
-	constexpr FToolUIGradient UnfocusedGradient = ResolveToolUIGradient(Appearance, false);
+	const FToolUIGradient FocusedGradient = ResolveToolUIGradient(Appearance, true);
+	const FToolUIGradient UnfocusedGradient = ResolveToolUIGradient(Appearance, false);
 
 	CHECK(Appearance.Accent == FToolUIColor{184, 184, 184, 255});
 	CHECK(Appearance.PanelTransparency == EPanelTransparency::AllPanels);
@@ -622,7 +622,7 @@ TEST_CASE("ToolUI theme defaults preserve the editor visual contract")
 	CHECK(FocusedGradient.BottomLeft == ToolUITheme::Canvas);
 	CHECK(FocusedGradient.BottomRight == ToolUITheme::Canvas);
 	CHECK(FocusedGradient.TopLeft == UnfocusedGradient.TopLeft);
-	constexpr FEditorAppearance Colored{.Accent = {.Red = 84, .Green = 108, .Blue = 232, .Alpha = 255}};
+	const FEditorAppearance Colored{.Accent = {.Red = 84, .Green = 108, .Blue = 232, .Alpha = 255}};
 	CHECK(ResolveToolUIGradient(Colored, true).TopLeft != ResolveToolUIGradient(Colored, false).TopLeft);
 }
 
@@ -640,14 +640,14 @@ TEST_CASE("ToolUI panel transparency policies distinguish docked panels")
 
 TEST_CASE("ToolUI intensity reaches the selected color at full strength")
 {
-	constexpr FEditorAppearance Appearance{
+	const FEditorAppearance Appearance{
 	    .Accent = {.Red = 255, .Green = 0, .Blue = 0, .Alpha = 255},
 	    .GradientHeight = 0.5f,
 	    .Saturation = 1.f,
 	    .Intensity = 1.f,
 	};
 
-	constexpr FToolUIGradient Gradient = ResolveToolUIGradient(Appearance, true);
+	const FToolUIGradient Gradient = ResolveToolUIGradient(Appearance, true);
 	CHECK(Gradient.TopLeft == Appearance.Accent);
 	CHECK(Gradient.TopRight == MixToolUIColor(ToolUITheme::Canvas, Appearance.Accent, ToolUITheme::TrailingIntensityRatio));
 }

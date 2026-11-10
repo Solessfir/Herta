@@ -101,6 +101,7 @@ include(PremakeRoot .. "/ThirdParty/Recast.lua")
 include(PremakeRoot .. "/ThirdParty/Spdlog.lua")
 include(PremakeRoot .. "/ThirdParty/SimdJson.lua")
 include(PremakeRoot .. "/ThirdParty/Zstd.lua")
+include(PremakeRoot .. "/ThirdParty/HarfBuzz.lua")
 
 workspace "Herta"
     architecture "x86_64"
@@ -137,5 +138,6 @@ HertaRecast()
 HertaSpdlog()
 HertaSimdJson()
 HertaZstd()
+HertaHarfBuzz()
 
 include(PremakeRoot .. "/Modules.lua")

@@ -2,6 +2,9 @@
 
 #include "Herta/Application/Application.h"
 #include "Herta/Core/Build.h"
+#include "Herta/Localization/Localization.h"
+#include "Herta/TextLayout/TextLayout.h"
+#include "Herta/ToolUI/EditorText.h"
 #include "ImmersiveViewport.h"
 
 #define GLFW_INCLUDE_NONE
@@ -13,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <format>
@@ -29,6 +33,8 @@ namespace Herta
 {
 namespace
 {
+namespace Editor = Text::Editor;
+
 [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& Path)
 {
 	const std::u8string Text = Path.generic_u8string();
@@ -301,7 +307,7 @@ std::optional<FEditorAppearance> LoadEditorAppearance(const std::filesystem::pat
 	FEditorAppearance Appearance;
 	std::string PanelLabel;
 	int PanelMode = 0;
-	if (!(Stream >> Header >> Version) || Header != "HertaEditorAppearance" || (Version < 1 || Version > 4) || !(Stream >> AccentLabel >> Red >> Green >> Blue) || AccentLabel != "Accent" || !(Stream >> GradientLabel >> Appearance.GradientHeight >> Appearance.Saturation >> Appearance.Intensity) || GradientLabel != "Gradient" || !(Stream >> PanelLabel >> PanelMode) || PanelLabel != "Panel")
+	if (!(Stream >> Header >> Version) || Header != "HertaEditorAppearance" || (Version < 1 || Version > 5) || !(Stream >> AccentLabel >> Red >> Green >> Blue) || AccentLabel != "Accent" || !(Stream >> GradientLabel >> Appearance.GradientHeight >> Appearance.Saturation >> Appearance.Intensity) || GradientLabel != "Gradient" || !(Stream >> PanelLabel >> PanelMode) || PanelLabel != "Panel")
 	{
 		return std::nullopt;
 	}
@@ -331,6 +337,18 @@ std::optional<FEditorAppearance> LoadEditorAppearance(const std::filesystem::pat
 		};
 
 		if (!InRangeOrSystem(Appearance.Display.PaperWhite, MinimumHdrPaperWhite, MaximumHdrPaperWhite) || !InRangeOrSystem(Appearance.Display.PeakLuminance, MinimumHdrPeakLuminance, MaximumHdrPeakLuminance))
+		{
+			return std::nullopt;
+		}
+	}
+
+	if (Version >= 5)
+	{
+		std::string CultureLabel;
+		if (!(Stream >> CultureLabel >> Appearance.Culture) || CultureLabel != "Culture" || Appearance.Culture.size() > 32 || !std::ranges::all_of(Appearance.Culture, [](const char Character)
+		{
+			return std::isalnum(static_cast<unsigned char>(Character)) || Character == '-';
+		}))
 		{
 			return std::nullopt;
 		}
@@ -370,12 +388,13 @@ void SaveEditorAppearance(const std::filesystem::path& Path, const FEditorAppear
 		return;
 	}
 
-	Stream << "HertaEditorAppearance 4\n";
+	Stream << "HertaEditorAppearance 5\n";
 	Stream << "Accent " << static_cast<int>(Appearance.Accent.Red) << ' ' << static_cast<int>(Appearance.Accent.Green) << ' ' << static_cast<int>(Appearance.Accent.Blue) << '\n';
 	Stream << "Gradient " << Appearance.GradientHeight << ' ' << Appearance.Saturation << ' ' << Appearance.Intensity << '\n';
 	Stream << "Panel " << static_cast<int>(Appearance.PanelTransparency) << '\n';
 	Stream << "Glass " << Appearance.PanelOpacity << ' ' << Appearance.BlurRadius << '\n';
 	Stream << "Display " << (Appearance.Display.bHdrOutput ? 1 : 0) << ' ' << Appearance.Display.PaperWhite << ' ' << Appearance.Display.PeakLuminance << '\n';
+	Stream << "Culture " << Appearance.Culture << '\n';
 }
 
 struct FToolUIDocument
@@ -397,6 +416,8 @@ struct FToolUIContext::FImplementation
 	std::vector<std::byte> RegularFontBytes;
 	std::vector<std::byte> MediumFontBytes;
 	std::vector<std::byte> LogFontBytes;
+	std::vector<std::byte> EmojiFontBytes;
+	const FLocalization* Text = nullptr;
 	std::string LayoutPath;
 	std::filesystem::path AppearancePath;
 	std::unordered_map<ImGuiID, bool> PreviousDockState;
@@ -1925,6 +1946,9 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		return std::unexpected(std::move(LogFontBytes.error()));
 	}
 
+	// Emoji are a nicety; a missing font leaves them as boxes rather than failing the editor.
+	std::vector<std::byte> EmojiFontBytes = Descriptor.EmojiFontPath.empty() ? std::vector<std::byte>{} : ReadFile(Descriptor.EmojiFontPath).value_or(std::vector<std::byte>{});
+
 	std::error_code DirectoryError;
 	if (!Descriptor.LayoutPath.parent_path().empty())
 	{
@@ -2002,6 +2026,7 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 		Implementation->RegularFontBytes = std::move(*RegularFontBytes);
 		Implementation->MediumFontBytes = std::move(*MediumFontBytes);
 		Implementation->LogFontBytes = std::move(*LogFontBytes);
+		Implementation->EmojiFontBytes = std::move(EmojiFontBytes);
 		Implementation->LayoutPath = PathToUtf8(Descriptor.LayoutPath);
 		Implementation->AppearancePath = std::move(Descriptor.AppearancePath);
 		Implementation->bBuildDefaultLayout = !std::filesystem::exists(Descriptor.LayoutPath);
@@ -2038,11 +2063,25 @@ std::expected<std::unique_ptr<FToolUIContext>, FToolUIError> FToolUIContext::Cre
 
 		ImFontConfig FontConfiguration;
 		FontConfiguration.FontDataOwnedByAtlas = false;
-		Implementation->RegularFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->RegularFontBytes.data(), static_cast<int>(Implementation->RegularFontBytes.size()), 0.f, &FontConfiguration);
-		ImFontConfig MediumConfiguration = FontConfiguration;
-		Implementation->MediumFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->MediumFontBytes.data(), static_cast<int>(Implementation->MediumFontBytes.size()), 0.f, &MediumConfiguration);
-		ImFontConfig LogConfiguration = FontConfiguration;
-		Implementation->LogFont = Input.Fonts->AddFontFromMemoryTTF(Implementation->LogFontBytes.data(), static_cast<int>(Implementation->LogFontBytes.size()), 0.f, &LogConfiguration);
+		// A merge joins the font added just before it; ImGui searches merged sources in order, so emoji come from Noto only where the
+		// main font has no glyph. A missing emoji font leaves emoji as boxes rather than failing the editor.
+		const auto AddFont = [&](std::vector<std::byte>& Bytes) -> ImFont*
+		{
+			ImFontConfig Configuration = FontConfiguration;
+			ImFont* const Font = Input.Fonts->AddFontFromMemoryTTF(Bytes.data(), static_cast<int>(Bytes.size()), 0.f, &Configuration);
+			if (Font && !Implementation->EmojiFontBytes.empty())
+			{
+				ImFontConfig EmojiConfiguration = FontConfiguration;
+				EmojiConfiguration.MergeMode = true;
+				Input.Fonts->AddFontFromMemoryTTF(Implementation->EmojiFontBytes.data(), static_cast<int>(Implementation->EmojiFontBytes.size()), 0.f, &EmojiConfiguration);
+			}
+
+			return Font;
+		};
+
+		Implementation->RegularFont = AddFont(Implementation->RegularFontBytes);
+		Implementation->MediumFont = AddFont(Implementation->MediumFontBytes);
+		Implementation->LogFont = AddFont(Implementation->LogFontBytes);
 		if (Implementation->RegularFont == nullptr || Implementation->MediumFont == nullptr || Implementation->LogFont == nullptr)
 		{
 			CleanupFailedInitialization();
@@ -2347,6 +2386,68 @@ void FToolUIContext::SetLevelTabLabel(const std::string_view Label)
 	Implementation->LevelTabLabel = Label;
 }
 
+namespace
+{
+// The field being edited and its text and cursor after the previous callback. ImGui edits one field at a time.
+struct FGraphemeInputState
+{
+	ImGuiID Field = 0;
+	std::string Text;
+	int Cursor = 0;
+};
+
+FGraphemeInputState GraphemeInput;
+
+int GraphemeInputCallback(ImGuiInputTextCallbackData* const Data)
+{
+	auto& Text = *static_cast<std::string*>(Data->UserData);
+	if (Data->EventFlag == ImGuiInputTextFlags_CallbackResize)
+	{
+		Text.resize(static_cast<std::size_t>(Data->BufTextLen));
+		Data->Buf = Text.data();
+		return 0;
+	}
+
+	const ImGuiID Field = ImGui::GetActiveID();
+	const std::string_view Current(Data->Buf, static_cast<std::size_t>(Data->BufTextLen));
+	if (Data->EventFlag == ImGuiInputTextFlags_CallbackEdit && GraphemeInput.Field == Field)
+	{
+		if (const std::optional<FTextEdit> Repaired = RepairGraphemeEdit(GraphemeInput.Text, Current))
+		{
+			Data->DeleteChars(0, Data->BufTextLen);
+			Data->InsertChars(0, Repaired->Text.data(), Repaired->Text.data() + Repaired->Text.size());
+			Data->CursorPos = static_cast<int>(Repaired->Cursor);
+			Data->SelectionStart = Data->SelectionEnd = Data->CursorPos;
+		}
+	}
+	else if (GraphemeInput.Field == Field)
+	{
+		// ImGui steps by code point; finishing the step in the same direction crosses the whole cluster.
+		const bool bForward = Data->CursorPos > GraphemeInput.Cursor;
+		const auto Snap = [&Current, bForward](const int Offset)
+		{
+			return static_cast<int>(SnapToGrapheme(Current, static_cast<std::size_t>(Offset), bForward));
+		};
+
+		Data->CursorPos = Snap(Data->CursorPos);
+		Data->SelectionStart = Snap(Data->SelectionStart);
+		Data->SelectionEnd = Snap(Data->SelectionEnd);
+	}
+
+	GraphemeInput.Field = Field;
+	GraphemeInput.Text.assign(Data->Buf, static_cast<std::size_t>(Data->BufTextLen));
+	GraphemeInput.Cursor = Data->CursorPos;
+	return 0;
+}
+}
+
+bool ToolUIInputText(const char* const Id, std::string& Text, const char* const Hint, const float Width)
+{
+	ImGui::SetNextItemWidth(Width > 0.f ? Width : -FLT_MIN);
+	constexpr ImGuiInputTextFlags Flags = ImGuiInputTextFlags_CallbackResize | ImGuiInputTextFlags_CallbackEdit | ImGuiInputTextFlags_CallbackAlways;
+	return ImGui::InputTextWithHint(Id, Hint ? Hint : "", Text.data(), Text.capacity() + 1, Flags, GraphemeInputCallback, &Text);
+}
+
 bool ToolUIMenuItem(const std::string_view Label, const EToolUIMenuIcon Icon, bool* const bSelected, const char* const Shortcut)
 {
 	const float Scale = ImGui::GetFontSize() / ImGui::GetStyle().FontSizeBase;
@@ -2454,7 +2555,13 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		const ImVec2 MinimumMenuSize{220.f * ChromeScale + ImGui::GetStyle().WindowPadding.x * 2.f, 0.f};
 		constexpr ImVec2 MaximumMenuSize{std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
 		ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
-		if (ImGui::BeginMenu("File"))
+		const auto Text = [this](const FTextId Id, const std::string_view English)
+		{
+			return Implementation->Text ? Implementation->Text->Format(Id) : std::string(English);
+		};
+
+		// The visible label changes with the language; the ID after ### keeps each menu's identity.
+		if (ImGui::BeginMenu(std::format("{}###File", Text(Editor::Menu_File, "File")).c_str()))
 		{
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 6.f * ChromeScale});
 			if (DrawFileMenuItems)
@@ -2463,10 +2570,33 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 				ImGui::Spacing();
 			}
 
-			ImGui::TextUnformatted("Workspace");
+			ImGui::TextUnformatted(Text(Editor::Menu_Workspace, "Workspace").c_str());
 			ImGui::Separator();
+			if (Implementation->Text && ImGui::BeginMenu(std::format("{}###Language", Text(Editor::Menu_Language, "Language")).c_str()))
+			{
+				// Each language shows in its own name, so someone who cannot read the current one still finds theirs.
+				std::vector<std::string> Cultures = Implementation->Text->GetAvailableCultures();
+				if (GetBuildConfiguration() != EBuildConfiguration::Shipping)
+				{
+					Cultures.emplace_back(PseudoCulture);
+				}
+
+				for (const std::string& Culture : Cultures)
+				{
+					bool bSelected = Implementation->Appearance.Culture == Culture;
+					if (ToolUIMenuItem(Implementation->Text->FormatIn(Culture, Editor::Language_Name), EToolUIMenuIcon::Panel, &bSelected))
+					{
+						FEditorAppearance Appearance = Implementation->Appearance;
+						Appearance.Culture = Culture;
+						SetAppearance(std::move(Appearance));
+					}
+				}
+
+				ImGui::EndMenu();
+			}
+
 			bool bVSync = Implementation->bVSync;
-			if (ToolUIMenuItem("VSync", EToolUIMenuIcon::Sync, &bVSync))
+			if (ToolUIMenuItem(Text(Editor::Menu_VSync, "VSync"), EToolUIMenuIcon::Sync, &bVSync))
 			{
 				Implementation->bVSync = !Implementation->bVSync;
 				if (Implementation->VSyncChanged)
@@ -2475,13 +2605,13 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 				}
 			}
 
-			if (ToolUIMenuItem("Reset layout", EToolUIMenuIcon::Layout))
+			if (ToolUIMenuItem(Text(Editor::Menu_ResetLayout, "Reset layout"), EToolUIMenuIcon::Layout))
 			{
 				Implementation->bBuildDefaultLayout = true;
 			}
 
 			ImGui::Separator();
-			if (ToolUIMenuItem("Exit", EToolUIMenuIcon::Exit, nullptr, "Ctrl+Q"))
+			if (ToolUIMenuItem(Text(Editor::Menu_Exit, "Exit"), EToolUIMenuIcon::Exit, nullptr, "Ctrl+Q"))
 			{
 				Implementation->Window->RequestClose();
 			}
@@ -2490,17 +2620,17 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 			ImGui::EndMenu();
 		}
 
-		for (const char* const Label : {"Edit", "Window", "Tools", "Help"})
+		for (const auto& [Id, English] : {std::pair{Editor::Menu_Edit, "Edit"}, std::pair{Editor::Menu_Window, "Window"}, std::pair{Editor::Menu_Tools, "Tools"}, std::pair{Editor::Menu_Help, "Help"}})
 		{
-			const bool bWindowMenu = std::string_view(Label) == "Window";
-			const bool bEditMenu = std::string_view(Label) == "Edit";
+			const bool bWindowMenu = Id.Hash == Editor::Menu_Window.Hash;
+			const bool bEditMenu = Id.Hash == Editor::Menu_Edit.Hash;
 			ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
-			if (ImGui::BeginMenu(Label, (bWindowMenu && static_cast<bool>(DrawWindowMenuItems)) || (bEditMenu && static_cast<bool>(DrawEditMenuItems))))
+			if (ImGui::BeginMenu(std::format("{}###{}", Text(Id, English), English).c_str(), (bWindowMenu && static_cast<bool>(DrawWindowMenuItems)) || (bEditMenu && static_cast<bool>(DrawEditMenuItems))))
 			{
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 6.f * ChromeScale});
 				if (bWindowMenu)
 				{
-					ImGui::TextUnformatted("Panels");
+					ImGui::TextUnformatted(Text(Editor::Menu_Panels, "Panels").c_str());
 					ImGui::Separator();
 					DrawWindowMenuItems();
 				}
@@ -3024,6 +3154,11 @@ bool FToolUIContext::DrawSearchField(const char* const Label, const char* const 
 	DrawList->AddLine({Center.x + 3.f * Scale, Center.y + 3.f * Scale}, {Center.x + 7.f * Scale, Center.y + 7.f * Scale}, IconColor, 1.25f * Scale);
 	DrawList->PopClipRect();
 	return bChanged;
+}
+
+void FToolUIContext::SetText(const FLocalization* const Text) noexcept
+{
+	Implementation->Text = Text;
 }
 
 void FToolUIContext::SetAppearance(const FEditorAppearance Appearance) noexcept

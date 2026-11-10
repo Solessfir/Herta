@@ -91,7 +91,7 @@ The game and the dedicated server write a report when they fault: the build revi
 
 ## Multiplayer
 
-`HertaGame --host[=port]` hosts a game on port 27015 or the given one and plays it through a loopback client, `--connect=host:port` joins a host or a `HertaServer`, and `--name=` names the player. See [Multiplayer](Multiplayer.md).
+`HertaGame --host[=port]` hosts a game on port 27015 or the given one and plays it through a loopback client, `--connect=host:port` joins a host or a `HertaServer`, and `--name=` names the player. See [Multiplayer](Multiplayer.md). `--culture=<tag>`, such as `pl`, `ru`, or `qps-ploc`, overrides the saved language for one run; see [Localization](Localization.md).
 
 ## Checks
 
