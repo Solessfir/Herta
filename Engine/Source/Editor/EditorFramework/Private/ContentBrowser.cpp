@@ -1,5 +1,7 @@
 #include "ContentBrowser.h"
 
+#include "GraphDocumentPanel.h"
+
 #include "Herta/Assets/AssetSearch.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/ToolUI/ToolUI.h"
@@ -261,6 +263,11 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 		{
 			State.OpenMaterialRequested = Asset.Id;
 		}
+
+		if (Asset.Importer == "AudioGraph" && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		{
+			State.OpenAudioGraphRequested = Asset.Id;
+		}
 	}
 
 	if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
@@ -269,11 +276,12 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 		State.SelectedFolder.clear();
 	}
 
-	if ((IsPlaceableContentAsset(Asset) || Asset.Importer == "Material") && ImGui::BeginDragDropSource())
+	if ((IsPlaceableContentAsset(Asset) || IsSoundContentAsset(Asset) || Asset.Importer == "Material") && ImGui::BeginDragDropSource())
 	{
 		ImGui::SetDragDropPayload(ContentAssetPayload, &Asset.Id, sizeof(Asset.Id));
 		ImGui::TextUnformatted(Asset.Label.c_str());
-		ImGui::TextDisabled("%s", Asset.Importer == "Material" ? "Assign material" : "Place static mesh");
+		ImGui::TextDisabled("%s", Asset.Importer == "Material" ? "Assign material" : IsSoundContentAsset(Asset) ? "Place audio emitter"
+		                                                                                                         : "Place static mesh");
 		ImGui::EndDragDropSource();
 	}
 
@@ -507,6 +515,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 	const bool bBusy = Assets && (Assets->IsScanning() || Assets->IsImporting());
 	bool bImport = false;
 	bool bNewMaterial = false;
+	bool bNewAudioGraph = false;
 	std::string CreationFolder = State.Folder;
 	std::vector<FAssetId> ThumbnailAssets;
 	if (State.bFocusRequested)
@@ -586,6 +595,12 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				CreationFolder = State.ContextFolder;
 			}
 
+			bNewAudioGraph |= ToolUIMenuItem("New Audio Graph", EToolUIMenuIcon::Sound);
+			if (bNewAudioGraph)
+			{
+				CreationFolder = State.ContextFolder;
+			}
+
 			ImGui::EndDisabled();
 			const auto Context = std::ranges::find(State.Assets, State.ContextAsset, &FPreviewAssetOption::Id);
 			if (Context != State.Assets.end() && Context->Importer == "Material")
@@ -594,6 +609,15 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				if (ToolUIMenuItem("Edit material", EToolUIMenuIcon::Material))
 				{
 					State.OpenMaterialRequested = Context->Id;
+				}
+			}
+
+			if (Context != State.Assets.end() && Context->Importer == "AudioGraph")
+			{
+				ImGui::Separator();
+				if (ToolUIMenuItem("Edit Audio Graph", EToolUIMenuIcon::Sound))
+				{
+					State.OpenAudioGraphRequested = Context->Id;
 				}
 			}
 
@@ -650,6 +674,24 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				State.bFocusFolderName = true;
 				State.FolderName.fill('\0');
 				std::ranges::copy(Leaf(*Created), State.FolderName.begin());
+				State.FolderError.clear();
+			}
+			else
+			{
+				State.FolderError = Created.error().Message;
+			}
+		}
+
+		if (bNewAudioGraph)
+		{
+			const auto Text = SerializeGraph(MakeDefaultAudioGraph(), GetAudioGraphSchema());
+			const auto Created = Text ? Assets->CreateTextAsset(CreationFolder, "New Audio Graph", AudioGraphExtension, *Text) : std::unexpected(FAssetError{Text.error().Message});
+			if (Created)
+			{
+				State.Selected = State.OpenAudioGraphRequested = *Created;
+				State.SelectedFolder.clear();
+				State.Search.fill('\0');
+				State.Filter();
 				State.FolderError.clear();
 			}
 			else

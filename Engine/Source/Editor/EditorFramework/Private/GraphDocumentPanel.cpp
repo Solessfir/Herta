@@ -91,6 +91,11 @@ std::uint64_t FGraphDocumentPanel::GetDraftRevision() const
 	return DraftRevision;
 }
 
+void FGraphDocumentPanel::Recompile()
+{
+	Compile();
+}
+
 void FGraphDocumentPanel::Compile()
 {
 	++DraftRevision;
@@ -432,6 +437,12 @@ void FGraphDocumentPanel::Draw(FToolUIContext& ToolUI, const FGraphDocumentPanel
 
 			if (Context.PreviewTexture != 0 || !Context.PreviewStatus.empty())
 			{
+				ImGui::Spacing();
+			}
+
+			if (Context.DrawSidebar)
+			{
+				Context.DrawSidebar();
 				ImGui::Spacing();
 			}
 

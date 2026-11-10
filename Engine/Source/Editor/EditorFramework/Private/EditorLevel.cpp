@@ -1509,6 +1509,16 @@ std::expected<FObjectId, FLevelError> FEditorLevel::CreateMeshEntity(const FAsse
 	return InsertEntity({.Id = FObjectId::Generate(), .Name = std::string(Label), .Transform = {.Translation = Position}, .Mesh = FStaticMeshComponent{.Asset = Asset}});
 }
 
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateSoundEntity(const FAssetId Sound, const std::string_view Label, const FWorldPosition& Position)
+{
+	if (!Sound.IsValid())
+	{
+		return std::unexpected(FLevelError{"An audio emitter requires a valid sound"});
+	}
+
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = std::string(Label), .Transform = {.Translation = Position}, .AudioEmitter = FAudioEmitterComponent{.Sound = Sound}});
+}
+
 std::expected<FObjectId, FLevelError> FEditorLevel::InsertEntity(FLevelEntity Entity)
 {
 	if (const auto Result = DecomposeEditorWorld(MakeLocalMatrix(Entity.Transform)); !Result)

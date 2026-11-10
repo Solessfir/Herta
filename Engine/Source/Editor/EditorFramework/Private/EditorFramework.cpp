@@ -258,6 +258,17 @@ void FEditorFramework::OpenAnimationGraph(const std::filesystem::path& File)
 	HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "Animation graph {} is outside the project's and the engine's content", File.string());
 }
 
+void FEditorFramework::OpenAudioGraph(const std::filesystem::path& File)
+{
+	if (const auto Key = Implementation->MountedContentPath(File))
+	{
+		Implementation->OpenAudioGraphKey(*Key);
+		return;
+	}
+
+	HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "Audio Graph {} is outside the project's and the engine's content", File.string());
+}
+
 void FEditorFramework::OpenMaterial(const std::filesystem::path& File)
 {
 	if (auto Label = Implementation->MountedContentPath(File))
@@ -494,7 +505,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	bool bOpenLevelRequested = false;
 	bool bPlaceObjectsRequested = std::exchange(Implementation->bPlaceObjectsRequested, false);
 	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->IsSimulating() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
-	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->ToolUI->IsDocumentInFront() && !Implementation->MaterialPanel.IsFocused() && !Implementation->MaterialGraphPanel.IsFocused() && !Implementation->AnimationGraphPanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
+	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->ToolUI->IsDocumentInFront() && !Implementation->MaterialPanel.IsFocused() && !Implementation->MaterialGraphPanel.IsFocused() && !Implementation->AnimationGraphPanel.IsFocused() && !Implementation->AudioGraphPanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
 	const bool bControlShortcutsAvailable = bShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl;
 	const bool bProjectChangeAvailable = bAuthoringAvailable && !Implementation->EngineRoot.empty() && !(Implementation->Assets && Implementation->Assets->IsImporting());
 	bool bNewProjectRequested = bControlShortcutsAvailable && bProjectChangeAvailable && ImGui::IsKeyPressed(ImGuiKey_N, false);
@@ -1096,6 +1107,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->DrawViewport(RenderViewport);
 	Implementation->DrawMaterialPanel();
 	Implementation->DrawAnimationGraphPanel();
+	Implementation->DrawAudioGraphPanel();
 	Implementation->DrawPerformancePanel();
 	if (!Implementation->IsSimulating())
 	{
@@ -1153,7 +1165,7 @@ bool FEditorFramework::RequestClose()
 	}
 
 	// Unsaved graph edits stop the close with a save prompt; closing again after answering it proceeds.
-	if (!Implementation->MaterialGraphPanel.RequestClose() || !Implementation->AnimationGraphPanel.RequestClose())
+	if (!Implementation->MaterialGraphPanel.RequestClose() || !Implementation->AnimationGraphPanel.RequestClose() || !Implementation->AudioGraphPanel.RequestClose())
 	{
 		return false;
 	}

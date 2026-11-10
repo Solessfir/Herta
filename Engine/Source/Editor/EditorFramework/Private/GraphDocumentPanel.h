@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/AudioGraph/AudioGraph.h"
 #include "Herta/EditorCore/TransactionHistory.h"
 #include "Herta/GraphCore/Graph.h"
 #include "Herta/GraphEditor/GraphCanvas.h"
@@ -44,6 +45,8 @@ struct FGraphDocumentPanelContext
 	std::function<void(float)> ZoomPreview{};
 	// Nodes that are live, such as the state a playing character's machine is in.
 	std::span<const FGraphNodeId> Active{};
+	// Domain controls above the details, such as an Audio Graph's audition.
+	std::function<void()> DrawSidebar{};
 };
 
 // Edits one graph file with its own undo history.
@@ -71,6 +74,8 @@ public:
 	[[nodiscard]] const FGraph& GetDraft() const;
 	// Changes whenever the draft does, including during a property drag.
 	[[nodiscard]] std::uint64_t GetDraftRevision() const;
+	// Compiles the draft again for its diagnostics when something it depends on changed, such as the content it names.
+	void Recompile();
 
 private:
 	void Apply(FGraph After, std::string Label);
@@ -102,4 +107,9 @@ private:
 // The default graph for a new material: the material output fed by the base color texture, which matches the engine material until edited.
 [[nodiscard]] FGraph MakeDefaultMaterialGraph();
 [[nodiscard]] const FGraphDocumentDomain& GetAnimationGraphDocumentDomain();
+[[nodiscard]] const FGraphDocumentDomain& GetAudioGraphDocumentDomain();
+// Audio Graphs name waves by content path, so their diagnostics need the open document's content to resolve them.
+void SetAudioGraphDocumentResolver(FAudioWaveResolver Resolver);
+// A new Audio Graph: one wave player, still without waves, feeding the output.
+[[nodiscard]] FGraph MakeDefaultAudioGraph();
 }

@@ -726,6 +726,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::filesystem::path OpenedProject;
 	std::filesystem::path OpenedGraph;
 	std::filesystem::path OpenedAnimationGraph;
+	std::filesystem::path OpenedAudioGraph;
 	std::filesystem::path OpenedMaterial;
 	// The visual test measures the rendering stations, which live in their own level so the gameplay course can change freely.
 	const std::filesystem::path RequestedPath = OpenPath.empty() && bVisualTest ? RepositoryRoot / "Games/Sandbox/Levels/Visuals.hlevel" : OpenPath;
@@ -756,6 +757,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		else if (Extension == ".hanimgraph")
 		{
 			OpenedAnimationGraph = Absolute;
+			OpenedProject = FindOwningProject(Absolute).value_or(std::filesystem::path{});
+		}
+		else if (Extension == ".haudiograph")
+		{
+			OpenedAudioGraph = Absolute;
 			OpenedProject = FindOwningProject(Absolute).value_or(std::filesystem::path{});
 		}
 		else if (Extension == ".hmat")
@@ -1009,6 +1015,11 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	if (!OpenedMaterial.empty())
 	{
 		EditorFramework->OpenMaterial(OpenedMaterial);
+	}
+
+	if (!OpenedAudioGraph.empty())
+	{
+		EditorFramework->OpenAudioGraph(OpenedAudioGraph);
 	}
 
 	if (!OpenedAnimationGraph.empty())

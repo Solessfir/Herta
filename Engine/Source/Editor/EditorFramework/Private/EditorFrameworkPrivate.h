@@ -306,6 +306,11 @@ struct FEditorFramework::FImplementation
 	void OpenPlayerAnimationGraph();
 	void OpenAnimationGraphKey(const std::string& Key);
 	void DrawAnimationGraphPanel();
+	void OpenAudioGraphKey(const std::string& Key);
+	// Compiles the open Audio Graph's draft for auditions whenever it changes, and draws the panel with its audition controls.
+	void DrawAudioGraphPanel();
+	void DrawAudioAudition();
+	[[nodiscard]] std::optional<FAssetId> ResolveAudioWave(std::string_view Mount, std::string_view Path) const;
 	// A content file as its mounted path, "Game/..." or "Engine/...", or nothing outside both content roots.
 	std::optional<std::string> MountedContentPath(const std::filesystem::path& File) const;
 	void ResolveGraphPreview();
@@ -386,6 +391,14 @@ struct FEditorFramework::FImplementation
 	FGraphDocumentPanel MaterialGraphPanel{GetMaterialGraphDocumentDomain()};
 	// The player character's animation graph, and its compiled state and transition nodes for highlighting Play, rebuilt when the draft changes.
 	FGraphDocumentPanel AnimationGraphPanel{GetAnimationGraphDocumentDomain()};
+	FGraphDocumentPanel AudioGraphPanel{GetAudioGraphDocumentDomain()};
+	std::uint64_t AudioGraphRevision = UINT64_MAX;
+	// Waves resolve through the content scan, so a new scan compiles the graph again.
+	std::uint64_t AudioGraphOptionsGeneration = UINT64_MAX;
+	std::optional<FSoundGraphDesc> AuditionDesc;
+	std::string AuditionError;
+	std::vector<float> AuditionValues;
+	bool bAuditionShown = false;
 	std::vector<FGraphNodeId> AnimationStateNodes;
 	std::vector<FGraphNodeId> AnimationTransitionNodes;
 	std::uint64_t AnimationGraphRevision = UINT64_MAX;
@@ -477,8 +490,8 @@ struct FEditorFramework::FImplementation
 	bool bAudioUnavailable = false;
 	bool bAudioMuted = false;
 	std::map<FAssetId, FHash128> AudioKeys;
+	// The Audio Graph being edited, compiled from its draft, so its waves stay loaded.
 	std::map<FAssetId, std::shared_ptr<const FCookedSoundGraph>> AuditionGraphs;
-	std::set<FAssetId> AuditionKeys;
 	FMeshRenderView PlayRenderView;
 	// Play draws the game's own HUD and pause menu with GameUI, so it matches the standalone game.
 	std::unique_ptr<FGameUI> PlayUI;

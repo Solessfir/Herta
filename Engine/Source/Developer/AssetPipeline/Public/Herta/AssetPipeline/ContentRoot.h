@@ -75,4 +75,6 @@ struct FContentScanCache
 // Publishes canonical material JSON without changing its asset identity sidecar.
 [[nodiscard]] std::expected<void, FAssetError> WriteMaterialAsset(const std::filesystem::path& Path, const FMaterialAsset& Material, bool bReplaceExisting = true);
 [[nodiscard]] std::expected<FMaterialAsset, FAssetError> LoadMaterialAsset(const std::filesystem::path& Path);
+// Publishes a text source, such as a graph, whole or not at all.
+[[nodiscard]] std::expected<void, FAssetError> WriteTextSource(const std::filesystem::path& Path, std::string_view Text, bool bReplaceExisting = true);
 }

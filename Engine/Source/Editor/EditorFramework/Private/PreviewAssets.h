@@ -155,6 +155,8 @@ public:
 	void SetTextureAssets(std::span<const FAssetId> Assets);
 	// Keeps these sounds and sound graphs loaded for Play and auditions.
 	void SetSoundAssets(std::span<const FAssetId> Assets);
+	// Writes a new text source, such as an Audio Graph, into a Game folder under a unique name and registers it.
+	[[nodiscard]] std::expected<FAssetId, FAssetError> CreateTextAsset(std::string_view MountedParent, std::string_view Name, std::string_view Extension, std::string_view Text);
 	std::shared_ptr<const FCookedTexture> GetCookedTexture(const FAssetId& Asset) const noexcept;
 	FTextureHandle GetTexture(const FAssetId& Asset) const noexcept;
 	void SetMaterialThumbnailRenderer(FEditorMaterialThumbnailRenderer Renderer);

@@ -101,19 +101,6 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 		}
 	}
 
-	for (const auto& [Id, Graph] : AuditionGraphs)
-	{
-		if (!AuditionKeys.contains(Id))
-		{
-			if (auto Added = Audio->AddSoundGraph(Id, Graph); !Added)
-			{
-				HERTA_LOG_ERROR(*Log, EditorLog, "Could not audition the graph: {}", Added.error().Message);
-			}
-
-			AuditionKeys.insert(Id);
-		}
-	}
-
 	// A paused game mutes rather than stops, so its loops pick up where they were.
 	const bool bMuted = PlaySession && bPlayPaused;
 	if (bMuted != bAudioMuted)
@@ -164,5 +151,227 @@ void FEditorFramework::FImplementation::StopPlayAudio()
 	{
 		Audio->Submit(FAudioStopAllCommand{.FadeSeconds = 0.1f});
 	}
+}
+
+namespace
+{
+// Identities of their own, so an audition never collides with a level's sounds or Play's voices.
+constexpr FAssetId AuditionSound{0x4155444954494f4e, 1};
+constexpr FAudioVoiceId AuditionVoice{0x7fff0001};
+}
+
+std::optional<FAssetId> FEditorFramework::FImplementation::ResolveAudioWave(const std::string_view Mount, const std::string_view Path) const
+{
+	if (!Assets)
+	{
+		return std::nullopt;
+	}
+
+	const std::string Label = std::format("{}/{}", Mount, Path);
+	for (const FPreviewAssetOption& Option : Assets->GetOptions())
+	{
+		if (Option.Label == Label && Option.Importer == "Sound")
+		{
+			return Option.Id;
+		}
+	}
+
+	return std::nullopt;
+}
+
+void FEditorFramework::FImplementation::DrawAudioGraphPanel()
+{
+	if (!AudioGraphPanel.IsOpen())
+	{
+		if (bAuditionShown)
+		{
+			bAuditionShown = false;
+			AuditionGraphs.clear();
+			AuditionDesc.reset();
+			if (Audio)
+			{
+				Audio->Submit(FAudioStopCommand{.Voice = AuditionVoice});
+				Audio->RemoveSound(AuditionSound);
+			}
+		}
+
+		return;
+	}
+
+	bAuditionShown = true;
+	const std::string& Path = AudioGraphPanel.GetPath();
+	const std::string Mount = Path.substr(0, Path.find('/'));
+	const auto Resolve = [this, Mount](const std::string_view Wave)
+	{
+		return ResolveAudioWave(Mount, Wave);
+	};
+
+	SetAudioGraphDocumentResolver(Resolve);
+	const std::uint64_t OptionsGeneration = Assets ? Assets->GetOptionsGeneration() : 0;
+	if (AudioGraphRevision != AudioGraphPanel.GetDraftRevision() || AudioGraphOptionsGeneration != OptionsGeneration)
+	{
+		if (AudioGraphOptionsGeneration != OptionsGeneration)
+		{
+			AudioGraphPanel.Recompile();
+		}
+
+		AudioGraphRevision = AudioGraphPanel.GetDraftRevision();
+		AudioGraphOptionsGeneration = OptionsGeneration;
+		const auto Compiled = CompileAudioGraph(AudioGraphPanel.GetDraft(), Resolve);
+		if (Compiled)
+		{
+			// Inputs keep their values across edits while their names stay.
+			std::vector<float> Values;
+			for (const FSoundParameterDesc& Parameter : Compiled->Graph.Parameters)
+			{
+				const auto Previous = AuditionDesc ? std::ranges::find(AuditionDesc->Parameters, Parameter.Name, &FSoundParameterDesc::Name) : std::vector<FSoundParameterDesc>::const_iterator{};
+				const bool bKept = AuditionDesc && Previous != AuditionDesc->Parameters.end() && Parameter.Type != ESoundParameterType::Trigger;
+				Values.push_back(bKept ? AuditionValues[static_cast<std::size_t>(Previous - AuditionDesc->Parameters.begin())] : Parameter.Default);
+			}
+
+			AuditionValues = std::move(Values);
+			AuditionDesc = Compiled->Graph;
+			AuditionError.clear();
+			auto Graph = std::make_shared<const FCookedSoundGraph>(FCookedSoundGraph{.Graph = Compiled->Graph});
+			AuditionGraphs = {{AuditionSound, Graph}};
+			if (Audio)
+			{
+				if (auto Added = Audio->AddSoundGraph(AuditionSound, std::move(Graph)); !Added)
+				{
+					AuditionError = Added.error().Message;
+				}
+			}
+		}
+		else
+		{
+			AuditionError = Compiled.error().empty() ? std::string("The graph does not compile") : Compiled.error().front().Message;
+		}
+	}
+
+	const std::string_view Status = AudioGraphPanel.IsDirty() ? "Auditions play the draft; saving recooks it for Play" : "Auditions play the graph as Play will";
+	AudioGraphPanel.Draw(*ToolUI, {.Status = Status, .DrawSidebar = [this]
+	{
+		DrawAudioAudition();
+	}});
+}
+
+void FEditorFramework::FImplementation::DrawAudioAudition()
+{
+	ImGui::TextDisabled("Audition");
+	if (!Audio)
+	{
+		ImGui::TextDisabled("Audio is unavailable");
+		return;
+	}
+
+	if (!AuditionDesc)
+	{
+		ImGui::PushTextWrapPos();
+		ImGui::TextDisabled("%s", AuditionError.empty() ? "Fix the graph to audition it" : AuditionError.c_str());
+		ImGui::PopTextWrapPos();
+		return;
+	}
+
+	const bool bLoading = std::ranges::any_of(GetSoundGraphWaves(*AuditionDesc), [this](const FAssetId& Wave)
+	{
+		const FPreviewMeshSlot* const Slot = Assets ? Assets->GetCachedAsset(Wave) : nullptr;
+		return !Slot || Slot->bLoading;
+	});
+
+	ImGui::BeginDisabled(bLoading);
+	if (ToolUIButton("Play", EToolUIMenuIcon::Sound))
+	{
+		FAudioPlayCommand Play{.Voice = AuditionVoice, .Sound = AuditionSound};
+		for (std::size_t Index = 0; Index < AuditionDesc->Parameters.size(); ++Index)
+		{
+			if (AuditionDesc->Parameters[Index].Type != ESoundParameterType::Trigger)
+			{
+				Play.Parameters.push_back({.Name = AuditionDesc->Parameters[Index].Name, .Value = AuditionValues[Index]});
+			}
+		}
+
+		Audio->Submit(FAudioStopCommand{.Voice = AuditionVoice, .FadeSeconds = 0.02f});
+		Audio->Submit(Play);
+	}
+
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (ToolUIButton("Stop", EToolUIMenuIcon::Delete))
+	{
+		Audio->Submit(FAudioStopCommand{.Voice = AuditionVoice});
+	}
+
+	ImGui::SameLine();
+	ImGui::TextDisabled("%s", bLoading ? "Loading waves..." : Audio->IsVoicePlaying(AuditionVoice) ? "Playing"
+	                                                                                                  : "Stopped");
+	if (!AuditionError.empty())
+	{
+		ImGui::PushTextWrapPos();
+		ImGui::TextColored(ImVec4(1.f, 0.49f, 0.49f, 1.f), "%s", AuditionError.c_str());
+		ImGui::PopTextWrapPos();
+	}
+
+	// Inputs change the playing audition as gameplay would.
+	for (std::size_t Index = 0; Index < AuditionDesc->Parameters.size(); ++Index)
+	{
+		const FSoundParameterDesc& Parameter = AuditionDesc->Parameters[Index];
+		ImGui::PushID(static_cast<int>(Index));
+		bool bChanged = false;
+		float& Value = AuditionValues[Index];
+		if (Parameter.Type == ESoundParameterType::Trigger)
+		{
+			if (ToolUIButton(std::format("Fire {}", Parameter.Name), EToolUIMenuIcon::Sound))
+			{
+				Value = 1.f;
+				bChanged = true;
+			}
+		}
+		else if (Parameter.Type == ESoundParameterType::Bool)
+		{
+			bool bOn = Value != 0.f;
+			if (ImGui::Checkbox(Parameter.Name.c_str(), &bOn))
+			{
+				Value = bOn ? 1.f : 0.f;
+				bChanged = true;
+			}
+		}
+		else
+		{
+			ImGui::SetNextItemWidth(-FLT_MIN);
+			bChanged = ImGui::DragFloat("##Value", &Value, 0.05f, 0.f, 0.f, std::format("{} %.2f", Parameter.Name).c_str());
+		}
+
+		if (bChanged)
+		{
+			Audio->Submit(FAudioParameterCommand{.Voice = AuditionVoice, .Parameter = {.Name = Parameter.Name, .Value = Value}});
+		}
+
+		ImGui::PopID();
+	}
+}
+
+void FEditorFramework::FImplementation::OpenAudioGraphKey(const std::string& Key)
+{
+	const bool bEngine = Key.starts_with("Engine/");
+	const std::string_view Relative = std::string_view(Key).substr(Key.find('/') + 1);
+	const std::filesystem::path File = (bEngine ? AssetPaths.EngineContentRoot : AssetPaths.ContentRoot) / std::filesystem::path(std::u8string(Relative.begin(), Relative.end()));
+	std::ifstream Stream(File, std::ios::binary);
+	const std::string Text{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
+	auto Graph = DeserializeGraph(Text, GetAudioGraphSchema());
+	if (!Graph)
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "Cannot open the Audio Graph {}: {}", Key, Graph.error().Message);
+		return;
+	}
+
+	if (AudioGraphPanel.IsOpen() && AudioGraphPanel.GetPath() != Key && AudioGraphPanel.IsDirty())
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Save or close {} before opening another Audio Graph", AudioGraphPanel.GetPath());
+		return;
+	}
+
+	AudioGraphPanel.Open(Key, File, std::move(*Graph), bEngine);
+	AudioGraphRevision = UINT64_MAX;
+	AuditionDesc.reset();
 }
 }

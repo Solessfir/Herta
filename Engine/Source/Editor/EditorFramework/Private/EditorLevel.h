@@ -55,6 +55,8 @@ public:
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateMeshEntity(FAssetId Asset, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEmptyEntity(const FWorldPosition& Position = {});
+	// An empty entity with an Audio Emitter playing Sound.
+	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateSoundEntity(FAssetId Sound, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<void, FLevelError> AddStaticMeshToSelected(FAssetId Asset);
 	[[nodiscard]] std::expected<void, FLevelError> RemoveStaticMeshFromSelected();
 	[[nodiscard]] std::expected<void, FLevelError> AddRigidBodyToSelected(ELevelBodyType Type = ELevelBodyType::Dynamic);

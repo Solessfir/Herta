@@ -174,6 +174,15 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 		}
 	}
 
+	if (const auto Requested = std::exchange(ContentBrowserState.OpenAudioGraphRequested, FAssetId{}); Requested.IsValid() && !bProjectBusy && !bCloseRequested)
+	{
+		const auto Options = Assets->GetOptions();
+		if (const auto Option = std::ranges::find(Options, Requested, &FPreviewAssetOption::Id); Option != Options.end())
+		{
+			OpenAudioGraphKey(Option->Label);
+		}
+	}
+
 	if (const auto Requested = std::exchange(ContentBrowserState.OpenMaterialRequested, FAssetId{}); Requested.IsValid() && !bProjectBusy && !bWaitingForMaterialClose && !bCloseRequested)
 	{
 		PendingMaterialOpen = Requested;

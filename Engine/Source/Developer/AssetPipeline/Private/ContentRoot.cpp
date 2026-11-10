@@ -393,4 +393,9 @@ std::expected<void, FAssetError> WriteMaterialAsset(const std::filesystem::path&
 
 	return WriteFileAtomically(Path, std::as_bytes(std::span(*Text)), bReplaceExisting);
 }
+
+std::expected<void, FAssetError> WriteTextSource(const std::filesystem::path& Path, const std::string_view Text, const bool bReplaceExisting)
+{
+	return WriteFileAtomically(Path, std::as_bytes(std::span(Text.data(), Text.size())), bReplaceExisting);
+}
 }

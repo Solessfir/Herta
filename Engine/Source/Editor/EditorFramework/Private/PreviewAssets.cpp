@@ -1101,6 +1101,59 @@ std::expected<FAssetId, FAssetError> FPreviewAssets::CreateMaterial(const std::s
 	return Imported->Metadata.Id;
 }
 
+std::expected<FAssetId, FAssetError> FPreviewAssets::CreateTextAsset(const std::string_view MountedParent, const std::string_view Name, const std::string_view Extension, const std::string_view Text)
+{
+	if (const auto Valid = ValidateFolderName(Name); !Valid)
+	{
+		return std::unexpected(Valid.error());
+	}
+
+	const auto Parent = ResolveContentFolder(Paths.ContentRoot, "Game", MountedParent);
+	if (!Parent)
+	{
+		return std::unexpected(Parent.error());
+	}
+
+	const auto Names = ReadSiblingNames(*Parent);
+	if (!Names)
+	{
+		return std::unexpected(Names.error());
+	}
+
+	std::string UniqueName(Name);
+	for (std::size_t Suffix = 1; Names->contains(FoldFolderName(UniqueName + std::string(Extension))) || Names->contains(FoldFolderName(UniqueName + std::string(Extension) + ".hmeta")); ++Suffix)
+	{
+		UniqueName = std::format("{} {}", Name, Suffix);
+	}
+
+	if (UniqueName.size() > 240)
+	{
+		return std::unexpected(FAssetError{"Asset name is too long"});
+	}
+
+	const auto Path = *Parent / Utf8Path(UniqueName + std::string(Extension));
+	if (const auto Written = WriteTextSource(Path, Text, false); !Written)
+	{
+		return std::unexpected(Written.error());
+	}
+
+	const auto Imported = ImportSource(Paths.ContentRoot, Path);
+	if (!Imported)
+	{
+		return std::unexpected(FAssetError{std::format("Created {}; asset registration failed: {}", PathToUtf8(Path), Imported.error().Message)});
+	}
+
+	const auto Mount = std::ranges::find(Mounts, "Game", &FMount::Name);
+	if (Mount == Mounts.end())
+	{
+		return std::unexpected(FAssetError{"Game content mount is unavailable"});
+	}
+
+	Locations[Imported->Metadata.Id] = {.Mount = static_cast<std::size_t>(Mount - Mounts.begin()), .SourcePath = Imported->SourcePath};
+	ContentChanged();
+	return Imported->Metadata.Id;
+}
+
 std::expected<void, FAssetError> FPreviewAssets::SaveMaterial(const FAssetId& Asset, const FMaterialAsset& Material)
 {
 	const auto Location = Locations.find(Asset);
