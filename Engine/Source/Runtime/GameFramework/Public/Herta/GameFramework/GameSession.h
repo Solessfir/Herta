@@ -2,6 +2,7 @@
 
 #include "Herta/Audio/AudioCommands.h"
 #include "Herta/GameFramework/CharacterMover.h"
+#include "Herta/GameFramework/GameSave.h"
 #include "Herta/Level/LevelSerialization.h"
 #include "Herta/GameFramework/LevelSimulation.h"
 #include "Herta/Level/World.h"
@@ -201,6 +202,10 @@ public:
 	void SetLevelSounds(const FLevelSounds& Sounds);
 	// Every sound the level's emitters and gameplay sounds may play, for the host to load before play.
 	[[nodiscard]] std::vector<FAssetId> GetSounds() const;
+	// The run's progress, the player, broken destructibles, and dead characters, for a save of the level with this identity.
+	[[nodiscard]] FGameSave CaptureSave(const FObjectId& Level) const;
+	// Restarts and puts back what the save recorded. Objects the level no longer has are skipped and listed in the result.
+	[[nodiscard]] std::expected<std::vector<std::string>, FGameError> ApplySave(const FGameSave& Save);
 	// What the session asked audio to do since the previous call. A host with a device submits them; a headless session records the same
 	// commands, so tests compare them without one.
 	[[nodiscard]] std::vector<FAudioCommand> TakeAudioCommands();

@@ -942,6 +942,46 @@ std::vector<FLevelBreakEvent> FLevelSimulation::TakeBreakEvents()
 	return std::exchange(BreakEvents, {});
 }
 
+std::vector<bool> FLevelSimulation::GetIntactBonds(const std::size_t ObjectIndex) const
+{
+	const auto Found = std::ranges::find(Destructibles, ObjectIndex, [](const FDestructibleState& State)
+	{
+		return State.Settings.ObjectIndex;
+	});
+
+	return Found == Destructibles.end() ? std::vector<bool>{} : Found->BondIntact;
+}
+
+std::expected<void, FPhysicsError> FLevelSimulation::RestoreBonds(const std::size_t ObjectIndex, const std::vector<bool>& Intact)
+{
+	const auto Found = std::ranges::find(Destructibles, ObjectIndex, [](const FDestructibleState& State)
+	{
+		return State.Settings.ObjectIndex;
+	});
+
+	if (Found == Destructibles.end() || Found->BondIntact.size() != Intact.size())
+	{
+		return std::unexpected(FPhysicsError{"The saved bonds do not match the destructible"});
+	}
+
+	bool bChanged = false;
+	for (std::size_t Bond = 0; Bond < Intact.size(); ++Bond)
+	{
+		if (Found->BondIntact[Bond] && !Intact[Bond])
+		{
+			Found->BondIntact[Bond] = false;
+			bChanged = true;
+		}
+	}
+
+	if (!bChanged)
+	{
+		return {};
+	}
+
+	return SplitIslands(static_cast<std::size_t>(Found - Destructibles.begin()), Found->Settings.Position, 0.f);
+}
+
 std::vector<FLevelImpactEvent> FLevelSimulation::TakeImpactEvents()
 {
 	return std::exchange(ImpactEvents, {});

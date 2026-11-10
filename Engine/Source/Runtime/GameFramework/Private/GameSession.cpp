@@ -1995,6 +1995,117 @@ FVector3 FGameSession::GetPlayerVelocity() const noexcept
 	return Implementation->Mover->GetState().Velocity;
 }
 
+FGameSave FGameSession::CaptureSave(const FObjectId& Level) const
+{
+	const FImplementation& Session = *Implementation;
+	FGameSave Save{
+	    .Level = Level,
+	    .ObjectiveState = static_cast<std::uint32_t>(Session.Objective.State),
+	    .ElapsedSeconds = Session.Objective.ElapsedSeconds,
+	    .BestSeconds = Session.Objective.BestSeconds,
+	    .Respawns = Session.Objective.Respawns,
+	    .PlayerFoot = Session.Mover->GetState().Foot,
+	    .PlayerYaw = Session.Yaw,
+	};
+
+	for (std::size_t Index = 0; Index < Session.Entities.size(); ++Index)
+	{
+		if (Session.Entities[Index].Destructible && !Session.Simulation.IsIntact(Index))
+		{
+			Save.Destructibles.push_back({.Object = Session.Entities[Index].Id, .IntactBonds = Session.Simulation.GetIntactBonds(Index)});
+		}
+	}
+
+	for (const FImplementation::FCharacterActor& Actor : Session.Characters)
+	{
+		if (Actor.Body->IsEmpty())
+		{
+			Save.DeadCharacters.push_back(Session.Entities[Actor.Entity].Id);
+		}
+	}
+
+	return Save;
+}
+
+std::expected<std::vector<std::string>, FGameError> FGameSession::ApplySave(const FGameSave& Save)
+{
+	FImplementation& Session = *Implementation;
+	if (Save.ObjectiveState > static_cast<std::uint32_t>(EGameObjectiveState::Finished))
+	{
+		return std::unexpected(FGameError{"The save's objective state is unknown"});
+	}
+
+	if (auto Restarted = Session.Start(); !Restarted)
+	{
+		return std::unexpected(Restarted.error());
+	}
+
+	std::vector<std::string> Skipped;
+	const auto FindEntity = [&Session](const FObjectId& Object) -> std::optional<std::size_t>
+	{
+		const auto Found = std::ranges::find(Session.Entities, Object, &FLevelEntity::Id);
+		return Found == Session.Entities.end() ? std::nullopt : std::optional(static_cast<std::size_t>(Found - Session.Entities.begin()));
+	};
+
+	for (const FGameSaveDestructible& Destructible : Save.Destructibles)
+	{
+		const auto Index = FindEntity(Destructible.Object);
+		if (!Index)
+		{
+			Skipped.push_back(std::format("Destructible {} is no longer in the level", Destructible.Object.ToString()));
+			continue;
+		}
+
+		if (auto Restored = Session.Simulation.RestoreBonds(*Index, Destructible.IntactBonds); !Restored)
+		{
+			Skipped.push_back(std::format("{}: {}", Session.Entities[*Index].Name, Restored.error().Message));
+		}
+	}
+
+	for (const FObjectId& Dead : Save.DeadCharacters)
+	{
+		const auto Found = std::ranges::find_if(Session.Characters, [&](const FImplementation::FCharacterActor& Actor)
+		{
+			return Session.Entities[Actor.Entity].Id == Dead;
+		});
+
+		if (Found == Session.Characters.end())
+		{
+			Skipped.push_back(std::format("Character {} is no longer in the level", Dead.ToString()));
+			continue;
+		}
+
+		// Losing its head kills a character, which then collapses as it did before the save.
+		auto Severed = Session.CutCharacter(static_cast<std::size_t>(Found - Session.Characters.begin()), [](FPlayerCharacter& Body) -> std::expected<std::optional<FSkinnedMeshPiece>, FGameError>
+		{
+			if (const auto Neck = Body.FindJoint("neck_01"))
+			{
+				return Body.Sever(*Neck);
+			}
+
+			return std::optional<FSkinnedMeshPiece>{};
+		}, FVector3::Up());
+
+		if (!Severed || !*Severed)
+		{
+			Skipped.push_back(std::format("{} could not be killed again", Session.Entities[Found->Entity].Name));
+		}
+	}
+
+	if (auto Placed = TeleportPlayer(Save.PlayerFoot, Save.PlayerYaw); !Placed)
+	{
+		Skipped.push_back(Placed.error().Message);
+	}
+
+	// A run saved before it started, with no zones to time it, stays exploring.
+	Session.Objective.State = Session.Objective.State == EGameObjectiveState::Exploring ? EGameObjectiveState::Exploring : static_cast<EGameObjectiveState>(Save.ObjectiveState);
+	Session.Objective.ElapsedSeconds = Save.ElapsedSeconds;
+	Session.Objective.BestSeconds = Save.BestSeconds;
+	Session.Objective.Respawns = Save.Respawns;
+	Session.Events.push_back("Save loaded");
+	return Skipped;
+}
+
 void FGameSession::SetLevelSounds(const FLevelSounds& Sounds)
 {
 	Implementation->Audio.SetSounds(Sounds);

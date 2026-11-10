@@ -177,6 +177,10 @@ public:
 	std::size_t GetDebrisCount() const noexcept;
 	// Breaks since the previous call, in step order.
 	std::vector<FLevelBreakEvent> TakeBreakEvents();
+	// The bonds still holding a destructible together, for saving; empty for an object that is not a running destructible.
+	std::vector<bool> GetIntactBonds(std::size_t ObjectIndex) const;
+	// Breaks the bonds a save recorded as broken, so the destructible splits as it was saved; freed pieces fall from where they stood.
+	[[nodiscard]] std::expected<void, FPhysicsError> RestoreBonds(std::size_t ObjectIndex, const std::vector<bool>& Intact);
 	// Impacts since the previous call, in step order; contacts report for Dynamic level bodies, spawned bodies that ask, and destructibles.
 	std::vector<FLevelImpactEvent> TakeImpactEvents();
 
