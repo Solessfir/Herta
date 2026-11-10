@@ -7,6 +7,7 @@
 #include "Herta/Math/AffineTransform.h"
 #include "CharacterPiece.h"
 #include "GameAudio.h"
+#include "GameNavigation.h"
 #include "PlayerCharacter.h"
 #include "WorldStreamer.h"
 
@@ -240,6 +241,9 @@ struct FGameSession::FImplementation
 	std::vector<std::string> Warnings{};
 
 	FLevelSimulation Simulation{};
+	// The setup the simulation last started from, which navigation rebuilds its obstacles from.
+	FLevelSimulationSetup Setup{};
+	FGameNavigation Navigation{};
 	// Chunk meshes per destructible, built once: fractures are deterministic, so every restart produces the same chunks.
 	std::map<std::size_t, std::vector<std::shared_ptr<const FRenderMesh>>> ChunkMeshes{};
 	std::shared_ptr<const FRenderMesh> ProjectileMesh{};
@@ -542,7 +546,7 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 std::expected<void, FGameError> FGameSession::FImplementation::Start()
 {
 	Simulation.Stop();
-	const FLevelSimulationSetup Setup = BuildLevelSimulation(Entities, AuthoredWorld, BoundsMeshes);
+	Setup = BuildLevelSimulation(Entities, AuthoredWorld, BoundsMeshes);
 	for (const std::string& Warning : Setup.Warnings)
 	{
 		if (!std::ranges::contains(Warnings, Warning))
@@ -640,6 +644,11 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 
 			Region.Group = *Group;
 		}
+	}
+
+	if (auto Navigated = Navigation.Start(Entities, AuthoredWorld, Setup); !Navigated)
+	{
+		return Navigated;
 	}
 
 	Objective.State = StartZone && FinishZone ? EGameObjectiveState::Ready : EGameObjectiveState::Exploring;
@@ -894,7 +903,13 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 			return Stepped;
 		}
 
-		return Session.StepCharacters(World, StepSeconds);
+		if (auto Stepped = Session.StepCharacters(World, StepSeconds); !Stepped)
+		{
+			return Stepped;
+		}
+
+		Session.Navigation.Step(Session.Simulation, StepSeconds);
+		return std::expected<void, FPhysicsError>{};
 	});
 
 	if (!Updated)
@@ -1999,9 +2014,9 @@ std::expected<void, FGameError> FGameSession::FImplementation::ActivateRegion(co
 		Warnings.push_back(std::format("Region '{}' streams only static meshes, local lights, and static bodies; {} entities left out", Placement.Name, Skipped));
 	}
 
-	const FLevelSimulationSetup Setup = BuildLevelSimulation(RegionEntities, Region.World, Region.Meshes);
+	const FLevelSimulationSetup RegionSetup = BuildLevelSimulation(RegionEntities, Region.World, Region.Meshes);
 	Region.Bodies.clear();
-	for (const FLevelSimulationBody& RegionBody : Setup.Bodies)
+	for (const FLevelSimulationBody& RegionBody : RegionSetup.Bodies)
 	{
 		if (RegionBody.ObjectIndex < Count && IsLevelRegionScenery(RegionEntities[RegionBody.ObjectIndex]) && RegionBody.MotionType == EPhysicsMotionType::Static && !RegionBody.Mover && !RegionBody.bTrigger)
 		{
@@ -2021,6 +2036,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::ActivateRegion(co
 	}
 
 	Region.bActive = true;
+	Navigation.ActivateRegion(Placement.Id);
 	Events.push_back(std::format("Region '{}' streamed in", Placement.Name));
 	return {};
 }
@@ -2043,6 +2059,7 @@ void FGameSession::FImplementation::UnloadRegion(const std::size_t Region)
 		Found->Loaded.Release();
 	}
 
+	Navigation.UnloadRegion(Streamer.GetRegions()[Region].Id);
 	Events.push_back(std::format("Region '{}' streamed out", Streamer.GetRegions()[Region].Name));
 	StreamedRegions.erase(Found);
 }
@@ -2061,10 +2078,24 @@ void FGameSession::SetRegions(const std::span<const FLevelRegion> Regions, FRegi
 		{
 			Region.Loaded.Release();
 		}
+
+		Session.Navigation.UnloadRegion(Session.Streamer.GetRegions()[Region.Region].Id);
 	}
 
 	Session.StreamedRegions.clear();
 	Session.Streamer.Configure({Regions.begin(), Regions.end()}, std::move(Loader), Session.Tasks);
+}
+
+std::expected<void, FGameError> FGameSession::SetNavigation(std::shared_ptr<const FNavigationFile> Navigation)
+{
+	FImplementation& Session = *Implementation;
+	Session.Navigation.SetData(std::move(Navigation));
+	return Session.Navigation.Start(Session.Entities, Session.AuthoredWorld, Session.Setup);
+}
+
+const FNavigationWorld* FGameSession::GetNavigation() const noexcept
+{
+	return Implementation->Navigation.GetWorld();
 }
 
 FRegionStats FGameSession::GetRegionStats() const

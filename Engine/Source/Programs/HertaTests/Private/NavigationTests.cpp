@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cmath>
+#include <set>
 
 namespace Herta
 {
@@ -321,5 +322,81 @@ TEST_CASE("Navigation crowds steer agents past each other and rejoin streamed na
 	Run(*Streamed, Agents, 600);
 	CHECK(Streamed->GetAgent(*Waiting)->bOnNavigation);
 	CHECK(Streamed->GetAgent(*Waiting)->bArrived);
+}
+TEST_CASE("Levels build navigation from static bodies, with region tiles streaming as patches")
+{
+	constexpr FAssetId Cube{0x1111, 0x2222};
+	const FNavigationMeshBounds Bounds = [Cube](const FAssetId& Mesh) -> std::optional<FNavigationBox>
+	{
+		return Mesh == Cube ? std::optional{FNavigationBox{.Minimum = {-0.5f, -0.5f, -0.5f}, .Maximum = {0.5f, 0.5f, 0.5f}}} : std::nullopt;
+	};
+
+	// A 20 m floor slab with a crate on it, a dynamic ball navigation must ignore, and bounds around the floor.
+	const auto Floor = [&](const FObjectId Id, const FVector3d& Center)
+	{
+		return FLevelEntity{.Id = Id, .Name = "Floor", .Transform = {.Translation = FWorldPosition{Center}, .Scale = {20.f, 1.f, 20.f}}, .Mesh = FStaticMeshComponent{.Asset = Cube}, .BodyType = ELevelBodyType::Static};
+	};
+
+	FLevelDocument Level{.Id = FObjectId{1, 1}, .Name = "Navigation"};
+	Level.Entities.push_back(Floor(FObjectId{1, 2}, {0., -0.5, 0.}));
+	Level.Entities.push_back({.Id = FObjectId{1, 3}, .Name = "Crate", .Transform = {.Translation = FWorldPosition{{3., 1., 0.}}, .Scale = {2.f, 2.f, 2.f}}, .Mesh = FStaticMeshComponent{.Asset = Cube}, .BodyType = ELevelBodyType::Static});
+	Level.Entities.push_back({.Id = FObjectId{1, 4}, .Name = "Ball", .Transform = {.Translation = FWorldPosition{{-3., 1., 0.}}, .Scale = {2.f, 2.f, 2.f}}, .Mesh = FStaticMeshComponent{.Asset = Cube}, .BodyType = ELevelBodyType::Dynamic});
+	Level.Entities.push_back({.Id = FObjectId{1, 5}, .Name = "Bounds", .NavigationBounds = FNavigationBoundsComponent{.Size = {20.f, 6.f, 20.f}}});
+
+	// A region with its own floor and bounds, placed so its floor continues the level's to the east.
+	FLevelDocument Placed{.Id = FObjectId{2, 1}, .Name = "Region"};
+	Placed.Entities.push_back(Floor(FObjectId{2, 2}, {0., -0.5, 0.}));
+	Placed.Entities.push_back({.Id = FObjectId{2, 3}, .Name = "Bounds", .NavigationBounds = FNavigationBoundsComponent{.Size = {20.f, 6.f, 20.f}}});
+	Level.Regions.push_back({.Id = FObjectId{3, 1}, .Name = "East", .Level = "Region.hlevel", .Offset = FWorldPosition{{20., 0., 0.}}});
+
+	const auto Geometry = BuildLevelNavigationGeometry(Level.Entities, std::vector<FMatrix4>{FMatrix4{}, FMatrix4{}, FMatrix4{}, FMatrix4{}}, Bounds);
+	CHECK(Geometry.Indices.size() == 2 * 36);
+
+	const std::array<std::optional<FLevelDocument>, 1> Regions{Placed};
+	const auto File = BuildLevelNavigation(Level, Regions, Bounds);
+	REQUIRE(File);
+	REQUIRE(*File);
+	REQUIRE((*File)->Patches.size() == 1);
+	CHECK((*File)->Patches[0].Key == GetRegionNavigationKey(FObjectId{3, 1}));
+	CHECK(!(*File)->Base.Layers.empty());
+	CHECK(!(*File)->Patches[0].Data.Layers.empty());
+
+	// Each tile belongs to the level or the region, never both.
+	std::set<std::pair<std::int32_t, std::int32_t>> BaseTiles;
+	for (const FNavigationLayer& Layer : (*File)->Base.Layers)
+	{
+		BaseTiles.emplace(Layer.TileX, Layer.TileZ);
+	}
+
+	for (const FNavigationLayer& Layer : (*File)->Patches[0].Data.Layers)
+	{
+		CHECK(!BaseTiles.contains({Layer.TileX, Layer.TileZ}));
+	}
+
+	auto World = MakeWorld();
+	REQUIRE(World->AddData((*File)->Base));
+	const FVector3 Start{-8.f, 0.f, -8.f};
+	const FVector3 Goal{25.f, 0.f, 5.f};
+	const auto Before = World->FindPath(Start, Goal);
+	CHECK((!Before || Before->bPartial));
+
+	const auto Region = World->AddData((*File)->Patches[0].Data);
+	REQUIRE(Region);
+	const auto Joined = World->FindPath(Start, Goal);
+	REQUIRE(Joined);
+	CHECK(!Joined->bPartial);
+	CHECK(Joined->Points.back().IsNearlyEqual(Goal, 0.3f));
+
+	// The crate is solid, so a path through where it stands goes around it.
+	const auto Around = World->FindPath({0.f, 0.f, 0.f}, {6.f, 0.f, 0.f});
+	REQUIRE(Around);
+	CHECK(PathLength(*Around) > 6.5f);
+
+	// Rebuilding the same level gives the same bytes.
+	const auto Again = BuildLevelNavigation(Level, Regions, Bounds);
+	REQUIRE(Again);
+	REQUIRE(*Again);
+	CHECK(SerializeNavigationFile(**Again) == SerializeNavigationFile(**File));
+	CHECK(!*BuildLevelNavigation(FLevelDocument{.Id = FObjectId{9, 9}, .Name = "Empty"}, {}, Bounds));
 }
 }

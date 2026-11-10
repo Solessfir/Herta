@@ -13,6 +13,7 @@
 #include "Herta/GameFramework/VisualEnvironment.h"
 #include "Herta/GameUI/GameUI.h"
 #include "Herta/Level/LevelSerialization.h"
+#include "Herta/Navigation/NavigationWorld.h"
 #include "Herta/NvrhiVulkan/NvrhiVulkan.h"
 #include "Herta/Platform/FileSystem.h"
 #include "Herta/Platform/Platform.h"
@@ -521,6 +522,23 @@ int RunGame(const FGameOptions& Options)
 	// Without a device the game still plays, with the same commands going to the null path.
 	Session->SetLevelSounds(Level->Sounds);
 	Session->SetRegions(Level->Regions, MakeStagedRegionLoader(Project->StartingLevel, Content, *Assets, Device));
+	// Staging cooks the level's navigation beside it; a level without Navigation Bounds has none.
+	std::filesystem::path NavigationPath = Project->StartingLevel;
+	NavigationPath.replace_extension(NavigationDataExtension);
+	if (std::ifstream NavigationFile(NavigationPath, std::ios::binary); NavigationFile)
+	{
+		const std::vector<char> Bytes{std::istreambuf_iterator<char>(NavigationFile), std::istreambuf_iterator<char>()};
+		auto Navigation = ParseNavigationFile(std::as_bytes(std::span(Bytes)));
+		const auto Loaded = Navigation ? Session->SetNavigation(std::make_shared<const FNavigationFile>(std::move(*Navigation))) : std::unexpected(FGameError{Navigation.error().Message});
+		if (Loaded)
+		{
+			HERTA_LOG_INFO(*Log, GameLog, "Navigation loaded with {} polygons", Session->GetNavigation() ? Session->GetNavigation()->GetStats().Polygons : 0);
+		}
+		else
+		{
+			HERTA_LOG_WARNING(*Log, GameLog, "Agents have no navigation: {}", Loaded.error().Message);
+		}
+	}
 	std::unique_ptr<FAudioEngine> Audio;
 	if (auto AudioResult = FAudioEngine::Create({.Device = bSmokeTest ? EAudioDevice::Null : EAudioDevice::Default}); AudioResult)
 	{

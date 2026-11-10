@@ -74,8 +74,7 @@ struct FNavigationData
 	std::vector<FNavigationLayer> Layers{};
 };
 
-// Tiles that cover a level's own tiles while something they belong to is loaded, such as a streamed region's ground built together with the
-// level around it, so walkable ground meets across the seam. Key identifies what they belong to.
+// Tiles that load and unload with something a level places, such as a streamed region, which Key identifies.
 struct FNavigationPatch
 {
 	bool operator==(const FNavigationPatch&) const = default;

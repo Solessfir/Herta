@@ -347,7 +347,7 @@ HertaRuntimeModule("GameUI", {
     externalincludedirs { path.join(RepositoryRoot, "External/freetype/include") }
 
 HertaRuntimeModule("GameFramework", {
-    PublicDependencies = { "Core", "Math", "Application", "Assets", "Audio", "Level", "Particles", "Physics", "RHI", "Renderer", "GameUI" },
+    PublicDependencies = { "Core", "Math", "Application", "Assets", "Audio", "Level", "Navigation", "Particles", "Physics", "RHI", "Renderer", "GameUI" },
     PrivateDependencies = { "Tasks", "Animation", "Platform" }
 })
 
@@ -365,7 +365,7 @@ HertaRuntimeModule("Particles", {
 -- Builds navigation tiles with Recast for the editor, headless commands, and tests; games load the cooked tiles through Navigation.
 HertaRuntimeModule("NavigationBuilder", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/NavigationBuilder"),
-    PublicDependencies = { "Core", "Math", "Navigation" },
+    PublicDependencies = { "Core", "Math", "Assets", "Level", "Navigation" },
     PrivateDependencies = { "Tasks" },
     PrivateThirdPartyDependencies = { "Recast", "Detour" }
 })
@@ -403,8 +403,8 @@ HertaRuntimeModule("VfxGraph", {
 
 HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
-    PublicDependencies = { "Core", "Assets", "EditorCore" },
-    PrivateDependencies = { "Platform", "Level", "Project", "Math", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "Audio", "Animation" },
+    PublicDependencies = { "Core", "Assets", "EditorCore", "Level", "Math", "Navigation", "NavigationBuilder" },
+    PrivateDependencies = { "Platform", "Project", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "Audio", "Animation" },
     PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer", "OzzAnimationOffline", "OzzAnimation", "OzzBase" }
 })
     externalincludedirs {
@@ -425,7 +425,7 @@ HertaEditorModule("GraphEditor", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
-    PrivateDependencies = { "Application", "Audio", "AudioGraph", "VfxGraph", "Particles", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
+    PrivateDependencies = { "Application", "Audio", "AudioGraph", "VfxGraph", "Navigation", "NavigationBuilder", "Particles", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d", "SimdJson" }
 })
 

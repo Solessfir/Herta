@@ -9,7 +9,10 @@
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/AssetPipeline/GameStaging.h"
 #include "Herta/AssetPipeline/MaterialShaderCompiler.h"
+#include "Herta/AssetPipeline/NavigationCook.h"
 #include "Herta/Assets/CookedContent.h"
+#include "Herta/Level/LevelSerialization.h"
+#include "Herta/Project/Project.h"
 
 #include <format>
 #include <optional>
@@ -436,6 +439,64 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			}
 
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Compiled {}: {} nodes, {} waves, inputs: {}", Arguments[0], Compiled->Graph.Nodes.size(), GetSoundGraphWaves(Compiled->Graph).size(), Inputs.empty() ? "none" : Inputs)};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "nav.build",
+		    .Description = "Build a project level's navigation, with its regions' tiles, into a .hnav file",
+		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			if (Arguments.size() < 2 || Arguments.size() > 3)
+			{
+				return UsageError("nav.build <project.hertaproject> <output.hnav> [<level.hlevel>]");
+			}
+
+			const auto Project = LoadProject(Utf8ToPath(Arguments[0]));
+			if (!Project)
+			{
+				return ExecutionError(FAssetError{std::format("Cannot load project: {}", Project.error().Message)});
+			}
+
+			const std::filesystem::path LevelPath = Arguments.size() == 3 ? Utf8ToPath(Arguments[2]) : Project->StartingLevel;
+			const auto Level = LoadLevel(LevelPath);
+			if (!Level)
+			{
+				return ExecutionError(FAssetError{std::format("Cannot load {}: {}", GenericPathToUtf8(LevelPath), Level.error().Message)});
+			}
+
+			const auto Navigation = CookLevelNavigation(*Level, {
+			                                                        .LevelPath = LevelPath,
+			                                                        .EngineContentRoot = Options.EngineContentRoot,
+			                                                        .GameContentRoot = Project->ContentRoot,
+			                                                        .DerivedDataRoot = Options.DerivedDataRoot,
+			                                                        .WorkerPath = Options.WorkerPath,
+			                                                        .TargetPlatform = Options.TargetPlatform,
+			                                                    });
+			if (!Navigation)
+			{
+				return ExecutionError(Navigation.error());
+			}
+
+			if (!*Navigation)
+			{
+				return ExecutionError(FAssetError{std::format("{} and its regions have no Navigation Bounds", GenericPathToUtf8(LevelPath))});
+			}
+
+			if (auto Written = WriteFileAtomically(Utf8ToPath(Arguments[1]), SerializeNavigationFile(**Navigation)); !Written)
+			{
+				return ExecutionError(Written.error());
+			}
+
+			std::size_t PatchLayers = 0;
+			for (const FNavigationPatch& Patch : (*Navigation)->Patches)
+			{
+				PatchLayers += Patch.Data.Layers.size();
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Built navigation for {}: {} level layers and {} region patches with {} layers", GenericPathToUtf8(LevelPath), (*Navigation)->Base.Layers.size(), (*Navigation)->Patches.size(), PatchLayers)};
 		}});
 	}
 

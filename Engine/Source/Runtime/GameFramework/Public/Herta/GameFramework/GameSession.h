@@ -8,6 +8,7 @@
 #include "Herta/GameFramework/LevelSimulation.h"
 #include "Herta/Level/World.h"
 #include "Herta/Math/Vector.h"
+#include "Herta/Navigation/NavigationData.h"
 #include "Herta/RHI/Presentation.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Renderer/Visuals.h"
@@ -24,6 +25,7 @@
 
 namespace Herta
 {
+class FNavigationWorld;
 class IGameAssets;
 class IGraphicsDevice;
 
@@ -251,6 +253,11 @@ public:
 	// static bodies; it keeps them across restarts while the player stays near.
 	void SetRegions(std::span<const FLevelRegion> Regions, FRegionLoader Loader);
 	[[nodiscard]] FRegionStats GetRegionStats() const;
+	// The level's cooked navigation, with its regions' patches, which agents walk from the next start; empty leaves the level without
+	// navigation. Restarts the navigation, as a restart would.
+	[[nodiscard]] std::expected<void, FGameError> SetNavigation(std::shared_ptr<const FNavigationFile> Navigation);
+	// Loaded navigation, for debug drawing and queries; null without any.
+	[[nodiscard]] const FNavigationWorld* GetNavigation() const noexcept;
 	// What the session asked audio to do since the previous call. A host with a device submits them; a headless session records the same
 	// commands, so tests compare them without one.
 	[[nodiscard]] std::vector<FAudioCommand> TakeAudioCommands();

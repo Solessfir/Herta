@@ -4,6 +4,7 @@
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/AssetPipeline/MaterialShaderCompiler.h"
+#include "Herta/AssetPipeline/NavigationCook.h"
 #include "Herta/Assets/CookedContent.h"
 #include "Herta/Level/LevelSerialization.h"
 #include "Herta/Project/Project.h"
@@ -276,6 +277,8 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 
 	FGameStageResult Result{.ProjectPath = StagedProjectPath};
 	std::set<FStagedKey> Staged;
+	// Bounds of every staged model, which the level's navigation fits its static bodies to.
+	std::map<FAssetId, FNavigationBox> ModelBounds;
 	std::set<std::string> StagedShaders;
 	while (!Pending.empty())
 	{
@@ -346,6 +349,11 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 			}
 		}
 
+		if (const auto* const Model = std::get_if<FCookedModel>(&*Asset))
+		{
+			ModelBounds.emplace(Key.first, GetCookedModelBounds(*Model));
+		}
+
 		const bool bTexture = std::holds_alternative<FCookedTexture>(*Asset);
 		if (bTexture != Key.second.has_value())
 		{
@@ -393,6 +401,29 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 		}
 
 		Result.Bytes += Bytes->size();
+	}
+
+	// Navigation is cooked here rather than kept in source, so a staged game always walks the level as it was staged.
+	const auto Navigation = BuildLevelNavigation(*Level, LoadLevelRegions(*Level, Project->StartingLevel), [&ModelBounds](const FAssetId& Mesh) -> std::optional<FNavigationBox>
+	{
+		const auto Found = ModelBounds.find(Mesh);
+		return Found != ModelBounds.end() ? std::optional{Found->second} : std::nullopt;
+	});
+
+	if (!Navigation)
+	{
+		return StageError(std::format("Cannot build the starting level's navigation: {}", Navigation.error().Message));
+	}
+
+	if (*Navigation)
+	{
+		const std::vector<std::byte> Bytes = SerializeNavigationFile(**Navigation);
+		if (auto Written = WriteFileAtomically(GetLevelNavigationPath(StagedLevelPath), Bytes); !Written)
+		{
+			return std::unexpected(Written.error());
+		}
+
+		Result.Bytes += Bytes.size();
 	}
 
 	std::error_code Error;
