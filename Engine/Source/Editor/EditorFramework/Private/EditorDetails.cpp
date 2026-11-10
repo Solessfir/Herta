@@ -72,6 +72,59 @@ void FEditorFramework::FImplementation::DrawPlayerCharacterPicker(const float Va
 	}
 }
 
+void FEditorFramework::FImplementation::DrawLevelSoundPickers(const float ValueWidth)
+{
+	if (!Level || !Assets)
+	{
+		return;
+	}
+
+	for (std::size_t Cue = 0; Cue < LevelSoundCues.size(); ++Cue)
+	{
+		const FAssetId Current = Level->GetSounds()[Cue];
+		std::string CurrentLabel = Current.IsValid() ? "Missing sound" : "None";
+		for (std::size_t Option = 0; Option < SoundIds.size(); ++Option)
+		{
+			if (SoundIds[Option] == Current)
+			{
+				CurrentLabel = SoundLabels[Option];
+			}
+		}
+
+		ImGui::PushID(static_cast<int>(Cue));
+		DrawFieldLabel(LevelSoundCues[Cue].Label.data(), ValueWidth);
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		std::optional<FAssetId> Chosen;
+		if (ImGui::BeginCombo("##Sound", CurrentLabel.c_str()))
+		{
+			if (ImGui::Selectable("None", !Current.IsValid()) && Current.IsValid())
+			{
+				Chosen = FAssetId{};
+			}
+
+			for (std::size_t Option = 0; Option < SoundIds.size(); ++Option)
+			{
+				if (ImGui::Selectable(SoundLabels[Option].c_str(), SoundIds[Option] == Current) && SoundIds[Option] != Current)
+				{
+					Chosen = SoundIds[Option];
+				}
+			}
+
+			ImGui::EndCombo();
+		}
+
+		ImGui::SetItemTooltip("Saved with the level. Play plays this sound or Audio Graph for the event");
+		ImGui::PopID();
+		if (Chosen)
+		{
+			if (const auto Changed = Level->SetSound(static_cast<ELevelSound>(Cue), *Chosen); !Changed)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not change the {} sound: {}", LevelSoundCues[Cue].Label, Changed.error().Message);
+			}
+		}
+	}
+}
+
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	FPreviewObject PreviousObject = GetActivePreviewObject();
@@ -79,13 +132,13 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();
-	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels};
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels, .SoundIds = SoundIds, .SoundLabels = SoundLabels};
 	std::vector<FDetailsMaterialSlot> MaterialSlots;
 	std::vector<FAssetId> MaterialIds;
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 9> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 11> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -155,6 +208,8 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(6, ELevelComponentType::Constraint, Entity->Constraint.has_value(), Components.bAnyConstraint, Components.bAllConstraint, Components.MixedConstraint);
 			Aggregate(7, ELevelComponentType::Destructible, Entity->Destructible.has_value(), Components.bAnyDestructible, Components.bAllDestructible, Components.MixedDestructible);
 			Aggregate(8, ELevelComponentType::Character, Entity->Character.has_value(), Components.bAnyCharacter, Components.bAllCharacter, Components.MixedCharacter);
+			Aggregate(9, ELevelComponentType::AudioEmitter, Entity->AudioEmitter.has_value(), Components.bAnyAudioEmitter, Components.bAllAudioEmitter, Components.MixedAudioEmitter);
+			Aggregate(10, ELevelComponentType::AudioListener, Entity->AudioListener.has_value(), Components.bAnyAudioListener, Components.bAllAudioListener, Components.MixedAudioListener);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -259,6 +314,16 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[8])
 	{
 		Components.Character = *VisualBaselines[8]->Character;
+	}
+
+	if (VisualBaselines[9])
+	{
+		Components.AudioEmitter = *VisualBaselines[9]->AudioEmitter;
+	}
+
+	if (VisualBaselines[10])
+	{
+		Components.AudioListener = *VisualBaselines[10]->AudioListener;
 	}
 
 	if (VisualBaselines[5])
@@ -525,6 +590,18 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveCharacter:
 				ReportLevelResult(Level->SetSelectedCharacter(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddAudioEmitter:
+				ReportLevelResult(Level->AddAudioEmitterToSelected());
+				break;
+			case EDetailsComponentAction::RemoveAudioEmitter:
+				ReportLevelResult(Level->SetSelectedAudioEmitter(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddAudioListener:
+				ReportLevelResult(Level->AddAudioListenerToSelected());
+				break;
+			case EDetailsComponentAction::RemoveAudioListener:
+				ReportLevelResult(Level->SetSelectedAudioListener(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;

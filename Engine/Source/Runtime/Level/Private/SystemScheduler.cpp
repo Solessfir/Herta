@@ -49,7 +49,9 @@ ELevelComponent PresentComponents(const FLevelEntity& Entity)
 	       | (Entity.Trigger ? ELevelComponent::Trigger : ELevelComponent::None)
 	       | (Entity.Constraint ? ELevelComponent::Constraint : ELevelComponent::None)
 	       | (Entity.Destructible ? ELevelComponent::Destructible : ELevelComponent::None)
-	       | (Entity.Character ? ELevelComponent::Character : ELevelComponent::None);
+	       | (Entity.Character ? ELevelComponent::Character : ELevelComponent::None)
+	       | (Entity.AudioEmitter ? ELevelComponent::AudioEmitter : ELevelComponent::None)
+	       | (Entity.AudioListener ? ELevelComponent::AudioListener : ELevelComponent::None);
 }
 
 FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Entity, const ELevelComponent Components)
@@ -109,6 +111,16 @@ FLevelQueryEntity ProjectEntity(const FEntityId Handle, const FLevelEntity& Enti
 	if (HasLevelComponents(Components, ELevelComponent::Destructible))
 	{
 		Result.Destructible = Entity.Destructible;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::AudioEmitter))
+	{
+		Result.AudioEmitter = Entity.AudioEmitter;
+	}
+
+	if (HasLevelComponents(Components, ELevelComponent::AudioListener))
+	{
+		Result.AudioListener = Entity.AudioListener;
 	}
 
 	if (HasLevelComponents(Components, ELevelComponent::Character))
@@ -289,7 +301,9 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	                               | (Update.Trigger ? ELevelComponent::Trigger : ELevelComponent::None)
 	                               | (Update.Constraint ? ELevelComponent::Constraint : ELevelComponent::None)
 	                               | (Update.Destructible ? ELevelComponent::Destructible : ELevelComponent::None)
-	                               | (Update.Character ? ELevelComponent::Character : ELevelComponent::None);
+	                               | (Update.Character ? ELevelComponent::Character : ELevelComponent::None)
+	                               | (Update.AudioEmitter ? ELevelComponent::AudioEmitter : ELevelComponent::None)
+	                               | (Update.AudioListener ? ELevelComponent::AudioListener : ELevelComponent::None);
 	const auto Allowed = CheckAccess({.Write = Writes});
 	if (!Allowed)
 	{
@@ -327,7 +341,9 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	                         || (Update.Trigger && Update.Trigger->has_value() != Candidate.Trigger.has_value())
 	                         || (Update.Constraint && Update.Constraint->has_value() != Candidate.Constraint.has_value())
 	                         || (Update.Destructible && Update.Destructible->has_value() != Candidate.Destructible.has_value())
-	                         || (Update.Character && Update.Character->has_value() != Candidate.Character.has_value());
+	                         || (Update.Character && Update.Character->has_value() != Candidate.Character.has_value())
+	                         || (Update.AudioEmitter && Update.AudioEmitter->has_value() != Candidate.AudioEmitter.has_value())
+	                         || (Update.AudioListener && Update.AudioListener->has_value() != Candidate.AudioListener.has_value());
 	if (bStructural && !Implementation.Descriptor.bStructuralChanges)
 	{
 		return Fail("System attempted undeclared structural mutation");
@@ -392,6 +408,16 @@ std::expected<void, FLevelError> FLevelSystemContext::UpdateEntity(const FEntity
 	if (Update.Character)
 	{
 		Candidate.Character = *Update.Character;
+	}
+
+	if (Update.AudioEmitter)
+	{
+		Candidate.AudioEmitter = *Update.AudioEmitter;
+	}
+
+	if (Update.AudioListener)
+	{
+		Candidate.AudioListener = *Update.AudioListener;
 	}
 
 	if (Update.Trigger)

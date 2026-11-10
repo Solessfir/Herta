@@ -12,9 +12,9 @@ namespace Herta
 TEST_CASE("Level descriptors register stable built-in component and property identities")
 {
 	const auto Components = GetLevelComponentDescriptors();
-	REQUIRE(Components.size() == 12);
-	const std::array<std::string_view, 12> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody", "Herta.Level.Light", "Herta.Level.SkyAtmosphere", "Herta.Level.HeightFog", "Herta.Level.SoftBody", "Herta.Level.Mover", "Herta.Level.Trigger", "Herta.Level.Constraint", "Herta.Level.Destructible", "Herta.Level.Character"};
-	const std::array<std::string_view, 12> Keys{"transform", "staticMesh", "body", "light", "skyAtmosphere", "heightFog", "softBody", "mover", "trigger", "constraint", "destructible", "character"};
+	REQUIRE(Components.size() == 14);
+	const std::array<std::string_view, 14> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody", "Herta.Level.Light", "Herta.Level.SkyAtmosphere", "Herta.Level.HeightFog", "Herta.Level.SoftBody", "Herta.Level.Mover", "Herta.Level.Trigger", "Herta.Level.Constraint", "Herta.Level.Destructible", "Herta.Level.Character", "Herta.Level.AudioEmitter", "Herta.Level.AudioListener"};
+	const std::array<std::string_view, 14> Keys{"transform", "staticMesh", "body", "light", "skyAtmosphere", "heightFog", "softBody", "mover", "trigger", "constraint", "destructible", "character", "audioEmitter", "audioListener"};
 
 	for (std::size_t Index = 0; Index < Components.size(); ++Index)
 	{
@@ -120,13 +120,13 @@ TEST_CASE("Level serialization consumes every registered built-in property key")
 	const FLevelDocument Document{
 	    .Id = FObjectId{1, 1},
 	    .Name = "Descriptors",
-	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}, .Constraint = FConstraintComponent{}, .Destructible = FDestructibleComponent{}, .Character = FCharacterComponent{}}},
+	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}, .Constraint = FConstraintComponent{}, .Destructible = FDestructibleComponent{}, .Character = FCharacterComponent{}, .AudioEmitter = FAudioEmitterComponent{}, .AudioListener = FAudioListenerComponent{}}},
 	};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
 	// Each older schema rejects the newest component it does not know.
-	CHECK(Text->find("\"engineSchemaVersion\": 12") != std::string::npos);
-	CHECK_FALSE(ParseLevel(std::string(*Text).replace(Text->find("\"engineSchemaVersion\": 12"), 25, "\"engineSchemaVersion\": 11")));
+	CHECK(Text->find("\"engineSchemaVersion\": 13") != std::string::npos);
+	CHECK_FALSE(ParseLevel(std::string(*Text).replace(Text->find("\"engineSchemaVersion\": 13"), 25, "\"engineSchemaVersion\": 12")));
 
 	for (const auto& Component : GetLevelComponentDescriptors())
 	{

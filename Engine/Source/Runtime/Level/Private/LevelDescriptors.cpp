@@ -279,6 +279,52 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		}
 	}
 
+	if (Type == ELevelComponentType::AudioEmitter && Entity.AudioEmitter)
+	{
+		if (Key == "sound")
+		{
+			return Visitor(Entity.AudioEmitter->Sound);
+		}
+
+		if (Key == "volume")
+		{
+			return Visitor(Entity.AudioEmitter->Volume);
+		}
+
+		if (Key == "pitch")
+		{
+			return Visitor(Entity.AudioEmitter->Pitch);
+		}
+
+		if (Key == "autoPlay")
+		{
+			return Visitor(Entity.AudioEmitter->bAutoPlay);
+		}
+
+		if (Key == "spatial")
+		{
+			return Visitor(Entity.AudioEmitter->bSpatial);
+		}
+
+		if (Key == "minimumDistance")
+		{
+			return Visitor(Entity.AudioEmitter->MinimumDistance);
+		}
+
+		if (Key == "maximumDistance")
+		{
+			return Visitor(Entity.AudioEmitter->MaximumDistance);
+		}
+	}
+
+	if (Type == ELevelComponentType::AudioListener && Entity.AudioListener)
+	{
+		if (Key == "active")
+		{
+			return Visitor(Entity.AudioListener->bActive);
+		}
+	}
+
 	if (Type == ELevelComponentType::Mover && Entity.Mover)
 	{
 		if (Key == "offset")
@@ -330,6 +376,8 @@ constexpr FSoftBodyComponent SoftBodyDefaults{};
 constexpr FMoverComponent MoverDefaults{};
 constexpr FDestructibleComponent DestructibleDefaults{};
 constexpr FCharacterComponent CharacterDefaults{};
+constexpr FAudioEmitterComponent EmitterDefaults{};
+constexpr FAudioListenerComponent ListenerDefaults{};
 constexpr FTriggerComponent TriggerDefaults{};
 constexpr FConstraintComponent ConstraintDefaults{};
 
@@ -440,6 +488,20 @@ constexpr std::array CharacterProperties{
     FLevelPropertyDescriptor{.Key = "severImpulse", .Label = "Sever Impulse", .Default = CharacterDefaults.SeverImpulse, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 100000.}},
 };
 
+constexpr std::array AudioEmitterProperties{
+    FLevelPropertyDescriptor{.Key = "sound", .Label = "Sound", .Type = ELevelPropertyType::AssetReference, .Default = EmitterDefaults.Sound},
+    FLevelPropertyDescriptor{.Key = "volume", .Label = "Volume", .Default = EmitterDefaults.Volume, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 4.}},
+    FLevelPropertyDescriptor{.Key = "pitch", .Label = "Pitch", .Default = EmitterDefaults.Pitch, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 4.}},
+    FLevelPropertyDescriptor{.Key = "autoPlay", .Label = "Auto Play", .Type = ELevelPropertyType::Boolean, .Default = EmitterDefaults.bAutoPlay},
+    FLevelPropertyDescriptor{.Key = "spatial", .Label = "Spatial", .Type = ELevelPropertyType::Boolean, .Default = EmitterDefaults.bSpatial},
+    FLevelPropertyDescriptor{.Key = "minimumDistance", .Label = "Minimum Distance", .Unit = ELevelPropertyUnit::Meters, .Default = EmitterDefaults.MinimumDistance, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 1000.}},
+    FLevelPropertyDescriptor{.Key = "maximumDistance", .Label = "Maximum Distance", .Unit = ELevelPropertyUnit::Meters, .Default = EmitterDefaults.MaximumDistance, .Range = FLevelPropertyRange{.Minimum = 0.2, .Maximum = 10000.}},
+};
+
+constexpr std::array AudioListenerProperties{
+    FLevelPropertyDescriptor{.Key = "active", .Label = "Active", .Type = ELevelPropertyType::Boolean, .Default = ListenerDefaults.bActive},
+};
+
 constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Transform, .TypeId = "Herta.Level.Transform", .SerializationKey = "transform", .Label = "Transform", .Properties = TransformProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::StaticMesh, .TypeId = "Herta.Level.StaticMesh", .SerializationKey = "staticMesh", .Label = "Static Mesh", .Properties = MeshProperties},
@@ -453,6 +515,8 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Constraint, .TypeId = "Herta.Level.Constraint", .SerializationKey = "constraint", .Label = "Constraint", .Properties = ConstraintProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::Destructible, .TypeId = "Herta.Level.Destructible", .SerializationKey = "destructible", .Label = "Destructible", .Properties = DestructibleProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::Character, .TypeId = "Herta.Level.Character", .SerializationKey = "character", .Label = "Character", .Properties = CharacterProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::AudioEmitter, .TypeId = "Herta.Level.AudioEmitter", .SerializationKey = "audioEmitter", .Label = "Audio Emitter", .Properties = AudioEmitterProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::AudioListener, .TypeId = "Herta.Level.AudioListener", .SerializationKey = "audioListener", .Label = "Audio Listener", .Properties = AudioListenerProperties},
 };
 }
 
@@ -507,6 +571,11 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 	                   : Type == ELevelComponentType::Constraint    ? Validate(Candidate.Constraint, ValidateConstraintComponent)
 	                   : Type == ELevelComponentType::Destructible  ? Validate(Candidate.Destructible, ValidateDestructibleComponent)
 	                   : Type == ELevelComponentType::Character     ? Validate(Candidate.Character, ValidateCharacterComponent)
+	                   : Type == ELevelComponentType::AudioEmitter  ? Validate(Candidate.AudioEmitter, ValidateAudioEmitterComponent)
+	                   : Type == ELevelComponentType::AudioListener ? Validate(Candidate.AudioListener, [](const FAudioListenerComponent&) -> std::expected<void, FLevelError>
+	                                                                  {
+		                                                                  return {};
+	                                                                  })
 	                                                                : Validate(Candidate.HeightFog, ValidateHeightFogComponent);
 	if (!Valid)
 	{

@@ -24,6 +24,8 @@ enum class ELevelComponentType : std::uint8_t
 	Constraint,
 	Destructible,
 	Character,
+	AudioEmitter,
+	AudioListener,
 };
 
 enum class ELevelPropertyType : std::uint8_t

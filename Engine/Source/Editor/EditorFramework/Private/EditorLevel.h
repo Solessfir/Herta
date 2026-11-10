@@ -49,6 +49,9 @@ public:
 	const FAssetId& GetPlayerCharacter() const;
 	// The skinned model Play spawns as the player, saved with the level and undoable like other level settings.
 	[[nodiscard]] std::expected<void, FLevelError> SetPlayerCharacter(const FAssetId& Character);
+	const FLevelSounds& GetSounds() const;
+	// The sounds gameplay plays for its events, saved with the level and undoable like the player character.
+	[[nodiscard]] std::expected<void, FLevelError> SetSound(ELevelSound Cue, const FAssetId& Sound);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateMeshEntity(FAssetId Asset, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEmptyEntity(const FWorldPosition& Position = {});
@@ -77,6 +80,10 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedDestructible(std::optional<FDestructibleComponent> Destructible);
 	[[nodiscard]] std::expected<void, FLevelError> AddCharacterToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedCharacter(std::optional<FCharacterComponent> Character);
+	[[nodiscard]] std::expected<void, FLevelError> AddAudioEmitterToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedAudioEmitter(std::optional<FAudioEmitterComponent> Emitter);
+	[[nodiscard]] std::expected<void, FLevelError> AddAudioListenerToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedAudioListener(std::optional<FAudioListenerComponent> Listener);
 	[[nodiscard]] std::expected<void, FLevelError> AddTriggerToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedTrigger(std::optional<FTriggerComponent> Trigger);
 	[[nodiscard]] std::expected<void, FLevelError> AddConstraintToSelected();
@@ -132,6 +139,7 @@ private:
 	std::vector<FLevelCameraBookmark> CameraBookmarks;
 	float ExposureCompensation = 0.f;
 	FAssetId PlayerCharacter;
+	FLevelSounds Sounds{};
 	std::vector<FPreviewObject> Objects;
 	std::vector<FPreviewObject> AuthoredObjects;
 	std::uint64_t Generation = 1;

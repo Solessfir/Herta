@@ -341,6 +341,11 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			DrawPlayerCharacterPicker(ValueWidth);
 		}
 
+		if (Section("Sounds"))
+		{
+			DrawLevelSoundPickers(ValueWidth);
+		}
+
 		if (Section("Bookmarks"))
 		{
 			DrawCameraBookmarks(Scale);

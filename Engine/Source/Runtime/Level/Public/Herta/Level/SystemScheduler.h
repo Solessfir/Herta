@@ -24,7 +24,9 @@ enum class ELevelComponent : std::uint16_t
 	Constraint = 1 << 11,
 	Destructible = 1 << 12,
 	Character = 1 << 13,
-	All = (1 << 14) - 1,
+	AudioEmitter = 1 << 14,
+	AudioListener = 1 << 15,
+	All = (1 << 16) - 1,
 };
 
 constexpr ELevelComponent operator|(const ELevelComponent Left, const ELevelComponent Right)
@@ -87,6 +89,8 @@ struct FLevelQueryEntity
 	std::optional<FConstraintComponent> Constraint{};
 	std::optional<FDestructibleComponent> Destructible{};
 	std::optional<FCharacterComponent> Character{};
+	std::optional<FAudioEmitterComponent> AudioEmitter{};
+	std::optional<FAudioListenerComponent> AudioListener{};
 };
 
 struct FLevelComponentUpdate
@@ -106,6 +110,8 @@ struct FLevelComponentUpdate
 	std::optional<std::optional<FConstraintComponent>> Constraint{};
 	std::optional<std::optional<FDestructibleComponent>> Destructible{};
 	std::optional<std::optional<FCharacterComponent>> Character{};
+	std::optional<std::optional<FAudioEmitterComponent>> AudioEmitter{};
+	std::optional<std::optional<FAudioListenerComponent>> AudioListener{};
 };
 
 struct FLevelEvent

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <new>
@@ -457,11 +458,17 @@ TEST_CASE("The mixer stays consistent while another thread renders under command
 		}
 	}
 
-	Engine->Submit(FAudioStopAllCommand{.FadeSeconds = 0.f});
-	for (std::uint32_t Wait = 0; Wait < 1000 && Engine->GetStats().Voices > 0; ++Wait)
+	// The queue may be full of the burst above, so the stop repeats until a block has run with every voice gone.
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (std::chrono::steady_clock::now() < Deadline)
 	{
-		std::this_thread::yield();
+		Engine->Submit(FAudioStopAllCommand{.FadeSeconds = 0.f});
+		std::this_thread::sleep_for(std::chrono::milliseconds(2));
 		Engine->Update(0.f);
+		if (Engine->GetStats().Voices == 0)
+		{
+			break;
+		}
 	}
 
 	bRunning = false;
@@ -470,7 +477,7 @@ TEST_CASE("The mixer stays consistent while another thread renders under command
 	const FAudioStats Stats = Engine->GetStats();
 	MESSAGE(std::format("{} commands, {} dropped, {} started, {} stolen, {} rejected, {:.1f} us average and {:.1f} us peak per {:.0f} us block", Stats.CommandsSubmitted, Stats.CommandsDropped, Stats.VoicesStarted, Stats.VoicesStolen, Stats.VoicesRejected, Stats.BlockMicrosecondsAverage, Stats.BlockMicrosecondsPeak, Stats.BlockBudgetMicroseconds));
 	CHECK(Stats.Voices == 0);
-	CHECK(Stats.CommandsSubmitted == 50001);
+	CHECK(Stats.CommandsSubmitted > 50000);
 	CHECK(Stats.VoicesStarted > 1000);
 	for (std::uint32_t Voice = 1; Voice <= 97; ++Voice)
 	{

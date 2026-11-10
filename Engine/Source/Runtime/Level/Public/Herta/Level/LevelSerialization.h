@@ -2,6 +2,7 @@
 
 #include "Herta/Level/World.h"
 
+#include <array>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -40,6 +41,41 @@ struct FLevelCameraBookmark
 	float Pitch = 0.f;
 };
 
+// Sounds gameplay plays for its own events rather than from placed emitters, in the order of ELevelSound.
+enum class ELevelSound : std::uint8_t
+{
+	Footstep,
+	Land,
+	Jump,
+	Slide,
+	Impact,
+	Swing,
+	Slice,
+	Sever,
+	Objective,
+};
+
+struct FLevelSoundCue
+{
+	std::string_view Key;
+	std::string_view Label;
+};
+
+inline constexpr std::array LevelSoundCues{
+    FLevelSoundCue{.Key = "footstep", .Label = "Footstep"},
+    FLevelSoundCue{.Key = "land", .Label = "Land"},
+    FLevelSoundCue{.Key = "jump", .Label = "Jump"},
+    FLevelSoundCue{.Key = "slide", .Label = "Slide"},
+    FLevelSoundCue{.Key = "impact", .Label = "Impact"},
+    FLevelSoundCue{.Key = "swing", .Label = "Sword Swing"},
+    FLevelSoundCue{.Key = "slice", .Label = "Slice"},
+    FLevelSoundCue{.Key = "sever", .Label = "Sever"},
+    FLevelSoundCue{.Key = "objective", .Label = "Objective"},
+};
+
+// Invalid entries stay silent.
+using FLevelSounds = std::array<FAssetId, LevelSoundCues.size()>;
+
 struct FLevelDocument
 {
 	FObjectId Id;
@@ -51,6 +87,7 @@ struct FLevelDocument
 	float ExposureCompensation = 0.f;
 	// The skinned model the player plays as; invalid plays the bare capsule.
 	FAssetId PlayerCharacter{};
+	FLevelSounds Sounds{};
 };
 
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelCameraBookmarks(std::span<const FLevelCameraBookmark> Bookmarks);

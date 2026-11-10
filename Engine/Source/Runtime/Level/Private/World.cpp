@@ -228,6 +228,15 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		}
 	}
 
+	if (Entity.AudioEmitter)
+	{
+		const auto Valid = ValidateAudioEmitterComponent(*Entity.AudioEmitter);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
 	if (Entity.Trigger)
 	{
 		const auto Valid = ValidateTriggerComponent(*Entity.Trigger);
@@ -396,6 +405,18 @@ std::expected<void, FLevelError> ValidateDestructibleComponent(const FDestructib
 	    || !std::isfinite(Destructible.MassKg) || Destructible.MassKg < 0.1f || Destructible.MassKg > 1000000.f)
 	{
 		return std::unexpected(FLevelError{"Destructibles need 2 to 64 whole cells, a whole seed up to 100000, strength from 1 to 1000000 N*s, and mass from 0.1 to 1000000 kg"});
+	}
+
+	return {};
+}
+
+std::expected<void, FLevelError> ValidateAudioEmitterComponent(const FAudioEmitterComponent& Emitter)
+{
+	const bool bLevels = std::isfinite(Emitter.Volume) && Emitter.Volume >= 0.f && Emitter.Volume <= 4.f && std::isfinite(Emitter.Pitch) && Emitter.Pitch >= 0.1f && Emitter.Pitch <= 4.f;
+	const bool bDistances = std::isfinite(Emitter.MinimumDistance) && std::isfinite(Emitter.MaximumDistance) && Emitter.MinimumDistance >= 0.1f && Emitter.MaximumDistance > Emitter.MinimumDistance && Emitter.MaximumDistance <= 10000.f;
+	if (!bLevels || !bDistances)
+	{
+		return std::unexpected(FLevelError{"Audio emitters play at volumes from 0 to 4 and pitches from 0.1 to 4, between 0.1 m and 10 km with the maximum distance beyond the minimum"});
 	}
 
 	return {};
@@ -572,6 +593,8 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FConstraintComponent* Constraint = Registry.try_get<FConstraintComponent>(Entity);
 	const FDestructibleComponent* Destructible = Registry.try_get<FDestructibleComponent>(Entity);
 	const FCharacterComponent* Character = Registry.try_get<FCharacterComponent>(Entity);
+	const FAudioEmitterComponent* AudioEmitter = Registry.try_get<FAudioEmitterComponent>(Entity);
+	const FAudioListenerComponent* AudioListener = Registry.try_get<FAudioListenerComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -589,6 +612,8 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .Constraint = Constraint ? std::optional{*Constraint} : std::nullopt,
 	    .Destructible = Destructible ? std::optional{*Destructible} : std::nullopt,
 	    .Character = Character ? std::optional{*Character} : std::nullopt,
+	    .AudioEmitter = AudioEmitter ? std::optional{*AudioEmitter} : std::nullopt,
+	    .AudioListener = AudioListener ? std::optional{*AudioListener} : std::nullopt,
 	};
 }
 
@@ -671,6 +696,24 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FCharacterComponent>(Entity);
+	}
+
+	if (Snapshot.AudioEmitter)
+	{
+		Registry.emplace_or_replace<FAudioEmitterComponent>(Entity, *Snapshot.AudioEmitter);
+	}
+	else
+	{
+		Registry.remove<FAudioEmitterComponent>(Entity);
+	}
+
+	if (Snapshot.AudioListener)
+	{
+		Registry.emplace_or_replace<FAudioListenerComponent>(Entity, *Snapshot.AudioListener);
+	}
+	else
+	{
+		Registry.remove<FAudioListenerComponent>(Entity);
 	}
 
 	if (Snapshot.Trigger)

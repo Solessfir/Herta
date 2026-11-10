@@ -382,6 +382,8 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	ConstraintTargetLabels.clear();
 	EnvironmentIds.clear();
 	EnvironmentLabels.clear();
+	SoundIds.clear();
+	SoundLabels.clear();
 	VisualSettings.Atmosphere.reset();
 	VisualSettings.Fog.reset();
 	std::vector<FAssetId> Materials;
@@ -524,6 +526,11 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 			{
 				EnvironmentIds.push_back(Option.Id);
 				EnvironmentLabels.push_back(Option.Label);
+			}
+			else if (Option.Importer == "Sound" || Option.Importer == "AudioGraph")
+			{
+				SoundIds.push_back(Option.Id);
+				SoundLabels.push_back(Option.Label);
 			}
 		}
 	}

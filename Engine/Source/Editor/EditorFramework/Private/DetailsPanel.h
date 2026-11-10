@@ -40,7 +40,7 @@ struct FDetailsPanelState
 	std::array<char, 96> VisualReferenceSearch{};
 	std::array<char, 96> MaterialSearch{};
 	std::array<bool, 6> BodyPropertyWasMixed{};
-	std::array<bool, 55> VisualPropertyWasMixed{};
+	std::array<bool, 63> VisualPropertyWasMixed{};
 	int ComponentResult = 0;
 	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;
@@ -84,6 +84,10 @@ enum class EDetailsComponentAction
 	RemoveDestructible,
 	AddCharacter,
 	RemoveCharacter,
+	AddAudioEmitter,
+	RemoveAudioEmitter,
+	AddAudioListener,
+	RemoveAudioListener,
 };
 
 struct FDetailsMaterialSlot
@@ -141,6 +145,14 @@ struct FDetailsComponentField
 	bool bAllCharacter = false;
 	FCharacterComponent Character{};
 	std::array<bool, 2> MixedCharacter{};
+	bool bAnyAudioEmitter = false;
+	bool bAllAudioEmitter = false;
+	FAudioEmitterComponent AudioEmitter{};
+	std::array<bool, 7> MixedAudioEmitter{};
+	bool bAnyAudioListener = false;
+	bool bAllAudioListener = false;
+	FAudioListenerComponent AudioListener{};
+	std::array<bool, 1> MixedAudioListener{};
 	std::span<const FObjectId> SunIds{};
 	std::span<const std::string> SunLabels{};
 	// Meshed rigid bodies and ropes a constraint can join.
@@ -148,6 +160,8 @@ struct FDetailsComponentField
 	std::span<const std::string> ConstraintTargetLabels{};
 	std::span<const FAssetId> EnvironmentIds{};
 	std::span<const std::string> EnvironmentLabels{};
+	std::span<const FAssetId> SoundIds{};
+	std::span<const std::string> SoundLabels{};
 	std::span<const FDetailsMaterialSlot> MaterialSlots{};
 	std::span<const FAssetId> MaterialOptionIds{};
 	std::span<const std::string> MaterialOptionLabels{};

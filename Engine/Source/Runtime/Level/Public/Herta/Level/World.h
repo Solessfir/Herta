@@ -232,6 +232,30 @@ struct FCharacterComponent
 	float SeverImpulse = 25.f;
 };
 
+// Plays a sound or sound graph from the entity's position during Play. Auto-play emitters start with Play and loop or end as their sound does.
+struct FAudioEmitterComponent
+{
+	constexpr bool operator==(const FAudioEmitterComponent&) const = default;
+
+	FAssetId Sound{};
+	// Linear gain and playback rate on top of the sound's own.
+	float Volume = 1.f;
+	float Pitch = 1.f;
+	bool bAutoPlay = true;
+	// A spatial emitter pans and fades with distance from the listener; otherwise it plays at the same level everywhere.
+	bool bSpatial = true;
+	float MinimumDistance = 1.f;
+	float MaximumDistance = 30.f;
+};
+
+// Hears the level from the entity instead of the camera during Play, such as for a fixed camera. The active listener with the lowest ID wins.
+struct FAudioListenerComponent
+{
+	constexpr bool operator==(const FAudioListenerComponent&) const = default;
+
+	bool bActive = true;
+};
+
 // What a trigger means to gameplay. The player spawns in the Start zone, and the course runs from leaving it to entering a Finish zone.
 enum class ETriggerRole : std::uint8_t
 {
@@ -302,6 +326,8 @@ struct FLevelEntity
 	std::optional<FConstraintComponent> Constraint{};
 	std::optional<FDestructibleComponent> Destructible{};
 	std::optional<FCharacterComponent> Character{};
+	std::optional<FAudioEmitterComponent> AudioEmitter{};
+	std::optional<FAudioListenerComponent> AudioListener{};
 };
 
 struct FLevelEntityChange
@@ -326,6 +352,7 @@ struct FLevelError
 [[nodiscard]] std::expected<void, FLevelError> ValidateConstraintComponent(const FConstraintComponent& Constraint);
 [[nodiscard]] std::expected<void, FLevelError> ValidateDestructibleComponent(const FDestructibleComponent& Destructible);
 [[nodiscard]] std::expected<void, FLevelError> ValidateCharacterComponent(const FCharacterComponent& Character);
+[[nodiscard]] std::expected<void, FLevelError> ValidateAudioEmitterComponent(const FAudioEmitterComponent& Emitter);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final
