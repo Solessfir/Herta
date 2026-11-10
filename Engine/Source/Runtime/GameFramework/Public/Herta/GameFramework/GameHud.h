@@ -19,5 +19,8 @@ namespace Herta
 // The host supplies the menu items, such as Fullscreen in the standalone game or Stop playing in the editor, and acts on the item this returns.
 // MenuKey names the key that pauses in the controls hint, and ControlsHint replaces the default hint, such as with rebound keys. A host
 // that draws its own menu passes no items: paused, the HUD then shows only the objective.
+// The fight's bars: vitality at the bottom left, posture filling out from the middle above the controls, and the target's posture at the top
+// with a red mark while a deathblow is open.
+void DrawCombatHud(FGameUI& UI, const FGameCombatView& Combat);
 std::optional<std::size_t> DrawGameHud(FGameUI& UI, const FLocalization& Text, const FGameObjective& Objective, bool bPaused, std::span<const std::string_view> MenuItems, std::size_t& MenuFocus, const FGameUIInput& MenuInput, std::string_view MenuKey = "Esc", std::string_view ControlsHint = {});
 }

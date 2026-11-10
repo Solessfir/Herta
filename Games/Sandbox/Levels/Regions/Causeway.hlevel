@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 17,
+  "engineSchemaVersion": 18,
   "id": "4c070000-2738-4e25-9b9e-000000000001",
   "name": "Causeway",
   "exposureCompensation": 0,
@@ -15,14 +15,17 @@
     "swing": null,
     "slice": null,
     "sever": null,
-    "objective": null
+    "objective": null,
+    "deflect": null,
+    "block": null
   },
   "effects": {
     "impact": null,
     "break": null,
     "land": null,
     "slice": null,
-    "sever": null
+    "sever": null,
+    "sparks": null
   },
   "entities": [
     {

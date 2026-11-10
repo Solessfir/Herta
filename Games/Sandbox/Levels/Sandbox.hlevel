@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 17,
+  "engineSchemaVersion": 18,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "exposureCompensation": 0,
@@ -15,14 +15,17 @@
     "swing": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
     "slice": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
     "sever": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
-    "objective": "4a0d0017-5a17-4c0e-9d2b-0000051a0017"
+    "objective": "4a0d0017-5a17-4c0e-9d2b-0000051a0017",
+    "deflect": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+    "block": "4a0d0068-5a17-4c0e-9d2b-0000051a0068"
   },
   "effects": {
     "impact": "4a0d0060-5a17-4c0e-9d2b-0000051a0060",
     "break": "4a0d0061-5a17-4c0e-9d2b-0000051a0061",
     "land": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
     "slice": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
-    "sever": "4a0d0064-5a17-4c0e-9d2b-0000051a0064"
+    "sever": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+    "sparks": "4a0d0066-5a17-4c0e-9d2b-0000051a0066"
   },
   "entities": [
     {

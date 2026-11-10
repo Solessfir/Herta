@@ -1313,12 +1313,58 @@ TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee 
 	CHECK(bSwung);
 	CHECK_FALSE((*Session)->IsPlayerRagdolled());
 
-	// Without the guard up, the player is spotted, chased down, and struck to the ground, and gets back up a while later.
+	// Measured on a blocked strike: how long after a swing starts its blow lands.
+	const auto Contains = [](const std::vector<std::string>& Events, const std::string_view Text)
+	{
+		return std::ranges::any_of(Events, [Text](const std::string& Event)
+		{
+			return Event.starts_with(Text);
+		});
+	};
+
+	(void)(*Session)->TakeEvents();
+	std::optional<int> Lead;
+	for (int Frame = 0, SwingFrame = -1; Frame < 600 && !Lead; ++Frame)
+	{
+		const bool bWasAttacking = Guard().bAttacking;
+		Step(1, {.bBlock = true});
+		SwingFrame = !bWasAttacking && Guard().bAttacking ? Frame : SwingFrame;
+		if (SwingFrame >= 0 && Contains((*Session)->TakeEvents(), "The player blocked"))
+		{
+			Lead = Frame - SwingFrame;
+		}
+	}
+
+	REQUIRE(Lead);
+	CHECK(*Lead >= 12);
+	CHECK(*Lead <= 40);
+
+	// Pressing the guard a few frames before the blow lands deflects it; the guard reels, and the player's posture barely moves.
+	Step(30);
+	bool bDeflected = false;
+	for (int Frame = 0, SwingFrame = -1; Frame < 900 && !bDeflected; ++Frame)
+	{
+		const bool bWasAttacking = Guard().bAttacking;
+		const bool bGuard = SwingFrame >= 0 && Frame - SwingFrame >= *Lead - 5;
+		Step(1, {.bBlock = bGuard});
+		// A swing that misses ends without an event, so each new swing restarts the count.
+		SwingFrame = !bWasAttacking && Guard().bAttacking ? Frame : Guard().bAttacking ? SwingFrame : -1;
+		bDeflected = Contains((*Session)->TakeEvents(), "The player deflected");
+	}
+
+	CHECK(bDeflected);
+	CHECK((*Session)->GetCombatView().Posture < 0.1f);
+	REQUIRE((*Session)->GetCombatView().Target);
+	CHECK((*Session)->GetCombatView().Target->Posture > 0.3f);
+	CHECK(Guard().State != "");
+	Step(120);
+
+	// Without the guard up, the player is spotted, chased down, and struck until their vitality runs out, then gets back up a while later.
 	REQUIRE((*Session)->TeleportPlayer({Home.X, 0.f, Home.Z + 7.f}, std::numbers::pi_v<float>));
 	Step(30);
 	(void)(*Session)->GetAgentStates();
 	bool bKnocked = false;
-	for (int Second = 0; Second < 10 && !bKnocked; ++Second)
+	for (int Second = 0; Second < 25 && !bKnocked; ++Second)
 	{
 		Step(60);
 		bKnocked = (*Session)->IsPlayerRagdolled();

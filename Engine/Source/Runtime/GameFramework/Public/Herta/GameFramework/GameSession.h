@@ -128,6 +128,24 @@ enum class EGameObjectiveState : std::uint8_t
 	Finished,
 };
 
+// The fight as the HUD shows it, as fractions of full.
+struct FGameCombatView
+{
+	struct FTarget
+	{
+		float Health = 1.f;
+		float Posture = 0.f;
+		// A cut now is a deathblow.
+		bool bDeathblow = false;
+	};
+
+	float Health = 1.f;
+	float Posture = 0.f;
+	bool bStaggered = false;
+	// The nearest living guard in front of the player, within a few strides.
+	std::optional<FTarget> Target{};
+};
+
 struct FGameObjective
 {
 	EGameObjectiveState State = EGameObjectiveState::Exploring;
@@ -327,6 +345,7 @@ public:
 	// The view from the player's eyes. The spans stay valid until the next Update, Restart, or GetRenderView.
 	[[nodiscard]] const FMeshRenderView& GetRenderView(FExtent2D Extent);
 	[[nodiscard]] const FGameObjective& GetObjective() const noexcept;
+	[[nodiscard]] FGameCombatView GetCombatView() const;
 	// For debug views such as collision wireframes.
 	const FPhysicsWorld* GetPhysicsWorld() const noexcept;
 	// Entities the simulation left out, and why.

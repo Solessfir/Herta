@@ -25,6 +25,53 @@ std::string FormatGameSeconds(const FCulture& Culture, const double Seconds)
 	return std::format("{}:{}{}", Minutes, Remainder < 10. ? "0" : "", Culture.FormatNumber(Remainder, Hundredths));
 }
 
+namespace
+{
+// Posture reads from yellow toward a hot red as it nears breaking, as Sekiro's bar does.
+[[nodiscard]] std::uint32_t PostureColor(const float Fraction)
+{
+	const float Heat = std::clamp((Fraction - 0.4f) / 0.6f, 0.f, 1.f);
+	return MakeGameUIColor(255, static_cast<std::uint8_t>(206.f - 150.f * Heat), static_cast<std::uint8_t>(64.f - 40.f * Heat));
+}
+
+// A bar that fills outward from its middle; empty, it is not drawn at all.
+void DrawPostureBar(FGameUI& UI, const FGameUIPlacement& Placement, const float Width, const float Fraction)
+{
+	if (Fraction <= 0.f)
+	{
+		return;
+	}
+
+	constexpr float Height = 12.f;
+	UI.DrawRect(Placement, {Width + 6.f, Height + 6.f}, MakeGameUIColor(10, 10, 12, 190), 4.f);
+	UI.DrawRect(Placement, {Width * std::min(Fraction, 1.f), Height}, PostureColor(Fraction), 3.f);
+	// The middle tick marks where the two halves meet.
+	UI.DrawRect(Placement, {3.f, Height + 6.f}, MakeGameUIColor(255, 244, 220, Fraction >= 1.f ? 255 : 150));
+}
+}
+
+void DrawCombatHud(FGameUI& UI, const FGameCombatView& Combat)
+{
+	constexpr float Margin = 24.f;
+	constexpr FVector2 HealthSize{360.f, 10.f};
+	const FGameUIPlacement Health{.Anchor = {0.f, 1.f}, .Pivot = {0.f, 1.f}, .Offset = {Margin, -Margin}};
+	UI.DrawRect(Health, {HealthSize.X + 6.f, HealthSize.Y + 6.f}, MakeGameUIColor(10, 10, 12, 190), 4.f);
+	UI.DrawRect({.Anchor = Health.Anchor, .Pivot = Health.Pivot, .Offset = {Margin + 3.f, -Margin - 3.f}}, {HealthSize.X * std::clamp(Combat.Health, 0.f, 1.f), HealthSize.Y}, MakeGameUIColor(196, 32, 38), 3.f);
+	DrawPostureBar(UI, {.Anchor = {0.5f, 1.f}, .Pivot = {0.5f, 0.5f}, .Offset = {0.f, -120.f}}, 440.f, Combat.Posture);
+	if (!Combat.Target)
+	{
+		return;
+	}
+
+	DrawPostureBar(UI, {.Anchor = {0.5f, 0.f}, .Pivot = {0.5f, 0.5f}, .Offset = {0.f, 64.f}}, 360.f, Combat.Target->Posture);
+	UI.DrawRect({.Anchor = {0.5f, 0.f}, .Pivot = {0.5f, 0.5f}, .Offset = {0.f, 84.f}}, {200.f * std::clamp(Combat.Target->Health, 0.f, 1.f), 4.f}, MakeGameUIColor(196, 32, 38, 220), 2.f);
+	if (Combat.Target->bDeathblow)
+	{
+		UI.DrawCircle({.Anchor = {0.5f, 0.f}, .Pivot = {0.5f, 0.5f}, .Offset = {0.f, 36.f}}, 22.f, MakeGameUIColor(220, 20, 30));
+		UI.DrawCircle({.Anchor = {0.5f, 0.f}, .Pivot = {0.5f, 0.5f}, .Offset = {0.f, 36.f}}, 10.f, MakeGameUIColor(255, 210, 200));
+	}
+}
+
 std::optional<std::size_t> DrawGameHud(FGameUI& UI, const FLocalization& Text, const FGameObjective& Objective, const bool bPaused, const std::span<const std::string_view> MenuItems, std::size_t& MenuFocus, const FGameUIInput& MenuInput, const std::string_view MenuKey, const std::string_view ControlsHint)
 {
 	const std::uint32_t Panel = MakeGameUIColor(12, 14, 20, 170);

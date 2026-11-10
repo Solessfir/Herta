@@ -31,6 +31,8 @@ public:
 	void Step(float Seconds, std::span<const std::string> BodyEvents);
 	// Loses health to a cut, or all of it when it dies, which also takes it off the navigation.
 	void Wound(float Amount);
+	// Breaks off any swing and keeps it from moving or swinging for Seconds, such as while it reels from a deflect or a broken posture.
+	void Interrupt(float Seconds);
 	// Leaves it alive on the ground, such as without a leg to stand on: off the navigation, it can still see and remember but no longer walks or
 	// swings.
 	void Down();
@@ -45,6 +47,8 @@ public:
 	[[nodiscard]] bool IsOnNavigation() const;
 	// True on the step a swing's blade starts moving, when the game checks what it hits.
 	[[nodiscard]] bool IsSwingStarting() const noexcept;
+	// Reeling from an interrupt.
+	[[nodiscard]] bool IsBusy() const noexcept;
 	[[nodiscard]] const FAiAgentComponent& GetSettings() const noexcept;
 
 	[[nodiscard]] FVector3 GetFootPosition() const override;
@@ -83,5 +87,6 @@ private:
 	std::uint32_t Attacks = 0;
 	bool bSwingStarting = false;
 	float AttackSeconds = 0.f;
+	float BusySeconds = 0.f;
 };
 }

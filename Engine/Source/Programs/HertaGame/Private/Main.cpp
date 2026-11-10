@@ -1098,6 +1098,11 @@ int RunGame(const FGameOptions& Options)
 		const auto Height = static_cast<float>(Extent.Height);
 		UI->DrawImage(SceneTextureId, {0.f, 0.f}, {Width, Height});
 		std::size_t NoMenuFocus = 0;
+		if (!bPaused)
+		{
+			DrawCombatHud(*UI, Session->GetCombatView());
+		}
+
 		(void)DrawGameHud(*UI, Text, Session->GetObjective(), bPaused, {}, NoMenuFocus, {}, "Esc", FormatGameControlsHint(Text, Settings.Bindings, "Esc"));
 		std::ranges::move(Menu.Draw(*UI, MenuInput, MenuSettings), std::back_inserter(MenuCommands));
 		for (const EGameMenuCommand Command : MenuCommands)

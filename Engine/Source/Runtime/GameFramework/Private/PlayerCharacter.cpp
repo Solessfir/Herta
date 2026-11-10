@@ -28,6 +28,9 @@ enum ELocomotionParameter : std::size_t
 	Attack,
 	Blocking,
 	HeavyAttack,
+	Deflect,
+	Recoil,
+	Staggered,
 };
 
 enum ELocomotionState : std::size_t
@@ -53,6 +56,9 @@ enum ELocomotionState : std::size_t
 	DashAttack,
 	AirAttack,
 	HeavyAttackState,
+	DeflectState,
+	RecoilState,
+	StaggerState,
 };
 
 [[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
@@ -126,6 +132,9 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Attack", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "Blocking", .Type = EAnimationParameterType::Bool},
 	        {.Name = "HeavyAttack", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "Deflect", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "Recoil", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "Staggered", .Type = EAnimationParameterType::Bool},
 	    },
 	    .States = {
 	        // The walk, jog, and sprint cycles each take two steps, planting a foot at their start and halfway.
@@ -156,12 +165,19 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Air attack", .Samples = {{.Clip = "Sword_Attack"}}, .bLoop = false, .Speed = 1.6f, .Events = {{.Name = "SwingStart", .Phase = 0.15f}, {.Name = "SwingEnd", .Phase = 0.42f}}},
 	        // The guards' overhead strike: the sword rises for about 0.35 s before it comes down, long enough to see it coming and block.
 	        {.Name = "Heavy attack", .Samples = {{.Clip = "Sword_Attack"}}, .bLoop = false, .Speed = 0.75f, .Events = {{.Name = "SwingStart", .Phase = 0.2f}, {.Name = "SwingEnd", .Phase = 0.36f}}},
+	        // A deflect snaps the guard up; a deflected attacker's head is knocked back; a broken posture reels until it recovers.
+	        {.Name = "Deflect", .Samples = {{.Clip = "Sword_Block"}}, .bLoop = false, .Speed = 2.f},
+	        {.Name = "Recoil", .Samples = {{.Clip = "Hit_Head"}}, .bLoop = false, .Speed = 1.2f},
+	        {.Name = "Stagger", .Samples = {{.Clip = "Hit_Knockback"}}, .bLoop = false, .Speed = 0.8f},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
 	        // Death wins over everything and has no way out; a hit flinches anything but the dead.
 	        {.From = AnyAnimationState, .To = Death, .DurationSeconds = 0.2f, .Conditions = {Is(Dead, true)}},
-	        {.From = AnyAnimationState, .To = HitReaction, .DurationSeconds = 0.06f, .Conditions = {Triggered(Hit), Is(Dead, false)}},
+	        {.From = AnyAnimationState, .To = StaggerState, .DurationSeconds = 0.08f, .Conditions = {Is(Staggered, true), Is(Dead, false)}},
+	        {.From = AnyAnimationState, .To = HitReaction, .DurationSeconds = 0.06f, .Conditions = {Triggered(Hit), Is(Dead, false), Is(Staggered, false)}},
+	        {.From = AnyAnimationState, .To = DeflectState, .DurationSeconds = 0.04f, .Conditions = {Triggered(Deflect), Is(Dead, false), Is(Staggered, false)}},
+	        {.From = AnyAnimationState, .To = RecoilState, .DurationSeconds = 0.05f, .Conditions = {Triggered(Recoil), Is(Dead, false), Is(Staggered, false)}},
 	        {.From = HitReaction, .To = Locomotion, .DurationSeconds = 0.15f, .bAtEnd = true},
 	        // Mantles and wall jumps can start from any state, and win over everything else in the step they start.
 	        {.From = AnyAnimationState, .To = Climb, .DurationSeconds = 0.1f, .Conditions = {Triggered(Mantle)}},
@@ -223,6 +239,10 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = AirAttack, .To = Air, .DurationSeconds = 0.2f, .bAtEnd = true},
 	        {.From = Locomotion, .To = HeavyAttackState, .DurationSeconds = 0.1f, .Conditions = {Triggered(HeavyAttack)}},
 	        {.From = HeavyAttackState, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
+	        {.From = StaggerState, .To = Locomotion, .DurationSeconds = 0.25f, .Conditions = {Is(Staggered, false)}},
+	        {.From = DeflectState, .To = Block, .DurationSeconds = 0.08f, .Conditions = {Is(Blocking, true)}, .bAtEnd = true},
+	        {.From = DeflectState, .To = Locomotion, .DurationSeconds = 0.15f, .bAtEnd = true},
+	        {.From = RecoilState, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
 	    },
 	    .Entry = Locomotion,
 	};

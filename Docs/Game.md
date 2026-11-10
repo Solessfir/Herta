@@ -55,6 +55,19 @@ Gameplay events spawn the level's particle effects through sorted requests; see 
 
 The game loads `<level>.hnav`, which staging cooks beside the level, and every StateTree its AI agents run. Agents walk the navigation crowd, perceive and fight the player, and start over when the course restarts; see [Navigation](Navigation.md) and [AI](AI.md). Editor Play builds the open level's navigation on a worker and hands it to the session when it is ready, and loads agents' StateTrees with the level's other assets.
 
+## Sword combat
+
+Sword fights follow Sekiro's rules, with numbers taken from its data where they are known. `FCombatant` in GameFramework's `Combat.h` holds a fighter's vitality and posture; `FHitStop` freezes animation briefly when blades meet.
+
+- **Guard and deflect.** Pressing the guard (right mouse button) opens a 0.2 s deflect window, then holds a block. Pressing again within a second of the last press shrinks the window to 0.1 s, then 0.067 s, then nothing, so mashing the guard only blocks.
+- **Posture.** The player has 120 posture, recovering at 30 per second, twice as fast behind the guard. Guards have 75 at 20 per second, slowing to x0.6, x0.3, and x0.1 as their vitality drops below 80, 60, and 40 %. A guard's overhead slash costs the player 25 vitality and 18 posture on a hit, 25 posture on a block, and 8 on a deflect; a deflect never breaks the player's guard. Blocks that fill the bar break it, staggering the player for 1.2 s.
+- **Deflects.** A deflected guard reels for 0.7 s and loses 45 posture, then 22, 11, and 6 for deflects in a row, the run resetting after a 2 s pause.
+- **Guards' defence.** A guard facing the player that is neither swinging nor reeling takes the player's swing on its sword: sparks, 20 posture, and the swing cuts nothing more. A swinging, reeling, or turned guard is cut as before.
+- **Deathblow.** A broken posture staggers a guard for 3 s; during the first 2.5 s a red mark shows over its posture bar, and a cut is a deathblow that kills it.
+- **Being struck down.** A blow that empties the player's vitality knocks them down as a ragdoll; they get up 2.5 s later with full vitality and posture.
+
+Blades meeting play the level's **Deflect** or **Block** sound and its **Sparks** effect (level schema 18), and freeze both fighters' animation for 0.06 to 0.16 s: still for 0.06 s, then easing back. The HUD shows vitality at the bottom left, posture filling out from the middle above the controls, and the facing guard's posture at the top. Combat resolves on the server; replicas do not yet carry posture or staggers, so clients see the outcome without the bars. Perilous attacks, the Mikiri counter, and enemy deflects wait for enemies whose fights need them.
+
 ## Editor Play
 
 Click **Play** in the viewport toolbar or press **Alt+P** or **Shift+Space**. Play waits until every mesh and the level's sounds have loaded, then starts a session on a copy of the level; authoring, selection, and undo history are untouched, and editing is locked as during Simulate. The viewport hides editor overlays and draws the game's own GameUI HUD, the same `DrawGameHud` the standalone game uses, through ImGui with the same registered textures. Clicking the viewport captures the pointer. **Shift+Esc** is the game's Esc: it opens the pause menu (Resume, Restart course, Exit, which stops Play), as does leaving the editor window. Esc or the active Play button stops and returns to the authored level. Sounds play through the editor's audio engine and mute while paused; see [Audio](Audio.md).

@@ -5,6 +5,7 @@
 #include "Herta/GameFramework/LevelSimulationSetup.h"
 #include "Herta/GameFramework/SoftBodyGeometry.h"
 #include "Herta/Animation/MeshSlice.h"
+#include "Herta/GameFramework/Combat.h"
 #include "Herta/Math/AffineTransform.h"
 #include "CharacterPiece.h"
 #include "GameAudio.h"
@@ -286,6 +287,11 @@ struct FPlayerSlot
 	std::optional<FVector3> PendingKnockdown{};
 	std::optional<float> KnockdownSeconds{};
 
+	// Vitality, posture, and the guard, whose press opens a deflect window; the body freezes for a moment when blades meet.
+	FCombatant Combat{GetPlayerCombatSettings()};
+	bool bGuardWasHeld = false;
+	FHitStop HitStop{};
+
 	// The blade last update, from guard to tip in world space, while a swing is cutting.
 	std::optional<std::array<FVector3, 2>> LastBlade{};
 	bool bSwinging = false;
@@ -388,7 +394,9 @@ struct FGameSession::FImplementation : FPlayerSlot
 	// A swing coming down lands on the agent's enemy, a player or another character, when it is in reach and in front.
 	[[nodiscard]] std::expected<void, FGameError> StrikeEnemy(std::size_t Attacker);
 	// Knocks the active player down unless it blocks facing the attacker.
-	void StrikePlayer(const FCharacterActor& Actor);
+	void StrikePlayer(FCharacterActor& Actor);
+	// Whether a guard meets the player's swing with its sword: it faces the player and is neither swinging, reeling, nor staggered.
+	[[nodiscard]] bool IsGuardingAgainstPlayer(const FCharacterActor& Actor) const;
 	// Wounds a character a third of its health and flinches it; the third blow kills it.
 	[[nodiscard]] std::expected<void, FGameError> StrikeCharacter(std::size_t Attacker, std::size_t Victim);
 	// Tells the agents that a character was struck, so it turns on its attacker and its friends come to help.
@@ -492,6 +500,9 @@ struct FGameSession::FImplementation : FPlayerSlot
 		bool bDowned = false;
 		std::optional<FPhysicsRagdoll> Ragdoll{};
 		std::vector<FPhysicsBodyTransform> RagdollParts{};
+		// Posture, which the player's blocked blows and deflects wear down until a deathblow opens.
+		FCombatant Combat{GetGuardCombatSettings()};
+		FHitStop HitStop{};
 	};
 
 	std::vector<FCharacterActor> Characters{};
@@ -997,6 +1008,9 @@ void FGameSession::FImplementation::ResetPlayerState()
 	SwingPieceCuts.clear();
 	PendingKnockdown.reset();
 	KnockdownSeconds.reset();
+	Combat.Restore();
+	bGuardWasHeld = false;
+	HitStop = {};
 	Input = {};
 	if (Body)
 	{
@@ -1169,6 +1183,8 @@ struct FGameSessionSnapshotState
 		FGameObjective Objective{};
 		std::optional<FVector3> PendingKnockdown{};
 		std::optional<float> KnockdownSeconds{};
+		FCombatant Combat{};
+		bool bGuardWasHeld = false;
 	};
 
 	FLevelSimulationSnapshot Simulation{};
@@ -1195,6 +1211,8 @@ FGameSessionSnapshot FGameSession::SaveSnapshot() const
 		    .Objective = Slot.Objective,
 		    .PendingKnockdown = Slot.PendingKnockdown,
 		    .KnockdownSeconds = Slot.KnockdownSeconds,
+		    .Combat = Slot.Combat,
+		    .bGuardWasHeld = Slot.bGuardWasHeld,
 		});
 	}
 
@@ -1237,6 +1255,8 @@ std::expected<void, FGameError> FGameSession::RestoreSnapshot(const FGameSession
 		Session.Objective = Saved.Objective;
 		Session.PendingKnockdown = Saved.PendingKnockdown;
 		Session.KnockdownSeconds = Saved.KnockdownSeconds;
+		Session.Combat = Saved.Combat;
+		Session.bGuardWasHeld = Saved.bGuardWasHeld;
 		return {};
 	}); !Placed)
 	{
@@ -1908,6 +1928,11 @@ std::expected<void, FGameError> FGameSession::FImplementation::BeginPlayerUpdate
 	if (KnockdownSeconds && (*KnockdownSeconds += DeltaSeconds) >= KnockdownGetUpSeconds)
 	{
 		KnockdownSeconds.reset();
+		if (Combat.IsDead())
+		{
+			Combat.Restore();
+		}
+
 		if (auto Risen = EndRagdoll(); !Risen)
 		{
 			return std::unexpected(FGameError{std::format("Cannot get up: {}", Risen.error().Message)});
@@ -2005,14 +2030,28 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 
 	if (Body && !Ragdoll)
 	{
-		if (Input.bAttack)
+		// A broken guard reels: no swinging or guarding until it recovers.
+		const bool bStaggered = Combat.IsStaggered();
+		if (Input.bAttack && !bStaggered)
 		{
 			Body->FireTrigger("Attack");
 			++Attacks;
 		}
 
-		Body->SetBool("Blocking", Input.bBlock);
+		const bool bGuard = Input.bBlock && !bStaggered;
+		if (bGuard && !bGuardWasHeld)
+		{
+			Combat.PressGuard();
+		}
+
+		Combat.SetGuardHeld(bGuard);
+		Body->SetBool("Blocking", bGuard);
+		Body->SetBool("Staggered", bStaggered);
 	}
+
+	// Held through a stagger, the guard is not pressed again when it ends.
+	bGuardWasHeld = Input.bBlock;
+	Combat.Tick(DeltaSeconds);
 
 	const bool bJumped = bJumpedThisUpdate || bWallJumpedThisUpdate;
 	UpdateBody(DeltaSeconds);
@@ -2052,7 +2091,7 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	const float MaximumTurn = (bThirdPerson ? 10.f : 30.f) * DeltaSeconds;
 	BodyYaw = std::remainder(BodyYaw + std::clamp(Turn, -MaximumTurn, MaximumTurn), 2.f * std::numbers::pi_v<float>);
 
-	Body->Update(DeltaSeconds, {.GroundSpeed = Speed, .bGrounded = State.bGrounded || Mode == "Mantle", .bCrouched = State.bCrouched, .bSliding = Mode == "Slide", .bWallRunning = Mode == "WallRun", .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate});
+	Body->Update(HitStop.Advance(DeltaSeconds), {.GroundSpeed = Speed, .bGrounded = State.bGrounded || Mode == "Mantle", .bCrouched = State.bCrouched, .bSliding = Mode == "Slide", .bWallRunning = Mode == "WallRun", .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate});
 	bJumpedThisUpdate = false;
 	bWallJumpedThisUpdate = false;
 	bMantledThisUpdate = false;
@@ -2235,6 +2274,32 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 		}
 
 		SwingCuts.push_back(Index);
+		FCharacterActor& Victim = Characters[Index];
+		constexpr FCombatBlow Slash{.PostureOnHit = 15.f, .PostureOnBlock = 20.f};
+		const FVector3 Clash = (Blade[0] + Blade[1]) * 0.5f;
+		if (IsGuardingAgainstPlayer(Victim))
+		{
+			// The blade stops on the guard's sword: this swing cuts nothing more.
+			const bool bBroken = Victim.Combat.Receive(Slash, true) == EGuardOutcome::GuardBroken;
+			bSwinging = false;
+			LastBlade.reset();
+			Victim.Body->FireTrigger("Deflect");
+			HitStop.Start(bBroken ? 0.12f : 0.07f);
+			Victim.HitStop.Start(bBroken ? 0.12f : 0.07f);
+			Audio.Play(bBroken ? ELevelSound::Deflect : ELevelSound::Block, Clash, {{.Name = "Impulse", .Value = bBroken ? 60.f : 25.f}});
+			RequestEffect(ELevelEffect::Sparks, Clash, Unit, bBroken ? 1.4f : 0.7f);
+			if (bBroken)
+			{
+				Victim.Npc->Interrupt(Victim.Combat.GetSettings().StaggerSeconds);
+				Events.push_back(std::format("{} lost its posture", Entities[Victim.Entity].Name));
+			}
+
+			ReportCharacterHit(Index, GetPlayerTargetKey(ActivePlayer), Mover->GetState().Foot, PlayerFaction);
+			return {};
+		}
+
+		const bool bDeathblow = Victim.Npc && !Victim.Npc->IsDead() && Victim.Combat.IsDeathblowOpen();
+		Victim.Combat.Wound(0.f, Slash.PostureOnHit);
 		const auto Inverse = TryInverseAffine(Characters[Index].Model);
 		const FVector3 LocalPoint = Inverse ? TransformPoint(*Inverse, Blade[0]) : Blade[0];
 		const FVector3 LocalNormal = Inverse ? Inverse->TransformVector(Unit).Normalized() : Unit;
@@ -2253,6 +2318,21 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 			Outcomes.push_back({.Kind = EGameOutcome::Slice, .Object = static_cast<std::uint32_t>(Index), .Point = Blade[0], .Normal = Unit});
 			Audio.Play(ELevelSound::Slice, (Blade[0] + Blade[1]) * 0.5f);
 			RequestEffect(ELevelEffect::Slice, (Blade[0] + Blade[1]) * 0.5f, Unit);
+		}
+
+		// A deathblow kills whatever the cut took.
+		if (bDeathblow && Characters[Index].Npc && !Characters[Index].Npc->IsDead())
+		{
+			Events.push_back(std::format("Deathblow on {}", Entities[Characters[Index].Entity].Name));
+			HitStop.Start(0.16f);
+			RequestEffect(ELevelEffect::Sever, Clash, Unit, 1.5f);
+			Audio.Play(ELevelSound::Sever, Clash);
+			Characters[Index].Npc->Wound(1.f);
+			Outcomes.push_back({.Kind = EGameOutcome::Kill, .Object = static_cast<std::uint32_t>(Index)});
+			if (auto Killed = KillCharacter(Index, Swept.Normalized()); !Killed)
+			{
+				return Killed;
+			}
 		}
 	}
 
@@ -2297,6 +2377,8 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StartCharacter
 	CutCount = 0;
 	for (FCharacterActor& Actor : Characters)
 	{
+		Actor.Combat.Restore();
+		Actor.HitStop = {};
 		Actor.Body->Restart();
 		Actor.Model = AuthoredWorld[Actor.Entity];
 		Actor.bDowned = false;
@@ -2343,7 +2425,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 			Actor.Body->SetRagdollPose(Actor.RagdollParts, TryInverseAffine(Actor.Model).value_or(FMatrix4{}), 1.f);
 		}
 
-		Actor.Body->Update(StepSeconds, {.GroundSpeed = Actor.Npc ? Actor.Npc->GetGroundSpeed() : 0.f, .bGrounded = true});
+		Actor.Body->Update(Actor.HitStop.Advance(StepSeconds), {.GroundSpeed = Actor.Npc ? Actor.Npc->GetGroundSpeed() : 0.f, .bGrounded = true});
 		if (auto Posed = Actor.Body->EvaluatePose(); !Posed)
 		{
 			return std::unexpected(FPhysicsError{Posed.error().Message});
@@ -3496,7 +3578,7 @@ void FGameSession::FImplementation::AddPlayerAgent(FNavigationWorld* const World
 	}
 }
 
-void FGameSession::FImplementation::StrikePlayer(const FCharacterActor& Actor)
+void FGameSession::FImplementation::StrikePlayer(FCharacterActor& Actor)
 {
 	constexpr float Reach = 1.9f;
 	const FVector3 Target = Mover->GetState().Foot;
@@ -3509,17 +3591,66 @@ void FGameSession::FImplementation::StrikePlayer(const FCharacterActor& Actor)
 		return;
 	}
 
-	// A raised guard facing the attacker, within about 70 degrees, takes the blow on the sword.
+	// The guards' overhead slash, by a soldier's numbers in Sekiro: a hit costs a quarter of the player's vitality, and a deflect costs the
+	// guard 45 of its 75 posture, halving with each deflect in a row.
+	constexpr FCombatBlow Slash{.Health = 25.f, .PostureOnHit = 18.f, .PostureOnBlock = 25.f, .PostureOnDeflect = 8.f, .AttackerPostureOnDeflect = 45.f};
+	// A raised guard facing the attacker, within about 70 degrees, meets the blow with the sword.
 	const FVector3 PlayerFacing{std::sin(BodyYaw), 0.f, std::cos(BodyYaw)};
-	if (Input.bBlock && Body && (Distance <= 0.3f || -Offset.Dot(PlayerFacing) >= 0.35f * Distance))
+	const bool bFacing = Body && (Distance <= 0.3f || -Offset.Dot(PlayerFacing) >= 0.35f * Distance);
+	const FVector3 Clash = (Target + Foot) * 0.5f + FVector3::Up() * 1.4f;
+	const FVector3 Across = Distance > 0.01f ? Offset * (1.f / Distance) : Facing;
+	const std::string& Name = Entities[Actor.Entity].Name;
+	switch (Combat.Receive(Slash, bFacing))
 	{
-		Events.push_back(std::format("The player blocked {}", Entities[Actor.Entity].Name));
-		Audio.Play(ELevelSound::Impact, Target + FVector3::Up() * 1.2f, {{.Name = "Impulse", .Value = 15.f}});
-		return;
+		case EGuardOutcome::Deflected:
+		{
+			// The attacker reels, open to a counter; a deflect that breaks its posture staggers it for a deathblow.
+			Events.push_back(std::format("The player deflected {}", Name));
+			Body->FireTrigger("Deflect");
+			Actor.Combat.TakeDeflectRecoil(Slash);
+			const bool bBroken = Actor.Combat.IsStaggered();
+			Actor.Body->FireTrigger("Recoil");
+			Actor.Npc->Interrupt(bBroken ? Actor.Combat.GetSettings().StaggerSeconds : 0.7f);
+			HitStop.Start(0.1f);
+			Actor.HitStop.Start(0.1f);
+			Audio.Play(ELevelSound::Deflect, Clash, {{.Name = "Impulse", .Value = bBroken ? 60.f : 35.f}});
+			RequestEffect(ELevelEffect::Sparks, Clash, Across, bBroken ? 1.6f : 1.f);
+			if (bBroken)
+			{
+				Events.push_back(std::format("{} lost its posture", Name));
+			}
+
+			return;
+		}
+		case EGuardOutcome::Blocked:
+		case EGuardOutcome::GuardBroken:
+		{
+			const bool bBroken = Combat.IsStaggered();
+			Events.push_back(bBroken ? std::format("{} broke the player's guard", Name) : std::format("The player blocked {}", Name));
+			HitStop.Start(bBroken ? 0.1f : 0.06f);
+			Actor.HitStop.Start(bBroken ? 0.1f : 0.06f);
+			Audio.Play(ELevelSound::Block, Clash, {{.Name = "Impulse", .Value = bBroken ? 50.f : 20.f}});
+			RequestEffect(ELevelEffect::Sparks, Clash, Across, 0.5f);
+			return;
+		}
+		case EGuardOutcome::Hit:
+			break;
 	}
 
-	PendingKnockdown = Facing * 90.f + FVector3::Up() * 30.f;
-	Events.push_back(std::format("{} struck the player", Entities[Actor.Entity].Name));
+	HitStop.Start(0.08f);
+	Actor.HitStop.Start(0.08f);
+	if (Combat.IsDead())
+	{
+		// A fatal blow knocks the player down; getting up restores them.
+		PendingKnockdown = Facing * 90.f + FVector3::Up() * 30.f;
+		Events.push_back(std::format("{} struck the player down", Name));
+	}
+	else
+	{
+		Body->FireTrigger("Hit");
+		Events.push_back(std::format("{} struck the player", Name));
+	}
+
 	if (Ai)
 	{
 		const auto Attacker = static_cast<std::size_t>(&Actor - Characters.data());
@@ -3534,6 +3665,21 @@ void FGameSession::FImplementation::StrikePlayer(const FCharacterActor& Actor)
 	}
 
 	Audio.Play(ELevelSound::Impact, Target + FVector3::Up(), {{.Name = "Impulse", .Value = 40.f}});
+}
+
+bool FGameSession::FImplementation::IsGuardingAgainstPlayer(const FCharacterActor& Actor) const
+{
+	if (!Actor.Npc || Actor.Npc->IsDead() || Actor.bDowned || Actor.Npc->IsDowned() || Actor.Npc->IsAttacking() || Actor.Npc->IsBusy() || Actor.Combat.IsStaggered())
+	{
+		return false;
+	}
+
+	const FVector3 Foot = Actor.Npc->GetFootPosition();
+	const FVector3 PlayerFoot = Mover->GetState().Foot;
+	const FVector3 Toward{PlayerFoot.X - Foot.X, 0.f, PlayerFoot.Z - Foot.Z};
+	const float Distance = Toward.Length();
+	const FVector3 Facing{std::sin(Actor.Npc->GetYaw()), 0.f, std::cos(Actor.Npc->GetYaw())};
+	return Distance <= 0.3f || Toward.Dot(Facing) >= 0.35f * Distance;
 }
 
 std::expected<void, FGameError> FGameSession::FImplementation::StepAgents(FPhysicsWorld& World, const float StepSeconds)
@@ -3575,6 +3721,9 @@ std::expected<void, FGameError> FGameSession::FImplementation::StepAgents(FPhysi
 		}
 
 		Actor.Npc->Step(StepSeconds, Actor.Body->GetEvents());
+		Actor.Combat.SetGuardHeld(!Actor.Npc->IsAttacking() && !Actor.Npc->IsBusy());
+		Actor.Combat.Tick(StepSeconds);
+		Actor.Body->SetBool("Staggered", Actor.Combat.IsStaggered() && !Actor.Npc->IsDead());
 		if (Actor.Npc->IsDead() || Actor.bDowned)
 		{
 			continue;
@@ -3642,7 +3791,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::StepAgents(FPhysi
 
 std::expected<void, FGameError> FGameSession::FImplementation::StrikeEnemy(const std::size_t Attacker)
 {
-	const FCharacterActor& Actor = Characters[Attacker];
+	FCharacterActor& Actor = Characters[Attacker];
 	const FAiMemory* const Memory = Ai && Actor.Agent ? Ai->GetMemory(*Actor.Agent) : nullptr;
 	if (!Memory || !Memory->Enemy)
 	{
@@ -4029,6 +4178,39 @@ const FPhysicsWorld* FGameSession::GetPhysicsWorld() const noexcept
 const FGameObjective& FGameSession::GetObjective() const noexcept
 {
 	return Implementation->Objective;
+}
+
+FGameCombatView FGameSession::GetCombatView() const
+{
+	const FImplementation& Session = *Implementation;
+	FGameCombatView View{.Health = Session.Combat.GetHealthFraction(), .Posture = Session.Combat.GetPostureFraction(), .bStaggered = Session.Combat.IsStaggered()};
+	if (!Session.Mover)
+	{
+		return View;
+	}
+
+	constexpr float TargetRange = 6.f;
+	const FVector3 Player = Session.Mover->GetState().Foot;
+	const FVector3 Facing{std::sin(Session.BodyYaw), 0.f, std::cos(Session.BodyYaw)};
+	float Nearest = TargetRange;
+	for (const FImplementation::FCharacterActor& Actor : Session.Characters)
+	{
+		if (!Actor.Npc || Actor.Npc->IsDead() || Actor.bDowned)
+		{
+			continue;
+		}
+
+		const FVector3 Foot = Actor.Npc->GetFootPosition();
+		const FVector3 Toward{Foot.X - Player.X, 0.f, Foot.Z - Player.Z};
+		const float Distance = Toward.Length();
+		if (Distance < Nearest && (Distance < 1.f || Toward.Dot(Facing) > 0.5f * Distance))
+		{
+			Nearest = Distance;
+			View.Target = FGameCombatView::FTarget{.Health = Actor.Npc->GetHealth(), .Posture = Actor.Combat.GetPostureFraction(), .bDeathblow = Actor.Combat.IsDeathblowOpen()};
+		}
+	}
+
+	return View;
 }
 
 std::span<const std::string> FGameSession::GetWarnings() const noexcept

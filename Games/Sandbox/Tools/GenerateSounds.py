@@ -144,6 +144,22 @@ def sever():
     return out
 
 
+def clash(seed, duration, partials, brightness, crack):
+    """Steel on steel: inharmonic partials ringing out of a sharp crack, as two blades meeting."""
+    rng = random.Random(seed)
+    count = seconds(duration)
+    air = StateVariable(1.4)
+    out = []
+    for index in range(count):
+        t = index / RATE
+        noise = rng.uniform(-1.0, 1.0)
+        _, _, high = air.run(noise, brightness)
+        snap = high * math.exp(-t * crack)
+        ring = sum(amplitude * math.sin(2.0 * math.pi * frequency * t + phase) * math.exp(-t * decay) for frequency, amplitude, decay, phase in partials)
+        out.append((snap * 0.9 + ring * 0.6) * min(1.0, t * 6000.0))
+    return out
+
+
 def chime(notes, spacing, duration):
     count = seconds(duration)
     out = [0.0] * count
@@ -228,6 +244,9 @@ def main():
     write("Swing_2.wav", 1, whoosh(402, 0.28, 650.0, 4400.0, 2.6))
     write("Slice.wav", 1, slice_sound())
     write("Sever.wav", 1, sever())
+    # A deflect rings bright and long; a block is a shorter, duller clank.
+    write("Deflect.wav", 1, clash(501, 1.1, [(1873.0, 0.7, 5.5, 0.0), (2951.0, 1.0, 4.0, 1.1), (4387.0, 0.8, 6.0, 2.3), (6122.0, 0.5, 8.0, 0.4), (8513.0, 0.3, 11.0, 1.7)], 5200.0, 70.0))
+    write("Block.wav", 1, clash(502, 0.45, [(612.0, 0.8, 18.0, 0.0), (1387.0, 1.0, 14.0, 0.9), (2244.0, 0.6, 20.0, 1.9), (3371.0, 0.3, 28.0, 0.5)], 2600.0, 110.0))
     write("Run_Start.wav", 1, chime([880.0, 1318.5], 0.09, 0.7))
     write("Run_Finish.wav", 1, chime([659.25, 830.61, 987.77, 1318.5], 0.11, 1.6))
     write("Slide_Loop.wav", 1, slide_loop())

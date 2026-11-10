@@ -47,6 +47,7 @@ void FGameNpc::Start(FNavigationWorld* const InNavigation, const FMatrix4& InAut
 	bDowned = false;
 	bAttacking = false;
 	bSwingStarting = false;
+	BusySeconds = 0.f;
 	Agent = {};
 	if (Navigation)
 	{
@@ -101,6 +102,20 @@ void FGameNpc::Step(const float Seconds, const std::span<const std::string> Body
 
 	AttackSeconds += Seconds;
 	bAttacking = bAttacking && AttackSeconds < MaximumAttackSeconds;
+	BusySeconds = std::max(BusySeconds - Seconds, 0.f);
+}
+
+void FGameNpc::Interrupt(const float Seconds)
+{
+	Stop();
+	bAttacking = false;
+	bSwingStarting = false;
+	BusySeconds = std::max(BusySeconds, Seconds);
+}
+
+bool FGameNpc::IsBusy() const noexcept
+{
+	return BusySeconds > 0.f;
 }
 
 void FGameNpc::Wound(const float Amount)
@@ -187,7 +202,7 @@ void FGameNpc::MoveTo(const FVector3& Destination, const float Speed)
 {
 	bMoving = true;
 	FacingYaw.reset();
-	if (Navigation && Agent.Value != 0 && !bAttacking)
+	if (Navigation && Agent.Value != 0 && !bAttacking && BusySeconds == 0.f)
 	{
 		Navigation->SetAgentMaximumSpeed(Agent, Speed);
 		Navigation->SetAgentTarget(Agent, Destination);
@@ -231,7 +246,7 @@ void FGameNpc::Animate(const std::string_view Trigger)
 
 bool FGameNpc::StartAttack(const FVector3& Target)
 {
-	if (bAttacking || bDowned || IsDead())
+	if (bAttacking || bDowned || IsDead() || BusySeconds > 0.f)
 	{
 		return false;
 	}
@@ -273,6 +288,6 @@ bool FGameNpc::IsAttacking() const
 
 bool FGameNpc::CanMove() const
 {
-	return !bDowned && !IsDead();
+	return !bDowned && !IsDead() && BusySeconds == 0.f;
 }
 }

@@ -53,6 +53,8 @@ enum class ELevelSound : std::uint8_t
 	Slice,
 	Sever,
 	Objective,
+	Deflect,
+	Block,
 };
 
 struct FLevelSoundCue
@@ -71,6 +73,8 @@ inline constexpr std::array LevelSoundCues{
     FLevelSoundCue{.Key = "slice", .Label = "Slice"},
     FLevelSoundCue{.Key = "sever", .Label = "Sever"},
     FLevelSoundCue{.Key = "objective", .Label = "Objective"},
+    FLevelSoundCue{.Key = "deflect", .Label = "Deflect"},
+    FLevelSoundCue{.Key = "block", .Label = "Block"},
 };
 
 // Invalid entries stay silent.
@@ -84,6 +88,7 @@ enum class ELevelEffect : std::uint8_t
 	Land,
 	Slice,
 	Sever,
+	Sparks,
 };
 
 inline constexpr std::array LevelEffectCues{
@@ -92,6 +97,7 @@ inline constexpr std::array LevelEffectCues{
     FLevelSoundCue{.Key = "land", .Label = "Land"},
     FLevelSoundCue{.Key = "slice", .Label = "Slice"},
     FLevelSoundCue{.Key = "sever", .Label = "Sever"},
+    FLevelSoundCue{.Key = "sparks", .Label = "Sparks"},
 };
 
 // Invalid entries show nothing.

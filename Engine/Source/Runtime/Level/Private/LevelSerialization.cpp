@@ -1474,7 +1474,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 17,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 18,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1919,9 +1919,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 17 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 18 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 17 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 18 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
@@ -1988,15 +1988,17 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 
 	if (SchemaVersion >= 13)
 	{
+		// Schema 18 adds the deflect and block sounds after the nine before them.
 		std::array<std::string_view, LevelSoundCues.size()> Keys{};
 		std::ranges::transform(LevelSoundCues, Keys.begin(), &FLevelSoundCue::Key);
-		const auto Cues = ReadFields((*Fields)[10], Keys, (std::uint64_t{1} << Keys.size()) - 1);
+		const std::size_t Count = SchemaVersion >= 18 ? Keys.size() : 9;
+		const auto Cues = ReadFields((*Fields)[10], Keys, (std::uint64_t{1} << Count) - 1);
 		if (!Cues)
 		{
 			return std::unexpected(Cues.error());
 		}
 
-		for (std::size_t Cue = 0; Cue < Keys.size(); ++Cue)
+		for (std::size_t Cue = 0; Cue < Count; ++Cue)
 		{
 			const auto Sound = ReadOptionalId<FAssetId>((*Cues)[Cue]);
 			if (!Sound)
@@ -2015,15 +2017,17 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 
 	if (SchemaVersion >= 14)
 	{
+		// Schema 18 adds the sparks effect after the five before it.
 		std::array<std::string_view, LevelEffectCues.size()> Keys{};
 		std::ranges::transform(LevelEffectCues, Keys.begin(), &FLevelSoundCue::Key);
-		const auto Cues = ReadFields((*Fields)[11], Keys, (std::uint64_t{1} << Keys.size()) - 1);
+		const std::size_t Count = SchemaVersion >= 18 ? Keys.size() : 5;
+		const auto Cues = ReadFields((*Fields)[11], Keys, (std::uint64_t{1} << Count) - 1);
 		if (!Cues)
 		{
 			return std::unexpected(Cues.error());
 		}
 
-		for (std::size_t Cue = 0; Cue < Keys.size(); ++Cue)
+		for (std::size_t Cue = 0; Cue < Count; ++Cue)
 		{
 			const auto Effect = ReadOptionalId<FAssetId>((*Cues)[Cue]);
 			if (!Effect)
