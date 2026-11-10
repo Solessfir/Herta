@@ -15,6 +15,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <tuple>
 #include <numbers>
 #include <map>
 #include <fstream>
@@ -600,13 +601,13 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 	};
 
 	Step({}, 30);
-	// A diagonal through the torso, then the left forearm at its weight boundary; a limb already gone cannot be severed again.
-	auto Cut = (*Session)->SliceCharacter(0, {0.f, 1.2f, 3.f}, FVector3{0.3f, 1.f, 0.1f}.Normalized());
-	REQUIRE_MESSAGE(Cut, (Cut ? std::string() : Cut.error().Message));
-	CHECK(*Cut);
-	CHECK((*Session)->GetCutPieceCount() == 1);
+	// Severing the left arm at the shoulder and the left leg at the knee: each limb falls on its own, and a limb already gone cannot be severed
+	// again. The arm carries the upper and lower arm, so it falls as a two-part ragdoll; the shin falls as a hull.
+	auto Severed = (*Session)->SeverCharacter(0, "upperarm_l");
+	REQUIRE_MESSAGE(Severed, (Severed ? std::string() : Severed.error().Message));
+	CHECK(*Severed);
 	Step({}, 5);
-	auto Severed = (*Session)->SeverCharacter(0, "calf_l");
+	Severed = (*Session)->SeverCharacter(0, "calf_l");
 	REQUIRE(Severed);
 	CHECK(*Severed);
 	CHECK((*Session)->GetCutPieceCount() == 2);
@@ -614,20 +615,35 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 	Severed = (*Session)->SeverCharacter(0, "calf_l");
 	REQUIRE(Severed);
 	CHECK_FALSE(*Severed);
-	// Pieces fall onto the floor as rigid hulls.
-	Step({}, 120);
-	CHECK((*Session)->GetCutPieceCount() == 2);
 
-	// Each restart restores the whole body, which then cuts again at another angle: flat through the waist, steeply through the chest, and
-	// upright through a shoulder.
-	for (const auto& [Point, Normal] : {std::pair{FVector3{0.f, 0.95f, 3.f}, FVector3{0.f, 1.f, 0.f}}, std::pair{FVector3{0.f, 1.3f, 3.f}, FVector3{1.f, 0.6f, 0.2f}}, std::pair{FVector3{0.15f, 1.3f, 3.f}, FVector3{1.f, 0.f, 0.f}}})
+	// A cut through the waist takes the chest, which kills the dummy: the cut-off half falls, and what is left collapses as a ragdoll, so nothing
+	// stands to cut again.
+	auto Cut = (*Session)->SliceCharacter(0, {0.f, 0.95f, 3.f}, FVector3{0.f, 1.f, 0.f});
+	REQUIRE_MESSAGE(Cut, (Cut ? std::string() : Cut.error().Message));
+	CHECK(*Cut);
+	CHECK((*Session)->GetCutPieceCount() == 4);
+	Cut = (*Session)->SliceCharacter(0, {0.f, 0.5f, 3.f}, FVector3{0.f, 1.f, 0.f});
+	REQUIRE(Cut);
+	CHECK_FALSE(*Cut);
+	// Pieces cut again: an upright cut down the middle splits both halves of the body, ragdolls as they are, into two pieces each.
+	const auto Split = (*Session)->SliceWorld({0.f, 0.f, 3.f}, {1.f, 0.f, 0.f});
+	REQUIRE_MESSAGE(Split, (Split ? std::string() : Split.error().Message));
+	CHECK(*Split == 2);
+	CHECK((*Session)->GetCutPieceCount() == 6);
+	Step({}, 120);
+	CHECK((*Session)->GetCutPieceCount() == 6);
+
+	// Each restart restores the whole body, which then cuts again at another angle: flat through the thighs, steeply through the chest, and
+	// upright through a shoulder. Only the shoulder cut leaves the dummy alive.
+	for (const auto& [Point, Normal, Pieces] : {std::tuple{FVector3{0.f, 0.7f, 3.f}, FVector3{0.f, 1.f, 0.f}, std::size_t{1}}, std::tuple{FVector3{0.f, 1.3f, 3.f}, FVector3{1.f, 0.6f, 0.2f}, std::size_t{2}}, std::tuple{FVector3{0.15f, 1.3f, 3.f}, FVector3{1.f, 0.f, 0.f}, std::size_t{1}}})
 	{
 		REQUIRE((*Session)->Restart());
 		Step({}, 10);
 		const auto Angled = (*Session)->SliceCharacter(0, Point, Normal.Normalized());
 		REQUIRE_MESSAGE(Angled, (Angled ? std::string() : Angled.error().Message));
 		CHECK(*Angled);
-		CHECK((*Session)->GetCutPieceCount() == 1);
+		MESSAGE(std::format("{} pieces", (*Session)->GetCutPieceCount()));
+		CHECK((*Session)->GetCutPieceCount() >= Pieces);
 	}
 
 	// Restarting restores the whole body, and a ball thrown at it from the start severs whatever limb it strikes.

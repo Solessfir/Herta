@@ -187,6 +187,9 @@ public:
 	[[nodiscard]] std::expected<bool, FGameError> SliceCharacter(std::size_t Character, const FVector3& Point, const FVector3& Normal);
 	// Cuts off a placed character's limb below the named joint, such as lowerarm_l, where its skin weights pass to the body.
 	[[nodiscard]] std::expected<bool, FGameError> SeverCharacter(std::size_t Character, std::string_view Joint);
+	// Cuts every placed character and cut piece that a world-space plane passes through, as a blade reaching everywhere would, and returns how
+	// many it cut. Halves of a cut piece become pieces of their own.
+	[[nodiscard]] std::expected<std::size_t, FGameError> SliceWorld(const FVector3& Point, const FVector3& Normal);
 	// Pieces cut off characters still in the world, and cuts since the session started.
 	[[nodiscard]] std::size_t GetCutPieceCount() const noexcept;
 	[[nodiscard]] std::size_t GetCutCount() const noexcept;

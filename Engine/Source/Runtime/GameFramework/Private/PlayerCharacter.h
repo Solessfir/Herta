@@ -9,6 +9,7 @@
 #include "Herta/Renderer/MeshRenderer.h"
 
 #include <array>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -70,10 +71,18 @@ public:
 	// Cuts the body along a plane in its model space, through the pose of the last Skin. The part holding the pelvis stays on the body and keeps
 	// animating; the other comes back baked in that pose, in model space, closed with a wound cap. Empty when the plane misses the body or would
 	// take the pelvis side's whole mesh.
-	[[nodiscard]] std::expected<std::optional<FCookedModel>, FGameError> Slice(const FMeshSlicePlane& Plane);
+	[[nodiscard]] std::expected<std::optional<FSkinnedMeshPiece>, FGameError> Slice(const FMeshSlicePlane& Plane);
 	// Cuts off the limb below Joint where its skin weights pass to the rest of the body, and binds the stump wholly to the joint's parent so it
 	// does not stretch as the missing limb's joints keep animating.
-	[[nodiscard]] std::expected<std::optional<FCookedModel>, FGameError> Sever(std::size_t Joint);
+	[[nodiscard]] std::expected<std::optional<FSkinnedMeshPiece>, FGameError> Sever(std::size_t Joint);
+	// Takes everything left of the body, such as when a dead character collapses as a ragdoll, leaving nothing to draw until Restart.
+	[[nodiscard]] std::optional<FSkinnedMeshPiece> DetachAll();
+	[[nodiscard]] bool IsEmpty() const;
+	[[nodiscard]] const std::shared_ptr<const FCookedModel>& GetCookedModel() const noexcept;
+	[[nodiscard]] const std::shared_ptr<const FAnimationLibrary>& GetLibrary() const noexcept;
+	// The joints' model-space pose and skinning matrices of the last Skin or EvaluatePose.
+	[[nodiscard]] std::span<const FMatrix4> GetModelTransforms() const noexcept;
+	[[nodiscard]] std::span<const FMatrix4> GetSkinningMatrices() const noexcept;
 	// The severable joint, such as an elbow or knee, whose cut lies nearest a model-space point within Reach meters, among those still on the body.
 	[[nodiscard]] std::optional<std::size_t> FindSeverableJoint(const FVector3& Point, float Reach) const;
 	// Whether any of the body's geometry still follows Joint, such as the head after a cut through the neck.
@@ -89,9 +98,10 @@ private:
 	FPlayerCharacter(std::shared_ptr<const FCookedModel> InModel, std::shared_ptr<const FAnimationLibrary> InLibrary, FAnimationStateMachine InMachine);
 
 	[[nodiscard]] const FSkinnedMeshPiece& GetPiece() const;
-	// Keeps one half of a cut on the body and returns the other baked.
-	[[nodiscard]] std::expected<std::optional<FCookedModel>, FGameError> Keep(FMeshSliceResult Sliced, bool bKeepFront);
-	[[nodiscard]] FCookedModel MakeModel(const FSkinnedMeshPiece& Piece) const;
+	// Keeps one half of a cut on the body and returns the other, in bind space. Cuts that would leave a sliver on either side do not happen.
+	[[nodiscard]] std::expected<std::optional<FSkinnedMeshPiece>, FGameError> Keep(FMeshSliceResult Sliced, bool bKeepFront);
+	// Skins the current piece with the pose last evaluated, so a cut sees exactly the pose it is made in.
+	void SkinForCut();
 
 	std::shared_ptr<const FCookedModel> Model;
 	std::shared_ptr<const FAnimationLibrary> Library;
@@ -130,6 +140,26 @@ private:
 	std::optional<std::size_t> MantleParameter;
 	std::optional<std::size_t> WallRunningParameter;
 };
+
+// A ragdoll fitted to a pose: its parts, the joint each drives, and that joint's transform relative to its part's capsule.
+struct FRagdollFit
+{
+	std::vector<FPhysicsRagdollPart> Parts{};
+	std::vector<std::size_t> Joints{};
+	std::vector<FMatrix4> Offsets{};
+};
+
+// Fits the ragdoll profile's capsules to a pose, where BodyToPhysics maps model space to physics space. Keep, when given, chooses which parts by
+// the joint they drive; a part whose parent part is left out hangs from the first part kept, which is the root. Empty when the skeleton lacks
+// a profile joint.
+[[nodiscard]] FRagdollFit FitRagdoll(const FAnimationLibrary& Library, std::span<const FMatrix4> ModelTransforms, const FMatrix4& BodyToPhysics, const std::function<bool(std::size_t Joint)>& Keep = nullptr);
+// The model a cut piece draws: its geometry with the source model's materials and textures, and the wound material after them.
+[[nodiscard]] FCookedModel MakeCutModel(const FCookedModel& Source, const FSkinnedMeshPiece& Piece);
+// Too small to simulate or see: fewer than 40 triangles, or under 4 cm across in its bind pose. Cuts that would make one keep the sliver on its
+// neighbour instead.
+[[nodiscard]] bool IsSliver(const FSkinnedMeshPiece& Piece);
+// The joints a piece mostly follows: those that weigh more than half on at least eight of its vertices.
+[[nodiscard]] std::vector<bool> FindCarriedJoints(const FSkinnedMeshPiece& Piece, std::size_t JointCount);
 
 // The locomotion the Sandbox Mannequin plays until levels author their own graph: an idle to sprint blend, crouching, slides, jumps, wall
 // runs, wall jumps, and mantles.

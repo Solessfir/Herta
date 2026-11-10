@@ -402,6 +402,7 @@ std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bFirstPerson)
 
 	// ponytail: skins the whole body twice in first person, about 0.16 ms each for the Mannequin; skin only the hidden joints' vertices again if characters multiply.
 	const FSkinnedMeshPiece& Piece = GetPiece();
+	Vertices.resize(Piece.Vertices.size());
 	SkinVertices(Pose.GetSkinningMatrices(), Piece.Vertices, Piece.Influences, Vertices);
 	if (bFirstPerson && HiddenJoint && !Remaining)
 	{
@@ -437,28 +438,31 @@ const FAnimationStateMachine& FPlayerCharacter::GetStateMachine() const noexcept
 	return Machine;
 }
 
-std::vector<FPhysicsRagdollPart> FPlayerCharacter::BuildRagdoll(const FMatrix4& BodyToPhysics)
+FRagdollFit FitRagdoll(const FAnimationLibrary& Library, const std::span<const FMatrix4> Transforms, const FMatrix4& BodyToPhysics, const std::function<bool(std::size_t Joint)>& Keep)
 {
-	const auto Names = Library->GetJointNames();
-	const auto Transforms = Pose.GetModelTransforms();
+	const auto Names = Library.GetJointNames();
 	const auto Find = [&Names](const std::string_view Name) -> std::optional<std::size_t>
 	{
 		const auto Found = std::ranges::find(Names, Name);
 		return Found == Names.end() ? std::nullopt : std::optional(static_cast<std::size_t>(Found - Names.begin()));
 	};
 
-	std::vector<FPhysicsRagdollPart> Parts;
-	RagdollJoints.clear();
-	RagdollOffsets.clear();
-	for (const FRagdollProfilePart& Profile : RagdollProfile)
+	FRagdollFit Fit;
+	// Each profile part's index among the parts kept.
+	std::array<std::optional<std::size_t>, RagdollProfile.size()> Kept{};
+	for (std::size_t Index = 0; Index < RagdollProfile.size(); ++Index)
 	{
+		const FRagdollProfilePart& Profile = RagdollProfile[Index];
 		const auto Joint = Find(Profile.Joint);
 		const auto End = Find(Profile.End);
-		if (!Joint || !End)
+		if (!Joint || !End || *Joint >= Transforms.size() || *End >= Transforms.size())
 		{
-			RagdollJoints.clear();
-			RagdollOffsets.clear();
 			return {};
+		}
+
+		if (Keep && !Keep(*Joint))
+		{
+			continue;
 		}
 
 		const FMatrix4 JointWorld = BodyToPhysics * Transforms[*Joint];
@@ -468,8 +472,10 @@ std::vector<FPhysicsRagdollPart> FPlayerCharacter::BuildRagdoll(const FMatrix4& 
 		const FVector3 Axis = Length > 1.e-4f ? (Tip - Start) * (1.f / Length) : FVector3::Up();
 		const FPhysicsBodyTransform Capsule{.Position = (Start + Tip) * 0.5f, .Rotation = RotationFromUp(Axis)};
 		const std::optional<FMatrix4> CapsuleInverse = TryInverseAffine(FMatrix4::Translation(Capsule.Position) * FMatrix4::Rotation(Capsule.Rotation));
-		Parts.push_back({
-		    .Parent = Profile.Parent >= 0 ? std::optional(static_cast<std::size_t>(Profile.Parent)) : std::nullopt,
+		const std::optional<std::size_t> Parent = Profile.Parent >= 0 ? Kept[static_cast<std::size_t>(Profile.Parent)] : std::nullopt;
+		Kept[Index] = Fit.Parts.size();
+		Fit.Parts.push_back({
+		    .Parent = Fit.Parts.empty() ? std::nullopt : std::optional(Parent.value_or(0)),
 		    .Transform = Capsule,
 		    .Radius = Profile.Radius,
 		    .HalfHeight = std::max(Length * 0.5f - Profile.Radius, 0.01f),
@@ -479,11 +485,71 @@ std::vector<FPhysicsRagdollPart> FPlayerCharacter::BuildRagdoll(const FMatrix4& 
 		    .SwingRadians = Profile.SwingRadians,
 		    .TwistRadians = Profile.TwistRadians,
 		});
-		RagdollJoints.push_back(*Joint);
-		RagdollOffsets.push_back(CapsuleInverse ? *CapsuleInverse * JointWorld : FMatrix4{});
+		Fit.Joints.push_back(*Joint);
+		Fit.Offsets.push_back(CapsuleInverse ? *CapsuleInverse * JointWorld : FMatrix4{});
 	}
 
-	return Parts;
+	return Fit;
+}
+
+FCookedModel MakeCutModel(const FCookedModel& Source, const FSkinnedMeshPiece& Piece)
+{
+	FCookedModel Result{.Vertices = Piece.Vertices, .Indices = Piece.Indices, .Sections = Piece.Sections, .Materials = Source.Materials, .Textures = Source.Textures};
+	// Cuts show the wound material, after the model's own, so pieces keep every original section.
+	FCookedMaterial Wound{.Name = "Wound"};
+	Wound.Parameters.BaseColor = {0.32f, 0.02f, 0.03f, 1.f};
+	Wound.Parameters.Roughness = 0.35f;
+	Result.Materials.push_back(std::move(Wound));
+	return Result;
+}
+
+bool IsSliver(const FSkinnedMeshPiece& Piece)
+{
+	if (Piece.Indices.size() < 40 * 3)
+	{
+		return true;
+	}
+
+	FVector3 Minimum{1.e9f, 1.e9f, 1.e9f};
+	FVector3 Maximum{-1.e9f, -1.e9f, -1.e9f};
+	for (const FCookedVertex& Vertex : Piece.Vertices)
+	{
+		Minimum = {std::min(Minimum.X, Vertex.Position[0]), std::min(Minimum.Y, Vertex.Position[1]), std::min(Minimum.Z, Vertex.Position[2])};
+		Maximum = {std::max(Maximum.X, Vertex.Position[0]), std::max(Maximum.Y, Vertex.Position[1]), std::max(Maximum.Z, Vertex.Position[2])};
+	}
+
+	return (Maximum - Minimum).Length() < 0.04f;
+}
+
+std::vector<bool> FindCarriedJoints(const FSkinnedMeshPiece& Piece, const std::size_t JointCount)
+{
+	std::vector<std::uint32_t> Counts(JointCount, 0);
+	for (const FCookedSkinInfluence& Influence : Piece.Influences)
+	{
+		for (std::size_t Slot = 0; Slot < 4; ++Slot)
+		{
+			if (Influence.Weights[Slot] > CookedSkinWeightTotal / 2 && Influence.Joints[Slot] < JointCount)
+			{
+				++Counts[Influence.Joints[Slot]];
+			}
+		}
+	}
+
+	std::vector<bool> Carried(JointCount);
+	for (std::size_t Joint = 0; Joint < JointCount; ++Joint)
+	{
+		Carried[Joint] = Counts[Joint] >= 8;
+	}
+
+	return Carried;
+}
+
+std::vector<FPhysicsRagdollPart> FPlayerCharacter::BuildRagdoll(const FMatrix4& BodyToPhysics)
+{
+	FRagdollFit Fit = FitRagdoll(*Library, Pose.GetModelTransforms(), BodyToPhysics);
+	RagdollJoints = std::move(Fit.Joints);
+	RagdollOffsets = std::move(Fit.Offsets);
+	return std::move(Fit.Parts);
 }
 
 void FPlayerCharacter::SetRagdollPose(const std::span<const FPhysicsBodyTransform> Parts, const FMatrix4& ModelInverse, const float Weight)
@@ -501,35 +567,27 @@ const FSkinnedMeshPiece& FPlayerCharacter::GetPiece() const
 	return Remaining ? *Remaining : Whole;
 }
 
-FCookedModel FPlayerCharacter::MakeModel(const FSkinnedMeshPiece& Piece) const
+void FPlayerCharacter::SkinForCut()
 {
-	FCookedModel Result{.Vertices = Piece.Vertices, .Indices = Piece.Indices, .Sections = Piece.Sections, .Materials = Model->Materials, .Textures = Model->Textures};
-	// Cuts show the wound material, after the model's own, so pieces keep every original section.
-	FCookedMaterial Wound{.Name = "Wound"};
-	Wound.Parameters.BaseColor = {0.32f, 0.02f, 0.03f, 1.f};
-	Wound.Parameters.Roughness = 0.35f;
-	Result.Materials.push_back(std::move(Wound));
-	return Result;
+	const FSkinnedMeshPiece& Piece = GetPiece();
+	Vertices.resize(Piece.Vertices.size());
+	SkinVertices(Pose.GetSkinningMatrices(), Piece.Vertices, Piece.Influences, Vertices);
 }
 
-std::expected<std::optional<FCookedModel>, FGameError> FPlayerCharacter::Keep(FMeshSliceResult Sliced, const bool bKeepFront)
+std::expected<std::optional<FSkinnedMeshPiece>, FGameError> FPlayerCharacter::Keep(FMeshSliceResult Sliced, const bool bKeepFront)
 {
 	FSkinnedMeshPiece& Kept = bKeepFront ? Sliced.Front : Sliced.Back;
 	FSkinnedMeshPiece& Cut = bKeepFront ? Sliced.Back : Sliced.Front;
-	if (Sliced.CapLoops == 0 || Kept.Indices.empty() || Cut.Indices.empty())
+	if (Sliced.CapLoops == 0 || IsSliver(Kept) || IsSliver(Cut))
 	{
 		return std::nullopt;
 	}
 
-	// The cut half is baked in the pose it was cut in; it falls as one rigid piece.
-	FCookedModel Baked = MakeModel(Cut);
-	SkinVertices(Pose.GetSkinningMatrices(), Cut.Vertices, Cut.Influences, Baked.Vertices);
-	std::ranges::for_each(Baked.Vertices, OrthonormalizeTangent);
 	// Validated even without a device to upload them, so headless sessions catch a cut that could not draw.
-	FCookedModel KeptModel = MakeModel(Kept);
-	for (const FCookedModel* Piece : {&KeptModel, &Baked})
+	FCookedModel KeptModel = MakeCutModel(*Model, Kept);
+	for (const FCookedModel& Piece : {KeptModel, MakeCutModel(*Model, Cut)})
 	{
-		if (auto Valid = ValidateCookedModel(*Piece); !Valid)
+		if (auto Valid = ValidateCookedModel(Piece); !Valid)
 		{
 			return std::unexpected(FGameError{std::format("A cut produced an invalid piece: {}", Valid.error().Message)});
 		}
@@ -548,11 +606,56 @@ std::expected<std::optional<FCookedModel>, FGameError> FPlayerCharacter::Keep(FM
 
 	Vertices.resize(Kept.Vertices.size());
 	Remaining = std::move(Kept);
-	return Baked;
+	return std::move(Cut);
 }
 
-std::expected<std::optional<FCookedModel>, FGameError> FPlayerCharacter::Slice(const FMeshSlicePlane& Plane)
+std::optional<FSkinnedMeshPiece> FPlayerCharacter::DetachAll()
 {
+	if (IsEmpty())
+	{
+		return std::nullopt;
+	}
+
+	FSkinnedMeshPiece All = GetPiece();
+	Remaining = FSkinnedMeshPiece{};
+	Mesh.reset();
+	Vertices.clear();
+	return All;
+}
+
+bool FPlayerCharacter::IsEmpty() const
+{
+	return GetPiece().Indices.empty();
+}
+
+const std::shared_ptr<const FCookedModel>& FPlayerCharacter::GetCookedModel() const noexcept
+{
+	return Model;
+}
+
+const std::shared_ptr<const FAnimationLibrary>& FPlayerCharacter::GetLibrary() const noexcept
+{
+	return Library;
+}
+
+std::span<const FMatrix4> FPlayerCharacter::GetModelTransforms() const noexcept
+{
+	return Pose.GetModelTransforms();
+}
+
+std::span<const FMatrix4> FPlayerCharacter::GetSkinningMatrices() const noexcept
+{
+	return Pose.GetSkinningMatrices();
+}
+
+std::expected<std::optional<FSkinnedMeshPiece>, FGameError> FPlayerCharacter::Slice(const FMeshSlicePlane& Plane)
+{
+	if (IsEmpty())
+	{
+		return std::nullopt;
+	}
+
+	SkinForCut();
 	const FSkinnedMeshPiece& Piece = GetPiece();
 	auto Sliced = SliceSkinnedMesh(Piece, Vertices, Pose.GetSkinningMatrices(), Plane, static_cast<std::uint32_t>(Model->Materials.size()));
 	if (!Sliced)
@@ -564,14 +667,15 @@ std::expected<std::optional<FCookedModel>, FGameError> FPlayerCharacter::Slice(c
 	return Keep(std::move(*Sliced), Plane.Normal.Dot(Pelvis) >= Plane.Distance);
 }
 
-std::expected<std::optional<FCookedModel>, FGameError> FPlayerCharacter::Sever(const std::size_t Joint)
+std::expected<std::optional<FSkinnedMeshPiece>, FGameError> FPlayerCharacter::Sever(const std::size_t Joint)
 {
 	const auto Parents = Library->GetJointParents();
-	if (Joint >= Parents.size() || Parents[Joint] < 0)
+	if (Joint >= Parents.size() || Parents[Joint] < 0 || IsEmpty())
 	{
 		return std::nullopt;
 	}
 
+	SkinForCut();
 	// Parents precede children, so one forward pass marks the subtree.
 	std::vector<bool> Limb(Parents.size(), false);
 	Limb[Joint] = true;

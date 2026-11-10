@@ -28,14 +28,16 @@ std::expected<void, std::error_code> MoveAtomically(const std::filesystem::path&
 		}
 
 		// A handle opened without FILE_SHARE_DELETE on either path, or on any file inside a moved directory, blocks the rename until it closes.
+		// Virus scanners and the search indexer open freshly written files that way, for seconds when the machine is busy, so the retries
+		// span about five seconds before giving up.
 		const DWORD Error = GetLastError();
 		const bool bTransient = Error == ERROR_ACCESS_DENIED || Error == ERROR_SHARING_VIOLATION || Error == ERROR_LOCK_VIOLATION;
-		if (!bTransient || Attempt == 20)
+		if (!bTransient || Attempt == 60)
 		{
 			return std::unexpected(std::error_code(static_cast<int>(Error), std::system_category()));
 		}
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(std::min(1 << Attempt, 64)));
+		std::this_thread::sleep_for(std::chrono::milliseconds(std::min(1 << Attempt, 100)));
 	}
 #else
 	const unsigned Flags = Mode == EMoveMode::FailIfExists ? RENAME_NOREPLACE : 0;
