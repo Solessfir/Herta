@@ -862,8 +862,14 @@ std::expected<EMovementStep, FPhysicsError> FMantleMode::Step(FMoverContext& Con
 		return EMovementStep::Continue;
 	}
 
-	// The target sits on the top, so the climb ends standing rather than passing through a fall the animation would show.
-	State.bGrounded = true;
+	// The target sits a centimetre above the top so the checks start clear. Settling onto it touches the ground, so walking finds it on the
+	// next step instead of falling for one, which the animation would show as a fall and a landing.
+	if (auto Settled = Movement::Move(Context, {0.f, -1.f, 0.f}); !Settled)
+	{
+		return std::unexpected(Settled.error());
+	}
+
+	State.Velocity = {};
 	State.Takeoff = EMoverTakeoff::Other;
 	return EMovementStep::Ended;
 }

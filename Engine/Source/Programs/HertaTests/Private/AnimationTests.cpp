@@ -950,7 +950,15 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 	const float EyeAboveFoot = EyeOf((*Session)->GetRenderView({1280, 720}).View).Y - (*Session)->GetPlayerFootPosition().Y;
 	CHECK(EyeAboveFoot < 1.9f);
 	CHECK(EyeAboveFoot > 0.8f);
-	Step({}, 60);
+	// The climb ends standing on the top: it never falls for a step, which would play a fall and a landing.
+	bool bFell = false;
+	for (int Frame = 0; Frame < 60; ++Frame)
+	{
+		Step({.Move = {0.f, 0.2f}}, 1);
+		bFell = bFell || (*Session)->GetMover().GetActiveMode() == "Falling";
+	}
+
+	CHECK_FALSE(bFell);
 	CHECK_FALSE((*Session)->IsPlayerMantling());
 	CHECK((*Session)->GetPlayerFootPosition().Y == doctest::Approx(1.7f).epsilon(0.03));
 	CHECK(State() == "Locomotion");
