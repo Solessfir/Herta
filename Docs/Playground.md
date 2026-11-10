@@ -6,7 +6,7 @@ Press **F** to frame a selection, **G** for game view, and **F11** for an immers
 
 ## Gameplay level
 
-62 entities in 7 Outliner folders, and three placements of the Causeway region.
+65 entities in 8 Outliner folders, and three placements of the Causeway region.
 
 | Key | Bookmark |
 | --- | --- |
@@ -40,6 +40,8 @@ Play it with **Alt+P** in the editor or as the standalone game.
 - **Effects:** impacts throw dust, landings kick up a ring of it, breaking walls and crates burst into debris, slices and severed limbs spray blood that sticks where it lands, and embers rise over the finish ledge from the **Finish embers** emitter. The effects are VFX Graphs in `Content/Effects`; open one and use **Play at pivot** to preview it. See [Particles](Particles.md).
 
 - **Causeway:** the descent ramp leads off the arena's west edge onto a walkway of three 24 m segments, each a placement of `Levels/Regions/Causeway.hlevel` with curbs, a gate, and a lamp, reaching 84 m out. In Play the segments ahead stream in within 40 m and the ones behind stream out beyond 50 m; `play_state` reports the loads and unloads, and the viewport draws each segment's load ring while editing. See [World streaming](WorldStreaming.md).
+
+- **Guards and navigation:** **Navigation bounds** covers the arena and the wall run lane, and each causeway segment has bounds of its own, so its navigation streams in with it and meets the arena's across the seam. Turn on **Overlays > Navigation** to see it; in Play the destructibles cut holes in it until they break. Two guards run `Content/AI/Guard.hstatetree`: one patrols the first causeway segment facing the arena, and one stands behind the destruction yard's walls. A guard patrols until it hears a noise or sees the player, then chases and swings, knocking the player down; it searches where it lost the player, and runs when wounded. Break a wall near the yard guard to bring it over, or sever two limbs to send it running. `play_state` lists each guard's state, health, and what it knows. See [Navigation](Navigation.md) and [AI](AI.md).
 
 Every meshed object is a static body the player can stand on, except the destructibles, which build their own fracture collision.
 

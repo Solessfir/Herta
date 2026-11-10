@@ -49,7 +49,11 @@ Saves are versioned text ending in a checksum, so a truncated or damaged file is
 
 ## Effects and streaming
 
-Gameplay events spawn the level's particle effects through sorted requests; see [Particles](Particles.md). Levels that place regions stream them in and out around the player on worker tasks; see [World streaming](WorldStreaming.md).
+Gameplay events spawn the level's particle effects through sorted requests; see [Particles](Particles.md). Levels that place regions stream them in and out around the player on worker tasks; see [World streaming](WorldStreaming.md). Regions add and remove their navigation patches as they do.
+
+## Navigation and agents
+
+The game loads `<level>.hnav`, which staging cooks beside the level, and every StateTree its AI agents run. Agents walk the navigation crowd, perceive and fight the player, and start over when the course restarts; see [Navigation](Navigation.md) and [AI](AI.md). Editor Play builds the open level's navigation on a worker and hands it to the session when it is ready, and loads agents' StateTrees with the level's other assets.
 
 ## Editor Play
 
@@ -57,7 +61,7 @@ Click **Play** in the viewport toolbar or press **Alt+P** or **Shift+Space**. Pl
 
 ## Staging and packaging
 
-`HertaEditorCmd game.stage <project.hertaproject> <output>` cooks the starting level's dependency closure through HertaAssetWorker: meshes, material assets and their textures in each sampled color space, Sky environments, the level's sounds and emitter sounds with every graph's waves, its particle systems, and its region levels with their scenery's assets. The game opens the default audio device, or plays through the null path without one and during `--smoke-test`, and streams streamed sounds from their staged files. It writes them as loose files, copies the project descriptor, starting level, and region levels verbatim, and copies the HUD font with its license:
+`HertaEditorCmd game.stage <project.hertaproject> <output>` cooks the starting level's dependency closure through HertaAssetWorker: meshes, material assets and their textures in each sampled color space, Sky environments, the level's sounds and emitter sounds with every graph's waves, its particle systems, its agents' StateTrees, and its region levels with their scenery's assets, and builds the level's navigation with its regions' patches into `<level>.hnav`. The game opens the default audio device, or plays through the null path without one and during `--smoke-test`, and streams streamed sounds from their staged files. It writes them as loose files, copies the project descriptor, starting level, and region levels verbatim, and copies the HUD font with its license:
 
 ```text
 <output>/Engine/Content/<asset-id>.hasset         engine assets
@@ -83,7 +87,7 @@ The package holds the renamed game executable (`<Project>.exe` on Windows, `<Pro
 
 ## Checks
 
-- `HertaGame --smoke-test=<frames> [--validation]` plays a scripted run: it walks and jumps, loses focus, pauses and resumes, saves and loads, restarts the course, crosses the level's regions and back, and exits with failure on any error or validation message. Smoke saves go to the temporary directory.
+- `HertaGame --smoke-test=<frames> [--validation]` plays a scripted run: it walks and jumps, loses focus, pauses and resumes, saves and loads, restarts the course, crosses the level's regions and back, checks that the level's agents run their StateTrees on the navigation, and exits with failure on any error or validation message. Smoke saves go to the temporary directory.
 - `HertaEditor --play-test [--validation]` runs two editor Play/Stop cycles with scripted input, saves `Saved/PlayTest/Play-N.png` from the player's view, and requires every authored model back after each stop.
 - `HertaTests` cover the mover (the sprint speed curve, landing speed loss, slide braking and exit, disabled and custom modes, sphere casts) and the session (spawn, timing, restart, jump limits, respawn, sliding under a low ceiling, wall kicks, the chimney climb, mantles and their room check, wall runs from a run but not a standing jump, invalid input), staged content loading, trigger roles, GameUI layout, the menus' focus routing, rebinding, and settings, saves and their recovery, and the shared simulation builder.
 

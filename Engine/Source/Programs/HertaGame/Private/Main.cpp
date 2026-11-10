@@ -1153,6 +1153,24 @@ int RunGame(const FGameOptions& Options)
 				}
 			}
 
+			// Agents need their StateTree and the cooked navigation to think and walk.
+			const std::vector<FGameAgentState> Agents = Session->GetAgentStates();
+			if (!Agents.empty())
+			{
+				const auto Thinking = std::ranges::count_if(Agents, [](const FGameAgentState& Agent)
+				{
+					return !Agent.State.empty();
+				});
+
+				const auto Walking = std::ranges::count_if(Agents, &FGameAgentState::bOnNavigation);
+				HERTA_LOG_INFO(*Log, GameLog, "Smoke run had {} agents, {} running their StateTree and {} on navigation", Agents.size(), Thinking, Walking);
+				if (Thinking == 0 || Walking == 0)
+				{
+					HERTA_LOG_ERROR(*Log, GameLog, "No agent ran its StateTree on the navigation");
+					bFailed = true;
+				}
+			}
+
 			Window.RequestClose();
 		}
 	}

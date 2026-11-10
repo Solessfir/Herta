@@ -48,7 +48,7 @@ Setting.ColorSpace = Linear
 - Herta writes LF line endings and settings in byte-wise name order. Parsing accepts any field order and CRLF checkouts, so rewriting a hand-edited file produces the canonical form.
 - Unknown keys are errors in version 1.
 
-Importers are selected by extension: `.gltf` and `.glb` use `Gltf`; `.png`, `.jpg`, `.jpeg`, and `.hdr` use `Texture`; `.hmat` uses `Material`; `.blend` uses `Blender`; `.wav`, `.flac`, and `.mp3` use `Sound`; `.haudiograph` uses `AudioGraph`; `.hvfxgraph` uses `VfxGraph`.
+Importers are selected by extension: `.gltf` and `.glb` use `Gltf`; `.png`, `.jpg`, `.jpeg`, and `.hdr` use `Texture`; `.hmat` uses `Material`; `.blend` uses `Blender`; `.wav`, `.flac`, and `.mp3` use `Sound`; `.haudiograph` uses `AudioGraph`; `.hvfxgraph` uses `VfxGraph`; `.hstatetree` uses `StateTree`.
 
 The `Gltf` and `Blender` importers take two optional settings. `SeverableJoints` lists, comma separated, the non-root skeleton joints whose limbs hard hits can cut off; cooking checks them against the skeleton. `AnimationGraph` is a `.hanimgraph` path relative to the model that stays inside the content root. Cooking compiles that [animation graph](Animation.md#animation-graph) into the skinned model's state machine, and the graph's bytes are part of the model's build key, so saving the graph recooks the character. A graph that does not compile fails the model's cook with the graph's diagnostics. Cooked asset format 4 added the state machine, format 5 the severable joints, and format 6 sounds and sound graphs. The playback settings and the sound formats are described in [Audio](Audio.md#sounds-and-audio-graphs).
 
@@ -111,6 +111,7 @@ On success the worker exits with 0 and prints `HertaAssetCook/1`, `Key <hex>`, `
 | `Sound` | 1 | Playback settings, `Loop`, `Stream` | Cooked 16-bit PCM sound |
 | `AudioGraph` | 1 | Playback settings | Cooked sound graph naming its waves by ID |
 | `VfxGraph` | 1 | None | Cooked particle system; see [Particles](Particles.md) |
+| `StateTree` | 1 | None | Compiled StateTree program; see [AI](AI.md) |
 
 Unknown settings are errors, so a typo never silently cooks with defaults. Bump an importer's version whenever its output changes for the same input, and bump `CookedAssetFormatVersion` when any cooked layout changes. Both are part of the build key.
 

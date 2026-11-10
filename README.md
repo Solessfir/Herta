@@ -53,8 +53,9 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Physics](Docs/Physics.md) and [Animation](Docs/Animation.md) - determinism, collision, destruction, skinned characters, and state machines.
 - [Audio](Docs/Audio.md) - the mixer, streaming, Audio Graphs, and level sounds.
 - [Particles](Docs/Particles.md) and [World streaming](Docs/WorldStreaming.md) - VFX Graphs, the particle runtime, and streamed level regions.
+- [Navigation](Docs/Navigation.md) and [AI](Docs/AI.md) - tiled navmesh with streamed patches and obstacles, the crowd, StateTrees, perception, and agents.
 - [Editor automation](Docs/Automation.md) - driving a running editor from MCP clients such as coding agents.
-- [Next milestone](Docs/EngineDesign.md#milestone-11---navigation-and-ai) - navigation and AI, while editor automation over MCP keeps growing.
+- [Next milestone](Docs/EngineDesign.md#milestone-12---multiplayer) - multiplayer, while editor automation over MCP keeps growing.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.
 - [Rendering](Docs/Rendering.md), [scaling tests](Docs/Scaling.md), and [editor style](Docs/EditorStyle.md) - implementation details.
 
