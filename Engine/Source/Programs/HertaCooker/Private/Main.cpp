@@ -1,4 +1,5 @@
 #include "Herta/AssetPipeline/GameStaging.h"
+#include "Herta/AssetPipeline/ModStaging.h"
 #include "Herta/Assets/ContentPackage.h"
 #include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/PackageBuilder/PackageBuilder.h"
@@ -29,6 +30,9 @@ constexpr std::string_view Usage = R"(HertaCooker cooks a game's content for dis
        [--embed-into=<executable>,...] [--signing-key=<file>]
       Stages the project's starting level and every asset it reaches. Loose writes the staged files into the output; package writes
       <name>.hpak there, with the engine shaders from --shaders; embedded builds the same package into each --embed-into executable.
+  mod --source=<mod folder> --project=<p.hertaproject> --output=<installed mod folder> [--package] [--signing-key=<file>]
+      Cooks a data mod's Content folder for the game into a folder for its Mods directory, its files loose under Files or, with --package,
+      in <namespace>.hpak.
   package --input=<directory> --output=<file.hpak> [--signing-key=<file>]
       Packages every file under a staged directory.
   embed --package=<file.hpak> --executable=<file>
@@ -54,6 +58,14 @@ void Report(const std::string_view Message)
 	}
 
 	return {};
+}
+
+[[nodiscard]] bool HasFlag(const std::span<char* const> Arguments, const std::string_view Flag)
+{
+	return std::ranges::any_of(Arguments, [Flag](const char* const Argument)
+	{
+		return std::string_view(Argument) == Flag;
+	});
 }
 
 [[nodiscard]] std::filesystem::path PathOf(const std::string_view Text)
@@ -285,6 +297,60 @@ int Cook(const std::span<char* const> Arguments)
 	return 0;
 }
 
+int Mod(const std::span<char* const> Arguments)
+{
+	const std::string_view Source = Find(Arguments, "--source=");
+	const std::string_view Project = Find(Arguments, "--project=");
+	const std::string_view Output = Find(Arguments, "--output=");
+	const auto Options = ReadBuildOptions(Arguments);
+	const std::filesystem::path Repository = FindRepositoryRoot();
+	if (Source.empty() || Project.empty() || Output.empty() || !Options || Repository.empty())
+	{
+		Report(!Options ? Options.error() : Repository.empty() ? "Cannot find the Herta checkout with Engine/Content to cook from" : "mod needs --source=, --project=, and --output=");
+		return 2;
+	}
+
+	const std::string_view Platform = GetPlatformName(GetCurrentPlatform());
+	std::filesystem::path Worker = GetExecutablePath().parent_path() / "HertaAssetWorker";
+	Worker += GetExecutablePath().extension();
+	const std::filesystem::path OutputRoot = PathOf(Output);
+	const auto Staged = StageModContent({
+	    .ModRoot = PathOf(Source),
+	    .ProjectPath = PathOf(Project),
+	    .OutputRoot = OutputRoot,
+	    .EngineContentRoot = Repository / "Engine/Content",
+	    .EngineShaderRoot = Repository / "Engine/Shaders",
+	    .DerivedDataRoot = Repository / "DerivedDataCache" / Platform,
+	    .WorkerPath = Worker,
+	    .TargetPlatform = std::string(Platform),
+	});
+
+	if (!Staged)
+	{
+		Report(Staged.error().Message);
+		return 1;
+	}
+
+	std::println("Cooked mod {} {}.{}.{}: {} files ({:.1f} KiB)", Staged->Manifest.Namespace, Staged->Manifest.Version.Major, Staged->Manifest.Version.Minor, Staged->Manifest.Version.Patch, Staged->Files.size(), static_cast<double>(Staged->Bytes) / 1024.);
+	if (!HasFlag(Arguments, "--package"))
+	{
+		return 0;
+	}
+
+	auto Inputs = CollectPackageInputs(OutputRoot / "Files");
+	const auto Written = Inputs ? WritePackage(OutputRoot / (Staged->Manifest.Namespace + ".hpak"), std::move(*Inputs), *Options) : std::unexpected(Inputs.error());
+	if (!Written)
+	{
+		Report(Written.error().Message);
+		return 1;
+	}
+
+	std::error_code Error;
+	std::filesystem::remove_all(OutputRoot / "Files", Error);
+	std::println("Packaged the mod into {}.hpak", Staged->Manifest.Namespace);
+	return 0;
+}
+
 int Keygen(const std::span<char* const> Arguments)
 {
 	const std::string_view IdText = Find(Arguments, "--id=");
@@ -396,6 +462,11 @@ int main(const int ArgumentCount, char** const Arguments)
 		if (Command == "package")
 		{
 			return Herta::Package(Rest);
+		}
+
+		if (Command == "mod")
+		{
+			return Herta::Mod(Rest);
 		}
 
 		if (Command == "embed")

@@ -39,14 +39,14 @@ FVirtualFileSystem::FVirtualFileSystem(const std::filesystem::path& InRoot)
 {
 }
 
-void FVirtualFileSystem::MountDirectory(const std::filesystem::path& Directory)
+void FVirtualFileSystem::MountDirectory(const std::filesystem::path& Directory, const bool bOverride)
 {
-	Mounts.push_back({.Directory = std::filesystem::absolute(Directory).lexically_normal()});
+	Mounts.insert(bOverride ? Mounts.begin() : Mounts.end(), FMount{.Directory = std::filesystem::absolute(Directory).lexically_normal()});
 }
 
-void FVirtualFileSystem::MountPackage(std::shared_ptr<const FContentPackage> Package)
+void FVirtualFileSystem::MountPackage(std::shared_ptr<const FContentPackage> Package, const bool bOverride)
 {
-	Mounts.push_back({.Package = std::move(Package)});
+	Mounts.insert(bOverride ? Mounts.begin() : Mounts.end(), FMount{.Package = std::move(Package)});
 }
 
 std::string FVirtualFileSystem::ToPackagePath(const std::filesystem::path& Path) const

@@ -1,0 +1,13 @@
+{
+  "format": "HertaMod",
+  "formatVersion": 1,
+  "namespace": "NeonCoral",
+  "version": "1.0.0",
+  "cookedFormat": 7,
+  "dependencies": [],
+  "loadAfter": [],
+  "loadBefore": [],
+  "overrides": [
+    "Sandbox/Content/a4c06002-2738-4e25-9b9e-816ae7c00001.hasset"
+  ]
+}

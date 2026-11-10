@@ -259,7 +259,23 @@ std::expected<void, FPackageBuildError> EmbedPackage(const std::filesystem::path
 		SectionName.push_back(static_cast<char>(Character - 'A' + 'a'));
 	}
 
-	const auto Ran = RunProcess({.Executable = "objcopy", .Arguments = {"--remove-section=" + SectionName, "--add-section", SectionName + "=" + Section.string(), "--set-section-flags", SectionName + "=noload,readonly", Executable.string()}});
+	// RunProcess starts programs by path, so objcopy is looked up on PATH as a shell would.
+	std::filesystem::path Objcopy = "objcopy";
+	const std::string Search = ReadEnvironment("PATH").value_or("/usr/bin:/bin");
+	for (std::size_t Start = 0; Start <= Search.size();)
+	{
+		const std::size_t End = std::min(Search.find(':', Start), Search.size());
+		std::error_code Error;
+		if (const std::filesystem::path Candidate = std::filesystem::path(Search.substr(Start, End - Start)) / "objcopy"; End > Start && std::filesystem::is_regular_file(Candidate, Error))
+		{
+			Objcopy = Candidate;
+			break;
+		}
+
+		Start = End + 1;
+	}
+
+	const auto Ran = RunProcess({.Executable = Objcopy, .Arguments = {"--remove-section=" + SectionName, "--add-section", SectionName + "=" + Section.string(), "--set-section-flags", SectionName + "=noload,readonly", Executable.string()}});
 	std::error_code Error;
 	std::filesystem::remove(Section, Error);
 	if (!Ran || Ran->ExitCode != 0)

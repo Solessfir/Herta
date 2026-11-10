@@ -24,8 +24,9 @@ public:
 	FVirtualFileSystem() = default;
 	explicit FVirtualFileSystem(const std::filesystem::path& InRoot);
 
-	void MountDirectory(const std::filesystem::path& Directory);
-	void MountPackage(std::shared_ptr<const FContentPackage> Package);
+	// An override mount goes in front of every mount so far, as a mod does over the game's content.
+	void MountDirectory(const std::filesystem::path& Directory, bool bOverride = false);
+	void MountPackage(std::shared_ptr<const FContentPackage> Package, bool bOverride = false);
 
 	[[nodiscard]] bool Exists(const std::filesystem::path& Path) const;
 	[[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> Read(const std::filesystem::path& Path) const;

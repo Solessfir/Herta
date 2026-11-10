@@ -128,6 +128,16 @@ int RunServer(const FServerOptions& Options)
 		HERTA_LOG_INFO(*Log, ServerLog, "Content: {}", Mount);
 	}
 
+	for (const std::string& Mod : Mounted->Mods)
+	{
+		HERTA_LOG_INFO(*Log, ServerLog, "Mod: {}", Mod);
+	}
+
+	for (const std::string& Diagnostic : Mounted->ModDiagnostics)
+	{
+		HERTA_LOG_WARNING(*Log, ServerLog, "{}", Diagnostic);
+	}
+
 	const auto LevelBytes = Files.Read(Project->StartingLevel);
 	const auto Level = LevelBytes ? ParseLevel(AsText(*LevelBytes)) : std::unexpected(FLevelError{LevelBytes.error().Message});
 	if (!Level)

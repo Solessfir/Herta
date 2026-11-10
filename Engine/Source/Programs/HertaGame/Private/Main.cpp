@@ -286,6 +286,16 @@ int RunGame(const FGameOptions& Options)
 		HERTA_LOG_INFO(*Log, GameLog, "Content: {}", Mount);
 	}
 
+	for (const std::string& Mod : Mounted->Mods)
+	{
+		HERTA_LOG_INFO(*Log, GameLog, "Mod: {}", Mod);
+	}
+
+	for (const std::string& Diagnostic : Mounted->ModDiagnostics)
+	{
+		HERTA_LOG_WARNING(*Log, GameLog, "{}", Diagnostic);
+	}
+
 	const auto LevelBytes = Files.Read(Project->StartingLevel);
 	const auto Level = LevelBytes ? ParseLevel(AsText(*LevelBytes)) : std::unexpected(FLevelError{LevelBytes.error().Message});
 	if (!Level)
