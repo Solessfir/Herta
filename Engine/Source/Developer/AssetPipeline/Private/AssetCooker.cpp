@@ -11,6 +11,7 @@
 #include "Herta/AssetPipeline/ShaderSources.h"
 #include "Herta/AssetPipeline/TextureCooker.h"
 #include "Herta/AnimationGraph/AnimationGraph.h"
+#include "Herta/VfxGraph/VfxGraph.h"
 
 #include <algorithm>
 #include <format>
@@ -607,6 +608,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	std::optional<FMaterialAsset> Material;
 	std::optional<FSoundSettings> SoundSettings;
 	std::optional<FCookedSoundGraph> SoundGraph;
+	std::optional<FCookedParticleSystem> ParticleSystem;
 	FHash128 BlenderRecordKey;
 	std::expected<ETextureColorSpace, FAssetError> ColorSpace = ETextureColorSpace::Srgb;
 
@@ -682,6 +684,34 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 
 			SoundGraph = std::move(*Graph);
 		}
+	}
+	else if (Metadata->Importer == "VfxGraph")
+	{
+		KeyInput.ImporterVersion = VfxGraphImporterVersion;
+		if (!Metadata->Settings.empty())
+		{
+			return std::unexpected(FAssetError{"The VfxGraph importer has no settings"});
+		}
+
+		auto Graph = DeserializeGraph(std::string_view(reinterpret_cast<const char*>(Source->data()), Source->size()), GetVfxGraphSchema());
+		if (!Graph)
+		{
+			return std::unexpected(FAssetError{std::format("{}: {}", Request.SourcePath, Graph.error().Message)});
+		}
+
+		auto Compiled = CompileVfxGraph(*Graph);
+		if (!Compiled)
+		{
+			std::string Message = std::format("{} does not compile:", Request.SourcePath);
+			for (const FGraphDiagnostic& Diagnostic : Compiled.error())
+			{
+				Message += " " + Diagnostic.Message + ".";
+			}
+
+			return std::unexpected(FAssetError{std::move(Message)});
+		}
+
+		ParticleSystem = std::move(Compiled->System);
 	}
 	else if (Metadata->Importer == "Gltf")
 	{
@@ -825,6 +855,10 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	else if (Metadata->Importer == "AudioGraph")
 	{
 		Cooked = std::move(*SoundGraph);
+	}
+	else if (Metadata->Importer == "VfxGraph")
+	{
+		Cooked = std::move(*ParticleSystem);
 	}
 	else if (Metadata->Importer == "Gltf")
 	{

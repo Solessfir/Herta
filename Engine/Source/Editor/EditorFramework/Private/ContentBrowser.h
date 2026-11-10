@@ -31,6 +31,7 @@ struct FContentBrowserState
 	FAssetId ContextAsset{};
 	FAssetId OpenMaterialRequested{};
 	FAssetId OpenAudioGraphRequested{};
+	FAssetId OpenVfxGraphRequested{};
 	std::vector<FPreviewAssetOption> Assets;
 	std::vector<std::string> Folders;
 	std::vector<std::size_t> VisibleFolders;
@@ -53,6 +54,7 @@ struct FContentBrowserState
 
 bool IsPlaceableContentAsset(const FPreviewAssetOption& Asset) noexcept;
 bool IsSoundContentAsset(const FPreviewAssetOption& Asset) noexcept;
+bool IsEffectContentAsset(const FPreviewAssetOption& Asset) noexcept;
 void ToggleContentBrowser(bool& bOpen, FContentBrowserState& State);
 // The drawer variant floats over a document tab and closes once focus leaves it.
 bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserState& State, FPreviewAssets* Assets, bool bDrawer = false);

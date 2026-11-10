@@ -2,6 +2,7 @@
 
 #include "Herta/AudioGraph/AudioGraph.h"
 #include "Herta/EditorCore/TransactionHistory.h"
+#include "Herta/VfxGraph/VfxGraph.h"
 #include "Herta/GraphCore/Graph.h"
 #include "Herta/GraphEditor/GraphCanvas.h"
 
@@ -112,4 +113,5 @@ private:
 void SetAudioGraphDocumentResolver(FAudioWaveResolver Resolver);
 // A new Audio Graph: one wave player, still without waves, feeding the output.
 [[nodiscard]] FGraph MakeDefaultAudioGraph();
+[[nodiscard]] const FGraphDocumentDomain& GetVfxGraphDocumentDomain();
 }

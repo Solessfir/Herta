@@ -267,6 +267,7 @@ struct FPreviewAssets::FMeshLoad
 	std::shared_ptr<const FCookedSound> Sound;
 	std::optional<FCookedSoundStream> SoundStream;
 	std::shared_ptr<const FCookedSoundGraph> SoundGraph;
+	std::shared_ptr<const FCookedParticleSystem> ParticleSystem;
 	bool bSucceeded = false;
 	std::optional<FPreviewAssetMetadata> Metadata;
 	std::vector<std::string> Warnings;
@@ -305,6 +306,18 @@ FPreviewAssetMetadata GetPreviewAssetMetadata(const FCookedAsset& Asset)
 	if (const auto* Graph = std::get_if<FCookedSoundGraph>(&Asset))
 	{
 		return FPreviewSoundMetadata{.bGraph = true, .Parameters = Graph->Graph.Parameters.size(), .Waves = GetSoundGraphWaves(Graph->Graph).size(), .Bus = Graph->Playback.Bus};
+	}
+
+	if (const auto* Particles = std::get_if<FCookedParticleSystem>(&Asset))
+	{
+		FPreviewParticleMetadata Metadata{.Emitters = Particles->Emitters.size()};
+		for (const FParticleEmitterDesc& Emitter : Particles->Emitters)
+		{
+			Metadata.MaximumParticles += Emitter.MaximumParticles;
+			Metadata.bLooping = Metadata.bLooping || (Emitter.SpawnRate > 0.f && Emitter.DurationSeconds == 0.f);
+		}
+
+		return Metadata;
 	}
 
 	const auto& Model = std::get<FCookedModel>(Asset);
@@ -1845,6 +1858,10 @@ bool FPreviewAssets::SubmitCook(const FLocation& Location, const std::string& La
 		{
 			Load->SoundGraph = std::make_shared<const FCookedSoundGraph>(std::move(*Graph));
 		}
+		else if (auto* const Particles = std::get_if<FCookedParticleSystem>(&*Asset))
+		{
+			Load->ParticleSystem = std::make_shared<const FCookedParticleSystem>(std::move(*Particles));
+		}
 		else
 		{
 			Load->Model = std::move(std::get<FCookedModel>(*Asset));
@@ -1976,7 +1993,7 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 		return;
 	}
 
-	if ((Slot.Mesh || Slot.Material || Slot.Sound || Slot.SoundStream || Slot.SoundGraph) && Slot.Key == Load.Key && (!TextureAssets.contains(Asset) || Slot.Texture))
+	if ((Slot.Mesh || Slot.Material || Slot.Sound || Slot.SoundStream || Slot.SoundGraph || Slot.ParticleSystem) && Slot.Key == Load.Key && (!TextureAssets.contains(Asset) || Slot.Texture))
 	{
 		Slot.Metadata = Load.Metadata;
 		Slot.ContentGeneration = ContentGeneration;
@@ -1985,11 +2002,12 @@ void FPreviewAssets::PublishMesh(const FAssetId& Asset, const std::uint64_t Gene
 		return;
 	}
 
-	if (Load.Sound || Load.SoundStream || Load.SoundGraph)
+	if (Load.Sound || Load.SoundStream || Load.SoundGraph || Load.ParticleSystem)
 	{
 		Slot.Sound = std::move(Load.Sound);
 		Slot.SoundStream = std::move(Load.SoundStream);
 		Slot.SoundGraph = std::move(Load.SoundGraph);
+		Slot.ParticleSystem = std::move(Load.ParticleSystem);
 		Slot.Mesh.reset();
 		Slot.Material.reset();
 		Slot.MaterialSource.reset();

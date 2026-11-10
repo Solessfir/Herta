@@ -9,6 +9,7 @@
 #include "Herta/Application/Application.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Audio/AudioEngine.h"
+#include "Herta/Particles/ParticleWorld.h"
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Json.h"
 #include "Herta/Core/Log.h"
@@ -310,6 +311,10 @@ struct FEditorFramework::FImplementation
 	// Compiles the open Audio Graph's draft for auditions whenever it changes, and draws the panel with its audition controls.
 	void DrawAudioGraphPanel();
 	void DrawAudioAudition();
+	void OpenVfxGraphKey(const std::string& Key);
+	// Compiles the open VFX Graph's draft whenever it changes and draws it with a preview that plays at the viewport's pivot.
+	void DrawVfxGraphPanel();
+	void UpdateEffects(float DeltaSeconds);
 	[[nodiscard]] std::optional<FAssetId> ResolveAudioWave(std::string_view Mount, std::string_view Path) const;
 	// A content file as its mounted path, "Game/..." or "Engine/...", or nothing outside both content roots.
 	std::optional<std::string> MountedContentPath(const std::filesystem::path& File) const;
@@ -392,6 +397,11 @@ struct FEditorFramework::FImplementation
 	// The player character's animation graph, and its compiled state and transition nodes for highlighting Play, rebuilt when the draft changes.
 	FGraphDocumentPanel AnimationGraphPanel{GetAnimationGraphDocumentDomain()};
 	FGraphDocumentPanel AudioGraphPanel{GetAudioGraphDocumentDomain()};
+	FGraphDocumentPanel VfxGraphPanel{GetVfxGraphDocumentDomain()};
+	std::uint64_t VfxGraphRevision = UINT64_MAX;
+	std::optional<FCookedParticleSystem> PreviewDesc;
+	FParticleWorld PreviewParticles;
+	std::optional<FParticleEffectId> PreviewEffectId;
 	std::uint64_t AudioGraphRevision = UINT64_MAX;
 	// Waves resolve through the content scan, so a new scan compiles the graph again.
 	std::uint64_t AudioGraphOptionsGeneration = UINT64_MAX;

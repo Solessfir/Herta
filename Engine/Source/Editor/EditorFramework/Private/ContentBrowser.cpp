@@ -155,6 +155,7 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 		                                                                       : Asset.Importer == "Texture"    ? "Texture"
 		                                                                       : Asset.Importer == "Sound"      ? "Sound"
 		                                                                       : Asset.Importer == "AudioGraph" ? "Audio Graph"
+		                                                                       : Asset.Importer == "VfxGraph"   ? "VFX Graph"
 		                                                                                                        : "Asset");
 		ImGui::Separator();
 		const FPreviewMeshSlot* const Cached = Assets ? Assets->GetCachedAsset(Asset.Id) : nullptr;
@@ -208,6 +209,11 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 					}
 
 					Row("Bus", Sound->Bus);
+				}
+				else if (const auto* Particles = std::get_if<FPreviewParticleMetadata>(&*Cached->Metadata))
+				{
+					Row("Emitters", std::format("{}", Particles->Emitters));
+					Row("Particles", std::format("Up to {}{}", Particles->MaximumParticles, Particles->bLooping ? ", looping" : ""));
 				}
 				else if (const auto* Material = std::get_if<FPreviewMaterialMetadata>(&*Cached->Metadata))
 				{
@@ -267,6 +273,11 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 		if (Asset.Importer == "AudioGraph" && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 		{
 			State.OpenAudioGraphRequested = Asset.Id;
+		}
+
+		if (Asset.Importer == "VfxGraph" && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		{
+			State.OpenVfxGraphRequested = Asset.Id;
 		}
 	}
 
@@ -335,6 +346,11 @@ bool IsPlaceableContentAsset(const FPreviewAssetOption& Asset) noexcept
 bool IsSoundContentAsset(const FPreviewAssetOption& Asset) noexcept
 {
 	return Asset.Id.IsValid() && (Asset.Importer == "Sound" || Asset.Importer == "AudioGraph");
+}
+
+bool IsEffectContentAsset(const FPreviewAssetOption& Asset) noexcept
+{
+	return Asset.Id.IsValid() && Asset.Importer == "VfxGraph";
 }
 
 void FContentBrowserState::Refresh(const std::span<const FPreviewAssetOption> Options, const std::uint64_t NewGeneration, const std::span<const std::string> Directories)
@@ -516,6 +532,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 	bool bImport = false;
 	bool bNewMaterial = false;
 	bool bNewAudioGraph = false;
+	bool bNewVfxGraph = false;
 	std::string CreationFolder = State.Folder;
 	std::vector<FAssetId> ThumbnailAssets;
 	if (State.bFocusRequested)
@@ -601,6 +618,12 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				CreationFolder = State.ContextFolder;
 			}
 
+			bNewVfxGraph |= ToolUIMenuItem("New VFX Graph", EToolUIMenuIcon::Light);
+			if (bNewVfxGraph)
+			{
+				CreationFolder = State.ContextFolder;
+			}
+
 			ImGui::EndDisabled();
 			const auto Context = std::ranges::find(State.Assets, State.ContextAsset, &FPreviewAssetOption::Id);
 			if (Context != State.Assets.end() && Context->Importer == "Material")
@@ -618,6 +641,15 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				if (ToolUIMenuItem("Edit Audio Graph", EToolUIMenuIcon::Sound))
 				{
 					State.OpenAudioGraphRequested = Context->Id;
+				}
+			}
+
+			if (Context != State.Assets.end() && Context->Importer == "VfxGraph")
+			{
+				ImGui::Separator();
+				if (ToolUIMenuItem("Edit VFX Graph", EToolUIMenuIcon::Light))
+				{
+					State.OpenVfxGraphRequested = Context->Id;
 				}
 			}
 
@@ -689,6 +721,24 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			if (Created)
 			{
 				State.Selected = State.OpenAudioGraphRequested = *Created;
+				State.SelectedFolder.clear();
+				State.Search.fill('\0');
+				State.Filter();
+				State.FolderError.clear();
+			}
+			else
+			{
+				State.FolderError = Created.error().Message;
+			}
+		}
+
+		if (bNewVfxGraph)
+		{
+			const auto Text = SerializeGraph(MakeDefaultVfxGraph(), GetVfxGraphSchema());
+			const auto Created = Text ? Assets->CreateTextAsset(CreationFolder, "New VFX Graph", VfxGraphExtension, *Text) : std::unexpected(FAssetError{Text.error().Message});
+			if (Created)
+			{
+				State.Selected = State.OpenVfxGraphRequested = *Created;
 				State.SelectedFolder.clear();
 				State.Search.fill('\0');
 				State.Filter();
