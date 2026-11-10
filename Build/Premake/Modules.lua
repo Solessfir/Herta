@@ -287,7 +287,7 @@ HertaRuntimeModule("Animation", {
     -- Linkers that resolve static libraries in order need the runtime jobs before the base library they use.
     PrivateThirdPartyDependencies = { "OzzAnimation", "OzzBase" }
 })
-    externalincludedirs { path.join(RepositoryRoot, "External/ozz-animation/include") }
+    externalincludedirs { path.join(RepositoryRoot, "External/ozz-animation/include"), path.join(RepositoryRoot, "External/earcut") }
 
 HertaRuntimeModule("EditorCore", {
     PublicDependencies = { "Math" },

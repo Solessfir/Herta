@@ -1,5 +1,6 @@
 #include "Herta/Animation/Animation.h"
 #include "Herta/Animation/AnimationStateMachine.h"
+#include "Herta/Animation/MeshSlice.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/Assets/CookedContent.h"
 #include "Herta/GameFramework/GameAssets.h"
@@ -14,6 +15,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <map>
 #include <fstream>
 #include <string_view>
 
@@ -121,6 +123,76 @@ TEST_CASE("A model whose metadata names an animation graph cooks its state machi
 	Tests::WriteText(Content / "Characters/Broken.hanimgraph", "{}");
 	Metadata("Broken.hanimgraph");
 	CHECK_FALSE(CookAsset(Request));
+}
+
+TEST_CASE("The Mannequin slices at any angle through a pose into halves that close every cut")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	FAnimationPose Pose(*Library);
+	REQUIRE(Pose.Evaluate(std::array{FAnimationLayer{.Clip = *(*Library)->FindClip("Jog_Fwd_Loop"), .TimeSeconds = 0.3f}}));
+	const FSkinnedMeshPiece Mesh{.Vertices = Model.Vertices, .Influences = Model.Influences, .Indices = Model.Indices, .Sections = Model.Sections};
+	std::vector<FCookedVertex> Posed(Mesh.Vertices.size());
+	SkinVertices(Pose.GetSkinningMatrices(), Mesh.Vertices, Mesh.Influences, Posed);
+
+	// Open edges the cooked mesh already has, welded by position; a slice must not add any.
+	const auto OpenEdges = [](const FSkinnedMeshPiece& Piece, const std::span<const FCookedVertex> Vertices)
+	{
+		std::map<std::array<std::int64_t, 3>, std::uint32_t> Welded;
+		std::vector<std::uint32_t> Id(Vertices.size());
+		for (std::size_t Vertex = 0; Vertex < Vertices.size(); ++Vertex)
+		{
+			const auto& P = Vertices[Vertex].Position;
+			Id[Vertex] = Welded.try_emplace({std::llround(P[0] * 1.e5), std::llround(P[1] * 1.e5), std::llround(P[2] * 1.e5)}, static_cast<std::uint32_t>(Welded.size())).first->second;
+		}
+
+		std::map<std::pair<std::uint32_t, std::uint32_t>, int> Edges;
+		for (std::size_t Corner = 0; Corner + 2 < Piece.Indices.size(); Corner += 3)
+		{
+			const std::array Triangle{Id[Piece.Indices[Corner]], Id[Piece.Indices[Corner + 1]], Id[Piece.Indices[Corner + 2]]};
+			if (Triangle[0] != Triangle[1] && Triangle[1] != Triangle[2] && Triangle[0] != Triangle[2])
+			{
+				for (std::size_t Side = 0; Side < 3; ++Side)
+				{
+					++Edges[{Triangle[Side], Triangle[(Side + 1) % 3]}];
+				}
+			}
+		}
+
+		return static_cast<std::size_t>(std::ranges::count_if(Edges, [&Edges](const auto& Edge)
+		{
+			const auto Reverse = Edges.find({Edge.first.second, Edge.first.first});
+			return Edge.second != 1 || Reverse == Edges.end() || Reverse->second != 1;
+		}));
+	};
+
+	const std::size_t Original = OpenEdges(Mesh, Posed);
+	const auto JointPosition = [&](const std::string_view Name)
+	{
+		return Pose.GetModelTransforms()[static_cast<std::size_t>(std::ranges::find(Model.Skeleton->JointNames, Name) - Model.Skeleton->JointNames.begin())].TransformPosition({});
+	};
+
+	const FVector3 Chest = JointPosition("spine_03");
+	const FVector3 Elbow = JointPosition("lowerarm_l");
+	for (const auto& [Normal, Point] : {std::pair{FVector3{0.f, 1.f, 0.f}, Chest}, std::pair{FVector3{1.f, 1.f, 0.3f}.Normalized(), Chest}, std::pair{FVector3{0.2f, 0.4f, 1.f}.Normalized(), Chest - FVector3{0.f, 0.3f, 0.f}}, std::pair{FVector3{1.f, 0.f, 0.f}, Elbow}})
+	{
+		const auto Start = std::chrono::steady_clock::now();
+		const auto Sliced = SliceSkinnedMesh(Mesh, Posed, Pose.GetSkinningMatrices(), {.Normal = Normal, .Distance = Normal.Dot(Point)}, 0);
+		const double Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count();
+		REQUIRE(Sliced);
+		CHECK(Sliced->CapLoops > 0);
+		std::size_t HalvesOpen = 0;
+		for (const FSkinnedMeshPiece* Half : {&Sliced->Back, &Sliced->Front})
+		{
+			std::vector<FCookedVertex> HalfPosed(Half->Vertices.size());
+			SkinVertices(Pose.GetSkinningMatrices(), Half->Vertices, Half->Influences, HalfPosed);
+			HalvesOpen += OpenEdges(*Half, HalfPosed);
+		}
+
+		MESSAGE(std::format("{} vertices sliced in {:.2f} ms into {} loops; open edges {} before, {} after", Mesh.Vertices.size(), Milliseconds, Sliced->CapLoops, Original, HalvesOpen));
+		CHECK(HalvesOpen <= Original);
+	}
 }
 
 TEST_CASE("A skinned glTF cooks its skeleton, weights, and clips")
