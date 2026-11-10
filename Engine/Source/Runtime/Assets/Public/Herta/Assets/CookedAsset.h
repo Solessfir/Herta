@@ -2,6 +2,7 @@
 
 #include "Herta/Assets/AnimationStateMachine.h"
 #include "Herta/Assets/Material.h"
+#include "Herta/Assets/Sound.h"
 
 #include <array>
 #include <cstddef>
@@ -16,7 +17,7 @@
 namespace Herta
 {
 // Bump when any cooked layout or cooking rule changes; build keys include it, so stale derived data is never reused.
-inline constexpr std::uint32_t CookedAssetFormatVersion = 5;
+inline constexpr std::uint32_t CookedAssetFormatVersion = 6;
 
 inline constexpr std::uint32_t MaximumCookedTextureDimension = 4096;
 // Matches the per-recording GPU upload budget.
@@ -117,7 +118,7 @@ struct FCookedModel
 	std::vector<std::string> SeverableJoints{};
 };
 
-using FCookedAsset = std::variant<FCookedTexture, FCookedModel, FMaterialAsset>;
+using FCookedAsset = std::variant<FCookedTexture, FCookedModel, FMaterialAsset, FCookedSound, FCookedSoundGraph>;
 
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedTexture(const FCookedTexture& Texture);
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedModel(const FCookedModel& Model);

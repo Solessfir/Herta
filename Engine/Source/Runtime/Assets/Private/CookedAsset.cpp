@@ -2,10 +2,13 @@
 
 #include "Herta/Core/BinaryStream.h"
 
+#include "SoundSerialization.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <format>
+#include <fstream>
 
 namespace Herta
 {
@@ -15,6 +18,8 @@ inline constexpr std::uint32_t CookedAssetMagic = 0x53414348; // "HCAS"
 inline constexpr std::uint8_t TextureTag = 1;
 inline constexpr std::uint8_t ModelTag = 2;
 inline constexpr std::uint8_t MaterialTag = 3;
+inline constexpr std::uint8_t SoundTag = 4;
+inline constexpr std::uint8_t SoundGraphTag = 5;
 
 inline constexpr std::size_t MaximumVertices = MaximumCookedBufferBytes / sizeof(FCookedVertex);
 inline constexpr std::size_t MaximumIndices = MaximumCookedBufferBytes / sizeof(std::uint32_t);
@@ -714,6 +719,35 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 		return Writer.TakeBytes();
 	}
 
+	if (const auto* Sound = std::get_if<FCookedSound>(&Asset))
+	{
+		if (auto Valid = ValidateCookedSound(*Sound); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		Writer.Write(SoundTag);
+		WriteCookedSound(Writer, *Sound);
+		return Writer.TakeBytes();
+	}
+
+	if (const auto* Graph = std::get_if<FCookedSoundGraph>(&Asset))
+	{
+		if (auto Valid = ValidateSoundPlayback(Graph->Playback); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		if (auto Valid = ValidateSoundGraph(Graph->Graph); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		Writer.Write(SoundGraphTag);
+		WriteCookedSoundGraph(Writer, *Graph);
+		return Writer.TakeBytes();
+	}
+
 	const FCookedModel& Model = std::get<FCookedModel>(Asset);
 
 	if (std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)
@@ -831,6 +865,43 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 		return Texture;
 	}
 
+	if (Tag == SoundTag)
+	{
+		FCookedSound Sound = ReadCookedSound(Reader);
+		if (!Reader.IsValid() || !Reader.IsAtEnd())
+		{
+			return Invalid("Truncated or oversized cooked sound");
+		}
+
+		if (auto Valid = ValidateCookedSound(Sound); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		return Sound;
+	}
+
+	if (Tag == SoundGraphTag)
+	{
+		FCookedSoundGraph Graph = ReadCookedSoundGraph(Reader);
+		if (!Reader.IsValid() || !Reader.IsAtEnd())
+		{
+			return Invalid("Truncated or oversized cooked sound graph");
+		}
+
+		if (auto Valid = ValidateSoundPlayback(Graph.Playback); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		if (auto Valid = ValidateSoundGraph(Graph.Graph); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		return Graph;
+	}
+
 	if (Tag != ModelTag)
 	{
 		return Invalid("Unknown cooked asset type");
@@ -939,5 +1010,49 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 	}
 
 	return Model;
+}
+
+std::expected<FCookedSoundStream, FAssetError> ReadCookedSoundStream(const std::filesystem::path& File, const std::uint64_t Offset)
+{
+	// Everything before the samples is a few dozen bytes, but the bus name may run longer.
+	std::ifstream Stream(File, std::ios::binary);
+	std::vector<std::byte> Header(256);
+	Stream.seekg(static_cast<std::streamoff>(Offset));
+	Stream.read(reinterpret_cast<char*>(Header.data()), static_cast<std::streamsize>(Header.size()));
+	if (!Stream && !Stream.eof())
+	{
+		return Invalid("Cannot read the cooked sound");
+	}
+
+	Header.resize(static_cast<std::size_t>(Stream.gcount()));
+	FBinaryReader Reader(Header);
+	if (Reader.Read<std::uint32_t>() != CookedAssetMagic || Reader.Read<std::uint32_t>() != CookedAssetFormatVersion || Reader.Read<std::uint8_t>() != SoundTag)
+	{
+		return Invalid("Not a cooked sound of this format version");
+	}
+
+	FCookedSound Sound;
+	const std::uint64_t Samples = ReadCookedSoundHeader(Reader, Sound);
+	if (!Reader.IsValid() || Sound.Channels == 0 || Sound.Channels > MaximumSoundChannels || Samples == 0 || Samples > MaximumCookedSoundSamples || Samples % Sound.Channels != 0)
+	{
+		return Invalid("Truncated or out-of-range cooked sound header");
+	}
+
+	// Validation needs samples, so it checks one frame of placeholders against the header's fields.
+	Sound.Samples.assign(Sound.Channels, 0);
+	if (auto Valid = ValidateCookedSound(Sound); !Valid)
+	{
+		return std::unexpected(std::move(Valid.error()));
+	}
+
+	std::error_code Error;
+	const std::uint64_t Size = std::filesystem::file_size(File, Error);
+	const std::uint64_t DataOffset = Offset + Reader.GetOffset();
+	if (Error || Size < DataOffset || (Size - DataOffset) / sizeof(std::int16_t) < Samples)
+	{
+		return Invalid("The cooked sound's file ends before its samples do");
+	}
+
+	return FCookedSoundStream{.Playback = std::move(Sound.Playback), .SampleRate = Sound.SampleRate, .Channels = Sound.Channels, .bLoop = Sound.bLoop, .Frames = Samples / Sound.Channels, .File = File, .Offset = DataOffset};
 }
 }

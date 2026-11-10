@@ -289,6 +289,14 @@ HertaRuntimeModule("Animation", {
 })
     externalincludedirs { path.join(RepositoryRoot, "External/ozz-animation/include"), path.join(RepositoryRoot, "External/earcut") }
 
+-- miniaudio opens devices and decodes sources; Herta mixes. Its Linux backends load at runtime, so only the loader and threads link.
+HertaRuntimeModule("Audio", {
+    PublicDependencies = { "Math", "Assets" },
+    PrivateDependencies = { "Core" },
+    PrivateLinuxSystemDependencies = { "dl", "m", "pthread" }
+})
+    externalincludedirs { path.join(RepositoryRoot, "External/miniaudio") }
+
 HertaRuntimeModule("EditorCore", {
     PublicDependencies = { "Math" },
     PrivateDependencies = { "Core", "Level", "Assets", "Project", "Platform" },
@@ -536,7 +544,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Animation", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Animation", "Audio", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }

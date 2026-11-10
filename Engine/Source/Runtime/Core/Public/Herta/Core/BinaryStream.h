@@ -128,6 +128,11 @@ public:
 		return bValid;
 	}
 
+	[[nodiscard]] std::size_t GetOffset() const noexcept
+	{
+		return Offset;
+	}
+
 	[[nodiscard]] bool IsAtEnd() const noexcept
 	{
 		return Offset == Bytes.size();
