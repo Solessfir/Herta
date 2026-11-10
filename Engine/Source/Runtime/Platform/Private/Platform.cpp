@@ -3,10 +3,16 @@
 #ifdef HERTA_PLATFORM_WINDOWS
 	#include <windows.h>
 
+	#include <bcrypt.h>
 	#include <shellapi.h>
 	#include <shlobj.h>
+#else
+	#include <cerrno>
+
+	#include <sys/random.h>
 #endif
 
+#include <algorithm>
 #include <cstdlib>
 #include <string>
 
@@ -96,6 +102,37 @@ std::optional<std::string> ReadEnvironment(const char* const Name)
 #else
 	const char* const Value = std::getenv(Name);
 	return Value != nullptr && *Value != '\0' ? std::optional<std::string>(Value) : std::nullopt;
+#endif
+}
+
+bool FillSecureRandom(const std::span<std::byte> Bytes) noexcept
+{
+#ifdef HERTA_PLATFORM_WINDOWS
+	for (std::size_t Offset = 0; Offset < Bytes.size();)
+	{
+		const auto Count = static_cast<ULONG>(std::min<std::size_t>(Bytes.size() - Offset, 1u << 20));
+		if (!BCRYPT_SUCCESS(BCryptGenRandom(nullptr, reinterpret_cast<PUCHAR>(Bytes.data() + Offset), Count, BCRYPT_USE_SYSTEM_PREFERRED_RNG)))
+		{
+			return false;
+		}
+
+		Offset += Count;
+	}
+
+	return true;
+#else
+	for (std::size_t Offset = 0; Offset < Bytes.size();)
+	{
+		const ssize_t Count = getrandom(Bytes.data() + Offset, Bytes.size() - Offset, 0);
+		if (Count < 0 && errno != EINTR)
+		{
+			return false;
+		}
+
+		Offset += Count > 0 ? static_cast<std::size_t>(Count) : 0;
+	}
+
+	return true;
 #endif
 }
 }

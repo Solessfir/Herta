@@ -50,3 +50,6 @@
 [submodule "External/protobuf"]
 	path = External/protobuf
 	url = https://github.com/protocolbuffers/protobuf.git
+[submodule "External/zstd"]
+	path = External/zstd
+	url = https://github.com/facebook/zstd.git

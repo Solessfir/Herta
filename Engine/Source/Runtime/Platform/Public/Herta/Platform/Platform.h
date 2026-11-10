@@ -1,8 +1,10 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -38,4 +40,7 @@ enum class EPlatform : std::uint8_t
 
 // An environment variable's value, or empty when it is unset or empty.
 [[nodiscard]] std::optional<std::string> ReadEnvironment(const char* Name);
+
+// Fills Bytes from the operating system's cryptographically secure generator, such as for signing keys. False when it fails.
+[[nodiscard]] bool FillSecureRandom(std::span<std::byte> Bytes) noexcept;
 }

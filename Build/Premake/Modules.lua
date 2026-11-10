@@ -207,9 +207,9 @@ HertaRuntimeModule("Math", {
 
 HertaRuntimeModule("Assets", {
     PublicDependencies = { "Core" },
-    PrivateThirdPartyDependencies = { "SimdJson" }
+    PrivateThirdPartyDependencies = { "SimdJson", "Zstd", "Monocypher" }
 })
-    externalincludedirs { path.join(RepositoryRoot, "External/simdjson") }
+    externalincludedirs { path.join(RepositoryRoot, "External/simdjson"), path.join(RepositoryRoot, "External/zstd/lib"), path.join(RepositoryRoot, "External/monocypher") }
 
 -- Schema-neutral graph data, validation, and canonical text; no ImGui, so compilers and tests run headless.
 HertaRuntimeModule("GraphCore", {
@@ -237,7 +237,7 @@ HertaRuntimeModule("Level", {
 
 HertaRuntimeModule("Platform", {
     PublicDependencies = { "Core" },
-    PrivateWindowsSystemDependencies = { "ole32", "shell32" }
+    PrivateWindowsSystemDependencies = { "ole32", "shell32", "bcrypt" }
 })
     filter "system:windows"
         removefiles {
@@ -383,6 +383,15 @@ HertaRuntimeModule("Particles", {
 })
 
 -- Builds navigation tiles with Recast for the editor, headless commands, and tests; games load the cooked tiles through Navigation.
+-- Writes and signs content packages; players only read them, through Assets.
+HertaRuntimeModule("PackageBuilder", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/PackageBuilder"),
+    PublicDependencies = { "Core", "Assets" },
+    PrivateDependencies = { "Platform" },
+    PrivateThirdPartyDependencies = { "Zstd", "Monocypher" }
+})
+    externalincludedirs { path.join(RepositoryRoot, "External/zstd/lib"), path.join(RepositoryRoot, "External/monocypher") }
+
 HertaRuntimeModule("NavigationBuilder", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/NavigationBuilder"),
     PublicDependencies = { "Core", "Math", "Assets", "Level", "Navigation" },
@@ -615,7 +624,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "PackageBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd", "HertaServer" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
