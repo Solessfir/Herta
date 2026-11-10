@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Herta/Animation/Animation.h"
+#include "Herta/Assets/AnimationStateMachine.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -15,83 +16,6 @@
 
 namespace Herta
 {
-enum class EAnimationParameterType : std::uint8_t
-{
-	Float,
-	Bool,
-	// Set until the next update, which consumes it whether or not a transition tested it.
-	Trigger,
-};
-
-struct FAnimationParameterDesc
-{
-	std::string Name{};
-	EAnimationParameterType Type = EAnimationParameterType::Float;
-	float Default = 0.f;
-};
-
-// One point of a state's 1D blend: the clip plays alone at Position and fades towards its neighbours between points.
-struct FAnimationBlendSample
-{
-	std::string Clip{};
-	float Position = 0.f;
-};
-
-// Fires once each time the state's playback reaches Phase, from 0 at its start to 1 at its end, such as a footstep.
-struct FAnimationEventDesc
-{
-	std::string Name{};
-	float Phase = 0.f;
-};
-
-struct FAnimationStateDesc
-{
-	std::string Name{};
-	// One sample plays a single clip. Several are a 1D blend along BlendParameter, sorted by position.
-	std::vector<FAnimationBlendSample> Samples{};
-	std::optional<std::size_t> BlendParameter{};
-	bool bLoop = true;
-	float Speed = 1.f;
-	std::vector<FAnimationEventDesc> Events{};
-};
-
-enum class EAnimationCondition : std::uint8_t
-{
-	Greater,
-	Less,
-	IsTrue,
-	IsFalse,
-	Triggered,
-};
-
-struct FAnimationConditionDesc
-{
-	std::size_t Parameter = 0;
-	EAnimationCondition Test = EAnimationCondition::IsTrue;
-	float Value = 0.f;
-};
-
-inline constexpr std::size_t AnyAnimationState = std::numeric_limits<std::size_t>::max();
-
-// Fires when every condition holds, and when bAtEnd also once a non-looping From state has played to its end.
-struct FAnimationTransitionDesc
-{
-	std::size_t From = AnyAnimationState;
-	std::size_t To = 0;
-	float DurationSeconds = 0.2f;
-	std::vector<FAnimationConditionDesc> Conditions{};
-	bool bAtEnd = false;
-};
-
-// Compiled state machine data, indexed by position. The Animation graph compiles to this; code can also build it directly.
-struct FAnimationStateMachineDesc
-{
-	std::vector<FAnimationParameterDesc> Parameters{};
-	std::vector<FAnimationStateDesc> States{};
-	std::vector<FAnimationTransitionDesc> Transitions{};
-	std::size_t Entry = 0;
-};
-
 // Validates a description against a library's clips, resolving clip names once so updates never search.
 class FAnimationStateMachine
 {

@@ -23,6 +23,13 @@ inline constexpr std::size_t MaximumSections = 4096;
 inline constexpr std::size_t MaximumMaterials = 256;
 inline constexpr std::size_t MaximumTextures = 256;
 inline constexpr std::size_t MaximumNameLength = 256;
+inline constexpr std::size_t MaximumStateMachineParameters = 64;
+inline constexpr std::size_t MaximumStateMachineStates = 256;
+inline constexpr std::size_t MaximumStateSamples = 16;
+inline constexpr std::size_t MaximumStateEvents = 32;
+inline constexpr std::size_t MaximumStateMachineTransitions = 1024;
+inline constexpr std::size_t MaximumTransitionConditions = 8;
+inline constexpr std::uint32_t NoIndex = 0xffffffffu;
 
 [[nodiscard]] std::unexpected<FAssetError> Invalid(const std::string_view Message)
 {
@@ -160,6 +167,143 @@ void WriteSkeletalData(FBinaryWriter& Writer, const FCookedModel& Model)
 		WriteBlob(Writer, Clip.Animation);
 		WriteBlob(Writer, Clip.RootMotion);
 	}
+
+	Writer.Write(static_cast<std::uint8_t>(Model.StateMachine ? 1 : 0));
+	if (!Model.StateMachine)
+	{
+		return;
+	}
+
+	const auto Index = [](const std::size_t Value)
+	{
+		return Value == AnyAnimationState ? NoIndex : static_cast<std::uint32_t>(Value);
+	};
+
+	const FAnimationStateMachineDesc& Machine = *Model.StateMachine;
+	Writer.Write(static_cast<std::uint32_t>(Machine.Parameters.size()));
+	for (const FAnimationParameterDesc& Parameter : Machine.Parameters)
+	{
+		Writer.WriteString(Parameter.Name);
+		Writer.Write(static_cast<std::uint8_t>(Parameter.Type));
+		Writer.WriteFloat(Parameter.Default);
+	}
+
+	Writer.Write(static_cast<std::uint32_t>(Machine.States.size()));
+	for (const FAnimationStateDesc& State : Machine.States)
+	{
+		Writer.WriteString(State.Name);
+		Writer.Write(static_cast<std::uint32_t>(State.Samples.size()));
+		for (const FAnimationBlendSample& Sample : State.Samples)
+		{
+			Writer.WriteString(Sample.Clip);
+			Writer.WriteFloat(Sample.Position);
+		}
+
+		Writer.Write(State.BlendParameter ? Index(*State.BlendParameter) : NoIndex);
+		Writer.Write(static_cast<std::uint8_t>(State.bLoop ? 1 : 0));
+		Writer.WriteFloat(State.Speed);
+		Writer.Write(static_cast<std::uint32_t>(State.Events.size()));
+		for (const FAnimationEventDesc& Event : State.Events)
+		{
+			Writer.WriteString(Event.Name);
+			Writer.WriteFloat(Event.Phase);
+		}
+	}
+
+	Writer.Write(static_cast<std::uint32_t>(Machine.Transitions.size()));
+	for (const FAnimationTransitionDesc& Transition : Machine.Transitions)
+	{
+		Writer.Write(Index(Transition.From));
+		Writer.Write(Index(Transition.To));
+		Writer.WriteFloat(Transition.DurationSeconds);
+		Writer.Write(static_cast<std::uint8_t>(Transition.bAtEnd ? 1 : 0));
+		Writer.Write(static_cast<std::uint32_t>(Transition.Conditions.size()));
+		for (const FAnimationConditionDesc& Condition : Transition.Conditions)
+		{
+			Writer.Write(Index(Condition.Parameter));
+			Writer.Write(static_cast<std::uint8_t>(Condition.Test));
+			Writer.WriteFloat(Condition.Value);
+		}
+	}
+
+	Writer.Write(Index(Machine.Entry));
+}
+
+// Reads a count and rejects it above Maximum, so a corrupt count cannot drive a large allocation.
+[[nodiscard]] std::uint32_t ReadCount(FBinaryReader& Reader, const std::size_t Maximum)
+{
+	const auto Count = Reader.Read<std::uint32_t>();
+	if (Count > Maximum)
+	{
+		Reader.Invalidate();
+		return 0;
+	}
+
+	return Count;
+}
+
+[[nodiscard]] std::size_t ReadIndex(FBinaryReader& Reader)
+{
+	const auto Value = Reader.Read<std::uint32_t>();
+	return Value == NoIndex ? AnyAnimationState : Value;
+}
+
+void ReadStateMachine(FBinaryReader& Reader, FCookedModel& Model)
+{
+	if (Reader.Read<std::uint8_t>() == 0)
+	{
+		return;
+	}
+
+	FAnimationStateMachineDesc& Machine = Model.StateMachine.emplace();
+	Machine.Parameters.resize(ReadCount(Reader, MaximumStateMachineParameters));
+	for (FAnimationParameterDesc& Parameter : Machine.Parameters)
+	{
+		Parameter.Name = Reader.ReadString(MaximumNameLength);
+		Parameter.Type = static_cast<EAnimationParameterType>(Reader.Read<std::uint8_t>());
+		Parameter.Default = Reader.ReadFloat();
+	}
+
+	Machine.States.resize(ReadCount(Reader, MaximumStateMachineStates));
+	for (FAnimationStateDesc& State : Machine.States)
+	{
+		State.Name = Reader.ReadString(MaximumNameLength);
+		State.Samples.resize(ReadCount(Reader, MaximumStateSamples));
+		for (FAnimationBlendSample& Sample : State.Samples)
+		{
+			Sample.Clip = Reader.ReadString(MaximumNameLength);
+			Sample.Position = Reader.ReadFloat();
+		}
+
+		const std::size_t Blend = ReadIndex(Reader);
+		State.BlendParameter = Blend == AnyAnimationState ? std::nullopt : std::optional(Blend);
+		State.bLoop = Reader.Read<std::uint8_t>() != 0;
+		State.Speed = Reader.ReadFloat();
+		State.Events.resize(ReadCount(Reader, MaximumStateEvents));
+		for (FAnimationEventDesc& Event : State.Events)
+		{
+			Event.Name = Reader.ReadString(MaximumNameLength);
+			Event.Phase = Reader.ReadFloat();
+		}
+	}
+
+	Machine.Transitions.resize(ReadCount(Reader, MaximumStateMachineTransitions));
+	for (FAnimationTransitionDesc& Transition : Machine.Transitions)
+	{
+		Transition.From = ReadIndex(Reader);
+		Transition.To = ReadIndex(Reader);
+		Transition.DurationSeconds = Reader.ReadFloat();
+		Transition.bAtEnd = Reader.Read<std::uint8_t>() != 0;
+		Transition.Conditions.resize(ReadCount(Reader, MaximumTransitionConditions));
+		for (FAnimationConditionDesc& Condition : Transition.Conditions)
+		{
+			Condition.Parameter = ReadIndex(Reader);
+			Condition.Test = static_cast<EAnimationCondition>(Reader.Read<std::uint8_t>());
+			Condition.Value = Reader.ReadFloat();
+		}
+	}
+
+	Machine.Entry = ReadIndex(Reader);
 }
 
 void ReadSkeletalData(FBinaryReader& Reader, FCookedModel& Model)
@@ -235,6 +379,8 @@ void ReadSkeletalData(FBinaryReader& Reader, FCookedModel& Model)
 		Clip.Animation = ReadBlob(Reader, Budget);
 		Clip.RootMotion = ReadBlob(Reader, Budget);
 	}
+
+	ReadStateMachine(Reader, Model);
 }
 }
 
@@ -398,9 +544,9 @@ std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& 
 {
 	if (!Model.Skeleton)
 	{
-		if (!Model.Influences.empty() || !Model.Clips.empty())
+		if (!Model.Influences.empty() || !Model.Clips.empty() || Model.StateMachine)
 		{
-			return Invalid("Cooked skin influences and clips require a skeleton");
+			return Invalid("Cooked skin influences, clips, and state machines require a skeleton");
 		}
 
 		return {};
@@ -467,6 +613,51 @@ std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& 
 		{
 			return Invalid(std::format("Cooked animation clip name '{}' is not unique", Clip.Name));
 		}
+	}
+
+	if (!Model.StateMachine)
+	{
+		return {};
+	}
+
+	// Structure only: the Animation module checks clips, parameter types, and names when it creates the machine.
+	const FAnimationStateMachineDesc& Machine = *Model.StateMachine;
+	const auto ValidName = [](const std::string& Name)
+	{
+		return !Name.empty() && Name.size() <= MaximumNameLength;
+	};
+
+	const std::size_t Parameters = Machine.Parameters.size();
+	const std::size_t States = Machine.States.size();
+	const bool bParameters = Parameters <= MaximumStateMachineParameters && std::ranges::all_of(Machine.Parameters, [&](const FAnimationParameterDesc& Parameter)
+	{
+		return ValidName(Parameter.Name) && Parameter.Type <= EAnimationParameterType::Trigger && std::isfinite(Parameter.Default);
+	});
+
+	const bool bStates = States > 0 && States <= MaximumStateMachineStates && Machine.Entry < States && std::ranges::all_of(Machine.States, [&](const FAnimationStateDesc& State)
+	{
+		return ValidName(State.Name) && !State.Samples.empty() && State.Samples.size() <= MaximumStateSamples && State.Events.size() <= MaximumStateEvents && std::isfinite(State.Speed) && (!State.BlendParameter || *State.BlendParameter < Parameters)
+		       && std::ranges::all_of(State.Samples, [&](const FAnimationBlendSample& Sample)
+		{
+			return ValidName(Sample.Clip) && std::isfinite(Sample.Position);
+		}) && std::ranges::all_of(State.Events, [&](const FAnimationEventDesc& Event)
+		{
+			return ValidName(Event.Name) && std::isfinite(Event.Phase);
+		});
+	});
+
+	const bool bTransitions = Machine.Transitions.size() <= MaximumStateMachineTransitions && std::ranges::all_of(Machine.Transitions, [&](const FAnimationTransitionDesc& Transition)
+	{
+		return (Transition.From == AnyAnimationState || Transition.From < States) && Transition.To < States && std::isfinite(Transition.DurationSeconds) && Transition.Conditions.size() <= MaximumTransitionConditions
+		       && std::ranges::all_of(Transition.Conditions, [&](const FAnimationConditionDesc& Condition)
+		{
+			return Condition.Parameter < Parameters && Condition.Test <= EAnimationCondition::Triggered && std::isfinite(Condition.Value);
+		});
+	});
+
+	if (!bParameters || !bStates || !bTransitions)
+	{
+		return Invalid("Cooked animation state machine has an out-of-range count, index, name, or value");
 	}
 
 	return {};

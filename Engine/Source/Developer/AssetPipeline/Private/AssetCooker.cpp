@@ -9,6 +9,7 @@
 #include "Herta/AssetPipeline/DerivedDataCache.h"
 #include "Herta/AssetPipeline/ShaderSources.h"
 #include "Herta/AssetPipeline/TextureCooker.h"
+#include "Herta/AnimationGraph/AnimationGraph.h"
 
 #include <algorithm>
 #include <format>
@@ -22,6 +23,67 @@ namespace Herta
 namespace
 {
 inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
+
+// A model's metadata may name an animation graph beside it, which cooks into the model's state machine. Returns its content path.
+[[nodiscard]] std::expected<std::optional<std::string>, FAssetError> FindModelAnimationGraph(const std::string& SourcePath, const FAssetImportSettings& Settings, const std::string_view Importer)
+{
+	if (Settings.empty())
+	{
+		return std::nullopt;
+	}
+
+	const auto Graph = Settings.find("AnimationGraph");
+	if (Settings.size() != 1 || Graph == Settings.end())
+	{
+		return std::unexpected(FAssetError{std::format("The {} importer's only setting is AnimationGraph", Importer)});
+	}
+
+	std::string Resolved = (Utf8ToPath(SourcePath).parent_path() / Utf8ToPath(Graph->second)).lexically_normal().generic_string();
+	if (!IsValidAssetPath(Resolved) || !Resolved.ends_with(AnimationGraphExtension))
+	{
+		return std::unexpected(FAssetError{std::format("AnimationGraph '{}' must be a {} file inside the content root, relative to the model", Graph->second, AnimationGraphExtension)});
+	}
+
+	return Resolved;
+}
+
+[[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> ReadSource(const std::filesystem::path& Path);
+
+// Compiles the graph into the model's state machine. The Animation module checks its clips against the model when a character uses it.
+[[nodiscard]] std::expected<void, FAssetError> CookModelAnimationGraph(const std::filesystem::path& ContentRoot, const std::string& GraphPath, FCookedModel& Model)
+{
+	if (!Model.Skeleton)
+	{
+		return std::unexpected(FAssetError{"Only skinned models can have an animation graph"});
+	}
+
+	auto Bytes = ReadSource(ContentRoot / Utf8ToPath(GraphPath));
+	if (!Bytes)
+	{
+		return std::unexpected(std::move(Bytes.error()));
+	}
+
+	auto Graph = DeserializeGraph(std::string_view(reinterpret_cast<const char*>(Bytes->data()), Bytes->size()), GetAnimationGraphSchema());
+	if (!Graph)
+	{
+		return std::unexpected(FAssetError{std::format("{}: {}", GraphPath, Graph.error().Message)});
+	}
+
+	auto Compiled = CompileAnimationGraph(*Graph);
+	if (!Compiled)
+	{
+		std::string Message = std::format("{} does not compile:", GraphPath);
+		for (const FGraphDiagnostic& Diagnostic : Compiled.error())
+		{
+			Message += " " + Diagnostic.Message + ".";
+		}
+
+		return std::unexpected(FAssetError{std::move(Message)});
+	}
+
+	Model.StateMachine = std::move(Compiled->StateMachine);
+	return {};
+}
 
 [[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> ReadSource(const std::filesystem::path& Path)
 {
@@ -595,11 +657,6 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	{
 		KeyInput.ImporterVersion = GltfImporterVersion;
 
-		if (!Metadata->Settings.empty())
-		{
-			return std::unexpected(FAssetError{"The Gltf importer has no settings"});
-		}
-
 		std::expected<std::vector<std::string>, FAssetError> Dependencies = FindGltfDependencies(Request.ContentRoot, Request.SourcePath, *Source);
 		if (!Dependencies)
 		{
@@ -620,11 +677,6 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	else if (Metadata->Importer == "Blender")
 	{
 		KeyInput.ImporterVersion = BlenderImporterVersion;
-
-		if (!Metadata->Settings.empty())
-		{
-			return std::unexpected(FAssetError{"The Blender importer has no settings"});
-		}
 
 		std::expected<FBlenderInstallation, FAssetError> Found = FindBlender();
 		if (!Found)
@@ -678,6 +730,28 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	else
 	{
 		return std::unexpected(FAssetError{std::format("The {} importer is not available yet", Metadata->Importer)});
+	}
+
+	std::optional<std::string> AnimationGraph;
+	if (Metadata->Importer == "Gltf" || Metadata->Importer == "Blender")
+	{
+		auto Found = FindModelAnimationGraph(Request.SourcePath, Metadata->Settings, Metadata->Importer);
+		if (!Found)
+		{
+			return std::unexpected(std::move(Found.error()));
+		}
+
+		AnimationGraph = std::move(*Found);
+		if (AnimationGraph)
+		{
+			auto Bytes = ReadSource(Request.ContentRoot / Utf8ToPath(*AnimationGraph));
+			if (!Bytes)
+			{
+				return std::unexpected(std::move(Bytes.error()));
+			}
+
+			KeyInput.Dependencies.push_back({.Path = *AnimationGraph, .ContentHash = HashBytes(*Bytes)});
+		}
 	}
 
 	Result.Key = ComputeAssetBuildKey(KeyInput);
@@ -766,6 +840,14 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	if (!Cooked)
 	{
 		return std::unexpected(std::move(Cooked.error()));
+	}
+
+	if (AnimationGraph)
+	{
+		if (auto Compiled = CookModelAnimationGraph(Request.ContentRoot, *AnimationGraph, std::get<FCookedModel>(*Cooked)); !Compiled)
+		{
+			return std::unexpected(std::move(Compiled.error()));
+		}
 	}
 
 	std::expected<std::vector<std::byte>, FAssetError> Bytes = SerializeCookedAsset(*Cooked);

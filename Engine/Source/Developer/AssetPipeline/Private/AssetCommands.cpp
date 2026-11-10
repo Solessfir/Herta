@@ -1,4 +1,5 @@
 #include "Herta/AssetPipeline/AssetCommands.h"
+#include "Herta/AnimationGraph/AnimationGraph.h"
 
 #include "FileUtilities.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
@@ -325,6 +326,47 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			Message += std::format("\n{} parameters", Sources->Parameters.size());
 
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::move(Message)};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "animation.compile",
+		    .Description = "Compile an animation graph to check it, listing what the state machine holds or what stops it compiling",
+		    .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			if (Arguments.size() != 1 || !Arguments[0].ends_with(AnimationGraphExtension))
+			{
+				return UsageError("animation.compile <graph.hanimgraph>");
+			}
+
+			const auto Bytes = ReadWholeFile(Utf8ToPath(Arguments[0]), 64 * 1024 * 1024);
+			if (!Bytes || !*Bytes)
+			{
+				return ExecutionError(Bytes ? FAssetError{std::format("{} does not exist", Arguments[0])} : Bytes.error());
+			}
+
+			const auto Graph = DeserializeGraph(std::string_view(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size()), GetAnimationGraphSchema());
+			if (!Graph)
+			{
+				return ExecutionError(FAssetError{Graph.error().Message});
+			}
+
+			const auto Compiled = CompileAnimationGraph(*Graph);
+			if (!Compiled)
+			{
+				std::string Message = std::format("{} does not compile", Arguments[0]);
+				for (const FGraphDiagnostic& Diagnostic : Compiled.error())
+				{
+					Message += std::format("\nnode {}: {}", Diagnostic.Node.Value, Diagnostic.Message);
+				}
+
+				return ExecutionError(FAssetError{std::move(Message)});
+			}
+
+			const FAnimationStateMachineDesc& Machine = Compiled->StateMachine;
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Compiled {}: {} parameters, {} states, {} transitions, starting in {}", Arguments[0], Machine.Parameters.size(), Machine.States.size(), Machine.Transitions.size(), Machine.States[Machine.Entry].Name)};
 		}});
 	}
 

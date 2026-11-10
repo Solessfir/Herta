@@ -342,10 +342,16 @@ HertaRuntimeModule("MaterialGraph", {
     PublicDependencies = { "GraphCore", "Assets" }
 })
 
+-- The Animation graph schema and its compiler to state machine data, run by the editor, the asset cooker, and tests; games load the cooked data.
+HertaRuntimeModule("AnimationGraph", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AnimationGraph"),
+    PublicDependencies = { "GraphCore", "Assets" }
+})
+
 HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
     PublicDependencies = { "Core", "Assets", "EditorCore" },
-    PrivateDependencies = { "Platform", "Level", "Project", "Math", "GraphCore", "MaterialGraph", "Animation" },
+    PrivateDependencies = { "Platform", "Level", "Project", "Math", "GraphCore", "MaterialGraph", "AnimationGraph", "Animation" },
     PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer", "OzzAnimationOffline", "OzzAnimation", "OzzBase" }
 })
     externalincludedirs {
@@ -366,7 +372,7 @@ HertaEditorModule("GraphEditor", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
-    PrivateDependencies = { "Application", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
+    PrivateDependencies = { "Application", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d", "SimdJson" }
 })
 
@@ -530,7 +536,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Animation", "GraphCore", "GraphEditor", "MaterialGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Animation", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
@@ -602,7 +608,7 @@ project "HertaEditor"
     location(path.join(ProjectFilesRoot, "HertaEditor"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditor"))
     debugdir(RepositoryRoot)
-    ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "AssetPipeline", "GraphCore", "MaterialGraph" }
+    ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "AssetPipeline", "GraphCore", "MaterialGraph", "AnimationGraph" }
     dependson { "HertaShaders", "HertaAssetWorker", "HertaShaderWorker" }
     externalincludedirs { path.join(RepositoryRoot, "External/stb") }
     -- The editor can stay open while it is rebuilt.

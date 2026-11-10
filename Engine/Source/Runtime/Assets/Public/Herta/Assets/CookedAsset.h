@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/Assets/AnimationStateMachine.h"
 #include "Herta/Assets/Material.h"
 
 #include <array>
@@ -15,7 +16,7 @@
 namespace Herta
 {
 // Bump when any cooked layout or cooking rule changes; build keys include it, so stale derived data is never reused.
-inline constexpr std::uint32_t CookedAssetFormatVersion = 3;
+inline constexpr std::uint32_t CookedAssetFormatVersion = 4;
 
 inline constexpr std::uint32_t MaximumCookedTextureDimension = 4096;
 // Matches the per-recording GPU upload budget.
@@ -110,6 +111,8 @@ struct FCookedModel
 	std::vector<FCookedSkinInfluence> Influences{};
 	std::optional<FCookedSkeleton> Skeleton{};
 	std::vector<FCookedAnimationClip> Clips{};
+	// The state machine compiled from the model's animation graph, when its metadata names one; only skinned models carry it.
+	std::optional<FAnimationStateMachineDesc> StateMachine{};
 };
 
 using FCookedAsset = std::variant<FCookedTexture, FCookedModel, FMaterialAsset>;

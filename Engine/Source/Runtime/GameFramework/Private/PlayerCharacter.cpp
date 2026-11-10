@@ -48,7 +48,6 @@ enum ELocomotionState : std::size_t
 {
 	return {.Parameter = Parameter, .Test = bValue ? EAnimationCondition::IsTrue : EAnimationCondition::IsFalse};
 }
-}
 
 // A ragdoll part runs from Joint towards End, lengthened by Extend where End stops short of the limb's tip, such as the neck to the head joint.
 struct FRagdollProfilePart
@@ -91,8 +90,9 @@ constexpr std::array<FRagdollProfilePart, 11> RagdollProfile{{
 
 	return FQuaternion::FromAxisAngle(Axis.Normalized(), std::acos(Cosine));
 }
+}
 
-FAnimationStateMachineDesc MakeDefaultLocomotion()
+FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 {
 	// Blend positions are each clip's ground speed in meters per second, so the blend follows the controller's own walk and sprint speeds.
 	return {
@@ -188,10 +188,12 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 		return std::unexpected(FGameError{std::format("The player character cannot animate: {}", Library.error().Message)});
 	}
 
-	auto Machine = FAnimationStateMachine::Create(MakeDefaultLocomotion(), **Library);
+	// A model cooked with an animation graph runs its machine; others use the built-in locomotion. The session drives parameters by name, so a
+	// graph that lacks one simply ignores it.
+	auto Machine = FAnimationStateMachine::Create(Model->StateMachine ? *Model->StateMachine : MakeDefaultPlayerStateMachine(), **Library);
 	if (!Machine)
 	{
-		return std::unexpected(FGameError{std::format("The player character lacks a locomotion clip: {}", Machine.error().Message)});
+		return std::unexpected(FGameError{std::format("The player character's state machine cannot play: {}", Machine.error().Message)});
 	}
 
 	std::unique_ptr<FPlayerCharacter> Character(new FPlayerCharacter(std::move(Model), std::move(*Library), std::move(*Machine)));

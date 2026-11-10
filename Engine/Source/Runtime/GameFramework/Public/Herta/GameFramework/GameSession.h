@@ -26,6 +26,11 @@ struct FGameError
 	std::string Message;
 };
 
+// The player's built-in state machine for the Sandbox Mannequin's clips, which a character model runs when its metadata names no animation graph,
+// and which new animation graphs start from. The session drives its parameters by name: Speed, Grounded, Crouched, Sliding, WallRunning, Jump,
+// WallJump, and Mantle.
+[[nodiscard]] FAnimationStateMachineDesc MakeDefaultPlayerStateMachine();
+
 struct FGameInput
 {
 	// Movement relative to where the player faces: X strafes right and Y walks forward, each between -1 and 1.

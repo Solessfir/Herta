@@ -14,6 +14,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <fstream>
 #include <string_view>
 
 namespace Herta
@@ -77,6 +78,49 @@ const FCookedModel& Mannequin()
 	static const FCookedModel Model = CookMannequin(Scratch);
 	return Model;
 }
+}
+
+TEST_CASE("A model whose metadata names an animation graph cooks its state machine, which the Mannequin's clips can play")
+{
+	const auto Source = FindMannequin();
+	REQUIRE_FALSE(Source.empty());
+	const Tests::FScratchDirectory Scratch("HertaAnimationGraphCook");
+	const auto Content = Scratch.GetPath() / "Content";
+	std::filesystem::create_directories(Content / "Characters");
+	std::filesystem::copy_file(Source, Content / "Characters/Mannequin.glb");
+	std::filesystem::copy_file(Source.parent_path() / "Mannequin.hanimgraph", Content / "Characters/Mannequin.hanimgraph");
+	const auto Metadata = [&](const std::string_view Graph)
+	{
+		Tests::WriteText(Content / "Characters/Mannequin.glb.hmeta", std::format("Format = HertaAssetMetadata\nVersion = 1\nId = 00000000-0000-4000-8000-0000000000a2\nImporter = Gltf\nSetting.AnimationGraph = {}\n", Graph));
+	};
+
+	const FAssetCookRequest Request{.ContentRoot = Content, .DerivedDataRoot = Scratch.GetPath() / "DerivedDataCache", .SourcePath = "Characters/Mannequin.glb", .TargetPlatform = "TestPlatform", .bForce = false};
+	Metadata("Mannequin.hanimgraph");
+	const auto Cooked = CookAsset(Request);
+	REQUIRE_MESSAGE(Cooked, (Cooked ? std::string() : Cooked.error().Message));
+	auto Asset = LoadCookedAsset(Request.DerivedDataRoot, Cooked->Key);
+	REQUIRE(Asset);
+	const FCookedModel& Model = std::get<FCookedModel>(*Asset);
+	REQUIRE(Model.StateMachine);
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	const auto Machine = FAnimationStateMachine::Create(*Model.StateMachine, **Library);
+	REQUIRE_MESSAGE(Machine, (Machine ? std::string() : Machine.error().Message));
+	CHECK(Machine->FindParameter("Speed"));
+
+	// Editing the graph changes the model's build key, so the editor's live reimport recooks the character.
+	std::ofstream(Content / "Characters/Mannequin.hanimgraph", std::ios::app) << '\n';
+	const auto Edited = CookAsset(Request);
+	REQUIRE(Edited);
+	CHECK_FALSE(Edited->Key == Cooked->Key);
+
+	Metadata("../Elsewhere.hanimgraph");
+	CHECK_FALSE(CookAsset(Request));
+	Metadata("Missing.hanimgraph");
+	CHECK_FALSE(CookAsset(Request));
+	Tests::WriteText(Content / "Characters/Broken.hanimgraph", "{}");
+	Metadata("Broken.hanimgraph");
+	CHECK_FALSE(CookAsset(Request));
 }
 
 TEST_CASE("A skinned glTF cooks its skeleton, weights, and clips")
