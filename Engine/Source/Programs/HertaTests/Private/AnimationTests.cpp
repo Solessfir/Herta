@@ -728,6 +728,16 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 	CHECK((*Session)->GetCutPieceCount() == 2);
 	CHECK_FALSE((*Session)->IsCharacterDowned(0));
 
+	// A cut through the bent arm that takes the forearm leaves the cut piece holding the upper arm and the hand with nothing between them, so
+	// the piece falls apart into each.
+	REQUIRE((*Session)->Restart());
+	Step({}, 5);
+	const auto Apart = (*Session)->SliceCharacter(0, {-0.2554f, 1.3501f, 3.0006f}, FVector3{0.2292f, 0.1551f, 0.9609f}.Normalized());
+	REQUIRE_MESSAGE(Apart, (Apart ? std::string() : Apart.error().Message));
+	CHECK(*Apart);
+	CHECK((*Session)->GetCutPieceCount() >= 3);
+	CHECK_FALSE((*Session)->IsCharacterDowned(0));
+
 	REQUIRE((*Session)->Restart());
 	Step({}, 5);
 	// A cut 3 cm above the soles would only peel them off, so it does not cut.

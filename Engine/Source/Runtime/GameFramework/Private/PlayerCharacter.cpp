@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <format>
+#include <map>
 #include <numbers>
 
 namespace Herta
@@ -545,6 +546,117 @@ bool IsThinCut(const std::span<const FCookedVertex> Posed, const FMeshSlicePlane
 	return std::min(Front, Back) < MinimumDepth;
 }
 
+std::vector<FSkinnedMeshPiece> SplitJoinedParts(const FSkinnedMeshPiece& Piece, const FAnimationLibrary& Library, const std::vector<bool>& Skinned, const std::optional<std::size_t> Anchor)
+{
+	// Joints join their parent unless the parent is a bone that skins part of the whole body but none of this piece: the gap a cut left.
+	// Bones that never skin anything, such as clavicles or helpers, join across.
+	const auto Parents = Library.GetJointParents();
+	const std::size_t JointCount = Parents.size();
+	const std::vector<bool> Carried = FindCarriedJoints(Piece, JointCount);
+	std::vector<std::size_t> Group(JointCount);
+	for (std::size_t Joint = 0; Joint < JointCount; ++Joint)
+	{
+		const std::int16_t Parent = Parents[Joint];
+		const auto Up = static_cast<std::size_t>(Parent);
+		Group[Joint] = Parent >= 0 && Up < Joint && (Carried[Up] || Up >= Skinned.size() || !Skinned[Up]) ? Group[Up] : Joint;
+	}
+
+	const auto GroupOf = [&](const std::uint32_t Vertex)
+	{
+		const FCookedSkinInfluence& Influence = Piece.Influences[Vertex];
+		const auto Heaviest = static_cast<std::size_t>(std::ranges::max_element(Influence.Weights) - Influence.Weights.begin());
+		const std::size_t Joint = Influence.Joints[Heaviest];
+		return Joint < JointCount ? Group[Joint] : 0;
+	};
+
+	// Each triangle goes with the group of its first corner, so a seam stays whole on one side.
+	std::map<std::size_t, std::vector<std::uint32_t>> Triangles;
+	for (const FCookedMeshSection& Section : Piece.Sections)
+	{
+		for (std::uint32_t Index = Section.FirstIndex; Index + 2 < Section.FirstIndex + Section.IndexCount; Index += 3)
+		{
+			Triangles[GroupOf(Piece.Indices[Index])].push_back(Index);
+		}
+	}
+
+	if (Triangles.size() < 2)
+	{
+		return {};
+	}
+
+	const auto Extract = [&Piece](const std::vector<std::uint32_t>& Firsts)
+	{
+		FSkinnedMeshPiece Part;
+		std::vector<std::uint32_t> Map(Piece.Vertices.size(), UINT32_MAX);
+		for (const FCookedMeshSection& Section : Piece.Sections)
+		{
+			const auto First = static_cast<std::uint32_t>(Part.Indices.size());
+			for (const std::uint32_t Triangle : Firsts)
+			{
+				if (Triangle < Section.FirstIndex || Triangle >= Section.FirstIndex + Section.IndexCount)
+				{
+					continue;
+				}
+
+				for (std::uint32_t Corner = Triangle; Corner < Triangle + 3; ++Corner)
+				{
+					const std::uint32_t Vertex = Piece.Indices[Corner];
+					if (Map[Vertex] == UINT32_MAX)
+					{
+						Map[Vertex] = static_cast<std::uint32_t>(Part.Vertices.size());
+						Part.Vertices.push_back(Piece.Vertices[Vertex]);
+						Part.Influences.push_back(Piece.Influences[Vertex]);
+					}
+
+					Part.Indices.push_back(Map[Vertex]);
+				}
+			}
+
+			if (Part.Indices.size() > First)
+			{
+				Part.Sections.push_back({.FirstIndex = First, .IndexCount = static_cast<std::uint32_t>(Part.Indices.size()) - First, .Material = Section.Material});
+			}
+		}
+
+		return Part;
+	};
+
+	// The anchor's group comes first, or the largest without one; groups too small to fall on their own stay with it.
+	const std::size_t AnchorGroup = Anchor && *Anchor < JointCount ? Group[*Anchor] : 0;
+	auto Main = Anchor && Triangles.contains(AnchorGroup) ? Triangles.find(AnchorGroup) : std::ranges::max_element(Triangles, {}, [](const auto& Entry)
+	{
+		return Entry.second.size();
+	});
+
+	std::vector<std::uint32_t> MainTriangles = Main->second;
+	std::vector<FSkinnedMeshPiece> Parts(1);
+	for (const auto& [Key, Firsts] : Triangles)
+	{
+		if (Key == Main->first)
+		{
+			continue;
+		}
+
+		FSkinnedMeshPiece Part = Extract(Firsts);
+		if (IsSliver(Part))
+		{
+			MainTriangles.insert(MainTriangles.end(), Firsts.begin(), Firsts.end());
+			continue;
+		}
+
+		Parts.push_back(std::move(Part));
+	}
+
+	if (Parts.size() < 2)
+	{
+		return {};
+	}
+
+	std::ranges::sort(MainTriangles);
+	Parts.front() = Extract(MainTriangles);
+	return Parts;
+}
+
 std::vector<bool> FindCarriedJoints(const FSkinnedMeshPiece& Piece, const std::size_t JointCount)
 {
 	std::vector<std::uint32_t> Counts(JointCount, 0);
@@ -653,93 +765,35 @@ std::expected<void, FGameError> FPlayerCharacter::Replace(FSkinnedMeshPiece Kept
 	return {};
 }
 
-std::expected<std::optional<FSkinnedMeshPiece>, FGameError> FPlayerCharacter::DetachStranded()
+std::expected<std::vector<FSkinnedMeshPiece>, FGameError> FPlayerCharacter::DetachStranded()
 {
 	if (!Remaining || !PelvisJoint)
 	{
-		return std::nullopt;
+		return std::vector<FSkinnedMeshPiece>{};
 	}
 
-	// A joint stays joined while every bone between it and the pelvis still skins some of the body. Bones that never skinned any, such as
-	// clavicles or helpers, are no gap, and joints outside the pelvis's tree, such as the root, always stay.
-	const auto Parents = Library->GetJointParents();
-	const std::size_t JointCount = Parents.size();
-	const std::vector<bool> Skinned = FindCarriedJoints(Whole, JointCount);
-	const std::vector<bool> Carried = FindCarriedJoints(*Remaining, JointCount);
-	std::vector<bool> UnderPelvis(JointCount, false);
-	std::vector<bool> Joined(JointCount, true);
-	for (std::size_t Joint = 0; Joint < JointCount; ++Joint)
+	std::vector<FSkinnedMeshPiece> Parts = SplitJoinedParts(*Remaining, *Library, FindCarriedJoints(Whole, Library->GetJointCount()), *PelvisJoint);
+	if (Parts.size() < 2)
 	{
-		const std::int16_t Parent = Parents[Joint];
-		UnderPelvis[Joint] = Joint == *PelvisJoint || (Parent >= 0 && UnderPelvis[static_cast<std::size_t>(Parent)]);
-		if (Joint != *PelvisJoint && UnderPelvis[Joint])
+		return std::vector<FSkinnedMeshPiece>{};
+	}
+
+	FSkinnedMeshPiece Kept = std::move(Parts.front());
+	Parts.erase(Parts.begin());
+	for (std::size_t Part = 1; Part < Parts.size(); ++Part)
+	{
+		if (auto Valid = ValidateCookedModel(MakeCutModel(*Model, Parts[Part])); !Valid)
 		{
-			const auto Up = static_cast<std::size_t>(Parent);
-			Joined[Joint] = Joined[Up] && (Carried[Up] || !Skinned[Up]);
+			return std::unexpected(FGameError{std::format("A cut produced an invalid piece: {}", Valid.error().Message)});
 		}
 	}
 
-	const FSkinnedMeshPiece& Piece = *Remaining;
-	const auto IsStranded = [&](const std::uint32_t Vertex)
-	{
-		const FCookedSkinInfluence& Influence = Piece.Influences[Vertex];
-		const std::size_t Heaviest = static_cast<std::size_t>(std::ranges::max_element(Influence.Weights) - Influence.Weights.begin());
-		const std::size_t Joint = Influence.Joints[Heaviest];
-		return Joint < JointCount && !Joined[Joint];
-	};
-
-	// A triangle leaves only when all its corners follow stranded joints, so the seam between the two stays on the body.
-	FSkinnedMeshPiece Kept;
-	FSkinnedMeshPiece Off;
-	std::vector<std::uint32_t> KeptIndex(Piece.Vertices.size(), UINT32_MAX);
-	std::vector<std::uint32_t> OffIndex(Piece.Vertices.size(), UINT32_MAX);
-	const auto Add = [&Piece](FSkinnedMeshPiece& Target, std::vector<std::uint32_t>& Map, const std::uint32_t Vertex)
-	{
-		if (Map[Vertex] == UINT32_MAX)
-		{
-			Map[Vertex] = static_cast<std::uint32_t>(Target.Vertices.size());
-			Target.Vertices.push_back(Piece.Vertices[Vertex]);
-			Target.Influences.push_back(Piece.Influences[Vertex]);
-		}
-
-		Target.Indices.push_back(Map[Vertex]);
-	};
-
-	for (const FCookedMeshSection& Section : Piece.Sections)
-	{
-		const auto KeptFirst = static_cast<std::uint32_t>(Kept.Indices.size());
-		const auto OffFirst = static_cast<std::uint32_t>(Off.Indices.size());
-		for (std::uint32_t Index = Section.FirstIndex; Index + 2 < Section.FirstIndex + Section.IndexCount; Index += 3)
-		{
-			const std::array Corners{Piece.Indices[Index], Piece.Indices[Index + 1], Piece.Indices[Index + 2]};
-			const bool bOff = std::ranges::all_of(Corners, IsStranded);
-			for (const std::uint32_t Corner : Corners)
-			{
-				Add(bOff ? Off : Kept, bOff ? OffIndex : KeptIndex, Corner);
-			}
-		}
-
-		for (auto [Target, First] : {std::pair{&Kept, KeptFirst}, std::pair{&Off, OffFirst}})
-		{
-			if (Target->Indices.size() > First)
-			{
-				Target->Sections.push_back({.FirstIndex = First, .IndexCount = static_cast<std::uint32_t>(Target->Indices.size()) - First, .Material = Section.Material});
-			}
-		}
-	}
-
-	// A few stranded triangles are too small to fall on their own and stay.
-	if (Off.Indices.empty() || IsSliver(Off) || IsSliver(Kept))
-	{
-		return std::nullopt;
-	}
-
-	if (auto Replaced = Replace(std::move(Kept), Off); !Replaced)
+	if (auto Replaced = Replace(std::move(Kept), Parts.front()); !Replaced)
 	{
 		return std::unexpected(Replaced.error());
 	}
 
-	return std::move(Off);
+	return Parts;
 }
 
 std::optional<FSkinnedMeshPiece> FPlayerCharacter::DetachAll()

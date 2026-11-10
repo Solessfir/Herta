@@ -2410,9 +2410,9 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 		return std::unexpected(Stranded.error());
 	}
 
-	if (*Stranded)
+	for (FSkinnedMeshPiece& Part : *Stranded)
 	{
-		if (auto Added = AddPiece(Character, Victim.GetCookedModel(), Victim.GetLibrary(), Victim.GetModelTransforms(), std::move(**Stranded), Model, Away * 1.5f); !Added)
+		if (auto Added = AddPiece(Character, Victim.GetCookedModel(), Victim.GetLibrary(), Victim.GetModelTransforms(), std::move(Part), Model, Away * 1.5f); !Added)
 		{
 			return std::unexpected(Added.error());
 		}
@@ -2581,13 +2581,24 @@ std::expected<void, FGameError> FGameSession::FImplementation::AddPiece(const st
 		Pieces.erase(Oldest);
 	}
 
-	auto Created = FCharacterPiece::Create(*World, Device, std::move(Model), std::move(Library), Pose, std::move(Mesh), ModelToWorld, Velocity, Character);
-	if (!Created)
+	// A cut can take parts the piece holds only through a bone it left behind, such as a hand without its forearm; each falls on its own.
+	std::vector<FSkinnedMeshPiece> Parts = SplitJoinedParts(Mesh, *Library, FindCarriedJoints({.Influences = Model->Influences}, Library->GetJointCount()), std::nullopt);
+	if (Parts.empty())
 	{
-		return std::unexpected(Created.error());
+		Parts.push_back(std::move(Mesh));
 	}
 
-	Pieces.push_back(std::move(*Created));
+	for (FSkinnedMeshPiece& Part : Parts)
+	{
+		auto Created = FCharacterPiece::Create(*World, Device, Model, Library, Pose, std::move(Part), ModelToWorld, Velocity, Character);
+		if (!Created)
+		{
+			return std::unexpected(Created.error());
+		}
+
+		Pieces.push_back(std::move(*Created));
+	}
+
 	return {};
 }
 

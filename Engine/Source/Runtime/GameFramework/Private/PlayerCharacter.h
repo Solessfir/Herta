@@ -75,9 +75,9 @@ public:
 	// Cuts off the limb below Joint where its skin weights pass to the rest of the body, and binds the stump wholly to the joint's parent so it
 	// does not stretch as the missing limb's joints keep animating.
 	[[nodiscard]] std::expected<std::optional<FSkinnedMeshPiece>, FGameError> Sever(std::size_t Joint);
-	// After a cut, takes the parts of the body no longer joined to the pelvis, such as a hand left behind when a slice took its forearm: their
-	// joints hang below a bone that skins none of what is left. Their skin would otherwise float where the animation holds them.
-	[[nodiscard]] std::expected<std::optional<FSkinnedMeshPiece>, FGameError> DetachStranded();
+	// After a cut, takes the parts of the body no longer joined to the pelvis, such as a hand left behind when a slice took its forearm, one
+	// piece per part; see SplitJoinedParts. Their skin would otherwise float where the animation holds them.
+	[[nodiscard]] std::expected<std::vector<FSkinnedMeshPiece>, FGameError> DetachStranded();
 	// Takes everything left of the body, such as when a dead character collapses as a ragdoll, leaving nothing to draw until Restart.
 	[[nodiscard]] std::optional<FSkinnedMeshPiece> DetachAll();
 	[[nodiscard]] bool IsEmpty() const;
@@ -167,6 +167,10 @@ struct FRagdollFit
 // Whether a plane through posed vertices would leave either side less than 8 cm deep, such as a skim along the surface or a cut down the
 // length of a limb, which look like peeled skin rather than a cut.
 [[nodiscard]] bool IsThinCut(std::span<const FCookedVertex> Posed, const FMeshSlicePlane& Plane);
+// Splits a piece into the parts a cut left joined by bone, one per group of joints that reach each other without crossing a bone Skinned in
+// the whole model but carrying none of the piece. The first part holds Anchor, or is the largest without one; parts too small to fall alone
+// stay with it. Empty when the piece is one part.
+[[nodiscard]] std::vector<FSkinnedMeshPiece> SplitJoinedParts(const FSkinnedMeshPiece& Piece, const FAnimationLibrary& Library, const std::vector<bool>& Skinned, std::optional<std::size_t> Anchor);
 // The joints a piece mostly follows: those that weigh more than half on at least eight of its vertices.
 [[nodiscard]] std::vector<bool> FindCarriedJoints(const FSkinnedMeshPiece& Piece, std::size_t JointCount);
 
