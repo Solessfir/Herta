@@ -68,21 +68,18 @@ public:
 };
 }
 
-TEST_CASE("Sprinting follows Mirror's Edge's speed curve, and running without it stays at the base speed")
+TEST_CASE("Sprinting reaches the ground speed within a second, and running without it stays at the base speed")
 {
 	const auto World = MakeFloor();
 	FCharacterMover Mover = MakeMover(*World);
 	Run(*World, Mover, {}, 20);
 
-	// SpeedCurve_LightWeapon: 4 m/s at 0.4 s, 5.2 at 1 s, 6.5 at 3.5 s, and the 7.2 m/s ground speed at 7 s.
-	float Seconds = 0.f;
-	for (const auto [At, Speed] : {std::pair{0.4f, 4.f}, std::pair{1.f, 5.2f}, std::pair{3.5f, 6.5f}, std::pair{7.f, 7.2f}})
-	{
-		const int Steps = static_cast<int>(std::lround((At - Seconds) / StepSeconds));
-		Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, Steps);
-		Seconds += static_cast<float>(Steps) * StepSeconds;
-		CHECK(HorizontalSpeed(Mover) == doctest::Approx(Speed).epsilon(0.06));
-	}
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, 60);
+	CHECK(HorizontalSpeed(Mover) == doctest::Approx(7.2f).epsilon(0.03));
+	Run(*World, Mover, {.Move = {0.f, 1.f}}, 60);
+	CHECK(HorizontalSpeed(Mover) == doctest::Approx(4.f).epsilon(0.03));
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, 60);
+	CHECK(HorizontalSpeed(Mover) == doctest::Approx(7.2f).epsilon(0.03));
 
 	// Letting go brakes to a stop well inside half a second.
 	Run(*World, Mover, {}, 30);

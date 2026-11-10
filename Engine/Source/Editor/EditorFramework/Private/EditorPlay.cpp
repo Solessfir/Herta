@@ -686,7 +686,7 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 		const FMoverState& State = Mover.GetState();
 		Output += ", \"mode\": ";
 		AppendJsonString(Output, Mover.GetActiveMode());
-		Output += std::format(", \"speed\": {:.3f}, \"sprintEnergy\": {:.3f}, \"touchingWall\": {}, \"wallNormal\": ", std::hypot(State.Velocity.X, State.Velocity.Z), State.SprintEnergy, State.Ground.bTouchingWall ? "true" : "false");
+		Output += std::format(", \"speed\": {:.3f}, \"touchingWall\": {}, \"wallNormal\": ", std::hypot(State.Velocity.X, State.Velocity.Z), State.Ground.bTouchingWall ? "true" : "false");
 		AppendVector(Output, State.Ground.WallNormal);
 		Output += ", \"groundNormal\": ";
 		AppendVector(Output, State.Ground.GroundNormal);

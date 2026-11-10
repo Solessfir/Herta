@@ -88,13 +88,14 @@ class FLocomotion
 public:
 	explicit FLocomotion(const FMovementTuning& Tuning);
 
-	[[nodiscard]] FVector3 SprintAcceleration(const FMovementTuning& Tuning, FMoverState& State, const FMoverInput& Input, const FVector3& Velocity, float StepSeconds, bool bFalling) const;
+	// The game's sprint acceleration, which its air control still steers with.
+	[[nodiscard]] FVector3 SprintAcceleration(const FMovementTuning& Tuning, const FMoverInput& Input, const FVector3& Velocity, float StepSeconds, bool bFalling) const;
 	[[nodiscard]] FVector3 ControllerAcceleration(const FMovementTuning& Tuning, FMoverState& State, const FMoverInput& Input, FVector3& Velocity, float StepSeconds) const;
 	[[nodiscard]] static FVector3 CalcVelocity(const FMovementTuning& Tuning, const FVector3& Velocity, const FVector3& Acceleration, float StepSeconds, float SpeedModifier, float Friction);
 
 private:
 	[[nodiscard]] static FVector3 InputDirection(const FMoverInput& Input);
-	[[nodiscard]] static FVector3 WalkAcceleration(const FMovementTuning& Tuning, FMoverState& State, const FMoverInput& Input, const FVector3& Velocity, float StepSeconds);
+	[[nodiscard]] static FVector3 WalkAcceleration(const FMovementTuning& Tuning, const FMoverInput& Input, const FVector3& Velocity, bool bSprint);
 
 	FCurve AccelerationCurve;
 };
@@ -109,17 +110,15 @@ FVector3 FLocomotion::InputDirection(const FMoverInput& Input)
 	return (Movement::Forward(Input.Yaw) * Input.Move.Y + Movement::Right(Input.Yaw) * Input.Move.X).Normalized();
 }
 
-FVector3 FLocomotion::SprintAcceleration(const FMovementTuning& Tuning, FMoverState& State, const FMoverInput& Input, const FVector3& Velocity, const float StepSeconds, const bool bFalling) const
+FVector3 FLocomotion::SprintAcceleration(const FMovementTuning& Tuning, const FMoverInput& Input, const FVector3& Velocity, const float StepSeconds, const bool bFalling) const
 {
 	const FVector3 Direction = InputDirection(Input);
 	if (Direction.LengthSquared() < 1.e-8f)
 	{
-		State.SprintEnergy = 0.f;
 		return {};
 	}
 
 	const float Speed = Horizontal(Velocity).Length();
-	State.SprintEnergy = std::max(Speed - Tuning.BaseSpeed, 0.f);
 	FVector3 Acceleration = Direction * Evaluate(AccelerationCurve, Speed);
 	if (!bFalling)
 	{
@@ -134,26 +133,19 @@ FVector3 FLocomotion::SprintAcceleration(const FMovementTuning& Tuning, FMoverSt
 	return Acceleration - Horizontal(Velocity) * (Tuning.TurnDeceleration * std::abs(Input.TurnRadians) / std::numbers::pi_v<float>);
 }
 
-FVector3 FLocomotion::WalkAcceleration(const FMovementTuning& Tuning, FMoverState& State, const FMoverInput& Input, const FVector3& Velocity, const float StepSeconds)
+FVector3 FLocomotion::WalkAcceleration(const FMovementTuning& Tuning, const FMoverInput& Input, const FVector3& Velocity, const bool bSprint)
 {
 	const FVector3 Direction = InputDirection(Input);
 	if (Direction.LengthSquared() < 1.e-8f)
 	{
-		State.SprintEnergy = 0.f;
 		return {};
 	}
 
+	// Herta sprints like most games: the run's target speed rises from the base to the ground speed while sprint is held, reached at the
+	// walk's acceleration in under half a second.
 	const FVector3 Forward = Movement::Forward(Input.Yaw);
 	const FVector3 Right = Movement::Right(Input.Yaw);
-	if (State.SprintEnergy > 0.f)
-	{
-		// Sprint energy drains unless the input keeps pushing the way the view faces.
-		const float Along = std::clamp(Direction.Dot(Forward), 0.f, 0.9f);
-		const float Drain = (Tuning.GroundSpeed - Tuning.BaseSpeed) * (1.f - std::pow(Along, Tuning.EnergyDecelerationExponent)) / Tuning.EnergyDecelerationSeconds;
-		State.SprintEnergy = std::max(State.SprintEnergy - Drain * StepSeconds, 0.f);
-	}
-
-	const float Top = Tuning.BaseSpeed - Tuning.MinimumBaseSpeed + State.SprintEnergy;
+	const float Top = (bSprint ? Tuning.GroundSpeed : Tuning.BaseSpeed) - Tuning.MinimumBaseSpeed;
 	const float WantForward = Direction.Dot(Forward) * Tuning.MinimumBaseSpeed + Top * Input.Move.Y;
 	const float WantRight = Direction.Dot(Right) * Tuning.MinimumBaseSpeed + Top * Input.Move.X;
 	return Forward * ((WantForward - Velocity.Dot(Forward)) * Tuning.WalkAcceleration) + Right * ((WantRight - Velocity.Dot(Right)) * Tuning.StrafeAcceleration) + Horizontal(Velocity) * (Tuning.GroundFriction * 0.1f);
@@ -172,8 +164,8 @@ FVector3 FLocomotion::ControllerAcceleration(const FMovementTuning& Tuning, FMov
 	if (Direction.LengthSquared() > 0.f)
 	{
 		State.AccelerationSeconds += StepSeconds;
-		const bool bSprint = Input.bSprint && Input.Move.Y > Tuning.SprintInputForward && Input.Move.Length() > Tuning.SprintInputSize && Velocity.Dot(Direction) > 0.f;
-		return bSprint ? SprintAcceleration(Tuning, State, Input, Velocity, StepSeconds, false) : WalkAcceleration(Tuning, State, Input, Velocity, StepSeconds);
+		const bool bSprint = Input.bSprint && Input.Move.Y > Tuning.SprintInputForward && Input.Move.Length() > Tuning.SprintInputSize;
+		return WalkAcceleration(Tuning, Input, Velocity, bSprint);
 	}
 
 	// A tap: letting go within 0.15 s of starting stops dead for a moment.
@@ -184,7 +176,6 @@ FVector3 FLocomotion::ControllerAcceleration(const FMovementTuning& Tuning, FMov
 	}
 
 	State.AccelerationSeconds = 0.f;
-	State.SprintEnergy = 0.f;
 	return {};
 }
 
@@ -345,7 +336,7 @@ std::expected<EMovementStep, FPhysicsError> FFallingMode::Step(FMoverContext& Co
 		Maximum = 0.01f;
 	}
 
-	const FVector3 Acceleration = ClampLength(Horizontal(Locomotion.SprintAcceleration(Tuning, State, Context.Input, Current, Context.StepSeconds, true)), Maximum);
+	const FVector3 Acceleration = ClampLength(Horizontal(Locomotion.SprintAcceleration(Tuning, Context.Input, Current, Context.StepSeconds, true)), Maximum);
 	const FVector3 Velocity = Current + Acceleration * Context.StepSeconds + FVector3::Up() * (State.Velocity.Y - Tuning.Gravity * Context.StepSeconds);
 	if (auto Moved = Movement::Move(Context, Velocity); !Moved)
 	{

@@ -24,9 +24,9 @@ struct FMovementTuning
 	float CrouchHeight = 1.22f;
 	float StepHeight = 0.35f;
 
-	// SpeedCurve_LightWeapon: holding forward builds speed along seconds of running, linear between points, to GroundSpeed 7.2 m/s.
+	// SpeedCurve_LightWeapon, speed against seconds of running. The game sprints along it; Herta keeps it for the air control it drives.
 	std::vector<std::pair<float, float>> SprintCurve{{0.f, 0.f}, {0.4f, 4.f}, {1.f, 5.2f}, {3.5f, 6.5f}, {7.f, 7.2f}};
-	// SpeedMaxBaseVelocity and SpeedMinBaseVelocity: walking tops out at the base speed; sprint energy is the speed above it.
+	// SpeedMaxBaseVelocity and SpeedMinBaseVelocity: running tops out at the base speed, and sprinting at the ground speed.
 	float BaseSpeed = 4.f;
 	float MinimumBaseSpeed = 0.1f;
 	float GroundSpeed = 7.2f;
@@ -34,15 +34,12 @@ struct FMovementTuning
 	float AccelerationRate = 61.44f;
 	float GroundFriction = 8.f;
 	float BrakingStrength = 0.5f;
-	// Speed{Sprint,Walk,Strafe}VelocityAccelerationFactor, SpeedTurnDecelerationFactor, and SpeedEnergyDeceleration{Time,Exponent}.
+	// Speed{Sprint,Walk,Strafe}VelocityAccelerationFactor and SpeedTurnDecelerationFactor.
 	float SprintSteering = 30.f;
 	float WalkAcceleration = 7.f;
 	float StrafeAcceleration = 10.f;
 	float TurnDeceleration = 10.f;
-	float EnergyDecelerationSeconds = 3.f;
-	float EnergyDecelerationExponent = 0.5f;
-	// InputMaxSprintHeightLimit and RaduisLimit: how hard forward, and in all, the stick must push for sprint acceleration, which also needs the
-	// sprint input held. Mirror's Edge sprints whenever forward is held; Herta keeps a sprint button, so running stays at the base speed.
+	// InputMaxSprintHeightLimit and RaduisLimit: how hard forward, and in all, the stick must push for sprint to count while it is held.
 	float SprintInputForward = 0.7f;
 	float SprintInputSize = 0.7f;
 	// TdMove_Crouch.SpeedModifier, of GroundSpeed.
@@ -157,8 +154,7 @@ struct FMoverState
 	// Set while running along a wall.
 	std::optional<FVector3> WallRunNormal{};
 	int ChainedWallRuns = 0;
-	// TdPawn.SpeedSprintEnergy, and the controller's tap-stop: letting go within 0.15 s of starting stops dead for 0.25 s.
-	float SprintEnergy = 0.f;
+	// The controller's tap-stop: letting go within 0.15 s of starting stops dead for 0.25 s.
 	float AccelerationSeconds = 0.f;
 	float StoppingSeconds = 0.f;
 };
