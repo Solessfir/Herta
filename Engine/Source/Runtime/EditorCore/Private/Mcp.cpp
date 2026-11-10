@@ -130,8 +130,13 @@ std::optional<std::string> HandleMcpMessage(const std::string_view Line, const F
 	const std::string Id = simdjson::minify(IdElement);
 	if (Method == "initialize")
 	{
-		std::string_view Requested = "2025-06-18";
-		(void)Message["params"]["protocolVersion"].get_string().get(Requested);
+		// A client that sends no version gets the newest one the server speaks.
+		std::string_view Requested;
+		if (Message["params"]["protocolVersion"].get_string().get(Requested) != simdjson::SUCCESS)
+		{
+			Requested = "2025-06-18";
+		}
+
 		std::string Result = R"({"protocolVersion": )" + ToJsonString(Requested);
 		Result += std::format(R"(, "capabilities": {{"tools": {{"listChanged": false}}}}, "serverInfo": {{"name": "herta-editor", "version": "{}"}}, )", ServerVersion);
 		Result += R"("instructions": "Drives a running Herta editor started with --automation: read its state and log, capture the viewport, and run Play with scripted input."})";

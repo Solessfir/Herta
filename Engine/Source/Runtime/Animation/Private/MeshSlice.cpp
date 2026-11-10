@@ -71,7 +71,8 @@ using FPositionKey = std::array<std::uint32_t, 3>;
 		Add(B.Joints[Slot], static_cast<float>(B.Weights[Slot]) * T);
 	}
 
-	std::sort(Joints.begin(), Joints.begin() + static_cast<std::ptrdiff_t>(Count), [](const auto& Left, const auto& Right)
+	// Unused slots weigh zero and real ones more, so sorting the whole array keeps them last; GCC misreads a sort bounded by Count as overrunning.
+	std::ranges::sort(Joints, [](const auto& Left, const auto& Right)
 	{
 		return Left.second != Right.second ? Left.second > Right.second : Left.first < Right.first;
 	});

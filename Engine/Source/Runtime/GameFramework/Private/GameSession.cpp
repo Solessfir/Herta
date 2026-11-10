@@ -56,7 +56,7 @@ constexpr float SwordBladeEnd = 1.f;
 				const std::size_t U = (Axis + 1) % 3;
 				const std::size_t V = (Axis + 2) % 3;
 				const auto Base = static_cast<std::uint32_t>(Model.Vertices.size());
-				for (const auto [CornerU, CornerV] : {std::pair{0, 0}, std::pair{1, 0}, std::pair{1, 1}, std::pair{0, 1}})
+				for (const auto& [CornerU, CornerV] : {std::pair{0, 0}, std::pair{1, 0}, std::pair{1, 1}, std::pair{0, 1}})
 				{
 					std::array<float, 3> Position{};
 					Position[Axis] = Sign > 0.f ? std::array{Maximum.X, Maximum.Y, Maximum.Z}[Axis] : std::array{Minimum.X, Minimum.Y, Minimum.Z}[Axis];

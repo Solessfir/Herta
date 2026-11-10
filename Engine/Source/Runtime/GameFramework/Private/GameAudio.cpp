@@ -108,7 +108,7 @@ void FGameAudio::MoveEmitters(const std::span<const FMatrix4> World)
 		if ((Position - Emitter.Position).LengthSquared() > 0.0001f)
 		{
 			Emitter.Position = Position;
-			Commands.push_back(FAudioMoveCommand{.Voice = Emitter.Voice, .Position = Position});
+			Commands.emplace_back(std::in_place_type<FAudioMoveCommand>, FAudioMoveCommand{.Voice = Emitter.Voice, .Position = Position});
 		}
 	}
 }
@@ -119,7 +119,7 @@ void FGameAudio::SetListener(const FAudioListener& Next)
 	if (bMoved)
 	{
 		Listener = Next;
-		Commands.push_back(FAudioListenerCommand{.Listener = Next});
+		Commands.emplace_back(std::in_place_type<FAudioListenerCommand>, FAudioListenerCommand{.Listener = Next});
 	}
 }
 

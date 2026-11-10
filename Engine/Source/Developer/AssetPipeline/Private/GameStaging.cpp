@@ -8,6 +8,7 @@
 #include "Herta/Level/LevelSerialization.h"
 #include "Herta/Project/Project.h"
 
+#include <algorithm>
 #include <array>
 #include <format>
 #include <map>
