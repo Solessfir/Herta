@@ -798,7 +798,7 @@ std::string_view FMantleMode::GetName() const
 
 std::expected<bool, FPhysicsError> FMantleMode::TryStart(FMoverContext& Context, const std::string_view Active)
 {
-	const FMoverState& State = Context.State;
+	FMoverState& State = Context.State;
 	const FMovementTuning& Tuning = Context.Tuning;
 	const FVector3 Forward = Movement::Forward(Context.Input.Yaw);
 	if (Active != "Falling" || State.bCrouched || Context.Input.Move.Y <= 0.5f || !State.Ground.bTouchingWall || State.Ground.WallNormal.Dot(Forward) >= -0.5f)
@@ -806,12 +806,13 @@ std::expected<bool, FPhysicsError> FMantleMode::TryStart(FMoverContext& Context,
 		return false;
 	}
 
-	// A small sphere swept down just past the wall finds the top; a sweep that starts inside the wall means it is too tall to climb.
+	// A small sphere swept down just past the wall finds the top, down to just above the feet; a sweep that starts inside the wall means it
+	// is too tall to climb.
 	constexpr float ProbeRadius = 0.1f;
 	const FPhysicsWorld& World = Context.World;
 	const FVector3 Ahead = State.Foot + Forward * (Tuning.Radius + Tuning.MantleReach);
 	const FVector3 Above = Ahead + FVector3::Up() * (Tuning.MantleMaximumHeight + ProbeRadius);
-	const FVector3 Below = Ahead + FVector3::Up() * (Tuning.MantleMinimumHeight + ProbeRadius);
+	const FVector3 Below = Ahead + FVector3::Up() * (ProbeRadius + 0.02f);
 	const float Hit = World.CastSphere(World.ToWorld(Above), World.ToWorld(Below), ProbeRadius);
 	if (Hit <= 0.f || Hit >= 1.f)
 	{
@@ -820,6 +821,15 @@ std::expected<bool, FPhysicsError> FMantleMode::TryStart(FMoverContext& Context,
 
 	const FVector3 Top = Above + (Below - Above) * Hit - FVector3::Up() * (ProbeRadius - 0.01f);
 	const float Rise = Top.Y - State.Foot.Y;
+
+	// A top too low to climb is vaulted: the feet rise just enough to clear it and air control carries the player over. Its jump press is
+	// spent here, so it never kicks off the obstacle backwards.
+	if (Rise < Tuning.MantleMinimumHeight)
+	{
+		State.Velocity.Y = std::max(State.Velocity.Y, std::sqrt(2.f * Tuning.Gravity * (std::max(Rise, 0.f) + 0.1f)));
+		State.JumpBufferSeconds = 0.f;
+		return false;
+	}
 
 	// The standing capsule must fit on top, and nothing may hang over the player on the way up.
 	const float Inset = Tuning.Radius - 0.02f;

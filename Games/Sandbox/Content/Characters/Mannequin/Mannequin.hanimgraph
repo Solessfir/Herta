@@ -89,7 +89,13 @@
     {"id": 83, "type": "Transition", "position": [2340, 4170], "properties": {"priority": 50, "duration": 0.25, "atEnd": false, "conditions": "!Grounded"}},
     {"id": 84, "type": "Transition", "position": [700, 4690], "properties": {"priority": 51, "duration": 0.25, "atEnd": false, "conditions": "!Grounded"}},
     {"id": 85, "type": "Transition", "position": [1520, 4880], "properties": {"priority": 52, "duration": 0.25, "atEnd": false, "conditions": "!Grounded"}},
-    {"id": 86, "type": "Transition", "position": [2340, 4690], "properties": {"priority": 53, "duration": 0.25, "atEnd": false, "conditions": "!Grounded"}}
+    {"id": 86, "type": "Transition", "position": [2340, 4690], "properties": {"priority": 53, "duration": 0.25, "atEnd": false, "conditions": "!Grounded"}},
+    {"id": 87, "type": "State", "position": [1220, 5210], "properties": {"name": "Air attack", "clips": "Sword_Attack", "blend": "", "loop": false, "speed": 1.6, "events": "SwingStart@0.15, SwingEnd@0.42"}},
+    {"id": 88, "type": "Transition", "position": [1520, 2560], "properties": {"priority": 54, "duration": 0.08, "atEnd": false, "conditions": "Attack"}},
+    {"id": 89, "type": "Transition", "position": [2340, 1660], "properties": {"priority": 55, "duration": 0.08, "atEnd": false, "conditions": "Attack"}},
+    {"id": 90, "type": "Transition", "position": [700, 2560], "properties": {"priority": 56, "duration": 0.08, "atEnd": false, "conditions": "Attack"}},
+    {"id": 91, "type": "Transition", "position": [1520, 5400], "properties": {"priority": 57, "duration": 0.2, "atEnd": true, "conditions": "Grounded"}},
+    {"id": 92, "type": "Transition", "position": [1520, 5590], "properties": {"priority": 58, "duration": 0.2, "atEnd": true, "conditions": ""}}
   ],
   "links": [
     {"from": [14, "State"], "to": [13, "State"]},
@@ -195,7 +201,17 @@
     {"from": [30, "State"], "to": [85, "From"]},
     {"from": [21, "State"], "to": [85, "To"]},
     {"from": [31, "State"], "to": [86, "From"]},
-    {"from": [21, "State"], "to": [86, "To"]}
+    {"from": [21, "State"], "to": [86, "To"]},
+    {"from": [21, "State"], "to": [88, "From"]},
+    {"from": [87, "State"], "to": [88, "To"]},
+    {"from": [19, "State"], "to": [89, "From"]},
+    {"from": [87, "State"], "to": [89, "To"]},
+    {"from": [20, "State"], "to": [90, "From"]},
+    {"from": [87, "State"], "to": [90, "To"]},
+    {"from": [87, "State"], "to": [91, "From"]},
+    {"from": [14, "State"], "to": [91, "To"]},
+    {"from": [87, "State"], "to": [92, "From"]},
+    {"from": [21, "State"], "to": [92, "To"]}
   ],
   "comments": []
 }

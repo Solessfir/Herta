@@ -114,6 +114,10 @@ TEST_CASE("A model whose metadata names an animation graph cooks its state machi
 	const auto Machine = FAnimationStateMachine::Create(*Model.StateMachine, **Library);
 	REQUIRE_MESSAGE(Machine, (Machine ? std::string() : Machine.error().Message));
 	CHECK(Machine->FindParameter("Speed"));
+	// The authored graph keeps up with the built-in machine, including the air attack's swing.
+	const auto AirAttack = std::ranges::find(Model.StateMachine->States, "Air attack", &FAnimationStateDesc::Name);
+	REQUIRE(AirAttack != Model.StateMachine->States.end());
+	CHECK(AirAttack->Events.size() == 2);
 	CHECK(Model.SeverableJoints == std::vector<std::string>{"neck_01", "calf_l"});
 
 	// Editing the graph changes the model's build key, so the editor's live reimport recooks the character.
@@ -858,6 +862,35 @@ TEST_CASE("The player's sword swings slice a training dummy along the blade's pl
 	CHECK(std::ranges::contains(States, std::string("Dash attack")));
 }
 
+TEST_CASE("A jump pressed again against a low obstacle vaults it instead of kicking off it")
+{
+	// The course's low hurdle: by the second press the feet are already within the 0.5 m a mantle needs, and the player touches its face,
+	// which used to make the press a wall kick back the way they came.
+	const FNoAnimationGameAssets Assets;
+	const std::vector<FLevelEntity> Course{
+	    FLevelEntity{.Id = FObjectId::Generate(), .Name = "Floor", .Transform = {.Translation = {0., -0.5, 0.}, .Scale = {60.f, 1.f, 60.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    FLevelEntity{.Id = FObjectId::Generate(), .Name = "Hurdle", .Transform = {.Translation = {0., 0.3, 5.}, .Scale = {4.f, 0.6f, 0.45f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	};
+	auto Session = FGameSession::Create(Course, Assets, nullptr, {}, nullptr, std::make_shared<const FCookedModel>(Mannequin()));
+	REQUIRE_MESSAGE(Session, (Session ? std::string() : Session.error().Message));
+	for (int Frame = 0; Frame < 60; ++Frame)
+	{
+		REQUIRE((*Session)->Update(1.f / 60.f, {}));
+	}
+
+	std::optional<int> Jumped;
+	for (int Frame = 0; Frame < 150; ++Frame)
+	{
+		const bool bAgainst = 4.775f - (*Session)->GetPlayerFootPosition().Z < 0.4f;
+		const bool bPress = (!Jumped && bAgainst) || (Jumped && Frame == *Jumped + 4);
+		Jumped = !Jumped && bPress ? std::optional(Frame) : Jumped;
+		REQUIRE((*Session)->Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bJump = bPress, .bSprint = true}));
+	}
+
+	REQUIRE(Jumped);
+	CHECK((*Session)->GetPlayerFootPosition().Z > 6.f);
+}
+
 TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 {
 	const FNoAnimationGameAssets Assets;
@@ -906,6 +939,17 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 	Step({.bCrouch = true}, 60);
 	CHECK(State() == "Crouch");
 	Step({}, 30);
+	CHECK(State() == "Locomotion");
+
+	// Attacking in the air swings overhead, plays out past the landing, and settles back into locomotion.
+	Step({.bJump = true}, 1);
+	Step({}, 8);
+	REQUIRE_FALSE((*Session)->IsPlayerGrounded());
+	Step({.bAttack = true}, 1);
+	Step({}, 4);
+	CHECK(State() == "Air attack");
+	Step({}, 90);
+	CHECK((*Session)->IsPlayerGrounded());
 	CHECK(State() == "Locomotion");
 
 	// Play starts in third person, whose camera sits behind and above the first-person eye.

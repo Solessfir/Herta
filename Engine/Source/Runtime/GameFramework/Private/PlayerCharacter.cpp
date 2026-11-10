@@ -50,6 +50,7 @@ enum ELocomotionState : std::size_t
 	AttackBRecover,
 	Block,
 	DashAttack,
+	AirAttack,
 };
 
 [[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
@@ -148,6 +149,8 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Block", .Samples = {{.Clip = "Sword_Block"}}, .bLoop = false},
 	        // Attacking at a sprint lunges into a dash slash; the mover keeps the sprint's speed, so the clip plays in place.
 	        {.Name = "Dash attack", .Samples = {{.Clip = "Sword_Dash_RM"}}, .bLoop = false, .Speed = 1.3f, .Events = {{.Name = "SwingStart", .Phase = 0.25f}, {.Name = "SwingEnd", .Phase = 0.7f}}},
+	        // Attacking in the air brings the sword down overhead; it plays out even past landing, so the swing always ends.
+	        {.Name = "Air attack", .Samples = {{.Clip = "Sword_Attack"}}, .bLoop = false, .Speed = 1.6f, .Events = {{.Name = "SwingStart", .Phase = 0.15f}, {.Name = "SwingEnd", .Phase = 0.42f}}},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
@@ -208,6 +211,11 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = AttackB, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
 	        {.From = AttackBRecover, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
 	        {.From = Block, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        {.From = Air, .To = AirAttack, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = JumpStart, .To = AirAttack, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = WallJumpStart, .To = AirAttack, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = AirAttack, .To = Locomotion, .DurationSeconds = 0.2f, .Conditions = {Is(Grounded, true)}, .bAtEnd = true},
+	        {.From = AirAttack, .To = Air, .DurationSeconds = 0.2f, .bAtEnd = true},
 	    },
 	    .Entry = Locomotion,
 	};

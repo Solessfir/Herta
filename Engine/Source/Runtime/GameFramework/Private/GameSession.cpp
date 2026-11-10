@@ -258,6 +258,7 @@ struct FPlayerSlot
 	// The blade last update, from guard to tip in world space, while a swing is cutting.
 	std::optional<std::array<FVector3, 2>> LastBlade{};
 	bool bSwinging = false;
+	float SwingSeconds = 0.f;
 	// Characters and pieces the current swing has already cut, so one swing cuts each once.
 	std::vector<std::size_t> SwingCuts{};
 	std::vector<const FCharacterPiece*> SwingPieceCuts{};
@@ -322,7 +323,7 @@ struct FGameSession::FImplementation : FPlayerSlot
 	// The body's model matrix at the mover's current feet, as drawn.
 	[[nodiscard]] FMatrix4 GetBodyModel() const;
 	// Traces the blade between updates during a swing and slices characters it passes through along its plane.
-	[[nodiscard]] std::expected<void, FGameError> SweepBlade();
+	[[nodiscard]] std::expected<void, FGameError> SweepBlade(float DeltaSeconds);
 	[[nodiscard]] std::expected<void, FPhysicsError> StepCharacters(FPhysicsWorld& World, float StepSeconds);
 	// Adds a piece to the world, pushing out the oldest of its character's pieces past the character's budget.
 	[[nodiscard]] std::expected<void, FGameError> AddPiece(std::size_t Character, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library, std::span<const FMatrix4> Pose, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity);
@@ -1967,7 +1968,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 	UpdateBody(DeltaSeconds);
 	if (Body && !Ragdoll && bAuthority)
 	{
-		if (auto Swept = SweepBlade(); !Swept)
+		if (auto Swept = SweepBlade(DeltaSeconds); !Swept)
 		{
 			return std::unexpected(Swept.error());
 		}
@@ -2090,13 +2091,14 @@ FMatrix4 FGameSession::FImplementation::GetBodyModel() const
 	return FMatrix4::Translation(Mover->GetState().Foot - FVector3::Up() * Body->GetRootHeight()) * FMatrix4::Rotation(GetBodyRotation());
 }
 
-std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade()
+std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const float DeltaSeconds)
 {
 	for (const std::string& Event : Body->GetEvents())
 	{
 		if (Event == "SwingStart")
 		{
 			bSwinging = true;
+			SwingSeconds = 0.f;
 			SwingCuts.clear();
 			SwingPieceCuts.clear();
 		}
@@ -2105,6 +2107,11 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade()
 			bSwinging = false;
 		}
 	}
+
+	// A swing cut short before its end, such as an attack interrupted by a jump or a wall run, stops cutting after the longest swing.
+	constexpr float MaximumSwingSeconds = 0.8f;
+	SwingSeconds += DeltaSeconds;
+	bSwinging = bSwinging && SwingSeconds < MaximumSwingSeconds;
 
 	const std::optional<FMatrix4> Grip = Body->EvaluatePose() ? Body->GetGripFrame() : std::nullopt;
 	if (!bSwinging || !Grip)
