@@ -1321,7 +1321,10 @@ std::expected<void, FLevelError> ValidateLevelRegions(const std::span<const FLev
 		const bool bRelative = !Region.Level.empty() && Region.Level.ends_with(".hlevel") && !Region.Level.starts_with('/') && Region.Level.find('\\') == std::string::npos && Region.Level.find(':') == std::string::npos;
 		const FVector3d& Offset = Region.Offset.Meters;
 		const bool bOffset = std::isfinite(Offset.X) && std::isfinite(Offset.Y) && std::isfinite(Offset.Z);
-		if (!Region.Id.IsValid() || std::ranges::contains(Seen, Region.Id) || !IsValidName(Region.Name) || !bRelative || !bOffset)
+		if (!Region.Id.IsValid() || std::ranges::any_of(Seen, [&Region](const FObjectId& Other)
+		{
+			return Other == Region.Id;
+		}) || !IsValidName(Region.Name) || !bRelative || !bOffset)
 		{
 			return LevelError(std::format("Region '{}' needs a unique ID, a name, a finite offset, and a relative .hlevel path", Region.Name));
 		}

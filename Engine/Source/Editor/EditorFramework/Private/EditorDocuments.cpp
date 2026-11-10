@@ -392,11 +392,20 @@ void FEditorFramework::FImplementation::AppendRegionPreviews(std::vector<FAssetI
 		}
 
 		const std::vector<FLevelEntity>& Entities = Found->second.Entities;
-		const auto Matrices = ComposeLevelRegionMatrices(Region, Entities);
-		if (!Matrices)
+		auto& [ComposedOffset, Composed] = Found->second.Placements[Region.Id];
+		if (Composed.size() != Entities.size() || !(ComposedOffset == Region.Offset.Meters))
 		{
-			continue;
+			auto Matrices = ComposeLevelRegionMatrices(Region, Entities);
+			if (!Matrices)
+			{
+				continue;
+			}
+
+			ComposedOffset = Region.Offset.Meters;
+			Composed = std::move(*Matrices);
 		}
+
+		const std::vector<FMatrix4>* const Matrices = &Composed;
 
 		for (std::size_t Index = 0; Index < Entities.size(); ++Index)
 		{

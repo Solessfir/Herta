@@ -507,6 +507,8 @@ struct FEditorFramework::FImplementation
 	struct FRegionPreviewLevel
 	{
 		std::vector<FLevelEntity> Entities{};
+		// Each placement's composed matrices and the offset they were composed at, recomposed only when the offset changes.
+		std::map<FObjectId, std::pair<FVector3d, std::vector<FMatrix4>>> Placements{};
 	};
 
 	std::map<std::filesystem::path, FRegionPreviewLevel> RegionPreviewLevels;
