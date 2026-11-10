@@ -150,7 +150,7 @@ std::expected<void, FPhysicsError> FLevelSimulation::Start(const std::span<const
 		const float Radius = Body.Collision == EPhysicsShape::Capsule ? std::max(HalfExtents.X, HalfExtents.Z) : std::max({HalfExtents.X, HalfExtents.Y, HalfExtents.Z});
 		const EPhysicsMotionType MotionType = Body.Mover || Body.bTrigger ? EPhysicsMotionType::Kinematic : Body.MotionType;
 		const EPhysicsShape Collision = Body.bTrigger ? EPhysicsShape::Box : Body.Collision;
-		const auto Id = (*NewWorld)->CreateBody({.Shape = Collision, .HalfExtents = HalfExtents, .Radius = Radius, .HalfHeight = std::max(HalfExtents.Y - Radius, 0.f), .Position = Position, .Rotation = Body.Transform.Rotation, .MotionType = MotionType, .Properties = Body.Properties, .bSensor = Body.bTrigger});
+		const auto Id = (*NewWorld)->CreateBody({.Shape = Collision, .HalfExtents = HalfExtents, .Radius = Radius, .HalfHeight = std::max(HalfExtents.Y - Radius, 0.f), .Position = Position, .Rotation = Body.Transform.Rotation, .MotionType = MotionType, .Properties = Body.Properties, .bSensor = Body.bTrigger, .bReportContacts = MotionType == EPhysicsMotionType::Dynamic});
 		if (!Id)
 		{
 			return std::unexpected(Id.error());
@@ -281,6 +281,7 @@ std::expected<void, FPhysicsError> FLevelSimulation::Start(const std::span<const
 	Spawned.clear();
 	Pieces.clear();
 	BreakEvents.clear();
+	ImpactEvents.clear();
 	DebrisCount = 0;
 	Accumulator = 0.0;
 	Time = 0.0;
@@ -374,6 +375,7 @@ void FLevelSimulation::Stop() noexcept
 	Spawned.clear();
 	Pieces.clear();
 	BreakEvents.clear();
+	ImpactEvents.clear();
 	DebrisCount = 0;
 
 	Accumulator = 0.0;
@@ -492,6 +494,12 @@ std::expected<void, FPhysicsError> FLevelSimulation::Update(const float DeltaSec
 		// Contact events arrive sorted by body, so breaks happen in the same order on every machine and thread count.
 		for (const FPhysicsContactEvent& Event : World->GetContactEvents())
 		{
+			// Bounded, so a pile settling at once cannot grow the list without limit between reads.
+			if (Event.Phase == EPhysicsContactPhase::Began && Event.Impulse > 0.f && ImpactEvents.size() < 256)
+			{
+				ImpactEvents.push_back({.Point = Event.Point, .Impulse = Event.Impulse});
+			}
+
 			for (const FPhysicsBodyId Body : {Event.First, Event.Second})
 			{
 				const auto Island = Event.Phase == EPhysicsContactPhase::Began ? IslandBodies.find(Body.Value) : IslandBodies.end();
@@ -932,5 +940,10 @@ std::size_t FLevelSimulation::GetDebrisCount() const noexcept
 std::vector<FLevelBreakEvent> FLevelSimulation::TakeBreakEvents()
 {
 	return std::exchange(BreakEvents, {});
+}
+
+std::vector<FLevelImpactEvent> FLevelSimulation::TakeImpactEvents()
+{
+	return std::exchange(ImpactEvents, {});
 }
 }

@@ -6,6 +6,7 @@
 #include "Herta/Animation/MeshSlice.h"
 #include "Herta/Math/AffineTransform.h"
 #include "CharacterPiece.h"
+#include "GameAudio.h"
 #include "PlayerCharacter.h"
 
 #include <algorithm>
@@ -22,6 +23,10 @@ namespace
 {
 constexpr float MaximumPitch = 1.53f;
 constexpr float CameraNear = 0.05f;
+// Impacts softer than this make no sound, and impulses are capped where the impact graph is already at its loudest.
+constexpr float MinimumImpactImpulse = 1.5f;
+constexpr float MaximumImpactImpulse = 60.f;
+constexpr std::size_t MaximumImpactsPerUpdate = 4;
 // A thrown ball: a 3 kg, 24 cm ball at 24 m/s carries about 86 N*s into a wall, enough to break the playground's walls but not its footings.
 // The sword in grip space: the blade runs along +Y from the guard to the tip, its edge leading along +X.
 constexpr float SwordBladeStart = 0.1f;
@@ -199,6 +204,8 @@ struct FGameSession::FImplementation
 	[[nodiscard]] std::expected<void, FPhysicsError> Respawn(FPhysicsWorld& World);
 	// Foot is the capsule's; BodyFoot is where the body is drawn, which differs while a climb clip lifts its own root.
 	[[nodiscard]] FVector3 GetCameraPosition(const FVector3& Foot, const FVector3& BodyFoot);
+	// The player's sounds, moving emitters, and the listener, after everything else in the update.
+	void UpdateAudio(bool bJumped);
 
 	// cppcheck-suppress uninitMemberVarNoCtor ; set by aggregate initialization in Create
 	const IGameAssets& Assets;
@@ -268,9 +275,12 @@ struct FGameSession::FImplementation
 	float Yaw = 0.f;
 	float Pitch = 0.f;
 	float LastDeltaSeconds = 0.f;
+	// Distance walked since the capsule's last footstep, when there is no body to time them.
+	float StrideDistance = 0.f;
 
 	FGameObjective Objective{};
 	std::vector<std::string> Events{};
+	FGameAudio Audio{};
 
 	// The animated body, its facing, and the third-person camera.
 	std::unique_ptr<FPlayerCharacter> Body{};
@@ -575,6 +585,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 
 	Objective.State = StartZone && FinishZone ? EGameObjectiveState::Ready : EGameObjectiveState::Exploring;
 	Objective.ElapsedSeconds = 0.;
+	Audio.Start(Entities, AuthoredWorld);
 	for (FSoftBodyMesh& SoftBody : SoftBodies)
 	{
 		SoftBody.Revision = 0;
@@ -756,6 +767,7 @@ void FGameSession::FImplementation::UpdateObjective(const float DeltaSeconds)
 		Objective.State = EGameObjectiveState::Running;
 		Objective.ElapsedSeconds = 0.;
 		Events.push_back("Run started");
+		Audio.PlayFlat(ELevelSound::Objective, {{.Name = "Finished", .Value = 0.f}});
 	}
 	else if (Objective.State != EGameObjectiveState::Ready && bInStart)
 	{
@@ -768,6 +780,7 @@ void FGameSession::FImplementation::UpdateObjective(const float DeltaSeconds)
 		const bool bBest = !Objective.BestSeconds || Objective.ElapsedSeconds < *Objective.BestSeconds;
 		Objective.BestSeconds = bBest ? Objective.ElapsedSeconds : Objective.BestSeconds;
 		Events.push_back(std::format("Course finished in {:.2f} s{}", Objective.ElapsedSeconds, bBest ? ", a new best" : ""));
+		Audio.PlayFlat(ELevelSound::Objective, {{.Name = "Finished", .Value = 1.f}});
 	}
 }
 
@@ -832,6 +845,21 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 	for (const FLevelBreakEvent& Break : Session.Simulation.TakeBreakEvents())
 	{
 		Session.Events.push_back(std::format("{} broke ({} bonds)", Session.Entities[Break.ObjectIndex].Name, Break.BrokenBonds));
+		Session.Audio.Play(ELevelSound::Impact, Break.Point, {{.Name = "Impulse", .Value = MaximumImpactImpulse}});
+	}
+
+	// The hardest few impacts of the frame sound; the rest would be masked by them anyway.
+	std::vector<FLevelImpactEvent> Impacts = Session.Simulation.TakeImpactEvents();
+	std::erase_if(Impacts, [](const FLevelImpactEvent& Impact)
+	{
+		return Impact.Impulse < MinimumImpactImpulse;
+	});
+
+	std::ranges::stable_sort(Impacts, std::ranges::greater{}, &FLevelImpactEvent::Impulse);
+	Impacts.resize(std::min<std::size_t>(Impacts.size(), MaximumImpactsPerUpdate));
+	for (const FLevelImpactEvent& Impact : Impacts)
+	{
+		Session.Audio.Play(ELevelSound::Impact, Impact.Point, {{.Name = "Impulse", .Value = std::min(Impact.Impulse, MaximumImpactImpulse)}});
 	}
 
 	for (const FLevelTriggerEvent& Event : Session.Simulation.TakeTriggerEvents())
@@ -850,6 +878,7 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 		Session.Body->SetBool("Blocking", Input.bBlock);
 	}
 
+	const bool bJumped = Session.bJumpedThisUpdate || Session.bWallJumpedThisUpdate;
 	Session.UpdateBody(DeltaSeconds);
 	if (Session.Body && !Session.Ragdoll)
 	{
@@ -858,6 +887,8 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 			return std::unexpected(Swept.error());
 		}
 	}
+
+	Session.UpdateAudio(bJumped);
 
 	if (FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld())
 	{
@@ -924,6 +955,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::Throw()
 	    .Position = Eye + Direction * (Player.Movement.Radius + ProjectileRadius + 0.1f),
 	    .MotionType = EPhysicsMotionType::Dynamic,
 	    .Properties = {.MassKg = ProjectileMassKg, .Friction = 0.5f, .Restitution = 0.35f, .LinearDamping = 0.01f, .AngularDamping = 0.2f},
+	    .bReportContacts = true,
 	    .bContinuousCollision = true,
 	});
 
@@ -1063,12 +1095,19 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade()
 		const auto Inverse = TryInverseAffine(AuthoredWorld[Characters[Index].Entity]);
 		const FVector3 LocalPoint = Inverse ? TransformPoint(*Inverse, Blade[0]) : Blade[0];
 		const FVector3 LocalNormal = Inverse ? Inverse->TransformVector(Unit).Normalized() : Unit;
-		if (auto Cut = CutCharacter(Index, [&](FPlayerCharacter& Body)
+		auto Cut = CutCharacter(Index, [&](FPlayerCharacter& Body)
 		{
 			return Body.Slice({.Normal = LocalNormal, .Distance = LocalNormal.Dot(LocalPoint)});
-		}, Swept.Normalized()); !Cut)
+		}, Swept.Normalized());
+
+		if (!Cut)
 		{
 			return std::unexpected(Cut.error());
+		}
+
+		if (*Cut)
+		{
+			Audio.Play(ELevelSound::Slice, (Blade[0] + Blade[1]) * 0.5f);
 		}
 	}
 
@@ -1094,6 +1133,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade()
 			continue;
 		}
 
+		Audio.Play(ELevelSound::Slice, (Blade[0] + Blade[1]) * 0.5f);
 		// The cut piece is gone and its two halves were appended; neither is cut again this swing, and Index now names the next piece.
 		for (std::size_t Added = Pieces.size() - std::min<std::size_t>(Pieces.size(), 2); Added < Pieces.size(); ++Added)
 		{
@@ -1193,6 +1233,11 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 				if (!Severed)
 				{
 					return std::unexpected(FPhysicsError{Severed.error().Message});
+				}
+
+				if (*Severed)
+				{
+					Audio.Play(ELevelSound::Sever, Transform->Position);
 				}
 			}
 
@@ -1604,6 +1649,75 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	return Session.View;
 }
 
+void FGameSession::FImplementation::UpdateAudio(const bool bJumped)
+{
+	const FMoverState& State = Mover->GetState();
+	const FVector3 Foot = State.Foot;
+	const float Speed = std::hypot(State.Velocity.X, State.Velocity.Z);
+	if (bJumped)
+	{
+		Audio.Play(ELevelSound::Jump, Foot);
+	}
+
+	for (const std::string& Event : Body ? Body->GetEvents() : std::span<const std::string>{})
+	{
+		if (Event == "Footstep")
+		{
+			Audio.Play(ELevelSound::Footstep, Foot, {{.Name = "Speed", .Value = Speed}});
+		}
+		else if (Event == "Land")
+		{
+			Audio.Play(ELevelSound::Land, Foot, {{.Name = "Speed", .Value = Speed}});
+		}
+		else if (Event == "SwingStart")
+		{
+			Audio.Play(ELevelSound::Swing, Foot + FVector3::Up() * 1.2f);
+		}
+	}
+
+	// Without a body there are no footstep events, so the capsule ticks off steps by distance walked.
+	if (!Body && State.bGrounded && Speed > 0.5f)
+	{
+		StrideDistance += Speed * LastDeltaSeconds;
+		if (StrideDistance >= 1.6f)
+		{
+			StrideDistance = 0.f;
+			Audio.Play(ELevelSound::Footstep, Foot, {{.Name = "Speed", .Value = Speed}});
+		}
+	}
+
+	Audio.SetLoop(ELevelSound::Slide, Mover->GetActiveMode() == "Slide" && !Ragdoll, Foot);
+
+	if (!Audio.GetEmitterEntities().empty())
+	{
+		BuildModels();
+		Audio.MoveEmitters(Models);
+	}
+
+	// The first active listener component hears the level; otherwise the player's head does, in both camera modes, so a third-person boom
+	// does not pull every sound behind the player.
+	const auto Listener = std::ranges::find_if(Entities, [](const FLevelEntity& Entity)
+	{
+		return Entity.AudioListener && Entity.AudioListener->bActive;
+	});
+
+	if (Listener != Entities.end())
+	{
+		if (Audio.GetEmitterEntities().empty())
+		{
+			BuildModels();
+		}
+
+		const FMatrix4& Model = Models[static_cast<std::size_t>(Listener - Entities.begin())];
+		Audio.SetListener({.Position = GetTranslation(Model), .Forward = Model.TransformVector(FVector3::Forward()).Normalized(), .Up = Model.TransformVector(FVector3::Up()).Normalized()});
+	}
+	else
+	{
+		const FQuaternion Look = GetViewOrientation();
+		Audio.SetListener({.Position = Foot + FVector3::Up() * EyeHeight, .Forward = Look.RotateVector(FVector3::Forward()), .Up = Look.RotateVector(FVector3::Up())});
+	}
+}
+
 FQuaternion FGameSession::FImplementation::GetBodyRotation() const
 {
 	// A wall run tilts the body's head away from the wall around its feet, which stay beside the wall.
@@ -1879,6 +1993,21 @@ const FCharacterMover& FGameSession::GetMover() const noexcept
 FVector3 FGameSession::GetPlayerVelocity() const noexcept
 {
 	return Implementation->Mover->GetState().Velocity;
+}
+
+void FGameSession::SetLevelSounds(const FLevelSounds& Sounds)
+{
+	Implementation->Audio.SetSounds(Sounds);
+}
+
+std::vector<FAssetId> FGameSession::GetSounds() const
+{
+	return Implementation->Audio.GetSounds(Implementation->Entities);
+}
+
+std::vector<FAudioCommand> FGameSession::TakeAudioCommands()
+{
+	return Implementation->Audio.TakeCommands();
 }
 
 std::shared_ptr<const FCookedTexture> FGameSession::GetEnvironment() const

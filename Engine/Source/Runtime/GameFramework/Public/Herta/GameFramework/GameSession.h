@@ -1,6 +1,8 @@
 #pragma once
 
+#include "Herta/Audio/AudioCommands.h"
 #include "Herta/GameFramework/CharacterMover.h"
+#include "Herta/Level/LevelSerialization.h"
 #include "Herta/GameFramework/LevelSimulation.h"
 #include "Herta/Level/World.h"
 #include "Herta/Math/Vector.h"
@@ -195,6 +197,13 @@ public:
 	[[nodiscard]] std::size_t GetCutCount() const noexcept;
 	// The first enabled Sky light's environment, for the host's environment filtering.
 	[[nodiscard]] std::shared_ptr<const FCookedTexture> GetEnvironment() const;
+	// The sounds gameplay plays for its events, from the level; applies from the next start.
+	void SetLevelSounds(const FLevelSounds& Sounds);
+	// Every sound the level's emitters and gameplay sounds may play, for the host to load before play.
+	[[nodiscard]] std::vector<FAssetId> GetSounds() const;
+	// What the session asked audio to do since the previous call. A host with a device submits them; a headless session records the same
+	// commands, so tests compare them without one.
+	[[nodiscard]] std::vector<FAudioCommand> TakeAudioCommands();
 
 private:
 	struct FImplementation;

@@ -127,6 +127,13 @@ struct FLevelSimulationPiece
 	FPhysicsBodyTransform Transform{};
 };
 
+// A contact that began with a moving body, with the impulse stopping it took, for impact sounds and effects.
+struct FLevelImpactEvent
+{
+	FVector3 Point = FVector3::Zero();
+	float Impulse = 0.f;
+};
+
 struct FLevelBreakEvent
 {
 	std::size_t ObjectIndex = 0;
@@ -170,6 +177,8 @@ public:
 	std::size_t GetDebrisCount() const noexcept;
 	// Breaks since the previous call, in step order.
 	std::vector<FLevelBreakEvent> TakeBreakEvents();
+	// Impacts since the previous call, in step order; contacts report for Dynamic level bodies, spawned bodies that ask, and destructibles.
+	std::vector<FLevelImpactEvent> TakeImpactEvents();
 
 private:
 	struct FBodyState
@@ -258,6 +267,7 @@ private:
 	std::unordered_map<std::uint32_t, std::pair<std::size_t, std::size_t>> IslandBodies;
 	std::vector<FLevelSimulationPiece> Pieces;
 	std::vector<FLevelBreakEvent> BreakEvents;
+	std::vector<FLevelImpactEvent> ImpactEvents;
 	FLevelDestructionSettings DestructionSettings{};
 	std::size_t DebrisCount = 0;
 
