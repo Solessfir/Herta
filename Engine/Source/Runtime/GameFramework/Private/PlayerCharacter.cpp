@@ -470,7 +470,28 @@ FRagdollFit FitRagdoll(const FAnimationLibrary& Library, const std::span<const F
 			return {};
 		}
 
-		if (Keep && !Keep(*Joint))
+		// A part stays while the piece carries its joint or any joint along it, such as the chest by spine_03 once a cut took spine_02's own
+		// skin; without it, the head and arms hung on the chest would move apart and stretch the skin between them.
+		const auto KeepsAlong = [&]
+		{
+			const auto Parents = Library.GetJointParents();
+			for (std::int16_t Along = *End < Parents.size() ? Parents[*End] : -1; Along >= 0; Along = Parents[static_cast<std::size_t>(Along)])
+			{
+				if (Keep(static_cast<std::size_t>(Along)))
+				{
+					return true;
+				}
+
+				if (static_cast<std::size_t>(Along) == *Joint)
+				{
+					break;
+				}
+			}
+
+			return false;
+		};
+
+		if (Keep && !Keep(*Joint) && !KeepsAlong())
 		{
 			continue;
 		}

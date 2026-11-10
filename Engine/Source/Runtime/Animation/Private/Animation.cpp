@@ -435,9 +435,28 @@ void FAnimationPose::OverrideJoints(const std::span<const std::size_t> Joints, c
 		}
 	}
 
-	// A joint above the moved ones, such as the spine below a cut piece's chest, follows its moved child; left where it was, the skin it
-	// carries would stretch between the two poses. Children follow their parents, so a backward pass carries the follow up the chain. The
-	// skeleton root stays, since it carries no skin and callers read the clip's root motion from it.
+	// Parents precede children, so one forward pass carries each moved joint's subtree along.
+	const auto CarryChildren = [&Pose, Parents]
+	{
+		for (std::size_t Joint = 0; Joint < Parents.size(); ++Joint)
+		{
+			const auto Parent = static_cast<std::size_t>(Parents[Joint]);
+			if (!Pose.Moved[Joint] && Parents[Joint] >= 0 && Pose.Moved[Parent])
+			{
+				const std::optional<FMatrix4> ParentInverse = TryInverseAffine(Pose.Evaluated[Parent]);
+				Pose.ModelTransforms[Joint] = ParentInverse ? Pose.ModelTransforms[Parent] * *ParentInverse * Pose.Evaluated[Joint] : Pose.ModelTransforms[Parent];
+				Pose.Moved[Joint] = true;
+			}
+		}
+	};
+
+	CarryChildren();
+
+	// A joint still left above the moved ones, such as the spine below a cut piece's chest, follows its moved child; left where it was, the
+	// skin it carries would stretch between the two poses. Only joints no moved joint carries come here, after the children pass, so a
+	// clavicle follows the chest, never the arm below it. A backward pass carries the follow up the chain, and the next forward pass brings
+	// along their other children, such as a cut piece's legs. The skeleton root stays, since it carries no skin and callers read the clip's
+	// root motion from it.
 	for (std::size_t Joint = Parents.size(); Joint-- > 0;)
 	{
 		const auto Parent = static_cast<std::size_t>(Parents[Joint]);
@@ -449,17 +468,9 @@ void FAnimationPose::OverrideJoints(const std::span<const std::size_t> Joints, c
 		}
 	}
 
-	// Parents precede children, so one forward pass carries each moved joint's subtree along.
+	CarryChildren();
 	for (std::size_t Joint = 0; Joint < Parents.size(); ++Joint)
 	{
-		const auto Parent = static_cast<std::size_t>(Parents[Joint]);
-		if (!Pose.Moved[Joint] && Parents[Joint] >= 0 && Pose.Moved[Parent])
-		{
-			const std::optional<FMatrix4> ParentInverse = TryInverseAffine(Pose.Evaluated[Parent]);
-			Pose.ModelTransforms[Joint] = ParentInverse ? Pose.ModelTransforms[Parent] * *ParentInverse * Pose.Evaluated[Joint] : Pose.ModelTransforms[Parent];
-			Pose.Moved[Joint] = true;
-		}
-
 		if (Pose.Moved[Joint])
 		{
 			Pose.SkinningMatrices[Joint] = Pose.ModelTransforms[Joint] * InverseBinds[Joint];

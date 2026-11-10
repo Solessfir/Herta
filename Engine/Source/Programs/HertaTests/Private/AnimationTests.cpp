@@ -335,6 +335,18 @@ TEST_CASE("Overridden joints carry their children and the joints above them, but
 	}
 
 	CHECK(MaximumDifference(Pose.GetModelTransforms().front(), Before.front()) < 1.e-6f);
+
+	// With the chest and an arm both moved, the upper spine and the clavicle follow the chest they hang from, never the arm below them.
+	REQUIRE(Pose.Evaluate({}));
+	const std::size_t Arm = Find("upperarm_l");
+	const std::array Both{Chest, Arm};
+	const std::array BothTransforms{Shift * Before[Chest], FMatrix4::Translation({3.f, 0.f, 0.f}) * Before[Arm]};
+	Pose.OverrideJoints(Both, BothTransforms, 1.f);
+	for (const std::string_view Name : {"spine_03", "clavicle_l"})
+	{
+		const std::size_t Joint = Find(Name);
+		CHECK_MESSAGE(MaximumDifference(Pose.GetModelTransforms()[Joint], Shift * Before[Joint]) < 1.e-4f, Name);
+	}
 }
 
 TEST_CASE("Clips sample, blend, and report root motion")
