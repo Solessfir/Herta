@@ -138,6 +138,7 @@ public:
 	void OpenAnimationGraph(const std::filesystem::path& File);
 	void OpenAudioGraph(const std::filesystem::path& File);
 	void OpenVfxGraph(const std::filesystem::path& File);
+	void OpenStateTree(const std::filesystem::path& File);
 	// Opens a material asset from the project's or the engine's content in the material editor once the content scan has registered it.
 	void OpenMaterial(const std::filesystem::path& File);
 	// Moves the viewport camera to a level camera bookmark and returns its name, or nothing when the slot is empty.

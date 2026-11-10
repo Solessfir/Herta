@@ -114,4 +114,5 @@ void SetAudioGraphDocumentResolver(FAudioWaveResolver Resolver);
 // A new Audio Graph: one wave player, still without waves, feeding the output.
 [[nodiscard]] FGraph MakeDefaultAudioGraph();
 [[nodiscard]] const FGraphDocumentDomain& GetVfxGraphDocumentDomain();
+[[nodiscard]] const FGraphDocumentDomain& GetStateTreeDocumentDomain();
 }

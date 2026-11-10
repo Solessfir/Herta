@@ -321,6 +321,9 @@ struct FEditorFramework::FImplementation
 	void OpenVfxGraphKey(const std::string& Key);
 	// Compiles the open VFX Graph's draft whenever it changes and draws it with a preview that plays at the viewport's pivot.
 	void DrawVfxGraphPanel();
+	// The StateTree document, with the tree as agents run it beside the canvas and Play's active states lit.
+	void DrawStateTreePanel();
+	void OpenStateTreeKey(const std::string& Key);
 	void UpdateEffects(float DeltaSeconds);
 	[[nodiscard]] std::optional<FAssetId> ResolveAudioWave(std::string_view Mount, std::string_view Path) const;
 	// A content file as its mounted path, "Game/..." or "Engine/...", or nothing outside both content roots.
@@ -409,6 +412,14 @@ struct FEditorFramework::FImplementation
 	FGraphDocumentPanel AudioGraphPanel{GetAudioGraphDocumentDomain()};
 	FGraphDocumentPanel VfxGraphPanel{GetVfxGraphDocumentDomain()};
 	std::uint64_t VfxGraphRevision = UINT64_MAX;
+	FGraphDocumentPanel StateTreePanel{GetStateTreeDocumentDomain()};
+	std::uint64_t StateTreeRevision = UINT64_MAX;
+	std::optional<FCookedStateTree> StateTreeOutline;
+	std::vector<FGraphNodeId> StateTreeActive;
+	// Which of Play's agents the StateTree panel follows, by its place in the session's agent list.
+	std::size_t StateTreeAgent = 0;
+	// A panel automation asked to bring to the front, by its title.
+	std::string PendingFocusPanel;
 	std::optional<FCookedParticleSystem> PreviewDesc;
 	FParticleWorld PreviewParticles;
 	std::optional<FParticleEffectId> PreviewEffectId;

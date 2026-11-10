@@ -959,6 +959,11 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 
 	if (Tool == "viewport_view")
 	{
+		if (const std::string_view Focus = Arguments.Text("focus"); !Focus.empty())
+		{
+			Editor.PendingFocusPanel = std::string(Focus);
+		}
+
 		if (Arguments.Has("navigation"))
 		{
 			Editor.bNavigationVisible = Arguments.Flag("navigation");

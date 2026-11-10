@@ -280,6 +280,17 @@ void FEditorFramework::OpenVfxGraph(const std::filesystem::path& File)
 	HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "VFX Graph {} is outside the project's and the engine's content", File.string());
 }
 
+void FEditorFramework::OpenStateTree(const std::filesystem::path& File)
+{
+	if (const auto Key = Implementation->MountedContentPath(File))
+	{
+		Implementation->OpenStateTreeKey(*Key);
+		return;
+	}
+
+	HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "StateTree {} is outside the project's and the engine's content", File.string());
+}
+
 void FEditorFramework::OpenMaterial(const std::filesystem::path& File)
 {
 	if (auto Label = Implementation->MountedContentPath(File))
@@ -518,7 +529,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	bool bOpenLevelRequested = false;
 	bool bPlaceObjectsRequested = std::exchange(Implementation->bPlaceObjectsRequested, false);
 	const bool bAuthoringAvailable = !Implementation->bProjectBusy && !Implementation->IsSimulating() && !Implementation->Level->HasActiveEdit() && Implementation->ViewportInteraction.DragButton < 0;
-	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->ToolUI->IsDocumentInFront() && !Implementation->MaterialPanel.IsFocused() && !Implementation->MaterialGraphPanel.IsFocused() && !Implementation->AnimationGraphPanel.IsFocused() && !Implementation->AudioGraphPanel.IsFocused() && !Implementation->VfxGraphPanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
+	const bool bShortcutsAvailable = bAuthoringAvailable && !Implementation->ToolUI->IsDocumentInFront() && !Implementation->MaterialPanel.IsFocused() && !Implementation->MaterialGraphPanel.IsFocused() && !Implementation->AnimationGraphPanel.IsFocused() && !Implementation->AudioGraphPanel.IsFocused() && !Implementation->VfxGraphPanel.IsFocused() && !Implementation->StateTreePanel.IsFocused() && !IO.AppFocusLost && !IO.WantTextInput && !ImGui::IsAnyItemActive() && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) && !IO.KeyAlt && !IO.KeySuper;
 	const bool bControlShortcutsAvailable = bShortcutsAvailable && IO.KeyMods == ImGuiMod_Ctrl;
 	const bool bProjectChangeAvailable = bAuthoringAvailable && !Implementation->EngineRoot.empty() && !(Implementation->Assets && Implementation->Assets->IsImporting());
 	bool bNewProjectRequested = bControlShortcutsAvailable && bProjectChangeAvailable && ImGui::IsKeyPressed(ImGuiKey_N, false);
@@ -1122,6 +1133,14 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->DrawAnimationGraphPanel();
 	Implementation->DrawAudioGraphPanel();
 	Implementation->DrawVfxGraphPanel();
+	Implementation->DrawStateTreePanel();
+	// Document panels are named "<file>###<kind>", so the kind alone, such as StateTree, finds them.
+	if (const std::string Focus = std::exchange(Implementation->PendingFocusPanel, std::string()); !Focus.empty())
+	{
+		// A name that matches no window is ignored, so both spellings can be tried.
+		ImGui::SetWindowFocus(Focus.c_str());
+		ImGui::SetWindowFocus(("###" + Focus).c_str());
+	}
 	Implementation->DrawPerformancePanel();
 	if (!Implementation->IsSimulating())
 	{
@@ -1179,7 +1198,7 @@ bool FEditorFramework::RequestClose()
 	}
 
 	// Unsaved graph edits stop the close with a save prompt; closing again after answering it proceeds.
-	if (!Implementation->MaterialGraphPanel.RequestClose() || !Implementation->AnimationGraphPanel.RequestClose() || !Implementation->AudioGraphPanel.RequestClose() || !Implementation->VfxGraphPanel.RequestClose())
+	if (!Implementation->MaterialGraphPanel.RequestClose() || !Implementation->AnimationGraphPanel.RequestClose() || !Implementation->AudioGraphPanel.RequestClose() || !Implementation->VfxGraphPanel.RequestClose() || !Implementation->StateTreePanel.RequestClose())
 	{
 		return false;
 	}
