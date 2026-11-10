@@ -411,10 +411,11 @@ void FEditorFramework::FImplementation::UpdatePlay(const float DeltaSeconds)
 		};
 
 		constexpr float Sensitivity = 0.0022f;
+		const FToolUIViewportPosition Look = ToolUI->GetCapturedMouseMotion();
 		Input = {
 		    .Move = {Axis(ImGuiKey_D, ImGuiKey_A), Axis(ImGuiKey_W, ImGuiKey_S)},
-		    .YawDelta = -IO.MouseDelta.x * Sensitivity,
-		    .PitchDelta = -IO.MouseDelta.y * Sensitivity,
+		    .YawDelta = -Look.X * Sensitivity,
+		    .PitchDelta = -Look.Y * Sensitivity,
 		    .bJump = bPlayJumpArmed && ImGui::IsKeyPressed(ImGuiKey_Space, false),
 		    .bSprint = IO.KeyShift,
 		    .bCrouch = ImGui::IsKeyDown(ImGuiKey_C) || IO.KeyCtrl,

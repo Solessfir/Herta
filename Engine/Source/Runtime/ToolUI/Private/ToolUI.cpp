@@ -420,6 +420,13 @@ struct FToolUIContext::FImplementation
 	ImGuiID DockspaceId = 0;
 	bool bViewportImmersive = false;
 	bool bFocusViewportRequested = false;
+	// A captured pointer's position is unbounded, and ImGui given it would find a click wherever it drifted, focusing another panel or none.
+	// ImGui sees it at the viewport's centre instead, and its motion collects here.
+	bool bCursorCaptured = false;
+	ImVec2 CapturedMousePosition{};
+	std::optional<std::array<double, 2>> CapturedCursor{};
+	FToolUIViewportPosition CapturedMotion{};
+	FToolUIViewportPosition CapturedFrameMotion{};
 	std::vector<std::filesystem::path> DroppedFiles;
 	FToolUICanvasBounds WorkspaceCanvas;
 	float CurrentStyleScale = 1.f;
@@ -1393,7 +1400,11 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 		{
 			ImGuiIO& Input = ImGui::GetIO();
 			const bool bCursorPositionValid = Data != nullptr ? Data->bCursorPositionValid : Owner.bMainCursorPositionValid;
-			if (bCursorPositionValid)
+			if (Owner.bCursorCaptured)
+			{
+				Input.AddMousePosEvent(Owner.CapturedMousePosition.x, Owner.CapturedMousePosition.y);
+			}
+			else if (bCursorPositionValid)
 			{
 				const double CursorX = Data != nullptr ? Data->CursorX : Owner.MainCursorX;
 				const double CursorY = Data != nullptr ? Data->CursorY : Owner.MainCursorY;
@@ -1420,6 +1431,19 @@ void SetViewportCallbacks(FToolUIContext::FImplementation& Owner, ImGuiViewport&
 			Owner.MainCursorX = X;
 			Owner.MainCursorY = Y;
 			Owner.bMainCursorPositionValid = true;
+		}
+
+		if (Owner.bCursorCaptured)
+		{
+			if (Owner.CapturedCursor)
+			{
+				Owner.CapturedMotion.X += static_cast<float>(X - (*Owner.CapturedCursor)[0]);
+				Owner.CapturedMotion.Y += static_cast<float>(Y - (*Owner.CapturedCursor)[1]);
+			}
+
+			Owner.CapturedCursor = std::array{X, Y};
+			ImGui::GetIO().AddMousePosEvent(Owner.CapturedMousePosition.x, Owner.CapturedMousePosition.y);
+			return;
 		}
 
 		const ImVec2 MousePosition = ResolveMousePosition(Owner, Viewport, Data, EventWindow, X, Y);
@@ -2132,7 +2156,8 @@ void FToolUIContext::BeginFrame()
 	Style.FontScaleDpi = MainDpiScale;
 	Implementation->CurrentStyleScale = MainDpiScale;
 	ImGui_ImplGlfw_NewFrame();
-	if (!Implementation->bProgrammaticWindowPosition)
+	Implementation->CapturedFrameMotion = std::exchange(Implementation->CapturedMotion, {});
+	if (!Implementation->bProgrammaticWindowPosition && !Implementation->bCursorCaptured)
 	{
 		ImGuiPlatformIO& Platform = ImGui::GetPlatformIO();
 		for (int ViewportIndex = 1; ViewportIndex < Platform.Viewports.Size; ++ViewportIndex)
@@ -2883,10 +2908,28 @@ bool FToolUIContext::OrderContentDockTabs()
 
 void FToolUIContext::SetCursorCaptured(const bool bCaptured)
 {
+	if (bCaptured && !Implementation->bCursorCaptured)
+	{
+		ImGui::SetCurrentContext(Implementation->Context);
+		const ImGuiID Id = Implementation->bViewportImmersive ? ImHashStr(ImmersiveViewportName) : ImHashStr("Viewport");
+		const ImGuiWindow* const Panel = ImGui::FindWindowByID(Id);
+		Implementation->CapturedMousePosition = Panel ? ImVec2{Panel->Pos.x + Panel->Size.x * 0.5f, Panel->Pos.y + Panel->Size.y * 0.5f} : ImGui::GetIO().MousePos;
+		Implementation->CapturedCursor.reset();
+		Implementation->CapturedMotion = {};
+		Implementation->CapturedFrameMotion = {};
+		ImGui::GetIO().AddMousePosEvent(Implementation->CapturedMousePosition.x, Implementation->CapturedMousePosition.y);
+	}
+
+	Implementation->bCursorCaptured = bCaptured;
 	if (Implementation->Window)
 	{
 		Implementation->Window->SetCursorCaptured(bCaptured);
 	}
+}
+
+FToolUIViewportPosition FToolUIContext::GetCapturedMouseMotion() const noexcept
+{
+	return Implementation->bCursorCaptured ? Implementation->CapturedFrameMotion : FToolUIViewportPosition{};
 }
 
 void FToolUIContext::SetViewportImmersive(const bool bImmersive) noexcept

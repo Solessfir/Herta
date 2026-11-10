@@ -192,8 +192,11 @@ public:
 	[[nodiscard]] std::size_t GetPlatformWindowCount() const noexcept;
 	// The main window in the screen coordinates FloatPanel takes.
 	[[nodiscard]] FToolUICanvasBounds GetMainWindowBounds() const noexcept;
-	// Hides the pointer and reports relative motion through ImGui mouse deltas, for play in the viewport.
+	// Hides the pointer for play in the viewport. While captured, ImGui sees the pointer resting at the viewport's centre, so clicks always land
+	// on the viewport, and its motion is GetCapturedMouseMotion.
 	void SetCursorCaptured(bool bCaptured);
+	// How far the captured pointer moved over the last frame, in pixels.
+	[[nodiscard]] FToolUIViewportPosition GetCapturedMouseMotion() const noexcept;
 	bool IsPanelFocused(std::string_view Name) const noexcept;
 	bool IsPanelHovered(std::string_view Name) const noexcept;
 	// True while an asset editor tab is in front, hiding the level panels.
