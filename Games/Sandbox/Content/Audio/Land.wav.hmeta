@@ -1,0 +1,5 @@
+Format = HertaAssetMetadata
+Version = 1
+Id = 4a0d0009-5a17-4c0e-9d2b-0000051a0009
+Importer = Sound
+Setting.MaximumDistance = 25

@@ -208,8 +208,9 @@ void FAudioEngine::FImplementation::StreamLoop()
 		const bool bBusy = Mixer->ServiceStreams();
 		Lock.lock();
 
-		// A busy stream refills every few milliseconds, well inside the ring's second of audio; an idle thread waits for the next stream.
-		StreamWake.wait_for(Lock, bBusy ? std::chrono::milliseconds(4) : std::chrono::milliseconds(100), [this]
+		// A busy stream refills every few milliseconds, well inside the ring's second of audio. An idle thread still looks often, because the
+		// mixer claims a stream's slot a block after the play that wakes it.
+		StreamWake.wait_for(Lock, bBusy ? std::chrono::milliseconds(4) : std::chrono::milliseconds(10), [this]
 		{
 			return !bStreaming;
 		});

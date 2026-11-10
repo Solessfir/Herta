@@ -493,6 +493,10 @@ int RunGame(const FGameOptions& Options)
 		{
 			HERTA_LOG_WARNING(*Log, GameLog, "Audio plays through the null path: {}", AudioDevice.DeviceError);
 		}
+		else
+		{
+			HERTA_LOG_INFO(*Log, GameLog, "Audio plays on {} at {} Hz", AudioDevice.Device, AudioDevice.SampleRate);
+		}
 
 		if (auto Added = AddStagedSounds(*Audio, Content, Session->GetSounds()); !Added)
 		{

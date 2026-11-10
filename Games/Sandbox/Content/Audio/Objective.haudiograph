@@ -1,0 +1,29 @@
+{
+  "format": "HertaGraph",
+  "version": 2,
+  "domain": "audio",
+  "domainVersion": 1,
+  "nodes": [
+    {"id": 1, "type": "FloatInput", "position": [-1000, 200], "properties": {"name": "Finished", "default": 0}},
+    {"id": 2, "type": "WavePlayer", "position": [-700, 0], "properties": {"waves": "Audio/Run_Start.wav", "loop": false, "pitchVariation": 0, "gainVariation": 0}},
+    {"id": 3, "type": "MapRange", "position": [-700, 200], "properties": {"inMin": 0, "inMax": 1, "outMin": 1, "outMax": 0}},
+    {"id": 4, "type": "Gain", "position": [-400, 0], "properties": {"gain": 1}},
+    {"id": 5, "type": "WavePlayer", "position": [-700, 420], "properties": {"waves": "Audio/Run_Finish.wav", "loop": false, "pitchVariation": 0, "gainVariation": 0}},
+    {"id": 6, "type": "MapRange", "position": [-700, 620], "properties": {"inMin": 0, "inMax": 1, "outMin": 0, "outMax": 1}},
+    {"id": 7, "type": "Gain", "position": [-400, 420], "properties": {"gain": 1}},
+    {"id": 8, "type": "Mixer", "position": [-100, 200], "properties": {}},
+    {"id": 9, "type": "Output", "position": [200, 200], "properties": {}}
+  ],
+  "links": [
+    {"from": [1, "Value"], "to": [3, "Value"]},
+    {"from": [2, "Out"], "to": [4, "In"]},
+    {"from": [3, "Result"], "to": [4, "Gain"]},
+    {"from": [1, "Value"], "to": [6, "Value"]},
+    {"from": [5, "Out"], "to": [7, "In"]},
+    {"from": [6, "Result"], "to": [7, "Gain"]},
+    {"from": [4, "Out"], "to": [8, "In1"]},
+    {"from": [7, "Out"], "to": [8, "In2"]},
+    {"from": [8, "Out"], "to": [9, "In"]}
+  ],
+  "comments": []
+}

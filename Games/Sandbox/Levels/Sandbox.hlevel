@@ -7,15 +7,15 @@
   "exposureCompensation": 0,
   "playerCharacter": "c7b6f115-ec90-463e-a72f-9407cd6851e6",
   "sounds": {
-    "footstep": null,
-    "land": null,
-    "jump": null,
-    "slide": null,
-    "impact": null,
-    "swing": null,
-    "slice": null,
-    "sever": null,
-    "objective": null
+    "footstep": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+    "land": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+    "jump": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+    "slide": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+    "impact": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+    "swing": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+    "slice": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+    "sever": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+    "objective": "4a0d0017-5a17-4c0e-9d2b-0000051a0017"
   },
   "entities": [
     {
@@ -783,6 +783,27 @@
       }
     },
     {
+      "id": "4c060001-2738-4e25-9b9e-000000000070",
+      "name": "Wind ambience",
+      "parent": null,
+      "transform": {
+        "translation": [0, 6, 9],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "audioEmitter": {
+          "sound": "4a0d0013-5a17-4c0e-9d2b-0000051a0013",
+          "volume": 0.35,
+          "pitch": 1,
+          "autoPlay": true,
+          "spatial": false,
+          "minimumDistance": 1,
+          "maximumDistance": 30
+        }
+      }
+    },
+    {
       "id": "4c060005-2738-4e25-9b9e-000000000001",
       "name": "Course start",
       "parent": null,
@@ -1175,6 +1196,15 @@
         "mover": {
           "offset": [0, 0, 6],
           "periodSeconds": 6
+        },
+        "audioEmitter": {
+          "sound": "4a0d0012-5a17-4c0e-9d2b-0000051a0012",
+          "volume": 0.6,
+          "pitch": 1,
+          "autoPlay": true,
+          "spatial": true,
+          "minimumDistance": 1.5,
+          "maximumDistance": 16
         }
       }
     },
@@ -1241,6 +1271,15 @@
         "mover": {
           "offset": [0, 2.5, 0],
           "periodSeconds": 5
+        },
+        "audioEmitter": {
+          "sound": "4a0d0012-5a17-4c0e-9d2b-0000051a0012",
+          "volume": 0.6,
+          "pitch": 0.8,
+          "autoPlay": true,
+          "spatial": true,
+          "minimumDistance": 1.5,
+          "maximumDistance": 16
         }
       }
     },
@@ -1385,9 +1424,9 @@
     },
     {
       "id": "4c060046-2738-4e25-9b9e-000000000003",
-      "name": "01 - Sun, sky, and fog",
+      "name": "01 - Sun, sky, fog, and wind",
       "parent": null,
-      "entities": ["4c060045-2738-4e25-9b9e-00000000002e", "4c060045-2738-4e25-9b9e-00000000002f", "4c060045-2738-4e25-9b9e-000000000030", "4c060045-2738-4e25-9b9e-000000000031"]
+      "entities": ["4c060001-2738-4e25-9b9e-000000000070", "4c060045-2738-4e25-9b9e-00000000002e", "4c060045-2738-4e25-9b9e-00000000002f", "4c060045-2738-4e25-9b9e-000000000030", "4c060045-2738-4e25-9b9e-000000000031"]
     },
     {
       "id": "4c060046-2738-4e25-9b9e-000000000007",

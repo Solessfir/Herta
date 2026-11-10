@@ -1,5 +1,7 @@
 #include "Herta/AssetPipeline/AssetCommands.h"
 #include "Herta/AnimationGraph/AnimationGraph.h"
+#include "Herta/AssetPipeline/AssetMetadata.h"
+#include "Herta/AudioGraph/AudioGraph.h"
 
 #include "FileUtilities.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
@@ -367,6 +369,72 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 
 			const FAnimationStateMachineDesc& Machine = Compiled->StateMachine;
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Compiled {}: {} parameters, {} states, {} transitions, starting in {}", Arguments[0], Machine.Parameters.size(), Machine.States.size(), Machine.Transitions.size(), Machine.States[Machine.Entry].Name)};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "audio.compile",
+		    .Description = "Compile an Audio Graph to check it, listing its inputs and waves or what stops it compiling",
+		    .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			if (Arguments.size() != 1 || !Arguments[0].ends_with(AudioGraphExtension))
+			{
+				return UsageError("audio.compile <graph.haudiograph>");
+			}
+
+			const std::filesystem::path Path = Utf8ToPath(Arguments[0]);
+			const auto Bytes = ReadWholeFile(Path, 64 * 1024 * 1024);
+			if (!Bytes || !*Bytes)
+			{
+				return ExecutionError(Bytes ? FAssetError{std::format("{} does not exist", Arguments[0])} : Bytes.error());
+			}
+
+			const auto Graph = DeserializeGraph(std::string_view(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size()), GetAudioGraphSchema());
+			if (!Graph)
+			{
+				return ExecutionError(FAssetError{Graph.error().Message});
+			}
+
+			// Waves are content paths; outside a project the content root is whichever folder above the graph holds them.
+			const auto Resolve = [&Path](const std::string_view Wave) -> std::optional<FAssetId>
+			{
+				for (std::filesystem::path Root = std::filesystem::absolute(Path).parent_path(); !Root.empty(); Root = Root.parent_path())
+				{
+					if (auto Metadata = LoadAssetMetadata(Root / Utf8ToPath(Wave)); Metadata && Metadata->Importer == "Sound")
+					{
+						return Metadata->Id;
+					}
+
+					if (Root == Root.parent_path())
+					{
+						break;
+					}
+				}
+
+				return std::nullopt;
+			};
+
+			const auto Compiled = CompileAudioGraph(*Graph, Resolve);
+			if (!Compiled)
+			{
+				std::string Message = std::format("{} does not compile", Arguments[0]);
+				for (const FGraphDiagnostic& Diagnostic : Compiled.error())
+				{
+					Message += std::format("\nnode {}: {}", Diagnostic.Node.Value, Diagnostic.Message);
+				}
+
+				return ExecutionError(FAssetError{std::move(Message)});
+			}
+
+			std::string Inputs;
+			for (const FSoundParameterDesc& Parameter : Compiled->Graph.Parameters)
+			{
+				Inputs += (Inputs.empty() ? "" : ", ") + Parameter.Name;
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Compiled {}: {} nodes, {} waves, inputs: {}", Arguments[0], Compiled->Graph.Nodes.size(), GetSoundGraphWaves(Compiled->Graph).size(), Inputs.empty() ? "none" : Inputs)};
 		}});
 	}
 

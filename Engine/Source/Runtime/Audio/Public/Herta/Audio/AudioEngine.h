@@ -68,6 +68,7 @@ struct FAudioStats
 	std::uint64_t VoicesRejected = 0;
 	// Plays of sounds that were never added, or graphs whose waves are missing.
 	std::uint64_t MissingSounds = 0;
+	// Frames a playing stream had to skip because the streaming thread fell behind; opening a stream is not counted.
 	std::uint64_t StreamStarvedFrames = 0;
 	std::uint64_t CommandsSubmitted = 0;
 	// Commands that found the queue to the mixer full; a nonzero count means gameplay issues more than a block can take.

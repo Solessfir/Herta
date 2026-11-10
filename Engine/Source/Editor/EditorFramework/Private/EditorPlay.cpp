@@ -751,7 +751,29 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 		Output += std::format(", \"characters\": {}, \"cuts\": {}, \"cutPieces\": {}", PlaySession->GetCharacterCount(), PlaySession->GetCutCount(), PlaySession->GetCutPieceCount());
 	}
 
+	if (Audio)
+	{
+		Output += ", \"audio\": " + DescribeAudio(Audio->GetStats());
+	}
+
 	return Output + "}";
+}
+
+std::string DescribeAudio(const FAudioStats& Stats)
+{
+	std::string Output = std::format("{{\"device\": ");
+	AppendJsonString(Output, Stats.Device);
+	Output += std::format(", \"null\": {}, \"sounds\": {}, \"voices\": {}, \"audibleVoices\": {}, \"streams\": {}, \"started\": {}, \"stolen\": {}, \"rejected\": {}, \"missing\": {}, \"starvedFrames\": {}, \"commands\": {}, \"dropped\": {}",
+	    Stats.bNullDevice ? "true" : "false", Stats.Sounds, Stats.Voices, Stats.AudibleVoices, Stats.Streams, Stats.VoicesStarted, Stats.VoicesStolen, Stats.VoicesRejected, Stats.MissingSounds, Stats.StreamStarvedFrames, Stats.CommandsSubmitted, Stats.CommandsDropped);
+	Output += std::format(", \"blockMicroseconds\": {:.1f}, \"blockPeakMicroseconds\": {:.1f}, \"blockBudgetMicroseconds\": {:.1f}, \"buses\": {{", Stats.BlockMicrosecondsAverage, Stats.BlockMicrosecondsPeak, Stats.BlockBudgetMicroseconds);
+	for (std::size_t Bus = 0; Bus < Stats.Buses.size(); ++Bus)
+	{
+		Output += Bus == 0 ? "" : ", ";
+		AppendJsonString(Output, Stats.Buses[Bus].Name);
+		Output += std::format(": {{\"volume\": {:.3f}, \"peak\": {:.4f}}}", Stats.Buses[Bus].Volume, Stats.Buses[Bus].Peak);
+	}
+
+	return Output + "}}";
 }
 
 bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutomationRequest& Request)

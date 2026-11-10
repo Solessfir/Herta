@@ -1,0 +1,7 @@
+Format = HertaAssetMetadata
+Version = 1
+Id = 4a0d0015-5a17-4c0e-9d2b-0000051a0015
+Importer = AudioGraph
+Setting.Concurrency = StealQuietest
+Setting.MaximumDistance = 60
+Setting.MaximumInstances = 12

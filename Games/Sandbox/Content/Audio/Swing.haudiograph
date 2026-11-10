@@ -1,0 +1,14 @@
+{
+  "format": "HertaGraph",
+  "version": 2,
+  "domain": "audio",
+  "domainVersion": 1,
+  "nodes": [
+    {"id": 1, "type": "WavePlayer", "position": [-300, 0], "properties": {"waves": "Audio/Swing_1.wav, Audio/Swing_2.wav", "loop": false, "pitchVariation": 0.1, "gainVariation": 0.1}},
+    {"id": 2, "type": "Output", "position": [0, 0], "properties": {}}
+  ],
+  "links": [
+    {"from": [1, "Out"], "to": [2, "In"]}
+  ],
+  "comments": []
+}

@@ -474,9 +474,9 @@ void FMixer::RenderPlayer(FVoice& Voice, const FSoundNodeDesc& Node, const std::
 	if (Wave.Stream)
 	{
 		FStreamSlot& Slot = Streams[static_cast<std::size_t>(Player.Stream)];
+		// Until the streaming thread opens the file the player waits silently; that startup is not starvation.
 		if (Slot.State.load(std::memory_order_acquire) != EStreamState::Ready)
 		{
-			StarvedFrames.fetch_add(AudioBlockFrames, std::memory_order_relaxed);
 			return;
 		}
 

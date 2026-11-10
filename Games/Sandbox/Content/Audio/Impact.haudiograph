@@ -1,0 +1,30 @@
+{
+  "format": "HertaGraph",
+  "version": 2,
+  "domain": "audio",
+  "domainVersion": 1,
+  "nodes": [
+    {"id": 1, "type": "FloatInput", "position": [-1000, 260], "properties": {"name": "Impulse", "default": 0}},
+    {"id": 2, "type": "WavePlayer", "position": [-700, 0], "properties": {"waves": "Audio/Impact_1.wav, Audio/Impact_2.wav, Audio/Impact_3.wav, Audio/Impact_4.wav", "loop": false, "pitchVariation": 0.04, "gainVariation": 0.1}},
+    {"id": 3, "type": "MapRange", "position": [-700, 200], "properties": {"inMin": 1.5, "inMax": 40, "outMin": 1.2, "outMax": 0.85}},
+    {"id": 4, "type": "Pitch", "position": [-400, 0], "properties": {"pitch": 1}},
+    {"id": 5, "type": "MapRange", "position": [-700, 420], "properties": {"inMin": 1.5, "inMax": 40, "outMin": 2500, "outMax": 14000}},
+    {"id": 6, "type": "LowPass", "position": [-100, 0], "properties": {"cutoff": 8000}},
+    {"id": 7, "type": "MapRange", "position": [-700, 640], "properties": {"inMin": 1.5, "inMax": 40, "outMin": 0.15, "outMax": 1}},
+    {"id": 8, "type": "Gain", "position": [200, 0], "properties": {"gain": 1}},
+    {"id": 9, "type": "Output", "position": [500, 0], "properties": {}}
+  ],
+  "links": [
+    {"from": [1, "Value"], "to": [3, "Value"]},
+    {"from": [2, "Out"], "to": [4, "In"]},
+    {"from": [3, "Result"], "to": [4, "Pitch"]},
+    {"from": [1, "Value"], "to": [5, "Value"]},
+    {"from": [4, "Out"], "to": [6, "In"]},
+    {"from": [5, "Result"], "to": [6, "Cutoff"]},
+    {"from": [1, "Value"], "to": [7, "Value"]},
+    {"from": [6, "Out"], "to": [8, "In"]},
+    {"from": [7, "Result"], "to": [8, "Gain"]},
+    {"from": [8, "Out"], "to": [9, "In"]}
+  ],
+  "comments": []
+}

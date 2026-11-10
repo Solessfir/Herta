@@ -224,6 +224,9 @@ inline float DrawKeycap(const std::string_view Key, const bool bDraw = true)
 }
 
 // Labels a compact settings row on the left, with an optional shortcut keycap, and right-aligns the next item.
+// The audio engine's statistics as JSON, for play_state and diagnostics.
+[[nodiscard]] std::string DescribeAudio(const FAudioStats& Stats);
+
 inline void DrawFieldLabel(const char* const Label, const float ValueWidth, const char* const Shortcut = nullptr)
 {
 	ImGui::AlignTextToFramePadding();
