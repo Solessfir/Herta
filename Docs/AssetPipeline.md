@@ -50,7 +50,7 @@ Setting.ColorSpace = Linear
 
 Importers are selected by extension: `.gltf` and `.glb` use `Gltf`; `.png`, `.jpg`, `.jpeg`, and `.hdr` use `Texture`; `.hmat` uses `Material`; `.blend` uses `Blender`.
 
-The `Gltf` and `Blender` importers take one optional setting, `AnimationGraph`, a `.hanimgraph` path relative to the model that stays inside the content root. Cooking compiles that [animation graph](Animation.md#animation-graph) into the skinned model's state machine, and the graph's bytes are part of the model's build key, so saving the graph recooks the character. A graph that does not compile fails the model's cook with the graph's diagnostics. Cooked asset format 4 added the state machine.
+The `Gltf` and `Blender` importers take two optional settings. `SeverableJoints` lists, comma separated, the non-root skeleton joints whose limbs hard hits can cut off; cooking checks them against the skeleton. `AnimationGraph` is a `.hanimgraph` path relative to the model that stays inside the content root. Cooking compiles that [animation graph](Animation.md#animation-graph) into the skinned model's state machine, and the graph's bytes are part of the model's build key, so saving the graph recooks the character. A graph that does not compile fails the model's cook with the graph's diagnostics. Cooked asset format 4 added the state machine and format 5 the severable joints.
 
 ## Registry
 

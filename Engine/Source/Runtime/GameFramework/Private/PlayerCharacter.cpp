@@ -48,6 +48,7 @@ enum ELocomotionState : std::size_t
 	AttackB,
 	AttackBRecover,
 	Block,
+	DashAttack,
 };
 
 [[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
@@ -144,6 +145,8 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Attack B", .Samples = {{.Clip = "Sword_Regular_B"}}, .bLoop = false, .Events = {{.Name = "SwingStart", .Phase = 0.05f}, {.Name = "SwingEnd", .Phase = 0.95f}}},
 	        {.Name = "Attack B recover", .Samples = {{.Clip = "Sword_Regular_B_Rec"}}, .bLoop = false},
 	        {.Name = "Block", .Samples = {{.Clip = "Sword_Block"}}, .bLoop = false},
+	        // Attacking at a sprint lunges into a dash slash; the mover keeps the sprint's speed, so the clip plays in place.
+	        {.Name = "Dash attack", .Samples = {{.Clip = "Sword_Dash_RM"}}, .bLoop = false, .Speed = 1.3f, .Events = {{.Name = "SwingStart", .Phase = 0.25f}, {.Name = "SwingEnd", .Phase = 0.7f}}},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
@@ -186,6 +189,9 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = Air, .To = Land, .DurationSeconds = 0.08f, .Conditions = {Is(Grounded, true)}},
 	        {.From = Land, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
 	        {.From = Land, .To = Locomotion, .DurationSeconds = 0.25f, .Conditions = {{.Parameter = Speed, .Test = EAnimationCondition::Greater, .Value = 2.f}}},
+	        {.From = Locomotion, .To = DashAttack, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack), {.Parameter = Speed, .Test = EAnimationCondition::Greater, .Value = 5.5f}}},
+	        {.From = DashAttack, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
+	        {.From = DashAttack, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
 	        {.From = Locomotion, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
 	        {.From = Land, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
 	        {.From = Locomotion, .To = Block, .DurationSeconds = 0.1f, .Conditions = {Is(Blocking, true)}},
@@ -738,7 +744,15 @@ std::optional<std::size_t> FPlayerCharacter::FindSeverableJoint(const FVector3& 
 	// The cut lies where the limb meets its parent, so a hit is measured to the joint the limb hangs from.
 	std::optional<std::size_t> Best;
 	float BestDistance = Reach;
-	for (const std::string_view Name : {"neck_01", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "thigh_l", "thigh_r", "calf_l", "calf_r"})
+	// The model names its severable joints; without them, the Unreal-style rig's neck, shoulders, elbows, hips, and knees.
+	static constexpr std::array<std::string_view, 9> DefaultJoints{"neck_01", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "thigh_l", "thigh_r", "calf_l", "calf_r"};
+	std::vector<std::string_view> Names(DefaultJoints.begin(), DefaultJoints.end());
+	if (!Model->SeverableJoints.empty())
+	{
+		Names.assign(Model->SeverableJoints.begin(), Model->SeverableJoints.end());
+	}
+
+	for (const std::string_view Name : Names)
 	{
 		const auto Joint = FindJoint(Name);
 		if (!Joint || !Carries(*Joint))

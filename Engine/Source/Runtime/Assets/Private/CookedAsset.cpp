@@ -168,6 +168,12 @@ void WriteSkeletalData(FBinaryWriter& Writer, const FCookedModel& Model)
 		WriteBlob(Writer, Clip.RootMotion);
 	}
 
+	Writer.Write(static_cast<std::uint32_t>(Model.SeverableJoints.size()));
+	for (const std::string& Joint : Model.SeverableJoints)
+	{
+		Writer.WriteString(Joint);
+	}
+
 	Writer.Write(static_cast<std::uint8_t>(Model.StateMachine ? 1 : 0));
 	if (!Model.StateMachine)
 	{
@@ -380,6 +386,12 @@ void ReadSkeletalData(FBinaryReader& Reader, FCookedModel& Model)
 		Clip.RootMotion = ReadBlob(Reader, Budget);
 	}
 
+	Model.SeverableJoints.resize(ReadCount(Reader, MaximumCookedJoints));
+	for (std::string& Joint : Model.SeverableJoints)
+	{
+		Joint = Reader.ReadString(MaximumNameLength);
+	}
+
 	ReadStateMachine(Reader, Model);
 }
 }
@@ -544,7 +556,7 @@ std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& 
 {
 	if (!Model.Skeleton)
 	{
-		if (!Model.Influences.empty() || !Model.Clips.empty() || Model.StateMachine)
+		if (!Model.Influences.empty() || !Model.Clips.empty() || Model.StateMachine || !Model.SeverableJoints.empty())
 		{
 			return Invalid("Cooked skin influences, clips, and state machines require a skeleton");
 		}
@@ -613,6 +625,14 @@ std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& 
 		{
 			return Invalid(std::format("Cooked animation clip name '{}' is not unique", Clip.Name));
 		}
+	}
+
+	if (!std::ranges::all_of(Model.SeverableJoints, [&Model](const std::string& Joint)
+	{
+		return std::ranges::contains(Model.Skeleton->JointNames, Joint);
+	}))
+	{
+		return Invalid("Cooked severable joints must name joints of the skeleton");
 	}
 
 	if (!Model.StateMachine)

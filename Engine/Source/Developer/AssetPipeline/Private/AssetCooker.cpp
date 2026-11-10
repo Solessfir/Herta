@@ -27,15 +27,20 @@ inline constexpr std::uint64_t MaximumSourceFileSize = std::uint64_t{1} << 30;
 // A model's metadata may name an animation graph beside it, which cooks into the model's state machine. Returns its content path.
 [[nodiscard]] std::expected<std::optional<std::string>, FAssetError> FindModelAnimationGraph(const std::string& SourcePath, const FAssetImportSettings& Settings, const std::string_view Importer)
 {
-	if (Settings.empty())
+	const bool bKnown = std::ranges::all_of(Settings, [](const auto& Setting)
 	{
-		return std::nullopt;
+		return Setting.first == "AnimationGraph" || Setting.first == "SeverableJoints";
+	});
+
+	if (!bKnown)
+	{
+		return std::unexpected(FAssetError{std::format("The {} importer's settings are AnimationGraph and SeverableJoints", Importer)});
 	}
 
 	const auto Graph = Settings.find("AnimationGraph");
-	if (Settings.size() != 1 || Graph == Settings.end())
+	if (Graph == Settings.end())
 	{
-		return std::unexpected(FAssetError{std::format("The {} importer's only setting is AnimationGraph", Importer)});
+		return std::nullopt;
 	}
 
 	std::string Resolved = (Utf8ToPath(SourcePath).parent_path() / Utf8ToPath(Graph->second)).lexically_normal().generic_string();
@@ -847,6 +852,42 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 		if (auto Compiled = CookModelAnimationGraph(Request.ContentRoot, *AnimationGraph, std::get<FCookedModel>(*Cooked)); !Compiled)
 		{
 			return std::unexpected(std::move(Compiled.error()));
+		}
+	}
+
+	// Severable joints are named in the metadata, comma separated, and must be non-root joints of the model's skeleton.
+	if (const auto Severable = Metadata->Settings.find("SeverableJoints"); Severable != Metadata->Settings.end())
+	{
+		FCookedModel* const Model = std::get_if<FCookedModel>(&*Cooked);
+		if (!Model || !Model->Skeleton)
+		{
+			return std::unexpected(FAssetError{"Only skinned models can have severable joints"});
+		}
+
+		std::string_view List = Severable->second;
+		while (!List.empty())
+		{
+			const std::size_t Comma = std::min(List.find(','), List.size());
+			std::string_view Name = List.substr(0, Comma);
+			List.remove_prefix(std::min(Comma + 1, List.size()));
+			while (!Name.empty() && Name.front() == ' ')
+			{
+				Name.remove_prefix(1);
+			}
+
+			while (!Name.empty() && Name.back() == ' ')
+			{
+				Name.remove_suffix(1);
+			}
+
+			const auto& Names = Model->Skeleton->JointNames;
+			const auto Found = std::ranges::find(Names, Name);
+			if (Name.empty() || Found == Names.end() || Model->Skeleton->JointParents[static_cast<std::size_t>(Found - Names.begin())] < 0)
+			{
+				return std::unexpected(FAssetError{std::format("Severable joint '{}' is not a non-root joint of the skeleton", Name)});
+			}
+
+			Model->SeverableJoints.emplace_back(Name);
 		}
 	}
 

@@ -93,9 +93,9 @@ TEST_CASE("A model whose metadata names an animation graph cooks its state machi
 	std::filesystem::create_directories(Content / "Characters");
 	std::filesystem::copy_file(Source, Content / "Characters/Mannequin.glb");
 	std::filesystem::copy_file(Source.parent_path() / "Mannequin.hanimgraph", Content / "Characters/Mannequin.hanimgraph");
-	const auto Metadata = [&](const std::string_view Graph)
+	const auto Metadata = [&](const std::string_view Graph, const std::string_view Severable = "neck_01, calf_l")
 	{
-		Tests::WriteText(Content / "Characters/Mannequin.glb.hmeta", std::format("Format = HertaAssetMetadata\nVersion = 1\nId = 00000000-0000-4000-8000-0000000000a2\nImporter = Gltf\nSetting.AnimationGraph = {}\n", Graph));
+		Tests::WriteText(Content / "Characters/Mannequin.glb.hmeta", std::format("Format = HertaAssetMetadata\nVersion = 1\nId = 00000000-0000-4000-8000-0000000000a2\nImporter = Gltf\nSetting.AnimationGraph = {}\nSetting.SeverableJoints = {}\n", Graph, Severable));
 	};
 
 	const FAssetCookRequest Request{.ContentRoot = Content, .DerivedDataRoot = Scratch.GetPath() / "DerivedDataCache", .SourcePath = "Characters/Mannequin.glb", .TargetPlatform = "TestPlatform", .bForce = false};
@@ -111,6 +111,7 @@ TEST_CASE("A model whose metadata names an animation graph cooks its state machi
 	const auto Machine = FAnimationStateMachine::Create(*Model.StateMachine, **Library);
 	REQUIRE_MESSAGE(Machine, (Machine ? std::string() : Machine.error().Message));
 	CHECK(Machine->FindParameter("Speed"));
+	CHECK(Model.SeverableJoints == std::vector<std::string>{"neck_01", "calf_l"});
 
 	// Editing the graph changes the model's build key, so the editor's live reimport recooks the character.
 	std::ofstream(Content / "Characters/Mannequin.hanimgraph", std::ios::app) << '\n';
@@ -118,6 +119,10 @@ TEST_CASE("A model whose metadata names an animation graph cooks its state machi
 	REQUIRE(Edited);
 	CHECK_FALSE(Edited->Key == Cooked->Key);
 
+	Metadata("Mannequin.hanimgraph", "neck_01, tail_01");
+	CHECK_FALSE(CookAsset(Request));
+	Metadata("Mannequin.hanimgraph", "root");
+	CHECK_FALSE(CookAsset(Request));
 	Metadata("../Elsewhere.hanimgraph");
 	CHECK_FALSE(CookAsset(Request));
 	Metadata("Missing.hanimgraph");
@@ -193,6 +198,49 @@ TEST_CASE("The Mannequin slices at any angle through a pose into halves that clo
 		}
 
 		MESSAGE(std::format("{} vertices sliced in {:.2f} ms into {} loops; open edges {} before, {} after", Mesh.Vertices.size(), Milliseconds, Sliced->CapLoops, Original, HalvesOpen));
+		CHECK(HalvesOpen <= Original);
+	}
+
+	// Severing splits where skin weights pass from a limb to its parent; those caps must close every cut too.
+	const auto Parents = (*Library)->GetJointParents();
+	for (const std::string_view Name : {"neck_01", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "thigh_l", "thigh_r", "calf_l", "calf_r"})
+	{
+		const auto Joint = static_cast<std::size_t>(std::ranges::find(Model.Skeleton->JointNames, Name) - Model.Skeleton->JointNames.begin());
+		std::vector<bool> Limb(Parents.size(), false);
+		Limb[Joint] = true;
+		for (std::size_t Index = Joint + 1; Index < Parents.size(); ++Index)
+		{
+			Limb[Index] = Parents[Index] >= 0 && Limb[static_cast<std::size_t>(Parents[Index])];
+		}
+
+		std::vector<float> Sides(Mesh.Vertices.size());
+		for (std::size_t Vertex = 0; Vertex < Sides.size(); ++Vertex)
+		{
+			float Weight = 0.f;
+			for (std::size_t Slot = 0; Slot < 4; ++Slot)
+			{
+				Weight += Limb[Mesh.Influences[Vertex].Joints[Slot]] ? static_cast<float>(Mesh.Influences[Vertex].Weights[Slot]) : 0.f;
+			}
+
+			Sides[Vertex] = Weight / static_cast<float>(CookedSkinWeightTotal) - 0.5f;
+		}
+
+		const FVector3 At = JointPosition(Name);
+		const FVector3 Bone = (At - Pose.GetModelTransforms()[static_cast<std::size_t>(Parents[Joint])].TransformPosition({})).Normalized();
+		const auto Start = std::chrono::steady_clock::now();
+		const auto Split = SplitSkinnedMesh(Mesh, Posed, Pose.GetSkinningMatrices(), Sides, {.Normal = Bone, .Distance = Bone.Dot(At)}, 0);
+		const double Milliseconds = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - Start).count();
+		REQUIRE(Split);
+		std::size_t HalvesOpen = 0;
+		for (const FSkinnedMeshPiece* Half : {&Split->Back, &Split->Front})
+		{
+			std::vector<FCookedVertex> HalfPosed(Half->Vertices.size());
+			SkinVertices(Pose.GetSkinningMatrices(), Half->Vertices, Half->Influences, HalfPosed);
+			HalvesOpen += OpenEdges(*Half, HalfPosed);
+		}
+
+		MESSAGE(std::format("{} severed in {:.2f} ms into {} loops; open edges {} after", Name, Milliseconds, Split->CapLoops, HalvesOpen));
+		CHECK(Split->CapLoops > 0);
 		CHECK(HalvesOpen <= Original);
 	}
 }
@@ -616,6 +664,20 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 	REQUIRE(Severed);
 	CHECK_FALSE(*Severed);
 
+	// Every severable joint cuts off its limb on a whole body.
+	for (const std::string_view Joint : {"neck_01", "upperarm_l", "upperarm_r", "lowerarm_l", "lowerarm_r", "thigh_l", "thigh_r", "calf_l", "calf_r"})
+	{
+		REQUIRE((*Session)->Restart());
+		Step({}, 5);
+		const auto Each = (*Session)->SeverCharacter(0, Joint);
+		REQUIRE(Each);
+		CHECK_MESSAGE(*Each, Joint);
+	}
+
+	REQUIRE((*Session)->Restart());
+	Step({}, 5);
+	REQUIRE((*Session)->SeverCharacter(0, "upperarm_l"));
+	REQUIRE((*Session)->SeverCharacter(0, "calf_l"));
 	// A cut through the waist takes the chest, which kills the dummy: the cut-off half falls, and what is left collapses as a ragdoll, so nothing
 	// stands to cut again.
 	auto Cut = (*Session)->SliceCharacter(0, {0.f, 0.95f, 3.f}, FVector3{0.f, 1.f, 0.f});
@@ -695,6 +757,25 @@ TEST_CASE("The player's sword swings slice a training dummy along the blade's pl
 	MESSAGE(std::format("states {}cuts after the first swing {}, after the second {}", Visited, AfterFirst, (*Session)->GetCutCount()));
 	CHECK((*Session)->GetCutCount() >= 1);
 	CHECK((*Session)->GetCutPieceCount() >= 1);
+
+	// Attacking at a sprint lunges into the dash slash instead.
+	REQUIRE((*Session)->Restart());
+	States.clear();
+	Step({}, 60);
+	// Away from the dummy, which stands in front of the start.
+	Step({.YawDelta = std::numbers::pi_v<float>}, 1);
+	for (int Frame = 0; Frame < 60; ++Frame)
+	{
+		REQUIRE((*Session)->Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bSprint = true, .bAttack = Frame == 59}));
+	}
+
+	for (int Frame = 0; Frame < 10; ++Frame)
+	{
+		REQUIRE((*Session)->Update(1.f / 60.f, {.Move = {0.f, 1.f}, .bSprint = true}));
+		States.emplace_back((*Session)->GetCharacterStateName());
+	}
+
+	CHECK(std::ranges::contains(States, std::string("Dash attack")));
 }
 
 TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
