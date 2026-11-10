@@ -1,12 +1,15 @@
 #include "Herta/Replication/ReplicationProtocol.h"
 
 #include "Herta/Core/BinaryStream.h"
+#include "Herta/Core/Hash.h"
 
 #include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
 #include <format>
+#include <fstream>
+#include <iterator>
 #include <limits>
 #include <string_view>
 
@@ -363,6 +366,19 @@ void WriteDelta(FBinaryWriter& Writer, const std::span<const std::byte> State, c
 
 	return State;
 }
+}
+
+std::expected<std::uint64_t, FReplicationError> HashLevelFile(const std::filesystem::path& Path)
+{
+	std::ifstream File(Path, std::ios::binary);
+	if (!File)
+	{
+		return std::unexpected(FReplicationError{std::format("Cannot read {}", Path.generic_string())});
+	}
+
+	const std::vector<char> Bytes{std::istreambuf_iterator<char>(File), std::istreambuf_iterator<char>()};
+	const FHash128 Hash = HashBytes(std::as_bytes(std::span(Bytes)));
+	return Hash.Low ^ Hash.High;
 }
 
 std::optional<EReplicationMessage> PeekMessage(const std::span<const std::byte> Message) noexcept

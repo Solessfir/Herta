@@ -413,6 +413,19 @@ FCookedModel CreateTexturedCubeModel(FCookedTexture Texture)
 	return Model;
 }
 
+std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> FRenderMesh::CreateBoundsOnly(const FCookedModel& Model)
+{
+	if (const std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)
+	{
+		return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidDescriptor, .Message = Valid.error().Message});
+	}
+
+	auto Mesh = std::make_shared<FRenderMesh>();
+	Mesh->Materials = Model.Materials;
+	Mesh->UpdateBounds(Model.Vertices);
+	return Mesh;
+}
+
 std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> FRenderMesh::Create(IGraphicsDevice& Device, const FCookedModel& Model, const std::string_view Name)
 {
 	if (const std::expected<void, FAssetError> Valid = ValidateCookedModel(Model); !Valid)

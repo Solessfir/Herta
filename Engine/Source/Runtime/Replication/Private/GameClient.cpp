@@ -55,6 +55,28 @@ template <typename FReplica, typename FBlend>
 }
 }
 
+void FTickInput::Add(const FGameInput& Frame) noexcept
+{
+	Pending.Move = Frame.Move;
+	Pending.YawDelta += Frame.YawDelta;
+	Pending.PitchDelta += Frame.PitchDelta;
+	Pending.bSprint = Frame.bSprint;
+	Pending.bCrouch = Frame.bCrouch;
+	Pending.bBlock = Frame.bBlock;
+	Pending.bJump |= Frame.bJump;
+	Pending.bThrow |= Frame.bThrow;
+	Pending.bToggleCamera |= Frame.bToggleCamera;
+	Pending.bToggleRagdoll |= Frame.bToggleRagdoll;
+	Pending.bAttack |= Frame.bAttack;
+}
+
+FGameInput FTickInput::Take() noexcept
+{
+	const FGameInput Tick = Pending;
+	Pending = {.Move = Tick.Move, .bSprint = Tick.bSprint, .bCrouch = Tick.bCrouch, .bBlock = Tick.bBlock};
+	return Tick;
+}
+
 struct FGameClient::FImplementation
 {
 	struct FRemote

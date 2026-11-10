@@ -1,9 +1,13 @@
 #include "Herta/GameFramework/GameAssets.h"
 
+#include "Herta/Level/LevelSerialization.h"
+#include "Herta/Navigation/NavigationData.h"
+#include "Herta/Navigation/NavigationWorld.h"
 #include "Herta/Renderer/MeshRenderer.h"
 
 #include <algorithm>
 #include <format>
+#include <fstream>
 #include <iterator>
 #include <utility>
 
@@ -93,7 +97,7 @@ std::expected<FDecodedGameAssets, FAssetError> DecodeGameAssets(const FCookedCon
 	return Decoded;
 }
 
-std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets::Create(IGraphicsDevice& Device, const FCookedContent& Content, const std::span<const FLevelEntity> Entities)
+std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets::Create(IGraphicsDevice* const Device, const FCookedContent& Content, const std::span<const FLevelEntity> Entities)
 {
 	auto Decoded = DecodeGameAssets(Content, Entities);
 	if (!Decoded)
@@ -113,14 +117,14 @@ std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> FStagedGameAssets
 	return Assets;
 }
 
-std::expected<std::vector<FAssetId>, FAssetError> FStagedGameAssets::Add(IGraphicsDevice& Device, FDecodedGameAssets&& Decoded)
+std::expected<std::vector<FAssetId>, FAssetError> FStagedGameAssets::Add(IGraphicsDevice* const Device, FDecodedGameAssets&& Decoded)
 {
 	std::vector<FAssetId> Referenced;
 	for (auto& [Asset, Model] : Decoded.Models)
 	{
 		if (!Meshes.contains(Asset))
 		{
-			auto Mesh = FRenderMesh::Create(Device, Model.Model, Model.Label);
+			auto Mesh = Device ? FRenderMesh::Create(*Device, Model.Model, Model.Label) : FRenderMesh::CreateBoundsOnly(Model.Model);
 			if (!Mesh)
 			{
 				return std::unexpected(FAssetError{std::format("Cannot upload the mesh of {}: {}", Model.Label, Mesh.error().Message)});
@@ -136,20 +140,24 @@ std::expected<std::vector<FAssetId>, FAssetError> FStagedGameAssets::Add(IGraphi
 		Referenced.push_back(Asset);
 	}
 
-	for (auto& [Asset, Material] : Decoded.Materials)
+	// A headless session draws nothing, so it keeps no materials.
+	if (Device)
 	{
-		if (!Materials.contains(Asset))
+		for (auto& [Asset, Material] : Decoded.Materials)
 		{
-			auto Created = FRenderMaterial::Create(Device, Material.Material, Material.Textures, Material.Material.Name);
-			if (!Created)
+			if (!Materials.contains(Asset))
 			{
-				return std::unexpected(FAssetError{std::format("Cannot upload material {}: {}", Material.Material.Name, Created.error().Message)});
+				auto Created = FRenderMaterial::Create(*Device, Material.Material, Material.Textures, Material.Material.Name);
+				if (!Created)
+				{
+					return std::unexpected(FAssetError{std::format("Cannot upload material {}: {}", Material.Material.Name, Created.error().Message)});
+				}
+
+				Materials.emplace(Asset, std::move(*Created));
 			}
 
-			Materials.emplace(Asset, std::move(*Created));
+			Referenced.push_back(Asset);
 		}
-
-		Referenced.push_back(Asset);
 	}
 
 	for (auto& [Asset, Texture] : Decoded.Environments)
@@ -231,9 +239,9 @@ std::shared_ptr<const FCookedTexture> FStagedGameAssets::FindEnvironment(const F
 }
 
 // ponytail: a region uploads in one frame; spread uploads over frames if a large region hitches.
-FRegionLoader MakeStagedRegionLoader(std::filesystem::path LevelPath, const FCookedContent& Content, FStagedGameAssets& Assets, IGraphicsDevice& Device)
+FRegionLoader MakeStagedRegionLoader(std::filesystem::path LevelPath, const FCookedContent& Content, FStagedGameAssets& Assets, IGraphicsDevice* const Device)
 {
-	return [LevelPath = std::move(LevelPath), &Content, &Assets, &Device](const FLevelRegion& Region, const std::atomic<bool>& Cancel) -> std::expected<FLoadedRegion, FGameError>
+	return [LevelPath = std::move(LevelPath), &Content, &Assets, Device](const FLevelRegion& Region, const std::atomic<bool>& Cancel) -> std::expected<FLoadedRegion, FGameError>
 	{
 		auto Document = LoadLevel(ResolveLevelRegionPath(LevelPath, Region));
 		if (!Document)
@@ -259,7 +267,7 @@ FRegionLoader MakeStagedRegionLoader(std::filesystem::path LevelPath, const FCoo
 		auto Referenced = std::make_shared<std::vector<FAssetId>>();
 		return FLoadedRegion{
 		    .Document = std::move(*Document),
-		    .Prepare = [Pending, Referenced, &Assets, &Device]() -> std::expected<bool, FGameError>
+		    .Prepare = [Pending, Referenced, &Assets, Device]() -> std::expected<bool, FGameError>
 		{
 			auto Added = Assets.Add(Device, std::move(*Pending));
 			if (!Added)
@@ -276,5 +284,84 @@ FRegionLoader MakeStagedRegionLoader(std::filesystem::path LevelPath, const FCoo
 		},
 		};
 	};
+}
+
+std::expected<FStagedSession, FGameError> CreateStagedSession(const std::filesystem::path& LevelPath, const FLevelDocument& Level, const FCookedContent& Content, IGraphicsDevice* const Device, FTaskSystem* const Tasks)
+{
+	FStagedSession Staged;
+	auto Assets = FStagedGameAssets::Create(Device, Content, Level.Entities);
+	if (!Assets)
+	{
+		return std::unexpected(FGameError{std::format("Cannot load game content: {}", Assets.error().Message)});
+	}
+
+	Staged.Assets = std::move(*Assets);
+
+	// The level's character is optional: without one, or if it fails to load, the player is the bare capsule.
+	std::shared_ptr<const FCookedModel> Character;
+	if (Level.PlayerCharacter.IsValid())
+	{
+		auto Cooked = Content.Load(Level.PlayerCharacter);
+		if (Cooked && std::holds_alternative<FCookedModel>(*Cooked))
+		{
+			Character = std::make_shared<const FCookedModel>(std::move(std::get<FCookedModel>(*Cooked)));
+		}
+		else
+		{
+			Staged.Warnings.push_back(std::format("Cannot load the player character: {}", Cooked ? "the asset is not a model" : Cooked.error().Message));
+		}
+	}
+
+	auto Session = FGameSession::Create(Level.Entities, *Staged.Assets, Device, {}, Tasks, std::move(Character));
+	if (!Session)
+	{
+		return std::unexpected(Session.error());
+	}
+
+	Staged.Session = std::move(*Session);
+	FGameSession& Game = *Staged.Session;
+	Staged.Warnings.insert(Staged.Warnings.end(), Game.GetWarnings().begin(), Game.GetWarnings().end());
+	Game.SetLevelEffects(Level.Effects);
+	for (const FAssetId& System : Game.GetParticleSystems())
+	{
+		auto Cooked = Content.Load(System);
+		auto* const Particles = Cooked ? std::get_if<FCookedParticleSystem>(&*Cooked) : nullptr;
+		const auto Added = Particles ? Game.AddParticleSystem(System, std::make_shared<const FCookedParticleSystem>(std::move(*Particles))) : std::unexpected(FGameError{Cooked ? "the asset is not a particle system" : Cooked.error().Message});
+		if (!Added)
+		{
+			Staged.Warnings.push_back(std::format("Particle system {} will not play: {}", System.ToString(), Added.error().Message));
+		}
+	}
+
+	Game.SetLevelSounds(Level.Sounds);
+	Game.SetRegions(Level.Regions, MakeStagedRegionLoader(LevelPath, Content, *Staged.Assets, Device));
+
+	// Staging cooks the level's navigation beside it; a level without Navigation Bounds has none.
+	std::filesystem::path NavigationPath = LevelPath;
+	NavigationPath.replace_extension(NavigationDataExtension);
+	if (std::ifstream NavigationFile(NavigationPath, std::ios::binary); NavigationFile)
+	{
+		const std::vector<char> Bytes{std::istreambuf_iterator<char>(NavigationFile), std::istreambuf_iterator<char>()};
+		auto Navigation = ParseNavigationFile(std::as_bytes(std::span(Bytes)));
+		const auto Loaded = Navigation ? Game.SetNavigation(std::make_shared<const FNavigationFile>(std::move(*Navigation))) : std::unexpected(FGameError{Navigation.error().Message});
+		if (!Loaded)
+		{
+			Staged.Warnings.push_back(std::format("Agents have no navigation: {}", Loaded.error().Message));
+		}
+	}
+
+	// Agents start once their StateTree arrives; one that fails to load leaves its character standing.
+	for (const FAssetId& TreeId : Game.GetStateTrees())
+	{
+		auto Cooked = Content.Load(TreeId);
+		auto* const Tree = Cooked ? std::get_if<FCookedStateTree>(&*Cooked) : nullptr;
+		const auto Added = Tree ? Game.AddStateTree(TreeId, std::make_shared<const FCookedStateTree>(std::move(*Tree))) : std::unexpected(FGameError{Cooked ? "the asset is not a StateTree" : Cooked.error().Message});
+		if (!Added)
+		{
+			Staged.Warnings.push_back(std::format("StateTree {} will not run: {}", TreeId.ToString(), Added.error().Message));
+		}
+	}
+
+	return Staged;
 }
 }

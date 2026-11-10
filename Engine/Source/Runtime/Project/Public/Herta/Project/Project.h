@@ -71,5 +71,7 @@ struct FCreateProjectRequest
 [[nodiscard]] std::expected<FLoadedProject, FProjectError> LoadProject(const std::filesystem::path& DescriptorPath);
 // The nearest .hertaproject in the file's directory or an ancestor, choosing the first by name when a directory holds several.
 [[nodiscard]] std::optional<std::filesystem::path> FindOwningProject(const std::filesystem::path& File);
+// The .hertaproject in a staged build, which keeps one project folder next to its executables in Directory.
+[[nodiscard]] std::optional<std::filesystem::path> FindStagedProject(const std::filesystem::path& Directory);
 [[nodiscard]] std::expected<FLoadedProject, FProjectError> CreateProject(const FCreateProjectRequest& Request);
 }

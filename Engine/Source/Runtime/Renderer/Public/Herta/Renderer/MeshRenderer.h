@@ -150,6 +150,9 @@ class FRenderMesh final
 public:
 	// Uploads every buffer and mip, splitting work across recordings to stay within the per-recording upload budget.
 	[[nodiscard]] static std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> Create(IGraphicsDevice& Device, const FCookedModel& Model, std::string_view Name);
+	// Bounds and materials without a GPU copy, for headless sessions such as a dedicated server, whose collision fits the bounds and which
+	// never draw.
+	[[nodiscard]] static std::expected<std::shared_ptr<const FRenderMesh>, FPresentationError> CreateBoundsOnly(const FCookedModel& Model);
 
 	[[nodiscard]] const FVector3& GetBoundsMinimum() const noexcept
 	{

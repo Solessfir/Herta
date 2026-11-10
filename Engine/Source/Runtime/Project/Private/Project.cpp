@@ -522,6 +522,28 @@ std::optional<std::filesystem::path> FindOwningProject(const std::filesystem::pa
 	return std::nullopt;
 }
 
+std::optional<std::filesystem::path> FindStagedProject(const std::filesystem::path& Directory)
+{
+	std::error_code Error;
+	for (const auto& Entry : std::filesystem::directory_iterator(Directory, Error))
+	{
+		if (!Entry.is_directory(Error))
+		{
+			continue;
+		}
+
+		for (const auto& File : std::filesystem::directory_iterator(Entry.path(), Error))
+		{
+			if (File.path().extension() == ".hertaproject")
+			{
+				return File.path();
+			}
+		}
+	}
+
+	return std::nullopt;
+}
+
 std::expected<FLoadedProject, FProjectError> LoadProject(const std::filesystem::path& DescriptorPath)
 {
 	if (DescriptorPath.extension() != ".hertaproject")

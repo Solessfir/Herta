@@ -285,12 +285,12 @@ TEST_CASE("Staged region loads decode on the worker, upload when prepared, and f
 
 	Tests::FTestGraphicsDevice Device;
 	const FCookedContent Cooked({Content});
-	auto Assets = FStagedGameAssets::Create(Device, Cooked, MakeIsland());
+	auto Assets = FStagedGameAssets::Create(&Device, Cooked, MakeIsland());
 	REQUIRE(Assets);
 	REQUIRE((*Assets)->FindMesh(CubeAsset));
 	CHECK((*Assets)->GetLoadedAssetCount() == 1);
 
-	const FRegionLoader Loader = MakeStagedRegionLoader(Scratch.GetPath() / "Levels/Island.hlevel", Cooked, **Assets, Device);
+	const FRegionLoader Loader = MakeStagedRegionLoader(Scratch.GetPath() / "Levels/Island.hlevel", Cooked, **Assets, &Device);
 	const std::atomic<bool> Cancel = false;
 	auto First = Loader(MakeRegion(1, 30.), Cancel);
 	REQUIRE_MESSAGE(First, (First ? "" : First.error().Message));

@@ -657,7 +657,7 @@ project "HertaGame"
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaGame"))
     debugdir(RepositoryRoot)
     debugargs { "--project=Saved/StagedBuilds/Sandbox/Sandbox/Sandbox.hertaproject" }
-    ApplyRuntimeDependencies { "Application", "Tasks", "Audio", "GameFramework", "GameUI", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
+    ApplyRuntimeDependencies { "Application", "Tasks", "Audio", "GameFramework", "Replication", "Networking", "GameUI", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
     dependson { "HertaShaders" }
 
     -- Shipping players should not see a console; development builds keep it for logs.
@@ -679,6 +679,21 @@ project "HertaGame"
             "PATH=" .. VulkanSdk.BinaryDirectory .. ":$PATH",
             "LD_LIBRARY_PATH=" .. VulkanSdk.RuntimeLibraryDirectory .. ":$LD_LIBRARY_PATH"
         }
+
+    filter {}
+
+-- A dedicated server: the game session and replication with no window, renderer device, ImGui, or audio device.
+project "HertaServer"
+    kind "ConsoleApp"
+    location(path.join(ProjectFilesRoot, "HertaServer"))
+    ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaServer"))
+    debugdir(RepositoryRoot)
+    debugargs { "--project=Saved/StagedBuilds/Sandbox/Sandbox/Sandbox.hertaproject" }
+    ApplyRuntimeDependencies { "Replication", "Networking", "GameFramework", "Tasks", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
+
+    -- GameFramework links window and audio libraries for the game; the server never calls them, so the linker leaves them out.
+    filter "system:linux"
+        linkoptions { "-Wl,--as-needed" }
 
     filter {}
 

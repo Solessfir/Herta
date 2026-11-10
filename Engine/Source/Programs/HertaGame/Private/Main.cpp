@@ -20,6 +20,8 @@
 #include "Herta/Platform/Process.h"
 #include "Herta/Project/Project.h"
 #include "Herta/Renderer/MeshRenderer.h"
+#include "Herta/Replication/GameClient.h"
+#include "Herta/Replication/GameServer.h"
 #include "Herta/Tasks/TaskSystem.h"
 
 #include <algorithm>
@@ -81,29 +83,6 @@ void ReportFailure(const std::string_view Message) noexcept
 	{
 		return Argument != nullptr && Name == Argument;
 	});
-}
-
-// A staged build keeps one project folder next to the executable.
-[[nodiscard]] std::optional<std::filesystem::path> FindStagedProject(const std::filesystem::path& Directory)
-{
-	std::error_code Error;
-	for (const auto& Entry : std::filesystem::directory_iterator(Directory, Error))
-	{
-		if (!Entry.is_directory(Error))
-		{
-			continue;
-		}
-
-		for (const auto& File : std::filesystem::directory_iterator(Entry.path(), Error))
-		{
-			if (File.path().extension() == ".hertaproject")
-			{
-				return File.path();
-			}
-		}
-	}
-
-	return std::nullopt;
 }
 
 // Display preferences are per user, not per install, so a shared or read-only install still remembers them.
@@ -249,6 +228,11 @@ struct FGameOptions
 	// Plays a scripted run for this many frames and exits, for unattended checks.
 	std::uint32_t SmokeFrames = 0;
 	bool bValidation = false;
+	// Hosts a game others can join on this port, playing it as its first client; zero plays alone.
+	std::uint16_t HostPort = 0;
+	// Joins a server at "host:port" instead of playing alone.
+	std::string ConnectAddress{};
+	std::string PlayerName = "Player";
 };
 
 int RunGame(const FGameOptions& Options)
@@ -427,14 +411,67 @@ int RunGame(const FGameOptions& Options)
 	std::unique_ptr<FMeshRenderer> Renderer = std::move(*RendererResult);
 	const std::filesystem::path EngineContent = Project->Root.parent_path() / "Engine" / "Content";
 	const FCookedContent Content({Project->ContentRoot, EngineContent});
-	auto AssetsResult = FStagedGameAssets::Create(Device, Content, Level->Entities);
-	if (!AssetsResult)
+	auto Staged = CreateStagedSession(Project->StartingLevel, *Level, Content, &Device, Tasks.get());
+	if (!Staged)
 	{
-		HERTA_LOG_ERROR(*Log, GameLog, "Could not load game content: {}", AssetsResult.error().Message);
+		HERTA_LOG_ERROR(*Log, GameLog, "Could not start the game: {}", Staged.error().Message);
 		return 1;
 	}
 
-	std::unique_ptr<FStagedGameAssets> Assets = std::move(*AssetsResult);
+	for (const std::string& Warning : Staged->Warnings)
+	{
+		HERTA_LOG_WARNING(*Log, GameLog, "{}", Warning);
+	}
+
+	std::unique_ptr<FStagedGameAssets> Assets = std::move(Staged->Assets);
+	std::unique_ptr<FGameSession> OwnedSession = std::move(Staged->Session);
+	FGameSession* Session = OwnedSession.get();
+
+	// A networked game plays through a client, even when this process hosts: the host's own player joins its server through a loopback
+	// connection, so it sees the game exactly as everyone else does.
+	std::optional<FStagedSession> HostStaged;
+	std::unique_ptr<FGameServer> Host;
+	std::unique_ptr<FGameClient> Client;
+	const bool bNetwork = Options.HostPort != 0 || !Options.ConnectAddress.empty();
+	if (bNetwork)
+	{
+		const auto ContentHash = HashLevelFile(Project->StartingLevel);
+		if (!ContentHash)
+		{
+			HERTA_LOG_ERROR(*Log, GameLog, "{}", ContentHash.error().Message);
+			return 1;
+		}
+
+		const FGameClientSettings ClientSettings{.Name = Options.PlayerName, .ContentHash = *ContentHash};
+		if (Options.HostPort != 0)
+		{
+			auto Hosted = CreateStagedSession(Project->StartingLevel, *Level, Content, nullptr, Tasks.get());
+			auto Server = Hosted ? FGameServer::Create(std::move(Hosted->Session), {.Port = Options.HostPort, .ContentHash = *ContentHash}) : std::unexpected(FReplicationError{Hosted.error().Message});
+			if (!Server)
+			{
+				HERTA_LOG_ERROR(*Log, GameLog, "Could not host: {}", Server.error().Message);
+				return 1;
+			}
+
+			HostStaged = std::move(*Hosted);
+			Host = std::move(*Server);
+			HERTA_LOG_INFO(*Log, GameLog, "Hosting on port {}", Host->GetPort());
+		}
+
+		auto Joined = Host ? FGameClient::ConnectLocal(std::move(OwnedSession), *Host, ClientSettings) : FGameClient::Connect(std::move(OwnedSession), Options.ConnectAddress, ClientSettings);
+		if (!Joined)
+		{
+			HERTA_LOG_ERROR(*Log, GameLog, "Could not join the game: {}", Joined.error().Message);
+			return 1;
+		}
+
+		Client = std::move(*Joined);
+		Session = &Client->GetSession();
+	}
+
+	FTickInput TickInput;
+	float NetworkSeconds = 0.f;
+	EGameClientState ClientState = EGameClientState::Connecting;
 	for (const std::string& Shader : Assets->GetMaterialShaders())
 	{
 		const std::filesystem::path& Mount = Shader.starts_with("Engine/") ? EngineContent : Project->ContentRoot;
@@ -474,83 +511,6 @@ int RunGame(const FGameOptions& Options)
 		}
 	}
 
-	// The level's character is optional: without one, or if it fails to load, the player is the bare capsule.
-	std::shared_ptr<const FCookedModel> Character;
-	if (Level->PlayerCharacter.IsValid())
-	{
-		auto Cooked = Content.Load(Level->PlayerCharacter);
-		if (Cooked && std::holds_alternative<FCookedModel>(*Cooked))
-		{
-			Character = std::make_shared<const FCookedModel>(std::move(std::get<FCookedModel>(*Cooked)));
-		}
-		else
-		{
-			HERTA_LOG_WARNING(*Log, GameLog, "Could not load the player character: {}", Cooked ? "the asset is not a model" : Cooked.error().Message);
-		}
-	}
-
-	auto SessionResult = FGameSession::Create(Level->Entities, *Assets, &Device, {}, Tasks.get(), std::move(Character));
-	if (!SessionResult)
-	{
-		HERTA_LOG_ERROR(*Log, GameLog, "Could not start the game: {}", SessionResult.error().Message);
-		return 1;
-	}
-
-	std::unique_ptr<FGameSession> Session = std::move(*SessionResult);
-	for (const std::string& Warning : Session->GetWarnings())
-	{
-		HERTA_LOG_WARNING(*Log, GameLog, "{}", Warning);
-	}
-
-	Session->SetLevelEffects(Level->Effects);
-	for (const FAssetId& System : Session->GetParticleSystems())
-	{
-		auto Cooked = Content.Load(System);
-		auto* const Particles = Cooked ? std::get_if<FCookedParticleSystem>(&*Cooked) : nullptr;
-		if (!Particles)
-		{
-			HERTA_LOG_WARNING(*Log, GameLog, "Particle system {} will not play: {}", System.ToString(), Cooked ? "the asset is not a particle system" : Cooked.error().Message);
-			continue;
-		}
-
-		if (auto Added = Session->AddParticleSystem(System, std::make_shared<const FCookedParticleSystem>(std::move(*Particles))); !Added)
-		{
-			HERTA_LOG_WARNING(*Log, GameLog, "Particle system {} will not play: {}", System.ToString(), Added.error().Message);
-		}
-	}
-
-	// Without a device the game still plays, with the same commands going to the null path.
-	Session->SetLevelSounds(Level->Sounds);
-	Session->SetRegions(Level->Regions, MakeStagedRegionLoader(Project->StartingLevel, Content, *Assets, Device));
-	// Staging cooks the level's navigation beside it; a level without Navigation Bounds has none.
-	std::filesystem::path NavigationPath = Project->StartingLevel;
-	NavigationPath.replace_extension(NavigationDataExtension);
-	if (std::ifstream NavigationFile(NavigationPath, std::ios::binary); NavigationFile)
-	{
-		const std::vector<char> Bytes{std::istreambuf_iterator<char>(NavigationFile), std::istreambuf_iterator<char>()};
-		auto Navigation = ParseNavigationFile(std::as_bytes(std::span(Bytes)));
-		const auto Loaded = Navigation ? Session->SetNavigation(std::make_shared<const FNavigationFile>(std::move(*Navigation))) : std::unexpected(FGameError{Navigation.error().Message});
-		if (Loaded)
-		{
-			HERTA_LOG_INFO(*Log, GameLog, "Navigation loaded with {} polygons", Session->GetNavigation() ? Session->GetNavigation()->GetStats().Polygons : 0);
-		}
-		else
-		{
-			HERTA_LOG_WARNING(*Log, GameLog, "Agents have no navigation: {}", Loaded.error().Message);
-		}
-	}
-
-	// Agents start once their StateTree arrives; one that fails to load leaves its character standing.
-	for (const FAssetId& TreeId : Session->GetStateTrees())
-	{
-		auto Cooked = Content.Load(TreeId);
-		auto* const Tree = Cooked ? std::get_if<FCookedStateTree>(&*Cooked) : nullptr;
-		const auto Added = Tree ? Session->AddStateTree(TreeId, std::make_shared<const FCookedStateTree>(std::move(*Tree))) : std::unexpected(FGameError{Cooked ? "the asset is not a StateTree" : Cooked.error().Message});
-		if (!Added)
-		{
-			HERTA_LOG_WARNING(*Log, GameLog, "StateTree {} will not run: {}", TreeId.ToString(), Added.error().Message);
-		}
-	}
 	std::unique_ptr<FAudioEngine> Audio;
 	if (auto AudioResult = FAudioEngine::Create({.Device = bSmokeTest ? EAudioDevice::Null : EAudioDevice::Default}); AudioResult)
 	{
@@ -769,13 +729,13 @@ int RunGame(const FGameOptions& Options)
 			    .bThrow = Frames % 40 == 20,
 			    .bToggleCamera = Frames == Options.SmokeFrames / 2 + 40};
 			MenuInput = {.bPause = Frames == Options.SmokeFrames / 4 + 30 || Frames == Options.SmokeFrames / 2 || Frames == Options.SmokeFrames / 2 + 20, .bFocusLost = Frames == Options.SmokeFrames / 4};
-			// The run also saves and loads through the menu's commands.
-			if (Frames == Options.SmokeFrames / 3)
+			// The run also saves and loads through the menu's commands; a networked game belongs to its server and does neither.
+			if (Frames == Options.SmokeFrames / 3 && !bNetwork)
 			{
 				SaveGame(false);
 			}
 
-			if (Frames == Options.SmokeFrames / 3 + 10)
+			if (Frames == Options.SmokeFrames / 3 + 10 && !bNetwork)
 			{
 				if (const auto Loaded = LoadGameSave(SavePath); Loaded)
 				{
@@ -785,7 +745,7 @@ int RunGame(const FGameOptions& Options)
 		}
 
 		// With regions, the run also crosses to the farthest one and back, and must end holding the assets it held before leaving.
-		if (bSmokeTest && !Level->Regions.empty() && Options.SmokeFrames >= 160)
+		if (bSmokeTest && !bNetwork && !Level->Regions.empty() && Options.SmokeFrames >= 160)
 		{
 			if (Frames == Options.SmokeFrames * 13 / 16)
 			{
@@ -805,7 +765,7 @@ int RunGame(const FGameOptions& Options)
 			}
 		}
 
-		const bool bRestartPressed = Frames == Options.SmokeFrames * 3 / 4 && bSmokeTest;
+		const bool bRestartPressed = Frames == Options.SmokeFrames * 3 / 4 && bSmokeTest && !bNetwork;
 
 		if (Input.bToggleFullscreen)
 		{
@@ -869,7 +829,7 @@ int RunGame(const FGameOptions& Options)
 			GamepadControls.Reset();
 		}
 
-		if (bRestartPressed || (bPlaying && !bMenuOwnedInput && (WasGameActionPressed(Settings.Bindings, EGameAction::Restart, Keyboard) || bPadRestart)))
+		if (!bNetwork && (bRestartPressed || (bPlaying && !bMenuOwnedInput && (WasGameActionPressed(Settings.Bindings, EGameAction::Restart, Keyboard) || bPadRestart))))
 		{
 			if (auto Restarted = Session->Restart(); !Restarted)
 			{
@@ -881,7 +841,44 @@ int RunGame(const FGameOptions& Options)
 			HERTA_LOG_INFO(*Log, GameLog, "Course restarted");
 		}
 
-		if (auto Updated = Session->Update(bPlaying ? DeltaSeconds : 0.f, bPlaying ? GameInput : FGameInput{}); !Updated)
+		if (Client)
+		{
+			// The network game never pauses: a paused or unfocused player just stands still while the server's ticks go on.
+			TickInput.Add(bPlaying ? GameInput : FGameInput{});
+			constexpr float TickSeconds = 1.f / static_cast<float>(ReplicationTicksPerSecond);
+			for (NetworkSeconds += DeltaSeconds; NetworkSeconds >= TickSeconds && !bFailed; NetworkSeconds -= TickSeconds)
+			{
+				const auto Hosted = Host ? Host->Tick() : std::expected<void, FReplicationError>{};
+				const auto Ticked = Hosted ? Client->Tick(TickInput.Take()) : Hosted;
+				if (!Ticked)
+				{
+					HERTA_LOG_ERROR(*Log, GameLog, "{}", Ticked.error().Message);
+					bFailed = true;
+				}
+			}
+
+			if (bFailed)
+			{
+				break;
+			}
+
+			if (Client->GetState() != ClientState)
+			{
+				ClientState = Client->GetState();
+				constexpr std::array StateNames{"Connecting", "Playing", "Rejected", "Disconnected"};
+				HERTA_LOG_INFO(*Log, GameLog, "Network game: {}{}{}", StateNames[static_cast<std::size_t>(ClientState)], Client->GetStateReason().empty() ? "" : ": ", Client->GetStateReason());
+				if (ClientState == EGameClientState::Rejected)
+				{
+					bFailed = bSmokeTest;
+					Menu.ShowNotice("The server refused to join");
+				}
+				else if (ClientState == EGameClientState::Disconnected)
+				{
+					Menu.ShowNotice("Lost the connection to the server");
+				}
+			}
+		}
+		else if (auto Updated = Session->Update(bPlaying ? DeltaSeconds : 0.f, bPlaying ? GameInput : FGameInput{}); !Updated)
 		{
 			HERTA_LOG_ERROR(*Log, GameLog, "{}", Updated.error().Message);
 			bFailed = true;
@@ -1001,10 +998,20 @@ int RunGame(const FGameOptions& Options)
 				case EGameMenuCommand::Resume:
 					break;
 				case EGameMenuCommand::Save:
+					if (bNetwork)
+					{
+						Menu.ShowNotice("A network game is the server's to save");
+						break;
+					}
+
 					SaveGame(false);
 					break;
 				case EGameMenuCommand::Load:
-					if (const auto Loaded = LoadGameSave(SavePath); !Loaded)
+					if (bNetwork)
+					{
+						Menu.ShowNotice("A network game is the server's to load");
+					}
+					else if (const auto Loaded = LoadGameSave(SavePath); !Loaded)
 					{
 						HERTA_LOG_WARNING(*Log, GameLog, "Could not load the save: {}", Loaded.error().Message);
 						Menu.ShowNotice("The save could not be loaded");
@@ -1066,7 +1073,7 @@ int RunGame(const FGameOptions& Options)
 
 		// Finishing the course saves, so a best time is never lost.
 		const EGameObjectiveState Objective = Session->GetObjective().State;
-		if (Objective == EGameObjectiveState::Finished && PreviousObjective != EGameObjectiveState::Finished && !bSmokeTest)
+		if (Objective == EGameObjectiveState::Finished && PreviousObjective != EGameObjectiveState::Finished && !bSmokeTest && !bNetwork)
 		{
 			SaveGame(true);
 			Menu.ShowNotice("Course finished; game saved");
@@ -1153,8 +1160,19 @@ int RunGame(const FGameOptions& Options)
 				}
 			}
 
-			// Agents need their StateTree and the cooked navigation to think and walk.
-			const std::vector<FGameAgentState> Agents = Session->GetAgentStates();
+			if (Client)
+			{
+				const FGameClientStats Stats = Client->GetStats();
+				HERTA_LOG_INFO(*Log, GameLog, "Smoke run played over the network: {} snapshots, {} KiB, {} corrections, {} outcomes, {} rejected messages", Stats.Snapshots, Stats.SnapshotBytes / 1024, Stats.Corrections, Stats.Outcomes, Stats.Rejected);
+				if (Client->GetState() != EGameClientState::Playing || Stats.Snapshots == 0)
+				{
+					HERTA_LOG_ERROR(*Log, GameLog, "The network game never played");
+					bFailed = true;
+				}
+			}
+
+			// Agents need their StateTree and the cooked navigation to think and walk; in a network game they think on the server.
+			const std::vector<FGameAgentState> Agents = Host ? Host->GetSession().GetAgentStates() : Client ? std::vector<FGameAgentState>{} : Session->GetAgentStates();
 			if (!Agents.empty())
 			{
 				const auto Thinking = std::ranges::count_if(Agents, [](const FGameAgentState& Agent)
@@ -1215,6 +1233,31 @@ int main(const int ArgumentCount, char** const Arguments)
 		}
 
 		Options.bValidation = Herta::HasArgument(Rest, "--validation");
+		Options.ConnectAddress = Herta::FindArgumentValue(Rest, "--connect=");
+		if (const std::string_view Name = Herta::FindArgumentValue(Rest, "--name="); !Name.empty())
+		{
+			Options.PlayerName = Name;
+		}
+
+		if (Herta::HasArgument(Rest, "--host"))
+		{
+			Options.HostPort = 27015;
+		}
+		else if (const std::string_view Port = Herta::FindArgumentValue(Rest, "--host="); !Port.empty())
+		{
+			const auto [End, Error] = std::from_chars(Port.data(), Port.data() + Port.size(), Options.HostPort);
+			if (Error != std::errc{} || End != Port.data() + Port.size() || Options.HostPort == 0)
+			{
+				Herta::ReportFailure("--host= needs a port number");
+				return 2;
+			}
+		}
+
+		if (Options.HostPort != 0 && !Options.ConnectAddress.empty())
+		{
+			Herta::ReportFailure("--host and --connect= exclude each other");
+			return 2;
+		}
 		return Herta::RunGame(Options);
 	}
 	catch (const std::exception& Exception)

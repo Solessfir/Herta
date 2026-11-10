@@ -49,6 +49,19 @@ struct FGameClientStats
 	float PingMilliseconds = 0.f;
 };
 
+// Gathers frames of input for the next fixed tick: look turns add up and presses wait for the tick, while movement and held buttons follow
+// the latest frame. A game rendering faster than it ticks loses no click or mouse motion between ticks.
+class FTickInput final
+{
+public:
+	void Add(const FGameInput& Frame) noexcept;
+	// The input for one tick; later ticks in the same frame only hold what is held.
+	[[nodiscard]] FGameInput Take() noexcept;
+
+private:
+	FGameInput Pending{};
+};
+
 // A player's view of a server's game. Its session simulates the local player ahead of the server from local input, and corrects that
 // prediction by replaying unacknowledged input from each authoritative state it receives. Remote players, characters, and moving bodies come
 // from snapshots; destruction and cuts arrive as outcomes.

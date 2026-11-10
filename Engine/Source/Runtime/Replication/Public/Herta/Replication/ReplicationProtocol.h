@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <span>
@@ -124,6 +125,8 @@ struct FReplicationOutcome
 using FBaselineLookup = std::function<const std::vector<std::byte>*(std::uint32_t Id, std::uint32_t Sequence)>;
 
 [[nodiscard]] std::optional<EReplicationMessage> PeekMessage(std::span<const std::byte> Message) noexcept;
+// The content hash both ends compare at the handshake: the starting level file as staged, which changes with any edit to the level.
+[[nodiscard]] std::expected<std::uint64_t, FReplicationError> HashLevelFile(const std::filesystem::path& Path);
 
 [[nodiscard]] std::vector<std::byte> EncodeHello(const FReplicationHello& Hello);
 [[nodiscard]] std::expected<FReplicationHello, FReplicationError> DecodeHello(std::span<const std::byte> Message);

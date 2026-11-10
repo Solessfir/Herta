@@ -74,10 +74,11 @@ struct FDecodedGameAssets
 class FStagedGameAssets final : public IGameAssets
 {
 public:
-	[[nodiscard]] static std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> Create(IGraphicsDevice& Device, const FCookedContent& Content, std::span<const FLevelEntity> Entities);
+	// Without a device, as on a dedicated server, meshes keep only their bounds for collision and materials are skipped.
+	[[nodiscard]] static std::expected<std::unique_ptr<FStagedGameAssets>, FAssetError> Create(IGraphicsDevice* Device, const FCookedContent& Content, std::span<const FLevelEntity> Entities);
 
 	// Uploads what is not loaded yet and counts a reference to every asset in Decoded, uploaded now or before.
-	[[nodiscard]] std::expected<std::vector<FAssetId>, FAssetError> Add(IGraphicsDevice& Device, FDecodedGameAssets&& Decoded);
+	[[nodiscard]] std::expected<std::vector<FAssetId>, FAssetError> Add(IGraphicsDevice* Device, FDecodedGameAssets&& Decoded);
 	// Drops the references Add returned; an asset no one references any longer, and the starting level does not use, is freed.
 	void Release(std::span<const FAssetId> Assets);
 	[[nodiscard]] std::size_t GetLoadedAssetCount() const noexcept;
@@ -101,7 +102,20 @@ private:
 	std::set<FAssetId> Permanent;
 };
 
+// A staged level ready to play. The session reads the assets, so they must outlive it, and both read Content.
+struct FStagedSession
+{
+	std::unique_ptr<FStagedGameAssets> Assets{};
+	std::unique_ptr<FGameSession> Session{};
+	// Things that will not work, such as a character or a StateTree that failed to load, which still leave the level playable.
+	std::vector<std::string> Warnings{};
+};
+
+// Loads a staged level's assets, player character, particle systems, sounds, regions, navigation, and StateTrees into a session, the same way
+// for a player's game, a client, and a headless server. Device may be null for a server, which draws nothing.
+[[nodiscard]] std::expected<FStagedSession, FGameError> CreateStagedSession(const std::filesystem::path& LevelPath, const FLevelDocument& Level, const FCookedContent& Content, IGraphicsDevice* Device, FTaskSystem* Tasks);
+
 // Loads regions placed by the level at LevelPath from staged content: a worker reads the region's level and decodes its assets, and the game
-// thread uploads them into Assets before the region activates. Content, Assets, and Device must outlive the session.
-[[nodiscard]] FRegionLoader MakeStagedRegionLoader(std::filesystem::path LevelPath, const FCookedContent& Content, FStagedGameAssets& Assets, IGraphicsDevice& Device);
+// thread uploads them into Assets before the region activates. Content, Assets, and Device, which may be null, must outlive the session.
+[[nodiscard]] FRegionLoader MakeStagedRegionLoader(std::filesystem::path LevelPath, const FCookedContent& Content, FStagedGameAssets& Assets, IGraphicsDevice* Device);
 }
