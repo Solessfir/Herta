@@ -756,6 +756,14 @@ TEST_CASE("Character entities stand animated, and slices, severs, and thrown bal
 
 	REQUIRE((*Session)->Restart());
 	Step({}, 5);
+	// A cut through both shins leaves the calves some skin but takes the feet, so the dummy goes down rather than standing on its stumps.
+	const auto Shins = (*Session)->SliceCharacter(0, {0.f, 0.25f, 3.f}, FVector3{0.f, -1.f, 0.f});
+	REQUIRE_MESSAGE(Shins, (Shins ? std::string() : Shins.error().Message));
+	CHECK(*Shins);
+	CHECK((*Session)->IsCharacterDowned(0));
+
+	REQUIRE((*Session)->Restart());
+	Step({}, 5);
 	// A cut 3 cm above the soles would only peel them off, so it does not cut.
 	const auto Skim = (*Session)->SliceCharacter(0, {0.f, 0.03f, 3.f}, FVector3{0.f, 1.f, 0.f});
 	REQUIRE(Skim);

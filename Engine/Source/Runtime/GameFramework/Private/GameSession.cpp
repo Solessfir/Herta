@@ -2477,9 +2477,9 @@ std::expected<bool, FGameError> FGameSession::FImplementation::CutCharacter(cons
 		return true;
 	}
 
-	// Without a leg to stand on it falls and lives on the ground, where it can still be cut; a cut while down drops it again without what was
-	// cut off. A thigh cut takes the calf with it, so the calves cover both.
-	if (Actor.bDowned || Lost("calf_l") || Lost("calf_r"))
+	// Without a foot to stand on it falls and lives on the ground, where it can still be cut; a cut while down drops it again without what was
+	// cut off. Any cut through a leg, from the thigh to the ankle, takes its foot, so the feet cover them all.
+	if (Actor.bDowned || Lost("foot_l") || Lost("foot_r"))
 	{
 		if (!Actor.bDowned)
 		{
