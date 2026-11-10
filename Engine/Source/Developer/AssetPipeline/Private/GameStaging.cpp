@@ -196,11 +196,24 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 		}
 	}
 
+	for (const FAssetId& Effect : Level->Effects)
+	{
+		if (Effect.IsValid())
+		{
+			Pending.emplace(Effect, std::nullopt);
+		}
+	}
+
 	for (const FLevelEntity& Entity : Level->Entities)
 	{
 		if (Entity.AudioEmitter && Entity.AudioEmitter->Sound.IsValid())
 		{
 			Pending.emplace(Entity.AudioEmitter->Sound, std::nullopt);
+		}
+
+		if (Entity.ParticleEmitter && Entity.ParticleEmitter->System.IsValid())
+		{
+			Pending.emplace(Entity.ParticleEmitter->System, std::nullopt);
 		}
 
 		if (Entity.Mesh)

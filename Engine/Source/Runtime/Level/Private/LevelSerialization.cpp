@@ -451,6 +451,25 @@ std::expected<FAudioEmitterComponent, FLevelError> ReadAudioEmitter(const simdjs
 	return FAudioEmitterComponent{.Sound = *Sound, .Volume = *Volume, .Pitch = *Pitch, .bAutoPlay = *AutoPlay, .bSpatial = *Spatial, .MinimumDistance = *Minimum, .MaximumDistance = *Maximum};
 }
 
+std::expected<FParticleEmitterComponent, FLevelError> ReadParticleEmitter(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<3>(Element, GetLevelComponentDescriptor(ELevelComponentType::ParticleEmitter));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto System = ReadOptionalId<FAssetId>((*Fields)[0]);
+	const auto AutoPlay = ReadBoolean((*Fields)[1]);
+	const auto Scale = ReadNumber<float>((*Fields)[2]);
+	if (!System || !AutoPlay || !Scale)
+	{
+		return LevelError("Invalid particle emitter component field");
+	}
+
+	return FParticleEmitterComponent{.System = *System, .bAutoPlay = *AutoPlay, .Scale = *Scale};
+}
+
 std::expected<FAudioListenerComponent, FLevelError> ReadAudioListener(const simdjson::dom::element Element)
 {
 	const auto Fields = ReadComponentFields<1>(Element, GetLevelComponentDescriptor(ELevelComponentType::AudioListener));
@@ -813,6 +832,22 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			Entity.AudioListener = *Listener;
+		}
+		else if (SchemaVersion >= 14 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::ParticleEmitter).SerializationKey)
+		{
+			if ((SeenComponents & 16384) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 16384;
+			const auto Emitter = ReadParticleEmitter(Component.value);
+			if (!Emitter)
+			{
+				return std::unexpected(Emitter.error());
+			}
+
+			Entity.ParticleEmitter = *Emitter;
 		}
 		else if (SchemaVersion >= 5 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Mover).SerializationKey)
 		{
@@ -1270,7 +1305,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 13,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 14,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1295,6 +1330,23 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		if (Document.Sounds[Cue].IsValid())
 		{
 			AppendString(Output, Document.Sounds[Cue].ToString());
+		}
+		else
+		{
+			Output += "null";
+		}
+	}
+
+	Output += "\n  }";
+	Output += ",\n  \"effects\": {";
+	for (std::size_t Cue = 0; Cue < LevelEffectCues.size(); ++Cue)
+	{
+		Output += Cue == 0 ? "\n    \"" : ",\n    \"";
+		Output += LevelEffectCues[Cue].Key;
+		Output += "\": ";
+		if (Document.Effects[Cue].IsValid())
+		{
+			AppendString(Output, Document.Effects[Cue].ToString());
 		}
 		else
 		{
@@ -1498,6 +1550,12 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			AppendVisualComponent(Output, ELevelComponentType::AudioListener, Values, bHasComponent);
 		}
 
+		if (Entity.ParticleEmitter)
+		{
+			const std::array<FVisualValue, 3> Values{Entity.ParticleEmitter->System, Entity.ParticleEmitter->bAutoPlay, Entity.ParticleEmitter->Scale};
+			AppendVisualComponent(Output, ELevelComponentType::ParticleEmitter, Values, bHasComponent);
+		}
+
 		if (Entity.Trigger)
 		{
 			const std::array<FVisualValue, 2> Values{Entity.Trigger->Size, TriggerRoles[static_cast<std::size_t>(Entity.Trigger->Role)]};
@@ -1628,7 +1686,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		return LevelError("Malformed level JSON or invalid UTF-8");
 	}
 
-	const auto Fields = ReadFields(Root, std::array<std::string_view, 11>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders", "cameraBookmarks", "exposureCompensation", "playerCharacter", "sounds"}, 0x3f);
+	const auto Fields = ReadFields(Root, std::array<std::string_view, 12>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders", "cameraBookmarks", "exposureCompensation", "playerCharacter", "sounds", "effects"}, 0x3f);
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -1643,9 +1701,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 13 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 14 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 13 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 14 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
@@ -1729,6 +1787,33 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 			}
 
 			Document.Sounds[Cue] = *Sound;
+		}
+	}
+
+	if ((SchemaVersion >= 14) != (Root["effects"].error() == simdjson::SUCCESS))
+	{
+		return LevelError("Level effects are required in engine schema 14 and later");
+	}
+
+	if (SchemaVersion >= 14)
+	{
+		std::array<std::string_view, LevelEffectCues.size()> Keys{};
+		std::ranges::transform(LevelEffectCues, Keys.begin(), &FLevelSoundCue::Key);
+		const auto Cues = ReadFields((*Fields)[11], Keys, (std::uint64_t{1} << Keys.size()) - 1);
+		if (!Cues)
+		{
+			return std::unexpected(Cues.error());
+		}
+
+		for (std::size_t Cue = 0; Cue < Keys.size(); ++Cue)
+		{
+			const auto Effect = ReadOptionalId<FAssetId>((*Cues)[Cue]);
+			if (!Effect)
+			{
+				return std::unexpected(Effect.error());
+			}
+
+			Document.Effects[Cue] = *Effect;
 		}
 	}
 

@@ -504,6 +504,7 @@ std::expected<void, FLevelError> FEditorLevel::LoadDocument(FLevelDocument Docum
 	ExposureCompensation = Document.ExposureCompensation;
 	PlayerCharacter = Document.PlayerCharacter;
 	Sounds = Document.Sounds;
+	Effects = Document.Effects;
 	CurrentPath = Path;
 	RebuildObjects();
 	Selection.clear();
@@ -690,7 +691,7 @@ std::expected<void, FLevelError> FEditorLevel::Save(const std::filesystem::path&
 		return std::unexpected(FLevelError{"No level path is set; use level.save <path>"});
 	}
 
-	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation, .PlayerCharacter = PlayerCharacter, .Sounds = Sounds}); !Result)
+	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation, .PlayerCharacter = PlayerCharacter, .Sounds = Sounds, .Effects = Effects}); !Result)
 	{
 		return Result;
 	}
@@ -1247,6 +1248,47 @@ std::expected<void, FLevelError> FEditorLevel::SetSound(const ELevelSound Cue, c
 	return {};
 }
 
+const FLevelEffects& FEditorLevel::GetEffects() const
+{
+	return Effects;
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetEffect(const ELevelEffect Cue, const FAssetId& System)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	const auto Index = static_cast<std::size_t>(Cue);
+	if (Index >= Effects.size())
+	{
+		return std::unexpected(FLevelError{"Unknown level effect"});
+	}
+
+	if (Effects[Index] == System)
+	{
+		return {};
+	}
+
+	const auto Executed = History.Execute({
+	    .Label = std::format("Change {} effect", LevelEffectCues[Index].Label),
+	    .Apply = [this, Index, Before = Effects[Index], System](const bool bUndo) -> std::expected<void, FEditorCommandError>
+	{
+		Effects[Index] = bUndo ? Before : System;
+		return {};
+	},
+	    .MemoryCost = sizeof(FAssetId) * 2,
+	});
+
+	if (!Executed)
+	{
+		return std::unexpected(FLevelError{Executed.error().Message});
+	}
+
+	return {};
+}
+
 std::expected<void, FLevelError> FEditorLevel::ApplyCameraBookmarks(const std::string_view Label, std::vector<FLevelCameraBookmark> After)
 {
 	if (auto Result = CheckAuthoringAllowed(); !Result)
@@ -1517,6 +1559,16 @@ std::expected<FObjectId, FLevelError> FEditorLevel::CreateSoundEntity(const FAss
 	}
 
 	return InsertEntity({.Id = FObjectId::Generate(), .Name = std::string(Label), .Transform = {.Translation = Position}, .AudioEmitter = FAudioEmitterComponent{.Sound = Sound}});
+}
+
+std::expected<FObjectId, FLevelError> FEditorLevel::CreateEffectEntity(const FAssetId System, const std::string_view Label, const FWorldPosition& Position)
+{
+	if (!System.IsValid())
+	{
+		return std::unexpected(FLevelError{"A particle emitter requires a valid particle system"});
+	}
+
+	return InsertEntity({.Id = FObjectId::Generate(), .Name = std::string(Label), .Transform = {.Translation = Position}, .ParticleEmitter = FParticleEmitterComponent{.System = System}});
 }
 
 std::expected<FObjectId, FLevelError> FEditorLevel::InsertEntity(FLevelEntity Entity)
@@ -2012,6 +2064,16 @@ std::expected<void, FLevelError> FEditorLevel::AddAudioListenerToSelected()
 std::expected<void, FLevelError> FEditorLevel::SetSelectedAudioListener(const std::optional<FAudioListenerComponent> Listener)
 {
 	return ApplySelectedComponent(&FLevelEntity::AudioListener, Listener, Listener ? "Edit audio listener" : "Remove audio listener");
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddParticleEmitterToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::ParticleEmitter, std::optional{FParticleEmitterComponent{}}, "Add particle emitter", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedParticleEmitter(const std::optional<FParticleEmitterComponent> Emitter)
+{
+	return ApplySelectedComponent(&FLevelEntity::ParticleEmitter, Emitter, Emitter ? "Edit particle emitter" : "Remove particle emitter");
 }
 
 std::expected<void, FLevelError> FEditorLevel::AddTriggerToSelected()

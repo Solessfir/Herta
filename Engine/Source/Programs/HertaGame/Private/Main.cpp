@@ -501,6 +501,23 @@ int RunGame(const FGameOptions& Options)
 		HERTA_LOG_WARNING(*Log, GameLog, "{}", Warning);
 	}
 
+	Session->SetLevelEffects(Level->Effects);
+	for (const FAssetId& System : Session->GetParticleSystems())
+	{
+		auto Cooked = Content.Load(System);
+		auto* const Particles = Cooked ? std::get_if<FCookedParticleSystem>(&*Cooked) : nullptr;
+		if (!Particles)
+		{
+			HERTA_LOG_WARNING(*Log, GameLog, "Particle system {} will not play: {}", System.ToString(), Cooked ? "the asset is not a particle system" : Cooked.error().Message);
+			continue;
+		}
+
+		if (auto Added = Session->AddParticleSystem(System, std::make_shared<const FCookedParticleSystem>(std::move(*Particles))); !Added)
+		{
+			HERTA_LOG_WARNING(*Log, GameLog, "Particle system {} will not play: {}", System.ToString(), Added.error().Message);
+		}
+	}
+
 	// Without a device the game still plays, with the same commands going to the null path.
 	Session->SetLevelSounds(Level->Sounds);
 	std::unique_ptr<FAudioEngine> Audio;

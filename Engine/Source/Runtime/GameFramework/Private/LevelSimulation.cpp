@@ -497,7 +497,7 @@ std::expected<void, FPhysicsError> FLevelSimulation::Update(const float DeltaSec
 			// Bounded, so a pile settling at once cannot grow the list without limit between reads.
 			if (Event.Phase == EPhysicsContactPhase::Began && Event.Impulse > 0.f && ImpactEvents.size() < 256)
 			{
-				ImpactEvents.push_back({.Point = Event.Point, .Impulse = Event.Impulse});
+				ImpactEvents.push_back({.Point = Event.Point, .Normal = Event.Normal, .Impulse = Event.Impulse});
 			}
 
 			for (const FPhysicsBodyId Body : {Event.First, Event.Second})

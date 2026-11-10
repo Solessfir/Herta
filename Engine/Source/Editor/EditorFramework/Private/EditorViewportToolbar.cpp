@@ -346,6 +346,11 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			DrawLevelSoundPickers(ValueWidth);
 		}
 
+		if (Section("Effects"))
+		{
+			DrawLevelEffectPickers(ValueWidth);
+		}
+
 		if (Section("Bookmarks"))
 		{
 			DrawCameraBookmarks(Scale);

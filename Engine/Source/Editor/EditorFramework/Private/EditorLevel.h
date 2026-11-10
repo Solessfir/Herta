@@ -52,11 +52,15 @@ public:
 	const FLevelSounds& GetSounds() const;
 	// The sounds gameplay plays for its events, saved with the level and undoable like the player character.
 	[[nodiscard]] std::expected<void, FLevelError> SetSound(ELevelSound Cue, const FAssetId& Sound);
+	const FLevelEffects& GetEffects() const;
+	[[nodiscard]] std::expected<void, FLevelError> SetEffect(ELevelEffect Cue, const FAssetId& System);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateMeshEntity(FAssetId Asset, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEmptyEntity(const FWorldPosition& Position = {});
 	// An empty entity with an Audio Emitter playing Sound.
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateSoundEntity(FAssetId Sound, std::string_view Label, const FWorldPosition& Position = {});
+	// An empty entity with a Particle Emitter playing System.
+	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEffectEntity(FAssetId System, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<void, FLevelError> AddStaticMeshToSelected(FAssetId Asset);
 	[[nodiscard]] std::expected<void, FLevelError> RemoveStaticMeshFromSelected();
 	[[nodiscard]] std::expected<void, FLevelError> AddRigidBodyToSelected(ELevelBodyType Type = ELevelBodyType::Dynamic);
@@ -86,6 +90,8 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedAudioEmitter(std::optional<FAudioEmitterComponent> Emitter);
 	[[nodiscard]] std::expected<void, FLevelError> AddAudioListenerToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedAudioListener(std::optional<FAudioListenerComponent> Listener);
+	[[nodiscard]] std::expected<void, FLevelError> AddParticleEmitterToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedParticleEmitter(std::optional<FParticleEmitterComponent> Emitter);
 	[[nodiscard]] std::expected<void, FLevelError> AddTriggerToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedTrigger(std::optional<FTriggerComponent> Trigger);
 	[[nodiscard]] std::expected<void, FLevelError> AddConstraintToSelected();
@@ -142,6 +148,7 @@ private:
 	float ExposureCompensation = 0.f;
 	FAssetId PlayerCharacter;
 	FLevelSounds Sounds{};
+	FLevelEffects Effects{};
 	std::vector<FPreviewObject> Objects;
 	std::vector<FPreviewObject> AuthoredObjects;
 	std::uint64_t Generation = 1;

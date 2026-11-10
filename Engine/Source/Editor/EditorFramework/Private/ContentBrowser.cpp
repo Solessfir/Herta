@@ -287,11 +287,12 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 		State.SelectedFolder.clear();
 	}
 
-	if ((IsPlaceableContentAsset(Asset) || IsSoundContentAsset(Asset) || Asset.Importer == "Material") && ImGui::BeginDragDropSource())
+	if ((IsPlaceableContentAsset(Asset) || IsSoundContentAsset(Asset) || IsEffectContentAsset(Asset) || Asset.Importer == "Material") && ImGui::BeginDragDropSource())
 	{
 		ImGui::SetDragDropPayload(ContentAssetPayload, &Asset.Id, sizeof(Asset.Id));
 		ImGui::TextUnformatted(Asset.Label.c_str());
 		ImGui::TextDisabled("%s", Asset.Importer == "Material" ? "Assign material" : IsSoundContentAsset(Asset) ? "Place audio emitter"
+		                                                                         : IsEffectContentAsset(Asset)  ? "Place particle emitter"
 		                                                                                                         : "Place static mesh");
 		ImGui::EndDragDropSource();
 	}

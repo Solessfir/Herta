@@ -384,6 +384,8 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	EnvironmentLabels.clear();
 	SoundIds.clear();
 	SoundLabels.clear();
+	EffectIds.clear();
+	EffectLabels.clear();
 	VisualSettings.Atmosphere.reset();
 	VisualSettings.Fog.reset();
 	std::vector<FAssetId> Materials;
@@ -531,6 +533,11 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 			{
 				SoundIds.push_back(Option.Id);
 				SoundLabels.push_back(Option.Label);
+			}
+			else if (Option.Importer == "VfxGraph")
+			{
+				EffectIds.push_back(Option.Id);
+				EffectLabels.push_back(Option.Label);
 			}
 		}
 	}

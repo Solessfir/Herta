@@ -131,6 +131,8 @@ struct FLevelSimulationPiece
 struct FLevelImpactEvent
 {
 	FVector3 Point = FVector3::Zero();
+	// From the first body into the second, so either way it is the surface the impact struck.
+	FVector3 Normal = FVector3::Up();
 	float Impulse = 0.f;
 };
 

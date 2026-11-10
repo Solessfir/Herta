@@ -317,6 +317,24 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		}
 	}
 
+	if (Type == ELevelComponentType::ParticleEmitter && Entity.ParticleEmitter)
+	{
+		if (Key == "system")
+		{
+			return Visitor(Entity.ParticleEmitter->System);
+		}
+
+		if (Key == "autoPlay")
+		{
+			return Visitor(Entity.ParticleEmitter->bAutoPlay);
+		}
+
+		if (Key == "scale")
+		{
+			return Visitor(Entity.ParticleEmitter->Scale);
+		}
+	}
+
 	if (Type == ELevelComponentType::AudioListener && Entity.AudioListener)
 	{
 		if (Key == "active")
@@ -378,6 +396,7 @@ constexpr FDestructibleComponent DestructibleDefaults{};
 constexpr FCharacterComponent CharacterDefaults{};
 constexpr FAudioEmitterComponent EmitterDefaults{};
 constexpr FAudioListenerComponent ListenerDefaults{};
+constexpr FParticleEmitterComponent ParticleDefaults{};
 constexpr FTriggerComponent TriggerDefaults{};
 constexpr FConstraintComponent ConstraintDefaults{};
 
@@ -502,6 +521,12 @@ constexpr std::array AudioListenerProperties{
     FLevelPropertyDescriptor{.Key = "active", .Label = "Active", .Type = ELevelPropertyType::Boolean, .Default = ListenerDefaults.bActive},
 };
 
+constexpr std::array ParticleEmitterProperties{
+    FLevelPropertyDescriptor{.Key = "system", .Label = "Particle System", .Type = ELevelPropertyType::AssetReference, .Default = ParticleDefaults.System},
+    FLevelPropertyDescriptor{.Key = "autoPlay", .Label = "Auto Play", .Type = ELevelPropertyType::Boolean, .Default = ParticleDefaults.bAutoPlay},
+    FLevelPropertyDescriptor{.Key = "scale", .Label = "Scale", .Default = ParticleDefaults.Scale, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 100.}},
+};
+
 constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Transform, .TypeId = "Herta.Level.Transform", .SerializationKey = "transform", .Label = "Transform", .Properties = TransformProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::StaticMesh, .TypeId = "Herta.Level.StaticMesh", .SerializationKey = "staticMesh", .Label = "Static Mesh", .Properties = MeshProperties},
@@ -517,6 +542,7 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Character, .TypeId = "Herta.Level.Character", .SerializationKey = "character", .Label = "Character", .Properties = CharacterProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::AudioEmitter, .TypeId = "Herta.Level.AudioEmitter", .SerializationKey = "audioEmitter", .Label = "Audio Emitter", .Properties = AudioEmitterProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::AudioListener, .TypeId = "Herta.Level.AudioListener", .SerializationKey = "audioListener", .Label = "Audio Listener", .Properties = AudioListenerProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::ParticleEmitter, .TypeId = "Herta.Level.ParticleEmitter", .SerializationKey = "particleEmitter", .Label = "Particle Emitter", .Properties = ParticleEmitterProperties},
 };
 }
 
@@ -572,6 +598,7 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 	                   : Type == ELevelComponentType::Destructible  ? Validate(Candidate.Destructible, ValidateDestructibleComponent)
 	                   : Type == ELevelComponentType::Character     ? Validate(Candidate.Character, ValidateCharacterComponent)
 	                   : Type == ELevelComponentType::AudioEmitter  ? Validate(Candidate.AudioEmitter, ValidateAudioEmitterComponent)
+	                   : Type == ELevelComponentType::ParticleEmitter ? Validate(Candidate.ParticleEmitter, ValidateParticleEmitterComponent)
 	                   : Type == ELevelComponentType::AudioListener ? Validate(Candidate.AudioListener, [](const FAudioListenerComponent&) -> std::expected<void, FLevelError>
 	                                                                  {
 		                                                                  return {};

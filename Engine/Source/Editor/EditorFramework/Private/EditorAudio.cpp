@@ -47,6 +47,20 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 		{
 			Wanted.push_back(Entity.AudioEmitter->Sound);
 		}
+
+		// Particle systems ride the same keep-loaded list, so Play starts with its effects ready too.
+		if (Entity.ParticleEmitter)
+		{
+			Wanted.push_back(Entity.ParticleEmitter->System);
+		}
+	}
+
+	if (Level)
+	{
+		for (const FAssetId& Effect : Level->GetEffects())
+		{
+			Wanted.push_back(Effect);
+		}
 	}
 
 	for (const auto& [Id, Graph] : AuditionGraphs)
@@ -86,6 +100,11 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 		const FPreviewMeshSlot* const Slot = Assets->GetCachedAsset(Sound);
 		if (!Slot || Slot->bLoading || (!Slot->Sound && !Slot->SoundStream && !Slot->SoundGraph))
 		{
+			if (Slot && Slot->ParticleSystem && PlaySession)
+			{
+				(void)PlaySession->AddParticleSystem(Sound, Slot->ParticleSystem);
+			}
+
 			continue;
 		}
 
@@ -128,9 +147,9 @@ bool FEditorFramework::FImplementation::AreLevelSoundsLoading() const
 		return Slot && Slot->bLoading;
 	};
 
-	return std::ranges::any_of(Level->GetSounds(), Loading) || std::ranges::any_of(VisualEntities, [&Loading](const FLevelEntity& Entity)
+	return std::ranges::any_of(Level->GetSounds(), Loading) || std::ranges::any_of(Level->GetEffects(), Loading) || std::ranges::any_of(VisualEntities, [&Loading](const FLevelEntity& Entity)
 	{
-		return Entity.AudioEmitter && Loading(Entity.AudioEmitter->Sound);
+		return (Entity.AudioEmitter && Loading(Entity.AudioEmitter->Sound)) || (Entity.ParticleEmitter && Loading(Entity.ParticleEmitter->System));
 	});
 }
 

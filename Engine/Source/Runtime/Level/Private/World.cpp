@@ -237,6 +237,15 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		}
 	}
 
+	if (Entity.ParticleEmitter)
+	{
+		const auto Valid = ValidateParticleEmitterComponent(*Entity.ParticleEmitter);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
 	if (Entity.Trigger)
 	{
 		const auto Valid = ValidateTriggerComponent(*Entity.Trigger);
@@ -422,6 +431,16 @@ std::expected<void, FLevelError> ValidateAudioEmitterComponent(const FAudioEmitt
 	return {};
 }
 
+std::expected<void, FLevelError> ValidateParticleEmitterComponent(const FParticleEmitterComponent& Emitter)
+{
+	if (!std::isfinite(Emitter.Scale) || Emitter.Scale < 0.01f || Emitter.Scale > 100.f)
+	{
+		return std::unexpected(FLevelError{"Particle emitters scale from 0.01 to 100"});
+	}
+
+	return {};
+}
+
 std::expected<void, FLevelError> ValidateCharacterComponent(const FCharacterComponent& Character)
 {
 	if (!std::isfinite(Character.MaximumPieces) || Character.MaximumPieces < 0.f || Character.MaximumPieces > 64.f || std::floor(Character.MaximumPieces) != Character.MaximumPieces || !std::isfinite(Character.SeverImpulse) || Character.SeverImpulse < 0.1f
@@ -595,6 +614,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FCharacterComponent* Character = Registry.try_get<FCharacterComponent>(Entity);
 	const FAudioEmitterComponent* AudioEmitter = Registry.try_get<FAudioEmitterComponent>(Entity);
 	const FAudioListenerComponent* AudioListener = Registry.try_get<FAudioListenerComponent>(Entity);
+	const FParticleEmitterComponent* ParticleEmitter = Registry.try_get<FParticleEmitterComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -614,6 +634,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .Character = Character ? std::optional{*Character} : std::nullopt,
 	    .AudioEmitter = AudioEmitter ? std::optional{*AudioEmitter} : std::nullopt,
 	    .AudioListener = AudioListener ? std::optional{*AudioListener} : std::nullopt,
+	    .ParticleEmitter = ParticleEmitter ? std::optional{*ParticleEmitter} : std::nullopt,
 	};
 }
 
@@ -714,6 +735,15 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FAudioListenerComponent>(Entity);
+	}
+
+	if (Snapshot.ParticleEmitter)
+	{
+		Registry.emplace_or_replace<FParticleEmitterComponent>(Entity, *Snapshot.ParticleEmitter);
+	}
+	else
+	{
+		Registry.remove<FParticleEmitterComponent>(Entity);
 	}
 
 	if (Snapshot.Trigger)

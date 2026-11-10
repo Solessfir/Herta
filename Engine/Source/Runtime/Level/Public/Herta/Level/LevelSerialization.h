@@ -76,6 +76,27 @@ inline constexpr std::array LevelSoundCues{
 // Invalid entries stay silent.
 using FLevelSounds = std::array<FAssetId, LevelSoundCues.size()>;
 
+// Particle systems gameplay plays for its own events, in the order of ELevelEffect.
+enum class ELevelEffect : std::uint8_t
+{
+	Impact,
+	Break,
+	Land,
+	Slice,
+	Sever,
+};
+
+inline constexpr std::array LevelEffectCues{
+    FLevelSoundCue{.Key = "impact", .Label = "Impact"},
+    FLevelSoundCue{.Key = "break", .Label = "Break"},
+    FLevelSoundCue{.Key = "land", .Label = "Land"},
+    FLevelSoundCue{.Key = "slice", .Label = "Slice"},
+    FLevelSoundCue{.Key = "sever", .Label = "Sever"},
+};
+
+// Invalid entries show nothing.
+using FLevelEffects = std::array<FAssetId, LevelEffectCues.size()>;
+
 struct FLevelDocument
 {
 	FObjectId Id;
@@ -88,6 +109,7 @@ struct FLevelDocument
 	// The skinned model the player plays as; invalid plays the bare capsule.
 	FAssetId PlayerCharacter{};
 	FLevelSounds Sounds{};
+	FLevelEffects Effects{};
 };
 
 [[nodiscard]] std::expected<void, FLevelError> ValidateLevelCameraBookmarks(std::span<const FLevelCameraBookmark> Bookmarks);

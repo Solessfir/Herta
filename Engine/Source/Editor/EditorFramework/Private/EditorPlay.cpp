@@ -212,6 +212,18 @@ void FEditorFramework::FImplementation::TogglePlay()
 	}
 
 	(*Session)->SetLevelSounds(Level->GetSounds());
+	(*Session)->SetLevelEffects(Level->GetEffects());
+	for (const FAssetId& System : (*Session)->GetParticleSystems())
+	{
+		const FPreviewMeshSlot* const Slot = Assets->GetCachedAsset(System);
+		if (Slot && Slot->ParticleSystem)
+		{
+			if (auto Added = (*Session)->AddParticleSystem(System, Slot->ParticleSystem); !Added)
+			{
+				HERTA_LOG_WARNING(*Log, EditorLog, "{} will not play: {}", Slot->Label, Added.error().Message);
+			}
+		}
+	}
 
 	for (const std::string& Warning : (*Session)->GetWarnings())
 	{
@@ -749,6 +761,8 @@ std::string FEditorFramework::FImplementation::DescribePlay() const
 		const FGameObjective& Objective = PlaySession->GetObjective();
 		Output += std::format(", \"objective\": {{\"state\": {}, \"seconds\": {:.3f}}}", static_cast<int>(Objective.State), Objective.ElapsedSeconds);
 		Output += std::format(", \"characters\": {}, \"cuts\": {}, \"cutPieces\": {}", PlaySession->GetCharacterCount(), PlaySession->GetCutCount(), PlaySession->GetCutPieceCount());
+		const FParticleStats Particles = PlaySession->GetParticleStats();
+		Output += std::format(", \"particles\": {{\"effects\": {}, \"live\": {}, \"spawned\": {}, \"dropped\": {}, \"retired\": {}, \"collisions\": {}}}", Particles.Effects, Particles.Particles, Particles.Spawned, Particles.Dropped, Particles.EffectsRetired, Particles.Collisions);
 	}
 
 	if (Audio)

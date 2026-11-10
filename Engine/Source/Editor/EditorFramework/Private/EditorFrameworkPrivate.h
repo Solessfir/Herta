@@ -293,6 +293,7 @@ struct FEditorFramework::FImplementation
 	// The level's player character, chosen from the models in content.
 	void DrawPlayerCharacterPicker(float ValueWidth);
 	void DrawLevelSoundPickers(float ValueWidth);
+	void DrawLevelEffectPickers(float ValueWidth);
 	void FocusPreview();
 	void RefreshPreviewMeshes();
 	[[nodiscard]] const FRenderMesh* RefreshSoftBodyPreview(std::size_t Index, const FLevelEntity& Entity);
@@ -481,6 +482,8 @@ struct FEditorFramework::FImplementation
 	std::vector<std::string> EnvironmentLabels;
 	std::vector<FAssetId> SoundIds;
 	std::vector<std::string> SoundLabels;
+	std::vector<FAssetId> EffectIds;
+	std::vector<std::string> EffectLabels;
 	FPreviewSelection PreviewSelection;
 	std::optional<Im3d::Mat4> PreviewDragStart;
 	bool bDuplicateOnDrag = false;

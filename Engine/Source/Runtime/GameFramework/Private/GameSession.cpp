@@ -15,6 +15,7 @@
 #include <functional>
 #include <map>
 #include <numbers>
+#include <tuple>
 #include <utility>
 
 namespace Herta
@@ -204,6 +205,10 @@ struct FGameSession::FImplementation
 	[[nodiscard]] std::expected<void, FPhysicsError> Respawn(FPhysicsWorld& World);
 	// Foot is the capsule's; BodyFoot is where the body is drawn, which differs while a climb clip lifts its own root.
 	[[nodiscard]] FVector3 GetCameraPosition(const FVector3& Foot, const FVector3& BodyFoot);
+	void RequestEffect(ELevelEffect Cue, const FVector3& Position, const FVector3& Up = {0.f, 1.f, 0.f}, float Scale = 1.f);
+	// Starts the sorted requests, moves emitters with their entities, and steps every particle against the physics world.
+	void UpdateEffects(float DeltaSeconds);
+	void StartEmitters();
 	// The player's sounds, moving emitters, and the listener, after everything else in the update.
 	void UpdateAudio(bool bJumped);
 
@@ -281,6 +286,22 @@ struct FGameSession::FImplementation
 	FGameObjective Objective{};
 	std::vector<std::string> Events{};
 	FGameAudio Audio{};
+
+	// Effects spawn from requests gathered through the update and sorted before they start, so their order, and the particles' random
+	// streams, never depend on which system asked first.
+	struct FEffectRequest
+	{
+		ELevelEffect Cue = ELevelEffect::Impact;
+		FVector3 Position{};
+		FVector3 Up{0.f, 1.f, 0.f};
+		float Scale = 1.f;
+	};
+
+	FParticleWorld Particles{};
+	FLevelEffects Effects{};
+	std::vector<FEffectRequest> EffectRequests{};
+	// Auto-play Particle Emitters and the effect each started, which follows its entity.
+	std::vector<std::pair<std::size_t, FParticleEffectId>> EmitterEffects{};
 
 	// The animated body, its facing, and the third-person camera.
 	std::unique_ptr<FPlayerCharacter> Body{};
@@ -586,6 +607,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	Objective.State = StartZone && FinishZone ? EGameObjectiveState::Ready : EGameObjectiveState::Exploring;
 	Objective.ElapsedSeconds = 0.;
 	Audio.Start(Entities, AuthoredWorld);
+	StartEmitters();
 	for (FSoftBodyMesh& SoftBody : SoftBodies)
 	{
 		SoftBody.Revision = 0;
@@ -846,6 +868,7 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 	{
 		Session.Events.push_back(std::format("{} broke ({} bonds)", Session.Entities[Break.ObjectIndex].Name, Break.BrokenBonds));
 		Session.Audio.Play(ELevelSound::Impact, Break.Point, {{.Name = "Impulse", .Value = MaximumImpactImpulse}});
+		Session.RequestEffect(ELevelEffect::Break, Break.Point);
 	}
 
 	// The hardest few impacts of the frame sound; the rest would be masked by them anyway.
@@ -860,6 +883,9 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 	for (const FLevelImpactEvent& Impact : Impacts)
 	{
 		Session.Audio.Play(ELevelSound::Impact, Impact.Point, {{.Name = "Impulse", .Value = std::min(Impact.Impulse, MaximumImpactImpulse)}});
+		// Harder hits throw a bigger cloud, up to twice the authored size.
+		const FVector3 Up = Impact.Normal.Y < 0.f ? -Impact.Normal : Impact.Normal;
+		Session.RequestEffect(ELevelEffect::Impact, Impact.Point, Up, std::clamp(Impact.Impulse / 20.f, 0.5f, 2.f));
 	}
 
 	for (const FLevelTriggerEvent& Event : Session.Simulation.TakeTriggerEvents())
@@ -889,6 +915,7 @@ std::expected<void, FGameError> FGameSession::Update(const float DeltaSeconds, c
 	}
 
 	Session.UpdateAudio(bJumped);
+	Session.UpdateEffects(DeltaSeconds);
 
 	if (FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld())
 	{
@@ -1108,6 +1135,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade()
 		if (*Cut)
 		{
 			Audio.Play(ELevelSound::Slice, (Blade[0] + Blade[1]) * 0.5f);
+			RequestEffect(ELevelEffect::Slice, (Blade[0] + Blade[1]) * 0.5f, Unit);
 		}
 	}
 
@@ -1134,6 +1162,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade()
 		}
 
 		Audio.Play(ELevelSound::Slice, (Blade[0] + Blade[1]) * 0.5f);
+		RequestEffect(ELevelEffect::Slice, (Blade[0] + Blade[1]) * 0.5f, Unit);
 		// The cut piece is gone and its two halves were appended; neither is cut again this swing, and Index now names the next piece.
 		for (std::size_t Added = Pieces.size() - std::min<std::size_t>(Pieces.size(), 2); Added < Pieces.size(); ++Added)
 		{
@@ -1238,6 +1267,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 				if (*Severed)
 				{
 					Audio.Play(ELevelSound::Sever, Transform->Position);
+					RequestEffect(ELevelEffect::Sever, Transform->Position, -Velocity->Normalized());
 				}
 			}
 
@@ -1644,9 +1674,99 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	    .Visuals = Visuals,
 	    .VertexUpdates = Session.VertexUpdates,
 	    .Visibility = Session.Visibility,
+	    .Particles = Session.Particles.GetRenderParticles(),
 	};
 
 	return Session.View;
+}
+
+void FGameSession::FImplementation::RequestEffect(const ELevelEffect Cue, const FVector3& Position, const FVector3& Up, const float Scale)
+{
+	if (Effects[static_cast<std::size_t>(Cue)].IsValid())
+	{
+		EffectRequests.push_back({.Cue = Cue, .Position = Position, .Up = Up, .Scale = Scale});
+	}
+}
+
+void FGameSession::FImplementation::StartEmitters()
+{
+	Particles.Clear();
+	EffectRequests.clear();
+	EmitterEffects.clear();
+	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
+	{
+		const auto& Emitter = Entities[Index].ParticleEmitter;
+		if (!Emitter || !Emitter->bAutoPlay || !Emitter->System.IsValid())
+		{
+			continue;
+		}
+
+		const FMatrix4& Model = AuthoredWorld[Index];
+		if (const auto Effect = Particles.Spawn(Emitter->System, GetTranslation(Model), Model.TransformVector(FVector3::Up()).Normalized(), Emitter->Scale))
+		{
+			EmitterEffects.emplace_back(Index, *Effect);
+		}
+	}
+}
+
+void FGameSession::FImplementation::UpdateEffects(const float DeltaSeconds)
+{
+	// Emitters whose systems arrived after the session started begin now.
+	if (EmitterEffects.size() != static_cast<std::size_t>(std::ranges::count_if(Entities, [this](const FLevelEntity& Entity)
+	    {
+		    return Entity.ParticleEmitter && Entity.ParticleEmitter->bAutoPlay && Particles.HasSystem(Entity.ParticleEmitter->System);
+	    })))
+	{
+		for (std::size_t Index = 0; Index < Entities.size(); ++Index)
+		{
+			const auto& Emitter = Entities[Index].ParticleEmitter;
+			if (Emitter && Emitter->bAutoPlay && !std::ranges::contains(EmitterEffects, Index, &std::pair<std::size_t, FParticleEffectId>::first))
+			{
+				const FMatrix4& Model = AuthoredWorld[Index];
+				if (const auto Effect = Particles.Spawn(Emitter->System, GetTranslation(Model), Model.TransformVector(FVector3::Up()).Normalized(), Emitter->Scale))
+				{
+					EmitterEffects.emplace_back(Index, *Effect);
+				}
+			}
+		}
+	}
+
+	std::ranges::stable_sort(EffectRequests, [](const FEffectRequest& Left, const FEffectRequest& Right)
+	{
+		return std::tuple(Left.Cue, Left.Position.X, Left.Position.Y, Left.Position.Z) < std::tuple(Right.Cue, Right.Position.X, Right.Position.Y, Right.Position.Z);
+	});
+
+	for (const FEffectRequest& Request : EffectRequests)
+	{
+		(void)Particles.Spawn(Effects[static_cast<std::size_t>(Request.Cue)], Request.Position, Request.Up, Request.Scale);
+	}
+
+	EffectRequests.clear();
+	if (!EmitterEffects.empty())
+	{
+		BuildModels();
+		for (const auto& [Entity, Effect] : EmitterEffects)
+		{
+			Particles.Move(Effect, GetTranslation(Models[Entity]));
+		}
+	}
+
+	FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
+	Particles.Update(DeltaSeconds, [World](const FVector3& From, const FVector3& To) -> std::optional<FParticleHit>
+	{
+		if (!World)
+		{
+			return std::nullopt;
+		}
+
+		const auto Hit = World->CastSphereHit(World->ToWorld(From), World->ToWorld(To), 0.01f);
+		if (!Hit)
+		{
+			return std::nullopt;
+		}
+
+		return FParticleHit{.Position = From + (To - From) * Hit->Fraction, .Normal = Hit->Normal};
+	});
 }
 
 void FGameSession::FImplementation::UpdateAudio(const bool bJumped)
@@ -1668,6 +1788,7 @@ void FGameSession::FImplementation::UpdateAudio(const bool bJumped)
 		else if (Event == "Land")
 		{
 			Audio.Play(ELevelSound::Land, Foot, {{.Name = "Speed", .Value = Speed}});
+			RequestEffect(ELevelEffect::Land, Foot);
 		}
 		else if (Event == "SwingStart")
 		{
@@ -2104,6 +2225,51 @@ std::expected<std::vector<std::string>, FGameError> FGameSession::ApplySave(cons
 	Session.Objective.Respawns = Save.Respawns;
 	Session.Events.push_back("Save loaded");
 	return Skipped;
+}
+
+void FGameSession::SetLevelEffects(const FLevelEffects& Effects)
+{
+	Implementation->Effects = Effects;
+}
+
+std::vector<FAssetId> FGameSession::GetParticleSystems() const
+{
+	std::vector<FAssetId> Systems;
+	for (const FAssetId& Effect : Implementation->Effects)
+	{
+		if (Effect.IsValid())
+		{
+			Systems.push_back(Effect);
+		}
+	}
+
+	for (const FLevelEntity& Entity : Implementation->Entities)
+	{
+		if (Entity.ParticleEmitter && Entity.ParticleEmitter->System.IsValid())
+		{
+			Systems.push_back(Entity.ParticleEmitter->System);
+		}
+	}
+
+	std::ranges::sort(Systems);
+	const auto Duplicates = std::ranges::unique(Systems);
+	Systems.erase(Duplicates.begin(), Duplicates.end());
+	return Systems;
+}
+
+std::expected<void, FGameError> FGameSession::AddParticleSystem(const FAssetId& Id, std::shared_ptr<const FCookedParticleSystem> System)
+{
+	if (auto Added = Implementation->Particles.AddSystem(Id, std::move(System)); !Added)
+	{
+		return std::unexpected(FGameError{Added.error().Message});
+	}
+
+	return {};
+}
+
+FParticleStats FGameSession::GetParticleStats() const
+{
+	return Implementation->Particles.GetStats();
 }
 
 void FGameSession::SetLevelSounds(const FLevelSounds& Sounds)

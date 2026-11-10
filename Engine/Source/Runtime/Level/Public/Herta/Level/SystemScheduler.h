@@ -7,7 +7,7 @@
 
 namespace Herta
 {
-enum class ELevelComponent : std::uint16_t
+enum class ELevelComponent : std::uint32_t
 {
 	None = 0,
 	Name = 1 << 0,
@@ -26,7 +26,8 @@ enum class ELevelComponent : std::uint16_t
 	Character = 1 << 13,
 	AudioEmitter = 1 << 14,
 	AudioListener = 1 << 15,
-	All = (1 << 16) - 1,
+	ParticleEmitter = 1 << 16,
+	All = (1 << 17) - 1,
 };
 
 constexpr ELevelComponent operator|(const ELevelComponent Left, const ELevelComponent Right)
@@ -91,6 +92,7 @@ struct FLevelQueryEntity
 	std::optional<FCharacterComponent> Character{};
 	std::optional<FAudioEmitterComponent> AudioEmitter{};
 	std::optional<FAudioListenerComponent> AudioListener{};
+	std::optional<FParticleEmitterComponent> ParticleEmitter{};
 };
 
 struct FLevelComponentUpdate
@@ -112,6 +114,7 @@ struct FLevelComponentUpdate
 	std::optional<std::optional<FCharacterComponent>> Character{};
 	std::optional<std::optional<FAudioEmitterComponent>> AudioEmitter{};
 	std::optional<std::optional<FAudioListenerComponent>> AudioListener{};
+	std::optional<std::optional<FParticleEmitterComponent>> ParticleEmitter{};
 };
 
 struct FLevelEvent

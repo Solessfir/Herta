@@ -248,6 +248,17 @@ struct FAudioEmitterComponent
 	float MaximumDistance = 30.f;
 };
 
+// Plays a particle system from the entity during Play, following it as it moves. Auto-play emitters start with Play.
+struct FParticleEmitterComponent
+{
+	constexpr bool operator==(const FParticleEmitterComponent&) const = default;
+
+	FAssetId System{};
+	bool bAutoPlay = true;
+	// Scales the system's speeds, sizes, and spawn radius.
+	float Scale = 1.f;
+};
+
 // Hears the level from the entity instead of the camera during Play, such as for a fixed camera. The active listener with the lowest ID wins.
 struct FAudioListenerComponent
 {
@@ -328,6 +339,7 @@ struct FLevelEntity
 	std::optional<FCharacterComponent> Character{};
 	std::optional<FAudioEmitterComponent> AudioEmitter{};
 	std::optional<FAudioListenerComponent> AudioListener{};
+	std::optional<FParticleEmitterComponent> ParticleEmitter{};
 };
 
 struct FLevelEntityChange
@@ -353,6 +365,7 @@ struct FLevelError
 [[nodiscard]] std::expected<void, FLevelError> ValidateDestructibleComponent(const FDestructibleComponent& Destructible);
 [[nodiscard]] std::expected<void, FLevelError> ValidateCharacterComponent(const FCharacterComponent& Character);
 [[nodiscard]] std::expected<void, FLevelError> ValidateAudioEmitterComponent(const FAudioEmitterComponent& Emitter);
+[[nodiscard]] std::expected<void, FLevelError> ValidateParticleEmitterComponent(const FParticleEmitterComponent& Emitter);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final

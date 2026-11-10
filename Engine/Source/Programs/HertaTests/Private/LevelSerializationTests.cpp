@@ -92,10 +92,21 @@ std::string WithoutSounds(std::string Text)
 	return Text;
 }
 
+// Schema 14 always writes the level's effects; older schemas must not contain them.
+std::string WithoutEffects(std::string Text)
+{
+	const std::size_t Field = Text.find(",\n  \"effects\": {");
+	REQUIRE(Field != std::string::npos);
+	const std::size_t End = Text.find("\n  }", Field);
+	REQUIRE(End != std::string::npos);
+	Text.erase(Field, End + 4 - Field);
+	return Text;
+}
+
 // Schema 9 always writes exposure compensation and schema 11 the player character; older schemas must not contain them.
 std::string WithSchema(std::string Text, const int Version)
 {
-	Text = WithoutSounds(ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 13", "\"engineSchemaVersion\": " + std::to_string(Version)));
+	Text = WithoutSounds(WithoutEffects(ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 14", "\"engineSchemaVersion\": " + std::to_string(Version))));
 
 	for (const std::string_view Key : {",\n  \"playerCharacter\": ", ",\n  \"exposureCompensation\": "})
 	{
@@ -173,7 +184,7 @@ TEST_CASE("Levels round-trip in canonical sorted UTF-8 JSON")
 	CHECK(Serialized->find('\r') == std::string::npos);
 	CHECK(Serialized->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Serialized->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Serialized->find("\"engineSchemaVersion\": 13") != std::string::npos);
+	CHECK(Serialized->find("\"engineSchemaVersion\": 14") != std::string::npos);
 	CHECK(Serialized->find("\"folders\": []") != std::string::npos);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"format\":", "\"magic\":")));
 	CHECK(Serialized->find("\"rotation\": [") != std::string::npos);
@@ -246,7 +257,7 @@ TEST_CASE("Schema 1 body types migrate to canonical schema 3 settings and empty 
 	REQUIRE(Canonical);
 	CHECK(Canonical->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Canonical->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Canonical->find("\"engineSchemaVersion\": 13") != std::string::npos);
+	CHECK(Canonical->find("\"engineSchemaVersion\": 14") != std::string::npos);
 	CHECK(Canonical->find("\"folders\": []") != std::string::npos);
 	CHECK(Canonical->find("\"massKg\": 1") != std::string::npos);
 	CHECK(Canonical->find("\"gravityScale\": 1") != std::string::npos);
@@ -348,7 +359,7 @@ TEST_CASE("Levels reject unsupported versions, malformed input, and unknown data
 	    ReplaceLevelText(*Serialized, "\"HertaLevel\"", "\"OtherLevel\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 0"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 3"),
-	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 13", "\"engineSchemaVersion\": 14"),
+	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 14", "\"engineSchemaVersion\": 15"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 1.5"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": \"2\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": true"),
@@ -719,7 +730,7 @@ TEST_CASE("Visual level components and material slots have deterministic schema 
 	Document.Entities[1].HeightFog = FHeightFogComponent{.Density = 0.04f, .Albedo = {0.5f, 0.8f, 1.f}, .Quality = EFogQuality::High};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
-	CHECK(Text->find("\"engineSchemaVersion\": 13") != std::string::npos);
+	CHECK(Text->find("\"engineSchemaVersion\": 14") != std::string::npos);
 	CHECK(Text->find("\"materials\": [\"" + FAssetId{8, 1}.ToString() + "\", null,") != std::string::npos);
 	const auto Restored = ParseLevel(*Text);
 	REQUIRE(Restored);
@@ -782,7 +793,7 @@ TEST_CASE("Exposure compensation persists from schema nine and defaults to zero 
 	const auto Older = ParseLevel(WithSchema(*Text, 8));
 	REQUIRE(Older);
 	CHECK(Older->ExposureCompensation == 0.f);
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 13", "\"engineSchemaVersion\": 8")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 14", "\"engineSchemaVersion\": 8")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, ",\n  \"exposureCompensation\": -2", "")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"exposureCompensation\": -2", "\"exposureCompensation\": -6")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"exposureCompensation\": -2", "\"exposureCompensation\": \"-2\"")));
@@ -1021,7 +1032,7 @@ TEST_CASE("The player character is saved, cleared to null, and absent before sch
 	CHECK_FALSE(ParseLevel(*Cleared)->PlayerCharacter.IsValid());
 
 	// Schema 10 has no player character and loads without one; schema 11 requires the field.
-	std::string Older = WithoutSounds(ReplaceLevelText(*Cleared, "\"engineSchemaVersion\": 13", "\"engineSchemaVersion\": 10"));
+	std::string Older = WithoutSounds(WithoutEffects(ReplaceLevelText(*Cleared, "\"engineSchemaVersion\": 14", "\"engineSchemaVersion\": 10")));
 	CHECK_FALSE(ParseLevel(Older));
 	const std::size_t Field = Older.find(",\n  \"playerCharacter\": ");
 	REQUIRE(Field != std::string::npos);
@@ -1032,14 +1043,16 @@ TEST_CASE("The player character is saved, cleared to null, and absent before sch
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"playerCharacter\": \"", "\"playerCharacter\": \"bad-")));
 }
 
-TEST_CASE("Level sounds and audio components persist from schema thirteen")
+TEST_CASE("Level sounds, effects, and audio and particle components persist from schemas thirteen and fourteen")
 {
 	FLevelDocument Document{.Id = FObjectId{9, 1}, .Name = "Audio"};
 	Document.Sounds[static_cast<std::size_t>(ELevelSound::Impact)] = FAssetId{9, 3};
 	Document.Sounds[static_cast<std::size_t>(ELevelSound::Footstep)] = FAssetId{9, 4};
+	Document.Effects[static_cast<std::size_t>(ELevelEffect::Sever)] = FAssetId{9, 8};
 	Document.Entities = {
 	    FLevelEntity{.Id = FObjectId{9, 5}, .Name = "Speaker", .AudioEmitter = FAudioEmitterComponent{.Sound = FAssetId{9, 6}, .Volume = 0.5f, .Pitch = 1.25f, .bAutoPlay = false, .bSpatial = true, .MinimumDistance = 2.f, .MaximumDistance = 20.f}},
 	    FLevelEntity{.Id = FObjectId{9, 7}, .Name = "Ears", .AudioListener = FAudioListenerComponent{.bActive = false}},
+	    FLevelEntity{.Id = FObjectId{9, 9}, .Name = "Embers", .ParticleEmitter = FParticleEmitterComponent{.System = FAssetId{9, 10}, .bAutoPlay = false, .Scale = 2.f}},
 	};
 
 	const auto Text = SerializeLevel(Document);
@@ -1049,6 +1062,7 @@ TEST_CASE("Level sounds and audio components persist from schema thirteen")
 	const auto Loaded = ParseLevel(*Text);
 	REQUIRE(Loaded);
 	CHECK(Loaded->Sounds == Document.Sounds);
+	CHECK(Loaded->Effects == Document.Effects);
 	CHECK(Loaded->Entities == Document.Entities);
 	CHECK(SerializeLevel(*Loaded).value_or(std::string()) == *Text);
 
@@ -1057,12 +1071,13 @@ TEST_CASE("Level sounds and audio components persist from schema thirteen")
 	Plain.Entities.clear();
 	const auto PlainText = SerializeLevel(Plain);
 	REQUIRE(PlainText);
-	const auto Older = ParseLevel(WithoutSounds(ReplaceLevelText(*PlainText, "\"engineSchemaVersion\": 13", "\"engineSchemaVersion\": 12")));
+	const auto Older = ParseLevel(WithoutSounds(WithoutEffects(ReplaceLevelText(*PlainText, "\"engineSchemaVersion\": 14", "\"engineSchemaVersion\": 12"))));
 	REQUIRE(Older);
 	CHECK(std::ranges::none_of(Older->Sounds, &FAssetId::IsValid));
 	CHECK_FALSE(ParseLevel(WithoutSounds(*PlainText)));
+	CHECK_FALSE(ParseLevel(WithoutEffects(*PlainText)));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*PlainText, ",\n    \"slide\": null", "")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 13", "\"engineSchemaVersion\": 12")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 14", "\"engineSchemaVersion\": 12")));
 
 	FLevelEntity Invalid = Document.Entities[0];
 	Invalid.AudioEmitter->MaximumDistance = 1.f;

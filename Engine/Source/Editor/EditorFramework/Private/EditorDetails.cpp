@@ -125,6 +125,59 @@ void FEditorFramework::FImplementation::DrawLevelSoundPickers(const float ValueW
 	}
 }
 
+void FEditorFramework::FImplementation::DrawLevelEffectPickers(const float ValueWidth)
+{
+	if (!Level || !Assets)
+	{
+		return;
+	}
+
+	for (std::size_t Cue = 0; Cue < LevelEffectCues.size(); ++Cue)
+	{
+		const FAssetId Current = Level->GetEffects()[Cue];
+		std::string CurrentLabel = Current.IsValid() ? "Missing particle system" : "None";
+		for (std::size_t Option = 0; Option < EffectIds.size(); ++Option)
+		{
+			if (EffectIds[Option] == Current)
+			{
+				CurrentLabel = EffectLabels[Option];
+			}
+		}
+
+		ImGui::PushID(static_cast<int>(Cue));
+		DrawFieldLabel(LevelEffectCues[Cue].Label.data(), ValueWidth);
+		ImGui::SetNextItemWidth(-FLT_MIN);
+		std::optional<FAssetId> Chosen;
+		if (ImGui::BeginCombo("##Effect", CurrentLabel.c_str()))
+		{
+			if (ImGui::Selectable("None", !Current.IsValid()) && Current.IsValid())
+			{
+				Chosen = FAssetId{};
+			}
+
+			for (std::size_t Option = 0; Option < EffectIds.size(); ++Option)
+			{
+				if (ImGui::Selectable(EffectLabels[Option].c_str(), EffectIds[Option] == Current) && EffectIds[Option] != Current)
+				{
+					Chosen = EffectIds[Option];
+				}
+			}
+
+			ImGui::EndCombo();
+		}
+
+		ImGui::SetItemTooltip("Saved with the level. Play spawns this VFX Graph for the event");
+		ImGui::PopID();
+		if (Chosen)
+		{
+			if (const auto Changed = Level->SetEffect(static_cast<ELevelEffect>(Cue), *Chosen); !Changed)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not change the {} effect: {}", LevelEffectCues[Cue].Label, Changed.error().Message);
+			}
+		}
+	}
+}
+
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	FPreviewObject PreviousObject = GetActivePreviewObject();
@@ -132,13 +185,13 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();
-	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels, .SoundIds = SoundIds, .SoundLabels = SoundLabels};
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels, .SoundIds = SoundIds, .SoundLabels = SoundLabels, .EffectIds = EffectIds, .EffectLabels = EffectLabels};
 	std::vector<FDetailsMaterialSlot> MaterialSlots;
 	std::vector<FAssetId> MaterialIds;
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 11> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 12> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -210,6 +263,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(8, ELevelComponentType::Character, Entity->Character.has_value(), Components.bAnyCharacter, Components.bAllCharacter, Components.MixedCharacter);
 			Aggregate(9, ELevelComponentType::AudioEmitter, Entity->AudioEmitter.has_value(), Components.bAnyAudioEmitter, Components.bAllAudioEmitter, Components.MixedAudioEmitter);
 			Aggregate(10, ELevelComponentType::AudioListener, Entity->AudioListener.has_value(), Components.bAnyAudioListener, Components.bAllAudioListener, Components.MixedAudioListener);
+			Aggregate(11, ELevelComponentType::ParticleEmitter, Entity->ParticleEmitter.has_value(), Components.bAnyParticleEmitter, Components.bAllParticleEmitter, Components.MixedParticleEmitter);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -324,6 +378,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[10])
 	{
 		Components.AudioListener = *VisualBaselines[10]->AudioListener;
+	}
+
+	if (VisualBaselines[11])
+	{
+		Components.ParticleEmitter = *VisualBaselines[11]->ParticleEmitter;
 	}
 
 	if (VisualBaselines[5])
@@ -602,6 +661,12 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveAudioListener:
 				ReportLevelResult(Level->SetSelectedAudioListener(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddParticleEmitter:
+				ReportLevelResult(Level->AddParticleEmitterToSelected());
+				break;
+			case EDetailsComponentAction::RemoveParticleEmitter:
+				ReportLevelResult(Level->SetSelectedParticleEmitter(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;
