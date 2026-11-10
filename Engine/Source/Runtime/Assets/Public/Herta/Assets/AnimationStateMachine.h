@@ -58,6 +58,11 @@ struct FAnimationStateDesc
 	bool bLoop = true;
 	float Speed = 1.f;
 	std::vector<FAnimationEventDesc> Events{};
+	// Plays its clips backwards, such as a walk played as a backpedal.
+	bool bReverse = false;
+	// Moves only the upper body while the character moves: the legs keep playing the state before it, so a swing walks. Standing still, the state
+	// plays on the whole body.
+	bool bUpperBody = false;
 };
 
 enum class EAnimationCondition : std::uint8_t

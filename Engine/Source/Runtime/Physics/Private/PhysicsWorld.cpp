@@ -1450,7 +1450,7 @@ std::optional<FPhysicsCastHit> FPhysicsWorld::CastSphereHit(const FWorldPosition
 	// The penetration axis points from the sphere into what it hit, so the surface faces the other way.
 	const JPH::Vec3 Axis = Collector.mHit.mPenetrationAxis;
 	const FVector3 Normal = Axis.LengthSq() > 1.e-12f ? -ToHerta(Axis.Normalized()) : -Direction.Normalized();
-	return FPhysicsCastHit{.Fraction = std::clamp(Collector.mHit.mFraction, 0.f, 1.f), .Normal = Normal};
+	return FPhysicsCastHit{.Fraction = std::clamp(Collector.mHit.mFraction, 0.f, 1.f), .Normal = Normal, .Body = FPhysicsBodyId{Collector.mHit.mBodyID2.GetIndexAndSequenceNumber()}};
 }
 
 FVector3 FPhysicsWorld::ToPhysics(const FWorldPosition& Position) const

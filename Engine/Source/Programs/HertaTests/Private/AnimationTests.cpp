@@ -1406,4 +1406,147 @@ TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee 
 	CHECK_FALSE(Guard().bAttacking);
 	CHECK(Guard().bRemembersPlayer);
 }
+
+TEST_CASE("Upper-body states keep the legs on the state before them while moving, and reversed states play backwards")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+
+	const FAnimationStateMachineDesc Desc{
+	    .Parameters = {{.Name = "Speed", .Type = EAnimationParameterType::Float}, {.Name = "Attack", .Type = EAnimationParameterType::Trigger}, {.Name = "Back", .Type = EAnimationParameterType::Bool}},
+	    .States = {
+	        {.Name = "Locomotion", .Samples = {{.Clip = "Idle_Loop", .Position = 0.f}, {.Clip = "Walk_Loop", .Position = 2.f}}, .BlendParameter = 0},
+	        {.Name = "Swing", .Samples = {{.Clip = "Sword_Regular_A"}}, .bLoop = false, .bUpperBody = true},
+	        {.Name = "Backpedal", .Samples = {{.Clip = "Walk_Loop"}}, .bReverse = true},
+	    },
+	    .Transitions = {
+	        {.From = AnyAnimationState, .To = 1, .DurationSeconds = 0.f, .Conditions = {{.Parameter = 1, .Test = EAnimationCondition::Triggered}}},
+	        {.From = 0, .To = 2, .DurationSeconds = 0.f, .Conditions = {{.Parameter = 2, .Test = EAnimationCondition::IsTrue}}},
+	        {.From = 1, .To = 0, .DurationSeconds = 0.f, .bAtEnd = true},
+	    },
+	};
+
+	auto Machine = FAnimationStateMachine::Create(Desc, **Library);
+	REQUIRE(Machine);
+	const std::size_t Walk = *(*Library)->FindClip("Walk_Loop");
+	const std::size_t Swing = *(*Library)->FindClip("Sword_Regular_A");
+
+	// Standing still, the swing plays on the whole body.
+	Machine->SetTrigger(1);
+	Machine->Update(0.1f);
+	REQUIRE(Machine->GetActiveState() == 1);
+	REQUIRE(Machine->GetLayers().size() == 1);
+	CHECK(Machine->GetLayers()[0].LowerBodyWeight == 1.f);
+
+	// Walking, the swing keeps the arms and the walk keeps the legs.
+	Machine->SetFloat(0, 2.f);
+	Machine->Update(0.1f);
+	REQUIRE(Machine->GetLayers().size() == 2);
+	CHECK(Machine->GetLayers()[0].Clip == Swing);
+	CHECK(Machine->GetLayers()[0].LowerBodyWeight == 0.f);
+	CHECK(Machine->GetLayers()[1].Clip == Walk);
+	CHECK(Machine->GetLayers()[1].UpperBodyWeight == 0.f);
+	CHECK(Machine->GetLayers()[1].LowerBodyWeight == 1.f);
+	FAnimationPose Pose(*Library);
+	CHECK(Pose.Evaluate(Machine->GetLayers()));
+
+	// A reversed state starts at the clip's end and runs toward its start.
+	FAnimationStateMachineDesc Backward = Desc;
+	Backward.Transitions.erase(Backward.Transitions.begin());
+	auto Pedal = FAnimationStateMachine::Create(Backward, **Library);
+	REQUIRE(Pedal);
+	Pedal->SetBool(2, true);
+	Pedal->Update(0.f);
+	Pedal->Update(0.1f);
+	REQUIRE(Pedal->GetActiveState() == 2);
+	REQUIRE(Pedal->GetLayers().size() == 1);
+	const float First = Pedal->GetLayers()[0].TimeSeconds;
+	Pedal->Update(0.1f);
+	CHECK(Pedal->GetLayers()[0].TimeSeconds < First);
+}
+
+TEST_CASE("Near a guard the player faces it and backpedals, steps into swings, bounces off walls, and is deflected for mashing into a guard")
+{
+	const FDummyGameAssets Assets;
+	constexpr FAssetId GuardTree{9, 9};
+	FLevelDocument Level{.Id = FObjectId{1, 1}, .Name = "Duel"};
+	Level.Entities = {
+	    FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Floor", .Transform = {.Translation = FWorldPosition{{0., -0.5, 0.}}, .Scale = {40.f, 1.f, 40.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    FLevelEntity{.Id = FObjectId{1, 3}, .Name = "Bounds", .NavigationBounds = FNavigationBoundsComponent{.Size = {40.f, 6.f, 40.f}}},
+	    FLevelEntity{.Id = FObjectId{1, 4}, .Name = "Guard", .Transform = {.Translation = FWorldPosition{{0., 0., 3.}}, .Rotation = FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, std::numbers::pi_v<float>)}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{7, 7}}, .Character = FCharacterComponent{}, .AiAgent = FAiAgentComponent{.StateTree = GuardTree, .SightRange = 20.f}},
+	    FLevelEntity{.Id = FObjectId{1, 5}, .Name = "Wall", .Transform = {.Translation = FWorldPosition{{-14., 1., 0.}}, .Scale = {1.f, 2.f, 6.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	};
+
+	const auto Navigation = BuildLevelNavigation(Level, {}, [](const FAssetId&)
+	{
+		return std::optional<FNavigationBox>{};
+	});
+
+	REQUIRE(Navigation);
+	REQUIRE(*Navigation);
+	auto Session = FGameSession::Create(Level.Entities, Assets, nullptr, {}, nullptr, Assets.Model);
+	REQUIRE_MESSAGE(Session, (Session ? std::string() : Session.error().Message));
+	// Without its StateTree loaded the guard stands its ground facing the player, so every swing meets its guard.
+	REQUIRE((*Session)->SetNavigation(std::make_shared<const FNavigationFile>(std::move(**Navigation))));
+	std::vector<std::string> Events;
+	const auto Step = [&](const int Frames, const FGameInput& Input = {}, const bool bOnce = false)
+	{
+		for (int Frame = 0; Frame < Frames; ++Frame)
+		{
+			REQUIRE((*Session)->Update(1.f / 60.f, bOnce && Frame > 0 ? FGameInput{} : Input));
+			(void)(*Session)->GetRenderView({320, 180});
+			std::ranges::move((*Session)->TakeEvents(), std::back_inserter(Events));
+		}
+	};
+
+	const auto Contains = [&Events](const std::string_view Text)
+	{
+		return std::ranges::any_of(Events, [Text](const std::string& Event)
+		{
+			return Event.find(Text) != std::string::npos;
+		});
+	};
+
+	const auto Foot = [&]
+	{
+		return (*Session)->GetPlayerFootPosition();
+	};
+
+	// Away from the guard the blade bounces off the wall it swings into.
+	REQUIRE((*Session)->TeleportPlayer({-12.6f, 0.f, 0.f}, -std::numbers::pi_v<float> * 0.5f));
+	Step(30);
+	Step(40, {.bAttack = true}, true);
+	CHECK(Contains("struck a wall"));
+
+	// Walking away from a guard it faces backs off rather than turning around.
+	REQUIRE((*Session)->TeleportPlayer({0.f, 0.f, 0.5f}, 0.f));
+	Step(20);
+	bool bBackpedalled = false;
+	for (int Frame = 0; Frame < 40; ++Frame)
+	{
+		Step(1, {.Move = {0.f, -1.f}});
+		bBackpedalled = bBackpedalled || (*Session)->GetCharacterStateName() == "Backpedal";
+	}
+
+	CHECK(bBackpedalled);
+
+	// A swing a stride short of the guard steps in toward it.
+	REQUIRE((*Session)->TeleportPlayer({0.f, 0.f, 0.6f}, 0.f));
+	Step(5);
+	const float Before = Foot().Z;
+	Step(20, {.bAttack = true}, true);
+	CHECK(Foot().Z > Before + 0.3f);
+
+	// Swinging again and again into its guard, the third swing in a row is deflected.
+	Events.clear();
+	for (int Swing = 0; Swing < 30 && !Contains("deflected the player"); ++Swing)
+	{
+		Step(24, {.bAttack = true}, true);
+	}
+
+	CHECK(Contains("blocked the player"));
+	CHECK(Contains("deflected the player"));
+	CHECK((*Session)->GetCombatView().Posture > 0.f);
+}
 }

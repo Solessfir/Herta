@@ -29,6 +29,8 @@ const std::array StateProperties{
     FGraphPropertyDescriptor{.Key = "loop", .Name = "Loop", .Default = true},
     FGraphPropertyDescriptor{.Key = "speed", .Name = "Speed", .Default = 1.f},
     FGraphPropertyDescriptor{.Key = "events", .Name = "Events", .Default = std::string()},
+    FGraphPropertyDescriptor{.Key = "reverse", .Name = "Reverse", .Default = false},
+    FGraphPropertyDescriptor{.Key = "upperBody", .Name = "Upper Body", .Default = false},
 };
 const std::array TransitionProperties{
     FGraphPropertyDescriptor{.Key = "priority", .Name = "Priority", .Default = std::int32_t{0}},
@@ -228,7 +230,7 @@ std::expected<FAnimationGraphCompilation, std::vector<FGraphDiagnostic>> Compile
 			continue;
 		}
 
-		FAnimationStateDesc State{.Name = std::get<std::string>(Property(*Node, "name")), .bLoop = std::get<bool>(Property(*Node, "loop")), .Speed = std::get<float>(Property(*Node, "speed"))};
+		FAnimationStateDesc State{.Name = std::get<std::string>(Property(*Node, "name")), .bLoop = std::get<bool>(Property(*Node, "loop")), .Speed = std::get<float>(Property(*Node, "speed")), .bReverse = std::get<bool>(Property(*Node, "reverse")), .bUpperBody = std::get<bool>(Property(*Node, "upperBody"))};
 		if (State.Name.empty() || std::ranges::contains(Machine.States, State.Name, &FAnimationStateDesc::Name))
 		{
 			Fail(Node->Id, std::format("State names must be unique and not empty ('{}')", State.Name));
@@ -464,6 +466,8 @@ FGraph MakeAnimationGraph(const FAnimationStateMachineDesc& StateMachine)
 		Set(Node, "blend", State.BlendParameter ? StateMachine.Parameters[*State.BlendParameter].Name : std::string());
 		Set(Node, "loop", State.bLoop);
 		Set(Node, "speed", State.Speed);
+		Set(Node, "reverse", State.bReverse);
+		Set(Node, "upperBody", State.bUpperBody);
 		Set(Node, "events", Events);
 		States.push_back(Node.Id);
 	}

@@ -117,6 +117,7 @@ struct FPhysicsCastHit
 	float Fraction = 1.f;
 	// Points away from the touched surface, back toward the sphere.
 	FVector3 Normal = FVector3::Up();
+	FPhysicsBodyId Body{};
 };
 
 // A contact between two rigid bodies, at least one of which reports contacts. First has the lower ID.

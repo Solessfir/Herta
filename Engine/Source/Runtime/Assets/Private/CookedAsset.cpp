@@ -215,7 +215,8 @@ void WriteSkeletalData(FBinaryWriter& Writer, const FCookedModel& Model)
 		}
 
 		Writer.Write(State.BlendParameter ? Index(*State.BlendParameter) : NoIndex);
-		Writer.Write(static_cast<std::uint8_t>(State.bLoop ? 1 : 0));
+		// One byte of flags: loop, then reverse and upper body, which older cooks leave clear.
+		Writer.Write(static_cast<std::uint8_t>((State.bLoop ? 1 : 0) | (State.bReverse ? 2 : 0) | (State.bUpperBody ? 4 : 0)));
 		Writer.WriteFloat(State.Speed);
 		Writer.Write(static_cast<std::uint32_t>(State.Events.size()));
 		for (const FAnimationEventDesc& Event : State.Events)
@@ -292,7 +293,10 @@ void ReadStateMachine(FBinaryReader& Reader, FCookedModel& Model)
 
 		const std::size_t Blend = ReadIndex(Reader);
 		State.BlendParameter = Blend == AnyAnimationState ? std::nullopt : std::optional(Blend);
-		State.bLoop = Reader.Read<std::uint8_t>() != 0;
+		const auto Flags = Reader.Read<std::uint8_t>();
+		State.bLoop = (Flags & 1) != 0;
+		State.bReverse = (Flags & 2) != 0;
+		State.bUpperBody = (Flags & 4) != 0;
 		State.Speed = Reader.ReadFloat();
 		State.Events.resize(ReadCount(Reader, MaximumStateEvents));
 		for (FAnimationEventDesc& Event : State.Events)

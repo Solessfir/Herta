@@ -138,6 +138,7 @@ std::expected<FAnimationStateMachine, FAnimationError> FAnimationStateMachine::C
 
 	Machine.Triggers.assign(Desc.Parameters.size(), false);
 	Machine.Current = {.State = Desc.Entry};
+	Machine.Base = {.State = Desc.Entry};
 	Machine.Desc = std::move(Desc);
 	Machine.Layers.reserve(FAnimationPose::MaximumLayers);
 	Machine.AppendLayers(Machine.Current, 1.f);
@@ -215,16 +216,17 @@ float FAnimationStateMachine::Advance(FPlayback& Playback, const float DeltaSeco
 	return Phase;
 }
 
-void FAnimationStateMachine::AppendLayers(const FPlayback& Playback, const float Weight)
+void FAnimationStateMachine::AppendLayers(const FPlayback& Playback, const float Weight, const float UpperBodyWeight, const float LowerBodyWeight)
 {
 	const FAnimationStateDesc& State = Desc.States[Playback.State];
 	const FResolvedState& Clips = Resolved[Playback.State];
 	const FBlendPoint Blend = State.BlendParameter ? FindBlend(State.Samples, Values[*State.BlendParameter]) : FBlendPoint{};
+	const float Phase = State.bReverse ? 1.f - Playback.Phase : Playback.Phase;
 	const auto Add = [&](const std::size_t Sample, const float SampleWeight)
 	{
 		if (SampleWeight > 0.f && Layers.size() < FAnimationPose::MaximumLayers)
 		{
-			Layers.push_back({.Clip = Clips.Clips[Sample], .TimeSeconds = Playback.Phase * Clips.Durations[Sample], .Weight = SampleWeight});
+			Layers.push_back({.Clip = Clips.Clips[Sample], .TimeSeconds = Phase * Clips.Durations[Sample], .Weight = SampleWeight, .UpperBodyWeight = UpperBodyWeight, .LowerBodyWeight = LowerBodyWeight});
 		}
 	};
 
@@ -278,6 +280,14 @@ void FAnimationStateMachine::Update(const float DeltaSeconds)
 	}
 
 	Current.bStarted |= Step > 0.f;
+	if (!Desc.States[Current.State].bUpperBody)
+	{
+		Base = Current;
+	}
+	else
+	{
+		Advance(Base, Step);
+	}
 
 	if (Previous)
 	{
@@ -297,17 +307,43 @@ void FAnimationStateMachine::Update(const float DeltaSeconds)
 		Previous = Chosen.DurationSeconds > 0.f ? std::optional(Current) : std::nullopt;
 		Transition = Chosen.DurationSeconds > 0.f ? std::optional(*Taken) : std::nullopt;
 		TransitionElapsed = 0.f;
-		Current = {.State = Chosen.To};
+		// Returning to the state the legs kept playing picks up their cycle where it is.
+		Current = {.State = Chosen.To, .Phase = Chosen.To == Base.State && Desc.States[Base.State].bLoop ? Base.Phase : 0.f};
 	}
 
 	std::ranges::fill(Triggers, false);
 	Layers.clear();
 	const float Alpha = Previous ? std::clamp(TransitionElapsed / Desc.Transitions[*Transition].DurationSeconds, 0.f, 1.f) : 1.f;
-	AppendLayers(Current, Alpha);
-	if (Previous)
+	// Upper-body states keep the whole body while standing and give the legs to the base as the character moves.
+	const float Motion = GetBaseMotion();
+	float UpperBody = 0.f;
+	for (const auto& [Playback, Weight] : {std::pair{&Current, Alpha}, std::pair{Previous ? &*Previous : nullptr, 1.f - Alpha}})
 	{
-		AppendLayers(*Previous, 1.f - Alpha);
+		if (!Playback)
+		{
+			continue;
+		}
+
+		const bool bUpper = Desc.States[Playback->State].bUpperBody;
+		AppendLayers(*Playback, Weight, 1.f, bUpper ? 1.f - Motion : 1.f);
+		UpperBody += bUpper ? Weight : 0.f;
 	}
+
+	if (UpperBody > 0.f && Motion > 0.f)
+	{
+		AppendLayers(Base, UpperBody * Motion, 0.f, 1.f);
+	}
+}
+
+float FAnimationStateMachine::GetBaseMotion() const noexcept
+{
+	const FAnimationStateDesc& Legs = Desc.States[Base.State];
+	if (!Legs.BlendParameter || Legs.Samples.size() < 2 || Legs.Samples[1].Position <= Legs.Samples[0].Position)
+	{
+		return 0.f;
+	}
+
+	return std::clamp((Values[*Legs.BlendParameter] - Legs.Samples[0].Position) / (Legs.Samples[1].Position - Legs.Samples[0].Position), 0.f, 1.f);
 }
 
 std::span<const std::string> FAnimationStateMachine::GetEvents() const noexcept

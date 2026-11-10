@@ -325,6 +325,8 @@ public:
 
 	// Off on a client: agents, destruction, cuts, and thrown balls come from the server instead of the local simulation.
 	void SetAuthority(bool bInAuthority);
+	// Heavy clashes slow a local game for a moment; a networked one keeps time with the other end.
+	void SetSlowMotionAllowed(bool bAllowed) noexcept;
 	// A remote player on a client follows replicas instead of input.
 	[[nodiscard]] std::expected<void, FGameError> SetPlayerSimulated(std::size_t Player, bool bSimulated);
 	[[nodiscard]] FGamePlayerReplica CapturePlayer(std::size_t Player) const;

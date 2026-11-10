@@ -119,6 +119,8 @@ struct FAnimationLibrary::FImplementation
 	std::vector<std::int16_t> JointParents;
 	std::vector<FMatrix4> InverseBindMatrices;
 	std::vector<FClip> Clips;
+	// Joints at or below spine_01, the Unreal rig's lowest spine joint; without one, the whole skeleton counts as upper body.
+	std::vector<bool> UpperBody;
 };
 
 FAnimationLibrary::FAnimationLibrary(std::unique_ptr<FImplementation> InImplementation)
@@ -153,6 +155,15 @@ std::expected<std::shared_ptr<const FAnimationLibrary>, FAnimationError> FAnimat
 
 	Implementation->JointNames = Skeleton.JointNames;
 	Implementation->JointParents = Skeleton.JointParents;
+	const auto Spine = std::ranges::find(Skeleton.JointNames, std::string_view("spine_01"));
+	Implementation->UpperBody.assign(JointCount, Spine == Skeleton.JointNames.end());
+	for (std::size_t Joint = 0; Joint < JointCount && Spine != Skeleton.JointNames.end(); ++Joint)
+	{
+		// Parents come before their children, so a joint's flag follows its parent's.
+		const std::int16_t Parent = Skeleton.JointParents[Joint];
+		Implementation->UpperBody[Joint] = Joint == static_cast<std::size_t>(Spine - Skeleton.JointNames.begin()) || (Parent >= 0 && Implementation->UpperBody[static_cast<std::size_t>(Parent)]);
+	}
+
 	Implementation->InverseBindMatrices.reserve(JointCount);
 
 	for (const std::array<float, 16>& Matrix : Skeleton.InverseBindMatrices)
@@ -248,12 +259,25 @@ FVector3 FAnimationLibrary::GetRootMotion(const std::size_t Clip, const float Fr
 	return Sample(Duration) - Sample(FromSeconds) + Sample(ToSeconds) - Sample(0.f);
 }
 
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wignored-attributes"
+#endif
+// ozz's SIMD vector type carries an alignment attribute that GCC drops from template arguments; vector storage is 16-byte aligned on every
+// supported platform, which is all it needs.
+using FJointWeights = std::vector<ozz::math::SimdFloat4>;
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
 struct FAnimationPose::FImplementation
 {
 	std::shared_ptr<const FAnimationLibrary> Library;
 	// One sampling context per layer slot: a context caches keyframes for the last animation it sampled, so sharing one would thrash it.
 	std::vector<std::unique_ptr<ozz::animation::SamplingJob::Context>> LayerContexts;
 	std::vector<std::vector<ozz::math::SoaTransform>> LayerLocals;
+	// Per-joint weights for layers that weight the upper and lower body apart, four joints a vector.
+	std::vector<FJointWeights> LayerJointWeights;
 	std::vector<ozz::math::SoaTransform> Locals;
 	std::vector<ozz::math::Float4x4> Models;
 	std::vector<FMatrix4> ModelTransforms;
@@ -311,6 +335,7 @@ std::expected<void, FAnimationError> FAnimationPose::Evaluate(const std::span<co
 		{
 			Implementation->LayerLocals.emplace_back(static_cast<std::size_t>(Skeleton.num_soa_joints()));
 			Implementation->LayerContexts.push_back(std::make_unique<ozz::animation::SamplingJob::Context>(Skeleton.num_joints()));
+			Implementation->LayerJointWeights.emplace_back(static_cast<std::size_t>(Skeleton.num_soa_joints()));
 		}
 
 		const ozz::animation::Animation& Animation = Library.Clips[Layer.Clip].Animation;
@@ -326,6 +351,25 @@ std::expected<void, FAnimationError> FAnimationPose::Evaluate(const std::span<co
 		}
 
 		Blends[BlendCount] = {.weight = Layer.Weight, .transform = ozz::make_span(Output), .joint_weights = {}};
+		if (Layer.UpperBodyWeight != 1.f || Layer.LowerBodyWeight != 1.f)
+		{
+			FJointWeights& Weights = Implementation->LayerJointWeights[BlendCount];
+			const std::size_t Joints = Library.UpperBody.size();
+			std::array<float, 4> Lanes{};
+			for (std::size_t Soa = 0; Soa < Weights.size(); ++Soa)
+			{
+				for (std::size_t Lane = 0; Lane < 4; ++Lane)
+				{
+					const std::size_t Joint = Soa * 4 + Lane;
+					Lanes[Lane] = Joint < Joints && Library.UpperBody[Joint] ? Layer.UpperBodyWeight : Layer.LowerBodyWeight;
+				}
+
+				Weights[Soa] = ozz::math::simd_float4::Load(Lanes[0], Lanes[1], Lanes[2], Lanes[3]);
+			}
+
+			Blends[BlendCount].joint_weights = ozz::make_span(Weights);
+		}
+
 		++BlendCount;
 	}
 

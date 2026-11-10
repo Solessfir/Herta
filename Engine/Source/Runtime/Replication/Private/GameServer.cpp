@@ -165,6 +165,7 @@ std::expected<std::unique_ptr<FGameServer>, FReplicationError> FGameServer::Crea
 	Implementation->Transport = std::move(*Transport);
 	Implementation->Settings = Settings;
 	Implementation->Session->SetAuthority(true);
+	Implementation->Session->SetSlowMotionAllowed(false);
 	Implementation->SlotOwned.assign(Implementation->Session->GetPlayerCount(), false);
 	for (std::size_t Slot = 0; Slot < Implementation->SlotOwned.size(); ++Slot)
 	{

@@ -65,6 +65,10 @@ struct FAnimationLayer
 	// Clamped to the clip; callers wrap looping time themselves.
 	float TimeSeconds = 0.f;
 	float Weight = 1.f;
+	// Multiply Weight on the upper body, the spine and everything above it, and on the rest, so a layer can move only the arms or only
+	// the legs.
+	float UpperBodyWeight = 1.f;
+	float LowerBodyWeight = 1.f;
 };
 
 // One character's working memory for sampling and blending. Reuse it every frame; evaluation allocates only when more layers are blended than ever before.

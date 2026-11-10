@@ -909,6 +909,14 @@ std::expected<void, FPhysicsError> FLevelSimulation::Despawn(const FLevelSimulat
 	return {};
 }
 
+bool FLevelSimulation::IsLevelBody(const FPhysicsBodyId Body) const
+{
+	return BodyIndices.contains(Body.Value) || IslandBodies.contains(Body.Value) || std::ranges::any_of(StaticGroups, [Body](const auto& Group)
+	{
+		return std::ranges::contains(Group.second, Body);
+	});
+}
+
 std::optional<FPhysicsBodyId> FLevelSimulation::FindSpawnedBody(const FLevelSimulationHandle Handle) const noexcept
 {
 	if (Handle.Index < SpawnStates.size() && SpawnStates[Handle.Index].bAlive && SpawnStates[Handle.Index].Generation == Handle.Generation)

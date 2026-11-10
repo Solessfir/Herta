@@ -69,7 +69,9 @@ private:
 	[[nodiscard]] std::optional<std::size_t> FindTransition() const noexcept;
 	// Returns the phase before wrapping or clamping, which may pass 1.
 	float Advance(FPlayback& Playback, float DeltaSeconds) const noexcept;
-	void AppendLayers(const FPlayback& Playback, float Weight);
+	void AppendLayers(const FPlayback& Playback, float Weight, float UpperBodyWeight = 1.f, float LowerBodyWeight = 1.f);
+	// How far the legs' state's blend has moved from its first sample to its second, such as from standing to walking; 0 without a blend.
+	[[nodiscard]] float GetBaseMotion() const noexcept;
 
 	FAnimationStateMachineDesc Desc;
 	std::vector<FResolvedState> Resolved{};
@@ -78,6 +80,8 @@ private:
 
 	FPlayback Current;
 	std::optional<FPlayback> Previous;
+	// The last full-body state, which keeps playing on the legs under upper-body states and picks up in step when it returns.
+	FPlayback Base;
 	std::optional<std::size_t> Transition{};
 	float TransitionElapsed = 0.f;
 	std::vector<FAnimationLayer> Layers{};

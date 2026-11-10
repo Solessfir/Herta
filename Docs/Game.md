@@ -66,7 +66,16 @@ Sword fights follow Sekiro's rules, with numbers taken from its data where they 
 - **Deathblow.** A broken posture staggers a guard for 3 s; during the first 2.5 s a red mark shows over its posture bar, and a cut is a deathblow that kills it.
 - **Being struck down.** A blow that empties the player's vitality knocks them down as a ragdoll; they get up 2.5 s later with full vitality and posture.
 
-Blades meeting play the level's **Deflect** or **Block** sound and its **Sparks** effect (level schema 18), and freeze both fighters' animation for 0.06 to 0.16 s: still for 0.06 s, then easing back. The HUD shows vitality at the bottom left, posture filling out from the middle above the controls, and the facing guard's posture at the top. Combat resolves on the server; replicas do not yet carry posture or staggers, so clients see the outcome without the bars. Perilous attacks, the Mikiri counter, and enemy deflects wait for enemies whose fights need them.
+The fight is about small things that make a hit read:
+
+- **Stance.** Within 7 m of a foe, walking keeps the body facing it: sideways steps turn it at most 50 degrees toward the step, and stepping away backpedals instead of turning around. Sprinting breaks off. Sword states move only the upper body while walking, so swings and the guard walk and backpedal.
+- **Step-in.** A swing turns to the foe within 3.2 m in front and steps toward it for 0.18 s, stopping 1.3 m short, so a cut reaches someone a stride away.
+- **Strike windows.** Each swing cuts only around where the arm moves fastest, measured from the clips: 0.42 to 0.82 of the first swing, 0.34 to 0.66 of the second, and 0.26 to 0.42 of the third, `Sword_Regular_C`, which a third press chains.
+- **Blades meet.** A guard's raised sword stops the player's blade where the two cross, sparking there, before the blade reaches its body. The blade also bounces off walls, props, and destructibles it sweeps into, throwing the arm back; the floor only scrapes, so low cuts land.
+- **Guards deflect.** A guard blocks the first two swings of a quick chain and deflects the third: the player's arm is thrown back, they lose posture, and the guard answers at once. Pausing between swings, or waiting for a guard to attack and deflecting it, opens it up.
+- **Weight.** Besides hitstop, heavy clashes slow a local game to a fifth of its speed for 0.05 to 0.25 s and shake the camera for 0.25 s; deathblows slow it longest. Networked sessions never slow down.
+
+Blades meeting play the level's **Deflect** or **Block** sound and its **Sparks** effect (level schema 18), and freeze both fighters' animation for 0.06 to 0.16 s: still for 0.06 s, then easing back. The HUD shows vitality at the bottom left, posture filling out from the middle above the controls, and the facing guard's posture at the top. Combat resolves on the server; replicas do not yet carry posture or staggers, so clients see the outcome without the bars. Perilous attacks, the Mikiri counter, sword trails, and dedicated strafe clips wait for the fights and assets that need them; sideways steps play the forward walk turned partway.
 
 ## Editor Play
 

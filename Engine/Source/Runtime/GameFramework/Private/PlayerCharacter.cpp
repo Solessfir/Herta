@@ -31,6 +31,7 @@ enum ELocomotionParameter : std::size_t
 	Deflect,
 	Recoil,
 	Staggered,
+	Backpedal,
 };
 
 enum ELocomotionState : std::size_t
@@ -59,6 +60,8 @@ enum ELocomotionState : std::size_t
 	DeflectState,
 	RecoilState,
 	StaggerState,
+	BackpedalState,
+	AttackC,
 };
 
 [[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
@@ -135,6 +138,7 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Deflect", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "Recoil", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "Staggered", .Type = EAnimationParameterType::Bool},
+	        {.Name = "Backpedal", .Type = EAnimationParameterType::Bool},
 	    },
 	    .States = {
 	        // The walk, jog, and sprint cycles each take two steps, planting a foot at their start and halfway.
@@ -153,12 +157,13 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Wall run", .Samples = {{.Clip = "Sprint_Loop"}}},
 	        {.Name = "Hit", .Samples = {{.Clip = "Hit_Chest"}}, .bLoop = false},
 	        {.Name = "Dead", .Samples = {{.Clip = "Death01"}}, .bLoop = false},
-	        // The blade cuts between SwingStart and SwingEnd; the recoveries return the sword to guard, and an attack during one chains the other swing.
-	        {.Name = "Attack A", .Samples = {{.Clip = "Sword_Regular_A"}}, .bLoop = false, .Events = {{.Name = "SwingStart", .Phase = 0.05f}, {.Name = "SwingEnd", .Phase = 0.95f}}},
-	        {.Name = "Attack A recover", .Samples = {{.Clip = "Sword_Regular_A_Rec"}}, .bLoop = false},
-	        {.Name = "Attack B", .Samples = {{.Clip = "Sword_Regular_B"}}, .bLoop = false, .Events = {{.Name = "SwingStart", .Phase = 0.05f}, {.Name = "SwingEnd", .Phase = 0.95f}}},
-	        {.Name = "Attack B recover", .Samples = {{.Clip = "Sword_Regular_B_Rec"}}, .bLoop = false},
-	        {.Name = "Block", .Samples = {{.Clip = "Sword_Block"}}, .bLoop = false},
+	        // The blade cuts between SwingStart and SwingEnd, around where the arm moves fastest, so the wind-up cuts nothing; the recoveries return
+	        // the sword to guard, and an attack during one chains the next swing. Sword states move only the upper body while walking.
+	        {.Name = "Attack A", .Samples = {{.Clip = "Sword_Regular_A"}}, .bLoop = false, .Events = {{.Name = "SwingStart", .Phase = 0.42f}, {.Name = "SwingEnd", .Phase = 0.82f}}, .bUpperBody = true},
+	        {.Name = "Attack A recover", .Samples = {{.Clip = "Sword_Regular_A_Rec"}}, .bLoop = false, .bUpperBody = true},
+	        {.Name = "Attack B", .Samples = {{.Clip = "Sword_Regular_B"}}, .bLoop = false, .Events = {{.Name = "SwingStart", .Phase = 0.34f}, {.Name = "SwingEnd", .Phase = 0.66f}}, .bUpperBody = true},
+	        {.Name = "Attack B recover", .Samples = {{.Clip = "Sword_Regular_B_Rec"}}, .bLoop = false, .bUpperBody = true},
+	        {.Name = "Block", .Samples = {{.Clip = "Sword_Block"}}, .bLoop = false, .bUpperBody = true},
 	        // Attacking at a sprint lunges into a dash slash; the mover keeps the sprint's speed, so the clip plays in place.
 	        {.Name = "Dash attack", .Samples = {{.Clip = "Sword_Dash_RM"}}, .bLoop = false, .Speed = 1.3f, .Events = {{.Name = "SwingStart", .Phase = 0.25f}, {.Name = "SwingEnd", .Phase = 0.7f}}},
 	        // Attacking in the air brings the sword down overhead; it plays out even past landing, so the swing always ends.
@@ -166,9 +171,13 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        // The guards' overhead strike: the sword rises for about 0.35 s before it comes down, long enough to see it coming and block.
 	        {.Name = "Heavy attack", .Samples = {{.Clip = "Sword_Attack"}}, .bLoop = false, .Speed = 0.75f, .Events = {{.Name = "SwingStart", .Phase = 0.2f}, {.Name = "SwingEnd", .Phase = 0.36f}}},
 	        // A deflect snaps the guard up; a deflected attacker's head is knocked back; a broken posture reels until it recovers.
-	        {.Name = "Deflect", .Samples = {{.Clip = "Sword_Block"}}, .bLoop = false, .Speed = 2.f},
-	        {.Name = "Recoil", .Samples = {{.Clip = "Hit_Head"}}, .bLoop = false, .Speed = 1.2f},
+	        {.Name = "Deflect", .Samples = {{.Clip = "Sword_Block"}}, .bLoop = false, .Speed = 2.f, .bUpperBody = true},
+	        {.Name = "Recoil", .Samples = {{.Clip = "Hit_Head"}}, .bLoop = false, .Speed = 1.2f, .bUpperBody = true},
 	        {.Name = "Stagger", .Samples = {{.Clip = "Hit_Knockback"}}, .bLoop = false, .Speed = 0.8f},
+	        // Facing a foe, stepping away walks backwards rather than turning around.
+	        {.Name = "Backpedal", .Samples = {{.Clip = "Walk_Loop", .Position = 1.8f}, {.Clip = "Jog_Fwd_Loop", .Position = 4.5f}}, .BlendParameter = Speed, .Events = {{.Name = "Footstep", .Phase = 0.f}, {.Name = "Footstep", .Phase = 0.5f}}, .bReverse = true},
+	        // The third swing of a chain, a heavier cut with its own recovery.
+	        {.Name = "Attack C", .Samples = {{.Clip = "Sword_Regular_C"}}, .bLoop = false, .Speed = 1.15f, .Events = {{.Name = "SwingStart", .Phase = 0.26f}, {.Name = "SwingEnd", .Phase = 0.42f}}, .bUpperBody = true},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
@@ -225,7 +234,7 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = AttackARecover, .To = AttackB, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
 	        {.From = AttackARecover, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
 	        {.From = AttackB, .To = AttackBRecover, .DurationSeconds = 0.05f, .bAtEnd = true},
-	        {.From = AttackBRecover, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = AttackBRecover, .To = AttackC, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
 	        {.From = AttackBRecover, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
 	        {.From = AttackA, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
 	        {.From = AttackARecover, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
@@ -243,6 +252,14 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = DeflectState, .To = Block, .DurationSeconds = 0.08f, .Conditions = {Is(Blocking, true)}, .bAtEnd = true},
 	        {.From = DeflectState, .To = Locomotion, .DurationSeconds = 0.15f, .bAtEnd = true},
 	        {.From = RecoilState, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
+	        {.From = Locomotion, .To = BackpedalState, .DurationSeconds = 0.2f, .Conditions = {Is(Backpedal, true), Is(Grounded, true)}},
+	        {.From = BackpedalState, .To = Locomotion, .DurationSeconds = 0.2f, .Conditions = {Is(Backpedal, false)}},
+	        {.From = BackpedalState, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = BackpedalState, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        {.From = BackpedalState, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = BackpedalState, .To = Block, .DurationSeconds = 0.1f, .Conditions = {Is(Blocking, true)}},
+	        {.From = AttackC, .To = Locomotion, .DurationSeconds = 0.25f, .bAtEnd = true},
+	        {.From = AttackC, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
 	    },
 	    .Entry = Locomotion,
 	};

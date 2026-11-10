@@ -201,6 +201,8 @@ public:
 	[[nodiscard]] std::expected<FLevelSimulationHandle, FPhysicsError> Spawn(const FPhysicsBodySettings& Body);
 	[[nodiscard]] std::expected<void, FPhysicsError> Despawn(FLevelSimulationHandle Handle);
 	[[nodiscard]] std::optional<FPhysicsBodyId> FindSpawnedBody(FLevelSimulationHandle Handle) const noexcept;
+	// Whether a body is the level's own, such as a wall, a prop, or a destructible's island, rather than a character's or a cut piece's.
+	[[nodiscard]] bool IsLevelBody(FPhysicsBodyId Body) const;
 	// Interpolated transforms of every spawned body, in spawn order.
 	std::span<const FLevelSimulationSpawn> GetSpawned() const noexcept;
 	// Whether a destructible is still in one piece; broken ones draw their pieces instead.

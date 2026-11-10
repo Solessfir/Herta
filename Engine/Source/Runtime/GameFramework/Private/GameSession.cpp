@@ -291,6 +291,14 @@ struct FPlayerSlot
 	FCombatant Combat{GetPlayerCombatSettings()};
 	bool bGuardWasHeld = false;
 	FHitStop HitStop{};
+	// A swing steps in toward the foe it aims at for a moment, so a cut reaches someone a stride away.
+	float LungeSeconds = 0.f;
+	std::optional<std::size_t> LungeTarget{};
+	// Shakes the camera after a heavy clash, decaying over its length.
+	float ShakeSeconds = 0.f;
+	float ShakeLength = 0.f;
+	float ShakeStrength = 0.f;
+	FVector3 ShakeOffset{};
 
 	// The blade last update, from guard to tip in world space, while a swing is cutting.
 	std::optional<std::array<FVector3, 2>> LastBlade{};
@@ -361,6 +369,9 @@ struct FGameSession::FImplementation : FPlayerSlot
 	[[nodiscard]] FMatrix4 GetBodyModel() const;
 	// Traces the blade between updates during a swing and slices characters it passes through along its plane.
 	[[nodiscard]] std::expected<void, FGameError> SweepBlade(float DeltaSeconds);
+	// A guard takes the player's swing on its sword at Clash: a block that wears its posture down, or a deflect that throws the player back.
+	[[nodiscard]] std::expected<void, FGameError> MeetGuard(std::size_t Index, const FVector3& Clash, const FVector3& Normal);
+	[[nodiscard]] std::expected<void, FGameError> UpdateScaled(float DeltaSeconds, std::span<const FGameInput> Inputs);
 	[[nodiscard]] std::expected<void, FPhysicsError> StepCharacters(FPhysicsWorld& World, float StepSeconds);
 	// Adds a piece to the world, pushing out the oldest of its character's pieces past the character's budget.
 	[[nodiscard]] std::expected<void, FGameError> AddPiece(std::size_t Character, std::shared_ptr<const FCookedModel> Model, std::shared_ptr<const FAnimationLibrary> Library, std::span<const FMatrix4> Pose, FSkinnedMeshPiece Mesh, const FMatrix4& ModelToWorld, const FVector3& Velocity);
@@ -397,6 +408,12 @@ struct FGameSession::FImplementation : FPlayerSlot
 	void StrikePlayer(FCharacterActor& Actor);
 	// Whether a guard meets the player's swing with its sword: it faces the player and is neither swinging, reeling, nor staggered.
 	[[nodiscard]] bool IsGuardingAgainstPlayer(const FCharacterActor& Actor) const;
+	// The nearest living foe of the player within Range: a hostile agent, or any agent fighting the player.
+	[[nodiscard]] std::optional<std::size_t> FindCombatTarget(float Range) const;
+	// A character's sword from guard to tip in world space, as last posed.
+	[[nodiscard]] std::optional<std::array<FVector3, 2>> GetCharacterBlade(const FCharacterActor& Actor) const;
+	// Slows the whole game for a moment and shakes the camera, so a heavy clash lands with weight.
+	void Impact(float SlowSeconds, float ShakeStrength);
 	// Wounds a character a third of its health and flinches it; the third blow kills it.
 	[[nodiscard]] std::expected<void, FGameError> StrikeCharacter(std::size_t Attacker, std::size_t Victim);
 	// Tells the agents that a character was struck, so it turns on its attacker and its friends come to help.
@@ -442,6 +459,9 @@ struct FGameSession::FImplementation : FPlayerSlot
 	std::shared_ptr<const FCookedModel> CharacterModel{};
 	// A client leaves agents, destruction, cuts, and throws to the server.
 	bool bAuthority = true;
+	// Networked sessions keep game time with the other end, so only a local game slows down.
+	bool bSlowMotionAllowed = true;
+	float SlowMotionSeconds = 0.f;
 	std::vector<FGameOutcome> Outcomes{};
 	std::uint32_t NextProjectileId = 1;
 
@@ -503,6 +523,9 @@ struct FGameSession::FImplementation : FPlayerSlot
 		// Posture, which the player's blocked blows and deflects wear down until a deathblow opens.
 		FCombatant Combat{GetGuardCombatSettings()};
 		FHitStop HitStop{};
+		// Swings blocked in a quick chain; a guard deflects the third, so mashing into its guard backfires.
+		std::uint32_t BlocksInRow = 0;
+		float SinceBlockSeconds = 1.e9f;
 	};
 
 	std::vector<FCharacterActor> Characters{};
@@ -1011,6 +1034,10 @@ void FGameSession::FImplementation::ResetPlayerState()
 	Combat.Restore();
 	bGuardWasHeld = false;
 	HitStop = {};
+	LungeSeconds = 0.f;
+	LungeTarget.reset();
+	ShakeSeconds = 0.f;
+	ShakeOffset = {};
 	Input = {};
 	if (Body)
 	{
@@ -1289,6 +1316,11 @@ std::uint64_t FGameSession::ComputeStateHash() const
 
 	const FHash128 Players = HashBytes(std::as_bytes(std::span(Values)));
 	return (World ? World->ComputeStateHash() : 0) ^ Players.Low ^ (Players.High << 1);
+}
+
+void FGameSession::SetSlowMotionAllowed(const bool bAllowed) noexcept
+{
+	Implementation->bSlowMotionAllowed = bAllowed;
 }
 
 void FGameSession::SetAuthority(const bool bInAuthority)
@@ -1708,7 +1740,22 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 
 	// The frame's view turn, spread over its fixed steps, brakes the sprint as the game does.
 	const float TurnRadians = LastDeltaSeconds > 0.f ? std::abs(Input.YawDelta) * std::min(StepSeconds / LastDeltaSeconds, 1.f) : 0.f;
-	const FMoverInput MoverInput{.Move = {std::clamp(Input.Move.X, -1.f, 1.f), std::clamp(Input.Move.Y, -1.f, 1.f)}, .Yaw = Yaw, .TurnRadians = TurnRadians, .bSprint = Input.bSprint, .bCrouch = Input.bCrouch};
+	FMoverInput MoverInput{.Move = {std::clamp(Input.Move.X, -1.f, 1.f), std::clamp(Input.Move.Y, -1.f, 1.f)}, .Yaw = Yaw, .TurnRadians = TurnRadians, .bSprint = Input.bSprint, .bCrouch = Input.bCrouch};
+	if (LungeSeconds > 0.f && LungeTarget && *LungeTarget < Characters.size() && Characters[*LungeTarget].Npc)
+	{
+		// The step stops a little more than a body's width short, close enough for the blade to land.
+		const FVector3 Foe = Characters[*LungeTarget].Npc->GetFootPosition();
+		const FVector3 Foot = Mover->GetState().Foot;
+		const float Distance = std::hypot(Foe.X - Foot.X, Foe.Z - Foot.Z);
+		LungeSeconds = Distance > 1.3f ? LungeSeconds - StepSeconds : 0.f;
+		if (LungeSeconds > 0.f)
+		{
+			MoverInput.Move = {0.f, 1.f};
+			MoverInput.Yaw = std::atan2(Foe.X - Foot.X, Foe.Z - Foot.Z);
+			MoverInput.bSprint = false;
+		}
+	}
+
 	if (auto Stepped = Mover->Step(World, MoverInput, StepSeconds); !Stepped)
 	{
 		return Stepped;
@@ -1826,6 +1873,16 @@ std::expected<void, FGameError> FGameSession::UpdatePlayers(const float DeltaSec
 		return std::unexpected(FGameError{"Game input must be finite"});
 	}
 
+	// A heavy clash plays at a fifth of the speed for a moment, then the game catches up at once.
+	const float RealSeconds = DeltaSeconds;
+	Session.SlowMotionSeconds = std::max(Session.SlowMotionSeconds - RealSeconds, 0.f);
+	const float GameSeconds = Session.SlowMotionSeconds > 0.f && Session.bSlowMotionAllowed && Session.bAuthority ? RealSeconds * 0.2f : RealSeconds;
+	return Session.UpdateScaled(GameSeconds, Inputs);
+}
+
+std::expected<void, FGameError> FGameSession::FImplementation::UpdateScaled(const float DeltaSeconds, const std::span<const FGameInput> Inputs)
+{
+	FImplementation& Session = *this;
 	Session.LastDeltaSeconds = DeltaSeconds;
 	if (auto Begun = Session.ForEachPlayerUntilError<FGameError>([&Session, Inputs, DeltaSeconds]
 	{
@@ -2036,6 +2093,19 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 		{
 			Body->FireTrigger("Attack");
 			++Attacks;
+			// A swing turns to the foe within reach in front and steps toward it, as melee games aim a cut.
+			const FVector3 Foot = Mover->GetState().Foot;
+			const FVector3 Facing{std::sin(BodyYaw), 0.f, std::cos(BodyYaw)};
+			LungeTarget = FindCombatTarget(3.2f);
+			if (LungeTarget)
+			{
+				const FVector3 Foe = Characters[*LungeTarget].Npc->GetFootPosition();
+				const FVector3 Toward{Foe.X - Foot.X, 0.f, Foe.Z - Foot.Z};
+				const float Distance = Toward.Length();
+				LungeTarget = Distance < 0.1f || Toward.Dot(Facing) > -0.2f * Distance ? LungeTarget : std::nullopt;
+				LungeSeconds = LungeTarget && Mover->GetState().bGrounded ? 0.18f : 0.f;
+				BodyYaw = LungeTarget && bThirdPerson ? std::atan2(Toward.X, Toward.Z) : BodyYaw;
+			}
 		}
 
 		const bool bGuard = Input.bBlock && !bStaggered;
@@ -2052,6 +2122,10 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 	// Held through a stagger, the guard is not pressed again when it ends.
 	bGuardWasHeld = Input.bBlock;
 	Combat.Tick(DeltaSeconds);
+	ShakeSeconds = std::max(ShakeSeconds - DeltaSeconds, 0.f);
+	const float Shake = ShakeLength > 0.f ? ShakeStrength * ShakeSeconds / ShakeLength : 0.f;
+	// Two incommensurate wobbles, so the shake never settles into a visible pattern.
+	ShakeOffset = FVector3{std::sin(ShakeSeconds * 97.f), std::sin(ShakeSeconds * 131.f + 1.3f), 0.f} * Shake;
 
 	const bool bJumped = bJumpedThisUpdate || bWallJumpedThisUpdate;
 	UpdateBody(DeltaSeconds);
@@ -2085,10 +2159,24 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	const std::string_view Mode = Mover->GetActiveMode();
 	// A ragdoll leaves the mover where it collapsed, still holding the run's speed, which must not step the animation's feet.
 	const float Speed = Ragdoll ? 0.f : std::hypot(State.Velocity.X, State.Velocity.Z);
-	const float TargetYaw = !bThirdPerson ? Yaw : Speed > 0.5f ? std::atan2(State.Velocity.X, State.Velocity.Z)
-	                                                           : BodyYaw;
+	float TargetYaw = !bThirdPerson ? Yaw : Speed > 0.5f ? std::atan2(State.Velocity.X, State.Velocity.Z)
+	                                                     : BodyYaw;
+	// Near a foe, walking keeps the body facing it: sideways steps turn it at most 50 degrees toward the step, and stepping away walks backwards
+	// instead of turning around. A sprint breaks off and runs.
+	const std::optional<std::size_t> Foe = bThirdPerson && !Ragdoll && State.bGrounded && Speed < 5.5f && Mode == "Walking" ? FindCombatTarget(7.f) : std::nullopt;
+	bool bBackpedal = false;
+	if (Foe)
+	{
+		const FVector3 Position = Characters[*Foe].Npc->GetFootPosition();
+		const float FoeYaw = std::atan2(Position.X - State.Foot.X, Position.Z - State.Foot.Z);
+		const float Away = Speed > 0.5f ? std::remainder(std::atan2(State.Velocity.X, State.Velocity.Z) - FoeYaw, 2.f * std::numbers::pi_v<float>) : 0.f;
+		bBackpedal = std::abs(Away) > 1.9f;
+		TargetYaw = bBackpedal ? FoeYaw : FoeYaw + std::clamp(Away, -0.9f, 0.9f);
+	}
+
+	Body->SetBool("Backpedal", bBackpedal);
 	const float Turn = std::remainder(TargetYaw - BodyYaw, 2.f * std::numbers::pi_v<float>);
-	const float MaximumTurn = (bThirdPerson ? 10.f : 30.f) * DeltaSeconds;
+	const float MaximumTurn = (bThirdPerson ? (Foe ? 14.f : 10.f) : 30.f) * DeltaSeconds;
 	BodyYaw = std::remainder(BodyYaw + std::clamp(Turn, -MaximumTurn, MaximumTurn), 2.f * std::numbers::pi_v<float>);
 
 	Body->Update(HitStop.Advance(DeltaSeconds), {.GroundSpeed = Speed, .bGrounded = State.bGrounded || Mode == "Mantle", .bCrouched = State.bCrouched, .bSliding = Mode == "Slide", .bWallRunning = Mode == "WallRun", .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate});
@@ -2227,6 +2315,61 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 	}
 
 	const FVector3 Unit = Normal.Normalized();
+
+	// The blade bounces off walls and props it sweeps into; the floor only scrapes, so low cuts still land.
+	if (FPhysicsWorld* const World = Simulation.GetPhysicsWorld())
+	{
+		for (const auto& [From, To] : {std::pair{(*Previous)[1], Blade[1]}, std::pair{Blade[0], Blade[1]}})
+		{
+			const auto Hit = World->CastSphereHit(World->ToWorld(From), World->ToWorld(To), 0.03f);
+			if (Hit && Hit->Normal.Y < 0.7f && Simulation.IsLevelBody(Hit->Body))
+			{
+				const FVector3 Point = From + (To - From) * Hit->Fraction;
+				bSwinging = false;
+				LastBlade.reset();
+				Body->FireTrigger("Recoil");
+				HitStop.Start(0.08f);
+				Impact(0.f, 0.03f);
+				Audio.Play(ELevelSound::Block, Point, {{.Name = "Impulse", .Value = 30.f}});
+				RequestEffect(ELevelEffect::Sparks, Point, Hit->Normal, 0.8f);
+				Events.push_back("The player's blade struck a wall");
+				return {};
+			}
+		}
+	}
+
+	// A guard's raised sword meets the blade where they cross, before the blade reaches its body.
+	for (std::size_t Index = 0; Index < Characters.size(); ++Index)
+	{
+		FCharacterActor& Guard = Characters[Index];
+		const auto Other = IsGuardingAgainstPlayer(Guard) ? GetCharacterBlade(Guard) : std::nullopt;
+		if (!Other || std::ranges::contains(SwingCuts, Index))
+		{
+			continue;
+		}
+
+		// The closest points of the two blade segments, by the standard clamped solve.
+		const FVector3 D1 = Blade[1] - Blade[0];
+		const FVector3 D2 = (*Other)[1] - (*Other)[0];
+		const FVector3 R = Blade[0] - (*Other)[0];
+		const float A = D1.Dot(D1);
+		const float E = D2.Dot(D2);
+		const float F = D2.Dot(R);
+		const float C = D1.Dot(R);
+		const float B = D1.Dot(D2);
+		const float Denominator = A * E - B * B;
+		float S = Denominator > 1.e-6f ? std::clamp((B * F - C * E) / Denominator, 0.f, 1.f) : 0.f;
+		const float T = std::clamp((B * S + F) / std::max(E, 1.e-6f), 0.f, 1.f);
+		S = std::clamp((B * T - C) / std::max(A, 1.e-6f), 0.f, 1.f);
+		const FVector3 Mine = Blade[0] + D1 * S;
+		const FVector3 Theirs = (*Other)[0] + D2 * T;
+		if ((Mine - Theirs).Length() < 0.09f)
+		{
+			SwingCuts.push_back(Index);
+			return MeetGuard(Index, (Mine + Theirs) * 0.5f, Unit);
+		}
+	}
+
 	const std::array Quad{(*Previous)[0], (*Previous)[1], Blade[1], Blade[0]};
 	const auto InsideQuad = [&](const FVector3& Point)
 	{
@@ -2279,23 +2422,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 		const FVector3 Clash = (Blade[0] + Blade[1]) * 0.5f;
 		if (IsGuardingAgainstPlayer(Victim))
 		{
-			// The blade stops on the guard's sword: this swing cuts nothing more.
-			const bool bBroken = Victim.Combat.Receive(Slash, true) == EGuardOutcome::GuardBroken;
-			bSwinging = false;
-			LastBlade.reset();
-			Victim.Body->FireTrigger("Deflect");
-			HitStop.Start(bBroken ? 0.12f : 0.07f);
-			Victim.HitStop.Start(bBroken ? 0.12f : 0.07f);
-			Audio.Play(bBroken ? ELevelSound::Deflect : ELevelSound::Block, Clash, {{.Name = "Impulse", .Value = bBroken ? 60.f : 25.f}});
-			RequestEffect(ELevelEffect::Sparks, Clash, Unit, bBroken ? 1.4f : 0.7f);
-			if (bBroken)
-			{
-				Victim.Npc->Interrupt(Victim.Combat.GetSettings().StaggerSeconds);
-				Events.push_back(std::format("{} lost its posture", Entities[Victim.Entity].Name));
-			}
-
-			ReportCharacterHit(Index, GetPlayerTargetKey(ActivePlayer), Mover->GetState().Foot, PlayerFaction);
-			return {};
+			return MeetGuard(Index, Clash, Unit);
 		}
 
 		const bool bDeathblow = Victim.Npc && !Victim.Npc->IsDead() && Victim.Combat.IsDeathblowOpen();
@@ -2325,6 +2452,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 		{
 			Events.push_back(std::format("Deathblow on {}", Entities[Characters[Index].Entity].Name));
 			HitStop.Start(0.16f);
+			Impact(0.25f, 0.06f);
 			RequestEffect(ELevelEffect::Sever, Clash, Unit, 1.5f);
 			Audio.Play(ELevelSound::Sever, Clash);
 			Characters[Index].Npc->Wound(1.f);
@@ -2370,6 +2498,102 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 	return {};
 }
 
+std::expected<void, FGameError> FGameSession::FImplementation::MeetGuard(const std::size_t Index, const FVector3& Clash, const FVector3& Normal)
+{
+	FCharacterActor& Guard = Characters[Index];
+	const std::string& Name = Entities[Guard.Entity].Name;
+	// The swing stops on the guard's sword: it cuts nothing more.
+	bSwinging = false;
+	LastBlade.reset();
+	Guard.BlocksInRow = Guard.SinceBlockSeconds < 1.5f ? Guard.BlocksInRow + 1 : 1;
+	Guard.SinceBlockSeconds = 0.f;
+	Guard.Body->FireTrigger("Deflect");
+	ReportCharacterHit(Index, GetPlayerTargetKey(ActivePlayer), Mover->GetState().Foot, PlayerFaction);
+	if (Guard.BlocksInRow >= 3)
+	{
+		// The third swing in a quick chain is deflected: the player's arm is thrown back, and the guard answers at once.
+		constexpr FCombatBlow Parried{.AttackerPostureOnDeflect = 30.f};
+		Guard.BlocksInRow = 0;
+		Combat.TakeDeflectRecoil(Parried);
+		Body->FireTrigger("Recoil");
+		HitStop.Start(0.12f);
+		Guard.HitStop.Start(0.12f);
+		Impact(0.08f, 0.035f);
+		Audio.Play(ELevelSound::Deflect, Clash, {{.Name = "Impulse", .Value = 45.f}});
+		RequestEffect(ELevelEffect::Sparks, Clash, Normal, 1.3f);
+		Events.push_back(std::format("{} deflected the player", Name));
+		Guard.Npc->StartAttack(Mover->GetState().Foot);
+		return {};
+	}
+
+	constexpr FCombatBlow Slash{.PostureOnHit = 15.f, .PostureOnBlock = 20.f};
+	const bool bBroken = Guard.Combat.Receive(Slash, true) == EGuardOutcome::GuardBroken;
+	HitStop.Start(bBroken ? 0.12f : 0.07f);
+	Guard.HitStop.Start(bBroken ? 0.12f : 0.07f);
+	Impact(bBroken ? 0.12f : 0.f, bBroken ? 0.05f : 0.02f);
+	Audio.Play(bBroken ? ELevelSound::Deflect : ELevelSound::Block, Clash, {{.Name = "Impulse", .Value = bBroken ? 60.f : 25.f}});
+	RequestEffect(ELevelEffect::Sparks, Clash, Normal, bBroken ? 1.4f : 0.7f);
+	Events.push_back(std::format("{} blocked the player", Name));
+	if (bBroken)
+	{
+		Guard.Npc->Interrupt(Guard.Combat.GetSettings().StaggerSeconds);
+		Events.push_back(std::format("{} lost its posture", Name));
+	}
+
+	return {};
+}
+
+std::optional<std::size_t> FGameSession::FImplementation::FindCombatTarget(const float Range) const
+{
+	const FVector3 Foot = Mover->GetState().Foot;
+	const std::uint32_t Key = GetPlayerTargetKey(ActivePlayer);
+	std::optional<std::size_t> Nearest;
+	float NearestDistance = Range;
+	for (std::size_t Index = 0; Index < Characters.size(); ++Index)
+	{
+		const FCharacterActor& Actor = Characters[Index];
+		if (!Actor.Npc || Actor.Npc->IsDead() || Actor.bDowned || Actor.Npc->IsDowned())
+		{
+			continue;
+		}
+
+		const FAiMemory* const Memory = Ai && Actor.Agent ? Ai->GetMemory(*Actor.Agent) : nullptr;
+		const bool bFoe = Actor.Npc->GetSettings().Attitude == EAiAttitude::Hostile || (Memory && Memory->Enemy == Key);
+		const FVector3 Position = Actor.Npc->GetFootPosition();
+		const float Distance = std::hypot(Position.X - Foot.X, Position.Z - Foot.Z);
+		if (bFoe && Distance < NearestDistance && std::abs(Position.Y - Foot.Y) < 1.5f)
+		{
+			Nearest = Index;
+			NearestDistance = Distance;
+		}
+	}
+
+	return Nearest;
+}
+
+std::optional<std::array<FVector3, 2>> FGameSession::FImplementation::GetCharacterBlade(const FCharacterActor& Actor) const
+{
+	const std::optional<FMatrix4> Grip = Actor.Body->GetGripFrame();
+	if (!Grip)
+	{
+		return std::nullopt;
+	}
+
+	const FMatrix4 Hand = Actor.Model * *Grip;
+	return std::array{TransformPoint(Hand, {0.f, SwordBladeStart, 0.f}), TransformPoint(Hand, {0.f, SwordBladeEnd, 0.f})};
+}
+
+void FGameSession::FImplementation::Impact(const float SlowSeconds, const float Strength)
+{
+	SlowMotionSeconds = std::max(SlowMotionSeconds, SlowSeconds);
+	if (Strength >= ShakeStrength * ShakeSeconds / std::max(ShakeLength, 1.e-3f))
+	{
+		ShakeStrength = Strength;
+		ShakeLength = 0.25f;
+		ShakeSeconds = ShakeLength;
+	}
+}
+
 std::expected<void, FPhysicsError> FGameSession::FImplementation::StartCharacters(FPhysicsWorld& World)
 {
 	// The physics world that held the pieces is gone, so they only need dropping.
@@ -2379,6 +2603,8 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StartCharacter
 	{
 		Actor.Combat.Restore();
 		Actor.HitStop = {};
+		Actor.BlocksInRow = 0;
+		Actor.SinceBlockSeconds = 1.e9f;
 		Actor.Body->Restart();
 		Actor.Model = AuthoredWorld[Actor.Entity];
 		Actor.bDowned = false;
@@ -3038,7 +3264,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		return Entity.Light.has_value();
 	});
 
-	const FVector3 Eye = Session.GetCameraPosition(Foot, BodyFoot);
+	const FVector3 Eye = Session.GetCameraPosition(Foot, BodyFoot) + Session.GetViewOrientation().RotateVector(Session.ShakeOffset);
 	const float Aspect = Extent.Height > 0 ? static_cast<float>(Extent.Width) / static_cast<float>(Extent.Height) : 1.f;
 	Session.View = {
 	    .View = FMatrix4::Rotation(Session.GetViewOrientation().Conjugated()) * FMatrix4::Translation(-Eye),
@@ -3613,6 +3839,7 @@ void FGameSession::FImplementation::StrikePlayer(FCharacterActor& Actor)
 			Actor.Npc->Interrupt(bBroken ? Actor.Combat.GetSettings().StaggerSeconds : 0.7f);
 			HitStop.Start(0.1f);
 			Actor.HitStop.Start(0.1f);
+			Impact(bBroken ? 0.12f : 0.05f, bBroken ? 0.05f : 0.025f);
 			Audio.Play(ELevelSound::Deflect, Clash, {{.Name = "Impulse", .Value = bBroken ? 60.f : 35.f}});
 			RequestEffect(ELevelEffect::Sparks, Clash, Across, bBroken ? 1.6f : 1.f);
 			if (bBroken)
@@ -3629,6 +3856,7 @@ void FGameSession::FImplementation::StrikePlayer(FCharacterActor& Actor)
 			Events.push_back(bBroken ? std::format("{} broke the player's guard", Name) : std::format("The player blocked {}", Name));
 			HitStop.Start(bBroken ? 0.1f : 0.06f);
 			Actor.HitStop.Start(bBroken ? 0.1f : 0.06f);
+			Impact(bBroken ? 0.1f : 0.f, bBroken ? 0.05f : 0.015f);
 			Audio.Play(ELevelSound::Block, Clash, {{.Name = "Impulse", .Value = bBroken ? 50.f : 20.f}});
 			RequestEffect(ELevelEffect::Sparks, Clash, Across, 0.5f);
 			return;
@@ -3639,6 +3867,7 @@ void FGameSession::FImplementation::StrikePlayer(FCharacterActor& Actor)
 
 	HitStop.Start(0.08f);
 	Actor.HitStop.Start(0.08f);
+	Impact(0.f, 0.04f);
 	if (Combat.IsDead())
 	{
 		// A fatal blow knocks the player down; getting up restores them.
@@ -3723,6 +3952,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::StepAgents(FPhysi
 		Actor.Npc->Step(StepSeconds, Actor.Body->GetEvents());
 		Actor.Combat.SetGuardHeld(!Actor.Npc->IsAttacking() && !Actor.Npc->IsBusy());
 		Actor.Combat.Tick(StepSeconds);
+		Actor.SinceBlockSeconds += StepSeconds;
 		Actor.Body->SetBool("Staggered", Actor.Combat.IsStaggered() && !Actor.Npc->IsDead());
 		if (Actor.Npc->IsDead() || Actor.bDowned)
 		{
