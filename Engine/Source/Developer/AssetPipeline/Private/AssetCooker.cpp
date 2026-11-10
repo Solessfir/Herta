@@ -11,6 +11,7 @@
 #include "Herta/AssetPipeline/ShaderSources.h"
 #include "Herta/AssetPipeline/TextureCooker.h"
 #include "Herta/AnimationGraph/AnimationGraph.h"
+#include "Herta/StateTreeCompiler/StateTreeCompiler.h"
 #include "Herta/VfxGraph/VfxGraph.h"
 
 #include <algorithm>
@@ -609,6 +610,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	std::optional<FSoundSettings> SoundSettings;
 	std::optional<FCookedSoundGraph> SoundGraph;
 	std::optional<FCookedParticleSystem> ParticleSystem;
+	std::optional<FCookedStateTree> StateTree;
 	FHash128 BlenderRecordKey;
 	std::expected<ETextureColorSpace, FAssetError> ColorSpace = ETextureColorSpace::Srgb;
 
@@ -712,6 +714,34 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 		}
 
 		ParticleSystem = std::move(Compiled->System);
+	}
+	else if (Metadata->Importer == "StateTree")
+	{
+		KeyInput.ImporterVersion = StateTreeImporterVersion;
+		if (!Metadata->Settings.empty())
+		{
+			return std::unexpected(FAssetError{"The StateTree importer has no settings"});
+		}
+
+		auto Graph = DeserializeGraph(std::string_view(reinterpret_cast<const char*>(Source->data()), Source->size()), GetStateTreeSchema());
+		if (!Graph)
+		{
+			return std::unexpected(FAssetError{std::format("{}: {}", Request.SourcePath, Graph.error().Message)});
+		}
+
+		auto Compiled = CompileStateTree(*Graph);
+		if (!Compiled)
+		{
+			std::string Message = std::format("{} does not compile:", Request.SourcePath);
+			for (const FGraphDiagnostic& Diagnostic : Compiled.error())
+			{
+				Message += std::format(" {} (node {}).", Diagnostic.Message, Diagnostic.Node.Value);
+			}
+
+			return std::unexpected(FAssetError{std::move(Message)});
+		}
+
+		StateTree = std::move(Compiled->Tree);
 	}
 	else if (Metadata->Importer == "Gltf")
 	{
@@ -859,6 +889,10 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	else if (Metadata->Importer == "VfxGraph")
 	{
 		Cooked = std::move(*ParticleSystem);
+	}
+	else if (Metadata->Importer == "StateTree")
+	{
+		Cooked = std::move(*StateTree);
 	}
 	else if (Metadata->Importer == "Gltf")
 	{

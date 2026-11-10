@@ -400,6 +400,12 @@ HertaRuntimeModule("AudioGraph", {
     PublicDependencies = { "GraphCore", "Assets" }
 })
 
+-- The StateTree schema and its compiler to contiguous StateTree programs, run by the editor, the asset cooker, and tests; games run the cooked programs.
+HertaRuntimeModule("StateTreeCompiler", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/StateTreeCompiler"),
+    PublicDependencies = { "GraphCore", "Assets" }
+})
+
 -- The VFX Graph schema and its compiler to particle systems, run by the editor, the asset cooker, and tests; games play the cooked data.
 HertaRuntimeModule("VfxGraph", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/VfxGraph"),
@@ -409,7 +415,7 @@ HertaRuntimeModule("VfxGraph", {
 HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
     PublicDependencies = { "Core", "Assets", "EditorCore", "Level", "Math", "Navigation", "NavigationBuilder" },
-    PrivateDependencies = { "Platform", "Project", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "Audio", "Animation" },
+    PrivateDependencies = { "Platform", "Project", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Audio", "Animation" },
     PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer", "OzzAnimationOffline", "OzzAnimation", "OzzBase" }
 })
     externalincludedirs {
@@ -594,7 +600,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "AI", "Animation", "Audio", "Navigation", "NavigationBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "AI", "Animation", "Audio", "Navigation", "NavigationBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }

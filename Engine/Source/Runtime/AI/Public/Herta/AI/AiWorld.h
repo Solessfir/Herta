@@ -157,6 +157,8 @@ public:
 	void PostNoise(const FVector3& Position, float Radius);
 	// Such as Hit; the agent's tree sees it the next time it thinks.
 	void PostEvent(FAiAgentId Agent, std::string_view Event);
+	// Something struck the agent from From: it remembers the attacker there, as if it had just seen it, and gets a Hit event.
+	void ReportHit(FAiAgentId Agent, const FVector3& From);
 	void Step(float Seconds, const IAiEnvironment& Environment);
 	// Stops every agent's tasks.
 	void Stop();

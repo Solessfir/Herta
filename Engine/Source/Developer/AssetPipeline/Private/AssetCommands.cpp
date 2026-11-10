@@ -2,6 +2,7 @@
 #include "Herta/AnimationGraph/AnimationGraph.h"
 #include "Herta/AssetPipeline/AssetMetadata.h"
 #include "Herta/AudioGraph/AudioGraph.h"
+#include "Herta/StateTreeCompiler/StateTreeCompiler.h"
 #include "Herta/VfxGraph/VfxGraph.h"
 
 #include "FileUtilities.h"
@@ -439,6 +440,58 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			}
 
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Compiled {}: {} nodes, {} waves, inputs: {}", Arguments[0], Compiled->Graph.Nodes.size(), GetSoundGraphWaves(Compiled->Graph).size(), Inputs.empty() ? "none" : Inputs)};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "statetree.compile",
+		    .Description = "Compile a StateTree to check it, listing its states or what stops it compiling",
+		    .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			if (Arguments.size() != 1 || !Arguments[0].ends_with(StateTreeExtension))
+			{
+				return UsageError("statetree.compile <tree.hstatetree>");
+			}
+
+			const auto Bytes = ReadWholeFile(Utf8ToPath(Arguments[0]), 64 * 1024 * 1024);
+			if (!Bytes || !*Bytes)
+			{
+				return ExecutionError(Bytes ? FAssetError{std::format("{} does not exist", Arguments[0])} : Bytes.error());
+			}
+
+			const auto Graph = DeserializeGraph(std::string_view(reinterpret_cast<const char*>((*Bytes)->data()), (*Bytes)->size()), GetStateTreeSchema());
+			if (!Graph)
+			{
+				return ExecutionError(FAssetError{Graph.error().Message});
+			}
+
+			const auto Compiled = CompileStateTree(*Graph);
+			if (!Compiled)
+			{
+				std::string Message = std::format("{} does not compile", Arguments[0]);
+				for (const FGraphDiagnostic& Diagnostic : Compiled.error())
+				{
+					Message += std::format(" (node {}: {})", Diagnostic.Node.Value, Diagnostic.Message);
+				}
+
+				return ExecutionError(FAssetError{std::move(Message)});
+			}
+
+			std::string States;
+			for (const FStateTreeStateDesc& State : Compiled->Tree.States)
+			{
+				States += (States.empty() ? "" : ", ") + State.Name;
+			}
+
+			std::string Warnings;
+			for (const FGraphDiagnostic& Diagnostic : Compiled->Diagnostics)
+			{
+				Warnings += std::format("; warning at node {}: {}", Diagnostic.Node.Value, Diagnostic.Message);
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Compiled {}: {} states ({}), {} tasks, {} transitions{}", Arguments[0], Compiled->Tree.States.size(), States, Compiled->Tree.Tasks.size(), Compiled->Tree.Transitions.size(), Warnings)};
 		}});
 	}
 

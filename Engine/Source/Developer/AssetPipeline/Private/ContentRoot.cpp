@@ -29,6 +29,7 @@ inline constexpr std::array ImporterExtensions{
     FImporterExtension{.Extension = ".gltf", .Importer = "Gltf"},
     FImporterExtension{.Extension = ".haudiograph", .Importer = "AudioGraph"},
     FImporterExtension{.Extension = ".hmat", .Importer = "Material"},
+    FImporterExtension{.Extension = ".hstatetree", .Importer = "StateTree"},
     FImporterExtension{.Extension = ".hvfxgraph", .Importer = "VfxGraph"},
     FImporterExtension{.Extension = ".hdr", .Importer = "Texture"},
     FImporterExtension{.Extension = ".jpeg", .Importer = "Texture"},

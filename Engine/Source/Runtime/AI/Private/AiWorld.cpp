@@ -340,6 +340,16 @@ void FAiWorld::PostEvent(const FAiAgentId Agent, const std::string_view Event)
 	}
 }
 
+void FAiWorld::ReportHit(const FAiAgentId Agent, const FVector3& From)
+{
+	if (FAgent* const Found = Find(Agent))
+	{
+		Found->Memory.LastSeen = From;
+		Found->Memory.SecondsSinceSeen = 0.f;
+		Found->Execution.PostEvent("Hit");
+	}
+}
+
 void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 {
 	++Stats.Perceptions;
