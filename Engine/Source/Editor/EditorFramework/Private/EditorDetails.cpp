@@ -85,7 +85,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 8> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 9> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -154,6 +154,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(5, ELevelComponentType::Trigger, Entity->Trigger.has_value(), Components.bAnyTrigger, Components.bAllTrigger, Components.MixedTrigger);
 			Aggregate(6, ELevelComponentType::Constraint, Entity->Constraint.has_value(), Components.bAnyConstraint, Components.bAllConstraint, Components.MixedConstraint);
 			Aggregate(7, ELevelComponentType::Destructible, Entity->Destructible.has_value(), Components.bAnyDestructible, Components.bAllDestructible, Components.MixedDestructible);
+			Aggregate(8, ELevelComponentType::Character, Entity->Character.has_value(), Components.bAnyCharacter, Components.bAllCharacter, Components.MixedCharacter);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -253,6 +254,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[7])
 	{
 		Components.Destructible = *VisualBaselines[7]->Destructible;
+	}
+
+	if (VisualBaselines[8])
+	{
+		Components.Character = *VisualBaselines[8]->Character;
 	}
 
 	if (VisualBaselines[5])
@@ -513,6 +519,12 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveDestructible:
 				ReportLevelResult(Level->SetSelectedDestructible(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddCharacter:
+				ReportLevelResult(Level->AddCharacterToSelected());
+				break;
+			case EDetailsComponentAction::RemoveCharacter:
+				ReportLevelResult(Level->SetSelectedCharacter(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;

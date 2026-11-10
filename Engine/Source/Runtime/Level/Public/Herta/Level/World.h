@@ -220,6 +220,18 @@ struct FDestructibleComponent
 	bool bAnchored = true;
 };
 
+// Plays the entity's skinned Static Mesh as a character with its model's state machine: it stands, flinches when hit, can be sliced along a
+// blade's plane or severed at a joint by a hard hit, and falls as a ragdoll when it loses its head. Restarting the session restores it.
+struct FCharacterComponent
+{
+	constexpr bool operator==(const FCharacterComponent&) const = default;
+
+	// Pieces cut off it that stay in the world, oldest removed first. A whole number; the property system edits it as a float.
+	float MaximumPieces = 8.f;
+	// The impulse, in N*s, of a hit that severs the limb it strikes.
+	float SeverImpulse = 25.f;
+};
+
 // What a trigger means to gameplay. The player spawns in the Start zone, and the course runs from leaving it to entering a Finish zone.
 enum class ETriggerRole : std::uint8_t
 {
@@ -289,6 +301,7 @@ struct FLevelEntity
 	std::optional<FTriggerComponent> Trigger{};
 	std::optional<FConstraintComponent> Constraint{};
 	std::optional<FDestructibleComponent> Destructible{};
+	std::optional<FCharacterComponent> Character{};
 };
 
 struct FLevelEntityChange
@@ -312,6 +325,7 @@ struct FLevelError
 [[nodiscard]] std::expected<void, FLevelError> ValidateTriggerComponent(const FTriggerComponent& Trigger);
 [[nodiscard]] std::expected<void, FLevelError> ValidateConstraintComponent(const FConstraintComponent& Constraint);
 [[nodiscard]] std::expected<void, FLevelError> ValidateDestructibleComponent(const FDestructibleComponent& Destructible);
+[[nodiscard]] std::expected<void, FLevelError> ValidateCharacterComponent(const FCharacterComponent& Character);
 
 // Single-owner world. Structural changes become visible only at an explicit barrier.
 class FWorld final

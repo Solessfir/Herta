@@ -23,6 +23,7 @@ enum class ELevelComponentType : std::uint8_t
 	Trigger,
 	Constraint,
 	Destructible,
+	Character,
 };
 
 enum class ELevelPropertyType : std::uint8_t

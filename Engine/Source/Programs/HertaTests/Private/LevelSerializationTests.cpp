@@ -84,7 +84,7 @@ std::string ReplaceLevelText(std::string Text, const std::string_view From, cons
 // Schema 9 always writes exposure compensation and schema 11 the player character; older schemas must not contain them.
 std::string WithSchema(std::string Text, const int Version)
 {
-	Text = ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 11", "\"engineSchemaVersion\": " + std::to_string(Version));
+	Text = ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 12", "\"engineSchemaVersion\": " + std::to_string(Version));
 
 	for (const std::string_view Key : {",\n  \"playerCharacter\": ", ",\n  \"exposureCompensation\": "})
 	{
@@ -162,7 +162,7 @@ TEST_CASE("Levels round-trip in canonical sorted UTF-8 JSON")
 	CHECK(Serialized->find('\r') == std::string::npos);
 	CHECK(Serialized->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Serialized->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Serialized->find("\"engineSchemaVersion\": 11") != std::string::npos);
+	CHECK(Serialized->find("\"engineSchemaVersion\": 12") != std::string::npos);
 	CHECK(Serialized->find("\"folders\": []") != std::string::npos);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"format\":", "\"magic\":")));
 	CHECK(Serialized->find("\"rotation\": [") != std::string::npos);
@@ -235,7 +235,7 @@ TEST_CASE("Schema 1 body types migrate to canonical schema 3 settings and empty 
 	REQUIRE(Canonical);
 	CHECK(Canonical->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Canonical->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Canonical->find("\"engineSchemaVersion\": 11") != std::string::npos);
+	CHECK(Canonical->find("\"engineSchemaVersion\": 12") != std::string::npos);
 	CHECK(Canonical->find("\"folders\": []") != std::string::npos);
 	CHECK(Canonical->find("\"massKg\": 1") != std::string::npos);
 	CHECK(Canonical->find("\"gravityScale\": 1") != std::string::npos);
@@ -337,7 +337,7 @@ TEST_CASE("Levels reject unsupported versions, malformed input, and unknown data
 	    ReplaceLevelText(*Serialized, "\"HertaLevel\"", "\"OtherLevel\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 0"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 3"),
-	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 11", "\"engineSchemaVersion\": 12"),
+	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 12", "\"engineSchemaVersion\": 13"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 1.5"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": \"2\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": true"),
@@ -708,7 +708,7 @@ TEST_CASE("Visual level components and material slots have deterministic schema 
 	Document.Entities[1].HeightFog = FHeightFogComponent{.Density = 0.04f, .Albedo = {0.5f, 0.8f, 1.f}, .Quality = EFogQuality::High};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
-	CHECK(Text->find("\"engineSchemaVersion\": 11") != std::string::npos);
+	CHECK(Text->find("\"engineSchemaVersion\": 12") != std::string::npos);
 	CHECK(Text->find("\"materials\": [\"" + FAssetId{8, 1}.ToString() + "\", null,") != std::string::npos);
 	const auto Restored = ParseLevel(*Text);
 	REQUIRE(Restored);
@@ -771,7 +771,7 @@ TEST_CASE("Exposure compensation persists from schema nine and defaults to zero 
 	const auto Older = ParseLevel(WithSchema(*Text, 8));
 	REQUIRE(Older);
 	CHECK(Older->ExposureCompensation == 0.f);
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 11", "\"engineSchemaVersion\": 8")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 12", "\"engineSchemaVersion\": 8")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, ",\n  \"exposureCompensation\": -2", "")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"exposureCompensation\": -2", "\"exposureCompensation\": -6")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"exposureCompensation\": -2", "\"exposureCompensation\": \"-2\"")));
@@ -1010,7 +1010,7 @@ TEST_CASE("The player character is saved, cleared to null, and absent before sch
 	CHECK_FALSE(ParseLevel(*Cleared)->PlayerCharacter.IsValid());
 
 	// Schema 10 has no player character and loads without one; schema 11 requires the field.
-	std::string Older = ReplaceLevelText(*Cleared, "\"engineSchemaVersion\": 11", "\"engineSchemaVersion\": 10");
+	std::string Older = ReplaceLevelText(*Cleared, "\"engineSchemaVersion\": 12", "\"engineSchemaVersion\": 10");
 	CHECK_FALSE(ParseLevel(Older));
 	const std::size_t Field = Older.find(",\n  \"playerCharacter\": ");
 	REQUIRE(Field != std::string::npos);

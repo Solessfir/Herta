@@ -196,8 +196,8 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
-		const std::array<std::string_view, 14> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Mover", "Trigger", "Constraint", "Destructible"};
-		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody, Components.bAllMover, Components.bAllTrigger, Components.bAllConstraint, Components.bAllDestructible};
+		const std::array<std::string_view, 15> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Mover", "Trigger", "Constraint", "Destructible", "Character"};
+		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody, Components.bAllMover, Components.bAllTrigger, Components.bAllConstraint, Components.bAllDestructible, Components.bAllCharacter};
 		constexpr std::array Actions{
 		    EDetailsComponentAction::AddStaticMesh,
 		    EDetailsComponentAction::AddRigidBody,
@@ -213,6 +213,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		    EDetailsComponentAction::AddTrigger,
 		    EDetailsComponentAction::AddConstraint,
 		    EDetailsComponentAction::AddDestructible,
+		    EDetailsComponentAction::AddCharacter,
 		};
 		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
 		std::vector<int> Available;
@@ -765,6 +766,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			                                                                             : Type == ELevelComponentType::SoftBody        ? 32
 			                                                                             : Type == ELevelComponentType::Mover           ? 43
 			                                                                             : Type == ELevelComponentType::Destructible    ? 48
+			                                                                             : Type == ELevelComponentType::Character       ? 53
 			                                                                                                                            : 45);
 			const float Conversion = Property.Unit == ELevelPropertyUnit::Radians ? 180.f / std::numbers::pi_v<float> : 1.f;
 			float NumericValue = std::get_if<float>(&Candidate) ? std::get<float>(Candidate) * Conversion : 0.f;
@@ -1279,7 +1281,8 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bTrigger = Components && Components->bAnyTrigger && MatchesVisualSection(ELevelComponentType::Trigger, Query);
 	const bool bConstraint = Components && Components->bAnyConstraint && MatchesVisualSection(ELevelComponentType::Constraint, Query);
 	const bool bDestructible = Components && Components->bAnyDestructible && MatchesVisualSection(ELevelComponentType::Destructible, Query);
-	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody && !bMover && !bTrigger && !bConstraint && !bDestructible)
+	const bool bCharacter = Components && Components->bAnyCharacter && MatchesVisualSection(ELevelComponentType::Character, Query);
+	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody && !bMover && !bTrigger && !bConstraint && !bDestructible && !bCharacter)
 	{
 		ImGui::TextDisabled("No matching properties.");
 		ToolUI.EndPanel();
@@ -1725,7 +1728,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 	if (Components)
 	{
-		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog, .SoftBody = Components->SoftBody, .Mover = Components->Mover, .Trigger = Components->Trigger, .Constraint = Components->Constraint, .Destructible = Components->Destructible};
+		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog, .SoftBody = Components->SoftBody, .Mover = Components->Mover, .Trigger = Components->Trigger, .Constraint = Components->Constraint, .Destructible = Components->Destructible, .Character = Components->Character};
 		constexpr std::array<std::string_view, 5> LightLabels{"Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light"};
 		if (bLight && DrawSectionHeader(LightLabels[static_cast<std::size_t>(Visual.Light->Type)].data(), !Components->bAllLight || Components->MixedLight[0], EDetailsComponentAction::RemoveLight))
 		{
@@ -1773,6 +1776,12 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		{
 			DrawVisualProperties(ToolUI, ELevelComponentType::Destructible, Visual, Components->MixedDestructible, State, *Components, Query, bDragging, Edits, MeshResult);
 			Components->Destructible = *Visual.Destructible;
+		}
+
+		if (bCharacter && DrawSectionHeader("Character", !Components->bAllCharacter, EDetailsComponentAction::RemoveCharacter))
+		{
+			DrawVisualProperties(ToolUI, ELevelComponentType::Character, Visual, Components->MixedCharacter, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->Character = *Visual.Character;
 		}
 	}
 

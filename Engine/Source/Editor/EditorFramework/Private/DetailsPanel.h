@@ -40,7 +40,7 @@ struct FDetailsPanelState
 	std::array<char, 96> VisualReferenceSearch{};
 	std::array<char, 96> MaterialSearch{};
 	std::array<bool, 6> BodyPropertyWasMixed{};
-	std::array<bool, 53> VisualPropertyWasMixed{};
+	std::array<bool, 55> VisualPropertyWasMixed{};
 	int ComponentResult = 0;
 	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;
@@ -82,6 +82,8 @@ enum class EDetailsComponentAction
 	RemoveConstraint,
 	AddDestructible,
 	RemoveDestructible,
+	AddCharacter,
+	RemoveCharacter,
 };
 
 struct FDetailsMaterialSlot
@@ -135,6 +137,10 @@ struct FDetailsComponentField
 	bool bAllDestructible = false;
 	FDestructibleComponent Destructible{};
 	std::array<bool, 5> MixedDestructible{};
+	bool bAnyCharacter = false;
+	bool bAllCharacter = false;
+	FCharacterComponent Character{};
+	std::array<bool, 2> MixedCharacter{};
 	std::span<const FObjectId> SunIds{};
 	std::span<const std::string> SunLabels{};
 	// Meshed rigid bodies and ropes a constraint can join.

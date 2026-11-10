@@ -266,6 +266,19 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		}
 	}
 
+	if (Type == ELevelComponentType::Character && Entity.Character)
+	{
+		if (Key == "maximumPieces")
+		{
+			return Visitor(Entity.Character->MaximumPieces);
+		}
+
+		if (Key == "severImpulse")
+		{
+			return Visitor(Entity.Character->SeverImpulse);
+		}
+	}
+
 	if (Type == ELevelComponentType::Mover && Entity.Mover)
 	{
 		if (Key == "offset")
@@ -316,6 +329,7 @@ constexpr FHeightFogComponent FogDefaults{};
 constexpr FSoftBodyComponent SoftBodyDefaults{};
 constexpr FMoverComponent MoverDefaults{};
 constexpr FDestructibleComponent DestructibleDefaults{};
+constexpr FCharacterComponent CharacterDefaults{};
 constexpr FTriggerComponent TriggerDefaults{};
 constexpr FConstraintComponent ConstraintDefaults{};
 
@@ -421,6 +435,11 @@ constexpr std::array ConstraintProperties{
     FLevelPropertyDescriptor{.Key = "anchor", .Label = "Anchor", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = ConstraintDefaults.Anchor, .Range = FLevelPropertyRange{.Minimum = -1000., .Maximum = 1000.}},
 };
 
+constexpr std::array CharacterProperties{
+    FLevelPropertyDescriptor{.Key = "maximumPieces", .Label = "Maximum Pieces", .Default = CharacterDefaults.MaximumPieces, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 64.}},
+    FLevelPropertyDescriptor{.Key = "severImpulse", .Label = "Sever Impulse", .Default = CharacterDefaults.SeverImpulse, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 100000.}},
+};
+
 constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Transform, .TypeId = "Herta.Level.Transform", .SerializationKey = "transform", .Label = "Transform", .Properties = TransformProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::StaticMesh, .TypeId = "Herta.Level.StaticMesh", .SerializationKey = "staticMesh", .Label = "Static Mesh", .Properties = MeshProperties},
@@ -433,6 +452,7 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Trigger, .TypeId = "Herta.Level.Trigger", .SerializationKey = "trigger", .Label = "Trigger", .Properties = TriggerProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::Constraint, .TypeId = "Herta.Level.Constraint", .SerializationKey = "constraint", .Label = "Constraint", .Properties = ConstraintProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::Destructible, .TypeId = "Herta.Level.Destructible", .SerializationKey = "destructible", .Label = "Destructible", .Properties = DestructibleProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::Character, .TypeId = "Herta.Level.Character", .SerializationKey = "character", .Label = "Character", .Properties = CharacterProperties},
 };
 }
 
@@ -486,6 +506,7 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 	                   : Type == ELevelComponentType::Trigger       ? Validate(Candidate.Trigger, ValidateTriggerComponent)
 	                   : Type == ELevelComponentType::Constraint    ? Validate(Candidate.Constraint, ValidateConstraintComponent)
 	                   : Type == ELevelComponentType::Destructible  ? Validate(Candidate.Destructible, ValidateDestructibleComponent)
+	                   : Type == ELevelComponentType::Character     ? Validate(Candidate.Character, ValidateCharacterComponent)
 	                                                                : Validate(Candidate.HeightFog, ValidateHeightFogComponent);
 	if (!Valid)
 	{

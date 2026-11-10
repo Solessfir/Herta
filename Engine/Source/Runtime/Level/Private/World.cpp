@@ -219,6 +219,15 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		}
 	}
 
+	if (Entity.Character)
+	{
+		const auto Valid = ValidateCharacterComponent(*Entity.Character);
+		if (!Valid)
+		{
+			return Valid;
+		}
+	}
+
 	if (Entity.Trigger)
 	{
 		const auto Valid = ValidateTriggerComponent(*Entity.Trigger);
@@ -392,6 +401,17 @@ std::expected<void, FLevelError> ValidateDestructibleComponent(const FDestructib
 	return {};
 }
 
+std::expected<void, FLevelError> ValidateCharacterComponent(const FCharacterComponent& Character)
+{
+	if (!std::isfinite(Character.MaximumPieces) || Character.MaximumPieces < 0.f || Character.MaximumPieces > 64.f || std::floor(Character.MaximumPieces) != Character.MaximumPieces || !std::isfinite(Character.SeverImpulse) || Character.SeverImpulse < 0.1f
+	    || Character.SeverImpulse > 100000.f)
+	{
+		return std::unexpected(FLevelError{"Characters keep 0 to 64 whole pieces and sever at impulses from 0.1 to 100000 N*s"});
+	}
+
+	return {};
+}
+
 std::expected<void, FLevelError> ValidateMoverComponent(const FMoverComponent& Mover)
 {
 	const auto InRange = [](const float Value, const float Minimum, const float Maximum)
@@ -551,6 +571,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FTriggerComponent* Trigger = Registry.try_get<FTriggerComponent>(Entity);
 	const FConstraintComponent* Constraint = Registry.try_get<FConstraintComponent>(Entity);
 	const FDestructibleComponent* Destructible = Registry.try_get<FDestructibleComponent>(Entity);
+	const FCharacterComponent* Character = Registry.try_get<FCharacterComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -567,6 +588,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .Trigger = Trigger ? std::optional{*Trigger} : std::nullopt,
 	    .Constraint = Constraint ? std::optional{*Constraint} : std::nullopt,
 	    .Destructible = Destructible ? std::optional{*Destructible} : std::nullopt,
+	    .Character = Character ? std::optional{*Character} : std::nullopt,
 	};
 }
 
@@ -640,6 +662,15 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FDestructibleComponent>(Entity);
+	}
+
+	if (Snapshot.Character)
+	{
+		Registry.emplace_or_replace<FCharacterComponent>(Entity, *Snapshot.Character);
+	}
+	else
+	{
+		Registry.remove<FCharacterComponent>(Entity);
 	}
 
 	if (Snapshot.Trigger)

@@ -23,7 +23,8 @@ enum class ELevelComponent : std::uint16_t
 	Trigger = 1 << 10,
 	Constraint = 1 << 11,
 	Destructible = 1 << 12,
-	All = (1 << 13) - 1,
+	Character = 1 << 13,
+	All = (1 << 14) - 1,
 };
 
 constexpr ELevelComponent operator|(const ELevelComponent Left, const ELevelComponent Right)
@@ -85,6 +86,7 @@ struct FLevelQueryEntity
 	std::optional<FTriggerComponent> Trigger{};
 	std::optional<FConstraintComponent> Constraint{};
 	std::optional<FDestructibleComponent> Destructible{};
+	std::optional<FCharacterComponent> Character{};
 };
 
 struct FLevelComponentUpdate
@@ -103,6 +105,7 @@ struct FLevelComponentUpdate
 	std::optional<std::optional<FTriggerComponent>> Trigger{};
 	std::optional<std::optional<FConstraintComponent>> Constraint{};
 	std::optional<std::optional<FDestructibleComponent>> Destructible{};
+	std::optional<std::optional<FCharacterComponent>> Character{};
 };
 
 struct FLevelEvent

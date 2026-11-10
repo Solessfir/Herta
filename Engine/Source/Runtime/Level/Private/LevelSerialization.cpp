@@ -407,6 +407,24 @@ std::expected<FDestructibleComponent, FLevelError> ReadDestructible(const simdjs
 	return FDestructibleComponent{.Cells = *Cells, .Seed = *Seed, .Strength = *Strength, .MassKg = *Mass, .bAnchored = bAnchored};
 }
 
+std::expected<FCharacterComponent, FLevelError> ReadCharacter(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<2>(Element, GetLevelComponentDescriptor(ELevelComponentType::Character));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Pieces = ReadNumber<float>((*Fields)[0]);
+	const auto Impulse = ReadNumber<float>((*Fields)[1]);
+	if (!Pieces || !Impulse)
+	{
+		return LevelError("Invalid character component field");
+	}
+
+	return FCharacterComponent{.MaximumPieces = *Pieces, .SeverImpulse = *Impulse};
+}
+
 constexpr std::array<std::string_view, 3> TriggerRoles{"none", "start", "finish"};
 
 // Schema 7 added the role; older triggers have none.
@@ -707,6 +725,22 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			Entity.Destructible = *Destructible;
+		}
+		else if (SchemaVersion >= 12 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Character).SerializationKey)
+		{
+			if ((SeenComponents & 2048) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 2048;
+			const auto Character = ReadCharacter(Component.value);
+			if (!Character)
+			{
+				return std::unexpected(Character.error());
+			}
+
+			Entity.Character = *Character;
 		}
 		else if (SchemaVersion >= 5 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Mover).SerializationKey)
 		{
@@ -1164,7 +1198,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 11,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 12,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1356,6 +1390,12 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			AppendVisualComponent(Output, ELevelComponentType::Destructible, Values, bHasComponent);
 		}
 
+		if (Entity.Character)
+		{
+			const std::array<FVisualValue, 2> Values{Entity.Character->MaximumPieces, Entity.Character->SeverImpulse};
+			AppendVisualComponent(Output, ELevelComponentType::Character, Values, bHasComponent);
+		}
+
 		if (Entity.Trigger)
 		{
 			const std::array<FVisualValue, 2> Values{Entity.Trigger->Size, TriggerRoles[static_cast<std::size_t>(Entity.Trigger->Role)]};
@@ -1501,9 +1541,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 11 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 12 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 11 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 12 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
