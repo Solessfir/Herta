@@ -41,3 +41,6 @@
 [submodule "External/ozz-animation"]
 	path = External/ozz-animation
 	url = https://github.com/guillaumeblanc/ozz-animation.git
+[submodule "External/recastnavigation"]
+	path = External/recastnavigation
+	url = https://github.com/recastnavigation/recastnavigation.git

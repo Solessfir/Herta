@@ -289,6 +289,19 @@ HertaRuntimeModule("Animation", {
 })
     externalincludedirs { path.join(RepositoryRoot, "External/ozz-animation/include"), path.join(RepositoryRoot, "External/earcut") }
 
+-- Detour, DetourTileCache, and DetourCrowd stay private; 64-bit polygon references must match the Detour library.
+HertaRuntimeModule("Navigation", {
+    PublicDependencies = { "Core", "Math" },
+    PrivateThirdPartyDependencies = { "Detour" }
+})
+    defines { "DT_POLYREF64" }
+    externalincludedirs {
+        path.join(RepositoryRoot, "External/recastnavigation/Recast/Include"),
+        path.join(RepositoryRoot, "External/recastnavigation/Detour/Include"),
+        path.join(RepositoryRoot, "External/recastnavigation/DetourCrowd/Include"),
+        path.join(RepositoryRoot, "External/recastnavigation/DetourTileCache/Include")
+    }
+
 -- miniaudio opens devices and decodes sources; Herta mixes. Its Linux backends load at runtime, so only the loader and threads link.
 HertaRuntimeModule("Audio", {
     PublicDependencies = { "Math", "Assets" },
@@ -348,6 +361,21 @@ HertaRuntimeModule("GameFramework", {
 HertaRuntimeModule("Particles", {
     PublicDependencies = { "Math", "Assets", "Level", "RHI", "Renderer" }
 })
+
+-- Builds navigation tiles with Recast for the editor, headless commands, and tests; games load the cooked tiles through Navigation.
+HertaRuntimeModule("NavigationBuilder", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/NavigationBuilder"),
+    PublicDependencies = { "Core", "Math", "Navigation" },
+    PrivateDependencies = { "Tasks" },
+    PrivateThirdPartyDependencies = { "Recast", "Detour" }
+})
+    defines { "DT_POLYREF64" }
+    includedirs { path.join(RepositoryRoot, "Engine/Source/Runtime/Navigation/Private") }
+    externalincludedirs {
+        path.join(RepositoryRoot, "External/recastnavigation/Recast/Include"),
+        path.join(RepositoryRoot, "External/recastnavigation/Detour/Include"),
+        path.join(RepositoryRoot, "External/recastnavigation/DetourTileCache/Include")
+    }
 
 -- The Material Graph schema and its compiler to Slang, run by the editor, headless commands, and tests; game targets load cooked shaders instead.
 HertaRuntimeModule("MaterialGraph", {
@@ -561,7 +589,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Animation", "Audio", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Animation", "Audio", "Navigation", "NavigationBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
