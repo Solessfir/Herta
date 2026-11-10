@@ -1477,27 +1477,63 @@ struct FStateHeader
 {
 	std::array<char, 4> Magic{'H', 'P', 'S', '1'};
 	std::uint32_t BodyCount = 0;
+	// Which bodies, constraints, and characters exist; a state restores only into a world holding the same ones.
+	std::uint64_t Structure = 0;
 	std::uint64_t PayloadBytes = 0;
 	std::uint64_t PayloadHashLow = 0;
 	std::uint64_t PayloadHashHigh = 0;
 };
 
-static_assert(std::is_trivially_copyable_v<FStateHeader> && sizeof(FStateHeader) == 32);
+static_assert(std::is_trivially_copyable_v<FStateHeader> && sizeof(FStateHeader) == 40);
 
-std::string SaveJoltState(const JPH::PhysicsSystem& Physics)
+[[nodiscard]] std::uint64_t HashStructure(const JPH::PhysicsSystem& Physics, const std::span<const JPH::Ref<JPH::CharacterVirtual>> Characters)
+{
+	JPH::BodyIDVector Bodies;
+	Physics.GetBodies(Bodies);
+	std::vector<std::uint32_t> Words;
+	Words.reserve(Bodies.size() + Characters.size() + 1);
+	for (const JPH::BodyID Body : Bodies)
+	{
+		Words.push_back(Body.GetIndexAndSequenceNumber());
+	}
+
+	std::ranges::sort(Words);
+	Words.push_back(static_cast<std::uint32_t>(Physics.GetConstraints().size()));
+	for (const JPH::Ref<JPH::CharacterVirtual>& Character : Characters)
+	{
+		Words.push_back(Character ? 1u : 0u);
+	}
+
+	const FHash128 Hash = HashBytes(std::as_bytes(std::span(Words)));
+	return Hash.Low ^ Hash.High;
+}
+
+// Jolt leaves virtual characters out of the system's state, so they follow it, each behind a flag for whether its slot is still in use. A
+// world without characters writes nothing more, which keeps the hashes of character-free worlds as they were.
+std::string SaveJoltState(const JPH::PhysicsSystem& Physics, const std::span<const JPH::Ref<JPH::CharacterVirtual>> Characters)
 {
 	JPH::StateRecorderImpl Recorder;
 	Physics.SaveState(Recorder);
+	for (const JPH::Ref<JPH::CharacterVirtual>& Character : Characters)
+	{
+		const bool bAlive = Character != nullptr;
+		Recorder.Write(bAlive);
+		if (bAlive)
+		{
+			Character->SaveState(Recorder);
+		}
+	}
+
 	return Recorder.GetData();
 }
 }
 
 std::vector<std::byte> FPhysicsWorld::SaveState() const
 {
-	const std::string Data = SaveJoltState(Implementation->Physics);
+	const std::string Data = SaveJoltState(Implementation->Physics, Implementation->Characters);
 	const auto Payload = std::as_bytes(std::span(Data));
 	const FHash128 Hash = HashBytes(Payload);
-	const FStateHeader Header{.BodyCount = Implementation->Physics.GetNumBodies(), .PayloadBytes = Payload.size(), .PayloadHashLow = Hash.Low, .PayloadHashHigh = Hash.High};
+	const FStateHeader Header{.BodyCount = Implementation->Physics.GetNumBodies(), .Structure = HashStructure(Implementation->Physics, Implementation->Characters), .PayloadBytes = Payload.size(), .PayloadHashLow = Hash.Low, .PayloadHashHigh = Hash.High};
 	std::vector<std::byte> State(sizeof(Header) + Payload.size());
 	std::memcpy(State.data(), &Header, sizeof(Header));
 	std::ranges::copy(Payload, State.begin() + sizeof(Header));
@@ -1525,11 +1561,37 @@ std::expected<void, FPhysicsError> FPhysicsWorld::RestoreState(const std::span<c
 		return std::unexpected(FPhysicsError{std::format("The physics state holds {} bodies but this world has {}", Header.BodyCount, Implementation->Physics.GetNumBodies())});
 	}
 
+	if (Header.Structure != HashStructure(Implementation->Physics, Implementation->Characters))
+	{
+		return std::unexpected(FPhysicsError{"The physics state was saved with other bodies, constraints, or characters than this world has"});
+	}
+
 	JPH::StateRecorderImpl Recorder;
 	Recorder.WriteBytes(Payload.data(), Payload.size());
 	if (!Implementation->Physics.RestoreState(Recorder) || Recorder.IsFailed())
 	{
 		return std::unexpected(FPhysicsError{"The physics state does not match this world's bodies and constraints"});
+	}
+
+	for (const JPH::Ref<JPH::CharacterVirtual>& Character : Implementation->Characters)
+	{
+		bool bAlive = false;
+		Recorder.Read(bAlive);
+		if (Recorder.IsFailed() || bAlive != (Character != nullptr))
+		{
+			return std::unexpected(FPhysicsError{"The physics state does not match this world's characters"});
+		}
+
+		if (Character)
+		{
+			Character->RestoreState(Recorder);
+		}
+	}
+
+	// A stringstream reports its end only after reading past it, so the payload hash checked above stands in for an end check.
+	if (Recorder.IsFailed())
+	{
+		return std::unexpected(FPhysicsError{"The physics state does not match this world's characters"});
 	}
 
 	// A restored state carries no events of its own.
@@ -1541,7 +1603,7 @@ std::expected<void, FPhysicsError> FPhysicsWorld::RestoreState(const std::span<c
 std::uint64_t FPhysicsWorld::ComputeStateHash() const
 {
 	// Hashes Jolt's stream alone, so the value matches across platforms whatever framing SaveState adds.
-	const std::string Data = SaveJoltState(Implementation->Physics);
+	const std::string Data = SaveJoltState(Implementation->Physics, Implementation->Characters);
 	const FHash128 Hash = HashBytes(std::as_bytes(std::span(Data)));
 	return Hash.Low ^ Hash.High;
 }

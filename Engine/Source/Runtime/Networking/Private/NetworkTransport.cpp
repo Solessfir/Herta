@@ -173,17 +173,17 @@ std::expected<void, FNetworkError> FNetworkTransport::Listen(const std::uint16_t
 		return std::unexpected(FNetworkError{"The transport is already listening"});
 	}
 
-	// The library needs a port, so zero tries ports in the dynamic range from a random start until one is free.
-	constexpr std::uint16_t DynamicFirst = 49152;
-	constexpr std::uint16_t DynamicCount = 16384;
+	// The library needs a port, so zero tries random ones until one binds. Each try is independent because Windows reserves whole runs of
+	// ports for Hyper-V, which a sequential search could spend every attempt inside.
 	constexpr int Attempts = 64;
-	const std::uint16_t Start = static_cast<std::uint16_t>(std::random_device{}() % DynamicCount);
+	std::mt19937 Random(std::random_device{}());
+	std::uniform_int_distribution<int> Ports(20000, 60999);
 	const auto Options = Transport.MakeOptions();
 	for (int Attempt = 0; Attempt < (Port == 0 ? Attempts : 1); ++Attempt)
 	{
 		SteamNetworkingIPAddr Address{};
 		Address.Clear();
-		Address.m_port = Port != 0 ? Port : static_cast<std::uint16_t>(DynamicFirst + (Start + Attempt) % DynamicCount);
+		Address.m_port = Port != 0 ? Port : static_cast<std::uint16_t>(Ports(Random));
 		Transport.ListenSocket = Transport.Sockets->CreateListenSocketIP(Address, static_cast<int>(Options.size()), Options.data());
 		if (Transport.ListenSocket != k_HSteamListenSocket_Invalid)
 		{

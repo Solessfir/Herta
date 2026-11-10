@@ -1,5 +1,6 @@
 #include "Herta/GameFramework/GameSession.h"
 
+#include "Herta/Core/Hash.h"
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/LevelSimulationSetup.h"
 #include "Herta/GameFramework/SoftBodyGeometry.h"
@@ -995,6 +996,120 @@ std::expected<void, FGameError> FGameSession::SetViewPlayer(const std::size_t In
 std::size_t FGameSession::GetViewPlayer() const noexcept
 {
 	return Implementation->ViewPlayer;
+}
+
+struct FGameSessionSnapshotState
+{
+	struct FPlayer
+	{
+		FMoverSnapshot Mover{};
+		float Yaw = 0.f;
+		float Pitch = 0.f;
+		float EyeHeight = 0.f;
+		float SprintNoiseSeconds = 0.f;
+		FGameObjective Objective{};
+		std::optional<FVector3> PendingKnockdown{};
+		std::optional<float> KnockdownSeconds{};
+	};
+
+	FLevelSimulationSnapshot Simulation{};
+	std::vector<FPlayer> Players{};
+	std::vector<std::pair<FLevelSimulationHandle, float>> Projectiles{};
+	std::vector<std::size_t> Throwers{};
+	std::vector<bool> Spent{};
+};
+
+FGameSessionSnapshot FGameSession::SaveSnapshot() const
+{
+	const FImplementation& Session = *Implementation;
+	auto State = std::make_shared<FGameSessionSnapshotState>();
+	State->Simulation = Session.Simulation.SaveSnapshot();
+	for (std::size_t Index = 0; Index < Session.Players.size(); ++Index)
+	{
+		const FPlayerSlot& Slot = Session.GetSlot(Index);
+		State->Players.push_back({
+		    .Mover = Slot.Mover->SaveSnapshot(),
+		    .Yaw = Slot.Yaw,
+		    .Pitch = Slot.Pitch,
+		    .EyeHeight = Slot.EyeHeight,
+		    .SprintNoiseSeconds = Slot.SprintNoiseSeconds,
+		    .Objective = Slot.Objective,
+		    .PendingKnockdown = Slot.PendingKnockdown,
+		    .KnockdownSeconds = Slot.KnockdownSeconds,
+		});
+	}
+
+	for (const FImplementation::FProjectile& Projectile : Session.Projectiles)
+	{
+		State->Projectiles.emplace_back(Projectile.Handle, Projectile.AgeSeconds);
+		State->Throwers.push_back(Projectile.Thrower);
+		State->Spent.push_back(Projectile.bSpent);
+	}
+
+	return {.State = std::move(State)};
+}
+
+std::expected<void, FGameError> FGameSession::RestoreSnapshot(const FGameSessionSnapshot& Snapshot)
+{
+	FImplementation& Session = *Implementation;
+	if (!Snapshot.State || Snapshot.State->Players.size() != Session.Players.size())
+	{
+		return std::unexpected(FGameError{"The snapshot was saved with another set of players"});
+	}
+
+	if (auto Restored = Session.Simulation.RestoreSnapshot(Snapshot.State->Simulation); !Restored)
+	{
+		return std::unexpected(FGameError{std::format("Cannot restore the snapshot: {}", Restored.error().Message)});
+	}
+
+	FPhysicsWorld& World = *Session.Simulation.GetPhysicsWorld();
+	if (auto Placed = Session.ForEachPlayerUntilError<FGameError>([&Session, &World, &Snapshot]() -> std::expected<void, FGameError>
+	{
+		const FGameSessionSnapshotState::FPlayer& Saved = Snapshot.State->Players[Session.ActivePlayer];
+		if (auto Moved = Session.Mover->RestoreSnapshot(World, Saved.Mover); !Moved)
+		{
+			return std::unexpected(FGameError{std::format("Cannot restore a player: {}", Moved.error().Message)});
+		}
+
+		Session.Yaw = Saved.Yaw;
+		Session.Pitch = Saved.Pitch;
+		Session.EyeHeight = Saved.EyeHeight;
+		Session.SprintNoiseSeconds = Saved.SprintNoiseSeconds;
+		Session.Objective = Saved.Objective;
+		Session.PendingKnockdown = Saved.PendingKnockdown;
+		Session.KnockdownSeconds = Saved.KnockdownSeconds;
+		return {};
+	}); !Placed)
+	{
+		return Placed;
+	}
+
+	Session.Projectiles.clear();
+	for (std::size_t Index = 0; Index < Snapshot.State->Projectiles.size(); ++Index)
+	{
+		const auto& [Handle, Age] = Snapshot.State->Projectiles[Index];
+		Session.Projectiles.push_back({.Handle = Handle, .Thrower = Snapshot.State->Throwers[Index], .AgeSeconds = Age, .bSpent = Snapshot.State->Spent[Index]});
+	}
+
+	Session.Events.clear();
+	return {};
+}
+
+std::uint64_t FGameSession::ComputeStateHash() const
+{
+	const FImplementation& Session = *Implementation;
+	const FPhysicsWorld* const World = Session.Simulation.GetPhysicsWorld();
+	std::vector<float> Values;
+	for (std::size_t Index = 0; Index < Session.Players.size(); ++Index)
+	{
+		const FPlayerSlot& Slot = Session.GetSlot(Index);
+		const FMoverState& State = Slot.Mover->GetState();
+		Values.insert(Values.end(), {State.Foot.X, State.Foot.Y, State.Foot.Z, State.Velocity.X, State.Velocity.Y, State.Velocity.Z, State.bGrounded ? 1.f : 0.f, State.bCrouched ? 1.f : 0.f});
+		Values.insert(Values.end(), {Slot.Yaw, Slot.Pitch, static_cast<float>(Slot.Objective.State), static_cast<float>(Slot.Objective.ElapsedSeconds)});
+	}
+
+	const FHash128 Players = HashBytes(std::as_bytes(std::span(Values)));
+	return (World ? World->ComputeStateHash() : 0) ^ Players.Low ^ (Players.High << 1);
 }
 
 std::expected<void, FGameError> FGameSession::Restart()

@@ -398,6 +398,11 @@ FPhysicsWorld* FLevelSimulation::GetPhysicsWorld() noexcept
 	return World.get();
 }
 
+const FPhysicsWorld* FLevelSimulation::GetPhysicsWorld() const noexcept
+{
+	return World.get();
+}
+
 float FLevelSimulation::GetInterpolationAlpha() const noexcept
 {
 	return static_cast<float>(Accumulator / LevelFixedStep);
@@ -1060,5 +1065,80 @@ std::expected<void, FPhysicsError> FLevelSimulation::RestoreBonds(const std::siz
 std::vector<FLevelImpactEvent> FLevelSimulation::TakeImpactEvents()
 {
 	return std::exchange(ImpactEvents, {});
+}
+
+struct FLevelSimulationSnapshotState
+{
+	std::vector<FLevelSimulation::FBodyState> BodyStates;
+	std::vector<FLevelSimulationTransform> Transforms;
+	std::vector<FLevelSimulation::FSoftBodyState> SoftBodyStates;
+	std::unordered_map<std::size_t, std::size_t> TriggerOccupancy;
+	std::vector<FLevelSimulation::FSpawnState> SpawnStates;
+	std::vector<std::uint32_t> FreeSpawnSlots;
+	std::vector<FLevelSimulationSpawn> Spawned;
+	std::vector<FLevelSimulation::FDestructibleState> Destructibles;
+	std::vector<FLevelSimulationPiece> Pieces;
+	std::size_t DebrisCount = 0;
+	double Accumulator = 0.0;
+	double Time = 0.0;
+};
+
+FLevelSimulationSnapshot FLevelSimulation::SaveSnapshot() const
+{
+	if (!World)
+	{
+		return {};
+	}
+
+	return {
+	    .Physics = World->SaveState(),
+	    .State = std::make_shared<const FLevelSimulationSnapshotState>(FLevelSimulationSnapshotState{
+	        .BodyStates = BodyStates,
+	        .Transforms = Transforms,
+	        .SoftBodyStates = SoftBodyStates,
+	        .TriggerOccupancy = TriggerOccupancy,
+	        .SpawnStates = SpawnStates,
+	        .FreeSpawnSlots = FreeSpawnSlots,
+	        .Spawned = Spawned,
+	        .Destructibles = Destructibles,
+	        .Pieces = Pieces,
+	        .DebrisCount = DebrisCount,
+	        .Accumulator = Accumulator,
+	        .Time = Time,
+	    }),
+	};
+}
+
+std::expected<void, FPhysicsError> FLevelSimulation::RestoreSnapshot(const FLevelSimulationSnapshot& Snapshot)
+{
+	if (!World || !Snapshot.State)
+	{
+		return std::unexpected(FPhysicsError{"Only a running simulation restores a saved snapshot"});
+	}
+
+	// The physics world checks that it holds the same bodies, which keeps every saved id below valid.
+	if (auto Restored = World->RestoreState(Snapshot.Physics); !Restored)
+	{
+		return Restored;
+	}
+
+	const FLevelSimulationSnapshotState& State = *Snapshot.State;
+	BodyStates = State.BodyStates;
+	Transforms = State.Transforms;
+	SoftBodyStates = State.SoftBodyStates;
+	TriggerOccupancy = State.TriggerOccupancy;
+	SpawnStates = State.SpawnStates;
+	FreeSpawnSlots = State.FreeSpawnSlots;
+	Spawned = State.Spawned;
+	Destructibles = State.Destructibles;
+	Pieces = State.Pieces;
+	DebrisCount = State.DebrisCount;
+	Accumulator = State.Accumulator;
+	Time = State.Time;
+	++SoftBodyRevision;
+	TriggerEvents.clear();
+	BreakEvents.clear();
+	ImpactEvents.clear();
+	return {};
 }
 }

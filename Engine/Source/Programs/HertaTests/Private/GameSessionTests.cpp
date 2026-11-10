@@ -482,4 +482,56 @@ TEST_CASE("Game sessions play several players, each with their own input, run, a
 	CHECK(Game.GetPlayerCount() == 2);
 	CHECK(Game.GetObjective().State == EGameObjectiveState::Ready);
 }
+
+TEST_CASE("Game session snapshots restore physics and players, and replaying the same inputs reproduces the world hash")
+{
+	const FNoGameAssets Assets;
+	std::vector<FLevelEntity> Course = MakeCourse();
+	Course.push_back(FLevelEntity{.Id = FObjectId::Generate(), .Name = "Crate", .Transform = {.Translation = {0.5, 0.5, 4.}}, .Mesh = FStaticMeshComponent{.Asset = CubeAsset}, .BodyType = ELevelBodyType::Dynamic});
+	const auto Session = FGameSession::Create(Course, Assets, nullptr);
+	REQUIRE(Session);
+	FGameSession& Game = **Session;
+	REQUIRE(Game.AddPlayer());
+	const std::array<FGameInput, 2> Idle{};
+	for (int Frame = 0; Frame < 20; ++Frame)
+	{
+		REQUIRE(Game.UpdatePlayers(1.f / 60.f, Idle));
+	}
+
+	// Both players run into the crate, jump, and turn, so the replay covers contacts, movement modes, and look.
+	const auto InputAt = [](const int Frame)
+	{
+		return std::array<FGameInput, 2>{
+		    FGameInput{.Move = {0.f, 1.f}, .YawDelta = Frame % 7 == 0 ? 0.05f : 0.f, .bJump = Frame == 30},
+		    FGameInput{.Move = {0.3f, 1.f}, .bCrouch = Frame > 40 && Frame < 60},
+		};
+	};
+
+	const FGameSessionSnapshot Snapshot = Game.SaveSnapshot();
+	const std::uint64_t Before = Game.ComputeStateHash();
+	for (int Frame = 0; Frame < 90; ++Frame)
+	{
+		REQUIRE(Game.UpdatePlayers(1.f / 60.f, InputAt(Frame)));
+	}
+
+	const std::uint64_t After = Game.ComputeStateHash();
+	const FVector3 Foot = Game.GetPlayerFootPosition();
+	CHECK(After != Before);
+	CHECK(Foot.Z > 3.f);
+
+	const auto Restored = Game.RestoreSnapshot(Snapshot);
+	REQUIRE_MESSAGE(Restored, (Restored ? std::string{} : Restored.error().Message));
+	CHECK(Game.ComputeStateHash() == Before);
+	for (int Frame = 0; Frame < 90; ++Frame)
+	{
+		REQUIRE(Game.UpdatePlayers(1.f / 60.f, InputAt(Frame)));
+	}
+
+	CHECK(Game.ComputeStateHash() == After);
+	CHECK(Game.GetPlayerFootPosition().Z == doctest::Approx(Foot.Z));
+
+	// A snapshot from before a player joined no longer fits the session.
+	REQUIRE(Game.AddPlayer());
+	CHECK(!Game.RestoreSnapshot(Snapshot));
+}
 }

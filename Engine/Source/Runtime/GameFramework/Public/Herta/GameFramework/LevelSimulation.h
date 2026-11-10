@@ -152,6 +152,16 @@ struct FLevelBreakEvent
 	std::uint32_t BrokenBonds = 0;
 };
 
+struct FLevelSimulationSnapshotState;
+
+// The whole simulation between two fixed steps, for rollback. It restores only into the simulation that saved it, while that holds the same
+// bodies: a spawn, a despawn, or a break in between makes it stale.
+struct FLevelSimulationSnapshot
+{
+	std::vector<std::byte> Physics{};
+	std::shared_ptr<const FLevelSimulationSnapshotState> State{};
+};
+
 class FLevelSimulation final
 {
 public:
@@ -164,6 +174,7 @@ public:
 	bool IsRunning() const noexcept;
 	// Null while stopped. Callers may add their own physics objects, such as a character, which stop with the world.
 	FPhysicsWorld* GetPhysicsWorld() noexcept;
+	const FPhysicsWorld* GetPhysicsWorld() const noexcept;
 	// How far the frame is between the previous and latest fixed step, for interpolating anything stepped in OnFixedStep.
 	float GetInterpolationAlpha() const noexcept;
 	std::span<const FLevelSimulationTransform> GetTransforms() const noexcept;
@@ -198,8 +209,13 @@ public:
 	[[nodiscard]] std::expected<void, FPhysicsError> RestoreBonds(std::size_t ObjectIndex, const std::vector<bool>& Intact);
 	// Impacts since the previous call, in step order; contacts report for Dynamic level bodies, spawned bodies that ask, and destructibles.
 	std::vector<FLevelImpactEvent> TakeImpactEvents();
+	[[nodiscard]] FLevelSimulationSnapshot SaveSnapshot() const;
+	// Pending events are dropped, since the steps that produced them are undone.
+	[[nodiscard]] std::expected<void, FPhysicsError> RestoreSnapshot(const FLevelSimulationSnapshot& Snapshot);
 
 private:
+	friend struct FLevelSimulationSnapshotState;
+
 	struct FBodyState
 	{
 		FPhysicsBodyId Id;

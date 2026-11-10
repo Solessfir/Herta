@@ -139,6 +139,15 @@ struct FGameObjective
 };
 
 // An AI agent as automation and debuggers see it.
+struct FGameSessionSnapshotState;
+
+// The session between two updates, for rollback: physics, every player's movement and run, and thrown balls. AI, animation, sound, and
+// effects stay out, so a session that runs agents does not replay them. It goes stale once bodies come or go, such as a spawn or a break.
+struct FGameSessionSnapshot
+{
+	std::shared_ptr<const FGameSessionSnapshotState> State{};
+};
+
 struct FGameAgentState
 {
 	std::string Name{};
@@ -225,6 +234,11 @@ public:
 	// The player the view, the listener, and the player accessors below follow.
 	[[nodiscard]] std::expected<void, FGameError> SetViewPlayer(std::size_t Player);
 	[[nodiscard]] std::size_t GetViewPlayer() const noexcept;
+
+	[[nodiscard]] FGameSessionSnapshot SaveSnapshot() const;
+	[[nodiscard]] std::expected<void, FGameError> RestoreSnapshot(const FGameSessionSnapshot& Snapshot);
+	// Physics and every player's movement, run, and view, equal for the same inputs from the same snapshot.
+	[[nodiscard]] std::uint64_t ComputeStateHash() const;
 
 	// The view from the player's eyes. The spans stay valid until the next Update, Restart, or GetRenderView.
 	[[nodiscard]] const FMeshRenderView& GetRenderView(FExtent2D Extent);
