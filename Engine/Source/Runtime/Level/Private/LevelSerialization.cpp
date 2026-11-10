@@ -487,12 +487,35 @@ template <typename TComponent> std::expected<TComponent, FLevelError> ReadSizeCo
 	return TComponent{.Size = {(*Size)[0], (*Size)[1], (*Size)[2]}};
 }
 
-std::expected<FAiAgentComponent, FLevelError> ReadAiAgent(const simdjson::dom::element Element)
+constexpr std::array<std::string_view, 3> AiAttitudes{"hostile", "neutral", "friendly"};
+
+// Schema 17 adds the attitude; older agents were all hostile.
+std::expected<FAiAgentComponent, FLevelError> ReadAiAgent(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
-	const auto Fields = ReadComponentFields<6>(Element, GetLevelComponentDescriptor(ELevelComponentType::AiAgent));
+	const auto& Descriptor = GetLevelComponentDescriptor(ELevelComponentType::AiAgent);
+	const auto Fields = SchemaVersion >= 17 ? ReadComponentFields<7>(Element, Descriptor) : ReadComponentFields<6>(Element, Descriptor).transform([](const auto& Current)
+	{
+		std::array<simdjson::dom::element, 7> Padded{};
+		std::ranges::copy(Current, Padded.begin());
+		return Padded;
+	});
+
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
+	}
+
+	EAiAttitude Attitude = EAiAttitude::Hostile;
+	if (SchemaVersion >= 17)
+	{
+		const auto Text = ReadString((*Fields)[6]);
+		const auto Found = Text ? std::ranges::find(AiAttitudes, *Text) : AiAttitudes.end();
+		if (Found == AiAttitudes.end())
+		{
+			return LevelError("AI agent attitudes are hostile, neutral, or friendly");
+		}
+
+		Attitude = static_cast<EAiAttitude>(Found - AiAttitudes.begin());
 	}
 
 	const auto StateTree = ReadOptionalId<FAssetId>((*Fields)[0]);
@@ -506,7 +529,7 @@ std::expected<FAiAgentComponent, FLevelError> ReadAiAgent(const simdjson::dom::e
 		return LevelError("Invalid AI agent component field");
 	}
 
-	return FAiAgentComponent{.StateTree = *StateTree, .SightRange = *Sight, .SightHalfAngle = *Angle, .HearingRange = *Hearing, .WalkSpeed = *Walk, .RunSpeed = *Run};
+	return FAiAgentComponent{.StateTree = *StateTree, .SightRange = *Sight, .SightHalfAngle = *Angle, .HearingRange = *Hearing, .WalkSpeed = *Walk, .RunSpeed = *Run, .Attitude = Attitude};
 }
 
 std::expected<FAudioListenerComponent, FLevelError> ReadAudioListener(const simdjson::dom::element Element)
@@ -912,7 +935,7 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 131072;
-			const auto Agent = ReadAiAgent(Component.value);
+			const auto Agent = ReadAiAgent(Component.value, SchemaVersion);
 			if (!Agent)
 			{
 				return std::unexpected(Agent.error());
@@ -1451,7 +1474,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 16,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 17,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1716,7 +1739,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 
 		if (Entity.AiAgent)
 		{
-			const std::array<FVisualValue, 6> Values{Entity.AiAgent->StateTree, Entity.AiAgent->SightRange, Entity.AiAgent->SightHalfAngle, Entity.AiAgent->HearingRange, Entity.AiAgent->WalkSpeed, Entity.AiAgent->RunSpeed};
+			const std::array<FVisualValue, 7> Values{Entity.AiAgent->StateTree, Entity.AiAgent->SightRange, Entity.AiAgent->SightHalfAngle, Entity.AiAgent->HearingRange, Entity.AiAgent->WalkSpeed, Entity.AiAgent->RunSpeed, AiAttitudes[static_cast<std::size_t>(Entity.AiAgent->Attitude)]};
 			AppendVisualComponent(Output, ELevelComponentType::AiAgent, Values, bHasComponent);
 		}
 
@@ -1896,9 +1919,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 16 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 17 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 16 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 17 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;

@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 16,
+  "engineSchemaVersion": 17,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "exposureCompensation": 0,
@@ -1462,7 +1462,8 @@
           "sightHalfAngle": 1.0471976,
           "hearingRange": 12,
           "walkSpeed": 1.5,
-          "runSpeed": 4
+          "runSpeed": 4,
+          "attitude": "hostile"
         }
       }
     },
@@ -1487,7 +1488,8 @@
           "sightHalfAngle": 1.0471976,
           "hearingRange": 12,
           "walkSpeed": 1.5,
-          "runSpeed": 4
+          "runSpeed": 4,
+          "attitude": "hostile"
         }
       }
     }

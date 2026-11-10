@@ -900,19 +900,22 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 
 				Result.bEditFinished |= ImGui::IsItemDeactivatedAfterEdit();
 			}
-			else if (Property.Type == ELevelPropertyType::LightType || Property.Type == ELevelPropertyType::FogQuality || Property.Type == ELevelPropertyType::SoftBodyShape || Property.Type == ELevelPropertyType::TriggerRole)
+			else if (Property.Type == ELevelPropertyType::LightType || Property.Type == ELevelPropertyType::FogQuality || Property.Type == ELevelPropertyType::SoftBodyShape || Property.Type == ELevelPropertyType::TriggerRole || Property.Type == ELevelPropertyType::AiAttitude)
 			{
 				constexpr std::array<const char*, 5> Lights{"Directional", "Sky", "Point", "Spot", "Rect"};
 				constexpr std::array<const char*, 3> Qualities{"Low", "Medium", "High"};
 				constexpr std::array<const char*, 3> Shapes{"Rope", "Cloth", "Ball"};
 				constexpr std::array<const char*, 3> Roles{"None", "Start", "Finish"};
+				constexpr std::array<const char*, 3> Attitudes{"Hostile", "Neutral", "Friendly"};
 				const std::span<const char* const> Labels = Property.Type == ELevelPropertyType::LightType     ? std::span<const char* const>{Lights}
 				                                            : Property.Type == ELevelPropertyType::FogQuality  ? std::span<const char* const>{Qualities}
 				                                            : Property.Type == ELevelPropertyType::TriggerRole ? std::span<const char* const>{Roles}
+				                                            : Property.Type == ELevelPropertyType::AiAttitude  ? std::span<const char* const>{Attitudes}
 				                                                                                               : std::span<const char* const>{Shapes};
 				const auto Current = Property.Type == ELevelPropertyType::LightType     ? static_cast<std::size_t>(std::get<ELightType>(Candidate))
 				                     : Property.Type == ELevelPropertyType::FogQuality  ? static_cast<std::size_t>(std::get<EFogQuality>(Candidate))
 				                     : Property.Type == ELevelPropertyType::TriggerRole ? static_cast<std::size_t>(std::get<ETriggerRole>(Candidate))
+				                     : Property.Type == ELevelPropertyType::AiAttitude  ? static_cast<std::size_t>(std::get<EAiAttitude>(Candidate))
 				                                                                        : static_cast<std::size_t>(std::get<ESoftBodyShape>(Candidate));
 				if (ImGui::BeginCombo("##Value", Mixed[Index] ? "Multiple values" : Labels[Current]))
 				{
@@ -923,6 +926,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 							Candidate = Property.Type == ELevelPropertyType::LightType     ? FLevelPropertyValue{static_cast<ELightType>(Option)}
 							            : Property.Type == ELevelPropertyType::FogQuality  ? FLevelPropertyValue{static_cast<EFogQuality>(Option)}
 							            : Property.Type == ELevelPropertyType::TriggerRole ? FLevelPropertyValue{static_cast<ETriggerRole>(Option)}
+							            : Property.Type == ELevelPropertyType::AiAttitude  ? FLevelPropertyValue{static_cast<EAiAttitude>(Option)}
 							                                                               : FLevelPropertyValue{static_cast<ESoftBodyShape>(Option)};
 							bChanged = true;
 						}

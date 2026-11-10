@@ -279,6 +279,15 @@ struct FNavigationObstacleComponent
 
 // Gives a Character a mind during Play: it sees the player within its range and view, hears noise within its hearing, remembers where it
 // last sensed them, walks the navigation, and acts out its StateTree.
+// How an AI agent regards the player. Hostile agents fight the player and friendly agents; friendly ones fight hostile agents beside the
+// player; neutral ones keep to themselves until something hurts them. Agents of one attitude stand together.
+enum class EAiAttitude : std::uint8_t
+{
+	Hostile,
+	Neutral,
+	Friendly,
+};
+
 struct FAiAgentComponent
 {
 	constexpr bool operator==(const FAiAgentComponent&) const = default;
@@ -290,6 +299,7 @@ struct FAiAgentComponent
 	float HearingRange = 12.f;
 	float WalkSpeed = 1.5f;
 	float RunSpeed = 4.f;
+	EAiAttitude Attitude = EAiAttitude::Hostile;
 };
 
 // Hears the level from the entity instead of the camera during Play, such as for a fixed camera. The active listener with the lowest ID wins.

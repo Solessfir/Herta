@@ -358,6 +358,11 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		{
 			return Visitor(Entity.AiAgent->RunSpeed);
 		}
+
+		if (Key == "attitude")
+		{
+			return Visitor(Entity.AiAgent->Attitude);
+		}
 	}
 
 	if (Type == ELevelComponentType::ParticleEmitter && Entity.ParticleEmitter)
@@ -588,6 +593,7 @@ constexpr std::array AiAgentProperties{
     FLevelPropertyDescriptor{.Key = "hearingRange", .Label = "Hearing Range", .Unit = ELevelPropertyUnit::Meters, .Default = AiAgentDefaults.HearingRange, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 200.}},
     FLevelPropertyDescriptor{.Key = "walkSpeed", .Label = "Walk Speed", .Default = AiAgentDefaults.WalkSpeed, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 10.}},
     FLevelPropertyDescriptor{.Key = "runSpeed", .Label = "Run Speed", .Default = AiAgentDefaults.RunSpeed, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 15.}},
+    FLevelPropertyDescriptor{.Key = "attitude", .Label = "Attitude", .Type = ELevelPropertyType::AiAttitude, .Default = AiAgentDefaults.Attitude},
 };
 
 constexpr std::array Components{

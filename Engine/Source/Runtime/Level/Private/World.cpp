@@ -510,6 +510,11 @@ std::expected<void, FLevelError> ValidateAiAgentComponent(const FAiAgentComponen
 		return std::unexpected(FLevelError{"AI agents see 0.5 to 200 m within a half angle of 0.05 to pi, hear up to 200 m, walk at 0.1 to 10 m/s, and run at 0.1 to 15 m/s"});
 	}
 
+	if (Agent.Attitude > EAiAttitude::Friendly)
+	{
+		return std::unexpected(FLevelError{"AI agent attitudes are hostile, neutral, or friendly"});
+	}
+
 	return {};
 }
 
