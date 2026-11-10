@@ -1,6 +1,8 @@
 #include "Herta/Assets/CookedContent.h"
 #include "Herta/Core/Log.h"
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/GameFramework/GameAssets.h"
+#include "Herta/GameFramework/GameContent.h"
 #include "Herta/Level/LevelSerialization.h"
 #include "Herta/Platform/Process.h"
 #include "Herta/Project/Project.h"
@@ -82,11 +84,24 @@ struct FServerOptions
 int RunServer(const FServerOptions& Options)
 {
 	const std::filesystem::path ExecutableDirectory = std::filesystem::absolute(Options.ExecutablePath).parent_path();
-	const std::filesystem::path ProjectPath = !Options.ProjectPath.empty() ? Options.ProjectPath : FindStagedProject(ExecutableDirectory).value_or(std::filesystem::path{});
-	const auto Project = LoadProject(ProjectPath);
+	const auto Mounted = MountGameContent({.ExecutableDirectory = ExecutableDirectory, .ProjectPath = Options.ProjectPath});
+	if (!Mounted)
+	{
+		ReportFailure(std::format("Cannot find the game's content: {}. Stage a project with HertaEditorCmd game.stage, or pass --project=<path>.", Mounted.error().Message));
+		return 1;
+	}
+
+	const FVirtualFileSystem& Files = *Mounted->FileSystem;
+	const auto AsText = [](const std::vector<std::byte>& Bytes)
+	{
+		return std::string_view(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
+	};
+
+	const auto ProjectText = Files.Read(Mounted->ProjectPath);
+	const auto Project = ProjectText ? LoadStagedProject(Mounted->ProjectPath, AsText(*ProjectText)) : std::unexpected(FProjectError{ProjectText.error().Message});
 	if (!Project)
 	{
-		ReportFailure(std::format("Cannot load the game project{}: {}. Stage one with HertaEditorCmd game.stage, or pass --project=<path>.", ProjectPath.empty() ? "" : " " + ProjectPath.generic_string(), Project.error().Message));
+		ReportFailure(std::format("Cannot load the game project {}: {}", Mounted->ProjectPath.generic_string(), Project.error().Message));
 		return 1;
 	}
 
@@ -108,16 +123,22 @@ int RunServer(const FServerOptions& Options)
 	}
 
 	std::unique_ptr<FTaskSystem> Tasks = std::move(*TaskResult);
-	const auto Level = LoadLevel(Project->StartingLevel);
-	const auto ContentHash = HashLevelFile(Project->StartingLevel);
-	if (!Level || !ContentHash)
+	for (const std::string& Mount : Files.DescribeMounts())
 	{
-		HERTA_LOG_ERROR(*Log, ServerLog, "Could not load {}: {}", Project->StartingLevel.generic_string(), !Level ? Level.error().Message : ContentHash.error().Message);
+		HERTA_LOG_INFO(*Log, ServerLog, "Content: {}", Mount);
+	}
+
+	const auto LevelBytes = Files.Read(Project->StartingLevel);
+	const auto Level = LevelBytes ? ParseLevel(AsText(*LevelBytes)) : std::unexpected(FLevelError{LevelBytes.error().Message});
+	if (!Level)
+	{
+		HERTA_LOG_ERROR(*Log, ServerLog, "Could not load {}: {}", Project->StartingLevel.generic_string(), Level.error().Message);
 		return 1;
 	}
 
+	const std::uint64_t ContentHash = HashLevelBytes(*LevelBytes);
 	// The server draws nothing and plays no sound: its session has no device, and its meshes are only bounds for collision.
-	const FCookedContent Content({Project->ContentRoot, Project->Root.parent_path() / "Engine" / "Content"});
+	const FCookedContent Content({Project->ContentRoot, Project->Root.parent_path() / "Engine" / "Content"}, Mounted->FileSystem);
 	auto Staged = CreateStagedSession(Project->StartingLevel, *Level, Content, nullptr, Tasks.get());
 	if (!Staged)
 	{
@@ -130,7 +151,7 @@ int RunServer(const FServerOptions& Options)
 		HERTA_LOG_WARNING(*Log, ServerLog, "{}", Warning);
 	}
 
-	auto ServerResult = FGameServer::Create(std::move(Staged->Session), {.Port = Options.Port, .MaximumPlayers = Options.MaximumPlayers, .ContentHash = *ContentHash});
+	auto ServerResult = FGameServer::Create(std::move(Staged->Session), {.Port = Options.Port, .MaximumPlayers = Options.MaximumPlayers, .ContentHash = ContentHash});
 	if (!ServerResult)
 	{
 		HERTA_LOG_ERROR(*Log, ServerLog, "Could not start serving: {}", ServerResult.error().Message);

@@ -377,7 +377,12 @@ std::expected<std::uint64_t, FReplicationError> HashLevelFile(const std::filesys
 	}
 
 	const std::vector<char> Bytes{std::istreambuf_iterator<char>(File), std::istreambuf_iterator<char>()};
-	const FHash128 Hash = HashBytes(std::as_bytes(std::span(Bytes)));
+	return HashLevelBytes(std::as_bytes(std::span(Bytes)));
+}
+
+std::uint64_t HashLevelBytes(const std::span<const std::byte> Bytes) noexcept
+{
+	const FHash128 Hash = HashBytes(Bytes);
 	return Hash.Low ^ Hash.High;
 }
 

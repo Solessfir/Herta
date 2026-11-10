@@ -1,4 +1,6 @@
 #include "Herta/Assets/ContentPackage.h"
+#include "Herta/Assets/VirtualFileSystem.h"
+#include "Herta/GameFramework/GameContent.h"
 #include "Herta/PackageBuilder/PackageBuilder.h"
 #include "TestFiles.h"
 
@@ -250,5 +252,77 @@ TEST_CASE("Content package readers refuse corrupt indexes and survive random cor
 			CHECK((!Read || *Read == Input.Bytes));
 		}
 	}
+}
+
+TEST_CASE("The virtual file system reads mounts in order, the disk outside its root, and finds staged files")
+{
+	const Tests::FScratchDirectory Scratch("HertaFileSystem");
+	const std::filesystem::path Root = Scratch.GetPath() / "Game";
+	std::filesystem::create_directories(Root / "Sandbox");
+	WriteBytes(Root / "Sandbox/Overridden.txt", Text("loose"));
+	WriteBytes(Root / "Sandbox/Loose.txt", Text("only loose"));
+	WriteBytes(Scratch.GetPath() / "Outside.txt", Text("outside"));
+	const auto Package = BuildPackage({{.Path = "Sandbox/Overridden.txt", .Bytes = Text("packaged")}, {.Path = "Sandbox/Sandbox.hertaproject", .Bytes = Text("{}")}});
+	REQUIRE(Package);
+	WriteBytes(Scratch.GetPath() / "Base.hpak", *Package);
+	auto Opened = FContentPackage::Open(Scratch.GetPath() / "Base.hpak");
+	REQUIRE(Opened);
+
+	// The package is mounted first, so it wins where both hold a file; the loose folder fills in the rest.
+	FVirtualFileSystem Files(Root);
+	Files.MountPackage(std::move(*Opened));
+	Files.MountDirectory(Root);
+	CHECK(Files.Read(Root / "Sandbox/Overridden.txt") == Text("packaged"));
+	CHECK(Files.Read(Root / "Sandbox/../Sandbox/Loose.txt") == Text("only loose"));
+	CHECK(Files.Exists(Root / "Sandbox/Sandbox.hertaproject"));
+	CHECK_FALSE(Files.Exists(Root / "Sandbox/Missing.txt"));
+	CHECK_FALSE(Files.Read(Root / "Sandbox/Missing.txt"));
+	CHECK(Files.Read(Scratch.GetPath() / "Outside.txt") == Text("outside"));
+	CHECK(Files.FindFiles(".hertaproject", 1) == std::vector{Root / "Sandbox/Sandbox.hertaproject"});
+	CHECK(Files.FindFiles(".txt", 0).empty());
+	CHECK(Files.FindFiles(".txt", 1).size() == 2);
+	CHECK(Files.DescribeMounts().size() == 2);
+
+	// Without a root it is the disk.
+	CHECK(FVirtualFileSystem().Read(Scratch.GetPath() / "Outside.txt") == Text("outside"));
+}
+
+TEST_CASE("Game content mounts packages beside the executable, refuses unsigned ones when signatures are required, and falls back to loose files")
+{
+	const Tests::FScratchDirectory Scratch("HertaGameContent");
+	const std::filesystem::path Executables = Scratch.GetPath() / "Game";
+	std::filesystem::create_directories(Executables / "Sandbox");
+	const auto Key = GeneratePackageSigningKey(9);
+	REQUIRE(Key);
+	const std::array Trusted{GetPackagePublicKey(*Key)};
+
+	// Loose: the staged folder beside the executable.
+	WriteBytes(Executables / "Sandbox/Sandbox.hertaproject", Text("{}"));
+	auto Loose = MountGameContent({.ExecutableDirectory = Executables});
+	REQUIRE_MESSAGE(Loose, (Loose ? std::string() : Loose.error().Message));
+	CHECK(Loose->ProjectPath == std::filesystem::absolute(Executables / "Sandbox/Sandbox.hertaproject").lexically_normal());
+	CHECK(Loose->FileSystem->DescribeMounts().front().starts_with("directory"));
+	CHECK_FALSE(MountGameContent({.ExecutableDirectory = Executables, .TrustedKeys = Trusted, .bRequireSignature = true}));
+
+	// Packaged: the package is mounted instead of the loose files, which a signed game must never fall back to.
+	std::filesystem::remove_all(Executables / "Sandbox");
+	REQUIRE(WritePackage(Executables / "Sandbox.hpak", {{.Path = "Sandbox/Sandbox.hertaproject", .Bytes = Text("{\"packaged\": true}")}}));
+	auto Packaged = MountGameContent({.ExecutableDirectory = Executables});
+	REQUIRE(Packaged);
+	CHECK(Packaged->FileSystem->Read(Packaged->ProjectPath) == Text("{\"packaged\": true}"));
+	CHECK(Packaged->FileSystem->GetMountCount() == 1);
+	CHECK_FALSE(MountGameContent({.ExecutableDirectory = Executables, .TrustedKeys = Trusted, .bRequireSignature = true}));
+	REQUIRE(WritePackage(Executables / "Sandbox.hpak", {{.Path = "Sandbox/Sandbox.hertaproject", .Bytes = Text("{}")}}, {.SigningKey = *Key}));
+	auto Signed = MountGameContent({.ExecutableDirectory = Executables, .TrustedKeys = Trusted, .bRequireSignature = true});
+	REQUIRE_MESSAGE(Signed, (Signed ? std::string() : Signed.error().Message));
+	CHECK(Signed->FileSystem->DescribeMounts().front().ends_with(", signed"));
+
+	// A developer's --project reads that staged folder from the disk.
+	std::filesystem::create_directories(Scratch.GetPath() / "Staged/Sandbox");
+	WriteBytes(Scratch.GetPath() / "Staged/Sandbox/Sandbox.hertaproject", Text("{\"staged\": true}"));
+	const auto Developer = MountGameContent({.ExecutableDirectory = Executables, .ProjectPath = Scratch.GetPath() / "Staged/Sandbox/Sandbox.hertaproject"});
+	REQUIRE(Developer);
+	CHECK(Developer->FileSystem->GetRoot() == std::filesystem::absolute(Scratch.GetPath() / "Staged").lexically_normal());
+	CHECK(Developer->FileSystem->Read(Developer->ProjectPath) == Text("{\"staged\": true}"));
 }
 }

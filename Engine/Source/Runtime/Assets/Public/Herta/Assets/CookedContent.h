@@ -7,6 +7,7 @@
 #include <array>
 #include <expected>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -26,17 +27,25 @@ inline constexpr std::size_t MaterialShaderStageCount = MaterialShaderStageNames
 // The Material Graph parameter table staged beside those stages; see SerializeMaterialShaderParameters.
 [[nodiscard]] std::filesystem::path GetStagedMaterialShaderParametersPath(const std::filesystem::path& MountRoot, std::string_view RelativePath);
 
-// Directory-backed mounts searched in order. Loading only reads staged files; it never imports or cooks.
+class FVirtualFileSystem;
+
+// Content roots searched in order, such as the project's then the engine's, read through a file system that may hold them on disk or in
+// packages. Loading only reads staged files; it never imports or cooks.
 class FCookedContent final
 {
 public:
 	FCookedContent() = default;
-	explicit FCookedContent(std::vector<std::filesystem::path> MountRoots);
+	// Without a file system the roots are read from the disk.
+	explicit FCookedContent(std::vector<std::filesystem::path> MountRoots, std::shared_ptr<const FVirtualFileSystem> InFileSystem = nullptr);
 
 	[[nodiscard]] std::expected<FCookedAsset, FAssetError> Load(const FAssetId& Asset, std::optional<ETextureColorSpace> ColorSpace = std::nullopt) const;
+	// Any other staged file, such as a level, its navigation, or a shader's parameter table.
+	[[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> ReadFile(const std::filesystem::path& Path) const;
+	[[nodiscard]] bool Exists(const std::filesystem::path& Path) const;
 	[[nodiscard]] std::span<const std::filesystem::path> GetMountRoots() const noexcept;
 
 private:
 	std::vector<std::filesystem::path> MountRoots;
+	std::shared_ptr<const FVirtualFileSystem> FileSystem;
 };
 }

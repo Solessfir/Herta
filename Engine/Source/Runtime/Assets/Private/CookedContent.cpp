@@ -1,5 +1,6 @@
 #include "Herta/Assets/CookedContent.h"
 
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/Core/Hash.h"
 
 #include <format>
@@ -10,12 +11,6 @@
 
 namespace Herta
 {
-namespace
-{
-// Larger than any valid cooked asset: textures are capped at 4096 px with mips, and buffers at the upload budget.
-constexpr std::uintmax_t MaximumStagedAssetBytes = std::uintmax_t{1} << 30;
-}
-
 std::filesystem::path GetStagedAssetPath(const std::filesystem::path& MountRoot, const FAssetId& Asset, const std::optional<ETextureColorSpace> ColorSpace)
 {
 	const std::string_view Suffix = !ColorSpace ? ".hasset" : *ColorSpace == ETextureColorSpace::Srgb ? ".srgb.hasset"
@@ -43,9 +38,21 @@ std::filesystem::path GetStagedMaterialShaderParametersPath(const std::filesyste
 	return StagedMaterialShaderFile(MountRoot, RelativePath, ".parameters");
 }
 
-FCookedContent::FCookedContent(std::vector<std::filesystem::path> InMountRoots)
+FCookedContent::FCookedContent(std::vector<std::filesystem::path> InMountRoots, std::shared_ptr<const FVirtualFileSystem> InFileSystem)
     : MountRoots(std::move(InMountRoots))
+    , FileSystem(InFileSystem ? std::move(InFileSystem) : std::make_shared<const FVirtualFileSystem>())
 {
+}
+
+std::expected<std::vector<std::byte>, FAssetError> FCookedContent::ReadFile(const std::filesystem::path& Path) const
+{
+	return FileSystem ? FileSystem->Read(Path) : ReadDiskFile(Path);
+}
+
+bool FCookedContent::Exists(const std::filesystem::path& Path) const
+{
+	std::error_code Error;
+	return FileSystem ? FileSystem->Exists(Path) : std::filesystem::is_regular_file(Path, Error);
 }
 
 std::expected<FCookedAsset, FAssetError> FCookedContent::Load(const FAssetId& Asset, const std::optional<ETextureColorSpace> ColorSpace) const
@@ -53,26 +60,18 @@ std::expected<FCookedAsset, FAssetError> FCookedContent::Load(const FAssetId& As
 	for (const std::filesystem::path& Root : MountRoots)
 	{
 		const std::filesystem::path Path = GetStagedAssetPath(Root, Asset, ColorSpace);
-		std::error_code Error;
-		const std::uintmax_t Size = std::filesystem::file_size(Path, Error);
-		if (Error)
+		if (!Exists(Path))
 		{
 			continue;
 		}
 
-		if (Size > MaximumStagedAssetBytes)
+		const auto Bytes = ReadFile(Path);
+		if (!Bytes)
 		{
-			return std::unexpected(FAssetError{std::format("Staged asset {} exceeds the cooked asset size limit", Asset.ToString())});
+			return std::unexpected(FAssetError{std::format("Cannot read staged asset {}: {}", Asset.ToString(), Bytes.error().Message)});
 		}
 
-		std::vector<std::byte> Bytes(static_cast<std::size_t>(Size));
-		std::ifstream File(Path, std::ios::binary);
-		if (!File.read(reinterpret_cast<char*>(Bytes.data()), static_cast<std::streamsize>(Bytes.size())))
-		{
-			return std::unexpected(FAssetError{std::format("Cannot read staged asset {}", Asset.ToString())});
-		}
-
-		auto Cooked = DeserializeCookedAsset(Bytes);
+		auto Cooked = DeserializeCookedAsset(*Bytes);
 		if (!Cooked)
 		{
 			return std::unexpected(FAssetError{std::format("Staged asset {} is invalid: {}", Asset.ToString(), Cooked.error().Message)});

@@ -1,4 +1,5 @@
 #include "EditorFrameworkPrivate.h"
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/Navigation/NavigationWorld.h"
 
 #include <simdjson.h>
@@ -236,7 +237,7 @@ void FEditorFramework::FImplementation::TogglePlay()
 	{
 		auto UI = FGameUI::Create({
 		    .Device = GraphicsDevice,
-		    .FontPath = EngineRoot / "Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf",
+		    .FontBytes = ReadDiskFile(EngineRoot / "Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf").value_or(std::vector<std::byte>{}),
 		    .RegisterTexture = [this](const FTextureHandle& Texture) -> std::expected<std::uint64_t, FGameUIError>
 		{
 			auto Registered = RegisterUITexture(Texture);

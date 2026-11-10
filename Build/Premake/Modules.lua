@@ -370,6 +370,24 @@ HertaRuntimeModule("GameFramework", {
     PublicDependencies = { "Core", "Math", "Application", "Assets", "Audio", "Level", "Navigation", "Particles", "Physics", "RHI", "Renderer", "GameUI" },
     PrivateDependencies = { "Tasks", "Animation", "Platform", "AI" }
 })
+    -- Publisher keys the game trusts its packages to be signed with: one "<id>:<64 hex digits>" per line. Only public keys belong here; a
+    -- Shipping build that lists any plays only packages signed with them.
+    local PublicKeysFile = path.join(RepositoryRoot, "Config/PackagePublicKeys.txt")
+    if os.isfile(PublicKeysFile) then
+        local Keys = {}
+        for Line in io.lines(PublicKeysFile) do
+            local Key = Line:gsub("#.*", ""):match("^%s*(.-)%s*$")
+            if Key ~= "" then
+                if not Key:match("^%d+:" .. string.rep("%x", 64) .. "$") then
+                    error("Config/PackagePublicKeys.txt: '" .. Key .. "' is not a package public key <id>:<64 hex digits>")
+                end
+
+                table.insert(Keys, Key)
+            end
+        end
+
+        defines { 'HERTA_PACKAGE_PUBLIC_KEYS="' .. table.concat(Keys, ",") .. '"' }
+    end
 
     -- The fixed-step simulation feeds Jolt, so it must not contract floating point either.
     filter "system:linux"

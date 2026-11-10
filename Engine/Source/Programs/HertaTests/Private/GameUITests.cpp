@@ -1,3 +1,4 @@
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/GameUI/GameUI.h"
 #include "TestGraphicsDevice.h"
 
@@ -15,7 +16,7 @@ namespace
 {
 	auto UI = FGameUI::Create({
 	    .Device = &Device,
-	    .FontPath = "Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf",
+	    .FontBytes = ReadDiskFile("Engine/Content/Editor/Fonts/Roboto/Roboto-Medium.ttf").value_or(std::vector<std::byte>{}),
 	    .RegisterTexture = [&Registered](const FTextureHandle&) -> std::expected<std::uint64_t, FGameUIError>
 	{
 		return ++Registered;

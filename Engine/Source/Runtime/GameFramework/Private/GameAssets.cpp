@@ -243,7 +243,8 @@ FRegionLoader MakeStagedRegionLoader(std::filesystem::path LevelPath, const FCoo
 {
 	return [LevelPath = std::move(LevelPath), &Content, &Assets, Device](const FLevelRegion& Region, const std::atomic<bool>& Cancel) -> std::expected<FLoadedRegion, FGameError>
 	{
-		auto Document = LoadLevel(ResolveLevelRegionPath(LevelPath, Region));
+		const auto Bytes = Content.ReadFile(ResolveLevelRegionPath(LevelPath, Region));
+		auto Document = Bytes ? ParseLevel(std::string_view(reinterpret_cast<const char*>(Bytes->data()), Bytes->size())) : std::unexpected(FLevelError{Bytes.error().Message});
 		if (!Document)
 		{
 			return std::unexpected(FGameError{std::format("Cannot load the level of region '{}': {}", Region.Name, Document.error().Message)});
@@ -339,10 +340,10 @@ std::expected<FStagedSession, FGameError> CreateStagedSession(const std::filesys
 	// Staging cooks the level's navigation beside it; a level without Navigation Bounds has none.
 	std::filesystem::path NavigationPath = LevelPath;
 	NavigationPath.replace_extension(NavigationDataExtension);
-	if (std::ifstream NavigationFile(NavigationPath, std::ios::binary); NavigationFile)
+	if (Content.Exists(NavigationPath))
 	{
-		const std::vector<char> Bytes{std::istreambuf_iterator<char>(NavigationFile), std::istreambuf_iterator<char>()};
-		auto Navigation = ParseNavigationFile(std::as_bytes(std::span(Bytes)));
+		const auto Bytes = Content.ReadFile(NavigationPath);
+		auto Navigation = Bytes ? ParseNavigationFile(*Bytes) : std::unexpected(FNavigationError{Bytes.error().Message});
 		const auto Loaded = Navigation ? Game.SetNavigation(std::make_shared<const FNavigationFile>(std::move(*Navigation))) : std::unexpected(FGameError{Navigation.error().Message});
 		if (!Loaded)
 		{

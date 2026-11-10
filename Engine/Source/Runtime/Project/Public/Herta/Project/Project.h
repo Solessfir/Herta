@@ -69,6 +69,9 @@ struct FCreateProjectRequest
 [[nodiscard]] std::expected<FProjectDescriptor, FProjectError> ParseProject(std::string_view Text);
 [[nodiscard]] std::expected<std::string, FProjectError> SerializeProject(const FProjectDescriptor& Descriptor);
 [[nodiscard]] std::expected<FLoadedProject, FProjectError> LoadProject(const std::filesystem::path& DescriptorPath);
+// A staged project read from Text, which may come from a package rather than the disk: its paths resolve beside DescriptorPath without
+// looking for them, and it has no module sources. The game checks the files exist as it reads them.
+[[nodiscard]] std::expected<FLoadedProject, FProjectError> LoadStagedProject(const std::filesystem::path& DescriptorPath, std::string_view Text);
 // The nearest .hertaproject in the file's directory or an ancestor, choosing the first by name when a directory holds several.
 [[nodiscard]] std::optional<std::filesystem::path> FindOwningProject(const std::filesystem::path& File);
 // The .hertaproject in a staged build, which keeps one project folder next to its executables in Directory.

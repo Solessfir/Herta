@@ -4,7 +4,9 @@
 #include "Herta/Audio/StagedSounds.h"
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Log.h"
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/GameFramework/GameAssets.h"
+#include "Herta/GameFramework/GameContent.h"
 #include "Herta/GameFramework/GameControls.h"
 #include "Herta/GameFramework/GameHud.h"
 #include "Herta/GameFramework/GameMenu.h"
@@ -238,11 +240,24 @@ struct FGameOptions
 int RunGame(const FGameOptions& Options)
 {
 	const std::filesystem::path ExecutableDirectory = std::filesystem::absolute(Options.ExecutablePath).parent_path();
-	const std::filesystem::path ProjectPath = !Options.ProjectPath.empty() ? Options.ProjectPath : FindStagedProject(ExecutableDirectory).value_or(std::filesystem::path{});
-	const auto Project = LoadProject(ProjectPath);
+	const auto Mounted = MountGameContent({.ExecutableDirectory = ExecutableDirectory, .ProjectPath = Options.ProjectPath});
+	if (!Mounted)
+	{
+		ReportFailure(std::format("Cannot find the game's content: {}. Stage a project with HertaEditorCmd game.stage, or pass --project=<path>.", Mounted.error().Message));
+		return 1;
+	}
+
+	const FVirtualFileSystem& Files = *Mounted->FileSystem;
+	const auto AsText = [](const std::vector<std::byte>& Bytes)
+	{
+		return std::string_view(reinterpret_cast<const char*>(Bytes.data()), Bytes.size());
+	};
+
+	const auto ProjectText = Files.Read(Mounted->ProjectPath);
+	const auto Project = ProjectText ? LoadStagedProject(Mounted->ProjectPath, AsText(*ProjectText)) : std::unexpected(FProjectError{ProjectText.error().Message});
 	if (!Project)
 	{
-		ReportFailure(std::format("Cannot load the game project{}: {}. Stage one with HertaEditorCmd game.stage, or pass --project=<path>.", ProjectPath.empty() ? "" : " " + ProjectPath.generic_string(), Project.error().Message));
+		ReportFailure(std::format("Cannot load the game project {}: {}", Mounted->ProjectPath.generic_string(), Project.error().Message));
 		return 1;
 	}
 
@@ -266,7 +281,13 @@ int RunGame(const FGameOptions& Options)
 	}
 
 	std::unique_ptr<FTaskSystem> Tasks = std::move(*TaskResult);
-	const auto Level = LoadLevel(Project->StartingLevel);
+	for (const std::string& Mount : Files.DescribeMounts())
+	{
+		HERTA_LOG_INFO(*Log, GameLog, "Content: {}", Mount);
+	}
+
+	const auto LevelBytes = Files.Read(Project->StartingLevel);
+	const auto Level = LevelBytes ? ParseLevel(AsText(*LevelBytes)) : std::unexpected(FLevelError{LevelBytes.error().Message});
 	if (!Level)
 	{
 		HERTA_LOG_ERROR(*Log, GameLog, "Could not load {}: {}", Project->StartingLevel.generic_string(), Level.error().Message);
@@ -330,7 +351,19 @@ int RunGame(const FGameOptions& Options)
 		return 1;
 	}
 
+	// Engine shaders sit beside the executable, so a package built from that folder carries them too.
 	const std::filesystem::path ShaderDirectory = ExecutableDirectory / "Shaders";
+	const auto LoadCookedShader = [&Files](const std::filesystem::path& Path) -> std::expected<FShaderAsset, FShaderError>
+	{
+		const auto Bytes = Files.Read(Path);
+		if (!Bytes)
+		{
+			return std::unexpected(FShaderError{Bytes.error().Message});
+		}
+
+		return DeserializeCookedShader(*Bytes);
+	};
+
 	auto VertexShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.vert.hshader");
 	auto InstancedVertexShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.instanced.vert.hshader");
 	auto FragmentShader = LoadCookedShader(ShaderDirectory / "TexturedMesh.frag.hshader");
@@ -410,7 +443,7 @@ int RunGame(const FGameOptions& Options)
 
 	std::unique_ptr<FMeshRenderer> Renderer = std::move(*RendererResult);
 	const std::filesystem::path EngineContent = Project->Root.parent_path() / "Engine" / "Content";
-	const FCookedContent Content({Project->ContentRoot, EngineContent});
+	const FCookedContent Content({Project->ContentRoot, EngineContent}, Mounted->FileSystem);
 	auto Staged = CreateStagedSession(Project->StartingLevel, *Level, Content, &Device, Tasks.get());
 	if (!Staged)
 	{
@@ -435,18 +468,12 @@ int RunGame(const FGameOptions& Options)
 	const bool bNetwork = Options.HostPort != 0 || !Options.ConnectAddress.empty();
 	if (bNetwork)
 	{
-		const auto ContentHash = HashLevelFile(Project->StartingLevel);
-		if (!ContentHash)
-		{
-			HERTA_LOG_ERROR(*Log, GameLog, "{}", ContentHash.error().Message);
-			return 1;
-		}
-
-		const FGameClientSettings ClientSettings{.Name = Options.PlayerName, .ContentHash = *ContentHash};
+		const std::uint64_t ContentHash = HashLevelBytes(*LevelBytes);
+		const FGameClientSettings ClientSettings{.Name = Options.PlayerName, .ContentHash = ContentHash};
 		if (Options.HostPort != 0)
 		{
 			auto Hosted = CreateStagedSession(Project->StartingLevel, *Level, Content, nullptr, Tasks.get());
-			auto Server = Hosted ? FGameServer::Create(std::move(Hosted->Session), {.Port = Options.HostPort, .ContentHash = *ContentHash}) : std::unexpected(FReplicationError{Hosted.error().Message});
+			auto Server = Hosted ? FGameServer::Create(std::move(Hosted->Session), {.Port = Options.HostPort, .ContentHash = ContentHash}) : std::unexpected(FReplicationError{Hosted.error().Message});
 			if (!Server)
 			{
 				HERTA_LOG_ERROR(*Log, GameLog, "Could not host: {}", Server.error().Message);
@@ -491,10 +518,10 @@ int RunGame(const FGameOptions& Options)
 
 		// Hand-written shaders stage an empty table.
 		std::vector<FMaterialShaderParameter> Parameters;
-		if (std::ifstream Table(GetStagedMaterialShaderParametersPath(Mount, Relative), std::ios::binary); Table)
+		if (const std::filesystem::path TablePath = GetStagedMaterialShaderParametersPath(Mount, Relative); Content.Exists(TablePath))
 		{
-			const std::string Text{std::istreambuf_iterator<char>(Table), std::istreambuf_iterator<char>()};
-			auto Parsed = DeserializeMaterialShaderParameters(Text);
+			const auto Table = Content.ReadFile(TablePath);
+			auto Parsed = Table ? DeserializeMaterialShaderParameters(AsText(*Table)) : std::unexpected(FAssetError{Table.error().Message});
 			if (!Parsed)
 			{
 				HERTA_LOG_ERROR(*Log, GameLog, "Could not load the parameters of {}: {}", Shader, Parsed.error().Message);
@@ -540,7 +567,7 @@ int RunGame(const FGameOptions& Options)
 	std::unique_ptr<FVisualEnvironment> Environment = FVisualEnvironment::Create(*Tasks, *Renderer, *Log);
 	auto UIResult = FGameUI::Create({
 	    .Device = &Device,
-	    .FontPath = EngineContent / "Fonts" / "Roboto-Medium.ttf",
+	    .FontBytes = Files.Read(EngineContent / "Fonts" / "Roboto-Medium.ttf").value_or(std::vector<std::byte>{}),
 	    .RegisterTexture = [&Presentation](const FTextureHandle& Texture) -> std::expected<std::uint64_t, FGameUIError>
 	{
 		auto Registered = Presentation->RegisterToolUITexture(Texture);

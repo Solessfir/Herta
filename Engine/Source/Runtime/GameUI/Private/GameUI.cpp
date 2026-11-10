@@ -337,22 +337,22 @@ std::expected<std::unique_ptr<FGameUI>, FGameUIError> FGameUI::Create(FGameUIDes
 		return UIError("Game UI needs a graphics device and texture registration");
 	}
 
-	auto Implementation = std::make_unique<FImplementation>();
-	Implementation->Descriptor = std::move(Descriptor);
-	std::error_code Error;
-	const std::uintmax_t Size = std::filesystem::file_size(Implementation->Descriptor.FontPath, Error);
 	// Font data is untrusted; anything past a few megabytes is not a HUD font.
-	if (Error || Size == 0 || Size > std::uintmax_t{32} * 1024 * 1024)
+	const std::size_t Size = Descriptor.FontBytes.size();
+	if (Size == 0 || Size > std::size_t{32} * 1024 * 1024)
 	{
-		return UIError(std::format("Cannot read the HUD font '{}'", Implementation->Descriptor.FontPath.generic_string()));
+		return UIError("The HUD font is missing or too large");
 	}
 
-	Implementation->FontBytes.resize(static_cast<std::size_t>(Size));
-	std::ifstream File(Implementation->Descriptor.FontPath, std::ios::binary);
-	if (!File.read(reinterpret_cast<char*>(Implementation->FontBytes.data()), static_cast<std::streamsize>(Size)))
+	auto Implementation = std::make_unique<FImplementation>();
+	Implementation->FontBytes.resize(Size);
+	std::ranges::transform(Descriptor.FontBytes, Implementation->FontBytes.begin(), [](const std::byte Byte)
 	{
-		return UIError("Cannot read the HUD font");
-	}
+		return static_cast<FT_Byte>(Byte);
+	});
+
+	Implementation->Descriptor = std::move(Descriptor);
+	Implementation->Descriptor.FontBytes.clear();
 
 	if (FT_Init_FreeType(&Implementation->Library) != 0 || FT_New_Memory_Face(Implementation->Library, Implementation->FontBytes.data(), static_cast<FT_Long>(Size), 0, &Implementation->Face) != 0)
 	{

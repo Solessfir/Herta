@@ -595,6 +595,32 @@ std::expected<FLoadedProject, FProjectError> LoadProject(const std::filesystem::
 	return FLoadedProject{.Descriptor = std::move(*Descriptor), .DescriptorPath = Path, .Root = Root, .ContentRoot = *Content, .StartingLevel = *Level};
 }
 
+std::expected<FLoadedProject, FProjectError> LoadStagedProject(const std::filesystem::path& DescriptorPath, const std::string_view Text)
+{
+	if (DescriptorPath.extension() != ".hertaproject")
+	{
+		return ProjectError("Expected a .hertaproject descriptor");
+	}
+
+	auto Descriptor = ParseProject(Text);
+	if (!Descriptor)
+	{
+		return std::unexpected(Descriptor.error());
+	}
+
+	if (Descriptor->EngineAssociation != "Herta")
+	{
+		return ProjectError("Project engine association is not supported by this engine");
+	}
+
+	// ParseProject has already refused absolute and traversing paths, so joining them cannot leave the project folder.
+	const std::filesystem::path Path = std::filesystem::absolute(DescriptorPath).lexically_normal();
+	const std::filesystem::path Root = Path.parent_path();
+	std::filesystem::path ContentRoot = (Root / Utf8Path(Descriptor->ContentRoots[0].Path)).lexically_normal();
+	std::filesystem::path StartingLevel = (Root / Utf8Path(Descriptor->StartingLevel)).lexically_normal();
+	return FLoadedProject{.Descriptor = std::move(*Descriptor), .DescriptorPath = Path, .Root = Root, .ContentRoot = std::move(ContentRoot), .StartingLevel = std::move(StartingLevel)};
+}
+
 std::expected<FLoadedProject, FProjectError> CreateProject(const FCreateProjectRequest& Request)
 {
 	if (!Identifier(Request.Name) || !PortableFilename(Request.Name) || !ModuleName(Request.ModuleName) || Request.EngineAssociation != "Herta" || Request.StopToken.stop_requested())

@@ -58,7 +58,8 @@ struct FGameUIInput
 struct FGameUIDescriptor
 {
 	IGraphicsDevice* Device = nullptr;
-	std::filesystem::path FontPath;
+	// The HUD font file's bytes, read by the caller from wherever its content is mounted.
+	std::vector<std::byte> FontBytes;
 	// Makes a texture drawable by the presenter and returns its screen draw ID.
 	std::function<std::expected<std::uint64_t, FGameUIError>(const FTextureHandle& Texture)> RegisterTexture;
 	std::function<void(std::uint64_t TextureId)> UnregisterTexture;
