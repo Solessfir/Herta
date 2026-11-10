@@ -51,6 +51,7 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Engine design](Docs/EngineDesign.md) - architecture and roadmap.
 - [Game runtime](Docs/Game.md) - HertaGame, editor Play, staging, and packaging.
 - [Physics](Docs/Physics.md) and [Animation](Docs/Animation.md) - determinism, collision, destruction, skinned characters, and state machines.
+- [Audio](Docs/Audio.md) - the mixer, streaming, Audio Graphs, and level sounds.
 - [Editor automation](Docs/Automation.md) - driving a running editor from MCP clients such as coding agents.
 - [Next milestone](Docs/EngineDesign.md#milestone-75---editor-automation-over-mcp-in-progress) - editor automation over MCP, then the rest of Milestone 8 - Animation.
 - [Asset pipeline](Docs/AssetPipeline.md) - import, cooking, and asset formats.

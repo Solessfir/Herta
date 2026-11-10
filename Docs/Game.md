@@ -35,11 +35,11 @@ Settings live per user in `%LOCALAPPDATA%\Herta\<Project>\Settings.ini` on Windo
 
 ## Editor Play
 
-Click **Play** in the viewport toolbar or press **Alt+P** or **Shift+Space**. Play waits until every mesh has loaded, then starts a session on a copy of the level; authoring, selection, and undo history are untouched, and editing is locked as during Simulate. The viewport hides editor overlays and draws the game's own GameUI HUD, the same `DrawGameHud` the standalone game uses, through ImGui with the same registered textures. Clicking the viewport captures the pointer. **Shift+Esc** is the game's Esc: it opens the pause menu (Resume, Restart course, Exit, which stops Play), as does leaving the editor window. Esc or the active Play button stops and returns to the authored level.
+Click **Play** in the viewport toolbar or press **Alt+P** or **Shift+Space**. Play waits until every mesh and the level's sounds have loaded, then starts a session on a copy of the level; authoring, selection, and undo history are untouched, and editing is locked as during Simulate. The viewport hides editor overlays and draws the game's own GameUI HUD, the same `DrawGameHud` the standalone game uses, through ImGui with the same registered textures. Clicking the viewport captures the pointer. **Shift+Esc** is the game's Esc: it opens the pause menu (Resume, Restart course, Exit, which stops Play), as does leaving the editor window. Esc or the active Play button stops and returns to the authored level. Sounds play through the editor's audio engine and mute while paused; see [Audio](Audio.md).
 
 ## Staging and packaging
 
-`HertaEditorCmd game.stage <project.hertaproject> <output>` cooks the starting level's dependency closure through HertaAssetWorker: meshes, material assets and their textures in each sampled color space, and Sky environments. It writes them as loose files, copies the project descriptor and starting level verbatim, and copies the HUD font with its license:
+`HertaEditorCmd game.stage <project.hertaproject> <output>` cooks the starting level's dependency closure through HertaAssetWorker: meshes, material assets and their textures in each sampled color space, Sky environments, and the level's sounds and emitter sounds with every graph's waves. The game opens the default audio device, or plays through the null path without one and during `--smoke-test`, and streams streamed sounds from their staged files. It writes them as loose files, copies the project descriptor and starting level verbatim, and copies the HUD font with its license:
 
 ```text
 <output>/Engine/Content/<asset-id>.hasset         engine assets

@@ -160,4 +160,25 @@ TEST_CASE("Game sessions issue the same audio commands for the same play, headle
 	CHECK(Stats.VoicesStarted >= 5);
 	CHECK((*Engine)->IsVoicePlaying({1}));
 }
+
+TEST_CASE("An active listener component hears the level instead of the player")
+{
+	const FNoAudioGameAssets Assets;
+	std::vector<FLevelEntity> Entities = MakeAudioCourse();
+	Entities.push_back(FLevelEntity{.Id = FObjectId{7, 20}, .Name = "Inactive ears", .Transform = {.Translation = {9., 9., 9.}}, .AudioListener = FAudioListenerComponent{.bActive = false}});
+	Entities.push_back(FLevelEntity{.Id = FObjectId{7, 21}, .Name = "Camera ears", .Transform = {.Translation = {-5., 4., 6.}}, .AudioListener = FAudioListenerComponent{}});
+	auto Session = FGameSession::Create(Entities, Assets, nullptr);
+	REQUIRE(Session);
+	REQUIRE((*Session)->Update(1.f / 60.f, {}));
+	const std::vector<FAudioCommand> Commands = (*Session)->TakeAudioCommands();
+	const auto Listener = std::ranges::find_if(Commands, [](const FAudioCommand& Command)
+	{
+		return std::holds_alternative<FAudioListenerCommand>(Command);
+	});
+
+	REQUIRE(Listener != Commands.end());
+	const FAudioListener& Heard = std::get<FAudioListenerCommand>(*Listener).Listener;
+	CHECK(Heard.Position == FVector3{-5.f, 4.f, 6.f});
+	CHECK(Heard.Forward.Z == doctest::Approx(1.f));
+}
 }
