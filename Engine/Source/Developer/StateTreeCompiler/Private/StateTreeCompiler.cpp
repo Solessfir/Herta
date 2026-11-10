@@ -44,7 +44,7 @@ const std::array WaitProperties{
 };
 const std::array MoveToProperties{
     FGraphPropertyDescriptor{.Key = "order", .Name = "Order", .Default = std::int32_t{0}},
-    FGraphPropertyDescriptor{.Key = "target", .Name = "Target", .Default = std::string("player")},
+    FGraphPropertyDescriptor{.Key = "target", .Name = "Target", .Default = std::string("enemy")},
     FGraphPropertyDescriptor{.Key = "run", .Name = "Run", .Default = false},
     FGraphPropertyDescriptor{.Key = "acceptance", .Name = "Acceptance (m)", .Default = 0.6f},
 };
@@ -54,17 +54,21 @@ const std::array WanderProperties{
 };
 const std::array FleeProperties{
     FGraphPropertyDescriptor{.Key = "order", .Name = "Order", .Default = std::int32_t{0}},
-    FGraphPropertyDescriptor{.Key = "target", .Name = "Target", .Default = std::string("player")},
+    FGraphPropertyDescriptor{.Key = "target", .Name = "Target", .Default = std::string("enemy")},
     FGraphPropertyDescriptor{.Key = "distance", .Name = "Distance (m)", .Default = 6.f},
 };
 const std::array FaceProperties{
     FGraphPropertyDescriptor{.Key = "order", .Name = "Order", .Default = std::int32_t{0}},
-    FGraphPropertyDescriptor{.Key = "target", .Name = "Target", .Default = std::string("player")},
+    FGraphPropertyDescriptor{.Key = "target", .Name = "Target", .Default = std::string("enemy")},
 };
 const std::array AttackProperties{
     FGraphPropertyDescriptor{.Key = "order", .Name = "Order", .Default = std::int32_t{0}},
-    FGraphPropertyDescriptor{.Key = "target", .Name = "Target", .Default = std::string("player")},
+    FGraphPropertyDescriptor{.Key = "target", .Name = "Target", .Default = std::string("enemy")},
     FGraphPropertyDescriptor{.Key = "reach", .Name = "Reach (m)", .Default = 1.6f},
+};
+const std::array SurroundProperties{
+    FGraphPropertyDescriptor{.Key = "order", .Name = "Order", .Default = std::int32_t{0}},
+    FGraphPropertyDescriptor{.Key = "radius", .Name = "Radius (m)", .Default = 3.f},
 };
 const std::array AnimateProperties{
     FGraphPropertyDescriptor{.Key = "order", .Name = "Order", .Default = std::int32_t{0}},
@@ -111,6 +115,7 @@ const std::array StateTreeNodes{
     FGraphNodeDescriptor{.Type = "Animate", .Name = "Animate", .Category = "Tasks", .Inputs = ItemInputs, .Properties = AnimateProperties},
     FGraphNodeDescriptor{.Type = "SetFlag", .Name = "Set Flag", .Category = "Tasks", .Inputs = ItemInputs, .Properties = SetFlagProperties},
     FGraphNodeDescriptor{.Type = "Forget", .Name = "Forget", .Category = "Tasks", .Inputs = ItemInputs, .Properties = OrderProperty},
+    FGraphNodeDescriptor{.Type = "Surround", .Name = "Surround", .Category = "Tasks", .Inputs = ItemInputs, .Properties = SurroundProperties},
     FGraphNodeDescriptor{.Type = "Condition", .Name = "Condition", .Category = "Logic", .Inputs = ConditionInputs, .Properties = ConditionProperties},
     FGraphNodeDescriptor{.Type = "Transition", .Name = "Transition", .Category = "Logic", .Inputs = ItemInputs, .Outputs = TransitionOutputs, .Properties = TransitionProperties},
     FGraphNodeDescriptor{.Type = "Consideration", .Name = "Consideration", .Category = "Logic", .Inputs = ItemInputs, .Properties = ConsiderationProperties},
@@ -125,13 +130,14 @@ bool CanConnectStateTreePins(const std::uint32_t From, const std::uint32_t To)
 const FGraphSchema StateTreeSchema{.Domain = StateTreeDomain, .Version = StateTreeGraphVersion, .Nodes = StateTreeNodes, .CanConnect = CanConnectStateTreePins};
 
 constexpr std::array<std::string_view, 2> SelectionChoices{"first", "utility"};
-constexpr std::array<std::string_view, 4> TargetChoices{"player", "lastSeen", "noise", "home"};
+// "player" is the name the enemy had before agents fought each other, kept so older trees still compile.
+constexpr std::array<std::string_view, 5> TargetChoices{"enemy", "lastSeen", "noise", "home", "player"};
 constexpr std::array<std::string_view, 8> ConditionChoices{"sees", "remembers", "heard", "distance", "health", "random", "time", "flag"};
 constexpr std::array<std::string_view, 2> CompareChoices{"less", "greater"};
 constexpr std::array<std::string_view, 5> TriggerChoices{"completed", "succeeded", "failed", "tick", "event"};
 constexpr std::array<std::string_view, 3> KindChoices{"goto", "succeed", "fail"};
 constexpr std::array<std::string_view, 4> InputChoices{"distance", "health", "seen", "heard"};
-constexpr std::array<std::string_view, 9> TaskTypes{"Wait", "MoveTo", "Wander", "Flee", "Face", "Attack", "Animate", "SetFlag", "Forget"};
+constexpr std::array<std::string_view, 10> TaskTypes{"Wait", "MoveTo", "Wander", "Flee", "Face", "Attack", "Animate", "SetFlag", "Forget", "Surround"};
 
 [[nodiscard]] const FGraphValue* FindProperty(const FGraphNode& Node, const std::string_view Key)
 {
@@ -239,7 +245,8 @@ struct FCompiler
 		FStateTreeTaskDesc Task{.Type = Type};
 		if (Type == EStateTreeTaskType::MoveTo || Type == EStateTreeTaskType::Flee || Type == EStateTreeTaskType::Face || Type == EStateTreeTaskType::Attack)
 		{
-			Task.Target = static_cast<EStateTreeTarget>(Choose(Node, "target", TargetChoices, Errors).value_or(0));
+			const std::uint8_t Target = Choose(Node, "target", TargetChoices, Errors).value_or(0);
+			Task.Target = Target == TargetChoices.size() - 1 ? EStateTreeTarget::Enemy : static_cast<EStateTreeTarget>(Target);
 		}
 
 		switch (Type)
@@ -263,6 +270,14 @@ struct FCompiler
 				break;
 			case EStateTreeTaskType::Attack:
 				Task.Values = {Number(Node, "reach"), 0.f};
+				break;
+			case EStateTreeTaskType::Surround:
+				Task.Values = {Number(Node, "radius"), 0.f};
+				if (Task.Values[0] < 1.f)
+				{
+					Errors.push_back({.Node = Node.Id, .Message = "A surround ring is at least 1 m across its radius"});
+				}
+
 				break;
 			case EStateTreeTaskType::Animate:
 				Task.Key = Name(Text(Node, "trigger"));

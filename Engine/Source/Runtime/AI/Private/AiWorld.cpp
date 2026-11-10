@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
+#include <map>
 #include <numbers>
 
 namespace Herta
@@ -32,6 +34,11 @@ namespace
 constexpr float RetargetDistance = 0.75f;
 constexpr float DefaultAcceptance = 0.6f;
 constexpr float FacingTolerance = 0.2f;
+// A surrounding agent walks to a slot that moved this far, and stands once within SlotAcceptance of it.
+constexpr float SlotRetargetDistance = 0.5f;
+constexpr float SlotAcceptance = 0.6f;
+// Farther from its slot than this it runs there.
+constexpr float SlotRunDistance = 4.f;
 }
 
 struct FAiWorld::FAgent final : IStateTreeContext
@@ -49,8 +56,11 @@ struct FAiWorld::FAgent final : IStateTreeContext
 	{
 		switch (Target)
 		{
-			case EStateTreeTarget::Player:
-				return Memory.bSeesTarget && Memory.SeenTarget < World.Targets.size() ? std::optional{World.Targets[Memory.SeenTarget].Foot} : Memory.LastSeen;
+			case EStateTreeTarget::Enemy:
+			{
+				const FAiTarget* const Enemy = Memory.bSeesTarget && Memory.Enemy ? World.FindTarget(*Memory.Enemy) : nullptr;
+				return Enemy ? std::optional{Enemy->Foot} : Memory.LastSeen;
+			}
 			case EStateTreeTarget::LastSeen:
 				return Memory.LastSeen;
 			case EStateTreeTarget::Noise:
@@ -64,7 +74,7 @@ struct FAiWorld::FAgent final : IStateTreeContext
 
 	[[nodiscard]] float TargetDistance() const
 	{
-		const std::optional<FVector3> Point = Resolve(EStateTreeTarget::Player);
+		const std::optional<FVector3> Point = Resolve(EStateTreeTarget::Enemy);
 		return Point ? HorizontalDistance(Desc.Body->GetFootPosition(), *Point) : 1.e9f;
 	}
 
@@ -149,7 +159,18 @@ struct FAiWorld::FAgent final : IStateTreeContext
 				}
 
 				return EStateTreeStatus::Succeeded;
+			case EStateTreeTaskType::Surround:
+				if (!Memory.Enemy || !Resolve(EStateTreeTarget::Enemy))
+				{
+					return EStateTreeStatus::Failed;
+				}
+
+				bSurrounding = true;
+				SurroundRadius = std::max(Task.Values[0], 1.f);
+				WaitSeconds = 0.f;
+				return EStateTreeStatus::Running;
 			case EStateTreeTaskType::Forget:
+				Memory.Enemy.reset();
 				Memory.LastSeen.reset();
 				Memory.Noise.reset();
 				Memory.SecondsSinceSeen = 1.e9f;
@@ -164,7 +185,7 @@ struct FAiWorld::FAgent final : IStateTreeContext
 	{
 		IAiBody& Body = *Desc.Body;
 		const float Acceptance = Task.Type == EStateTreeTaskType::MoveTo && Task.Values[1] > 0.f ? Task.Values[1] : DefaultAcceptance;
-		if (Task.Type == EStateTreeTaskType::MoveTo && Task.Target == EStateTreeTarget::Player)
+		if (Task.Type == EStateTreeTaskType::MoveTo && Task.Target == EStateTreeTarget::Enemy)
 		{
 			const std::optional<FVector3> Destination = Resolve(Task.Target);
 			if (!Destination)
@@ -216,10 +237,72 @@ struct FAiWorld::FAgent final : IStateTreeContext
 					return EStateTreeStatus::Running;
 				}
 
-				return Body.IsAttacking() ? EStateTreeStatus::Running : EStateTreeStatus::Succeeded;
+				if (Body.IsAttacking())
+				{
+					return EStateTreeStatus::Running;
+				}
+
+				// The swing is over, so its turn passes to the agent that has waited longest around the enemy.
+				Token.reset();
+				return EStateTreeStatus::Succeeded;
+			case EStateTreeTaskType::Surround:
+			{
+				// Finished tasks are not stopped, so the ring is left here.
+				const EStateTreeStatus Status = TickSurround(Instance);
+				if (Status != EStateTreeStatus::Running)
+				{
+					LeaveRing();
+				}
+
+				return Status;
+			}
 			default:
 				return EStateTreeStatus::Succeeded;
 		}
+	}
+
+	// Waits in its slot around the enemy, walking there as the ring moves, until it is handed an attack turn.
+	EStateTreeStatus TickSurround(FStateTreeTaskInstance& Instance)
+	{
+		IAiBody& Body = *Desc.Body;
+		const std::optional<FVector3> Enemy = Resolve(EStateTreeTarget::Enemy);
+		if (!Memory.Enemy || !Enemy)
+		{
+			return EStateTreeStatus::Failed;
+		}
+
+		if (Token == Memory.Enemy)
+		{
+			return EStateTreeStatus::Succeeded;
+		}
+
+		if (!SurroundSlot)
+		{
+			return EStateTreeStatus::Running;
+		}
+
+		const float Distance = HorizontalDistance(Body.GetFootPosition(), *SurroundSlot);
+		if (Distance <= SlotAcceptance)
+		{
+			if (Instance.Duration != 0.f)
+			{
+				Body.Stop();
+				Instance.Duration = 0.f;
+			}
+
+			Body.Face(*Enemy);
+			return EStateTreeStatus::Running;
+		}
+
+		// Duration marks a walk under way toward Point.
+		if (Instance.Duration == 0.f || HorizontalDistance(Instance.Point, *SurroundSlot) > SlotRetargetDistance)
+		{
+			Instance.Point = *SurroundSlot;
+			Instance.Duration = 1.f;
+			Body.MoveTo(*SurroundSlot, Distance > SlotRunDistance ? Desc.RunSpeed : Desc.WalkSpeed);
+		}
+
+		return EStateTreeStatus::Running;
 	}
 
 	void StopTask(const FStateTreeTaskDesc& Task, FStateTreeTaskInstance&) override
@@ -228,6 +311,21 @@ struct FAiWorld::FAgent final : IStateTreeContext
 		{
 			Desc.Body->Stop();
 		}
+		else if (Task.Type == EStateTreeTaskType::Surround)
+		{
+			LeaveRing();
+		}
+		else if (Task.Type == EStateTreeTaskType::Attack)
+		{
+			Token.reset();
+		}
+	}
+
+	void LeaveRing()
+	{
+		bSurrounding = false;
+		SurroundSlot.reset();
+		Desc.Body->Stop();
 	}
 
 	bool TestCondition(const FStateTreeConditionDesc& Condition) override
@@ -287,6 +385,15 @@ struct FAiWorld::FAgent final : IStateTreeContext
 	float ThinkClock = 0.f;
 	float PerceptionClock = 0.f;
 	const IAiEnvironment* Environment = nullptr;
+
+	// While a Surround task runs: how far from the enemy it stands and the slot it was given there.
+	bool bSurrounding = false;
+	float SurroundRadius = 3.f;
+	std::optional<FVector3> SurroundSlot{};
+	// The enemy whose attack turn it holds, and for how long; how long it has waited in the ring for one.
+	std::optional<std::uint32_t> Token{};
+	float TokenSeconds = 0.f;
+	float WaitSeconds = 0.f;
 };
 
 FAiWorld::FAiWorld(const FAiSchedule& InSchedule)
@@ -320,6 +427,28 @@ void FAiWorld::RemoveAgent(const FAiAgentId Agent)
 		(*Found)->Execution.Stop(**Found);
 		Agents.erase(Found);
 	}
+}
+
+void FAiWorld::SetRelations(const std::size_t InFactionCount, const std::span<const EAiRelation> Table)
+{
+	FactionCount = Table.size() == InFactionCount * InFactionCount ? InFactionCount : 0;
+	Relations.assign(Table.begin(), Table.begin() + static_cast<std::ptrdiff_t>(FactionCount * FactionCount));
+}
+
+EAiRelation FAiWorld::GetRelation(const std::uint8_t From, const std::uint8_t To) const
+{
+	return From < FactionCount && To < FactionCount ? Relations[From * FactionCount + To] : EAiRelation::Hostile;
+}
+
+bool FAiWorld::IsHostile(const FAgent& Agent, const FAiTarget& Target) const
+{
+	return GetRelation(Agent.Desc.Faction, Target.Faction) == EAiRelation::Hostile || std::ranges::contains(Agent.Memory.Grudges, Target.Key, &FAiGrudge::Key);
+}
+
+const FAiTarget* FAiWorld::FindTarget(const std::uint32_t Key) const
+{
+	const auto Found = std::ranges::find(Targets, Key, &FAiTarget::Key);
+	return Found != Targets.end() ? &*Found : nullptr;
 }
 
 void FAiWorld::SetTarget(const std::optional<FAiTarget>& InTarget)
@@ -359,6 +488,150 @@ void FAiWorld::ReportHit(const FAiAgentId Agent, const FVector3& From)
 	}
 }
 
+void FAiWorld::ReportAttack(const FAiHit& Hit)
+{
+	const auto HoldGrudge = [this, &Hit](FAgent& Agent)
+	{
+		if (!Hit.Attacker)
+		{
+			return;
+		}
+
+		const auto Held = std::ranges::find(Agent.Memory.Grudges, *Hit.Attacker, &FAiGrudge::Key);
+		if (Held != Agent.Memory.Grudges.end())
+		{
+			Held->Seconds = Schedule.GrudgeSeconds;
+		}
+		else
+		{
+			Agent.Memory.Grudges.push_back({.Key = *Hit.Attacker, .Seconds = Schedule.GrudgeSeconds});
+		}
+	};
+
+	for (const std::unique_ptr<FAgent>& Pointer : Agents)
+	{
+		FAgent& Agent = *Pointer;
+		FAiMemory& Memory = Agent.Memory;
+		if (Hit.VictimAgent && Agent.Id == *Hit.VictimAgent)
+		{
+			// Its own side's stray blows are forgiven; anyone else's are not.
+			if (!Hit.Attacker || GetRelation(Agent.Desc.Faction, Hit.AttackerFaction) != EAiRelation::Friendly)
+			{
+				HoldGrudge(Agent);
+				Memory.Enemy = Hit.Attacker ? Hit.Attacker : Memory.Enemy;
+			}
+
+			Memory.LastSeen = Hit.AttackerFoot;
+			Memory.SecondsSinceSeen = 0.f;
+			Agent.Execution.PostEvent("Hit");
+			continue;
+		}
+
+		const bool bAlly = GetRelation(Agent.Desc.Faction, Hit.VictimFaction) == EAiRelation::Friendly;
+		const bool bHeard = HorizontalDistance(Agent.Desc.Body->GetFootPosition(), Hit.VictimFoot) <= Agent.Desc.Perception.HearingRange;
+		if (!bAlly || !bHeard || !Hit.Attacker || GetRelation(Agent.Desc.Faction, Hit.AttackerFaction) == EAiRelation::Friendly)
+		{
+			continue;
+		}
+
+		HoldGrudge(Agent);
+		if (!Memory.bSeesTarget)
+		{
+			Memory.Enemy = Hit.Attacker;
+			Memory.LastSeen = Hit.AttackerFoot;
+			Memory.SecondsSinceSeen = 0.f;
+		}
+
+		Agent.Execution.PostEvent("AllyHit");
+	}
+}
+
+void FAiWorld::Engage(const float Seconds)
+{
+	// Each enemy's ring, in key order so the turns go out the same way on every run.
+	std::map<std::uint32_t, std::vector<FAgent*>> Rings;
+	std::map<std::uint32_t, std::size_t> Holders;
+	for (const std::unique_ptr<FAgent>& Pointer : Agents)
+	{
+		FAgent& Agent = *Pointer;
+		if (Agent.Token)
+		{
+			++Holders[*Agent.Token];
+		}
+
+		if (Agent.bSurrounding && Agent.Memory.Enemy)
+		{
+			Rings[*Agent.Memory.Enemy].push_back(&Agent);
+			Agent.WaitSeconds += Agent.Token ? 0.f : Seconds;
+		}
+	}
+
+	for (auto& [Key, Ring] : Rings)
+	{
+		const FAiTarget* const Target = FindTarget(Key);
+		if (!Target)
+		{
+			continue;
+		}
+
+		// The agents keep their order around the enemy and spread evenly, the ring turned to where they already stand, so none crosses another.
+		const FVector3 Center = Target->Foot;
+		const auto Bearing = [&Center](const FAgent* Agent)
+		{
+			const FVector3 Foot = Agent->Desc.Body->GetFootPosition();
+			return std::atan2(Foot.X - Center.X, Foot.Z - Center.Z);
+		};
+
+		std::ranges::stable_sort(Ring, {}, Bearing);
+		const float Spacing = 2.f * std::numbers::pi_v<float> / static_cast<float>(Ring.size());
+		float SineSum = 0.f;
+		float CosineSum = 0.f;
+		for (std::size_t Index = 0; Index < Ring.size(); ++Index)
+		{
+			const float Offset = Bearing(Ring[Index]) - Spacing * static_cast<float>(Index);
+			SineSum += std::sin(Offset);
+			CosineSum += std::cos(Offset);
+		}
+
+		const float Turn = std::atan2(SineSum, CosineSum);
+		for (std::size_t Index = 0; Index < Ring.size(); ++Index)
+		{
+			const float Angle = Turn + Spacing * static_cast<float>(Index);
+			Ring[Index]->SurroundSlot = Center + FVector3{std::sin(Angle), 0.f, std::cos(Angle)} * Ring[Index]->SurroundRadius;
+		}
+
+		// Free turns go to the agents that have waited longest, so one that just swung goes to the back; the nearest breaks a tie.
+		std::vector<FAgent*> Waiting;
+		std::ranges::copy_if(Ring, std::back_inserter(Waiting), [](const FAgent* Agent)
+		{
+			return !Agent->Token;
+		});
+
+		std::ranges::stable_sort(Waiting, [&Center](const FAgent* First, const FAgent* Second)
+		{
+			if (First->WaitSeconds != Second->WaitSeconds)
+			{
+				return First->WaitSeconds > Second->WaitSeconds;
+			}
+
+			return HorizontalDistance(First->Desc.Body->GetFootPosition(), Center) < HorizontalDistance(Second->Desc.Body->GetFootPosition(), Center);
+		});
+
+		for (FAgent* const Agent : Waiting)
+		{
+			if (Holders[Key] >= Schedule.AttackersPerTarget)
+			{
+				break;
+			}
+
+			Agent->Token = Key;
+			Agent->TokenSeconds = 0.f;
+			++Holders[Key];
+			++Stats.AttackTokens;
+		}
+	}
+}
+
 void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 {
 	++Stats.Perceptions;
@@ -367,9 +640,13 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 	bool bSees = false;
 	float Nearest = 1.e9f;
 	const FVector3 Eye = Body.GetEyePosition();
-	for (std::size_t Index = 0; Index < Targets.size(); ++Index)
+	for (const FAiTarget& Target : Targets)
 	{
-		const FAiTarget& Target = Targets[Index];
+		if ((Target.Agent && *Target.Agent == Agent.Id) || !IsHostile(Agent, Target))
+		{
+			continue;
+		}
+
 		const float Distance = HorizontalDistance(Body.GetFootPosition(), Target.Foot);
 		const float Bearing = std::atan2(Target.Foot.X - Eye.X, Target.Foot.Z - Eye.Z);
 		const bool bInView = Distance <= Perception.SightRange && std::abs(std::remainder(Bearing - Body.GetYaw(), 2.f * std::numbers::pi_v<float>)) <= Perception.SightHalfAngle;
@@ -377,7 +654,7 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 		{
 			Nearest = Distance;
 			bSees = true;
-			Agent.Memory.SeenTarget = Index;
+			Agent.Memory.Enemy = Target.Key;
 		}
 	}
 
@@ -389,7 +666,7 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 			++Stats.Spotted;
 		}
 
-		Agent.Memory.LastSeen = Targets[Agent.Memory.SeenTarget].Foot;
+		Agent.Memory.LastSeen = FindTarget(*Agent.Memory.Enemy)->Foot;
 		Agent.Memory.SecondsSinceSeen = 0.f;
 	}
 	else if (Agent.Memory.bSeesTarget)
@@ -403,6 +680,7 @@ void FAiWorld::Perceive(FAgent& Agent, const IAiEnvironment& Environment)
 void FAiWorld::Step(const float Seconds, const IAiEnvironment& Environment)
 {
 	const std::vector<std::pair<FVector3, float>> Heard = std::exchange(Noises, {});
+	Engage(Seconds);
 	for (const std::unique_ptr<FAgent>& Pointer : Agents)
 	{
 		FAgent& Agent = *Pointer;
@@ -410,6 +688,23 @@ void FAiWorld::Step(const float Seconds, const IAiEnvironment& Environment)
 		FAiMemory& Memory = Agent.Memory;
 		Memory.SecondsSinceSeen += Seconds;
 		Memory.SecondsSinceHeard += Seconds;
+		for (FAiGrudge& Grudge : Memory.Grudges)
+		{
+			Grudge.Seconds -= Seconds;
+		}
+
+		std::erase_if(Memory.Grudges, [](const FAiGrudge& Grudge)
+		{
+			return Grudge.Seconds <= 0.f;
+		});
+
+		// A turn not used in time, such as by an agent that lost its way, passes on.
+		Agent.TokenSeconds += Seconds;
+		if (Agent.Token && (Agent.TokenSeconds > Schedule.AttackTokenSeconds || Agent.Token != Memory.Enemy))
+		{
+			Agent.Token.reset();
+		}
+
 		for (const auto& [Position, Radius] : Heard)
 		{
 			if ((Position - Agent.Desc.Body->GetFootPosition()).Length() <= std::min(Radius, Agent.Desc.Perception.HearingRange))
@@ -431,6 +726,7 @@ void FAiWorld::Step(const float Seconds, const IAiEnvironment& Environment)
 		if (Memory.SecondsSinceSeen > Agent.Desc.Perception.MemorySeconds)
 		{
 			Memory.LastSeen.reset();
+			Memory.Enemy.reset();
 		}
 
 		if (Memory.SecondsSinceHeard > Agent.Desc.Perception.MemorySeconds)
@@ -438,9 +734,10 @@ void FAiWorld::Step(const float Seconds, const IAiEnvironment& Environment)
 			Memory.Noise.reset();
 		}
 
+		// Other agents' bodies do not count: an agent thinks often only near a player.
 		const bool bFar = std::ranges::none_of(Targets, [&](const FAiTarget& Target)
 		{
-			return HorizontalDistance(Agent.Desc.Body->GetFootPosition(), Target.Foot) <= Schedule.FarDistance;
+			return !Target.Agent && HorizontalDistance(Agent.Desc.Body->GetFootPosition(), Target.Foot) <= Schedule.FarDistance;
 		});
 
 		const float Interval = bFar ? Schedule.FarThinkSeconds : Schedule.ThinkSeconds;
@@ -510,6 +807,18 @@ const FAiMemory* FAiWorld::GetMemory(const FAiAgentId Agent) const
 {
 	const FAgent* const Found = Find(Agent);
 	return Found ? &Found->Memory : nullptr;
+}
+
+bool FAiWorld::HasAttackToken(const FAiAgentId Agent) const
+{
+	const FAgent* const Found = Find(Agent);
+	return Found && Found->Token.has_value();
+}
+
+std::optional<FVector3> FAiWorld::GetSurroundSlot(const FAiAgentId Agent) const
+{
+	const FAgent* const Found = Find(Agent);
+	return Found ? Found->SurroundSlot : std::nullopt;
 }
 
 const FCookedStateTree* FAiWorld::GetTree(const FAiAgentId Agent) const

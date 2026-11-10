@@ -91,7 +91,7 @@ std::expected<void, FAssetError> ValidateStateTree(const FCookedStateTree& Tree)
 
 	for (const FStateTreeTaskDesc& Task : Tree.Tasks)
 	{
-		if (!IsEnum(Task.Type, EStateTreeTaskType::Forget) || !IsEnum(Task.Target, EStateTreeTarget::Home) || !IsName(Task.Key) || !std::ranges::all_of(Task.Values, [](const float Value)
+		if (!IsEnum(Task.Type, EStateTreeTaskType::Surround) || !IsEnum(Task.Target, EStateTreeTarget::Home) || !IsName(Task.Key) || !std::ranges::all_of(Task.Values, [](const float Value)
 		{
 			return std::isfinite(Value);
 		}))
@@ -230,7 +230,7 @@ FCookedStateTree ReadStateTree(FBinaryReader& Reader)
 	Tree.Tasks.resize(ReadCount(Reader, MaximumStateTreeItems));
 	for (FStateTreeTaskDesc& Task : Tree.Tasks)
 	{
-		Task.Type = ReadEnum(Reader, EStateTreeTaskType::Forget);
+		Task.Type = ReadEnum(Reader, EStateTreeTaskType::Surround);
 		Task.Target = ReadEnum(Reader, EStateTreeTarget::Home);
 		Task.Values = {Reader.ReadFloat(), Reader.ReadFloat()};
 		Task.Key = Reader.Read<std::uint16_t>();

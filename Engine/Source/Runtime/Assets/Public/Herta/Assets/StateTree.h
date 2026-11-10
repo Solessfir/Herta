@@ -46,12 +46,16 @@ enum class EStateTreeTaskType : std::uint8_t
 	SetFlag,
 	// Forgets the target and the last noise, and succeeds.
 	Forget,
+	// Stands in a ring Values[0] meters around the enemy with the others surrounding it, walking as the ring turns and the enemy moves,
+	// and succeeds once handed one of the enemy's attack turns; fails without an enemy.
+	Surround,
 };
 
 enum class EStateTreeTarget : std::uint8_t
 {
-	Player,
-	// Where the agent last saw the player.
+	// The enemy the agent fights: the nearest hostile player or agent it sees, else where it last saw one.
+	Enemy,
+	// Where the agent last saw its enemy.
 	LastSeen,
 	// Where the agent last heard a noise.
 	Noise,
@@ -118,7 +122,7 @@ struct FStateTreeTaskDesc
 	bool operator==(const FStateTreeTaskDesc&) const = default;
 
 	EStateTreeTaskType Type = EStateTreeTaskType::Wait;
-	EStateTreeTarget Target = EStateTreeTarget::Player;
+	EStateTreeTarget Target = EStateTreeTarget::Enemy;
 	std::array<float, 2> Values{};
 	std::uint16_t Key = StateTreeNone;
 };

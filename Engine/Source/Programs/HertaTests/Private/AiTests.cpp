@@ -436,9 +436,9 @@ public:
 	const std::uint16_t Fight = Builder.State("Fight", Root);
 	Builder.Condition(Fight, {.Type = EStateTreeConditionType::SeesTarget});
 	const std::uint16_t Chase = Builder.State("Chase", Fight);
-	Builder.Task(Chase, {.Type = EStateTreeTaskType::MoveTo, .Target = EStateTreeTarget::Player, .Values = {1.f, 1.2f}});
+	Builder.Task(Chase, {.Type = EStateTreeTaskType::MoveTo, .Target = EStateTreeTarget::Enemy, .Values = {1.f, 1.2f}});
 	const std::uint16_t Swing = Builder.State("Swing", Fight);
-	Builder.Task(Swing, {.Type = EStateTreeTaskType::Attack, .Target = EStateTreeTarget::Player, .Values = {1.6f, 0.f}});
+	Builder.Task(Swing, {.Type = EStateTreeTaskType::Attack, .Target = EStateTreeTarget::Enemy, .Values = {1.6f, 0.f}});
 	Builder.Transition(Chase, {.Trigger = EStateTreeTrigger::OnSucceeded, .Target = Swing});
 	const std::uint16_t Search = Builder.State("Search", Root);
 	Builder.Condition(Search, {.Type = EStateTreeConditionType::RemembersTarget});
@@ -548,5 +548,194 @@ TEST_CASE("AI agents far from the target think less often, and the same seed mak
 	const auto [OtherThinks, OtherFoot, OtherTrace] = Simulate(4, {0.f, 0.f, -190.f});
 	// Both end at the player once they spot it, but wander there by different ways.
 	CHECK_FALSE(OtherTrace == Trace);
+}
+
+namespace
+{
+// The game's factions: the player, guards hostile to it, villagers who keep to themselves, and allies who fight the guards.
+constexpr std::uint8_t PlayerFaction = 0;
+constexpr std::uint8_t GuardFaction = 1;
+constexpr std::uint8_t VillagerFaction = 2;
+constexpr std::uint8_t AllyFaction = 3;
+constexpr EAiRelation H = EAiRelation::Hostile;
+constexpr EAiRelation N = EAiRelation::Neutral;
+constexpr EAiRelation F = EAiRelation::Friendly;
+constexpr std::array FactionTable{
+    F, H, N, F,
+    H, F, N, H,
+    N, N, F, N,
+    F, H, N, F,
+};
+
+[[nodiscard]] std::shared_ptr<const FCookedStateTree> MakeIdleTree()
+{
+	FTreeBuilder Builder;
+	const std::uint16_t Root = Builder.State("Root");
+	const std::uint16_t Idle = Builder.State("Idle", Root);
+	Builder.Task(Idle, {.Type = EStateTreeTaskType::Wait, .Values = {100.f, 100.f}});
+	Builder.Name("Hit");
+	Builder.Name("AllyHit");
+	return Builder.Finish();
+}
+
+// Surround the enemy, step in and swing when handed a turn, back off, and surround again.
+[[nodiscard]] std::shared_ptr<const FCookedStateTree> MakeRingTree()
+{
+	FTreeBuilder Builder;
+	const std::uint16_t Root = Builder.State("Root");
+	const std::uint16_t Fight = Builder.State("Fight", Root);
+	Builder.Condition(Fight, {.Type = EStateTreeConditionType::SeesTarget});
+	const std::uint16_t Ring = Builder.State("Ring", Fight);
+	Builder.Task(Ring, {.Type = EStateTreeTaskType::Surround, .Values = {3.f, 0.f}});
+	const std::uint16_t Close = Builder.State("Close", Fight);
+	Builder.Task(Close, {.Type = EStateTreeTaskType::MoveTo, .Target = EStateTreeTarget::Enemy, .Values = {1.f, 1.2f}});
+	const std::uint16_t Swing = Builder.State("Swing", Fight);
+	Builder.Task(Swing, {.Type = EStateTreeTaskType::Attack, .Target = EStateTreeTarget::Enemy, .Values = {1.6f, 0.f}});
+	const std::uint16_t Back = Builder.State("Back", Fight);
+	Builder.Task(Back, {.Type = EStateTreeTaskType::Wait, .Values = {0.3f, 0.3f}});
+	Builder.Transition(Ring, {.Trigger = EStateTreeTrigger::OnSucceeded, .Target = Close});
+	Builder.Transition(Close, {.Trigger = EStateTreeTrigger::OnSucceeded, .Target = Swing});
+	Builder.Transition(Swing, {.Trigger = EStateTreeTrigger::OnCompleted, .Target = Back});
+	Builder.Transition(Back, {.Trigger = EStateTreeTrigger::OnCompleted, .Target = Ring});
+	const std::uint16_t Idle = Builder.State("Idle", Root);
+	Builder.Task(Idle, {.Type = EStateTreeTaskType::Wait, .Values = {100.f, 100.f}});
+	Builder.Transition(Root, {.Trigger = EStateTreeTrigger::OnEvent, .Target = Fight, .Event = Builder.Name("Spotted")});
+	return Builder.Finish();
+}
+}
+
+TEST_CASE("AI agents tell hostile, neutral, and friendly targets apart, hold grudges, and come to an attacked ally's help")
+{
+	FTestEnvironment Environment;
+	FAiWorld World({.GrudgeSeconds = 2.f});
+	World.SetRelations(4, FactionTable);
+	const auto Tree = MakeIdleTree();
+	// A guard and two villagers face the player in front of them; an ally beyond the player faces back at both.
+	FTestBody Guard;
+	FTestBody Villager;
+	Villager.Foot = {3.f, 0.f, 0.f};
+	FTestBody Neighbour;
+	Neighbour.Foot = {-3.f, 0.f, 0.f};
+	FTestBody Ally;
+	Ally.Foot = {0.f, 0.f, 10.f};
+	Ally.Yaw = 3.1415927f;
+	const FAiAgentId GuardId = World.AddAgent({.Name = "Guard", .Body = &Guard, .Tree = Tree, .Faction = GuardFaction, .Key = 101});
+	const FAiAgentId VillagerId = World.AddAgent({.Name = "Villager", .Body = &Villager, .Tree = Tree, .Faction = VillagerFaction, .Key = 102});
+	const FAiAgentId NeighbourId = World.AddAgent({.Name = "Neighbour", .Body = &Neighbour, .Tree = Tree, .Faction = VillagerFaction, .Key = 103});
+	const FAiAgentId AllyId = World.AddAgent({.Name = "Ally", .Body = &Ally, .Tree = Tree, .Faction = AllyFaction, .Key = 104});
+	const FVector3 Player{0.f, 0.f, 6.f};
+	const auto Body = [](const FTestBody& Of, const std::uint8_t Faction, const std::uint32_t Key, const FAiAgentId Agent)
+	{
+		return FAiTarget{.Foot = Of.Foot, .Head = Of.Foot + FVector3{0.f, 1.7f, 0.f}, .Faction = Faction, .Key = Key, .Agent = Agent};
+	};
+
+	const std::array Targets{
+	    FAiTarget{.Foot = Player, .Head = Player + FVector3{0.f, 1.7f, 0.f}, .Faction = PlayerFaction, .Key = 1},
+	    Body(Guard, GuardFaction, 101, GuardId),
+	    Body(Villager, VillagerFaction, 102, VillagerId),
+	    Body(Neighbour, VillagerFaction, 103, NeighbourId),
+	    Body(Ally, AllyFaction, 104, AllyId),
+	};
+	World.SetTargets(Targets);
+	const auto Run = [&](const float Seconds)
+	{
+		for (int Step = 0; Step < static_cast<int>(std::round(Seconds * 60.f)); ++Step)
+		{
+			World.Step(1.f / 60.f, Environment);
+		}
+	};
+
+	// The guard takes the player for its enemy, the villagers ignore everyone, and the ally goes for the guard rather than its friend.
+	Run(0.5f);
+	CHECK(World.GetMemory(GuardId)->Enemy == std::optional<std::uint32_t>{1});
+	CHECK_FALSE(World.GetMemory(VillagerId)->bSeesTarget);
+	CHECK_FALSE(World.GetMemory(NeighbourId)->bSeesTarget);
+	CHECK(World.GetMemory(AllyId)->Enemy == std::optional<std::uint32_t>{101});
+
+	// The player strikes a villager: it holds a grudge and turns on the player, and its neighbour, who heard, does too; the ally, neutral
+	// to villagers, stays out of it.
+	World.ReportAttack({.Victim = 102, .VictimAgent = VillagerId, .VictimFoot = Villager.Foot, .VictimFaction = VillagerFaction, .Attacker = 1, .AttackerFoot = Player, .AttackerFaction = PlayerFaction});
+	Run(0.5f);
+	CHECK(World.GetMemory(VillagerId)->bSeesTarget);
+	CHECK(World.GetMemory(VillagerId)->Enemy == std::optional<std::uint32_t>{1});
+	CHECK(World.GetMemory(NeighbourId)->Enemy == std::optional<std::uint32_t>{1});
+	CHECK_FALSE(std::ranges::contains(World.GetMemory(AllyId)->Grudges, 1u, &FAiGrudge::Key));
+
+	// The guard strikes the player: the ally, friendly to the player and in earshot, holds it against the guard.
+	World.ReportAttack({.Victim = 1, .VictimFoot = Player, .VictimFaction = PlayerFaction, .Attacker = 101, .AttackerFoot = Guard.Foot, .AttackerFaction = GuardFaction});
+	CHECK(std::ranges::contains(World.GetMemory(AllyId)->Grudges, 101u, &FAiGrudge::Key));
+	// A guard does not hold its own side's stray blow against it.
+	World.ReportAttack({.Victim = 101, .VictimAgent = GuardId, .VictimFoot = Guard.Foot, .VictimFaction = GuardFaction, .Attacker = 999, .AttackerFoot = Guard.Foot, .AttackerFaction = GuardFaction});
+	CHECK(World.GetMemory(GuardId)->Grudges.empty());
+
+	// Grudges run out, and the villagers stop seeing the player as an enemy.
+	Run(2.5f);
+	CHECK(World.GetMemory(VillagerId)->Grudges.empty());
+	CHECK_FALSE(World.GetMemory(VillagerId)->bSeesTarget);
+}
+
+TEST_CASE("Agents surrounding an enemy spread evenly around it and take turns to attack")
+{
+	FTestEnvironment Environment;
+	FAiWorld World({.AttackersPerTarget = 2});
+	World.SetRelations(4, FactionTable);
+	const auto Tree = MakeRingTree();
+	std::array<FTestBody, 5> Bodies;
+	std::array<FAiAgentId, 5> Agents;
+	for (std::size_t Index = 0; Index < Bodies.size(); ++Index)
+	{
+		// Bunched on one side of the player, all facing it.
+		const float Angle = 0.3f * static_cast<float>(Index);
+		Bodies[Index].Foot = FVector3{std::sin(Angle), 0.f, std::cos(Angle)} * 7.f;
+		Bodies[Index].Face({});
+		Agents[Index] = World.AddAgent({.Name = "Guard", .Body = &Bodies[Index], .Tree = Tree, .WalkSpeed = 1.5f, .RunSpeed = 4.f, .Seed = Index + 1, .Faction = GuardFaction, .Key = static_cast<std::uint32_t>(100 + Index)});
+	}
+
+	World.SetTarget(FAiTarget{.Foot = {}, .Head = {0.f, 1.7f, 0.f}, .Faction = PlayerFaction, .Key = 1});
+	std::size_t MostAttackers = 0;
+	const auto Run = [&](const float Seconds)
+	{
+		for (int Step = 0; Step < static_cast<int>(std::round(Seconds * 60.f)); ++Step)
+		{
+			World.Step(1.f / 60.f, Environment);
+			std::size_t Attackers = 0;
+			for (std::size_t Index = 0; Index < Bodies.size(); ++Index)
+			{
+				Bodies[Index].Advance(1.f / 60.f);
+				Attackers += World.HasAttackToken(Agents[Index]) ? 1 : 0;
+			}
+
+			MostAttackers = std::max(MostAttackers, Attackers);
+		}
+	};
+
+	// The ring spreads the agents waiting in it evenly 3 m out, though they started bunched within 70 degrees of each other.
+	Run(0.5f);
+	std::vector<float> Bearings;
+	for (const FAiAgentId Agent : Agents)
+	{
+		if (const auto Slot = World.GetSurroundSlot(Agent))
+		{
+			CHECK(std::hypot(Slot->X, Slot->Z) == doctest::Approx(3.f).epsilon(0.01));
+			Bearings.push_back(std::atan2(Slot->X, Slot->Z));
+		}
+	}
+
+	// Two hold turns and close in, so three wait in the ring, 120 degrees apart.
+	CHECK(Bearings.size() == 3);
+	std::ranges::sort(Bearings);
+	for (std::size_t Index = 1; Index < Bearings.size(); ++Index)
+	{
+		CHECK(std::remainder(Bearings[Index] - Bearings[Index - 1], 6.2831853f) == doctest::Approx(2.0943951f).epsilon(0.02));
+	}
+
+	// Turns pass round: never more than two attackers at once, and every guard gets to swing.
+	Run(20.f);
+	CHECK(MostAttackers <= 2);
+	CHECK(World.GetStats().AttackTokens >= 5);
+	CHECK(std::ranges::all_of(Bodies, [](const FTestBody& Body)
+	{
+		return Body.Attacks > 0;
+	}));
 }
 }
