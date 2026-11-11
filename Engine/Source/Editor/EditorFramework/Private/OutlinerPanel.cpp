@@ -784,7 +784,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 						ImGui::GetWindowDrawList()->AddText({LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, ImGui::GetColorU32(ImGuiCol_Text), Label.data(), Label.data() + Label.size());
 					}
 					const auto Kind = bFolder ? EPreviewObjectKind::Entity : Object->Kind;
-					const EToolUIMenuIcon Icon = bFolder                                                                                 ? EToolUIMenuIcon::ContentBrowser
+					const EToolUIMenuIcon Icon = bFolder                                                                                 ? EToolUIMenuIcon::Folder
 					                             : Kind == EPreviewObjectKind::SkyAtmosphere                                             ? EToolUIMenuIcon::SkyAtmosphere
 					                             : Kind == EPreviewObjectKind::HeightFog                                                 ? EToolUIMenuIcon::Fog
 					                             : Kind == EPreviewObjectKind::SoftBody || Kind == EPreviewObjectKind::Trigger           ? EToolUIMenuIcon::Physics

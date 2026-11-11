@@ -154,6 +154,8 @@ enum class EToolUIMenuIcon : std::uint8_t
 	ContentBrowser,
 	Performance,
 	Sound,
+	// A solid folder in the accent color, for folders in browsers and trees rather than menu actions.
+	Folder,
 };
 
 bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);

@@ -651,6 +651,21 @@ void DrawToolUIIcon(ImDrawList* const Draw, const ImVec2 Center, const float Sca
 		Line(0, -3, 0, 0);
 		Line(0, 0, 3, 0);
 	}
+	else if (Icon == EToolUIMenuIcon::Folder)
+	{
+		// A back panel with its tab, darker, behind a front panel, both rounded and filled in the accent color.
+		const ImVec4 Accent = ImGui::GetStyleColorVec4(ImGuiCol_CheckMark);
+		const ImU32 Front = ImGui::GetColorU32(Accent);
+		const ImU32 Back = ImGui::GetColorU32(ImVec4{Accent.x * 0.68f, Accent.y * 0.68f, Accent.z * 0.68f, Accent.w});
+		const auto Point = [&](const float X, const float Y)
+		{
+			return ImVec2{Center.x + X * Scale, Center.y + Y * Scale};
+		};
+
+		Draw->AddRectFilled(Point(-7.f, -6.5f), Point(-0.5f, -2.f), Back, 1.5f * Scale);
+		Draw->AddRectFilled(Point(-7.f, -4.5f), Point(7.f, 6.f), Back, 1.8f * Scale);
+		Draw->AddRectFilled(Point(-7.f, -2.f), Point(7.f, 6.f), Front, 1.8f * Scale);
+	}
 	else if (Icon == EToolUIMenuIcon::Open || Icon == EToolUIMenuIcon::ContentBrowser)
 	{
 		for (const ImVec2 Point : {ImVec2{-6.f, 5.f}, {-6.f, -5.f}, {-1.f, -5.f}, {1.f, -3.f}, {5.f, -3.f}, {5.f, -1.f}})

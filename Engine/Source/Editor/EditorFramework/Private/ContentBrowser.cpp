@@ -221,7 +221,7 @@ bool DrawFolderTile(const std::string& Path, FContentBrowserState& State, FPrevi
 	const float IconSize = bList ? Font : Size.y - Font * 2.7f;
 	const float IconBottom = Start.y + Font * 0.35f + IconSize;
 	const ImVec2 LabelMinimum = bList ? ImVec2{Start.x + Font + 16.f * Scale, Start.y + (Size.y - Font) * 0.5f} : ImVec2{Start.x + 4.f * Scale, IconBottom + Font * 0.3f};
-	ToolUIIcon(EToolUIMenuIcon::ContentBrowser, bList ? Start.x + Font * 0.5f + 6.f * Scale : Start.x + Size.x * 0.5f, bList ? Start.y + Size.y * 0.5f : Start.y + Font * 0.35f + IconSize * 0.5f, bList ? Scale : IconSize / 20.f);
+	ToolUIIcon(EToolUIMenuIcon::Folder, bList ? Start.x + Font * 0.5f + 6.f * Scale : Start.x + Size.x * 0.5f, bList ? Start.y + Size.y * 0.5f : Start.y + Font * 0.35f + IconSize * 0.5f, bList ? Scale : IconSize / 20.f);
 	if (bRenaming)
 	{
 		const bool bScrollToRow = State.bFocusFolderName;
@@ -1052,7 +1052,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 					ImGui::PopStyleColor();
 					const ImVec2 Minimum = ImGui::GetItemRectMin();
 					const float IconX = RowStart.x + ImGui::GetFontSize() + ImGui::GetStyle().FramePadding.x * 3.f + 6.f * Scale;
-					ToolUIIcon(EToolUIMenuIcon::ContentBrowser, IconX, (Minimum.y + ImGui::GetItemRectMax().y) * 0.5f, Scale);
+					ToolUIIcon(EToolUIMenuIcon::Folder, IconX, (Minimum.y + ImGui::GetItemRectMax().y) * 0.5f, Scale);
 					ImGui::RenderTextClipped({IconX + 12.f * Scale, RowStart.y + ImGui::GetStyle().FramePadding.y}, ImGui::GetItemRectMax(), Label.data(), Label.data() + Label.size(), nullptr);
 					if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
 					{
@@ -1107,7 +1107,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				}
 
 				const ImVec2 Minimum = ImGui::GetItemRectMin();
-				ToolUIIcon(EToolUIMenuIcon::ContentBrowser, Minimum.x + 8.f * Scale, (Minimum.y + ImGui::GetItemRectMax().y) * 0.5f, Scale);
+				ToolUIIcon(EToolUIMenuIcon::Folder, Minimum.x + 8.f * Scale, (Minimum.y + ImGui::GetItemRectMax().y) * 0.5f, Scale);
 				ImGui::PopID();
 			}
 
