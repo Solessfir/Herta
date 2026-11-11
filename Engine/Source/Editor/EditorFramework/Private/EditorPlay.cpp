@@ -185,7 +185,17 @@ void FEditorFramework::FImplementation::TogglePlay()
 
 	if (Loading != VisualEntities.end())
 	{
-		HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for every mesh to load; {} is still loading", Loading->Name);
+		// A mesh whose cook failed never arrives, so Play says why instead of waiting for it.
+		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(Loading->Mesh->Asset);
+		if (Cached && !Cached->bLoading && !Cached->Error.empty())
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Play cannot start: {}'s mesh failed to cook: {}", Loading->Name, Cached->Error);
+		}
+		else
+		{
+			HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for every mesh to load; {} is still loading", Loading->Name);
+		}
+
 		return;
 	}
 

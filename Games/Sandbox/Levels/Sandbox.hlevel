@@ -5,7 +5,7 @@
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "exposureCompensation": 0,
-  "playerCharacter": "c7b6f115-ec90-463e-a72f-9407cd6851e6",
+  "playerCharacter": "8049f6c3-1472-4438-8f6c-3945e4a2a635",
   "playerWeapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
   "sounds": {
     "footstep": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
@@ -1498,7 +1498,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25
@@ -1524,7 +1524,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "staticMesh": {"asset": "d5558b4c-0a9d-4f14-9209-0491f04c91ef", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25
@@ -1550,7 +1550,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25
@@ -1576,7 +1576,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "staticMesh": {"asset": "d5558b4c-0a9d-4f14-9209-0491f04c91ef", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25
@@ -1602,7 +1602,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25
@@ -1628,7 +1628,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "staticMesh": {"asset": "d5558b4c-0a9d-4f14-9209-0491f04c91ef", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25
@@ -1654,7 +1654,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "staticMesh": {"asset": "d5558b4c-0a9d-4f14-9209-0491f04c91ef", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25
@@ -1680,7 +1680,7 @@
         "scale": [1, 1, 1]
       },
       "components": {
-        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
           "severImpulse": 25

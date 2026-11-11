@@ -1,0 +1,6 @@
+Format = HertaAssetMetadata
+Version = 1
+Id = 8049f6c3-1472-4438-8f6c-3945e4a2a635
+Importer = Gltf
+Setting.AnimationGraph = ../Mannequin/Mannequin.hanimgraph
+Setting.SeverableJoints = neck_01, upperarm_l, upperarm_r, lowerarm_l, lowerarm_r, thigh_l, thigh_r, calf_l, calf_r

@@ -1,0 +1,7 @@
+The human characters are built from MakeHuman's system assets, which the MakeHuman community releases under CC0 1.0 Universal:
+
+CC0 1.0 Universal (CC0 1.0) Public Domain Dedication
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Characters exported from MakeHuman and MPFB are not covered by the AGPL/GPL of the tools that make them; see
+https://static.makehumancommunity.org/about/license.html
