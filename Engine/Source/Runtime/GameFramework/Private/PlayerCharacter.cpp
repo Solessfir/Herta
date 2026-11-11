@@ -62,6 +62,7 @@ enum ELocomotionState : std::size_t
 	StaggerState,
 	BackpedalState,
 	AttackC,
+	SlideAttack,
 };
 
 [[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
@@ -178,6 +179,8 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Backpedal", .Samples = {{.Clip = "Walk_Loop", .Position = 1.8f}, {.Clip = "Jog_Fwd_Loop", .Position = 4.5f}}, .BlendParameter = Speed, .Events = {{.Name = "Footstep", .Phase = 0.f}, {.Name = "Footstep", .Phase = 0.5f}}, .bReverse = true},
 	        // The third swing of a chain, a heavier cut with its own recovery.
 	        {.Name = "Attack C", .Samples = {{.Clip = "Sword_Regular_C"}}, .bLoop = false, .Speed = 1.15f, .Events = {{.Name = "SwingStart", .Phase = 0.26f}, {.Name = "SwingEnd", .Phase = 0.42f}}, .bUpperBody = true},
+	        // A cut on the way past: the legs stay in the slide underneath it.
+	        {.Name = "Slide attack", .Samples = {{.Clip = "Sword_Regular_B"}}, .bLoop = false, .Speed = 1.3f, .Events = {{.Name = "SwingStart", .Phase = 0.34f}, {.Name = "SwingEnd", .Phase = 0.66f}}, .bUpperBody = true},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
@@ -260,6 +263,13 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = BackpedalState, .To = Block, .DurationSeconds = 0.1f, .Conditions = {Is(Blocking, true)}},
 	        {.From = AttackC, .To = Locomotion, .DurationSeconds = 0.25f, .bAtEnd = true},
 	        {.From = AttackC, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        {.From = SlideStart, .To = SlideAttack, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = Slide, .To = SlideAttack, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = SlideExit, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = SlideAttack, .To = Air, .DurationSeconds = 0.25f, .Conditions = {Is(Grounded, false)}},
+	        // A slide that ends mid-swing finishes the cut before standing up.
+	        {.From = SlideAttack, .To = Slide, .DurationSeconds = 0.15f, .Conditions = {Is(Sliding, true)}, .bAtEnd = true},
+	        {.From = SlideAttack, .To = SlideExit, .DurationSeconds = 0.15f, .bAtEnd = true},
 	    },
 	    .Entry = Locomotion,
 	};

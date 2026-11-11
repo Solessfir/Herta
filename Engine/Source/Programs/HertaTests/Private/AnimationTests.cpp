@@ -938,6 +938,18 @@ TEST_CASE("A game session drives its character's locomotion, jumps, and camera")
 	CHECK((*Session)->IsPlayerSliding());
 	Step({.bCrouch = true}, 40);
 	CHECK(State() == "Slide");
+
+	// A swing mid-slide leaves the slide running and returns to its loop.
+	Step({.bCrouch = true, .bAttack = true}, 2);
+	CHECK(State() == "Slide attack");
+	CHECK((*Session)->IsPlayerSliding());
+	for (int Frame = 0; Frame < 120 && State() == "Slide attack"; ++Frame)
+	{
+		Step({.bCrouch = true}, 1);
+	}
+
+	CHECK(State() == "Slide");
+	CHECK((*Session)->IsPlayerSliding());
 	for (int Frame = 0; Frame < 300 && (*Session)->IsPlayerSliding(); ++Frame)
 	{
 		Step({.bCrouch = true}, 1);

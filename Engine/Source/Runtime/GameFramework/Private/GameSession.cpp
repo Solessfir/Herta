@@ -2116,7 +2116,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 				const FVector3 Toward{Foe.X - Foot.X, 0.f, Foe.Z - Foot.Z};
 				const float Distance = Toward.Length();
 				LungeTarget = Distance < 0.1f || Toward.Dot(Facing) > -0.2f * Distance ? LungeTarget : std::nullopt;
-				LungeSeconds = LungeTarget && Mover->GetState().bGrounded ? 0.18f : 0.f;
+				// A slide already carries the player in, and a step would steer it.
+				LungeSeconds = LungeTarget && Mover->GetState().bGrounded && Mover->GetActiveMode() != "Slide" ? 0.18f : 0.f;
 				BodyYaw = LungeTarget && bThirdPerson ? std::atan2(Toward.X, Toward.Z) : BodyYaw;
 			}
 		}
