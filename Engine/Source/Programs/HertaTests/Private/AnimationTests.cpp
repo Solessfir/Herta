@@ -1983,9 +1983,9 @@ TEST_CASE("Cooked models carry blend trees, nested machines, and pose rotations,
 	CHECK(std::get<FCookedModel>(*Loaded).StateMachine == Model.StateMachine);
 
 	// The older format has no room for the new data, so writing it refuses rather than drop it; a plain machine round-trips through it.
-	CHECK_FALSE(SerializeCookedAsset(Model, CookedAssetFormatVersion - 1));
+	CHECK_FALSE(SerializeCookedAsset(Model, 7));
 	Model.StateMachine = FAnimationStateMachineDesc{.Parameters = {{.Name = "Speed"}}, .States = {{.Name = "Idle", .Samples = {{.Clip = "Idle_Loop"}}}}};
-	const auto Older = SerializeCookedAsset(Model, CookedAssetFormatVersion - 1);
+	const auto Older = SerializeCookedAsset(Model, 7);
 	REQUIRE(Older);
 	const auto OlderLoaded = DeserializeCookedAsset(*Older);
 	REQUIRE(OlderLoaded);

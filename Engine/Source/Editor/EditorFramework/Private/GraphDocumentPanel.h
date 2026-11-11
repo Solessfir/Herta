@@ -110,7 +110,7 @@ private:
 [[nodiscard]] const FGraphDocumentDomain& GetAnimationGraphDocumentDomain();
 [[nodiscard]] const FGraphDocumentDomain& GetAudioGraphDocumentDomain();
 // Audio Graphs name waves by content path, so their diagnostics need the open document's content to resolve them.
-void SetAudioGraphDocumentResolver(FAudioWaveResolver Resolver);
+void SetAudioGraphDocumentResolver(FAudioWaveResolver Resolver, FAudioGraphLoader Loader);
 // A new Audio Graph: one wave player, still without waves, feeding the output.
 [[nodiscard]] FGraph MakeDefaultAudioGraph();
 [[nodiscard]] const FGraphDocumentDomain& GetVfxGraphDocumentDomain();

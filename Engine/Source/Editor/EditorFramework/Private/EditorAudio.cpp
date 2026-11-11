@@ -1,5 +1,7 @@
 #include "EditorFrameworkPrivate.h"
 
+#include "Herta/Assets/VirtualFileSystem.h"
+
 namespace Herta
 {
 void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
@@ -217,6 +219,24 @@ std::optional<FAssetId> FEditorFramework::FImplementation::ResolveAudioWave(cons
 	return std::nullopt;
 }
 
+std::optional<FGraph> FEditorFramework::FImplementation::LoadAudioSubgraph(const std::string_view Mount, const std::string_view Path) const
+{
+	const std::filesystem::path& Root = Mount == "Engine" ? AssetPaths.EngineContentRoot : AssetPaths.ContentRoot;
+	if (Root.empty() || !IsValidAssetPath(Path))
+	{
+		return std::nullopt;
+	}
+
+	auto Text = ReadDiskFile(Root / std::filesystem::path(std::u8string(Path.begin(), Path.end())));
+	if (!Text)
+	{
+		return std::nullopt;
+	}
+
+	auto Loaded = DeserializeGraph(std::string_view(reinterpret_cast<const char*>(Text->data()), Text->size()), GetAudioGraphSchema());
+	return Loaded ? std::optional(std::move(*Loaded)) : std::nullopt;
+}
+
 void FEditorFramework::FImplementation::DrawAudioGraphPanel()
 {
 	if (!AudioGraphPanel.IsOpen())
@@ -244,7 +264,12 @@ void FEditorFramework::FImplementation::DrawAudioGraphPanel()
 		return ResolveAudioWave(Mount, Wave);
 	};
 
-	SetAudioGraphDocumentResolver(Resolve);
+	const auto Load = [this, Mount](const std::string_view Subgraph)
+	{
+		return LoadAudioSubgraph(Mount, Subgraph);
+	};
+
+	SetAudioGraphDocumentResolver(Resolve, Load);
 	const std::uint64_t OptionsGeneration = Assets ? Assets->GetOptionsGeneration() : 0;
 	if (AudioGraphRevision != AudioGraphPanel.GetDraftRevision() || AudioGraphOptionsGeneration != OptionsGeneration)
 	{
@@ -255,7 +280,7 @@ void FEditorFramework::FImplementation::DrawAudioGraphPanel()
 
 		AudioGraphRevision = AudioGraphPanel.GetDraftRevision();
 		AudioGraphOptionsGeneration = OptionsGeneration;
-		const auto Compiled = CompileAudioGraph(AudioGraphPanel.GetDraft(), Resolve);
+		const auto Compiled = CompileAudioGraph(AudioGraphPanel.GetDraft(), Resolve, Load);
 		if (Compiled)
 		{
 			// Inputs keep their values across edits while their names stay.

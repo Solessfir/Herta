@@ -39,6 +39,14 @@ constexpr std::array FilterInputs{
     FGraphPinDescriptor{.Key = "In", .Name = "In", .Type = AudioPin},
     FGraphPinDescriptor{.Key = "Cutoff", .Name = "Cutoff", .Type = FloatPin},
 };
+constexpr std::array OscillatorInputs{
+    FGraphPinDescriptor{.Key = "Play", .Name = "Play", .Type = PlayPin},
+    FGraphPinDescriptor{.Key = "Frequency", .Name = "Frequency", .Type = FloatPin},
+};
+constexpr std::array EnvelopeInputs{
+    FGraphPinDescriptor{.Key = "In", .Name = "In", .Type = AudioPin},
+    FGraphPinDescriptor{.Key = "Gate", .Name = "Gate", .Type = PlayPin},
+};
 constexpr std::array MapRangeInputs{FGraphPinDescriptor{.Key = "Value", .Name = "Value", .Type = FloatPin}};
 constexpr std::array MapRangeOutputs{FGraphPinDescriptor{.Key = "Result", .Name = "Result", .Type = FloatPin}};
 constexpr std::array FloatOutputs{FGraphPinDescriptor{.Key = "Value", .Name = "Value", .Type = FloatPin}};
@@ -51,7 +59,22 @@ const std::array PlayerProperties{
     FGraphPropertyDescriptor{.Key = "loop", .Name = "Loop", .Default = false},
     FGraphPropertyDescriptor{.Key = "pitchVariation", .Name = "Pitch Variation", .Default = 0.f},
     FGraphPropertyDescriptor{.Key = "gainVariation", .Name = "Gain Variation", .Default = 0.f},
+    FGraphPropertyDescriptor{.Key = "delay", .Name = "Delay (s)", .Default = 0.f},
 };
+const std::array OscillatorProperties{
+    FGraphPropertyDescriptor{.Key = "waveform", .Name = "Waveform", .Default = std::string("Sine")},
+    FGraphPropertyDescriptor{.Key = "frequency", .Name = "Frequency (Hz)", .Default = 440.f},
+    FGraphPropertyDescriptor{.Key = "duration", .Name = "Duration (s)", .Default = 0.f},
+    FGraphPropertyDescriptor{.Key = "delay", .Name = "Delay (s)", .Default = 0.f},
+};
+const std::array EnvelopeProperties{
+    FGraphPropertyDescriptor{.Key = "attack", .Name = "Attack (s)", .Default = 0.01f},
+    FGraphPropertyDescriptor{.Key = "decay", .Name = "Decay (s)", .Default = 0.1f},
+    FGraphPropertyDescriptor{.Key = "sustain", .Name = "Sustain", .Default = 0.7f},
+    FGraphPropertyDescriptor{.Key = "release", .Name = "Release (s)", .Default = 0.3f},
+    FGraphPropertyDescriptor{.Key = "delay", .Name = "Delay (s)", .Default = 0.f},
+};
+const std::array SubgraphProperties{FGraphPropertyDescriptor{.Key = "graph", .Name = "Graph", .Default = std::string()}};
 const std::array GainProperties{FGraphPropertyDescriptor{.Key = "gain", .Name = "Gain", .Default = 1.f}};
 const std::array PitchProperties{FGraphPropertyDescriptor{.Key = "pitch", .Name = "Pitch", .Default = 1.f}};
 const std::array LowPassProperties{FGraphPropertyDescriptor{.Key = "cutoff", .Name = "Cutoff (Hz)", .Default = 2000.f}};
@@ -74,6 +97,9 @@ const std::array TriggerProperties{FGraphPropertyDescriptor{.Key = "name", .Name
 
 const std::array AudioNodes{
     FGraphNodeDescriptor{.Type = "WavePlayer", .Name = "Wave Player", .Category = "Sources", .Inputs = PlayerInputs, .Outputs = AudioOutputs, .Properties = PlayerProperties},
+    FGraphNodeDescriptor{.Type = "Oscillator", .Name = "Oscillator", .Category = "Sources", .Inputs = OscillatorInputs, .Outputs = AudioOutputs, .Properties = OscillatorProperties},
+    FGraphNodeDescriptor{.Type = "Subgraph", .Name = "Subgraph", .Category = "Sources", .Outputs = AudioOutputs, .Properties = SubgraphProperties},
+    FGraphNodeDescriptor{.Type = "Envelope", .Name = "Envelope", .Category = "Mix", .Inputs = EnvelopeInputs, .Outputs = AudioOutputs, .Properties = EnvelopeProperties},
     FGraphNodeDescriptor{.Type = "Mixer", .Name = "Mixer", .Category = "Mix", .Inputs = MixerInputs, .Outputs = AudioOutputs},
     FGraphNodeDescriptor{.Type = "Gain", .Name = "Gain", .Category = "Mix", .Inputs = GainInputs, .Outputs = AudioOutputs, .Properties = GainProperties},
     FGraphNodeDescriptor{.Type = "Pitch", .Name = "Pitch", .Category = "Mix", .Inputs = PitchInputs, .Outputs = AudioOutputs, .Properties = PitchProperties},
@@ -91,7 +117,13 @@ bool CanConnectAudioPins(const std::uint32_t From, const std::uint32_t To)
 	return From == To || (To == PlayPin && (From == BoolPin || From == TriggerPin));
 }
 
-const FGraphSchema AudioSchema{.Domain = AudioGraphDomain, .Version = AudioGraphVersion, .Nodes = AudioNodes, .CanConnect = CanConnectAudioPins};
+// Version 2 added oscillators, envelopes, subgraphs, and delays; version 1 graphs only lack them.
+std::expected<void, FGraphError> UpgradeAudioGraph(FGraph&, const std::uint32_t FromVersion)
+{
+	return FromVersion >= 1 ? std::expected<void, FGraphError>() : std::unexpected(FGraphError{"Audio Graphs start at version 1"});
+}
+
+const FGraphSchema AudioSchema{.Domain = AudioGraphDomain, .Version = AudioGraphVersion, .Nodes = AudioNodes, .CanConnect = CanConnectAudioPins, .Upgrade = UpgradeAudioGraph};
 
 [[nodiscard]] const FGraphValue& Property(const FGraphNode& Node, const std::string_view Key)
 {
@@ -168,6 +200,8 @@ private:
 	}
 
 	[[nodiscard]] FSoundControl Control(const FGraphNode& Node, std::string_view Pin, float Constant);
+	// The Bool or Trigger input a started node listens on, and its delay, checked.
+	void Gate(const FGraphNode& Node, std::string_view Pin, FSoundNodeDesc& Desc);
 	[[nodiscard]] std::uint32_t EmitMapRange(const FGraphNode& Node);
 	[[nodiscard]] std::optional<std::uint32_t> EmitAudio(const FGraphNode& Node, const std::vector<FSoundControl>& Pitches);
 	[[nodiscard]] std::optional<std::uint32_t> EmitInput(const FGraphNode& Node, std::string_view Pin, const std::vector<FSoundControl>& Pitches);
@@ -204,6 +238,21 @@ FSoundControl FAudioGraphCompiler::Control(const FGraphNode& Node, const std::st
 	}
 
 	return {.Slot = Parameters.at(Source.Id)};
+}
+
+void FAudioGraphCompiler::Gate(const FGraphNode& Node, const std::string_view Pin, FSoundNodeDesc& Desc)
+{
+	if (const FGraphLink* const Play = FindSource(Node.Id, Pin))
+	{
+		Reached.insert(Play->From.Node);
+		Desc.Play = Parameters.at(Play->From.Node);
+	}
+
+	Desc.Delay = FloatProperty(Node, "delay");
+	if (!(Desc.Delay >= 0.f && Desc.Delay <= MaximumSoundDelaySeconds))
+	{
+		Fail(Node.Id, "A delay is 0 to 60 seconds");
+	}
 }
 
 std::uint32_t FAudioGraphCompiler::EmitMapRange(const FGraphNode& Node)
@@ -281,12 +330,49 @@ std::optional<std::uint32_t> FAudioGraphCompiler::EmitAudio(const FGraphNode& No
 			Fail(Node.Id, "Variations are fractions from 0 to 1");
 		}
 
-		if (const FGraphLink* const Play = FindSource(Node.Id, "Play"))
+		Gate(Node, "Play", Desc);
+		return Push(std::move(Desc));
+	}
+
+	if (Node.Type == "Oscillator")
+	{
+		const std::string& Name = std::get<std::string>(Property(Node, "waveform"));
+		constexpr std::array Names{std::string_view("Sine"), std::string_view("Saw"), std::string_view("Square"), std::string_view("Triangle"), std::string_view("Noise")};
+		const auto Found = std::ranges::find(Names, std::string_view(Name));
+		const float Frequency = FloatProperty(Node, "frequency");
+		FSoundNodeDesc Desc{.Type = ESoundNodeType::Oscillator, .Control = Control(Node, "Frequency", Frequency), .Pitches = Pitches, .Waveform = static_cast<ESoundWaveform>(Found - Names.begin()), .Duration = FloatProperty(Node, "duration")};
+		if (Found == Names.end())
 		{
-			Reached.insert(Play->From.Node);
-			Desc.Play = Parameters.at(Play->From.Node);
+			Fail(Node.Id, std::format("Waveform '{}' must be Sine, Saw, Square, Triangle, or Noise", Name));
+			Desc.Waveform = ESoundWaveform::Sine;
 		}
 
+		if (!(Frequency >= 0.f && Frequency <= 20000.f) || !(Desc.Duration >= 0.f && Desc.Duration <= MaximumSoundDelaySeconds))
+		{
+			Fail(Node.Id, "Frequency is 0 to 20000 Hz and duration 0 to 60 seconds");
+		}
+
+		Gate(Node, "Play", Desc);
+		return Push(std::move(Desc));
+	}
+
+	if (Node.Type == "Envelope")
+	{
+		const std::array Shape{FloatProperty(Node, "attack"), FloatProperty(Node, "decay"), FloatProperty(Node, "sustain"), FloatProperty(Node, "release")};
+		if (!(Shape[0] >= 0.f && Shape[1] >= 0.f && Shape[3] >= 0.f && Shape[2] >= 0.f && Shape[2] <= 1.f && std::max({Shape[0], Shape[1], Shape[3]}) <= MaximumSoundDelaySeconds))
+		{
+			Fail(Node.Id, "Attack, decay, and release are 0 to 60 seconds, and sustain is a level from 0 to 1");
+		}
+
+		FSoundNodeDesc Desc{.Type = ESoundNodeType::Envelope, .Range = Shape};
+		Gate(Node, "Gate", Desc);
+		const auto Input = EmitInput(Node, "In", Pitches);
+		if (!Input)
+		{
+			return std::nullopt;
+		}
+
+		Desc.Inputs = {*Input};
 		return Push(std::move(Desc));
 	}
 
@@ -445,15 +531,150 @@ void FAudioGraphCompiler::Run()
 }
 }
 
+// Copies every Subgraph node's graph into this one, recursively, so the compiler sees one flat graph. Copied nodes take fresh identities, and
+// Origins maps each back to the Subgraph node a problem inside it is reported on.
+class FAudioSubgraphFlattener
+{
+public:
+	FAudioSubgraphFlattener(const FAudioGraphLoader& InLoad, FAudioGraphCompilation& InResult)
+	    : Load(InLoad)
+	    , Result(InResult)
+	{
+	}
+
+	[[nodiscard]] FGraph Flatten(FGraph Graph, std::vector<std::string>& Path);
+
+	std::vector<FGraphDiagnostic> Errors{};
+	std::map<FGraphNodeId, FGraphNodeId> Origins{};
+
+private:
+	const FAudioGraphLoader& Load;
+	FAudioGraphCompilation& Result;
+};
+
+FGraph FAudioSubgraphFlattener::Flatten(FGraph Graph, std::vector<std::string>& Path)
+{
+	const auto IsInput = [](const FGraphNode& Node)
+	{
+		return Node.Type == "FloatInput" || Node.Type == "BoolInput" || Node.Type == "TriggerInput";
+	};
+
+	const auto Name = [](const FGraphNode& Node)
+	{
+		return std::get<std::string>(Property(Node, "name"));
+	};
+
+	for (std::size_t Index = 0; Index < Graph.Nodes.size();)
+	{
+		if (Graph.Nodes[Index].Type != "Subgraph")
+		{
+			++Index;
+			continue;
+		}
+
+		const FGraphNode Holder = Graph.Nodes[Index];
+		const std::string File = std::get<std::string>(Property(Holder, "graph"));
+		const auto Fail = [&](std::string Message)
+		{
+			Errors.push_back({.Severity = EGraphSeverity::Error, .Node = Origins.contains(Holder.Id) ? Origins.at(Holder.Id) : Holder.Id, .Message = std::move(Message)});
+		};
+
+		std::optional<FGraph> Inner = Load && !File.empty() && !std::ranges::contains(Path, File) && Path.size() < 8 ? Load(File) : std::nullopt;
+		Graph.Nodes.erase(Graph.Nodes.begin() + static_cast<std::ptrdiff_t>(Index));
+		if (!Inner)
+		{
+			Fail(std::format("Subgraph '{}' cannot be loaded, contains this graph, or nests too deep", File));
+			std::erase_if(Graph.Links, [&Holder](const FGraphLink& Link)
+			{
+				return Link.From.Node == Holder.Id || Link.To.Node == Holder.Id;
+			});
+
+			continue;
+		}
+
+		Result.GraphPaths.push_back(File);
+		Path.push_back(File);
+		FGraph Flat = Flatten(std::move(*Inner), Path);
+		Path.pop_back();
+
+		// Inputs of a name this graph already has become that input; the rest are new inputs of this graph.
+		std::map<FGraphNodeId, FGraphNodeId> Renamed;
+		FGraphNodeId Next = NextGraphNodeId(Graph);
+		const FGraphNode* InnerOutput = nullptr;
+		for (const FGraphNode& Node : Flat.Nodes)
+		{
+			if (Node.Type == "Output")
+			{
+				InnerOutput = &Node;
+				continue;
+			}
+
+			const auto Shared = IsInput(Node) ? std::ranges::find_if(Graph.Nodes, [&](const FGraphNode& Outer)
+			{
+				return Outer.Type == Node.Type && IsInput(Outer) && Name(Outer) == Name(Node);
+			})
+			                                  : Graph.Nodes.end();
+			if (Shared != Graph.Nodes.end())
+			{
+				Renamed[Node.Id] = Shared->Id;
+				continue;
+			}
+
+			FGraphNode Copy = Node;
+			Copy.Id = Next;
+			Next.Value += 1;
+			Renamed[Node.Id] = Copy.Id;
+			Origins[Copy.Id] = Origins.contains(Holder.Id) ? Origins.at(Holder.Id) : Holder.Id;
+			Graph.Nodes.push_back(std::move(Copy));
+		}
+
+		std::optional<FGraphPin> Produced;
+		for (const FGraphLink& Link : Flat.Links)
+		{
+			if (InnerOutput && Link.To.Node == InnerOutput->Id)
+			{
+				Produced = FGraphPin{.Node = Renamed.at(Link.From.Node), .Key = Link.From.Key};
+				continue;
+			}
+
+			Graph.Links.push_back({.From = {.Node = Renamed.at(Link.From.Node), .Key = Link.From.Key}, .To = {.Node = Renamed.at(Link.To.Node), .Key = Link.To.Key}});
+		}
+
+		if (!Produced)
+		{
+			Fail(std::format("Subgraph '{}' has no Output with a linked input", File));
+		}
+
+		for (auto Link = Graph.Links.begin(); Link != Graph.Links.end();)
+		{
+			if (Link->From.Node == Holder.Id && Produced)
+			{
+				Link->From = *Produced;
+				++Link;
+			}
+			else if (Link->From.Node == Holder.Id || Link->To.Node == Holder.Id)
+			{
+				Link = Graph.Links.erase(Link);
+			}
+			else
+			{
+				++Link;
+			}
+		}
+	}
+
+	return Graph;
+}
+
 const FGraphSchema& GetAudioGraphSchema()
 {
 	return AudioSchema;
 }
 
-std::expected<FAudioGraphCompilation, std::vector<FGraphDiagnostic>> CompileAudioGraph(const FGraph& Graph, const FAudioWaveResolver& Resolve)
+std::expected<FAudioGraphCompilation, std::vector<FGraphDiagnostic>> CompileAudioGraph(const FGraph& Source, const FAudioWaveResolver& Resolve, const FAudioGraphLoader& Load)
 {
 	std::vector<FGraphDiagnostic> Errors;
-	for (FGraphDiagnostic& Diagnostic : ValidateGraph(Graph, AudioSchema))
+	for (FGraphDiagnostic& Diagnostic : ValidateGraph(Source, AudioSchema))
 	{
 		if (Diagnostic.Severity == EGraphSeverity::Error)
 		{
@@ -467,12 +688,34 @@ std::expected<FAudioGraphCompilation, std::vector<FGraphDiagnostic>> CompileAudi
 	}
 
 	FAudioGraphCompilation Result;
+	FAudioSubgraphFlattener Flattener(Load, Result);
+	std::vector<std::string> Path;
+	const FGraph Graph = Flattener.Flatten(Source, Path);
+	const auto Report = [&Flattener](std::vector<FGraphDiagnostic>& Diagnostics)
+	{
+		for (FGraphDiagnostic& Diagnostic : Diagnostics)
+		{
+			if (const auto Origin = Flattener.Origins.find(Diagnostic.Node); Origin != Flattener.Origins.end())
+			{
+				Diagnostic.Node = Origin->second;
+				Diagnostic.Pin.clear();
+			}
+		}
+	};
+
+	if (!Flattener.Errors.empty())
+	{
+		return std::unexpected(std::move(Flattener.Errors));
+	}
+
 	FAudioGraphCompiler Compiler(Graph, Resolve, Result);
 	if (auto Failures = Compiler.Compile(); !Failures.empty())
 	{
+		Report(Failures);
 		return std::unexpected(std::move(Failures));
 	}
 
+	Report(Result.Diagnostics);
 	return Result;
 }
 }

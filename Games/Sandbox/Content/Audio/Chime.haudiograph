@@ -1,0 +1,24 @@
+{
+  "format": "HertaGraph",
+  "version": 2,
+  "domain": "audio",
+  "domainVersion": 2,
+  "nodes": [
+    {"id": 1, "type": "Oscillator", "position": [-700, 0], "properties": {"waveform": "Sine", "frequency": 1318.5, "duration": 0.8, "delay": 0}},
+    {"id": 2, "type": "Oscillator", "position": [-700, 260], "properties": {"waveform": "Triangle", "frequency": 1975.5, "duration": 0.8, "delay": 0.09}},
+    {"id": 3, "type": "Envelope", "position": [-400, 0], "properties": {"attack": 0.004, "decay": 0.12, "sustain": 0.25, "release": 0.5, "delay": 0}},
+    {"id": 4, "type": "Envelope", "position": [-400, 260], "properties": {"attack": 0.004, "decay": 0.12, "sustain": 0.2, "release": 0.45, "delay": 0.09}},
+    {"id": 5, "type": "Mixer", "position": [-100, 130], "properties": {}},
+    {"id": 6, "type": "Gain", "position": [150, 130], "properties": {"gain": 0.18}},
+    {"id": 7, "type": "Output", "position": [400, 130], "properties": {}}
+  ],
+  "links": [
+    {"from": [1, "Out"], "to": [3, "In"]},
+    {"from": [2, "Out"], "to": [4, "In"]},
+    {"from": [3, "Out"], "to": [5, "In1"]},
+    {"from": [4, "Out"], "to": [5, "In2"]},
+    {"from": [5, "Out"], "to": [6, "In"]},
+    {"from": [6, "Out"], "to": [7, "In"]}
+  ],
+  "comments": []
+}

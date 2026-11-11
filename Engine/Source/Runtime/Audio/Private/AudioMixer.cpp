@@ -21,6 +21,48 @@ constexpr float StealFadeSeconds = 0.01f;
 	return Control.Slot == NoSoundControl ? Control.Constant : Voice.Controls[Control.Slot];
 }
 
+enum class EGate : std::uint8_t
+{
+	None,
+	Open,
+	Close,
+};
+
+// What a node's Play input asks of it this block: no Play opens once with the sound, a Trigger opens each time it fires, and a Bool opens when
+// it turns on and closes when it turns off.
+[[nodiscard]] EGate ReadGate(const FVoice& Voice, const FSoundNodeDesc& Node, FPlayerState& Player)
+{
+	if (Node.Play == NoSoundControl)
+	{
+		const bool bFirst = !Player.bStarted;
+		Player.bStarted = true;
+		return bFirst ? EGate::Open : EGate::None;
+	}
+
+	if (Voice.Sound->Graph.Parameters[Node.Play].Type == ESoundParameterType::Trigger)
+	{
+		return Voice.Fired[Node.Play] ? EGate::Open : EGate::None;
+	}
+
+	const bool bOn = Voice.Controls[Node.Play] != 0.f;
+	const EGate Gate = bOn && !Player.bWasOn ? EGate::Open : !bOn && Player.bWasOn ? EGate::Close : EGate::None;
+	Player.bWasOn = bOn;
+	return Gate;
+}
+
+[[nodiscard]] std::uint32_t DelayFrames(const FSoundNodeDesc& Node, const std::uint32_t SampleRate)
+{
+	return static_cast<std::uint32_t>(std::lround(static_cast<double>(Node.Delay) * SampleRate));
+}
+
+// Frames the block starts with before a delayed start sounds, counting the delay down.
+[[nodiscard]] std::uint32_t TakeDelay(FPlayerState& Player)
+{
+	const std::uint32_t Skipped = std::min(Player.DelayFrames, AudioBlockFrames);
+	Player.DelayFrames -= Skipped;
+	return Skipped;
+}
+
 // Deterministic per voice, so null-device renders repeat exactly.
 [[nodiscard]] float NextRandom(std::uint32_t& State)
 {
@@ -391,6 +433,7 @@ void FMixer::StartPlayer(FVoice& Voice, const FSoundNodeDesc& Node, const std::s
 	Player.Gain = 1.f + Node.GainVariation * NextRandom(Voice.Random);
 	Player.PitchVariation = 1.f + Node.PitchVariation * NextRandom(Voice.Random);
 	Player.bPlaying = true;
+	Player.DelayFrames = DelayFrames(Node, SampleRate);
 
 	if (Player.Wave->Stream)
 	{
@@ -422,38 +465,24 @@ void FMixer::StartPlayer(FVoice& Voice, const FSoundNodeDesc& Node, const std::s
 void FMixer::RenderPlayer(FVoice& Voice, const FSoundNodeDesc& Node, const std::size_t NodeIndex, float* const Output, const bool bVirtual)
 {
 	FPlayerState& Player = Voice.Nodes[NodeIndex].Player;
-	if (Node.Play == NoSoundControl)
+	const EGate Gate = ReadGate(Voice, Node, Player);
+	if (Gate == EGate::Open)
 	{
-		if (!Player.bStarted)
-		{
-			StartPlayer(Voice, Node, NodeIndex);
-			Player.bStarted = true;
-		}
+		StartPlayer(Voice, Node, NodeIndex);
 	}
-	else if (Voice.Sound->Graph.Parameters[Node.Play].Type == ESoundParameterType::Trigger)
+	else if (Gate == EGate::Close)
 	{
-		if (Voice.Fired[Node.Play])
-		{
-			StartPlayer(Voice, Node, NodeIndex);
-		}
-	}
-	else
-	{
-		const bool bOn = Voice.Controls[Node.Play] != 0.f;
-		if (bOn && !Player.bWasOn)
-		{
-			StartPlayer(Voice, Node, NodeIndex);
-		}
-		else if (!bOn && Player.bWasOn)
-		{
-			StopPlayer(Player);
-		}
-
-		Player.bWasOn = bOn;
+		StopPlayer(Player);
 	}
 
 	std::fill_n(Output, AudioBlockFrames * 2, 0.f);
 	if (!Player.bPlaying)
+	{
+		return;
+	}
+
+	const std::uint32_t Begin = TakeDelay(Player);
+	if (Begin == AudioBlockFrames)
 	{
 		return;
 	}
@@ -483,7 +512,7 @@ void FMixer::RenderPlayer(FVoice& Voice, const FSoundNodeDesc& Node, const std::
 		const std::uint64_t Written = Slot.WriteFrame.load(std::memory_order_acquire);
 		const std::int16_t* const Ring = Slot.Ring.get();
 		std::uint64_t Starved = 0;
-		for (std::uint32_t Frame = 0; Frame < AudioBlockFrames; ++Frame)
+		for (std::uint32_t Frame = Begin; Frame < AudioBlockFrames; ++Frame)
 		{
 			const auto Index = static_cast<std::uint64_t>(Player.Position);
 			const bool bLastFrame = !bLoop && Index + 1 >= Wave.Frames;
@@ -526,7 +555,7 @@ void FMixer::RenderPlayer(FVoice& Voice, const FSoundNodeDesc& Node, const std::
 
 	if (bVirtual)
 	{
-		Player.Position += Step * AudioBlockFrames;
+		Player.Position += Step * (AudioBlockFrames - Begin);
 		if (Player.Position >= Frames)
 		{
 			if (bLoop)
@@ -543,7 +572,7 @@ void FMixer::RenderPlayer(FVoice& Voice, const FSoundNodeDesc& Node, const std::
 	}
 
 	const std::int16_t* const Samples = Wave.Samples;
-	for (std::uint32_t Frame = 0; Frame < AudioBlockFrames; ++Frame)
+	for (std::uint32_t Frame = Begin; Frame < AudioBlockFrames; ++Frame)
 	{
 		const auto Index = static_cast<std::uint64_t>(Player.Position);
 		const auto Fraction = static_cast<float>(Player.Position - static_cast<double>(Index));
@@ -566,6 +595,137 @@ void FMixer::RenderPlayer(FVoice& Voice, const FSoundNodeDesc& Node, const std::
 			}
 
 			Player.Position = std::fmod(Player.Position, Frames);
+		}
+	}
+}
+
+void FMixer::RenderOscillator(FVoice& Voice, const FSoundNodeDesc& Node, const std::size_t NodeIndex, float* const Output, const bool bVirtual)
+{
+	FPlayerState& Player = Voice.Nodes[NodeIndex].Player;
+	const EGate Gate = ReadGate(Voice, Node, Player);
+	if (Gate == EGate::Open)
+	{
+		Player.bPlaying = true;
+		Player.Position = 0.;
+		Player.DelayFrames = DelayFrames(Node, SampleRate);
+		Player.Remaining = Node.Duration > 0.f ? std::llround(static_cast<double>(Node.Duration) * SampleRate) : -1;
+	}
+	else if (Gate == EGate::Close)
+	{
+		Player.bPlaying = false;
+	}
+
+	std::fill_n(Output, AudioBlockFrames * 2, 0.f);
+	if (!Player.bPlaying)
+	{
+		return;
+	}
+
+	float Pitch = Voice.Pitch;
+	for (const FSoundControl& Control : Node.Pitches)
+	{
+		Pitch *= ReadControl(Voice, Control);
+	}
+
+	// Phase runs from 0 to 1 per cycle, so every waveform reads the same clock.
+	const double Step = std::clamp(static_cast<double>(ReadControl(Voice, Node.Control)) * Pitch, 0., SampleRate * 0.45) / SampleRate;
+	for (std::uint32_t Frame = TakeDelay(Player); Frame < AudioBlockFrames; ++Frame)
+	{
+		if (Player.Remaining == 0)
+		{
+			Player.bPlaying = false;
+			break;
+		}
+
+		const auto Phase = static_cast<float>(Player.Position);
+		float Value = 0.f;
+		switch (Node.Waveform)
+		{
+			case ESoundWaveform::Sine:
+				Value = std::sin(Phase * 2.f * std::numbers::pi_v<float>);
+				break;
+			case ESoundWaveform::Saw:
+				Value = Phase * 2.f - 1.f;
+				break;
+			case ESoundWaveform::Square:
+				Value = Phase < 0.5f ? 1.f : -1.f;
+				break;
+			case ESoundWaveform::Triangle:
+				Value = 1.f - 4.f * std::abs(Phase - 0.5f);
+				break;
+			case ESoundWaveform::Noise:
+				Value = NextRandom(Voice.Random);
+				break;
+		}
+
+		if (!bVirtual)
+		{
+			Output[Frame * 2] = Value;
+			Output[Frame * 2 + 1] = Value;
+		}
+
+		Player.Position += Step;
+		Player.Position -= std::floor(Player.Position);
+		Player.Remaining -= Player.Remaining > 0 ? 1 : 0;
+	}
+}
+
+void FMixer::RenderEnvelope(FVoice& Voice, const FSoundNodeDesc& Node, const std::size_t NodeIndex, const float* const Input, float* const Output, const bool bVirtual)
+{
+	FNodeState& State = Voice.Nodes[NodeIndex];
+	const EGate Gate = ReadGate(Voice, Node, State.Player);
+	if (Gate == EGate::Open)
+	{
+		State.Stage = EEnvelopeStage::Attack;
+		State.Player.DelayFrames = DelayFrames(Node, SampleRate);
+		State.bHeld = Node.Play != NoSoundControl && Voice.Sound->Graph.Parameters[Node.Play].Type == ESoundParameterType::Bool;
+	}
+	else if (Gate == EGate::Close && State.Stage != EEnvelopeStage::Idle && State.Stage != EEnvelopeStage::Done)
+	{
+		State.bHeld = false;
+		if (State.Stage == EEnvelopeStage::Sustain || State.Stage == EEnvelopeStage::Attack || State.Stage == EEnvelopeStage::Decay)
+		{
+			State.Stage = EEnvelopeStage::Release;
+			State.ReleaseStep = 0.f;
+		}
+	}
+
+	const auto Rate = [this](const float Seconds)
+	{
+		return Seconds > 0.f ? 1.f / (Seconds * static_cast<float>(SampleRate)) : 1.f;
+	};
+
+	const float Sustain = Node.Range[2];
+	const std::uint32_t Begin = TakeDelay(State.Player);
+	for (std::uint32_t Frame = 0; Frame < AudioBlockFrames; ++Frame)
+	{
+		if (Frame >= Begin)
+		{
+			switch (State.Stage)
+			{
+				case EEnvelopeStage::Attack:
+					State.Level = std::min(State.Level + Rate(Node.Range[0]), 1.f);
+					State.Stage = State.Level >= 1.f ? EEnvelopeStage::Decay : State.Stage;
+					break;
+				case EEnvelopeStage::Decay:
+					State.Level = std::max(State.Level - (1.f - Sustain) * Rate(Node.Range[1]), Sustain);
+					State.Stage = State.Level <= Sustain ? (State.bHeld ? EEnvelopeStage::Sustain : EEnvelopeStage::Release) : State.Stage;
+					break;
+				case EEnvelopeStage::Release:
+					// Linear from wherever the release began, so it takes its full time from any level.
+					State.ReleaseStep = State.ReleaseStep > 0.f ? State.ReleaseStep : std::max(State.Level, 1.e-6f) * Rate(Node.Range[3]);
+					State.Level = std::max(State.Level - State.ReleaseStep, 0.f);
+					State.Stage = State.Level <= 0.f ? EEnvelopeStage::Done : State.Stage;
+					break;
+				default:
+					break;
+			}
+		}
+
+		if (!bVirtual)
+		{
+			Output[Frame * 2] = Input[Frame * 2] * State.Level;
+			Output[Frame * 2 + 1] = Input[Frame * 2 + 1] * State.Level;
 		}
 	}
 }
@@ -614,6 +774,13 @@ void FMixer::RenderVoice(FVoice& Voice)
 			case ESoundNodeType::WavePlayer:
 				RenderPlayer(Voice, Node, Index, Output, bVirtual);
 				bIdle = bIdle && !State.Player.bPlaying;
+				break;
+			case ESoundNodeType::Oscillator:
+				RenderOscillator(Voice, Node, Index, Output, bVirtual);
+				bIdle = bIdle && !State.Player.bPlaying;
+				break;
+			case ESoundNodeType::Envelope:
+				RenderEnvelope(Voice, Node, Index, Input, Output, bVirtual);
 				break;
 			case ESoundNodeType::MapRange:
 			{
@@ -693,7 +860,10 @@ void FMixer::RenderVoice(FVoice& Voice)
 	Voice.Fired.fill(false);
 	Voice.bFirstBlock = false;
 
-	bool bEnded = bIdle && (!IsAddressedVoice(Voice.Id) || !Sound.bParameterDriven);
+	// A sound that ends in an envelope also ends when that envelope has released, however long its sources would play.
+	const FSoundNodeDesc& Last = Graph.Nodes.back();
+	const bool bReleased = !Last.Inputs.empty() && Graph.Nodes[Last.Inputs[0]].Type == ESoundNodeType::Envelope && Voice.Nodes[Last.Inputs[0]].Stage == EEnvelopeStage::Done;
+	bool bEnded = (bIdle || bReleased) && (!IsAddressedVoice(Voice.Id) || !Sound.bParameterDriven);
 	if (!bVirtual && Final)
 	{
 		const float DeltaLeft = (TargetLeft - Voice.Left) / static_cast<float>(AudioBlockFrames);

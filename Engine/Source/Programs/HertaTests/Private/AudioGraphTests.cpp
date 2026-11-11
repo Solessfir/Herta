@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 using namespace Herta;
 
@@ -210,4 +211,75 @@ TEST_CASE("Sounds and Audio Graphs cook from content with their playback setting
 
 	Tests::WriteText(Content / "Audio/HitB.wav.hmeta", "Format = HertaAssetMetadata\nVersion = 1\nId = 00000000-0000-4000-8000-000000000a02\nImporter = Sound\nSetting.Loudness = 3\n");
 	CHECK_FALSE(CookAsset({.ContentRoot = Content, .DerivedDataRoot = Scratch.GetPath() / "DerivedDataCache", .SourcePath = "Audio/HitB.wav", .TargetPlatform = "TestPlatform"}));
+}
+
+TEST_CASE("Audio Graphs compile oscillators, envelopes, delays, and subgraphs that share inputs by name")
+{
+	// The subgraph: a gated square blip.
+	FGraphBuilder Inner;
+	const FGraphNodeId InnerHit = Inner.Add("TriggerInput", {{.Key = "name", .Value = std::string("Hit")}});
+	const FGraphNodeId Detune = Inner.Add("FloatInput", {{.Key = "name", .Value = std::string("Detune")}, {.Key = "default", .Value = 1.f}});
+	const FGraphNodeId Square = Inner.Add("Oscillator", {{.Key = "waveform", .Value = std::string("Square")}, {.Key = "frequency", .Value = 880.f}, {.Key = "delay", .Value = 0.05f}});
+	const FGraphNodeId Shape = Inner.Add("Envelope", {{.Key = "release", .Value = 0.5f}});
+	const FGraphNodeId InnerOutput = Inner.Add("Output");
+	Inner.Link(InnerHit, "Fired", Shape, "Gate");
+	Inner.Link(Detune, "Value", Square, "Frequency");
+	Inner.Link(Square, "Out", Shape, "In");
+	Inner.Link(Shape, "Out", InnerOutput, "In");
+
+	// The outer graph shares Hit and gains the subgraph's Detune.
+	FGraphBuilder Outer;
+	const FGraphNodeId Hit = Outer.Add("TriggerInput", {{.Key = "name", .Value = std::string("Hit")}});
+	const FGraphNodeId Blip = Outer.Add("Subgraph", {{.Key = "graph", .Value = std::string("Audio/Blip.haudiograph")}});
+	const FGraphNodeId Gain = Outer.Add("Gain", {{.Key = "gain", .Value = 0.5f}});
+	const FGraphNodeId Output = Outer.Add("Output");
+	Outer.Link(Blip, "Out", Gain, "In");
+	Outer.Link(Gain, "Out", Output, "In");
+	(void)Hit;
+
+	const auto Load = [&Inner](const std::string_view Path) -> std::optional<FGraph>
+	{
+		return Path == "Audio/Blip.haudiograph" ? std::optional(Inner.Graph) : std::nullopt;
+	};
+
+	const auto Compiled = CompileAudioGraph(Outer.Graph, ResolveTestWave, Load);
+	REQUIRE_MESSAGE(Compiled, (Compiled ? std::string() : Compiled.error().front().Message));
+	const FSoundGraphDesc& Desc = Compiled->Graph;
+	REQUIRE(Desc.Parameters.size() == 2);
+	CHECK(Desc.Parameters[0].Name == "Hit");
+	CHECK(Desc.Parameters[1].Name == "Detune");
+	CHECK(Compiled->GraphPaths == std::vector<std::string>{"Audio/Blip.haudiograph"});
+	const auto Oscillator = std::ranges::find(Desc.Nodes, ESoundNodeType::Oscillator, &FSoundNodeDesc::Type);
+	const auto Envelope = std::ranges::find(Desc.Nodes, ESoundNodeType::Envelope, &FSoundNodeDesc::Type);
+	REQUIRE(Oscillator != Desc.Nodes.end());
+	REQUIRE(Envelope != Desc.Nodes.end());
+	CHECK(Oscillator->Waveform == ESoundWaveform::Square);
+	CHECK(Oscillator->Delay == doctest::Approx(0.05f));
+	CHECK(Oscillator->Control.Slot == 1);
+	CHECK(Envelope->Play == 0);
+	CHECK(Envelope->Range[3] == doctest::Approx(0.5f));
+	CHECK(ValidateSoundGraph(Desc));
+
+	// A subgraph that cannot load, or that copies itself in, is reported on the Subgraph node.
+	const auto Missing = CompileAudioGraph(Outer.Graph, ResolveTestWave);
+	REQUIRE_FALSE(Missing);
+	CHECK(Missing.error().front().Node == Blip);
+	FGraphBuilder Loop = Outer;
+	const auto Self = [&Loop](const std::string_view) -> std::optional<FGraph>
+	{
+		return Loop.Graph;
+	};
+
+	const auto Recursive = CompileAudioGraph(Loop.Graph, ResolveTestWave, Self);
+	REQUIRE_FALSE(Recursive);
+	CHECK(Recursive.error().front().Node == Blip);
+
+	// A version 1 graph upgrades on load.
+	std::string Text = *SerializeGraph(MakeImpactGraph(), GetAudioGraphSchema());
+	const std::string Current = std::format("\"domainVersion\": {}", AudioGraphVersion);
+	REQUIRE(Text.find(Current) != std::string::npos);
+	Text.replace(Text.find(Current), Current.size(), "\"domainVersion\": 1");
+	const auto Upgraded = DeserializeGraph(Text, GetAudioGraphSchema());
+	REQUIRE_MESSAGE(Upgraded, (Upgraded ? std::string() : Upgraded.error().Message));
+	CHECK(Upgraded->DomainVersion == AudioGraphVersion);
 }

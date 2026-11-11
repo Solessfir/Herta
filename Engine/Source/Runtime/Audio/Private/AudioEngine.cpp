@@ -148,7 +148,7 @@ FMixerSound* FAudioEngine::FImplementation::Resolve(const FAssetId& Id)
 	for (std::size_t Index = 0; Index < Sound->Graph.Nodes.size(); ++Index)
 	{
 		const FSoundNodeDesc& Node = Sound->Graph.Nodes[Index];
-		Sound->bParameterDriven = Sound->bParameterDriven || (Node.Type == ESoundNodeType::WavePlayer && Node.Play != NoSoundControl);
+		Sound->bParameterDriven = Sound->bParameterDriven || Node.Play != NoSoundControl;
 		for (const FAssetId& Wave : Node.Waves)
 		{
 			const auto Found = Sounds.find(Wave);

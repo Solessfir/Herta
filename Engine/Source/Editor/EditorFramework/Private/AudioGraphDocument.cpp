@@ -53,9 +53,15 @@ FAudioWaveResolver& GetResolver()
 	return Resolver;
 }
 
+FAudioGraphLoader& GetLoader()
+{
+	static FAudioGraphLoader Loader;
+	return Loader;
+}
+
 std::vector<FGraphDiagnostic> CompileAudioDocument(const FGraph& Graph)
 {
-	const auto Compiled = CompileAudioGraph(Graph, GetResolver());
+	const auto Compiled = CompileAudioGraph(Graph, GetResolver(), GetLoader());
 	return Compiled ? Compiled->Diagnostics : Compiled.error();
 }
 
@@ -111,9 +117,10 @@ const FGraphDocumentDomain& GetAudioGraphDocumentDomain()
 	return AudioDocument;
 }
 
-void SetAudioGraphDocumentResolver(FAudioWaveResolver Resolver)
+void SetAudioGraphDocumentResolver(FAudioWaveResolver Resolver, FAudioGraphLoader Loader)
 {
 	GetResolver() = std::move(Resolver);
+	GetLoader() = std::move(Loader);
 }
 
 FGraph MakeDefaultAudioGraph()

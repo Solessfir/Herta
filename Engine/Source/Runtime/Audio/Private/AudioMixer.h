@@ -179,6 +179,20 @@ struct FPlayerState
 	bool bWasOn = false;
 	bool bStarted = false;
 	std::int32_t Stream = -1;
+	// Frames to stay silent after a start, so a start lands on its exact sample inside a block.
+	std::uint32_t DelayFrames = 0;
+	// Oscillator frames left, or negative to play until stopped.
+	std::int64_t Remaining = -1;
+};
+
+enum class EEnvelopeStage : std::uint8_t
+{
+	Idle,
+	Attack,
+	Decay,
+	Sustain,
+	Release,
+	Done,
 };
 
 struct FNodeState
@@ -187,6 +201,11 @@ struct FNodeState
 	std::array<float, 2> Ic1{};
 	std::array<float, 2> Ic2{};
 	float LastGain = -1.f;
+	EEnvelopeStage Stage = EEnvelopeStage::Idle;
+	float Level = 0.f;
+	float ReleaseStep = 0.f;
+	// A Bool gate holds the sustain; a Trigger or the sound's start runs through to the release.
+	bool bHeld = false;
 };
 
 struct FVoice
@@ -252,6 +271,8 @@ private:
 	void End(FVoice& Voice);
 	void RenderVoice(FVoice& Voice);
 	void RenderPlayer(FVoice& Voice, const FSoundNodeDesc& Node, std::size_t NodeIndex, float* Output, bool bVirtual);
+	void RenderOscillator(FVoice& Voice, const FSoundNodeDesc& Node, std::size_t NodeIndex, float* Output, bool bVirtual);
+	void RenderEnvelope(FVoice& Voice, const FSoundNodeDesc& Node, std::size_t NodeIndex, const float* Input, float* Output, bool bVirtual);
 	void StartPlayer(FVoice& Voice, const FSoundNodeDesc& Node, std::size_t NodeIndex);
 	void StopPlayer(FPlayerState& Player);
 	[[nodiscard]] float EstimateAudibility(const FMixerSound& Sound, float Volume, bool bSpatial, const FVector3& Position, float MinimumDistance, float MaximumDistance) const;

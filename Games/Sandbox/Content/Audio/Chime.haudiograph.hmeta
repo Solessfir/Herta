@@ -1,0 +1,6 @@
+Format = HertaAssetMetadata
+Version = 1
+Id = 4a0d006a-5a17-4c0e-9d2b-0000051a006a
+Importer = AudioGraph
+Setting.Bus = Interface
+Setting.MaximumInstances = 2

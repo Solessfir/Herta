@@ -152,7 +152,7 @@ std::expected<void, FAssetError> ValidateSoundGraph(const FSoundGraphDesc& Graph
 	{
 		const FSoundNodeDesc& Node = Graph.Nodes[Index];
 		const bool bLast = Index + 1 == Graph.Nodes.size();
-		if ((Node.Type == ESoundNodeType::Output) != bLast || Node.Type > ESoundNodeType::Output)
+		if ((Node.Type == ESoundNodeType::Output) != bLast || Node.Type > ESoundNodeType::Envelope)
 		{
 			return Invalid("A sound graph ends with its only Output node");
 		}
@@ -170,7 +170,7 @@ std::expected<void, FAssetError> ValidateSoundGraph(const FSoundGraphDesc& Graph
 			return Error("audio inputs must name earlier nodes");
 		}
 
-		const std::size_t Expected = Node.Type == ESoundNodeType::WavePlayer || Node.Type == ESoundNodeType::MapRange ? 0 : 1;
+		const std::size_t Expected = Node.Type == ESoundNodeType::WavePlayer || Node.Type == ESoundNodeType::MapRange || Node.Type == ESoundNodeType::Oscillator ? 0 : 1;
 		if (Node.Type == ESoundNodeType::Mixer ? Node.Inputs.empty() : Node.Inputs.size() != Expected)
 		{
 			return Error("wrong number of audio inputs");
@@ -181,10 +181,26 @@ std::expected<void, FAssetError> ValidateSoundGraph(const FSoundGraphDesc& Graph
 			return Error("its control reads a slot that is not set yet");
 		}
 
+		const bool bGated = Node.Type == ESoundNodeType::WavePlayer || Node.Type == ESoundNodeType::Oscillator || Node.Type == ESoundNodeType::Envelope;
+		const bool bPlayValid = Node.Play == NoSoundControl || (Node.Play < Graph.Parameters.size() && Graph.Parameters[Node.Play].Type != ESoundParameterType::Float);
+		if (!(Node.Delay >= 0.f && Node.Delay <= MaximumSoundDelaySeconds && Node.Duration >= 0.f && Node.Duration <= MaximumSoundDelaySeconds) || Node.Waveform > ESoundWaveform::Noise || (!bGated && (Node.Delay != 0.f || Node.Play != NoSoundControl)) || (bGated && !bPlayValid))
+		{
+			return Error("delays and durations are 0 to 60 seconds, only players, oscillators, and envelopes start late, and they start on a Bool or Trigger parameter");
+		}
+
+		if (Node.Type == ESoundNodeType::Oscillator && (Node.Pitches.size() > MaximumNodePitches || !std::ranges::all_of(Node.Pitches, IsReadable)))
+		{
+			return Error("an oscillator's pitches read set slots");
+		}
+
+		if (Node.Type == ESoundNodeType::Envelope && !(Node.Range[0] >= 0.f && Node.Range[1] >= 0.f && Node.Range[2] >= 0.f && Node.Range[2] <= 1.f && Node.Range[3] >= 0.f && Node.Range[0] <= MaximumSoundDelaySeconds && Node.Range[1] <= MaximumSoundDelaySeconds && Node.Range[3] <= MaximumSoundDelaySeconds))
+		{
+			return Error("an envelope's attack, decay, and release are 0 to 60 seconds and its sustain is a level from 0 to 1");
+		}
+
 		if (Node.Type == ESoundNodeType::WavePlayer)
 		{
 			Waves += Node.Waves.size();
-			const bool bPlayValid = Node.Play == NoSoundControl || (Node.Play < Graph.Parameters.size() && Graph.Parameters[Node.Play].Type != ESoundParameterType::Float);
 			if (Node.Waves.empty() || Waves > MaximumSoundGraphWaves || !std::ranges::all_of(Node.Waves, &FAssetId::IsValid) || !bPlayValid)
 			{
 				return Error("a wave player needs waves and plays on a Bool or Trigger parameter");
@@ -286,7 +302,15 @@ FCookedSound ReadCookedSound(FBinaryReader& Reader)
 	return Sound;
 }
 
-void WriteCookedSoundGraph(FBinaryWriter& Writer, const FCookedSoundGraph& Graph)
+bool NeedsSynthesisFormat(const FSoundGraphDesc& Graph)
+{
+	return std::ranges::any_of(Graph.Nodes, [](const FSoundNodeDesc& Node)
+	{
+		return Node.Type > ESoundNodeType::Output || Node.Delay != 0.f || Node.Duration != 0.f || Node.Waveform != ESoundWaveform::Sine;
+	});
+}
+
+void WriteCookedSoundGraph(FBinaryWriter& Writer, const FCookedSoundGraph& Graph, const std::uint32_t Version)
 {
 	WritePlayback(Writer, Graph.Playback);
 	Writer.Write(static_cast<std::uint32_t>(Graph.Graph.Parameters.size()));
@@ -331,12 +355,18 @@ void WriteCookedSoundGraph(FBinaryWriter& Writer, const FCookedSoundGraph& Graph
 		}
 
 		Writer.Write(Node.Slot);
+		if (Version >= 9)
+		{
+			Writer.Write(static_cast<std::uint8_t>(Node.Waveform));
+			Writer.WriteFloat(Node.Delay);
+			Writer.WriteFloat(Node.Duration);
+		}
 	}
 
 	Writer.Write(Graph.Graph.ControlSlots);
 }
 
-FCookedSoundGraph ReadCookedSoundGraph(FBinaryReader& Reader)
+FCookedSoundGraph ReadCookedSoundGraph(FBinaryReader& Reader, const std::uint32_t Version)
 {
 	FCookedSoundGraph Graph;
 	Graph.Playback = ReadPlayback(Reader);
@@ -382,6 +412,12 @@ FCookedSoundGraph ReadCookedSoundGraph(FBinaryReader& Reader)
 		}
 
 		Node.Slot = Reader.Read<std::uint32_t>();
+		if (Version >= 9)
+		{
+			Node.Waveform = static_cast<ESoundWaveform>(Reader.Read<std::uint8_t>());
+			Node.Delay = Reader.ReadFloat();
+			Node.Duration = Reader.ReadFloat();
+		}
 	}
 
 	Graph.Graph.ControlSlots = Reader.Read<std::uint32_t>();

@@ -24,7 +24,10 @@ An Audio Graph builds one sound from nodes:
 
 | Node | Does |
 |---|---|
-| Wave Player | Plays one of its waves, picked at random each start, with optional pitch and gain variation and looping. It starts with the sound, or on its Play pin: each fire of a Trigger input, or while a Bool input is on. |
+| Wave Player | Plays one of its waves, picked at random each start, with optional pitch and gain variation and looping. It starts with the sound, or on its Play pin: each fire of a Trigger input, or while a Bool input is on. A delay holds each start back, to the exact sample. |
+| Oscillator | Plays a sine, saw, square, triangle, or noise at a constant or controlled frequency, at full scale. It starts like a wave player, with a delay, and plays for its duration, or with none until its Bool turns off or the sound stops. Pitch nodes carry it too. |
+| Envelope | Shapes a sound by attack, decay, sustain, and release. Its Gate opens like a wave player's Play: a Bool holds the sustain while it is on, and a Trigger or the sound's start runs through decay into the release. A sound whose Output is fed by an envelope ends when that envelope has released, so an endless oscillator can sound a one-shot. |
+| Subgraph | Plays another Audio Graph, named by its content path, in place. Its nodes are copied in when this graph compiles, its inputs join this graph's inputs of the same name, and changing it recooks this graph. Problems inside it are reported on the Subgraph node. |
 | Mixer | Sums up to four sounds. |
 | Gain | Scales a sound by a constant or a Float control, ramping across each block. |
 | Pitch | Multiplies the playback rate of every wave player that feeds it. It compiles into those players rather than running as a node. |
@@ -37,7 +40,7 @@ Wave paths are relative to the graph's content root, such as `Audio/Impact_1.wav
 
 `HertaEditorCmd audio.compile <graph.haudiograph>` compiles a graph headless and lists its inputs and waves or what stops it compiling.
 
-Procedural synthesis, envelopes, sample-accurate scheduling, and subgraphs wait for Milestone 15.
+Delays are kept to the sample, not the 256-frame mixing block: the mixer counts each start's delay down inside the block it lands in. A play request itself starts at the next block. Cooked format version 9 stores oscillators, envelopes, and delays; graphs cooked at versions 7 and 8 still load. Audio Graph version 2 added these nodes, and version 1 graphs upgrade on load. The Sandbox's Objective graph plays the `Chime` subgraph, two delayed oscillators through envelopes, after the finish sound.
 
 ## Levels
 

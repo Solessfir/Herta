@@ -42,7 +42,7 @@ inline constexpr std::size_t MaximumBlendTreeNodes = 64;
 inline constexpr std::size_t MaximumPoseOperations = 32;
 inline constexpr std::size_t MaximumSubMachines = 32;
 inline constexpr std::size_t MaximumSubMachineDepth = 4;
-// Cooks from the format version before blend trees still load; their state machines read without them.
+// Cooks from the format versions before blend trees and synthesis still load, without them.
 inline constexpr std::uint32_t OldestReadableCookedFormatVersion = 7;
 inline constexpr std::uint32_t NoIndex = 0xffffffffu;
 
@@ -867,7 +867,8 @@ std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& 
 std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FCookedAsset& Asset, const std::uint32_t Version)
 {
 	const auto* Older = std::get_if<FCookedModel>(&Asset);
-	if (Version < OldestReadableCookedFormatVersion || Version > CookedAssetFormatVersion || (Version < 8 && Older && Older->StateMachine && NeedsBlendTreeFormat(*Older->StateMachine)))
+	const auto* OlderGraph = std::get_if<FCookedSoundGraph>(&Asset);
+	if (Version < OldestReadableCookedFormatVersion || Version > CookedAssetFormatVersion || (Version < 8 && Older && Older->StateMachine && NeedsBlendTreeFormat(*Older->StateMachine)) || (Version < 9 && OlderGraph && NeedsSynthesisFormat(OlderGraph->Graph)))
 	{
 		return std::unexpected(FAssetError{std::format("Cannot write this asset as cooked format version {}", Version)});
 	}
@@ -926,7 +927,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 		}
 
 		Writer.Write(SoundGraphTag);
-		WriteCookedSoundGraph(Writer, *Graph);
+		WriteCookedSoundGraph(Writer, *Graph, Version);
 		return Writer.TakeBytes();
 	}
 
@@ -1091,7 +1092,7 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 
 	if (Tag == SoundGraphTag)
 	{
-		FCookedSoundGraph Graph = ReadCookedSoundGraph(Reader);
+		FCookedSoundGraph Graph = ReadCookedSoundGraph(Reader, Version);
 		if (!Reader.IsValid() || !Reader.IsAtEnd())
 		{
 			return Invalid("Truncated or oversized cooked sound graph");

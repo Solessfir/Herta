@@ -166,7 +166,26 @@ std::expected<FCookedSoundGraph, FAssetError> CookSoundGraph(const std::filesyst
 		return Metadata->Id;
 	};
 
-	auto Compiled = CompileAudioGraph(*Graph, Resolve);
+	// Subgraphs are other graph files in the same content, and changing one recooks every graph that copies it in.
+	const auto Load = [&ContentRoot, &Dependencies](const std::string_view Path) -> std::optional<FGraph>
+	{
+		if (!IsValidAssetPath(Path) || !Path.ends_with(AudioGraphExtension))
+		{
+			return std::nullopt;
+		}
+
+		auto Text = ReadWholeFile(ContentRoot / Utf8ToPath(Path), 64 * 1024 * 1024);
+		if (!Text || !*Text)
+		{
+			return std::nullopt;
+		}
+
+		Dependencies.push_back({.Path = std::string(Path), .ContentHash = HashBytes(**Text)});
+		auto Loaded = DeserializeGraph(std::string_view(reinterpret_cast<const char*>((*Text)->data()), (*Text)->size()), GetAudioGraphSchema());
+		return Loaded ? std::optional(std::move(*Loaded)) : std::nullopt;
+	};
+
+	auto Compiled = CompileAudioGraph(*Graph, Resolve, Load);
 	if (!Compiled)
 	{
 		std::string Message = std::format("{} does not compile:", SourcePath);

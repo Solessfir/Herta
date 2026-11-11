@@ -111,6 +111,21 @@ enum class ESoundNodeType : std::uint8_t
 	// Remaps a control into Slot: clamps Input to the input range and maps it onto the output range.
 	MapRange,
 	Output,
+	// Plays a waveform at Control hertz. It starts like a wave player and plays for Duration seconds, or, with no duration, until its Bool turns
+	// false or the sound stops.
+	Oscillator,
+	// Shapes its input by the attack, decay, sustain, release envelope in Range: seconds, seconds, a level from 0 to 1, and seconds. Its Play
+	// opens the gate: a Bool holds the sustain while it is on, and a Trigger or the sound's start runs straight through to the release.
+	Envelope,
+};
+
+enum class ESoundWaveform : std::uint8_t
+{
+	Sine,
+	Saw,
+	Square,
+	Triangle,
+	Noise,
 };
 
 // Nodes run in order, and every audio input names an earlier node. Pitch nodes compile into the playback rate of the wave players they
@@ -134,14 +149,21 @@ struct FSoundNodeDesc
 	// Pitch ratios multiplied into the playback rate, from the Pitch nodes between the player and the output.
 	std::vector<FSoundControl> Pitches{};
 
-	// Map Range: input minimum, input maximum, output minimum, output maximum.
+	// Map Range: input minimum, input maximum, output minimum, output maximum. Envelope: attack, decay, sustain, release.
 	std::array<float, 4> Range{0.f, 1.f, 0.f, 1.f};
 	std::uint32_t Slot = NoSoundControl;
+
+	ESoundWaveform Waveform = ESoundWaveform::Sine;
+	// Seconds from a start to the first sample, kept to the sample rather than the mixing block, so scheduled sounds land exactly.
+	float Delay = 0.f;
+	// Oscillator: seconds it plays for each start, or zero to play until stopped.
+	float Duration = 0.f;
 };
 
 inline constexpr std::size_t MaximumSoundGraphNodes = 64;
 inline constexpr std::size_t MaximumSoundGraphParameters = 16;
 inline constexpr std::size_t MaximumSoundGraphWaves = 32;
+inline constexpr float MaximumSoundDelaySeconds = 60.f;
 
 // A cooked Audio Graph. Control slots are the parameters first, in order, then one per Map Range node.
 struct FSoundGraphDesc

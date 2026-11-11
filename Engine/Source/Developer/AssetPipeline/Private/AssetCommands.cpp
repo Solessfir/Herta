@@ -423,7 +423,27 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 				return std::nullopt;
 			};
 
-			const auto Compiled = CompileAudioGraph(*Graph, Resolve);
+			// Subgraphs, like waves, are content paths under whichever folder above the graph holds them.
+			const auto Load = [&Path](const std::string_view Subgraph) -> std::optional<FGraph>
+			{
+				for (std::filesystem::path Root = std::filesystem::absolute(Path).parent_path(); !Root.empty(); Root = Root.parent_path())
+				{
+					if (auto Text = ReadWholeFile(Root / Utf8ToPath(Subgraph), 64 * 1024 * 1024); Text && *Text)
+					{
+						auto Loaded = DeserializeGraph(std::string_view(reinterpret_cast<const char*>((*Text)->data()), (*Text)->size()), GetAudioGraphSchema());
+						return Loaded ? std::optional(std::move(*Loaded)) : std::nullopt;
+					}
+
+					if (Root == Root.parent_path())
+					{
+						break;
+					}
+				}
+
+				return std::nullopt;
+			};
+
+			const auto Compiled = CompileAudioGraph(*Graph, Resolve, Load);
 			if (!Compiled)
 			{
 				std::string Message = std::format("{} does not compile", Arguments[0]);

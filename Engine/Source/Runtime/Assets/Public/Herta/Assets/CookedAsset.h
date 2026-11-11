@@ -19,7 +19,7 @@
 namespace Herta
 {
 // Bump when any cooked layout or cooking rule changes; build keys include it, so stale derived data is never reused.
-inline constexpr std::uint32_t CookedAssetFormatVersion = 8;
+inline constexpr std::uint32_t CookedAssetFormatVersion = 9;
 
 inline constexpr std::uint32_t MaximumCookedTextureDimension = 4096;
 // Matches the per-recording GPU upload budget.

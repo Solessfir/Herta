@@ -338,6 +338,7 @@ struct FEditorFramework::FImplementation
 	void OpenStateTreeKey(const std::string& Key);
 	void UpdateEffects(float DeltaSeconds);
 	[[nodiscard]] std::optional<FAssetId> ResolveAudioWave(std::string_view Mount, std::string_view Path) const;
+	[[nodiscard]] std::optional<FGraph> LoadAudioSubgraph(std::string_view Mount, std::string_view Path) const;
 	// A content file as its mounted path, "Game/..." or "Engine/...", or nothing outside both content roots.
 	std::optional<std::string> MountedContentPath(const std::filesystem::path& File) const;
 	void ResolveGraphPreview();
