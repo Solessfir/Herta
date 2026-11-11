@@ -80,7 +80,12 @@ TEST_CASE("Game bindings drive gameplay input, move keys between actions, and ro
 	CHECK_FALSE(ApplyGameBindingSetting(Loaded, "bind.Jump.pad", "7"));
 	CHECK_FALSE(ApplyGameBindingSetting(Loaded, "bind.Fly", "key:70"));
 	CHECK_FALSE(ApplyGameBindingSetting(Loaded, "fullscreen", "1"));
-	CHECK(FormatGameControlsHint(GetEngineText(), GetDefaultGameBindings(), "Esc").starts_with("WASD move    Space jump"));
+	const std::vector<FGameControlHint> Hints = GetGameControlHints(GetEngineText(), GetDefaultGameBindings(), "Esc");
+	REQUIRE(Hints.size() == 9);
+	CHECK(Hints[0].Keys == std::vector<std::string>{"W", "A", "S", "D"});
+	CHECK(Hints[0].Action == "Move");
+	CHECK(Hints[1].Keys == std::vector<std::string>{"Space"});
+	CHECK(Hints[8].Keys == std::vector<std::string>{"Esc"});
 }
 
 TEST_CASE("The game menu owns input while open, routes back out screen by screen, and rebinds without leaking keys to gameplay")

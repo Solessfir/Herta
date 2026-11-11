@@ -6,8 +6,6 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
-#include <ranges>
-#include <string_view>
 #include <vector>
 
 namespace Herta
@@ -50,6 +48,59 @@ void DrawPostureBar(FGameUI& UI, const FGameUIPlacement& Placement, const float 
 	// The middle tick marks where the two halves meet.
 	UI.DrawRect(Placement, {3.f, Height + 6.f}, MakeGameUIColor(255, 244, 220, Fraction >= 1.f ? 255 : 150));
 }
+
+// A panel in the corner, clear of the target's posture bar at the top center: a column of key caps and a column of what they do.
+void DrawControlHints(FGameUI& UI, const std::span<const FGameControlHint> Hints)
+{
+	constexpr FVector2 Anchor{1.f, 0.f};
+	constexpr FVector2 Padding{18.f, 14.f};
+	constexpr float Margin = 24.f;
+	constexpr float KeyHeight = 40.f;
+	constexpr float KeyPadding = 12.f;
+	constexpr float KeyGap = 6.f;
+	constexpr float RowHeight = 50.f;
+	constexpr float ColumnGap = 18.f;
+	const auto KeyWidth = [&](const std::string_view Key)
+	{
+		return std::max(UI.MeasureText(Key, EGameUIFont::Body).X + KeyPadding * 2.f, KeyHeight);
+	};
+
+	float KeysWidth = 0.f;
+	float ActionWidth = 0.f;
+	for (const FGameControlHint& Hint : Hints)
+	{
+		float Width = KeyGap * static_cast<float>(Hint.Keys.size() - 1);
+		for (const std::string& Key : Hint.Keys)
+		{
+			Width += KeyWidth(Key);
+		}
+
+		KeysWidth = std::max(KeysWidth, Width);
+		ActionWidth = std::max(ActionWidth, UI.MeasureText(Hint.Action, EGameUIFont::Body).X);
+	}
+
+	const FVector2 PanelSize{KeysWidth + ColumnGap + ActionWidth + Padding.X * 2.f, RowHeight * static_cast<float>(Hints.size()) - (RowHeight - KeyHeight) + Padding.Y * 2.f};
+	UI.DrawRect({.Anchor = Anchor, .Pivot = {1.f, 0.f}, .Offset = {-Margin, Margin}}, PanelSize, MakeGameUIColor(12, 14, 20, 170), 14.f);
+
+	const float Left = -Margin - PanelSize.X + Padding.X;
+	float CenterY = Margin + Padding.Y + KeyHeight * 0.5f;
+	for (const FGameControlHint& Hint : Hints)
+	{
+		float X = Left;
+		for (const std::string& Key : Hint.Keys)
+		{
+			// The darker lip under the face reads as the side of a physical key.
+			const float Width = KeyWidth(Key);
+			UI.DrawRect({.Anchor = Anchor, .Pivot = {0.f, 0.5f}, .Offset = {X, CenterY + 3.f}}, {Width, KeyHeight}, MakeGameUIColor(122, 128, 144), 7.f);
+			UI.DrawRect({.Anchor = Anchor, .Pivot = {0.f, 0.5f}, .Offset = {X, CenterY}}, {Width, KeyHeight}, MakeGameUIColor(238, 240, 246), 7.f);
+			UI.DrawText(Key, {.Anchor = Anchor, .Pivot = {0.5f, 0.5f}, .Offset = {X + Width * 0.5f, CenterY}}, EGameUIFont::Body, MakeGameUIColor(18, 20, 28));
+			X += Width + KeyGap;
+		}
+
+		UI.DrawText(Hint.Action, {.Anchor = Anchor, .Pivot = {0.f, 0.5f}, .Offset = {Left + KeysWidth + ColumnGap, CenterY}}, EGameUIFont::Body, MakeGameUIColor(228, 232, 240));
+		CenterY += RowHeight;
+	}
+}
 }
 
 void DrawCombatHud(FGameUI& UI, const FGameCombatView& Combat)
@@ -74,33 +125,15 @@ void DrawCombatHud(FGameUI& UI, const FGameCombatView& Combat)
 	}
 }
 
-std::optional<std::size_t> DrawGameHud(FGameUI& UI, const FLocalization& Text, const bool bPaused, const std::span<const std::string_view> MenuItems, std::size_t& MenuFocus, const FGameUIInput& MenuInput, const std::string_view MenuKey, const std::string_view ControlsHint)
+std::optional<std::size_t> DrawGameHud(FGameUI& UI, const FLocalization& Text, const bool bPaused, const std::span<const std::string_view> MenuItems, std::size_t& MenuFocus, const FGameUIInput& MenuInput, const std::string_view MenuKey, const std::span<const FGameControlHint> ControlHints)
 {
 	const std::uint32_t TextColor = MakeGameUIColor(238, 240, 246);
 	namespace Game = Text::Game;
 	if (!bPaused)
 	{
 		UI.DrawCircle({.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 0.5f}}, 8.f, MakeGameUIColor(255, 255, 255, 220));
-		const std::string Hint = ControlsHint.empty() ? FormatGameControlsHint(Text, GetDefaultGameBindings(), MenuKey) : std::string(ControlsHint);
-
-		// One control per line in the corner, clear of the target's posture bar at the top center.
-		std::vector<std::string_view> Lines;
-		FVector2 LineSize{};
-		for (const auto Line : std::views::split(std::string_view(Hint), std::string_view("    ")))
-		{
-			Lines.emplace_back(Line.begin(), Line.end());
-			const FVector2 Measured = UI.MeasureText(Lines.back(), EGameUIFont::Body);
-			LineSize = {std::max(LineSize.X, Measured.X), std::max(LineSize.Y, Measured.Y)};
-		}
-
-		constexpr FVector2 Padding{20.f, 14.f};
-		constexpr float Margin = 24.f;
-		UI.DrawRect({.Anchor = {1.f, 0.f}, .Pivot = {1.f, 0.f}, .Offset = {-Margin, Margin}}, {LineSize.X + Padding.X * 2.f, LineSize.Y * static_cast<float>(Lines.size()) + Padding.Y * 2.f}, MakeGameUIColor(12, 14, 20, 170), 12.f);
-		for (std::size_t Index = 0; Index < Lines.size(); ++Index)
-		{
-			UI.DrawText(Lines[Index], {.Anchor = {1.f, 0.f}, .Pivot = {0.f, 0.f}, .Offset = {-Margin - Padding.X - LineSize.X, Margin + Padding.Y + LineSize.Y * static_cast<float>(Index)}}, EGameUIFont::Body, MakeGameUIColor(220, 224, 232));
-		}
-
+		const std::vector<FGameControlHint> DefaultHints = ControlHints.empty() ? GetGameControlHints(Text, GetDefaultGameBindings(), MenuKey) : std::vector<FGameControlHint>{};
+		DrawControlHints(UI, ControlHints.empty() ? std::span<const FGameControlHint>(DefaultHints) : ControlHints);
 		return std::nullopt;
 	}
 

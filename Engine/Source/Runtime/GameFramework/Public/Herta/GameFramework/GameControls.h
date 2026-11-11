@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Herta
 {
@@ -90,6 +91,12 @@ struct FGameKeyboardState
 [[nodiscard]] FGameInput BuildKeyboardGameInput(const FGameBindings& Bindings, const FGameKeyboardState& State);
 // A gamepad's buttons through the bindings, with movement and looking on the sticks.
 [[nodiscard]] FGameGamepad GetBoundGamepad(const FGameBindings& Bindings, const FGamepadState& Gamepad);
-// The HUD's controls line, naming the keys bound now.
-[[nodiscard]] std::string FormatGameControlsHint(const FLocalization& Text, const FGameBindings& Bindings, std::string_view MenuKey);
+// One row of the HUD's controls: the keys bound now, each its own key cap, and what they do.
+struct FGameControlHint
+{
+	std::vector<std::string> Keys{};
+	std::string Action{};
+};
+
+[[nodiscard]] std::vector<FGameControlHint> GetGameControlHints(const FLocalization& Text, const FGameBindings& Bindings, std::string_view MenuKey);
 }

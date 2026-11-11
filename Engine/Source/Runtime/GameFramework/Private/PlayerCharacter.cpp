@@ -65,6 +65,13 @@ enum ELocomotionState : std::size_t
 	SlideAttack,
 };
 
+// Part of a rotation, by blending from identity along the short way.
+[[nodiscard]] FQuaternion ScaledTurn(const FQuaternion& Turn, const float Weight)
+{
+	const FQuaternion Aligned = Turn.W < 0.f ? FQuaternion{-Turn.X, -Turn.Y, -Turn.Z, -Turn.W} : Turn;
+	return FQuaternion{Aligned.X * Weight, Aligned.Y * Weight, Aligned.Z * Weight, 1.f - Weight + Aligned.W * Weight}.NormalizedOrIdentity();
+}
+
 [[nodiscard]] FAnimationConditionDesc Triggered(const ELocomotionParameter Parameter)
 {
 	return {.Parameter = Parameter, .Test = EAnimationCondition::Triggered};
@@ -179,8 +186,8 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Backpedal", .Samples = {{.Clip = "Walk_Loop", .Position = 1.8f}, {.Clip = "Jog_Fwd_Loop", .Position = 4.5f}}, .BlendParameter = Speed, .Events = {{.Name = "Footstep", .Phase = 0.f}, {.Name = "Footstep", .Phase = 0.5f}}, .bReverse = true},
 	        // The third swing of a chain, a heavier cut with its own recovery.
 	        {.Name = "Attack C", .Samples = {{.Clip = "Sword_Regular_C"}}, .bLoop = false, .Speed = 1.15f, .Events = {{.Name = "SwingStart", .Phase = 0.26f}, {.Name = "SwingEnd", .Phase = 0.42f}}, .bUpperBody = true},
-	        // A cut on the way past: the legs stay in the slide underneath it.
-	        {.Name = "Slide attack", .Samples = {{.Clip = "Sword_Regular_B"}}, .bLoop = false, .Speed = 1.3f, .Events = {{.Name = "SwingStart", .Phase = 0.34f}, {.Name = "SwingEnd", .Phase = 0.66f}}, .bUpperBody = true},
+	        // A cut on the way past: the whole body stays in the slide, and FPlayerCharacter::ApplySlideSwing moves the sword arm.
+	        {.Name = "Slide attack", .Samples = {{.Clip = "Slide_Loop"}}, .bLoop = false, .Speed = 3.6f, .Events = {{.Name = "SwingStart", .Phase = 0.15f}, {.Name = "SwingEnd", .Phase = 0.8f}}},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
@@ -329,6 +336,9 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 	Character->SpineJoint = FindJoint({"spine_01"});
 	Character->Arms[0] = {.Shoulder = FindJoint({"upperarm_l"}), .Elbow = FindJoint({"lowerarm_l"}), .Wrist = FindJoint({"hand_l"})};
 	Character->Arms[1] = {.Shoulder = FindJoint({"upperarm_r"}), .Elbow = FindJoint({"lowerarm_r"}), .Wrist = FindJoint({"hand_r"})};
+	const auto& MachineStates = Character->Machine.GetDesc().States;
+	const auto SlideSwing = std::ranges::find(MachineStates, std::string_view("Slide attack"), &FAnimationStateDesc::Name);
+	Character->SlideSwingState = SlideSwing != MachineStates.end() ? std::optional(static_cast<std::size_t>(SlideSwing - MachineStates.begin())) : std::nullopt;
 	Character->LeftFingers = {FindJoint({"middle_01_l"}), FindJoint({"index_01_l"}), FindJoint({"pinky_01_l"})};
 	const std::vector<FAnimationStateDesc>& States = Character->Machine.GetDesc().States;
 	for (std::size_t State = 0; State < States.size(); ++State)
@@ -475,7 +485,66 @@ std::expected<void, FGameError> FPlayerCharacter::EvaluatePose()
 		Pose.OverrideJoints(RagdollJoints, RagdollPose, RagdollWeight);
 	}
 
+	ApplySlideSwing();
 	return {};
+}
+
+void FPlayerCharacter::ApplySlideSwing()
+{
+	const FArmReach& Arm = Arms[1];
+	const bool bReady = SlideSwingState && Machine.GetActiveState() == *SlideSwingState && RagdollWeight == 0.f && Arm.Shoulder && Arm.Elbow && Arm.Wrist && GripJoints[1] && GripJoints[2] && GripJoints[3];
+	if (!bReady || (Remaining && !Carries(*Arm.Wrist)))
+	{
+		return;
+	}
+
+	// Model space, +X to the character's left: from beside the head on the right, down, then low across the feet to the left.
+	constexpr std::array HandPath{FVector3{-0.7f, 0.6f, 0.35f}, FVector3{-0.85f, -0.55f, 0.55f}, FVector3{0.f, -0.85f, 1.f}, FVector3{0.6f, -0.7f, 0.45f}};
+	constexpr std::array BladePath{FVector3{-0.45f, 0.88f, 0.15f}, FVector3{-0.92f, -0.05f, 0.4f}, FVector3{0.f, -0.08f, 1.f}, FVector3{0.9f, -0.05f, 0.4f}};
+	const auto Sample = [](const std::array<FVector3, 4>& Path, const float Along)
+	{
+		const float Segment = std::clamp(Along, 0.f, 1.f) * 3.f;
+		const auto Index = std::min(static_cast<std::size_t>(Segment), std::size_t{2});
+		const float T = Segment - static_cast<float>(Index);
+		const FVector3& P0 = Path[Index == 0 ? 0 : Index - 1];
+		const FVector3& P1 = Path[Index];
+		const FVector3& P2 = Path[Index + 1];
+		const FVector3& P3 = Path[std::min(Index + 2, std::size_t{3})];
+		return (P1 * 2.f + (P2 - P0) * T + (P0 * 2.f - P1 * 5.f + P2 * 4.f - P3) * (T * T) + (P1 * 3.f - P0 - P2 * 3.f + P3) * (T * T * T)).Normalized();
+	};
+
+	const float Phase = Machine.GetActivePhase();
+	const float Weight = std::clamp(std::min(Phase / 0.12f, (1.f - Phase) / 0.15f), 0.f, 1.f);
+	const float Time = std::clamp((Phase - 0.08f) / 0.74f, 0.f, 1.f);
+	const float Along = Time * Time * (3.f - 2.f * Time);
+
+	// The shoulders turn with the cut, which sells it from behind.
+	if (SpineJoint)
+	{
+		constexpr float TwistRadians = 0.5f;
+		Pose.RotateJoint(*SpineJoint, FQuaternion::FromAxisAngle(FVector3::Up(), TwistRadians * (2.f * Along - 1.f) * Weight));
+	}
+
+	const std::span<const FMatrix4> Joints = Pose.GetModelTransforms();
+	const auto At = [&Joints](const std::size_t Joint)
+	{
+		return Joints[Joint].TransformPosition({});
+	};
+
+	const FVector3 Shoulder = At(*Arm.Shoulder);
+	const float Reach = ((At(*Arm.Elbow) - Shoulder).Length() + (At(*Arm.Wrist) - At(*Arm.Elbow)).Length()) * 0.85f;
+	const FVector3 Blade = Sample(BladePath, Along);
+	const FVector3 Lead = Sample(BladePath, Along + 0.03f) - Sample(BladePath, Along - 0.03f);
+
+	// The blade points along the path and its edge, which runs along the fingers, leads the cut.
+	const FVector3 Grip = (At(*GripJoints[2]) - At(*GripJoints[3])).Normalized();
+	const FQuaternion Aim = FQuaternion::Between(Grip, Blade);
+	const FVector3 Fingers = Aim.RotateVector(At(*GripJoints[1]) - At(*Arm.Wrist));
+	const FVector3 EdgeFrom = Fingers - Blade * Fingers.Dot(Blade);
+	const FVector3 EdgeTo = Lead - Blade * Lead.Dot(Blade);
+	const FQuaternion Full = (EdgeFrom.LengthSquared() > 1.e-6f && EdgeTo.LengthSquared() > 1.e-6f ? FQuaternion::Between(EdgeFrom.Normalized(), EdgeTo.Normalized()) : FQuaternion::Identity()) * Aim;
+	const std::array Limb{FLimbIkTarget{.Root = *Arm.Shoulder, .Middle = *Arm.Elbow, .Tip = *Arm.Wrist, .TipTarget = Shoulder + Sample(HandPath, Along) * Reach, .TipExtraTurn = ScaledTurn(Full, Weight), .Weight = Weight, .BendFallback = FVector3{0.f, -0.8f, -0.6f}, .bForceBend = true}};
+	Pose.SolveLimbs(std::nullopt, {}, Limb);
 }
 
 std::optional<FMatrix4> FPlayerCharacter::GetGripFrame() const
@@ -681,8 +750,7 @@ void FPlayerCharacter::ApplyWallReach()
 			const FVector3 Turned = Flat.RotateVector(Fingers);
 			const FVector3 InPlane = Turned - Free.Normal * Turned.Dot(Free.Normal);
 			const FQuaternion Full = (InPlane.LengthSquared() > 1.e-6f && Reach.LengthSquared() > 1.e-6f ? FQuaternion::Between(InPlane.Normalized(), Reach.Normalized()) : FQuaternion::Identity()) * Flat;
-			const FQuaternion Aligned = Full.W < 0.f ? FQuaternion{-Full.X, -Full.Y, -Full.Z, -Full.W} : Full;
-			Limb.TipExtraTurn = FQuaternion{Aligned.X * Free.Weight, Aligned.Y * Free.Weight, Aligned.Z * Free.Weight, 1.f - Free.Weight + Aligned.W * Free.Weight}.NormalizedOrIdentity();
+			Limb.TipExtraTurn = ScaledTurn(Full, Free.Weight);
 		}
 
 		Limbs[Count++] = Limb;

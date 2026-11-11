@@ -356,6 +356,11 @@ std::span<const FAnimationLayer> FAnimationStateMachine::GetLayers() const noexc
 	return Layers;
 }
 
+float FAnimationStateMachine::GetActivePhase() const noexcept
+{
+	return Current.Phase;
+}
+
 std::size_t FAnimationStateMachine::GetActiveState() const noexcept
 {
 	return Current.State;

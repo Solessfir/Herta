@@ -42,6 +42,8 @@ public:
 	[[nodiscard]] std::span<const FAnimationLayer> GetLayers() const noexcept;
 
 	[[nodiscard]] std::size_t GetActiveState() const noexcept;
+	// How far through its clip the active state is, from 0 to 1.
+	[[nodiscard]] float GetActivePhase() const noexcept;
 	// The transition being blended, for live highlighting; empty when none is.
 	[[nodiscard]] std::optional<std::size_t> GetActiveTransition() const noexcept;
 	[[nodiscard]] const FAnimationStateMachineDesc& GetDesc() const noexcept;

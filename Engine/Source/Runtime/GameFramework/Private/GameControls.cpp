@@ -381,29 +381,32 @@ FGameGamepad GetBoundGamepad(const FGameBindings& Bindings, const FGamepadState&
 	};
 }
 
-std::string FormatGameControlsHint(const FLocalization& Text, const FGameBindings& Bindings, const std::string_view MenuKey)
+std::vector<FGameControlHint> GetGameControlHints(const FLocalization& Text, const FGameBindings& Bindings, const std::string_view MenuKey)
 {
 	const std::string Unbound = Text.Format(Game::Controls_Unbound);
-	const auto Name = [&](const EGameAction Action) -> FMessageValue
+	const auto Hint = [&](const FTextId Action, const std::initializer_list<EGameAction> Keys)
 	{
-		return FormatKeyboardBinding(Bindings.Get(Action), Unbound);
+		FGameControlHint Result{.Action = Text.Format(Action)};
+		for (const EGameAction Key : Keys)
+		{
+			Result.Keys.push_back(FormatKeyboardBinding(Bindings.Get(Key), Unbound));
+		}
+
+		return Result;
 	};
 
-	const std::array Arguments{
-	    FMessageArgument{"forward", Name(EGameAction::MoveForward)},
-	    FMessageArgument{"left", Name(EGameAction::MoveLeft)},
-	    FMessageArgument{"back", Name(EGameAction::MoveBack)},
-	    FMessageArgument{"right", Name(EGameAction::MoveRight)},
-	    FMessageArgument{"jump", Name(EGameAction::Jump)},
-	    FMessageArgument{"sprint", Name(EGameAction::Sprint)},
-	    FMessageArgument{"slide", Name(EGameAction::Crouch)},
-	    FMessageArgument{"attack", Name(EGameAction::Attack)},
-	    FMessageArgument{"block", Name(EGameAction::Block)},
-	    FMessageArgument{"ragdoll", Name(EGameAction::Ragdoll)},
-	    FMessageArgument{"restart", Name(EGameAction::Restart)},
-	    FMessageArgument{"menu", std::string(MenuKey)},
+	std::vector<FGameControlHint> Hints{
+	    Hint(Game::Hud_Action_Move, {EGameAction::MoveForward, EGameAction::MoveLeft, EGameAction::MoveBack, EGameAction::MoveRight}),
+	    Hint(Game::Hud_Action_Jump, {EGameAction::Jump}),
+	    Hint(Game::Hud_Action_Sprint, {EGameAction::Sprint}),
+	    Hint(Game::Hud_Action_Slide, {EGameAction::Crouch}),
+	    Hint(Game::Hud_Action_Attack, {EGameAction::Attack}),
+	    Hint(Game::Hud_Action_Block, {EGameAction::Block}),
+	    Hint(Game::Hud_Action_Ragdoll, {EGameAction::Ragdoll}),
+	    Hint(Game::Hud_Action_Restart, {EGameAction::Restart}),
 	};
 
-	return Text.Format(Game::Hud_Controls, Arguments);
+	Hints.push_back({.Keys = {std::string(MenuKey)}, .Action = Text.Format(Game::Hud_Action_Menu)});
+	return Hints;
 }
 }

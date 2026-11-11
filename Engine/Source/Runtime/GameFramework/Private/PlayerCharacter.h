@@ -182,6 +182,8 @@ private:
 
 	void ApplyFootPlacement();
 	void ApplyWallReach();
+	// Sweeps the sword arm during the slide attack, in EvaluatePose because the blade's cuts and trail read the result.
+	void ApplySlideSwing();
 	// Where a hand can rest on the wall a shoulder's sweep touched, or nothing when the surface there is smaller than a hand.
 	[[nodiscard]] static std::optional<FVector3> FindHandContact(const FVector3& Wall, const FVector3& Normal, const FVector3& Forward, float Distance, const FWallCast& Cast);
 
@@ -190,6 +192,7 @@ private:
 	// The left hand's middle, index, and little finger roots, which give the way its palm faces.
 	std::array<std::optional<std::size_t>, 3> LeftFingers{};
 	std::optional<std::size_t> SpineJoint{};
+	std::optional<std::size_t> SlideSwingState{};
 	std::vector<std::size_t> RelaxedStates{};
 	// Walls are looked for every few updates; easing hides the difference, and each look takes several casts.
 	std::uint32_t WallCastCountdown = 0;
