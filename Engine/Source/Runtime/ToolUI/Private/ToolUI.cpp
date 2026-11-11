@@ -2196,7 +2196,12 @@ void FToolUIContext::BeginFrame()
 	Implementation->CurrentStyleScale = MainDpiScale;
 	ImGui_ImplGlfw_NewFrame();
 	Implementation->CapturedFrameMotion = std::exchange(Implementation->CapturedMotion, {});
-	if (!Implementation->bProgrammaticWindowPosition && !Implementation->bCursorCaptured)
+	if (Implementation->bCursorCaptured)
+	{
+		// The GLFW backend reports the focused window's cursor every frame, and a disabled cursor keeps travelling unseen across the panels.
+		ImGui::GetIO().AddMousePosEvent(Implementation->CapturedMousePosition.x, Implementation->CapturedMousePosition.y);
+	}
+	else if (!Implementation->bProgrammaticWindowPosition)
 	{
 		ImGuiPlatformIO& Platform = ImGui::GetPlatformIO();
 		for (int ViewportIndex = 1; ViewportIndex < Platform.Viewports.Size; ++ViewportIndex)
