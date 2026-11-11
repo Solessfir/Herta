@@ -1445,8 +1445,8 @@ TEST_CASE("Leg IK puts ankles on their targets, keeps bone lengths and the anima
 
 	// A raised ankle lands on its target, the leg keeps its length, and the other leg and the body stay put.
 	const FVector3 Target = AnkleStart + FVector3{0.f, 0.2f, 0.f};
-	const std::array Raise{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = Target}};
-	Pose.SolveLegs(std::nullopt, {}, Raise);
+	const std::array Raise{FLimbIkTarget{.Root = Hip, .Middle = Knee, .Tip = Ankle, .TipTarget = Target}};
+	Pose.SolveLimbs(std::nullopt, {}, Raise);
 	CHECK((At(Ankle) - Target).Length() < 1.e-3f);
 	CHECK((At(Knee) - At(Hip)).Length() == doctest::Approx(Upper).epsilon(1.e-3));
 	CHECK((At(Ankle) - At(Knee)).Length() == doctest::Approx(Lower).epsilon(1.e-3));
@@ -1462,25 +1462,25 @@ TEST_CASE("Leg IK puts ankles on their targets, keeps bone lengths and the anima
 
 	// A target past the leg's reach stretches it straight toward the target, no farther.
 	REQUIRE(Pose.Evaluate(Layers));
-	const std::array Far{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = HipStart + FVector3{0.f, -3.f, 0.f}}};
-	Pose.SolveLegs(std::nullopt, {}, Far);
+	const std::array Far{FLimbIkTarget{.Root = Hip, .Middle = Knee, .Tip = Ankle, .TipTarget = HipStart + FVector3{0.f, -3.f, 0.f}}};
+	Pose.SolveLimbs(std::nullopt, {}, Far);
 	CHECK((At(Ankle) - HipStart).Length() == doctest::Approx(Upper + Lower).epsilon(0.01));
 
 	// The sole turns to the ground it is given.
 	REQUIRE(Pose.Evaluate(Layers));
 	const FVector3 Slope = FVector3{0.f, 1.f, 1.f}.Normalized();
-	const std::array Tilt{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = AnkleStart, .SoleUp = Slope}};
-	Pose.SolveLegs(std::nullopt, {}, Tilt);
+	const std::array Tilt{FLimbIkTarget{.Root = Hip, .Middle = Knee, .Tip = Ankle, .TipTarget = AnkleStart, .TipTurnTo = Slope}};
+	Pose.SolveLimbs(std::nullopt, {}, Tilt);
 	CHECK((Pose.GetModelTransforms()[Ankle].TransformVector({1.f, 0.f, 0.f}).Normalized() - FootAxis).Length() > 0.05f);
 
 	// Half weight goes halfway; a pelvis offset carries the body and leaves planted feet to the IK.
 	REQUIRE(Pose.Evaluate(Layers));
-	const std::array Half{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = Target, .Weight = 0.5f}};
-	Pose.SolveLegs(std::nullopt, {}, Half);
+	const std::array Half{FLimbIkTarget{.Root = Hip, .Middle = Knee, .Tip = Ankle, .TipTarget = Target, .Weight = 0.5f}};
+	Pose.SolveLimbs(std::nullopt, {}, Half);
 	CHECK(At(Ankle).Y == doctest::Approx(AnkleStart.Y + 0.1f).epsilon(1.e-2));
 	REQUIRE(Pose.Evaluate(Layers));
-	const std::array Planted{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = AnkleStart}};
-	Pose.SolveLegs(Pelvis, {0.f, -0.1f, 0.f}, Planted);
+	const std::array Planted{FLimbIkTarget{.Root = Hip, .Middle = Knee, .Tip = Ankle, .TipTarget = AnkleStart}};
+	Pose.SolveLimbs(Pelvis, {0.f, -0.1f, 0.f}, Planted);
 	CHECK(At(Head).Y == doctest::Approx(HeadStart.Y - 0.1f).epsilon(1.e-3));
 	CHECK((At(Ankle) - AnkleStart).Length() < 1.e-3f);
 	CHECK(At(OtherAnkle).Y == doctest::Approx(OtherStart.Y - 0.1f).epsilon(1.e-3));
@@ -1527,6 +1527,69 @@ TEST_CASE("Characters plant their feet on the level's ground, bending over a ste
 	// The hovering dummy's feet reach the floor and its pelvis comes down with them.
 	CHECK(Joint(1, "foot_l").Y == doctest::Approx(Flat).epsilon(0.05));
 	CHECK(Joint(1, "pelvis").Y == doctest::Approx(Joint(2, "pelvis").Y).epsilon(0.02));
+}
+
+TEST_CASE("Characters rest a hand on a wall beside them, pull the sword hand clear of one, and lean away, while open air changes nothing")
+{
+	const FDummyGameAssets Assets;
+	const auto Dummy = [](const FObjectId Id, const double X)
+	{
+		return FLevelEntity{.Id = Id, .Name = "Dummy", .Transform = {.Translation = FWorldPosition{{X, 0., 0.}}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{7, 7}}, .Character = FCharacterComponent{}};
+	};
+
+	const auto Wall = [](const FObjectId Id, const double X)
+	{
+		return FLevelEntity{.Id = Id, .Name = "Wall", .Transform = {.Translation = FWorldPosition{{X, 1.5, 0.}}, .Scale = {0.5f, 3.f, 4.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static};
+	};
+
+	// +X is left. The first dummy's wall surface stands 0.55 m to its left, the second's 0.3 m to its right, and the third has open air.
+	const std::vector<FLevelEntity> Level{
+	    FLevelEntity{.Id = FObjectId{3, 1}, .Name = "Floor", .Transform = {.Translation = FWorldPosition{{0., -0.5, 0.}}, .Scale = {60.f, 1.f, 60.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    Dummy(FObjectId{3, 2}, 0.),
+	    Wall(FObjectId{3, 3}, 0.8),
+	    Dummy(FObjectId{3, 4}, 10.),
+	    Wall(FObjectId{3, 5}, 9.45),
+	    Dummy(FObjectId{3, 6}, -10.),
+	    Dummy(FObjectId{3, 7}, 20.),
+	    // A post narrower than a hand, close on the left: nothing to rest on.
+	    FLevelEntity{.Id = FObjectId{3, 8}, .Name = "Post", .Transform = {.Translation = FWorldPosition{{20.6, 1.5, 0.15}}, .Scale = {0.1f, 3.f, 0.1f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	};
+
+	auto Session = FGameSession::Create(Level, Assets, nullptr, {}, nullptr, Assets.Model);
+	REQUIRE_MESSAGE(Session, (Session ? std::string() : Session.error().Message));
+	for (int Frame = 0; Frame < 90; ++Frame)
+	{
+		REQUIRE((*Session)->Update(1.f / 60.f, {}));
+		(void)(*Session)->GetRenderView({320, 180});
+	}
+
+	const auto Local = [&](const std::size_t Character, const std::string_view Name, const float Origin)
+	{
+		const auto Position = (*Session)->GetCharacterJointPosition(Character, Name);
+		REQUIRE(Position);
+		return FVector3{Position->X - Origin, Position->Y, Position->Z};
+	};
+
+	// The left hand stands near the wall's face, at about chest height, and well above where it hangs in open air.
+	const FVector3 Hand = Local(0, "hand_l", 0.f);
+	const FVector3 Hanging = Local(2, "hand_l", -10.f);
+	CHECK(Hand.X == doctest::Approx(0.475f).epsilon(0.06));
+	CHECK(Hand.Y > Hanging.Y + 0.2f);
+	// Its fingers lie along the wall, reaching up and forward rather than into it, and the elbow sits below the wrist.
+	const FVector3 Finger = Local(0, "middle_01_l", 0.f);
+	CHECK(Finger.X < 0.55f);
+	CHECK(Finger.Y > Hand.Y);
+	CHECK(Finger.Z > Hand.Z);
+	CHECK(Local(0, "lowerarm_l", 0.f).Y < Hand.Y);
+
+	// A post too narrow to take a hand leaves the arm hanging.
+	CHECK(Local(3, "hand_l", 20.f).Y == doctest::Approx(Hanging.Y).epsilon(0.02));
+
+	// The sword hand stays on the near side of the wall to its right, and the torso leans away from each wall.
+	CHECK(Local(1, "hand_r", 10.f).X > -0.3f + 0.08f);
+	const float Upright = Local(2, "neck_01", -10.f).X;
+	CHECK(Local(0, "neck_01", 0.f).X < Upright - 0.02f);
+	CHECK(Local(1, "neck_01", 10.f).X > Upright + 0.02f);
 }
 
 TEST_CASE("Upper-body states keep the legs on the state before them while moving, and reversed states play backwards")

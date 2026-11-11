@@ -316,6 +316,19 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 	Character->Device = Device;
 	Character->PelvisJoint = FindJoint({"pelvis", "hips", "DEF-hips"});
 	Character->GripJoints = {FindJoint({"hand_r"}), FindJoint({"middle_01_r"}), FindJoint({"index_01_r"}), FindJoint({"pinky_01_r"})};
+	Character->SpineJoint = FindJoint({"spine_01"});
+	Character->Arms[0] = {.Shoulder = FindJoint({"upperarm_l"}), .Elbow = FindJoint({"lowerarm_l"}), .Wrist = FindJoint({"hand_l"})};
+	Character->Arms[1] = {.Shoulder = FindJoint({"upperarm_r"}), .Elbow = FindJoint({"lowerarm_r"}), .Wrist = FindJoint({"hand_r"})};
+	Character->LeftFingers = {FindJoint({"middle_01_l"}), FindJoint({"index_01_l"}), FindJoint({"pinky_01_l"})};
+	const std::vector<FAnimationStateDesc>& States = Character->Machine.GetDesc().States;
+	for (std::size_t State = 0; State < States.size(); ++State)
+	{
+		if (States[State].Name == "Locomotion" || States[State].Name == "Crouch" || States[State].Name == "Backpedal")
+		{
+			Character->RelaxedStates.push_back(State);
+		}
+	}
+
 	const std::span<const FMatrix4> InverseBinds = Character->Library->GetInverseBindMatrices();
 	for (const auto& [Foot, Hip, Knee, Ankle] : {std::tuple{0, "thigh_l", "calf_l", "foot_l"}, std::tuple{1, "thigh_r", "calf_r", "foot_r"}})
 	{
@@ -374,6 +387,13 @@ void FPlayerCharacter::Restart()
 	RagdollPose.clear();
 	FootWeight = 0.f;
 	PelvisOffset = {};
+	WallCastCountdown = 0;
+	for (FArmReach& Arm : Arms)
+	{
+		Arm.Wanted = 0.f;
+		Arm.Weight = 0.f;
+	}
+
 	for (FFootPlacement& Foot : Feet)
 	{
 		Foot.Offset = {};
@@ -511,6 +531,166 @@ void FPlayerCharacter::UpdateFootPlacement(const FMatrix4& BodyModel, const floa
 	PelvisOffset = FVector3{0.f, Lowest, 0.f};
 }
 
+std::optional<FVector3> FPlayerCharacter::FindHandContact(const FVector3& Wall, const FVector3& Normal, const FVector3& Forward, const float Distance, const FWallCast& Cast)
+{
+	const auto SurfaceAt = [&Normal, &Cast](const FVector3& Point) -> std::optional<FVector3>
+	{
+		const std::optional<FWallHit> Hit = Cast(Point + Normal * 0.2f, Point - Normal * 0.15f);
+		return Hit && Hit->Normal.Dot(Normal) > 0.85f ? std::optional(Hit->Point) : std::nullopt;
+	};
+
+	const FVector3 Along = Normal.Cross(FVector3::Up()).Normalized();
+	const FVector3 Ahead = (Forward - Normal * Forward.Dot(Normal)).Normalized();
+	const FVector3 Low = Wall - FVector3::Up() * 0.12f;
+	const float Lead = 0.1f + std::clamp(0.5f - Distance, 0.f, 0.3f) * 0.6f;
+	for (const float Offset : {Lead, 0.f})
+	{
+		const FVector3 Center = Low + Ahead * Offset;
+		const std::optional<FVector3> Hit = SurfaceAt(Center);
+		if (Hit && SurfaceAt(Center + Along * 0.1f) && SurfaceAt(Center - Along * 0.1f) && SurfaceAt(Center + FVector3::Up() * 0.12f))
+		{
+			return Hit;
+		}
+	}
+
+	return std::nullopt;
+}
+
+void FPlayerCharacter::UpdateWallReach(const FMatrix4& BodyModel, const float DeltaSeconds, const bool bEnabled, const FWallCast& Cast)
+{
+	const bool bRelaxed = std::ranges::contains(RelaxedStates, Machine.GetActiveState());
+	const bool bReact = bEnabled && bRelaxed && RagdollWeight == 0.f;
+	const auto Inverse = TryInverseAffine(BodyModel);
+	if (bReact && Inverse && WallCastCountdown == 0 && EvaluatePose())
+	{
+		constexpr float Reach = 0.75f;
+		constexpr float FullReach = 0.5f;
+		const FVector3 Forward = BodyModel.TransformVector({0.f, 0.f, 1.f}).Normalized();
+		const FVector3 Left = BodyModel.TransformVector({1.f, 0.f, 0.f}).Normalized();
+		for (std::size_t Side = 0; Side < Arms.size(); ++Side)
+		{
+			FArmReach& Arm = Arms[Side];
+			Arm.Wanted = 0.f;
+			// A cut arm has nothing to move.
+			if (!Arm.Shoulder || !Arm.Elbow || !Arm.Wrist || (Remaining && !Carries(*Arm.Wrist)))
+			{
+				continue;
+			}
+
+			const FVector3 Shoulder = BodyModel.TransformPosition(Pose.GetModelTransforms()[*Arm.Shoulder].TransformPosition({}));
+			const FVector3 Out = Left * (Side == 0 ? 1.f : -1.f);
+			std::optional<FWallHit> Nearest;
+			for (const FVector3& Direction : {Out, (Out + Forward).Normalized()})
+			{
+				const std::optional<FWallHit> Hit = Cast(Shoulder, Shoulder + Direction * Reach);
+				// Only walls: a floor or ceiling is not something to lean a hand on.
+				if (Hit && std::abs(Hit->Normal.Y) < 0.4f && (!Nearest || Hit->Distance < Nearest->Distance))
+				{
+					Nearest = Hit;
+				}
+			}
+
+			if (!Nearest)
+			{
+				continue;
+			}
+
+			FVector3 Contact = Nearest->Point;
+			if (Side == 0)
+			{
+				// A hand needs a surface as big as itself: a post or a corner would leave it wrapped around the edge. Closer walls take the hand
+				// farther ahead, so the elbow has room.
+				const std::optional<FVector3> Fits = FindHandContact(Nearest->Point, Nearest->Normal, Forward, Nearest->Distance, Cast);
+				if (!Fits)
+				{
+					continue;
+				}
+
+				Contact = *Fits;
+			}
+
+			const FVector3 Point = Inverse->TransformPosition(Contact);
+			const FVector3 Normal = Inverse->TransformVector(Nearest->Normal).Normalized();
+			Arm.Point = Arm.Weight > 0.f ? Arm.Point : Point;
+			Arm.Normal = Arm.Weight > 0.f ? Arm.Normal : Normal;
+			Arm.Wanted = std::clamp((Reach - Nearest->Distance) / (Reach - FullReach), 0.f, 1.f);
+			// The easing below moves toward these.
+			Arm.PointTarget = Point;
+			Arm.NormalTarget = Normal;
+		}
+	}
+
+	WallCastCountdown = (WallCastCountdown + 1) % 3;
+	const float Ease = 1.f - std::exp(-14.f * DeltaSeconds);
+	for (FArmReach& Arm : Arms)
+	{
+		const float Goal = bReact ? Arm.Wanted : 0.f;
+		const float Step = 7.f * DeltaSeconds;
+		Arm.Weight = std::clamp(Goal, Arm.Weight - Step, Arm.Weight + Step);
+		Arm.Point = Arm.Point + (Arm.PointTarget - Arm.Point) * Ease;
+		Arm.Normal = Arm.Normal + (Arm.NormalTarget - Arm.Normal) * Ease;
+		Arm.Normal = Arm.Normal.LengthSquared() > 1.e-6f ? Arm.Normal.Normalized() : Arm.NormalTarget;
+	}
+}
+
+void FPlayerCharacter::ApplyWallReach()
+{
+	if ((Arms[0].Weight <= 0.f && Arms[1].Weight <= 0.f) || RagdollWeight > 0.f)
+	{
+		return;
+	}
+
+	// Rotating about +Z takes the spine's top toward -X, away from a wall on the left; a wall on the right leans it the other way.
+	if (SpineJoint)
+	{
+		constexpr float LeanRadians = 0.08f;
+		Pose.RotateJoint(*SpineJoint, FQuaternion::FromAxisAngle({0.f, 0.f, 1.f}, LeanRadians * (Arms[0].Weight - Arms[1].Weight)));
+	}
+
+	const std::span<const FMatrix4> Joints = Pose.GetModelTransforms();
+	const auto At = [&Joints](const std::size_t Joint)
+	{
+		return Joints[Joint].TransformPosition({});
+	};
+
+	std::array<FLimbIkTarget, 2> Limbs{};
+	std::size_t Count = 0;
+	const FArmReach& Free = Arms[0];
+	if (Free.Weight > 0.f)
+	{
+		// The elbow drops down and back, as an arm does reaching for a wall, whatever small bend the animation has. The wrist stays a hand's
+		// thickness off the surface.
+		FLimbIkTarget Limb{.Root = *Free.Shoulder, .Middle = *Free.Elbow, .Tip = *Free.Wrist, .TipTarget = Free.Point + Free.Normal * 0.075f, .Weight = Free.Weight, .BendFallback = FVector3{0.f, -0.8f, -0.6f}, .bForceBend = true};
+		if (LeftFingers[0] && LeftFingers[1] && LeftFingers[2])
+		{
+			// Fingers crossed with index-to-little gives the palm of a left hand. The palm goes flat on the wall, fingers up and forward along it.
+			const FVector3 Fingers = (At(*LeftFingers[0]) - At(*Free.Wrist)).Normalized();
+			const FVector3 Across = At(*LeftFingers[1]) - At(*LeftFingers[2]);
+			const FQuaternion Flat = FQuaternion::Between(Fingers.Cross(Across).Normalized(), -Free.Normal);
+			const FVector3 Reach = FVector3{0.f, 0.7f, 0.7f} - Free.Normal * FVector3{0.f, 0.7f, 0.7f}.Dot(Free.Normal);
+			const FVector3 Turned = Flat.RotateVector(Fingers);
+			const FVector3 InPlane = Turned - Free.Normal * Turned.Dot(Free.Normal);
+			const FQuaternion Full = (InPlane.LengthSquared() > 1.e-6f && Reach.LengthSquared() > 1.e-6f ? FQuaternion::Between(InPlane.Normalized(), Reach.Normalized()) : FQuaternion::Identity()) * Flat;
+			const FQuaternion Aligned = Full.W < 0.f ? FQuaternion{-Full.X, -Full.Y, -Full.Z, -Full.W} : Full;
+			Limb.TipExtraTurn = FQuaternion{Aligned.X * Free.Weight, Aligned.Y * Free.Weight, Aligned.Z * Free.Weight, 1.f - Free.Weight + Aligned.W * Free.Weight}.NormalizedOrIdentity();
+		}
+
+		Limbs[Count++] = Limb;
+	}
+
+	const FArmReach& Sword = Arms[1];
+	if (Sword.Weight > 0.f)
+	{
+		// The sword hand stays where it is unless the wall is in the way, then moves out just far enough.
+		constexpr float Margin = 0.12f;
+		const FVector3 Wrist = At(*Sword.Wrist);
+		const float Clearance = (Wrist - Sword.Point).Dot(Sword.Normal);
+		Limbs[Count++] = {.Root = *Sword.Shoulder, .Middle = *Sword.Elbow, .Tip = *Sword.Wrist, .TipTarget = Wrist + Sword.Normal * std::max(Margin - Clearance, 0.f), .Weight = Sword.Weight, .BendFallback = {0.f, 0.f, -1.f}};
+	}
+
+	Pose.SolveLimbs(std::nullopt, {}, std::span(Limbs).first(Count));
+}
+
 void FPlayerCharacter::ApplyFootPlacement()
 {
 	if (FootWeight <= 0.f || RagdollWeight > 0.f || !PelvisJoint || !Feet[0].Ankle || !Feet[1].Ankle)
@@ -519,7 +699,7 @@ void FPlayerCharacter::ApplyFootPlacement()
 	}
 
 	const std::span<const FMatrix4> Joints = Pose.GetModelTransforms();
-	std::array<FLegIkTarget, 2> Legs{};
+	std::array<FLimbIkTarget, 2> Legs{};
 	for (std::size_t Index = 0; Index < Feet.size(); ++Index)
 	{
 		const FFootPlacement& Foot = Feet[Index];
@@ -528,15 +708,15 @@ void FPlayerCharacter::ApplyFootPlacement()
 		const float Planted = 1.f - std::clamp((Lift - 0.03f) / 0.17f, 0.f, 1.f);
 		const FVector3 Up = FVector3::Up();
 		Legs[Index] = {
-		    .Hip = *Foot.Hip,
-		    .Knee = *Foot.Knee,
-		    .Ankle = *Foot.Ankle,
-		    .AnkleTarget = Joints[*Foot.Ankle].TransformPosition({}) + Foot.Offset * FootWeight,
-		    .SoleUp = Up + (Foot.Normal - Up) * (Planted * FootWeight),
+		    .Root = *Foot.Hip,
+		    .Middle = *Foot.Knee,
+		    .Tip = *Foot.Ankle,
+		    .TipTarget = Joints[*Foot.Ankle].TransformPosition({}) + Foot.Offset * FootWeight,
+		    .TipTurnTo = Up + (Foot.Normal - Up) * (Planted * FootWeight),
 		};
 	}
 
-	Pose.SolveLegs(PelvisJoint, PelvisOffset * FootWeight, Legs);
+	Pose.SolveLimbs(PelvisJoint, PelvisOffset * FootWeight, Legs);
 }
 
 std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bFirstPerson)
@@ -547,6 +727,7 @@ std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bFirstPerson)
 	}
 
 	ApplyFootPlacement();
+	ApplyWallReach();
 
 	// ponytail: skins the whole body twice in first person, about 0.16 ms each for the Mannequin; skin only the hidden joints' vertices again if characters multiply.
 	const FSkinnedMeshPiece& Piece = GetPiece();

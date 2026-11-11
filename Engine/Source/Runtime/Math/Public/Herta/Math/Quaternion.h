@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cmath>
+#include <numbers>
 #include <concepts>
 #include <limits>
 
@@ -53,6 +54,20 @@ template <std::floating_point T> struct TQuaternion
 		const T Sine = std::sin(HalfAngle);
 		const TVector3<T> NormalizedAxis = Axis / AxisLength;
 		return {NormalizedAxis.X * Sine, NormalizedAxis.Y * Sine, NormalizedAxis.Z * Sine, std::cos(HalfAngle)};
+	}
+
+	// The shortest rotation taking one unit vector to another; opposite vectors turn about any perpendicular.
+	[[nodiscard]] static TQuaternion Between(const TVector3<T>& From, const TVector3<T>& To)
+	{
+		const T Dot = From.Dot(To);
+		if (Dot < T{-0.9999})
+		{
+			const TVector3<T> Other = std::abs(From.X) < T{0.9} ? TVector3<T>{T{1}, T{0}, T{0}} : TVector3<T>{T{0}, T{1}, T{0}};
+			return FromAxisAngle(From.Cross(Other), std::numbers::pi_v<T>);
+		}
+
+		const TVector3<T> Axis = From.Cross(To);
+		return TQuaternion{Axis.X, Axis.Y, Axis.Z, T{1} + Dot}.NormalizedOrIdentity();
 	}
 
 	[[nodiscard]] constexpr TQuaternion Conjugated() const

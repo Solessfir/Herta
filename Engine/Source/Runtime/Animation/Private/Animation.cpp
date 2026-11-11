@@ -523,7 +523,7 @@ void FAnimationPose::OverrideJoints(const std::span<const std::size_t> Joints, c
 	}
 }
 
-void FAnimationPose::SolveLegs(const std::optional<std::size_t> Pelvis, const FVector3& PelvisOffset, const std::span<const FLegIkTarget> Legs)
+void FAnimationPose::SolveLimbs(const std::optional<std::size_t> Pelvis, const FVector3& PelvisOffset, const std::span<const FLimbIkTarget> Limbs)
 {
 	FImplementation& Pose = *Implementation;
 	const std::span<const std::int16_t> Parents = Pose.Library->GetJointParents();
@@ -547,20 +547,6 @@ void FAnimationPose::SolveLegs(const std::optional<std::size_t> Pelvis, const FV
 		return Pose.ModelTransforms[Joint].TransformPosition({});
 	};
 
-	// The shortest rotation taking one unit vector to another; opposite vectors turn about any perpendicular.
-	const auto Arc = [](const FVector3& From, const FVector3& To)
-	{
-		const FVector3 Axis = From.Cross(To);
-		const float Dot = From.Dot(To);
-		if (Dot < -0.9999f)
-		{
-			const FVector3 Other = std::abs(From.X) < 0.9f ? FVector3{1.f, 0.f, 0.f} : FVector3{0.f, 1.f, 0.f};
-			return FQuaternion::FromAxisAngle(From.Cross(Other).Normalized(), std::numbers::pi_v<float>);
-		}
-
-		return FQuaternion{Axis.X, Axis.Y, Axis.Z, 1.f + Dot}.NormalizedOrIdentity();
-	};
-
 	const auto RotateAbout = [](const FVector3& Pivot, const FQuaternion& Rotation)
 	{
 		return FMatrix4::Translation(Pivot) * FMatrix4::Rotation(Rotation) * FMatrix4::Translation(-Pivot);
@@ -571,18 +557,18 @@ void FAnimationPose::SolveLegs(const std::optional<std::size_t> Pelvis, const FV
 		MoveSubtree(*Pelvis, FMatrix4::Translation(PelvisOffset));
 	}
 
-	for (const FLegIkTarget& Leg : Legs)
+	for (const FLimbIkTarget& Limb : Limbs)
 	{
-		const float Weight = std::isfinite(Leg.Weight) ? std::clamp(Leg.Weight, 0.f, 1.f) : 0.f;
-		if (Leg.Hip >= Parents.size() || Leg.Knee >= Parents.size() || Leg.Ankle >= Parents.size() || Weight <= 0.f)
+		const float Weight = std::isfinite(Limb.Weight) ? std::clamp(Limb.Weight, 0.f, 1.f) : 0.f;
+		if (Limb.Root >= Parents.size() || Limb.Middle >= Parents.size() || Limb.Tip >= Parents.size() || Weight <= 0.f)
 		{
 			continue;
 		}
 
-		const FVector3 Hip = Position(Leg.Hip);
-		const FVector3 Knee = Position(Leg.Knee);
-		const FVector3 Ankle = Position(Leg.Ankle);
-		const FVector3 Wanted = Ankle + (Leg.AnkleTarget - Ankle) * Weight;
+		const FVector3 Hip = Position(Limb.Root);
+		const FVector3 Knee = Position(Limb.Middle);
+		const FVector3 Ankle = Position(Limb.Tip);
+		const FVector3 Wanted = Ankle + (Limb.TipTarget - Ankle) * Weight;
 		const float Upper = (Knee - Hip).Length();
 		const float Lower = (Ankle - Knee).Length();
 		const FVector3 ToWanted = Wanted - Hip;
@@ -594,30 +580,56 @@ void FAnimationPose::SolveLegs(const std::optional<std::size_t> Pelvis, const FV
 		const FVector3 Aim = ToWanted.Normalized();
 		// Just short of straight, so the knee's bend direction never degenerates.
 		const float Reach = std::clamp(ToWanted.Length(), std::abs(Upper - Lower) + 1.e-3f, Upper + Lower - 1.e-3f);
-		// The knee bends the way it already does; a nearly straight leg falls back on the character's forward, +Z.
+		// The joint bends the way it already does; a nearly straight limb falls back on the direction it was given.
 		const FVector3 Bend = (Knee - Hip) - Aim * (Knee - Hip).Dot(Aim);
-		const FVector3 Forward = FVector3{0.f, 0.f, 1.f} - Aim * Aim.Z;
-		const FVector3 Pole = Bend.LengthSquared() > 1.e-6f ? Bend.Normalized() : Forward.Normalized();
+		const FVector3 Forward = Limb.BendFallback - Aim * Limb.BendFallback.Dot(Aim);
+		const FVector3 Pole = Bend.LengthSquared() > 1.e-6f && !Limb.bForceBend ? Bend.Normalized() : Forward.Normalized();
 		const float Along = (Upper * Upper + Reach * Reach - Lower * Lower) / (2.f * Reach);
 		const float Out = std::sqrt(std::max(Upper * Upper - Along * Along, 0.f));
 		const FVector3 NewKnee = Hip + Aim * Along + Pole * Out;
 		const FVector3 Reached = Hip + Aim * Reach;
 
-		const FQuaternion Thigh = Arc((Knee - Hip).Normalized(), (NewKnee - Hip).Normalized());
-		MoveSubtree(Leg.Hip, RotateAbout(Hip, Thigh));
-		const FVector3 AnkleAfter = Position(Leg.Ankle);
-		const FQuaternion Shin = Arc((AnkleAfter - NewKnee).Normalized(), (Reached - NewKnee).Normalized());
-		MoveSubtree(Leg.Knee, RotateAbout(NewKnee, Shin));
+		const FQuaternion Thigh = FQuaternion::Between((Knee - Hip).Normalized(), (NewKnee - Hip).Normalized());
+		MoveSubtree(Limb.Root, RotateAbout(Hip, Thigh));
+		const FVector3 AnkleAfter = Position(Limb.Tip);
+		const FQuaternion Shin = FQuaternion::Between((AnkleAfter - NewKnee).Normalized(), (Reached - NewKnee).Normalized());
+		MoveSubtree(Limb.Middle, RotateAbout(NewKnee, Shin));
 
-		// Undo what the leg's bend did to the foot, then lay it on the ground.
-		const FVector3 SoleUp = Leg.SoleUp.LengthSquared() > 1.e-6f ? Leg.SoleUp.Normalized() : FVector3{0.f, 1.f, 0.f};
-		const FQuaternion Foot = Arc({0.f, 1.f, 0.f}, SoleUp) * (Shin * Thigh).Conjugated();
-		MoveSubtree(Leg.Ankle, RotateAbout(Position(Leg.Ankle), Foot));
+		// Undo what the bend did to the tip, then make the turn asked for.
+		const FVector3 TurnFrom = Limb.TipTurnFrom.LengthSquared() > 1.e-6f ? Limb.TipTurnFrom.Normalized() : FVector3::Up();
+		const FVector3 TurnTo = Limb.TipTurnTo.LengthSquared() > 1.e-6f ? Limb.TipTurnTo.Normalized() : TurnFrom;
+		const FQuaternion Turn = Limb.TipExtraTurn * FQuaternion::Between(TurnFrom, TurnTo);
+		const FQuaternion Foot = Turn * (Shin * Thigh).Conjugated();
+		MoveSubtree(Limb.Tip, RotateAbout(Position(Limb.Tip), Foot));
 	}
 
 	for (std::size_t Joint = 0; Joint < Parents.size(); ++Joint)
 	{
 		Pose.SkinningMatrices[Joint] = Pose.ModelTransforms[Joint] * InverseBinds[Joint];
+	}
+}
+
+void FAnimationPose::RotateJoint(const std::size_t Joint, const FQuaternion& Rotation)
+{
+	FImplementation& Pose = *Implementation;
+	const std::span<const std::int16_t> Parents = Pose.Library->GetJointParents();
+	const std::span<const FMatrix4> InverseBinds = Pose.Library->GetInverseBindMatrices();
+	if (Joint >= Parents.size())
+	{
+		return;
+	}
+
+	const FVector3 Pivot = Pose.ModelTransforms[Joint].TransformPosition({});
+	const FMatrix4 Transform = FMatrix4::Translation(Pivot) * FMatrix4::Rotation(Rotation) * FMatrix4::Translation(-Pivot);
+	Pose.Moved.assign(Parents.size(), false);
+	for (std::size_t Index = Joint; Index < Parents.size(); ++Index)
+	{
+		Pose.Moved[Index] = Index == Joint || (Parents[Index] >= 0 && Pose.Moved[static_cast<std::size_t>(Parents[Index])]);
+		if (Pose.Moved[Index])
+		{
+			Pose.ModelTransforms[Index] = Transform * Pose.ModelTransforms[Index];
+			Pose.SkinningMatrices[Index] = Pose.ModelTransforms[Index] * InverseBinds[Index];
+		}
 	}
 }
 

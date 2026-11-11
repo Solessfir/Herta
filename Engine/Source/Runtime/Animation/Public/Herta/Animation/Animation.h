@@ -71,16 +71,23 @@ struct FAnimationLayer
 	float LowerBodyWeight = 1.f;
 };
 
-// A leg for FAnimationPose::SolveLegs, in the pose's model space.
-struct FLegIkTarget
+// A two-bone limb for FAnimationPose::SolveLimbs, in the pose's model space: hip, knee, and ankle, or shoulder, elbow, and wrist.
+struct FLimbIkTarget
 {
-	std::size_t Hip = 0;
-	std::size_t Knee = 0;
-	std::size_t Ankle = 0;
-	FVector3 AnkleTarget{};
-	// The direction the sole should face; the animated foot turns by the arc from +Y to this.
-	FVector3 SoleUp{0.f, 1.f, 0.f};
+	std::size_t Root = 0;
+	std::size_t Middle = 0;
+	std::size_t Tip = 0;
+	FVector3 TipTarget{};
+	// The tip keeps its animated orientation, then turns by the arc from TipTurnFrom to TipTurnTo, such as a sole laid on a slope.
+	FVector3 TipTurnFrom{0.f, 1.f, 0.f};
+	FVector3 TipTurnTo{0.f, 1.f, 0.f};
+	// Applied after that turn, for a tip that needs its whole orientation set, such as a hand laid on a wall.
+	FQuaternion TipExtraTurn = FQuaternion::Identity();
 	float Weight = 1.f;
+	// The way the middle joint bends when the limb is nearly straight and its own bend says nothing: forward for a knee, back for an elbow.
+	FVector3 BendFallback{0.f, 0.f, 1.f};
+	// Always bends toward BendFallback, for a limb whose animated bend is too slight to trust, such as an arm hanging at the side.
+	bool bForceBend = false;
 };
 
 // One character's working memory for sampling and blending. Reuse it every frame; evaluation allocates only when more layers are blended than ever before.
@@ -109,10 +116,11 @@ public:
 	// Moves Joints to model-space Transforms, such as the ragdoll bodies that drive them, blended over the evaluated pose by Weight from 0 to 1,
 	// until the next Evaluate. Joints below them that are not given keep their evaluated transforms relative to their parent.
 	void OverrideJoints(std::span<const std::size_t> Joints, std::span<const FMatrix4> Transforms, float Weight);
-	// Until the next Evaluate: moves Pelvis and everything below it by PelvisOffset, then bends each leg with analytic two-bone IK so its ankle
-	// reaches its target, as far as the leg's length allows. The knee stays in the plane it bends in, and the foot keeps its animated
-	// orientation before turning to SoleUp.
-	void SolveLegs(std::optional<std::size_t> Pelvis, const FVector3& PelvisOffset, std::span<const FLegIkTarget> Legs);
+	// Until the next Evaluate: moves Pelvis and everything below it by PelvisOffset, then bends each limb with analytic two-bone IK so its tip
+	// reaches its target, as far as the limb's length allows. The middle joint stays in the plane it bends in.
+	void SolveLimbs(std::optional<std::size_t> Pelvis, const FVector3& PelvisOffset, std::span<const FLimbIkTarget> Limbs);
+	// Until the next Evaluate: turns a joint and everything below it about the joint, such as a spine leaning away from a wall.
+	void RotateJoint(std::size_t Joint, const FQuaternion& Rotation);
 
 private:
 	struct FImplementation;

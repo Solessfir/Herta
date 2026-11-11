@@ -38,6 +38,16 @@ struct FFootGround
 	FVector3 Normal = FVector3::Up();
 };
 
+// A surface a sweep from one world-space point to another touched.
+struct FWallHit
+{
+	FVector3 Point{};
+	FVector3 Normal{};
+	float Distance = 0.f;
+};
+
+using FWallCast = std::function<std::optional<FWallHit>(const FVector3& From, const FVector3& To)>;
+
 // Finds the ground under a world-space point, searching from Top down to Bottom.
 using FFootGroundCast = std::function<std::optional<FFootGround>(const FVector3& Point, float Top, float Bottom)>;
 
@@ -62,6 +72,10 @@ public:
 	// Finds the ground under each foot and eases the legs onto it, for the next Skin: uneven ground bends the legs and the pelvis drops so the
 	// lower foot can reach. Only what is drawn changes, never what gameplay reads from EvaluatePose. Disabled, it fades out without casting.
 	void UpdateFootPlacement(const FMatrix4& BodyModel, float DeltaSeconds, bool bEnabled, const FFootGroundCast& Cast);
+	// Finds walls beside the shoulders and eases the upper body to them, for the next Skin: the free left hand rests on a wall on its side, the
+	// sword hand pulls in rather than pass through one, and the torso leans a little away. Only relaxed states react, so a swing or guard keeps
+	// its pose. Like feet, this changes only what is drawn.
+	void UpdateWallReach(const FMatrix4& BodyModel, float DeltaSeconds, bool bEnabled, const FWallCast& Cast);
 
 	[[nodiscard]] const FRenderMesh* GetMesh() const noexcept;
 	[[nodiscard]] std::span<const FCookedVertex> GetVertices() const noexcept;
@@ -152,8 +166,33 @@ private:
 		FVector3 Normal = FVector3::Up();
 	};
 
-	void ApplyFootPlacement();
+	struct FArmReach
+	{
+		std::optional<std::size_t> Shoulder{};
+		std::optional<std::size_t> Elbow{};
+		std::optional<std::size_t> Wrist{};
+		// The wall it reacts to, in model space, eased; Weight fades it in and out.
+		FVector3 Point{};
+		FVector3 Normal{};
+		FVector3 PointTarget{};
+		FVector3 NormalTarget{};
+		float Wanted = 0.f;
+		float Weight = 0.f;
+	};
 
+	void ApplyFootPlacement();
+	void ApplyWallReach();
+	// Where a hand can rest on the wall a shoulder's sweep touched, or nothing when the surface there is smaller than a hand.
+	[[nodiscard]] static std::optional<FVector3> FindHandContact(const FVector3& Wall, const FVector3& Normal, const FVector3& Forward, float Distance, const FWallCast& Cast);
+
+	// Left, the free hand, then right, the sword hand.
+	std::array<FArmReach, 2> Arms{};
+	// The left hand's middle, index, and little finger roots, which give the way its palm faces.
+	std::array<std::optional<std::size_t>, 3> LeftFingers{};
+	std::optional<std::size_t> SpineJoint{};
+	std::vector<std::size_t> RelaxedStates{};
+	// Walls are looked for every few updates; easing hides the difference, and each look takes several casts.
+	std::uint32_t WallCastCountdown = 0;
 	std::array<FFootPlacement, 2> Feet{};
 	FVector3 PelvisOffset{};
 	float FootWeight = 0.f;

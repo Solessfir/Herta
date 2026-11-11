@@ -417,6 +417,8 @@ struct FGameSession::FImplementation : FPlayerSlot
 	// Starts, moves, or ends the ribbon a blade draws.
 	void UpdateBladeTrail(std::optional<FParticleEffectId>& Trail, bool bActive, const std::optional<std::array<FVector3, 2>>& Blade);
 	void UpdateBodyFootPlacement(bool bEnabled);
+	// The level's surface along a sweep from one point to another, for hands reaching for walls.
+	[[nodiscard]] std::optional<FWallHit> FindWall(const FVector3& From, const FVector3& To) const;
 	// The level's ground under a point, for planting feet; characters' capsules do not count.
 	[[nodiscard]] std::optional<FFootGround> FindFootGround(const FVector3& Point, float Top, float Bottom) const;
 	// Slows the whole game for a moment and shakes the camera, so a heavy clash lands with weight.
@@ -2606,6 +2608,36 @@ void FGameSession::FImplementation::UpdateBodyFootPlacement(const bool bEnabled)
 	{
 		return FindFootGround(Point, Top, Bottom);
 	});
+
+	// A sprint swings the arms too hard for a hand to rest on anything.
+	const FVector3 Velocity = Mover->GetState().Velocity;
+	Body->UpdateWallReach(GetBodyModel(), LastDeltaSeconds, bEnabled && std::hypot(Velocity.X, Velocity.Z) < 5.5f, [this](const FVector3& From, const FVector3& To)
+	{
+		return FindWall(From, To);
+	});
+}
+
+std::optional<FWallHit> FGameSession::FImplementation::FindWall(const FVector3& From, const FVector3& To) const
+{
+	const FPhysicsWorld* const World = Simulation.GetPhysicsWorld();
+	if (!World)
+	{
+		return std::nullopt;
+	}
+
+	constexpr float Radius = 0.05f;
+	const auto Hit = World->CastSphereHit(World->ToWorld(From), World->ToWorld(To), Radius, [this](const FPhysicsBodyId Candidate)
+	{
+		return Simulation.IsLevelBody(Candidate);
+	});
+
+	if (!Hit)
+	{
+		return std::nullopt;
+	}
+
+	const FVector3 Center = From + (To - From) * Hit->Fraction;
+	return FWallHit{.Point = Center - Hit->Normal * Radius, .Normal = Hit->Normal, .Distance = (To - From).Length() * Hit->Fraction + Radius};
 }
 
 std::optional<FFootGround> FGameSession::FImplementation::FindFootGround(const FVector3& Point, const float Top, const float Bottom) const
@@ -3287,6 +3319,11 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		Actor.Body->UpdateFootPlacement(PlacedModel, Session.LastDeltaSeconds, bPlaceFeet, [&Session](const FVector3& Point, const float Top, const float Bottom)
 		{
 			return Session.FindFootGround(Point, Top, Bottom);
+		});
+
+		Actor.Body->UpdateWallReach(PlacedModel, Session.LastDeltaSeconds, bPlaceFeet && (!Actor.Npc || Actor.Npc->GetGroundSpeed() < 5.5f), [&Session](const FVector3& From, const FVector3& To)
+		{
+			return Session.FindWall(From, To);
 		});
 
 		if (Actor.Body->Skin(false) && Actor.Body->GetMesh())
