@@ -210,6 +210,35 @@ TEST_CASE("Shell requests run the line through the user's shell, keeping its quo
 	CHECK(Failed->ExitCode == 3);
 }
 
+TEST_CASE("Processes see the variables a request sets on top of the inherited environment, and executables resolve on PATH")
+{
+#ifdef HERTA_PLATFORM_WINDOWS
+	FProcessRequest Request = MakeShellRequest("echo [%HERTA_PROCESS_TEST%] [%PATH%]");
+	constexpr std::string_view EmptyPath = "[]";
+#else
+	FProcessRequest Request = MakeShellRequest(R"(echo "[$HERTA_PROCESS_TEST]" "<$PATH>")");
+	constexpr std::string_view EmptyPath = "<>";
+#endif
+	Request.Environment = {{"HERTA_PROCESS_TEST", "set by the request"}};
+	const auto Result = RunProcess(Request);
+	REQUIRE(Result);
+	CHECK(Result->StandardOutput.find("[set by the request]") != std::string::npos);
+	// PATH is still inherited.
+	CHECK(Result->StandardOutput.find(EmptyPath) == std::string::npos);
+
+	Request.Environment = {{"BAD=NAME", "value"}};
+	CHECK_FALSE(RunProcess(Request));
+
+#ifdef HERTA_PLATFORM_WINDOWS
+	const auto Shell = FindExecutableOnPath("cmd");
+#else
+	const auto Shell = FindExecutableOnPath("sh");
+#endif
+	REQUIRE(Shell);
+	CHECK(std::filesystem::is_regular_file(*Shell));
+	CHECK_FALSE(FindExecutableOnPath("herta-no-such-program"));
+}
+
 #ifndef HERTA_PLATFORM_WINDOWS
 TEST_CASE("Nested process test child" * doctest::skip())
 {

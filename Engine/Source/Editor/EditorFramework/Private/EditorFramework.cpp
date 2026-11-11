@@ -105,12 +105,18 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		Implementation->ProjectPath = Project->DescriptorPath;
 		Implementation->RememberRecentProject(Project->DescriptorPath);
 		Implementation->LoadGameModules(*Project);
+		Implementation->LoadPlugins(&*Project, Descriptor.bSafeMode);
 		Implementation->AssetPaths.ContentRoot = Project->ContentRoot;
 		Implementation->AssetPaths.DerivedDataRoot = Project->Root / "DerivedDataCache" / Descriptor.Assets.TargetPlatform;
 		if (InitialLevelPath.empty())
 		{
 			InitialLevelPath = Project->StartingLevel;
 		}
+	}
+
+	if (!Implementation->Plugins)
+	{
+		Implementation->LoadPlugins(nullptr, Descriptor.bSafeMode);
 	}
 
 	Implementation->Level->SetPath(InitialLevelPath);
@@ -454,6 +460,12 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->RefreshLevel();
 	Implementation->PollTextCatalogs(false);
 	Implementation->PollGameModules();
+	Implementation->Plugins->Update();
+	// A minute of running means the plugins survived startup, so the next start loads them again.
+	if (std::chrono::steady_clock::now() - Implementation->PluginsLoaded > std::chrono::minutes(1))
+	{
+		Implementation->Plugins->MarkStartupFinished();
+	}
 	if (const std::string& Culture = Implementation->ToolUI->GetAppearance().Culture; Culture != Implementation->Localization.GetCultureName())
 	{
 		// A culture with no data leaves the text as it is; the menu only offers loaded ones.
@@ -678,6 +690,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 		ToolUIMenuItem("Performance", EToolUIMenuIcon::Performance, &Implementation->bPerformanceOpen);
 		ToolUIMenuItem("Localization", EToolUIMenuIcon::Details, &Implementation->bLocalizationOpen);
+		ToolUIMenuItem("Plugins", EToolUIMenuIcon::Panel, &Implementation->bPluginsOpen);
+		Implementation->Plugins->DrawWindowMenuItems();
 	}, [&]
 	{
 		const float Scale = ImGui::GetFontSize() / Implementation->ToolUI->GetMetrics().BaseFontSize;
@@ -976,7 +990,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 
 		ImGui::EndDisabled();
-	});
+	}, Implementation->Plugins->HasToolsMenuItems() ? std::function<void()>([&]
+	{
+		Implementation->Plugins->DrawToolsMenuItems();
+	})
+	                                                : std::function<void()>{});
 
 	ImGui::BeginDisabled(!bAuthoringAvailable);
 	if (const auto Placement = DrawPlaceObjectsMenu(*Implementation->ToolUI, Implementation->PlaceObjectsMenuState, bPlaceObjectsRequested))
@@ -1194,6 +1212,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	}
 	Implementation->DrawPerformancePanel();
 	Implementation->DrawLocalizationPanel();
+	Implementation->Plugins->DrawManager(*Implementation->ToolUI, Implementation->bPluginsOpen);
+	Implementation->Plugins->DrawPanels(*Implementation->ToolUI);
 	if (!Implementation->IsSimulating())
 	{
 		if (Implementation->bViewportEditCanceled && Implementation->Level->HasActiveEdit())

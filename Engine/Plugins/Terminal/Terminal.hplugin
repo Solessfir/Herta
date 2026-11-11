@@ -1,0 +1,10 @@
+{
+  "format": "HertaPlugin",
+  "formatVersion": 1,
+  "name": "Terminal",
+  "friendlyName": "Terminal",
+  "description": "A shell in a dockable panel through ConPTY on Windows and a pseudo terminal on Linux. Line-oriented: full-screen programs are not supported.",
+  "module": "HertaTerminal",
+  "dependencies": [],
+  "enabledByDefault": false
+}

@@ -56,6 +56,7 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Navigation](Docs/Navigation.md) and [AI](Docs/AI.md) - tiled navmesh with streamed patches and obstacles, the crowd, StateTrees, perception, and agents.
 - [Multiplayer](Docs/Multiplayer.md) - dedicated and listen servers, snapshots, prediction, and rollback over GameNetworkingSockets.
 - [Editor automation](Docs/Automation.md) - driving a running editor from MCP clients such as coding agents.
+- [Plugins](Docs/Plugins.md) - editor plugins, safe mode, and the Git and Terminal plugins.
 - [Distribution](Docs/Distribution.md) - signed zstd content packages, embedded executables, HertaCooker, and data mods.
 - [Localization](Docs/Localization.md) - CLDR cultures, messages with plurals, catalogs, language packs, HarfBuzz text, and the translation editor.
 - [Next milestone](Docs/EngineDesign.md#milestone-15---graph-domains) - graph domains, while editor automation over MCP keeps growing.

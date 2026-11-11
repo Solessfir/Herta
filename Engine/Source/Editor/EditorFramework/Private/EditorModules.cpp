@@ -78,6 +78,25 @@ FGameModuleReloadResult FEditorFramework::FImplementation::ReloadGameModule(cons
 	return Result;
 }
 
+void FEditorFramework::FImplementation::LoadPlugins(const FLoadedProject* const Project, const bool bSafeMode)
+{
+	const std::filesystem::path Configuration = GetExecutablePath().parent_path().filename();
+	const std::filesystem::path Settings = GetUserSettingsDirectory() / "Herta" / "Editor";
+	PluginProject = Project ? Project->DescriptorPath : std::filesystem::path{};
+	Plugins = std::make_unique<FEditorPlugins>(Tasks, *Log, *EditorCommands, FEditorPluginsSettings{
+	                                                                             .EngineRoot = EngineRoot,
+	                                                                             .ProjectRoot = Project ? Project->Root : std::filesystem::path{},
+	                                                                             .ProjectBinaries = Project ? Project->Root / "Binaries" / GetPlatformName(GetCurrentPlatform()) / "x86_64" / Configuration : std::filesystem::path{},
+	                                                                             .EngineBinaries = GetExecutablePath().parent_path(),
+	                                                                             .OverridesPath = Settings / "Plugins.txt",
+	                                                                             .StartupMarkerPath = Settings / "PluginStartup.marker",
+	                                                                             .bSafeMode = bSafeMode,
+	                                                                         });
+
+	Plugins->Load();
+	PluginsLoaded = std::chrono::steady_clock::now();
+}
+
 void FEditorFramework::FImplementation::PollGameModules()
 {
 	const auto Now = std::chrono::steady_clock::now();

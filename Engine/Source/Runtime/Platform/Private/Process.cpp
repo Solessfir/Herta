@@ -1,9 +1,13 @@
 #include "Herta/Platform/Process.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdlib>
+#include <cwchar>
 #include <format>
 #include <optional>
+#include <ranges>
+#include <span>
 #include <vector>
 
 #ifdef HERTA_PLATFORM_WINDOWS
@@ -26,6 +30,20 @@
 	#include <limits>
 	#include <thread>
 #endif
+
+namespace Herta
+{
+namespace
+{
+[[nodiscard]] bool IsValidEnvironment(const std::span<const std::pair<std::string, std::string>> Environment)
+{
+	return std::ranges::all_of(Environment, [](const std::pair<std::string, std::string>& Variable)
+	{
+		return !Variable.first.empty() && !Variable.first.contains('=') && !Variable.first.contains('\0') && !Variable.second.contains('\0');
+	});
+}
+}
+}
 
 #ifdef HERTA_PLATFORM_WINDOWS
 namespace Herta
@@ -159,9 +177,45 @@ void AppendQuotedArgument(std::wstring& CommandLine, const std::wstring_view Arg
 
 std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& Request)
 {
-	if (Request.Executable.empty() || Request.Timeout.count() < 0)
+	if (Request.Executable.empty() || Request.Timeout.count() < 0 || !IsValidEnvironment(Request.Environment))
 	{
-		return std::unexpected(FProcessError{.Code = EProcessErrorCode::InvalidRequest, .Message = "A process requires an executable and a nonnegative timeout"});
+		return std::unexpected(FProcessError{.Code = EProcessErrorCode::InvalidRequest, .Message = "A process requires an executable, a nonnegative timeout, and named environment variables"});
+	}
+
+	// The block holds the request's variables, then every inherited one they do not replace; Windows compares names without case.
+	std::wstring EnvironmentBlock;
+	if (!Request.Environment.empty())
+	{
+		std::vector<std::wstring> Replaced;
+		std::wstring Name;
+		std::wstring Value;
+		for (const auto& [VariableName, VariableValue] : Request.Environment)
+		{
+			if (!Widen(VariableName, Name) || !Widen(VariableValue, Value))
+			{
+				return std::unexpected(FProcessError{.Code = EProcessErrorCode::InvalidRequest, .Message = "Environment variables must be valid UTF-8"});
+			}
+
+			EnvironmentBlock.append(Name).append(1, L'=').append(Value).push_back(L'\0');
+			Replaced.push_back(Name + L'=');
+		}
+
+		const std::unique_ptr<wchar_t, decltype(&FreeEnvironmentStringsW)> Inherited(GetEnvironmentStringsW(), &FreeEnvironmentStringsW);
+		for (const wchar_t* Entry = Inherited.get(); Entry && *Entry; Entry += std::wcslen(Entry) + 1)
+		{
+			const std::wstring_view Variable(Entry);
+			const bool bReplaced = std::ranges::any_of(Replaced, [Variable](const std::wstring& Prefix)
+			{
+				return Variable.size() >= Prefix.size() && CompareStringOrdinal(Variable.data(), static_cast<int>(Prefix.size()), Prefix.data(), static_cast<int>(Prefix.size()), TRUE) == CSTR_EQUAL;
+			});
+
+			if (!bReplaced)
+			{
+				EnvironmentBlock.append(Variable).push_back(L'\0');
+			}
+		}
+
+		EnvironmentBlock.push_back(L'\0');
 	}
 
 	std::wstring CommandLine;
@@ -236,7 +290,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	Startup.lpAttributeList = Attributes;
 	PROCESS_INFORMATION Information{};
 
-	if (!CreateProcessW(Request.Executable.c_str(), CommandLine.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, nullptr, nullptr, &Startup.StartupInfo, &Information))
+	if (!CreateProcessW(Request.Executable.c_str(), CommandLine.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT, EnvironmentBlock.empty() ? nullptr : EnvironmentBlock.data(), nullptr, &Startup.StartupInfo, &Information))
 	{
 		const DWORD Error = GetLastError();
 		const std::u8string Executable = Request.Executable.u8string();
@@ -307,6 +361,31 @@ FProcessRequest MakeShellRequest(const std::string_view CommandLine)
 	Request.RawArguments = std::format("\"{}\"", CommandLine);
 
 	return Request;
+}
+
+std::optional<std::filesystem::path> FindExecutableOnPath(const std::string_view Name)
+{
+	std::wstring WideName;
+	if (Name.empty() || !Widen(Name, WideName))
+	{
+		return std::nullopt;
+	}
+
+	std::wstring Buffer(MAX_PATH, L'\0');
+	DWORD Length = SearchPathW(nullptr, WideName.c_str(), L".exe", static_cast<DWORD>(Buffer.size()), Buffer.data(), nullptr);
+	if (Length >= Buffer.size())
+	{
+		Buffer.resize(Length);
+		Length = SearchPathW(nullptr, WideName.c_str(), L".exe", static_cast<DWORD>(Buffer.size()), Buffer.data(), nullptr);
+	}
+
+	if (Length == 0 || Length >= Buffer.size())
+	{
+		return std::nullopt;
+	}
+
+	Buffer.resize(Length);
+	return std::filesystem::path(Buffer);
 }
 
 std::filesystem::path GetExecutablePath()
@@ -451,9 +530,41 @@ private:
 
 std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& Request)
 {
-	if (Request.Executable.empty() || Request.Timeout.count() < 0 || !Request.RawArguments.empty())
+	if (Request.Executable.empty() || Request.Timeout.count() < 0 || !Request.RawArguments.empty() || !IsValidEnvironment(Request.Environment))
 	{
-		return std::unexpected(FProcessError{.Code = EProcessErrorCode::InvalidRequest, .Message = "A process requires an executable and a nonnegative timeout"});
+		return std::unexpected(FProcessError{.Code = EProcessErrorCode::InvalidRequest, .Message = "A process requires an executable, a nonnegative timeout, and named environment variables"});
+	}
+
+	// Built before the fork, since the child may only make native calls until exec.
+	std::vector<std::string> EnvironmentStorage;
+	std::vector<char*> EnvironmentPointers;
+	if (!Request.Environment.empty())
+	{
+		for (const auto& [Name, Value] : Request.Environment)
+		{
+			EnvironmentStorage.push_back(Name + '=' + Value);
+		}
+
+		for (char* const* Entry = environ; *Entry != nullptr; ++Entry)
+		{
+			const std::string_view Variable(*Entry);
+			const bool bReplaced = std::ranges::any_of(Request.Environment, [Variable](const std::pair<std::string, std::string>& Replacement)
+			{
+				return Variable.size() > Replacement.first.size() && Variable.starts_with(Replacement.first) && Variable[Replacement.first.size()] == '=';
+			});
+
+			if (!bReplaced)
+			{
+				EnvironmentStorage.emplace_back(Variable);
+			}
+		}
+
+		for (std::string& Variable : EnvironmentStorage)
+		{
+			EnvironmentPointers.push_back(Variable.data());
+		}
+
+		EnvironmentPointers.push_back(nullptr);
 	}
 
 	const FFileDescriptor Output(CreateCaptureFile());
@@ -494,7 +605,7 @@ std::expected<FProcessResult, FProcessError> RunProcess(const FProcessRequest& R
 	const int LaunchWriteDescriptor = LaunchWrite.Get();
 	const char* const ExecutableName = Executable.c_str();
 	char* const* const ArgumentData = Arguments.data();
-	char* const* const Environment = environ;
+	char* const* const Environment = EnvironmentPointers.empty() ? environ : EnvironmentPointers.data();
 	const pid_t Parent = getpid();
 	const pid_t ParentThread = gettid();
 	// posix_spawn cannot set a parent-death signal. The child uses only native calls until exec, because other threads may hold library locks.
@@ -622,6 +733,28 @@ std::filesystem::path GetExecutablePath()
 {
 	std::error_code Error;
 	return std::filesystem::read_symlink("/proc/self/exe", Error);
+}
+
+std::optional<std::filesystem::path> FindExecutableOnPath(const std::string_view Name)
+{
+	const char* const Path = std::getenv("PATH");
+	if (Name.empty() || Name.contains('/') || Path == nullptr)
+	{
+		return std::nullopt;
+	}
+
+	for (const auto Part : std::views::split(std::string_view(Path), ':'))
+	{
+		const std::string_view Directory(Part.begin(), Part.end());
+		const std::filesystem::path Candidate = std::filesystem::path(Directory.empty() ? "." : Directory) / Name;
+		std::error_code Error;
+		if (std::filesystem::is_regular_file(Candidate, Error) && access(Candidate.c_str(), X_OK) == 0)
+		{
+			return Candidate;
+		}
+	}
+
+	return std::nullopt;
 }
 
 FProcessRequest MakeShellRequest(const std::string_view CommandLine)

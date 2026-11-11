@@ -212,7 +212,7 @@ public:
 	[[nodiscard]] std::expected<void, FToolUIError> EndFrame(bool bRenderMainViewport = true);
 	[[nodiscard]] std::expected<void, FToolUIError> RenderPlatformWindows();
 	// DrawFileMenuItems adds items at the top of the File menu, above the workspace section.
-	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems = {}, const std::function<void()>& DrawStatusItems = {}, const std::function<void()>& DrawFileMenuItems = {}, const std::function<void()>& DrawEditMenuItems = {});
+	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems = {}, const std::function<void()>& DrawStatusItems = {}, const std::function<void()>& DrawFileMenuItems = {}, const std::function<void()>& DrawEditMenuItems = {}, const std::function<void()>& DrawToolsMenuItems = {});
 	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, EToolUIPanelKind Kind = EToolUIPanelKind::Tool);
 	void EndPanel();
 	void SetViewportImmersive(bool bImmersive) noexcept;

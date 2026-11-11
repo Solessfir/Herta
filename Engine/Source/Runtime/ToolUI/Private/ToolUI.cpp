@@ -2593,7 +2593,7 @@ void ToolUIIcon(const EToolUIMenuIcon Icon, const float CenterX, const float Cen
 	DrawToolUIIcon(ImGui::GetWindowDrawList(), {CenterX, CenterY}, Scale, ImGui::GetColorU32(ImGuiCol_TextDisabled), Icon);
 }
 
-void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems, const std::function<void()>& DrawEditMenuItems)
+void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems, const std::function<void()>& DrawEditMenuItems, const std::function<void()>& DrawToolsMenuItems)
 {
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
 	{
@@ -2730,8 +2730,9 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		{
 			const bool bWindowMenu = Id.Hash == Editor::Menu_Window.Hash;
 			const bool bEditMenu = Id.Hash == Editor::Menu_Edit.Hash;
+			const bool bToolsMenu = Id.Hash == Editor::Menu_Tools.Hash;
 			ImGui::SetNextWindowSizeConstraints(MinimumMenuSize, MaximumMenuSize);
-			if (ImGui::BeginMenu(std::format("{}###{}", Text(Id, English), English).c_str(), (bWindowMenu && static_cast<bool>(DrawWindowMenuItems)) || (bEditMenu && static_cast<bool>(DrawEditMenuItems))))
+			if (ImGui::BeginMenu(std::format("{}###{}", Text(Id, English), English).c_str(), (bWindowMenu && static_cast<bool>(DrawWindowMenuItems)) || (bEditMenu && static_cast<bool>(DrawEditMenuItems)) || (bToolsMenu && static_cast<bool>(DrawToolsMenuItems))))
 			{
 				ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * ChromeScale, 6.f * ChromeScale});
 				if (bWindowMenu)
@@ -2739,6 +2740,10 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 					ImGui::TextUnformatted(Text(Editor::Menu_Panels, "Panels").c_str());
 					ImGui::Separator();
 					DrawWindowMenuItems();
+				}
+				else if (bToolsMenu)
+				{
+					DrawToolsMenuItems();
 				}
 				else
 				{

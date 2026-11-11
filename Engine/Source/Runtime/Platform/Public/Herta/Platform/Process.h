@@ -6,8 +6,10 @@
 #include <expected>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace Herta
@@ -40,6 +42,8 @@ struct FProcessRequest
 	std::size_t MaximumOutputBytes = std::size_t{1} << 20;
 	// Windows only: appended verbatim after Arguments for programs such as cmd.exe that parse their own command line. Must be empty on Linux.
 	std::string RawArguments{};
+	// UTF-8 variables set on top of the caller's environment, which the process otherwise inherits unchanged.
+	std::vector<std::pair<std::string, std::string>> Environment{};
 };
 
 struct FProcessResult
@@ -58,4 +62,7 @@ struct FProcessResult
 
 // Runs CommandLine through the user's shell: %COMSPEC% (cmd.exe) on Windows, $SHELL (or /bin/sh) on Linux.
 [[nodiscard]] FProcessRequest MakeShellRequest(std::string_view CommandLine);
+
+// The first PATH entry holding an executable with this name, with .exe added on Windows when it has no extension.
+[[nodiscard]] std::optional<std::filesystem::path> FindExecutableOnPath(std::string_view Name);
 }

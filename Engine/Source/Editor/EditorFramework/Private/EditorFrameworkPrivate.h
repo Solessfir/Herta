@@ -7,6 +7,7 @@
 #include "DetailsPanel.h"
 #include "EditorLevel.h"
 #include "EditorNavigation.h"
+#include "EditorPlugins.h"
 #include "GraphDocumentPanel.h"
 #include "Herta/AnimationGraph/AnimationGraph.h"
 #include "Herta/Application/Application.h"
@@ -362,6 +363,7 @@ struct FEditorFramework::FImplementation
 	void LoadGameModules(const FLoadedProject& Project);
 	// Reloads a module whose build changed, between frames, where no system runs.
 	void PollGameModules();
+	void LoadPlugins(const FLoadedProject* Project, bool bSafeMode);
 	FGameModuleReloadResult ReloadGameModule(std::string_view Name);
 	void RememberRecentProject(const std::filesystem::path& Descriptor);
 	void StartProjectOperation(const std::filesystem::path& Path, std::optional<FCreateProjectRequest> Create = std::nullopt);
@@ -548,6 +550,12 @@ struct FEditorFramework::FImplementation
 	FLevelSimulation Simulation;
 	std::vector<FPreviewObject> SimulationStart;
 	bool bSimulationStoppedThisFrame = false;
+
+	// Plugins load once, at startup; a project opened later brings its plugins on the next start.
+	std::unique_ptr<FEditorPlugins> Plugins;
+	std::filesystem::path PluginProject;
+	bool bPluginsOpen = false;
+	std::chrono::steady_clock::time_point PluginsLoaded{};
 
 	// The project's game modules. Play's systems run their code, so the modules are declared before the session and outlive it.
 	std::unique_ptr<FGameModules> GameModules;

@@ -1,0 +1,10 @@
+{
+  "format": "HertaPlugin",
+  "formatVersion": 1,
+  "name": "Git",
+  "friendlyName": "Git source control",
+  "description": "Status, staging, commits, pull, and push through the Git command line and its credential helpers, without stalling the editor.",
+  "module": "HertaGit",
+  "dependencies": [],
+  "enabledByDefault": true
+}

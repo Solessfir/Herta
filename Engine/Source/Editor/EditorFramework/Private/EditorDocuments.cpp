@@ -173,6 +173,10 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 			ProjectPath = Result->Project->DescriptorPath;
 			RememberRecentProject(ProjectPath);
 			LoadGameModules(*Result->Project);
+			if (Result->Project->DescriptorPath != PluginProject && std::filesystem::is_directory(Result->Project->Root / "Plugins"))
+			{
+				HERTA_LOG_INFO(*Log, EditorLog, "Restart the editor to load {}'s plugins", Result->Project->Descriptor.Name);
+			}
 			ContentBrowserState = {};
 			DetailsPanelState = {};
 			OutlinerPanelState = {};

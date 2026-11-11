@@ -62,6 +62,8 @@ struct FEditorFrameworkDescriptor
 	// Make a texture drawable in the editor UI and release it again, such as the game HUD's glyphs during Play.
 	std::function<std::expected<std::uint64_t, FPresentationError>(const FTextureHandle& Texture)> RegisterUITexture{};
 	std::function<void(std::uint64_t TextureId)> UnregisterUITexture{};
+	// Starts without plugins, so a plugin that crashes the editor can be disabled.
+	bool bSafeMode = false;
 };
 
 struct FEditorFrameMetrics

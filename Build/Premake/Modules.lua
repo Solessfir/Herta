@@ -101,6 +101,41 @@ local function HertaGameModule(ModuleName, SourceRoot, Definitions)
         filter {}
 end
 
+-- An editor plugin builds like a game module but sees only EditorCore's headers, of which it may use EditorPlugin.h.
+local function HertaEditorPlugin(ModuleName, SourceRoot)
+    project(ModuleName)
+        kind "SharedLib"
+        location(path.join(ProjectFilesRoot, ModuleName))
+        ApplyCommonProjectSettings(SourceRoot)
+        includedirs { PublicIncludeDirectory("EditorCore"), path.getdirectory(RevisionHeader) }
+        forceincludes { "HertaRevision.h" }
+        -- openpty lives in libutil before glibc 2.34; later versions keep an empty libutil for compatibility.
+        filter "system:linux"
+            visibility "Hidden"
+            links { "util" }
+        filter {}
+end
+
+-- Plugins with a Source folder under Root, each named by its .hplugin descriptor's module. A project's plugins build into its own Binaries.
+local function HertaPlugins(Root, ProjectRoot)
+    local Modules = {}
+    for _, Descriptor in ipairs(os.matchfiles(path.join(Root, "*/*.hplugin"))) do
+        local Plugin = json.decode(io.readfile(Descriptor))
+        local SourceRoot = path.join(path.getdirectory(Descriptor), "Source")
+        if Plugin and Plugin.module and Plugin.module ~= "" and os.isdir(SourceRoot) then
+            HertaEditorPlugin(Plugin.module, SourceRoot)
+            if ProjectRoot then
+                targetdir(path.join(ProjectRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
+                objdir(path.join(ProjectRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
+            end
+
+            table.insert(Modules, Plugin.module)
+        end
+    end
+
+    return Modules
+end
+
 local function HertaEditorModule(ModuleName, Settings)
     Settings = Settings or {}
     Settings.SourceRoot = path.join(EditorRoot, ModuleName)
@@ -704,6 +739,10 @@ project "HertaShaders"
 -- The same test game module built with two state versions, so HertaTests can reload one that keeps the running state and one that cannot.
 HertaGameModule("HertaTestModule", path.join(ProgramsRoot, "HertaTestModule"), { "HERTA_TEST_MODULE_STATE_VERSION=1" })
 HertaGameModule("HertaTestModuleV2", path.join(ProgramsRoot, "HertaTestModule"), { "HERTA_TEST_MODULE_STATE_VERSION=2" })
+HertaEditorPlugin("HertaTestPlugin", path.join(ProgramsRoot, "HertaTestPlugin"))
+
+-- First-party plugins, built beside the editor, which loads the enabled ones.
+local EnginePluginModules = HertaPlugins(path.join(RepositoryRoot, "Engine/Plugins"))
 
 project "HertaTests"
     kind "ConsoleApp"
@@ -720,7 +759,7 @@ project "HertaTests"
     }
 
     ApplyRuntimeDependencies { "Core", "Math", "Localization", "LocalizationPipeline", "TextLayout", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "PackageBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "GameplayGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
-    dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd", "HertaServer", "HertaTestModule", "HertaTestModuleV2" }
+    dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd", "HertaServer", "HertaTestModule", "HertaTestModuleV2", "HertaTestPlugin" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
     filter {}
@@ -814,6 +853,7 @@ project "Herta"
     debugdir(RepositoryRoot)
     ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "AssetPipeline", "GraphCore", "MaterialGraph", "AnimationGraph" }
     dependson { "HertaShaders", "HertaAssetWorker", "HertaShaderWorker" }
+    dependson(EnginePluginModules)
     externalincludedirs { path.join(RepositoryRoot, "External/stb") }
     -- The editor can stay open while it is rebuilt.
     AllowRelinkWhileRunning()
@@ -878,6 +918,8 @@ if HertaProjectDescriptor then
         targetdir(path.join(HertaProjectRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
         objdir(path.join(HertaProjectRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
     end
+
+    HertaPlugins(path.join(HertaProjectRoot, "Plugins"), HertaProjectRoot)
 
     -- A project's own checks, such as its levels staying canonical and its graphs cooking, in Source/Tests with their own doctest main.
     local TestsRoot = path.join(HertaProjectRoot, "Source/Tests")

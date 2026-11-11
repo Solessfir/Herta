@@ -280,7 +280,7 @@ static_assert(!ShouldEnableValidation(EBuildConfiguration::Development, false));
 static_assert(ShouldEnableValidation(EBuildConfiguration::Development, true));
 static_assert(!ShouldEnableValidation(EBuildConfiguration::Shipping, true));
 
-int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const std::string_view ExposureArgument, const bool bShimmer, const bool bWalk, const std::string_view HoldBookmarkArgument, const std::string_view AutomationArgument)
+int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest, const bool bPlatformSmokeTest, const bool bRendererTest, const bool bValidationRequested, const std::string_view ExpectedWindowSystem, const std::string_view ScalingLevelPath, const bool bScalingSimulate, const std::string_view ProjectArgument, const bool bVisualTest, const bool bPlayTest, const std::filesystem::path& OpenPath, const std::string_view QualityArgument, const std::string_view ResolutionArgument, const bool bPathTracing, const std::string_view ExposureArgument, const bool bShimmer, const bool bWalk, const std::string_view HoldBookmarkArgument, const std::string_view AutomationArgument, const bool bSafeMode)
 {
 	const bool bScalingTest = !ScalingLevelPath.empty();
 	FLogOptions LogOptions;
@@ -958,7 +958,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	    .UnregisterUITexture = [&Presentation](const std::uint64_t TextureId)
 	{
 		Presentation->UnregisterToolUITexture(TextureId);
-	}});
+	},
+	    .bSafeMode = bSafeMode});
 	if (!EditorFrameworkResult)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not initialize EditorFramework: {}", EditorFrameworkResult.error().Message);
@@ -2199,7 +2200,7 @@ int main(const int ArgumentCount, char** const Arguments)
 			}
 		}
 
-		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, Exposure, bShimmer, bWalk, HoldBookmark, Automation);
+		return Herta::RunEditor(ExecutablePath, bSmokeTest || bRendererTest, bPlatformSmokeTest, bRendererTest, bValidationRequested, ExpectedWindowSystem, ScalingLevelPath, bScalingSimulate, ProjectPath, bVisualTest, bPlayTest, OpenPath, Quality, Resolution, bPathTracing, Exposure, bShimmer, bWalk, HoldBookmark, Automation, Herta::HasArgument(ArgumentCount, Arguments, "--safe-mode"));
 	}
 	catch (const std::exception& Exception)
 	{
