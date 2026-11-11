@@ -29,6 +29,9 @@ struct FPlayerMotion
 	bool bJumped = false;
 	bool bWallJumped = false;
 	bool bMantled = false;
+	bool bDashed = false;
+	// Which way the last dash went relative to the view, as the back dash has its own pose.
+	bool bDashedBack = false;
 };
 
 // What is under a foot: the ground's height in world space and the way it faces.
@@ -193,6 +196,7 @@ private:
 	std::array<std::optional<std::size_t>, 3> LeftFingers{};
 	std::optional<std::size_t> SpineJoint{};
 	std::optional<std::size_t> SlideSwingState{};
+	std::optional<std::size_t> WallSwingState{};
 	std::vector<std::size_t> RelaxedStates{};
 	// Walls are looked for every few updates; easing hides the difference, and each look takes several casts.
 	std::uint32_t WallCastCountdown = 0;
@@ -217,6 +221,9 @@ private:
 	std::optional<std::size_t> WallJumpParameter;
 	std::optional<std::size_t> MantleParameter;
 	std::optional<std::size_t> WallRunningParameter;
+	std::optional<std::size_t> DashParameter;
+	std::optional<std::size_t> DashBackParameter;
+	std::optional<std::size_t> WallSwingingParameter;
 };
 
 // A ragdoll fitted to a pose: its parts, the joint each drives, and that joint's transform relative to its part's capsule.

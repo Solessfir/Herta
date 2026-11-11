@@ -326,6 +326,9 @@ struct FPlayerSlot
 	bool bThirdPerson = true;
 	bool bJumpedThisUpdate = false;
 	bool bWallJumpedThisUpdate = false;
+	bool bDashedThisUpdate = false;
+	// A dash backwards keeps facing the view until it is over, rather than spinning to face the way it flies.
+	float BackDashSeconds = 0.f;
 	bool bMantledThisUpdate = false;
 	float BodyYaw = 0.f;
 	float BoomLength = 0.f;
@@ -1036,6 +1039,7 @@ void FGameSession::FImplementation::ResetPlayerState()
 	SmoothedEye.reset();
 	bJumpedThisUpdate = false;
 	bWallJumpedThisUpdate = false;
+	bDashedThisUpdate = false;
 	bMantledThisUpdate = false;
 	LastBlade.reset();
 	bSwinging = false;
@@ -1047,6 +1051,7 @@ void FGameSession::FImplementation::ResetPlayerState()
 	bGuardWasHeld = false;
 	HitStop = {};
 	LungeSeconds = 0.f;
+	BackDashSeconds = 0.f;
 	LungeTarget.reset();
 	BladeTrail.reset();
 	ShakeSeconds = 0.f;
@@ -1447,7 +1452,7 @@ std::expected<void, FGameError> FGameSession::ReplayPlayer(const std::size_t InP
 	return Session.VisitPlayer(InPlayer, [&Session, World, Inputs]() -> std::expected<void, FGameError>
 	{
 		// The replayed steps already played their sounds and animation the first time.
-		const std::array Flags{Session.bJumpedThisUpdate, Session.bWallJumpedThisUpdate, Session.bMantledThisUpdate};
+		const std::array Flags{Session.bJumpedThisUpdate, Session.bWallJumpedThisUpdate, Session.bMantledThisUpdate, Session.bDashedThisUpdate};
 		for (const FGameInput& Replayed : Inputs)
 		{
 			if (auto Stepped = Session.ReplayInput(Replayed, *World); !Stepped)
@@ -1459,6 +1464,7 @@ std::expected<void, FGameError> FGameSession::ReplayPlayer(const std::size_t InP
 		Session.bJumpedThisUpdate = Flags[0];
 		Session.bWallJumpedThisUpdate = Flags[1];
 		Session.bMantledThisUpdate = Flags[2];
+		Session.bDashedThisUpdate = Flags[3];
 		return {};
 	});
 }
@@ -1778,6 +1784,7 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepPlayer(FPh
 	{
 		bJumpedThisUpdate |= Event == EMoverEvent::Jumped;
 		bWallJumpedThisUpdate |= Event == EMoverEvent::WallJumped;
+		bDashedThisUpdate |= Event == EMoverEvent::Dashed;
 		bMantledThisUpdate |= Event == EMoverEvent::Mantled;
 	}
 
@@ -2141,7 +2148,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 	// Two incommensurate wobbles, so the shake never settles into a visible pattern.
 	ShakeOffset = FVector3{std::sin(ShakeSeconds * 97.f), std::sin(ShakeSeconds * 131.f + 1.3f), 0.f} * Shake;
 
-	const bool bJumped = bJumpedThisUpdate || bWallJumpedThisUpdate;
+	const bool bJumped = bJumpedThisUpdate || bWallJumpedThisUpdate || bDashedThisUpdate;
 	UpdateBody(DeltaSeconds);
 	if (Body && !Ragdoll && bAuthority)
 	{
@@ -2175,8 +2182,10 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	const std::string_view Mode = Mover->GetActiveMode();
 	// A ragdoll leaves the mover where it collapsed, still holding the run's speed, which must not step the animation's feet.
 	const float Speed = Ragdoll ? 0.f : std::hypot(State.Velocity.X, State.Velocity.Z);
-	float TargetYaw = !bThirdPerson ? Yaw : Speed > 0.5f ? std::atan2(State.Velocity.X, State.Velocity.Z)
-	                                                     : BodyYaw;
+	const bool bDashedBack = bDashedThisUpdate && State.Velocity.Dot(Movement::Forward(Yaw)) < -0.5f * Speed;
+	BackDashSeconds = bDashedBack ? 0.45f : std::max(BackDashSeconds - DeltaSeconds, 0.f);
+	float TargetYaw = !bThirdPerson || BackDashSeconds > 0.f ? Yaw : Speed > 0.5f ? std::atan2(State.Velocity.X, State.Velocity.Z)
+	                                                                              : BodyYaw;
 	// Near a foe, walking keeps the body facing it: sideways steps turn it at most 50 degrees toward the step, and stepping away walks backwards
 	// instead of turning around. A sprint breaks off and runs.
 	const std::optional<std::size_t> Foe = bThirdPerson && !Ragdoll && State.bGrounded && Speed < 5.5f && Mode == "Walking" ? FindCombatTarget(7.f) : std::nullopt;
@@ -2195,9 +2204,10 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	const float MaximumTurn = (bThirdPerson ? (Foe ? 14.f : 10.f) : 30.f) * DeltaSeconds;
 	BodyYaw = std::remainder(BodyYaw + std::clamp(Turn, -MaximumTurn, MaximumTurn), 2.f * std::numbers::pi_v<float>);
 
-	Body->Update(HitStop.Advance(DeltaSeconds), {.GroundSpeed = Speed, .bGrounded = State.bGrounded || Mode == "Mantle", .bCrouched = State.bCrouched, .bSliding = Mode == "Slide", .bWallRunning = Mode == "WallRun", .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate});
+	Body->Update(HitStop.Advance(DeltaSeconds), {.GroundSpeed = Speed, .bGrounded = State.bGrounded || Mode == "Mantle", .bCrouched = State.bCrouched, .bSliding = Mode == "Slide", .bWallRunning = Mode == "WallRun", .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate, .bDashed = bDashedThisUpdate, .bDashedBack = bDashedBack});
 	bJumpedThisUpdate = false;
 	bWallJumpedThisUpdate = false;
+	bDashedThisUpdate = false;
 	bMantledThisUpdate = false;
 }
 

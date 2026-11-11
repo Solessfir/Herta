@@ -89,7 +89,7 @@ TEST_CASE("Sprinting reaches the ground speed within a second, and running witho
 	CHECK(HorizontalSpeed(Mover) == doctest::Approx(4.f).epsilon(0.05));
 }
 
-TEST_CASE("Mirror's Edge jumps hand their forward boost back on landing, and slides halve the speed they end with")
+TEST_CASE("Mirror's Edge jumps hand their forward boost back on landing, and slides keep most of the speed they end with")
 {
 	const auto World = MakeFloor();
 	FCharacterMover Mover = MakeMover(*World);
@@ -111,7 +111,7 @@ TEST_CASE("Mirror's Edge jumps hand their forward boost back on landing, and sli
 
 	CHECK(Landed <= Running - 0.65f + 0.15f);
 
-	// Pressing crouch at a run slides; it only brakes, ends below 2.5 m/s, and halves the speed it ends with.
+	// Pressing crouch at a run slides; it only brakes, ends below 2.5 m/s, and keeps most of the speed it ends with.
 	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, 60);
 	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true, .bCrouch = true}, 1);
 	REQUIRE(std::string(Mover.GetActiveMode()) == "Slide");
@@ -124,8 +124,129 @@ TEST_CASE("Mirror's Edge jumps hand their forward boost back on landing, and sli
 	}
 
 	CHECK(Last < 2.6f);
-	CHECK(HorizontalSpeed(Mover) == doctest::Approx(Last * 0.5f).epsilon(0.2));
+	CHECK(HorizontalSpeed(Mover) == doctest::Approx(Last * 0.9f).epsilon(0.2));
 	CHECK(Mover.GetState().bCrouched);
+}
+
+TEST_CASE("Slides run wherever the character was already going and carry a dash's speed")
+{
+	const auto World = MakeFloor();
+	FCharacterMover Mover = MakeMover(*World);
+	Run(*World, Mover, {}, 20);
+
+	// Backing up at a run slides backwards, the view does not draw it round, and holding back keeps it going.
+	Run(*World, Mover, {.Move = {0.f, -1.f}}, 40);
+	Run(*World, Mover, {.Move = {0.f, -1.f}, .bCrouch = true}, 20);
+	REQUIRE(std::string(Mover.GetActiveMode()) == "Slide");
+	CHECK(Mover.GetState().Velocity.Z < -2.5f);
+	CHECK(std::abs(Mover.GetState().Velocity.X) < 0.1f);
+
+	// Pushing against the slide ends it.
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bCrouch = true}, 1);
+	CHECK(std::string(Mover.GetActiveMode()) != "Slide");
+	Run(*World, Mover, {}, 60);
+
+	// A slide straight out of a dash runs past the ground speed.
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true, .bCrouch = true}, 10);
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bCrouch = true}, 1);
+	CHECK(std::string(Mover.GetActiveMode()) == "Slide");
+	CHECK(HorizontalSpeed(Mover) > 7.5f);
+
+	// Jumping from a slide keeps its speed.
+	const float Sliding = HorizontalSpeed(Mover);
+	Mover.PressJump();
+	Run(*World, Mover, {.bCrouch = true}, 1);
+	CHECK(std::string(Mover.GetActiveMode()) == "Falling");
+	CHECK(HorizontalSpeed(Mover) > Sliding - 0.5f);
+}
+
+TEST_CASE("Sprint presses dash toward the move input, a lone tap dashes backwards, and the air allows one")
+{
+	const auto World = MakeFloor();
+	FCharacterMover Mover = MakeMover(*World);
+	Run(*World, Mover, {}, 20);
+
+	// With a direction held the press dashes at once; +X is left.
+	Run(*World, Mover, {.Move = {-1.f, 0.f}, .bSprint = true}, 1);
+	REQUIRE(std::string(Mover.GetActiveMode()) == "Dash");
+	CHECK(Mover.GetState().Velocity.X > 10.f);
+	Run(*World, Mover, {}, 60);
+
+	// Held still, shift waits to see whether it is a tap.
+	Run(*World, Mover, {.bSprint = true}, 3);
+	CHECK(std::string(Mover.GetActiveMode()) == "Walking");
+	Run(*World, Mover, {}, 1);
+	REQUIRE(std::string(Mover.GetActiveMode()) == "Dash");
+	CHECK(Mover.GetState().Velocity.Z < -10.f);
+	Run(*World, Mover, {}, 60);
+
+	// Held too long to be a tap, letting go does nothing.
+	Run(*World, Mover, {.bSprint = true}, 30);
+	Run(*World, Mover, {}, 1);
+	CHECK(std::string(Mover.GetActiveMode()) == "Walking");
+
+	// One dash per trip through the air, with gravity off for its length.
+	Run(*World, Mover, {}, 60);
+	REQUIRE(Mover.Teleport(*World, {0.f, 8.f, 0.f}));
+	Run(*World, Mover, {}, 5);
+	REQUIRE(std::string(Mover.GetActiveMode()) == "Falling");
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, 1);
+	REQUIRE(std::string(Mover.GetActiveMode()) == "Dash");
+	CHECK(Mover.GetState().Velocity.Y == doctest::Approx(0.f).epsilon(0.1));
+	Run(*World, Mover, {}, 30);
+	REQUIRE(!Mover.GetState().bGrounded);
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bSprint = true}, 1);
+	CHECK(std::string(Mover.GetActiveMode()) == "Falling");
+
+	// Crouch held through the landing slides, with the air's speed.
+	for (int Step = 0; Step < 120 && Mover.GetActiveMode() != "Walking" && Mover.GetActiveMode() != "Slide"; ++Step)
+	{
+		Run(*World, Mover, {.Move = {0.f, 1.f}, .bCrouch = true}, 1);
+	}
+
+	Run(*World, Mover, {.Move = {0.f, 1.f}, .bCrouch = true}, 1);
+	CHECK(std::string(Mover.GetActiveMode()) == "Slide");
+}
+
+TEST_CASE("Jumping off a wall run throws the character across to the opposite wall")
+{
+	const auto World = MakeFloor();
+	REQUIRE(World->CreateBody({.HalfExtents = {0.5f, 4.f, 100.f}, .Position = {3.5f, 4.f, 0.f}}));
+	REQUIRE(World->CreateBody({.HalfExtents = {0.5f, 4.f, 100.f}, .Position = {-3.5f, 4.f, 0.f}}));
+	FCharacterMover Mover = MakeMover(*World, {.bDash = false});
+	Run(*World, Mover, {}, 20);
+
+	// At an angle toward the +X wall, jump onto it.
+	const FMoverInput Angled{.Move = {0.f, 1.f}, .Yaw = 0.45f, .bSprint = true};
+	for (int Step = 0; Step < 60 && Mover.GetState().Foot.X < 1.7f; ++Step)
+	{
+		Run(*World, Mover, Angled, 1);
+	}
+
+	Mover.PressJump();
+	for (int Step = 0; Step < 60 && Mover.GetActiveMode() != "WallRun"; ++Step)
+	{
+		Run(*World, Mover, Angled, 1);
+	}
+
+	REQUIRE(std::string(Mover.GetActiveMode()) == "WallRun");
+	REQUIRE(Mover.GetState().WallRunNormal);
+	CHECK(Mover.GetState().WallRunNormal->X < -0.9f);
+
+	// Looking straight along the corridor, the jump still carries across, and the other wall takes the run.
+	const FMoverInput Along{.Move = {0.f, 1.f}, .bSprint = true};
+	Run(*World, Mover, Along, 12);
+	Mover.PressJump();
+	Run(*World, Mover, Along, 1);
+	CHECK(Mover.GetState().Velocity.X < -8.f);
+	for (int Step = 0; Step < 60 && Mover.GetActiveMode() != "WallRun"; ++Step)
+	{
+		Run(*World, Mover, Along, 1);
+	}
+
+	REQUIRE(std::string(Mover.GetActiveMode()) == "WallRun");
+	REQUIRE(Mover.GetState().WallRunNormal);
+	CHECK(Mover.GetState().WallRunNormal->X > 0.9f);
 }
 
 TEST_CASE("Character movers leave out disabled modes and ask custom modes first")

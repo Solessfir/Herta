@@ -57,16 +57,18 @@ struct FMovementTuning
 	// TdMove_Landing.LandingSpeedReduction: landing a plain jump caps speed at the take-off speed less this, handing back the jump's boost.
 	float LandingSpeedReduction = 0.65f;
 
-	// TdMove_Slide: crouch at 3.5 m/s along the view; it brakes at FrictionModifier 0.1 of ground friction, ignores move input, steers
-	// toward the view at 0.2 of the angle per second and 11 degrees per second with strafing, ends below 2.5 m/s or when pulling back,
-	// lets go of crouch only after 0.5 s, and halves the speed however it ends.
+	// TdMove_Slide's braking and timing: crouch at 3.5 m/s, FrictionModifier 0.1 of ground friction, ends below 2.5 m/s or when pulling
+	// against it, and lets go of crouch only after 0.5 s. Herta slides wherever the character is already going, steers much harder with
+	// strafing, and keeps the momentum on the way out, where the game turns toward the view and halves the speed.
 	float SlideMinimumSpeed = 3.5f;
 	float SlideAbortSpeed = 2.5f;
 	float SlideFrictionModifier = 0.1f;
 	float SlideMinimumSeconds = 0.5f;
-	float SlideExitKeep = 0.5f;
+	float SlideExitKeep = 0.9f;
 	float SlideLookTurn = 0.2f;
-	float SlideStrafeTurn = 0.19175f;
+	float SlideStrafeTurn = 1.2f;
+	// Crouch held as the character lands or finishes a dash slides, as if pressed then.
+	float SlideLandSeconds = 0.12f;
 
 	// TdMove_WallRun: at least WallRunningMinSpeed, facing at most 57 degrees into the wall, which must be at least 1.92 m tall. It lifts
 	// to 1.7 m above the jump under its own gravity, 8.2 m/s² rising and 5 falling, times one more for each run chained from a wall jump,
@@ -83,17 +85,28 @@ struct FMovementTuning
 	float WallRunFallingGravity = 5.f;
 	float WallRunFriction = 0.05f;
 	float WallRunStopFallSpeed = 5.f;
-	// TdMove_WallrunJump: 1.2 m/s out plus 4 m/s more looking away from the wall, 1 m up plus 0.6 m looking away, keeping all the speed
-	// along the wall looking along it and 10 percent looking straight out.
-	float WallRunJumpOut = 1.2f;
-	float WallRunJumpOutLookAdd = 4.f;
+	// TdMove_WallrunJump's shape, 1 m up plus 0.6 m looking away, keeping all the speed along the wall looking along it and 10 percent
+	// looking straight out. Herta pushes out far harder than the game's 1.2 m/s, enough to carry across to the opposite wall.
+	float WallRunJumpOut = 9.f;
+	float WallRunJumpOutLookAdd = 1.f;
 	float WallRunJumpHeight = 1.f;
 	float WallRunJumpHeightLookAdd = 0.6f;
 	float WallRunJumpForwardMinimum = 0.1f;
+	// How many chained runs make the pull harder; the game has no limit, which ends a chain after two walls.
+	int WallRunMaximumChain = 1;
 
 	// Herta's wall kick, which Mirror's Edge does not have: jumping while touching a wall in the air kicks this fast away from it.
 	float WallKickSpeed = 5.5f;
 	float WallKickCooldownSeconds = 0.2f;
+
+	// Herta's dash: pressing sprint bursts this fast toward the move input for DashSeconds with gravity off, then leaves at DashExitSpeed, so
+	// a slide or a jump straight after carries it. With no move input, a tap that lets go within DashTapSeconds dashes backwards. One dash
+	// per trip through the air; the ground or a wall run gives it back.
+	float DashSpeed = 14.f;
+	float DashSeconds = 0.15f;
+	float DashExitSpeed = 9.f;
+	float DashCooldownSeconds = 0.4f;
+	float DashTapSeconds = 0.2f;
 
 	// Herta's mantle: moving forward into a wall in the air climbs onto its top when it is this high above the feet and the player fits.
 	float MantleMinimumHeight = 0.5f;
@@ -130,6 +143,7 @@ enum class EMoverEvent : std::uint8_t
 	SlideStarted,
 	SlideEnded,
 	WallRunStarted,
+	Dashed,
 };
 
 // What every movement mode reads and writes, so one mode hands over to the next without losing speed or timers.
@@ -143,6 +157,9 @@ struct FMoverState
 	bool bGrounded = false;
 	bool bCrouched = false;
 	bool bCrouchPressed = false;
+	bool bSprintPressed = false;
+	bool bSprintReleased = false;
+	float SlideWindowSeconds = 0.f;
 	float AirborneSeconds = 0.f;
 	float JumpBufferSeconds = 0.f;
 	bool bJumpedSinceGround = false;
@@ -208,6 +225,7 @@ struct FMovementModeSet
 	bool bWallRun = true;
 	bool bWallKick = true;
 	bool bMantle = true;
+	bool bDash = true;
 };
 
 // Everything that decides how the mover moves next, so restoring one and replaying the same input moves it the same way again.
@@ -216,6 +234,7 @@ struct FMoverSnapshot
 	FMoverState State{};
 	std::size_t Active = 0;
 	bool bCrouchWasHeld = false;
+	bool bSprintWasHeld = false;
 	std::vector<std::vector<float>> Modes{};
 };
 
@@ -256,6 +275,7 @@ private:
 	std::size_t FallingMode = 0;
 	std::size_t Active = 0;
 	bool bCrouchWasHeld = false;
+	bool bSprintWasHeld = false;
 	std::vector<EMoverEvent> Events{};
 };
 

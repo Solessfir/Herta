@@ -32,6 +32,9 @@ enum ELocomotionParameter : std::size_t
 	Recoil,
 	Staggered,
 	Backpedal,
+	Dash,
+	DashBack,
+	WallSwinging,
 };
 
 enum ELocomotionState : std::size_t
@@ -63,6 +66,9 @@ enum ELocomotionState : std::size_t
 	BackpedalState,
 	AttackC,
 	SlideAttack,
+	WallRunAttack,
+	DashState,
+	DashBackState,
 };
 
 // Part of a rotation, by blending from identity along the short way.
@@ -147,6 +153,9 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Recoil", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "Staggered", .Type = EAnimationParameterType::Bool},
 	        {.Name = "Backpedal", .Type = EAnimationParameterType::Bool},
+	        {.Name = "Dash", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "DashBack", .Type = EAnimationParameterType::Trigger},
+	        {.Name = "WallSwinging", .Type = EAnimationParameterType::Bool},
 	    },
 	    .States = {
 	        // The walk, jog, and sprint cycles each take two steps, planting a foot at their start and halfway.
@@ -188,6 +197,11 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Attack C", .Samples = {{.Clip = "Sword_Regular_C"}}, .bLoop = false, .Speed = 1.15f, .Events = {{.Name = "SwingStart", .Phase = 0.26f}, {.Name = "SwingEnd", .Phase = 0.42f}}, .bUpperBody = true},
 	        // A cut on the way past: the whole body stays in the slide, and FPlayerCharacter::ApplySlideSwing moves the sword arm.
 	        {.Name = "Slide attack", .Samples = {{.Clip = "Slide_Loop"}}, .bLoop = false, .Speed = 3.6f, .Events = {{.Name = "SwingStart", .Phase = 0.15f}, {.Name = "SwingEnd", .Phase = 0.8f}}},
+	        // A swing on the way along a wall: the arms cut while the legs keep running on it.
+	        {.Name = "Wall run attack", .Samples = {{.Clip = "Sword_Regular_A"}}, .bLoop = false, .Events = {{.Name = "SwingStart", .Phase = 0.42f}, {.Name = "SwingEnd", .Phase = 0.82f}}, .bUpperBody = true},
+	        // A dash is over in moments, so each clip only has to read as a burst: a stride flat out, or knocked backwards.
+	        {.Name = "Dash", .Samples = {{.Clip = "Sprint_Loop"}}, .bLoop = false, .Speed = 2.6f},
+	        {.Name = "Dash back", .Samples = {{.Clip = "Hit_Knockback"}}, .bLoop = false, .Speed = 3.f},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {
@@ -201,7 +215,9 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        // Mantles and wall jumps can start from any state, and win over everything else in the step they start.
 	        {.From = AnyAnimationState, .To = Climb, .DurationSeconds = 0.1f, .Conditions = {Triggered(Mantle)}},
 	        {.From = AnyAnimationState, .To = WallJumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(WallJump)}},
-	        {.From = AnyAnimationState, .To = WallRunState, .DurationSeconds = 0.15f, .Conditions = {Is(WallRunning, true)}},
+	        {.From = AnyAnimationState, .To = DashState, .DurationSeconds = 0.05f, .Conditions = {Triggered(Dash), Is(Dead, false)}},
+	        {.From = AnyAnimationState, .To = DashBackState, .DurationSeconds = 0.05f, .Conditions = {Triggered(DashBack), Is(Dead, false)}},
+	        {.From = AnyAnimationState, .To = WallRunState, .DurationSeconds = 0.15f, .Conditions = {Is(WallRunning, true), Is(WallSwinging, false)}},
 	        {.From = WallRunState, .To = Land, .DurationSeconds = 0.1f, .Conditions = {Is(Grounded, true)}},
 	        {.From = WallRunState, .To = Air, .DurationSeconds = 0.2f, .Conditions = {Is(WallRunning, false)}},
 	        {.From = Climb, .To = Locomotion, .DurationSeconds = 0.2f, .bAtEnd = true},
@@ -277,6 +293,21 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        // A slide that ends mid-swing finishes the cut before standing up.
 	        {.From = SlideAttack, .To = Slide, .DurationSeconds = 0.15f, .Conditions = {Is(Sliding, true)}, .bAtEnd = true},
 	        {.From = SlideAttack, .To = SlideExit, .DurationSeconds = 0.15f, .bAtEnd = true},
+	        {.From = WallRunState, .To = WallRunAttack, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = WallRunAttack, .To = Air, .DurationSeconds = 0.2f, .Conditions = {Is(WallRunning, false)}, .bAtEnd = true},
+	        {.From = WallRunAttack, .To = WallRunState, .DurationSeconds = 0.12f, .bAtEnd = true},
+	        {.From = Land, .To = SlideStart, .DurationSeconds = 0.1f, .Conditions = {Is(Sliding, true)}},
+	        // A dash cuts straight into a slide, a swing, or the air.
+	        {.From = DashState, .To = SlideStart, .DurationSeconds = 0.1f, .Conditions = {Is(Sliding, true)}},
+	        {.From = DashBackState, .To = SlideStart, .DurationSeconds = 0.1f, .Conditions = {Is(Sliding, true)}},
+	        {.From = DashState, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = DashBackState, .To = AttackA, .DurationSeconds = 0.08f, .Conditions = {Triggered(Attack)}},
+	        {.From = DashState, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = DashBackState, .To = JumpStart, .DurationSeconds = 0.1f, .Conditions = {Triggered(Jump)}},
+	        {.From = DashState, .To = Locomotion, .DurationSeconds = 0.15f, .Conditions = {Is(Grounded, true)}, .bAtEnd = true},
+	        {.From = DashBackState, .To = Locomotion, .DurationSeconds = 0.15f, .Conditions = {Is(Grounded, true)}, .bAtEnd = true},
+	        {.From = DashState, .To = Air, .DurationSeconds = 0.15f, .bAtEnd = true},
+	        {.From = DashBackState, .To = Air, .DurationSeconds = 0.15f, .bAtEnd = true},
 	    },
 	    .Entry = Locomotion,
 	};
@@ -339,6 +370,8 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 	const auto& MachineStates = Character->Machine.GetDesc().States;
 	const auto SlideSwing = std::ranges::find(MachineStates, std::string_view("Slide attack"), &FAnimationStateDesc::Name);
 	Character->SlideSwingState = SlideSwing != MachineStates.end() ? std::optional(static_cast<std::size_t>(SlideSwing - MachineStates.begin())) : std::nullopt;
+	const auto WallSwing = std::ranges::find(MachineStates, std::string_view("Wall run attack"), &FAnimationStateDesc::Name);
+	Character->WallSwingState = WallSwing != MachineStates.end() ? std::optional(static_cast<std::size_t>(WallSwing - MachineStates.begin())) : std::nullopt;
 	Character->LeftFingers = {FindJoint({"middle_01_l"}), FindJoint({"index_01_l"}), FindJoint({"pinky_01_l"})};
 	const std::vector<FAnimationStateDesc>& States = Character->Machine.GetDesc().States;
 	for (std::size_t State = 0; State < States.size(); ++State)
@@ -376,6 +409,9 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 	Character->WallJumpParameter = Locomotion.FindParameter("WallJump");
 	Character->MantleParameter = Locomotion.FindParameter("Mantle");
 	Character->WallRunningParameter = Locomotion.FindParameter("WallRunning");
+	Character->DashParameter = Locomotion.FindParameter("Dash");
+	Character->DashBackParameter = Locomotion.FindParameter("DashBack");
+	Character->WallSwingingParameter = Locomotion.FindParameter("WallSwinging");
 
 	if (Device)
 	{
@@ -454,6 +490,9 @@ void FPlayerCharacter::Update(const float DeltaSeconds, const FPlayerMotion& Mot
 	Trigger(JumpParameter, Motion.bJumped);
 	Trigger(WallJumpParameter, Motion.bWallJumped);
 	Trigger(MantleParameter, Motion.bMantled);
+	Trigger(DashParameter, Motion.bDashed && !Motion.bDashedBack);
+	Trigger(DashBackParameter, Motion.bDashed && Motion.bDashedBack);
+	Set(WallSwingingParameter, WallSwingState && Machine.GetActiveState() == *WallSwingState);
 
 	Machine.Update(DeltaSeconds);
 	// The locomotion blend shares one phase, so standing still would step in place with the idle clip.
