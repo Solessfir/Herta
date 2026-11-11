@@ -397,6 +397,11 @@ struct FGameSession::FImplementation : FPlayerSlot
 	void UpdateEffects(float DeltaSeconds);
 	// Runs gameplay graphs, whose sounds play and effects join this update's requests.
 	void UpdateGraphs(float DeltaSeconds);
+	// Runs game systems from the project's modules, after the graphs.
+	void UpdateSystems(float DeltaSeconds);
+	// Level sound and effect cues by name, for graphs and systems; a name that is not a cue does nothing.
+	void PlayCue(std::string_view Cue, const FVector3& Position);
+	void SpawnCue(std::string_view Cue, const FVector3& Position, float Scale);
 	void StartEmitters();
 	// The active player's sounds, after everything else in the update.
 	void UpdateAudio(bool bJumped);
@@ -572,6 +577,7 @@ struct FGameSession::FImplementation : FPlayerSlot
 	FLevelEffects Effects{};
 	std::vector<FEffectRequest> EffectRequests{};
 	FGameGraphs Graphs{};
+	std::vector<std::pair<std::string, std::unique_ptr<IGameSystem>>> GameSystems{};
 	// Auto-play Particle Emitters and the effect each started, which follows its entity.
 	std::vector<std::pair<std::size_t, FParticleEffectId>> EmitterEffects{};
 
@@ -2099,6 +2105,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishUpdate(cons
 
 	UpdateListener();
 	UpdateGraphs(DeltaSeconds);
+	UpdateSystems(DeltaSeconds);
 	UpdateEffects(DeltaSeconds);
 
 	if (FPhysicsWorld* const World = Simulation.GetPhysicsWorld())
@@ -3521,20 +3528,12 @@ void FGameSession::FImplementation::UpdateGraphs(const float DeltaSeconds)
 
 		void PlaySound(const std::string_view Cue, const FVector3& Position) override
 		{
-			const auto Found = std::ranges::find(LevelSoundCues, Cue, &FLevelSoundCue::Key);
-			if (Found != LevelSoundCues.end())
-			{
-				Session.Audio.Play(static_cast<ELevelSound>(Found - LevelSoundCues.begin()), Position);
-			}
+			Session.PlayCue(Cue, Position);
 		}
 
 		void SpawnEffect(const std::string_view Cue, const FVector3& Position, const float Scale) override
 		{
-			const auto Found = std::ranges::find(LevelEffectCues, Cue, &FLevelSoundCue::Key);
-			if (Found != LevelEffectCues.end())
-			{
-				Session.RequestEffect(static_cast<ELevelEffect>(Found - LevelEffectCues.begin()), Position, {0.f, 1.f, 0.f}, Scale);
-			}
+			Session.SpawnCue(Cue, Position, Scale);
 		}
 
 		void Log(const std::string_view Message, const float Value) override
@@ -3554,6 +3553,97 @@ void FGameSession::FImplementation::UpdateGraphs(const float DeltaSeconds)
 
 	FSessionHost Host(*this);
 	Graphs.Update(DeltaSeconds, Feet, Host);
+}
+
+void FGameSession::FImplementation::PlayCue(const std::string_view Cue, const FVector3& Position)
+{
+	const auto Found = std::ranges::find(LevelSoundCues, Cue, &FLevelSoundCue::Key);
+	if (Found != LevelSoundCues.end())
+	{
+		Audio.Play(static_cast<ELevelSound>(Found - LevelSoundCues.begin()), Position);
+	}
+}
+
+void FGameSession::FImplementation::SpawnCue(const std::string_view Cue, const FVector3& Position, const float Scale)
+{
+	const auto Found = std::ranges::find(LevelEffectCues, Cue, &FLevelSoundCue::Key);
+	if (Found != LevelEffectCues.end())
+	{
+		RequestEffect(static_cast<ELevelEffect>(Found - LevelEffectCues.begin()), Position, {0.f, 1.f, 0.f}, Scale);
+	}
+}
+
+void FGameSession::FImplementation::UpdateSystems(const float DeltaSeconds)
+{
+	if (GameSystems.empty())
+	{
+		return;
+	}
+
+	// The session as game systems see it: reads of each player and the presentation cues, implemented here so a module calls no engine code.
+	class FSystemContext final : public IGameSystemContext
+	{
+	public:
+		explicit FSystemContext(FImplementation& InSession)
+		    : Session(InSession)
+		{
+		}
+
+		[[nodiscard]] std::size_t GetPlayerCount() const override
+		{
+			return Session.Players.size();
+		}
+
+		[[nodiscard]] FVector3 GetPlayerFoot(const std::size_t Player) const override
+		{
+			return Player < Session.Players.size() ? Session.VisitPlayer(Player, [this]
+			{
+				return Session.Mover->GetState().Foot;
+			})
+			                                       : FVector3{};
+		}
+
+		[[nodiscard]] FVector3 GetPlayerVelocity(const std::size_t Player) const override
+		{
+			return Player < Session.Players.size() ? Session.VisitPlayer(Player, [this]
+			{
+				return Session.Mover->GetState().Velocity;
+			})
+			                                       : FVector3{};
+		}
+
+		[[nodiscard]] bool IsPlayerGrounded(const std::size_t Player) const override
+		{
+			return Player < Session.Players.size() && Session.VisitPlayer(Player, [this]
+			{
+				return Session.Mover->GetState().bGrounded;
+			});
+		}
+
+		void Log(const std::string_view Message) override
+		{
+			Session.Events.emplace_back(Message);
+		}
+
+		void PlaySound(const std::string_view Cue, const FVector3& Position) override
+		{
+			Session.PlayCue(Cue, Position);
+		}
+
+		void SpawnEffect(const std::string_view Cue, const FVector3& Position, const float Scale) override
+		{
+			Session.SpawnCue(Cue, Position, Scale);
+		}
+
+	private:
+		FImplementation& Session;
+	};
+
+	FSystemContext Context(*this);
+	for (const auto& [Name, System] : GameSystems)
+	{
+		System->Update(Context, DeltaSeconds);
+	}
 }
 
 void FGameSession::FImplementation::StartEmitters()
@@ -4310,6 +4400,19 @@ void FGameSession::FImplementation::ReportCharacterHit(const std::size_t Victim,
 		    .AttackerFaction = AttackerFaction,
 		});
 	}
+}
+
+void FGameSession::AddGameSystem(std::string Name, std::unique_ptr<IGameSystem> System)
+{
+	if (System)
+	{
+		Implementation->GameSystems.emplace_back(std::move(Name), std::move(System));
+	}
+}
+
+std::vector<std::pair<std::string, std::unique_ptr<IGameSystem>>> FGameSession::TakeGameSystems()
+{
+	return std::exchange(Implementation->GameSystems, {});
 }
 
 std::vector<FAssetId> FGameSession::GetGameplayGraphs() const

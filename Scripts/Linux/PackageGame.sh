@@ -76,6 +76,17 @@ for program in HertaGame HertaServer HertaCooker HertaAssetWorker HertaShaderWor
 done
 
 shopt -s nullglob
+# The project's game modules, built for this configuration beside the project, ship beside the executables, where the game loads them.
+module_files=()
+while IFS= read -r module; do
+    library="$(dirname -- "${project_path}")/Binaries/linux/x86_64/${configuration}/lib${module}.so"
+    if [[ ! -f "${library}" ]]; then
+        echo "Build the project's ${module} module for ${configuration} before packaging: generate with --project=${project} and build ${module}" >&2
+        exit 1
+    fi
+    module_files+=("${library}")
+done < <(python3 -c 'import json, sys; [print(module["name"]) for module in json.load(open(sys.argv[1]))["modules"]]' "${project_path}")
+
 shaders=("${binary_directory}"/Shaders/*.hshader)
 if [[ ${#shaders[@]} -eq 0 ]]; then
     echo "Cooked shaders are missing from ${binary_directory}/Shaders" >&2
@@ -96,6 +107,9 @@ cook() {
 mkdir -p -- "${package_root}"
 cp -- "${binary_directory}/HertaGame" "${package_root}/${executable_name}"
 cp -- "${binary_directory}/HertaServer" "${package_root}/${executable_name}-server"
+if ((${#module_files[@]} > 0)); then
+    cp -- "${module_files[@]}" "${package_root}/"
+fi
 case "${content_mode}" in
     loose)
         cook "${package_root}" loose

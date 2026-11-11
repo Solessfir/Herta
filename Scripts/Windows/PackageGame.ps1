@@ -43,6 +43,16 @@ foreach ($Program in @('HertaGame.exe', 'HertaServer.exe', 'HertaCooker.exe', 'H
     }
 }
 
+# The project's game modules, built for this configuration beside the project, ship beside the executables, where the game loads them.
+$Descriptor = Get-Content -LiteralPath $ProjectPath -Raw | ConvertFrom-Json
+$ModuleFiles = @(foreach ($Module in $Descriptor.modules) {
+    $Library = Join-Path (Split-Path -Parent $ProjectPath) "Binaries/windows/x86_64/$Configuration/$($Module.name).dll"
+    if (-not (Test-Path -LiteralPath $Library -PathType Leaf)) {
+        throw "Build the project's $($Module.name) module for $Configuration before packaging: generate with --project=$Project and build $($Module.name)"
+    }
+    $Library
+})
+
 $Shaders = @(Get-ChildItem -LiteralPath (Join-Path $BinaryDirectory 'Shaders') -Filter '*.hshader' -File -ErrorAction SilentlyContinue)
 if ($Shaders.Count -eq 0) {
     throw "Cooked shaders are missing from $BinaryDirectory/Shaders"
@@ -83,6 +93,9 @@ function Get-Sha256 {
 New-Item -ItemType Directory -Force -Path $PackageRoot | Out-Null
 Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaGame.exe') -Destination $GameExecutable
 Copy-Item -LiteralPath (Join-Path $BinaryDirectory 'HertaServer.exe') -Destination $ServerExecutable
+foreach ($Library in $ModuleFiles) {
+    Copy-Item -LiteralPath $Library -Destination $PackageRoot
+}
 $PackExtra = @(if ($LanguagePacks) { '--language-packs' })
 switch ($ContentMode) {
     'Loose' {

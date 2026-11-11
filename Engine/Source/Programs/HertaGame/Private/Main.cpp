@@ -11,6 +11,7 @@
 #include "Herta/GameFramework/GameControls.h"
 #include "Herta/GameFramework/GameHud.h"
 #include "Herta/GameFramework/GameMenu.h"
+#include "Herta/GameFramework/GameModules.h"
 #include "Herta/GameFramework/GameSave.h"
 #include "Herta/GameFramework/GameSession.h"
 #include "Herta/GameFramework/GameText.h"
@@ -19,6 +20,7 @@
 #include "Herta/Level/LevelSerialization.h"
 #include "Herta/Navigation/NavigationWorld.h"
 #include "Herta/NvrhiVulkan/NvrhiVulkan.h"
+#include "Herta/Platform/DynamicLibrary.h"
 #include "Herta/Platform/FileSystem.h"
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
@@ -537,6 +539,36 @@ int RunGame(const FGameOptions& Options)
 	}
 
 	std::unique_ptr<FStagedGameAssets> Assets = std::move(Staged->Assets);
+	// The project's game modules, before the session, since the session's systems run their code. A packaged game ships them beside the
+	// executable, and a staged one beside its project.
+	std::unique_ptr<FGameModules> Modules;
+	if (!Project->Descriptor.Modules.empty())
+	{
+		std::vector<std::string> Names;
+		for (const FProjectModule& Module : Project->Descriptor.Modules)
+		{
+			Names.push_back(Module.Name);
+		}
+
+		// game.stage copies the modules beside the staged project.
+		std::filesystem::path Directory = ExecutableDirectory;
+		std::error_code Error;
+		if (!std::filesystem::exists(Directory / GetDynamicLibraryFileName(Names.front()), Error) && !Options.ProjectPath.empty())
+		{
+			Directory = std::filesystem::absolute(Options.ProjectPath, Error).parent_path();
+		}
+
+		auto Loaded = FGameModules::Load(Names, {.Directory = Directory});
+		if (Loaded)
+		{
+			Modules = std::move(*Loaded);
+		}
+		else
+		{
+			HERTA_LOG_WARNING(*Log, GameLog, "The game runs without its modules: {}", Loaded.error());
+		}
+	}
+
 	std::unique_ptr<FGameSession> OwnedSession = std::move(Staged->Session);
 	FGameSession* Session = OwnedSession.get();
 
@@ -574,6 +606,11 @@ int RunGame(const FGameOptions& Options)
 
 		Client = std::move(*Joined);
 		Session = &Client->GetSession();
+	}
+
+	if (Modules)
+	{
+		Modules->Start(*Session);
 	}
 
 	std::unique_ptr<FGameAutomation> Automation;

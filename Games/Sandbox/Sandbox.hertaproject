@@ -5,8 +5,8 @@
   "id": "ec34e991-d3c7-41cb-aae7-d6659f062afa",
   "name": "Sandbox",
   "engineAssociation": "Herta",
-  "modules": [],
-  "targets": [],
+  "modules": [{"name": "SandboxGame", "source": "Source/SandboxGame", "dependencies": ["GameFramework"]}],
+  "targets": [{"name": "SandboxGameEditor", "type": "Editor", "modules": ["SandboxGame"]}],
   "contentRoots": [{"name": "Game", "path": "Content"}],
   "features": [],
   "startingLevel": "Levels/Sandbox.hlevel"

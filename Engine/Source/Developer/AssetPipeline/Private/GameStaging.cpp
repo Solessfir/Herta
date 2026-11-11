@@ -9,6 +9,7 @@
 #include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/Level/LevelSerialization.h"
 #include "Herta/LocalizationPipeline/LocalizationPipeline.h"
+#include "Herta/Platform/DynamicLibrary.h"
 #include "Herta/Project/Project.h"
 
 #include <algorithm>
@@ -287,7 +288,7 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 		return std::unexpected(Output.error());
 	}
 
-	FGameStageResult Result{.ProjectPath = StagedProjectPath};
+	FGameStageResult Result{.ProjectPath = StagedProjectPath, .Assets = 0, .Bytes = 0, .MissingModules = {}};
 	std::set<FStagedKey> Staged;
 	// Bounds of every staged model, which the level's navigation fits its static bodies to.
 	std::map<FAssetId, FNavigationBox> ModelBounds;
@@ -400,6 +401,19 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 	};
 
 	Copies.insert(Copies.end(), RegionCopies.begin(), RegionCopies.end());
+	for (const FProjectModule& Module : Project->Descriptor.Modules)
+	{
+		const std::string Library = GetDynamicLibraryFileName(Module.Name);
+		std::error_code Error;
+		if (!Request.ModuleDirectory.empty() && std::filesystem::is_regular_file(Request.ModuleDirectory / Library, Error))
+		{
+			Copies.emplace_back(Request.ModuleDirectory / Library, StagedProjectRoot / Library);
+		}
+		else
+		{
+			Result.MissingModules.push_back(Module.Name);
+		}
+	}
 
 	for (const auto& [Source, Destination] : Copies)
 	{

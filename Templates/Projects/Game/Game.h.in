@@ -1,8 +1,9 @@
 #pragma once
 
-#include "Herta/Level/World.h"
+#include "Herta/GameFramework/GameModule.h"
 
 namespace Herta
 {
-[[nodiscard]] std::expected<FObjectId, FLevelError> Create{{ModuleName}}Entity(FWorld& World);
+// Registers {{ProjectName}}'s game systems, and later its generated gameplay graphs, with the engine.
+void Register{{ModuleName}}(IGameModuleRegistry& Registry);
 }

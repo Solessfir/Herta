@@ -14,6 +14,18 @@ local function GetBuildRevision(FullRevision)
     return Revision and #Revision >= 7 and #Revision <= 40 and Revision or "unknown"
 end
 
+-- The revision lives in a generated header rather than a define, so make and MSBuild both rebuild what embeds it when it changes. Rewriting
+-- it only on change keeps unchanged builds incremental. Projects force-include it by bare name from the include path, since premake would
+-- make a path relative to the project file, which compilers do not resolve it against.
+local RevisionHeader = path.join(RepositoryRoot, "Intermediate/Generated/HertaRevision.h")
+do
+    local Contents = '#pragma once\n#define HERTA_BUILD_REVISION "' .. GetBuildRevision() .. '"\n#define HERTA_ENGINE_REVISION HERTA_BUILD_REVISION\n'
+    if io.readfile(RevisionHeader) ~= Contents then
+        os.mkdir(path.getdirectory(RevisionHeader))
+        io.writefile(RevisionHeader, Contents)
+    end
+end
+
 local function ApplyCommonProjectSettings(ProjectSourceRoot)
     targetdir(path.join(RepositoryRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
     objdir(path.join(RepositoryRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
@@ -66,6 +78,27 @@ local function HertaRuntimeModule(ModuleName, Settings)
         dependson(Settings.PrivateThirdPartyDependencies or {})
         defines(Settings.PrivateDefinitions or {})
         libdirs(Settings.PrivateLibraryDirectories or {})
+end
+
+-- A game module: a shared library the editor, the game, and the server load, which links no engine library and reaches the engine only
+-- through GameModule.h's interfaces. It sees the engine's public headers for value types and inline code, and records the engine revision
+-- the host checks before loading it.
+local function HertaGameModule(ModuleName, SourceRoot, Definitions)
+    project(ModuleName)
+        kind "SharedLib"
+        location(path.join(ProjectFilesRoot, ModuleName))
+        ApplyCommonProjectSettings(SourceRoot)
+        for _, Dependency in ipairs({ "Core", "Math", "Assets", "GameFramework" }) do
+            includedirs { PublicIncludeDirectory(Dependency) }
+        end
+
+        includedirs { path.getdirectory(RevisionHeader) }
+        forceincludes { "HertaRevision.h" }
+        defines(Definitions or {})
+        -- Only the entry point is exported; everything else stays inside the module.
+        filter "system:linux"
+            visibility "Hidden"
+        filter {}
 end
 
 local function HertaEditorModule(ModuleName, Settings)
@@ -188,8 +221,10 @@ end
 
 HertaRuntimeModule("Core", {
     PrivateThirdPartyDependencies = { "Spdlog" },
-    PrivateDefinitions = { "SPDLOG_COMPILED_LIB", 'HERTA_BUILD_REVISION="' .. GetBuildRevision() .. '"' }
+    PrivateDefinitions = { "SPDLOG_COMPILED_LIB" }
 })
+    includedirs { path.getdirectory(RevisionHeader) }
+    forceincludes { "HertaRevision.h" }
 
     externalincludedirs {
         path.join(RepositoryRoot, "External/spdlog/include"),
@@ -244,7 +279,8 @@ HertaRuntimeModule("Level", {
 
 HertaRuntimeModule("Platform", {
     PublicDependencies = { "Core" },
-    PrivateWindowsSystemDependencies = { "ole32", "shell32", "bcrypt", "dbghelp" }
+    PrivateWindowsSystemDependencies = { "ole32", "shell32", "bcrypt", "dbghelp" },
+    PrivateLinuxSystemDependencies = { "dl" }
 })
     filter "system:windows"
         removefiles {
@@ -665,6 +701,10 @@ project "HertaShaders"
         }
     filter {}
 
+-- The same test game module built with two state versions, so HertaTests can reload one that keeps the running state and one that cannot.
+HertaGameModule("HertaTestModule", path.join(ProgramsRoot, "HertaTestModule"), { "HERTA_TEST_MODULE_STATE_VERSION=1" })
+HertaGameModule("HertaTestModuleV2", path.join(ProgramsRoot, "HertaTestModule"), { "HERTA_TEST_MODULE_STATE_VERSION=2" })
+
 project "HertaTests"
     kind "ConsoleApp"
     location(path.join(ProjectFilesRoot, "HertaTests"))
@@ -680,7 +720,7 @@ project "HertaTests"
     }
 
     ApplyRuntimeDependencies { "Core", "Math", "Localization", "LocalizationPipeline", "TextLayout", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "PackageBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "GameplayGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
-    dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd", "HertaServer" }
+    dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd", "HertaServer", "HertaTestModule", "HertaTestModuleV2" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
     filter {}
@@ -832,11 +872,9 @@ if HertaProjectDescriptor then
             error("Project module name conflicts with an engine module: " .. Module.name)
         end
 
-        HertaRuntimeModule(Module.name, {
-            SourceRoot = path.join(HertaProjectRoot, Module.source),
-            PublicDependencies = Module.dependencies
-        })
-        ApplyRuntimeDependencies(Module.dependencies)
+        -- Each project module is a game module; its dependencies are the engine headers it includes, never libraries it links.
+        HertaGameModule(Module.name, path.join(HertaProjectRoot, Module.source))
+        RuntimeModules[Module.name] = { SourceRoot = path.join(HertaProjectRoot, Module.source) }
         targetdir(path.join(HertaProjectRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
         objdir(path.join(HertaProjectRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
     end
@@ -854,16 +892,13 @@ if HertaProjectDescriptor then
             debugdir(HertaProjectRoot)
             externalincludedirs { path.join(RepositoryRoot, "External/doctest") }
             ApplyRuntimeDependencies { "Core", "Math", "Localization", "TextLayout", "AI", "Animation", "Audio", "Navigation", "Networking", "Particles", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "GameplayGraph", "StateTreeCompiler", "NavigationBuilder", "LocalizationPipeline", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
-            local ProjectModules = {}
+            local ProjectModules = { "HertaAssetWorker" }
             for _, Module in ipairs(HertaProjectDescriptor.modules) do
                 table.insert(ProjectModules, Module.name)
             end
 
-            if #ProjectModules > 0 then
-                ApplyRuntimeDependencies(ProjectModules)
-            end
-
-            dependson { "HertaAssetWorker" }
+            -- Project modules are loaded at run time, as the editor loads them, so the tests only build them first.
+            dependson(ProjectModules)
             filter "system:linux"
                 linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
             filter {}

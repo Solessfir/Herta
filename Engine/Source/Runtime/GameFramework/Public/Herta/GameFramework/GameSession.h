@@ -4,13 +4,14 @@
 #include "Herta/Assets/StateTree.h"
 #include "Herta/Audio/AudioCommands.h"
 #include "Herta/GameFramework/CharacterMover.h"
+#include "Herta/GameFramework/GameModule.h"
 #include "Herta/GameFramework/GameSave.h"
-#include "Herta/Level/LevelSerialization.h"
-#include "Herta/Particles/ParticleWorld.h"
 #include "Herta/GameFramework/LevelSimulation.h"
+#include "Herta/Level/LevelSerialization.h"
 #include "Herta/Level/World.h"
 #include "Herta/Math/Vector.h"
 #include "Herta/Navigation/NavigationData.h"
+#include "Herta/Particles/ParticleWorld.h"
 #include "Herta/RHI/Presentation.h"
 #include "Herta/Renderer/MeshRenderer.h"
 #include "Herta/Renderer/Visuals.h"
@@ -432,6 +433,10 @@ public:
 	[[nodiscard]] std::vector<FAssetId> GetStateTrees() const;
 	// Starts the agents that run Tree, restarting every agent's mind and placing it back where it was authored.
 	[[nodiscard]] std::expected<void, FGameError> AddStateTree(const FAssetId& Id, std::shared_ptr<const FCookedStateTree> Tree);
+	// Game systems from a project's modules, run every update after the players and gameplay graphs, in the order added. A restart keeps them.
+	void AddGameSystem(std::string Name, std::unique_ptr<IGameSystem> System);
+	// Every system, removed from the session, such as to move them to a module's new build or to destroy them before the module unloads.
+	[[nodiscard]] std::vector<std::pair<std::string, std::unique_ptr<IGameSystem>>> TakeGameSystems();
 	// The gameplay graphs the level's Gameplay Graph components run, for the host to load before play. An entity's graph starts once it is added.
 	[[nodiscard]] std::vector<FAssetId> GetGameplayGraphs() const;
 	void AddGameplayGraph(const FAssetId& Id, std::shared_ptr<const FCookedGameplayGraph> Graph);

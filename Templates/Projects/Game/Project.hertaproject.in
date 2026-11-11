@@ -5,7 +5,7 @@
   "id": "{{ProjectId}}",
   "name": "{{ProjectName}}",
   "engineAssociation": "{{EngineAssociation}}",
-  "modules": [{"name": "{{ModuleName}}", "source": "Source/{{ModuleName}}", "dependencies": ["Level"]}],
+  "modules": [{"name": "{{ModuleName}}", "source": "Source/{{ModuleName}}", "dependencies": ["GameFramework"]}],
   "targets": [{"name": "{{ModuleName}}Editor", "type": "Editor", "modules": ["{{ModuleName}}"]}],
   "contentRoots": [{"name": "Game", "path": "Content"}],
   "features": [],

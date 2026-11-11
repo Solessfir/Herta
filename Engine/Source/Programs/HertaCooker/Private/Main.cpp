@@ -223,6 +223,8 @@ int Cook(const std::span<char* const> Arguments)
 	    .DerivedDataRoot = Repository / "DerivedDataCache" / Platform,
 	    .WorkerPath = Worker,
 	    .TargetPlatform = std::string(Platform),
+	    // The project builds its game modules beside this configuration's programs, as the editor loads them.
+	    .ModuleDirectory = PathOf(Project).parent_path() / "Binaries" / Platform / "x86_64" / GetExecutablePath().parent_path().filename(),
 	});
 
 	if (!Staged)

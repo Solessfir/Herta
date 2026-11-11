@@ -5,7 +5,9 @@
 #include "Herta/GameAutomation/GameAutomation.h"
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/GameContent.h"
+#include "Herta/GameFramework/GameModules.h"
 #include "Herta/Level/LevelSerialization.h"
+#include "Herta/Platform/DynamicLibrary.h"
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
 #include "Herta/Project/Project.h"
@@ -157,6 +159,35 @@ int RunServer(const FServerOptions& Options)
 	const std::uint64_t ContentHash = HashLevelBytes(*LevelBytes);
 	// The server draws nothing and plays no sound: its session has no device, and its meshes are only bounds for collision.
 	const FCookedContent Content({Project->ContentRoot, Project->Root.parent_path() / "Engine" / "Content"}, Mounted->FileSystem);
+	// Before the session, which runs their systems' code: beside the executable in a package, or beside a staged project.
+	std::unique_ptr<FGameModules> Modules;
+	if (!Project->Descriptor.Modules.empty())
+	{
+		std::vector<std::string> Names;
+		for (const FProjectModule& Module : Project->Descriptor.Modules)
+		{
+			Names.push_back(Module.Name);
+		}
+
+		// game.stage copies the modules beside the staged project.
+		std::filesystem::path Directory = ExecutableDirectory;
+		std::error_code Error;
+		if (!std::filesystem::exists(Directory / GetDynamicLibraryFileName(Names.front()), Error) && !Options.ProjectPath.empty())
+		{
+			Directory = std::filesystem::absolute(Options.ProjectPath, Error).parent_path();
+		}
+
+		auto Loaded = FGameModules::Load(Names, {.Directory = Directory});
+		if (Loaded)
+		{
+			Modules = std::move(*Loaded);
+		}
+		else
+		{
+			HERTA_LOG_WARNING(*Log, ServerLog, "Serving without the game's modules: {}", Loaded.error());
+		}
+	}
+
 	auto Staged = CreateStagedSession(Project->StartingLevel, *Level, Content, nullptr, Tasks.get());
 	if (!Staged)
 	{
@@ -177,6 +208,10 @@ int RunServer(const FServerOptions& Options)
 	}
 
 	std::unique_ptr<FGameServer> Server = std::move(*ServerResult);
+	if (Modules)
+	{
+		Modules->Start(Server->GetSession());
+	}
 	std::unique_ptr<FGameAutomation> Automation;
 	if (!Options.AutomationName.empty())
 	{

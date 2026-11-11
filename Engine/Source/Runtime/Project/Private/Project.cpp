@@ -187,7 +187,8 @@ std::expected<void, FProjectError> Validate(const FProjectDescriptor& Project)
 
 		for (const auto& Dependency : Module.Dependencies)
 		{
-			if ((Dependency != "Core" && Dependency != "Math" && Dependency != "Assets" && Dependency != "Level") || !Dependencies.insert(Dependency).second)
+			// Engine modules whose headers a game module may include; it links none of them.
+			if ((Dependency != "Core" && Dependency != "Math" && Dependency != "Assets" && Dependency != "Level" && Dependency != "GameFramework") || !Dependencies.insert(Dependency).second)
 			{
 				return ProjectError("Unsupported or duplicate project module dependency");
 			}

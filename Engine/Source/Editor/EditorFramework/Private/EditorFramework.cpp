@@ -104,6 +104,7 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 
 		Implementation->ProjectPath = Project->DescriptorPath;
 		Implementation->RememberRecentProject(Project->DescriptorPath);
+		Implementation->LoadGameModules(*Project);
 		Implementation->AssetPaths.ContentRoot = Project->ContentRoot;
 		Implementation->AssetPaths.DerivedDataRoot = Project->Root / "DerivedDataCache" / Descriptor.Assets.TargetPlatform;
 		if (InitialLevelPath.empty())
@@ -163,6 +164,39 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	if (auto Result = RegisterViewportStatsCommand(*Descriptor.Commands, Implementation->Stats); !Result)
 	{
 		return std::unexpected(FEditorFrameworkError{std::move(Result.error().Message)});
+	}
+
+	// Reloading changes the code Play runs, so automation needs write authority for it.
+	if (auto Result = Descriptor.Commands->Register({.Name = "module.reload",
+	        .Description = "Reload the project's game modules, or the one named, from their current builds; Play keeps running with its systems' state",
+	        .bMutates = true,
+	        .Handler = [Editor = Implementation.get()](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	{
+		if (!Editor->GameModules)
+		{
+			return std::unexpected(FEditorCommandError{.Message = "The project has no loaded game modules"});
+		}
+
+		std::vector<std::string> Names = Editor->GameModules->GetModuleNames();
+		if (!Arguments.empty())
+		{
+			Names = {std::string(Arguments[0])};
+		}
+
+		std::string Message;
+		bool bAllReloaded = true;
+		for (const std::string& Name : Names)
+		{
+			const FGameModuleReloadResult Result = Editor->ReloadGameModule(Name);
+			bAllReloaded = bAllReloaded && Result.Result == EGameModuleReload::Reloaded;
+			Message += (Message.empty() ? "" : "\n") + Result.Message;
+		}
+
+		return FEditorCommandResult{.ExitCode = static_cast<std::uint8_t>(bAllReloaded ? 0 : 1), .Message = std::move(Message)};
+	}});
+	    !Result)
+	{
+		return std::unexpected(FEditorFrameworkError{Result.error().Message});
 	}
 
 	if (!Descriptor.EngineRoot.empty())
@@ -419,6 +453,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	ImGuiIO& IO = ImGui::GetIO();
 	Implementation->RefreshLevel();
 	Implementation->PollTextCatalogs(false);
+	Implementation->PollGameModules();
 	if (const std::string& Culture = Implementation->ToolUI->GetAppearance().Culture; Culture != Implementation->Localization.GetCultureName())
 	{
 		// A culture with no data leaves the text as it is; the menu only offers loaded ones.

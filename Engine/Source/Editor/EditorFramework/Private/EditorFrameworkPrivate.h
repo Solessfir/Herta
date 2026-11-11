@@ -7,10 +7,12 @@
 #include "DetailsPanel.h"
 #include "EditorLevel.h"
 #include "EditorNavigation.h"
+#include "GraphDocumentPanel.h"
+#include "Herta/AnimationGraph/AnimationGraph.h"
 #include "Herta/Application/Application.h"
+#include "Herta/AssetPipeline/AssetMetadata.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/Audio/AudioEngine.h"
-#include "Herta/Particles/ParticleWorld.h"
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Json.h"
 #include "Herta/Core/Log.h"
@@ -24,22 +26,21 @@
 #include "Herta/EditorFramework/ViewportInteraction.h"
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/GameHud.h"
-#include "Herta/Localization/Localization.h"
+#include "Herta/GameFramework/GameModules.h"
 #include "Herta/GameFramework/GameSession.h"
 #include "Herta/GameFramework/LevelSimulation.h"
 #include "Herta/GameFramework/LevelSimulationSetup.h"
 #include "Herta/GameFramework/SoftBodyGeometry.h"
 #include "Herta/GameFramework/VisualEnvironment.h"
-#include "Herta/AnimationGraph/AnimationGraph.h"
-#include "Herta/AssetPipeline/AssetMetadata.h"
+#include "Herta/Localization/Localization.h"
 #include "Herta/MaterialGraph/MaterialGraph.h"
+#include "Herta/Particles/ParticleWorld.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/Platform/Process.h"
 #include "Herta/Project/Project.h"
 #include "Herta/Tasks/TaskSystem.h"
 #include "Herta/ToolUI/Theme.h"
 #include "Herta/ToolUI/ToolUI.h"
-#include "GraphDocumentPanel.h"
 #include "MaterialPanel.h"
 #include "MaterialShaders.h"
 #include "NumericField.h"
@@ -75,11 +76,11 @@
 #include <iterator>
 #include <limits>
 #include <map>
-#include <set>
 #include <numbers>
 #include <numeric>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -357,6 +358,11 @@ struct FEditorFramework::FImplementation
 	void DrawNewProject();
 	// Shown while no project is open: recent projects, and opening or creating another.
 	void DrawProjectPicker();
+	// Loads the project's game modules, stopping Play first, since its systems run the old modules' code.
+	void LoadGameModules(const FLoadedProject& Project);
+	// Reloads a module whose build changed, between frames, where no system runs.
+	void PollGameModules();
+	FGameModuleReloadResult ReloadGameModule(std::string_view Name);
 	void RememberRecentProject(const std::filesystem::path& Descriptor);
 	void StartProjectOperation(const std::filesystem::path& Path, std::optional<FCreateProjectRequest> Create = std::nullopt);
 	void SaveCurrentLevel();
@@ -542,6 +548,12 @@ struct FEditorFramework::FImplementation
 	FLevelSimulation Simulation;
 	std::vector<FPreviewObject> SimulationStart;
 	bool bSimulationStoppedThisFrame = false;
+
+	// The project's game modules. Play's systems run their code, so the modules are declared before the session and outlive it.
+	std::unique_ptr<FGameModules> GameModules;
+	// Each module's build time when it last loaded, so a rebuild reloads it.
+	std::map<std::string, std::filesystem::file_time_type> GameModuleBuilds;
+	std::chrono::steady_clock::time_point NextModulePoll{};
 
 	// The session reads meshes and materials through PlayAssets, so it is released first.
 	std::unique_ptr<IGameAssets> PlayAssets;

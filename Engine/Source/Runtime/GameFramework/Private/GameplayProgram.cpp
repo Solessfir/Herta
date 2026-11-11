@@ -130,6 +130,14 @@ void RegisterGeneratedGameplayGraphs(const std::span<const FGeneratedGameplayGra
 	}
 }
 
+void UnregisterGeneratedGameplayGraphs(const std::span<const FGeneratedGameplayGraph> Graphs)
+{
+	std::erase_if(GetGeneratedTables(), [Graphs](const std::span<const FGeneratedGameplayGraph> Table)
+	{
+		return Table.data() == Graphs.data();
+	});
+}
+
 FGameplayProgram FGameplayProgram::Create(std::shared_ptr<const FCookedGameplayGraph> Graph, const EGameplayBackend Preferred)
 {
 	FGameplayProgram Program;

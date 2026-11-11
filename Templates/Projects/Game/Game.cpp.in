@@ -2,8 +2,37 @@
 
 namespace Herta
 {
-std::expected<FObjectId, FLevelError> Create{{ModuleName}}Entity(FWorld& World)
+namespace
 {
-	return World.QueueCreateEntity({.Name = "{{ProjectName}} entity"});
+// Greets the first player once. Replace it with the game's own systems.
+class FWelcomeSystem final : public IGameSystem
+{
+public:
+	void Update(IGameSystemContext& Context, float DeltaSeconds) override;
+
+private:
+	bool bWelcomed = false;
+};
+
+void FWelcomeSystem::Update(IGameSystemContext& Context, float)
+{
+	if (!bWelcomed && Context.GetPlayerCount() > 0)
+	{
+		bWelcomed = true;
+		Context.Log("Welcome to {{ProjectName}}");
+	}
+}
+
+std::unique_ptr<IGameSystem> CreateWelcomeSystem()
+{
+	return std::make_unique<FWelcomeSystem>();
 }
 }
+
+void Register{{ModuleName}}(IGameModuleRegistry& Registry)
+{
+	Registry.AddSystem("Welcome", CreateWelcomeSystem);
+}
+}
+
+HERTA_GAME_MODULE(Herta::Register{{ModuleName}})

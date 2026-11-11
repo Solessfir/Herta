@@ -3,8 +3,11 @@
 #include "Herta/AnimationGraph/AnimationGraph.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/AssetMetadata.h"
+#include "Herta/GameFramework/GameModules.h"
 #include "Herta/GameFramework/GameSession.h"
+#include "Herta/GameplayGraph/GameplayGraph.h"
 #include "Herta/Level/LevelSerialization.h"
+#include "Herta/Platform/Process.h"
 
 #include <doctest/doctest.h>
 
@@ -129,4 +132,27 @@ TEST_CASE("The Mannequin's animation graph is the built-in player machine")
 	}
 
 	CHECK_MESSAGE(File == *Text, "Copy Saved/Tests/Mannequin.hanimgraph over Content/Characters/Mannequin/Mannequin.hanimgraph to match the built-in machine");
+}
+
+// Shipping runs the shrine and the other graphs from C++ the module carries, which must match the graphs as saved.
+TEST_CASE("The Sandbox module's generated gameplay code is current")
+{
+	const std::filesystem::path Root = FindProjectRoot();
+	REQUIRE_FALSE(Root.empty());
+	const auto Sources = CollectGameplayGraphs(Root / "Content");
+	REQUIRE_MESSAGE(Sources, (Sources ? std::string() : Sources.error()));
+	const auto Generated = GenerateGameplayGraphCpp(*Sources, "GetSandboxGameplayGraphs");
+	REQUIRE(Generated);
+	std::string File = ReadText(Root / "Source/SandboxGame/Private/GeneratedSandboxGameplayGraphs.cpp");
+	std::erase(File, '\r');
+	CHECK_MESSAGE(*Generated == File, "Run HertaEditorCmd gameplay.generate Content Source/SandboxGame/Private/GeneratedSandboxGameplayGraphs.cpp GetSandboxGameplayGraphs from Games/Sandbox");
+}
+
+// The module loads as the editor and the game load it, from where the build puts it beside these tests.
+TEST_CASE("The Sandbox module loads with its run statistics system")
+{
+	const std::vector<std::string> Names{"SandboxGame"};
+	auto Modules = FGameModules::Load(Names, {.Directory = GetExecutablePath().parent_path()});
+	REQUIRE_MESSAGE(Modules, (Modules ? std::string() : Modules.error()));
+	CHECK((*Modules)->GetSystemNames() == std::vector<std::string>{"RunStats"});
 }

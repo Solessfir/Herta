@@ -264,6 +264,11 @@ void FEditorFramework::FImplementation::TogglePlay()
 	}
 
 	PlaySession = std::move(*Session);
+	if (GameModules)
+	{
+		GameModules->Start(*PlaySession);
+	}
+
 	// A new session gets the latest navigation and its agents' trees again.
 	PlayNavigationKey = 0;
 	PlayStateTrees.clear();
@@ -935,6 +940,29 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 	FImplementation& Editor = *Implementation;
 	const FAutomationArguments Arguments(Request.Arguments);
 	const std::string_view Tool = Request.Tool;
+	if (Tool == "module_reload")
+	{
+		if (!Server.AllowsWrites())
+		{
+			Server.Fail(Request.Id, "read_only", "Reloading changes the code Play runs; start the editor with --automation=write");
+			return true;
+		}
+
+		const auto Result = Editor.EditorCommands->Execute(std::format("module.reload {}", Arguments.Text("name")), true);
+		std::string Output = std::format("{{\"reloaded\": {}, \"message\": ", Result && Result->ExitCode == 0);
+		AppendJsonString(Output, Result ? Result->Message : Result.error().Message);
+		Output += ", \"systems\": [";
+		const std::vector<std::string> Systems = Editor.GameModules ? Editor.GameModules->GetSystemNames() : std::vector<std::string>{};
+		for (std::size_t Index = 0; Index < Systems.size(); ++Index)
+		{
+			Output += Index == 0 ? "" : ", ";
+			AppendJsonString(Output, Systems[Index]);
+		}
+
+		Server.Respond(Request.Id, Output + "]}");
+		return true;
+	}
+
 	if (Tool == "ui_items")
 	{
 		const std::string_view Contains = Arguments.Text("contains");

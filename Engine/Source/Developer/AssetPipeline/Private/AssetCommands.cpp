@@ -1,22 +1,24 @@
 #include "Herta/AssetPipeline/AssetCommands.h"
-#include "Herta/AnimationGraph/AnimationGraph.h"
-#include "Herta/AssetPipeline/AssetMetadata.h"
-#include "Herta/AudioGraph/AudioGraph.h"
-#include "Herta/GameplayGraph/GameplayGraph.h"
-#include "Herta/StateTreeCompiler/StateTreeCompiler.h"
-#include "Herta/VfxGraph/VfxGraph.h"
 
 #include "FileUtilities.h"
+#include "Herta/AnimationGraph/AnimationGraph.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
+#include "Herta/AssetPipeline/AssetMetadata.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/AssetPipeline/GameStaging.h"
 #include "Herta/AssetPipeline/MaterialShaderCompiler.h"
 #include "Herta/AssetPipeline/NavigationCook.h"
 #include "Herta/Assets/CookedContent.h"
 #include "Herta/Assets/VirtualFileSystem.h"
+#include "Herta/AudioGraph/AudioGraph.h"
+#include "Herta/GameplayGraph/GameplayGraph.h"
 #include "Herta/Level/LevelSerialization.h"
 #include "Herta/LocalizationPipeline/LocalizationPipeline.h"
+#include "Herta/Platform/Platform.h"
+#include "Herta/Platform/Process.h"
 #include "Herta/Project/Project.h"
+#include "Herta/StateTreeCompiler/StateTreeCompiler.h"
+#include "Herta/VfxGraph/VfxGraph.h"
 
 #include <algorithm>
 #include <format>
@@ -650,6 +652,8 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			    .DerivedDataRoot = Options.DerivedDataRoot,
 			    .WorkerPath = Options.WorkerPath,
 			    .TargetPlatform = Options.TargetPlatform,
+			    // Modules built for the same configuration as this tool, as the editor loads them.
+			    .ModuleDirectory = Utf8ToPath(Arguments[0]).parent_path() / "Binaries" / GetPlatformName(GetCurrentPlatform()) / "x86_64" / GetExecutablePath().parent_path().filename(),
 			});
 
 			if (!Staged)
@@ -657,7 +661,13 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 				return ExecutionError(Staged.error());
 			}
 
-			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Staged {} assets ({:.1f} MiB) for {}", Staged->Assets, static_cast<double>(Staged->Bytes) / (1024. * 1024.), GenericPathToUtf8(Staged->ProjectPath))};
+			std::string Missing;
+			for (const std::string& Module : Staged->MissingModules)
+			{
+				Missing += std::format("{}{}", Missing.empty() ? "; not built, so the staged game runs without them: " : ", ", Module);
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Staged {} assets ({:.1f} MiB) for {}{}", Staged->Assets, static_cast<double>(Staged->Bytes) / (1024. * 1024.), GenericPathToUtf8(Staged->ProjectPath), Missing)};
 		}});
 	}
 

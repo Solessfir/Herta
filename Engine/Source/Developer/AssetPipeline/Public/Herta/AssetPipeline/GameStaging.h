@@ -21,6 +21,9 @@ struct FGameStageRequest
 	std::filesystem::path DerivedDataRoot;
 	std::filesystem::path WorkerPath;
 	std::string TargetPlatform;
+	// Where the project's game modules are built, such as <Project>/Binaries/windows/x86_64/Development; each is copied beside the staged
+	// project, where the game and the server load it. Empty stages none.
+	std::filesystem::path ModuleDirectory;
 };
 
 struct FGameStageResult
@@ -28,6 +31,8 @@ struct FGameStageResult
 	std::filesystem::path ProjectPath;
 	std::size_t Assets = 0;
 	std::uint64_t Bytes = 0;
+	// Modules the project names that were not built in ModuleDirectory, so the staged game runs without them.
+	std::vector<std::string> MissingModules;
 };
 
 // Staged layout, relative to OutputRoot: Engine/Content holds engine assets, and <Project>/ mirrors the project with its content root holding game assets.

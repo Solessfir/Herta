@@ -172,6 +172,7 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 			AssetPaths.DerivedDataRoot = Result->Project->Root / "DerivedDataCache" / AssetPaths.TargetPlatform;
 			ProjectPath = Result->Project->DescriptorPath;
 			RememberRecentProject(ProjectPath);
+			LoadGameModules(*Result->Project);
 			ContentBrowserState = {};
 			DetailsPanelState = {};
 			OutlinerPanelState = {};
