@@ -3,7 +3,8 @@ set -euo pipefail
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(cd -- "${script_dir}/../.." && pwd)"
-project=Games/Sandbox/Sandbox.hertaproject
+# The .hertaproject to package, such as Games/Sandbox/Sandbox.hertaproject; required, since the engine has no default game.
+project=
 configuration=Shipping
 output_directory=""
 content_mode=package
@@ -48,6 +49,11 @@ esac
 
 repository_root="$(cd -- "${repository_root}" && pwd -P)"
 output_directory="$(realpath -m -- "${output_directory:-${repository_root}/Intermediate/Packages}")"
+if [[ -z "${project}" ]]; then
+    printf 'PackageGame needs --project <path/to/Game.hertaproject>.\n' >&2
+    exit 2
+fi
+
 project_path="$(realpath -- "${repository_root}/${project}")"
 project_name="$(basename -- "${project_path}" .hertaproject)"
 # Staging puts the project in a <Project> folder, so the executable needs a suffix to sit beside it.

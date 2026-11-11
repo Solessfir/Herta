@@ -53,7 +53,7 @@ required_content=(
     Engine/Content/Shapes/Sphere.gltf
     Engine/Content/Shapes/Sphere.gltf.hmeta
 )
-package_files=(LICENSE Games/Sandbox/Sandbox.hertaproject)
+package_files=(LICENSE)
 while IFS= read -r -d '' template_file; do
     package_files+=("${template_file#"${repository_root}/"}")
 done < <(find "${repository_root}/Templates/Projects/Game" -type f -print0)
@@ -103,7 +103,7 @@ declare -A tracked_files=()
 while IFS= read -r -d '' relative_path; do
     tracked_files["${relative_path}"]=1
     case "${relative_path}" in
-        Engine/Content/*|Games/Sandbox/Content/*|Games/Sandbox/Levels/*|Templates/Projects/Game/*) package_files+=("${relative_path}") ;;
+        Engine/Content/*|Templates/Projects/Game/*) package_files+=("${relative_path}") ;;
         External/*)
             filename="${relative_path##*/}"
             if [[ "${filename,,}" =~ (license|copying|notice|^ofl\.|^ftl\.) ]]; then
@@ -143,7 +143,6 @@ done
 for relative_path in "${license_files[@]}"; do
     copy_package_file "${relative_path}" "${staging_root}/ThirdPartyLicenses/${relative_path}"
 done
-mkdir -p -- "${staging_root}/Games/Sandbox/Content"
 
 cat > "${staging_root}/README.txt" <<EOF
 Herta experimental editor - linux x86_64 ${configuration}

@@ -17,6 +17,12 @@
 
 using namespace Herta;
 
+namespace Herta
+{
+// From GeneratedTestGameplayGraphs.cpp, which gameplay.generate writes from the fixtures.
+std::span<const FGeneratedGameplayGraph> GetTestGameplayGraphs();
+}
+
 namespace
 {
 // Every call a graph makes, in order, so two runs compare as text.
@@ -202,12 +208,13 @@ TEST_CASE("Cooked gameplay graphs round-trip and reject programs that could loop
 
 TEST_CASE("Generated gameplay graph code is current and matches the call list")
 {
-	const auto Sources = CollectGameplayGraphs("Games/Sandbox/Content");
+	const auto Sources = CollectGameplayGraphs("Engine/Source/Programs/HertaTests/Fixtures/Content");
 	REQUIRE_MESSAGE(Sources, (Sources ? std::string() : Sources.error()));
 	REQUIRE_FALSE(Sources->empty());
-	const auto Generated = GenerateGameplayGraphCpp(*Sources);
+	const auto Generated = GenerateGameplayGraphCpp(*Sources, "GetTestGameplayGraphs");
 	REQUIRE_MESSAGE(Generated, (Generated ? std::string() : Generated.error()));
-	CHECK_MESSAGE(*Generated == ReadText("Engine/Source/Runtime/GameFramework/Private/GeneratedGameplayGraphs.cpp"), "Run HertaEditorCmd gameplay.generate");
+	CHECK_MESSAGE(*Generated == ReadText("Engine/Source/Programs/HertaTests/Private/GeneratedTestGameplayGraphs.cpp"), "Run HertaEditorCmd gameplay.generate Engine/Source/Programs/HertaTests/Fixtures/Content Engine/Source/Programs/HertaTests/Private/GeneratedTestGameplayGraphs.cpp GetTestGameplayGraphs");
+	RegisterGeneratedGameplayGraphs(GetTestGameplayGraphs());
 
 	for (const FGameplayGraphSource& Source : *Sources)
 	{

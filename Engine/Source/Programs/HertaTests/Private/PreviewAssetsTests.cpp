@@ -1695,7 +1695,7 @@ TEST_CASE("The player character loads when requested before the first content sc
 
 	for (auto Path = std::filesystem::current_path(Error); !Path.empty(); Path = Path.parent_path())
 	{
-		const auto Source = Path / "Games/Sandbox/Content/Characters/Mannequin/Mannequin.glb";
+		const auto Source = Path / "Engine/Source/Programs/HertaTests/Fixtures/Content/Characters/Mannequin/Mannequin.glb";
 		if (std::filesystem::is_regular_file(Source, Error))
 		{
 			std::filesystem::create_directories(Fixture.Scratch.GetPath() / "Game/Characters", Error);

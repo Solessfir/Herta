@@ -5,14 +5,14 @@ namespace Herta
 {
 namespace
 {
-// Logic/Shrine.hgameplaygraph
+// Logic/Counter.hgameplaygraph
 void Program0Event0(FGameplayContext& Context)
 {
 	float* const S = Context.Slots.data();
 	Context.Host->Log(Context.Strings[0], S[0]);
 }
 
-// Logic/Shrine.hgameplaygraph
+// Logic/Counter.hgameplaygraph
 void Program0Event1(FGameplayContext& Context)
 {
 	float* const S = Context.Slots.data();
@@ -41,7 +41,7 @@ void Program0Event1(FGameplayContext& Context)
 	}
 }
 
-// Logic/Shrine.hgameplaygraph
+// Logic/Counter.hgameplaygraph
 void Program0Event2(FGameplayContext& Context)
 {
 	float* const S = Context.Slots.data();
@@ -50,7 +50,7 @@ void Program0Event2(FGameplayContext& Context)
 }
 }
 
-std::span<const FGeneratedGameplayGraph> GetGeneratedGameplayGraphs()
+std::span<const FGeneratedGameplayGraph> GetTestGameplayGraphs()
 {
 	static constexpr std::array<FGeneratedGameplayGraph, 1> Graphs{{
 	    {.Hash = 0x55b24a4e1ece901bull, .Events = {Program0Event0, Program0Event1, Program0Event2, nullptr}},

@@ -57,10 +57,6 @@ content_files=(
     Engine/Content/Shapes/Cube.gltf.hmeta
     Engine/Content/Shapes/Sphere.gltf
     Engine/Content/Shapes/Sphere.gltf.hmeta
-    'Games/Sandbox/Content/fixture texture.png'
-    'Games/Sandbox/Content/fixture texture.png.hmeta'
-    Games/Sandbox/Levels/Sandbox.hlevel
-    Games/Sandbox/Sandbox.hertaproject
     Templates/Projects/Game/Content.gitkeep
     Templates/Projects/Game/Game.cpp.in
     Templates/Projects/Game/Game.h.in
@@ -197,7 +193,6 @@ assert_fails 'Package output already exists' --output-directory "${existing_arch
 
 missing_inputs=(
     LICENSE
-    Games/Sandbox/Sandbox.hertaproject
     "${binary_directory}/Herta"
     "${binary_directory}/HertaEditorCmd"
     "${binary_directory}/HertaAssetWorker"
@@ -205,8 +200,6 @@ missing_inputs=(
     Engine/Content/Shapes/Cube.gltf.hmeta
     Engine/Content/Shapes/Sphere.gltf
     Engine/Content/Shapes/Sphere.gltf.hmeta
-    'Games/Sandbox/Content/fixture texture.png'
-    Games/Sandbox/Levels/Sandbox.hlevel
     Templates/Projects/Game/Main.hlevel
     External/freetype/src/gzip/zlib.h
     External/example/LICENSE
@@ -236,15 +229,12 @@ assert_fails 'Configuration must be' --configuration Debug
 assert_fails 'Missing value' --configuration
 assert_fails 'Unknown PackageEditor argument' --unknown
 
-# An empty tracked Game mount still needs a writable directory in the archive.
-git -C "${repository_root}" rm --quiet --cached 'Games/Sandbox/Content/fixture texture.png' 'Games/Sandbox/Content/fixture texture.png.hmeta'
+# The editor package carries no project; projects ship on their own.
 cp -a -- "${repository_root}/${binary_directory}" "${repository_root}/Binaries/linux/x86_64/Development"
 development_output="${temporary_root}/development-output"
 bash "${package_script}" --repository-root "${repository_root}" --configuration Development --output-directory "${development_output}"
 assert_file "${development_output}/Herta-linux-x86_64-Development.tar.gz"
 ((test_count += 1))
-[[ -d "${development_output}/Herta-linux-x86_64-Development/Games/Sandbox/Content" ]]
-((test_count += 1))
-[[ -z "$(ls -A -- "${development_output}/Herta-linux-x86_64-Development/Games/Sandbox/Content")" ]]
+[[ ! -e "${development_output}/Herta-linux-x86_64-Development/Games" ]]
 
 printf 'Passed %d Linux editor packaging checks.\n' "${test_count}"

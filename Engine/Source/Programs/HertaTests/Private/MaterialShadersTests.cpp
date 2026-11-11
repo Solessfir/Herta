@@ -268,7 +268,7 @@ TEST_CASE("Material Graphs compile headless to the shaders a staged game loads")
 	const auto ShaderRoot = FindShaderRoot();
 	REQUIRE_FALSE(ShaderRoot.empty());
 	const std::filesystem::path Repository = ShaderRoot.parent_path().parent_path();
-	const std::array<std::filesystem::path, 3> Roots{ShaderRoot, Repository / "Engine/Content", Repository / "Games/Sandbox/Content"};
+	const std::array<std::filesystem::path, 3> Roots{ShaderRoot, Repository / "Engine/Content", Repository / "Engine/Source/Programs/HertaTests/Fixtures/Content"};
 
 	const auto Sources = CollectMaterialShaderSources(Roots, "Game/Playground/Materials/GraphStripes.hmatgraph");
 	REQUIRE(Sources);

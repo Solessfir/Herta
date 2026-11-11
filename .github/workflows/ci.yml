@@ -162,6 +162,24 @@ jobs:
           & .\Binaries\windows\x86_64\${{ matrix.configuration }}\HertaTests.exe --duration=true
           exit $LASTEXITCODE
 
+      # The Sandbox is a project outside the engine, with its own checks: canonical levels, cooking graphs, and the Mannequin's machine.
+      - name: Run Sandbox tests on Windows
+        if: matrix.platform == 'windows' && matrix.configuration == 'Development'
+        shell: pwsh
+        run: |
+          $Premake = & .\Scripts\Windows\Setup.ps1 -PrintPremakePath
+          $env:HERTA_VULKAN_SDK = (Get-ChildItem SDK/Windows/Vulkan -Directory | Sort-Object Name | Select-Object -Last 1).FullName
+          & $Premake --file=premake5.lua --project=Games/Sandbox/Sandbox.hertaproject vs2026
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $MSBuildPath = & .\Scripts\Windows\Setup.ps1 -PrintMSBuildPath -VisualStudioVersion 2026
+          & $MSBuildPath Games/Sandbox/Herta.slnx /m /t:SandboxTests /p:Configuration=Development /p:Platform=x64 /verbosity:minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Push-Location Games/Sandbox
+          & .\Binaries\windows\x86_64\Development\SandboxTests.exe --duration=true
+          $Code = $LASTEXITCODE
+          Pop-Location
+          exit $Code
+
       - name: Run headless editor command on Windows
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -215,6 +233,22 @@ jobs:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
         run: ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaTests --duration=true
+
+      - name: Run Sandbox tests on Linux
+        if: matrix.platform == 'linux' && matrix.configuration == 'Shipping'
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+          CXXFLAGS: ${{ matrix.cxxflags }}
+          LDFLAGS: ${{ matrix.ldflags }}
+        run: |
+          Premake="$(./Scripts/Linux/Setup.sh --print-premake-path)"
+          Sdk="$(ls -d SDK/Linux/Vulkan/*/ | sort | tail -1)"
+          HERTA_VULKAN_SDK="$(realpath "$Sdk")" "$Premake" --file=premake5.lua --project=Games/Sandbox/Sandbox.hertaproject gmake
+          make --directory=Games/Sandbox/Intermediate/ProjectFiles/gmake --jobs=2 config=shipping SandboxTests
+          cd Games/Sandbox
+          ./Binaries/linux/x86_64/Shipping/SandboxTests --duration=true
 
       - name: Run headless editor command on Linux
         if: matrix.platform == 'linux'
@@ -325,7 +359,7 @@ jobs:
           Push-Location (Join-Path $ExtractRoot 'Herta-windows-x86_64-Shipping')
           try {
             $CommandHost = '.\Binaries\windows\x86_64\Shipping\HertaEditorCmd.exe'
-            $Diagnostic = & $CommandHost --json asset.validate | ConvertFrom-Json
+            $Diagnostic = & $CommandHost --json asset.validate --content-root Engine/Content | ConvertFrom-Json
             if ($LASTEXITCODE -ne 0 -or $Diagnostic.status -ne 'success') {
               throw 'Extracted package could not validate its content.'
             }
@@ -347,7 +381,7 @@ jobs:
           tar -xzf Intermediate/Packages/Herta-linux-x86_64-Shipping.tar.gz -C "$ExtractRoot"
           cd "$ExtractRoot/Herta-linux-x86_64-Shipping"
           CommandHost='./Binaries/linux/x86_64/Shipping/HertaEditorCmd'
-          Diagnostic="$("$CommandHost" --json asset.validate)"
+          Diagnostic="$("$CommandHost" --json asset.validate --content-root Engine/Content)"
           python3 -c 'import json,sys; assert json.loads(sys.argv[1])["status"] == "success"' "$Diagnostic"
           Diagnostic="$("$CommandHost" --json asset.reimport Shapes/Cube.gltf --content-root Engine/Content)"
           python3 -c 'import json,sys; assert json.loads(sys.argv[1])["status"] == "success"' "$Diagnostic"

@@ -35,7 +35,7 @@ std::filesystem::path FindMannequin()
 
 	for (auto Path = std::filesystem::current_path(Error); !Path.empty(); Path = Path.parent_path())
 	{
-		const auto Candidate = Path / "Games/Sandbox/Content/Characters/Mannequin/Mannequin.glb";
+		const auto Candidate = Path / "Engine/Source/Programs/HertaTests/Fixtures/Content/Characters/Mannequin/Mannequin.glb";
 		if (std::filesystem::is_regular_file(Candidate, Error))
 		{
 			return Candidate;
@@ -1136,7 +1136,7 @@ namespace
 {
 	for (std::filesystem::path Path = std::filesystem::current_path(); !Path.empty(); Path = Path.parent_path())
 	{
-		const auto Candidate = Path / "Games/Sandbox/Content/AI/Guard.hstatetree";
+		const auto Candidate = Path / "Engine/Source/Programs/HertaTests/Fixtures/Content/AI/Guard.hstatetree";
 		if (std::filesystem::exists(Candidate))
 		{
 			std::ifstream File(Candidate, std::ios::binary);

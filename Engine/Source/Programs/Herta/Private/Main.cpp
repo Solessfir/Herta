@@ -720,8 +720,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::filesystem::path AssetWorker = EditorExecutable.parent_path() / "HertaAssetWorker";
 	AssetWorker += EditorExecutable.extension();
 	const std::string_view Platform = GetPlatformName(GetCurrentPlatform());
-	const FEditorAssetPaths AssetPaths{.EngineContentRoot = RepositoryRoot / "Engine/Content", .ContentRoot = RepositoryRoot / "Games/Sandbox/Content", .DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform, .WorkerPath = AssetWorker, .TargetPlatform = std::string(Platform)};
-	// A level opens inside the nearest project that owns it, falling back to Sandbox for loose files.
+	const FEditorAssetPaths AssetPaths{.EngineContentRoot = RepositoryRoot / "Engine/Content", .ContentRoot = {}, .DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform, .WorkerPath = AssetWorker, .TargetPlatform = std::string(Platform)};
+	// A level opens inside the nearest project that owns it; a loose level opens with engine content only.
 	std::filesystem::path OpenedLevel;
 	std::filesystem::path OpenedProject;
 	std::filesystem::path OpenedGraph;
@@ -730,8 +730,14 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	std::filesystem::path OpenedVfxGraph;
 	std::filesystem::path OpenedStateTree;
 	std::filesystem::path OpenedMaterial;
-	// The visual test measures the rendering stations, which live in their own level so the gameplay course can change freely.
-	const std::filesystem::path RequestedPath = OpenPath.empty() && bVisualTest ? RepositoryRoot / "Games/Sandbox/Levels/Visuals.hlevel" : OpenPath;
+	// The visual and play tests measure a level the caller names, such as a project's rendering stations, since the engine owns no game.
+	if ((bVisualTest || bPlayTest) && OpenPath.empty())
+	{
+		HERTA_LOG_ERROR(*Log, EditorLog, "--visual-test and --play-test need a level or project to open, such as Games/Sandbox/Levels/Visuals.hlevel");
+		return 1;
+	}
+
+	const std::filesystem::path& RequestedPath = OpenPath;
 	if (!RequestedPath.empty() && !bScalingTest)
 	{
 		std::error_code Error;

@@ -99,11 +99,11 @@ Staging replaces only a directory that is empty or was staged before. A material
 `HertaGame --project=<path>` runs a staged project; without it, the game opens the content beside its executable: a package embedded in it, `.hpak` packages beside it, or the one loose project folder there, with any data mods in `Mods` over it. See [Distribution](Distribution.md). Package a relocatable build after building Shipping:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/PackageGame.ps1 -Verify
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File Scripts/Windows/PackageGame.ps1 -Project Games/Sandbox/Sandbox.hertaproject -Verify
 ```
 
 ```sh
-./Scripts/Linux/PackageGame.sh --verify
+./Scripts/Linux/PackageGame.sh --project Games/Sandbox/Sandbox.hertaproject --verify
 ```
 
 The package holds the renamed game executable (`<Project>.exe` on Windows, `<Project>.x86_64` on Linux, named apart from a loose `<Project>` content folder), the dedicated server (`<Project>-Server.exe` or `<Project>.x86_64-server`), the content, `LICENSE`, `ThirdPartyLicenses`, and a README, under `Intermediate/Packages/<Project>-<platform>-x86_64-<Configuration>`. `-ContentMode`/`--content-mode` chooses the content: `Package`, the default, writes `<Project>.hpak` holding the staged files and engine shaders; `Embedded` builds that package into both executables, which then stand alone; `Loose` copies the staged files and `Shaders` folder. `-SigningKey`/`--signing-key` signs the package. Shipping Windows builds have no console. `-Verify` copies the package outside the checkout and plays a scripted run there, then starts the dedicated server and plays a hosted scripted run, and in package mode cooks the content again and requires identical package bytes.
@@ -119,7 +119,7 @@ The game and the dedicated server write a report when they fault: the build revi
 ## Checks
 
 - `HertaGame --smoke-test=<frames> [--validation]` plays a scripted run: it walks and jumps, loses focus, pauses and resumes, saves and loads, restarts the course, crosses the level's regions and back, checks that the level's agents run their StateTrees on the navigation, and exits with failure on any error or validation message. Smoke saves go to the temporary directory. With `--host` or `--connect` it plays over the network instead of saving, loading, restarting, and crossing regions, checks the agents on the host's server, and fails if no snapshot arrived.
-- `Herta --play-test [--validation]` runs two editor Play/Stop cycles with scripted input, saves `Saved/PlayTest/Play-N.png` from the player's view, and requires every authored model back after each stop.
+- `Herta <level or project> --play-test [--validation]`, such as `Games/Sandbox/Sandbox.hertaproject`, runs two editor Play/Stop cycles with scripted input, saves `Saved/PlayTest/Play-N.png` from the player's view, and requires every authored model back after each stop.
 - `HertaTests` cover the mover (the sprint speed curve, landing speed loss, slide braking and exit, disabled and custom modes, sphere casts) and the session (spawn, timing, restart, jump limits, respawn, sliding under a low ceiling, wall kicks, the chimney climb, mantles and their room check, wall runs from a run but not a standing jump, invalid input), staged content loading, trigger roles, GameUI layout, the menus' focus routing, rebinding, and settings, saves and their recovery, and the shared simulation builder.
 
 The 600-frame Sandbox smoke run averaged 3.4 ms per frame at the default window size on an RTX 4090 Laptop GPU, Development and Shipping alike. Native Linux runs on X11 and Wayland pass the same checks.

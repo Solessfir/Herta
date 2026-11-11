@@ -758,13 +758,13 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 	{
 		Result = Registry.Register(FEditorCommandDescriptor{
 		    .Name = "gameplay.generate",
-		    .Description = "Write the C++ that shipping builds run for every gameplay graph under a content folder",
+		    .Description = "Write the C++ that shipping builds run for every gameplay graph under a content folder, as a function returning their table",
 		    .bMutates = true,
 		    .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 		{
-			if (Arguments.size() != 2)
+			if (Arguments.size() != 3)
 			{
-				return UsageError("gameplay.generate <content-folder> <output.cpp>");
+				return UsageError("gameplay.generate <content-folder> <output.cpp> <function-name>");
 			}
 
 			const auto Sources = CollectGameplayGraphs(Utf8ToPath(Arguments[0]));
@@ -773,7 +773,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 				return ExecutionError(FAssetError{Sources.error()});
 			}
 
-			const auto Code = GenerateGameplayGraphCpp(*Sources);
+			const auto Code = GenerateGameplayGraphCpp(*Sources, Arguments[2]);
 			if (!Code)
 			{
 				return ExecutionError(FAssetError{Code.error()});

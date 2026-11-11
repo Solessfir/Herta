@@ -90,6 +90,12 @@ template <EGameplayOp Op> std::uint32_t Step(FGameplayContext& Context, const FG
 	}
 }
 
+std::vector<std::span<const FGeneratedGameplayGraph>>& GetGeneratedTables()
+{
+	static std::vector<std::span<const FGeneratedGameplayGraph>> Tables;
+	return Tables;
+}
+
 // Indexed by EGameplayOp, so binding a program is one lookup per instruction.
 constexpr std::array<FStep, static_cast<std::size_t>(EGameplayOp::Log) + 1> Steps{
     Step<EGameplayOp::Add>,
@@ -110,14 +116,31 @@ constexpr std::array<FStep, static_cast<std::size_t>(EGameplayOp::Log) + 1> Step
 };
 }
 
+void RegisterGeneratedGameplayGraphs(const std::span<const FGeneratedGameplayGraph> Graphs)
+{
+	auto& Tables = GetGeneratedTables();
+	const bool bKnown = std::ranges::any_of(Tables, [Graphs](const std::span<const FGeneratedGameplayGraph> Table)
+	{
+		return Table.data() == Graphs.data();
+	});
+
+	if (!bKnown)
+	{
+		Tables.push_back(Graphs);
+	}
+}
+
 FGameplayProgram FGameplayProgram::Create(std::shared_ptr<const FCookedGameplayGraph> Graph, const EGameplayBackend Preferred)
 {
 	FGameplayProgram Program;
 	if (Preferred == EGameplayBackend::Native)
 	{
 		const std::uint64_t Hash = HashGameplayGraph(*Graph);
-		const auto Generated = std::ranges::find(GetGeneratedGameplayGraphs(), Hash, &FGeneratedGameplayGraph::Hash);
-		Program.Native = Generated == GetGeneratedGameplayGraphs().end() ? nullptr : &*Generated;
+		for (const std::span<const FGeneratedGameplayGraph> Table : GetGeneratedTables())
+		{
+			const auto Generated = std::ranges::find(Table, Hash, &FGeneratedGameplayGraph::Hash);
+			Program.Native = Generated == Table.end() ? Program.Native : &*Generated;
+		}
 	}
 
 	Program.Steps.reserve(Graph->Code.size());

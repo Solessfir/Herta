@@ -4,6 +4,7 @@
 #include "Herta/EditorCore/ProjectCommands.h"
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
+#include "Herta/Project/Project.h"
 
 #include <cstdint>
 #include <exception>
@@ -179,10 +180,20 @@ int Run(const std::span<const std::string> Arguments)
 			Herta::FAssetCommandOptions AssetOptions;
 			if (!RepositoryRoot.empty())
 			{
-				AssetOptions.DefaultContentRoot = RepositoryRoot / "Games/Sandbox/Content";
 				AssetOptions.DerivedDataRoot = RepositoryRoot / "DerivedDataCache" / Platform;
 				AssetOptions.DependencyContentRoots = {RepositoryRoot / "Engine/Content", RepositoryRoot / "Engine/Shaders"};
 				AssetOptions.EngineContentRoot = RepositoryRoot / "Engine/Content";
+			}
+
+			// Asset commands without --content-root use the project the working directory is in, as Git finds its repository.
+			std::error_code Error;
+			if (const auto Owner = Herta::FindOwningProject(std::filesystem::current_path(Error) / "."))
+			{
+				if (const auto Project = Herta::LoadProject(*Owner))
+				{
+					AssetOptions.DefaultContentRoot = Project->ContentRoot;
+					AssetOptions.DerivedDataRoot = Project->Root / "DerivedDataCache" / Platform;
+				}
 			}
 
 			AssetOptions.WorkerPath = ExecutablePath.parent_path() / "HertaAssetWorker";

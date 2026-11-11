@@ -728,7 +728,6 @@ project "HertaGame"
     location(path.join(ProjectFilesRoot, "HertaGame"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaGame"))
     debugdir(RepositoryRoot)
-    debugargs { "--project=Saved/StagedBuilds/Sandbox/Sandbox/Sandbox.hertaproject" }
     ApplyRuntimeDependencies { "Application", "Tasks", "Audio", "GameFramework", "GameAutomation", "EditorCore", "Replication", "Networking", "GameUI", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
     dependson { "HertaShaders" }
 
@@ -760,7 +759,6 @@ project "HertaServer"
     location(path.join(ProjectFilesRoot, "HertaServer"))
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaServer"))
     debugdir(RepositoryRoot)
-    debugargs { "--project=Saved/StagedBuilds/Sandbox/Sandbox/Sandbox.hertaproject" }
     ApplyRuntimeDependencies { "Replication", "Networking", "GameFramework", "GameAutomation", "EditorCore", "Tasks", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
 
     -- GameFramework links window and audio libraries for the game; the server never calls them, so the linker leaves them out.
@@ -841,5 +839,33 @@ if HertaProjectDescriptor then
         ApplyRuntimeDependencies(Module.dependencies)
         targetdir(path.join(HertaProjectRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
         objdir(path.join(HertaProjectRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
+    end
+
+    -- A project's own checks, such as its levels staying canonical and its graphs cooking, in Source/Tests with their own doctest main.
+    local TestsRoot = path.join(HertaProjectRoot, "Source/Tests")
+    if os.isdir(TestsRoot) then
+        local TestsName = HertaProjectDescriptor.name .. "Tests"
+        project(TestsName)
+            kind "ConsoleApp"
+            location(path.join(ProjectFilesRoot, TestsName))
+            ApplyCommonProjectSettings(TestsRoot)
+            targetdir(path.join(HertaProjectRoot, "Binaries/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix))
+            objdir(path.join(HertaProjectRoot, "Intermediate/Build/%{cfg.system}/%{cfg.architecture}/%{cfg.buildcfg}" .. HertaToolsetSuffix .. "/%{prj.name}"))
+            debugdir(HertaProjectRoot)
+            externalincludedirs { path.join(RepositoryRoot, "External/doctest") }
+            ApplyRuntimeDependencies { "Core", "Math", "Localization", "TextLayout", "AI", "Animation", "Audio", "Navigation", "Networking", "Particles", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "GameplayGraph", "StateTreeCompiler", "NavigationBuilder", "LocalizationPipeline", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+            local ProjectModules = {}
+            for _, Module in ipairs(HertaProjectDescriptor.modules) do
+                table.insert(ProjectModules, Module.name)
+            end
+
+            if #ProjectModules > 0 then
+                ApplyRuntimeDependencies(ProjectModules)
+            end
+
+            dependson { "HertaAssetWorker" }
+            filter "system:linux"
+                linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }
+            filter {}
     end
 end

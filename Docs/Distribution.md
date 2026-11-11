@@ -32,7 +32,7 @@ Packages are not encrypted. Encryption cannot keep data from whoever runs the ga
 
 Embedding adds the package as an `RCDATA` resource named `HERTAPAK` on Windows, which must happen before the executable is code-signed, and as a non-loaded `.hertapak` ELF section with `objcopy` on Linux. The game finds it with `FindEmbeddedData`: the resource is mapped with the image, and the section is read from the executable's own file. It is the same package reader either way.
 
-`Scripts/Windows/PackageGame.ps1 -ContentMode Loose|Package|Embedded` and `Scripts/Linux/PackageGame.sh --content-mode loose|package|embedded` package the game and server with each; `Package` is the default. `-SigningKey`/`--signing-key` signs the content, and `-LanguagePacks`/`--language-packs` splits out the translations. Verification runs the relocated game, server, and a hosted game, and in package mode cooks the content again and requires the same package bytes.
+`Scripts/Windows/PackageGame.ps1 -Project <p.hertaproject> -ContentMode Loose|Package|Embedded` and `Scripts/Linux/PackageGame.sh --project <p.hertaproject> --content-mode loose|package|embedded` package the game and server with each; `Package` is the default. `-SigningKey`/`--signing-key` signs the content, and `-LanguagePacks`/`--language-packs` splits out the translations. Verification runs the relocated game, server, and a hosted game, and in package mode cooks the content again and requires the same package bytes.
 
 Measured on the Sandbox: 122 files, 14.0 MiB staged with the engine shaders, package 7.6 MiB, embedded executables grow by the same.
 

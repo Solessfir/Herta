@@ -56,7 +56,7 @@ TEST_CASE("VFX Graphs compile emitters from their modules, in degrees on the can
 
 TEST_CASE("The Sandbox's sword trail compiles to a ribbon that does not move on its own")
 {
-	std::ifstream Stream("Games/Sandbox/Content/Effects/Sword_Trail.hvfxgraph", std::ios::binary);
+	std::ifstream Stream("Engine/Source/Programs/HertaTests/Fixtures/Content/Effects/Sword_Trail.hvfxgraph", std::ios::binary);
 	const std::string Text{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
 	const auto Graph = DeserializeGraph(Text, GetVfxGraphSchema());
 	REQUIRE(Graph);
@@ -143,7 +143,7 @@ TEST_CASE("Version 1 VFX Graphs upgrade to version 2")
 
 TEST_CASE("The Sandbox's sword sparks drop embers where they hit")
 {
-	std::ifstream Stream("Games/Sandbox/Content/Effects/Sword_Sparks.hvfxgraph", std::ios::binary);
+	std::ifstream Stream("Engine/Source/Programs/HertaTests/Fixtures/Content/Effects/Sword_Sparks.hvfxgraph", std::ios::binary);
 	const std::string Text{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
 	const auto Graph = DeserializeGraph(Text, GetVfxGraphSchema());
 	REQUIRE(Graph);

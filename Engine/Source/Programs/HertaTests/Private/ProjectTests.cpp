@@ -171,31 +171,18 @@ TEST_CASE("Project headless commands share descriptor validation and creation")
 	REQUIRE_FALSE(Root.empty());
 	FEditorCommandRegistry Registry;
 	REQUIRE(RegisterProjectCommands(Registry, Root));
-	CHECK(Registry.Execute("project.validate Games/Sandbox/Sandbox.hertaproject").has_value());
+	CHECK(Registry.Execute("project.validate Engine/Source/Programs/HertaTests/Fixtures/Project/Fixture.hertaproject").has_value());
 	CHECK_FALSE(Registry.Execute("project.create missing arguments"));
 	CHECK_FALSE(Registry.Execute("project.validate missing.hertaproject"));
-}
-
-// Hand edits to the playground must match what the editor writes, so the next save in the editor shows no unrelated changes.
-TEST_CASE("The Sandbox level is stored in canonical form")
-{
-	const std::filesystem::path Path = EngineRoot() / "Games/Sandbox/Levels/Sandbox.hlevel";
-	std::ifstream Stream(Path, std::ios::binary);
-	const std::string Text{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
-	const auto Parsed = ParseLevel(Text);
-	REQUIRE_MESSAGE(Parsed, (Parsed ? std::string() : Parsed.error().Message));
-	const auto Written = SerializeLevel(*Parsed);
-	REQUIRE(Written);
-	CHECK(*Written == Text);
 }
 
 TEST_CASE("Owning project lookup walks up from a level to the nearest project descriptor")
 {
 	const std::filesystem::path Root = EngineRoot();
 	REQUIRE_FALSE(Root.empty());
-	const auto Sandbox = FindOwningProject(Root / "Games/Sandbox/Levels/Sandbox.hlevel");
-	REQUIRE(Sandbox);
-	CHECK(std::filesystem::equivalent(*Sandbox, Root / "Games/Sandbox/Sandbox.hertaproject"));
+	const auto Fixture = FindOwningProject(Root / "Engine/Source/Programs/HertaTests/Fixtures/Project/Levels/Main.hlevel");
+	REQUIRE(Fixture);
+	CHECK(std::filesystem::equivalent(*Fixture, Root / "Engine/Source/Programs/HertaTests/Fixtures/Project/Fixture.hertaproject"));
 
 	std::error_code Error;
 	const std::filesystem::path Scratch = Tests::MakeScratchPath("HertaOwningProject");

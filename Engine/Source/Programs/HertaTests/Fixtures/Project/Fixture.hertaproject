@@ -1,0 +1,13 @@
+{
+  "format": "HertaProject",
+  "formatVersion": 1,
+  "schemaVersion": 2,
+  "id": "6f1e0c2a-9b7d-4e51-8a3c-000000000f01",
+  "name": "Fixture",
+  "engineAssociation": "Herta",
+  "modules": [],
+  "targets": [],
+  "contentRoots": [{"name": "Game", "path": "Content"}],
+  "features": [],
+  "startingLevel": "Levels/Main.hlevel"
+}

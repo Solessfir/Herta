@@ -23,7 +23,6 @@ if ((Test-Path -LiteralPath $PackageRoot) -or (Test-Path -LiteralPath $ArchivePa
 
 $RequiredFiles = @(
     'LICENSE',
-    'Games/Sandbox/Sandbox.hertaproject',
     "$BinaryDirectory/Herta.exe",
     "$BinaryDirectory/HertaEditorCmd.exe",
     "$BinaryDirectory/HertaAssetWorker.exe",
@@ -79,7 +78,7 @@ $LicenseFiles += @(
 )
 
 $PackageFiles = $RequiredFiles + @($TrackedFiles | Where-Object {
-    $_ -like 'Engine/Content/*' -or $_ -like 'Games/Sandbox/Content/*' -or $_ -like 'Games/Sandbox/Levels/*' -or $_ -like 'Templates/Projects/Game/*'
+    $_ -like 'Engine/Content/*' -or $_ -like 'Templates/Projects/Game/*'
 })
 $PackageFiles += @(Get-ChildItem -LiteralPath (Join-Path $RepositoryRoot 'Templates/Projects/Game') -File | ForEach-Object { 'Templates/Projects/Game/' + $_.Name })
 foreach ($RelativePath in ($PackageFiles + $LicenseFiles | Sort-Object -Unique)) {
@@ -105,7 +104,6 @@ foreach ($RelativePath in ($LicenseFiles | Sort-Object -Unique)) {
     Copy-Item -LiteralPath (Join-Path $RepositoryRoot $RelativePath) -Destination $Destination
 }
 
-New-Item -ItemType Directory -Force -Path (Join-Path $PackageRoot 'Games/Sandbox/Content') | Out-Null
 
 @"
 Herta experimental editor - Windows x86_64 Shipping

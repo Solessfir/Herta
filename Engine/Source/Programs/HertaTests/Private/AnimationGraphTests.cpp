@@ -80,23 +80,6 @@ TEST_CASE("Animation graphs carry a state machine through the canvas format unch
 	}
 }
 
-// The Sandbox's Mannequin plays the built-in machine from its own graph file; when they part, the expected file is written beside the build
-// to copy over it.
-TEST_CASE("The Sandbox Mannequin's animation graph is the built-in player machine")
-{
-	const auto Text = SerializeGraph(MakeAnimationGraph(MakeDefaultPlayerStateMachine()), GetAnimationGraphSchema());
-	REQUIRE(Text);
-	std::ifstream Stream("Games/Sandbox/Content/Characters/Mannequin/Mannequin.hanimgraph", std::ios::binary);
-	const std::string File{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
-	if (File != *Text)
-	{
-		std::filesystem::create_directories("Saved/Tests");
-		std::ofstream("Saved/Tests/Mannequin.hanimgraph", std::ios::binary) << *Text;
-	}
-
-	CHECK_MESSAGE(File == *Text, "Copy Saved/Tests/Mannequin.hanimgraph over the Sandbox's to match the built-in machine");
-}
-
 TEST_CASE("Animation graph transitions compile by priority and any-state transitions leave From unlinked")
 {
 	FGraph Graph = MakeAnimationGraph(MakeSmallMachine());

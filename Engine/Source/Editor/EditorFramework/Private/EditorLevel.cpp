@@ -440,7 +440,7 @@ std::optional<FLevelEntity> FindLevelEntity(const FWorld& World, const FObjectId
 
 FEditorLevel::FEditorLevel(const std::size_t MaximumTransactions, const std::size_t MaximumMemoryCost)
     : Id(DefaultLevelId)
-    , Name("Sandbox")
+    , Name("Untitled")
     , History(MaximumTransactions, MaximumMemoryCost)
 {
 	const FQuaternion Rotation = FQuaternion::FromAxisAngle({0.f, 1.f, 0.f}, 0.4f) * FQuaternion::FromAxisAngle({1.f, 0.f, 0.f}, -0.25f);

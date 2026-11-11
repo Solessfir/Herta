@@ -42,6 +42,7 @@ struct FGameplayGraphSource
 
 // Compiles every gameplay graph under ContentRoot, in path order, named by its content path; fails on the first that does not compile.
 [[nodiscard]] std::expected<std::vector<FGameplayGraphSource>, std::string> CollectGameplayGraphs(const std::filesystem::path& ContentRoot);
-// C++ for every program, defining GetGeneratedGameplayGraphs; each program's functions do exactly what the call list does for it.
-[[nodiscard]] std::expected<std::string, std::string> GenerateGameplayGraphCpp(std::span<const FGameplayGraphSource> Sources);
+// C++ for every program, defining Function to return their table for RegisterGeneratedGameplayGraphs; each program's functions do exactly
+// what the call list does for it.
+[[nodiscard]] std::expected<std::string, std::string> GenerateGameplayGraphCpp(std::span<const FGameplayGraphSource> Sources, std::string_view Function);
 }

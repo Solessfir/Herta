@@ -1,6 +1,8 @@
 param(
     [string]$RepositoryRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
-    [string]$Project = 'Games/Sandbox/Sandbox.hertaproject',
+    # The .hertaproject to package, relative to the repository or absolute, such as Games/Sandbox/Sandbox.hertaproject.
+    [Parameter(Mandatory = $true)]
+    [string]$Project,
     [ValidateSet('Development', 'Shipping')]
     [string]$Configuration = 'Shipping',
     [string]$OutputDirectory = '',

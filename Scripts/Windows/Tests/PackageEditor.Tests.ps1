@@ -71,10 +71,6 @@ try {
         'Engine/Content/Shapes/Cube.gltf.hmeta',
         'Engine/Content/Shapes/Sphere.gltf',
         'Engine/Content/Shapes/Sphere.gltf.hmeta',
-        'Games/Sandbox/Content/Tracked.gltf',
-        'Games/Sandbox/Content/Tracked.gltf.hmeta',
-        'Games/Sandbox/Levels/Sandbox.hlevel',
-        'Games/Sandbox/Sandbox.hertaproject',
         'Templates/Projects/Game/Content.gitkeep',
         'Templates/Projects/Game/Game.cpp.in',
         'Templates/Projects/Game/Game.h.in',
@@ -146,7 +142,7 @@ try {
     }
 
     $Arguments.OutputDirectory = Join-Path $TemporaryRoot 'MissingInput'
-    foreach ($Path in ($ShaderFiles + @('Engine/Content/Shapes/Sphere.gltf', 'Engine/Content/Shapes/Sphere.gltf.hmeta', 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Games/Sandbox/Content/Tracked.gltf', 'Games/Sandbox/Levels/Sandbox.hlevel', 'Games/Sandbox/Sandbox.hertaproject', 'Templates/Projects/Game/Main.hlevel', 'External/example/LICENSE'))) {
+    foreach ($Path in ($ShaderFiles + @('Engine/Content/Shapes/Sphere.gltf', 'Engine/Content/Shapes/Sphere.gltf.hmeta', 'Engine/Content/Editor/Fonts/Roboto/OFL.txt', 'Templates/Projects/Game/Main.hlevel', 'External/example/LICENSE'))) {
         $MissingPath = Join-Path $FixtureRoot $Path
         [IO.File]::Move($MissingPath, "$MissingPath.saved")
         Assert-PackageFails $Arguments 'Required package file is missing'

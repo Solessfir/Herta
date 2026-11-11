@@ -1,0 +1,28 @@
+{
+  "format": "HertaGraph",
+  "version": 2,
+  "domain": "vfx",
+  "domainVersion": 1,
+  "nodes": [
+    {"id": 1, "type": "System", "position": [400, 0], "properties": {}},
+    {"id": 2, "type": "Emitter", "position": [0, 0], "properties": {"name": "Trail", "maxParticles": 48, "duration": 0, "spawnRadius": 0}},
+    {"id": 3, "type": "Spawn", "position": [-340, -300], "properties": {"rate": 90, "burst": 1}},
+    {"id": 4, "type": "ConeVelocity", "position": [-340, -150], "properties": {"direction": [0, 1, 0, 0], "angle": 0, "speedMin": 0, "speedMax": 0}},
+    {"id": 5, "type": "Lifetime", "position": [-340, 0], "properties": {"min": 0.16, "max": 0.16}},
+    {"id": 6, "type": "SizeOverLife", "position": [-340, 150], "properties": {"start": 1, "end": 0.7}},
+    {"id": 7, "type": "ColorOverLife", "position": [-340, 300], "properties": {"start": [0.82, 0.9, 1, 0.5], "end": [0.55, 0.7, 1, 0], "emissive": 2500}},
+    {"id": 8, "type": "Forces", "position": [-340, 450], "properties": {"gravity": 0, "drag": 0}},
+    {"id": 9, "type": "Ribbon", "position": [-340, 600], "properties": {}}
+  ],
+  "links": [
+    {"from": [2, "Emitter"], "to": [1, "Emitter1"]},
+    {"from": [3, "Spawn"], "to": [2, "Spawn"]},
+    {"from": [4, "Velocity"], "to": [2, "Velocity"]},
+    {"from": [5, "Lifetime"], "to": [2, "Lifetime"]},
+    {"from": [6, "Size"], "to": [2, "Size"]},
+    {"from": [7, "Color"], "to": [2, "Color"]},
+    {"from": [8, "Forces"], "to": [2, "Forces"]},
+    {"from": [9, "Ribbon"], "to": [2, "Ribbon"]}
+  ],
+  "comments": []
+}
