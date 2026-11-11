@@ -339,7 +339,8 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 				{
 					Row("Name", Material->Name);
 					Row("Texture maps", std::format("{}", Material->TextureMaps));
-					Row("Blend", Material->BlendMode == EMaterialBlendMode::Masked ? "Masked" : "Opaque");
+					Row("Blend", Material->BlendMode == EMaterialBlendMode::Masked ? "Masked" : Material->BlendMode == EMaterialBlendMode::Translucent ? "Translucent"
+					                                                                                                                                   : "Opaque");
 					Row("Shader", Cached->MaterialSource && !Cached->MaterialSource->ShaderPath.empty() ? std::string_view(Cached->MaterialSource->ShaderPath) : "Engine PBR");
 				}
 			}

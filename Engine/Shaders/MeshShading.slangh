@@ -444,8 +444,11 @@ FVelocitySurface velocitySurfaceFragmentMain(FVertexOutput Input)
 // Lights, global illumination, and the environment for one pixel of a material.
 float4 ShadeMesh(FVertexOutput Input, FMaterialSample Material)
 {
-    // A cutout test on the material's own alpha, so graph materials that write Alpha cut out the same way.
-    if (Visual.Material.Channels1.z > 0.5) clip(Material.Alpha - Visual.Material.Channels1.w);
+    // A cutout test on the material's own alpha, so graph materials that write Alpha cut out the same way. Translucent materials draw this
+    // cutout with the opaque meshes, then again in the translucent pass, flagged in TextureFlags.w, where only the fringe below the cutoff blends.
+    bool bFringe = Visual.Material.TextureFlags.w > 0.5;
+    if (bFringe && (Material.Alpha >= Visual.Material.Channels1.w || Material.Alpha <= 1.0 / 255.0)) discard;
+    if (!bFringe && Visual.Material.Channels1.z > 0.5) clip(Material.Alpha - Visual.Material.Channels1.w);
     float4 Base = float4(Material.BaseColor, Material.Alpha);
     float Metallic = Material.Metallic;
     float Roughness = clamp(Material.Roughness, 0.045, 1.0);
@@ -538,8 +541,9 @@ float4 ShadeMesh(FVertexOutput Input, FMaterialSample Material)
 
         Result += Surface.DiffuseReflectance * Diffuse / PI * DiffuseOcclusion + Specular * Surface.SpecularReflectance;
     }
-    if (Visual.Sky.w < 0.5) return float4(Result / (1.0 + Result), 1.0);
-    return float4(clamp(Result, 0.0, 65504.0), 1.0);
+    float Coverage = bFringe ? Material.Alpha : 1.0;
+    if (Visual.Sky.w < 0.5) return float4(Result / (1.0 + Result), Coverage);
+    return float4(clamp(Result, 0.0, 65504.0), Coverage);
 }
 
 [shader("fragment")]

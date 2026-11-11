@@ -175,6 +175,13 @@ TEST_CASE("Material assets round-trip canonical JSON and cooked data")
 	REQUIRE(std::holds_alternative<FMaterialAsset>(*Reopened));
 	CHECK(std::get<FMaterialAsset>(*Reopened) == Material);
 	CHECK_FALSE(DeserializeCookedAsset(std::span(*Cooked).first(Cooked->size() - 1)));
+
+	Material.Parameters.BlendMode = EMaterialBlendMode::Translucent;
+	const auto Translucent = SerializeMaterial(Material);
+	REQUIRE(Translucent);
+	CHECK(Translucent->find("\"blendMode\": \"translucent\"") != std::string::npos);
+	REQUIRE(DeserializeMaterial(*Translucent));
+	CHECK(DeserializeMaterial(*Translucent)->Parameters.BlendMode == EMaterialBlendMode::Translucent);
 }
 
 TEST_CASE("Version 1 materials load with Lambert diffuse and an untinted edge")
@@ -737,6 +744,21 @@ TEST_CASE("glTF cooking bounds cumulative geometry before decoding")
 	{
 		CheckRejected(R"({"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[0,0,0]},{"componentType":5125,"count":4294967295,"type":"SCALAR"})", R"({"attributes":{"POSITION":0},"indices":1})", "unsupported triangle index count");
 	}
+}
+
+TEST_CASE("Blended glTF materials cook as translucent with their cutoff")
+{
+	const Tests::FScratchDirectory Scratch("HertaBlendCook");
+	std::string Source(QuadGltf);
+	const std::string Original = R"({"name": "Checker", "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}}})";
+	const auto Position = Source.find(Original);
+	REQUIRE(Position != std::string::npos);
+	Source.replace(Position, Original.size(), R"({"name":"Glass","pbrMetallicRoughness":{"baseColorFactor":[0.6,0.8,1,0.3],"baseColorTexture":{"index":0}},"alphaMode":"BLEND"})");
+	WriteQuadModel(Scratch.GetPath() / "Content", Source);
+	const auto Model = CookQuad(Scratch);
+	CHECK(Model.Materials[0].Parameters.BlendMode == EMaterialBlendMode::Translucent);
+	// glTF's default cutoff, below which the fringe blends.
+	CHECK(Model.Materials[0].Parameters.AlphaCutoff == 0.5f);
 }
 
 TEST_CASE("glTF PBR maps retain independent factors channels and color spaces")

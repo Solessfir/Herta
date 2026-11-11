@@ -313,11 +313,8 @@ public:
 				Material.Parameters.OcclusionStrength = Source.occlusionTexture ? static_cast<float>(Source.occlusionTexture->strength) : 1.f;
 				Material.Parameters.Emissive = {Source.emissiveFactor[0], Source.emissiveFactor[1], Source.emissiveFactor[2]};
 				Material.Parameters.AlphaCutoff = static_cast<float>(Source.alphaCutoff);
-				Material.Parameters.BlendMode = Source.alphaMode == fastgltf::AlphaMode::Mask ? EMaterialBlendMode::Masked : EMaterialBlendMode::Opaque;
-				if (Source.alphaMode == fastgltf::AlphaMode::Blend)
-				{
-					return std::unexpected(FAssetError{"Transparent glTF materials are not supported; use opaque or masked materials"});
-				}
+				Material.Parameters.BlendMode = Source.alphaMode == fastgltf::AlphaMode::Mask ? EMaterialBlendMode::Masked : Source.alphaMode == fastgltf::AlphaMode::Blend ? EMaterialBlendMode::Translucent
+				                                                                                                                                                            : EMaterialBlendMode::Opaque;
 
 				AddTexture(Source.pbrData.baseColorTexture, EMaterialTextureSlot::BaseColor, ETextureColorSpace::Srgb, EMaterialChannel::Rgb);
 				AddTexture(Source.pbrData.metallicRoughnessTexture, EMaterialTextureSlot::Metallic, ETextureColorSpace::Linear, EMaterialChannel::Blue);

@@ -8,6 +8,7 @@
 #include <format>
 #include <limits>
 #include <span>
+#include <utility>
 
 namespace Herta
 {
@@ -306,7 +307,7 @@ std::expected<void, FAssetError> ValidateMaterialParameters(const FMaterialParam
 	{
 		return InRange(Value, -10'000.f, 10'000.f);
 	}) || !InRange(Parameters.AlphaCutoff, 0.f, 1.f)
-	    || (Parameters.BlendMode != EMaterialBlendMode::Opaque && Parameters.BlendMode != EMaterialBlendMode::Masked))
+	    || std::to_underlying(Parameters.BlendMode) > std::to_underlying(EMaterialBlendMode::Translucent))
 	{
 		return Invalid("Material parameters are nonfinite or outside their supported ranges");
 	}
@@ -419,7 +420,8 @@ std::expected<std::string, FAssetError> SerializeMaterial(const FMaterialAsset& 
 	Text += ",\n    \"uvOffset\": ";
 	AppendFloats(Text, Material.Parameters.UVOffset);
 	Text += ",\n    \"blendMode\": ";
-	AppendString(Text, Material.Parameters.BlendMode == EMaterialBlendMode::Masked ? "masked" : "opaque");
+	AppendString(Text, Material.Parameters.BlendMode == EMaterialBlendMode::Masked ? "masked" : Material.Parameters.BlendMode == EMaterialBlendMode::Translucent ? "translucent"
+	                                                                                                                                                             : "opaque");
 	Scalar("alphaCutoff", Material.Parameters.AlphaCutoff);
 	Text += "\n  },\n  \"textures\": {\n";
 
@@ -539,12 +541,13 @@ std::expected<FMaterialAsset, FAssetError> DeserializeMaterial(const std::string
 	    || !ReadFloat(Values[3], Parameters.NormalStrength) || !ReadFloat(Values[4], Parameters.OcclusionStrength)
 	    || !ReadFloats(Values[5], Parameters.Emissive) || !ReadFloat(Values[6], Parameters.EmissiveIntensity)
 	    || !ReadFloats(Values[7], Parameters.UVScale) || !ReadFloats(Values[8], Parameters.UVOffset)
-	    || Values[9].get_string().get(Blend) || (Blend != "opaque" && Blend != "masked") || !ReadFloat(Values[10], Parameters.AlphaCutoff))
+	    || Values[9].get_string().get(Blend) || (Blend != "opaque" && Blend != "masked" && Blend != "translucent") || !ReadFloat(Values[10], Parameters.AlphaCutoff))
 	{
 		return Invalid("Invalid material parameter value");
 	}
 
-	Parameters.BlendMode = Blend == "masked" ? EMaterialBlendMode::Masked : EMaterialBlendMode::Opaque;
+	Parameters.BlendMode = Blend == "masked" ? EMaterialBlendMode::Masked : Blend == "translucent" ? EMaterialBlendMode::Translucent
+	                                                                                               : EMaterialBlendMode::Opaque;
 	const auto Bindings = Fields((*Header)[4], SlotNames);
 	if (!Bindings)
 	{

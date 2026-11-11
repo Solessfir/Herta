@@ -183,12 +183,6 @@ def transfer_clips(path):
         node = target["nodes"][joint]
         node["name"] = {"Root": "root", "head": "Head"}.get(node.get("name"), node.get("name"))
 
-    # Hair, eyebrows, and eyelashes export as blended cards; Herta draws cutouts, so they become alpha-tested at the same edge.
-    for material in target["materials"]:
-        if material.get("alphaMode") == "BLEND":
-            material["alphaMode"] = "MASK"
-            material["alphaCutoff"] = 0.5
-
     def direction(rotation):
         return rotation @ Vector((0.0, 1.0, 0.0))
 

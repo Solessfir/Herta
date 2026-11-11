@@ -22,7 +22,9 @@ enum class ETextureColorSpace : std::uint8_t
 enum class EMaterialBlendMode : std::uint8_t
 {
 	Opaque,
-	Masked
+	Masked,
+	// Draws as a cutout at the alpha cutoff, then blends the fringe below it over the scene; see Docs/Materials.md.
+	Translucent
 };
 
 enum class EMaterialTextureSlot : std::uint8_t

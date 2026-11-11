@@ -973,6 +973,8 @@ struct FMeshRenderer::FImplementation
 	std::vector<FShadowView> Shadows;
 	FGraphicsPipelineHandle Pipeline;
 	FGraphicsPipelineHandle InstancedPipeline;
+	// The PBR pipeline blending over the scene without writing depth, for translucent materials' fringe.
+	FGraphicsPipelineHandle TranslucentPipeline;
 	FGraphicsPipelineHandle DepthPrepassPipeline;
 	FGraphicsPipelineHandle InstancedDepthPrepassPipeline;
 
@@ -980,6 +982,7 @@ struct FMeshRenderer::FImplementation
 	struct FMaterialPipelineSet
 	{
 		std::array<FGraphicsPipelineHandle, 2> Shading;
+		FGraphicsPipelineHandle Translucent;
 		std::array<FGraphicsPipelineHandle, 2> DepthPrepass;
 		std::array<FGraphicsPipelineHandle, 2> SurfacePrepass;
 		FGraphicsPipelineHandle VelocityPrepass;
@@ -1247,6 +1250,13 @@ std::expected<std::unique_ptr<FMeshRenderer>, FPresentationError> FMeshRenderer:
 		State->InstancedPipeline = std::move(*InstancedPipeline);
 	}
 
+	auto TranslucentPipeline = Device.CreateGraphicsPipeline({.Name = "Translucent PBR reversed-Z", .VertexShader = VertexShader, .FragmentShader = FragmentShader, .ColorFormat = MeshColorFormat, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = false, .bAlphaBlend = true, .BufferCount = MeshBufferCount});
+	if (!TranslucentPipeline)
+	{
+		return std::unexpected(TranslucentPipeline.error());
+	}
+
+	State->TranslucentPipeline = std::move(*TranslucentPipeline);
 	auto Pipeline = Device.CreateGraphicsPipeline({.Name = "PBR reversed-Z", .VertexShader = std::move(VertexShader), .FragmentShader = std::move(FragmentShader), .ColorFormat = MeshColorFormat, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = !bDepthPrepass, .BufferCount = MeshBufferCount});
 	if (!Pipeline)
 	{
@@ -1908,6 +1918,7 @@ std::expected<void, FPresentationError> FMeshRenderer::PublishMaterialShader(std
 
 	Create(Set.Shading[0], true, {.Name = std::format("Material {}", Key), .VertexShader = Stage(Vertex), .FragmentShader = Stage(Fragment), .ColorFormat = Format, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = !bDepthPrepass, .BufferCount = MeshBufferCount});
 	Create(Set.Shading[1], true, {.Name = std::format("Instanced material {}", Key), .VertexShader = Stage(InstancedVertex), .FragmentShader = Stage(Fragment), .ColorFormat = Format, .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = !bDepthPrepass, .BufferCount = MeshBufferCount});
+	Create(Set.Translucent, true, {.Name = std::format("Translucent material {}", Key), .VertexShader = Stage(Vertex), .FragmentShader = Stage(Fragment), .ColorFormat = Format, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthWrite = false, .bAlphaBlend = true, .BufferCount = MeshBufferCount});
 	Create(Set.DepthPrepass[0], bCustom && State.DepthPrepassPipeline, {.Name = std::format("Depth prepass {}", Key), .VertexShader = Stage(Vertex), .FragmentShader = Stage(DepthFragment), .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = MeshBufferCount});
 	Create(Set.DepthPrepass[1], bCustom && State.InstancedDepthPrepassPipeline, {.Name = std::format("Instanced depth prepass {}", Key), .VertexShader = Stage(InstancedVertex), .FragmentShader = Stage(DepthFragment), .bInstanced = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .bDepthOnly = true, .BufferCount = MeshBufferCount});
 	Create(Set.VelocityPrepass, bCustom && State.InstancedVelocityPrepassPipeline, {.Name = std::format("Instanced velocity prepass {}", Key), .VertexShader = Stage(InstancedVelocityVertex), .FragmentShader = Stage(VelocityFragment), .ColorFormat = ETextureFormat::Rg16Float, .bInstanced = true, .bInstanceMotion = true, .TextureCount = MeshTextureCount, .UniformBufferSize = VisualUniformBytes, .BufferCount = MeshBufferCount});
@@ -3624,6 +3635,87 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 		{
 			const auto Timer = TimedPass("PBR meshes");
 			return DrawScene(false, EOcclusionList::Final);
+		});
+	}
+
+	// Translucent materials drew their opaque core with the PBR meshes; their fringe below the cutoff blends here, farthest first, against the
+	// opaque depth without writing it. Each object draws on its own so the order holds across instances.
+	struct FTranslucentDraw
+	{
+		std::size_t Model = 0;
+		const FRenderMesh::FSection* Section = nullptr;
+		float Distance = 0.f;
+	};
+
+	std::vector<FTranslucentDraw> TranslucentDraws;
+	if (!bPathTracing && State.TranslucentPipeline)
+	{
+		const FMatrix4 ViewToWorld(State.Uniforms.ViewToWorld);
+		const FVector3 Eye{ViewToWorld(0, 3), ViewToWorld(1, 3), ViewToWorld(2, 3)};
+		for (std::size_t Index = 0; Index < View.Models.size(); ++Index)
+		{
+			const FRenderMesh* const Mesh = View.Meshes[Index];
+			if (Mesh == nullptr)
+			{
+				continue;
+			}
+
+			const std::span<const FRenderMaterial* const> Overrides = View.Materials.empty() ? std::span<const FRenderMaterial* const>{} : View.Materials[Index];
+			for (const FRenderMesh::FSection& Section : Mesh->Sections)
+			{
+				const FRenderMaterial* const Override = Section.Material < Overrides.size() ? Overrides[Section.Material] : nullptr;
+				const FMaterialParameters& Material = Override ? Override->Parameters : Mesh->Materials[Section.Material].Parameters;
+				if (Material.BlendMode == EMaterialBlendMode::Translucent && IsVisible(0, Index))
+				{
+					const FVector3 Offset = State.ModelBounds[Index].Center - Eye;
+					TranslucentDraws.push_back({.Model = Index, .Section = &Section, .Distance = Offset.LengthSquared()});
+				}
+			}
+		}
+
+		std::ranges::sort(TranslucentDraws, std::ranges::greater{}, &FTranslucentDraw::Distance);
+	}
+
+	if (!TranslucentDraws.empty())
+	{
+		Graph.AddPass("Translucent meshes", {{.Resource = Color, .Access = ERenderGraphAccess::ReadWrite}, {.Resource = Depth, .Access = ERenderGraphAccess::Read}, {.Resource = Geometry, .Access = ERenderGraphAccess::Read}, {.Resource = Texture, .Access = ERenderGraphAccess::Read}, {.Resource = Shadow, .Access = ERenderGraphAccess::Read}, {.Resource = ScreenOcclusion, .Access = ERenderGraphAccess::Read}, {.Resource = LightGrid, .Access = ERenderGraphAccess::Read}}, [&]() -> std::expected<void, FRenderGraphError>
+		{
+			const auto Timer = TimedPass("Translucent meshes");
+			for (const FTranslucentDraw& Translucent : TranslucentDraws)
+			{
+				const FRenderMesh& Mesh = *View.Meshes[Translucent.Model];
+				const std::span<const FRenderMaterial* const> Overrides = View.Materials.empty() ? std::span<const FRenderMaterial* const>{} : View.Materials[Translucent.Model];
+				const FImplementation::FMaterialPipelineSet* const Custom = CustomPipelines(*Translucent.Section, Overrides);
+				auto Textures = MaterialTextures(Mesh, *Translucent.Section, Overrides);
+				State.Uniforms.Material.TextureFlags[3] = 1.f;
+				if (bScreenOcclusion)
+				{
+					Textures[11] = State.GtaoOcclusion;
+				}
+
+				if (ContactDispatches || bSunShadowMask)
+				{
+					Textures[14] = State.SunShadows;
+				}
+
+				if (bGlobalIllumination)
+				{
+					Textures[15] = State.IrradianceField->GetIrradiance();
+				}
+
+				const auto Transform = (WorldToClip * View.Models[Translucent.Model]).Data();
+				const auto ObjectToView = (View.View * View.Models[Translucent.Model]).Data();
+				const auto Result = Device.DrawIndexed({.Pipeline = Custom ? CustomOr(Custom->Translucent, State.TranslucentPipeline) : State.TranslucentPipeline, .Vertices = Mesh.Vertices, .Indices = Mesh.Indices, .ColorTarget = MeshColor, .DepthTarget = FrameDepth, .WorldToClip = Transform, .IndexCount = Translucent.Section->IndexCount, .FirstIndex = Translucent.Section->FirstIndex, .ObjectToView = ObjectToView, .Textures = Textures, .Uniforms = GetVisualUniformBytes(State.Uniforms), .Buffers = LightBuffers});
+				if (!Result)
+				{
+					return GraphResult(Result);
+				}
+
+				++State.LastDrawCount;
+			}
+
+			State.Uniforms.Material.TextureFlags[3] = 0.f;
+			return {};
 		});
 	}
 

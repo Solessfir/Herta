@@ -18,7 +18,7 @@ namespace Herta
 {
 // Bump an importer version whenever its output changes for the same source and settings.
 inline constexpr std::uint32_t TextureImporterVersion = 3;
-inline constexpr std::uint32_t GltfImporterVersion = 4;
+inline constexpr std::uint32_t GltfImporterVersion = 5;
 inline constexpr std::uint32_t MaterialImporterVersion = 1;
 inline constexpr std::uint32_t SoundImporterVersion = 1;
 inline constexpr std::uint32_t AudioGraphImporterVersion = 1;

@@ -817,9 +817,10 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 			if (MatchesMaterialSearch("Blend mode", Query))
 			{
 				Row("Blend mode");
-				if (ImGui::BeginCombo("##BlendMode", Draft.Parameters.BlendMode == EMaterialBlendMode::Masked ? "Masked" : "Opaque"))
+				constexpr std::array Modes{std::pair{"Opaque", EMaterialBlendMode::Opaque}, std::pair{"Masked", EMaterialBlendMode::Masked}, std::pair{"Translucent", EMaterialBlendMode::Translucent}};
+				if (ImGui::BeginCombo("##BlendMode", Modes[std::to_underlying(Draft.Parameters.BlendMode)].first))
 				{
-					for (const auto& [Label, Mode] : {std::pair{"Opaque", EMaterialBlendMode::Opaque}, std::pair{"Masked", EMaterialBlendMode::Masked}})
+					for (const auto& [Label, Mode] : Modes)
 					{
 						if (ImGui::Selectable(Label, Draft.Parameters.BlendMode == Mode))
 						{
@@ -834,7 +835,7 @@ void FMaterialPanel::Draw(FToolUIContext& ToolUI, const FMaterialPanelContext& C
 				}
 			}
 
-			if (Draft.Parameters.BlendMode == EMaterialBlendMode::Masked)
+			if (Draft.Parameters.BlendMode != EMaterialBlendMode::Opaque)
 			{
 				FloatRow("Alpha cutoff", &FMaterialParameters::AlphaCutoff, 0.f, 1.f);
 			}

@@ -1148,6 +1148,54 @@ TEST_CASE("Custom material shaders draw their own depth prepass and shade agains
 	CHECK_FALSE(MeshDraws[1]->bDepthWrite);
 }
 
+TEST_CASE("Translucent materials blend their fringe after the opaque meshes, farthest first, without writing depth")
+{
+	using namespace Herta;
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	const auto Renderer = CreateDebugRenderer(Device);
+	REQUIRE(Renderer);
+
+	// Two cubes in front of the camera at z = -5, one 1 m nearer than the other.
+	const std::array Models{FMatrix4::Translation({0.f, 0.f, -1.f}), FMatrix4::Translation({0.f, 0.f, 1.f})};
+	const std::array Meshes{Scene.Mesh, Scene.Mesh};
+	Scene.View.Models = Models;
+	Scene.View.Meshes = Meshes;
+	const auto BlendedDraws = [&](const EMaterialBlendMode BlendMode)
+	{
+		FMaterialAsset Asset;
+		Asset.Parameters.BlendMode = BlendMode;
+		Asset.Parameters.BaseColor = {1.f, 1.f, 1.f, 0.4f};
+		const auto Material = FRenderMaterial::Create(Device, Asset, {}, "Glass");
+		REQUIRE(Material);
+		const FRenderMaterial* const MaterialPointer = Material->get();
+		const std::array<std::span<const FRenderMaterial* const>, 2> Slots{std::span{&MaterialPointer, 1}, std::span{&MaterialPointer, 1}};
+		Scene.View.Materials = Slots;
+		Device.Draws.clear();
+		REQUIRE((*Renderer)->Render({64, 64}, Scene.View));
+		std::vector<float> Depths;
+		for (const FIndexedDraw& Draw : Device.Draws)
+		{
+			const FGraphicsPipelineDescriptor& Descriptor = std::static_pointer_cast<FTestPipeline>(Draw.Pipeline)->Descriptor;
+			if (Descriptor.Name.starts_with("Translucent"))
+			{
+				CHECK(Descriptor.bAlphaBlend);
+				CHECK_FALSE(Descriptor.bDepthWrite);
+				// The object's distance along the view axis.
+				Depths.push_back(Draw.ObjectToView[14]);
+			}
+		}
+
+		return Depths;
+	};
+
+	const auto Translucent = BlendedDraws(EMaterialBlendMode::Translucent);
+	REQUIRE(Translucent.size() == 2);
+	CHECK(std::abs(Translucent[0]) > std::abs(Translucent[1]));
+	CHECK(BlendedDraws(EMaterialBlendMode::Masked).empty());
+	CHECK(BlendedDraws(EMaterialBlendMode::Opaque).empty());
+}
+
 TEST_CASE("Masked custom materials cut out their own shadows while opaque ones keep the engine shadow shader")
 {
 	using namespace Herta;
