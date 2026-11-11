@@ -81,6 +81,23 @@ struct FAudioStats
 	std::vector<FAudioBusStats> Buses{};
 };
 
+// A play the game thread submitted, for tools that ask what sounded recently.
+struct FAudioPlayRecord
+{
+	FAssetId Sound{};
+	std::uint32_t Voice = 0;
+	std::string Bus{};
+	float Volume = 1.f;
+	float Pitch = 1.f;
+	bool bSpatial = false;
+	FVector3 Position{};
+	float SecondsAgo = 0.f;
+	// Addressed voices until the mixer reports their end; others while a plain sound's length has not passed.
+	bool bPlaying = false;
+};
+
+inline constexpr std::size_t MaximumAudioPlayRecords = 64;
+
 // Plays cooked sounds and sound graphs. The game thread adds sounds and submits commands; the mixer runs on the device's real-time
 // thread, takes commands through a fixed-size lock-free queue, and never allocates, locks, or touches files. Streamed sounds are read by
 // a streaming thread into fixed ring buffers.
@@ -114,6 +131,8 @@ public:
 	// As of the last Update.
 	[[nodiscard]] bool IsVoicePlaying(FAudioVoiceId Voice) const;
 	[[nodiscard]] FAudioStats GetStats() const;
+	// The last MaximumAudioPlayRecords plays, newest first.
+	[[nodiscard]] std::vector<FAudioPlayRecord> GetRecentPlays() const;
 
 	struct FImplementation;
 

@@ -613,6 +613,16 @@ struct FEditorFramework::FImplementation
 	};
 
 	std::deque<FAutomationFrame> AutomationInput;
+
+	// UI clicks and typing answer once their input has had frames to land, so the reply sees what they changed.
+	struct FAutomationUiReply
+	{
+		std::uint64_t Id = 0;
+		int FramesLeft = 0;
+		std::string Output{};
+	};
+
+	std::vector<FAutomationUiReply> AutomationUiReplies;
 	FAutomationRun AutomationRun{};
 	std::optional<FVector3> AutomationPlayAt{};
 	float AutomationPlayYaw = 0.f;

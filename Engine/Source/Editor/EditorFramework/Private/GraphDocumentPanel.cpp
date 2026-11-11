@@ -332,8 +332,24 @@ void FGraphDocumentPanel::DrawClosePrompt()
 	ImGui::EndPopup();
 }
 
+std::span<const FGraphDiagnostic> FGraphDocumentPanel::GetDiagnostics() const
+{
+	return Diagnostics;
+}
+
+std::span<const FGraphNodeId> FGraphDocumentPanel::GetActive() const
+{
+	return Active;
+}
+
+const FGraphDocumentDomain& FGraphDocumentPanel::GetDomain() const
+{
+	return Domain;
+}
+
 void FGraphDocumentPanel::Draw(FToolUIContext& ToolUI, const FGraphDocumentPanelContext& Context)
 {
+	Active.assign(Context.Active.begin(), Context.Active.end());
 	if (!bOpen)
 	{
 		return;

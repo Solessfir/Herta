@@ -138,6 +138,62 @@ constexpr VkSurfaceFormatKHR Hdr10SurfaceFormat{.format = VK_FORMAT_A2B10G10R10_
 	});
 }
 
+// Turns a mapped swapchain image into sRGB RGBA8. HDR10 is decoded from PQ, scaled so paper white is white, and taken from BT.2020 to sRGB.
+[[nodiscard]] std::vector<std::byte> ConvertCapture(const std::byte* const Mapped, const std::size_t RowPitch, const FExtent2D Extent, const VkFormat Format, const float PaperWhite)
+{
+	const auto Encode = [](const float Linear)
+	{
+		const float Value = std::clamp(Linear, 0.f, 1.f);
+		const float Srgb = Value <= 0.0031308f ? Value * 12.92f : 1.055f * std::pow(Value, 1.f / 2.4f) - 0.055f;
+		return static_cast<std::byte>(std::lround(Srgb * 255.f));
+	};
+
+	const auto DecodePq = [](const float Encoded)
+	{
+		constexpr float M1 = 0.1593017578125f;
+		constexpr float M2 = 78.84375f;
+		constexpr float C1 = 0.8359375f;
+		constexpr float C2 = 18.8515625f;
+		constexpr float C3 = 18.6875f;
+		const float Power = std::pow(std::max(Encoded, 0.f), 1.f / M2);
+		return 10000.f * std::pow(std::max(Power - C1, 0.f) / (C2 - C3 * Power), 1.f / M1);
+	};
+
+	std::vector<std::byte> Pixels(static_cast<std::size_t>(Extent.Width) * Extent.Height * 4);
+	for (std::uint32_t Row = 0; Row < Extent.Height; ++Row)
+	{
+		const std::byte* const Source = Mapped + Row * RowPitch;
+		std::byte* const Destination = Pixels.data() + static_cast<std::size_t>(Row) * Extent.Width * 4;
+		for (std::uint32_t Column = 0; Column < Extent.Width; ++Column)
+		{
+			std::byte* const Out = Destination + Column * 4;
+			const std::byte* const In = Source + Column * 4;
+			if (Format == VK_FORMAT_A2B10G10R10_UNORM_PACK32)
+			{
+				std::uint32_t Packed = 0;
+				std::memcpy(&Packed, In, sizeof(Packed));
+				const float Red = DecodePq(static_cast<float>(Packed & 1023u) / 1023.f) / PaperWhite;
+				const float Green = DecodePq(static_cast<float>((Packed >> 10) & 1023u) / 1023.f) / PaperWhite;
+				const float Blue = DecodePq(static_cast<float>((Packed >> 20) & 1023u) / 1023.f) / PaperWhite;
+				Out[0] = Encode(1.660491f * Red - 0.587641f * Green - 0.072850f * Blue);
+				Out[1] = Encode(-0.124550f * Red + 1.132900f * Green - 0.008349f * Blue);
+				Out[2] = Encode(-0.018151f * Red - 0.100579f * Green + 1.118730f * Blue);
+			}
+			else
+			{
+				const bool bBgra = Format == VK_FORMAT_B8G8R8A8_UNORM || Format == VK_FORMAT_B8G8R8A8_SRGB;
+				Out[0] = In[bBgra ? 2 : 0];
+				Out[1] = In[1];
+				Out[2] = In[bBgra ? 0 : 2];
+			}
+
+			Out[3] = std::byte{255};
+		}
+	}
+
+	return Pixels;
+}
+
 [[nodiscard]] std::optional<VkSurfaceFormatKHR> ChooseSurfaceFormat(const std::span<const VkSurfaceFormatKHR> Formats, const bool bPreferHdr10) noexcept
 {
 	if (bPreferHdr10 && SupportsHdr10(Formats))
@@ -999,10 +1055,43 @@ public:
 			return std::unexpected(FPresentationError{.Code = EPresentationErrorCode::InvalidState, .Message = "Present requires an active presentation frame"});
 		}
 
+		nvrhi::StagingTextureHandle CaptureStaging;
+		if (std::exchange(bCaptureRequested, false))
+		{
+			const nvrhi::TextureHandle& BackBuffer = BackBuffers[ActiveImageIndex];
+			CaptureStaging = NvrhiDevice->createStagingTexture(BackBuffer->getDesc(), nvrhi::CpuAccessMode::Read);
+			if (CaptureStaging && bBackdropCopySupported)
+			{
+				CommandList->copyTexture(CaptureStaging, nvrhi::TextureSlice{}, BackBuffer, nvrhi::TextureSlice{});
+			}
+			else
+			{
+				CaptureStaging = nullptr;
+				Capture = std::unexpected(FPresentationError{.Code = EPresentationErrorCode::Unsupported, .Message = "The window's surface cannot be copied from"});
+			}
+		}
+
 		CommandList->close();
 		FFrameSync& Frame = FrameSync[FrameSlot];
 		VulkanNvrhiDevice->queueSignalSemaphore(nvrhi::CommandQueue::Graphics, RenderFinished[ActiveImageIndex], 0);
 		Frame.SubmissionInstance = NvrhiDevice->executeCommandList(CommandList);
+		if (CaptureStaging)
+		{
+			NvrhiDevice->waitForIdle();
+			std::size_t RowPitch = 0;
+			const auto* const Mapped = static_cast<const std::byte*>(NvrhiDevice->mapStagingTexture(CaptureStaging, nvrhi::TextureSlice{}, nvrhi::CpuAccessMode::Read, &RowPitch));
+			const nvrhi::TextureDesc& Desc = CaptureStaging->getDesc();
+			const FExtent2D Captured{Desc.width, Desc.height};
+			if (Mapped)
+			{
+				Capture = FPresentationCapture{.Pixels = ConvertCapture(Mapped, RowPitch, Captured, SurfaceFormat.format, HdrOutput.PaperWhite), .Extent = Captured};
+				NvrhiDevice->unmapStagingTexture(CaptureStaging);
+			}
+			else
+			{
+				Capture = std::unexpected(FPresentationError{.Code = EPresentationErrorCode::PresentationFailed, .Message = "Could not map the captured frame"});
+			}
+		}
 
 		const VkSemaphore WaitSemaphore = RenderFinished[ActiveImageIndex];
 		VkPresentInfoKHR PresentInfo{};
@@ -1027,6 +1116,16 @@ public:
 		}
 
 		return bFrameSuboptimal || PresentResult == VK_SUBOPTIMAL_KHR ? EPresentationStatus::Suboptimal : EPresentationStatus::Ready;
+	}
+
+	void RequestFrameCapture() noexcept override
+	{
+		bCaptureRequested = true;
+	}
+
+	[[nodiscard]] std::optional<std::expected<FPresentationCapture, FPresentationError>> TakeFrameCapture() override
+	{
+		return std::exchange(Capture, std::nullopt);
 	}
 
 	[[nodiscard]] std::expected<void, FPresentationError> WaitIdle() override
@@ -2894,6 +2993,8 @@ private:
 	bool bFrameActive = false;
 	bool bFrameSuboptimal = false;
 	bool bBackdropCopySupported = false;
+	bool bCaptureRequested = false;
+	std::optional<std::expected<FPresentationCapture, FPresentationError>> Capture;
 	nvrhi::ShaderHandle ToolUIVertexShader;
 	nvrhi::ShaderHandle ToolUIPixelShader;
 	nvrhi::ShaderHandle ToolUIBlurPixelShader;

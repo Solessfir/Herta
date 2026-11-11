@@ -77,6 +77,10 @@ public:
 	[[nodiscard]] std::uint64_t GetDraftRevision() const;
 	// Compiles the draft again for its diagnostics when something it depends on changed, such as the content it names.
 	void Recompile();
+	[[nodiscard]] std::span<const FGraphDiagnostic> GetDiagnostics() const;
+	// The nodes the last Draw lit as running, such as Play's active states.
+	[[nodiscard]] std::span<const FGraphNodeId> GetActive() const;
+	[[nodiscard]] const FGraphDocumentDomain& GetDomain() const;
 
 private:
 	void Apply(FGraph After, std::string Label);
@@ -90,6 +94,7 @@ private:
 	FGraph Draft{};
 	FGraph Saved{};
 	std::vector<FGraphDiagnostic> Diagnostics{};
+	std::vector<FGraphNodeId> Active{};
 	std::string Error{};
 	FGraphCanvas Canvas{};
 	// The draft before a property drag or text edit began, recorded as one transaction when it ends.

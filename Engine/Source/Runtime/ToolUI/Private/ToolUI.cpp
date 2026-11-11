@@ -6,6 +6,7 @@
 #include "Herta/TextLayout/TextLayout.h"
 #include "Herta/ToolUI/EditorText.h"
 #include "ImmersiveViewport.h"
+#include "ToolUIAutomation.h"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -445,6 +446,9 @@ struct FToolUIContext::FImplementation
 	// ImGui sees it at the viewport's centre instead, and its motion collects here.
 	bool bCursorCaptured = false;
 	ImVec2 CapturedMousePosition{};
+	FToolUIItemRecorder ItemRecorder{};
+	FToolUIFrameStats FrameStats{};
+	bool bRecordItems = false;
 	std::optional<std::array<double, 2>> CapturedCursor{};
 	FToolUIViewportPosition CapturedMotion{};
 	FToolUIViewportPosition CapturedFrameMotion{};
@@ -2140,6 +2144,39 @@ FToolUIContext::FToolUIContext(std::unique_ptr<FImplementation> Implementation) 
 {
 }
 
+const FToolUIFrameStats& FToolUIContext::GetFrameStats() const noexcept
+{
+	return Implementation->FrameStats;
+}
+
+void FToolUIContext::SetItemRecording(const bool bEnabled) noexcept
+{
+	Implementation->bRecordItems = bEnabled;
+}
+
+std::span<const FToolUIItem> FToolUIContext::GetRecordedItems() const noexcept
+{
+	return Implementation->ItemRecorder.Items;
+}
+
+void FToolUIContext::QueueClick(const float X, const float Y, const int Button, const bool bDouble)
+{
+	ImGui::SetCurrentContext(Implementation->Context);
+	QueueToolUIClick(X, Y, Button, bDouble);
+}
+
+void FToolUIContext::QueueText(const std::string_view Text)
+{
+	ImGui::SetCurrentContext(Implementation->Context);
+	QueueToolUIText(Text);
+}
+
+bool FToolUIContext::QueueKey(const std::string_view Chord)
+{
+	ImGui::SetCurrentContext(Implementation->Context);
+	return QueueToolUIKey(Chord);
+}
+
 FToolUIContext::~FToolUIContext()
 {
 	if (!Implementation)
@@ -2219,6 +2256,7 @@ void FToolUIContext::BeginFrame()
 	const ImGuiID AltOwner = ImHashStr("HertaAltShortcuts");
 	ImGui::SetKeyOwner(ImGuiKey_LeftAlt, AltOwner);
 	ImGui::SetKeyOwner(ImGuiKey_RightAlt, AltOwner);
+	Implementation->ItemRecorder.BeginFrame(*Implementation->Context, Implementation->bRecordItems);
 	ImGui::NewFrame();
 	Implementation->PresentedPanels.clear();
 	for (ImGuiWindow* const Window : Implementation->Context->Windows)
@@ -2254,6 +2292,30 @@ std::expected<void, FToolUIError> FToolUIContext::EndFrame(const bool bRenderMai
 	UpdateTitleBarUiCaptureRegions(*Implementation->Window, *ImGui::GetMainViewport(), ImGui::FindWindowByName("HertaWorkspaceHost"), Implementation->MainMenuRight);
 	ImGui::Render();
 	Implementation->bFrameActive = false;
+	FToolUIFrameStats& Stats = Implementation->FrameStats;
+	Stats = {};
+	for (const ImGuiViewport* const Viewport : ImGui::GetPlatformIO().Viewports)
+	{
+		const ImDrawData* const Draw = Viewport->DrawData;
+		if (Draw == nullptr || !Draw->Valid)
+		{
+			continue;
+		}
+
+		++Stats.PlatformWindows;
+		Stats.DrawLists += static_cast<std::uint32_t>(Draw->CmdListsCount);
+		Stats.Vertices += static_cast<std::uint32_t>(Draw->TotalVtxCount);
+		Stats.Indices += static_cast<std::uint32_t>(Draw->TotalIdxCount);
+		for (const ImDrawList* const List : Draw->CmdLists)
+		{
+			Stats.DrawCommands += static_cast<std::uint32_t>(List->CmdBuffer.Size);
+		}
+	}
+
+	for (const ImGuiWindow* const Window : Implementation->Context->Windows)
+	{
+		Stats.Windows += Window->WasActive && !Window->Hidden ? 1u : 0u;
+	}
 	Implementation->bPlatformWindowsRendered = (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) == 0;
 	if (bRenderMainViewport && Implementation->Renderer.Render)
 	{

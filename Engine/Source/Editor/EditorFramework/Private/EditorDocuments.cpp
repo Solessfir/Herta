@@ -280,7 +280,9 @@ void FEditorFramework::FImplementation::DrawProjectPicker()
 		const ImVec2 Start = ImGui::GetCursorScreenPos();
 		const float LineHeight = ImGui::GetTextLineHeightWithSpacing();
 		ImGui::BeginDisabled(bProjectBusy);
-		if (ImGui::Selectable("##Project", false, ImGuiSelectableFlags_None, {0.f, LineHeight * 2.f}))
+		// The name is the selectable's own label, top-left by default, so automation finds the entry by it; the folder goes below.
+		const std::string Label = std::string(Name.begin(), Name.end()) + "##Project";
+		if (ImGui::Selectable(Label.c_str(), false, ImGuiSelectableFlags_None, {0.f, LineHeight * 2.f}))
 		{
 			StartProjectOperation(Project);
 		}
@@ -289,7 +291,6 @@ void FEditorFramework::FImplementation::DrawProjectPicker()
 		ImGui::SetItemTooltip("%s", reinterpret_cast<const char*>(Project.generic_u8string().c_str()));
 		ImDrawList* const DrawList = ImGui::GetWindowDrawList();
 		const float Padding = ImGui::GetStyle().FramePadding.x;
-		DrawList->AddText({Start.x + Padding, Start.y}, ImGui::GetColorU32(ImGuiCol_Text), reinterpret_cast<const char*>(Name.c_str()));
 		DrawList->AddText({Start.x + Padding, Start.y + LineHeight}, ImGui::GetColorU32(ImGuiCol_TextDisabled), reinterpret_cast<const char*>(Folder.c_str()));
 		ImGui::PopID();
 	}

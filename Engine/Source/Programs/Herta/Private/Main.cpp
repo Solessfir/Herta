@@ -1094,6 +1094,8 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	};
 
 	FFramePhases LastFramePhases;
+	// ui_stats turns on GPU timing of the UI for the frames it waits; timing costs queries, so it stays off otherwise.
+	bool bUiStatsRequested = false;
 	RenderFrame = [&]
 	{
 		if (bRendering || bRenderFailed)
@@ -1104,7 +1106,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		bRendering = true;
 		const auto CpuFrameStart = std::chrono::steady_clock::now();
 		bool bViewportRendered = false;
-		Presentation->SetToolUIGpuTimingEnabled(bScalingTest || bVisualTest || EditorFramework->IsUnitStatsVisible());
+		Presentation->SetToolUIGpuTimingEnabled(bScalingTest || bVisualTest || EditorFramework->IsUnitStatsVisible() || bUiStatsRequested);
 		struct FRenderGuard
 		{
 			explicit FRenderGuard(bool& bInRendering)
@@ -1496,6 +1498,7 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		if (Created)
 		{
 			Automation = std::move(*Created);
+			ToolUI->SetItemRecording(true);
 			HERTA_LOG_INFO(*Log, EditorLog, "Automation is listening{}; clients find it through {}", Automation->AllowsWrites() ? " with writes allowed" : "", Automation->GetSessionFile().string());
 		}
 		else
@@ -1512,6 +1515,9 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 	};
 
 	std::vector<FAutomationCapture> AutomationCaptures;
+	// Whole-window captures, answered together by the next presented frame.
+	std::vector<FAutomationCapture> WindowCaptures;
+	std::vector<FAutomationCapture> UiStatsRequests;
 	const auto PumpAutomation = [&](const bool bPresented)
 	{
 		if (!Automation)
@@ -1539,6 +1545,24 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 				};
 
 				AutomationCaptures.push_back({.Id = Request.Id, .FramesLeft = std::clamp(Read("frames_ahead", 1), 1, 600), .MaximumWidth = static_cast<std::uint32_t>(std::clamp(Read("max_width", 1280), 64, 7680))});
+			}
+			else if (Request.Tool == "editor_capture")
+			{
+				int Width = 1600;
+				if (const std::size_t At = Request.Arguments.find("\"max_width\":"); At != std::string::npos)
+				{
+					const char* const Start = Request.Arguments.data() + At + 12;
+					std::from_chars(Start, Request.Arguments.data() + Request.Arguments.size(), Width);
+				}
+
+				WindowCaptures.push_back({.Id = Request.Id, .MaximumWidth = static_cast<std::uint32_t>(std::clamp(Width, 64, 7680))});
+				Presentation->RequestFrameCapture();
+			}
+			else if (Request.Tool == "ui_stats")
+			{
+				// Timing starts with the next frame and its result arrives frames later, so the answer waits a few presents.
+				UiStatsRequests.push_back({.Id = Request.Id, .FramesLeft = 30});
+				bUiStatsRequested = true;
 			}
 			else if (Request.Tool == "gpu_timings")
 			{
@@ -1597,6 +1621,53 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 			}
 
 			Capture = AutomationCaptures.erase(Capture);
+		}
+
+		for (auto Stats = UiStatsRequests.begin(); Stats != UiStatsRequests.end();)
+		{
+			// The first GPU result arrives a few frames after timing starts; without one by the deadline, the answer has none.
+			const auto Gpu = Presentation->GetToolUIGpuMilliseconds();
+			if (!bPresented || (--Stats->FramesLeft > 0 && (!Gpu || Stats->FramesLeft > 26)))
+			{
+				++Stats;
+				continue;
+			}
+
+			const FToolUIFrameStats& Frame = ToolUI->GetFrameStats();
+			std::string Output = std::format("{{\"windows\": {}, \"platformWindows\": {}, \"drawLists\": {}, \"drawCommands\": {}, \"vertices\": {}, \"indices\": {}", Frame.Windows, Frame.PlatformWindows, Frame.DrawLists, Frame.DrawCommands, Frame.Vertices, Frame.Indices);
+			Output += Gpu ? std::format(", \"uiGpuMs\": {:.4f}", *Gpu) : std::string(", \"uiGpuMs\": null");
+			const FFramePhases& Phases = LastFramePhases;
+			Output += std::format(", \"cpuMs\": {{\"total\": {:.3f}, \"render\": {:.3f}, \"acquire\": {:.3f}, \"ui\": {:.3f}, \"present\": {:.3f}}}}}", Phases.Total, Phases.Render, Phases.Acquire, Phases.ToolUI, Phases.Present);
+			Automation->Respond(Stats->Id, Output);
+			Stats = UiStatsRequests.erase(Stats);
+		}
+
+		bUiStatsRequested = !UiStatsRequests.empty();
+		if (auto Frame = WindowCaptures.empty() ? std::nullopt : Presentation->TakeFrameCapture())
+		{
+			for (const FAutomationCapture& Capture : WindowCaptures)
+			{
+				if (!*Frame)
+				{
+					Automation->Fail(Capture.Id, "capture_failed", Frame->error().Message);
+					continue;
+				}
+
+				auto [Small, Extent] = ShrinkCapture((*Frame)->Pixels, (*Frame)->Extent, Capture.MaximumWidth);
+				const std::filesystem::path Path = RepositoryRoot / "Saved/Automation/Captures" / std::format("window-{}.png", Capture.Id);
+				if (WriteVisualCapture(Path, std::move(Small), Extent))
+				{
+					std::string Output = "{\"image\": ";
+					AppendJsonString(Output, Path.string());
+					Automation->Respond(Capture.Id, Output + std::format(", \"width\": {}, \"height\": {}}}", Extent.Width, Extent.Height));
+				}
+				else
+				{
+					Automation->Fail(Capture.Id, "capture_failed", "Could not write the capture");
+				}
+			}
+
+			WindowCaptures.clear();
 		}
 	};
 

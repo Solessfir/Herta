@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <format>
 #include <map>
 #include <mutex>
@@ -51,6 +52,17 @@ struct FAudioEngine::FImplementation
 	std::vector<std::shared_ptr<FMixerSound>> Retired;
 	// Addressed voices and how many of their plays have not ended, since an identity can be played again before the last play ends.
 	std::map<std::uint32_t, std::pair<FMixerSound*, std::uint32_t>> Playing;
+
+	struct FPlayRecord
+	{
+		FAudioPlayRecord Record{};
+		double PlayedAt = 0.;
+		// Zero for graphs and streams, whose length is not known up front.
+		double Seconds = 0.;
+	};
+
+	std::deque<FPlayRecord> RecentPlays;
+	double Clock = 0.;
 
 	std::uint32_t PrivateVoices = 0;
 	std::uint64_t CommandsSubmitted = 0;
@@ -435,6 +447,13 @@ void FAudioEngine::Submit(const FAudioCommand& Command)
 			}
 		}
 
+		const double Seconds = Sound->Sound && Sound->Sound->Channels > 0 && Sound->Sound->SampleRate > 0 && !Sound->Sound->bLoop ? static_cast<double>(Sound->Sound->Samples.size() / Sound->Sound->Channels) / Sound->Sound->SampleRate / std::clamp(Play->Pitch, 0.01f, 16.f) : 0.;
+		State.RecentPlays.push_front({.Record = {.Sound = Play->Sound, .Voice = Voice, .Bus = Sound->Bus < State.Buses.size() ? State.Buses[Sound->Bus].Name : std::string(), .Volume = Play->Volume, .Pitch = Play->Pitch, .bSpatial = Play->bSpatial, .Position = Play->Position}, .PlayedAt = State.Clock, .Seconds = Seconds});
+		if (State.RecentPlays.size() > MaximumAudioPlayRecords)
+		{
+			State.RecentPlays.pop_back();
+		}
+
 		return;
 	}
 
@@ -445,6 +464,13 @@ void FAudioEngine::Submit(const FAudioCommand& Command)
 	else if (const auto* Move = std::get_if<FAudioMoveCommand>(&Command))
 	{
 		State.Push({.Type = EMixerCommandType::Move, .Voice = Move->Voice.Value, .Position = Move->Position});
+		for (FImplementation::FPlayRecord& Play : State.RecentPlays)
+		{
+			if (Play.Record.Voice == Move->Voice.Value)
+			{
+				Play.Record.Position = Move->Position;
+			}
+		}
 	}
 	else if (const auto* Parameter = std::get_if<FAudioParameterCommand>(&Command))
 	{
@@ -477,6 +503,7 @@ void FAudioEngine::Submit(const FAudioCommand& Command)
 void FAudioEngine::Update(const float DeltaSeconds)
 {
 	FImplementation& State = *Implementation;
+	State.Clock += std::max(DeltaSeconds, 0.f);
 	if (!State.Device && DeltaSeconds > 0.f)
 	{
 		// Long stalls render at most a quarter second, so a hitch never turns into a long burst of mixing.
@@ -529,6 +556,22 @@ void FAudioEngine::Render(const std::span<float> Interleaved)
 		Output += Count * 2;
 		Frames -= Count;
 	}
+}
+
+std::vector<FAudioPlayRecord> FAudioEngine::GetRecentPlays() const
+{
+	const FImplementation& State = *Implementation;
+	std::vector<FAudioPlayRecord> Plays;
+	Plays.reserve(State.RecentPlays.size());
+	for (const FImplementation::FPlayRecord& Play : State.RecentPlays)
+	{
+		FAudioPlayRecord Record = Play.Record;
+		Record.SecondsAgo = static_cast<float>(State.Clock - Play.PlayedAt);
+		Record.bPlaying = Record.Voice != 0 ? State.Playing.contains(Record.Voice) : State.Clock - Play.PlayedAt < Play.Seconds;
+		Plays.push_back(std::move(Record));
+	}
+
+	return Plays;
 }
 
 bool FAudioEngine::IsVoicePlaying(const FAudioVoiceId Voice) const

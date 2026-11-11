@@ -866,11 +866,295 @@ std::string DescribeAudio(const FAudioStats& Stats)
 	return Output + "}}";
 }
 
+namespace
+{
+void AppendUiItem(std::string& Output, const FToolUIItem& Item)
+{
+	Output += std::format("{{\"id\": {}, \"label\": ", Item.Id);
+	AppendJsonString(Output, Item.Label);
+	Output += ", \"window\": ";
+	AppendJsonString(Output, Item.Window.substr(0, Item.Window.find("##")));
+	Output += std::format(", \"rect\": [{:.0f}, {:.0f}, {:.0f}, {:.0f}]", Item.Bounds.X, Item.Bounds.Y, Item.Bounds.Width, Item.Bounds.Height);
+	for (const auto& [Flag, Name] : {std::pair{Item.bDisabled, "disabled"}, {Item.bInput, "input"}, {Item.bOpened, "opened"}})
+	{
+		if (Flag)
+		{
+			Output += std::format(", \"{}\": true", Name);
+		}
+	}
+
+	if (Item.bCheckable)
+	{
+		Output += std::format(", \"checked\": {}", Item.bChecked);
+	}
+
+	if (Item.bOpenable && !Item.bOpened)
+	{
+		Output += ", \"opened\": false";
+	}
+
+	Output += "}";
+}
+
+[[nodiscard]] bool ContainsIgnoringCase(const std::string_view Text, const std::string_view Part)
+{
+	return !std::ranges::search(Text, Part, [](const unsigned char Left, const unsigned char Right)
+	{
+		return std::tolower(Left) == std::tolower(Right);
+	}).empty();
+}
+
+// Exact label matches win over partial ones, so "Open" finds the Open button before "Open project...".
+[[nodiscard]] std::vector<const FToolUIItem*> FindUiItems(const std::span<const FToolUIItem> Items, const std::string_view Label, const std::string_view Window)
+{
+	std::vector<const FToolUIItem*> Exact;
+	std::vector<const FToolUIItem*> Partial;
+	for (const FToolUIItem& Item : Items)
+	{
+		if (Item.Label.empty() || (!Window.empty() && !ContainsIgnoringCase(Item.Window, Window)))
+		{
+			continue;
+		}
+
+		if (Item.Label.size() == Label.size() && ContainsIgnoringCase(Item.Label, Label))
+		{
+			Exact.push_back(&Item);
+		}
+		else if (!Label.empty() && ContainsIgnoringCase(Item.Label, Label))
+		{
+			Partial.push_back(&Item);
+		}
+	}
+
+	return Exact.empty() ? Partial : Exact;
+}
+}
+
 bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutomationRequest& Request)
 {
 	FImplementation& Editor = *Implementation;
 	const FAutomationArguments Arguments(Request.Arguments);
 	const std::string_view Tool = Request.Tool;
+	if (Tool == "ui_items")
+	{
+		const std::string_view Contains = Arguments.Text("contains");
+		const std::string_view Window = Arguments.Text("window");
+		const auto Limit = static_cast<std::size_t>(std::clamp(Arguments.Number("limit", 200.), 1., 5000.));
+		std::string Output = "{\"items\": [";
+		std::size_t Count = 0;
+		std::size_t Total = 0;
+		for (const FToolUIItem& Item : Editor.ToolUI->GetRecordedItems())
+		{
+			if ((Item.Label.empty() && !Arguments.Flag("unlabeled")) || (!Contains.empty() && !ContainsIgnoringCase(Item.Label, Contains)) || (!Window.empty() && !ContainsIgnoringCase(Item.Window, Window)))
+			{
+				continue;
+			}
+
+			++Total;
+			if (Count < Limit)
+			{
+				Output += Count++ == 0 ? "" : ", ";
+				AppendUiItem(Output, Item);
+			}
+		}
+
+		Server.Respond(Request.Id, Output + std::format("], \"matched\": {}}}", Total));
+		return true;
+	}
+
+	// Clicks and typing can do anything the user can, such as saving or deleting, so they need a session that allows writes.
+	if ((Tool == "ui_click" || Tool == "ui_type") && !Server.AllowsWrites())
+	{
+		Server.Fail(Request.Id, "read_only", "UI input can change files and the level; start the editor with --automation=write");
+		return true;
+	}
+
+	if (Tool == "ui_click")
+	{
+		// Fields often have no label of their own, so an id from ui_items with unlabeled set picks them instead.
+		auto Found = FindUiItems(Editor.ToolUI->GetRecordedItems(), Arguments.Text("label"), Arguments.Text("window"));
+		if (Arguments.Has("id"))
+		{
+			const auto Id = static_cast<std::uint32_t>(Arguments.Number("id", 0.));
+			const auto Items = Editor.ToolUI->GetRecordedItems();
+			const auto Item = std::ranges::find(Items, Id, &FToolUIItem::Id);
+			Found = Item == Items.end() ? std::vector<const FToolUIItem*>{} : std::vector{&*Item};
+		}
+
+		const auto Index = static_cast<std::size_t>(std::max(Arguments.Number("index", 0.), 0.));
+		if (Index >= Found.size())
+		{
+			Server.Fail(Request.Id, "not_found", std::format("{} items match; ui_items lists what the editor shows", Found.size()));
+			return true;
+		}
+
+		const FToolUIItem& Item = *Found[Index];
+		if (Item.bDisabled)
+		{
+			Server.Fail(Request.Id, "disabled", "The item is disabled");
+			return true;
+		}
+
+		const std::string_view Button = Arguments.Text("button");
+		constexpr std::array<std::string_view, 3> Buttons{"left", "right", "middle"};
+		const auto Pressed = std::ranges::find(Buttons, Button);
+		const int MouseButton = Pressed == Buttons.end() ? 0 : static_cast<int>(Pressed - Buttons.begin());
+		Editor.ToolUI->QueueClick(Item.Bounds.X + Item.Bounds.Width * 0.5f, Item.Bounds.Y + Item.Bounds.Height * 0.5f, MouseButton, Arguments.Flag("double"));
+		std::string Output = "{\"clicked\": ";
+		AppendUiItem(Output, Item);
+		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 4, .Output = Output + std::format(", \"matches\": {}}}", Found.size())});
+		return true;
+	}
+
+	if (Tool == "ui_type")
+	{
+		Editor.ToolUI->QueueText(Arguments.Text("text"));
+		simdjson::dom::parser Parser;
+		simdjson::dom::element Root;
+		simdjson::dom::array Keys;
+		if (!Parser.parse(Request.Arguments).get(Root) && !Root["keys"].get_array().get(Keys))
+		{
+			for (const auto Key : Keys)
+			{
+				std::string_view Chord;
+				if (Key.get_string().get(Chord) || !Editor.ToolUI->QueueKey(Chord))
+				{
+					Server.Fail(Request.Id, "unknown_key", std::format("Unknown key '{}'; use names such as Enter, Escape, Tab, Backspace, Up, A, or Ctrl+S", Chord));
+					return true;
+				}
+			}
+		}
+
+		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 4, .Output = "{\"typed\": true}"});
+		return true;
+	}
+
+	// The graph documents automation can open, by the extension each edits.
+	const std::array<std::tuple<std::string_view, FGraphDocumentPanel*, void (FImplementation::*)(const std::string&)>, 6> Graphs{{
+	    {".hmatgraph", &Editor.MaterialGraphPanel, &FImplementation::OpenMaterialGraphKey},
+	    {".hanimgraph", &Editor.AnimationGraphPanel, &FImplementation::OpenAnimationGraphKey},
+	    {".haudiograph", &Editor.AudioGraphPanel, &FImplementation::OpenAudioGraphKey},
+	    {".hvfxgraph", &Editor.VfxGraphPanel, &FImplementation::OpenVfxGraphKey},
+	    {".hstatetree", &Editor.StateTreePanel, &FImplementation::OpenStateTreeKey},
+	    {".hgameplaygraph", &Editor.GameplayGraphPanel, &FImplementation::OpenGameplayGraphKey},
+	}};
+
+	if (Tool == "graph_open")
+	{
+		const std::string Path(Arguments.Text("path"));
+		const auto Graph = std::ranges::find_if(Graphs, [&Path](const auto& Entry)
+		{
+			return Path.ends_with(std::get<0>(Entry));
+		});
+
+		if (Graph == Graphs.end() || !(Path.starts_with("Game/") || Path.starts_with("Engine/")))
+		{
+			Server.Fail(Request.Id, "invalid_path", "path is a content key such as Game/Logic/Shrine.hgameplaygraph, ending in a graph extension");
+			return true;
+		}
+
+		(Editor.*std::get<2>(*Graph))(Path);
+		FGraphDocumentPanel& Panel = *std::get<1>(*Graph);
+		if (!Panel.IsOpen() || Panel.GetPath() != Path)
+		{
+			Server.Fail(Request.Id, "open_failed", "The graph did not open; read editor_log for the reason");
+			return true;
+		}
+
+		Editor.PendingFocusPanel = std::string(Panel.GetDomain().Title);
+		std::string Output = "{\"opened\": ";
+		AppendJsonString(Output, Path);
+		Server.Respond(Request.Id, Output + "}");
+		return true;
+	}
+
+	if (Tool == "graph_state")
+	{
+		const bool bFull = Arguments.Flag("graph");
+		std::string Output = "{\"documents\": [";
+		bool bFirst = true;
+		for (const auto& [Extension, Panel, Open] : Graphs)
+		{
+			if (!Panel->IsOpen())
+			{
+				continue;
+			}
+
+			const FGraph& Draft = Panel->GetDraft();
+			Output += bFirst ? "{\"kind\": " : ", {\"kind\": ";
+			bFirst = false;
+			AppendJsonString(Output, Panel->GetDomain().Title);
+			Output += ", \"path\": ";
+			AppendJsonString(Output, Panel->GetPath());
+			Output += std::format(", \"dirty\": {}, \"nodes\": {}, \"links\": {}, \"diagnostics\": [", Panel->IsDirty(), Draft.Nodes.size(), Draft.Links.size());
+			for (std::size_t Index = 0; Index < Panel->GetDiagnostics().size(); ++Index)
+			{
+				const FGraphDiagnostic& Diagnostic = Panel->GetDiagnostics()[Index];
+				Output += std::format("{}{{\"severity\": \"{}\", \"node\": {}, \"message\": ", Index == 0 ? "" : ", ", Diagnostic.Severity == EGraphSeverity::Error ? "error" : "warning", Diagnostic.Node.Value);
+				AppendJsonString(Output, Diagnostic.Message);
+				Output += "}";
+			}
+
+			Output += "], \"active\": [";
+			for (std::size_t Index = 0; Index < Panel->GetActive().size(); ++Index)
+			{
+				Output += std::format("{}{}", Index == 0 ? "" : ", ", Panel->GetActive()[Index].Value);
+			}
+
+			Output += "]";
+			if (bFull)
+			{
+				// The canonical text the file would hold, so the draft reads like the asset.
+				const auto Text = SerializeGraph(Draft, *Panel->GetDomain().Canvas->Schema);
+				Output += ", \"graph\": ";
+				AppendJsonString(Output, Text ? *Text : Text.error().Message);
+			}
+
+			Output += "}";
+		}
+
+		Server.Respond(Request.Id, Output + "]}");
+		return true;
+	}
+
+	if (Tool == "audio_voices")
+	{
+		if (!Editor.Audio)
+		{
+			Server.Fail(Request.Id, "no_audio", "The editor has no audio engine");
+			return true;
+		}
+
+		const auto Options = Editor.Assets ? Editor.Assets->GetOptions() : std::span<const FPreviewAssetOption>{};
+		const bool bPlayingOnly = Arguments.Flag("playing");
+		std::string Output = "{\"plays\": [";
+		bool bFirst = true;
+		for (const FAudioPlayRecord& Play : Editor.Audio->GetRecentPlays())
+		{
+			if (bPlayingOnly && !Play.bPlaying)
+			{
+				continue;
+			}
+
+			const auto Option = std::ranges::find(Options, Play.Sound, &FPreviewAssetOption::Id);
+			Output += bFirst ? "{\"sound\": " : ", {\"sound\": ";
+			bFirst = false;
+			AppendJsonString(Output, Option != Options.end() ? Option->Label : Play.Sound.ToString());
+			Output += ", \"bus\": ";
+			AppendJsonString(Output, Play.Bus);
+			Output += std::format(", \"voice\": {}, \"volume\": {:.3f}, \"pitch\": {:.3f}, \"secondsAgo\": {:.3f}, \"playing\": {}", Play.Voice, Play.Volume, Play.Pitch, Play.SecondsAgo, Play.bPlaying);
+			if (Play.bSpatial)
+			{
+				Output += std::format(", \"position\": [{:.3f}, {:.3f}, {:.3f}]", Play.Position.X, Play.Position.Y, Play.Position.Z);
+			}
+
+			Output += "}";
+		}
+
+		Server.Respond(Request.Id, Output + "], \"audio\": " + DescribeAudio(Editor.Audio->GetStats()) + "}");
+		return true;
+	}
+
 	if (Tool == "editor_status")
 	{
 		std::string Output = "{\"level\": ";
@@ -1162,6 +1446,17 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 void FEditorFramework::UpdateAutomation(FAutomationServer& Server)
 {
 	FImplementation& Editor = *Implementation;
+	std::erase_if(Editor.AutomationUiReplies, [&Server](FImplementation::FAutomationUiReply& Reply)
+	{
+		if (--Reply.FramesLeft > 0)
+		{
+			return false;
+		}
+
+		Server.Respond(Reply.Id, Reply.Output);
+		return true;
+	});
+
 	if (Editor.AutomationPlayRequest)
 	{
 		const auto Now = std::chrono::steady_clock::now();

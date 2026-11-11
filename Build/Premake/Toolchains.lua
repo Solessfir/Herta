@@ -1,6 +1,8 @@
 function HertaApplyToolchainSettings()
     -- Every translation unit that includes imgui.h must agree on ImWchar's size; 32 bits lets editor text hold emoji past the BMP.
     defines { "IMGUI_USE_WCHAR32" }
+    -- ImGui's test-engine hooks let editor automation find items by label; they cost one branch per item while recording is off.
+    defines { "IMGUI_ENABLE_TEST_ENGINE" }
 
     filter "system:windows"
         systemversion "latest"

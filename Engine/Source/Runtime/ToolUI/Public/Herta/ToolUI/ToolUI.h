@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -167,6 +168,32 @@ bool ToolUIToggle(const char* Id, bool* bValue);
 // inside a flag. Width zero fills the available width. Returns true when the text changed.
 bool ToolUIInputText(const char* Id, std::string& Text, const char* Hint = nullptr, float Width = 0.f);
 
+// An item ImGui laid out, as automation sees it: the label without its "##id" part, its window, and its screen bounds.
+struct FToolUIItem
+{
+	std::uint32_t Id = 0;
+	std::string Label{};
+	std::string Window{};
+	FToolUICanvasBounds Bounds{};
+	bool bDisabled = false;
+	bool bCheckable = false;
+	bool bChecked = false;
+	bool bOpenable = false;
+	bool bOpened = false;
+	bool bInput = false;
+};
+
+// What the last frame asked the GPU to draw for the editor's UI, over every native window.
+struct FToolUIFrameStats
+{
+	std::uint32_t Windows = 0;
+	std::uint32_t PlatformWindows = 0;
+	std::uint32_t DrawLists = 0;
+	std::uint32_t DrawCommands = 0;
+	std::uint32_t Vertices = 0;
+	std::uint32_t Indices = 0;
+};
+
 class FToolUIContext final
 {
 public:
@@ -225,6 +252,17 @@ public:
 	[[nodiscard]] const FToolUIThemeMetrics& GetMetrics() const noexcept;
 	[[nodiscard]] bool WantsTextInput() const noexcept;
 	[[nodiscard]] bool WantsMouseInput() const noexcept;
+
+	[[nodiscard]] const FToolUIFrameStats& GetFrameStats() const noexcept;
+	// Records the items each frame lays out, for automation; off by default.
+	void SetItemRecording(bool bEnabled) noexcept;
+	// The last complete frame's items, in the order they were laid out.
+	[[nodiscard]] std::span<const FToolUIItem> GetRecordedItems() const noexcept;
+	// Queues input as if the user gave it, in screen coordinates; it takes effect over the next frames.
+	void QueueClick(float X, float Y, int Button, bool bDouble);
+	void QueueText(std::string_view Text);
+	// A key with optional modifiers, such as "Enter" or "Ctrl+S"; false for a name it does not know.
+	[[nodiscard]] bool QueueKey(std::string_view Chord);
 
 private:
 	friend struct FToolUITestAccess;

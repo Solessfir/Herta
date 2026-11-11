@@ -38,6 +38,13 @@ struct FHdrOutputSettings
 	float PeakLuminance = 1000.f;
 };
 
+// The main window as presented, in sRGB RGBA8 rows from the top.
+struct FPresentationCapture
+{
+	std::vector<std::byte> Pixels{};
+	FExtent2D Extent{};
+};
+
 class INvrhiVulkanPresentation : public IPresentationDevice
 {
 public:
@@ -63,6 +70,10 @@ public:
 	[[nodiscard]] virtual bool IsHdrOutputActive() const noexcept = 0;
 	// Recreates swapchains whose HDR state should change. Call it outside a frame; it is cheap when nothing changes.
 	[[nodiscard]] virtual std::expected<void, FPresentationError> SetHdrOutput(const FHdrOutputSettings& Settings) = 0;
+	// Copies the next presented main-window frame, UI included, for automation. It waits for the GPU once, so it is not for every frame.
+	// HDR10 frames come back with paper white as white.
+	virtual void RequestFrameCapture() noexcept = 0;
+	[[nodiscard]] virtual std::optional<std::expected<FPresentationCapture, FPresentationError>> TakeFrameCapture() = 0;
 
 protected:
 	INvrhiVulkanPresentation() = default;
