@@ -4,6 +4,7 @@
 #include "Herta/Math/AffineTransform.h"
 
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <exception>
 #include <format>
@@ -2717,7 +2718,7 @@ const FWorld& FEditorLevel::GetWorld() const
 
 std::expected<void, FEditorCommandError> RegisterEditorLevelCommands(FEditorCommandRegistry& Commands, const std::shared_ptr<FEditorLevel>& Level)
 {
-	if (auto Result = Commands.Register({.Name = "level.save", .Description = "Save the authored level. Usage: level.save [path]", .Handler = [Level](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	if (auto Result = Commands.Register({.Name = "level.save", .Description = "Save the authored level. Usage: level.save [path]", .bMutates = true, .Handler = [Level](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() > 1)
 		{
@@ -2736,7 +2737,89 @@ std::expected<void, FEditorCommandError> RegisterEditorLevelCommands(FEditorComm
 		return Result;
 	}
 
-	return Commands.Register({.Name = "level.load", .Description = "Load a level without replacing the current level on failure. Usage: level.load <path>", .Handler = [Level](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	// Undo and redo reach the same history as the editor's own, so an automation client can take back what it did.
+	for (const bool bUndo : {true, false})
+	{
+		const std::string_view Name = bUndo ? "level.undo" : "level.redo";
+		const auto Handler = [Level, bUndo](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			if (!Arguments.empty())
+			{
+				return std::unexpected(FEditorCommandError{.Message = bUndo ? "Usage: level.undo" : "Usage: level.redo"});
+			}
+
+			const std::string Label(bUndo ? Level->GetUndoLabel() : Level->GetRedoLabel());
+			if (auto Done = bUndo ? Level->Undo() : Level->Redo(); !Done)
+			{
+				return std::unexpected(FEditorCommandError{.Message = Done.error().Message});
+			}
+
+			return FEditorCommandResult{.Message = std::format("{} {}", bUndo ? "Undid" : "Redid", Label)};
+		};
+
+		if (auto Result = Commands.Register({.Name = std::string(Name), .Description = bUndo ? "Undo the last level edit" : "Redo the last undone level edit", .bMutates = true, .Handler = Handler}); !Result)
+		{
+			return Result;
+		}
+	}
+
+	if (auto Result = Commands.Register({.Name = "entity.move", .Description = "Move an entity, named by object ID or exact name, to a world position in meters as one undoable edit. Usage: entity.move <id or name> <x> <y> <z>", .bMutates = true, .Handler = [Level](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	{
+		if (Arguments.size() != 4)
+		{
+			return std::unexpected(FEditorCommandError{.Message = "Usage: entity.move <id or name> <x> <y> <z>"});
+		}
+
+		std::array<float, 3> Position{};
+		for (std::size_t Axis = 0; Axis < Position.size(); ++Axis)
+		{
+			const std::string_view Text = Arguments[Axis + 1];
+			const auto [End, Error] = std::from_chars(Text.data(), Text.data() + Text.size(), Position[Axis]);
+			if (Error != std::errc{} || End != Text.data() + Text.size() || !std::isfinite(Position[Axis]))
+			{
+				return std::unexpected(FEditorCommandError{.Message = std::format("'{}' is not a coordinate in meters", Text)});
+			}
+		}
+
+		const std::optional<FObjectId> Id = FObjectId::Parse(Arguments[0]);
+		const auto Matches = [&](const FPreviewObject& Object)
+		{
+			return Id ? Object.Id == *Id : Object.Label == Arguments[0];
+		};
+
+		const std::vector<FPreviewObject>& Objects = Level->GetObjects();
+		const auto Found = std::ranges::find_if(Objects, Matches);
+		if (Found == Objects.end())
+		{
+			return std::unexpected(FEditorCommandError{.Message = std::format("No entity is named '{}'", Arguments[0])});
+		}
+
+		if (std::ranges::count_if(Objects, Matches) > 1)
+		{
+			return std::unexpected(FEditorCommandError{.Message = std::format("Several entities are named '{}'; use an object ID", Arguments[0])});
+		}
+
+		const auto Index = static_cast<std::size_t>(Found - Objects.begin());
+		const std::string Label = Found->Label;
+		if (auto Begun = Level->BeginEdit(std::format("Move {}", Label)); !Begun)
+		{
+			return std::unexpected(FEditorCommandError{.Message = Begun.error().Message});
+		}
+
+		Level->GetObjects()[Index].Translation = Im3d::Vec3(Position[0], Position[1], Position[2]);
+		if (auto Ended = Level->EndEdit(); !Ended)
+		{
+			return std::unexpected(FEditorCommandError{.Message = Ended.error().Message});
+		}
+
+		return FEditorCommandResult{.Message = std::format("Moved {} to ({}, {}, {})", Label, Position[0], Position[1], Position[2])};
+	}});
+	    !Result)
+	{
+		return Result;
+	}
+
+	return Commands.Register({.Name = "level.load", .Description = "Load a level without replacing the current level on failure. Usage: level.load <path>", .bMutates = true, .Handler = [Level](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() != 1)
 		{

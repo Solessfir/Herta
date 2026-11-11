@@ -36,7 +36,7 @@ std::expected<void, FEditorCommandError> RegisterProjectCommands(FEditorCommandR
 		return Result;
 	}
 
-	return Registry.Register({.Name = "project.create", .Description = "Create a Game project. Usage: project.create <name> <module> <destination>", .Handler = [EngineRoot](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	return Registry.Register({.Name = "project.create", .Description = "Create a Game project. Usage: project.create <name> <module> <destination>", .bMutates = true, .Handler = [EngineRoot](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() != 3)
 		{

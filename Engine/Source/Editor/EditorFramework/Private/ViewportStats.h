@@ -21,7 +21,7 @@ struct FViewportStats
 		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InvalidDescriptor, .Message = "Viewport stats state is unavailable"});
 	}
 
-	return Registry.Register({"stat", "Toggle viewport statistics: stat unit or stat fps", [Stats = std::move(Stats)](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	return Registry.Register({.Name = "stat", .Description = "Toggle viewport statistics: stat unit or stat fps", .Handler = [Stats = std::move(Stats)](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() != 1 || (Arguments[0] != "unit" && Arguments[0] != "fps"))
 		{

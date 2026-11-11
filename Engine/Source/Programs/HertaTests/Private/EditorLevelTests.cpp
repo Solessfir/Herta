@@ -1466,4 +1466,44 @@ TEST_CASE("Level commands validate files and retain their editor level safely")
 	CHECK_FALSE(Commands.Execute("level.validate"));
 	CHECK_FALSE(Commands.Execute("level.canonicalize"));
 }
+
+TEST_CASE("Moving an entity by command is one undoable edit, and the level's undo and redo are commands too")
+{
+	FEditorCommandRegistry Commands;
+	auto Level = std::make_shared<FEditorLevel>();
+	REQUIRE(RegisterEditorLevelCommands(Commands, Level));
+	const auto Cube = std::ranges::find(Level->GetObjects(), std::string("Preview Cube"), &FPreviewObject::Label);
+	REQUIRE(Cube != Level->GetObjects().end());
+	const FObjectId Id = Cube->Id;
+	const auto Translation = [&Level, Id]()
+	{
+		const FPreviewObject& Object = *std::ranges::find(Level->GetObjects(), Id, &FPreviewObject::Id);
+		return FVector3{Object.Translation.x, Object.Translation.y, Object.Translation.z};
+	};
+
+	const FVector3 Start = Translation();
+	const auto Moved = Commands.Execute("entity.move \"Preview Cube\" 1.5 2 -3");
+	REQUIRE_MESSAGE(Moved, (Moved ? std::string() : Moved.error().Message));
+	CHECK(Translation() == FVector3{1.5f, 2.f, -3.f});
+	CHECK(Level->CanUndo());
+	CHECK(Level->GetUndoLabel() == "Move Preview Cube");
+
+	// The object ID works as well as the name.
+	REQUIRE(Commands.Execute("entity.move " + Id.ToString() + " 0 1 0"));
+	CHECK(Translation() == FVector3{0.f, 1.f, 0.f});
+	REQUIRE(Commands.Execute("level.undo"));
+	REQUIRE(Commands.Execute("level.undo"));
+	CHECK(Translation() == Start);
+	REQUIRE(Commands.Execute("level.redo"));
+	CHECK(Translation() == FVector3{1.5f, 2.f, -3.f});
+
+	CHECK_FALSE(Commands.Execute("entity.move Nothing 0 0 0"));
+	CHECK_FALSE(Commands.Execute("entity.move \"Preview Cube\" 0 x 0"));
+	CHECK_FALSE(Commands.Execute("entity.move \"Preview Cube\" 0 0"));
+
+	// A read-only caller can neither move nor take back.
+	CHECK(Commands.Execute("entity.move \"Preview Cube\" 9 9 9", false).error().Code == EEditorCommandErrorCode::ReadOnly);
+	CHECK(Commands.Execute("level.undo", false).error().Code == EEditorCommandErrorCode::ReadOnly);
+	CHECK(Translation() == FVector3{1.5f, 2.f, -3.f});
+}
 }

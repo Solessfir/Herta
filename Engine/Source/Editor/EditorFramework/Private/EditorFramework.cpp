@@ -75,6 +75,7 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 	Implementation->Application = Descriptor.Application;
 	Implementation->OutputLog = std::move(*OutputLog);
 	Implementation->Log = Descriptor.Log;
+	Implementation->EditorCommands = Descriptor.Commands;
 	Implementation->Tasks = Descriptor.Tasks;
 	Implementation->GraphicsDevice = Descriptor.GraphicsDevice;
 	Implementation->AssetPaths = Descriptor.Assets;

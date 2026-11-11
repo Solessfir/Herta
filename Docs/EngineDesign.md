@@ -1687,7 +1687,7 @@ Status: complete as of 2026-11-09. Determinism, the Tasks job adapter, sorted ev
 
 Exit condition: the playable Sandbox exercises collisions, dynamic props, runtime spawn/despawn, collision events, destruction, and repeated reset, physics tests are repeatable for the supported configuration, world hashes match across Windows, Linux, and thread counts, and world mutation never occurs inside callbacks.
 
-### Milestone 7.5 - Editor automation over MCP (in progress)
+### Milestone 7.5 - Editor automation over MCP (complete)
 
 Moved forward from Milestone 17: coding agents developing Herta are the real automation consumer. Without it they verify visuals by timing window captures against scripted runs, cannot give the game input, and cannot read live state without temporary logging.
 
@@ -1832,7 +1832,9 @@ Builds on the Milestone 6.8 canvas and GraphCore.
 
 Exit condition: StateTree, the animation graph, the Audio Graph, the VFX graph, and gameplay graphs compile headless and execute from cooked data without ImGui or the graph canvas linked, while sharing only proven GraphCore infrastructure.
 
-### Milestone 16 - Scripting
+### Milestone 16 - Scripting (deferred)
+
+Deferred: the milestone order skips it until scripting is wanted again. The plan below stands for when it is.
 
 - Run a focused Umka spike covering Windows and Linux integration, binding-call overhead, VM memory behavior, worker compilation, cooked-program persistence, diagnostics, hot reload, and hostile-script controls.
 - Adopt a pinned upstream revision or narrow Herta fork only if the spike satisfies the documented production gates. Record the rejection and evaluate alternatives if it does not.

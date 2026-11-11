@@ -15,6 +15,7 @@ struct FStoredCommand
 {
 	std::string Name;
 	std::string Description;
+	bool bMutates = false;
 	FEditorCommandHandler Handler;
 };
 
@@ -154,7 +155,7 @@ std::expected<void, FEditorCommandError> FEditorCommandRegistry::RegisterBatch(s
 			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::InvalidDescriptor, .Message = "A command requires a valid name, description, and handler"});
 		}
 
-		NewCommands.emplace_back(std::make_shared<FStoredCommand>(FStoredCommand{.Name = std::move(Descriptor.Name), .Description = std::move(Descriptor.Description), .Handler = std::move(Descriptor.Handler)}));
+		NewCommands.emplace_back(std::make_shared<FStoredCommand>(FStoredCommand{.Name = std::move(Descriptor.Name), .Description = std::move(Descriptor.Description), .bMutates = Descriptor.bMutates, .Handler = std::move(Descriptor.Handler)}));
 	}
 
 	std::ranges::sort(NewCommands, {}, GetCommandName);
@@ -184,7 +185,7 @@ std::expected<void, FEditorCommandError> FEditorCommandRegistry::RegisterBatch(s
 	return {};
 }
 
-std::expected<FEditorCommandResult, FEditorCommandError> FEditorCommandRegistry::Execute(const std::string_view CommandLine) const
+std::expected<FEditorCommandResult, FEditorCommandError> FEditorCommandRegistry::Execute(const std::string_view CommandLine, const bool bAllowMutation) const
 {
 	std::expected<std::vector<std::string>, FEditorCommandError> Tokens = TokenizeCommandLine(CommandLine);
 	if (!Tokens)
@@ -207,6 +208,11 @@ std::expected<FEditorCommandResult, FEditorCommandError> FEditorCommandRegistry:
 		}
 
 		Command = *Iterator;
+	}
+
+	if (Command->bMutates && !bAllowMutation)
+	{
+		return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::ReadOnly, .Message = std::format("'{}' changes state, which this caller may not do", Command->Name)});
 	}
 
 	std::vector<std::string_view> Arguments(std::next(Tokens->begin()), Tokens->end());
@@ -257,7 +263,7 @@ std::vector<FEditorCommandInfo> FEditorCommandRegistry::List() const
 	Results.reserve(Implementation->Commands.size());
 	for (const std::shared_ptr<FStoredCommand>& Command : Implementation->Commands)
 	{
-		Results.emplace_back(FEditorCommandInfo{.Name = Command->Name, .Description = Command->Description});
+		Results.emplace_back(FEditorCommandInfo{.Name = Command->Name, .Description = Command->Description, .bMutates = Command->bMutates});
 	}
 
 	return Results;

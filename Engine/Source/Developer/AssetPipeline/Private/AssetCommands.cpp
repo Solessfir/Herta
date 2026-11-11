@@ -196,7 +196,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 		Result = Registry.Register(FEditorCommandDescriptor{
 		    .Name = "asset.import",
 		    .Description = "Register a source file as an asset, copying it into content when needed",
-		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		    .bMutates = true, .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 		{
 			std::expected<FParsedArguments, FEditorCommandError> Parsed = ParseArguments(Arguments, Options, true);
 			if (!Parsed)
@@ -231,7 +231,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 		Result = Registry.Register(FEditorCommandDescriptor{
 		    .Name = "asset.reimport",
 		    .Description = "Cook a registered asset by content path or ID",
-		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		    .bMutates = true, .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 		{
 			std::expected<FParsedArguments, FEditorCommandError> Parsed = ParseArguments(Arguments, Options, false, true);
 			if (!Parsed)
@@ -277,7 +277,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 		Result = Registry.Register(FEditorCommandDescriptor{
 		    .Name = "material.compile",
 		    .Description = "Compile a material shader or Material Graph to the cooked shader stages a staged game loads",
-		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		    .bMutates = true, .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 		{
 			std::expected<FParsedArguments, FEditorCommandError> Parsed = ParseArguments(Arguments, Options, false);
 			if (!Parsed)
@@ -502,7 +502,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 		Result = Registry.Register(FEditorCommandDescriptor{
 		    .Name = "nav.build",
 		    .Description = "Build a project level's navigation, with its regions' tiles, into a .hnav file",
-		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		    .bMutates = true, .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 		{
 			if (Arguments.size() < 2 || Arguments.size() > 3)
 			{
@@ -608,7 +608,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 		Result = Registry.Register(FEditorCommandDescriptor{
 		    .Name = "game.stage",
 		    .Description = "Cook a project's starting level and its assets into a relocatable loose-content directory",
-		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		    .bMutates = true, .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 		{
 			if (Arguments.size() != 2)
 			{
@@ -687,7 +687,7 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 		Result = Registry.Register(FEditorCommandDescriptor{
 		    .Name = "localization.generate",
 		    .Description = "Write the constexpr text ID header for a source catalog",
-		    .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		    .bMutates = true, .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 		{
 			if (Arguments.size() != 2)
 			{

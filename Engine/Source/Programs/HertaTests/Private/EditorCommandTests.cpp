@@ -7,12 +7,12 @@ namespace Herta
 TEST_CASE("Editor commands are validated and sorted")
 {
 	FEditorCommandRegistry Registry;
-	CHECK(Registry.Register({"zeta", "Last command", [](std::span<const std::string_view>)
+	CHECK(Registry.Register({.Name = "zeta", .Description = "Last command", .Handler = [](std::span<const std::string_view>)
 	{
 		return FEditorCommandResult{};
 	}}).has_value());
 
-	CHECK(Registry.Register({"alpha", "First command", [](std::span<const std::string_view>)
+	CHECK(Registry.Register({.Name = "alpha", .Description = "First command", .Handler = [](std::span<const std::string_view>)
 	{
 		return FEditorCommandResult{};
 	}}).has_value());
@@ -22,12 +22,12 @@ TEST_CASE("Editor commands are validated and sorted")
 	CHECK(Commands[0].Name == "alpha");
 	CHECK(Commands[1].Name == "zeta");
 
-	CHECK_FALSE(Registry.Register({"alpha", "Duplicate", [](std::span<const std::string_view>)
+	CHECK_FALSE(Registry.Register({.Name = "alpha", .Description = "Duplicate", .Handler = [](std::span<const std::string_view>)
 	{
 		return FEditorCommandResult{};
 	}}).has_value());
 
-	CHECK_FALSE(Registry.Register({"bad name", "Invalid", [](std::span<const std::string_view>)
+	CHECK_FALSE(Registry.Register({.Name = "bad name", .Description = "Invalid", .Handler = [](std::span<const std::string_view>)
 	{
 		return FEditorCommandResult{};
 	}}).has_value());
@@ -48,9 +48,9 @@ TEST_CASE("Editor command parsing preserves quoted and escaped arguments")
 TEST_CASE("Editor command parsing preserves empty quoted arguments")
 {
 	FEditorCommandRegistry Registry;
-	CHECK(Registry.Register({"capture",
-	                            "Capture arguments",
-	                            [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	CHECK(Registry.Register({.Name = "capture",
+	                            .Description = "Capture arguments",
+	                            .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() != 2 || !Arguments.front().empty() || Arguments.back() != "tail")
 		{
@@ -78,7 +78,7 @@ TEST_CASE("Editor command completion is prefix based and bounded")
 TEST_CASE("Core editor command registration is transactional")
 {
 	FEditorCommandRegistry Registry;
-	CHECK(Registry.Register({"help", "Existing help", [](std::span<const std::string_view>)
+	CHECK(Registry.Register({.Name = "help", .Description = "Existing help", .Handler = [](std::span<const std::string_view>)
 	{
 		return FEditorCommandResult{};
 	}}).has_value());
@@ -107,5 +107,33 @@ TEST_CASE("Core editor help and unknown command diagnostics share one registry")
 	CHECK(Unknown.error().Code == EEditorCommandErrorCode::UnknownCommand);
 	CHECK(std::string(GetEditorCommandErrorCodeName(Unknown.error().Code)) == "unknown_command");
 	CHECK(Unknown.error().Message.find("Unknown command") != std::string::npos);
+}
+
+TEST_CASE("Callers without the right to change state cannot run commands that mutate")
+{
+	FEditorCommandRegistry Registry;
+	int Runs = 0;
+	const auto Count = [&Runs](std::span<const std::string_view>)
+	{
+		++Runs;
+		return FEditorCommandResult{};
+	};
+
+	REQUIRE(Registry.Register({.Name = "thing.write", .Description = "Writes", .bMutates = true, .Handler = Count}));
+	REQUIRE(Registry.Register({.Name = "thing.read", .Description = "Reads", .Handler = Count}));
+	const std::vector<FEditorCommandInfo> Listed = Registry.List();
+	REQUIRE(Listed.size() == 2);
+	CHECK_FALSE(Listed[0].bMutates);
+	CHECK(Listed[1].bMutates);
+
+	// Refused before the handler runs; reads still work, and a permitted caller can write.
+	const auto Refused = Registry.Execute("thing.write", false);
+	REQUIRE_FALSE(Refused);
+	CHECK(Refused.error().Code == EEditorCommandErrorCode::ReadOnly);
+	CHECK(std::string(GetEditorCommandErrorCodeName(Refused.error().Code)) == "read_only");
+	CHECK(Runs == 0);
+	CHECK(Registry.Execute("thing.read", false));
+	CHECK(Registry.Execute("thing.write"));
+	CHECK(Runs == 2);
 }
 }

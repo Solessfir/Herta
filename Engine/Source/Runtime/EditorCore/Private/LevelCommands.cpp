@@ -51,7 +51,7 @@ std::expected<void, FEditorCommandError> RegisterLevelFileCommands(FEditorComman
 		return Result;
 	}
 
-	if (auto Result = Commands.Register({.Name = "level.canonicalize", .Description = "Write a level in canonical text. Usage: level.canonicalize <source> <destination>", .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	if (auto Result = Commands.Register({.Name = "level.canonicalize", .Description = "Write a level in canonical text. Usage: level.canonicalize <source> <destination>", .bMutates = true, .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() != 2)
 		{
@@ -76,7 +76,7 @@ std::expected<void, FEditorCommandError> RegisterLevelFileCommands(FEditorComman
 		return Result;
 	}
 
-	return Commands.Register({.Name = "level.generate-scaling", .Description = "Generate a scaling fixture. Usage: level.generate-scaling <rendering|dynamic> <1000|5000|10000> <destination>", .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	return Commands.Register({.Name = "level.generate-scaling", .Description = "Generate a scaling fixture. Usage: level.generate-scaling <rendering|dynamic> <1000|5000|10000> <destination>", .bMutates = true, .Handler = [](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
 	{
 		if (Arguments.size() != 3)
 		{

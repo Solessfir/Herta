@@ -900,6 +900,41 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 		return true;
 	}
 
+	if (Tool == "editor_commands")
+	{
+		std::string Output = "{\"commands\": [";
+		const std::vector<FEditorCommandInfo> Listed = Editor.EditorCommands->List();
+		for (std::size_t Index = 0; Index < Listed.size(); ++Index)
+		{
+			Output += Index == 0 ? "{\"name\": " : ", {\"name\": ";
+			AppendJsonString(Output, Listed[Index].Name);
+			Output += ", \"description\": ";
+			AppendJsonString(Output, Listed[Index].Description);
+			Output += std::format(", \"mutates\": {}}}", Listed[Index].bMutates ? "true" : "false");
+		}
+
+		Server.Respond(Request.Id, Output + std::format("], \"writes\": {}}}", Server.AllowsWrites() ? "true" : "false"));
+		return true;
+	}
+
+	// Runs as the Output Log would; a read-only session gets read_only for anything that changes state, before it runs.
+	if (Tool == "editor_command")
+	{
+		const std::string_view Line = Arguments.Text("command");
+		auto Result = Editor.EditorCommands->Execute(Line, Server.AllowsWrites());
+		if (!Result)
+		{
+			Server.Fail(Request.Id, GetEditorCommandErrorCodeName(Result.error().Code), Result.error().Message);
+			return true;
+		}
+
+		HERTA_LOG_INFO(*Editor.Log, EditorLog, "Automation ran: {}", Line);
+		std::string Output = std::format("{{\"exitCode\": {}, \"message\": ", Result->ExitCode);
+		AppendJsonString(Output, Result->Message);
+		Server.Respond(Request.Id, Output + "}");
+		return true;
+	}
+
 	if (Tool == "level_entities")
 	{
 		if (!Editor.Level)

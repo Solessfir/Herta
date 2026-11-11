@@ -397,6 +397,7 @@ struct FEditorFramework::FImplementation
 	FToolUIContext* ToolUI = nullptr;
 	FApplication* Application = nullptr;
 	FLogService* Log = nullptr;
+	FEditorCommandRegistry* EditorCommands = nullptr;
 
 	bool bOutlinerOpen = true;
 	bool bDetailsOpen = true;

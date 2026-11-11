@@ -18,7 +18,8 @@ enum class EEditorCommandErrorCode : std::uint8_t
 	ParseError,
 	EmptyCommandLine,
 	UnknownCommand,
-	ExecutionFailed
+	ExecutionFailed,
+	ReadOnly
 };
 
 [[nodiscard]] constexpr std::string_view GetEditorCommandErrorCodeName(const EEditorCommandErrorCode Code) noexcept
@@ -37,6 +38,8 @@ enum class EEditorCommandErrorCode : std::uint8_t
 			return "unknown_command";
 		case EEditorCommandErrorCode::ExecutionFailed:
 			return "execution_failed";
+		case EEditorCommandErrorCode::ReadOnly:
+			return "read_only";
 	}
 
 	return "unknown";
@@ -60,6 +63,8 @@ struct FEditorCommandDescriptor
 {
 	std::string Name;
 	std::string Description;
+	// Changes files, the open level, or other lasting state, so a read-only caller such as an automation session may not run it.
+	bool bMutates = false;
 	FEditorCommandHandler Handler;
 };
 
@@ -67,6 +72,7 @@ struct FEditorCommandInfo
 {
 	std::string Name;
 	std::string Description;
+	bool bMutates = false;
 };
 
 class FEditorCommandRegistry final
@@ -83,7 +89,8 @@ public:
 	FEditorCommandRegistry& operator=(FEditorCommandRegistry&&) = delete;
 
 	[[nodiscard]] std::expected<void, FEditorCommandError> Register(FEditorCommandDescriptor Descriptor);
-	[[nodiscard]] std::expected<FEditorCommandResult, FEditorCommandError> Execute(std::string_view CommandLine) const;
+	// Without bAllowMutation, commands that mutate are refused before they run.
+	[[nodiscard]] std::expected<FEditorCommandResult, FEditorCommandError> Execute(std::string_view CommandLine, bool bAllowMutation = true) const;
 	[[nodiscard]] std::vector<std::string> Complete(std::string_view Prefix, std::size_t MaximumResults = 8) const;
 	[[nodiscard]] std::vector<FEditorCommandInfo> List() const;
 
