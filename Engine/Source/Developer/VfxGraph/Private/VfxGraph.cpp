@@ -21,6 +21,7 @@ enum EVfxPin : std::uint32_t
 	ColorPin,
 	ForcesPin,
 	CollisionPin,
+	RibbonPin,
 };
 
 constexpr std::array SystemInputs{
@@ -37,6 +38,7 @@ constexpr std::array EmitterInputs{
     FGraphPinDescriptor{.Key = "Color", .Name = "Color", .Type = ColorPin},
     FGraphPinDescriptor{.Key = "Forces", .Name = "Forces", .Type = ForcesPin},
     FGraphPinDescriptor{.Key = "Collision", .Name = "Collision", .Type = CollisionPin},
+    FGraphPinDescriptor{.Key = "Ribbon", .Name = "Ribbon", .Type = RibbonPin},
 };
 constexpr std::array EmitterOutputs{FGraphPinDescriptor{.Key = "Emitter", .Name = "Emitter", .Type = EmitterPin}};
 constexpr std::array SpawnOutputs{FGraphPinDescriptor{.Key = "Spawn", .Name = "Spawn", .Type = SpawnPin}};
@@ -46,6 +48,7 @@ constexpr std::array SizeOutputs{FGraphPinDescriptor{.Key = "Size", .Name = "Siz
 constexpr std::array ColorOutputs{FGraphPinDescriptor{.Key = "Color", .Name = "Color", .Type = ColorPin}};
 constexpr std::array ForcesOutputs{FGraphPinDescriptor{.Key = "Forces", .Name = "Forces", .Type = ForcesPin}};
 constexpr std::array CollisionOutputs{FGraphPinDescriptor{.Key = "Collision", .Name = "Collision", .Type = CollisionPin}};
+constexpr std::array RibbonOutputs{FGraphPinDescriptor{.Key = "Ribbon", .Name = "Ribbon", .Type = RibbonPin}};
 
 const std::array EmitterProperties{
     FGraphPropertyDescriptor{.Key = "name", .Name = "Name", .Default = std::string("Emitter")},
@@ -96,6 +99,7 @@ const std::array VfxNodes{
     FGraphNodeDescriptor{.Type = "ColorOverLife", .Name = "Color Over Life", .Category = "Modules", .Outputs = ColorOutputs, .Properties = ColorProperties},
     FGraphNodeDescriptor{.Type = "Forces", .Name = "Gravity and Drag", .Category = "Modules", .Outputs = ForcesOutputs, .Properties = ForcesProperties},
     FGraphNodeDescriptor{.Type = "Collision", .Name = "Collision", .Category = "Modules", .Outputs = CollisionOutputs, .Properties = CollisionProperties},
+    FGraphNodeDescriptor{.Type = "Ribbon", .Name = "Ribbon", .Category = "Modules", .Outputs = RibbonOutputs},
 };
 
 bool CanConnectVfxPins(const std::uint32_t From, const std::uint32_t To)
@@ -234,6 +238,7 @@ std::expected<FVfxGraphCompilation, std::vector<FGraphDiagnostic>> CompileVfxGra
 			Emitter.Drag = Number(*Forces, "drag");
 		}
 
+		Emitter.bRibbon = Source(Node->Id, "Ribbon") != nullptr;
 		if (const FGraphNode* const Collision = Source(Node->Id, "Collision"))
 		{
 			Emitter.bCollision = true;

@@ -197,13 +197,25 @@ void AppendQuad(std::vector<FColoredClipVertex>& Vertices, const FProjectedDebug
 // alpha blending composes them in order.
 constexpr std::size_t ParticleRimVertices = 6;
 constexpr std::size_t MaximumDrawnParticles = 16384;
+constexpr std::size_t MaximumDrawnRibbonPoints = 4096;
+// Rows drawn per ribbon segment: a sword's arc sampled once a frame reads as polygons without them.
+constexpr std::uint32_t RibbonSubdivisions = 4;
+// Marks an entry of the draw order as a ribbon rather than a particle.
+constexpr std::uint32_t RibbonOrderFlag = 0x80000000u;
 
-void ExpandParticles(const FMatrix4& View, const FMatrix4& WorldToClip, const std::span<const FRenderParticle> Particles, const std::span<const FRenderLight> Lights, std::vector<FColoredClipVertex>& Vertices, std::vector<std::uint32_t>& Indices, std::vector<std::uint32_t>& Order)
+[[nodiscard]] FVector3 CatmullRom(const FVector3& P0, const FVector3& P1, const FVector3& P2, const FVector3& P3, const float T)
+{
+	const float T2 = T * T;
+	const float T3 = T2 * T;
+	return (P1 * 2.f + (P2 - P0) * T + (P0 * 2.f - P1 * 5.f + P2 * 4.f - P3) * T2 + (P1 * 3.f - P0 - P2 * 3.f + P3) * T3) * 0.5f;
+}
+
+void ExpandParticles(const FMatrix4& View, const FMatrix4& WorldToClip, const std::span<const FRenderParticle> Particles, const std::span<const FRenderRibbon> Ribbons, const std::span<const FRenderRibbonPoint> RibbonPoints, const std::span<const FRenderLight> Lights, std::vector<FColoredClipVertex>& Vertices, std::vector<std::uint32_t>& Indices, std::vector<std::uint32_t>& Order)
 {
 	Vertices.clear();
 	Indices.clear();
 	Order.clear();
-	if (Particles.empty())
+	if (Particles.empty() && Ribbons.empty())
 	{
 		return;
 	}
@@ -246,15 +258,102 @@ void ExpandParticles(const FMatrix4& View, const FMatrix4& WorldToClip, const st
 	const std::size_t Count = std::min(Particles.size(), MaximumDrawnParticles);
 	Order.resize(Count);
 	std::ranges::iota(Order, 0u);
-	std::ranges::sort(Order, std::ranges::greater{}, [&](const std::uint32_t Index)
+	std::size_t DrawnRibbonPoints = 0;
+	for (std::size_t Ribbon = 0; Ribbon < Ribbons.size() && DrawnRibbonPoints + Ribbons[Ribbon].PointCount <= MaximumDrawnRibbonPoints; ++Ribbon)
 	{
-		return (Particles[Index].Position - Eye).LengthSquared();
+		Order.push_back(static_cast<std::uint32_t>(Ribbon) | RibbonOrderFlag);
+		DrawnRibbonPoints += Ribbons[Ribbon].PointCount;
+	}
+
+	// A ribbon sorts by its middle point, so it takes one place among the discs.
+	std::ranges::sort(Order, std::ranges::greater{}, [&](const std::uint32_t Entry)
+	{
+		if ((Entry & RibbonOrderFlag) == 0)
+		{
+			return (Particles[Entry].Position - Eye).LengthSquared();
+		}
+
+		const FRenderRibbon& Ribbon = Ribbons[Entry & ~RibbonOrderFlag];
+		return (RibbonPoints[Ribbon.FirstPoint + Ribbon.PointCount / 2].Position - Eye).LengthSquared();
 	});
 
-	Vertices.reserve(Count * (ParticleRimVertices + 1));
-	Indices.reserve(Count * ParticleRimVertices * 3);
+	const auto ToClip = [&WorldToClip](const FVector3& P)
+	{
+		return std::array{WorldToClip(0, 0) * P.X + WorldToClip(0, 1) * P.Y + WorldToClip(0, 2) * P.Z + WorldToClip(0, 3), WorldToClip(1, 0) * P.X + WorldToClip(1, 1) * P.Y + WorldToClip(1, 2) * P.Z + WorldToClip(1, 3),
+		    WorldToClip(2, 0) * P.X + WorldToClip(2, 1) * P.Y + WorldToClip(2, 2) * P.Z + WorldToClip(2, 3), WorldToClip(3, 0) * P.X + WorldToClip(3, 1) * P.Y + WorldToClip(3, 2) * P.Z + WorldToClip(3, 3)};
+	};
+
+	// Each row across a ribbon is three vertices, transparent at both edges, so a strip is soft like the discs. Curved between its points.
+	const auto ExpandRibbon = [&](const FRenderRibbon& Ribbon)
+	{
+		const std::span<const FRenderRibbonPoint> Points = RibbonPoints.subspan(Ribbon.FirstPoint, Ribbon.PointCount);
+		const auto Point = [&Points](const std::ptrdiff_t Index) -> const FRenderRibbonPoint&
+		{
+			return Points[static_cast<std::size_t>(std::clamp<std::ptrdiff_t>(Index, 0, static_cast<std::ptrdiff_t>(Points.size()) - 1))];
+		};
+
+		const auto Curve = [&Point](const std::ptrdiff_t Segment, const float T, FVector3 FRenderRibbonPoint::* const Member)
+		{
+			return CatmullRom(Point(Segment - 1).*Member, Point(Segment).*Member, Point(Segment + 1).*Member, Point(Segment + 2).*Member, T);
+		};
+
+		bool bPreviousRow = false;
+		FVector3 Side{};
+		const auto Rows = static_cast<std::uint32_t>(Points.size() - 1) * RibbonSubdivisions + 1;
+		for (std::uint32_t Row = 0; Row < Rows; ++Row)
+		{
+			const auto Segment = static_cast<std::ptrdiff_t>(std::min(Row / RibbonSubdivisions, static_cast<std::uint32_t>(Points.size() - 2)));
+			const float T = static_cast<float>(Row) / static_cast<float>(RibbonSubdivisions) - static_cast<float>(Segment);
+			const FRenderRibbonPoint& From = Point(Segment);
+			const FRenderRibbonPoint& To = Point(Segment + 1);
+			const FVector3 Position = Curve(Segment, T, &FRenderRibbonPoint::Position);
+			const float Size = std::lerp(From.Size, To.Size, T);
+			const FVector3 Edge = Curve(Segment, T, &FRenderRibbonPoint::Edge);
+			if (Edge.LengthSquared() > 1e-8f)
+			{
+				Side = Edge * Size;
+			}
+			else
+			{
+				// Across the path and the view; a point seen end on keeps the last row's direction.
+				const FVector3 Across = (To.Position - From.Position).Cross(Eye - Position);
+				Side = Across.LengthSquared() > 1e-10f ? Across.Normalized() * (Size * 0.5f) : Side;
+			}
+
+			std::array<float, 4> Color{};
+			for (std::size_t Channel = 0; Channel < 4; ++Channel)
+			{
+				Color[Channel] = std::lerp(From.Color[Channel], To.Color[Channel], T);
+			}
+
+			const float Emissive = std::lerp(From.Emissive, To.Emissive, T);
+			const FVector3 Lit{Color[0] * (Radiance.X + Emissive), Color[1] * (Radiance.Y + Emissive), Color[2] * (Radiance.Z + Emissive)};
+			const std::array Clip{ToClip(Position - Side), ToClip(Position), ToClip(Position + Side)};
+			const bool bRow = Clip[0][3] > 0.01f && Clip[1][3] > 0.01f && Clip[2][3] > 0.01f;
+			const auto First = static_cast<std::uint32_t>(Vertices.size());
+			Vertices.push_back({.Position = Clip[0], .Color = {Lit.X, Lit.Y, Lit.Z, 0.f}});
+			Vertices.push_back({.Position = Clip[1], .Color = {Lit.X, Lit.Y, Lit.Z, Color[3]}});
+			Vertices.push_back({.Position = Clip[2], .Color = {Lit.X, Lit.Y, Lit.Z, 0.f}});
+			if (bRow && bPreviousRow)
+			{
+				const std::uint32_t Last = First - 3;
+				Indices.insert(Indices.end(), {Last, Last + 1, First, First, Last + 1, First + 1, Last + 1, Last + 2, First + 1, First + 1, Last + 2, First + 2});
+			}
+
+			bPreviousRow = bRow;
+		}
+	};
+
+	Vertices.reserve(Count * (ParticleRimVertices + 1) + DrawnRibbonPoints * RibbonSubdivisions * 3);
+	Indices.reserve(Count * ParticleRimVertices * 3 + DrawnRibbonPoints * RibbonSubdivisions * 12);
 	for (const std::uint32_t Index : Order)
 	{
+		if ((Index & RibbonOrderFlag) != 0)
+		{
+			ExpandRibbon(Ribbons[Index & ~RibbonOrderFlag]);
+			continue;
+		}
+
 		const FRenderParticle& Particle = Particles[Index];
 		const FVector3 Albedo{Particle.Color[0], Particle.Color[1], Particle.Color[2]};
 		const FVector3 Lit{Albedo.X * (Radiance.X + Particle.Emissive), Albedo.Y * (Radiance.Y + Particle.Emissive), Albedo.Z * (Radiance.Z + Particle.Emissive)};
@@ -2117,7 +2216,7 @@ std::expected<void, FPresentationError> FMeshRenderer::Render(const FExtent2D Ex
 
 	// Renderers without the pass-through shaders, such as thumbnail renderers, draw no particles.
 	const bool bParticleShaders = !State.DisplayShaders.DebugVertex.Bytecode.empty() && !State.DisplayShaders.DebugFragment.Bytecode.empty();
-	ExpandParticles(View.View, WorldToClip, bParticleShaders ? View.Particles : std::span<const FRenderParticle>{}, View.Lights, State.ParticleVertices, State.ParticleIndices, State.ParticleOrder);
+	ExpandParticles(View.View, WorldToClip, bParticleShaders ? View.Particles : std::span<const FRenderParticle>{}, bParticleShaders ? View.Ribbons : std::span<const FRenderRibbon>{}, View.RibbonPoints, View.Lights, State.ParticleVertices, State.ParticleIndices, State.ParticleOrder);
 	if (!State.ParticleIndices.empty())
 	{
 		const std::size_t VertexBytes = State.ParticleVertices.size() * sizeof(FColoredClipVertex);

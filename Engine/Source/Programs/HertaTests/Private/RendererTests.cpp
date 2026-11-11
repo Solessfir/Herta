@@ -143,6 +143,64 @@ TEST_CASE("Mesh renderer records clear before indexed reversed-Z geometry")
 	CHECK(Near.Z / Near.W < 1.f);
 }
 
+TEST_CASE("Mesh renderer draws ribbons as soft curved strips, across their edge or facing the camera")
+{
+	FTestGraphicsDevice Device;
+	FCubeScene Scene(Device);
+	const auto Renderer = CreateDebugRenderer(Device);
+	REQUIRE(Renderer);
+	const std::array Points{
+	    Herta::FRenderRibbonPoint{.Position = {-1.f, 0.f, 0.f}, .Edge = {0.f, 0.5f, 0.f}, .Size = 1.f, .Color = {1.f, 1.f, 1.f, 0.5f}, .Emissive = 10.f},
+	    Herta::FRenderRibbonPoint{.Position = {0.f, 0.f, 0.f}, .Edge = {0.f, 0.5f, 0.f}, .Size = 1.f, .Color = {1.f, 1.f, 1.f, 0.5f}, .Emissive = 10.f},
+	    Herta::FRenderRibbonPoint{.Position = {1.f, 0.f, 0.f}, .Edge = {0.f, 0.5f, 0.f}, .Size = 1.f, .Color = {1.f, 1.f, 1.f, 0.5f}, .Emissive = 10.f},
+	};
+	const std::array Ribbons{Herta::FRenderRibbon{.FirstPoint = 0, .PointCount = 3}};
+	Scene.View.Ribbons = Ribbons;
+	Scene.View.RibbonPoints = Points;
+	Device.Draws.clear();
+	Device.DebugUploads.clear();
+	REQUIRE((*Renderer)->Render({640, 480}, Scene.View));
+
+	// Two segments of four rows and the closing row: nine rows of three vertices, joined by eight bands of four triangles.
+	const auto Upload = std::ranges::find_if(Device.DebugUploads, [](const std::vector<Herta::FColoredClipVertex>& Candidate)
+	{
+		return Candidate.size() == 32;
+	});
+
+	REQUIRE(Upload != Device.DebugUploads.end());
+	CHECK(std::ranges::any_of(Device.Draws, [](const Herta::FIndexedDraw& Candidate)
+	{
+		return Candidate.IndexCount == 8 * 12;
+	}));
+
+	const std::vector<Herta::FColoredClipVertex>& Strip = *Upload;
+	// Transparent at both edges, opaque along the middle, and as wide as its edge.
+	CHECK(Strip[0].Color[3] == 0.f);
+	CHECK(Strip[1].Color[3] == doctest::Approx(0.5f));
+	CHECK(Strip[2].Color[3] == 0.f);
+	CHECK(Strip[1].Color[0] == doctest::Approx(5.f / 0.5f));
+	CHECK(Strip[0].Position[1] / Strip[0].Position[3] != doctest::Approx(Strip[2].Position[1] / Strip[2].Position[3]));
+
+	// Without an edge the strip turns to face the camera, which looks along +Z here, so it spreads vertically across its horizontal path.
+	std::array Facing = Points;
+	for (Herta::FRenderRibbonPoint& Point : Facing)
+	{
+		Point.Edge = {};
+	}
+
+	Scene.View.RibbonPoints = Facing;
+	Device.DebugUploads.clear();
+	REQUIRE((*Renderer)->Render({640, 480}, Scene.View));
+	const auto Faced = std::ranges::find_if(Device.DebugUploads, [](const std::vector<Herta::FColoredClipVertex>& Candidate)
+	{
+		return Candidate.size() == 32;
+	});
+
+	REQUIRE(Faced != Device.DebugUploads.end());
+	CHECK((*Faced)[0].Position[1] / (*Faced)[0].Position[3] != doctest::Approx((*Faced)[2].Position[1] / (*Faced)[2].Position[3]));
+	CHECK((*Faced)[0].Position[0] / (*Faced)[0].Position[3] == doctest::Approx((*Faced)[2].Position[0] / (*Faced)[2].Position[3]));
+}
+
 TEST_CASE("Mesh renderer draws particles as lit, back-to-front discs into HDR color against scene depth")
 {
 	FTestGraphicsDevice Device;

@@ -54,6 +54,9 @@ struct FParticleEmitterDesc
 	float Friction = 0.5f;
 	// Particles that hit something stay where they landed, such as blood drops.
 	bool bStick = false;
+	// Joins the emitter's particles, oldest first, into one continuous strip instead of drawing discs. Size is the strip's width, or a
+	// multiple of the edge the effect is moved with.
+	bool bRibbon = false;
 };
 
 struct FCookedParticleSystem

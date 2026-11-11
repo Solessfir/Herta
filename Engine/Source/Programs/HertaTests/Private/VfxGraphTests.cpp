@@ -5,6 +5,10 @@
 
 #include <doctest/doctest.h>
 
+#include <fstream>
+#include <iterator>
+#include <string>
+
 #include <numbers>
 
 using namespace Herta;
@@ -30,6 +34,7 @@ TEST_CASE("VFX Graphs compile emitters from their modules, in degrees on the can
 	Compiled = CompileVfxGraph(Graph);
 	REQUIRE(Compiled);
 	CHECK(Compiled->System.Emitters[0].bCollision);
+	CHECK_FALSE(Compiled->System.Emitters[0].bRibbon);
 	REQUIRE(Compiled->Diagnostics.size() == 1);
 	CHECK(Compiled->Diagnostics[0].Severity == EGraphSeverity::Warning);
 
@@ -46,6 +51,20 @@ TEST_CASE("VFX Graphs compile emitters from their modules, in degrees on the can
 	CHECK_FALSE(CompileVfxGraph(Backwards));
 	FGraph Empty{.Domain = std::string(VfxGraphDomain), .DomainVersion = VfxGraphVersion};
 	CHECK_FALSE(CompileVfxGraph(Empty));
+}
+
+TEST_CASE("The Sandbox's sword trail compiles to a ribbon that does not move on its own")
+{
+	std::ifstream Stream("Games/Sandbox/Content/Effects/Sword_Trail.hvfxgraph", std::ios::binary);
+	const std::string Text{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
+	const auto Graph = DeserializeGraph(Text, GetVfxGraphSchema());
+	REQUIRE(Graph);
+	const auto Compiled = CompileVfxGraph(*Graph);
+	REQUIRE(Compiled);
+	REQUIRE(Compiled->System.Emitters.size() == 1);
+	CHECK(Compiled->System.Emitters[0].bRibbon);
+	CHECK(Compiled->System.Emitters[0].SpeedMaximum == 0.f);
+	CHECK(Compiled->System.Emitters[0].Gravity == 0.f);
 }
 
 TEST_CASE("VFX Graphs cook into particle systems")

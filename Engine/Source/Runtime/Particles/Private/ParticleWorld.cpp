@@ -88,6 +88,7 @@ std::optional<FParticleEffectId> FParticleWorld::Spawn(const FAssetId& System, c
 	    .Id = {++NextEffect},
 	    .System = Found->second,
 	    .Position = Position,
+	    .PreviousPosition = Position,
 	    .Up = Up.LengthSquared() > 1e-8f ? Up.Normalized() : FVector3{0.f, 1.f, 0.f},
 	    .Scale = std::isfinite(Scale) && Scale > 0.f ? Scale : 1.f,
 	    .Random = (NextEffect * 2654435761u) ^ 0x6a09e667u,
@@ -111,13 +112,20 @@ void FParticleWorld::Stop(const FParticleEffectId Effect)
 	}
 }
 
-void FParticleWorld::Move(const FParticleEffectId Effect, const FVector3& Position)
+void FParticleWorld::Move(const FParticleEffectId Effect, const FVector3& Position, const FVector3& Edge)
 {
 	for (FEffect& Each : Effects)
 	{
 		if (Each.Id == Effect)
 		{
 			Each.Position = Position;
+			Each.Edge = Edge;
+			// Before its first update an effect has no path yet, so a ribbon starts at full width where it is placed.
+			if (Each.Age == 0.f)
+			{
+				Each.PreviousPosition = Position;
+				Each.PreviousEdge = Edge;
+			}
 		}
 	}
 }
@@ -126,6 +134,8 @@ void FParticleWorld::Clear()
 {
 	Effects.clear();
 	RenderParticles.clear();
+	RenderRibbons.clear();
+	RenderRibbonPoints.clear();
 	LiveParticles = 0;
 }
 
@@ -163,7 +173,11 @@ void FParticleWorld::SpawnParticles(FEffect& Effect, FEmitterState& Emitter, std
 		const float Turn = NextUnit(Effect.Random) * 2.f * std::numbers::pi_v<float>;
 		const FVector3 Local = Orient(FVector3{std::cos(Turn) * SinAngle, CosAngle, std::sin(Turn) * SinAngle}, ToVector(Desc.Direction));
 		const float Speed = std::lerp(Desc.SpeedMinimum, Desc.SpeedMaximum, NextUnit(Effect.Random)) * Effect.Scale;
-		Emitter.Positions.push_back(Effect.Position + Orient(Offset * (Desc.SpawnRadius * Effect.Scale), Effect.Up));
+		// A ribbon's points spread along the way the effect moved this update, so a fast source leaves no gaps.
+		const float Along = Desc.bRibbon ? static_cast<float>(Particle + 1) / static_cast<float>(Allowed) : 1.f;
+		const FVector3 Origin = Effect.PreviousPosition + (Effect.Position - Effect.PreviousPosition) * Along;
+		Emitter.Positions.push_back(Origin + Orient(Offset * (Desc.SpawnRadius * Effect.Scale), Effect.Up));
+		Emitter.Edges.push_back(Effect.PreviousEdge + (Effect.Edge - Effect.PreviousEdge) * Along);
 		Emitter.Velocities.push_back(Orient(Local, Effect.Up) * Speed);
 		Emitter.Ages.push_back(0.f);
 		Emitter.Lifetimes.push_back(std::lerp(Desc.LifetimeMinimum, Desc.LifetimeMaximum, NextUnit(Effect.Random)));
@@ -250,16 +264,32 @@ void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& C
 					continue;
 				}
 
-				SwapRemove(Emitter.Positions, Index);
-				SwapRemove(Emitter.Velocities, Index);
-				SwapRemove(Emitter.Ages, Index);
-				SwapRemove(Emitter.Lifetimes, Index);
-				SwapRemove(Emitter.Resting, Index);
+				// A ribbon's points stay in spawn order, which is the strip's order; particles can swap, which is cheaper.
+				const auto Remove = [Index, bKeepOrder = Desc.bRibbon](auto& Values)
+				{
+					if (bKeepOrder)
+					{
+						Values.erase(Values.begin() + static_cast<std::ptrdiff_t>(Index));
+					}
+					else
+					{
+						SwapRemove(Values, Index);
+					}
+				};
+
+				Remove(Emitter.Positions);
+				Remove(Emitter.Velocities);
+				Remove(Emitter.Ages);
+				Remove(Emitter.Lifetimes);
+				Remove(Emitter.Resting);
+				Remove(Emitter.Edges);
 				--LiveParticles;
 			}
 		}
 
 		Effect.Age += Step;
+		Effect.PreviousPosition = Effect.Position;
+		Effect.PreviousEdge = Effect.Edge;
 	}
 
 	// An effect ends once it cannot spawn again and its last particle has died; its memory goes with it.
@@ -282,23 +312,42 @@ void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& C
 	Effects.erase(Finished.begin(), Finished.end());
 
 	RenderParticles.clear();
+	RenderRibbons.clear();
+	RenderRibbonPoints.clear();
 	for (const FEffect& Effect : Effects)
 	{
 		for (const FEmitterState& Emitter : Effect.Emitters)
 		{
 			const FParticleEmitterDesc& Desc = *Emitter.Desc;
+			const auto FirstPoint = static_cast<std::uint32_t>(RenderRibbonPoints.size());
 			for (std::size_t Index = 0; Index < Emitter.Positions.size(); ++Index)
 			{
 				const float Alpha = std::clamp(Emitter.Ages[Index] / Emitter.Lifetimes[Index], 0.f, 1.f);
-				FRenderParticle& Particle = RenderParticles.emplace_back();
-				Particle.Position = Emitter.Positions[Index];
-				Particle.Size = std::lerp(Desc.SizeStart, Desc.SizeEnd, Alpha) * Effect.Scale;
+				const float Size = std::lerp(Desc.SizeStart, Desc.SizeEnd, Alpha) * Effect.Scale;
+				std::array<float, 4> Color{};
 				for (std::size_t Channel = 0; Channel < 4; ++Channel)
 				{
-					Particle.Color[Channel] = std::lerp(Desc.ColorStart[Channel], Desc.ColorEnd[Channel], Alpha);
+					Color[Channel] = std::lerp(Desc.ColorStart[Channel], Desc.ColorEnd[Channel], Alpha);
 				}
 
-				Particle.Emissive = Desc.Emissive;
+				if (Desc.bRibbon)
+				{
+					RenderRibbonPoints.push_back({.Position = Emitter.Positions[Index], .Edge = Emitter.Edges[Index], .Size = Size, .Color = Color, .Emissive = Desc.Emissive});
+				}
+				else
+				{
+					RenderParticles.push_back({.Position = Emitter.Positions[Index], .Size = Size, .Color = Color, .Emissive = Desc.Emissive});
+				}
+			}
+
+			const auto Points = static_cast<std::uint32_t>(RenderRibbonPoints.size()) - FirstPoint;
+			if (Points >= 2)
+			{
+				RenderRibbons.push_back({.FirstPoint = FirstPoint, .PointCount = Points});
+			}
+			else
+			{
+				RenderRibbonPoints.resize(FirstPoint);
 			}
 		}
 	}
@@ -307,6 +356,16 @@ void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& C
 std::span<const FRenderParticle> FParticleWorld::GetRenderParticles() const noexcept
 {
 	return RenderParticles;
+}
+
+std::span<const FRenderRibbon> FParticleWorld::GetRenderRibbons() const noexcept
+{
+	return RenderRibbons;
+}
+
+std::span<const FRenderRibbonPoint> FParticleWorld::GetRenderRibbonPoints() const noexcept
+{
+	return RenderRibbonPoints;
 }
 
 FParticleStats FParticleWorld::GetStats() const

@@ -299,6 +299,8 @@ struct FPlayerSlot
 	float ShakeLength = 0.f;
 	float ShakeStrength = 0.f;
 	FVector3 ShakeOffset{};
+	// The ribbon the blade draws while a swing cuts.
+	std::optional<FParticleEffectId> BladeTrail{};
 
 	// The blade last update, from guard to tip in world space, while a swing is cutting.
 	std::optional<std::array<FVector3, 2>> LastBlade{};
@@ -412,6 +414,8 @@ struct FGameSession::FImplementation : FPlayerSlot
 	[[nodiscard]] std::optional<std::size_t> FindCombatTarget(float Range) const;
 	// A character's sword from guard to tip in world space, as last posed.
 	[[nodiscard]] std::optional<std::array<FVector3, 2>> GetCharacterBlade(const FCharacterActor& Actor) const;
+	// Starts, moves, or ends the ribbon a blade draws.
+	void UpdateBladeTrail(std::optional<FParticleEffectId>& Trail, bool bActive, const std::optional<std::array<FVector3, 2>>& Blade);
 	// Slows the whole game for a moment and shakes the camera, so a heavy clash lands with weight.
 	void Impact(float SlowSeconds, float ShakeStrength);
 	// Wounds a character a third of its health and flinches it; the third blow kills it.
@@ -526,6 +530,9 @@ struct FGameSession::FImplementation : FPlayerSlot
 		// Swings blocked in a quick chain; a guard deflects the third, so mashing into its guard backfires.
 		std::uint32_t BlocksInRow = 0;
 		float SinceBlockSeconds = 1.e9f;
+		// The ribbon its blade draws between a swing's SwingStart and SwingEnd.
+		std::optional<FParticleEffectId> BladeTrail{};
+		bool bBladeSwinging = false;
 	};
 
 	std::vector<FCharacterActor> Characters{};
@@ -1036,6 +1043,7 @@ void FGameSession::FImplementation::ResetPlayerState()
 	HitStop = {};
 	LungeSeconds = 0.f;
 	LungeTarget.reset();
+	BladeTrail.reset();
 	ShakeSeconds = 0.f;
 	ShakeOffset = {};
 	Input = {};
@@ -2135,6 +2143,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 		{
 			return std::unexpected(Swept.error());
 		}
+
+		UpdateBladeTrail(BladeTrail, bSwinging, LastBlade);
 	}
 
 	UpdateAudio(bJumped);
@@ -2583,6 +2593,29 @@ std::optional<std::array<FVector3, 2>> FGameSession::FImplementation::GetCharact
 	return std::array{TransformPoint(Hand, {0.f, SwordBladeStart, 0.f}), TransformPoint(Hand, {0.f, SwordBladeEnd, 0.f})};
 }
 
+void FGameSession::FImplementation::UpdateBladeTrail(std::optional<FParticleEffectId>& Trail, const bool bActive, const std::optional<std::array<FVector3, 2>>& Blade)
+{
+	if (!bActive || !Blade)
+	{
+		if (Trail)
+		{
+			// What it drew fades out on its own.
+			Particles.Stop(*Trail);
+			Trail.reset();
+		}
+
+		return;
+	}
+
+	const FVector3 Middle = ((*Blade)[0] + (*Blade)[1]) * 0.5f;
+	const FVector3 Edge = ((*Blade)[1] - (*Blade)[0]) * 0.5f;
+	Trail = Trail ? Trail : Particles.Spawn(Effects[static_cast<std::size_t>(ELevelEffect::Trail)], Middle);
+	if (Trail)
+	{
+		Particles.Move(*Trail, Middle, Edge);
+	}
+}
+
 void FGameSession::FImplementation::Impact(const float SlowSeconds, const float Strength)
 {
 	SlowMotionSeconds = std::max(SlowMotionSeconds, SlowSeconds);
@@ -2605,6 +2638,8 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StartCharacter
 		Actor.HitStop = {};
 		Actor.BlocksInRow = 0;
 		Actor.SinceBlockSeconds = 1.e9f;
+		Actor.BladeTrail.reset();
+		Actor.bBladeSwinging = false;
 		Actor.Body->Restart();
 		Actor.Model = AuthoredWorld[Actor.Entity];
 		Actor.bDowned = false;
@@ -3278,6 +3313,8 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 	    .VertexUpdates = Session.VertexUpdates,
 	    .Visibility = Session.Visibility,
 	    .Particles = Session.Particles.GetRenderParticles(),
+	    .Ribbons = Session.Particles.GetRenderRibbons(),
+	    .RibbonPoints = Session.Particles.GetRenderRibbonPoints(),
 	};
 
 	return Session.View;
@@ -3953,6 +3990,13 @@ std::expected<void, FGameError> FGameSession::FImplementation::StepAgents(FPhysi
 		Actor.Combat.SetGuardHeld(!Actor.Npc->IsAttacking() && !Actor.Npc->IsBusy());
 		Actor.Combat.Tick(StepSeconds);
 		Actor.SinceBlockSeconds += StepSeconds;
+		for (const std::string& Event : Actor.Body->GetEvents())
+		{
+			Actor.bBladeSwinging = Event == "SwingStart" || (Actor.bBladeSwinging && Event != "SwingEnd");
+		}
+
+		Actor.bBladeSwinging = Actor.bBladeSwinging && Actor.Npc->IsAttacking() && !Actor.Npc->IsDead();
+		UpdateBladeTrail(Actor.BladeTrail, Actor.bBladeSwinging, Actor.bBladeSwinging ? GetCharacterBlade(Actor) : std::nullopt);
 		Actor.Body->SetBool("Staggered", Actor.Combat.IsStaggered() && !Actor.Npc->IsDead());
 		if (Actor.Npc->IsDead() || Actor.bDowned)
 		{

@@ -102,6 +102,25 @@ struct FRenderParticle
 	float Emissive = 0.f;
 };
 
+// One point along a ribbon, lit and composited like a particle.
+struct FRenderRibbonPoint
+{
+	FVector3 Position{};
+	// Half the strip's span at this point, such as along a sword's blade. Zero turns the strip to face the camera, Size wide.
+	FVector3 Edge{};
+	// Width in meters when facing the camera; otherwise a multiple of Edge.
+	float Size = 0.1f;
+	std::array<float, 4> Color{1.f, 1.f, 1.f, 1.f};
+	float Emissive = 0.f;
+};
+
+// A continuous strip through a run of FMeshRenderView::RibbonPoints, oldest first.
+struct FRenderRibbon
+{
+	std::uint32_t FirstPoint = 0;
+	std::uint32_t PointCount = 0;
+};
+
 struct FMeshRenderView
 {
 	FMatrix4 View;
@@ -122,6 +141,8 @@ struct FMeshRenderView
 	// One entry per model, or empty to draw every model everywhere.
 	std::span<const EMeshVisibility> Visibility{};
 	std::span<const FRenderParticle> Particles{};
+	std::span<const FRenderRibbon> Ribbons{};
+	std::span<const FRenderRibbonPoint> RibbonPoints{};
 };
 
 class FRenderMaterial final

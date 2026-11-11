@@ -89,6 +89,7 @@ enum class ELevelEffect : std::uint8_t
 	Slice,
 	Sever,
 	Sparks,
+	Trail,
 };
 
 inline constexpr std::array LevelEffectCues{
@@ -98,6 +99,7 @@ inline constexpr std::array LevelEffectCues{
     FLevelSoundCue{.Key = "slice", .Label = "Slice"},
     FLevelSoundCue{.Key = "sever", .Label = "Sever"},
     FLevelSoundCue{.Key = "sparks", .Label = "Sparks"},
+    FLevelSoundCue{.Key = "trail", .Label = "Blade Trail"},
 };
 
 // Invalid entries show nothing.

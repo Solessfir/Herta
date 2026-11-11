@@ -93,7 +93,7 @@ void WriteParticleSystem(FBinaryWriter& Writer, const FCookedParticleSystem& Sys
 		WriteFloats(Writer, Emitter.Direction);
 		WriteFloats(Writer, Emitter.ColorStart);
 		WriteFloats(Writer, Emitter.ColorEnd);
-		Writer.Write(static_cast<std::uint8_t>((Emitter.bCollision ? 1 : 0) | (Emitter.bStick ? 2 : 0)));
+		Writer.Write(static_cast<std::uint8_t>((Emitter.bCollision ? 1 : 0) | (Emitter.bStick ? 2 : 0) | (Emitter.bRibbon ? 4 : 0)));
 	}
 }
 
@@ -122,6 +122,7 @@ FCookedParticleSystem ReadParticleSystem(FBinaryReader& Reader)
 		const auto Flags = Reader.Read<std::uint8_t>();
 		Emitter.bCollision = (Flags & 1) != 0;
 		Emitter.bStick = (Flags & 2) != 0;
+		Emitter.bRibbon = (Flags & 4) != 0;
 	}
 
 	return System;

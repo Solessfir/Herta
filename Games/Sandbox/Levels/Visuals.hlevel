@@ -25,7 +25,8 @@
     "land": null,
     "slice": null,
     "sever": null,
-    "sparks": null
+    "sparks": null,
+    "trail": null
   },
   "entities": [
     {

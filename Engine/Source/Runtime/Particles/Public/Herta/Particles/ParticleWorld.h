@@ -67,13 +67,17 @@ public:
 	std::optional<FParticleEffectId> Spawn(const FAssetId& System, const FVector3& Position, const FVector3& Up = {0.f, 1.f, 0.f}, float Scale = 1.f);
 	// Stops spawning; particles already alive finish their lives.
 	void Stop(FParticleEffectId Effect);
-	void Move(FParticleEffectId Effect, const FVector3& Position);
+	// Ribbons lay new points along the way from the last position. Edge spans them across the path, such as half a sword's blade; zero faces
+	// them to the camera.
+	void Move(FParticleEffectId Effect, const FVector3& Position, const FVector3& Edge = {});
 	void Clear();
 	void Update(float DeltaSeconds, const FParticleCollider& Collide = {});
 
 	[[nodiscard]] bool IsAlive(FParticleEffectId Effect) const;
 	// Rebuilt by Update; stays valid until the next Update or Clear.
 	[[nodiscard]] std::span<const FRenderParticle> GetRenderParticles() const noexcept;
+	[[nodiscard]] std::span<const FRenderRibbon> GetRenderRibbons() const noexcept;
+	[[nodiscard]] std::span<const FRenderRibbonPoint> GetRenderRibbonPoints() const noexcept;
 	[[nodiscard]] FParticleStats GetStats() const;
 
 private:
@@ -87,6 +91,7 @@ private:
 		std::vector<float> Ages{};
 		std::vector<float> Lifetimes{};
 		std::vector<std::uint8_t> Resting{};
+		std::vector<FVector3> Edges{};
 	};
 
 	struct FEffect
@@ -94,6 +99,10 @@ private:
 		FParticleEffectId Id{};
 		std::shared_ptr<const FCookedParticleSystem> System{};
 		FVector3 Position{};
+		// Where the last update left it, which ribbons lay this update's points from.
+		FVector3 PreviousPosition{};
+		FVector3 Edge{};
+		FVector3 PreviousEdge{};
 		FVector3 Up{0.f, 1.f, 0.f};
 		float Scale = 1.f;
 		float Age = 0.f;
@@ -108,6 +117,8 @@ private:
 	std::map<FAssetId, std::shared_ptr<const FCookedParticleSystem>> Systems{};
 	std::vector<FEffect> Effects{};
 	std::vector<FRenderParticle> RenderParticles{};
+	std::vector<FRenderRibbon> RenderRibbons{};
+	std::vector<FRenderRibbonPoint> RenderRibbonPoints{};
 	std::uint32_t NextEffect = 0;
 	std::uint32_t LiveParticles = 0;
 	FParticleStats Totals{};

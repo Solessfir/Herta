@@ -60,6 +60,66 @@ TEST_CASE("Particle systems round-trip as cooked assets and reject impossible em
 	CHECK_FALSE(ValidateParticleSystem({}));
 }
 
+TEST_CASE("Ribbon emitters join their particles oldest first along the path the effect moved, spanning its edge")
+{
+	auto System = std::make_shared<FCookedParticleSystem>();
+	System->Emitters.push_back({.Name = "Trail", .MaximumParticles = 64, .SpawnRate = 120.f, .ConeAngle = 0.f, .SpeedMinimum = 0.f, .SpeedMaximum = 0.f, .LifetimeMinimum = 0.1f, .LifetimeMaximum = 0.1f, .SizeStart = 1.f, .SizeEnd = 0.5f, .Gravity = 0.f, .bRibbon = true});
+	const auto Bytes = SerializeCookedAsset(*System);
+	REQUIRE(Bytes);
+	const auto Loaded = DeserializeCookedAsset(*Bytes);
+	REQUIRE(Loaded);
+	CHECK(std::get<FCookedParticleSystem>(*Loaded).Emitters[0].bRibbon);
+
+	constexpr FAssetId Trail{9, 3};
+	FParticleWorld World;
+	REQUIRE(World.AddSystem(Trail, System));
+	const auto Effect = World.Spawn(Trail, {0.f, 0.f, 0.f});
+	REQUIRE(Effect);
+	World.Move(*Effect, {0.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
+
+	// One point is not yet a strip.
+	World.Update(1.f / 120.f);
+	CHECK(World.GetRenderRibbons().empty());
+	CHECK(World.GetRenderRibbonPoints().empty());
+	CHECK(World.GetRenderParticles().empty());
+
+	// Moving one meter in an update lays both of its points along the way, not all at the end.
+	World.Update(1.f / 120.f);
+	REQUIRE(World.GetRenderRibbons().size() == 1);
+	World.Move(*Effect, {1.f, 0.f, 0.f}, {0.f, 1.f, 0.f});
+	World.Update(1.f / 60.f);
+	REQUIRE(World.GetRenderRibbons().size() == 1);
+	const std::span<const FRenderRibbonPoint> Points = World.GetRenderRibbonPoints();
+	REQUIRE(Points.size() == 4);
+	CHECK(Points[1].Position.X == doctest::Approx(0.f));
+	CHECK(Points[2].Position.X == doctest::Approx(0.5f));
+	CHECK(Points[3].Position.X == doctest::Approx(1.f));
+	CHECK(Points[3].Edge.Y == doctest::Approx(1.f));
+	// The oldest points have aged the most, so sizes and order agree.
+	CHECK(Points[0].Size < Points[3].Size);
+
+	// Old points die first and the rest stay in order.
+	World.Update(1.f / 60.f);
+	World.Update(1.f / 60.f);
+	World.Update(1.f / 60.f);
+	const std::span<const FRenderRibbonPoint> Later = World.GetRenderRibbonPoints();
+	REQUIRE(Later.size() >= 2);
+	for (std::size_t Index = 1; Index < Later.size(); ++Index)
+	{
+		CHECK(Later[Index - 1].Size <= Later[Index].Size);
+	}
+
+	// A stopped ribbon fades out and frees itself.
+	World.Stop(*Effect);
+	for (int Frame = 0; Frame < 20; ++Frame)
+	{
+		World.Update(1.f / 60.f);
+	}
+
+	CHECK_FALSE(World.IsAlive(*Effect));
+	CHECK(World.GetRenderRibbons().empty());
+}
+
 TEST_CASE("Particle effects burst, age, fade, and free themselves when they end")
 {
 	FParticleWorld World;

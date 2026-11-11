@@ -2017,7 +2017,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 
 	if (SchemaVersion >= 14)
 	{
-		// Schema 18 adds the sparks effect after the five before it.
+		// Schema 18 adds the sparks and blade trail effects after the five before them.
 		std::array<std::string_view, LevelEffectCues.size()> Keys{};
 		std::ranges::transform(LevelEffectCues, Keys.begin(), &FLevelSoundCue::Key);
 		const std::size_t Count = SchemaVersion >= 18 ? Keys.size() : 5;

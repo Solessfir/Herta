@@ -1269,6 +1269,8 @@ FMeshRenderView FEditorFramework::GetViewportRenderView() const noexcept
 	if (!Implementation->PlaySession)
 	{
 		View.Particles = Implementation->PreviewParticles.GetRenderParticles();
+		View.Ribbons = Implementation->PreviewParticles.GetRenderRibbons();
+		View.RibbonPoints = Implementation->PreviewParticles.GetRenderRibbonPoints();
 	}
 
 	const FEditorDisplayState& Display = Implementation->DisplayState;
