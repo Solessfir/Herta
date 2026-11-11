@@ -13,6 +13,7 @@
 #include "Herta/AnimationGraph/AnimationGraph.h"
 #include "Herta/StateTreeCompiler/StateTreeCompiler.h"
 #include "Herta/VfxGraph/VfxGraph.h"
+#include "Herta/GameplayGraph/GameplayGraph.h"
 
 #include <algorithm>
 #include <format>
@@ -611,6 +612,7 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	std::optional<FCookedSoundGraph> SoundGraph;
 	std::optional<FCookedParticleSystem> ParticleSystem;
 	std::optional<FCookedStateTree> StateTree;
+	std::optional<FCookedGameplayGraph> GameplayGraph;
 	FHash128 BlenderRecordKey;
 	std::expected<ETextureColorSpace, FAssetError> ColorSpace = ETextureColorSpace::Srgb;
 
@@ -714,6 +716,34 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 		}
 
 		ParticleSystem = std::move(Compiled->System);
+	}
+	else if (Metadata->Importer == "GameplayGraph")
+	{
+		KeyInput.ImporterVersion = GameplayGraphImporterVersion;
+		if (!Metadata->Settings.empty())
+		{
+			return std::unexpected(FAssetError{"The GameplayGraph importer has no settings"});
+		}
+
+		auto Graph = DeserializeGraph(std::string_view(reinterpret_cast<const char*>(Source->data()), Source->size()), GetGameplayGraphSchema());
+		if (!Graph)
+		{
+			return std::unexpected(FAssetError{std::format("{}: {}", Request.SourcePath, Graph.error().Message)});
+		}
+
+		auto Compiled = CompileGameplayGraph(*Graph);
+		if (!Compiled)
+		{
+			std::string Message = std::format("{} does not compile:", Request.SourcePath);
+			for (const FGraphDiagnostic& Diagnostic : Compiled.error())
+			{
+				Message += " " + Diagnostic.Message + ".";
+			}
+
+			return std::unexpected(FAssetError{std::move(Message)});
+		}
+
+		GameplayGraph = std::move(Compiled->Program);
 	}
 	else if (Metadata->Importer == "StateTree")
 	{
@@ -889,6 +919,10 @@ std::expected<FAssetCookResult, FAssetError> CookAsset(const FAssetCookRequest& 
 	else if (Metadata->Importer == "VfxGraph")
 	{
 		Cooked = std::move(*ParticleSystem);
+	}
+	else if (Metadata->Importer == "GameplayGraph")
+	{
+		Cooked = std::move(*GameplayGraph);
 	}
 	else if (Metadata->Importer == "StateTree")
 	{

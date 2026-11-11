@@ -468,6 +468,14 @@ HertaRuntimeModule("VfxGraph", {
     PublicDependencies = { "GraphCore", "Assets" }
 })
 
+-- The gameplay graph schema, its compiler to flat programs, and the C++ generator for them, run by the editor, the asset cooker, and tests;
+-- games run the cooked programs through GameFramework.
+HertaRuntimeModule("GameplayGraph", {
+    SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/GameplayGraph"),
+    PublicDependencies = { "GraphCore", "Assets" },
+    PrivateDependencies = { "Level", "Math" }
+})
+
 -- Validates catalogs and generates text ID headers, without ToolUI or a GPU.
 HertaRuntimeModule("LocalizationPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/LocalizationPipeline"),
@@ -478,7 +486,7 @@ HertaRuntimeModule("LocalizationPipeline", {
 HertaRuntimeModule("AssetPipeline", {
     SourceRoot = path.join(RepositoryRoot, "Engine/Source/Developer/AssetPipeline"),
     PublicDependencies = { "Core", "Assets", "EditorCore", "Level", "Math", "Navigation", "NavigationBuilder" },
-    PrivateDependencies = { "Platform", "Project", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Audio", "Animation", "Localization", "LocalizationPipeline" },
+    PrivateDependencies = { "Platform", "Project", "GraphCore", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "GameplayGraph", "StateTreeCompiler", "Audio", "Animation", "Localization", "LocalizationPipeline" },
     PrivateThirdPartyDependencies = { "FastGltf", "SimdJson", "MeshOptimizer", "OzzAnimationOffline", "OzzAnimation", "OzzBase" }
 })
     externalincludedirs {
@@ -663,7 +671,7 @@ project "HertaTests"
         path.join(RepositoryRoot, "External/entt/src")
     }
 
-    ApplyRuntimeDependencies { "Core", "Math", "Localization", "LocalizationPipeline", "TextLayout", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "PackageBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
+    ApplyRuntimeDependencies { "Core", "Math", "Localization", "LocalizationPipeline", "TextLayout", "AI", "Animation", "Audio", "Navigation", "Networking", "Replication", "NavigationBuilder", "PackageBuilder", "Particles", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "AudioGraph", "VfxGraph", "GameplayGraph", "StateTreeCompiler", "Level", "Project", "Physics", "Platform", "Tasks", "Application", "Assets", "AssetPipeline", "EditorCore", "ToolUI", "EditorFramework", "GameFramework", "GameUI", "RHI", "RenderGraph", "Renderer", "ShaderCompiler" }
     dependson { "HertaShaderWorker", "HertaAssetWorker", "HertaEditorCmd", "HertaServer" }
     filter "system:linux"
         linkoptions { '-Wl,-rpath,"' .. SlangLibraryDirectory .. '"' }

@@ -1,0 +1,42 @@
+{
+  "format": "HertaGraph",
+  "version": 2,
+  "domain": "gameplay",
+  "domainVersion": 1,
+  "nodes": [
+    {"id": 1, "type": "OnPlayerEnter", "position": [0, 0], "properties": {}},
+    {"id": 2, "type": "GetVariable", "position": [0, 160], "properties": {"variable": "Visits"}},
+    {"id": 3, "type": "Add", "position": [220, 160], "properties": {"a": 0, "b": 1}},
+    {"id": 4, "type": "SetVariable", "position": [440, 0], "properties": {"variable": "Visits", "value": 0}},
+    {"id": 5, "type": "Greater", "position": [440, 200], "properties": {"a": 0, "b": 2.5}},
+    {"id": 6, "type": "Branch", "position": [700, 0], "properties": {}},
+    {"id": 7, "type": "SpawnEffect", "position": [960, -160], "properties": {"cue": "break", "scale": 1.5}},
+    {"id": 8, "type": "PlaySound", "position": [1220, -160], "properties": {"cue": "objective"}},
+    {"id": 9, "type": "SetVariable", "position": [1480, -160], "properties": {"variable": "Visits", "value": 0}},
+    {"id": 10, "type": "SpawnEffect", "position": [960, 120], "properties": {"cue": "sparks", "scale": 1}},
+    {"id": 11, "type": "Log", "position": [1220, 120], "properties": {"message": "Shrine visits"}},
+    {"id": 12, "type": "OnPlayerExit", "position": [0, 420], "properties": {}},
+    {"id": 13, "type": "PlayerDistance", "position": [0, 540], "properties": {}},
+    {"id": 14, "type": "Log", "position": [300, 420], "properties": {"message": "Left the shrine at"}},
+    {"id": 15, "type": "OnStart", "position": [0, -240], "properties": {}},
+    {"id": 16, "type": "Log", "position": [300, -240], "properties": {"message": "Shrine ready"}}
+  ],
+  "links": [
+    {"from": [2, "Value"], "to": [3, "A"]},
+    {"from": [1, "Then"], "to": [4, "In"]},
+    {"from": [3, "Value"], "to": [4, "Value"]},
+    {"from": [2, "Value"], "to": [5, "A"]},
+    {"from": [4, "Then"], "to": [6, "In"]},
+    {"from": [5, "Value"], "to": [6, "Condition"]},
+    {"from": [6, "True"], "to": [7, "In"]},
+    {"from": [7, "Then"], "to": [8, "In"]},
+    {"from": [8, "Then"], "to": [9, "In"]},
+    {"from": [6, "False"], "to": [10, "In"]},
+    {"from": [10, "Then"], "to": [11, "In"]},
+    {"from": [2, "Value"], "to": [11, "Value"]},
+    {"from": [12, "Then"], "to": [14, "In"]},
+    {"from": [13, "Value"], "to": [14, "Value"]},
+    {"from": [15, "Then"], "to": [16, "In"]}
+  ],
+  "comments": []
+}

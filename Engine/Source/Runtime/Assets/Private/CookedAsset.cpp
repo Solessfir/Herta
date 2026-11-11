@@ -2,6 +2,7 @@
 
 #include "Herta/Core/BinaryStream.h"
 
+#include "GameplayGraphSerialization.h"
 #include "ParticleSerialization.h"
 #include "StateTreeSerialization.h"
 #include "SoundSerialization.h"
@@ -24,6 +25,7 @@ inline constexpr std::uint8_t SoundTag = 4;
 inline constexpr std::uint8_t SoundGraphTag = 5;
 inline constexpr std::uint8_t ParticleSystemTag = 6;
 inline constexpr std::uint8_t StateTreeTag = 7;
+inline constexpr std::uint8_t GameplayGraphTag = 8;
 
 inline constexpr std::size_t MaximumVertices = MaximumCookedBufferBytes / sizeof(FCookedVertex);
 inline constexpr std::size_t MaximumIndices = MaximumCookedBufferBytes / sizeof(std::uint32_t);
@@ -869,7 +871,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 	const auto* Older = std::get_if<FCookedModel>(&Asset);
 	const auto* OlderGraph = std::get_if<FCookedSoundGraph>(&Asset);
 	const auto* OlderParticles = std::get_if<FCookedParticleSystem>(&Asset);
-	if (Version < OldestReadableCookedFormatVersion || Version > CookedAssetFormatVersion || (Version < 8 && Older && Older->StateMachine && NeedsBlendTreeFormat(*Older->StateMachine)) || (Version < 9 && OlderGraph && NeedsSynthesisFormat(OlderGraph->Graph)) || (Version < 10 && OlderParticles && NeedsParticleStageFormat(*OlderParticles)))
+	if (Version < OldestReadableCookedFormatVersion || Version > CookedAssetFormatVersion || (Version < 8 && Older && Older->StateMachine && NeedsBlendTreeFormat(*Older->StateMachine)) || (Version < 9 && OlderGraph && NeedsSynthesisFormat(OlderGraph->Graph)) || (Version < 10 && OlderParticles && NeedsParticleStageFormat(*OlderParticles)) || (Version < 11 && std::holds_alternative<FCookedGameplayGraph>(Asset)))
 	{
 		return std::unexpected(FAssetError{std::format("Cannot write this asset as cooked format version {}", Version)});
 	}
@@ -953,6 +955,18 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 
 		Writer.Write(StateTreeTag);
 		WriteStateTree(Writer, *Tree);
+		return Writer.TakeBytes();
+	}
+
+	if (const auto* Gameplay = std::get_if<FCookedGameplayGraph>(&Asset))
+	{
+		if (auto Valid = ValidateGameplayGraph(*Gameplay); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		Writer.Write(GameplayGraphTag);
+		WriteGameplayGraph(Writer, *Gameplay);
 		return Writer.TakeBytes();
 	}
 
@@ -1126,6 +1140,22 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 		}
 
 		return Particles;
+	}
+
+	if (Tag == GameplayGraphTag)
+	{
+		FCookedGameplayGraph Gameplay = ReadGameplayGraph(Reader);
+		if (Version < 11 || !Reader.IsValid() || !Reader.IsAtEnd())
+		{
+			return Invalid("Truncated or oversized cooked gameplay graph");
+		}
+
+		if (auto Valid = ValidateGameplayGraph(Gameplay); !Valid)
+		{
+			return std::unexpected(std::move(Valid.error()));
+		}
+
+		return Gameplay;
 	}
 
 	if (Tag == StateTreeTag)
