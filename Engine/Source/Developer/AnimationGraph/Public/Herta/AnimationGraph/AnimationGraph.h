@@ -13,8 +13,13 @@ namespace Herta
 // Animation graphs author state machines on the graph canvas. State nodes output a state; a transition node takes the state it leaves in From,
 // or every state when From is unlinked, and the state it enters in To; the entry node takes the starting state. Parameter nodes declare the
 // floats, bools, and triggers the game drives.
+//
+// A state plays its clips, or the blend tree linked to its Pose pin, or the nested machine it names in Plays. Blend trees are Clip, Blend 1D,
+// Blend 2D, Additive, and Layered nodes; a blend matches its linked inputs, in pin order, to its comma-separated positions or "x y" points.
+// States, transitions, and entries name the machine they belong to in Machine, empty for the outermost, and each machine has one entry.
+// Pose Rotation nodes turn a joint on the blended pose by a parameter.
 inline constexpr std::string_view AnimationGraphDomain = "animation";
-inline constexpr std::uint32_t AnimationGraphVersion = 1;
+inline constexpr std::uint32_t AnimationGraphVersion = 2;
 inline constexpr std::string_view AnimationGraphExtension = ".hanimgraph";
 
 [[nodiscard]] const FGraphSchema& GetAnimationGraphSchema();

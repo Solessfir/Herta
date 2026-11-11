@@ -1749,4 +1749,247 @@ TEST_CASE("Near a guard the player faces it and backpedals, steps into swings, b
 	CHECK(Contains("deflected the player"));
 	CHECK((*Session)->GetCombatView().Posture > 0.f);
 }
+
+TEST_CASE("Blend trees blend along one and two parameters, add motion on top, and layer within a joint's subtree")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	const auto Clip = [&Library](const std::string_view Name)
+	{
+		return *(*Library)->FindClip(Name);
+	};
+
+	const auto Play = [&Library](std::vector<FAnimationBlendNodeDesc> Tree)
+	{
+		FAnimationStateMachineDesc Desc{.Parameters = {{.Name = "X"}, {.Name = "Y"}, {.Name = "Mix", .Default = 1.f}}, .States = {{.Name = "Tree", .Tree = std::move(Tree)}}};
+		auto Machine = FAnimationStateMachine::Create(std::move(Desc), **Library);
+		REQUIRE_MESSAGE(Machine, (Machine ? std::string() : Machine.error().Message));
+		return std::move(*Machine);
+	};
+
+	const auto WeightOf = [](const FAnimationStateMachine& Machine, const std::size_t ClipIndex)
+	{
+		float Weight = 0.f;
+		for (const FAnimationLayer& Layer : Machine.GetLayers())
+		{
+			Weight += Layer.Clip == ClipIndex ? Layer.Weight : 0.f;
+		}
+
+		return Weight;
+	};
+
+	// A 2D blend plays the clip at a point alone, and splits evenly where the points are equally far.
+	FAnimationStateMachine Plane = Play({
+	    {.Type = EAnimationBlendNodeType::Blend2D, .ParameterX = 0, .ParameterY = 1, .Children = {{.Node = 1, .X = 0.f, .Y = 0.f}, {.Node = 2, .X = 1.f, .Y = 0.f}, {.Node = 3, .X = 0.f, .Y = 1.f}}},
+	    {.Clip = "Idle_Loop"},
+	    {.Clip = "Walk_Loop"},
+	    {.Clip = "Sprint_Loop"},
+	});
+	Plane.SetFloat(0, 1.f);
+	Plane.Update(0.1f);
+	CHECK(WeightOf(Plane, Clip("Walk_Loop")) == doctest::Approx(1.f));
+	CHECK(Plane.GetLayers().size() == 1);
+	Plane.SetFloat(0, 0.5f);
+	Plane.SetFloat(1, 0.5f);
+	Plane.Update(0.1f);
+	CHECK(WeightOf(Plane, Clip("Walk_Loop")) == doctest::Approx(WeightOf(Plane, Clip("Sprint_Loop"))));
+	CHECK(WeightOf(Plane, Clip("Idle_Loop")) + WeightOf(Plane, Clip("Walk_Loop")) + WeightOf(Plane, Clip("Sprint_Loop")) == doctest::Approx(1.f));
+
+	// A 1D blend sorts its children by position, whatever order they are listed in.
+	FAnimationStateMachine Line = Play({
+	    {.Type = EAnimationBlendNodeType::Blend1D, .ParameterX = 0, .Children = {{.Node = 2, .X = 4.f}, {.Node = 1, .X = 0.f}}},
+	    {.Clip = "Walk_Loop"},
+	    {.Clip = "Sprint_Loop"},
+	});
+	Line.SetFloat(0, 1.f);
+	Line.Update(0.1f);
+	CHECK(WeightOf(Line, Clip("Walk_Loop")) == doctest::Approx(0.75f));
+	CHECK(WeightOf(Line, Clip("Sprint_Loop")) == doctest::Approx(0.25f));
+
+	FAnimationPose Pose(*Library);
+	const auto Joint = [&Library, &Pose](const std::string_view Name)
+	{
+		return Pose.GetModelTransforms()[*(*Library)->FindJoint(Name)].TransformPosition({});
+	};
+
+	const auto Alone = [&](const std::string_view Name, const float Seconds)
+	{
+		const std::array Layers{FAnimationLayer{.Clip = Clip(Name), .TimeSeconds = Seconds}};
+		REQUIRE(Pose.Evaluate(Layers));
+	};
+
+	// An additive layer adds only its motion away from its first frame: at that frame the base is untouched, later it moves the body.
+	FAnimationStateMachine Added = Play({
+	    {.Type = EAnimationBlendNodeType::Additive, .ParameterX = 2, .Children = {{.Node = 1}, {.Node = 2}}},
+	    {.Clip = "Idle_Loop"},
+	    {.Clip = "Hit_Chest"},
+	});
+	Added.Update(0.f);
+	REQUIRE(Added.GetLayers().size() == 2);
+	CHECK(Added.GetLayers()[1].bAdditive);
+	Alone("Idle_Loop", 0.f);
+	const FVector3 HeadAtRest = Joint("Head");
+	REQUIRE(Pose.Evaluate(Added.GetLayers()));
+	CHECK((Joint("Head") - HeadAtRest).Length() < 1.e-3f);
+	Added.Update(0.4f);
+	const float Seconds = Added.GetLayers()[0].TimeSeconds;
+	REQUIRE(Pose.Evaluate(Added.GetLayers()));
+	const FVector3 HeadHit = Joint("Head");
+	Alone("Idle_Loop", Seconds);
+	CHECK((HeadHit - Joint("Head")).Length() > 0.01f);
+	Added.SetFloat(2, 0.f);
+	Added.Update(0.f);
+	CHECK(Added.GetLayers().size() == 1);
+
+	// A layered blend takes the joints at and below the mask from its layer and leaves the rest with the base.
+	FAnimationStateMachine Layered = Play({
+	    {.Type = EAnimationBlendNodeType::Layered, .ParameterX = 2, .MaskJoint = "spine_01", .Children = {{.Node = 1}, {.Node = 2}}},
+	    {.Clip = "Walk_Loop"},
+	    {.Clip = "Sword_Block"},
+	});
+	Layered.Update(0.3f);
+	const float LayeredSeconds = Layered.GetLayers()[0].TimeSeconds;
+	REQUIRE(Pose.Evaluate(Layered.GetLayers()));
+	const FVector3 Foot = Joint("foot_l");
+	const FVector3 Hand = Joint("hand_r");
+	Alone("Walk_Loop", LayeredSeconds);
+	CHECK((Foot - Joint("foot_l")).Length() < 1.e-3f);
+	CHECK((Hand - Joint("hand_r")).Length() > 0.05f);
+
+	// Trees refuse what they cannot play.
+	CHECK_FALSE(FAnimationStateMachine::Create({.States = {{.Name = "Bad", .Tree = {{.Type = EAnimationBlendNodeType::Additive, .Children = {{.Node = 1}}}, {.Clip = "Idle_Loop"}}}}}, **Library));
+	CHECK_FALSE(FAnimationStateMachine::Create({.States = {{.Name = "Bad", .Tree = {{.Clip = "Missing"}}}}}, **Library));
+	CHECK_FALSE(FAnimationStateMachine::Create({.States = {{.Name = "Bad", .Tree = {{.Type = EAnimationBlendNodeType::Layered, .MaskJoint = "nope", .Children = {{.Node = 1}, {.Node = 2}}}, {.Clip = "Idle_Loop"}, {.Clip = "Walk_Loop"}}}}}, **Library));
+}
+
+TEST_CASE("Nested state machines play inside a state, share its parameters, restart on entry, and pass their events up")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	const auto Trigger = EAnimationParameterType::Trigger;
+	const auto Fired = EAnimationCondition::Triggered;
+	FAnimationStateMachineDesc Desc{
+	    .Parameters = {{.Name = "Go", .Type = Trigger}, {.Name = "Out", .Type = Trigger}, {.Name = "Strike", .Type = Trigger}},
+	    .States = {{.Name = "Idle", .Samples = {{.Clip = "Idle_Loop"}}}, {.Name = "Combat", .SubMachine = 0}},
+	    .Transitions = {
+	        {.From = 0, .To = 1, .DurationSeconds = 0.f, .Conditions = {{.Parameter = 0, .Test = Fired}}},
+	        {.From = 1, .To = 0, .DurationSeconds = 0.f, .Conditions = {{.Parameter = 1, .Test = Fired}}},
+	    },
+	    .SubMachines = {{
+	        .States = {{.Name = "Ready", .Samples = {{.Clip = "Sword_Idle"}}}, {.Name = "Swing", .Samples = {{.Clip = "Sword_Regular_A"}}, .bLoop = false, .Events = {{.Name = "Cut", .Phase = 0.5f}}}},
+	        .Transitions = {{.From = 0, .To = 1, .DurationSeconds = 0.f, .Conditions = {{.Parameter = 2, .Test = Fired}}}},
+	    }},
+	};
+
+	auto Machine = FAnimationStateMachine::Create(Desc, **Library);
+	REQUIRE_MESSAGE(Machine, (Machine ? std::string() : Machine.error().Message));
+	const auto Playing = [&]()
+	{
+		return Machine->GetLayers().front().Clip;
+	};
+
+	Machine->Update(0.1f);
+	CHECK(Playing() == *(*Library)->FindClip("Idle_Loop"));
+	Machine->SetTrigger(0);
+	Machine->Update(0.1f);
+	CHECK(Machine->GetActiveState() == 1);
+	CHECK(Playing() == *(*Library)->FindClip("Sword_Idle"));
+
+	// The nested machine reads the parent's trigger, and its event surfaces in the parent's.
+	Machine->SetTrigger(2);
+	Machine->Update(0.05f);
+	CHECK(Playing() == *(*Library)->FindClip("Sword_Regular_A"));
+	bool bCut = false;
+	for (int Step = 0; Step < 20 && !bCut; ++Step)
+	{
+		Machine->Update(0.05f);
+		bCut = std::ranges::contains(Machine->GetEvents(), std::string("Cut"));
+	}
+
+	CHECK(bCut);
+
+	// Leaving and coming back starts the nested machine over.
+	Machine->SetTrigger(1);
+	Machine->Update(0.1f);
+	CHECK(Machine->GetActiveState() == 0);
+	Machine->SetTrigger(0);
+	Machine->Update(0.1f);
+	REQUIRE(Machine->GetSubMachine(0));
+	CHECK(Machine->GetSubMachine(0)->GetActiveState() == 0);
+	CHECK(Playing() == *(*Library)->FindClip("Sword_Idle"));
+
+	// A state may play only a machine the machine has.
+	Desc.States[1].SubMachine = 3;
+	CHECK_FALSE(FAnimationStateMachine::Create(Desc, **Library));
+}
+
+TEST_CASE("Pose rotations turn a joint and its children by a parameter, after blending")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	FAnimationStateMachineDesc Desc{
+	    .Parameters = {{.Name = "Pitch"}},
+	    .States = {{.Name = "Idle", .Samples = {{.Clip = "Idle_Loop"}}}},
+	    .PoseOperations = {{.Joint = "spine_02", .Axis = {1.f, 0.f, 0.f}, .Parameter = 0, .Scale = -1.f}},
+	};
+
+	auto Machine = FAnimationStateMachine::Create(Desc, **Library);
+	REQUIRE(Machine);
+	FAnimationPose Pose(*Library);
+	const auto Joint = [&](const std::string_view Name)
+	{
+		return Pose.GetModelTransforms()[*(*Library)->FindJoint(Name)].TransformPosition({});
+	};
+
+	Machine->Update(0.f);
+	REQUIRE(Pose.Evaluate(Machine->GetLayers()));
+	const FVector3 Head = Joint("Head");
+	const FVector3 Foot = Joint("foot_l");
+	Machine->ApplyPoseOperations(Pose);
+	CHECK((Joint("Head") - Head).Length() < 1.e-5f);
+
+	// Turning back about +X, which points left, lifts the head and leaves the legs alone.
+	Machine->SetFloat(0, 0.5f);
+	Machine->ApplyPoseOperations(Pose);
+	CHECK(Joint("Head").Y > Head.Y - 0.05f);
+	CHECK(Joint("Head").Z < Head.Z - 0.05f);
+	CHECK((Joint("foot_l") - Foot).Length() < 1.e-5f);
+
+	Desc.PoseOperations[0].Joint = "missing";
+	CHECK_FALSE(FAnimationStateMachine::Create(Desc, **Library));
+}
+
+TEST_CASE("Cooked models carry blend trees, nested machines, and pose rotations, and models of the older format still load")
+{
+	FCookedModel Model = Mannequin();
+	Model.StateMachine = FAnimationStateMachineDesc{
+	    .Parameters = {{.Name = "Speed"}, {.Name = "Pitch"}},
+	    .States = {
+	        {.Name = "Move", .Tree = {{.Type = EAnimationBlendNodeType::Blend2D, .ParameterX = 0, .ParameterY = 1, .Children = {{.Node = 1, .X = 0.f, .Y = 1.f}, {.Node = 2, .X = 2.f, .Y = -1.f}}}, {.Clip = "Idle_Loop"}, {.Clip = "Walk_Loop"}}},
+	        {.Name = "Nested", .SubMachine = 0},
+	    },
+	    .SubMachines = {{.States = {{.Name = "Inner", .Tree = {{.Type = EAnimationBlendNodeType::Layered, .Weight = 0.5f, .MaskJoint = "spine_01", .Children = {{.Node = 1}, {.Node = 2}}}, {.Clip = "Idle_Loop"}, {.Clip = "Sword_Idle"}}}}}},
+	    .PoseOperations = {{.Joint = "neck_01", .Axis = {0.f, 1.f, 0.f}, .Parameter = 1, .Scale = 0.25f}},
+	};
+
+	const auto Bytes = SerializeCookedAsset(Model);
+	REQUIRE(Bytes);
+	const auto Loaded = DeserializeCookedAsset(*Bytes);
+	REQUIRE(Loaded);
+	REQUIRE(std::holds_alternative<FCookedModel>(*Loaded));
+	CHECK(std::get<FCookedModel>(*Loaded).StateMachine == Model.StateMachine);
+
+	// The older format has no room for the new data, so writing it refuses rather than drop it; a plain machine round-trips through it.
+	CHECK_FALSE(SerializeCookedAsset(Model, CookedAssetFormatVersion - 1));
+	Model.StateMachine = FAnimationStateMachineDesc{.Parameters = {{.Name = "Speed"}}, .States = {{.Name = "Idle", .Samples = {{.Clip = "Idle_Loop"}}}}};
+	const auto Older = SerializeCookedAsset(Model, CookedAssetFormatVersion - 1);
+	REQUIRE(Older);
+	const auto OlderLoaded = DeserializeCookedAsset(*Older);
+	REQUIRE(OlderLoaded);
+	CHECK(std::get<FCookedModel>(*OlderLoaded).StateMachine == Model.StateMachine);
+	CHECK(std::get<FCookedModel>(*OlderLoaded).Clips.size() == Model.Clips.size());
+}
 }

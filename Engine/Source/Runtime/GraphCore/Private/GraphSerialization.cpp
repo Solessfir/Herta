@@ -397,6 +397,16 @@ std::expected<FGraph, FGraphError> DeserializeGraph(const std::string_view Text,
 		}
 	}
 
+	if (Graph.Domain == Schema.Domain && Graph.DomainVersion < Schema.Version && Schema.Upgrade != nullptr)
+	{
+		if (auto Upgraded = Schema.Upgrade(Graph, Graph.DomainVersion); !Upgraded)
+		{
+			return Failed(std::format("Cannot upgrade the {} graph from version {}: {}", Schema.Domain, Graph.DomainVersion, Upgraded.error().Message));
+		}
+
+		Graph.DomainVersion = Schema.Version;
+	}
+
 	const auto Diagnostics = ValidateGraph(Graph, Schema);
 	const auto Structural = std::ranges::find(Diagnostics, EGraphSeverity::Error, &FGraphDiagnostic::Severity);
 	if (Structural != Diagnostics.end())

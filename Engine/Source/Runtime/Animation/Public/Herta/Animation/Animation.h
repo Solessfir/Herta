@@ -44,6 +44,7 @@ public:
 
 	[[nodiscard]] std::size_t GetClipCount() const noexcept;
 	[[nodiscard]] std::optional<std::size_t> FindClip(std::string_view Name) const noexcept;
+	[[nodiscard]] std::optional<std::size_t> FindJoint(std::string_view Name) const noexcept;
 	[[nodiscard]] std::string_view GetClipName(std::size_t Clip) const noexcept;
 	[[nodiscard]] float GetClipDuration(std::size_t Clip) const noexcept;
 	// The root's horizontal travel in model space from one clip time to another. A To before From wraps through the end of the clip once, as a looping clip does.
@@ -69,6 +70,12 @@ struct FAnimationLayer
 	// the legs.
 	float UpperBodyWeight = 1.f;
 	float LowerBodyWeight = 1.f;
+	// Adds the clip's motion away from its first frame on top of the other layers instead of blending with them.
+	bool bAdditive = false;
+	// With a mask joint, joints at or below it take InsideMask and the rest OutsideMask, on top of the body weights.
+	std::optional<std::size_t> MaskJoint{};
+	float InsideMask = 1.f;
+	float OutsideMask = 1.f;
 };
 
 // A two-bone limb for FAnimationPose::SolveLimbs, in the pose's model space: hip, knee, and ankle, or shoulder, elbow, and wrist.
@@ -101,7 +108,7 @@ public:
 	FAnimationPose& operator=(FAnimationPose&&) noexcept;
 	~FAnimationPose();
 
-	inline static constexpr std::size_t MaximumLayers = 8;
+	inline static constexpr std::size_t MaximumLayers = 16;
 
 	// Samples each layer and blends them by weight. With no layers, or no positive weight, the result is the bind pose.
 	[[nodiscard]] std::expected<void, FAnimationError> Evaluate(std::span<const FAnimationLayer> Layers);

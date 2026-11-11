@@ -32,6 +32,8 @@ struct FPlayerMotion
 	bool bDashed = false;
 	// Which way the last dash went relative to the view, as the back dash has its own pose.
 	bool bDashedBack = false;
+	// Where the view looks above the horizon, in radians, which the spine and neck follow.
+	float AimPitch = 0.f;
 };
 
 // What is under a foot: the ground's height in world space and the way it faces.
@@ -224,6 +226,7 @@ private:
 	std::optional<std::size_t> DashParameter;
 	std::optional<std::size_t> DashBackParameter;
 	std::optional<std::size_t> WallSwingingParameter;
+	std::optional<std::size_t> AimPitchParameter;
 };
 
 // A ragdoll fitted to a pose: its parts, the joint each drives, and that joint's transform relative to its part's capsule.

@@ -2210,7 +2210,7 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	const float MaximumTurn = (bThirdPerson ? (Foe ? 14.f : 10.f) : 30.f) * DeltaSeconds;
 	BodyYaw = std::remainder(BodyYaw + std::clamp(Turn, -MaximumTurn, MaximumTurn), 2.f * std::numbers::pi_v<float>);
 
-	Body->Update(HitStop.Advance(DeltaSeconds), {.GroundSpeed = Speed, .bGrounded = State.bGrounded || Mode == "Mantle", .bCrouched = State.bCrouched, .bSliding = Mode == "Slide", .bWallRunning = Mode == "WallRun", .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate, .bDashed = bDashedThisUpdate, .bDashedBack = bDashedBack});
+	Body->Update(HitStop.Advance(DeltaSeconds), {.GroundSpeed = Speed, .bGrounded = State.bGrounded || Mode == "Mantle", .bCrouched = State.bCrouched, .bSliding = Mode == "Slide", .bWallRunning = Mode == "WallRun", .bJumped = bJumpedThisUpdate, .bWallJumped = bWallJumpedThisUpdate, .bMantled = bMantledThisUpdate, .bDashed = bDashedThisUpdate, .bDashedBack = bDashedBack, .AimPitch = Ragdoll ? 0.f : Pitch});
 	bJumpedThisUpdate = false;
 	bWallJumpedThisUpdate = false;
 	bDashedThisUpdate = false;

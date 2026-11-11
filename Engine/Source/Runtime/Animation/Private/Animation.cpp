@@ -122,6 +122,8 @@ struct FAnimationLibrary::FImplementation
 	std::vector<FClip> Clips;
 	// Joints at or below spine_01, the Unreal rig's lowest spine joint; without one, the whole skeleton counts as upper body.
 	std::vector<bool> UpperBody;
+	// Each clip's first frame, which additive layers measure their motion from.
+	std::vector<std::vector<ozz::math::SoaTransform>> FirstFrames;
 };
 
 FAnimationLibrary::FAnimationLibrary(std::unique_ptr<FImplementation> InImplementation)
@@ -189,7 +191,29 @@ std::expected<std::shared_ptr<const FAnimationLibrary>, FAnimationError> FAnimat
 		}
 	}
 
+	ozz::animation::SamplingJob::Context Context(Runtime.num_joints());
+	Implementation->FirstFrames.reserve(Implementation->Clips.size());
+	for (const FClip& Clip : Implementation->Clips)
+	{
+		std::vector<ozz::math::SoaTransform>& Frame = Implementation->FirstFrames.emplace_back(static_cast<std::size_t>(Runtime.num_soa_joints()));
+		ozz::animation::SamplingJob Sampling;
+		Sampling.animation = &Clip.Animation;
+		Sampling.context = &Context;
+		Sampling.ratio = 0.f;
+		Sampling.output = ozz::make_span(Frame);
+		if (!Sampling.Run())
+		{
+			return std::unexpected(FAnimationError{std::format("Animation clip '{}' cannot be sampled", Clip.Name)});
+		}
+	}
+
 	return std::shared_ptr<const FAnimationLibrary>(new FAnimationLibrary(std::move(Implementation)));
+}
+
+std::optional<std::size_t> FAnimationLibrary::FindJoint(const std::string_view Name) const noexcept
+{
+	const auto Found = std::ranges::find(Implementation->JointNames, Name);
+	return Found == Implementation->JointNames.end() ? std::nullopt : std::optional(static_cast<std::size_t>(Found - Implementation->JointNames.begin()));
 }
 
 std::size_t FAnimationLibrary::GetJointCount() const noexcept
@@ -318,7 +342,19 @@ std::expected<void, FAnimationError> FAnimationPose::Evaluate(const std::span<co
 	const FAnimationLibrary::FImplementation& Library = *Implementation->Library->Implementation;
 	const ozz::animation::Skeleton& Skeleton = Library.Skeleton;
 	std::array<ozz::animation::BlendingJob::Layer, MaximumLayers> Blends{};
+	std::array<ozz::animation::BlendingJob::Layer, MaximumLayers> Additives{};
 	std::size_t BlendCount = 0;
+	std::size_t AdditiveCount = 0;
+	const auto InMask = [&Library](std::size_t Joint, const std::size_t Root)
+	{
+		// Parents precede children, so walking up ends at a root or below the mask joint.
+		while (Joint != Root && Joint < Library.JointParents.size() && Library.JointParents[Joint] >= 0 && Joint > Root)
+		{
+			Joint = static_cast<std::size_t>(Library.JointParents[Joint]);
+		}
+
+		return Joint == Root;
+	};
 
 	for (const FAnimationLayer& Layer : Layers)
 	{
@@ -332,7 +368,9 @@ std::expected<void, FAnimationError> FAnimationPose::Evaluate(const std::span<co
 			continue;
 		}
 
-		if (Implementation->LayerLocals.size() <= BlendCount)
+		// Slots are shared by blended and additive layers, so each layer has its own sampling context and output.
+		const std::size_t Slot = BlendCount + AdditiveCount;
+		if (Implementation->LayerLocals.size() <= Slot)
 		{
 			Implementation->LayerLocals.emplace_back(static_cast<std::size_t>(Skeleton.num_soa_joints()));
 			Implementation->LayerContexts.push_back(std::make_unique<ozz::animation::SamplingJob::Context>(Skeleton.num_joints()));
@@ -340,10 +378,10 @@ std::expected<void, FAnimationError> FAnimationPose::Evaluate(const std::span<co
 		}
 
 		const ozz::animation::Animation& Animation = Library.Clips[Layer.Clip].Animation;
-		std::vector<ozz::math::SoaTransform>& Output = Implementation->LayerLocals[BlendCount];
+		std::vector<ozz::math::SoaTransform>& Output = Implementation->LayerLocals[Slot];
 		ozz::animation::SamplingJob Sampling;
 		Sampling.animation = &Animation;
-		Sampling.context = Implementation->LayerContexts[BlendCount].get();
+		Sampling.context = Implementation->LayerContexts[Slot].get();
 		Sampling.ratio = std::clamp(Layer.TimeSeconds / Animation.duration(), 0.f, 1.f);
 		Sampling.output = ozz::make_span(Output);
 		if (!Sampling.Run())
@@ -351,10 +389,25 @@ std::expected<void, FAnimationError> FAnimationPose::Evaluate(const std::span<co
 			return std::unexpected(FAnimationError{"Animation sampling failed"});
 		}
 
-		Blends[BlendCount] = {.weight = Layer.Weight, .transform = ozz::make_span(Output), .joint_weights = {}};
-		if (Layer.UpperBodyWeight != 1.f || Layer.LowerBodyWeight != 1.f)
+		if (Layer.bAdditive)
 		{
-			FJointWeights& Weights = Implementation->LayerJointWeights[BlendCount];
+			// The blending job adds rotation deltas on the right and translation and scale as offsets and ratios from the clip's first frame.
+			// ozz declares its SoA operators globally, where Herta's own operators would otherwise hide them.
+			const std::vector<ozz::math::SoaTransform>& First = Library.FirstFrames[Layer.Clip];
+			for (std::size_t Soa = 0; Soa < Output.size(); ++Soa)
+			{
+				Output[Soa].translation = ::operator-(Output[Soa].translation, First[Soa].translation);
+				Output[Soa].rotation = ::operator*(ozz::math::Conjugate(First[Soa].rotation), Output[Soa].rotation);
+				Output[Soa].scale = ::operator/(Output[Soa].scale, First[Soa].scale);
+			}
+		}
+
+		ozz::animation::BlendingJob::Layer& Blend = Layer.bAdditive ? Additives[AdditiveCount] : Blends[BlendCount];
+		Blend = {.weight = Layer.Weight, .transform = ozz::make_span(Output), .joint_weights = {}};
+		const bool bMasked = Layer.MaskJoint && *Layer.MaskJoint < Library.JointParents.size();
+		if (Layer.UpperBodyWeight != 1.f || Layer.LowerBodyWeight != 1.f || bMasked)
+		{
+			FJointWeights& Weights = Implementation->LayerJointWeights[Slot];
 			const std::size_t Joints = Library.UpperBody.size();
 			std::array<float, 4> Lanes{};
 			for (std::size_t Soa = 0; Soa < Weights.size(); ++Soa)
@@ -362,20 +415,22 @@ std::expected<void, FAnimationError> FAnimationPose::Evaluate(const std::span<co
 				for (std::size_t Lane = 0; Lane < 4; ++Lane)
 				{
 					const std::size_t Joint = Soa * 4 + Lane;
-					Lanes[Lane] = Joint < Joints && Library.UpperBody[Joint] ? Layer.UpperBodyWeight : Layer.LowerBodyWeight;
+					const float Body = Joint < Joints && Library.UpperBody[Joint] ? Layer.UpperBodyWeight : Layer.LowerBodyWeight;
+					Lanes[Lane] = Body * (!bMasked ? 1.f : Joint < Joints && InMask(Joint, *Layer.MaskJoint) ? Layer.InsideMask : Layer.OutsideMask);
 				}
 
 				Weights[Soa] = ozz::math::simd_float4::Load(Lanes[0], Lanes[1], Lanes[2], Lanes[3]);
 			}
 
-			Blends[BlendCount].joint_weights = ozz::make_span(Weights);
+			Blend.joint_weights = ozz::make_span(Weights);
 		}
 
-		++BlendCount;
+		++(Layer.bAdditive ? AdditiveCount : BlendCount);
 	}
 
 	ozz::animation::BlendingJob Blending;
 	Blending.layers = ozz::span<const ozz::animation::BlendingJob::Layer>(Blends.data(), BlendCount);
+	Blending.additive_layers = ozz::span<const ozz::animation::BlendingJob::Layer>(Additives.data(), AdditiveCount);
 	Blending.rest_pose = Skeleton.joint_rest_poses();
 	Blending.output = ozz::make_span(Implementation->Locals);
 	// Any positive weight counts; below this total the blend falls back on the rest pose.

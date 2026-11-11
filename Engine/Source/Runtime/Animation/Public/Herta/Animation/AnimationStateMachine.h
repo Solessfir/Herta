@@ -40,6 +40,8 @@ public:
 	[[nodiscard]] std::span<const std::string> GetEvents() const noexcept;
 	// Layers to evaluate this frame: the active state's samples, plus the previous state's while a transition fades it out.
 	[[nodiscard]] std::span<const FAnimationLayer> GetLayers() const noexcept;
+	// Runs the machine's pose operations on a pose just evaluated from its layers.
+	void ApplyPoseOperations(FAnimationPose& Pose) const;
 
 	[[nodiscard]] std::size_t GetActiveState() const noexcept;
 	// How far through its clip the active state is, from 0 to 1.
@@ -47,12 +49,29 @@ public:
 	// The transition being blended, for live highlighting; empty when none is.
 	[[nodiscard]] std::optional<std::size_t> GetActiveTransition() const noexcept;
 	[[nodiscard]] const FAnimationStateMachineDesc& GetDesc() const noexcept;
+	// The machine a nested state plays, which shares this machine's parameters; empty for an unknown index.
+	[[nodiscard]] const FAnimationStateMachine* GetSubMachine(std::size_t Index) const noexcept;
 
 private:
 	struct FResolvedState
 	{
 		std::vector<std::size_t> Clips;
 		std::vector<float> Durations;
+		// Per blend tree node: the clip and its length for clip nodes, and the mask joint for layered nodes.
+		std::vector<std::size_t> TreeClips;
+		std::vector<float> TreeDurations;
+		std::vector<std::optional<std::size_t>> TreeMasks;
+	};
+
+	// What a blend tree passes down to the layers below a node.
+	struct FLayerScope
+	{
+		float UpperBody = 1.f;
+		float LowerBody = 1.f;
+		bool bAdditive = false;
+		std::optional<std::size_t> MaskJoint{};
+		float InsideMask = 1.f;
+		float OutsideMask = 1.f;
 	};
 
 	struct FPlayback
@@ -67,6 +86,14 @@ private:
 
 	FAnimationStateMachine() = default;
 
+	[[nodiscard]] static std::expected<FAnimationStateMachine, FAnimationError> CreateNested(FAnimationStateMachineDesc Desc, const FAnimationLibrary& Library, std::size_t Depth);
+	// Back to the entry state, as when a state that plays this machine is entered.
+	void Restart();
+	void ClearTriggers() noexcept;
+	void AppendTree(std::size_t State, std::size_t Node, float Weight, const FLayerScope& Scope, float Phase);
+	// The weighted length of the clips a tree blends, which its phase advances by; additive and layered-over clips do not count.
+	void SumTreeDuration(std::size_t State, std::size_t Node, float Weight, float& Weights, float& Seconds) const noexcept;
+	[[nodiscard]] float Value(const std::optional<std::size_t>& Parameter, float Fallback) const noexcept;
 	[[nodiscard]] bool Holds(const FAnimationConditionDesc& Condition) const noexcept;
 	[[nodiscard]] std::optional<std::size_t> FindTransition() const noexcept;
 	// Returns the phase before wrapping or clamping, which may pass 1.
@@ -88,5 +115,7 @@ private:
 	float TransitionElapsed = 0.f;
 	std::vector<FAnimationLayer> Layers{};
 	std::vector<std::string> Events{};
+	std::vector<FAnimationStateMachine> SubMachines{};
+	std::vector<std::size_t> PoseJoints{};
 };
 }

@@ -126,7 +126,7 @@ TEST_CASE("Animation graphs reject what the state machine could not run, naming 
 	CHECK(Fails(Edited("Transition", 1, "conditions", std::string("Grounded > 1")), "compares a float"));
 	CHECK(Fails(Edited("State", 1, "name", std::string("Idle")), "must be unique"));
 	CHECK(Fails(Edited("State", 1, "blend", std::string()), "needs a blend parameter"));
-	CHECK(Fails(Edited("State", 0, "clips", std::string(" , ")), "plays no clip"));
+	CHECK(Fails(Edited("State", 0, "clips", std::string(" , ")), "exactly one of clips"));
 	CHECK(Fails(Edited("State", 0, "events", std::string("Breath@2")), "phase from 0 to 1"));
 	CHECK(Fails(Edited("Parameter", 0, "type", std::string("Vector")), "Float, Bool, or Trigger"));
 
@@ -141,5 +141,68 @@ TEST_CASE("Animation graphs reject what the state machine could not run, naming 
 	const auto Compiled = CompileAnimationGraph(Broken);
 	REQUIRE_FALSE(Compiled);
 	CHECK(Compiled.error().front().Node == FindNode(Broken, "Transition", 2).Id);
+}
+
+TEST_CASE("Animation graphs carry blend trees, nested machines, and pose rotations, and older graphs upgrade on load")
+{
+	const FAnimationStateMachineDesc Machine{
+	    .Parameters = {{.Name = "Speed"}, {.Name = "Turn"}, {.Name = "Strike", .Type = EAnimationParameterType::Trigger}, {.Name = "Pitch"}},
+	    .States = {
+	        {.Name = "Move", .Tree = {
+	                             {.Type = EAnimationBlendNodeType::Additive, .ParameterX = 1, .Weight = 0.5f, .Children = {{.Node = 1}, {.Node = 4}}},
+	                             {.Type = EAnimationBlendNodeType::Blend2D, .ParameterX = 0, .ParameterY = 1, .Children = {{.Node = 2, .X = 0.f, .Y = 0.f}, {.Node = 3, .X = 2.f, .Y = 1.f}}},
+	                             {.Clip = "Idle_Loop"},
+	                             {.Clip = "Walk_Loop"},
+	                             {.Clip = "Hit_Chest"},
+	                         }},
+	        {.Name = "Fight", .SubMachine = 0},
+	    },
+	    .Transitions = {{.From = 0, .To = 1, .Conditions = {{.Parameter = 2, .Test = EAnimationCondition::Triggered}}}},
+	    .SubMachines = {{
+	        .States = {
+	            {.Name = "Guard", .Tree = {{.Type = EAnimationBlendNodeType::Layered, .MaskJoint = "spine_01", .Children = {{.Node = 1}, {.Node = 2}}}, {.Clip = "Idle_Loop"}, {.Clip = "Sword_Block"}}},
+	            {.Name = "Cut", .Samples = {{.Clip = "Sword_Regular_A"}}, .bLoop = false},
+	        },
+	        .Transitions = {{.From = 0, .To = 1, .DurationSeconds = 0.1f, .Conditions = {{.Parameter = 2, .Test = EAnimationCondition::Triggered}}}},
+	    }},
+	    .PoseOperations = {{.Joint = "spine_02", .Axis = {1.f, 0.f, 0.f}, .Parameter = 3, .Scale = -0.3f}},
+	};
+
+	const FGraph Graph = MakeAnimationGraph(Machine);
+	CHECK(ValidateGraph(Graph, GetAnimationGraphSchema()).empty());
+	const auto Text = SerializeGraph(Graph, GetAnimationGraphSchema());
+	REQUIRE(Text);
+	const auto Loaded = DeserializeGraph(*Text, GetAnimationGraphSchema());
+	REQUIRE(Loaded);
+	const auto Compiled = CompileAnimationGraph(*Loaded);
+	REQUIRE_MESSAGE(Compiled, (Compiled ? std::string() : Compiled.error().front().Message));
+	CHECK(Compiled->StateMachine == Machine);
+	CHECK(Compiled->StateNodes.size() == Machine.States.size());
+
+	// A version 1 file, from before these nodes, loads at the current version with the new properties at their defaults.
+	std::string Older = *SerializeGraph(MakeAnimationGraph(MakeSmallMachine()), GetAnimationGraphSchema());
+	const std::string Current = std::format("\"domainVersion\": {}", AnimationGraphVersion);
+	REQUIRE(Older.find(Current) != std::string::npos);
+	Older.replace(Older.find(Current), Current.size(), "\"domainVersion\": 1");
+	const auto Upgraded = DeserializeGraph(Older, GetAnimationGraphSchema());
+	REQUIRE_MESSAGE(Upgraded, (Upgraded ? std::string() : Upgraded.error().Message));
+	CHECK(Upgraded->DomainVersion == AnimationGraphVersion);
+	CHECK(CompileAnimationGraph(*Upgraded));
+
+	// A machine no state plays, and a state given both clips and a pose, are mistakes.
+	FGraph Orphan = Graph;
+	for (FGraphNode& Node : Orphan.Nodes)
+	{
+		if (Node.Type == "State" && std::get<std::string>(std::ranges::find(Node.Properties, std::string_view("name"), &FGraphProperty::Key)->Value) == "Fight")
+		{
+			SetProperty(Node, "plays", std::string());
+			SetProperty(Node, "clips", std::string("Idle_Loop"));
+		}
+	}
+
+	CHECK(Fails(Orphan, "No state plays machine"));
+	FGraph Both = Graph;
+	SetProperty(FindNode(Both, "State", 0), "clips", std::string("Idle_Loop"));
+	CHECK(Fails(Both, "exactly one of clips"));
 }
 }

@@ -19,7 +19,7 @@
 namespace Herta
 {
 // Bump when any cooked layout or cooking rule changes; build keys include it, so stale derived data is never reused.
-inline constexpr std::uint32_t CookedAssetFormatVersion = 7;
+inline constexpr std::uint32_t CookedAssetFormatVersion = 8;
 
 inline constexpr std::uint32_t MaximumCookedTextureDimension = 4096;
 // Matches the per-recording GPU upload budget.
@@ -127,7 +127,8 @@ using FCookedAsset = std::variant<FCookedTexture, FCookedModel, FMaterialAsset, 
 // The skin, skeleton, and clip part of ValidateCookedModel. It checks Herta's own fields; the Animation module validates its runtime archives when it loads them.
 [[nodiscard]] std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& Model);
 
-[[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FCookedAsset& Asset);
+// Version may name an older readable format, for compatibility tests and tools; it fails when the asset needs something that format lacks.
+[[nodiscard]] std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FCookedAsset& Asset, std::uint32_t Version = CookedAssetFormatVersion);
 
 // Validates every count, index, and dimension before allocating, so corrupt derived data cannot drive large allocations.
 [[nodiscard]] std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(std::span<const std::byte> Bytes);

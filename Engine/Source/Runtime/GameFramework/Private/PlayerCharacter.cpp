@@ -35,6 +35,7 @@ enum ELocomotionParameter : std::size_t
 	Dash,
 	DashBack,
 	WallSwinging,
+	AimPitch,
 };
 
 enum ELocomotionState : std::size_t
@@ -156,6 +157,7 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Dash", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "DashBack", .Type = EAnimationParameterType::Trigger},
 	        {.Name = "WallSwinging", .Type = EAnimationParameterType::Bool},
+	        {.Name = "AimPitch", .Type = EAnimationParameterType::Float},
 	    },
 	    .States = {
 	        // The walk, jog, and sprint cycles each take two steps, planting a foot at their start and halfway.
@@ -310,6 +312,12 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.From = DashBackState, .To = Air, .DurationSeconds = 0.15f, .bAtEnd = true},
 	    },
 	    .Entry = Locomotion,
+	    // The spine and neck share the view's pitch, so the body looks where the camera does. +X points left, and turning back about it lifts.
+	    .PoseOperations = {
+	        {.Joint = "spine_02", .Axis = {1.f, 0.f, 0.f}, .Parameter = AimPitch, .Scale = -0.15f},
+	        {.Joint = "spine_03", .Axis = {1.f, 0.f, 0.f}, .Parameter = AimPitch, .Scale = -0.15f},
+	        {.Joint = "neck_01", .Axis = {1.f, 0.f, 0.f}, .Parameter = AimPitch, .Scale = -0.2f},
+	    },
 	};
 }
 
@@ -412,6 +420,7 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 	Character->DashParameter = Locomotion.FindParameter("Dash");
 	Character->DashBackParameter = Locomotion.FindParameter("DashBack");
 	Character->WallSwingingParameter = Locomotion.FindParameter("WallSwinging");
+	Character->AimPitchParameter = Locomotion.FindParameter("AimPitch");
 
 	if (Device)
 	{
@@ -493,6 +502,10 @@ void FPlayerCharacter::Update(const float DeltaSeconds, const FPlayerMotion& Mot
 	Trigger(DashParameter, Motion.bDashed && !Motion.bDashedBack);
 	Trigger(DashBackParameter, Motion.bDashed && Motion.bDashedBack);
 	Set(WallSwingingParameter, WallSwingState && Machine.GetActiveState() == *WallSwingState);
+	if (AimPitchParameter)
+	{
+		Machine.SetFloat(*AimPitchParameter, Motion.AimPitch);
+	}
 
 	Machine.Update(DeltaSeconds);
 	// The locomotion blend shares one phase, so standing still would step in place with the idle clip.
@@ -517,6 +530,8 @@ std::expected<void, FGameError> FPlayerCharacter::EvaluatePose()
 	{
 		return std::unexpected(FGameError{Evaluated.error().Message});
 	}
+
+	Machine.ApplyPoseOperations(Pose);
 
 	// Cuts read this pose, so a ragdolled body is cut where it lies.
 	if (RagdollWeight > 0.f && RagdollPose.size() == RagdollJoints.size())

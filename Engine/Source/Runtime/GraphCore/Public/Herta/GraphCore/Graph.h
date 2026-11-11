@@ -129,6 +129,9 @@ struct FGraphSchema
 	bool (*CanConnect)(std::uint32_t From, std::uint32_t To) = nullptr;
 	// Dataflow domains reject cycles; execution graphs that loop through explicit nodes may allow them.
 	bool bAcyclic = true;
+	// Brings a graph saved by an older domain version up to Version when it loads. Properties a version added already have their defaults by
+	// then, so a schema that only added properties or node types upgrades with nothing to do. Without it, older graphs are rejected.
+	std::expected<void, FGraphError> (*Upgrade)(FGraph& Graph, std::uint32_t FromVersion) = nullptr;
 };
 
 enum class EGraphSeverity : std::uint8_t

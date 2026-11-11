@@ -38,6 +38,12 @@ inline constexpr std::size_t MaximumStateSamples = 16;
 inline constexpr std::size_t MaximumStateEvents = 32;
 inline constexpr std::size_t MaximumStateMachineTransitions = 1024;
 inline constexpr std::size_t MaximumTransitionConditions = 8;
+inline constexpr std::size_t MaximumBlendTreeNodes = 64;
+inline constexpr std::size_t MaximumPoseOperations = 32;
+inline constexpr std::size_t MaximumSubMachines = 32;
+inline constexpr std::size_t MaximumSubMachineDepth = 4;
+// Cooks from the format version before blend trees still load; their state machines read without them.
+inline constexpr std::uint32_t OldestReadableCookedFormatVersion = 7;
 inline constexpr std::uint32_t NoIndex = 0xffffffffu;
 
 [[nodiscard]] std::unexpected<FAssetError> Invalid(const std::string_view Message)
@@ -129,7 +135,197 @@ void WriteBlob(FBinaryWriter& Writer, const std::span<const std::byte> Bytes)
 	return {Bytes.begin(), Bytes.end()};
 }
 
-void WriteSkeletalData(FBinaryWriter& Writer, const FCookedModel& Model)
+[[nodiscard]] std::uint32_t Index(const std::size_t Value)
+{
+	return Value == AnyAnimationState ? NoIndex : static_cast<std::uint32_t>(Value);
+}
+
+[[nodiscard]] std::uint32_t OptionalIndex(const std::optional<std::size_t>& Value)
+{
+	return Value ? Index(*Value) : NoIndex;
+}
+
+// Nested machines index their parent's parameters, so Parameters counts the outermost machine's.
+[[nodiscard]] bool ValidStateMachine(const FAnimationStateMachineDesc& Machine, const std::size_t Parameters, const std::size_t Depth)
+{
+	const auto ValidName = [](const std::string& Name)
+	{
+		return !Name.empty() && Name.size() <= MaximumNameLength;
+	};
+
+	const auto ValidParameter = [Parameters](const std::optional<std::size_t>& Parameter)
+	{
+		return !Parameter || *Parameter < Parameters;
+	};
+
+	const std::size_t States = Machine.States.size();
+	const bool bParameters = Machine.Parameters.size() <= MaximumStateMachineParameters && std::ranges::all_of(Machine.Parameters, [&](const FAnimationParameterDesc& Parameter)
+	{
+		return ValidName(Parameter.Name) && Parameter.Type <= EAnimationParameterType::Trigger && std::isfinite(Parameter.Default);
+	});
+
+	const auto ValidTree = [&](const FAnimationStateDesc& State)
+	{
+		return State.Tree.size() <= MaximumBlendTreeNodes && std::ranges::all_of(State.Tree, [&](const FAnimationBlendNodeDesc& Node)
+		{
+			return Node.Type <= EAnimationBlendNodeType::Layered && Node.Clip.size() <= MaximumNameLength && Node.MaskJoint.size() <= MaximumNameLength && ValidParameter(Node.ParameterX) && ValidParameter(Node.ParameterY) && std::isfinite(Node.Weight)
+			       && Node.Children.size() <= MaximumBlendTreeNodes && std::ranges::all_of(Node.Children, [&](const FAnimationBlendChild& Child)
+			{
+				return Child.Node < State.Tree.size() && std::isfinite(Child.X) && std::isfinite(Child.Y);
+			});
+		});
+	};
+
+	const bool bStates = States > 0 && States <= MaximumStateMachineStates && Machine.Entry < States && std::ranges::all_of(Machine.States, [&](const FAnimationStateDesc& State)
+	{
+		const bool bSource = !State.Samples.empty() || !State.Tree.empty() || (State.SubMachine && *State.SubMachine < Machine.SubMachines.size());
+		return ValidName(State.Name) && bSource && State.Samples.size() <= MaximumStateSamples && State.Events.size() <= MaximumStateEvents && std::isfinite(State.Speed) && ValidParameter(State.BlendParameter) && ValidTree(State)
+		       && std::ranges::all_of(State.Samples, [&](const FAnimationBlendSample& Sample)
+		{
+			return ValidName(Sample.Clip) && std::isfinite(Sample.Position);
+		}) && std::ranges::all_of(State.Events, [&](const FAnimationEventDesc& Event)
+		{
+			return ValidName(Event.Name) && std::isfinite(Event.Phase);
+		});
+	});
+
+	const bool bTransitions = Machine.Transitions.size() <= MaximumStateMachineTransitions && std::ranges::all_of(Machine.Transitions, [&](const FAnimationTransitionDesc& Transition)
+	{
+		return (Transition.From == AnyAnimationState || Transition.From < States) && Transition.To < States && std::isfinite(Transition.DurationSeconds) && Transition.Conditions.size() <= MaximumTransitionConditions
+		       && std::ranges::all_of(Transition.Conditions, [&](const FAnimationConditionDesc& Condition)
+		{
+			return Condition.Parameter < Parameters && Condition.Test <= EAnimationCondition::Triggered && std::isfinite(Condition.Value);
+		});
+	});
+
+	const bool bOperations = Machine.PoseOperations.size() <= MaximumPoseOperations && std::ranges::all_of(Machine.PoseOperations, [&](const FAnimationPoseOperationDesc& Operation)
+	{
+		return Operation.Type <= EAnimationPoseOperationType::RotateJoint && ValidName(Operation.Joint) && ValidParameter(Operation.Parameter) && std::isfinite(Operation.Scale)
+		       && std::ranges::all_of(Operation.Axis, [](const float Component)
+		{
+			return std::isfinite(Component);
+		});
+	});
+
+	const bool bNested = Machine.SubMachines.size() <= (Depth < MaximumSubMachineDepth ? MaximumSubMachines : 0) && std::ranges::all_of(Machine.SubMachines, [&](const FAnimationStateMachineDesc& Nested)
+	{
+		return Nested.Parameters.empty() && ValidStateMachine(Nested, Parameters, Depth + 1);
+	});
+
+	return bParameters && bStates && bTransitions && bOperations && bNested;
+}
+
+// Whether a machine needs version 8: blend trees, nested machines, or pose operations.
+[[nodiscard]] bool NeedsBlendTreeFormat(const FAnimationStateMachineDesc& Machine)
+{
+	return !Machine.SubMachines.empty() || !Machine.PoseOperations.empty() || std::ranges::any_of(Machine.States, [](const FAnimationStateDesc& State)
+	{
+		return !State.Tree.empty() || State.SubMachine.has_value();
+	});
+}
+
+void WriteStateMachine(FBinaryWriter& Writer, const FAnimationStateMachineDesc& Machine, const std::uint32_t Version)
+{
+	Writer.Write(static_cast<std::uint32_t>(Machine.Parameters.size()));
+	for (const FAnimationParameterDesc& Parameter : Machine.Parameters)
+	{
+		Writer.WriteString(Parameter.Name);
+		Writer.Write(static_cast<std::uint8_t>(Parameter.Type));
+		Writer.WriteFloat(Parameter.Default);
+	}
+
+	Writer.Write(static_cast<std::uint32_t>(Machine.States.size()));
+	for (const FAnimationStateDesc& State : Machine.States)
+	{
+		Writer.WriteString(State.Name);
+		Writer.Write(static_cast<std::uint32_t>(State.Samples.size()));
+		for (const FAnimationBlendSample& Sample : State.Samples)
+		{
+			Writer.WriteString(Sample.Clip);
+			Writer.WriteFloat(Sample.Position);
+		}
+
+		Writer.Write(OptionalIndex(State.BlendParameter));
+		// One byte of flags: loop, then reverse and upper body, which older cooks leave clear.
+		Writer.Write(static_cast<std::uint8_t>((State.bLoop ? 1 : 0) | (State.bReverse ? 2 : 0) | (State.bUpperBody ? 4 : 0)));
+		Writer.WriteFloat(State.Speed);
+		Writer.Write(static_cast<std::uint32_t>(State.Events.size()));
+		for (const FAnimationEventDesc& Event : State.Events)
+		{
+			Writer.WriteString(Event.Name);
+			Writer.WriteFloat(Event.Phase);
+		}
+
+		if (Version < 8)
+		{
+			continue;
+		}
+
+		Writer.Write(static_cast<std::uint32_t>(State.Tree.size()));
+		for (const FAnimationBlendNodeDesc& Node : State.Tree)
+		{
+			Writer.Write(static_cast<std::uint8_t>(Node.Type));
+			Writer.WriteString(Node.Clip);
+			Writer.Write(OptionalIndex(Node.ParameterX));
+			Writer.Write(OptionalIndex(Node.ParameterY));
+			Writer.WriteFloat(Node.Weight);
+			Writer.WriteString(Node.MaskJoint);
+			Writer.Write(static_cast<std::uint32_t>(Node.Children.size()));
+			for (const FAnimationBlendChild& Child : Node.Children)
+			{
+				Writer.Write(Index(Child.Node));
+				Writer.WriteFloat(Child.X);
+				Writer.WriteFloat(Child.Y);
+			}
+		}
+
+		Writer.Write(OptionalIndex(State.SubMachine));
+	}
+
+	Writer.Write(static_cast<std::uint32_t>(Machine.Transitions.size()));
+	for (const FAnimationTransitionDesc& Transition : Machine.Transitions)
+	{
+		Writer.Write(Index(Transition.From));
+		Writer.Write(Index(Transition.To));
+		Writer.WriteFloat(Transition.DurationSeconds);
+		Writer.Write(static_cast<std::uint8_t>(Transition.bAtEnd ? 1 : 0));
+		Writer.Write(static_cast<std::uint32_t>(Transition.Conditions.size()));
+		for (const FAnimationConditionDesc& Condition : Transition.Conditions)
+		{
+			Writer.Write(Index(Condition.Parameter));
+			Writer.Write(static_cast<std::uint8_t>(Condition.Test));
+			Writer.WriteFloat(Condition.Value);
+		}
+	}
+
+	Writer.Write(Index(Machine.Entry));
+	if (Version < 8)
+	{
+		return;
+	}
+
+	Writer.Write(static_cast<std::uint32_t>(Machine.PoseOperations.size()));
+	for (const FAnimationPoseOperationDesc& Operation : Machine.PoseOperations)
+	{
+		Writer.Write(static_cast<std::uint8_t>(Operation.Type));
+		Writer.WriteString(Operation.Joint);
+		for (const float Component : Operation.Axis)
+		{
+			Writer.WriteFloat(Component);
+		}
+
+		Writer.Write(OptionalIndex(Operation.Parameter));
+		Writer.WriteFloat(Operation.Scale);
+	}
+
+	Writer.Write(static_cast<std::uint32_t>(Machine.SubMachines.size()));
+	for (const FAnimationStateMachineDesc& Nested : Machine.SubMachines)
+	{
+		WriteStateMachine(Writer, Nested, Version);
+	}
+}
+
+void WriteSkeletalData(FBinaryWriter& Writer, const FCookedModel& Model, const std::uint32_t Version)
 {
 	Writer.Write(static_cast<std::uint8_t>(Model.Skeleton ? 1 : 0));
 	if (!Model.Skeleton)
@@ -184,65 +380,10 @@ void WriteSkeletalData(FBinaryWriter& Writer, const FCookedModel& Model)
 	}
 
 	Writer.Write(static_cast<std::uint8_t>(Model.StateMachine ? 1 : 0));
-	if (!Model.StateMachine)
+	if (Model.StateMachine)
 	{
-		return;
+		WriteStateMachine(Writer, *Model.StateMachine, Version);
 	}
-
-	const auto Index = [](const std::size_t Value)
-	{
-		return Value == AnyAnimationState ? NoIndex : static_cast<std::uint32_t>(Value);
-	};
-
-	const FAnimationStateMachineDesc& Machine = *Model.StateMachine;
-	Writer.Write(static_cast<std::uint32_t>(Machine.Parameters.size()));
-	for (const FAnimationParameterDesc& Parameter : Machine.Parameters)
-	{
-		Writer.WriteString(Parameter.Name);
-		Writer.Write(static_cast<std::uint8_t>(Parameter.Type));
-		Writer.WriteFloat(Parameter.Default);
-	}
-
-	Writer.Write(static_cast<std::uint32_t>(Machine.States.size()));
-	for (const FAnimationStateDesc& State : Machine.States)
-	{
-		Writer.WriteString(State.Name);
-		Writer.Write(static_cast<std::uint32_t>(State.Samples.size()));
-		for (const FAnimationBlendSample& Sample : State.Samples)
-		{
-			Writer.WriteString(Sample.Clip);
-			Writer.WriteFloat(Sample.Position);
-		}
-
-		Writer.Write(State.BlendParameter ? Index(*State.BlendParameter) : NoIndex);
-		// One byte of flags: loop, then reverse and upper body, which older cooks leave clear.
-		Writer.Write(static_cast<std::uint8_t>((State.bLoop ? 1 : 0) | (State.bReverse ? 2 : 0) | (State.bUpperBody ? 4 : 0)));
-		Writer.WriteFloat(State.Speed);
-		Writer.Write(static_cast<std::uint32_t>(State.Events.size()));
-		for (const FAnimationEventDesc& Event : State.Events)
-		{
-			Writer.WriteString(Event.Name);
-			Writer.WriteFloat(Event.Phase);
-		}
-	}
-
-	Writer.Write(static_cast<std::uint32_t>(Machine.Transitions.size()));
-	for (const FAnimationTransitionDesc& Transition : Machine.Transitions)
-	{
-		Writer.Write(Index(Transition.From));
-		Writer.Write(Index(Transition.To));
-		Writer.WriteFloat(Transition.DurationSeconds);
-		Writer.Write(static_cast<std::uint8_t>(Transition.bAtEnd ? 1 : 0));
-		Writer.Write(static_cast<std::uint32_t>(Transition.Conditions.size()));
-		for (const FAnimationConditionDesc& Condition : Transition.Conditions)
-		{
-			Writer.Write(Index(Condition.Parameter));
-			Writer.Write(static_cast<std::uint8_t>(Condition.Test));
-			Writer.WriteFloat(Condition.Value);
-		}
-	}
-
-	Writer.Write(Index(Machine.Entry));
 }
 
 // Reads a count and rejects it above Maximum, so a corrupt count cannot drive a large allocation.
@@ -264,14 +405,15 @@ void WriteSkeletalData(FBinaryWriter& Writer, const FCookedModel& Model)
 	return Value == NoIndex ? AnyAnimationState : Value;
 }
 
-void ReadStateMachine(FBinaryReader& Reader, FCookedModel& Model)
+[[nodiscard]] std::optional<std::size_t> ReadOptionalIndex(FBinaryReader& Reader)
 {
-	if (Reader.Read<std::uint8_t>() == 0)
-	{
-		return;
-	}
+	const std::size_t Value = ReadIndex(Reader);
+	return Value == AnyAnimationState ? std::nullopt : std::optional(Value);
+}
 
-	FAnimationStateMachineDesc& Machine = Model.StateMachine.emplace();
+// Version 7 files end each machine after its entry; version 8 adds blend trees, nested machines, and pose operations.
+void ReadMachine(FBinaryReader& Reader, FAnimationStateMachineDesc& Machine, const std::uint32_t Version, const std::size_t Depth)
+{
 	Machine.Parameters.resize(ReadCount(Reader, MaximumStateMachineParameters));
 	for (FAnimationParameterDesc& Parameter : Machine.Parameters)
 	{
@@ -291,8 +433,7 @@ void ReadStateMachine(FBinaryReader& Reader, FCookedModel& Model)
 			Sample.Position = Reader.ReadFloat();
 		}
 
-		const std::size_t Blend = ReadIndex(Reader);
-		State.BlendParameter = Blend == AnyAnimationState ? std::nullopt : std::optional(Blend);
+		State.BlendParameter = ReadOptionalIndex(Reader);
 		const auto Flags = Reader.Read<std::uint8_t>();
 		State.bLoop = (Flags & 1) != 0;
 		State.bReverse = (Flags & 2) != 0;
@@ -304,6 +445,31 @@ void ReadStateMachine(FBinaryReader& Reader, FCookedModel& Model)
 			Event.Name = Reader.ReadString(MaximumNameLength);
 			Event.Phase = Reader.ReadFloat();
 		}
+
+		if (Version < 8)
+		{
+			continue;
+		}
+
+		State.Tree.resize(ReadCount(Reader, MaximumBlendTreeNodes));
+		for (FAnimationBlendNodeDesc& Node : State.Tree)
+		{
+			Node.Type = static_cast<EAnimationBlendNodeType>(Reader.Read<std::uint8_t>());
+			Node.Clip = Reader.ReadString(MaximumNameLength);
+			Node.ParameterX = ReadOptionalIndex(Reader);
+			Node.ParameterY = ReadOptionalIndex(Reader);
+			Node.Weight = Reader.ReadFloat();
+			Node.MaskJoint = Reader.ReadString(MaximumNameLength);
+			Node.Children.resize(ReadCount(Reader, MaximumBlendTreeNodes));
+			for (FAnimationBlendChild& Child : Node.Children)
+			{
+				Child.Node = ReadIndex(Reader);
+				Child.X = Reader.ReadFloat();
+				Child.Y = Reader.ReadFloat();
+			}
+		}
+
+		State.SubMachine = ReadOptionalIndex(Reader);
 	}
 
 	Machine.Transitions.resize(ReadCount(Reader, MaximumStateMachineTransitions));
@@ -323,9 +489,45 @@ void ReadStateMachine(FBinaryReader& Reader, FCookedModel& Model)
 	}
 
 	Machine.Entry = ReadIndex(Reader);
+	if (Version < 8)
+	{
+		return;
+	}
+
+	Machine.PoseOperations.resize(ReadCount(Reader, MaximumPoseOperations));
+	for (FAnimationPoseOperationDesc& Operation : Machine.PoseOperations)
+	{
+		Operation.Type = static_cast<EAnimationPoseOperationType>(Reader.Read<std::uint8_t>());
+		Operation.Joint = Reader.ReadString(MaximumNameLength);
+		for (float& Component : Operation.Axis)
+		{
+			Component = Reader.ReadFloat();
+		}
+
+		Operation.Parameter = ReadOptionalIndex(Reader);
+		Operation.Scale = Reader.ReadFloat();
+	}
+
+	// Nesting is bounded, so a hostile file cannot recurse without end.
+	const std::uint32_t Nested = ReadCount(Reader, Depth < MaximumSubMachineDepth ? MaximumSubMachines : 0);
+	Machine.SubMachines.resize(Nested);
+	for (FAnimationStateMachineDesc& Child : Machine.SubMachines)
+	{
+		ReadMachine(Reader, Child, Version, Depth + 1);
+	}
 }
 
-void ReadSkeletalData(FBinaryReader& Reader, FCookedModel& Model)
+void ReadStateMachine(FBinaryReader& Reader, FCookedModel& Model, const std::uint32_t Version)
+{
+	if (Reader.Read<std::uint8_t>() == 0)
+	{
+		return;
+	}
+
+	ReadMachine(Reader, Model.StateMachine.emplace(), Version, 0);
+}
+
+void ReadSkeletalData(FBinaryReader& Reader, FCookedModel& Model, const std::uint32_t Version)
 {
 	if (Reader.Read<std::uint8_t>() == 0)
 	{
@@ -405,7 +607,7 @@ void ReadSkeletalData(FBinaryReader& Reader, FCookedModel& Model)
 		Joint = Reader.ReadString(MaximumNameLength);
 	}
 
-	ReadStateMachine(Reader, Model);
+	ReadStateMachine(Reader, Model, Version);
 }
 }
 
@@ -654,41 +856,7 @@ std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& 
 	}
 
 	// Structure only: the Animation module checks clips, parameter types, and names when it creates the machine.
-	const FAnimationStateMachineDesc& Machine = *Model.StateMachine;
-	const auto ValidName = [](const std::string& Name)
-	{
-		return !Name.empty() && Name.size() <= MaximumNameLength;
-	};
-
-	const std::size_t Parameters = Machine.Parameters.size();
-	const std::size_t States = Machine.States.size();
-	const bool bParameters = Parameters <= MaximumStateMachineParameters && std::ranges::all_of(Machine.Parameters, [&](const FAnimationParameterDesc& Parameter)
-	{
-		return ValidName(Parameter.Name) && Parameter.Type <= EAnimationParameterType::Trigger && std::isfinite(Parameter.Default);
-	});
-
-	const bool bStates = States > 0 && States <= MaximumStateMachineStates && Machine.Entry < States && std::ranges::all_of(Machine.States, [&](const FAnimationStateDesc& State)
-	{
-		return ValidName(State.Name) && !State.Samples.empty() && State.Samples.size() <= MaximumStateSamples && State.Events.size() <= MaximumStateEvents && std::isfinite(State.Speed) && (!State.BlendParameter || *State.BlendParameter < Parameters)
-		       && std::ranges::all_of(State.Samples, [&](const FAnimationBlendSample& Sample)
-		{
-			return ValidName(Sample.Clip) && std::isfinite(Sample.Position);
-		}) && std::ranges::all_of(State.Events, [&](const FAnimationEventDesc& Event)
-		{
-			return ValidName(Event.Name) && std::isfinite(Event.Phase);
-		});
-	});
-
-	const bool bTransitions = Machine.Transitions.size() <= MaximumStateMachineTransitions && std::ranges::all_of(Machine.Transitions, [&](const FAnimationTransitionDesc& Transition)
-	{
-		return (Transition.From == AnyAnimationState || Transition.From < States) && Transition.To < States && std::isfinite(Transition.DurationSeconds) && Transition.Conditions.size() <= MaximumTransitionConditions
-		       && std::ranges::all_of(Transition.Conditions, [&](const FAnimationConditionDesc& Condition)
-		{
-			return Condition.Parameter < Parameters && Condition.Test <= EAnimationCondition::Triggered && std::isfinite(Condition.Value);
-		});
-	});
-
-	if (!bParameters || !bStates || !bTransitions)
+	if (!ValidStateMachine(*Model.StateMachine, Model.StateMachine->Parameters.size(), 0))
 	{
 		return Invalid("Cooked animation state machine has an out-of-range count, index, name, or value");
 	}
@@ -696,11 +864,17 @@ std::expected<void, FAssetError> ValidateCookedSkeletalData(const FCookedModel& 
 	return {};
 }
 
-std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FCookedAsset& Asset)
+std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FCookedAsset& Asset, const std::uint32_t Version)
 {
+	const auto* Older = std::get_if<FCookedModel>(&Asset);
+	if (Version < OldestReadableCookedFormatVersion || Version > CookedAssetFormatVersion || (Version < 8 && Older && Older->StateMachine && NeedsBlendTreeFormat(*Older->StateMachine)))
+	{
+		return std::unexpected(FAssetError{std::format("Cannot write this asset as cooked format version {}", Version)});
+	}
+
 	FBinaryWriter Writer;
 	Writer.Write(CookedAssetMagic);
-	Writer.Write(CookedAssetFormatVersion);
+	Writer.Write(Version);
 
 	if (const auto* Texture = std::get_if<FCookedTexture>(&Asset))
 	{
@@ -855,7 +1029,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 		WriteTexture(Writer, Texture);
 	}
 
-	WriteSkeletalData(Writer, Model);
+	WriteSkeletalData(Writer, Model, Version);
 	return Writer.TakeBytes();
 }
 
@@ -863,7 +1037,9 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 {
 	FBinaryReader Reader(Bytes);
 
-	if (Reader.Read<std::uint32_t>() != CookedAssetMagic || Reader.Read<std::uint32_t>() != CookedAssetFormatVersion)
+	const bool bMagic = Reader.Read<std::uint32_t>() == CookedAssetMagic;
+	const auto Version = Reader.Read<std::uint32_t>();
+	if (!bMagic || Version < OldestReadableCookedFormatVersion || Version > CookedAssetFormatVersion)
 	{
 		return Invalid("Unsupported cooked asset format or version");
 	}
@@ -1060,7 +1236,7 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 
 	if (Reader.IsValid())
 	{
-		ReadSkeletalData(Reader, Model);
+		ReadSkeletalData(Reader, Model, Version);
 	}
 
 	if (!Reader.IsValid() || !Reader.IsAtEnd() || VertexCount > MaximumVertices || IndexCount > MaximumIndices || SectionCount > MaximumSections || MaterialCount > MaximumMaterials || TextureCount > MaximumTextures)
@@ -1090,7 +1266,9 @@ std::expected<FCookedSoundStream, FAssetError> ReadCookedSoundStream(const std::
 
 	Header.resize(static_cast<std::size_t>(Stream.gcount()));
 	FBinaryReader Reader(Header);
-	if (Reader.Read<std::uint32_t>() != CookedAssetMagic || Reader.Read<std::uint32_t>() != CookedAssetFormatVersion || Reader.Read<std::uint8_t>() != SoundTag)
+	const bool bMagic = Reader.Read<std::uint32_t>() == CookedAssetMagic;
+	const auto Version = Reader.Read<std::uint32_t>();
+	if (!bMagic || Version < OldestReadableCookedFormatVersion || Version > CookedAssetFormatVersion || Reader.Read<std::uint8_t>() != SoundTag)
 	{
 		return Invalid("Not a cooked sound of this format version");
 	}

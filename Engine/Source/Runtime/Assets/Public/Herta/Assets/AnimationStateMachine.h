@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -47,6 +48,44 @@ struct FAnimationEventDesc
 	float Phase = 0.f;
 };
 
+enum class EAnimationBlendNodeType : std::uint8_t
+{
+	// Plays one clip.
+	Clip,
+	// Blends its children along ParameterX by their X positions, two at a time.
+	Blend1D,
+	// Blends its children by their distance from (ParameterX, ParameterY) to their (X, Y) points.
+	Blend2D,
+	// Adds the second child's motion away from its clip's first frame onto the first child, by Weight.
+	Additive,
+	// Replaces the first child with the second within MaskJoint and everything below it, by Weight.
+	Layered,
+};
+
+struct FAnimationBlendChild
+{
+	bool operator==(const FAnimationBlendChild&) const = default;
+
+	// Index of a later node in the same tree.
+	std::size_t Node = 0;
+	float X = 0.f;
+	float Y = 0.f;
+};
+
+// One node of a state's blend tree. Additive and Layered weigh their second child by Weight, times ParameterX when it is set.
+struct FAnimationBlendNodeDesc
+{
+	bool operator==(const FAnimationBlendNodeDesc&) const = default;
+
+	EAnimationBlendNodeType Type = EAnimationBlendNodeType::Clip;
+	std::string Clip{};
+	std::optional<std::size_t> ParameterX{};
+	std::optional<std::size_t> ParameterY{};
+	float Weight = 1.f;
+	std::string MaskJoint{};
+	std::vector<FAnimationBlendChild> Children{};
+};
+
 struct FAnimationStateDesc
 {
 	bool operator==(const FAnimationStateDesc&) const = default;
@@ -63,6 +102,10 @@ struct FAnimationStateDesc
 	// Moves only the upper body while the character moves: the legs keep playing the state before it, so a swing walks. Standing still, the state
 	// plays on the whole body.
 	bool bUpperBody = false;
+	// A blend tree rooted at its first node, which plays instead of Samples when it is not empty.
+	std::vector<FAnimationBlendNodeDesc> Tree{};
+	// Plays one of the machine's SubMachines instead of clips; entering the state starts it from its entry.
+	std::optional<std::size_t> SubMachine{};
 };
 
 enum class EAnimationCondition : std::uint8_t
@@ -97,6 +140,24 @@ struct FAnimationTransitionDesc
 	bool bAtEnd = false;
 };
 
+enum class EAnimationPoseOperationType : std::uint8_t
+{
+	// Turns a joint and everything below it about a model-space axis by Scale radians, times Parameter when it is set.
+	RotateJoint,
+};
+
+// Runs on the blended pose, in order, such as bending the spine toward where the camera looks.
+struct FAnimationPoseOperationDesc
+{
+	bool operator==(const FAnimationPoseOperationDesc&) const = default;
+
+	EAnimationPoseOperationType Type = EAnimationPoseOperationType::RotateJoint;
+	std::string Joint{};
+	std::array<float, 3> Axis{1.f, 0.f, 0.f};
+	std::optional<std::size_t> Parameter{};
+	float Scale = 1.f;
+};
+
 struct FAnimationStateMachineDesc
 {
 	bool operator==(const FAnimationStateMachineDesc&) const = default;
@@ -106,5 +167,10 @@ struct FAnimationStateMachineDesc
 	// Tested in this order, so the order is the priority.
 	std::vector<FAnimationTransitionDesc> Transitions{};
 	std::size_t Entry = 0;
+	// Machines that states play nested inside this one. They share this machine's parameters, so their own Parameters stay empty and their
+	// parameter indices refer to this machine's list.
+	std::vector<FAnimationStateMachineDesc> SubMachines{};
+	// Only the outermost machine's operations run.
+	std::vector<FAnimationPoseOperationDesc> PoseOperations{};
 };
 }
