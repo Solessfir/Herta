@@ -504,6 +504,7 @@ std::expected<void, FLevelError> FEditorLevel::LoadDocument(FLevelDocument Docum
 	CameraBookmarks = std::move(Document.CameraBookmarks);
 	ExposureCompensation = Document.ExposureCompensation;
 	PlayerCharacter = Document.PlayerCharacter;
+	PlayerWeapon = Document.PlayerWeapon;
 	Sounds = Document.Sounds;
 	Effects = Document.Effects;
 	Regions = Document.Regions;
@@ -693,7 +694,7 @@ std::expected<void, FLevelError> FEditorLevel::Save(const std::filesystem::path&
 		return std::unexpected(FLevelError{"No level path is set; use level.save <path>"});
 	}
 
-	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation, .PlayerCharacter = PlayerCharacter, .Sounds = Sounds, .Effects = Effects, .Regions = Regions}); !Result)
+	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation, .PlayerCharacter = PlayerCharacter, .PlayerWeapon = PlayerWeapon, .Sounds = Sounds, .Effects = Effects, .Regions = Regions}); !Result)
 	{
 		return Result;
 	}
@@ -1196,6 +1197,41 @@ std::expected<void, FLevelError> FEditorLevel::SetPlayerCharacter(const FAssetId
 	    .Apply = [this, Before = PlayerCharacter, Character](const bool bUndo) -> std::expected<void, FEditorCommandError>
 	{
 		PlayerCharacter = bUndo ? Before : Character;
+		return {};
+	},
+	    .MemoryCost = sizeof(FAssetId) * 2,
+	});
+
+	if (!Executed)
+	{
+		return std::unexpected(FLevelError{Executed.error().Message});
+	}
+
+	return {};
+}
+
+const FAssetId& FEditorLevel::GetPlayerWeapon() const
+{
+	return PlayerWeapon;
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetPlayerWeapon(const FAssetId& Weapon)
+{
+	if (auto Result = CheckAuthoringAllowed(); !Result)
+	{
+		return Result;
+	}
+
+	if (Weapon == PlayerWeapon)
+	{
+		return {};
+	}
+
+	const auto Executed = History.Execute({
+	    .Label = "Change player weapon",
+	    .Apply = [this, Before = PlayerWeapon, Weapon](const bool bUndo) -> std::expected<void, FEditorCommandError>
+	{
+		PlayerWeapon = bUndo ? Before : Weapon;
 		return {};
 	},
 	    .MemoryCost = sizeof(FAssetId) * 2,

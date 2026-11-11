@@ -412,6 +412,8 @@ public:
 	[[nodiscard]] std::vector<FAssetId> GetSounds() const;
 	// The particle systems gameplay spawns for its events, from the level; applies from the next update.
 	void SetLevelEffects(const FLevelEffects& Effects);
+	// The model the player and the guards hold, owned by the caller's assets, which outlive the session; null draws the built-in box sword.
+	void SetWeaponMesh(const FRenderMesh* Mesh);
 	// Every particle system the level's effects and particle emitters may play, for the host to load before play.
 	[[nodiscard]] std::vector<FAssetId> GetParticleSystems() const;
 	[[nodiscard]] std::expected<void, FGameError> AddParticleSystem(const FAssetId& Id, std::shared_ptr<const FCookedParticleSystem> System);

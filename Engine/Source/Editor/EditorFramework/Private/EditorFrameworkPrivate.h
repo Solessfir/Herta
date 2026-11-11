@@ -309,6 +309,7 @@ struct FEditorFramework::FImplementation
 	void FinishAutomationFrame();
 	// The level's player character, chosen from the models in content.
 	void DrawPlayerCharacterPicker(float ValueWidth);
+	void DrawPlayerWeaponPicker(float ValueWidth);
 	void DrawLevelSoundPickers(float ValueWidth);
 	void DrawLevelEffectPickers(float ValueWidth);
 	void DrawLevelRegions(float ValueWidth, float Scale);

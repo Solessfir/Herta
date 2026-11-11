@@ -554,6 +554,8 @@ struct FGameSession::FImplementation : FPlayerSlot
 	std::vector<FCharacterActor> Characters{};
 	// The sword every player's body holds.
 	std::shared_ptr<const FRenderMesh> SwordMesh{};
+	// The level's weapon model, which replaces the built-in sword when set.
+	const FRenderMesh* WeaponMesh = nullptr;
 	// Pieces cut off characters, oldest first, falling until restart or newer pieces from the same character push them out.
 	std::vector<std::unique_ptr<FCharacterPiece>> Pieces{};
 	std::size_t CutCount = 0;
@@ -3374,10 +3376,11 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 			Session.Models.push_back(ActorModel);
 			Session.Meshes.push_back(Actor.Body->GetMesh());
 			Session.MaterialSpans.emplace_back();
-			if (const auto Grip = Actor.Npc && !Actor.Npc->IsDead() && Session.SwordMesh ? Actor.Body->GetGripFrame() : std::nullopt)
+			const FRenderMesh* const Weapon = Session.WeaponMesh ? Session.WeaponMesh : Session.SwordMesh.get();
+			if (const auto Grip = Actor.Npc && !Actor.Npc->IsDead() && Weapon ? Actor.Body->GetGripFrame() : std::nullopt)
 			{
 				Session.Models.push_back(ActorModel * *Grip);
-				Session.Meshes.push_back(Session.SwordMesh.get());
+				Session.Meshes.push_back(Weapon);
 				Session.MaterialSpans.emplace_back();
 			}
 		}
@@ -3494,10 +3497,11 @@ FVector3 FGameSession::FImplementation::AddBodyToView(const float Alpha, const b
 				Visibility.push_back(EMeshVisibility::CameraOnly);
 			}
 
-			if (const auto Grip = SwordMesh ? Body->GetGripFrame() : std::nullopt)
+			const FRenderMesh* const Weapon = WeaponMesh ? WeaponMesh : SwordMesh.get();
+			if (const auto Grip = Weapon ? Body->GetGripFrame() : std::nullopt)
 			{
 				Models.push_back(BodyModel * *Grip);
-				Meshes.push_back(SwordMesh.get());
+				Meshes.push_back(Weapon);
 				MaterialSpans.emplace_back();
 				Visibility.push_back(EMeshVisibility::Everywhere);
 			}
@@ -4979,6 +4983,11 @@ std::expected<std::vector<std::string>, FGameError> FGameSession::ApplySave(cons
 void FGameSession::SetLevelEffects(const FLevelEffects& Effects)
 {
 	Implementation->Effects = Effects;
+}
+
+void FGameSession::SetWeaponMesh(const FRenderMesh* const Mesh)
+{
+	Implementation->WeaponMesh = Mesh;
 }
 
 std::vector<FAssetId> FGameSession::GetParticleSystems() const

@@ -534,6 +534,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "Wait for the project to finish loading before importing files");
 		}
 		Implementation->Assets->RequestPlayerCharacter(Implementation->Level ? Implementation->Level->GetPlayerCharacter() : FAssetId{});
+		Implementation->Assets->RequestPlayerWeapon(Implementation->Level ? Implementation->Level->GetPlayerWeapon() : FAssetId{});
 		Implementation->Assets->Tick();
 	}
 

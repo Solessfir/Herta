@@ -72,6 +72,54 @@ void FEditorFramework::FImplementation::DrawPlayerCharacterPicker(const float Va
 	}
 }
 
+void FEditorFramework::FImplementation::DrawPlayerWeaponPicker(const float ValueWidth)
+{
+	if (!Level || !Assets)
+	{
+		return;
+	}
+
+	const FAssetId Current = Level->GetPlayerWeapon();
+	std::string CurrentLabel = Current.IsValid() ? Current.ToString() : "None (plain sword)";
+	for (const FPreviewAssetOption& Option : Assets->GetOptions())
+	{
+		if (Option.Id == Current)
+		{
+			CurrentLabel = Option.Label;
+		}
+	}
+
+	DrawFieldLabel("Weapon", ValueWidth);
+	ImGui::SetNextItemWidth(-FLT_MIN);
+	std::optional<FAssetId> Chosen;
+	if (ImGui::BeginCombo("##PlayerWeapon", CurrentLabel.c_str()))
+	{
+		if (ImGui::Selectable("None (plain sword)", !Current.IsValid()) && Current.IsValid())
+		{
+			Chosen = FAssetId{};
+		}
+
+		for (const FPreviewAssetOption& Option : Assets->GetOptions())
+		{
+			if ((Option.Importer == "Gltf" || Option.Importer == "Blender") && ImGui::Selectable(Option.Label.c_str(), Option.Id == Current) && Option.Id != Current)
+			{
+				Chosen = Option.Id;
+			}
+		}
+
+		ImGui::EndCombo();
+	}
+
+	ImGui::SetItemTooltip("Saved with the level. The player and the guards hold this model in their grip: origin at the hand, blade along +Y to the tip at 1 m, edges facing X");
+	if (Chosen)
+	{
+		if (const auto Changed = Level->SetPlayerWeapon(*Chosen); !Changed)
+		{
+			HERTA_LOG_ERROR(*Log, EditorLog, "Could not change the player weapon: {}", Changed.error().Message);
+		}
+	}
+}
+
 void FEditorFramework::FImplementation::DrawLevelSoundPickers(const float ValueWidth)
 {
 	if (!Level || !Assets)

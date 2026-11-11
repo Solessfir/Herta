@@ -1,11 +1,12 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 19,
+  "engineSchemaVersion": 20,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101f0",
   "name": "Sandbox Visuals",
   "exposureCompensation": 0,
   "playerCharacter": "c7b6f115-ec90-463e-a72f-9407cd6851e6",
+  "playerWeapon": null,
   "sounds": {
     "footstep": null,
     "land": null,

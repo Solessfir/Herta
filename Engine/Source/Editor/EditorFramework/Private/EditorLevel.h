@@ -49,6 +49,8 @@ public:
 	const FAssetId& GetPlayerCharacter() const;
 	// The skinned model Play spawns as the player, saved with the level and undoable like other level settings.
 	[[nodiscard]] std::expected<void, FLevelError> SetPlayerCharacter(const FAssetId& Character);
+	const FAssetId& GetPlayerWeapon() const;
+	[[nodiscard]] std::expected<void, FLevelError> SetPlayerWeapon(const FAssetId& Weapon);
 	const FLevelSounds& GetSounds() const;
 	// The sounds gameplay plays for its events, saved with the level and undoable like the player character.
 	[[nodiscard]] std::expected<void, FLevelError> SetSound(ELevelSound Cue, const FAssetId& Sound);
@@ -158,6 +160,7 @@ private:
 	std::vector<FLevelCameraBookmark> CameraBookmarks;
 	float ExposureCompensation = 0.f;
 	FAssetId PlayerCharacter;
+	FAssetId PlayerWeapon;
 	FLevelSounds Sounds{};
 	FLevelEffects Effects{};
 	// Placements of other levels; their contents are edited in their own levels.

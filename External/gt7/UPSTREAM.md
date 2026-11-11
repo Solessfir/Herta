@@ -8,4 +8,4 @@
 |---|---|---|
 | `gt7_tone_mapping.cpp` | `gt7_tone_mapping.cpp` | Reference for the Slang port in `Engine/Shaders/ToneMap.slang`; not compiled |
 
-The file is unmodified. To update, download the new release, update the revision and hash above, port the changes to `ToneMap.slang`, and rerun `HertaEditor --renderer-test`.
+The file is unmodified. To update, download the new release, update the revision and hash above, port the changes to `ToneMap.slang`, and rerun `Herta --renderer-test`.

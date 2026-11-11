@@ -134,6 +134,9 @@ struct FLevelDocument
 	float ExposureCompensation = 0.f;
 	// The skinned model the player plays as; invalid plays the bare capsule.
 	FAssetId PlayerCharacter{};
+	// The static model the player and the guards hold in their grip; invalid draws the engine's plain box sword. It is in grip space: the
+	// origin where the hand holds it, the blade along +Y from the guard to the tip at 1 m, and the edges facing +X and -X.
+	FAssetId PlayerWeapon{};
 	FLevelSounds Sounds{};
 	FLevelEffects Effects{};
 	std::vector<FLevelRegion> Regions{};

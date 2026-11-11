@@ -1,11 +1,12 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 19,
+  "engineSchemaVersion": 20,
   "id": "4c070000-2738-4e25-9b9e-000000000001",
   "name": "Causeway",
   "exposureCompensation": 0,
   "playerCharacter": null,
+  "playerWeapon": null,
   "sounds": {
     "footstep": null,
     "land": null,

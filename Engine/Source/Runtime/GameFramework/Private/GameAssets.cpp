@@ -321,6 +321,23 @@ std::expected<FStagedSession, FGameError> CreateStagedSession(const std::filesys
 
 	Staged.Session = std::move(*Session);
 	FGameSession& Game = *Staged.Session;
+	if (Level.PlayerWeapon.IsValid())
+	{
+		// The weapon loads like a mesh on an entity that holds it, so it shares the level's decoding and upload.
+		FLevelEntity Holder{.Name = "Weapon"};
+		Holder.Mesh = FStaticMeshComponent{.Asset = Level.PlayerWeapon};
+		auto Decoded = DecodeGameAssets(Content, std::span(&Holder, 1));
+		auto Added = Decoded ? Staged.Assets->Add(Device, std::move(*Decoded)) : std::unexpected(Decoded.error());
+		if (Added)
+		{
+			Game.SetWeaponMesh(Staged.Assets->FindMesh(Level.PlayerWeapon));
+		}
+		else
+		{
+			Staged.Warnings.push_back(std::format("Cannot load the player weapon; the guards and player hold the plain sword: {}", Added.error().Message));
+		}
+	}
+
 	Staged.Warnings.insert(Staged.Warnings.end(), Game.GetWarnings().begin(), Game.GetWarnings().end());
 	Game.SetLevelEffects(Level.Effects);
 	for (const FAssetId& System : Game.GetParticleSystems())

@@ -340,6 +340,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		if (Section("Play"))
 		{
 			DrawPlayerCharacterPicker(ValueWidth);
+			DrawPlayerWeaponPicker(ValueWidth);
 		}
 
 		if (Section("Sounds"))

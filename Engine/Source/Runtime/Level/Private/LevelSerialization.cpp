@@ -1507,7 +1507,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 19,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 20,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1517,6 +1517,16 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 	if (Document.PlayerCharacter.IsValid())
 	{
 		AppendString(Output, Document.PlayerCharacter.ToString());
+	}
+	else
+	{
+		Output += "null";
+	}
+
+	Output += ",\n  \"playerWeapon\": ";
+	if (Document.PlayerWeapon.IsValid())
+	{
+		AppendString(Output, Document.PlayerWeapon.ToString());
 	}
 	else
 	{
@@ -1943,7 +1953,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		return LevelError("Malformed level JSON or invalid UTF-8");
 	}
 
-	const auto Fields = ReadFields(Root, std::array<std::string_view, 13>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders", "cameraBookmarks", "exposureCompensation", "playerCharacter", "sounds", "effects", "regions"}, 0x3f);
+	const auto Fields = ReadFields(Root, std::array<std::string_view, 14>{"format", "formatVersion", "engineSchemaVersion", "id", "name", "entities", "folders", "cameraBookmarks", "exposureCompensation", "playerCharacter", "sounds", "effects", "regions", "playerWeapon"}, 0x3f);
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -1958,9 +1968,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 19 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 20 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 18 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 20 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
@@ -1982,6 +1992,11 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	if ((SchemaVersion >= 11) != (Root["playerCharacter"].error() == simdjson::SUCCESS))
 	{
 		return LevelError("The player character is required, or null, in engine schema 11 and later");
+	}
+
+	if ((SchemaVersion >= 20) != (Root["playerWeapon"].error() == simdjson::SUCCESS))
+	{
+		return LevelError("The player weapon is required, or null, in engine schema 20 and later");
 	}
 
 	const auto Id = ReadId<FObjectId>((*Fields)[3]);
@@ -2018,6 +2033,17 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		}
 
 		Document.PlayerCharacter = *Character;
+	}
+
+	if (SchemaVersion >= 20)
+	{
+		const auto Weapon = ReadOptionalId<FAssetId>((*Fields)[13]);
+		if (!Weapon)
+		{
+			return std::unexpected(Weapon.error());
+		}
+
+		Document.PlayerWeapon = *Weapon;
 	}
 
 	if ((SchemaVersion >= 13) != (Root["sounds"].error() == simdjson::SUCCESS))

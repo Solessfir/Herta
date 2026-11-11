@@ -125,8 +125,8 @@ TEST_CASE("Level serialization consumes every registered built-in property key")
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
 	// Each older schema rejects the newest component it does not know.
-	CHECK(Text->find("\"engineSchemaVersion\": 19") != std::string::npos);
-	CHECK_FALSE(ParseLevel(std::string(*Text).replace(Text->find("\"engineSchemaVersion\": 19"), 25, "\"engineSchemaVersion\": 18")));
+	CHECK(Text->find("\"engineSchemaVersion\": 20") != std::string::npos);
+	CHECK_FALSE(ParseLevel(std::string(*Text).replace(Text->find("\"engineSchemaVersion\": 20"), 25, "\"engineSchemaVersion\": 19")));
 
 	for (const auto& Component : GetLevelComponentDescriptors())
 	{

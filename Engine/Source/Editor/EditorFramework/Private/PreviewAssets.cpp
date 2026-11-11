@@ -1124,6 +1124,21 @@ void FPreviewAssets::RequestPlayerCharacter(const FAssetId& Asset)
 	}
 }
 
+void FPreviewAssets::RequestPlayerWeapon(const FAssetId& Asset)
+{
+	const bool bChanged = Asset != PlayerWeaponAsset;
+	PlayerWeaponAsset = Asset;
+	if (Asset.IsValid())
+	{
+		GetOrLoadMesh(Asset);
+	}
+
+	if (bChanged)
+	{
+		PruneCache();
+	}
+}
+
 std::shared_ptr<const FCookedModel> FPreviewAssets::GetPlayerCharacter() const noexcept
 {
 	const FPreviewMeshSlot* const Slot = PlayerCharacterAsset.IsValid() ? GetCachedAsset(PlayerCharacterAsset) : nullptr;
@@ -2022,6 +2037,11 @@ void FPreviewAssets::ReimportShownAssets()
 	Shown.insert(TextureAssets.begin(), TextureAssets.end());
 	Shown.insert(SoundAssets.begin(), SoundAssets.end());
 	Shown.insert(RegionAssets.begin(), RegionAssets.end());
+	if (PlayerWeaponAsset.IsValid())
+	{
+		Shown.insert(PlayerWeaponAsset);
+	}
+
 	if (PlayerCharacterAsset.IsValid())
 	{
 		Shown.insert(PlayerCharacterAsset);
@@ -2085,7 +2105,7 @@ void FPreviewAssets::PruneCache()
 // Pruning and publishing must agree on who still wants an asset, or a finished load is thrown away and requested again forever.
 bool FPreviewAssets::IsRequested(const FAssetId& Asset) const
 {
-	return Asset == MaterialPreviewMeshAsset || Asset == PlayerCharacterAsset || ThumbnailAssets.contains(Asset) || MaterialAssets.contains(Asset) || TextureAssets.contains(Asset) || SoundAssets.contains(Asset) || RegionAssets.contains(Asset) || std::ranges::any_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
+	return Asset == MaterialPreviewMeshAsset || Asset == PlayerCharacterAsset || Asset == PlayerWeaponAsset || ThumbnailAssets.contains(Asset) || MaterialAssets.contains(Asset) || TextureAssets.contains(Asset) || SoundAssets.contains(Asset) || RegionAssets.contains(Asset) || std::ranges::any_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
 	{
 		return Slot.Asset == Asset;
 	});

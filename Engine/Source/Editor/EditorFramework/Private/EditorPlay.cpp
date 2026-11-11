@@ -202,6 +202,19 @@ void FEditorFramework::FImplementation::TogglePlay()
 		HERTA_LOG_WARNING(*Log, EditorLog, "The player character is not a skinned model; playing as the capsule");
 	}
 
+	const FAssetId Weapon = Level->GetPlayerWeapon();
+	if (Weapon.IsValid() && !GameAssets->FindMesh(Weapon))
+	{
+		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(Weapon);
+		if (!Cached || Cached->bLoading)
+		{
+			HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for the player weapon to load");
+			return;
+		}
+
+		HERTA_LOG_WARNING(*Log, EditorLog, "The player weapon did not load; the guards and player hold the plain sword");
+	}
+
 	if (AreLevelSoundsLoading())
 	{
 		HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for the level's sounds to load");
@@ -209,6 +222,11 @@ void FEditorFramework::FImplementation::TogglePlay()
 	}
 
 	auto Session = FGameSession::Create(VisualEntities, *GameAssets, GraphicsDevice, {}, Tasks, std::move(Character));
+	if (Session)
+	{
+		(*Session)->SetWeaponMesh(Weapon.IsValid() ? GameAssets->FindMesh(Weapon) : nullptr);
+	}
+
 	if (!Session)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not start play: {}", Session.error().Message);

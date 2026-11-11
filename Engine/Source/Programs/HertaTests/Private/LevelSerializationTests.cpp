@@ -78,6 +78,15 @@ std::string ReplaceLevelText(std::string Text, const std::string_view From, cons
 	const std::size_t Position = Text.find(From);
 	REQUIRE(Position != std::string::npos);
 	Text.replace(Position, From.size(), To);
+
+	// Schema 20 always writes the player weapon; a document turned into an older one drops it, as older schemas must not contain it.
+	if (From == "\"engineSchemaVersion\": 20" && To.starts_with("\"engineSchemaVersion\": ") && !To.ends_with(": 21"))
+	{
+		const std::size_t Field = Text.find(",\n  \"playerWeapon\": ");
+		REQUIRE(Field != std::string::npos);
+		Text.erase(Field, Text.find(',', Field + 1) - Field);
+	}
+
 	return Text;
 }
 
@@ -117,7 +126,7 @@ std::string WithoutRegions(std::string Text)
 // Schema 9 always writes exposure compensation and schema 11 the player character; older schemas must not contain them.
 std::string WithSchema(std::string Text, const int Version)
 {
-	Text = WithoutRegions(WithoutSounds(WithoutEffects(ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": " + std::to_string(Version)))));
+	Text = WithoutRegions(WithoutSounds(WithoutEffects(ReplaceLevelText(std::move(Text), "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": " + std::to_string(Version)))));
 
 	for (const std::string_view Key : {",\n  \"playerCharacter\": ", ",\n  \"exposureCompensation\": "})
 	{
@@ -195,7 +204,7 @@ TEST_CASE("Levels round-trip in canonical sorted UTF-8 JSON")
 	CHECK(Serialized->find('\r') == std::string::npos);
 	CHECK(Serialized->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Serialized->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Serialized->find("\"engineSchemaVersion\": 19") != std::string::npos);
+	CHECK(Serialized->find("\"engineSchemaVersion\": 20") != std::string::npos);
 	CHECK(Serialized->find("\"folders\": []") != std::string::npos);
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Serialized, "\"format\":", "\"magic\":")));
 	CHECK(Serialized->find("\"rotation\": [") != std::string::npos);
@@ -268,7 +277,7 @@ TEST_CASE("Schema 1 body types migrate to canonical schema 3 settings and empty 
 	REQUIRE(Canonical);
 	CHECK(Canonical->find("\"format\": \"HertaLevel\"") != std::string::npos);
 	CHECK(Canonical->find("\"formatVersion\": 2") != std::string::npos);
-	CHECK(Canonical->find("\"engineSchemaVersion\": 19") != std::string::npos);
+	CHECK(Canonical->find("\"engineSchemaVersion\": 20") != std::string::npos);
 	CHECK(Canonical->find("\"folders\": []") != std::string::npos);
 	CHECK(Canonical->find("\"massKg\": 1") != std::string::npos);
 	CHECK(Canonical->find("\"gravityScale\": 1") != std::string::npos);
@@ -370,7 +379,7 @@ TEST_CASE("Levels reject unsupported versions, malformed input, and unknown data
 	    ReplaceLevelText(*Serialized, "\"HertaLevel\"", "\"OtherLevel\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 0"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 3"),
-	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 20"),
+	    ReplaceLevelText(*Serialized, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 21"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": 1.5"),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": \"2\""),
 	    ReplaceLevelText(*Serialized, "\"formatVersion\": 2", "\"formatVersion\": true"),
@@ -741,7 +750,7 @@ TEST_CASE("Visual level components and material slots have deterministic schema 
 	Document.Entities[1].HeightFog = FHeightFogComponent{.Density = 0.04f, .Albedo = {0.5f, 0.8f, 1.f}, .Quality = EFogQuality::High};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
-	CHECK(Text->find("\"engineSchemaVersion\": 19") != std::string::npos);
+	CHECK(Text->find("\"engineSchemaVersion\": 20") != std::string::npos);
 	CHECK(Text->find("\"materials\": [\"" + FAssetId{8, 1}.ToString() + "\", null,") != std::string::npos);
 	const auto Restored = ParseLevel(*Text);
 	REQUIRE(Restored);
@@ -804,7 +813,7 @@ TEST_CASE("Exposure compensation persists from schema nine and defaults to zero 
 	const auto Older = ParseLevel(WithSchema(*Text, 8));
 	REQUIRE(Older);
 	CHECK(Older->ExposureCompensation == 0.f);
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 8")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 8")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, ",\n  \"exposureCompensation\": -2", "")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"exposureCompensation\": -2", "\"exposureCompensation\": -6")));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"exposureCompensation\": -2", "\"exposureCompensation\": \"-2\"")));
@@ -1027,13 +1036,14 @@ TEST_CASE("Level loads reject oversized files before allocating or parsing")
 
 TEST_CASE("The player character is saved, cleared to null, and absent before schema 11")
 {
-	FLevelDocument Document{.Id = FObjectId{9, 1}, .Name = "Character", .PlayerCharacter = FAssetId{9, 2}};
+	FLevelDocument Document{.Id = FObjectId{9, 1}, .Name = "Character", .PlayerCharacter = FAssetId{9, 2}, .PlayerWeapon = FAssetId{9, 3}};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
 	CHECK(Text->find("\"playerCharacter\": \"" + FAssetId{9, 2}.ToString() + "\"") != std::string::npos);
 	const auto Loaded = ParseLevel(*Text);
 	REQUIRE(Loaded);
 	CHECK(Loaded->PlayerCharacter == FAssetId{9, 2});
+	CHECK(Loaded->PlayerWeapon == FAssetId{9, 3});
 
 	Document.PlayerCharacter = {};
 	const auto Cleared = SerializeLevel(Document);
@@ -1043,7 +1053,7 @@ TEST_CASE("The player character is saved, cleared to null, and absent before sch
 	CHECK_FALSE(ParseLevel(*Cleared)->PlayerCharacter.IsValid());
 
 	// Schema 10 has no player character and loads without one; schema 11 requires the field.
-	std::string Older = WithoutRegions(WithoutSounds(WithoutEffects(ReplaceLevelText(*Cleared, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 10"))));
+	std::string Older = WithoutRegions(WithoutSounds(WithoutEffects(ReplaceLevelText(*Cleared, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 10"))));
 	CHECK_FALSE(ParseLevel(Older));
 	const std::size_t Field = Older.find(",\n  \"playerCharacter\": ");
 	REQUIRE(Field != std::string::npos);
@@ -1052,6 +1062,26 @@ TEST_CASE("The player character is saved, cleared to null, and absent before sch
 	REQUIRE(Migrated);
 	CHECK_FALSE(Migrated->PlayerCharacter.IsValid());
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"playerCharacter\": \"", "\"playerCharacter\": \"bad-")));
+}
+
+TEST_CASE("The player weapon is saved, cleared to null, and absent before schema 20")
+{
+	const FLevelDocument Document{.Id = FObjectId{9, 1}, .Name = "Weapon", .PlayerWeapon = FAssetId{9, 7}};
+	const auto Text = SerializeLevel(Document);
+	REQUIRE(Text);
+	CHECK(Text->find("\"playerWeapon\": \"" + FAssetId{9, 7}.ToString() + "\"") != std::string::npos);
+	REQUIRE(ParseLevel(*Text));
+	CHECK(ParseLevel(*Text)->PlayerWeapon == FAssetId{9, 7});
+
+	// Schema 19 has no weapon field and loads with none; schema 20 requires it.
+	const auto Older = ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 19"));
+	REQUIRE(Older);
+	CHECK_FALSE(Older->PlayerWeapon.IsValid());
+	std::string Missing = *Text;
+	const std::size_t Field = Missing.find(",\n  \"playerWeapon\": ");
+	REQUIRE(Field != std::string::npos);
+	Missing.erase(Field, Missing.find(',', Field + 1) - Field);
+	CHECK_FALSE(ParseLevel(Missing));
 }
 
 TEST_CASE("Level sounds, effects, and audio and particle components persist from schemas thirteen and fourteen")
@@ -1082,13 +1112,13 @@ TEST_CASE("Level sounds, effects, and audio and particle components persist from
 	Plain.Entities.clear();
 	const auto PlainText = SerializeLevel(Plain);
 	REQUIRE(PlainText);
-	const auto Older = ParseLevel(WithoutRegions(WithoutSounds(WithoutEffects(ReplaceLevelText(*PlainText, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 12")))));
+	const auto Older = ParseLevel(WithoutRegions(WithoutSounds(WithoutEffects(ReplaceLevelText(*PlainText, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 12")))));
 	REQUIRE(Older);
 	CHECK(std::ranges::none_of(Older->Sounds, &FAssetId::IsValid));
 	CHECK_FALSE(ParseLevel(WithoutSounds(*PlainText)));
 	CHECK_FALSE(ParseLevel(WithoutEffects(*PlainText)));
 	CHECK_FALSE(ParseLevel(ReplaceLevelText(*PlainText, ",\n    \"slide\": null", "")));
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 12")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 12")));
 
 	FLevelEntity Invalid = Document.Entities[0];
 	Invalid.AudioEmitter->MaximumDistance = 1.f;
@@ -1112,7 +1142,7 @@ TEST_CASE("Level regions persist from schema fifteen and reject unsafe paths and
 	// Canonical order is by identity.
 	CHECK(Loaded->Regions[0].Name == "Causeway 1");
 	CHECK(Loaded->Regions[1] == Document.Regions[0]);
-	CHECK(ParseLevel(WithoutRegions(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 14"))));
+	CHECK(ParseLevel(WithoutRegions(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 14"))));
 	CHECK_FALSE(ParseLevel(WithoutRegions(*Text)));
 
 	for (const std::string_view Path : {"", "/abs.hlevel", "C:/drive.hlevel", "back\\slash.hlevel", "Regions/Causeway.txt"})
@@ -1144,12 +1174,12 @@ TEST_CASE("Navigation and AI components persist in schema sixteen and validate t
 	CHECK(Found->NavigationBounds == Document.Entities[0].NavigationBounds);
 	CHECK(Found->NavigationObstacle == Document.Entities[0].NavigationObstacle);
 	CHECK(Found->AiAgent == Document.Entities[0].AiAgent);
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 15")));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 15")));
 
 	// Schema 17 adds the attitude; schema 16 agents have none and load hostile, and an unknown attitude is refused.
 	CHECK(Text->find("\"attitude\": \"friendly\"") != std::string::npos);
-	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 16")));
-	const auto Older = ParseLevel(ReplaceLevelText(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 16"), ",\n          \"attitude\": \"friendly\"", ""));
+	CHECK_FALSE(ParseLevel(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 16")));
+	const auto Older = ParseLevel(ReplaceLevelText(ReplaceLevelText(*Text, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 16"), ",\n          \"attitude\": \"friendly\"", ""));
 	REQUIRE(Older);
 	const auto OlderAgent = std::ranges::find(Older->Entities, Document.Entities[0].Id, &FLevelEntity::Id);
 	REQUIRE(OlderAgent != Older->Entities.end());
@@ -1160,7 +1190,7 @@ TEST_CASE("Navigation and AI components persist in schema sixteen and validate t
 	// Schema 18 adds the deflect and block sounds and the sparks effect; schema 17 levels have none of them.
 	const std::string WithoutCombatCues = ReplaceLevelText(ReplaceLevelText(ReplaceLevelText(*Text, ",\n    \"deflect\": null", ""), ",\n    \"block\": null", ""), ",\n    \"sparks\": null", "");
 	CHECK_FALSE(ParseLevel(WithoutCombatCues));
-	CHECK(ParseLevel(ReplaceLevelText(WithoutCombatCues, "\"engineSchemaVersion\": 19", "\"engineSchemaVersion\": 17")));
+	CHECK(ParseLevel(ReplaceLevelText(WithoutCombatCues, "\"engineSchemaVersion\": 20", "\"engineSchemaVersion\": 17")));
 
 	CHECK_FALSE(ValidateNavigationBoundsComponent({.Size = {0.f, 1.f, 1.f}}));
 	CHECK_FALSE(ValidateNavigationObstacleComponent({.Size = {1.f, 2000.f, 1.f}}));

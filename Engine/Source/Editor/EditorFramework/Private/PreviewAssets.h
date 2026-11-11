@@ -171,6 +171,8 @@ public:
 	void RequestMaterial(const FAssetId& Asset);
 	// Keeps the level's player character loaded so Play can start without waiting for it. An invalid asset releases it.
 	void RequestPlayerCharacter(const FAssetId& Asset);
+	// Keeps the level's weapon model loaded for Play.
+	void RequestPlayerWeapon(const FAssetId& Asset);
 	// Null until the character has loaded, or when the asset is not a skinned model.
 	std::shared_ptr<const FCookedModel> GetPlayerCharacter() const noexcept;
 	void SetMaterialAssets(std::span<const FAssetId> Assets);
@@ -289,6 +291,7 @@ private:
 	FEditorMaterialThumbnailRenderer RenderMaterialThumbnail;
 	FAssetId MaterialPreviewMeshAsset{};
 	FAssetId PlayerCharacterAsset{};
+	FAssetId PlayerWeaponAsset{};
 	std::uint64_t MaterialShaderGeneration = 0;
 	bool bThumbnailRequestsChanged = false;
 	std::uint64_t RequestGeneration = 0;
