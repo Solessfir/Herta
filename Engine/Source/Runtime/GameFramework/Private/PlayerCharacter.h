@@ -31,6 +31,16 @@ struct FPlayerMotion
 	bool bMantled = false;
 };
 
+// What is under a foot: the ground's height in world space and the way it faces.
+struct FFootGround
+{
+	float Height = 0.f;
+	FVector3 Normal = FVector3::Up();
+};
+
+// Finds the ground under a world-space point, searching from Top down to Bottom.
+using FFootGroundCast = std::function<std::optional<FFootGround>(const FVector3& Point, float Top, float Bottom)>;
+
 // The animated body the player plays as: its pose, state machine, and own copies of the mesh, skinned on the CPU every frame.
 // In first person it keeps two: the intact body for shadows and ray-traced lighting, and a copy without head and neck for the camera, which sits where the head would be.
 class FPlayerCharacter
@@ -49,6 +59,9 @@ public:
 	[[nodiscard]] std::optional<FMatrix4> GetGripFrame() const;
 	// Skins the current pose into the intact body, and in first person also into the headless camera body.
 	[[nodiscard]] std::expected<void, FGameError> Skin(bool bFirstPerson);
+	// Finds the ground under each foot and eases the legs onto it, for the next Skin: uneven ground bends the legs and the pelvis drops so the
+	// lower foot can reach. Only what is drawn changes, never what gameplay reads from EvaluatePose. Disabled, it fades out without casting.
+	void UpdateFootPlacement(const FMatrix4& BodyModel, float DeltaSeconds, bool bEnabled, const FFootGroundCast& Cast);
 
 	[[nodiscard]] const FRenderMesh* GetMesh() const noexcept;
 	[[nodiscard]] std::span<const FCookedVertex> GetVertices() const noexcept;
@@ -127,6 +140,23 @@ private:
 	std::vector<FCookedVertex> Vertices;
 	std::shared_ptr<const FRenderMesh> CameraMesh;
 	std::vector<FCookedVertex> CameraVertices;
+	struct FFootPlacement
+	{
+		std::optional<std::size_t> Hip{};
+		std::optional<std::size_t> Knee{};
+		std::optional<std::size_t> Ankle{};
+		// How far the ankle's rest height sits above the sole, which tells a planted foot from a lifted one.
+		float RestHeight = 0.1f;
+		// In model space, eased.
+		FVector3 Offset{};
+		FVector3 Normal = FVector3::Up();
+	};
+
+	void ApplyFootPlacement();
+
+	std::array<FFootPlacement, 2> Feet{};
+	FVector3 PelvisOffset{};
+	float FootWeight = 0.f;
 	std::optional<std::size_t> HeadJoint;
 	// The highest joint the camera body hides, usually the neck, so looking down never shows the inside of the collar.
 	std::optional<std::size_t> HiddenJoint;

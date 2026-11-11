@@ -5,6 +5,7 @@
 #include "Herta/Assets/CookedContent.h"
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/GameSession.h"
+#include "Herta/Math/AffineTransform.h"
 #include "Herta/Navigation/NavigationWorld.h"
 #include "Herta/NavigationBuilder/NavigationBuilder.h"
 #include "Herta/StateTreeCompiler/StateTreeCompiler.h"
@@ -1405,6 +1406,127 @@ TEST_CASE("AI agents walk the navigation, chase and knock down the player, flee 
 	CHECK(Guard().Foot.IsNearlyEqual(Fell, 1.e-4f));
 	CHECK_FALSE(Guard().bAttacking);
 	CHECK(Guard().bRemembersPlayer);
+}
+
+TEST_CASE("Leg IK puts ankles on their targets, keeps bone lengths and the animated foot, and moves the pelvis subtree")
+{
+	const FCookedModel& Model = Mannequin();
+	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
+	REQUIRE(Library);
+	const auto JointIndex = [&Model](const std::string_view Name)
+	{
+		const auto Found = std::ranges::find(Model.Skeleton->JointNames, Name);
+		REQUIRE(Found != Model.Skeleton->JointNames.end());
+		return static_cast<std::size_t>(Found - Model.Skeleton->JointNames.begin());
+	};
+
+	const std::size_t Pelvis = JointIndex("pelvis");
+	const std::size_t Hip = JointIndex("thigh_l");
+	const std::size_t Knee = JointIndex("calf_l");
+	const std::size_t Ankle = JointIndex("foot_l");
+	const std::size_t OtherAnkle = JointIndex("foot_r");
+	const std::size_t Head = JointIndex("Head");
+	const std::array Layers{FAnimationLayer{.Clip = *(*Library)->FindClip("Idle_Loop")}};
+	FAnimationPose Pose(*Library);
+	const auto At = [&Pose](const std::size_t Joint)
+	{
+		return Pose.GetModelTransforms()[Joint].TransformPosition({});
+	};
+
+	REQUIRE(Pose.Evaluate(Layers));
+	const FVector3 HipStart = At(Hip);
+	const FVector3 KneeStart = At(Knee);
+	const FVector3 AnkleStart = At(Ankle);
+	const FVector3 OtherStart = At(OtherAnkle);
+	const FVector3 HeadStart = At(Head);
+	const float Upper = (KneeStart - HipStart).Length();
+	const float Lower = (AnkleStart - KneeStart).Length();
+	const FVector3 FootAxis = Pose.GetModelTransforms()[Ankle].TransformVector({1.f, 0.f, 0.f}).Normalized();
+
+	// A raised ankle lands on its target, the leg keeps its length, and the other leg and the body stay put.
+	const FVector3 Target = AnkleStart + FVector3{0.f, 0.2f, 0.f};
+	const std::array Raise{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = Target}};
+	Pose.SolveLegs(std::nullopt, {}, Raise);
+	CHECK((At(Ankle) - Target).Length() < 1.e-3f);
+	CHECK((At(Knee) - At(Hip)).Length() == doctest::Approx(Upper).epsilon(1.e-3));
+	CHECK((At(Ankle) - At(Knee)).Length() == doctest::Approx(Lower).epsilon(1.e-3));
+	CHECK((At(Hip) - HipStart).Length() < 1.e-4f);
+	CHECK((At(OtherAnkle) - OtherStart).Length() < 1.e-4f);
+	CHECK((At(Head) - HeadStart).Length() < 1.e-4f);
+	// The knee comes forward as it bends, and the foot keeps its animated orientation.
+	CHECK(At(Knee).Z > KneeStart.Z + 0.02f);
+	CHECK((Pose.GetModelTransforms()[Ankle].TransformVector({1.f, 0.f, 0.f}).Normalized() - FootAxis).Length() < 1.e-3f);
+	// The skin follows.
+	const FMatrix4 Skin = Pose.GetSkinningMatrices()[Ankle] * *TryInverseAffine((*Library)->GetInverseBindMatrices()[Ankle]);
+	CHECK((Skin.TransformPosition({}) - Target).Length() < 1.e-3f);
+
+	// A target past the leg's reach stretches it straight toward the target, no farther.
+	REQUIRE(Pose.Evaluate(Layers));
+	const std::array Far{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = HipStart + FVector3{0.f, -3.f, 0.f}}};
+	Pose.SolveLegs(std::nullopt, {}, Far);
+	CHECK((At(Ankle) - HipStart).Length() == doctest::Approx(Upper + Lower).epsilon(0.01));
+
+	// The sole turns to the ground it is given.
+	REQUIRE(Pose.Evaluate(Layers));
+	const FVector3 Slope = FVector3{0.f, 1.f, 1.f}.Normalized();
+	const std::array Tilt{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = AnkleStart, .SoleUp = Slope}};
+	Pose.SolveLegs(std::nullopt, {}, Tilt);
+	CHECK((Pose.GetModelTransforms()[Ankle].TransformVector({1.f, 0.f, 0.f}).Normalized() - FootAxis).Length() > 0.05f);
+
+	// Half weight goes halfway; a pelvis offset carries the body and leaves planted feet to the IK.
+	REQUIRE(Pose.Evaluate(Layers));
+	const std::array Half{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = Target, .Weight = 0.5f}};
+	Pose.SolveLegs(std::nullopt, {}, Half);
+	CHECK(At(Ankle).Y == doctest::Approx(AnkleStart.Y + 0.1f).epsilon(1.e-2));
+	REQUIRE(Pose.Evaluate(Layers));
+	const std::array Planted{FLegIkTarget{.Hip = Hip, .Knee = Knee, .Ankle = Ankle, .AnkleTarget = AnkleStart}};
+	Pose.SolveLegs(Pelvis, {0.f, -0.1f, 0.f}, Planted);
+	CHECK(At(Head).Y == doctest::Approx(HeadStart.Y - 0.1f).epsilon(1.e-3));
+	CHECK((At(Ankle) - AnkleStart).Length() < 1.e-3f);
+	CHECK(At(OtherAnkle).Y == doctest::Approx(OtherStart.Y - 0.1f).epsilon(1.e-3));
+}
+
+TEST_CASE("Characters plant their feet on the level's ground, bending over a step and dropping the pelvis onto lower ground")
+{
+	const FDummyGameAssets Assets;
+	const auto Dummy = [](const FObjectId Id, const FWorldPosition Position)
+	{
+		return FLevelEntity{.Id = Id, .Name = "Dummy", .Transform = {.Translation = Position}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{7, 7}}, .Character = FCharacterComponent{}};
+	};
+
+	const std::vector<FLevelEntity> Level{
+	    FLevelEntity{.Id = FObjectId{2, 1}, .Name = "Floor", .Transform = {.Translation = FWorldPosition{{0., -0.5, 0.}}, .Scale = {60.f, 1.f, 60.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    // Under the first dummy's left foot only; +X is left.
+	    FLevelEntity{.Id = FObjectId{2, 2}, .Name = "Step", .Transform = {.Translation = FWorldPosition{{0.55, 0.075, 0.}}, .Scale = {1.f, 0.15f, 2.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    Dummy(FObjectId{2, 3}, FWorldPosition{{0., 0., 0.}}),
+	    // Hovering a little over the floor, as navigation places agents.
+	    Dummy(FObjectId{2, 4}, FWorldPosition{{6., 0.1, 0.}}),
+	    Dummy(FObjectId{2, 5}, FWorldPosition{{-6., 0., 0.}}),
+	};
+
+	auto Session = FGameSession::Create(Level, Assets, nullptr, {}, nullptr, Assets.Model);
+	REQUIRE_MESSAGE(Session, (Session ? std::string() : Session.error().Message));
+	for (int Frame = 0; Frame < 90; ++Frame)
+	{
+		REQUIRE((*Session)->Update(1.f / 60.f, {}));
+		(void)(*Session)->GetRenderView({320, 180});
+	}
+
+	const auto Joint = [&](const std::size_t Character, const std::string_view Name)
+	{
+		const auto Position = (*Session)->GetCharacterJointPosition(Character, Name);
+		REQUIRE(Position);
+		return *Position;
+	};
+
+	// The reference stands on flat floor at the same height as the first dummy.
+	const float Flat = Joint(2, "foot_l").Y;
+	CHECK(Joint(0, "foot_l").Y == doctest::Approx(Flat + 0.15f).epsilon(0.05));
+	CHECK(Joint(0, "foot_r").Y == doctest::Approx(Flat).epsilon(0.05));
+	CHECK(Joint(0, "pelvis").Y == doctest::Approx(Joint(2, "pelvis").Y).epsilon(0.01));
+	// The hovering dummy's feet reach the floor and its pelvis comes down with them.
+	CHECK(Joint(1, "foot_l").Y == doctest::Approx(Flat).epsilon(0.05));
+	CHECK(Joint(1, "pelvis").Y == doctest::Approx(Joint(2, "pelvis").Y).epsilon(0.02));
 }
 
 TEST_CASE("Upper-body states keep the legs on the state before them while moving, and reversed states play backwards")

@@ -1405,10 +1405,18 @@ namespace
 class FSolidBodyFilter final : public JPH::BodyFilter
 {
 public:
+	explicit FSolidBodyFilter(const std::function<bool(FPhysicsBodyId)>* const InAccept = nullptr)
+	    : Accept(InAccept)
+	{
+	}
+
 	bool ShouldCollideLocked(const JPH::Body& Body) const override
 	{
-		return !Body.IsSensor();
+		return !Body.IsSensor() && (!Accept || (*Accept)(FPhysicsBodyId{Body.GetID().GetIndexAndSequenceNumber()}));
 	}
+
+private:
+	const std::function<bool(FPhysicsBodyId)>* Accept = nullptr;
 };
 }
 
@@ -1419,6 +1427,11 @@ float FPhysicsWorld::CastSphere(const FWorldPosition& Start, const FWorldPositio
 }
 
 std::optional<FPhysicsCastHit> FPhysicsWorld::CastSphereHit(const FWorldPosition& Start, const FWorldPosition& End, const float Radius) const
+{
+	return CastSphereHit(Start, End, Radius, {});
+}
+
+std::optional<FPhysicsCastHit> FPhysicsWorld::CastSphereHit(const FWorldPosition& Start, const FWorldPosition& End, const float Radius, const std::function<bool(FPhysicsBodyId)>& Accept) const
 {
 	if (!std::isfinite(Radius) || Radius <= 0.f)
 	{
@@ -1439,7 +1452,7 @@ std::optional<FPhysicsCastHit> FPhysicsWorld::CastSphereHit(const FWorldPosition
 	JPH::ShapeCastSettings Settings;
 	Settings.mBackFaceModeTriangles = JPH::EBackFaceMode::IgnoreBackFaces;
 	JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> Collector;
-	const FSolidBodyFilter BodyFilter;
+	const FSolidBodyFilter BodyFilter(Accept ? &Accept : nullptr);
 	const JPH::PhysicsSystem& Physics = Implementation->Physics;
 	Physics.GetNarrowPhaseQuery().CastShape(Cast, Settings, JPH::RVec3::sZero(), Collector, Physics.GetDefaultBroadPhaseLayerFilter(CharacterLayer), Physics.GetDefaultLayerFilter(CharacterLayer), BodyFilter);
 	if (!Collector.HadHit())

@@ -4,6 +4,7 @@
 #include "Herta/Math/WorldPosition.h"
 
 #include <array>
+#include <functional>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -341,6 +342,8 @@ public:
 	[[nodiscard]] float CastSphere(const FWorldPosition& Start, const FWorldPosition& End, float Radius) const;
 	// The same sweep with the touched surface's normal, or empty when nothing is in the way. A sphere that starts inside something touches it at fraction 0.
 	[[nodiscard]] std::optional<FPhysicsCastHit> CastSphereHit(const FWorldPosition& Start, const FWorldPosition& End, float Radius) const;
+	// The same sweep against only the bodies Accept takes, such as the level's own without any character's capsule. Accept runs under a body lock, so it must not call back into the world.
+	[[nodiscard]] std::optional<FPhysicsCastHit> CastSphereHit(const FWorldPosition& Start, const FWorldPosition& End, float Radius, const std::function<bool(FPhysicsBodyId)>& Accept) const;
 	// Every body, constraint, and contact cache, for rollback. Only the world that saved a state, holding the same bodies, can restore it.
 	[[nodiscard]] std::vector<std::byte> SaveState() const;
 	[[nodiscard]] std::expected<void, FPhysicsError> RestoreState(std::span<const std::byte> State);

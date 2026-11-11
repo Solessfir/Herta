@@ -380,6 +380,8 @@ public:
 	[[nodiscard]] std::size_t GetCharacterCount() const noexcept;
 	// Whether a character lies alive on the ground, such as after losing a leg.
 	[[nodiscard]] bool IsCharacterDowned(std::size_t Character) const noexcept;
+	// Where a character's joint was drawn last, in world space; empty for an unknown character or joint.
+	[[nodiscard]] std::optional<FVector3> GetCharacterJointPosition(std::size_t Character, std::string_view Joint) const;
 	// Cuts a placed character along a world-space plane through its pose as last drawn. The part with the pelvis stays and keeps animating; the
 	// other falls as a rigid piece. Returns whether the plane cut it.
 	[[nodiscard]] std::expected<bool, FGameError> SliceCharacter(std::size_t Character, const FVector3& Point, const FVector3& Normal);

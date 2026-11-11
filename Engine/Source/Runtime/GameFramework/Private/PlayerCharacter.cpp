@@ -316,6 +316,17 @@ std::expected<std::unique_ptr<FPlayerCharacter>, FGameError> FPlayerCharacter::C
 	Character->Device = Device;
 	Character->PelvisJoint = FindJoint({"pelvis", "hips", "DEF-hips"});
 	Character->GripJoints = {FindJoint({"hand_r"}), FindJoint({"middle_01_r"}), FindJoint({"index_01_r"}), FindJoint({"pinky_01_r"})};
+	const std::span<const FMatrix4> InverseBinds = Character->Library->GetInverseBindMatrices();
+	for (const auto& [Foot, Hip, Knee, Ankle] : {std::tuple{0, "thigh_l", "calf_l", "foot_l"}, std::tuple{1, "thigh_r", "calf_r", "foot_r"}})
+	{
+		FFootPlacement& Placement = Character->Feet[static_cast<std::size_t>(Foot)];
+		Placement.Hip = FindJoint({Hip});
+		Placement.Knee = FindJoint({Knee});
+		Placement.Ankle = FindJoint({Ankle});
+		const auto Bind = Placement.Ankle ? TryInverseAffine(InverseBinds[*Placement.Ankle]) : std::nullopt;
+		Placement.RestHeight = Bind ? Bind->TransformPosition({}).Y : Placement.RestHeight;
+	}
+
 	Character->HeadJoint = FindJoint({"Head", "head", "DEF-head"});
 	Character->HiddenJoint = FindJoint({"neck_01", "neck", "DEF-neck"});
 	if (!Character->HiddenJoint)
@@ -361,6 +372,14 @@ void FPlayerCharacter::Restart()
 	Remaining.reset();
 	RagdollWeight = 0.f;
 	RagdollPose.clear();
+	FootWeight = 0.f;
+	PelvisOffset = {};
+	for (FFootPlacement& Foot : Feet)
+	{
+		Foot.Offset = {};
+		Foot.Normal = FVector3::Up();
+	}
+
 	Mesh = WholeMesh;
 	Vertices = Model->Vertices;
 }
@@ -455,12 +474,79 @@ std::optional<FMatrix4> FPlayerCharacter::GetGripFrame() const
 	return FMatrix4(std::array{Fingers.X, Fingers.Y, Fingers.Z, 0.f, Grip.X, Grip.Y, Grip.Z, 0.f, Back.X, Back.Y, Back.Z, 0.f, Palm.X, Palm.Y, Palm.Z, 1.f});
 }
 
+void FPlayerCharacter::UpdateFootPlacement(const FMatrix4& BodyModel, const float DeltaSeconds, const bool bEnabled, const FFootGroundCast& Cast)
+{
+	// A body cut below the hips has no whole legs to place.
+	const bool bLegs = PelvisJoint && std::ranges::all_of(Feet, [this](const FFootPlacement& Foot)
+	{
+		return Foot.Hip && Foot.Knee && Foot.Ankle && (!Remaining || Carries(*Foot.Ankle));
+	});
+
+	const bool bPlace = bEnabled && bLegs && RagdollWeight == 0.f;
+	FootWeight = std::clamp(FootWeight + (bPlace ? 10.f : -10.f) * DeltaSeconds, 0.f, 1.f);
+	const auto Inverse = TryInverseAffine(BodyModel);
+	if (!bPlace || !Inverse || !EvaluatePose())
+	{
+		return;
+	}
+
+	constexpr float SearchHeight = 0.6f;
+	constexpr float MaximumOffset = 0.5f;
+	const float Ease = 1.f - std::exp(-18.f * DeltaSeconds);
+	const float Origin = BodyModel(1, 3);
+	const std::span<const FMatrix4> Joints = Pose.GetModelTransforms();
+	float Lowest = 0.f;
+	for (FFootPlacement& Foot : Feet)
+	{
+		const FVector3 Ankle = BodyModel.TransformPosition(Joints[*Foot.Ankle].TransformPosition({}));
+		const std::optional<FFootGround> Ground = Cast(Ankle, Origin + SearchHeight, Origin - SearchHeight);
+		// Feet are animated for flat ground at the body's origin, so a foot moves by how far the ground under it differs from that.
+		const float Height = Ground ? std::clamp(Ground->Height - Origin, -MaximumOffset, MaximumOffset) : 0.f;
+		const FVector3 Normal = Ground && Ground->Normal.Y > 0.6f ? Inverse->TransformVector(Ground->Normal).Normalized() : FVector3::Up();
+		Foot.Offset = Foot.Offset + (Inverse->TransformVector({0.f, Height, 0.f}) - Foot.Offset) * Ease;
+		Foot.Normal = (Foot.Normal + (Normal - Foot.Normal) * Ease).Normalized();
+		Lowest = std::min(Lowest, Foot.Offset.Y);
+	}
+
+	PelvisOffset = FVector3{0.f, Lowest, 0.f};
+}
+
+void FPlayerCharacter::ApplyFootPlacement()
+{
+	if (FootWeight <= 0.f || RagdollWeight > 0.f || !PelvisJoint || !Feet[0].Ankle || !Feet[1].Ankle)
+	{
+		return;
+	}
+
+	const std::span<const FMatrix4> Joints = Pose.GetModelTransforms();
+	std::array<FLegIkTarget, 2> Legs{};
+	for (std::size_t Index = 0; Index < Feet.size(); ++Index)
+	{
+		const FFootPlacement& Foot = Feet[Index];
+		// A lifted foot follows its animation; only a planted one lies flat on the ground.
+		const float Lift = Joints[*Foot.Ankle].TransformPosition({}).Y - Foot.RestHeight;
+		const float Planted = 1.f - std::clamp((Lift - 0.03f) / 0.17f, 0.f, 1.f);
+		const FVector3 Up = FVector3::Up();
+		Legs[Index] = {
+		    .Hip = *Foot.Hip,
+		    .Knee = *Foot.Knee,
+		    .Ankle = *Foot.Ankle,
+		    .AnkleTarget = Joints[*Foot.Ankle].TransformPosition({}) + Foot.Offset * FootWeight,
+		    .SoleUp = Up + (Foot.Normal - Up) * (Planted * FootWeight),
+		};
+	}
+
+	Pose.SolveLegs(PelvisJoint, PelvisOffset * FootWeight, Legs);
+}
+
 std::expected<void, FGameError> FPlayerCharacter::Skin(const bool bFirstPerson)
 {
 	if (auto Evaluated = EvaluatePose(); !Evaluated)
 	{
 		return Evaluated;
 	}
+
+	ApplyFootPlacement();
 
 	// ponytail: skins the whole body twice in first person, about 0.16 ms each for the Mannequin; skin only the hidden joints' vertices again if characters multiply.
 	const FSkinnedMeshPiece& Piece = GetPiece();

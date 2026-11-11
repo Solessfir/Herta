@@ -71,6 +71,18 @@ struct FAnimationLayer
 	float LowerBodyWeight = 1.f;
 };
 
+// A leg for FAnimationPose::SolveLegs, in the pose's model space.
+struct FLegIkTarget
+{
+	std::size_t Hip = 0;
+	std::size_t Knee = 0;
+	std::size_t Ankle = 0;
+	FVector3 AnkleTarget{};
+	// The direction the sole should face; the animated foot turns by the arc from +Y to this.
+	FVector3 SoleUp{0.f, 1.f, 0.f};
+	float Weight = 1.f;
+};
+
 // One character's working memory for sampling and blending. Reuse it every frame; evaluation allocates only when more layers are blended than ever before.
 class FAnimationPose
 {
@@ -97,6 +109,10 @@ public:
 	// Moves Joints to model-space Transforms, such as the ragdoll bodies that drive them, blended over the evaluated pose by Weight from 0 to 1,
 	// until the next Evaluate. Joints below them that are not given keep their evaluated transforms relative to their parent.
 	void OverrideJoints(std::span<const std::size_t> Joints, std::span<const FMatrix4> Transforms, float Weight);
+	// Until the next Evaluate: moves Pelvis and everything below it by PelvisOffset, then bends each leg with analytic two-bone IK so its ankle
+	// reaches its target, as far as the leg's length allows. The knee stays in the plane it bends in, and the foot keeps its animated
+	// orientation before turning to SoleUp.
+	void SolveLegs(std::optional<std::size_t> Pelvis, const FVector3& PelvisOffset, std::span<const FLegIkTarget> Legs);
 
 private:
 	struct FImplementation;
