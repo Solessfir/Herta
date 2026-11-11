@@ -314,6 +314,14 @@ HertaRuntimeModule("AI", {
     PublicDependencies = { "Math", "Assets" }
 })
 
+-- Automation for games, dedicated servers, and networked clients over EditorCore's protocol; programs link it outside Shipping only.
+HertaRuntimeModule("GameAutomation", {
+    PublicDependencies = { "Core", "Math", "Application", "Assets", "Audio", "Level", "Localization", "Navigation", "Particles", "Physics", "RHI", "Renderer", "GameUI", "GameFramework" },
+    PrivateDependencies = { "EditorCore", "Replication", "Networking", "Platform" },
+    PrivateThirdPartyDependencies = { "SimdJson" }
+})
+    externalincludedirs { path.join(RepositoryRoot, "External/simdjson"), path.join(RepositoryRoot, "External/stb") }
+
 -- GameNetworkingSockets and Protobuf stay private: messages, connections, and simulated network conditions behind Herta types.
 HertaRuntimeModule("Networking", {
     PublicDependencies = { "Core" },
@@ -721,7 +729,7 @@ project "HertaGame"
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaGame"))
     debugdir(RepositoryRoot)
     debugargs { "--project=Saved/StagedBuilds/Sandbox/Sandbox/Sandbox.hertaproject" }
-    ApplyRuntimeDependencies { "Application", "Tasks", "Audio", "GameFramework", "Replication", "Networking", "GameUI", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
+    ApplyRuntimeDependencies { "Application", "Tasks", "Audio", "GameFramework", "GameAutomation", "EditorCore", "Replication", "Networking", "GameUI", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
     dependson { "HertaShaders" }
 
     -- Shipping players should not see a console; development builds keep it for logs.
@@ -753,7 +761,7 @@ project "HertaServer"
     ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaServer"))
     debugdir(RepositoryRoot)
     debugargs { "--project=Saved/StagedBuilds/Sandbox/Sandbox/Sandbox.hertaproject" }
-    ApplyRuntimeDependencies { "Replication", "Networking", "GameFramework", "Tasks", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
+    ApplyRuntimeDependencies { "Replication", "Networking", "GameFramework", "GameAutomation", "EditorCore", "Tasks", "Math", "Platform", "Project", "Level", "Assets", "Physics" }
 
     -- GameFramework links window and audio libraries for the game; the server never calls them, so the linker leaves them out.
     filter "system:linux"

@@ -8,6 +8,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace Herta
 {
@@ -151,6 +152,13 @@ struct FPresentationError
 }
 
 [[nodiscard]] std::string_view ToString(EPresentationErrorCode Code) noexcept;
+
+// A window as presented, in sRGB RGBA8 rows from the top.
+struct FPresentationCapture
+{
+	std::vector<std::byte> Pixels{};
+	FExtent2D Extent{};
+};
 
 class IPresentationDevice
 {

@@ -1203,6 +1203,17 @@ std::size_t FGameSession::GetPlayerCount() const noexcept
 	return Implementation->Players.size();
 }
 
+std::vector<FVector3> FGameSession::GetPlayerFootPositions()
+{
+	std::vector<FVector3> Feet;
+	Implementation->ForEachPlayer([&Feet, &Session = *Implementation]
+	{
+		Feet.push_back(Session.Mover->GetState().Foot);
+	});
+
+	return Feet;
+}
+
 std::expected<void, FGameError> FGameSession::SetViewPlayer(const std::size_t InPlayer)
 {
 	FImplementation& Session = *Implementation;

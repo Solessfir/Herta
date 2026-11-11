@@ -1,6 +1,6 @@
 # Editor automation
 
-Coding agents, and any other local MCP client, can drive a running editor through `HertaEditorMcp`: read its state and log, capture the viewport, and run Play with scripted input, without window focus or keystrokes.
+Coding agents, and any other local MCP client, can drive a running editor, and games, dedicated servers, and networked clients, through `HertaEditorMcp`: read their state and logs, capture windows, click and type in the editor's UI, and play with scripted input, without window focus or keystrokes.
 
 ## Running it
 
@@ -9,10 +9,17 @@ Coding agents, and any other local MCP client, can drive a running editor throug
 
 `HertaEditorMcp` finds the editor through `Saved/Automation/Session.json`, searching upward from its own folder for the repository, or under `HERTA_ROOT` when set. A session file left by an editor that crashed is harmless: the server keeps reading the file for up to 10 seconds until an editor answers.
 
+## Games, servers, and clients
+
+Development builds of `HertaGame` and `HertaServer` take `--automation` or `--automation=write` too, with `--automation-name=<name>`; Shipping builds refuse it. Names default to `game` for a game played alone, `host` for `--host`, `client` for `--connect`, and `server` for `HertaServer`, and are lowercase on disk. Each process registers its session under the user's settings directory (`Herta/Automation/<name>/Session.json`, `%LOCALAPPDATA%` on Windows and `$XDG_CONFIG_HOME` or `~/.config` on Linux), so a packaged game is found wherever it runs.
+
+Every tool takes `target`: `editor` by default, or a name `automation_targets` lists with whether it answers. Games and servers offer `play_state` (also `network_state`), `play_input`, `play_teleport` (not on a networked client, whose player belongs to its server), `editor_capture` (not on a server), `audio_voices`, and `editor_log`. Their `play_state` adds `players`, every player's feet in player order, and a client's or server's replication statistics. An automated game keeps playing while unfocused and leaves the pointer alone, so several can run side by side; scripted input replaces the devices' only while a `play_input` run lasts. To test multiplayer, start `HertaServer --automation`, then two `HertaGame --connect=127.0.0.1:<port> --automation --automation-name=client-1` and `client-2`, drive each client with `play_input`, and compare the server's `players` with each client's.
+
 ## Tools
 
 | Tool | Does |
 |---|---|
+| `automation_targets` | The editor and every game, server, and client with a session file, by the name `target` takes, with whether each answers now and allows writes. Answered by `HertaEditorMcp` itself. |
 | `editor_status` | The open level, entity count, viewport size, whether writes are allowed, and Play state. |
 | `editor_log` | Log lines after a cursor; pass the returned `since` and `generation` back to read only newer lines. |
 | `level_entities` | Entities with IDs, names, components, and parent-relative translation, rotation, and scale, filtered by `name_contains`. |
@@ -43,6 +50,6 @@ To test movement, place the player with `play_teleport`, run input with `until` 
 - `Platform` owns the transport: named pipes on Windows that reject remote clients and only admit their owner, and Unix domain sockets with mode 0600 in the user's runtime directory on Linux. Messages are a 32-bit length and up to 16 MiB of UTF-8 JSON.
 - `EditorCore`'s `FAutomationServer` runs one client at a time on its own thread. The first message must carry the random session token from the session file; tool calls queue for the editor's main thread, which answers at a safe point each frame, possibly frames later. Unanswered calls fail after 30 s, so a stalled editor never hangs the client. Every call is recorded in `Saved/Automation/Audit.log`.
 - `EditorCore`'s `HandleMcpMessage` turns MCP JSON-RPC lines into replies, so the protocol is unit-tested without processes; `HertaEditorMcp` only reads stdin and forwards calls. Captures come back as MCP image content.
-- Every console command declares whether it mutates: writes files, changes the open level, or changes other lasting state. `FEditorCommandRegistry::Execute` refuses those before they run when the caller may not mutate, so a read-only session gets `read_only` and nothing happens. Level edits are undo transactions in the editor's own history: `entity.move <id or name> <x> <y> <z>` moves an entity to a world position as one edit, and `level.undo` and `level.redo` take it back and forth. No tool clicks ImGui or runs a shell.
+- Every console command declares whether it mutates: writes files, changes the open level, or changes other lasting state. `FEditorCommandRegistry::Execute` refuses those before they run when the caller may not mutate, so a read-only session gets `read_only` and nothing happens. Level edits are undo transactions in the editor's own history: `entity.move <id or name> <x> <y> <z>` moves an entity to a world position as one edit, and `level.undo` and `level.redo` take it back and forth. No tool runs a shell. UI clicks and typing go into ImGui's input queue, never the operating system's, and need a write session.
 
 Added tools follow a real need, as these did; see Milestone 7.5 in [EngineDesign.md](EngineDesign.md).

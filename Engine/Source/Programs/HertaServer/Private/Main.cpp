@@ -2,6 +2,7 @@
 #include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Log.h"
+#include "Herta/GameAutomation/GameAutomation.h"
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/GameContent.h"
 #include "Herta/Level/LevelSerialization.h"
@@ -81,6 +82,9 @@ struct FServerOptions
 	std::size_t MaximumPlayers = 8;
 	// Stops after this many ticks, for unattended checks; zero serves until interrupted.
 	std::uint32_t Ticks = 0;
+	// Accepts automation under this name, "server" by default; empty for none. Shipping builds refuse it.
+	std::string AutomationName{};
+	bool bAutomationWrites = false;
 };
 
 int RunServer(const FServerOptions& Options)
@@ -109,6 +113,7 @@ int RunServer(const FServerOptions& Options)
 
 	FLogOptions LogOptions;
 	LogOptions.FilePath = std::filesystem::path("Saved") / "Logs" / "Server.log";
+	LogOptions.EditorBufferCapacity = Options.AutomationName.empty() ? 0 : 4096;
 	auto LogResult = FLogService::Create(std::move(LogOptions));
 	if (!LogResult)
 	{
@@ -172,6 +177,20 @@ int RunServer(const FServerOptions& Options)
 	}
 
 	std::unique_ptr<FGameServer> Server = std::move(*ServerResult);
+	std::unique_ptr<FGameAutomation> Automation;
+	if (!Options.AutomationName.empty())
+	{
+		auto Created = FGameAutomation::Create(Options.AutomationName, Options.bAutomationWrites, *Log);
+		if (!Created)
+		{
+			HERTA_LOG_ERROR(*Log, ServerLog, "Could not start automation: {}", Created.error());
+			return 1;
+		}
+
+		Automation = std::move(*Created);
+		HERTA_LOG_INFO(*Log, ServerLog, "Automation is listening as '{}'; clients find it through {}", Options.AutomationName, Automation->GetSessionFile().string());
+	}
+
 	HERTA_LOG_INFO(*Log, ServerLog, "Serving {} from {} on port {} for up to {} players", Level->Name, Project->Descriptor.Name, Server->GetPort(), Options.MaximumPlayers);
 	std::signal(SIGINT, RequestStop);
 	std::signal(SIGTERM, RequestStop);
@@ -191,6 +210,12 @@ int RunServer(const FServerOptions& Options)
 		}
 
 		++Tick;
+		if (Automation)
+		{
+			// The server's own session holds every player, so play_state reports the authoritative world.
+			Automation->Pump({.Session = &Server->GetSession(), .Server = Server.get(), .bPresented = true});
+		}
+
 		if (Tick % (ReplicationTicksPerSecond * 30) == 0)
 		{
 			const FGameServerStats Stats = Server->GetStats();
@@ -227,6 +252,23 @@ int main(const int ArgumentCount, char** const Arguments)
 		const std::string_view Port = Herta::FindArgumentValue(Rest, "--port=");
 		const std::string_view Players = Herta::FindArgumentValue(Rest, "--max-players=");
 		const std::string_view Ticks = Herta::FindArgumentValue(Rest, "--ticks=");
+		const bool bAutomation = std::ranges::any_of(Rest, [](const char* const Argument)
+		{
+			return Argument != nullptr && std::string_view(Argument) == "--automation";
+		});
+
+		if (bAutomation || !Herta::FindArgumentValue(Rest, "--automation=").empty())
+		{
+#ifdef HERTA_SHIPPING
+			Herta::ReportFailure("Shipping builds do not accept automation");
+			return 2;
+#else
+			const std::string_view Name = Herta::FindArgumentValue(Rest, "--automation-name=");
+			Options.AutomationName = Name.empty() ? std::string("server") : std::string(Name);
+			Options.bAutomationWrites = Herta::FindArgumentValue(Rest, "--automation=") == "write";
+#endif
+		}
+
 		if ((!Port.empty() && !Herta::ParseNumber(Port, Options.Port)) || (!Players.empty() && !Herta::ParseNumber(Players, Options.MaximumPlayers)) || (!Ticks.empty() && !Herta::ParseNumber(Ticks, Options.Ticks)))
 		{
 			Herta::ReportFailure("--port=, --max-players=, and --ticks= take whole numbers");

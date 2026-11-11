@@ -2,6 +2,7 @@
 
 #include "Herta/Core/Json.h"
 #include "Herta/Platform/Ipc.h"
+#include "Herta/Platform/Platform.h"
 
 #include <simdjson.h>
 
@@ -353,5 +354,10 @@ std::expected<FAutomationSession, FAutomationError> ReadAutomationSession(const 
 	}
 
 	return FAutomationSession{.Endpoint = std::string(Endpoint), .Token = std::string(Token), .bAllowWrites = bWrite, .ProcessId = static_cast<std::uint32_t>(ProcessId)};
+}
+
+std::filesystem::path GetAutomationSessionsDirectory()
+{
+	return GetUserSettingsDirectory() / "Herta" / "Automation";
 }
 }

@@ -38,13 +38,6 @@ struct FHdrOutputSettings
 	float PeakLuminance = 1000.f;
 };
 
-// The main window as presented, in sRGB RGBA8 rows from the top.
-struct FPresentationCapture
-{
-	std::vector<std::byte> Pixels{};
-	FExtent2D Extent{};
-};
-
 class INvrhiVulkanPresentation : public IPresentationDevice
 {
 public:

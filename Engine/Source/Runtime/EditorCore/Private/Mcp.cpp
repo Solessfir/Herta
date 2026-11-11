@@ -18,6 +18,7 @@ constexpr std::string_view ServerVersion = "0.1.0";
 
 // Tool schemas the client sees; the editor implements each one.
 constexpr std::string_view ToolList = R"([
+{"name": "automation_targets", "description": "The processes this server can drive: the editor, and every game, dedicated server, and networked client started with --automation, by the name each tool's target argument takes, with whether it still answers and whether it allows writes.", "inputSchema": {"type": "object", "properties": {}}},
 {"name": "editor_status", "description": "The open level, entity count, viewport size, whether writes are allowed, and Play state.", "inputSchema": {"type": "object", "properties": {}}},
 {"name": "editor_log", "description": "Editor log lines after a cursor. Pass the returned since and generation back to read only newer lines.", "inputSchema": {"type": "object", "properties": {"since": {"type": "integer", "minimum": 0}, "generation": {"type": "integer", "minimum": 0}, "limit": {"type": "integer", "minimum": 1, "maximum": 2000}}}},
 {"name": "level_entities", "description": "Entities in the open level with their IDs, names, components, and transforms: translation in meters, rotation as a quaternion [x, y, z, w], and scale, relative to the parent when parent is true. A cube mesh is 1 m, so its scale is its size.", "inputSchema": {"type": "object", "properties": {"name_contains": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 5000}}}},
@@ -121,6 +122,19 @@ constexpr std::string_view ToolList = R"([
 
 }
 
+std::string ReadMcpTarget(const std::string_view Arguments)
+{
+	simdjson::dom::parser Parser;
+	simdjson::dom::element Root;
+	std::string_view Target;
+	if (Parser.parse(Arguments).get(Root) || Root["target"].get_string().get(Target) || Target.empty())
+	{
+		return "editor";
+	}
+
+	return std::string(Target);
+}
+
 std::optional<std::string> HandleMcpMessage(const std::string_view Line, const FMcpToolCall& Call)
 {
 	simdjson::dom::parser Parser;
@@ -150,7 +164,7 @@ std::optional<std::string> HandleMcpMessage(const std::string_view Line, const F
 
 		std::string Result = R"({"protocolVersion": )" + ToJsonString(Requested);
 		Result += std::format(R"(, "capabilities": {{"tools": {{"listChanged": false}}}}, "serverInfo": {{"name": "herta-editor", "version": "{}"}}, )", ServerVersion);
-		Result += R"("instructions": "Drives a running Herta editor started with --automation: read its state and log, capture the viewport, and run Play with scripted input."})";
+		Result += R"("instructions": "Drives a running Herta editor, and games, dedicated servers, and networked clients, started with --automation: read state and logs, capture windows, click and type in the editor's UI, inspect graphs and sounds, and play with scripted input. Pass target to address a process other than the editor; automation_targets lists them."})";
 		return MakeResult(Id, Result);
 	}
 
@@ -169,7 +183,23 @@ std::optional<std::string> HandleMcpMessage(const std::string_view Line, const F
 			return MakeError(Id, -32603, "The built-in tool list is not valid JSON");
 		}
 
-		return MakeResult(Id, std::format(R"({{"tools": {}}})", simdjson::minify(Tools)));
+		// Every tool takes a target, so one server drives the editor, games, a dedicated server, and its clients by name.
+		std::string Listed = simdjson::minify(Tools);
+		constexpr std::string_view Target = R"("target":{"type":"string","description":"The process to call: editor (the default), or a name automation_targets lists, such as game, server, or client-2"})";
+		// Schemas with properties gain target first; empty ones after, so none is matched twice.
+		const std::string Open = std::string(R"("properties":{")");
+		for (std::size_t At = Listed.find(Open); At != std::string::npos; At = Listed.find(Open, At + Open.size() + Target.size()))
+		{
+			Listed.insert(At + Open.size() - 1, std::string(Target) + ",");
+		}
+
+		const std::string Empty = std::string(R"("properties":{})");
+		for (std::size_t At = Listed.find(Empty); At != std::string::npos; At = Listed.find(Empty, At))
+		{
+			Listed.replace(At, Empty.size(), std::format(R"("properties":{{{}}})", Target));
+		}
+
+		return MakeResult(Id, std::format(R"({{"tools": {}}})", Listed));
 	}
 
 	if (Method == "tools/call")

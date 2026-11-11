@@ -78,4 +78,7 @@ private:
 };
 
 [[nodiscard]] std::expected<FAutomationSession, FAutomationError> ReadAutomationSession(const std::filesystem::path& SessionFile);
+// Where game, server, and client automation sessions register, one folder per process name: the user's settings directory, so the MCP
+// server finds a packaged game wherever it runs. The editor keeps its session in the repository's Saved/Automation.
+[[nodiscard]] std::filesystem::path GetAutomationSessionsDirectory();
 }

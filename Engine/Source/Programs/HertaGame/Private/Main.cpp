@@ -1,10 +1,11 @@
 #include "Herta/Application/Application.h"
 #include "Herta/Assets/CookedContent.h"
+#include "Herta/Assets/VirtualFileSystem.h"
 #include "Herta/Audio/AudioEngine.h"
 #include "Herta/Audio/StagedSounds.h"
 #include "Herta/Core/Build.h"
 #include "Herta/Core/Log.h"
-#include "Herta/Assets/VirtualFileSystem.h"
+#include "Herta/GameAutomation/GameAutomation.h"
 #include "Herta/GameFramework/GameAssets.h"
 #include "Herta/GameFramework/GameContent.h"
 #include "Herta/GameFramework/GameControls.h"
@@ -271,6 +272,9 @@ struct FGameOptions
 	std::string PlayerName = "Player";
 	// A culture tag that overrides the saved language for this run, such as qps-ploc.
 	std::string Culture{};
+	// Accepts automation, such as from the MCP server, under this name; empty for none. Shipping builds refuse it.
+	std::string AutomationName{};
+	bool bAutomationWrites = false;
 };
 
 int RunGame(const FGameOptions& Options)
@@ -301,6 +305,8 @@ int RunGame(const FGameOptions& Options)
 	const std::filesystem::path UserDirectory = GetUserSettingsDirectory() / "Herta" / Project->Descriptor.Name;
 	FLogOptions LogOptions;
 	LogOptions.FilePath = UserDirectory / "Logs" / "Game.log";
+	// Automation reads the log through the in-memory buffer the editor uses.
+	LogOptions.EditorBufferCapacity = Options.AutomationName.empty() ? 0 : 4096;
 	auto LogResult = FLogService::Create(std::move(LogOptions));
 	if (!LogResult)
 	{
@@ -570,6 +576,21 @@ int RunGame(const FGameOptions& Options)
 		Session = &Client->GetSession();
 	}
 
+	std::unique_ptr<FGameAutomation> Automation;
+	if (!Options.AutomationName.empty())
+	{
+		auto Created = FGameAutomation::Create(Options.AutomationName, Options.bAutomationWrites, *Log);
+		if (!Created)
+		{
+			HERTA_LOG_ERROR(*Log, GameLog, "Could not start automation: {}", Created.error());
+			return 1;
+		}
+
+		Automation = std::move(*Created);
+		HERTA_LOG_INFO(*Log, GameLog, "Automation is listening as '{}'; clients find it through {}", Options.AutomationName, Automation->GetSessionFile().string());
+	}
+
+	FMatrix4 LastView{};
 	FTickInput TickInput;
 	float NetworkSeconds = 0.f;
 	EGameClientState ClientState = EGameClientState::Connecting;
@@ -890,6 +911,12 @@ int RunGame(const FGameOptions& Options)
 		};
 
 		// The save's state only shows in the menu, so the files are checked only while it is open or opening.
+		// Automated games run several windows at once, most of them unfocused, so losing focus does not pause them, as in a smoke run.
+		if (Automation)
+		{
+			MenuInput.bFocusLost = false;
+		}
+
 		if (Menu.IsOpen() || MenuInput.bPause || MenuInput.bFocusLost)
 		{
 			MenuSettings.bCanLoad = std::filesystem::exists(SavePath) || std::filesystem::exists(GetGameSaveBackupPath(SavePath));
@@ -901,10 +928,11 @@ int RunGame(const FGameOptions& Options)
 		Menu.Tick(DeltaSeconds);
 		bPaused = Menu.IsOpen();
 
-		const bool bPlaying = !bPaused && (Window.IsFocused() || bSmokeTest);
+		const bool bPlaying = !bPaused && (Window.IsFocused() || bSmokeTest || Automation);
 		if (!bSmokeTest)
 		{
-			Window.SetCursorCaptured(bPlaying);
+			// An automated game plays unfocused too, and must not take the pointer from the window the user is in.
+			Window.SetCursorCaptured(bPlaying && Window.IsFocused());
 		}
 
 		// The frame that closes the menu still belongs to it, so the Escape or click that resumed does not also act in the game.
@@ -936,6 +964,12 @@ int RunGame(const FGameOptions& Options)
 		else
 		{
 			GamepadControls.Reset();
+		}
+
+		// A play_input run drives the player instead of the devices while it lasts.
+		if (const std::optional<FGameInput> Scripted = Automation ? Automation->TakeInput() : std::nullopt)
+		{
+			GameInput = *Scripted;
 		}
 
 		if (!bNetwork && (bRestartPressed || (bPlaying && !bMenuOwnedInput && (WasGameActionPressed(Settings.Bindings, EGameAction::Restart, Keyboard) || bPadRestart))))
@@ -1053,6 +1087,7 @@ int RunGame(const FGameOptions& Options)
 		}
 
 		FMeshRenderView View = Session->GetRenderView(Extent);
+		LastView = View.View;
 		ApplyRenderQuality(View.Visuals, Settings.Quality);
 		View.Visuals.ExposureCompensation = Level->ExposureCompensation;
 		if (Presentation->IsHdrOutputActive())
@@ -1253,6 +1288,27 @@ int RunGame(const FGameOptions& Options)
 			}
 		}
 
+		if (Automation)
+		{
+			Automation->Pump({
+			    .Session = Session,
+			    .Audio = Audio.get(),
+			    .Client = Client.get(),
+			    .Server = Host.get(),
+			    .RequestCapture = [&Presentation]()
+			{
+				Presentation->RequestFrameCapture();
+			},
+			    .TakeCapture = [&Presentation]()
+			{
+				return Presentation->TakeFrameCapture();
+			},
+			    .View = LastView,
+			    .bPaused = bPaused,
+			    .bPresented = true,
+			});
+		}
+
 		if (Presentation->HasValidationErrors())
 		{
 			HERTA_LOG_ERROR(*Log, GameLog, "Vulkan validation reported an error");
@@ -1353,6 +1409,21 @@ int main(const int ArgumentCount, char** const Arguments)
 
 		Options.bValidation = Herta::HasArgument(Rest, "--validation");
 		Options.ConnectAddress = Herta::FindArgumentValue(Rest, "--connect=");
+		if (Herta::HasArgument(Rest, "--automation") || !Herta::FindArgumentValue(Rest, "--automation=").empty())
+		{
+#ifdef HERTA_SHIPPING
+			Herta::ReportFailure("Shipping builds do not accept automation");
+			return 2;
+#else
+			const std::string_view Name = Herta::FindArgumentValue(Rest, "--automation-name=");
+			// A joining client defaults to "client", a host to "host", and a game played alone to "game".
+			Options.AutomationName = !Name.empty() ? std::string(Name) : !Options.ConnectAddress.empty()                                                        ? "client"
+			                                                         : Herta::HasArgument(Rest, "--host") || !Herta::FindArgumentValue(Rest, "--host=").empty() ? "host"
+			                                                                                                                                                    : "game";
+			Options.bAutomationWrites = Herta::FindArgumentValue(Rest, "--automation=") == "write";
+#endif
+		}
+
 		Options.Culture = Herta::FindArgumentValue(Rest, "--culture=");
 		if (const std::string_view Name = Herta::FindArgumentValue(Rest, "--name="); !Name.empty())
 		{

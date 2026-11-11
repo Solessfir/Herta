@@ -14,4 +14,6 @@ using FMcpToolCall = std::function<std::expected<std::string, std::string>(std::
 // Answers one line of MCP JSON-RPC from a client: initialize, ping, tools/list, and tools/call. Returns the one-line reply to write, or
 // nothing for notifications and lines that are not requests.
 [[nodiscard]] std::optional<std::string> HandleMcpMessage(std::string_view Line, const FMcpToolCall& Call);
+// The automation process a tool call is for: its arguments' target, such as game, server, or client-2, or editor when it names none.
+[[nodiscard]] std::string ReadMcpTarget(std::string_view Arguments);
 }

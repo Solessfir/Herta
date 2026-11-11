@@ -318,6 +318,8 @@ public:
 	// Later players' indices move down by one. The last player cannot leave.
 	[[nodiscard]] std::expected<void, FGameError> RemovePlayer(std::size_t Player);
 	[[nodiscard]] std::size_t GetPlayerCount() const noexcept;
+	// Every player's feet, in player order.
+	[[nodiscard]] std::vector<FVector3> GetPlayerFootPositions();
 	// Back at its place beside the spawn with a fresh run, keeping its best time, such as for a new owner.
 	[[nodiscard]] std::expected<void, FGameError> ResetPlayer(std::size_t Player);
 	// Moves a player's capsule without changing anything else, such as parking a player nobody owns out of the way.

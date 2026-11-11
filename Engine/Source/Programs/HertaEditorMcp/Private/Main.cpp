@@ -1,5 +1,6 @@
 // An MCP server over stdio for coding agents. It forwards tool calls to a running Herta started with --automation, which it finds through
-// Saved/Automation/Session.json; it never edits files or runs commands itself.
+// Saved/Automation/Session.json, or to the game, server, or client a call's target names, each registered under the user's automation
+// sessions directory. It never edits files or runs commands itself.
 
 #include "Herta/Core/Json.h"
 #include "Herta/EditorCore/Automation.h"
@@ -17,6 +18,7 @@
 #include <format>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <print>
 #include <string>
@@ -62,6 +64,11 @@ using namespace std::chrono_literals;
 class FEditorLink
 {
 public:
+	explicit FEditorLink(std::filesystem::path InSessionFile)
+	    : SessionFile(std::move(InSessionFile))
+	{
+	}
+
 	// Sends one tool call and waits for its answer, connecting first and reconnecting once if an earlier editor went away.
 	[[nodiscard]] std::expected<std::string, std::string> Call(const std::string_view Tool, const std::string_view Arguments)
 	{
@@ -120,7 +127,7 @@ private:
 		const auto Deadline = std::chrono::steady_clock::now() + 10s;
 		while (!Opened && std::chrono::steady_clock::now() < Deadline)
 		{
-			Session = ReadAutomationSession(FindSessionFile());
+			Session = ReadAutomationSession(SessionFile);
 			if (Session)
 			{
 				if (auto Connected = FIpcConnection::Connect(Session->Endpoint, 1s))
@@ -140,7 +147,7 @@ private:
 
 		if (!Opened)
 		{
-			return std::unexpected("The editor named in Saved/Automation/Session.json is not running; restart Herta with --automation");
+			return std::unexpected(std::format("The process named in {} is not running; restart it with --automation", SessionFile.string()));
 		}
 
 		std::string Hello = "{\"token\": ";
@@ -161,9 +168,42 @@ private:
 		return {};
 	}
 
+	std::filesystem::path SessionFile;
 	std::optional<FIpcConnection> Connection;
 	std::uint64_t NextId = 0;
 };
+
+[[nodiscard]] std::filesystem::path FindTargetSessionFile(const std::string& Target)
+{
+	return Target == "editor" ? FindSessionFile() : GetAutomationSessionsDirectory() / std::filesystem::path(std::u8string(Target.begin(), Target.end())) / "Session.json";
+}
+
+// Every process with a session file, and whether it answers a connection now.
+[[nodiscard]] std::string ListTargets()
+{
+	std::vector<std::pair<std::string, std::filesystem::path>> Targets{{"editor", FindSessionFile()}};
+	std::error_code Error;
+	for (const auto& Entry : std::filesystem::directory_iterator(GetAutomationSessionsDirectory(), Error))
+	{
+		if (Entry.is_directory(Error) && std::filesystem::exists(Entry.path() / "Session.json", Error))
+		{
+			const std::u8string Name = Entry.path().filename().u8string();
+			Targets.emplace_back(std::string(Name.begin(), Name.end()), Entry.path() / "Session.json");
+		}
+	}
+
+	std::string Output = R"({"id": 0, "result": {"targets": [)";
+	for (std::size_t Index = 0; Index < Targets.size(); ++Index)
+	{
+		const auto Session = ReadAutomationSession(Targets[Index].second);
+		const bool bAlive = Session && FIpcConnection::Connect(Session->Endpoint, 200ms).has_value();
+		Output += Index == 0 ? "{\"name\": " : ", {\"name\": ";
+		AppendJsonString(Output, Targets[Index].first);
+		Output += std::format(", \"answers\": {}, \"writes\": {}}}", bAlive ? "true" : "false", Session && Session->bAllowWrites ? "true" : "false");
+	}
+
+	return Output + "]}}";
+}
 
 int Run()
 {
@@ -173,7 +213,7 @@ int Run()
 	_setmode(_fileno(stdout), _O_BINARY);
 #endif
 
-	FEditorLink Editor;
+	std::map<std::string, FEditorLink> Links;
 	std::string Line;
 	while (std::getline(std::cin, Line))
 	{
@@ -187,9 +227,27 @@ int Run()
 			continue;
 		}
 
-		if (const std::optional<std::string> Reply = HandleMcpMessage(Line, [&Editor](const std::string_view Tool, const std::string_view Arguments)
+		if (const std::optional<std::string> Reply = HandleMcpMessage(Line, [&Links](const std::string_view Tool, const std::string_view Arguments) -> std::expected<std::string, std::string>
 		{
-			return Editor.Call(Tool, Arguments);
+			if (Tool == "automation_targets")
+			{
+				return ListTargets();
+			}
+
+			// Names are lowercase on disk, so Client-2 and client-2 reach the same process on every platform.
+			std::string Target = ReadMcpTarget(Arguments);
+			std::ranges::transform(Target, Target.begin(), [](const unsigned char Character)
+			{
+				return static_cast<char>(std::tolower(Character));
+			});
+
+			auto Link = Links.find(Target);
+			if (Link == Links.end())
+			{
+				Link = Links.emplace(Target, FEditorLink(FindTargetSessionFile(Target))).first;
+			}
+
+			return Link->second.Call(Tool, Arguments);
 		}))
 		{
 			std::cout << *Reply << '\n';
