@@ -179,7 +179,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		ImGui::SetNextWindowCollapsed(false);
 	}
 
-	const bool bPanelVisible = bDrawer ? ToolUI->BeginPanel(">_  Output Log###Output Log Drawer", &bOutputLogDrawerOpen, EToolUIPanelKind::Drawer) : ToolUI->BeginPanel(">_  Output Log###Output Log", &bOutputLogOpen);
+	const bool bPanelVisible = bDrawer ? ToolUI->BeginPanel("Output Log###Output Log Drawer", &bOutputLogDrawerOpen, EToolUIPanelKind::Drawer) : ToolUI->BeginPanel("Output Log", &bOutputLogOpen);
 	bFocusOutputLogRequested = false;
 
 	if (!bPanelVisible)
@@ -571,9 +571,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	const ImU32 PromptColor = PackColor(ToolUITheme::TextMuted);
 	ImDrawList* const CommandDraw = ImGui::GetWindowDrawList();
 	CommandDraw->PushClipRect(InputMinimum, InputMaximum, true);
-	CommandDraw->AddLine({PromptX, PromptY - 4.f * InterfaceScale}, {PromptX + 4.f * InterfaceScale, PromptY}, PromptColor, InterfaceScale);
-	CommandDraw->AddLine({PromptX + 4.f * InterfaceScale, PromptY}, {PromptX, PromptY + 4.f * InterfaceScale}, PromptColor, InterfaceScale);
-	CommandDraw->AddLine({PromptX + 7.f * InterfaceScale, PromptY + 4.f * InterfaceScale}, {PromptX + 12.f * InterfaceScale, PromptY + 4.f * InterfaceScale}, PromptColor, InterfaceScale);
+	ToolUIIcon(EToolUIMenuIcon::LogPrompt, PromptX + 4.4f * InterfaceScale, PromptY, InterfaceScale, PromptColor);
 	CommandDraw->PopClipRect();
 
 	if (bReclaimCommandFocus)

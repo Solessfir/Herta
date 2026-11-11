@@ -1166,9 +1166,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 
 				const ImVec2 CameraIconCenter{CoordinatesPosition.x + 18.f * HudScale, CoordinatesPosition.y + CoordinatesHeight * 0.5f};
 				const ImU32 CameraIconColor = PackColor(ToolUITheme::TextSecondary);
-				HudDraw->AddRect({CameraIconCenter.x - 6.f * HudScale, CameraIconCenter.y - 4.f * HudScale}, {CameraIconCenter.x + 6.f * HudScale, CameraIconCenter.y + 4.f * HudScale}, CameraIconColor, 2.f * HudScale, 0, HudScale);
-				HudDraw->AddRectFilled({CameraIconCenter.x - 3.f * HudScale, CameraIconCenter.y - 6.f * HudScale}, {CameraIconCenter.x + HudScale, CameraIconCenter.y - 4.f * HudScale}, CameraIconColor, HudScale);
-				HudDraw->AddCircle(CameraIconCenter, 2.f * HudScale, CameraIconColor, 12, HudScale);
+				ToolUIIcon(EToolUIMenuIcon::Camera, CameraIconCenter.x, CameraIconCenter.y, 0.9f * HudScale, CameraIconColor);
 				HudDraw->AddText({CoordinatesPosition.x + 32.f * HudScale, CoordinatesTextY}, CameraIconColor, ImGui::GetTime() < CameraCoordinatesCopiedUntil ? "Copied" : "Camera");
 				HudDraw->AddText({CoordinatesPosition.x + 40.f * HudScale + CameraLabelWidth, CoordinatesTextY}, PackColor(ToolUITheme::TextPrimary), Coordinates.c_str());
 			}
@@ -1186,9 +1184,7 @@ void FEditorFramework::FImplementation::DrawViewport(const std::function<void()>
 				ImDrawList* const Draw = ImGui::GetWindowDrawList();
 				const ImVec2 Center{Position.x + 18.f * UiScale, Position.y + Height * 0.5f};
 				const ImU32 Muted = PackColor(ToolUITheme::TextSecondary);
-				Draw->PathArcTo(Center, 6.f * UiScale, std::numbers::pi_v<float> * 0.75f, std::numbers::pi_v<float> * 2.25f, 16);
-				Draw->PathStroke(Muted, 0, UiScale);
-				Draw->AddLine(Center, {Center.x + 3.f * UiScale, Center.y - 3.f * UiScale}, Muted, UiScale);
+				ToolUIIcon(EToolUIMenuIcon::CameraSpeed, Center.x, Center.y - UiScale, 0.9f * UiScale, Muted);
 				const float TextY = Center.y - ImGui::GetFontSize() * 0.5f;
 				Draw->AddText({Position.x + 32.f * UiScale, TextY}, Muted, "Speed");
 				Draw->AddText({Position.x + 40.f * UiScale + LabelWidth, TextY}, PackColor(ToolUITheme::TextPrimary), Speed.c_str());

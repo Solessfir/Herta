@@ -20,7 +20,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <numbers>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -118,30 +117,7 @@ void DrawObjectIcon(const ImVec2 Position, const float Size, const bool bEntity)
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
 	Draw->AddRectFilled(Position, {Position.x + Size, Position.y + Size}, IM_COL32(255, 255, 255, 9), 4.f * Size / 30.f);
 	Draw->AddRect(Position, {Position.x + Size, Position.y + Size}, IM_COL32(255, 255, 255, 25), 4.f * Size / 30.f);
-	const ImVec2 Center{Position.x + Size * 0.5f, Position.y + Size * 0.5f};
-	if (bEntity)
-	{
-		const ImU32 Color = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-		Draw->AddCircle(Center, Size * 0.22f, Color, 16, std::max(1.f, Size / 30.f));
-		Draw->AddCircleFilled(Center, Size * 0.055f, Color);
-		return;
-	}
-
-	const float Radius = Size * 0.23f;
-	const ImVec2 Top{Center.x, Center.y - Radius};
-	const ImVec2 LeftTop{Center.x - Radius, Center.y - Radius * 0.5f};
-	const ImVec2 RightTop{Center.x + Radius, Center.y - Radius * 0.5f};
-	const ImVec2 Middle{Center.x, Center.y};
-	const ImVec2 LeftBottom{LeftTop.x, Center.y + Radius * 0.7f};
-	const ImVec2 RightBottom{RightTop.x, LeftBottom.y};
-	const ImVec2 Bottom{Center.x, Center.y + Radius * 1.2f};
-	const ImU32 Color = ImGui::GetColorU32(ImGuiCol_TextDisabled);
-	const float Stroke = std::max(1.f, Size / 30.f);
-
-	for (const auto& [From, To] : {std::pair{Top, LeftTop}, std::pair{Top, RightTop}, std::pair{LeftTop, Middle}, std::pair{RightTop, Middle}, std::pair{Middle, Bottom}, std::pair{LeftTop, LeftBottom}, std::pair{RightTop, RightBottom}, std::pair{LeftBottom, Bottom}, std::pair{RightBottom, Bottom}})
-	{
-		Draw->AddLine(From, To, Color, Stroke);
-	}
+	ToolUIIcon(bEntity ? EToolUIMenuIcon::Entity : EToolUIMenuIcon::Cube, Position.x + Size * 0.5f, Position.y + Size * 0.5f, Size / 22.f);
 }
 
 EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelState& State, const FDetailsComponentField& Components, const bool bDragging)
@@ -155,7 +131,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 	ImGui::PushStyleColor(ImGuiCol_Button, {1, 1, 1, 0.04f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
-	const bool bButtonPressed = ImGui::Button("+ Add Component");
+	const bool bButtonPressed = ToolUIButton("Add Component", EToolUIMenuIcon::Add);
 	ImGui::PopStyleColor(3);
 	ImGui::PopStyleVar(3);
 	if (bButtonPressed || (bRequested && !bDragging))
@@ -421,16 +397,7 @@ void DrawLockButton(bool& bLocked)
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 3.f * Scale);
 	}
 
-	const ImVec2 Center{Position.x + Size.x * 0.5f - 3.f * Scale, Position.y + Size.y * 0.5f};
-	const float Stroke = 1.4f * Scale;
-	DrawList->AddRect({Center.x - 4.5f * Scale, Center.y - 0.5f * Scale}, {Center.x + 4.5f * Scale, Center.y + 6.f * Scale}, Color, 1.5f * Scale, 0, Stroke);
-	DrawList->AddCircleFilled({Center.x, Center.y + 2.f * Scale}, 0.8f * Scale, Color);
-	DrawList->AddLine({Center.x, Center.y + 2.f * Scale}, {Center.x, Center.y + 4.f * Scale}, Color, Scale);
-	const float Offset = bLocked ? 0.f : 3.f * Scale;
-	DrawList->PathLineTo({Center.x - 3.f * Scale + Offset, Center.y + 0.5f * Scale});
-	DrawList->PathArcTo({Center.x + Offset, Center.y - 3.f * Scale}, 3.f * Scale, std::numbers::pi_v<float>, std::numbers::pi_v<float> * 2.f, 12);
-	DrawList->PathLineTo({Center.x + 3.f * Scale + Offset, Center.y + (bLocked ? 0.5f : -1.5f) * Scale});
-	DrawList->PathStroke(Color, 0, Stroke);
+	ToolUIIcon(bLocked ? EToolUIMenuIcon::LockClosed : EToolUIMenuIcon::LockOpen, Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f, 0.8f * Scale, Color);
 	ImGui::SetItemTooltip(bLocked ? "Unlock scale proportions" : "Lock scale proportions");
 }
 
@@ -447,17 +414,8 @@ void DrawLockButton(bool& bLocked)
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 3.f * Scale);
 	}
 
-	const ImVec2 Center{Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f};
 	const ImU32 Color = ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-	const ImVec2 Tip{Center.x - 5.f * Scale, Center.y - Scale};
-	DrawList->PathLineTo({Center.x - 2.f * Scale, Center.y - 4.f * Scale});
-	DrawList->PathLineTo(Tip);
-	DrawList->PathLineTo({Center.x - 2.f * Scale, Center.y + 2.f * Scale});
-	DrawList->PathStroke(Color, 0, 1.4f * Scale);
-	DrawList->PathLineTo(Tip);
-	DrawList->PathArcTo({Center.x + 2.f * Scale, Center.y + 1.5f * Scale}, 2.5f * Scale, -std::numbers::pi_v<float> * 0.5f, std::numbers::pi_v<float> * 0.5f, 8);
-	DrawList->PathLineTo({Center.x + Scale, Center.y + 4.f * Scale});
-	DrawList->PathStroke(Color, 0, 1.4f * Scale);
+	ToolUIIcon(EToolUIMenuIcon::Reset, Position.x + Size.x * 0.5f, Position.y + Size.y * 0.5f, 0.8f * Scale, Color);
 
 	if (ImGui::IsItemHovered())
 	{
@@ -1264,7 +1222,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ImGui::GetStyle().ItemSpacing.x, 2.f * UiScale});
 	const std::string SelectionText = std::to_string(SelectedCount) + " selected";
 	const float SelectionWidth = ImGui::CalcTextSize(SelectionText.c_str()).x;
-	const float ActionWidth = Components != nullptr ? ImGui::CalcTextSize("+ Add Component").x + 12.f * UiScale : 0.f;
+	const float ActionWidth = Components != nullptr ? ImGui::CalcTextSize("Add Component").x + 36.f * UiScale : 0.f;
 	const float TrailingWidth = std::max(ActionWidth, SelectionWidth);
 	const float NameWidth = std::max(1.f, ImGui::GetContentRegionAvail().x - TrailingWidth - ImGui::GetStyle().ItemSpacing.x);
 	const float HeadingActionX = HeadingTextX + NameWidth + ImGui::GetStyle().ItemSpacing.x;

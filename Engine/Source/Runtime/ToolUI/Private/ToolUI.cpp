@@ -23,9 +23,11 @@
 #include <deque>
 #include <format>
 #include <fstream>
+#include <initializer_list>
 #include <limits>
 #include <numbers>
 #include <optional>
+#include <span>
 #include <system_error>
 #include <unordered_map>
 #include <utility>
@@ -517,246 +519,435 @@ void DrawGlassSurface(ImDrawList& DrawList, const ImGuiViewport& Viewport, const
 	}
 }
 
-void DrawPanelIcon(ImDrawList& DrawList, const ImVec2 Center, const float Scale, const ImU32 Color, const EToolUIMenuIcon Icon)
+// Icons share one style: filled shapes with rounded corners and round-capped strokes, in a 16-unit box centered on Center, in two tones, the
+// color and the same color at 45 percent for depth.
+class FIconPen
 {
-	const auto Line = [&](const float X, const float Y, const float EndX, const float EndY)
-	{
-		DrawList.AddLine({Center.x + X * Scale, Center.y + Y * Scale}, {Center.x + EndX * Scale, Center.y + EndY * Scale}, Color, Scale);
-	};
+public:
+	FIconPen(ImDrawList& InDraw, const ImVec2 InCenter, const float InScale, const ImU32 InColor);
 
-	if (Icon == EToolUIMenuIcon::Outliner)
+	[[nodiscard]] ImVec2 At(float X, float Y) const;
+	[[nodiscard]] ImU32 Tone(float Opacity) const;
+	void Circle(float X, float Y, float Radius, float Opacity = 1.f) const;
+	void Rect(float X0, float Y0, float X1, float Y1, float Rounding, float Opacity = 1.f) const;
+	// A convex polygon; bConcave triangulates any simple polygon instead.
+	void Polygon(std::initializer_list<ImVec2> Points, float Opacity = 1.f, bool bConcave = false) const;
+	// A polyline with round caps and joins, Width in icon units.
+	void Stroke(std::span<const ImVec2> Points, float Width, float Opacity = 1.f, bool bClosed = false) const;
+	void Stroke(std::initializer_list<ImVec2> Points, float Width, float Opacity = 1.f, bool bClosed = false) const;
+	// A polygon filled and outlined with a thin round stroke, which rounds its corners.
+	void RoundedPolygon(std::initializer_list<ImVec2> Points, float Rounding, float Opacity = 1.f) const;
+	void Ring(float X, float Y, float Radius, float Width, float Opacity = 1.f) const;
+	void Frame(float X0, float Y0, float X1, float Y1, float Rounding, float Width, float Opacity = 1.f) const;
+	[[nodiscard]] std::vector<ImVec2> Arc(float X, float Y, float Radius, float From, float To) const;
+
+private:
+	ImDrawList& Draw;
+	ImVec2 Center;
+	float Scale = 1.f;
+	ImU32 Color = 0;
+};
+
+FIconPen::FIconPen(ImDrawList& InDraw, const ImVec2 InCenter, const float InScale, const ImU32 InColor)
+    : Draw(InDraw)
+    , Center(InCenter)
+    , Scale(InScale)
+    , Color(InColor)
+{
+}
+
+ImVec2 FIconPen::At(const float X, const float Y) const
+{
+	return {Center.x + X * Scale, Center.y + Y * Scale};
+}
+
+ImU32 FIconPen::Tone(const float Opacity) const
+{
+	const auto Alpha = static_cast<float>((Color >> IM_COL32_A_SHIFT) & 0xFFu) * Opacity;
+	return (Color & ~IM_COL32_A_MASK) | (static_cast<ImU32>(std::lround(Alpha)) << IM_COL32_A_SHIFT);
+}
+
+void FIconPen::Circle(const float X, const float Y, const float Radius, const float Opacity) const
+{
+	Draw.AddCircleFilled(At(X, Y), Radius * Scale, Tone(Opacity));
+}
+
+void FIconPen::Rect(const float X0, const float Y0, const float X1, const float Y1, const float Rounding, const float Opacity) const
+{
+	Draw.AddRectFilled(At(X0, Y0), At(X1, Y1), Tone(Opacity), Rounding * Scale);
+}
+
+void FIconPen::Polygon(const std::initializer_list<ImVec2> Points, const float Opacity, const bool bConcave) const
+{
+	std::array<ImVec2, 8> Placed{};
+	std::size_t Count = 0;
+	for (const ImVec2 Point : Points)
 	{
-		for (const float Y : {-4.f, 0.f, 4.f})
-		{
-			DrawList.AddRectFilled({Center.x - 6.f * Scale, Center.y + (Y - 1.f) * Scale}, {Center.x - 4.f * Scale, Center.y + (Y + 1.f) * Scale}, Color);
-			Line(-2, Y, 6, Y);
-		}
+		Placed[Count++] = At(Point.x, Point.y);
+	}
+
+	if (bConcave)
+	{
+		Draw.AddConcavePolyFilled(Placed.data(), static_cast<int>(Count), Tone(Opacity));
 	}
 	else
 	{
-		Line(-5, 3, 3, -5);
-		Line(-3, 5, 5, -3);
-		Line(3, -5, 5, -3);
-		Line(-5, 3, -6, 6);
-		Line(-6, 6, -3, 5);
-		Line(-6, 6, 6, 6);
+		Draw.AddConvexPolyFilled(Placed.data(), static_cast<int>(Count), Tone(Opacity));
 	}
+}
+
+void FIconPen::Stroke(const std::span<const ImVec2> Points, const float Width, const float Opacity, const bool bClosed) const
+{
+	std::vector<ImVec2> Placed;
+	Placed.reserve(Points.size());
+	for (const ImVec2 Point : Points)
+	{
+		Placed.push_back(At(Point.x, Point.y));
+	}
+
+	const ImU32 Ink = Tone(Opacity);
+	Draw.AddPolyline(Placed.data(), static_cast<int>(Placed.size()), Ink, bClosed ? ImDrawFlags_Closed : ImDrawFlags_None, Width * Scale);
+	// Discs at every vertex round the caps and joins, which ImGui draws square.
+	for (const ImVec2 Point : Placed)
+	{
+		Draw.AddCircleFilled(Point, Width * Scale * 0.5f, Ink, 12);
+	}
+}
+
+void FIconPen::Stroke(const std::initializer_list<ImVec2> Points, const float Width, const float Opacity, const bool bClosed) const
+{
+	Stroke(std::span(Points.begin(), Points.size()), Width, Opacity, bClosed);
+}
+
+void FIconPen::RoundedPolygon(const std::initializer_list<ImVec2> Points, const float Rounding, const float Opacity) const
+{
+	Polygon(Points, Opacity);
+	Stroke(Points, Rounding, Opacity, true);
+}
+
+void FIconPen::Ring(const float X, const float Y, const float Radius, const float Width, const float Opacity) const
+{
+	Draw.AddCircle(At(X, Y), Radius * Scale, Tone(Opacity), 0, Width * Scale);
+}
+
+void FIconPen::Frame(const float X0, const float Y0, const float X1, const float Y1, const float Rounding, const float Width, const float Opacity) const
+{
+	Draw.AddRect(At(X0, Y0), At(X1, Y1), Tone(Opacity), Rounding * Scale, 0, Width * Scale);
+}
+
+std::vector<ImVec2> FIconPen::Arc(const float X, const float Y, const float Radius, const float From, const float To) const
+{
+	const int Steps = std::max(4, static_cast<int>(std::abs(To - From) * 6.f));
+	std::vector<ImVec2> Points;
+	for (int Step = 0; Step <= Steps; ++Step)
+	{
+		const float Angle = From + (To - From) * static_cast<float>(Step) / static_cast<float>(Steps);
+		Points.emplace_back(X + Radius * std::cos(Angle), Y + Radius * std::sin(Angle));
+	}
+
+	return Points;
 }
 
 void DrawToolUIIcon(ImDrawList* const Draw, const ImVec2 Center, const float Scale, const ImU32 Color, const EToolUIMenuIcon Icon)
 {
-	const auto Line = [&](const float X, const float Y, const float EndX, const float EndY)
+	const FIconPen Pen(*Draw, Center, Scale, Color);
+	constexpr float Dim = 0.45f;
+	constexpr float Mid = 0.72f;
+	switch (Icon)
 	{
-		Draw->AddLine({Center.x + X * Scale, Center.y + Y * Scale}, {Center.x + EndX * Scale, Center.y + EndY * Scale}, Color, Scale);
-	};
-
-	if (Icon == EToolUIMenuIcon::Outliner || Icon == EToolUIMenuIcon::Details)
-	{
-		DrawPanelIcon(*Draw, Center, Scale, Color, Icon);
-	}
-	else if (Icon == EToolUIMenuIcon::Entity)
-	{
-		Draw->AddCircle(Center, 6.f * Scale, Color, 16, Scale);
-		Draw->AddCircleFilled(Center, 1.5f * Scale, Color);
-	}
-	else if (Icon == EToolUIMenuIcon::Physics)
-	{
-		Draw->AddCircle(Center, 6.f * Scale, Color, 16, Scale);
-		Line(-6.f, 0.f, 6.f, 0.f);
-		Draw->AddEllipse(Center, {3.f * Scale, 6.f * Scale}, Color, 0.f, 16, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Light)
-	{
-		Draw->AddCircle(Center, 3.f * Scale, Color, 20, Scale);
-		for (int Ray = 0; Ray < 8; ++Ray)
-		{
-			const float Angle = static_cast<float>(Ray) * std::numbers::pi_v<float> / 4.f;
-			Line(std::cos(Angle) * 4.5f, std::sin(Angle) * 4.5f, std::cos(Angle) * 6.5f, std::sin(Angle) * 6.5f);
-		}
-	}
-	else if (Icon == EToolUIMenuIcon::SkyAtmosphere)
-	{
-		Draw->AddCircle({Center.x + 3.f * Scale, Center.y - 3.f * Scale}, 3.f * Scale, Color, 16, Scale);
-		Draw->AddBezierCubic({Center.x - 6.f * Scale, Center.y + 4.f * Scale}, {Center.x - 4.f * Scale, Center.y - 2.f * Scale}, {Center.x + 1.f * Scale, Center.y - 2.f * Scale}, {Center.x + 6.f * Scale, Center.y + 4.f * Scale}, Color, Scale);
-		Line(-6, 5, 6, 5);
-	}
-	else if (Icon == EToolUIMenuIcon::Fog)
-	{
-		for (int Row = -1; Row <= 1; ++Row)
-		{
-			const float Y = static_cast<float>(Row) * 4.f;
-			Line(Row == 0 ? -6.f : -4.f, Y, Row == 0 ? 6.f : 4.f, Y);
-		}
-	}
-	else if (Icon == EToolUIMenuIcon::Sound)
-	{
-		// A speaker with two sound waves.
-		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y - 2.f * Scale});
-		Draw->PathLineTo({Center.x - 3.f * Scale, Center.y - 2.f * Scale});
-		Draw->PathLineTo({Center.x + 1.f * Scale, Center.y - 6.f * Scale});
-		Draw->PathLineTo({Center.x + 1.f * Scale, Center.y + 6.f * Scale});
-		Draw->PathLineTo({Center.x - 3.f * Scale, Center.y + 2.f * Scale});
-		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y + 2.f * Scale});
-		Draw->PathStroke(Color, ImDrawFlags_Closed, Scale);
-		Draw->PathArcTo({Center.x + 1.f * Scale, Center.y}, 3.f * Scale, -0.9f, 0.9f, 8);
-		Draw->PathStroke(Color, ImDrawFlags_None, Scale);
-		Draw->PathArcTo({Center.x + 1.f * Scale, Center.y}, 6.f * Scale, -0.9f, 0.9f, 10);
-		Draw->PathStroke(Color, ImDrawFlags_None, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Material)
-	{
-		Draw->AddCircle(Center, 6.f * Scale, Color, 24, Scale);
-		Draw->AddCircleFilled({Center.x - 2.f * Scale, Center.y - 2.f * Scale}, 1.5f * Scale, Color);
-		Draw->AddBezierCubic({Center.x - 5.f * Scale, Center.y + 3.f * Scale}, {Center.x - 2.f * Scale, Center.y + 1.f * Scale}, {Center.x + 1.f * Scale, Center.y + 5.f * Scale}, {Center.x + 5.f * Scale, Center.y + 2.f * Scale}, Color, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Cube)
-	{
-		Draw->PathLineTo({Center.x, Center.y - 7.f * Scale});
-		Draw->PathLineTo({Center.x + 6.f * Scale, Center.y - 3.5f * Scale});
-		Draw->PathLineTo({Center.x + 6.f * Scale, Center.y + 3.5f * Scale});
-		Draw->PathLineTo({Center.x, Center.y + 7.f * Scale});
-		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y + 3.5f * Scale});
-		Draw->PathLineTo({Center.x - 6.f * Scale, Center.y - 3.5f * Scale});
-		Draw->PathStroke(Color, ImDrawFlags_Closed, Scale);
-		Line(-6.f, -3.5f, 0.f, 0.f);
-		Line(6.f, -3.5f, 0.f, 0.f);
-		Line(0.f, 0.f, 0.f, 7.f);
-	}
-	else if (Icon == EToolUIMenuIcon::Panel || Icon == EToolUIMenuIcon::Layout)
-	{
-		Draw->AddRect({Center.x - 6.f * Scale, Center.y - 5.f * Scale}, {Center.x + 6.f * Scale, Center.y + 5.f * Scale}, Color, Scale);
-		Line(-6, -2, 6, -2);
-		if (Icon == EToolUIMenuIcon::Layout)
-		{
-			Line(2, -2, 2, 5);
-		}
-	}
-	else if (Icon == EToolUIMenuIcon::Log)
-	{
-		Line(-5, -4, -1, 0);
-		Line(-1, 0, -5, 4);
-		Line(1, 4, 6, 4);
-	}
-	else if (Icon == EToolUIMenuIcon::Performance)
-	{
-		Line(-6, -6, -6, 6);
-		Line(-6, 6, 6, 6);
-		Line(-4, 3, -1, -1);
-		Line(-1, -1, 1, 1);
-		Line(1, 1, 5, -4);
-	}
-	else if (Icon == EToolUIMenuIcon::Sync)
-	{
-		Draw->AddCircle(Center, 5.5f * Scale, Color, 18, Scale);
-		Line(0, -3, 0, 0);
-		Line(0, 0, 3, 0);
-	}
-	else if (Icon == EToolUIMenuIcon::Folder)
-	{
-		// A back panel with its tab, darker, behind a front panel, both rounded and filled in the accent color.
-		const ImVec4 Accent = ImGui::GetStyleColorVec4(ImGuiCol_CheckMark);
-		const ImU32 Front = ImGui::GetColorU32(Accent);
-		const ImU32 Back = ImGui::GetColorU32(ImVec4{Accent.x * 0.68f, Accent.y * 0.68f, Accent.z * 0.68f, Accent.w});
-		const auto Point = [&](const float X, const float Y)
-		{
-			return ImVec2{Center.x + X * Scale, Center.y + Y * Scale};
-		};
-
-		Draw->AddRectFilled(Point(-7.f, -6.5f), Point(-0.5f, -2.f), Back, 1.5f * Scale);
-		Draw->AddRectFilled(Point(-7.f, -4.5f), Point(7.f, 6.f), Back, 1.8f * Scale);
-		Draw->AddRectFilled(Point(-7.f, -2.f), Point(7.f, 6.f), Front, 1.8f * Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Open || Icon == EToolUIMenuIcon::ContentBrowser)
-	{
-		for (const ImVec2 Point : {ImVec2{-6.f, 5.f}, {-6.f, -5.f}, {-1.f, -5.f}, {1.f, -3.f}, {5.f, -3.f}, {5.f, -1.f}})
-		{
-			Draw->PathLineTo({Center.x + Point.x * Scale, Center.y + Point.y * Scale});
-		}
-
-		Draw->PathStroke(Color, 0, Scale);
-
-		for (const ImVec2 Point : {ImVec2{-6.f, 5.f}, {-3.f, -1.f}, {7.f, -1.f}, {4.f, 5.f}})
-		{
-			Draw->PathLineTo({Center.x + Point.x * Scale, Center.y + Point.y * Scale});
-		}
-
-		Draw->PathStroke(Color, ImDrawFlags_Closed, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Save)
-	{
-		Line(-5, -6, 3, -6);
-		Line(3, -6, 6, -3);
-		Line(6, -3, 6, 6);
-		Line(6, 6, -5, 6);
-		Line(-5, 6, -5, -6);
-		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y - 1.f * Scale}, Color, 0.f, 0, Scale);
-		Draw->AddRect({Center.x - 2.f * Scale, Center.y + 2.f * Scale}, {Center.x + 3.f * Scale, Center.y + 6.f * Scale}, Color, 0.f, 0, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Undo || Icon == EToolUIMenuIcon::Redo)
-	{
-		const float Direction = Icon == EToolUIMenuIcon::Undo ? 1.f : -1.f;
-		Line(-6 * Direction, -2, 1 * Direction, -2);
-		Line(1 * Direction, -2, 5 * Direction, 1);
-		Line(5 * Direction, 1, 5 * Direction, 5);
-		Line(-3 * Direction, -5, -6 * Direction, -2);
-		Line(-3 * Direction, 1, -6 * Direction, -2);
-	}
-	else if (Icon == EToolUIMenuIcon::SelectAll)
-	{
-		for (const float X : {-1.f, 1.f})
-		{
-			for (const float Y : {-1.f, 1.f})
+		case EToolUIMenuIcon::Entity:
+			Pen.Circle(0.f, 0.f, 6.5f, Dim);
+			Pen.Circle(0.f, 0.f, 3.f);
+			break;
+		case EToolUIMenuIcon::Cube:
+			// Three faces, lit from above, with hairline gaps between them.
+			Pen.Polygon({{0.f, -7.f}, {6.f, -3.6f}, {0.f, -0.2f}, {-6.f, -3.6f}});
+			Pen.Polygon({{-6.2f, -2.8f}, {-0.5f, 0.5f}, {-0.5f, 7.f}, {-6.2f, 3.7f}}, Mid);
+			Pen.Polygon({{6.2f, -2.8f}, {6.2f, 3.7f}, {0.5f, 7.f}, {0.5f, 0.5f}}, Dim);
+			break;
+		case EToolUIMenuIcon::Light:
+		case EToolUIMenuIcon::TimeOfDay:
+			Pen.Circle(0.f, 0.f, 3.4f);
+			for (int Ray = 0; Ray < 8; ++Ray)
 			{
-				Line(6.f * X, 3.f * Y, 6.f * X, 6.f * Y);
-				Line(6.f * X, 6.f * Y, 3.f * X, 6.f * Y);
+				const float Angle = static_cast<float>(Ray) * std::numbers::pi_v<float> / 4.f;
+				Pen.Stroke({{std::cos(Angle) * 5.2f, std::sin(Angle) * 5.2f}, {std::cos(Angle) * 6.8f, std::sin(Angle) * 6.8f}}, 1.6f);
 			}
-		}
 
-		Line(-3.f, 0.f, -1.f, 2.f);
-		Line(-1.f, 2.f, 3.f, -2.f);
-	}
-	else if (Icon == EToolUIMenuIcon::Add)
-	{
-		Line(-5, 0, 5, 0);
-		Line(0, -5, 0, 5);
-	}
-	else if (Icon == EToolUIMenuIcon::Copy || Icon == EToolUIMenuIcon::Duplicate)
-	{
-		Draw->AddRect({Center.x - 6.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y + 2.f * Scale}, Color, Scale);
-		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 2.f * Scale}, {Center.x + 6.f * Scale, Center.y + 6.f * Scale}, Color, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Paste)
-	{
-		Draw->AddRect({Center.x - 5.f * Scale, Center.y - 4.f * Scale}, {Center.x + 5.f * Scale, Center.y + 6.f * Scale}, Color, Scale);
-		Draw->AddRect({Center.x - 2.f * Scale, Center.y - 6.f * Scale}, {Center.x + 2.f * Scale, Center.y - 2.f * Scale}, Color, Scale);
-	}
-	else if (Icon == EToolUIMenuIcon::Delete)
-	{
-		Line(-6, -4, 6, -4);
-		Line(-2, -6, 2, -6);
-		Line(-4, -4, -3, 6);
-		Line(-3, 6, 3, 6);
-		Line(3, 6, 4, -4);
-		Line(-1, -1, -1, 3);
-		Line(1, -1, 1, 3);
-	}
-	else if (Icon == EToolUIMenuIcon::Import)
-	{
-		Line(0, -6, 0, 2);
-		Line(-3, -1, 0, 2);
-		Line(3, -1, 0, 2);
-		Line(-6, 2, -6, 5);
-		Line(-6, 5, 6, 5);
-		Line(6, 5, 6, 2);
-	}
-	else
-	{
-		Line(-5, -5, -5, 5);
-		Line(-5, -5, 0, -5);
-		Line(-5, 5, 0, 5);
-		Line(-1, 0, 6, 0);
-		Line(3, -3, 6, 0);
-		Line(3, 3, 6, 0);
+			break;
+		case EToolUIMenuIcon::SkyAtmosphere:
+			Pen.Circle(2.6f, -2.6f, 3.6f, Dim);
+			Pen.Circle(-2.2f, 1.6f, 2.8f);
+			Pen.Circle(1.2f, 0.4f, 3.4f);
+			Pen.Circle(4.4f, 2.6f, 2.4f);
+			Pen.Rect(-6.6f, 1.8f, 6.8f, 6.2f, 2.2f);
+			break;
+		case EToolUIMenuIcon::Fog:
+			Pen.Rect(-6.5f, -5.2f, 4.f, -2.8f, 1.2f);
+			Pen.Rect(-4.f, -1.2f, 6.5f, 1.2f, 1.2f, Mid);
+			Pen.Rect(-6.5f, 2.8f, 3.f, 5.2f, 1.2f, Dim);
+			break;
+		case EToolUIMenuIcon::Physics:
+			// A ball with motion lines behind it.
+			Pen.Circle(1.6f, 0.f, 5.f);
+			Pen.Stroke({{-7.f, -2.6f}, {-4.4f, -2.6f}}, 1.6f, Dim);
+			Pen.Stroke({{-7.2f, 0.6f}, {-4.2f, 0.6f}}, 1.6f, Dim);
+			Pen.Stroke({{-6.4f, 3.6f}, {-4.f, 3.6f}}, 1.6f, Dim);
+			break;
+		case EToolUIMenuIcon::Material:
+			Pen.Circle(0.f, 0.f, 6.5f, Dim);
+			Pen.Circle(-1.f, -1.f, 4.6f);
+			break;
+		case EToolUIMenuIcon::Sound:
+			Pen.Polygon({{-7.f, -2.5f}, {-4.f, -2.5f}, {0.f, -6.2f}, {0.f, 6.2f}, {-4.f, 2.5f}, {-7.f, 2.5f}});
+			Pen.Stroke(Pen.Arc(0.6f, 0.f, 3.2f, -0.85f, 0.85f), 1.6f);
+			Pen.Stroke(Pen.Arc(0.6f, 0.f, 6.2f, -0.85f, 0.85f), 1.6f, Dim);
+			break;
+		case EToolUIMenuIcon::Folder:
+		{
+			// The accent color rather than the text color, so folders read as places apart from the actions around them.
+			const ImVec4 Accent = ImGui::GetStyleColorVec4(ImGuiCol_CheckMark);
+			const FIconPen Tinted(*Draw, Center, Scale, ImGui::GetColorU32(Accent));
+			const FIconPen Shaded(*Draw, Center, Scale, ImGui::GetColorU32(ImVec4{Accent.x * 0.68f, Accent.y * 0.68f, Accent.z * 0.68f, Accent.w}));
+			Shaded.Rect(-7.f, -6.5f, -0.5f, -2.f, 1.5f);
+			Shaded.Rect(-7.f, -4.5f, 7.f, 6.f, 1.8f);
+			Tinted.Rect(-7.f, -2.f, 7.f, 6.f, 1.8f);
+			break;
+		}
+		case EToolUIMenuIcon::Panel:
+		case EToolUIMenuIcon::Layout:
+			Pen.Rect(-7.f, -6.f, 7.f, 6.f, 2.f, Dim);
+			Pen.Rect(-7.f, -6.f, 7.f, -2.6f, 2.f);
+			if (Icon == EToolUIMenuIcon::Layout)
+			{
+				Pen.Rect(2.f, -1.4f, 7.f, 6.f, 1.6f);
+			}
+
+			break;
+		case EToolUIMenuIcon::Outliner:
+			for (const auto& [Y, Opacity] : {std::pair{-4.2f, 1.f}, std::pair{0.f, Dim}, std::pair{4.2f, Dim}})
+			{
+				Pen.Circle(-5.4f, Y, 1.4f);
+				Pen.Rect(-2.6f, Y - 1.f, 6.8f, Y + 1.f, 1.f, Opacity);
+			}
+
+			break;
+		case EToolUIMenuIcon::Details:
+			// Three sliders, each with its knob.
+			for (const auto& [Y, Knob] : {std::pair{-4.1f, -2.f}, std::pair{0.f, 3.f}, std::pair{4.1f, -4.f}})
+			{
+				Pen.Rect(-6.8f, Y - 0.8f, 6.8f, Y + 0.8f, 0.8f, Dim);
+				Pen.Circle(Knob, Y, 2.1f);
+			}
+
+			break;
+		case EToolUIMenuIcon::Open:
+		case EToolUIMenuIcon::ContentBrowser:
+			Pen.Rect(-7.f, -6.5f, -0.5f, -2.f, 1.5f, Dim);
+			Pen.Rect(-7.f, -4.5f, 6.f, 5.f, 1.8f, Dim);
+			Pen.RoundedPolygon({{-6.1f, 5.1f}, {-3.9f, -0.3f}, {6.7f, -0.3f}, {4.5f, 5.1f}}, 1.8f);
+			break;
+		case EToolUIMenuIcon::Log:
+			Pen.Rect(-7.f, -6.f, 7.f, 6.f, 2.2f, Dim);
+			Pen.Stroke({{-3.8f, -2.2f}, {-1.2f, 0.2f}, {-3.8f, 2.6f}}, 1.7f);
+			Pen.Stroke({{1.f, 3.f}, {4.4f, 3.f}}, 1.7f);
+			break;
+		case EToolUIMenuIcon::Performance:
+			// A frame-time pulse on a monitor.
+			Pen.Rect(-7.f, -6.f, 7.f, 6.f, 2.2f, Dim);
+			Pen.Stroke({{-4.8f, 0.6f}, {-2.4f, 0.6f}, {-0.8f, -3.2f}, {1.2f, 3.6f}, {2.8f, 0.6f}, {4.8f, 0.6f}}, 1.6f);
+			break;
+		case EToolUIMenuIcon::Sync:
+			Pen.Circle(0.f, 0.f, 6.6f, Dim);
+			Pen.Stroke({{0.f, -3.2f}, {0.f, 0.f}, {2.8f, 1.6f}}, 1.7f);
+			break;
+		case EToolUIMenuIcon::Import:
+			Pen.Rect(-7.f, 1.5f, 7.f, 6.5f, 2.f, Dim);
+			Pen.Rect(-1.1f, -7.f, 1.1f, -0.5f, 1.1f);
+			Pen.RoundedPolygon({{-4.f, -1.6f}, {4.f, -1.6f}, {0.f, 3.6f}}, 1.f);
+			break;
+		case EToolUIMenuIcon::Save:
+			Pen.Rect(-6.5f, -6.5f, 6.5f, 6.5f, 2.f, Dim);
+			Pen.Rect(-3.2f, -6.5f, 3.2f, -2.4f, 1.f);
+			Pen.Rect(-4.f, 1.2f, 4.f, 6.5f, 1.2f);
+			break;
+		case EToolUIMenuIcon::Undo:
+		case EToolUIMenuIcon::Redo:
+		{
+			// A hooked arrow: along the top, round the right, and back along the bottom; redo mirrors it.
+			const float Side = Icon == EToolUIMenuIcon::Undo ? 1.f : -1.f;
+			std::vector<ImVec2> Hook{{-4.f * Side, -3.2f}};
+			for (const ImVec2 Point : Pen.Arc(1.5f, 1.f, 4.2f, -std::numbers::pi_v<float> * 0.5f, std::numbers::pi_v<float> * 0.5f))
+			{
+				Hook.emplace_back(Point.x * Side, Point.y);
+			}
+
+			Hook.emplace_back(-1.f * Side, 5.2f);
+			Pen.Stroke(Hook, 1.8f);
+			Pen.RoundedPolygon({{-7.f * Side, -3.2f}, {-3.4f * Side, -6.4f}, {-3.4f * Side, 0.f}}, 1.f);
+			break;
+		}
+		case EToolUIMenuIcon::Add:
+			Pen.Rect(-6.f, -1.2f, 6.f, 1.2f, 1.2f);
+			Pen.Rect(-1.2f, -6.f, 1.2f, 6.f, 1.2f);
+			break;
+		case EToolUIMenuIcon::Copy:
+		case EToolUIMenuIcon::Duplicate:
+			Pen.Rect(-6.5f, -6.5f, 2.5f, 2.5f, 2.f, Dim);
+			Pen.Rect(-2.5f, -2.5f, 6.5f, 6.5f, 2.f);
+			break;
+		case EToolUIMenuIcon::Paste:
+			Pen.Rect(-6.f, -5.f, 6.f, 7.f, 2.f, Dim);
+			Pen.Rect(-3.2f, -7.f, 3.2f, -3.f, 1.4f);
+			Pen.Rect(-3.5f, 0.2f, 3.5f, 1.8f, 0.8f);
+			Pen.Rect(-3.5f, 3.4f, 1.5f, 5.f, 0.8f);
+			break;
+		case EToolUIMenuIcon::Delete:
+			Pen.Rect(-6.5f, -5.4f, 6.5f, -3.4f, 1.f);
+			Pen.Rect(-2.2f, -7.f, 2.2f, -5.f, 1.f);
+			Pen.Polygon({{-5.2f, -2.2f}, {5.2f, -2.2f}, {4.3f, 6.6f}, {-4.3f, 6.6f}}, Dim);
+			Pen.Stroke({{-1.6f, -0.2f}, {-1.6f, 4.f}}, 1.5f);
+			Pen.Stroke({{1.6f, -0.2f}, {1.6f, 4.f}}, 1.5f);
+			break;
+		case EToolUIMenuIcon::SelectAll:
+			Pen.Rect(-6.8f, -6.8f, 6.8f, 6.8f, 2.4f, Dim);
+			Pen.Stroke({{-3.2f, 0.2f}, {-0.8f, 2.6f}, {3.4f, -2.f}}, 1.9f);
+			break;
+		case EToolUIMenuIcon::Select:
+			// A mouse pointer with an upright left edge and a tail, so it does not read as a play arrow.
+			Pen.Polygon({{-4.f, -7.f}, {4.6f, 1.6f}, {0.9f, 1.8f}, {3.f, 6.f}, {1.2f, 6.8f}, {-0.9f, 2.6f}, {-4.f, 5.4f}}, 1.f, true);
+			Pen.Stroke({{-4.f, -7.f}, {4.6f, 1.6f}, {0.9f, 1.8f}, {3.f, 6.f}, {1.2f, 6.8f}, {-0.9f, 2.6f}, {-4.f, 5.4f}}, 1.2f, 1.f, true);
+			break;
+		case EToolUIMenuIcon::Move:
+			Pen.Stroke({{-5.f, 0.f}, {5.f, 0.f}}, 1.6f);
+			Pen.Stroke({{0.f, -5.f}, {0.f, 5.f}}, 1.6f);
+			Pen.Polygon({{-7.4f, 0.f}, {-4.4f, -2.8f}, {-4.4f, 2.8f}});
+			Pen.Polygon({{7.4f, 0.f}, {4.4f, 2.8f}, {4.4f, -2.8f}});
+			Pen.Polygon({{0.f, -7.4f}, {2.8f, -4.4f}, {-2.8f, -4.4f}});
+			Pen.Polygon({{0.f, 7.4f}, {-2.8f, 4.4f}, {2.8f, 4.4f}});
+			Pen.Circle(0.f, 0.f, 2.f, Dim);
+			break;
+		case EToolUIMenuIcon::Rotate:
+		case EToolUIMenuIcon::Reset:
+		{
+			// Rotate turns clockwise and Reset mirrors it, each with its head at the top.
+			constexpr float Pi = std::numbers::pi_v<float>;
+			const float Side = Icon == EToolUIMenuIcon::Rotate ? 1.f : -1.f;
+			const std::vector<ImVec2> Path = Icon == EToolUIMenuIcon::Rotate ? Pen.Arc(0.f, 1.f, 6.f, 0.f, Pi * 1.5f - 0.25f) : Pen.Arc(0.f, 1.f, 6.f, -Pi * 0.5f + 0.25f, Pi);
+			Pen.Stroke(Path, 1.8f);
+			Pen.RoundedPolygon({{3.4f * Side, -5.f}, {-0.6f * Side, -7.8f}, {-0.6f * Side, -2.2f}}, 1.f);
+			break;
+		}
+		case EToolUIMenuIcon::Scale:
+			Pen.Rect(-7.f, 0.f, 0.f, 7.f, 1.6f, Dim);
+			Pen.Stroke({{-2.5f, 2.5f}, {4.2f, -4.2f}}, 1.7f);
+			Pen.RoundedPolygon({{7.f, -7.f}, {7.f, -1.8f}, {1.8f, -7.f}}, 1.f);
+			break;
+		case EToolUIMenuIcon::World:
+			Pen.Circle(0.f, 0.f, 6.6f, Dim);
+			Pen.Ring(0.f, 0.f, 6.6f, 1.5f);
+			Draw->AddEllipse(Center, {3.f * Scale, 6.4f * Scale}, Color, 0.f, 24, 1.5f * Scale);
+			Pen.Stroke({{-6.4f, 0.f}, {6.4f, 0.f}}, 1.5f);
+			break;
+		case EToolUIMenuIcon::Grid:
+			for (int Row = 0; Row < 3; ++Row)
+			{
+				for (int Column = 0; Column < 3; ++Column)
+				{
+					const float X = -6.3f + static_cast<float>(Column) * 4.6f;
+					const float Y = -6.3f + static_cast<float>(Row) * 4.6f;
+					Pen.Rect(X, Y, X + 3.4f, Y + 3.4f, 1.f);
+				}
+			}
+
+			break;
+		case EToolUIMenuIcon::Focus:
+			Pen.Stroke({{-6.2f, -2.4f}, {-6.2f, -6.2f}, {-2.4f, -6.2f}}, 1.8f);
+			Pen.Stroke({{2.4f, -6.2f}, {6.2f, -6.2f}, {6.2f, -2.4f}}, 1.8f);
+			Pen.Stroke({{6.2f, 2.4f}, {6.2f, 6.2f}, {2.4f, 6.2f}}, 1.8f);
+			Pen.Stroke({{-2.4f, 6.2f}, {-6.2f, 6.2f}, {-6.2f, 2.4f}}, 1.8f);
+			Pen.Circle(0.f, 0.f, 2.4f);
+			break;
+		case EToolUIMenuIcon::Settings:
+			for (const float Y : {-5.f, 0.f, 5.f})
+			{
+				Pen.Circle(0.f, Y, 1.7f);
+			}
+
+			break;
+		case EToolUIMenuIcon::Play:
+			Pen.RoundedPolygon({{-4.f, -6.f}, {6.f, 0.f}, {-4.f, 6.f}}, 2.2f);
+			break;
+		case EToolUIMenuIcon::Stop:
+			Pen.Rect(-5.5f, -5.5f, 5.5f, 5.5f, 2.f);
+			break;
+		case EToolUIMenuIcon::Simulate:
+			// A flask, half full.
+			Pen.Rect(-3.4f, -7.4f, 3.4f, -5.6f, 0.9f);
+			Pen.Polygon({{-2.f, -5.6f}, {2.f, -5.6f}, {2.f, -1.2f}, {6.6f, 6.6f}, {-6.6f, 6.6f}, {-2.f, -1.2f}}, Dim, true);
+			Pen.Polygon({{-4.4f, 2.6f}, {4.4f, 2.6f}, {6.6f, 6.6f}, {-6.6f, 6.6f}});
+			break;
+		case EToolUIMenuIcon::LockClosed:
+		case EToolUIMenuIcon::LockOpen:
+		{
+			// The open lock swings its shackle right of the body.
+			const bool bOpen = Icon == EToolUIMenuIcon::LockOpen;
+			const float ShackleX = bOpen ? 3.2f : 0.f;
+			const float ShackleRadius = bOpen ? 2.8f : 3.2f;
+			const float Top = bOpen ? -3.4f : -3.2f;
+			std::vector<ImVec2> Shackle{{ShackleX - ShackleRadius, -0.8f}};
+			for (const ImVec2 Point : Pen.Arc(ShackleX, Top, ShackleRadius, std::numbers::pi_v<float>, std::numbers::pi_v<float> * 2.f))
+			{
+				Shackle.push_back(Point);
+			}
+
+			Shackle.emplace_back(ShackleX + ShackleRadius, bOpen ? -2.f : -0.8f);
+			Pen.Stroke(Shackle, 1.8f);
+			const float BodyX = bOpen ? -1.7f : 0.f;
+			Pen.Rect(BodyX - 5.3f, -0.8f, BodyX + 5.3f, 7.f, 2.f);
+			Pen.Circle(BodyX, 3.f, 1.5f, Dim);
+			break;
+		}
+		case EToolUIMenuIcon::Search:
+			Pen.Circle(-1.2f, -1.2f, 5.f, Dim);
+			Pen.Ring(-1.2f, -1.2f, 4.2f, 1.7f);
+			Pen.Stroke({{2.6f, 2.6f}, {6.4f, 6.4f}}, 2.4f);
+			break;
+		case EToolUIMenuIcon::Close:
+			Pen.Circle(0.f, 0.f, 6.8f, Dim);
+			Pen.Stroke({{-2.8f, -2.8f}, {2.8f, 2.8f}}, 1.8f);
+			Pen.Stroke({{2.8f, -2.8f}, {-2.8f, 2.8f}}, 1.8f);
+			break;
+		case EToolUIMenuIcon::Appearance:
+			Pen.Rect(-6.8f, -3.9f, 6.8f, -2.1f, 0.9f, Dim);
+			Pen.Rect(-6.8f, 2.1f, 6.8f, 3.9f, 0.9f, Dim);
+			Pen.Circle(-2.f, -3.f, 2.3f);
+			Pen.Circle(3.f, 3.f, 2.3f);
+			break;
+		case EToolUIMenuIcon::Camera:
+			Pen.Rect(-7.f, -4.6f, 7.f, 5.4f, 2.2f, Dim);
+			Pen.Rect(-3.6f, -6.4f, 1.4f, -3.8f, 1.f);
+			Pen.Circle(0.f, 0.4f, 2.8f);
+			break;
+		case EToolUIMenuIcon::CameraSpeed:
+		{
+			constexpr float Pi = std::numbers::pi_v<float>;
+			Pen.Stroke(Pen.Arc(0.f, 1.2f, 6.f, Pi * 0.8f, Pi * 2.2f), 2.f, Dim);
+			Pen.Stroke(Pen.Arc(0.f, 1.2f, 6.f, Pi * 0.8f, Pi * 1.45f), 2.f);
+			Pen.Stroke({{0.f, 1.2f}, {3.2f, -2.2f}}, 1.8f);
+			Pen.Circle(0.f, 1.2f, 1.8f);
+			break;
+		}
+		case EToolUIMenuIcon::LogPrompt:
+			Pen.Stroke({{-4.4f, -4.f}, {-0.4f, 0.f}, {-4.4f, 4.f}}, 2.f);
+			Pen.Stroke({{2.4f, 4.f}, {6.6f, 4.f}}, 2.f);
+			break;
+		case EToolUIMenuIcon::Exit:
+		default:
+			Pen.Rect(-7.f, -6.5f, 1.f, 6.5f, 2.f, Dim);
+			Pen.Stroke({{-2.4f, 0.f}, {4.2f, 0.f}}, 1.8f);
+			Pen.RoundedPolygon({{7.f, 0.f}, {3.4f, 3.4f}, {3.4f, -3.4f}}, 1.f);
+			break;
 	}
 }
 
@@ -840,10 +1031,8 @@ void DrawDocumentTabs(FToolUIContext::FImplementation& Owner, ImDrawList& DrawLi
 			}
 
 			const ImVec2 Center{(CloseMinimum.x + CloseMaximum.x) * 0.5f, (CloseMinimum.y + CloseMaximum.y) * 0.5f};
-			const float Arm = 3.5f * Scale;
 			const ImU32 CrossColor = ToImGuiPackedColor(bCloseHovered ? ToolUITheme::TextPrimary : ToolUITheme::TextMuted);
-			DrawList.AddLine({Center.x - Arm, Center.y - Arm}, {Center.x + Arm, Center.y + Arm}, CrossColor, 1.25f * Scale);
-			DrawList.AddLine({Center.x - Arm, Center.y + Arm}, {Center.x + Arm, Center.y - Arm}, CrossColor, 1.25f * Scale);
+			DrawToolUIIcon(&DrawList, Center, Scale * 0.6f, CrossColor, EToolUIMenuIcon::Close);
 		}
 
 		X = Maximum.x + 2.f * Scale;
@@ -909,7 +1098,8 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 				const bool bDetails = Tab.Window && Tab.Window->ID == ImHashStr("Details");
 				const bool bContent = Tab.Window && Tab.Window->ID == ImHashStr("Content Browser");
 				const bool bPerformance = Tab.Window && Tab.Window->ID == ImHashStr("Performance");
-				if (bOutliner || bDetails || bContent || bPerformance)
+				const bool bLog = Tab.Window && Tab.Window->ID == ImHashStr("Output Log");
+				if (bOutliner || bDetails || bContent || bPerformance || bLog)
 				{
 					const float Scale = Window->Viewport->DpiScale;
 					const float Left = Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim;
@@ -919,6 +1109,7 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 					DrawList->PushClipRect({Bar.ScrollingRectMinX, Bar.BarRect.Min.y}, {Bar.ScrollingRectMaxX, Bar.BarRect.Max.y}, false);
 					DrawToolUIIcon(DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : bDetails   ? EToolUIMenuIcon::Details
 					                                                                                   : bPerformance ? EToolUIMenuIcon::Performance
+					                                                                                   : bLog         ? EToolUIMenuIcon::Log
 					                                                                                                  : EToolUIMenuIcon::ContentBrowser);
 					DrawList->PopClipRect();
 				}
@@ -2608,6 +2799,11 @@ void ToolUIIcon(const EToolUIMenuIcon Icon, const float CenterX, const float Cen
 	DrawToolUIIcon(ImGui::GetWindowDrawList(), {CenterX, CenterY}, Scale, ImGui::GetColorU32(ImGuiCol_TextDisabled), Icon);
 }
 
+void ToolUIIcon(const EToolUIMenuIcon Icon, const float CenterX, const float CenterY, const float Scale, const std::uint32_t Color)
+{
+	DrawToolUIIcon(ImGui::GetWindowDrawList(), {CenterX, CenterY}, Scale, Color, Icon);
+}
+
 void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, const std::function<void()>& DrawWindowMenuItems, const std::function<void()>& DrawStatusItems, const std::function<void()>& DrawFileMenuItems, const std::function<void()>& DrawEditMenuItems, const std::function<void()>& DrawToolsMenuItems)
 {
 	if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Q, ImGuiInputFlags_RouteGlobal))
@@ -3023,7 +3219,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		}
 	}
 
-	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" || Name == "Performance" ? std::format("      {}###{}", Name, Name) : std::string(Name);
+	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" || Name == "Performance" || Name == "Output Log" ? std::format("      {}###{}", Name, Name) : std::string(Name);
 	constexpr ImGuiWindowFlags DrawerFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 	// A document must rise above the full-window workspace host to receive the mouse, so it comes to the front when focused; drawers open focused above it.
 	constexpr ImGuiWindowFlags DocumentFlags = DrawerFlags | ImGuiWindowFlags_NoTitleBar;
@@ -3272,12 +3468,9 @@ bool FToolUIContext::DrawSearchField(const char* const Label, const char* const 
 	const ImVec2 Minimum = ImGui::GetItemRectMin();
 	const ImVec2 Maximum = ImGui::GetItemRectMax();
 	const ImVec2 Center{Minimum.x + 13.5f * Scale, (Minimum.y + Maximum.y) * 0.5f - 1.5f * Scale};
-	const float Radius = 4.f * Scale;
-	const ImU32 IconColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
 	ImDrawList* const DrawList = ImGui::GetWindowDrawList();
 	DrawList->PushClipRect(Minimum, Maximum, true);
-	DrawList->AddCircle(Center, Radius, IconColor, 12, 1.25f * Scale);
-	DrawList->AddLine({Center.x + 3.f * Scale, Center.y + 3.f * Scale}, {Center.x + 7.f * Scale, Center.y + 7.f * Scale}, IconColor, 1.25f * Scale);
+	DrawToolUIIcon(DrawList, {Center.x + 1.1f * Scale, Center.y + 1.1f * Scale}, Scale * 0.9f, ImGui::GetColorU32(ImGuiCol_TextDisabled), EToolUIMenuIcon::Search);
 	DrawList->PopClipRect();
 	return bChanged;
 }

@@ -221,7 +221,7 @@ bool DrawFolderTile(const std::string& Path, FContentBrowserState& State, FPrevi
 	const float IconSize = bList ? Font : Size.y - Font * 2.7f;
 	const float IconBottom = Start.y + Font * 0.35f + IconSize;
 	const ImVec2 LabelMinimum = bList ? ImVec2{Start.x + Font + 16.f * Scale, Start.y + (Size.y - Font) * 0.5f} : ImVec2{Start.x + 4.f * Scale, IconBottom + Font * 0.3f};
-	ToolUIIcon(EToolUIMenuIcon::Folder, bList ? Start.x + Font * 0.5f + 6.f * Scale : Start.x + Size.x * 0.5f, bList ? Start.y + Size.y * 0.5f : Start.y + Font * 0.35f + IconSize * 0.5f, bList ? Scale : IconSize / 20.f);
+	ToolUIIcon(EToolUIMenuIcon::Folder, bList ? Start.x + Font * 0.5f + 6.f * Scale : Start.x + Size.x * 0.5f, bList ? Start.y + Size.y * 0.5f : Start.y + Font * 0.35f + IconSize * 0.5f, bList ? Scale : IconSize / 17.f);
 	if (bRenaming)
 	{
 		const bool bScrollToRow = State.bFocusFolderName;
@@ -1119,8 +1119,9 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		const bool bList = State.Zoom < 0.5f;
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Gap, bList ? 3.f * Scale : ImGui::GetStyle().ItemSpacing.y});
 		const float TileSize = (48.f + State.Zoom * 16.f) * Scale;
-		const int Columns = bList ? 1 : std::max(1, static_cast<int>((Width + Gap) / (TileSize + 8.f * Scale + Gap)));
-		const ImVec2 Tile{std::max(1.f, (Width - static_cast<float>(Columns - 1) * Gap) / static_cast<float>(Columns)), bList ? ImGui::GetFontSize() + 4.f * Scale : TileSize};
+		// Tiles keep their size and leave the spare width at the end of the row, so a few items do not spread across a wide browser.
+		const ImVec2 Tile{bList ? std::max(1.f, Width) : TileSize * 0.85f, bList ? ImGui::GetFontSize() + 4.f * Scale : TileSize};
+		const int Columns = bList ? 1 : std::max(1, static_cast<int>((Width + Gap) / (Tile.x + Gap)));
 		const std::size_t TileCount = State.FolderMatches.size() + State.Matches.size();
 		const int Rows = static_cast<int>((TileCount + static_cast<std::size_t>(Columns) - 1) / static_cast<std::size_t>(Columns));
 		std::string OpenFolder;

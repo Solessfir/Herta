@@ -711,18 +711,9 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			const bool bPressed = ImGui::Button("##Status", {ImGui::CalcTextSize(Label).x + 42.f * Scale, 26.f * Scale});
 			const ImVec2 Minimum = ImGui::GetItemRectMin();
 			const ImVec2 Center{Minimum.x + 16.f * Scale, Minimum.y + 13.f * Scale};
-			ImDrawList* const DrawList = ImGui::GetWindowDrawList();
 			const ImU32 Color = ImGui::GetColorU32(ImGuiCol_Text);
-
-			for (int Row = -1; Row <= 1; ++Row)
-			{
-				const float Y = Center.y + static_cast<float>(Row) * 4.f * Scale;
-				DrawList->AddLine({Center.x - 6.f * Scale, Y}, {Center.x + 6.f * Scale, Y}, Color, Scale);
-				const float X = Center.x + (Row == 0 ? 2.f : -2.f) * Scale;
-				DrawList->AddLine({X, Y - 2.f * Scale}, {X, Y + 2.f * Scale}, Color, 2.f * Scale);
-			}
-
-			DrawList->AddText({Minimum.x + 30.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, Color, Label);
+			ToolUIIcon(EToolUIMenuIcon::Appearance, Center.x, Center.y, 0.9f * Scale, Color);
+			ImGui::GetWindowDrawList()->AddText({Minimum.x + 30.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, Color, Label);
 			ImGui::PopID();
 			ImGui::PopStyleColor();
 			return bPressed;

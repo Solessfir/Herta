@@ -58,7 +58,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 	float ToolbarBottom = Top + Height;
 	bViewportControlsHovered = false;
 
-	const auto IconButton = [&](const char* Id, const EViewportIcon Icon, const char* Tooltip, const bool bSelected = false)
+	const auto IconButton = [&](const char* Id, const EToolUIMenuIcon Icon, const char* Tooltip, const bool bSelected = false)
 	{
 		return ViewportIconButton(Id, Icon, Tooltip, Scale, bSelected);
 	};
@@ -84,7 +84,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 	{
 		Island(SettingsX, Height);
 
-		if (IconButton("Viewport settings", EViewportIcon::Settings, "Viewport settings"))
+		if (IconButton("Viewport settings", EToolUIMenuIcon::Settings, "Viewport settings"))
 		{
 			ImGui::OpenPopup("ViewportSettings");
 		}
@@ -97,7 +97,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			{
 				Island(Right - Height, Height);
 
-				if (IconButton("Focus", EViewportIcon::Focus, "Focus selected object (F)"))
+				if (IconButton("Focus", EToolUIMenuIcon::Focus, "Focus selected object (F)"))
 				{
 					FocusPreview();
 				}
@@ -108,7 +108,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			const float SnapWidth = (bSnapEnabled ? ViewportIconButtonSize + 75.f : Height / Scale) * Scale;
 			Island(Right - SnapWidth, SnapWidth);
 
-			if (IconButton("Grid snap", EViewportIcon::Grid, "Toggle grid snapping (S)", bSnapEnabled))
+			if (IconButton("Grid snap", EToolUIMenuIcon::Grid, "Toggle grid snapping (S)", bSnapEnabled))
 			{
 				bSnapEnabled = !bSnapEnabled;
 			}
@@ -136,7 +136,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 				WorldIslandWidth = bHover ? 100.f : Height / Scale;
 				Island(Right - WorldIslandWidth * Scale, WorldIslandWidth * Scale);
 
-				if (IconButton("Coordinate space", EViewportIcon::World, bLocalGizmo ? "Local axes (L)" : "World axes (L)", bLocalGizmo))
+				if (IconButton("Coordinate space", EToolUIMenuIcon::World, bLocalGizmo ? "Local axes (L)" : "World axes (L)", bLocalGizmo))
 				{
 					bLocalGizmo = !bLocalGizmo;
 					ViewportGizmos.resetId();
@@ -160,13 +160,13 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			RightControlsLeft = std::max(Minimum.x + 4.f * Scale, Right - ModesWidth);
 			Island(RightControlsLeft, ModesWidth);
 
-			if (IconButton("Hide gizmo", EViewportIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
+			if (IconButton("Hide gizmo", EToolUIMenuIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
 			{
 				bTransformGizmoVisible = false;
 				ViewportGizmos.resetId();
 			}
 
-			constexpr std::array Modes{std::pair{Im3d::GizmoMode_Translation, EViewportIcon::Move}, std::pair{Im3d::GizmoMode_Rotation, EViewportIcon::Rotate}, std::pair{Im3d::GizmoMode_Scale, EViewportIcon::Scale}};
+			constexpr std::array Modes{std::pair{Im3d::GizmoMode_Translation, EToolUIMenuIcon::Move}, std::pair{Im3d::GizmoMode_Rotation, EToolUIMenuIcon::Rotate}, std::pair{Im3d::GizmoMode_Scale, EToolUIMenuIcon::Scale}};
 			constexpr std::array Labels{"Translate (W)", "Rotate (E)", "Scale (R)"};
 
 			for (std::size_t Index = 0; Index < Modes.size(); ++Index)
@@ -191,7 +191,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		const bool bFitsTopRow = CanFitViewportToolbarIsland(PlayX, PlayWidth, Minimum.x, RightControlsLeft, Gap);
 		Island(PlayX, PlayWidth, bFitsTopRow ? 0.f : Height + Gap);
 		ImGui::BeginDisabled(bProjectBusy || Simulation.IsRunning());
-		if (IconButton("Play", PlaySession ? EViewportIcon::Stop : EViewportIcon::Play, PlaySession ? "Stop playing (Esc)" : "Play (Alt+P or Shift+Space)", PlaySession != nullptr))
+		if (IconButton("Play", PlaySession ? EToolUIMenuIcon::Stop : EToolUIMenuIcon::Play, PlaySession ? "Stop playing (Esc)" : "Play (Alt+P or Shift+Space)", PlaySession != nullptr))
 		{
 			TogglePlay();
 		}
@@ -200,7 +200,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		ImGui::SameLine();
 
 		ImGui::BeginDisabled(bProjectBusy || PlaySession != nullptr);
-		if (IconButton("Simulate", Simulation.IsRunning() ? EViewportIcon::Stop : EViewportIcon::Simulate, Simulation.IsRunning() ? "Stop simulation (Esc)" : "Simulate (Alt+S)", Simulation.IsRunning()))
+		if (IconButton("Simulate", Simulation.IsRunning() ? EToolUIMenuIcon::Stop : EToolUIMenuIcon::Simulate, Simulation.IsRunning() ? "Stop simulation (Esc)" : "Simulate (Alt+S)", Simulation.IsRunning()))
 		{
 			ToggleSimulation();
 		}
@@ -367,13 +367,13 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		{
 			if (!bToolbarShowsModes)
 			{
-				if (IconButton("Select", EViewportIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
+				if (IconButton("Select", EToolUIMenuIcon::Select, "Select / hide gizmo (Q)", !bTransformGizmoVisible))
 				{
 					bTransformGizmoVisible = false;
 					ViewportGizmos.resetId();
 				}
 
-				constexpr std::array SettingsModes{std::pair{Im3d::GizmoMode_Translation, EViewportIcon::Move}, std::pair{Im3d::GizmoMode_Rotation, EViewportIcon::Rotate}, std::pair{Im3d::GizmoMode_Scale, EViewportIcon::Scale}};
+				constexpr std::array SettingsModes{std::pair{Im3d::GizmoMode_Translation, EToolUIMenuIcon::Move}, std::pair{Im3d::GizmoMode_Rotation, EToolUIMenuIcon::Rotate}, std::pair{Im3d::GizmoMode_Scale, EToolUIMenuIcon::Scale}};
 				constexpr std::array SettingsLabels{"Translate (W)", "Rotate (E)", "Scale (R)"};
 
 				for (std::size_t Index = 0; Index < SettingsModes.size(); ++Index)
@@ -401,7 +401,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 					DrawFieldLabel("Focus selection", ButtonSize, "F");
 				}
 
-				if (IconButton("Focus", EViewportIcon::Focus, "Focus selected object (F)"))
+				if (IconButton("Focus", EToolUIMenuIcon::Focus, "Focus selected object (F)"))
 				{
 					FocusPreview();
 				}

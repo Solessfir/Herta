@@ -115,7 +115,7 @@ Do not patch Dear ImGui internals merely to hide dock-node corner notches or oth
 
 ## Details
 
-The entity header keeps a compact `+ Add Component` action beside the name, with the selection count beneath the action. Long names truncate within their column instead of pushing the action outside the panel.
+The entity header keeps a compact Add Component action with a plus icon beside the name, with the selection count beneath the action. Long names truncate within their column instead of pushing the action outside the panel.
 
 Component sections use compact rounded header bars with subtle borders, bright titles, and quieter chevrons. Property labels use secondary contrast while editable values retain primary contrast. Transform and Rigid Body fields share a value-column alignment; reset controls keep a reserved trailing slot so fields do not shift when a property changes.
 

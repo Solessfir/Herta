@@ -81,15 +81,7 @@ void FEditorFramework::FImplementation::DrawTimeOfDay(const float X, const float
 	const int SunIndex = FindTimeOfDaySun();
 	FPreviewObject& Sun = PreviewObjects[static_cast<std::size_t>(SunIndex)];
 	const ImVec2 Center{X + ButtonSize * 0.5f, Top + ButtonSize * 0.5f};
-	ImDrawList* const Draw = ImGui::GetWindowDrawList();
-	const ImU32 Color = ImGui::GetColorU32(ImGuiCol_Text);
-	Draw->AddCircle(Center, 3.5f * Scale, Color, 16, 1.2f * Scale);
-	for (int Ray = 0; Ray < 8; ++Ray)
-	{
-		const float Angle = static_cast<float>(Ray) * std::numbers::pi_v<float> * 0.25f;
-		const ImVec2 Direction{std::cos(Angle), std::sin(Angle)};
-		Draw->AddLine({Center.x + Direction.x * 5.5f * Scale, Center.y + Direction.y * 5.5f * Scale}, {Center.x + Direction.x * 7.5f * Scale, Center.y + Direction.y * 7.5f * Scale}, Color, 1.2f * Scale);
-	}
+	ToolUIIcon(EToolUIMenuIcon::TimeOfDay, Center.x, Center.y, Scale, ImGui::GetColorU32(ImGuiCol_Text));
 
 	// The light travels along its local +Z, so the sun sits opposite it.
 	const Im3d::Vec3 Travel = Sun.Rotation.getCol(2);

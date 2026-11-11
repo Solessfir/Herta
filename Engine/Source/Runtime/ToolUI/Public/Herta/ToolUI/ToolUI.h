@@ -156,11 +156,34 @@ enum class EToolUIMenuIcon : std::uint8_t
 	Sound,
 	// A solid folder in the accent color, for folders in browsers and trees rather than menu actions.
 	Folder,
+	Select,
+	Move,
+	Rotate,
+	Scale,
+	World,
+	Grid,
+	Focus,
+	Settings,
+	Play,
+	Stop,
+	Simulate,
+	LockClosed,
+	LockOpen,
+	Reset,
+	Search,
+	Close,
+	Appearance,
+	TimeOfDay,
+	Camera,
+	CameraSpeed,
+	LogPrompt,
 };
 
 bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);
 bool ToolUIButton(std::string_view Label, EToolUIMenuIcon Icon, float Height = 0.f);
 void ToolUIIcon(EToolUIMenuIcon Icon, float CenterX, float CenterY, float Scale = 1.f);
+// Color is a packed RGBA8 color, such as ImGui::GetColorU32 returns.
+void ToolUIIcon(EToolUIMenuIcon Icon, float CenterX, float CenterY, float Scale, std::uint32_t Color);
 // Returns nothing for a missing, older-than-supported, or out-of-range file, which leaves the defaults in place.
 [[nodiscard]] std::optional<FEditorAppearance> LoadEditorAppearance(const std::filesystem::path& Path);
 void SaveEditorAppearance(const std::filesystem::path& Path, const FEditorAppearance& Appearance) noexcept;
