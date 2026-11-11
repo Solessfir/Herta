@@ -489,6 +489,7 @@ public:
 		if (UI.Button("Restart"))
 		{
 			Restart();
+			bFocusInput = true;
 		}
 
 		UI.SameLine();
@@ -497,6 +498,7 @@ public:
 		{
 			// Ctrl+C, which the terminal turns into an interrupt for the running command.
 			Session->Write("\x03");
+			bFocusInput = true;
 		}
 
 		UI.EndDisabled();
@@ -504,6 +506,7 @@ public:
 		if (UI.Button("Clear"))
 		{
 			Text.Clear();
+			bFocusInput = true;
 		}
 
 		if (bExited)

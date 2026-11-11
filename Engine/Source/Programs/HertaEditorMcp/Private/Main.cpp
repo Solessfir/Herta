@@ -9,6 +9,7 @@
 #include "Herta/Platform/Platform.h"
 #include "Herta/Platform/Process.h"
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdio>
