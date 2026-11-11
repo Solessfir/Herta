@@ -12,6 +12,62 @@ namespace Herta
 {
 inline constexpr std::uint32_t MaximumParticleEmitters = 4;
 inline constexpr std::uint32_t MaximumEmitterParticles = 4096;
+inline constexpr std::uint32_t MaximumParticleStages = 4;
+inline constexpr std::uint32_t MaximumStageModules = 8;
+inline constexpr std::uint32_t MaximumParticleEvents = 4;
+inline constexpr std::uint32_t MaximumEventParticles = 64;
+
+enum class EParticleModuleType : std::uint8_t
+{
+	// Accelerates particles along Vector, in the effect's space, by Strength meters per second squared.
+	Force,
+	// Slows particles by Strength per second, on top of the emitter's drag.
+	Drag,
+	// Swirls particles about the axis Vector through the effect's origin, faster the farther out, by Strength per second squared.
+	Vortex,
+	// Pulls particles toward Vector from the effect's origin by Strength meters per second squared.
+	Attract,
+	// Pushes particles by a smooth field that changes every Radius meters, by up to Strength meters per second squared.
+	Turbulence,
+};
+
+struct FParticleModuleDesc
+{
+	bool operator==(const FParticleModuleDesc&) const = default;
+
+	EParticleModuleType Type = EParticleModuleType::Force;
+	std::array<float, 3> Vector{0.f, 1.f, 0.f};
+	float Strength = 1.f;
+	float Radius = 1.f;
+};
+
+// A stretch of a particle's life, from Start to End as fractions of its lifetime, that runs its modules in order each update.
+struct FParticleStageDesc
+{
+	bool operator==(const FParticleStageDesc&) const = default;
+
+	float Start = 0.f;
+	float End = 1.f;
+	std::vector<FParticleModuleDesc> Modules{};
+};
+
+enum class EParticleEventType : std::uint8_t
+{
+	Death,
+	Collision,
+};
+
+// When a particle dies or hits something, Count particles start in another emitter of the same effect where it was, carrying InheritVelocity
+// of its velocity on top of their own.
+struct FParticleEventDesc
+{
+	bool operator==(const FParticleEventDesc&) const = default;
+
+	EParticleEventType Type = EParticleEventType::Death;
+	std::uint32_t Emitter = 0;
+	std::uint32_t Count = 1;
+	float InheritVelocity = 0.f;
+};
 
 // One emitter of a cooked particle system. Its features choose among fixed update kernels instead of running a per-particle program.
 struct FParticleEmitterDesc
@@ -57,6 +113,11 @@ struct FParticleEmitterDesc
 	// Joins the emitter's particles, oldest first, into one continuous strip instead of drawing discs. Size is the strip's width, or a
 	// multiple of the edge the effect is moved with.
 	bool bRibbon = false;
+
+	// The emitter's module stack: stages run after gravity and drag, before particles move. An emitter that other emitters' events feed may
+	// spawn nothing on its own.
+	std::vector<FParticleStageDesc> Stages{};
+	std::vector<FParticleEventDesc> Events{};
 };
 
 struct FCookedParticleSystem

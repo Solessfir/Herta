@@ -233,4 +233,78 @@ TEST_CASE("Colliding particles bounce off or stick to what they hit, and replay 
 		CHECK(Again[Index].Position == Stuck[Index].Position);
 	}
 }
+
+TEST_CASE("Particle stages run their modules only during their stretch of life")
+{
+	const auto Rise = [](const float Start, const float End)
+	{
+		auto System = std::make_shared<FCookedParticleSystem>();
+		System->Emitters.push_back({.Name = "Rise", .MaximumParticles = 8, .Burst = 8, .ConeAngle = 0.f, .SpeedMinimum = 0.f, .SpeedMaximum = 0.f, .LifetimeMinimum = 1.f, .LifetimeMaximum = 1.f, .Gravity = 0.f, .Drag = 0.f});
+		System->Emitters[0].Stages.push_back({.Start = Start, .End = End, .Modules = {{.Type = EParticleModuleType::Force, .Vector = {0.f, 1.f, 0.f}, .Strength = 10.f}}});
+		FParticleWorld World;
+		REQUIRE(World.AddSystem(Puff, System));
+		(void)World.Spawn(Puff, {});
+		for (int Frame = 0; Frame < 24; ++Frame)
+		{
+			World.Update(1.f / 60.f);
+		}
+
+		return World.GetRenderParticles()[0].Position.Y;
+	};
+
+	CHECK(Rise(0.f, 0.5f) > 0.5f);
+	CHECK(Rise(0.5f, 1.f) == 0.f);
+}
+
+TEST_CASE("Particle events spawn into their target emitter where particles die or collide")
+{
+	auto System = std::make_shared<FCookedParticleSystem>(*MakePuff());
+	System->Emitters[0].Events.push_back({.Type = EParticleEventType::Death, .Emitter = 1, .Count = 2});
+	System->Emitters.push_back({.Name = "Embers", .MaximumParticles = 64, .LifetimeMinimum = 2.f, .LifetimeMaximum = 2.f, .Gravity = 0.f});
+	REQUIRE(ValidateParticleSystem(*System));
+	FParticleWorld World;
+	REQUIRE(World.AddSystem(Puff, System));
+	(void)World.Spawn(Puff, {});
+	for (int Frame = 0; Frame < 36; ++Frame)
+	{
+		World.Update(1.f / 60.f);
+	}
+
+	CHECK(World.GetRenderParticles().size() == 40);
+	CHECK(World.GetStats().Events == 20);
+
+	auto Splash = MakeDrops(false);
+	Splash->Emitters[0].Events.push_back({.Type = EParticleEventType::Collision, .Emitter = 1, .Count = 1, .InheritVelocity = 1.f});
+	Splash->Emitters.push_back({.Name = "Splash", .MaximumParticles = 64, .LifetimeMinimum = 0.1f, .LifetimeMaximum = 0.1f, .Gravity = 0.f});
+	FParticleWorld Floor;
+	REQUIRE(Floor.AddSystem(Drops, Splash));
+	(void)Floor.Spawn(Drops, {0.f, 0.5f, 0.f});
+	for (int Frame = 0; Frame < 30; ++Frame)
+	{
+		Floor.Update(1.f / 60.f, HitFloor);
+	}
+
+	CHECK(Floor.GetStats().Events >= 32);
+
+	// An emitter cannot feed itself, and nothing feeds an emitter that never spawns.
+	FCookedParticleSystem Bad = *System;
+	Bad.Emitters[0].Events[0].Emitter = 0;
+	CHECK_FALSE(ValidateParticleSystem(Bad));
+	Bad = *System;
+	Bad.Emitters[0].Events.clear();
+	CHECK_FALSE(ValidateParticleSystem(Bad));
+}
+
+TEST_CASE("Particle stages and events need cooked format 10")
+{
+	auto System = *MakePuff();
+	System.Emitters[0].Stages.push_back({.End = 0.5f, .Modules = {{.Type = EParticleModuleType::Turbulence, .Strength = 2.f, .Radius = 0.5f}}});
+	const auto Bytes = SerializeCookedAsset(System);
+	REQUIRE(Bytes);
+	const auto Loaded = DeserializeCookedAsset(*Bytes);
+	REQUIRE(Loaded);
+	CHECK(std::get<FCookedParticleSystem>(*Loaded) == System);
+	CHECK_FALSE(SerializeCookedAsset(System, 9));
+	CHECK(SerializeCookedAsset(*MakePuff(), 9));
+}
 }

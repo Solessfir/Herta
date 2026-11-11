@@ -153,7 +153,7 @@ bool FParticleWorld::IsSpawning(const FEffect& Effect, const FEmitterState& Emit
 	return !Effect.bStopped && (bBurstPending || bRate);
 }
 
-void FParticleWorld::SpawnParticles(FEffect& Effect, FEmitterState& Emitter, std::uint32_t Count)
+void FParticleWorld::SpawnParticles(FEffect& Effect, FEmitterState& Emitter, std::uint32_t Count, const FPendingEvent* const Event)
 {
 	const FParticleEmitterDesc& Desc = *Emitter.Desc;
 	const auto Room = static_cast<std::uint32_t>(Desc.MaximumParticles - std::min<std::size_t>(Emitter.Positions.size(), Desc.MaximumParticles));
@@ -175,10 +175,10 @@ void FParticleWorld::SpawnParticles(FEffect& Effect, FEmitterState& Emitter, std
 		const float Speed = std::lerp(Desc.SpeedMinimum, Desc.SpeedMaximum, NextUnit(Effect.Random)) * Effect.Scale;
 		// A ribbon's points spread along the way the effect moved this update, so a fast source leaves no gaps.
 		const float Along = Desc.bRibbon ? static_cast<float>(Particle + 1) / static_cast<float>(Allowed) : 1.f;
-		const FVector3 Origin = Effect.PreviousPosition + (Effect.Position - Effect.PreviousPosition) * Along;
+		const FVector3 Origin = Event ? Event->Position : Effect.PreviousPosition + (Effect.Position - Effect.PreviousPosition) * Along;
 		Emitter.Positions.push_back(Origin + Orient(Offset * (Desc.SpawnRadius * Effect.Scale), Effect.Up));
 		Emitter.Edges.push_back(Effect.PreviousEdge + (Effect.Edge - Effect.PreviousEdge) * Along);
-		Emitter.Velocities.push_back(Orient(Local, Effect.Up) * Speed);
+		Emitter.Velocities.push_back(Orient(Local, Effect.Up) * Speed + (Event ? Event->Velocity : FVector3{}));
 		Emitter.Ages.push_back(0.f);
 		Emitter.Lifetimes.push_back(std::lerp(Desc.LifetimeMinimum, Desc.LifetimeMaximum, NextUnit(Effect.Random)));
 		Emitter.Resting.push_back(0);
@@ -186,6 +186,80 @@ void FParticleWorld::SpawnParticles(FEffect& Effect, FEmitterState& Emitter, std
 
 	LiveParticles += Allowed;
 	Totals.Spawned += Allowed;
+}
+
+void FParticleWorld::RunStages(const FEffect& Effect, FEmitterState& Emitter, const float Step)
+{
+	for (const FParticleStageDesc& Stage : Emitter.Desc->Stages)
+	{
+		// One module at a time over every particle in the stage, so each is a tight loop rather than a per-particle program.
+		for (const FParticleModuleDesc& Module : Stage.Modules)
+		{
+			const FVector3 Vector = Orient(ToVector(Module.Vector), Effect.Up);
+			const FVector3 Axis = Vector.LengthSquared() > 1e-8f ? Vector.Normalized() : FVector3{0.f, 1.f, 0.f};
+			const float Damping = std::exp(-Module.Strength * Step);
+			const float Frequency = 1.f / (Module.Radius * Effect.Scale);
+			for (std::size_t Index = 0; Index < Emitter.Positions.size(); ++Index)
+			{
+				const float Life = Emitter.Ages[Index] / Emitter.Lifetimes[Index];
+				if (Emitter.Resting[Index] != 0 || Life < Stage.Start || Life >= Stage.End)
+				{
+					continue;
+				}
+
+				FVector3& Velocity = Emitter.Velocities[Index];
+				const FVector3 Offset = Emitter.Positions[Index] - Effect.Position;
+				switch (Module.Type)
+				{
+					case EParticleModuleType::Force:
+						Velocity += Axis * (Module.Strength * Step);
+						break;
+					case EParticleModuleType::Drag:
+						Velocity = Velocity * Damping;
+						break;
+					case EParticleModuleType::Vortex:
+						Velocity += Axis.Cross(Offset) * (Module.Strength * Step);
+						break;
+					case EParticleModuleType::Attract:
+					{
+						const FVector3 Toward = Effect.Position + Vector * Effect.Scale - Emitter.Positions[Index];
+						Velocity += Toward.LengthSquared() > 1e-8f ? Toward.Normalized() * (Module.Strength * Step) : FVector3{};
+						break;
+					}
+					case EParticleModuleType::Turbulence:
+					{
+						// Sines of mixed coordinates: smooth, cheap, deterministic, and different on each axis.
+						const FVector3 P = Emitter.Positions[Index] * Frequency;
+						const float Time = Effect.Age;
+						const FVector3 Push{std::sin(1.7f * P.Y + 2.3f * P.Z + 0.5f * Time), std::sin(2.9f * P.Z + 1.3f * P.X + 0.7f * Time), std::sin(2.1f * P.X + 1.9f * P.Y + 0.3f * Time)};
+						Velocity += Push * (Module.Strength * Step);
+						break;
+					}
+				}
+			}
+		}
+	}
+}
+
+void FParticleWorld::QueueEvents(const FEmitterState& Emitter, const EParticleEventType Type, const FVector3& Position, const FVector3& Velocity)
+{
+	for (const FParticleEventDesc& Event : Emitter.Desc->Events)
+	{
+		if (Event.Type != Type)
+		{
+			continue;
+		}
+
+		if (EventBudget == 0)
+		{
+			++Totals.Dropped;
+			continue;
+		}
+
+		--EventBudget;
+		++Totals.Events;
+		PendingEvents.push_back({.Emitter = Event.Emitter, .Count = Event.Count, .Position = Position, .Velocity = Velocity * Event.InheritVelocity});
+	}
 }
 
 void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& Collide)
@@ -197,8 +271,10 @@ void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& C
 		return;
 	}
 	std::uint32_t CollisionBudget = MaximumParticleCollisionsPerUpdate;
+	EventBudget = MaximumParticleEventsPerUpdate;
 	for (FEffect& Effect : Effects)
 	{
+		PendingEvents.clear();
 		for (FEmitterState& Emitter : Effect.Emitters)
 		{
 			const FParticleEmitterDesc& Desc = *Emitter.Desc;
@@ -216,6 +292,8 @@ void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& C
 				Emitter.SpawnCarry -= static_cast<float>(Whole);
 				SpawnParticles(Effect, Emitter, Count + Whole);
 			}
+
+			RunStages(Effect, Emitter, Step);
 
 			// The kernel: drag and gravity for everything, then a sweep for emitters that collide.
 			const float Damping = std::exp(-Desc.Drag * Step);
@@ -242,6 +320,7 @@ void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& C
 						const FVector3 Along = Velocity - Into;
 						Velocity = Along * (1.f - Desc.Friction) - Into * Desc.Restitution;
 						Emitter.Positions[Index] = Hit->Position + Normal * 0.005f;
+						QueueEvents(Emitter, EParticleEventType::Collision, Emitter.Positions[Index], Velocity);
 						if (Desc.bStick || Velocity.Length() < RestSpeed)
 						{
 							Velocity = {};
@@ -264,6 +343,8 @@ void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& C
 					continue;
 				}
 
+				QueueEvents(Emitter, EParticleEventType::Death, Emitter.Positions[Index], Emitter.Velocities[Index]);
+
 				// A ribbon's points stay in spawn order, which is the strip's order; particles can swap, which is cheaper.
 				const auto Remove = [Index, bKeepOrder = Desc.bRibbon](auto& Values)
 				{
@@ -284,6 +365,15 @@ void FParticleWorld::Update(const float DeltaSeconds, const FParticleCollider& C
 				Remove(Emitter.Resting);
 				Remove(Emitter.Edges);
 				--LiveParticles;
+			}
+		}
+
+		// Events spawn after every emitter has moved, so a particle born from one first moves next update.
+		for (const FPendingEvent& Event : PendingEvents)
+		{
+			if (Event.Emitter < Effect.Emitters.size())
+			{
+				SpawnParticles(Effect, Effect.Emitters[Event.Emitter], Event.Count, &Event);
 			}
 		}
 

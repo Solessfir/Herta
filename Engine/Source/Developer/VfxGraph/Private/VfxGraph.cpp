@@ -22,6 +22,9 @@ enum EVfxPin : std::uint32_t
 	ForcesPin,
 	CollisionPin,
 	RibbonPin,
+	StagePin,
+	ModulePin,
+	EventPin,
 };
 
 constexpr std::array SystemInputs{
@@ -39,7 +42,21 @@ constexpr std::array EmitterInputs{
     FGraphPinDescriptor{.Key = "Forces", .Name = "Forces", .Type = ForcesPin},
     FGraphPinDescriptor{.Key = "Collision", .Name = "Collision", .Type = CollisionPin},
     FGraphPinDescriptor{.Key = "Ribbon", .Name = "Ribbon", .Type = RibbonPin},
+    FGraphPinDescriptor{.Key = "Stage1", .Name = "Stage 1", .Type = StagePin},
+    FGraphPinDescriptor{.Key = "Stage2", .Name = "Stage 2", .Type = StagePin},
+    FGraphPinDescriptor{.Key = "Stage3", .Name = "Stage 3", .Type = StagePin},
+    FGraphPinDescriptor{.Key = "Stage4", .Name = "Stage 4", .Type = StagePin},
+    FGraphPinDescriptor{.Key = "Event1", .Name = "Event 1", .Type = EventPin},
+    FGraphPinDescriptor{.Key = "Event2", .Name = "Event 2", .Type = EventPin},
+    FGraphPinDescriptor{.Key = "Event3", .Name = "Event 3", .Type = EventPin},
+    FGraphPinDescriptor{.Key = "Event4", .Name = "Event 4", .Type = EventPin},
 };
+constexpr std::array StageInputs{FGraphPinDescriptor{.Key = "Modules", .Name = "Modules", .Type = ModulePin}};
+constexpr std::array StageOutputs{FGraphPinDescriptor{.Key = "Stage", .Name = "Stage", .Type = StagePin}};
+constexpr std::array ModuleInputs{FGraphPinDescriptor{.Key = "Next", .Name = "Next", .Type = ModulePin}};
+constexpr std::array ModuleOutputs{FGraphPinDescriptor{.Key = "Module", .Name = "Module", .Type = ModulePin}};
+constexpr std::array EventInputs{FGraphPinDescriptor{.Key = "Target", .Name = "Target", .Type = EmitterPin}};
+constexpr std::array EventOutputs{FGraphPinDescriptor{.Key = "Event", .Name = "Event", .Type = EventPin}};
 constexpr std::array EmitterOutputs{FGraphPinDescriptor{.Key = "Emitter", .Name = "Emitter", .Type = EmitterPin}};
 constexpr std::array SpawnOutputs{FGraphPinDescriptor{.Key = "Spawn", .Name = "Spawn", .Type = SpawnPin}};
 constexpr std::array VelocityOutputs{FGraphPinDescriptor{.Key = "Velocity", .Name = "Velocity", .Type = VelocityPin}};
@@ -89,6 +106,33 @@ const std::array CollisionProperties{
     FGraphPropertyDescriptor{.Key = "stick", .Name = "Stick", .Default = false},
 };
 
+const std::array StageProperties{
+    FGraphPropertyDescriptor{.Key = "start", .Name = "Start (life)", .Default = 0.f},
+    FGraphPropertyDescriptor{.Key = "end", .Name = "End (life)", .Default = 1.f},
+};
+const std::array ForceProperties{
+    FGraphPropertyDescriptor{.Key = "direction", .Name = "Direction", .Default = std::array{0.f, 1.f, 0.f, 0.f}},
+    FGraphPropertyDescriptor{.Key = "strength", .Name = "Strength (m/s2)", .Default = 2.f},
+};
+const std::array DragProperties{FGraphPropertyDescriptor{.Key = "strength", .Name = "Drag (/s)", .Default = 1.f}};
+const std::array VortexProperties{
+    FGraphPropertyDescriptor{.Key = "axis", .Name = "Axis", .Default = std::array{0.f, 1.f, 0.f, 0.f}},
+    FGraphPropertyDescriptor{.Key = "strength", .Name = "Strength (/s2)", .Default = 4.f},
+};
+const std::array AttractProperties{
+    FGraphPropertyDescriptor{.Key = "offset", .Name = "Point (m)", .Default = std::array{0.f, 0.f, 0.f, 0.f}},
+    FGraphPropertyDescriptor{.Key = "strength", .Name = "Strength (m/s2)", .Default = 4.f},
+};
+const std::array TurbulenceProperties{
+    FGraphPropertyDescriptor{.Key = "strength", .Name = "Strength (m/s2)", .Default = 3.f},
+    FGraphPropertyDescriptor{.Key = "scale", .Name = "Scale (m)", .Default = 0.5f},
+};
+const std::array EventProperties{
+    FGraphPropertyDescriptor{.Key = "on", .Name = "On", .Default = std::string("Death")},
+    FGraphPropertyDescriptor{.Key = "count", .Name = "Count", .Default = std::int32_t{4}},
+    FGraphPropertyDescriptor{.Key = "inherit", .Name = "Inherit Velocity", .Default = 0.f},
+};
+
 const std::array VfxNodes{
     FGraphNodeDescriptor{.Type = "System", .Name = "System", .Category = "Output", .Inputs = SystemInputs, .MaximumCount = 1},
     FGraphNodeDescriptor{.Type = "Emitter", .Name = "Emitter", .Category = "Emitters", .Inputs = EmitterInputs, .Outputs = EmitterOutputs, .Properties = EmitterProperties},
@@ -100,6 +144,13 @@ const std::array VfxNodes{
     FGraphNodeDescriptor{.Type = "Forces", .Name = "Gravity and Drag", .Category = "Modules", .Outputs = ForcesOutputs, .Properties = ForcesProperties},
     FGraphNodeDescriptor{.Type = "Collision", .Name = "Collision", .Category = "Modules", .Outputs = CollisionOutputs, .Properties = CollisionProperties},
     FGraphNodeDescriptor{.Type = "Ribbon", .Name = "Ribbon", .Category = "Modules", .Outputs = RibbonOutputs},
+    FGraphNodeDescriptor{.Type = "Stage", .Name = "Stage", .Category = "Stages", .Inputs = StageInputs, .Outputs = StageOutputs, .Properties = StageProperties},
+    FGraphNodeDescriptor{.Type = "Force", .Name = "Force", .Category = "Stages", .Inputs = ModuleInputs, .Outputs = ModuleOutputs, .Properties = ForceProperties},
+    FGraphNodeDescriptor{.Type = "Drag", .Name = "Drag", .Category = "Stages", .Inputs = ModuleInputs, .Outputs = ModuleOutputs, .Properties = DragProperties},
+    FGraphNodeDescriptor{.Type = "Vortex", .Name = "Vortex", .Category = "Stages", .Inputs = ModuleInputs, .Outputs = ModuleOutputs, .Properties = VortexProperties},
+    FGraphNodeDescriptor{.Type = "Attract", .Name = "Attract", .Category = "Stages", .Inputs = ModuleInputs, .Outputs = ModuleOutputs, .Properties = AttractProperties},
+    FGraphNodeDescriptor{.Type = "Turbulence", .Name = "Turbulence", .Category = "Stages", .Inputs = ModuleInputs, .Outputs = ModuleOutputs, .Properties = TurbulenceProperties},
+    FGraphNodeDescriptor{.Type = "Event", .Name = "Event", .Category = "Events", .Inputs = EventInputs, .Outputs = EventOutputs, .Properties = EventProperties},
 };
 
 bool CanConnectVfxPins(const std::uint32_t From, const std::uint32_t To)
@@ -107,7 +158,13 @@ bool CanConnectVfxPins(const std::uint32_t From, const std::uint32_t To)
 	return From == To;
 }
 
-const FGraphSchema VfxSchema{.Domain = VfxGraphDomain, .Version = VfxGraphVersion, .Nodes = VfxNodes, .CanConnect = CanConnectVfxPins};
+// Version 2 added stages, their modules, and events; version 1 graphs only lack them.
+std::expected<void, FGraphError> UpgradeVfxGraph(FGraph&, const std::uint32_t FromVersion)
+{
+	return FromVersion >= 1 ? std::expected<void, FGraphError>() : std::unexpected(FGraphError{"VFX Graphs start at version 1"});
+}
+
+const FGraphSchema VfxSchema{.Domain = VfxGraphDomain, .Version = VfxGraphVersion, .Nodes = VfxNodes, .CanConnect = CanConnectVfxPins, .Upgrade = UpgradeVfxGraph};
 
 [[nodiscard]] const FGraphValue& Property(const FGraphNode& Node, const std::string_view Key)
 {
@@ -170,6 +227,58 @@ std::expected<FVfxGraphCompilation, std::vector<FGraphDiagnostic>> CompileVfxGra
 
 	FVfxGraphCompilation Result;
 	std::vector<FGraphNodeId> Used;
+	// Events name their target by its place among the System node's emitters, so those are known first.
+	std::vector<FGraphNodeId> EmitterOrder;
+	for (const FGraphPinDescriptor& Pin : SystemInputs)
+	{
+		if (const FGraphNode* const Node = Source(System->Id, Pin.Key))
+		{
+			EmitterOrder.push_back(Node->Id);
+		}
+	}
+
+	const auto Modules = [&](const FGraphNode& Stage)
+	{
+		std::vector<FParticleModuleDesc> Stack;
+		for (const FGraphNode* Module = Source(Stage.Id, "Modules"); Module && Stack.size() <= MaximumStageModules; Module = Source(Module->Id, "Next"))
+		{
+			const auto Axis = [&](const std::string_view Key)
+			{
+				const auto Value = Vector(*Module, Key);
+				return std::array{Value[0], Value[1], Value[2]};
+			};
+
+			FParticleModuleDesc Desc{.Strength = Number(*Module, "strength")};
+			if (Module->Type == "Force" || Module->Type == "Vortex")
+			{
+				Desc.Type = Module->Type == "Force" ? EParticleModuleType::Force : EParticleModuleType::Vortex;
+				Desc.Vector = Axis(Module->Type == "Force" ? "direction" : "axis");
+				if (std::hypot(Desc.Vector[0], Desc.Vector[1], Desc.Vector[2]) < 1e-4f)
+				{
+					Fail(Module->Id, "The direction must not be zero");
+				}
+			}
+			else if (Module->Type == "Attract")
+			{
+				Desc.Type = EParticleModuleType::Attract;
+				Desc.Vector = Axis("offset");
+			}
+			else if (Module->Type == "Turbulence")
+			{
+				Desc.Type = EParticleModuleType::Turbulence;
+				Desc.Radius = Number(*Module, "scale");
+			}
+			else
+			{
+				Desc.Type = EParticleModuleType::Drag;
+			}
+
+			Stack.push_back(Desc);
+		}
+
+		return Stack;
+	};
+
 	for (const FGraphPinDescriptor& Pin : SystemInputs)
 	{
 		const FGraphNode* const Node = Source(System->Id, Pin.Key);
@@ -186,15 +295,12 @@ std::expected<FVfxGraphCompilation, std::vector<FGraphDiagnostic>> CompileVfxGra
 		    .SpawnRadius = Number(*Node, "spawnRadius"),
 		};
 
-		const FGraphNode* const Spawn = Source(Node->Id, "Spawn");
-		if (!Spawn)
+		// An emitter fed only by events needs no Spawn module; validation catches one that never spawns.
+		if (const FGraphNode* const Spawn = Source(Node->Id, "Spawn"))
 		{
-			Fail(Node->Id, "Link a Spawn module to the emitter");
-			continue;
+			Emitter.SpawnRate = Number(*Spawn, "rate");
+			Emitter.Burst = static_cast<std::uint32_t>(std::max(std::get<std::int32_t>(Property(*Spawn, "burst")), 0));
 		}
-
-		Emitter.SpawnRate = Number(*Spawn, "rate");
-		Emitter.Burst = static_cast<std::uint32_t>(std::max(std::get<std::int32_t>(Property(*Spawn, "burst")), 0));
 		if (const FGraphNode* const Velocity = Source(Node->Id, "Velocity"))
 		{
 			const auto Direction = Vector(*Velocity, "direction");
@@ -247,14 +353,54 @@ std::expected<FVfxGraphCompilation, std::vector<FGraphDiagnostic>> CompileVfxGra
 			Emitter.bStick = std::get<bool>(Property(*Collision, "stick"));
 		}
 
-		// Each emitter is checked on its own, so its diagnostic lands on its node.
-		if (auto Valid = ValidateParticleSystem({.Emitters = {Emitter}}); !Valid)
+		for (const std::string_view Key : {"Stage1", "Stage2", "Stage3", "Stage4"})
 		{
-			Fail(Node->Id, Valid.error().Message);
-			continue;
+			if (const FGraphNode* const Stage = Source(Node->Id, Key))
+			{
+				Emitter.Stages.push_back({.Start = Number(*Stage, "start"), .End = Number(*Stage, "end"), .Modules = Modules(*Stage)});
+			}
+		}
+
+		for (const std::string_view Key : {"Event1", "Event2", "Event3", "Event4"})
+		{
+			const FGraphNode* const Event = Source(Node->Id, Key);
+			if (!Event)
+			{
+				continue;
+			}
+
+			const std::string& On = std::get<std::string>(Property(*Event, "on"));
+			const FGraphNode* const Target = Source(Event->Id, "Target");
+			const auto Index = Target ? std::ranges::find(EmitterOrder, Target->Id) : EmitterOrder.end();
+			if (Index == EmitterOrder.end() || (On != "Death" && On != "Collision"))
+			{
+				Fail(Event->Id, "An event happens On Death or Collision and targets an emitter linked to the System node");
+				continue;
+			}
+
+			Emitter.Events.push_back({
+			    .Type = On == "Death" ? EParticleEventType::Death : EParticleEventType::Collision,
+			    .Emitter = static_cast<std::uint32_t>(Index - EmitterOrder.begin()),
+			    .Count = static_cast<std::uint32_t>(std::max(std::get<std::int32_t>(Property(*Event, "count")), 0)),
+			    .InheritVelocity = Number(*Event, "inherit"),
+			});
 		}
 
 		Result.System.Emitters.push_back(std::move(Emitter));
+	}
+
+	// Emitters are checked together, since events tie them to each other, then each problem is reported on the emitter it names.
+	if (Errors.empty() && !Result.System.Emitters.empty())
+	{
+		if (auto Valid = ValidateParticleSystem(Result.System); !Valid)
+		{
+			const auto Named = std::ranges::find_if(Result.System.Emitters, [&Valid](const FParticleEmitterDesc& Emitter)
+			{
+				return Valid.error().Message.starts_with(std::format("Emitter '{}'", Emitter.Name));
+			});
+
+			Fail(Named == Result.System.Emitters.end() ? System->Id : EmitterOrder[static_cast<std::size_t>(Named - Result.System.Emitters.begin())], Valid.error().Message);
+		}
 	}
 
 	if (Errors.empty() && Result.System.Emitters.empty())

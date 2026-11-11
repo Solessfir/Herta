@@ -868,7 +868,8 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 {
 	const auto* Older = std::get_if<FCookedModel>(&Asset);
 	const auto* OlderGraph = std::get_if<FCookedSoundGraph>(&Asset);
-	if (Version < OldestReadableCookedFormatVersion || Version > CookedAssetFormatVersion || (Version < 8 && Older && Older->StateMachine && NeedsBlendTreeFormat(*Older->StateMachine)) || (Version < 9 && OlderGraph && NeedsSynthesisFormat(OlderGraph->Graph)))
+	const auto* OlderParticles = std::get_if<FCookedParticleSystem>(&Asset);
+	if (Version < OldestReadableCookedFormatVersion || Version > CookedAssetFormatVersion || (Version < 8 && Older && Older->StateMachine && NeedsBlendTreeFormat(*Older->StateMachine)) || (Version < 9 && OlderGraph && NeedsSynthesisFormat(OlderGraph->Graph)) || (Version < 10 && OlderParticles && NeedsParticleStageFormat(*OlderParticles)))
 	{
 		return std::unexpected(FAssetError{std::format("Cannot write this asset as cooked format version {}", Version)});
 	}
@@ -939,7 +940,7 @@ std::expected<std::vector<std::byte>, FAssetError> SerializeCookedAsset(const FC
 		}
 
 		Writer.Write(ParticleSystemTag);
-		WriteParticleSystem(Writer, *Particles);
+		WriteParticleSystem(Writer, *Particles, Version);
 		return Writer.TakeBytes();
 	}
 
@@ -1113,7 +1114,7 @@ std::expected<FCookedAsset, FAssetError> DeserializeCookedAsset(const std::span<
 
 	if (Tag == ParticleSystemTag)
 	{
-		FCookedParticleSystem Particles = ReadParticleSystem(Reader);
+		FCookedParticleSystem Particles = ReadParticleSystem(Reader, Version);
 		if (!Reader.IsValid() || !Reader.IsAtEnd())
 		{
 			return Invalid("Truncated or oversized cooked particle system");

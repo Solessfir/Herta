@@ -42,6 +42,8 @@ inline constexpr std::uint32_t MaximumLiveParticles = 16384;
 inline constexpr std::uint32_t MaximumParticleEffects = 256;
 // Collision sweeps per update, so a burst of colliding particles never stalls a frame; the rest wait for the next update.
 inline constexpr std::uint32_t MaximumParticleCollisionsPerUpdate = 512;
+// Death and collision events per update; the rest are dropped, so a chain of events cannot grow without end.
+inline constexpr std::uint32_t MaximumParticleEventsPerUpdate = 256;
 
 struct FParticleStats
 {
@@ -52,6 +54,7 @@ struct FParticleStats
 	std::uint64_t Dropped = 0;
 	std::uint64_t EffectsRetired = 0;
 	std::uint64_t Collisions = 0;
+	std::uint64_t Events = 0;
 };
 
 // Simulates particle effects on the CPU within fixed budgets. Each emitter runs one of a few fixed update kernels, chosen by whether it
@@ -111,14 +114,28 @@ private:
 		std::vector<FEmitterState> Emitters{};
 	};
 
+	// A particle event waiting for the end of its effect's update, when it spawns into its target emitter.
+	struct FPendingEvent
+	{
+		std::uint32_t Emitter = 0;
+		std::uint32_t Count = 0;
+		FVector3 Position{};
+		FVector3 Velocity{};
+	};
+
 	[[nodiscard]] static bool IsSpawning(const FEffect& Effect, const FEmitterState& Emitter);
-	void SpawnParticles(FEffect& Effect, FEmitterState& Emitter, std::uint32_t Count);
+	// Spawns along the effect's path, or at Event's position carrying its velocity.
+	void SpawnParticles(FEffect& Effect, FEmitterState& Emitter, std::uint32_t Count, const FPendingEvent* Event = nullptr);
+	static void RunStages(const FEffect& Effect, FEmitterState& Emitter, float Step);
+	void QueueEvents(const FEmitterState& Emitter, EParticleEventType Type, const FVector3& Position, const FVector3& Velocity);
 
 	std::map<FAssetId, std::shared_ptr<const FCookedParticleSystem>> Systems{};
 	std::vector<FEffect> Effects{};
 	std::vector<FRenderParticle> RenderParticles{};
 	std::vector<FRenderRibbon> RenderRibbons{};
 	std::vector<FRenderRibbonPoint> RenderRibbonPoints{};
+	std::vector<FPendingEvent> PendingEvents{};
+	std::uint32_t EventBudget = 0;
 	std::uint32_t NextEffect = 0;
 	std::uint32_t LiveParticles = 0;
 	FParticleStats Totals{};

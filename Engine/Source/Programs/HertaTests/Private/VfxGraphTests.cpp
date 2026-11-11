@@ -5,6 +5,7 @@
 
 #include <doctest/doctest.h>
 
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -79,4 +80,78 @@ TEST_CASE("VFX Graphs cook into particle systems")
 	const auto Asset = LoadCookedAsset(Scratch.GetPath() / "DerivedDataCache", Result->Key);
 	REQUIRE(Asset);
 	CHECK(std::get<FCookedParticleSystem>(*Asset) == CompileVfxGraph(MakeDefaultVfxGraph())->System);
+}
+
+TEST_CASE("VFX Graph stages chain their modules, and events target emitters by their System pin")
+{
+	FGraph Graph = MakeDefaultVfxGraph();
+	const FGraphSchema& Schema = GetVfxGraphSchema();
+	const FGraphNodeId Emitter = std::ranges::find(Graph.Nodes, std::string("Emitter"), &FGraphNode::Type)->Id;
+	const FGraphNodeId System = std::ranges::find(Graph.Nodes, std::string("System"), &FGraphNode::Type)->Id;
+	const auto Add = [&](const std::string_view Type)
+	{
+		const FGraphNodeId Id = NextGraphNodeId(Graph);
+		Graph.Nodes.push_back(*MakeGraphNode(Schema, Type, Id, {0.f, 0.f}));
+		return Id;
+	};
+
+	const FGraphNodeId Stage = Add("Stage");
+	const FGraphNodeId Drag = Add("Drag");
+	const FGraphNodeId Vortex = Add("Vortex");
+	Graph.Links.push_back({.From = {.Node = Drag, .Key = "Module"}, .To = {.Node = Stage, .Key = "Modules"}});
+	Graph.Links.push_back({.From = {.Node = Vortex, .Key = "Module"}, .To = {.Node = Drag, .Key = "Next"}});
+	Graph.Links.push_back({.From = {.Node = Stage, .Key = "Stage"}, .To = {.Node = Emitter, .Key = "Stage1"}});
+
+	// A second emitter fed only by the first one's deaths needs no Spawn module.
+	const FGraphNodeId Embers = Add("Emitter");
+	const FGraphNodeId Event = Add("Event");
+	Graph.Links.push_back({.From = {.Node = Embers, .Key = "Emitter"}, .To = {.Node = System, .Key = "Emitter2"}});
+	Graph.Links.push_back({.From = {.Node = Embers, .Key = "Emitter"}, .To = {.Node = Event, .Key = "Target"}});
+	Graph.Links.push_back({.From = {.Node = Event, .Key = "Event"}, .To = {.Node = Emitter, .Key = "Event1"}});
+	REQUIRE(ValidateGraph(Graph, Schema).empty());
+	const auto Compiled = CompileVfxGraph(Graph);
+	REQUIRE_MESSAGE(Compiled, (Compiled ? std::string() : Compiled.error().front().Message));
+	REQUIRE(Compiled->System.Emitters.size() == 2);
+	const FParticleEmitterDesc& First = Compiled->System.Emitters[0];
+	REQUIRE(First.Stages.size() == 1);
+	REQUIRE(First.Stages[0].Modules.size() == 2);
+	CHECK(First.Stages[0].Modules[0].Type == EParticleModuleType::Drag);
+	CHECK(First.Stages[0].Modules[1].Type == EParticleModuleType::Vortex);
+	REQUIRE(First.Events.size() == 1);
+	CHECK(First.Events[0].Emitter == 1);
+	CHECK(First.Events[0].Type == EParticleEventType::Death);
+
+	// An event aimed at an emitter off the System node does not compile.
+	std::erase_if(Graph.Links, [&](const FGraphLink& Link)
+	{
+		return Link.From.Node == Embers && Link.To.Node == System;
+	});
+
+	CHECK_FALSE(CompileVfxGraph(Graph));
+}
+
+TEST_CASE("Version 1 VFX Graphs upgrade to version 2")
+{
+	std::string Text = *SerializeGraph(MakeDefaultVfxGraph(), GetVfxGraphSchema());
+	const std::string Current = std::format("\"domainVersion\": {}", VfxGraphVersion);
+	REQUIRE(Text.find(Current) != std::string::npos);
+	Text.replace(Text.find(Current), Current.size(), "\"domainVersion\": 1");
+	const auto Loaded = DeserializeGraph(Text, GetVfxGraphSchema());
+	REQUIRE_MESSAGE(Loaded, (Loaded ? std::string() : Loaded.error().Message));
+	CHECK(Loaded->DomainVersion == VfxGraphVersion);
+}
+
+TEST_CASE("The Sandbox's sword sparks drop embers where they hit")
+{
+	std::ifstream Stream("Games/Sandbox/Content/Effects/Sword_Sparks.hvfxgraph", std::ios::binary);
+	const std::string Text{std::istreambuf_iterator<char>(Stream), std::istreambuf_iterator<char>()};
+	const auto Graph = DeserializeGraph(Text, GetVfxGraphSchema());
+	REQUIRE(Graph);
+	const auto Compiled = CompileVfxGraph(*Graph);
+	REQUIRE_MESSAGE(Compiled, (Compiled ? std::string() : Compiled.error().front().Message));
+	REQUIRE(Compiled->System.Emitters.size() == 3);
+	REQUIRE(Compiled->System.Emitters[0].Events.size() == 1);
+	CHECK(Compiled->System.Emitters[0].Events[0].Type == EParticleEventType::Collision);
+	CHECK(Compiled->System.Emitters[0].Events[0].Emitter == 2);
+	CHECK(Compiled->System.Emitters[2].Stages.size() == 1);
 }
