@@ -337,7 +337,7 @@ std::expected<FAutomationSession, FAutomationError> ReadAutomationSession(const 
 	std::ifstream File(SessionFile, std::ios::binary);
 	if (!File)
 	{
-		return std::unexpected(FAutomationError{"No editor is running with automation; start HertaEditor with --automation"});
+		return std::unexpected(FAutomationError{"No editor is running with automation; start Herta with --automation"});
 	}
 
 	const std::string Text{std::istreambuf_iterator<char>(File), std::istreambuf_iterator<char>()};

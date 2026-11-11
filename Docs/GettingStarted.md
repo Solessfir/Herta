@@ -6,7 +6,7 @@
 
 Successful pushes to `main` and manual CI runs on `main` upload experimental Windows and Linux Shipping packages, retained for 30 days. Open [CI](https://github.com/Solessfir/Herta/actions/workflows/ci.yml), select a successful run, and download the `CI-Herta-...-Shipping-<commit>` artifact for your platform. GitHub requires signing in to download workflow artifacts.
 
-Unzip the downloaded artifact, then extract its inner Windows `.zip` or Linux `.tar.gz` into a writable directory. Keep the complete folder structure. Launch `Binaries/windows/x86_64/Shipping/HertaEditor.exe` or `Binaries/linux/x86_64/Shipping/HertaEditor` inside the extracted package.
+Unzip the downloaded artifact, then extract its inner Windows `.zip` or Linux `.tar.gz` into a writable directory. Keep the complete folder structure. Launch `Binaries/windows/x86_64/Shipping/Herta.exe` or `Binaries/linux/x86_64/Shipping/Herta` inside the extracted package.
 
 A Vulkan-capable GPU, driver, and system Vulkan loader are required. Windows Shipping statically links the CRT, so no separate MSVC runtime DLLs are needed. Linux builds target Ubuntu 24.04 with the GCC 14 libstdc++ runtime and X11/Wayland libraries; older distributions may not be compatible. Neither Git, Visual Studio, the Vulkan SDK, nor Setup is required to run the package. Blender remains optional for `.blend` import.
 
@@ -22,7 +22,7 @@ git clone https://github.com/Solessfir/Herta.git
 
 Setup initializes Git submodules and downloads pinned project-local Premake and Vulkan SDK installations under ignored `External/Premake` and `SDK`. Versions, download URLs, and SHA-256 hashes are recorded in [Dependencies.lock](../Config/Dependencies.lock). Normal project generation and builds do not access the network. A Vulkan-capable driver and production loader remain platform requirements; updating the SDK does not update the GPU driver.
 
-Building `HertaEditor` also builds its workers and cooks its shaders using the SDK's Slang compiler. Keep the generated `Shaders` directory beside the editor executable.
+Building `Herta` also builds its workers and cooks its shaders using the SDK's Slang compiler. Keep the generated `Shaders` directory beside the editor executable.
 
 ## Windows
 
@@ -52,11 +52,11 @@ GenerateProjectFiles.bat vs2022
 From a matching Visual Studio Developer Command Prompt:
 
 ```bat
-MSBuild Herta.slnx /m /t:HertaTests,HertaEditorCmd,HertaEditor /p:Configuration=Development /p:Platform=x64
+MSBuild Herta.slnx /m /t:HertaTests,HertaEditorCmd,Herta /p:Configuration=Development /p:Platform=x64
 Binaries\windows\x86_64\Development\HertaTests.exe
 Binaries\windows\x86_64\Development\HertaTests.exe --test-suite-exclude=Slow
 Binaries\windows\x86_64\Development\HertaEditorCmd.exe --json help
-Binaries\windows\x86_64\Development\HertaEditor.exe
+Binaries\windows\x86_64\Development\Herta.exe
 ```
 
 Use `Herta.sln` when Setup selected the fallback toolchain. `--test-suite-exclude=Slow` skips the tests that launch Blender or compile many shaders, about 15 seconds instead of a minute, for quick iteration.
@@ -64,7 +64,7 @@ Use `Herta.sln` when Setup selected the fallback toolchain. `--test-suite-exclud
 From PowerShell 7+ in the repository root, build and launch the editor without an IDE using the installed MSBuild path:
 
 ```powershell
-& "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe" Herta.slnx /m /t:HertaEditor /p:Configuration=Development /p:Platform=x64 && .\Binaries\windows\x86_64\Development\HertaEditor.exe
+& "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe" Herta.slnx /m /t:Herta /p:Configuration=Development /p:Platform=x64 && .\Binaries\windows\x86_64\Development\Herta.exe
 ```
 
 Adjust the MSBuild path for your Visual Studio installation. `&&` launches the editor only if the build succeeds; Windows PowerShell 5.1 does not support it. Replace `Development` with `Debug` in both paths and arguments to enable debug builds and validation.
@@ -97,15 +97,15 @@ export CC=gcc-14 CXX=g++-14
 ```bash
 ./Setup.sh
 ./GenerateProjectFiles.sh
-make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development HertaTests HertaEditorCmd HertaEditor
+make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development HertaTests HertaEditorCmd Herta
 ./Binaries/linux/x86_64/Development/HertaTests
 ./Binaries/linux/x86_64/Development/HertaEditorCmd --json help
-./Binaries/linux/x86_64/Development/HertaEditor
+./Binaries/linux/x86_64/Development/Herta
 ```
 
 ## Configurations and validation
 
-Generated Visual Studio launch settings provide the project-local Vulkan SDK tools and validation-layer paths. Select **HertaEditor** in Rider and use the solution configuration dropdown to choose Debug, Debug-ASan, Development, or Shipping. Project generation does not create Rider-specific run profiles.
+Generated Visual Studio launch settings provide the project-local Vulkan SDK tools and validation-layer paths. Select **Herta** in Rider and use the solution configuration dropdown to choose Debug, Debug-ASan, Development, or Shipping. Project generation does not create Rider-specific run profiles.
 
 Debug and Debug-ASan enable Vulkan and NVRHI validation by default. Development disables validation by default; add `--validation` to the launch arguments (including Rider EzArgs) to enable it. Shipping keeps validation disabled. Renderer regression tests require validation in non-Shipping builds. When requested validation layers are unavailable, normal launches report the downgrade and continue; renderer regression tests fail instead.
 

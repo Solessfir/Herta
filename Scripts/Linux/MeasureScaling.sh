@@ -3,11 +3,11 @@ set -euo pipefail
 
 configuration="${1:-Shipping}"
 repository_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-editor="$repository_root/Binaries/linux/x86_64/$configuration/HertaEditor"
+editor="$repository_root/Binaries/linux/x86_64/$configuration/Herta"
 command="$repository_root/Binaries/linux/x86_64/$configuration/HertaEditorCmd"
 
 if [[ ! -x "$editor" || ! -x "$command" ]]; then
-    printf 'Build HertaEditor and HertaEditorCmd in %s first.\n' "$configuration" >&2
+    printf 'Build Herta and HertaEditorCmd in %s first.\n' "$configuration" >&2
     exit 1
 fi
 

@@ -97,7 +97,7 @@ try {
         'External/freetype/src/autofit/ft-hb-types.h',
         'External/freetype/src/autofit/hb-script-list.h'
     )
-    $WindowsPayload = @('HertaEditor.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe') | ForEach-Object { "Binaries/windows/x86_64/Shipping/$_" }
+    $WindowsPayload = @('Herta.exe', 'HertaEditorCmd.exe', 'HertaAssetWorker.exe') | ForEach-Object { "Binaries/windows/x86_64/Shipping/$_" }
     # The package requires the cooked stages of every Engine/Shaders and Compute source; shared .slangh headers cook nothing.
     $ShaderSources = @('TexturedMesh', 'DebugDraw', 'WorldGrid', 'Sky', 'Shadow') | ForEach-Object { "Engine/Shaders/$_.slang" }
     $ShaderSources += @('VolumetricFog', 'Gtao') | ForEach-Object { "Engine/Shaders/Compute/$_.slang" }

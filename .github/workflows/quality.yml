@@ -217,7 +217,7 @@ jobs:
               config=development \
               HertaTests \
               HertaEditorCmd \
-              HertaEditor \
+              Herta \
               HertaGame \
               HertaAssetWorker \
               HertaShaderWorker

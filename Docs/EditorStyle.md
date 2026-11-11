@@ -2,7 +2,7 @@
 
 Status: Native redesign baseline, Milestone 2.5
 
-This is the initial HertaEditor visual and interaction language. It is based on the native application shell proven in the C++ ProjectTemplate, with engine-specific ownership and persistence added where the template intentionally stayed small.
+This is the initial Herta visual and interaction language. It is based on the native application shell proven in the C++ ProjectTemplate, with engine-specific ownership and persistence added where the template intentionally stayed small.
 
 The goal is a dense, calm workspace with clear hierarchy. Surfaces stay desaturated and slightly above black. The configurable background gradient carries the color, while controls use that hue only for interaction and selection.
 
@@ -199,9 +199,9 @@ Native move and resize can enter a platform modal loop that delays the normal fr
 
 ## Application icons
 
-The editor keeps its application mark at `Engine/Content/Editor/Icons/Herta.svg`. Windows builds compile the matching multi-resolution ICO under `Engine/Source/Programs/HertaEditor/Resources/Windows` as a resource named `GLFW_ICON` through Premake. The Herta GLFW fork loads that resource as the default executable, taskbar, system-menu, and window-class icon.
+The editor keeps its application mark at `Engine/Content/Editor/Icons/Herta.svg`. Windows builds compile the matching multi-resolution ICO under `Engine/Source/Programs/Herta/Resources/Windows` as a resource named `GLFW_ICON` through Premake. The Herta GLFW fork loads that resource as the default executable, taskbar, system-menu, and window-class icon.
 
-Linux does not embed a desktop application icon into the ELF executable. Distribution installs the source SVG or generated PNG sizes with the HertaEditor `.desktop` entry. Runtime window-icon support remains a platform capability exposed through Application.
+Linux does not embed a desktop application icon into the ELF executable. Distribution installs the source SVG or generated PNG sizes with the Herta `.desktop` entry. Runtime window-icon support remains a platform capability exposed through Application.
 
 The Milestone 1 title-bar glyph may use ImGui primitives. LunaSVG and the production icon library remain deferred until an editor tool needs SVG rendering at runtime.
 

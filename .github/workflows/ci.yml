@@ -148,7 +148,7 @@ jobs:
           & $MSBuildPath `
             Herta.slnx `
             /m `
-            /t:HertaTests,HertaEditorCmd,HertaEditor `
+            /t:HertaTests,HertaEditorCmd,Herta `
             /p:Configuration=${{ matrix.configuration }} `
             /p:Platform=x64 `
             /verbosity:minimal
@@ -206,7 +206,7 @@ jobs:
             config="${Configuration,,}" \
             HertaTests \
             HertaEditorCmd \
-            HertaEditor
+            Herta
 
       - name: Run tests on Linux
         if: matrix.platform == 'linux'
@@ -235,7 +235,7 @@ jobs:
           LavapipeIcd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)"
           test -n "$LavapipeIcd"
           env -u WAYLAND_DISPLAY VK_DRIVER_FILES="$LavapipeIcd" \
-            xvfb-run --auto-servernum ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaEditor --renderer-test --expect-window-system=x11
+            xvfb-run --auto-servernum ./Binaries/linux/x86_64/${{ matrix.configuration }}/Herta --renderer-test --expect-window-system=x11
 
       - name: Run interactive editor smoke test on Wayland
         if: matrix.platform == 'linux'
@@ -268,7 +268,7 @@ jobs:
           LavapipeIcd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)"
           test -n "$LavapipeIcd"
           env -u DISPLAY XDG_RUNTIME_DIR="$RuntimeDirectory" WAYLAND_DISPLAY=herta-wayland \
-            VK_DRIVER_FILES="$LavapipeIcd" ./Binaries/linux/x86_64/${{ matrix.configuration }}/HertaEditor --renderer-test --expect-window-system=wayland
+            VK_DRIVER_FILES="$LavapipeIcd" ./Binaries/linux/x86_64/${{ matrix.configuration }}/Herta --renderer-test --expect-window-system=wayland
 
       - name: Save project-local tools and SDKs
         if: github.event_name != 'pull_request' && steps.bootstrap-cache.outputs.cache-hit != 'true'
@@ -288,7 +288,7 @@ jobs:
           $Toolset = Get-ChildItem -LiteralPath "$VisualStudioRoot/VC/Tools/MSVC" -Directory |
             Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
           $Dumpbin = Join-Path $Toolset.FullName 'bin/Hostx64/x64/dumpbin.exe'
-          foreach ($Program in @('HertaEditor', 'HertaEditorCmd', 'HertaAssetWorker')) {
+          foreach ($Program in @('Herta', 'HertaEditorCmd', 'HertaAssetWorker')) {
             $Imports = & $Dumpbin /nologo /dependents "Binaries/windows/x86_64/Shipping/$Program.exe"
             if ($LASTEXITCODE -ne 0 -or ($Imports -match '(?i)(vcruntime|msvcp|concrt|ucrtbase|api-ms-win-crt).*\.dll')) {
               throw "$Program could not be inspected or still imports a CRT DLL."
@@ -354,7 +354,7 @@ jobs:
           LavapipeIcd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -name 'lvp_icd*.json' -print -quit)"
           test -n "$LavapipeIcd"
           env -u WAYLAND_DISPLAY VK_DRIVER_FILES="$LavapipeIcd" \
-            xvfb-run --auto-servernum ./Binaries/linux/x86_64/Shipping/HertaEditor --renderer-test --expect-window-system=x11
+            xvfb-run --auto-servernum ./Binaries/linux/x86_64/Shipping/Herta --renderer-test --expect-window-system=x11
 
       - name: Upload experimental Shipping editor
         if: matrix.configuration == 'Shipping' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')

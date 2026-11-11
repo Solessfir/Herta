@@ -227,7 +227,7 @@ Herta/
 |       |   |-- StateTreeCompiler/
 |       |   `-- ShaderCompiler/
 |       `-- Programs/
-|           |-- HertaEditor/
+|           |-- Herta/
 |           |-- HertaEditorCmd/
 |           |-- HertaGame/
 |           |-- HertaServer/
@@ -363,7 +363,7 @@ LocalizationPipeline -> Core + Assets + Localization
 NavigationBuilder -> Core + Math + Assets + AssetPipeline
 PackageBuilder -> Core + Assets
 StateTreeCompiler -> Core + Reflection + Assets + GraphCore + AI
-HertaEditor -> EditorFramework + runtime modules available in the current milestone
+Herta -> EditorFramework + runtime modules available in the current milestone
 HertaEditorCmd -> EditorCore + selected Runtime and Developer command modules
 HertaEditorMcp -> EditorCore automation through authenticated local IPC
 HertaAssetWorker -> AssetPipeline
@@ -620,9 +620,9 @@ Meshoptimizer optimizes cooked meshes. Cooked textures start as RGBA8 with mips;
 
 ### 4.10 Native `.blend` import
 
-"Native `.blend` support" means the editor can accept `.blend` as a source asset with no manual export step when Blender is installed system-wide. Blender is an optional external authoring tool, not an engine, build, runtime, Setup, or SDK dependency. HertaEditor, HertaGame, normal glTF import, builds, tests, and cooked content must work without it.
+"Native `.blend` support" means the editor can accept `.blend` as a source asset with no manual export step when Blender is installed system-wide. Blender is an optional external authoring tool, not an engine, build, runtime, Setup, or SDK dependency. Herta, HertaGame, normal glTF import, builds, tests, and cooked content must work without it.
 
-HertaEditor discovers Blender through an explicit editor setting first, then `PATH` and platform-standard installation locations. It probes the executable and version before enabling `.blend` import. An unsupported or missing installation disables only `.blend` import and live reimport, with an actionable editor message.
+Herta discovers Blender through an explicit editor setting first, then `PATH` and platform-standard installation locations. It probes the executable and version before enabling `.blend` import. An unsupported or missing installation disables only `.blend` import and live reimport, with an actionable editor message.
 
 When available, `HertaAssetWorker` launches the discovered system Blender executable as an external process:
 
@@ -645,7 +645,7 @@ An optional persistent Blender worker process may be explored after the simple p
 
 #### Blender live reimport
 
-When a valid system Blender installation is available, saving a tracked `.blend` file must update every dependent asset and visible instance in HertaEditor without a manual export or editor restart.
+When a valid system Blender installation is available, saving a tracked `.blend` file must update every dependent asset and visible instance in Herta without a manual export or editor restart.
 
 ```text
 Blender save
@@ -966,7 +966,7 @@ EditorCore exposes semantic, schema-described automation commands with stable ob
 
 | Program | Responsibility | Ships to players |
 |---|---|---:|
-| `HertaEditor` | Editor host, runtime preview, asset and graph tools | No |
+| `Herta` | Editor host, runtime preview, asset and graph tools | No |
 | `HertaEditorCmd` | Orchestrates headless editor validation, migration, import, cooking, and graph-compilation commands | No |
 | `HertaGame` | Standalone Sandbox game target | Yes |
 | `HertaServer` | Dedicated authoritative server without windows, rendering, ImGui, or audio devices | Optional |
@@ -996,7 +996,7 @@ Reload is transactional at an editor safe point:
 
 If validation or activation fails, the candidate is unloaded and the old module remains active. The first implementation reloads gameplay systems whose mutable state already lives in engine-owned storage. A changed C++ component layout, live game-owned object with a module vtable, static lifetime, or incompatible descriptor requires a deliberate migration or editor restart. Herta must not claim successful reload while stale code pointers remain.
 
-`HertaEditorCmd` is a separate composition target, not `HertaEditor` with an invisible window. Its baseline composition does not link or initialize GLFW, ImGui, presentation RHI, Renderer, or an audio device. Commands use stable names, machine-readable diagnostics, deterministic exit codes, and cancellation. Work that explicitly requires offscreen rendering uses an RHI-enabled command composition or worker rather than changing the baseline headless contract.
+`HertaEditorCmd` is a separate composition target, not `Herta` with an invisible window. Its baseline composition does not link or initialize GLFW, ImGui, presentation RHI, Renderer, or an audio device. Commands use stable names, machine-readable diagnostics, deterministic exit codes, and cancellation. Work that explicitly requires offscreen rendering uses an RHI-enabled command composition or worker rather than changing the baseline headless contract.
 
 Game and application projects may define additional programs that compose only selected Herta modules. Packaging those programs as a single executable is an output policy, not a separate runtime architecture.
 
@@ -1501,7 +1501,7 @@ Exit condition: a fresh clone can run Setup, generate, build, and execute tests 
 - Add the pinned NVRHI dependency, create the Vulkan instance, device, surface, and swapchain, and expose the minimum Herta RHI presentation path required by ToolUI. Do not add a scene renderer.
 - Add ToolUI and the Dear ImGui docking and multi-viewport editor shell.
 - Add the EditorFramework Output Log with whole-line category colors, fixed warning and error colors, search and level filtering, tail-aware auto-scroll, continuous multi-line text selection, copy, command history, and command completion through the shared EditorCore registry.
-- Add the `EditorCore`, `HertaEditor`, and `HertaEditorCmd` composition boundaries. The headless target starts and stops without GLFW, ImGui, presentation RHI, Renderer, or an audio device.
+- Add the `EditorCore`, `Herta`, and `HertaEditorCmd` composition boundaries. The headless target starts and stops without GLFW, ImGui, presentation RHI, Renderer, or an audio device.
 - Apply the centralized EditorStyle baseline: Roboto Regular and Medium through FreeType, required license metadata, desaturated non-black surfaces, the configurable Cobalt background gradient, additive interaction tinting, transparent-panel modes, white docking previews, and the shared 36 px title-bar geometry.
 - Draw title-bar controls with ImGui primitives, compile the Windows `GLFW_ICON` application resource, and add Linux desktop-icon source assets. Defer LunaSVG and the production icon set until an SVG-backed editor tool needs them.
 - Add pure title-bar and workspace policy tests plus regression coverage proving that floating ImGui panels and popups consume input instead of dragging the native window.
@@ -1664,7 +1664,7 @@ Exit condition: the path tracer converges on every Sandbox station and matches r
 
 Brought ahead of the later graph domains because materials already have a complete consumer: the Slang worker, cooked shaders, and atomic pipeline publication.
 
-Implemented as of 2026-11-09: `GraphCore` holds graphs, validation, canonical text, and link checks; `MaterialGraph` holds the schema and the compiler to Slang; `GraphEditor` holds the canvas; and the editor's Material Graph panel edits `.hmatgraph` files with undo, saving them for the material shader watcher to compile. Mesh shading moved into `MeshShading.slangh`, which calls each shader's `EvaluateMaterial`: the engine material evaluates its texture slots there, and graphs generate theirs. The Sandbox material gallery shows a graph material. Material instances work: Scalar and Vector Parameter nodes, `.hmat` values by name, and parameter tables that ship with staged shaders. Unsaved graph edits preview live through the shader watcher, static switches compile one shader permutation per combination materials use, and ray-traced hits read each custom-shader material from a UV-space bake of its own `EvaluateMaterial`. `game.stage` and `HertaEditorCmd material.compile` compile graph and hand-written material shaders headless; packaged games load them without the compiler or the graph, and the renderer test checks a graph against the engine material pixel for pixel. Custom and graph shaders draw their own depth prepass, so ambient occlusion, contact shadows, motion vectors, and global illumination surfaces include them, and masked ones cut their shadows out by their own alpha. The exit condition is checked by `HertaEditor --renderer-test`, which compiles a parameterized graph headless and matches the engine material with identical raster pixels and a 0.2 mean channel difference path traced, by the Material Graph tests, by the Sandbox gallery's master graph with a parameter instance and a switch permutation, and by `PackageGame -Verify`, whose relocated game publishes the staged stages. Known limits: ray-traced bakes evaluate graphs over the UV square at 128 px, so graphs that read world position are approximate there, and each publish creates up to 14 pipelines on the main thread.
+Implemented as of 2026-11-09: `GraphCore` holds graphs, validation, canonical text, and link checks; `MaterialGraph` holds the schema and the compiler to Slang; `GraphEditor` holds the canvas; and the editor's Material Graph panel edits `.hmatgraph` files with undo, saving them for the material shader watcher to compile. Mesh shading moved into `MeshShading.slangh`, which calls each shader's `EvaluateMaterial`: the engine material evaluates its texture slots there, and graphs generate theirs. The Sandbox material gallery shows a graph material. Material instances work: Scalar and Vector Parameter nodes, `.hmat` values by name, and parameter tables that ship with staged shaders. Unsaved graph edits preview live through the shader watcher, static switches compile one shader permutation per combination materials use, and ray-traced hits read each custom-shader material from a UV-space bake of its own `EvaluateMaterial`. `game.stage` and `HertaEditorCmd material.compile` compile graph and hand-written material shaders headless; packaged games load them without the compiler or the graph, and the renderer test checks a graph against the engine material pixel for pixel. Custom and graph shaders draw their own depth prepass, so ambient occlusion, contact shadows, motion vectors, and global illumination surfaces include them, and masked ones cut their shadows out by their own alpha. The exit condition is checked by `Herta --renderer-test`, which compiles a parameterized graph headless and matches the engine material with identical raster pixels and a 0.2 mean channel difference path traced, by the Material Graph tests, by the Sandbox gallery's master graph with a parameter instance and a switch permutation, and by `PackageGame -Verify`, whose relocated game publishes the staged stages. Known limits: ray-traced bakes evaluate graphs over the UV square at 128 px, so graphs that read world position are approximate there, and each publish creates up to 14 pipelines on the main thread.
 
 - Add a minimal `GraphCore` without ImGui: stable node, pin, and link identities, versioned graph assets, typed pins, validation, and per-node diagnostics, all usable headless.
 - Add `GraphEditor` with the first-party node canvas described in section 4: pan and zoom with sharp text through scaled fonts, culling, typed links, selection and box selection, moving and snapping, hit-test priority, keyboard focus, DPI and theme compliance, and EditorCore transactions for every edit.

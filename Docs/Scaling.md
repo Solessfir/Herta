@@ -15,7 +15,7 @@ The destination directory must already exist. The command appears in console com
 
 ## Repeatable capture
 
-Build `HertaEditor`, `HertaEditorCmd`, and `HertaTests` in Shipping first. Run from the repository:
+Build `Herta`, `HertaEditorCmd`, and `HertaTests` in Shipping first. Run from the repository:
 
 ```powershell
 & Scripts/Windows/MeasureScaling.ps1
@@ -30,8 +30,8 @@ The scripts generate all six fixtures under a unique `TestResults/Scaling` direc
 Individual captures also work:
 
 ```text
-HertaEditor --scaling-test=TestResults/Rendering10000.hlevel
-HertaEditor --scaling-test=TestResults/Dynamic10000.hlevel --scaling-simulate
+Herta --scaling-test=TestResults/Rendering10000.hlevel
+Herta --scaling-test=TestResults/Dynamic10000.hlevel --scaling-simulate
 ```
 
 Captures use an isolated default workspace, disable VSync, wait for shared assets to load, and frame the entire fixture. Each phase warms up for 60 frames and samples 240 presented frames. Rendering and select-all phases always run. Dynamic captures additionally simulate at a fixed 60 Hz for one step per frame, stop, and verify every model matrix against its authored pose before sampling the restored level. Early close, rendering errors, physics failures, or the five-minute budget produce failure, not a partial success.

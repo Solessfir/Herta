@@ -57,7 +57,7 @@ package_files=(LICENSE Games/Sandbox/Sandbox.hertaproject)
 while IFS= read -r -d '' template_file; do
     package_files+=("${template_file#"${repository_root}/"}")
 done < <(find "${repository_root}/Templates/Projects/Game" -type f -print0)
-for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
+for program in Herta HertaEditorCmd HertaAssetWorker; do
     relative_path="${binary_directory}/${program}"
     package_files+=("${relative_path}")
     if [[ -f "${repository_root}/${relative_path}" && ! -x "${repository_root}/${relative_path}" ]]; then
@@ -150,7 +150,7 @@ Herta experimental editor - linux x86_64 ${configuration}
 Revision: ${revision}
 
 Extract the complete archive into a writable directory.
-Run ${binary_directory}/HertaEditor.
+Run ${binary_directory}/Herta.
 Press Alt+P in the viewport to play the level. Save level edits with Ctrl+S.
 A Vulkan-capable GPU, driver, and system Vulkan loader are required.
 Linux builds target Ubuntu 24.04 with the GCC 14 libstdc++ runtime and X11/Wayland libraries.

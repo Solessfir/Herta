@@ -101,7 +101,7 @@ git -C "${submodule_root}" -c user.name=Test -c user.email=test@example.com -c c
 git -C "${repository_root}" -c protocol.file.allow=always submodule add --quiet "${submodule_root}" External/Submodule
 write_fixture_file External/Submodule/untracked-NOTICE.txt
 
-for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
+for program in Herta HertaEditorCmd HertaAssetWorker; do
     write_fixture_file "${binary_directory}/${program}"
     chmod 755 -- "${repository_root}/${binary_directory}/${program}"
 done
@@ -156,7 +156,7 @@ done
 assert_absent "${extracted_package}/ThirdPartyLicenses/External/Submodule/untracked-NOTICE.txt"
 assert_absent "${extracted_package}/ThirdPartyLicenses/External/example/Source.cpp"
 
-for program in HertaEditor HertaEditorCmd HertaAssetWorker; do
+for program in Herta HertaEditorCmd HertaAssetWorker; do
     assert_file "${extracted_package}/${binary_directory}/${program}"
     ((test_count += 1))
     [[ "$(stat -c '%a' "${extracted_package}/${binary_directory}/${program}")" == 755 ]]
@@ -198,7 +198,7 @@ assert_fails 'Package output already exists' --output-directory "${existing_arch
 missing_inputs=(
     LICENSE
     Games/Sandbox/Sandbox.hertaproject
-    "${binary_directory}/HertaEditor"
+    "${binary_directory}/Herta"
     "${binary_directory}/HertaEditorCmd"
     "${binary_directory}/HertaAssetWorker"
     Engine/Content/Editor/Fonts/DroidSansMono/DroidSansMono.ttf
@@ -226,9 +226,9 @@ assert_fails 'Required engine shader sources are missing' --output-directory "${
 assert_absent "${temporary_root}/missing-output"
 mv -- "${temporary_root}/missing-shaders" "${repository_root}/Engine/Shaders"
 
-chmod 644 -- "${repository_root}/${binary_directory}/HertaEditor"
+chmod 644 -- "${repository_root}/${binary_directory}/Herta"
 assert_fails 'Required package program is not executable' --output-directory "${temporary_root}/missing-output"
-chmod 755 -- "${repository_root}/${binary_directory}/HertaEditor"
+chmod 755 -- "${repository_root}/${binary_directory}/Herta"
 git -C "${repository_root}" rm --quiet --cached Engine/Content/Shapes/Cube.gltf
 assert_fails 'Required package content is not tracked' --output-directory "${temporary_root}/missing-output"
 git -C "${repository_root}" add Engine/Content/Shapes/Cube.gltf

@@ -761,10 +761,10 @@ project "HertaServer"
 
     filter {}
 
-project "HertaEditor"
+project "Herta"
     kind "ConsoleApp"
-    location(path.join(ProjectFilesRoot, "HertaEditor"))
-    ApplyCommonProjectSettings(path.join(ProgramsRoot, "HertaEditor"))
+    location(path.join(ProjectFilesRoot, "Herta"))
+    ApplyCommonProjectSettings(path.join(ProgramsRoot, "Herta"))
     debugdir(RepositoryRoot)
     ApplyRuntimeDependencies { "Application", "Tasks", "EditorFramework", "NvrhiVulkan", "Renderer", "Math", "Platform", "Project", "AssetPipeline", "GraphCore", "MaterialGraph", "AnimationGraph" }
     dependson { "HertaShaders", "HertaAssetWorker", "HertaShaderWorker" }
@@ -778,8 +778,8 @@ project "HertaEditor"
 
     filter "system:windows"
         files {
-            path.join(ProgramsRoot, "HertaEditor/Resources/Windows/HertaEditor.ico"),
-            path.join(ProgramsRoot, "HertaEditor/Resources/Windows/HertaEditor.rc")
+            path.join(ProgramsRoot, "Herta/Resources/Windows/Herta.ico"),
+            path.join(ProgramsRoot, "Herta/Resources/Windows/Herta.rc")
         }
 
     filter { "system:windows", "configurations:Debug or Debug-ASan or Development" }
@@ -812,7 +812,7 @@ if HertaProjectDescriptor then
     BuildIdentityFile:close()
 
     for _, Module in ipairs(HertaProjectDescriptor.modules) do
-        local ReservedNames = { "NVRHI", "NVRHIVulkanBackend", "MeshOptimizer", "Jolt", "FreeType", "FastGltf", "GLFW", "EnkiTS", "ImGui", "Im3d", "Spdlog", "SimdJson", "HertaEditor", "HertaEditorCmd", "HertaGame", "HertaTests", "HertaAssetWorker", "HertaShaderWorker", "HertaShaders" }
+        local ReservedNames = { "NVRHI", "NVRHIVulkanBackend", "MeshOptimizer", "Jolt", "FreeType", "FastGltf", "GLFW", "EnkiTS", "ImGui", "Im3d", "Spdlog", "SimdJson", "Herta", "HertaEditorCmd", "HertaGame", "HertaTests", "HertaAssetWorker", "HertaShaderWorker", "HertaShaders" }
         for Name in pairs(RuntimeModules) do
             table.insert(ReservedNames, Name)
         end

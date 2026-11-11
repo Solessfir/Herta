@@ -1,4 +1,4 @@
-// An MCP server over stdio for coding agents. It forwards tool calls to a running HertaEditor started with --automation, which it finds through
+// An MCP server over stdio for coding agents. It forwards tool calls to a running Herta started with --automation, which it finds through
 // Saved/Automation/Session.json; it never edits files or runs commands itself.
 
 #include "Herta/Core/Json.h"
@@ -140,7 +140,7 @@ private:
 
 		if (!Opened)
 		{
-			return std::unexpected("The editor named in Saved/Automation/Session.json is not running; restart HertaEditor with --automation");
+			return std::unexpected("The editor named in Saved/Automation/Session.json is not running; restart Herta with --automation");
 		}
 
 		std::string Hello = "{\"token\": ";

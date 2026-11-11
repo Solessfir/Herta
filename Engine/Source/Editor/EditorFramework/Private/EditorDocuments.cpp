@@ -1,5 +1,9 @@
 #include "EditorFrameworkPrivate.h"
 
+#include "Herta/Platform/Platform.h"
+
+#include <fstream>
+
 namespace Herta
 {
 std::optional<std::string> FEditorFramework::FImplementation::MountedContentPath(const std::filesystem::path& File) const
@@ -167,6 +171,7 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 			AssetPaths.ContentRoot = Result->Project->ContentRoot;
 			AssetPaths.DerivedDataRoot = Result->Project->Root / "DerivedDataCache" / AssetPaths.TargetPlatform;
 			ProjectPath = Result->Project->DescriptorPath;
+			RememberRecentProject(ProjectPath);
 			ContentBrowserState = {};
 			DetailsPanelState = {};
 			OutlinerPanelState = {};
@@ -188,6 +193,133 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 		bProjectBusy = false;
 		ProjectError = Report.error().Message;
 	}
+}
+
+namespace
+{
+constexpr std::size_t MaximumRecentProjects = 10;
+
+std::filesystem::path GetRecentProjectsPath()
+{
+	return GetUserSettingsDirectory() / "Herta" / "Editor" / "RecentProjects.txt";
+}
+
+// One descriptor path per line; projects that moved or were deleted drop out when read.
+std::vector<std::filesystem::path> ReadRecentProjects()
+{
+	std::vector<std::filesystem::path> Projects;
+	std::ifstream Stream(GetRecentProjectsPath(), std::ios::binary);
+	for (std::string Line; std::getline(Stream, Line) && Projects.size() < MaximumRecentProjects;)
+	{
+		std::erase(Line, '\r');
+		std::error_code Error;
+		const std::filesystem::path Path(std::u8string(Line.begin(), Line.end()));
+		if (!Line.empty() && std::filesystem::is_regular_file(Path, Error) && !std::ranges::contains(Projects, Path))
+		{
+			Projects.push_back(Path);
+		}
+	}
+
+	return Projects;
+}
+}
+
+void FEditorFramework::FImplementation::RememberRecentProject(const std::filesystem::path& Descriptor)
+{
+	RecentProjects = ReadRecentProjects();
+	std::erase(RecentProjects, Descriptor);
+	RecentProjects.insert(RecentProjects.begin(), Descriptor);
+	RecentProjects.resize(std::min(RecentProjects.size(), MaximumRecentProjects));
+
+	const std::filesystem::path Path = GetRecentProjectsPath();
+	std::error_code Error;
+	std::filesystem::create_directories(Path.parent_path(), Error);
+	std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
+	for (const std::filesystem::path& Project : RecentProjects)
+	{
+		const std::u8string Text = Project.generic_u8string();
+		Stream << std::string(Text.begin(), Text.end()) << '\n';
+	}
+
+	if (!Stream)
+	{
+		HERTA_LOG_WARNING(*Log, EditorLog, "Could not remember recent projects in {}", Path.string());
+	}
+}
+
+void FEditorFramework::FImplementation::DrawProjectPicker()
+{
+	if (!ProjectPath.empty() || !Level->GetPath().empty())
+	{
+		return;
+	}
+
+	if (RecentProjects.empty())
+	{
+		RecentProjects = ReadRecentProjects();
+	}
+
+	const float Scale = ImGui::GetFontSize() / ToolUI->GetMetrics().BaseFontSize;
+	const ImGuiViewport* const Viewport = ImGui::GetMainViewport();
+	ImGui::SetNextWindowPos(Viewport->GetCenter(), ImGuiCond_Always, {0.5f, 0.5f});
+	ImGui::SetNextWindowSize({480.f * Scale, 0.f});
+	constexpr ImGuiWindowFlags Flags = ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize;
+	if (!ImGui::Begin("Open a project###ProjectPicker", nullptr, Flags))
+	{
+		ImGui::End();
+		return;
+	}
+
+	ImGui::TextDisabled(RecentProjects.empty() ? "No recent projects. Open one or create a new game." : "Recent projects");
+	for (std::size_t Index = 0; Index < RecentProjects.size(); ++Index)
+	{
+		const std::filesystem::path& Project = RecentProjects[Index];
+		const std::u8string Name = Project.stem().u8string();
+		const std::u8string Folder = Project.parent_path().generic_u8string();
+		ImGui::PushID(static_cast<int>(Index));
+		const ImVec2 Start = ImGui::GetCursorScreenPos();
+		const float LineHeight = ImGui::GetTextLineHeightWithSpacing();
+		ImGui::BeginDisabled(bProjectBusy);
+		if (ImGui::Selectable("##Project", false, ImGuiSelectableFlags_None, {0.f, LineHeight * 2.f}))
+		{
+			StartProjectOperation(Project);
+		}
+
+		ImGui::EndDisabled();
+		ImGui::SetItemTooltip("%s", reinterpret_cast<const char*>(Project.generic_u8string().c_str()));
+		ImDrawList* const DrawList = ImGui::GetWindowDrawList();
+		const float Padding = ImGui::GetStyle().FramePadding.x;
+		DrawList->AddText({Start.x + Padding, Start.y}, ImGui::GetColorU32(ImGuiCol_Text), reinterpret_cast<const char*>(Name.c_str()));
+		DrawList->AddText({Start.x + Padding, Start.y + LineHeight}, ImGui::GetColorU32(ImGuiCol_TextDisabled), reinterpret_cast<const char*>(Folder.c_str()));
+		ImGui::PopID();
+	}
+
+	if (!ProjectError.empty())
+	{
+		ImGui::TextWrapped("%s", ProjectError.c_str());
+	}
+
+	ImGui::Separator();
+	ImGui::BeginDisabled(bProjectBusy);
+	if (ImGui::Button("Open project...", {150.f * Scale, 0.f}))
+	{
+		OpenProjectWithDialog();
+	}
+
+	ImGui::SameLine();
+	if (ImGui::Button("New project...", {150.f * Scale, 0.f}))
+	{
+		bPickerNewProject = true;
+	}
+
+	ImGui::EndDisabled();
+	if (bProjectBusy)
+	{
+		ImGui::SameLine();
+		ImGui::TextDisabled("Opening...");
+	}
+
+	ImGui::End();
 }
 
 void FEditorFramework::FImplementation::DrawNewProject()

@@ -787,10 +787,18 @@ int RunEditor(const std::filesystem::path& ExecutablePath, const bool bSmokeTest
 		}
 	}
 
-	const std::filesystem::path DefaultProject = RepositoryRoot / "Games/Sandbox/Sandbox.hertaproject";
-	const std::filesystem::path ProjectPath = bScalingTest ? std::filesystem::path{} : !ProjectArgument.empty() ? std::filesystem::path(std::u8string(ProjectArgument.begin(), ProjectArgument.end()))
-	                                                                               : !OpenedProject.empty()     ? OpenedProject
-	                                                                                                            : DefaultProject;
+	// Without a project the editor starts on the project picker.
+	std::filesystem::path ProjectPath = OpenedProject;
+	if (!ProjectArgument.empty())
+	{
+		ProjectPath = std::filesystem::path(std::u8string(ProjectArgument.begin(), ProjectArgument.end()));
+	}
+
+	if (bScalingTest)
+	{
+		ProjectPath.clear();
+	}
+
 	const std::filesystem::path LevelPath = bScalingTest ? std::filesystem::path(std::u8string(ScalingLevelPath.begin(), ScalingLevelPath.end())) : OpenedLevel;
 	if (bScalingTest)
 	{
@@ -2082,7 +2090,7 @@ int main(const int ArgumentCount, char** const Arguments)
 {
 	try
 	{
-		const std::filesystem::path ExecutablePath = ArgumentCount > 0 && Arguments[0] != nullptr ? Arguments[0] : "HertaEditor";
+		const std::filesystem::path ExecutablePath = ArgumentCount > 0 && Arguments[0] != nullptr ? Arguments[0] : "Herta";
 		const bool bSmokeTest = Herta::HasArgument(ArgumentCount, Arguments, "--smoke-test");
 		const bool bPlatformSmokeTest = Herta::HasArgument(ArgumentCount, Arguments, "--platform-smoke-test");
 		const bool bRendererTest = Herta::HasArgument(ArgumentCount, Arguments, "--renderer-test");

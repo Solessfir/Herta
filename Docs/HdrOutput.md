@@ -34,7 +34,7 @@ Visual-test and scaling captures and smoke runs always use SDR, because they rea
 
 ## Verification
 
-- `HertaEditor --renderer-test` renders the 18% grey card in HDR at 250 nit paper white and requires it to match the SDR grey (0.146 against 0.147 of paper white), requires an 8-stop overexposed highlight to land on the 1000 nit peak (4.0), and checks the calibration pattern values. Where the display offers HDR10, it also recreates the swapchain as HDR10 and back under validation.
+- `Herta --renderer-test` renders the 18% grey card in HDR at 250 nit paper white and requires it to match the SDR grey (0.146 against 0.147 of paper white), requires an 8-stop overexposed highlight to land on the 1000 nit peak (4.0), and checks the calibration pattern values. Where the display offers HDR10, it also recreates the swapchain as HDR10 and back under validation.
 - Unit tests cover the ST 2084 encoding against reference values, neutral HDR10 white, appearance-file round-trips and older versions, luminance resolution and clamping, and HDR uniform validation.
 - The SDR grey card still reads 107.
 - Visual review on an HDR display remains manual: sun disc and specular highlights should exceed UI white, UI text should match the desktop's SDR brightness, and toggling HDR should not change midtone brightness.

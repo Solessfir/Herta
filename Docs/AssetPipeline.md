@@ -16,7 +16,7 @@ Core provides `FHash128` and `HashBytes`, a private XXH3-128 implementation from
 
 ## Content root
 
-The editor mounts `Engine/Content` as `Engine` and the opened project's content directory as `Game`. The default project uses `Games/Sandbox/Content`. `HertaEditorCmd` discovers the engine checkout from the working directory or executable and accepts `--content-root <path>` on every asset command. Material cooking can resolve texture and shader dependencies across the configured content roots.
+The editor mounts `Engine/Content` as `Engine` and the opened project's content directory as `Game`. `HertaEditorCmd` discovers the engine checkout from the working directory or executable and accepts `--content-root <path>` on every asset command. Material cooking can resolve texture and shader dependencies across the configured content roots.
 
 Scanning ignores dot-prefixed files and directories. Symbolic links are reported as errors and never followed.
 

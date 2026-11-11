@@ -107,7 +107,7 @@ workspace "Herta"
     architecture "x86_64"
     configurations { "Debug", "Debug-ASan", "Development", "Shipping" }
     location(WorkspaceLocation)
-    startproject "HertaEditor"
+    startproject "Herta"
 
     language "C++"
     cppdialect "C++23"

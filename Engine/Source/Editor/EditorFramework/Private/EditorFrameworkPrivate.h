@@ -355,6 +355,9 @@ struct FEditorFramework::FImplementation
 	void OpenLevelWithDialog();
 	void OpenProjectWithDialog();
 	void DrawNewProject();
+	// Shown while no project is open: recent projects, and opening or creating another.
+	void DrawProjectPicker();
+	void RememberRecentProject(const std::filesystem::path& Descriptor);
 	void StartProjectOperation(const std::filesystem::path& Path, std::optional<FCreateProjectRequest> Create = std::nullopt);
 	void SaveCurrentLevel();
 	void RefreshSelectionFromLevel();
@@ -729,6 +732,9 @@ struct FEditorFramework::FImplementation
 	std::string ProjectError;
 	bool bProjectBusy = false;
 	bool bCloseProjectPopup = false;
+	bool bPickerNewProject = false;
+	// Most recent first, per user, so the picker offers them on the next start.
+	std::vector<std::filesystem::path> RecentProjects;
 	int PendingDocumentAction = 0;
 	bool bWaitingForMaterialClose = false;
 	bool bCloseRequested = false;

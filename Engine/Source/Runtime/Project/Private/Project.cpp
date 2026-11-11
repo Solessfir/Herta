@@ -70,7 +70,7 @@ bool PortableFilename(const std::string_view Text)
 
 bool ModuleName(const std::string_view Text)
 {
-	constexpr std::array<std::string_view, 36> EngineModules{"Core", "Math", "Assets", "Level", "Project", "Physics", "Platform", "Tasks", "EditorCore", "Application", "ToolUI", "AssetPipeline", "EditorFramework", "RHI", "RenderGraph", "Renderer", "NvrhiVulkan", "ShaderCompiler", "HertaEditor", "HertaEditorCmd", "HertaTests", "HertaAssetWorker", "HertaShaderWorker", "HertaShaders", "Spdlog", "SimdJson", "NVRHI", "NVRHIVulkanBackend", "MeshOptimizer", "Jolt", "FreeType", "FastGltf", "GLFW", "EnkiTS", "ImGui", "Im3d"};
+	constexpr std::array<std::string_view, 36> EngineModules{"Core", "Math", "Assets", "Level", "Project", "Physics", "Platform", "Tasks", "EditorCore", "Application", "ToolUI", "AssetPipeline", "EditorFramework", "RHI", "RenderGraph", "Renderer", "NvrhiVulkan", "ShaderCompiler", "Herta", "HertaEditorCmd", "HertaTests", "HertaAssetWorker", "HertaShaderWorker", "HertaShaders", "Spdlog", "SimdJson", "NVRHI", "NVRHIVulkanBackend", "MeshOptimizer", "Jolt", "FreeType", "FastGltf", "GLFW", "EnkiTS", "ImGui", "Im3d"};
 	return Identifier(Text) && PortableFilename(Text) && std::ranges::none_of(EngineModules, [&](const std::string_view Name)
 	{
 		return Lowercase(std::string(Name)) == Lowercase(std::string(Text));

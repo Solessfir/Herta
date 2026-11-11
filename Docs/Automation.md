@@ -4,7 +4,7 @@ Coding agents, and any other local MCP client, can drive a running editor throug
 
 ## Running it
 
-1. Start the editor with automation: `HertaEditor --automation` (read-only) or `HertaEditor --automation=write`. The log says where it listens.
+1. Start the editor with automation: `Herta --automation` (read-only) or `Herta --automation=write`. The log says where it listens.
 2. Point the MCP client at `HertaEditorMcp`. The repository's `.mcp.json` registers the Windows Development build for Claude Code; on Linux use `Binaries/linux/x86_64/Development/HertaEditorMcp`. Build `HertaEditorMcp` before starting the client, since clients start their MCP servers when a session begins.
 
 `HertaEditorMcp` finds the editor through `Saved/Automation/Session.json`, searching upward from its own folder for the repository, or under `HERTA_ROOT` when set. A session file left by an editor that crashed is harmless: the server keeps reading the file for up to 10 seconds until an editor answers.

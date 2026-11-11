@@ -24,7 +24,7 @@ if ((Test-Path -LiteralPath $PackageRoot) -or (Test-Path -LiteralPath $ArchivePa
 $RequiredFiles = @(
     'LICENSE',
     'Games/Sandbox/Sandbox.hertaproject',
-    "$BinaryDirectory/HertaEditor.exe",
+    "$BinaryDirectory/Herta.exe",
     "$BinaryDirectory/HertaEditorCmd.exe",
     "$BinaryDirectory/HertaAssetWorker.exe",
     'Engine/Content/Editor/Fonts/Roboto/Roboto-Regular.ttf',
@@ -112,7 +112,7 @@ Herta experimental editor - Windows x86_64 Shipping
 Revision: $Revision
 
 Extract the complete archive into a writable directory.
-Run $BinaryDirectory/HertaEditor.exe.
+Run $BinaryDirectory/Herta.exe.
 Press Alt+P in the viewport to play the level. Save level edits with Ctrl+S.
 A Vulkan-capable GPU, driver, and system Vulkan loader are required.
 The MSVC runtime is statically linked; no separate CRT DLLs are required.

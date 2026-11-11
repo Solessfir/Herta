@@ -27,7 +27,7 @@ Setup.bat
 GenerateProjectFiles.bat
 ```
 
-Open the generated `Herta.slnx` or `Herta.sln` in Visual Studio or Rider, select **Development | x64**, and build and run **HertaEditor**.
+Open the generated `Herta.slnx` or `Herta.sln` in Visual Studio or Rider, select **Development | x64**, and build and run **Herta**.
 
 ### Linux
 
@@ -36,8 +36,8 @@ Install a C++23 toolchain, X11/Wayland development packages, and OpenSSL develop
 ```sh
 ./Setup.sh
 ./GenerateProjectFiles.sh
-make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development HertaEditor
-./Binaries/linux/x86_64/Development/HertaEditor
+make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Herta
+./Binaries/linux/x86_64/Development/Herta
 ```
 
 ## Documentation

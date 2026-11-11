@@ -9,11 +9,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $RepositoryRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$Editor = Join-Path $RepositoryRoot "Binaries/windows/x86_64/$Configuration/HertaEditor.exe"
+$Editor = Join-Path $RepositoryRoot "Binaries/windows/x86_64/$Configuration/Herta.exe"
 $Command = Join-Path $RepositoryRoot "Binaries/windows/x86_64/$Configuration/HertaEditorCmd.exe"
 
 if (!(Test-Path -LiteralPath $Editor) -or !(Test-Path -LiteralPath $Command)) {
-    throw "Build HertaEditor and HertaEditorCmd in $Configuration first."
+    throw "Build Herta and HertaEditorCmd in $Configuration first."
 }
 
 $OutputDirectory = Join-Path $RepositoryRoot ('TestResults/Scaling/' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))

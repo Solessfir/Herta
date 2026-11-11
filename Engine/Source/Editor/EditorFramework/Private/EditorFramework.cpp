@@ -103,6 +103,7 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		}
 
 		Implementation->ProjectPath = Project->DescriptorPath;
+		Implementation->RememberRecentProject(Project->DescriptorPath);
 		Implementation->AssetPaths.ContentRoot = Project->ContentRoot;
 		Implementation->AssetPaths.DerivedDataRoot = Project->Root / "DerivedDataCache" / Descriptor.Assets.TargetPlatform;
 		if (InitialLevelPath.empty())
@@ -1096,10 +1097,12 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::EndPopup();
 	}
 
-	if (bOpenNewProjectPopup)
+	Implementation->DrawProjectPicker();
+	if (bOpenNewProjectPopup || std::exchange(Implementation->bPickerNewProject, false))
 	{
 		ImGui::OpenPopup("New project");
 	}
+
 	Implementation->DrawNewProject();
 
 	if (bSaveLevelRequested)
