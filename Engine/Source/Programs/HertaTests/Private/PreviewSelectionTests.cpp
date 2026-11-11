@@ -22,6 +22,26 @@ TEST_CASE("Preview picking hits only the forward ray including origins inside th
 	CHECK_FALSE(HitTestPreviewCube({FVector3::Zero(), FVector3::Zero()}, Model));
 }
 
+TEST_CASE("Wire box picking takes the lines the cursor is on and nothing between them")
+{
+	const FMatrix4 Box = FMatrix4::Transform({0.f, 0.f, 10.f}, FQuaternion::Identity(), {2.f, 3.f, 1.f});
+	constexpr float Slope = 0.002f;
+
+	// Just above the box's top front edge, 9 m away, inside the tolerance there.
+	const auto Hit = HitTestPreviewCubeEdges({{0.f, 3.01f, 0.f}, FVector3::Forward()}, Box, Slope);
+	REQUIRE(Hit);
+	CHECK(*Hit == doctest::Approx(9.0));
+
+	// The same offset up close is too many pixels away; the middle of a face is not a line; nor is anything behind the ray.
+	CHECK_FALSE(HitTestPreviewCubeEdges({{0.f, 3.01f, 8.9f}, FVector3::Forward()}, Box, Slope));
+	CHECK_FALSE(HitTestPreviewCubeEdges({{0.f, 0.f, 0.f}, FVector3::Forward()}, Box, Slope));
+	CHECK_FALSE(HitTestPreviewCubeEdges({{0.f, 3.f, 20.f}, FVector3::Forward()}, Box, Slope));
+	CHECK_FALSE(HitTestPreviewCubeEdges({{0.f, 3.f, 0.f}, FVector3::Zero()}, Box, Slope));
+
+	// From inside the box a far edge still picks.
+	CHECK(HitTestPreviewCubeEdges({{0.f, 3.f, 10.f}, FVector3::Forward()}, Box, Slope));
+}
+
 TEST_CASE("Preview picking reports world ray distances for overlapping objects")
 {
 	const FViewportPickingRay Ray{.Origin = {0.f, 6.f, 0.f}, .Direction = FVector3::Down()};

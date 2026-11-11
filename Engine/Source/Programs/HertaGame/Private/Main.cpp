@@ -1103,7 +1103,7 @@ int RunGame(const FGameOptions& Options)
 			DrawCombatHud(*UI, Session->GetCombatView());
 		}
 
-		(void)DrawGameHud(*UI, Text, Session->GetObjective(), bPaused, {}, NoMenuFocus, {}, "Esc", FormatGameControlsHint(Text, Settings.Bindings, "Esc"));
+		(void)DrawGameHud(*UI, Text, bPaused, {}, NoMenuFocus, {}, "Esc", FormatGameControlsHint(Text, Settings.Bindings, "Esc"));
 		std::ranges::move(Menu.Draw(*UI, MenuInput, MenuSettings), std::back_inserter(MenuCommands));
 		for (const EGameMenuCommand Command : MenuCommands)
 		{

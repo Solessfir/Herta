@@ -536,7 +536,7 @@ void FEditorFramework::FImplementation::DrawPlayHud(const ImVec2 Minimum, const 
 		DrawCombatHud(*PlayUI, PlaySession->GetCombatView());
 	}
 
-	PlayMenuChoice = DrawGameHud(*PlayUI, Localization, PlaySession->GetObjective(), bPlayPaused, Items, PlayMenuFocus, MenuInput, "Shift+Esc");
+	PlayMenuChoice = DrawGameHud(*PlayUI, Localization, bPlayPaused, Items, PlayMenuFocus, MenuInput, "Shift+Esc");
 
 	// GameUI emits textured quads in screen pixels; ImGui draws them over the viewport with the same registered textures.
 	const FScreenDrawList Draws = PlayUI->GetDrawList();

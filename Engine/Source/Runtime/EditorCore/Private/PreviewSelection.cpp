@@ -73,6 +73,43 @@ std::optional<FMatrix4> GetPreviewWorldToLocal(const FMatrix4& Model)
 }
 }
 
+std::optional<double> HitTestPreviewCubeEdges(const FViewportPickingRay& Ray, const FMatrix4& Model, const float ToleranceSlope)
+{
+	if (!IsFinitePreviewVector(Ray.Origin) || !IsFinitePreviewVector(Ray.Direction) || Ray.Direction == FVector3::Zero())
+	{
+		return std::nullopt;
+	}
+
+	const FVector3 Direction = Ray.Direction.Normalized();
+	std::optional<double> Nearest;
+	for (std::size_t First = 0; First < CubeCorners.size(); ++First)
+	{
+		for (std::size_t Second = First + 1; Second < CubeCorners.size(); ++Second)
+		{
+			const FVector3 Difference = CubeCorners[Second] - CubeCorners[First];
+			if (std::abs(Difference.X) + std::abs(Difference.Y) + std::abs(Difference.Z) != 2.f)
+			{
+				continue;
+			}
+
+			// The closest points of the ray and the edge, with the edge's end clamped.
+			const FVector3 Start = Model.TransformPosition(CubeCorners[First]);
+			const FVector3 Edge = Model.TransformPosition(CubeCorners[Second]) - Start;
+			const FVector3 ToStart = Start - Ray.Origin;
+			const float Aligned = Direction.Dot(Edge);
+			const float Denominator = Edge.Dot(Edge) - Aligned * Aligned;
+			const float Along = Denominator > 1.e-8f ? std::clamp((Aligned * Direction.Dot(ToStart) - Edge.Dot(ToStart)) / Denominator, 0.f, 1.f) : 0.f;
+			const float Distance = Direction.Dot(ToStart) + Along * Aligned;
+			if (Distance > 0.f && (Ray.Origin + Direction * Distance - Start - Edge * Along).Length() <= Distance * ToleranceSlope && (!Nearest || Distance < *Nearest))
+			{
+				Nearest = Distance;
+			}
+		}
+	}
+
+	return Nearest;
+}
+
 std::optional<double> HitTestPreviewCube(const FViewportPickingRay& Ray, const FMatrix4& Model)
 {
 	const auto WorldToLocal = GetPreviewWorldToLocal(Model);

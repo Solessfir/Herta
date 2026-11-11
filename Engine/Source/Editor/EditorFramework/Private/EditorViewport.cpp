@@ -623,6 +623,25 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 				ClosestObject = static_cast<int>(Index);
 				ClosestDistance = *Distance;
 			}
+
+			if (bGameView || Index >= VisualEntities.size())
+			{
+				continue;
+			}
+
+			// The always-drawn wire boxes pick on their lines where they show, so a level-sized navigation volume does not swallow clicks on what is inside it.
+			const float PickSlope = 6.f * ImGui::GetStyle().FontScaleDpi * Im3d::GetAppData().m_projScaleY / Im3d::GetAppData().m_viewportSize.y;
+			const FLevelEntity& Visual = VisualEntities[Index];
+			for (const std::optional<FVector3>& Size : {Visual.NavigationBounds ? std::optional{Visual.NavigationBounds->Size} : std::nullopt, Visual.NavigationObstacle ? std::optional{Visual.NavigationObstacle->Size} : std::nullopt, Visual.Trigger ? std::optional{Visual.Trigger->Size} : std::nullopt})
+			{
+				const auto Edge = Size ? HitTestPreviewCubeEdges(CursorRay, PreviewModels[Index] * FMatrix4::Scale(*Size * 0.5f), PickSlope) : std::nullopt;
+				// A line lying on a surface draws over it, so it counts as a little nearer.
+				if (Edge && *Edge - 0.05 < ClosestDistance)
+				{
+					ClosestObject = static_cast<int>(Index);
+					ClosestDistance = std::max(*Edge - 0.05, 0.);
+				}
+			}
 		}
 
 		const ImGuiIO& IO = ImGui::GetIO();
