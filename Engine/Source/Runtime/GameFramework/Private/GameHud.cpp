@@ -53,16 +53,16 @@ void DrawPostureBar(FGameUI& UI, const FGameUIPlacement& Placement, const float 
 void DrawControlHints(FGameUI& UI, const std::span<const FGameControlHint> Hints)
 {
 	constexpr FVector2 Anchor{1.f, 0.f};
-	constexpr FVector2 Padding{18.f, 14.f};
+	constexpr FVector2 Padding{14.f, 11.f};
 	constexpr float Margin = 24.f;
-	constexpr float KeyHeight = 40.f;
-	constexpr float KeyPadding = 12.f;
-	constexpr float KeyGap = 6.f;
-	constexpr float RowHeight = 50.f;
-	constexpr float ColumnGap = 18.f;
+	constexpr float KeyHeight = 30.f;
+	constexpr float KeyPadding = 9.f;
+	constexpr float KeyGap = 5.f;
+	constexpr float RowHeight = 37.f;
+	constexpr float ColumnGap = 14.f;
 	const auto KeyWidth = [&](const std::string_view Key)
 	{
-		return std::max(UI.MeasureText(Key, EGameUIFont::Body).X + KeyPadding * 2.f, KeyHeight);
+		return std::max(UI.MeasureText(Key, EGameUIFont::Small).X + KeyPadding * 2.f, KeyHeight);
 	};
 
 	float KeysWidth = 0.f;
@@ -76,11 +76,11 @@ void DrawControlHints(FGameUI& UI, const std::span<const FGameControlHint> Hints
 		}
 
 		KeysWidth = std::max(KeysWidth, Width);
-		ActionWidth = std::max(ActionWidth, UI.MeasureText(Hint.Action, EGameUIFont::Body).X);
+		ActionWidth = std::max(ActionWidth, UI.MeasureText(Hint.Action, EGameUIFont::Small).X);
 	}
 
 	const FVector2 PanelSize{KeysWidth + ColumnGap + ActionWidth + Padding.X * 2.f, RowHeight * static_cast<float>(Hints.size()) - (RowHeight - KeyHeight) + Padding.Y * 2.f};
-	UI.DrawRect({.Anchor = Anchor, .Pivot = {1.f, 0.f}, .Offset = {-Margin, Margin}}, PanelSize, MakeGameUIColor(12, 14, 20, 170), 14.f);
+	UI.DrawRect({.Anchor = Anchor, .Pivot = {1.f, 0.f}, .Offset = {-Margin, Margin}}, PanelSize, MakeGameUIColor(12, 14, 20, 170), 11.f);
 
 	const float Left = -Margin - PanelSize.X + Padding.X;
 	float CenterY = Margin + Padding.Y + KeyHeight * 0.5f;
@@ -91,13 +91,13 @@ void DrawControlHints(FGameUI& UI, const std::span<const FGameControlHint> Hints
 		{
 			// The darker lip under the face reads as the side of a physical key.
 			const float Width = KeyWidth(Key);
-			UI.DrawRect({.Anchor = Anchor, .Pivot = {0.f, 0.5f}, .Offset = {X, CenterY + 3.f}}, {Width, KeyHeight}, MakeGameUIColor(122, 128, 144), 7.f);
-			UI.DrawRect({.Anchor = Anchor, .Pivot = {0.f, 0.5f}, .Offset = {X, CenterY}}, {Width, KeyHeight}, MakeGameUIColor(238, 240, 246), 7.f);
-			UI.DrawText(Key, {.Anchor = Anchor, .Pivot = {0.5f, 0.5f}, .Offset = {X + Width * 0.5f, CenterY}}, EGameUIFont::Body, MakeGameUIColor(18, 20, 28));
+			UI.DrawRect({.Anchor = Anchor, .Pivot = {0.f, 0.5f}, .Offset = {X, CenterY + 2.f}}, {Width, KeyHeight}, MakeGameUIColor(122, 128, 144), 5.f);
+			UI.DrawRect({.Anchor = Anchor, .Pivot = {0.f, 0.5f}, .Offset = {X, CenterY}}, {Width, KeyHeight}, MakeGameUIColor(238, 240, 246), 5.f);
+			UI.DrawText(Key, {.Anchor = Anchor, .Pivot = {0.5f, 0.5f}, .Offset = {X + Width * 0.5f, CenterY}}, EGameUIFont::Small, MakeGameUIColor(18, 20, 28));
 			X += Width + KeyGap;
 		}
 
-		UI.DrawText(Hint.Action, {.Anchor = Anchor, .Pivot = {0.f, 0.5f}, .Offset = {Left + KeysWidth + ColumnGap, CenterY}}, EGameUIFont::Body, MakeGameUIColor(228, 232, 240));
+		UI.DrawText(Hint.Action, {.Anchor = Anchor, .Pivot = {0.f, 0.5f}, .Offset = {Left + KeysWidth + ColumnGap, CenterY}}, EGameUIFont::Small, MakeGameUIColor(228, 232, 240));
 		CenterY += RowHeight;
 	}
 }
@@ -131,7 +131,6 @@ std::optional<std::size_t> DrawGameHud(FGameUI& UI, const FLocalization& Text, c
 	namespace Game = Text::Game;
 	if (!bPaused)
 	{
-		UI.DrawCircle({.Anchor = {0.5f, 0.5f}, .Pivot = {0.5f, 0.5f}}, 8.f, MakeGameUIColor(255, 255, 255, 220));
 		const std::vector<FGameControlHint> DefaultHints = ControlHints.empty() ? GetGameControlHints(Text, GetDefaultGameBindings(), MenuKey) : std::vector<FGameControlHint>{};
 		DrawControlHints(UI, ControlHints.empty() ? std::span<const FGameControlHint>(DefaultHints) : ControlHints);
 		return std::nullopt;

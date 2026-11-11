@@ -261,7 +261,7 @@ TEST_CASE("A skinned glTF cooks its skeleton, weights, and clips")
 	CHECK(Model.Skeleton->JointNames.front() == "root");
 	CHECK(Model.Skeleton->JointParents.front() == -1);
 	CHECK(Model.Influences.size() == Model.Vertices.size());
-	CHECK(Model.Clips.size() == 33);
+	CHECK(Model.Clips.size() == 35);
 
 	const auto Clip = [&](const std::string_view Name)
 	{
@@ -271,6 +271,9 @@ TEST_CASE("A skinned glTF cooks its skeleton, weights, and clips")
 	REQUIRE(Clip("Walk_Loop") != Model.Clips.end());
 	REQUIRE(Clip("Roll_RM") != Model.Clips.end());
 	CHECK(Clip("Walk_Loop")->DurationSeconds == doctest::Approx(1.333f).epsilon(0.01));
+	// The authored dash poses hold for a third of a second.
+	CHECK(Clip("Dash")->DurationSeconds == doctest::Approx(0.333f).epsilon(0.01));
+	CHECK(Clip("Dash_Back")->DurationSeconds == doctest::Approx(0.333f).epsilon(0.01));
 	// In-place loops carry no root motion; the root-motion roll does.
 	CHECK(Clip("Walk_Loop")->RootMotion.empty());
 	CHECK_FALSE(Clip("Roll_RM")->RootMotion.empty());
@@ -295,7 +298,7 @@ TEST_CASE("The bind pose skins every vertex back onto itself")
 	const auto Library = FAnimationLibrary::Create(*Model.Skeleton, Model.Clips);
 	REQUIRE_MESSAGE(Library, (Library ? std::string() : Library.error().Message));
 	CHECK((*Library)->GetJointCount() == 65);
-	CHECK((*Library)->GetClipCount() == 33);
+	CHECK((*Library)->GetClipCount() == 35);
 
 	// The rest pose of this rig is its bind pose, so every skinning matrix is identity.
 	FAnimationPose Pose(*Library);

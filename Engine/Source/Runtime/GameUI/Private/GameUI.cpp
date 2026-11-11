@@ -15,7 +15,7 @@ namespace Herta
 {
 namespace
 {
-constexpr std::array<float, 2> FontSizes{30.f, 76.f};
+constexpr std::array<float, 3> FontSizes{30.f, 76.f, 22.f};
 constexpr float LayoutHeight = 1440.f;
 constexpr std::uint32_t PageSize = 1024;
 // Glyphs past this many pages are not drawn; that is thousands of glyphs at title size.

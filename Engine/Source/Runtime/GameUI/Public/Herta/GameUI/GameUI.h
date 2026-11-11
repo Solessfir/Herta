@@ -33,6 +33,8 @@ enum class EGameUIFont : std::uint8_t
 {
 	Body,
 	Title,
+	// For dense secondary text, such as key hints.
+	Small,
 };
 
 // Placement in layout units, which are pixels on a 1440-pixel-tall screen and scale with its height.

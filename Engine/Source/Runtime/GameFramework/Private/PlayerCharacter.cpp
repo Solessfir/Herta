@@ -199,9 +199,9 @@ FAnimationStateMachineDesc MakeDefaultPlayerStateMachine()
 	        {.Name = "Slide attack", .Samples = {{.Clip = "Slide_Loop"}}, .bLoop = false, .Speed = 3.6f, .Events = {{.Name = "SwingStart", .Phase = 0.15f}, {.Name = "SwingEnd", .Phase = 0.8f}}},
 	        // A swing on the way along a wall: the arms cut while the legs keep running on it.
 	        {.Name = "Wall run attack", .Samples = {{.Clip = "Sword_Regular_A"}}, .bLoop = false, .Events = {{.Name = "SwingStart", .Phase = 0.42f}, {.Name = "SwingEnd", .Phase = 0.82f}}, .bUpperBody = true},
-	        // A dash is over in moments, so each clip only has to read as a burst: a stride flat out, or knocked backwards.
-	        {.Name = "Dash", .Samples = {{.Clip = "Sprint_Loop"}}, .bLoop = false, .Speed = 2.6f},
-	        {.Name = "Dash back", .Samples = {{.Clip = "Hit_Knockback"}}, .bLoop = false, .Speed = 3.f},
+	        // Held poses rather than strides, so the burst reads as one motion: leaned into a lunge, or crouched in a backstep.
+	        {.Name = "Dash", .Samples = {{.Clip = "Dash"}}, .bLoop = false, .Speed = 1.3f},
+	        {.Name = "Dash back", .Samples = {{.Clip = "Dash_Back"}}, .bLoop = false, .Speed = 1.3f},
 	    },
 	    // A jump leaves the ground in the same step it starts, so it is tested before falling, from every state the player can jump from.
 	    .Transitions = {

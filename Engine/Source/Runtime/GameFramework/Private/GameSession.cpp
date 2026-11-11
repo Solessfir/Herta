@@ -2200,6 +2200,12 @@ void FGameSession::FImplementation::UpdateBody(const float DeltaSeconds)
 	}
 
 	Body->SetBool("Backpedal", bBackpedal);
+	// A dash is over before the body could turn, so the lunge faces where it goes at once.
+	if (bDashedThisUpdate && !bDashedBack)
+	{
+		BodyYaw = TargetYaw;
+	}
+
 	const float Turn = std::remainder(TargetYaw - BodyYaw, 2.f * std::numbers::pi_v<float>);
 	const float MaximumTurn = (bThirdPerson ? (Foe ? 14.f : 10.f) : 30.f) * DeltaSeconds;
 	BodyYaw = std::remainder(BodyYaw + std::clamp(Turn, -MaximumTurn, MaximumTurn), 2.f * std::numbers::pi_v<float>);
