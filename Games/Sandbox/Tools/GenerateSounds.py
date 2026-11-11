@@ -213,26 +213,6 @@ def hum_loop():
     return loop_crossfade(out, fade)
 
 
-def wind_loop():
-    """Thirty seconds of stereo wind: two decorrelated noise beds whose gusts drift slowly, long enough to stream."""
-    rng = random.Random(61)
-    fade = seconds(2.0)
-    count = seconds(30.0) + fade
-    filters = [(StateVariable(1.4), StateVariable(0.6)), (StateVariable(1.4), StateVariable(0.6))]
-    out = []
-    for index in range(count):
-        t = index / RATE
-        frame = []
-        for channel, (whistle, bed) in enumerate(filters):
-            gust = 0.55 + 0.25 * math.sin(2.0 * math.pi * (0.071 + channel * 0.013) * t) + 0.2 * math.sin(2.0 * math.pi * 0.023 * t + channel)
-            noise = rng.uniform(-1.0, 1.0)
-            _, band, _ = whistle.run(noise, 380.0 + 420.0 * gust)
-            low, _, _ = bed.run(noise, 140.0 + 160.0 * gust)
-            frame.append((band * 0.5 + low * 1.3) * gust)
-        out.append(tuple(frame))
-    return loop_crossfade(out, fade)
-
-
 def main():
     OUTPUT.mkdir(parents=True, exist_ok=True)
     for number in range(4):
@@ -251,7 +231,6 @@ def main():
     write("Run_Finish.wav", 1, chime([659.25, 830.61, 987.77, 1318.5], 0.11, 1.6))
     write("Slide_Loop.wav", 1, slide_loop())
     write("Machine_Hum_Loop.wav", 1, hum_loop())
-    write("Wind_Loop.wav", 2, wind_loop())
 
 
 if __name__ == "__main__":

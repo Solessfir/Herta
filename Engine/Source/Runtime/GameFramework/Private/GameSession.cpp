@@ -838,13 +838,13 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 	}
 	else
 	{
-		Session.Warnings.emplace_back("The level has no Start trigger; the player starts at the world origin");
+		// A level without a timed course spawns the player at the origin.
 		Session.SpawnPosition = FVector3::Up();
 	}
 
-	if (!Session.StartZone || !Session.FinishZone)
+	if (static_cast<bool>(Session.StartZone) != static_cast<bool>(Session.FinishZone))
 	{
-		Session.Warnings.emplace_back("The course objective needs a Start and a Finish trigger");
+		Session.Warnings.emplace_back("The course objective needs both a Start and a Finish trigger");
 	}
 
 	// Characters whose model cannot animate stay as their static mesh.
