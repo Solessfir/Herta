@@ -1,13 +1,11 @@
 # Humans
 
-`HumanMale.glb` and `HumanFemale.glb` are generated with MPFB 2 (MakeHuman for Blender) from MakeHuman's system assets, released under CC0 1.0 (see `License.txt`): average adult bodies, skins, low-poly eyes, eyebrows, eyelashes, hair, and clothes.
+`HumanMale.glb` is the player and every guard. It is built from `male-body-base-mesh-highpoly.zip` (SHA-256 `fee7174ff0f928b646928552b3fc97cda31853795d677667622c1e9d2b6bf846`), a CC0 ZBrush base mesh with one OBJ, `source/main1.zip` > `main1.obj`, of 475,650 triangles in an A-pose, with no UVs, textures, or rig; see `License.txt`.
 
-Source: https://static.makehumancommunity.org/assets/assetpacks/makehuman_system_assets.html, file `makehuman_system_assets_cc0.zip`, SHA-256 `b542127a8e25547c7c29c19f2d1d2adb9a664c80396ecd694095dbc8028a0107`, installed into MPFB.
-
-`Art/HumanCharacters.py` builds both with Blender 5.3 and MPFB:
+`Art/HumanCharacters.py` builds it with Blender 5.3 and MPFB 2 with the MakeHuman system assets installed:
 
 ```
-blender.exe --background --python Art/HumanCharacters.py -- [preview folder]
+blender.exe --background --python Art/HumanCharacters.py -- <main1.obj> [preview folder]
 ```
 
-The script sets each body's phenotype, skin, hair, and clothes, rigs it with MPFB's game engine rig, whose joints carry the Mannequin's names, and exports without subdivision. It then retargets every clip of `../Mannequin/Mannequin.glb` in world space: each joint follows the Mannequin joint's world rotation through a fixed offset taken at rest, since the rigs differ in rest pose, pelvis and clavicle orientation, and twist, and the root and pelvis travel in proportion to the hip height. Both models use the Mannequin's animation graph and severable joints through their metadata.
+The script scales the sculpt to an MPFB male's height and decimates it to 25,000 triangles. It swings the MPFB male's arms and legs onto the sculpt's, makes that pose the game engine rig's rest pose, and transfers the posed body's skin weights to the sculpt by nearest surface, four per vertex. Every clip of `../Mannequin/Mannequin.glb` is then retargeted in world space by joint name, with the root and pelvis travelling in proportion to the hip height. Without UVs the body is one untextured skin material. It uses the Mannequin's animation graph and severable joints through its metadata.
