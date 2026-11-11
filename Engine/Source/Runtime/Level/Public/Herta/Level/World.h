@@ -302,6 +302,14 @@ struct FAiAgentComponent
 	EAiAttitude Attitude = EAiAttitude::Hostile;
 };
 
+// Runs a gameplay graph on the entity during Play. On Player Enter and On Player Exit need a Trigger on the same entity.
+struct FGameplayGraphComponent
+{
+	constexpr bool operator==(const FGameplayGraphComponent&) const = default;
+
+	FAssetId Graph{};
+};
+
 // Hears the level from the entity instead of the camera during Play, such as for a fixed camera. The active listener with the lowest ID wins.
 struct FAudioListenerComponent
 {
@@ -386,6 +394,7 @@ struct FLevelEntity
 	std::optional<FNavigationBoundsComponent> NavigationBounds{};
 	std::optional<FNavigationObstacleComponent> NavigationObstacle{};
 	std::optional<FAiAgentComponent> AiAgent{};
+	std::optional<FGameplayGraphComponent> GameplayGraph{};
 };
 
 struct FLevelEntityChange

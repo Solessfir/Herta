@@ -4,6 +4,7 @@
 
 #include "Herta/Assets/AssetSearch.h"
 #include "Herta/StateTreeCompiler/StateTreeCompiler.h"
+#include "Herta/GameplayGraph/GameplayGraph.h"
 #include "Herta/Platform/FileDialog.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "NumericField.h"
@@ -158,6 +159,7 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 		                                                                       : Asset.Importer == "AudioGraph" ? "Audio Graph"
 		                                                                       : Asset.Importer == "VfxGraph"   ? "VFX Graph"
 		                                                                       : Asset.Importer == "StateTree"  ? "StateTree"
+		                                                                       : Asset.Importer == "GameplayGraph" ? "Gameplay Graph"
 		                                                                                                        : "Asset");
 		ImGui::Separator();
 		const FPreviewMeshSlot* const Cached = Assets ? Assets->GetCachedAsset(Asset.Id) : nullptr;
@@ -223,6 +225,11 @@ void DrawAssetTooltip(const FPreviewAssetOption& Asset, const FPreviewAssets* co
 					Row("Tasks", std::format("{}", Tree->Tasks));
 					Row("Transitions", std::format("{}", Tree->Transitions));
 				}
+				else if (const auto* Gameplay = std::get_if<FPreviewGameplayGraphMetadata>(&*Cached->Metadata))
+				{
+					Row("Events", std::format("{}", Gameplay->Events));
+					Row("Steps", std::format("{}", Gameplay->Steps));
+				}
 				else if (const auto* Material = std::get_if<FPreviewMaterialMetadata>(&*Cached->Metadata))
 				{
 					Row("Name", Material->Name);
@@ -286,6 +293,11 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 		if (Asset.Importer == "VfxGraph" && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 		{
 			State.OpenVfxGraphRequested = Asset.Id;
+		}
+
+		if (Asset.Importer == "GameplayGraph" && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		{
+			State.OpenGameplayGraphRequested = Asset.Id;
 		}
 
 		if (Asset.Importer == "StateTree" && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
@@ -548,6 +560,7 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 	bool bNewAudioGraph = false;
 	bool bNewVfxGraph = false;
 	bool bNewStateTree = false;
+	bool bNewGameplayGraph = false;
 	std::string CreationFolder = State.Folder;
 	std::vector<FAssetId> ThumbnailAssets;
 	if (State.bFocusRequested)
@@ -645,6 +658,12 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				CreationFolder = State.ContextFolder;
 			}
 
+			bNewGameplayGraph |= ToolUIMenuItem("New Gameplay Graph", EToolUIMenuIcon::Entity);
+			if (bNewGameplayGraph)
+			{
+				CreationFolder = State.ContextFolder;
+			}
+
 			ImGui::EndDisabled();
 			const auto Context = std::ranges::find(State.Assets, State.ContextAsset, &FPreviewAssetOption::Id);
 			if (Context != State.Assets.end() && Context->Importer == "Material")
@@ -680,6 +699,15 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				if (ToolUIMenuItem("Edit StateTree", EToolUIMenuIcon::Entity))
 				{
 					State.OpenStateTreeRequested = Context->Id;
+				}
+			}
+
+			if (Context != State.Assets.end() && Context->Importer == "GameplayGraph")
+			{
+				ImGui::Separator();
+				if (ToolUIMenuItem("Edit Gameplay Graph", EToolUIMenuIcon::Entity))
+				{
+					State.OpenGameplayGraphRequested = Context->Id;
 				}
 			}
 
@@ -769,6 +797,24 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			if (Created)
 			{
 				State.Selected = State.OpenStateTreeRequested = *Created;
+				State.SelectedFolder.clear();
+				State.Search.fill('\0');
+				State.Filter();
+				State.FolderError.clear();
+			}
+			else
+			{
+				State.FolderError = Created.error().Message;
+			}
+		}
+
+		if (bNewGameplayGraph)
+		{
+			const auto Text = SerializeGraph(MakeDefaultGameplayGraph(), GetGameplayGraphSchema());
+			const auto Created = Text ? Assets->CreateTextAsset(CreationFolder, "New Gameplay Graph", GameplayGraphExtension, *Text) : std::unexpected(FAssetError{Text.error().Message});
+			if (Created)
+			{
+				State.Selected = State.OpenGameplayGraphRequested = *Created;
 				State.SelectedFolder.clear();
 				State.Search.fill('\0');
 				State.Filter();

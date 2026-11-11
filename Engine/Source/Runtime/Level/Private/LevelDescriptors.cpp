@@ -365,6 +365,11 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		}
 	}
 
+	if (Type == ELevelComponentType::GameplayGraph && Entity.GameplayGraph && Key == "graph")
+	{
+		return Visitor(Entity.GameplayGraph->Graph);
+	}
+
 	if (Type == ELevelComponentType::ParticleEmitter && Entity.ParticleEmitter)
 	{
 		if (Key == "system")
@@ -448,6 +453,7 @@ constexpr FParticleEmitterComponent ParticleDefaults{};
 constexpr FNavigationBoundsComponent NavigationBoundsDefaults{};
 constexpr FNavigationObstacleComponent NavigationObstacleDefaults{};
 constexpr FAiAgentComponent AiAgentDefaults{};
+constexpr FGameplayGraphComponent GameplayGraphDefaults{};
 constexpr FTriggerComponent TriggerDefaults{};
 constexpr FConstraintComponent ConstraintDefaults{};
 
@@ -596,6 +602,10 @@ constexpr std::array AiAgentProperties{
     FLevelPropertyDescriptor{.Key = "attitude", .Label = "Attitude", .Type = ELevelPropertyType::AiAttitude, .Default = AiAgentDefaults.Attitude},
 };
 
+constexpr std::array GameplayGraphProperties{
+    FLevelPropertyDescriptor{.Key = "graph", .Label = "Gameplay Graph", .Type = ELevelPropertyType::AssetReference, .Default = GameplayGraphDefaults.Graph},
+};
+
 constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::Transform, .TypeId = "Herta.Level.Transform", .SerializationKey = "transform", .Label = "Transform", .Properties = TransformProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::StaticMesh, .TypeId = "Herta.Level.StaticMesh", .SerializationKey = "staticMesh", .Label = "Static Mesh", .Properties = MeshProperties},
@@ -615,6 +625,7 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::NavigationBounds, .TypeId = "Herta.Level.NavigationBounds", .SerializationKey = "navigationBounds", .Label = "Navigation Bounds", .Properties = NavigationBoundsProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::NavigationObstacle, .TypeId = "Herta.Level.NavigationObstacle", .SerializationKey = "navigationObstacle", .Label = "Navigation Obstacle", .Properties = NavigationObstacleProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::AiAgent, .TypeId = "Herta.Level.AiAgent", .SerializationKey = "aiAgent", .Label = "AI Agent", .Properties = AiAgentProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::GameplayGraph, .TypeId = "Herta.Level.GameplayGraph", .SerializationKey = "gameplayGraph", .Label = "Gameplay Graph", .Properties = GameplayGraphProperties},
 };
 }
 
@@ -675,6 +686,10 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 	                   : Type == ELevelComponentType::NavigationObstacle ? Validate(Candidate.NavigationObstacle, ValidateNavigationObstacleComponent)
 	                   : Type == ELevelComponentType::AiAgent ? Validate(Candidate.AiAgent, ValidateAiAgentComponent)
 	                   : Type == ELevelComponentType::AudioListener ? Validate(Candidate.AudioListener, [](const FAudioListenerComponent&) -> std::expected<void, FLevelError>
+	                                                                  {
+		                                                                  return {};
+	                                                                  })
+	                   : Type == ELevelComponentType::GameplayGraph ? Validate(Candidate.GameplayGraph, [](const FGameplayGraphComponent&) -> std::expected<void, FLevelError>
 	                                                                  {
 		                                                                  return {};
 	                                                                  })

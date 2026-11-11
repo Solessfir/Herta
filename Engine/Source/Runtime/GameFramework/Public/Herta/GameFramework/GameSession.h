@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Herta/Assets/GameplayGraph.h"
 #include "Herta/Assets/StateTree.h"
 #include "Herta/Audio/AudioCommands.h"
 #include "Herta/GameFramework/CharacterMover.h"
@@ -242,6 +243,13 @@ struct FGameAgentState
 };
 
 // The StateTree an agent runs and its active states from the root, for highlighting in an editor.
+// A gameplay graph node that ran recently, for debuggers to light while it fades.
+struct FGameGraphNodeActivity
+{
+	std::uint32_t Node = 0;
+	float SecondsAgo = 0.f;
+};
+
 struct FGameAgentDebug
 {
 	FAssetId Tree{};
@@ -422,6 +430,11 @@ public:
 	[[nodiscard]] std::vector<FAssetId> GetStateTrees() const;
 	// Starts the agents that run Tree, restarting every agent's mind and placing it back where it was authored.
 	[[nodiscard]] std::expected<void, FGameError> AddStateTree(const FAssetId& Id, std::shared_ptr<const FCookedStateTree> Tree);
+	// The gameplay graphs the level's Gameplay Graph components run, for the host to load before play. An entity's graph starts once it is added.
+	[[nodiscard]] std::vector<FAssetId> GetGameplayGraphs() const;
+	void AddGameplayGraph(const FAssetId& Id, std::shared_ptr<const FCookedGameplayGraph> Graph);
+	// Nodes of Graph that ran in the last two seconds on any entity, with how long ago; empty in Shipping, which runs generated code.
+	[[nodiscard]] std::vector<FGameGraphNodeActivity> GetGameplayGraphActivity(const FAssetId& Graph) const;
 	// Characters placed with an AI Agent component, in level order.
 	[[nodiscard]] std::vector<FGameAgentState> GetAgentStates() const;
 	// The Agent-th agent of GetAgentStates, while its StateTree runs.

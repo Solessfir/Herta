@@ -695,6 +695,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FNavigationBoundsComponent* NavigationBounds = Registry.try_get<FNavigationBoundsComponent>(Entity);
 	const FNavigationObstacleComponent* NavigationObstacle = Registry.try_get<FNavigationObstacleComponent>(Entity);
 	const FAiAgentComponent* AiAgent = Registry.try_get<FAiAgentComponent>(Entity);
+	const FGameplayGraphComponent* GameplayGraph = Registry.try_get<FGameplayGraphComponent>(Entity);
 	return {
 	    .Id = Registry.get<FObjectId>(Entity),
 	    .Name = Registry.get<FEntityName>(Entity).Value,
@@ -718,6 +719,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .NavigationBounds = NavigationBounds ? std::optional{*NavigationBounds} : std::nullopt,
 	    .NavigationObstacle = NavigationObstacle ? std::optional{*NavigationObstacle} : std::nullopt,
 	    .AiAgent = AiAgent ? std::optional{*AiAgent} : std::nullopt,
+	    .GameplayGraph = GameplayGraph ? std::optional{*GameplayGraph} : std::nullopt,
 	};
 }
 
@@ -854,6 +856,15 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FAiAgentComponent>(Entity);
+	}
+
+	if (Snapshot.GameplayGraph)
+	{
+		Registry.emplace_or_replace<FGameplayGraphComponent>(Entity, *Snapshot.GameplayGraph);
+	}
+	else
+	{
+		Registry.remove<FGameplayGraphComponent>(Entity);
 	}
 
 	if (Snapshot.Trigger)

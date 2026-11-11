@@ -12,9 +12,9 @@ namespace Herta
 TEST_CASE("Level descriptors register stable built-in component and property identities")
 {
 	const auto Components = GetLevelComponentDescriptors();
-	REQUIRE(Components.size() == 18);
-	const std::array<std::string_view, 18> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody", "Herta.Level.Light", "Herta.Level.SkyAtmosphere", "Herta.Level.HeightFog", "Herta.Level.SoftBody", "Herta.Level.Mover", "Herta.Level.Trigger", "Herta.Level.Constraint", "Herta.Level.Destructible", "Herta.Level.Character", "Herta.Level.AudioEmitter", "Herta.Level.AudioListener", "Herta.Level.ParticleEmitter", "Herta.Level.NavigationBounds", "Herta.Level.NavigationObstacle", "Herta.Level.AiAgent"};
-	const std::array<std::string_view, 18> Keys{"transform", "staticMesh", "body", "light", "skyAtmosphere", "heightFog", "softBody", "mover", "trigger", "constraint", "destructible", "character", "audioEmitter", "audioListener", "particleEmitter", "navigationBounds", "navigationObstacle", "aiAgent"};
+	REQUIRE(Components.size() == 19);
+	const std::array<std::string_view, 19> TypeIds{"Herta.Level.Transform", "Herta.Level.StaticMesh", "Herta.Level.RigidBody", "Herta.Level.Light", "Herta.Level.SkyAtmosphere", "Herta.Level.HeightFog", "Herta.Level.SoftBody", "Herta.Level.Mover", "Herta.Level.Trigger", "Herta.Level.Constraint", "Herta.Level.Destructible", "Herta.Level.Character", "Herta.Level.AudioEmitter", "Herta.Level.AudioListener", "Herta.Level.ParticleEmitter", "Herta.Level.NavigationBounds", "Herta.Level.NavigationObstacle", "Herta.Level.AiAgent", "Herta.Level.GameplayGraph"};
+	const std::array<std::string_view, 19> Keys{"transform", "staticMesh", "body", "light", "skyAtmosphere", "heightFog", "softBody", "mover", "trigger", "constraint", "destructible", "character", "audioEmitter", "audioListener", "particleEmitter", "navigationBounds", "navigationObstacle", "aiAgent", "gameplayGraph"};
 
 	for (std::size_t Index = 0; Index < Components.size(); ++Index)
 	{
@@ -120,13 +120,13 @@ TEST_CASE("Level serialization consumes every registered built-in property key")
 	const FLevelDocument Document{
 	    .Id = FObjectId{1, 1},
 	    .Name = "Descriptors",
-	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}, .Constraint = FConstraintComponent{}, .Destructible = FDestructibleComponent{}, .Character = FCharacterComponent{}, .AudioEmitter = FAudioEmitterComponent{}, .AudioListener = FAudioListenerComponent{}, .ParticleEmitter = FParticleEmitterComponent{}, .NavigationBounds = FNavigationBoundsComponent{}, .NavigationObstacle = FNavigationObstacleComponent{}, .AiAgent = FAiAgentComponent{}}},
+	    .Entities = {FLevelEntity{.Id = FObjectId{1, 2}, .Name = "Cube", .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 3}}, .BodyType = ELevelBodyType::Dynamic, .Light = FLightComponent{}, .SkyAtmosphere = FSkyAtmosphereComponent{}, .HeightFog = FHeightFogComponent{}, .SoftBody = FSoftBodyComponent{}, .Mover = FMoverComponent{}, .Trigger = FTriggerComponent{}, .Constraint = FConstraintComponent{}, .Destructible = FDestructibleComponent{}, .Character = FCharacterComponent{}, .AudioEmitter = FAudioEmitterComponent{}, .AudioListener = FAudioListenerComponent{}, .ParticleEmitter = FParticleEmitterComponent{}, .NavigationBounds = FNavigationBoundsComponent{}, .NavigationObstacle = FNavigationObstacleComponent{}, .AiAgent = FAiAgentComponent{}, .GameplayGraph = FGameplayGraphComponent{.Graph = FAssetId{1, 5}}}},
 	};
 	const auto Text = SerializeLevel(Document);
 	REQUIRE(Text);
 	// Each older schema rejects the newest component it does not know.
-	CHECK(Text->find("\"engineSchemaVersion\": 18") != std::string::npos);
-	CHECK_FALSE(ParseLevel(std::string(*Text).replace(Text->find("\"engineSchemaVersion\": 18"), 25, "\"engineSchemaVersion\": 15")));
+	CHECK(Text->find("\"engineSchemaVersion\": 19") != std::string::npos);
+	CHECK_FALSE(ParseLevel(std::string(*Text).replace(Text->find("\"engineSchemaVersion\": 19"), 25, "\"engineSchemaVersion\": 18")));
 
 	for (const auto& Component : GetLevelComponentDescriptors())
 	{

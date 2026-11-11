@@ -470,6 +470,23 @@ std::expected<FParticleEmitterComponent, FLevelError> ReadParticleEmitter(const 
 	return FParticleEmitterComponent{.System = *System, .bAutoPlay = *AutoPlay, .Scale = *Scale};
 }
 
+std::expected<FGameplayGraphComponent, FLevelError> ReadGameplayGraph(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<1>(Element, GetLevelComponentDescriptor(ELevelComponentType::GameplayGraph));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto Graph = ReadOptionalId<FAssetId>((*Fields)[0]);
+	if (!Graph)
+	{
+		return LevelError("Invalid gameplay graph component field");
+	}
+
+	return FGameplayGraphComponent{.Graph = *Graph};
+}
+
 template <typename TComponent> std::expected<TComponent, FLevelError> ReadSizeComponent(const simdjson::dom::element Element, const ELevelComponentType Type)
 {
 	const auto Fields = ReadComponentFields<1>(Element, GetLevelComponentDescriptor(Type));
@@ -942,6 +959,22 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			Entity.AiAgent = *Agent;
+		}
+		else if (SchemaVersion >= 19 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::GameplayGraph).SerializationKey)
+		{
+			if ((SeenComponents & 262144) != 0)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			SeenComponents |= 262144;
+			const auto Gameplay = ReadGameplayGraph(Component.value);
+			if (!Gameplay)
+			{
+				return std::unexpected(Gameplay.error());
+			}
+
+			Entity.GameplayGraph = *Gameplay;
 		}
 		else if (SchemaVersion >= 14 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::ParticleEmitter).SerializationKey)
 		{
@@ -1474,7 +1507,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 18,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 19,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
@@ -1743,6 +1776,12 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			AppendVisualComponent(Output, ELevelComponentType::AiAgent, Values, bHasComponent);
 		}
 
+		if (Entity.GameplayGraph)
+		{
+			const std::array<FVisualValue, 1> Values{Entity.GameplayGraph->Graph};
+			AppendVisualComponent(Output, ELevelComponentType::GameplayGraph, Values, bHasComponent);
+		}
+
 		if (Entity.Trigger)
 		{
 			const std::array<FVisualValue, 2> Values{Entity.Trigger->Size, TriggerRoles[static_cast<std::size_t>(Entity.Trigger->Role)]};
@@ -1919,7 +1958,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 18 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 19 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
 		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 18 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
@@ -2174,7 +2213,7 @@ std::expected<FLevelDocument, FLevelError> LoadLevel(const std::filesystem::path
 bool IsLevelRegionScenery(const FLevelEntity& Entity) noexcept
 {
 	const bool bGlobalLight = Entity.Light && (Entity.Light->Type == ELightType::Sky || Entity.Light->Type == ELightType::Directional);
-	return Entity.BodyType != ELevelBodyType::Dynamic && !bGlobalLight && !Entity.Mover && !Entity.Trigger && !Entity.SoftBody && !Entity.Destructible && !Entity.Character && !Entity.Constraint && !Entity.AudioEmitter && !Entity.AudioListener && !Entity.ParticleEmitter && !Entity.NavigationObstacle && !Entity.AiAgent && !Entity.SkyAtmosphere && !Entity.HeightFog;
+	return Entity.BodyType != ELevelBodyType::Dynamic && !bGlobalLight && !Entity.Mover && !Entity.Trigger && !Entity.SoftBody && !Entity.Destructible && !Entity.Character && !Entity.Constraint && !Entity.AudioEmitter && !Entity.AudioListener && !Entity.ParticleEmitter && !Entity.NavigationObstacle && !Entity.AiAgent && !Entity.GameplayGraph && !Entity.SkyAtmosphere && !Entity.HeightFog;
 }
 
 std::expected<std::vector<FMatrix4>, FLevelError> ComposeLevelRegionMatrices(const FLevelRegion& Region, const std::span<const FLevelEntity> Entities)

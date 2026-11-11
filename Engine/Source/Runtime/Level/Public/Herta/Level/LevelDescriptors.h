@@ -30,6 +30,7 @@ enum class ELevelComponentType : std::uint8_t
 	NavigationBounds,
 	NavigationObstacle,
 	AiAgent,
+	GameplayGraph,
 };
 
 enum class ELevelPropertyType : std::uint8_t

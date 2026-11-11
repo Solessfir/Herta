@@ -40,7 +40,7 @@ struct FDetailsPanelState
 	std::array<char, 96> VisualReferenceSearch{};
 	std::array<char, 96> MaterialSearch{};
 	std::array<bool, 6> BodyPropertyWasMixed{};
-	std::array<bool, 74> VisualPropertyWasMixed{};
+	std::array<bool, 76> VisualPropertyWasMixed{};
 	int ComponentResult = 0;
 	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;
@@ -96,6 +96,8 @@ enum class EDetailsComponentAction
 	RemoveNavigationObstacle,
 	AddAiAgent,
 	RemoveAiAgent,
+	AddGameplayGraph,
+	RemoveGameplayGraph,
 };
 
 struct FDetailsMaterialSlot
@@ -177,6 +179,10 @@ struct FDetailsComponentField
 	bool bAllAiAgent = false;
 	FAiAgentComponent AiAgent{};
 	std::array<bool, 6> MixedAiAgent{};
+	bool bAnyGameplayGraph = false;
+	bool bAllGameplayGraph = false;
+	FGameplayGraphComponent GameplayGraph{};
+	std::array<bool, 1> MixedGameplayGraph{};
 	std::span<const FObjectId> SunIds{};
 	std::span<const std::string> SunLabels{};
 	// Meshed rigid bodies and ropes a constraint can join.
@@ -190,6 +196,8 @@ struct FDetailsComponentField
 	std::span<const std::string> EffectLabels{};
 	std::span<const FAssetId> StateTreeIds{};
 	std::span<const std::string> StateTreeLabels{};
+	std::span<const FAssetId> GameplayGraphIds{};
+	std::span<const std::string> GameplayGraphLabels{};
 	std::span<const FDetailsMaterialSlot> MaterialSlots{};
 	std::span<const FAssetId> MaterialOptionIds{};
 	std::span<const std::string> MaterialOptionLabels{};

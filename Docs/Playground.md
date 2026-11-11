@@ -6,7 +6,7 @@ Press **F** to frame a selection, **G** for game view, and **F11** for an immers
 
 ## Gameplay level
 
-71 entities in 8 Outliner folders, and three placements of the Causeway region.
+73 entities in 8 Outliner folders, and three placements of the Causeway region.
 
 | Key | Bookmark |
 | --- | --- |
@@ -30,7 +30,7 @@ Press **F** to frame a selection, **G** for game view, and **F11** for an immers
 Play it with **Alt+P** in the editor or as the standalone game.
 
 - **Movement gauges:** to the left of the course, stairs, a descent ramp, and gap platforms with 1 m and 2 m gaps; a 1.8 m coral capsule for scale; and mint step-up blocks of 0.18, 0.35, and 0.5 m. They encode the controller limits: walk up 0.18 m, step up 0.35 m, jump the 0.5 m steps, the hurdles, and the 2 m gap, as the jump lifts the feet about 1.2 m.
-- **Moving platforms and triggers:** to the right of the start, a cyan shuttle travels 6 m and back every 6 s carrying a coral cube through a trigger at its far end, and a gold elevator lifts a mint cube 2.5 m every 5 s into a trigger at the top. Triggers draw as boxes that turn green while occupied and log each enter and exit; the platforms themselves do not set them off. Both platforms hum through spatial Audio Emitters that ride with them, the elevator lower; walk around them during Play to hear the hum pan and fade out by 16 m.
+- **Moving platforms and triggers:** to the right of the start, a cyan shuttle travels 6 m and back every 6 s carrying a coral cube through a trigger at its far end, and a gold elevator lifts a mint cube 2.5 m every 5 s into a trigger at the top. Triggers draw as boxes that turn green while occupied and log each enter and exit; the platforms themselves do not set them off. Both platforms hum through spatial Audio Emitters that ride with them, the elevator lower; walk around them during Play to hear the hum pan and fade out by 16 m. Left of the start, the **Shrine** trigger beside a small stone runs `Logic/Shrine.hgameplaygraph`: each visit throws sparks and logs the count, and every third visit breaks into dust with the objective chime. Open the graph during Play to watch its nodes light up.
 - **Destruction yard:** to the right of the mantle block, two anchored walls (16 cells at strength 40, and a harder 24 cells at 90), an anchored pillar, and a loose crate fracture when hit hard enough. During Play, throw balls with **F**, the left mouse button, or the gamepad's West button. Hits break the bonds around the impact; pieces still standing on the footing stay put, loose pieces fall, and single chunks become debris that fades after 12 s. Turn on **Collision** in the viewport settings to see the chunk hulls. Simulate keeps them intact. See [Physics](Physics.md).
 
 - **Animation station:** right of the hurdles, three blocks of 1.4, 2.8, and 4.2 m climb toward the course, each a mantle above the last. Footsteps fire as the player runs to it, and the drop from the 4.2 m tower lands hard enough to play and fire Land. Jump off the tower toward the course and press **Z** in the air to ragdoll; the body lands on the open floor short of the course, and **Z** again gets back up where it lies. Edit the Mannequin's animation graph from the player character settings and replay the station to check the change. Three training dummies stand in front of it, facing the start: swing the sword at one (left mouse button) to slice it along the blade, or throw balls (F) at its limbs to sever them; cut pieces fall and stay until restart. See [Animation](Animation.md).

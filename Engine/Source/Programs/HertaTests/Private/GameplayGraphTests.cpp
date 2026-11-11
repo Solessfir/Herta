@@ -1,5 +1,7 @@
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/Assets/CookedAsset.h"
+#include "Herta/GameFramework/GameAssets.h"
+#include "Herta/GameFramework/GameSession.h"
 #include "Herta/GameFramework/GameplayProgram.h"
 #include "Herta/GameplayGraph/GameplayGraph.h"
 #include "TestFiles.h"
@@ -246,4 +248,60 @@ TEST_CASE("Gameplay graphs cook headless")
 	const auto Asset = LoadCookedAsset(Scratch.GetPath() / "DerivedDataCache", Result->Key);
 	REQUIRE(Asset);
 	CHECK(std::get<FCookedGameplayGraph>(*Asset) == CompileGameplayGraph(MakeCounterGraph())->Program);
+}
+
+namespace
+{
+class FNoGameplayAssets final : public IGameAssets
+{
+public:
+	[[nodiscard]] const FRenderMesh* FindMesh(const FAssetId&) const override
+	{
+		return nullptr;
+	}
+
+	[[nodiscard]] const FRenderMaterial* FindMaterial(const FAssetId&) const override
+	{
+		return nullptr;
+	}
+
+	[[nodiscard]] std::shared_ptr<const FCookedTexture> FindEnvironment(const FAssetId&) const override
+	{
+		return nullptr;
+	}
+};
+}
+
+TEST_CASE("Play runs a level's gameplay graphs when the player stands in their trigger")
+{
+	FGraphBuilder Builder;
+	Builder.Link(Builder.Add("OnStart"), "Then", Builder.Add("Log", {{"message", std::string("Ready")}}), "In");
+	const FGraphNodeId Enter = Builder.Add("OnPlayerEnter");
+	const FGraphNodeId Report = Builder.Add("Log", {{"message", std::string("Inside")}});
+	Builder.Link(Enter, "Then", Report, "In");
+	const auto Compiled = CompileGameplayGraph(Builder.Graph);
+	REQUIRE(Compiled);
+
+	constexpr FAssetId Graph{12, 1};
+	const std::vector<FLevelEntity> Level{
+	    FLevelEntity{.Id = FObjectId{12, 10}, .Name = "Floor", .Transform = {.Translation = {0., -0.5, 0.}, .Scale = {40.f, 1.f, 40.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
+	    FLevelEntity{.Id = FObjectId{12, 11}, .Name = "Shrine", .Trigger = FTriggerComponent{.Size = {30.f, 10.f, 30.f}}, .GameplayGraph = FGameplayGraphComponent{.Graph = Graph}},
+	};
+
+	const FNoGameplayAssets Assets;
+	auto Session = FGameSession::Create(Level, Assets, nullptr);
+	REQUIRE(Session);
+	CHECK((*Session)->GetGameplayGraphs() == std::vector{Graph});
+	(*Session)->AddGameplayGraph(Graph, std::make_shared<FCookedGameplayGraph>(Compiled->Program));
+	std::vector<std::string> Events;
+	for (int Frame = 0; Frame < 3; ++Frame)
+	{
+		REQUIRE((*Session)->Update(1.f / 60.f, {}));
+		std::ranges::move((*Session)->TakeEvents(), std::back_inserter(Events));
+	}
+
+	CHECK(std::ranges::count(Events, std::string("Ready 0")) == 1);
+	CHECK(std::ranges::count(Events, std::string("Inside 0")) == 1);
+	const auto Activity = (*Session)->GetGameplayGraphActivity(Graph);
+	CHECK(std::ranges::contains(Activity, Report.Value, &FGameGraphNodeActivity::Node));
 }

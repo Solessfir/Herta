@@ -2149,6 +2149,16 @@ std::expected<void, FLevelError> FEditorLevel::SetSelectedAiAgent(const std::opt
 	return ApplySelectedComponent(&FLevelEntity::AiAgent, Agent, Agent ? "Edit AI agent" : "Remove AI agent");
 }
 
+std::expected<void, FLevelError> FEditorLevel::AddGameplayGraphToSelected()
+{
+	return ApplySelectedComponent(&FLevelEntity::GameplayGraph, std::optional{FGameplayGraphComponent{}}, "Add gameplay graph", true);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedGameplayGraph(const std::optional<FGameplayGraphComponent> Graph)
+{
+	return ApplySelectedComponent(&FLevelEntity::GameplayGraph, Graph, Graph ? "Edit gameplay graph" : "Remove gameplay graph");
+}
+
 std::expected<void, FLevelError> FEditorLevel::AddTriggerToSelected()
 {
 	return ApplySelectedComponent(&FLevelEntity::Trigger, std::optional{FTriggerComponent{}}, "Add trigger", true);

@@ -30,7 +30,8 @@ enum class ELevelComponent : std::uint32_t
 	NavigationBounds = 1 << 17,
 	NavigationObstacle = 1 << 18,
 	AiAgent = 1 << 19,
-	All = (1 << 20) - 1,
+	GameplayGraph = 1 << 20,
+	All = (1 << 21) - 1,
 };
 
 constexpr ELevelComponent operator|(const ELevelComponent Left, const ELevelComponent Right)
@@ -99,6 +100,7 @@ struct FLevelQueryEntity
 	std::optional<FNavigationBoundsComponent> NavigationBounds{};
 	std::optional<FNavigationObstacleComponent> NavigationObstacle{};
 	std::optional<FAiAgentComponent> AiAgent{};
+	std::optional<FGameplayGraphComponent> GameplayGraph{};
 };
 
 struct FLevelComponentUpdate
@@ -124,6 +126,7 @@ struct FLevelComponentUpdate
 	std::optional<std::optional<FNavigationBoundsComponent>> NavigationBounds{};
 	std::optional<std::optional<FNavigationObstacleComponent>> NavigationObstacle{};
 	std::optional<std::optional<FAiAgentComponent>> AiAgent{};
+	std::optional<std::optional<FGameplayGraphComponent>> GameplayGraph{};
 };
 
 struct FLevelEvent

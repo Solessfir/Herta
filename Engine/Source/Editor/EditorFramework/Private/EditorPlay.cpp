@@ -267,6 +267,7 @@ void FEditorFramework::FImplementation::TogglePlay()
 	// A new session gets the latest navigation and its agents' trees again.
 	PlayNavigationKey = 0;
 	PlayStateTrees.clear();
+	PlayGameplayGraphs.clear();
 	PlaySession->SetRegions(Level->GetRegions(), MakeRegionLoader());
 	PlayAssets = std::move(GameAssets);
 	bPlayPaused = false;

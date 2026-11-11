@@ -1,7 +1,7 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 18,
+  "engineSchemaVersion": 19,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "exposureCompensation": 0,
@@ -1431,6 +1431,48 @@
       }
     },
     {
+      "id": "4c06004c-2738-4e25-9b9e-000000000001",
+      "name": "Shrine - gameplay graph, visit three times",
+      "parent": null,
+      "transform": {
+        "translation": [-4, 1, 0.5],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "gameplayGraph": {
+          "graph": "4a0d006b-5a17-4c0e-9d2b-0000051a006b"
+        },
+        "trigger": {
+          "size": [2, 2, 2],
+          "role": "none"
+        }
+      }
+    },
+    {
+      "id": "4c06004c-2738-4e25-9b9e-000000000002",
+      "name": "Shrine stone",
+      "parent": null,
+      "transform": {
+        "translation": [-4, 0.4, 1.8],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.6, 0.8, 0.6]
+      },
+      "components": {
+        "staticMesh": {"asset": "59f13694-df48-44e5-8635-55194493f242", "materials": ["a4c06003-2738-4e25-9b9e-816ae7c00001"]},
+        "body": {
+          "type": "static",
+          "massKg": 1,
+          "friction": 0.2,
+          "restitution": 0,
+          "linearDamping": 0.05,
+          "angularDamping": 0.05,
+          "gravityScale": 1,
+          "collision": "box"
+        }
+      }
+    },
+    {
       "id": "4c071100-2738-4e25-9b9e-000000000001",
       "name": "Navigation bounds - arena and wall run lane",
       "parent": null,
@@ -1689,7 +1731,7 @@
       "id": "4c060046-2738-4e25-9b9e-000000000009",
       "name": "04 - Moving platforms and triggers",
       "parent": null,
-      "entities": ["4c06004a-2738-4e25-9b9e-000000000001", "4c06004a-2738-4e25-9b9e-000000000002", "4c06004a-2738-4e25-9b9e-000000000003", "4c06004a-2738-4e25-9b9e-000000000004", "4c06004a-2738-4e25-9b9e-000000000005", "4c06004a-2738-4e25-9b9e-000000000006"]
+      "entities": ["4c06004a-2738-4e25-9b9e-000000000001", "4c06004a-2738-4e25-9b9e-000000000002", "4c06004a-2738-4e25-9b9e-000000000003", "4c06004a-2738-4e25-9b9e-000000000004", "4c06004a-2738-4e25-9b9e-000000000005", "4c06004a-2738-4e25-9b9e-000000000006", "4c06004c-2738-4e25-9b9e-000000000001", "4c06004c-2738-4e25-9b9e-000000000002"]
     },
     {
       "id": "4c060046-2738-4e25-9b9e-00000000000a",

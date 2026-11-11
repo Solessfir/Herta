@@ -363,6 +363,19 @@ std::expected<FStagedSession, FGameError> CreateStagedSession(const std::filesys
 		}
 	}
 
+	for (const FAssetId& GraphId : Game.GetGameplayGraphs())
+	{
+		auto Cooked = Content.Load(GraphId);
+		if (auto* const Graph = Cooked ? std::get_if<FCookedGameplayGraph>(&*Cooked) : nullptr)
+		{
+			Game.AddGameplayGraph(GraphId, std::make_shared<const FCookedGameplayGraph>(std::move(*Graph)));
+		}
+		else
+		{
+			Staged.Warnings.push_back(std::format("Gameplay graph {} will not run: {}", GraphId.ToString(), Cooked ? "the asset is not a gameplay graph" : Cooked.error().Message));
+		}
+	}
+
 	return Staged;
 }
 }

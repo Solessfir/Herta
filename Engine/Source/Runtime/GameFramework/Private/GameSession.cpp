@@ -9,6 +9,7 @@
 #include "Herta/Math/AffineTransform.h"
 #include "CharacterPiece.h"
 #include "GameAudio.h"
+#include "GameGraphs.h"
 #include "GameNavigation.h"
 #include "GameNpc.h"
 #include "Herta/AI/AiWorld.h"
@@ -394,6 +395,8 @@ struct FGameSession::FImplementation : FPlayerSlot
 	void RequestEffect(ELevelEffect Cue, const FVector3& Position, const FVector3& Up = {0.f, 1.f, 0.f}, float Scale = 1.f);
 	// Starts the sorted requests, moves emitters with their entities, and steps every particle against the physics world.
 	void UpdateEffects(float DeltaSeconds);
+	// Runs gameplay graphs, whose sounds play and effects join this update's requests.
+	void UpdateGraphs(float DeltaSeconds);
 	void StartEmitters();
 	// The active player's sounds, after everything else in the update.
 	void UpdateAudio(bool bJumped);
@@ -568,6 +571,7 @@ struct FGameSession::FImplementation : FPlayerSlot
 	FParticleWorld Particles{};
 	FLevelEffects Effects{};
 	std::vector<FEffectRequest> EffectRequests{};
+	FGameGraphs Graphs{};
 	// Auto-play Particle Emitters and the effect each started, which follows its entity.
 	std::vector<std::pair<std::size_t, FParticleEffectId>> EmitterEffects{};
 
@@ -993,6 +997,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::Start()
 	StartAgents();
 	Audio.Start(Entities, AuthoredWorld);
 	StartEmitters();
+	Graphs.Start(Entities, AuthoredWorld);
 	for (FSoftBodyMesh& SoftBody : SoftBodies)
 	{
 		SoftBody.Revision = 0;
@@ -2082,6 +2087,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishUpdate(cons
 	}
 
 	UpdateListener();
+	UpdateGraphs(DeltaSeconds);
 	UpdateEffects(DeltaSeconds);
 
 	if (FPhysicsWorld* const World = Simulation.GetPhysicsWorld())
@@ -3491,6 +3497,54 @@ void FGameSession::FImplementation::RequestEffect(const ELevelEffect Cue, const 
 	}
 }
 
+void FGameSession::FImplementation::UpdateGraphs(const float DeltaSeconds)
+{
+	// Cues are checked when a graph compiles, so a name a graph uses that is not one is a graph from another engine version and does nothing.
+	class FSessionHost final : public IGameplayHost
+	{
+	public:
+		explicit FSessionHost(FImplementation& InSession)
+		    : Session(InSession)
+		{
+		}
+
+		void PlaySound(const std::string_view Cue, const FVector3& Position) override
+		{
+			const auto Found = std::ranges::find(LevelSoundCues, Cue, &FLevelSoundCue::Key);
+			if (Found != LevelSoundCues.end())
+			{
+				Session.Audio.Play(static_cast<ELevelSound>(Found - LevelSoundCues.begin()), Position);
+			}
+		}
+
+		void SpawnEffect(const std::string_view Cue, const FVector3& Position, const float Scale) override
+		{
+			const auto Found = std::ranges::find(LevelEffectCues, Cue, &FLevelSoundCue::Key);
+			if (Found != LevelEffectCues.end())
+			{
+				Session.RequestEffect(static_cast<ELevelEffect>(Found - LevelEffectCues.begin()), Position, {0.f, 1.f, 0.f}, Scale);
+			}
+		}
+
+		void Log(const std::string_view Message, const float Value) override
+		{
+			Session.Events.push_back(std::format("{} {}", Message, Value));
+		}
+
+	private:
+		FImplementation& Session;
+	};
+
+	std::vector<FVector3> Feet;
+	ForEachPlayer([this, &Feet]
+	{
+		Feet.push_back(Mover->GetState().Foot);
+	});
+
+	FSessionHost Host(*this);
+	Graphs.Update(DeltaSeconds, Feet, Host);
+}
+
 void FGameSession::FImplementation::StartEmitters()
 {
 	Particles.Clear();
@@ -4245,6 +4299,21 @@ void FGameSession::FImplementation::ReportCharacterHit(const std::size_t Victim,
 		    .AttackerFaction = AttackerFaction,
 		});
 	}
+}
+
+std::vector<FAssetId> FGameSession::GetGameplayGraphs() const
+{
+	return FGameGraphs::GetGraphs(Implementation->Entities);
+}
+
+void FGameSession::AddGameplayGraph(const FAssetId& Id, std::shared_ptr<const FCookedGameplayGraph> Graph)
+{
+	Implementation->Graphs.Add(Id, std::move(Graph));
+}
+
+std::vector<FGameGraphNodeActivity> FGameSession::GetGameplayGraphActivity(const FAssetId& Graph) const
+{
+	return Implementation->Graphs.GetActivity(Graph);
 }
 
 std::vector<FAssetId> FGameSession::GetStateTrees() const

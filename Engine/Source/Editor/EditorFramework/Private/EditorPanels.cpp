@@ -183,6 +183,15 @@ void FEditorFramework::FImplementation::DrawMaterialPanel()
 		}
 	}
 
+	if (const auto Requested = std::exchange(ContentBrowserState.OpenGameplayGraphRequested, FAssetId{}); Requested.IsValid() && !bProjectBusy && !bCloseRequested)
+	{
+		const auto Options = Assets->GetOptions();
+		if (const auto Option = std::ranges::find(Options, Requested, &FPreviewAssetOption::Id); Option != Options.end())
+		{
+			OpenGameplayGraphKey(Option->Label);
+		}
+	}
+
 	if (const auto Requested = std::exchange(ContentBrowserState.OpenVfxGraphRequested, FAssetId{}); Requested.IsValid() && !bProjectBusy && !bCloseRequested)
 	{
 		const auto Options = Assets->GetOptions();

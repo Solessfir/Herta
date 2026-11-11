@@ -335,6 +335,8 @@ struct FEditorFramework::FImplementation
 	void DrawVfxGraphPanel();
 	// The StateTree document, with the tree as agents run it beside the canvas and Play's active states lit.
 	void DrawStateTreePanel();
+	void OpenGameplayGraphKey(const std::string& Key);
+	void DrawGameplayGraphPanel();
 	void OpenStateTreeKey(const std::string& Key);
 	void UpdateEffects(float DeltaSeconds);
 	[[nodiscard]] std::optional<FAssetId> ResolveAudioWave(std::string_view Mount, std::string_view Path) const;
@@ -431,6 +433,8 @@ struct FEditorFramework::FImplementation
 	FGraphDocumentPanel VfxGraphPanel{GetVfxGraphDocumentDomain()};
 	std::uint64_t VfxGraphRevision = UINT64_MAX;
 	FGraphDocumentPanel StateTreePanel{GetStateTreeDocumentDomain()};
+	FGraphDocumentPanel GameplayGraphPanel{GetGameplayGraphDocumentDomain()};
+	std::vector<FGraphNodeId> GameplayGraphActive;
 	std::uint64_t StateTreeRevision = UINT64_MAX;
 	std::optional<FCookedStateTree> StateTreeOutline;
 	std::vector<FGraphNodeId> StateTreeActive;
@@ -524,6 +528,8 @@ struct FEditorFramework::FImplementation
 	std::vector<std::string> EffectLabels;
 	std::vector<FAssetId> StateTreeIds;
 	std::vector<std::string> StateTreeLabels;
+	std::vector<FAssetId> GameplayGraphIds;
+	std::vector<std::string> GameplayGraphLabels;
 	FPreviewSelection PreviewSelection;
 	std::optional<Im3d::Mat4> PreviewDragStart;
 	bool bDuplicateOnDrag = false;
@@ -700,6 +706,8 @@ struct FEditorFramework::FImplementation
 	std::uint64_t PlayNavigationKey = 0;
 	// StateTrees given to the running Play session.
 	std::set<FAssetId> PlayStateTrees;
+	// Gameplay graphs given to it, by the cooked program, so saving a graph during Play swaps the new one in.
+	std::map<FAssetId, std::shared_ptr<const FCookedGameplayGraph>> PlayGameplayGraphs;
 	std::filesystem::path WatchedShaderContentRoot;
 	FTaskSystem* Tasks = nullptr;
 	IGraphicsDevice* GraphicsDevice = nullptr;

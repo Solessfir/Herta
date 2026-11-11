@@ -65,7 +65,7 @@ void FEditorFramework::FImplementation::StartProjectOperation(const std::filesys
 		return;
 	}
 
-	if (!MaterialGraphPanel.RequestClose() || !AnimationGraphPanel.RequestClose() || !AudioGraphPanel.RequestClose() || !VfxGraphPanel.RequestClose() || !StateTreePanel.RequestClose())
+	if (!MaterialGraphPanel.RequestClose() || !AnimationGraphPanel.RequestClose() || !AudioGraphPanel.RequestClose() || !VfxGraphPanel.RequestClose() || !StateTreePanel.RequestClose() || !GameplayGraphPanel.RequestClose())
 	{
 		ProjectError = "Save or discard graph edits before changing projects.";
 		return;
@@ -500,6 +500,8 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	EffectLabels.clear();
 	StateTreeIds.clear();
 	StateTreeLabels.clear();
+	GameplayGraphIds.clear();
+	GameplayGraphLabels.clear();
 	VisualSettings.Atmosphere.reset();
 	VisualSettings.Fog.reset();
 	std::vector<FAssetId> Materials;
@@ -659,6 +661,11 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 			{
 				StateTreeIds.push_back(Option.Id);
 				StateTreeLabels.push_back(Option.Label);
+			}
+			else if (Option.Importer == "GameplayGraph")
+			{
+				GameplayGraphIds.push_back(Option.Id);
+				GameplayGraphLabels.push_back(Option.Label);
 			}
 		}
 	}

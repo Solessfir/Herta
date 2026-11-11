@@ -101,6 +101,8 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedNavigationObstacle(std::optional<FNavigationObstacleComponent> Obstacle);
 	[[nodiscard]] std::expected<void, FLevelError> AddAiAgentToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedAiAgent(std::optional<FAiAgentComponent> Agent);
+	[[nodiscard]] std::expected<void, FLevelError> AddGameplayGraphToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedGameplayGraph(std::optional<FGameplayGraphComponent> Graph);
 	[[nodiscard]] std::expected<void, FLevelError> AddTriggerToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedTrigger(std::optional<FTriggerComponent> Trigger);
 	[[nodiscard]] std::expected<void, FLevelError> AddConstraintToSelected();

@@ -32,6 +32,7 @@ struct FContentBrowserState
 	FAssetId OpenMaterialRequested{};
 	FAssetId OpenAudioGraphRequested{};
 	FAssetId OpenVfxGraphRequested{};
+	FAssetId OpenGameplayGraphRequested{};
 	FAssetId OpenStateTreeRequested{};
 	std::vector<FPreviewAssetOption> Assets;
 	std::vector<std::string> Folders;

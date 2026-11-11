@@ -383,13 +383,13 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();
-	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels, .SoundIds = SoundIds, .SoundLabels = SoundLabels, .EffectIds = EffectIds, .EffectLabels = EffectLabels, .StateTreeIds = StateTreeIds, .StateTreeLabels = StateTreeLabels};
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels, .SoundIds = SoundIds, .SoundLabels = SoundLabels, .EffectIds = EffectIds, .EffectLabels = EffectLabels, .StateTreeIds = StateTreeIds, .StateTreeLabels = StateTreeLabels, .GameplayGraphIds = GameplayGraphIds, .GameplayGraphLabels = GameplayGraphLabels};
 	std::vector<FDetailsMaterialSlot> MaterialSlots;
 	std::vector<FAssetId> MaterialIds;
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 15> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 16> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -465,6 +465,7 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(12, ELevelComponentType::NavigationBounds, Entity->NavigationBounds.has_value(), Components.bAnyNavigationBounds, Components.bAllNavigationBounds, Components.MixedNavigationBounds);
 			Aggregate(13, ELevelComponentType::NavigationObstacle, Entity->NavigationObstacle.has_value(), Components.bAnyNavigationObstacle, Components.bAllNavigationObstacle, Components.MixedNavigationObstacle);
 			Aggregate(14, ELevelComponentType::AiAgent, Entity->AiAgent.has_value(), Components.bAnyAiAgent, Components.bAllAiAgent, Components.MixedAiAgent);
+			Aggregate(15, ELevelComponentType::GameplayGraph, Entity->GameplayGraph.has_value(), Components.bAnyGameplayGraph, Components.bAllGameplayGraph, Components.MixedGameplayGraph);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -599,6 +600,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[14])
 	{
 		Components.AiAgent = *VisualBaselines[14]->AiAgent;
+	}
+
+	if (VisualBaselines[15])
+	{
+		Components.GameplayGraph = *VisualBaselines[15]->GameplayGraph;
 	}
 
 	if (VisualBaselines[5])
@@ -901,6 +907,12 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveAiAgent:
 				ReportLevelResult(Level->SetSelectedAiAgent(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddGameplayGraph:
+				ReportLevelResult(Level->AddGameplayGraphToSelected());
+				break;
+			case EDetailsComponentAction::RemoveGameplayGraph:
+				ReportLevelResult(Level->SetSelectedGameplayGraph(std::nullopt));
 				break;
 			case EDetailsComponentAction::None:
 				break;

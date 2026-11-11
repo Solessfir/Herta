@@ -56,10 +56,15 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 			Wanted.push_back(Entity.ParticleEmitter->System);
 		}
 
-		// So do StateTrees, so agents start with Play.
+		// So do StateTrees and gameplay graphs, so agents and graphs start with Play.
 		if (Entity.AiAgent)
 		{
 			Wanted.push_back(Entity.AiAgent->StateTree);
+		}
+
+		if (Entity.GameplayGraph)
+		{
+			Wanted.push_back(Entity.GameplayGraph->Graph);
 		}
 	}
 
@@ -121,6 +126,13 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 				{
 					HERTA_LOG_WARNING(*Log, EditorLog, "{} will not run: {}", Slot->Label, Added.error().Message);
 				}
+			}
+
+			// Adding a graph starts its entities over, so each graph goes to a session once per cook.
+			if (Slot && Slot->GameplayGraph && PlaySession && PlayGameplayGraphs[Sound] != Slot->GameplayGraph)
+			{
+				PlayGameplayGraphs[Sound] = Slot->GameplayGraph;
+				PlaySession->AddGameplayGraph(Sound, Slot->GameplayGraph);
 			}
 
 			continue;

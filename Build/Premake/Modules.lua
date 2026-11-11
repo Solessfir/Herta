@@ -507,7 +507,7 @@ HertaEditorModule("GraphEditor", {
 
 HertaEditorModule("EditorFramework", {
     PublicDependencies = { "Core", "Math", "EditorCore", "ToolUI", "RHI", "Renderer", "Assets", "Project" },
-    PrivateDependencies = { "Application", "Audio", "AudioGraph", "VfxGraph", "StateTreeCompiler", "Navigation", "NavigationBuilder", "Particles", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level", "Localization", "LocalizationPipeline", "TextLayout" },
+    PrivateDependencies = { "Application", "Audio", "AudioGraph", "VfxGraph", "GameplayGraph", "StateTreeCompiler", "Navigation", "NavigationBuilder", "Particles", "GameFramework", "GameUI", "GraphCore", "GraphEditor", "MaterialGraph", "AnimationGraph", "Physics", "Platform", "Tasks", "AssetPipeline", "Level", "Localization", "LocalizationPipeline", "TextLayout" },
     PrivateThirdPartyDependencies = { "ImGui", "Im3d", "SimdJson" }
 })
 

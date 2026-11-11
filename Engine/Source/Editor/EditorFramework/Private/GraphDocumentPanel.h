@@ -115,4 +115,5 @@ void SetAudioGraphDocumentResolver(FAudioWaveResolver Resolver, FAudioGraphLoade
 [[nodiscard]] FGraph MakeDefaultAudioGraph();
 [[nodiscard]] const FGraphDocumentDomain& GetVfxGraphDocumentDomain();
 [[nodiscard]] const FGraphDocumentDomain& GetStateTreeDocumentDomain();
+[[nodiscard]] const FGraphDocumentDomain& GetGameplayGraphDocumentDomain();
 }

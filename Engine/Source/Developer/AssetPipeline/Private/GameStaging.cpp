@@ -252,6 +252,11 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 			Pending.emplace(Entity.AiAgent->StateTree, std::nullopt);
 		}
 
+		if (Entity.GameplayGraph && Entity.GameplayGraph->Graph.IsValid())
+		{
+			Pending.emplace(Entity.GameplayGraph->Graph, std::nullopt);
+		}
+
 		if (Entity.Mesh)
 		{
 			Pending.emplace(Entity.Mesh->Asset, std::nullopt);
