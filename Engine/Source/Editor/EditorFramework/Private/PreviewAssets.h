@@ -152,6 +152,11 @@ public:
 	void ImportFiles(std::vector<std::filesystem::path> Files, std::string Destination = {});
 	[[nodiscard]] std::expected<std::string, FAssetError> CreateFolder(std::string_view MountedParent, std::string_view Name, bool bUniqueName = false);
 	[[nodiscard]] std::expected<std::string, FAssetError> RenameFolder(std::string_view MountedFolder, std::string_view NewName);
+	// Renames a Game asset within its folder, or moves it to another Game folder, keeping its ID and extension; the next scan shows it.
+	[[nodiscard]] std::expected<void, FAssetError> RenameAsset(const FAssetId& Asset, std::string_view NewName);
+	[[nodiscard]] std::expected<void, FAssetError> MoveAssetToFolder(const FAssetId& Asset, std::string_view MountedFolder);
+	// Moves a Game asset to the project's Saved/Trash, from where asset.restore puts it back.
+	[[nodiscard]] std::expected<void, FAssetError> DeleteAsset(const FAssetId& Asset);
 	[[nodiscard]] std::expected<std::filesystem::path, FAssetError> GetFolderPath(std::string_view MountedFolder) const;
 	std::span<const std::string> GetFolders() const noexcept;
 	std::uint64_t GetOptionsGeneration() const noexcept;

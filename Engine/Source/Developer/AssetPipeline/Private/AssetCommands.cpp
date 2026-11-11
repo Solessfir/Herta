@@ -4,6 +4,7 @@
 #include "Herta/AnimationGraph/AnimationGraph.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
 #include "Herta/AssetPipeline/AssetMetadata.h"
+#include "Herta/AssetPipeline/AssetOperations.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/AssetPipeline/GameStaging.h"
 #include "Herta/AssetPipeline/MaterialShaderCompiler.h"
@@ -275,6 +276,92 @@ std::expected<void, FEditorCommandError> RegisterAssetCommands(FEditorCommandReg
 			}
 
 			return FEditorCommandResult{.ExitCode = 0, .Message = std::move(*Cooked)};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "asset.move",
+		    .Description = "Rename or move an asset with its metadata, keeping its ID, so levels and materials that use it still find it",
+		    .bMutates = true,
+		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			auto Parsed = ParseArguments(Arguments, Options, false);
+			if (!Parsed)
+			{
+				return std::unexpected(std::move(Parsed.error()));
+			}
+
+			if (Parsed->Positional.size() != 2)
+			{
+				return UsageError("asset.move <content-path> <new-content-path> [--content-root <path>]");
+			}
+
+			if (auto Moved = MoveAsset(Parsed->ContentRoot, Parsed->Positional[0], Parsed->Positional[1]); !Moved)
+			{
+				return ExecutionError(std::move(Moved.error()));
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Moved {} to {}", Parsed->Positional[0], Parsed->Positional[1])};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "asset.delete",
+		    .Description = "Move an asset and its metadata to the project's Saved/Trash, from where asset.restore puts it back",
+		    .bMutates = true,
+		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			auto Parsed = ParseArguments(Arguments, Options, false);
+			if (!Parsed)
+			{
+				return std::unexpected(std::move(Parsed.error()));
+			}
+
+			if (Parsed->Positional.size() != 1)
+			{
+				return UsageError("asset.delete <content-path> [--content-root <path>]");
+			}
+
+			// The trash sits beside the content in the project's Saved folder, which version control ignores.
+			const auto Trashed = DeleteAsset(Parsed->ContentRoot, Parsed->Positional[0], Parsed->ContentRoot.parent_path() / "Saved" / "Trash");
+			if (!Trashed)
+			{
+				return ExecutionError(Trashed.error());
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Deleted {}; asset.restore {} {} puts it back", Parsed->Positional[0], GenericPathToUtf8(*Trashed), Parsed->Positional[0])};
+		}});
+	}
+
+	if (Result)
+	{
+		Result = Registry.Register(FEditorCommandDescriptor{
+		    .Name = "asset.restore",
+		    .Description = "Put a deleted asset back from the trash folder asset.delete named",
+		    .bMutates = true,
+		    .Handler = [Options](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+		{
+			auto Parsed = ParseArguments(Arguments, Options, false);
+			if (!Parsed)
+			{
+				return std::unexpected(std::move(Parsed.error()));
+			}
+
+			if (Parsed->Positional.size() != 2)
+			{
+				return UsageError("asset.restore <trash-folder> <content-path> [--content-root <path>]");
+			}
+
+			if (auto Restored = RestoreAsset(Utf8ToPath(Parsed->Positional[0]), Parsed->ContentRoot, Parsed->Positional[1]); !Restored)
+			{
+				return ExecutionError(std::move(Restored.error()));
+			}
+
+			return FEditorCommandResult{.ExitCode = 0, .Message = std::format("Restored {}", Parsed->Positional[1])};
 		}});
 	}
 

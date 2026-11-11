@@ -2,6 +2,7 @@
 
 #include "Herta/AssetPipeline/AssetCommands.h"
 #include "Herta/AssetPipeline/AssetCooker.h"
+#include "Herta/AssetPipeline/AssetOperations.h"
 #include "Herta/AssetPipeline/ContentRoot.h"
 #include "Herta/AssetPipeline/DerivedDataCache.h"
 #include "Herta/Core/Log.h"
@@ -674,6 +675,90 @@ std::expected<std::string, FAssetError> FPreviewAssets::CreateFolder(const std::
 	PublishFolders(std::move(Updated));
 	RequestScan();
 	return Created;
+}
+
+namespace
+{
+// The content-relative path of a Game asset, which is all a project may change; Engine content is read-only.
+[[nodiscard]] std::expected<std::string, FAssetError> GameAssetPath(const std::span<const FPreviewAssetOption> Options, const FAssetId& Asset)
+{
+	const auto Option = std::ranges::find(Options, Asset, &FPreviewAssetOption::Id);
+	if (Option == Options.end() || !Option->Label.starts_with("Game/"))
+	{
+		return std::unexpected(FAssetError{"Only the project's Game assets can be renamed, moved, or deleted"});
+	}
+
+	return Option->Label.substr(5);
+}
+}
+
+std::expected<void, FAssetError> FPreviewAssets::RenameAsset(const FAssetId& Asset, const std::string_view NewName)
+{
+	const auto Path = GameAssetPath(GetOptions(), Asset);
+	if (!Path)
+	{
+		return std::unexpected(Path.error());
+	}
+
+	if (const auto Valid = ValidateFolderName(NewName); !Valid)
+	{
+		return std::unexpected(Valid.error());
+	}
+
+	// The extension names the importer, so a rename keeps it, such as a Material Graph's .hmatgraph.
+	const std::filesystem::path Old = std::filesystem::path(std::u8string(Path->begin(), Path->end()));
+	const std::u8string Extension = Old.extension().u8string();
+	const std::u8string Parent = Old.parent_path().generic_u8string();
+	const std::string NewPath = std::string(Parent.begin(), Parent.end()) + (Parent.empty() ? "" : "/") + std::string(NewName) + std::string(Extension.begin(), Extension.end());
+	if (auto Moved = ::Herta::MoveAsset(Paths.ContentRoot, *Path, NewPath); !Moved)
+	{
+		return std::unexpected(Moved.error());
+	}
+
+	RequestScan();
+	return {};
+}
+
+std::expected<void, FAssetError> FPreviewAssets::MoveAssetToFolder(const FAssetId& Asset, const std::string_view MountedFolder)
+{
+	const auto Path = GameAssetPath(GetOptions(), Asset);
+	if (!Path || !(MountedFolder == "Game" || MountedFolder.starts_with("Game/")))
+	{
+		return std::unexpected(Path ? FAssetError{"Assets move only between the project's Game folders"} : Path.error());
+	}
+
+	const std::string_view Folder = MountedFolder == "Game" ? std::string_view{} : MountedFolder.substr(5);
+	const std::string_view Name = std::string_view(*Path).substr(Path->find_last_of('/') == std::string::npos ? 0 : Path->find_last_of('/') + 1);
+	const std::string NewPath = Folder.empty() ? std::string(Name) : std::format("{}/{}", Folder, Name);
+	if (NewPath == *Path)
+	{
+		return {};
+	}
+
+	if (auto Moved = ::Herta::MoveAsset(Paths.ContentRoot, *Path, NewPath); !Moved)
+	{
+		return std::unexpected(Moved.error());
+	}
+
+	RequestScan();
+	return {};
+}
+
+std::expected<void, FAssetError> FPreviewAssets::DeleteAsset(const FAssetId& Asset)
+{
+	const auto Path = GameAssetPath(GetOptions(), Asset);
+	if (!Path)
+	{
+		return std::unexpected(Path.error());
+	}
+
+	if (auto Trashed = ::Herta::DeleteAsset(Paths.ContentRoot, *Path, Paths.ContentRoot.parent_path() / "Saved" / "Trash"); !Trashed)
+	{
+		return std::unexpected(Trashed.error());
+	}
+
+	RequestScan();
+	return {};
 }
 
 std::expected<std::string, FAssetError> FPreviewAssets::RenameFolder(const std::string_view MountedFolder, const std::string_view NewName)

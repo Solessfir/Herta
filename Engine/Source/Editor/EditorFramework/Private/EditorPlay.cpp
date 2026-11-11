@@ -991,7 +991,7 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 	}
 
 	// Clicks and typing can do anything the user can, such as saving or deleting, so they need a session that allows writes.
-	if ((Tool == "ui_click" || Tool == "ui_type") && !Server.AllowsWrites())
+	if ((Tool == "ui_click" || Tool == "ui_type" || Tool == "ui_drag") && !Server.AllowsWrites())
 	{
 		Server.Fail(Request.Id, "read_only", "UI input can change files and the level; start the editor with --automation=write");
 		return true;
@@ -1031,6 +1031,28 @@ bool FEditorFramework::HandleAutomation(FAutomationServer& Server, const FAutoma
 		std::string Output = "{\"clicked\": ";
 		AppendUiItem(Output, Item);
 		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 4, .Output = Output + std::format(", \"matches\": {}}}", Found.size())});
+		return true;
+	}
+
+	if (Tool == "ui_drag")
+	{
+		const auto Items = Editor.ToolUI->GetRecordedItems();
+		const auto Find = [&Items](const std::uint32_t Id)
+		{
+			const auto Item = std::ranges::find(Items, Id, &FToolUIItem::Id);
+			return Item == Items.end() ? nullptr : &*Item;
+		};
+
+		const FToolUIItem* const From = Find(static_cast<std::uint32_t>(Arguments.Number("from", 0.)));
+		const FToolUIItem* const To = Find(static_cast<std::uint32_t>(Arguments.Number("to", 0.)));
+		if (!From || !To)
+		{
+			Server.Fail(Request.Id, "not_found", "from and to must be ids that ui_items lists");
+			return true;
+		}
+
+		Editor.ToolUI->QueueDrag(From->Bounds.X + From->Bounds.Width * 0.5f, From->Bounds.Y + From->Bounds.Height * 0.5f, To->Bounds.X + To->Bounds.Width * 0.5f, To->Bounds.Y + To->Bounds.Height * 0.5f);
+		Editor.AutomationUiReplies.push_back({.Id = Request.Id, .FramesLeft = 14, .Output = "{\"dragged\": true}"});
 		return true;
 	}
 

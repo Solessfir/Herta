@@ -260,6 +260,8 @@ public:
 	[[nodiscard]] std::span<const FToolUIItem> GetRecordedItems() const noexcept;
 	// Queues input as if the user gave it, in screen coordinates; it takes effect over the next frames.
 	void QueueClick(float X, float Y, int Button, bool bDouble);
+	// Presses the left button at From, moves to To over several frames, and releases there, as a drag and drop needs.
+	void QueueDrag(float FromX, float FromY, float ToX, float ToY);
 	void QueueText(std::string_view Text);
 	// A key with optional modifiers, such as "Enter" or "Ctrl+S"; false for a name it does not know.
 	[[nodiscard]] bool QueueKey(std::string_view Chord);

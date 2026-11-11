@@ -144,7 +144,7 @@ TEST_CASE("MCP messages get one-line replies that forward tool calls and return 
 
 	const std::string Listed = Single(HandleMcpMessage(R"({"jsonrpc": "2.0", "id": "list", "method": "tools/list"})", Call));
 	CHECK(Listed.find(R"("id": "list")") != std::string::npos);
-	for (const char* const Name : {"automation_targets", "editor_status", "editor_log", "level_entities", "viewport_capture", "editor_capture", "ui_items", "ui_click", "ui_type", "graph_open", "graph_state", "audio_voices", "ui_stats", "module_reload", "gpu_timings", "play_start", "play_stop", "play_state", "play_input", "play_teleport", "viewport_view", "editor_commands", "editor_command"})
+	for (const char* const Name : {"automation_targets", "editor_status", "editor_log", "level_entities", "viewport_capture", "editor_capture", "ui_items", "ui_click", "ui_drag", "ui_type", "graph_open", "graph_state", "audio_voices", "ui_stats", "module_reload", "gpu_timings", "play_start", "play_stop", "play_state", "play_input", "play_teleport", "viewport_view", "editor_commands", "editor_command"})
 	{
 		CHECK(Listed.find(std::string("\"") + Name + "\"") != std::string::npos);
 	}

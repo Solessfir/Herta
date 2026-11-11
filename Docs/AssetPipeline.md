@@ -175,10 +175,15 @@ The commands are registered by `RegisterAssetCommands` and exposed through `Hert
 HertaEditorCmd asset.validate [--content-root <path>]
 HertaEditorCmd asset.list [--content-root <path>]
 HertaEditorCmd asset.import <source> [--destination <content-directory>] [--content-root <path>]
+HertaEditorCmd asset.move <content-path> <new-content-path> [--content-root <path>]
+HertaEditorCmd asset.delete <content-path> [--content-root <path>]
+HertaEditorCmd asset.restore <trash-folder> <content-path> [--content-root <path>]
 HertaEditorCmd asset.reimport <content-path|asset-id> [--force] [--content-root <path>]
 ```
 
 `asset.validate` exits with code 1 when any error is found. `asset.import` registers a source already inside the content root in place. Otherwise, it copies the source atomically into `--destination` (the content root by default). It then cooks the asset. It never overwrites an existing file or sidecar. A failed cook leaves the source registered so it can be fixed and reimported.
+
+`asset.move` renames or moves an asset together with its `.hmeta` and any generated companions beside it, such as a Material Graph's `.slang`, so its ID and everything that refers to it survive; it keeps the extension, which names the importer, and refuses a destination that exists. `asset.delete` moves the same files into a new folder under the project's `Saved/Trash` and prints the `asset.restore` line that puts them back. Each is all or nothing: a failure part way moves back what already moved.
 
 A `.gltf` usually references separate buffers and images, so it is only imported in place. Copy it into content with its files, or import a self-contained `.glb`.
 

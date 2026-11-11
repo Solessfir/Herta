@@ -1,11 +1,10 @@
 #include "ContentBrowser.h"
 
 #include "GraphDocumentPanel.h"
-
 #include "Herta/Assets/AssetSearch.h"
-#include "Herta/StateTreeCompiler/StateTreeCompiler.h"
 #include "Herta/GameplayGraph/GameplayGraph.h"
 #include "Herta/Platform/FileDialog.h"
+#include "Herta/StateTreeCompiler/StateTreeCompiler.h"
 #include "Herta/ToolUI/ToolUI.h"
 #include "NumericField.h"
 
@@ -14,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <format>
 
 namespace Herta
@@ -92,6 +92,99 @@ void DrawFolderRename(FContentBrowserState& State, FPreviewAssets& Assets)
 	}
 }
 
+// Rename and delete each ask first in a modal; a failure stays in the modal so nothing changes silently.
+void DrawAssetModals(FContentBrowserState& State, FPreviewAssets& Assets)
+{
+	const float Scale = ImGui::GetFontSize() / 16.f;
+	if (std::exchange(State.bOpenAssetRename, false))
+	{
+		ImGui::OpenPopup("Rename asset");
+	}
+
+	if (std::exchange(State.bOpenAssetDelete, false))
+	{
+		ImGui::OpenPopup("Delete asset");
+	}
+
+	if (State.MoveRequested)
+	{
+		if (auto Moved = Assets.MoveAssetToFolder(State.MoveRequested->first, State.MoveRequested->second); !Moved)
+		{
+			State.FolderError = Moved.error().Message;
+		}
+
+		State.MoveRequested.reset();
+	}
+
+	if (ImGui::BeginPopupModal("Rename asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::TextUnformatted("New name, keeping the asset's ID and type");
+		if (ImGui::IsWindowAppearing())
+		{
+			ImGui::SetKeyboardFocusHere();
+		}
+
+		ImGui::SetNextItemWidth(320.f * Scale);
+		const bool bEntered = ImGui::InputText("##AssetName", State.AssetName.data(), State.AssetName.size(), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+		if (!State.AssetError.empty())
+		{
+			ImGui::TextWrapped("%s", State.AssetError.c_str());
+		}
+
+		if (ImGui::Button("Rename", {110.f * Scale, 0.f}) || bEntered)
+		{
+			if (auto Renamed = Assets.RenameAsset(State.RenamingAsset, State.AssetName.data()); Renamed)
+			{
+				ImGui::CloseCurrentPopup();
+			}
+			else
+			{
+				State.AssetError = Renamed.error().Message;
+			}
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+	}
+
+	if (ImGui::BeginPopupModal("Delete asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		const auto Option = std::ranges::find(State.Assets, State.DeletingAsset, &FPreviewAssetOption::Id);
+		ImGui::Text("Delete %s?", Option != State.Assets.end() ? Option->Label.c_str() : "this asset");
+		ImGui::TextDisabled("It moves to the project's Saved/Trash, from where asset.restore puts it back.");
+		if (!State.AssetError.empty())
+		{
+			ImGui::TextWrapped("%s", State.AssetError.c_str());
+		}
+
+		if (ImGui::Button("Delete", {110.f * Scale, 0.f}))
+		{
+			if (auto Deleted = Assets.DeleteAsset(State.DeletingAsset); Deleted)
+			{
+				State.Selected = {};
+				ImGui::CloseCurrentPopup();
+			}
+			else
+			{
+				State.AssetError = Deleted.error().Message;
+			}
+		}
+
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape, false))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+
+		ImGui::EndPopup();
+	}
+}
+
 bool DrawFolderTile(const std::string& Path, FContentBrowserState& State, FPreviewAssets* const Assets, const ImVec2 Size, const float Scale, const bool bList)
 {
 	ImGui::PushID(Path.c_str());
@@ -110,6 +203,18 @@ bool DrawFolderTile(const std::string& Path, FContentBrowserState& State, FPrevi
 	if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) && ImGui::IsMouseReleased(ImGuiMouseButton_Right))
 	{
 		State.ContextFolder = Path;
+	}
+
+	if (Assets && (Path == "Game" || Path.starts_with("Game/")) && ImGui::BeginDragDropTarget())
+	{
+		if (const ImGuiPayload* const Payload = ImGui::AcceptDragDropPayload(ContentAssetPayload); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(FAssetId))
+		{
+			FAssetId Dropped;
+			std::memcpy(&Dropped, Payload->Data, sizeof(Dropped));
+			State.MoveRequested = std::pair{Dropped, Path};
+		}
+
+		ImGui::EndDragDropTarget();
 	}
 
 	const float Font = ImGui::GetFontSize();
@@ -312,13 +417,16 @@ void DrawAssetTile(const FPreviewAssetOption& Asset, FContentBrowserState& State
 		State.SelectedFolder.clear();
 	}
 
-	if ((IsPlaceableContentAsset(Asset) || IsSoundContentAsset(Asset) || IsEffectContentAsset(Asset) || Asset.Importer == "Material") && ImGui::BeginDragDropSource())
+	// Every Game asset drags, onto a folder to move it; those the viewport takes also place or assign there.
+	const bool bPlaceable = IsPlaceableContentAsset(Asset) || IsSoundContentAsset(Asset) || IsEffectContentAsset(Asset) || Asset.Importer == "Material";
+	if ((bPlaceable || Asset.Label.starts_with("Game/")) && ImGui::BeginDragDropSource())
 	{
 		ImGui::SetDragDropPayload(ContentAssetPayload, &Asset.Id, sizeof(Asset.Id));
 		ImGui::TextUnformatted(Asset.Label.c_str());
-		ImGui::TextDisabled("%s", Asset.Importer == "Material" ? "Assign material" : IsSoundContentAsset(Asset) ? "Place audio emitter"
-		                                                                         : IsEffectContentAsset(Asset)  ? "Place particle emitter"
-		                                                                                                         : "Place static mesh");
+		ImGui::TextDisabled("%s", !bPlaceable ? "Move to a folder" : Asset.Importer == "Material" ? "Assign material"
+		                                                         : IsSoundContentAsset(Asset)     ? "Place audio emitter"
+		                                                         : IsEffectContentAsset(Asset)    ? "Place particle emitter"
+		                                                                                          : "Place static mesh");
 		ImGui::EndDragDropSource();
 	}
 
@@ -711,6 +819,29 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 				}
 			}
 
+			// Only the project's own assets change; Engine content is read-only.
+			if (Context != State.Assets.end() && Context->Label.starts_with("Game/"))
+			{
+				ImGui::Separator();
+				if (ToolUIMenuItem("Rename...", EToolUIMenuIcon::Duplicate))
+				{
+					State.RenamingAsset = Context->Id;
+					const std::string_view Leaf = std::string_view(Context->Label).substr(Context->Label.find_last_of('/') + 1);
+					const std::string_view Stem = Leaf.substr(0, Leaf.find('.'));
+					State.AssetName.fill('\0');
+					std::ranges::copy(Stem.substr(0, State.AssetName.size() - 1), State.AssetName.begin());
+					State.AssetError.clear();
+					State.bOpenAssetRename = true;
+				}
+
+				if (ToolUIMenuItem("Delete", EToolUIMenuIcon::Delete))
+				{
+					State.DeletingAsset = Context->Id;
+					State.AssetError.clear();
+					State.bOpenAssetDelete = true;
+				}
+			}
+
 			ImGui::Separator();
 			ImGui::BeginDisabled(!Assets);
 #ifdef HERTA_PLATFORM_WINDOWS
@@ -729,6 +860,11 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		}
 
 		ImGui::PopStyleVar();
+		if (Assets)
+		{
+			DrawAssetModals(State, *Assets);
+		}
+
 		if (bOpenDirectory)
 		{
 			const auto Directory = Assets->GetFolderPath(OpenDirectoryFolder);

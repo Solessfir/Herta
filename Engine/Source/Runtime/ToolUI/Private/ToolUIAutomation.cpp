@@ -106,8 +106,11 @@ void FToolUIItemRecorder::Describe(const std::uint32_t Id, const std::string_vie
 	}
 
 	FToolUIItem& Item = Pending[Found->second];
-	// Labels end in "##id" or "###id" when they need a unique ID; automation matches what the user reads.
-	Item.Label = std::string(Label.substr(0, Label.find("##")));
+	// Labels end in "##id" or "###id" when they need a unique ID; automation matches what the user reads. Widgets that draw their own text,
+	// such as menu items with icons, hide all of it behind "##", so that text is the label.
+	const std::string_view Visible = Label.substr(0, Label.find("##"));
+	const std::size_t Hidden = Label.find_first_not_of('#');
+	Item.Label = std::string(Visible.empty() && Label.starts_with("##") && Hidden != std::string_view::npos ? Label.substr(Hidden) : Visible);
 	Item.bCheckable = bCheckable;
 	Item.bChecked = bChecked;
 	Item.bOpenable = bOpenable;

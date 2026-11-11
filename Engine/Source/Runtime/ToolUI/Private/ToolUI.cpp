@@ -20,6 +20,7 @@
 #include <cctype>
 #include <cfloat>
 #include <cmath>
+#include <deque>
 #include <format>
 #include <fstream>
 #include <limits>
@@ -447,6 +448,17 @@ struct FToolUIContext::FImplementation
 	bool bCursorCaptured = false;
 	ImVec2 CapturedMousePosition{};
 	FToolUIItemRecorder ItemRecorder{};
+
+	// Pointer steps applied one per frame, since ImGui only starts a drag after the button has been held across frames.
+	struct FPointerStep
+	{
+		float X = 0.f;
+		float Y = 0.f;
+		// Pressed, released, or neither.
+		int Button = -1;
+	};
+
+	std::deque<FPointerStep> PointerSteps{};
 	FToolUIFrameStats FrameStats{};
 	bool bRecordItems = false;
 	std::optional<std::array<double, 2>> CapturedCursor{};
@@ -2165,6 +2177,21 @@ void FToolUIContext::QueueClick(const float X, const float Y, const int Button, 
 	QueueToolUIClick(X, Y, Button, bDouble);
 }
 
+void FToolUIContext::QueueDrag(const float FromX, const float FromY, const float ToX, const float ToY)
+{
+	constexpr int Moves = 6;
+	Implementation->PointerSteps.push_back({.X = FromX, .Y = FromY, .Button = 1});
+	for (int Move = 1; Move <= Moves; ++Move)
+	{
+		const float Alpha = static_cast<float>(Move) / Moves;
+		Implementation->PointerSteps.push_back({.X = FromX + (ToX - FromX) * Alpha, .Y = FromY + (ToY - FromY) * Alpha, .Button = -1});
+	}
+
+	// A frame hovering the target lets it accept before the release delivers.
+	Implementation->PointerSteps.push_back({.X = ToX, .Y = ToY, .Button = -1});
+	Implementation->PointerSteps.push_back({.X = ToX, .Y = ToY, .Button = 0});
+}
+
 void FToolUIContext::QueueText(const std::string_view Text)
 {
 	ImGui::SetCurrentContext(Implementation->Context);
@@ -2256,6 +2283,18 @@ void FToolUIContext::BeginFrame()
 	const ImGuiID AltOwner = ImHashStr("HertaAltShortcuts");
 	ImGui::SetKeyOwner(ImGuiKey_LeftAlt, AltOwner);
 	ImGui::SetKeyOwner(ImGuiKey_RightAlt, AltOwner);
+	if (!Implementation->PointerSteps.empty())
+	{
+		// After the platform backend, so the step's position wins over the real cursor for this frame.
+		const auto Step = Implementation->PointerSteps.front();
+		Implementation->PointerSteps.pop_front();
+		ImGui::GetIO().AddMousePosEvent(Step.X, Step.Y);
+		if (Step.Button >= 0)
+		{
+			ImGui::GetIO().AddMouseButtonEvent(ImGuiMouseButton_Left, Step.Button == 1);
+		}
+	}
+
 	Implementation->ItemRecorder.BeginFrame(*Implementation->Context, Implementation->bRecordItems);
 	ImGui::NewFrame();
 	Implementation->PresentedPanels.clear();

@@ -5,8 +5,10 @@
 #include <array>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace Herta
@@ -52,6 +54,16 @@ struct FContentBrowserState
 	std::string RenamingFolder;
 	bool bFocusFolderName = false;
 	std::string FolderError;
+
+	// Asset rename and delete, each confirmed in its own modal.
+	FAssetId RenamingAsset{};
+	FAssetId DeletingAsset{};
+	std::array<char, 128> AssetName{};
+	std::string AssetError;
+	bool bOpenAssetRename = false;
+	bool bOpenAssetDelete = false;
+	// An asset dropped on a folder, moved once the frame's drawing ends.
+	std::optional<std::pair<FAssetId, std::string>> MoveRequested;
 };
 
 bool IsPlaceableContentAsset(const FPreviewAssetOption& Asset) noexcept;
