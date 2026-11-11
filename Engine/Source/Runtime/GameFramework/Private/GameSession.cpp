@@ -392,7 +392,11 @@ struct FGameSession::FImplementation : FPlayerSlot
 	[[nodiscard]] std::expected<void, FPhysicsError> Respawn(FPhysicsWorld& World);
 	// Foot is the capsule's; BodyFoot is where the body is drawn, which differs while a climb clip lifts its own root.
 	[[nodiscard]] FVector3 GetCameraPosition(const FVector3& Foot, const FVector3& BodyFoot);
-	void RequestEffect(ELevelEffect Cue, const FVector3& Position, const FVector3& Up = {0.f, 1.f, 0.f}, float Scale = 1.f);
+	// An invalid system shows nothing, so a component that sets no effect spawns none.
+	void RequestEffect(const FAssetId& System, const FVector3& Position, const FVector3& Up = {0.f, 1.f, 0.f}, float Scale = 1.f);
+	// The sound and effect of an impact, from the first of its two objects that sets them.
+	[[nodiscard]] std::pair<FAssetId, FAssetId> GetImpactCues(const FLevelImpactEvent& Impact) const;
+	void ResolveGraphCues();
 	// Starts the sorted requests, moves emitters with their entities, and steps every particle against the physics world.
 	void UpdateEffects(float DeltaSeconds);
 	// Runs gameplay graphs, whose sounds play and effects join this update's requests.
@@ -426,7 +430,7 @@ struct FGameSession::FImplementation : FPlayerSlot
 	// A character's sword from guard to tip in world space, as last posed.
 	[[nodiscard]] std::optional<std::array<FVector3, 2>> GetCharacterBlade(const FCharacterActor& Actor) const;
 	// Starts, moves, or ends the ribbon a blade draws.
-	void UpdateBladeTrail(std::optional<FParticleEffectId>& Trail, bool bActive, const std::optional<std::array<FVector3, 2>>& Blade);
+	void UpdateBladeTrail(std::optional<FParticleEffectId>& Trail, const FAssetId& System, bool bActive, const std::optional<std::array<FVector3, 2>>& Blade);
 	void UpdateBodyFootPlacement(bool bEnabled);
 	// The level's surface along a sweep from one point to another, for hands reaching for walls.
 	[[nodiscard]] std::optional<FWallHit> FindWall(const FVector3& From, const FVector3& To) const;
@@ -531,6 +535,8 @@ struct FGameSession::FImplementation : FPlayerSlot
 		std::size_t Entity = 0;
 		std::unique_ptr<FPlayerCharacter> Body{};
 		FCharacterComponent Settings{};
+		// Its Character's weapon model, owned by the session's assets; null draws the built-in box sword.
+		const FRenderMesh* Weapon = nullptr;
 		FPhysicsBodyId Collider{};
 		// Where it stands now, which an AI agent walks away from where it was authored.
 		FMatrix4 Model{};
@@ -552,10 +558,16 @@ struct FGameSession::FImplementation : FPlayerSlot
 	};
 
 	std::vector<FCharacterActor> Characters{};
-	// The sword every player's body holds.
+	// The built-in box sword, held by characters whose Character sets no weapon.
 	std::shared_ptr<const FRenderMesh> SwordMesh{};
-	// The level's weapon model, which replaces the built-in sword when set.
-	const FRenderMesh* WeaponMesh = nullptr;
+	// The Player entity, whose Character every player plays: its weapon, sounds, and effects. Empty without one, so the capsule is silent.
+	std::optional<std::size_t> PlayerEntity{};
+	FCharacterComponent PlayerKit{};
+	const FRenderMesh* PlayerWeapon = nullptr;
+	// What gameplay graphs' sound and effect names play, from the player's Character, the course triggers, and the first body or destructible
+	// that sets one.
+	std::array<FAssetId, LevelSoundCues.size()> CueSounds{};
+	std::array<FAssetId, LevelEffectCues.size()> CueEffects{};
 	// Pieces cut off characters, oldest first, falling until restart or newer pieces from the same character push them out.
 	std::vector<std::unique_ptr<FCharacterPiece>> Pieces{};
 	std::size_t CutCount = 0;
@@ -569,14 +581,13 @@ struct FGameSession::FImplementation : FPlayerSlot
 	// streams, never depend on which system asked first.
 	struct FEffectRequest
 	{
-		ELevelEffect Cue = ELevelEffect::Impact;
+		FAssetId System{};
 		FVector3 Position{};
 		FVector3 Up{0.f, 1.f, 0.f};
 		float Scale = 1.f;
 	};
 
 	FParticleWorld Particles{};
-	FLevelEffects Effects{};
 	std::vector<FEffectRequest> EffectRequests{};
 	FGameGraphs Graphs{};
 	std::vector<std::pair<std::string, std::unique_ptr<IGameSystem>>> GameSystems{};
@@ -827,8 +838,33 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 		}
 	}
 
-	// The player stands on the bottom of the Start zone, facing along its forward axis.
-	if (Session.StartZone)
+	for (std::size_t Index = 0; Index < Count; ++Index)
+	{
+		if (Session.Entities[Index].Player && Session.Entities[Index].Character)
+		{
+			if (Session.PlayerEntity)
+			{
+				Session.Warnings.push_back(std::format("{} is a second Player; the player plays {}", Session.Entities[Index].Name, Session.Entities[*Session.PlayerEntity].Name));
+				continue;
+			}
+
+			Session.PlayerEntity = Index;
+			Session.PlayerKit = *Session.Entities[Index].Character;
+			Session.bThirdPerson = Session.Entities[Index].Player->bThirdPerson;
+			Session.Players.front().bThirdPerson = Session.bThirdPerson;
+			Session.PlayerWeapon = Session.PlayerKit.Weapon.IsValid() ? Session.Assets.FindMesh(Session.PlayerKit.Weapon) : nullptr;
+		}
+	}
+
+	// The player stands where the Player entity stands, facing along its forward axis; without one, on the bottom of the Start zone.
+	if (Session.PlayerEntity)
+	{
+		const FMatrix4& PlayerStand = Session.AuthoredWorld[*Session.PlayerEntity];
+		const FVector3 Forward = TransformPoint(PlayerStand, FVector3::Forward()) - GetTranslation(PlayerStand);
+		Session.SpawnPosition = GetTranslation(PlayerStand);
+		Session.SpawnYaw = std::atan2(Forward.X, Forward.Z);
+	}
+	else if (Session.StartZone)
 	{
 		const FMatrix4& Start = Session.AuthoredWorld[Session.StartZone->Entity];
 		const FVector3 Bottom = TransformPoint(Start, {0.f, -Session.StartZone->HalfExtents.Y, 0.f});
@@ -851,6 +887,11 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 	for (std::size_t Index = 0; Index < Count; ++Index)
 	{
 		const FLevelEntity& Entity = Session.Entities[Index];
+		if (Index == Session.PlayerEntity)
+		{
+			continue;
+		}
+
 		std::shared_ptr<const FCookedModel> Model = Entity.Character && Entity.Mesh ? Assets.FindSkinnedModel(Entity.Mesh->Asset) : nullptr;
 		if (!Model)
 		{
@@ -869,14 +910,17 @@ std::expected<std::unique_ptr<FGameSession>, FGameError> FGameSession::Create(co
 			continue;
 		}
 
-		FImplementation::FCharacterActor& Actor = Session.Characters.emplace_back(FImplementation::FCharacterActor{.Entity = Index, .Body = std::move(*Body), .Settings = *Entity.Character, .Model = Session.AuthoredWorld[Index]});
+		const FRenderMesh* const Weapon = Entity.Character->Weapon.IsValid() ? Assets.FindMesh(Entity.Character->Weapon) : nullptr;
+		FImplementation::FCharacterActor& Actor = Session.Characters.emplace_back(FImplementation::FCharacterActor{.Entity = Index, .Body = std::move(*Body), .Settings = *Entity.Character, .Weapon = Weapon, .Model = Session.AuthoredWorld[Index]});
 		if (Entity.AiAgent)
 		{
 			Actor.Npc = std::make_unique<FGameNpc>(*Actor.Body, *Entity.AiAgent);
 		}
 	}
 
-	// The player and every guard carry the same sword.
+	Session.ResolveGraphCues();
+
+	// Characters without a weapon of their own carry the built-in sword.
 	if (Device && (Character || std::ranges::any_of(Session.Characters, [](const FImplementation::FCharacterActor& Actor)
 	{
 		return Actor.Npc != nullptr;
@@ -1095,6 +1139,7 @@ std::expected<std::size_t, FGameError> FGameSession::AddPlayer()
 
 	const std::size_t Added = Session.Players.size();
 	Session.Players.emplace_back().Body = std::move(*Body);
+	Session.Players.back().bThirdPerson = !Session.PlayerEntity || Session.Entities[*Session.PlayerEntity].Player->bThirdPerson;
 	Session.Activate(Added);
 	auto Started = Session.StartPlayer();
 	if (Started)
@@ -1869,7 +1914,7 @@ void FGameSession::FImplementation::UpdateObjective(const float DeltaSeconds)
 		Objective.State = EGameObjectiveState::Running;
 		Objective.ElapsedSeconds = 0.;
 		Events.push_back("Run started");
-		Audio.PlayFlat(ELevelSound::Objective, {{.Name = "Finished", .Value = 0.f}});
+		Audio.PlayFlat(Entities[StartZone->Entity].Trigger->Sound, {{.Name = "Finished", .Value = 0.f}});
 	}
 	else if (Objective.State != EGameObjectiveState::Ready && bInStart)
 	{
@@ -1882,7 +1927,7 @@ void FGameSession::FImplementation::UpdateObjective(const float DeltaSeconds)
 		const bool bBest = !Objective.BestSeconds || Objective.ElapsedSeconds < *Objective.BestSeconds;
 		Objective.BestSeconds = bBest ? Objective.ElapsedSeconds : Objective.BestSeconds;
 		Events.push_back(std::format("Course finished in {:.2f} s{}", Objective.ElapsedSeconds, bBest ? ", a new best" : ""));
-		Audio.PlayFlat(ELevelSound::Objective, {{.Name = "Finished", .Value = 1.f}});
+		Audio.PlayFlat(Entities[FinishZone->Entity].Trigger->Sound, {{.Name = "Finished", .Value = 1.f}});
 	}
 }
 
@@ -2062,8 +2107,9 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishUpdate(cons
 	{
 		Outcomes.push_back({.Kind = EGameOutcome::Break, .Object = static_cast<std::uint32_t>(Break.ObjectIndex), .IntactBonds = Simulation.GetIntactBonds(Break.ObjectIndex)});
 		Events.push_back(std::format("{} broke ({} bonds)", Entities[Break.ObjectIndex].Name, Break.BrokenBonds));
-		Audio.Play(ELevelSound::Impact, Break.Point, {{.Name = "Impulse", .Value = MaximumImpactImpulse}});
-		RequestEffect(ELevelEffect::Break, Break.Point);
+		const std::optional<FDestructibleComponent>& Broken = Entities[Break.ObjectIndex].Destructible;
+		Audio.Play(Broken ? Broken->ImpactSound : FAssetId{}, Break.Point, {{.Name = "Impulse", .Value = MaximumImpactImpulse}});
+		RequestEffect(Broken ? Broken->BreakEffect : FAssetId{}, Break.Point);
 		if (Ai)
 		{
 			Ai->PostNoise(Break.Point, 30.f);
@@ -2081,10 +2127,11 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishUpdate(cons
 	Impacts.resize(std::min<std::size_t>(Impacts.size(), MaximumImpactsPerUpdate));
 	for (const FLevelImpactEvent& Impact : Impacts)
 	{
-		Audio.Play(ELevelSound::Impact, Impact.Point, {{.Name = "Impulse", .Value = std::min(Impact.Impulse, MaximumImpactImpulse)}});
+		const auto [Sound, Effect] = GetImpactCues(Impact);
+		Audio.Play(Sound, Impact.Point, {{.Name = "Impulse", .Value = std::min(Impact.Impulse, MaximumImpactImpulse)}});
 		// Harder hits throw a bigger cloud, up to twice the authored size.
 		const FVector3 Up = Impact.Normal.Y < 0.f ? -Impact.Normal : Impact.Normal;
-		RequestEffect(ELevelEffect::Impact, Impact.Point, Up, std::clamp(Impact.Impulse / 20.f, 0.5f, 2.f));
+		RequestEffect(Effect, Impact.Point, Up, std::clamp(Impact.Impulse / 20.f, 0.5f, 2.f));
 		// Harder impacts carry further: a thrown ball's thud is heard about fifteen meters away.
 		if (Ai)
 		{
@@ -2183,7 +2230,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::FinishPlayerUpdat
 			return std::unexpected(Swept.error());
 		}
 
-		UpdateBladeTrail(BladeTrail, bSwinging, LastBlade);
+		UpdateBladeTrail(BladeTrail, PlayerKit.TrailEffect, bSwinging, LastBlade);
 	}
 
 	UpdateAudio(bJumped);
@@ -2392,8 +2439,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 				Body->FireTrigger("Recoil");
 				HitStop.Start(0.08f);
 				Impact(0.f, 0.03f);
-				Audio.Play(ELevelSound::Block, Point, {{.Name = "Impulse", .Value = 30.f}});
-				RequestEffect(ELevelEffect::Sparks, Point, Hit->Normal, 0.8f);
+				Audio.Play(PlayerKit.BlockSound, Point, {{.Name = "Impulse", .Value = 30.f}});
+				RequestEffect(PlayerKit.SparksEffect, Point, Hit->Normal, 0.8f);
 				Events.push_back("The player's blade struck a wall");
 				return {};
 			}
@@ -2505,8 +2552,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 		if (*Cut)
 		{
 			Outcomes.push_back({.Kind = EGameOutcome::Slice, .Object = static_cast<std::uint32_t>(Index), .Point = Blade[0], .Normal = Unit});
-			Audio.Play(ELevelSound::Slice, (Blade[0] + Blade[1]) * 0.5f);
-			RequestEffect(ELevelEffect::Slice, (Blade[0] + Blade[1]) * 0.5f, Unit);
+			Audio.Play(PlayerKit.SliceSound, (Blade[0] + Blade[1]) * 0.5f);
+			RequestEffect(PlayerKit.SliceEffect, (Blade[0] + Blade[1]) * 0.5f, Unit);
 		}
 
 		// A deathblow kills whatever the cut took.
@@ -2515,8 +2562,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 			Events.push_back(std::format("Deathblow on {}", Entities[Characters[Index].Entity].Name));
 			HitStop.Start(0.16f);
 			Impact(0.25f, 0.06f);
-			RequestEffect(ELevelEffect::Sever, Clash, Unit, 1.5f);
-			Audio.Play(ELevelSound::Sever, Clash);
+			RequestEffect(PlayerKit.SeverEffect, Clash, Unit, 1.5f);
+			Audio.Play(PlayerKit.SeverSound, Clash);
 			Characters[Index].Npc->Wound(1.f);
 			Outcomes.push_back({.Kind = EGameOutcome::Kill, .Object = static_cast<std::uint32_t>(Index)});
 			if (auto Killed = KillCharacter(Index, Swept.Normalized()); !Killed)
@@ -2548,8 +2595,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::SweepBlade(const 
 			continue;
 		}
 
-		Audio.Play(ELevelSound::Slice, (Blade[0] + Blade[1]) * 0.5f);
-		RequestEffect(ELevelEffect::Slice, (Blade[0] + Blade[1]) * 0.5f, Unit);
+		Audio.Play(PlayerKit.SliceSound, (Blade[0] + Blade[1]) * 0.5f);
+		RequestEffect(PlayerKit.SliceEffect, (Blade[0] + Blade[1]) * 0.5f, Unit);
 		// The cut piece is gone and its two halves were appended; neither is cut again this swing, and Index now names the next piece.
 		for (std::size_t Added = Pieces.size() - std::min<std::size_t>(Pieces.size(), 2); Added < Pieces.size(); ++Added)
 		{
@@ -2581,8 +2628,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::MeetGuard(const s
 		HitStop.Start(0.12f);
 		Guard.HitStop.Start(0.12f);
 		Impact(0.08f, 0.035f);
-		Audio.Play(ELevelSound::Deflect, Clash, {{.Name = "Impulse", .Value = 45.f}});
-		RequestEffect(ELevelEffect::Sparks, Clash, Normal, 1.3f);
+		Audio.Play(Guard.Settings.DeflectSound, Clash, {{.Name = "Impulse", .Value = 45.f}});
+		RequestEffect(Guard.Settings.SparksEffect, Clash, Normal, 1.3f);
 		Events.push_back(std::format("{} deflected the player", Name));
 		Guard.Npc->StartAttack(Mover->GetState().Foot);
 		return {};
@@ -2593,8 +2640,8 @@ std::expected<void, FGameError> FGameSession::FImplementation::MeetGuard(const s
 	HitStop.Start(bBroken ? 0.12f : 0.07f);
 	Guard.HitStop.Start(bBroken ? 0.12f : 0.07f);
 	Impact(bBroken ? 0.12f : 0.f, bBroken ? 0.05f : 0.02f);
-	Audio.Play(bBroken ? ELevelSound::Deflect : ELevelSound::Block, Clash, {{.Name = "Impulse", .Value = bBroken ? 60.f : 25.f}});
-	RequestEffect(ELevelEffect::Sparks, Clash, Normal, bBroken ? 1.4f : 0.7f);
+	Audio.Play(bBroken ? Guard.Settings.DeflectSound : Guard.Settings.BlockSound, Clash, {{.Name = "Impulse", .Value = bBroken ? 60.f : 25.f}});
+	RequestEffect(Guard.Settings.SparksEffect, Clash, Normal, bBroken ? 1.4f : 0.7f);
 	Events.push_back(std::format("{} blocked the player", Name));
 	if (bBroken)
 	{
@@ -2705,7 +2752,7 @@ std::optional<FFootGround> FGameSession::FImplementation::FindFootGround(const F
 	return FFootGround{.Height = Top + (Bottom - Top) * Hit->Fraction - Radius, .Normal = Hit->Normal};
 }
 
-void FGameSession::FImplementation::UpdateBladeTrail(std::optional<FParticleEffectId>& Trail, const bool bActive, const std::optional<std::array<FVector3, 2>>& Blade)
+void FGameSession::FImplementation::UpdateBladeTrail(std::optional<FParticleEffectId>& Trail, const FAssetId& System, const bool bActive, const std::optional<std::array<FVector3, 2>>& Blade)
 {
 	if (!bActive || !Blade)
 	{
@@ -2721,7 +2768,7 @@ void FGameSession::FImplementation::UpdateBladeTrail(std::optional<FParticleEffe
 
 	const FVector3 Middle = ((*Blade)[0] + (*Blade)[1]) * 0.5f;
 	const FVector3 Edge = ((*Blade)[1] - (*Blade)[0]) * 0.5f;
-	Trail = Trail ? Trail : Particles.Spawn(Effects[static_cast<std::size_t>(ELevelEffect::Trail)], Middle);
+	Trail = Trail ? Trail : Particles.Spawn(System, Middle);
 	if (Trail)
 	{
 		Particles.Move(*Trail, Middle, Edge);
@@ -2864,8 +2911,8 @@ std::expected<void, FPhysicsError> FGameSession::FImplementation::StepCharacters
 				if (*Severed)
 				{
 					Outcomes.push_back({.Kind = EGameOutcome::Sever, .Object = static_cast<std::uint32_t>(Index), .Joint = std::string(Actor.Body->GetJointName(*Joint))});
-					Audio.Play(ELevelSound::Sever, Transform->Position);
-					RequestEffect(ELevelEffect::Sever, Transform->Position, -Velocity->Normalized());
+					Audio.Play(PlayerKit.SeverSound, Transform->Position);
+					RequestEffect(PlayerKit.SeverEffect, Transform->Position, -Velocity->Normalized());
 				}
 			}
 
@@ -3277,7 +3324,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 		}
 
 		// A broken destructible draws its pieces instead, and a character its animated body.
-		if (!Session.Simulation.IsIntact(Index) || std::ranges::contains(Session.Characters, Index, &FImplementation::FCharacterActor::Entity))
+		if (!Session.Simulation.IsIntact(Index) || Index == Session.PlayerEntity || std::ranges::contains(Session.Characters, Index, &FImplementation::FCharacterActor::Entity))
 		{
 			Session.Meshes[Index] = nullptr;
 		}
@@ -3376,7 +3423,7 @@ const FMeshRenderView& FGameSession::GetRenderView(const FExtent2D Extent)
 			Session.Models.push_back(ActorModel);
 			Session.Meshes.push_back(Actor.Body->GetMesh());
 			Session.MaterialSpans.emplace_back();
-			const FRenderMesh* const Weapon = Session.WeaponMesh ? Session.WeaponMesh : Session.SwordMesh.get();
+			const FRenderMesh* const Weapon = Actor.Weapon ? Actor.Weapon : Session.SwordMesh.get();
 			if (const auto Grip = Actor.Npc && !Actor.Npc->IsDead() && Weapon ? Actor.Body->GetGripFrame() : std::nullopt)
 			{
 				Session.Models.push_back(ActorModel * *Grip);
@@ -3497,7 +3544,7 @@ FVector3 FGameSession::FImplementation::AddBodyToView(const float Alpha, const b
 				Visibility.push_back(EMeshVisibility::CameraOnly);
 			}
 
-			const FRenderMesh* const Weapon = WeaponMesh ? WeaponMesh : SwordMesh.get();
+			const FRenderMesh* const Weapon = PlayerWeapon ? PlayerWeapon : SwordMesh.get();
 			if (const auto Grip = Weapon ? Body->GetGripFrame() : std::nullopt)
 			{
 				Models.push_back(BodyModel * *Grip);
@@ -3511,11 +3558,81 @@ FVector3 FGameSession::FImplementation::AddBodyToView(const float Alpha, const b
 	return BodyFoot;
 }
 
-void FGameSession::FImplementation::RequestEffect(const ELevelEffect Cue, const FVector3& Position, const FVector3& Up, const float Scale)
+void FGameSession::FImplementation::RequestEffect(const FAssetId& System, const FVector3& Position, const FVector3& Up, const float Scale)
 {
-	if (Effects[static_cast<std::size_t>(Cue)].IsValid())
+	if (System.IsValid())
 	{
-		EffectRequests.push_back({.Cue = Cue, .Position = Position, .Up = Up, .Scale = Scale});
+		EffectRequests.push_back({.System = System, .Position = Position, .Up = Up, .Scale = Scale});
+	}
+}
+
+std::pair<FAssetId, FAssetId> FGameSession::FImplementation::GetImpactCues(const FLevelImpactEvent& Impact) const
+{
+	std::pair<FAssetId, FAssetId> Cues;
+	for (const std::optional<std::size_t> Object : {Impact.FirstObject, Impact.SecondObject})
+	{
+		if (!Object || *Object >= Entities.size())
+		{
+			continue;
+		}
+
+		const FLevelEntity& Entity = Entities[*Object];
+		const FAssetId Sound = Entity.Destructible ? Entity.Destructible->ImpactSound : Entity.BodySettings.ImpactSound;
+		const FAssetId Effect = Entity.Destructible ? Entity.Destructible->ImpactEffect : Entity.BodySettings.ImpactEffect;
+		Cues.first = Cues.first.IsValid() ? Cues.first : Sound;
+		Cues.second = Cues.second.IsValid() ? Cues.second : Effect;
+	}
+
+	return Cues;
+}
+
+void FGameSession::FImplementation::ResolveGraphCues()
+{
+	const auto Sound = [this](const ELevelSound Cue) -> FAssetId&
+	{
+		return CueSounds[static_cast<std::size_t>(Cue)];
+	};
+
+	const auto Effect = [this](const ELevelEffect Cue) -> FAssetId&
+	{
+		return CueEffects[static_cast<std::size_t>(Cue)];
+	};
+
+	Sound(ELevelSound::Footstep) = PlayerKit.FootstepSound;
+	Sound(ELevelSound::Land) = PlayerKit.LandSound;
+	Sound(ELevelSound::Jump) = PlayerKit.JumpSound;
+	Sound(ELevelSound::Slide) = PlayerKit.SlideSound;
+	Sound(ELevelSound::Swing) = PlayerKit.SwingSound;
+	Sound(ELevelSound::Slice) = PlayerKit.SliceSound;
+	Sound(ELevelSound::Sever) = PlayerKit.SeverSound;
+	Sound(ELevelSound::Deflect) = PlayerKit.DeflectSound;
+	Sound(ELevelSound::Block) = PlayerKit.BlockSound;
+	Effect(ELevelEffect::Land) = PlayerKit.LandEffect;
+	Effect(ELevelEffect::Slice) = PlayerKit.SliceEffect;
+	Effect(ELevelEffect::Sever) = PlayerKit.SeverEffect;
+	Effect(ELevelEffect::Sparks) = PlayerKit.SparksEffect;
+	Effect(ELevelEffect::Trail) = PlayerKit.TrailEffect;
+	for (const FLevelEntity& Entity : Entities)
+	{
+		const auto Fill = [](FAssetId& Slot, const FAssetId& Candidate)
+		{
+			Slot = Slot.IsValid() ? Slot : Candidate;
+		};
+
+		if (Entity.Trigger && Entity.Trigger->Role != ETriggerRole::None)
+		{
+			Fill(Sound(ELevelSound::Objective), Entity.Trigger->Sound);
+		}
+
+		if (Entity.Destructible)
+		{
+			Fill(Sound(ELevelSound::Impact), Entity.Destructible->ImpactSound);
+			Fill(Effect(ELevelEffect::Impact), Entity.Destructible->ImpactEffect);
+			Fill(Effect(ELevelEffect::Break), Entity.Destructible->BreakEffect);
+		}
+
+		Fill(Sound(ELevelSound::Impact), Entity.BodySettings.ImpactSound);
+		Fill(Effect(ELevelEffect::Impact), Entity.BodySettings.ImpactEffect);
 	}
 }
 
@@ -3564,7 +3681,7 @@ void FGameSession::FImplementation::PlayCue(const std::string_view Cue, const FV
 	const auto Found = std::ranges::find(LevelSoundCues, Cue, &FLevelSoundCue::Key);
 	if (Found != LevelSoundCues.end())
 	{
-		Audio.Play(static_cast<ELevelSound>(Found - LevelSoundCues.begin()), Position);
+		Audio.Play(CueSounds[static_cast<std::size_t>(Found - LevelSoundCues.begin())], Position);
 	}
 }
 
@@ -3573,7 +3690,7 @@ void FGameSession::FImplementation::SpawnCue(const std::string_view Cue, const F
 	const auto Found = std::ranges::find(LevelEffectCues, Cue, &FLevelSoundCue::Key);
 	if (Found != LevelEffectCues.end())
 	{
-		RequestEffect(static_cast<ELevelEffect>(Found - LevelEffectCues.begin()), Position, {0.f, 1.f, 0.f}, Scale);
+		RequestEffect(CueEffects[static_cast<std::size_t>(Found - LevelEffectCues.begin())], Position, {0.f, 1.f, 0.f}, Scale);
 	}
 }
 
@@ -3695,12 +3812,12 @@ void FGameSession::FImplementation::UpdateEffects(const float DeltaSeconds)
 
 	std::ranges::stable_sort(EffectRequests, [](const FEffectRequest& Left, const FEffectRequest& Right)
 	{
-		return std::tuple(Left.Cue, Left.Position.X, Left.Position.Y, Left.Position.Z) < std::tuple(Right.Cue, Right.Position.X, Right.Position.Y, Right.Position.Z);
+		return std::tuple(Left.System, Left.Position.X, Left.Position.Y, Left.Position.Z) < std::tuple(Right.System, Right.Position.X, Right.Position.Y, Right.Position.Z);
 	});
 
 	for (const FEffectRequest& Request : EffectRequests)
 	{
-		(void)Particles.Spawn(Effects[static_cast<std::size_t>(Request.Cue)], Request.Position, Request.Up, Request.Scale);
+		(void)Particles.Spawn(Request.System, Request.Position, Request.Up, Request.Scale);
 	}
 
 	EffectRequests.clear();
@@ -3738,23 +3855,23 @@ void FGameSession::FImplementation::UpdateAudio(const bool bJumped)
 	const float Speed = std::hypot(State.Velocity.X, State.Velocity.Z);
 	if (bJumped)
 	{
-		Audio.Play(ELevelSound::Jump, Foot);
+		Audio.Play(PlayerKit.JumpSound, Foot);
 	}
 
 	for (const std::string& Event : Body ? Body->GetEvents() : std::span<const std::string>{})
 	{
 		if (Event == "Footstep")
 		{
-			Audio.Play(ELevelSound::Footstep, Foot, {{.Name = "Speed", .Value = Speed}});
+			Audio.Play(PlayerKit.FootstepSound, Foot, {{.Name = "Speed", .Value = Speed}});
 		}
 		else if (Event == "Land")
 		{
-			Audio.Play(ELevelSound::Land, Foot, {{.Name = "Speed", .Value = Speed}});
-			RequestEffect(ELevelEffect::Land, Foot);
+			Audio.Play(PlayerKit.LandSound, Foot, {{.Name = "Speed", .Value = Speed}});
+			RequestEffect(PlayerKit.LandEffect, Foot);
 		}
 		else if (Event == "SwingStart")
 		{
-			Audio.Play(ELevelSound::Swing, Foot + FVector3::Up() * 1.2f);
+			Audio.Play(PlayerKit.SwingSound, Foot + FVector3::Up() * 1.2f);
 		}
 	}
 
@@ -3765,14 +3882,14 @@ void FGameSession::FImplementation::UpdateAudio(const bool bJumped)
 		if (StrideDistance >= 1.6f)
 		{
 			StrideDistance = 0.f;
-			Audio.Play(ELevelSound::Footstep, Foot, {{.Name = "Speed", .Value = Speed}});
+			Audio.Play(PlayerKit.FootstepSound, Foot, {{.Name = "Speed", .Value = Speed}});
 		}
 	}
 
-	// The level has one slide loop, which follows whoever the view follows.
+	// One slide loop, which follows whoever the view follows.
 	if (ActivePlayer == ViewPlayer)
 	{
-		Audio.SetLoop(ELevelSound::Slide, Mover->GetActiveMode() == "Slide" && !Ragdoll, Foot);
+		Audio.SetLoop(PlayerKit.SlideSound, Mover->GetActiveMode() == "Slide" && !Ragdoll, Foot);
 	}
 }
 
@@ -4138,8 +4255,8 @@ void FGameSession::FImplementation::StrikePlayer(FCharacterActor& Actor)
 			HitStop.Start(0.1f);
 			Actor.HitStop.Start(0.1f);
 			Impact(bBroken ? 0.12f : 0.05f, bBroken ? 0.05f : 0.025f);
-			Audio.Play(ELevelSound::Deflect, Clash, {{.Name = "Impulse", .Value = bBroken ? 60.f : 35.f}});
-			RequestEffect(ELevelEffect::Sparks, Clash, Across, bBroken ? 1.6f : 1.f);
+			Audio.Play(PlayerKit.DeflectSound, Clash, {{.Name = "Impulse", .Value = bBroken ? 60.f : 35.f}});
+			RequestEffect(PlayerKit.SparksEffect, Clash, Across, bBroken ? 1.6f : 1.f);
 			if (bBroken)
 			{
 				Events.push_back(std::format("{} lost its posture", Name));
@@ -4155,8 +4272,8 @@ void FGameSession::FImplementation::StrikePlayer(FCharacterActor& Actor)
 			HitStop.Start(bBroken ? 0.1f : 0.06f);
 			Actor.HitStop.Start(bBroken ? 0.1f : 0.06f);
 			Impact(bBroken ? 0.1f : 0.f, bBroken ? 0.05f : 0.015f);
-			Audio.Play(ELevelSound::Block, Clash, {{.Name = "Impulse", .Value = bBroken ? 50.f : 20.f}});
-			RequestEffect(ELevelEffect::Sparks, Clash, Across, 0.5f);
+			Audio.Play(PlayerKit.BlockSound, Clash, {{.Name = "Impulse", .Value = bBroken ? 50.f : 20.f}});
+			RequestEffect(PlayerKit.SparksEffect, Clash, Across, 0.5f);
 			return;
 		}
 		case EGuardOutcome::Hit:
@@ -4191,7 +4308,7 @@ void FGameSession::FImplementation::StrikePlayer(FCharacterActor& Actor)
 		});
 	}
 
-	Audio.Play(ELevelSound::Impact, Target + FVector3::Up(), {{.Name = "Impulse", .Value = 40.f}});
+	Audio.Play(Actor.Settings.HitSound, Target + FVector3::Up(), {{.Name = "Impulse", .Value = 40.f}});
 }
 
 bool FGameSession::FImplementation::IsGuardingAgainstPlayer(const FCharacterActor& Actor) const
@@ -4257,7 +4374,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::StepAgents(FPhysi
 		}
 
 		Actor.bBladeSwinging = Actor.bBladeSwinging && Actor.Npc->IsAttacking() && !Actor.Npc->IsDead();
-		UpdateBladeTrail(Actor.BladeTrail, Actor.bBladeSwinging, Actor.bBladeSwinging ? GetCharacterBlade(Actor) : std::nullopt);
+		UpdateBladeTrail(Actor.BladeTrail, Actor.Settings.TrailEffect, Actor.bBladeSwinging, Actor.bBladeSwinging ? GetCharacterBlade(Actor) : std::nullopt);
 		Actor.Body->SetBool("Staggered", Actor.Combat.IsStaggered() && !Actor.Npc->IsDead());
 		if (Actor.Npc->IsDead() || Actor.bDowned)
 		{
@@ -4378,7 +4495,7 @@ std::expected<void, FGameError> FGameSession::FImplementation::StrikeCharacter(c
 	Target.Body->FireTrigger("Hit");
 	Target.Npc->Wound(0.34f);
 	Events.push_back(std::format("{} struck {}", Entities[Actor.Entity].Name, Entities[Target.Entity].Name));
-	Audio.Play(ELevelSound::Impact, Struck + FVector3::Up(), {{.Name = "Impulse", .Value = 40.f}});
+	Audio.Play(Actor.Settings.HitSound, Struck + FVector3::Up(), {{.Name = "Impulse", .Value = 40.f}});
 	ReportCharacterHit(Victim, GetCharacterTargetKey(Attacker), Foot, GetAiFaction(Actor.Npc->GetSettings().Attitude));
 	if (!Target.Npc->IsDead())
 	{
@@ -4980,39 +5097,9 @@ std::expected<std::vector<std::string>, FGameError> FGameSession::ApplySave(cons
 	return Skipped;
 }
 
-void FGameSession::SetLevelEffects(const FLevelEffects& Effects)
-{
-	Implementation->Effects = Effects;
-}
-
-void FGameSession::SetWeaponMesh(const FRenderMesh* const Mesh)
-{
-	Implementation->WeaponMesh = Mesh;
-}
-
 std::vector<FAssetId> FGameSession::GetParticleSystems() const
 {
-	std::vector<FAssetId> Systems;
-	for (const FAssetId& Effect : Implementation->Effects)
-	{
-		if (Effect.IsValid())
-		{
-			Systems.push_back(Effect);
-		}
-	}
-
-	for (const FLevelEntity& Entity : Implementation->Entities)
-	{
-		if (Entity.ParticleEmitter && Entity.ParticleEmitter->System.IsValid())
-		{
-			Systems.push_back(Entity.ParticleEmitter->System);
-		}
-	}
-
-	std::ranges::sort(Systems);
-	const auto Duplicates = std::ranges::unique(Systems);
-	Systems.erase(Duplicates.begin(), Duplicates.end());
-	return Systems;
+	return GetLevelAssetReferences(Implementation->Entities, ELevelAssetKind::Effect);
 }
 
 std::expected<void, FGameError> FGameSession::AddParticleSystem(const FAssetId& Id, std::shared_ptr<const FCookedParticleSystem> System)
@@ -5028,11 +5115,6 @@ std::expected<void, FGameError> FGameSession::AddParticleSystem(const FAssetId& 
 FParticleStats FGameSession::GetParticleStats() const
 {
 	return Implementation->Particles.GetStats();
-}
-
-void FGameSession::SetLevelSounds(const FLevelSounds& Sounds)
-{
-	Implementation->Audio.SetSounds(Sounds);
 }
 
 std::vector<FAssetId> FGameSession::GetSounds() const

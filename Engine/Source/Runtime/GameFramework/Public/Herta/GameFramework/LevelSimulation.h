@@ -144,6 +144,9 @@ struct FLevelImpactEvent
 	// From the first body into the second, so either way it is the surface the impact struck.
 	FVector3 Normal = FVector3::Up();
 	float Impulse = 0.f;
+	// The level objects the two bodies belong to; empty for bodies the level did not author, such as thrown balls.
+	std::optional<std::size_t> FirstObject{};
+	std::optional<std::size_t> SecondObject{};
 };
 
 struct FLevelBreakEvent

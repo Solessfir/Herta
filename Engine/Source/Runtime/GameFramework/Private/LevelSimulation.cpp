@@ -504,7 +504,18 @@ std::expected<void, FPhysicsError> FLevelSimulation::Update(const float DeltaSec
 			// Bounded, so a pile settling at once cannot grow the list without limit between reads.
 			if (Event.Phase == EPhysicsContactPhase::Began && Event.Impulse > 0.f && ImpactEvents.size() < 256)
 			{
-				ImpactEvents.push_back({.Point = Event.Point, .Normal = Event.Normal, .Impulse = Event.Impulse});
+				const auto ObjectOf = [this](const FPhysicsBodyId Body) -> std::optional<std::size_t>
+				{
+					if (const auto Found = BodyIndices.find(Body.Value); Found != BodyIndices.end())
+					{
+						return Transforms[Found->second].ObjectIndex;
+					}
+
+					const auto Island = IslandBodies.find(Body.Value);
+					return Island != IslandBodies.end() ? std::optional{Destructibles[Island->second.first].Settings.ObjectIndex} : std::nullopt;
+				};
+
+				ImpactEvents.push_back({.Point = Event.Point, .Normal = Event.Normal, .Impulse = Event.Impulse, .FirstObject = ObjectOf(Event.First), .SecondObject = ObjectOf(Event.Second)});
 			}
 
 			for (const FPhysicsBodyId Body : {Event.First, Event.Second})

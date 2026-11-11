@@ -39,7 +39,7 @@ Everything advances in `Update` in a fixed order, so the same calls give the sam
 
 ## Debug views
 
-The viewport's **Overlays > Navigation** draws the built navigation, or Play's own with its obstacles cut as they move. Selected Navigation Bounds and Navigation Obstacle boxes draw as outlines. Automation's `viewport_view` switches the overlay and reports the latest build; `play_state` reports the loaded tiles, polygons, obstacles, and crowd agents.
+**Viewport settings > View > Navigation** draws the built navigation, or Play's own with its obstacles cut as they move. Selected Navigation Bounds and Navigation Obstacle boxes draw as outlines. Automation's `viewport_view` switches the overlay and reports the latest build; `play_state` reports the loaded tiles, polygons, obstacles, and crowd agents.
 
 ## Limits
 

@@ -41,7 +41,7 @@ struct FLevelCameraBookmark
 	float Pitch = 0.f;
 };
 
-// Sounds gameplay plays for its own events rather than from placed emitters, in the order of ELevelSound.
+// The sounds levels before engine schema 21 set for the whole level, in their order there. Loading moves them onto the components that play them.
 enum class ELevelSound : std::uint8_t
 {
 	Footstep,
@@ -80,7 +80,7 @@ inline constexpr std::array LevelSoundCues{
 // Invalid entries stay silent.
 using FLevelSounds = std::array<FAssetId, LevelSoundCues.size()>;
 
-// Particle systems gameplay plays for its own events, in the order of ELevelEffect.
+// The particle systems levels before engine schema 21 set for the whole level, in their order there.
 enum class ELevelEffect : std::uint8_t
 {
 	Impact,
@@ -132,13 +132,6 @@ struct FLevelDocument
 	std::vector<FLevelCameraBookmark> CameraBookmarks{};
 	// Stops added to auto exposure wherever the level is shown, for scenes whose metering does not suit them.
 	float ExposureCompensation = 0.f;
-	// The skinned model the player plays as; invalid plays the bare capsule.
-	FAssetId PlayerCharacter{};
-	// The static model the player and the guards hold in their grip; invalid draws the engine's plain box sword. It is in grip space: the
-	// origin where the hand holds it, the blade along +Y from the guard to the tip at 1 m, and the edges facing +X and -X.
-	FAssetId PlayerWeapon{};
-	FLevelSounds Sounds{};
-	FLevelEffects Effects{};
 	std::vector<FLevelRegion> Regions{};
 };
 

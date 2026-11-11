@@ -1107,42 +1107,22 @@ void FPreviewAssets::RequestMaterial(const FAssetId& Asset)
 	GetOrLoadMesh(Asset);
 }
 
-void FPreviewAssets::RequestPlayerCharacter(const FAssetId& Asset)
+void FPreviewAssets::SetWeaponAssets(const std::span<const FAssetId> Assets)
 {
-	const bool bChanged = Asset != PlayerCharacterAsset;
-	PlayerCharacterAsset = Asset;
+	std::set<FAssetId> Requested(Assets.begin(), Assets.end());
+	Requested.erase(FAssetId{});
 
-	// Called every frame: a request made before the first scan, or before a content change, only starts loading on a later call.
-	if (Asset.IsValid())
+	// A request made before the first scan, or before a content change, only starts loading on a later call.
+	for (const FAssetId& Asset : Requested)
 	{
 		GetOrLoadMesh(Asset);
 	}
 
-	if (bChanged)
+	if (Requested != WeaponAssets)
 	{
+		WeaponAssets = std::move(Requested);
 		PruneCache();
 	}
-}
-
-void FPreviewAssets::RequestPlayerWeapon(const FAssetId& Asset)
-{
-	const bool bChanged = Asset != PlayerWeaponAsset;
-	PlayerWeaponAsset = Asset;
-	if (Asset.IsValid())
-	{
-		GetOrLoadMesh(Asset);
-	}
-
-	if (bChanged)
-	{
-		PruneCache();
-	}
-}
-
-std::shared_ptr<const FCookedModel> FPreviewAssets::GetPlayerCharacter() const noexcept
-{
-	const FPreviewMeshSlot* const Slot = PlayerCharacterAsset.IsValid() ? GetCachedAsset(PlayerCharacterAsset) : nullptr;
-	return Slot ? Slot->SkinnedModel : nullptr;
 }
 
 void FPreviewAssets::SetMaterialAssets(const std::span<const FAssetId> Assets)
@@ -2037,15 +2017,7 @@ void FPreviewAssets::ReimportShownAssets()
 	Shown.insert(TextureAssets.begin(), TextureAssets.end());
 	Shown.insert(SoundAssets.begin(), SoundAssets.end());
 	Shown.insert(RegionAssets.begin(), RegionAssets.end());
-	if (PlayerWeaponAsset.IsValid())
-	{
-		Shown.insert(PlayerWeaponAsset);
-	}
-
-	if (PlayerCharacterAsset.IsValid())
-	{
-		Shown.insert(PlayerCharacterAsset);
-	}
+	Shown.insert(WeaponAssets.begin(), WeaponAssets.end());
 
 	for (const FPreviewMeshSlot& Slot : Slots)
 	{
@@ -2105,7 +2077,7 @@ void FPreviewAssets::PruneCache()
 // Pruning and publishing must agree on who still wants an asset, or a finished load is thrown away and requested again forever.
 bool FPreviewAssets::IsRequested(const FAssetId& Asset) const
 {
-	return Asset == MaterialPreviewMeshAsset || Asset == PlayerCharacterAsset || Asset == PlayerWeaponAsset || ThumbnailAssets.contains(Asset) || MaterialAssets.contains(Asset) || TextureAssets.contains(Asset) || SoundAssets.contains(Asset) || RegionAssets.contains(Asset) || std::ranges::any_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
+	return Asset == MaterialPreviewMeshAsset || WeaponAssets.contains(Asset) || ThumbnailAssets.contains(Asset) || MaterialAssets.contains(Asset) || TextureAssets.contains(Asset) || SoundAssets.contains(Asset) || RegionAssets.contains(Asset) || std::ranges::any_of(Slots, [&Asset](const FPreviewMeshSlot& Slot)
 	{
 		return Slot.Asset == Asset;
 	});

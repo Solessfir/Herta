@@ -406,15 +406,9 @@ public:
 	[[nodiscard]] std::size_t GetCutCount() const noexcept;
 	// The first enabled Sky light's environment, for the host's environment filtering.
 	[[nodiscard]] std::shared_ptr<const FCookedTexture> GetEnvironment() const;
-	// The sounds gameplay plays for its events, from the level; applies from the next start.
-	void SetLevelSounds(const FLevelSounds& Sounds);
-	// Every sound the level's emitters and gameplay sounds may play, for the host to load before play.
+	// Every sound the level's components may play, for the host to load before play.
 	[[nodiscard]] std::vector<FAssetId> GetSounds() const;
-	// The particle systems gameplay spawns for its events, from the level; applies from the next update.
-	void SetLevelEffects(const FLevelEffects& Effects);
-	// The model the player and the guards hold, owned by the caller's assets, which outlive the session; null draws the built-in box sword.
-	void SetWeaponMesh(const FRenderMesh* Mesh);
-	// Every particle system the level's effects and particle emitters may play, for the host to load before play.
+	// Every particle system the level's components may play, for the host to load before play.
 	[[nodiscard]] std::vector<FAssetId> GetParticleSystems() const;
 	[[nodiscard]] std::expected<void, FGameError> AddParticleSystem(const FAssetId& Id, std::shared_ptr<const FCookedParticleSystem> System);
 	[[nodiscard]] FParticleStats GetParticleStats() const;

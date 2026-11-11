@@ -66,6 +66,18 @@ std::expected<FDecodedGameAssets, FAssetError> DecodeGameAssets(const FCookedCon
 			Decoded.Models.emplace(Entity.Mesh->Asset, FDecodedGameAssets::FModel{.Model = std::move(Model), .Label = Entity.Name, .bSkinned = bSkinned});
 		}
 
+		// A character's weapon is a static model held in its grip.
+		if (const FAssetId Weapon = Entity.Character ? Entity.Character->Weapon : FAssetId{}; Weapon.IsValid() && !Decoded.Models.contains(Weapon))
+		{
+			auto Cooked = Content.Load(Weapon);
+			if (!Cooked || !std::holds_alternative<FCookedModel>(*Cooked))
+			{
+				return std::unexpected(Cooked ? FAssetError{std::format("The weapon {} of {} is not a model", Weapon.ToString(), Entity.Name)} : Cooked.error());
+			}
+
+			Decoded.Models.emplace(Weapon, FDecodedGameAssets::FModel{.Model = std::move(std::get<FCookedModel>(*Cooked)), .Label = Entity.Name + " weapon"});
+		}
+
 		for (const FAssetId& Material : Entity.Mesh ? std::span<const FAssetId>(Entity.Mesh->Materials) : std::span<const FAssetId>{})
 		{
 			if (auto Loaded = DecodeMaterial(Material); !Loaded)
@@ -298,19 +310,16 @@ std::expected<FStagedSession, FGameError> CreateStagedSession(const std::filesys
 
 	Staged.Assets = std::move(*Assets);
 
-	// The level's character is optional: without one, or if it fails to load, the player is the bare capsule.
-	std::shared_ptr<const FCookedModel> Character;
-	if (Level.PlayerCharacter.IsValid())
+	// The Player entity's skinned model is the player's body; without one, or if it is not skinned, the player is the bare capsule.
+	const auto Player = std::ranges::find_if(Level.Entities, [](const FLevelEntity& Entity)
 	{
-		auto Cooked = Content.Load(Level.PlayerCharacter);
-		if (Cooked && std::holds_alternative<FCookedModel>(*Cooked))
-		{
-			Character = std::make_shared<const FCookedModel>(std::move(std::get<FCookedModel>(*Cooked)));
-		}
-		else
-		{
-			Staged.Warnings.push_back(std::format("Cannot load the player character: {}", Cooked ? "the asset is not a model" : Cooked.error().Message));
-		}
+		return Entity.Player && Entity.Character && Entity.Mesh;
+	});
+
+	std::shared_ptr<const FCookedModel> Character = Player != Level.Entities.end() ? Staged.Assets->FindSkinnedModel(Player->Mesh->Asset) : nullptr;
+	if (Player != Level.Entities.end() && !Character)
+	{
+		Staged.Warnings.push_back(std::format("{} has no skinned model; the player is the bare capsule", Player->Name));
 	}
 
 	auto Session = FGameSession::Create(Level.Entities, *Staged.Assets, Device, {}, Tasks, std::move(Character));
@@ -321,25 +330,7 @@ std::expected<FStagedSession, FGameError> CreateStagedSession(const std::filesys
 
 	Staged.Session = std::move(*Session);
 	FGameSession& Game = *Staged.Session;
-	if (Level.PlayerWeapon.IsValid())
-	{
-		// The weapon loads like a mesh on an entity that holds it, so it shares the level's decoding and upload.
-		FLevelEntity Holder{.Name = "Weapon"};
-		Holder.Mesh = FStaticMeshComponent{.Asset = Level.PlayerWeapon};
-		auto Decoded = DecodeGameAssets(Content, std::span(&Holder, 1));
-		auto Added = Decoded ? Staged.Assets->Add(Device, std::move(*Decoded)) : std::unexpected(Decoded.error());
-		if (Added)
-		{
-			Game.SetWeaponMesh(Staged.Assets->FindMesh(Level.PlayerWeapon));
-		}
-		else
-		{
-			Staged.Warnings.push_back(std::format("Cannot load the player weapon; the guards and player hold the plain sword: {}", Added.error().Message));
-		}
-	}
-
 	Staged.Warnings.insert(Staged.Warnings.end(), Game.GetWarnings().begin(), Game.GetWarnings().end());
-	Game.SetLevelEffects(Level.Effects);
 	for (const FAssetId& System : Game.GetParticleSystems())
 	{
 		auto Cooked = Content.Load(System);
@@ -351,7 +342,6 @@ std::expected<FStagedSession, FGameError> CreateStagedSession(const std::filesys
 		}
 	}
 
-	Game.SetLevelSounds(Level.Sounds);
 	Game.SetRegions(Level.Regions, MakeStagedRegionLoader(LevelPath, Content, *Staged.Assets, Device));
 
 	// Staging cooks the level's navigation beside it; a level without Navigation Bounds has none.

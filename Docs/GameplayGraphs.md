@@ -8,7 +8,7 @@ A `.hgameplaygraph` is a GraphCore document in the `gameplay` domain, imported b
 
 - **Events**: On Start (once per session start), On Player Enter and On Player Exit (any player stepping into or out of the entity's Trigger box), and On Tick (every update).
 - **Flow**: Branch on a bool, and Sequence, which runs up to three outputs in order. An execution output runs one node; fanning one out is an error that points at Sequence.
-- **Actions**: Play Sound and Spawn Effect name a level sound or effect cue (`objective`, `sparks`, `break`, and the rest under **Viewport settings**) and default to the entity's position; Set Variable stores a float; Log writes a message and a value to the session's event log.
+- **Actions**: Play Sound and Spawn Effect name a sound or effect cue (`footstep`, `impact`, `objective`, `break`, `sparks`, and the rest) and default to the entity's position; Set Variable stores a float; Log writes a message and a value to the session's event log.
 - **Values and math**: Get Variable, Constant, Self Position, Delta Seconds, Player Distance (to the nearest player), Add, Subtract, Multiply, Greater, and Not. An unlinked float input uses the node's own property.
 
 Variables are floats named on Get and Set nodes and kept per entity until the session restarts. Pure nodes are evaluated again by each action that reads them, as in Blueprints, so a value read after a Set sees the new value.
@@ -32,7 +32,7 @@ Shipping prefers the native backend; Debug and Development run the call list.
 
 ## Play
 
-GameFramework's session runs every Gameplay Graph component after the players move and before effects start, so a graph's effects join that update's sorted requests. Sounds go through the level sounds, effects through the level effects, and logs into `TakeEvents`. Graphs drive presentation only: their frames are not in rollback snapshots and they never change the simulation. Entity positions and trigger boxes are the authored ones, so a graph on a moving entity acts where the entity was placed.
+GameFramework's session runs every Gameplay Graph component after the players move and before effects start, so a graph's effects join that update's sorted requests. Cues keep the names of the level-wide sounds and effects that schema 21 moved onto components: the session resolves character cues to the Player entity's Character, `objective` to the course triggers, and `impact` and `break` to the first Rigid Body or Destructible that sets one. Logs go into `TakeEvents`. Graphs drive presentation only: their frames are not in rollback snapshots and they never change the simulation. Entity positions and trigger boxes are the authored ones, so a graph on a moving entity acts where the entity was placed.
 
 While a graph's panel is open during Play, nodes that ran in the last second light up. `FGameSession::GetGameplayGraphActivity` reports when each node last ran.
 

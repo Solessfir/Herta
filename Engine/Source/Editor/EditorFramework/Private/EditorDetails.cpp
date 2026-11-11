@@ -2,177 +2,6 @@
 
 namespace Herta
 {
-void FEditorFramework::FImplementation::DrawPlayerCharacterPicker(const float ValueWidth)
-{
-	if (!Level || !Assets)
-	{
-		return;
-	}
-
-	const FAssetId Current = Level->GetPlayerCharacter();
-	std::string CurrentLabel = Current.IsValid() ? Current.ToString() : "None (capsule)";
-	for (const FPreviewAssetOption& Option : Assets->GetOptions())
-	{
-		if (Option.Id == Current)
-		{
-			CurrentLabel = Option.Label;
-		}
-	}
-
-	DrawFieldLabel("Character", ValueWidth);
-	ImGui::SetNextItemWidth(-FLT_MIN);
-	std::optional<FAssetId> Chosen;
-	if (ImGui::BeginCombo("##PlayerCharacter", CurrentLabel.c_str()))
-	{
-		if (ImGui::Selectable("None (capsule)", !Current.IsValid()) && Current.IsValid())
-		{
-			Chosen = FAssetId{};
-		}
-
-		for (const FPreviewAssetOption& Option : Assets->GetOptions())
-		{
-			if ((Option.Importer == "Gltf" || Option.Importer == "Blender") && ImGui::Selectable(Option.Label.c_str(), Option.Id == Current) && Option.Id != Current)
-			{
-				Chosen = Option.Id;
-			}
-		}
-
-		ImGui::EndCombo();
-	}
-
-	ImGui::SetItemTooltip("Saved with the level. Play and the game play as this skinned model; V switches to the third-person camera");
-	if (Chosen)
-	{
-		if (const auto Changed = Level->SetPlayerCharacter(*Chosen); !Changed)
-		{
-			HERTA_LOG_ERROR(*Log, EditorLog, "Could not change the player character: {}", Changed.error().Message);
-		}
-	}
-
-	if (Current.IsValid())
-	{
-		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(Current);
-		const char* const Status = !Cached || Cached->bLoading ? "Loading..." : Assets->GetPlayerCharacter() ? nullptr
-		                                                                                                     : "Not a skinned model; Play uses the capsule";
-		if (Status)
-		{
-			DrawFieldLabel("", ValueWidth);
-			ImGui::TextDisabled("%s", Status);
-		}
-		else
-		{
-			DrawFieldLabel("", ValueWidth);
-			if (ToolUIButton("Edit animation graph", EToolUIMenuIcon::Open))
-			{
-				OpenPlayerAnimationGraph();
-			}
-
-			ImGui::SetItemTooltip("Opens the state machine the character plays, cooked with its model; one is created from the built-in locomotion if the model has none");
-		}
-	}
-}
-
-void FEditorFramework::FImplementation::DrawPlayerWeaponPicker(const float ValueWidth)
-{
-	if (!Level || !Assets)
-	{
-		return;
-	}
-
-	const FAssetId Current = Level->GetPlayerWeapon();
-	std::string CurrentLabel = Current.IsValid() ? Current.ToString() : "None (plain sword)";
-	for (const FPreviewAssetOption& Option : Assets->GetOptions())
-	{
-		if (Option.Id == Current)
-		{
-			CurrentLabel = Option.Label;
-		}
-	}
-
-	DrawFieldLabel("Weapon", ValueWidth);
-	ImGui::SetNextItemWidth(-FLT_MIN);
-	std::optional<FAssetId> Chosen;
-	if (ImGui::BeginCombo("##PlayerWeapon", CurrentLabel.c_str()))
-	{
-		if (ImGui::Selectable("None (plain sword)", !Current.IsValid()) && Current.IsValid())
-		{
-			Chosen = FAssetId{};
-		}
-
-		for (const FPreviewAssetOption& Option : Assets->GetOptions())
-		{
-			if ((Option.Importer == "Gltf" || Option.Importer == "Blender") && ImGui::Selectable(Option.Label.c_str(), Option.Id == Current) && Option.Id != Current)
-			{
-				Chosen = Option.Id;
-			}
-		}
-
-		ImGui::EndCombo();
-	}
-
-	ImGui::SetItemTooltip("Saved with the level. The player and the guards hold this model in their grip: origin at the hand, blade along +Y to the tip at 1 m, edges facing X");
-	if (Chosen)
-	{
-		if (const auto Changed = Level->SetPlayerWeapon(*Chosen); !Changed)
-		{
-			HERTA_LOG_ERROR(*Log, EditorLog, "Could not change the player weapon: {}", Changed.error().Message);
-		}
-	}
-}
-
-void FEditorFramework::FImplementation::DrawLevelSoundPickers(const float ValueWidth)
-{
-	if (!Level || !Assets)
-	{
-		return;
-	}
-
-	for (std::size_t Cue = 0; Cue < LevelSoundCues.size(); ++Cue)
-	{
-		const FAssetId Current = Level->GetSounds()[Cue];
-		std::string CurrentLabel = Current.IsValid() ? "Missing sound" : "None";
-		for (std::size_t Option = 0; Option < SoundIds.size(); ++Option)
-		{
-			if (SoundIds[Option] == Current)
-			{
-				CurrentLabel = SoundLabels[Option];
-			}
-		}
-
-		ImGui::PushID(static_cast<int>(Cue));
-		DrawFieldLabel(LevelSoundCues[Cue].Label.data(), ValueWidth);
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		std::optional<FAssetId> Chosen;
-		if (ImGui::BeginCombo("##Sound", CurrentLabel.c_str()))
-		{
-			if (ImGui::Selectable("None", !Current.IsValid()) && Current.IsValid())
-			{
-				Chosen = FAssetId{};
-			}
-
-			for (std::size_t Option = 0; Option < SoundIds.size(); ++Option)
-			{
-				if (ImGui::Selectable(SoundLabels[Option].c_str(), SoundIds[Option] == Current) && SoundIds[Option] != Current)
-				{
-					Chosen = SoundIds[Option];
-				}
-			}
-
-			ImGui::EndCombo();
-		}
-
-		ImGui::SetItemTooltip("Saved with the level. Play plays this sound or Audio Graph for the event");
-		ImGui::PopID();
-		if (Chosen)
-		{
-			if (const auto Changed = Level->SetSound(static_cast<ELevelSound>(Cue), *Chosen); !Changed)
-			{
-				HERTA_LOG_ERROR(*Log, EditorLog, "Could not change the {} sound: {}", LevelSoundCues[Cue].Label, Changed.error().Message);
-			}
-		}
-	}
-}
-
 std::vector<FLevelRegion> FEditorFramework::FImplementation::GetShownRegions() const
 {
 	std::vector<FLevelRegion> Regions(Level->GetRegions().begin(), Level->GetRegions().end());
@@ -371,59 +200,6 @@ void FEditorFramework::FImplementation::DrawLevelRegions(const float ValueWidth,
 	}
 }
 
-void FEditorFramework::FImplementation::DrawLevelEffectPickers(const float ValueWidth)
-{
-	if (!Level || !Assets)
-	{
-		return;
-	}
-
-	for (std::size_t Cue = 0; Cue < LevelEffectCues.size(); ++Cue)
-	{
-		const FAssetId Current = Level->GetEffects()[Cue];
-		std::string CurrentLabel = Current.IsValid() ? "Missing particle system" : "None";
-		for (std::size_t Option = 0; Option < EffectIds.size(); ++Option)
-		{
-			if (EffectIds[Option] == Current)
-			{
-				CurrentLabel = EffectLabels[Option];
-			}
-		}
-
-		ImGui::PushID(static_cast<int>(Cue));
-		DrawFieldLabel(LevelEffectCues[Cue].Label.data(), ValueWidth);
-		ImGui::SetNextItemWidth(-FLT_MIN);
-		std::optional<FAssetId> Chosen;
-		if (ImGui::BeginCombo("##Effect", CurrentLabel.c_str()))
-		{
-			if (ImGui::Selectable("None", !Current.IsValid()) && Current.IsValid())
-			{
-				Chosen = FAssetId{};
-			}
-
-			for (std::size_t Option = 0; Option < EffectIds.size(); ++Option)
-			{
-				if (ImGui::Selectable(EffectLabels[Option].c_str(), EffectIds[Option] == Current) && EffectIds[Option] != Current)
-				{
-					Chosen = EffectIds[Option];
-				}
-			}
-
-			ImGui::EndCombo();
-		}
-
-		ImGui::SetItemTooltip("Saved with the level. Play spawns this VFX Graph for the event");
-		ImGui::PopID();
-		if (Chosen)
-		{
-			if (const auto Changed = Level->SetEffect(static_cast<ELevelEffect>(Cue), *Chosen); !Changed)
-			{
-				HERTA_LOG_ERROR(*Log, EditorLog, "Could not change the {} effect: {}", LevelEffectCues[Cue].Label, Changed.error().Message);
-			}
-		}
-	}
-}
-
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	FPreviewObject PreviousObject = GetActivePreviewObject();
@@ -431,13 +207,19 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();
-	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels, .SoundIds = SoundIds, .SoundLabels = SoundLabels, .EffectIds = EffectIds, .EffectLabels = EffectLabels, .StateTreeIds = StateTreeIds, .StateTreeLabels = StateTreeLabels, .GameplayGraphIds = GameplayGraphIds, .GameplayGraphLabels = GameplayGraphLabels};
+	FDetailsComponentField Components{.bAllMesh = bHasSelection, .bAllBody = bHasSelection, .bAllLight = bHasSelection, .bAllSkyAtmosphere = bHasSelection, .bAllHeightFog = bHasSelection, .bAllSoftBody = bHasSelection, .bAllMover = bHasSelection, .bAllTrigger = bHasSelection, .bAllConstraint = bHasSelection, .SunIds = SunIds, .SunLabels = SunLabels, .ConstraintTargetIds = ConstraintTargetIds, .ConstraintTargetLabels = ConstraintTargetLabels, .EnvironmentIds = EnvironmentIds, .EnvironmentLabels = EnvironmentLabels, .SoundIds = SoundIds, .SoundLabels = SoundLabels, .EffectIds = EffectIds, .EffectLabels = EffectLabels, .StateTreeIds = StateTreeIds, .StateTreeLabels = StateTreeLabels, .GameplayGraphIds = GameplayGraphIds, .GameplayGraphLabels = GameplayGraphLabels, .ModelIds = ModelIds, .ModelLabels = ModelLabels};
+	// Each starts true and turns false at the first selected entity without the component.
+	for (bool* const bAll : {&Components.bAllDestructible, &Components.bAllCharacter, &Components.bAllPlayer, &Components.bAllAudioEmitter, &Components.bAllAudioListener, &Components.bAllParticleEmitter, &Components.bAllNavigationBounds, &Components.bAllNavigationObstacle, &Components.bAllAiAgent, &Components.bAllGameplayGraph})
+	{
+		*bAll = bHasSelection;
+	}
+
 	std::vector<FDetailsMaterialSlot> MaterialSlots;
 	std::vector<FAssetId> MaterialIds;
 	std::vector<std::string> MaterialLabels;
 	std::vector<std::uint64_t> MaterialThumbnails;
 	std::vector<FLevelEntity> SelectedMeshes;
-	std::array<std::optional<FLevelEntity>, 16> VisualBaselines;
+	std::array<std::optional<FLevelEntity>, 18> VisualBaselines;
 	bool bFirstBody = true;
 	bool bFirstBodySettings = true;
 	constexpr std::array BodyProperties{&FLevelRigidBodySettings::MassKg, &FLevelRigidBodySettings::Friction, &FLevelRigidBodySettings::Restitution, &FLevelRigidBodySettings::LinearDamping, &FLevelRigidBodySettings::AngularDamping, &FLevelRigidBodySettings::GravityScale};
@@ -514,6 +296,10 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 			Aggregate(13, ELevelComponentType::NavigationObstacle, Entity->NavigationObstacle.has_value(), Components.bAnyNavigationObstacle, Components.bAllNavigationObstacle, Components.MixedNavigationObstacle);
 			Aggregate(14, ELevelComponentType::AiAgent, Entity->AiAgent.has_value(), Components.bAnyAiAgent, Components.bAllAiAgent, Components.MixedAiAgent);
 			Aggregate(15, ELevelComponentType::GameplayGraph, Entity->GameplayGraph.has_value(), Components.bAnyGameplayGraph, Components.bAllGameplayGraph, Components.MixedGameplayGraph);
+			Aggregate(16, ELevelComponentType::Player, Entity->Player.has_value(), Components.bAnyPlayer, Components.bAllPlayer, Components.MixedPlayer);
+			bool bUnusedAny = false;
+			bool bUnusedAll = true;
+			Aggregate(17, ELevelComponentType::RigidBody, Type != ELevelBodyType::None, bUnusedAny, bUnusedAll, Components.MixedBodyAssets);
 		}
 
 		if (Type != ELevelBodyType::None)
@@ -653,6 +439,11 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 	if (VisualBaselines[15])
 	{
 		Components.GameplayGraph = *VisualBaselines[15]->GameplayGraph;
+	}
+
+	if (VisualBaselines[16])
+	{
+		Components.Player = *VisualBaselines[16]->Player;
 	}
 
 	if (VisualBaselines[5])
@@ -919,6 +710,12 @@ void FEditorFramework::FImplementation::DrawDetailsPanel()
 				break;
 			case EDetailsComponentAction::RemoveCharacter:
 				ReportLevelResult(Level->SetSelectedCharacter(std::nullopt));
+				break;
+			case EDetailsComponentAction::AddPlayer:
+				ReportLevelResult(Level->AddPlayerToSelected());
+				break;
+			case EDetailsComponentAction::RemovePlayer:
+				ReportLevelResult(Level->SetSelectedPlayer(std::nullopt));
 				break;
 			case EDetailsComponentAction::AddAudioEmitter:
 				ReportLevelResult(Level->AddAudioEmitterToSelected());

@@ -1099,7 +1099,8 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 				const bool bContent = Tab.Window && Tab.Window->ID == ImHashStr("Content Browser");
 				const bool bPerformance = Tab.Window && Tab.Window->ID == ImHashStr("Performance");
 				const bool bLog = Tab.Window && Tab.Window->ID == ImHashStr("Output Log");
-				if (bOutliner || bDetails || bContent || bPerformance || bLog)
+				const bool bWorld = Tab.Window && Tab.Window->ID == ImHashStr("World Settings");
+				if (bOutliner || bDetails || bContent || bPerformance || bLog || bWorld)
 				{
 					const float Scale = Window->Viewport->DpiScale;
 					const float Left = Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim;
@@ -1110,6 +1111,7 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 					DrawToolUIIcon(DrawList, Center, Scale, Color, bOutliner ? EToolUIMenuIcon::Outliner : bDetails   ? EToolUIMenuIcon::Details
 					                                                                                   : bPerformance ? EToolUIMenuIcon::Performance
 					                                                                                   : bLog         ? EToolUIMenuIcon::Log
+					                                                                                   : bWorld       ? EToolUIMenuIcon::World
 					                                                                                                  : EToolUIMenuIcon::ContentBrowser);
 					DrawList->PopClipRect();
 				}
@@ -3052,6 +3054,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 		ImGui::DockBuilderDockWindow("Outliner", OutlinerId);
 		ImGui::DockBuilderDockWindow("Details", DetailsId);
 		ImGui::DockBuilderDockWindow("Performance", DetailsId);
+		ImGui::DockBuilderDockWindow("World Settings", DetailsId);
 		ImGui::DockBuilderDockWindow("Viewport", CenterId);
 		ImGui::DockBuilderDockWindow("Content Browser", BottomId);
 		ImGui::DockBuilderDockWindow("Output Log", BottomId);
@@ -3209,7 +3212,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		ImGui::SetNextWindowSize({Canvas.Width, Height}, ImGuiCond_Always);
 	}
 
-	if (Name == "Performance" && ImGui::FindWindowSettingsByID(WindowId) == nullptr)
+	if ((Name == "Performance" || Name == "World Settings") && ImGui::FindWindowSettingsByID(WindowId) == nullptr)
 	{
 		// Add the panel as a tab beside Details without resetting an existing workspace.
 		const auto* const DetailsSettings = ImGui::FindWindowSettingsByID(ImHashStr("Details"));
@@ -3219,7 +3222,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		}
 	}
 
-	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" || Name == "Performance" || Name == "Output Log" ? std::format("      {}###{}", Name, Name) : std::string(Name);
+	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" || Name == "Performance" || Name == "Output Log" || Name == "World Settings" ? std::format("      {}###{}", Name, Name) : std::string(Name);
 	constexpr ImGuiWindowFlags DrawerFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 	// A document must rise above the full-window workspace host to receive the mouse, so it comes to the front when focused; drawers open focused above it.
 	constexpr ImGuiWindowFlags DocumentFlags = DrawerFlags | ImGuiWindowFlags_NoTitleBar;

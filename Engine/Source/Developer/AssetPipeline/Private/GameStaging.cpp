@@ -7,6 +7,7 @@
 #include "Herta/AssetPipeline/NavigationCook.h"
 #include "Herta/Assets/CookedContent.h"
 #include "Herta/Assets/VirtualFileSystem.h"
+#include "Herta/Level/LevelDescriptors.h"
 #include "Herta/Level/LevelSerialization.h"
 #include "Herta/LocalizationPipeline/LocalizationPipeline.h"
 #include "Herta/Platform/DynamicLibrary.h"
@@ -188,32 +189,6 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 
 	// Every reference must resolve: a staged build has no importer to fall back on.
 	std::set<FStagedKey> Pending;
-	if (Level->PlayerWeapon.IsValid())
-	{
-		Pending.emplace(Level->PlayerWeapon, std::nullopt);
-	}
-
-	if (Level->PlayerCharacter.IsValid())
-	{
-		Pending.emplace(Level->PlayerCharacter, std::nullopt);
-	}
-
-	for (const FAssetId& Sound : Level->Sounds)
-	{
-		if (Sound.IsValid())
-		{
-			Pending.emplace(Sound, std::nullopt);
-		}
-	}
-
-	for (const FAssetId& Effect : Level->Effects)
-	{
-		if (Effect.IsValid())
-		{
-			Pending.emplace(Effect, std::nullopt);
-		}
-	}
-
 	// Region levels stage beside the starting level at the same relative paths. Regions do not nest, so only the starting level's count.
 	std::vector<std::pair<std::filesystem::path, std::filesystem::path>> RegionCopies;
 	std::vector<FLevelEntity> Entities = Level->Entities;
@@ -241,18 +216,17 @@ std::expected<FGameStageResult, FAssetError> StageGameContent(const FGameStageRe
 		RegionCopies.emplace_back(Source, Destination);
 	}
 
+	// Sounds, particle systems, and weapons that components name, such as a Character's footsteps and the model in its grip.
+	for (const ELevelAssetKind Kind : {ELevelAssetKind::Sound, ELevelAssetKind::Effect, ELevelAssetKind::Model})
+	{
+		for (const FAssetId& Asset : GetLevelAssetReferences(Entities, Kind))
+		{
+			Pending.emplace(Asset, std::nullopt);
+		}
+	}
+
 	for (const FLevelEntity& Entity : Entities)
 	{
-		if (Entity.AudioEmitter && Entity.AudioEmitter->Sound.IsValid())
-		{
-			Pending.emplace(Entity.AudioEmitter->Sound, std::nullopt);
-		}
-
-		if (Entity.ParticleEmitter && Entity.ParticleEmitter->System.IsValid())
-		{
-			Pending.emplace(Entity.ParticleEmitter->System, std::nullopt);
-		}
-
 		if (Entity.AiAgent && Entity.AiAgent->StateTree.IsValid())
 		{
 			Pending.emplace(Entity.AiAgent->StateTree, std::nullopt);

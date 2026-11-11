@@ -111,6 +111,55 @@ void FEditorFramework::FImplementation::DrawTimeOfDay(const float X, const float
 	ImGui::SetItemTooltip("Time of day. Moves %s along an east-to-west arc.", Sun.Label.c_str());
 }
 
+void FEditorFramework::FImplementation::DrawWorldSettingsPanel()
+{
+	if (!bWorldSettingsOpen || !Level)
+	{
+		return;
+	}
+
+	if (!ToolUI->BeginPanel("World Settings", &bWorldSettingsOpen))
+	{
+		ToolUI->EndPanel();
+		return;
+	}
+
+	const float Scale = ImGui::GetFontSize() / 15.f;
+	const float ValueWidth = std::max(120.f * Scale, ImGui::GetContentRegionAvail().x * 0.5f);
+	constexpr ImGuiTreeNodeFlags SectionFlags = ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_DefaultOpen;
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * Scale, 6.f * Scale});
+	ImGui::BeginDisabled(bProjectBusy || IsSimulating() || PlaySession != nullptr);
+	if (ImGui::TreeNodeEx("Exposure", SectionFlags))
+	{
+		DrawFieldLabel("Compensation", ValueWidth);
+		DrawNumericSliderFloat("##ExposureCompensation", &ExposureCompensation, -MaximumLevelExposureCompensation, MaximumLevelExposureCompensation, "%+.1f EV", ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SetItemTooltip("Stops added to auto exposure wherever the level is shown, including Play and the game");
+		if (ImGui::IsItemDeactivatedAfterEdit())
+		{
+			if (const auto Changed = Level->SetExposureCompensation(ExposureCompensation); !Changed)
+			{
+				HERTA_LOG_ERROR(*Log, EditorLog, "Could not change exposure compensation: {}", Changed.error().Message);
+			}
+		}
+
+		bExposureCompensationActive = ImGui::IsItemActive();
+	}
+
+	if (ImGui::TreeNodeEx("Regions", SectionFlags))
+	{
+		DrawLevelRegions(ValueWidth, Scale);
+	}
+
+	if (ImGui::TreeNodeEx("Camera Bookmarks", SectionFlags))
+	{
+		DrawCameraBookmarks(Scale);
+	}
+
+	ImGui::EndDisabled();
+	ImGui::PopStyleVar();
+	ToolUI->EndPanel();
+}
+
 void FEditorFramework::FImplementation::DrawPerformancePanel()
 {
 	// Recorded while closed so the graphs already have history when the panel opens.
@@ -368,13 +417,24 @@ void FEditorFramework::FImplementation::DrawAnimationGraphPanel()
 	AnimationGraphPanel.Draw(*ToolUI, {.Status = Status, .Active = Active});
 }
 
+const FLevelEntity* FEditorFramework::FImplementation::FindPlayerEntity() const
+{
+	const auto Found = std::ranges::find_if(VisualEntities, [](const FLevelEntity& Entity)
+	{
+		return Entity.Player && Entity.Character;
+	});
+
+	return Found != VisualEntities.end() ? &*Found : nullptr;
+}
+
 void FEditorFramework::FImplementation::OpenPlayerAnimationGraph()
 {
-	const FAssetId Character = Level ? Level->GetPlayerCharacter() : FAssetId{};
+	const FLevelEntity* const Player = FindPlayerEntity();
+	const FAssetId Character = Player && Player->Mesh ? Player->Mesh->Asset : FAssetId{};
 	const auto Option = std::ranges::find(Assets->GetOptions(), Character, &FPreviewAssetOption::Id);
 	if (!Character.IsValid() || Option == Assets->GetOptions().end())
 	{
-		HERTA_LOG_WARNING(*Log, EditorLog, "Choose a player character before editing its animation graph");
+		HERTA_LOG_WARNING(*Log, EditorLog, "Give the level a Player with a skinned Static Mesh before editing its animation graph");
 		return;
 	}
 

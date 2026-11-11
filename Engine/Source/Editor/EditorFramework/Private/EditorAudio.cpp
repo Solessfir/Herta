@@ -4,6 +4,11 @@
 
 namespace Herta
 {
+namespace
+{
+constexpr std::array PlayPreloadKinds{ELevelAssetKind::Sound, ELevelAssetKind::Effect, ELevelAssetKind::StateTree, ELevelAssetKind::GameplayGraph};
+}
+
 void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 {
 	if (!Audio && !bAudioUnavailable)
@@ -33,47 +38,13 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 		return;
 	}
 
-	// The open level's sounds stay loaded so Play starts without waiting, together with the waves of every loaded graph and the audition.
+	// The sounds the level's components name stay loaded so Play starts without waiting, together with the waves of every loaded graph and the
+	// audition. Particle systems, StateTrees, and gameplay graphs ride the same keep-loaded list, so Play starts with them ready too.
 	std::vector<FAssetId> Wanted;
-	if (Level)
+	for (const ELevelAssetKind Kind : PlayPreloadKinds)
 	{
-		for (const FAssetId& Sound : Level->GetSounds())
-		{
-			Wanted.push_back(Sound);
-		}
-	}
-
-	for (const FLevelEntity& Entity : VisualEntities)
-	{
-		if (Entity.AudioEmitter)
-		{
-			Wanted.push_back(Entity.AudioEmitter->Sound);
-		}
-
-		// Particle systems ride the same keep-loaded list, so Play starts with its effects ready too.
-		if (Entity.ParticleEmitter)
-		{
-			Wanted.push_back(Entity.ParticleEmitter->System);
-		}
-
-		// So do StateTrees and gameplay graphs, so agents and graphs start with Play.
-		if (Entity.AiAgent)
-		{
-			Wanted.push_back(Entity.AiAgent->StateTree);
-		}
-
-		if (Entity.GameplayGraph)
-		{
-			Wanted.push_back(Entity.GameplayGraph->Graph);
-		}
-	}
-
-	if (Level)
-	{
-		for (const FAssetId& Effect : Level->GetEffects())
-		{
-			Wanted.push_back(Effect);
-		}
+		const std::vector<FAssetId> Referenced = GetLevelAssetReferences(VisualEntities, Kind);
+		Wanted.insert(Wanted.end(), Referenced.begin(), Referenced.end());
 	}
 
 	for (const auto& [Id, Graph] : AuditionGraphs)
@@ -154,11 +125,11 @@ void FEditorFramework::FImplementation::UpdateAudio(const float DeltaSeconds)
 	}
 
 	// A paused game mutes rather than stops, so its loops pick up where they were.
-	const bool bMuted = PlaySession && bPlayPaused;
-	if (bMuted != bAudioMuted)
+	const float Volume = PlaySession && bPlayPaused ? 0.f : std::clamp(EditorVolume, 0.f, 1.f);
+	if (Volume != AppliedVolume)
 	{
-		bAudioMuted = bMuted;
-		Audio->Submit(FAudioBusVolumeCommand{.Bus = "Master", .Volume = bMuted ? 0.f : 1.f});
+		AppliedVolume = Volume;
+		Audio->Submit(FAudioBusVolumeCommand{.Bus = "Master", .Volume = Volume});
 	}
 
 	Audio->Update(DeltaSeconds);
@@ -177,9 +148,9 @@ bool FEditorFramework::FImplementation::AreLevelSoundsLoading() const
 		return Slot && Slot->bLoading;
 	};
 
-	return std::ranges::any_of(Level->GetSounds(), Loading) || std::ranges::any_of(Level->GetEffects(), Loading) || std::ranges::any_of(VisualEntities, [&Loading](const FLevelEntity& Entity)
+	return std::ranges::any_of(PlayPreloadKinds, [&](const ELevelAssetKind Kind)
 	{
-		return (Entity.AudioEmitter && Loading(Entity.AudioEmitter->Sound)) || (Entity.ParticleEmitter && Loading(Entity.ParticleEmitter->System)) || (Entity.AiAgent && Loading(Entity.AiAgent->StateTree));
+		return std::ranges::any_of(GetLevelAssetReferences(VisualEntities, Kind), Loading);
 	});
 }
 

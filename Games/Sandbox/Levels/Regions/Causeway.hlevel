@@ -1,34 +1,10 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 20,
+  "engineSchemaVersion": 21,
   "id": "4c070000-2738-4e25-9b9e-000000000001",
   "name": "Causeway",
   "exposureCompensation": 0,
-  "playerCharacter": null,
-  "playerWeapon": null,
-  "sounds": {
-    "footstep": null,
-    "land": null,
-    "jump": null,
-    "slide": null,
-    "impact": null,
-    "swing": null,
-    "slice": null,
-    "sever": null,
-    "objective": null,
-    "deflect": null,
-    "block": null
-  },
-  "effects": {
-    "impact": null,
-    "break": null,
-    "land": null,
-    "slice": null,
-    "sever": null,
-    "sparks": null,
-    "trail": null
-  },
   "entities": [
     {
       "id": "4c070001-2738-4e25-9b9e-000000000001",
@@ -49,7 +25,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -72,7 +50,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -95,7 +75,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -118,7 +100,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -141,7 +125,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -164,7 +150,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -187,7 +175,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },

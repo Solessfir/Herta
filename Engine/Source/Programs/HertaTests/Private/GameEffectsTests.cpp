@@ -49,7 +49,7 @@ constexpr FAssetId Embers{8, 2};
 {
 	return {
 	    FLevelEntity{.Id = FObjectId{8, 10}, .Name = "Floor", .Transform = {.Translation = {0., -0.5, 0.}, .Scale = {40.f, 1.f, 40.f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Static},
-	    FLevelEntity{.Id = FObjectId{8, 11}, .Name = "Crate", .Transform = {.Translation = {2., 4., 2.}, .Scale = {0.5f, 0.5f, 0.5f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Dynamic, .BodySettings = {.MassKg = 30.f}},
+	    FLevelEntity{.Id = FObjectId{8, 11}, .Name = "Crate", .Transform = {.Translation = {2., 4., 2.}, .Scale = {0.5f, 0.5f, 0.5f}}, .Mesh = FStaticMeshComponent{.Asset = FAssetId{1, 1}}, .BodyType = ELevelBodyType::Dynamic, .BodySettings = {.MassKg = 30.f, .ImpactEffect = Dust}},
 	    FLevelEntity{.Id = FObjectId{8, 12}, .Name = "Brazier", .Transform = {.Translation = {-3., 1., 3.}}, .ParticleEmitter = FParticleEmitterComponent{.System = Embers}},
 	};
 }
@@ -59,9 +59,6 @@ constexpr FAssetId Embers{8, 2};
 	const FNoEffectGameAssets Assets;
 	auto Session = FGameSession::Create(MakeEffectLevel(), Assets, nullptr);
 	REQUIRE(Session);
-	FLevelEffects Effects{};
-	Effects[static_cast<std::size_t>(ELevelEffect::Impact)] = Dust;
-	(*Session)->SetLevelEffects(Effects);
 	CHECK((*Session)->GetParticleSystems() == std::vector{Dust, Embers});
 	REQUIRE((*Session)->AddParticleSystem(Dust, MakeBurst(true)));
 	REQUIRE((*Session)->AddParticleSystem(Embers, MakeLoop()));

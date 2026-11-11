@@ -640,6 +640,8 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 	StateTreeLabels.clear();
 	GameplayGraphIds.clear();
 	GameplayGraphLabels.clear();
+	ModelIds.clear();
+	ModelLabels.clear();
 	VisualSettings.Atmosphere.reset();
 	VisualSettings.Fog.reset();
 	std::vector<FAssetId> Materials;
@@ -804,6 +806,11 @@ void FEditorFramework::FImplementation::RefreshVisuals()
 			{
 				GameplayGraphIds.push_back(Option.Id);
 				GameplayGraphLabels.push_back(Option.Label);
+			}
+			else if (Option.Importer == "Gltf" || Option.Importer == "Blender")
+			{
+				ModelIds.push_back(Option.Id);
+				ModelLabels.push_back(Option.Label);
 			}
 		}
 	}

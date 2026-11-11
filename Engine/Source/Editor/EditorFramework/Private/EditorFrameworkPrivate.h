@@ -308,10 +308,6 @@ struct FEditorFramework::FImplementation
 	// Steers, traces, and checks the stop condition of the automation input that just played one frame.
 	void FinishAutomationFrame();
 	// The level's player character, chosen from the models in content.
-	void DrawPlayerCharacterPicker(float ValueWidth);
-	void DrawPlayerWeaponPicker(float ValueWidth);
-	void DrawLevelSoundPickers(float ValueWidth);
-	void DrawLevelEffectPickers(float ValueWidth);
 	void DrawLevelRegions(float ValueWidth, float Scale);
 	// The level's regions with the region being dragged in the Regions section shown at its draft values.
 	[[nodiscard]] std::vector<FLevelRegion> GetShownRegions() const;
@@ -327,6 +323,8 @@ struct FEditorFramework::FImplementation
 	void OpenMaterialGraphKey(const std::string& Key);
 	// Opens the player character model's animation graph, first creating one beside the model from the built-in locomotion when its metadata names none.
 	void OpenPlayerAnimationGraph();
+	// The entity Play spawns the player as: the first with a Player and a Character. Null without one.
+	[[nodiscard]] const FLevelEntity* FindPlayerEntity() const;
 	void OpenAnimationGraphKey(const std::string& Key);
 	void DrawAnimationGraphPanel();
 	void OpenAudioGraphKey(const std::string& Key);
@@ -348,6 +346,8 @@ struct FEditorFramework::FImplementation
 	std::optional<std::string> MountedContentPath(const std::filesystem::path& File) const;
 	void ResolveGraphPreview();
 	void DrawPerformancePanel();
+	// What is saved with the level rather than with an entity: exposure compensation, streamed regions, and camera bookmarks.
+	void DrawWorldSettingsPanel();
 	[[nodiscard]] std::filesystem::path GetCatalogRoot(std::string_view Namespace) const;
 	// Reloads the game and editor catalogs when their files change, or now when forced.
 	void PollTextCatalogs(bool bForce);
@@ -474,6 +474,7 @@ struct FEditorFramework::FImplementation
 	std::vector<FMaterialTextureOption> MaterialTextureOptions;
 	FOutlinerPanelState OutlinerPanelState;
 	bool bPerformanceOpen = true;
+	bool bWorldSettingsOpen = true;
 	bool bSelectDetailsTab = true;
 	FPerformancePanelState PerformanceState;
 	FPlaceObjectsMenuState PlaceObjectsMenuState;
@@ -542,6 +543,8 @@ struct FEditorFramework::FImplementation
 	std::vector<std::string> StateTreeLabels;
 	std::vector<FAssetId> GameplayGraphIds;
 	std::vector<std::string> GameplayGraphLabels;
+	std::vector<FAssetId> ModelIds;
+	std::vector<std::string> ModelLabels;
 	FPreviewSelection PreviewSelection;
 	std::optional<Im3d::Mat4> PreviewDragStart;
 	bool bDuplicateOnDrag = false;
@@ -596,7 +599,10 @@ struct FEditorFramework::FImplementation
 	// The editor's audio engine plays Play's sounds and Audio Graph auditions, keyed by the build key of each loaded sound.
 	std::unique_ptr<FAudioEngine> Audio;
 	bool bAudioUnavailable = false;
-	bool bAudioMuted = false;
+	// The editor's master volume, set in the viewport settings; a paused Play mutes it.
+	float EditorVolume = 1.f;
+	std::size_t ViewportSettingsPage = 0;
+	float AppliedVolume = 1.f;
 	std::map<FAssetId, FHash128> AudioKeys;
 	// The Audio Graph being edited, compiled from its draft, so its waves stay loaded.
 	std::map<FAssetId, std::shared_ptr<const FCookedSoundGraph>> AuditionGraphs;

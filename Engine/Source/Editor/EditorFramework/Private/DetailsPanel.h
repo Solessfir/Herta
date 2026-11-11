@@ -40,7 +40,7 @@ struct FDetailsPanelState
 	std::array<char, 96> VisualReferenceSearch{};
 	std::array<char, 96> MaterialSearch{};
 	std::array<bool, 6> BodyPropertyWasMixed{};
-	std::array<bool, 76> VisualPropertyWasMixed{};
+	std::array<bool, 160> VisualPropertyWasMixed{};
 	int ComponentResult = 0;
 	bool bAddComponentRequested = false;
 	bool bScaleLocked = false;
@@ -84,6 +84,8 @@ enum class EDetailsComponentAction
 	RemoveDestructible,
 	AddCharacter,
 	RemoveCharacter,
+	AddPlayer,
+	RemovePlayer,
 	AddAudioEmitter,
 	RemoveAudioEmitter,
 	AddAudioListener,
@@ -142,7 +144,7 @@ struct FDetailsComponentField
 	bool bAnyTrigger = false;
 	bool bAllTrigger = false;
 	FTriggerComponent Trigger{};
-	std::array<bool, 1> MixedTrigger{};
+	std::array<bool, 3> MixedTrigger{};
 	bool bAnyConstraint = false;
 	bool bAllConstraint = false;
 	FConstraintComponent Constraint{};
@@ -150,11 +152,17 @@ struct FDetailsComponentField
 	bool bAnyDestructible = false;
 	bool bAllDestructible = false;
 	FDestructibleComponent Destructible{};
-	std::array<bool, 5> MixedDestructible{};
+	std::array<bool, 8> MixedDestructible{};
 	bool bAnyCharacter = false;
 	bool bAllCharacter = false;
 	FCharacterComponent Character{};
-	std::array<bool, 2> MixedCharacter{};
+	std::array<bool, 18> MixedCharacter{};
+	bool bAnyPlayer = false;
+	bool bAllPlayer = false;
+	FPlayerComponent Player{};
+	std::array<bool, 1> MixedPlayer{};
+	// The body's impact sound and effect, which the descriptor lists after the settings above.
+	std::array<bool, 10> MixedBodyAssets{};
 	bool bAnyAudioEmitter = false;
 	bool bAllAudioEmitter = false;
 	FAudioEmitterComponent AudioEmitter{};
@@ -198,6 +206,9 @@ struct FDetailsComponentField
 	std::span<const std::string> StateTreeLabels{};
 	std::span<const FAssetId> GameplayGraphIds{};
 	std::span<const std::string> GameplayGraphLabels{};
+	// Models a Character can hold as its weapon.
+	std::span<const FAssetId> ModelIds{};
+	std::span<const std::string> ModelLabels{};
 	std::span<const FDetailsMaterialSlot> MaterialSlots{};
 	std::span<const FAssetId> MaterialOptionIds{};
 	std::span<const std::string> MaterialOptionLabels{};

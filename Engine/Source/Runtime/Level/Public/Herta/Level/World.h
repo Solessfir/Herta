@@ -218,6 +218,10 @@ struct FDestructibleComponent
 	float MassKg = 300.f;
 	// Chunks on the bottom face stay fixed; otherwise the whole object is a Dynamic body until it breaks.
 	bool bAnchored = true;
+	// Played where its chunks are struck, and at full strength where it breaks; invalid sounds stay silent and invalid effects show nothing.
+	FAssetId ImpactSound{};
+	FAssetId ImpactEffect{};
+	FAssetId BreakEffect{};
 };
 
 // Plays the entity's skinned Static Mesh as a character with its model's state machine: it stands, flinches when hit, can be sliced along a
@@ -230,6 +234,36 @@ struct FCharacterComponent
 	float MaximumPieces = 8.f;
 	// The impulse, in N*s, of a hit that severs the limb it strikes.
 	float SeverImpulse = 25.f;
+	// The static model held in its grip: the origin where the hand holds it, the blade along +Y from the guard to the tip at 1 m, and the
+	// edges facing +X and -X. Invalid draws the engine's plain box sword.
+	FAssetId Weapon{};
+
+	// What the character plays for its own movement and for its blade. Invalid sounds stay silent and invalid effects show nothing.
+	FAssetId FootstepSound{};
+	FAssetId LandSound{};
+	FAssetId JumpSound{};
+	FAssetId SlideSound{};
+	FAssetId SwingSound{};
+	FAssetId HitSound{};
+	FAssetId SliceSound{};
+	FAssetId SeverSound{};
+	FAssetId DeflectSound{};
+	FAssetId BlockSound{};
+	FAssetId LandEffect{};
+	FAssetId SliceEffect{};
+	FAssetId SeverEffect{};
+	FAssetId SparksEffect{};
+	FAssetId TrailEffect{};
+};
+
+// Marks the Character the local player controls: Play spawns the player at this entity, as its Static Mesh with its Character's weapon,
+// sounds, and effects. Every player in a networked session plays it. A level without one spawns a bare capsule in the Start trigger.
+struct FPlayerComponent
+{
+	constexpr bool operator==(const FPlayerComponent&) const = default;
+
+	// Play starts behind the character rather than through its eyes.
+	bool bThirdPerson = true;
 };
 
 // Plays a sound or sound graph from the entity's position during Play. Auto-play emitters start with Play and loop or end as their sound does.
@@ -334,6 +368,8 @@ struct FTriggerComponent
 	// Full box dimensions in meters, before the entity's scale.
 	FVector3 Size{2.f, 2.f, 2.f};
 	ETriggerRole Role = ETriggerRole::None;
+	// Played when the course starts in a Start zone or ends in a Finish zone, with the Finished parameter 0 or 1.
+	FAssetId Sound{};
 };
 
 // Joins the entity's Dynamic rigid body, at Anchor, to a rope's free end, another rigid body, or a fixed point in the world.
@@ -366,6 +402,9 @@ struct FLevelRigidBodySettings
 	float AngularDamping = 0.05f;
 	float GravityScale = 1.f;
 	ELevelCollisionShape Collision = ELevelCollisionShape::Box;
+	// Played where the body is struck hard, louder with the impulse.
+	FAssetId ImpactSound{};
+	FAssetId ImpactEffect{};
 };
 
 struct FLevelEntity
@@ -388,6 +427,7 @@ struct FLevelEntity
 	std::optional<FConstraintComponent> Constraint{};
 	std::optional<FDestructibleComponent> Destructible{};
 	std::optional<FCharacterComponent> Character{};
+	std::optional<FPlayerComponent> Player{};
 	std::optional<FAudioEmitterComponent> AudioEmitter{};
 	std::optional<FAudioListenerComponent> AudioListener{};
 	std::optional<FParticleEmitterComponent> ParticleEmitter{};

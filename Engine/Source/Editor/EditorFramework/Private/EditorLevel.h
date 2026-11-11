@@ -46,19 +46,9 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> RemoveCameraBookmark(std::uint32_t Slot);
 	float GetExposureCompensation() const;
 	[[nodiscard]] std::expected<void, FLevelError> SetExposureCompensation(float Stops);
-	const FAssetId& GetPlayerCharacter() const;
-	// The skinned model Play spawns as the player, saved with the level and undoable like other level settings.
-	[[nodiscard]] std::expected<void, FLevelError> SetPlayerCharacter(const FAssetId& Character);
-	const FAssetId& GetPlayerWeapon() const;
-	[[nodiscard]] std::expected<void, FLevelError> SetPlayerWeapon(const FAssetId& Weapon);
-	const FLevelSounds& GetSounds() const;
-	// The sounds gameplay plays for its events, saved with the level and undoable like the player character.
-	[[nodiscard]] std::expected<void, FLevelError> SetSound(ELevelSound Cue, const FAssetId& Sound);
-	const FLevelEffects& GetEffects() const;
 	std::span<const FLevelRegion> GetRegions() const;
 	// Replaces the placed regions as one undoable change.
 	[[nodiscard]] std::expected<void, FLevelError> SetRegions(std::string_view Label, std::vector<FLevelRegion> After);
-	[[nodiscard]] std::expected<void, FLevelError> SetEffect(ELevelEffect Cue, const FAssetId& System);
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEntity(const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateMeshEntity(FAssetId Asset, std::string_view Label, const FWorldPosition& Position = {});
 	[[nodiscard]] std::expected<FObjectId, FLevelError> CreateEmptyEntity(const FWorldPosition& Position = {});
@@ -91,6 +81,9 @@ public:
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedDestructible(std::optional<FDestructibleComponent> Destructible);
 	[[nodiscard]] std::expected<void, FLevelError> AddCharacterToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedCharacter(std::optional<FCharacterComponent> Character);
+	// A Player needs a Character, so adding one adds a Character to entities without one.
+	[[nodiscard]] std::expected<void, FLevelError> AddPlayerToSelected();
+	[[nodiscard]] std::expected<void, FLevelError> SetSelectedPlayer(std::optional<FPlayerComponent> Player);
 	[[nodiscard]] std::expected<void, FLevelError> AddAudioEmitterToSelected();
 	[[nodiscard]] std::expected<void, FLevelError> SetSelectedAudioEmitter(std::optional<FAudioEmitterComponent> Emitter);
 	[[nodiscard]] std::expected<void, FLevelError> AddAudioListenerToSelected();
@@ -159,10 +152,6 @@ private:
 	std::vector<FLevelFolder> Folders;
 	std::vector<FLevelCameraBookmark> CameraBookmarks;
 	float ExposureCompensation = 0.f;
-	FAssetId PlayerCharacter;
-	FAssetId PlayerWeapon;
-	FLevelSounds Sounds{};
-	FLevelEffects Effects{};
 	// Placements of other levels; their contents are edited in their own levels.
 	std::vector<FLevelRegion> Regions;
 	std::vector<FPreviewObject> Objects;

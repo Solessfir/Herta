@@ -41,22 +41,14 @@ constexpr FAssetId Objective{7, 5};
 {
 	return {
 	    FLevelEntity{.Id = FObjectId{7, 10}, .Name = "Floor", .Transform = {.Translation = {0., -0.5, 0.}, .Scale = {40.f, 1.f, 40.f}}, .Mesh = FStaticMeshComponent{.Asset = Cube}, .BodyType = ELevelBodyType::Static},
-	    FLevelEntity{.Id = FObjectId{7, 11}, .Name = "Start", .Transform = {.Translation = {0., 1., 0.}}, .Trigger = FTriggerComponent{.Size = {2.f, 2.f, 2.f}, .Role = ETriggerRole::Start}},
-	    FLevelEntity{.Id = FObjectId{7, 12}, .Name = "Finish", .Transform = {.Translation = {0., 1., 10.}}, .Trigger = FTriggerComponent{.Size = {4.f, 2.f, 2.f}, .Role = ETriggerRole::Finish}},
+	    FLevelEntity{.Id = FObjectId{7, 11}, .Name = "Start", .Transform = {.Translation = {0., 1., 0.}}, .Trigger = FTriggerComponent{.Size = {2.f, 2.f, 2.f}, .Role = ETriggerRole::Start, .Sound = Objective}},
+	    FLevelEntity{.Id = FObjectId{7, 12}, .Name = "Finish", .Transform = {.Translation = {0., 1., 10.}}, .Trigger = FTriggerComponent{.Size = {4.f, 2.f, 2.f}, .Role = ETriggerRole::Finish, .Sound = Objective}},
+	    // Without a skinned model the player is the capsule, which still plays its Character's sounds.
+	    FLevelEntity{.Id = FObjectId{7, 16}, .Name = "Player", .Transform = {.Translation = {0., 0.05, 0.}}, .Character = FCharacterComponent{.FootstepSound = Step, .JumpSound = Jump}, .Player = FPlayerComponent{}},
 	    FLevelEntity{.Id = FObjectId{7, 13}, .Name = "Speaker", .Transform = {.Translation = {3., 1., 4.}}, .AudioEmitter = FAudioEmitterComponent{.Sound = Hum, .Volume = 0.5f}},
 	    FLevelEntity{.Id = FObjectId{7, 14}, .Name = "Silent", .Transform = {.Translation = {-3., 1., 4.}}, .AudioEmitter = FAudioEmitterComponent{.Sound = Hum, .bAutoPlay = false}},
-	    FLevelEntity{.Id = FObjectId{7, 15}, .Name = "Crate", .Transform = {.Translation = {2., 3., 2.}, .Scale = {0.5f, 0.5f, 0.5f}}, .Mesh = FStaticMeshComponent{.Asset = Cube}, .BodyType = ELevelBodyType::Dynamic, .BodySettings = {.MassKg = 20.f}},
+	    FLevelEntity{.Id = FObjectId{7, 15}, .Name = "Crate", .Transform = {.Translation = {2., 3., 2.}, .Scale = {0.5f, 0.5f, 0.5f}}, .Mesh = FStaticMeshComponent{.Asset = Cube}, .BodyType = ELevelBodyType::Dynamic, .BodySettings = {.MassKg = 20.f, .ImpactSound = Impact}},
 	};
-}
-
-[[nodiscard]] FLevelSounds MakeSounds()
-{
-	FLevelSounds Sounds{};
-	Sounds[static_cast<std::size_t>(ELevelSound::Footstep)] = Step;
-	Sounds[static_cast<std::size_t>(ELevelSound::Jump)] = Jump;
-	Sounds[static_cast<std::size_t>(ELevelSound::Impact)] = Impact;
-	Sounds[static_cast<std::size_t>(ELevelSound::Objective)] = Objective;
-	return Sounds;
 }
 
 [[nodiscard]] const FAudioPlayCommand* FindPlay(const std::span<const FAudioCommand> Commands, const FAssetId& Sound)
@@ -78,7 +70,6 @@ constexpr FAssetId Objective{7, 5};
 	const FNoAudioGameAssets Assets;
 	auto Session = FGameSession::Create(MakeAudioCourse(), Assets, nullptr);
 	REQUIRE(Session);
-	(*Session)->SetLevelSounds(MakeSounds());
 	REQUIRE((*Session)->Restart());
 	std::vector<FAudioCommand> Commands;
 	const auto Run = [&](const FGameInput& Input, const int Frames)
@@ -105,7 +96,7 @@ TEST_CASE("Game sessions issue the same audio commands for the same play, headle
 	const std::vector<FAudioCommand> Commands = PlayScript();
 	REQUIRE_FALSE(Commands.empty());
 	// Every start stops what played before and starts the auto-play emitters, which skip manual ones; the script starts twice, on creation and
-	// on the restart that applies its sounds.
+	// on the restart.
 	CHECK(std::holds_alternative<FAudioStopAllCommand>(Commands.front()));
 	const FAudioPlayCommand* const Speaker = FindPlay(Commands, Hum);
 	REQUIRE(Speaker);

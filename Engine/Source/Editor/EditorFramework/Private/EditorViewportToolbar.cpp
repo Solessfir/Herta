@@ -237,20 +237,35 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 
 	if (ImGui::BeginPopup("ViewportSettings"))
 	{
-		constexpr ImGuiTreeNodeFlags SectionFlags = ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_FramePadding | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_DefaultOpen;
 		ImGui::PushStyleColor(ImGuiCol_Separator, {1.f, 1.f, 1.f, 0.08f});
 		ImGui::PushStyleColor(ImGuiCol_Header, {0.f, 0.f, 0.f, 0.f});
 		ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8.f * Scale, 6.f * Scale});
 		const float ValueWidth = 116.f * Scale;
 
-		const auto Section = [&](const char* const Label)
+		// Short pages instead of one long list: each shows what one kind of change needs.
+		constexpr std::array<const char*, 4> Pages{"View", "Camera", "Gizmo", "Rendering"};
+		const float PageWidth = (ImGui::GetContentRegionAvail().x - 3.f * 2.f * Scale) / static_cast<float>(Pages.size());
+		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.f * Scale);
+		for (std::size_t Page = 0; Page < Pages.size(); ++Page)
 		{
-			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-			const bool bSectionOpen = ImGui::TreeNodeEx(Label, SectionFlags);
-			ImGui::PopStyleColor();
-			return bSectionOpen;
-		};
+			const bool bCurrent = ViewportSettingsPage == Page;
+			ImGui::PushStyleColor(ImGuiCol_Button, bCurrent ? ImVec4{1.f, 1.f, 1.f, 0.14f} : ImVec4{0.f, 0.f, 0.f, 0.f});
+			ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(bCurrent ? ImGuiCol_Text : ImGuiCol_TextDisabled));
+			if (Page > 0)
+			{
+				ImGui::SameLine(0.f, 2.f * Scale);
+			}
 
+			if (ImGui::Button(Pages[Page], {PageWidth, 0.f}))
+			{
+				ViewportSettingsPage = Page;
+			}
+
+			ImGui::PopStyleColor(2);
+		}
+
+		ImGui::PopStyleVar();
+		ImGui::Spacing();
 		const auto Toggle = [&](const char* const Label, bool& bValue, const char* const Shortcut = nullptr)
 		{
 			DrawFieldLabel(Label, ValueWidth, Shortcut);
@@ -264,8 +279,17 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		const bool bToolbarShowsModes = Size.x > 340.f * Scale;
 		const bool bToolbarShowsFocus = Size.x > 1040.f * Scale;
 
-		if (Section("Overlays"))
+		if (ViewportSettingsPage == 0)
 		{
+			DrawFieldLabel("Editor volume", ValueWidth);
+			float VolumePercent = EditorVolume * 100.f;
+			if (DrawNumericSliderFloat("##EditorVolume", &VolumePercent, 0.f, 100.f, VolumePercent > 0.f ? "%.0f%%" : "Muted", ImGuiSliderFlags_AlwaysClamp))
+			{
+				EditorVolume = VolumePercent / 100.f;
+			}
+
+			ImGui::SetItemTooltip("Everything the editor plays: Play, auditions, and level emitters");
+
 			if (Toggle("Game view", bGameView, "G"))
 			{
 				ViewportGizmos.resetId();
@@ -282,7 +306,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			Toggle("Time of day", bTimeOfDayVisible);
 		}
 
-		if (Section("Camera"))
+		if (ViewportSettingsPage == 1)
 		{
 			float MovementSpeed = ViewportCamera.GetMovementSpeed();
 			DrawFieldLabel("Speed", ValueWidth);
@@ -304,22 +328,6 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			DrawFieldLabel("Focal length", ValueWidth);
 			DrawNumericSliderFloat("##FocalLength", &PhysicalCamera.FocalLengthMillimeters, 8.f, 300.f, "%.0f mm", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
 			Toggle("Auto exposure", bAutoExposure);
-			if (bAutoExposure)
-			{
-				DrawFieldLabel("Compensation", ValueWidth);
-				DrawNumericSliderFloat("##ExposureCompensation", &ExposureCompensation, -MaximumLevelExposureCompensation, MaximumLevelExposureCompensation, "%+.1f EV", ImGuiSliderFlags_AlwaysClamp);
-				ImGui::SetItemTooltip("Saved with the level, and applied in Play and the game");
-				if (ImGui::IsItemDeactivatedAfterEdit())
-				{
-					if (const auto Changed = Level->SetExposureCompensation(ExposureCompensation); !Changed)
-					{
-						HERTA_LOG_ERROR(*Log, EditorLog, "Could not change exposure compensation: {}", Changed.error().Message);
-					}
-				}
-
-				bExposureCompensationActive = ImGui::IsItemActive();
-			}
-
 			ImGui::BeginDisabled(bAutoExposure);
 			DrawFieldLabel("Aperture", ValueWidth);
 			DrawNumericSliderFloat("##Aperture", &PhysicalCamera.Aperture, 1.4f, 22.f, "f/%.1f", ImGuiSliderFlags_Logarithmic | ImGuiSliderFlags_AlwaysClamp);
@@ -337,33 +345,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			ImGui::EndDisabled();
 		}
 
-		if (Section("Play"))
-		{
-			DrawPlayerCharacterPicker(ValueWidth);
-			DrawPlayerWeaponPicker(ValueWidth);
-		}
-
-		if (Section("Sounds"))
-		{
-			DrawLevelSoundPickers(ValueWidth);
-		}
-
-		if (Section("Effects"))
-		{
-			DrawLevelEffectPickers(ValueWidth);
-		}
-
-		if (Section("Regions"))
-		{
-			DrawLevelRegions(ValueWidth, Scale);
-		}
-
-		if (Section("Bookmarks"))
-		{
-			DrawCameraBookmarks(Scale);
-		}
-
-		if (Section("Gizmo"))
+		if (ViewportSettingsPage == 2)
 		{
 			if (!bToolbarShowsModes)
 			{
@@ -418,7 +400,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			}
 		}
 
-		if (Section("Snapping"))
+		if (ViewportSettingsPage == 2)
 		{
 			Toggle("Snap to grid", bSnapEnabled, "S");
 			ImGui::BeginDisabled(!bSnapEnabled);
@@ -434,7 +416,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			ImGui::EndDisabled();
 		}
 
-		if (Section("Rendering"))
+		if (ViewportSettingsPage == 3)
 		{
 			DrawFieldLabel("Quality", ValueWidth);
 			constexpr std::array Tiers{"Low", "Medium", "High"};
@@ -521,7 +503,7 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 		ImGui::Spacing();
 		ImGui::BeginDisabled(IsSimulating() || Level->HasActiveEdit() || PreviewSelection.Active < 0);
 
-		if (ImGui::Button("Reset preview transform", {-1.f, 0.f}))
+		if (ViewportSettingsPage == 2 && ImGui::Button("Reset preview transform", {-1.f, 0.f}))
 		{
 			ReportLevelResult(Level->BeginEdit("Reset transform"));
 			const FEditorLevel DefaultLevel;

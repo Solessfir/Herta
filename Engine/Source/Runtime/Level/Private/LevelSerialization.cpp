@@ -386,9 +386,16 @@ std::expected<FMoverComponent, FLevelError> ReadMover(const simdjson::dom::eleme
 	return FMoverComponent{.Offset = {(*Offset)[0], (*Offset)[1], (*Offset)[2]}, .PeriodSeconds = *Period};
 }
 
-std::expected<FDestructibleComponent, FLevelError> ReadDestructible(const simdjson::dom::element Element)
+// Schema 21 adds the impact sound and effect and the break effect.
+std::expected<FDestructibleComponent, FLevelError> ReadDestructible(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
-	const auto Fields = ReadComponentFields<5>(Element, GetLevelComponentDescriptor(ELevelComponentType::Destructible));
+	const FLevelComponentDescriptor& Descriptor = GetLevelComponentDescriptor(ELevelComponentType::Destructible);
+	const auto Fields = SchemaVersion >= 21 ? ReadComponentFields<8>(Element, Descriptor) : ReadComponentFields<5>(Element, Descriptor).transform([](const auto& Current)
+	{
+		std::array<simdjson::dom::element, 8> Padded;
+		std::ranges::copy(Current, Padded.begin());
+		return Padded;
+	});
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -404,12 +411,55 @@ std::expected<FDestructibleComponent, FLevelError> ReadDestructible(const simdjs
 		return LevelError("Invalid destructible component field");
 	}
 
-	return FDestructibleComponent{.Cells = *Cells, .Seed = *Seed, .Strength = *Strength, .MassKg = *Mass, .bAnchored = bAnchored};
+	FDestructibleComponent Destructible{.Cells = *Cells, .Seed = *Seed, .Strength = *Strength, .MassKg = *Mass, .bAnchored = bAnchored};
+	if (SchemaVersion >= 21)
+	{
+		const auto ImpactSound = ReadOptionalId<FAssetId>((*Fields)[5]);
+		const auto ImpactEffect = ReadOptionalId<FAssetId>((*Fields)[6]);
+		const auto BreakEffect = ReadOptionalId<FAssetId>((*Fields)[7]);
+		if (!ImpactSound || !ImpactEffect || !BreakEffect)
+		{
+			return LevelError("Invalid destructible component field");
+		}
+
+		Destructible.ImpactSound = *ImpactSound;
+		Destructible.ImpactEffect = *ImpactEffect;
+		Destructible.BreakEffect = *BreakEffect;
+	}
+
+	return Destructible;
 }
 
-std::expected<FCharacterComponent, FLevelError> ReadCharacter(const simdjson::dom::element Element)
+// The character's weapon and asset references, in descriptor order after its first two fields, from schema 21.
+constexpr std::array CharacterAssets{
+    &FCharacterComponent::Weapon,
+    &FCharacterComponent::FootstepSound,
+    &FCharacterComponent::LandSound,
+    &FCharacterComponent::JumpSound,
+    &FCharacterComponent::SlideSound,
+    &FCharacterComponent::SwingSound,
+    &FCharacterComponent::HitSound,
+    &FCharacterComponent::SliceSound,
+    &FCharacterComponent::SeverSound,
+    &FCharacterComponent::DeflectSound,
+    &FCharacterComponent::BlockSound,
+    &FCharacterComponent::LandEffect,
+    &FCharacterComponent::SliceEffect,
+    &FCharacterComponent::SeverEffect,
+    &FCharacterComponent::SparksEffect,
+    &FCharacterComponent::TrailEffect,
+};
+
+std::expected<FCharacterComponent, FLevelError> ReadCharacter(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
-	const auto Fields = ReadComponentFields<2>(Element, GetLevelComponentDescriptor(ELevelComponentType::Character));
+	constexpr std::size_t FieldCount = 2 + CharacterAssets.size();
+	const FLevelComponentDescriptor& Descriptor = GetLevelComponentDescriptor(ELevelComponentType::Character);
+	const auto Fields = SchemaVersion >= 21 ? ReadComponentFields<FieldCount>(Element, Descriptor) : ReadComponentFields<2>(Element, Descriptor).transform([](const auto& Current)
+	{
+		std::array<simdjson::dom::element, FieldCount> Padded;
+		std::ranges::copy(Current, Padded.begin());
+		return Padded;
+	});
 	if (!Fields)
 	{
 		return std::unexpected(Fields.error());
@@ -422,7 +472,36 @@ std::expected<FCharacterComponent, FLevelError> ReadCharacter(const simdjson::do
 		return LevelError("Invalid character component field");
 	}
 
-	return FCharacterComponent{.MaximumPieces = *Pieces, .SeverImpulse = *Impulse};
+	FCharacterComponent Character{.MaximumPieces = *Pieces, .SeverImpulse = *Impulse};
+	for (std::size_t Index = 0; SchemaVersion >= 21 && Index < CharacterAssets.size(); ++Index)
+	{
+		const auto Asset = ReadOptionalId<FAssetId>((*Fields)[2 + Index]);
+		if (!Asset)
+		{
+			return LevelError("Invalid character component field");
+		}
+
+		Character.*CharacterAssets[Index] = *Asset;
+	}
+
+	return Character;
+}
+
+std::expected<FPlayerComponent, FLevelError> ReadPlayer(const simdjson::dom::element Element)
+{
+	const auto Fields = ReadComponentFields<1>(Element, GetLevelComponentDescriptor(ELevelComponentType::Player));
+	if (!Fields)
+	{
+		return std::unexpected(Fields.error());
+	}
+
+	const auto ThirdPerson = ReadBoolean((*Fields)[0]);
+	if (!ThirdPerson)
+	{
+		return LevelError("Invalid player component field");
+	}
+
+	return FPlayerComponent{.bThirdPerson = *ThirdPerson};
 }
 
 constexpr std::array<std::string_view, 3> TriggerRoles{"none", "start", "finish"};
@@ -569,9 +648,14 @@ std::expected<FAudioListenerComponent, FLevelError> ReadAudioListener(const simd
 std::expected<FTriggerComponent, FLevelError> ReadTrigger(const simdjson::dom::element Element, const std::uint64_t SchemaVersion)
 {
 	const FLevelComponentDescriptor& Descriptor = GetLevelComponentDescriptor(ELevelComponentType::Trigger);
-	const auto Fields = SchemaVersion >= 7 ? ReadComponentFields<2>(Element, Descriptor) : ReadComponentFields<1>(Element, Descriptor).transform([](const auto& Current)
+	const auto Fields = SchemaVersion >= 21  ? ReadComponentFields<3>(Element, Descriptor)
+	                    : SchemaVersion >= 7 ? ReadComponentFields<2>(Element, Descriptor).transform([](const auto& Current)
 	{
-		return std::array<simdjson::dom::element, 2>{Current[0], {}};
+		return std::array<simdjson::dom::element, 3>{Current[0], Current[1], {}};
+	})
+	                                         : ReadComponentFields<1>(Element, Descriptor).transform([](const auto& Current)
+	{
+		return std::array<simdjson::dom::element, 3>{Current[0], {}, {}};
 	});
 
 	if (!Fields)
@@ -581,12 +665,13 @@ std::expected<FTriggerComponent, FLevelError> ReadTrigger(const simdjson::dom::e
 
 	const auto Size = ReadNumbers<float, 3>((*Fields)[0]);
 	const auto Role = SchemaVersion >= 7 ? ReadString((*Fields)[1]) : std::expected<std::string_view, FLevelError>{TriggerRoles[0]};
-	if (!Size || !Role || std::ranges::find(TriggerRoles, *Role) == TriggerRoles.end())
+	const auto Sound = SchemaVersion >= 21 ? ReadOptionalId<FAssetId>((*Fields)[2]) : std::expected<FAssetId, FLevelError>{};
+	if (!Size || !Role || !Sound || std::ranges::find(TriggerRoles, *Role) == TriggerRoles.end())
 	{
 		return LevelError("Invalid trigger component field");
 	}
 
-	return FTriggerComponent{.Size = {(*Size)[0], (*Size)[1], (*Size)[2]}, .Role = static_cast<ETriggerRole>(std::ranges::find(TriggerRoles, *Role) - TriggerRoles.begin())};
+	return FTriggerComponent{.Size = {(*Size)[0], (*Size)[1], (*Size)[2]}, .Role = static_cast<ETriggerRole>(std::ranges::find(TriggerRoles, *Role) - TriggerRoles.begin()), .Sound = *Sound};
 }
 
 std::expected<FConstraintComponent, FLevelError> ReadConstraint(const simdjson::dom::element Element)
@@ -742,10 +827,17 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 				continue;
 			}
 
-			// Schema 5 adds the collision shape; earlier bodies are boxes.
-			const auto Body = SchemaVersion >= 5 ? ReadComponentFields<8>(Component.value, BodyDescriptor) : ReadComponentFields<7>(Component.value, BodyDescriptor).transform([](const auto& Fields)
+			// Schema 5 adds the collision shape, and earlier bodies are boxes; schema 21 adds the impact sound and effect.
+			const auto Body = SchemaVersion >= 21  ? ReadComponentFields<10>(Component.value, BodyDescriptor)
+			                  : SchemaVersion >= 5 ? ReadComponentFields<8>(Component.value, BodyDescriptor).transform([](const auto& Fields)
 			{
-				std::array<simdjson::dom::element, 8> Padded;
+				std::array<simdjson::dom::element, 10> Padded;
+				std::ranges::copy(Fields, Padded.begin());
+				return Padded;
+			})
+			                                       : ReadComponentFields<7>(Component.value, BodyDescriptor).transform([](const auto& Fields)
+			{
+				std::array<simdjson::dom::element, 10> Padded;
 				std::ranges::copy(Fields, Padded.begin());
 				return Padded;
 			});
@@ -768,7 +860,9 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			const auto GravityScale = ReadNumber<float>((*Body)[6]);
 			const auto Collision = SchemaVersion >= 5 ? ReadString((*Body)[7]) : std::expected<std::string_view, FLevelError>{"box"};
 			const auto CollisionShape = Collision ? std::ranges::find(CollisionShapes, *Collision) : CollisionShapes.end();
-			if (!MassKg || !Friction || !Restitution || !LinearDamping || !AngularDamping || !GravityScale || CollisionShape == CollisionShapes.end())
+			const auto ImpactSound = SchemaVersion >= 21 ? ReadOptionalId<FAssetId>((*Body)[8]) : std::expected<FAssetId, FLevelError>{};
+			const auto ImpactEffect = SchemaVersion >= 21 ? ReadOptionalId<FAssetId>((*Body)[9]) : std::expected<FAssetId, FLevelError>{};
+			if (!MassKg || !Friction || !Restitution || !LinearDamping || !AngularDamping || !GravityScale || CollisionShape == CollisionShapes.end() || !ImpactSound || !ImpactEffect)
 			{
 				return LevelError("Invalid level rigid body settings");
 			}
@@ -782,6 +876,8 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			    .AngularDamping = *AngularDamping,
 			    .GravityScale = *GravityScale,
 			    .Collision = static_cast<ELevelCollisionShape>(CollisionShape - CollisionShapes.begin()),
+			    .ImpactSound = *ImpactSound,
+			    .ImpactEffect = *ImpactEffect,
 			};
 		}
 		else if (SchemaVersion >= 4 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Light).SerializationKey)
@@ -856,7 +952,7 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 1024;
-			const auto Destructible = ReadDestructible(Component.value);
+			const auto Destructible = ReadDestructible(Component.value, SchemaVersion);
 			if (!Destructible)
 			{
 				return std::unexpected(Destructible.error());
@@ -872,13 +968,28 @@ std::expected<FLevelEntity, FLevelError> ReadEntity(const simdjson::dom::element
 			}
 
 			SeenComponents |= 2048;
-			const auto Character = ReadCharacter(Component.value);
+			const auto Character = ReadCharacter(Component.value, SchemaVersion);
 			if (!Character)
 			{
 				return std::unexpected(Character.error());
 			}
 
 			Entity.Character = *Character;
+		}
+		else if (SchemaVersion >= 21 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::Player).SerializationKey)
+		{
+			if (Entity.Player)
+			{
+				return LevelError("Duplicate level component");
+			}
+
+			const auto Player = ReadPlayer(Component.value);
+			if (!Player)
+			{
+				return std::unexpected(Player.error());
+			}
+
+			Entity.Player = *Player;
 		}
 		else if (SchemaVersion >= 13 && Component.key == GetLevelComponentDescriptor(ELevelComponentType::AudioEmitter).SerializationKey)
 		{
@@ -1507,66 +1618,12 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 		return Left->Id < Right->Id;
 	});
 
-	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 20,\n  \"id\": ";
+	std::string Output = "{\n  \"format\": \"HertaLevel\",\n  \"formatVersion\": 2,\n  \"engineSchemaVersion\": 21,\n  \"id\": ";
 	AppendString(Output, Document.Id.ToString());
 	Output += ",\n  \"name\": ";
 	AppendString(Output, Document.Name);
 	Output += ",\n  \"exposureCompensation\": ";
 	AppendNumber(Output, Document.ExposureCompensation);
-	Output += ",\n  \"playerCharacter\": ";
-	if (Document.PlayerCharacter.IsValid())
-	{
-		AppendString(Output, Document.PlayerCharacter.ToString());
-	}
-	else
-	{
-		Output += "null";
-	}
-
-	Output += ",\n  \"playerWeapon\": ";
-	if (Document.PlayerWeapon.IsValid())
-	{
-		AppendString(Output, Document.PlayerWeapon.ToString());
-	}
-	else
-	{
-		Output += "null";
-	}
-
-	Output += ",\n  \"sounds\": {";
-	for (std::size_t Cue = 0; Cue < LevelSoundCues.size(); ++Cue)
-	{
-		Output += Cue == 0 ? "\n    \"" : ",\n    \"";
-		Output += LevelSoundCues[Cue].Key;
-		Output += "\": ";
-		if (Document.Sounds[Cue].IsValid())
-		{
-			AppendString(Output, Document.Sounds[Cue].ToString());
-		}
-		else
-		{
-			Output += "null";
-		}
-	}
-
-	Output += "\n  }";
-	Output += ",\n  \"effects\": {";
-	for (std::size_t Cue = 0; Cue < LevelEffectCues.size(); ++Cue)
-	{
-		Output += Cue == 0 ? "\n    \"" : ",\n    \"";
-		Output += LevelEffectCues[Cue].Key;
-		Output += "\": ";
-		if (Document.Effects[Cue].IsValid())
-		{
-			AppendString(Output, Document.Effects[Cue].ToString());
-		}
-		else
-		{
-			Output += "null";
-		}
-	}
-
-	Output += "\n  }";
 	Output += ",\n  \"entities\": [";
 
 	for (std::size_t Index = 0; Index < Entities.size(); ++Index)
@@ -1645,6 +1702,19 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 			AppendNumber(Output, Entity.BodySettings.GravityScale);
 			AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[7].Key);
 			AppendString(Output, CollisionShapes[static_cast<std::size_t>(Entity.BodySettings.Collision)]);
+			for (const auto& [Field, Asset] : {std::pair{8, Entity.BodySettings.ImpactSound}, std::pair{9, Entity.BodySettings.ImpactEffect}})
+			{
+				AppendFieldKey(Output, ",\n          ", BodyDescriptor.Properties[static_cast<std::size_t>(Field)].Key);
+				if (Asset.IsValid())
+				{
+					AppendString(Output, Asset.ToString());
+				}
+				else
+				{
+					Output += "null";
+				}
+			}
+
 			Output += "\n        }";
 		}
 
@@ -1739,14 +1809,26 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 
 		if (Entity.Destructible)
 		{
-			const std::array<FVisualValue, 5> Values{Entity.Destructible->Cells, Entity.Destructible->Seed, Entity.Destructible->Strength, Entity.Destructible->MassKg, Entity.Destructible->bAnchored};
+			const FDestructibleComponent& Destructible = *Entity.Destructible;
+			const std::array<FVisualValue, 8> Values{Destructible.Cells, Destructible.Seed, Destructible.Strength, Destructible.MassKg, Destructible.bAnchored, Destructible.ImpactSound, Destructible.ImpactEffect, Destructible.BreakEffect};
 			AppendVisualComponent(Output, ELevelComponentType::Destructible, Values, bHasComponent);
 		}
 
 		if (Entity.Character)
 		{
-			const std::array<FVisualValue, 2> Values{Entity.Character->MaximumPieces, Entity.Character->SeverImpulse};
+			std::array<FVisualValue, 2 + CharacterAssets.size()> Values{Entity.Character->MaximumPieces, Entity.Character->SeverImpulse};
+			for (std::size_t Asset = 0; Asset < CharacterAssets.size(); ++Asset)
+			{
+				Values[2 + Asset] = (*Entity.Character).*CharacterAssets[Asset];
+			}
+
 			AppendVisualComponent(Output, ELevelComponentType::Character, Values, bHasComponent);
+		}
+
+		if (Entity.Player)
+		{
+			const std::array<FVisualValue, 1> Values{Entity.Player->bThirdPerson};
+			AppendVisualComponent(Output, ELevelComponentType::Player, Values, bHasComponent);
 		}
 
 		if (Entity.AudioEmitter)
@@ -1794,7 +1876,7 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 
 		if (Entity.Trigger)
 		{
-			const std::array<FVisualValue, 2> Values{Entity.Trigger->Size, TriggerRoles[static_cast<std::size_t>(Entity.Trigger->Role)]};
+			const std::array<FVisualValue, 3> Values{Entity.Trigger->Size, TriggerRoles[static_cast<std::size_t>(Entity.Trigger->Role)], Entity.Trigger->Sound};
 			AppendVisualComponent(Output, ELevelComponentType::Trigger, Values, bHasComponent);
 		}
 
@@ -1933,6 +2015,111 @@ std::expected<std::string, FLevelError> SerializeLevel(const FLevelDocument& Doc
 	return Output;
 }
 
+namespace
+{
+struct FLegacyLevelAssets
+{
+	FAssetId Character{};
+	FAssetId Weapon{};
+	FLevelSounds Sounds{};
+	FLevelEffects Effects{};
+};
+
+// Before schema 21 a level named one player model, one weapon, and one sound and effect per gameplay event for everything in it. Each moves
+// onto the components that play it, and the player becomes an entity where it used to spawn: on the bottom of the Start zone, facing along
+// its forward axis.
+void MoveLegacyLevelAssets(FLevelDocument& Document, const FLegacyLevelAssets& Legacy)
+{
+	const auto Sound = [&Legacy](const ELevelSound Cue)
+	{
+		return Legacy.Sounds[static_cast<std::size_t>(Cue)];
+	};
+
+	const auto Effect = [&Legacy](const ELevelEffect Cue)
+	{
+		return Legacy.Effects[static_cast<std::size_t>(Cue)];
+	};
+
+	FCharacterComponent Fighter{
+	    .Weapon = Legacy.Weapon,
+	    .FootstepSound = Sound(ELevelSound::Footstep),
+	    .LandSound = Sound(ELevelSound::Land),
+	    .JumpSound = Sound(ELevelSound::Jump),
+	    .SlideSound = Sound(ELevelSound::Slide),
+	    .SwingSound = Sound(ELevelSound::Swing),
+	    .HitSound = Sound(ELevelSound::Impact),
+	    .SliceSound = Sound(ELevelSound::Slice),
+	    .SeverSound = Sound(ELevelSound::Sever),
+	    .DeflectSound = Sound(ELevelSound::Deflect),
+	    .BlockSound = Sound(ELevelSound::Block),
+	    .LandEffect = Effect(ELevelEffect::Land),
+	    .SliceEffect = Effect(ELevelEffect::Slice),
+	    .SeverEffect = Effect(ELevelEffect::Sever),
+	    .SparksEffect = Effect(ELevelEffect::Sparks),
+	    .TrailEffect = Effect(ELevelEffect::Trail),
+	};
+
+	const FLevelEntity* Start = nullptr;
+	for (FLevelEntity& Entity : Document.Entities)
+	{
+		if (Entity.Character)
+		{
+			const FCharacterComponent Kept = *Entity.Character;
+			Entity.Character = Fighter;
+			Entity.Character->MaximumPieces = Kept.MaximumPieces;
+			Entity.Character->SeverImpulse = Kept.SeverImpulse;
+		}
+
+		if (Entity.BodyType != ELevelBodyType::None)
+		{
+			Entity.BodySettings.ImpactSound = Sound(ELevelSound::Impact);
+			Entity.BodySettings.ImpactEffect = Effect(ELevelEffect::Impact);
+		}
+
+		if (Entity.Destructible)
+		{
+			Entity.Destructible->ImpactSound = Sound(ELevelSound::Impact);
+			Entity.Destructible->ImpactEffect = Effect(ELevelEffect::Impact);
+			Entity.Destructible->BreakEffect = Effect(ELevelEffect::Break);
+		}
+
+		if (Entity.Trigger && Entity.Trigger->Role != ETriggerRole::None)
+		{
+			Entity.Trigger->Sound = Sound(ELevelSound::Objective);
+			Start = Entity.Trigger->Role == ETriggerRole::Start && !Start ? &Entity : Start;
+		}
+	}
+
+	// Levels that never set a player model played the bare capsule, which a level without a Player still does.
+	if (!Legacy.Character.IsValid())
+	{
+		return;
+	}
+
+	// Derived from the level's ID so loading the same file twice gives the same player.
+	FLevelEntity Player{
+	    .Id = FObjectId{Document.Id.GetHigh() ^ 0x506c61796572ull, Document.Id.GetLow() ^ 0x48657274614c7631ull},
+	    .Name = "Player",
+	    .Transform = {.Translation = FWorldPosition{0., 1., 0.}},
+	    .Mesh = FStaticMeshComponent{.Asset = Legacy.Character},
+	    .Character = Fighter,
+	    .Player = FPlayerComponent{},
+	};
+
+	if (Start)
+	{
+		const FLevelTransform& Zone = Start->Transform;
+		const FVector3 Down = Zone.Rotation.RotateVector({0.f, -Zone.Scale.Y * Start->Trigger->Size.Y * 0.5f, 0.f}) + FVector3::Up() * 0.05f;
+		const FVector3 Forward = Zone.Rotation.RotateVector(FVector3::Forward());
+		Player.Parent = Start->Parent;
+		Player.Transform.Translation = Zone.Translation.TranslatedBy(FVector3d{Down.X, Down.Y, Down.Z});
+		Player.Transform.Rotation = FQuaternion::FromAxisAngle(FVector3::Up(), std::atan2(Forward.X, Forward.Z));
+	}
+
+	Document.Entities.push_back(std::move(Player));
+}
+}
+
 std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Text)
 {
 	if (Text.size() > MaximumLevelBytes)
@@ -1968,9 +2155,9 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 	}
 
 	const std::uint64_t ExpectedFormatVersion = *Format == "HertaScene" ? 1 : 2;
-	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 20 || (*Format == "HertaScene" && SchemaVersion >= 3))
+	if (FormatVersion != ExpectedFormatVersion || SchemaVersion < 1 || SchemaVersion > 21 || (*Format == "HertaScene" && SchemaVersion >= 3))
 	{
-		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 20 and legacy HertaScene 1 with engine schemas 1 through 2");
+		return LevelError("Unsupported level format or engine schema version; supported formats are HertaLevel 2 with engine schemas 1 through 21 and legacy HertaScene 1 with engine schemas 1 through 2");
 	}
 
 	const bool bHasFolders = Root["folders"].error() == simdjson::SUCCESS;
@@ -1989,14 +2176,14 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		return LevelError("Exposure compensation is required in engine schema 9 and later");
 	}
 
-	if ((SchemaVersion >= 11) != (Root["playerCharacter"].error() == simdjson::SUCCESS))
+	if ((SchemaVersion >= 11 && SchemaVersion < 21) != (Root["playerCharacter"].error() == simdjson::SUCCESS))
 	{
-		return LevelError("The player character is required, or null, in engine schema 11 and later");
+		return LevelError("The player character is required, or null, in engine schemas 11 through 20");
 	}
 
-	if ((SchemaVersion >= 20) != (Root["playerWeapon"].error() == simdjson::SUCCESS))
+	if ((SchemaVersion == 20) != (Root["playerWeapon"].error() == simdjson::SUCCESS))
 	{
-		return LevelError("The player weapon is required, or null, in engine schema 20 and later");
+		return LevelError("The player weapon is required, or null, in engine schema 20");
 	}
 
 	const auto Id = ReadId<FObjectId>((*Fields)[3]);
@@ -2024,7 +2211,8 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		Document.ExposureCompensation = *Compensation;
 	}
 
-	if (SchemaVersion >= 11)
+	FLegacyLevelAssets Legacy;
+	if (SchemaVersion >= 11 && SchemaVersion < 21)
 	{
 		const auto Character = ReadOptionalId<FAssetId>((*Fields)[9]);
 		if (!Character)
@@ -2032,10 +2220,10 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 			return std::unexpected(Character.error());
 		}
 
-		Document.PlayerCharacter = *Character;
+		Legacy.Character = *Character;
 	}
 
-	if (SchemaVersion >= 20)
+	if (SchemaVersion == 20)
 	{
 		const auto Weapon = ReadOptionalId<FAssetId>((*Fields)[13]);
 		if (!Weapon)
@@ -2043,15 +2231,15 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 			return std::unexpected(Weapon.error());
 		}
 
-		Document.PlayerWeapon = *Weapon;
+		Legacy.Weapon = *Weapon;
 	}
 
-	if ((SchemaVersion >= 13) != (Root["sounds"].error() == simdjson::SUCCESS))
+	if ((SchemaVersion >= 13 && SchemaVersion < 21) != (Root["sounds"].error() == simdjson::SUCCESS))
 	{
-		return LevelError("Level sounds are required in engine schema 13 and later");
+		return LevelError("Level sounds are required in engine schemas 13 through 20");
 	}
 
-	if (SchemaVersion >= 13)
+	if (SchemaVersion >= 13 && SchemaVersion < 21)
 	{
 		// Schema 18 adds the deflect and block sounds after the nine before them.
 		std::array<std::string_view, LevelSoundCues.size()> Keys{};
@@ -2071,16 +2259,16 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 				return std::unexpected(Sound.error());
 			}
 
-			Document.Sounds[Cue] = *Sound;
+			Legacy.Sounds[Cue] = *Sound;
 		}
 	}
 
-	if ((SchemaVersion >= 14) != (Root["effects"].error() == simdjson::SUCCESS))
+	if ((SchemaVersion >= 14 && SchemaVersion < 21) != (Root["effects"].error() == simdjson::SUCCESS))
 	{
-		return LevelError("Level effects are required in engine schema 14 and later");
+		return LevelError("Level effects are required in engine schemas 14 through 20");
 	}
 
-	if (SchemaVersion >= 14)
+	if (SchemaVersion >= 14 && SchemaVersion < 21)
 	{
 		// Schema 18 adds the sparks and blade trail effects after the five before them.
 		std::array<std::string_view, LevelEffectCues.size()> Keys{};
@@ -2100,7 +2288,7 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 				return std::unexpected(Effect.error());
 			}
 
-			Document.Effects[Cue] = *Effect;
+			Legacy.Effects[Cue] = *Effect;
 		}
 	}
 
@@ -2122,6 +2310,11 @@ std::expected<FLevelDocument, FLevelError> ParseLevel(const std::string_view Tex
 		}
 
 		Document.Entities.push_back(std::move(*Entity));
+	}
+
+	if (SchemaVersion < 21)
+	{
+		MoveLegacyLevelAssets(Document, Legacy);
 	}
 
 	// Schema 6 constrains a hung body to its rope instead of naming it on the rope. The old attachment point was computed at simulation start, so the anchor starts at the body's origin.

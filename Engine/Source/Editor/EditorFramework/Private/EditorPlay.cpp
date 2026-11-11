@@ -199,52 +199,38 @@ void FEditorFramework::FImplementation::TogglePlay()
 		return;
 	}
 
-	std::shared_ptr<const FCookedModel> Character = Assets->GetPlayerCharacter();
-	if (Level->GetPlayerCharacter().IsValid() && !Character)
+	// The Player entity's skinned model is the player's body; it loads with the level's other meshes.
+	const FLevelEntity* const PlayerEntity = FindPlayerEntity();
+	std::shared_ptr<const FCookedModel> Character = PlayerEntity && PlayerEntity->Mesh ? GameAssets->FindSkinnedModel(PlayerEntity->Mesh->Asset) : nullptr;
+	if (PlayerEntity && PlayerEntity->Mesh && !Character)
 	{
-		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(Level->GetPlayerCharacter());
-		if (!Cached || Cached->bLoading)
-		{
-			HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for the player character to load");
-			return;
-		}
-
-		HERTA_LOG_WARNING(*Log, EditorLog, "The player character is not a skinned model; playing as the capsule");
+		HERTA_LOG_WARNING(*Log, EditorLog, "{} has no skinned model; playing as the capsule", PlayerEntity->Name);
 	}
 
-	const FAssetId Weapon = Level->GetPlayerWeapon();
-	if (Weapon.IsValid() && !GameAssets->FindMesh(Weapon))
+	for (const FLevelEntity& Entity : VisualEntities)
 	{
-		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(Weapon);
-		if (!Cached || Cached->bLoading)
+		const FAssetId Weapon = Entity.Character ? Entity.Character->Weapon : FAssetId{};
+		const FPreviewMeshSlot* const Cached = Weapon.IsValid() && !GameAssets->FindMesh(Weapon) ? Assets->GetCachedAsset(Weapon) : nullptr;
+		if (Weapon.IsValid() && !GameAssets->FindMesh(Weapon) && (!Cached || Cached->bLoading))
 		{
-			HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for the player weapon to load");
+			HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for {}'s weapon to load", Entity.Name);
 			return;
 		}
-
-		HERTA_LOG_WARNING(*Log, EditorLog, "The player weapon did not load; the guards and player hold the plain sword");
 	}
 
 	if (AreLevelSoundsLoading())
 	{
-		HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for the level's sounds to load");
+		HERTA_LOG_WARNING(*Log, EditorLog, "Play waits for the level's sounds and effects to load");
 		return;
 	}
 
 	auto Session = FGameSession::Create(VisualEntities, *GameAssets, GraphicsDevice, {}, Tasks, std::move(Character));
-	if (Session)
-	{
-		(*Session)->SetWeaponMesh(Weapon.IsValid() ? GameAssets->FindMesh(Weapon) : nullptr);
-	}
-
 	if (!Session)
 	{
 		HERTA_LOG_ERROR(*Log, EditorLog, "Could not start play: {}", Session.error().Message);
 		return;
 	}
 
-	(*Session)->SetLevelSounds(Level->GetSounds());
-	(*Session)->SetLevelEffects(Level->GetEffects());
 	for (const FAssetId& System : (*Session)->GetParticleSystems())
 	{
 		const FPreviewMeshSlot* const Slot = Assets->GetCachedAsset(System);

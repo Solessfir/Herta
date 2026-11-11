@@ -169,12 +169,8 @@ public:
 	// Requests made before the first scan finishes wait for it. An invalid asset clears the mesh component.
 	void RequestMesh(std::size_t Object, const FAssetId& Asset);
 	void RequestMaterial(const FAssetId& Asset);
-	// Keeps the level's player character loaded so Play can start without waiting for it. An invalid asset releases it.
-	void RequestPlayerCharacter(const FAssetId& Asset);
-	// Keeps the level's weapon model loaded for Play.
-	void RequestPlayerWeapon(const FAssetId& Asset);
-	// Null until the character has loaded, or when the asset is not a skinned model.
-	std::shared_ptr<const FCookedModel> GetPlayerCharacter() const noexcept;
+	// Keeps the models the level's Characters hold loaded, so Play can start without waiting for them. Called every frame.
+	void SetWeaponAssets(std::span<const FAssetId> Assets);
 	void SetMaterialAssets(std::span<const FAssetId> Assets);
 	std::shared_ptr<const FRenderMaterial> GetMaterial(const FAssetId& Asset) const noexcept;
 	const FMaterialAsset* GetMaterialSource(const FAssetId& Asset) const noexcept;
@@ -290,8 +286,7 @@ private:
 	FEditorAssetThumbnailRenderer RenderThumbnail;
 	FEditorMaterialThumbnailRenderer RenderMaterialThumbnail;
 	FAssetId MaterialPreviewMeshAsset{};
-	FAssetId PlayerCharacterAsset{};
-	FAssetId PlayerWeaponAsset{};
+	std::set<FAssetId> WeaponAssets;
 	std::uint64_t MaterialShaderGeneration = 0;
 	bool bThumbnailRequestsChanged = false;
 	std::uint64_t RequestGeneration = 0;

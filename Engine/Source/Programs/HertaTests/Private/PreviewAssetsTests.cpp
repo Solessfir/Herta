@@ -1715,25 +1715,32 @@ TEST_CASE("The player character loads when requested before the first content sc
 
 	auto Assets = Fixture.CreateAssets();
 	REQUIRE(Assets);
-	Assets->RequestPlayerCharacter(CharacterId);
+	const std::array Held{CharacterId};
+	Assets->SetWeaponAssets(Held);
+	const auto Loaded = [&]
+	{
+		const FPreviewMeshSlot* const Cached = Assets->GetCachedAsset(CharacterId);
+		return Cached ? Cached->SkinnedModel : nullptr;
+	};
+
 	// Cooking runs in the worker process, so wait on time rather than a frame count.
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
-	while (!Assets->GetPlayerCharacter() && std::chrono::steady_clock::now() < Deadline)
+	while (!Loaded() && std::chrono::steady_clock::now() < Deadline)
 	{
 		Fixture.Tasks->RunUntilIdle();
-		Assets->RequestPlayerCharacter(CharacterId);
+		Assets->SetWeaponAssets(Held);
 		Assets->Tick();
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 
-	const auto Character = Assets->GetPlayerCharacter();
+	const auto Character = Loaded();
 	const FPreviewMeshSlot* const Slot = Assets->GetCachedAsset(CharacterId);
 	REQUIRE_MESSAGE(Character, (Slot ? std::format("label {}, generation {}, loading {}, mesh {}, error '{}'", Slot->Label, Slot->Generation, Slot->bLoading, Slot->Mesh != nullptr, Slot->Error) : std::string("not cached")));
 	CHECK(Character->Skeleton.has_value());
 	CHECK(Character->Influences.size() == Character->Vertices.size());
 
 	// Clearing the request releases it.
-	Assets->RequestPlayerCharacter({});
-	CHECK_FALSE(Assets->GetPlayerCharacter());
+	Assets->SetWeaponAssets({});
+	CHECK_FALSE(Loaded());
 }
 }

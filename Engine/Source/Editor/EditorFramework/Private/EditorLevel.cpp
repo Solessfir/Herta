@@ -503,10 +503,6 @@ std::expected<void, FLevelError> FEditorLevel::LoadDocument(FLevelDocument Docum
 	Folders = std::move(Document.Folders);
 	CameraBookmarks = std::move(Document.CameraBookmarks);
 	ExposureCompensation = Document.ExposureCompensation;
-	PlayerCharacter = Document.PlayerCharacter;
-	PlayerWeapon = Document.PlayerWeapon;
-	Sounds = Document.Sounds;
-	Effects = Document.Effects;
 	Regions = Document.Regions;
 	CurrentPath = Path;
 	RebuildObjects();
@@ -694,7 +690,7 @@ std::expected<void, FLevelError> FEditorLevel::Save(const std::filesystem::path&
 		return std::unexpected(FLevelError{"No level path is set; use level.save <path>"});
 	}
 
-	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation, .PlayerCharacter = PlayerCharacter, .PlayerWeapon = PlayerWeapon, .Sounds = Sounds, .Effects = Effects, .Regions = Regions}); !Result)
+	if (auto Result = SaveLevel(Target, {.Id = Id, .Name = Name, .Entities = World.SnapshotEntities(), .Folders = Folders, .CameraBookmarks = CameraBookmarks, .ExposureCompensation = ExposureCompensation, .Regions = Regions}); !Result)
 	{
 		return Result;
 	}
@@ -1175,122 +1171,6 @@ std::expected<void, FLevelError> FEditorLevel::SetExposureCompensation(const flo
 	return {};
 }
 
-const FAssetId& FEditorLevel::GetPlayerCharacter() const
-{
-	return PlayerCharacter;
-}
-
-std::expected<void, FLevelError> FEditorLevel::SetPlayerCharacter(const FAssetId& Character)
-{
-	if (auto Result = CheckAuthoringAllowed(); !Result)
-	{
-		return Result;
-	}
-
-	if (Character == PlayerCharacter)
-	{
-		return {};
-	}
-
-	const auto Executed = History.Execute({
-	    .Label = "Change player character",
-	    .Apply = [this, Before = PlayerCharacter, Character](const bool bUndo) -> std::expected<void, FEditorCommandError>
-	{
-		PlayerCharacter = bUndo ? Before : Character;
-		return {};
-	},
-	    .MemoryCost = sizeof(FAssetId) * 2,
-	});
-
-	if (!Executed)
-	{
-		return std::unexpected(FLevelError{Executed.error().Message});
-	}
-
-	return {};
-}
-
-const FAssetId& FEditorLevel::GetPlayerWeapon() const
-{
-	return PlayerWeapon;
-}
-
-std::expected<void, FLevelError> FEditorLevel::SetPlayerWeapon(const FAssetId& Weapon)
-{
-	if (auto Result = CheckAuthoringAllowed(); !Result)
-	{
-		return Result;
-	}
-
-	if (Weapon == PlayerWeapon)
-	{
-		return {};
-	}
-
-	const auto Executed = History.Execute({
-	    .Label = "Change player weapon",
-	    .Apply = [this, Before = PlayerWeapon, Weapon](const bool bUndo) -> std::expected<void, FEditorCommandError>
-	{
-		PlayerWeapon = bUndo ? Before : Weapon;
-		return {};
-	},
-	    .MemoryCost = sizeof(FAssetId) * 2,
-	});
-
-	if (!Executed)
-	{
-		return std::unexpected(FLevelError{Executed.error().Message});
-	}
-
-	return {};
-}
-
-const FLevelSounds& FEditorLevel::GetSounds() const
-{
-	return Sounds;
-}
-
-std::expected<void, FLevelError> FEditorLevel::SetSound(const ELevelSound Cue, const FAssetId& Sound)
-{
-	if (auto Result = CheckAuthoringAllowed(); !Result)
-	{
-		return Result;
-	}
-
-	const auto Index = static_cast<std::size_t>(Cue);
-	if (Index >= Sounds.size())
-	{
-		return std::unexpected(FLevelError{"Unknown level sound"});
-	}
-
-	if (Sounds[Index] == Sound)
-	{
-		return {};
-	}
-
-	const auto Executed = History.Execute({
-	    .Label = std::format("Change {} sound", LevelSoundCues[Index].Label),
-	    .Apply = [this, Index, Before = Sounds[Index], Sound](const bool bUndo) -> std::expected<void, FEditorCommandError>
-	{
-		Sounds[Index] = bUndo ? Before : Sound;
-		return {};
-	},
-	    .MemoryCost = sizeof(FAssetId) * 2,
-	});
-
-	if (!Executed)
-	{
-		return std::unexpected(FLevelError{Executed.error().Message});
-	}
-
-	return {};
-}
-
-const FLevelEffects& FEditorLevel::GetEffects() const
-{
-	return Effects;
-}
-
 std::span<const FLevelRegion> FEditorLevel::GetRegions() const
 {
 	return Regions;
@@ -1322,42 +1202,6 @@ std::expected<void, FLevelError> FEditorLevel::SetRegions(const std::string_view
 		return {};
 	},
 	    .MemoryCost = MemoryCost,
-	});
-
-	if (!Executed)
-	{
-		return std::unexpected(FLevelError{Executed.error().Message});
-	}
-
-	return {};
-}
-
-std::expected<void, FLevelError> FEditorLevel::SetEffect(const ELevelEffect Cue, const FAssetId& System)
-{
-	if (auto Result = CheckAuthoringAllowed(); !Result)
-	{
-		return Result;
-	}
-
-	const auto Index = static_cast<std::size_t>(Cue);
-	if (Index >= Effects.size())
-	{
-		return std::unexpected(FLevelError{"Unknown level effect"});
-	}
-
-	if (Effects[Index] == System)
-	{
-		return {};
-	}
-
-	const auto Executed = History.Execute({
-	    .Label = std::format("Change {} effect", LevelEffectCues[Index].Label),
-	    .Apply = [this, Index, Before = Effects[Index], System](const bool bUndo) -> std::expected<void, FEditorCommandError>
-	{
-		Effects[Index] = bUndo ? Before : System;
-		return {};
-	},
-	    .MemoryCost = sizeof(FAssetId) * 2,
 	});
 
 	if (!Executed)
@@ -2123,6 +1967,46 @@ std::expected<void, FLevelError> FEditorLevel::AddCharacterToSelected()
 std::expected<void, FLevelError> FEditorLevel::SetSelectedCharacter(const std::optional<FCharacterComponent> Character)
 {
 	return ApplySelectedComponent(&FLevelEntity::Character, Character, Character ? "Edit character" : "Remove character");
+}
+
+std::expected<void, FLevelError> FEditorLevel::AddPlayerToSelected()
+{
+	if (auto Result = CheckAuthoringAllowed(true); !Result)
+	{
+		return Result;
+	}
+
+	if (auto Result = CommitEdits(); !Result)
+	{
+		return Result;
+	}
+
+	std::vector<FLevelEntityChange> Changes;
+	for (const FObjectId Object : Selection)
+	{
+		const auto Found = FindLevelEntity(World, Object);
+		if (!Found)
+		{
+			return std::unexpected(FLevelError{"A selected entity no longer exists"});
+		}
+
+		if (Found->Player)
+		{
+			continue;
+		}
+
+		FLevelEntity After = *Found;
+		After.Character = After.Character ? After.Character : std::optional{FCharacterComponent{}};
+		After.Player = FPlayerComponent{};
+		Changes.push_back({.Before = *Found, .After = std::move(After)});
+	}
+
+	return ApplyStructuralChanges("Add player", Changes, Selection, ActiveObject);
+}
+
+std::expected<void, FLevelError> FEditorLevel::SetSelectedPlayer(const std::optional<FPlayerComponent> Player)
+{
+	return ApplySelectedComponent(&FLevelEntity::Player, Player, Player ? "Edit player" : "Remove player");
 }
 
 std::expected<void, FLevelError> FEditorLevel::AddAudioEmitterToSelected()

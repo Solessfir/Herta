@@ -13,11 +13,6 @@ namespace
 }
 }
 
-void FGameAudio::SetSounds(const FLevelSounds& InSounds)
-{
-	Sounds = InSounds;
-}
-
 FAudioVoiceId FGameAudio::NextVoice()
 {
 	return {++Voices};
@@ -29,7 +24,7 @@ void FGameAudio::Start(const std::span<const FLevelEntity> Entities, const std::
 	Voices = 0;
 	Emitters.clear();
 	EmitterEntities.clear();
-	Loops.fill(std::nullopt);
+	Loops.clear();
 	Listener.reset();
 	for (std::size_t Index = 0; Index < Entities.size() && Index < World.size(); ++Index)
 	{
@@ -56,37 +51,35 @@ void FGameAudio::Start(const std::span<const FLevelEntity> Entities, const std::
 	}
 }
 
-void FGameAudio::Play(const ELevelSound Cue, const FVector3& Position, std::vector<FAudioParameterValue> Parameters)
+void FGameAudio::Play(const FAssetId& Sound, const FVector3& Position, std::vector<FAudioParameterValue> Parameters)
 {
-	const FAssetId& Sound = Sounds[static_cast<std::size_t>(Cue)];
 	if (Sound.IsValid())
 	{
 		Commands.push_back(FAudioPlayCommand{.Sound = Sound, .bSpatial = true, .Position = Position, .Parameters = std::move(Parameters)});
 	}
 }
 
-void FGameAudio::PlayFlat(const ELevelSound Cue, std::vector<FAudioParameterValue> Parameters)
+void FGameAudio::PlayFlat(const FAssetId& Sound, std::vector<FAudioParameterValue> Parameters)
 {
-	const FAssetId& Sound = Sounds[static_cast<std::size_t>(Cue)];
 	if (Sound.IsValid())
 	{
 		Commands.push_back(FAudioPlayCommand{.Sound = Sound, .Parameters = std::move(Parameters)});
 	}
 }
 
-void FGameAudio::SetLoop(const ELevelSound Cue, const bool bOn, const FVector3& Position)
+void FGameAudio::SetLoop(const FAssetId& Sound, const bool bOn, const FVector3& Position)
 {
-	std::optional<FLoop>& Loop = Loops[static_cast<std::size_t>(Cue)];
-	const FAssetId& Sound = Sounds[static_cast<std::size_t>(Cue)];
+	const auto Found = std::ranges::find(Loops, Sound, &FLoop::Sound);
+	FLoop* Loop = Found != Loops.end() ? &*Found : nullptr;
 	if (bOn && !Loop && Sound.IsValid())
 	{
-		Loop = FLoop{.Voice = NextVoice(), .Position = Position};
+		Loop = &Loops.emplace_back(FLoop{.Sound = Sound, .Voice = NextVoice(), .Position = Position});
 		Commands.push_back(FAudioPlayCommand{.Voice = Loop->Voice, .Sound = Sound, .bSpatial = true, .Position = Position});
 	}
 	else if (!bOn && Loop)
 	{
 		Commands.push_back(FAudioStopCommand{.Voice = Loop->Voice, .FadeSeconds = 0.15f});
-		Loop.reset();
+		Loops.erase(Found);
 	}
 	else if (Loop && (Position - Loop->Position).LengthSquared() > 0.0001f)
 	{
@@ -130,27 +123,7 @@ std::vector<FAudioCommand> FGameAudio::TakeCommands()
 
 std::vector<FAssetId> FGameAudio::GetSounds(const std::span<const FLevelEntity> Entities) const
 {
-	std::vector<FAssetId> Result;
-	for (const FAssetId& Sound : Sounds)
-	{
-		if (Sound.IsValid())
-		{
-			Result.push_back(Sound);
-		}
-	}
-
-	for (const FLevelEntity& Entity : Entities)
-	{
-		if (Entity.AudioEmitter && Entity.AudioEmitter->Sound.IsValid())
-		{
-			Result.push_back(Entity.AudioEmitter->Sound);
-		}
-	}
-
-	std::ranges::sort(Result);
-	const auto Duplicates = std::ranges::unique(Result);
-	Result.erase(Duplicates.begin(), Duplicates.end());
-	return Result;
+	return GetLevelAssetReferences(Entities, ELevelAssetKind::Sound);
 }
 
 std::span<const std::size_t> FGameAudio::GetEmitterEntities() const noexcept

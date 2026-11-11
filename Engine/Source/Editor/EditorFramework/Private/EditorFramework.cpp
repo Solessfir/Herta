@@ -533,8 +533,16 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		{
 			HERTA_LOG_WARNING(*Implementation->Log, EditorLog, "Wait for the project to finish loading before importing files");
 		}
-		Implementation->Assets->RequestPlayerCharacter(Implementation->Level ? Implementation->Level->GetPlayerCharacter() : FAssetId{});
-		Implementation->Assets->RequestPlayerWeapon(Implementation->Level ? Implementation->Level->GetPlayerWeapon() : FAssetId{});
+		std::vector<FAssetId> Weapons;
+		for (const FLevelEntity& Entity : Implementation->VisualEntities)
+		{
+			if (Entity.Character && Entity.Character->Weapon.IsValid())
+			{
+				Weapons.push_back(Entity.Character->Weapon);
+			}
+		}
+
+		Implementation->Assets->SetWeaponAssets(Weapons);
 		Implementation->Assets->Tick();
 	}
 
@@ -690,6 +698,14 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 
 		ToolUIMenuItem("Performance", EToolUIMenuIcon::Performance, &Implementation->bPerformanceOpen);
+		ToolUIMenuItem("World Settings", EToolUIMenuIcon::World, &Implementation->bWorldSettingsOpen);
+		ImGui::BeginDisabled(Implementation->FindPlayerEntity() == nullptr);
+		if (ToolUIMenuItem("Player Animation Graph", EToolUIMenuIcon::Open))
+		{
+			Implementation->OpenPlayerAnimationGraph();
+		}
+
+		ImGui::EndDisabled();
 		ToolUIMenuItem("Localization", EToolUIMenuIcon::Details, &Implementation->bLocalizationOpen);
 		ToolUIMenuItem("Plugins", EToolUIMenuIcon::Panel, &Implementation->bPluginsOpen);
 		Implementation->Plugins->DrawWindowMenuItems();
@@ -1203,6 +1219,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::SetWindowFocus(("###" + Focus).c_str());
 	}
 	Implementation->DrawPerformancePanel();
+	Implementation->DrawWorldSettingsPanel();
 	Implementation->DrawLocalizationPanel();
 	Implementation->Plugins->DrawManager(*Implementation->ToolUI, Implementation->bPluginsOpen);
 	Implementation->Plugins->DrawPanels(*Implementation->ToolUI);

@@ -51,7 +51,7 @@ make --directory=Intermediate/ProjectFiles/gmake --jobs=2 config=development Her
 - [Engine design](Docs/EngineDesign.md) - architecture and roadmap.
 - [Game runtime](Docs/Game.md) - HertaGame, editor Play, staging, and packaging.
 - [Physics](Docs/Physics.md) and [Animation](Docs/Animation.md) - determinism, collision, destruction, skinned characters, and state machines.
-- [Audio](Docs/Audio.md) - the mixer, streaming, Audio Graphs, and level sounds.
+- [Audio](Docs/Audio.md) - the mixer, streaming, Audio Graphs, and component sounds.
 - [Particles](Docs/Particles.md) and [World streaming](Docs/WorldStreaming.md) - VFX Graphs, the particle runtime, and streamed level regions.
 - [Navigation](Docs/Navigation.md) and [AI](Docs/AI.md) - tiled navmesh with streamed patches and obstacles, the crowd, StateTrees, perception, and agents.
 - [Multiplayer](Docs/Multiplayer.md) - dedicated and listen servers, snapshots, prediction, and rollback over GameNetworkingSockets.

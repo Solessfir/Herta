@@ -1,35 +1,47 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 20,
+  "engineSchemaVersion": 21,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101f0",
   "name": "Sandbox Visuals",
   "exposureCompensation": 0,
-  "playerCharacter": "c7b6f115-ec90-463e-a72f-9407cd6851e6",
-  "playerWeapon": null,
-  "sounds": {
-    "footstep": null,
-    "land": null,
-    "jump": null,
-    "slide": null,
-    "impact": null,
-    "swing": null,
-    "slice": null,
-    "sever": null,
-    "objective": null,
-    "deflect": null,
-    "block": null
-  },
-  "effects": {
-    "impact": null,
-    "break": null,
-    "land": null,
-    "slice": null,
-    "sever": null,
-    "sparks": null,
-    "trail": null
-  },
   "entities": [
+    {
+      "id": "10930c73-2e20-2e60-d276-efbe516d77c1",
+      "name": "Player",
+      "parent": null,
+      "transform": {
+        "translation": [0, 1, 0],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25,
+          "weapon": null,
+          "footstepSound": null,
+          "landSound": null,
+          "jumpSound": null,
+          "slideSound": null,
+          "swingSound": null,
+          "hitSound": null,
+          "sliceSound": null,
+          "severSound": null,
+          "deflectSound": null,
+          "blockSound": null,
+          "landEffect": null,
+          "sliceEffect": null,
+          "severEffect": null,
+          "sparksEffect": null,
+          "trailEffect": null
+        },
+        "player": {
+          "thirdPerson": true
+        }
+      }
+    },
     {
       "id": "21935c1f-4f59-4b12-9a13-9dca302101e1",
       "name": "Drop cube - 1 kg",
@@ -49,7 +61,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -72,7 +86,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -95,7 +111,9 @@
           "linearDamping": 0,
           "angularDamping": 0,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -118,7 +136,9 @@
           "linearDamping": 0,
           "angularDamping": 0,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -141,7 +161,9 @@
           "linearDamping": 0,
           "angularDamping": 0,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -164,7 +186,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -187,7 +211,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 0,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -210,7 +236,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 0.35,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -233,7 +261,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -256,7 +286,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -279,7 +311,9 @@
           "linearDamping": 0,
           "angularDamping": 0,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -302,7 +336,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -325,7 +361,9 @@
           "linearDamping": 0,
           "angularDamping": 0,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -348,7 +386,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -371,7 +411,9 @@
           "linearDamping": 0,
           "angularDamping": 0,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -394,7 +436,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -417,7 +461,9 @@
           "linearDamping": 1,
           "angularDamping": 1,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -440,7 +486,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -463,7 +511,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -486,7 +536,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -509,7 +561,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -532,7 +586,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -555,7 +611,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -589,7 +647,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -612,7 +672,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -635,7 +697,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -669,7 +733,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -716,7 +782,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -739,7 +807,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -762,7 +832,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -785,7 +857,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -808,7 +882,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -831,7 +907,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -854,7 +932,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -877,7 +957,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -900,7 +982,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -923,7 +1007,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -946,7 +1032,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -969,7 +1057,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -992,7 +1082,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1015,7 +1107,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1038,7 +1132,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1061,7 +1157,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1084,7 +1182,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1107,7 +1207,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1130,7 +1232,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1153,7 +1257,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1283,7 +1389,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1306,7 +1414,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1329,7 +1439,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1352,7 +1464,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1375,7 +1489,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1398,7 +1514,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1421,7 +1539,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1444,7 +1564,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1467,7 +1589,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1490,7 +1614,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1513,7 +1639,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1536,7 +1664,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1559,7 +1689,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1582,7 +1714,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1605,7 +1739,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1628,7 +1764,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1651,7 +1789,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1674,7 +1814,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1697,7 +1839,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1720,7 +1864,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1743,7 +1889,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1766,7 +1914,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1789,7 +1939,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1812,7 +1964,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1835,7 +1989,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1858,7 +2014,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1881,7 +2039,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1904,7 +2064,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1927,7 +2089,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1950,7 +2114,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1973,7 +2139,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -1996,7 +2164,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2019,7 +2189,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2042,7 +2214,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2065,7 +2239,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2088,7 +2264,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2111,7 +2289,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2134,7 +2314,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2157,7 +2339,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2180,7 +2364,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2203,7 +2389,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2226,7 +2414,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2249,7 +2439,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2272,7 +2464,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2295,7 +2489,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2318,7 +2514,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2341,7 +2539,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2364,7 +2564,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2387,7 +2589,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2410,7 +2614,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2433,7 +2639,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2456,7 +2664,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2479,7 +2689,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2502,7 +2714,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2525,7 +2739,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2548,7 +2764,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2571,7 +2789,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2594,7 +2814,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2617,7 +2839,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2640,7 +2864,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2663,7 +2889,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2686,7 +2914,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2709,7 +2939,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2732,7 +2964,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2755,7 +2989,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2778,7 +3014,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2801,7 +3039,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2824,7 +3064,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2847,7 +3089,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2870,7 +3114,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2893,7 +3139,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2916,7 +3164,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2939,7 +3189,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -2994,7 +3246,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3049,7 +3303,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3104,7 +3360,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3127,7 +3385,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3150,7 +3410,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3173,7 +3435,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3196,7 +3460,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3219,7 +3485,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3242,7 +3510,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3265,7 +3535,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3288,7 +3560,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3311,7 +3585,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3334,7 +3610,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3357,7 +3635,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3380,7 +3660,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3403,7 +3685,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3426,7 +3710,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3449,7 +3735,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3472,7 +3760,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3495,7 +3785,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3518,7 +3810,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3626,7 +3920,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         },
         "constraint": {
           "target": "4c060047-2738-4e25-9b9e-000000000001",
@@ -3653,7 +3949,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3687,7 +3985,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3710,7 +4010,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3733,7 +4035,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3756,7 +4060,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3779,7 +4085,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3802,7 +4110,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3825,7 +4135,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3848,7 +4160,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3871,7 +4185,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3894,7 +4210,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3917,7 +4235,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3940,7 +4260,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3963,7 +4285,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -3986,7 +4310,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4009,7 +4335,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4032,7 +4360,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4055,7 +4385,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4078,7 +4410,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4101,7 +4435,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4124,7 +4460,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4147,7 +4485,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4170,7 +4510,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4193,7 +4535,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4216,7 +4560,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4239,7 +4585,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4262,7 +4610,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4285,7 +4635,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4308,7 +4660,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4331,7 +4685,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4354,7 +4710,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4377,7 +4735,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4400,7 +4760,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4423,7 +4785,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4446,7 +4810,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4469,7 +4835,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4492,7 +4860,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "sphere"
+          "collision": "sphere",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     },
@@ -4515,7 +4885,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "capsule"
+          "collision": "capsule",
+          "impactSound": null,
+          "impactEffect": null
         }
       }
     }

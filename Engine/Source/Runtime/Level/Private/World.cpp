@@ -228,6 +228,11 @@ std::expected<void, FLevelError> ValidateEntityProperties(const FLevelEntity& En
 		}
 	}
 
+	if (Entity.Player && !Entity.Character)
+	{
+		return std::unexpected(FLevelError{"A Player needs a Character, which holds its weapon, sounds, and effects"});
+	}
+
 	if (Entity.AudioEmitter)
 	{
 		const auto Valid = ValidateAudioEmitterComponent(*Entity.AudioEmitter);
@@ -689,6 +694,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	const FConstraintComponent* Constraint = Registry.try_get<FConstraintComponent>(Entity);
 	const FDestructibleComponent* Destructible = Registry.try_get<FDestructibleComponent>(Entity);
 	const FCharacterComponent* Character = Registry.try_get<FCharacterComponent>(Entity);
+	const FPlayerComponent* Player = Registry.try_get<FPlayerComponent>(Entity);
 	const FAudioEmitterComponent* AudioEmitter = Registry.try_get<FAudioEmitterComponent>(Entity);
 	const FAudioListenerComponent* AudioListener = Registry.try_get<FAudioListenerComponent>(Entity);
 	const FParticleEmitterComponent* ParticleEmitter = Registry.try_get<FParticleEmitterComponent>(Entity);
@@ -713,6 +719,7 @@ FLevelEntity FWorld::FImplementation::Snapshot(const entt::entity Entity) const
 	    .Constraint = Constraint ? std::optional{*Constraint} : std::nullopt,
 	    .Destructible = Destructible ? std::optional{*Destructible} : std::nullopt,
 	    .Character = Character ? std::optional{*Character} : std::nullopt,
+	    .Player = Player ? std::optional{*Player} : std::nullopt,
 	    .AudioEmitter = AudioEmitter ? std::optional{*AudioEmitter} : std::nullopt,
 	    .AudioListener = AudioListener ? std::optional{*AudioListener} : std::nullopt,
 	    .ParticleEmitter = ParticleEmitter ? std::optional{*ParticleEmitter} : std::nullopt,
@@ -802,6 +809,15 @@ void FWorld::FImplementation::Assign(const entt::entity Entity, const FLevelEnti
 	else
 	{
 		Registry.remove<FCharacterComponent>(Entity);
+	}
+
+	if (Snapshot.Player)
+	{
+		Registry.emplace_or_replace<FPlayerComponent>(Entity, *Snapshot.Player);
+	}
+	else
+	{
+		Registry.remove<FPlayerComponent>(Entity);
 	}
 
 	if (Snapshot.AudioEmitter)

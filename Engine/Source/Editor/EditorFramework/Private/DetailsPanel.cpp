@@ -172,8 +172,8 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		const bool bCancel = ImGui::IsKeyPressed(ImGuiKey_Escape, ImGuiInputFlags_None, Owner);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const bool bSearchChanged = ToolUI.DrawSearchField("##ComponentSearch", "Search components", State.ComponentSearch.data(), State.ComponentSearch.size());
-		const std::array<std::string_view, 22> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Mover", "Trigger", "Constraint", "Destructible", "Character", "Audio Emitter", "Audio Listener", "Particle Emitter", "Navigation Bounds", "Navigation Obstacle", "AI Agent", "Gameplay Graph"};
-		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody, Components.bAllMover, Components.bAllTrigger, Components.bAllConstraint, Components.bAllDestructible, Components.bAllCharacter, Components.bAllAudioEmitter, Components.bAllAudioListener, Components.bAllParticleEmitter, Components.bAllNavigationBounds, Components.bAllNavigationObstacle, Components.bAllAiAgent, Components.bAllGameplayGraph};
+		const std::array<std::string_view, 23> Names{"Static Mesh", "Rigid Body", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Mover", "Trigger", "Constraint", "Destructible", "Character", "Audio Emitter", "Audio Listener", "Particle Emitter", "Navigation Bounds", "Navigation Obstacle", "AI Agent", "Gameplay Graph", "Player"};
+		const std::array Added{Components.bAllMesh, Components.bAllBody, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllLight, Components.bAllSkyAtmosphere, Components.bAllHeightFog, Components.bAllSoftBody, Components.bAllMover, Components.bAllTrigger, Components.bAllConstraint, Components.bAllDestructible, Components.bAllCharacter, Components.bAllAudioEmitter, Components.bAllAudioListener, Components.bAllParticleEmitter, Components.bAllNavigationBounds, Components.bAllNavigationObstacle, Components.bAllAiAgent, Components.bAllGameplayGraph, Components.bAllPlayer};
 		constexpr std::array Actions{
 		    EDetailsComponentAction::AddStaticMesh,
 		    EDetailsComponentAction::AddRigidBody,
@@ -197,6 +197,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 		    EDetailsComponentAction::AddNavigationObstacle,
 		    EDetailsComponentAction::AddAiAgent,
 		    EDetailsComponentAction::AddGameplayGraph,
+		    EDetailsComponentAction::AddPlayer,
 		};
 		const auto Matches = SearchAssets(Names, State.ComponentSearch.data());
 		std::vector<int> Available;
@@ -236,10 +237,11 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 			ImDrawListSplitter Layers;
 			Layers.Split(Draw, 2);
 			Layers.SetCurrentChannel(Draw, 1);
-			const EToolUIMenuIcon Icon = Index == 0 ? EToolUIMenuIcon::Cube : Index == 1 ? EToolUIMenuIcon::Physics
-			                                                              : Index == 7   ? EToolUIMenuIcon::SkyAtmosphere
-			                                                              : Index == 8   ? EToolUIMenuIcon::Fog
-			                                                                             : EToolUIMenuIcon::Light;
+			const EToolUIMenuIcon Icon = Index == 0 ? EToolUIMenuIcon::Cube : Index == 1             ? EToolUIMenuIcon::Physics
+			                                                              : Index == 7               ? EToolUIMenuIcon::SkyAtmosphere
+			                                                              : Index == 8               ? EToolUIMenuIcon::Fog
+			                                                              : Index >= 2 && Index <= 6 ? EToolUIMenuIcon::Light
+			                                                                                         : EToolUIMenuIcon::Entity;
 			const bool bPressed = ToolUIMenuItem(Names[Index], Icon, nullptr, Added[Index] ? "Added" : nullptr);
 			const ImVec2 Minimum = ImGui::GetItemRectMin();
 			const ImVec2 Maximum = ImGui::GetItemRectMax();
@@ -681,6 +683,7 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 		ImGui::TableSetupColumn("##Value", ImGuiTableColumnFlags_WidthStretch);
 		ImGui::TableSetupColumn("##Reset", ImGuiTableColumnFlags_WidthFixed, 22.f * Scale);
 
+		std::string_view Group;
 		for (std::size_t Index = 0; Index < Descriptor.Properties.size(); ++Index)
 		{
 			const auto& Property = Descriptor.Properties[Index];
@@ -706,6 +709,17 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 				continue;
 			}
 
+			if (!Property.Group.empty() && Property.Group != Group)
+			{
+				Group = Property.Group;
+				ImGui::TableNextRow();
+				ImGui::TableSetColumnIndex(0);
+				ImGui::Dummy({1.f, 4.f * Scale});
+				ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+				ImGui::TextUnformatted(Group.data(), Group.data() + Group.size());
+				ImGui::PopStyleColor();
+			}
+
 			FLevelPropertyValue Candidate = *Previous;
 			FLevelPropertyValue Default = Property.Default;
 			if (Type == ELevelComponentType::Light && Property.Key == "intensity")
@@ -726,20 +740,18 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			ImGui::SetItemTooltip("%.*s", static_cast<int>(DisplayLabel.size()), DisplayLabel.data());
 			ImGui::TableSetColumnIndex(1);
 			ImGui::SetNextItemWidth(-FLT_MIN);
-			const std::size_t StateIndex = Index + (Type == ELevelComponentType::Light ? 0 : Type == ELevelComponentType::SkyAtmosphere ? 17
-			                                                                             : Type == ELevelComponentType::HeightFog       ? 24
-			                                                                             : Type == ELevelComponentType::SoftBody        ? 32
-			                                                                             : Type == ELevelComponentType::Mover           ? 43
-			                                                                             : Type == ELevelComponentType::Destructible    ? 48
-			                                                                             : Type == ELevelComponentType::Character       ? 53
-			                                                                             : Type == ELevelComponentType::AudioEmitter    ? 55
-			                                                                             : Type == ELevelComponentType::AudioListener   ? 62
-			                                                                             : Type == ELevelComponentType::ParticleEmitter ? 63
-			                                                                             : Type == ELevelComponentType::NavigationBounds ? 66
-			                                                                             : Type == ELevelComponentType::NavigationObstacle ? 67
-			                                                                             : Type == ELevelComponentType::AiAgent ? 68
-			                                                                             : Type == ELevelComponentType::GameplayGraph ? 75
-			                                                                                                                            : 45);
+			std::size_t StateIndex = Index;
+			for (const FLevelComponentDescriptor& Before : GetLevelComponentDescriptors())
+			{
+				if (Before.Type == Type)
+				{
+					break;
+				}
+
+				StateIndex += Before.Properties.size();
+			}
+
+			StateIndex = std::min(StateIndex, State.VisualPropertyWasMixed.size() - 1);
 			const float Conversion = Property.Unit == ELevelPropertyUnit::Radians ? 180.f / std::numbers::pi_v<float> : 1.f;
 			float NumericValue = std::get_if<float>(&Candidate) ? std::get<float>(Candidate) * Conversion : 0.f;
 			FNumericEditLifecycle Edit{
@@ -899,35 +911,45 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			}
 			else if (Property.Type == ELevelPropertyType::AssetReference || Property.Type == ELevelPropertyType::ObjectReference)
 			{
-				// Atmospheres reference a sun and constraints a body or rope; soft bodies reference a material, Sky Lights an environment texture, and
-				// emitters a sound.
+				// Atmospheres reference a sun and constraints a body or rope; asset references offer the assets of their kind.
 				const bool bObject = Property.Type == ELevelPropertyType::ObjectReference;
-				const bool bSoftBody = Type == ELevelComponentType::SoftBody;
-				const bool bSound = Type == ELevelComponentType::AudioEmitter;
-				const bool bEffect = Type == ELevelComponentType::ParticleEmitter;
-				const bool bStateTree = Type == ELevelComponentType::AiAgent;
-				const bool bGameplay = Type == ELevelComponentType::GameplayGraph;
 				const bool bConstraint = Type == ELevelComponentType::Constraint;
-				const auto Labels = bObject ? (bConstraint ? Components.ConstraintTargetLabels : Components.SunLabels) : bSoftBody ? Components.MaterialOptionLabels
-				                                                                                                     : bSound    ? Components.SoundLabels
-				                                                                                                     : bEffect   ? Components.EffectLabels
-				                                                                                                     : bStateTree ? Components.StateTreeLabels
-				                                                                                                     : bGameplay  ? Components.GameplayGraphLabels
-				                                                                                                                 : Components.EnvironmentLabels;
+				const ELevelAssetKind Kind = Property.AssetKind;
+				const auto Labels = bObject ? (bConstraint ? Components.ConstraintTargetLabels : Components.SunLabels) : Kind == ELevelAssetKind::Material    ? Components.MaterialOptionLabels
+				                                                                                                     : Kind == ELevelAssetKind::Sound         ? Components.SoundLabels
+				                                                                                                     : Kind == ELevelAssetKind::Effect        ? Components.EffectLabels
+				                                                                                                     : Kind == ELevelAssetKind::StateTree     ? Components.StateTreeLabels
+				                                                                                                     : Kind == ELevelAssetKind::GameplayGraph ? Components.GameplayGraphLabels
+				                                                                                                     : Kind == ELevelAssetKind::Model         ? Components.ModelLabels
+				                                                                                                                                              : Components.EnvironmentLabels;
 				const std::span<const FObjectId> ObjectIds = bConstraint ? Components.ConstraintTargetIds : Components.SunIds;
-				const std::span<const FAssetId> AssetIds = bSoftBody ? Components.MaterialOptionIds : bSound ? Components.SoundIds : bEffect ? Components.EffectIds : bStateTree ? Components.StateTreeIds : bGameplay ? Components.GameplayGraphIds : Components.EnvironmentIds;
+				const std::span<const FAssetId> AssetIds = Kind == ELevelAssetKind::Material        ? Components.MaterialOptionIds
+				                                           : Kind == ELevelAssetKind::Sound         ? Components.SoundIds
+				                                           : Kind == ELevelAssetKind::Effect        ? Components.EffectIds
+				                                           : Kind == ELevelAssetKind::StateTree     ? Components.StateTreeIds
+				                                           : Kind == ELevelAssetKind::GameplayGraph ? Components.GameplayGraphIds
+				                                           : Kind == ELevelAssetKind::Model         ? Components.ModelIds
+				                                                                                    : Components.EnvironmentIds;
+				const bool bSoftBody = Kind == ELevelAssetKind::Material;
+				const bool bSound = Kind == ELevelAssetKind::Sound;
+				const bool bEffect = Kind == ELevelAssetKind::Effect;
+				const bool bStateTree = Kind == ELevelAssetKind::StateTree;
+				const bool bGameplay = Kind == ELevelAssetKind::GameplayGraph;
+				const bool bModel = Kind == ELevelAssetKind::Model;
 				const std::size_t Count = std::min(Labels.size(), bObject ? ObjectIds.size() : AssetIds.size());
-				const char* const NoneLabel = bObject ? (bConstraint ? "World" : "Automatic sun") : bSoftBody ? "Default material"
+				const char* const NoneLabel = bObject ? (bConstraint ? "World" : "Automatic sun") : bSoftBody                                  ? "Default material"
+				                                                                                : bModel                                       ? "Plain sword"
 				                                                                                : bSound || bEffect || bStateTree || bGameplay ? "None"
-				                                                                                                    : "Procedural sky";
+				                                                                                                                               : "Procedural sky";
 				const char* CurrentLabel = NoneLabel;
 				if (bObject ? std::get<FObjectId>(Candidate).IsValid() : std::get<FAssetId>(Candidate).IsValid())
 				{
 					CurrentLabel = bObject ? (bConstraint ? "Missing target (world)" : "Missing sun (automatic)") : bSoftBody ? "Missing material"
-					                                                                                              : bSound    ? "Missing sound"
-					                                                                                              : bEffect   ? "Missing particle system"
-					                                                                                              : bStateTree ? "Missing StateTree"
-					                                                                                              : bGameplay  ? "Missing gameplay graph"
+					                                                                                            : bSound      ? "Missing sound"
+					                                                                                            : bEffect     ? "Missing particle system"
+					                                                                                            : bStateTree  ? "Missing StateTree"
+					                                                                                            : bGameplay   ? "Missing gameplay graph"
+					                                                                                            : bModel      ? "Missing model"
 					                                                                                                          : "Missing environment";
 				}
 
@@ -950,11 +972,12 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
 					ToolUI.DrawSearchField("##ReferenceSearch", bObject ? (bConstraint ? "Search bodies and ropes" : "Search lights") : bSoftBody ? "Search materials"
-					                                                                                                         : bSound    ? "Search sounds"
-					                                                                                                         : bEffect   ? "Search particle systems"
-					                                                                                                         : bStateTree ? "Search StateTrees"
-					                                                                                                         : bGameplay  ? "Search gameplay graphs"
-					                                                                                                                     : "Search environments",
+					                                                                                                                : bSound      ? "Search sounds"
+					                                                                                                                : bEffect     ? "Search particle systems"
+					                                                                                                                : bStateTree  ? "Search StateTrees"
+					                                                                                                                : bGameplay   ? "Search gameplay graphs"
+					                                                                                                                : bModel      ? "Search models"
+					                                                                                                                              : "Search environments",
 					    State.VisualReferenceSearch.data(), State.VisualReferenceSearch.size());
 					ImGui::PopStyleColor();
 					std::vector<std::string_view> Candidates(Labels.begin(), Labels.begin() + static_cast<std::ptrdiff_t>(Count));
@@ -1276,6 +1299,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bConstraint = Components && Components->bAnyConstraint && MatchesVisualSection(ELevelComponentType::Constraint, Query);
 	const bool bDestructible = Components && Components->bAnyDestructible && MatchesVisualSection(ELevelComponentType::Destructible, Query);
 	const bool bCharacter = Components && Components->bAnyCharacter && MatchesVisualSection(ELevelComponentType::Character, Query);
+	const bool bPlayer = Components && Components->bAnyPlayer && MatchesVisualSection(ELevelComponentType::Player, Query);
 	const bool bAudioEmitter = Components && Components->bAnyAudioEmitter && MatchesVisualSection(ELevelComponentType::AudioEmitter, Query);
 	const bool bAudioListener = Components && Components->bAnyAudioListener && MatchesVisualSection(ELevelComponentType::AudioListener, Query);
 	const bool bParticleEmitter = Components && Components->bAnyParticleEmitter && MatchesVisualSection(ELevelComponentType::ParticleEmitter, Query);
@@ -1283,7 +1307,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bNavigationObstacle = Components && Components->bAnyNavigationObstacle && MatchesVisualSection(ELevelComponentType::NavigationObstacle, Query);
 	const bool bAiAgent = Components && Components->bAnyAiAgent && MatchesVisualSection(ELevelComponentType::AiAgent, Query);
 	const bool bGameplayGraph = Components && Components->bAnyGameplayGraph && MatchesVisualSection(ELevelComponentType::GameplayGraph, Query);
-	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody && !bMover && !bTrigger && !bConstraint && !bDestructible && !bCharacter && !bAudioEmitter && !bAudioListener && !bParticleEmitter && !bNavigationBounds && !bNavigationObstacle && !bAiAgent && !bGameplayGraph)
+	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody && !bMover && !bTrigger && !bConstraint && !bDestructible && !bCharacter && !bPlayer && !bAudioEmitter && !bAudioListener && !bParticleEmitter && !bNavigationBounds && !bNavigationObstacle && !bAiAgent && !bGameplayGraph)
 	{
 		ImGui::TextDisabled("No matching properties.");
 		ToolUI.EndPanel();
@@ -1725,11 +1749,18 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		}
 
 		ImGui::PopStyleVar(2);
+		if (Components->bAllBody && Components->BodyType)
+		{
+			FLevelEntity Struck{.BodyType = *Components->BodyType, .BodySettings = Components->BodySettings};
+			DrawVisualProperties(ToolUI, ELevelComponentType::RigidBody, Struck, Components->MixedBodyAssets, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->BodySettings.ImpactSound = Struck.BodySettings.ImpactSound;
+			Components->BodySettings.ImpactEffect = Struck.BodySettings.ImpactEffect;
+		}
 	}
 
 	if (Components)
 	{
-		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog, .SoftBody = Components->SoftBody, .Mover = Components->Mover, .Trigger = Components->Trigger, .Constraint = Components->Constraint, .Destructible = Components->Destructible, .Character = Components->Character, .AudioEmitter = Components->AudioEmitter, .AudioListener = Components->AudioListener, .ParticleEmitter = Components->ParticleEmitter, .NavigationBounds = Components->NavigationBounds, .NavigationObstacle = Components->NavigationObstacle, .AiAgent = Components->AiAgent, .GameplayGraph = Components->GameplayGraph};
+		FLevelEntity Visual{.Light = Components->Light, .SkyAtmosphere = Components->SkyAtmosphere, .HeightFog = Components->HeightFog, .SoftBody = Components->SoftBody, .Mover = Components->Mover, .Trigger = Components->Trigger, .Constraint = Components->Constraint, .Destructible = Components->Destructible, .Character = Components->Character, .Player = Components->Player, .AudioEmitter = Components->AudioEmitter, .AudioListener = Components->AudioListener, .ParticleEmitter = Components->ParticleEmitter, .NavigationBounds = Components->NavigationBounds, .NavigationObstacle = Components->NavigationObstacle, .AiAgent = Components->AiAgent, .GameplayGraph = Components->GameplayGraph};
 		constexpr std::array<std::string_view, 5> LightLabels{"Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light"};
 		if (bLight && DrawSectionHeader(LightLabels[static_cast<std::size_t>(Visual.Light->Type)].data(), !Components->bAllLight || Components->MixedLight[0], EDetailsComponentAction::RemoveLight))
 		{
@@ -1783,6 +1814,12 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		{
 			DrawVisualProperties(ToolUI, ELevelComponentType::Character, Visual, Components->MixedCharacter, State, *Components, Query, bDragging, Edits, MeshResult);
 			Components->Character = *Visual.Character;
+		}
+
+		if (bPlayer && DrawSectionHeader("Player", !Components->bAllPlayer, EDetailsComponentAction::RemovePlayer))
+		{
+			DrawVisualProperties(ToolUI, ELevelComponentType::Player, Visual, Components->MixedPlayer, State, *Components, Query, bDragging, Edits, MeshResult);
+			Components->Player = *Visual.Player;
 		}
 
 		if (bAudioEmitter && DrawSectionHeader("Audio Emitter", !Components->bAllAudioEmitter, EDetailsComponentAction::RemoveAudioEmitter))

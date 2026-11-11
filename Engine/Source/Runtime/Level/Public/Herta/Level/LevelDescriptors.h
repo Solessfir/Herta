@@ -7,6 +7,7 @@
 #include <span>
 #include <string_view>
 #include <variant>
+#include <vector>
 
 namespace Herta
 {
@@ -31,6 +32,7 @@ enum class ELevelComponentType : std::uint8_t
 	NavigationObstacle,
 	AiAgent,
 	GameplayGraph,
+	Player,
 };
 
 enum class ELevelPropertyType : std::uint8_t
@@ -72,6 +74,19 @@ struct FLevelPropertyRange
 	double Maximum = 0.;
 };
 
+// What an asset reference names, so editors offer the right assets.
+enum class ELevelAssetKind : std::uint8_t
+{
+	None,
+	Model,
+	Material,
+	Environment,
+	Sound,
+	Effect,
+	StateTree,
+	GameplayGraph,
+};
+
 struct FLevelPropertyDescriptor
 {
 	// Keys are serialized identity, independent of C++ member names and display labels.
@@ -82,6 +97,9 @@ struct FLevelPropertyDescriptor
 	FLevelPropertyValue Default = 0.f;
 	// Scalar component bounds. Unbounded transforms remain limited by their storage type.
 	std::optional<FLevelPropertyRange> Range{};
+	ELevelAssetKind AssetKind = ELevelAssetKind::None;
+	// The heading a property is shown under, such as "Sounds"; empty keeps it with the component's other properties.
+	std::string_view Group{};
 };
 
 struct FLevelComponentDescriptor
@@ -98,5 +116,7 @@ const FLevelComponentDescriptor& GetLevelComponentDescriptor(ELevelComponentType
 const FLevelComponentDescriptor* FindLevelComponentDescriptor(std::string_view TypeId);
 const FLevelPropertyDescriptor* FindLevelPropertyDescriptor(const FLevelComponentDescriptor& Component, std::string_view Key);
 std::optional<FLevelPropertyValue> GetLevelVisualProperty(const FLevelEntity& Entity, ELevelComponentType Type, std::string_view Key);
+// Every valid asset of Kind the entities' components reference, sorted and without repeats, for hosts to load before play.
+[[nodiscard]] std::vector<FAssetId> GetLevelAssetReferences(std::span<const FLevelEntity> Entities, ELevelAssetKind Kind);
 [[nodiscard]] std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, ELevelComponentType Type, std::string_view Key, const FLevelPropertyValue& Value);
 }

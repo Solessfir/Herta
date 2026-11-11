@@ -264,6 +264,21 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		{
 			return Visitor(Entity.Destructible->bAnchored);
 		}
+
+		if (Key == "impactSound")
+		{
+			return Visitor(Entity.Destructible->ImpactSound);
+		}
+
+		if (Key == "impactEffect")
+		{
+			return Visitor(Entity.Destructible->ImpactEffect);
+		}
+
+		if (Key == "breakEffect")
+		{
+			return Visitor(Entity.Destructible->BreakEffect);
+		}
 	}
 
 	if (Type == ELevelComponentType::Character && Entity.Character)
@@ -276,6 +291,104 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		if (Key == "severImpulse")
 		{
 			return Visitor(Entity.Character->SeverImpulse);
+		}
+
+		if (Key == "weapon")
+		{
+			return Visitor(Entity.Character->Weapon);
+		}
+
+		if (Key == "footstepSound")
+		{
+			return Visitor(Entity.Character->FootstepSound);
+		}
+
+		if (Key == "landSound")
+		{
+			return Visitor(Entity.Character->LandSound);
+		}
+
+		if (Key == "jumpSound")
+		{
+			return Visitor(Entity.Character->JumpSound);
+		}
+
+		if (Key == "slideSound")
+		{
+			return Visitor(Entity.Character->SlideSound);
+		}
+
+		if (Key == "swingSound")
+		{
+			return Visitor(Entity.Character->SwingSound);
+		}
+
+		if (Key == "hitSound")
+		{
+			return Visitor(Entity.Character->HitSound);
+		}
+
+		if (Key == "sliceSound")
+		{
+			return Visitor(Entity.Character->SliceSound);
+		}
+
+		if (Key == "severSound")
+		{
+			return Visitor(Entity.Character->SeverSound);
+		}
+
+		if (Key == "deflectSound")
+		{
+			return Visitor(Entity.Character->DeflectSound);
+		}
+
+		if (Key == "blockSound")
+		{
+			return Visitor(Entity.Character->BlockSound);
+		}
+
+		if (Key == "landEffect")
+		{
+			return Visitor(Entity.Character->LandEffect);
+		}
+
+		if (Key == "sliceEffect")
+		{
+			return Visitor(Entity.Character->SliceEffect);
+		}
+
+		if (Key == "severEffect")
+		{
+			return Visitor(Entity.Character->SeverEffect);
+		}
+
+		if (Key == "sparksEffect")
+		{
+			return Visitor(Entity.Character->SparksEffect);
+		}
+
+		if (Key == "trailEffect")
+		{
+			return Visitor(Entity.Character->TrailEffect);
+		}
+	}
+
+	if (Type == ELevelComponentType::Player && Entity.Player && Key == "thirdPerson")
+	{
+		return Visitor(Entity.Player->bThirdPerson);
+	}
+
+	if (Type == ELevelComponentType::RigidBody && Entity.BodyType != ELevelBodyType::None)
+	{
+		if (Key == "impactSound")
+		{
+			return Visitor(Entity.BodySettings.ImpactSound);
+		}
+
+		if (Key == "impactEffect")
+		{
+			return Visitor(Entity.BodySettings.ImpactEffect);
 		}
 	}
 
@@ -420,6 +533,11 @@ template <typename TEntity, typename TVisitor> auto VisitVisualProperty(TEntity&
 		{
 			return Visitor(Entity.Trigger->Role);
 		}
+
+		if (Key == "sound")
+		{
+			return Visitor(Entity.Trigger->Sound);
+		}
 	}
 
 	if (Type == ELevelComponentType::Constraint && Entity.Constraint)
@@ -447,6 +565,7 @@ constexpr FSoftBodyComponent SoftBodyDefaults{};
 constexpr FMoverComponent MoverDefaults{};
 constexpr FDestructibleComponent DestructibleDefaults{};
 constexpr FCharacterComponent CharacterDefaults{};
+constexpr FPlayerComponent PlayerDefaults{};
 constexpr FAudioEmitterComponent EmitterDefaults{};
 constexpr FAudioListenerComponent ListenerDefaults{};
 constexpr FParticleEmitterComponent ParticleDefaults{};
@@ -465,8 +584,8 @@ constexpr std::array TransformProperties{
 
 // Not constexpr: MSVC debug builds give std::vector a heap-allocated iterator proxy, which a constant expression cannot keep.
 const std::array MeshProperties{
-    FLevelPropertyDescriptor{.Key = "asset", .Label = "Static Mesh", .Type = ELevelPropertyType::AssetReference, .Default = FStaticMeshComponent{}.Asset},
-    FLevelPropertyDescriptor{.Key = "materials", .Label = "Materials", .Type = ELevelPropertyType::AssetReferences, .Default = std::vector<FAssetId>{}},
+    FLevelPropertyDescriptor{.Key = "asset", .Label = "Static Mesh", .Type = ELevelPropertyType::AssetReference, .Default = FStaticMeshComponent{}.Asset, .AssetKind = ELevelAssetKind::Model},
+    FLevelPropertyDescriptor{.Key = "materials", .Label = "Materials", .Type = ELevelPropertyType::AssetReferences, .Default = std::vector<FAssetId>{}, .AssetKind = ELevelAssetKind::Material},
 };
 
 constexpr std::array BodyProperties{
@@ -478,6 +597,8 @@ constexpr std::array BodyProperties{
     FLevelPropertyDescriptor{.Key = "angularDamping", .Label = "Angular damping", .Type = ELevelPropertyType::Float, .Unit = ELevelPropertyUnit::InverseSeconds, .Default = BodyDefaults.AngularDamping, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1.}},
     FLevelPropertyDescriptor{.Key = "gravityScale", .Label = "Gravity scale", .Type = ELevelPropertyType::Float, .Default = BodyDefaults.GravityScale, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 10.}},
     FLevelPropertyDescriptor{.Key = "collision", .Label = "Collision", .Type = ELevelPropertyType::CollisionShape, .Default = BodyDefaults.Collision},
+    FLevelPropertyDescriptor{.Key = "impactSound", .Label = "Impact sound", .Type = ELevelPropertyType::AssetReference, .Default = BodyDefaults.ImpactSound, .AssetKind = ELevelAssetKind::Sound},
+    FLevelPropertyDescriptor{.Key = "impactEffect", .Label = "Impact effect", .Type = ELevelPropertyType::AssetReference, .Default = BodyDefaults.ImpactEffect, .AssetKind = ELevelAssetKind::Effect},
 };
 
 constexpr std::array LightProperties{
@@ -494,7 +615,7 @@ constexpr std::array LightProperties{
     FLevelPropertyDescriptor{.Key = "outerConeAngle", .Label = "Outer cone", .Unit = ELevelPropertyUnit::Radians, .Default = LightDefaults.OuterConeAngle, .Range = FLevelPropertyRange{.Minimum = 0.001f, .Maximum = 1.553343f}},
     FLevelPropertyDescriptor{.Key = "width", .Label = "Width", .Unit = ELevelPropertyUnit::Meters, .Default = LightDefaults.Width, .Range = FLevelPropertyRange{.Minimum = 0.001f, .Maximum = 10'000.}},
     FLevelPropertyDescriptor{.Key = "height", .Label = "Height", .Unit = ELevelPropertyUnit::Meters, .Default = LightDefaults.Height, .Range = FLevelPropertyRange{.Minimum = 0.001f, .Maximum = 10'000.}},
-    FLevelPropertyDescriptor{.Key = "environment", .Label = "Environment", .Type = ELevelPropertyType::AssetReference, .Default = LightDefaults.Environment},
+    FLevelPropertyDescriptor{.Key = "environment", .Label = "Environment", .Type = ELevelPropertyType::AssetReference, .Default = LightDefaults.Environment, .AssetKind = ELevelAssetKind::Environment},
     FLevelPropertyDescriptor{.Key = "ambientStrength", .Label = "Ambient strength", .Default = LightDefaults.AmbientStrength, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 100.}},
     FLevelPropertyDescriptor{.Key = "environmentVisible", .Label = "Show environment", .Type = ELevelPropertyType::Boolean, .Default = LightDefaults.bEnvironmentVisible},
     FLevelPropertyDescriptor{.Key = "enabled", .Label = "Enabled", .Type = ELevelPropertyType::Boolean, .Default = LightDefaults.bEnabled},
@@ -533,7 +654,7 @@ constexpr std::array SoftBodyProperties{
     FLevelPropertyDescriptor{.Key = "pressure", .Label = "Pressure", .Default = SoftBodyDefaults.Pressure, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1'000'000.}},
     FLevelPropertyDescriptor{.Key = "friction", .Label = "Friction", .Default = SoftBodyDefaults.Friction, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 1.}},
     FLevelPropertyDescriptor{.Key = "pinned", .Label = "Pinned", .Type = ELevelPropertyType::Boolean, .Default = SoftBodyDefaults.bPinned},
-    FLevelPropertyDescriptor{.Key = "material", .Label = "Material", .Type = ELevelPropertyType::AssetReference, .Default = SoftBodyDefaults.Material},
+    FLevelPropertyDescriptor{.Key = "material", .Label = "Material", .Type = ELevelPropertyType::AssetReference, .Default = SoftBodyDefaults.Material, .AssetKind = ELevelAssetKind::Material},
 };
 
 constexpr std::array MoverProperties{
@@ -547,11 +668,15 @@ constexpr std::array DestructibleProperties{
     FLevelPropertyDescriptor{.Key = "strength", .Label = "Strength", .Default = DestructibleDefaults.Strength, .Range = FLevelPropertyRange{.Minimum = 1., .Maximum = 1000000.}},
     FLevelPropertyDescriptor{.Key = "mass", .Label = "Mass", .Unit = ELevelPropertyUnit::Kilograms, .Default = DestructibleDefaults.MassKg, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 1000000.}},
     FLevelPropertyDescriptor{.Key = "anchored", .Label = "Anchored", .Type = ELevelPropertyType::Boolean, .Default = DestructibleDefaults.bAnchored},
+    FLevelPropertyDescriptor{.Key = "impactSound", .Label = "Impact sound", .Type = ELevelPropertyType::AssetReference, .Default = DestructibleDefaults.ImpactSound, .AssetKind = ELevelAssetKind::Sound},
+    FLevelPropertyDescriptor{.Key = "impactEffect", .Label = "Impact effect", .Type = ELevelPropertyType::AssetReference, .Default = DestructibleDefaults.ImpactEffect, .AssetKind = ELevelAssetKind::Effect},
+    FLevelPropertyDescriptor{.Key = "breakEffect", .Label = "Break effect", .Type = ELevelPropertyType::AssetReference, .Default = DestructibleDefaults.BreakEffect, .AssetKind = ELevelAssetKind::Effect},
 };
 
 constexpr std::array TriggerProperties{
     FLevelPropertyDescriptor{.Key = "size", .Label = "Size", .Type = ELevelPropertyType::Vector3, .Unit = ELevelPropertyUnit::Meters, .Default = TriggerDefaults.Size, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 1000.}},
     FLevelPropertyDescriptor{.Key = "role", .Label = "Role", .Type = ELevelPropertyType::TriggerRole, .Default = TriggerDefaults.Role},
+    FLevelPropertyDescriptor{.Key = "sound", .Label = "Course sound", .Type = ELevelPropertyType::AssetReference, .Default = TriggerDefaults.Sound, .AssetKind = ELevelAssetKind::Sound},
 };
 
 constexpr std::array ConstraintProperties{
@@ -562,10 +687,30 @@ constexpr std::array ConstraintProperties{
 constexpr std::array CharacterProperties{
     FLevelPropertyDescriptor{.Key = "maximumPieces", .Label = "Maximum Pieces", .Default = CharacterDefaults.MaximumPieces, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 64.}},
     FLevelPropertyDescriptor{.Key = "severImpulse", .Label = "Sever Impulse", .Default = CharacterDefaults.SeverImpulse, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 100000.}},
+    FLevelPropertyDescriptor{.Key = "weapon", .Label = "Weapon", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.Weapon, .AssetKind = ELevelAssetKind::Model},
+    FLevelPropertyDescriptor{.Key = "footstepSound", .Label = "Footstep", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.FootstepSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "landSound", .Label = "Land", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.LandSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "jumpSound", .Label = "Jump", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.JumpSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "slideSound", .Label = "Slide", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.SlideSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "swingSound", .Label = "Swing", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.SwingSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "hitSound", .Label = "Hit", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.HitSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "sliceSound", .Label = "Slice", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.SliceSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "severSound", .Label = "Sever", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.SeverSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "deflectSound", .Label = "Deflect", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.DeflectSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "blockSound", .Label = "Block", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.BlockSound, .AssetKind = ELevelAssetKind::Sound, .Group = "Sounds"},
+    FLevelPropertyDescriptor{.Key = "landEffect", .Label = "Land", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.LandEffect, .AssetKind = ELevelAssetKind::Effect, .Group = "Effects"},
+    FLevelPropertyDescriptor{.Key = "sliceEffect", .Label = "Slice", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.SliceEffect, .AssetKind = ELevelAssetKind::Effect, .Group = "Effects"},
+    FLevelPropertyDescriptor{.Key = "severEffect", .Label = "Sever", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.SeverEffect, .AssetKind = ELevelAssetKind::Effect, .Group = "Effects"},
+    FLevelPropertyDescriptor{.Key = "sparksEffect", .Label = "Sparks", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.SparksEffect, .AssetKind = ELevelAssetKind::Effect, .Group = "Effects"},
+    FLevelPropertyDescriptor{.Key = "trailEffect", .Label = "Blade trail", .Type = ELevelPropertyType::AssetReference, .Default = CharacterDefaults.TrailEffect, .AssetKind = ELevelAssetKind::Effect, .Group = "Effects"},
+};
+
+constexpr std::array PlayerProperties{
+    FLevelPropertyDescriptor{.Key = "thirdPerson", .Label = "Third person", .Type = ELevelPropertyType::Boolean, .Default = PlayerDefaults.bThirdPerson},
 };
 
 constexpr std::array AudioEmitterProperties{
-    FLevelPropertyDescriptor{.Key = "sound", .Label = "Sound", .Type = ELevelPropertyType::AssetReference, .Default = EmitterDefaults.Sound},
+    FLevelPropertyDescriptor{.Key = "sound", .Label = "Sound", .Type = ELevelPropertyType::AssetReference, .Default = EmitterDefaults.Sound, .AssetKind = ELevelAssetKind::Sound},
     FLevelPropertyDescriptor{.Key = "volume", .Label = "Volume", .Default = EmitterDefaults.Volume, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 4.}},
     FLevelPropertyDescriptor{.Key = "pitch", .Label = "Pitch", .Default = EmitterDefaults.Pitch, .Range = FLevelPropertyRange{.Minimum = 0.1, .Maximum = 4.}},
     FLevelPropertyDescriptor{.Key = "autoPlay", .Label = "Auto Play", .Type = ELevelPropertyType::Boolean, .Default = EmitterDefaults.bAutoPlay},
@@ -579,7 +724,7 @@ constexpr std::array AudioListenerProperties{
 };
 
 constexpr std::array ParticleEmitterProperties{
-    FLevelPropertyDescriptor{.Key = "system", .Label = "Particle System", .Type = ELevelPropertyType::AssetReference, .Default = ParticleDefaults.System},
+    FLevelPropertyDescriptor{.Key = "system", .Label = "Particle System", .Type = ELevelPropertyType::AssetReference, .Default = ParticleDefaults.System, .AssetKind = ELevelAssetKind::Effect},
     FLevelPropertyDescriptor{.Key = "autoPlay", .Label = "Auto Play", .Type = ELevelPropertyType::Boolean, .Default = ParticleDefaults.bAutoPlay},
     FLevelPropertyDescriptor{.Key = "scale", .Label = "Scale", .Default = ParticleDefaults.Scale, .Range = FLevelPropertyRange{.Minimum = 0.01, .Maximum = 100.}},
 };
@@ -593,7 +738,7 @@ constexpr std::array NavigationObstacleProperties{
 };
 
 constexpr std::array AiAgentProperties{
-    FLevelPropertyDescriptor{.Key = "stateTree", .Label = "State Tree", .Type = ELevelPropertyType::AssetReference, .Default = AiAgentDefaults.StateTree},
+    FLevelPropertyDescriptor{.Key = "stateTree", .Label = "State Tree", .Type = ELevelPropertyType::AssetReference, .Default = AiAgentDefaults.StateTree, .AssetKind = ELevelAssetKind::StateTree},
     FLevelPropertyDescriptor{.Key = "sightRange", .Label = "Sight Range", .Unit = ELevelPropertyUnit::Meters, .Default = AiAgentDefaults.SightRange, .Range = FLevelPropertyRange{.Minimum = 0.5, .Maximum = 200.}},
     FLevelPropertyDescriptor{.Key = "sightHalfAngle", .Label = "Sight Half Angle", .Unit = ELevelPropertyUnit::Radians, .Default = AiAgentDefaults.SightHalfAngle, .Range = FLevelPropertyRange{.Minimum = 0.05, .Maximum = 3.1415927}},
     FLevelPropertyDescriptor{.Key = "hearingRange", .Label = "Hearing Range", .Unit = ELevelPropertyUnit::Meters, .Default = AiAgentDefaults.HearingRange, .Range = FLevelPropertyRange{.Minimum = 0., .Maximum = 200.}},
@@ -603,7 +748,7 @@ constexpr std::array AiAgentProperties{
 };
 
 constexpr std::array GameplayGraphProperties{
-    FLevelPropertyDescriptor{.Key = "graph", .Label = "Gameplay Graph", .Type = ELevelPropertyType::AssetReference, .Default = GameplayGraphDefaults.Graph},
+    FLevelPropertyDescriptor{.Key = "graph", .Label = "Gameplay Graph", .Type = ELevelPropertyType::AssetReference, .Default = GameplayGraphDefaults.Graph, .AssetKind = ELevelAssetKind::GameplayGraph},
 };
 
 constexpr std::array Components{
@@ -626,6 +771,7 @@ constexpr std::array Components{
     FLevelComponentDescriptor{.Type = ELevelComponentType::NavigationObstacle, .TypeId = "Herta.Level.NavigationObstacle", .SerializationKey = "navigationObstacle", .Label = "Navigation Obstacle", .Properties = NavigationObstacleProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::AiAgent, .TypeId = "Herta.Level.AiAgent", .SerializationKey = "aiAgent", .Label = "AI Agent", .Properties = AiAgentProperties},
     FLevelComponentDescriptor{.Type = ELevelComponentType::GameplayGraph, .TypeId = "Herta.Level.GameplayGraph", .SerializationKey = "gameplayGraph", .Label = "Gameplay Graph", .Properties = GameplayGraphProperties},
+    FLevelComponentDescriptor{.Type = ELevelComponentType::Player, .TypeId = "Herta.Level.Player", .SerializationKey = "player", .Label = "Player", .Properties = PlayerProperties},
 };
 }
 
@@ -640,6 +786,50 @@ std::optional<FLevelPropertyValue> GetLevelVisualProperty(const FLevelEntity& En
 	{
 		return FLevelPropertyValue{Value};
 	});
+}
+
+std::vector<FAssetId> GetLevelAssetReferences(const std::span<const FLevelEntity> Entities, const ELevelAssetKind Kind)
+{
+	std::vector<FAssetId> Assets;
+	for (const FLevelEntity& Entity : Entities)
+	{
+		if (Entity.Mesh && Kind == ELevelAssetKind::Model)
+		{
+			Assets.push_back(Entity.Mesh->Asset);
+		}
+
+		if (Entity.Mesh && Kind == ELevelAssetKind::Material)
+		{
+			Assets.insert(Assets.end(), Entity.Mesh->Materials.begin(), Entity.Mesh->Materials.end());
+		}
+
+		for (const FLevelComponentDescriptor& Component : Components)
+		{
+			for (const FLevelPropertyDescriptor& Property : Component.Properties)
+			{
+				if (Property.AssetKind != Kind || Property.Type != ELevelPropertyType::AssetReference)
+				{
+					continue;
+				}
+
+				const auto Value = GetLevelVisualProperty(Entity, Component.Type, Property.Key);
+				if (const FAssetId* const Asset = Value ? std::get_if<FAssetId>(&*Value) : nullptr)
+				{
+					Assets.push_back(*Asset);
+				}
+			}
+		}
+	}
+
+	std::erase_if(Assets, [](const FAssetId& Asset)
+	{
+		return !Asset.IsValid();
+	});
+
+	std::ranges::sort(Assets);
+	const auto Repeats = std::ranges::unique(Assets);
+	Assets.erase(Repeats.begin(), Repeats.end());
+	return Assets;
 }
 
 std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, const ELevelComponentType Type, const std::string_view Key, const FLevelPropertyValue& Value)
@@ -672,28 +862,33 @@ std::expected<void, FLevelError> SetLevelVisualProperty(FLevelEntity& Entity, co
 		return Validator(*Component);
 	};
 
-	const auto Valid = Type == ELevelComponentType::Light           ? Validate(Candidate.Light, ValidateLightComponent)
-	                   : Type == ELevelComponentType::SkyAtmosphere ? Validate(Candidate.SkyAtmosphere, ValidateSkyAtmosphereComponent)
-	                   : Type == ELevelComponentType::SoftBody      ? Validate(Candidate.SoftBody, ValidateSoftBodyComponent)
-	                   : Type == ELevelComponentType::Mover         ? Validate(Candidate.Mover, ValidateMoverComponent)
-	                   : Type == ELevelComponentType::Trigger       ? Validate(Candidate.Trigger, ValidateTriggerComponent)
-	                   : Type == ELevelComponentType::Constraint    ? Validate(Candidate.Constraint, ValidateConstraintComponent)
-	                   : Type == ELevelComponentType::Destructible  ? Validate(Candidate.Destructible, ValidateDestructibleComponent)
-	                   : Type == ELevelComponentType::Character     ? Validate(Candidate.Character, ValidateCharacterComponent)
-	                   : Type == ELevelComponentType::AudioEmitter  ? Validate(Candidate.AudioEmitter, ValidateAudioEmitterComponent)
-	                   : Type == ELevelComponentType::ParticleEmitter ? Validate(Candidate.ParticleEmitter, ValidateParticleEmitterComponent)
-	                   : Type == ELevelComponentType::NavigationBounds ? Validate(Candidate.NavigationBounds, ValidateNavigationBoundsComponent)
+	const auto Valid = Type == ELevelComponentType::Light                ? Validate(Candidate.Light, ValidateLightComponent)
+	                   : Type == ELevelComponentType::SkyAtmosphere      ? Validate(Candidate.SkyAtmosphere, ValidateSkyAtmosphereComponent)
+	                   : Type == ELevelComponentType::SoftBody           ? Validate(Candidate.SoftBody, ValidateSoftBodyComponent)
+	                   : Type == ELevelComponentType::Mover              ? Validate(Candidate.Mover, ValidateMoverComponent)
+	                   : Type == ELevelComponentType::Trigger            ? Validate(Candidate.Trigger, ValidateTriggerComponent)
+	                   : Type == ELevelComponentType::Constraint         ? Validate(Candidate.Constraint, ValidateConstraintComponent)
+	                   : Type == ELevelComponentType::Destructible       ? Validate(Candidate.Destructible, ValidateDestructibleComponent)
+	                   : Type == ELevelComponentType::Character          ? Validate(Candidate.Character, ValidateCharacterComponent)
+	                   : Type == ELevelComponentType::AudioEmitter       ? Validate(Candidate.AudioEmitter, ValidateAudioEmitterComponent)
+	                   : Type == ELevelComponentType::ParticleEmitter    ? Validate(Candidate.ParticleEmitter, ValidateParticleEmitterComponent)
+	                   : Type == ELevelComponentType::NavigationBounds   ? Validate(Candidate.NavigationBounds, ValidateNavigationBoundsComponent)
 	                   : Type == ELevelComponentType::NavigationObstacle ? Validate(Candidate.NavigationObstacle, ValidateNavigationObstacleComponent)
-	                   : Type == ELevelComponentType::AiAgent ? Validate(Candidate.AiAgent, ValidateAiAgentComponent)
-	                   : Type == ELevelComponentType::AudioListener ? Validate(Candidate.AudioListener, [](const FAudioListenerComponent&) -> std::expected<void, FLevelError>
-	                                                                  {
-		                                                                  return {};
-	                                                                  })
-	                   : Type == ELevelComponentType::GameplayGraph ? Validate(Candidate.GameplayGraph, [](const FGameplayGraphComponent&) -> std::expected<void, FLevelError>
-	                                                                  {
-		                                                                  return {};
-	                                                                  })
-	                                                                : Validate(Candidate.HeightFog, ValidateHeightFogComponent);
+	                   : Type == ELevelComponentType::AiAgent            ? Validate(Candidate.AiAgent, ValidateAiAgentComponent)
+	                   : Type == ELevelComponentType::AudioListener      ? Validate(Candidate.AudioListener, [](const FAudioListenerComponent&) -> std::expected<void, FLevelError>
+	     {
+        return {};
+    })
+	                   : Type == ELevelComponentType::GameplayGraph      ? Validate(Candidate.GameplayGraph, [](const FGameplayGraphComponent&) -> std::expected<void, FLevelError>
+	     {
+        return {};
+    })
+	                   : Type == ELevelComponentType::Player             ? Validate(Candidate.Player, [](const FPlayerComponent&) -> std::expected<void, FLevelError>
+	            {
+        return {};
+    })
+	                   : Type == ELevelComponentType::RigidBody          ? std::expected<void, FLevelError>{}
+	                                                                     : Validate(Candidate.HeightFog, ValidateHeightFogComponent);
 	if (!Valid)
 	{
 		return Valid;

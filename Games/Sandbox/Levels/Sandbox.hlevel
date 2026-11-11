@@ -1,35 +1,47 @@
 {
   "format": "HertaLevel",
   "formatVersion": 2,
-  "engineSchemaVersion": 20,
+  "engineSchemaVersion": 21,
   "id": "10935c1f-4f59-4b12-9a13-9dca302101e0",
   "name": "Sandbox Playground",
   "exposureCompensation": 0,
-  "playerCharacter": "8049f6c3-1472-4438-8f6c-3945e4a2a635",
-  "playerWeapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
-  "sounds": {
-    "footstep": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
-    "land": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
-    "jump": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
-    "slide": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
-    "impact": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
-    "swing": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
-    "slice": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
-    "sever": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
-    "objective": "4a0d0017-5a17-4c0e-9d2b-0000051a0017",
-    "deflect": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
-    "block": "4a0d0068-5a17-4c0e-9d2b-0000051a0068"
-  },
-  "effects": {
-    "impact": "4a0d0060-5a17-4c0e-9d2b-0000051a0060",
-    "break": "4a0d0061-5a17-4c0e-9d2b-0000051a0061",
-    "land": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
-    "slice": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
-    "sever": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
-    "sparks": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
-    "trail": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
-  },
   "entities": [
+    {
+      "id": "10930c73-2e20-2e60-d276-efbe516d77d1",
+      "name": "Player",
+      "parent": null,
+      "transform": {
+        "translation": [0, 1, 0],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "components": {
+        "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
+        "character": {
+          "maximumPieces": 8,
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
+        },
+        "player": {
+          "thirdPerson": true
+        }
+      }
+    },
     {
       "id": "31935c1f-4f59-4b12-9a13-9dca302101e2",
       "name": "Sandbox floor",
@@ -49,7 +61,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -72,7 +86,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -95,7 +111,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -118,7 +136,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -141,7 +161,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -164,7 +186,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -187,7 +211,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -210,7 +236,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -233,7 +261,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -256,7 +286,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -279,7 +311,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -302,7 +336,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -325,7 +361,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -348,7 +386,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -371,7 +411,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -394,7 +436,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -417,7 +461,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -440,7 +486,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -463,7 +511,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -486,7 +536,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -509,7 +561,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -532,7 +586,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -555,7 +611,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -578,7 +636,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -601,7 +661,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -624,7 +686,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -647,7 +711,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -670,7 +736,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -693,7 +761,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -716,7 +786,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -739,7 +811,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -756,7 +830,23 @@
         "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         }
       }
     },
@@ -773,7 +863,23 @@
         "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         }
       }
     },
@@ -790,7 +896,23 @@
         "staticMesh": {"asset": "c7b6f115-ec90-463e-a72f-9407cd6851e6", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         }
       }
     },
@@ -830,7 +952,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -853,7 +977,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -876,7 +1002,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -899,7 +1027,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -922,7 +1052,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -945,7 +1077,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -1075,7 +1209,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "capsule"
+          "collision": "capsule",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -1098,7 +1234,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -1121,7 +1259,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -1144,7 +1284,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -1167,7 +1309,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         },
         "mover": {
           "offset": [0, 0, 6],
@@ -1203,7 +1347,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -1219,7 +1365,8 @@
       "components": {
         "trigger": {
           "size": [3, 3, 3],
-          "role": "none"
+          "role": "none",
+          "sound": null
         }
       }
     },
@@ -1242,7 +1389,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         },
         "mover": {
           "offset": [0, 2.5, 0],
@@ -1278,7 +1427,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -1294,7 +1445,8 @@
       "components": {
         "trigger": {
           "size": [2, 1, 2],
-          "role": "none"
+          "role": "none",
+          "sound": null
         }
       }
     },
@@ -1314,7 +1466,10 @@
           "seed": 3,
           "strength": 40,
           "mass": 900,
-          "anchored": true
+          "anchored": true,
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060",
+          "breakEffect": "4a0d0061-5a17-4c0e-9d2b-0000051a0061"
         }
       }
     },
@@ -1334,7 +1489,10 @@
           "seed": 9,
           "strength": 90,
           "mass": 900,
-          "anchored": true
+          "anchored": true,
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060",
+          "breakEffect": "4a0d0061-5a17-4c0e-9d2b-0000051a0061"
         }
       }
     },
@@ -1354,7 +1512,10 @@
           "seed": 5,
           "strength": 35,
           "mass": 600,
-          "anchored": true
+          "anchored": true,
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060",
+          "breakEffect": "4a0d0061-5a17-4c0e-9d2b-0000051a0061"
         }
       }
     },
@@ -1374,7 +1535,10 @@
           "seed": 2,
           "strength": 15,
           "mass": 60,
-          "anchored": false
+          "anchored": false,
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060",
+          "breakEffect": "4a0d0061-5a17-4c0e-9d2b-0000051a0061"
         }
       }
     },
@@ -1393,7 +1557,8 @@
         },
         "trigger": {
           "size": [2, 2, 2],
-          "role": "none"
+          "role": "none",
+          "sound": null
         }
       }
     },
@@ -1416,7 +1581,9 @@
           "linearDamping": 0.05,
           "angularDamping": 0.05,
           "gravityScale": 1,
-          "collision": "box"
+          "collision": "box",
+          "impactSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "impactEffect": "4a0d0060-5a17-4c0e-9d2b-0000051a0060"
         }
       }
     },
@@ -1448,7 +1615,23 @@
         "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         },
         "aiAgent": {
           "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
@@ -1474,7 +1657,23 @@
         "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         },
         "aiAgent": {
           "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
@@ -1500,7 +1699,23 @@
         "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         },
         "aiAgent": {
           "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
@@ -1526,7 +1741,23 @@
         "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         },
         "aiAgent": {
           "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
@@ -1552,7 +1783,23 @@
         "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         },
         "aiAgent": {
           "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
@@ -1578,7 +1825,23 @@
         "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         },
         "aiAgent": {
           "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
@@ -1604,7 +1867,23 @@
         "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         },
         "aiAgent": {
           "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
@@ -1630,7 +1909,23 @@
         "staticMesh": {"asset": "8049f6c3-1472-4438-8f6c-3945e4a2a635", "materials": []},
         "character": {
           "maximumPieces": 8,
-          "severImpulse": 25
+          "severImpulse": 25,
+          "weapon": "44ef2734-88b2-4737-a163-1f42aa503ad4",
+          "footstepSound": "4a0d0014-5a17-4c0e-9d2b-0000051a0014",
+          "landSound": "4a0d0009-5a17-4c0e-9d2b-0000051a0009",
+          "jumpSound": "4a0d000a-5a17-4c0e-9d2b-0000051a000a",
+          "slideSound": "4a0d0011-5a17-4c0e-9d2b-0000051a0011",
+          "swingSound": "4a0d0016-5a17-4c0e-9d2b-0000051a0016",
+          "hitSound": "4a0d0015-5a17-4c0e-9d2b-0000051a0015",
+          "sliceSound": "4a0d000d-5a17-4c0e-9d2b-0000051a000d",
+          "severSound": "4a0d000e-5a17-4c0e-9d2b-0000051a000e",
+          "deflectSound": "4a0d0067-5a17-4c0e-9d2b-0000051a0067",
+          "blockSound": "4a0d0068-5a17-4c0e-9d2b-0000051a0068",
+          "landEffect": "4a0d0062-5a17-4c0e-9d2b-0000051a0062",
+          "sliceEffect": "4a0d0063-5a17-4c0e-9d2b-0000051a0063",
+          "severEffect": "4a0d0064-5a17-4c0e-9d2b-0000051a0064",
+          "sparksEffect": "4a0d0066-5a17-4c0e-9d2b-0000051a0066",
+          "trailEffect": "4a0d0069-5a17-4c0e-9d2b-0000051a0069"
         },
         "aiAgent": {
           "stateTree": "4c071100-2738-4e25-9b9e-0000000a1001",
