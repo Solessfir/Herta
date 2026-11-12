@@ -698,12 +698,9 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			}
 			else
 			{
-				Implementation->bContentBrowserOpen = bBrowserVisible;
-				if (bBrowserVisible)
-				{
-					Implementation->bBottomPanelOpen = true;
-					Implementation->ContentBrowserState.bFocusRequested = true;
-				}
+				// A browser tabbed behind the Output Log comes to the front rather than closing.
+				ToggleContentBrowser(Implementation->bContentBrowserOpen, Implementation->ContentBrowserState);
+				Implementation->bBottomPanelOpen = true;
 			}
 		}
 
@@ -734,70 +731,20 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ToolUIMenuItem("Localization", EToolUIMenuIcon::Details, &Implementation->bLocalizationOpen);
 		ToolUIMenuItem("Plugins", EToolUIMenuIcon::Panel, &Implementation->bPluginsOpen);
 		Implementation->Plugins->DrawWindowMenuItems();
+		ImGui::Separator();
+		Implementation->bAppearanceRequested |= ToolUIMenuItem("Appearance...", EToolUIMenuIcon::Appearance);
 	}, [&]
 	{
 		const float Scale = ImGui::GetFontSize() / Implementation->ToolUI->GetMetrics().BaseFontSize;
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.f * Scale, (26.f * Scale - ImGui::GetFontSize()) * 0.5f});
+		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {10.f * Scale, (20.f * Scale - ImGui::GetFontSize()) * 0.5f});
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.f);
 		ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.f * Scale);
 		ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
 		ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
 		ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
 
-		const auto AppearanceButton = [Scale]()
-		{
-			constexpr const char* Label = "Appearance";
-			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{1, 1, 1, 0.04f});
-			ImGui::PushID(Label);
-			const bool bPressed = ImGui::Button("##Status", {ImGui::CalcTextSize(Label).x + 42.f * Scale, 26.f * Scale});
-			const ImVec2 Minimum = ImGui::GetItemRectMin();
-			const ImVec2 Center{Minimum.x + 16.f * Scale, Minimum.y + 13.f * Scale};
-			const ImU32 Color = ImGui::GetColorU32(ImGuiCol_Text);
-			ToolUIIcon(EToolUIMenuIcon::Appearance, Center.x, Center.y, 0.9f * Scale, Color);
-			ImGui::GetWindowDrawList()->AddText({Minimum.x + 30.f * Scale, Center.y - ImGui::GetFontSize() * 0.5f}, Color, Label);
-			ImGui::PopID();
-			ImGui::PopStyleColor();
-			return bPressed;
-		};
-
-		const bool bDocumentInFront = Implementation->ToolUI->IsDocumentInFront();
-		const bool bBrowserShown = bDocumentInFront ? Implementation->bContentDrawerOpen : Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen;
-		ImGui::PushStyleColor(ImGuiCol_Button, bBrowserShown ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
-		if (ToolUIButton("Content Browser", EToolUIMenuIcon::ContentBrowser, 26.f * Scale))
-		{
-			if (bDocumentInFront)
-			{
-				Implementation->ToggleContentDrawer();
-			}
-			else
-			{
-				ToggleContentBrowser(Implementation->bContentBrowserOpen, Implementation->ContentBrowserState);
-				Implementation->bBottomPanelOpen = true;
-			}
-		}
-
-		ImGui::PopStyleColor();
-		ImGui::SetItemTooltip(bDocumentInFront ? "Show or hide the content drawer (Ctrl+Space)." : "Show or hide Content Browser. Ctrl+Space toggles the entire bottom panel.");
-		ImGui::SameLine();
-		const bool bLogShown = bDocumentInFront ? Implementation->bOutputLogDrawerOpen : Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen;
-		ImGui::PushStyleColor(ImGuiCol_Button, bLogShown ? ImVec4{1, 1, 1, 0.08f} : ImVec4{1, 1, 1, 0.04f});
-		if (ToolUIButton("Output Log", EToolUIMenuIcon::Log, 26.f * Scale))
-		{
-			if (bDocumentInFront)
-			{
-				Implementation->ToggleOutputLogDrawer();
-			}
-			else
-			{
-				Implementation->bOutputLogOpen = !(Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen);
-				Implementation->bBottomPanelOpen = true;
-			}
-		}
-
-		ImGui::PopStyleColor();
-		ImGui::SameLine();
 		const ImVec2 DotPosition = ImGui::GetCursorScreenPos();
-		ImGui::Dummy({8.f * Scale, 26.f * Scale});
+		ImGui::Dummy({8.f * Scale, 20.f * Scale});
 		ImGui::SameLine(0.f, 3.f * Scale);
 		ImGui::AlignTextToFramePadding();
 		ImGui::TextDisabled(Implementation->bProjectBusy ? "Loading project..." : Implementation->Assets && Implementation->Assets->IsImporting() ? "Importing..."
@@ -814,10 +761,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		ImGui::GetWindowDrawList()->AddCircleFilled({DotPosition.x + 4.f * Scale, ReadyCenterY}, 2.5f * Scale, IM_COL32(164, 189, 148, 255));
 		ImGui::SameLine();
 		ImGui::TextDisabled("%zu objects", Implementation->PreviewObjects.size());
-		const float Width = ImGui::CalcTextSize("Appearance").x + 42.f * Scale;
-		ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowWidth() - Width - 12.f));
-
-		if (AppearanceButton())
+		// The Window menu asks for the popup, which lives in the status bar ID scope.
+		if (std::exchange(Implementation->bAppearanceRequested, false))
 		{
 			ImGui::OpenPopup("WorkspaceAppearance");
 		}

@@ -700,7 +700,9 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			ImGui::SameLine();
 		}
 
-		ImGui::SetNextItemWidth(-1.f);
+		// The thumbnail size shares the search row, so the panel needs no footer.
+		const float ZoomWidth = 96.f * Scale;
+		ImGui::SetNextItemWidth(-(ZoomWidth + ImGui::GetStyle().ItemSpacing.x));
 
 		if (ToolUI.DrawSearchField("##ContentSearch", "Search assets", State.Search.data(), State.Search.size()))
 		{
@@ -712,6 +714,11 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 			State.Filter();
 		}
 
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(ZoomWidth);
+		const std::string ZoomLabel = State.Zoom < 0.5f ? "List" : std::format("{:.0f} px", 48.f + State.Zoom * 16.f);
+		DrawNumericSliderFloat("##ContentZoomLevel", &State.Zoom, 0.f, 9.f, ZoomLabel.c_str(), ImGuiSliderFlags_AlwaysClamp);
+		ImGui::SetItemTooltip("Thumbnail size. Ctrl+Wheel over the grid also zooms.");
 		ImGui::PopStyleVar();
 		if (ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows) && ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 		{
@@ -999,7 +1006,8 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		}
 
 		ImGui::Separator();
-		const float Footer = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
+		// Only an error takes a line under the grid.
+		const float Footer = State.FolderError.empty() ? 0.f : ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y;
 		const ImVec2 Available = ImGui::GetContentRegionAvail();
 		const bool bShowFolders = Available.x > 250.f * Scale;
 		bool bFoldersChanged = false;
@@ -1220,42 +1228,9 @@ bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserStat
 		if (!State.FolderError.empty())
 		{
 			ImGui::TextColored({0.92f, 0.45f, 0.42f, 1.f}, "%s", State.FolderError.c_str());
-		}
-		else
-		{
-			ImGui::TextDisabled("%s  -  %zu folders, %zu assets%s", State.Folder.c_str(), State.FolderMatches.size(), State.Matches.size(), bBusy ? "  -  Working..." : "");
-		}
-
-		if (ImGui::IsItemHovered())
-		{
-			ImGui::SetTooltip("Drop files from your file manager to import. Engine content is read-only; imports always go to Game.");
-		}
-
-		if (!State.FolderError.empty())
-		{
 			ImGui::SetItemTooltip("%s", State.FolderError.c_str());
 		}
 
-		// A thin frame keeps it inside the single-line footer.
-		const float ZoomWidth = 112.f * Scale;
-		ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetContentRegionMax().x - ZoomWidth));
-		ImGui::SetNextItemWidth(ZoomWidth);
-		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {6.f * Scale, 1.f * Scale});
-		if (State.Zoom != State.ShownZoom)
-		{
-			State.ShownZoom = State.Zoom;
-			State.ZoomVisibleUntil = ImGui::GetTime() + 1.;
-		}
-
-		// Hidden sliders stay interactive, so hovering the empty spot reveals it.
-		const bool bZoomChanging = ImGui::GetTime() < State.ZoomVisibleUntil || ImGui::GetActiveID() == ImGui::GetID("##ContentZoomLevel");
-		const std::string ZoomLabel = !bZoomChanging ? "" : State.Zoom < 0.5f ? "List"
-		                                                                      : std::format("{:.0f} px", 48.f + State.Zoom * 16.f);
-		ImGui::PushStyleVar(ImGuiStyleVar_Alpha, bZoomChanging || State.bZoomHovered ? ImGui::GetStyle().Alpha : 0.f);
-		DrawNumericSliderFloat("##ContentZoomLevel", &State.Zoom, 0.f, 9.f, ZoomLabel.c_str(), ImGuiSliderFlags_AlwaysClamp);
-		State.bZoomHovered = ImGui::IsItemHovered();
-		ImGui::PopStyleVar(2);
-		ImGui::SetItemTooltip("Thumbnail size. Ctrl+Wheel over the grid also zooms.");
 		ImGui::PopStyleColor();
 		ImGui::PopStyleVar();
 	}

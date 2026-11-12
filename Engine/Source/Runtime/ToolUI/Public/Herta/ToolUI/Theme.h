@@ -90,7 +90,7 @@ struct FToolUIThemeMetrics
 {
 	float BaseFontSize = 15.625f;
 	float TitleBarHeight = 36.f;
-	float StatusBarHeight = 38.f;
+	float StatusBarHeight = 26.f;
 	float WindowPadding = 12.f;
 	float WindowRounding = 6.f;
 	float ChildRounding = 6.f;

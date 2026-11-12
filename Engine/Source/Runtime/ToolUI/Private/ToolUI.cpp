@@ -3176,7 +3176,7 @@ void FToolUIContext::DrawWorkspace(const std::string_view ApplicationTitle, cons
 	Herta::DrawGlassSurface(*DrawList, *Viewport, Implementation->Appearance, StatusMinimum, ViewportMaximum, 0.f, ToolUITheme::TitleBar);
 	DrawList->AddLine(StatusMinimum, {ViewportMaximum.x, StatusMinimum.y}, ToImGuiPackedColor(ToolUITheme::BorderSoft));
 	ImGui::SetCursorScreenPos(StatusMinimum);
-	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10.f * ChromeScale, 6.f * ChromeScale});
+	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {10.f * ChromeScale, 3.f * ChromeScale});
 	if (ImGui::BeginChild("HertaStatusBar", {Viewport->Size.x, StatusBarHeight}, ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 	{
 		if (DrawStatusItems)

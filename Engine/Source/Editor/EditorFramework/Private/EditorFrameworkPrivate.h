@@ -559,6 +559,7 @@ struct FEditorFramework::FImplementation
 	std::unique_ptr<FEditorPlugins> Plugins;
 	std::filesystem::path PluginProject;
 	bool bPluginsOpen = false;
+	bool bAppearanceRequested = false;
 	std::chrono::steady_clock::time_point PluginsLoaded{};
 
 	// The project's game modules. Play's systems run their code, so the modules are declared before the session and outlive it.
