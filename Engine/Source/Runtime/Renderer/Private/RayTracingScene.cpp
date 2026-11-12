@@ -92,7 +92,20 @@ const FBufferHandle& FRayTracingScene::GetMaterials() const noexcept
 
 void FRayTracingScene::Release() noexcept
 {
-	// Recordings in flight hold their own references, so nothing here waits on the GPU.
+	// Recordings in flight hold the top level and the table, but not the bottom levels and table entries those refer to, and tracing a
+	// top level whose bottom levels are gone loses the device. So everything waits for the recordings submitted so far.
+	const FGraphicsStatistics Statistics = Device.GetStatistics();
+	std::erase_if(Released, [&](const FReleased& Old)
+	{
+		return Old.Serial <= Statistics.CompletedSerial;
+	});
+
+	if (!Table && !TopLevel && Meshes.empty() && Textures.empty())
+	{
+		return;
+	}
+
+	Released.push_back({.Serial = Statistics.SubmittedSerial, .Table = std::move(Table), .Meshes = std::move(Meshes), .Textures = std::move(Textures), .TopLevel = std::move(TopLevel), .Sections = std::move(Sections), .Materials = std::move(Materials)});
 	Table.reset();
 	NextSlot = 0;
 	FreeSlots.clear();

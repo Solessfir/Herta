@@ -66,6 +66,18 @@ private:
 		std::uint64_t Serial = 0;
 	};
 
+	// What Release dropped, kept until the recordings submitted before it have completed.
+	struct FReleased
+	{
+		std::uint64_t Serial = 0;
+		FResourceTableHandle Table;
+		std::unordered_map<const IRhiBuffer*, FMeshEntry> Meshes;
+		std::unordered_map<const IRhiTexture*, FTextureEntry> Textures;
+		FAccelerationStructureHandle TopLevel;
+		FBufferHandle Sections;
+		FBufferHandle Materials;
+	};
+
 	[[nodiscard]] std::expected<std::uint32_t, FPresentationError> AllocateSlot();
 	[[nodiscard]] std::expected<FMeshEntry*, FPresentationError> FindMesh(const FRenderMesh& Mesh, bool bDeforming);
 	[[nodiscard]] std::expected<std::uint32_t, FPresentationError> FindTexture(const FTextureHandle& Texture);
@@ -86,6 +98,8 @@ private:
 	std::uint32_t TopLevelCapacity = 0;
 	FBufferHandle Sections;
 	FBufferHandle Materials;
+
+	std::vector<FReleased> Released;
 
 	// The last built scene's meshes, transforms, and materials.
 	std::vector<std::byte> Key;

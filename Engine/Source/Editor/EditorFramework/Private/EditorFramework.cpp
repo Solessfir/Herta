@@ -172,6 +172,26 @@ std::expected<std::unique_ptr<FEditorFramework>, FEditorFrameworkError> FEditorF
 		return std::unexpected(FEditorFrameworkError{std::move(Result.error().Message)});
 	}
 
+	if (auto Result = Descriptor.Commands->Register({.Name = "view.gi", .Description = "Set the viewport's global illumination: view.gi off | field | cascades", .Handler = [State = Implementation.get()](const std::span<const std::string_view> Arguments) -> std::expected<FEditorCommandResult, FEditorCommandError>
+	{
+		if (Arguments.size() != 1 || (Arguments[0] != "off" && Arguments[0] != "field" && Arguments[0] != "cascades"))
+		{
+			return std::unexpected(FEditorCommandError{.Code = EEditorCommandErrorCode::ExecutionFailed, .Message = "Usage: view.gi off | field | cascades"});
+		}
+
+		State->VisualSettings.bGlobalIllumination = Arguments[0] != "off";
+		if (State->VisualSettings.bGlobalIllumination)
+		{
+			State->VisualSettings.GlobalIlluminationMethod = Arguments[0] == "field" ? EGlobalIlluminationMethod::IrradianceField : EGlobalIlluminationMethod::RadianceCascades;
+		}
+
+		return FEditorCommandResult{0, "Global illumination: " + std::string(Arguments[0])};
+	}});
+	    !Result)
+	{
+		return std::unexpected(FEditorFrameworkError{std::move(Result.error().Message)});
+	}
+
 	// Reloading changes the code Play runs, so automation needs write authority for it.
 	if (auto Result = Descriptor.Commands->Register({.Name = "module.reload",
 	        .Description = "Reload the project's game modules, or the one named, from their current builds; Play keeps running with its systems' state",
