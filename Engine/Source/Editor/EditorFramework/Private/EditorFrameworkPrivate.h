@@ -328,6 +328,7 @@ struct FEditorFramework::FImplementation
 	void RefreshVisuals();
 	void DrawHdrDisplaySettings(FEditorDisplay& Display);
 	void DrawPreferencesTab();
+	void DrawCommandPalette();
 	void DrawProjectSettingsTab();
 	void RefreshSelectedVisualEntities();
 	void DrawMaterialPanel();
@@ -573,6 +574,12 @@ struct FEditorFramework::FImplementation
 	std::filesystem::path PluginProject;
 	bool bPluginsOpen = false;
 	bool bPluginsFocusRequested = false;
+
+	// The command palette, open as a popup from Ctrl+K.
+	bool bCommandPaletteRequested = false;
+	std::array<char, 128> CommandPaletteQuery{};
+	int CommandPaletteSelected = 0;
+	std::vector<FEditorCommandInfo> CommandPaletteCommands;
 
 	// Settings tabs. Choosing an open one from its menu brings its tab to the front.
 	bool bPreferencesOpen = false;

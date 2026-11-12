@@ -66,6 +66,8 @@ bool IsPlaceableContentAsset(const FPreviewAssetOption& Asset) noexcept;
 bool IsSoundContentAsset(const FPreviewAssetOption& Asset) noexcept;
 bool IsEffectContentAsset(const FPreviewAssetOption& Asset) noexcept;
 void ToggleContentBrowser(bool& bOpen, FContentBrowserState& State);
+// Shows a folder by its mount-prefixed path, finishing any folder rename in progress first.
+void NavigateContentFolder(FContentBrowserState& State, const std::string& Folder, FPreviewAssets* Assets);
 // The drawer variant floats over a document tab and closes once focus leaves it.
 bool DrawContentBrowser(FToolUIContext& ToolUI, bool& bOpen, FContentBrowserState& State, FPreviewAssets* Assets, bool bDrawer = false);
 }

@@ -20,6 +20,7 @@
     {"key": "Localization.Translation", "text": "Translation", "comment": "Table column."},
     {"key": "Localization.Unsaved", "text": "Unsaved changes", "comment": "Shown while the catalog has unsaved edits."},
     {"key": "Menu.BottomPanel", "text": "Bottom panel", "comment": "View menu toggle for the panel area under the viewport."},
+    {"key": "Menu.CommandPalette", "text": "Command palette", "comment": "Tools menu item that opens the search over entities, assets, and commands."},
     {"key": "Menu.Copy", "text": "Copy", "comment": "Edit menu item."},
     {"key": "Menu.Delete", "text": "Delete", "comment": "Edit menu item."},
     {"key": "Menu.Duplicate", "text": "Duplicate", "comment": "Edit menu item."},

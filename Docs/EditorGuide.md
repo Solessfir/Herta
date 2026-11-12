@@ -96,6 +96,10 @@ The Output Log supports search, verbosity filtering, text selection, copying, pa
 
 Press the backtick key to open Output Log and focus its command field; pressing Enter submits and returns focus to the viewport. Enter `stat unit` to toggle timing readouts below the viewport's top-right controls, and `stat fps` to toggle FPS independently. `view.gi off`, `view.gi field`, and `view.gi cascades` set the viewport's global illumination, as the Rendering page of Viewport settings does. Frame is the smoothed frame interval; CPU frame measures the editor render callback, including presentation waits, rather than CPU utilization. GPU UI uses asynchronous GPU timestamps for the main window's UI rendering, including backdrop copy and blur, but excludes the scene renderer and detached windows. It shows `--` until a sample is available. CPU and GPU times overlap and should not be added together.
 
+## Command palette
+
+**Ctrl+K**, or **Tools > Command palette**, searches entities, assets, and console commands in one list with the same fuzzy matching as the asset pickers. Up and Down move, Enter chooses, and Esc closes. Choosing an entity selects it, reveals it in the Outliner, and focuses the viewport on it. Choosing an asset opens the Content Browser on its folder with the asset selected. Choosing a command puts its name in the Output Log command line, ready for arguments.
+
 ## Appearance
 
 Use **Edit > Preferences** for all workspace styling. It opens as a tab beside the level, with Appearance, Language, and Display sections. Appearance covers panel transparency, opacity, blur, gradient, and accent color. Default panel opacity is 95%, with 24 px background blur. On an HDR display, the Display section turns on **HDR output** and sets peak brightness and paper white, which follow the operating system until changed; **Calibrate peak** shows a clipping pattern in the viewport. See [HdrOutput.md](HdrOutput.md).

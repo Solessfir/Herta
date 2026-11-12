@@ -52,6 +52,7 @@ bool FinishFolderRename(FContentBrowserState& State, FPreviewAssets& Assets)
 	State.FolderError.clear();
 	return true;
 }
+}
 
 void NavigateContentFolder(FContentBrowserState& State, const std::string& Folder, FPreviewAssets* const Assets)
 {
@@ -66,6 +67,8 @@ void NavigateContentFolder(FContentBrowserState& State, const std::string& Folde
 	State.Filter();
 }
 
+namespace
+{
 void DrawFolderRename(FContentBrowserState& State, FPreviewAssets& Assets)
 {
 	const bool bStart = State.bFocusFolderName;

@@ -20,6 +20,7 @@
     {"key": "Localization.Translation", "text": "Перевод"},
     {"key": "Localization.Unsaved", "text": "Несохранённые изменения"},
     {"key": "Menu.BottomPanel", "text": "Нижняя панель"},
+    {"key": "Menu.CommandPalette", "text": "Палитра команд"},
     {"key": "Menu.Copy", "text": "Копировать"},
     {"key": "Menu.Delete", "text": "Удалить"},
     {"key": "Menu.Duplicate", "text": "Дублировать"},

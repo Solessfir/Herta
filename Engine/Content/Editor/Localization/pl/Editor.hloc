@@ -20,6 +20,7 @@
     {"key": "Localization.Translation", "text": "Tłumaczenie"},
     {"key": "Localization.Unsaved", "text": "Niezapisane zmiany"},
     {"key": "Menu.BottomPanel", "text": "Dolny panel"},
+    {"key": "Menu.CommandPalette", "text": "Paleta poleceń"},
     {"key": "Menu.Copy", "text": "Kopiuj"},
     {"key": "Menu.Delete", "text": "Usuń"},
     {"key": "Menu.Duplicate", "text": "Duplikuj"},

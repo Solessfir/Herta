@@ -803,6 +803,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 	}, [&]
 	{
+		Implementation->bCommandPaletteRequested |= ToolUIMenuItem(Localization.Format(Editor::Menu_CommandPalette), EToolUIMenuIcon::Search, nullptr, "Ctrl+K");
+		ImGui::Separator();
 		if (ToolUIMenuItem(Localization.Format(Editor::Menu_Plugins), EToolUIMenuIcon::Panel))
 		{
 			Implementation->bPluginsOpen = Implementation->bPluginsFocusRequested = true;
@@ -1043,6 +1045,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->Plugins->DrawManager(*Implementation->ToolUI, Implementation->bPluginsOpen, std::exchange(Implementation->bPluginsFocusRequested, false), Localization.Format(Editor::Menu_Plugins));
 	Implementation->DrawPreferencesTab();
 	Implementation->DrawProjectSettingsTab();
+	Implementation->DrawCommandPalette();
 	Implementation->Plugins->DrawPanels(*Implementation->ToolUI);
 	if (!Implementation->IsSimulating())
 	{

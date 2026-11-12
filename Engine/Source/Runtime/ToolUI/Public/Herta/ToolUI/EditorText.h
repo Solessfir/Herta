@@ -22,6 +22,7 @@ inline constexpr FTextId Localization_Summary{"Editor.Localization.Summary"};
 inline constexpr FTextId Localization_Translation{"Editor.Localization.Translation"};
 inline constexpr FTextId Localization_Unsaved{"Editor.Localization.Unsaved"};
 inline constexpr FTextId Menu_BottomPanel{"Editor.Menu.BottomPanel"};
+inline constexpr FTextId Menu_CommandPalette{"Editor.Menu.CommandPalette"};
 inline constexpr FTextId Menu_Copy{"Editor.Menu.Copy"};
 inline constexpr FTextId Menu_Delete{"Editor.Menu.Delete"};
 inline constexpr FTextId Menu_Duplicate{"Editor.Menu.Duplicate"};
