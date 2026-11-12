@@ -442,6 +442,8 @@ struct FToolUIContext::FImplementation
 	ImGuiID CloseRequestedDocument = 0;
 	ImGuiID FocusRequestedDocument = 0;
 	std::optional<EToolUIMenuIcon> NextDocumentIcon{};
+	// Tab badges by panel window ID.
+	std::unordered_map<ImGuiID, std::string> PanelBadges;
 	std::string LevelTabLabel = "Level";
 	// Whether each open BeginPanel began an ImGui window, so EndPanel ends only those.
 	std::vector<bool> PanelBegun;
@@ -919,6 +921,19 @@ void DrawToolUIIcon(ImDrawList* const Draw, const ImVec2 Center, const float Sca
 			Pen.Circle(BodyX, 3.f, 1.5f, Dim);
 			break;
 		}
+		case EToolUIMenuIcon::Visible:
+		case EToolUIMenuIcon::Hidden:
+		{
+			// An almond outline around the pupil; the hidden eye is struck through.
+			Pen.Stroke({{-7.f, 0.f}, {-4.5f, -2.8f}, {-1.6f, -4.2f}, {1.6f, -4.2f}, {4.5f, -2.8f}, {7.f, 0.f}, {4.5f, 2.8f}, {1.6f, 4.2f}, {-1.6f, 4.2f}, {-4.5f, 2.8f}, {-7.f, 0.f}}, 1.6f);
+			Pen.Circle(0.f, 0.f, 2.2f);
+			if (Icon == EToolUIMenuIcon::Hidden)
+			{
+				Pen.Stroke({{-6.f, -6.f}, {6.f, 6.f}}, 1.8f);
+			}
+
+			break;
+		}
 		case EToolUIMenuIcon::Search:
 			Pen.Circle(-1.2f, -1.2f, 5.f, Dim);
 			Pen.Ring(-1.2f, -1.2f, 4.2f, 1.7f);
@@ -1184,6 +1199,27 @@ void DrawWindowSurfaces(FToolUIContext::FImplementation& Owner)
 					                                                                                   : bLog         ? EToolUIMenuIcon::Log
 					                                                                                   : bWorld       ? EToolUIMenuIcon::World
 					                                                                                                  : EToolUIMenuIcon::ContentBrowser);
+					DrawList->PopClipRect();
+				}
+
+				const auto Badge = Tab.Window ? Owner.PanelBadges.find(Tab.Window->ID) : Owner.PanelBadges.end();
+				if (Badge != Owner.PanelBadges.end())
+				{
+					// The pill sits in the space the label reserved, just before the close button's slot.
+					const float Scale = Window->Viewport->DpiScale;
+					const float FontSize = ImGui::GetFontSize() * 0.85f;
+					const ImVec2 TextSize = ImGui::GetFont()->CalcTextSizeA(FontSize, FLT_MAX, 0.f, Badge->second.c_str());
+					const float PillWidth = TextSize.x + 12.f * Scale;
+					const float PillHeight = FontSize + 4.f * Scale;
+					// The label ends in the spaces that reserve the pill's room, so the pill starts where the visible text stops.
+					std::string_view Visible = ImGui::TabBarGetTabName(Node->TabBar, const_cast<ImGuiTabItem*>(&Tab));
+					Visible = Visible.substr(0, Visible.find("###"));
+					Visible = Visible.substr(0, Visible.find_last_not_of(' ') + 1);
+					const float Right = Bar.BarRect.Min.x + Tab.Offset - Bar.ScrollingAnim + Bar.FramePadding.x + ImGui::CalcTextSize(Visible.data(), Visible.data() + Visible.size()).x + 8.f * Scale + PillWidth;
+					const float Top = std::round((Bar.BarRect.Min.y + Bar.BarRect.Max.y - PillHeight) * 0.5f);
+					DrawList->PushClipRect({Bar.ScrollingRectMinX, Bar.BarRect.Min.y}, {Bar.ScrollingRectMaxX, Bar.BarRect.Max.y}, false);
+					DrawList->AddRectFilled({Right - PillWidth, Top}, {Right, Top + PillHeight}, ToImGuiPackedColor(ToolUITheme::Surface2), PillHeight * 0.5f);
+					DrawList->AddText(nullptr, FontSize, {Right - PillWidth + 6.f * Scale, Top + 2.f * Scale}, ToImGuiPackedColor(ToolUITheme::TextMuted), Badge->second.c_str());
 					DrawList->PopClipRect();
 				}
 
@@ -2450,6 +2486,19 @@ std::span<const FToolUIItem> FToolUIContext::GetRecordedItems() const noexcept
 	return Implementation->ItemRecorder.Items;
 }
 
+void FToolUIContext::SetPanelBadge(const std::string_view Name, const std::string_view Badge)
+{
+	const ImGuiID Id = ImHashStr(Name.data(), Name.size());
+	if (Badge.empty())
+	{
+		Implementation->PanelBadges.erase(Id);
+	}
+	else
+	{
+		Implementation->PanelBadges.insert_or_assign(Id, std::string(Badge));
+	}
+}
+
 void FToolUIContext::SetNextDocumentIcon(const EToolUIMenuIcon Icon) noexcept
 {
 	Implementation->NextDocumentIcon = Icon;
@@ -2722,6 +2771,35 @@ std::expected<void, FToolUIError> FToolUIContext::RenderPlatformWindows()
 	}
 
 	return {};
+}
+
+bool ToolUIChip(const char* const Label, const bool bSelected, const FToolUIColor* const TypeColor)
+{
+	const float Scale = ImGui::GetFontSize() / 15.f;
+	const char* const LabelEnd = ImGui::FindRenderedTextEnd(Label);
+	const float Height = std::round(22.f * Scale);
+	const float SquareSlot = TypeColor ? 14.f * Scale : 0.f;
+	const float Width = std::round(ImGui::CalcTextSize(Label, LabelEnd).x + 18.f * Scale + SquareSlot);
+	const bool bClicked = ImGui::InvisibleButton(Label, {Width, Height});
+	const ImVec2 Minimum = ImGui::GetItemRectMin();
+	const ImVec2 Maximum = ImGui::GetItemRectMax();
+	const bool bHovered = ImGui::IsItemHovered();
+	ImDrawList* const Draw = ImGui::GetWindowDrawList();
+	Draw->AddRectFilled(Minimum, Maximum, ToImGuiPackedColor(bSelected ? ToolUITheme::NeutralAccent : bHovered ? ToolUITheme::SurfaceHover
+	                                                                                                           : ToolUITheme::Surface2),
+	    Height * 0.5f);
+	float TextX = Minimum.x + 9.f * Scale;
+	if (TypeColor)
+	{
+		const float Square = 8.f * Scale;
+		const float Top = std::round((Minimum.y + Maximum.y - Square) * 0.5f);
+		Draw->AddRectFilled({TextX, Top}, {TextX + Square, Top + Square}, ToImGuiPackedColor(*TypeColor), 2.5f * Scale);
+		TextX += SquareSlot;
+	}
+
+	const ImU32 TextColor = bSelected ? ToImGuiPackedColor(ToolUITheme::TitleBar) : ImGui::GetColorU32(bHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+	Draw->AddText({TextX, std::round((Minimum.y + Maximum.y - ImGui::GetFontSize()) * 0.5f)}, TextColor, Label, LabelEnd);
+	return bClicked;
 }
 
 bool ToolUIToggle(const char* const Id, bool* const bValue)
@@ -3322,7 +3400,12 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 		}
 	}
 
-	const std::string Label = Name == "Outliner" || Name == "Details" || Name == "Content Browser" || Name == "Performance" || Name == "Output Log" || Name == "World Settings" ? std::format("      {}###{}", Name, Name) : std::string(Name);
+	// Leading spaces leave room for the tab icon, and trailing ones for the badge pill; both draw over the tab in DrawWindowSurfaces.
+	const bool bIconTab = Name == "Outliner" || Name == "Details" || Name == "Content Browser" || Name == "Performance" || Name == "Output Log" || Name == "World Settings";
+	const auto Badge = Implementation->PanelBadges.find(WindowId);
+	const float BadgeWidth = Badge == Implementation->PanelBadges.end() ? 0.f : ImGui::CalcTextSize(Badge->second.c_str()).x * 0.85f + 18.f * ImGui::GetFontSize() / 15.f;
+	const std::string BadgeSpace(static_cast<std::size_t>(std::ceil(BadgeWidth / ImGui::CalcTextSize(" ").x)), ' ');
+	const std::string Label = bIconTab || !BadgeSpace.empty() ? std::format("{}{}{}###{}", bIconTab ? "      " : "", Name, BadgeSpace, Name) : std::string(Name);
 	constexpr ImGuiWindowFlags DrawerFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 	// A document must rise above the full-window workspace host to receive the mouse, so it comes to the front when focused; drawers open focused above it.
 	constexpr ImGuiWindowFlags DocumentFlags = DrawerFlags | ImGuiWindowFlags_NoTitleBar;

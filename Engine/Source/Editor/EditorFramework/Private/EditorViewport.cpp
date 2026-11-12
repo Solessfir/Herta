@@ -526,7 +526,7 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 	Im3d::PushLayerId("ViewportGizmos");
 	FPreviewObject Candidate = GetActivePreviewObject();
-	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh, ObjectId, Parent, Kind] = Candidate;
+	[[maybe_unused]] auto& [Label, PreviewTranslation, PreviewRotation, PreviewScale, PreviewMesh, ObjectId, Parent, Kind, Category] = Candidate;
 	const Im3d::Vec3 PreviousTranslation = PreviewTranslation;
 	const Im3d::Mat3 PreviousRotation = PreviewRotation;
 	const Im3d::Vec3 PreviousScale = PreviewScale;
@@ -617,6 +617,12 @@ void FEditorFramework::FImplementation::BuildViewportDebugDraw(const bool bGizmo
 
 		for (std::size_t Index = 0; Index < PreviewModels.size(); ++Index)
 		{
+			// Hidden and locked entities let the click through to what is behind them.
+			if (Index < PreviewObjects.size() && (OutlinerPanelState.HiddenObjects.contains(PreviewObjects[Index].Id) || OutlinerPanelState.LockedObjects.contains(PreviewObjects[Index].Id)))
+			{
+				continue;
+			}
+
 			const auto Distance = HitTestPreviewCube(CursorRay, PreviewModels[Index] * GetPreviewBoundsMatrix(Index));
 			if (Distance && *Distance < ClosestDistance)
 			{

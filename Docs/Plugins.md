@@ -27,7 +27,7 @@ The editor discovers plugins at startup, resolves dependencies, and loads the en
 
 Like game modules, a plugin links no engine library and must come from the same engine revision, configuration, and `EditorPluginInterfaceVersion`; the editor refuses others with a message to rebuild them. Plugins draw through `IEditorPluginUI`, whose calls run the editor's own widgets, so they never link ImGui or share its state. `IEditorPluginHost::RunProcess` runs programs on the editor's blocking-IO tasks and delivers the result on the main thread between frames.
 
-`Herta --safe-mode` starts without plugins. The editor also writes `Herta/Editor/PluginStartup.marker` before loading plugins and removes it after a minute of running or a normal exit; if the marker is still there at the next start, that start skips plugins and says so, so a plugin that crashes the editor can be disabled in Window > Plugins.
+`Herta --safe-mode` starts without plugins. The editor also writes `Herta/Editor/PluginStartup.marker` before loading plugins and removes it after a minute of running or a normal exit; if the marker is still there at the next start, that start skips plugins and says so, so a plugin that crashes the editor can be disabled in Tools > Plugins.
 
 ## Git
 

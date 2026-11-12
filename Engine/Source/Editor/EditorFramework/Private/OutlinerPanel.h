@@ -70,10 +70,21 @@ struct FOutlinerPanelState
 	FObjectId RenameObject{};
 	FObjectId SelectedFolder{};
 	FObjectId RenameFolder{};
+	// The type chip in effect, as an EPreviewObjectCategory, or -1 for all.
+	int CategoryFilter = -1;
+	// Editor-only and for this session: hidden entities do not draw or pick in the viewport, and locked ones do not pick.
+	std::set<FObjectId> HiddenObjects;
+	std::set<FObjectId> LockedObjects;
 	bool bRenameRequested = false;
 	bool bRevealSelection = false;
 	bool bRenaming = false;
 	bool bRenameCommitted = false;
+
+	// While searching or filtering by type, rows show expanded and keep the ancestors of every match.
+	[[nodiscard]] bool IsFiltering() const
+	{
+		return Search.IsActive() || CategoryFilter >= 0;
+	}
 
 	[[nodiscard]] bool IsObjectVisible(const std::string_view Label, const bool bStaticMesh = true) const
 	{

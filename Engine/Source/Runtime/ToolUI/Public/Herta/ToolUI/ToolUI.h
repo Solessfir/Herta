@@ -177,6 +177,8 @@ enum class EToolUIMenuIcon : std::uint8_t
 	Camera,
 	CameraSpeed,
 	LogPrompt,
+	Visible,
+	Hidden,
 };
 
 bool ToolUIMenuItem(std::string_view Label, EToolUIMenuIcon Icon, bool* bSelected = nullptr, const char* Shortcut = nullptr);
@@ -187,6 +189,8 @@ void ToolUIIcon(EToolUIMenuIcon Icon, float CenterX, float CenterY, float Scale,
 // Returns nothing for a missing, older-than-supported, or out-of-range file, which leaves the defaults in place.
 [[nodiscard]] std::optional<FEditorAppearance> LoadEditorAppearance(const std::filesystem::path& Path);
 void SaveEditorAppearance(const std::filesystem::path& Path, const FEditorAppearance& Appearance) noexcept;
+// A pill that filters a list: lit while selected, with an optional type color square before the label. Returns true when clicked.
+bool ToolUIChip(const char* Label, bool bSelected, const FToolUIColor* TypeColor = nullptr);
 // Switch for boolean settings, right-aligned within the next item width.
 bool ToolUIToggle(const char* Id, bool* bValue);
 // A single-line text field that edits whole grapheme clusters, so Backspace removes an emoji with its skin tone and the cursor never lands
@@ -240,6 +244,8 @@ public:
 	void DrawWorkspace(std::string_view ApplicationTitle, const std::function<void()>& DrawViewMenuItems = {}, const std::function<void()>& DrawStatusItems = {}, const std::function<void()>& DrawFileMenuItems = {}, const std::function<void()>& DrawEditMenuItems = {}, const std::function<void()>& DrawToolsMenuItems = {});
 	[[nodiscard]] bool BeginPanel(std::string_view Name, bool* bOpen = nullptr, EToolUIPanelKind Kind = EToolUIPanelKind::Tool);
 	void EndPanel();
+	// A short count shown as a pill after a docked panel's tab label, such as the Outliner's entities. Empty removes it.
+	void SetPanelBadge(std::string_view Name, std::string_view Badge);
 	// The icon the next Document panel shows in its tab.
 	void SetNextDocumentIcon(EToolUIMenuIcon Icon) noexcept;
 	void SetViewportImmersive(bool bImmersive) noexcept;

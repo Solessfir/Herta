@@ -203,7 +203,7 @@ void FEditorFramework::FImplementation::DrawLevelRegions(const float ValueWidth,
 void FEditorFramework::FImplementation::DrawDetailsPanel()
 {
 	FPreviewObject PreviousObject = GetActivePreviewObject();
-	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh, ObjectId, Parent, Kind] = GetActivePreviewObject();
+	[[maybe_unused]] auto& [Label, Translation, Rotation, Scale, Mesh, ObjectId, Parent, Kind, Category] = GetActivePreviewObject();
 	FDetailsMeshField MeshField;
 	std::string MeshStatus;
 	const bool bHasSelection = !PreviewSelection.Indices.empty();

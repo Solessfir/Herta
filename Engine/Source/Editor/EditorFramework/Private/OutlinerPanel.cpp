@@ -181,7 +181,7 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 		}
 	}
 
-	const bool bSearching = State.Search.IsActive();
+	const bool bSearching = State.IsFiltering();
 	std::vector<bool> Matches;
 	if (bSearching)
 	{
@@ -192,13 +192,14 @@ void BuildOutlinerVisibleRows(FOutlinerPanelState& State, const std::span<const 
 			SearchText.assign(Objects[Index].Label);
 			SearchText += ' ';
 			SearchText.append(GetPreviewObjectTypeName(Objects[Index]));
-			Matches[Index] = State.Search.PassFilter(SearchText.c_str());
+			Matches[Index] = State.Search.PassFilter(SearchText.c_str()) && (State.CategoryFilter < 0 || static_cast<int>(Objects[Index].Category) == State.CategoryFilter);
 		}
 
+		// Under a type chip a folder shows only for the entities it holds.
 		for (std::size_t Index = 0; Index < Folders.size(); ++Index)
 		{
 			SearchText = Folders[Index].Name + " Folder";
-			Matches[Objects.size() + Index] = State.Search.PassFilter(SearchText.c_str());
+			Matches[Objects.size() + Index] = State.CategoryFilter < 0 && State.Search.PassFilter(SearchText.c_str());
 		}
 
 		for (auto Row = State.HierarchyRows.rbegin(); Row != State.HierarchyRows.rend(); ++Row)
@@ -498,8 +499,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 		State.bRenaming = true;
 	}
 
-	const float FooterHeight = ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + Scale;
-	if (ImGui::BeginChild("##OutlinerEntries", {0.f, -FooterHeight}))
+	if (ImGui::BeginChild("##OutlinerEntries", {0.f, 0.f}))
 	{
 		bool bRowHovered = false;
 		float RowsTop = ImGui::GetCursorScreenPos().y;
@@ -575,13 +575,27 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 				}
 
 				const bool bArrowHit = Row.bHasChildren && IO.MousePos.x >= ArrowX && IO.MousePos.x < ArrowX + 18.f * Scale;
+				// The lock and eye sit in two fixed slots at the right of the label column and, like the arrow, are hit by position inside the row's click.
+				const float ButtonSize = 20.f * Scale;
+				const float LockX = Table->Columns[0].WorkMaxX - ButtonSize;
+				const float EyeX = LockX - ButtonSize - 2.f * Scale;
+				const bool bLockHit = !bFolder && IO.MousePos.x >= LockX && IO.MousePos.x < LockX + ButtonSize;
+				const bool bEyeHit = !bFolder && IO.MousePos.x >= EyeX && IO.MousePos.x < EyeX + ButtonSize;
 				auto& Collapsed = bFolder ? State.CollapsedFolders : State.CollapsedObjects;
-				const bool bExpanded = State.Search.IsActive() || !Collapsed.contains(Id);
+				const bool bExpanded = State.IsFiltering() || !Collapsed.contains(Id);
 				if (ImGui::Selectable("##Object", bSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick) && !bRenamingRow)
 				{
-					if (bArrowHit || (bFolder && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)))
+					if (bLockHit || bEyeHit)
 					{
-						if (!State.Search.IsActive())
+						std::set<FObjectId>& Flags = bLockHit ? State.LockedObjects : State.HiddenObjects;
+						if (!Flags.erase(Id))
+						{
+							Flags.insert(Id);
+						}
+					}
+					else if (bArrowHit || (bFolder && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)))
+					{
+						if (!State.IsFiltering())
 						{
 							if (bExpanded)
 							{
@@ -751,6 +765,14 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 					}
 				}
 
+				// An entity's eye and lock show while set or while the pointer is on its row.
+				const bool bHiddenObject = !bFolder && State.HiddenObjects.contains(Id);
+				const bool bLockedObject = !bFolder && State.LockedObjects.contains(Id);
+				const bool bShowButtons = !bFolder && !bRenamingRow;
+				const bool bShowEye = bShowButtons && (bCurrentRowHovered || bHiddenObject);
+				const bool bShowLock = bShowButtons && (bCurrentRowHovered || bLockedObject);
+				const int RowButtons = bShowEye ? 2 : bShowLock ? 1
+				                                                : 0;
 				if (bRenamingRow)
 				{
 					bRowHovered |= DrawOutlinerRenameField(State, {LabelX, CenterY - ImGui::GetFrameHeight() * 0.5f}, Table->Columns[0].WorkMaxX - LabelX, bStartRename);
@@ -758,8 +780,10 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 				else
 				{
 					// Drawn text does not widen the column's measured contents, so the table would drop its clip rect; the ellipsis keeps a long name out of the Type column.
-					const float LabelMaxX = Table->Columns[0].WorkMaxX;
+					const float LabelMaxX = Table->Columns[0].WorkMaxX - static_cast<float>(RowButtons) * 22.f * Scale;
+					ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(bHiddenObject ? ImGuiCol_TextDisabled : ImGuiCol_Text));
 					ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), {LabelX, CenterY - ImGui::GetFontSize() * 0.5f}, {LabelMaxX, CenterY + ImGui::GetFontSize() * 0.5f}, LabelMaxX, Label.data(), Label.data() + Label.size(), nullptr);
+					ImGui::PopStyleColor();
 				}
 				const auto Kind = bFolder ? EPreviewObjectKind::Entity : Object->Kind;
 				const EToolUIMenuIcon Icon = bFolder                                                                                 ? EToolUIMenuIcon::Folder
@@ -769,7 +793,30 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 				                             : Kind >= EPreviewObjectKind::DirectionalLight && Kind <= EPreviewObjectKind::RectLight ? EToolUIMenuIcon::Light
 				                             : Object->Mesh.IsValid()                                                                ? EToolUIMenuIcon::Cube
 				                                                                                                                     : EToolUIMenuIcon::Entity;
-				ToolUIIcon(Icon, IconX + 6.f * Scale, CenterY, Scale * 0.8f);
+				const FToolUIColor IconColor = bFolder ? ToolUITheme::TypeOther : GetPreviewCategoryColor(Object->Category);
+				ToolUIIcon(Icon, IconX + 6.f * Scale, CenterY, Scale * 0.8f, IM_COL32(IconColor.Red, IconColor.Green, IconColor.Blue, bHiddenObject ? 110 : 255));
+				const auto DrawRowButton = [&](const float X, const EToolUIMenuIcon ButtonIcon, const bool bSet, const bool bHit, const char* const Tip)
+				{
+					const bool bButtonHovered = bCurrentRowHovered && bHit;
+					if (bButtonHovered)
+					{
+						ImGui::GetWindowDrawList()->AddRectFilled({X, CenterY - ButtonSize * 0.5f}, {X + ButtonSize, CenterY + ButtonSize * 0.5f}, ImGui::GetColorU32(ImGuiCol_HeaderHovered), 4.f * Scale);
+						ImGui::SetTooltip("%s", Tip);
+					}
+
+					ToolUIIcon(ButtonIcon, X + ButtonSize * 0.5f, CenterY, Scale * 0.75f, ImGui::GetColorU32(bSet || bButtonHovered ? ImGuiCol_Text : ImGuiCol_TextDisabled));
+				};
+
+				if (bShowLock)
+				{
+					DrawRowButton(LockX, bLockedObject ? EToolUIMenuIcon::LockClosed : EToolUIMenuIcon::LockOpen, bLockedObject, bLockHit, bLockedObject ? "Locked: viewport clicks pass through. Click to unlock." : "Lock, so viewport clicks pass through");
+				}
+
+				if (bShowEye)
+				{
+					DrawRowButton(EyeX, bHiddenObject ? EToolUIMenuIcon::Hidden : EToolUIMenuIcon::Visible, bHiddenObject, bEyeHit, bHiddenObject ? "Hidden in the editor viewport. Click to show." : "Hide in the editor viewport");
+				}
+
 				ImGui::TableSetColumnIndex(1);
 				const std::string_view TypeName = bFolder ? "Folder" : GetPreviewObjectTypeName(*Object);
 				ImGui::TextDisabled("%.*s", static_cast<int>(TypeName.size()), TypeName.data());
@@ -898,26 +945,6 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 	}
 
 	ImGui::EndChild();
-	ImGui::Separator();
-	std::string Footer = State.Search.IsActive() ? std::format("{} of {} objects", VisibleIndices.size(), Objects.size()) : std::format("{} objects", Objects.size());
-	if (!Folders.empty())
-	{
-		Footer += std::format(" | {} folders", Folders.size());
-	}
-
-	const std::string SelectionCount = std::format(" ({} selected)", Selection.Indices.size());
-	const bool bShowSelectionCount = ImGui::CalcTextSize((Footer + SelectionCount).c_str()).x <= ImGui::GetContentRegionAvail().x;
-	if (bShowSelectionCount)
-	{
-		Footer += SelectionCount;
-	}
-
-	ImGui::TextDisabled("%s", Footer.c_str());
-	if (!bShowSelectionCount && ImGui::IsItemHovered())
-	{
-		ImGui::SetTooltip("%d objects selected", static_cast<int>(Selection.Indices.size()));
-	}
-
 	ImGui::EndDisabled();
 	return bFocusRequested;
 }
@@ -925,6 +952,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelection& Selection, const std::span<const FPreviewObject> Objects, const bool bDragging, FOutlinerPanelState& State, const std::span<const FLevelFolder> Folders)
 {
 	State.bRenameCommitted = false;
+	ToolUI.SetPanelBadge("Outliner", std::to_string(Objects.size()));
 	if (!ToolUI.BeginPanel("Outliner", &bOpen))
 	{
 		ToolUI.EndPanel();
@@ -936,6 +964,47 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 	if (ToolUI.DrawSearchField("##OutlinerSearch", "Search", State.Search.InputBuf, sizeof(State.Search.InputBuf)))
 	{
 		State.Search.Build();
+	}
+
+	// Type chips narrow the list; the selection count sits at the row's right end when it fits.
+	const float Scale = ImGui::GetFontSize() / 15.f;
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4.f * Scale, ImGui::GetStyle().ItemSpacing.y});
+	if (ToolUIChip("All##OutlinerAll", State.CategoryFilter < 0))
+	{
+		State.CategoryFilter = -1;
+	}
+
+	constexpr std::array<std::pair<EPreviewObjectCategory, const char*>, 4> Chips{{
+	    {EPreviewObjectCategory::Mesh, "Mesh"},
+	    {EPreviewObjectCategory::Light, "Light"},
+	    {EPreviewObjectCategory::Character, "Character"},
+	    {EPreviewObjectCategory::Physics, "Physics"},
+	}};
+
+	for (const auto& [Category, Label] : Chips)
+	{
+		const FToolUIColor Color = GetPreviewCategoryColor(Category);
+		const float ChipWidth = ImGui::CalcTextSize(Label).x + 32.f * Scale;
+		if (ImGui::GetItemRectMax().x + 4.f * Scale + ChipWidth <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+		{
+			ImGui::SameLine();
+		}
+
+		if (ToolUIChip(Label, State.CategoryFilter == static_cast<int>(Category), &Color))
+		{
+			State.CategoryFilter = State.CategoryFilter == static_cast<int>(Category) ? -1 : static_cast<int>(Category);
+		}
+	}
+
+	ImGui::PopStyleVar();
+	if (!Selection.Indices.empty())
+	{
+		const std::string Selected = std::format("{} selected", Selection.Indices.size());
+		const float Left = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - ImGui::CalcTextSize(Selected.c_str()).x;
+		if (Left >= ImGui::GetItemRectMax().x + 8.f * Scale)
+		{
+			ImGui::GetWindowDrawList()->AddText({Left, (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Selected.c_str());
+		}
 	}
 
 	ImGui::EndDisabled();

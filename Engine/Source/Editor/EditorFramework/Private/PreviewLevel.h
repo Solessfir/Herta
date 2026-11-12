@@ -2,6 +2,7 @@
 
 #include "Herta/Assets/AssetId.h"
 #include "Herta/Level/World.h"
+#include "Herta/ToolUI/Theme.h"
 
 #include <im3d_math.h>
 
@@ -42,6 +43,25 @@ enum class EPreviewObjectKind : std::uint8_t
 	Trigger,
 };
 
+// What an entity mainly is, for its type color and the Outliner's filter chips.
+enum class EPreviewObjectCategory : std::uint8_t
+{
+	Other,
+	Mesh,
+	Light,
+	Character,
+	Physics,
+	Audio,
+	Effect,
+};
+
+constexpr FToolUIColor GetPreviewCategoryColor(const EPreviewObjectCategory Category)
+{
+	constexpr std::array<FToolUIColor, 7> Colors{ToolUITheme::TypeOther, ToolUITheme::TypeMesh, ToolUITheme::TypeLight, ToolUITheme::TypeCharacter, ToolUITheme::TypePhysics, ToolUITheme::TypeAudio, ToolUITheme::TypeEffect};
+	const auto Index = static_cast<std::size_t>(Category);
+	return Index < Colors.size() ? Colors[Index] : ToolUITheme::TypeOther;
+}
+
 constexpr std::string_view GetPreviewObjectTypeName(const EPreviewObjectKind Kind)
 {
 	constexpr std::array<std::string_view, 11> Names{"Static Mesh", "Entity", "Directional Light", "Sky Light", "Point Light", "Spot Light", "Rect Light", "Sky Atmosphere", "Height Fog", "Soft Body", "Trigger"};
@@ -60,6 +80,7 @@ struct FPreviewObject
 	FObjectId Id{};
 	std::optional<FObjectId> Parent{};
 	EPreviewObjectKind Kind = EPreviewObjectKind::Entity;
+	EPreviewObjectCategory Category = EPreviewObjectCategory::Other;
 };
 
 inline std::string_view GetPreviewObjectTypeName(const FPreviewObject& Object)

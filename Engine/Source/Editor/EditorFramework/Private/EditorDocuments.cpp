@@ -590,7 +590,8 @@ void FEditorFramework::FImplementation::AppendRegionPreviews(std::vector<FAssetI
 
 void FEditorFramework::FImplementation::PublishViewportGeometry()
 {
-	if (RegionPreviewMeshes.empty())
+	const std::set<FObjectId>& Hidden = OutlinerPanelState.HiddenObjects;
+	if (RegionPreviewMeshes.empty() && Hidden.empty())
 	{
 		ViewportRenderView.Models = PreviewModels;
 		ViewportRenderView.Meshes = PreviewMeshes;
@@ -601,6 +602,15 @@ void FEditorFramework::FImplementation::PublishViewportGeometry()
 	ViewportModels.assign(PreviewModels.begin(), PreviewModels.end());
 	ViewportModels.insert(ViewportModels.end(), RegionPreviewModels.begin(), RegionPreviewModels.end());
 	ViewportMeshes.assign(PreviewMeshes.begin(), PreviewMeshes.end());
+	// An entity hidden in the Outliner keeps its slot, so every index still lines up, and draws nothing.
+	for (std::size_t Index = 0; !Hidden.empty() && Index < PreviewObjects.size() && Index < ViewportMeshes.size(); ++Index)
+	{
+		if (Hidden.contains(PreviewObjects[Index].Id))
+		{
+			ViewportMeshes[Index] = nullptr;
+		}
+	}
+
 	ViewportMeshes.insert(ViewportMeshes.end(), RegionPreviewMeshes.begin(), RegionPreviewMeshes.end());
 	ViewportMaterialSpans.assign(PreviewMaterialSpans.begin(), PreviewMaterialSpans.end());
 	ViewportMaterialSpans.insert(ViewportMaterialSpans.end(), RegionPreviewMaterials.begin(), RegionPreviewMaterials.end());

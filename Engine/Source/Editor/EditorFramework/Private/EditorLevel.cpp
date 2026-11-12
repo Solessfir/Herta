@@ -86,6 +86,15 @@ FPreviewObject ToEditorObject(const FLevelEntity& Entity, const TTransform<doubl
 		Kind = EPreviewObjectKind::Trigger;
 	}
 
+	// The most telling component wins: a character is a character whatever else it carries, and a mesh with only a static body is a mesh.
+	const bool bSimulated = Entity.SoftBody || Entity.Trigger || Entity.Constraint || Entity.Destructible || Entity.BodyType == ELevelBodyType::Dynamic;
+	const EPreviewObjectCategory Category = Entity.Character                                                     ? EPreviewObjectCategory::Character
+	                                        : Entity.Light                                                       ? EPreviewObjectCategory::Light
+	                                        : Entity.AudioEmitter || Entity.AudioListener                        ? EPreviewObjectCategory::Audio
+	                                        : Entity.ParticleEmitter || Entity.SkyAtmosphere || Entity.HeightFog ? EPreviewObjectCategory::Effect
+	                                        : bSimulated                                                         ? EPreviewObjectCategory::Physics
+	                                        : Entity.Mesh                                                        ? EPreviewObjectCategory::Mesh
+	                                                                                                             : EPreviewObjectCategory::Other;
 	return {
 	    .Label = Entity.Name,
 	    .Translation = {static_cast<float>(WorldPose.Translation.X), static_cast<float>(WorldPose.Translation.Y), static_cast<float>(WorldPose.Translation.Z)},
@@ -95,6 +104,7 @@ FPreviewObject ToEditorObject(const FLevelEntity& Entity, const TTransform<doubl
 	    .Id = Entity.Id,
 	    .Parent = Entity.Parent.IsValid() ? std::optional{Entity.Parent} : std::nullopt,
 	    .Kind = Kind,
+	    .Category = Category,
 	};
 }
 

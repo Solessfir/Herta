@@ -124,6 +124,15 @@ inline constexpr FToolUIColor TextPrimary{255, 255, 255, 255};
 inline constexpr FToolUIColor TextSecondary{190, 190, 193, 255};
 inline constexpr FToolUIColor TextMuted{148, 148, 152, 255};
 inline constexpr FToolUIColor NeutralAccent{205, 205, 210, 255};
+// One muted color per kind of object, shared by Outliner rows, Details component headers, asset tiles, and filter chips. They stay
+// desaturated so selection still reads loudest.
+inline constexpr FToolUIColor TypeMesh{122, 167, 217, 255};
+inline constexpr FToolUIColor TypeLight{227, 193, 90, 255};
+inline constexpr FToolUIColor TypeCharacter{217, 138, 95, 255};
+inline constexpr FToolUIColor TypePhysics{143, 196, 137, 255};
+inline constexpr FToolUIColor TypeAudio{179, 138, 217, 255};
+inline constexpr FToolUIColor TypeEffect{217, 122, 167, 255};
+inline constexpr FToolUIColor TypeOther{141, 141, 150, 255};
 inline constexpr FToolUIColor NeutralAccentHover{232, 232, 235, 255};
 inline constexpr FToolUIColor TitleBarControlHover{255, 255, 255, 24};
 inline constexpr FToolUIColor CloseHover{196, 43, 28, 255};
