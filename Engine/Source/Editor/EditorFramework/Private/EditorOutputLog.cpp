@@ -179,6 +179,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		ImGui::SetNextWindowCollapsed(false);
 	}
 
+	// The tab carries the warning count from the last frame the panel drew, so warnings show while another tab is in front.
+	ToolUI->SetPanelBadge("Output Log", OutputLogWarningCount > 0 ? std::to_string(OutputLogWarningCount) : std::string{});
 	const bool bPanelVisible = bDrawer ? ToolUI->BeginPanel("Output Log###Output Log Drawer", &bOutputLogDrawerOpen, EToolUIPanelKind::Drawer) : ToolUI->BeginPanel("Output Log", &bOutputLogOpen);
 	bFocusOutputLogRequested = false;
 
@@ -219,6 +221,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		PreviousSequence = Line.Record.Sequence;
 	}
 
+	OutputLogWarningCount = WarningCount;
 	const std::string CountLabel = std::to_string(WarningCount);
 	const float CountFontSize = ImGui::GetFontSize() * 0.8f;
 	const ImVec2 CountTextSize = ImGui::CalcTextSize(CountLabel.c_str());

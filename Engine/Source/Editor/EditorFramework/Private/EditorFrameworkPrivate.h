@@ -505,6 +505,7 @@ struct FEditorFramework::FImplementation
 	int SuggestionIndex = -1;
 	bool bReclaimCommandFocus = false;
 	bool bFocusCommandRequested = false;
+	std::size_t OutputLogWarningCount = 0;
 
 	std::shared_ptr<FEditorLevel> Level = std::make_shared<FEditorLevel>();
 	std::vector<FPreviewObject>& PreviewObjects = Level->GetObjects();

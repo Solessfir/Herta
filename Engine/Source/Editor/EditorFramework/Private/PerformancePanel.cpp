@@ -6,6 +6,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <ranges>
 
@@ -100,36 +101,73 @@ void DrawHistoryGraph(const char* const Id, const std::span<const FGraphSeries> 
 }
 
 // One line of the summary: a colored legend dot, a label, and a smoothed value.
-void DrawLegendValue(const char* const Label, const ImU32 Color, const std::string& Value)
+// One headline number in a tile, with the color of its graph line when it has one.
+void DrawStatTile(const char* const Label, const ImU32 Color, const std::string& Value, const std::string_view Unit, const float Width)
 {
 	const float Scale = ImGui::GetFontSize() / 15.f;
-	const ImVec2 Position = ImGui::GetCursorScreenPos();
-	ImGui::GetWindowDrawList()->AddCircleFilled({Position.x + 4.f * Scale, Position.y + ImGui::GetTextLineHeight() * 0.5f}, 3.5f * Scale, Color);
-	ImGui::SetCursorScreenPos({Position.x + 14.f * Scale, Position.y});
-	ImGui::TextDisabled("%s", Label);
-	ImGui::SameLine();
-	ImGui::TextUnformatted(Value.c_str());
+	const ImVec2 Minimum = ImGui::GetCursorScreenPos();
+	const ImVec2 Size{Width, ImGui::GetFontSize() * 2.f + 16.f * Scale};
+	ImGui::Dummy(Size);
+	ImDrawList* const Draw = ImGui::GetWindowDrawList();
+	Draw->AddRectFilled(Minimum, {Minimum.x + Size.x, Minimum.y + Size.y}, ImGui::GetColorU32(ImGuiCol_FrameBg), 6.f * Scale);
+	float LabelX = Minimum.x + 8.f * Scale;
+	if (Color != 0)
+	{
+		Draw->AddCircleFilled({LabelX + 3.f * Scale, Minimum.y + 6.f * Scale + ImGui::GetFontSize() * 0.5f}, 3.f * Scale, Color);
+		LabelX += 11.f * Scale;
+	}
+
+	Draw->AddText({LabelX, Minimum.y + 6.f * Scale}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Label);
+	const ImVec2 ValuePosition{Minimum.x + 8.f * Scale, Minimum.y + 8.f * Scale + ImGui::GetFontSize()};
+	Draw->AddText(ValuePosition, ImGui::GetColorU32(ImGuiCol_Text), Value.c_str());
+	Draw->AddText({ValuePosition.x + ImGui::CalcTextSize(Value.c_str()).x + 4.f * Scale, ValuePosition.y}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Unit.data(), Unit.data() + Unit.size());
 }
 
-void DrawSparkline(const FMetricHistory& History, const float Width, const float Height, const float Ceiling)
+// A pass as a row: its name, a bar against the costliest pass, and its time. The costliest pass is amber.
+void DrawPassRow(const std::string_view Name, const float Milliseconds, const float Ceiling, const bool bHottest)
 {
+	const float Scale = ImGui::GetFontSize() / 15.f;
 	const ImVec2 Minimum = ImGui::GetCursorScreenPos();
+	const float Width = ImGui::GetContentRegionAvail().x;
+	const float Height = ImGui::GetFontSize() + 6.f * Scale;
 	ImGui::Dummy({Width, Height});
-	const std::size_t Count = History.GetCount();
-	if (Count < 2 || Ceiling <= 0.f)
-	{
-		return;
-	}
-
 	ImDrawList* const Draw = ImGui::GetWindowDrawList();
-	const float Step = Width / static_cast<float>(FMetricHistory::Capacity - 1);
-	const float Start = Minimum.x + Width - static_cast<float>(Count - 1) * Step;
-	for (std::size_t Index = 0; Index < Count; ++Index)
+	if (ImGui::IsItemHovered())
 	{
-		Draw->PathLineTo({Start + static_cast<float>(Index) * Step, Minimum.y + Height - std::clamp(History.At(Index) / Ceiling, 0.f, 1.f) * Height});
+		Draw->AddRectFilled(Minimum, {Minimum.x + Width, Minimum.y + Height}, ImGui::GetColorU32(ImGuiCol_HeaderHovered), 4.f * Scale);
 	}
 
-	Draw->PathStroke(GpuColor, 0, ImGui::GetFontSize() / 15.f);
+	const float TextY = Minimum.y + 3.f * Scale;
+	const std::string Value = std::format("{:.2f} ms", Milliseconds);
+	const float ValueWidth = ImGui::CalcTextSize("00.00 ms").x;
+	const float NameWidth = std::min(150.f * Scale, Width * 0.42f);
+	const ImVec4 Clip{Minimum.x, Minimum.y, Minimum.x + NameWidth, Minimum.y + Height};
+	Draw->AddText(nullptr, 0.f, {Minimum.x + 8.f * Scale, TextY}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Name.data(), Name.data() + Name.size(), 0.f, &Clip);
+	const float BarLeft = Minimum.x + NameWidth + 8.f * Scale;
+	const float BarRight = Minimum.x + Width - ValueWidth - 16.f * Scale;
+	const float BarY = Minimum.y + Height * 0.5f;
+	if (BarRight > BarLeft)
+	{
+		Draw->AddRectFilled({BarLeft, BarY - 3.f * Scale}, {BarRight, BarY + 3.f * Scale}, ImGui::GetColorU32(ImGuiCol_FrameBg), 3.f * Scale);
+		const float Fill = Ceiling > 0.f ? std::clamp(Milliseconds / Ceiling, 0.f, 1.f) : 0.f;
+		Draw->AddRectFilled({BarLeft, BarY - 3.f * Scale}, {BarLeft + std::max(2.f * Scale, (BarRight - BarLeft) * Fill), BarY + 3.f * Scale}, bHottest ? IM_COL32(ToolUITheme::Warning.Red, ToolUITheme::Warning.Green, ToolUITheme::Warning.Blue, 255) : IM_COL32(ToolUITheme::NeutralAccent.Red, ToolUITheme::NeutralAccent.Green, ToolUITheme::NeutralAccent.Blue, 255), 3.f * Scale);
+	}
+
+	Draw->AddText({Minimum.x + Width - 8.f * Scale - ImGui::CalcTextSize(Value.c_str()).x, TextY}, ImGui::GetColorU32(ImGuiCol_Text), Value.c_str());
+}
+
+// A small heading over a group of rows, with an optional total at the right.
+void DrawGroupHeading(const char* const Label, const std::string& Total = {})
+{
+	const float Scale = ImGui::GetFontSize() / 15.f;
+	ImGui::Dummy({0.f, 4.f * Scale});
+	ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.f * Scale);
+	ImGui::TextDisabled("%s", Label);
+	if (!Total.empty())
+	{
+		ImGui::SameLine(ImGui::GetContentRegionMax().x - 8.f * Scale - ImGui::CalcTextSize(Total.c_str()).x);
+		ImGui::TextDisabled("%s", Total.c_str());
+	}
 }
 }
 
@@ -220,81 +258,76 @@ void DrawPerformancePanel(FToolUIContext& ToolUI, bool& bOpen, FPerformancePanel
 		return;
 	}
 
+	// Four headline numbers, each a tile; the three timings carry their graph line's color.
 	const float Frame = State.Frame.GetAverage(AverageWindow);
-	ImGui::Text("%.2f ms", Frame);
+	const float Gap = 4.f * Scale;
+	const float TileWidth = std::floor((ImGui::GetContentRegionAvail().x - Gap * 3.f) / 4.f);
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {Gap, 6.f * Scale});
+	DrawStatTile("Frame", FrameColor, std::format("{:.1f}", Frame), "ms", TileWidth);
 	ImGui::SameLine();
-	ImGui::TextDisabled("%.0f fps", Frame > 0.f ? 1000.f / Frame : 0.f);
-	ImGui::SameLine(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize("Resume").x - ImGui::GetStyle().FramePadding.x * 2.f);
-	if (ImGui::SmallButton(State.bPaused ? "Resume" : "Pause"))
+	DrawStatTile("GPU", GpuColor, std::format("{:.1f}", State.Gpu.GetAverage(AverageWindow)), "ms", TileWidth);
+	ImGui::SameLine();
+	DrawStatTile("CPU", CpuColor, std::format("{:.1f}", State.Cpu.GetAverage(AverageWindow)), "ms", TileWidth);
+	ImGui::SameLine();
+	DrawStatTile("Draws", 0, std::to_string(Sample.DrawCount), "", TileWidth);
+	ImGui::PopStyleVar();
+
+	const std::array Series{FGraphSeries{.History = &State.Frame, .Color = FrameColor}, FGraphSeries{.History = &State.Cpu, .Color = CpuColor}, FGraphSeries{.History = &State.Gpu, .Color = GpuColor}};
+	DrawHistoryGraph("##FrameGraph", Series, 96.f * Scale, 1000.f / 60.f);
+	const char* const PauseLabel = State.bPaused ? "Resume" : "Pause";
+	ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - ImGui::CalcTextSize(PauseLabel).x - ImGui::GetStyle().FramePadding.x * 2.f);
+	if (ImGui::SmallButton(PauseLabel))
 	{
 		State.bPaused = !State.bPaused;
 	}
 
-	DrawLegendValue("Frame", FrameColor, std::format("{:.2f} ms", Frame));
-	ImGui::SameLine(0.f, 18.f * Scale);
-	DrawLegendValue("CPU", CpuColor, std::format("{:.2f} ms", State.Cpu.GetAverage(AverageWindow)));
-	ImGui::SameLine(0.f, 18.f * Scale);
-	DrawLegendValue("GPU", GpuColor, std::format("{:.2f} ms", State.Gpu.GetAverage(AverageWindow)));
-	const std::array Series{FGraphSeries{.History = &State.Frame, .Color = FrameColor}, FGraphSeries{.History = &State.Cpu, .Color = CpuColor}, FGraphSeries{.History = &State.Gpu, .Color = GpuColor}};
-	DrawHistoryGraph("##FrameGraph", Series, 110.f * Scale, 1000.f / 60.f);
-	ImGui::Spacing();
-
-	if (ImGui::CollapsingHeader("GPU passes", ImGuiTreeNodeFlags_DefaultOpen))
+	// Bars share one scale, the costliest pass, so their lengths compare directly.
+	float Ceiling = 0.f;
+	float Total = static_cast<float>(Sample.GpuUIMilliseconds.value_or(0.));
+	const FPerformancePassHistory* Hottest = nullptr;
+	for (const FPerformancePassHistory& Pass : State.Passes)
 	{
-		float Ceiling = 0.f;
-		for (const FPerformancePassHistory& Pass : State.Passes)
+		const float Average = Pass.Milliseconds.GetAverage(AverageWindow);
+		Total += Average;
+		if (Average > Ceiling)
 		{
-			Ceiling = std::max(Ceiling, Pass.Milliseconds.GetMaximum());
-		}
-
-		if (State.Passes.empty())
-		{
-			ImGui::TextDisabled("No GPU timings reported");
-		}
-		else if (ImGui::BeginTable("##Passes", 3, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_RowBg))
-		{
-			ImGui::TableSetupColumn("Pass", ImGuiTableColumnFlags_WidthStretch, 1.f);
-			ImGui::TableSetupColumn("History", ImGuiTableColumnFlags_WidthStretch, 1.f);
-			ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 84.f * Scale);
-			// Every row shares one scale, so sparkline heights compare pass costs directly.
-			for (const FPerformancePassHistory& Pass : State.Passes)
-			{
-				ImGui::TableNextRow();
-				ImGui::TableSetColumnIndex(0);
-				ImGui::TextUnformatted(Pass.Name.c_str());
-				ImGui::TableSetColumnIndex(1);
-				DrawSparkline(Pass.Milliseconds, ImGui::GetContentRegionAvail().x, ImGui::GetTextLineHeight(), Ceiling);
-				ImGui::TableSetColumnIndex(2);
-				const std::string Value = std::format("{:.3f} ms", Pass.Milliseconds.GetAverage(AverageWindow));
-				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(Value.c_str()).x);
-				ImGui::TextUnformatted(Value.c_str());
-			}
-
-			ImGui::EndTable();
-		}
-
-		if (Sample.GpuUIMilliseconds)
-		{
-			ImGui::TextDisabled("Editor UI %.3f ms", *Sample.GpuUIMilliseconds);
+			Ceiling = Average;
+			Hottest = &Pass;
 		}
 	}
 
-	if (ImGui::CollapsingHeader("Renderer", ImGuiTreeNodeFlags_DefaultOpen))
+	DrawGroupHeading("GPU passes", std::format("{:.2f} ms", Total));
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.f, 1.f * Scale});
+	if (State.Passes.empty())
 	{
-		ImGui::TextDisabled("Lights");
-		ImGui::SameLine(110.f * Scale);
-		ImGui::Text("%zu / %zu", Sample.EnabledLights, Sample.MaximumLights);
-		ImGui::TextDisabled("Draws");
-		ImGui::SameLine(110.f * Scale);
-		ImGui::Text("%zu", Sample.DrawCount);
-		ImGui::TextDisabled("Render targets");
-		ImGui::SameLine(110.f * Scale);
-		ImGui::Text("%.1f MiB", static_cast<double>(Sample.RenderTargetBytes) / (1024. * 1024.));
-		ImGui::TextDisabled("Shadows");
-		ImGui::SameLine(110.f * Scale);
-		ImGui::Text("%u px cascades, %u px local tiles", ShadowCascadeResolution, ShadowTileResolution);
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.f * Scale);
+		ImGui::TextDisabled("No GPU timings reported");
 	}
 
+	for (const FPerformancePassHistory& Pass : State.Passes)
+	{
+		DrawPassRow(Pass.Name, Pass.Milliseconds.GetAverage(AverageWindow), Ceiling, &Pass == Hottest);
+	}
+
+	if (Sample.GpuUIMilliseconds)
+	{
+		DrawPassRow("Editor UI", static_cast<float>(*Sample.GpuUIMilliseconds), Ceiling, false);
+	}
+
+	ImGui::PopStyleVar();
+
+	DrawGroupHeading("Renderer");
+	const auto ValueRow = [Scale](const char* const Label, const std::string& Value)
+	{
+		ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 8.f * Scale);
+		ImGui::TextDisabled("%s", Label);
+		ImGui::SameLine(ImGui::GetContentRegionMax().x - 8.f * Scale - ImGui::CalcTextSize(Value.c_str()).x);
+		ImGui::TextUnformatted(Value.c_str());
+	};
+
+	ValueRow("Lights", std::format("{} / {}", Sample.EnabledLights, Sample.MaximumLights));
+	ValueRow("Render targets", std::format("{:.1f} MiB", static_cast<double>(Sample.RenderTargetBytes) / (1024. * 1024.)));
+	ValueRow("Shadows", std::format("{} px cascades, {} px tiles", ShadowCascadeResolution, ShadowTileResolution));
 	ToolUI.EndPanel();
 }
 }

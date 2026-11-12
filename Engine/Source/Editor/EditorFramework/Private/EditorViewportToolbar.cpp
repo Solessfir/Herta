@@ -316,8 +316,10 @@ float FEditorFramework::FImplementation::DrawViewportToolbar(const ImVec2 Minimu
 			Toggle("Collision", bCollisionVisible);
 			Toggle("Navigation", bNavigationVisible);
 			Toggle("World axes", bAxesVisible);
-			Toggle("Corner axis indicator", bOrientationIndicatorVisible);
 			Toggle("Preview bounds", bBoundsVisible);
+			// Scene overlays above, viewport widgets below.
+			ImGui::Separator();
+			Toggle("Corner axis indicator", bOrientationIndicatorVisible);
 			Toggle("Camera coordinates", bCameraReadoutVisible);
 			Toggle("Camera speed", bCameraSpeedVisible);
 			Toggle("Time of day", bTimeOfDayVisible);
