@@ -190,6 +190,11 @@ void ToolUIIcon(EToolUIMenuIcon Icon, float CenterX, float CenterY, float Scale,
 // Returns nothing for a missing, older-than-supported, or out-of-range file, which leaves the defaults in place.
 [[nodiscard]] std::optional<FEditorAppearance> LoadEditorAppearance(const std::filesystem::path& Path);
 void SaveEditorAppearance(const std::filesystem::path& Path, const FEditorAppearance& Appearance) noexcept;
+// The catalog key for an editor label, Editor.Label followed by the English text's letters and digits, such as Editor.Label.BodyType.
+[[nodiscard]] std::string GetEditorLabelKey(std::string_view English);
+// A label in the editor's language, looked up by its English text, which it falls back to when the catalog lacks it or no text is set.
+// For the many short labels, such as panel and property names, that would otherwise each need a generated text ID.
+[[nodiscard]] std::string ToolUILabel(std::string_view English);
 // A pill that filters a list: lit while selected, with an optional type color square before the label. Returns true when clicked.
 bool ToolUIChip(const char* Label, bool bSelected, const FToolUIColor* TypeColor = nullptr);
 // Switch for boolean settings, right-aligned within the next item width.

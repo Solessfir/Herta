@@ -203,11 +203,14 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 
 	const auto ButtonWidth = [](const char* const Label)
 	{
-		return ImGui::CalcTextSize(Label).x + ImGui::GetStyle().FramePadding.x * 2.f;
+		return ImGui::CalcTextSize(Label, nullptr, true).x + ImGui::GetStyle().FramePadding.x * 2.f;
 	};
 
-	const float ClearWidth = ButtonWidth("Clear");
-	const float CopyWidth = ButtonWidth("Copy");
+	const std::string ClearLabel = ToolUILabel("Clear") + "###LogClear";
+	const std::string CopyLabel = ToolUILabel("Copy") + "###LogCopy";
+	const std::string OptionsLabel = ToolUILabel("Options") + "###LogOptions";
+	const float ClearWidth = ButtonWidth(ClearLabel.c_str());
+	const float CopyWidth = ButtonWidth(CopyLabel.c_str());
 	const std::size_t WarningCount = OutputLog->GetLevelCount(ELogLevel::Warning);
 	const std::size_t ErrorCount = OutputLog->GetLevelCount(ELogLevel::Error) + OutputLog->GetLevelCount(ELogLevel::Critical);
 	OutputLogWarningCount = WarningCount;
@@ -221,11 +224,11 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 
 	const float ChipSpacing = 4.f * ToolbarScale;
 	const float FilterWidth = ChipWidth(AllLabel) + ChipWidth(WarningsLabel) + ChipWidth(ErrorsLabel) + ChipSpacing * 2.f;
-	const float ButtonsWidth = FilterWidth + ButtonWidth("Options") + ClearWidth + CopyWidth + Spacing * 3.f;
+	const float ButtonsWidth = FilterWidth + ButtonWidth(OptionsLabel.c_str()) + ClearWidth + CopyWidth + Spacing * 3.f;
 	const float AvailableWidth = ImGui::GetContentRegionAvail().x;
 	const bool bSingleRow = AvailableWidth >= ButtonsWidth + Spacing + 160.f * ToolbarScale;
 	ImGui::SetNextItemWidth(bSingleRow ? std::min(320.f * ToolbarScale, AvailableWidth - ButtonsWidth - Spacing) : -1.f);
-	const bool bSearchChanged = ToolUI->DrawSearchField("##OutputLogSearch", "Search Log", SearchBuffer.data(), SearchBuffer.size());
+	const bool bSearchChanged = ToolUI->DrawSearchField("##OutputLogSearch", ToolUILabel("Search Log").c_str(), SearchBuffer.data(), SearchBuffer.size());
 
 	if (bSingleRow)
 	{
@@ -277,7 +280,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	ImGui::SameLine();
 	ImGui::SetCursorPosY(ChipRowY);
 
-	if (ImGui::Button("Options"))
+	if (ImGui::Button(OptionsLabel.c_str()))
 	{
 		ImGui::OpenPopup("OutputLogOptions");
 	}
@@ -289,9 +292,9 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		ImGui::SameLine(RightX);
 	}
 
-	const bool bClearRequested = ImGui::Button("Clear");
+	const bool bClearRequested = ImGui::Button(ClearLabel.c_str());
 	ImGui::SameLine();
-	const bool bCopyRequested = ImGui::Button("Copy");
+	const bool bCopyRequested = ImGui::Button(CopyLabel.c_str());
 	ImGui::PopStyleColor(3);
 	ImGui::PopStyleVar(4);
 
@@ -311,17 +314,17 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 		bool bPaused = OutputLog->IsPaused();
 		bool bColorize = OutputLog->IsCategoryColorizationEnabled();
 
-		if (ImGui::MenuItem("Auto-scroll", nullptr, &bAutoScroll))
+		if (ImGui::MenuItem(ToolUILabel("Auto-scroll").c_str(), nullptr, &bAutoScroll))
 		{
 			OutputLog->SetAutoScroll(bAutoScroll);
 		}
 
-		if (ImGui::MenuItem("Pause", nullptr, &bPaused))
+		if (ImGui::MenuItem(ToolUILabel("Pause").c_str(), nullptr, &bPaused))
 		{
 			OutputLog->SetPaused(bPaused);
 		}
 
-		if (ImGui::MenuItem("Colorize categories", nullptr, &bColorize))
+		if (ImGui::MenuItem(ToolUILabel("Colorize categories").c_str(), nullptr, &bColorize))
 		{
 			OutputLog->SetCategoryColorization(bColorize);
 		}
@@ -558,7 +561,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::FImplementation::Dr
 	}
 
 	ImGui::PushStyleColor(ImGuiCol_NavCursor, {0.f, 0.f, 0.f, 0.f});
-	const bool bCommandSubmitted = ImGui::InputTextWithHint("##OutputLogCommand", "Enter Console Command", CommandBuffer.data(), CommandBuffer.size(), CommandFlags, InputCallback, &CallbackContext);
+	const bool bCommandSubmitted = ImGui::InputTextWithHint("##OutputLogCommand", ToolUILabel("Enter Console Command").c_str(), CommandBuffer.data(), CommandBuffer.size(), CommandFlags, InputCallback, &CallbackContext);
 	const bool bCommandActive = ImGui::IsItemActive();
 	const bool bEscapePressed = ImGui::IsKeyPressed(ImGuiKey_Escape, false);
 

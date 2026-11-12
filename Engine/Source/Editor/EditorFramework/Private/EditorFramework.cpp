@@ -665,8 +665,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 	Implementation->ToolUI->SetLevelTabLabel(std::format("{}{}", Implementation->Level->GetName(), Implementation->Level->IsDirty() ? "*" : ""));
 	Implementation->ToolUI->DrawWorkspace(LevelTitle, [&]
 	{
-		ToolUIMenuItem("Outliner", EToolUIMenuIcon::Outliner, &Implementation->bOutlinerOpen);
-		ToolUIMenuItem("Details", EToolUIMenuIcon::Details, &Implementation->bDetailsOpen);
+		ToolUIMenuItem(ToolUILabel("Outliner"), EToolUIMenuIcon::Outliner, &Implementation->bOutlinerOpen);
+		ToolUIMenuItem(ToolUILabel("Details"), EToolUIMenuIcon::Details, &Implementation->bDetailsOpen);
 		bool bBottomVisible = Implementation->bBottomPanelOpen && (Implementation->bContentBrowserOpen || Implementation->bOutputLogOpen);
 		if (ToolUIMenuItem(Localization.Format(Editor::Menu_BottomPanel), EToolUIMenuIcon::Panel, &bBottomVisible, "Ctrl+Space"))
 		{
@@ -674,7 +674,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 		}
 		const bool bDocumentInFront = Implementation->ToolUI->IsDocumentInFront();
 		bool bBrowserVisible = bDocumentInFront ? Implementation->bContentDrawerOpen : Implementation->bBottomPanelOpen && Implementation->bContentBrowserOpen;
-		if (ToolUIMenuItem("Content Browser", EToolUIMenuIcon::ContentBrowser, &bBrowserVisible))
+		if (ToolUIMenuItem(ToolUILabel("Content Browser"), EToolUIMenuIcon::ContentBrowser, &bBrowserVisible))
 		{
 			if (bDocumentInFront)
 			{
@@ -690,7 +690,7 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 
 		ImGui::Separator();
 		bool bLogVisible = bDocumentInFront ? Implementation->bOutputLogDrawerOpen : Implementation->bBottomPanelOpen && Implementation->bOutputLogOpen;
-		if (ToolUIMenuItem("Output Log", EToolUIMenuIcon::Log, &bLogVisible))
+		if (ToolUIMenuItem(ToolUILabel("Output Log"), EToolUIMenuIcon::Log, &bLogVisible))
 		{
 			if (bDocumentInFront)
 			{
@@ -703,8 +703,8 @@ std::expected<void, FEditorFrameworkError> FEditorFramework::Draw(const std::fun
 			}
 		}
 
-		ToolUIMenuItem("Performance", EToolUIMenuIcon::Performance, &Implementation->bPerformanceOpen);
-		ToolUIMenuItem("World Settings", EToolUIMenuIcon::World, &Implementation->bWorldSettingsOpen);
+		ToolUIMenuItem(ToolUILabel("Performance"), EToolUIMenuIcon::Performance, &Implementation->bPerformanceOpen);
+		ToolUIMenuItem(ToolUILabel("World Settings"), EToolUIMenuIcon::World, &Implementation->bWorldSettingsOpen);
 		Implementation->Plugins->DrawWindowMenuItems();
 	}, [&]
 	{

@@ -1,12 +1,15 @@
 #include "Herta/Assets/VirtualFileSystem.h"
+#include "Herta/Level/LevelDescriptors.h"
 #include "Herta/Localization/Localization.h"
 #include "Herta/LocalizationPipeline/LocalizationPipeline.h"
+#include "Herta/ToolUI/ToolUI.h"
 
 #include <doctest/doctest.h>
 
 #include <array>
 #include <format>
 #include <ostream>
+#include <set>
 
 using namespace Herta;
 
@@ -274,3 +277,33 @@ TEST_CASE("Catalog validation reports broken translations, unknown keys, and unt
 	CHECK(GenerateTextIdHeader(Catalogs[0], "Game.hloc").contains("inline constexpr FTextId A{\"Game.A\"};"));
 }
 
+TEST_CASE("Every Details component, property, and group label has an editor catalog entry")
+{
+	// Details shows these labels through ToolUILabel, which falls back to English for a label the catalog lacks; this keeps new
+	// properties from staying English in the other languages unnoticed.
+	const auto Bytes = ReadDiskFile("Engine/Content/Editor/Localization/en/Editor.hloc");
+	REQUIRE(Bytes);
+	const auto Catalog = ParseTextCatalog(std::string_view(reinterpret_cast<const char*>(Bytes->data()), Bytes->size()));
+	REQUIRE(Catalog);
+	std::set<std::string, std::less<>> Keys;
+	for (const FCatalogMessage& Message : Catalog->Messages)
+	{
+		Keys.insert(Catalog->Namespace + "." + Message.Key);
+	}
+
+	CHECK(GetEditorLabelKey("Body type") == "Editor.Label.Bodytype");
+	for (const FLevelComponentDescriptor& Component : GetLevelComponentDescriptors())
+	{
+		CAPTURE(Component.Label);
+		CHECK(Keys.contains(GetEditorLabelKey(Component.Label)));
+		for (const FLevelPropertyDescriptor& Property : Component.Properties)
+		{
+			CAPTURE(Property.Label);
+			CHECK(Keys.contains(GetEditorLabelKey(Property.Label)));
+			if (!Property.Group.empty())
+			{
+				CHECK(Keys.contains(GetEditorLabelKey(Property.Group)));
+			}
+		}
+	}
+}

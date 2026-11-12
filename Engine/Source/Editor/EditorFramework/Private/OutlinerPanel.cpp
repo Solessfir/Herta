@@ -623,8 +623,8 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 		State.PinnedCount = static_cast<int>(StickyRows.size());
 		if (ImGui::BeginTable("##OutlinerObjects", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_PadOuterX | ImGuiTableFlags_ScrollY))
 		{
-			ImGui::TableSetupColumn("Item Label", ImGuiTableColumnFlags_WidthStretch);
-			ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 105.f * ImGui::GetFontSize() / 15.f);
+			ImGui::TableSetupColumn((ToolUILabel("Item Label") + "###ItemLabel").c_str(), ImGuiTableColumnFlags_WidthStretch);
+			ImGui::TableSetupColumn((ToolUILabel("Type") + "###Type").c_str(), ImGuiTableColumnFlags_WidthFixed, 105.f * ImGui::GetFontSize() / 15.f);
 
 			ImGui::TableSetupScrollFreeze(0, 1 + static_cast<int>(StickyRows.size()));
 			ImGui::PushStyleColor(ImGuiCol_Header, {0, 0, 0, 0});
@@ -641,7 +641,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 				const std::string& Selected = State.Texts.Selected;
 				const float Right = Table->Columns[0].WorkMaxX - 4.f * Scale;
 				const float Left = Right - ImGui::CalcTextSize(Selected.c_str()).x;
-				if (Left > Table->Columns[0].WorkMinX + ImGui::CalcTextSize("Item Label").x + 12.f * Scale)
+				if (Left > Table->Columns[0].WorkMinX + ImGui::CalcTextSize(ToolUILabel("Item Label").c_str()).x + 12.f * Scale)
 				{
 					ImGui::GetWindowDrawList()->AddText({Left, (Table->RowPosY1 + Table->RowPosY2 - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(ImGuiCol_TextDisabled), Selected.c_str());
 				}
@@ -923,7 +923,7 @@ bool DrawPreviewOutlinerContents(FPreviewSelection& Selection, const std::span<c
 				}
 
 				ImGui::TableSetColumnIndex(1);
-				const std::string_view TypeName = bFolder ? "Folder" : GetPreviewObjectTypeName(*Object);
+				const std::string TypeName = ToolUILabel(bFolder ? "Folder" : GetPreviewObjectTypeName(*Object));
 				ImGui::TextDisabled("%.*s", static_cast<int>(TypeName.size()), TypeName.data());
 				ImGui::PopStyleVar(2);
 				ImGui::PopID();
@@ -1071,7 +1071,7 @@ bool DrawPreviewOutlinerPanel(FToolUIContext& ToolUI, bool& bOpen, FPreviewSelec
 
 	ImGui::BeginDisabled(bDragging);
 	ImGui::SetNextItemWidth(-1.f);
-	if (ToolUI.DrawSearchField("##OutlinerSearch", "Search", State.Search.InputBuf, sizeof(State.Search.InputBuf)))
+	if (ToolUI.DrawSearchField("##OutlinerSearch", ToolUILabel("Search").c_str(), State.Search.InputBuf, sizeof(State.Search.InputBuf)))
 	{
 		State.Search.Build();
 	}

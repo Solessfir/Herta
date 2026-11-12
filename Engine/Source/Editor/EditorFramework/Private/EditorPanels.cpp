@@ -89,9 +89,9 @@ void FEditorFramework::FImplementation::DrawWorldSettingsPanel()
 		return bOpen;
 	};
 
-	if (Section("   Exposure###Exposure", ToolUITheme::TypeLight))
+	if (Section(("   " + ToolUILabel("Exposure") + "###Exposure").c_str(), ToolUITheme::TypeLight))
 	{
-		DrawFieldLabel("Compensation", ValueWidth);
+		DrawFieldLabel(ToolUILabel("Compensation").c_str(), ValueWidth);
 		DrawNumericSliderFloat("##ExposureCompensation", &ExposureCompensation, -MaximumLevelExposureCompensation, MaximumLevelExposureCompensation, "%+.1f EV", ImGuiSliderFlags_AlwaysClamp);
 		ImGui::SetItemTooltip("Stops added to auto exposure wherever the level is shown, including Play and the game");
 		if (ImGui::IsItemDeactivatedAfterEdit())
@@ -105,12 +105,12 @@ void FEditorFramework::FImplementation::DrawWorldSettingsPanel()
 		bExposureCompensationActive = ImGui::IsItemActive();
 	}
 
-	if (Section("   Regions###Regions", ToolUITheme::TypeMesh))
+	if (Section(("   " + ToolUILabel("Regions") + "###Regions").c_str(), ToolUITheme::TypeMesh))
 	{
 		DrawLevelRegions(ValueWidth, Scale);
 	}
 
-	if (Section("   Camera Bookmarks###Camera Bookmarks", ToolUITheme::TypeOther))
+	if (Section(("   " + ToolUILabel("Camera Bookmarks") + "###Camera Bookmarks").c_str(), ToolUITheme::TypeOther))
 	{
 		DrawCameraBookmarks(Scale);
 	}

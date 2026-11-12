@@ -2784,6 +2784,34 @@ std::expected<void, FToolUIError> FToolUIContext::RenderPlatformWindows()
 	return {};
 }
 
+std::string GetEditorLabelKey(const std::string_view English)
+{
+	std::string Key = "Editor.Label.";
+	for (const char Character : English)
+	{
+		if (std::isalnum(static_cast<unsigned char>(Character)))
+		{
+			Key.push_back(Character);
+		}
+	}
+
+	return Key;
+}
+
+std::string ToolUILabel(const std::string_view English)
+{
+	const FToolUIContext::FImplementation* const Owner = ImGui::GetCurrentContext() ? GetToolUIImplementation() : nullptr;
+	if (!Owner || !Owner->Text || English.empty())
+	{
+		return std::string(English);
+	}
+
+	// A missing message comes back as its key.
+	const std::string Key = GetEditorLabelKey(English);
+	std::string Text = Owner->Text->Format(FTextId::FromKey(Key));
+	return Text == Key ? std::string(English) : Text;
+}
+
 bool ToolUIChip(const char* const Label, const bool bSelected, const FToolUIColor* const TypeColor)
 {
 	const float Scale = ImGui::GetFontSize() / 15.f;
@@ -3451,7 +3479,7 @@ bool FToolUIContext::BeginPanel(const std::string_view Name, bool* const bOpen, 
 	const auto Badge = Implementation->PanelBadges.find(WindowId);
 	const float BadgeWidth = Badge == Implementation->PanelBadges.end() ? 0.f : ImGui::CalcTextSize(Badge->second.c_str()).x * 0.85f + 18.f * ImGui::GetFontSize() / 15.f;
 	const std::string BadgeSpace(static_cast<std::size_t>(std::ceil(BadgeWidth / ImGui::CalcTextSize(" ").x)), ' ');
-	const std::string Label = bIconTab || !BadgeSpace.empty() ? std::format("{}{}{}###{}", bIconTab ? "      " : "", Name, BadgeSpace, Name) : std::string(Name);
+	const std::string Label = bIconTab || !BadgeSpace.empty() ? std::format("{}{}{}###{}", bIconTab ? "      " : "", ToolUILabel(Name), BadgeSpace, Name) : std::format("{}###{}", ToolUILabel(Name), Name);
 	constexpr ImGuiWindowFlags DrawerFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
 	// A document must rise above the full-window workspace host to receive the mouse, so it comes to the front when focused; drawers open focused above it.
 	constexpr ImGuiWindowFlags DocumentFlags = DrawerFlags | ImGuiWindowFlags_NoTitleBar;

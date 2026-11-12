@@ -94,7 +94,8 @@ bool DrawPropertyGroupHeader(const std::string_view Label, const std::string_vie
 	// Laid out like the component header: the arrow in a font-sized slot, the label after it.
 	const float ArrowX = Minimum.x + 8.f * Scale + ImGui::GetFontSize() * (1.f - ArrowScale) * 0.5f;
 	ImGui::RenderArrow(DrawList, {ArrowX, CenterY - ImGui::GetFontSize() * ArrowScale * 0.5f}, Color, bOpen ? ImGuiDir_Down : ImGuiDir_Right, ArrowScale);
-	DrawList->AddText({Minimum.x + 16.f * Scale + ImGui::GetFontSize(), CenterY - ImGui::GetFontSize() * 0.5f}, Color, Label.data(), Label.data() + Label.size());
+	const std::string Shown = ToolUILabel(Label);
+	DrawList->AddText({Minimum.x + 16.f * Scale + ImGui::GetFontSize(), CenterY - ImGui::GetFontSize() * 0.5f}, Color, Shown.c_str());
 	if (Table)
 	{
 		ImGui::TablePopBackgroundChannel();
@@ -192,7 +193,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 	ImGui::PushStyleColor(ImGuiCol_Button, {1, 1, 1, 0.04f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.08f});
 	ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.12f});
-	const bool bButtonPressed = ToolUIButton("Add Component", EToolUIMenuIcon::Add);
+	const bool bButtonPressed = ToolUIButton(ToolUILabel("Add Component"), EToolUIMenuIcon::Add);
 	ImGui::PopStyleColor(3);
 	ImGui::PopStyleVar(3);
 	if (bButtonPressed || (bRequested && !bDragging))
@@ -345,7 +346,7 @@ EDetailsComponentAction DrawAddComponent(FToolUIContext& ToolUI, FDetailsPanelSt
 			                                                              : Index == 8               ? EToolUIMenuIcon::Fog
 			                                                              : Index >= 2 && Index <= 6 ? EToolUIMenuIcon::Light
 			                                                                                         : EToolUIMenuIcon::Entity;
-			const bool bPressed = ToolUIMenuItem(Names[Index], Icon, nullptr, Added[Index] ? AddedText.c_str() : nullptr);
+			const bool bPressed = ToolUIMenuItem(ToolUILabel(Names[Index]), Icon, nullptr, Added[Index] ? AddedText.c_str() : nullptr);
 			const ImVec2 Minimum = ImGui::GetItemRectMin();
 			const ImVec2 Maximum = ImGui::GetItemRectMax();
 			// The row's left edge carries the component's type color, as its header will in Details.
@@ -456,7 +457,8 @@ std::optional<Im3d::Vec3> DrawSpaceSelector(const std::string_view Label, const 
 		DrawList->AddRect(Position, {Position.x + Size.x, Position.y + Size.y}, ImGui::GetColorU32(ImGuiCol_NavCursor), 4.f * Scale);
 	}
 
-	DrawList->AddText({Position.x, Position.y + (Size.y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(GetPropertyLabelColor()), Label.data(), Label.data() + Label.size());
+	const std::string Shown = ToolUILabel(Label);
+	DrawList->AddText({Position.x, Position.y + (Size.y - ImGui::GetFontSize()) * 0.5f}, ImGui::GetColorU32(GetPropertyLabelColor()), Shown.c_str());
 	const float ArrowX = Position.x + Size.x - 11.f * Scale;
 	const float ArrowY = Position.y + Size.y * 0.5f;
 	const ImU32 ArrowColor = ImGui::GetColorU32(ImGuiCol_TextDisabled);
@@ -645,7 +647,7 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 			const std::string Display(Slash == std::string_view::npos ? Label : Label.substr(Slash + 1));
 			const FComboPreviewSlot PreviewSlot = GetComboPreviewSlot();
 			const bool bMaterialComboOpen = ImGui::BeginCombo("##Material", "");
-			DrawAssetComboPreview(PreviewSlot, Display);
+			DrawAssetComboPreview(PreviewSlot, Slot.bMixed || !Slot.Selected.IsValid() || Label == "Missing material" ? ToolUILabel(Display) : Display);
 			if (bMaterialComboOpen)
 			{
 				if (ImGui::IsWindowAppearing())
@@ -656,9 +658,9 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 
 				ImGui::SetNextItemWidth(-FLT_MIN);
 				ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-				ToolUI.DrawSearchField("##MaterialSearch", "Search materials", State.MaterialSearch.data(), State.MaterialSearch.size());
+				ToolUI.DrawSearchField("##MaterialSearch", ToolUILabel("Search materials").c_str(), State.MaterialSearch.data(), State.MaterialSearch.size());
 				ImGui::PopStyleColor();
-				if (ImGui::Selectable("Default (imported)", !Slot.bMixed && !Slot.Selected.IsValid()))
+				if (ImGui::Selectable(ToolUILabel("Default (imported)").c_str(), !Slot.bMixed && !Slot.Selected.IsValid()))
 				{
 					Result.MaterialChosen = {{SlotIndex, FAssetId{}}};
 				}
@@ -709,13 +711,13 @@ void DrawMaterialSlots(FToolUIContext& ToolUI, FDetailsPanelState& State, const 
 
 			if (ImGui::BeginPopupContextItem("Material slot"))
 			{
-				if (ToolUIMenuItem("Reset to imported material", EToolUIMenuIcon::Undo))
+				if (ToolUIMenuItem(ToolUILabel("Reset to imported material"), EToolUIMenuIcon::Undo))
 				{
 					Result.MaterialChosen = {{SlotIndex, FAssetId{}}};
 				}
 
 				ImGui::BeginDisabled(Slot.bMixed || !Slot.Selected.IsValid());
-				if (ToolUIMenuItem("Edit material", EToolUIMenuIcon::Material))
+				if (ToolUIMenuItem(ToolUILabel("Edit material"), EToolUIMenuIcon::Material))
 				{
 					Result.MaterialOpenRequested = Slot.Selected;
 				}
@@ -917,7 +919,8 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 			const float LabelLimit = ImGui::GetCursorScreenPos().x + LabelWidth - 4.f * Scale;
 			const ImVec2 LabelPosition{ImGui::GetCursorScreenPos().x + (Group.empty() ? 0.f : PropertyGroupIndent * Scale), ImGui::GetCursorScreenPos().y + ImGui::GetStyle().FramePadding.y};
 			ImGui::Dummy({std::max(1.f, LabelWidth - 4.f * Scale), ImGui::GetTextLineHeight()});
-			ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), LabelPosition, {LabelLimit, LabelPosition.y + ImGui::GetFontSize()}, LabelLimit, DisplayLabel.data(), DisplayLabel.data() + DisplayLabel.size(), nullptr);
+			const std::string ShownLabel = ToolUILabel(DisplayLabel);
+			ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), LabelPosition, {LabelLimit, LabelPosition.y + ImGui::GetFontSize()}, LabelLimit, ShownLabel.c_str(), ShownLabel.c_str() + ShownLabel.size(), nullptr);
 			ImGui::PopStyleColor();
 			ImGui::SetItemTooltip("%.*s", static_cast<int>(DisplayLabel.size()), DisplayLabel.data());
 			ImGui::TableSetColumnIndex(1);
@@ -1071,11 +1074,11 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 				                     : Property.Type == ELevelPropertyType::TriggerRole ? static_cast<std::size_t>(std::get<ETriggerRole>(Candidate))
 				                     : Property.Type == ELevelPropertyType::AiAttitude  ? static_cast<std::size_t>(std::get<EAiAttitude>(Candidate))
 				                                                                        : static_cast<std::size_t>(std::get<ESoftBodyShape>(Candidate));
-				if (ImGui::BeginCombo("##Value", Mixed[Index] ? "Multiple values" : Labels[Current]))
+				if (ImGui::BeginCombo("##Value", ToolUILabel(Mixed[Index] ? "Multiple values" : Labels[Current]).c_str()))
 				{
 					for (std::size_t Option = 0; Option < Labels.size(); ++Option)
 					{
-						if (ImGui::Selectable(Labels[Option], !Mixed[Index] && Option == Current))
+						if (ImGui::Selectable((ToolUILabel(Labels[Option]) + "##" + Labels[Option]).c_str(), !Mixed[Index] && Option == Current))
 						{
 							Candidate = Property.Type == ELevelPropertyType::LightType     ? FLevelPropertyValue{static_cast<ELightType>(Option)}
 							            : Property.Type == ELevelPropertyType::FogQuality  ? FLevelPropertyValue{static_cast<EFogQuality>(Option)}
@@ -1156,18 +1159,19 @@ void DrawVisualProperties(FToolUIContext& ToolUI, const ELevelComponentType Type
 
 					ImGui::SetNextItemWidth(-FLT_MIN);
 					ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-					ToolUI.DrawSearchField("##ReferenceSearch", bObject ? (bConstraint ? "Search bodies and ropes" : "Search lights") : bSoftBody ? "Search materials"
-					                                                                                                                : bSound      ? "Search sounds"
-					                                                                                                                : bEffect     ? "Search particle systems"
-					                                                                                                                : bStateTree  ? "Search StateTrees"
-					                                                                                                                : bGameplay   ? "Search gameplay graphs"
-					                                                                                                                : bModel      ? "Search models"
-					                                                                                                                              : "Search environments",
+					ToolUI.DrawSearchField("##ReferenceSearch", ToolUILabel(bObject ? (bConstraint ? "Search bodies and ropes" : "Search lights") : bSoftBody ? "Search materials"
+					                                                                                                                            : bSound      ? "Search sounds"
+					                                                                                                                            : bEffect     ? "Search particle systems"
+					                                                                                                                            : bStateTree  ? "Search StateTrees"
+					                                                                                                                            : bGameplay   ? "Search gameplay graphs"
+					                                                                                                                            : bModel      ? "Search models"
+					                                                                                                                                          : "Search environments")
+					                                                .c_str(),
 					    State.VisualReferenceSearch.data(), State.VisualReferenceSearch.size());
 					ImGui::PopStyleColor();
 					std::vector<std::string_view> Candidates(Labels.begin(), Labels.begin() + static_cast<std::ptrdiff_t>(Count));
 					const auto Matches = SearchAssets(Candidates, State.VisualReferenceSearch.data());
-					if (ImGui::Selectable(NoneLabel))
+					if (ImGui::Selectable(ToolUILabel(NoneLabel).c_str()))
 					{
 						Candidate = bObject ? FLevelPropertyValue{FObjectId{}} : FLevelPropertyValue{FAssetId{}};
 						bChanged = true;
@@ -1415,7 +1419,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	if (!bSelected)
 	{
 		State.bAddComponentRequested = false;
-		ImGui::TextDisabled("Select an object in the viewport.");
+		ImGui::TextDisabled("%s", ToolUILabel("Select an object in the viewport.").c_str());
 		ToolUI.EndPanel();
 		return MeshResult;
 	}
@@ -1428,7 +1432,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	ImGui::SameLine();
 	const float HeadingTextX = ImGui::GetCursorPosX();
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {ImGui::GetStyle().ItemSpacing.x, 2.f * UiScale});
-	const std::string SelectionText = std::to_string(SelectedCount) + " selected";
+	const std::string SelectionText = ToolUI.Text(Text::Editor::Outliner_Selected, std::format("{} selected", SelectedCount), std::array{FMessageArgument{"count", static_cast<std::int64_t>(SelectedCount)}});
 	const float SelectionWidth = ImGui::CalcTextSize(SelectionText.c_str()).x;
 	const float ActionWidth = Components != nullptr ? ImGui::CalcTextSize("Add Component").x + 36.f * UiScale : 0.f;
 	const float TrailingWidth = std::max(ActionWidth, SelectionWidth);
@@ -1439,7 +1443,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const ImVec2 NamePosition{ImGui::GetItemRectMin().x, ImGui::GetItemRectMin().y + 4.f * UiScale};
 	ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), NamePosition, ImGui::GetItemRectMax(), ImGui::GetItemRectMax().x, ObjectLabel.data(), ObjectLabel.data() + ObjectLabel.size(), nullptr);
 	ImGui::SetItemTooltip("%.*s", static_cast<int>(ObjectLabel.size()), ObjectLabel.data());
-	ImGui::TextDisabled("%s", bEntity ? "Entity" : MeshDescriptor.Label.data());
+	ImGui::TextDisabled("%s", ToolUILabel(bEntity ? "Entity" : MeshDescriptor.Label).c_str());
 	ImGui::EndGroup();
 	ImGui::SameLine(HeadingActionX);
 	ImGui::BeginGroup();
@@ -1454,7 +1458,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	ImGui::PopStyleVar();
 	ImGui::Spacing();
 	ImGui::SetNextItemWidth(-1.f);
-	ToolUI.DrawSearchField("##PropertySearch", "Search", State.Search.data(), State.Search.size());
+	ToolUI.DrawSearchField("##PropertySearch", ToolUILabel("Search").c_str(), State.Search.data(), State.Search.size());
 	const std::string_view Query(State.Search.data());
 	const bool bShowAll = Query.empty() || MatchesSearch(TransformDescriptor.Label, Query);
 	const bool bLocation = bShowAll || MatchesSearch(LocationProperty.Label, Query);
@@ -1494,7 +1498,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 	const bool bGameplayGraph = Components && Components->bAnyGameplayGraph && MatchesVisualSection(ELevelComponentType::GameplayGraph, Query);
 	if (!bTransform && !bMesh && !bBody && !bLight && !bAtmosphere && !bFog && !bSoftBody && !bMover && !bTrigger && !bConstraint && !bDestructible && !bCharacter && !bPlayer && !bAudioEmitter && !bAudioListener && !bParticleEmitter && !bNavigationBounds && !bNavigationObstacle && !bAiAgent && !bGameplayGraph)
 	{
-		ImGui::TextDisabled("No matching properties.");
+		ImGui::TextDisabled("%s", ToolUILabel("No matching properties.").c_str());
 		ToolUI.EndPanel();
 		return MeshResult;
 	}
@@ -1535,7 +1539,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				continue;
 			}
 
-			const float ChipWidth = ImGui::CalcTextSize(ChipLabel).x + 32.f * UiScale;
+			const float ChipWidth = ImGui::CalcTextSize(ToolUILabel(ChipLabel).c_str()).x + 32.f * UiScale;
 			if (!bFirst && ImGui::GetItemRectMax().x + 4.f * UiScale + ChipWidth <= ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
 			{
 				ImGui::SameLine();
@@ -1544,7 +1548,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			bFirst = false;
 			const FToolUIColor ChipColor = GetComponentTypeColor(ChipLabel);
 			ImGui::PushID("##JumpChips");
-			if (ToolUIChip(ChipLabel, false, &ChipColor))
+			if (ToolUIChip((ToolUILabel(ChipLabel) + "##" + ChipLabel).c_str(), false, &ChipColor))
 			{
 				State.JumpSection = ChipLabel;
 			}
@@ -1607,7 +1611,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 		const FToolUIColor TypeColor = GetComponentTypeColor(Label);
 		const float BarX = Position.x + FontSize + Padding.x * 2.f;
 		DrawList->AddRectFilled({BarX, Position.y + Padding.y + 1.f * UiScale}, {BarX + 3.f * UiScale, Position.y + Padding.y + FontSize - 1.f * UiScale}, IM_COL32(TypeColor.Red, TypeColor.Green, TypeColor.Blue, 255), 1.5f * UiScale);
-		const std::string DisplayLabel = std::string(Label) + (bMixed ? " (mixed)" : "");
+		const std::string DisplayLabel = ToolUILabel(Label) + (bMixed ? " (" + ToolUILabel("mixed") + ")" : std::string{});
 		const ImVec2 TextPosition{BarX + 10.f * UiScale, Position.y + Padding.y};
 		ImGui::RenderTextEllipsis(DrawList, TextPosition, {bRemovable ? ActionX : ImGui::GetItemRectMax().x, Position.y + FontSize + Padding.y}, bRemovable ? ActionX : ImGui::GetItemRectMax().x, DisplayLabel.c_str(), DisplayLabel.c_str() + DisplayLabel.size(), nullptr);
 		if (bRemovable)
@@ -1777,13 +1781,13 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 
 				ImGui::SetNextItemWidth(-FLT_MIN);
 				ImGui::PushStyleColor(ImGuiCol_NavCursor, {0, 0, 0, 0});
-				ToolUI.DrawSearchField("##MeshSearch", "Search assets", State.MeshSearch.data(), State.MeshSearch.size());
+				ToolUI.DrawSearchField("##MeshSearch", ToolUILabel("Search assets").c_str(), State.MeshSearch.data(), State.MeshSearch.size());
 				ImGui::PopStyleColor();
 				std::vector<std::string_view> Candidates(Mesh->Options.begin(), Mesh->Options.end());
 				const std::optional<std::vector<FAssetSearchMatch>> Matches = SearchAssets(Candidates, State.MeshSearch.data());
 				if (Matches && Matches->empty())
 				{
-					ImGui::TextDisabled("No matching assets");
+					ImGui::TextDisabled("%s", ToolUILabel("No matching assets").c_str());
 				}
 
 				if (Matches)
@@ -1849,19 +1853,19 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
 			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
-			ImGui::TextUnformatted(BodyTypeProperty.Label.data(), BodyTypeProperty.Label.data() + BodyTypeProperty.Label.size());
+			ImGui::TextUnformatted(ToolUILabel(BodyTypeProperty.Label).c_str());
 			ImGui::PopStyleColor();
 			ImGui::TableSetColumnIndex(1);
 			ImGui::SetNextItemWidth(-FLT_MIN);
 			ImGui::BeginDisabled(bDragging);
 			const char* const BodyLabel = !Components->bAllBody || !Components->BodyType ? "Multiple values" : *Components->BodyType == ELevelBodyType::Static ? "Static"
 			                                                                                                                                                   : "Dynamic";
-			if (ImGui::BeginCombo("##BodyType", BodyLabel))
+			if (ImGui::BeginCombo("##BodyType", ToolUILabel(BodyLabel).c_str()))
 			{
 				for (const auto& [Label, Type] : {std::pair{"Static", ELevelBodyType::Static}, std::pair{"Dynamic", ELevelBodyType::Dynamic}})
 				{
 					const bool bCurrent = Components->BodyType == Type;
-					if (ImGui::Selectable(Label, bCurrent) && !bCurrent)
+					if (ImGui::Selectable((ToolUILabel(Label) + "##" + Label).c_str(), bCurrent) && !bCurrent)
 					{
 						MeshResult.BodyTypeChosen = Type;
 					}
@@ -1888,18 +1892,18 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 			ImGui::TableSetColumnIndex(0);
 			ImGui::AlignTextToFramePadding();
 			ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
-			ImGui::TextUnformatted(CollisionProperty.Label.data(), CollisionProperty.Label.data() + CollisionProperty.Label.size());
+			ImGui::TextUnformatted(ToolUILabel(CollisionProperty.Label).c_str());
 			ImGui::PopStyleColor();
 			ImGui::SetItemTooltip("Shape fitted to the mesh bounds. A sphere encloses the largest extent; a capsule stands along the object's local Y axis.");
 			ImGui::TableSetColumnIndex(1);
 			ImGui::SetNextItemWidth(-FLT_MIN);
-			if (ImGui::BeginCombo("##Collision", !Components->bAllBody || Components->bMixedCollision ? "Multiple values" : CollisionLabels[static_cast<std::size_t>(Collision)]))
+			if (ImGui::BeginCombo("##Collision", ToolUILabel(!Components->bAllBody || Components->bMixedCollision ? "Multiple values" : CollisionLabels[static_cast<std::size_t>(Collision)]).c_str()))
 			{
 				for (std::size_t Option = 0; Option < CollisionLabels.size(); ++Option)
 				{
 					const auto Shape = static_cast<ELevelCollisionShape>(Option);
 					const bool bCurrent = !Components->bMixedCollision && Collision == Shape;
-					if (ImGui::Selectable(CollisionLabels[Option], bCurrent) && !bCurrent)
+					if (ImGui::Selectable((ToolUILabel(CollisionLabels[Option]) + "##" + CollisionLabels[Option]).c_str(), bCurrent) && !bCurrent)
 					{
 						MeshResult.CollisionChosen = Shape;
 					}
@@ -1934,7 +1938,7 @@ FDetailsMeshResult DrawPreviewDetailsPanel(FToolUIContext& ToolUI, bool& bOpen, 
 				ImGui::TableSetColumnIndex(0);
 				ImGui::AlignTextToFramePadding();
 				ImGui::PushStyleColor(ImGuiCol_Text, GetPropertyLabelColor());
-				ImGui::TextUnformatted(Descriptor.Label.data(), Descriptor.Label.data() + Descriptor.Label.size());
+				ImGui::TextUnformatted(ToolUILabel(Descriptor.Label).c_str());
 				ImGui::PopStyleColor();
 				ImGui::SetItemTooltip("%.*s", static_cast<int>(Property.Tooltip.size()), Property.Tooltip.data());
 				ImGui::TableSetColumnIndex(1);
