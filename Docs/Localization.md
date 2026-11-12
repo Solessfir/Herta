@@ -96,3 +96,4 @@ The command palette and the Preferences, Project settings, and Plugins tabs take
 - Cooked catalogs are canonical JSON rather than a binary format; they are a few kilobytes each.
 - The game's first language is English rather than the operating system's.
 - XLIFF interchange waits for a translator workflow that needs it.
+- Projects cannot localize yet. Catalogs load, stage, and cook only from the engine roots, and the translation editor offers only the `Game` and `Editor` namespaces. The planned order: project catalogs under `<Project>/Content/Localization` in a namespace named after the project, loaded beside `Game`, staged, cooked into language packs, edited in the translation editor, and given a text ID header in the game module; then a text property type that stores a catalog key for strings authored in levels and graphs, with a command that gathers them; then mod catalogs layered like mod content.
